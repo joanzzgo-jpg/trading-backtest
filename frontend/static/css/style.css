@@ -233,6 +233,20 @@ html, body {
 .leg-item  { font-size: 11px; color: var(--muted); }
 .leg-muted { color: var(--muted); }
 
+/* 圖例點擊切換 */
+.leg-toggle { cursor: pointer; transition: opacity .15s; user-select: none; }
+.leg-toggle:hover { opacity: .75; }
+.leg-toggle.line-off { opacity: .28; text-decoration: line-through; }
+
+/* 面板收合按鈕 */
+.pane-collapse-btn {
+  margin-left: auto; background: transparent; border: none;
+  color: var(--muted); font-size: 13px; line-height: 1;
+  cursor: pointer; padding: 0 4px; flex-shrink: 0;
+  pointer-events: all;
+}
+.pane-collapse-btn:hover { color: var(--text); }
+
 .pane-divider {
   height: 4px; background: var(--border);
   cursor: row-resize; flex-shrink: 0;

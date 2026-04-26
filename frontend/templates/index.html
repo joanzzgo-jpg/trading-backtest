@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
   <title>回測系統</title>
   <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
-  <link rel="stylesheet" href="/static/css/style.css?v=11" />
+  <link rel="stylesheet" href="/static/css/style.css?v=12" />
 </head>
 <body>
 
@@ -145,8 +145,8 @@
     <!-- 主圖 -->
     <div class="chart-pane" id="mainPane" style="flex:5">
       <div class="pane-legend">
-        <span class="leg-item" id="legBB">BB(20,2)</span>
-        <span class="leg-item" id="legCRT" style="color:#26a69a">CRT(3)</span>
+        <span class="leg-item leg-toggle" id="legBB">BB(20,2)</span>
+        <span class="leg-item leg-toggle" id="legCRT" style="color:#26a69a">CRT(3)</span>
       </div>
       <div class="pane-body" id="mainChart"></div>
     </div>
@@ -156,7 +156,8 @@
     <!-- 成交量 -->
     <div class="chart-pane" id="volPane" style="flex:1">
       <div class="pane-legend">
-        <span class="leg-item leg-muted" id="legVol">VOL —</span>
+        <span class="leg-item leg-toggle" id="legVol">VOL</span>
+        <button class="pane-collapse-btn" data-pane="volPane" title="收合">−</button>
       </div>
       <div class="pane-body" id="volChart"></div>
     </div>
@@ -166,9 +167,10 @@
     <!-- KDJ -->
     <div class="chart-pane" id="kdjPane" style="flex:1">
       <div class="pane-legend">
-        <span class="leg-item" id="legK" style="color:#f23645">K —</span>
-        <span class="leg-item" id="legD" style="color:#1e88e5">D —</span>
-        <span class="leg-item" id="legJ" style="color:#ff9800">J —</span>
+        <span class="leg-item leg-toggle" id="legK" style="color:#f23645">K —</span>
+        <span class="leg-item leg-toggle" id="legD" style="color:#1e88e5">D —</span>
+        <span class="leg-item leg-toggle" id="legJ" style="color:#ff9800">J —</span>
+        <button class="pane-collapse-btn" data-pane="kdjPane" title="收合">−</button>
       </div>
       <div class="pane-body" id="kdjChart"></div>
     </div>
@@ -178,8 +180,9 @@
     <!-- RSI -->
     <div class="chart-pane" id="rsiPane" style="flex:1">
       <div class="pane-legend">
-        <span class="leg-item" id="legRsi14" style="color:#7e57c2">RSI 14 —</span>
-        <span class="leg-item" id="legRsi7"  style="color:#ef5350">RSI 7 —</span>
+        <span class="leg-item leg-toggle" id="legRsi14" style="color:#7e57c2">RSI 14 —</span>
+        <span class="leg-item leg-toggle" id="legRsi7"  style="color:#ef5350">RSI 7 —</span>
+        <button class="pane-collapse-btn" data-pane="rsiPane" title="收合">−</button>
       </div>
       <div class="pane-body" id="rsiChart"></div>
     </div>
@@ -189,9 +192,10 @@
     <!-- MACD -->
     <div class="chart-pane" id="macdPane" style="flex:1">
       <div class="pane-legend">
-        <span class="leg-item" id="legMacd"    style="color:#2196f3">MACD —</span>
-        <span class="leg-item" id="legMacdSig" style="color:#ff9800">Signal —</span>
-        <span class="leg-item" id="legMacdHist" style="color:#888">Hist —</span>
+        <span class="leg-item leg-toggle" id="legMacd"    style="color:#2196f3">MACD —</span>
+        <span class="leg-item leg-toggle" id="legMacdSig" style="color:#ff9800">Signal —</span>
+        <span class="leg-item leg-toggle" id="legMacdHist" style="color:#888">Hist —</span>
+        <button class="pane-collapse-btn" data-pane="macdPane" title="收合">−</button>
       </div>
       <div class="pane-body" id="macdChart"></div>
     </div>
@@ -230,6 +234,6 @@
   </div>
 </div>
 
-<script src="/static/js/app.js?v=11"></script>
+<script src="/static/js/app.js?v=12"></script>
 </body>
 </html>

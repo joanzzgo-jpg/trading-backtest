@@ -31,6 +31,7 @@ let volChart,    volSeries, volMaSeries;
 let kdjChart,    kdjK, kdjD, kdjJ, kdjH20, kdjH50, kdjH80;
 let rsiChart,    rsiLine14, rsiLine7, rsiH30, rsiH50, rsiH70;
 let macdChart,   macdLine, macdSignal, macdHist;
+let kdjAnchor, rsiAnchor, macdAnchor;   // 透明錨定系列，確保時間軸對齊
 let equityChart, equitySeries;
 
 /* ── 狀態 ── */
@@ -108,7 +109,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   syncTimeScales();
   updateMarketUI();
   applyAllColors();
-  loadData(true).catch(() => {});
+  loadData(true).catch(() => showToast("⚠️ 載入失敗，請點「載入」重試"));
 });
 
 /* ── 建立圖表 ── */
@@ -134,6 +135,7 @@ function buildCharts() {
 
   const kHL = hexAlpha(C.kdjHL, S.kdjHLOpacity);
   kdjChart = LightweightCharts.createChart(document.getElementById("kdjChart"), sub);
+  kdjAnchor = kdjChart.addLineSeries({ color:"rgba(0,0,0,0)", lineWidth:1, priceLineVisible:false, lastValueVisible:false });
   kdjK  = kdjChart.addLineSeries({ color:C.kdjK, lineWidth:1, priceLineVisible:false, lastValueVisible:false });
   kdjD  = kdjChart.addLineSeries({ color:C.kdjD, lineWidth:1, priceLineVisible:false, lastValueVisible:false });
   kdjJ  = kdjChart.addLineSeries({ color:C.kdjJ, lineWidth:1, priceLineVisible:false, lastValueVisible:false });
@@ -143,6 +145,7 @@ function buildCharts() {
 
   const rHL = hexAlpha(C.rsiHL, S.rsiHLOpacity);
   rsiChart = LightweightCharts.createChart(document.getElementById("rsiChart"), sub);
+  rsiAnchor = rsiChart.addLineSeries({ color:"rgba(0,0,0,0)", lineWidth:1, priceLineVisible:false, lastValueVisible:false });
   rsiLine14 = rsiChart.addLineSeries({ color:C.rsi14, lineWidth:1, priceLineVisible:false, lastValueVisible:false });
   rsiLine7  = rsiChart.addLineSeries({ color:C.rsi7,  lineWidth:1, priceLineVisible:false, lastValueVisible:false });
   rsiH30 = rsiChart.addLineSeries({ color:rHL, lineWidth:S.rsiHLWidth, lineStyle:1, priceLineVisible:false, lastValueVisible:true });
@@ -150,6 +153,7 @@ function buildCharts() {
   rsiH70 = rsiChart.addLineSeries({ color:rHL, lineWidth:S.rsiHLWidth, lineStyle:1, priceLineVisible:false, lastValueVisible:true });
 
   macdChart = LightweightCharts.createChart(document.getElementById("macdChart"), subT);
+  macdAnchor = macdChart.addLineSeries({ color:"rgba(0,0,0,0)", lineWidth:1, priceLineVisible:false, lastValueVisible:false });
   macdLine   = macdChart.addLineSeries({ color:C.macd,    lineWidth:1, priceLineVisible:false, lastValueVisible:false });
   macdSignal = macdChart.addLineSeries({ color:C.macdSig, lineWidth:1, priceLineVisible:false, lastValueVisible:false });
   macdHist   = macdChart.addHistogramSeries({ priceScaleId:"right", priceLineVisible:false, lastValueVisible:false });
@@ -161,7 +165,8 @@ function buildCharts() {
 
   const ro = new ResizeObserver(() => resizeAll());
   ro.observe(document.getElementById("chartsContainer"));
-  setTimeout(resizeAll, 50);
+  // 等 DOM 完成 layout 後再 resize（rAF 兩次確保 flex 已計算完畢）
+  requestAnimationFrame(() => requestAnimationFrame(resizeAll));
 }
 
 function resizeAll() {
@@ -183,15 +188,15 @@ function resizeAll() {
   });
 }
 
-/* ── 時間軸同步 ── */
+/* ── 時間軸同步（以時間為準，避免各面板資料點數不同導致索引錯位）── */
 function syncTimeScales() {
   const allCharts = [mainChart, volChart, kdjChart, rsiChart, macdChart, equityChart];
   let syncing = false;
   allCharts.forEach((src, si) => {
-    src.timeScale().subscribeVisibleLogicalRangeChange(range => {
+    src.timeScale().subscribeVisibleTimeRangeChange(range => {
       if (syncing || !range) return;
       syncing = true;
-      allCharts.forEach((dst, di) => { if (di !== si) dst.timeScale().setVisibleLogicalRange(range); });
+      allCharts.forEach((dst, di) => { if (di !== si) dst.timeScale().setVisibleRange(range); });
       syncing = false;
     });
   });
@@ -348,6 +353,7 @@ function bindEvents() {
 
   bindColorInputs();
   bindPaneDividers();
+  bindLegendToggles();
 }
 
 function updateMarketUI() {
@@ -402,6 +408,57 @@ function bindPaneDividers() {
       };
       window.addEventListener("mousemove", onMove);
       window.addEventListener("mouseup",   onUp);
+    });
+  });
+}
+
+/* ── 圖例點擊切換線條 + 面板收合 ── */
+function bindLegendToggles() {
+  // 線條切換：點擊 leg-item 顯示/隱藏對應系列
+  const lineMap = [
+    { id: "legBB",       series: () => [bbU, bbM, bbL] },
+    { id: "legCRT",      series: null,  action: h => h ? candleSeries.setMarkers([]) : candleSeries.setMarkers(lastCRTMarkers) },
+    { id: "legVol",      series: () => [volSeries, volMaSeries] },
+    { id: "legK",        series: () => [kdjK] },
+    { id: "legD",        series: () => [kdjD] },
+    { id: "legJ",        series: () => [kdjJ] },
+    { id: "legRsi14",    series: () => [rsiLine14] },
+    { id: "legRsi7",     series: () => [rsiLine7] },
+    { id: "legMacd",     series: () => [macdLine] },
+    { id: "legMacdSig",  series: () => [macdSignal] },
+    { id: "legMacdHist", series: () => [macdHist] },
+  ];
+  lineMap.forEach(({ id, series, action }) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener("click", () => {
+      const hidden = el.classList.toggle("line-off");
+      if (action) action(hidden);
+      else series()?.forEach(s => s.applyOptions({ visible: !hidden }));
+    });
+  });
+
+  // 面板收合：點擊「−」縮至只剩圖例列；點「+」展開
+  const savedFlex = {};
+  document.querySelectorAll(".pane-collapse-btn").forEach(btn => {
+    const paneId = btn.dataset.pane;
+    btn.addEventListener("click", () => {
+      const pane = document.getElementById(paneId);
+      const body = pane.querySelector(".pane-body");
+      const collapsed = btn.textContent.trim() === "+";
+      if (collapsed) {
+        // 展開
+        pane.style.flex = savedFlex[paneId] || "1";
+        body.style.display = "";
+        btn.textContent = "−";
+      } else {
+        // 收合
+        savedFlex[paneId] = pane.style.flex || "1";
+        pane.style.flex = "0";
+        body.style.display = "none";
+        btn.textContent = "+";
+      }
+      resizeAll();
     });
   });
 }
@@ -515,6 +572,12 @@ async function runBacktest() {
    渲染
 ══════════════════════════════════════════ */
 function renderAll(data) {
+  // 先把錨定系列設到完整時間範圍，確保各子圖時間軸對齊
+  const anchorTimes = data.map(d => ({ time: toTime(d.time), value: 50 }));
+  kdjAnchor.setData(anchorTimes);
+  rsiAnchor.setData(anchorTimes);
+  macdAnchor.setData(anchorTimes.map(d => ({ ...d, value: 0 })));
+
   renderCandles(data);
   renderBB(data);
   renderCRT(data);
@@ -524,11 +587,17 @@ function renderAll(data) {
   renderMACD(data);
   updateSymbolBar(data);
 
-  const allC = [mainChart, volChart, kdjChart, rsiChart, macdChart, equityChart];
-  allC.forEach(c => c.timeScale().fitContent());
+  // 先 fit 讓 LWC 計算出正確的時間範圍（排除 equityChart，它沒有資料）
+  [mainChart, volChart, kdjChart, rsiChart, macdChart].forEach(c => c.timeScale().fitContent());
+
+  // 再用時間範圍（非索引）顯示最後 50 根，這樣各面板時間對齊
   if (data.length > 50) {
-    mainChart.timeScale().setVisibleLogicalRange({ from: data.length - 50, to: data.length - 1 });
+    const fromT = toTime(data[data.length - 50].time);
+    const toT   = toTime(data[data.length - 1].time);
+    mainChart.timeScale().setVisibleRange({ from: fromT, to: toT });
   }
+
+  resizeAll();
 }
 
 function renderCandles(data) {
@@ -860,6 +929,14 @@ function fmtVol(v) {
   return Number(v).toLocaleString();
 }
 function fmtT(s)   { return s ? s.replace("T"," ").substring(0,16) : "—"; }
+
+function showToast(msg, ms = 4000) {
+  const el = document.createElement("div");
+  el.style.cssText = "position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:#2a2e39;border:1px solid #ef5350;color:#d1d4dc;padding:8px 18px;border-radius:6px;z-index:9999;font-size:12px;pointer-events:none";
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), ms);
+}
 
 function showLoading(show) {
   let el = document.getElementById("loadingOverlay");
