@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(brew install *)",
+      "Bash(git clone *)",
+      "Read(//Users/noah/tools/nano-banana-2/**)",
+      "Bash(~/.bun/bin/bun install *)",
+      "Bash(~/.bun/bin/bun link *)",
+      "Bash(mkdir -p ~/.local/bin)",
+      "Bash(ln -sf ~/tools/nano-banana-2/src/cli.ts ~/.local/bin/nano-banana)",
+      "Bash(echo 'export PATH=\"$HOME/.local/bin:$PATH\"')",
+      "Bash(echo PATH=__TRACKED_VAR__/.local/bin:__TRACKED_VAR__)",
+      "Read(//Users/noah/.local/bin/**)",
+      "Read(//Users/noah/.bun/bin/**)",
+      "Bash(rm ~/.local/bin/nano-banana)",
+      "Bash(~/.bun/bin/nano-banana --help)"
+    ]
+  }
+}
