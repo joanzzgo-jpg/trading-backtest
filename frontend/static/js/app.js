@@ -414,6 +414,31 @@ function bindPaneDividers() {
   });
 }
 
+/* ── 動態把時間軸移到最下方可見面板 ── */
+function updateBottomTimeAxis() {
+  // 由下而上排列（第一個找到的 = 當前最底部可見面板）
+  const panels = [
+    { paneId: "equityPane", chart: equityChart },
+    { paneId: "macdPane",   chart: macdChart   },
+    { paneId: "rsiPane",    chart: rsiChart    },
+    { paneId: "kdjPane",    chart: kdjChart    },
+    { paneId: "volPane",    chart: volChart    },
+    { paneId: "mainPane",   chart: mainChart   },
+  ];
+  let bottomChart = null;
+  for (const { paneId, chart } of panels) {
+    const pane = document.getElementById(paneId);
+    if (!pane || pane.classList.contains("hidden")) continue;
+    const body = pane.querySelector(".pane-body");
+    if (body && body.style.display === "none") continue; // 已收合
+    bottomChart = chart;
+    break;
+  }
+  panels.forEach(({ chart }) => {
+    chart.applyOptions({ timeScale: { visible: chart === bottomChart } });
+  });
+}
+
 /* ── 圖例點擊切換線條 + 面板收合 ── */
 function bindLegendToggles() {
   // 線條切換：點擊 leg-item 顯示/隱藏對應系列
@@ -449,17 +474,16 @@ function bindLegendToggles() {
       const body = pane.querySelector(".pane-body");
       const collapsed = btn.textContent.trim() === "+";
       if (collapsed) {
-        // 展開
         pane.style.flex = savedFlex[paneId] || "1";
         body.style.display = "";
         btn.textContent = "−";
       } else {
-        // 收合
         savedFlex[paneId] = pane.style.flex || "1";
         pane.style.flex = "0";
         body.style.display = "none";
         btn.textContent = "+";
       }
+      updateBottomTimeAxis();
       resizeAll();
     });
   });
