@@ -386,6 +386,18 @@ html, body {
 .cp-opacity-num:focus { border-color: var(--blue); }
 .cp-opacity-pct { font-size: 11px; color: var(--muted); }
 
+/* 厚度 / 線型 選擇區 */
+.cp-section  { display: flex; flex-direction: column; gap: 5px; }
+.cp-btn-row  { display: flex; gap: 4px; }
+.cp-line-btn {
+  flex: 1; height: 32px; border-radius: 4px; cursor: pointer;
+  background: #2a2e39; border: 1px solid #3a3f4d;
+  display: flex; align-items: center; justify-content: center;
+  transition: border-color .12s, background .12s; padding: 0;
+}
+.cp-line-btn:hover   { border-color: var(--muted); }
+.cp-line-btn.active  { background: #3a3f4d; border-color: #d1d4dc; }
+
 /* ═══ MOBILE RESPONSIVE ═══ */
 @media (max-width: 768px) {
   .btn-sidebar-toggle { display: flex; align-items: center; justify-content: center; }

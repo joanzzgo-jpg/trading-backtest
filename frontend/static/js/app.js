@@ -25,6 +25,19 @@ const DEFAULT_STYLES = {
 let C = { ...DEFAULT_COLORS };
 let S = { ...DEFAULT_STYLES };
 
+/* 每條線的寬度 / 樣式（由調色盤設定，key = input id） */
+const LINE_STYLES = {};
+
+/* input id → 取得對應 LWC series 的 getter（buildCharts 建立後才能呼叫） */
+const INPUT_SERIES_MAP = {
+  "c-bbU":    () => bbU,     "c-bbM":    () => bbM,    "c-bbL":    () => bbL,
+  "c-kdjK":   () => kdjK,    "c-kdjD":   () => kdjD,   "c-kdjJ":   () => kdjJ,
+  "c-kdjH20": () => kdjH20,  "c-kdjH50": () => kdjH50, "c-kdjH80": () => kdjH80,
+  "c-rsi14":  () => rsiLine14, "c-rsi7": () => rsiLine7,
+  "c-rsiH30": () => rsiH30,  "c-rsiH50": () => rsiH50, "c-rsiH70": () => rsiH70,
+  "c-macd":   () => macdLine, "c-macdSig": () => macdSignal,
+};
+
 /* ── 圖表物件 ── */
 let mainChart,   candleSeries, bbU, bbM, bbL;
 let volSeries, volMaSeries;          // 成交量放在 mainChart 的獨立價格軸
@@ -61,12 +74,37 @@ function hexAlpha(hex, opacity) {
 
 /* ── localStorage ── */
 function savePrefs() {
-  try { localStorage.setItem("chartColors", JSON.stringify(C));
-        localStorage.setItem("chartStyles", JSON.stringify(S)); } catch {}
+  try {
+    localStorage.setItem("chartColors",     JSON.stringify(C));
+    localStorage.setItem("chartStyles",     JSON.stringify(S));
+    localStorage.setItem("chartLineStyles", JSON.stringify(LINE_STYLES));
+  } catch {}
 }
 function loadPrefs() {
-  try { Object.assign(C, JSON.parse(localStorage.getItem("chartColors") || "{}"));
-        Object.assign(S, JSON.parse(localStorage.getItem("chartStyles") || "{}")); } catch {}
+  try {
+    Object.assign(C, JSON.parse(localStorage.getItem("chartColors") || "{}"));
+    Object.assign(S, JSON.parse(localStorage.getItem("chartStyles") || "{}"));
+    Object.assign(LINE_STYLES, JSON.parse(localStorage.getItem("chartLineStyles") || "{}"));
+  } catch {}
+}
+
+/* 將 LINE_STYLES 中儲存的線寬 / 樣式套用到對應 series */
+function applyLineStyle(inputId) {
+  const getter = INPUT_SERIES_MAP[inputId];
+  if (!getter) return;
+  const series = getter();
+  if (!series) return;
+  const ls = LINE_STYLES[inputId];
+  if (!ls) return;
+  const opts = {};
+  if (ls.width != null) opts.lineWidth  = ls.width;
+  if (ls.style != null) opts.lineStyle  = ls.style;
+  if (Object.keys(opts).length) series.applyOptions(opts);
+}
+
+/* 頁面載入後重新套用所有儲存的線條樣式 */
+function applyAllLineStyles() {
+  Object.keys(LINE_STYLES).forEach(applyLineStyle);
 }
 
 function saveVisibilityPrefs() {
@@ -145,7 +183,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   updateMarketUI();
   applyAllColors();
   loadData(true)
-    .then(() => loadVisibilityPrefs())
+    .then(() => { loadVisibilityPrefs(); applyAllLineStyles(); })
     .catch(() => showToast("⚠️ 載入失敗，請點「載入」重試"));
 });
 
@@ -459,12 +497,61 @@ function initColorPicker() {
   opRow.append(opSlider, opNum, opPct);
   opWrap.append(opLabel, opRow);
   popup.appendChild(opWrap);
+
+  // 厚度選擇
+  const thickWrap = document.createElement("div"); thickWrap.className = "cp-section";
+  const thickLabel = document.createElement("div"); thickLabel.className = "cp-opacity-label"; thickLabel.textContent = "厚度";
+  const thickRow = document.createElement("div"); thickRow.className = "cp-btn-row";
+  const WIDTHS = [1, 2, 3, 4];
+  let activeWidthBtn = null;
+  const widthBtns = WIDTHS.map(w => {
+    const btn = document.createElement("button"); btn.className = "cp-line-btn"; btn.type = "button";
+    btn.dataset.value = w;
+    const inner = document.createElement("div");
+    inner.style.cssText = `height:${w * 2}px;background:#d1d4dc;border-radius:1px;margin:auto;width:70%`;
+    btn.appendChild(inner);
+    btn.addEventListener("click", () => {
+      activeWidthBtn?.classList.remove("active");
+      btn.classList.add("active"); activeWidthBtn = btn;
+      applyColor();
+    });
+    thickRow.appendChild(btn); return btn;
+  });
+  thickWrap.append(thickLabel, thickRow);
+  popup.appendChild(thickWrap);
+
+  // 線條樣式選擇（solid / dashed / dotted）
+  const styleWrap = document.createElement("div"); styleWrap.className = "cp-section";
+  const styleLabel = document.createElement("div"); styleLabel.className = "cp-opacity-label"; styleLabel.textContent = "線條樣式";
+  const styleRow = document.createElement("div"); styleRow.className = "cp-btn-row";
+  // LWC lineStyle: 0=Solid, 2=Dashed, 1=Dotted
+  const STYLES = [
+    { value: 0, svg: `<svg width="44" height="8"><line x1="2" y1="4" x2="42" y2="4" stroke="#d1d4dc" stroke-width="2"/></svg>` },
+    { value: 2, svg: `<svg width="44" height="8"><line x1="2" y1="4" x2="42" y2="4" stroke="#d1d4dc" stroke-width="2" stroke-dasharray="6,4"/></svg>` },
+    { value: 1, svg: `<svg width="44" height="8"><line x1="2" y1="4" x2="42" y2="4" stroke="#d1d4dc" stroke-width="2" stroke-dasharray="2,3"/></svg>` },
+  ];
+  let activeStyleBtn = null;
+  const styleBtns = STYLES.map(({ value, svg }) => {
+    const btn = document.createElement("button"); btn.className = "cp-line-btn"; btn.type = "button";
+    btn.dataset.value = value; btn.innerHTML = svg;
+    btn.addEventListener("click", () => {
+      activeStyleBtn?.classList.remove("active");
+      btn.classList.add("active"); activeStyleBtn = btn;
+      applyColor();
+    });
+    styleRow.appendChild(btn); return btn;
+  });
+  styleWrap.append(styleLabel, styleRow);
+  popup.appendChild(styleWrap);
+
   document.body.appendChild(popup);
 
   /* ── 狀態 ── */
   let currentInput  = null;
   let currentHex    = "#ffffff";
   let currentSwatch = null;
+  let currentWidth  = null;   // null = 不覆寫（此 input 不支援寬度）
+  let currentStyle  = null;
 
   function makeSwatch(color) {
     const sw = document.createElement("div"); sw.className = "cp-swatch";
@@ -481,15 +568,22 @@ function initColorPicker() {
   function applyColor() {
     if (!currentInput) return;
     const pct = parseInt(opSlider.value);
-    // 更新滑桿漸層
     opSlider.style.background = `linear-gradient(to right, transparent, ${currentHex})`;
-    // 合成最終顏色（含透明度）
     const finalColor = pct >= 100 ? currentHex : hexAlpha(currentHex, pct);
     currentInput._cpColor = finalColor;
-    currentInput.value    = currentHex;          // input[type=color] 只接受 6碼 hex
-    // 同步觸發器背景
+    currentInput.value    = currentHex;
     const tr = currentInput.previousElementSibling;
     if (tr?.classList.contains("cp-trigger")) tr.style.background = finalColor;
+    // 線寬 / 線型
+    const inputId = currentInput.id;
+    if (INPUT_SERIES_MAP[inputId]) {
+      const w = activeWidthBtn ? parseInt(activeWidthBtn.dataset.value) : null;
+      const s = activeStyleBtn ? parseInt(activeStyleBtn.dataset.value) : null;
+      currentInput._cpWidth = w; currentInput._cpStyle = s;
+      LINE_STYLES[inputId] = { width: w, style: s };
+      applyLineStyle(inputId);
+      savePrefs();
+    }
     currentInput.dispatchEvent(new Event("input", { bubbles: true }));
   }
 
@@ -507,12 +601,25 @@ function initColorPicker() {
         sw.classList.add("selected"); currentSwatch = sw;
       }
     });
+    // 線寬 / 線型：只對支援的 series 顯示，並恢復儲存狀態
+    const supportsStyle = !!INPUT_SERIES_MAP[input.id];
+    thickWrap.style.display = supportsStyle ? "" : "none";
+    styleWrap.style.display = supportsStyle ? "" : "none";
+    if (supportsStyle) {
+      const saved = LINE_STYLES[input.id] || {};
+      activeWidthBtn?.classList.remove("active"); activeWidthBtn = null;
+      activeStyleBtn?.classList.remove("active"); activeStyleBtn = null;
+      const w = saved.width ?? 1;
+      const s = saved.style ?? 0;
+      widthBtns.forEach(b => { if (parseInt(b.dataset.value) === w) { b.classList.add("active"); activeWidthBtn = b; } });
+      styleBtns.forEach(b => { if (parseInt(b.dataset.value) === s) { b.classList.add("active"); activeStyleBtn = b; } });
+    }
     // 定位
     const rect = triggerEl.getBoundingClientRect();
     let top  = rect.bottom + 6;
     let left = rect.left;
     if (left + 232 > window.innerWidth)  left = window.innerWidth - 236;
-    if (top  + 320 > window.innerHeight) top  = rect.top - 320 - 6;
+    if (top  + 380 > window.innerHeight) top  = rect.top - 380 - 6;
     popup.style.top  = top  + "px";
     popup.style.left = left + "px";
     popup.classList.add("open");
