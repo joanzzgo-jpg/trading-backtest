@@ -216,6 +216,7 @@ html, body {
 /* ═══ CHARTS CONTAINER ═══ */
 .charts-container {
   flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden;
+  position: relative; /* for globalVLine overlay */
 }
 
 .chart-pane {

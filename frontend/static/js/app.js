@@ -188,8 +188,9 @@ function resizeAll() {
   });
 }
 
-/* ── 時間軸同步（以時間為準，避免各面板資料點數不同導致索引錯位）── */
+/* ── 時間軸同步 + 全局 CSS 鉛直線 ── */
 function syncTimeScales() {
+  // 時間範圍同步（捲動 / 縮放同步給所有面板）
   const allCharts = [mainChart, volChart, kdjChart, rsiChart, macdChart, equityChart];
   let syncing = false;
   allCharts.forEach((src, si) => {
@@ -201,30 +202,32 @@ function syncTimeScales() {
     });
   });
 
-  // 鉛直線跨面板同步 + 統一更新所有圖例
-  // 注意：setCrosshairPosition 的第三個參數必須用覆蓋完整時間軸的 series，
-  // 才能確保每個時間點都能定位（KDJ/RSI/MACD 的主系列有 warmup 空白）
-  const chItems = [
-    { c: mainChart,   s: candleSeries, v: d => d?.close   ?? 0 },
-    { c: volChart,    s: volSeries,    v: d => d?.volume   ?? 0 },
-    { c: kdjChart,    s: kdjAnchor,    v: d => d?.kdj_k    ?? 50 },
-    { c: rsiChart,    s: rsiAnchor,    v: d => d?.rsi_14   ?? 50 },
-    { c: macdChart,   s: macdAnchor,  v: d => d?.macd     ?? 0 },
-  ];
-  let chSync = false;
-  chItems.forEach(({ c: src }, si) => {
-    src.subscribeCrosshairMove(param => {
-      if (chSync) return;
-      chSync = true;
-      chItems.forEach(({ c: dst, s: dstS, v }, di) => {
-        if (di === si) return;
-        if (!param.time) { dst.clearCrosshairPosition(); return; }
-        const d = ohlcvData.find(r => toTime(r.time) === param.time);
-        dst.setCrosshairPosition(v(d), param.time, dstS);
-      });
+  // CSS 鉛直線：不依賴 LWC 跨圖 setCrosshairPosition，
+  // 直接用滑鼠在任一面板的 X 座標畫一條貫穿所有面板的線
+  const container = document.getElementById("chartsContainer");
+  const vLine = document.createElement("div");
+  vLine.id = "globalVLine";
+  vLine.style.cssText = "position:absolute;top:0;bottom:0;width:1px;background:#758696;pointer-events:none;z-index:20;display:none";
+  container.appendChild(vLine);
+
+  let hideTimer = null;
+  [mainChart, volChart, kdjChart, rsiChart, macdChart].forEach(chart => {
+    chart.subscribeCrosshairMove(param => {
+      clearTimeout(hideTimer);
+      if (!param.point) {
+        // 延遲 60ms 再隱藏，避免滑鼠穿越圖例列時閃爍
+        hideTimer = setTimeout(() => { vLine.style.display = "none"; }, 60);
+        return;
+      }
+      vLine.style.display = "block";
+      vLine.style.left = param.point.x + "px";
       if (param.time) updateAllLegends(param.time);
-      chSync = false;
     });
+  });
+
+  // 子圖停用 LWC 原生鉛直線（改由 CSS overlay 統一顯示）
+  [volChart, kdjChart, rsiChart, macdChart].forEach(c => {
+    c.applyOptions({ crosshair: { vertLine: { visible: false } } });
   });
 }
 
