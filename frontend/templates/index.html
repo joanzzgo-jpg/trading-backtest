@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
   <title>回測系統</title>
   <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
-  <link rel="stylesheet" href="/static/css/style.css?v=19" />
+  <link rel="stylesheet" href="/static/css/style.css?v=20" />
 </head>
 <body>
 
@@ -100,22 +100,24 @@
         <div class="color-row"><label>KDJ K</label>    <input type="color" id="c-kdjK"    value="#f23645" /></div>
         <div class="color-row"><label>KDJ D</label>    <input type="color" id="c-kdjD"    value="#1e88e5" /></div>
         <div class="color-row"><label>KDJ J</label>    <input type="color" id="c-kdjJ"    value="#ff9800" /></div>
+        <div class="color-row"><label>KDJ 20線</label> <input type="color" id="c-kdjH20"  value="#4a4a6a" /></div>
+        <div class="color-row"><label>KDJ 50線</label> <input type="color" id="c-kdjH50"  value="#666688" /></div>
+        <div class="color-row"><label>KDJ 80線</label> <input type="color" id="c-kdjH80"  value="#4a4a6a" /></div>
         <div class="color-row hl-row">
-          <label>KDJ 水平線</label>
+          <label>KDJ 線粗細</label>
           <span class="hl-inputs">
-            <input type="color"  id="c-kdjHL" value="#aaaaaa" title="顏色" />
-            <input type="number" id="o-kdjHL" value="25" min="0" max="100" class="hl-num" title="透明度%" />
-            <input type="number" id="w-kdjHL" value="1"  min="1" max="5"   class="hl-num" title="粗細px" />
+            <input type="number" id="w-kdjHL" value="1" min="1" max="5" class="hl-num" title="粗細px" />
           </span>
         </div>
         <div class="color-row"><label>RSI 14</label>   <input type="color" id="c-rsi14"   value="#7e57c2" /></div>
         <div class="color-row"><label>RSI 7</label>    <input type="color" id="c-rsi7"    value="#ef5350" /></div>
+        <div class="color-row"><label>RSI 30線</label> <input type="color" id="c-rsiH30"  value="#4a4a6a" /></div>
+        <div class="color-row"><label>RSI 50線</label> <input type="color" id="c-rsiH50"  value="#666688" /></div>
+        <div class="color-row"><label>RSI 70線</label> <input type="color" id="c-rsiH70"  value="#4a4a6a" /></div>
         <div class="color-row hl-row">
-          <label>RSI 水平線</label>
+          <label>RSI 線粗細</label>
           <span class="hl-inputs">
-            <input type="color"  id="c-rsiHL" value="#aaaaaa" title="顏色" />
-            <input type="number" id="o-rsiHL" value="25" min="0" max="100" class="hl-num" title="透明度%" />
-            <input type="number" id="w-rsiHL" value="1"  min="1" max="5"   class="hl-num" title="粗細px" />
+            <input type="number" id="w-rsiHL" value="1" min="1" max="5" class="hl-num" title="粗細px" />
           </span>
         </div>
         <div class="color-row"><label>MACD</label>     <input type="color" id="c-macd"    value="#2196f3" /></div>
@@ -224,6 +226,6 @@
   </div>
 </div>
 
-<script src="/static/js/app.js?v=19"></script>
+<script src="/static/js/app.js?v=20"></script>
 </body>
 </html>

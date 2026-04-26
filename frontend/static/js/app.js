@@ -8,18 +8,18 @@ const DEFAULT_COLORS = {
   up:      "#ef5350", down:    "#26a69a",
   bbU:     "#42a5f5", bbM:     "#ffcc02", bbL: "#42a5f5",
   kdjK:    "#f23645", kdjD:    "#1e88e5", kdjJ: "#ff9800",
-  kdjHL:   "#aaaaaa",
+  kdjH20:  "#4a4a6a", kdjH50:  "#666688", kdjH80:  "#4a4a6a",
   rsi14:   "#7e57c2", rsi7:    "#ef5350",
-  rsiHL:   "#aaaaaa",
+  rsiH30:  "#4a4a6a", rsiH50:  "#666688", rsiH70:  "#4a4a6a",
   macd:    "#2196f3", macdSig: "#ff9800",
   crtBull: "#26a69a", crtBear: "#ef5350",
   bg:      "#1e222d",
 };
 
 const DEFAULT_STYLES = {
-  kdjHLOpacity: 25, kdjHLWidth: 1,
-  rsiHLOpacity: 25, rsiHLWidth: 1,
-  volMaPeriod:  5,
+  kdjHLWidth: 1,
+  rsiHLWidth: 1,
+  volMaPeriod: 5,
 };
 
 let C = { ...DEFAULT_COLORS };
@@ -134,24 +134,22 @@ function buildCharts() {
   volMaSeries = mainChart.addLineSeries({ priceScaleId:"volume", color:"#ffcc02", lineWidth:1, priceLineVisible:false, lastValueVisible:false });
   mainChart.priceScale("volume").applyOptions({ scaleMargins:{ top:0.78, bottom:0 }, visible:false });
 
-  const kHL = hexAlpha(C.kdjHL, S.kdjHLOpacity);
   kdjChart = LightweightCharts.createChart(document.getElementById("kdjChart"), sub);
   kdjAnchor = kdjChart.addLineSeries({ color:"rgba(0,0,0,0)", lineWidth:1, priceLineVisible:false, lastValueVisible:false });
   kdjK  = kdjChart.addLineSeries({ color:C.kdjK, lineWidth:1, priceLineVisible:false, lastValueVisible:false });
   kdjD  = kdjChart.addLineSeries({ color:C.kdjD, lineWidth:1, priceLineVisible:false, lastValueVisible:false });
   kdjJ  = kdjChart.addLineSeries({ color:C.kdjJ, lineWidth:1, priceLineVisible:false, lastValueVisible:false });
-  kdjH20 = kdjChart.addLineSeries({ color:kHL, lineWidth:S.kdjHLWidth, lineStyle:1, priceLineVisible:false, lastValueVisible:true });
-  kdjH50 = kdjChart.addLineSeries({ color:kHL, lineWidth:S.kdjHLWidth, lineStyle:1, priceLineVisible:false, lastValueVisible:true });
-  kdjH80 = kdjChart.addLineSeries({ color:kHL, lineWidth:S.kdjHLWidth, lineStyle:1, priceLineVisible:false, lastValueVisible:true });
+  kdjH20 = kdjChart.addLineSeries({ color:C.kdjH20, lineWidth:S.kdjHLWidth, lineStyle:1, priceLineVisible:false, lastValueVisible:true });
+  kdjH50 = kdjChart.addLineSeries({ color:C.kdjH50, lineWidth:S.kdjHLWidth, lineStyle:1, priceLineVisible:false, lastValueVisible:true });
+  kdjH80 = kdjChart.addLineSeries({ color:C.kdjH80, lineWidth:S.kdjHLWidth, lineStyle:1, priceLineVisible:false, lastValueVisible:true });
 
-  const rHL = hexAlpha(C.rsiHL, S.rsiHLOpacity);
   rsiChart = LightweightCharts.createChart(document.getElementById("rsiChart"), sub);
   rsiAnchor = rsiChart.addLineSeries({ color:"rgba(0,0,0,0)", lineWidth:1, priceLineVisible:false, lastValueVisible:false });
   rsiLine14 = rsiChart.addLineSeries({ color:C.rsi14, lineWidth:1, priceLineVisible:false, lastValueVisible:false });
   rsiLine7  = rsiChart.addLineSeries({ color:C.rsi7,  lineWidth:1, priceLineVisible:false, lastValueVisible:false });
-  rsiH30 = rsiChart.addLineSeries({ color:rHL, lineWidth:S.rsiHLWidth, lineStyle:1, priceLineVisible:false, lastValueVisible:true });
-  rsiH50 = rsiChart.addLineSeries({ color:rHL, lineWidth:S.rsiHLWidth, lineStyle:1, priceLineVisible:false, lastValueVisible:true });
-  rsiH70 = rsiChart.addLineSeries({ color:rHL, lineWidth:S.rsiHLWidth, lineStyle:1, priceLineVisible:false, lastValueVisible:true });
+  rsiH30 = rsiChart.addLineSeries({ color:C.rsiH30, lineWidth:S.rsiHLWidth, lineStyle:1, priceLineVisible:false, lastValueVisible:true });
+  rsiH50 = rsiChart.addLineSeries({ color:C.rsiH50, lineWidth:S.rsiHLWidth, lineStyle:1, priceLineVisible:false, lastValueVisible:true });
+  rsiH70 = rsiChart.addLineSeries({ color:C.rsiH70, lineWidth:S.rsiHLWidth, lineStyle:1, priceLineVisible:false, lastValueVisible:true });
 
   macdChart = LightweightCharts.createChart(document.getElementById("macdChart"), subT);
   macdAnchor = macdChart.addLineSeries({ color:"rgba(0,0,0,0)", lineWidth:1, priceLineVisible:false, lastValueVisible:false });
@@ -230,7 +228,8 @@ function syncTimeScales() {
       panes.forEach(({ chart: c }, i) => {
         const x = c.timeScale().timeToCoordinate(param.time);
         if (x !== null && x >= 0) {
-          lines[i].style.cssText += ";display:block;left:" + Math.round(x) + "px";
+          lines[i].style.display = "block";
+          lines[i].style.left    = Math.round(x) + "px";
         } else {
           lines[i].style.display = "none";
         }
@@ -259,11 +258,13 @@ function applyAllColors() {
   });
   bbU.applyOptions({ color:C.bbU }); bbM.applyOptions({ color:C.bbM }); bbL.applyOptions({ color:C.bbL });
   kdjK.applyOptions({ color:C.kdjK }); kdjD.applyOptions({ color:C.kdjD }); kdjJ.applyOptions({ color:C.kdjJ });
-  const kHL = hexAlpha(C.kdjHL, S.kdjHLOpacity);
-  [kdjH20, kdjH50, kdjH80].forEach(s => s.applyOptions({ color:kHL, lineWidth:S.kdjHLWidth }));
+  kdjH20.applyOptions({ color:C.kdjH20, lineWidth:S.kdjHLWidth });
+  kdjH50.applyOptions({ color:C.kdjH50, lineWidth:S.kdjHLWidth });
+  kdjH80.applyOptions({ color:C.kdjH80, lineWidth:S.kdjHLWidth });
   rsiLine14.applyOptions({ color:C.rsi14 }); rsiLine7.applyOptions({ color:C.rsi7 });
-  const rHL = hexAlpha(C.rsiHL, S.rsiHLOpacity);
-  [rsiH30, rsiH50, rsiH70].forEach(s => s.applyOptions({ color:rHL, lineWidth:S.rsiHLWidth }));
+  rsiH30.applyOptions({ color:C.rsiH30, lineWidth:S.rsiHLWidth });
+  rsiH50.applyOptions({ color:C.rsiH50, lineWidth:S.rsiHLWidth });
+  rsiH70.applyOptions({ color:C.rsiH70, lineWidth:S.rsiHLWidth });
   macdLine.applyOptions({ color:C.macd }); macdSignal.applyOptions({ color:C.macdSig });
 
   if (ohlcvData.length > 0) { renderCRT(ohlcvData); renderVolume(ohlcvData); }
@@ -283,16 +284,17 @@ function applyAllColors() {
 function syncColorInputsToState() {
   const colorMap = {
     "c-up":C.up,"c-down":C.down,"c-bbU":C.bbU,"c-bbM":C.bbM,"c-bbL":C.bbL,
-    "c-kdjK":C.kdjK,"c-kdjD":C.kdjD,"c-kdjJ":C.kdjJ,"c-kdjHL":C.kdjHL,
-    "c-rsi14":C.rsi14,"c-rsi7":C.rsi7,"c-rsiHL":C.rsiHL,
+    "c-kdjK":C.kdjK,"c-kdjD":C.kdjD,"c-kdjJ":C.kdjJ,
+    "c-kdjH20":C.kdjH20,"c-kdjH50":C.kdjH50,"c-kdjH80":C.kdjH80,
+    "c-rsi14":C.rsi14,"c-rsi7":C.rsi7,
+    "c-rsiH30":C.rsiH30,"c-rsiH50":C.rsiH50,"c-rsiH70":C.rsiH70,
     "c-macd":C.macd,"c-macdSig":C.macdSig,
     "c-crtBull":C.crtBull,"c-crtBear":C.crtBear,"c-bg":C.bg,
   };
   for (const [id, val] of Object.entries(colorMap)) {
     const el = document.getElementById(id); if (el) el.value = val;
   }
-  const styleMap = { "o-kdjHL":S.kdjHLOpacity,"w-kdjHL":S.kdjHLWidth,
-    "o-rsiHL":S.rsiHLOpacity,"w-rsiHL":S.rsiHLWidth,"volMaPeriod":S.volMaPeriod };
+  const styleMap = { "w-kdjHL":S.kdjHLWidth, "w-rsiHL":S.rsiHLWidth, "volMaPeriod":S.volMaPeriod };
   for (const [id, val] of Object.entries(styleMap)) {
     const el = document.getElementById(id); if (el) el.value = val;
   }
@@ -301,16 +303,17 @@ function syncColorInputsToState() {
 function bindColorInputs() {
   const colorKeys = {
     "c-up":"up","c-down":"down","c-bbU":"bbU","c-bbM":"bbM","c-bbL":"bbL",
-    "c-kdjK":"kdjK","c-kdjD":"kdjD","c-kdjJ":"kdjJ","c-kdjHL":"kdjHL",
-    "c-rsi14":"rsi14","c-rsi7":"rsi7","c-rsiHL":"rsiHL",
+    "c-kdjK":"kdjK","c-kdjD":"kdjD","c-kdjJ":"kdjJ",
+    "c-kdjH20":"kdjH20","c-kdjH50":"kdjH50","c-kdjH80":"kdjH80",
+    "c-rsi14":"rsi14","c-rsi7":"rsi7",
+    "c-rsiH30":"rsiH30","c-rsiH50":"rsiH50","c-rsiH70":"rsiH70",
     "c-macd":"macd","c-macdSig":"macdSig",
     "c-crtBull":"crtBull","c-crtBear":"crtBear","c-bg":"bg",
   };
   for (const [id, key] of Object.entries(colorKeys))
     document.getElementById(id)?.addEventListener("input", e => { C[key]=e.target.value; applyAllColors(); });
 
-  const styleKeys = { "o-kdjHL":"kdjHLOpacity","w-kdjHL":"kdjHLWidth",
-    "o-rsiHL":"rsiHLOpacity","w-rsiHL":"rsiHLWidth","volMaPeriod":"volMaPeriod" };
+  const styleKeys = { "w-kdjHL":"kdjHLWidth", "w-rsiHL":"rsiHLWidth", "volMaPeriod":"volMaPeriod" };
   for (const [id, key] of Object.entries(styleKeys))
     document.getElementById(id)?.addEventListener("input", e => {
       S[key] = parseInt(e.target.value);
