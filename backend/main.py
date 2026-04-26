@@ -6,7 +6,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import Optional
-import os, sys, time, math
+import os, sys, time, math, gc
 
 sys.path.insert(0, os.path.dirname(__file__))
 
@@ -30,22 +30,29 @@ def index():
     )
 
 
-# ── 簡易記憶體快取 ─────────────────────────────────────────────
+# ── 簡易記憶體快取（Railway 記憶體有限，保持小量）─────────────
 _CACHE: dict = {}
-_CACHE_MAX = 200
+_CACHE_MAX = 12   # 從 200 降到 12，避免 OOM
 
 def _cache_get(key: str, ttl: int):
     if key in _CACHE:
         data, ts = _CACHE[key]
         if time.time() - ts < ttl:
             return data
+        del _CACHE[key]   # TTL 過期直接刪除，立即釋放記憶體
     return None
 
 def _cache_set(key: str, data):
+    # 先淘汰所有 TTL > 600s 的過期項目
+    now = time.time()
+    expired = [k for k, (_, ts) in _CACHE.items() if now - ts > 600]
+    for k in expired:
+        del _CACHE[k]
+    # 再依 LRU 淘汰最舊項目
     if len(_CACHE) >= _CACHE_MAX:
         oldest = min(_CACHE, key=lambda k: _CACHE[k][1])
         del _CACHE[oldest]
-    _CACHE[key] = (data, time.time())
+    _CACHE[key] = (data, now)
 
 
 # ── 資料 API ─────────────────────────────────────────────────
@@ -127,6 +134,8 @@ def get_ohlcv(req: OHLCVRequest):
 
     df = _enrich(df)
     result = {"data": _df_to_records(df)}
+    del df          # 立即釋放 DataFrame 記憶體
+    gc.collect()
     _cache_set(cache_key, result)
     return result
 
@@ -258,10 +267,13 @@ def run_backtest(req: BacktestRequest):
     for col in indicator_cols:
         indicators_data[col] = df[col].where(df[col].notna(), other=None).tolist()
 
-    return {
+    response = {
         "stats":        result.stats(),
         "trades":       result.trades_to_list(),
         "equity_curve": result.equity_to_list(),
         "ohlcv":        ohlcv.to_dict(orient="records"),
         "indicators":   indicators_data,
     }
+    del df, ohlcv, result
+    gc.collect()
+    return response

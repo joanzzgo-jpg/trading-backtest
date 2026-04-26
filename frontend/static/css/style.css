@@ -184,6 +184,8 @@ html, body {
   width: 36px; height: 22px; border: 1px solid var(--border);
   border-radius: 3px; cursor: pointer; padding: 1px 2px; background: var(--bg3);
 }
+/* 自訂調色盤觸發器取代原生 input[type=color] */
+.color-row .cp-trigger { width: 36px; height: 22px; }
 
 /* 水平線設定 */
 .hl-row { flex-wrap: wrap; gap: 3px; }
@@ -216,6 +218,7 @@ html, body {
 /* ═══ CHARTS CONTAINER ═══ */
 .charts-container {
   flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden;
+  position: relative;   /* 讓內部 .pane-vline 可 absolute 定位 */
 }
 
 .chart-pane {
@@ -258,6 +261,12 @@ html, body {
   pointer-events: all;
 }
 .pane-collapse-btn:hover { color: var(--text); }
+
+/* 鉛直線：統一掛在 chartsContainer，top/height 由 JS 動態設置 */
+.pane-vline {
+  position: absolute; width: 1px; background: #758696;
+  pointer-events: none; z-index: 25; display: none;
+}
 
 .pane-divider {
   height: 4px; background: var(--border);
@@ -314,6 +323,68 @@ html, body {
 ::-webkit-scrollbar-track { background: var(--bg); }
 ::-webkit-scrollbar-thumb { background: var(--bg3); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+/* ═══ COLOR PICKER POPUP ═══ */
+.cp-trigger {
+  width: 28px; height: 20px; border-radius: 3px; cursor: pointer; flex-shrink: 0;
+  border: 2px solid transparent; transition: border-color .12s; outline: none;
+}
+.cp-trigger:hover { border-color: rgba(255,255,255,.35); }
+.cp-trigger.cp-open { border-color: rgba(255,255,255,.7); }
+.cp-hidden { display: none !important; }
+
+.cp-popup {
+  position: fixed; z-index: 3000;
+  background: #1e222d; border: 1px solid #3a3f4d;
+  border-radius: 8px; padding: 10px 10px 12px;
+  box-shadow: 0 8px 28px rgba(0,0,0,.65);
+  width: 228px;
+  display: none; flex-direction: column; gap: 8px;
+  user-select: none;
+}
+.cp-popup.open { display: flex; }
+
+.cp-grid { display: flex; flex-direction: column; gap: 2px; }
+.cp-row  { display: flex; gap: 2px; }
+.cp-swatch {
+  width: 20px; height: 20px; border-radius: 3px; cursor: pointer; flex-shrink: 0;
+  border: 2px solid transparent; box-sizing: border-box; transition: transform .1s, border-color .1s;
+}
+.cp-swatch:hover { transform: scale(1.18); border-color: rgba(255,255,255,.45); z-index: 1; position: relative; }
+.cp-swatch.selected { border-color: #fff; }
+
+.cp-divider { height: 1px; background: #2a2e39; margin: 2px 0; }
+
+.cp-footer { display: flex; align-items: center; gap: 6px; }
+.cp-add-btn {
+  width: 28px; height: 28px; border-radius: 4px;
+  background: #2a2e39; border: 1px solid #3a3f4d; color: #d1d4dc;
+  font-size: 18px; line-height: 1; cursor: pointer; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .15s;
+}
+.cp-add-btn:hover { background: #3a3f4d; }
+
+.cp-opacity-wrap { display: flex; flex-direction: column; gap: 5px; }
+.cp-opacity-label { font-size: 11px; color: var(--muted); }
+.cp-opacity-row   { display: flex; align-items: center; gap: 6px; }
+.cp-opacity-slider {
+  flex: 1; height: 12px; -webkit-appearance: none; appearance: none;
+  border-radius: 6px; outline: none; cursor: pointer;
+  border: none; padding: 0;
+}
+.cp-opacity-slider::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%;
+  background: #fff; border: 2px solid #bbb; cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0,0,0,.5);
+}
+.cp-opacity-num {
+  width: 42px; background: #2a2e39; border: 1px solid #3a3f4d;
+  color: #d1d4dc; padding: 3px 4px; border-radius: 4px;
+  font-size: 11px; text-align: center; outline: none;
+}
+.cp-opacity-num:focus { border-color: var(--blue); }
+.cp-opacity-pct { font-size: 11px; color: var(--muted); }
 
 /* ═══ MOBILE RESPONSIVE ═══ */
 @media (max-width: 768px) {

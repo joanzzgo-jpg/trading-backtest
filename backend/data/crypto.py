@@ -5,7 +5,6 @@ import pandas as pd
 import ccxt
 from datetime import datetime
 
-
 SUPPORTED_EXCHANGES = {
     "pionex": ccxt.binance,   # Pionex 使用 Binance 流動性，行情一致
     "binance": ccxt.binance,
@@ -22,19 +21,23 @@ TIMEFRAME_MAP = {
     "15m": "15m",
 }
 
+# ── 快取 exchange 實例（不含 API key），避免每次請求重建物件 ──
+_EXCHANGE_POOL: dict = {}
 
 def get_exchange(exchange_id: str, api_key: str = "", api_secret: str = ""):
     cls = SUPPORTED_EXCHANGES.get(exchange_id.lower())
     if not cls:
         raise ValueError(f"不支援的交易所: {exchange_id}，支援: {list(SUPPORTED_EXCHANGES.keys())}")
 
-    config = {"enableRateLimit": True}
+    # 有 API key 的請求每次新建（保持獨立性）
     if api_key:
-        config["apiKey"] = api_key
-    if api_secret:
-        config["secret"] = api_secret
+        return cls({"enableRateLimit": True, "apiKey": api_key, "secret": api_secret})
 
-    return cls(config)
+    # 無 API key 的公開請求：重用快取實例
+    key = exchange_id.lower()
+    if key not in _EXCHANGE_POOL:
+        _EXCHANGE_POOL[key] = cls({"enableRateLimit": True})
+    return _EXCHANGE_POOL[key]
 
 
 def fetch_crypto_ohlcv(
