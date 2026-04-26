@@ -256,19 +256,23 @@ function syncTimeScales() {
   let hideTimer = null;
 
   function positionLines(time) {
+    // 用 mainChart 的 x 座標讓所有段對齊同一條線
+    // （各 sub-chart 的 price scale 寬度不同，若各自計算 x 會有偏移，看起來像斷掉）
+    const x = mainChart.timeScale().timeToCoordinate(time);
+    if (x === null || x < 0) {
+      lineEls.forEach(l => l.style.display = "none");
+      return;
+    }
+
     const cRect = container.getBoundingClientRect();
-    panesConf.forEach(({ elId, chart }, i) => {
+    panesConf.forEach(({ elId }, i) => {
       const pane = document.getElementById(elId);
       const ln   = lineEls[i];
       if (!pane || pane.classList.contains("hidden")) { ln.style.display = "none"; return; }
       if (pane.querySelector(".pane-body")?.style.display === "none") { ln.style.display = "none"; return; }
 
-      const x = chart.timeScale().timeToCoordinate(time);
-      if (x === null || x < 0) { ln.style.display = "none"; return; }
-
-      const pRect  = pane.getBoundingClientRect();
-      let top      = pRect.top - cRect.top;
-      let height   = pRect.height;
+      const pRect = pane.getBoundingClientRect();
+      let height  = pRect.height;
 
       // 往下延伸，覆蓋緊接的 pane-divider（若可見）
       const nextSib = pane.nextElementSibling;
@@ -278,7 +282,7 @@ function syncTimeScales() {
 
       ln.style.display = "block";
       ln.style.left    = Math.round(x) + "px";
-      ln.style.top     = Math.round(top) + "px";
+      ln.style.top     = Math.round(pRect.top - cRect.top) + "px";
       ln.style.height  = Math.round(height) + "px";
     });
   }
