@@ -185,11 +185,30 @@ function syncTimeScales() {
       syncing = false;
     });
   });
-  mainChart.subscribeCrosshairMove(onMainCrosshair);
-  kdjChart.subscribeCrosshairMove(onKdjCrosshair);
-  rsiChart.subscribeCrosshairMove(onRsiCrosshair);
-  volChart.subscribeCrosshairMove(onVolCrosshair);
-  macdChart.subscribeCrosshairMove(onMacdCrosshair);
+
+  // 鉛直線跨面板同步 + 統一更新所有圖例
+  const chItems = [
+    { c: mainChart,   s: candleSeries, v: d => d?.close   ?? 0 },
+    { c: volChart,    s: volSeries,    v: d => d?.volume   ?? 0 },
+    { c: kdjChart,    s: kdjK,         v: d => d?.kdj_k    ?? 50 },
+    { c: rsiChart,    s: rsiLine14,    v: d => d?.rsi_14   ?? 50 },
+    { c: macdChart,   s: macdLine,     v: d => d?.macd     ?? 0 },
+  ];
+  let chSync = false;
+  chItems.forEach(({ c: src }, si) => {
+    src.subscribeCrosshairMove(param => {
+      if (chSync) return;
+      chSync = true;
+      chItems.forEach(({ c: dst, s: dstS, v }, di) => {
+        if (di === si) return;
+        if (!param.time) { dst.clearCrosshairPosition(); return; }
+        const d = ohlcvData.find(r => toTime(r.time) === param.time);
+        dst.setCrosshairPosition(v(d), param.time, dstS);
+      });
+      if (param.time) updateAllLegends(param.time);
+      chSync = false;
+    });
+  });
 }
 
 /* ══════════════════════════════════════════
@@ -626,7 +645,44 @@ async function fetchLatest() {
 }
 
 /* ══════════════════════════════════════════
-   圖例 crosshair
+   統一更新所有面板圖例（鉛直線跨圖同步）
+══════════════════════════════════════════ */
+function updateAllLegends(t) {
+  const d = ohlcvData.find(r => toTime(r.time) === t);
+  if (!d) return;
+
+  // 符號列
+  document.getElementById("symO").textContent = fmt(d.open);
+  document.getElementById("symH").textContent = fmt(d.high);
+  document.getElementById("symL").textContent = fmt(d.low);
+  document.getElementById("symC").textContent = fmt(d.close);
+  document.getElementById("symV").textContent = fmtVol(d.volume);
+
+  // BB
+  if (d.bb_upper != null)
+    document.getElementById("legBB").textContent =
+      `BB  U:${fmt(d.bb_upper)}  M:${fmt(d.bb_middle)}  L:${fmt(d.bb_lower)}`;
+
+  // 成交量
+  document.getElementById("legVol").textContent = `VOL  ${fmtVol(d.volume)}`;
+
+  // KDJ
+  document.getElementById("legK").textContent = `K ${n2(d.kdj_k)}`;
+  document.getElementById("legD").textContent = `D ${n2(d.kdj_d)}`;
+  document.getElementById("legJ").textContent = `J ${n2(d.kdj_j)}`;
+
+  // RSI
+  document.getElementById("legRsi14").textContent = `RSI 14  ${n2(d.rsi_14)}`;
+  document.getElementById("legRsi7").textContent  = `RSI 7  ${n2(d.rsi_7)}`;
+
+  // MACD
+  document.getElementById("legMacd").textContent      = `MACD ${n2(d.macd)}`;
+  document.getElementById("legMacdSig").textContent   = `Signal ${n2(d.macd_signal)}`;
+  document.getElementById("legMacdHist").textContent  = `Hist ${n2(d.macd_hist)}`;
+}
+
+/* ══════════════════════════════════════════
+   圖例 crosshair（單圖 hover 仍保留）
 ══════════════════════════════════════════ */
 function onMainCrosshair(param) {
   if (!param.time) return;
