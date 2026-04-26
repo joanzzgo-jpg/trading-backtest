@@ -72,7 +72,11 @@ function makeBaseOpts(scaleMargins = null) {
   const opts = {
     layout:    { background:{ color: C.bg }, textColor:"#d1d4dc" },
     grid:      { vertLines:{ color:"#2a2e39" }, horzLines:{ color:"#2a2e39" } },
-    crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+    crosshair: {
+      mode: LightweightCharts.CrosshairMode.Normal,
+      vertLine: { style: 0, width: 1, color: "#758696", labelBackgroundColor: "#2a2e39" },
+      horzLine: { style: 0, width: 1, color: "#758696", labelBackgroundColor: "#2a2e39" },
+    },
     rightPriceScale: { borderColor:"#2a2e39" },
     timeScale: { borderColor:"#2a2e39", timeVisible:true, secondsVisible:false },
   };
