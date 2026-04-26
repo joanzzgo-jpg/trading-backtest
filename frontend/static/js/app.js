@@ -188,44 +188,62 @@ function resizeAll() {
   });
 }
 
-/* ── 時間軸同步 + 全局 CSS 鉛直線 ── */
+/* ── 時間軸 & 鉛直線同步 ── */
 function syncTimeScales() {
-  // 時間範圍同步（捲動 / 縮放同步給所有面板）
+  // 捲動 / 縮放：以 logical range 同步（anchor series 確保各圖索引一致）
   const allCharts = [mainChart, volChart, kdjChart, rsiChart, macdChart, equityChart];
   let syncing = false;
   allCharts.forEach((src, si) => {
-    src.timeScale().subscribeVisibleTimeRangeChange(range => {
+    src.timeScale().subscribeVisibleLogicalRangeChange(range => {
       if (syncing || !range) return;
       syncing = true;
-      allCharts.forEach((dst, di) => { if (di !== si) dst.timeScale().setVisibleRange(range); });
+      allCharts.forEach((dst, di) => { if (di !== si) dst.timeScale().setVisibleLogicalRange(range); });
       syncing = false;
     });
   });
 
-  // CSS 鉛直線：不依賴 LWC 跨圖 setCrosshairPosition，
-  // 直接用滑鼠在任一面板的 X 座標畫一條貫穿所有面板的線
-  const container = document.getElementById("chartsContainer");
-  const vLine = document.createElement("div");
-  vLine.id = "globalVLine";
-  vLine.style.cssText = "position:absolute;top:0;bottom:0;width:1px;background:#758696;pointer-events:none;z-index:20;display:none";
-  container.appendChild(vLine);
+  // 鉛直線：每個面板各自一條 CSS 線，用 timeToCoordinate 換算各自正確的 X
+  // （各面板右側價格軸寬度不同，統一用同一 X 會偏位）
+  const panes = [
+    { elId: "mainChart",  chart: mainChart  },
+    { elId: "volChart",   chart: volChart   },
+    { elId: "kdjChart",   chart: kdjChart   },
+    { elId: "rsiChart",   chart: rsiChart   },
+    { elId: "macdChart",  chart: macdChart  },
+  ];
+  panes.forEach(({ elId }) => {
+    const el = document.getElementById(elId);
+    el.style.position = "relative";
+    const ln = document.createElement("div");
+    ln.className = "pane-vline";
+    ln.style.cssText = "position:absolute;top:0;bottom:0;width:1px;background:#758696;pointer-events:none;z-index:20;display:none";
+    el.appendChild(ln);
+  });
 
+  const allLines = () => document.querySelectorAll(".pane-vline");
   let hideTimer = null;
-  [mainChart, volChart, kdjChart, rsiChart, macdChart].forEach(chart => {
+
+  panes.forEach(({ chart }) => {
     chart.subscribeCrosshairMove(param => {
       clearTimeout(hideTimer);
-      if (!param.point) {
-        // 延遲 60ms 再隱藏，避免滑鼠穿越圖例列時閃爍
-        hideTimer = setTimeout(() => { vLine.style.display = "none"; }, 60);
+      if (!param.time || !param.point) {
+        hideTimer = setTimeout(() => allLines().forEach(l => l.style.display = "none"), 60);
         return;
       }
-      vLine.style.display = "block";
-      vLine.style.left = param.point.x + "px";
-      if (param.time) updateAllLegends(param.time);
+      const lines = allLines();
+      panes.forEach(({ chart: c }, i) => {
+        const x = c.timeScale().timeToCoordinate(param.time);
+        if (x !== null && x >= 0) {
+          lines[i].style.cssText += ";display:block;left:" + Math.round(x) + "px";
+        } else {
+          lines[i].style.display = "none";
+        }
+      });
+      updateAllLegends(param.time);
     });
   });
 
-  // 子圖停用 LWC 原生鉛直線（改由 CSS overlay 統一顯示）
+  // 子圖停用 LWC 原生鉛直線
   [volChart, kdjChart, rsiChart, macdChart].forEach(c => {
     c.applyOptions({ crosshair: { vertLine: { visible: false } } });
   });
@@ -619,11 +637,9 @@ function renderAll(data) {
   // 先 fit 讓 LWC 計算出正確的時間範圍（排除 equityChart，它沒有資料）
   [mainChart, volChart, kdjChart, rsiChart, macdChart].forEach(c => c.timeScale().fitContent());
 
-  // 再用時間範圍（非索引）顯示最後 50 根，這樣各面板時間對齊
+  // 顯示最後 50 根（logical range，anchor series 確保各圖索引對齊）
   if (data.length > 50) {
-    const fromT = toTime(data[data.length - 50].time);
-    const toT   = toTime(data[data.length - 1].time);
-    mainChart.timeScale().setVisibleRange({ from: fromT, to: toT });
+    mainChart.timeScale().setVisibleLogicalRange({ from: data.length - 50, to: data.length - 1 });
   }
 
   resizeAll();
