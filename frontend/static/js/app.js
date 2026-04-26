@@ -497,8 +497,8 @@ function renderAll(data) {
 
   const allC = [mainChart, volChart, kdjChart, rsiChart, macdChart, equityChart];
   allC.forEach(c => c.timeScale().fitContent());
-  if (data.length > 120) {
-    mainChart.timeScale().setVisibleLogicalRange({ from: data.length - 120, to: data.length - 1 });
+  if (data.length > 66) {
+    mainChart.timeScale().setVisibleLogicalRange({ from: data.length - 66, to: data.length - 1 });
   }
 }
 
