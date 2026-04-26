@@ -224,19 +224,31 @@ html, body {
 }
 
 .pane-legend {
-  display: flex; align-items: center; gap: 10px; padding: 0 10px;
+  display: flex; align-items: center; gap: 8px; padding: 0 10px;
   height: var(--legend-h); min-height: var(--legend-h);
-  flex-shrink: 0; background: transparent; z-index: 5; pointer-events: none;
+  flex-shrink: 0; background: transparent; z-index: 5;
+  pointer-events: none; /* 讓滑鼠穿透到圖表，可互動元素各自加 pointer-events:all */
 }
 
 .pane-body { flex: 1; min-height: 0; overflow: hidden; }
 .leg-item  { font-size: 11px; color: var(--muted); }
-.leg-muted { color: var(--muted); }
 
-/* 圖例點擊切換 */
-.leg-toggle { cursor: pointer; transition: opacity .15s; user-select: none; }
+/* 可點擊的圖例色塊 + 文字 */
+.leg-toggle {
+  display: flex; align-items: center; gap: 3px;
+  cursor: pointer; user-select: none;
+  pointer-events: all; /* 覆蓋 pane-legend 的 none */
+  opacity: 1; transition: opacity .15s;
+}
 .leg-toggle:hover { opacity: .75; }
-.leg-toggle.line-off { opacity: .28; text-decoration: line-through; }
+.leg-toggle.line-off { opacity: .3; }
+.leg-toggle.line-off .leg-dot { background: transparent !important; }
+
+/* 色塊（勾選框替代方案） */
+.leg-dot {
+  width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0;
+  border: 1px solid currentColor; transition: background .15s;
+}
 
 /* 面板收合按鈕 */
 .pane-collapse-btn {
