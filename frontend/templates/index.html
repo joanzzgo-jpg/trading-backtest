@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
   <title>回測系統</title>
   <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
-  <link rel="stylesheet" href="/static/css/style.css?v=18" />
+  <link rel="stylesheet" href="/static/css/style.css?v=19" />
 </head>
 <body>
 
@@ -142,27 +142,17 @@
   <!-- 圖表區 -->
   <div class="charts-container" id="chartsContainer">
 
-    <!-- 主圖 -->
+    <!-- 主圖（成交量疊在下方） -->
     <div class="chart-pane" id="mainPane" style="flex:5">
       <div class="pane-legend">
         <span class="leg-item leg-toggle" id="legBB"><span class="leg-dot" style="background:#42a5f5;border-color:#42a5f5"></span>BB(20,2)</span>
         <span class="leg-item leg-toggle" id="legCRT"><span class="leg-dot" style="background:#26a69a;border-color:#26a69a"></span>CRT(3)</span>
+        <span class="leg-item leg-toggle" id="legVol"><span class="leg-dot" style="background:#787b86;border-color:#787b86"></span>VOL</span>
       </div>
       <div class="pane-body" id="mainChart"></div>
     </div>
 
     <div class="pane-divider" data-target="mainPane"></div>
-
-    <!-- 成交量 -->
-    <div class="chart-pane" id="volPane" style="flex:1">
-      <div class="pane-legend">
-        <span class="leg-item leg-toggle" id="legVol"><span class="leg-dot" style="background:#787b86;border-color:#787b86"></span>VOL</span>
-        <button class="pane-collapse-btn" data-pane="volPane" title="收合">−</button>
-      </div>
-      <div class="pane-body" id="volChart"></div>
-    </div>
-
-    <div class="pane-divider" data-target="volPane"></div>
 
     <!-- KDJ -->
     <div class="chart-pane" id="kdjPane" style="flex:1">
@@ -234,6 +224,6 @@
   </div>
 </div>
 
-<script src="/static/js/app.js?v=18"></script>
+<script src="/static/js/app.js?v=19"></script>
 </body>
 </html>

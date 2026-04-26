@@ -27,7 +27,7 @@ let S = { ...DEFAULT_STYLES };
 
 /* ── 圖表物件 ── */
 let mainChart,   candleSeries, bbU, bbM, bbL;
-let volChart,    volSeries, volMaSeries;
+let volSeries, volMaSeries;          // 成交量放在 mainChart 的獨立價格軸
 let kdjChart,    kdjK, kdjD, kdjJ, kdjH20, kdjH50, kdjH80;
 let rsiChart,    rsiLine14, rsiLine7, rsiH30, rsiH50, rsiH70;
 let macdChart,   macdLine, macdSignal, macdHist;
@@ -129,9 +129,10 @@ function buildCharts() {
   bbM = mainChart.addLineSeries({ color:C.bbM, lineWidth:1, lineStyle:2, priceLineVisible:false, lastValueVisible:false });
   bbL = mainChart.addLineSeries({ color:C.bbL, lineWidth:1, priceLineVisible:false, lastValueVisible:false });
 
-  volChart = LightweightCharts.createChart(document.getElementById("volChart"), volSM);
-  volSeries   = volChart.addHistogramSeries({ priceScaleId:"right" });
-  volMaSeries = volChart.addLineSeries({ color:"#ffcc02", lineWidth:1, priceLineVisible:false, lastValueVisible:false });
+  // 成交量疊在主圖下方（獨立 priceScaleId，不影響 K 棒價格軸）
+  volSeries   = mainChart.addHistogramSeries({ priceScaleId:"volume", priceLineVisible:false, lastValueVisible:false });
+  volMaSeries = mainChart.addLineSeries({ priceScaleId:"volume", color:"#ffcc02", lineWidth:1, priceLineVisible:false, lastValueVisible:false });
+  mainChart.priceScale("volume").applyOptions({ scaleMargins:{ top:0.78, bottom:0 }, visible:false });
 
   const kHL = hexAlpha(C.kdjHL, S.kdjHLOpacity);
   kdjChart = LightweightCharts.createChart(document.getElementById("kdjChart"), sub);
@@ -174,7 +175,6 @@ function resizeAll() {
   const w = container.clientWidth;
   const charts = [
     [mainChart,   "mainChart"],
-    [volChart,    "volChart"],
     [kdjChart,    "kdjChart"],
     [rsiChart,    "rsiChart"],
     [macdChart,   "macdChart"],
@@ -191,7 +191,7 @@ function resizeAll() {
 /* ── 時間軸 & 鉛直線同步 ── */
 function syncTimeScales() {
   // 捲動 / 縮放：以 logical range 同步（anchor series 確保各圖索引一致）
-  const allCharts = [mainChart, volChart, kdjChart, rsiChart, macdChart, equityChart];
+  const allCharts = [mainChart, kdjChart, rsiChart, macdChart, equityChart];
   let syncing = false;
   allCharts.forEach((src, si) => {
     src.timeScale().subscribeVisibleLogicalRangeChange(range => {
@@ -202,12 +202,8 @@ function syncTimeScales() {
     });
   });
 
-  // 鉛直線：放在 chart-pane（含圖例列）而非 pane-body，
-  // 讓線貫穿整個面板高度（含上方圖例的 22px），視覺上連續不斷
-  // 用 timeToCoordinate 各自換算正確 X（各面板價格軸寬不同）
   const panes = [
     { elId: "mainPane",  chart: mainChart  },
-    { elId: "volPane",   chart: volChart   },
     { elId: "kdjPane",   chart: kdjChart   },
     { elId: "rsiPane",   chart: rsiChart   },
     { elId: "macdPane",  chart: macdChart  },
@@ -244,7 +240,7 @@ function syncTimeScales() {
   });
 
   // 子圖停用 LWC 原生鉛直線
-  [volChart, kdjChart, rsiChart, macdChart].forEach(c => {
+  [kdjChart, rsiChart, macdChart].forEach(c => {
     c.applyOptions({ crosshair: { vertLine: { visible: false } } });
   });
 }
@@ -254,7 +250,7 @@ function syncTimeScales() {
 ══════════════════════════════════════════ */
 function applyAllColors() {
   const bgOpt = { layout: { background:{ color: C.bg }, textColor:"#d1d4dc" } };
-  [mainChart, volChart, kdjChart, rsiChart, macdChart, equityChart].forEach(c => c?.applyOptions(bgOpt));
+  [mainChart, kdjChart, rsiChart, macdChart, equityChart].forEach(c => c?.applyOptions(bgOpt));
   document.body.style.background = C.bg;
 
   candleSeries.applyOptions({
@@ -443,7 +439,6 @@ function updateBottomTimeAxis() {
     { paneId: "macdPane",   chart: macdChart   },
     { paneId: "rsiPane",    chart: rsiChart    },
     { paneId: "kdjPane",    chart: kdjChart    },
-    { paneId: "volPane",    chart: volChart    },
     { paneId: "mainPane",   chart: mainChart   },
   ];
   let bottomChart = null;
@@ -635,7 +630,7 @@ function renderAll(data) {
   updateSymbolBar(data);
 
   // 先 fit 讓 LWC 計算出正確的時間範圍（排除 equityChart，它沒有資料）
-  [mainChart, volChart, kdjChart, rsiChart, macdChart].forEach(c => c.timeScale().fitContent());
+  [mainChart, kdjChart, rsiChart, macdChart].forEach(c => c.timeScale().fitContent());
 
   // 顯示最後 50 根（logical range，anchor series 確保各圖索引對齊）
   if (data.length > 50) {
