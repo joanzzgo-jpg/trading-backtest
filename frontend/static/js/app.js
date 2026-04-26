@@ -67,8 +67,8 @@ function loadPrefs() {
         Object.assign(S, JSON.parse(localStorage.getItem("chartStyles") || "{}")); } catch {}
 }
 
-/* ── 基礎圖表選項 ── */
-function makeBaseOpts(scaleMargins = null) {
+/* ── 基礎圖表選項（showTime=true 才顯示時間軸，只有最下方的圖顯示）── */
+function makeBaseOpts(scaleMargins = null, showTime = false) {
   const opts = {
     layout:    { background:{ color: C.bg }, textColor:"#d1d4dc" },
     grid:      { vertLines:{ color:"#2a2e39" }, horzLines:{ color:"#2a2e39" } },
@@ -78,7 +78,12 @@ function makeBaseOpts(scaleMargins = null) {
       horzLine: { style: 0, width: 1, color: "#758696", labelBackgroundColor: "#2a2e39" },
     },
     rightPriceScale: { borderColor:"#2a2e39" },
-    timeScale: { borderColor:"#2a2e39", timeVisible:true, secondsVisible:false },
+    timeScale: {
+      borderColor: "#2a2e39",
+      timeVisible: true,
+      secondsVisible: false,
+      visible: showTime,          // 只有最下方面板顯示時間座標
+    },
   };
   if (scaleMargins) opts.rightPriceScale.scaleMargins = scaleMargins;
   return opts;
@@ -108,9 +113,10 @@ document.addEventListener("DOMContentLoaded", async () => {
 
 /* ── 建立圖表 ── */
 function buildCharts() {
-  const base  = makeBaseOpts();
-  const sub   = makeBaseOpts({ top:0.08, bottom:0.08 });
-  const volSM = makeBaseOpts({ top:0.05, bottom:0 });
+  const base  = makeBaseOpts(null,                   false);
+  const sub   = makeBaseOpts({ top:0.08, bottom:0.08 }, false);
+  const volSM = makeBaseOpts({ top:0.05, bottom:0 },    false);
+  const subT  = makeBaseOpts({ top:0.08, bottom:0.08 }, true);  // 最下方，顯示時間軸
 
   mainChart  = LightweightCharts.createChart(document.getElementById("mainChart"), base);
   candleSeries = mainChart.addCandlestickSeries({
@@ -143,7 +149,7 @@ function buildCharts() {
   rsiH50 = rsiChart.addLineSeries({ color:rHL, lineWidth:S.rsiHLWidth, lineStyle:1, priceLineVisible:false, lastValueVisible:true });
   rsiH70 = rsiChart.addLineSeries({ color:rHL, lineWidth:S.rsiHLWidth, lineStyle:1, priceLineVisible:false, lastValueVisible:true });
 
-  macdChart = LightweightCharts.createChart(document.getElementById("macdChart"), sub);
+  macdChart = LightweightCharts.createChart(document.getElementById("macdChart"), subT);
   macdLine   = macdChart.addLineSeries({ color:C.macd,    lineWidth:1, priceLineVisible:false, lastValueVisible:false });
   macdSignal = macdChart.addLineSeries({ color:C.macdSig, lineWidth:1, priceLineVisible:false, lastValueVisible:false });
   macdHist   = macdChart.addHistogramSeries({ priceScaleId:"right", priceLineVisible:false, lastValueVisible:false });
@@ -520,8 +526,8 @@ function renderAll(data) {
 
   const allC = [mainChart, volChart, kdjChart, rsiChart, macdChart, equityChart];
   allC.forEach(c => c.timeScale().fitContent());
-  if (data.length > 66) {
-    mainChart.timeScale().setVisibleLogicalRange({ from: data.length - 66, to: data.length - 1 });
+  if (data.length > 50) {
+    mainChart.timeScale().setVisibleLogicalRange({ from: data.length - 50, to: data.length - 1 });
   }
 }
 
