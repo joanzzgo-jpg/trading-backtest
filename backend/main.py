@@ -1,24 +1,23 @@
 """
-FastAPI 後端主程式
+FastAPI 後端主程式 - v2（含快取、MACD 指標）
 """
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import Optional
-import os, sys
+import os, sys, time, math
 
 sys.path.insert(0, os.path.dirname(__file__))
 
 from data.taiwan import fetch_tw_stock, resample_tw, search_tw_stock
 from data.crypto import fetch_crypto_ohlcv, fetch_crypto_markets
-from indicators.engine import add_indicators, crt_markers
+from indicators.engine import add_indicators, crt_markers, rsi as calc_rsi, macd as calc_macd
 from backtest.engine import BacktestEngine, BacktestConfig
 from strategies.builtin import BUILTIN_STRATEGIES
 
 app = FastAPI(title="回測系統")
 
-# 靜態檔案
 FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "..", "frontend")
 app.mount("/static", StaticFiles(directory=os.path.join(FRONTEND_DIR, "static")), name="static")
 
@@ -31,6 +30,24 @@ def index():
     )
 
 
+# ── 簡易記憶體快取 ─────────────────────────────────────────────
+_CACHE: dict = {}
+_CACHE_MAX = 200
+
+def _cache_get(key: str, ttl: int):
+    if key in _CACHE:
+        data, ts = _CACHE[key]
+        if time.time() - ts < ttl:
+            return data
+    return None
+
+def _cache_set(key: str, data):
+    if len(_CACHE) >= _CACHE_MAX:
+        oldest = min(_CACHE, key=lambda k: _CACHE[k][1])
+        del _CACHE[oldest]
+    _CACHE[key] = (data, time.time())
+
+
 # ── 資料 API ─────────────────────────────────────────────────
 
 class OHLCVRequest(BaseModel):
@@ -38,7 +55,7 @@ class OHLCVRequest(BaseModel):
     symbol: str
     start: str = ""
     end: str = ""
-    limit: int = 0        # >0 表示取最新 N 根，忽略 start/end
+    limit: int = 0
     timeframe: str = "1d"
     exchange: str = "pionex"
     api_key: str = ""
@@ -46,10 +63,40 @@ class OHLCVRequest(BaseModel):
     finmind_token: str = ""
 
 
+def _enrich(df):
+    """統一計算所有預設指標"""
+    default_indicators = {
+        "bb":   {"period": 20, "std": 2.0},
+        "kdj":  {"k_period": 9, "d_period": 3},
+        "rsi":  {"period": 14},
+        "macd": {"fast": 12, "slow": 26, "signal": 9},
+    }
+    df = add_indicators(df, default_indicators)
+    df["rsi_7"] = calc_rsi(df["close"], 7)
+    df["crt"]   = crt_markers(df["high"], df["low"], df["open"], df["close"])
+    return df
+
+
+def _df_to_records(df):
+    records = df.to_dict(orient="records")
+    for r in records:
+        r["time"] = r["time"].isoformat()
+        for key in list(r.keys()):
+            if isinstance(r[key], float) and math.isnan(r[key]):
+                r[key] = None
+    return records
+
+
 @app.post("/api/ohlcv")
 def get_ohlcv(req: OHLCVRequest):
     from datetime import date, timedelta
     use_limit = req.limit > 0
+
+    cache_key = f"ohlcv:{req.market}:{req.symbol}:{req.timeframe}:{req.exchange}:{req.start}:{req.end}:{req.limit}"
+    ttl = 30 if use_limit else 300
+    cached = _cache_get(cache_key, ttl)
+    if cached:
+        return cached
 
     try:
         if req.market == "tw":
@@ -78,25 +125,10 @@ def get_ohlcv(req: OHLCVRequest):
     except Exception as e:
         raise HTTPException(400, str(e))
 
-    # 固定計算指標：BB + KDJ + RSI14 + RSI7 + CRT
-    from indicators.engine import rsi as calc_rsi
-    import math
-    default_indicators = {
-        "bb": {"period": 20, "std": 2.0},
-        "kdj": {"k_period": 9, "d_period": 3},
-        "rsi": {"period": 14},
-    }
-    df = add_indicators(df, default_indicators)
-    df["rsi_7"]  = calc_rsi(df["close"], 7)
-    df["crt"]    = crt_markers(df["high"], df["low"], df["open"], df["close"])
-
-    records = df.to_dict(orient="records")
-    for r in records:
-        r["time"] = r["time"].isoformat()
-        for key in list(r.keys()):
-            if isinstance(r[key], float) and math.isnan(r[key]):
-                r[key] = None
-    return {"data": records}
+    df = _enrich(df)
+    result = {"data": _df_to_records(df)}
+    _cache_set(cache_key, result)
+    return result
 
 
 # ── 即時最新 K 棒 ─────────────────────────────────────────────
@@ -113,12 +145,10 @@ class LatestRequest(BaseModel):
 
 @app.post("/api/latest")
 def get_latest(req: LatestRequest):
-    """回傳最新 2 根 K 棒（用於即時更新）"""
-    import math
     try:
         if req.market == "tw":
             from datetime import date, timedelta
-            end = date.today().isoformat()
+            end   = date.today().isoformat()
             start = (date.today() - timedelta(days=30)).isoformat()
             df = fetch_tw_stock(req.symbol, start, end, req.finmind_token)
             df = resample_tw(df, req.timeframe)
@@ -149,7 +179,7 @@ def search(market: str, keyword: str, token: str = ""):
         return {"results": search_tw_stock(keyword, token)}
     elif market == "crypto":
         exchange = keyword if keyword in ["pionex", "binance", "bybit", "okx"] else "pionex"
-        markets = fetch_crypto_markets(exchange)
+        markets  = fetch_crypto_markets(exchange)
         return {"results": markets[:50]}
     return {"results": []}
 
@@ -187,7 +217,6 @@ class BacktestRequest(BaseModel):
 
 @app.post("/api/backtest")
 def run_backtest(req: BacktestRequest):
-    # 1. 抓資料
     try:
         if req.market == "tw":
             df = fetch_tw_stock(req.symbol, req.start, req.end, req.finmind_token)
@@ -203,17 +232,14 @@ def run_backtest(req: BacktestRequest):
     if len(df) < 10:
         raise HTTPException(400, "資料不足，請擴大日期範圍")
 
-    # 2. 取得策略
     strategy_def = BUILTIN_STRATEGIES.get(req.strategy_id)
     if not strategy_def:
         raise HTTPException(400, f"找不到策略: {req.strategy_id}")
 
     signal_fn, required_indicators = strategy_def["fn"](**req.strategy_params)
-
-    # 3. 計算指標
     df = add_indicators(df, required_indicators)
+    df = _enrich(df)
 
-    # 4. 回測
     config = BacktestConfig(
         initial_capital=req.initial_capital,
         commission=req.commission,
@@ -224,20 +250,18 @@ def run_backtest(req: BacktestRequest):
     engine = BacktestEngine(df, config)
     result = engine.run(signal_fn)
 
-    # 5. 回傳結果
     ohlcv = df[["time", "open", "high", "low", "close", "volume"]].copy()
     ohlcv["time"] = ohlcv["time"].dt.strftime("%Y-%m-%dT%H:%M:%S")
 
-    # 指標欄位
     indicator_cols = [c for c in df.columns if c not in ["time", "open", "high", "low", "close", "volume"]]
     indicators_data = {}
     for col in indicator_cols:
         indicators_data[col] = df[col].where(df[col].notna(), other=None).tolist()
 
     return {
-        "stats": result.stats(),
-        "trades": result.trades_to_list(),
+        "stats":        result.stats(),
+        "trades":       result.trades_to_list(),
         "equity_curve": result.equity_to_list(),
-        "ohlcv": ohlcv.to_dict(orient="records"),
-        "indicators": indicators_data,
+        "ohlcv":        ohlcv.to_dict(orient="records"),
+        "indicators":   indicators_data,
     }

@@ -2,16 +2,17 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
   <title>回測系統</title>
   <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
-  <link rel="stylesheet" href="/static/css/style.css?v=6" />
+  <link rel="stylesheet" href="/static/css/style.css?v=7" />
 </head>
 <body>
 
 <!-- ① 頂部工具列 -->
 <header class="topbar">
   <div class="topbar-left">
+    <button id="sidebarToggle" class="btn-sidebar-toggle" title="側欄">☰</button>
     <select id="marketSelect" class="tb-select">
       <option value="crypto">加密貨幣</option>
       <option value="tw">台股</option>
@@ -37,6 +38,7 @@
     <button id="loadBtn" class="btn-load">載入</button>
   </div>
   <div class="topbar-right">
+    <button id="screenshotBtn" class="btn-icon" title="截圖">📷</button>
     <button id="backtestModeBtn" class="btn-mode">回測模式</button>
   </div>
 </header>
@@ -59,9 +61,9 @@
 <div class="body-layout">
 
   <!-- 左側面板 -->
-  <aside class="sidebar">
+  <aside class="sidebar" id="sidebar">
 
-    <!-- 回測區塊（預設隱藏） -->
+    <!-- 回測區塊 -->
     <div id="backtestPanel" class="hidden">
       <div class="sidebar-section">
         <div class="section-title">策略</div>
@@ -74,6 +76,10 @@
         <div class="param-row"><label>倉位 %</label>  <input id="sizePct"   type="number" value="10" min="1" max="100" /></div>
         <div class="param-row"><label>手續費 %</label><input id="commission" type="number" value="0.1" step="0.01" /></div>
         <div class="param-row"><label>滑點 %</label>  <input id="slippage"  type="number" value="0.05" step="0.01" /></div>
+        <div class="param-row">
+          <label>允許做空</label>
+          <input id="allowShort" type="checkbox" style="width:auto;margin-left:auto" />
+        </div>
       </div>
       <div class="sidebar-section">
         <button id="backtestBtn" class="btn-run-backtest" disabled>▶ 執行回測</button>
@@ -86,39 +92,41 @@
         外觀顏色 <span class="toggle-arrow">▸</span>
       </div>
       <div id="colorPanel" class="color-panel hidden">
-        <div class="color-row"><label>漲 K 棒</label> <input type="color" id="c-up"       value="#ef5350" /></div>
-        <div class="color-row"><label>跌 K 棒</label> <input type="color" id="c-down"     value="#26a69a" /></div>
-        <div class="color-row"><label>BB 上軌</label> <input type="color" id="c-bbU"      value="#42a5f5" /></div>
-        <div class="color-row"><label>BB 中軌</label> <input type="color" id="c-bbM"      value="#ffcc02" /></div>
-        <div class="color-row"><label>BB 下軌</label> <input type="color" id="c-bbL"      value="#42a5f5" /></div>
-        <div class="color-row"><label>KDJ K</label>   <input type="color" id="c-kdjK"     value="#f23645" /></div>
-        <div class="color-row"><label>KDJ D</label>   <input type="color" id="c-kdjD"     value="#1e88e5" /></div>
-        <div class="color-row"><label>KDJ J</label>   <input type="color" id="c-kdjJ"     value="#ff9800" /></div>
+        <div class="color-row"><label>漲 K 棒</label>  <input type="color" id="c-up"      value="#ef5350" /></div>
+        <div class="color-row"><label>跌 K 棒</label>  <input type="color" id="c-down"    value="#26a69a" /></div>
+        <div class="color-row"><label>BB 上軌</label>  <input type="color" id="c-bbU"     value="#42a5f5" /></div>
+        <div class="color-row"><label>BB 中軌</label>  <input type="color" id="c-bbM"     value="#ffcc02" /></div>
+        <div class="color-row"><label>BB 下軌</label>  <input type="color" id="c-bbL"     value="#42a5f5" /></div>
+        <div class="color-row"><label>KDJ K</label>    <input type="color" id="c-kdjK"    value="#f23645" /></div>
+        <div class="color-row"><label>KDJ D</label>    <input type="color" id="c-kdjD"    value="#1e88e5" /></div>
+        <div class="color-row"><label>KDJ J</label>    <input type="color" id="c-kdjJ"    value="#ff9800" /></div>
         <div class="color-row hl-row">
           <label>KDJ 水平線</label>
           <span class="hl-inputs">
             <input type="color"  id="c-kdjHL" value="#aaaaaa" title="顏色" />
-            <input type="number" id="o-kdjHL" value="25" min="0"  max="100" class="hl-num" title="透明度 0-100%" />
-            <input type="number" id="w-kdjHL" value="1"  min="1"  max="5"   class="hl-num" title="粗細 px" />
+            <input type="number" id="o-kdjHL" value="25" min="0" max="100" class="hl-num" title="透明度%" />
+            <input type="number" id="w-kdjHL" value="1"  min="1" max="5"   class="hl-num" title="粗細px" />
           </span>
         </div>
-        <div class="color-row"><label>RSI 14</label>  <input type="color" id="c-rsi14"    value="#7e57c2" /></div>
-        <div class="color-row"><label>RSI 7</label>   <input type="color" id="c-rsi7"     value="#ef5350" /></div>
+        <div class="color-row"><label>RSI 14</label>   <input type="color" id="c-rsi14"   value="#7e57c2" /></div>
+        <div class="color-row"><label>RSI 7</label>    <input type="color" id="c-rsi7"    value="#ef5350" /></div>
         <div class="color-row hl-row">
           <label>RSI 水平線</label>
           <span class="hl-inputs">
             <input type="color"  id="c-rsiHL" value="#aaaaaa" title="顏色" />
-            <input type="number" id="o-rsiHL" value="25" min="0"  max="100" class="hl-num" title="透明度 0-100%" />
-            <input type="number" id="w-rsiHL" value="1"  min="1"  max="5"   class="hl-num" title="粗細 px" />
+            <input type="number" id="o-rsiHL" value="25" min="0" max="100" class="hl-num" title="透明度%" />
+            <input type="number" id="w-rsiHL" value="1"  min="1" max="5"   class="hl-num" title="粗細px" />
           </span>
         </div>
+        <div class="color-row"><label>MACD</label>     <input type="color" id="c-macd"    value="#2196f3" /></div>
+        <div class="color-row"><label>MACD 信號</label><input type="color" id="c-macdSig" value="#ff9800" /></div>
+        <div class="color-row"><label>CRT 看多</label> <input type="color" id="c-crtBull" value="#26a69a" /></div>
+        <div class="color-row"><label>CRT 看空</label> <input type="color" id="c-crtBear" value="#ef5350" /></div>
+        <div class="color-row"><label>背景色</label>   <input type="color" id="c-bg"      value="#1e222d" /></div>
         <div class="color-row">
           <label>量 MA 期數</label>
-          <input type="number" id="volMaPeriod" value="5" min="1" max="50" class="hl-num" title="成交量移動平均期數" />
+          <input type="number" id="volMaPeriod" value="5" min="1" max="50" class="hl-num" />
         </div>
-        <div class="color-row"><label>CRT 看多</label><input type="color" id="c-crtBull"  value="#26a69a" /></div>
-        <div class="color-row"><label>CRT 看空</label><input type="color" id="c-crtBear"  value="#ef5350" /></div>
-        <div class="color-row"><label>背景色</label>  <input type="color" id="c-bg"        value="#1e222d" /></div>
         <button id="resetColors" class="btn-reset">重設預設色</button>
       </div>
     </div>
@@ -143,7 +151,6 @@
       <div class="pane-body" id="mainChart"></div>
     </div>
 
-    <!-- 分隔條 -->
     <div class="pane-divider" data-target="mainPane"></div>
 
     <!-- 成交量 -->
@@ -177,15 +184,37 @@
       <div class="pane-body" id="rsiChart"></div>
     </div>
 
+    <div class="pane-divider" data-target="rsiPane"></div>
+
+    <!-- MACD -->
+    <div class="chart-pane" id="macdPane" style="flex:1.2">
+      <div class="pane-legend">
+        <span class="leg-item" id="legMacd"    style="color:#2196f3">MACD —</span>
+        <span class="leg-item" id="legMacdSig" style="color:#ff9800">Signal —</span>
+        <span class="leg-item" id="legMacdHist" style="color:#888">Hist —</span>
+      </div>
+      <div class="pane-body" id="macdChart"></div>
+    </div>
+
+    <!-- 資金曲線（回測時顯示）-->
+    <div class="pane-divider hidden" id="equityDivider" data-target="macdPane"></div>
+    <div class="chart-pane hidden" id="equityPane" style="flex:1.5">
+      <div class="pane-legend">
+        <span class="leg-item" style="color:#26a69a">資金曲線</span>
+      </div>
+      <div class="pane-body" id="equityChart"></div>
+    </div>
+
   </div>
 </div>
 
-<!-- ④ 交易明細（底部抽屜） -->
+<!-- ④ 交易明細（底部） -->
 <div class="trade-drawer hidden" id="tradeDrawer">
   <div class="drawer-header">
     <span>交易明細</span>
     <span id="tradeSummary" class="trade-summary"></span>
-    <button id="drawerClose" class="drawer-close">✕</button>
+    <button id="exportCsvBtn" class="btn-export">↓ CSV</button>
+    <button id="drawerClose"  class="drawer-close">✕</button>
   </div>
   <div class="table-wrap">
     <table id="tradeTable">
@@ -201,6 +230,6 @@
   </div>
 </div>
 
-<script src="/static/js/app.js?v=6"></script>
+<script src="/static/js/app.js?v=7"></script>
 </body>
 </html>
