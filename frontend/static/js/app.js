@@ -202,12 +202,14 @@ function syncTimeScales() {
   });
 
   // 鉛直線跨面板同步 + 統一更新所有圖例
+  // 注意：setCrosshairPosition 的第三個參數必須用覆蓋完整時間軸的 series，
+  // 才能確保每個時間點都能定位（KDJ/RSI/MACD 的主系列有 warmup 空白）
   const chItems = [
     { c: mainChart,   s: candleSeries, v: d => d?.close   ?? 0 },
     { c: volChart,    s: volSeries,    v: d => d?.volume   ?? 0 },
-    { c: kdjChart,    s: kdjK,         v: d => d?.kdj_k    ?? 50 },
-    { c: rsiChart,    s: rsiLine14,    v: d => d?.rsi_14   ?? 50 },
-    { c: macdChart,   s: macdLine,     v: d => d?.macd     ?? 0 },
+    { c: kdjChart,    s: kdjAnchor,    v: d => d?.kdj_k    ?? 50 },
+    { c: rsiChart,    s: rsiAnchor,    v: d => d?.rsi_14   ?? 50 },
+    { c: macdChart,   s: macdAnchor,  v: d => d?.macd     ?? 0 },
   ];
   let chSync = false;
   chItems.forEach(({ c: src }, si) => {
