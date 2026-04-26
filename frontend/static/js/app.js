@@ -202,18 +202,18 @@ function syncTimeScales() {
     });
   });
 
-  // 鉛直線：每個面板各自一條 CSS 線，用 timeToCoordinate 換算各自正確的 X
-  // （各面板右側價格軸寬度不同，統一用同一 X 會偏位）
+  // 鉛直線：放在 chart-pane（含圖例列）而非 pane-body，
+  // 讓線貫穿整個面板高度（含上方圖例的 22px），視覺上連續不斷
+  // 用 timeToCoordinate 各自換算正確 X（各面板價格軸寬不同）
   const panes = [
-    { elId: "mainChart",  chart: mainChart  },
-    { elId: "volChart",   chart: volChart   },
-    { elId: "kdjChart",   chart: kdjChart   },
-    { elId: "rsiChart",   chart: rsiChart   },
-    { elId: "macdChart",  chart: macdChart  },
+    { elId: "mainPane",  chart: mainChart  },
+    { elId: "volPane",   chart: volChart   },
+    { elId: "kdjPane",   chart: kdjChart   },
+    { elId: "rsiPane",   chart: rsiChart   },
+    { elId: "macdPane",  chart: macdChart  },
   ];
   panes.forEach(({ elId }) => {
-    const el = document.getElementById(elId);
-    el.style.position = "relative";
+    const el = document.getElementById(elId); // chart-pane 已有 position:relative
     const ln = document.createElement("div");
     ln.className = "pane-vline";
     ln.style.cssText = "position:absolute;top:0;bottom:0;width:1px;background:#758696;pointer-events:none;z-index:20;display:none";
