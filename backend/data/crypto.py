@@ -10,7 +10,8 @@ from datetime import datetime, timezone
 from typing import Union, Optional
 
 # ── Binance（含 Pionex）────────────────────────────────────────
-BINANCE_BASE = "https://api.binance.com"
+BINANCE_BASE      = "https://api.binance.com"
+BINANCE_FAPI_BASE = "https://fapi.binance.com"  # 永續合約
 
 # ── Bybit ─────────────────────────────────────────────────────
 BYBIT_BASE   = "https://api.bybit.com"
@@ -245,3 +246,33 @@ def fetch_crypto_markets(exchange_id: str = "pionex"):
     except Exception:
         results = []
     return results[:200]
+
+
+def fetch_tickers(market: str = "futures") -> list:
+    """取得即時 24h 漲跌幅排行（永續合約或現貨）"""
+    try:
+        if market == "futures":
+            url = f"{BINANCE_FAPI_BASE}/fapi/v1/ticker/24hr"
+        else:
+            url = f"{BINANCE_BASE}/api/v3/ticker/24hr"
+        data = _get(url)
+        tickers = []
+        for t in data:
+            sym = t.get("symbol", "")
+            # 只保留 USDT 結尾，排除季度合約（含底線）
+            if not sym.endswith("USDT") or "_" in sym:
+                continue
+            try:
+                tickers.append({
+                    "symbol":     sym,
+                    "display":    sym[:-4] + "/USDT",   # BTCUSDT → BTC/USDT
+                    "price":      float(t["lastPrice"]),
+                    "change_pct": float(t["priceChangePercent"]),
+                    "volume":     float(t.get("quoteVolume", 0)),
+                })
+            except (KeyError, ValueError):
+                continue
+        tickers.sort(key=lambda x: x["change_pct"], reverse=True)
+        return tickers
+    except Exception:
+        return []

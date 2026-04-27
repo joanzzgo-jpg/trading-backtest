@@ -11,7 +11,7 @@ import os, sys, time, math, gc
 sys.path.insert(0, os.path.dirname(__file__))
 
 from data.taiwan import fetch_tw_stock, resample_tw, search_tw_stock
-from data.crypto import fetch_crypto_ohlcv, fetch_crypto_markets
+from data.crypto import fetch_crypto_ohlcv, fetch_crypto_markets, fetch_tickers
 from indicators.engine import add_indicators, crt_markers, rsi as calc_rsi, macd as calc_macd
 from backtest.engine import BacktestEngine, BacktestConfig
 from strategies.builtin import BUILTIN_STRATEGIES
@@ -180,6 +180,17 @@ def get_latest(req: LatestRequest):
             if isinstance(r[key], float) and math.isnan(r[key]):
                 r[key] = None
     return {"data": records}
+
+
+@app.get("/api/tickers")
+def get_tickers(market: str = "futures"):
+    cache_key = f"tickers:{market}"
+    cached = _cache_get(cache_key, ttl=10)   # 10 秒快取
+    if cached:
+        return cached
+    result = {"tickers": fetch_tickers(market)}
+    _cache_set(cache_key, result)
+    return result
 
 
 @app.get("/api/search")

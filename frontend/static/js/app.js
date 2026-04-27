@@ -184,9 +184,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   syncColorInputsToState();
   await loadStrategies();
   bindEvents();
+  bindTickerPanel();
   syncTimeScales();
   updateMarketUI();
   applyAllColors();
+  startTickerRefresh();
   loadData(true)
     .then(() => { loadVisibilityPrefs(); applyAllLineStyles(); })
     .catch(() => showToast("⚠️ 載入失敗，請點「載入」重試"));
@@ -364,8 +366,8 @@ function syncTimeScales() {
     });
   });
 
-  // 子圖停用 LWC 原生鉛直線（主圖保留 LWC 的）
-  [kdjChart, rsiChart, macdChart].forEach(c => {
+  // 所有圖停用 LWC 原生鉛直線，改用 chartsContainer 內的自訂 pane-vline
+  [mainChart, kdjChart, rsiChart, macdChart].forEach(c => {
     c.applyOptions({ crosshair: { vertLine: { visible: false } } });
   });
 }
@@ -717,6 +719,7 @@ function bindEvents() {
       document.querySelectorAll(".tf-btn").forEach(b => b.classList.remove("active"));
       btn.classList.add("active");
       currentTF = btn.dataset.tf;
+      loadData(false);   // 切換時區自動載入，不需手動按「載入」
     });
   });
 
@@ -1313,6 +1316,88 @@ function exportCSV() {
   const a    = document.createElement("a");
   a.href = url; a.download = "backtest_trades.csv"; a.click();
   URL.revokeObjectURL(url);
+}
+
+/* ══════════════════════════════════════════
+   右側合約行情列表
+══════════════════════════════════════════ */
+let _tickerData  = [];
+let _tickerSort  = "desc";   // desc=漲幅 asc=跌幅 vol=成交量
+let _tickerTimer = null;
+
+async function fetchTickers() {
+  try {
+    const res  = await fetch("/api/tickers?market=futures");
+    if (!res.ok) return;
+    const json = await res.json();
+    _tickerData = json.tickers || [];
+    renderTickers();
+  } catch {}
+}
+
+function renderTickers() {
+  const search = (document.getElementById("tickerSearch")?.value || "").toLowerCase();
+  let list = _tickerData.filter(t =>
+    !search || t.display.toLowerCase().includes(search) || t.symbol.toLowerCase().includes(search)
+  );
+  if (_tickerSort === "asc") list = [...list].reverse();
+  else if (_tickerSort === "vol") list = [...list].sort((a, b) => b.volume - a.volume);
+
+  const container = document.getElementById("tickerList");
+  if (!container) return;
+
+  const currentSym = document.getElementById("symbolInput")?.value.trim().toUpperCase();
+
+  container.innerHTML = list.map(t => {
+    const cls  = t.change_pct >= 0 ? "up" : "dn";
+    const sign = t.change_pct >= 0 ? "+" : "";
+    const active = (t.display.toUpperCase() === currentSym || t.symbol.toUpperCase() === currentSym) ? " tk-active" : "";
+    return `<div class="ticker-item${active}" data-symbol="${t.symbol}" data-display="${t.display}">
+      <div class="tk-row1">
+        <span class="tk-sym">${t.display}</span>
+        <span class="tk-chg ${cls}">${sign}${t.change_pct.toFixed(2)}%</span>
+      </div>
+      <div class="tk-row2">${fmtTickerPrice(t.price)}</div>
+    </div>`;
+  }).join("");
+
+  container.querySelectorAll(".ticker-item").forEach(el => {
+    el.addEventListener("click", () => {
+      const display = el.dataset.display;
+      document.getElementById("symbolInput").value = display;
+      // 切到現貨 Binance（永續合約用相同符號）
+      const exchEl = document.getElementById("exchangeSelect");
+      if (exchEl && exchEl.value !== "binance") exchEl.value = "binance";
+      loadData(false);
+      container.querySelectorAll(".ticker-item").forEach(x => x.classList.remove("tk-active"));
+      el.classList.add("tk-active");
+    });
+  });
+}
+
+function fmtTickerPrice(p) {
+  if (p >= 10000) return p.toLocaleString(undefined, { maximumFractionDigits: 1 });
+  if (p >= 100)   return p.toFixed(2);
+  if (p >= 1)     return p.toFixed(4);
+  if (p >= 0.01)  return p.toFixed(5);
+  return p.toFixed(6);
+}
+
+function startTickerRefresh() {
+  fetchTickers();
+  _tickerTimer = setInterval(fetchTickers, 10000);
+}
+
+function bindTickerPanel() {
+  document.querySelectorAll(".tk-sort-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".tk-sort-btn").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      _tickerSort = btn.dataset.sort;
+      renderTickers();
+    });
+  });
+  document.getElementById("tickerSearch")?.addEventListener("input", renderTickers);
 }
 
 /* ══════════════════════════════════════════

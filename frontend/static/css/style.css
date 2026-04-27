@@ -278,6 +278,62 @@ html, body {
   z-index: 26; white-space: nowrap; display: none;
 }
 
+/* ── 右側合約行情列表 ───────────────────────────────────── */
+.ticker-panel {
+  width: 188px; flex-shrink: 0;
+  display: flex; flex-direction: column;
+  background: var(--bg); border-left: 1px solid var(--border);
+  overflow: hidden;
+}
+.ticker-hd {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 7px 8px 6px; border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.ticker-title { font-size: 12px; font-weight: 600; color: var(--text); }
+.tk-sort-group { display: flex; gap: 3px; }
+.tk-sort-btn {
+  background: #2a2e39; border: 1px solid var(--border);
+  color: #787b86; font-size: 10px; padding: 2px 5px;
+  border-radius: 3px; cursor: pointer; transition: background .12s;
+}
+.tk-sort-btn.active  { background: #3a3f4d; color: var(--text); }
+.tk-sort-btn:hover   { background: #3a3f4d; }
+
+.tk-search {
+  margin: 6px 6px 0; padding: 4px 8px;
+  background: #2a2e39; border: 1px solid var(--border);
+  border-radius: 4px; color: var(--text); font-size: 11px;
+  outline: none; width: calc(100% - 12px); box-sizing: border-box;
+  flex-shrink: 0;
+}
+.tk-search::placeholder { color: #555; }
+
+.ticker-list {
+  flex: 1; overflow-y: auto; margin-top: 4px;
+}
+.ticker-list::-webkit-scrollbar { width: 4px; }
+.ticker-list::-webkit-scrollbar-thumb { background: #2a2e39; border-radius: 2px; }
+
+.tk-loading { color: #555; font-size: 11px; padding: 12px 8px; }
+
+.ticker-item {
+  padding: 5px 8px 4px; cursor: pointer;
+  border-bottom: 1px solid rgba(255,255,255,0.03);
+  transition: background .1s;
+}
+.ticker-item:hover { background: #2a2e39; }
+.ticker-item.tk-active { background: #2a2e39; border-left: 2px solid var(--blue); }
+
+.tk-row1 { display: flex; justify-content: space-between; align-items: center; }
+.tk-sym  { font-size: 11px; font-weight: 600; color: #d1d4dc; }
+.tk-chg  { font-size: 11px; font-weight: 700; }
+.tk-row2 { font-size: 10px; color: #787b86; margin-top: 1px; }
+
+.up { color: #ef5350; }
+.dn { color: #26a69a; }
+
+/* ── 分隔線 ─────────────────────────────────────────────── */
 .pane-divider {
   height: 4px; background: var(--border);
   cursor: row-resize; flex-shrink: 0;
