@@ -202,6 +202,9 @@ def fetch_crypto_ohlcv(
     api_key: str = "",
     api_secret: str = "",
 ) -> pd.DataFrame:
+    # 去除永續合約後綴 .P（前端顯示用，後端統一用現貨代號查詢）
+    if symbol.upper().endswith(".P"):
+        symbol = symbol[:-2]
     ex = exchange_id.lower()
     if ex in ("pionex", "binance"):
         return _fetch_binance(symbol, timeframe, start, end, limit)

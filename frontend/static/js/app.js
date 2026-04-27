@@ -1462,16 +1462,19 @@ function updatePageTitle() {
   );
   if (hit) {
     const chg  = hit.change_pct >= 0 ? `+${hit.change_pct.toFixed(2)}%` : `${hit.change_pct.toFixed(2)}%`;
-    document.title = `${fmtTickerPrice(hit.price)} ${chg} · ${hit.display || sym}`;
+    document.title = `${hit.display || sym} ${fmtTickerPrice(hit.price)} ${chg}`;
   } else {
-    document.title = sym + " · 回測系統";
+    document.title = sym;
   }
 }
 
 function renderTickers() {
   const search = (document.getElementById("tickerSearch")?.value || "").toLowerCase();
   let list = _tickerData.filter(t =>
-    !search || t.display.toLowerCase().includes(search) || t.symbol.toLowerCase().includes(search)
+    !search ||
+    t.display.toLowerCase().includes(search) ||
+    t.symbol.toLowerCase().includes(search) ||
+    t.symbol.toLowerCase().replace("usdt","").includes(search)
   );
   if (_tickerSort === "asc") list = [...list].reverse();
   else if (_tickerSort === "vol") list = [...list].sort((a, b) => b.volume - a.volume);
@@ -1496,9 +1499,8 @@ function renderTickers() {
 
   container.querySelectorAll(".ticker-item").forEach(el => {
     el.addEventListener("click", () => {
-      // 用現貨代號（BTC/USDT）載入 OHLCV，顯示欄位用 BTC/USDT.P
-      const spot = el.dataset.spot || el.dataset.display;
-      document.getElementById("symbolInput").value = spot;
+      // symbolInput 顯示合約格式（BTC/USDT.P），後端自動去除 .P 後綴
+      document.getElementById("symbolInput").value = el.dataset.display;
       const exchEl = document.getElementById("exchangeSelect");
       if (exchEl && exchEl.value !== "binance") exchEl.value = "binance";
       loadData(false);
@@ -1651,16 +1653,17 @@ function _renderSymSearchList() {
 }
 
 function _selectSymbol(el) {
-  const spot = el.dataset.spot || el.dataset.display;
+  const display = el.dataset.display || el.dataset.spot || el.dataset.symbol;
   // 加入搜尋歷史
   addToSymHistory({
     symbol:     el.dataset.symbol,
-    display:    el.dataset.display,
+    display:    display,
     spot:       el.dataset.spot || el.dataset.display,
     change_pct: parseFloat(el.dataset.change_pct) || 0,
     price:      parseFloat(el.dataset.price) || 0,
   });
-  document.getElementById("symbolInput").value = spot;
+  // symbolInput 顯示合約格式（BTC/USDT.P），後端會自動去除 .P 後綴
+  document.getElementById("symbolInput").value = display;
   closeSymSearch();
   loadData(false);
   renderTickers();  // 更新右側高亮
@@ -1746,9 +1749,12 @@ function initSymSearch() {
    工具函式
 ══════════════════════════════════════════ */
 function buildPayload(useLimit = false) {
+  // 去除 .P 後綴（後端 fetch_crypto_ohlcv 也會處理，雙重保險）
+  let sym = document.getElementById("symbolInput").value.trim();
+  if (sym.toUpperCase().endsWith(".P")) sym = sym.slice(0, -2);
   return {
     market:    document.getElementById("marketSelect").value,
-    symbol:    document.getElementById("symbolInput").value.trim(),
+    symbol:    sym,
     start:     useLimit ? "" : document.getElementById("startDate").value,
     end:       useLimit ? "" : document.getElementById("endDate").value,
     limit:     useLimit ? 300 : 0,
