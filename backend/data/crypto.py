@@ -253,20 +253,37 @@ def _fetch_pionex_perp_symbols() -> set:
     """取得 Pionex 上可交易的永續合約代號集合（如 BTCUSDT）"""
     try:
         data = _get(f"{PIONEX_BASE}/api/v1/common/symbols")
-        items = data.get("data", {})
+        # 嘗試展開各種常見的回應結構
+        items = data
+        for key in ("data", "result", "symbols", "list"):
+            if isinstance(items, dict) and key in items:
+                items = items[key]
         if isinstance(items, dict):
-            items = items.get("symbols", [])
-        if not isinstance(items, list):
+            for key in ("symbols", "list", "items", "instruments"):
+                if key in items:
+                    items = items[key]
+                    break
+        if not isinstance(items, list) or not items:
             return set()
         syms = set()
         for s in items:
-            stype = str(s.get("type", "")).upper()
-            if "PERP" not in stype and "FUTURE" not in stype:
+            if not isinstance(s, dict):
                 continue
-            base  = s.get("baseCurrency", s.get("base", ""))
-            quote = s.get("quoteCurrency", s.get("quote", ""))
+            stype = str(s.get("type", s.get("symbol_type", s.get("instType", "")))).upper()
+            # 接受 PERP / FUTURE / SWAP / CONTRACT 任一關鍵字
+            if not any(k in stype for k in ("PERP", "FUTURE", "SWAP", "CONTRACT")):
+                continue
+            base  = (s.get("baseCurrency") or s.get("base") or
+                     s.get("baseAsset") or s.get("baseCoin") or "")
+            quote = (s.get("quoteCurrency") or s.get("quote") or
+                     s.get("quoteAsset") or s.get("quoteCoin") or "")
             if base and quote:
                 syms.add((base + quote).upper())
+            # 也嘗試直接從 symbol 欄位解析
+            raw = str(s.get("symbol", s.get("instId", ""))).upper()
+            raw = raw.replace("-", "").replace("_", "").replace("/", "")
+            if raw.endswith("USDT") and len(raw) > 4:
+                syms.add(raw)
         return syms
     except Exception:
         return set()
@@ -288,8 +305,8 @@ def fetch_tickers(market: str = "futures") -> list:
             sym = t.get("symbol", "")
             if not sym.endswith("USDT") or "_" in sym:
                 continue
-            # 若成功取到 Pionex 清單，只保留 Pionex 有的標的
-            if pionex_syms and sym not in pionex_syms:
+            # 若 Pionex 清單有效（>5 筆），只保留 Pionex 上有的標的
+            if len(pionex_syms) > 5 and sym not in pionex_syms:
                 continue
             try:
                 base = sym[:-4]

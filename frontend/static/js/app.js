@@ -1394,9 +1394,9 @@ function startTickerRefresh() {
 }
 
 function bindTickerPanel() {
-  document.querySelectorAll(".tk-sort-btn").forEach(btn => {
+  document.querySelectorAll(".tk-seg-btn").forEach(btn => {
     btn.addEventListener("click", () => {
-      document.querySelectorAll(".tk-sort-btn").forEach(b => b.classList.remove("active"));
+      document.querySelectorAll(".tk-seg-btn").forEach(b => b.classList.remove("active"));
       btn.classList.add("active");
       _tickerSort = btn.dataset.sort;
       renderTickers();
@@ -1428,7 +1428,10 @@ function _renderSymSearchList() {
   const query    = (document.getElementById("symModalInput")?.value || "").toLowerCase().trim();
   const data     = _symSearchMarket === "futures" ? _tickerData : _spotTickerData;
 
-  if (!data.length) { list.innerHTML = `<div class="sym-loading">載入中…</div>`; return; }
+  if (!data.length) {
+    list.innerHTML = `<div class="sym-loading">${_symSearchMarket === "futures" ? "合約行情載入中，請稍候…" : "現貨資料載入中…"}</div>`;
+    return;
+  }
 
   // 先按 volume 排（熱門在前），再依查詢過濾
   let items = [...data].sort((a, b) => b.volume - a.volume);
@@ -1483,6 +1486,11 @@ function openSymSearch() {
   inp.value = "";
   document.getElementById("symModalClear").classList.add("hidden");
   _symSearchFocusIdx = -1;
+  // 預設回到永續合約 tab
+  _symSearchMarket = "futures";
+  document.querySelectorAll(".sym-tab").forEach(b => {
+    b.classList.toggle("active", b.dataset.market === "futures");
+  });
   _renderSymSearchList();
   setTimeout(() => inp.focus(), 50);
 }

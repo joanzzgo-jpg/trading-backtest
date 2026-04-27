@@ -291,14 +291,20 @@ html, body {
   flex-shrink: 0;
 }
 .ticker-title { font-size: 12px; font-weight: 600; color: var(--text); }
-.tk-sort-group { display: flex; gap: 3px; }
-.tk-sort-btn {
-  background: #2a2e39; border: 1px solid var(--border);
-  color: #787b86; font-size: 10px; padding: 2px 5px;
-  border-radius: 3px; cursor: pointer; transition: background .12s;
+
+/* 排序：pill segmented control */
+.tk-seg {
+  display: flex; border: 1px solid var(--border);
+  border-radius: 4px; overflow: hidden;
 }
-.tk-sort-btn.active  { background: #3a3f4d; color: var(--text); }
-.tk-sort-btn:hover   { background: #3a3f4d; }
+.tk-seg-btn {
+  background: #2a2e39; border: none; border-right: 1px solid var(--border);
+  color: #787b86; font-size: 10px; padding: 3px 7px;
+  cursor: pointer; transition: background .12s, color .12s; white-space: nowrap;
+}
+.tk-seg-btn:last-child { border-right: none; }
+.tk-seg-btn.active { background: #3a3f4d; color: var(--text); font-weight: 600; }
+.tk-seg-btn:hover  { background: #3a3f4d; color: var(--text); }
 
 .tk-search {
   margin: 6px 6px 0; padding: 4px 8px;
