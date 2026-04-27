@@ -41,12 +41,32 @@ def _get(url: str, timeout: int = 30) -> Union[dict, list]:
         return json.loads(r.read())
 
 
+# ── Pionex 已知合約（硬編碼備援，API 失敗時使用）────────────────
+# 來源：Pionex 官網合約列表（2025 年常見永續合約）
+PIONEX_PERP_FALLBACK: set = {
+    "BTC","ETH","BNB","SOL","XRP","ADA","DOGE","AVAX","DOT","MATIC",
+    "LINK","UNI","LTC","ATOM","ETC","NEAR","FTM","OP","ARB","INJ",
+    "SUI","APT","TIA","BONK","WIF","PEPE","SHIB","TRX","SAND","MANA",
+    "AXS","GALA","APE","RUNE","THETA","VET","XLM","ALGO","FIL","AAVE",
+    "COMP","SNX","MKR","CRV","LDO","DYDX","GMX","BLUR","PENDLE","SEI",
+    "PYTH","JUP","STRK","MANTA","ALT","PIXEL","PORTAL","SAGA","OMNI",
+    "ENA","W","TON","NOT","IO","ZK","BLAST","POL","EIGEN","SCR","CATI",
+    "HMSTR","NEIRO","MOODENG","GOAT","ACT","PNUT","KAIA","SWELL","1INCH",
+    "SUSHI","YFI","BAT","ZRX","ENJ","CHZ","FLOW","ROSE","ONE","QTUM",
+    "ICX","ZIL","ONT","IOTA","XTZ","NEO","DASH","ZEC","EOS","TRX",
+    "WLD","RNDR","FET","AGIX","OCEAN","GRT","API3","BAND","LUNA","LUNC",
+    "CAKE","GMT","GST","STEPN","HIGH","LAZIO","PORTO","SANTOS","ACH",
+    "HOOK","MAGIC","LOOKS","IMX","BLUR","NFP","AI","XAI","MANTA","ALT",
+    "JTO","PYTH","BONK","WIF","BOME","ETHFI","AEVO","SAGA","OMNI","REZ",
+    "BB","NOT","IO","ZK","LISTA","ZRO","RENDER","METH","SLF",
+}
+
 # ── Pionex 標的快取（1 小時更新一次）────────────────────────────
 _PIONEX_SYMS_CACHE: dict = {"ts": 0.0, "syms": set()}
 
 def _fetch_pionex_symbols() -> set:
     """取得 Pionex 有上架的 base 幣集合（大寫），快取 1 小時。
-    失敗時回傳空集合（呼叫方按空集合視為「不過濾」）。
+    API 失敗時回傳硬編碼的備援清單。
     """
     global _PIONEX_SYMS_CACHE
     now = time.time()
@@ -69,12 +89,14 @@ def _fetch_pionex_symbols() -> set:
                 if str(quote).upper() == "USDT" and base:
                     syms.add(str(base).upper())
             if len(syms) >= 5:
-                break   # 成功取得，跳出迴圈
+                break
         except Exception:
             continue
     if len(syms) >= 5:
         _PIONEX_SYMS_CACHE = {"ts": now, "syms": syms}
-    return syms
+        return syms
+    # API 失敗 → 使用硬編碼備援（不更新快取時間戳，下次仍會重試 API）
+    return PIONEX_PERP_FALLBACK
 
 
 def _sym_binance(symbol: str) -> str:
@@ -360,12 +382,9 @@ def fetch_crypto_markets(exchange_id: str = "pionex"):
 
 
 def _apply_pionex_filter(tickers: list) -> list:
-    """依 Pionex 標的清單過濾；API 失敗時退回成交量前 200"""
-    pionex_syms = _fetch_pionex_symbols()
-    if pionex_syms:
-        return [t for t in tickers if t["symbol"][:-4].upper() in pionex_syms]
-    tickers_sorted = sorted(tickers, key=lambda x: x["volume"], reverse=True)
-    return tickers_sorted[:200]
+    """依 Pionex 標的清單過濾（API 失敗時使用硬編碼備援，永遠有結果）"""
+    pionex_syms = _fetch_pionex_symbols()   # 永遠非空
+    return [t for t in tickers if t["symbol"][:-4].upper() in pionex_syms]
 
 
 def fetch_tickers(market: str = "futures") -> list:

@@ -91,6 +91,32 @@ function loadPrefs() {
   } catch {}
 }
 
+function saveLastSymbol() {
+  try {
+    localStorage.setItem("lastSymbol", JSON.stringify({
+      symbol:   document.getElementById("symbolInput")?.value  || "",
+      exchange: document.getElementById("exchangeSelect")?.value || "pionex",
+      market:   document.getElementById("marketSelect")?.value  || "crypto",
+      tf:       currentTF,
+    }));
+  } catch {}
+}
+
+function loadLastSymbol() {
+  try {
+    const last = JSON.parse(localStorage.getItem("lastSymbol") || "null");
+    if (!last || !last.symbol) return;
+    document.getElementById("symbolInput").value = last.symbol;
+    if (last.exchange) document.getElementById("exchangeSelect").value = last.exchange;
+    if (last.market)   document.getElementById("marketSelect").value   = last.market;
+    if (last.tf && TF_LABELS[last.tf]) {
+      currentTF = last.tf;
+      document.querySelectorAll(".tf-btn").forEach(b =>
+        b.classList.toggle("active", b.dataset.tf === currentTF));
+    }
+  } catch {}
+}
+
 /* 將 LINE_STYLES 中儲存的線寬 / 樣式套用到對應 series */
 function applyLineStyle(inputId) {
   const getter = INPUT_SERIES_MAP[inputId];
@@ -210,6 +236,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("endDate").value   = ymd(today);
   document.getElementById("startDate").value = ymd(yearAgo);
 
+  loadLastSymbol();     // 還原上次標的、交易所、市場、時間框架
   loadSystemColors();
   applyAllSystemColors();
   loadSymHistory();
@@ -1010,6 +1037,7 @@ async function loadData(autoLoad = false) {
     renderAll(json.data);
     document.getElementById("backtestBtn").disabled = false;
     startRealtime();
+    saveLastSymbol();   // 載入成功後記憶此次標的
   } catch(e) {
     if (!autoLoad) alert("❌ " + e.message);
     throw e;
