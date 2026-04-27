@@ -143,6 +143,67 @@ def _fetch_binance(symbol: str, timeframe: str,
 
 
 # ══════════════════════════════════════════════════════════════
+#  Binance Futures (fapi) — 永續合約 K 線
+# ══════════════════════════════════════════════════════════════
+def _fetch_binance_fapi(symbol: str, timeframe: str,
+                        start: Optional[str], end: Optional[str], limit: int,
+                        max_candles: int = 3000) -> pd.DataFrame:
+    """使用 fapi.binance.com 取得永續合約 K 線，失敗時拋出例外由呼叫方 fallback"""
+    sym = _sym_binance(symbol)
+    tf  = TIMEFRAME_MAP.get(timeframe, "1d")
+
+    if start is None and end is None:
+        url = f"{BINANCE_FAPI_BASE}/fapi/v1/klines?symbol={sym}&interval={tf}&limit={limit}"
+        return _make_df(_get(url, timeout=10))
+
+    since  = _to_ms(start) if start else None
+    end_ms = _to_ms(end, end_of_day=True) if end else None
+    all_rows: list = []
+
+    while True:
+        params = {"symbol": sym, "interval": tf, "limit": 1000}
+        if since:   params["startTime"] = since
+        if end_ms:  params["endTime"]   = end_ms
+        url   = f"{BINANCE_FAPI_BASE}/fapi/v1/klines?{urllib.parse.urlencode(params)}"
+        batch = _get(url, timeout=10)
+        if not batch:
+            break
+        all_rows.extend(batch)
+        last_ts = batch[-1][0]
+        if (end_ms and last_ts >= end_ms) or len(batch) < 1000 or len(all_rows) >= max_candles:
+            break
+        since = last_ts + 1
+
+    return _make_df(all_rows)
+
+
+def _fetch_futures_tickers_fapi() -> list:
+    """從 fapi.binance.com 取得永續合約 24h 行情，失敗回傳空串列"""
+    try:
+        data = _get(f"{BINANCE_FAPI_BASE}/fapi/v1/ticker/24hr", timeout=10)
+        tickers = []
+        for t in data:
+            sym = t.get("symbol", "")
+            if not sym.endswith("USDT"):
+                continue
+            try:
+                base = sym[:-4]
+                tickers.append({
+                    "symbol":     sym,
+                    "price":      float(t["lastPrice"]),
+                    "change_pct": float(t["priceChangePercent"]),
+                    "volume":     float(t.get("quoteVolume", 0)),
+                    "display":    base + "/USDT.P",
+                    "spot":       base + "/USDT",
+                })
+            except (KeyError, ValueError):
+                continue
+        return tickers
+    except Exception:
+        return []
+
+
+# ══════════════════════════════════════════════════════════════
 #  Bybit
 # ══════════════════════════════════════════════════════════════
 def _fetch_bybit(symbol: str, timeframe: str,
@@ -239,11 +300,18 @@ def fetch_crypto_ohlcv(
     api_key: str = "",
     api_secret: str = "",
 ) -> pd.DataFrame:
-    # 去除永續合約後綴 .P（前端顯示用，後端統一用現貨代號查詢）
+    # 去除永續合約後綴 .P（前端顯示用）
     if symbol.upper().endswith(".P"):
         symbol = symbol[:-2]
     ex = exchange_id.lower()
     if ex in ("pionex", "binance"):
+        # 優先使用永續合約 K 線；fapi 不可用時退回現貨
+        try:
+            df = _fetch_binance_fapi(symbol, timeframe, start, end, limit)
+            if not df.empty:
+                return df
+        except Exception:
+            pass
         return _fetch_binance(symbol, timeframe, start, end, limit)
     elif ex == "bybit":
         return _fetch_bybit(symbol, timeframe, start, end, limit)
@@ -291,10 +359,33 @@ def fetch_crypto_markets(exchange_id: str = "pionex"):
     return results[:200]
 
 
+def _apply_pionex_filter(tickers: list) -> list:
+    """依 Pionex 標的清單過濾；API 失敗時退回成交量前 200"""
+    pionex_syms = _fetch_pionex_symbols()
+    if pionex_syms:
+        return [t for t in tickers if t["symbol"][:-4].upper() in pionex_syms]
+    tickers_sorted = sorted(tickers, key=lambda x: x["volume"], reverse=True)
+    return tickers_sorted[:200]
+
+
 def fetch_tickers(market: str = "futures") -> list:
-    """取得即時 24h 漲跌幅排行（全部 USDT 交易對）。
-    統一使用 Binance spot API，回傳所有 USDT 現貨交易對，依漲跌幅排序。
+    """取得即時 24h 漲跌幅排行。
+    futures：優先使用 Binance 永續合約 API（fapi），失敗則退回現貨 API。
+    spot：直接使用現貨 API。
     """
+    if market == "futures":
+        # ── 優先：永續合約 fapi ────────────────────────────────
+        tickers = _fetch_futures_tickers_fapi()
+        if tickers:
+            tickers = _apply_pionex_filter(tickers)
+            tickers.sort(key=lambda x: x["change_pct"], reverse=True)
+            return tickers
+        # fapi 不可用，退回現貨 API + 加上 .P 標籤
+        source = "spot_fallback"
+    else:
+        source = "spot"
+
+    # ── 現貨 API（spot 模式或 fapi fallback）────────────────────
     try:
         data = _get(f"{BINANCE_BASE}/api/v3/ticker/24hr")
         tickers = []
@@ -310,7 +401,7 @@ def fetch_tickers(market: str = "futures") -> list:
                     "change_pct": float(t["priceChangePercent"]),
                     "volume":     float(t.get("quoteVolume", 0)),
                 }
-                if market == "futures":
+                if source == "spot_fallback":
                     entry["display"] = base + "/USDT.P"
                     entry["spot"]    = base + "/USDT"
                 else:
@@ -319,17 +410,7 @@ def fetch_tickers(market: str = "futures") -> list:
             except (KeyError, ValueError):
                 continue
 
-        # ── 只保留 Pionex 有上架的標的 ──────────────────────────
-        pionex_syms = _fetch_pionex_symbols()
-        if pionex_syms:
-            # Pionex API 成功：嚴格過濾
-            tickers = [t for t in tickers if t["symbol"][:-4].upper() in pionex_syms]
-        else:
-            # Pionex API 失敗：退而取成交量前 200（覆蓋 Pionex 幾乎所有上架幣）
-            tickers.sort(key=lambda x: x["volume"], reverse=True)
-            tickers = tickers[:200]
-
-        # 依漲跌幅排序回傳
+        tickers = _apply_pionex_filter(tickers)
         tickers.sort(key=lambda x: x["change_pct"], reverse=True)
         return tickers
     except Exception:

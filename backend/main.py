@@ -11,7 +11,7 @@ import os, sys, time, math, gc
 sys.path.insert(0, os.path.dirname(__file__))
 
 from data.taiwan import fetch_tw_stock, resample_tw, search_tw_stock
-from data.crypto import fetch_crypto_ohlcv, fetch_crypto_markets, fetch_tickers, _fetch_pionex_symbols
+from data.crypto import fetch_crypto_ohlcv, fetch_crypto_markets, fetch_tickers, _fetch_pionex_symbols, _fetch_futures_tickers_fapi
 from indicators.engine import add_indicators, crt_markers, rsi as calc_rsi, macd as calc_macd
 from backtest.engine import BacktestEngine, BacktestConfig
 from strategies.builtin import BUILTIN_STRATEGIES
@@ -196,7 +196,10 @@ def get_tickers(market: str = "futures"):
     cached = _cache_get(cache_key, ttl=2)    # 2 秒快取，近即時
     if cached:
         return cached
-    result = {"tickers": fetch_tickers(market)}
+    tickers = fetch_tickers(market)
+    # source 欄位：第一筆 ticker 有 spot 欄位 → fapi 成功；否則是 spot fallback
+    source = "fapi" if (tickers and "spot" in tickers[0] and market == "futures") else "spot"
+    result = {"tickers": tickers, "source": source}
     _cache_set(cache_key, result)
     return result
 
