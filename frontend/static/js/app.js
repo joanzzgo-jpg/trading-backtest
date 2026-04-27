@@ -180,11 +180,15 @@ document.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("endDate").value   = ymd(today);
   document.getElementById("startDate").value = ymd(yearAgo);
 
+  loadSystemColors();
+  applyAllSystemColors();
+  loadSymHistory();
   buildCharts();
   syncColorInputsToState();
   await loadStrategies();
   bindEvents();
   bindTickerPanel();
+  bindSystemColors();
   initSymSearch();
   syncTimeScales();
   updateMarketUI();
@@ -1320,6 +1324,79 @@ function exportCSV() {
 }
 
 /* ══════════════════════════════════════════
+   系統外觀顏色
+══════════════════════════════════════════ */
+const SC_DEFAULTS = {
+  "sc-bg":     "#1e222d",
+  "sc-panel":  "#2a2e39",
+  "sc-border": "#2a2e39",
+  "sc-text":   "#d1d4dc",
+  "sc-muted":  "#787b86",
+  "sc-blue":   "#2962ff",
+};
+const SC_CSS_MAP = {
+  "sc-bg":     ["--bg", "--bg2"],
+  "sc-panel":  ["--bg3"],
+  "sc-border": ["--border"],
+  "sc-text":   ["--text"],
+  "sc-muted":  ["--muted"],
+  "sc-blue":   ["--blue"],
+};
+let SC = { ...SC_DEFAULTS };
+
+function applySystemColor(id, color) {
+  const vars = SC_CSS_MAP[id];
+  if (!vars) return;
+  vars.forEach(v => document.documentElement.style.setProperty(v, color));
+  if (id === "sc-bg") document.body.style.background = color;
+}
+function applyAllSystemColors() {
+  for (const [id, color] of Object.entries(SC)) applySystemColor(id, color);
+}
+function saveSystemColors() {
+  try { localStorage.setItem("sysColors", JSON.stringify(SC)); } catch {}
+}
+function loadSystemColors() {
+  try { Object.assign(SC, JSON.parse(localStorage.getItem("sysColors") || "{}")); } catch {}
+}
+function bindSystemColors() {
+  // 同步 input 值
+  for (const [id, color] of Object.entries(SC)) {
+    const el = document.getElementById(id);
+    if (el) el.value = color.slice(0, 7); // hex only, no alpha
+  }
+  // 監聽 input 事件（自訂調色盤也會觸發）
+  for (const id of Object.keys(SC_DEFAULTS)) {
+    document.getElementById(id)?.addEventListener("input", e => {
+      const color = e.target._cpColor || e.target.value;
+      SC[id] = color;
+      applySystemColor(id, color);
+      saveSystemColors();
+    });
+  }
+  // 重設按鈕
+  document.getElementById("resetSysColors")?.addEventListener("click", () => {
+    SC = { ...SC_DEFAULTS };
+    for (const [id, color] of Object.entries(SC)) {
+      const el = document.getElementById(id);
+      if (el) { el.value = color; el._cpColor = null; }
+    }
+    applyAllSystemColors();
+    saveSystemColors();
+    // 同步 cp-trigger 顯示色
+    document.querySelectorAll("#sysColorPanel input[type='color'].cp-hidden").forEach(inp => {
+      const tr = inp.previousElementSibling;
+      if (tr?.classList.contains("cp-trigger")) tr.style.background = inp.value;
+    });
+  });
+  // 收合 toggle
+  document.getElementById("sysColorToggle")?.addEventListener("click", () => {
+    document.getElementById("sysColorPanel")?.classList.toggle("hidden");
+    document.querySelector("#sysColorToggle .toggle-arrow")?.classList.toggle("open");
+  });
+}
+
+/* ══════════════════════════════════════════
    右側合約行情列表
 ══════════════════════════════════════════ */
 let _tickerData     = [];
@@ -1409,8 +1486,23 @@ function bindTickerPanel() {
    Symbol Search Modal
 ══════════════════════════════════════════ */
 const SYM_ICON_COLORS = ["#f23645","#2196f3","#ff9800","#26a69a","#7e57c2","#e91e63","#00bcd4","#8bc34a"];
-let _symSearchMarket = "futures";
+let _symSearchMarket   = "futures";
 let _symSearchFocusIdx = -1;
+let _symHistory        = [];   // 最近搜尋紀錄
+
+function loadSymHistory() {
+  try { _symHistory = JSON.parse(localStorage.getItem("symSearchHistory") || "[]"); } catch { _symHistory = []; }
+}
+function saveSymHistory() {
+  try { localStorage.setItem("symSearchHistory", JSON.stringify(_symHistory.slice(0, 10))); } catch {}
+}
+function addToSymHistory(t) {
+  _symHistory = _symHistory.filter(h => h.symbol !== t.symbol);
+  _symHistory.unshift({ symbol: t.symbol, display: t.display, spot: t.spot || t.display,
+                        change_pct: t.change_pct, price: t.price });
+  _symHistory = _symHistory.slice(0, 10);
+  saveSymHistory();
+}
 
 function symIconColor(base) {
   return SYM_ICON_COLORS[base.charCodeAt(0) % SYM_ICON_COLORS.length];
@@ -1423,13 +1515,58 @@ function renderSymSearch() {
   _renderSymSearchList();
 }
 
+function _symItemHTML(t, idx) {
+  const base  = (t.symbol || "").replace("USDT", "");
+  const color = symIconColor(base);
+  const chg   = t.change_pct != null ? t.change_pct : 0;
+  const cls   = chg >= 0 ? "up" : "dn";
+  const sign  = chg >= 0 ? "+" : "";
+  const desc  = _symSearchMarket === "futures" ? `${base} USDT #PERPETUAL` : `${base} / USDT`;
+  return `<div class="sym-result-item" data-idx="${idx}"
+    data-symbol="${t.symbol}" data-display="${t.display || t.symbol}"
+    data-spot="${t.spot || t.display || t.symbol}"
+    data-change_pct="${chg}" data-price="${t.price || 0}">
+    <div class="sym-icon" style="background:${color}">${base.slice(0,2)}</div>
+    <div class="sym-result-info">
+      <span class="sym-result-name">${t.display || t.symbol}</span>
+      <span class="sym-result-desc">${desc}</span>
+    </div>
+    <div class="sym-result-right">
+      <span class="sym-result-chg ${cls}">${sign}${chg.toFixed(2)}%</span>
+      <span class="sym-result-tag">Pionex</span>
+    </div>
+  </div>`;
+}
+
+function _bindSymItems(list) {
+  list.querySelectorAll(".sym-result-item").forEach(el => {
+    el.addEventListener("click", () => _selectSymbol(el));
+  });
+  document.getElementById("symHistClear")?.addEventListener("click", e => {
+    e.stopPropagation();
+    _symHistory = [];
+    saveSymHistory();
+    _renderSymSearchList();
+  });
+}
+
 function _renderSymSearchList() {
-  const list     = document.getElementById("symModalList");
-  const query    = (document.getElementById("symModalInput")?.value || "").toLowerCase().trim();
-  const data     = _symSearchMarket === "futures" ? _tickerData : _spotTickerData;
+  const list  = document.getElementById("symModalList");
+  const query = (document.getElementById("symModalInput")?.value || "").toLowerCase().trim();
+  const data  = _symSearchMarket === "futures" ? _tickerData : _spotTickerData;
+
+  let html = "";
+
+  // 無搜尋詞時顯示歷史紀錄
+  if (!query && _symHistory.length) {
+    html += `<div class="sym-section-hd">最近搜尋 <span class="sym-hist-clear" id="symHistClear">清除</span></div>`;
+    html += _symHistory.map((t, i) => _symItemHTML(t, "h" + i)).join("");
+    html += `<div class="sym-section-divider"></div>`;
+  }
 
   if (!data.length) {
-    list.innerHTML = `<div class="sym-loading">${_symSearchMarket === "futures" ? "合約行情載入中，請稍候…" : "現貨資料載入中…"}</div>`;
+    list.innerHTML = html + `<div class="sym-loading">${_symSearchMarket === "futures" ? "合約行情載入中，請稍候…" : "現貨資料載入中…"}</div>`;
+    _bindSymItems(list);
     return;
   }
 
@@ -1441,39 +1578,29 @@ function _renderSymSearchList() {
       t.symbol.toLowerCase().includes(query)
     );
   }
-  items = items.slice(0, 100);  // 最多顯示 100 筆
+  items = items.slice(0, 100);
 
-  if (!items.length) { list.innerHTML = `<div class="sym-empty">沒有符合的標的</div>`; return; }
+  if (!items.length) {
+    list.innerHTML = html + `<div class="sym-empty">沒有符合的標的</div>`;
+    _bindSymItems(list);
+    return;
+  }
 
-  list.innerHTML = items.map((t, i) => {
-    const base = t.symbol.replace("USDT", "");
-    const color = symIconColor(base);
-    const cls   = t.change_pct >= 0 ? "up" : "dn";
-    const sign  = t.change_pct >= 0 ? "+" : "";
-    const desc  = _symSearchMarket === "futures"
-      ? `${base} USDT #PERPETUAL`
-      : `${base} / USDT`;
-    return `<div class="sym-result-item" data-idx="${i}" data-symbol="${t.symbol}" data-display="${t.display}" data-spot="${t.spot || t.display}">
-      <div class="sym-icon" style="background:${color}">${base.slice(0,2)}</div>
-      <div class="sym-result-info">
-        <span class="sym-result-name">${t.display}</span>
-        <span class="sym-result-desc">${desc}</span>
-      </div>
-      <div class="sym-result-right">
-        <span class="sym-result-chg ${cls}">${sign}${t.change_pct.toFixed(2)}%</span>
-        <span class="sym-result-tag">Pionex</span>
-      </div>
-    </div>`;
-  }).join("");
-
-  list.querySelectorAll(".sym-result-item").forEach(el => {
-    el.addEventListener("click", () => _selectSymbol(el));
-  });
+  html += items.map((t, i) => _symItemHTML(t, i)).join("");
+  list.innerHTML = html;
+  _bindSymItems(list);
 }
 
 function _selectSymbol(el) {
-  // 永續合約選到現貨代號（BTC/USDT），讓現有 OHLCV API 能載入
   const spot = el.dataset.spot || el.dataset.display;
+  // 加入搜尋歷史
+  addToSymHistory({
+    symbol:     el.dataset.symbol,
+    display:    el.dataset.display,
+    spot:       el.dataset.spot || el.dataset.display,
+    change_pct: parseFloat(el.dataset.change_pct) || 0,
+    price:      parseFloat(el.dataset.price) || 0,
+  });
   document.getElementById("symbolInput").value = spot;
   closeSymSearch();
   loadData(false);

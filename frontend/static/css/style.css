@@ -405,6 +405,17 @@ html, body {
 .sym-loading, .sym-empty {
   color: #555; font-size: 12px; padding: 18px 18px; text-align: center;
 }
+.sym-section-hd {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 6px 14px 4px; font-size: 11px; color: #787b86; font-weight: 600;
+  letter-spacing: .03em; text-transform: uppercase;
+}
+.sym-hist-clear {
+  background: none; border: none; color: #555; font-size: 10px;
+  cursor: pointer; padding: 0; transition: color .12s;
+}
+.sym-hist-clear:hover { color: #ef5350; }
+.sym-section-divider { height: 1px; background: #2a2e39; margin: 4px 0; }
 
 .sym-result-item {
   display: flex; align-items: center; gap: 10px;

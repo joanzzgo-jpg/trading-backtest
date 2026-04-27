@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
   <title>回測系統</title>
   <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
-  <link rel="stylesheet" href="/static/css/style.css?v=27" />
+  <link rel="stylesheet" href="/static/css/style.css?v=28" />
 </head>
 <body>
 
@@ -129,6 +129,22 @@
           <input type="number" id="volMaPeriod" value="5" min="1" max="50" class="hl-num" />
         </div>
         <button id="resetColors" class="btn-reset">重設預設色</button>
+      </div>
+    </div>
+
+    <!-- 系統外觀 -->
+    <div class="sidebar-section">
+      <div class="section-title collapsible" id="sysColorToggle">
+        系統外觀 <span class="toggle-arrow">▸</span>
+      </div>
+      <div id="sysColorPanel" class="color-panel hidden">
+        <div class="color-row"><label>主背景</label>  <input type="color" id="sc-bg"     value="#1e222d" /></div>
+        <div class="color-row"><label>面板背景</label><input type="color" id="sc-panel"  value="#2a2e39" /></div>
+        <div class="color-row"><label>邊框色</label>  <input type="color" id="sc-border" value="#2a2e39" /></div>
+        <div class="color-row"><label>主文字</label>  <input type="color" id="sc-text"   value="#d1d4dc" /></div>
+        <div class="color-row"><label>次要文字</label><input type="color" id="sc-muted"  value="#787b86" /></div>
+        <div class="color-row"><label>強調色</label>  <input type="color" id="sc-blue"   value="#2962ff" /></div>
+        <button id="resetSysColors" class="btn-reset">重設預設色</button>
       </div>
     </div>
 
@@ -258,6 +274,6 @@
   </div>
 </div>
 
-<script src="/static/js/app.js?v=27"></script>
+<script src="/static/js/app.js?v=28"></script>
 </body>
 </html>

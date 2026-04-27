@@ -249,64 +249,17 @@ def fetch_crypto_markets(exchange_id: str = "pionex"):
     return results[:200]
 
 
-def _fetch_pionex_perp_symbols() -> set:
-    """取得 Pionex 上可交易的永續合約代號集合（如 BTCUSDT）"""
-    try:
-        data = _get(f"{PIONEX_BASE}/api/v1/common/symbols")
-        # 嘗試展開各種常見的回應結構
-        items = data
-        for key in ("data", "result", "symbols", "list"):
-            if isinstance(items, dict) and key in items:
-                items = items[key]
-        if isinstance(items, dict):
-            for key in ("symbols", "list", "items", "instruments"):
-                if key in items:
-                    items = items[key]
-                    break
-        if not isinstance(items, list) or not items:
-            return set()
-        syms = set()
-        for s in items:
-            if not isinstance(s, dict):
-                continue
-            stype = str(s.get("type", s.get("symbol_type", s.get("instType", "")))).upper()
-            # 接受 PERP / FUTURE / SWAP / CONTRACT 任一關鍵字
-            if not any(k in stype for k in ("PERP", "FUTURE", "SWAP", "CONTRACT")):
-                continue
-            base  = (s.get("baseCurrency") or s.get("base") or
-                     s.get("baseAsset") or s.get("baseCoin") or "")
-            quote = (s.get("quoteCurrency") or s.get("quote") or
-                     s.get("quoteAsset") or s.get("quoteCoin") or "")
-            if base and quote:
-                syms.add((base + quote).upper())
-            # 也嘗試直接從 symbol 欄位解析
-            raw = str(s.get("symbol", s.get("instId", ""))).upper()
-            raw = raw.replace("-", "").replace("_", "").replace("/", "")
-            if raw.endswith("USDT") and len(raw) > 4:
-                syms.add(raw)
-        return syms
-    except Exception:
-        return set()
-
-
 def fetch_tickers(market: str = "futures") -> list:
-    """取得即時 24h 漲跌幅排行（永續合約或現貨）"""
+    """取得即時 24h 漲跌幅排行。
+    統一使用 Binance spot API（穩定可靠），按成交量取前 120 筆
+    作為 Pionex 可用標的的近似（成交量高的幣 Pionex 一定有）。
+    """
     try:
-        if market == "futures":
-            # 先取 Pionex 合約清單，用於過濾（取不到則顯示全部）
-            pionex_syms = _fetch_pionex_perp_symbols()
-            url = f"{BINANCE_FAPI_BASE}/fapi/v1/ticker/24hr"
-        else:
-            pionex_syms = set()
-            url = f"{BINANCE_BASE}/api/v3/ticker/24hr"
-        data = _get(url)
+        data = _get(f"{BINANCE_BASE}/api/v3/ticker/24hr")
         tickers = []
         for t in data:
             sym = t.get("symbol", "")
             if not sym.endswith("USDT") or "_" in sym:
-                continue
-            # 若 Pionex 清單有效（>5 筆），只保留 Pionex 上有的標的
-            if len(pionex_syms) > 5 and sym not in pionex_syms:
                 continue
             try:
                 base = sym[:-4]
@@ -324,6 +277,10 @@ def fetch_tickers(market: str = "futures") -> list:
                 tickers.append(entry)
             except (KeyError, ValueError):
                 continue
+        # 先依成交量排序，取前 120（成交量高的 ≈ Pionex 有上架的合約）
+        tickers.sort(key=lambda x: x["volume"], reverse=True)
+        tickers = tickers[:120]
+        # 再依漲跌幅排序回傳
         tickers.sort(key=lambda x: x["change_pct"], reverse=True)
         return tickers
     except Exception:
