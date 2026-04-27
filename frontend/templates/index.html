@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
   <title>回測系統</title>
   <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
-  <link rel="stylesheet" href="/static/css/style.css?v=25" />
+  <link rel="stylesheet" href="/static/css/style.css?v=26" />
 </head>
 <body>
 
@@ -240,6 +240,26 @@
   </div>
 </div>
 
-<script src="/static/js/app.js?v=25"></script>
+<!-- Symbol Search Modal -->
+<div id="symOverlay" class="sym-overlay hidden">
+  <div class="sym-modal">
+    <div class="sym-modal-hd">
+      <div class="sym-modal-search-wrap">
+        <span class="sym-search-icon">🔍</span>
+        <input id="symModalInput" class="sym-modal-input" type="text" placeholder="搜尋合約標的…" autocomplete="off" />
+        <button id="symModalClear" class="sym-modal-clear hidden">✕</button>
+      </div>
+    </div>
+    <div class="sym-modal-tabs">
+      <button class="sym-tab active" data-market="futures">永續合約</button>
+      <button class="sym-tab" data-market="spot">現貨</button>
+    </div>
+    <div class="sym-modal-list" id="symModalList">
+      <div class="sym-loading">載入中…</div>
+    </div>
+  </div>
+</div>
+
+<script src="/static/js/app.js?v=26"></script>
 </body>
 </html>

@@ -12,6 +12,7 @@ from typing import Union, Optional
 # ── Binance（含 Pionex）────────────────────────────────────────
 BINANCE_BASE      = "https://api.binance.com"
 BINANCE_FAPI_BASE = "https://fapi.binance.com"  # 永續合約
+PIONEX_BASE       = "https://api.pionex.com"
 
 # ── Bybit ─────────────────────────────────────────────────────
 BYBIT_BASE   = "https://api.bybit.com"
@@ -248,28 +249,62 @@ def fetch_crypto_markets(exchange_id: str = "pionex"):
     return results[:200]
 
 
+def _fetch_pionex_perp_symbols() -> set:
+    """取得 Pionex 上可交易的永續合約代號集合（如 BTCUSDT）"""
+    try:
+        data = _get(f"{PIONEX_BASE}/api/v1/common/symbols")
+        items = data.get("data", {})
+        if isinstance(items, dict):
+            items = items.get("symbols", [])
+        if not isinstance(items, list):
+            return set()
+        syms = set()
+        for s in items:
+            stype = str(s.get("type", "")).upper()
+            if "PERP" not in stype and "FUTURE" not in stype:
+                continue
+            base  = s.get("baseCurrency", s.get("base", ""))
+            quote = s.get("quoteCurrency", s.get("quote", ""))
+            if base and quote:
+                syms.add((base + quote).upper())
+        return syms
+    except Exception:
+        return set()
+
+
 def fetch_tickers(market: str = "futures") -> list:
     """取得即時 24h 漲跌幅排行（永續合約或現貨）"""
     try:
         if market == "futures":
+            # 先取 Pionex 合約清單，用於過濾（取不到則顯示全部）
+            pionex_syms = _fetch_pionex_perp_symbols()
             url = f"{BINANCE_FAPI_BASE}/fapi/v1/ticker/24hr"
         else:
+            pionex_syms = set()
             url = f"{BINANCE_BASE}/api/v3/ticker/24hr"
         data = _get(url)
         tickers = []
         for t in data:
             sym = t.get("symbol", "")
-            # 只保留 USDT 結尾，排除季度合約（含底線）
             if not sym.endswith("USDT") or "_" in sym:
                 continue
+            # 若成功取到 Pionex 清單，只保留 Pionex 有的標的
+            if pionex_syms and sym not in pionex_syms:
+                continue
             try:
-                tickers.append({
+                base = sym[:-4]
+                entry = {
                     "symbol":     sym,
-                    "display":    sym[:-4] + "/USDT",   # BTCUSDT → BTC/USDT
                     "price":      float(t["lastPrice"]),
                     "change_pct": float(t["priceChangePercent"]),
                     "volume":     float(t.get("quoteVolume", 0)),
-                })
+                }
+                if market == "futures":
+                    entry["display"] = base + "/USDT.P"
+                    entry["spot"]    = base + "/USDT"
+                else:
+                    entry["display"] = base + "/USDT"
+                tickers.append(entry)
             except (KeyError, ValueError):
                 continue
         tickers.sort(key=lambda x: x["change_pct"], reverse=True)

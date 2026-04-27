@@ -185,7 +185,7 @@ def get_latest(req: LatestRequest):
 @app.get("/api/tickers")
 def get_tickers(market: str = "futures"):
     cache_key = f"tickers:{market}"
-    cached = _cache_get(cache_key, ttl=10)   # 10 秒快取
+    cached = _cache_get(cache_key, ttl=2)    # 2 秒快取，近即時
     if cached:
         return cached
     result = {"tickers": fetch_tickers(market)}

@@ -185,6 +185,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   await loadStrategies();
   bindEvents();
   bindTickerPanel();
+  initSymSearch();
   syncTimeScales();
   updateMarketUI();
   applyAllColors();
@@ -1321,17 +1322,21 @@ function exportCSV() {
 /* ══════════════════════════════════════════
    右側合約行情列表
 ══════════════════════════════════════════ */
-let _tickerData  = [];
-let _tickerSort  = "desc";   // desc=漲幅 asc=跌幅 vol=成交量
-let _tickerTimer = null;
+let _tickerData     = [];
+let _spotTickerData = [];
+let _tickerSort     = "desc";   // desc=漲幅 asc=跌幅 vol=成交量
+let _tickerTimer    = null;
 
 async function fetchTickers() {
   try {
-    const res  = await fetch("/api/tickers?market=futures");
-    if (!res.ok) return;
-    const json = await res.json();
-    _tickerData = json.tickers || [];
+    const [futRes, spotRes] = await Promise.all([
+      fetch("/api/tickers?market=futures"),
+      fetch("/api/tickers?market=spot"),
+    ]);
+    if (futRes.ok)  { const j = await futRes.json();  _tickerData     = j.tickers || []; }
+    if (spotRes.ok) { const j = await spotRes.json(); _spotTickerData = j.tickers || []; }
     renderTickers();
+    renderSymSearch();   // 同步更新搜尋列表的漲跌幅
   } catch {}
 }
 
@@ -1352,7 +1357,7 @@ function renderTickers() {
     const cls  = t.change_pct >= 0 ? "up" : "dn";
     const sign = t.change_pct >= 0 ? "+" : "";
     const active = (t.display.toUpperCase() === currentSym || t.symbol.toUpperCase() === currentSym) ? " tk-active" : "";
-    return `<div class="ticker-item${active}" data-symbol="${t.symbol}" data-display="${t.display}">
+    return `<div class="ticker-item${active}" data-symbol="${t.symbol}" data-display="${t.display}" data-spot="${t.spot || t.display}">
       <div class="tk-row1">
         <span class="tk-sym">${t.display}</span>
         <span class="tk-chg ${cls}">${sign}${t.change_pct.toFixed(2)}%</span>
@@ -1363,9 +1368,9 @@ function renderTickers() {
 
   container.querySelectorAll(".ticker-item").forEach(el => {
     el.addEventListener("click", () => {
-      const display = el.dataset.display;
-      document.getElementById("symbolInput").value = display;
-      // 切到現貨 Binance（永續合約用相同符號）
+      // 用現貨代號（BTC/USDT）載入 OHLCV，顯示欄位用 BTC/USDT.P
+      const spot = el.dataset.spot || el.dataset.display;
+      document.getElementById("symbolInput").value = spot;
       const exchEl = document.getElementById("exchangeSelect");
       if (exchEl && exchEl.value !== "binance") exchEl.value = "binance";
       loadData(false);
@@ -1385,7 +1390,7 @@ function fmtTickerPrice(p) {
 
 function startTickerRefresh() {
   fetchTickers();
-  _tickerTimer = setInterval(fetchTickers, 10000);
+  _tickerTimer = setInterval(fetchTickers, 1000);   // 每秒更新
 }
 
 function bindTickerPanel() {
@@ -1398,6 +1403,149 @@ function bindTickerPanel() {
     });
   });
   document.getElementById("tickerSearch")?.addEventListener("input", renderTickers);
+}
+
+/* ══════════════════════════════════════════
+   Symbol Search Modal
+══════════════════════════════════════════ */
+const SYM_ICON_COLORS = ["#f23645","#2196f3","#ff9800","#26a69a","#7e57c2","#e91e63","#00bcd4","#8bc34a"];
+let _symSearchMarket = "futures";
+let _symSearchFocusIdx = -1;
+
+function symIconColor(base) {
+  return SYM_ICON_COLORS[base.charCodeAt(0) % SYM_ICON_COLORS.length];
+}
+
+function renderSymSearch() {
+  const list = document.getElementById("symModalList");
+  if (!list || !document.getElementById("symOverlay").classList.contains("hidden") === false) return;
+  if (!document.getElementById("symOverlay") || document.getElementById("symOverlay").classList.contains("hidden")) return;
+  _renderSymSearchList();
+}
+
+function _renderSymSearchList() {
+  const list     = document.getElementById("symModalList");
+  const query    = (document.getElementById("symModalInput")?.value || "").toLowerCase().trim();
+  const data     = _symSearchMarket === "futures" ? _tickerData : _spotTickerData;
+
+  if (!data.length) { list.innerHTML = `<div class="sym-loading">載入中…</div>`; return; }
+
+  // 先按 volume 排（熱門在前），再依查詢過濾
+  let items = [...data].sort((a, b) => b.volume - a.volume);
+  if (query) {
+    items = items.filter(t =>
+      t.display.toLowerCase().includes(query) ||
+      t.symbol.toLowerCase().includes(query)
+    );
+  }
+  items = items.slice(0, 100);  // 最多顯示 100 筆
+
+  if (!items.length) { list.innerHTML = `<div class="sym-empty">沒有符合的標的</div>`; return; }
+
+  list.innerHTML = items.map((t, i) => {
+    const base = t.symbol.replace("USDT", "");
+    const color = symIconColor(base);
+    const cls   = t.change_pct >= 0 ? "up" : "dn";
+    const sign  = t.change_pct >= 0 ? "+" : "";
+    const desc  = _symSearchMarket === "futures"
+      ? `${base} USDT #PERPETUAL`
+      : `${base} / USDT`;
+    return `<div class="sym-result-item" data-idx="${i}" data-symbol="${t.symbol}" data-display="${t.display}" data-spot="${t.spot || t.display}">
+      <div class="sym-icon" style="background:${color}">${base.slice(0,2)}</div>
+      <div class="sym-result-info">
+        <span class="sym-result-name">${t.display}</span>
+        <span class="sym-result-desc">${desc}</span>
+      </div>
+      <div class="sym-result-right">
+        <span class="sym-result-chg ${cls}">${sign}${t.change_pct.toFixed(2)}%</span>
+        <span class="sym-result-tag">Pionex</span>
+      </div>
+    </div>`;
+  }).join("");
+
+  list.querySelectorAll(".sym-result-item").forEach(el => {
+    el.addEventListener("click", () => _selectSymbol(el));
+  });
+}
+
+function _selectSymbol(el) {
+  // 永續合約選到現貨代號（BTC/USDT），讓現有 OHLCV API 能載入
+  const spot = el.dataset.spot || el.dataset.display;
+  document.getElementById("symbolInput").value = spot;
+  closeSymSearch();
+  loadData(false);
+  renderTickers();  // 更新右側高亮
+}
+
+function openSymSearch() {
+  document.getElementById("symOverlay").classList.remove("hidden");
+  const inp = document.getElementById("symModalInput");
+  inp.value = "";
+  document.getElementById("symModalClear").classList.add("hidden");
+  _symSearchFocusIdx = -1;
+  _renderSymSearchList();
+  setTimeout(() => inp.focus(), 50);
+}
+
+function closeSymSearch() {
+  document.getElementById("symOverlay").classList.add("hidden");
+}
+
+function initSymSearch() {
+  // 點擊 symbolInput 開啟 modal
+  const symInp = document.getElementById("symbolInput");
+  symInp.readOnly = true;
+  symInp.addEventListener("click", openSymSearch);
+
+  // 關閉按鈕、overlay 背景點擊
+  document.getElementById("symOverlay").addEventListener("click", e => {
+    if (e.target === document.getElementById("symOverlay")) closeSymSearch();
+  });
+
+  // 搜尋輸入
+  const modalInp = document.getElementById("symModalInput");
+  modalInp.addEventListener("input", () => {
+    const clear = document.getElementById("symModalClear");
+    clear.classList.toggle("hidden", !modalInp.value);
+    _symSearchFocusIdx = -1;
+    _renderSymSearchList();
+  });
+  document.getElementById("symModalClear")?.addEventListener("click", () => {
+    modalInp.value = "";
+    document.getElementById("symModalClear").classList.add("hidden");
+    modalInp.focus();
+    _renderSymSearchList();
+  });
+
+  // 鍵盤：↑↓ 選、Enter 確認、ESC 關閉
+  modalInp.addEventListener("keydown", e => {
+    const items = document.querySelectorAll(".sym-result-item");
+    if (e.key === "Escape") { closeSymSearch(); return; }
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      _symSearchFocusIdx = Math.min(_symSearchFocusIdx + 1, items.length - 1);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      _symSearchFocusIdx = Math.max(_symSearchFocusIdx - 1, 0);
+    } else if (e.key === "Enter") {
+      if (_symSearchFocusIdx >= 0 && items[_symSearchFocusIdx])
+        _selectSymbol(items[_symSearchFocusIdx]);
+      return;
+    } else { return; }
+    items.forEach((el, i) => el.classList.toggle("sym-focused", i === _symSearchFocusIdx));
+    items[_symSearchFocusIdx]?.scrollIntoView({ block: "nearest" });
+  });
+
+  // 市場 tab 切換
+  document.querySelectorAll(".sym-tab").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".sym-tab").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      _symSearchMarket = btn.dataset.market;
+      _symSearchFocusIdx = -1;
+      _renderSymSearchList();
+    });
+  });
 }
 
 /* ══════════════════════════════════════════
