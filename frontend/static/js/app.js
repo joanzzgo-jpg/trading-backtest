@@ -303,11 +303,11 @@ function syncTimeScales() {
 
   let hideTimer = null;
 
-  function positionLines(time) {
-    // 用 mainChart 的 x 座標讓所有段對齊同一條線
-    // （各 sub-chart 的 price scale 寬度不同，若各自計算 x 會有偏移，看起來像斷掉）
-    const x = mainChart.timeScale().timeToCoordinate(time);
-    if (x === null || x < 0) {
+  function positionLines(time, crosshairX) {
+    // 優先用事件提供的 crosshairX（param.point.x），即十字線實際位置
+    // 各子圖 price scale 寬度不同，若用 mainChart.timeToCoordinate 會有偏移
+    const x = crosshairX ?? mainChart.timeScale().timeToCoordinate(time);
+    if (x == null || x < 0) {
       lineEls.forEach(l => l.style.display = "none");
       timeLabel.style.display = "none";
       return;
@@ -359,7 +359,7 @@ function syncTimeScales() {
         }, 60);
         return;
       }
-      positionLines(param.time);
+      positionLines(param.time, param.point.x);
       updateAllLegends(param.time);
     });
   });
