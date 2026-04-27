@@ -3,10 +3,12 @@ FastAPI 後端主程式 - v2（含快取、MACD 指標）
 """
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.templating import Jinja2Templates
+from fastapi import Request
 from pydantic import BaseModel
 from typing import Optional
-import os, sys, time, math, gc
+import os, sys, time, math, gc, subprocess
 
 sys.path.insert(0, os.path.dirname(__file__))
 
@@ -21,6 +23,16 @@ app = FastAPI(title="回測系統")
 FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "..", "frontend")
 app.mount("/static", StaticFiles(directory=os.path.join(FRONTEND_DIR, "static")), name="static")
 
+templates = Jinja2Templates(directory=os.path.join(FRONTEND_DIR, "templates"))
+
+# 取得 git commit hash 作為靜態資源版本號（每次部署自動更新）
+try:
+    _VER = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"],
+                                   cwd=os.path.dirname(__file__),
+                                   stderr=subprocess.DEVNULL).decode().strip()
+except Exception:
+    _VER = str(int(time.time()))
+
 
 @app.on_event("startup")
 async def _warmup():
@@ -31,9 +43,10 @@ async def _warmup():
 
 
 @app.get("/")
-def index():
-    return FileResponse(
-        os.path.join(FRONTEND_DIR, "templates", "index.html"),
+def index(request: Request):
+    return templates.TemplateResponse(
+        "index.html",
+        {"request": request, "ver": _VER},
         headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
     )
 
