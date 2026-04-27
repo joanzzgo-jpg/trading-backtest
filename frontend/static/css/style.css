@@ -577,31 +577,82 @@ html, body {
 .cp-line-btn.active  { background: #3a3f4d; border-color: #d1d4dc; }
 
 /* ═══ MOBILE RESPONSIVE ═══ */
-@media (max-width: 768px) {
-  .btn-sidebar-toggle { display: flex; align-items: center; justify-content: center; }
 
+/* 半透明遮罩 */
+.panel-overlay {
+  position: fixed; inset: 0; z-index: 490;
+  background: rgba(0,0,0,.55); backdrop-filter: blur(1px);
+  transition: opacity .2s;
+}
+.panel-overlay.hidden { display: none; }
+
+@media (max-width: 768px) {
+  /* 顯示兩個 toggle 按鈕 */
+  .btn-sidebar-toggle { display: flex; align-items: center; justify-content: center; }
+  #tickerToggle       { display: flex !important; }
+
+  /* ── 側欄：左側抽屜 ── */
   .sidebar {
-    position: fixed; left: 0; top: 0; bottom: 0;
-    z-index: 500; transform: translateX(-100%);
-    width: 220px; padding-top: 68px; /* topbar + symbar */
-    box-shadow: 4px 0 16px rgba(0,0,0,.5);
+    position: fixed; left: 0; top: 0; bottom: 0; z-index: 500;
+    width: min(80vw, 260px);
+    transform: translateX(-100%);
+    transition: transform .25s cubic-bezier(.4,0,.2,1);
+    box-shadow: 4px 0 20px rgba(0,0,0,.6);
+    padding-top: 0; overflow-y: auto;
   }
   .sidebar.sidebar-open { transform: translateX(0); }
 
-  .tb-input  { width: 70px; }
-  .tb-date   { width: 100px; }
-  .tf-btn    { padding: 0 5px; }
-  .tb-sep    { display: none; }
+  /* ── 右側行情：右側抽屜 ── */
+  .ticker-panel {
+    position: fixed; right: 0; top: 0; bottom: 0; z-index: 500;
+    width: min(80vw, 260px);
+    transform: translateX(100%);
+    transition: transform .25s cubic-bezier(.4,0,.2,1);
+    box-shadow: -4px 0 20px rgba(0,0,0,.6);
+    border-left: none;
+  }
+  .ticker-panel.ticker-open { transform: translateX(0); }
 
-  .symbol-bar { font-size: 11px; gap: 3px; }
+  /* 圖表區佔滿寬度 */
+  .charts-container { width: 100%; }
+
+  /* ── Topbar ── */
+  .topbar { padding: 0 6px; gap: 4px; }
+  .topbar-left { gap: 3px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .tb-input  { width: 90px; }
+  .tb-date   { width: 108px; font-size: 11px; }
+  .tf-btn    { padding: 0 5px; font-size: 11px; }
+  #backtestModeBtn { font-size: 11px; padding: 0 8px; }
+
+  /* ── 符號列 ── */
+  .symbol-bar { font-size: 11px; gap: 3px; padding: 3px 8px; }
   .sym-label  { display: none; }
+  .sym-tag    { display: none; }
+  .sym-divider{ display: none; }
 
-  .trade-drawer { height: 160px; }
+  /* 交易明細 */
+  .trade-drawer { height: 55vh; }
+
+  /* 圖例文字縮短 */
+  .leg-item { font-size: 10px; }
 }
 
+/* ── 小螢幕（≤480px）進一步精簡 ── */
 @media (max-width: 480px) {
-  .tb-date, .tb-sep { display: none; }
-  #startDate, #endDate { display: none; }
+  /* 隱藏日期區塊與分隔符，TF 按鈕去掉月/週 */
+  #startDate, #endDate, .tb-sep { display: none !important; }
   .tf-group .tf-btn[data-tf="1M"],
   .tf-group .tf-btn[data-tf="1w"] { display: none; }
+
+  /* 隱藏交易所選單（預設 Pionex） */
+  #exchangeSelect { display: none; }
+
+  /* symbol input 稍寬 */
+  #symbolInput.tb-input { width: 100px; }
+
+  /* 圖例只留色塊不留文字 */
+  .leg-item span:not(.leg-dot) { display: none; }
+  .leg-toggle { gap: 0; }
+  .leg-dot    { width: 8px; height: 8px; }
+  .pane-legend { gap: 5px; padding: 0 6px; }
 }

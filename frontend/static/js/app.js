@@ -730,10 +730,33 @@ function bindEvents() {
     document.getElementById("tradeDrawer").classList.add("hidden"));
   document.getElementById("exportCsvBtn").addEventListener("click", exportCSV);
 
-  // 側欄收合（手機）
+  // ── 手機側欄 / 行情列表 抽屜 ──────────────────────────────
+  function openSidebar()  { document.getElementById("sidebar").classList.add("sidebar-open");     showOverlay(); }
+  function closeSidebar() { document.getElementById("sidebar").classList.remove("sidebar-open"); checkOverlay(); }
+  function openTicker()   { document.getElementById("tickerPanel").classList.add("ticker-open");  showOverlay(); }
+  function closeTicker()  { document.getElementById("tickerPanel").classList.remove("ticker-open"); checkOverlay(); }
+  function showOverlay()  { document.getElementById("panelOverlay").classList.remove("hidden"); }
+  function checkOverlay() {
+    const sideOpen   = document.getElementById("sidebar").classList.contains("sidebar-open");
+    const tickerOpen = document.getElementById("tickerPanel").classList.contains("ticker-open");
+    if (!sideOpen && !tickerOpen) document.getElementById("panelOverlay").classList.add("hidden");
+  }
+  function closeAllPanels() { closeSidebar(); closeTicker(); }
+
   document.getElementById("sidebarToggle").addEventListener("click", () => {
-    document.getElementById("sidebar").classList.toggle("sidebar-open");
+    const open = document.getElementById("sidebar").classList.contains("sidebar-open");
+    open ? closeSidebar() : openSidebar();
   });
+  document.getElementById("tickerToggle")?.addEventListener("click", () => {
+    const open = document.getElementById("tickerPanel").classList.contains("ticker-open");
+    open ? closeTicker() : openTicker();
+  });
+  document.getElementById("panelOverlay").addEventListener("click", closeAllPanels);
+
+  // 在抽屜內選取標的後自動關閉（手機體驗）
+  document.getElementById("tickerList").addEventListener("click", () => {
+    if (window.innerWidth <= 768) closeTicker();
+  }, true);
 
   // 回測模式切換
   document.getElementById("backtestModeBtn").addEventListener("click", () => {

@@ -39,6 +39,7 @@
   </div>
   <div class="topbar-right">
     <button id="backtestModeBtn" class="btn-mode">回測模式</button>
+    <button id="tickerToggle" class="btn-sidebar-toggle" title="行情列表" style="font-size:14px;display:none">≡</button>
   </div>
 </header>
 
@@ -55,6 +56,9 @@
   <span id="symChg" class="sym-chg"></span>
   <span id="realtimeDot" class="realtime-dot hidden" title="即時更新中"></span>
 </div>
+
+<!-- 遮罩（手機側欄開啟時顯示） -->
+<div id="panelOverlay" class="panel-overlay hidden"></div>
 
 <!-- ③ 主體 -->
 <div class="body-layout">
