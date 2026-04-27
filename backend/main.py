@@ -11,7 +11,7 @@ import os, sys, time, math, gc
 sys.path.insert(0, os.path.dirname(__file__))
 
 from data.taiwan import fetch_tw_stock, resample_tw, search_tw_stock
-from data.crypto import fetch_crypto_ohlcv, fetch_crypto_markets, fetch_tickers
+from data.crypto import fetch_crypto_ohlcv, fetch_crypto_markets, fetch_tickers, _fetch_pionex_symbols
 from indicators.engine import add_indicators, crt_markers, rsi as calc_rsi, macd as calc_macd
 from backtest.engine import BacktestEngine, BacktestConfig
 from strategies.builtin import BUILTIN_STRATEGIES
@@ -20,6 +20,14 @@ app = FastAPI(title="回測系統")
 
 FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "..", "frontend")
 app.mount("/static", StaticFiles(directory=os.path.join(FRONTEND_DIR, "static")), name="static")
+
+
+@app.on_event("startup")
+async def _warmup():
+    """啟動時預熱 Pionex 標的快取（背景執行，不阻塞啟動）"""
+    import asyncio, concurrent.futures
+    loop = asyncio.get_event_loop()
+    loop.run_in_executor(None, _fetch_pionex_symbols)
 
 
 @app.get("/")
@@ -202,6 +210,13 @@ def search(market: str, keyword: str, token: str = ""):
         markets  = fetch_crypto_markets(exchange)
         return {"results": markets[:50]}
     return {"results": []}
+
+
+@app.get("/api/pionex/symbols")
+def get_pionex_symbols():
+    """診斷用：回傳目前快取的 Pionex 標的清單"""
+    syms = _fetch_pionex_symbols()
+    return {"count": len(syms), "symbols": sorted(syms), "source": "pionex_api" if syms else "fallback"}
 
 
 # ── 策略 API ─────────────────────────────────────────────────

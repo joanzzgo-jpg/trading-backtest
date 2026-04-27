@@ -3,6 +3,7 @@
 Pionex 使用 Binance 流動性，行情相同；Bybit / OKX 也各自實作。
 """
 import json
+import time
 import urllib.request
 import urllib.parse
 import pandas as pd
@@ -34,10 +35,46 @@ TIMEFRAME_MAP = {
 }
 
 
-def _get(url: str) -> Union[dict, list]:
+def _get(url: str, timeout: int = 30) -> Union[dict, list]:
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-    with urllib.request.urlopen(req, timeout=30) as r:
+    with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read())
+
+
+# ── Pionex 標的快取（1 小時更新一次）────────────────────────────
+_PIONEX_SYMS_CACHE: dict = {"ts": 0.0, "syms": set()}
+
+def _fetch_pionex_symbols() -> set:
+    """取得 Pionex 有上架的 base 幣集合（大寫），快取 1 小時。
+    失敗時回傳空集合（呼叫方按空集合視為「不過濾」）。
+    """
+    global _PIONEX_SYMS_CACHE
+    now = time.time()
+    if now - _PIONEX_SYMS_CACHE["ts"] < 3600 and _PIONEX_SYMS_CACHE["syms"]:
+        return _PIONEX_SYMS_CACHE["syms"]
+    syms: set = set()
+    for endpoint in (
+        f"{PIONEX_BASE}/api/v1/common/symbols",
+        f"{PIONEX_BASE}/api/v2/common/symbols",
+    ):
+        try:
+            data  = _get(endpoint, timeout=8)
+            items = (
+                (data.get("data") or {}).get("symbols") or
+                data.get("symbols") or []
+            )
+            for s in items:
+                base  = s.get("baseCurrency") or s.get("base") or ""
+                quote = s.get("quoteCurrency") or s.get("quote") or ""
+                if str(quote).upper() == "USDT" and base:
+                    syms.add(str(base).upper())
+            if len(syms) >= 5:
+                break   # 成功取得，跳出迴圈
+        except Exception:
+            continue
+    if len(syms) >= 5:
+        _PIONEX_SYMS_CACHE = {"ts": now, "syms": syms}
+    return syms
 
 
 def _sym_binance(symbol: str) -> str:
@@ -222,12 +259,14 @@ def fetch_crypto_markets(exchange_id: str = "pionex"):
     try:
         if ex in ("pionex", "binance"):
             data = _get(f"{BINANCE_BASE}/api/v3/exchangeInfo")
+            pionex_syms = _fetch_pionex_symbols() if ex == "pionex" else set()
             results = [
                 {"symbol": f"{s['baseAsset']}/{s['quoteAsset']}",
                  "base": s["baseAsset"], "quote": s["quoteAsset"]}
                 for s in data.get("symbols", [])
                 if s.get("status") == "TRADING" and s.get("quoteAsset") == "USDT"
                    and s.get("isSpotTradingAllowed")
+                   and (not pionex_syms or s["baseAsset"].upper() in pionex_syms)
             ]
         elif ex == "bybit":
             data = _get(f"{BYBIT_BASE}/v5/market/instruments-info?category=spot")
@@ -279,7 +318,18 @@ def fetch_tickers(market: str = "futures") -> list:
                 tickers.append(entry)
             except (KeyError, ValueError):
                 continue
-        # 依漲跌幅排序回傳全部
+
+        # ── 只保留 Pionex 有上架的標的 ──────────────────────────
+        pionex_syms = _fetch_pionex_symbols()
+        if pionex_syms:
+            # Pionex API 成功：嚴格過濾
+            tickers = [t for t in tickers if t["symbol"][:-4].upper() in pionex_syms]
+        else:
+            # Pionex API 失敗：退而取成交量前 200（覆蓋 Pionex 幾乎所有上架幣）
+            tickers.sort(key=lambda x: x["volume"], reverse=True)
+            tickers = tickers[:200]
+
+        # 依漲跌幅排序回傳
         tickers.sort(key=lambda x: x["change_pct"], reverse=True)
         return tickers
     except Exception:
