@@ -250,9 +250,8 @@ def fetch_crypto_markets(exchange_id: str = "pionex"):
 
 
 def fetch_tickers(market: str = "futures") -> list:
-    """取得即時 24h 漲跌幅排行。
-    統一使用 Binance spot API（穩定可靠），按成交量取前 120 筆
-    作為 Pionex 可用標的的近似（成交量高的幣 Pionex 一定有）。
+    """取得即時 24h 漲跌幅排行（全部 USDT 交易對）。
+    統一使用 Binance spot API，回傳所有 USDT 現貨交易對，依漲跌幅排序。
     """
     try:
         data = _get(f"{BINANCE_BASE}/api/v3/ticker/24hr")
@@ -277,10 +276,7 @@ def fetch_tickers(market: str = "futures") -> list:
                 tickers.append(entry)
             except (KeyError, ValueError):
                 continue
-        # 先依成交量排序，取前 120（成交量高的 ≈ Pionex 有上架的合約）
-        tickers.sort(key=lambda x: x["volume"], reverse=True)
-        tickers = tickers[:120]
-        # 再依漲跌幅排序回傳
+        # 依漲跌幅排序回傳全部
         tickers.sort(key=lambda x: x["change_pct"], reverse=True)
         return tickers
     except Exception:

@@ -57,6 +57,8 @@ let lastCRTMarkers  = [];
 let paneCollapseFlex = {};  // 面板收合前的 flex 值（module-level，供 loadVisibilityPrefs 使用）
 let _restoringPrefs  = false; // 還原偏好設定時，暫停自動儲存
 
+const PANE_FLEX_DEFAULTS = { mainPane:5, kdjPane:1, rsiPane:1, macdPane:1, equityPane:1.5 };
+
 const TF_LABELS = { "1M":"月","1w":"週","1d":"日","4h":"4H","1h":"1H","15m":"15m" };
 
 /* ── 時間轉 Unix 秒 ── */
@@ -106,6 +108,34 @@ function applyLineStyle(inputId) {
 /* 頁面載入後重新套用所有儲存的線條樣式 */
 function applyAllLineStyles() {
   Object.keys(LINE_STYLES).forEach(applyLineStyle);
+}
+
+function savePaneFlexes() {
+  if (_restoringPrefs) return;
+  const flexes = {};
+  Object.keys(PANE_FLEX_DEFAULTS).forEach(id => {
+    const el  = document.getElementById(id);
+    if (!el) return;
+    const btn = document.querySelector(`.pane-collapse-btn[data-pane="${id}"]`);
+    const isCollapsed = btn?.dataset.collapsed === "true";
+    // 收合時儲存收合前的 flex；否則儲存目前 flex
+    flexes[id] = isCollapsed
+      ? (parseFloat(paneCollapseFlex[id]) || PANE_FLEX_DEFAULTS[id])
+      : (parseFloat(el.style.flex)        || PANE_FLEX_DEFAULTS[id]);
+  });
+  try { localStorage.setItem("paneFlexes", JSON.stringify(flexes)); } catch {}
+}
+
+function loadPaneFlexes() {
+  try {
+    const saved = JSON.parse(localStorage.getItem("paneFlexes") || "{}");
+    Object.keys(PANE_FLEX_DEFAULTS).forEach(id => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const flex = saved[id] ?? PANE_FLEX_DEFAULTS[id];
+      el.style.flex = flex;
+    });
+  } catch {}
 }
 
 function saveVisibilityPrefs() {
@@ -183,6 +213,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   loadSystemColors();
   applyAllSystemColors();
   loadSymHistory();
+  loadPaneFlexes();   // 套用儲存的面板比例（在 buildCharts 前，讓第一次 resize 即正確）
   buildCharts();
   syncColorInputsToState();
   await loadStrategies();
@@ -788,6 +819,7 @@ function bindPaneDividers() {
         divider.classList.remove("dragging");
         window.removeEventListener("mousemove", onMove);
         window.removeEventListener("mouseup",   onUp);
+        savePaneFlexes();
       };
       window.addEventListener("mousemove", onMove);
       window.addEventListener("mouseup",   onUp);
@@ -869,6 +901,7 @@ function bindLegendToggles() {
       updateBottomTimeAxis();
       resizeAll();
       saveVisibilityPrefs();
+      savePaneFlexes();
     });
   });
 }
@@ -1417,6 +1450,24 @@ async function fetchTickers() {
   } catch {}
 }
 
+function updatePageTitle() {
+  const sym = (document.getElementById("symbolInput")?.value || "").trim().toUpperCase();
+  if (!sym) { document.title = "回測系統"; return; }
+  // 在 _tickerData 或 _spotTickerData 中找到目前標的的即時價格
+  const all  = [..._tickerData, ..._spotTickerData];
+  const hit  = all.find(t =>
+    t.symbol.toUpperCase() === sym.replace("/","").replace(".P","") ||
+    (t.spot  || "").toUpperCase() === sym ||
+    (t.display || "").toUpperCase() === sym
+  );
+  if (hit) {
+    const chg  = hit.change_pct >= 0 ? `+${hit.change_pct.toFixed(2)}%` : `${hit.change_pct.toFixed(2)}%`;
+    document.title = `${fmtTickerPrice(hit.price)} ${chg} · ${hit.display || sym}`;
+  } else {
+    document.title = sym + " · 回測系統";
+  }
+}
+
 function renderTickers() {
   const search = (document.getElementById("tickerSearch")?.value || "").toLowerCase();
   let list = _tickerData.filter(t =>
@@ -1455,6 +1506,7 @@ function renderTickers() {
       el.classList.add("tk-active");
     });
   });
+  updatePageTitle();  // 每次重繪都更新分頁標題
 }
 
 function fmtTickerPrice(p) {
@@ -1516,19 +1568,26 @@ function renderSymSearch() {
 }
 
 function _symItemHTML(t, idx) {
-  const base  = (t.symbol || "").replace("USDT", "");
-  const color = symIconColor(base);
-  const chg   = t.change_pct != null ? t.change_pct : 0;
-  const cls   = chg >= 0 ? "up" : "dn";
-  const sign  = chg >= 0 ? "+" : "";
-  const desc  = _symSearchMarket === "futures" ? `${base} USDT #PERPETUAL` : `${base} / USDT`;
+  // 從 symbol 推算 base（BTCUSDT → BTC）
+  const rawSym = t.symbol || "";
+  const base   = rawSym.endsWith("USDT") ? rawSym.slice(0, -4) : rawSym.replace("USDT", "");
+  const color  = symIconColor(base);
+  const chg    = t.change_pct != null ? t.change_pct : 0;
+  const cls    = chg >= 0 ? "up" : "dn";
+  const sign   = chg >= 0 ? "+" : "";
+  // 依當前 tab 決定顯示名稱，不依賴後端回傳的 display 欄位（防止 tab 切換時顯示錯誤格式）
+  const isFut  = _symSearchMarket === "futures";
+  const name   = isFut ? `${base}/USDT.P` : `${base}/USDT`;
+  const desc   = isFut ? `${base} USDT 永續合約` : `${base} / USDT`;
+  // 現貨代號（供 OHLCV API 使用）
+  const spot   = t.spot || `${base}/USDT`;
   return `<div class="sym-result-item" data-idx="${idx}"
-    data-symbol="${t.symbol}" data-display="${t.display || t.symbol}"
-    data-spot="${t.spot || t.display || t.symbol}"
+    data-symbol="${rawSym}" data-display="${name}"
+    data-spot="${spot}"
     data-change_pct="${chg}" data-price="${t.price || 0}">
     <div class="sym-icon" style="background:${color}">${base.slice(0,2)}</div>
     <div class="sym-result-info">
-      <span class="sym-result-name">${t.display || t.symbol}</span>
+      <span class="sym-result-name">${name}</span>
       <span class="sym-result-desc">${desc}</span>
     </div>
     <div class="sym-result-right">
