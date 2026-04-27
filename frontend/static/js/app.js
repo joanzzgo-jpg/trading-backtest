@@ -1525,7 +1525,7 @@ function renderTickers() {
       // symbolInput 顯示合約格式（BTC/USDT.P），後端自動去除 .P 後綴
       document.getElementById("symbolInput").value = el.dataset.display;
       const exchEl = document.getElementById("exchangeSelect");
-      if (exchEl && exchEl.value !== "binance") exchEl.value = "binance";
+      if (exchEl && !["pionex","binance"].includes(exchEl.value)) exchEl.value = "pionex";
       loadData(false);
       container.querySelectorAll(".ticker-item").forEach(x => x.classList.remove("tk-active"));
       el.classList.add("tk-active");
