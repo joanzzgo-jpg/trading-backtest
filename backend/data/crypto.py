@@ -73,7 +73,8 @@ def _make_df(rows: list, time_col=0, unit="ms") -> pd.DataFrame:
 #  Binance
 # ══════════════════════════════════════════════════════════════
 def _fetch_binance(symbol: str, timeframe: str,
-                   start: Optional[str], end: Optional[str], limit: int) -> pd.DataFrame:
+                   start: Optional[str], end: Optional[str], limit: int,
+                   max_candles: int = 3000) -> pd.DataFrame:
     sym = _sym_binance(symbol)
     tf  = TIMEFRAME_MAP.get(timeframe, "1d")
 
@@ -95,7 +96,7 @@ def _fetch_binance(symbol: str, timeframe: str,
             break
         all_rows.extend(batch)
         last_ts = batch[-1][0]
-        if (end_ms and last_ts >= end_ms) or len(batch) < 1000:
+        if (end_ms and last_ts >= end_ms) or len(batch) < 1000 or len(all_rows) >= max_candles:
             break
         since = last_ts + 1
 
@@ -106,7 +107,8 @@ def _fetch_binance(symbol: str, timeframe: str,
 #  Bybit
 # ══════════════════════════════════════════════════════════════
 def _fetch_bybit(symbol: str, timeframe: str,
-                 start: Optional[str], end: Optional[str], limit: int) -> pd.DataFrame:
+                 start: Optional[str], end: Optional[str], limit: int,
+                 max_candles: int = 3000) -> pd.DataFrame:
     sym = _sym_bybit(symbol)
     tf  = BYBIT_TF.get(timeframe, "D")
 
@@ -137,7 +139,7 @@ def _fetch_bybit(symbol: str, timeframe: str,
         first_ts = int(batch[-1][0])
         if since and first_ts <= since:
             break
-        if len(batch) < 1000:
+        if len(batch) < 1000 or len(all_rows) >= max_candles:
             break
         cursor = first_ts - 1
 
@@ -148,7 +150,8 @@ def _fetch_bybit(symbol: str, timeframe: str,
 #  OKX
 # ══════════════════════════════════════════════════════════════
 def _fetch_okx(symbol: str, timeframe: str,
-               start: Optional[str], end: Optional[str], limit: int) -> pd.DataFrame:
+               start: Optional[str], end: Optional[str], limit: int,
+               max_candles: int = 3000) -> pd.DataFrame:
     sym = _sym_okx(symbol)
     tf  = OKX_TF.get(timeframe, "1D")
 
@@ -177,7 +180,7 @@ def _fetch_okx(symbol: str, timeframe: str,
         first_ts = int(batch[-1][0])
         if since and first_ts <= since:
             break
-        if len(batch) < 300:
+        if len(batch) < 300 or len(all_rows) >= max_candles:
             break
         after = first_ts - 1
 

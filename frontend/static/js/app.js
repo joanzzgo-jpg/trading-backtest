@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════
-   回測系統 — 前端  v7
+   回測系統 — 前端  v8
    面板：主圖 | 成交量 | KDJ | RSI | MACD | 資金曲線(回測)
 ═══════════════════════════════════════════════ */
 
@@ -55,6 +55,7 @@ let currentTF       = "1d";
 let realtimeTimer   = null;
 let lastCRTMarkers  = [];
 let paneCollapseFlex = {};  // 面板收合前的 flex 值（module-level，供 loadVisibilityPrefs 使用）
+let _restoringPrefs  = false; // 還原偏好設定時，暫停自動儲存
 
 const TF_LABELS = { "1M":"月","1w":"週","1d":"日","4h":"4H","1h":"1H","15m":"15m" };
 
@@ -108,6 +109,7 @@ function applyAllLineStyles() {
 }
 
 function saveVisibilityPrefs() {
+  if (_restoringPrefs) return;  // 還原中不觸發儲存
   try {
     const hiddenLegs = [];
     document.querySelectorAll(".leg-toggle.line-off").forEach(el => {
@@ -115,7 +117,7 @@ function saveVisibilityPrefs() {
     });
     const collapsedPanes = {};
     document.querySelectorAll(".pane-collapse-btn").forEach(btn => {
-      if (btn.textContent.trim() === "+")
+      if (btn.dataset.collapsed === "true")
         collapsedPanes[btn.dataset.pane] = paneCollapseFlex[btn.dataset.pane] || "1";
     });
     localStorage.setItem("hiddenLegs",     JSON.stringify(hiddenLegs));
@@ -124,6 +126,7 @@ function saveVisibilityPrefs() {
 }
 
 function loadVisibilityPrefs() {
+  _restoringPrefs = true;
   try {
     // 恢復隱藏的圖例線條
     const hiddenLegs = JSON.parse(localStorage.getItem("hiddenLegs") || "[]");
@@ -134,11 +137,13 @@ function loadVisibilityPrefs() {
     // 恢復收合的面板
     const collapsedPanes = JSON.parse(localStorage.getItem("collapsedPanes") || "{}");
     for (const [paneId, flex] of Object.entries(collapsedPanes)) {
-      paneCollapseFlex[paneId] = flex;   // 先存好，展開時才能還原
+      paneCollapseFlex[paneId] = flex;
       const btn = document.querySelector(`.pane-collapse-btn[data-pane="${paneId}"]`);
-      if (btn && btn.textContent.trim() === "−") btn.click();
+      if (btn && btn.dataset.collapsed !== "true") btn.click();  // 未收合則點擊收合
     }
   } catch {}
+  _restoringPrefs = false;
+  saveVisibilityPrefs();  // 還原完成後統一儲存一次
 }
 
 /* ── 基礎圖表選項（showTime=true 才顯示時間軸，只有最下方的圖顯示）── */
@@ -291,6 +296,11 @@ function syncTimeScales() {
     return ln;
   });
 
+  // 底部時間標籤（鼠標在任意面板都顯示）
+  const timeLabel = document.createElement("div");
+  timeLabel.className = "crosshair-time-label";
+  container.appendChild(timeLabel);
+
   let hideTimer = null;
 
   function positionLines(time) {
@@ -299,8 +309,22 @@ function syncTimeScales() {
     const x = mainChart.timeScale().timeToCoordinate(time);
     if (x === null || x < 0) {
       lineEls.forEach(l => l.style.display = "none");
+      timeLabel.style.display = "none";
       return;
     }
+
+    // 底部時間標籤
+    const d = new Date(time * 1000);
+    const pad = n => String(n).padStart(2, "0");
+    let timeStr;
+    if (currentTF === "4h" || currentTF === "1h" || currentTF === "15m") {
+      timeStr = `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
+    } else {
+      timeStr = `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())}`;
+    }
+    timeLabel.textContent = timeStr;
+    timeLabel.style.display = "block";
+    timeLabel.style.left = Math.round(x) + "px";
 
     const cRect = container.getBoundingClientRect();
     panesConf.forEach(({ elId }, i) => {
@@ -329,7 +353,10 @@ function syncTimeScales() {
     chart.subscribeCrosshairMove(param => {
       clearTimeout(hideTimer);
       if (!param.time || !param.point) {
-        hideTimer = setTimeout(() => lineEls.forEach(l => l.style.display = "none"), 60);
+        hideTimer = setTimeout(() => {
+          lineEls.forEach(l => l.style.display = "none");
+          timeLabel.style.display = "none";
+        }, 60);
         return;
       }
       positionLines(param.time);
@@ -664,7 +691,6 @@ function bindEvents() {
   document.getElementById("drawerClose").addEventListener("click", () =>
     document.getElementById("tradeDrawer").classList.add("hidden"));
   document.getElementById("exportCsvBtn").addEventListener("click", exportCSV);
-  document.getElementById("screenshotBtn").addEventListener("click", takeScreenshot);
 
   // 側欄收合（手機）
   document.getElementById("sidebarToggle").addEventListener("click", () => {
@@ -814,19 +840,22 @@ function bindLegendToggles() {
 
   // 面板收合：點擊「−」縮至只剩圖例列；點「+」展開
   document.querySelectorAll(".pane-collapse-btn").forEach(btn => {
+    btn.dataset.collapsed = "false";  // 初始化屬性
     const paneId = btn.dataset.pane;
     btn.addEventListener("click", () => {
       const pane = document.getElementById(paneId);
       const body = pane.querySelector(".pane-body");
-      const collapsed = btn.textContent.trim() === "+";
+      const collapsed = btn.dataset.collapsed === "true";
       if (collapsed) {
         pane.style.flex = paneCollapseFlex[paneId] || "1";
         body.style.display = "";
-        btn.textContent = "−";
+        btn.dataset.collapsed = "false";
+        btn.textContent = "\u2212";  // −
       } else {
         paneCollapseFlex[paneId] = pane.style.flex || "1";
         pane.style.flex = "0";
         body.style.display = "none";
+        btn.dataset.collapsed = "true";
         btn.textContent = "+";
       }
       updateBottomTimeAxis();
@@ -885,6 +914,26 @@ function renderStrategyParams() {
 ══════════════════════════════════════════ */
 async function loadData(autoLoad = false) {
   stopRealtime();
+
+  // 子日線時區資料量大，自動縮短起始日避免逾時
+  if (!autoLoad) {
+    const TF_MAX_DAYS = { "4h": 365, "1h": 90, "15m": 30 };
+    const maxDays = TF_MAX_DAYS[currentTF];
+    if (maxDays) {
+      const startEl = document.getElementById("startDate");
+      const endEl   = document.getElementById("endDate");
+      if (startEl.value && endEl.value) {
+        const endMs   = new Date(endEl.value).getTime();
+        const startMs = new Date(startEl.value).getTime();
+        if ((endMs - startMs) / 86400000 > maxDays) {
+          const newStart = new Date(endMs - maxDays * 86400000).toISOString().slice(0, 10);
+          startEl.value = newStart;
+          showToast(`⚠️ ${TF_LABELS[currentTF]} 時區最多載入 ${maxDays} 天，起始日已調整為 ${newStart}`);
+        }
+      }
+    }
+  }
+
   showLoading(true);
   try {
     const res  = await fetch("/api/ohlcv", {
@@ -1264,17 +1313,6 @@ function exportCSV() {
   const a    = document.createElement("a");
   a.href = url; a.download = "backtest_trades.csv"; a.click();
   URL.revokeObjectURL(url);
-}
-
-function takeScreenshot() {
-  // 使用瀏覽器原生截圖：提示用戶使用快捷鍵
-  const msg = document.createElement("div");
-  msg.style.cssText = "position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#1e222d;border:1px solid #42a5f5;color:#d1d4dc;padding:20px 30px;border-radius:8px;z-index:9999;text-align:center;font-size:13px";
-  msg.innerHTML = `<div style="margin-bottom:10px;font-weight:700;color:#42a5f5">📷 截圖方式</div>
-    Mac：<b>Cmd + Shift + 4</b> 框選區域<br>
-    Win：<b>Win + Shift + S</b> 框選區域<br>
-    <br><button onclick="this.parentElement.remove()" style="margin-top:8px;padding:4px 16px;background:#2962ff;border:none;color:#fff;border-radius:4px;cursor:pointer">OK</button>`;
-  document.body.appendChild(msg);
 }
 
 /* ══════════════════════════════════════════

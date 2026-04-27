@@ -268,6 +268,16 @@ html, body {
   pointer-events: none; z-index: 25; display: none;
 }
 
+/* 底部時間標籤：鼠標在任意面板時都顯示 */
+.crosshair-time-label {
+  position: absolute; bottom: 0;
+  transform: translateX(-50%);
+  background: #2a2e39; border: 1px solid #3a3f4d;
+  color: #d1d4dc; font-size: 11px; padding: 2px 6px;
+  border-radius: 3px 3px 0 0; pointer-events: none;
+  z-index: 26; white-space: nowrap; display: none;
+}
+
 .pane-divider {
   height: 4px; background: var(--border);
   cursor: row-resize; flex-shrink: 0;
