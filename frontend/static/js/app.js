@@ -469,95 +469,289 @@ function syncTimeScales() {
 /* ══════════════════════════════════════════
    繪圖工具（Canvas Overlay）
 ══════════════════════════════════════════ */
-let drawings = [];          // 已完成的繪圖
-let drawingWIP = null;      // 進行中的繪圖 { type, p1:{x,y,time,price} }
-let drawCanvas = null;
-let drawCtx = null;
-let drawTool = "pointer";   // 目前工具
-let _mx = 0, _my = 0;      // 滑鼠位置（canvas 座標）
+let drawings    = [];
+let drawingWIP  = null;
+let drawCanvas  = null;
+let drawCtx     = null;
+let drawTool    = "pointer";
+let selectedId  = null;
+let hoveredId   = null;
+let dragState   = null;   // { id, startX, startY, moved, snapshot }
+let _mx = 0, _my = 0;
+let _drawColor  = "#f5c518";  // 目前繪圖顏色
 
-const DRAW_COLOR  = "#f5c518";
+const DCP_COLORS = ["#f5c518","#ef5350","#26a69a","#2962ff","#ff9800","#7e57c2","#ec407a","#26c6da","#ffffff","#787b86"];
 const DRAW_WIDTH  = 1.5;
 
+function _did() { return "d" + Date.now().toString(36) + Math.random().toString(36).slice(2,5); }
+
+function saveDrawings() {
+  try { localStorage.setItem("tv_drawings", JSON.stringify(drawings)); } catch {}
+}
+function loadDrawings() {
+  try {
+    const s = JSON.parse(localStorage.getItem("tv_drawings") || "[]");
+    drawings = Array.isArray(s) ? s.filter(d => d.id && d.type) : [];
+  } catch { drawings = []; }
+}
+
+function findNearest(x, y, maxDist = 12) {
+  let best = maxDist, found = null;
+  drawings.forEach(d => {
+    const dist = drawingDist(d, x, y);
+    if (dist < best) { best = dist; found = d; }
+  });
+  return found;
+}
+
 function initDrawTools() {
+  loadDrawings();
+
   const chartEl = document.getElementById("mainChart");
   chartEl.style.position = "relative";
 
   drawCanvas = document.createElement("canvas");
-  drawCanvas.style.cssText = "position:absolute;top:0;left:0;z-index:20;pointer-events:none;";
+  drawCanvas.style.cssText = "position:absolute;top:0;left:0;z-index:20;pointer-events:auto;";
   chartEl.appendChild(drawCanvas);
   drawCtx = drawCanvas.getContext("2d");
 
   const resize = () => {
     drawCanvas.width  = chartEl.clientWidth;
     drawCanvas.height = chartEl.clientHeight;
-    renderDrawings();
+    requestAnimationFrame(renderDrawings);
   };
   resize();
   new ResizeObserver(resize).observe(chartEl);
 
-  // 圖表滾動 / 縮放時重新渲染
   mainChart.timeScale().subscribeVisibleTimeRangeChange(() => requestAnimationFrame(renderDrawings));
   mainChart.subscribeCrosshairMove(() => requestAnimationFrame(renderDrawings));
 
-  // 滑鼠事件（掛在 chartEl，canvas pointer-events:none 時也能追蹤游標位置）
-  chartEl.addEventListener("mousemove", e => {
-    const r = chartEl.getBoundingClientRect();
-    _mx = e.clientX - r.left;
-    _my = e.clientY - r.top;
-    if (drawTool !== "pointer" && drawTool !== "crosshair") requestAnimationFrame(renderDrawings);
-  });
-  chartEl.addEventListener("click", onDrawClick);
-  chartEl.addEventListener("contextmenu", e => {
+  drawCanvas.addEventListener("mousemove",   onDrawMouseMove);
+  drawCanvas.addEventListener("mousedown",   onDrawMouseDown);
+  drawCanvas.addEventListener("click",       onDrawClick);
+  drawCanvas.addEventListener("dblclick",    onDrawDblClick);
+  drawCanvas.addEventListener("contextmenu", e => {
     e.preventDefault();
     drawingWIP = null;
     requestAnimationFrame(renderDrawings);
   });
+  window.addEventListener("mouseup",    onDrawMouseUp);
+
+  // 點擊 popup 外部時關閉
+  document.addEventListener("click", e => {
+    const popup = document.getElementById("drawColorPicker");
+    if (popup && !popup.classList.contains("hidden") && !popup.contains(e.target)) {
+      popup.classList.add("hidden");
+    }
+  }, true);
+}
+
+function _updateCursor() {
+  if (!drawCanvas) return;
+  if (dragState) { drawCanvas.style.cursor = "grabbing"; return; }
+  if (drawTool === "pointer") {
+    drawCanvas.style.cursor = hoveredId ? "grab" : "default";
+  } else if (drawTool === "eraser") {
+    drawCanvas.style.cursor = "crosshair";
+  } else if (drawTool === "crosshair") {
+    drawCanvas.style.cursor = "default";
+  } else {
+    drawCanvas.style.cursor = "crosshair";
+  }
 }
 
 function setDrawTool(tool) {
   drawTool = tool;
-  if (drawCanvas) {
-    const passive = tool === "pointer" || tool === "crosshair";
-    drawCanvas.style.pointerEvents = passive ? "none" : "auto";
-    drawCanvas.style.cursor = tool === "eraser" ? "not-allowed" : tool === "pointer" ? "default" : "crosshair";
-  }
+  selectedId = null;
   drawingWIP = null;
+  document.getElementById("drawColorPicker")?.classList.add("hidden");
+  _updateCursor();
+  requestAnimationFrame(renderDrawings);
+}
+
+/* ── 滑鼠事件 ── */
+function onDrawMouseMove(e) {
+  const r = drawCanvas.getBoundingClientRect();
+  const x = e.clientX - r.left;
+  const y = e.clientY - r.top;
+  _mx = x; _my = y;
+
+  if (dragState) {
+    e.preventDefault(); e.stopPropagation();
+    _updateDrag(x, y);
+    return;
+  }
+
+  if (drawTool === "pointer" || drawTool === "crosshair") {
+    const near = findNearest(x, y);
+    const nid  = near?.id ?? null;
+    if (nid !== hoveredId) { hoveredId = nid; _updateCursor(); requestAnimationFrame(renderDrawings); }
+  } else {
+    requestAnimationFrame(renderDrawings);
+  }
+}
+
+function onDrawMouseDown(e) {
+  if (e.button !== 0 || drawTool !== "pointer") return;
+  const r = drawCanvas.getBoundingClientRect();
+  const x = e.clientX - r.left, y = e.clientY - r.top;
+  const near = findNearest(x, y);
+  if (!near) return;
+  e.preventDefault(); e.stopPropagation();
+  selectedId = near.id;
+  dragState  = { id: near.id, startX: x, startY: y, moved: false,
+                 snapshot: JSON.parse(JSON.stringify(near)) };
+  _updateCursor();
+  requestAnimationFrame(renderDrawings);
+}
+
+function onDrawMouseUp() {
+  if (!dragState) return;
+  if (dragState.moved) saveDrawings();
+  dragState = null;
+  _updateCursor();
   requestAnimationFrame(renderDrawings);
 }
 
 function onDrawClick(e) {
-  if (drawTool === "pointer" || drawTool === "crosshair") return;
-  const r = (drawCanvas || e.currentTarget).getBoundingClientRect();
-  const x = e.clientX - r.left;
-  const y = e.clientY - r.top;
+  const r = drawCanvas.getBoundingClientRect();
+  const x = e.clientX - r.left, y = e.clientY - r.top;
+
+  if (drawTool === "pointer") {
+    if (dragState?.moved) return;
+    const near = findNearest(x, y);
+    selectedId = near?.id ?? null;
+    if (!near) document.getElementById("drawColorPicker")?.classList.add("hidden");
+    requestAnimationFrame(renderDrawings);
+    return;
+  }
+
   const pt = screenToChart(x, y);
   if (!pt) return;
 
   if (drawTool === "eraser") { eraseNear(x, y); return; }
+  if (drawTool === "crosshair") return;
 
   if (drawTool === "hline") {
-    drawings.push({ type:"hline", price:pt.price, color:DRAW_COLOR });
-    requestAnimationFrame(renderDrawings); return;
+    drawings.push({ id:_did(), type:"hline", price:pt.price, color:_drawColor });
+    saveDrawings(); requestAnimationFrame(renderDrawings); return;
   }
   if (drawTool === "vline") {
-    drawings.push({ type:"vline", time:pt.time, color:DRAW_COLOR });
-    requestAnimationFrame(renderDrawings); return;
+    drawings.push({ id:_did(), type:"vline", time:pt.time, color:_drawColor });
+    saveDrawings(); requestAnimationFrame(renderDrawings); return;
   }
   if (drawTool === "text") {
     const txt = window.prompt("輸入文字：");
-    if (txt?.trim()) drawings.push({ type:"text", time:pt.time, price:pt.price, text:txt.trim(), color:DRAW_COLOR });
+    if (txt?.trim()) {
+      drawings.push({ id:_did(), type:"text", time:pt.time, price:pt.price, text:txt.trim(), color:_drawColor });
+      saveDrawings();
+    }
     requestAnimationFrame(renderDrawings); return;
   }
 
-  // 雙點工具：trendline / ray / fib
+  // 雙點工具
   if (!drawingWIP) {
     drawingWIP = { type:drawTool, p1:pt };
   } else {
-    drawings.push({ type:drawTool, p1:drawingWIP.p1, p2:pt, color:DRAW_COLOR });
+    drawings.push({ id:_did(), type:drawTool, p1:drawingWIP.p1, p2:pt, color:_drawColor });
     drawingWIP = null;
+    saveDrawings();
     requestAnimationFrame(renderDrawings);
   }
+}
+
+function onDrawDblClick(e) {
+  if (drawTool !== "pointer") return;
+  const r = drawCanvas.getBoundingClientRect();
+  const x = e.clientX - r.left, y = e.clientY - r.top;
+  const near = findNearest(x, y, 16);
+  if (!near) return;
+  selectedId = near.id;
+  showDrawColorPicker(near, e.clientX, e.clientY);
+  requestAnimationFrame(renderDrawings);
+}
+
+/* ── 拖移 ── */
+function _updateDrag(x, y) {
+  if (!dragState) return;
+  const d = drawings.find(d => d.id === dragState.id);
+  if (!d) return;
+  const dx = x - dragState.startX, dy = y - dragState.startY;
+  if (!dragState.moved && Math.hypot(dx, dy) > 3) dragState.moved = true;
+  if (!dragState.moved) return;
+  const orig = dragState.snapshot;
+
+  if (d.type === "hline") {
+    const oy = candleSeries?.priceToCoordinate(orig.price);
+    if (oy != null) d.price = candleSeries?.coordinateToPrice(oy + dy) ?? orig.price;
+  } else if (d.type === "vline") {
+    const ox = mainChart.timeScale().timeToCoordinate(orig.time);
+    if (ox != null) { const nt = mainChart.timeScale().coordinateToTime(ox + dx); if (nt != null) d.time = nt; }
+  } else if (d.type === "text") {
+    const op = chartToScreen(orig.time, orig.price);
+    if (op) { const np = screenToChart(op.x + dx, op.y + dy); if (np) { d.time = np.time; d.price = np.price; } }
+  } else if (d.p1 && d.p2) {
+    const a = chartToScreen(orig.p1.time, orig.p1.price);
+    const b = chartToScreen(orig.p2.time, orig.p2.price);
+    if (a && b) {
+      const na = screenToChart(a.x + dx, a.y + dy);
+      const nb = screenToChart(b.x + dx, b.y + dy);
+      if (na) d.p1 = { time:na.time, price:na.price };
+      if (nb) d.p2 = { time:nb.time, price:nb.price };
+    }
+  }
+  requestAnimationFrame(renderDrawings);
+}
+
+/* ── 顏色 Popup ── */
+function showDrawColorPicker(drawing, clientX, clientY) {
+  const popup = document.getElementById("drawColorPicker");
+  if (!popup) return;
+  popup.dataset.drawingId = drawing.id;
+
+  const grid = popup.querySelector(".dcp-colors");
+  grid.innerHTML = DCP_COLORS.map(c =>
+    `<div class="dcp-swatch${drawing.color === c ? " active" : ""}" data-color="${c}" style="background:${c}"></div>`
+  ).join("");
+
+  // 色塊點擊（先移除舊的 listener 避免累積）
+  const newGrid = grid.cloneNode(true);
+  grid.parentNode.replaceChild(newGrid, grid);
+  newGrid.querySelectorAll(".dcp-swatch").forEach(sw => {
+    sw.addEventListener("click", e => {
+      e.stopPropagation();
+      const d = drawings.find(d => d.id === popup.dataset.drawingId);
+      if (!d) return;
+      d.color = sw.dataset.color;
+      _drawColor = sw.dataset.color;
+      newGrid.querySelectorAll(".dcp-swatch").forEach(s => s.classList.toggle("active", s === sw));
+      saveDrawings();
+      requestAnimationFrame(renderDrawings);
+    });
+  });
+
+  // 刪除按鈕
+  const delBtn = popup.querySelector(".dcp-delete");
+  const newDel = delBtn.cloneNode(true);
+  delBtn.parentNode.replaceChild(newDel, delBtn);
+  newDel.addEventListener("click", e => {
+    e.stopPropagation();
+    const id = popup.dataset.drawingId;
+    drawings = drawings.filter(d => d.id !== id);
+    if (selectedId === id) selectedId = null;
+    saveDrawings();
+    popup.classList.add("hidden");
+    requestAnimationFrame(renderDrawings);
+  });
+
+  // 定位
+  const pw = 182, ph = 100;
+  let left = clientX + 10, top = clientY - 10;
+  if (left + pw > window.innerWidth)  left = clientX - pw - 10;
+  if (top  + ph > window.innerHeight) top  = window.innerHeight - ph - 8;
+  popup.style.left = left + "px";
+  popup.style.top  = top  + "px";
+  popup.classList.remove("hidden");
 }
 
 function screenToChart(x, y) {
@@ -612,15 +806,16 @@ function renderDrawings() {
   const W = drawCanvas.width, H = drawCanvas.height;
   drawCtx.clearRect(0, 0, W, H);
 
-  drawings.forEach(d => drawOne(d, W, H));
+  // Draw non-selected first, then hovered, then selected on top
+  drawings.filter(d => d.id !== selectedId && d.id !== hoveredId).forEach(d => drawOne(d, W, H, false, false));
+  drawings.filter(d => d.id === hoveredId && d.id !== selectedId).forEach(d => drawOne(d, W, H, true, false));
+  drawings.filter(d => d.id === selectedId).forEach(d => drawOne(d, W, H, false, true));
 
-  // 進行中的雙點工具預覽
   if (drawingWIP) {
     const p1s = chartToScreen(drawingWIP.p1.time, drawingWIP.p1.price);
     if (p1s) drawPreview(drawingWIP.type, p1s, { x:_mx, y:_my }, W, H);
   }
 
-  // 游標輔助十字（非 pointer 模式）
   if (drawTool !== "pointer" && drawTool !== "crosshair") {
     drawCtx.save();
     drawCtx.strokeStyle = "rgba(200,200,200,0.22)";
@@ -634,31 +829,65 @@ function renderDrawings() {
   }
 }
 
-function drawOne(d, W, H) {
+function _applyGlow(ctx, color, isSelected, isHovered) {
+  if (isSelected) {
+    ctx.shadowColor = color || "#f5c518";
+    ctx.shadowBlur = 10;
+    ctx.lineWidth = DRAW_WIDTH + 1;
+  } else if (isHovered) {
+    ctx.shadowColor = color || "#f5c518";
+    ctx.shadowBlur = 5;
+    ctx.lineWidth = DRAW_WIDTH + 0.5;
+  }
+}
+
+function drawOne(d, W, H, isHovered, isSelected) {
+  const col = d.color || DRAW_COLOR;
   drawCtx.save();
-  drawCtx.strokeStyle = d.color || DRAW_COLOR;
-  drawCtx.fillStyle   = d.color || DRAW_COLOR;
+  drawCtx.strokeStyle = col;
+  drawCtx.fillStyle   = col;
   drawCtx.lineWidth   = DRAW_WIDTH;
   drawCtx.setLineDash([]);
+  _applyGlow(drawCtx, col, isSelected, isHovered);
 
   if (d.type === "hline") {
     const y = candleSeries?.priceToCoordinate(d.price);
     if (y == null || y < -5 || y > H + 5) { drawCtx.restore(); return; }
     drawCtx.beginPath(); drawCtx.moveTo(0, y); drawCtx.lineTo(W, y); drawCtx.stroke();
+    drawCtx.shadowBlur = 0;
     drawCtx.font = "10px monospace";
     drawCtx.fillText(d.price.toFixed(4), 5, y - 3);
+    if (isSelected) {
+      drawCtx.fillStyle = "rgba(255,255,255,0.15)";
+      drawCtx.fillRect(0, y - 6, W, 12);
+      drawCtx.fillStyle = col;
+      [W * 0.25, W * 0.5, W * 0.75].forEach(hx => {
+        drawCtx.beginPath(); drawCtx.arc(hx, y, 4, 0, Math.PI*2); drawCtx.fill();
+      });
+    }
   }
   else if (d.type === "vline") {
     const x = mainChart.timeScale().timeToCoordinate(d.time);
     if (x == null || x < -5 || x > W + 5) { drawCtx.restore(); return; }
     drawCtx.beginPath(); drawCtx.moveTo(x, 0); drawCtx.lineTo(x, H); drawCtx.stroke();
+    if (isSelected) {
+      drawCtx.shadowBlur = 0;
+      drawCtx.fillStyle = "rgba(255,255,255,0.15)";
+      drawCtx.fillRect(x - 6, 0, 12, H);
+      drawCtx.fillStyle = col;
+      [H * 0.25, H * 0.5, H * 0.75].forEach(hy => {
+        drawCtx.beginPath(); drawCtx.arc(x, hy, 4, 0, Math.PI*2); drawCtx.fill();
+      });
+    }
   }
   else if (d.type === "trendline" && d.p1 && d.p2) {
     const a = chartToScreen(d.p1.time, d.p1.price);
     const b = chartToScreen(d.p2.time, d.p2.price);
     if (!a || !b) { drawCtx.restore(); return; }
     drawCtx.beginPath(); drawCtx.moveTo(a.x, a.y); drawCtx.lineTo(b.x, b.y); drawCtx.stroke();
-    [a, b].forEach(p => { drawCtx.beginPath(); drawCtx.arc(p.x, p.y, 3, 0, Math.PI*2); drawCtx.fill(); });
+    drawCtx.shadowBlur = 0;
+    const dotR = isSelected ? 5 : 3;
+    [a, b].forEach(p => { drawCtx.beginPath(); drawCtx.arc(p.x, p.y, dotR, 0, Math.PI*2); drawCtx.fill(); });
   }
   else if (d.type === "ray" && d.p1 && d.p2) {
     const a = chartToScreen(d.p1.time, d.p1.price);
@@ -667,7 +896,9 @@ function drawOne(d, W, H) {
     const dx = b.x - a.x, dy = b.y - a.y;
     const t  = dx ? (W - a.x) / dx : 0;
     drawCtx.beginPath(); drawCtx.moveTo(a.x, a.y); drawCtx.lineTo(a.x + t*dx, a.y + t*dy); drawCtx.stroke();
-    drawCtx.beginPath(); drawCtx.arc(a.x, a.y, 3, 0, Math.PI*2); drawCtx.fill();
+    drawCtx.shadowBlur = 0;
+    const dotR = isSelected ? 5 : 3;
+    drawCtx.beginPath(); drawCtx.arc(a.x, a.y, dotR, 0, Math.PI*2); drawCtx.fill();
   }
   else if (d.type === "fib" && d.p1 && d.p2) {
     const a = chartToScreen(d.p1.time, d.p1.price);
@@ -675,24 +906,33 @@ function drawOne(d, W, H) {
     if (!a || !b) { drawCtx.restore(); return; }
     const priceRange = d.p2.price - d.p1.price;
     const x1 = Math.min(a.x, b.x), x2 = Math.max(a.x, b.x);
-    [[0,"#ef5350"],[0.236,"#ff9800"],[0.382,"#ffcc02"],[0.5,"#26a69a"],[0.618,"#26a69a"],[0.786,"#ff9800"],[1,"#ef5350"]].forEach(([lvl, col]) => {
+    const extraW = isSelected ? W : 0;
+    [[0,"#ef5350"],[0.236,"#ff9800"],[0.382,"#ffcc02"],[0.5,"#26a69a"],[0.618,"#26a69a"],[0.786,"#ff9800"],[1,"#ef5350"]].forEach(([lvl, lcol]) => {
       const price = d.p1.price + priceRange * (1 - lvl);
       const y = candleSeries?.priceToCoordinate(price);
       if (y == null) return;
-      drawCtx.strokeStyle = col; drawCtx.lineWidth = (lvl===0||lvl===1) ? 1.5 : 1;
+      drawCtx.strokeStyle = lcol; drawCtx.lineWidth = (lvl===0||lvl===1) ? 1.5 : 1;
       drawCtx.setLineDash((lvl===0||lvl===1) ? [] : [5,3]);
-      drawCtx.beginPath(); drawCtx.moveTo(x1, y); drawCtx.lineTo(x2, y); drawCtx.stroke();
-      drawCtx.setLineDash([]);
-      drawCtx.font = "10px monospace"; drawCtx.fillStyle = col;
+      drawCtx.shadowBlur = isSelected ? 6 : 0; drawCtx.shadowColor = lcol;
+      drawCtx.beginPath(); drawCtx.moveTo(x1, y); drawCtx.lineTo(x2 + extraW * 0.3, y); drawCtx.stroke();
+      drawCtx.setLineDash([]); drawCtx.shadowBlur = 0;
+      drawCtx.font = "10px monospace"; drawCtx.fillStyle = lcol;
       drawCtx.fillText(`${(lvl*100).toFixed(1)}%  ${price.toFixed(2)}`, x2+4, y+4);
     });
   }
   else if (d.type === "text") {
     const p = chartToScreen(d.time, d.price);
     if (!p) { drawCtx.restore(); return; }
-    drawCtx.font = "bold 12px sans-serif";
+    drawCtx.font = `bold ${isSelected ? 13 : 12}px sans-serif`;
     drawCtx.fillText(d.text, p.x + 5, p.y - 5);
-    drawCtx.beginPath(); drawCtx.arc(p.x, p.y, 3, 0, Math.PI*2); drawCtx.fill();
+    drawCtx.shadowBlur = 0;
+    drawCtx.beginPath(); drawCtx.arc(p.x, p.y, isSelected ? 4 : 3, 0, Math.PI*2); drawCtx.fill();
+    if (isSelected) {
+      const m = drawCtx.measureText(d.text);
+      drawCtx.strokeStyle = col; drawCtx.lineWidth = 1; drawCtx.setLineDash([3,2]);
+      drawCtx.strokeRect(p.x + 3, p.y - 18, m.width + 6, 16);
+      drawCtx.setLineDash([]);
+    }
   }
 
   drawCtx.restore();

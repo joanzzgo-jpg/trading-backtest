@@ -926,6 +926,51 @@ html, body {
 }
 .hidden { display: none !important; }
 
+/* ═══ DRAWING COLOR PICKER ═══ */
+.dcp-popup {
+  position: fixed;
+  z-index: 4000;
+  background: #1e222d;
+  border: 1px solid #3a3f4d;
+  border-radius: 8px;
+  padding: 10px;
+  box-shadow: 0 8px 28px rgba(0,0,0,.7);
+  width: 178px;
+  user-select: none;
+}
+.dcp-colors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  justify-content: flex-start;
+}
+.dcp-swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: transform .1s, border-color .1s;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+.dcp-swatch:hover { transform: scale(1.15); }
+.dcp-swatch.active { border-color: #fff; }
+.dcp-divider { height: 1px; background: #2a2e39; margin: 8px 0; }
+.dcp-actions { display: flex; }
+.dcp-delete {
+  width: 100%;
+  background: transparent;
+  border: 1px solid #3a3f4d;
+  color: #ef5350;
+  padding: 4px 0;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+  transition: background .12s;
+}
+.dcp-delete:hover { background: rgba(239,83,80,.12); }
+
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: var(--bg); }
 ::-webkit-scrollbar-thumb { background: var(--bg3); border-radius: 3px; }
