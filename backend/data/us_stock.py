@@ -41,50 +41,39 @@ def fetch_us_stock(symbol: str, start: str, end: str, timeframe: str = "1d") -> 
     return df
 
 
-def search_us_stocks(query: str) -> list:
-    """直接呼叫 Yahoo Finance search API，比 yf.Search 更穩定"""
-    from urllib.request import urlopen, Request
-    from urllib.parse import urlencode
-    import json
-
-    try:
-        params = urlencode({
-            "q": query, "quotesCount": 10, "newsCount": 0,
-            "enableFuzzyQuery": "false", "enableNavLinks": "false",
+def _parse_yf_quotes(quotes: list) -> list:
+    out = []
+    for r in quotes:
+        sym = r.get("symbol", "")
+        if not sym:
+            continue
+        out.append({
+            "symbol":   sym,
+            "name":     r.get("longname") or r.get("shortname") or sym,
+            "type":     r.get("quoteType", ""),
+            "exchange": r.get("exchDisp") or r.get("exchange", ""),
         })
-        req = Request(
-            f"https://query2.finance.yahoo.com/v1/finance/search?{params}",
+    return out
+
+
+def search_us_stocks(query: str) -> list:
+    """搜尋美股，依序嘗試 requests → yf.Search，失敗回傳空列表"""
+    # 方法 1: requests（比 urllib 更穩定，自動處理 SSL / redirect）
+    try:
+        import requests as _req
+        resp = _req.get(
+            "https://query1.finance.yahoo.com/v1/finance/search",
+            params={"q": query, "quotesCount": 10, "newsCount": 0},
             headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"},
+            timeout=8,
         )
-        with urlopen(req, timeout=8) as resp:
-            data = json.loads(resp.read())
-        out = []
-        for r in data.get("quotes", []):
-            sym = r.get("symbol", "")
-            if not sym:
-                continue
-            out.append({
-                "symbol":   sym,
-                "name":     r.get("longname") or r.get("shortname") or sym,
-                "type":     r.get("quoteType", ""),
-                "exchange": r.get("exchDisp") or r.get("exchange", ""),
-            })
-        return out
+        if resp.ok:
+            return _parse_yf_quotes(resp.json().get("quotes", []))
     except Exception:
-        # fallback: yf.Search
-        try:
-            results = yf.Search(query, max_results=10).quotes
-            out = []
-            for r in results:
-                sym = r.get("symbol", "")
-                if not sym:
-                    continue
-                out.append({
-                    "symbol":   sym,
-                    "name":     r.get("longname") or r.get("shortname") or sym,
-                    "type":     r.get("quoteType", ""),
-                    "exchange": r.get("exchDisp") or r.get("exchange", ""),
-                })
-            return out
-        except Exception:
-            return []
+        pass
+
+    # 方法 2: yf.Search fallback
+    try:
+        return _parse_yf_quotes(yf.Search(query, max_results=10).quotes)
+    except Exception:
+        return []

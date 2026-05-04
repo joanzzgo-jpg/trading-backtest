@@ -2309,9 +2309,13 @@ function _renderSymSearchList() {
     }
     list.innerHTML = `<div class="sym-loading">搜尋中…</div>`;
     fetch(`/api/us/search?q=${encodeURIComponent(query)}`)
-      .then(r => r.json())
-      .then(({ results }) => {
-        if (!results?.length) { list.innerHTML = `<div class="sym-empty">查無結果</div>`; return; }
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(data => {
+        const results = data?.results;
+        if (!results?.length) {
+          list.innerHTML = `<div class="sym-empty">查無結果，請直接輸入代號（如 AAPL）</div>`;
+          return;
+        }
         list.innerHTML = results.map((r, i) => `
           <div class="sym-result-item" data-symbol="${r.symbol}" data-display="${r.symbol}" tabindex="${i}">
             <div class="sym-icon" style="background:${_iconColor(r.symbol)}">
@@ -2325,7 +2329,9 @@ function _renderSymSearchList() {
           </div>`).join("");
         _bindSymItems(list);
       })
-      .catch(() => { list.innerHTML = `<div class="sym-empty">搜尋失敗，請重試</div>`; });
+      .catch(() => {
+        list.innerHTML = `<div class="sym-empty">查無結果，請直接輸入代號（如 AAPL）</div>`;
+      });
     return;
   }
 
