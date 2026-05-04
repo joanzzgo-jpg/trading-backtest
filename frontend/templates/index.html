@@ -141,6 +141,17 @@
   <!-- 左側設定面板 -->
   <aside class="sidebar" id="sidebar">
 
+    <!-- 自選標的 -->
+    <div class="sidebar-section">
+      <div class="section-title collapsible" id="watchlistToggle">
+        自選標的 <span class="toggle-arrow">▸</span>
+      </div>
+      <div id="watchlistPanel" class="hidden">
+        <div id="watchlistItems" class="wl-list"></div>
+        <button id="addWatchlistBtn" class="btn-add-wl">+ 加入自選</button>
+      </div>
+    </div>
+
     <!-- 外觀顏色 -->
     <div class="sidebar-section">
       <div class="section-title collapsible" id="colorToggle">
@@ -234,6 +245,13 @@
 
     <button class="dt-btn" data-tool="fib" title="費波那契">
       <svg width="15" height="15" viewBox="0 0 15 15"><line x1="1" y1="4" x2="14" y2="4" stroke="currentColor" stroke-width="1"/><line x1="1" y1="7.5" x2="14" y2="7.5" stroke="currentColor" stroke-width="1.3"/><line x1="1" y1="11" x2="14" y2="11" stroke="currentColor" stroke-width="1"/><text x="1.5" y="3.2" font-size="3.5" fill="currentColor" font-family="monospace">0.618</text></svg>
+    </button>
+    <button class="dt-btn" data-tool="longpos" title="做多盈虧比">
+      <svg width="15" height="15" viewBox="0 0 15 15">
+        <rect x="1" y="4" width="13" height="4" fill="rgba(38,166,154,0.4)" stroke="#26a69a" stroke-width="0.8"/>
+        <rect x="1" y="8" width="13" height="4" fill="rgba(239,83,80,0.4)" stroke="#ef5350" stroke-width="0.8"/>
+        <line x1="1" y1="8" x2="14" y2="8" stroke="white" stroke-width="1.2"/>
+      </svg>
     </button>
     <button class="dt-btn" data-tool="text" title="文字">
       <svg width="15" height="15" viewBox="0 0 15 15"><text x="2" y="13" font-size="14" fill="currentColor" font-family="sans-serif" font-weight="700">T</text></svg>

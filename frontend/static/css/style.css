@@ -402,6 +402,21 @@ html, body {
 .btn-reset:hover { color: var(--text); border-color: var(--muted); }
 
 
+/* ═══ WATCHLIST ═══ */
+.wl-list { display: flex; flex-direction: column; gap: 1px; margin-bottom: 6px; max-height: 200px; overflow-y: auto; }
+.wl-empty { color: var(--muted); font-size: 11px; padding: 6px 2px; text-align: center; }
+.wl-item  { display: flex; align-items: center; justify-content: space-between; padding: 5px 6px;
+            background: var(--bg3); border-radius: 4px; cursor: pointer; transition: background .1s; }
+.wl-item:hover { background: #2a3040; }
+.wl-sym   { flex: 1; font-size: 12px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wl-mkt   { font-size: 10px; color: var(--muted); margin-left: 5px; text-transform: uppercase; }
+.wl-del   { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 14px;
+            padding: 0 2px; line-height: 1; transition: color .1s; flex-shrink: 0; }
+.wl-del:hover { color: #ef5350; }
+.btn-add-wl { background: var(--accent); color: #fff; border: none; padding: 5px 0; border-radius: 4px;
+              cursor: pointer; font-size: 11px; width: 100%; transition: opacity .12s; }
+.btn-add-wl:hover { opacity: .85; }
+
 /* ═══ DRAWING TOOLBAR ═══ */
 .draw-toolbar {
   width: 44px;
