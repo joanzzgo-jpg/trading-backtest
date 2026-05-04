@@ -501,7 +501,8 @@ function initDrawTools() {
   chartEl.style.position = "relative";
 
   drawCanvas = document.createElement("canvas");
-  drawCanvas.style.cssText = "position:absolute;top:0;left:0;z-index:20;pointer-events:auto;";
+  // canvas 只做渲染，pointer-events 永遠 none，事件交給父容器
+  drawCanvas.style.cssText = "position:absolute;top:0;left:0;z-index:20;pointer-events:none;";
   chartEl.appendChild(drawCanvas);
   drawCtx = drawCanvas.getContext("2d");
 
@@ -516,37 +517,40 @@ function initDrawTools() {
   mainChart.timeScale().subscribeVisibleTimeRangeChange(() => requestAnimationFrame(renderDrawings));
   mainChart.subscribeCrosshairMove(() => requestAnimationFrame(renderDrawings));
 
-  drawCanvas.addEventListener("mousemove",   onDrawMouseMove);
-  drawCanvas.addEventListener("mousedown",   onDrawMouseDown);
-  drawCanvas.addEventListener("click",       onDrawClick);
-  drawCanvas.addEventListener("dblclick",    onDrawDblClick);
-  drawCanvas.addEventListener("contextmenu", e => {
-    e.preventDefault();
-    drawingWIP = null;
-    requestAnimationFrame(renderDrawings);
-  });
-  window.addEventListener("mouseup",    onDrawMouseUp);
+  // 事件監聽全部掛在父容器（capture 優先），不攔截時讓 LWC 正常處理
+  chartEl.addEventListener("mousemove",   _onChartMouseMove,   { capture: true });
+  chartEl.addEventListener("mousedown",   _onChartMouseDown,   { capture: true });
+  chartEl.addEventListener("click",       _onChartClick,       { capture: true });
+  chartEl.addEventListener("dblclick",    _onChartDblClick,    { capture: true });
+  chartEl.addEventListener("contextmenu", _onChartContextMenu, { capture: true });
+  window.addEventListener("mouseup", _onChartMouseUp);
 
-  // 點擊 popup 外部時關閉
-  document.addEventListener("click", e => {
+  // 點擊 popup 外部關閉（一般 bubble 即可）
+  document.addEventListener("mousedown", e => {
     const popup = document.getElementById("drawColorPicker");
     if (popup && !popup.classList.contains("hidden") && !popup.contains(e.target)) {
       popup.classList.add("hidden");
     }
-  }, true);
+  });
+}
+
+function _canvasXY(e) {
+  const r = drawCanvas.getBoundingClientRect();
+  return { x: e.clientX - r.left, y: e.clientY - r.top };
 }
 
 function _updateCursor() {
-  if (!drawCanvas) return;
-  if (dragState) { drawCanvas.style.cursor = "grabbing"; return; }
+  const chartEl = document.getElementById("mainChart");
+  if (!chartEl) return;
+  if (dragState) { chartEl.style.cursor = "grabbing"; return; }
   if (drawTool === "pointer") {
-    drawCanvas.style.cursor = hoveredId ? "grab" : "default";
-  } else if (drawTool === "eraser") {
-    drawCanvas.style.cursor = "crosshair";
+    chartEl.style.cursor = hoveredId ? "grab" : "";   // "" → 交回 LWC
   } else if (drawTool === "crosshair") {
-    drawCanvas.style.cursor = "default";
+    chartEl.style.cursor = "";
+  } else if (drawTool === "eraser") {
+    chartEl.style.cursor = "crosshair";
   } else {
-    drawCanvas.style.cursor = "crosshair";
+    chartEl.style.cursor = "crosshair";
   }
 }
 
@@ -559,43 +563,47 @@ function setDrawTool(tool) {
   requestAnimationFrame(renderDrawings);
 }
 
-/* ── 滑鼠事件 ── */
-function onDrawMouseMove(e) {
-  const r = drawCanvas.getBoundingClientRect();
-  const x = e.clientX - r.left;
-  const y = e.clientY - r.top;
+/* ── 事件處理（掛在 chartEl capture 上） ── */
+function _onChartMouseMove(e) {
+  const { x, y } = _canvasXY(e);
   _mx = x; _my = y;
 
   if (dragState) {
-    e.preventDefault(); e.stopPropagation();
+    e.stopPropagation();   // 拖移時不讓 LWC 處理 pan
     _updateDrag(x, y);
     return;
   }
 
-  if (drawTool === "pointer" || drawTool === "crosshair") {
+  if (drawTool === "pointer" || drawTool === "eraser") {
     const near = findNearest(x, y);
     const nid  = near?.id ?? null;
     if (nid !== hoveredId) { hoveredId = nid; _updateCursor(); requestAnimationFrame(renderDrawings); }
-  } else {
-    requestAnimationFrame(renderDrawings);
+  } else if (drawTool !== "crosshair") {
+    requestAnimationFrame(renderDrawings);   // 預覽線
   }
+  // crosshair / pointer 無 hover → 不攔截，LWC 正常顯示十字
 }
 
-function onDrawMouseDown(e) {
-  if (e.button !== 0 || drawTool !== "pointer") return;
-  const r = drawCanvas.getBoundingClientRect();
-  const x = e.clientX - r.left, y = e.clientY - r.top;
-  const near = findNearest(x, y);
-  if (!near) return;
-  e.preventDefault(); e.stopPropagation();
-  selectedId = near.id;
-  dragState  = { id: near.id, startX: x, startY: y, moved: false,
-                 snapshot: JSON.parse(JSON.stringify(near)) };
-  _updateCursor();
-  requestAnimationFrame(renderDrawings);
+function _onChartMouseDown(e) {
+  if (e.button !== 0) return;
+  const { x, y } = _canvasXY(e);
+
+  // 只有 pointer 模式且滑鼠在線上才啟動拖移
+  if (drawTool === "pointer") {
+    const near = findNearest(x, y);
+    if (near) {
+      e.stopPropagation();   // 阻止 LWC pan
+      selectedId = near.id;
+      dragState  = { id: near.id, startX: x, startY: y, moved: false,
+                     snapshot: JSON.parse(JSON.stringify(near)) };
+      _updateCursor();
+      requestAnimationFrame(renderDrawings);
+    }
+  }
+  // 其他工具：讓 LWC 正常處理
 }
 
-function onDrawMouseUp() {
+function _onChartMouseUp() {
   if (!dragState) return;
   if (dragState.moved) saveDrawings();
   dragState = null;
@@ -603,9 +611,8 @@ function onDrawMouseUp() {
   requestAnimationFrame(renderDrawings);
 }
 
-function onDrawClick(e) {
-  const r = drawCanvas.getBoundingClientRect();
-  const x = e.clientX - r.left, y = e.clientY - r.top;
+function _onChartClick(e) {
+  const { x, y } = _canvasXY(e);
 
   if (drawTool === "pointer") {
     if (dragState?.moved) return;
@@ -613,14 +620,18 @@ function onDrawClick(e) {
     selectedId = near?.id ?? null;
     if (!near) document.getElementById("drawColorPicker")?.classList.add("hidden");
     requestAnimationFrame(renderDrawings);
-    return;
+    return;   // 不攔截，LWC 可同時更新十字
   }
+
+  if (drawTool === "crosshair") return;
+
+  // 繪圖工具：攔截 click 讓 LWC 不處理
+  e.stopPropagation();
 
   const pt = screenToChart(x, y);
   if (!pt) return;
 
   if (drawTool === "eraser") { eraseNear(x, y); return; }
-  if (drawTool === "crosshair") return;
 
   if (drawTool === "hline") {
     drawings.push({ id:_did(), type:"hline", price:pt.price, color:_drawColor });
@@ -639,7 +650,7 @@ function onDrawClick(e) {
     requestAnimationFrame(renderDrawings); return;
   }
 
-  // 雙點工具
+  // 雙點工具（trendline / ray / fib）
   if (!drawingWIP) {
     drawingWIP = { type:drawTool, p1:pt };
   } else {
@@ -650,14 +661,22 @@ function onDrawClick(e) {
   }
 }
 
-function onDrawDblClick(e) {
+function _onChartDblClick(e) {
   if (drawTool !== "pointer") return;
-  const r = drawCanvas.getBoundingClientRect();
-  const x = e.clientX - r.left, y = e.clientY - r.top;
+  const { x, y } = _canvasXY(e);
   const near = findNearest(x, y, 16);
   if (!near) return;
+  e.stopPropagation();
   selectedId = near.id;
   showDrawColorPicker(near, e.clientX, e.clientY);
+  requestAnimationFrame(renderDrawings);
+}
+
+function _onChartContextMenu(e) {
+  if (drawTool === "crosshair" || drawTool === "pointer") return;
+  e.preventDefault();
+  e.stopPropagation();
+  drawingWIP = null;
   requestAnimationFrame(renderDrawings);
 }
 
@@ -699,32 +718,32 @@ function showDrawColorPicker(drawing, clientX, clientY) {
   if (!popup) return;
   popup.dataset.drawingId = drawing.id;
 
+  // 重建色塊（避免 listener 累積）
   const grid = popup.querySelector(".dcp-colors");
-  grid.innerHTML = DCP_COLORS.map(c =>
-    `<div class="dcp-swatch${drawing.color === c ? " active" : ""}" data-color="${c}" style="background:${c}"></div>`
-  ).join("");
-
-  // 色塊點擊（先移除舊的 listener 避免累積）
-  const newGrid = grid.cloneNode(true);
-  grid.parentNode.replaceChild(newGrid, grid);
-  newGrid.querySelectorAll(".dcp-swatch").forEach(sw => {
-    sw.addEventListener("click", e => {
+  const newGrid = document.createElement("div");
+  newGrid.className = "dcp-colors";
+  DCP_COLORS.forEach(c => {
+    const sw = document.createElement("div");
+    sw.className = "dcp-swatch" + (drawing.color === c ? " active" : "");
+    sw.style.background = c;
+    sw.addEventListener("mousedown", e => {
       e.stopPropagation();
       const d = drawings.find(d => d.id === popup.dataset.drawingId);
       if (!d) return;
-      d.color = sw.dataset.color;
-      _drawColor = sw.dataset.color;
+      d.color = c;
+      _drawColor = c;
       newGrid.querySelectorAll(".dcp-swatch").forEach(s => s.classList.toggle("active", s === sw));
       saveDrawings();
       requestAnimationFrame(renderDrawings);
     });
+    newGrid.appendChild(sw);
   });
+  grid.replaceWith(newGrid);
 
-  // 刪除按鈕
+  // 重建刪除按鈕
   const delBtn = popup.querySelector(".dcp-delete");
   const newDel = delBtn.cloneNode(true);
-  delBtn.parentNode.replaceChild(newDel, delBtn);
-  newDel.addEventListener("click", e => {
+  newDel.addEventListener("mousedown", e => {
     e.stopPropagation();
     const id = popup.dataset.drawingId;
     drawings = drawings.filter(d => d.id !== id);
@@ -733,12 +752,14 @@ function showDrawColorPicker(drawing, clientX, clientY) {
     popup.classList.add("hidden");
     requestAnimationFrame(renderDrawings);
   });
+  delBtn.replaceWith(newDel);
 
   // 定位
-  const pw = 182, ph = 100;
-  let left = clientX + 10, top = clientY - 10;
-  if (left + pw > window.innerWidth)  left = clientX - pw - 10;
+  const pw = 190, ph = 110;
+  let left = clientX + 12, top = clientY - 10;
+  if (left + pw > window.innerWidth)  left = clientX - pw - 12;
   if (top  + ph > window.innerHeight) top  = window.innerHeight - ph - 8;
+  if (top < 4) top = 4;
   popup.style.left = left + "px";
   popup.style.top  = top  + "px";
   popup.classList.remove("hidden");
