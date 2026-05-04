@@ -42,10 +42,24 @@ def fetch_us_stock(symbol: str, start: str, end: str, timeframe: str = "1d") -> 
 
 
 def search_us_stocks(query: str) -> list:
+    """直接呼叫 Yahoo Finance search API，比 yf.Search 更穩定"""
+    from urllib.request import urlopen, Request
+    from urllib.parse import urlencode
+    import json
+
     try:
-        results = yf.Search(query, max_results=10).quotes
+        params = urlencode({
+            "q": query, "quotesCount": 10, "newsCount": 0,
+            "enableFuzzyQuery": "false", "enableNavLinks": "false",
+        })
+        req = Request(
+            f"https://query2.finance.yahoo.com/v1/finance/search?{params}",
+            headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"},
+        )
+        with urlopen(req, timeout=8) as resp:
+            data = json.loads(resp.read())
         out = []
-        for r in results:
+        for r in data.get("quotes", []):
             sym = r.get("symbol", "")
             if not sym:
                 continue
@@ -57,4 +71,20 @@ def search_us_stocks(query: str) -> list:
             })
         return out
     except Exception:
-        return []
+        # fallback: yf.Search
+        try:
+            results = yf.Search(query, max_results=10).quotes
+            out = []
+            for r in results:
+                sym = r.get("symbol", "")
+                if not sym:
+                    continue
+                out.append({
+                    "symbol":   sym,
+                    "name":     r.get("longname") or r.get("shortname") or sym,
+                    "type":     r.get("quoteType", ""),
+                    "exchange": r.get("exchDisp") or r.get("exchange", ""),
+                })
+            return out
+        except Exception:
+            return []
