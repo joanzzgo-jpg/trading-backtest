@@ -619,10 +619,21 @@ function _onChartClick(e) {
   if (drawTool === "pointer") {
     if (dragState?.moved) return;
     const near = findNearest(x, y);
-    selectedId = near?.id ?? null;
-    if (!near) document.getElementById("drawColorPicker")?.classList.add("hidden");
+    if (near) {
+      if (near.id === selectedId) {
+        // 第二次點擊同一條線 → 開啟顏色面板
+        showDrawColorPicker(near, e.clientX, e.clientY);
+      } else {
+        // 第一次點擊 → 選取，關閉舊面板
+        document.getElementById("drawColorPicker")?.classList.add("hidden");
+      }
+      selectedId = near.id;
+    } else {
+      selectedId = null;
+      document.getElementById("drawColorPicker")?.classList.add("hidden");
+    }
     requestAnimationFrame(renderDrawings);
-    return;   // 不攔截，LWC 可同時更新十字
+    return;
   }
 
   if (drawTool === "crosshair") return;
