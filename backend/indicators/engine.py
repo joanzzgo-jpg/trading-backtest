@@ -101,6 +101,73 @@ def vwap(high: pd.Series, low: pd.Series, close: pd.Series, volume: pd.Series) -
     return (typical_price * volume).cumsum() / volume.cumsum()
 
 
+def kdj_first_cross(k: pd.Series, d: pd.Series, ob: int = 80, os_: int = 20):
+    """
+    KDJ 首次交叉狀態機
+    Returns: cross (+1=黃金, -1=死亡), armed_bull, armed_bear
+    """
+    n = len(k)
+    cross      = pd.Series(0,     index=k.index, dtype=int)
+    armed_bull = pd.Series(False, index=k.index)
+    armed_bear = pd.Series(False, index=k.index)
+
+    k_arr = k.values
+    d_arr = d.values
+    wait_golden = False
+    wait_dead   = False
+
+    for i in range(n):
+        ki, di = k_arr[i], d_arr[i]
+        if np.isnan(ki) or np.isnan(di):
+            continue
+
+        if ki < os_ or di < os_:
+            wait_golden = True
+        if ki > ob or di > ob:
+            wait_dead = True
+
+        armed_bull.iloc[i] = wait_golden
+        armed_bear.iloc[i] = wait_dead
+
+        if i > 0:
+            pk, pd_ = k_arr[i - 1], d_arr[i - 1]
+            if np.isnan(pk) or np.isnan(pd_):
+                continue
+            if pk < pd_ and ki >= di and wait_golden and (ki > os_ or di > os_) and ki <= 40:
+                cross.iloc[i] = 1
+                wait_golden = False
+            elif pk > pd_ and ki <= di and wait_dead and (ki < ob or di < ob) and ki >= 60:
+                cross.iloc[i] = -1
+                wait_dead = False
+
+    return cross, armed_bull, armed_bear
+
+
+def bb_kdj_rsi_resonance(
+    high: pd.Series, low: pd.Series,
+    bb_upper: pd.Series, bb_lower: pd.Series,
+    k: pd.Series, d: pd.Series, rsi_val: pd.Series,
+    tolerance: float = 0.01,
+    kd_ob: int = 80, kd_os: int = 20,
+    rsi_ob: int = 70, rsi_os: int = 30,
+) -> pd.Series:
+    """
+    超買超賣共振: 布林帶觸軌 + KD 超買超賣 + RSI 超買超賣
+    Returns: +1=超賣(看多), -1=超買(看空), 0=無訊號
+    """
+    touch_upper = high >= bb_upper * (1 - tolerance)
+    touch_lower = low  <= bb_lower * (1 + tolerance)
+    kd_ob_cond  = (k > kd_ob) | (d > kd_ob)
+    kd_os_cond  = (k < kd_os) | (d < kd_os)
+    rsi_ob_cond = rsi_val > rsi_ob
+    rsi_os_cond = rsi_val < rsi_os
+
+    signal = pd.Series(0, index=high.index, dtype=int)
+    signal[touch_upper & kd_ob_cond & rsi_ob_cond] = -1
+    signal[touch_lower & kd_os_cond & rsi_os_cond] =  1
+    return signal
+
+
 def add_indicators(df: pd.DataFrame, config: dict) -> pd.DataFrame:
     """
     根據設定批次計算指標並附加到 DataFrame

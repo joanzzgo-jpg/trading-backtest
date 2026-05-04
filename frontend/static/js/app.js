@@ -51,7 +51,9 @@ let currentChartType = "candlestick"; // candlestick | bar | line | area
 let ohlcvData       = [];
 let currentTF       = "1d";
 let realtimeTimer   = null;
-let lastCRTMarkers  = [];
+let lastCRTMarkers       = [];
+let lastKDJCrossMarkers  = [];
+let lastResonanceMarkers = [];
 let paneCollapseFlex = {};  // 面板收合前的 flex 值（module-level，供 loadVisibilityPrefs 使用）
 let _restoringPrefs  = false; // 還原偏好設定時，暫停自動儲存
 
@@ -1531,7 +1533,9 @@ function bindLegendToggles() {
   // 線條切換：點擊 leg-item 顯示/隱藏對應系列
   const lineMap = [
     { id: "legBB",       series: () => [bbU, bbM, bbL] },
-    { id: "legCRT",      series: null,  action: h => h ? candleSeries.setMarkers([]) : candleSeries.setMarkers(lastCRTMarkers) },
+    { id: "legCRT",      series: null,  action: () => _applyMainMarkers() },
+    { id: "legKDJCross", series: null,  action: () => _applyMainMarkers() },
+    { id: "legResonance",series: null,  action: () => _applyMainMarkers() },
     { id: "legVol",      series: () => [volSeries, volMaSeries] },
     { id: "legK",        series: () => [kdjK] },
     { id: "legD",        series: () => [kdjD] },
@@ -1648,6 +1652,8 @@ function renderAll(data) {
   renderCandles(data);
   renderBB(data);
   renderCRT(data);
+  renderKDJCross(data);
+  renderResonance(data);
   renderVolume(data);
   renderKDJ(data);
   renderRSI(data);
@@ -1667,12 +1673,25 @@ function renderAll(data) {
 
 function renderCandles(data) {
   applyOhlcvToSeries(data);
-  lastCRTMarkers = []; candleSeries.setMarkers([]);
+  lastCRTMarkers = []; lastKDJCrossMarkers = []; lastResonanceMarkers = [];
+  candleSeries.setMarkers([]);
 }
 
 function renderBB(data) {
   const line = k => data.filter(d => d[k] != null).map(d => ({ time:toTime(d.time), value:d[k] }));
   bbU.setData(line("bb_upper")); bbM.setData(line("bb_middle")); bbL.setData(line("bb_lower"));
+}
+
+function _applyMainMarkers() {
+  const crtHidden       = document.getElementById("legCRT")?      .classList.contains("line-off");
+  const kdjCrossHidden  = document.getElementById("legKDJCross")? .classList.contains("line-off");
+  const resonanceHidden = document.getElementById("legResonance")?.classList.contains("line-off");
+  const all = [
+    ...(crtHidden       ? [] : lastCRTMarkers),
+    ...(kdjCrossHidden  ? [] : lastKDJCrossMarkers),
+    ...(resonanceHidden ? [] : lastResonanceMarkers),
+  ].sort((a, b) => a.time - b.time);
+  candleSeries.setMarkers(all);
 }
 
 function renderCRT(data) {
@@ -1683,9 +1702,29 @@ function renderCRT(data) {
   });
   markers.sort((a,b) => a.time - b.time);
   lastCRTMarkers = markers;
-  // 若圖例已設為隱藏，不重新顯示標記
-  if (!document.getElementById("legCRT")?.classList.contains("line-off"))
-    candleSeries.setMarkers(markers);
+  _applyMainMarkers();
+}
+
+function renderKDJCross(data) {
+  const markers = [];
+  data.forEach(d => {
+    if (d.kdj_cross === 1)  markers.push({ time:toTime(d.time), position:"belowBar", color:"#26a69a", shape:"arrowUp",   size:1.5, text:"金叉" });
+    if (d.kdj_cross === -1) markers.push({ time:toTime(d.time), position:"aboveBar", color:"#ef5350", shape:"arrowDown", size:1.5, text:"死叉" });
+  });
+  markers.sort((a,b) => a.time - b.time);
+  lastKDJCrossMarkers = markers;
+  _applyMainMarkers();
+}
+
+function renderResonance(data) {
+  const markers = [];
+  data.forEach(d => {
+    if (d.resonance === 1)  markers.push({ time:toTime(d.time), position:"belowBar", color:"#26c6da", shape:"arrowUp",   size:1.5, text:"超賣" });
+    if (d.resonance === -1) markers.push({ time:toTime(d.time), position:"aboveBar", color:"#ff9800", shape:"arrowDown", size:1.5, text:"超買" });
+  });
+  markers.sort((a,b) => a.time - b.time);
+  lastResonanceMarkers = markers;
+  _applyMainMarkers();
 }
 
 function renderVolume(data) {
