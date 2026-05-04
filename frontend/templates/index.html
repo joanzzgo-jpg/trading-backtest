@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
-  <title>回測系統</title>
+  <title>Trading Chart</title>
   <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
   <link rel="stylesheet" href="/static/css/style.css?v={{ ver }}" />
 </head>
@@ -108,9 +108,9 @@
   </div>
 
   <div class="topbar-right">
-    <button id="backtestModeBtn" class="btn-mode">
+    <button id="replayModeBtn" class="btn-mode">
       <svg width="13" height="13" viewBox="0 0 13 13"><circle cx="6.5" cy="6.5" r="5.5" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M5 4.2L9.5 6.5L5 8.8V4.2Z" fill="currentColor"/></svg>
-      <span id="backtestModeLbl">回測</span>
+      <span>重播</span>
     </button>
     <button id="tickerToggle" class="tb-icon-btn" title="行情列表">
       <svg width="14" height="14" viewBox="0 0 14 14"><rect width="6" height="1.6" rx=".8" fill="currentColor"/><rect y="4" width="14" height="1.6" rx=".8" fill="currentColor"/><rect y="8" width="14" height="1.6" rx=".8" fill="currentColor"/><rect y="12" width="10" height="1.6" rx=".8" fill="currentColor"/></svg>
@@ -140,29 +140,6 @@
 
   <!-- 左側設定面板 -->
   <aside class="sidebar" id="sidebar">
-
-    <!-- 回測區塊 -->
-    <div id="backtestPanel" class="hidden">
-      <div class="sidebar-section">
-        <div class="section-title">策略</div>
-        <select id="strategySelect" class="s-select"></select>
-        <div id="strategyParams" class="strategy-params"></div>
-      </div>
-      <div class="sidebar-section">
-        <div class="section-title">回測參數</div>
-        <div class="param-row"><label>初始資金</label><input id="capital"    type="number" value="100000" /></div>
-        <div class="param-row"><label>倉位 %</label>  <input id="sizePct"   type="number" value="10" min="1" max="100" /></div>
-        <div class="param-row"><label>手續費 %</label><input id="commission" type="number" value="0.1" step="0.01" /></div>
-        <div class="param-row"><label>滑點 %</label>  <input id="slippage"  type="number" value="0.05" step="0.01" /></div>
-        <div class="param-row">
-          <label>允許做空</label>
-          <input id="allowShort" type="checkbox" style="width:auto;margin-left:auto" />
-        </div>
-      </div>
-      <div class="sidebar-section">
-        <button id="backtestBtn" class="btn-run-backtest" disabled>▶ 執行回測</button>
-      </div>
-    </div>
 
     <!-- 外觀顏色 -->
     <div class="sidebar-section">
@@ -225,12 +202,6 @@
         <div class="color-row"><label>強調色</label>  <input type="color" id="sc-blue"   value="#2962ff" /></div>
         <button id="resetSysColors" class="btn-reset">重設預設色</button>
       </div>
-    </div>
-
-    <!-- 績效摘要 -->
-    <div id="statsPanel" class="sidebar-section hidden">
-      <div class="section-title">績效摘要</div>
-      <div id="statsContent"></div>
     </div>
 
   </aside>
@@ -326,15 +297,6 @@
       <div class="pane-body" id="macdChart"></div>
     </div>
 
-    <!-- 資金曲線 -->
-    <div class="pane-divider hidden" id="equityDivider" data-target="macdPane"></div>
-    <div class="chart-pane hidden" id="equityPane" style="flex:1.5">
-      <div class="pane-legend">
-        <span class="leg-item" style="color:#26a69a">資金曲線</span>
-      </div>
-      <div class="pane-body" id="equityChart"></div>
-    </div>
-
   </div>
 
   <!-- 右側行情列表 -->
@@ -353,26 +315,23 @@
 
 </div>
 
-<!-- ④ 交易明細 -->
-<div class="trade-drawer hidden" id="tradeDrawer">
-  <div class="drawer-header">
-    <span>交易明細</span>
-    <span id="tradeSummary" class="trade-summary"></span>
-    <button id="exportCsvBtn" class="btn-export">↓ CSV</button>
-    <button id="drawerClose"  class="drawer-close">✕</button>
+<!-- ④ 重播控制列 -->
+<div id="replayBar" class="replay-bar hidden">
+  <button id="replayExit"  class="rp-btn rp-exit" title="結束重播">✕ 離開</button>
+  <div class="rp-divider"></div>
+  <button id="replayStepB" class="rp-btn rp-step" title="往前一根">◀</button>
+  <button id="replayPlay"  class="rp-btn rp-play" title="播放/暫停">▶</button>
+  <button id="replayStepF" class="rp-btn rp-step" title="往後一根">▶|</button>
+  <div class="rp-divider"></div>
+  <div class="rp-speeds">
+    <button class="rp-speed active" data-speed="500">1×</button>
+    <button class="rp-speed" data-speed="250">2×</button>
+    <button class="rp-speed" data-speed="100">5×</button>
+    <button class="rp-speed" data-speed="40">25×</button>
   </div>
-  <div class="table-wrap">
-    <table id="tradeTable">
-      <thead>
-        <tr>
-          <th>進場</th><th>出場</th><th>向</th>
-          <th>進場價</th><th>出場價</th><th>數量</th>
-          <th>損益</th><th>%</th><th>原因</th>
-        </tr>
-      </thead>
-      <tbody></tbody>
-    </table>
-  </div>
+  <div class="rp-divider"></div>
+  <span id="replayDate" class="rp-date">—</span>
+  <span id="replayProgress" class="rp-progress"></span>
 </div>
 
 <!-- Symbol Search Modal -->

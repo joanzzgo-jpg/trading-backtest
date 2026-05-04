@@ -45,20 +45,17 @@ let kdjChart,    kdjK, kdjD, kdjJ, kdjH20, kdjH50, kdjH80;
 let rsiChart,    rsiLine14, rsiLine7, rsiH30, rsiH50, rsiH70;
 let macdChart,   macdLine, macdSignal, macdHist;
 let kdjAnchor, rsiAnchor, macdAnchor;   // 透明錨定系列，確保時間軸對齊
-let equityChart, equitySeries;
 
 /* ── 狀態 ── */
 let currentChartType = "candlestick"; // candlestick | bar | line | area
-let strategies      = {};
 let ohlcvData       = [];
-let lastTradeData   = [];
 let currentTF       = "1d";
 let realtimeTimer   = null;
 let lastCRTMarkers  = [];
 let paneCollapseFlex = {};  // 面板收合前的 flex 值（module-level，供 loadVisibilityPrefs 使用）
 let _restoringPrefs  = false; // 還原偏好設定時，暫停自動儲存
 
-const PANE_FLEX_DEFAULTS = { mainPane:5, kdjPane:1, rsiPane:1, macdPane:1, equityPane:1.5 };
+const PANE_FLEX_DEFAULTS = { mainPane:5, kdjPane:1, rsiPane:1, macdPane:1 };
 
 const TF_LABELS = { "1M":"月","1w":"週","1d":"日","4h":"4H","1h":"1H","15m":"15m" };
 
@@ -244,7 +241,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   loadPaneFlexes();   // 套用儲存的面板比例（在 buildCharts 前，讓第一次 resize 即正確）
   buildCharts();
   syncColorInputsToState();
-  await loadStrategies();
   bindEvents();
   bindTickerPanel();
   bindSystemColors();
@@ -333,11 +329,6 @@ function buildCharts() {
   macdSignal = macdChart.addLineSeries({ color:C.macdSig, lineWidth:1, priceLineVisible:false, lastValueVisible:false });
   macdHist   = macdChart.addHistogramSeries({ priceScaleId:"right", priceLineVisible:false, lastValueVisible:false });
 
-  equityChart = LightweightCharts.createChart(document.getElementById("equityChart"), {
-    ...makeBaseOpts({ top:0.05, bottom:0.05 }),
-  });
-  equitySeries = equityChart.addLineSeries({ color:"#26a69a", lineWidth:2, priceLineVisible:false, lastValueVisible:true });
-
   const ro = new ResizeObserver(() => resizeAll());
   ro.observe(document.getElementById("chartsContainer"));
   // 等 DOM 完成 layout 後再 resize（rAF 兩次確保 flex 已計算完畢）
@@ -352,7 +343,6 @@ function resizeAll() {
     [kdjChart,    "kdjChart"],
     [rsiChart,    "rsiChart"],
     [macdChart,   "macdChart"],
-    [equityChart, "equityChart"],
   ];
   charts.forEach(([chart, id]) => {
     const el = document.getElementById(id);
@@ -365,7 +355,7 @@ function resizeAll() {
 /* ── 時間軸 & 鉛直線同步 ── */
 function syncTimeScales() {
   // 捲動 / 縮放：以 logical range 同步（anchor series 確保各圖索引一致）
-  const allCharts = [mainChart, kdjChart, rsiChart, macdChart, equityChart];
+  const allCharts = [mainChart, kdjChart, rsiChart, macdChart];
   let syncing = false;
   allCharts.forEach((src, si) => {
     src.timeScale().subscribeVisibleLogicalRangeChange(range => {
@@ -960,7 +950,7 @@ function drawPreview(type, a, b, W, H) {
 ══════════════════════════════════════════ */
 function applyAllColors() {
   const bgOpt = { layout: { background:{ color: C.bg }, textColor:"#d1d4dc" } };
-  [mainChart, kdjChart, rsiChart, macdChart, equityChart].forEach(c => c?.applyOptions(bgOpt));
+  [mainChart, kdjChart, rsiChart, macdChart].forEach(c => c?.applyOptions(bgOpt));
   document.body.style.background = C.bg;
 
   if (currentChartType === "candlestick") {
@@ -1275,12 +1265,7 @@ function initColorPicker() {
 ══════════════════════════════════════════ */
 function bindEvents() {
   document.getElementById("marketSelect").addEventListener("change", updateMarketUI);
-  document.getElementById("strategySelect").addEventListener("change", renderStrategyParams);
   document.getElementById("loadBtn").addEventListener("click", () => loadData(false));
-  document.getElementById("backtestBtn").addEventListener("click", runBacktest);
-  document.getElementById("drawerClose").addEventListener("click", () =>
-    document.getElementById("tradeDrawer").classList.add("hidden"));
-  document.getElementById("exportCsvBtn").addEventListener("click", exportCSV);
 
   // ── 側欄 / 行情列表 ──────────────────────────────
   const isMobile = () => window.innerWidth <= 768;
@@ -1321,20 +1306,10 @@ function bindEvents() {
     if (isMobile()) closeTicker();
   }, true);
 
-  // 回測模式切換
-  document.getElementById("backtestModeBtn").addEventListener("click", () => {
-    const btn   = document.getElementById("backtestModeBtn");
-    const panel = document.getElementById("backtestPanel");
-    const lbl   = document.getElementById("backtestModeLbl");
-    const isOn  = btn.classList.toggle("active");
-    panel.classList.toggle("hidden", !isOn);
-    if (lbl) lbl.textContent = isOn ? "關閉回測" : "回測";
-    if (!isOn) {
-      candleSeries.setMarkers(lastCRTMarkers);
-      document.getElementById("tradeDrawer").classList.add("hidden");
-      document.getElementById("statsPanel").classList.add("hidden");
-      toggleEquityPane(false);
-    }
+  // 重播模式切換
+  document.getElementById("replayModeBtn").addEventListener("click", () => {
+    if (!ohlcvData.length) return alert("請先載入資料再使用重播");
+    enterReplay();
   });
 
   // ── 圖表類型切換 ──────────────────────────────
@@ -1365,10 +1340,25 @@ function bindEvents() {
   document.addEventListener("keydown", e => {
     if (e.key === "Escape" && !document.getElementById("symOverlay").classList.contains("hidden")) return;
     if (e.key === "Escape") {
+      if (replayActive) { exitReplay(); return; }
       if (drawingWIP) { drawingWIP = null; requestAnimationFrame(renderDrawings); }
       document.querySelectorAll(".dt-btn").forEach(b => b.classList.remove("active"));
       document.querySelector(".dt-btn[data-tool='pointer']")?.classList.add("active");
       setDrawTool("pointer");
+    }
+    if (e.key === " " && replayActive && document.activeElement.tagName !== "INPUT") {
+      e.preventDefault();
+      replayPlay();
+    }
+    if (e.key === "ArrowRight" && replayActive) { e.preventDefault(); replayStepForward(); }
+    if (e.key === "ArrowLeft"  && replayActive) { e.preventDefault(); replayStepBack(); }
+    if ((e.key === "Delete" || e.key === "Backspace") && selectedId && document.activeElement.tagName !== "INPUT") {
+      e.preventDefault();
+      drawings = drawings.filter(d => d.id !== selectedId);
+      selectedId = null;
+      document.getElementById("drawColorPicker")?.classList.add("hidden");
+      saveDrawings();
+      requestAnimationFrame(renderDrawings);
     }
   });
 
@@ -1407,6 +1397,7 @@ function bindEvents() {
   bindPaneDividers();
   bindLegendToggles();
   initColorPicker();
+  bindReplayBar();
 }
 
 function updateMarketUI() {
@@ -1449,14 +1440,6 @@ function updateMarketUI() {
   if (tabUS)      tabUS.style.display      = isUS ? "" : "none";
 }
 
-function toggleEquityPane(show) {
-  const pane = document.getElementById("equityPane");
-  const div  = document.getElementById("equityDivider");
-  pane.classList.toggle("hidden", !show);
-  div.classList.toggle("hidden", !show);
-  setTimeout(resizeAll, 50);
-}
-
 /* ── 面板拖曳分隔 ── */
 function bindPaneDividers() {
   document.querySelectorAll(".pane-divider").forEach(divider => {
@@ -1494,7 +1477,6 @@ function bindPaneDividers() {
 function updateBottomTimeAxis() {
   // 由下而上排列（第一個找到的 = 當前最底部可見面板）
   const panels = [
-    { paneId: "equityPane", chart: equityChart },
     { paneId: "macdPane",   chart: macdChart   },
     { paneId: "rsiPane",    chart: rsiChart    },
     { paneId: "kdjPane",    chart: kdjChart    },
@@ -1580,41 +1562,7 @@ function nextVisiblePane(el) {
 }
 
 /* ══════════════════════════════════════════
-   策略
-══════════════════════════════════════════ */
-async function loadStrategies() {
-  const res = await fetch("/api/strategies");
-  strategies = await res.json();
-  const sel  = document.getElementById("strategySelect");
-  sel.innerHTML = "";
-  for (const [id, info] of Object.entries(strategies)) {
-    const opt = document.createElement("option");
-    opt.value = id; opt.textContent = info.name;
-    sel.appendChild(opt);
-  }
-  renderStrategyParams();
-}
-
-function renderStrategyParams() {
-  const id     = document.getElementById("strategySelect").value;
-  const params = strategies[id]?.params || [];
-  const box    = document.getElementById("strategyParams");
-  box.innerHTML = "";
-  params.forEach(p => {
-    const row = document.createElement("div");
-    row.className = "param-row";
-    const lbl = document.createElement("label"); lbl.textContent = p.label;
-    const inp = document.createElement("input");
-    inp.type = "number"; inp.id = `param_${p.key}`; inp.value = p.default;
-    if (p.min !== undefined) inp.min = p.min;
-    if (p.max !== undefined) inp.max = p.max;
-    if (p.type === "float") inp.step = "0.1";
-    row.append(lbl, inp); box.append(row);
-  });
-}
-
-/* ══════════════════════════════════════════
-   資料載入 & 回測
+   資料載入
 ══════════════════════════════════════════ */
 async function loadData(autoLoad = false) {
   stopRealtime();
@@ -1648,7 +1596,6 @@ async function loadData(autoLoad = false) {
     if (!res.ok) throw new Error(json.detail || "載入失敗");
     ohlcvData = json.data;
     renderAll(json.data);
-    document.getElementById("backtestBtn").disabled = false;
     startRealtime();
     saveLastSymbol();   // 載入成功後記憶此次標的
   } catch(e) {
@@ -1657,43 +1604,6 @@ async function loadData(autoLoad = false) {
   } finally { showLoading(false); }
 }
 
-async function runBacktest() {
-  const stratId  = document.getElementById("strategySelect").value;
-  const stratDef = strategies[stratId];
-  const params   = {};
-  for (const p of stratDef.params) {
-    const el = document.getElementById(`param_${p.key}`);
-    params[p.key] = p.type === "float" ? parseFloat(el.value) : parseInt(el.value);
-  }
-  showLoading(true);
-  try {
-    const res  = await fetch("/api/backtest", {
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({
-        ...buildPayload(),
-        strategy_id:     stratId,
-        strategy_params: params,
-        initial_capital: parseFloat(document.getElementById("capital").value),
-        size_pct:        parseFloat(document.getElementById("sizePct").value) / 100,
-        commission:      parseFloat(document.getElementById("commission").value) / 100,
-        slippage:        parseFloat(document.getElementById("slippage").value) / 100,
-        allow_short:     document.getElementById("allowShort").checked,
-      }),
-    });
-    const json = await res.json();
-    if (!res.ok) throw new Error(json.detail || "回測失敗");
-    lastTradeData = json.trades;
-    ohlcvData = json.ohlcv;
-    renderAll(json.ohlcv);
-    renderBacktestMarkers(json.trades);
-    renderStats(json.stats);
-    renderTradeTable(json.trades);
-    renderEquityCurve(json.equity_curve);
-    toggleEquityPane(true);
-  } catch(e) {
-    alert("❌ " + e.message);
-  } finally { showLoading(false); }
-}
 
 /* ══════════════════════════════════════════
    渲染
@@ -1714,7 +1624,7 @@ function renderAll(data) {
   renderMACD(data);
   updateSymbolBar(data);
 
-  // 先 fit 讓 LWC 計算出正確的時間範圍（排除 equityChart，它沒有資料）
+  // fit 讓各子圖時間範圍對齊
   [mainChart, kdjChart, rsiChart, macdChart].forEach(c => c.timeScale().fitContent());
 
   // 顯示最後 50 根（logical range，anchor series 確保各圖索引對齊）
@@ -1792,21 +1702,6 @@ function renderMACD(data) {
     time:toTime(d.time), value:d.macd_hist,
     color: d.macd_hist >= 0 ? C.up+"cc" : C.down+"cc",
   })));
-}
-
-function renderEquityCurve(curve) {
-  equitySeries.setData(curve.map(e => ({ time:toTime(e.time), value:e.equity })));
-}
-
-function renderBacktestMarkers(trades) {
-  const markers = [];
-  trades.forEach(t => {
-    markers.push({ time:toTime(t.entry_time), position:"belowBar", color:C.up,   shape:"arrowUp",   size:1, text:"" });
-    if (t.exit_time)
-      markers.push({ time:toTime(t.exit_time), position:"aboveBar", color:C.down, shape:"arrowDown", size:1, text:"" });
-  });
-  markers.sort((a,b) => a.time - b.time);
-  candleSeries.setMarkers(markers);
 }
 
 /* ══════════════════════════════════════════
@@ -1968,60 +1863,103 @@ function updateSymbolBar(data) {
   el.className   = "sym-chg " + (chg >= 0 ? "up" : "dn");
 }
 
-function renderStats(stats) {
-  document.getElementById("statsPanel").classList.remove("hidden");
-  const rows = [
-    ["交易次數",  stats.total_trades,  null],
-    ["勝率",      `${(stats.win_rate*100).toFixed(1)}%`, stats.win_rate >= 0.5],
-    ["獲利因子",  stats.profit_factor, stats.profit_factor >= 1],
-    ["總報酬",    `${stats.total_return}%`, stats.total_return >= 0],
-    ["最大回撤",  `${stats.max_drawdown}%`, false],
-    ["夏普比率",  stats.sharpe_ratio,  stats.sharpe_ratio >= 1],
-    ["平均獲利",  `$${stats.avg_win}`, true],
-    ["平均虧損",  `$${stats.avg_loss}`, false],
-    ["總損益",    `$${stats.total_pnl}`, stats.total_pnl >= 0],
-    ["最終資金",  `$${stats.final_equity?.toLocaleString()}`, null],
-  ];
-  document.getElementById("statsContent").innerHTML = rows.map(([lbl,val,pos]) =>
-    `<div class="stat-row"><span class="stat-label">${lbl}</span><span class="stat-value ${pos===null?"":pos?"up":"dn"}">${val}</span></div>`
-  ).join("");
-}
-
-function renderTradeTable(trades) {
-  const drawer = document.getElementById("tradeDrawer");
-  drawer.classList.remove("hidden");
-  const wins = trades.filter(t => t.pnl > 0).length;
-  document.getElementById("tradeSummary").textContent = `${trades.length}筆  ${wins}勝 ${trades.length-wins}敗`;
-  document.querySelector("#tradeTable tbody").innerHTML = trades.map(t => {
-    const cls = t.pnl >= 0 ? "cell-up" : "cell-dn";
-    return `<tr>
-      <td>${fmtT(t.entry_time)}</td><td>${fmtT(t.exit_time)}</td>
-      <td>${t.side==="long"?"多":"空"}</td>
-      <td>${fmt(t.entry_price)}</td><td>${t.exit_price?fmt(t.exit_price):"—"}</td>
-      <td>${t.size}</td>
-      <td class="${cls}">${t.pnl??"—"}</td>
-      <td class="${cls}">${t.pnl_pct!=null?t.pnl_pct+"%":"—"}</td>
-      <td>${t.exit_reason}</td>
-    </tr>`;
-  }).join("");
-}
-
 /* ══════════════════════════════════════════
-   匯出功能
+   重播 (Bar Replay)
 ══════════════════════════════════════════ */
-function exportCSV() {
-  if (!lastTradeData.length) return alert("請先執行回測");
-  const header = "進場時間,出場時間,方向,進場價,出場價,數量,損益,損益%,原因";
-  const rows   = lastTradeData.map(t =>
-    [t.entry_time,t.exit_time??"",t.side==="long"?"多":"空",
-     t.entry_price,t.exit_price??"",t.size,t.pnl??"",t.pnl_pct??"",t.exit_reason].join(",")
-  );
-  const csv  = [header, ...rows].join("\n");
-  const blob = new Blob(["\ufeff" + csv], { type:"text/csv;charset=utf-8" });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement("a");
-  a.href = url; a.download = "backtest_trades.csv"; a.click();
-  URL.revokeObjectURL(url);
+let replayData    = [];   // 完整資料快照
+let replayIdx     = 0;    // 目前顯示到第幾根
+let replaySpeed   = 500;  // ms per bar
+let replayTimer   = null;
+let replayActive  = false;
+
+function enterReplay() {
+  if (replayActive) return;
+  replayActive = true;
+  stopRealtime();
+  replayData = [...ohlcvData];
+  // 預設從 20% 處開始（讓左側有足夠歷史）
+  replayIdx  = Math.max(5, Math.floor(replayData.length * 0.2));
+  document.getElementById("replayBar").classList.remove("hidden");
+  document.getElementById("replayModeBtn").classList.add("active");
+  _replayRender();
+}
+
+function exitReplay() {
+  replayActive = false;
+  replayTimer && clearInterval(replayTimer);
+  replayTimer = null;
+  document.getElementById("replayBar").classList.add("hidden");
+  document.getElementById("replayModeBtn").classList.remove("active");
+  document.getElementById("replayPlay").classList.remove("playing");
+  document.getElementById("replayPlay").textContent = "▶";
+  // 還原完整資料
+  if (replayData.length) renderAll(replayData);
+}
+
+function _replayRender() {
+  const slice = replayData.slice(0, replayIdx + 1);
+  renderAll(slice);
+  // 讓最新一根在畫面右側
+  mainChart.timeScale().scrollToPosition(-2, false);
+  // 更新狀態列
+  const bar = slice[slice.length - 1];
+  if (bar) {
+    const d = new Date(bar.time);
+    document.getElementById("replayDate").textContent =
+      `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  }
+  document.getElementById("replayProgress").textContent =
+    `${replayIdx + 1} / ${replayData.length}`;
+}
+
+function replayPlay() {
+  if (replayTimer) {
+    clearInterval(replayTimer);
+    replayTimer = null;
+    document.getElementById("replayPlay").classList.remove("playing");
+    document.getElementById("replayPlay").textContent = "▶";
+    return;
+  }
+  document.getElementById("replayPlay").classList.add("playing");
+  document.getElementById("replayPlay").textContent = "⏸";
+  replayTimer = setInterval(() => {
+    if (replayIdx >= replayData.length - 1) {
+      clearInterval(replayTimer); replayTimer = null;
+      document.getElementById("replayPlay").classList.remove("playing");
+      document.getElementById("replayPlay").textContent = "▶";
+      return;
+    }
+    replayIdx++;
+    _replayRender();
+  }, replaySpeed);
+}
+
+function replayStepForward() {
+  if (replayIdx < replayData.length - 1) { replayIdx++; _replayRender(); }
+}
+
+function replayStepBack() {
+  if (replayIdx > 0) { replayIdx--; _replayRender(); }
+}
+
+function bindReplayBar() {
+  document.getElementById("replayExit").addEventListener("click", exitReplay);
+  document.getElementById("replayPlay").addEventListener("click", replayPlay);
+  document.getElementById("replayStepF").addEventListener("click", replayStepForward);
+  document.getElementById("replayStepB").addEventListener("click", replayStepBack);
+  document.querySelectorAll(".rp-speed").forEach(btn => {
+    btn.addEventListener("click", () => {
+      replaySpeed = parseInt(btn.dataset.speed);
+      document.querySelectorAll(".rp-speed").forEach(b => b.classList.toggle("active", b === btn));
+      // 若正在播放，重啟 interval
+      if (replayTimer) {
+        clearInterval(replayTimer); replayTimer = null;
+        document.getElementById("replayPlay").classList.remove("playing");
+        document.getElementById("replayPlay").textContent = "▶";
+        replayPlay();
+      }
+    });
+  });
 }
 
 /* ══════════════════════════════════════════

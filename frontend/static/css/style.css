@@ -360,23 +360,6 @@ html, body {
 .param-row input { width: 85px; text-align: right; }
 .param-row input[type="checkbox"] { width: auto; }
 
-.strategy-params { display: flex; flex-direction: column; gap: 4px; }
-.strategy-params label { color: var(--muted); font-size: 11px; }
-
-.btn-run-backtest {
-  width: 100%;
-  background: rgba(38,166,154,.1);
-  color: var(--green);
-  border: 1px solid var(--green);
-  padding: 7px 0;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 600;
-  transition: all .15s;
-}
-.btn-run-backtest:hover:not(:disabled) { background: var(--green); color: #fff; }
-.btn-run-backtest:disabled { opacity: 0.35; cursor: not-allowed; }
 
 /* Color panel */
 .color-panel { display: flex; flex-direction: column; gap: 5px; }
@@ -418,19 +401,6 @@ html, body {
 }
 .btn-reset:hover { color: var(--text); border-color: var(--muted); }
 
-/* Stats */
-.stat-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 2px 0;
-  border-bottom: 1px solid var(--border);
-  font-size: 11px;
-}
-.stat-label { color: var(--muted); }
-.stat-value { font-weight: 600; }
-.stat-value.up { color: var(--red); }
-.stat-value.dn { color: var(--green); }
 
 /* ═══ DRAWING TOOLBAR ═══ */
 .draw-toolbar {
@@ -854,62 +824,54 @@ html, body {
 
 #symbolInput { cursor: pointer; }
 
-/* ═══ TRADE DRAWER ═══ */
-.trade-drawer {
-  background: var(--bg2);
-  border-top: 1px solid var(--border);
-  height: 200px;
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-}
-.drawer-header {
+/* ═══ REPLAY BAR ═══ */
+.replay-bar {
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  height: 42px;
+  background: rgba(19,23,34,0.96);
+  border-top: 1px solid #2962ff55;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 5px 12px;
-  border-bottom: 1px solid var(--border);
-  font-size: 11px;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: .06em;
-  flex-shrink: 0;
+  gap: 6px;
+  padding: 0 14px;
+  z-index: 500;
+  backdrop-filter: blur(6px);
+  box-shadow: 0 -4px 20px rgba(0,0,0,.5);
 }
-.trade-summary { color: var(--text); font-weight: 600; margin-left: 4px; }
-.drawer-close  { margin-left: auto; background: none; border: none; color: var(--muted); cursor: pointer; font-size: 13px; transition: color .12s; }
-.drawer-close:hover { color: var(--text); }
-
-.btn-export {
-  background: var(--bg3);
+.replay-bar.hidden { display: none; }
+.rp-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 4px;
+  padding: 3px 9px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all .12s;
+  white-space: nowrap;
+}
+.rp-btn:hover { border-color: var(--blue); color: var(--blue); }
+.rp-exit { color: var(--muted); font-size: 11px; }
+.rp-exit:hover { border-color: #ef5350; color: #ef5350; }
+.rp-play { min-width: 32px; font-size: 13px; }
+.rp-play.playing { border-color: #ff9800; color: #ff9800; }
+.rp-step { font-size: 11px; padding: 3px 7px; }
+.rp-divider { width: 1px; height: 20px; background: var(--border); margin: 0 4px; flex-shrink: 0; }
+.rp-speeds { display: flex; gap: 3px; }
+.rp-speed {
+  background: transparent;
   border: 1px solid var(--border);
   color: var(--muted);
-  padding: 2px 8px;
   border-radius: 4px;
+  padding: 2px 7px;
   cursor: pointer;
   font-size: 11px;
-  white-space: nowrap;
   transition: all .12s;
 }
-.btn-export:hover { color: var(--green); border-color: var(--green); }
-
-.table-wrap { overflow: auto; flex: 1; }
-#tradeTable { width: 100%; border-collapse: collapse; font-size: 11px; white-space: nowrap; }
-#tradeTable th {
-  background: var(--bg3);
-  color: var(--muted);
-  padding: 4px 10px;
-  text-align: right;
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  font-weight: 600;
-}
-#tradeTable th:nth-child(-n+3) { text-align: left; }
-#tradeTable td { padding: 3px 10px; border-bottom: 1px solid var(--border); text-align: right; }
-#tradeTable td:nth-child(-n+3) { text-align: left; }
-#tradeTable tr:hover td { background: var(--bg3); }
-.cell-up { color: var(--red); }
-.cell-dn { color: var(--green); }
+.rp-speed.active, .rp-speed:hover { border-color: var(--blue); color: var(--blue); }
+.rp-date { font-size: 12px; color: var(--text); font-family: monospace; margin-left: 4px; }
+.rp-progress { font-size: 11px; color: var(--muted); margin-left: 6px; }
 
 /* ═══ MISC ═══ */
 .loading-overlay {
@@ -1129,14 +1091,12 @@ html, body {
   .topbar-left { gap: 0; }
   .tb-date   { width: 106px; font-size: 11px; }
   .tf-btn    { padding: 3px 6px; font-size: 11px; }
-  #backtestModeBtn { font-size: 11px; padding: 0 8px; }
+  #replayModeBtn { font-size: 11px; padding: 0 8px; }
 
   .symbol-bar { font-size: 11px; gap: 3px; padding: 3px 8px; }
   .sym-label  { display: none; }
   .sym-tag    { display: none; }
   .sym-divider{ display: none; }
-
-  .trade-drawer { height: 55vh; }
   .leg-item { font-size: 10px; }
 }
 
