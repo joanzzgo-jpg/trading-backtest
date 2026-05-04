@@ -101,18 +101,12 @@ def vwap(high: pd.Series, low: pd.Series, close: pd.Series, volume: pd.Series) -
     return (typical_price * volume).cumsum() / volume.cumsum()
 
 
-def kdj_first_cross(k: pd.Series, d: pd.Series, ob: int = 80, os_: int = 20):
-    """
-    KDJ 首次交叉狀態機
-    Returns: cross (+1=黃金, -1=死亡), armed_bull, armed_bear
-    """
-    n = len(k)
-    cross      = pd.Series(0,     index=k.index, dtype=int)
-    armed_bull = pd.Series(False, index=k.index)
-    armed_bear = pd.Series(False, index=k.index)
-
-    k_arr = k.values
-    d_arr = d.values
+def kdj_first_cross(k: pd.Series, d: pd.Series, ob: int = 80, os_: int = 20) -> pd.Series:
+    """KDJ 首次交叉狀態機：Returns cross (+1=黃金, -1=死亡, 0=無)"""
+    k_arr = k.to_numpy(dtype=float, na_value=np.nan)
+    d_arr = d.to_numpy(dtype=float, na_value=np.nan)
+    n     = len(k_arr)
+    cross = np.zeros(n, dtype=np.int8)
     wait_golden = False
     wait_dead   = False
 
@@ -120,27 +114,21 @@ def kdj_first_cross(k: pd.Series, d: pd.Series, ob: int = 80, os_: int = 20):
         ki, di = k_arr[i], d_arr[i]
         if np.isnan(ki) or np.isnan(di):
             continue
-
         if ki < os_ or di < os_:
             wait_golden = True
         if ki > ob or di > ob:
             wait_dead = True
-
-        armed_bull.iloc[i] = wait_golden
-        armed_bear.iloc[i] = wait_dead
-
         if i > 0:
             pk, pd_ = k_arr[i - 1], d_arr[i - 1]
-            if np.isnan(pk) or np.isnan(pd_):
-                continue
-            if pk < pd_ and ki >= di and wait_golden and (ki > os_ or di > os_) and ki <= 40:
-                cross.iloc[i] = 1
-                wait_golden = False
-            elif pk > pd_ and ki <= di and wait_dead and (ki < ob or di < ob) and ki >= 60:
-                cross.iloc[i] = -1
-                wait_dead = False
+            if not (np.isnan(pk) or np.isnan(pd_)):
+                if pk < pd_ and ki >= di and wait_golden and (ki > os_ or di > os_) and ki <= 40:
+                    cross[i] = 1
+                    wait_golden = False
+                elif pk > pd_ and ki <= di and wait_dead and (ki < ob or di < ob) and ki >= 60:
+                    cross[i] = -1
+                    wait_dead = False
 
-    return cross, armed_bull, armed_bear
+    return pd.Series(cross.astype(int), index=k.index)
 
 
 def bb_kdj_rsi_resonance(

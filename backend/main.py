@@ -15,7 +15,8 @@ sys.path.insert(0, os.path.dirname(__file__))
 from data.taiwan import fetch_tw_stock, resample_tw, search_tw_stock
 from data.us_stock import fetch_us_stock, search_us_stocks, MAX_DAYS as US_MAX_DAYS
 from data.crypto import fetch_crypto_ohlcv, fetch_crypto_markets, fetch_tickers, _fetch_pionex_symbols, _fetch_futures_tickers_fapi
-from indicators.engine import add_indicators, crt_markers, rsi as calc_rsi, macd as calc_macd, kdj_first_cross, bb_kdj_rsi_resonance
+from indicators.engine import add_indicators, crt_markers, rsi as calc_rsi, macd as calc_macd, \
+    kdj_first_cross, bb_kdj_rsi_resonance
 from backtest.engine import BacktestEngine, BacktestConfig
 from strategies.builtin import BUILTIN_STRATEGIES
 
@@ -103,10 +104,11 @@ def _enrich(df):
     df = add_indicators(df, default_indicators)
     df["rsi_7"] = calc_rsi(df["close"], 7)
     df["crt"]   = crt_markers(df["high"], df["low"], df["open"], df["close"])
-    df["kdj_cross"], df["kdj_armed_bull"], df["kdj_armed_bear"] = kdj_first_cross(df["kdj_k"], df["kdj_d"])
+    df["kdj_cross"] = kdj_first_cross(df["kdj_k"], df["kdj_d"])
     df["resonance"] = bb_kdj_rsi_resonance(
         df["high"], df["low"], df["bb_upper"], df["bb_lower"],
         df["kdj_k"], df["kdj_d"], df["rsi_7"],
+        rsi_ob=65, rsi_os=35,
     )
     return df
 
