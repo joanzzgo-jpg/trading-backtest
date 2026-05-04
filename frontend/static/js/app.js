@@ -1683,8 +1683,8 @@ function renderBB(data) {
 }
 
 function _applyMainMarkers() {
-  const crtHidden       = document.getElementById("legCRT")?      .classList.contains("line-off");
-  const kdjCrossHidden  = document.getElementById("legKDJCross")? .classList.contains("line-off");
+  const crtHidden       = document.getElementById("legCRT")?.classList.contains("line-off");
+  const kdjCrossHidden  = document.getElementById("legKDJCross")?.classList.contains("line-off");
   const resonanceHidden = document.getElementById("legResonance")?.classList.contains("line-off");
   const all = [
     ...(crtHidden       ? [] : lastCRTMarkers),
