@@ -13,6 +13,7 @@ import os, sys, time, math, gc, subprocess
 sys.path.insert(0, os.path.dirname(__file__))
 
 from data.taiwan import fetch_tw_stock, resample_tw, search_tw_stock
+from data.us_stock import fetch_us_stock, search_us_stocks, MAX_DAYS as US_MAX_DAYS
 from data.crypto import fetch_crypto_ohlcv, fetch_crypto_markets, fetch_tickers, _fetch_pionex_symbols, _fetch_futures_tickers_fapi
 from indicators.engine import add_indicators, crt_markers, rsi as calc_rsi, macd as calc_macd
 from backtest.engine import BacktestEngine, BacktestConfig
@@ -148,6 +149,15 @@ def get_ohlcv(req: OHLCVRequest):
                     req.symbol, req.timeframe, req.start, req.end,
                     req.exchange, api_key=req.api_key, api_secret=req.api_secret,
                 )
+        elif req.market == "us":
+            from datetime import date, timedelta
+            if use_limit:
+                max_d = US_MAX_DAYS.get(req.timeframe, 365)
+                end   = date.today().isoformat()
+                start = (date.today() - timedelta(days=min(req.limit * 2, max_d))).isoformat()
+            else:
+                start, end = req.start, req.end
+            df = fetch_us_stock(req.symbol, start, end, req.timeframe)
         else:
             raise HTTPException(400, f"不支援的市場: {req.market}")
     except Exception as e:
@@ -182,6 +192,11 @@ def get_latest(req: LatestRequest):
             start = (date.today() - timedelta(days=30)).isoformat()
             df = fetch_tw_stock(req.symbol, start, end, req.finmind_token)
             df = resample_tw(df, req.timeframe)
+        elif req.market == "us":
+            from datetime import date, timedelta
+            end   = date.today().isoformat()
+            start = (date.today() - timedelta(days=10)).isoformat()
+            df = fetch_us_stock(req.symbol, start, end, req.timeframe)
         else:
             df = fetch_crypto_ohlcv(
                 req.symbol, req.timeframe, limit=3,
@@ -201,6 +216,21 @@ def get_latest(req: LatestRequest):
             if isinstance(r[key], float) and math.isnan(r[key]):
                 r[key] = None
     return {"data": records}
+
+
+@app.get("/api/us/search")
+def us_search(q: str = ""):
+    """搜尋美股標的"""
+    if not q or len(q) < 1:
+        return {"results": []}
+    cache_key = f"us_search:{q.upper()}"
+    cached = _cache_get(cache_key, ttl=3600)
+    if cached:
+        return cached
+    results = search_us_stocks(q)
+    result = {"results": results}
+    _cache_set(cache_key, result)
+    return result
 
 
 @app.get("/api/tickers")

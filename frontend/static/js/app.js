@@ -13,7 +13,7 @@ const DEFAULT_COLORS = {
   rsiH30:  "#4a4a6a", rsiH50:  "#666688", rsiH70:  "#4a4a6a",
   macd:    "#2196f3", macdSig: "#ff9800",
   crtBull: "#26a69a", crtBear: "#ef5350",
-  bg:      "#1e222d",
+  bg:      "#131722",
 };
 
 const DEFAULT_STYLES = {
@@ -48,6 +48,7 @@ let kdjAnchor, rsiAnchor, macdAnchor;   // 透明錨定系列，確保時間軸�
 let equityChart, equitySeries;
 
 /* ── 狀態 ── */
+let currentChartType = "candlestick"; // candlestick | bar | line | area
 let strategies      = {};
 let ohlcvData       = [];
 let lastTradeData   = [];
@@ -249,6 +250,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   bindSystemColors();
   initSymSearch();
   syncTimeScales();
+  initDrawTools();
   updateMarketUI();
   applyAllColors();
   startTickerRefresh();
@@ -257,6 +259,39 @@ document.addEventListener("DOMContentLoaded", async () => {
     .catch(() => showToast("⚠️ 載入失敗，請點「載入」重試"));
 });
 
+/* ── 建立 / 重建主圖 series ── */
+function createCandleSeries() {
+  if (candleSeries) { try { mainChart.removeSeries(candleSeries); } catch {} candleSeries = null; }
+  if (currentChartType === "candlestick") {
+    candleSeries = mainChart.addCandlestickSeries({
+      upColor: C.up, downColor: C.down,
+      borderUpColor: C.up, borderDownColor: C.down,
+      wickUpColor: C.up, wickDownColor: C.down,
+    });
+  } else if (currentChartType === "bar") {
+    candleSeries = mainChart.addBarSeries({ upColor: C.up, downColor: C.down });
+  } else if (currentChartType === "line") {
+    candleSeries = mainChart.addLineSeries({ color: C.up, lineWidth: 2, priceLineVisible: false, lastValueVisible: true });
+  } else if (currentChartType === "area") {
+    candleSeries = mainChart.addAreaSeries({
+      lineColor: C.up, topColor: C.up + "30", bottomColor: C.up + "00",
+      lineWidth: 2, priceLineVisible: false, lastValueVisible: true,
+    });
+  }
+}
+
+/* ── 將 ohlcv 資料套用到目前 series ── */
+function applyOhlcvToSeries(data) {
+  if (!candleSeries || !data.length) return;
+  if (currentChartType === "candlestick" || currentChartType === "bar") {
+    candleSeries.setData(data.map(d => ({
+      time: d.time ? toTime(d.time) : d, open: d.open, high: d.high, low: d.low, close: d.close,
+    })));
+  } else {
+    candleSeries.setData(data.map(d => ({ time: d.time ? toTime(d.time) : d, value: d.close })));
+  }
+}
+
 /* ── 建立圖表 ── */
 function buildCharts() {
   const base  = makeBaseOpts(null,                   false);
@@ -264,12 +299,8 @@ function buildCharts() {
   const volSM = makeBaseOpts({ top:0.05, bottom:0 },    false);
   const subT  = makeBaseOpts({ top:0.08, bottom:0.08 }, true);  // 最下方，顯示時間軸
 
-  mainChart  = LightweightCharts.createChart(document.getElementById("mainChart"), base);
-  candleSeries = mainChart.addCandlestickSeries({
-    upColor: C.up, downColor: C.down,
-    borderUpColor: C.up, borderDownColor: C.down,
-    wickUpColor:   C.up, wickDownColor:   C.down,
-  });
+  mainChart = LightweightCharts.createChart(document.getElementById("mainChart"), base);
+  createCandleSeries();
   bbU = mainChart.addLineSeries({ color:C.bbU, lineWidth:1, priceLineVisible:false, lastValueVisible:false });
   bbM = mainChart.addLineSeries({ color:C.bbM, lineWidth:1, lineStyle:2, priceLineVisible:false, lastValueVisible:false });
   bbL = mainChart.addLineSeries({ color:C.bbL, lineWidth:1, priceLineVisible:false, lastValueVisible:false });
@@ -436,6 +467,255 @@ function syncTimeScales() {
 }
 
 /* ══════════════════════════════════════════
+   繪圖工具（Canvas Overlay）
+══════════════════════════════════════════ */
+let drawings = [];          // 已完成的繪圖
+let drawingWIP = null;      // 進行中的繪圖 { type, p1:{x,y,time,price} }
+let drawCanvas = null;
+let drawCtx = null;
+let drawTool = "pointer";   // 目前工具
+let _mx = 0, _my = 0;      // 滑鼠位置（canvas 座標）
+
+const DRAW_COLOR  = "#f5c518";
+const DRAW_WIDTH  = 1.5;
+
+function initDrawTools() {
+  const chartEl = document.getElementById("mainChart");
+  chartEl.style.position = "relative";
+
+  drawCanvas = document.createElement("canvas");
+  drawCanvas.style.cssText = "position:absolute;top:0;left:0;z-index:20;pointer-events:none;";
+  chartEl.appendChild(drawCanvas);
+  drawCtx = drawCanvas.getContext("2d");
+
+  const resize = () => {
+    drawCanvas.width  = chartEl.clientWidth;
+    drawCanvas.height = chartEl.clientHeight;
+    renderDrawings();
+  };
+  resize();
+  new ResizeObserver(resize).observe(chartEl);
+
+  // 圖表滾動 / 縮放時重新渲染
+  mainChart.timeScale().subscribeVisibleTimeRangeChange(() => requestAnimationFrame(renderDrawings));
+  mainChart.subscribeCrosshairMove(() => requestAnimationFrame(renderDrawings));
+
+  // 滑鼠事件（掛在 chartEl，canvas pointer-events:none 時也能追蹤游標位置）
+  chartEl.addEventListener("mousemove", e => {
+    const r = chartEl.getBoundingClientRect();
+    _mx = e.clientX - r.left;
+    _my = e.clientY - r.top;
+    if (drawTool !== "pointer" && drawTool !== "crosshair") requestAnimationFrame(renderDrawings);
+  });
+  chartEl.addEventListener("click", onDrawClick);
+  chartEl.addEventListener("contextmenu", e => {
+    e.preventDefault();
+    drawingWIP = null;
+    requestAnimationFrame(renderDrawings);
+  });
+}
+
+function setDrawTool(tool) {
+  drawTool = tool;
+  if (drawCanvas) {
+    const passive = tool === "pointer" || tool === "crosshair";
+    drawCanvas.style.pointerEvents = passive ? "none" : "auto";
+    drawCanvas.style.cursor = tool === "eraser" ? "not-allowed" : tool === "pointer" ? "default" : "crosshair";
+  }
+  drawingWIP = null;
+  requestAnimationFrame(renderDrawings);
+}
+
+function onDrawClick(e) {
+  if (drawTool === "pointer" || drawTool === "crosshair") return;
+  const r = (drawCanvas || e.currentTarget).getBoundingClientRect();
+  const x = e.clientX - r.left;
+  const y = e.clientY - r.top;
+  const pt = screenToChart(x, y);
+  if (!pt) return;
+
+  if (drawTool === "eraser") { eraseNear(x, y); return; }
+
+  if (drawTool === "hline") {
+    drawings.push({ type:"hline", price:pt.price, color:DRAW_COLOR });
+    requestAnimationFrame(renderDrawings); return;
+  }
+  if (drawTool === "vline") {
+    drawings.push({ type:"vline", time:pt.time, color:DRAW_COLOR });
+    requestAnimationFrame(renderDrawings); return;
+  }
+  if (drawTool === "text") {
+    const txt = window.prompt("輸入文字：");
+    if (txt?.trim()) drawings.push({ type:"text", time:pt.time, price:pt.price, text:txt.trim(), color:DRAW_COLOR });
+    requestAnimationFrame(renderDrawings); return;
+  }
+
+  // 雙點工具：trendline / ray / fib
+  if (!drawingWIP) {
+    drawingWIP = { type:drawTool, p1:pt };
+  } else {
+    drawings.push({ type:drawTool, p1:drawingWIP.p1, p2:pt, color:DRAW_COLOR });
+    drawingWIP = null;
+    requestAnimationFrame(renderDrawings);
+  }
+}
+
+function screenToChart(x, y) {
+  const time  = mainChart.timeScale().coordinateToTime(x);
+  const price = candleSeries?.coordinateToPrice(y);
+  if (time == null || price == null) return null;
+  return { x, y, time, price };
+}
+
+function chartToScreen(time, price) {
+  const x = mainChart.timeScale().timeToCoordinate(time);
+  const y = candleSeries?.priceToCoordinate(price);
+  return (x != null && y != null && isFinite(x) && isFinite(y)) ? { x, y } : null;
+}
+
+function eraseNear(x, y) {
+  let best = 14, idx = -1;
+  drawings.forEach((d, i) => {
+    const dist = drawingDist(d, x, y);
+    if (dist < best) { best = dist; idx = i; }
+  });
+  if (idx >= 0) { drawings.splice(idx, 1); requestAnimationFrame(renderDrawings); }
+}
+
+function drawingDist(d, x, y) {
+  if (d.type === "hline") {
+    const py = candleSeries?.priceToCoordinate(d.price);
+    return py != null ? Math.abs(py - y) : Infinity;
+  }
+  if (d.type === "vline") {
+    const px = mainChart.timeScale().timeToCoordinate(d.time);
+    return px != null ? Math.abs(px - x) : Infinity;
+  }
+  if (d.type === "text") {
+    const p = chartToScreen(d.time, d.price);
+    return p ? Math.hypot(p.x - x, p.y - y) : Infinity;
+  }
+  if (d.p1 && d.p2) {
+    const a = chartToScreen(d.p1.time, d.p1.price);
+    const b = chartToScreen(d.p2.time, d.p2.price);
+    if (!a || !b) return Infinity;
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const len2 = dx*dx + dy*dy;
+    const t = len2 ? Math.max(0, Math.min(1, ((x-a.x)*dx+(y-a.y)*dy)/len2)) : 0;
+    return Math.hypot(x-(a.x+t*dx), y-(a.y+t*dy));
+  }
+  return Infinity;
+}
+
+function renderDrawings() {
+  if (!drawCtx || !drawCanvas) return;
+  const W = drawCanvas.width, H = drawCanvas.height;
+  drawCtx.clearRect(0, 0, W, H);
+
+  drawings.forEach(d => drawOne(d, W, H));
+
+  // 進行中的雙點工具預覽
+  if (drawingWIP) {
+    const p1s = chartToScreen(drawingWIP.p1.time, drawingWIP.p1.price);
+    if (p1s) drawPreview(drawingWIP.type, p1s, { x:_mx, y:_my }, W, H);
+  }
+
+  // 游標輔助十字（非 pointer 模式）
+  if (drawTool !== "pointer" && drawTool !== "crosshair") {
+    drawCtx.save();
+    drawCtx.strokeStyle = "rgba(200,200,200,0.22)";
+    drawCtx.lineWidth = 1;
+    drawCtx.setLineDash([4, 4]);
+    drawCtx.beginPath();
+    drawCtx.moveTo(_mx, 0); drawCtx.lineTo(_mx, H);
+    drawCtx.moveTo(0, _my); drawCtx.lineTo(W, _my);
+    drawCtx.stroke();
+    drawCtx.restore();
+  }
+}
+
+function drawOne(d, W, H) {
+  drawCtx.save();
+  drawCtx.strokeStyle = d.color || DRAW_COLOR;
+  drawCtx.fillStyle   = d.color || DRAW_COLOR;
+  drawCtx.lineWidth   = DRAW_WIDTH;
+  drawCtx.setLineDash([]);
+
+  if (d.type === "hline") {
+    const y = candleSeries?.priceToCoordinate(d.price);
+    if (y == null || y < -5 || y > H + 5) { drawCtx.restore(); return; }
+    drawCtx.beginPath(); drawCtx.moveTo(0, y); drawCtx.lineTo(W, y); drawCtx.stroke();
+    drawCtx.font = "10px monospace";
+    drawCtx.fillText(d.price.toFixed(4), 5, y - 3);
+  }
+  else if (d.type === "vline") {
+    const x = mainChart.timeScale().timeToCoordinate(d.time);
+    if (x == null || x < -5 || x > W + 5) { drawCtx.restore(); return; }
+    drawCtx.beginPath(); drawCtx.moveTo(x, 0); drawCtx.lineTo(x, H); drawCtx.stroke();
+  }
+  else if (d.type === "trendline" && d.p1 && d.p2) {
+    const a = chartToScreen(d.p1.time, d.p1.price);
+    const b = chartToScreen(d.p2.time, d.p2.price);
+    if (!a || !b) { drawCtx.restore(); return; }
+    drawCtx.beginPath(); drawCtx.moveTo(a.x, a.y); drawCtx.lineTo(b.x, b.y); drawCtx.stroke();
+    [a, b].forEach(p => { drawCtx.beginPath(); drawCtx.arc(p.x, p.y, 3, 0, Math.PI*2); drawCtx.fill(); });
+  }
+  else if (d.type === "ray" && d.p1 && d.p2) {
+    const a = chartToScreen(d.p1.time, d.p1.price);
+    const b = chartToScreen(d.p2.time, d.p2.price);
+    if (!a || !b) { drawCtx.restore(); return; }
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const t  = dx ? (W - a.x) / dx : 0;
+    drawCtx.beginPath(); drawCtx.moveTo(a.x, a.y); drawCtx.lineTo(a.x + t*dx, a.y + t*dy); drawCtx.stroke();
+    drawCtx.beginPath(); drawCtx.arc(a.x, a.y, 3, 0, Math.PI*2); drawCtx.fill();
+  }
+  else if (d.type === "fib" && d.p1 && d.p2) {
+    const a = chartToScreen(d.p1.time, d.p1.price);
+    const b = chartToScreen(d.p2.time, d.p2.price);
+    if (!a || !b) { drawCtx.restore(); return; }
+    const priceRange = d.p2.price - d.p1.price;
+    const x1 = Math.min(a.x, b.x), x2 = Math.max(a.x, b.x);
+    [[0,"#ef5350"],[0.236,"#ff9800"],[0.382,"#ffcc02"],[0.5,"#26a69a"],[0.618,"#26a69a"],[0.786,"#ff9800"],[1,"#ef5350"]].forEach(([lvl, col]) => {
+      const price = d.p1.price + priceRange * (1 - lvl);
+      const y = candleSeries?.priceToCoordinate(price);
+      if (y == null) return;
+      drawCtx.strokeStyle = col; drawCtx.lineWidth = (lvl===0||lvl===1) ? 1.5 : 1;
+      drawCtx.setLineDash((lvl===0||lvl===1) ? [] : [5,3]);
+      drawCtx.beginPath(); drawCtx.moveTo(x1, y); drawCtx.lineTo(x2, y); drawCtx.stroke();
+      drawCtx.setLineDash([]);
+      drawCtx.font = "10px monospace"; drawCtx.fillStyle = col;
+      drawCtx.fillText(`${(lvl*100).toFixed(1)}%  ${price.toFixed(2)}`, x2+4, y+4);
+    });
+  }
+  else if (d.type === "text") {
+    const p = chartToScreen(d.time, d.price);
+    if (!p) { drawCtx.restore(); return; }
+    drawCtx.font = "bold 12px sans-serif";
+    drawCtx.fillText(d.text, p.x + 5, p.y - 5);
+    drawCtx.beginPath(); drawCtx.arc(p.x, p.y, 3, 0, Math.PI*2); drawCtx.fill();
+  }
+
+  drawCtx.restore();
+}
+
+function drawPreview(type, a, b, W, H) {
+  drawCtx.save();
+  drawCtx.strokeStyle = "rgba(255,255,255,0.55)";
+  drawCtx.lineWidth   = 1;
+  drawCtx.setLineDash([5, 4]);
+  drawCtx.beginPath();
+  if (type === "ray") {
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const t  = dx ? (W - a.x) / dx : 0;
+    drawCtx.moveTo(a.x, a.y); drawCtx.lineTo(a.x + t*dx, a.y + t*dy);
+  } else {
+    drawCtx.moveTo(a.x, a.y); drawCtx.lineTo(b.x, b.y);
+  }
+  drawCtx.stroke();
+  drawCtx.restore();
+}
+
+/* ══════════════════════════════════════════
    顏色 / 樣式
 ══════════════════════════════════════════ */
 function applyAllColors() {
@@ -443,10 +723,15 @@ function applyAllColors() {
   [mainChart, kdjChart, rsiChart, macdChart, equityChart].forEach(c => c?.applyOptions(bgOpt));
   document.body.style.background = C.bg;
 
-  candleSeries.applyOptions({
-    upColor:C.up, downColor:C.down, borderUpColor:C.up, borderDownColor:C.down,
-    wickUpColor:C.up, wickDownColor:C.down,
-  });
+  if (currentChartType === "candlestick") {
+    candleSeries.applyOptions({ upColor:C.up, downColor:C.down, borderUpColor:C.up, borderDownColor:C.down, wickUpColor:C.up, wickDownColor:C.down });
+  } else if (currentChartType === "bar") {
+    candleSeries.applyOptions({ upColor:C.up, downColor:C.down });
+  } else if (currentChartType === "line") {
+    candleSeries.applyOptions({ color:C.up });
+  } else if (currentChartType === "area") {
+    candleSeries.applyOptions({ lineColor:C.up, topColor:C.up+"30", bottomColor:C.up+"00" });
+  }
   bbU.applyOptions({ color:C.bbU }); bbM.applyOptions({ color:C.bbM }); bbL.applyOptions({ color:C.bbL });
   kdjK.applyOptions({ color:C.kdjK }); kdjD.applyOptions({ color:C.kdjD }); kdjJ.applyOptions({ color:C.kdjJ });
   kdjH20.applyOptions({ color:C.kdjH20, lineWidth:S.kdjHLWidth });
@@ -757,7 +1042,8 @@ function bindEvents() {
     document.getElementById("tradeDrawer").classList.add("hidden"));
   document.getElementById("exportCsvBtn").addEventListener("click", exportCSV);
 
-  // ── 手機側欄 / 行情列表 抽屜 ──────────────────────────────
+  // ── 側欄 / 行情列表 ──────────────────────────────
+  const isMobile = () => window.innerWidth <= 768;
   function openSidebar()  { document.getElementById("sidebar").classList.add("sidebar-open");     showOverlay(); }
   function closeSidebar() { document.getElementById("sidebar").classList.remove("sidebar-open"); checkOverlay(); }
   function openTicker()   { document.getElementById("tickerPanel").classList.add("ticker-open");  showOverlay(); }
@@ -770,34 +1056,97 @@ function bindEvents() {
   }
   function closeAllPanels() { closeSidebar(); closeTicker(); }
 
+  // sidebar toggle：手機版為抽屜，桌面版為摺疊
   document.getElementById("sidebarToggle").addEventListener("click", () => {
-    const open = document.getElementById("sidebar").classList.contains("sidebar-open");
-    open ? closeSidebar() : openSidebar();
+    const sidebar = document.getElementById("sidebar");
+    if (isMobile()) {
+      sidebar.classList.contains("sidebar-open") ? closeSidebar() : openSidebar();
+    } else {
+      sidebar.classList.toggle("sidebar-collapsed");
+      setTimeout(resizeAll, 220);
+    }
   });
   document.getElementById("tickerToggle")?.addEventListener("click", () => {
-    const open = document.getElementById("tickerPanel").classList.contains("ticker-open");
-    open ? closeTicker() : openTicker();
+    if (isMobile()) {
+      const open = document.getElementById("tickerPanel").classList.contains("ticker-open");
+      open ? closeTicker() : openTicker();
+    } else {
+      document.getElementById("tickerPanel").classList.toggle("ticker-collapsed");
+      setTimeout(resizeAll, 50);
+    }
   });
   document.getElementById("panelOverlay").addEventListener("click", closeAllPanels);
 
-  // 在抽屜內選取標的後自動關閉（手機體驗）
   document.getElementById("tickerList").addEventListener("click", () => {
-    if (window.innerWidth <= 768) closeTicker();
+    if (isMobile()) closeTicker();
   }, true);
 
   // 回測模式切換
   document.getElementById("backtestModeBtn").addEventListener("click", () => {
     const btn   = document.getElementById("backtestModeBtn");
     const panel = document.getElementById("backtestPanel");
+    const lbl   = document.getElementById("backtestModeLbl");
     const isOn  = btn.classList.toggle("active");
     panel.classList.toggle("hidden", !isOn);
-    btn.textContent = isOn ? "✕ 關閉回測" : "回測模式";
+    if (lbl) lbl.textContent = isOn ? "關閉回測" : "回測";
     if (!isOn) {
       candleSeries.setMarkers(lastCRTMarkers);
       document.getElementById("tradeDrawer").classList.add("hidden");
       document.getElementById("statsPanel").classList.add("hidden");
       toggleEquityPane(false);
     }
+  });
+
+  // ── 圖表類型切換 ──────────────────────────────
+  document.querySelectorAll(".ct-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const type = btn.dataset.ct;
+      if (type === currentChartType) return;
+      currentChartType = type;
+      document.querySelectorAll(".ct-btn").forEach(b => b.classList.toggle("active", b.dataset.ct === type));
+      createCandleSeries();
+      if (ohlcvData.length) {
+        applyOhlcvToSeries(ohlcvData);
+        candleSeries.setMarkers(lastCRTMarkers);
+      }
+      syncTimeScales();
+    });
+  });
+
+  // ── 繪圖工具欄 ──────────────────────────────
+  document.querySelectorAll(".dt-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".dt-btn").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      setDrawTool(btn.dataset.tool);
+    });
+  });
+  // Esc 回到 pointer / 取消進行中的繪圖
+  document.addEventListener("keydown", e => {
+    if (e.key === "Escape" && !document.getElementById("symOverlay").classList.contains("hidden")) return;
+    if (e.key === "Escape") {
+      if (drawingWIP) { drawingWIP = null; requestAnimationFrame(renderDrawings); }
+      document.querySelectorAll(".dt-btn").forEach(b => b.classList.remove("active"));
+      document.querySelector(".dt-btn[data-tool='pointer']")?.classList.add("active");
+      setDrawTool("pointer");
+    }
+  });
+
+  // ── 指標按鈕（展開/收合外觀顏色面板）──────────────────
+  document.getElementById("indicatorsToggle")?.addEventListener("click", () => {
+    const btn    = document.getElementById("indicatorsToggle");
+    const sidebar = document.getElementById("sidebar");
+    const panel  = document.getElementById("colorPanel");
+    const arrow  = document.getElementById("colorToggle")?.querySelector(".toggle-arrow");
+    // 展開 sidebar（桌面版）
+    sidebar.classList.remove("sidebar-collapsed");
+    // 展開顏色面板
+    if (panel.classList.contains("hidden")) {
+      panel.classList.remove("hidden");
+      if (arrow) arrow.classList.add("open");
+    }
+    btn.classList.toggle("active", !panel.classList.contains("hidden"));
+    setTimeout(resizeAll, 220);
   });
 
   document.querySelectorAll(".tf-btn").forEach(btn => {
@@ -821,12 +1170,28 @@ function bindEvents() {
 }
 
 function updateMarketUI() {
-  const isCrypto = document.getElementById("marketSelect").value === "crypto";
+  const market   = document.getElementById("marketSelect").value;
+  const isCrypto = market === "crypto";
+  const isUS     = market === "us";
+  const isTW     = market === "tw";
+
   document.getElementById("exchangeSelect").style.display = isCrypto ? "" : "none";
-  document.getElementById("symbolInput").placeholder = isCrypto ? "BTC/USDT" : "2330";
-  document.getElementById("symbolInput").value       = isCrypto ? "BTC/USDT" : "2330";
+
+  if (isCrypto) {
+    document.getElementById("symbolInput").placeholder = "BTC/USDT";
+    document.getElementById("symbolInput").value       = "BTC/USDT";
+  } else if (isUS) {
+    document.getElementById("symbolInput").placeholder = "AAPL";
+    document.getElementById("symbolInput").value       = "AAPL";
+  } else {
+    document.getElementById("symbolInput").placeholder = "2330";
+    document.getElementById("symbolInput").value       = "2330";
+  }
+
+  // 美股與台股都不支援 4h/15m（yfinance 4h 僅限 60 天）
   document.querySelectorAll(".tf-btn").forEach(btn => {
-    const off = !isCrypto && ["4h","1h","15m"].includes(btn.dataset.tf);
+    const off = (isTW && ["4h","1h","15m"].includes(btn.dataset.tf)) ||
+                (isUS && ["15m"].includes(btn.dataset.tf));
     btn.disabled = off;
     if (off && btn.classList.contains("active")) {
       btn.classList.remove("active");
@@ -834,6 +1199,14 @@ function updateMarketUI() {
       currentTF = "1d";
     }
   });
+
+  // 符號搜尋 modal tabs：crypto 顯示 futures/spot，美股顯示 us tab，台股隱藏
+  const tabFutures = document.querySelector(".sym-tab[data-market='futures']");
+  const tabSpot    = document.querySelector(".sym-tab[data-market='spot']");
+  const tabUS      = document.querySelector(".sym-tab[data-market='us']");
+  if (tabFutures) tabFutures.style.display = isCrypto ? "" : "none";
+  if (tabSpot)    tabSpot.style.display    = isCrypto ? "" : "none";
+  if (tabUS)      tabUS.style.display      = isUS ? "" : "none";
 }
 
 function toggleEquityPane(show) {
@@ -1113,9 +1486,7 @@ function renderAll(data) {
 }
 
 function renderCandles(data) {
-  candleSeries.setData(data.map(d => ({
-    time:d.time?toTime(d.time):d, open:d.open, high:d.high, low:d.low, close:d.close,
-  })));
+  applyOhlcvToSeries(data);
   lastCRTMarkers = []; candleSeries.setMarkers([]);
 }
 
@@ -1204,7 +1575,7 @@ function renderBacktestMarkers(trades) {
 function startRealtime() {
   const dot    = document.getElementById("realtimeDot");
   const market = document.getElementById("marketSelect").value;
-  if (market === "tw") { dot.classList.add("hidden"); return; }
+  if (market === "tw" || market === "us") { dot.classList.add("hidden"); return; }
   dot.classList.remove("hidden");
   realtimeTimer = setInterval(fetchLatest, 1000);
 }
@@ -1230,7 +1601,11 @@ async function fetchLatest() {
       if (t === lastT) ohlcvData[ohlcvData.length - 1] = { ...last, ...bar };
       else if (t > lastT) ohlcvData.push(bar);
       else return;
-      candleSeries.update({ time:t, open:bar.open, high:bar.high, low:bar.low, close:bar.close });
+      if (currentChartType === "candlestick" || currentChartType === "bar") {
+        candleSeries.update({ time:t, open:bar.open, high:bar.high, low:bar.low, close:bar.close });
+      } else {
+        candleSeries.update({ time:t, value:bar.close });
+      }
       volSeries.update({ time:t, value:bar.volume||0, color: bar.close>=bar.open ? C.up+"aa" : C.down+"aa" });
     });
     updateSymbolBar(ohlcvData);
@@ -1335,9 +1710,11 @@ function updateSymbolBar(data) {
   const exch    = document.getElementById("exchangeSelect").value;
   const tfLabel = TF_LABELS[currentTF] || currentTF;
   document.getElementById("symbolName").textContent =
-    market === "tw" ? symbol : symbol.replace("/", " / ");
+    market === "tw" ? symbol : market === "us" ? symbol : symbol.replace("/", " / ");
   document.getElementById("symExchange").textContent =
-    market === "tw" ? `台股 · ${tfLabel}` : `${exch} · ${tfLabel}`;
+    market === "tw" ? `台股 · ${tfLabel}` :
+    market === "us" ? `美股 · ${tfLabel}` :
+    `${exch} · ${tfLabel}`;
   if (!data.length) return;
   const last = data[data.length-1], prev = data.length>1 ? data[data.length-2] : last;
   document.getElementById("symO").textContent = fmt(last.open);
@@ -1665,7 +2042,36 @@ function _bindSymItems(list) {
 function _renderSymSearchList() {
   const list  = document.getElementById("symModalList");
   const query = (document.getElementById("symModalInput")?.value || "").toLowerCase().trim();
-  const data  = _symSearchMarket === "futures" ? _tickerData : _spotTickerData;
+
+  // 美股：用 API 搜尋
+  if (_symSearchMarket === "us") {
+    if (!query) {
+      list.innerHTML = `<div class="sym-empty">輸入股票代號或名稱搜尋（如 AAPL、Tesla）</div>`;
+      return;
+    }
+    list.innerHTML = `<div class="sym-loading">搜尋中…</div>`;
+    fetch(`/api/us/search?q=${encodeURIComponent(query)}`)
+      .then(r => r.json())
+      .then(({ results }) => {
+        if (!results?.length) { list.innerHTML = `<div class="sym-empty">查無結果</div>`; return; }
+        list.innerHTML = results.map((r, i) => `
+          <div class="sym-result-item" data-symbol="${r.symbol}" data-display="${r.symbol}" tabindex="${i}">
+            <div class="sym-icon" style="background:${_iconColor(r.symbol)}">
+              ${r.symbol.slice(0,2).toUpperCase()}
+            </div>
+            <div class="sym-result-info">
+              <span class="sym-result-name">${r.symbol}</span>
+              <span class="sym-result-desc">${r.name} · ${r.exchange}</span>
+            </div>
+            <span class="sym-result-tag">${r.type || "Stock"}</span>
+          </div>`).join("");
+        _bindSymItems(list);
+      })
+      .catch(() => { list.innerHTML = `<div class="sym-empty">搜尋失敗，請重試</div>`; });
+    return;
+  }
+
+  const data = _symSearchMarket === "futures" ? _tickerData : _spotTickerData;
 
   let html = "";
 
@@ -1721,15 +2127,16 @@ function _selectSymbol(el) {
 }
 
 function openSymSearch() {
+  const market = document.getElementById("marketSelect").value;
   document.getElementById("symOverlay").classList.remove("hidden");
   const inp = document.getElementById("symModalInput");
   inp.value = "";
   document.getElementById("symModalClear").classList.add("hidden");
   _symSearchFocusIdx = -1;
-  // 預設回到永續合約 tab
-  _symSearchMarket = "futures";
+  // 依市場決定預設 tab
+  _symSearchMarket = market === "us" ? "us" : "futures";
   document.querySelectorAll(".sym-tab").forEach(b => {
-    b.classList.toggle("active", b.dataset.market === "futures");
+    b.classList.toggle("active", b.dataset.market === _symSearchMarket);
   });
   _renderSymSearchList();
   setTimeout(() => inp.focus(), 50);
@@ -1750,13 +2157,19 @@ function initSymSearch() {
     if (e.target === document.getElementById("symOverlay")) closeSymSearch();
   });
 
-  // 搜尋輸入
+  // 搜尋輸入（美股加 debounce 300ms）
   const modalInp = document.getElementById("symModalInput");
+  let _searchTimer = null;
   modalInp.addEventListener("input", () => {
     const clear = document.getElementById("symModalClear");
     clear.classList.toggle("hidden", !modalInp.value);
     _symSearchFocusIdx = -1;
-    _renderSymSearchList();
+    clearTimeout(_searchTimer);
+    if (_symSearchMarket === "us") {
+      _searchTimer = setTimeout(_renderSymSearchList, 300);
+    } else {
+      _renderSymSearchList();
+    }
   });
   document.getElementById("symModalClear")?.addEventListener("click", () => {
     modalInp.value = "";
