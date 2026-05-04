@@ -662,7 +662,6 @@ function _onChartClick(e) {
 }
 
 function _onChartDblClick(e) {
-  if (drawTool !== "pointer") return;
   const { x, y } = _canvasXY(e);
   const near = findNearest(x, y, 16);
   if (!near) return;
@@ -673,6 +672,16 @@ function _onChartDblClick(e) {
 }
 
 function _onChartContextMenu(e) {
+  const { x, y } = _canvasXY(e);
+  const near = findNearest(x, y, 16);
+  if (near) {
+    e.preventDefault();
+    e.stopPropagation();
+    selectedId = near.id;
+    showDrawColorPicker(near, e.clientX, e.clientY);
+    requestAnimationFrame(renderDrawings);
+    return;
+  }
   if (drawTool === "crosshair" || drawTool === "pointer") return;
   e.preventDefault();
   e.stopPropagation();
