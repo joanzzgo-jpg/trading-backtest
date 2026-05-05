@@ -498,31 +498,7 @@ function _saveWatchlist() {
   try { localStorage.setItem("watchlist", JSON.stringify(_watchlist)); } catch {}
 }
 function _renderWatchlist() {
-  const list = document.getElementById("watchlistItems");
-  if (!list) return;
-  if (!_watchlist.length) { list.innerHTML = '<div class="wl-empty">點 ☆ 加入自選</div>'; return; }
-  list.innerHTML = "";
-  _watchlist.forEach((item, i) => {
-    const el = document.createElement("div");
-    el.className = "wl-item";
-    const mktLabel = item.market === "crypto" ? (item.exchange || "crypto") : item.market.toUpperCase();
-    el.innerHTML = `<span class="wl-sym">${item.symbol}</span><span class="wl-mkt">${mktLabel}</span><button class="wl-del" title="移除">×</button>`;
-    el.querySelector(".wl-sym").addEventListener("click", () => {
-      document.getElementById("symbolInput").value = item.symbol;
-      document.getElementById("marketSelect").value = item.market;
-      if (item.market === "crypto") document.getElementById("exchangeSelect").value = item.exchange || "pionex";
-      updateMarketUI();
-      loadData(false);
-    });
-    el.querySelector(".wl-del").addEventListener("click", e => {
-      e.stopPropagation();
-      _watchlist.splice(i, 1);
-      _saveWatchlist();
-      _renderWatchlist();
-      renderTickers();   // 更新星號狀態
-    });
-    list.appendChild(el);
-  });
+  renderTickers();   // wl tab 在 renderTickers 內處理，其餘 tab 更新星號狀態
 }
 
 function _toggleWatchlist(symbol, market, exchange) {
@@ -534,8 +510,7 @@ function _toggleWatchlist(symbol, market, exchange) {
     _watchlist.unshift({ market, symbol, exchange });
   }
   _saveWatchlist();
-  _renderWatchlist();
-  renderTickers();  // 更新星號
+  _renderWatchlist();  // calls renderTickers() internally
 }
 function _addToWatchlist() {
   const symbol   = document.getElementById("symbolInput")?.value?.trim();
@@ -650,11 +625,15 @@ function initDrawTools() {
     _onChartClick(fake);
   }, { capture: true });
 
-  // 點擊 popup 外部關閉（一般 bubble 即可）
+  // 點擊 popup 外部關閉
   document.addEventListener("mousedown", e => {
-    const popup = document.getElementById("drawColorPicker");
-    if (popup && !popup.classList.contains("hidden") && !popup.contains(e.target)) {
-      popup.classList.add("hidden");
+    const dcp = document.getElementById("drawColorPicker");
+    if (dcp && !dcp.classList.contains("hidden") && !dcp.contains(e.target)) {
+      dcp.classList.add("hidden");
+    }
+    const lcp = document.getElementById("legColorPicker");
+    if (lcp && !lcp.classList.contains("hidden") && !lcp.contains(e.target)) {
+      lcp.classList.add("hidden");
     }
   });
 }
@@ -856,11 +835,21 @@ function _onChartClick(e) {
 function _onChartDblClick(e) {
   const { x, y } = _canvasXY(e);
   const near = findNearest(x, y, 16);
-  if (!near) return;
-  e.stopPropagation();
-  selectedId = near.id;
-  showDrawColorPicker(near, e.clientX, e.clientY);
-  requestAnimationFrame(renderDrawings);
+  if (near) {
+    e.stopPropagation();
+    selectedId = near.id;
+    showDrawColorPicker(near, e.clientX, e.clientY);
+    requestAnimationFrame(renderDrawings);
+    return;
+  }
+  // 雙擊空白處（pointer / crosshair）→ K棒顏色選擇
+  if (drawTool === "pointer" || drawTool === "crosshair") {
+    e.stopPropagation();
+    showLegColorPopup(e.clientX, e.clientY, [
+      { label: "漲↑ K棒", currentColor: C.up,   apply: c => { C.up   = c; applyAllColors(); savePrefs(); } },
+      { label: "跌↓ K棒", currentColor: C.down, apply: c => { C.down = c; applyAllColors(); savePrefs(); } },
+    ]);
+  }
 }
 
 function _onChartContextMenu(e) {
@@ -983,6 +972,56 @@ function showDrawColorPicker(drawing, clientX, clientY) {
   let left = clientX + 12, top = clientY - 10;
   if (left + pw > window.innerWidth)  left = clientX - pw - 12;
   if (top  + ph > window.innerHeight) top  = window.innerHeight - ph - 8;
+  if (top < 4) top = 4;
+  popup.style.left = left + "px";
+  popup.style.top  = top  + "px";
+  popup.classList.remove("hidden");
+}
+
+/* ── 圖例 / K棒 顏色 Popup（無刪除按鈕）── */
+// sections: [{ label, currentColor, apply }]
+function showLegColorPopup(clientX, clientY, sections) {
+  const popup = document.getElementById("legColorPicker");
+  if (!popup) return;
+  const content = document.getElementById("lcpContent");
+  content.innerHTML = "";
+
+  sections.forEach((sec, si) => {
+    if (si > 0) {
+      const div = document.createElement("div");
+      div.className = "dcp-divider";
+      content.appendChild(div);
+    }
+    if (sec.label) {
+      const lbl = document.createElement("div");
+      lbl.style.cssText = "font-size:10px;color:#787b86;margin-bottom:5px;font-weight:600;letter-spacing:.04em";
+      lbl.textContent = sec.label;
+      content.appendChild(lbl);
+    }
+    const grid = document.createElement("div");
+    grid.className = "dcp-colors";
+    DCP_COLORS.forEach(c => {
+      const sw = document.createElement("div");
+      sw.className = "dcp-swatch" + (sec.currentColor === c ? " active" : "");
+      sw.style.background = c;
+      sw.addEventListener("mousedown", e => {
+        e.stopPropagation();
+        sec.currentColor = c;   // update for multi-section re-click
+        sec.apply(c);
+        grid.querySelectorAll(".dcp-swatch").forEach(s => s.classList.toggle("active", s === sw));
+        // close only for single-section pickers
+        if (sections.length === 1) popup.classList.add("hidden");
+      });
+      grid.appendChild(sw);
+    });
+    content.appendChild(grid);
+  });
+
+  const pw = 190;
+  const estimatedH = sections.length * 54 + (sections.length - 1) * 9 + 20;
+  let left = clientX + 12, top = clientY - 10;
+  if (left + pw > window.innerWidth)   left = clientX - pw - 12;
+  if (top + estimatedH > window.innerHeight) top = window.innerHeight - estimatedH - 8;
   if (top < 4) top = 4;
   popup.style.left = left + "px";
   popup.style.top  = top  + "px";
@@ -1184,59 +1223,86 @@ function drawOne(d, W, H, isHovered, isSelected) {
     const slY    = candleSeries?.priceToCoordinate(d.sl);
     const startX = mainChart.timeScale().timeToCoordinate(d.p1.time);
     if (entryY == null || tpY == null || slY == null || startX == null) { drawCtx.restore(); return; }
-    const zoneW = W - startX;
+    const sx    = Math.max(0, startX);
+    const zoneW = W - sx;
     if (zoneW < 4) { drawCtx.restore(); return; }
 
     drawCtx.shadowBlur = 0;
+    drawCtx.font = "10px monospace";
 
-    // 綠色 TP 區（entry → tp）
-    drawCtx.fillStyle = "rgba(38,166,154,0.18)";
-    drawCtx.fillRect(startX, tpY, zoneW, entryY - tpY);
+    // 右側標籤 helper
+    const rightLabel = (y, text, bg, fg) => {
+      const tw = drawCtx.measureText(text).width;
+      const pad = 5, lh = 15, lw = tw + pad * 2;
+      drawCtx.fillStyle = bg;
+      drawCtx.fillRect(W - lw - 1, y - 8, lw, lh);
+      drawCtx.fillStyle = fg;
+      drawCtx.fillText(text, W - lw - 1 + pad, y + 4);
+    };
 
-    // 紅色 SL 區（entry → sl）
-    drawCtx.fillStyle = "rgba(239,83,80,0.18)";
-    drawCtx.fillRect(startX, entryY, zoneW, slY - entryY);
+    // 色塊
+    drawCtx.fillStyle = "rgba(38,166,154,0.15)";
+    drawCtx.fillRect(sx, tpY, zoneW, entryY - tpY);
+    drawCtx.fillStyle = "rgba(239,83,80,0.15)";
+    drawCtx.fillRect(sx, entryY, zoneW, slY - entryY);
 
-    // Entry 線
-    drawCtx.strokeStyle = isSelected ? "#ffffff" : "rgba(255,255,255,0.75)";
-    drawCtx.lineWidth = isSelected ? 1.5 : 1;
-    drawCtx.setLineDash([]);
-    drawCtx.beginPath(); drawCtx.moveTo(startX, entryY); drawCtx.lineTo(W, entryY); drawCtx.stroke();
+    // 起點錨定虛線
+    if (startX > -20) {
+      drawCtx.strokeStyle = "rgba(255,255,255,0.25)";
+      drawCtx.lineWidth = 1;
+      drawCtx.setLineDash([4, 3]);
+      drawCtx.beginPath();
+      drawCtx.moveTo(startX, tpY);
+      drawCtx.lineTo(startX, slY);
+      drawCtx.stroke();
+      drawCtx.setLineDash([]);
+    }
 
     // TP 線
     drawCtx.strokeStyle = "#26a69a";
     drawCtx.lineWidth = isSelected ? 1.5 : 1;
-    drawCtx.beginPath(); drawCtx.moveTo(startX, tpY); drawCtx.lineTo(W, tpY); drawCtx.stroke();
+    drawCtx.beginPath(); drawCtx.moveTo(sx, tpY); drawCtx.lineTo(W, tpY); drawCtx.stroke();
+
+    // Entry 線（白色，稍粗）
+    drawCtx.strokeStyle = isSelected ? "#ffffff" : "rgba(255,255,255,0.8)";
+    drawCtx.lineWidth = isSelected ? 2 : 1.2;
+    drawCtx.beginPath(); drawCtx.moveTo(sx, entryY); drawCtx.lineTo(W, entryY); drawCtx.stroke();
 
     // SL 線
     drawCtx.strokeStyle = "#ef5350";
-    drawCtx.beginPath(); drawCtx.moveTo(startX, slY); drawCtx.lineTo(W, slY); drawCtx.stroke();
+    drawCtx.lineWidth = isSelected ? 1.5 : 1;
+    drawCtx.beginPath(); drawCtx.moveTo(sx, slY); drawCtx.lineTo(W, slY); drawCtx.stroke();
 
-    // 標籤
-    drawCtx.font = "11px monospace";
+    // Entry 三角標記（朝右）
+    const ts = 7;
+    drawCtx.fillStyle = isSelected ? "#ffffff" : "rgba(255,255,255,0.85)";
+    drawCtx.beginPath();
+    drawCtx.moveTo(sx, entryY - ts / 2);
+    drawCtx.lineTo(sx + ts, entryY);
+    drawCtx.lineTo(sx, entryY + ts / 2);
+    drawCtx.closePath(); drawCtx.fill();
+
+    // R:R 顯示在獲利區中央
     const reward = Math.abs(d.tp - d.p1.price);
     const risk   = Math.abs(d.p1.price - d.sl);
-    const rr     = risk > 0 ? (reward / risk).toFixed(1) : "∞";
+    const rr     = risk > 0 ? (reward / risk).toFixed(2) : "∞";
+    const tpCY   = (tpY + entryY) / 2;
+    drawCtx.font = "bold 11px sans-serif";
+    const rrTxt  = `R:R  ${rr}`;
+    const rrW    = drawCtx.measureText(rrTxt).width;
+    drawCtx.fillStyle = "rgba(38,166,154,0.9)";
+    drawCtx.fillText(rrTxt, sx + (zoneW - rrW) / 2, tpCY + 4);
 
-    drawCtx.fillStyle = "#26a69a";
-    drawCtx.fillText(`TP ${d.tp.toFixed(2)}`, W - 85, tpY - 4);
-
-    drawCtx.fillStyle = "#ef5350";
-    drawCtx.fillText(`SL ${d.sl.toFixed(2)}`, W - 85, slY + 12);
-
-    drawCtx.fillStyle = "rgba(255,255,255,0.85)";
-    drawCtx.fillText(`${d.p1.price.toFixed(2)}`, W - 72, entryY - 4);
-
-    drawCtx.fillStyle = "#f5c518";
-    drawCtx.font = "bold 11px monospace";
-    drawCtx.fillText(`R:R ${rr}`, startX + 5, entryY + 14);
+    // 右側標籤框
+    drawCtx.font = "10px monospace";
+    rightLabel(tpY,    `TP  ${_fmtPx(d.tp)}`,      "rgba(38,166,154,0.85)", "#fff");
+    rightLabel(entryY, `▶  ${_fmtPx(d.p1.price)}`, "rgba(60,60,60,0.85)",   "#ddd");
+    rightLabel(slY,    `SL  ${_fmtPx(d.sl)}`,      "rgba(239,83,80,0.85)",  "#fff");
 
     if (isSelected) {
-      [[ startX, entryY, "rgba(255,255,255,0.9)" ],
-       [ startX, tpY,    "#26a69a" ],
-       [ startX, slY,    "#ef5350" ]].forEach(([px, py, fc]) => {
+      [[startX, entryY, "#ffffff"], [startX, tpY, "#26a69a"], [startX, slY, "#ef5350"]].forEach(([px, py, fc]) => {
         drawCtx.fillStyle = fc;
-        drawCtx.beginPath(); drawCtx.arc(px, py, 4, 0, Math.PI*2); drawCtx.fill();
+        drawCtx.beginPath(); drawCtx.arc(px, py, 4, 0, Math.PI * 2); drawCtx.fill();
       });
     }
   }
@@ -1247,59 +1313,85 @@ function drawOne(d, W, H, isHovered, isSelected) {
     const slY    = candleSeries?.priceToCoordinate(d.sl);   // sl > entry → slY < entryY
     const startX = mainChart.timeScale().timeToCoordinate(d.p1.time);
     if (entryY == null || tpY == null || slY == null || startX == null) { drawCtx.restore(); return; }
-    const zoneW = W - startX;
+    const sx    = Math.max(0, startX);
+    const zoneW = W - sx;
     if (zoneW < 4) { drawCtx.restore(); return; }
 
     drawCtx.shadowBlur = 0;
+    drawCtx.font = "10px monospace";
 
-    // 紅色 SL 區（entry → sl，sl 在上）
-    drawCtx.fillStyle = "rgba(239,83,80,0.18)";
-    drawCtx.fillRect(startX, slY, zoneW, entryY - slY);
+    const rightLabel = (y, text, bg, fg) => {
+      const tw = drawCtx.measureText(text).width;
+      const pad = 5, lh = 15, lw = tw + pad * 2;
+      drawCtx.fillStyle = bg;
+      drawCtx.fillRect(W - lw - 1, y - 8, lw, lh);
+      drawCtx.fillStyle = fg;
+      drawCtx.fillText(text, W - lw - 1 + pad, y + 4);
+    };
 
-    // 綠色 TP 區（entry → tp，tp 在下）
-    drawCtx.fillStyle = "rgba(38,166,154,0.18)";
-    drawCtx.fillRect(startX, entryY, zoneW, tpY - entryY);
+    // 色塊
+    drawCtx.fillStyle = "rgba(239,83,80,0.15)";
+    drawCtx.fillRect(sx, slY, zoneW, entryY - slY);
+    drawCtx.fillStyle = "rgba(38,166,154,0.15)";
+    drawCtx.fillRect(sx, entryY, zoneW, tpY - entryY);
 
-    // Entry 線
-    drawCtx.strokeStyle = isSelected ? "#ffffff" : "rgba(255,255,255,0.75)";
-    drawCtx.lineWidth = isSelected ? 1.5 : 1;
-    drawCtx.setLineDash([]);
-    drawCtx.beginPath(); drawCtx.moveTo(startX, entryY); drawCtx.lineTo(W, entryY); drawCtx.stroke();
+    // 起點錨定虛線
+    if (startX > -20) {
+      drawCtx.strokeStyle = "rgba(255,255,255,0.25)";
+      drawCtx.lineWidth = 1;
+      drawCtx.setLineDash([4, 3]);
+      drawCtx.beginPath();
+      drawCtx.moveTo(startX, slY);
+      drawCtx.lineTo(startX, tpY);
+      drawCtx.stroke();
+      drawCtx.setLineDash([]);
+    }
 
     // SL 線（紅，上方）
     drawCtx.strokeStyle = "#ef5350";
     drawCtx.lineWidth = isSelected ? 1.5 : 1;
-    drawCtx.beginPath(); drawCtx.moveTo(startX, slY); drawCtx.lineTo(W, slY); drawCtx.stroke();
+    drawCtx.beginPath(); drawCtx.moveTo(sx, slY); drawCtx.lineTo(W, slY); drawCtx.stroke();
+
+    // Entry 線
+    drawCtx.strokeStyle = isSelected ? "#ffffff" : "rgba(255,255,255,0.8)";
+    drawCtx.lineWidth = isSelected ? 2 : 1.2;
+    drawCtx.beginPath(); drawCtx.moveTo(sx, entryY); drawCtx.lineTo(W, entryY); drawCtx.stroke();
 
     // TP 線（綠，下方）
     drawCtx.strokeStyle = "#26a69a";
-    drawCtx.beginPath(); drawCtx.moveTo(startX, tpY); drawCtx.lineTo(W, tpY); drawCtx.stroke();
+    drawCtx.lineWidth = isSelected ? 1.5 : 1;
+    drawCtx.beginPath(); drawCtx.moveTo(sx, tpY); drawCtx.lineTo(W, tpY); drawCtx.stroke();
 
-    // 標籤
-    drawCtx.font = "11px monospace";
+    // Entry 三角標記（朝右，倒三角暗示做空）
+    const ts = 7;
+    drawCtx.fillStyle = isSelected ? "#ffffff" : "rgba(255,255,255,0.85)";
+    drawCtx.beginPath();
+    drawCtx.moveTo(sx, entryY - ts / 2);
+    drawCtx.lineTo(sx + ts, entryY);
+    drawCtx.lineTo(sx, entryY + ts / 2);
+    drawCtx.closePath(); drawCtx.fill();
+
+    // R:R 顯示在獲利區中央
     const reward = Math.abs(d.p1.price - d.tp);
     const risk   = Math.abs(d.sl - d.p1.price);
-    const rr     = risk > 0 ? (reward / risk).toFixed(1) : "∞";
+    const rr     = risk > 0 ? (reward / risk).toFixed(2) : "∞";
+    const tpCY   = (entryY + tpY) / 2;
+    drawCtx.font = "bold 11px sans-serif";
+    const rrTxt  = `R:R  ${rr}`;
+    const rrW    = drawCtx.measureText(rrTxt).width;
+    drawCtx.fillStyle = "rgba(38,166,154,0.9)";
+    drawCtx.fillText(rrTxt, sx + (zoneW - rrW) / 2, tpCY + 4);
 
-    drawCtx.fillStyle = "#ef5350";
-    drawCtx.fillText(`SL ${d.sl.toFixed(2)}`, W - 85, slY - 4);
-
-    drawCtx.fillStyle = "#26a69a";
-    drawCtx.fillText(`TP ${d.tp.toFixed(2)}`, W - 85, tpY + 12);
-
-    drawCtx.fillStyle = "rgba(255,255,255,0.85)";
-    drawCtx.fillText(`${d.p1.price.toFixed(2)}`, W - 72, entryY - 4);
-
-    drawCtx.fillStyle = "#f5c518";
-    drawCtx.font = "bold 11px monospace";
-    drawCtx.fillText(`R:R ${rr}`, startX + 5, entryY + 14);
+    // 右側標籤框
+    drawCtx.font = "10px monospace";
+    rightLabel(slY,    `SL  ${_fmtPx(d.sl)}`,      "rgba(239,83,80,0.85)",  "#fff");
+    rightLabel(entryY, `▶  ${_fmtPx(d.p1.price)}`, "rgba(60,60,60,0.85)",   "#ddd");
+    rightLabel(tpY,    `TP  ${_fmtPx(d.tp)}`,      "rgba(38,166,154,0.85)", "#fff");
 
     if (isSelected) {
-      [[ startX, entryY, "rgba(255,255,255,0.9)" ],
-       [ startX, slY,    "#ef5350" ],
-       [ startX, tpY,    "#26a69a" ]].forEach(([px, py, fc]) => {
+      [[startX, entryY, "#ffffff"], [startX, slY, "#ef5350"], [startX, tpY, "#26a69a"]].forEach(([px, py, fc]) => {
         drawCtx.fillStyle = fc;
-        drawCtx.beginPath(); drawCtx.arc(px, py, 4, 0, Math.PI*2); drawCtx.fill();
+        drawCtx.beginPath(); drawCtx.arc(px, py, 4, 0, Math.PI * 2); drawCtx.fill();
       });
     }
   }
@@ -1767,11 +1859,6 @@ function bindEvents() {
     });
   });
 
-  document.getElementById("watchlistToggle").addEventListener("click", () => {
-    document.getElementById("watchlistPanel").classList.toggle("hidden");
-    document.getElementById("watchlistToggle").querySelector(".wl-arrow").classList.toggle("open");
-  });
-
   document.getElementById("colorToggle").addEventListener("click", () => {
     document.getElementById("colorPanel").classList.toggle("hidden");
     document.querySelector("#colorToggle .toggle-arrow").classList.toggle("open");
@@ -1900,40 +1987,38 @@ function updateBottomTimeAxis() {
 
 /* ── 圖例顏色點（點色點即可改色）── */
 function bindLegendColors() {
-  // legId → { colorKey in C, applyFn(newColor) }
   const map = [
-    { id:"legBB",       key:"bbU",     apply: c => { C.bbU = C.bbL = c; bbU?.applyOptions({color:c}); bbL?.applyOptions({color:c}); savePrefs(); } },
-    { id:"legCRT",      key:"crtBull", apply: c => { C.crtBull = c; if (ohlcvData.length) renderCRT(ohlcvData); savePrefs(); } },
-    { id:"legVol",      key:"up",      apply: c => { if (ohlcvData.length) renderVolume(ohlcvData); savePrefs(); } },
-    { id:"legK",        key:"kdjK",    apply: c => { C.kdjK = c; kdjK?.applyOptions({color:c}); const el=document.getElementById("legK"); if(el) el.style.color=c; savePrefs(); } },
-    { id:"legD",        key:"kdjD",    apply: c => { C.kdjD = c; kdjD?.applyOptions({color:c}); const el=document.getElementById("legD"); if(el) el.style.color=c; savePrefs(); } },
-    { id:"legJ",        key:"kdjJ",    apply: c => { C.kdjJ = c; kdjJ?.applyOptions({color:c}); const el=document.getElementById("legJ"); if(el) el.style.color=c; savePrefs(); } },
-    { id:"legRsi14",    key:"rsi14",   apply: c => { C.rsi14 = c; rsiLine14?.applyOptions({color:c}); const el=document.getElementById("legRsi14"); if(el) el.style.color=c; savePrefs(); } },
-    { id:"legRsi7",     key:"rsi7",    apply: c => { C.rsi7  = c; rsiLine7?.applyOptions({color:c});  const el=document.getElementById("legRsi7");  if(el) el.style.color=c; savePrefs(); } },
-    { id:"legMacd",     key:"macd",    apply: c => { C.macd    = c; macdLine?.applyOptions({color:c});   const el=document.getElementById("legMacd");    if(el) el.style.color=c; savePrefs(); } },
-    { id:"legMacdSig",  key:"macdSig", apply: c => { C.macdSig = c; macdSignal?.applyOptions({color:c}); const el=document.getElementById("legMacdSig"); if(el) el.style.color=c; savePrefs(); } },
+    { id:"legBB",      key:"bbU",     apply: c => { C.bbU = C.bbL = c; bbU?.applyOptions({color:c}); bbL?.applyOptions({color:c}); savePrefs(); } },
+    { id:"legCRT",     key:"crtBull", apply: c => { C.crtBull = c; if (ohlcvData.length) renderCRT(ohlcvData); savePrefs(); } },
+    { id:"legVol",     key:"up",      apply: c => { if (ohlcvData.length) renderVolume(ohlcvData); savePrefs(); } },
+    { id:"legK",       key:"kdjK",    apply: c => { C.kdjK = c; kdjK?.applyOptions({color:c}); const el=document.getElementById("legK");       if(el) el.style.color=c; savePrefs(); } },
+    { id:"legD",       key:"kdjD",    apply: c => { C.kdjD = c; kdjD?.applyOptions({color:c}); const el=document.getElementById("legD");       if(el) el.style.color=c; savePrefs(); } },
+    { id:"legJ",       key:"kdjJ",    apply: c => { C.kdjJ = c; kdjJ?.applyOptions({color:c}); const el=document.getElementById("legJ");       if(el) el.style.color=c; savePrefs(); } },
+    { id:"legRsi14",   key:"rsi14",   apply: c => { C.rsi14   = c; rsiLine14?.applyOptions({color:c});  const el=document.getElementById("legRsi14");  if(el) el.style.color=c; savePrefs(); } },
+    { id:"legRsi7",    key:"rsi7",    apply: c => { C.rsi7    = c; rsiLine7?.applyOptions({color:c});   const el=document.getElementById("legRsi7");   if(el) el.style.color=c; savePrefs(); } },
+    { id:"legMacd",    key:"macd",    apply: c => { C.macd    = c; macdLine?.applyOptions({color:c});   const el=document.getElementById("legMacd");    if(el) el.style.color=c; savePrefs(); } },
+    { id:"legMacdSig", key:"macdSig", apply: c => { C.macdSig = c; macdSignal?.applyOptions({color:c}); const el=document.getElementById("legMacdSig"); if(el) el.style.color=c; savePrefs(); } },
   ];
   map.forEach(({ id, key, apply }) => {
     const legEl = document.getElementById(id);
     if (!legEl) return;
     const dot = legEl.querySelector(".leg-dot");
     if (!dot) return;
-    dot.title = "點擊改色";
+    dot.title  = "點擊改色";
     dot.style.cursor = "pointer";
-    const inp = document.createElement("input");
-    inp.type = "color";
-    inp.style.cssText = "position:absolute;width:0;height:0;opacity:0;pointer-events:none;";
-    document.body.appendChild(inp);
     dot.addEventListener("click", e => {
       e.stopPropagation();
-      inp.value = (C[key] || "#ffffff").substring(0, 7);
-      inp.click();
-    });
-    inp.addEventListener("input", e => {
-      const c = e.target.value;
-      dot.style.background  = c;
-      dot.style.borderColor = c;
-      apply(c);
+      e.preventDefault();
+      const cur = (C[key] || "#26a69a").substring(0, 7);
+      showLegColorPopup(e.clientX, e.clientY, [{
+        label: null,
+        currentColor: cur,
+        apply: c => {
+          dot.style.background  = c;
+          dot.style.borderColor = c;
+          apply(c);
+        }
+      }]);
     });
   });
 }
@@ -2553,6 +2638,53 @@ function updatePageTitle() {
 }
 
 function renderTickers() {
+  const container = document.getElementById("tickerList");
+  if (!container) return;
+
+  const currentSym = document.getElementById("symbolInput")?.value.trim().toUpperCase();
+  const exchVal    = document.getElementById("exchangeSelect")?.value || "pionex";
+
+  // ── 自選標的 tab ──────────────────────────────────────
+  if (_tickerSort === "wl") {
+    if (!_watchlist.length) {
+      container.innerHTML = '<div class="tk-loading">尚無自選，點 ☆ 加入</div>';
+      return;
+    }
+    container.innerHTML = _watchlist.map((item, i) => {
+      const mktLabel = item.market === "crypto" ? (item.exchange || "crypto").toUpperCase() : item.market.toUpperCase();
+      const active   = item.symbol.toUpperCase() === currentSym ? " tk-active" : "";
+      return `<div class="ticker-item${active}" data-wl-idx="${i}">
+        <div class="tk-row1">
+          <span class="tk-sym">${item.symbol}</span>
+          <span class="tk-chg" style="font-size:10px;color:var(--muted);font-weight:500">${mktLabel}</span>
+          <button class="wl-del" title="移除">×</button>
+        </div>
+      </div>`;
+    }).join("");
+    container.querySelectorAll(".ticker-item").forEach((el, i) => {
+      el.querySelector(".wl-del")?.addEventListener("click", e => {
+        e.stopPropagation();
+        _watchlist.splice(i, 1);
+        _saveWatchlist();
+        renderTickers();
+      });
+      el.addEventListener("click", e => {
+        if (e.target.closest(".wl-del")) return;
+        const item = _watchlist[i];
+        if (!item) return;
+        document.getElementById("symbolInput").value = item.symbol;
+        document.getElementById("marketSelect").value = item.market;
+        if (item.market === "crypto") document.getElementById("exchangeSelect").value = item.exchange || "pionex";
+        updateMarketUI();
+        loadData(false);
+        container.querySelectorAll(".ticker-item").forEach(x => x.classList.remove("tk-active"));
+        el.classList.add("tk-active");
+      });
+    });
+    return;
+  }
+
+  // ── 合約行情 tab ──────────────────────────────────────
   const search = (document.getElementById("tickerSearch")?.value || "").toLowerCase();
   let list = _tickerData.filter(t =>
     !search ||
@@ -2562,13 +2694,6 @@ function renderTickers() {
   );
   if (_tickerSort === "asc") list = [...list].reverse();
   else if (_tickerSort === "vol") list = [...list].sort((a, b) => b.volume - a.volume);
-
-  const container = document.getElementById("tickerList");
-  if (!container) return;
-
-  const currentSym = document.getElementById("symbolInput")?.value.trim().toUpperCase();
-
-  const exchVal = document.getElementById("exchangeSelect")?.value || "pionex";
 
   container.innerHTML = list.map(t => {
     const cls    = t.change_pct >= 0 ? "up" : "dn";
@@ -2601,7 +2726,7 @@ function renderTickers() {
       el.classList.add("tk-active");
     });
   });
-  updatePageTitle();  // 每次重繪都更新分頁標題
+  updatePageTitle();
 }
 
 function fmtTickerPrice(p) {
@@ -2959,6 +3084,14 @@ function _setLegText(id, text) {
 
 function fmt(v)    { return v!=null ? Number(v).toLocaleString(undefined,{maximumFractionDigits:4}) : "—"; }
 function n2(v)     { return v!=null ? Number(v).toFixed(2) : "—"; }
+function _fmtPx(p) {
+  if (!isFinite(p)) return "—";
+  const a = Math.abs(p);
+  if (a >= 10000) return p.toLocaleString(undefined, { maximumFractionDigits: 1 });
+  if (a >= 100)   return p.toFixed(2);
+  if (a >= 1)     return p.toFixed(4);
+  return p.toFixed(6);
+}
 function fmtVol(v) {
   if (v==null) return "—";
   if (v>=1e9) return (v/1e9).toFixed(2)+"B";

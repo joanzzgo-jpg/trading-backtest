@@ -318,16 +318,6 @@
   <!-- 右側行情列表 -->
   <div class="ticker-panel" id="tickerPanel">
 
-    <!-- 自選標的（右欄頂部） -->
-    <div class="wl-panel-section">
-      <div class="wl-panel-hd" id="watchlistToggle">
-        <span>⭐ 自選標的</span><span class="toggle-arrow wl-arrow">▸</span>
-      </div>
-      <div id="watchlistPanel" class="hidden">
-        <div id="watchlistItems" class="wl-list"></div>
-      </div>
-    </div>
-
     <!-- 合約行情 -->
     <div class="ticker-hd">
       <span class="ticker-title">合約行情</span>
@@ -335,6 +325,7 @@
         <button class="tk-seg-btn active" data-sort="desc">漲↑</button>
         <button class="tk-seg-btn" data-sort="asc">跌↓</button>
         <button class="tk-seg-btn" data-sort="vol">量</button>
+        <button class="tk-seg-btn" data-sort="wl">★</button>
       </div>
     </div>
     <input id="tickerSearch" class="tk-search" type="text" placeholder="搜尋標的…" />
@@ -391,6 +382,11 @@
   <div class="dcp-actions">
     <button class="dcp-delete">刪除線條</button>
   </div>
+</div>
+
+<!-- 圖例 / K棒顏色 popup（無刪除按鈕） -->
+<div id="legColorPicker" class="dcp-popup hidden">
+  <div id="lcpContent"></div>
 </div>
 
 <script src="/static/js/app.js?v={{ ver }}"></script>
