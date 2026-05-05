@@ -500,13 +500,13 @@ function _saveWatchlist() {
 function _renderWatchlist() {
   const list = document.getElementById("watchlistItems");
   if (!list) return;
-  if (!_watchlist.length) { list.innerHTML = '<div class="wl-empty">尚無自選標的</div>'; return; }
+  if (!_watchlist.length) { list.innerHTML = '<div class="wl-empty">點 ☆ 加入自選</div>'; return; }
   list.innerHTML = "";
   _watchlist.forEach((item, i) => {
     const el = document.createElement("div");
     el.className = "wl-item";
-    const mktLabel = item.market === "crypto" ? item.exchange : item.market.toUpperCase();
-    el.innerHTML = `<span class="wl-sym">${item.symbol}<small class="wl-mkt">${mktLabel}</small></span><button class="wl-del" title="移除">×</button>`;
+    const mktLabel = item.market === "crypto" ? (item.exchange || "crypto") : item.market.toUpperCase();
+    el.innerHTML = `<span class="wl-sym">${item.symbol}</span><span class="wl-mkt">${mktLabel}</span><button class="wl-del" title="移除">×</button>`;
     el.querySelector(".wl-sym").addEventListener("click", () => {
       document.getElementById("symbolInput").value = item.symbol;
       document.getElementById("marketSelect").value = item.market;
@@ -519,9 +519,23 @@ function _renderWatchlist() {
       _watchlist.splice(i, 1);
       _saveWatchlist();
       _renderWatchlist();
+      renderTickers();   // 更新星號狀態
     });
     list.appendChild(el);
   });
+}
+
+function _toggleWatchlist(symbol, market, exchange) {
+  const key = `${market}:${exchange || ""}:${symbol}`;
+  const idx = _watchlist.findIndex(w => `${w.market}:${w.exchange || ""}:${w.symbol}` === key);
+  if (idx >= 0) {
+    _watchlist.splice(idx, 1);
+  } else {
+    _watchlist.unshift({ market, symbol, exchange });
+  }
+  _saveWatchlist();
+  _renderWatchlist();
+  renderTickers();  // 更新星號
 }
 function _addToWatchlist() {
   const symbol   = document.getElementById("symbolInput")?.value?.trim();
@@ -542,6 +556,22 @@ function findNearest(x, y, maxDist = 12) {
     if (dist < best) { best = dist; found = d; }
   });
   return found;
+}
+
+/* 對 longpos/shortpos 判斷拖移的是哪一條線 */
+function _drawingHitPart(d, x, y) {
+  if (d.type !== "longpos" && d.type !== "shortpos") return "move";
+  if (!d.p1) return "move";
+  const ey = candleSeries?.priceToCoordinate(d.p1.price);
+  const ty = candleSeries?.priceToCoordinate(d.tp);
+  const sy = candleSeries?.priceToCoordinate(d.sl);
+  let bestDist = Infinity, bestPart = "entry";
+  [["entry", ey], ["tp", ty], ["sl", sy]].forEach(([part, py]) => {
+    if (py == null) return;
+    const dist = Math.abs(py - y);
+    if (dist < bestDist) { bestDist = dist; bestPart = part; }
+  });
+  return bestPart;
 }
 
 function initDrawTools() {
@@ -639,7 +669,17 @@ function _updateCursor() {
   if (!chartEl) return;
   if (dragState) { chartEl.style.cursor = "grabbing"; return; }
   if (drawTool === "pointer") {
-    chartEl.style.cursor = hoveredId ? "grab" : "";   // "" → 交回 LWC
+    if (hoveredId) {
+      const hd = drawings.find(d => d.id === hoveredId);
+      if (hd && (hd.type === "longpos" || hd.type === "shortpos")) {
+        const part = _drawingHitPart(hd, _mx, _my);
+        chartEl.style.cursor = (part === "tp" || part === "sl") ? "ns-resize" : "grab";
+      } else {
+        chartEl.style.cursor = "grab";
+      }
+    } else {
+      chartEl.style.cursor = "";   // "" → 交回 LWC
+    }
   } else if (drawTool === "crosshair") {
     chartEl.style.cursor = "";
   } else if (drawTool === "eraser") {
@@ -696,7 +736,8 @@ function _onChartMouseDown(e) {
       e.stopPropagation();   // 阻止 LWC pan
       selectedId = near.id;
       dragState  = { id: near.id, startX: x, startY: y, moved: false,
-                     snapshot: JSON.parse(JSON.stringify(near)) };
+                     snapshot: JSON.parse(JSON.stringify(near)),
+                     part: _drawingHitPart(near, x, y) };
       _updateCursor();
       requestAnimationFrame(renderDrawings);
     }
@@ -854,16 +895,28 @@ function _updateDrag(x, y) {
     const oy = candleSeries?.priceToCoordinate(orig.price);
     if (oy != null) d.price = candleSeries?.coordinateToPrice(oy + dy) ?? orig.price;
   } else if ((d.type === "longpos" || d.type === "shortpos") && d.p1) {
-    const oy = candleSeries?.priceToCoordinate(orig.p1.price);
-    if (oy != null) {
-      const newEntry = candleSeries?.coordinateToPrice(oy + dy) ?? orig.p1.price;
-      const entryDiff = newEntry - orig.p1.price;
-      d.p1  = { ...orig.p1, price: newEntry };
-      d.tp  = orig.tp + entryDiff;
-      d.sl  = orig.sl + entryDiff;
+    const part = dragState.part || "entry";
+    if (part === "tp") {
+      // 獨立拖移停利線
+      const oty = candleSeries?.priceToCoordinate(orig.tp);
+      if (oty != null) d.tp = candleSeries?.coordinateToPrice(oty + dy) ?? orig.tp;
+    } else if (part === "sl") {
+      // 獨立拖移停損線
+      const osy = candleSeries?.priceToCoordinate(orig.sl);
+      if (osy != null) d.sl = candleSeries?.coordinateToPrice(osy + dy) ?? orig.sl;
+    } else {
+      // entry：整體平移（TP/SL 跟隨）
+      const oy = candleSeries?.priceToCoordinate(orig.p1.price);
+      if (oy != null) {
+        const newEntry  = candleSeries?.coordinateToPrice(oy + dy) ?? orig.p1.price;
+        const entryDiff = newEntry - orig.p1.price;
+        d.p1 = { ...orig.p1, price: newEntry };
+        d.tp = orig.tp + entryDiff;
+        d.sl = orig.sl + entryDiff;
+      }
+      const ox = mainChart.timeScale().timeToCoordinate(orig.p1.time);
+      if (ox != null) { const nt = mainChart.timeScale().coordinateToTime(ox + dx); if (nt != null) d.p1 = { ...d.p1, time: nt }; }
     }
-    const ox = mainChart.timeScale().timeToCoordinate(orig.p1.time);
-    if (ox != null) { const nt = mainChart.timeScale().coordinateToTime(ox + dx); if (nt != null) d.p1 = { ...d.p1, time: nt }; }
   } else if (d.type === "vline") {
     const ox = mainChart.timeScale().timeToCoordinate(orig.time);
     if (ox != null) { const nt = mainChart.timeScale().coordinateToTime(ox + dx); if (nt != null) d.time = nt; }
@@ -1716,9 +1769,8 @@ function bindEvents() {
 
   document.getElementById("watchlistToggle").addEventListener("click", () => {
     document.getElementById("watchlistPanel").classList.toggle("hidden");
-    document.getElementById("watchlistToggle").querySelector(".toggle-arrow").classList.toggle("open");
+    document.getElementById("watchlistToggle").querySelector(".wl-arrow").classList.toggle("open");
   });
-  document.getElementById("addWatchlistBtn").addEventListener("click", _addToWatchlist);
 
   document.getElementById("colorToggle").addEventListener("click", () => {
     document.getElementById("colorPanel").classList.toggle("hidden");
@@ -1764,13 +1816,15 @@ function updateMarketUI() {
     }
   });
 
-  // 符號搜尋 modal tabs：crypto 顯示 futures/spot，美股顯示 us tab，台股隱藏
+  // 符號搜尋 modal tabs
   const tabFutures = document.querySelector(".sym-tab[data-market='futures']");
   const tabSpot    = document.querySelector(".sym-tab[data-market='spot']");
   const tabUS      = document.querySelector(".sym-tab[data-market='us']");
+  const tabTW      = document.querySelector(".sym-tab[data-market='tw']");
   if (tabFutures) tabFutures.style.display = isCrypto ? "" : "none";
   if (tabSpot)    tabSpot.style.display    = isCrypto ? "" : "none";
   if (tabUS)      tabUS.style.display      = isUS ? "" : "none";
+  if (tabTW)      tabTW.style.display      = isTW ? "" : "none";
 }
 
 /* ── 面板拖曳分隔 ── */
@@ -2514,22 +2568,31 @@ function renderTickers() {
 
   const currentSym = document.getElementById("symbolInput")?.value.trim().toUpperCase();
 
+  const exchVal = document.getElementById("exchangeSelect")?.value || "pionex";
+
   container.innerHTML = list.map(t => {
-    const cls  = t.change_pct >= 0 ? "up" : "dn";
-    const sign = t.change_pct >= 0 ? "+" : "";
+    const cls    = t.change_pct >= 0 ? "up" : "dn";
+    const sign   = t.change_pct >= 0 ? "+" : "";
     const active = (t.display.toUpperCase() === currentSym || t.symbol.toUpperCase() === currentSym) ? " tk-active" : "";
+    const key    = `crypto:${exchVal}:${t.display}`;
+    const inWl   = _watchlist.some(w => `${w.market}:${w.exchange || ""}:${w.symbol}` === key);
     return `<div class="ticker-item${active}" data-symbol="${t.symbol}" data-display="${t.display}" data-spot="${t.spot || t.display}">
       <div class="tk-row1">
         <span class="tk-sym">${t.display}</span>
         <span class="tk-chg ${cls}">${sign}${t.change_pct.toFixed(2)}%</span>
+        <button class="tk-star${inWl ? " active" : ""}" title="${inWl ? "移除自選" : "加入自選"}">${inWl ? "★" : "☆"}</button>
       </div>
       <div class="tk-row2">${fmtTickerPrice(t.price)}</div>
     </div>`;
   }).join("");
 
   container.querySelectorAll(".ticker-item").forEach(el => {
-    el.addEventListener("click", () => {
-      // symbolInput 顯示合約格式（BTC/USDT.P），後端自動去除 .P 後綴
+    el.querySelector(".tk-star")?.addEventListener("click", e => {
+      e.stopPropagation();
+      _toggleWatchlist(el.dataset.display, "crypto", exchVal);
+    });
+    el.addEventListener("click", e => {
+      if (e.target.closest(".tk-star")) return;
       document.getElementById("symbolInput").value = el.dataset.display;
       const exchEl = document.getElementById("exchangeSelect");
       if (exchEl && !["pionex","binance"].includes(exchEl.value)) exchEl.value = "pionex";
@@ -2651,10 +2714,17 @@ function _renderSymSearchList() {
       list.innerHTML = `<div class="sym-empty">輸入股票代號或名稱搜尋（如 AAPL、Tesla）</div>`;
       return;
     }
-    list.innerHTML = `<div class="sym-loading">搜尋中…</div>`;
+    // 不立即清空，避免閃爍；只在第一次搜尋時顯示 loading
+    if (!list.querySelector(".sym-result-item")) {
+      list.innerHTML = `<div class="sym-loading">搜尋中…</div>`;
+    }
+    const _thisQuery = query;
     fetch(`/api/us/search?q=${encodeURIComponent(query)}`)
       .then(r => r.ok ? r.json() : Promise.reject())
       .then(data => {
+        // 若 query 已改變則丟棄舊結果
+        const cur = (document.getElementById("symModalInput")?.value || "").toLowerCase().trim();
+        if (cur !== _thisQuery) return;
         const results = data?.results;
         if (!results?.length) {
           list.innerHTML = `<div class="sym-empty">查無結果，請直接輸入代號（如 AAPL）</div>`;
@@ -2675,6 +2745,43 @@ function _renderSymSearchList() {
       })
       .catch(() => {
         list.innerHTML = `<div class="sym-empty">查無結果，請直接輸入代號（如 AAPL）</div>`;
+      });
+    return;
+  }
+
+  // 台股：用後端 /api/search?market=tw 搜尋
+  if (_symSearchMarket === "tw") {
+    if (!query) {
+      list.innerHTML = `<div class="sym-empty">輸入股票代號或名稱（如 2330、台積電）</div>`;
+      return;
+    }
+    if (!list.querySelector(".sym-result-item")) {
+      list.innerHTML = `<div class="sym-loading">搜尋中…</div>`;
+    }
+    const _thisQuery = query;
+    fetch(`/api/search?market=tw&keyword=${encodeURIComponent(query)}`)
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(data => {
+        const cur = (document.getElementById("symModalInput")?.value || "").toLowerCase().trim();
+        if (cur !== _thisQuery) return;
+        const results = data?.results;
+        if (!results?.length) {
+          list.innerHTML = `<div class="sym-empty">查無結果，請直接輸入代號（如 2330）</div>`;
+          return;
+        }
+        list.innerHTML = results.map((r, i) => `
+          <div class="sym-result-item" data-symbol="${r.stock_id || r.symbol || r}" data-display="${r.stock_id || r.symbol || r}" tabindex="${i}">
+            <div class="sym-icon" style="background:${symIconColor(String(r.stock_id || r.symbol || r))}">${String(r.stock_id || r.symbol || r).slice(0,2)}</div>
+            <div class="sym-result-info">
+              <span class="sym-result-name">${r.stock_id || r.symbol || r}</span>
+              <span class="sym-result-desc">${r.stock_name || r.name || ""}</span>
+            </div>
+            <span class="sym-result-tag">台股</span>
+          </div>`).join("");
+        _bindSymItems(list);
+      })
+      .catch(() => {
+        list.innerHTML = `<div class="sym-empty">查無結果，請直接輸入代號（如 2330）</div>`;
       });
     return;
   }
@@ -2719,19 +2826,28 @@ function _renderSymSearchList() {
 
 function _selectSymbol(el) {
   const display = el.dataset.display || el.dataset.spot || el.dataset.symbol;
-  // 加入搜尋歷史
-  addToSymHistory({
-    symbol:     el.dataset.symbol,
-    display:    display,
-    spot:       el.dataset.spot || el.dataset.display,
-    change_pct: parseFloat(el.dataset.change_pct) || 0,
-    price:      parseFloat(el.dataset.price) || 0,
-  });
-  // symbolInput 顯示合約格式（BTC/USDT.P），後端會自動去除 .P 後綴
+  // 台股選擇時切換 market
+  if (_symSearchMarket === "tw") {
+    document.getElementById("marketSelect").value = "tw";
+    updateMarketUI();
+  } else if (_symSearchMarket === "us") {
+    document.getElementById("marketSelect").value = "us";
+    updateMarketUI();
+  }
+  // 加入搜尋歷史（台股/美股不記入 crypto 歷史）
+  if (_symSearchMarket !== "tw") {
+    addToSymHistory({
+      symbol:     el.dataset.symbol,
+      display:    display,
+      spot:       el.dataset.spot || el.dataset.display,
+      change_pct: parseFloat(el.dataset.change_pct) || 0,
+      price:      parseFloat(el.dataset.price) || 0,
+    });
+  }
   document.getElementById("symbolInput").value = display;
   closeSymSearch();
   loadData(false);
-  renderTickers();  // 更新右側高亮
+  renderTickers();
 }
 
 function openSymSearch() {
@@ -2742,7 +2858,7 @@ function openSymSearch() {
   document.getElementById("symModalClear").classList.add("hidden");
   _symSearchFocusIdx = -1;
   // 依市場決定預設 tab
-  _symSearchMarket = market === "us" ? "us" : "futures";
+  _symSearchMarket = market === "us" ? "us" : market === "tw" ? "tw" : "futures";
   document.querySelectorAll(".sym-tab").forEach(b => {
     b.classList.toggle("active", b.dataset.market === _symSearchMarket);
   });
@@ -2773,7 +2889,7 @@ function initSymSearch() {
     clear.classList.toggle("hidden", !modalInp.value);
     _symSearchFocusIdx = -1;
     clearTimeout(_searchTimer);
-    if (_symSearchMarket === "us") {
+    if (_symSearchMarket === "us" || _symSearchMarket === "tw") {
       _searchTimer = setTimeout(_renderSymSearchList, 300);
     } else {
       _renderSymSearchList();
@@ -2835,13 +2951,10 @@ function buildPayload(useLimit = false) {
   };
 }
 
-/* 更新圖例文字，同時保留 .leg-dot 子元素 */
+/* 更新圖例文字，只改 .leg-val，dot 完全不碰 */
 function _setLegText(id, text) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  const dot = el.querySelector(".leg-dot");
-  el.textContent = text;
-  if (dot) el.prepend(dot);
+  const val = document.querySelector(`#${id} .leg-val`);
+  if (val) val.textContent = text;
 }
 
 function fmt(v)    { return v!=null ? Number(v).toLocaleString(undefined,{maximumFractionDigits:4}) : "—"; }

@@ -141,17 +141,6 @@
   <!-- 左側設定面板 -->
   <aside class="sidebar" id="sidebar">
 
-    <!-- 自選標的 -->
-    <div class="sidebar-section">
-      <div class="section-title collapsible" id="watchlistToggle">
-        自選標的 <span class="toggle-arrow">▸</span>
-      </div>
-      <div id="watchlistPanel" class="hidden">
-        <div id="watchlistItems" class="wl-list"></div>
-        <button id="addWatchlistBtn" class="btn-add-wl">+ 加入自選</button>
-      </div>
-    </div>
-
     <!-- 外觀顏色 -->
     <div class="sidebar-section">
       <div class="section-title collapsible" id="colorToggle">
@@ -277,11 +266,11 @@
     <!-- 主圖 -->
     <div class="chart-pane" id="mainPane" style="flex:5">
       <div class="pane-legend">
-        <span class="leg-item leg-toggle" id="legBB"><span class="leg-dot" style="background:#42a5f5;border-color:#42a5f5"></span>BB(20,2)</span>
-        <span class="leg-item leg-toggle" id="legCRT"><span class="leg-dot" style="background:#26a69a;border-color:#26a69a"></span>CRT(3)</span>
-        <span class="leg-item leg-toggle" id="legKDJCross"><span class="leg-dot" style="background:#26a69a;border-color:#26a69a"></span>KDJ首叉</span>
-        <span class="leg-item leg-toggle" id="legResonance"><span class="leg-dot" style="background:#ff9800;border-color:#ff9800"></span>共振</span>
-        <span class="leg-item leg-toggle" id="legVol"><span class="leg-dot" style="background:#787b86;border-color:#787b86"></span>VOL</span>
+        <span class="leg-item leg-toggle" id="legBB"><span class="leg-dot" style="background:#42a5f5;border-color:#42a5f5"></span><span class="leg-val">BB(20,2)</span></span>
+        <span class="leg-item leg-toggle" id="legCRT"><span class="leg-dot" style="background:#26a69a;border-color:#26a69a"></span><span class="leg-val">CRT(3)</span></span>
+        <span class="leg-item leg-toggle" id="legKDJCross"><span class="leg-dot" style="background:#26a69a;border-color:#26a69a"></span><span class="leg-val">KDJ首叉</span></span>
+        <span class="leg-item leg-toggle" id="legResonance"><span class="leg-dot" style="background:#ff9800;border-color:#ff9800"></span><span class="leg-val">共振</span></span>
+        <span class="leg-item leg-toggle" id="legVol"><span class="leg-dot" style="background:#787b86;border-color:#787b86"></span><span class="leg-val">VOL</span></span>
       </div>
       <div class="pane-body" id="mainChart"></div>
     </div>
@@ -291,9 +280,9 @@
     <!-- KDJ -->
     <div class="chart-pane" id="kdjPane" style="flex:1">
       <div class="pane-legend">
-        <span class="leg-item leg-toggle" id="legK" style="color:#f23645"><span class="leg-dot" style="background:#f23645;border-color:#f23645"></span>K —</span>
-        <span class="leg-item leg-toggle" id="legD" style="color:#1e88e5"><span class="leg-dot" style="background:#1e88e5;border-color:#1e88e5"></span>D —</span>
-        <span class="leg-item leg-toggle" id="legJ" style="color:#ff9800"><span class="leg-dot" style="background:#ff9800;border-color:#ff9800"></span>J —</span>
+        <span class="leg-item leg-toggle" id="legK" style="color:#f23645"><span class="leg-dot" style="background:#f23645;border-color:#f23645"></span><span class="leg-val">K —</span></span>
+        <span class="leg-item leg-toggle" id="legD" style="color:#1e88e5"><span class="leg-dot" style="background:#1e88e5;border-color:#1e88e5"></span><span class="leg-val">D —</span></span>
+        <span class="leg-item leg-toggle" id="legJ" style="color:#ff9800"><span class="leg-dot" style="background:#ff9800;border-color:#ff9800"></span><span class="leg-val">J —</span></span>
         <button class="pane-collapse-btn" data-pane="kdjPane" title="收合">−</button>
       </div>
       <div class="pane-body" id="kdjChart"></div>
@@ -304,8 +293,8 @@
     <!-- RSI -->
     <div class="chart-pane" id="rsiPane" style="flex:1">
       <div class="pane-legend">
-        <span class="leg-item leg-toggle" id="legRsi14" style="color:#7e57c2"><span class="leg-dot" style="background:#7e57c2;border-color:#7e57c2"></span>RSI 14 —</span>
-        <span class="leg-item leg-toggle" id="legRsi7"  style="color:#ef5350"><span class="leg-dot" style="background:#ef5350;border-color:#ef5350"></span>RSI 7 —</span>
+        <span class="leg-item leg-toggle" id="legRsi14" style="color:#7e57c2"><span class="leg-dot" style="background:#7e57c2;border-color:#7e57c2"></span><span class="leg-val">RSI 14 —</span></span>
+        <span class="leg-item leg-toggle" id="legRsi7"  style="color:#ef5350"><span class="leg-dot" style="background:#ef5350;border-color:#ef5350"></span><span class="leg-val">RSI 7 —</span></span>
         <button class="pane-collapse-btn" data-pane="rsiPane" title="收合">−</button>
       </div>
       <div class="pane-body" id="rsiChart"></div>
@@ -316,9 +305,9 @@
     <!-- MACD -->
     <div class="chart-pane" id="macdPane" style="flex:1">
       <div class="pane-legend">
-        <span class="leg-item leg-toggle" id="legMacd"     style="color:#2196f3"><span class="leg-dot" style="background:#2196f3;border-color:#2196f3"></span>MACD —</span>
-        <span class="leg-item leg-toggle" id="legMacdSig"  style="color:#ff9800"><span class="leg-dot" style="background:#ff9800;border-color:#ff9800"></span>Signal —</span>
-        <span class="leg-item leg-toggle" id="legMacdHist" style="color:#888"><span class="leg-dot" style="background:#888;border-color:#888"></span>Hist —</span>
+        <span class="leg-item leg-toggle" id="legMacd"     style="color:#2196f3"><span class="leg-dot" style="background:#2196f3;border-color:#2196f3"></span><span class="leg-val">MACD —</span></span>
+        <span class="leg-item leg-toggle" id="legMacdSig"  style="color:#ff9800"><span class="leg-dot" style="background:#ff9800;border-color:#ff9800"></span><span class="leg-val">Signal —</span></span>
+        <span class="leg-item leg-toggle" id="legMacdHist" style="color:#888"><span class="leg-dot" style="background:#888;border-color:#888"></span><span class="leg-val">Hist —</span></span>
         <button class="pane-collapse-btn" data-pane="macdPane" title="收合">−</button>
       </div>
       <div class="pane-body" id="macdChart"></div>
@@ -328,6 +317,18 @@
 
   <!-- 右側行情列表 -->
   <div class="ticker-panel" id="tickerPanel">
+
+    <!-- 自選標的（右欄頂部） -->
+    <div class="wl-panel-section">
+      <div class="wl-panel-hd" id="watchlistToggle">
+        <span>⭐ 自選標的</span><span class="toggle-arrow wl-arrow">▸</span>
+      </div>
+      <div id="watchlistPanel" class="hidden">
+        <div id="watchlistItems" class="wl-list"></div>
+      </div>
+    </div>
+
+    <!-- 合約行情 -->
     <div class="ticker-hd">
       <span class="ticker-title">合約行情</span>
       <div class="tk-seg">
@@ -374,7 +375,8 @@
     <div class="sym-modal-tabs" id="symModalTabs">
       <button class="sym-tab active" data-market="futures">永續合約</button>
       <button class="sym-tab" data-market="spot">現貨</button>
-      <button class="sym-tab" data-market="us" style="display:none">美股搜尋</button>
+      <button class="sym-tab" data-market="us"  style="display:none">美股</button>
+      <button class="sym-tab" data-market="tw"  style="display:none">台股</button>
     </div>
     <div class="sym-modal-list" id="symModalList">
       <div class="sym-loading">載入中…</div>
