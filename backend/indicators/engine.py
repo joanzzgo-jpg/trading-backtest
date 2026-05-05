@@ -101,8 +101,19 @@ def vwap(high: pd.Series, low: pd.Series, close: pd.Series, volume: pd.Series) -
     return (typical_price * volume).cumsum() / volume.cumsum()
 
 
-def kdj_first_cross(k: pd.Series, d: pd.Series, ob: int = 80, os_: int = 20) -> pd.Series:
-    """KDJ 首次交叉狀態機：Returns cross (+1=黃金, -1=死亡, 0=無)"""
+def kdj_first_cross(
+    k: pd.Series, d: pd.Series,
+    ob: int = 80, os_: int = 20,
+    max_golden_k: int = 60, min_dead_k: int = 40,
+) -> pd.Series:
+    """KDJ 首次交叉狀態機（無脫離限制版）
+
+    - 武裝：K 或 D 進入超賣(< os_)即武裝金叉；進入超買(> ob)即武裝死叉
+    - 無脫離限制：不要求 K/D 先離開超買/超賣區
+    - 金叉：K 上穿 D + 武裝中 + K <= max_golden_k
+    - 死叉：K 下穿 D + 武裝中 + K >= min_dead_k
+    Returns: +1=黃金交叉, -1=死亡交叉, 0=無
+    """
     k_arr = k.to_numpy(dtype=float, na_value=np.nan)
     d_arr = d.to_numpy(dtype=float, na_value=np.nan)
     n     = len(k_arr)
@@ -114,6 +125,7 @@ def kdj_first_cross(k: pd.Series, d: pd.Series, ob: int = 80, os_: int = 20) -> 
         ki, di = k_arr[i], d_arr[i]
         if np.isnan(ki) or np.isnan(di):
             continue
+        # 武裝判斷（進入超賣/超買即觸發，無需離開）
         if ki < os_ or di < os_:
             wait_golden = True
         if ki > ob or di > ob:
@@ -121,10 +133,10 @@ def kdj_first_cross(k: pd.Series, d: pd.Series, ob: int = 80, os_: int = 20) -> 
         if i > 0:
             pk, pd_ = k_arr[i - 1], d_arr[i - 1]
             if not (np.isnan(pk) or np.isnan(pd_)):
-                if pk < pd_ and ki >= di and wait_golden and (ki > os_ or di > os_) and ki <= 40:
+                if pk < pd_ and ki >= di and wait_golden and ki <= max_golden_k:
                     cross[i] = 1
                     wait_golden = False
-                elif pk > pd_ and ki <= di and wait_dead and (ki < ob or di < ob) and ki >= 60:
+                elif pk > pd_ and ki <= di and wait_dead and ki >= min_dead_k:
                     cross[i] = -1
                     wait_dead = False
 
