@@ -530,8 +530,6 @@ function _addToWatchlist() {
 }
 
 function findNearest(x, y, maxDist = 12) {
-  // 跳過右側價格軸區域（約 70px），避免搶走 LWC 的滾軸事件
-  if (drawCanvas && x > drawCanvas.width - 70) return null;
   let best = maxDist, found = null;
   drawings.forEach(d => {
     const dist = drawingDist(d, x, y);
@@ -1865,18 +1863,8 @@ function bindEvents() {
 
   // ── 指標按鈕（展開/收合外觀顏色面板）──────────────────
   document.getElementById("indicatorsToggle")?.addEventListener("click", () => {
-    const btn    = document.getElementById("indicatorsToggle");
     const sidebar = document.getElementById("sidebar");
-    const panel  = document.getElementById("colorPanel");
-    const arrow  = document.getElementById("colorToggle")?.querySelector(".toggle-arrow");
-    // 展開 sidebar（桌面版）
     sidebar.classList.remove("sidebar-collapsed");
-    // 展開顏色面板
-    if (panel.classList.contains("hidden")) {
-      panel.classList.remove("hidden");
-      if (arrow) arrow.classList.add("open");
-    }
-    btn.classList.toggle("active", !panel.classList.contains("hidden"));
     setTimeout(resizeAll, 220);
   });
 
