@@ -970,6 +970,40 @@ html, body {
   transition: background .12s;
 }
 .dcp-delete:hover { background: rgba(239,83,80,.12); }
+.cp-tab-row {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+.cp-tab-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  background: var(--bg3);
+  border: 1px solid var(--bg4);
+  border-radius: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+  transition: border-color .12s, color .12s;
+}
+.cp-tab-btn.active {
+  border-color: var(--blue);
+  color: var(--text);
+  background: rgba(41,98,255,.1);
+}
+.cp-tab-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+.cp-del-row {
+  margin-top: 4px;
+  display: flex;
+}
 
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: var(--bg); }

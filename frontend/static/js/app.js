@@ -476,6 +476,7 @@ let _drawColor  = "#f5c518";  // 目前繪圖顏色
 
 const DCP_COLORS = ["#f5c518","#ef5350","#26a69a","#2962ff","#ff9800","#7e57c2","#ec407a","#26c6da","#ffffff","#787b86"];
 const DRAW_WIDTH  = 1.5;
+let _cpShowDirect = null; // set by initColorPicker()
 
 function _did() { return "d" + Date.now().toString(36) + Math.random().toString(36).slice(2,5); }
 
@@ -491,6 +492,7 @@ function loadDrawings() {
 
 /* ── 自選標的 ── */
 let _watchlist = [];
+let _wlPriceCache = {}; // key: "market:exchange:symbol" → {price, change_pct, volume, ts}
 function _loadWatchlist() {
   try { _watchlist = JSON.parse(localStorage.getItem("watchlist") || "[]"); } catch { _watchlist = []; }
 }
@@ -625,17 +627,7 @@ function initDrawTools() {
     _onChartClick(fake);
   }, { capture: true });
 
-  // 點擊 popup 外部關閉
-  document.addEventListener("mousedown", e => {
-    const dcp = document.getElementById("drawColorPicker");
-    if (dcp && !dcp.classList.contains("hidden") && !dcp.contains(e.target)) {
-      dcp.classList.add("hidden");
-    }
-    const lcp = document.getElementById("legColorPicker");
-    if (lcp && !lcp.classList.contains("hidden") && !lcp.contains(e.target)) {
-      lcp.classList.add("hidden");
-    }
-  });
+  // cpPopup close is handled by initColorPicker()'s own mousedown listener
 }
 
 function _canvasXY(e) {
@@ -672,7 +664,7 @@ function setDrawTool(tool) {
   drawTool = tool;
   selectedId = null;
   drawingWIP = null;
-  document.getElementById("drawColorPicker")?.classList.add("hidden");
+  document.getElementById("cpPopup")?.classList.remove("open");
   _updateCursor();
   requestAnimationFrame(renderDrawings);
 }
@@ -744,7 +736,7 @@ function _onChartClick(e) {
       e.stopPropagation();
     } else {
       selectedId = null;
-      document.getElementById("drawColorPicker")?.classList.add("hidden");
+      document.getElementById("cpPopup")?.classList.remove("open");
     }
     requestAnimationFrame(renderDrawings);
     return;
@@ -927,105 +919,32 @@ function _updateDrag(x, y) {
 
 /* ── 顏色 Popup ── */
 function showDrawColorPicker(drawing, clientX, clientY) {
-  const popup = document.getElementById("drawColorPicker");
-  if (!popup) return;
-  popup.dataset.drawingId = drawing.id;
-
-  // 重建色塊（避免 listener 累積）
-  const grid = popup.querySelector(".dcp-colors");
-  const newGrid = document.createElement("div");
-  newGrid.className = "dcp-colors";
-  DCP_COLORS.forEach(c => {
-    const sw = document.createElement("div");
-    sw.className = "dcp-swatch" + (drawing.color === c ? " active" : "");
-    sw.style.background = c;
-    sw.addEventListener("mousedown", e => {
-      e.stopPropagation();
-      const d = drawings.find(d => d.id === popup.dataset.drawingId);
-      if (!d) return;
-      d.color = c;
-      _drawColor = c;
-      newGrid.querySelectorAll(".dcp-swatch").forEach(s => s.classList.toggle("active", s === sw));
+  if (!_cpShowDirect) return;
+  _cpShowDirect(clientX, clientY, {
+    sections: [{
+      label: null,
+      currentColor: (drawing.color || "#2962ff").substring(0, 7),
+      apply: c => {
+        drawing.color = c;
+        _drawColor = c;
+        saveDrawings();
+        requestAnimationFrame(renderDrawings);
+      }
+    }],
+    onDelete: () => {
+      drawings = drawings.filter(d => d.id !== drawing.id);
+      if (selectedId === drawing.id) selectedId = null;
       saveDrawings();
       requestAnimationFrame(renderDrawings);
-    });
-    newGrid.appendChild(sw);
+    }
   });
-  grid.replaceWith(newGrid);
-
-  // 重建刪除按鈕
-  const delBtn = popup.querySelector(".dcp-delete");
-  const newDel = delBtn.cloneNode(true);
-  newDel.addEventListener("mousedown", e => {
-    e.stopPropagation();
-    const id = popup.dataset.drawingId;
-    drawings = drawings.filter(d => d.id !== id);
-    if (selectedId === id) selectedId = null;
-    saveDrawings();
-    popup.classList.add("hidden");
-    requestAnimationFrame(renderDrawings);
-  });
-  delBtn.replaceWith(newDel);
-
-  // 定位
-  const pw = 190, ph = 110;
-  let left = clientX + 12, top = clientY - 10;
-  if (left + pw > window.innerWidth)  left = clientX - pw - 12;
-  if (top  + ph > window.innerHeight) top  = window.innerHeight - ph - 8;
-  if (top < 4) top = 4;
-  popup.style.left = left + "px";
-  popup.style.top  = top  + "px";
-  popup.classList.remove("hidden");
 }
 
 /* ── 圖例 / K棒 顏色 Popup（無刪除按鈕）── */
 // sections: [{ label, currentColor, apply }]
 function showLegColorPopup(clientX, clientY, sections) {
-  const popup = document.getElementById("legColorPicker");
-  if (!popup) return;
-  const content = document.getElementById("lcpContent");
-  content.innerHTML = "";
-
-  sections.forEach((sec, si) => {
-    if (si > 0) {
-      const div = document.createElement("div");
-      div.className = "dcp-divider";
-      content.appendChild(div);
-    }
-    if (sec.label) {
-      const lbl = document.createElement("div");
-      lbl.style.cssText = "font-size:10px;color:#787b86;margin-bottom:5px;font-weight:600;letter-spacing:.04em";
-      lbl.textContent = sec.label;
-      content.appendChild(lbl);
-    }
-    const grid = document.createElement("div");
-    grid.className = "dcp-colors";
-    DCP_COLORS.forEach(c => {
-      const sw = document.createElement("div");
-      sw.className = "dcp-swatch" + (sec.currentColor === c ? " active" : "");
-      sw.style.background = c;
-      sw.addEventListener("mousedown", e => {
-        e.stopPropagation();
-        sec.currentColor = c;   // update for multi-section re-click
-        sec.apply(c);
-        grid.querySelectorAll(".dcp-swatch").forEach(s => s.classList.toggle("active", s === sw));
-        // close only for single-section pickers
-        if (sections.length === 1) popup.classList.add("hidden");
-      });
-      grid.appendChild(sw);
-    });
-    content.appendChild(grid);
-  });
-
-  const pw = 190;
-  const estimatedH = sections.length * 54 + (sections.length - 1) * 9 + 20;
-  let left = clientX + 12, top = clientY - 10;
-  if (left + pw > window.innerWidth)   left = clientX - pw - 12;
-  if (top + estimatedH > window.innerHeight) top = window.innerHeight - estimatedH - 8;
-  if (top < 4) top = 4;
-  popup.style.left = left + "px";
-  popup.style.top  = top  + "px";
-  popup.classList.remove("hidden");
+  if (!_cpShowDirect) return;
+  _cpShowDirect(clientX, clientY, { sections, onDelete: null });
 }
 
 function screenToChart(x, y) {
@@ -1538,6 +1457,11 @@ function initColorPicker() {
   const popup = document.createElement("div");
   popup.id = "cpPopup"; popup.className = "cp-popup";
 
+  // Tab row for multi-section (K-bar mode) – inserted before color grid
+  const tabRow = document.createElement("div"); tabRow.className = "cp-tab-row";
+  tabRow.style.display = "none";
+  popup.appendChild(tabRow);
+
   // 色塊格
   const grid = document.createElement("div"); grid.className = "cp-grid";
   const grayRow = document.createElement("div"); grayRow.className = "cp-row";
@@ -1622,6 +1546,14 @@ function initColorPicker() {
   styleWrap.append(styleLabel, styleRow);
   popup.appendChild(styleWrap);
 
+  // 刪除按鈕列（繪圖直接模式用）
+  const delRow = document.createElement("div"); delRow.className = "cp-del-row";
+  delRow.style.display = "none";
+  const delBtn = document.createElement("button"); delBtn.className = "dcp-delete";
+  delBtn.type = "button"; delBtn.textContent = "刪除線條";
+  delRow.appendChild(delBtn);
+  popup.appendChild(delRow);
+
   document.body.appendChild(popup);
 
   /* ── 狀態 ── */
@@ -1630,6 +1562,9 @@ function initColorPicker() {
   let currentSwatch = null;
   let currentWidth  = null;   // null = 不覆寫（此 input 不支援寬度）
   let currentStyle  = null;
+  let _directSecs     = null;
+  let _activeSecIdx   = 0;
+  let _directOnDelete = null;
 
   function makeSwatch(color) {
     const sw = document.createElement("div"); sw.className = "cp-swatch";
@@ -1644,15 +1579,23 @@ function initColorPicker() {
   }
 
   function applyColor() {
-    if (!currentInput) return;
     const pct = parseInt(opSlider.value);
     opSlider.style.background = `linear-gradient(to right, transparent, ${currentHex})`;
     const finalColor = pct >= 100 ? currentHex : hexAlpha(currentHex, pct);
+
+    if (_directSecs) {
+      const sec = _directSecs[_activeSecIdx];
+      sec.currentColor = finalColor;
+      sec.apply(finalColor, pct);
+      const dots = tabRow.querySelectorAll(".cp-tab-dot");
+      if (dots[_activeSecIdx]) dots[_activeSecIdx].style.background = finalColor;
+      return;
+    }
+    if (!currentInput) return;
     currentInput._cpColor = finalColor;
     currentInput.value    = currentHex;
     const tr = currentInput.previousElementSibling;
     if (tr?.classList.contains("cp-trigger")) tr.style.background = finalColor;
-    // 線寬 / 線型
     const inputId = currentInput.id;
     if (INPUT_SERIES_MAP[inputId]) {
       const w = activeWidthBtn ? parseInt(activeWidthBtn.dataset.value) : null;
@@ -1708,7 +1651,64 @@ function initColorPicker() {
     popup.classList.remove("open");
     document.querySelectorAll(".cp-trigger.cp-open").forEach(t => t.classList.remove("cp-open"));
     currentInput = null;
+    _directSecs = null; _directOnDelete = null;
+    tabRow.style.display = "none";
+    delRow.style.display = "none";
   }
+
+  function showDirect(clientX, clientY, { sections, onDelete }) {
+    closePicker();
+    _directSecs = sections; _activeSecIdx = 0; _directOnDelete = onDelete || null;
+    currentInput = null;
+
+    tabRow.innerHTML = "";
+    tabRow.style.display = sections.length > 1 ? "flex" : "none";
+    sections.forEach((sec, i) => {
+      const btn = document.createElement("button");
+      btn.className = "cp-tab-btn" + (i === 0 ? " active" : "");
+      btn.type = "button";
+      const dot = document.createElement("span"); dot.className = "cp-tab-dot";
+      dot.style.background = (sec.currentColor || "#fff").substring(0, 7);
+      btn.appendChild(dot);
+      if (sec.label) btn.appendChild(document.createTextNode(" " + sec.label));
+      btn.addEventListener("mousedown", e => {
+        e.stopPropagation();
+        _activeSecIdx = i;
+        tabRow.querySelectorAll(".cp-tab-btn").forEach((b, j) => b.classList.toggle("active", j === i));
+        currentHex = (sections[i].currentColor || "#ffffff").substring(0, 7);
+        opSlider.style.background = `linear-gradient(to right, transparent, ${currentHex})`;
+        popup.querySelectorAll(".cp-swatch").forEach(sw =>
+          sw.classList.toggle("selected", sw.dataset.color.toLowerCase() === currentHex.toLowerCase()));
+      });
+      tabRow.appendChild(btn);
+    });
+
+    currentHex = (sections[0].currentColor || "#ffffff").substring(0, 7);
+    opSlider.value = 100; opNum.value = 100;
+    opSlider.style.background = `linear-gradient(to right, transparent, ${currentHex})`;
+    if (currentSwatch) currentSwatch.classList.remove("selected");
+    currentSwatch = null;
+    popup.querySelectorAll(".cp-swatch").forEach(sw => {
+      if (sw.dataset.color.toLowerCase() === currentHex.toLowerCase()) {
+        sw.classList.add("selected"); currentSwatch = sw;
+      }
+    });
+
+    thickWrap.style.display = "none";
+    styleWrap.style.display = "none";
+    delRow.style.display = onDelete ? "flex" : "none";
+    delBtn.onclick = () => { if (_directOnDelete) _directOnDelete(); closePicker(); };
+
+    let left = clientX + 12, top = clientY - 10;
+    if (left + 234 > window.innerWidth)  left = clientX - 234 - 12;
+    if (top  + 420 > window.innerHeight) top  = window.innerHeight - 420 - 8;
+    if (top < 4) top = 4;
+    popup.style.left = left + "px";
+    popup.style.top  = top  + "px";
+    popup.classList.add("open");
+  }
+
+  _cpShowDirect = showDirect;
 
   document.addEventListener("mousedown", e => {
     if (!popup.classList.contains("open")) return;
@@ -1827,7 +1827,7 @@ function bindEvents() {
       e.preventDefault();
       drawings = drawings.filter(d => d.id !== selectedId);
       selectedId = null;
-      document.getElementById("drawColorPicker")?.classList.add("hidden");
+      document.getElementById("cpPopup")?.classList.remove("open");
       saveDrawings();
       requestAnimationFrame(renderDrawings);
     }
@@ -2004,9 +2004,9 @@ function bindLegendColors() {
     if (!legEl) return;
     const dot = legEl.querySelector(".leg-dot");
     if (!dot) return;
-    dot.title  = "點擊改色";
+    dot.title  = "雙擊改色";
     dot.style.cursor = "pointer";
-    dot.addEventListener("click", e => {
+    dot.addEventListener("dblclick", e => {
       e.stopPropagation();
       e.preventDefault();
       const cur = (C[key] || "#26a69a").substring(0, 7);
@@ -2619,6 +2619,30 @@ async function fetchTickers() {
   } catch {}
 }
 
+async function _refreshWlPrices() {
+  const items = _watchlist.filter(w => w.market === "us" || w.market === "tw");
+  await Promise.all(items.map(async item => {
+    const key = `${item.market}:${item.exchange || ""}:${item.symbol}`;
+    const cached = _wlPriceCache[key];
+    if (cached && Date.now() - cached.ts < 60000) return;
+    try {
+      const res = await fetch("/api/latest", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ market: item.market, symbol: item.symbol, timeframe: "1d", exchange: item.exchange || "" }),
+      });
+      if (!res.ok) return;
+      const data = (await res.json()).data || [];
+      if (data.length >= 2) {
+        const prev = data[data.length - 2], last = data[data.length - 1];
+        const change_pct = prev.close ? (last.close - prev.close) / prev.close * 100 : 0;
+        _wlPriceCache[key] = { price: last.close, change_pct, volume: last.volume, ts: Date.now() };
+      }
+    } catch {}
+  }));
+  if (_tickerSort === "wl") renderTickers();
+}
+
 function updatePageTitle() {
   const sym = (document.getElementById("symbolInput")?.value || "").trim().toUpperCase();
   if (!sym) { document.title = "回測系統"; return; }
@@ -2653,12 +2677,27 @@ function renderTickers() {
     container.innerHTML = _watchlist.map((item, i) => {
       const mktLabel = item.market === "crypto" ? (item.exchange || "crypto").toUpperCase() : item.market.toUpperCase();
       const active   = item.symbol.toUpperCase() === currentSym ? " tk-active" : "";
+      let price = null, change_pct = null;
+      if (item.market === "crypto") {
+        const td = _tickerData.find(t =>
+          t.display?.toUpperCase() === item.symbol.toUpperCase() ||
+          t.symbol?.toUpperCase() === item.symbol.toUpperCase());
+        if (td) { price = td.price; change_pct = td.change_pct; }
+      } else {
+        const key = `${item.market}:${item.exchange || ""}:${item.symbol}`;
+        const c = _wlPriceCache[key];
+        if (c) { price = c.price; change_pct = c.change_pct; }
+      }
+      const priceStr = price != null ? fmtTickerPrice(price) : "---";
+      const chgStr   = change_pct != null ? (change_pct >= 0 ? "+" : "") + change_pct.toFixed(2) + "%" : mktLabel;
+      const chgCls   = change_pct != null ? (change_pct >= 0 ? "up" : "dn") : "";
       return `<div class="ticker-item${active}" data-wl-idx="${i}">
         <div class="tk-row1">
           <span class="tk-sym">${item.symbol}</span>
-          <span class="tk-chg" style="font-size:10px;color:var(--muted);font-weight:500">${mktLabel}</span>
+          <span class="tk-chg ${chgCls}">${chgStr}</span>
           <button class="wl-del" title="移除">×</button>
         </div>
+        <div class="tk-row2">${priceStr}</div>
       </div>`;
     }).join("");
     container.querySelectorAll(".ticker-item").forEach((el, i) => {
@@ -2749,6 +2788,7 @@ function bindTickerPanel() {
       btn.classList.add("active");
       _tickerSort = btn.dataset.sort;
       renderTickers();
+      if (btn.dataset.sort === "wl") _refreshWlPrices();
     });
   });
   document.getElementById("tickerSearch")?.addEventListener("input", renderTickers);
