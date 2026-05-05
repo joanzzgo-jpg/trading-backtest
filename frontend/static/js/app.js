@@ -575,6 +575,51 @@ function initDrawTools() {
   chartEl.addEventListener("contextmenu", _onChartContextMenu, { capture: true });
   window.addEventListener("mouseup", _onChartMouseUp);
 
+  // ── 觸控支援（手機繪圖）──
+  chartEl.addEventListener("touchstart", e => {
+    const touch = e.touches[0]; if (!touch) return;
+    const fake = { clientX: touch.clientX, clientY: touch.clientY, button: 0 };
+    if (drawTool === "pointer") {
+      // pointer 模式：可拖移既有繪圖
+      _onChartMouseDown(fake);
+      return;
+    }
+    if (drawTool === "crosshair") return;
+    e.preventDefault();
+    _onChartMouseMove(fake);
+  }, { capture: true, passive: false });
+
+  chartEl.addEventListener("touchmove", e => {
+    const touch = e.touches[0]; if (!touch) return;
+    const fake = { clientX: touch.clientX, clientY: touch.clientY };
+    if (dragState) { e.preventDefault(); _onChartMouseMove(fake); return; }
+    if (drawTool === "crosshair") return;
+    if (drawTool !== "pointer") e.preventDefault();
+    _onChartMouseMove(fake);
+  }, { capture: true, passive: false });
+
+  chartEl.addEventListener("touchend", e => {
+    const touch = e.changedTouches[0]; if (!touch) return;
+    const fake = { clientX: touch.clientX, clientY: touch.clientY, stopPropagation: () => {} };
+    if (dragState) { _onChartMouseUp(); return; }
+    if (drawTool === "pointer") {
+      // 點擊選取繪圖，帶出顏色選擇器
+      const { x, y } = _canvasXY(fake);
+      const near = findNearest(x, y, 20);
+      if (near) {
+        e.preventDefault(); e.stopPropagation();
+        selectedId = near.id;
+        showDrawColorPicker(near, touch.clientX, touch.clientY);
+        requestAnimationFrame(renderDrawings);
+      }
+      return;
+    }
+    if (drawTool === "crosshair") return;
+    e.preventDefault(); e.stopPropagation();
+    _onChartMouseUp();
+    _onChartClick(fake);
+  }, { capture: true });
+
   // 點擊 popup 外部關閉（一般 bubble 即可）
   document.addEventListener("mousedown", e => {
     const popup = document.getElementById("drawColorPicker");
@@ -734,6 +779,28 @@ function _onChartClick(e) {
     return;
   }
 
+  // 做空盈虧比（shortpos）
+  if (drawTool === "shortpos") {
+    if (!drawingWIP) {
+      drawingWIP = { type:"shortpos", p1:pt };
+    } else {
+      const entry = drawingWIP.p1.price;
+      const clicked = pt.price;
+      let tp, sl;
+      if (clicked <= entry) {
+        tp = clicked;
+        sl = entry + (entry - tp);
+      } else {
+        sl = clicked;
+        tp = entry - (sl - entry);
+      }
+      drawings.push({ id:_did(), type:"shortpos", p1:drawingWIP.p1, tp, sl, color:_drawColor });
+      drawingWIP = null;
+      saveDrawings(); _returnToPointer();
+    }
+    return;
+  }
+
   // 雙點工具（trendline / ray / fib）
   if (!drawingWIP) {
     drawingWIP = { type:drawTool, p1:pt };
@@ -786,7 +853,7 @@ function _updateDrag(x, y) {
   if (d.type === "hline") {
     const oy = candleSeries?.priceToCoordinate(orig.price);
     if (oy != null) d.price = candleSeries?.coordinateToPrice(oy + dy) ?? orig.price;
-  } else if (d.type === "longpos" && d.p1) {
+  } else if ((d.type === "longpos" || d.type === "shortpos") && d.p1) {
     const oy = candleSeries?.priceToCoordinate(orig.p1.price);
     if (oy != null) {
       const newEntry = candleSeries?.coordinateToPrice(oy + dy) ?? orig.p1.price;
@@ -904,7 +971,7 @@ function drawingDist(d, x, y) {
     const p = chartToScreen(d.time, d.price);
     return p ? Math.hypot(p.x - x, p.y - y) : Infinity;
   }
-  if (d.type === "longpos" && d.p1) {
+  if ((d.type === "longpos" || d.type === "shortpos") && d.p1) {
     const startX = mainChart.timeScale().timeToCoordinate(d.p1.time);
     if (startX != null && x < startX - 10) return Infinity;
     const ey = candleSeries?.priceToCoordinate(d.p1.price);
@@ -1115,6 +1182,69 @@ function drawOne(d, W, H, isHovered, isSelected) {
       [[ startX, entryY, "rgba(255,255,255,0.9)" ],
        [ startX, tpY,    "#26a69a" ],
        [ startX, slY,    "#ef5350" ]].forEach(([px, py, fc]) => {
+        drawCtx.fillStyle = fc;
+        drawCtx.beginPath(); drawCtx.arc(px, py, 4, 0, Math.PI*2); drawCtx.fill();
+      });
+    }
+  }
+  else if (d.type === "shortpos" && d.p1) {
+    // shortpos: SL 在 entry 上方（紅），TP 在 entry 下方（綠）
+    const entryY = candleSeries?.priceToCoordinate(d.p1.price);
+    const tpY    = candleSeries?.priceToCoordinate(d.tp);   // tp < entry → tpY > entryY
+    const slY    = candleSeries?.priceToCoordinate(d.sl);   // sl > entry → slY < entryY
+    const startX = mainChart.timeScale().timeToCoordinate(d.p1.time);
+    if (entryY == null || tpY == null || slY == null || startX == null) { drawCtx.restore(); return; }
+    const zoneW = W - startX;
+    if (zoneW < 4) { drawCtx.restore(); return; }
+
+    drawCtx.shadowBlur = 0;
+
+    // 紅色 SL 區（entry → sl，sl 在上）
+    drawCtx.fillStyle = "rgba(239,83,80,0.18)";
+    drawCtx.fillRect(startX, slY, zoneW, entryY - slY);
+
+    // 綠色 TP 區（entry → tp，tp 在下）
+    drawCtx.fillStyle = "rgba(38,166,154,0.18)";
+    drawCtx.fillRect(startX, entryY, zoneW, tpY - entryY);
+
+    // Entry 線
+    drawCtx.strokeStyle = isSelected ? "#ffffff" : "rgba(255,255,255,0.75)";
+    drawCtx.lineWidth = isSelected ? 1.5 : 1;
+    drawCtx.setLineDash([]);
+    drawCtx.beginPath(); drawCtx.moveTo(startX, entryY); drawCtx.lineTo(W, entryY); drawCtx.stroke();
+
+    // SL 線（紅，上方）
+    drawCtx.strokeStyle = "#ef5350";
+    drawCtx.lineWidth = isSelected ? 1.5 : 1;
+    drawCtx.beginPath(); drawCtx.moveTo(startX, slY); drawCtx.lineTo(W, slY); drawCtx.stroke();
+
+    // TP 線（綠，下方）
+    drawCtx.strokeStyle = "#26a69a";
+    drawCtx.beginPath(); drawCtx.moveTo(startX, tpY); drawCtx.lineTo(W, tpY); drawCtx.stroke();
+
+    // 標籤
+    drawCtx.font = "11px monospace";
+    const reward = Math.abs(d.p1.price - d.tp);
+    const risk   = Math.abs(d.sl - d.p1.price);
+    const rr     = risk > 0 ? (reward / risk).toFixed(1) : "∞";
+
+    drawCtx.fillStyle = "#ef5350";
+    drawCtx.fillText(`SL ${d.sl.toFixed(2)}`, W - 85, slY - 4);
+
+    drawCtx.fillStyle = "#26a69a";
+    drawCtx.fillText(`TP ${d.tp.toFixed(2)}`, W - 85, tpY + 12);
+
+    drawCtx.fillStyle = "rgba(255,255,255,0.85)";
+    drawCtx.fillText(`${d.p1.price.toFixed(2)}`, W - 72, entryY - 4);
+
+    drawCtx.fillStyle = "#f5c518";
+    drawCtx.font = "bold 11px monospace";
+    drawCtx.fillText(`R:R ${rr}`, startX + 5, entryY + 14);
+
+    if (isSelected) {
+      [[ startX, entryY, "rgba(255,255,255,0.9)" ],
+       [ startX, slY,    "#ef5350" ],
+       [ startX, tpY,    "#26a69a" ]].forEach(([px, py, fc]) => {
         drawCtx.fillStyle = fc;
         drawCtx.beginPath(); drawCtx.arc(px, py, 4, 0, Math.PI*2); drawCtx.fill();
       });
@@ -1592,7 +1722,7 @@ function bindEvents() {
 
   document.getElementById("colorToggle").addEventListener("click", () => {
     document.getElementById("colorPanel").classList.toggle("hidden");
-    document.querySelector(".toggle-arrow").classList.toggle("open");
+    document.querySelector("#colorToggle .toggle-arrow").classList.toggle("open");
   });
 
   bindColorInputs();
@@ -1647,32 +1777,47 @@ function updateMarketUI() {
 function bindPaneDividers() {
   document.querySelectorAll(".pane-divider").forEach(divider => {
     let startY, startFlex, nextFlex, pane, nextPane;
-    divider.addEventListener("mousedown", e => {
-      e.preventDefault();
+
+    function startDrag(clientY) {
       pane     = document.getElementById(divider.dataset.target);
       nextPane = nextVisiblePane(pane);
-      if (!nextPane) return;
-      startY    = e.clientY;
+      if (!nextPane) return false;
+      startY    = clientY;
       startFlex = parseFloat(pane.style.flex)     || 1;
       nextFlex  = parseFloat(nextPane.style.flex) || 1;
       divider.classList.add("dragging");
-      const onMove = e => {
-        const dy    = e.clientY - startY;
-        const total = pane.parentElement.clientHeight;
-        const delta = (dy / total) * (startFlex + nextFlex);
-        pane.style.flex     = Math.max(0.2, startFlex + delta);
-        nextPane.style.flex = Math.max(0.2, nextFlex  - delta);
-        resizeAll();
-      };
-      const onUp = () => {
-        divider.classList.remove("dragging");
-        window.removeEventListener("mousemove", onMove);
-        window.removeEventListener("mouseup",   onUp);
-        savePaneFlexes();
-      };
+      return true;
+    }
+    function doMove(clientY) {
+      const dy    = clientY - startY;
+      const total = pane.parentElement.clientHeight;
+      const delta = (dy / total) * (startFlex + nextFlex);
+      pane.style.flex     = Math.max(0.2, startFlex + delta);
+      nextPane.style.flex = Math.max(0.2, nextFlex  - delta);
+      resizeAll();
+    }
+    function endDrag() {
+      divider.classList.remove("dragging");
+      savePaneFlexes();
+    }
+
+    divider.addEventListener("mousedown", e => {
+      e.preventDefault();
+      if (!startDrag(e.clientY)) return;
+      const onMove = e => doMove(e.clientY);
+      const onUp   = () => { endDrag(); window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
       window.addEventListener("mousemove", onMove);
       window.addEventListener("mouseup",   onUp);
     });
+
+    divider.addEventListener("touchstart", e => {
+      e.preventDefault();
+      if (!startDrag(e.touches[0].clientY)) return;
+      const onMove = e => doMove(e.touches[0].clientY);
+      const onEnd  = () => { endDrag(); divider.removeEventListener("touchmove", onMove); divider.removeEventListener("touchend", onEnd); };
+      divider.addEventListener("touchmove", onMove, { passive: false });
+      divider.addEventListener("touchend",  onEnd);
+    }, { passive: false });
   });
 }
 
@@ -2043,25 +2188,24 @@ function updateAllLegends(t) {
 
   // BB
   if (d.bb_upper != null)
-    document.getElementById("legBB").textContent =
-      `BB  U:${fmt(d.bb_upper)}  M:${fmt(d.bb_middle)}  L:${fmt(d.bb_lower)}`;
+    _setLegText("legBB", `BB  U:${fmt(d.bb_upper)}  M:${fmt(d.bb_middle)}  L:${fmt(d.bb_lower)}`);
 
   // 成交量
-  document.getElementById("legVol").textContent = `VOL  ${fmtVol(d.volume)}`;
+  _setLegText("legVol",     `VOL  ${fmtVol(d.volume)}`);
 
   // KDJ
-  document.getElementById("legK").textContent = `K ${n2(d.kdj_k)}`;
-  document.getElementById("legD").textContent = `D ${n2(d.kdj_d)}`;
-  document.getElementById("legJ").textContent = `J ${n2(d.kdj_j)}`;
+  _setLegText("legK",       `K ${n2(d.kdj_k)}`);
+  _setLegText("legD",       `D ${n2(d.kdj_d)}`);
+  _setLegText("legJ",       `J ${n2(d.kdj_j)}`);
 
   // RSI
-  document.getElementById("legRsi14").textContent = `RSI 14  ${n2(d.rsi_14)}`;
-  document.getElementById("legRsi7").textContent  = `RSI 7  ${n2(d.rsi_7)}`;
+  _setLegText("legRsi14",   `RSI 14  ${n2(d.rsi_14)}`);
+  _setLegText("legRsi7",    `RSI 7  ${n2(d.rsi_7)}`);
 
   // MACD
-  document.getElementById("legMacd").textContent      = `MACD ${n2(d.macd)}`;
-  document.getElementById("legMacdSig").textContent   = `Signal ${n2(d.macd_signal)}`;
-  document.getElementById("legMacdHist").textContent  = `Hist ${n2(d.macd_hist)}`;
+  _setLegText("legMacd",    `MACD ${n2(d.macd)}`);
+  _setLegText("legMacdSig", `Signal ${n2(d.macd_signal)}`);
+  _setLegText("legMacdHist",`Hist ${n2(d.macd_hist)}`);
 }
 
 /* ══════════════════════════════════════════
@@ -2081,28 +2225,28 @@ function onMainCrosshair(param) {
   const bu = param.seriesData.get(bbU)?.value;
   const bm = param.seriesData.get(bbM)?.value;
   const bl = param.seriesData.get(bbL)?.value;
-  if (bu != null) document.getElementById("legBB").textContent = `BB  U:${fmt(bu)}  M:${fmt(bm)}  L:${fmt(bl)}`;
+  if (bu != null) _setLegText("legBB", `BB  U:${fmt(bu)}  M:${fmt(bm)}  L:${fmt(bl)}`);
 }
 function onVolCrosshair(param) {
   const v = param.seriesData.get(volSeries)?.value;
-  if (v != null) document.getElementById("legVol").textContent = `VOL  ${fmtVol(v)}`;
+  if (v != null) _setLegText("legVol", `VOL  ${fmtVol(v)}`);
 }
 function onKdjCrosshair(param) {
   const k = param.seriesData.get(kdjK)?.value;
   const d = param.seriesData.get(kdjD)?.value;
   const j = param.seriesData.get(kdjJ)?.value;
   if (k != null) {
-    document.getElementById("legK").textContent = `K ${n2(k)}`;
-    document.getElementById("legD").textContent = `D ${n2(d)}`;
-    document.getElementById("legJ").textContent = `J ${n2(j)}`;
+    _setLegText("legK", `K ${n2(k)}`);
+    _setLegText("legD", `D ${n2(d)}`);
+    _setLegText("legJ", `J ${n2(j)}`);
   }
 }
 function onRsiCrosshair(param) {
   const r14 = param.seriesData.get(rsiLine14)?.value;
   const r7  = param.seriesData.get(rsiLine7)?.value;
   if (r14 != null) {
-    document.getElementById("legRsi14").textContent = `RSI 14  ${n2(r14)}`;
-    document.getElementById("legRsi7").textContent  = `RSI 7  ${n2(r7)}`;
+    _setLegText("legRsi14", `RSI 14  ${n2(r14)}`);
+    _setLegText("legRsi7",  `RSI 7  ${n2(r7)}`);
   }
 }
 function onMacdCrosshair(param) {
@@ -2110,9 +2254,9 @@ function onMacdCrosshair(param) {
   const sg = param.seriesData.get(macdSignal)?.value;
   const h  = param.seriesData.get(macdHist)?.value;
   if (m != null) {
-    document.getElementById("legMacd").textContent     = `MACD ${n2(m)}`;
-    document.getElementById("legMacdSig").textContent  = `Signal ${n2(sg)}`;
-    document.getElementById("legMacdHist").textContent = `Hist ${n2(h)}`;
+    _setLegText("legMacd",    `MACD ${n2(m)}`);
+    _setLegText("legMacdSig", `Signal ${n2(sg)}`);
+    _setLegText("legMacdHist",`Hist ${n2(h)}`);
   }
 }
 
@@ -2518,7 +2662,7 @@ function _renderSymSearchList() {
         }
         list.innerHTML = results.map((r, i) => `
           <div class="sym-result-item" data-symbol="${r.symbol}" data-display="${r.symbol}" tabindex="${i}">
-            <div class="sym-icon" style="background:${_iconColor(r.symbol)}">
+            <div class="sym-icon" style="background:${symIconColor(r.symbol)}">
               ${r.symbol.slice(0,2).toUpperCase()}
             </div>
             <div class="sym-result-info">
@@ -2689,6 +2833,15 @@ function buildPayload(useLimit = false) {
     timeframe: currentTF,
     exchange:  document.getElementById("exchangeSelect").value,
   };
+}
+
+/* 更新圖例文字，同時保留 .leg-dot 子元素 */
+function _setLegText(id, text) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const dot = el.querySelector(".leg-dot");
+  el.textContent = text;
+  if (dot) el.prepend(dot);
 }
 
 function fmt(v)    { return v!=null ? Number(v).toLocaleString(undefined,{maximumFractionDigits:4}) : "—"; }

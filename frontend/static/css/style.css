@@ -413,7 +413,7 @@ html, body {
 .wl-del   { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 14px;
             padding: 0 2px; line-height: 1; transition: color .1s; flex-shrink: 0; }
 .wl-del:hover { color: #ef5350; }
-.btn-add-wl { background: var(--accent); color: #fff; border: none; padding: 5px 0; border-radius: 4px;
+.btn-add-wl { background: var(--blue); color: #fff; border: none; padding: 5px 0; border-radius: 4px;
               cursor: pointer; font-size: 11px; width: 100%; transition: opacity .12s; }
 .btn-add-wl:hover { opacity: .85; }
 
@@ -1070,8 +1070,29 @@ html, body {
 
 /* ═══ MOBILE RESPONSIVE ═══ */
 @media (max-width: 900px) {
-  .draw-toolbar { display: none; }
   .tb-indicators-btn { display: none; }
+
+  /* 手機繪圖工具欄：水平捲動，固定在畫面底部 */
+  .draw-toolbar {
+    flex-direction: row;
+    align-items: center;
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    width: 100%;
+    height: 44px;
+    min-width: 0;
+    border-right: none;
+    border-top: 1px solid var(--border);
+    padding: 0 8px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    z-index: 200;
+    gap: 4px;
+  }
+  .draw-toolbar::-webkit-scrollbar { display: none; }
+  .dt-sep { width: 1px; height: 24px; margin: 0 2px; flex-shrink: 0; }
+  /* 為底部工具欄騰出空間 */
+  .charts-container { padding-bottom: 44px; }
 }
 
 @media (max-width: 768px) {
