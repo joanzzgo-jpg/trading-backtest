@@ -422,9 +422,8 @@ function syncTimeScales() {
       if (!pane || pane.classList.contains("hidden")) { ln.style.display = "none"; return; }
       if (pane.querySelector(".pane-body")?.style.display === "none") { ln.style.display = "none"; return; }
 
-      // 各面板用自己的 timeScale 計算 x，對齊正確的 K 棒位置
-      const paneX = chart.timeScale().timeToCoordinate(time) ?? fallbackX;
-      if (paneX == null) { ln.style.display = "none"; return; }
+      // 所有面板統一使用主圖的 x，避免各 pane price scale 寬度不同造成斷線
+      const paneX = mainX;
 
       const pRect = pane.getBoundingClientRect();
       let height  = pRect.height;
