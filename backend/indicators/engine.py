@@ -147,7 +147,6 @@ def bb_kdj_rsi_resonance(
     high: pd.Series, low: pd.Series,
     bb_upper: pd.Series, bb_lower: pd.Series,
     k: pd.Series, d: pd.Series, rsi_val: pd.Series,
-    tolerance: float = 0.01,
     kd_ob: int = 80, kd_os: int = 20,
     rsi_ob: int = 70, rsi_os: int = 30,
 ) -> pd.Series:
@@ -155,8 +154,8 @@ def bb_kdj_rsi_resonance(
     超買超賣共振: 布林帶觸軌 + KD 超買超賣 + RSI 超買超賣
     Returns: +1=超賣(看多), -1=超買(看空), 0=無訊號
     """
-    touch_upper = high >= bb_upper * (1 - tolerance)
-    touch_lower = low  <= bb_lower * (1 + tolerance)
+    touch_upper = high >= bb_upper
+    touch_lower = low  <= bb_lower
     kd_ob_cond  = (k > kd_ob) | (d > kd_ob)
     kd_os_cond  = (k < kd_os) | (d < kd_os)
     rsi_ob_cond = rsi_val > rsi_ob
