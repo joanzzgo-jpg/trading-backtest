@@ -393,9 +393,10 @@ function syncTimeScales() {
 
   let hideTimer = null;
 
-  function positionLines(time, crosshairX) {
-    const x = crosshairX ?? mainChart.timeScale().timeToCoordinate(time);
-    if (x == null || x < 0) {
+  function positionLines(time, fallbackX) {
+    // 主圖 x 作為時間標籤和 fallback
+    const mainX = mainChart.timeScale().timeToCoordinate(time) ?? fallbackX;
+    if (mainX == null || mainX < 0) {
       lineEls.forEach(l => l.style.display = "none");
       timeLabel.style.display = "none";
       return;
@@ -412,14 +413,18 @@ function syncTimeScales() {
     }
     timeLabel.textContent = timeStr;
     timeLabel.style.display = "block";
-    timeLabel.style.left = Math.round(x) + "px";
+    timeLabel.style.left = Math.round(mainX) + "px";
 
     const cRect = container.getBoundingClientRect();
-    panesConf.forEach(({ elId }, i) => {
+    panesConf.forEach(({ elId, chart }, i) => {
       const pane = document.getElementById(elId);
       const ln   = lineEls[i];
       if (!pane || pane.classList.contains("hidden")) { ln.style.display = "none"; return; }
       if (pane.querySelector(".pane-body")?.style.display === "none") { ln.style.display = "none"; return; }
+
+      // 各面板用自己的 timeScale 計算 x，對齊正確的 K 棒位置
+      const paneX = chart.timeScale().timeToCoordinate(time) ?? fallbackX;
+      if (paneX == null) { ln.style.display = "none"; return; }
 
       const pRect = pane.getBoundingClientRect();
       let height  = pRect.height;
@@ -431,7 +436,7 @@ function syncTimeScales() {
       }
 
       ln.style.display = "block";
-      ln.style.left    = Math.round(x) + "px";
+      ln.style.left    = Math.round(paneX) + "px";
       ln.style.top     = Math.round(pRect.top - cRect.top) + "px";
       ln.style.height  = Math.round(height) + "px";
     });
@@ -475,8 +480,6 @@ let _drawColor  = "#f5c518";  // 目前繪圖顏色
 const DCP_COLORS = ["#f5c518","#ef5350","#26a69a","#2962ff","#ff9800","#7e57c2","#ec407a","#26c6da","#ffffff","#787b86"];
 const DRAW_WIDTH  = 1.5;
 let _cpShowDirect = null; // set by initColorPicker()
-let _dblClickId   = null; // drawing id of last click (for manual dblclick detection)
-let _dblClickTime = 0;    // timestamp of last click on a drawing
 
 function _did() { return "d" + Date.now().toString(36) + Math.random().toString(36).slice(2,5); }
 
@@ -527,6 +530,8 @@ function _addToWatchlist() {
 }
 
 function findNearest(x, y, maxDist = 12) {
+  // 跳過右側價格軸區域（約 70px），避免搶走 LWC 的滾軸事件
+  if (drawCanvas && x > drawCanvas.width - 70) return null;
   let best = maxDist, found = null;
   drawings.forEach(d => {
     const dist = drawingDist(d, x, y);
@@ -731,18 +736,11 @@ function _onChartClick(e) {
     if (dragState?.moved) return;
     const near = findNearest(x, y);
     if (near) {
-      const now = Date.now();
       selectedId = near.id;
       e.stopPropagation();
-      if (_dblClickId === near.id && now - _dblClickTime < 350) {
-        _dblClickId = null; _dblClickTime = 0;
-        showDrawColorPicker(near, e.clientX, e.clientY);
-      } else {
-        _dblClickId = near.id; _dblClickTime = now;
-      }
+      showDrawColorPicker(near, e.clientX, e.clientY);
     } else {
       selectedId = null;
-      _dblClickId = null;
       document.getElementById("cpPopup")?.classList.remove("open");
     }
     requestAnimationFrame(renderDrawings);
@@ -1889,11 +1887,6 @@ function bindEvents() {
       currentTF = btn.dataset.tf;
       loadData(false);   // 切換時區自動載入，不需手動按「載入」
     });
-  });
-
-  document.getElementById("colorToggle").addEventListener("click", () => {
-    document.getElementById("colorPanel").classList.toggle("hidden");
-    document.querySelector("#colorToggle .toggle-arrow").classList.toggle("open");
   });
 
   bindColorInputs();
