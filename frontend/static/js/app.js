@@ -393,11 +393,11 @@ function syncTimeScales() {
 
   let hideTimer = null;
 
-  function positionLines(time, crosshairX) {
-    // 優先用事件提供的 crosshairX（param.point.x），即十字線實際位置
-    // 各子圖 price scale 寬度不同，若用 mainChart.timeToCoordinate 會有偏移
-    const x = crosshairX ?? mainChart.timeScale().timeToCoordinate(time);
-    if (x == null || x < 0) {
+  function positionLines(time) {
+    // 每個面板用自己的 chart.timeScale().timeToCoordinate(time) 計算 x，
+    // 避免因各子圖 price scale 寬度不同造成差一格偏移
+    const mainX = mainChart.timeScale().timeToCoordinate(time);
+    if (mainX == null || mainX < 0) {
       lineEls.forEach(l => l.style.display = "none");
       timeLabel.style.display = "none";
       return;
@@ -414,14 +414,17 @@ function syncTimeScales() {
     }
     timeLabel.textContent = timeStr;
     timeLabel.style.display = "block";
-    timeLabel.style.left = Math.round(x) + "px";
+    timeLabel.style.left = Math.round(mainX) + "px";
 
     const cRect = container.getBoundingClientRect();
-    panesConf.forEach(({ elId }, i) => {
+    panesConf.forEach(({ elId, chart }, i) => {
       const pane = document.getElementById(elId);
       const ln   = lineEls[i];
       if (!pane || pane.classList.contains("hidden")) { ln.style.display = "none"; return; }
       if (pane.querySelector(".pane-body")?.style.display === "none") { ln.style.display = "none"; return; }
+
+      const paneX = chart.timeScale().timeToCoordinate(time);
+      if (paneX == null) { ln.style.display = "none"; return; }
 
       const pRect = pane.getBoundingClientRect();
       let height  = pRect.height;
@@ -433,7 +436,7 @@ function syncTimeScales() {
       }
 
       ln.style.display = "block";
-      ln.style.left    = Math.round(x) + "px";
+      ln.style.left    = Math.round(paneX) + "px";
       ln.style.top     = Math.round(pRect.top - cRect.top) + "px";
       ln.style.height  = Math.round(height) + "px";
     });
@@ -449,7 +452,7 @@ function syncTimeScales() {
         }, 60);
         return;
       }
-      positionLines(param.time, param.point.x);
+      positionLines(param.time);
       updateAllLegends(param.time);
     });
   });
@@ -732,7 +735,6 @@ function _onChartClick(e) {
     const near = findNearest(x, y);
     if (near) {
       selectedId = near.id;
-      showDrawColorPicker(near, e.clientX, e.clientY);
       e.stopPropagation();
     } else {
       selectedId = null;
