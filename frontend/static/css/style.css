@@ -549,7 +549,6 @@ html, body {
 }
 
 .pane-collapse-btn {
-  margin-left: auto;
   background: transparent;
   border: none;
   color: var(--muted);
@@ -1193,6 +1192,15 @@ html, body {
   .leg-item { font-size: 10px; }
 }
 
+/* ── 右側按鈕群組 ── */
+.pane-btns {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  pointer-events: all;
+}
+
 /* ── ⚙ 指標設定齒輪按鈕 ── */
 .ind-gear-btn {
   background: none;
@@ -1200,10 +1208,10 @@ html, body {
   color: var(--muted);
   cursor: pointer;
   font-size: 12px;
-  padding: 1px 3px;
+  padding: 1px 4px;
   border-radius: 3px;
   line-height: 1;
-  margin-left: auto;
+  flex-shrink: 0;
 }
 .ind-gear-btn:hover { color: var(--text); background: var(--bg3); }
 
