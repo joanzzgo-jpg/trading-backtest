@@ -12,7 +12,7 @@ const DEFAULT_COLORS = {
   kdjCrossBull: "#26a69a", kdjCrossBear: "#ef5350",
   rsi14:   "#7e57c2", rsi7:    "#ef5350",
   rsiH30:  "#4a4a6a", rsiH50:  "#666688", rsiH70:  "#4a4a6a",
-  macd:    "#2196f3", macdSig: "#ff9800",
+  macd:    "#2196f3", macdSig: "#ff9800", macdHist: "#888888",
   crtBull: "#26a69a", crtBear: "#ef5350",
   resonanceBull: "#26c6da", resonanceBear: "#ff9800",
   bg:      "#131722",
@@ -254,7 +254,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   loadSymHistory();
   loadPaneFlexes();   // 套用儲存的面板比例（在 buildCharts 前，讓第一次 resize 即正確）
   buildCharts();
-  syncColorInputsToState();
   bindEvents();
   _renderWatchlist();
   bindTickerPanel();
@@ -469,7 +468,7 @@ function syncTimeScales() {
 
   // 所有圖停用 LWC 原生鉛直線，改用 chartsContainer 內的自訂 pane-vline
   [mainChart, kdjChart, rsiChart, macdChart].forEach(c => {
-    c.applyOptions({ crosshair: { vertLine: { visible: false } } });
+    c?.applyOptions({ crosshair: { vertLine: { visible: false } } });
   });
 }
 
@@ -1389,7 +1388,7 @@ function applyAllColors() {
   rsiH30.applyOptions({ color:C.rsiH30, lineWidth:S.rsiHLWidth });
   rsiH50.applyOptions({ color:C.rsiH50, lineWidth:S.rsiHLWidth });
   rsiH70.applyOptions({ color:C.rsiH70, lineWidth:S.rsiHLWidth });
-  macdLine.applyOptions({ color:C.macd }); macdSignal.applyOptions({ color:C.macdSig });
+  macdLine.applyOptions({ color:C.macd }); macdSignal.applyOptions({ color:C.macdSig }); macdHist?.applyOptions({ color:C.macdHist });
 
   if (ohlcvData.length > 0) { renderCRT(ohlcvData); renderVolume(ohlcvData); }
 
@@ -1405,63 +1404,6 @@ function applyAllColors() {
   savePrefs();
 }
 
-function syncColorInputsToState() {
-  const colorMap = {
-    "c-up":C.up,"c-down":C.down,"c-bbU":C.bbU,"c-bbM":C.bbM,"c-bbL":C.bbL,
-    "c-kdjK":C.kdjK,"c-kdjD":C.kdjD,"c-kdjJ":C.kdjJ,
-    "c-kdjH20":C.kdjH20,"c-kdjH50":C.kdjH50,"c-kdjH80":C.kdjH80,
-    "c-rsi14":C.rsi14,"c-rsi7":C.rsi7,
-    "c-rsiH30":C.rsiH30,"c-rsiH50":C.rsiH50,"c-rsiH70":C.rsiH70,
-    "c-macd":C.macd,"c-macdSig":C.macdSig,
-    "c-crtBull":C.crtBull,"c-crtBear":C.crtBear,"c-bg":C.bg,
-  };
-  for (const [id, val] of Object.entries(colorMap)) {
-    const el = document.getElementById(id); if (el) el.value = val;
-  }
-  const styleMap = { "w-kdjHL":S.kdjHLWidth, "w-rsiHL":S.rsiHLWidth, "volMaPeriod":S.volMaPeriod };
-  for (const [id, val] of Object.entries(styleMap)) {
-    const el = document.getElementById(id); if (el) el.value = val;
-  }
-}
-
-function bindColorInputs() {
-  const colorKeys = {
-    "c-up":"up","c-down":"down","c-bbU":"bbU","c-bbM":"bbM","c-bbL":"bbL",
-    "c-kdjK":"kdjK","c-kdjD":"kdjD","c-kdjJ":"kdjJ",
-    "c-kdjH20":"kdjH20","c-kdjH50":"kdjH50","c-kdjH80":"kdjH80",
-    "c-rsi14":"rsi14","c-rsi7":"rsi7",
-    "c-rsiH30":"rsiH30","c-rsiH50":"rsiH50","c-rsiH70":"rsiH70",
-    "c-macd":"macd","c-macdSig":"macdSig",
-    "c-crtBull":"crtBull","c-crtBear":"crtBear","c-bg":"bg",
-  };
-  // _cpColor 由自訂調色盤設置（含透明度），fallback 回 input.value
-  for (const [id, key] of Object.entries(colorKeys))
-    document.getElementById(id)?.addEventListener("input", e => { C[key] = e.target._cpColor || e.target.value; applyAllColors(); });
-
-  const styleKeys = { "w-kdjHL":"kdjHLWidth", "w-rsiHL":"rsiHLWidth", "volMaPeriod":"volMaPeriod" };
-  for (const [id, key] of Object.entries(styleKeys))
-    document.getElementById(id)?.addEventListener("input", e => {
-      S[key] = parseInt(e.target.value);
-      applyAllColors();
-      if (key === "volMaPeriod" && ohlcvData.length) renderVolume(ohlcvData);
-    });
-
-  document.getElementById("resetColors")?.addEventListener("click", () => {
-    C = { ...DEFAULT_COLORS }; S = { ...DEFAULT_STYLES };
-    syncColorInputsToState();
-    syncTriggerColors();
-    applyAllColors();
-  });
-}
-
-/* 同步自訂調色盤觸發器的顏色（重設後呼叫） */
-function syncTriggerColors() {
-  document.querySelectorAll(".color-panel input[type='color'].cp-hidden").forEach(inp => {
-    inp._cpColor = null;
-    const tr = inp.previousElementSibling;
-    if (tr?.classList.contains("cp-trigger")) tr.style.background = inp.value;
-  });
-}
 
 /* ══════════════════════════════════════════
    自訂調色盤
@@ -1896,7 +1838,6 @@ function bindEvents() {
     });
   });
 
-  bindColorInputs();
   bindPaneDividers();
   bindLegendToggles();
   bindLegendColors();
@@ -2037,6 +1978,7 @@ function bindLegendColors() {
     { id:"legRsiH70",  key:"rsiH70",  apply: c => { C.rsiH70  = c; rsiH70?.applyOptions({color:c}); savePrefs(); } },
     { id:"legMacd",    key:"macd",    apply: c => { C.macd    = c; macdLine?.applyOptions({color:c});   const el=document.getElementById("legMacd");    if(el) el.style.color=c; savePrefs(); } },
     { id:"legMacdSig", key:"macdSig", apply: c => { C.macdSig = c; macdSignal?.applyOptions({color:c}); const el=document.getElementById("legMacdSig"); if(el) el.style.color=c; savePrefs(); } },
+    { id:"legMacdHist",key:"macdHist",apply: c => { C.macdHist = c; macdHist?.applyOptions({color:c}); savePrefs(); } },
   ];
   map.forEach(({ id, key, apply }) => {
     const legEl = document.getElementById(id);
@@ -2122,6 +2064,7 @@ function bindIndicatorPanel() {
       rows: [
         { label:"MACD",   colorKey:"macd",    onColor: c=>{macdLine?.applyOptions({color:c});   _syncLegDot("legMacd",c);},    lsKey:"macdStyle",    series:()=>macdLine,   widKey:"macdWidth",    serW:()=>macdLine   },
         { label:"Signal", colorKey:"macdSig", onColor: c=>{macdSignal?.applyOptions({color:c}); _syncLegDot("legMacdSig",c);}, lsKey:"macdSigStyle", series:()=>macdSignal, widKey:"macdSigWidth", serW:()=>macdSignal },
+        { label:"Hist",   colorKey:"macdHist",onColor: c=>{macdHist?.applyOptions({color:c}); _syncLegDot("legMacdHist",c);} },
       ]
     },
   };
@@ -3001,8 +2944,9 @@ function fmtTickerPrice(p) {
 }
 
 function startTickerRefresh() {
+  if (_tickerTimer) clearInterval(_tickerTimer);
   fetchTickers();
-  _tickerTimer = setInterval(fetchTickers, 1000);   // 每秒更新
+  _tickerTimer = setInterval(fetchTickers, 5000);
 }
 
 function bindTickerPanel() {
