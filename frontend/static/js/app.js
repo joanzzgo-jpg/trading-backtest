@@ -2015,20 +2015,24 @@ function bindLegendColors() {
     const legEl = document.getElementById(id);
     if (!legEl) return;
     const dot = legEl.querySelector(".leg-dot");
-    legEl.title = "雙擊改色";
-    legEl.addEventListener("dblclick", e => {
-      e.stopPropagation();
-      e.preventDefault();
-      const cur = (C[key] || "#26a69a").substring(0, 7);
-      showLegColorPopup(e.clientX, e.clientY, [{
-        label: null,
-        currentColor: cur,
-        apply: c => {
-          if (dot) { dot.style.background = c; dot.style.borderColor = c; }
-          apply(c);
-        }
-      }]);
-    });
+    if (dot) {
+      dot.title = "點擊改色";
+      dot.style.cursor = "pointer";
+      dot.addEventListener("click", e => {
+        e.stopPropagation();
+        e.preventDefault();
+        const cur = (C[key] || "#26a69a").substring(0, 7);
+        showLegColorPopup(e.clientX, e.clientY, [{
+          label: null,
+          currentColor: cur,
+          apply: c => {
+            dot.style.background = c;
+            dot.style.borderColor = c;
+            apply(c);
+          }
+        }]);
+      });
+    }
   });
 }
 
@@ -2053,7 +2057,8 @@ function bindLegendToggles() {
   lineMap.forEach(({ id, series, action }) => {
     const el = document.getElementById(id);
     if (!el) return;
-    el.addEventListener("click", () => {
+    el.addEventListener("click", e => {
+      if (e.target.closest(".leg-dot")) return; // 色點 click 由 bindLegendColors 處理
       const hidden = el.classList.toggle("line-off");
       if (action) action(hidden);
       else series()?.forEach(s => s.applyOptions({ visible: !hidden }));
