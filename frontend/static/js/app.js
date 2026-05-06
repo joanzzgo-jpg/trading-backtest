@@ -367,13 +367,15 @@ function resizeAll() {
 }
 
 /* ── 時間軸 & 鉛直線同步 ── */
+let _blockSync = false; // 重播渲染期間暫停雙向同步，防止 setData 觸發 range 抖動
+
 function syncTimeScales() {
   // 捲動 / 縮放：以 logical range 同步（anchor series 確保各圖索引一致）
   const allCharts = [mainChart, kdjChart, rsiChart, macdChart];
   let syncing = false;
   allCharts.forEach((src, si) => {
     src.timeScale().subscribeVisibleLogicalRangeChange(range => {
-      if (syncing || !range) return;
+      if (syncing || !range || _blockSync) return;
       syncing = true;
       allCharts.forEach((dst, di) => { if (di !== si) dst.timeScale().setVisibleLogicalRange(range); });
       syncing = false;
@@ -1802,6 +1804,7 @@ function bindEvents() {
 
   // 重播模式切換
   document.getElementById("replayModeBtn").addEventListener("click", () => {
+    if (replayActive) { exitReplay(); return; }
     if (!ohlcvData.length) return alert("請先載入資料再使用重播");
     enterReplay();
   });
@@ -2682,8 +2685,10 @@ function exitReplay() {
 function _replayRender() {
   const slice = replayData.slice(0, replayIdx + 1);
   const n     = slice.length;
+  const range = { from: n - _replaySpan - 1, to: n - 1 };
 
-  // 渲染資料但不重設視窗範圍
+  // 暫停跨圖同步，避免 setData 觸發的 range 變更傳染到主圖造成抖動
+  _blockSync = true;
   const anchorTimes = slice.map(d => ({ time: toTime(d.time), value: 50 }));
   kdjAnchor.setData(anchorTimes);
   rsiAnchor.setData(anchorTimes);
@@ -2698,12 +2703,9 @@ function _replayRender() {
   renderRSI(slice);
   renderMACD(slice);
   updateSymbolBar(slice);
-  // 維持使用者縮放：最新一根貼右側，保留進入重播時的 bar 數
-  // syncTimeScales() 會自動將此範圍同步到 KDJ/RSI/MACD 面板
-  mainChart.timeScale().setVisibleLogicalRange({
-    from: n - _replaySpan - 1,
-    to:   n - 1,
-  });
+  // 所有圖統一設定到相同 range，確保縮放一致
+  [mainChart, kdjChart, rsiChart, macdChart].forEach(c => c?.timeScale().setVisibleLogicalRange(range));
+  _blockSync = false;
 
   // 更新狀態列
   const bar = slice[n - 1];

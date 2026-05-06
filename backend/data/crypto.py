@@ -399,9 +399,9 @@ def fetch_tickers(market: str = "futures") -> list:
     """
     if market == "futures":
         # ── 優先：永續合約 fapi ────────────────────────────────
+        # Pionex 期貨 = Binance FAPI 流動性，直接顯示全部 USDT 永續合約，不過濾
         tickers = _fetch_futures_tickers_fapi()
         if tickers:
-            tickers = _apply_pionex_filter(tickers)
             tickers.sort(key=lambda x: x["change_pct"], reverse=True)
             return tickers
         # fapi 不可用，退回現貨 API + 加上 .P 標籤
