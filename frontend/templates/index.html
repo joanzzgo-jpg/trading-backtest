@@ -334,6 +334,115 @@
   </div>
 </div>
 
+<!-- 指標設定面板 -->
+<div id="indPanelOverlay" class="ind-overlay"></div>
+<div id="indicatorPanel" class="ind-panel">
+  <div class="ind-panel-hdr">
+    <span>指標設定</span>
+    <button class="ind-panel-close" id="indPanelClose">✕</button>
+  </div>
+  <div class="ind-panel-body">
+
+    <!-- KDJ -->
+    <div class="ind-sec-title" style="border-top:none;margin-top:0">KDJ</div>
+    <div class="ind-row">
+      <input type="checkbox" class="ind-vis" id="indVisK" checked>
+      <span class="ind-lbl">K</span>
+      <input type="color" class="ind-clr" id="indClrK" value="#f23645">
+      <button class="ind-ls-btn" id="indLsK" data-ls="0">—</button>
+    </div>
+    <div class="ind-row">
+      <input type="checkbox" class="ind-vis" id="indVisD" checked>
+      <span class="ind-lbl">D</span>
+      <input type="color" class="ind-clr" id="indClrD" value="#1e88e5">
+      <button class="ind-ls-btn" id="indLsD" data-ls="0">—</button>
+    </div>
+    <div class="ind-row">
+      <input type="checkbox" class="ind-vis" id="indVisJ" checked>
+      <span class="ind-lbl">J</span>
+      <input type="color" class="ind-clr" id="indClrJ" value="#ff9800">
+      <button class="ind-ls-btn" id="indLsJ" data-ls="0">—</button>
+    </div>
+    <div class="ind-row">
+      <input type="checkbox" class="ind-vis" id="indVisKDJCross" checked>
+      <span class="ind-lbl">金叉</span>
+      <input type="color" class="ind-clr" id="indClrKDJBull" value="#26a69a">
+    </div>
+    <div class="ind-row">
+      <input type="checkbox" class="ind-vis" id="indVisKDJDead" checked>
+      <span class="ind-lbl">死叉</span>
+      <input type="color" class="ind-clr" id="indClrKDJBear" value="#ef5350">
+    </div>
+    <div class="ind-row">
+      <input type="checkbox" class="ind-vis" id="indVisKH80" checked>
+      <span class="ind-lbl">超買</span>
+      <input type="color" class="ind-clr" id="indClrKH80" value="#4a4a6a">
+      <input type="number" class="ind-num" id="indValKH80" value="80" min="1" max="99">
+    </div>
+    <div class="ind-row">
+      <input type="checkbox" class="ind-vis" id="indVisKH20" checked>
+      <span class="ind-lbl">超賣</span>
+      <input type="color" class="ind-clr" id="indClrKH20" value="#4a4a6a">
+      <input type="number" class="ind-num" id="indValKH20" value="20" min="1" max="99">
+    </div>
+
+    <!-- RSI -->
+    <div class="ind-sec-title">RSI</div>
+    <div class="ind-row">
+      <input type="checkbox" class="ind-vis" id="indVisRsi14" checked>
+      <span class="ind-lbl">RSI 14</span>
+      <input type="color" class="ind-clr" id="indClrRsi14" value="#7e57c2">
+      <button class="ind-ls-btn" id="indLsRsi14" data-ls="0">—</button>
+    </div>
+    <div class="ind-row">
+      <input type="checkbox" class="ind-vis" id="indVisRsi7" checked>
+      <span class="ind-lbl">RSI 7</span>
+      <input type="color" class="ind-clr" id="indClrRsi7" value="#ef5350">
+      <button class="ind-ls-btn" id="indLsRsi7" data-ls="0">—</button>
+    </div>
+    <div class="ind-row">
+      <input type="checkbox" class="ind-vis" id="indVisRH70" checked>
+      <span class="ind-lbl">超買</span>
+      <input type="color" class="ind-clr" id="indClrRH70" value="#4a4a6a">
+      <input type="number" class="ind-num" id="indValRH70" value="70" min="1" max="99">
+    </div>
+    <div class="ind-row">
+      <input type="checkbox" class="ind-vis" id="indVisRH30" checked>
+      <span class="ind-lbl">超賣</span>
+      <input type="color" class="ind-clr" id="indClrRH30" value="#4a4a6a">
+      <input type="number" class="ind-num" id="indValRH30" value="30" min="1" max="99">
+    </div>
+
+    <!-- MACD -->
+    <div class="ind-sec-title">MACD</div>
+    <div class="ind-row">
+      <input type="checkbox" class="ind-vis" id="indVisMacd" checked>
+      <span class="ind-lbl">MACD</span>
+      <input type="color" class="ind-clr" id="indClrMacd" value="#2196f3">
+      <button class="ind-ls-btn" id="indLsMacd" data-ls="0">—</button>
+    </div>
+    <div class="ind-row">
+      <input type="checkbox" class="ind-vis" id="indVisMacdSig" checked>
+      <span class="ind-lbl">Signal</span>
+      <input type="color" class="ind-clr" id="indClrMacdSig" value="#ff9800">
+      <button class="ind-ls-btn" id="indLsMacdSig" data-ls="0">—</button>
+    </div>
+    <div class="ind-row">
+      <input type="checkbox" class="ind-vis" id="indVisMacdHist" checked>
+      <span class="ind-lbl">Hist</span>
+    </div>
+
+    <!-- 布林帶 -->
+    <div class="ind-sec-title">布林帶</div>
+    <div class="ind-row">
+      <input type="checkbox" class="ind-vis" id="indVisBB" checked>
+      <span class="ind-lbl">BB</span>
+      <input type="color" class="ind-clr" id="indClrBB" value="#42a5f5">
+    </div>
+
+  </div>
+</div>
+
 <script src="/static/js/app.js?v={{ ver }}"></script>
 </body>
 </html>

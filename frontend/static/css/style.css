@@ -1193,6 +1193,120 @@ html, body {
   .leg-item { font-size: 10px; }
 }
 
+/* ── 指標設定面板 ── */
+.ind-panel {
+  position: fixed;
+  top: 0; right: 0;
+  width: 260px;
+  height: 100%;
+  background: var(--bg2);
+  border-left: 1px solid var(--border);
+  z-index: 600;
+  transform: translateX(100%);
+  transition: transform .22s ease;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+.ind-panel.open { transform: translateX(0); }
+
+.ind-panel-hdr {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+.ind-panel-close {
+  background: none; border: none; color: var(--muted);
+  cursor: pointer; font-size: 16px; line-height: 1;
+  padding: 0 2px;
+}
+.ind-panel-close:hover { color: var(--text); }
+
+.ind-panel-body { padding: 8px 0; flex: 1; }
+
+.ind-sec-title {
+  padding: 6px 12px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+}
+.ind-sec-title:first-child { border-top: none; margin-top: 0; }
+
+.ind-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  min-height: 30px;
+}
+.ind-row:hover { background: rgba(255,255,255,.03); }
+
+.ind-vis {
+  width: 14px; height: 14px;
+  cursor: pointer;
+  accent-color: var(--blue);
+  flex-shrink: 0;
+}
+.ind-lbl {
+  flex: 1;
+  font-size: 12px;
+  color: var(--text);
+  white-space: nowrap;
+}
+.ind-clr {
+  width: 26px; height: 22px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px;
+  background: none;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.ind-ls-btn {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 11px;
+  padding: 2px 6px;
+  cursor: pointer;
+  flex-shrink: 0;
+  min-width: 28px;
+  text-align: center;
+  letter-spacing: 1px;
+}
+.ind-ls-btn:hover { background: var(--bg4); }
+
+.ind-num {
+  width: 46px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 12px;
+  padding: 2px 4px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.ind-num:focus { outline: none; border-color: var(--blue); }
+
+.ind-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 599;
+}
+.ind-overlay.open { display: block; }
+
 @media (max-width: 520px) {
   #startDate, #endDate, .tb-sep { display: none !important; }
   .tf-group .tf-btn[data-tf="1M"],

@@ -9,6 +9,7 @@ const DEFAULT_COLORS = {
   bbU:     "#42a5f5", bbM:     "#ffcc02", bbL: "#42a5f5",
   kdjK:    "#f23645", kdjD:    "#1e88e5", kdjJ: "#ff9800",
   kdjH20:  "#4a4a6a", kdjH50:  "#666688", kdjH80:  "#4a4a6a",
+  kdjCrossBull: "#26a69a", kdjCrossBear: "#ef5350",
   rsi14:   "#7e57c2", rsi7:    "#ef5350",
   rsiH30:  "#4a4a6a", rsiH50:  "#666688", rsiH70:  "#4a4a6a",
   macd:    "#2196f3", macdSig: "#ff9800",
@@ -20,6 +21,11 @@ const DEFAULT_STYLES = {
   kdjHLWidth: 1,
   rsiHLWidth: 1,
   volMaPeriod: 5,
+  kdjH80val: 80, kdjH20val: 20,
+  rsiH70val: 70, rsiH30val: 30,
+  kdjKStyle: 0, kdjDStyle: 0, kdjJStyle: 0,
+  rsi14Style: 0, rsi7Style: 0,
+  macdStyle: 0, macdSigStyle: 0,
 };
 
 let C = { ...DEFAULT_COLORS };
@@ -1862,11 +1868,18 @@ function bindEvents() {
     }
   });
 
-  // ── 指標按鈕（展開/收合外觀顏色面板）──────────────────
+  // ── 指標按鈕 → 開啟設定面板 ──────────────────────────
   document.getElementById("indicatorsToggle")?.addEventListener("click", () => {
-    const sidebar = document.getElementById("sidebar");
-    sidebar.classList.remove("sidebar-collapsed");
-    setTimeout(resizeAll, 220);
+    document.getElementById("indicatorPanel")?.classList.add("open");
+    document.getElementById("indPanelOverlay")?.classList.add("open");
+  });
+  document.getElementById("indPanelClose")?.addEventListener("click", () => {
+    document.getElementById("indicatorPanel")?.classList.remove("open");
+    document.getElementById("indPanelOverlay")?.classList.remove("open");
+  });
+  document.getElementById("indPanelOverlay")?.addEventListener("click", () => {
+    document.getElementById("indicatorPanel")?.classList.remove("open");
+    document.getElementById("indPanelOverlay")?.classList.remove("open");
   });
 
   document.querySelectorAll(".tf-btn").forEach(btn => {
@@ -1884,6 +1897,7 @@ function bindEvents() {
   bindLegendColors();
   initColorPicker();
   bindReplayBar();
+  bindIndicatorPanel();
 }
 
 function updateMarketUI() {
@@ -2042,6 +2056,130 @@ function bindLegendColors() {
       });
     }
   });
+}
+
+/* ── 指標設定面板 ── */
+function bindIndicatorPanel() {
+  const LS_CHARS = ["—", "···", "- -", "──"];
+
+  function syncPanel() {
+    const clrMap = [
+      ["indClrK","kdjK"],["indClrD","kdjD"],["indClrJ","kdjJ"],
+      ["indClrKDJBull","kdjCrossBull"],["indClrKDJBear","kdjCrossBear"],
+      ["indClrKH80","kdjH80"],["indClrKH20","kdjH20"],
+      ["indClrRsi14","rsi14"],["indClrRsi7","rsi7"],
+      ["indClrRH70","rsiH70"],["indClrRH30","rsiH30"],
+      ["indClrMacd","macd"],["indClrMacdSig","macdSig"],["indClrBB","bbU"],
+    ];
+    clrMap.forEach(([id, key]) => {
+      const el = document.getElementById(id);
+      if (el && C[key]) el.value = C[key].substring(0, 7);
+    });
+    [["indValKH80","kdjH80val"],["indValKH20","kdjH20val"],
+     ["indValRH70","rsiH70val"],["indValRH30","rsiH30val"]].forEach(([id, key]) => {
+      const el = document.getElementById(id); if (el) el.value = S[key] ?? el.value;
+    });
+    [["indLsK","kdjKStyle"],["indLsD","kdjDStyle"],["indLsJ","kdjJStyle"],
+     ["indLsRsi14","rsi14Style"],["indLsRsi7","rsi7Style"],
+     ["indLsMacd","macdStyle"],["indLsMacdSig","macdSigStyle"]].forEach(([id, key]) => {
+      const el = document.getElementById(id);
+      if (el) { const v = S[key] ?? 0; el.dataset.ls = v; el.textContent = LS_CHARS[v] || "—"; }
+    });
+  }
+
+  // 顏色
+  const colorMap = [
+    { id:"indClrK",       apply: c => { C.kdjK=c; kdjK?.applyOptions({color:c}); _syncLegDot("legK",c); } },
+    { id:"indClrD",       apply: c => { C.kdjD=c; kdjD?.applyOptions({color:c}); _syncLegDot("legD",c); } },
+    { id:"indClrJ",       apply: c => { C.kdjJ=c; kdjJ?.applyOptions({color:c}); _syncLegDot("legJ",c); } },
+    { id:"indClrKDJBull", apply: c => { C.kdjCrossBull=c; if(ohlcvData.length) renderKDJCross(ohlcvData); } },
+    { id:"indClrKDJBear", apply: c => { C.kdjCrossBear=c; if(ohlcvData.length) renderKDJCross(ohlcvData); } },
+    { id:"indClrKH80",    apply: c => { C.kdjH80=c; kdjH80?.applyOptions({color:c}); _syncLegDot("legKdjH80",c); } },
+    { id:"indClrKH20",    apply: c => { C.kdjH20=c; kdjH20?.applyOptions({color:c}); _syncLegDot("legKdjH20",c); } },
+    { id:"indClrRsi14",   apply: c => { C.rsi14=c; rsiLine14?.applyOptions({color:c}); _syncLegDot("legRsi14",c); } },
+    { id:"indClrRsi7",    apply: c => { C.rsi7=c; rsiLine7?.applyOptions({color:c}); _syncLegDot("legRsi7",c); } },
+    { id:"indClrRH70",    apply: c => { C.rsiH70=c; rsiH70?.applyOptions({color:c}); _syncLegDot("legRsiH70",c); } },
+    { id:"indClrRH30",    apply: c => { C.rsiH30=c; rsiH30?.applyOptions({color:c}); _syncLegDot("legRsiH30",c); } },
+    { id:"indClrMacd",    apply: c => { C.macd=c; macdLine?.applyOptions({color:c}); _syncLegDot("legMacd",c); } },
+    { id:"indClrMacdSig", apply: c => { C.macdSig=c; macdSignal?.applyOptions({color:c}); _syncLegDot("legMacdSig",c); } },
+    { id:"indClrBB",      apply: c => { C.bbU=C.bbL=c; bbU?.applyOptions({color:c}); bbL?.applyOptions({color:c}); _syncLegDot("legBB",c); } },
+  ];
+  colorMap.forEach(({ id, apply }) =>
+    document.getElementById(id)?.addEventListener("input", e => { apply(e.target.value); savePrefs(); })
+  );
+
+  // 顯示/隱藏
+  const visMap = [
+    { id:"indVisK",        legId:"legK",        series:()=>[kdjK] },
+    { id:"indVisD",        legId:"legD",        series:()=>[kdjD] },
+    { id:"indVisJ",        legId:"legJ",        series:()=>[kdjJ] },
+    { id:"indVisKDJCross", legId:"legKDJCross", action:()=>_applyMainMarkers() },
+    { id:"indVisKDJDead",  legId:"legKDJCross", action:()=>_applyMainMarkers() },
+    { id:"indVisKH80",     legId:"legKdjH80",   series:()=>[kdjH80] },
+    { id:"indVisKH20",     legId:"legKdjH20",   series:()=>[kdjH20] },
+    { id:"indVisRsi14",    legId:"legRsi14",    series:()=>[rsiLine14] },
+    { id:"indVisRsi7",     legId:"legRsi7",     series:()=>[rsiLine7] },
+    { id:"indVisRH70",     legId:"legRsiH70",   series:()=>[rsiH70] },
+    { id:"indVisRH30",     legId:"legRsiH30",   series:()=>[rsiH30] },
+    { id:"indVisMacd",     legId:"legMacd",     series:()=>[macdLine] },
+    { id:"indVisMacdSig",  legId:"legMacdSig",  series:()=>[macdSignal] },
+    { id:"indVisMacdHist", legId:"legMacdHist", series:()=>[macdHist] },
+    { id:"indVisBB",       legId:"legBB",       series:()=>[bbU,bbM,bbL] },
+  ];
+  visMap.forEach(({ id, legId, series, action }) =>
+    document.getElementById(id)?.addEventListener("change", e => {
+      const vis = e.target.checked;
+      if (action) action(); else series()?.forEach(s => s?.applyOptions({ visible: vis }));
+      document.getElementById(legId)?.classList.toggle("line-off", !vis);
+      saveVisibilityPrefs();
+    })
+  );
+
+  // 線型按鈕
+  const lsMap = [
+    { id:"indLsK",       key:"kdjKStyle",    get:()=>kdjK },
+    { id:"indLsD",       key:"kdjDStyle",    get:()=>kdjD },
+    { id:"indLsJ",       key:"kdjJStyle",    get:()=>kdjJ },
+    { id:"indLsRsi14",   key:"rsi14Style",   get:()=>rsiLine14 },
+    { id:"indLsRsi7",    key:"rsi7Style",    get:()=>rsiLine7 },
+    { id:"indLsMacd",    key:"macdStyle",    get:()=>macdLine },
+    { id:"indLsMacdSig", key:"macdSigStyle", get:()=>macdSignal },
+  ];
+  lsMap.forEach(({ id, key, get }) =>
+    document.getElementById(id)?.addEventListener("click", e => {
+      const btn = e.currentTarget;
+      const next = ((parseInt(btn.dataset.ls) || 0) + 1) % 4;
+      btn.dataset.ls = next; btn.textContent = LS_CHARS[next];
+      S[key] = next; get()?.applyOptions({ lineStyle: next }); savePrefs();
+    })
+  );
+
+  // 水平線數值
+  const numMap = [
+    { id:"indValKH80", key:"kdjH80val", get:()=>kdjH80 },
+    { id:"indValKH20", key:"kdjH20val", get:()=>kdjH20 },
+    { id:"indValRH70", key:"rsiH70val", get:()=>rsiH70 },
+    { id:"indValRH30", key:"rsiH30val", get:()=>rsiH30 },
+  ];
+  numMap.forEach(({ id, key, get }) =>
+    document.getElementById(id)?.addEventListener("change", e => {
+      const val = parseFloat(e.target.value); if (isNaN(val)) return;
+      S[key] = val;
+      if (ohlcvData.length) {
+        const f = toTime(ohlcvData[0].time), l = toTime(ohlcvData[ohlcvData.length-1].time);
+        get()?.setData([{time:f,value:val},{time:l,value:val}]);
+      }
+      savePrefs();
+    })
+  );
+
+  // 面板開啟時同步最新 C/S 值
+  document.getElementById("indicatorsToggle")?.addEventListener("click", syncPanel, { capture: false });
+}
+
+function _syncLegDot(legId, color) {
+  const dot = document.querySelector(`#${legId} .leg-dot`);
+  if (dot) { dot.style.background = color; dot.style.borderColor = color; }
 }
 
 /* ── 圖例點擊切換線條 + 面板收合 ── */
@@ -2225,8 +2363,8 @@ function renderCRT(data) {
 function renderKDJCross(data) {
   const markers = [];
   data.forEach(d => {
-    if (d.kdj_cross === 1)  markers.push({ time:toTime(d.time), position:"belowBar", color:"#26a69a", shape:"arrowUp",   size:1.5, text:"金叉" });
-    if (d.kdj_cross === -1) markers.push({ time:toTime(d.time), position:"aboveBar", color:"#ef5350", shape:"arrowDown", size:1.5, text:"死叉" });
+    if (d.kdj_cross === 1)  markers.push({ time:toTime(d.time), position:"belowBar", color:C.kdjCrossBull, shape:"arrowUp",   size:1.5, text:"金叉" });
+    if (d.kdj_cross === -1) markers.push({ time:toTime(d.time), position:"aboveBar", color:C.kdjCrossBear, shape:"arrowDown", size:1.5, text:"死叉" });
   });
   markers.sort((a,b) => a.time - b.time);
   lastKDJCrossMarkers = markers;
@@ -2263,9 +2401,9 @@ function renderKDJ(data) {
   kdjK.setData(line("kdj_k")); kdjD.setData(line("kdj_d")); kdjJ.setData(line("kdj_j"));
   if (data.length) {
     const f = toTime(data[0].time), l = toTime(data[data.length-1].time);
-    kdjH20.setData([{time:f,value:20},{time:l,value:20}]);
+    kdjH20.setData([{time:f,value:S.kdjH20val},{time:l,value:S.kdjH20val}]);
     kdjH50.setData([{time:f,value:50},{time:l,value:50}]);
-    kdjH80.setData([{time:f,value:80},{time:l,value:80}]);
+    kdjH80.setData([{time:f,value:S.kdjH80val},{time:l,value:S.kdjH80val}]);
   }
 }
 
@@ -2274,9 +2412,9 @@ function renderRSI(data) {
   rsiLine14.setData(line("rsi_14")); rsiLine7.setData(line("rsi_7"));
   if (data.length) {
     const f = toTime(data[0].time), l = toTime(data[data.length-1].time);
-    rsiH30.setData([{time:f,value:30},{time:l,value:30}]);
+    rsiH30.setData([{time:f,value:S.rsiH30val},{time:l,value:S.rsiH30val}]);
     rsiH50.setData([{time:f,value:50},{time:l,value:50}]);
-    rsiH70.setData([{time:f,value:70},{time:l,value:70}]);
+    rsiH70.setData([{time:f,value:S.rsiH70val},{time:l,value:S.rsiH70val}]);
   }
 }
 
