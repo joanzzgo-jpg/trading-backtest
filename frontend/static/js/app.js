@@ -1749,6 +1749,7 @@ function bindEvents() {
     const opening = !_sysPop.classList.contains("open");
     _sysPop.classList.toggle("open");
     if (opening) {
+      syncSysSwatches();
       requestAnimationFrame(() => {
         const rect = _sysBtn.getBoundingClientRect();
         const pw = _sysPop.offsetWidth, ph = _sysPop.offsetHeight;
@@ -2738,28 +2739,36 @@ function saveSystemColors() {
 function loadSystemColors() {
   try { Object.assign(SC, JSON.parse(localStorage.getItem("sysColors") || "{}")); } catch {}
 }
+function syncSysSwatches() {
+  document.querySelectorAll(".sys-color-swatch").forEach(sw => {
+    sw.style.background = (SC[sw.dataset.sc] || "#888").slice(0, 7);
+  });
+}
+
 function bindSystemColors() {
-  // 同步 input 值
-  for (const [id, color] of Object.entries(SC)) {
-    const el = document.getElementById(id);
-    if (el) el.value = color.slice(0, 7); // hex only, no alpha
-  }
-  // 監聽 input 事件（自訂調色盤也會觸發）
-  for (const id of Object.keys(SC_DEFAULTS)) {
-    document.getElementById(id)?.addEventListener("input", e => {
-      const color = e.target._cpColor || e.target.value;
-      SC[id] = color;
-      applySystemColor(id, color);
-      saveSystemColors();
+  syncSysSwatches();
+
+  document.querySelectorAll(".sys-color-swatch").forEach(sw => {
+    sw.addEventListener("click", e => {
+      e.stopPropagation();
+      const id  = sw.dataset.sc;
+      const cur = (SC[id] || "#888").slice(0, 7);
+      showLegColorPopup(e.clientX, e.clientY, [{
+        label: null,
+        currentColor: cur,
+        apply: c => {
+          SC[id] = c;
+          sw.style.background = c;
+          applySystemColor(id, c);
+          saveSystemColors();
+        }
+      }]);
     });
-  }
-  // 重設按鈕
+  });
+
   document.getElementById("resetSysColors")?.addEventListener("click", () => {
     SC = { ...SC_DEFAULTS };
-    for (const [id, color] of Object.entries(SC)) {
-      const el = document.getElementById(id);
-      if (el) { el.value = color; el._cpColor = null; }
-    }
+    syncSysSwatches();
     applyAllSystemColors();
     saveSystemColors();
   });
