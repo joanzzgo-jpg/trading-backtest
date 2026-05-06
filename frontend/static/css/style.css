@@ -54,6 +54,15 @@ html, body {
   scrollbar-width: none;
 }
 .topbar-left::-webkit-scrollbar { display: none; }
+.topbar-logo {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  margin-right: 8px;
+  opacity: 0.92;
+  transition: opacity .15s;
+}
+.topbar-logo:hover { opacity: 1; }
 .topbar-right { display: flex; align-items: center; gap: 4px; flex-shrink: 0; padding-left: 6px; }
 
 /* Vertical divider in topbar */
