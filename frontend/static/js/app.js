@@ -981,6 +981,8 @@ function eraseNear(x, y) {
 
 function drawingDist(d, x, y) {
   if (d.type === "hline") {
+    // price scale 區域（右側，coordinateToTime 回傳 null）不攔截，讓 LWC 處理上下拖移
+    if (mainChart.timeScale().coordinateToTime(x) == null && x > (drawCanvas?.width ?? 0) * 0.6) return Infinity;
     const py = candleSeries?.priceToCoordinate(d.price);
     return py != null ? Math.abs(py - y) : Infinity;
   }
