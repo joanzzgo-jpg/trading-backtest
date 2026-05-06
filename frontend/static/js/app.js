@@ -30,7 +30,7 @@ const DEFAULT_STYLES = {
   rsi14Width: 1, rsi7Width: 1,
   macdStyle: 0, macdSigStyle: 0,
   macdWidth: 1, macdSigWidth: 1,
-  bbWidth: 1,
+  bbWidth: 1, bbMWidth: 1,
 };
 
 let C = { ...DEFAULT_COLORS };
@@ -2071,8 +2071,8 @@ function bindIndicatorPanel() {
         { label:"漲K棒",  colorKey:"up",   onColor: ()=>{ if(ohlcvData.length){ renderVolume(ohlcvData); applyAllColors(); } } },
         { label:"跌K棒",  colorKey:"down", onColor: ()=>{ if(ohlcvData.length){ renderVolume(ohlcvData); applyAllColors(); } } },
         { divider: true },
-        { label:"BB 上/下", colorKey:"bbU", onColor: c=>{ C.bbL=c; bbU?.applyOptions({color:c}); bbL?.applyOptions({color:c}); _syncLegDot("legBB",c); }, widKey:"bbWidth", onWidth: w=>{ bbU?.applyOptions({lineWidth:w}); bbM?.applyOptions({lineWidth:w}); bbL?.applyOptions({lineWidth:w}); } },
-        { label:"BB 中",    colorKey:"bbM", onColor: c=>{ bbM?.applyOptions({color:c}); } },
+        { label:"BB 上/下", colorKey:"bbU", onColor: c=>{ C.bbL=c; bbU?.applyOptions({color:c}); bbL?.applyOptions({color:c}); _syncLegDot("legBB",c); }, widKey:"bbWidth", onWidth: w=>{ bbU?.applyOptions({lineWidth:w}); bbL?.applyOptions({lineWidth:w}); } },
+        { label:"BB 中",    colorKey:"bbM", onColor: c=>{ bbM?.applyOptions({color:c}); }, widKey:"bbMWidth", serW:()=>bbM },
         { divider: true },
         { label:"CRT 看多", colorKey:"crtBull", onColor: ()=>{ if(ohlcvData.length) renderCRT(ohlcvData); } },
         { label:"CRT 看空", colorKey:"crtBear", onColor: ()=>{ if(ohlcvData.length) renderCRT(ohlcvData); } },
@@ -2091,10 +2091,7 @@ function bindIndicatorPanel() {
         { label:"D", colorKey:"kdjD",    onColor: c=>{kdjD?.applyOptions({color:c}); _syncLegDot("legD",c);},    lsKey:"kdjDStyle",   series:()=>kdjD,    widKey:"kdjDWidth",   serW:()=>kdjD },
         { label:"J", colorKey:"kdjJ",    onColor: c=>{kdjJ?.applyOptions({color:c}); _syncLegDot("legJ",c);},    lsKey:"kdjJStyle",   series:()=>kdjJ,    widKey:"kdjJWidth",   serW:()=>kdjJ },
         { divider: true },
-        { label:"金叉", colorKey:"kdjCrossBull", onColor: ()=>{ if(ohlcvData.length) renderKDJCross(ohlcvData); } },
-        { label:"死叉", colorKey:"kdjCrossBear", onColor: ()=>{ if(ohlcvData.length) renderKDJCross(ohlcvData); } },
-        { divider: true },
-        { label:"超買", colorKey:"kdjH80", onColor: c=>{kdjH80?.applyOptions({color:c}); _syncLegDot("legKdjH80",c);}, numKey:"kdjH80val", numSeries:()=>kdjH80 },
+        { label:"超買", colorKey:"kdjH80", onColor: c=>{kdjH80?.applyOptions({color:c}); _syncLegDot("legKdjH80",c);}, numKey:"kdjH80val", numSeries:()=>kdjH80, widKey:"kdjHLWidth", onWidth: w=>{ [kdjH20,kdjH50,kdjH80].forEach(s=>s?.applyOptions({lineWidth:w})); } },
         { label:"超賣", colorKey:"kdjH20", onColor: c=>{kdjH20?.applyOptions({color:c}); _syncLegDot("legKdjH20",c);}, numKey:"kdjH20val", numSeries:()=>kdjH20 },
       ]
     },
@@ -2104,7 +2101,7 @@ function bindIndicatorPanel() {
         { label:"RSI 14", colorKey:"rsi14", onColor: c=>{rsiLine14?.applyOptions({color:c}); _syncLegDot("legRsi14",c);}, lsKey:"rsi14Style", series:()=>rsiLine14, widKey:"rsi14Width", serW:()=>rsiLine14 },
         { label:"RSI 7",  colorKey:"rsi7",  onColor: c=>{rsiLine7?.applyOptions({color:c});  _syncLegDot("legRsi7",c);},  lsKey:"rsi7Style",  series:()=>rsiLine7,  widKey:"rsi7Width",  serW:()=>rsiLine7  },
         { divider: true },
-        { label:"超買", colorKey:"rsiH70", onColor: c=>{rsiH70?.applyOptions({color:c}); _syncLegDot("legRsiH70",c);}, numKey:"rsiH70val", numSeries:()=>rsiH70 },
+        { label:"超買", colorKey:"rsiH70", onColor: c=>{rsiH70?.applyOptions({color:c}); _syncLegDot("legRsiH70",c);}, numKey:"rsiH70val", numSeries:()=>rsiH70, widKey:"rsiHLWidth", onWidth: w=>{ [rsiH30,rsiH50,rsiH70].forEach(s=>s?.applyOptions({lineWidth:w})); } },
         { label:"超賣", colorKey:"rsiH30", onColor: c=>{rsiH30?.applyOptions({color:c}); _syncLegDot("legRsiH30",c);}, numKey:"rsiH30val", numSeries:()=>rsiH30 },
       ]
     },
