@@ -24,8 +24,11 @@ const DEFAULT_STYLES = {
   kdjH80val: 80, kdjH20val: 20,
   rsiH70val: 70, rsiH30val: 30,
   kdjKStyle: 0, kdjDStyle: 0, kdjJStyle: 0,
+  kdjKWidth: 1, kdjDWidth: 1, kdjJWidth: 1,
   rsi14Style: 0, rsi7Style: 0,
+  rsi14Width: 1, rsi7Width: 1,
   macdStyle: 0, macdSigStyle: 0,
+  macdWidth: 1, macdSigWidth: 1,
 };
 
 let C = { ...DEFAULT_COLORS };
@@ -1868,19 +1871,7 @@ function bindEvents() {
     }
   });
 
-  // ── 指標按鈕 → 開啟設定面板 ──────────────────────────
-  document.getElementById("indicatorsToggle")?.addEventListener("click", () => {
-    document.getElementById("indicatorPanel")?.classList.add("open");
-    document.getElementById("indPanelOverlay")?.classList.add("open");
-  });
-  document.getElementById("indPanelClose")?.addEventListener("click", () => {
-    document.getElementById("indicatorPanel")?.classList.remove("open");
-    document.getElementById("indPanelOverlay")?.classList.remove("open");
-  });
-  document.getElementById("indPanelOverlay")?.addEventListener("click", () => {
-    document.getElementById("indicatorPanel")?.classList.remove("open");
-    document.getElementById("indPanelOverlay")?.classList.remove("open");
-  });
+  // indicatorsToggle 保留（無操作，設定改由各 pane 的 ⚙ 按鈕開啟）
 
   document.querySelectorAll(".tf-btn").forEach(btn => {
     btn.addEventListener("click", () => {
@@ -2061,120 +2052,171 @@ function bindLegendColors() {
 /* ── 指標設定面板 ── */
 function bindIndicatorPanel() {
   const LS_CHARS = ["—", "···", "- -", "──"];
+  const popup = document.getElementById("indSettingsPopup");
+  if (!popup) return;
 
-  function syncPanel() {
-    const clrMap = [
-      ["indClrK","kdjK"],["indClrD","kdjD"],["indClrJ","kdjJ"],
-      ["indClrKDJBull","kdjCrossBull"],["indClrKDJBear","kdjCrossBear"],
-      ["indClrKH80","kdjH80"],["indClrKH20","kdjH20"],
-      ["indClrRsi14","rsi14"],["indClrRsi7","rsi7"],
-      ["indClrRH70","rsiH70"],["indClrRH30","rsiH30"],
-      ["indClrMacd","macd"],["indClrMacdSig","macdSig"],["indClrBB","bbU"],
-    ];
-    clrMap.forEach(([id, key]) => {
-      const el = document.getElementById(id);
-      if (el && C[key]) el.value = C[key].substring(0, 7);
-    });
-    [["indValKH80","kdjH80val"],["indValKH20","kdjH20val"],
-     ["indValRH70","rsiH70val"],["indValRH30","rsiH30val"]].forEach(([id, key]) => {
-      const el = document.getElementById(id); if (el) el.value = S[key] ?? el.value;
-    });
-    [["indLsK","kdjKStyle"],["indLsD","kdjDStyle"],["indLsJ","kdjJStyle"],
-     ["indLsRsi14","rsi14Style"],["indLsRsi7","rsi7Style"],
-     ["indLsMacd","macdStyle"],["indLsMacdSig","macdSigStyle"]].forEach(([id, key]) => {
-      const el = document.getElementById(id);
-      if (el) { const v = S[key] ?? 0; el.dataset.ls = v; el.textContent = LS_CHARS[v] || "—"; }
+  // 點外部關閉
+  document.addEventListener("mousedown", e => {
+    if (!popup.contains(e.target) && !e.target.closest(".ind-gear-btn"))
+      popup.classList.remove("open");
+  }, true);
+
+  // 各指標設定定義
+  const IND_CONFIGS = {
+    kdj: {
+      title: "KDJ 設定",
+      rows: [
+        { label:"K", colorKey:"kdjK",    onColor: c=>{kdjK?.applyOptions({color:c}); _syncLegDot("legK",c);},    lsKey:"kdjKStyle",   series:()=>kdjK,    widKey:"kdjKWidth",   serW:()=>kdjK },
+        { label:"D", colorKey:"kdjD",    onColor: c=>{kdjD?.applyOptions({color:c}); _syncLegDot("legD",c);},    lsKey:"kdjDStyle",   series:()=>kdjD,    widKey:"kdjDWidth",   serW:()=>kdjD },
+        { label:"J", colorKey:"kdjJ",    onColor: c=>{kdjJ?.applyOptions({color:c}); _syncLegDot("legJ",c);},    lsKey:"kdjJStyle",   series:()=>kdjJ,    widKey:"kdjJWidth",   serW:()=>kdjJ },
+        { divider: true },
+        { label:"金叉", colorKey:"kdjCrossBull", onColor: ()=>{ if(ohlcvData.length) renderKDJCross(ohlcvData); } },
+        { label:"死叉", colorKey:"kdjCrossBear", onColor: ()=>{ if(ohlcvData.length) renderKDJCross(ohlcvData); } },
+        { divider: true },
+        { label:"超買", colorKey:"kdjH80", onColor: c=>{kdjH80?.applyOptions({color:c}); _syncLegDot("legKdjH80",c);}, numKey:"kdjH80val", numSeries:()=>kdjH80 },
+        { label:"超賣", colorKey:"kdjH20", onColor: c=>{kdjH20?.applyOptions({color:c}); _syncLegDot("legKdjH20",c);}, numKey:"kdjH20val", numSeries:()=>kdjH20 },
+      ]
+    },
+    rsi: {
+      title: "RSI 設定",
+      rows: [
+        { label:"RSI 14", colorKey:"rsi14", onColor: c=>{rsiLine14?.applyOptions({color:c}); _syncLegDot("legRsi14",c);}, lsKey:"rsi14Style", series:()=>rsiLine14, widKey:"rsi14Width", serW:()=>rsiLine14 },
+        { label:"RSI 7",  colorKey:"rsi7",  onColor: c=>{rsiLine7?.applyOptions({color:c});  _syncLegDot("legRsi7",c);},  lsKey:"rsi7Style",  series:()=>rsiLine7,  widKey:"rsi7Width",  serW:()=>rsiLine7  },
+        { divider: true },
+        { label:"超買", colorKey:"rsiH70", onColor: c=>{rsiH70?.applyOptions({color:c}); _syncLegDot("legRsiH70",c);}, numKey:"rsiH70val", numSeries:()=>rsiH70 },
+        { label:"超賣", colorKey:"rsiH30", onColor: c=>{rsiH30?.applyOptions({color:c}); _syncLegDot("legRsiH30",c);}, numKey:"rsiH30val", numSeries:()=>rsiH30 },
+      ]
+    },
+    macd: {
+      title: "MACD 設定",
+      rows: [
+        { label:"MACD",   colorKey:"macd",    onColor: c=>{macdLine?.applyOptions({color:c});   _syncLegDot("legMacd",c);},    lsKey:"macdStyle",    series:()=>macdLine,   widKey:"macdWidth",    serW:()=>macdLine   },
+        { label:"Signal", colorKey:"macdSig", onColor: c=>{macdSignal?.applyOptions({color:c}); _syncLegDot("legMacdSig",c);}, lsKey:"macdSigStyle", series:()=>macdSignal, widKey:"macdSigWidth", serW:()=>macdSignal },
+      ]
+    },
+  };
+
+  function buildRow(row) {
+    if (row.divider) {
+      const el = document.createElement("div");
+      el.className = "ind-sp-divider";
+      return el;
+    }
+    const rowEl = document.createElement("div");
+    rowEl.className = "ind-sp-row";
+
+    // 標籤
+    const lbl = document.createElement("span");
+    lbl.className = "ind-sp-lbl";
+    lbl.textContent = row.label;
+    rowEl.appendChild(lbl);
+
+    // 顏色色塊 → 點擊開 cpPopup
+    if (row.colorKey) {
+      const dot = document.createElement("div");
+      dot.style.cssText = `width:18px;height:18px;border-radius:3px;border:1px solid #444;cursor:pointer;flex-shrink:0;background:${(C[row.colorKey]||"#888").substring(0,7)}`;
+      dot.addEventListener("click", e => {
+        e.stopPropagation();
+        showLegColorPopup(e.clientX, e.clientY, [{
+          label: null,
+          currentColor: (C[row.colorKey] || "#888").substring(0, 7),
+          apply: c => {
+            dot.style.background = c;
+            C[row.colorKey] = c;
+            row.onColor?.(c);
+            savePrefs();
+          }
+        }]);
+      });
+      rowEl.appendChild(dot);
+    }
+
+    // 線型按鈕
+    if (row.lsKey) {
+      const lsBtn = document.createElement("button");
+      lsBtn.className = "ind-sp-ls";
+      const cur = S[row.lsKey] ?? 0;
+      lsBtn.textContent = LS_CHARS[cur]; lsBtn.dataset.ls = cur;
+      lsBtn.title = "線型";
+      lsBtn.addEventListener("click", e => {
+        e.stopPropagation();
+        const next = ((parseInt(lsBtn.dataset.ls) || 0) + 1) % 4;
+        lsBtn.dataset.ls = next; lsBtn.textContent = LS_CHARS[next];
+        S[row.lsKey] = next; row.series()?.applyOptions({ lineStyle: next }); savePrefs();
+      });
+      rowEl.appendChild(lsBtn);
+    }
+
+    // 線寬輸入
+    if (row.widKey) {
+      const wlbl = document.createElement("span");
+      wlbl.className = "ind-sp-wlbl"; wlbl.textContent = "粗";
+      rowEl.appendChild(wlbl);
+      const wInput = document.createElement("input");
+      wInput.type = "number"; wInput.className = "ind-sp-num";
+      wInput.min = 1; wInput.max = 5; wInput.step = 1;
+      wInput.value = S[row.widKey] ?? 1;
+      wInput.style.width = "34px";
+      wInput.addEventListener("change", e => {
+        const v = Math.max(1, Math.min(5, parseInt(e.target.value) || 1));
+        wInput.value = v; S[row.widKey] = v;
+        row.serW()?.applyOptions({ lineWidth: v }); savePrefs();
+      });
+      rowEl.appendChild(wInput);
+    }
+
+    // 數值輸入（H 水平線位置）
+    if (row.numKey) {
+      const nInput = document.createElement("input");
+      nInput.type = "number"; nInput.className = "ind-sp-num";
+      nInput.min = 1; nInput.max = 99; nInput.value = S[row.numKey] ?? 50;
+      nInput.addEventListener("change", e => {
+        const val = parseFloat(e.target.value); if (isNaN(val)) return;
+        S[row.numKey] = val;
+        if (ohlcvData.length) {
+          const f = toTime(ohlcvData[0].time), l = toTime(ohlcvData[ohlcvData.length-1].time);
+          row.numSeries()?.setData([{time:f,value:val},{time:l,value:val}]);
+        }
+        savePrefs();
+      });
+      rowEl.appendChild(nInput);
+    }
+
+    return rowEl;
+  }
+
+  function openPopup(triggerEl, indKey) {
+    const cfg = IND_CONFIGS[indKey]; if (!cfg) return;
+    popup.innerHTML = "";
+
+    const title = document.createElement("div");
+    title.className = "ind-sp-title"; title.textContent = cfg.title;
+    popup.appendChild(title);
+
+    cfg.rows.forEach(row => popup.appendChild(buildRow(row)));
+    popup.classList.add("open");
+
+    // 定位：在 trigger 下方，靠右
+    requestAnimationFrame(() => {
+      const rect = triggerEl.getBoundingClientRect();
+      const pw = popup.offsetWidth, ph = popup.offsetHeight;
+      let left = rect.right - pw;
+      let top  = rect.bottom + 4;
+      if (left < 4) left = 4;
+      if (top + ph > window.innerHeight - 8) top = rect.top - ph - 4;
+      popup.style.left = left + "px";
+      popup.style.top  = top  + "px";
     });
   }
 
-  // 顏色
-  const colorMap = [
-    { id:"indClrK",       apply: c => { C.kdjK=c; kdjK?.applyOptions({color:c}); _syncLegDot("legK",c); } },
-    { id:"indClrD",       apply: c => { C.kdjD=c; kdjD?.applyOptions({color:c}); _syncLegDot("legD",c); } },
-    { id:"indClrJ",       apply: c => { C.kdjJ=c; kdjJ?.applyOptions({color:c}); _syncLegDot("legJ",c); } },
-    { id:"indClrKDJBull", apply: c => { C.kdjCrossBull=c; if(ohlcvData.length) renderKDJCross(ohlcvData); } },
-    { id:"indClrKDJBear", apply: c => { C.kdjCrossBear=c; if(ohlcvData.length) renderKDJCross(ohlcvData); } },
-    { id:"indClrKH80",    apply: c => { C.kdjH80=c; kdjH80?.applyOptions({color:c}); _syncLegDot("legKdjH80",c); } },
-    { id:"indClrKH20",    apply: c => { C.kdjH20=c; kdjH20?.applyOptions({color:c}); _syncLegDot("legKdjH20",c); } },
-    { id:"indClrRsi14",   apply: c => { C.rsi14=c; rsiLine14?.applyOptions({color:c}); _syncLegDot("legRsi14",c); } },
-    { id:"indClrRsi7",    apply: c => { C.rsi7=c; rsiLine7?.applyOptions({color:c}); _syncLegDot("legRsi7",c); } },
-    { id:"indClrRH70",    apply: c => { C.rsiH70=c; rsiH70?.applyOptions({color:c}); _syncLegDot("legRsiH70",c); } },
-    { id:"indClrRH30",    apply: c => { C.rsiH30=c; rsiH30?.applyOptions({color:c}); _syncLegDot("legRsiH30",c); } },
-    { id:"indClrMacd",    apply: c => { C.macd=c; macdLine?.applyOptions({color:c}); _syncLegDot("legMacd",c); } },
-    { id:"indClrMacdSig", apply: c => { C.macdSig=c; macdSignal?.applyOptions({color:c}); _syncLegDot("legMacdSig",c); } },
-    { id:"indClrBB",      apply: c => { C.bbU=C.bbL=c; bbU?.applyOptions({color:c}); bbL?.applyOptions({color:c}); _syncLegDot("legBB",c); } },
-  ];
-  colorMap.forEach(({ id, apply }) =>
-    document.getElementById(id)?.addEventListener("input", e => { apply(e.target.value); savePrefs(); })
-  );
-
-  // 顯示/隱藏
-  const visMap = [
-    { id:"indVisK",        legId:"legK",        series:()=>[kdjK] },
-    { id:"indVisD",        legId:"legD",        series:()=>[kdjD] },
-    { id:"indVisJ",        legId:"legJ",        series:()=>[kdjJ] },
-    { id:"indVisKDJCross", legId:"legKDJCross", action:()=>_applyMainMarkers() },
-    { id:"indVisKDJDead",  legId:"legKDJCross", action:()=>_applyMainMarkers() },
-    { id:"indVisKH80",     legId:"legKdjH80",   series:()=>[kdjH80] },
-    { id:"indVisKH20",     legId:"legKdjH20",   series:()=>[kdjH20] },
-    { id:"indVisRsi14",    legId:"legRsi14",    series:()=>[rsiLine14] },
-    { id:"indVisRsi7",     legId:"legRsi7",     series:()=>[rsiLine7] },
-    { id:"indVisRH70",     legId:"legRsiH70",   series:()=>[rsiH70] },
-    { id:"indVisRH30",     legId:"legRsiH30",   series:()=>[rsiH30] },
-    { id:"indVisMacd",     legId:"legMacd",     series:()=>[macdLine] },
-    { id:"indVisMacdSig",  legId:"legMacdSig",  series:()=>[macdSignal] },
-    { id:"indVisMacdHist", legId:"legMacdHist", series:()=>[macdHist] },
-    { id:"indVisBB",       legId:"legBB",       series:()=>[bbU,bbM,bbL] },
-  ];
-  visMap.forEach(({ id, legId, series, action }) =>
-    document.getElementById(id)?.addEventListener("change", e => {
-      const vis = e.target.checked;
-      if (action) action(); else series()?.forEach(s => s?.applyOptions({ visible: vis }));
-      document.getElementById(legId)?.classList.toggle("line-off", !vis);
-      saveVisibilityPrefs();
-    })
-  );
-
-  // 線型按鈕
-  const lsMap = [
-    { id:"indLsK",       key:"kdjKStyle",    get:()=>kdjK },
-    { id:"indLsD",       key:"kdjDStyle",    get:()=>kdjD },
-    { id:"indLsJ",       key:"kdjJStyle",    get:()=>kdjJ },
-    { id:"indLsRsi14",   key:"rsi14Style",   get:()=>rsiLine14 },
-    { id:"indLsRsi7",    key:"rsi7Style",    get:()=>rsiLine7 },
-    { id:"indLsMacd",    key:"macdStyle",    get:()=>macdLine },
-    { id:"indLsMacdSig", key:"macdSigStyle", get:()=>macdSignal },
-  ];
-  lsMap.forEach(({ id, key, get }) =>
-    document.getElementById(id)?.addEventListener("click", e => {
-      const btn = e.currentTarget;
-      const next = ((parseInt(btn.dataset.ls) || 0) + 1) % 4;
-      btn.dataset.ls = next; btn.textContent = LS_CHARS[next];
-      S[key] = next; get()?.applyOptions({ lineStyle: next }); savePrefs();
-    })
-  );
-
-  // 水平線數值
-  const numMap = [
-    { id:"indValKH80", key:"kdjH80val", get:()=>kdjH80 },
-    { id:"indValKH20", key:"kdjH20val", get:()=>kdjH20 },
-    { id:"indValRH70", key:"rsiH70val", get:()=>rsiH70 },
-    { id:"indValRH30", key:"rsiH30val", get:()=>rsiH30 },
-  ];
-  numMap.forEach(({ id, key, get }) =>
-    document.getElementById(id)?.addEventListener("change", e => {
-      const val = parseFloat(e.target.value); if (isNaN(val)) return;
-      S[key] = val;
-      if (ohlcvData.length) {
-        const f = toTime(ohlcvData[0].time), l = toTime(ohlcvData[ohlcvData.length-1].time);
-        get()?.setData([{time:f,value:val},{time:l,value:val}]);
-      }
-      savePrefs();
-    })
-  );
-
-  // 面板開啟時同步最新 C/S 值
-  document.getElementById("indicatorsToggle")?.addEventListener("click", syncPanel, { capture: false });
+  document.querySelectorAll(".ind-gear-btn").forEach(btn => {
+    btn.addEventListener("click", e => {
+      e.stopPropagation();
+      const indKey = btn.dataset.ind;
+      if (popup.classList.contains("open")) { popup.classList.remove("open"); return; }
+      openPopup(btn, indKey);
+    });
+  });
 }
 
 function _syncLegDot(legId, color) {
