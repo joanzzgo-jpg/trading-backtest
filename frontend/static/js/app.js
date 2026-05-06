@@ -2612,14 +2612,24 @@ let replayIdx     = 0;    // 目前顯示到第幾根
 let replaySpeed   = 500;  // ms per bar
 let replayTimer   = null;
 let replayActive  = false;
+let _replaySpan   = 50;   // 進入重播時保存的可視 bar 數
 
 function enterReplay() {
   if (replayActive) return;
   replayActive = true;
   stopRealtime();
   replayData = [...ohlcvData];
-  // 預設從 20% 處開始（讓左側有足夠歷史）
-  replayIdx  = Math.max(5, Math.floor(replayData.length * 0.2));
+
+  // 記住使用者目前的縮放（可視 bar 數），重播期間維持此比例
+  const curRange = mainChart.timeScale().getVisibleLogicalRange();
+  _replaySpan = curRange ? Math.max(10, Math.round(curRange.to - curRange.from)) : 50;
+
+  replayIdx = Math.max(_replaySpan, Math.floor(replayData.length * 0.2));
+
+  // 讓圖表區為重播列騰出空間
+  document.getElementById("chartsContainer").style.paddingBottom = "42px";
+  resizeAll();
+
   document.getElementById("replayBar").classList.remove("hidden");
   document.getElementById("replayModeBtn").classList.add("active");
   _replayRender();
@@ -2629,28 +2639,52 @@ function exitReplay() {
   replayActive = false;
   replayTimer && clearInterval(replayTimer);
   replayTimer = null;
+
+  document.getElementById("chartsContainer").style.paddingBottom = "";
+  resizeAll();
+
   document.getElementById("replayBar").classList.add("hidden");
   document.getElementById("replayModeBtn").classList.remove("active");
   document.getElementById("replayPlay").classList.remove("playing");
   document.getElementById("replayPlay").textContent = "▶";
-  // 還原完整資料
   if (replayData.length) renderAll(replayData);
 }
 
 function _replayRender() {
   const slice = replayData.slice(0, replayIdx + 1);
-  renderAll(slice);
-  // 讓最新一根在畫面右側
-  mainChart.timeScale().scrollToPosition(-2, false);
+  const n     = slice.length;
+
+  // 渲染資料但不重設視窗範圍
+  const anchorTimes = slice.map(d => ({ time: toTime(d.time), value: 50 }));
+  kdjAnchor.setData(anchorTimes);
+  rsiAnchor.setData(anchorTimes);
+  macdAnchor.setData(anchorTimes.map(d => ({ ...d, value: 0 })));
+  renderCandles(slice);
+  renderBB(slice);
+  renderCRT(slice);
+  renderKDJCross(slice);
+  renderResonance(slice);
+  renderVolume(slice);
+  renderKDJ(slice);
+  renderRSI(slice);
+  renderMACD(slice);
+  updateSymbolBar(slice);
+  [mainChart, kdjChart, rsiChart, macdChart].forEach(c => c?.timeScale().fitContent());
+
+  // 維持使用者縮放：最新一根貼右側，保留進入重播時的 bar 數
+  mainChart.timeScale().setVisibleLogicalRange({
+    from: n - _replaySpan - 1,
+    to:   n - 1,
+  });
+
   // 更新狀態列
-  const bar = slice[slice.length - 1];
+  const bar = slice[n - 1];
   if (bar) {
     const d = new Date(bar.time);
     document.getElementById("replayDate").textContent =
       `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
   }
-  document.getElementById("replayProgress").textContent =
-    `${replayIdx + 1} / ${replayData.length}`;
+  document.getElementById("replayProgress").textContent = `${n} / ${replayData.length}`;
 }
 
 function replayPlay() {
