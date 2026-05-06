@@ -61,35 +61,65 @@ PIONEX_PERP_FALLBACK: set = {
     "BB","NOT","IO","ZK","LISTA","ZRO","RENDER","METH","SLF",
 }
 
-# ── Pionex 標的快取（1 小時更新一次）────────────────────────────
-_PIONEX_SYMS_CACHE: dict = {"ts": 0.0, "syms": set()}
+# ── Pionex 合約快取（分開快取現貨與永續）────────────────────────
+_PIONEX_SYMS_CACHE:      dict = {"ts": 0.0, "syms": None}   # spot
+_PIONEX_PERP_SYMS_CACHE: dict = {"ts": 0.0, "syms": None}   # futures/PERP
+
+
+def _fetch_pionex_perp_symbols() -> set:
+    """取得 Pionex 永續合約 base 幣集合（大寫），快取 1 小時。
+    使用官方 PERP API：GET /api/v1/common/symbols?type=PERP
+    API 失敗時回傳 PIONEX_PERP_FALLBACK 備援清單。
+    """
+    global _PIONEX_PERP_SYMS_CACHE
+    now = time.time()
+    cached = _PIONEX_PERP_SYMS_CACHE
+    if now - cached["ts"] < 3600 and cached["syms"] is not None:
+        return cached["syms"]
+
+    syms: set = set()
+    try:
+        data  = _get(f"{PIONEX_BASE}/api/v1/common/symbols?type=PERP", timeout=10)
+        items = (data.get("data") or {}).get("symbols") or []
+        for s in items:
+            base = s.get("baseAsset") or s.get("baseCurrency") or s.get("base") or ""
+            # symbol 格式如 BTC_USDT_PERP，也嘗試從 symbol 解析
+            if not base:
+                sym_str = s.get("symbol", "")
+                base = sym_str.split("_")[0] if "_" in sym_str else ""
+            if base:
+                syms.add(str(base).upper())
+    except Exception:
+        pass
+
+    if len(syms) >= 5:
+        _PIONEX_PERP_SYMS_CACHE = {"ts": now, "syms": syms}
+        return syms
+
+    # API 失敗 → 使用硬編碼備援（不快取，下次仍重試 API）
+    return PIONEX_PERP_FALLBACK
+
 
 def _fetch_pionex_symbols() -> set:
-    """取得 Pionex 有上架的 base 幣集合（大寫），快取 1 小時。
-    API 全失敗時回傳空集合（呼叫方應顯示全部 Binance 合約，不過濾）。
+    """取得 Pionex 現貨 base 幣集合（大寫），快取 1 小時。
+    API 全失敗時回傳空集合。
     """
     global _PIONEX_SYMS_CACHE
     now = time.time()
     if now - _PIONEX_SYMS_CACHE["ts"] < 3600 and _PIONEX_SYMS_CACHE["syms"] is not None:
         return _PIONEX_SYMS_CACHE["syms"]
     syms: set = set()
-    endpoints = [
+    for endpoint in (
         f"{PIONEX_BASE}/api/v1/common/symbols",
         f"{PIONEX_BASE}/api/v2/common/symbols",
-        f"{PIONEX_BASE}/api/v1/perpetual/market/symbols",  # Pionex 期貨端點
-        f"{PIONEX_BASE}/api/v1/future/market/symbols",
-    ]
-    for endpoint in endpoints:
+    ):
         try:
             data  = _get(endpoint, timeout=8)
-            items = (
-                (data.get("data") or {}).get("symbols") or
-                data.get("symbols") or []
-            )
+            items = (data.get("data") or {}).get("symbols") or data.get("symbols") or []
             for s in items:
-                base  = s.get("baseCurrency") or s.get("base") or s.get("baseCoin") or ""
-                quote = s.get("quoteCurrency") or s.get("quote") or s.get("quoteCoin") or ""
-                if str(quote).upper() in ("USDT", "") and base:
+                base  = s.get("baseCurrency") or s.get("base") or ""
+                quote = s.get("quoteCurrency") or s.get("quote") or ""
+                if str(quote).upper() == "USDT" and base:
                     syms.add(str(base).upper())
             if len(syms) >= 5:
                 break
@@ -98,7 +128,6 @@ def _fetch_pionex_symbols() -> set:
     if len(syms) >= 5:
         _PIONEX_SYMS_CACHE = {"ts": now, "syms": syms}
         return syms
-    # API 全失敗 → 回傳空集合，代表「不過濾，顯示所有 Binance 合約」
     return set()
 
 
@@ -384,11 +413,17 @@ def fetch_crypto_markets(exchange_id: str = "pionex"):
     return results[:200]
 
 
+def _apply_pionex_perp_filter(tickers: list) -> list:
+    """依 Pionex 永續合約清單過濾；API 失敗時使用硬編碼備援"""
+    pionex_syms = _fetch_pionex_perp_symbols()
+    return [t for t in tickers if t["symbol"][:-4].upper() in pionex_syms]
+
+
 def _apply_pionex_filter(tickers: list) -> list:
-    """依 Pionex 標的清單過濾；若 API 失敗（空集合）則不過濾，顯示所有 Binance 合約"""
+    """依 Pionex 現貨標的清單過濾；API 失敗（空集合）時不過濾"""
     pionex_syms = _fetch_pionex_symbols()
     if not pionex_syms:
-        return tickers  # Pionex API 不可用時，直接顯示全部 Binance 合約
+        return tickers
     return [t for t in tickers if t["symbol"][:-4].upper() in pionex_syms]
 
 
@@ -398,10 +433,10 @@ def fetch_tickers(market: str = "futures") -> list:
     spot：直接使用現貨 API。
     """
     if market == "futures":
-        # ── 優先：永續合約 fapi ────────────────────────────────
-        # Pionex 期貨 = Binance FAPI 流動性，直接顯示全部 USDT 永續合約，不過濾
+        # ── 優先：永續合約 fapi，再依 Pionex PERP 清單過濾 ──────
         tickers = _fetch_futures_tickers_fapi()
         if tickers:
+            tickers = _apply_pionex_perp_filter(tickers)
             tickers.sort(key=lambda x: x["change_pct"], reverse=True)
             return tickers
         # fapi 不可用，退回現貨 API + 加上 .P 標籤

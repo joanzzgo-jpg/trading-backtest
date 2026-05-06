@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from data.taiwan import fetch_tw_stock, resample_tw, search_tw_stock, fetch_tw_intraday
 from data.us_stock import fetch_us_stock, search_us_stocks, MAX_DAYS as US_MAX_DAYS
-from data.crypto import fetch_crypto_ohlcv, fetch_crypto_markets, fetch_tickers, _fetch_pionex_symbols, _fetch_futures_tickers_fapi
+from data.crypto import fetch_crypto_ohlcv, fetch_crypto_markets, fetch_tickers, _fetch_pionex_symbols, _fetch_pionex_perp_symbols, _fetch_futures_tickers_fapi
 from indicators.engine import add_indicators, crt_markers, rsi as calc_rsi, macd as calc_macd, \
     kdj_first_cross, bb_kdj_rsi_resonance
 from backtest.engine import BacktestEngine, BacktestConfig
@@ -42,6 +42,7 @@ async def _warmup():
     import asyncio, concurrent.futures
     loop = asyncio.get_event_loop()
     loop.run_in_executor(None, _fetch_pionex_symbols)
+    loop.run_in_executor(None, _fetch_pionex_perp_symbols)
 
 
 @app.get("/")
@@ -281,8 +282,12 @@ def search(market: str, keyword: str, token: str = ""):
 @app.get("/api/pionex/symbols")
 def get_pionex_symbols():
     """診斷用：回傳目前快取的 Pionex 標的清單"""
-    syms = _fetch_pionex_symbols()
-    return {"count": len(syms), "symbols": sorted(syms), "source": "pionex_api" if syms else "fallback"}
+    spot  = _fetch_pionex_symbols()
+    perp  = _fetch_pionex_perp_symbols()
+    return {
+        "spot":  {"count": len(spot),  "symbols": sorted(spot)},
+        "perp":  {"count": len(perp),  "symbols": sorted(perp)},
+    }
 
 
 # ── 策略 API ─────────────────────────────────────────────────
