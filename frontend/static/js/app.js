@@ -14,6 +14,7 @@ const DEFAULT_COLORS = {
   rsiH30:  "#4a4a6a", rsiH50:  "#666688", rsiH70:  "#4a4a6a",
   macd:    "#2196f3", macdSig: "#ff9800",
   crtBull: "#26a69a", crtBear: "#ef5350",
+  resonanceBull: "#26c6da", resonanceBear: "#ff9800",
   bg:      "#131722",
 };
 
@@ -29,6 +30,7 @@ const DEFAULT_STYLES = {
   rsi14Width: 1, rsi7Width: 1,
   macdStyle: 0, macdSigStyle: 0,
   macdWidth: 1, macdSigWidth: 1,
+  bbWidth: 1,
 };
 
 let C = { ...DEFAULT_COLORS };
@@ -2063,6 +2065,25 @@ function bindIndicatorPanel() {
 
   // 各指標設定定義
   const IND_CONFIGS = {
+    main: {
+      title: "主圖設定",
+      rows: [
+        { label:"漲K棒",  colorKey:"up",   onColor: ()=>{ if(ohlcvData.length){ renderVolume(ohlcvData); applyAllColors(); } } },
+        { label:"跌K棒",  colorKey:"down", onColor: ()=>{ if(ohlcvData.length){ renderVolume(ohlcvData); applyAllColors(); } } },
+        { divider: true },
+        { label:"BB 上/下", colorKey:"bbU", onColor: c=>{ C.bbL=c; bbU?.applyOptions({color:c}); bbL?.applyOptions({color:c}); _syncLegDot("legBB",c); }, widKey:"bbWidth", onWidth: w=>{ bbU?.applyOptions({lineWidth:w}); bbM?.applyOptions({lineWidth:w}); bbL?.applyOptions({lineWidth:w}); } },
+        { label:"BB 中",    colorKey:"bbM", onColor: c=>{ bbM?.applyOptions({color:c}); } },
+        { divider: true },
+        { label:"CRT 看多", colorKey:"crtBull", onColor: ()=>{ if(ohlcvData.length) renderCRT(ohlcvData); } },
+        { label:"CRT 看空", colorKey:"crtBear", onColor: ()=>{ if(ohlcvData.length) renderCRT(ohlcvData); } },
+        { divider: true },
+        { label:"共振 看多", colorKey:"resonanceBull", onColor: ()=>{ if(ohlcvData.length) renderResonance(ohlcvData); } },
+        { label:"共振 看空", colorKey:"resonanceBear", onColor: ()=>{ if(ohlcvData.length) renderResonance(ohlcvData); } },
+        { divider: true },
+        { label:"KDJ金叉",  colorKey:"kdjCrossBull", onColor: ()=>{ if(ohlcvData.length) renderKDJCross(ohlcvData); } },
+        { label:"KDJ死叉",  colorKey:"kdjCrossBear", onColor: ()=>{ if(ohlcvData.length) renderKDJCross(ohlcvData); } },
+      ]
+    },
     kdj: {
       title: "KDJ 設定",
       rows: [
@@ -2160,7 +2181,9 @@ function bindIndicatorPanel() {
       wInput.addEventListener("change", e => {
         const v = Math.max(1, Math.min(5, parseInt(e.target.value) || 1));
         wInput.value = v; S[row.widKey] = v;
-        row.serW()?.applyOptions({ lineWidth: v }); savePrefs();
+        if (row.onWidth) row.onWidth(v);
+        else row.serW?.()?.applyOptions({ lineWidth: v });
+        savePrefs();
       });
       rowEl.appendChild(wInput);
     }
@@ -2416,8 +2439,8 @@ function renderKDJCross(data) {
 function renderResonance(data) {
   const markers = [];
   data.forEach(d => {
-    if (d.resonance === 1)  markers.push({ time:toTime(d.time), position:"belowBar", color:"#26c6da", shape:"arrowUp",   size:1.5, text:"超賣" });
-    if (d.resonance === -1) markers.push({ time:toTime(d.time), position:"aboveBar", color:"#ff9800", shape:"arrowDown", size:1.5, text:"超買" });
+    if (d.resonance === 1)  markers.push({ time:toTime(d.time), position:"belowBar", color:C.resonanceBull, shape:"arrowUp",   size:1.5, text:"超賣" });
+    if (d.resonance === -1) markers.push({ time:toTime(d.time), position:"aboveBar", color:C.resonanceBear, shape:"arrowDown", size:1.5, text:"超買" });
   });
   markers.sort((a,b) => a.time - b.time);
   lastResonanceMarkers = markers;
