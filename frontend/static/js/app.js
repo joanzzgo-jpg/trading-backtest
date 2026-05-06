@@ -484,7 +484,8 @@ let drawCtx     = null;
 let drawTool    = "pointer";
 let selectedId  = null;
 let hoveredId   = null;
-let dragState   = null;   // { id, startX, startY, moved, snapshot }
+let dragState      = null;   // { id, startX, startY, moved, snapshot }
+let _dragJustMoved = false;  // 拖移結束後抑制下一個 click，避免開啟顏色面板
 let _mx = 0, _my = 0;
 let _drawColor  = "#f5c518";  // 目前繪圖顏色
 
@@ -733,13 +734,17 @@ function _onChartMouseDown(e) {
 
 function _onChartMouseUp() {
   if (!dragState) return;
-  if (dragState.moved) saveDrawings();
+  if (dragState.moved) {
+    saveDrawings();
+    _dragJustMoved = true;  // 抑制緊接的 click 事件，避免意外開啟顏色面板
+  }
   dragState = null;
   _updateCursor();
   requestAnimationFrame(renderDrawings);
 }
 
 function _onChartClick(e) {
+  if (_dragJustMoved) { _dragJustMoved = false; return; }
   const { x, y } = _canvasXY(e);
 
   if (drawTool === "pointer") {
