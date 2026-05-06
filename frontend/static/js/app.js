@@ -2008,6 +2008,12 @@ function bindLegendColors() {
     { id:"legJ",       key:"kdjJ",    apply: c => { C.kdjJ = c; kdjJ?.applyOptions({color:c}); const el=document.getElementById("legJ");       if(el) el.style.color=c; savePrefs(); } },
     { id:"legRsi14",   key:"rsi14",   apply: c => { C.rsi14   = c; rsiLine14?.applyOptions({color:c});  const el=document.getElementById("legRsi14");  if(el) el.style.color=c; savePrefs(); } },
     { id:"legRsi7",    key:"rsi7",    apply: c => { C.rsi7    = c; rsiLine7?.applyOptions({color:c});   const el=document.getElementById("legRsi7");   if(el) el.style.color=c; savePrefs(); } },
+    { id:"legKdjH20",  key:"kdjH20",  apply: c => { C.kdjH20  = c; kdjH20?.applyOptions({color:c}); savePrefs(); } },
+    { id:"legKdjH50",  key:"kdjH50",  apply: c => { C.kdjH50  = c; kdjH50?.applyOptions({color:c}); savePrefs(); } },
+    { id:"legKdjH80",  key:"kdjH80",  apply: c => { C.kdjH80  = c; kdjH80?.applyOptions({color:c}); savePrefs(); } },
+    { id:"legRsiH30",  key:"rsiH30",  apply: c => { C.rsiH30  = c; rsiH30?.applyOptions({color:c}); savePrefs(); } },
+    { id:"legRsiH50",  key:"rsiH50",  apply: c => { C.rsiH50  = c; rsiH50?.applyOptions({color:c}); savePrefs(); } },
+    { id:"legRsiH70",  key:"rsiH70",  apply: c => { C.rsiH70  = c; rsiH70?.applyOptions({color:c}); savePrefs(); } },
     { id:"legMacd",    key:"macd",    apply: c => { C.macd    = c; macdLine?.applyOptions({color:c});   const el=document.getElementById("legMacd");    if(el) el.style.color=c; savePrefs(); } },
     { id:"legMacdSig", key:"macdSig", apply: c => { C.macdSig = c; macdSignal?.applyOptions({color:c}); const el=document.getElementById("legMacdSig"); if(el) el.style.color=c; savePrefs(); } },
   ];
