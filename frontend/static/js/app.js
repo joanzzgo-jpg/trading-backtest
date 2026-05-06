@@ -425,7 +425,8 @@ function syncTimeScales() {
     }
     timeLabel.textContent = timeStr;
     timeLabel.style.display = "block";
-    timeLabel.style.left = Math.round(mainX) + "px";
+    timeLabel.style.left   = Math.round(mainX) + "px";
+    timeLabel.style.bottom = replayActive ? "42px" : "0";
 
     const cRect = container.getBoundingClientRect();
     panesConf.forEach(({ elId, chart }, i) => {
@@ -3383,7 +3384,7 @@ function buildPayload(useLimit = false) {
     symbol:    sym,
     start:     useLimit ? "" : document.getElementById("startDate").value,
     end:       useLimit ? "" : document.getElementById("endDate").value,
-    limit:     useLimit ? 300 : 0,
+    limit:     useLimit ? ({ "1M":120,"1w":520,"1d":1095,"4h":2190,"1h":2160,"15m":300,"5m":300 }[currentTF] ?? 300) : 0,
     timeframe: currentTF,
     exchange:  document.getElementById("exchangeSelect").value,
   };
