@@ -70,7 +70,7 @@ let _restoringPrefs  = false; // 還原偏好設定時，暫停自動儲存
 
 const PANE_FLEX_DEFAULTS = { mainPane:5, kdjPane:1, rsiPane:1, macdPane:1 };
 
-const TF_LABELS = { "1M":"月","1w":"週","1d":"日","4h":"4H","1h":"1H","15m":"15m" };
+const TF_LABELS = { "1M":"月","1w":"週","1d":"日","4h":"4H","1h":"1H","15m":"15m","5m":"5m" };
 
 /* ── 時間轉 Unix 秒 ── */
 function toTime(s) {
@@ -416,7 +416,7 @@ function syncTimeScales() {
     const d = new Date(time * 1000);
     const pad = n => String(n).padStart(2, "0");
     let timeStr;
-    if (currentTF === "4h" || currentTF === "1h" || currentTF === "15m") {
+    if (["4h","1h","15m","5m"].includes(currentTF)) {
       timeStr = `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
     } else {
       timeStr = `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())}`;
@@ -513,6 +513,7 @@ function _saveWatchlist() {
 }
 function _renderWatchlist() {
   renderTickers();   // wl tab 在 renderTickers 內處理，其餘 tab 更新星號狀態
+  _updateStarBtn();
 }
 
 function _toggleWatchlist(symbol, market, exchange) {
@@ -932,7 +933,7 @@ function _updateDrag(x, y) {
 /* ── 顏色 Popup ── */
 function showDrawColorPicker(drawing, clientX, clientY) {
   if (!_cpShowDirect) return;
-  const noStyle = drawing.type === "longpos" || drawing.type === "shortpos" || drawing.type === "note";
+  const noStyle = drawing.type === "note";
   _cpShowDirect(clientX, clientY, {
     sections: [{
       label: null,
@@ -1066,7 +1067,7 @@ function _applyGlow(ctx, color, isSelected, isHovered) {
 }
 
 function drawOne(d, W, H, isHovered, isSelected) {
-  const col = d.color || DRAW_COLOR;
+  const col = d.color || _drawColor;
   drawCtx.save();
   drawCtx.strokeStyle = col;
   drawCtx.fillStyle   = col;
@@ -1200,24 +1201,26 @@ function drawOne(d, W, H, isHovered, isSelected) {
       drawCtx.setLineDash([]);
     }
 
-    // 水平線（從 lx 延伸到右邊界，供閱讀價位）
+    // 水平線（僅在色塊範圍內，lx → ex）
     const ln = Math.max(0, lx);
+    const lw = d.width || 1;
+    drawCtx.setLineDash([]);
     drawCtx.strokeStyle = "#26a69a";
-    drawCtx.lineWidth = isSelected ? 1.5 : 1;
-    drawCtx.beginPath(); drawCtx.moveTo(ln, tpY); drawCtx.lineTo(W, tpY); drawCtx.stroke();
+    drawCtx.lineWidth = isSelected ? lw + 0.5 : lw;
+    drawCtx.beginPath(); drawCtx.moveTo(ln, tpY); drawCtx.lineTo(ex, tpY); drawCtx.stroke();
 
-    drawCtx.strokeStyle = isSelected ? "#ffffff" : "rgba(255,255,255,0.8)";
-    drawCtx.lineWidth = isSelected ? 2 : 1.2;
-    drawCtx.beginPath(); drawCtx.moveTo(ln, entryY); drawCtx.lineTo(W, entryY); drawCtx.stroke();
+    drawCtx.strokeStyle = col;
+    drawCtx.lineWidth = isSelected ? lw * 1.5 : lw * 1.2;
+    drawCtx.beginPath(); drawCtx.moveTo(ln, entryY); drawCtx.lineTo(ex, entryY); drawCtx.stroke();
 
     drawCtx.strokeStyle = "#ef5350";
-    drawCtx.lineWidth = isSelected ? 1.5 : 1;
-    drawCtx.beginPath(); drawCtx.moveTo(ln, slY); drawCtx.lineTo(W, slY); drawCtx.stroke();
+    drawCtx.lineWidth = isSelected ? lw + 0.5 : lw;
+    drawCtx.beginPath(); drawCtx.moveTo(ln, slY); drawCtx.lineTo(ex, slY); drawCtx.stroke();
 
     // 進場三角（在 entry 點，朝右）
     if (ex >= 0 && ex <= W) {
       const ts = 7;
-      drawCtx.fillStyle = isSelected ? "#ffffff" : "rgba(255,255,255,0.85)";
+      drawCtx.fillStyle = col;
       drawCtx.beginPath();
       drawCtx.moveTo(ex, entryY - ts / 2);
       drawCtx.lineTo(ex + ts, entryY);
@@ -1293,22 +1296,24 @@ function drawOne(d, W, H, isHovered, isSelected) {
     }
 
     const ln = Math.max(0, lx);
+    const lw = d.width || 1;
+    drawCtx.setLineDash([]);
     drawCtx.strokeStyle = "#ef5350";
-    drawCtx.lineWidth = isSelected ? 1.5 : 1;
-    drawCtx.beginPath(); drawCtx.moveTo(ln, slY); drawCtx.lineTo(W, slY); drawCtx.stroke();
+    drawCtx.lineWidth = isSelected ? lw + 0.5 : lw;
+    drawCtx.beginPath(); drawCtx.moveTo(ln, slY); drawCtx.lineTo(ex, slY); drawCtx.stroke();
 
-    drawCtx.strokeStyle = isSelected ? "#ffffff" : "rgba(255,255,255,0.8)";
-    drawCtx.lineWidth = isSelected ? 2 : 1.2;
-    drawCtx.beginPath(); drawCtx.moveTo(ln, entryY); drawCtx.lineTo(W, entryY); drawCtx.stroke();
+    drawCtx.strokeStyle = col;
+    drawCtx.lineWidth = isSelected ? lw * 1.5 : lw * 1.2;
+    drawCtx.beginPath(); drawCtx.moveTo(ln, entryY); drawCtx.lineTo(ex, entryY); drawCtx.stroke();
 
     drawCtx.strokeStyle = "#26a69a";
-    drawCtx.lineWidth = isSelected ? 1.5 : 1;
-    drawCtx.beginPath(); drawCtx.moveTo(ln, tpY); drawCtx.lineTo(W, tpY); drawCtx.stroke();
+    drawCtx.lineWidth = isSelected ? lw + 0.5 : lw;
+    drawCtx.beginPath(); drawCtx.moveTo(ln, tpY); drawCtx.lineTo(ex, tpY); drawCtx.stroke();
 
     // 進場三角（在 entry 點，朝右）
     if (ex >= 0 && ex <= W) {
       const ts = 7;
-      drawCtx.fillStyle = isSelected ? "#ffffff" : "rgba(255,255,255,0.85)";
+      drawCtx.fillStyle = col;
       drawCtx.beginPath();
       drawCtx.moveTo(ex, entryY - ts / 2);
       drawCtx.lineTo(ex + ts, entryY);
@@ -1716,9 +1721,32 @@ function initColorPicker() {
 /* ══════════════════════════════════════════
    事件綁定
 ══════════════════════════════════════════ */
+function _updateStarBtn() {
+  const btn    = document.getElementById("watchlistStarBtn");
+  if (!btn) return;
+  const symbol   = document.getElementById("symbolInput")?.value?.trim();
+  const market   = document.getElementById("marketSelect")?.value || "crypto";
+  const exchange = document.getElementById("exchangeSelect")?.value || "pionex";
+  if (!symbol) { btn.textContent = "☆"; btn.classList.remove("active"); return; }
+  const key  = `${market}:${exchange}:${symbol}`;
+  const inWl = _watchlist.some(w => `${w.market}:${w.exchange || ""}:${w.symbol}` === key);
+  btn.textContent = inWl ? "★" : "☆";
+  btn.classList.toggle("active", inWl);
+}
+
 function bindEvents() {
   document.getElementById("marketSelect").addEventListener("change", updateMarketUI);
   document.getElementById("loadBtn").addEventListener("click", () => loadData(false));
+
+  // ── 自選星號按鈕 ──────────────────────────────
+  document.getElementById("watchlistStarBtn")?.addEventListener("click", () => {
+    const symbol   = document.getElementById("symbolInput")?.value?.trim();
+    const market   = document.getElementById("marketSelect")?.value || "crypto";
+    const exchange = document.getElementById("exchangeSelect")?.value || "pionex";
+    if (!symbol) return;
+    _toggleWatchlist(symbol, market, exchange);
+    _updateStarBtn();
+  });
 
   // ── 側欄 / 行情列表 ──────────────────────────────
   const isMobile = () => window.innerWidth <= 768;
@@ -1866,10 +1894,10 @@ function updateMarketUI() {
     document.getElementById("symbolInput").value       = "2330";
   }
 
-  // 美股與台股都不支援 4h/15m（yfinance 4h 僅限 60 天）
+  // 台股：不支援 4h（盤中僅 4.5 小時）；美股：只支援日/週/月線
   document.querySelectorAll(".tf-btn").forEach(btn => {
-    const off = (isTW && ["4h","1h","15m"].includes(btn.dataset.tf)) ||
-                (isUS && ["15m"].includes(btn.dataset.tf));
+    const off = (isTW && ["4h"].includes(btn.dataset.tf)) ||
+                (isUS && ["4h","1h","15m","5m"].includes(btn.dataset.tf));
     btn.disabled = off;
     if (off && btn.classList.contains("active")) {
       btn.classList.remove("active");
@@ -2276,7 +2304,7 @@ async function loadData(autoLoad = false) {
 
   // 子日線時區資料量大，自動縮短起始日避免逾時
   if (!autoLoad) {
-    const TF_MAX_DAYS = { "4h": 365, "1h": 90, "15m": 30 };
+    const TF_MAX_DAYS = { "4h": 365, "1h": 90, "15m": 30, "5m": 30 };
     const maxDays = TF_MAX_DAYS[currentTF];
     if (maxDays) {
       const startEl = document.getElementById("startDate");
@@ -2305,6 +2333,7 @@ async function loadData(autoLoad = false) {
     renderAll(json.data);
     startRealtime();
     saveLastSymbol();   // 載入成功後記憶此次標的
+    _updateStarBtn();
   } catch(e) {
     if (!autoLoad) alert("❌ " + e.message);
     throw e;
@@ -2669,9 +2698,8 @@ function _replayRender() {
   renderRSI(slice);
   renderMACD(slice);
   updateSymbolBar(slice);
-  [mainChart, kdjChart, rsiChart, macdChart].forEach(c => c?.timeScale().fitContent());
-
   // 維持使用者縮放：最新一根貼右側，保留進入重播時的 bar 數
+  // syncTimeScales() 會自動將此範圍同步到 KDJ/RSI/MACD 面板
   mainChart.timeScale().setVisibleLogicalRange({
     from: n - _replaySpan - 1,
     to:   n - 1,

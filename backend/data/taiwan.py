@@ -3,7 +3,7 @@
 """
 import pandas as pd
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 
 
 FINMIND_API_URL = "https://api.finmindtrade.com/api/v4/data"
@@ -67,6 +67,50 @@ def resample_tw(df: pd.DataFrame, timeframe: str) -> pd.DataFrame:
     }).dropna(subset=["open"])
     resampled = resampled.reset_index()
     return resampled
+
+
+def fetch_tw_intraday(symbol: str, timeframe: str, start: str, end: str, api_token: str = "") -> pd.DataFrame:
+    """抓取台股分鐘 K 線並聚合為 5m / 15m / 1h"""
+    params = {
+        "dataset": "TaiwanStockPriceMinute",
+        "data_id": symbol,
+        "start_date": start,
+        "end_date": end,
+        "token": api_token,
+    }
+    resp = requests.get(FINMIND_API_URL, params=params, timeout=30)
+    resp.raise_for_status()
+    data = resp.json()
+
+    if data.get("status") != 200:
+        raise ValueError(f"FinMind 分鐘資料錯誤: {data.get('msg', '未知錯誤')}")
+
+    records = data.get("data", [])
+    if not records:
+        raise ValueError(f"找不到 {symbol} 的分鐘資料（需登入 FinMind 免費帳號取得 token）")
+
+    df = pd.DataFrame(records)
+    # FinMind 分鐘資料欄位: date, Time, open, high, low, close, volume
+    time_col  = "date" if "date" in df.columns else "Date"
+    clock_col = "Time" if "Time" in df.columns else "time"
+    df["time"] = pd.to_datetime(df[time_col].astype(str) + " " + df[clock_col].astype(str))
+
+    col_map = {}
+    for c in df.columns:
+        cl = c.lower()
+        if cl in ("open","high","low","close","volume") and c not in col_map.values():
+            col_map[c] = cl
+    df = df.rename(columns=col_map)
+    df = df[["time","open","high","low","close","volume"]].copy()
+    for c in ["open","high","low","close","volume"]:
+        df[c] = pd.to_numeric(df[c], errors="coerce")
+    df = df.sort_values("time").dropna(subset=["open"]).reset_index(drop=True)
+
+    rule = {"5m": "5min", "15m": "15min", "1h": "h"}.get(timeframe, "5min")
+    df = df.set_index("time")
+    df = df.resample(rule).agg({"open":"first","high":"max","low":"min","close":"last","volume":"sum"})
+    df = df.dropna(subset=["open"]).reset_index()
+    return df
 
 
 def search_tw_stock(keyword: str, api_token: str = "") -> list[dict]:

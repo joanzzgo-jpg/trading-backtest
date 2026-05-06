@@ -81,6 +81,22 @@ html, body {
 
 .tb-sidebar-btn { margin-right: 2px; }
 
+.tb-star-btn {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 15px;
+  width: 24px; height: 24px;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 3px;
+  transition: color .12s;
+  flex-shrink: 0;
+  padding: 0;
+}
+.tb-star-btn:hover { color: #f5c518; }
+.tb-star-btn.active { color: #f5c518; }
+
 /* Symbol group */
 .tb-symbol-group {
   display: flex;

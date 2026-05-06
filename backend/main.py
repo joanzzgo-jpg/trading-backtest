@@ -12,7 +12,7 @@ import os, sys, time, math, gc, subprocess
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-from data.taiwan import fetch_tw_stock, resample_tw, search_tw_stock
+from data.taiwan import fetch_tw_stock, resample_tw, search_tw_stock, fetch_tw_intraday
 from data.us_stock import fetch_us_stock, search_us_stocks, MAX_DAYS as US_MAX_DAYS
 from data.crypto import fetch_crypto_ohlcv, fetch_crypto_markets, fetch_tickers, _fetch_pionex_symbols, _fetch_futures_tickers_fapi
 from indicators.engine import add_indicators, crt_markers, rsi as calc_rsi, macd as calc_macd, \
@@ -136,15 +136,28 @@ def get_ohlcv(req: OHLCVRequest):
 
     try:
         if req.market == "tw":
-            if use_limit:
-                end   = date.today().isoformat()
-                start = (date.today() - timedelta(days=req.limit * 2)).isoformat()
+            if req.timeframe in ("5m", "15m", "1h"):
+                # 分鐘資料：最多抓近 60 天（免費 FinMind 限制）
+                if use_limit:
+                    days = min(60, req.limit // {"5m":78,"15m":26,"1h":7}.get(req.timeframe,26))
+                    days = max(days, 30)
+                    end   = date.today().isoformat()
+                    start = (date.today() - timedelta(days=days)).isoformat()
+                else:
+                    start, end = req.start, req.end
+                df = fetch_tw_intraday(req.symbol, req.timeframe, start, end, req.finmind_token)
+                if use_limit:
+                    df = df.tail(req.limit)
             else:
-                start, end = req.start, req.end
-            df = fetch_tw_stock(req.symbol, start, end, req.finmind_token)
-            df = resample_tw(df, req.timeframe)
-            if use_limit:
-                df = df.tail(req.limit)
+                if use_limit:
+                    end   = date.today().isoformat()
+                    start = (date.today() - timedelta(days=req.limit * 2)).isoformat()
+                else:
+                    start, end = req.start, req.end
+                df = fetch_tw_stock(req.symbol, start, end, req.finmind_token)
+                df = resample_tw(df, req.timeframe)
+                if use_limit:
+                    df = df.tail(req.limit)
         elif req.market == "crypto":
             if use_limit:
                 df = fetch_crypto_ohlcv(

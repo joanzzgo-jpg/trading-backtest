@@ -66,17 +66,20 @@ _PIONEX_SYMS_CACHE: dict = {"ts": 0.0, "syms": set()}
 
 def _fetch_pionex_symbols() -> set:
     """取得 Pionex 有上架的 base 幣集合（大寫），快取 1 小時。
-    API 失敗時回傳硬編碼的備援清單。
+    API 全失敗時回傳空集合（呼叫方應顯示全部 Binance 合約，不過濾）。
     """
     global _PIONEX_SYMS_CACHE
     now = time.time()
-    if now - _PIONEX_SYMS_CACHE["ts"] < 3600 and _PIONEX_SYMS_CACHE["syms"]:
+    if now - _PIONEX_SYMS_CACHE["ts"] < 3600 and _PIONEX_SYMS_CACHE["syms"] is not None:
         return _PIONEX_SYMS_CACHE["syms"]
     syms: set = set()
-    for endpoint in (
+    endpoints = [
         f"{PIONEX_BASE}/api/v1/common/symbols",
         f"{PIONEX_BASE}/api/v2/common/symbols",
-    ):
+        f"{PIONEX_BASE}/api/v1/perpetual/market/symbols",  # Pionex 期貨端點
+        f"{PIONEX_BASE}/api/v1/future/market/symbols",
+    ]
+    for endpoint in endpoints:
         try:
             data  = _get(endpoint, timeout=8)
             items = (
@@ -84,9 +87,9 @@ def _fetch_pionex_symbols() -> set:
                 data.get("symbols") or []
             )
             for s in items:
-                base  = s.get("baseCurrency") or s.get("base") or ""
-                quote = s.get("quoteCurrency") or s.get("quote") or ""
-                if str(quote).upper() == "USDT" and base:
+                base  = s.get("baseCurrency") or s.get("base") or s.get("baseCoin") or ""
+                quote = s.get("quoteCurrency") or s.get("quote") or s.get("quoteCoin") or ""
+                if str(quote).upper() in ("USDT", "") and base:
                     syms.add(str(base).upper())
             if len(syms) >= 5:
                 break
@@ -95,8 +98,8 @@ def _fetch_pionex_symbols() -> set:
     if len(syms) >= 5:
         _PIONEX_SYMS_CACHE = {"ts": now, "syms": syms}
         return syms
-    # API 失敗 → 使用硬編碼備援（不更新快取時間戳，下次仍會重試 API）
-    return PIONEX_PERP_FALLBACK
+    # API 全失敗 → 回傳空集合，代表「不過濾，顯示所有 Binance 合約」
+    return set()
 
 
 def _sym_binance(symbol: str) -> str:
@@ -382,8 +385,10 @@ def fetch_crypto_markets(exchange_id: str = "pionex"):
 
 
 def _apply_pionex_filter(tickers: list) -> list:
-    """依 Pionex 標的清單過濾（API 失敗時使用硬編碼備援，永遠有結果）"""
-    pionex_syms = _fetch_pionex_symbols()   # 永遠非空
+    """依 Pionex 標的清單過濾；若 API 失敗（空集合）則不過濾，顯示所有 Binance 合約"""
+    pionex_syms = _fetch_pionex_symbols()
+    if not pionex_syms:
+        return tickers  # Pionex API 不可用時，直接顯示全部 Binance 合約
     return [t for t in tickers if t["symbol"][:-4].upper() in pionex_syms]
 
 
