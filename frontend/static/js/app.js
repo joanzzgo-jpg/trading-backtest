@@ -1780,28 +1780,14 @@ function bindEvents() {
 
   // ── 側欄 / 行情列表 ──────────────────────────────
   const isMobile = () => window.innerWidth <= 768;
-  function openSidebar()  { document.getElementById("sidebar").classList.add("sidebar-open");     showOverlay(); }
-  function closeSidebar() { document.getElementById("sidebar").classList.remove("sidebar-open"); checkOverlay(); }
   function openTicker()   { document.getElementById("tickerPanel").classList.add("ticker-open");  showOverlay(); }
   function closeTicker()  { document.getElementById("tickerPanel").classList.remove("ticker-open"); checkOverlay(); }
   function showOverlay()  { document.getElementById("panelOverlay").classList.remove("hidden"); }
   function checkOverlay() {
-    const sideOpen   = document.getElementById("sidebar").classList.contains("sidebar-open");
     const tickerOpen = document.getElementById("tickerPanel").classList.contains("ticker-open");
-    if (!sideOpen && !tickerOpen) document.getElementById("panelOverlay").classList.add("hidden");
+    if (!tickerOpen) document.getElementById("panelOverlay").classList.add("hidden");
   }
-  function closeAllPanels() { closeSidebar(); closeTicker(); }
 
-  // sidebar toggle：手機版為抽屜，桌面版為摺疊
-  document.getElementById("sidebarToggle").addEventListener("click", () => {
-    const sidebar = document.getElementById("sidebar");
-    if (isMobile()) {
-      sidebar.classList.contains("sidebar-open") ? closeSidebar() : openSidebar();
-    } else {
-      sidebar.classList.toggle("sidebar-collapsed");
-      setTimeout(resizeAll, 220);
-    }
-  });
   document.getElementById("tickerToggle")?.addEventListener("click", () => {
     if (isMobile()) {
       const open = document.getElementById("tickerPanel").classList.contains("ticker-open");
@@ -1811,7 +1797,33 @@ function bindEvents() {
       setTimeout(resizeAll, 50);
     }
   });
-  document.getElementById("panelOverlay").addEventListener("click", closeAllPanels);
+  document.getElementById("panelOverlay").addEventListener("click", closeTicker);
+
+  // 系統外觀設定按鈕
+  const _sysBtn = document.getElementById("sysSettingsBtn");
+  const _sysPop = document.getElementById("sysSettingsPopup");
+  _sysBtn?.addEventListener("click", e => {
+    e.stopPropagation();
+    const opening = !_sysPop.classList.contains("open");
+    _sysPop.classList.toggle("open");
+    if (opening) {
+      requestAnimationFrame(() => {
+        const rect = _sysBtn.getBoundingClientRect();
+        const pw = _sysPop.offsetWidth, ph = _sysPop.offsetHeight;
+        let left = rect.right - pw;
+        let top  = rect.bottom + 4;
+        if (left < 4) left = 4;
+        if (top + ph > window.innerHeight - 8) top = rect.top - ph - 4;
+        _sysPop.style.left = left + "px";
+        _sysPop.style.top  = top  + "px";
+      });
+    }
+  });
+  document.addEventListener("click", e => {
+    if (_sysPop && !_sysPop.contains(e.target) && e.target !== _sysBtn) {
+      _sysPop.classList.remove("open");
+    }
+  });
 
   document.getElementById("tickerList").addEventListener("click", () => {
     if (isMobile()) closeTicker();
@@ -2807,16 +2819,6 @@ function bindSystemColors() {
     }
     applyAllSystemColors();
     saveSystemColors();
-    // 同步 cp-trigger 顯示色
-    document.querySelectorAll("#sysColorPanel input[type='color'].cp-hidden").forEach(inp => {
-      const tr = inp.previousElementSibling;
-      if (tr?.classList.contains("cp-trigger")) tr.style.background = inp.value;
-    });
-  });
-  // 收合 toggle
-  document.getElementById("sysColorToggle")?.addEventListener("click", () => {
-    document.getElementById("sysColorPanel")?.classList.toggle("hidden");
-    document.querySelector("#sysColorToggle .toggle-arrow")?.classList.toggle("open");
   });
 }
 

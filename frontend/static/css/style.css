@@ -1306,6 +1306,32 @@ html, body {
   flex-shrink: 0;
 }
 
+/* ── 系統外觀設定浮動視窗 ── */
+.sys-settings-popup {
+  display: none;
+  position: fixed;
+  z-index: 800;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 20px rgba(0,0,0,.5);
+  min-width: 200px;
+  padding: 8px 12px 10px;
+  font-size: 12px;
+}
+.sys-settings-popup.open { display: block; }
+.sys-settings-popup .color-row { padding: 3px 0; }
+.sys-sp-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 6px;
+  margin-bottom: 6px;
+}
+
 @media (max-width: 520px) {
   #startDate, #endDate, .tb-sep { display: none !important; }
   .tf-group .tf-btn[data-tf="1M"],
