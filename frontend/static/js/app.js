@@ -212,7 +212,7 @@ function makeBaseOpts(scaleMargins = null, showTime = false) {
       vertLine: { style: 0, width: 1, color: "#758696", labelBackgroundColor: "#2a2e39" },
       horzLine: { style: 0, width: 1, color: "#758696", labelBackgroundColor: "#2a2e39" },
     },
-    rightPriceScale: { borderColor:"#2a2e39" },
+    rightPriceScale: { borderColor:"#2a2e39", minimumWidth: 80 },
     timeScale: {
       borderColor: "#2a2e39",
       timeVisible: true,
@@ -422,8 +422,8 @@ function syncTimeScales() {
       if (!pane || pane.classList.contains("hidden")) { ln.style.display = "none"; return; }
       if (pane.querySelector(".pane-body")?.style.display === "none") { ln.style.display = "none"; return; }
 
-      // 所有面板統一使用主圖的 x，避免各 pane price scale 寬度不同造成斷線
-      const paneX = mainX;
+      const paneX = chart.timeScale().timeToCoordinate(time) ?? mainX;
+      if (paneX == null) { ln.style.display = "none"; return; }
 
       const pRect = pane.getBoundingClientRect();
       let height  = pRect.height;
