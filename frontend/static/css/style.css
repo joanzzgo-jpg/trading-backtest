@@ -66,12 +66,39 @@ html, body {
 .topbar-logo {
   display: flex;
   align-items: center;
+  gap: 6px;
   flex-shrink: 0;
   margin-right: 8px;
+  text-decoration: none;
   opacity: 0.92;
   transition: opacity .15s;
 }
 .topbar-logo:hover { opacity: 1; }
+.topbar-bear {
+  height: 32px;
+  width: 32px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+.topbar-brand {
+  display: flex;
+  flex-direction: column;
+  line-height: 1;
+  gap: 1px;
+}
+.topbar-brand-name {
+  font-size: 15px;
+  font-weight: 900;
+  color: #fff;
+  letter-spacing: 2px;
+  font-family: 'Arial Black', Arial, sans-serif;
+}
+.topbar-brand-sub {
+  font-size: 8px;
+  font-weight: 600;
+  color: #E2A52A;
+  letter-spacing: 3px;
+}
 .topbar-right { display: flex; align-items: center; gap: 4px; flex-shrink: 0; padding-left: 6px; }
 
 /* Vertical divider in topbar */
