@@ -496,6 +496,7 @@ html, body {
   left: 50%;
   transform: translate(-50%, -50%);
   width: min(88%, 680px);
+  max-height: 75%;
   opacity: 0.25;
   pointer-events: none;
   filter: invert(1) hue-rotate(180deg);
