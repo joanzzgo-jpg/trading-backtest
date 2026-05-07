@@ -822,7 +822,14 @@ function _onChartClick(e) {
         sl = clicked;
         tp = entry + (entry - sl);
       }
-      drawings.push({ id:_did(), type:"longpos", p1:drawingWIP.p1, tp, sl, color:_drawColor });
+      // 色塊寬度 = 兩次點擊的水平距離（換算成 K棒數）
+      const _ex1 = mainChart.timeScale().timeToCoordinate(drawingWIP.p1.time);
+      const _ex2 = mainChart.timeScale().timeToCoordinate(pt.time);
+      const _vr  = mainChart.timeScale().getVisibleLogicalRange();
+      const _bv  = _vr ? Math.max(10, _vr.to - _vr.from) : 50;
+      const _ppb = (drawCanvas?.width || 800) / _bv;
+      const _bw  = Math.max(3, Math.round(Math.abs((_ex2 ?? 0) - (_ex1 ?? 0)) / _ppb));
+      drawings.push({ id:_did(), type:"longpos", p1:drawingWIP.p1, tp, sl, color:_drawColor, barWidth:_bw });
       drawingWIP = null;
       saveDrawings(); _returnToPointer();
     }
@@ -844,7 +851,13 @@ function _onChartClick(e) {
         sl = clicked;
         tp = entry - (sl - entry);
       }
-      drawings.push({ id:_did(), type:"shortpos", p1:drawingWIP.p1, tp, sl, color:_drawColor });
+      const _ex1s = mainChart.timeScale().timeToCoordinate(drawingWIP.p1.time);
+      const _ex2s = mainChart.timeScale().timeToCoordinate(pt.time);
+      const _vrs  = mainChart.timeScale().getVisibleLogicalRange();
+      const _bvs  = _vrs ? Math.max(10, _vrs.to - _vrs.from) : 50;
+      const _ppbs = (drawCanvas?.width || 800) / _bvs;
+      const _bws  = Math.max(3, Math.round(Math.abs((_ex2s ?? 0) - (_ex1s ?? 0)) / _ppbs));
+      drawings.push({ id:_did(), type:"shortpos", p1:drawingWIP.p1, tp, sl, color:_drawColor, barWidth:_bws });
       drawingWIP = null;
       saveDrawings(); _returnToPointer();
     }
