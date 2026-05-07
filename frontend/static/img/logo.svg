@@ -1,94 +1,60 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 340 110" width="340" height="110">
   <defs>
-    <radialGradient id="bodyG" cx="35%" cy="28%" r="72%">
-      <stop offset="0%" stop-color="#89b8ff"/>
-      <stop offset="100%" stop-color="#4a7de8"/>
-    </radialGradient>
-    <radialGradient id="earG" cx="38%" cy="30%" r="65%">
-      <stop offset="0%" stop-color="#6fa0f5"/>
-      <stop offset="100%" stop-color="#3a6ad4"/>
-    </radialGradient>
-    <radialGradient id="shineG" cx="30%" cy="25%" r="70%">
-      <stop offset="0%" stop-color="#ffffff"/>
-      <stop offset="100%" stop-color="#ddefff"/>
-    </radialGradient>
-    <filter id="drop" x="-15%" y="-15%" width="130%" height="130%">
-      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="rgba(60,90,200,0.25)"/>
+    <!-- 手繪毛躁邊緣 -->
+    <filter id="fuzzy" x="-12%" y="-12%" width="124%" height="124%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.038" numOctaves="4" seed="7" result="noise"/>
+      <feDisplacementMap in="SourceGraphic" in2="noise" scale="5.5"
+                         xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+    <filter id="fuzzy2" x="-8%" y="-8%" width="116%" height="116%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.055" numOctaves="3" seed="12" result="noise"/>
+      <feDisplacementMap in="SourceGraphic" in2="noise" scale="3.5"
+                         xChannelSelector="R" yChannelSelector="G"/>
     </filter>
   </defs>
 
-  <!-- Character group with shadow -->
-  <g filter="url(#drop)">
+  <!-- ── 耳朵（在身體後面）── -->
+  <circle cx="19" cy="23" r="15" fill="#E2A52A" filter="url(#fuzzy)"/>
+  <ellipse cx="19" cy="24" rx="9" ry="8" fill="#9B7020" filter="url(#fuzzy2)" opacity="0.72"/>
 
-    <!-- Ears -->
-    <circle cx="29" cy="18" r="14" fill="url(#earG)"/>
-    <circle cx="81" cy="18" r="14" fill="url(#earG)"/>
-    <!-- Inner ear -->
-    <circle cx="29" cy="18" r="8.5" fill="rgba(255,255,255,0.22)"/>
-    <circle cx="81" cy="18" r="8.5" fill="rgba(255,255,255,0.22)"/>
+  <circle cx="86" cy="27" r="12" fill="#E2A52A" filter="url(#fuzzy)"/>
+  <ellipse cx="86" cy="28" rx="7" ry="6" fill="#9B7020" filter="url(#fuzzy2)" opacity="0.72"/>
 
-    <!-- Body -->
-    <circle cx="55" cy="59" r="47" fill="url(#bodyG)"/>
+  <!-- ── 頭部主體 ── -->
+  <ellipse cx="52" cy="62" rx="45" ry="41" fill="#E2A52A" filter="url(#fuzzy)"/>
 
-    <!-- Body highlight (top sheen) -->
-    <ellipse cx="42" cy="32" rx="20" ry="12" fill="rgba(255,255,255,0.18)"/>
+  <!-- ── 綠色葉子（頭頂） ── -->
+  <path d="M 61 8 Q 70 4 72 13 Q 66 20 59 18 Q 57 12 61 8 Z"
+        fill="#5aaa3a" filter="url(#fuzzy2)"/>
 
-    <!-- ── Eyes ── -->
-    <circle cx="38" cy="53" r="15"  fill="white"/>
-    <circle cx="72" cy="53" r="15"  fill="white"/>
+  <!-- ── 腮紅 ── -->
+  <ellipse cx="25" cy="69" rx="15" ry="11" fill="#D08020" filter="url(#fuzzy2)" opacity="0.82"/>
+  <ellipse cx="73" cy="71" rx="14" ry="10" fill="#D08020" filter="url(#fuzzy2)" opacity="0.82"/>
 
-    <!-- Iris (soft sky blue ring) -->
-    <circle cx="40" cy="53" r="10.5" fill="#c8e0ff"/>
-    <circle cx="70" cy="53" r="10.5" fill="#c8e0ff"/>
+  <!-- ── 眼睛（兩個不對稱小點） ── -->
+  <circle cx="38" cy="51" r="5.5" fill="#2A1808"/>
+  <circle cx="62" cy="47" r="4"   fill="#2A1808"/>
 
-    <!-- Pupils -->
-    <circle cx="40" cy="53" r="7.5" fill="#1a2860"/>
-    <circle cx="70" cy="53" r="7.5" fill="#1a2860"/>
+  <!-- ── 鼻嘴（T 字型，最有特色的部分）── -->
+  <!-- 橫槓 -->
+  <rect x="44" y="65" width="13" height="3.5" rx="1.8" fill="#2A1808"/>
+  <!-- 豎槓 -->
+  <rect x="49" y="68" width="3.5" height="9"  rx="1.8" fill="#2A1808"/>
 
-    <!-- Primary shine -->
-    <circle cx="43.5" cy="49" r="3.8" fill="url(#shineG)"/>
-    <circle cx="73.5" cy="49" r="3.8" fill="url(#shineG)"/>
+  <!-- ── 右臉小 × 記號 ── -->
+  <line x1="67" y1="75" x2="73" y2="82" stroke="#2A1808" stroke-width="2.8" stroke-linecap="round"/>
+  <line x1="73" y1="75" x2="67" y2="82" stroke="#2A1808" stroke-width="2.8" stroke-linecap="round"/>
 
-    <!-- Tiny secondary shine -->
-    <circle cx="37.5" cy="57" r="1.8" fill="rgba(255,255,255,0.55)"/>
-    <circle cx="67.5" cy="57" r="1.8" fill="rgba(255,255,255,0.55)"/>
+  <!-- ── 品牌文字 ── -->
+  <line x1="116" y1="18" x2="116" y2="92" stroke="rgba(226,165,42,0.55)" stroke-width="1.2"/>
 
-    <!-- ── Blush ── -->
-    <ellipse cx="19"  cy="68" rx="12" ry="7" fill="rgba(255,120,140,0.42)"/>
-    <ellipse cx="91"  cy="68" rx="12" ry="7" fill="rgba(255,120,140,0.42)"/>
-
-    <!-- ── Smile ── -->
-    <path d="M 42 77 Q 55 91 68 77"
-          stroke="#1ab5a0" stroke-width="3.5" fill="none" stroke-linecap="round"/>
-
-    <!-- ── Mini K-bar chart on forehead ── -->
-    <g transform="translate(44, 30)" opacity="0.88">
-      <line x1="3"   y1="1" x2="3"   y2="10" stroke="#1fb89e" stroke-width="1.3"/>
-      <rect x="0.5"  y="3"  width="5" height="6" fill="#1fb89e" rx="1"/>
-
-      <line x1="11"  y1="-1" x2="11" y2="9"  stroke="#f06060" stroke-width="1.3"/>
-      <rect x="8.5"  y="1"   width="5" height="6" fill="#f06060" rx="1"/>
-
-      <line x1="19"  y1="0"  x2="19" y2="10" stroke="#1fb89e" stroke-width="1.3"/>
-      <rect x="16.5" y="2"   width="5" height="7" fill="#1fb89e" rx="1"/>
-    </g>
-
-  </g>
-
-  <!-- ── Brand text ── -->
-  <!-- Thin separator line -->
-  <line x1="120" y1="20" x2="120" y2="90"
-        stroke="rgba(74,125,232,0.5)" stroke-width="1.2"/>
-
-  <!-- AHH  -->
-  <text x="134" y="66"
+  <text x="130" y="66"
     font-family="'Arial Rounded MT Bold','Arial Black','Trebuchet MS',Arial,sans-serif"
     font-size="46" font-weight="900"
     fill="#ffffff" letter-spacing="5">AHH</text>
 
-  <!-- TRADING -->
-  <text x="138" y="83"
+  <text x="134" y="83"
     font-family="Arial,Helvetica,sans-serif"
     font-size="11.5" font-weight="600"
-    fill="#1ab5a0" letter-spacing="6.5">TRADING</text>
+    fill="#E2A52A" letter-spacing="6.5">TRADING</text>
 </svg>
