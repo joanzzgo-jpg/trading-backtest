@@ -572,7 +572,7 @@ function _drawingHitPart(d, x, y) {
     const W2 = drawCanvas?.width || 800;
     const visR = mainChart.timeScale().getVisibleLogicalRange();
     const barsV = visR ? Math.max(10, visR.to - visR.from) : 50;
-    const ZW = Math.max(60, Math.min(W2 * 0.4, Math.round(W2 * (d.barWidth ?? 6) / barsV)));
+    const ZW = Math.max(20, Math.min(W2 * 0.4, Math.round(W2 * (d.barWidth ?? 3) / barsV)));
     const lx = Math.max(0, ex - ZW);
     if (Math.abs(x - lx) < 10 && y >= Math.min(ty, sy) - 8 && y <= Math.max(ty, sy) + 8) return "width";
   }
@@ -928,7 +928,7 @@ function _updateDrag(x, y) {
       const visR = mainChart.timeScale().getVisibleLogicalRange();
       const barsV = visR ? Math.max(10, visR.to - visR.from) : 50;
       const W2 = drawCanvas?.width || 800;
-      d.barWidth = Math.max(3, (orig.barWidth ?? 6) - Math.round(dx / (W2 / barsV)));
+      d.barWidth = Math.max(3, (orig.barWidth ?? 3) - Math.round(dx / (W2 / barsV)));
     } else {
       // entry：整體平移（TP/SL 跟隨）
       const oy = candleSeries?.priceToCoordinate(orig.p1.price);
@@ -1042,7 +1042,7 @@ function drawingDist(d, x, y) {
     if (startX == null) return Infinity;
     const visR  = mainChart.timeScale().getVisibleLogicalRange();
     const barsV = visR ? Math.max(10, visR.to - visR.from) : 50;
-    const zw    = Math.max(60, Math.min(W2 * 0.4, Math.round(W2 * (d.barWidth ?? 6) / barsV)));
+    const zw    = Math.max(20, Math.min(W2 * 0.4, Math.round(W2 * (d.barWidth ?? 3) / barsV)));
     const ex = startX, lx = Math.max(0, ex - zw);
     // 只有在色塊區（lx..ex）或右側標籤區（W-100..W）才命中
     if (x < lx - 10) return Infinity;
@@ -1209,7 +1209,7 @@ function drawOne(d, W, H, isHovered, isSelected) {
     // 色塊寬度隨縮放動態計算（約 18 根 K 棒的寬度）
     const visR  = mainChart.timeScale().getVisibleLogicalRange();
     const barsV = visR ? Math.max(10, visR.to - visR.from) : 50;
-    const ZONE_W = Math.max(60, Math.min(W * 0.4, Math.round(W * (d.barWidth ?? 6) / barsV)));
+    const ZONE_W = Math.max(20, Math.min(W * 0.4, Math.round(W * (d.barWidth ?? 3) / barsV)));
     const ex  = startX;
     const lx  = Math.max(0, ex - ZONE_W);
     const ln  = lx;
@@ -1321,7 +1321,7 @@ function drawOne(d, W, H, isHovered, isSelected) {
 
     const visR2  = mainChart.timeScale().getVisibleLogicalRange();
     const barsV2 = visR2 ? Math.max(10, visR2.to - visR2.from) : 50;
-    const ZONE_W = Math.max(60, Math.min(W * 0.4, Math.round(W * (d.barWidth ?? 6) / barsV2)));
+    const ZONE_W = Math.max(20, Math.min(W * 0.4, Math.round(W * (d.barWidth ?? 3) / barsV2)));
     const ex  = startX;
     const lx  = Math.max(0, ex - ZONE_W);
     const ln  = lx;
