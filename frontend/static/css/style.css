@@ -3,6 +3,10 @@
 ═══════════════════════════════════════ */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* 樹枝手繪游標 */
+* { cursor: url('/static/img/cursor-branch.svg') 1 1, auto; }
+input[type="text"], input[type="number"], input[type="date"], textarea, .sym-modal-input, .tb-symbol-input, .tk-search, .ind-sp-num { cursor: text; }
+
 :root {
   --bg:      #131722;
   --bg2:     #1e222d;
