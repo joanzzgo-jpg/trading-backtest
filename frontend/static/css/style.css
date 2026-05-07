@@ -490,25 +490,18 @@ html, body {
 
 .pane-body { flex: 1; min-height: 0; overflow: hidden; position: relative; }
 
-/* 浮水印限制在 K棒區（不進量區） */
-.chart-bear-wrap {
-  position: absolute;
-  top: 0; left: 0; right: 0;
-  height: 80%;
-  overflow: hidden;
-  pointer-events: none;
-  z-index: 0;
-}
 .chart-bear-bg {
   position: absolute;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
   width: min(88%, 680px);
-  max-height: 100%;
   opacity: 0.25;
+  pointer-events: none;
+  /* invert 讓白底→黑（暗色背景幾乎不可見），hue-rotate 把熊的顏色轉回金色
+     不用 mix-blend-mode，避免瀏覽器把浮水印合成層疊在 LWC canvas 上方 */
   filter: invert(1) hue-rotate(180deg);
-  mix-blend-mode: screen;
+  z-index: 0;
   user-select: none;
 }
 
