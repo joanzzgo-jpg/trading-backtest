@@ -1,5 +1,5 @@
 """
-台股資料抓取 - 使用 FinMind API（免費）
+台股資料抓取 - 歷史日線用 FinMind，分鐘/小時用 yfinance（不需 token）
 """
 import pandas as pd
 import requests
@@ -113,11 +113,47 @@ def fetch_tw_intraday(symbol: str, timeframe: str, start: str, end: str, api_tok
     return df
 
 
+YF_TF_MAP = {"5m": "5m", "15m": "15m", "1h": "1h", "4h": "1h"}  # yfinance 不支援 4h，用 1h 替代
+
+# yfinance 各 interval 最多可回溯天數
+YF_MAX_DAYS = {"5m": 60, "15m": 60, "1h": 730}
+
+
+def fetch_tw_intraday_yf(symbol: str, timeframe: str, start: str, end: str) -> pd.DataFrame:
+    """
+    用 yfinance 抓台股分鐘/小時資料（不需 token）。
+    先試上市後綴 .TW，失敗再試上櫃 .TWO。
+    """
+    import yfinance as yf
+
+    interval = YF_TF_MAP.get(timeframe, "1h")
+    for suffix in (".TW", ".TWO"):
+        try:
+            raw = yf.Ticker(f"{symbol}{suffix}").history(
+                start=start, end=end, interval=interval, auto_adjust=True
+            )
+            if raw.empty:
+                continue
+            df = raw[["Open", "High", "Low", "Close", "Volume"]].copy()
+            df.columns = ["open", "high", "low", "close", "volume"]
+            idx = pd.to_datetime(df.index)
+            if idx.tz is not None:
+                idx = idx.tz_convert("Asia/Taipei").tz_localize(None)
+            df.index = idx
+            df.index.name = "time"
+            df = df.reset_index()
+            df["time"] = pd.to_datetime(df["time"]).dt.floor("s")
+            return df
+        except Exception:
+            continue
+    raise ValueError(f"找不到 {symbol} 的分鐘資料（請確認代號正確，例如 2330）")
+
+
 TWSE_MIS_URL = "https://mis.twse.com.tw/stock/api/getStockInfo.jsp"
 TWSE_MIS_HEADERS = {"Referer": "https://mis.twse.com.tw/stock/index.jsp"}
 
 
-def fetch_tw_realtime(symbol: str) -> dict | None:
+def fetch_tw_realtime(symbol: str):
     """
     TWSE MIS 即時報價（盤中）。
     先試上市(tse)，再試上櫃(otc)。
