@@ -16,6 +16,7 @@ const DEFAULT_COLORS = {
   crtBull: "#26a69a", crtBear: "#ef5350",
   resonanceBull: "#26c6da", resonanceBear: "#ff9800",
   bg:      "#131722",
+  chartBg: "#131722",
 };
 
 const DEFAULT_STYLES = {
@@ -216,7 +217,7 @@ function loadVisibilityPrefs() {
 /* ── 基礎圖表選項（showTime=true 才顯示時間軸，只有最下方的圖顯示）── */
 function makeBaseOpts(scaleMargins = null, showTime = false) {
   const opts = {
-    layout:    { background:{ color: C.bg }, textColor:"#d1d4dc" },
+    layout:    { background:{ color: C.chartBg || C.bg }, textColor:"#d1d4dc" },
     grid:      { vertLines:{ color:"#2a2e39" }, horzLines:{ color:"#2a2e39" } },
     crosshair: {
       mode: LightweightCharts.CrosshairMode.Normal,
@@ -1406,9 +1407,10 @@ function drawPreview(type, a, b, W, H) {
    顏色 / 樣式
 ══════════════════════════════════════════ */
 function applyAllColors() {
-  const bgOpt = { layout: { background:{ color: C.bg }, textColor:"#d1d4dc" } };
+  const bg = C.chartBg || C.bg;
+  const bgOpt = { layout: { background:{ color: bg }, textColor:"#d1d4dc" } };
   [mainChart, kdjChart, rsiChart, macdChart].forEach(c => c?.applyOptions(bgOpt));
-  document.body.style.background = C.bg;
+  document.body.style.background = bg;
 
   if (currentChartType === "candlestick") {
     candleSeries.applyOptions({ upColor:C.up, downColor:C.down, borderUpColor:C.up, borderDownColor:C.down, wickUpColor:C.up, wickDownColor:C.down });
@@ -2102,6 +2104,16 @@ function bindIndicatorPanel() {
         { divider: true },
         { label:"KDJ金叉",  colorKey:"kdjCrossBull", onColor: ()=>{ if(ohlcvData.length) renderKDJCross(ohlcvData); } },
         { label:"KDJ死叉",  colorKey:"kdjCrossBear", onColor: ()=>{ if(ohlcvData.length) renderKDJCross(ohlcvData); } },
+        { divider: true },
+        { label:"主圖背景", colorKey:"chartBg", bgPresets: true, onColor: c=>{
+            C.chartBg = c;
+            [mainChart, kdjChart, rsiChart, macdChart].forEach(ch =>
+              ch?.applyOptions({ layout: { background: { color: c } } })
+            );
+            document.body.style.background = c;
+            savePrefs();
+          }
+        },
       ]
     },
     kdj: {
@@ -2168,6 +2180,26 @@ function bindIndicatorPanel() {
         }]);
       });
       rowEl.appendChild(dot);
+
+      // 背景色快速預設色塊
+      if (row.bgPresets) {
+        const presets = ["#131722","#0d1117","#1a1a2e","#0f2027","#1b2838",
+                         "#1e1e1e","#0a0a0a","#ffffff","#f5f5f0","#fdf6e3"];
+        const wrap = document.createElement("div");
+        wrap.style.cssText = "display:flex;flex-wrap:wrap;gap:3px;margin-left:6px;";
+        presets.forEach(hex => {
+          const sw = document.createElement("div");
+          sw.style.cssText = `width:14px;height:14px;border-radius:2px;cursor:pointer;background:${hex};border:1px solid rgba(255,255,255,0.15);flex-shrink:0;`;
+          sw.title = hex;
+          sw.addEventListener("click", e => {
+            e.stopPropagation();
+            dot.style.background = hex;
+            row.onColor?.(hex);
+          });
+          wrap.appendChild(sw);
+        });
+        rowEl.appendChild(wrap);
+      }
     }
 
     // 線型按鈕
