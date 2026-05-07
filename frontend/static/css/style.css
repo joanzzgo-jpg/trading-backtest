@@ -484,7 +484,19 @@ html, body {
   pointer-events: none;
 }
 
-.pane-body { flex: 1; min-height: 0; overflow: hidden; }
+.pane-body { flex: 1; min-height: 0; overflow: hidden; position: relative; }
+
+.chart-bear-bg {
+  position: absolute;
+  bottom: 8%;
+  right: 4%;
+  width: min(38%, 320px);
+  opacity: 0.055;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  z-index: 0;
+  user-select: none;
+}
 
 .leg-item { font-size: 11px; color: var(--muted); }
 
