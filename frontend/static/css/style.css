@@ -488,7 +488,7 @@ html, body {
   pointer-events: none;
 }
 
-.pane-body { flex: 1; min-height: 0; overflow: hidden; position: relative; }
+.pane-body { flex: 1; min-height: 0; overflow: hidden; position: relative; isolation: isolate; }
 
 .chart-bear-bg {
   position: absolute;
@@ -498,10 +498,8 @@ html, body {
   width: min(88%, 680px);
   opacity: 0.25;
   pointer-events: none;
-  /* invert 讓白底→黑（暗色背景幾乎不可見），hue-rotate 把熊的顏色轉回金色
-     不用 mix-blend-mode，避免瀏覽器把浮水印合成層疊在 LWC canvas 上方 */
   filter: invert(1) hue-rotate(180deg);
-  z-index: 0;
+  z-index: -1;
   user-select: none;
 }
 
