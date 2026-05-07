@@ -3462,7 +3462,7 @@ function showLoading(show) {
     if (!el) {
       el = document.createElement("div");
       el.id = "loadingOverlay"; el.className = "loading-overlay";
-      el.innerHTML = `<span class="realtime-dot"></span> 處理中...`;
+      el.innerHTML = `<div class="loading-inner"><img src="/static/img/bear.png" class="loading-bear"/><span class="loading-text">處理中...</span></div>`;
       document.body.appendChild(el);
     }
   } else { el?.remove(); }
