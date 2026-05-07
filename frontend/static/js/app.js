@@ -220,7 +220,7 @@ function loadVisibilityPrefs() {
 /* ── 基礎圖表選項（showTime=true 才顯示時間軸，只有最下方的圖顯示）── */
 function makeBaseOpts(scaleMargins = null, showTime = false) {
   const opts = {
-    layout:    { background:{ color: C.chartBg || C.bg }, textColor:"#d1d4dc" },
+    layout:    { background:{ color: "rgba(0,0,0,0)" }, textColor:"#d1d4dc" },
     grid:      { vertLines:{ color:"#2a2e39" }, horzLines:{ color:"#2a2e39" } },
     crosshair: {
       mode: LightweightCharts.CrosshairMode.Normal,
@@ -1414,9 +1414,13 @@ function drawPreview(type, a, b, W, H) {
 ══════════════════════════════════════════ */
 function applyAllColors() {
   const bg = C.chartBg || C.bg;
-  const bgOpt = { layout: { background:{ color: bg }, textColor:"#d1d4dc" } };
-  [mainChart, kdjChart, rsiChart, macdChart].forEach(c => c?.applyOptions(bgOpt));
+  // LWC canvas 保持透明，讓浮水印顯示在 K棒下方；背景色由 CSS 提供
+  [mainChart, kdjChart, rsiChart, macdChart].forEach(c =>
+    c?.applyOptions({ layout: { background:{ color:"rgba(0,0,0,0)" }, textColor:"#d1d4dc" } })
+  );
   document.body.style.background = bg;
+  const _cc = document.querySelector(".charts-container");
+  if (_cc) _cc.style.background = bg;
 
   if (currentChartType === "candlestick") {
     const bodyUp   = S.bodyVisible   !== false ? C.up        : "rgba(0,0,0,0)";
@@ -2122,10 +2126,9 @@ function bindIndicatorPanel() {
         { divider: true },
         { label:"主圖背景", colorKey:"chartBg", bgPresets: true, onColor: c=>{
             C.chartBg = c;
-            [mainChart, kdjChart, rsiChart, macdChart].forEach(ch =>
-              ch?.applyOptions({ layout: { background: { color: c } } })
-            );
             document.body.style.background = c;
+            const _cc = document.querySelector(".charts-container");
+            if (_cc) _cc.style.background = c;
             savePrefs();
           }
         },
