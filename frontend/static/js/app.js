@@ -573,8 +573,8 @@ function _drawingHitPart(d, x, y) {
     const visR = mainChart.timeScale().getVisibleLogicalRange();
     const barsV = visR ? Math.max(10, visR.to - visR.from) : 50;
     const ZW = Math.max(20, Math.min(W2 * 0.4, Math.round(W2 * (d.barWidth ?? 3) / barsV)));
-    const lx = Math.max(0, ex - ZW);
-    if (Math.abs(x - lx) < 10 && y >= Math.min(ty, sy) - 8 && y <= Math.max(ty, sy) + 8) return "width";
+    const rx2 = Math.min(W2, ex + ZW);
+    if (Math.abs(x - rx2) < 10 && y >= Math.min(ty, sy) - 8 && y <= Math.max(ty, sy) + 8) return "width";
   }
   let bestDist = Infinity, bestPart = "entry";
   [["entry", ey], ["tp", ty], ["sl", sy]].forEach(([part, py]) => {
@@ -941,7 +941,7 @@ function _updateDrag(x, y) {
       const visR = mainChart.timeScale().getVisibleLogicalRange();
       const barsV = visR ? Math.max(10, visR.to - visR.from) : 50;
       const W2 = drawCanvas?.width || 800;
-      d.barWidth = Math.max(3, (orig.barWidth ?? 3) - Math.round(dx / (W2 / barsV)));
+      d.barWidth = Math.max(3, (orig.barWidth ?? 3) + Math.round(dx / (W2 / barsV)));
     } else {
       // entry：整體平移（TP/SL 跟隨）
       const oy = candleSeries?.priceToCoordinate(orig.p1.price);
@@ -1056,10 +1056,10 @@ function drawingDist(d, x, y) {
     const visR  = mainChart.timeScale().getVisibleLogicalRange();
     const barsV = visR ? Math.max(10, visR.to - visR.from) : 50;
     const zw    = Math.max(20, Math.min(W2 * 0.4, Math.round(W2 * (d.barWidth ?? 3) / barsV)));
-    const ex = startX, lx = Math.max(0, ex - zw);
-    // 只有在色塊區（lx..ex）或右側標籤區（W-100..W）才命中
-    if (x < lx - 10) return Infinity;
-    if (x > ex + 20 && x < W2 - 100) return Infinity;
+    const ex = startX, rx3 = Math.min(W2, ex + zw);
+    // 只有在色塊區（ex..rx3）或右側標籤區（W-100..W）才命中
+    if (x < ex - 10) return Infinity;
+    if (x > rx3 + 20 && x < W2 - 100) return Infinity;
     const ey = candleSeries?.priceToCoordinate(d.p1.price);
     const ty = candleSeries?.priceToCoordinate(d.tp);
     const sy = candleSeries?.priceToCoordinate(d.sl);
@@ -1224,8 +1224,7 @@ function drawOne(d, W, H, isHovered, isSelected) {
     const barsV = visR ? Math.max(10, visR.to - visR.from) : 50;
     const ZONE_W = Math.max(20, Math.min(W * 0.4, Math.round(W * (d.barWidth ?? 3) / barsV)));
     const ex  = startX;
-    const lx  = Math.max(0, ex - ZONE_W);
-    const ln  = lx;
+    const rx  = Math.min(W, ex + ZONE_W);
     const lw  = d.width || 1;
 
     drawCtx.shadowBlur = 0;
@@ -1241,15 +1240,15 @@ function drawOne(d, W, H, isHovered, isSelected) {
       drawCtx.fillText(text, W - lw2 - 1 + pad, y + 4);
     };
 
-    // 色塊
-    if (ex > 0) {
+    // 色塊（entry → rx）
+    if (rx > ex) {
       drawCtx.fillStyle = "rgba(38,166,154,0.18)";
-      drawCtx.fillRect(lx, tpY, ex - lx, entryY - tpY);
+      drawCtx.fillRect(ex, tpY, rx - ex, entryY - tpY);
       drawCtx.fillStyle = "rgba(239,83,80,0.18)";
-      drawCtx.fillRect(lx, entryY, ex - lx, slY - entryY);
+      drawCtx.fillRect(ex, entryY, rx - ex, slY - entryY);
     }
 
-    // 進場虛線
+    // 進場虛線（entry 垂直線）
     if (ex >= 0 && ex <= W) {
       drawCtx.strokeStyle = "rgba(255,255,255,0.4)";
       drawCtx.lineWidth = 1;
@@ -1258,20 +1257,20 @@ function drawOne(d, W, H, isHovered, isSelected) {
       drawCtx.setLineDash([]);
     }
 
-    // 水平線（lx → ex）
+    // 水平線（ex → rx）
     drawCtx.strokeStyle = "#26a69a";
     drawCtx.lineWidth = isSelected ? lw + 0.5 : lw;
-    drawCtx.beginPath(); drawCtx.moveTo(ln, tpY); drawCtx.lineTo(ex, tpY); drawCtx.stroke();
+    drawCtx.beginPath(); drawCtx.moveTo(ex, tpY); drawCtx.lineTo(rx, tpY); drawCtx.stroke();
 
     drawCtx.strokeStyle = col;
     drawCtx.lineWidth = isSelected ? lw * 1.5 : lw * 1.2;
-    drawCtx.beginPath(); drawCtx.moveTo(ln, entryY); drawCtx.lineTo(ex, entryY); drawCtx.stroke();
+    drawCtx.beginPath(); drawCtx.moveTo(ex, entryY); drawCtx.lineTo(rx, entryY); drawCtx.stroke();
 
     drawCtx.strokeStyle = "#ef5350";
     drawCtx.lineWidth = isSelected ? lw + 0.5 : lw;
-    drawCtx.beginPath(); drawCtx.moveTo(ln, slY); drawCtx.lineTo(ex, slY); drawCtx.stroke();
+    drawCtx.beginPath(); drawCtx.moveTo(ex, slY); drawCtx.lineTo(rx, slY); drawCtx.stroke();
 
-    // 進場三角
+    // 進場三角（在 entry 左側，指向右進入色塊）
     if (ex >= 0 && ex <= W) {
       const ts = 7;
       drawCtx.fillStyle = col;
@@ -1282,7 +1281,7 @@ function drawOne(d, W, H, isHovered, isSelected) {
       drawCtx.closePath(); drawCtx.fill();
     }
 
-    // R:R 置中
+    // R:R 置中（綠色區塊中央）
     const reward = Math.abs(d.tp - d.p1.price);
     const risk   = Math.abs(d.p1.price - d.sl);
     const rr     = risk > 0 ? (reward / risk).toFixed(2) : "∞";
@@ -1291,7 +1290,7 @@ function drawOne(d, W, H, isHovered, isSelected) {
     const rrTxt  = `1 : ${rr}`;
     const rrW    = drawCtx.measureText(rrTxt).width;
     drawCtx.fillStyle = "rgba(38,166,154,0.95)";
-    if (ex > lx + rrW + 10) drawCtx.fillText(rrTxt, lx + (ex - lx - rrW) / 2, tpCY + 4);
+    if (rx - ex > rrW + 10) drawCtx.fillText(rrTxt, ex + (rx - ex - rrW) / 2, tpCY + 4);
 
     // 右側標籤
     drawCtx.font = "11px sans-serif";
@@ -1299,7 +1298,7 @@ function drawOne(d, W, H, isHovered, isSelected) {
     rightLabel(entryY, `▶  ${_fmtPx(d.p1.price)}`, "rgba(55,55,55,0.9)",   "#ddd");
     rightLabel(slY,    `SL  ${_fmtPx(d.sl)}`,      "rgba(239,83,80,0.9)",  "#fff");
 
-    // 選中時：TP/SL 拖移把手 + 左邊緣寬度把手
+    // 選中時：TP/SL 拖移把手 + 右邊緣寬度把手
     if (isSelected) {
       [[ex, entryY, "#ffffff"], [ex, tpY, "#26a69a"], [ex, slY, "#ef5350"]].forEach(([px, py, fc]) => {
         if (px >= 0 && px <= W) {
@@ -1307,18 +1306,18 @@ function drawOne(d, W, H, isHovered, isSelected) {
           drawCtx.beginPath(); drawCtx.arc(px, py, 5, 0, Math.PI * 2); drawCtx.fill();
         }
       });
-      // 左邊緣寬度把手
+      // 右邊緣寬度把手
       const midY = (tpY + slY) / 2;
       drawCtx.strokeStyle = "rgba(255,255,255,0.75)";
       drawCtx.lineWidth = 2; drawCtx.setLineDash([]);
-      drawCtx.beginPath(); drawCtx.moveTo(lx, tpY); drawCtx.lineTo(lx, slY); drawCtx.stroke();
+      drawCtx.beginPath(); drawCtx.moveTo(rx, tpY); drawCtx.lineTo(rx, slY); drawCtx.stroke();
       drawCtx.fillStyle = "rgba(255,255,255,0.9)";
-      [-7, 0, 7].forEach(oy => { drawCtx.beginPath(); drawCtx.arc(lx, midY + oy, 2.5, 0, Math.PI * 2); drawCtx.fill(); });
+      [-7, 0, 7].forEach(oy => { drawCtx.beginPath(); drawCtx.arc(rx, midY + oy, 2.5, 0, Math.PI * 2); drawCtx.fill(); });
       // TP / SL 拖移提示箭頭（↕）
       drawCtx.font = "bold 11px sans-serif";
       drawCtx.fillStyle = "rgba(255,255,255,0.7)";
-      const midX = lx + (ex - lx) / 2;
-      if (ex - lx > 30) {
+      const midX = ex + (rx - ex) / 2;
+      if (rx - ex > 30) {
         drawCtx.fillText("↕", midX - 5, tpY - 4);
         drawCtx.fillText("↕", midX - 5, slY + 12);
       }
@@ -1336,8 +1335,7 @@ function drawOne(d, W, H, isHovered, isSelected) {
     const barsV2 = visR2 ? Math.max(10, visR2.to - visR2.from) : 50;
     const ZONE_W = Math.max(20, Math.min(W * 0.4, Math.round(W * (d.barWidth ?? 3) / barsV2)));
     const ex  = startX;
-    const lx  = Math.max(0, ex - ZONE_W);
-    const ln  = lx;
+    const rx  = Math.min(W, ex + ZONE_W);
     const lw  = d.width || 1;
 
     drawCtx.shadowBlur = 0;
@@ -1352,12 +1350,12 @@ function drawOne(d, W, H, isHovered, isSelected) {
       drawCtx.fillText(text, W - lw2 - 1 + pad, y + 4);
     };
 
-    // 色塊
-    if (ex > 0) {
+    // 色塊（entry → rx）
+    if (rx > ex) {
       drawCtx.fillStyle = "rgba(239,83,80,0.18)";
-      drawCtx.fillRect(lx, slY, ex - lx, entryY - slY);
+      drawCtx.fillRect(ex, slY, rx - ex, entryY - slY);
       drawCtx.fillStyle = "rgba(38,166,154,0.18)";
-      drawCtx.fillRect(lx, entryY, ex - lx, tpY - entryY);
+      drawCtx.fillRect(ex, entryY, rx - ex, tpY - entryY);
     }
 
     // 進場虛線
@@ -1371,15 +1369,15 @@ function drawOne(d, W, H, isHovered, isSelected) {
 
     drawCtx.strokeStyle = "#ef5350";
     drawCtx.lineWidth = isSelected ? lw + 0.5 : lw;
-    drawCtx.beginPath(); drawCtx.moveTo(ln, slY); drawCtx.lineTo(ex, slY); drawCtx.stroke();
+    drawCtx.beginPath(); drawCtx.moveTo(ex, slY); drawCtx.lineTo(rx, slY); drawCtx.stroke();
 
     drawCtx.strokeStyle = col;
     drawCtx.lineWidth = isSelected ? lw * 1.5 : lw * 1.2;
-    drawCtx.beginPath(); drawCtx.moveTo(ln, entryY); drawCtx.lineTo(ex, entryY); drawCtx.stroke();
+    drawCtx.beginPath(); drawCtx.moveTo(ex, entryY); drawCtx.lineTo(rx, entryY); drawCtx.stroke();
 
     drawCtx.strokeStyle = "#26a69a";
     drawCtx.lineWidth = isSelected ? lw + 0.5 : lw;
-    drawCtx.beginPath(); drawCtx.moveTo(ln, tpY); drawCtx.lineTo(ex, tpY); drawCtx.stroke();
+    drawCtx.beginPath(); drawCtx.moveTo(ex, tpY); drawCtx.lineTo(rx, tpY); drawCtx.stroke();
 
     // 進場三角
     if (ex >= 0 && ex <= W) {
@@ -1401,7 +1399,7 @@ function drawOne(d, W, H, isHovered, isSelected) {
     const rrTxt  = `1 : ${rr}`;
     const rrW    = drawCtx.measureText(rrTxt).width;
     drawCtx.fillStyle = "rgba(38,166,154,0.95)";
-    if (ex > lx + rrW + 10) drawCtx.fillText(rrTxt, lx + (ex - lx - rrW) / 2, tpCY + 4);
+    if (rx - ex > rrW + 10) drawCtx.fillText(rrTxt, ex + (rx - ex - rrW) / 2, tpCY + 4);
 
     drawCtx.font = "11px sans-serif";
     rightLabel(slY,    `SL  ${_fmtPx(d.sl)}`,      "rgba(239,83,80,0.9)",  "#fff");
@@ -1415,17 +1413,17 @@ function drawOne(d, W, H, isHovered, isSelected) {
           drawCtx.beginPath(); drawCtx.arc(px, py, 5, 0, Math.PI * 2); drawCtx.fill();
         }
       });
-      // 左邊緣寬度把手
+      // 右邊緣寬度把手
       const midY2 = (slY + tpY) / 2;
       drawCtx.strokeStyle = "rgba(255,255,255,0.75)";
       drawCtx.lineWidth = 2; drawCtx.setLineDash([]);
-      drawCtx.beginPath(); drawCtx.moveTo(lx, slY); drawCtx.lineTo(lx, tpY); drawCtx.stroke();
+      drawCtx.beginPath(); drawCtx.moveTo(rx, slY); drawCtx.lineTo(rx, tpY); drawCtx.stroke();
       drawCtx.fillStyle = "rgba(255,255,255,0.9)";
-      [-7, 0, 7].forEach(oy => { drawCtx.beginPath(); drawCtx.arc(lx, midY2 + oy, 2.5, 0, Math.PI * 2); drawCtx.fill(); });
+      [-7, 0, 7].forEach(oy => { drawCtx.beginPath(); drawCtx.arc(rx, midY2 + oy, 2.5, 0, Math.PI * 2); drawCtx.fill(); });
       drawCtx.font = "bold 11px sans-serif";
       drawCtx.fillStyle = "rgba(255,255,255,0.7)";
-      const midX = lx + (ex - lx) / 2;
-      if (ex - lx > 30) {
+      const midX = ex + (rx - ex) / 2;
+      if (rx - ex > 30) {
         drawCtx.fillText("↕", midX - 5, slY - 4);
         drawCtx.fillText("↕", midX - 5, tpY + 12);
       }
