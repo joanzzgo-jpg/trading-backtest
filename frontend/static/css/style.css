@@ -492,7 +492,7 @@ html, body {
   left: 50%;
   transform: translate(-50%, -50%);
   width: min(88%, 680px);
-  opacity: 0.10;
+  opacity: 0.22;
   pointer-events: none;
   /* invert 讓白底變黑（深色背景上消失），hue-rotate 把顏色轉回金色 */
   filter: invert(1) hue-rotate(180deg);
