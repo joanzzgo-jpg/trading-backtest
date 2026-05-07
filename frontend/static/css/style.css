@@ -492,7 +492,7 @@ html, body {
   left: 50%;
   transform: translate(-50%, -50%);
   width: min(88%, 680px);
-  opacity: 0.22;
+  opacity: 0.40;
   pointer-events: none;
   /* invert 讓白底變黑（深色背景上消失），hue-rotate 把顏色轉回金色 */
   filter: invert(1) hue-rotate(180deg);
@@ -907,14 +907,14 @@ html, body {
   gap: 16px;
 }
 .loading-bear {
-  width: 140px;
-  height: 140px;
+  width: 182px;
+  height: 182px;
   object-fit: contain;
-  animation: loading-bounce .7s ease-in-out infinite alternate;
+  animation: loading-spin 1.2s linear infinite;
 }
-@keyframes loading-bounce {
-  from { transform: translateY(0) scale(1); }
-  to   { transform: translateY(-12px) scale(1.04); }
+@keyframes loading-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
 }
 .loading-text {
   font-size: 14px;

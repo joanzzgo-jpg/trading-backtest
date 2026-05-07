@@ -6,6 +6,8 @@
 /* ── 預設顏色 ── */
 const DEFAULT_COLORS = {
   up:      "#ef5350", down:    "#26a69a",
+  borderUp:"#ef5350", borderDown:"#26a69a",
+  wickUp:  "#ef5350", wickDown:  "#26a69a",
   bbU:     "#42a5f5", bbM:     "#ffcc02", bbL: "#42a5f5",
   kdjK:    "#f23645", kdjD:    "#1e88e5", kdjJ: "#ff9800",
   kdjH20:  "#4a4a6a", kdjH50:  "#666688", kdjH80:  "#4a4a6a",
@@ -20,6 +22,7 @@ const DEFAULT_COLORS = {
 };
 
 const DEFAULT_STYLES = {
+  bodyVisible: true, borderVisible: true, wickVisible: true,
   kdjHLWidth: 1,
   rsiHLWidth: 1,
   volMaPeriod: 5,
@@ -275,9 +278,12 @@ function createCandleSeries() {
   if (candleSeries) { try { mainChart.removeSeries(candleSeries); } catch {} candleSeries = null; }
   if (currentChartType === "candlestick") {
     candleSeries = mainChart.addCandlestickSeries({
-      upColor: C.up, downColor: C.down,
-      borderUpColor: C.up, borderDownColor: C.down,
-      wickUpColor: C.up, wickDownColor: C.down,
+      upColor:   S.bodyVisible   !== false ? C.up   : "rgba(0,0,0,0)",
+      downColor: S.bodyVisible   !== false ? C.down : "rgba(0,0,0,0)",
+      borderVisible:   S.borderVisible !== false,
+      borderUpColor:   C.borderUp,   borderDownColor: C.borderDown,
+      wickVisible:     S.wickVisible  !== false,
+      wickUpColor:     C.wickUp,      wickDownColor:   C.wickDown,
     });
   } else if (currentChartType === "bar") {
     candleSeries = mainChart.addBarSeries({ upColor: C.up, downColor: C.down });
@@ -1413,7 +1419,15 @@ function applyAllColors() {
   document.body.style.background = bg;
 
   if (currentChartType === "candlestick") {
-    candleSeries.applyOptions({ upColor:C.up, downColor:C.down, borderUpColor:C.up, borderDownColor:C.down, wickUpColor:C.up, wickDownColor:C.down });
+    const bodyUp   = S.bodyVisible   !== false ? C.up        : "rgba(0,0,0,0)";
+    const bodyDown = S.bodyVisible   !== false ? C.down      : "rgba(0,0,0,0)";
+    candleSeries.applyOptions({
+      upColor: bodyUp, downColor: bodyDown,
+      borderVisible: S.borderVisible !== false,
+      borderUpColor: C.borderUp, borderDownColor: C.borderDown,
+      wickVisible: S.wickVisible !== false,
+      wickUpColor: C.wickUp, wickDownColor: C.wickDown,
+    });
   } else if (currentChartType === "bar") {
     candleSeries.applyOptions({ upColor:C.up, downColor:C.down });
   } else if (currentChartType === "line") {
@@ -2090,8 +2104,9 @@ function bindIndicatorPanel() {
     main: {
       title: "主圖設定",
       rows: [
-        { label:"漲K棒",  colorKey:"up",   onColor: ()=>{ if(ohlcvData.length){ renderVolume(ohlcvData); applyAllColors(); } } },
-        { label:"跌K棒",  colorKey:"down", onColor: ()=>{ if(ohlcvData.length){ renderVolume(ohlcvData); applyAllColors(); } } },
+        { candleRow: true, label:"主體", visKey:"bodyVisible",   upKey:"up",        downKey:"down"      },
+        { candleRow: true, label:"邊框", visKey:"borderVisible", upKey:"borderUp",  downKey:"borderDown" },
+        { candleRow: true, label:"燭芯", visKey:"wickVisible",   upKey:"wickUp",    downKey:"wickDown"   },
         { divider: true },
         { label:"BB 上/下", colorKey:"bbU", onColor: c=>{ C.bbL=c; bbU?.applyOptions({color:c}); bbL?.applyOptions({color:c}); _syncLegDot("legBB",c); }, widKey:"bbWidth", onWidth: w=>{ bbU?.applyOptions({lineWidth:w}); bbL?.applyOptions({lineWidth:w}); } },
         { label:"BB 中",    colorKey:"bbM", onColor: c=>{ bbM?.applyOptions({color:c}); }, widKey:"bbMWidth", serW:()=>bbM },
@@ -2152,6 +2167,34 @@ function bindIndicatorPanel() {
       const el = document.createElement("div");
       el.className = "ind-sp-divider";
       return el;
+    }
+    if (row.candleRow) {
+      const rowEl = document.createElement("div");
+      rowEl.className = "ind-sp-row";
+      const cb = document.createElement("input");
+      cb.type = "checkbox"; cb.checked = S[row.visKey] !== false;
+      cb.style.cssText = "width:14px;height:14px;cursor:pointer;flex-shrink:0;margin:0;accent-color:#2962ff;";
+      cb.addEventListener("change", () => { S[row.visKey] = cb.checked; applyAllColors(); savePrefs(); });
+      rowEl.appendChild(cb);
+      const lbl = document.createElement("span");
+      lbl.className = "ind-sp-lbl"; lbl.textContent = row.label;
+      rowEl.appendChild(lbl);
+      ["up","dn"].forEach(side => {
+        const key = side === "up" ? row.upKey : row.downKey;
+        const dot = document.createElement("div");
+        dot.title = side === "up" ? "漲" : "跌";
+        dot.style.cssText = `width:16px;height:16px;border-radius:3px;border:1px solid #444;cursor:pointer;flex-shrink:0;background:${(C[key]||"#888").substring(0,7)}`;
+        dot.addEventListener("click", e => {
+          e.stopPropagation();
+          showLegColorPopup(e.clientX, e.clientY, [{
+            label: null,
+            currentColor: (C[key]||"#888").substring(0,7),
+            apply: c => { dot.style.background = c; C[key] = c; applyAllColors(); savePrefs(); }
+          }]);
+        });
+        rowEl.appendChild(dot);
+      });
+      return rowEl;
     }
     const rowEl = document.createElement("div");
     rowEl.className = "ind-sp-row";
