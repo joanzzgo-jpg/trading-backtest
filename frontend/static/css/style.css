@@ -31,6 +31,15 @@ html, body {
 }
 
 /* ═══ TOPBAR ═══ */
+.topbar-tf {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  height: var(--topbar-h);
+}
+.mob-load { display: none; }
+.tb-desk-only { /* dividers only shown on desktop */ }
+
 .topbar {
   display: flex;
   align-items: center;
@@ -1057,18 +1066,20 @@ html, body {
 @media (max-width: 900px) {
   .tb-indicators-btn { display: none; }
 
-  /* 手機繪圖工具欄：水平捲動，固定在畫面底部 */
+  /* 繪圖工具欄移到底部 */
   .draw-toolbar {
     flex-direction: row;
     align-items: center;
     position: fixed;
     bottom: 0; left: 0; right: 0;
+    bottom: env(safe-area-inset-bottom, 0);
+    padding-bottom: env(safe-area-inset-bottom, 0);
     width: 100%;
     height: 44px;
     min-width: 0;
     border-right: none;
     border-top: 1px solid var(--border);
-    padding: 0 8px;
+    padding-left: 8px; padding-right: 8px;
     overflow-x: auto;
     overflow-y: hidden;
     z-index: 200;
@@ -1076,13 +1087,14 @@ html, body {
   }
   .draw-toolbar::-webkit-scrollbar { display: none; }
   .dt-sep { width: 1px; height: 24px; margin: 0 2px; flex-shrink: 0; }
-  /* 為底部工具欄騰出空間 */
   .charts-container { padding-bottom: 44px; }
+  .symbol-bar { padding-left: 12px; }  /* 移除桌面左側繪圖欄空白 */
 }
 
 @media (max-width: 768px) {
   #tickerToggle { display: flex !important; }
 
+  /* Ticker panel: slide-in overlay */
   .ticker-panel {
     position: fixed; right: 0; top: 0; bottom: 0; z-index: 500;
     width: min(80vw, 260px);
@@ -1092,20 +1104,89 @@ html, body {
     border-left: none;
   }
   .ticker-panel.ticker-open { transform: translateX(0); }
-
   .charts-container { width: 100%; }
 
-  .topbar { padding: 0 4px; }
-  .topbar-left { gap: 0; }
-  .tb-date   { width: 106px; font-size: 11px; }
-  .tf-btn    { padding: 3px 6px; font-size: 11px; }
-  #replayModeBtn { font-size: 11px; padding: 0 8px; }
+  /* ── Topbar 2-row layout ── */
+  .topbar {
+    flex-wrap: wrap;
+    height: auto;
+    min-height: unset;
+    padding: 0 4px;
+    align-items: stretch;
+  }
+  .topbar-left {
+    flex: 1;
+    height: 44px;
+    min-height: 44px;
+    align-items: center;
+    overflow-x: auto;
+  }
+  .topbar-right {
+    flex-shrink: 0;
+    height: 44px;
+    min-height: 44px;
+    align-items: center;
+  }
 
+  /* TF strip: second full-width row */
+  .topbar-tf {
+    order: 10;
+    flex: 0 0 100%;
+    height: 38px;
+    min-height: 38px;
+    border-top: 1px solid var(--border);
+    overflow-x: auto;
+    scrollbar-width: none;
+    padding: 0;
+  }
+  .topbar-tf::-webkit-scrollbar { display: none; }
+  .topbar-tf .tf-group {
+    display: flex;
+    width: 100%;
+    height: 100%;
+  }
+  .topbar-tf .tf-btn {
+    flex: 1;
+    height: 38px;
+    min-width: 40px;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 0;
+    border-radius: 0;
+    border: none;
+    border-right: 1px solid var(--border);
+  }
+  .topbar-tf .tf-btn:last-child { border-right: none; }
+  .topbar-tf .tf-btn.active {
+    background: var(--accent);
+    color: #fff;
+  }
+
+  /* Hide logo & desktop-only elements on mobile */
+  .topbar-logo { display: none; }
+  .tb-desk-only { display: none !important; }
+
+  /* Show mobile load button */
+  .mob-load { display: flex !important; }
+  #loadBtn  { display: none !important; }
+
+  /* Touch-friendly sizes */
+  .tb-mkt-select  { height: 36px; font-size: 13px; padding: 0 4px; }
+  .tb-exc-select  { height: 36px; font-size: 13px; padding: 0 4px; }
+  .tb-symbol-input { height: 36px; font-size: 14px; width: 100px; }
+  .tb-star-btn    { width: 32px; height: 36px; font-size: 17px; }
+  .btn-load, .mob-load { height: 32px; font-size: 12px; padding: 0 10px; }
+  #replayModeBtn  { height: 32px; font-size: 12px; padding: 0 8px; }
+  .tb-icon-btn    { width: 36px; height: 36px; }
+
+  .tb-date   { width: 106px; font-size: 11px; }
+
+  /* Symbol bar */
   .symbol-bar { font-size: 11px; gap: 3px; padding: 3px 8px; }
   .sym-label  { display: none; }
   .sym-tag    { display: none; }
   .sym-divider{ display: none; }
-  .leg-item { font-size: 10px; }
+  .leg-item   { font-size: 10px; }
 }
 
 /* ── 右側按鈕群組 ── */
@@ -1259,14 +1340,18 @@ html, body {
 
 @media (max-width: 520px) {
   #startDate, #endDate, .tb-sep { display: none !important; }
-  .tf-group .tf-btn[data-tf="1M"],
-  .tf-group .tf-btn[data-tf="1w"] { display: none; }
   #exchangeSelect { display: none; }
-  .tb-symbol-input { width: 80px; }
+  .tb-symbol-input { width: 90px; }
   .chart-type-group { display: none; }
-  .tb-divider-v { margin: 0 3px; }
+  .tb-divider-v { margin: 0 2px; }
   .leg-item span:not(.leg-dot) { display: none; }
   .leg-toggle { gap: 0; }
   .leg-dot    { width: 8px; height: 8px; }
   .pane-legend { gap: 5px; padding: 0 6px; }
+}
+
+/* iOS safe-area for replay bar */
+.replay-bar {
+  padding-bottom: max(0px, env(safe-area-inset-bottom));
+  height: calc(42px + env(safe-area-inset-bottom, 0px));
 }

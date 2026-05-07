@@ -1772,6 +1772,7 @@ function _updateStarBtn() {
 function bindEvents() {
   document.getElementById("marketSelect").addEventListener("change", updateMarketUI);
   document.getElementById("loadBtn").addEventListener("click", () => loadData(false));
+  document.getElementById("loadBtnMob")?.addEventListener("click", () => loadData(false));
 
   // ── 自選星號按鈕 ──────────────────────────────
   document.getElementById("watchlistStarBtn")?.addEventListener("click", () => {
