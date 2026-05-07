@@ -113,6 +113,52 @@ def fetch_tw_intraday(symbol: str, timeframe: str, start: str, end: str, api_tok
     return df
 
 
+TWSE_MIS_URL = "https://mis.twse.com.tw/stock/api/getStockInfo.jsp"
+TWSE_MIS_HEADERS = {"Referer": "https://mis.twse.com.tw/stock/index.jsp"}
+
+
+def fetch_tw_realtime(symbol: str) -> dict | None:
+    """
+    TWSE MIS 即時報價（盤中）。
+    先試上市(tse)，再試上櫃(otc)。
+    盤後或無成交時回傳 None。
+    """
+    for exchange in ("tse", "otc"):
+        try:
+            resp = requests.get(
+                TWSE_MIS_URL,
+                params={"ex_ch": f"{exchange}_{symbol}.tw", "json": "1", "delay": "0"},
+                headers=TWSE_MIS_HEADERS,
+                timeout=6,
+            )
+            resp.raise_for_status()
+            arr = resp.json().get("msgArray", [])
+            if not arr:
+                continue
+            d = arr[0]
+            z = d.get("z", "-")
+            if not z or z == "-":
+                return None  # 盤後或尚未成交
+            date_str = d.get("d", "")
+            time_str = d.get("t", "09:00:00")
+            if not date_str:
+                return None
+            ts = datetime.strptime(f"{date_str} {time_str}", "%Y%m%d %H:%M:%S")
+            raw_vol = d.get("v", "0") or "0"
+            volume = float(raw_vol.replace(",", "")) * 1000  # 張 → 股
+            return {
+                "time":   ts,
+                "open":   float(d.get("o") or z),
+                "high":   float(d.get("h") or z),
+                "low":    float(d.get("l") or z),
+                "close":  float(z),
+                "volume": volume,
+            }
+        except Exception:
+            continue
+    return None
+
+
 def search_tw_stock(keyword: str, api_token: str = "") -> list[dict]:
     """搜尋台股代號"""
     params = {

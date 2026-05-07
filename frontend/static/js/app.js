@@ -2684,9 +2684,10 @@ function renderMACD(data) {
 function startRealtime() {
   const dot    = document.getElementById("realtimeDot");
   const market = document.getElementById("marketSelect").value;
-  if (market === "tw" || market === "us") { dot.classList.add("hidden"); return; }
+  if (market === "us") { dot.classList.add("hidden"); return; }
   dot.classList.remove("hidden");
-  realtimeTimer = setInterval(fetchLatest, 1000);
+  const interval = market === "tw" ? 5000 : 1000;
+  realtimeTimer = setInterval(fetchLatest, interval);
 }
 
 function stopRealtime() {

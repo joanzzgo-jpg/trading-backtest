@@ -12,7 +12,7 @@ import os, sys, time, math, gc, subprocess
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-from data.taiwan import fetch_tw_stock, resample_tw, search_tw_stock, fetch_tw_intraday
+from data.taiwan import fetch_tw_stock, resample_tw, search_tw_stock, fetch_tw_intraday, fetch_tw_realtime
 from data.us_stock import fetch_us_stock, search_us_stocks, MAX_DAYS as US_MAX_DAYS
 from data.crypto import fetch_crypto_ohlcv, fetch_crypto_markets, fetch_tickers, _fetch_pionex_symbols, _fetch_pionex_perp_symbols, _fetch_futures_tickers_fapi
 from indicators.engine import add_indicators, crt_markers, rsi as calc_rsi, macd as calc_macd, \
@@ -208,9 +208,31 @@ class LatestRequest(BaseModel):
 def get_latest(req: LatestRequest):
     try:
         if req.market == "tw":
-            from datetime import date, timedelta
+            from datetime import date, timedelta, datetime as dt
+            rt = fetch_tw_realtime(req.symbol)
+            if rt:
+                ts = rt["time"]
+                # 時間截斷至對應 timeframe，才能對齊圖上既有 K 棒
+                tf = req.timeframe
+                if tf == "1d":
+                    ts = dt(ts.year, ts.month, ts.day)
+                elif tf == "1h":
+                    ts = ts.replace(minute=0, second=0, microsecond=0)
+                elif tf == "15m":
+                    ts = ts.replace(minute=(ts.minute // 15) * 15, second=0, microsecond=0)
+                elif tf == "5m":
+                    ts = ts.replace(minute=(ts.minute // 5) * 5, second=0, microsecond=0)
+                return {"data": [{
+                    "time":   ts.isoformat(),
+                    "open":   rt["open"],
+                    "high":   rt["high"],
+                    "low":    rt["low"],
+                    "close":  rt["close"],
+                    "volume": rt["volume"],
+                }]}
+            # 盤後 fallback：回傳最近日線
             end   = date.today().isoformat()
-            start = (date.today() - timedelta(days=30)).isoformat()
+            start = (date.today() - timedelta(days=5)).isoformat()
             df = fetch_tw_stock(req.symbol, start, end, req.finmind_token)
             df = resample_tw(df, req.timeframe)
         elif req.market == "us":
