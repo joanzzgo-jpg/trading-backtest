@@ -8,6 +8,7 @@ const DEFAULT_COLORS = {
   up:      "#ef5350", down:    "#26a69a",
   borderUp:"#ef5350", borderDown:"#26a69a",
   wickUp:  "#ef5350", wickDown:  "#26a69a",
+  volUp:   "#ef5350", volDown:   "#26a69a",
   bbU:     "#42a5f5", bbM:     "#ffcc02", bbL: "#42a5f5",
   kdjK:    "#f23645", kdjD:    "#1e88e5", kdjJ: "#ff9800",
   kdjH20:  "#4a4a6a", kdjH50:  "#666688", kdjH80:  "#4a4a6a",
@@ -23,6 +24,7 @@ const DEFAULT_COLORS = {
 
 const DEFAULT_STYLES = {
   bodyVisible: true, borderVisible: true, wickVisible: true,
+  volAlpha: 0.67,
   kdjHLWidth: 1,
   rsiHLWidth: 1,
   volMaPeriod: 5,
@@ -2174,6 +2176,11 @@ function bindIndicatorPanel() {
             savePrefs();
           }
         },
+        { divider: true },
+        { volRow: true, label:"量柱", upKey:"volUp", downKey:"volDown", alphaKey:"volAlpha",
+          onColor: ()=>{ if (ohlcvData.length) renderVolume(ohlcvData); },
+          onAlpha: ()=>{ if (ohlcvData.length) renderVolume(ohlcvData); }
+        },
       ]
     },
     kdj: {
@@ -2239,6 +2246,44 @@ function bindIndicatorPanel() {
         });
         rowEl.appendChild(dot);
       });
+      return rowEl;
+    }
+    if (row.volRow) {
+      const rowEl = document.createElement("div");
+      rowEl.className = "ind-sp-row";
+      const lbl = document.createElement("span");
+      lbl.className = "ind-sp-lbl"; lbl.textContent = row.label;
+      rowEl.appendChild(lbl);
+      ["up","dn"].forEach(side => {
+        const key = side === "up" ? row.upKey : row.downKey;
+        const dot = document.createElement("div");
+        dot.title = side === "up" ? "漲" : "跌";
+        dot.style.cssText = `width:16px;height:16px;border-radius:3px;border:1px solid #444;cursor:pointer;flex-shrink:0;background:${(C[key]||"#888").substring(0,7)}`;
+        dot.addEventListener("click", e => {
+          e.stopPropagation();
+          showLegColorPopup(e.clientX, e.clientY, [{
+            label: null,
+            currentColor: (C[key]||"#888").substring(0,7),
+            apply: c => { dot.style.background = c; C[key] = c; row.onColor?.(); savePrefs(); }
+          }]);
+        });
+        rowEl.appendChild(dot);
+      });
+      const opLbl = document.createElement("span");
+      opLbl.className = "ind-sp-wlbl"; opLbl.textContent = "透";
+      rowEl.appendChild(opLbl);
+      const opInp = document.createElement("input");
+      opInp.type = "number"; opInp.className = "ind-sp-num";
+      opInp.min = 0; opInp.max = 100; opInp.step = 5;
+      opInp.value = Math.round((S[row.alphaKey] ?? 0.67) * 100);
+      opInp.style.width = "42px";
+      opInp.addEventListener("change", e => {
+        const v = Math.max(0, Math.min(100, parseInt(e.target.value) || 0));
+        opInp.value = v; S[row.alphaKey] = v / 100;
+        row.onAlpha?.();
+        savePrefs();
+      });
+      rowEl.appendChild(opInp);
       return rowEl;
     }
     const rowEl = document.createElement("div");
@@ -2587,9 +2632,10 @@ function renderResonance(data) {
 }
 
 function renderVolume(data) {
+  const _va = Math.round((S.volAlpha ?? 0.67) * 255).toString(16).padStart(2, "0");
   volSeries.setData(data.map(d => ({
     time:toTime(d.time), value:d.volume||0,
-    color: d.close >= d.open ? C.up+"aa" : C.down+"aa",
+    color: d.close >= d.open ? C.volUp + _va : C.volDown + _va,
   })));
   const period = Math.max(1, S.volMaPeriod);
   const maData = [];
@@ -2669,7 +2715,8 @@ async function fetchLatest() {
       } else {
         candleSeries.update({ time:t, value:bar.close });
       }
-      volSeries.update({ time:t, value:bar.volume||0, color: bar.close>=bar.open ? C.up+"aa" : C.down+"aa" });
+      const _va2 = Math.round((S.volAlpha ?? 0.67) * 255).toString(16).padStart(2, "0");
+      volSeries.update({ time:t, value:bar.volume||0, color: bar.close>=bar.open ? C.volUp+_va2 : C.volDown+_va2 });
     });
     updateSymbolBar(ohlcvData);
   } catch {}
