@@ -2704,6 +2704,8 @@ async function fetchLatest() {
     if (!res.ok) return;
     const json = await res.json();
     if (!json.data?.length) return;
+    const dot = document.getElementById("realtimeDot");
+    if (dot) dot.classList.toggle("hidden", json.live === false);
     json.data.forEach(bar => {
       const t     = toTime(bar.time);
       const last  = ohlcvData[ohlcvData.length - 1];

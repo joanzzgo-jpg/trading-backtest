@@ -212,7 +212,6 @@ def get_latest(req: LatestRequest):
             rt = fetch_tw_realtime(req.symbol)
             if rt:
                 ts = rt["time"]
-                # 時間截斷至對應 timeframe，才能對齊圖上既有 K 棒
                 tf = req.timeframe
                 if tf == "1d":
                     ts = dt(ts.year, ts.month, ts.day)
@@ -222,7 +221,7 @@ def get_latest(req: LatestRequest):
                     ts = ts.replace(minute=(ts.minute // 15) * 15, second=0, microsecond=0)
                 elif tf == "5m":
                     ts = ts.replace(minute=(ts.minute // 5) * 5, second=0, microsecond=0)
-                return {"data": [{
+                return {"live": True, "data": [{
                     "time":   ts.isoformat(),
                     "open":   rt["open"],
                     "high":   rt["high"],
@@ -230,7 +229,7 @@ def get_latest(req: LatestRequest):
                     "close":  rt["close"],
                     "volume": rt["volume"],
                 }]}
-            # 盤後 fallback：回傳最近日線
+            # 盤後 fallback：回傳最近日線，不標 live
             end   = date.today().isoformat()
             start = (date.today() - timedelta(days=5)).isoformat()
             df = fetch_tw_stock(req.symbol, start, end, req.finmind_token)
@@ -258,7 +257,8 @@ def get_latest(req: LatestRequest):
         for key in list(r.keys()):
             if isinstance(r[key], float) and math.isnan(r[key]):
                 r[key] = None
-    return {"data": records}
+    live = req.market not in ("tw", "us")  # crypto 永遠算 live；股票 fallback 不算
+    return {"live": live, "data": records}
 
 
 @app.get("/api/us/search")
