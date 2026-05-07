@@ -566,6 +566,16 @@ function _drawingHitPart(d, x, y) {
   const ey = candleSeries?.priceToCoordinate(d.p1.price);
   const ty = candleSeries?.priceToCoordinate(d.tp);
   const sy = candleSeries?.priceToCoordinate(d.sl);
+  // 左邊緣寬度把手優先偵測
+  const ex = mainChart.timeScale().timeToCoordinate(d.p1.time);
+  if (ex != null && ty != null && sy != null) {
+    const W2 = drawCanvas?.width || 800;
+    const visR = mainChart.timeScale().getVisibleLogicalRange();
+    const barsV = visR ? Math.max(10, visR.to - visR.from) : 50;
+    const ZW = Math.max(60, Math.min(W2 * 0.4, Math.round(W2 * (d.barWidth ?? 18) / barsV)));
+    const lx = Math.max(0, ex - ZW);
+    if (Math.abs(x - lx) < 10 && y >= Math.min(ty, sy) - 8 && y <= Math.max(ty, sy) + 8) return "width";
+  }
   let bestDist = Infinity, bestPart = "entry";
   [["entry", ey], ["tp", ty], ["sl", sy]].forEach(([part, py]) => {
     if (py == null) return;
@@ -668,7 +678,7 @@ function _updateCursor() {
       const hd = drawings.find(d => d.id === hoveredId);
       if (hd && (hd.type === "longpos" || hd.type === "shortpos")) {
         const part = _drawingHitPart(hd, _mx, _my);
-        chartEl.style.cursor = (part === "tp" || part === "sl") ? "ns-resize" : "grab";
+        chartEl.style.cursor = (part === "tp" || part === "sl") ? "ns-resize" : part === "width" ? "ew-resize" : "grab";
       } else {
         chartEl.style.cursor = "grab";
       }
@@ -913,6 +923,12 @@ function _updateDrag(x, y) {
       // 獨立拖移停損線
       const osy = candleSeries?.priceToCoordinate(orig.sl);
       if (osy != null) d.sl = candleSeries?.coordinateToPrice(osy + dy) ?? orig.sl;
+    } else if (part === "width") {
+      // 拖移左邊緣調整色塊寬度（往左拉→變寬，往右推→變窄）
+      const visR = mainChart.timeScale().getVisibleLogicalRange();
+      const barsV = visR ? Math.max(10, visR.to - visR.from) : 50;
+      const W2 = drawCanvas?.width || 800;
+      d.barWidth = Math.max(3, (orig.barWidth ?? 18) - Math.round(dx / (W2 / barsV)));
     } else {
       // entry：整體平移（TP/SL 跟隨）
       const oy = candleSeries?.priceToCoordinate(orig.p1.price);
@@ -1026,7 +1042,7 @@ function drawingDist(d, x, y) {
     if (startX == null) return Infinity;
     const visR  = mainChart.timeScale().getVisibleLogicalRange();
     const barsV = visR ? Math.max(10, visR.to - visR.from) : 50;
-    const zw    = Math.max(60, Math.min(W2 * 0.4, Math.round(W2 * 18 / barsV)));
+    const zw    = Math.max(60, Math.min(W2 * 0.4, Math.round(W2 * (d.barWidth ?? 18) / barsV)));
     const ex = startX, lx = Math.max(0, ex - zw);
     // 只有在色塊區（lx..ex）或右側標籤區（W-100..W）才命中
     if (x < lx - 10) return Infinity;
@@ -1193,7 +1209,7 @@ function drawOne(d, W, H, isHovered, isSelected) {
     // 色塊寬度隨縮放動態計算（約 18 根 K 棒的寬度）
     const visR  = mainChart.timeScale().getVisibleLogicalRange();
     const barsV = visR ? Math.max(10, visR.to - visR.from) : 50;
-    const ZONE_W = Math.max(60, Math.min(W * 0.4, Math.round(W * 18 / barsV)));
+    const ZONE_W = Math.max(60, Math.min(W * 0.4, Math.round(W * (d.barWidth ?? 18) / barsV)));
     const ex  = startX;
     const lx  = Math.max(0, ex - ZONE_W);
     const ln  = lx;
@@ -1259,7 +1275,7 @@ function drawOne(d, W, H, isHovered, isSelected) {
     const rr     = risk > 0 ? (reward / risk).toFixed(2) : "∞";
     const tpCY   = (tpY + entryY) / 2;
     drawCtx.font = "bold 12px sans-serif";
-    const rrTxt  = `R:R  ${rr}`;
+    const rrTxt  = `1 : ${rr}`;
     const rrW    = drawCtx.measureText(rrTxt).width;
     drawCtx.fillStyle = "rgba(38,166,154,0.95)";
     if (ex > lx + rrW + 10) drawCtx.fillText(rrTxt, lx + (ex - lx - rrW) / 2, tpCY + 4);
@@ -1270,7 +1286,7 @@ function drawOne(d, W, H, isHovered, isSelected) {
     rightLabel(entryY, `▶  ${_fmtPx(d.p1.price)}`, "rgba(55,55,55,0.9)",   "#ddd");
     rightLabel(slY,    `SL  ${_fmtPx(d.sl)}`,      "rgba(239,83,80,0.9)",  "#fff");
 
-    // 選中時：TP/SL 拖移把手
+    // 選中時：TP/SL 拖移把手 + 左邊緣寬度把手
     if (isSelected) {
       [[ex, entryY, "#ffffff"], [ex, tpY, "#26a69a"], [ex, slY, "#ef5350"]].forEach(([px, py, fc]) => {
         if (px >= 0 && px <= W) {
@@ -1278,6 +1294,13 @@ function drawOne(d, W, H, isHovered, isSelected) {
           drawCtx.beginPath(); drawCtx.arc(px, py, 5, 0, Math.PI * 2); drawCtx.fill();
         }
       });
+      // 左邊緣寬度把手
+      const midY = (tpY + slY) / 2;
+      drawCtx.strokeStyle = "rgba(255,255,255,0.75)";
+      drawCtx.lineWidth = 2; drawCtx.setLineDash([]);
+      drawCtx.beginPath(); drawCtx.moveTo(lx, tpY); drawCtx.lineTo(lx, slY); drawCtx.stroke();
+      drawCtx.fillStyle = "rgba(255,255,255,0.9)";
+      [-7, 0, 7].forEach(oy => { drawCtx.beginPath(); drawCtx.arc(lx, midY + oy, 2.5, 0, Math.PI * 2); drawCtx.fill(); });
       // TP / SL 拖移提示箭頭（↕）
       drawCtx.font = "bold 11px sans-serif";
       drawCtx.fillStyle = "rgba(255,255,255,0.7)";
@@ -1298,7 +1321,7 @@ function drawOne(d, W, H, isHovered, isSelected) {
 
     const visR2  = mainChart.timeScale().getVisibleLogicalRange();
     const barsV2 = visR2 ? Math.max(10, visR2.to - visR2.from) : 50;
-    const ZONE_W = Math.max(60, Math.min(W * 0.4, Math.round(W * 18 / barsV2)));
+    const ZONE_W = Math.max(60, Math.min(W * 0.4, Math.round(W * (d.barWidth ?? 18) / barsV2)));
     const ex  = startX;
     const lx  = Math.max(0, ex - ZONE_W);
     const ln  = lx;
@@ -1362,7 +1385,7 @@ function drawOne(d, W, H, isHovered, isSelected) {
     const rr     = risk > 0 ? (reward / risk).toFixed(2) : "∞";
     const tpCY   = (entryY + tpY) / 2;
     drawCtx.font = "bold 12px sans-serif";
-    const rrTxt  = `R:R  ${rr}`;
+    const rrTxt  = `1 : ${rr}`;
     const rrW    = drawCtx.measureText(rrTxt).width;
     drawCtx.fillStyle = "rgba(38,166,154,0.95)";
     if (ex > lx + rrW + 10) drawCtx.fillText(rrTxt, lx + (ex - lx - rrW) / 2, tpCY + 4);
@@ -1379,6 +1402,13 @@ function drawOne(d, W, H, isHovered, isSelected) {
           drawCtx.beginPath(); drawCtx.arc(px, py, 5, 0, Math.PI * 2); drawCtx.fill();
         }
       });
+      // 左邊緣寬度把手
+      const midY2 = (slY + tpY) / 2;
+      drawCtx.strokeStyle = "rgba(255,255,255,0.75)";
+      drawCtx.lineWidth = 2; drawCtx.setLineDash([]);
+      drawCtx.beginPath(); drawCtx.moveTo(lx, slY); drawCtx.lineTo(lx, tpY); drawCtx.stroke();
+      drawCtx.fillStyle = "rgba(255,255,255,0.9)";
+      [-7, 0, 7].forEach(oy => { drawCtx.beginPath(); drawCtx.arc(lx, midY2 + oy, 2.5, 0, Math.PI * 2); drawCtx.fill(); });
       drawCtx.font = "bold 11px sans-serif";
       drawCtx.fillStyle = "rgba(255,255,255,0.7)";
       const midX = lx + (ex - lx) / 2;
