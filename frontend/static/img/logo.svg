@@ -1,60 +1,21 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 340 110" width="340" height="110">
-  <defs>
-    <!-- 手繪毛躁邊緣 -->
-    <filter id="fuzzy" x="-12%" y="-12%" width="124%" height="124%">
-      <feTurbulence type="fractalNoise" baseFrequency="0.038" numOctaves="4" seed="7" result="noise"/>
-      <feDisplacementMap in="SourceGraphic" in2="noise" scale="5.5"
-                         xChannelSelector="R" yChannelSelector="G"/>
-    </filter>
-    <filter id="fuzzy2" x="-8%" y="-8%" width="116%" height="116%">
-      <feTurbulence type="fractalNoise" baseFrequency="0.055" numOctaves="3" seed="12" result="noise"/>
-      <feDisplacementMap in="SourceGraphic" in2="noise" scale="3.5"
-                         xChannelSelector="R" yChannelSelector="G"/>
-    </filter>
-  </defs>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+     viewBox="0 0 300 90" width="300" height="90">
 
-  <!-- ── 耳朵（在身體後面）── -->
-  <circle cx="19" cy="23" r="15" fill="#E2A52A" filter="url(#fuzzy)"/>
-  <ellipse cx="19" cy="24" rx="9" ry="8" fill="#9B7020" filter="url(#fuzzy2)" opacity="0.72"/>
+  <!-- 熊頭原圖 -->
+  <image href="/static/img/bear.png" x="0" y="0" width="90" height="90"/>
 
-  <circle cx="86" cy="27" r="12" fill="#E2A52A" filter="url(#fuzzy)"/>
-  <ellipse cx="86" cy="28" rx="7" ry="6" fill="#9B7020" filter="url(#fuzzy2)" opacity="0.72"/>
+  <!-- 分隔線 -->
+  <line x1="100" y1="12" x2="100" y2="78" stroke="rgba(226,165,42,0.55)" stroke-width="1.2"/>
 
-  <!-- ── 頭部主體 ── -->
-  <ellipse cx="52" cy="62" rx="45" ry="41" fill="#E2A52A" filter="url(#fuzzy)"/>
-
-  <!-- ── 綠色葉子（頭頂） ── -->
-  <path d="M 61 8 Q 70 4 72 13 Q 66 20 59 18 Q 57 12 61 8 Z"
-        fill="#5aaa3a" filter="url(#fuzzy2)"/>
-
-  <!-- ── 腮紅 ── -->
-  <ellipse cx="25" cy="69" rx="15" ry="11" fill="#D08020" filter="url(#fuzzy2)" opacity="0.82"/>
-  <ellipse cx="73" cy="71" rx="14" ry="10" fill="#D08020" filter="url(#fuzzy2)" opacity="0.82"/>
-
-  <!-- ── 眼睛（兩個不對稱小點） ── -->
-  <circle cx="38" cy="51" r="5.5" fill="#2A1808"/>
-  <circle cx="62" cy="47" r="4"   fill="#2A1808"/>
-
-  <!-- ── 鼻嘴（T 字型，最有特色的部分）── -->
-  <!-- 橫槓 -->
-  <rect x="44" y="65" width="13" height="3.5" rx="1.8" fill="#2A1808"/>
-  <!-- 豎槓 -->
-  <rect x="49" y="68" width="3.5" height="9"  rx="1.8" fill="#2A1808"/>
-
-  <!-- ── 右臉小 × 記號 ── -->
-  <line x1="67" y1="75" x2="73" y2="82" stroke="#2A1808" stroke-width="2.8" stroke-linecap="round"/>
-  <line x1="73" y1="75" x2="67" y2="82" stroke="#2A1808" stroke-width="2.8" stroke-linecap="round"/>
-
-  <!-- ── 品牌文字 ── -->
-  <line x1="116" y1="18" x2="116" y2="92" stroke="rgba(226,165,42,0.55)" stroke-width="1.2"/>
-
-  <text x="130" y="66"
+  <!-- AHH -->
+  <text x="114" y="54"
     font-family="'Arial Rounded MT Bold','Arial Black','Trebuchet MS',Arial,sans-serif"
-    font-size="46" font-weight="900"
+    font-size="42" font-weight="900"
     fill="#ffffff" letter-spacing="5">AHH</text>
 
-  <text x="134" y="83"
+  <!-- TRADING -->
+  <text x="118" y="71"
     font-family="Arial,Helvetica,sans-serif"
-    font-size="11.5" font-weight="600"
+    font-size="11" font-weight="600"
     fill="#E2A52A" letter-spacing="6.5">TRADING</text>
 </svg>
