@@ -5258,19 +5258,19 @@ const SFX = (() => {
       p.y+=p.spd*2.4; p.x-=p.len*.32;
       if (p.y>H+p.len){p.y=-p.len; p.x=Math.random()*W;}
     });
-    /* spawn new bolt(s) */
+    /* spawn new bolt(s) — slower cadence, softer flash */
     thunderTimer--;
     if (thunderTimer<=0) {
-      thunderTimer=8+Math.floor(Math.random()*28);
-      const nb=1+(Math.random()<.40?1:0)+(Math.random()<.15?1:0);
+      thunderTimer=90+Math.floor(Math.random()*120);   /* ~1.5–3.5 s between strikes */
+      const nb=1+(Math.random()<.25?1:0);              /* usually 1, occasionally 2 */
       for (let i=0;i<nb;i++) {
         const lx=W*.04+Math.random()*W*.92;
         const ex=lx+(Math.random()-.5)*W*.50;
         const {main,branches}=_boltWithBranches(lx,0,ex,H*(.60+Math.random()*.38),5);
         thunderBolts.push({main,branches,alpha:1});
-        thunderFlashes.push({alpha:.18+Math.random()*.20, decay:.016+Math.random()*.012});
+        thunderFlashes.push({alpha:.07+Math.random()*.06, decay:.010+Math.random()*.008}); /* much dimmer */
       }
-      SFX.thunder();
+      /* no thunder sound */
     }
     /* draw bolts */
     for (let i=thunderBolts.length-1;i>=0;i--) {
