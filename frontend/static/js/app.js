@@ -57,6 +57,7 @@ const INPUT_SERIES_MAP = {
 
 /* ── 圖表物件 ── */
 let mainChart,   candleSeries, bbU, bbM, bbL;
+let latestPriceLine = null;
 let volSeries, volMaSeries;          // 成交量放在 mainChart 的獨立價格軸
 let kdjChart,    kdjK, kdjD, kdjJ, kdjH20, kdjH50, kdjH80;
 let rsiChart,    rsiLine14, rsiLine7, rsiH30, rsiH50, rsiH70;
@@ -279,6 +280,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 /* ── 建立 / 重建主圖 series ── */
 function createCandleSeries() {
   if (candleSeries) { try { mainChart.removeSeries(candleSeries); } catch {} candleSeries = null; }
+  latestPriceLine = null;
   if (currentChartType === "candlestick") {
     candleSeries = mainChart.addCandlestickSeries({
       upColor:   S.bodyVisible   !== false ? C.up   : "rgba(0,0,0,0)",
@@ -287,9 +289,10 @@ function createCandleSeries() {
       borderUpColor:   C.borderUp,   borderDownColor: C.borderDown,
       wickVisible:     S.wickVisible  !== false,
       wickUpColor:     C.wickUp,      wickDownColor:   C.wickDown,
+      priceLineVisible: false,
     });
   } else if (currentChartType === "bar") {
-    candleSeries = mainChart.addBarSeries({ upColor: C.up, downColor: C.down });
+    candleSeries = mainChart.addBarSeries({ upColor: C.up, downColor: C.down, priceLineVisible: false });
   } else if (currentChartType === "line") {
     candleSeries = mainChart.addLineSeries({ color: C.up, lineWidth: 2, priceLineVisible: false, lastValueVisible: true });
   } else if (currentChartType === "area") {
@@ -310,6 +313,24 @@ function applyOhlcvToSeries(data) {
   } else {
     candleSeries.setData(data.map(d => ({ time: d.time ? toTime(d.time) : d, value: d.close })));
   }
+  updateLatestPriceLine(data[data.length - 1].close);
+}
+
+function updateLatestPriceLine(price) {
+  if (!candleSeries || price == null) return;
+  if (latestPriceLine) {
+    try { latestPriceLine.applyOptions({ price }); return; } catch { latestPriceLine = null; }
+  }
+  latestPriceLine = candleSeries.createPriceLine({
+    price,
+    color: "rgba(255,145,71,.80)",
+    lineWidth: 1,
+    lineStyle: 2,        /* 2 = Dashed */
+    axisLabelVisible: true,
+    axisLabelColor: "rgba(255,145,71,.90)",
+    axisLabelTextColor: "#fff",
+    title: "",
+  });
 }
 
 /* ── 建立圖表 ── */
@@ -2735,6 +2756,7 @@ async function fetchLatest() {
       }
       const _va2 = Math.round((S.volAlpha ?? 0.67) * 255).toString(16).padStart(2, "0");
       volSeries.update({ time:t, value:bar.volume||0, color: bar.close>=bar.open ? C.volUp+_va2 : C.volDown+_va2 });
+      updateLatestPriceLine(bar.close);
     });
     updateSymbolBar(ohlcvData);
   } catch {}
@@ -4676,7 +4698,7 @@ const SFX = (() => {
       ...Array.from({length:80},  () => ({ x:Math.random()*W, y:Math.random()*H, spd:9+Math.random()*6,   len:14+Math.random()*16, a:.34+Math.random()*.44 })),
     ];
     ripples = [];
-    snowP  = Array.from({length:100}, () => ({ x:Math.random()*W, y:Math.random()*H, r:2+Math.random()*5, spd:.4+Math.random()*1.2, drift:(Math.random()-.5)*.6, rot:Math.random()*Math.PI/3, rotSpd:(Math.random()-.5)*.022, a:.5+Math.random()*.5 }));
+    snowP  = Array.from({length:55}, () => ({ x:Math.random()*W, y:Math.random()*H, r:2+Math.random()*5, spd:.4+Math.random()*1.2, drift:(Math.random()-.5)*.6, rot:Math.random()*Math.PI/3, rotSpd:(Math.random()-.5)*.022, a:.5+Math.random()*.5 }));
     cloudP = Array.from({length:8}, (_, i) => ({ x:Math.random()*W, y:H*(.05+i*.11), sc:.12+Math.random()*.14, al:.20+Math.random()*.16, sp:.04+Math.random()*.12 }));
     leafP  = Array.from({length:65}, () => { const lf=_newLeaf(); lf.y=Math.random()*H; return lf; });
     petalP = Array.from({length:55}, () => { const p=_newPetal(); p.y=Math.random()*H; return p; });
@@ -4709,23 +4731,24 @@ const SFX = (() => {
     ctx.restore();
   }
 
-  /* ── 6-arm snowflake crystal ── */
+  /* ── 6-arm snowflake crystal (optimised: single path per flake, no shadowBlur) ── */
   function _snowflake(x, y, r, angle, alpha) {
     ctx.save(); ctx.globalAlpha = alpha;
     ctx.strokeStyle = "rgba(210,232,255,1)";
-    ctx.lineWidth = Math.max(.5, r*.2);
-    if (r > 3.5) { ctx.shadowBlur = 5; ctx.shadowColor = "rgba(190,220,255,.6)"; }
+    ctx.lineWidth = Math.max(.5, r*.2); ctx.lineCap = "round";
     ctx.translate(x, y); ctx.rotate(angle);
+    ctx.beginPath();
     for (let i = 0; i < 6; i++) {
-      const a = (i/6)*Math.PI*2, ax = Math.cos(a)*r, ay = Math.sin(a)*r;
-      ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(ax,ay); ctx.stroke();
+      const a=(i/6)*Math.PI*2, ax=Math.cos(a)*r, ay=Math.sin(a)*r;
+      ctx.moveTo(0,0); ctx.lineTo(ax,ay);
       [.45,.68].forEach(t => {
         const bx=ax*t, by=ay*t, len=r*.3;
         [a+Math.PI/4, a-Math.PI/4].forEach(ba => {
-          ctx.beginPath(); ctx.moveTo(bx,by); ctx.lineTo(bx+Math.cos(ba)*len, by+Math.sin(ba)*len); ctx.stroke();
+          ctx.moveTo(bx,by); ctx.lineTo(bx+Math.cos(ba)*len, by+Math.sin(ba)*len);
         });
       });
     }
+    ctx.stroke();
     ctx.restore();
   }
 
