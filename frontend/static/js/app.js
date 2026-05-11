@@ -3708,3 +3708,42 @@ function showLoading(show) {
     }
   } else { el?.remove(); }
 }
+
+/* ── 點擊魔法星星粒子特效 ── */
+(function initClickSparks() {
+  const COLORS = ["#4ECDC4","#8B5CF6","#FCD34D","#A78BFA","#67E8F9","#F472B6","#FBBF24"];
+  document.addEventListener("click", e => {
+    const n = 8 + Math.floor(Math.random() * 5);
+    for (let i = 0; i < n; i++) {
+      const el = document.createElement("div");
+      el.className = "click-spark";
+      const angle = (i / n) * Math.PI * 2 + (Math.random() - 0.5) * 0.8;
+      const dist  = 28 + Math.random() * 48;
+      const w     = 5 + Math.random() * 7;
+      const h     = w * (0.4 + Math.random() * 0.8);
+      el.style.cssText = `left:${e.clientX}px;top:${e.clientY}px;` +
+        `width:${w}px;height:${h}px;` +
+        `background:${COLORS[Math.floor(Math.random() * COLORS.length)]};` +
+        `--sx:${(Math.cos(angle) * dist).toFixed(1)}px;` +
+        `--sy:${(Math.sin(angle) * dist).toFixed(1)}px;` +
+        `animation-delay:${(Math.random() * 60).toFixed(0)}ms;`;
+      document.body.appendChild(el);
+      setTimeout(() => el.remove(), 750);
+    }
+  });
+})();
+
+/* ── 右下角橘子熊偷看 ── */
+(function initPeekBear() {
+  const bear = document.getElementById("peekBear");
+  if (!bear) return;
+  setTimeout(() => {
+    bear.classList.add("peeking");
+  }, 2800);
+  bear.addEventListener("click", e => {
+    e.stopPropagation();
+    bear.classList.remove("wave");
+    void bear.offsetWidth;
+    bear.classList.add("wave");
+  });
+})();
