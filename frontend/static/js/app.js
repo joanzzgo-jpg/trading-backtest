@@ -4947,8 +4947,65 @@ const SFX = (() => {
   let sunAngle = 0, moonGlow = 0;
   let flashAlpha = 0, lightningTimer = 80, lightningPath = [];
   let shootTimer = 200, shootX = 0, shootY = 0, shootDX = 0, shootDY = 0, shootLen = 0;
-  let stars = [], sparks = [], rainP = [], ripples = [], snowP = [], cloudP = [], leafP = [], petalP = [];
+  let stars = [], sparks = [], rainP = [], ripples = [], snowP = [], cloudP = [], leafP = [], petalP = [], mahjongP = [];
   let thunderBolts = [], thunderFlashes = [], thunderTimer = 15;
+
+  /* ── 麻將牌預渲染快取 ── */
+  const _TILE_SYMS = [
+    '一萬','二萬','三萬','四萬','五萬','六萬','七萬','八萬','九萬',
+    '一筒','二筒','三筒','四筒','五筒','六筒','七筒','八筒','九筒',
+    '一條','二條','三條','四條','五條','六條','七條','八條','九條',
+    '東','南','西','北','中','發','白',
+  ];
+  const _TILE_CACHE = {};
+  function _tileRoundRect(c,x,y,w,h,r){
+    c.beginPath();
+    c.moveTo(x+r,y); c.lineTo(x+w-r,y); c.arcTo(x+w,y,x+w,y+r,r);
+    c.lineTo(x+w,y+h-r); c.arcTo(x+w,y+h,x+w-r,y+h,r);
+    c.lineTo(x+r,y+h); c.arcTo(x,y+h,x,y+h-r,r);
+    c.lineTo(x,y+r); c.arcTo(x,y,x+r,y,r); c.closePath();
+  }
+  function _getTileImg(sym) {
+    if (_TILE_CACHE[sym]) return _TILE_CACHE[sym];
+    const TW=34, TH=44;
+    const oc=document.createElement('canvas'); oc.width=TW; oc.height=TH;
+    const c=oc.getContext('2d');
+    /* body */
+    c.shadowBlur=5; c.shadowOffsetY=2; c.shadowColor='rgba(0,0,0,.30)';
+    const bg=c.createLinearGradient(0,0,0,TH);
+    bg.addColorStop(0,'#FFFCEE'); bg.addColorStop(1,'#EDE5BE');
+    c.fillStyle=bg; _tileRoundRect(c,1,1,TW-2,TH-2,4); c.fill();
+    c.shadowBlur=0; c.shadowOffsetY=0;
+    /* border */
+    c.strokeStyle='#C0A050'; c.lineWidth=1;
+    _tileRoundRect(c,1,1,TW-2,TH-2,4); c.stroke();
+    /* inner frame */
+    c.strokeStyle='rgba(170,140,60,.30)'; c.lineWidth=.7;
+    _tileRoundRect(c,4,4,TW-8,TH-8,2); c.stroke();
+    /* symbol */
+    c.textAlign='center'; c.textBaseline='middle';
+    if (sym==='白') {
+      c.strokeStyle='rgba(100,110,140,.55)'; c.lineWidth=1.4;
+      c.strokeRect(6,8,TW-12,TH-16);
+    } else if (sym.length===1) {
+      c.fillStyle=sym==='中'?'#CC0000':sym==='發'?'#006600':'#1A1050';
+      c.font=`bold 20px serif`; c.fillText(sym,TW/2,TH/2);
+    } else {
+      const suit=sym[1];
+      c.fillStyle=suit==='萬'?'#BB2200':suit==='筒'?'#0044BB':'#007700';
+      c.font='bold 15px serif'; c.fillText(sym[0],TW/2,TH/2-7);
+      c.font='bold 13px serif'; c.fillText(suit,TW/2,TH/2+9);
+    }
+    _TILE_CACHE[sym]=oc; return oc;
+  }
+  function _newMahjong() {
+    return { x:Math.random()*W, y:-44-Math.random()*220,
+             vx:(Math.random()-.5)*.9, vy:.5+Math.random()*1.3,
+             rot:Math.random()*Math.PI*2, rotV:(Math.random()-.5)*.022,
+             swing:Math.random()*Math.PI*2, swingSpd:.012+Math.random()*.018,
+             sym:_TILE_SYMS[Math.floor(Math.random()*_TILE_SYMS.length)],
+             a:.60+Math.random()*.38 };
+  }
   let _autoType = "sunny";
 
   function wmoType(c, d) {
@@ -4982,7 +5039,8 @@ const SFX = (() => {
     snowP  = Array.from({length:55}, () => ({ x:Math.random()*W, y:Math.random()*H, r:2+Math.random()*5, spd:.4+Math.random()*1.2, drift:(Math.random()-.5)*.6, rot:Math.random()*Math.PI/3, rotSpd:(Math.random()-.5)*.022, a:.5+Math.random()*.5 }));
     cloudP = Array.from({length:8}, (_, i) => ({ x:Math.random()*W, y:H*(.05+i*.11), sc:.12+Math.random()*.14, al:.20+Math.random()*.16, sp:.04+Math.random()*.12 }));
     leafP  = Array.from({length:65}, () => { const lf=_newLeaf(); lf.y=Math.random()*H; return lf; });
-    petalP = Array.from({length:55}, () => { const p=_newPetal(); p.y=Math.random()*H; return p; });
+    petalP  = Array.from({length:55}, () => { const p=_newPetal(); p.y=Math.random()*H; return p; });
+    mahjongP= Array.from({length:38}, () => { const p=_newMahjong(); p.y=Math.random()*H; return p; });
     shootTimer = 200+Math.floor(Math.random()*250);
   }
 
@@ -5323,6 +5381,28 @@ const SFX = (() => {
     ctx.fillStyle=vg; ctx.fillRect(0,0,W,H);
   }
 
+  /* ── 麻將牌飄落 ── */
+  function dMahjong() {
+    mahjongP.forEach((p, i) => {
+      p.swing += p.swingSpd;
+      p.x += p.vx + Math.sin(p.swing) * .55;
+      p.y += p.vy;
+      p.rot += p.rotV;
+      if (p.y > H+55 || p.x < -60 || p.x > W+60) { mahjongP[i]=_newMahjong(); return; }
+      const img = _getTileImg(p.sym);
+      ctx.save();
+      ctx.globalAlpha = p.a;
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.rot);
+      if      (p.sym==='中') { ctx.shadowColor='rgba(255,60,60,.85)';   ctx.shadowBlur=16; }
+      else if (p.sym==='發') { ctx.shadowColor='rgba(50,210,80,.85)';   ctx.shadowBlur=16; }
+      else if (p.sym==='白') { ctx.shadowColor='rgba(200,220,255,.70)'; ctx.shadowBlur=12; }
+      else                   { ctx.shadowColor='rgba(0,0,0,.20)';       ctx.shadowBlur=5;  }
+      ctx.drawImage(img, -17, -22);
+      ctx.restore();
+    });
+  }
+
   /* ── falling leaves ── */
   const LCOLS = ["#C0392B","#E74C3C","#E67E22","#D35400","#F39C12","#D4AC0D","#8B4513","#A04000","#CB4335","#922B21"];
   function _newLeaf() {
@@ -5441,7 +5521,7 @@ const SFX = (() => {
   function draw() {
     ctx.clearRect(0,0,W,H);
     const t=Date.now()*.001;
-    ({sunny:dSunny,night:dNight,cloudy:dCloudy,fog:dFog,rain:dRain,snow:dSnow,storm:dStorm,thunder:dThunder,leaves:dLeaves,spring:dSpring})[type]?.(t);
+    ({sunny:dSunny,night:dNight,cloudy:dCloudy,fog:dFog,rain:dRain,snow:dSnow,storm:dStorm,thunder:dThunder,mahjong:dMahjong,leaves:dLeaves,spring:dSpring})[type]?.(t);
   }
   function loop() { draw(); rafId=requestAnimationFrame(loop); }
   function start(wt) { type=wt; _init(); if (!rafId) loop(); }
@@ -5458,6 +5538,7 @@ const SFX = (() => {
     document.getElementById("snowToggleBtn")    ?.classList.remove("snow-active");
     document.getElementById("springToggleBtn")  ?.classList.remove("spring-active");
     document.getElementById("thunderToggleBtn") ?.classList.remove("thunder-active");
+    document.getElementById("mahjongToggleBtn") ?.classList.remove("mahjong-active");
   }
   window._getWeatherType = () => type;
 
@@ -5480,6 +5561,11 @@ const SFX = (() => {
     const btn=document.getElementById("springToggleBtn");
     if (type==="spring") { start(_autoType); _clearWeatherBtns(); }
     else { _clearWeatherBtns(); start("spring"); btn&&btn.classList.add("spring-active"); }
+  };
+  window._mahjongToggle = function() {
+    const btn=document.getElementById("mahjongToggleBtn");
+    if (type==="mahjong") { start(_autoType); _clearWeatherBtns(); }
+    else { _clearWeatherBtns(); start("mahjong"); btn?.classList.add("mahjong-active"); }
   };
   window._thunderToggle = function() {
     const btn=document.getElementById("thunderToggleBtn");
