@@ -1654,6 +1654,57 @@ html, body {
   min-width: 28px;
   text-align: right;
 }
+/* YouTube 播放區 */
+.music-yt-section {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  margin-top: 8px;
+}
+.music-yt-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: .05em;
+  margin-bottom: 7px;
+}
+.music-yt-row {
+  display: flex;
+  gap: 5px;
+  margin-bottom: 0;
+}
+.music-yt-input {
+  flex: 1;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text);
+  font-size: 11px;
+  padding: 4px 7px;
+  outline: none;
+  min-width: 0;
+}
+.music-yt-input:focus { border-color: var(--blue); }
+.music-yt-input::placeholder { color: var(--muted); }
+.music-yt-btn {
+  background: var(--blue);
+  border: none;
+  border-radius: 5px;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: opacity .12s;
+  position: relative;
+  overflow: hidden;
+}
+.music-yt-btn:hover { opacity: 0.85; }
+.music-yt-btn:active { transform: scale(0.93); }
+#ytFrame { margin-top: 6px; }
+#ytFrame iframe { border-radius: 6px; display: block; width: 100%; }
+
 .music-note-icon {
   display: inline-block;
   transition: color .2s;

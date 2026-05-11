@@ -4362,6 +4362,8 @@ const SFX = (() => {
   function _stopAll() {
     clearInterval(_schedulerTimer); _schedulerTimer = null;
     clearInterval(_autoTimer);      _autoTimer      = null;
+    const ytF = document.getElementById("ytFrame");
+    if (ytF) ytF.innerHTML = "";   // 停止 YouTube 播放
   }
 
   function _startTheme(key) {
@@ -4434,4 +4436,48 @@ const SFX = (() => {
     _setVol(pct / 100);
     if (volLabel) volLabel.textContent = pct + "%";
   });
+
+  /* ── YouTube 播放器 ── */
+  const ytInput = document.getElementById("ytUrlInput");
+  const ytBtn   = document.getElementById("ytPlayBtn");
+  const ytFrame = document.getElementById("ytFrame");
+
+  function _parseYT(url) {
+    const vM = url.match(/[?&]v=([A-Za-z0-9_-]{11})/);
+    const sM = url.match(/youtu\.be\/([A-Za-z0-9_-]{11})/);
+    const lM = url.match(/[?&]list=([A-Za-z0-9_-]+)/);
+    return { vid: (vM || sM)?.[1], lid: lM?.[1] };
+  }
+
+  ytBtn?.addEventListener("click", () => {
+    const { vid, lid } = _parseYT(ytInput?.value?.trim() || "");
+    if (!vid && !lid) { ytInput?.focus(); return; }
+
+    /* 停合成音樂 */
+    _stopAll();
+    _activeTheme = "yt";
+    panel.querySelectorAll(".music-theme-btn").forEach(b => b.classList.remove("active"));
+    toggleBtn.classList.add("playing");
+
+    /* 建立 iframe src（只允許 youtube.com embed，防 XSS） */
+    let src;
+    if (lid && vid) src = `https://www.youtube.com/embed/${encodeURIComponent(vid)}?list=${encodeURIComponent(lid)}&autoplay=1&loop=1`;
+    else if (lid)   src = `https://www.youtube.com/embed/videoseries?list=${encodeURIComponent(lid)}&autoplay=1&loop=1`;
+    else            src = `https://www.youtube.com/embed/${encodeURIComponent(vid)}?autoplay=1&loop=1`;
+
+    if (ytFrame) {
+      const iframe = document.createElement("iframe");
+      iframe.width  = "100%";
+      iframe.height = "112";
+      iframe.src    = src;
+      iframe.setAttribute("frameborder", "0");
+      iframe.setAttribute("allow", "autoplay; encrypted-media");
+      iframe.setAttribute("allowfullscreen", "");
+      ytFrame.innerHTML = "";
+      ytFrame.appendChild(iframe);
+    }
+  });
+
+  /* Enter 鍵也可觸發播放 */
+  ytInput?.addEventListener("keydown", e => { if (e.key === "Enter") ytBtn?.click(); });
 })();
