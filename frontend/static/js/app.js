@@ -3850,11 +3850,156 @@ function showLoading(show) {
   } else { el?.remove(); }
 }
 
-/* ── 華麗點擊魔法特效（四層：水波紋 + 大閃光 + 小星塵 + 中心白光） ── */
+/* ── 點擊特效（依天氣型別：落葉 / 雨滴 / 雪花 / 花瓣 / 預設魔法粒子） ── */
 (function initClickSparks() {
-  const COLORS = ["#4ECDC4","#8B5CF6","#FCD34D","#A78BFA","#67E8F9","#F472B6","#FBBF24","#34D399","#FB923C"];
   let _lastClick = 0;
 
+  /* ── 建立暫時 Canvas ── */
+  function makeCanvas(cx, cy, size) {
+    const cvs = document.createElement("canvas");
+    cvs.width = size; cvs.height = size;
+    cvs.style.cssText = `position:fixed;left:${cx-size/2}px;top:${cy-size/2}px;pointer-events:none;z-index:9999;`;
+    document.body.appendChild(cvs);
+    return cvs;
+  }
+
+  /* ── 落葉 ── */
+  function spawnLeaves(cx, cy) {
+    const C = ["#8B4513","#CD853F","#D2691E","#A0522D","#6B8E23","#9ACD32","#DAA520","#FF8C00"];
+    const SIZE = 240, N = 11;
+    const cvs = makeCanvas(cx, cy, SIZE);
+    const ctx = cvs.getContext("2d");
+    const ox = SIZE/2, oy = SIZE/2;
+    const pts = Array.from({length:N}, () => {
+      const a = Math.random()*Math.PI*2, spd = 2+Math.random()*3.5;
+      return { x:ox, y:oy, vx:Math.cos(a)*spd, vy:Math.sin(a)*spd-1.2,
+               g:0.08+Math.random()*.05, rot:Math.random()*Math.PI*2,
+               rs:(Math.random()-.5)*.15, sw:9+Math.random()*10, sh:5+Math.random()*6,
+               col:C[Math.floor(Math.random()*C.length)], life:1 };
+    });
+    function draw(lf) {
+      ctx.save(); ctx.globalAlpha=lf.life*.9; ctx.translate(lf.x,lf.y); ctx.rotate(lf.rot);
+      ctx.beginPath(); ctx.ellipse(0,0,lf.sw,lf.sh,0,0,Math.PI*2);
+      ctx.fillStyle=lf.col; ctx.fill();
+      ctx.beginPath(); ctx.moveTo(-lf.sw,0); ctx.lineTo(lf.sw,0);
+      ctx.strokeStyle="rgba(0,0,0,.18)"; ctx.lineWidth=.8; ctx.stroke();
+      ctx.restore();
+    }
+    let raf; function loop() {
+      ctx.clearRect(0,0,SIZE,SIZE); let alive=false;
+      for (const lf of pts) {
+        lf.x+=lf.vx; lf.y+=lf.vy; lf.vy+=lf.g; lf.vx*=.98; lf.rot+=lf.rs; lf.life-=.013;
+        if(lf.life>0){alive=true;draw(lf);}
+      }
+      if(alive) raf=requestAnimationFrame(loop); else{cancelAnimationFrame(raf);cvs.remove();}
+    } loop();
+  }
+
+  /* ── 雨滴 ── */
+  function spawnRain(cx, cy) {
+    const SIZE = 240, N = 16;
+    const cvs = makeCanvas(cx, cy, SIZE);
+    const ctx = cvs.getContext("2d");
+    const ox = SIZE/2, oy = SIZE/2;
+    const pts = Array.from({length:N}, (_,i) => {
+      const a = (i/N)*Math.PI*2+(Math.random()-.5)*.5, spd=3+Math.random()*4;
+      return { x:ox, y:oy, vx:Math.cos(a)*spd, vy:Math.sin(a)*spd, g:.12, len:9+Math.random()*10, life:1 };
+    });
+    let raf; function loop() {
+      ctx.clearRect(0,0,SIZE,SIZE); let alive=false;
+      for (const d of pts) {
+        d.x+=d.vx; d.y+=d.vy; d.vy+=d.g; d.vx*=.97; d.life-=.02;
+        if(d.life>0){
+          alive=true;
+          const spd=Math.hypot(d.vx,d.vy)||1, nx=d.vx/spd, ny=d.vy/spd;
+          ctx.save(); ctx.globalAlpha=d.life*.85;
+          ctx.strokeStyle="rgba(100,185,255,1)"; ctx.lineWidth=2; ctx.lineCap="round";
+          ctx.beginPath();
+          ctx.moveTo(d.x-nx*d.len*.5,d.y-ny*d.len*.5); ctx.lineTo(d.x+nx*d.len*.5,d.y+ny*d.len*.5);
+          ctx.stroke(); ctx.restore();
+        }
+      }
+      if(alive) raf=requestAnimationFrame(loop); else{cancelAnimationFrame(raf);cvs.remove();}
+    } loop();
+  }
+
+  /* ── 雪花 ── */
+  function spawnSnow(cx, cy) {
+    const SIZE = 240, N = 9;
+    const cvs = makeCanvas(cx, cy, SIZE);
+    const ctx = cvs.getContext("2d");
+    const ox = SIZE/2, oy = SIZE/2;
+    const pts = Array.from({length:N}, () => {
+      const a = Math.random()*Math.PI*2, spd=1.5+Math.random()*2.5;
+      return { x:ox, y:oy, vx:Math.cos(a)*spd, vy:Math.sin(a)*spd-.5,
+               g:.03, rot:Math.random()*Math.PI*2, rs:(Math.random()-.5)*.06,
+               r:7+Math.random()*8, life:1 };
+    });
+    function drawFlake(f) {
+      ctx.save(); ctx.globalAlpha=f.life*.9;
+      ctx.strokeStyle="rgba(200,232,255,1)"; ctx.lineWidth=Math.max(.8,f.r*.18); ctx.lineCap="round";
+      ctx.translate(f.x,f.y); ctx.rotate(f.rot); ctx.beginPath();
+      for(let i=0;i<6;i++){
+        const a=(i/6)*Math.PI*2, ax=Math.cos(a)*f.r, ay=Math.sin(a)*f.r;
+        ctx.moveTo(0,0); ctx.lineTo(ax,ay);
+        [.45,.68].forEach(t=>{
+          const bx=ax*t,by=ay*t,len=f.r*.3;
+          [a+Math.PI/4,a-Math.PI/4].forEach(ba=>{
+            ctx.moveTo(bx,by); ctx.lineTo(bx+Math.cos(ba)*len,by+Math.sin(ba)*len);
+          });
+        });
+      }
+      ctx.stroke(); ctx.restore();
+    }
+    let raf; function loop() {
+      ctx.clearRect(0,0,SIZE,SIZE); let alive=false;
+      for (const f of pts) {
+        f.x+=f.vx; f.y+=f.vy; f.vy+=f.g; f.vx*=.99; f.rot+=f.rs; f.life-=.014;
+        if(f.life>0){alive=true;drawFlake(f);}
+      }
+      if(alive) raf=requestAnimationFrame(loop); else{cancelAnimationFrame(raf);cvs.remove();}
+    } loop();
+  }
+
+  /* ── 花瓣 ── */
+  function spawnPetals(cx, cy) {
+    const C = ["#FFB7C5","#FF91A4","#FFD1DC","#FF69B4","#FFC0CB","#FFFFFF","#FFE4E1"];
+    const SIZE = 240, N = 13;
+    const cvs = makeCanvas(cx, cy, SIZE);
+    const ctx = cvs.getContext("2d");
+    const ox = SIZE/2, oy = SIZE/2;
+    const pts = Array.from({length:N}, () => {
+      const a = Math.random()*Math.PI*2, spd=1.8+Math.random()*3;
+      return { x:ox, y:oy, vx:Math.cos(a)*spd, vy:Math.sin(a)*spd-1,
+               g:.06, rot:Math.random()*Math.PI*2, rs:(Math.random()-.5)*.12,
+               w:8+Math.random()*7, h:5+Math.random()*5, seed:Math.random()*100,
+               col:C[Math.floor(Math.random()*C.length)], life:1 };
+    });
+    function drawPetal(p) {
+      ctx.save(); ctx.globalAlpha=p.life*.9;
+      ctx.translate(p.x,p.y); ctx.rotate(p.rot);
+      ctx.beginPath();
+      ctx.moveTo(0,p.h*.5);
+      ctx.bezierCurveTo( p.w,-p.h*.2, p.w,-p.h*.8, 0,-p.h*.5);
+      ctx.bezierCurveTo(-p.w,-p.h*.8,-p.w,-p.h*.2, 0, p.h*.5);
+      ctx.fillStyle=p.col; ctx.fill();
+      ctx.strokeStyle="rgba(255,100,150,.25)"; ctx.lineWidth=.5; ctx.stroke();
+      ctx.restore();
+    }
+    let raf, t=0; function loop() {
+      ctx.clearRect(0,0,SIZE,SIZE); let alive=false; t++;
+      for (const p of pts) {
+        p.x+=p.vx; p.y+=p.vy; p.vy+=p.g;
+        p.vx+=Math.sin(t*.04+p.seed)*.025; /* 輕飄 */
+        p.rot+=p.rs; p.life-=.013;
+        if(p.life>0){alive=true;drawPetal(p);}
+      }
+      if(alive) raf=requestAnimationFrame(loop); else{cancelAnimationFrame(raf);cvs.remove();}
+    } loop();
+  }
+
+  /* ── 預設魔法粒子（非天氣模式） ── */
+  const DEF_COLORS = ["#4ECDC4","#8B5CF6","#FCD34D","#A78BFA","#67E8F9","#F472B6","#FBBF24","#34D399","#FB923C"];
   function spawnEl(cls, x, y, extra) {
     const el = document.createElement("div");
     el.className = cls;
@@ -3862,45 +4007,42 @@ function showLoading(show) {
     document.body.appendChild(el);
     return el;
   }
+  function spawnDefault(cx, cy) {
+    const BIG=6;
+    for(let i=0;i<BIG;i++){
+      const a=(i/BIG)*Math.PI*2, dist=50+Math.random()*40;
+      const w=8+Math.random()*8, h=w*(.35+Math.random()*.55);
+      const col=DEF_COLORS[Math.floor(Math.random()*DEF_COLORS.length)];
+      const el=spawnEl("spark-big",cx,cy,
+        `width:${w}px;height:${h}px;background:${col};`+
+        `--sx:${(Math.cos(a)*dist).toFixed(1)}px;--sy:${(Math.sin(a)*dist).toFixed(1)}px;`+
+        `animation-delay:${i*20}ms;`);
+      setTimeout(()=>el.remove(),1250);
+    }
+    const DUST=8;
+    for(let i=0;i<DUST;i++){
+      const a=Math.random()*Math.PI*2, dist=65+Math.random()*70;
+      const sz=3+Math.random()*5, delay=40+Math.random()*100;
+      const col=DEF_COLORS[Math.floor(Math.random()*DEF_COLORS.length)];
+      const el=spawnEl("spark-dust",cx,cy,
+        `width:${sz}px;height:${sz}px;background:${col};`+
+        `--sx:${(Math.cos(a)*dist).toFixed(1)}px;--sy:${(Math.sin(a)*dist).toFixed(1)}px;`+
+        `animation-delay:${delay.toFixed(0)}ms;`);
+      setTimeout(()=>el.remove(),1500);
+    }
+  }
 
   document.addEventListener("click", e => {
     const now = Date.now();
-    /* 限速：50ms 內連點只觸發一次，避免短時間堆積過多 DOM */
     if (now - _lastClick < 50) return;
     _lastClick = now;
-
     const cx = e.clientX, cy = e.clientY;
-
-    /* 層 1：大粒子（橢圓，6 顆均勻散射） */
-    const BIG = 6;
-    for (let i = 0; i < BIG; i++) {
-      const angle = (i / BIG) * Math.PI * 2;
-      const dist  = 50 + Math.random() * 40;
-      const w     = 8 + Math.random() * 8;
-      const h     = w * (0.35 + Math.random() * 0.55);
-      const color = COLORS[Math.floor(Math.random() * COLORS.length)];
-      const el = spawnEl("spark-big", cx, cy,
-        `width:${w}px;height:${h}px;background:${color};` +
-        `--sx:${(Math.cos(angle)*dist).toFixed(1)}px;--sy:${(Math.sin(angle)*dist).toFixed(1)}px;` +
-        `animation-delay:${i * 20}ms;`);
-      setTimeout(() => el.remove(), 1250);
-    }
-
-    /* 層 3：小星塵（8 顆，隨機延遲，飛更遠） */
-    const DUST = 8;
-    for (let i = 0; i < DUST; i++) {
-      const angle = Math.random() * Math.PI * 2;
-      const dist  = 65 + Math.random() * 70;
-      const sz    = 3 + Math.random() * 5;
-      const color = COLORS[Math.floor(Math.random() * COLORS.length)];
-      const delay = 40 + Math.random() * 100;
-      const el = spawnEl("spark-dust", cx, cy,
-        `width:${sz}px;height:${sz}px;background:${color};` +
-        `--sx:${(Math.cos(angle)*dist).toFixed(1)}px;--sy:${(Math.sin(angle)*dist).toFixed(1)}px;` +
-        `animation-delay:${delay.toFixed(0)}ms;`);
-      setTimeout(() => el.remove(), 1500);
-    }
-
+    const wt = window._getWeatherType ? window._getWeatherType() : null;
+    if      (wt === "leaves")              spawnLeaves(cx, cy);
+    else if (wt === "rain" || wt === "storm") spawnRain(cx, cy);
+    else if (wt === "snow")                spawnSnow(cx, cy);
+    else if (wt === "spring")              spawnPetals(cx, cy);
+    else                                   spawnDefault(cx, cy);
   });
 })();
 
@@ -5089,6 +5231,8 @@ const SFX = (() => {
     document.getElementById("snowToggleBtn")  ?.classList.remove("snow-active");
     document.getElementById("springToggleBtn")?.classList.remove("spring-active");
   }
+  window._getWeatherType = () => type;
+
   window._leafToggle = function() {
     const btn=document.getElementById("leafToggleBtn");
     if (type==="leaves") { start(_autoType); _clearWeatherBtns(); }
