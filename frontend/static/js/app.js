@@ -3854,6 +3854,16 @@ function showLoading(show) {
 (function initClickSparks() {
   let _lastClick = 0;
 
+  /* ── 光暈環（CSS 動畫，可選第二環 delay） ── */
+  function spawnHalo(cx, cy, color, delay = 0, dur = 0.65) {
+    const el = document.createElement("div");
+    el.className = "spark-halo";
+    el.style.cssText = `left:${cx}px;top:${cy}px;--halo-c:${color};--halo-dur:${dur}s;`
+      + (delay ? `animation-delay:${delay}ms;opacity:0;` : "");
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), (dur * 1000) + delay + 100);
+  }
+
   /* ── 建立暫時 Canvas ── */
   function makeCanvas(cx, cy, size) {
     const cvs = document.createElement("canvas");
@@ -3865,6 +3875,8 @@ function showLoading(show) {
 
   /* ── 落葉 ── */
   function spawnLeaves(cx, cy) {
+    spawnHalo(cx, cy, "rgba(205,133,63,0.85)");
+    spawnHalo(cx, cy, "rgba(255,140,0,0.55)", 120, 0.8);
     const C = ["#8B4513","#CD853F","#D2691E","#A0522D","#6B8E23","#9ACD32","#DAA520","#FF8C00"];
     const SIZE = 240, N = 11;
     const cvs = makeCanvas(cx, cy, SIZE);
@@ -3897,6 +3909,8 @@ function showLoading(show) {
 
   /* ── 雨滴 ── */
   function spawnRain(cx, cy) {
+    spawnHalo(cx, cy, "rgba(80,170,255,0.85)");
+    spawnHalo(cx, cy, "rgba(150,210,255,0.50)", 130, 0.75);
     const SIZE = 240, N = 16;
     const cvs = makeCanvas(cx, cy, SIZE);
     const ctx = cvs.getContext("2d");
@@ -3925,6 +3939,8 @@ function showLoading(show) {
 
   /* ── 雪花 ── */
   function spawnSnow(cx, cy) {
+    spawnHalo(cx, cy, "rgba(200,232,255,0.90)");
+    spawnHalo(cx, cy, "rgba(220,242,255,0.50)", 140, 0.80);
     const SIZE = 240, N = 9;
     const cvs = makeCanvas(cx, cy, SIZE);
     const ctx = cvs.getContext("2d");
@@ -3963,6 +3979,8 @@ function showLoading(show) {
 
   /* ── 花瓣 ── */
   function spawnPetals(cx, cy) {
+    spawnHalo(cx, cy, "rgba(255,150,180,0.88)");
+    spawnHalo(cx, cy, "rgba(255,200,220,0.50)", 120, 0.75);
     const C = ["#FFB7C5","#FF91A4","#FFD1DC","#FF69B4","#FFC0CB","#FFFFFF","#FFE4E1"];
     const SIZE = 240, N = 13;
     const cvs = makeCanvas(cx, cy, SIZE);
@@ -4008,6 +4026,8 @@ function showLoading(show) {
     return el;
   }
   function spawnDefault(cx, cy) {
+    spawnHalo(cx, cy, "rgba(255,165,71,0.88)");
+    spawnHalo(cx, cy, "rgba(255,210,120,0.45)", 110, 0.70);
     const BIG=6;
     for(let i=0;i<BIG;i++){
       const a=(i/BIG)*Math.PI*2, dist=50+Math.random()*40;
