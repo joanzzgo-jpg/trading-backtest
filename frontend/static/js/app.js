@@ -4181,13 +4181,14 @@ function showLoading(show) {
     const c=cvs.getContext("2d");
     const ox=SIZE/2, oy=SIZE/2;
     const dice=Array.from({length:3},(_,i)=>{
-      const baseAng=-Math.PI/2+(i-1)*(Math.PI/2.4)+(Math.random()-.5)*.25;
-      const dist=32+Math.random()*16;
+      const baseAng=Math.random()*Math.PI*2;          /* 完全隨機方向 */
+      const dist=28+Math.random()*28;
       return { x:ox, y:oy,
+               vx:(Math.random()-.5)*1.8, vy:(Math.random()-.5)*1.8,  /* 漂移 */
                tx:ox+Math.cos(baseAng)*dist, ty:oy+Math.sin(baseAng)*dist,
                rot:Math.random()*Math.PI*2,
-               rotSpd:(Math.random()<.5?1:-1)*(.28+Math.random()*.22),
-               face:1+Math.floor(Math.random()*6), alpha:1 };
+               rotSpd:(Math.random()<.5?1:-1)*(.5+Math.random()*.6),   /* 更快更亂 */
+               face:1+Math.floor(Math.random()*6), alpha:.82 };         /* 稍透明 */
     });
     let frame=0, raf;
     function loop() {
@@ -4196,18 +4197,18 @@ function showLoading(show) {
       for (const d of dice) {
         if (d.alpha<=0) continue;
         alive=true;
-        if (frame<=20) {
-          const p=1-Math.pow(1-frame/20,2);
-          d.x=ox+(d.tx-ox)*p; d.y=oy+(d.ty-oy)*p;
+        if (frame<=22) {
+          const p=1-Math.pow(1-frame/22,2);
+          d.x=ox+(d.tx-ox)*p+(d.vx*frame*.4); d.y=oy+(d.ty-oy)*p+(d.vy*frame*.4);
           d.rot+=d.rotSpd;
-          _drawDie(c,d.x,d.y,d.rot,1+Math.floor(Math.random()*6),1);
-        } else if (frame<=30) {
-          d.rot+=d.rotSpd*(1-(frame-20)/10);
-          _drawDie(c,d.x,d.y,d.rot,1+Math.floor(Math.random()*6),1);
-        } else if (frame<=58) {
-          _drawDie(c,d.x,d.y,0,d.face,1);
+          _drawDie(c,d.x,d.y,d.rot,1+Math.floor(Math.random()*6),d.alpha);
+        } else if (frame<=34) {
+          d.rot+=d.rotSpd*(1-(frame-22)/12);
+          _drawDie(c,d.x,d.y,d.rot,1+Math.floor(Math.random()*6),d.alpha);
+        } else if (frame<=56) {
+          _drawDie(c,d.x,d.y,0,d.face,d.alpha);
         } else {
-          d.alpha=Math.max(0,1-(frame-58)/14);
+          d.alpha=Math.max(0,d.alpha-(d.alpha/14));
           _drawDie(c,d.x,d.y,0,d.face,d.alpha);
         }
       }
@@ -5108,26 +5109,29 @@ const SFX = (() => {
       c.fillStyle='#CC2200'; c.beginPath(); c.ellipse(sx+sw/2,sy+sh/2,sw*.32,sh*.05,0,0,Math.PI*2); c.fill();
       return;
     }
-    /* 與筒子相同的位置陣列，每格畫竹節方塊 */
-    const POS={
-      2:[[.5,.27],[.5,.73]],
-      3:[[.5,.2],[.5,.5],[.5,.8]],
-      4:[[.29,.26],[.71,.26],[.29,.74],[.71,.74]],
-      5:[[.29,.2],[.71,.2],[.5,.5],[.29,.8],[.71,.8]],
-      6:[[.29,.18],[.71,.18],[.29,.5],[.71,.5],[.29,.82],[.71,.82]],
-      7:[[.3,.12],[.7,.12],[.3,.36],[.7,.36],[.3,.60],[.7,.60],[.5,.84]],
-      8:[[.3,.1],[.7,.1],[.3,.36],[.7,.36],[.3,.62],[.7,.62],[.3,.88],[.7,.88]],
-      9:[[.22,.15],[.5,.15],[.78,.15],[.22,.5],[.5,.5],[.78,.5],[.22,.85],[.5,.85],[.78,.85]],
-    };
-    const pos=POS[n]||[];
-    const SZ={2:[11,15],3:[11,11],4:[10,15],5:[9,11],6:[9,9],7:[8,8],8:[8,8],9:[8,8]};
-    const [UW,UH]=SZ[n]||[8,8];
-    pos.forEach(([fx,fy])=>{
-      const cx=fx*TW, cy=3+fy*(TH-6);
-      c.fillStyle='#2B8000'; _tileRR(c,cx-UW/2,cy-UH/2,UW,UH,UW*.25); c.fill();
-      c.strokeStyle='#1A5000'; c.lineWidth=.8; _tileRR(c,cx-UW/2,cy-UH/2,UW,UH,UW*.25); c.stroke();
-      c.fillStyle='#CC2200'; c.beginPath(); c.ellipse(cx,cy,UW*.30,UH*.15,0,0,Math.PI*2); c.fill();
-    });
+    /* cols×rows 格，每格一根竹子（高細長條＋紅節帶） */
+    const GRIDS={2:{c:2,r:1},3:{c:3,r:1},4:{c:2,r:2},5:{c:2,r:3},
+                 6:{c:3,r:2},7:{c:2,r:4},8:{c:2,r:4},9:{c:3,r:3}};
+    const {c:cols,r:rows}=GRIDS[n]||{c:2,r:4};
+    const pad=3, cw=(TW-pad*2)/cols, rh=(TH-pad*2)/rows;
+    const sw=cw*.70, sh=rh*.84;
+    let drawn=0;
+    for(let r=0;r<rows;r++){
+      for(let col=0;col<cols&&drawn<n;col++,drawn++){
+        const cx=pad+(col+.5)*cw, cy=pad+(r+.5)*rh;
+        const x=cx-sw/2, y=cy-sh/2;
+        c.fillStyle='#2B8000'; _tileRR(c,x,y,sw,sh,sw*.25); c.fill();
+        c.strokeStyle='#1A5000'; c.lineWidth=.8; _tileRR(c,x,y,sw,sh,sw*.25); c.stroke();
+        c.fillStyle='#CC2200';
+        const rx=sw*.44, ry=Math.max(1.3,sh*.09);
+        if(sh>=16){
+          c.beginPath(); c.ellipse(cx,y+sh/3,rx,ry,0,0,Math.PI*2); c.fill();
+          c.beginPath(); c.ellipse(cx,y+sh*2/3,rx,ry,0,0,Math.PI*2); c.fill();
+        } else {
+          c.beginPath(); c.ellipse(cx,cy,rx,Math.max(1.3,sh*.13),0,0,Math.PI*2); c.fill();
+        }
+      }
+    }
   }
   function _getTileImg(sym) {
     if (_TILE_CACHE[sym]) return _TILE_CACHE[sym];
