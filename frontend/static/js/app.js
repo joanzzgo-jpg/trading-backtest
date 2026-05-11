@@ -4145,34 +4145,38 @@ function showLoading(show) {
   ];
   function _drawDie(ctx, x, y, rot, face, alpha) {
     const S=13;
-    ctx.save();
-    ctx.globalAlpha=alpha;
-    ctx.translate(x,y);
-    ctx.rotate(rot);
-    const r=3,W=S*2,H=S*2,bx=-S,by=-S;
-    function dieShape(){ ctx.beginPath(); ctx.moveTo(bx+r,by); ctx.lineTo(bx+W-r,by); ctx.arcTo(bx+W,by,bx+W,by+r,r); ctx.lineTo(bx+W,by+H-r); ctx.arcTo(bx+W,by+H,bx+W-r,by+H,r); ctx.lineTo(bx+r,by+H); ctx.arcTo(bx,by+H,bx,by+H-r,r); ctx.lineTo(bx,by+r); ctx.arcTo(bx,by,bx+r,by,r); ctx.closePath(); }
-    /* shadow */
-    ctx.shadowColor='rgba(40,20,0,.35)'; ctx.shadowBlur=10; ctx.shadowOffsetY=4;
-    /* 3D body: warm ivory base */
-    const bodyG=ctx.createLinearGradient(bx,by,bx+W,by+H);
+    ctx.save(); ctx.globalAlpha=alpha; ctx.translate(x,y); ctx.rotate(rot);
+    const fw=S*1.85, dX=S*.68, dY=S*.38, r=3;
+    /* center 3D bounding box at origin */
+    const fx=-(fw+dX)/2, fy=-fw/2+dY/2;
+    /* right face (shadow) */
+    ctx.fillStyle='#B8A070';
+    ctx.beginPath(); ctx.moveTo(fx+fw,fy); ctx.lineTo(fx+fw+dX,fy-dY); ctx.lineTo(fx+fw+dX,fy+fw-dY); ctx.lineTo(fx+fw,fy+fw); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle='rgba(80,50,10,.28)'; ctx.lineWidth=.8; ctx.stroke();
+    /* top face (highlight) */
+    ctx.fillStyle='#F5EDD2';
+    ctx.beginPath(); ctx.moveTo(fx,fy); ctx.lineTo(fx+fw,fy); ctx.lineTo(fx+fw+dX,fy-dY); ctx.lineTo(fx+dX,fy-dY); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle='rgba(80,50,10,.28)'; ctx.lineWidth=.8; ctx.stroke();
+    /* front face */
+    ctx.shadowColor='rgba(40,20,0,.35)'; ctx.shadowBlur=8; ctx.shadowOffsetX=1; ctx.shadowOffsetY=2;
+    const bodyG=ctx.createLinearGradient(fx,fy,fx+fw,fy+fw);
     bodyG.addColorStop(0,'#F8F0DC'); bodyG.addColorStop(.45,'#EDE0BE'); bodyG.addColorStop(1,'#D8C898');
-    ctx.fillStyle=bodyG; dieShape(); ctx.fill();
-    ctx.shadowBlur=0; ctx.shadowOffsetY=0;
-    /* semi-transparent border */
-    ctx.strokeStyle='rgba(120,90,50,.30)'; ctx.lineWidth=1.2; dieShape(); ctx.stroke();
-    /* top-left highlight sheen */
-    const hlG=ctx.createLinearGradient(bx,by,bx+W*.6,by+H*.6);
-    hlG.addColorStop(0,'rgba(255,255,255,.38)'); hlG.addColorStop(.5,'rgba(255,255,255,.10)'); hlG.addColorStop(1,'rgba(255,255,255,0)');
-    ctx.fillStyle=hlG; dieShape(); ctx.fill();
-    /* dots */
-    const dots=_DICE_DOTS[face], spread=S*.64, R=1.9;
-    ctx.shadowColor='rgba(0,0,0,.22)'; ctx.shadowBlur=2; ctx.shadowOffsetY=1;
+    function faceRect(){ctx.beginPath(); ctx.moveTo(fx+r,fy); ctx.lineTo(fx+fw-r,fy); ctx.arcTo(fx+fw,fy,fx+fw,fy+r,r); ctx.lineTo(fx+fw,fy+fw-r); ctx.arcTo(fx+fw,fy+fw,fx+fw-r,fy+fw,r); ctx.lineTo(fx+r,fy+fw); ctx.arcTo(fx,fy+fw,fx,fy+fw-r,r); ctx.lineTo(fx,fy+r); ctx.arcTo(fx,fy,fx+r,fy,r); ctx.closePath();}
+    ctx.fillStyle=bodyG; faceRect(); ctx.fill();
+    ctx.shadowBlur=0; ctx.shadowOffsetX=0; ctx.shadowOffsetY=0;
+    ctx.strokeStyle='rgba(120,90,50,.30)'; ctx.lineWidth=1; faceRect(); ctx.stroke();
+    const hlG=ctx.createLinearGradient(fx,fy,fx+fw*.6,fy+fw*.6);
+    hlG.addColorStop(0,'rgba(255,255,255,.40)'); hlG.addColorStop(.5,'rgba(255,255,255,.12)'); hlG.addColorStop(1,'rgba(255,255,255,0)');
+    ctx.fillStyle=hlG; faceRect(); ctx.fill();
+    /* dots on front face */
+    const dots=_DICE_DOTS[face], spread=fw*.30, R=1.9, cx=fx+fw/2, cy=fy+fw/2;
+    ctx.shadowColor='rgba(0,0,0,.22)'; ctx.shadowBlur=1.5; ctx.shadowOffsetY=.5;
     ctx.fillStyle='rgba(25,18,10,.82)';
-    dots.forEach(([dx,dy])=>{ ctx.beginPath(); ctx.arc(dx*spread,dy*spread,R,0,Math.PI*2); ctx.fill(); });
+    dots.forEach(([ddx,ddy])=>{ctx.beginPath(); ctx.arc(cx+ddx*spread,cy+ddy*spread,R,0,Math.PI*2); ctx.fill();});
     ctx.restore();
   }
   function spawnDice(cx, cy) {
-    const SIZE=130;
+    const SIZE=150;
     const cvs=makeCanvas(cx,cy,SIZE);
     const c=cvs.getContext("2d");
     const ox=SIZE/2, oy=SIZE/2;
