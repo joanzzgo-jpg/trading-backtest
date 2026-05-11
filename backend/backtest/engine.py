@@ -116,7 +116,7 @@ class BacktestEngine:
                 pnl = gross - fee
                 pnl_pct = (trade.entry_price - exit_price) / trade.entry_price
 
-            self._capital += exit_price * trade.size + pnl - (exit_price * trade.size * self.config.commission)
+            self._capital += exit_price * trade.size - fee
             trade.exit_time = row["time"]
             trade.exit_price = exit_price
             trade.pnl = pnl
