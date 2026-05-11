@@ -2871,6 +2871,11 @@ function enterReplay() {
   replayIdx = Math.max(_replaySpan, Math.floor(replayData.length * 0.2));
   _replayLastIdx = -1;
 
+  const scrubber = document.getElementById("replayScrubber");
+  scrubber.min   = 0;
+  scrubber.max   = replayData.length - 1;
+  scrubber.value = replayIdx;
+
   // 讓圖表區為重播列騰出空間
   document.getElementById("chartsContainer").style.paddingBottom = "42px";
   resizeAll();
@@ -2996,6 +3001,7 @@ function _replayRender() {
 
   _replayRenderDate(replayData[replayIdx]);
   document.getElementById("replayProgress").textContent = `${n} / ${replayData.length}`;
+  document.getElementById("replayScrubber").value = replayIdx;
 }
 
 function replayPlay() {
@@ -3033,6 +3039,18 @@ function bindReplayBar() {
   document.getElementById("replayPlay").addEventListener("click", replayPlay);
   document.getElementById("replayStepF").addEventListener("click", replayStepForward);
   document.getElementById("replayStepB").addEventListener("click", replayStepBack);
+
+  document.getElementById("replayScrubber").addEventListener("input", e => {
+    // 拖曳時暫停播放
+    if (replayTimer) {
+      clearInterval(replayTimer); replayTimer = null;
+      document.getElementById("replayPlay").classList.remove("playing");
+      document.getElementById("replayPlay").textContent = "▶";
+    }
+    replayIdx = parseInt(e.target.value);
+    _replayRender();
+  });
+
   document.querySelectorAll(".rp-speed").forEach(btn => {
     btn.addEventListener("click", () => {
       replaySpeed = parseInt(btn.dataset.speed);
