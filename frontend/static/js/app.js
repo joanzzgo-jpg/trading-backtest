@@ -2713,10 +2713,13 @@ async function fetchLatest() {
     if (!json.data?.length) return;
     const dot = document.getElementById("realtimeDot");
     if (dot) dot.classList.toggle("hidden", json.live === false);
+    const _tfSec = { "1M":2592000,"1w":604800,"1d":86400,"4h":14400,"1h":3600,"15m":900,"5m":300 };
     json.data.forEach(bar => {
       const t     = toTime(bar.time);
       const last  = ohlcvData[ohlcvData.length - 1];
       const lastT = last ? toTime(last.time) : 0;
+      // 歷史資料模式：若新 bar 與最後一根相差 > 5 根週期，不插入（避免 2024→2026 跳躍）
+      if (t > lastT && (t - lastT) > (_tfSec[currentTF] || 86400) * 5) return;
       if (t === lastT) ohlcvData[ohlcvData.length - 1] = { ...last, ...bar };
       else if (t > lastT) ohlcvData.push(bar);
       else return;
