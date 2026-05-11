@@ -73,6 +73,7 @@ let lastKDJCrossMarkers  = [];
 let lastResonanceMarkers = [];
 let paneCollapseFlex = {};  // 面板收合前的 flex 值（module-level，供 loadVisibilityPrefs 使用）
 let _restoringPrefs  = false; // 還原偏好設定時，暫停自動儲存
+let _savedBarCount   = null;  // 切換標的前保存的可見 K 棒數量，載入後還原
 
 const PANE_FLEX_DEFAULTS = { mainPane:5, kdjPane:1, rsiPane:1, macdPane:1 };
 
@@ -2474,6 +2475,12 @@ function nextVisiblePane(el) {
    資料載入
 ══════════════════════════════════════════ */
 async function loadData(autoLoad = false) {
+  /* 記住切換前的可見 K 棒數量，載入後還原相同縮放比例 */
+  if (mainChart) {
+    const _r = mainChart.timeScale().getVisibleLogicalRange();
+    if (_r) _savedBarCount = Math.round(_r.to - _r.from);
+  }
+
   stopRealtime();
 
   // 各時間級別依市場實際 API 限制回溯天數（加密貨幣無限制）
@@ -2543,10 +2550,18 @@ function renderAll(data) {
   // fit 讓各子圖時間範圍對齊
   [mainChart, kdjChart, rsiChart, macdChart].forEach(c => c.timeScale().fitContent());
 
-  // 顯示最後 50 根（logical range，anchor series 確保各圖索引對齊）
-  if (data.length > 50) {
-    mainChart.timeScale().setVisibleLogicalRange({ from: data.length - 50, to: data.length - 1 });
+  // 保留切換前的 K 棒顯示數量；若無紀錄（首次載入）預設 50 根
+  const _prevRange = mainChart.timeScale().getVisibleLogicalRange();
+  const _barCount  = (_prevRange && _savedBarCount != null)
+    ? _savedBarCount
+    : 50;
+  if (data.length > _barCount) {
+    mainChart.timeScale().setVisibleLogicalRange({
+      from: data.length - _barCount,
+      to:   data.length - 1,
+    });
   }
+  _savedBarCount = null;   // 用完清除，讓使用者自由縮放
 
   resizeAll();
 }
