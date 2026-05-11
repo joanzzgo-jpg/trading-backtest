@@ -4256,15 +4256,23 @@ function showLoading(show) {
 
   setTimeout(() => { bear.classList.add("peeking"); }, 2800);
 
-  bear.addEventListener("mouseenter", () => {
+  function _onEnter() {
     _bearHover = true;
     clearTimeout(_bubbleTimer);
     if (!bubble?.classList.contains("visible")) showBubble();
-  });
-  bear.addEventListener("mouseleave", () => {
+  }
+  function _onLeave(e) {
+    /* only hide if cursor left BOTH the bear and the bubble */
+    const to = e.relatedTarget;
+    if (bear.contains(to) || bubble?.contains(to)) return;
     _bearHover = false;
     _startHideBubble();
-  });
+  }
+
+  bear.addEventListener("mouseenter", _onEnter);
+  bear.addEventListener("mouseleave", _onLeave);
+  bubble?.addEventListener("mouseenter", _onEnter);
+  bubble?.addEventListener("mouseleave", _onLeave);
 
   bear.addEventListener("click", e => {
     e.stopPropagation();
