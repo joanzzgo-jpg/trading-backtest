@@ -4645,7 +4645,7 @@ const SFX = (() => {
   let sunAngle = 0, moonGlow = 0;
   let flashAlpha = 0, lightningTimer = 80, lightningPath = [];
   let shootTimer = 200, shootX = 0, shootY = 0, shootDX = 0, shootDY = 0, shootLen = 0;
-  let stars = [], sparks = [], rainP = [], snowP = [], cloudP = [], leafP = [];
+  let stars = [], sparks = [], rainP = [], ripples = [], snowP = [], cloudP = [], leafP = [];
   let _autoType = "sunny";
 
   function wmoType(c, d) {
@@ -4671,7 +4671,11 @@ const SFX = (() => {
   function _init() {
     stars  = Array.from({length:200}, () => ({ x:Math.random()*W, y:Math.random()*H*.88, r:.3+Math.random()*1.8, ph:Math.random()*Math.PI*2, sp:.8+Math.random()*1.5 }));
     sparks = Array.from({length:22}, _newSpark);
-    rainP  = Array.from({length:260}, () => ({ x:Math.random()*W, y:Math.random()*H, spd:5+Math.random()*7, len:8+Math.random()*18, a:.25+Math.random()*.55 }));
+    rainP  = [
+      ...Array.from({length:130}, () => ({ x:Math.random()*W, y:Math.random()*H, spd:3+Math.random()*2.5, len:6+Math.random()*8,  a:.09+Math.random()*.13 })),
+      ...Array.from({length:80},  () => ({ x:Math.random()*W, y:Math.random()*H, spd:9+Math.random()*6,   len:14+Math.random()*16, a:.34+Math.random()*.44 })),
+    ];
+    ripples = [];
     snowP  = Array.from({length:100}, () => ({ x:Math.random()*W, y:Math.random()*H, r:2+Math.random()*5, spd:.4+Math.random()*1.2, drift:(Math.random()-.5)*.6, rot:Math.random()*Math.PI/3, rotSpd:(Math.random()-.5)*.022, a:.5+Math.random()*.5 }));
     cloudP = Array.from({length:8}, (_, i) => ({ x:Math.random()*W, y:H*(.06+i*.11), sc:.11+Math.random()*.15, al:.10+Math.random()*.12, sp:.05+Math.random()*.14 }));
     leafP  = Array.from({length:65}, () => { const lf=_newLeaf(); lf.y=Math.random()*H; return lf; });
@@ -4818,16 +4822,46 @@ const SFX = (() => {
   }
 
   function dRain() {
+    /* stormy sky overlay */
+    const sky=ctx.createLinearGradient(0,0,0,H);
+    sky.addColorStop(0,"rgba(28,42,66,.26)"); sky.addColorStop(1,"rgba(8,18,38,.06)");
+    ctx.fillStyle=sky; ctx.fillRect(0,0,W,H);
+
     ctx.lineCap="round";
+    const near=p=>p.a>0.3;
     rainP.forEach(p => {
-      ctx.strokeStyle=`rgba(160,210,255,${p.a})`; ctx.lineWidth=.9;
-      ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(p.x-2,p.y+p.len); ctx.stroke();
-      p.y+=p.spd; p.x-=.8;
-      if (p.y>H+p.len) { p.y=-p.len; p.x=Math.random()*W; }
+      const n=near(p);
+      ctx.strokeStyle=n?`rgba(185,225,255,${p.a})`:`rgba(130,175,225,${p.a})`;
+      ctx.lineWidth=n?1.1:.55;
+      ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(p.x-p.len*.13,p.y+p.len); ctx.stroke();
+      p.y+=p.spd; p.x-=p.spd*.13;
+      if (p.y>H+p.len) {
+        if (n && ripples.length<45)
+          ripples.push({x:p.x, y:H*.968, r:0, maxR:7+Math.random()*13, a:.42});
+        p.y=-p.len; p.x=Math.random()*(W+60)-30;
+      }
     });
-    const mist=ctx.createLinearGradient(0,H*.72,0,H);
-    mist.addColorStop(0,"rgba(150,200,255,0)"); mist.addColorStop(1,"rgba(150,200,255,.07)");
-    ctx.fillStyle=mist; ctx.fillRect(0,H*.72,W,H*.28);
+
+    /* puddle ripple rings */
+    for (let i=ripples.length-1;i>=0;i--) {
+      const rp=ripples[i];
+      ctx.strokeStyle=`rgba(165,215,255,${rp.a})`; ctx.lineWidth=.8;
+      ctx.beginPath(); ctx.ellipse(rp.x,rp.y,rp.r,rp.r*.28,0,0,Math.PI*2); ctx.stroke();
+      rp.r+=.85; rp.a-=.026;
+      if (rp.a<=0) ripples.splice(i,1);
+    }
+
+    /* wet ground sheen */
+    const gnd=ctx.createLinearGradient(0,H*.88,0,H);
+    gnd.addColorStop(0,"rgba(100,160,220,0)"); gnd.addColorStop(1,"rgba(80,130,200,.09)");
+    ctx.fillStyle=gnd; ctx.fillRect(0,H*.88,W,H*.12);
+
+    /* bottom mist */
+    const mist=ctx.createLinearGradient(0,H*.62,0,H);
+    mist.addColorStop(0,"rgba(140,195,245,0)");
+    mist.addColorStop(.55,"rgba(140,195,245,.035)");
+    mist.addColorStop(1,"rgba(140,195,245,.10)");
+    ctx.fillStyle=mist; ctx.fillRect(0,H*.62,W,H*.38);
   }
 
   function dSnow(t) {
@@ -4965,10 +4999,19 @@ const SFX = (() => {
       .then(d=>{ const cw=d.current_weather; _autoType=wmoType(cw.weathercode,cw.is_day===1); if(type!=="leaves") start(_autoType); })
       .catch(()=>{ _autoType="sunny"; if(type!=="leaves") start("sunny"); });
   }
+  function _clearWeatherBtns() {
+    document.getElementById("leafToggleBtn")?.classList.remove("leaf-active");
+    document.getElementById("rainToggleBtn")?.classList.remove("rain-active");
+  }
   window._leafToggle = function() {
     const btn=document.getElementById("leafToggleBtn");
-    if (type==="leaves") { start(_autoType); btn&&btn.classList.remove("leaf-active"); }
-    else { start("leaves"); btn&&btn.classList.add("leaf-active"); }
+    if (type==="leaves") { start(_autoType); _clearWeatherBtns(); }
+    else { _clearWeatherBtns(); start("leaves"); btn&&btn.classList.add("leaf-active"); }
+  };
+  window._rainToggle = function() {
+    const btn=document.getElementById("rainToggleBtn");
+    if (type==="rain") { start(_autoType); _clearWeatherBtns(); }
+    else { _clearWeatherBtns(); start("rain"); btn&&btn.classList.add("rain-active"); }
   };
 
   window.addEventListener("resize", resize);
