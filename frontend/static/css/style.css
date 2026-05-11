@@ -4,7 +4,7 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 /* 魔法棒手繪游標（原圖 PNG） */
-* { cursor: url('/static/img/cursor-wand.png') 14 9, auto; }
+* { cursor: url('/static/img/cursor-wand.png') 21 14, auto; }
 input[type="text"], input[type="number"], input[type="date"], textarea, .sym-modal-input, .tb-symbol-input, .tk-search, .ind-sp-num { cursor: text; }
 
 :root {
@@ -932,14 +932,9 @@ html, body {
   gap: 16px;
 }
 .loading-bear {
-  width: 182px;
-  height: 182px;
+  width: 160px;
+  height: 160px;
   object-fit: contain;
-  animation: loading-spin 1.2s linear infinite;
-}
-@keyframes loading-spin {
-  from { transform: rotate(0deg); }
-  to   { transform: rotate(360deg); }
 }
 .loading-text {
   font-size: 14px;
@@ -1446,24 +1441,46 @@ html, body {
 ══════════════════════════════════════ */
 
 /* 共用：fixed、不遮滑鼠 */
-.spark-ring, .spark-big, .spark-dust, .spark-flash {
+.spark-ripple, .spark-big, .spark-dust, .spark-flash {
   position: fixed;
   pointer-events: none;
   z-index: 99999;
   transform: translate(-50%, -50%);
 }
 
-/* 層 1：擴散光暈環 */
-.spark-ring {
-  width: 10px; height: 10px;
-  border-radius: 50%;
-  border: 3px solid rgba(255,255,200,0.9);
-  animation: ring-expand 0.65s ease-out forwards;
+/* 層 1：不規則水波紋（三層漣漪） */
+.spark-ripple {
+  width: 14px; height: 14px;
+  background: transparent;
+  border-style: solid;
+  border-color: var(--rc, rgba(150, 220, 255, 0.9));
+  animation: ripple-wave var(--rd, 0.75s) ease-out forwards;
+  animation-delay: var(--delay, 0ms);
+  opacity: 0;
 }
-@keyframes ring-expand {
-  0%   { transform: translate(-50%,-50%) scale(0.2); opacity: 1; border-width: 4px; }
-  60%  { opacity: 0.6; }
-  100% { transform: translate(-50%,-50%) scale(7); opacity: 0; border-width: 1px; }
+@keyframes ripple-wave {
+  0%   {
+    border-radius: 52% 48% 54% 46% / 47% 55% 43% 57%;
+    transform: translate(-50%,-50%) scale(0.18) rotate(0deg);
+    border-width: 5px; opacity: 1;
+  }
+  20%  {
+    border-radius: 47% 53% 49% 51% / 54% 46% 56% 44%;
+    border-width: 4px; opacity: 0.9;
+  }
+  50%  {
+    border-radius: 55% 45% 48% 52% / 48% 52% 44% 56%;
+    border-width: 2.5px; opacity: 0.65;
+  }
+  80%  {
+    border-radius: 49% 51% 53% 47% / 52% 48% 56% 44%;
+    border-width: 1.5px; opacity: 0.3;
+  }
+  100% {
+    border-radius: 51% 49% 50% 50% / 50% 51% 49% 50%;
+    transform: translate(-50%,-50%) scale(var(--rs, 9)) rotate(10deg);
+    border-width: 0.5px; opacity: 0;
+  }
 }
 
 /* 層 2：大橢圓粒子 */
@@ -1518,7 +1535,8 @@ html, body {
 .peek-bear.peeking {
   bottom: -80px;
 }
-.peek-bear.peeking:hover {
+.peek-bear.peeking:hover,
+.peek-bear.peek-visit {
   bottom: 5px;
 }
 .peek-bear img {

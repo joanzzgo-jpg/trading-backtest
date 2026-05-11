@@ -3709,9 +3709,10 @@ function showLoading(show) {
   } else { el?.remove(); }
 }
 
-/* ── 華麗點擊魔法特效（三層：光暈環 + 大閃光 + 小星塵） ── */
+/* ── 華麗點擊魔法特效（四層：水波紋 + 大閃光 + 小星塵 + 中心白光） ── */
 (function initClickSparks() {
   const COLORS = ["#4ECDC4","#8B5CF6","#FCD34D","#A78BFA","#67E8F9","#F472B6","#FBBF24","#34D399","#FB923C"];
+  let _lastClick = 0;
 
   function spawnEl(cls, x, y, extra) {
     const el = document.createElement("div");
@@ -3722,40 +3723,51 @@ function showLoading(show) {
   }
 
   document.addEventListener("click", e => {
+    const now = Date.now();
+    /* 限速：50ms 內連點只觸發一次，避免短時間堆積過多 DOM */
+    if (now - _lastClick < 50) return;
+    _lastClick = now;
+
     const cx = e.clientX, cy = e.clientY;
 
-    /* 層 1：擴散光暈環 */
-    const ring = spawnEl("spark-ring", cx, cy, "");
-    setTimeout(() => ring.remove(), 700);
+    /* 層 1：三層不規則水波紋 */
+    const rippleColors = ["rgba(150,220,255,0.9)", "rgba(180,160,255,0.8)", "rgba(120,240,200,0.7)"];
+    const rippleScales = [10, 8.5, 7];
+    const rippleDurs   = ["0.72s", "0.82s", "0.96s"];
+    for (let i = 0; i < 3; i++) {
+      const el = spawnEl("spark-ripple", cx, cy,
+        `--rc:${rippleColors[i]};--rs:${rippleScales[i]};--rd:${rippleDurs[i]};--delay:${i * 90}ms;`);
+      setTimeout(() => el.remove(), 1100 + i * 90);
+    }
 
-    /* 層 2：大粒子（橢圓，8 顆均勻散射） */
-    const BIG = 8;
+    /* 層 2：大粒子（橢圓，6 顆均勻散射） */
+    const BIG = 6;
     for (let i = 0; i < BIG; i++) {
       const angle = (i / BIG) * Math.PI * 2;
-      const dist  = 55 + Math.random() * 45;
+      const dist  = 50 + Math.random() * 40;
       const w     = 8 + Math.random() * 8;
       const h     = w * (0.35 + Math.random() * 0.55);
       const color = COLORS[Math.floor(Math.random() * COLORS.length)];
       const el = spawnEl("spark-big", cx, cy,
         `width:${w}px;height:${h}px;background:${color};` +
         `--sx:${(Math.cos(angle)*dist).toFixed(1)}px;--sy:${(Math.sin(angle)*dist).toFixed(1)}px;` +
-        `animation-delay:${(i * 18)}ms;`);
-      setTimeout(() => el.remove(), 1300);
+        `animation-delay:${i * 20}ms;`);
+      setTimeout(() => el.remove(), 1250);
     }
 
-    /* 層 3：小星塵（12 顆，隨機延遲，飛更遠） */
-    const DUST = 12;
+    /* 層 3：小星塵（8 顆，隨機延遲，飛更遠） */
+    const DUST = 8;
     for (let i = 0; i < DUST; i++) {
       const angle = Math.random() * Math.PI * 2;
-      const dist  = 70 + Math.random() * 80;
+      const dist  = 65 + Math.random() * 70;
       const sz    = 3 + Math.random() * 5;
       const color = COLORS[Math.floor(Math.random() * COLORS.length)];
-      const delay = 40 + Math.random() * 120;
+      const delay = 40 + Math.random() * 100;
       const el = spawnEl("spark-dust", cx, cy,
         `width:${sz}px;height:${sz}px;background:${color};` +
         `--sx:${(Math.cos(angle)*dist).toFixed(1)}px;--sy:${(Math.sin(angle)*dist).toFixed(1)}px;` +
         `animation-delay:${delay.toFixed(0)}ms;`);
-      setTimeout(() => el.remove(), 1600);
+      setTimeout(() => el.remove(), 1500);
     }
 
     /* 層 4：中心閃白光 */
@@ -3768,13 +3780,65 @@ function showLoading(show) {
 (function initPeekBear() {
   const bear = document.getElementById("peekBear");
   if (!bear) return;
-  setTimeout(() => {
-    bear.classList.add("peeking");
-  }, 2800);
+
+  setTimeout(() => { bear.classList.add("peeking"); }, 2800);
+
   bear.addEventListener("click", e => {
     e.stopPropagation();
     bear.classList.remove("wave");
     void bear.offsetWidth;
     bear.classList.add("wave");
+  });
+
+  /* 定時隨機冒出全身 */
+  function scheduleVisit() {
+    const wait = 35000 + Math.random() * 40000; // 35~75 秒後出現
+    setTimeout(() => {
+      if (!bear.classList.contains("peeking")) { scheduleVisit(); return; }
+      bear.classList.add("peek-visit");
+      const stay = 2800 + Math.random() * 2200; // 停留 2.8~5 秒
+      setTimeout(() => {
+        bear.classList.remove("peek-visit");
+        scheduleVisit();
+      }, stay);
+    }, wait);
+  }
+  scheduleVisit();
+})();
+
+/* ── 合約行情鍵盤快捷鍵（↓/↑ 切換標的） ── */
+(function initTickerKeyNav() {
+  document.addEventListener("keydown", e => {
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    const tag = document.activeElement?.tagName?.toLowerCase();
+    if (tag === "input" || tag === "textarea" || tag === "select") return;
+    if (document.activeElement?.isContentEditable) return;
+
+    const container = document.getElementById("tickerList");
+    if (!container) return;
+    const items = [...container.querySelectorAll(".ticker-item")];
+    if (!items.length) return;
+
+    e.preventDefault();
+
+    const activeIdx = items.findIndex(el => el.classList.contains("tk-active"));
+    const nextIdx = e.key === "ArrowDown"
+      ? (activeIdx < 0 ? 0 : (activeIdx + 1) % items.length)
+      : (activeIdx <= 0 ? items.length - 1 : activeIdx - 1);
+    const next = items[nextIdx];
+
+    items.forEach(x => x.classList.remove("tk-active"));
+    next.classList.add("tk-active");
+    next.scrollIntoView({ block: "nearest", behavior: "smooth" });
+
+    /* 載入標的 */
+    if (next.dataset.display) {
+      document.getElementById("symbolInput").value = next.dataset.display;
+      const exchEl = document.getElementById("exchangeSelect");
+      if (exchEl && !["pionex", "binance"].includes(exchEl.value)) exchEl.value = "pionex";
+      loadData(false);
+    } else if (next.dataset.wlIdx !== undefined) {
+      next.click();
+    }
   });
 })();
