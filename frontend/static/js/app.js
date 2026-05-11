@@ -4352,6 +4352,33 @@ const SFX = (() => {
     boop()    { _tone(660,  "sine",   0.15, 0.08); _tone(880, "sine", 0.10, 0.06, 0.06); },
     /* 切換音效 */
     switch_()  { _tone(740,  "triangle", 0.12, 0.08); },
+    /* 雷聲：高頻爆裂 + 低頻轟鳴 */
+    thunder() {
+      const ctx = _getCtx();
+      const sr = ctx.sampleRate;
+      /* crack */
+      const cBuf = ctx.createBuffer(1, Math.floor(sr*.07), sr);
+      const cDat = cBuf.getChannelData(0);
+      for (let i=0;i<cDat.length;i++) cDat[i]=(Math.random()*2-1)*(1-i/cDat.length);
+      const cSrc=ctx.createBufferSource(); cSrc.buffer=cBuf;
+      const hpf=ctx.createBiquadFilter(); hpf.type="highpass"; hpf.frequency.value=1800;
+      const cG=ctx.createGain(); const t0=ctx.currentTime;
+      cG.gain.setValueAtTime(1.1,t0); cG.gain.exponentialRampToValueAtTime(.001,t0+.09);
+      cSrc.connect(hpf); hpf.connect(cG); cG.connect(_master);
+      cSrc.start(t0); cSrc.stop(t0+.1);
+      /* rumble */
+      const delay=.08+Math.random()*.35;
+      const rBuf=ctx.createBuffer(1,Math.floor(sr*2.6),sr);
+      const rDat=rBuf.getChannelData(0);
+      for (let i=0;i<rDat.length;i++) rDat[i]=(Math.random()*2-1);
+      const rSrc=ctx.createBufferSource(); rSrc.buffer=rBuf;
+      const lpf=ctx.createBiquadFilter(); lpf.type="lowpass"; lpf.frequency.value=90;
+      const rG=ctx.createGain(); const t1=t0+delay;
+      rG.gain.setValueAtTime(0,t1); rG.gain.linearRampToValueAtTime(.55,t1+.07);
+      rG.gain.exponentialRampToValueAtTime(.001,t1+2.3);
+      rSrc.connect(lpf); lpf.connect(rG); rG.connect(_master);
+      rSrc.start(t1); rSrc.stop(t1+2.5);
+    },
   };
 })();
 
@@ -4845,6 +4872,7 @@ const SFX = (() => {
   let flashAlpha = 0, lightningTimer = 80, lightningPath = [];
   let shootTimer = 200, shootX = 0, shootY = 0, shootDX = 0, shootDY = 0, shootLen = 0;
   let stars = [], sparks = [], rainP = [], ripples = [], snowP = [], cloudP = [], leafP = [], petalP = [];
+  let thunderBolts = [], thunderFlashes = [], thunderTimer = 15;
   let _autoType = "sunny";
 
   function wmoType(c, d) {
@@ -4934,6 +4962,23 @@ const SFX = (() => {
     if (d === 0) return [[x2,y2]];
     const mx=(x1+x2)/2+(Math.random()-.5)*55*(d/5), my=(y1+y2)/2;
     return [..._bolt(x1,y1,mx,my,d-1), ..._bolt(mx,my,x2,y2,d-1)];
+  }
+
+  /* ── branching lightning: main bolt + side branches ── */
+  function _boltWithBranches(x1,y1,x2,y2,depth) {
+    const main=[[x1,y1],..._bolt(x1,y1,x2,y2,depth)];
+    const branches=[];
+    const nb=2+Math.floor(Math.random()*3);
+    for (let i=0;i<nb;i++) {
+      const si=1+Math.floor(Math.random()*(main.length-2));
+      const [bx,by]=main[si];
+      const baseAng=Math.atan2(y2-y1,x2-x1);
+      const ang=baseAng+(Math.random()-.5)*Math.PI*.9;
+      const blen=H*(.10+Math.random()*.22);
+      const ex=bx+Math.cos(ang)*blen, ey=by+Math.abs(Math.sin(ang))*blen+blen*.3;
+      branches.push({ path:[[bx,by],..._bolt(bx,by,ex,ey,depth-1)], alpha:.35+Math.random()*.4 });
+    }
+    return {main,branches};
   }
 
   /* ═══════════════ per-weather draw ═══════════════ */
@@ -5131,6 +5176,71 @@ const SFX = (() => {
     ctx.fillStyle=vg; ctx.fillRect(0,0,W,H);
   }
 
+  /* ── 超強雷暴：傾盆大雨 + 頻繁多叉閃電 + 雷聲 ── */
+  function dThunder() {
+    /* very heavy angled rain */
+    rainP.forEach(p => {
+      ctx.strokeStyle=`rgba(160,215,255,${p.a*.85})`; ctx.lineWidth=p.a>.38?1.8:1.1;
+      ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(p.x-p.len*.6,p.y+p.len*2.0); ctx.stroke();
+      p.y+=p.spd*2.4; p.x-=p.len*.32;
+      if (p.y>H+p.len){p.y=-p.len; p.x=Math.random()*W;}
+    });
+    /* spawn new bolt(s) */
+    thunderTimer--;
+    if (thunderTimer<=0) {
+      thunderTimer=8+Math.floor(Math.random()*28);
+      const nb=1+(Math.random()<.40?1:0)+(Math.random()<.15?1:0);
+      for (let i=0;i<nb;i++) {
+        const lx=W*.04+Math.random()*W*.92;
+        const ex=lx+(Math.random()-.5)*W*.50;
+        const {main,branches}=_boltWithBranches(lx,0,ex,H*(.60+Math.random()*.38),5);
+        thunderBolts.push({main,branches,alpha:1});
+        thunderFlashes.push({alpha:.18+Math.random()*.20, decay:.016+Math.random()*.012});
+      }
+      SFX.thunder();
+    }
+    /* draw bolts */
+    for (let i=thunderBolts.length-1;i>=0;i--) {
+      const b=thunderBolts[i];
+      if (b.alpha<=0){thunderBolts.splice(i,1);continue;}
+      ctx.save();
+      /* outer glow */
+      ctx.shadowColor="rgba(170,210,255,1)"; ctx.shadowBlur=30;
+      ctx.strokeStyle=`rgba(195,228,255,${b.alpha*.55})`; ctx.lineWidth=5;
+      ctx.beginPath(); ctx.moveTo(b.main[0][0],b.main[0][1]);
+      b.main.slice(1).forEach(([x,y])=>ctx.lineTo(x,y)); ctx.stroke();
+      /* bright core */
+      ctx.shadowBlur=12;
+      ctx.strokeStyle=`rgba(255,255,255,${b.alpha*.95})`; ctx.lineWidth=1.6;
+      ctx.beginPath(); ctx.moveTo(b.main[0][0],b.main[0][1]);
+      b.main.slice(1).forEach(([x,y])=>ctx.lineTo(x,y)); ctx.stroke();
+      /* branches */
+      b.branches.forEach(br=>{
+        ctx.shadowBlur=14;
+        ctx.strokeStyle=`rgba(200,230,255,${b.alpha*br.alpha*.65})`; ctx.lineWidth=2;
+        ctx.beginPath(); ctx.moveTo(br.path[0][0],br.path[0][1]);
+        br.path.slice(1).forEach(([x,y])=>ctx.lineTo(x,y)); ctx.stroke();
+        ctx.shadowBlur=6;
+        ctx.strokeStyle=`rgba(255,255,255,${b.alpha*br.alpha*.50})`; ctx.lineWidth=.8;
+        ctx.beginPath(); ctx.moveTo(br.path[0][0],br.path[0][1]);
+        br.path.slice(1).forEach(([x,y])=>ctx.lineTo(x,y)); ctx.stroke();
+      });
+      ctx.restore();
+      b.alpha-=.046;
+    }
+    /* screen flash */
+    for (let i=thunderFlashes.length-1;i>=0;i--) {
+      const fl=thunderFlashes[i];
+      if (fl.alpha<=0){thunderFlashes.splice(i,1);continue;}
+      ctx.fillStyle=`rgba(215,230,255,${fl.alpha})`; ctx.fillRect(0,0,W,H);
+      fl.alpha=Math.max(0,fl.alpha-fl.decay);
+    }
+    /* heavy dark vignette */
+    const vg=ctx.createRadialGradient(W/2,H/2,H*.06,W/2,H/2,W*.95);
+    vg.addColorStop(0,"rgba(6,6,22,.52)"); vg.addColorStop(1,"rgba(2,2,10,.78)");
+    ctx.fillStyle=vg; ctx.fillRect(0,0,W,H);
+  }
+
   /* ── falling leaves ── */
   const LCOLS = ["#C0392B","#E74C3C","#E67E22","#D35400","#F39C12","#D4AC0D","#8B4513","#A04000","#CB4335","#922B21"];
   function _newLeaf() {
@@ -5249,7 +5359,7 @@ const SFX = (() => {
   function draw() {
     ctx.clearRect(0,0,W,H);
     const t=Date.now()*.001;
-    ({sunny:dSunny,night:dNight,cloudy:dCloudy,fog:dFog,rain:dRain,snow:dSnow,storm:dStorm,leaves:dLeaves,spring:dSpring})[type]?.(t);
+    ({sunny:dSunny,night:dNight,cloudy:dCloudy,fog:dFog,rain:dRain,snow:dSnow,storm:dStorm,thunder:dThunder,leaves:dLeaves,spring:dSpring})[type]?.(t);
   }
   function loop() { draw(); rafId=requestAnimationFrame(loop); }
   function start(wt) { type=wt; _init(); if (!rafId) loop(); }
@@ -5261,10 +5371,11 @@ const SFX = (() => {
       .catch(()=>{ _autoType="sunny"; if(type!=="leaves") start("sunny"); });
   }
   function _clearWeatherBtns() {
-    document.getElementById("leafToggleBtn")  ?.classList.remove("leaf-active");
-    document.getElementById("rainToggleBtn")  ?.classList.remove("rain-active");
-    document.getElementById("snowToggleBtn")  ?.classList.remove("snow-active");
-    document.getElementById("springToggleBtn")?.classList.remove("spring-active");
+    document.getElementById("leafToggleBtn")    ?.classList.remove("leaf-active");
+    document.getElementById("rainToggleBtn")    ?.classList.remove("rain-active");
+    document.getElementById("snowToggleBtn")    ?.classList.remove("snow-active");
+    document.getElementById("springToggleBtn")  ?.classList.remove("spring-active");
+    document.getElementById("thunderToggleBtn") ?.classList.remove("thunder-active");
   }
   window._getWeatherType = () => type;
 
@@ -5287,6 +5398,14 @@ const SFX = (() => {
     const btn=document.getElementById("springToggleBtn");
     if (type==="spring") { start(_autoType); _clearWeatherBtns(); }
     else { _clearWeatherBtns(); start("spring"); btn&&btn.classList.add("spring-active"); }
+  };
+  window._thunderToggle = function() {
+    const btn=document.getElementById("thunderToggleBtn");
+    if (type==="thunder") { start(_autoType); _clearWeatherBtns(); }
+    else {
+      _clearWeatherBtns(); thunderBolts=[]; thunderFlashes=[]; thunderTimer=10;
+      start("thunder"); btn&&btn.classList.add("thunder-active");
+    }
   };
 
   window.addEventListener("resize", resize);

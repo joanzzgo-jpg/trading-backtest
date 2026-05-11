@@ -132,7 +132,8 @@ html, body {
 #leafToggleBtn.leaf-active   { background: rgba(230,126,34,.18);  color: #E67E22; }
 #rainToggleBtn.rain-active   { background: rgba(100,160,255,.18); color: #6EB5FF; }
 #snowToggleBtn.snow-active   { background: rgba(120,220,255,.18); color: #88DDFF; }
-#springToggleBtn.spring-active { background: rgba(255,160,200,.18); color: #FF9ABF; }
+#springToggleBtn.spring-active  { background: rgba(255,160,200,.18); color: #FF9ABF; }
+#thunderToggleBtn.thunder-active { background: rgba(120,100,255,.22); color: #A090FF; }
 
 .tb-sidebar-btn { margin-right: 2px; }
 
