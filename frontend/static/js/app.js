@@ -4645,7 +4645,7 @@ const SFX = (() => {
   let sunAngle = 0, moonGlow = 0;
   let flashAlpha = 0, lightningTimer = 80, lightningPath = [];
   let shootTimer = 200, shootX = 0, shootY = 0, shootDX = 0, shootDY = 0, shootLen = 0;
-  let stars = [], sparks = [], rainP = [], ripples = [], snowP = [], cloudP = [], leafP = [];
+  let stars = [], sparks = [], rainP = [], ripples = [], snowP = [], cloudP = [], leafP = [], petalP = [];
   let _autoType = "sunny";
 
   function wmoType(c, d) {
@@ -4677,18 +4677,35 @@ const SFX = (() => {
     ];
     ripples = [];
     snowP  = Array.from({length:100}, () => ({ x:Math.random()*W, y:Math.random()*H, r:2+Math.random()*5, spd:.4+Math.random()*1.2, drift:(Math.random()-.5)*.6, rot:Math.random()*Math.PI/3, rotSpd:(Math.random()-.5)*.022, a:.5+Math.random()*.5 }));
-    cloudP = Array.from({length:8}, (_, i) => ({ x:Math.random()*W, y:H*(.06+i*.11), sc:.11+Math.random()*.15, al:.10+Math.random()*.12, sp:.05+Math.random()*.14 }));
+    cloudP = Array.from({length:8}, (_, i) => ({ x:Math.random()*W, y:H*(.05+i*.11), sc:.12+Math.random()*.14, al:.20+Math.random()*.16, sp:.04+Math.random()*.12 }));
     leafP  = Array.from({length:65}, () => { const lf=_newLeaf(); lf.y=Math.random()*H; return lf; });
+    petalP = Array.from({length:55}, () => { const p=_newPetal(); p.y=Math.random()*H; return p; });
     shootTimer = 200+Math.floor(Math.random()*250);
   }
 
-  /* ── fluffy cloud shape ── */
-  function _cloud(x, y, w, alpha) {
+  /* ── smooth bezier cloud ── */
+  function _cloud(cx, cy, w, alpha) {
     ctx.save(); ctx.globalAlpha = alpha;
-    ctx.fillStyle = "rgba(205,220,242,1)";
-    [[0,0,.5],[.3,-.25,.38],[.6,0,.42],[.9,-.18,.35],[1.25,0,.4],[.48,.18,.34],[-.18,.1,.3]].forEach(([bx,by,br]) => {
-      ctx.beginPath(); ctx.arc(x+bx*w, y+by*w, br*w, 0, Math.PI*2); ctx.fill();
-    });
+    const h = w * 0.44;
+    /* organic silhouette traced with bezier curves */
+    ctx.beginPath();
+    ctx.moveTo(cx - w*.40, cy + h*.55);
+    ctx.bezierCurveTo(cx - w*.40, cy + h*.92, cx + w*.40, cy + h*.92, cx + w*.40, cy + h*.55); /* flat bottom */
+    ctx.bezierCurveTo(cx + w*.60, cy + h*.55, cx + w*.62, cy + h*.06, cx + w*.36, cy - h*.04); /* right up */
+    ctx.bezierCurveTo(cx + w*.30, cy - h*.52, cx + w*.08, cy - h*.56, cx + w*.04, cy - h*.08); /* top-right puff */
+    ctx.bezierCurveTo(cx + w*.06, cy - h*.90, cx - w*.20, cy - h*.94, cx - w*.16, cy - h*.08); /* tallest center puff */
+    ctx.bezierCurveTo(cx - w*.20, cy - h*.58, cx - w*.50, cy - h*.50, cx - w*.44, cy - h*.04); /* top-left puff */
+    ctx.bezierCurveTo(cx - w*.62, cy + h*.06, cx - w*.60, cy + h*.55, cx - w*.40, cy + h*.55); /* left down */
+    ctx.closePath();
+    /* volumetric gradient: bright white top → blue-grey bottom */
+    const g = ctx.createRadialGradient(cx - w*.07, cy - h*.18, 0, cx, cy + h*.30, w*.72);
+    g.addColorStop(0.00, "rgba(250,253,255,.96)");
+    g.addColorStop(0.38, "rgba(232,243,252,.92)");
+    g.addColorStop(0.75, "rgba(200,222,242,.82)");
+    g.addColorStop(1.00, "rgba(168,198,226,.60)");
+    ctx.fillStyle = g; ctx.fill();
+    /* subtle bright edge highlight */
+    ctx.strokeStyle = "rgba(255,255,255,.22)"; ctx.lineWidth = 1.2; ctx.stroke();
     ctx.restore();
   }
 
@@ -4800,11 +4817,11 @@ const SFX = (() => {
     ctx.shadowBlur=0;
   }
 
-  function dCloudy() {
-    cloudP.forEach(c => {
+  function dCloudy(t) {
+    cloudP.forEach((c, i) => {
       c.x += c.sp;
       if (c.x - W*c.sc > W) c.x = -W*c.sc*1.5;
-      _cloud(c.x, c.y, W*c.sc, c.al);
+      _cloud(c.x, c.y + Math.sin(t*.18 + i*1.3)*3.5, W*c.sc, c.al);
     });
   }
 
@@ -4984,11 +5001,55 @@ const SFX = (() => {
     });
   }
 
+  /* ── spring cherry blossom ── */
+  function _newPetal() {
+    return { x:(Math.random()-.05)*(W+80)-40, y:-10-Math.random()*60,
+             vx:(Math.random()-.5)*.7, vy:.35+Math.random()*.9,
+             rot:Math.random()*Math.PI*2, rotV:(Math.random()-.5)*.03,
+             swing:Math.random()*Math.PI*2, swingSpd:.013+Math.random()*.018,
+             swingAmp:.7+Math.random()*2.0, sz:4+Math.random()*7,
+             a:.55+Math.random()*.45 };
+  }
+  function _petal(x, y, sz, rot, alpha) {
+    ctx.save(); ctx.globalAlpha=alpha; ctx.translate(x,y); ctx.rotate(rot);
+    /* sakura petal: heart-notched wide end, tapered bottom tip */
+    ctx.beginPath();
+    ctx.moveTo(0, sz*.80);
+    ctx.bezierCurveTo(-sz*.60, sz*.30, -sz*.70,-sz*.40, -sz*.30,-sz*.60);
+    ctx.bezierCurveTo(-sz*.12,-sz*.92,  0,-sz*.76,  0,-sz*.56);
+    ctx.bezierCurveTo(  0,-sz*.76,  sz*.12,-sz*.92, sz*.30,-sz*.60);
+    ctx.bezierCurveTo( sz*.70,-sz*.40,  sz*.60, sz*.30,  0, sz*.80);
+    ctx.closePath();
+    const g=ctx.createRadialGradient(0,-sz*.10,0, 0,sz*.30,sz);
+    g.addColorStop(0.00,"rgba(255,240,250,.95)");
+    g.addColorStop(0.45,"rgba(255,198,220,.90)");
+    g.addColorStop(1.00,"rgba(255,158,192,.66)");
+    ctx.fillStyle=g; ctx.fill();
+    ctx.strokeStyle="rgba(255,130,170,.20)"; ctx.lineWidth=.5;
+    ctx.beginPath(); ctx.moveTo(0,sz*.72); ctx.quadraticCurveTo(sz*.04,-sz*.05,0,-sz*.52); ctx.stroke();
+    ctx.restore();
+  }
+  function dSpring(t) {
+    const sky=ctx.createLinearGradient(0,0,0,H*.7);
+    sky.addColorStop(0,"rgba(255,210,232,.07)"); sky.addColorStop(1,"rgba(255,240,248,.02)");
+    ctx.fillStyle=sky; ctx.fillRect(0,0,W,H*.7);
+    const wind=Math.sin(t*.22)*1.0+Math.sin(t*.61)*.4;
+    petalP.forEach((p,i)=>{
+      p.swing+=p.swingSpd;
+      p.x+=p.vx+Math.sin(p.swing)*p.swingAmp+wind*.28;
+      p.y+=p.vy+Math.sin(p.swing*.5)*.12;
+      p.rot+=p.rotV+Math.cos(p.swing*.7)*.006;
+      if (p.y>H*.86) { p.vy=Math.max(0,p.vy-.025); p.a=Math.max(0,p.a-.009); }
+      if (p.y>H+20||p.x<-80||p.x>W+80||p.a<=0) petalP[i]=_newPetal();
+      else _petal(p.x,p.y,p.sz,p.rot,p.a);
+    });
+  }
+
   /* ── main loop ── */
   function draw() {
     ctx.clearRect(0,0,W,H);
     const t=Date.now()*.001;
-    ({sunny:dSunny,night:dNight,cloudy:dCloudy,fog:dFog,rain:dRain,snow:dSnow,storm:dStorm,leaves:dLeaves})[type]?.(t);
+    ({sunny:dSunny,night:dNight,cloudy:dCloudy,fog:dFog,rain:dRain,snow:dSnow,storm:dStorm,leaves:dLeaves,spring:dSpring})[type]?.(t);
   }
   function loop() { draw(); rafId=requestAnimationFrame(loop); }
   function start(wt) { type=wt; _init(); if (!rafId) loop(); }
@@ -5000,8 +5061,10 @@ const SFX = (() => {
       .catch(()=>{ _autoType="sunny"; if(type!=="leaves") start("sunny"); });
   }
   function _clearWeatherBtns() {
-    document.getElementById("leafToggleBtn")?.classList.remove("leaf-active");
-    document.getElementById("rainToggleBtn")?.classList.remove("rain-active");
+    document.getElementById("leafToggleBtn")  ?.classList.remove("leaf-active");
+    document.getElementById("rainToggleBtn")  ?.classList.remove("rain-active");
+    document.getElementById("snowToggleBtn")  ?.classList.remove("snow-active");
+    document.getElementById("springToggleBtn")?.classList.remove("spring-active");
   }
   window._leafToggle = function() {
     const btn=document.getElementById("leafToggleBtn");
@@ -5012,6 +5075,16 @@ const SFX = (() => {
     const btn=document.getElementById("rainToggleBtn");
     if (type==="rain") { start(_autoType); _clearWeatherBtns(); }
     else { _clearWeatherBtns(); start("rain"); btn&&btn.classList.add("rain-active"); }
+  };
+  window._snowToggle = function() {
+    const btn=document.getElementById("snowToggleBtn");
+    if (type==="snow") { start(_autoType); _clearWeatherBtns(); }
+    else { _clearWeatherBtns(); start("snow"); btn&&btn.classList.add("snow-active"); }
+  };
+  window._springToggle = function() {
+    const btn=document.getElementById("springToggleBtn");
+    if (type==="spring") { start(_autoType); _clearWeatherBtns(); }
+    else { _clearWeatherBtns(); start("spring"); btn&&btn.classList.add("spring-active"); }
   };
 
   window.addEventListener("resize", resize);

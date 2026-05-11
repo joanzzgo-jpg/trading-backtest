@@ -128,9 +128,11 @@ html, body {
   flex-shrink: 0;
 }
 .tb-icon-btn:hover { background: var(--bg3); color: var(--text); }
-#leafToggleBtn, #rainToggleBtn { font-size: 14px; }
-#leafToggleBtn.leaf-active { background: rgba(230,126,34,.18); color: #E67E22; }
-#rainToggleBtn.rain-active  { background: rgba(100,160,255,.18); color: #6EB5FF; }
+#leafToggleBtn, #rainToggleBtn, #snowToggleBtn, #springToggleBtn { font-size: 14px; }
+#leafToggleBtn.leaf-active   { background: rgba(230,126,34,.18);  color: #E67E22; }
+#rainToggleBtn.rain-active   { background: rgba(100,160,255,.18); color: #6EB5FF; }
+#snowToggleBtn.snow-active   { background: rgba(120,220,255,.18); color: #88DDFF; }
+#springToggleBtn.spring-active { background: rgba(255,160,200,.18); color: #FF9ABF; }
 
 .tb-sidebar-btn { margin-right: 2px; }
 
