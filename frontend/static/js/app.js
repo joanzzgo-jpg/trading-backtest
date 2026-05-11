@@ -3348,6 +3348,7 @@ function _coinLogoHtml(display) {
             transform="rotate(${-rot},50,50)">${lbl}</text>
     </svg>
   </div>`;
+}
 function _coinFullName(display) {
   const d = display.toUpperCase();
   const isPerp = d.endsWith(".P");
