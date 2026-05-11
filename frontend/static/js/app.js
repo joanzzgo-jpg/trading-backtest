@@ -3874,7 +3874,7 @@ function showLoading(show) {
       const a = Math.random()*Math.PI*2, spd = 2+Math.random()*3.5;
       return { x:ox, y:oy, vx:Math.cos(a)*spd, vy:Math.sin(a)*spd-1.2,
                g:0.08+Math.random()*.05, rot:Math.random()*Math.PI*2,
-               rs:(Math.random()-.5)*.15, sw:9+Math.random()*10, sh:5+Math.random()*6,
+               rs:(Math.random()-.5)*.15, sw:5+Math.random()*5, sh:3+Math.random()*3,
                col:C[Math.floor(Math.random()*C.length)], life:1 };
     });
     function draw(lf) {
@@ -3905,7 +3905,7 @@ function showLoading(show) {
     const ox = SIZE/2, oy = SIZE/2;
     const pts = Array.from({length:N}, (_,i) => {
       const a = (i/N)*Math.PI*2+(Math.random()-.5)*.5, spd=3+Math.random()*4;
-      return { x:ox, y:oy, vx:Math.cos(a)*spd, vy:Math.sin(a)*spd, g:.12, len:9+Math.random()*10, life:1 };
+      return { x:ox, y:oy, vx:Math.cos(a)*spd, vy:Math.sin(a)*spd, g:.12, len:5+Math.random()*6, life:1 };
     });
     let raf; function loop() {
       ctx.clearRect(0,0,SIZE,SIZE); let alive=false;
@@ -3936,7 +3936,7 @@ function showLoading(show) {
       const a = Math.random()*Math.PI*2, spd=1.5+Math.random()*2.5;
       return { x:ox, y:oy, vx:Math.cos(a)*spd, vy:Math.sin(a)*spd-.5,
                g:.03, rot:Math.random()*Math.PI*2, rs:(Math.random()-.5)*.06,
-               r:7+Math.random()*8, life:1 };
+               r:4+Math.random()*4, life:1 };
     });
     function drawFlake(f) {
       ctx.save(); ctx.globalAlpha=f.life*.9;
@@ -3976,7 +3976,7 @@ function showLoading(show) {
       const a = Math.random()*Math.PI*2, spd=1.8+Math.random()*3;
       return { x:ox, y:oy, vx:Math.cos(a)*spd, vy:Math.sin(a)*spd-1,
                g:.06, rot:Math.random()*Math.PI*2, rs:(Math.random()-.5)*.12,
-               w:8+Math.random()*7, h:5+Math.random()*5, seed:Math.random()*100,
+               w:4+Math.random()*4, h:3+Math.random()*3, seed:Math.random()*100,
                col:C[Math.floor(Math.random()*C.length)], life:1 };
     });
     function drawPetal(p) {
