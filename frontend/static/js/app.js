@@ -289,16 +289,16 @@ function createCandleSeries() {
       borderUpColor:   C.borderUp,   borderDownColor: C.borderDown,
       wickVisible:     S.wickVisible  !== false,
       wickUpColor:     C.wickUp,      wickDownColor:   C.wickDown,
-      priceLineVisible: false,
+      priceLineVisible: false, lastValueVisible: false,
     });
   } else if (currentChartType === "bar") {
-    candleSeries = mainChart.addBarSeries({ upColor: C.up, downColor: C.down, priceLineVisible: false });
+    candleSeries = mainChart.addBarSeries({ upColor: C.up, downColor: C.down, priceLineVisible: false, lastValueVisible: false });
   } else if (currentChartType === "line") {
-    candleSeries = mainChart.addLineSeries({ color: C.up, lineWidth: 2, priceLineVisible: false, lastValueVisible: true });
+    candleSeries = mainChart.addLineSeries({ color: C.up, lineWidth: 2, priceLineVisible: false, lastValueVisible: false });
   } else if (currentChartType === "area") {
     candleSeries = mainChart.addAreaSeries({
       lineColor: C.up, topColor: C.up + "30", bottomColor: C.up + "00",
-      lineWidth: 2, priceLineVisible: false, lastValueVisible: true,
+      lineWidth: 2, priceLineVisible: false, lastValueVisible: false,
     });
   }
 }
