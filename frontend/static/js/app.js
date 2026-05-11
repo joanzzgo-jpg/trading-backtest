@@ -4133,6 +4133,81 @@ function showLoading(show) {
     } loop();
   }
 
+  /* ── 骰子點擊特效：三顆骰子滾動後顯示隨機點數 ── */
+  const _DICE_DOTS = [
+    null,
+    [[0,0]],
+    [[-.32,-.32],[.32,.32]],
+    [[-.32,-.32],[0,0],[.32,.32]],
+    [[-.32,-.32],[.32,-.32],[-.32,.32],[.32,.32]],
+    [[-.32,-.32],[.32,-.32],[0,0],[-.32,.32],[.32,.32]],
+    [[-.32,-.32],[.32,-.32],[-.32,0],[.32,0],[-.32,.32],[.32,.32]],
+  ];
+  function _drawDie(ctx, x, y, rot, face, alpha) {
+    const S=22;
+    ctx.save();
+    ctx.globalAlpha=alpha;
+    ctx.translate(x,y);
+    ctx.rotate(rot);
+    /* body */
+    ctx.shadowColor='rgba(0,0,0,.28)'; ctx.shadowBlur=9; ctx.shadowOffsetY=3;
+    ctx.fillStyle='#FEFEFE';
+    ctx.beginPath();
+    const r=4,W=S*2,H=S*2,bx=-S,by=-S;
+    ctx.moveTo(bx+r,by); ctx.lineTo(bx+W-r,by); ctx.arcTo(bx+W,by,bx+W,by+r,r);
+    ctx.lineTo(bx+W,by+H-r); ctx.arcTo(bx+W,by+H,bx+W-r,by+H,r);
+    ctx.lineTo(bx+r,by+H); ctx.arcTo(bx,by+H,bx,by+H-r,r);
+    ctx.lineTo(bx,by+r); ctx.arcTo(bx,by,bx+r,by,r); ctx.closePath();
+    ctx.fill();
+    ctx.shadowBlur=0; ctx.shadowOffsetY=0;
+    ctx.strokeStyle='rgba(0,0,0,.09)'; ctx.lineWidth=.8; ctx.stroke();
+    /* dots */
+    const dots=_DICE_DOTS[face], spread=S*.64, R=3.2;
+    ctx.fillStyle='#1A1A2E';
+    dots.forEach(([dx,dy])=>{ ctx.beginPath(); ctx.arc(dx*spread,dy*spread,R,0,Math.PI*2); ctx.fill(); });
+    ctx.restore();
+  }
+  function spawnDice(cx, cy) {
+    const SIZE=210;
+    const cvs=makeCanvas(cx,cy,SIZE);
+    const c=cvs.getContext("2d");
+    const ox=SIZE/2, oy=SIZE/2;
+    const dice=Array.from({length:3},(_,i)=>{
+      const baseAng=-Math.PI/2+(i-1)*(Math.PI/2.4)+(Math.random()-.5)*.25;
+      const dist=52+Math.random()*28;
+      return { x:ox, y:oy,
+               tx:ox+Math.cos(baseAng)*dist, ty:oy+Math.sin(baseAng)*dist,
+               rot:Math.random()*Math.PI*2,
+               rotSpd:(Math.random()<.5?1:-1)*(.28+Math.random()*.22),
+               face:1+Math.floor(Math.random()*6), alpha:1 };
+    });
+    let frame=0, raf;
+    function loop() {
+      c.clearRect(0,0,SIZE,SIZE);
+      let alive=false;
+      for (const d of dice) {
+        if (d.alpha<=0) continue;
+        alive=true;
+        if (frame<=20) {
+          const p=1-Math.pow(1-frame/20,2);
+          d.x=ox+(d.tx-ox)*p; d.y=oy+(d.ty-oy)*p;
+          d.rot+=d.rotSpd;
+          _drawDie(c,d.x,d.y,d.rot,1+Math.floor(Math.random()*6),1);
+        } else if (frame<=30) {
+          d.rot+=d.rotSpd*(1-(frame-20)/10);
+          _drawDie(c,d.x,d.y,d.rot,1+Math.floor(Math.random()*6),1);
+        } else if (frame<=58) {
+          _drawDie(c,d.x,d.y,0,d.face,1);
+        } else {
+          d.alpha=Math.max(0,1-(frame-58)/14);
+          _drawDie(c,d.x,d.y,0,d.face,d.alpha);
+        }
+      }
+      frame++;
+      if(alive) raf=requestAnimationFrame(loop); else{cancelAnimationFrame(raf);cvs.remove();}
+    } loop();
+  }
+
   function spawnDefault(cx, cy) {
     const BIG=6;
     for(let i=0;i<BIG;i++){
@@ -4158,11 +4233,18 @@ function showLoading(show) {
     }
   }
 
+  let _diceMode = false;
+  window._diceToggle = function() {
+    _diceMode = !_diceMode;
+    document.getElementById("diceToggleBtn")?.classList.toggle("dice-active", _diceMode);
+  };
+
   document.addEventListener("click", e => {
     const now = Date.now();
     if (now - _lastClick < 50) return;
     _lastClick = now;
     const cx = e.clientX, cy = e.clientY;
+    if (_diceMode) { spawnDice(cx, cy); return; }
     const wt = window._getWeatherType ? window._getWeatherType() : null;
     if      (wt === "leaves")                 spawnLeaves(cx, cy);
     else if (wt === "rain" || wt === "storm") spawnRain(cx, cy);

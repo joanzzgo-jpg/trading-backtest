@@ -135,6 +135,7 @@ html, body {
 #springToggleBtn.spring-active  { background: rgba(255,160,200,.18); color: #FF9ABF; }
 #thunderToggleBtn.thunder-active  { background: rgba(120,100,255,.22); color: #A090FF; }
 #mahjongToggleBtn.mahjong-active  { background: rgba(200,50,50,.20);  color: #E84040; }
+#diceToggleBtn.dice-active        { background: rgba(80,160,80,.20);   color: #5CBF5C; }
 
 .tb-sidebar-btn { margin-right: 2px; }
 
