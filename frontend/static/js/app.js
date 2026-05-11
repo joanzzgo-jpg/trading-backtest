@@ -2876,6 +2876,15 @@ function enterReplay() {
   scrubber.max   = replayData.length - 1;
   scrubber.value = replayIdx;
 
+  const _toYmd = bar => {
+    const d = new Date(toTime(bar.time) * 1000);
+    const p = n => String(n).padStart(2, "0");
+    return `${d.getUTCFullYear()}-${p(d.getUTCMonth()+1)}-${p(d.getUTCDate())}`;
+  };
+  const picker = document.getElementById("replayDatePicker");
+  picker.min = _toYmd(replayData[0]);
+  picker.max = _toYmd(replayData[replayData.length - 1]);
+
   // 讓圖表區為重播列騰出空間
   document.getElementById("chartsContainer").style.paddingBottom = "42px";
   resizeAll();
@@ -2900,16 +2909,29 @@ function exitReplay() {
   if (replayData.length) renderAll(replayData);
 }
 
-/* 重播：以台灣時間格式化 bar 的日期 */
+/* 重播：以台灣時間格式化 bar 的日期，並同步日期選擇器 */
 function _replayRenderDate(bar) {
   if (!bar) return;
   const t = toTime(bar.time);
   const d = new Date(t * 1000);
   const pad = n => String(n).padStart(2, "0");
-  const dateStr = ["4h","1h","15m","5m"].includes(currentTF)
-    ? `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`
-    : `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())}`;
-  document.getElementById("replayDate").textContent = dateStr;
+  const ymd = `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())}`;
+  document.getElementById("replayDatePicker").value = ymd;
+  const intraday = ["4h","1h","15m","5m"].includes(currentTF);
+  document.getElementById("replayTime").textContent = intraday
+    ? `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}` : "";
+}
+
+/* 日期字串 "YYYY-MM-DD" → replayData 中第一個 >= 該日的索引 */
+function _findIdxByDate(ymd) {
+  for (let i = 0; i < replayData.length; i++) {
+    const t = toTime(replayData[i].time);
+    const d = new Date(t * 1000);
+    const pad = n => String(n).padStart(2, "0");
+    const barYmd = `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())}`;
+    if (barYmd >= ymd) return Math.max(i, _replaySpan);
+  }
+  return replayData.length - 1;
 }
 
 /* 重播：僅更新新增的一根 K 棒（增量 update，避免全量 setData 造成閃爍） */
@@ -3041,13 +3063,24 @@ function bindReplayBar() {
   document.getElementById("replayStepB").addEventListener("click", replayStepBack);
 
   document.getElementById("replayScrubber").addEventListener("input", e => {
-    // 拖曳時暫停播放
     if (replayTimer) {
       clearInterval(replayTimer); replayTimer = null;
       document.getElementById("replayPlay").classList.remove("playing");
       document.getElementById("replayPlay").textContent = "▶";
     }
     replayIdx = parseInt(e.target.value);
+    _replayRender();
+  });
+
+  document.getElementById("replayDatePicker").addEventListener("change", e => {
+    if (!e.target.value || !replayData.length) return;
+    if (replayTimer) {
+      clearInterval(replayTimer); replayTimer = null;
+      document.getElementById("replayPlay").classList.remove("playing");
+      document.getElementById("replayPlay").textContent = "▶";
+    }
+    replayIdx = _findIdxByDate(e.target.value);
+    _replayLastIdx = -1;
     _replayRender();
   });
 

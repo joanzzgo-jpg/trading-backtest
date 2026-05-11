@@ -898,7 +898,21 @@ html, body {
   accent-color: var(--blue);
   border-radius: 2px;
 }
-.rp-date { font-size: 12px; color: var(--text); font-family: monospace; margin-left: 4px; }
+.rp-date-picker {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 12px;
+  font-family: monospace;
+  cursor: pointer;
+  color-scheme: dark;
+  transition: border-color .12s;
+}
+.rp-date-picker:focus { outline: none; border-color: var(--blue); }
+.rp-date-picker::-webkit-calendar-picker-indicator { filter: invert(0.7); cursor: pointer; }
+.rp-time { font-size: 12px; color: var(--muted); font-family: monospace; margin-left: 4px; }
 .rp-progress { font-size: 11px; color: var(--muted); margin-left: 6px; }
 
 /* ═══ MISC ═══ */
