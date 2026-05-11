@@ -4625,3 +4625,160 @@ const SFX = (() => {
   /* Enter 鍵也可觸發播放 */
   ytInput?.addEventListener("keydown", e => { if (e.key === "Enter") ytBtn?.click(); });
 })();
+
+/* ── 天氣背景動畫 ── */
+(function initWeatherBg() {
+  const canvas = document.getElementById("weatherBg");
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  let W = 0, H = 0, type = "sunny", particles = [];
+  let rafId = null, sunAngle = 0, cloudX = 0, lightningT = 0;
+
+  function wmoType(code, isDay) {
+    if (code === 0)                                          return isDay ? "sunny" : "night";
+    if (code <= 3)                                           return "cloudy";
+    if (code <= 48)                                          return "fog";
+    if (code <= 67 || (code >= 80 && code <= 82))            return "rain";
+    if (code <= 77 || code === 85 || code === 86)            return "snow";
+    return "storm";
+  }
+
+  function resize() {
+    const r = canvas.parentElement.getBoundingClientRect();
+    W = canvas.width  = r.width  || 800;
+    H = canvas.height = r.height || 400;
+    initParticles();
+  }
+
+  function initParticles() {
+    particles = [];
+    if (type === "night") {
+      for (let i = 0; i < 80; i++)
+        particles.push({ x: Math.random()*W, y: Math.random()*H*0.85, r: 0.5+Math.random(), ph: Math.random()*Math.PI*2 });
+    } else if (type === "rain" || type === "storm") {
+      for (let i = 0; i < 110; i++)
+        particles.push({ x: Math.random()*W, y: Math.random()*H, spd: 4+Math.random()*4, len: 6+Math.random()*14 });
+    } else if (type === "snow") {
+      for (let i = 0; i < 70; i++)
+        particles.push({ x: Math.random()*W, y: Math.random()*H, r: 1+Math.random()*2, spd: 0.4+Math.random()*0.9, drift: (Math.random()-0.5)*0.4 });
+    }
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+    const t = Date.now() * 0.001;
+
+    if (type === "sunny") {
+      const g = ctx.createRadialGradient(W*0.82, H*0.08, 0, W*0.82, H*0.08, W*0.72);
+      g.addColorStop(0,   "rgba(255,230,100,0.45)");
+      g.addColorStop(0.4, "rgba(255,180,50,0.12)");
+      g.addColorStop(1,   "rgba(0,0,0,0)");
+      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+      ctx.save(); ctx.translate(W*0.84, H*0.07);
+      ctx.strokeStyle = "rgba(255,215,60,0.22)"; ctx.lineWidth = 1.5;
+      for (let i = 0; i < 8; i++) {
+        const a = sunAngle + (i/8)*Math.PI*2;
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(a)*18, Math.sin(a)*18);
+        ctx.lineTo(Math.cos(a)*W*0.38, Math.sin(a)*W*0.38);
+        ctx.stroke();
+      }
+      ctx.restore();
+      sunAngle += 0.003;
+
+    } else if (type === "night") {
+      const mg = ctx.createRadialGradient(W*0.85, H*0.07, 0, W*0.85, H*0.07, W*0.28);
+      mg.addColorStop(0, "rgba(180,210,255,0.18)"); mg.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = mg; ctx.fillRect(0, 0, W, H);
+      particles.forEach(p => {
+        const a = 0.25 + 0.28*Math.sin(t*1.5 + p.ph);
+        ctx.fillStyle = `rgba(200,215,255,${a})`;
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI*2); ctx.fill();
+      });
+
+    } else if (type === "cloudy") {
+      cloudX = (cloudX + 0.15) % (W + 350);
+      [0, 1, 2].forEach(i => {
+        const cx = (cloudX + i*(W/3 + 120) - 350) % (W + 350);
+        const cy = H * (0.14 + i*0.18);
+        const gr = ctx.createRadialGradient(cx, cy, 0, cx, cy, 240);
+        gr.addColorStop(0, "rgba(175,190,215,0.14)"); gr.addColorStop(1, "rgba(0,0,0,0)");
+        ctx.fillStyle = gr; ctx.fillRect(0, 0, W, H);
+      });
+
+    } else if (type === "fog") {
+      for (let i = 0; i < 4; i++) {
+        const y = H*(0.2 + i*0.2) + Math.sin(t*0.3 + i)*H*0.04;
+        const gr = ctx.createLinearGradient(0, y-45, 0, y+45);
+        gr.addColorStop(0, "rgba(175,200,225,0)");
+        gr.addColorStop(0.5, "rgba(175,200,225,0.12)");
+        gr.addColorStop(1, "rgba(175,200,225,0)");
+        ctx.fillStyle = gr; ctx.fillRect(0, y-45, W, 90);
+      }
+
+    } else if (type === "rain") {
+      ctx.strokeStyle = "rgba(155,200,255,0.55)"; ctx.lineWidth = 1;
+      particles.forEach(p => {
+        ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x-1.5, p.y+p.len); ctx.stroke();
+        p.y += p.spd;
+        if (p.y > H) { p.y = -p.len; p.x = Math.random()*W; }
+      });
+
+    } else if (type === "snow") {
+      ctx.fillStyle = "rgba(215,230,255,0.75)";
+      particles.forEach(p => {
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI*2); ctx.fill();
+        p.y += p.spd; p.x += p.drift;
+        if (p.y > H) { p.y = -4; p.x = Math.random()*W; }
+        if (p.x < 0) p.x = W; if (p.x > W) p.x = 0;
+      });
+
+    } else if (type === "storm") {
+      ctx.strokeStyle = "rgba(140,180,255,0.52)"; ctx.lineWidth = 1;
+      particles.forEach(p => {
+        ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x-2, p.y+p.len); ctx.stroke();
+        p.y += p.spd;
+        if (p.y > H) { p.y = -p.len; p.x = Math.random()*W; }
+      });
+      lightningT--;
+      if (lightningT <= 0) {
+        lightningT = 80 + Math.floor(Math.random()*160);
+        const lx = W*0.15 + Math.random()*W*0.7;
+        ctx.strokeStyle = "rgba(255,255,160,0.65)"; ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(lx, 0);
+        ctx.lineTo(lx+(Math.random()-0.5)*25, H*0.3);
+        ctx.lineTo(lx+(Math.random()-0.5)*35, H*0.6);
+        ctx.lineTo(lx+(Math.random()-0.5)*20, H*0.85);
+        ctx.stroke();
+      }
+    }
+  }
+
+  function loop() { draw(); rafId = requestAnimationFrame(loop); }
+
+  function start(t) {
+    if (rafId) cancelAnimationFrame(rafId);
+    type = t; initParticles(); loop();
+  }
+
+  function fetchWeather(lat, lon) {
+    fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&timezone=auto`)
+      .then(r => r.json())
+      .then(d => { const cw = d.current_weather; start(wmoType(cw.weathercode, cw.is_day === 1)); })
+      .catch(() => start("sunny"));
+  }
+
+  new ResizeObserver(resize).observe(canvas.parentElement);
+  resize();
+  start("sunny");
+
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+      p => fetchWeather(p.coords.latitude, p.coords.longitude),
+      ()  => fetchWeather(25.04, 121.51)
+    );
+  } else {
+    fetchWeather(25.04, 121.51);
+  }
+})();
