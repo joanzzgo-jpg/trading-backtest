@@ -3703,33 +3703,64 @@ function showLoading(show) {
     if (!el) {
       el = document.createElement("div");
       el.id = "loadingOverlay"; el.className = "loading-overlay";
-      el.innerHTML = `<div class="loading-inner"><img src="/static/img/bear.png" class="loading-bear"/><span class="loading-text">處理中...</span></div>`;
+      el.innerHTML = `<div class="loading-inner"><img src="/static/img/bear-wand.gif" class="loading-bear"/><span class="loading-text">處理中...</span></div>`;
       document.body.appendChild(el);
     }
   } else { el?.remove(); }
 }
 
-/* ── 點擊魔法星星粒子特效 ── */
+/* ── 華麗點擊魔法特效（三層：光暈環 + 大閃光 + 小星塵） ── */
 (function initClickSparks() {
-  const COLORS = ["#4ECDC4","#8B5CF6","#FCD34D","#A78BFA","#67E8F9","#F472B6","#FBBF24"];
+  const COLORS = ["#4ECDC4","#8B5CF6","#FCD34D","#A78BFA","#67E8F9","#F472B6","#FBBF24","#34D399","#FB923C"];
+
+  function spawnEl(cls, x, y, extra) {
+    const el = document.createElement("div");
+    el.className = cls;
+    el.style.cssText = `left:${x}px;top:${y}px;${extra}`;
+    document.body.appendChild(el);
+    return el;
+  }
+
   document.addEventListener("click", e => {
-    const n = 8 + Math.floor(Math.random() * 5);
-    for (let i = 0; i < n; i++) {
-      const el = document.createElement("div");
-      el.className = "click-spark";
-      const angle = (i / n) * Math.PI * 2 + (Math.random() - 0.5) * 0.8;
-      const dist  = 40 + Math.random() * 70;
-      const w     = 5 + Math.random() * 7;
-      const h     = w * (0.4 + Math.random() * 0.8);
-      el.style.cssText = `left:${e.clientX}px;top:${e.clientY}px;` +
-        `width:${w}px;height:${h}px;` +
-        `background:${COLORS[Math.floor(Math.random() * COLORS.length)]};` +
-        `--sx:${(Math.cos(angle) * dist).toFixed(1)}px;` +
-        `--sy:${(Math.sin(angle) * dist).toFixed(1)}px;` +
-        `animation-delay:${(Math.random() * 60).toFixed(0)}ms;`;
-      document.body.appendChild(el);
-      setTimeout(() => el.remove(), 1400);
+    const cx = e.clientX, cy = e.clientY;
+
+    /* 層 1：擴散光暈環 */
+    const ring = spawnEl("spark-ring", cx, cy, "");
+    setTimeout(() => ring.remove(), 700);
+
+    /* 層 2：大粒子（橢圓，8 顆均勻散射） */
+    const BIG = 8;
+    for (let i = 0; i < BIG; i++) {
+      const angle = (i / BIG) * Math.PI * 2;
+      const dist  = 55 + Math.random() * 45;
+      const w     = 8 + Math.random() * 8;
+      const h     = w * (0.35 + Math.random() * 0.55);
+      const color = COLORS[Math.floor(Math.random() * COLORS.length)];
+      const el = spawnEl("spark-big", cx, cy,
+        `width:${w}px;height:${h}px;background:${color};` +
+        `--sx:${(Math.cos(angle)*dist).toFixed(1)}px;--sy:${(Math.sin(angle)*dist).toFixed(1)}px;` +
+        `animation-delay:${(i * 18)}ms;`);
+      setTimeout(() => el.remove(), 1300);
     }
+
+    /* 層 3：小星塵（12 顆，隨機延遲，飛更遠） */
+    const DUST = 12;
+    for (let i = 0; i < DUST; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const dist  = 70 + Math.random() * 80;
+      const sz    = 3 + Math.random() * 5;
+      const color = COLORS[Math.floor(Math.random() * COLORS.length)];
+      const delay = 40 + Math.random() * 120;
+      const el = spawnEl("spark-dust", cx, cy,
+        `width:${sz}px;height:${sz}px;background:${color};` +
+        `--sx:${(Math.cos(angle)*dist).toFixed(1)}px;--sy:${(Math.sin(angle)*dist).toFixed(1)}px;` +
+        `animation-delay:${delay.toFixed(0)}ms;`);
+      setTimeout(() => el.remove(), 1600);
+    }
+
+    /* 層 4：中心閃白光 */
+    const flash = spawnEl("spark-flash", cx, cy, "");
+    setTimeout(() => flash.remove(), 400);
   });
 })();
 
