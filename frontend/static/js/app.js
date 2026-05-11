@@ -2529,7 +2529,25 @@ async function loadData(autoLoad = false) {
 /* ══════════════════════════════════════════
    渲染
 ══════════════════════════════════════════ */
+/* 根據最後成交價動態設定主圖右側價格軸精度 */
+function _applyPriceFormat(data) {
+  if (!data || !data.length) return;
+  const p = Math.abs(data[data.length - 1]?.close || 0);
+  let precision, minMove;
+  if      (p >= 100)    { precision = 2; minMove = 0.01; }
+  else if (p >= 1)      { precision = 4; minMove = 0.0001; }
+  else if (p >= 0.1)    { precision = 5; minMove = 0.00001; }
+  else if (p >= 0.01)   { precision = 6; minMove = 0.000001; }
+  else if (p >= 0.001)  { precision = 7; minMove = 0.0000001; }
+  else                  { precision = 8; minMove = 0.00000001; }
+  const fmt = { type: "price", precision, minMove };
+  [candleSeries, bbU, bbM, bbL].forEach(s => s?.applyOptions({ priceFormat: fmt }));
+}
+
 function renderAll(data) {
+  // 動態調整右側價格軸精度
+  _applyPriceFormat(data);
+
   // 先把錨定系列設到完整時間範圍，確保各子圖時間軸對齊
   const anchorTimes = data.map(d => ({ time: toTime(d.time), value: 50 }));
   kdjAnchor.setData(anchorTimes);
