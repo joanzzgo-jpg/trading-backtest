@@ -4574,6 +4574,24 @@ const SFX = (() => {
   };
 })();
 
+/* ── FX 面板開關 ── */
+(function initFxPanel() {
+  const panel = document.getElementById("fxPanel");
+  const btn   = document.getElementById("fxToggleBtn");
+  if (!panel || !btn) return;
+  btn.addEventListener("click", e => {
+    e.stopPropagation();
+    const open = panel.classList.toggle("hidden");
+    btn.classList.toggle("fx-open", !open);
+  });
+  document.addEventListener("click", e => {
+    if (!panel.contains(e.target) && e.target !== btn) {
+      panel.classList.add("hidden");
+      btn.classList.remove("fx-open");
+    }
+  });
+})();
+
 /* ══════════════════════════════════════════
    背景音樂播放器
 ══════════════════════════════════════════ */
@@ -5040,43 +5058,108 @@ const SFX = (() => {
     '東','南','西','北','中','發','白',
   ];
   const _TILE_CACHE = {};
-  function _tileRoundRect(c,x,y,w,h,r){
+  const _TILE_RANKS = {'一':1,'二':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9};
+  function _tileRR(c,x,y,w,h,r){
     c.beginPath();
     c.moveTo(x+r,y); c.lineTo(x+w-r,y); c.arcTo(x+w,y,x+w,y+r,r);
     c.lineTo(x+w,y+h-r); c.arcTo(x+w,y+h,x+w-r,y+h,r);
     c.lineTo(x+r,y+h); c.arcTo(x,y+h,x,y+h-r,r);
     c.lineTo(x,y+r); c.arcTo(x,y,x+r,y,r); c.closePath();
   }
+  /* 筒子：空心環形圈 */
+  function _drawTong(c,n,TW,TH) {
+    const BGCOL='#EEE5C0';
+    const POS={
+      1:[[.5,.5]],
+      2:[[.5,.27],[.5,.73]],
+      3:[[.72,.2],[.5,.5],[.28,.8]],
+      4:[[.3,.28],[.7,.28],[.3,.72],[.7,.72]],
+      5:[[.3,.2],[.7,.2],[.5,.5],[.3,.8],[.7,.8]],
+      6:[[.3,.18],[.7,.18],[.3,.5],[.7,.5],[.3,.82],[.7,.82]],
+      7:[[.5,.14],[.3,.32],[.7,.32],[.3,.57],[.7,.57],[.3,.8],[.7,.8]],
+      8:[[.3,.14],[.7,.14],[.3,.38],[.7,.38],[.3,.62],[.7,.62],[.3,.86],[.7,.86]],
+      9:[[.25,.16],[.5,.16],[.75,.16],[.25,.5],[.5,.5],[.75,.5],[.25,.84],[.5,.84],[.75,.84]],
+    };
+    const COLS=['#CC0000','#009900','#0044BB'];
+    const pos=POS[n]||[];
+    const R=n===1?11:(n<=4?6.5:5.5), ri=R*.42;
+    pos.forEach(([fx,fy],i)=>{
+      const x=fx*TW, y=4+fy*(TH-8);
+      c.fillStyle=COLS[i%3];
+      c.beginPath(); c.arc(x,y,R,0,Math.PI*2); c.fill();
+      c.fillStyle=BGCOL;
+      c.beginPath(); c.arc(x,y,ri,0,Math.PI*2); c.fill();
+    });
+  }
+  /* 條子：竹竿 + 節點；1條是麻雀 */
+  function _drawTiao(c,n,TW,TH) {
+    if (n===1) { /* 麻雀 */
+      const bx=TW/2, by=TH/2;
+      c.fillStyle='#006600'; c.beginPath(); c.ellipse(bx,by+1,9,7,0,0,Math.PI*2); c.fill();
+      c.fillStyle='#CC2200'; c.beginPath(); c.arc(bx+7,by-4,5,0,Math.PI*2); c.fill();
+      c.fillStyle='#FF8800';
+      c.beginPath(); c.moveTo(bx+11,by-4); c.lineTo(bx+17,by-2); c.lineTo(bx+11,by); c.closePath(); c.fill();
+      c.fillStyle='#003300';
+      c.beginPath(); c.moveTo(bx-8,by-2); c.lineTo(bx-15,by-6); c.lineTo(bx-13,by+3); c.closePath(); c.fill();
+      c.fillStyle='#000'; c.beginPath(); c.arc(bx+9,by-5,1.3,0,Math.PI*2); c.fill();
+      c.fillStyle='#FFF'; c.beginPath(); c.arc(bx+9.5,by-5.5,.55,0,Math.PI*2); c.fill();
+      return;
+    }
+    const LAYOUTS={
+      2:{cols:1,pos:[[0,0],[0,1]]},
+      3:{cols:1,pos:[[0,0],[0,1],[0,2]]},
+      4:{cols:2,pos:[[0,0],[1,0],[0,1],[1,1]]},
+      5:{cols:2,pos:[[0,0],[1,0],[0,1],[1,1],[1,2]]},
+      6:{cols:2,pos:[[0,0],[1,0],[0,1],[1,1],[0,2],[1,2]]},
+      7:{cols:2,pos:[[0,0],[1,0],[0,1],[1,1],[0,2],[1,2],[0,3]]},
+      8:{cols:2,pos:[[0,0],[1,0],[0,1],[1,1],[0,2],[1,2],[0,3],[1,3]]},
+      9:{cols:3,pos:[[0,0],[1,0],[2,0],[0,1],[1,1],[2,1],[0,2],[1,2],[2,2]]},
+    };
+    const lo=LAYOUTS[n];
+    const rows=Math.max(...lo.pos.map(([,r])=>r))+1;
+    const cw=(TW-6)/lo.cols, rh=(TH-8)/rows;
+    const sw=Math.max(5,cw*.55), sh=rh*.76;
+    const redCol={5:[1],7:[0],9:[1]};
+    lo.pos.forEach(([col,row])=>{
+      const isRed=redCol[n]&&redCol[n].includes(col);
+      const x=3+(col+.5)*cw-sw/2, y=4+(row+.5)*rh-sh/2, r2=sw*.28;
+      c.fillStyle=isRed?'#CC2200':'#008800';
+      _tileRR(c,x,y,sw,sh,r2); c.fill();
+      c.fillStyle=isRed?'#880000':'#CC2200';
+      c.beginPath(); c.ellipse(x+sw/2,y+sh/2,sw*.36,sh*.13,0,0,Math.PI*2); c.fill();
+    });
+  }
   function _getTileImg(sym) {
     if (_TILE_CACHE[sym]) return _TILE_CACHE[sym];
-    const TW=34, TH=44;
+    const TW=38, TH=50;
     const oc=document.createElement('canvas'); oc.width=TW; oc.height=TH;
     const c=oc.getContext('2d');
     /* body */
-    c.shadowBlur=5; c.shadowOffsetY=2; c.shadowColor='rgba(0,0,0,.30)';
+    c.shadowBlur=5; c.shadowOffsetY=2; c.shadowColor='rgba(0,0,0,.28)';
     const bg=c.createLinearGradient(0,0,0,TH);
-    bg.addColorStop(0,'#FFFCEE'); bg.addColorStop(1,'#EDE5BE');
-    c.fillStyle=bg; _tileRoundRect(c,1,1,TW-2,TH-2,4); c.fill();
+    bg.addColorStop(0,'#FFFCEE'); bg.addColorStop(1,'#EEE5C0');
+    c.fillStyle=bg; _tileRR(c,1,1,TW-2,TH-2,5); c.fill();
     c.shadowBlur=0; c.shadowOffsetY=0;
-    /* border */
-    c.strokeStyle='#C0A050'; c.lineWidth=1;
-    _tileRoundRect(c,1,1,TW-2,TH-2,4); c.stroke();
-    /* inner frame */
-    c.strokeStyle='rgba(170,140,60,.30)'; c.lineWidth=.7;
-    _tileRoundRect(c,4,4,TW-8,TH-8,2); c.stroke();
-    /* symbol */
+    c.strokeStyle='#C0A050'; c.lineWidth=1; _tileRR(c,1,1,TW-2,TH-2,5); c.stroke();
+    c.strokeStyle='rgba(160,130,55,.22)'; c.lineWidth=.6; _tileRR(c,3.5,3.5,TW-7,TH-7,3); c.stroke();
+    /* content */
+    const n=_TILE_RANKS[sym[0]]||0, suit=sym.length>1?sym[1]:null;
     c.textAlign='center'; c.textBaseline='middle';
-    if (sym==='白') {
-      c.strokeStyle='rgba(100,110,140,.55)'; c.lineWidth=1.4;
-      c.strokeRect(6,8,TW-12,TH-16);
-    } else if (sym.length===1) {
-      c.fillStyle=sym==='中'?'#CC0000':sym==='發'?'#006600':'#1A1050';
-      c.font=`bold 20px serif`; c.fillText(sym,TW/2,TH/2);
+    if (suit==='萬') {
+      c.fillStyle='#0044BB'; c.font='bold 17px serif'; c.fillText(sym[0],TW/2,TH/2-9);
+      c.fillStyle='#CC2200'; c.font='bold 15px serif'; c.fillText('萬',TW/2,TH/2+9);
+    } else if (suit==='筒') {
+      _drawTong(c,n,TW,TH);
+    } else if (suit==='條') {
+      _drawTiao(c,n,TW,TH);
+    } else if (sym==='中') {
+      c.fillStyle='#CC0000'; c.font='bold 26px serif'; c.fillText('中',TW/2,TH/2);
+    } else if (sym==='發') {
+      c.fillStyle='#006600'; c.font='bold 23px serif'; c.fillText('發',TW/2,TH/2);
+    } else if (sym==='白') {
+      c.strokeStyle='rgba(60,70,130,.50)'; c.lineWidth=1.5; c.strokeRect(7,9,TW-14,TH-18);
     } else {
-      const suit=sym[1];
-      c.fillStyle=suit==='萬'?'#BB2200':suit==='筒'?'#0044BB':'#007700';
-      c.font='bold 15px serif'; c.fillText(sym[0],TW/2,TH/2-7);
-      c.font='bold 13px serif'; c.fillText(suit,TW/2,TH/2+9);
+      c.fillStyle='#0044BB'; c.font='bold 24px serif'; c.fillText(sym,TW/2,TH/2);
     }
     _TILE_CACHE[sym]=oc; return oc;
   }
@@ -5480,7 +5563,7 @@ const SFX = (() => {
       else if (p.sym==='發') { ctx.shadowColor='rgba(50,210,80,.85)';   ctx.shadowBlur=16; }
       else if (p.sym==='白') { ctx.shadowColor='rgba(200,220,255,.70)'; ctx.shadowBlur=12; }
       else                   { ctx.shadowColor='rgba(0,0,0,.20)';       ctx.shadowBlur=5;  }
-      ctx.drawImage(img, -17, -22);
+      ctx.drawImage(img, -19, -25);
       ctx.restore();
     });
   }

@@ -127,13 +127,7 @@
     <button id="tickerToggle" class="tb-icon-btn" title="行情列表">
       <svg width="14" height="14" viewBox="0 0 14 14"><rect width="6" height="1.6" rx=".8" fill="currentColor"/><rect y="4" width="14" height="1.6" rx=".8" fill="currentColor"/><rect y="8" width="14" height="1.6" rx=".8" fill="currentColor"/><rect y="12" width="10" height="1.6" rx=".8" fill="currentColor"/></svg>
     </button>
-    <button id="leafToggleBtn" class="tb-icon-btn" title="落葉特效" onclick="window._leafToggle&&window._leafToggle()">🍂</button>
-    <button id="rainToggleBtn"   class="tb-icon-btn" title="下雨特效" onclick="window._rainToggle  &&window._rainToggle()">🌧️</button>
-    <button id="snowToggleBtn"   class="tb-icon-btn" title="下雪特效" onclick="window._snowToggle  &&window._snowToggle()">❄️</button>
-    <button id="springToggleBtn" class="tb-icon-btn" title="春天花瓣" onclick="window._springToggle&&window._springToggle()">🌸</button>
-    <button id="thunderToggleBtn" class="tb-icon-btn" title="雷暴特效" onclick="window._thunderToggle&&window._thunderToggle()">⛈️</button>
-    <button id="mahjongToggleBtn" class="tb-icon-btn" title="麻將特效" onclick="window._mahjongToggle&&window._mahjongToggle()">🀄</button>
-    <button id="diceToggleBtn" class="tb-icon-btn" title="骰子點擊特效" onclick="window._diceToggle&&window._diceToggle()">🎲</button>
+    <button id="fxToggleBtn" class="tb-icon-btn" title="背景 & 點擊特效">✨</button>
     <button id="musicToggleBtn" class="tb-icon-btn" title="背景音樂">
       <svg width="14" height="14" viewBox="0 0 14 14"><path d="M5.5 2.5v7a2 2 0 1 0 1.2 1.83V5.8l4-1.1v3.8a2 2 0 1 0 1.2 1.83V1.5L5.5 2.5z" fill="currentColor"/></svg>
     </button>
@@ -371,6 +365,23 @@
 </div>
 
 <!-- 音樂面板 -->
+<div id="fxPanel" class="music-panel fx-panel hidden">
+  <div class="music-panel-title">✨ 背景 &amp; 特效</div>
+  <div class="fx-section-label">背景動畫</div>
+  <div class="fx-grid">
+    <button id="leafToggleBtn"    class="fx-btn" onclick="window._leafToggle   &&window._leafToggle()">🍂 落葉</button>
+    <button id="rainToggleBtn"    class="fx-btn" onclick="window._rainToggle   &&window._rainToggle()">🌧️ 下雨</button>
+    <button id="snowToggleBtn"    class="fx-btn" onclick="window._snowToggle   &&window._snowToggle()">❄️ 下雪</button>
+    <button id="springToggleBtn"  class="fx-btn" onclick="window._springToggle &&window._springToggle()">🌸 花瓣</button>
+    <button id="thunderToggleBtn" class="fx-btn" onclick="window._thunderToggle&&window._thunderToggle()">⛈️ 雷暴</button>
+    <button id="mahjongToggleBtn" class="fx-btn" onclick="window._mahjongToggle&&window._mahjongToggle()">🀄 麻將</button>
+  </div>
+  <div class="fx-section-label" style="margin-top:10px">點擊特效</div>
+  <div class="fx-grid">
+    <button id="diceToggleBtn" class="fx-btn" onclick="window._diceToggle&&window._diceToggle()">🎲 骰子</button>
+  </div>
+</div>
+
 <div id="musicPanel" class="music-panel hidden">
   <div class="music-panel-title">🎵 背景音樂</div>
   <div class="music-themes">
