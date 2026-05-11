@@ -127,6 +127,8 @@ html, body {
   flex-shrink: 0;
 }
 .tb-icon-btn:hover { background: var(--bg3); color: var(--text); }
+#leafToggleBtn { font-size: 14px; }
+#leafToggleBtn.leaf-active { background: rgba(230,126,34,.18); color: #E67E22; }
 
 .tb-sidebar-btn { margin-right: 2px; }
 

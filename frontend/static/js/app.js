@@ -4645,7 +4645,8 @@ const SFX = (() => {
   let sunAngle = 0, moonGlow = 0;
   let flashAlpha = 0, lightningTimer = 80, lightningPath = [];
   let shootTimer = 200, shootX = 0, shootY = 0, shootDX = 0, shootDY = 0, shootLen = 0;
-  let stars = [], sparks = [], rainP = [], snowP = [], cloudP = [];
+  let stars = [], sparks = [], rainP = [], snowP = [], cloudP = [], leafP = [];
+  let _autoType = "sunny";
 
   function wmoType(c, d) {
     if (c === 0) return d ? "sunny" : "night";
@@ -4673,6 +4674,7 @@ const SFX = (() => {
     rainP  = Array.from({length:260}, () => ({ x:Math.random()*W, y:Math.random()*H, spd:5+Math.random()*7, len:8+Math.random()*18, a:.25+Math.random()*.55 }));
     snowP  = Array.from({length:100}, () => ({ x:Math.random()*W, y:Math.random()*H, r:2+Math.random()*5, spd:.4+Math.random()*1.2, drift:(Math.random()-.5)*.6, rot:Math.random()*Math.PI/3, rotSpd:(Math.random()-.5)*.022, a:.5+Math.random()*.5 }));
     cloudP = Array.from({length:8}, (_, i) => ({ x:Math.random()*W, y:H*(.06+i*.11), sc:.11+Math.random()*.15, al:.10+Math.random()*.12, sp:.05+Math.random()*.14 }));
+    leafP  = Array.from({length:65}, () => { const lf=_newLeaf(); lf.y=Math.random()*H; return lf; });
     shootTimer = 200+Math.floor(Math.random()*250);
   }
 
@@ -4878,11 +4880,81 @@ const SFX = (() => {
     ctx.fillStyle=vg; ctx.fillRect(0,0,W,H);
   }
 
+  /* ── falling leaves ── */
+  const LCOLS = ["#C0392B","#E74C3C","#E67E22","#D35400","#F39C12","#D4AC0D","#8B4513","#A04000","#CB4335","#922B21"];
+  function _newLeaf() {
+    return { x:(Math.random()-.05)*(W+80)-40, y:-20-Math.random()*100,
+             vx:(Math.random()-.5)*1.0, vy:.5+Math.random()*1.4,
+             rot:Math.random()*Math.PI*2, rotV:(Math.random()-.5)*.04,
+             swing:Math.random()*Math.PI*2, swingSpd:.016+Math.random()*.022,
+             swingAmp:.8+Math.random()*2.2, sz:7+Math.random()*13,
+             col:LCOLS[Math.floor(Math.random()*LCOLS.length)],
+             a:.6+Math.random()*.4, shadow:Math.random()>.5 };
+  }
+  function _drawLeaf(lf) {
+    const {x,y,rot,sz,col,a,shadow}=lf;
+    ctx.save(); ctx.globalAlpha=a; ctx.translate(x,y); ctx.rotate(rot);
+    if (shadow) { ctx.shadowBlur=7; ctx.shadowColor="rgba(0,0,0,.18)"; }
+    /* leaf body */
+    ctx.fillStyle=col;
+    ctx.beginPath();
+    ctx.moveTo(0,-sz);
+    ctx.bezierCurveTo( sz*.72,-sz*.5,  sz*.68, sz*.5,  0, sz);
+    ctx.bezierCurveTo(-sz*.68, sz*.5, -sz*.72,-sz*.5,  0,-sz);
+    ctx.closePath(); ctx.fill();
+    ctx.shadowBlur=0;
+    /* specular highlight */
+    const hl=ctx.createRadialGradient(-sz*.22,-sz*.32,0,0,0,sz*.9);
+    hl.addColorStop(0,"rgba(255,255,255,.17)"); hl.addColorStop(1,"rgba(255,255,255,0)");
+    ctx.fillStyle=hl;
+    ctx.beginPath();
+    ctx.moveTo(0,-sz);
+    ctx.bezierCurveTo( sz*.72,-sz*.5,  sz*.68, sz*.5,  0, sz);
+    ctx.bezierCurveTo(-sz*.68, sz*.5, -sz*.72,-sz*.5,  0,-sz);
+    ctx.closePath(); ctx.fill();
+    /* midrib */
+    ctx.strokeStyle="rgba(0,0,0,.20)"; ctx.lineWidth=Math.max(.5,sz*.08); ctx.lineCap="round";
+    ctx.beginPath(); ctx.moveTo(0,-sz*.88); ctx.quadraticCurveTo(sz*.07,0,0,sz*.9); ctx.stroke();
+    /* side veins (3 pairs) */
+    ctx.lineWidth=Math.max(.3,sz*.032); ctx.strokeStyle="rgba(0,0,0,.12)";
+    [[-0.45,.44],[-0.05,.38],[0.32,.30]].forEach(([ty,sp]) => {
+      const by=ty*sz;
+      for (const s of [1,-1]) {
+        ctx.beginPath(); ctx.moveTo(0,by);
+        ctx.quadraticCurveTo(s*sz*sp*.6,by-sz*.07,s*sz*sp,by-sz*.14); ctx.stroke();
+      }
+    });
+    /* stem */
+    ctx.strokeStyle="rgba(80,40,10,.7)"; ctx.lineWidth=Math.max(.5,sz*.065);
+    ctx.beginPath(); ctx.moveTo(0,sz*.88); ctx.quadraticCurveTo(sz*.04,sz*1.05,0,sz*1.18); ctx.stroke();
+    ctx.restore();
+  }
+  function dLeaves(t) {
+    /* warm autumn ambient */
+    const amb=ctx.createRadialGradient(W*.82,0,0,W*.82,0,H*.78);
+    amb.addColorStop(0,"rgba(255,148,28,.09)"); amb.addColorStop(1,"rgba(0,0,0,0)");
+    ctx.fillStyle=amb; ctx.fillRect(0,0,W,H);
+    const gnd=ctx.createLinearGradient(0,H*.82,0,H);
+    gnd.addColorStop(0,"rgba(0,0,0,0)"); gnd.addColorStop(1,"rgba(55,28,8,.06)");
+    ctx.fillStyle=gnd; ctx.fillRect(0,H*.82,W,H*.18);
+    /* wind: multiple sine waves for gust feel */
+    const wind=Math.sin(t*.28)*1.5+Math.sin(t*.73)*.7+Math.sin(t*1.6)*.22;
+    leafP.forEach((lf,i) => {
+      lf.swing+=lf.swingSpd;
+      lf.x+=lf.vx+Math.sin(lf.swing)*lf.swingAmp+wind*.35;
+      lf.y+=lf.vy+Math.sin(lf.swing*.5)*.14;
+      lf.rot+=lf.rotV+Math.cos(lf.swing*.9)*.008;
+      if (lf.y>H*.85) { lf.vy=Math.max(0,lf.vy-.04); lf.a=Math.max(0,lf.a-.008); }
+      if (lf.y>H+30||lf.x<-90||lf.x>W+90||lf.a<=0) leafP[i]=_newLeaf();
+      else _drawLeaf(lf);
+    });
+  }
+
   /* ── main loop ── */
   function draw() {
     ctx.clearRect(0,0,W,H);
     const t=Date.now()*.001;
-    ({sunny:dSunny,night:dNight,cloudy:dCloudy,fog:dFog,rain:dRain,snow:dSnow,storm:dStorm})[type]?.(t);
+    ({sunny:dSunny,night:dNight,cloudy:dCloudy,fog:dFog,rain:dRain,snow:dSnow,storm:dStorm,leaves:dLeaves})[type]?.(t);
   }
   function loop() { draw(); rafId=requestAnimationFrame(loop); }
   function start(wt) { type=wt; _init(); if (!rafId) loop(); }
@@ -4890,9 +4962,14 @@ const SFX = (() => {
   function fetchWeather(lat,lon) {
     fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&timezone=auto`)
       .then(r=>r.json())
-      .then(d=>{ const cw=d.current_weather; start(wmoType(cw.weathercode,cw.is_day===1)); })
-      .catch(()=>start("sunny"));
+      .then(d=>{ const cw=d.current_weather; _autoType=wmoType(cw.weathercode,cw.is_day===1); if(type!=="leaves") start(_autoType); })
+      .catch(()=>{ _autoType="sunny"; if(type!=="leaves") start("sunny"); });
   }
+  window._leafToggle = function() {
+    const btn=document.getElementById("leafToggleBtn");
+    if (type==="leaves") { start(_autoType); btn&&btn.classList.remove("leaf-active"); }
+    else { start("leaves"); btn&&btn.classList.add("leaf-active"); }
+  };
 
   window.addEventListener("resize", resize);
   resize();
