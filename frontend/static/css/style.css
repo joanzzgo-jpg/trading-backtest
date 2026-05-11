@@ -4,7 +4,7 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 /* 魔法棒手繪游標（原圖 PNG） */
-* { cursor: url('/static/img/cursor-wand.png') 21 14, auto; }
+* { cursor: url('/static/img/cursor-wand.png') 5 2, auto; }
 input[type="text"], input[type="number"], input[type="date"], textarea, .sym-modal-input, .tb-symbol-input, .tk-search, .ind-sp-num { cursor: text; }
 
 :root {
