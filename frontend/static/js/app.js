@@ -2879,6 +2879,11 @@ function enterReplay() {
   document.getElementById("chartsContainer").style.paddingBottom = "42px";
   resizeAll();
 
+  // 進入重播：禁止 series.update() 自動捲到最新 bar
+  [mainChart, kdjChart, rsiChart, macdChart].forEach(c =>
+    c?.applyOptions({ timeScale: { shiftVisibleRangeOnNewBar: false } })
+  );
+
   document.getElementById("replayBar").classList.remove("hidden");
   document.getElementById("replayModeBtn").classList.add("active");
   _replayRender();
@@ -2891,6 +2896,11 @@ function exitReplay() {
 
   document.getElementById("chartsContainer").style.paddingBottom = "";
   resizeAll();
+
+  // 離開重播：恢復自動捲到最新 bar
+  [mainChart, kdjChart, rsiChart, macdChart].forEach(c =>
+    c?.applyOptions({ timeScale: { shiftVisibleRangeOnNewBar: true } })
+  );
 
   document.getElementById("replayBar").classList.add("hidden");
   document.getElementById("replayModeBtn").classList.remove("active");
