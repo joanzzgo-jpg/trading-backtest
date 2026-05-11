@@ -1544,3 +1544,134 @@ html, body {
   opacity: 1;
   transform: translateY(0) scale(1);
 }
+
+/* ══════════════════════════════════════════
+   按鈕回饋效果：按壓縮放 + 漣漪
+══════════════════════════════════════════ */
+.tf-btn, .ct-btn, .btn-load, .btn-mode,
+.rp-btn, .rp-speed, .dt-btn, .tb-icon-btn,
+.tb-indicators-btn, .pane-collapse-btn, .ind-gear-btn,
+.sym-tab, .tk-seg-btn, .music-theme-btn {
+  position: relative;
+  overflow: hidden;
+}
+.tf-btn:active,    .ct-btn:active,      .btn-load:active,
+.btn-mode:active,  .rp-btn:active,      .rp-speed:active,
+.dt-btn:active,    .tb-icon-btn:active, .tb-indicators-btn:active,
+.pane-collapse-btn:active, .ind-gear-btn:active,
+.sym-tab:active,   .tk-seg-btn:active,  .music-theme-btn:active {
+  transform: scale(0.88);
+  transition: transform 0.07s ease;
+}
+.btn-ripple-wave {
+  position: absolute;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.18);
+  transform: scale(0);
+  animation: btn-ripple-anim 0.5s linear;
+  pointer-events: none;
+  z-index: 0;
+}
+@keyframes btn-ripple-anim {
+  to { transform: scale(5); opacity: 0; }
+}
+
+/* ══════════════════════════════════════════
+   音樂面板
+══════════════════════════════════════════ */
+.music-panel {
+  position: fixed;
+  top: calc(var(--topbar-h) + 8px);
+  right: 8px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 14px 12px;
+  z-index: 9100;
+  min-width: 195px;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.45);
+  transform-origin: top right;
+  animation: music-panel-in 0.18s ease;
+}
+@keyframes music-panel-in {
+  from { opacity: 0; transform: scale(0.92) translateY(-6px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+.music-panel.hidden { display: none; }
+.music-panel-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+.music-themes {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 12px;
+}
+.music-theme-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--muted);
+  padding: 5px 9px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  text-align: left;
+  transition: background .12s, color .12s, border-color .12s, transform .07s;
+  white-space: nowrap;
+}
+.music-theme-btn:hover {
+  background: var(--bg3);
+  color: var(--text);
+  border-color: var(--border);
+}
+.music-theme-btn.active {
+  background: rgba(41,98,255,.14);
+  border-color: rgba(41,98,255,.4);
+  color: #7aadff;
+}
+.music-vol-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+.music-vol-row input[type=range] {
+  flex: 1;
+  cursor: pointer;
+  accent-color: var(--blue);
+  height: 3px;
+}
+#musicVolLabel {
+  font-size: 11px;
+  color: var(--muted);
+  min-width: 28px;
+  text-align: right;
+}
+.music-note-icon {
+  display: inline-block;
+  transition: color .2s;
+}
+#musicToggleBtn.playing { color: var(--blue); }
+@keyframes music-eq {
+  0%,100% { transform: scaleY(1);   }
+  50%      { transform: scaleY(1.8); }
+}
+.music-eq-bar {
+  display: inline-block;
+  width: 2px;
+  height: 8px;
+  background: var(--blue);
+  border-radius: 1px;
+  margin: 0 1px;
+  vertical-align: middle;
+  animation: music-eq 0.8s ease-in-out infinite;
+}
+.music-eq-bar:nth-child(2) { animation-delay: 0.2s; }
+.music-eq-bar:nth-child(3) { animation-delay: 0.4s; }

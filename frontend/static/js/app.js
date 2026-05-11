@@ -3947,15 +3947,25 @@ function showLoading(show) {
     "「我這次一定行！」\n「為什麼？」\n「感覺。」\n「上次你也是感覺。」",
     "「我要停損！」\n「快去！」\n「……我再等等。」\n「你會後悔的。」\n「我知道。」",
   ];
-  let _lineIdx = 0;
+  /* Fisher-Yates shuffle, reshuffles when exhausted */
+  let _shuffled = [], _shufflePos = 0;
+  function _nextLine() {
+    if (_shufflePos >= _shuffled.length) {
+      _shuffled = [...LINES];
+      for (let i = _shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [_shuffled[i], _shuffled[j]] = [_shuffled[j], _shuffled[i]];
+      }
+      _shufflePos = 0;
+    }
+    return _shuffled[_shufflePos++];
+  }
 
   let _bubbleTimer = null;
 
   function showBubble() {
     if (!bubble) return;
-    const msg = LINES[_lineIdx % LINES.length];
-    _lineIdx++;
-    bubble.textContent = msg;
+    bubble.textContent = _nextLine();
     bubble.classList.add("visible");
     clearTimeout(_bubbleTimer);
     _bubbleTimer = setTimeout(() => bubble.classList.remove("visible"), 3500);
@@ -4039,5 +4049,347 @@ function showLoading(show) {
     } else if (next.dataset.wlIdx !== undefined) {
       next.click();
     }
+  });
+})();
+
+/* ══════════════════════════════════════════
+   按鈕漣漪效果
+══════════════════════════════════════════ */
+(function initButtonRipple() {
+  const TARGETS = "button,.tf-btn,.ct-btn,.rp-btn,.dt-btn,.music-theme-btn,.tk-seg-btn,.sym-tab";
+  document.addEventListener("pointerdown", e => {
+    const btn = e.target.closest(TARGETS);
+    if (!btn) return;
+    const rect = btn.getBoundingClientRect();
+    const size = Math.max(rect.width, rect.height) * 2.2;
+    const x    = e.clientX - rect.left  - size / 2;
+    const y    = e.clientY - rect.top   - size / 2;
+    const wave = document.createElement("span");
+    wave.className = "btn-ripple-wave";
+    wave.style.cssText = `width:${size}px;height:${size}px;left:${x}px;top:${y}px`;
+    btn.appendChild(wave);
+    wave.addEventListener("animationend", () => wave.remove(), { once: true });
+  });
+})();
+
+/* ══════════════════════════════════════════
+   音效引擎 (Web Audio API)
+══════════════════════════════════════════ */
+const SFX = (() => {
+  let _ctx = null, _master = null;
+
+  function _getCtx() {
+    if (!_ctx) {
+      _ctx    = new (window.AudioContext || window.webkitAudioContext)();
+      _master = _ctx.createGain();
+      _master.gain.value = 0.22;
+      _master.connect(_ctx.destination);
+    }
+    if (_ctx.state === "suspended") _ctx.resume();
+    return _ctx;
+  }
+
+  function _tone(freq, type, vol, dur, delay = 0, detune = 0) {
+    const ctx  = _getCtx();
+    const osc  = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(_master);
+    osc.type = type;
+    osc.frequency.value = freq;
+    osc.detune.value    = detune;
+    const t = ctx.currentTime + delay;
+    gain.gain.setValueAtTime(0, t);
+    gain.gain.linearRampToValueAtTime(vol, t + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    osc.start(t);
+    osc.stop(t + dur + 0.01);
+  }
+
+  return {
+    /* 按鈕輕點 */
+    click()   { _tone(1100, "sine",   0.18, 0.055); },
+    /* 載入資料 */
+    load()    {
+      [523.3, 659.3, 784.0].forEach((f, i) => _tone(f, "sine", 0.14, 0.14, i * 0.09));
+    },
+    /* 載入成功 */
+    success() {
+      [523.3, 659.3, 784.0, 1046.5].forEach((f, i) => _tone(f, "sine", 0.13, 0.18, i * 0.07));
+    },
+    /* 載入失敗 */
+    error()   {
+      [400, 320, 240].forEach((f, i) => _tone(f, "square", 0.1, 0.12, i * 0.10));
+    },
+    /* 重播步進 tick */
+    tick()    { _tone(880,  "sine",   0.10, 0.04); },
+    /* 橘子熊波動音 */
+    boop()    { _tone(660,  "sine",   0.15, 0.08); _tone(880, "sine", 0.10, 0.06, 0.06); },
+    /* 切換音效 */
+    switch_()  { _tone(740,  "triangle", 0.12, 0.08); },
+  };
+})();
+
+/* 把音效掛上常用按鈕 */
+(function wireSFX() {
+  /* 載入按鈕 */
+  ["loadBtn", "loadBtnMob"].forEach(id => {
+    document.getElementById(id)?.addEventListener("click", () => SFX.load(), { capture: true });
+  });
+  /* TF / 圖表類型 切換 */
+  document.querySelectorAll(".tf-btn, .ct-btn").forEach(b =>
+    b.addEventListener("click", () => SFX.switch_(), { capture: true })
+  );
+  /* 重播控制欄 step tick */
+  ["replayStepB","replayStepF"].forEach(id =>
+    document.getElementById(id)?.addEventListener("click", () => SFX.tick(), { capture: true })
+  );
+  /* 橘子熊點擊音 */
+  document.getElementById("peekBear")?.addEventListener("click", () => SFX.boop(), { capture: true });
+
+  /* 攔截 loadData 完成後的音效（monkey-patch fetch） */
+  const _origFetch = window.fetch;
+  let _loadPending = false;
+  document.getElementById("loadBtn")?.addEventListener("click", () => { _loadPending = true; });
+  document.getElementById("loadBtnMob")?.addEventListener("click", () => { _loadPending = true; });
+  window.fetch = async function(...args) {
+    const res = await _origFetch.apply(this, args);
+    const url = typeof args[0] === "string" ? args[0] : (args[0]?.url || "");
+    if (_loadPending && url.includes("/api/ohlcv")) {
+      _loadPending = false;
+      if (res.ok) setTimeout(() => SFX.success(), 180);
+      else        setTimeout(() => SFX.error(),   180);
+    }
+    return res;
+  };
+})();
+
+/* ══════════════════════════════════════════
+   背景音樂播放器
+══════════════════════════════════════════ */
+(function initMusicPlayer() {
+  let _ctx = null, _masterGain = null, _musicGain = null;
+  let _schedulerTimer = null, _autoTimer = null;
+  let _nextNoteTime  = 0;
+  let _step          = 0;
+  let _activeTheme   = "off";
+  let _autoActual    = "lofi";
+
+  /* ── 音符頻率 ── */
+  const N = {
+    C3:130.8, D3:146.8, Eb3:155.6, F3:174.6, G3:196.0, Ab3:207.7, Bb3:233.1,
+    C4:261.6, D4:293.7, Eb4:311.1, E4:329.6, F4:349.2, G4:392.0, Ab4:415.3,
+    A4:440.0, Bb4:466.2, B4:493.9,
+    C5:523.3, D5:587.3, E5:659.3, G5:784.0, A5:880.0,
+  };
+
+  /* ── 主題定義 ──
+     每個 step: { n:[freqs], b:beats, v:vol }  n=[] → 休止符 */
+  const THEMES = {
+    lofi: {
+      bpm: 76, wave: "sine", fType: "lowpass", fFreq: 700, fQ: 0.8,
+      steps: [
+        {n:[N.C3,N.Eb4,N.G4],  b:2, v:0.055},
+        {n:[N.G4],              b:1, v:0.04 },
+        {n:[],                  b:1, v:0    },
+        {n:[N.Bb3,N.F4,N.Bb4], b:2, v:0.055},
+        {n:[N.Eb4],             b:1, v:0.04 },
+        {n:[],                  b:1, v:0    },
+        {n:[N.Ab3,N.C4,N.Eb4], b:2, v:0.05 },
+        {n:[N.G4],              b:1, v:0.04 },
+        {n:[N.C5],              b:1, v:0.04 },
+        {n:[N.G3,N.G4,N.Bb4],  b:2, v:0.055},
+        {n:[N.Eb4],             b:1, v:0.035},
+        {n:[],                  b:1, v:0    },
+      ],
+    },
+    bull: {
+      bpm: 128, wave: "triangle", fType: "highpass", fFreq: 220, fQ: 0.7,
+      steps: [
+        {n:[N.C4],       b:0.5, v:0.075},
+        {n:[N.E4],       b:0.5, v:0.075},
+        {n:[N.G4],       b:0.5, v:0.075},
+        {n:[N.C5],       b:0.5, v:0.08 },
+        {n:[N.G4],       b:0.5, v:0.07 },
+        {n:[N.E4],       b:0.5, v:0.065},
+        {n:[N.G4],       b:0.5, v:0.07 },
+        {n:[N.C5,N.E5],  b:1.0, v:0.085},
+        {n:[N.A4],       b:0.5, v:0.07 },
+        {n:[N.C5],       b:0.5, v:0.075},
+        {n:[N.E5],       b:0.5, v:0.08 },
+        {n:[N.G5],       b:0.5, v:0.085},
+        {n:[N.E5],       b:0.5, v:0.075},
+        {n:[N.C5],       b:0.5, v:0.07 },
+        {n:[N.G4],       b:0.5, v:0.065},
+        {n:[N.C5,N.E5],  b:1.0, v:0.085},
+      ],
+    },
+    bear: {
+      bpm: 58, wave: "sine", fType: "lowpass", fFreq: 520, fQ: 1.2,
+      steps: [
+        {n:[N.D4,N.F4],  b:2,   v:0.06 },
+        {n:[],           b:1,   v:0    },
+        {n:[N.C4],       b:1,   v:0.05 },
+        {n:[N.D3,N.A4],  b:2,   v:0.055},
+        {n:[],           b:2,   v:0    },
+        {n:[N.Bb3,N.F4], b:2,   v:0.055},
+        {n:[N.Eb4],      b:1,   v:0.045},
+        {n:[],           b:1,   v:0    },
+        {n:[N.D4,N.Ab4], b:1.5, v:0.05 },
+        {n:[N.C4],       b:1.5, v:0.045},
+        {n:[],           b:1,   v:0    },
+      ],
+    },
+    scalp: {
+      bpm: 162, wave: "square", fType: "bandpass", fFreq: 900, fQ: 2.5,
+      steps: [
+        {n:[N.A4],  b:0.25, v:0.055},
+        {n:[],      b:0.25, v:0    },
+        {n:[N.A4],  b:0.25, v:0.055},
+        {n:[N.C5],  b:0.25, v:0.065},
+        {n:[N.A4],  b:0.25, v:0.055},
+        {n:[],      b:0.25, v:0    },
+        {n:[N.G4],  b:0.25, v:0.05 },
+        {n:[N.A4],  b:0.25, v:0.06 },
+        {n:[N.A4],  b:0.25, v:0.055},
+        {n:[],      b:0.25, v:0    },
+        {n:[N.A4],  b:0.25, v:0.055},
+        {n:[N.E5],  b:0.5,  v:0.07 },
+        {n:[N.D5],  b:0.25, v:0.06 },
+        {n:[N.C5],  b:0.25, v:0.055},
+        {n:[N.A4],  b:0.25, v:0.055},
+        {n:[],      b:0.25, v:0    },
+      ],
+    },
+  };
+
+  function _getCtx() {
+    if (!_ctx) {
+      _ctx = new (window.AudioContext || window.webkitAudioContext)();
+      _masterGain = _ctx.createGain(); _masterGain.gain.value = 1;
+      _masterGain.connect(_ctx.destination);
+      _musicGain  = _ctx.createGain(); _musicGain.gain.value = 0.25;
+      _musicGain.connect(_masterGain);
+    }
+    if (_ctx.state === "suspended") _ctx.resume();
+    return _ctx;
+  }
+
+  function _playNote(freq, startT, dur, vol, wave, fType, fFreq, fQ) {
+    const ctx  = _getCtx();
+    const osc  = ctx.createOscillator();
+    const filt = ctx.createBiquadFilter();
+    const gain = ctx.createGain();
+    osc.type         = wave;
+    osc.frequency.value = freq;
+    filt.type        = fType;
+    filt.frequency.value = fFreq;
+    filt.Q.value     = fQ;
+    osc.connect(filt); filt.connect(gain); gain.connect(_musicGain);
+    gain.gain.setValueAtTime(0, startT);
+    gain.gain.linearRampToValueAtTime(vol, startT + 0.025);
+    gain.gain.exponentialRampToValueAtTime(0.001, startT + dur * 0.88);
+    osc.start(startT);
+    osc.stop(startT + dur + 0.01);
+  }
+
+  function _scheduleChunk(themeKey) {
+    const theme = THEMES[themeKey];
+    if (!theme) return;
+    const ctx       = _getCtx();
+    const beatSec   = 60 / theme.bpm;
+    const LOOK_AHEAD = 2.2;
+    if (_nextNoteTime < ctx.currentTime) _nextNoteTime = ctx.currentTime;
+
+    while (_nextNoteTime < ctx.currentTime + LOOK_AHEAD) {
+      const step    = theme.steps[_step % theme.steps.length];
+      const stepDur = step.b * beatSec;
+      if (step.n.length > 0 && step.v > 0) {
+        step.n.forEach(f =>
+          _playNote(f, _nextNoteTime, stepDur * 0.82, step.v,
+                    theme.wave, theme.fType, theme.fFreq, theme.fQ)
+        );
+      }
+      _nextNoteTime += stepDur;
+      _step++;
+    }
+  }
+
+  function _reset() { _nextNoteTime = 0; _step = 0; }
+
+  function _stopAll() {
+    clearInterval(_schedulerTimer); _schedulerTimer = null;
+    clearInterval(_autoTimer);      _autoTimer      = null;
+  }
+
+  function _startTheme(key) {
+    _stopAll(); _reset();
+    _activeTheme = key;
+    if (key === "off") return;
+
+    const actual = key === "auto" ? _autoActual : key;
+    _scheduleChunk(actual);
+    _schedulerTimer = setInterval(() => {
+      const run = _activeTheme === "auto" ? _autoActual : _activeTheme;
+      _scheduleChunk(run);
+    }, 500);
+
+    if (key === "auto") {
+      _autoTimer = setInterval(_updateAutoTheme, 5000);
+    }
+  }
+
+  function _updateAutoTheme() {
+    const chgEl   = document.getElementById("symChg");
+    const txt     = chgEl?.textContent || "";
+    const m       = txt.match(/([-+]?\d+\.?\d*)/);
+    const chg     = m ? parseFloat(m[1]) : 0;
+    let next;
+    if      (chg >=  3.5) next = "bull";
+    else if (chg <= -3.5) next = "bear";
+    else if (Math.abs(chg) >= 1.5) next = "scalp";
+    else                  next = "lofi";
+    if (next !== _autoActual) {
+      _autoActual = next; _reset();
+    }
+  }
+
+  /* ── 音量控制 ── */
+  function _setVol(v) {
+    if (_musicGain) _musicGain.gain.value = v * 0.5;
+  }
+
+  /* ── 建立面板邏輯 ── */
+  const panel     = document.getElementById("musicPanel");
+  const toggleBtn = document.getElementById("musicToggleBtn");
+  const volSlider = document.getElementById("musicVol");
+  const volLabel  = document.getElementById("musicVolLabel");
+
+  if (!panel || !toggleBtn) return;
+
+  toggleBtn.addEventListener("click", e => {
+    e.stopPropagation();
+    panel.classList.toggle("hidden");
+  });
+  document.addEventListener("click", e => {
+    if (!panel.contains(e.target) && e.target !== toggleBtn)
+      panel.classList.add("hidden");
+  });
+
+  panel.querySelectorAll(".music-theme-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      panel.querySelectorAll(".music-theme-btn").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      const key = btn.dataset.theme;
+      _startTheme(key);
+      /* 按鈕 icon 狀態 */
+      toggleBtn.classList.toggle("playing", key !== "off");
+    });
+  });
+
+  volSlider?.addEventListener("input", () => {
+    const pct = parseInt(volSlider.value, 10);
+    _setVol(pct / 100);
+    if (volLabel) volLabel.textContent = pct + "%";
   });
 })();
