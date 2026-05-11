@@ -162,6 +162,30 @@ def _make_df(rows: list, time_col=0, unit="ms") -> pd.DataFrame:
     return df.drop_duplicates("time").sort_values("time").reset_index(drop=True)
 
 
+_TF_BARS_PER_DAY = {
+    "1M": 1/30, "1w": 1/7, "1d": 1,
+    "4h": 6, "1h": 24, "15m": 96, "5m": 288,
+}
+# 各時間級別的合理上限（根數），避免 API 請求過多
+_TF_MAX_CANDLES = {
+    "1M": 500, "1w": 800, "1d": 5000,
+    "4h": 8000, "1h": 5000, "15m": 3000, "5m": 3000,
+}
+
+def _calc_max_candles(start: Optional[str], end: Optional[str], timeframe: str) -> int:
+    """根據日期範圍與時間級別計算所需根數，避免截斷歷史資料。"""
+    tf_cap = _TF_MAX_CANDLES.get(timeframe, 5000)
+    if not start or not end:
+        return tf_cap
+    try:
+        from datetime import datetime as _dt
+        days = max(1, (_dt.strptime(end, "%Y-%m-%d") - _dt.strptime(start, "%Y-%m-%d")).days + 1)
+        needed = int(days * _TF_BARS_PER_DAY.get(timeframe, 1) * 1.05) + 50
+        return min(needed, tf_cap)
+    except Exception:
+        return tf_cap
+
+
 # ══════════════════════════════════════════════════════════════
 #  Binance
 # ══════════════════════════════════════════════════════════════
@@ -358,19 +382,20 @@ def fetch_crypto_ohlcv(
     if symbol.upper().endswith(".P"):
         symbol = symbol[:-2]
     ex = exchange_id.lower()
+    mc = _calc_max_candles(start, end, timeframe)
     if ex in ("pionex", "binance"):
         # 優先使用永續合約 K 線；fapi 不可用時退回現貨
         try:
-            df = _fetch_binance_fapi(symbol, timeframe, start, end, limit)
+            df = _fetch_binance_fapi(symbol, timeframe, start, end, limit, max_candles=mc)
             if not df.empty:
                 return df
         except Exception:
             pass
-        return _fetch_binance(symbol, timeframe, start, end, limit)
+        return _fetch_binance(symbol, timeframe, start, end, limit, max_candles=mc)
     elif ex == "bybit":
-        return _fetch_bybit(symbol, timeframe, start, end, limit)
+        return _fetch_bybit(symbol, timeframe, start, end, limit, max_candles=mc)
     elif ex == "okx":
-        return _fetch_okx(symbol, timeframe, start, end, limit)
+        return _fetch_okx(symbol, timeframe, start, end, limit, max_candles=mc)
     else:
         raise ValueError(f"不支援的交易所: {exchange_id}")
 
