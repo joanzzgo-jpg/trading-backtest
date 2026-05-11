@@ -3650,13 +3650,20 @@ function _renderSymSearchList() {
 
 function _selectSymbol(el) {
   const display = el.dataset.display || el.dataset.spot || el.dataset.symbol;
-  // 台股選擇時切換 market
+  // 選擇後確保 market 與 tab 一致
   if (_symSearchMarket === "tw") {
     document.getElementById("marketSelect").value = "tw";
     updateMarketUI();
   } else if (_symSearchMarket === "us") {
     document.getElementById("marketSelect").value = "us";
     updateMarketUI();
+  } else {
+    // futures / spot → 確保切到 crypto market
+    const mktEl = document.getElementById("marketSelect");
+    if (mktEl.value !== "crypto") {
+      mktEl.value = "crypto";
+      updateMarketUI();  // 會先把 symbolInput 設為 "BTC/USDT"，下方再覆蓋為選到的標的
+    }
   }
   // 加入搜尋歷史（台股/美股不記入 crypto 歷史）
   if (_symSearchMarket !== "tw") {
