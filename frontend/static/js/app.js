@@ -3718,7 +3718,7 @@ function showLoading(show) {
       const el = document.createElement("div");
       el.className = "click-spark";
       const angle = (i / n) * Math.PI * 2 + (Math.random() - 0.5) * 0.8;
-      const dist  = 28 + Math.random() * 48;
+      const dist  = 40 + Math.random() * 70;
       const w     = 5 + Math.random() * 7;
       const h     = w * (0.4 + Math.random() * 0.8);
       el.style.cssText = `left:${e.clientX}px;top:${e.clientY}px;` +
@@ -3728,7 +3728,7 @@ function showLoading(show) {
         `--sy:${(Math.sin(angle) * dist).toFixed(1)}px;` +
         `animation-delay:${(Math.random() * 60).toFixed(0)}ms;`;
       document.body.appendChild(el);
-      setTimeout(() => el.remove(), 750);
+      setTimeout(() => el.remove(), 1400);
     }
   });
 })();

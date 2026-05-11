@@ -1,17 +1,15 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
-  <!-- Wand: tip at upper-left (hotspot 2,2), body flows to lower-right -->
-  <path d="M 2.5 1.5 C 5 5 9 10 13 15.5 C 17 21 20.5 26 22.5 30"
-        stroke="#3A1220" stroke-width="5" fill="none" stroke-linecap="round"/>
-  <!-- Highlight edge for depth -->
-  <path d="M 3.5 2.5 C 6 6 10 11 14 16.5 C 18 22 21.5 27 23.5 31"
-        stroke="#7B3848" stroke-width="2" fill="none" stroke-linecap="round" opacity="0.5"/>
-  <!-- Bumpy texture -->
-  <path d="M 4 3 C 4.5 3.5 4.2 4 3.8 3.5"
-        stroke="#1E0810" stroke-width="1" fill="none" stroke-linecap="round" opacity="0.6"/>
-  <path d="M 9 9.5 C 9.5 10 9.2 10.5 8.8 10"
-        stroke="#1E0810" stroke-width="1" fill="none" stroke-linecap="round" opacity="0.5"/>
-  <path d="M 15 17 C 15.5 17.5 15.2 18 14.8 17.5"
-        stroke="#1E0810" stroke-width="1" fill="none" stroke-linecap="round" opacity="0.5"/>
-  <!-- Dark pointed tip -->
-  <ellipse cx="2.8" cy="2" rx="2" ry="2.5" fill="#1C0810" transform="rotate(-30 2.8 2)"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40">
+  <!-- 主棒體：深褐色，厚實有機感 -->
+  <path d="M 4 3 C 7.5 7.5 12 13.5 17 19.5 C 22 25.5 27 31.5 32 37.5"
+        stroke="#2E0D17" stroke-width="8" fill="none" stroke-linecap="round"/>
+  <!-- 中心暗芯 -->
+  <path d="M 4 3 C 7.5 7.5 12 13.5 17 19.5 C 22 25.5 27 31.5 32 37.5"
+        stroke="#160608" stroke-width="4" fill="none" stroke-linecap="round" opacity="0.7"/>
+  <!-- 側邊紅褐高光 -->
+  <path d="M 5.5 4.5 C 9 9 13.5 15 18.5 21 C 23.5 27 28.5 33 33.5 39"
+        stroke="#7A3040" stroke-width="2.5" fill="none" stroke-linecap="round" opacity="0.45"/>
+  <!-- 有機凹凸感紋理 -->
+  <path d="M 10 10 C 11 9 12.5 10 12 11.5 C 11.5 13 10 12.5 10 10 Z" fill="#0E0306" opacity="0.55"/>
+  <path d="M 18 19 C 19 18 20.5 19 20 20.5 C 19.5 22 18 21.5 18 19 Z" fill="#0E0306" opacity="0.45"/>
+  <path d="M 26 28 C 27 27 28.5 28 28 29.5 C 27.5 31 26 30.5 26 28 Z" fill="#0E0306" opacity="0.4"/>
 </svg>

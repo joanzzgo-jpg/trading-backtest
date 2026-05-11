@@ -4,7 +4,7 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 /* 魔法棒手繪游標 */
-* { cursor: url('/static/img/cursor-wand.svg') 2 2, auto; }
+* { cursor: url('/static/img/cursor-wand.svg') 4 3, auto; }
 input[type="text"], input[type="number"], input[type="date"], textarea, .sym-modal-input, .tb-symbol-input, .tk-search, .ind-sp-num { cursor: text; }
 
 :root {
@@ -1450,11 +1450,12 @@ html, body {
   pointer-events: none;
   z-index: 99999;
   transform: translate(-50%, -50%);
-  animation: spark-fly 0.65s ease-out forwards;
+  animation: spark-fly 1.2s cubic-bezier(0.22, 0.61, 0.36, 1) forwards;
 }
 @keyframes spark-fly {
-  0%   { opacity: 1; transform: translate(-50%, -50%) scale(1) rotate(0deg); }
-  100% { opacity: 0; transform: translate(calc(-50% + var(--sx)), calc(-50% + var(--sy))) scale(0.15) rotate(120deg); }
+  0%   { opacity: 1; transform: translate(-50%, -50%) scale(1.2) rotate(0deg); }
+  60%  { opacity: 0.8; }
+  100% { opacity: 0; transform: translate(calc(-50% + var(--sx)), calc(-50% + var(--sy))) scale(0.1) rotate(180deg); }
 }
 
 /* ══════════════════════════════════════
@@ -1464,7 +1465,7 @@ html, body {
   position: fixed;
   bottom: -200px;
   right: 24px;
-  width: 96px;
+  width: 110px;
   z-index: 9990;
   cursor: pointer;
   transition: bottom 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
@@ -1472,10 +1473,10 @@ html, body {
   user-select: none;
 }
 .peek-bear.peeking {
-  bottom: -68px;
+  bottom: -42px;
 }
 .peek-bear.peeking:hover {
-  bottom: -22px;
+  bottom: 8px;
 }
 .peek-bear img {
   width: 100%;
