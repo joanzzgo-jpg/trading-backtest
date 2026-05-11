@@ -2425,7 +2425,6 @@ function bindLegendToggles() {
     const el = document.getElementById(id);
     if (!el) return;
     el.addEventListener("click", e => {
-      if (e.target.closest(".leg-dot")) return; // 色點 click 由 bindLegendColors 處理
       const hidden = el.classList.toggle("line-off");
       if (action) action(hidden);
       else series()?.forEach(s => s.applyOptions({ visible: !hidden }));
