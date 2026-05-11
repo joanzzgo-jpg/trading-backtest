@@ -137,8 +137,11 @@ def fetch_tw_intraday_yf(symbol: str, timeframe: str, start: str, end: str) -> p
             df = raw[["Open", "High", "Low", "Close", "Volume"]].copy()
             df.columns = ["open", "high", "low", "close", "volume"]
             idx = pd.to_datetime(df.index)
-            if idx.tz is not None:
-                idx = idx.tz_convert("UTC").tz_localize(None)
+            # yfinance 有時回傳 naive 時間戳（已是 Asia/Taipei 當地時間）
+            # 統一先 localize 成 Asia/Taipei，再轉 UTC
+            if idx.tz is None:
+                idx = idx.tz_localize("Asia/Taipei")
+            idx = idx.tz_convert("UTC").tz_localize(None)
             df.index = idx
             df.index.name = "time"
             df = df.reset_index()
