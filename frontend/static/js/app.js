@@ -3854,16 +3854,6 @@ function showLoading(show) {
 (function initClickSparks() {
   let _lastClick = 0;
 
-  /* ── 光暈環（CSS 動畫，可選第二環 delay） ── */
-  function spawnHalo(cx, cy, color, delay = 0, dur = 0.65) {
-    const el = document.createElement("div");
-    el.className = "spark-halo";
-    el.style.cssText = `left:${cx}px;top:${cy}px;--halo-c:${color};--halo-dur:${dur}s;`
-      + (delay ? `animation-delay:${delay}ms;opacity:0;` : "");
-    document.body.appendChild(el);
-    setTimeout(() => el.remove(), (dur * 1000) + delay + 100);
-  }
-
   /* ── 建立暫時 Canvas ── */
   function makeCanvas(cx, cy, size) {
     const cvs = document.createElement("canvas");
@@ -3873,10 +3863,8 @@ function showLoading(show) {
     return cvs;
   }
 
-  /* ── 落葉 ── */
+  /* ── 落葉（邊緣橘棕發光） ── */
   function spawnLeaves(cx, cy) {
-    spawnHalo(cx, cy, "rgba(205,133,63,0.85)");
-    spawnHalo(cx, cy, "rgba(255,140,0,0.55)", 120, 0.8);
     const C = ["#8B4513","#CD853F","#D2691E","#A0522D","#6B8E23","#9ACD32","#DAA520","#FF8C00"];
     const SIZE = 240, N = 11;
     const cvs = makeCanvas(cx, cy, SIZE);
@@ -3891,8 +3879,10 @@ function showLoading(show) {
     });
     function draw(lf) {
       ctx.save(); ctx.globalAlpha=lf.life*.9; ctx.translate(lf.x,lf.y); ctx.rotate(lf.rot);
+      ctx.shadowColor="rgba(255,160,50,0.9)"; ctx.shadowBlur=10;
       ctx.beginPath(); ctx.ellipse(0,0,lf.sw,lf.sh,0,0,Math.PI*2);
       ctx.fillStyle=lf.col; ctx.fill();
+      ctx.shadowBlur=0;
       ctx.beginPath(); ctx.moveTo(-lf.sw,0); ctx.lineTo(lf.sw,0);
       ctx.strokeStyle="rgba(0,0,0,.18)"; ctx.lineWidth=.8; ctx.stroke();
       ctx.restore();
@@ -3907,10 +3897,8 @@ function showLoading(show) {
     } loop();
   }
 
-  /* ── 雨滴 ── */
+  /* ── 雨滴（藍白發光線條） ── */
   function spawnRain(cx, cy) {
-    spawnHalo(cx, cy, "rgba(80,170,255,0.85)");
-    spawnHalo(cx, cy, "rgba(150,210,255,0.50)", 130, 0.75);
     const SIZE = 240, N = 16;
     const cvs = makeCanvas(cx, cy, SIZE);
     const ctx = cvs.getContext("2d");
@@ -3927,7 +3915,8 @@ function showLoading(show) {
           alive=true;
           const spd=Math.hypot(d.vx,d.vy)||1, nx=d.vx/spd, ny=d.vy/spd;
           ctx.save(); ctx.globalAlpha=d.life*.85;
-          ctx.strokeStyle="rgba(100,185,255,1)"; ctx.lineWidth=2; ctx.lineCap="round";
+          ctx.shadowColor="rgba(120,200,255,0.95)"; ctx.shadowBlur=8;
+          ctx.strokeStyle="rgba(180,225,255,1)"; ctx.lineWidth=2; ctx.lineCap="round";
           ctx.beginPath();
           ctx.moveTo(d.x-nx*d.len*.5,d.y-ny*d.len*.5); ctx.lineTo(d.x+nx*d.len*.5,d.y+ny*d.len*.5);
           ctx.stroke(); ctx.restore();
@@ -3937,10 +3926,8 @@ function showLoading(show) {
     } loop();
   }
 
-  /* ── 雪花 ── */
+  /* ── 雪花（冰藍發光晶體） ── */
   function spawnSnow(cx, cy) {
-    spawnHalo(cx, cy, "rgba(200,232,255,0.90)");
-    spawnHalo(cx, cy, "rgba(220,242,255,0.50)", 140, 0.80);
     const SIZE = 240, N = 9;
     const cvs = makeCanvas(cx, cy, SIZE);
     const ctx = cvs.getContext("2d");
@@ -3953,7 +3940,8 @@ function showLoading(show) {
     });
     function drawFlake(f) {
       ctx.save(); ctx.globalAlpha=f.life*.9;
-      ctx.strokeStyle="rgba(200,232,255,1)"; ctx.lineWidth=Math.max(.8,f.r*.18); ctx.lineCap="round";
+      ctx.shadowColor="rgba(180,225,255,1)"; ctx.shadowBlur=9;
+      ctx.strokeStyle="rgba(220,242,255,1)"; ctx.lineWidth=Math.max(.8,f.r*.18); ctx.lineCap="round";
       ctx.translate(f.x,f.y); ctx.rotate(f.rot); ctx.beginPath();
       for(let i=0;i<6;i++){
         const a=(i/6)*Math.PI*2, ax=Math.cos(a)*f.r, ay=Math.sin(a)*f.r;
@@ -3977,10 +3965,8 @@ function showLoading(show) {
     } loop();
   }
 
-  /* ── 花瓣 ── */
+  /* ── 花瓣（粉紅螢光邊緣） ── */
   function spawnPetals(cx, cy) {
-    spawnHalo(cx, cy, "rgba(255,150,180,0.88)");
-    spawnHalo(cx, cy, "rgba(255,200,220,0.50)", 120, 0.75);
     const C = ["#FFB7C5","#FF91A4","#FFD1DC","#FF69B4","#FFC0CB","#FFFFFF","#FFE4E1"];
     const SIZE = 240, N = 13;
     const cvs = makeCanvas(cx, cy, SIZE);
@@ -3996,19 +3982,21 @@ function showLoading(show) {
     function drawPetal(p) {
       ctx.save(); ctx.globalAlpha=p.life*.9;
       ctx.translate(p.x,p.y); ctx.rotate(p.rot);
+      ctx.shadowColor="rgba(255,100,160,0.9)"; ctx.shadowBlur=11;
       ctx.beginPath();
       ctx.moveTo(0,p.h*.5);
       ctx.bezierCurveTo( p.w,-p.h*.2, p.w,-p.h*.8, 0,-p.h*.5);
       ctx.bezierCurveTo(-p.w,-p.h*.8,-p.w,-p.h*.2, 0, p.h*.5);
       ctx.fillStyle=p.col; ctx.fill();
-      ctx.strokeStyle="rgba(255,100,150,.25)"; ctx.lineWidth=.5; ctx.stroke();
+      ctx.shadowBlur=0;
+      ctx.strokeStyle="rgba(255,100,150,.3)"; ctx.lineWidth=.5; ctx.stroke();
       ctx.restore();
     }
     let raf, t=0; function loop() {
       ctx.clearRect(0,0,SIZE,SIZE); let alive=false; t++;
       for (const p of pts) {
         p.x+=p.vx; p.y+=p.vy; p.vy+=p.g;
-        p.vx+=Math.sin(t*.04+p.seed)*.025; /* 輕飄 */
+        p.vx+=Math.sin(t*.04+p.seed)*.025;
         p.rot+=p.rs; p.life-=.013;
         if(p.life>0){alive=true;drawPetal(p);}
       }
@@ -4026,8 +4014,6 @@ function showLoading(show) {
     return el;
   }
   function spawnDefault(cx, cy) {
-    spawnHalo(cx, cy, "rgba(255,165,71,0.88)");
-    spawnHalo(cx, cy, "rgba(255,210,120,0.45)", 110, 0.70);
     const BIG=6;
     for(let i=0;i<BIG;i++){
       const a=(i/BIG)*Math.PI*2, dist=50+Math.random()*40;
