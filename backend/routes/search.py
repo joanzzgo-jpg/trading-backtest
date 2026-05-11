@@ -39,7 +39,7 @@ def us_search(q: str = ""):
 def get_tickers(market: str = "futures"):
     """取得標的列表"""
     cache_key = f"tickers:{market}"
-    cached = cache.get(cache_key, ttl=2)
+    cached = cache.get(cache_key, ttl=8)
     if cached:
         return cached
     tickers = fetch_tickers(market)

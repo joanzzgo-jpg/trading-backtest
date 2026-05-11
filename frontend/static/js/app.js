@@ -3152,6 +3152,25 @@ let _tickerData     = [];
 let _spotTickerData = [];
 let _tickerSort     = "desc";   // desc=漲幅 asc=跌幅 vol=成交量
 let _tickerTimer    = null;
+let _lastTickerKey  = "";       // 追蹤目前渲染的 ticker 結構，避免不必要的 DOM 重建
+
+/* 只更新價格文字，不重建 DOM */
+function _updateTickerPrices() {
+  const container = document.getElementById("tickerList");
+  if (!container) return;
+  container.querySelectorAll(".ticker-item[data-display]").forEach(el => {
+    const t = _tickerData.find(x => x.display === el.dataset.display || x.symbol === el.dataset.display);
+    if (!t) return;
+    const chgEl   = el.querySelector(".tk-chg");
+    const priceEl = el.querySelector(".tk-row2");
+    if (chgEl) {
+      chgEl.textContent = `${t.change_pct >= 0 ? "+" : ""}${t.change_pct.toFixed(2)}%`;
+      chgEl.className   = `tk-chg ${t.change_pct >= 0 ? "up" : "dn"}`;
+    }
+    if (priceEl) priceEl.textContent = fmtTickerPrice(t.price);
+  });
+  updatePageTitle();
+}
 
 async function fetchTickers() {
   try {
@@ -3161,8 +3180,33 @@ async function fetchTickers() {
     ]);
     if (futRes.ok)  { const j = await futRes.json();  _tickerData     = j.tickers || []; }
     if (spotRes.ok) { const j = await spotRes.json(); _spotTickerData = j.tickers || []; }
-    renderTickers();
-    renderSymSearch();   // 同步更新搜尋列表的漲跌幅
+
+    /* 計算目前應渲染的結構 key（排序 + 篩選 + 標的順序） */
+    if (_tickerSort !== "wl") {
+      const search = (document.getElementById("tickerSearch")?.value || "").toLowerCase();
+      let list = _tickerData.filter(t =>
+        !search ||
+        t.display.toLowerCase().includes(search) ||
+        t.symbol.toLowerCase().includes(search) ||
+        t.symbol.toLowerCase().replace("usdt","").includes(search)
+      );
+      if (_tickerSort === "asc")  list = [...list].reverse();
+      if (_tickerSort === "vol")  list = [...list].sort((a, b) => b.volume - a.volume);
+      const newKey = `${_tickerSort}|${search}|${list.map(t => t.display).join(",")}`;
+      if (newKey === _lastTickerKey) {
+        _updateTickerPrices();   // 結構不變→只刷新數字
+      } else {
+        renderTickers();
+        _lastTickerKey = newKey;
+      }
+    } else {
+      renderTickers();
+    }
+
+    /* 搜尋 Modal 只在開啟時才更新 */
+    if (!document.getElementById("symOverlay")?.classList.contains("hidden")) {
+      renderSymSearch();
+    }
   } catch {}
 }
 
@@ -3326,7 +3370,7 @@ function fmtTickerPrice(p) {
 function startTickerRefresh() {
   if (_tickerTimer) clearInterval(_tickerTimer);
   fetchTickers();
-  _tickerTimer = setInterval(fetchTickers, 5000);
+  _tickerTimer = setInterval(fetchTickers, 12000);
 }
 
 function bindTickerPanel() {
@@ -3335,11 +3379,15 @@ function bindTickerPanel() {
       document.querySelectorAll(".tk-seg-btn").forEach(b => b.classList.remove("active"));
       btn.classList.add("active");
       _tickerSort = btn.dataset.sort;
+      _lastTickerKey = "";   // 強制完整重建
       renderTickers();
       if (btn.dataset.sort === "wl") _refreshWlPrices();
     });
   });
-  document.getElementById("tickerSearch")?.addEventListener("input", renderTickers);
+  document.getElementById("tickerSearch")?.addEventListener("input", () => {
+    _lastTickerKey = "";   // 搜尋條件改變→強制完整重建
+    renderTickers();
+  });
 }
 
 /* ══════════════════════════════════════════
@@ -3703,7 +3751,7 @@ function showLoading(show) {
     if (!el) {
       el = document.createElement("div");
       el.id = "loadingOverlay"; el.className = "loading-overlay";
-      el.innerHTML = `<div class="loading-inner"><img src="/static/img/bear-wand.gif" class="loading-bear"/><span class="loading-text">處理中...</span></div>`;
+      el.innerHTML = `<div class="loading-inner"><img src="/static/img/bear.png" class="loading-bear"/><span class="loading-text">處理中...</span></div>`;
       document.body.appendChild(el);
     }
   } else { el?.remove(); }
@@ -3732,7 +3780,7 @@ function showLoading(show) {
 
     /* 層 1：三層不規則水波紋 */
     const rippleColors = ["rgba(150,220,255,0.9)", "rgba(180,160,255,0.8)", "rgba(120,240,200,0.7)"];
-    const rippleScales = [10, 8.5, 7];
+    const rippleScales = [5, 4, 3.2];
     const rippleDurs   = ["0.72s", "0.82s", "0.96s"];
     for (let i = 0; i < 3; i++) {
       const el = spawnEl("spark-ripple", cx, cy,

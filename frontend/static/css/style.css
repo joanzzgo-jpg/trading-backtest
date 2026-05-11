@@ -935,6 +935,11 @@ html, body {
   width: 160px;
   height: 160px;
   object-fit: contain;
+  animation: loading-spin 1.2s linear infinite;
+}
+@keyframes loading-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
 }
 .loading-text {
   font-size: 14px;
@@ -1478,7 +1483,7 @@ html, body {
   }
   100% {
     border-radius: 51% 49% 50% 50% / 50% 51% 49% 50%;
-    transform: translate(-50%,-50%) scale(var(--rs, 9)) rotate(10deg);
+    transform: translate(-50%,-50%) scale(var(--rs, 4.5)) rotate(10deg);
     border-width: 0.5px; opacity: 0;
   }
 }
