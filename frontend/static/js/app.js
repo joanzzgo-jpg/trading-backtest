@@ -78,11 +78,11 @@ const PANE_FLEX_DEFAULTS = { mainPane:5, kdjPane:1, rsiPane:1, macdPane:1 };
 
 const TF_LABELS = { "1M":"月","1w":"週","1d":"日","4h":"4H","1h":"1H","15m":"15m","5m":"5m" };
 
-/* ── 時間轉 Unix 秒 ── */
+/* ── 時間轉 Unix 秒（所有時間戳均以台灣時間 UTC+8 顯示） ── */
 function toTime(s) {
   if (!s) return 0;
   const iso = s.includes("T") ? (s.endsWith("Z") ? s : s + "Z") : s + "T00:00:00Z";
-  return Math.floor(new Date(iso).getTime() / 1000);
+  return Math.floor(new Date(iso).getTime() / 1000) + 8 * 3600;
 }
 
 /* ── hex + 透明度 ── */
@@ -2504,9 +2504,13 @@ function nextVisiblePane(el) {
 async function loadData(autoLoad = false) {
   stopRealtime();
 
-  // 子日線時區資料量大，自動縮短起始日避免逾時
+  // 各時間級別依市場實際 API 限制回溯天數（加密貨幣無限制）
   if (!autoLoad) {
-    const TF_MAX_DAYS = { "4h": 365, "1h": 90, "15m": 30, "5m": 30 };
+    const mkt = document.getElementById("marketSelect").value;
+    const TF_MAX_DAYS =
+      mkt === "crypto" ? {} :
+      mkt === "us"     ? { "4h": 60, "1h": 730, "15m": 60, "5m": 60 } :
+      mkt === "tw"     ? { "5m": 60, "15m": 60, "1h": 730 } : {};
     const maxDays = TF_MAX_DAYS[currentTF];
     if (maxDays) {
       const startEl = document.getElementById("startDate");
@@ -2517,7 +2521,7 @@ async function loadData(autoLoad = false) {
         if ((endMs - startMs) / 86400000 > maxDays) {
           const newStart = new Date(endMs - maxDays * 86400000).toISOString().slice(0, 10);
           startEl.value = newStart;
-          showToast(`⚠️ ${TF_LABELS[currentTF]} 時區最多載入 ${maxDays} 天，起始日已調整為 ${newStart}`);
+          showToast(`⚠️ ${TF_LABELS[currentTF]} 資料來源最多回溯 ${maxDays} 天，起始日調整為 ${newStart}`);
         }
       }
     }
@@ -2637,6 +2641,9 @@ function renderVolume(data) {
     time:toTime(d.time), value:d.volume||0,
     color: d.close >= d.open ? C.volUp + _va : C.volDown + _va,
   })));
+  // 每次重新套用 scale 設定，避免切換標的或市場後比例跑掉
+  mainChart.priceScale("volume").applyOptions({ scaleMargins:{ top:0.80, bottom:0 }, visible:false });
+  mainChart.priceScale("right").applyOptions({ scaleMargins:{ top:0.05, bottom:0.22 } });
   const period = Math.max(1, S.volMaPeriod);
   const maData = [];
   for (let i = period - 1; i < data.length; i++) {
@@ -2843,12 +2850,13 @@ function updateSymbolBar(data) {
 /* ══════════════════════════════════════════
    重播 (Bar Replay)
 ══════════════════════════════════════════ */
-let replayData    = [];   // 完整資料快照
-let replayIdx     = 0;    // 目前顯示到第幾根
-let replaySpeed   = 500;  // ms per bar
-let replayTimer   = null;
-let replayActive  = false;
-let _replaySpan   = 50;   // 進入重播時保存的可視 bar 數
+let replayData     = [];   // 完整資料快照
+let replayIdx      = 0;    // 目前顯示到第幾根
+let replaySpeed    = 500;  // ms per bar
+let replayTimer    = null;
+let replayActive   = false;
+let _replaySpan    = 50;   // 進入重播時保存的可視 bar 數
+let _replayLastIdx = -1;   // 上一幀渲染的 idx，用於增量更新判斷
 
 function enterReplay() {
   if (replayActive) return;
@@ -2861,6 +2869,7 @@ function enterReplay() {
   _replaySpan = curRange ? Math.max(10, Math.round(curRange.to - curRange.from)) : 50;
 
   replayIdx = Math.max(_replaySpan, Math.floor(replayData.length * 0.2));
+  _replayLastIdx = -1;
 
   // 讓圖表區為重播列騰出空間
   document.getElementById("chartsContainer").style.paddingBottom = "42px";
@@ -2886,38 +2895,106 @@ function exitReplay() {
   if (replayData.length) renderAll(replayData);
 }
 
+/* 重播：以台灣時間格式化 bar 的日期 */
+function _replayRenderDate(bar) {
+  if (!bar) return;
+  const t = toTime(bar.time);
+  const d = new Date(t * 1000);
+  const pad = n => String(n).padStart(2, "0");
+  const dateStr = ["4h","1h","15m","5m"].includes(currentTF)
+    ? `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`
+    : `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())}`;
+  document.getElementById("replayDate").textContent = dateStr;
+}
+
+/* 重播：僅更新新增的一根 K 棒（增量 update，避免全量 setData 造成閃爍） */
+function _replayStep(bar) {
+  const t  = toTime(bar.time);
+  const _va = Math.round((S.volAlpha ?? 0.67) * 255).toString(16).padStart(2, "0");
+
+  if (currentChartType === "candlestick" || currentChartType === "bar")
+    candleSeries.update({ time:t, open:bar.open, high:bar.high, low:bar.low, close:bar.close });
+  else
+    candleSeries.update({ time:t, value:bar.close });
+
+  if (bar.bb_upper != null) {
+    bbU.update({ time:t, value:bar.bb_upper });
+    bbM.update({ time:t, value:bar.bb_middle });
+    bbL.update({ time:t, value:bar.bb_lower });
+  }
+
+  kdjAnchor.update({ time:t, value:50 });
+  rsiAnchor.update({ time:t, value:50 });
+  macdAnchor.update({ time:t, value:0 });
+
+  volSeries.update({ time:t, value:bar.volume||0,
+    color: bar.close >= bar.open ? C.volUp + _va : C.volDown + _va });
+  const period = Math.max(1, S.volMaPeriod);
+  if (replayIdx >= period - 1) {
+    const s = Math.max(0, replayIdx - period + 1);
+    const avg = replayData.slice(s, replayIdx + 1).reduce((a,d) => a + (d.volume||0), 0) / period;
+    volMaSeries.update({ time:t, value:avg });
+  }
+
+  if (bar.kdj_k != null) {
+    kdjK.update({ time:t, value:bar.kdj_k });
+    kdjD.update({ time:t, value:bar.kdj_d });
+    kdjJ.update({ time:t, value:bar.kdj_j });
+  }
+  if (bar.rsi_14 != null) rsiLine14.update({ time:t, value:bar.rsi_14 });
+  if (bar.rsi_7  != null) rsiLine7.update({ time:t, value:bar.rsi_7 });
+  if (bar.macd   != null) {
+    macdLine.update({ time:t, value:bar.macd });
+    macdSignal.update({ time:t, value:bar.macd_signal });
+    macdHist.update({ time:t, value:bar.macd_hist,
+      color: bar.macd_hist >= 0 ? C.up + "cc" : C.down + "cc" });
+  }
+
+  // 累積標記（增量加入，不重建）
+  if (bar.crt === 1)  lastCRTMarkers.push({ time:t, position:"belowBar", color:C.crtBull, shape:"arrowUp",   size:1.5, text:"" });
+  if (bar.crt === -1) lastCRTMarkers.push({ time:t, position:"aboveBar", color:C.crtBear, shape:"arrowDown", size:1.5, text:"" });
+  if (bar.kdj_cross === 1)  lastKDJCrossMarkers.push({ time:t, position:"belowBar", color:C.kdjCrossBull, shape:"arrowUp",   size:1.5, text:"金叉" });
+  if (bar.kdj_cross === -1) lastKDJCrossMarkers.push({ time:t, position:"aboveBar", color:C.kdjCrossBear, shape:"arrowDown", size:1.5, text:"死叉" });
+  if (bar.resonance === 1)  lastResonanceMarkers.push({ time:t, position:"belowBar", color:C.resonanceBull, shape:"arrowUp",   size:1.5, text:"超賣" });
+  if (bar.resonance === -1) lastResonanceMarkers.push({ time:t, position:"aboveBar", color:C.resonanceBear, shape:"arrowDown", size:1.5, text:"超買" });
+  _applyMainMarkers();
+
+  updateSymbolBar(replayData.slice(0, replayIdx + 1));
+}
+
 function _replayRender() {
   const slice = replayData.slice(0, replayIdx + 1);
   const n     = slice.length;
   const range = { from: n - _replaySpan - 1, to: n - 1 };
 
-  // 暫停跨圖同步，避免 setData 觸發的 range 變更傳染到主圖造成抖動
   _blockSync = true;
-  const anchorTimes = slice.map(d => ({ time: toTime(d.time), value: 50 }));
-  kdjAnchor.setData(anchorTimes);
-  rsiAnchor.setData(anchorTimes);
-  macdAnchor.setData(anchorTimes.map(d => ({ ...d, value: 0 })));
-  renderCandles(slice);
-  renderBB(slice);
-  renderCRT(slice);
-  renderKDJCross(slice);
-  renderResonance(slice);
-  renderVolume(slice);
-  renderKDJ(slice);
-  renderRSI(slice);
-  renderMACD(slice);
-  updateSymbolBar(slice);
-  // 所有圖統一設定到相同 range，確保縮放一致
+
+  if (_replayLastIdx >= 0 && replayIdx === _replayLastIdx + 1) {
+    // 逐格前進：只更新新 bar，避免全量 setData 閃爍
+    _replayStep(replayData[replayIdx]);
+  } else {
+    // 跳躍或倒退：全量重繪
+    const anchorTimes = slice.map(d => ({ time:toTime(d.time), value:50 }));
+    kdjAnchor.setData(anchorTimes);
+    rsiAnchor.setData(anchorTimes);
+    macdAnchor.setData(anchorTimes.map(d => ({ ...d, value:0 })));
+    renderCandles(slice);
+    renderBB(slice);
+    renderCRT(slice);
+    renderKDJCross(slice);
+    renderResonance(slice);
+    renderVolume(slice);
+    renderKDJ(slice);
+    renderRSI(slice);
+    renderMACD(slice);
+    updateSymbolBar(slice);
+  }
+
   [mainChart, kdjChart, rsiChart, macdChart].forEach(c => c?.timeScale().setVisibleLogicalRange(range));
   _blockSync = false;
+  _replayLastIdx = replayIdx;
 
-  // 更新狀態列
-  const bar = slice[n - 1];
-  if (bar) {
-    const d = new Date(bar.time);
-    document.getElementById("replayDate").textContent =
-      `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
-  }
+  _replayRenderDate(replayData[replayIdx]);
   document.getElementById("replayProgress").textContent = `${n} / ${replayData.length}`;
 }
 

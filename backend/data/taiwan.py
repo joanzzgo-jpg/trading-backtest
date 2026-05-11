@@ -138,7 +138,7 @@ def fetch_tw_intraday_yf(symbol: str, timeframe: str, start: str, end: str) -> p
             df.columns = ["open", "high", "low", "close", "volume"]
             idx = pd.to_datetime(df.index)
             if idx.tz is not None:
-                idx = idx.tz_convert("Asia/Taipei").tz_localize(None)
+                idx = idx.tz_convert("UTC").tz_localize(None)
             df.index = idx
             df.index.name = "time"
             df = df.reset_index()

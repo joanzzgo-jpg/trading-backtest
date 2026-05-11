@@ -33,7 +33,7 @@ def fetch_us_stock(symbol: str, start: str, end: str, timeframe: str = "1d") -> 
     # 移除 timezone（相容各版本 yfinance）
     idx = pd.to_datetime(df.index)
     if idx.tz is not None:
-        idx = idx.tz_convert(None)
+        idx = idx.tz_convert("UTC").tz_localize(None)
     df.index = idx
     df.index.name = "time"
     df = df.reset_index()
