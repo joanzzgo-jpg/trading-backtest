@@ -4082,60 +4082,55 @@ function showLoading(show) {
     document.body.appendChild(el);
     return el;
   }
-  /* ── 雷暴點擊：向外輻射的迷你閃電 + 中心閃光 ── */
+  /* ── 雷暴點擊：小閃電向外輻射 ── */
   function spawnLightning(cx, cy) {
-    const SIZE = 260, N = 7;
+    const SIZE = 150, N = 5;
     const cvs = makeCanvas(cx, cy, SIZE);
     const ctx = cvs.getContext("2d");
     const ox = SIZE/2, oy = SIZE/2;
-    /* generate N mini bolts radiating outward */
     function minibolt(x1,y1,x2,y2,d) {
       if (d===0) return [[x2,y2]];
-      const mx=(x1+x2)/2+(Math.random()-.5)*18*(d/3);
-      const my=(y1+y2)/2+(Math.random()-.5)*18*(d/3);
+      const mx=(x1+x2)/2+(Math.random()-.5)*8*(d/3);
+      const my=(y1+y2)/2+(Math.random()-.5)*8*(d/3);
       return [...minibolt(x1,y1,mx,my,d-1),...minibolt(mx,my,x2,y2,d-1)];
     }
     const bolts = Array.from({length:N}, (_,i) => {
       const a = (i/N)*Math.PI*2+(Math.random()-.5)*.5;
-      const len = 40+Math.random()*55;
+      const len = 20+Math.random()*25;
       const ex = ox+Math.cos(a)*len, ey = oy+Math.sin(a)*len;
-      return { path:[[ox,oy],...minibolt(ox,oy,ex,ey,3)], alpha:1, delay:Math.floor(Math.random()*4) };
+      return { path:[[ox,oy],...minibolt(ox,oy,ex,ey,3)], alpha:1, delay:Math.floor(Math.random()*3) };
     });
-    let flashA = 1.0, frame = 0;
+    let flashA = 0.7, frame = 0;
     let raf; function loop() {
       ctx.clearRect(0,0,SIZE,SIZE);
-      /* center flash burst */
       if (flashA>0) {
-        const g = ctx.createRadialGradient(ox,oy,0,ox,oy,28+flashA*22);
-        g.addColorStop(0,`rgba(255,255,200,${flashA*.85})`);
-        g.addColorStop(0.4,`rgba(180,220,255,${flashA*.45})`);
+        const g = ctx.createRadialGradient(ox,oy,0,ox,oy,14+flashA*10);
+        g.addColorStop(0,`rgba(255,255,200,${flashA*.7})`);
+        g.addColorStop(0.5,`rgba(180,220,255,${flashA*.3})`);
         g.addColorStop(1,"rgba(0,0,0,0)");
         ctx.fillStyle=g; ctx.fillRect(0,0,SIZE,SIZE);
-        flashA=Math.max(0,flashA-.07);
+        flashA=Math.max(0,flashA-.08);
       }
-      /* draw bolts */
       let alive=false;
       for (const b of bolts) {
         if (frame<b.delay){alive=true;continue;}
         if (b.alpha<=0) continue;
         alive=true;
-        ctx.save();
-        ctx.shadowColor="rgba(180,220,255,1)"; ctx.shadowBlur=18;
-        ctx.strokeStyle=`rgba(210,235,255,${b.alpha*.7})`; ctx.lineWidth=3;
-        ctx.lineCap="round";
+        ctx.save(); ctx.lineCap="round";
+        ctx.shadowColor="rgba(180,220,255,1)"; ctx.shadowBlur=10;
+        ctx.strokeStyle=`rgba(210,235,255,${b.alpha*.65})`; ctx.lineWidth=2;
         ctx.beginPath(); ctx.moveTo(b.path[0][0],b.path[0][1]);
         b.path.slice(1).forEach(([x,y])=>ctx.lineTo(x,y)); ctx.stroke();
-        ctx.shadowBlur=7;
-        ctx.strokeStyle=`rgba(255,255,255,${b.alpha*.95})`; ctx.lineWidth=1.2;
+        ctx.shadowBlur=4;
+        ctx.strokeStyle=`rgba(255,255,255,${b.alpha*.9})`; ctx.lineWidth=0.8;
         ctx.beginPath(); ctx.moveTo(b.path[0][0],b.path[0][1]);
         b.path.slice(1).forEach(([x,y])=>ctx.lineTo(x,y)); ctx.stroke();
         ctx.restore();
-        b.alpha-=.065;
+        b.alpha-=.07;
       }
       frame++;
       if(alive||flashA>0) raf=requestAnimationFrame(loop); else{cancelAnimationFrame(raf);cvs.remove();}
     } loop();
-    SFX.thunder();
   }
 
   function spawnDefault(cx, cy) {
@@ -5041,15 +5036,16 @@ const SFX = (() => {
   function _boltWithBranches(x1,y1,x2,y2,depth) {
     const main=[[x1,y1],..._bolt(x1,y1,x2,y2,depth)];
     const branches=[];
-    const nb=2+Math.floor(Math.random()*3);
+    const nb=3+Math.floor(Math.random()*3);   /* 3–5 branches */
     for (let i=0;i<nb;i++) {
-      const si=1+Math.floor(Math.random()*(main.length-2));
+      const si=2+Math.floor(Math.random()*(main.length-4));
       const [bx,by]=main[si];
       const baseAng=Math.atan2(y2-y1,x2-x1);
-      const ang=baseAng+(Math.random()-.5)*Math.PI*.9;
-      const blen=H*(.10+Math.random()*.22);
-      const ex=bx+Math.cos(ang)*blen, ey=by+Math.abs(Math.sin(ang))*blen+blen*.3;
-      branches.push({ path:[[bx,by],..._bolt(bx,by,ex,ey,depth-1)], alpha:.35+Math.random()*.4 });
+      const ang=baseAng+(Math.random()-.5)*Math.PI*1.0;
+      const blen=H*(.12+Math.random()*.28);     /* longer branches */
+      const ex=bx+Math.cos(ang)*blen, ey=by+Math.abs(Math.sin(ang))*blen+blen*.25;
+      const subDepth=depth-1+(Math.random()<.3?1:0);  /* occasional deep branch */
+      branches.push({ path:[[bx,by],..._bolt(bx,by,ex,ey,subDepth)], alpha:.40+Math.random()*.45 });
     }
     return {main,branches};
   }
@@ -5272,34 +5268,39 @@ const SFX = (() => {
       }
       /* no thunder sound */
     }
-    /* draw bolts */
+    /* draw bolts — 3-pass rendering for realism */
     for (let i=thunderBolts.length-1;i>=0;i--) {
       const b=thunderBolts[i];
       if (b.alpha<=0){thunderBolts.splice(i,1);continue;}
-      ctx.save();
-      /* outer glow */
-      ctx.shadowColor="rgba(170,210,255,1)"; ctx.shadowBlur=30;
-      ctx.strokeStyle=`rgba(195,228,255,${b.alpha*.55})`; ctx.lineWidth=5;
+      ctx.save(); ctx.lineCap="round"; ctx.lineJoin="round";
+      /* pass 1: wide diffuse corona */
+      ctx.shadowColor="rgba(140,190,255,1)"; ctx.shadowBlur=60;
+      ctx.strokeStyle=`rgba(160,210,255,${b.alpha*.30})`; ctx.lineWidth=12;
       ctx.beginPath(); ctx.moveTo(b.main[0][0],b.main[0][1]);
       b.main.slice(1).forEach(([x,y])=>ctx.lineTo(x,y)); ctx.stroke();
-      /* bright core */
-      ctx.shadowBlur=12;
-      ctx.strokeStyle=`rgba(255,255,255,${b.alpha*.95})`; ctx.lineWidth=1.6;
+      /* pass 2: mid glow */
+      ctx.shadowBlur=28; ctx.shadowColor="rgba(200,228,255,1)";
+      ctx.strokeStyle=`rgba(210,235,255,${b.alpha*.60})`; ctx.lineWidth=5;
+      ctx.beginPath(); ctx.moveTo(b.main[0][0],b.main[0][1]);
+      b.main.slice(1).forEach(([x,y])=>ctx.lineTo(x,y)); ctx.stroke();
+      /* pass 3: bright white core */
+      ctx.shadowBlur=8; ctx.shadowColor="rgba(255,255,255,1)";
+      ctx.strokeStyle=`rgba(255,255,255,${b.alpha*.98})`; ctx.lineWidth=2;
       ctx.beginPath(); ctx.moveTo(b.main[0][0],b.main[0][1]);
       b.main.slice(1).forEach(([x,y])=>ctx.lineTo(x,y)); ctx.stroke();
       /* branches */
       b.branches.forEach(br=>{
-        ctx.shadowBlur=14;
-        ctx.strokeStyle=`rgba(200,230,255,${b.alpha*br.alpha*.65})`; ctx.lineWidth=2;
+        ctx.shadowBlur=22; ctx.shadowColor="rgba(180,220,255,1)";
+        ctx.strokeStyle=`rgba(200,232,255,${b.alpha*br.alpha*.60})`; ctx.lineWidth=3.5;
         ctx.beginPath(); ctx.moveTo(br.path[0][0],br.path[0][1]);
         br.path.slice(1).forEach(([x,y])=>ctx.lineTo(x,y)); ctx.stroke();
         ctx.shadowBlur=6;
-        ctx.strokeStyle=`rgba(255,255,255,${b.alpha*br.alpha*.50})`; ctx.lineWidth=.8;
+        ctx.strokeStyle=`rgba(255,255,255,${b.alpha*br.alpha*.85})`; ctx.lineWidth=1;
         ctx.beginPath(); ctx.moveTo(br.path[0][0],br.path[0][1]);
         br.path.slice(1).forEach(([x,y])=>ctx.lineTo(x,y)); ctx.stroke();
       });
       ctx.restore();
-      b.alpha-=.046;
+      b.alpha-=.030;   /* slower fade = bolt lingers longer */
     }
     /* screen flash */
     for (let i=thunderFlashes.length-1;i>=0;i--) {
