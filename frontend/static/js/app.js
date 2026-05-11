@@ -3879,10 +3879,10 @@ function showLoading(show) {
 /* ── 合約行情鍵盤快捷鍵（↓/↑ 切換標的） ── */
 (function initTickerKeyNav() {
   document.addEventListener("keydown", e => {
-    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
     const tag = document.activeElement?.tagName?.toLowerCase();
     if (tag === "input" || tag === "textarea" || tag === "select") return;
     if (document.activeElement?.isContentEditable) return;
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp" && e.key !== " ") return;
 
     const container = document.getElementById("tickerList");
     if (!container) return;
@@ -3890,6 +3890,23 @@ function showLoading(show) {
     if (!items.length) return;
 
     e.preventDefault();
+
+    /* 空白鍵：直接跳到列表第一個標的 */
+    if (e.key === " ") {
+      const first = items[0];
+      items.forEach(x => x.classList.remove("tk-active"));
+      first.classList.add("tk-active");
+      first.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      if (first.dataset.display) {
+        document.getElementById("symbolInput").value = first.dataset.display;
+        const exchEl = document.getElementById("exchangeSelect");
+        if (exchEl && !["pionex", "binance"].includes(exchEl.value)) exchEl.value = "pionex";
+        loadData(false);
+      } else if (first.dataset.wlIdx !== undefined) {
+        first.click();
+      }
+      return;
+    }
 
     const activeIdx = items.findIndex(el => el.classList.contains("tk-active"));
     const nextIdx = e.key === "ArrowDown"
