@@ -1519,10 +1519,11 @@ html, body {
   background: #fff;
   color: #333;
   font-size: 13px;
-  line-height: 1.5;
+  line-height: 1.6;
   padding: 9px 13px;
   border-radius: 16px 16px 4px 16px;
-  white-space: nowrap;
+  white-space: pre-line;
+  max-width: 220px;
   box-shadow: 0 4px 16px rgba(0,0,0,0.18);
   pointer-events: none;
   opacity: 0;
