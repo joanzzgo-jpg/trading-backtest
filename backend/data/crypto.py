@@ -468,7 +468,7 @@ def fetch_tickers(market: str = "futures") -> list:
                 if not sym.endswith("_USDT_PERP"):
                     continue
                 base = sym[: -len("_USDT_PERP")]
-                display = base + "/USDT"
+                display = base + "/USDT.P"
                 spot    = base + "/USDT"
             else:
                 if not sym.endswith("_USDT"):
