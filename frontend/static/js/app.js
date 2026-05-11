@@ -3852,26 +3852,34 @@ function showLoading(show) {
   const bubble = document.getElementById("bearBubble");
   if (!bear) return;
 
-  const LINES = [
+  let LINES = [
     "我是長期投資者。意思是我虧太多，不敢賣。",
     "他們說分散風險，別把雞蛋放同個籃子。我放了十個籃子。每個都摔了。",
     "專家說這是最後一次抄底機會。他說了九次了。",
     "漲了，後悔沒買多。跌了，後悔沒賣掉。剛好的時候，我在睡覺。",
     "做交易要控制情緒。我情緒控制得很好——已經麻木了。",
-    "有人說行情不好要等待。我等了三年。行情更不好了。但我等待的技術突飛猛進。",
-    "我的止損紀律非常嚴格。我從來不設止損，這樣就不會被止損了。",
-    "他們說跟著趨勢走。我跟了。趨勢突然轉向。只有我還在走。",
-    "我研究了三個月的技術分析。結論是：不如運氣好。",
     "虧損讓人成長。照這個速度，我快成佛了。",
     "別人恐懼我貪婪，別人貪婪我恐懼。結果我每次都在最錯的時候做對的事。",
-    "我的交易日記第一頁寫著「保持理性」。第二頁開始全是哭臉。",
+    "我的止損紀律非常嚴格。我從來不設止損，這樣就不會被止損了。",
   ];
+  let _lineIdx = 0;
+
+  /* 從後端拿 AI 生成台詞，每 20 分鐘刷新 */
+  function _fetchBearLines() {
+    fetch("/api/bear-lines")
+      .then(r => r.json())
+      .then(d => { if (d.lines && d.lines.length >= 5) { LINES = d.lines; _lineIdx = 0; } })
+      .catch(() => {});
+  }
+  _fetchBearLines();
+  setInterval(_fetchBearLines, 20 * 60 * 1000);
 
   let _bubbleTimer = null;
 
   function showBubble() {
     if (!bubble) return;
-    const msg = LINES[Math.floor(Math.random() * LINES.length)];
+    const msg = LINES[_lineIdx % LINES.length];
+    _lineIdx++;
     bubble.textContent = msg;
     bubble.classList.add("visible");
     clearTimeout(_bubbleTimer);
