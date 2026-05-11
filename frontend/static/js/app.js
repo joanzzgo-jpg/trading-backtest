@@ -3319,6 +3319,34 @@ function updatePageTitle() {
   }
 }
 
+/* ── ticker 輔助 ── */
+const _LOGO_COLORS = ["#f7931a","#627eea","#00a3e0","#e84142","#8dc351",
+                      "#2775ca","#00b4d8","#9b59b6","#16c784","#3498db",
+                      "#f39c12","#e67e22","#1abc9c","#c0392b","#8e44ad"];
+function _coinLogoHtml(display) {
+  const base = (display.split("/")[0] || display).toUpperCase();
+  const idx  = base.split("").reduce((s,c) => s + c.charCodeAt(0), 0) % _LOGO_COLORS.length;
+  const bg   = _LOGO_COLORS[idx];
+  const lbl  = base.length <= 3 ? base : base.slice(0,3);
+  return `<div class="tk-logo" style="background:${bg}">${lbl}</div>`;
+}
+function _coinFullName(display) {
+  const d = display.toUpperCase();
+  const isPerp = d.endsWith(".P");
+  const parts  = d.replace(".P","").split("/");
+  if (parts.length === 2)
+    return isPerp ? `${parts[0]} ${parts[1]} PERPETUAL` : `${parts[0]} / ${parts[1]}`;
+  return display;
+}
+function _fmtAmt(amt, price) {
+  if (amt == null) return "";
+  const abs = Math.abs(amt);
+  if (price >= 1000) return amt.toFixed(1);
+  if (price >= 10)   return amt.toFixed(2);
+  if (price >= 1)    return amt.toFixed(3);
+  return amt.toFixed(4);
+}
+
 function renderTickers() {
   const container = document.getElementById("tickerList");
   if (!container) return;
@@ -3347,15 +3375,26 @@ function renderTickers() {
         if (c) { price = c.price; change_pct = c.change_pct; }
       }
       const priceStr = price != null ? fmtTickerPrice(price) : "---";
-      const chgStr   = change_pct != null ? (change_pct >= 0 ? "+" : "") + change_pct.toFixed(2) + "%" : mktLabel;
       const chgCls   = change_pct != null ? (change_pct >= 0 ? "up" : "dn") : "";
+      const pctStr   = change_pct != null ? (change_pct >= 0 ? "+" : "") + change_pct.toFixed(2) + "%" : mktLabel;
+      const amtStr   = change_pct != null && price != null
+        ? (change_pct >= 0 ? "+" : "") + _fmtAmt(price * change_pct / 100 / (1 + change_pct / 100), price) : "";
+      const logo     = _coinLogoHtml(item.symbol);
+      const fullName = item.market === "crypto" ? _coinFullName(item.symbol) : item.market.toUpperCase();
       return `<div class="ticker-item${active}" data-wl-idx="${i}">
-        <div class="tk-row1">
+        ${logo}
+        <div class="tk-info">
           <span class="tk-sym">${item.symbol}</span>
-          <span class="tk-chg ${chgCls}">${chgStr}</span>
-          <button class="wl-del" title="移除">×</button>
+          <span class="tk-full">${fullName}</span>
         </div>
-        <div class="tk-row2">${priceStr}</div>
+        <div class="tk-prices">
+          <span class="tk-price-val">${priceStr}</span>
+          <div class="tk-chg-row">
+            <span class="tk-chg-amt ${chgCls}">${amtStr}</span>
+            <span class="tk-chg ${chgCls}">${pctStr}</span>
+          </div>
+        </div>
+        <div class="tk-action"><button class="wl-del" title="移除">🗑</button></div>
       </div>`;
     }).join("");
     container.querySelectorAll(".ticker-item").forEach((el, i) => {
@@ -3398,13 +3437,24 @@ function renderTickers() {
     const active = (t.display.toUpperCase() === currentSym || t.symbol.toUpperCase() === currentSym) ? " tk-active" : "";
     const key    = `crypto:${exchVal}:${t.display}`;
     const inWl   = _watchlist.some(w => `${w.market}:${w.exchange || ""}:${w.symbol}` === key);
+    const logo   = _coinLogoHtml(t.display);
+    const full   = _coinFullName(t.display);
+    const amt    = t.change_amt != null ? t.change_amt : t.price * t.change_pct / 100 / (1 + t.change_pct / 100);
+    const amtStr = sign + _fmtAmt(amt, t.price);
     return `<div class="ticker-item${active}" data-symbol="${t.symbol}" data-display="${t.display}" data-spot="${t.spot || t.display}">
-      <div class="tk-row1">
+      ${logo}
+      <div class="tk-info">
         <span class="tk-sym">${t.display}</span>
-        <span class="tk-chg ${cls}">${sign}${t.change_pct.toFixed(2)}%</span>
-        <button class="tk-star${inWl ? " active" : ""}" title="${inWl ? "移除自選" : "加入自選"}">${inWl ? "★" : "☆"}</button>
+        <span class="tk-full">${full}</span>
       </div>
-      <div class="tk-row2">${fmtTickerPrice(t.price)}</div>
+      <div class="tk-prices">
+        <span class="tk-price-val">${fmtTickerPrice(t.price)}</span>
+        <div class="tk-chg-row">
+          <span class="tk-chg-amt ${cls}">${amtStr}</span>
+          <span class="tk-chg ${cls}">${sign}${t.change_pct.toFixed(2)}%</span>
+        </div>
+      </div>
+      <div class="tk-action"><button class="tk-star${inWl ? " active" : ""}" title="${inWl ? "移除自選" : "加入自選"}">${inWl ? "★" : "☆"}</button></div>
     </div>`;
   }).join("");
 

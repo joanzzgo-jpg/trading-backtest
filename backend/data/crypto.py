@@ -270,6 +270,7 @@ def _fetch_futures_tickers_fapi() -> list:
                     "symbol":     sym,
                     "price":      float(t["lastPrice"]),
                     "change_pct": float(t["priceChangePercent"]),
+                    "change_amt": float(t.get("priceChange", 0)),
                     "volume":     float(t.get("quoteVolume", 0)),
                     "display":    base + "/USDT.P",
                     "spot":       base + "/USDT",
@@ -489,6 +490,7 @@ def fetch_tickers(market: str = "futures") -> list:
                     "spot":       spot,
                     "price":      close,
                     "change_pct": round(change_pct, 2),
+                    "change_amt": round(close - open_, 8),
                     "volume":     float(t.get("amount", 0)),  # USDT 計價成交量
                 })
             except (KeyError, ValueError):
