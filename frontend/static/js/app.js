@@ -3487,9 +3487,10 @@ function renderSymSearch() {
 }
 
 function _symItemHTML(t, idx) {
-  // 從 symbol 推算 base（BTCUSDT → BTC）
+  // 從 symbol 推算 base（BTC_USDT_PERP → BTC, BTC_USDT → BTC, BTCUSDT → BTC）
   const rawSym = t.symbol || "";
-  const base   = rawSym.endsWith("USDT") ? rawSym.slice(0, -4) : rawSym.replace("USDT", "");
+  const base   = rawSym.includes("_") ? rawSym.split("_")[0]
+                 : rawSym.endsWith("USDT") ? rawSym.slice(0, -4) : rawSym;
   const color  = symIconColor(base);
   const chg    = t.change_pct != null ? t.change_pct : 0;
   const cls    = chg >= 0 ? "up" : "dn";
@@ -4651,9 +4652,8 @@ const SFX = (() => {
   }
 
   function resize() {
-    const r = canvas.parentElement.getBoundingClientRect();
-    W = canvas.width  = r.width  || 800;
-    H = canvas.height = r.height || 400;
+    W = canvas.width  = window.innerWidth  || 1200;
+    H = canvas.height = window.innerHeight || 700;
     initParticles();
   }
 
@@ -4776,7 +4776,7 @@ const SFX = (() => {
       .catch(() => start("sunny"));
   }
 
-  new ResizeObserver(resize).observe(canvas.parentElement);
+  window.addEventListener("resize", resize);
   resize();
   start("sunny");
 
