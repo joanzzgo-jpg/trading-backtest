@@ -453,48 +453,46 @@ def _apply_pionex_filter(tickers: list) -> list:
 
 
 def fetch_tickers(market: str = "futures") -> list:
-    """取得即時 24h 漲跌幅排行。
-    futures：優先使用 Binance 永續合約 API（fapi），失敗則退回現貨 API。
-    spot：直接使用現貨 API。
-    """
-    if market == "futures":
-        # ── 優先：永續合約 fapi，再依 Pionex PERP 清單過濾 ──────
-        tickers = _fetch_futures_tickers_fapi()
-        if tickers:
-            tickers = _apply_pionex_perp_filter(tickers)
-            tickers.sort(key=lambda x: x["change_pct"], reverse=True)
-            return tickers
-        # fapi 不可用，退回現貨 API + 加上 .P 標籤
-        source = "spot_fallback"
-    else:
-        source = "spot"
-
-    # ── 現貨 API（spot 模式或 fapi fallback）────────────────────
+    """直接從 Pionex API 取得即時 24h 行情，不再透過 Binance。"""
+    type_param = "PERP" if market == "futures" else ""
+    url = f"{PIONEX_BASE}/api/v1/market/tickers"
+    if type_param:
+        url += f"?type={type_param}"
     try:
-        data = _get(f"{BINANCE_BASE}/api/v3/ticker/24hr")
+        data = _get(url, timeout=10)
+        raw = data.get("data", {}).get("tickers", [])
         tickers = []
-        for t in data:
+        for t in raw:
             sym = t.get("symbol", "")
-            if not sym.endswith("USDT") or "_" in sym:
-                continue
+            if market == "futures":
+                if not sym.endswith("_USDT_PERP"):
+                    continue
+                base = sym[: -len("_USDT_PERP")]
+                display = base + "/USDT"
+                spot    = base + "/USDT"
+            else:
+                if not sym.endswith("_USDT"):
+                    continue
+                # 排除含底線的複合標的（如 BTC_ETH_USDT）
+                if "_" in sym[: -len("_USDT")]:
+                    continue
+                base    = sym[: -len("_USDT")]
+                display = base + "/USDT"
+                spot    = display
             try:
-                base = sym[:-4]
-                entry = {
+                open_  = float(t["open"])
+                close  = float(t["close"])
+                change_pct = (close - open_) / open_ * 100 if open_ else 0.0
+                tickers.append({
                     "symbol":     sym,
-                    "price":      float(t["lastPrice"]),
-                    "change_pct": float(t["priceChangePercent"]),
-                    "volume":     float(t.get("quoteVolume", 0)),
-                }
-                if source == "spot_fallback":
-                    entry["display"] = base + "/USDT.P"
-                    entry["spot"]    = base + "/USDT"
-                else:
-                    entry["display"] = base + "/USDT"
-                tickers.append(entry)
+                    "display":    display,
+                    "spot":       spot,
+                    "price":      close,
+                    "change_pct": round(change_pct, 2),
+                    "volume":     float(t.get("amount", 0)),  # USDT 計價成交量
+                })
             except (KeyError, ValueError):
                 continue
-
-        tickers = _apply_pionex_filter(tickers)
         tickers.sort(key=lambda x: x["change_pct"], reverse=True)
         return tickers
     except Exception:
