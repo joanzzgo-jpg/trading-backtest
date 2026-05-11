@@ -4082,6 +4082,62 @@ function showLoading(show) {
     document.body.appendChild(el);
     return el;
   }
+  /* ── 雷暴點擊：向外輻射的迷你閃電 + 中心閃光 ── */
+  function spawnLightning(cx, cy) {
+    const SIZE = 260, N = 7;
+    const cvs = makeCanvas(cx, cy, SIZE);
+    const ctx = cvs.getContext("2d");
+    const ox = SIZE/2, oy = SIZE/2;
+    /* generate N mini bolts radiating outward */
+    function minibolt(x1,y1,x2,y2,d) {
+      if (d===0) return [[x2,y2]];
+      const mx=(x1+x2)/2+(Math.random()-.5)*18*(d/3);
+      const my=(y1+y2)/2+(Math.random()-.5)*18*(d/3);
+      return [...minibolt(x1,y1,mx,my,d-1),...minibolt(mx,my,x2,y2,d-1)];
+    }
+    const bolts = Array.from({length:N}, (_,i) => {
+      const a = (i/N)*Math.PI*2+(Math.random()-.5)*.5;
+      const len = 40+Math.random()*55;
+      const ex = ox+Math.cos(a)*len, ey = oy+Math.sin(a)*len;
+      return { path:[[ox,oy],...minibolt(ox,oy,ex,ey,3)], alpha:1, delay:Math.floor(Math.random()*4) };
+    });
+    let flashA = 1.0, frame = 0;
+    let raf; function loop() {
+      ctx.clearRect(0,0,SIZE,SIZE);
+      /* center flash burst */
+      if (flashA>0) {
+        const g = ctx.createRadialGradient(ox,oy,0,ox,oy,28+flashA*22);
+        g.addColorStop(0,`rgba(255,255,200,${flashA*.85})`);
+        g.addColorStop(0.4,`rgba(180,220,255,${flashA*.45})`);
+        g.addColorStop(1,"rgba(0,0,0,0)");
+        ctx.fillStyle=g; ctx.fillRect(0,0,SIZE,SIZE);
+        flashA=Math.max(0,flashA-.07);
+      }
+      /* draw bolts */
+      let alive=false;
+      for (const b of bolts) {
+        if (frame<b.delay){alive=true;continue;}
+        if (b.alpha<=0) continue;
+        alive=true;
+        ctx.save();
+        ctx.shadowColor="rgba(180,220,255,1)"; ctx.shadowBlur=18;
+        ctx.strokeStyle=`rgba(210,235,255,${b.alpha*.7})`; ctx.lineWidth=3;
+        ctx.lineCap="round";
+        ctx.beginPath(); ctx.moveTo(b.path[0][0],b.path[0][1]);
+        b.path.slice(1).forEach(([x,y])=>ctx.lineTo(x,y)); ctx.stroke();
+        ctx.shadowBlur=7;
+        ctx.strokeStyle=`rgba(255,255,255,${b.alpha*.95})`; ctx.lineWidth=1.2;
+        ctx.beginPath(); ctx.moveTo(b.path[0][0],b.path[0][1]);
+        b.path.slice(1).forEach(([x,y])=>ctx.lineTo(x,y)); ctx.stroke();
+        ctx.restore();
+        b.alpha-=.065;
+      }
+      frame++;
+      if(alive||flashA>0) raf=requestAnimationFrame(loop); else{cancelAnimationFrame(raf);cvs.remove();}
+    } loop();
+    SFX.thunder();
+  }
+
   function spawnDefault(cx, cy) {
     const BIG=6;
     for(let i=0;i<BIG;i++){
@@ -4113,11 +4169,12 @@ function showLoading(show) {
     _lastClick = now;
     const cx = e.clientX, cy = e.clientY;
     const wt = window._getWeatherType ? window._getWeatherType() : null;
-    if      (wt === "leaves")              spawnLeaves(cx, cy);
+    if      (wt === "leaves")                 spawnLeaves(cx, cy);
     else if (wt === "rain" || wt === "storm") spawnRain(cx, cy);
-    else if (wt === "snow")                spawnSnow(cx, cy);
-    else if (wt === "spring")              spawnPetals(cx, cy);
-    else                                   spawnDefault(cx, cy);
+    else if (wt === "snow")                   spawnSnow(cx, cy);
+    else if (wt === "spring")                 spawnPetals(cx, cy);
+    else if (wt === "thunder")                spawnLightning(cx, cy);
+    else                                      spawnDefault(cx, cy);
   });
 })();
 
