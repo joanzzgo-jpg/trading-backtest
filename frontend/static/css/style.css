@@ -1446,49 +1446,14 @@ html, body {
 ══════════════════════════════════════ */
 
 /* 共用：fixed、不遮滑鼠 */
-.spark-ripple, .spark-big, .spark-dust, .spark-flash {
+.spark-big, .spark-dust, .spark-flash {
   position: fixed;
   pointer-events: none;
   z-index: 99999;
   transform: translate(-50%, -50%);
 }
 
-/* 層 1：不規則水波紋（三層漣漪） */
-.spark-ripple {
-  width: 14px; height: 14px;
-  background: transparent;
-  border-style: solid;
-  border-color: var(--rc, rgba(150, 220, 255, 0.9));
-  animation: ripple-wave var(--rd, 0.75s) ease-out forwards;
-  animation-delay: var(--delay, 0ms);
-  opacity: 0;
-}
-@keyframes ripple-wave {
-  0%   {
-    border-radius: 52% 48% 54% 46% / 47% 55% 43% 57%;
-    transform: translate(-50%,-50%) scale(0.18) rotate(0deg);
-    border-width: 5px; opacity: 1;
-  }
-  20%  {
-    border-radius: 47% 53% 49% 51% / 54% 46% 56% 44%;
-    border-width: 4px; opacity: 0.9;
-  }
-  50%  {
-    border-radius: 55% 45% 48% 52% / 48% 52% 44% 56%;
-    border-width: 2.5px; opacity: 0.65;
-  }
-  80%  {
-    border-radius: 49% 51% 53% 47% / 52% 48% 56% 44%;
-    border-width: 1.5px; opacity: 0.3;
-  }
-  100% {
-    border-radius: 51% 49% 50% 50% / 50% 51% 49% 50%;
-    transform: translate(-50%,-50%) scale(var(--rs, 4.5)) rotate(10deg);
-    border-width: 0.5px; opacity: 0;
-  }
-}
-
-/* 層 2：大橢圓粒子 */
+/* 層 1：大橢圓粒子 */
 .spark-big {
   border-radius: 50%;
   animation: spark-big-fly 1.1s cubic-bezier(0.18, 0.89, 0.32, 1.28) forwards;

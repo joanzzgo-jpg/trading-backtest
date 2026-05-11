@@ -3798,17 +3798,7 @@ function showLoading(show) {
 
     const cx = e.clientX, cy = e.clientY;
 
-    /* 層 1：三層不規則水波紋 */
-    const rippleColors = ["rgba(150,220,255,0.9)", "rgba(180,160,255,0.8)", "rgba(120,240,200,0.7)"];
-    const rippleScales = [5, 4, 3.2];
-    const rippleDurs   = ["0.72s", "0.82s", "0.96s"];
-    for (let i = 0; i < 3; i++) {
-      const el = spawnEl("spark-ripple", cx, cy,
-        `--rc:${rippleColors[i]};--rs:${rippleScales[i]};--rd:${rippleDurs[i]};--delay:${i * 90}ms;`);
-      setTimeout(() => el.remove(), 1100 + i * 90);
-    }
-
-    /* 層 2：大粒子（橢圓，6 顆均勻散射） */
+    /* 層 1：大粒子（橢圓，6 顆均勻散射） */
     const BIG = 6;
     for (let i = 0; i < BIG; i++) {
       const angle = (i / BIG) * Math.PI * 2;
