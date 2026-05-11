@@ -1446,7 +1446,7 @@ html, body {
 ══════════════════════════════════════ */
 
 /* 共用：fixed、不遮滑鼠 */
-.spark-big, .spark-dust, .spark-flash {
+.spark-big, .spark-dust {
   position: fixed;
   pointer-events: none;
   z-index: 99999;
@@ -1475,18 +1475,6 @@ html, body {
   100% { opacity: 0; transform: translate(calc(-50% + var(--sx)), calc(-50% + var(--sy))) scale(0); }
 }
 
-/* 層 4：中心白光閃 */
-.spark-flash {
-  width: 18px; height: 18px;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(255,255,255,1) 0%, rgba(255,240,150,0.6) 50%, transparent 100%);
-  animation: flash-burst 0.38s ease-out forwards;
-}
-@keyframes flash-burst {
-  0%   { transform: translate(-50%,-50%) scale(0.1); opacity: 1; }
-  50%  { transform: translate(-50%,-50%) scale(2.5); opacity: 0.8; }
-  100% { transform: translate(-50%,-50%) scale(4); opacity: 0; }
-}
 
 /* ══════════════════════════════════════
    右下角偷看橘子熊

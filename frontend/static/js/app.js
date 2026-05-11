@@ -3828,9 +3828,6 @@ function showLoading(show) {
       setTimeout(() => el.remove(), 1500);
     }
 
-    /* 層 4：中心閃白光 */
-    const flash = spawnEl("spark-flash", cx, cy, "");
-    setTimeout(() => flash.remove(), 400);
   });
 })();
 
