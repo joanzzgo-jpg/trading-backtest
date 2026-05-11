@@ -3203,6 +3203,8 @@ async function fetchTickers() {
       renderTickers();
     }
 
+    _saveTickerCache();
+
     /* 搜尋 Modal 只在開啟時才更新 */
     if (!document.getElementById("symOverlay")?.classList.contains("hidden")) {
       renderSymSearch();
@@ -3367,10 +3369,28 @@ function fmtTickerPrice(p) {
   return p.toFixed(6);
 }
 
+function _saveTickerCache() {
+  try {
+    localStorage.setItem("_tc", JSON.stringify({ f: _tickerData, s: _spotTickerData, ts: Date.now() }));
+  } catch {}
+}
+
+function _loadTickerCache() {
+  try {
+    const c = JSON.parse(localStorage.getItem("_tc") || "null");
+    if (c && Array.isArray(c.f) && c.f.length) {
+      _tickerData     = c.f;
+      _spotTickerData = c.s || [];
+      renderTickers();   // 立即顯示上次快取
+    }
+  } catch {}
+}
+
 function startTickerRefresh() {
   if (_tickerTimer) clearInterval(_tickerTimer);
-  fetchTickers();
-  _tickerTimer = setInterval(fetchTickers, 12000);
+  _loadTickerCache();   // ← 先從 localStorage 即時渲染
+  fetchTickers();       // ← 背景拉新資料
+  _tickerTimer = setInterval(fetchTickers, 2000);
 }
 
 function bindTickerPanel() {

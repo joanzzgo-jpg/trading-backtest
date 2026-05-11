@@ -15,6 +15,7 @@ from routes.search import router as search_router
 from routes.strategies import router as strategies_router
 from routes.backtest import router as backtest_router
 from data.crypto import _fetch_pionex_symbols, _fetch_pionex_perp_symbols
+import threading
 
 app = FastAPI(title="回測系統")
 
@@ -32,13 +33,32 @@ except Exception:
     _VER = str(int(time.time()))
 
 
+def _ticker_worker():
+    """背景執行緒：每 2 秒從交易所抓 ticker 並存入記憶體快取。"""
+    import time
+    from data.crypto import fetch_tickers
+    from utils.live_data import update as live_update
+    time.sleep(3)   # 等 Pionex 標的快取預熱完畢
+    while True:
+        try:
+            futures = fetch_tickers("futures")
+            spot    = fetch_tickers("spot")
+            if futures or spot:
+                live_update(futures, spot)
+        except Exception:
+            pass
+        time.sleep(2)
+
+
 @app.on_event("startup")
 async def _warmup():
-    """啟動時預熱 Pionex 標的快取（背景執行）"""
+    """啟動時預熱 Pionex 標的快取，並啟動即時 ticker 背景更新。"""
     import asyncio
     loop = asyncio.get_event_loop()
     loop.run_in_executor(None, _fetch_pionex_symbols)
     loop.run_in_executor(None, _fetch_pionex_perp_symbols)
+    t = threading.Thread(target=_ticker_worker, daemon=True)
+    t.start()
 
 
 @app.get("/")

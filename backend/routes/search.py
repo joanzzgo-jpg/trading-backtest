@@ -37,16 +37,13 @@ def us_search(q: str = ""):
 
 @router.get("/tickers")
 def get_tickers(market: str = "futures"):
-    """取得標的列表"""
-    cache_key = f"tickers:{market}"
-    cached = cache.get(cache_key, ttl=8)
-    if cached:
-        return cached
+    """取得標的列表：優先從記憶體即時快取讀取，啟動初期才 fallback 至直接 API。"""
+    from utils.live_data import get as live_get, has_data
+    if has_data():
+        return {"tickers": live_get(market), "source": "live"}
+    # 冷啟動 fallback：直接呼叫 API
     tickers = fetch_tickers(market)
-    source = "fapi" if (tickers and "spot" in tickers[0] and market == "futures") else "spot"
-    result = {"tickers": tickers, "source": source}
-    cache.set(cache_key, result)
-    return result
+    return {"tickers": tickers, "source": "direct"}
 
 
 @router.get("/pionex/symbols")
