@@ -1510,3 +1510,36 @@ html, body {
   75%  { transform: translateY(-4px) rotate(3deg); }
   100% { transform: translateY(0) rotate(0deg); }
 }
+
+/* 熊對話泡泡 */
+.bear-bubble {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  background: #fff;
+  color: #333;
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 9px 13px;
+  border-radius: 16px 16px 4px 16px;
+  white-space: nowrap;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(6px) scale(0.9);
+  transform-origin: bottom right;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+.bear-bubble::after {
+  content: '';
+  position: absolute;
+  bottom: -8px;
+  right: 18px;
+  border: 5px solid transparent;
+  border-top-color: #fff;
+  border-bottom: none;
+}
+.bear-bubble.visible {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}

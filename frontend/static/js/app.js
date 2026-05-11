@@ -3848,8 +3848,35 @@ function showLoading(show) {
 
 /* ── 右下角橘子熊偷看 ── */
 (function initPeekBear() {
-  const bear = document.getElementById("peekBear");
+  const bear   = document.getElementById("peekBear");
+  const bubble = document.getElementById("bearBubble");
   if (!bear) return;
+
+  const LINES = [
+    "嗨！今天行情好嗎？ 🍊",
+    "記得設止損喔！",
+    "別貪心，保本最重要 🐻",
+    "加油！你可以的！",
+    "幣市深似海，風險要小心 🌊",
+    "趨勢是你的朋友 📈",
+    "休息也是一種策略 ☕",
+    "別追高，耐心等機會",
+    "情緒控制比技術更重要 🧘",
+    "做好資金管理！",
+    "今天有好的交易機會嗎？ 👀",
+    "記得複習你的交易計畫 📋",
+  ];
+
+  let _bubbleTimer = null;
+
+  function showBubble() {
+    if (!bubble) return;
+    const msg = LINES[Math.floor(Math.random() * LINES.length)];
+    bubble.textContent = msg;
+    bubble.classList.add("visible");
+    clearTimeout(_bubbleTimer);
+    _bubbleTimer = setTimeout(() => bubble.classList.remove("visible"), 3500);
+  }
 
   setTimeout(() => { bear.classList.add("peeking"); }, 2800);
 
@@ -3858,14 +3885,16 @@ function showLoading(show) {
     bear.classList.remove("wave");
     void bear.offsetWidth;
     bear.classList.add("wave");
+    showBubble();
   });
 
-  /* 定時隨機冒出全身 */
+  /* 定時隨機冒出全身並說話 */
   function scheduleVisit() {
     const wait = 35000 + Math.random() * 40000; // 35~75 秒後出現
     setTimeout(() => {
       if (!bear.classList.contains("peeking")) { scheduleVisit(); return; }
       bear.classList.add("peek-visit");
+      showBubble();
       const stay = 2800 + Math.random() * 2200; // 停留 2.8~5 秒
       setTimeout(() => {
         bear.classList.remove("peek-visit");
