@@ -4187,16 +4187,32 @@ function showLoading(show) {
   }
 
   let _bubbleTimer = null;
+  let _bearHover = false;
 
   function showBubble() {
     if (!bubble) return;
     bubble.textContent = _nextLine();
     bubble.classList.add("visible");
     clearTimeout(_bubbleTimer);
-    _bubbleTimer = setTimeout(() => bubble.classList.remove("visible"), 3500);
+    _bubbleTimer = setTimeout(() => { if (!_bearHover) bubble.classList.remove("visible"); }, 5500);
+  }
+
+  function _startHideBubble() {
+    clearTimeout(_bubbleTimer);
+    _bubbleTimer = setTimeout(() => bubble?.classList.remove("visible"), 3000);
   }
 
   setTimeout(() => { bear.classList.add("peeking"); }, 2800);
+
+  bear.addEventListener("mouseenter", () => {
+    _bearHover = true;
+    clearTimeout(_bubbleTimer);
+    if (!bubble?.classList.contains("visible")) showBubble();
+  });
+  bear.addEventListener("mouseleave", () => {
+    _bearHover = false;
+    _startHideBubble();
+  });
 
   bear.addEventListener("click", e => {
     e.stopPropagation();
