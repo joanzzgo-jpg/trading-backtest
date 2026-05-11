@@ -4144,37 +4144,41 @@ function showLoading(show) {
     [[-.32,-.32],[.32,-.32],[-.32,0],[.32,0],[-.32,.32],[.32,.32]],
   ];
   function _drawDie(ctx, x, y, rot, face, alpha) {
-    const S=22;
+    const S=13;
     ctx.save();
     ctx.globalAlpha=alpha;
     ctx.translate(x,y);
     ctx.rotate(rot);
-    /* body */
-    ctx.shadowColor='rgba(0,0,0,.28)'; ctx.shadowBlur=9; ctx.shadowOffsetY=3;
-    ctx.fillStyle='#FEFEFE';
-    ctx.beginPath();
-    const r=4,W=S*2,H=S*2,bx=-S,by=-S;
-    ctx.moveTo(bx+r,by); ctx.lineTo(bx+W-r,by); ctx.arcTo(bx+W,by,bx+W,by+r,r);
-    ctx.lineTo(bx+W,by+H-r); ctx.arcTo(bx+W,by+H,bx+W-r,by+H,r);
-    ctx.lineTo(bx+r,by+H); ctx.arcTo(bx,by+H,bx,by+H-r,r);
-    ctx.lineTo(bx,by+r); ctx.arcTo(bx,by,bx+r,by,r); ctx.closePath();
-    ctx.fill();
+    const r=3,W=S*2,H=S*2,bx=-S,by=-S;
+    function dieShape(){ ctx.beginPath(); ctx.moveTo(bx+r,by); ctx.lineTo(bx+W-r,by); ctx.arcTo(bx+W,by,bx+W,by+r,r); ctx.lineTo(bx+W,by+H-r); ctx.arcTo(bx+W,by+H,bx+W-r,by+H,r); ctx.lineTo(bx+r,by+H); ctx.arcTo(bx,by+H,bx,by+H-r,r); ctx.lineTo(bx,by+r); ctx.arcTo(bx,by,bx+r,by,r); ctx.closePath(); }
+    /* shadow */
+    ctx.shadowColor='rgba(40,20,0,.35)'; ctx.shadowBlur=10; ctx.shadowOffsetY=4;
+    /* 3D body: warm ivory base */
+    const bodyG=ctx.createLinearGradient(bx,by,bx+W,by+H);
+    bodyG.addColorStop(0,'#F8F0DC'); bodyG.addColorStop(.45,'#EDE0BE'); bodyG.addColorStop(1,'#D8C898');
+    ctx.fillStyle=bodyG; dieShape(); ctx.fill();
     ctx.shadowBlur=0; ctx.shadowOffsetY=0;
-    ctx.strokeStyle='rgba(0,0,0,.09)'; ctx.lineWidth=.8; ctx.stroke();
+    /* semi-transparent border */
+    ctx.strokeStyle='rgba(120,90,50,.30)'; ctx.lineWidth=1.2; dieShape(); ctx.stroke();
+    /* top-left highlight sheen */
+    const hlG=ctx.createLinearGradient(bx,by,bx+W*.6,by+H*.6);
+    hlG.addColorStop(0,'rgba(255,255,255,.38)'); hlG.addColorStop(.5,'rgba(255,255,255,.10)'); hlG.addColorStop(1,'rgba(255,255,255,0)');
+    ctx.fillStyle=hlG; dieShape(); ctx.fill();
     /* dots */
-    const dots=_DICE_DOTS[face], spread=S*.64, R=3.2;
-    ctx.fillStyle='#1A1A2E';
+    const dots=_DICE_DOTS[face], spread=S*.64, R=1.9;
+    ctx.shadowColor='rgba(0,0,0,.22)'; ctx.shadowBlur=2; ctx.shadowOffsetY=1;
+    ctx.fillStyle='rgba(25,18,10,.82)';
     dots.forEach(([dx,dy])=>{ ctx.beginPath(); ctx.arc(dx*spread,dy*spread,R,0,Math.PI*2); ctx.fill(); });
     ctx.restore();
   }
   function spawnDice(cx, cy) {
-    const SIZE=210;
+    const SIZE=130;
     const cvs=makeCanvas(cx,cy,SIZE);
     const c=cvs.getContext("2d");
     const ox=SIZE/2, oy=SIZE/2;
     const dice=Array.from({length:3},(_,i)=>{
       const baseAng=-Math.PI/2+(i-1)*(Math.PI/2.4)+(Math.random()-.5)*.25;
-      const dist=52+Math.random()*28;
+      const dist=32+Math.random()*16;
       return { x:ox, y:oy,
                tx:ox+Math.cos(baseAng)*dist, ty:oy+Math.sin(baseAng)*dist,
                rot:Math.random()*Math.PI*2,
@@ -4233,24 +4237,18 @@ function showLoading(show) {
     }
   }
 
-  let _diceMode = false;
-  window._diceToggle = function() {
-    _diceMode = !_diceMode;
-    document.getElementById("diceToggleBtn")?.classList.toggle("dice-active", _diceMode);
-  };
-
   document.addEventListener("click", e => {
     const now = Date.now();
     if (now - _lastClick < 50) return;
     _lastClick = now;
     const cx = e.clientX, cy = e.clientY;
-    if (_diceMode) { spawnDice(cx, cy); return; }
     const wt = window._getWeatherType ? window._getWeatherType() : null;
     if      (wt === "leaves")                 spawnLeaves(cx, cy);
     else if (wt === "rain" || wt === "storm") spawnRain(cx, cy);
     else if (wt === "snow")                   spawnSnow(cx, cy);
     else if (wt === "spring")                 spawnPetals(cx, cy);
     else if (wt === "thunder")                spawnLightning(cx, cy);
+    else if (wt === "mahjong")                spawnDice(cx, cy);
     else                                      spawnDefault(cx, cy);
   });
 })();
@@ -5066,67 +5064,68 @@ const SFX = (() => {
     c.lineTo(x+r,y+h); c.arcTo(x,y+h,x,y+h-r,r);
     c.lineTo(x,y+r); c.arcTo(x,y,x+r,y,r); c.closePath();
   }
-  /* 筒子：空心環形圈 */
+  /* 筒子：黑外圈 + 米色內圈 + 六爪星形 */
   function _drawTong(c,n,TW,TH) {
-    const BGCOL='#EEE5C0';
     const POS={
       1:[[.5,.5]],
-      2:[[.5,.27],[.5,.73]],
-      3:[[.72,.2],[.5,.5],[.28,.8]],
-      4:[[.3,.28],[.7,.28],[.3,.72],[.7,.72]],
-      5:[[.3,.2],[.7,.2],[.5,.5],[.3,.8],[.7,.8]],
-      6:[[.3,.18],[.7,.18],[.3,.5],[.7,.5],[.3,.82],[.7,.82]],
-      7:[[.5,.14],[.3,.32],[.7,.32],[.3,.57],[.7,.57],[.3,.8],[.7,.8]],
-      8:[[.3,.14],[.7,.14],[.3,.38],[.7,.38],[.3,.62],[.7,.62],[.3,.86],[.7,.86]],
-      9:[[.25,.16],[.5,.16],[.75,.16],[.25,.5],[.5,.5],[.75,.5],[.25,.84],[.5,.84],[.75,.84]],
+      2:[[.5,.26],[.5,.74]],
+      3:[[.5,.19],[.5,.5],[.5,.81]],
+      4:[[.29,.26],[.71,.26],[.29,.74],[.71,.74]],
+      5:[[.29,.2],[.71,.2],[.5,.5],[.29,.8],[.71,.8]],
+      6:[[.29,.18],[.71,.18],[.29,.5],[.71,.5],[.29,.82],[.71,.82]],
+      7:[[.22,.14],[.5,.14],[.78,.14],[.22,.45],[.5,.45],[.78,.45],[.5,.82]],
+      8:[[.22,.13],[.5,.13],[.78,.13],[.22,.42],[.78,.42],[.22,.71],[.5,.71],[.78,.71]],
+      9:[[.22,.15],[.5,.15],[.78,.15],[.22,.5],[.5,.5],[.78,.5],[.22,.85],[.5,.85],[.78,.85]],
     };
-    const COLS=['#CC0000','#009900','#0044BB'];
     const pos=POS[n]||[];
-    const R=n===1?11:(n<=4?6.5:5.5), ri=R*.42;
-    pos.forEach(([fx,fy],i)=>{
-      const x=fx*TW, y=4+fy*(TH-8);
-      c.fillStyle=COLS[i%3];
-      c.beginPath(); c.arc(x,y,R,0,Math.PI*2); c.fill();
-      c.fillStyle=BGCOL;
-      c.beginPath(); c.arc(x,y,ri,0,Math.PI*2); c.fill();
+    const R=n===1?11.5:n<=4?6.8:n<=6?6:5;
+    pos.forEach(([fx,fy])=>{
+      const x=fx*TW, y=3+fy*(TH-6);
+      /* outer dark */
+      c.fillStyle='#111'; c.beginPath(); c.arc(x,y,R,0,Math.PI*2); c.fill();
+      /* inner cream */
+      c.fillStyle='#FEF9E8'; c.beginPath(); c.arc(x,y,R*.56,0,Math.PI*2); c.fill();
+      /* 6-spoke asterisk */
+      c.fillStyle='#111';
+      const sr=R*.21;
+      for(let i=0;i<6;i++){const a=i*Math.PI/3; c.beginPath(); c.arc(x+Math.cos(a)*sr*1.15,y+Math.sin(a)*sr*1.15,sr*.44,0,Math.PI*2); c.fill();}
+      c.beginPath(); c.arc(x,y,sr*.38,0,Math.PI*2); c.fill();
     });
   }
-  /* 條子：竹竿 + 節點；1條是麻雀 */
+  /* 條子：竹節方塊 + 紅節點；1條是鳥 */
   function _drawTiao(c,n,TW,TH) {
-    if (n===1) { /* 麻雀 */
-      const bx=TW/2, by=TH/2;
-      c.fillStyle='#006600'; c.beginPath(); c.ellipse(bx,by+1,9,7,0,0,Math.PI*2); c.fill();
-      c.fillStyle='#CC2200'; c.beginPath(); c.arc(bx+7,by-4,5,0,Math.PI*2); c.fill();
-      c.fillStyle='#FF8800';
-      c.beginPath(); c.moveTo(bx+11,by-4); c.lineTo(bx+17,by-2); c.lineTo(bx+11,by); c.closePath(); c.fill();
-      c.fillStyle='#003300';
-      c.beginPath(); c.moveTo(bx-8,by-2); c.lineTo(bx-15,by-6); c.lineTo(bx-13,by+3); c.closePath(); c.fill();
-      c.fillStyle='#000'; c.beginPath(); c.arc(bx+9,by-5,1.3,0,Math.PI*2); c.fill();
-      c.fillStyle='#FFF'; c.beginPath(); c.arc(bx+9.5,by-5.5,.55,0,Math.PI*2); c.fill();
+    if(n===1){
+      const bx=TW*.38,by=TH*.46;
+      c.fillStyle='#1A6B00'; c.beginPath(); c.ellipse(bx,by+1,8,6,-.2,0,Math.PI*2); c.fill();
+      c.fillStyle='#CC3300'; c.beginPath(); c.arc(bx+7,by-4,4.5,0,Math.PI*2); c.fill();
+      c.fillStyle='#FF8800'; c.beginPath(); c.moveTo(bx+10.5,by-4); c.lineTo(bx+16,by-2.5); c.lineTo(bx+10.5,by-.5); c.closePath(); c.fill();
+      c.fillStyle='#0A4400'; c.beginPath(); c.moveTo(bx-7,by-1); c.lineTo(bx-13,by-5); c.lineTo(bx-11,by+3); c.closePath(); c.fill();
+      c.fillStyle='#000'; c.beginPath(); c.arc(bx+8.5,by-5,1.2,0,Math.PI*2); c.fill();
+      const sx=TW*.63,sy=TH*.07,sw=TW*.11,sh=TH*.84;
+      c.fillStyle='#2B8000'; _tileRR(c,sx,sy,sw,sh,sw*.3); c.fill();
+      c.strokeStyle='#1A5000'; c.lineWidth=.6; _tileRR(c,sx,sy,sw,sh,sw*.3); c.stroke();
+      c.fillStyle='#CC2200'; c.beginPath(); c.ellipse(sx+sw/2,sy+sh/2,sw*.32,sh*.05,0,0,Math.PI*2); c.fill();
       return;
     }
-    const LAYOUTS={
-      2:{cols:1,pos:[[0,0],[0,1]]},
-      3:{cols:1,pos:[[0,0],[0,1],[0,2]]},
-      4:{cols:2,pos:[[0,0],[1,0],[0,1],[1,1]]},
-      5:{cols:2,pos:[[0,0],[1,0],[0,1],[1,1],[1,2]]},
-      6:{cols:2,pos:[[0,0],[1,0],[0,1],[1,1],[0,2],[1,2]]},
-      7:{cols:2,pos:[[0,0],[1,0],[0,1],[1,1],[0,2],[1,2],[0,3]]},
-      8:{cols:2,pos:[[0,0],[1,0],[0,1],[1,1],[0,2],[1,2],[0,3],[1,3]]},
-      9:{cols:3,pos:[[0,0],[1,0],[2,0],[0,1],[1,1],[2,1],[0,2],[1,2],[2,2]]},
+    const GRID={
+      2:[[0,0],[1,0]],
+      3:[[0,0],[1,0],[2,0]],
+      4:[[0,0],[1,0],[0,1],[1,1]],
+      5:[[0,0],[1,0],[0,1],[1,1],[0,2]],
+      6:[[0,0],[1,0],[2,0],[0,1],[1,1],[2,1]],
+      7:[[0,0],[1,0],[0,1],[1,1],[0,2],[1,2],[0,3]],
+      8:[[0,0],[1,0],[0,1],[1,1],[0,2],[1,2],[0,3],[1,3]],
+      9:[[0,0],[1,0],[2,0],[0,1],[1,1],[2,1],[0,2],[1,2],[2,2]],
     };
-    const lo=LAYOUTS[n];
-    const rows=Math.max(...lo.pos.map(([,r])=>r))+1;
-    const cw=(TW-6)/lo.cols, rh=(TH-8)/rows;
-    const sw=Math.max(5,cw*.55), sh=rh*.76;
-    const redCol={5:[1],7:[0],9:[1]};
-    lo.pos.forEach(([col,row])=>{
-      const isRed=redCol[n]&&redCol[n].includes(col);
-      const x=3+(col+.5)*cw-sw/2, y=4+(row+.5)*rh-sh/2, r2=sw*.28;
-      c.fillStyle=isRed?'#CC2200':'#008800';
-      _tileRR(c,x,y,sw,sh,r2); c.fill();
-      c.fillStyle=isRed?'#880000':'#CC2200';
-      c.beginPath(); c.ellipse(x+sw/2,y+sh/2,sw*.36,sh*.13,0,0,Math.PI*2); c.fill();
+    const grid=GRID[n]||[];
+    const mc=Math.max(...grid.map(([x])=>x))+1, mr=Math.max(...grid.map(([,y])=>y))+1;
+    const px=3,py=3,cw=(TW-px*2)/mc,rh=(TH-py*2)/mr;
+    const uw=cw*.72,uh=rh*.78;
+    grid.forEach(([col,row])=>{
+      const cx=px+(col+.5)*cw, cy=py+(row+.5)*rh;
+      c.fillStyle='#2B8000'; _tileRR(c,cx-uw/2,cy-uh/2,uw,uh,uw*.28); c.fill();
+      c.strokeStyle='#1A5000'; c.lineWidth=.8; _tileRR(c,cx-uw/2,cy-uh/2,uw,uh,uw*.28); c.stroke();
+      c.fillStyle='#CC2200'; c.beginPath(); c.ellipse(cx,cy,uw*.32,uh*.11,0,0,Math.PI*2); c.fill();
     });
   }
   function _getTileImg(sym) {
@@ -5146,8 +5145,8 @@ const SFX = (() => {
     const n=_TILE_RANKS[sym[0]]||0, suit=sym.length>1?sym[1]:null;
     c.textAlign='center'; c.textBaseline='middle';
     if (suit==='萬') {
-      c.fillStyle='#0044BB'; c.font='bold 17px serif'; c.fillText(sym[0],TW/2,TH/2-9);
-      c.fillStyle='#CC2200'; c.font='bold 15px serif'; c.fillText('萬',TW/2,TH/2+9);
+      c.fillStyle=sym[0]==='五'?'#CC0000':'#111'; c.font='bold 17px serif'; c.fillText(sym[0],TW/2,TH/2-9);
+      c.fillStyle='#CC0000'; c.font='bold 15px serif'; c.fillText('萬',TW/2,TH/2+9);
     } else if (suit==='筒') {
       _drawTong(c,n,TW,TH);
     } else if (suit==='條') {
@@ -5157,9 +5156,10 @@ const SFX = (() => {
     } else if (sym==='發') {
       c.fillStyle='#006600'; c.font='bold 23px serif'; c.fillText('發',TW/2,TH/2);
     } else if (sym==='白') {
-      c.strokeStyle='rgba(60,70,130,.50)'; c.lineWidth=1.5; c.strokeRect(7,9,TW-14,TH-18);
+      c.strokeStyle='#444'; c.lineWidth=1.5; c.strokeRect(6,8,TW-12,TH-16);
+      c.strokeStyle='#444'; c.lineWidth=.7; c.strokeRect(9,11,TW-18,TH-22);
     } else {
-      c.fillStyle='#0044BB'; c.font='bold 24px serif'; c.fillText(sym,TW/2,TH/2);
+      c.fillStyle='#111'; c.font='bold 24px serif'; c.fillText(sym,TW/2,TH/2);
     }
     _TILE_CACHE[sym]=oc; return oc;
   }
