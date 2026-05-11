@@ -8,16 +8,17 @@
 input[type="text"], input[type="number"], input[type="date"], textarea, .sym-modal-input, .tb-symbol-input, .tk-search, .ind-sp-num { cursor: text; }
 
 :root {
-  --bg:      #131722;
-  --bg2:     #1e222d;
-  --bg3:     #2a2e39;
-  --bg4:     #363c4e;
-  --border:  #2a2e39;
-  --text:    #d1d4dc;
-  --muted:   #787b86;
-  --blue:    #2962ff;
+  --bg:      #170F0C;
+  --bg2:     #1F1410;
+  --bg3:     #2C1E17;
+  --bg4:     #3B2920;
+  --border:  #3B2920;
+  --text:    #EDD4A8;
+  --muted:   #9A7A58;
+  --blue:    #FF9147;
   --green:   #26a69a;
   --red:     #ef5350;
+  --accent:  #FF9147;
   --legend-h: 22px;
   --topbar-h: 38px;
   --symbar-h: 26px;
@@ -27,7 +28,7 @@ html, body {
   height: 100%;
   background: var(--bg);
   color: var(--text);
-  font-family: -apple-system, 'Trebuchet MS', 'Segoe UI', sans-serif;
+  font-family: 'M PLUS Rounded 1c', -apple-system, 'Trebuchet MS', 'Segoe UI', sans-serif;
   font-size: 12px;
   overflow: hidden;
   display: flex;
@@ -1738,3 +1739,90 @@ html, body {
   z-index: 1;
   opacity: 0.28;
 }
+
+/* ═══════════════ 橘子熊可愛風格 ═══════════════ */
+
+/* warm topbar gradient */
+.topbar {
+  background: linear-gradient(135deg, #1F1410 0%, #261810 100%) !important;
+  border-bottom: 1px solid #3D2820 !important;
+  box-shadow: 0 2px 18px rgba(255,145,71,.07) !important;
+}
+.symbol-bar {
+  background: linear-gradient(135deg, #1A0F09 0%, #221408 100%) !important;
+  border-bottom: 1px solid #3D2820 !important;
+}
+
+/* brand name orange gradient */
+.topbar-brand-name {
+  background: linear-gradient(90deg, #FFBF80, #FF9147) !important;
+  -webkit-background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+  background-clip: text !important;
+}
+
+/* rounder corners on all interactive elements */
+.tb-icon-btn, .tf-btn, .ct-btn, .tb-indicators-btn,
+.btn-mode, .rp-btn, .dt-btn, .wl-header-btn, .btn-reset,
+.ind-sp-inc, .ind-sp-dec, .music-theme-btn      { border-radius: 12px !important; }
+.tb-mkt-select, .tb-exc-select, .tb-symbol-wrap { border-radius: 10px !important; }
+.sym-tag                                         { border-radius: 99px !important; padding: 2px 8px !important; }
+.sym-modal                                       { border-radius: 24px !important; }
+.sym-modal-search-wrap                           { border-radius: 14px !important; }
+.dcp-popup, .cp-popup, .ind-settings-popup       { border-radius: 20px !important; }
+.music-panel                                     { border-radius: 22px !important; }
+.wl-item                                         { border-radius: 8px !important; }
+
+/* bouncy hover animations */
+.tb-icon-btn {
+  transition: background .12s, color .12s, transform .18s cubic-bezier(.34,1.56,.64,1) !important;
+}
+.tb-icon-btn:hover { transform: translateY(-1px) scale(1.12) !important; }
+.tf-btn, .ct-btn, .dt-btn, .btn-mode, .btn-reset {
+  transition: background .12s, color .12s, transform .14s cubic-bezier(.34,1.56,.64,1) !important;
+}
+.tf-btn:hover, .ct-btn:hover, .dt-btn:hover, .btn-mode:hover, .btn-reset:hover {
+  transform: translateY(-1px) scale(1.05) !important;
+}
+
+/* orange active states */
+.tf-btn.active {
+  background: rgba(255,145,71,.22) !important;
+  color: #FF9147 !important;
+  font-weight: 700 !important;
+}
+.ct-btn.active {
+  color: #FF9147 !important;
+  background: rgba(255,145,71,.14) !important;
+  border-color: rgba(255,145,71,.42) !important;
+}
+.btn-mode.active {
+  background: rgba(255,145,71,.16) !important;
+  color: #FF9147 !important;
+  border-color: rgba(255,145,71,.4) !important;
+}
+
+/* orange focus glow on search */
+.sym-modal-search-wrap:focus-within {
+  border-color: #FF9147 !important;
+  box-shadow: 0 0 0 3px rgba(255,145,71,.20) !important;
+}
+
+/* orange scrollbar */
+::-webkit-scrollbar-thumb { background: rgba(255,145,71,.38) !important; border-radius: 99px !important; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,145,71,.62) !important; }
+
+/* music panel warm */
+.music-panel { border-color: #3D2820 !important; box-shadow: 0 10px 36px rgba(0,0,0,.55), 0 0 0 1px rgba(255,145,71,.08) !important; }
+.music-theme-btn.active {
+  background: rgba(255,145,71,.20) !important;
+  color: #FF9147 !important;
+  border-color: rgba(255,145,71,.42) !important;
+}
+.music-eq-bar { background: #FF9147 !important; }
+
+/* watchlist item hover orange tint */
+.wl-item:hover { background: rgba(255,145,71,.08) !important; }
+
+/* star button */
+#watchlistStarBtn.starred { color: #FF9147 !important; }
