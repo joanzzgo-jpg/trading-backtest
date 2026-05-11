@@ -31,6 +31,19 @@
 - **游標**：魔法棒原圖縮圖（64x56），熱點在棒尖 `14 9`
 - **點擊特效**：四層動畫 → 光暈環擴散 + 大橢圓粒子 + 小星塵 + 中心白光閃
 - **偷看熊**：頁面右下角，靜止露出頭部（`bottom: -80px`），滑鼠移過露出全身（`bottom: 5px`），點擊會跳舞
+- **按鈕漣漪**：`initButtonRipple()` IIFE，`pointerdown` 時動態插入 `span.btn-ripple-wave`
+- **偷看熊氣泡**：Fisher-Yates 隨機排序（`_nextLine()`），耗盡後自動重洗牌
+
+## 音效與背景音樂（app.js）
+- **SFX**：`SFX` 物件含 `click / load / success / error / tick / boop / switch_` 七種 Web Audio 音效
+- **音樂面板**：`initMusicPlayer()` IIFE，右上角 `#musicToggleBtn` 開關
+- **主題**（`THEMES`）：`lofi / bull / bear / scalp / ghibli / merry / inochi / totoro / mononoke / sanpo / auto`
+  - `merry` = 人生のメリーゴーランド（100 BPM 圓舞曲）
+  - `inochi` = いのちの名前（58 BPM 溫柔）
+  - `totoro` = となりのトトロ（88 BPM 歡快）
+  - `mononoke` = もののけ姫（78 BPM 史詩）
+  - `sanpo` = さんぽ（132 BPM 進行曲）
+  - `auto` = 依 `symChg` 漲跌幅每 5 秒自動切換主題
 
 ## 資料夾用途
 
@@ -67,9 +80,11 @@
 
 ## 重要技術細節
 - **時間戳**：所有圖表時間戳 +8 小時（Taiwan Time），`toTime()` 函數處理
+- **台股 yfinance 時區**：`fetch_tw_intraday_yf()` 中，naive timestamp 一律先 `tz_localize("Asia/Taipei")` 再 `tz_convert("UTC")`，否則小時線會位移 +8h
 - **max_candles**：按時間框架動態計算，避免長日期範圍資料截斷（4h 上限 8000 根）
 - **即時更新**：`fetchLatest()` 有間距保護（>5 根週期差距不插入），防止歷史圖表被今日資料污染
 - **重播日期選擇**：`<input type="date">` 讓使用者跳至指定日期
+- **價格軸精度**：`_applyPriceFormat(data)` 依最後收盤價動態設定 `priceFormat.precision`（2–8 位），套用於 candleSeries + BB 三線
 
 ## 快速啟動
 ```bash
