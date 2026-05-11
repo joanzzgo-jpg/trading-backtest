@@ -888,14 +888,6 @@ function _onChartDblClick(e) {
     requestAnimationFrame(renderDrawings);
     return;
   }
-  // 雙擊空白處（pointer / crosshair）→ K棒顏色選擇
-  if (drawTool === "pointer" || drawTool === "crosshair") {
-    e.stopPropagation();
-    showLegColorPopup(e.clientX, e.clientY, [
-      { label: "漲↑ K棒", currentColor: C.up,   apply: c => { C.up   = c; applyAllColors(); savePrefs(); } },
-      { label: "跌↓ K棒", currentColor: C.down, apply: c => { C.down = c; applyAllColors(); savePrefs(); } },
-    ]);
-  }
 }
 
 function _onChartContextMenu(e) {
@@ -2113,25 +2105,6 @@ function bindLegendColors() {
   map.forEach(({ id, key, apply }) => {
     const legEl = document.getElementById(id);
     if (!legEl) return;
-    const dot = legEl.querySelector(".leg-dot");
-    if (dot) {
-      dot.title = "點擊改色";
-      dot.style.cursor = "pointer";
-      dot.addEventListener("click", e => {
-        e.stopPropagation();
-        e.preventDefault();
-        const cur = (C[key] || "#26a69a").substring(0, 7);
-        showLegColorPopup(e.clientX, e.clientY, [{
-          label: null,
-          currentColor: cur,
-          apply: c => {
-            dot.style.background = c;
-            dot.style.borderColor = c;
-            apply(c);
-          }
-        }]);
-      });
-    }
   });
 }
 
