@@ -3320,16 +3320,34 @@ function updatePageTitle() {
 }
 
 /* ── ticker 輔助 ── */
-const _LOGO_COLORS = ["#f7931a","#627eea","#00a3e0","#e84142","#8dc351",
-                      "#2775ca","#00b4d8","#9b59b6","#16c784","#3498db",
-                      "#f39c12","#e67e22","#1abc9c","#c0392b","#8e44ad"];
+const _LOGO_COLORS = ["#e8845a","#7b9ee8","#5bbf8a","#e87a7a","#b88ae8",
+                      "#e8c45a","#5ab8e8","#e87ab8","#8ae8c4","#e8a45a",
+                      "#7ae87a","#c45ae8","#e8d05a","#5a8ae8","#e85a5a"];
+/* 手繪 blob 路徑（六種不規則圓形） */
+const _LOGO_BLOBS = [
+  "M50,13 C68,9 89,24 91,47 C93,69 78,90 56,92 C34,94 10,80 10,57 C10,34 24,15 46,13 Z",
+  "M50,11 C74,9 93,29 92,53 C91,75 70,93 47,94 C24,95 7,75 8,51 C9,27 25,12 48,11 Z",
+  "M48,14 C70,8 94,27 93,51 C92,73 72,93 49,94 C26,95 7,76 8,52 C9,30 22,16 46,14 Z",
+  "M52,12 C77,10 94,33 91,57 C88,77 68,92 46,93 C24,94 7,73 9,49 C11,27 27,13 50,11 Z",
+  "M50,10 C73,7 96,31 95,55 C94,77 73,96 49,95 C25,94 4,73 6,49 C8,27 25,11 48,10 Z",
+  "M46,15 C66,9 91,25 92,49 C93,71 77,92 53,93 C31,94 8,78 9,54 C10,32 23,18 44,14 Z",
+];
 function _coinLogoHtml(display) {
   const base = (display.split("/")[0] || display).toUpperCase();
-  const idx  = base.split("").reduce((s,c) => s + c.charCodeAt(0), 0) % _LOGO_COLORS.length;
-  const bg   = _LOGO_COLORS[idx];
+  const hash = base.split("").reduce((s,c) => s + c.charCodeAt(0), 0);
+  const bg   = _LOGO_COLORS[hash % _LOGO_COLORS.length];
+  const path = _LOGO_BLOBS[hash % _LOGO_BLOBS.length];
   const lbl  = base.length <= 3 ? base : base.slice(0,3);
-  return `<div class="tk-logo" style="background:${bg}">${lbl}</div>`;
-}
+  const rot  = (hash % 17) - 8;            /* −8 ~ +8 度歪斜 */
+  const fs   = lbl.length > 2 ? 27 : 33;  /* 字體大小 */
+  return `<div class="tk-logo" style="transform:rotate(${rot}deg)">
+    <svg viewBox="0 0 100 100" width="30" height="30" xmlns="http://www.w3.org/2000/svg">
+      <path d="${path}" fill="${bg}" stroke="rgba(255,255,255,0.28)" stroke-width="3" stroke-linejoin="round"/>
+      <text x="50" y="55" text-anchor="middle" dominant-baseline="middle"
+            font-family="Caveat,cursive" font-size="${fs}" font-weight="700" fill="white"
+            transform="rotate(${-rot},50,50)">${lbl}</text>
+    </svg>
+  </div>`;
 function _coinFullName(display) {
   const d = display.toUpperCase();
   const isPerp = d.endsWith(".P");
