@@ -4174,9 +4174,9 @@ function showLoading(show) {
     hlG.addColorStop(0,'rgba(255,255,255,.04)'); hlG.addColorStop(.5,'rgba(255,255,255,.01)'); hlG.addColorStop(1,'rgba(255,255,255,0)');
     ctx.fillStyle=hlG; faceRect(); ctx.fill();
     /* dots on front face */
-    const dots=_DICE_DOTS[face], spread=fw*.30, R=1.9, cx=fx+fw/2, cy=fy+fw/2;
-    ctx.shadowColor='rgba(0,0,0,.22)'; ctx.shadowBlur=1.5; ctx.shadowOffsetY=.5;
-    ctx.fillStyle='rgba(25,18,10,.82)';
+    const dots=_DICE_DOTS[face], spread=fw*.30, R=2.4, cx=fx+fw/2, cy=fy+fw/2;
+    ctx.shadowColor='rgba(0,0,0,.75)'; ctx.shadowBlur=3; ctx.shadowOffsetY=.8;
+    ctx.fillStyle='rgba(255,252,238,.96)';
     dots.forEach(([ddx,ddy])=>{ctx.beginPath(); ctx.arc(cx+ddx*spread,cy+ddy*spread,R,0,Math.PI*2); ctx.fill();});
     ctx.restore();
   }
