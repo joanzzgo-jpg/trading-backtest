@@ -5069,12 +5069,12 @@ const SFX = (() => {
     c.lineTo(x+r,y+h); c.arcTo(x,y+h,x,y+h-r,r);
     c.lineTo(x,y+r); c.arcTo(x,y,x+r,y,r); c.closePath();
   }
-  /* 筒子：黑外圈 + 米色內圈 + 六爪星形 */
+  /* 筒子：彩色外環 + 米白內圓 + 5瓣花 + 中心圓；綠紅配色依位置 */
   function _drawTong(c,n,TW,TH) {
     const POS={
       1:[[.5,.5]],
       2:[[.5,.26],[.5,.74]],
-      3:[[.72,.18],[.5,.5],[.28,.82]],        /* 斜排 */
+      3:[[.72,.18],[.5,.5],[.28,.82]],
       4:[[.29,.26],[.71,.26],[.29,.74],[.71,.74]],
       5:[[.29,.2],[.71,.2],[.5,.5],[.29,.8],[.71,.8]],
       6:[[.29,.18],[.71,.18],[.29,.5],[.71,.5],[.29,.82],[.71,.82]],
@@ -5082,16 +5082,28 @@ const SFX = (() => {
       8:[[.3,.1],[.7,.1],[.3,.36],[.7,.36],[.3,.62],[.7,.62],[.3,.88],[.7,.88]],
       9:[[.22,.15],[.5,.15],[.78,.15],[.22,.5],[.5,.5],[.78,.5],[.22,.85],[.5,.85],[.78,.85]],
     };
-    const pos=POS[n]||[];
-    const R=n===1?11.5:n<=4?6.8:n<=6?6:4.5;
-    pos.forEach(([fx,fy])=>{
-      const x=fx*TW, y=3+fy*(TH-6);
-      c.fillStyle='#111'; c.beginPath(); c.arc(x,y,R,0,Math.PI*2); c.fill();
-      c.fillStyle='#FEF9E8'; c.beginPath(); c.arc(x,y,R*.56,0,Math.PI*2); c.fill();
-      c.fillStyle='#111';
-      const sr=R*.21;
-      for(let i=0;i<6;i++){const a=i*Math.PI/3; c.beginPath(); c.arc(x+Math.cos(a)*sr*1.15,y+Math.sin(a)*sr*1.15,sr*.44,0,Math.PI*2); c.fill();}
-      c.beginPath(); c.arc(x,y,sr*.38,0,Math.PI*2); c.fill();
+    const Gn='#006633',Rd='#CC0000';
+    const CLRS={
+      1:[Rd],
+      2:[Gn,Rd],
+      3:[Rd,Gn,Rd],
+      4:[Gn,Rd,Rd,Gn],
+      5:[Gn,Rd,Gn,Rd,Gn],
+      6:[Gn,Rd,Gn,Rd,Gn,Rd],
+      7:[Gn,Gn,Gn,Rd,Rd,Rd,Rd],
+      8:[Gn,Gn,Rd,Rd,Rd,Rd,Gn,Gn],
+      9:[Rd,Gn,Rd,Gn,Gn,Gn,Rd,Gn,Rd],
+    };
+    const bg='#FDF6E3';
+    const pos=POS[n]||[], clrs=CLRS[n]||[];
+    const Rv=n===1?11.5:n<=4?6.8:n<=6?6:4.5;
+    pos.forEach(([fx,fy],i)=>{
+      const x=fx*TW, y=3+fy*(TH-6), clr=clrs[i]||Gn;
+      c.fillStyle=clr; c.beginPath(); c.arc(x,y,Rv,0,Math.PI*2); c.fill();
+      c.fillStyle=bg; c.beginPath(); c.arc(x,y,Rv*.68,0,Math.PI*2); c.fill();
+      const pr=Rv*.36, rp=Rv*.22; c.fillStyle=clr;
+      for(let k=0;k<5;k++){const a=k*Math.PI*2/5+Math.PI/2; c.beginPath(); c.arc(x+Math.cos(a)*pr,y+Math.sin(a)*pr,rp,0,Math.PI*2); c.fill();}
+      c.fillStyle=clr; c.beginPath(); c.arc(x,y,Rv*.18,0,Math.PI*2); c.fill();
     });
   }
   /* 條子：竹節方塊 + 紅節點；1條是鳥 */
@@ -5110,8 +5122,8 @@ const SFX = (() => {
       return;
     }
     /* cols×rows 格，每格一根竹子（高細長條＋紅節帶） */
-    const GRIDS={2:{c:2,r:1},3:{c:3,r:1},4:{c:2,r:2},5:{c:2,r:3},
-                 6:{c:3,r:2},7:{c:2,r:4},8:{c:2,r:4},9:{c:3,r:3}};
+    const GRIDS={2:{c:1,r:2},3:{c:1,r:3},4:{c:2,r:2},5:{c:2,r:3},
+                 6:{c:2,r:3},7:{c:2,r:4},8:{c:2,r:4},9:{c:3,r:3}};
     const {c:cols,r:rows}=GRIDS[n]||{c:2,r:4};
     const pad=3, cw=(TW-pad*2)/cols, rh=(TH-pad*2)/rows;
     const sw=cw*.70, sh=rh*.84;
