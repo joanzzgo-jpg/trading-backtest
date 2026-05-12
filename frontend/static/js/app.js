@@ -5253,7 +5253,7 @@ const SFX = (() => {
     const nowMin = (new Date()).getHours()*60 + (new Date()).getMinutes();
     const rise = _wd.sunRiseMin, set = _wd.sunSetMin;
     const prog = (rise === set) ? 0.5 : Math.max(0, Math.min(1, (nowMin-rise)/(set-rise)));
-    return { x: W*0.04 + prog*W*0.92, y: H*0.90 - (H*0.90-H*0.08)*Math.sin(prog*Math.PI) };
+    return { x: W*0.04 + prog*W*0.92, y: H*0.88 - (H*0.88-H*0.08)*Math.sin(prog*Math.PI) };
   }
   function _newSpark() {
     const {x,y} = _sunArcPos();
@@ -5322,7 +5322,7 @@ const SFX = (() => {
     const now = new Date();
     const nowMin = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
     const lx = W * 0.04, rx = W * 0.96;
-    const horizonY = H * 0.90, peakY = H * 0.08;
+    const horizonY = H * 0.88, peakY = H * 0.08;
 
     if (_wd.isDay) {
       if (type === 'thunder' || type === 'sunny') return; // dSunny handles arc for sunny
@@ -5331,7 +5331,9 @@ const SFX = (() => {
       const prog = (nowMin - rise) / (set - rise);
       const sx = lx + prog * (rx - lx);
       const sy = horizonY - (horizonY - peakY) * Math.sin(prog * Math.PI);
-      // arc path
+      // horizon warmth near sunrise/sunset
+      const edgeFade = Math.min(prog, 1 - prog) * 6; // 0 at edges → 1 past 1/6 of day
+      // arc guide
       ctx.save();
       ctx.beginPath();
       for (let p = 0; p <= 1; p += 0.025) {
@@ -5341,14 +5343,21 @@ const SFX = (() => {
       }
       ctx.strokeStyle = 'rgba(255,200,60,0.07)';
       ctx.lineWidth = 1; ctx.setLineDash([3, 9]); ctx.stroke(); ctx.setLineDash([]);
-      // opacity by weather
+      // opacity by weather, boosted near horizon
       let al = 1.0;
       if (type==='storm') al=0.15; else if (type==='rain') al=0.35;
       else if (type==='fog') al=0.50; else if (type==='cloudy') al=0.62;
+      al = Math.max(al, edgeFade < 1 ? 0.80 : 0); // sunrise/sunset always bright
       ctx.globalAlpha = al;
+      // horizon glow at low prog (sunrise) or high prog (sunset)
+      if (edgeFade < 1) {
+        const hg = ctx.createRadialGradient(sx, horizonY, 0, sx, horizonY, W * 0.35);
+        hg.addColorStop(0, 'rgba(255,160,40,0.22)'); hg.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = hg; ctx.fillRect(0, 0, W, H);
+      }
       // glow
       const glow = ctx.createRadialGradient(sx,sy,0,sx,sy,62);
-      glow.addColorStop(0,'rgba(255,240,100,0.38)'); glow.addColorStop(0.42,'rgba(255,160,30,0.12)'); glow.addColorStop(1,'rgba(0,0,0,0)');
+      glow.addColorStop(0,'rgba(255,240,100,0.45)'); glow.addColorStop(0.42,'rgba(255,160,30,0.15)'); glow.addColorStop(1,'rgba(0,0,0,0)');
       ctx.fillStyle=glow; ctx.beginPath(); ctx.arc(sx,sy,62,0,Math.PI*2); ctx.fill();
       // disc
       const disc = ctx.createRadialGradient(sx,sy,0,sx,sy,17);
@@ -5364,25 +5373,42 @@ const SFX = (() => {
       const rise = _wd.moonRiseMin, set = _wd.moonSetMin;
       const phase = _wd.moonPhase;
       const vis = Math.sin(phase * Math.PI);
-      if (vis < 0.08) return;
-      // handle moon crossing midnight
+      if (vis < 0.06) return; // new moon, skip
+      // compute moon arc progress — always show even if below horizon
       let prog;
       if (rise < set) {
-        if (nowMin < rise || nowMin > set) return;
-        prog = (nowMin - rise) / (set - rise);
+        // moon rises and sets same day
+        if (nowMin >= rise && nowMin <= set) {
+          prog = (nowMin - rise) / (set - rise);
+        } else if (nowMin < rise) {
+          // not yet risen: show at left horizon, fading
+          prog = Math.max(-0.12, -(rise - nowMin) / 240);
+        } else {
+          // already set: show at right horizon, fading
+          prog = Math.min(1.12, 1 + (nowMin - set) / 240);
+        }
       } else {
+        // moon crosses midnight
         const dur = (1440 - rise) + set;
-        if (nowMin >= rise)       prog = (nowMin - rise) / dur;
-        else if (nowMin <= set)   prog = (1440 - rise + nowMin) / dur;
-        else return;
+        if (nowMin >= rise)     prog = (nowMin - rise) / dur;
+        else if (nowMin <= set) prog = (1440 - rise + nowMin) / dur;
+        else {
+          // gap between set and rise: not up — show dim at left
+          prog = Math.max(-0.12, -(rise - nowMin) / 240);
+        }
       }
-      const mx = lx + prog * (rx - lx);
-      const my = horizonY - (horizonY - peakY) * Math.sin(prog * Math.PI);
+      // clamp prog for position, use it to fade alpha when below horizon
+      const belowHorizon = prog < 0 || prog > 1;
+      const clampedProg = Math.max(0, Math.min(1, prog));
+      const mx = lx + clampedProg * (rx - lx);
+      const my = horizonY - (horizonY - peakY) * Math.sin(clampedProg * Math.PI);
       let al = vis * 0.92;
+      if (belowHorizon) al *= 0.30; // dim when technically below horizon
       if (type==='storm') al*=0.2; else if (type==='rain') al*=0.45; else if (type==='fog') al*=0.55;
+      if (al < 0.04) return;
       ctx.save(); ctx.globalAlpha = al;
       const mglow = ctx.createRadialGradient(mx,my,0,mx,my,52);
-      mglow.addColorStop(0,'rgba(180,210,255,0.20)'); mglow.addColorStop(1,'rgba(0,0,0,0)');
+      mglow.addColorStop(0,'rgba(180,210,255,0.22)'); mglow.addColorStop(1,'rgba(0,0,0,0)');
       ctx.fillStyle=mglow; ctx.beginPath(); ctx.arc(mx,my,52,0,Math.PI*2); ctx.fill();
       _drawMoonPhase(mx, my, 13, phase);
       ctx.globalAlpha=1; ctx.restore();
@@ -5491,7 +5517,7 @@ const SFX = (() => {
     const rise = _wd.sunRiseMin, set = _wd.sunSetMin;
     const prog = (rise === set) ? 0.5 : Math.max(0, Math.min(1, (nowMin-rise)/(set-rise)));
     const sx = W*0.04 + prog*(W*0.92);
-    const sy = H*0.90 - (H*0.90-H*0.08)*Math.sin(prog*Math.PI);
+    const sy = H*0.88 - (H*0.88-H*0.08)*Math.sin(prog*Math.PI);
     sunAngle += .0035;
     /* background warm glow */
     const bg = ctx.createRadialGradient(sx,sy,0,sx,sy,W*.85);
