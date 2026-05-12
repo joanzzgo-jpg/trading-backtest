@@ -4181,45 +4181,65 @@ function showLoading(show) {
     ctx.restore();
   }
   function spawnDice(cx, cy) {
-    const SIZE=150;
-    const cvs=makeCanvas(cx,cy,SIZE); if(!cvs) return;
-    const c=cvs.getContext("2d");
-    const ox=SIZE/2, oy=SIZE/2;
-    const dice=Array.from({length:3},(_,i)=>{
-      const baseAng=Math.random()*Math.PI*2;          /* 完全隨機方向 */
-      const dist=14+Math.random()*14;
-      return { x:ox, y:oy,
-               vx:(Math.random()-.5)*0.9, vy:(Math.random()-.5)*0.9,  /* 漂移 */
-               tx:ox+Math.cos(baseAng)*dist, ty:oy+Math.sin(baseAng)*dist,
-               rot:Math.random()*Math.PI*2,
-               rotSpd:(Math.random()<.5?1:-1)*(.5+Math.random()*.6),   /* 更快更亂 */
-               face:1+Math.floor(Math.random()*6), alpha:.82 };         /* 稍透明 */
+    const SIZE = 220;
+    const cvs = makeCanvas(cx, cy, SIZE); if (!cvs) return;
+    const c = cvs.getContext("2d");
+    const OX = SIZE / 2, OY = SIZE / 2;
+    const FLOOR = SIZE - 20;   // ground line inside canvas
+    const GRAVITY = 0.32;
+
+    /* 3 dice thrown in different directions with spread so they don't overlap */
+    const dice = Array.from({length: 3}, (_, i) => {
+      const ang = (i - 1) * 0.7 + (Math.random() - 0.5) * 0.4;  // -0.7, 0, +0.7 rad ± noise
+      const spd = 3.5 + Math.random() * 2.0;
+      return {
+        x: OX + (i - 1) * 10,
+        y: OY,
+        vx: Math.sin(ang) * spd,
+        vy: -(2.5 + Math.random() * 2.0),   // thrown upward
+        rot: Math.random() * Math.PI * 2,
+        rotSpd: (Math.random() < .5 ? 1 : -1) * (0.12 + Math.random() * 0.18),
+        face: 1 + Math.floor(Math.random() * 6),
+        bounces: 0,
+        settled: false,
+        settledAt: 0,
+        alpha: 0.92
+      };
     });
-    let frame=0, raf;
+
+    let frame = 0, raf;
     function loop() {
-      c.clearRect(0,0,SIZE,SIZE);
-      let alive=false;
+      c.clearRect(0, 0, SIZE, SIZE);
+      let alive = false;
       for (const d of dice) {
-        if (d.alpha<=0) continue;
-        alive=true;
-        if (frame<=22) {
-          const p=1-Math.pow(1-frame/22,2);
-          d.x=ox+(d.tx-ox)*p+(d.vx*frame*.4); d.y=oy+(d.ty-oy)*p+(d.vy*frame*.4);
-          d.rot+=d.rotSpd;
-          _drawDie(c,d.x,d.y,d.rot,1+Math.floor(Math.random()*6),d.alpha);
-        } else if (frame<=34) {
-          d.rot+=d.rotSpd*(1-(frame-22)/12);
-          _drawDie(c,d.x,d.y,d.rot,1+Math.floor(Math.random()*6),d.alpha);
-        } else if (frame<=56) {
-          _drawDie(c,d.x,d.y,0,d.face,d.alpha);
+        if (d.alpha <= 0) continue;
+        alive = true;
+        if (!d.settled) {
+          d.vy += GRAVITY;
+          d.x  += d.vx;
+          d.y  += d.vy;
+          d.rot += d.rotSpd;
+          // bounce off floor
+          if (d.y >= FLOOR) {
+            d.y = FLOOR;
+            d.bounces++;
+            d.vy  = -d.vy  * Math.max(0.10, 0.52 - d.bounces * 0.12);
+            d.vx  *=  0.72;
+            d.rotSpd *= 0.55;
+            if (Math.abs(d.vy) < 0.6) { d.settled = true; d.settledAt = frame; }
+          }
+          _drawDie(c, d.x, d.y, d.rot, 1 + Math.floor(Math.random() * 6), d.alpha);
         } else {
-          d.alpha=Math.max(0,d.alpha-0.04);
-          _drawDie(c,d.x,d.y,0,d.face,d.alpha);
+          // resting: snap to nearest 90° and show final face, then fade
+          if (frame - d.settledAt > 28) d.alpha = Math.max(0, d.alpha - 0.032);
+          _drawDie(c, d.x, d.y, 0, d.face, d.alpha);
         }
       }
       frame++;
-      if(alive) raf=requestAnimationFrame(loop); else{cancelAnimationFrame(raf);cvs._fxDone();}
-    } loop();
+      if (alive) raf = requestAnimationFrame(loop);
+      else { cancelAnimationFrame(raf); cvs._fxDone(); }
+    }
+    loop();
   }
 
   function spawnDefault(cx, cy) {
@@ -5374,38 +5394,21 @@ const SFX = (() => {
       const phase = _wd.moonPhase;
       const vis = Math.sin(phase * Math.PI);
       if (vis < 0.06) return; // new moon, skip
-      // compute moon arc progress — always show even if below horizon
+      // only draw moon when actually above the horizon
       let prog;
       if (rise < set) {
-        // moon rises and sets same day
-        if (nowMin >= rise && nowMin <= set) {
-          prog = (nowMin - rise) / (set - rise);
-        } else if (nowMin < rise) {
-          // not yet risen: show at left horizon, fading
-          prog = Math.max(-0.12, -(rise - nowMin) / 240);
-        } else {
-          // already set: show at right horizon, fading
-          prog = Math.min(1.12, 1 + (nowMin - set) / 240);
-        }
+        if (nowMin < rise || nowMin > set) return;
+        prog = (nowMin - rise) / (set - rise);
       } else {
-        // moon crosses midnight
         const dur = (1440 - rise) + set;
-        if (nowMin >= rise)     prog = (nowMin - rise) / dur;
-        else if (nowMin <= set) prog = (1440 - rise + nowMin) / dur;
-        else {
-          // gap between set and rise: not up — show dim at left
-          prog = Math.max(-0.12, -(rise - nowMin) / 240);
-        }
+        if (nowMin >= rise)       prog = (nowMin - rise) / dur;
+        else if (nowMin <= set)   prog = (1440 - rise + nowMin) / dur;
+        else return;
       }
-      // clamp prog for position, use it to fade alpha when below horizon
-      const belowHorizon = prog < 0 || prog > 1;
-      const clampedProg = Math.max(0, Math.min(1, prog));
-      const mx = lx + clampedProg * (rx - lx);
-      const my = horizonY - (horizonY - peakY) * Math.sin(clampedProg * Math.PI);
+      const mx = lx + prog * (rx - lx);
+      const my = horizonY - (horizonY - peakY) * Math.sin(prog * Math.PI);
       let al = vis * 0.92;
-      if (belowHorizon) al *= 0.30; // dim when technically below horizon
       if (type==='storm') al*=0.2; else if (type==='rain') al*=0.45; else if (type==='fog') al*=0.55;
-      if (al < 0.04) return;
       ctx.save(); ctx.globalAlpha = al;
       const mglow = ctx.createRadialGradient(mx,my,0,mx,my,52);
       mglow.addColorStop(0,'rgba(180,210,255,0.22)'); mglow.addColorStop(1,'rgba(0,0,0,0)');
