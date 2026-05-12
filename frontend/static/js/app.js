@@ -3524,7 +3524,7 @@ function startTickerRefresh() {
   if (_tickerTimer) clearInterval(_tickerTimer);
   _loadTickerCache();   // ← 先從 localStorage 即時渲染
   fetchTickers();       // ← 背景拉新資料
-  _tickerTimer = setInterval(fetchTickers, 5000);
+  _tickerTimer = setInterval(fetchTickers, 2000);
 }
 
 function bindTickerPanel() {
@@ -5081,7 +5081,7 @@ const SFX = (() => {
       4:[[.29,.26],[.71,.26],[.29,.74],[.71,.74]],
       5:[[.29,.2],[.71,.2],[.5,.5],[.29,.8],[.71,.8]],
       6:[[.29,.18],[.71,.18],[.29,.5],[.71,.5],[.29,.82],[.71,.82]],
-      7:[[.3,.12],[.7,.12],[.3,.36],[.7,.36],[.3,.60],[.7,.60],[.5,.84]],
+      7:[[.22,.16],[.5,.16],[.78,.16],[.30,.48],[.70,.48],[.30,.80],[.70,.80]],
       8:[[.3,.1],[.7,.1],[.3,.36],[.7,.36],[.3,.62],[.7,.62],[.3,.88],[.7,.88]],
       9:[[.22,.15],[.5,.15],[.78,.15],[.22,.5],[.5,.5],[.78,.5],[.22,.85],[.5,.85],[.78,.85]],
     };
@@ -5099,7 +5099,7 @@ const SFX = (() => {
     };
     const bg='#FDF6E3';
     const pos=POS[n]||[], clrs=CLRS[n]||[];
-    const Rv=n===1?11.5:n<=4?6.8:n<=6?6:4.5;
+    const Rv=n===1?11.5:n<=4?6.8:n<=6?6:n===7?4.0:4.5;
     pos.forEach(([fx,fy],i)=>{
       const x=fx*TW, y=3+fy*(TH-6), clr=clrs[i]||Gn;
       c.fillStyle=clr; c.beginPath(); c.arc(x,y,Rv,0,Math.PI*2); c.fill();
@@ -5125,7 +5125,7 @@ const SFX = (() => {
       return;
     }
     /* cols×rows 格，每格一根竹子（高細長條＋紅節帶） */
-    const GRIDS={2:{c:1,r:2},3:{c:1,r:3},4:{c:2,r:2},5:{c:2,r:3},
+    const GRIDS={2:{c:2,r:1},3:{c:3,r:1},4:{c:2,r:2},5:{c:2,r:3},
                  6:{c:2,r:3},7:{c:2,r:4},8:{c:2,r:4},9:{c:3,r:3}};
     const {c:cols,r:rows}=GRIDS[n]||{c:2,r:4};
     const pad=3, cw=(TW-pad*2)/cols, rh=(TH-pad*2)/rows;
