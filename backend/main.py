@@ -15,6 +15,7 @@ from routes.search import router as search_router
 from routes.strategies import router as strategies_router
 from routes.backtest import router as backtest_router
 from routes.bear import router as bear_router
+from routes.weather import router as weather_router
 from data.crypto import _fetch_pionex_symbols, _fetch_pionex_perp_symbols
 
 app = FastAPI(title="回測系統")
@@ -85,3 +86,4 @@ app.include_router(search_router)
 app.include_router(strategies_router)
 app.include_router(backtest_router)
 app.include_router(bear_router)
+app.include_router(weather_router)

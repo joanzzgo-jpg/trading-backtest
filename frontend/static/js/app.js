@@ -5199,7 +5199,7 @@ const SFX = (() => {
   }
   let _autoType = "sunny";
   let _wxLat = 25.04, _wxLon = 121.51, _wxTimer = null;
-  const _wd = { code:0, temp:null, precip:0, cloudCover:50, windSpeed:0, visibility:10000, isDay:true, city:null, updatedAt:null, intensity:0.5 };
+  const _wd = { code:0, temp:null, precip:0, cloudCover:50, windSpeed:0, visibility:10000, isDay:true, city:null, updatedAt:null, intensity:0.5, desc:null, source:null };
   const WMO_DESC = {
     0:'晴天',1:'晴時多雲',2:'局部多雲',3:'陰天',
     45:'霧',48:'霧凇',
@@ -5731,7 +5731,7 @@ const SFX = (() => {
         'pointer-events:none;user-select:none;';
       document.body.appendChild(el);
     }
-    const desc = WMO_DESC[_wd.code] || '未知';
+    const desc = _wd.desc || WMO_DESC[_wd.code] || '未知';
     const city = _wd.city ? _wd.city + '　' : '';
     const hm   = _wd.updatedAt
       ? String(_wd.updatedAt.getHours()).padStart(2,'0')+':'+
@@ -5743,33 +5743,29 @@ const SFX = (() => {
       '<div style="font-size:13px;font-weight:600;letter-spacing:.3px">'+city+_wd.temp+'°C　'+desc+'</div>'+
       '<div style="opacity:.68">風速 '+_wd.windSpeed+' km/h　雲量 '+_wd.cloudCover+'%</div>'+
       '<div style="opacity:.68">降雨 '+_wd.precip+' mm　能見度 '+vis+'</div>'+
-      '<div style="opacity:.38;font-size:10px">'+hm+' 更新</div>';
+      '<div style="opacity:.38;font-size:10px">'+hm+' 更新　'+(_wd.source==='cwa'?'中央氣象署':'Open-Meteo')+'</div>';
   }
 
   function fetchWeather(lat, lon) {
     _wxLat = lat; _wxLon = lon;
     if (!_wxTimer) _wxTimer = setInterval(() => fetchWeather(_wxLat, _wxLon), 30*60*1000);
-    const url = 'https://api.open-meteo.com/v1/forecast?latitude='+lat+'&longitude='+lon+
-      '&current=weather_code,temperature_2m,is_day,precipitation,cloud_cover,wind_speed_10m,visibility'+
-      '&timezone=auto';
-    fetch(url)
+    fetch('/api/weather?lat='+lat+'&lon='+lon)
       .then(r => r.json())
       .then(d => {
-        const c = d.current;
-        _wd.code       = c.weather_code;
-        _wd.temp       = Math.round(c.temperature_2m);
-        _wd.isDay      = c.is_day === 1;
-        _wd.precip     = +(c.precipitation || 0).toFixed(1);
-        _wd.cloudCover = c.cloud_cover || 0;
-        _wd.windSpeed  = Math.round(c.wind_speed_10m || 0);
-        _wd.visibility = c.visibility ?? 10000;
+        _wd.source     = d.source || null;
+        _wd.temp       = d.temperature;
+        _wd.isDay      = d.is_day;
+        _wd.precip     = d.precipitation;
+        _wd.cloudCover = d.cloud_cover;
+        _wd.windSpeed  = d.wind_speed;
+        _wd.visibility = d.visibility;
+        _wd.desc       = d.description || null;
+        _wd.city       = d.location || d.station || null;
         _wd.updatedAt  = new Date();
-        const pInt = Math.min(1, (c.precipitation || 0) / 20);
-        const cInt = (c.cloud_cover || 0) / 100;
+        const pInt = Math.min(1, (d.precipitation || 0) / 20);
+        const cInt = (d.cloud_cover || 0) / 100;
         _wd.intensity  = Math.max(0.3, pInt * 0.7 + cInt * 0.3);
-        const tzPart = (d.timezone || '').split('/').pop();
-        _wd.city = _TZ_CITY[tzPart] || (tzPart ? tzPart.replace(/_/g,' ') : null);
-        _autoType = wmoType(_wd.code, _wd.isDay);
+        _autoType = d.weather_type || 'sunny';
         const manualOn = ['leaf','rain','snow','spring','thunder','mahjong'].some(
           w => document.getElementById(w+'ToggleBtn')?.classList.contains(w+'-active')
         );
