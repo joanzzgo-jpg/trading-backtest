@@ -4,6 +4,7 @@
 否則 fallback 到 Open-Meteo（免 key）。
 """
 import os, math, time
+from datetime import date, datetime, timezone
 import aiohttp
 from fastapi import APIRouter, Query
 
@@ -127,6 +128,9 @@ async def _from_cwa(lat: float, lon: float) -> dict:
     county = s.get("GeoInfo", {}).get("CountyName", "")
     station_name = s.get("StationName", "")
 
+    sr, ss = _sun_times_local(lat, lon)
+    mp = _moon_phase()
+    mr, ms = _moon_times(sr, ss, mp)
     return {
         "source":       "cwa",
         "weather_type": _desc_to_type(desc, is_day),
@@ -140,6 +144,11 @@ async def _from_cwa(lat: float, lon: float) -> dict:
         "is_day":       is_day,
         "location":     county or station_name,
         "station":      station_name,
+        "sun_rise_min":  sr,
+        "sun_set_min":   ss,
+        "moon_phase":    round(mp, 3),
+        "moon_rise_min": mr,
+        "moon_set_min":  ms,
     }
 
 # ─── Open-Meteo fallback ─────────────────────────────────────
@@ -189,6 +198,9 @@ async def _from_omt(lat: float, lon: float) -> dict:
     is_day = int(c.get("is_day") or 1) == 1
     tzp  = (data.get("timezone") or "").split("/")[-1]
 
+    sr, ss = _sun_times_local(lat, lon)
+    mp = _moon_phase()
+    mr, ms = _moon_times(sr, ss, mp)
     return {
         "source":       "openmeteo",
         "weather_type": _wmo_type(code, is_day),
@@ -202,7 +214,40 @@ async def _from_omt(lat: float, lon: float) -> dict:
         "is_day":       is_day,
         "location":     _TZ_CITY.get(tzp) or tzp.replace("_", " ") or None,
         "station":      None,
+        "sun_rise_min":  sr,
+        "sun_set_min":   ss,
+        "moon_phase":    round(mp, 3),
+        "moon_rise_min": mr,
+        "moon_set_min":  ms,
     }
+
+# ─── 天文計算 ────────────────────────────────────────────────
+
+def _sun_times_local(lat: float, lon: float) -> tuple[int, int]:
+    """日出日沒（分鐘，當地午夜起算）。簡易 NOAA 公式，精度 ±2 分鐘。"""
+    n = date.today().timetuple().tm_yday
+    B = math.radians((360 / 365) * (n - 81))
+    eq_time = 9.87 * math.sin(2 * B) - 7.53 * math.cos(B) - 1.5 * math.sin(B)
+    decl    = math.radians(23.45 * math.sin(math.radians((360 / 365) * (n - 81))))
+    lat_r   = math.radians(lat)
+    cos_ha  = (math.sin(math.radians(-0.833)) - math.sin(lat_r) * math.sin(decl)) / \
+              (math.cos(lat_r) * math.cos(decl))
+    cos_ha  = max(-1.0, min(1.0, cos_ha))
+    ha      = math.degrees(math.acos(cos_ha))
+    noon_utc = 720 - 4 * lon - eq_time
+    tz_off   = datetime.now(timezone.utc).astimezone().utcoffset().total_seconds() / 60
+    return (int((noon_utc - ha * 4 + tz_off) % 1440),
+            int((noon_utc + ha * 4 + tz_off) % 1440))
+
+def _moon_phase() -> float:
+    """月相 0-1（0=新月、0.5=滿月）。"""
+    days = (date.today() - date(2000, 1, 6)).days
+    return (days % 29.53058770576) / 29.53058770576
+
+def _moon_times(sun_rise: int, sun_set: int, phase: float) -> tuple[int, int]:
+    """由太陽升落時間＋月相估算月出月沒（分鐘）。"""
+    return (int((sun_rise + phase * 1440) % 1440),
+            int((sun_set  + phase * 1440) % 1440))
 
 # ─── 端點 ────────────────────────────────────────────────────
 

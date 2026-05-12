@@ -4269,6 +4269,14 @@ function showLoading(show) {
   const bubble = document.getElementById("bearBubble");
   if (!bear) return;
 
+  window._bearCurrentState = 'hidden';
+  window._syncWeatherCard = function(state) {
+    window._bearCurrentState = state;
+    const el = document.getElementById('_wxCard');
+    if (!el) return;
+    el.style.bottom = state==='full'?'5px': state==='peeking'?'-80px':'-200px';
+  };
+
   const LINES = [
     // ── 博恩風：先捧後逗，特定細節重框為荒謬 ──
     "我今天效率非常高。泡了咖啡、打開電腦、調整椅背、把手機翻面——然後就中午了。",
@@ -4344,12 +4352,13 @@ function showLoading(show) {
     _bubbleTimer = setTimeout(() => bubble?.classList.remove("visible"), 3000);
   }
 
-  setTimeout(() => { bear.classList.add("peeking"); }, 2800);
+  setTimeout(() => { bear.classList.add("peeking"); window._syncWeatherCard('peeking'); }, 2800);
 
   function _onEnter() {
     _bearHover = true;
     clearTimeout(_bubbleTimer);
     if (!bubble?.classList.contains("visible")) showBubble();
+    window._syncWeatherCard('full');
   }
   function _onLeave(e) {
     /* only hide if cursor left BOTH the bear and the bubble */
@@ -4357,6 +4366,7 @@ function showLoading(show) {
     if (bear.contains(to) || bubble?.contains(to)) return;
     _bearHover = false;
     _startHideBubble();
+    window._syncWeatherCard('peeking');
   }
 
   bear.addEventListener("mouseenter", _onEnter);
@@ -4378,10 +4388,12 @@ function showLoading(show) {
     setTimeout(() => {
       if (!bear.classList.contains("peeking")) { scheduleVisit(); return; }
       bear.classList.add("peek-visit");
+      window._syncWeatherCard('full');
       showBubble();
       const stay = 2800 + Math.random() * 2200; // 停留 2.8~5 秒
       setTimeout(() => {
         bear.classList.remove("peek-visit");
+        window._syncWeatherCard('peeking');
         scheduleVisit();
       }, stay);
     }, wait);
@@ -5199,7 +5211,8 @@ const SFX = (() => {
   }
   let _autoType = "sunny";
   let _wxLat = 25.04, _wxLon = 121.51, _wxTimer = null;
-  const _wd = { code:0, temp:null, precip:0, cloudCover:50, windSpeed:0, visibility:10000, isDay:true, city:null, updatedAt:null, intensity:0.5, desc:null, source:null };
+  const _wd = { code:0, temp:null, precip:0, cloudCover:50, windSpeed:0, visibility:10000, isDay:true, city:null, updatedAt:null, intensity:0.5, desc:null, source:null,
+               sunRiseMin:360, sunSetMin:1080, moonPhase:0, moonRiseMin:1080, moonSetMin:360 };
   const WMO_DESC = {
     0:'晴天',1:'晴時多雲',2:'局部多雲',3:'陰天',
     45:'霧',48:'霧凇',
@@ -5236,9 +5249,16 @@ const SFX = (() => {
     _init();
   }
 
+  function _sunArcPos() {
+    const nowMin = (new Date()).getHours()*60 + (new Date()).getMinutes();
+    const rise = _wd.sunRiseMin, set = _wd.sunSetMin;
+    const prog = (rise === set) ? 0.5 : Math.max(0, Math.min(1, (nowMin-rise)/(set-rise)));
+    return { x: W*0.04 + prog*W*0.92, y: H*0.90 - (H*0.90-H*0.08)*Math.sin(prog*Math.PI) };
+  }
   function _newSpark() {
+    const {x,y} = _sunArcPos();
     const a = Math.random()*Math.PI*2, d = 28 + Math.random()*Math.min(W,H)*.32;
-    return { x: W*.85+Math.cos(a)*d, y: H*.08+Math.sin(a)*d, r: .8+Math.random()*2.2, life: 0, maxLife: 50+Math.random()*80 };
+    return { x: x+Math.cos(a)*d, y: y+Math.sin(a)*d, r: .8+Math.random()*2.2, life: 0, maxLife: 50+Math.random()*80 };
   }
 
   /* pre-build all gradients that are constant between resizes */
@@ -5260,6 +5280,113 @@ const SFX = (() => {
     _gc.leafAmb  = rg(W*.82,0,0,W*.82,0,H*.78,[0,"rgba(255,148,28,.09)"],[1,"rgba(0,0,0,0)"]);
     _gc.leafGnd  = lg(0,H*.82,0,H,[0,"rgba(0,0,0,0)"],[1,"rgba(55,28,8,.06)"]);
     _gc.springSky= lg(0,0,0,H*.7,[0,"rgba(255,210,232,.07)"],[1,"rgba(255,240,248,.02)"]);
+  }
+
+  /* ── 太陽 / 月亮弧線 ── */
+  function _drawMoonPhase(cx, cy, R, phase) {
+    ctx.save();
+    ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI*2); ctx.clip();
+    // dark background inside clip
+    ctx.fillStyle = 'rgba(10,14,32,0.96)';
+    ctx.fillRect(cx-R, cy-R, R*2, R*2);
+    ctx.fillStyle = '#d8e6f5';
+    const eRx = R * Math.abs(Math.cos(2 * Math.PI * phase));
+    if (phase < 0.5) {
+      // waxing: right half lit
+      ctx.beginPath(); ctx.arc(cx, cy, R, -Math.PI/2, Math.PI/2); ctx.closePath(); ctx.fill();
+      if (phase < 0.25) {
+        // crescent → dark ellipse covers right portion
+        ctx.fillStyle = 'rgba(10,14,32,0.96)';
+        ctx.beginPath(); ctx.ellipse(cx, cy, eRx, R, 0, -Math.PI/2, Math.PI/2); ctx.closePath(); ctx.fill();
+      } else {
+        // gibbous → lit ellipse extends left
+        ctx.beginPath(); ctx.ellipse(cx, cy, eRx, R, 0, Math.PI/2, -Math.PI/2); ctx.closePath(); ctx.fill();
+      }
+    } else {
+      // waning: left half lit
+      ctx.beginPath(); ctx.arc(cx, cy, R, Math.PI/2, -Math.PI/2); ctx.closePath(); ctx.fill();
+      const p2 = phase - 0.5;
+      if (p2 < 0.25) {
+        // gibbous → lit ellipse extends right
+        ctx.beginPath(); ctx.ellipse(cx, cy, eRx, R, 0, -Math.PI/2, Math.PI/2); ctx.closePath(); ctx.fill();
+      } else {
+        // crescent → dark ellipse covers left
+        ctx.fillStyle = 'rgba(10,14,32,0.96)';
+        ctx.beginPath(); ctx.ellipse(cx, cy, eRx, R, 0, Math.PI/2, -Math.PI/2); ctx.closePath(); ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+
+  function _drawAstro(t) {
+    const now = new Date();
+    const nowMin = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
+    const lx = W * 0.04, rx = W * 0.96;
+    const horizonY = H * 0.90, peakY = H * 0.08;
+
+    if (_wd.isDay) {
+      if (type === 'thunder' || type === 'sunny') return; // dSunny handles arc for sunny
+      const rise = _wd.sunRiseMin, set = _wd.sunSetMin;
+      if (nowMin < rise || nowMin > set) return;
+      const prog = (nowMin - rise) / (set - rise);
+      const sx = lx + prog * (rx - lx);
+      const sy = horizonY - (horizonY - peakY) * Math.sin(prog * Math.PI);
+      // arc path
+      ctx.save();
+      ctx.beginPath();
+      for (let p = 0; p <= 1; p += 0.025) {
+        const ax = lx + p * (rx - lx);
+        const ay = horizonY - (horizonY - peakY) * Math.sin(p * Math.PI);
+        p === 0 ? ctx.moveTo(ax, ay) : ctx.lineTo(ax, ay);
+      }
+      ctx.strokeStyle = 'rgba(255,200,60,0.07)';
+      ctx.lineWidth = 1; ctx.setLineDash([3, 9]); ctx.stroke(); ctx.setLineDash([]);
+      // opacity by weather
+      let al = 1.0;
+      if (type==='storm') al=0.15; else if (type==='rain') al=0.35;
+      else if (type==='fog') al=0.50; else if (type==='cloudy') al=0.62;
+      ctx.globalAlpha = al;
+      // glow
+      const glow = ctx.createRadialGradient(sx,sy,0,sx,sy,62);
+      glow.addColorStop(0,'rgba(255,240,100,0.38)'); glow.addColorStop(0.42,'rgba(255,160,30,0.12)'); glow.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.fillStyle=glow; ctx.beginPath(); ctx.arc(sx,sy,62,0,Math.PI*2); ctx.fill();
+      // disc
+      const disc = ctx.createRadialGradient(sx,sy,0,sx,sy,17);
+      disc.addColorStop(0,'#FFFCD0'); disc.addColorStop(1,'#FFD700');
+      ctx.fillStyle=disc; ctx.beginPath(); ctx.arc(sx,sy,17,0,Math.PI*2); ctx.fill();
+      // corona pulse
+      const pls = 0.5+0.5*Math.sin(t*1.4);
+      ctx.strokeStyle=`rgba(255,210,55,${0.13+0.07*pls})`; ctx.lineWidth=1.5;
+      ctx.beginPath(); ctx.arc(sx,sy,23+pls*3,0,Math.PI*2); ctx.stroke();
+      ctx.globalAlpha=1; ctx.restore();
+    } else {
+      if (type === 'thunder') return;
+      const rise = _wd.moonRiseMin, set = _wd.moonSetMin;
+      const phase = _wd.moonPhase;
+      const vis = Math.sin(phase * Math.PI);
+      if (vis < 0.08) return;
+      // handle moon crossing midnight
+      let prog;
+      if (rise < set) {
+        if (nowMin < rise || nowMin > set) return;
+        prog = (nowMin - rise) / (set - rise);
+      } else {
+        const dur = (1440 - rise) + set;
+        if (nowMin >= rise)       prog = (nowMin - rise) / dur;
+        else if (nowMin <= set)   prog = (1440 - rise + nowMin) / dur;
+        else return;
+      }
+      const mx = lx + prog * (rx - lx);
+      const my = horizonY - (horizonY - peakY) * Math.sin(prog * Math.PI);
+      let al = vis * 0.92;
+      if (type==='storm') al*=0.2; else if (type==='rain') al*=0.45; else if (type==='fog') al*=0.55;
+      ctx.save(); ctx.globalAlpha = al;
+      const mglow = ctx.createRadialGradient(mx,my,0,mx,my,52);
+      mglow.addColorStop(0,'rgba(180,210,255,0.20)'); mglow.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.fillStyle=mglow; ctx.beginPath(); ctx.arc(mx,my,52,0,Math.PI*2); ctx.fill();
+      _drawMoonPhase(mx, my, 13, phase);
+      ctx.globalAlpha=1; ctx.restore();
+    }
   }
 
   function _init() {
@@ -5359,30 +5486,39 @@ const SFX = (() => {
   /* ═══════════════ per-weather draw ═══════════════ */
 
   function dSunny(t) {
-    const sx=W*.85, sy=H*.08;
+    /* arc position: left=east/rise → right=west/set */
+    const nowMin = (new Date()).getHours()*60 + (new Date()).getMinutes() + (new Date()).getSeconds()/60;
+    const rise = _wd.sunRiseMin, set = _wd.sunSetMin;
+    const prog = (rise === set) ? 0.5 : Math.max(0, Math.min(1, (nowMin-rise)/(set-rise)));
+    const sx = W*0.04 + prog*(W*0.92);
+    const sy = H*0.90 - (H*0.90-H*0.08)*Math.sin(prog*Math.PI);
     sunAngle += .0035;
-    /* background warm glow (cached gradient) */
-    ctx.fillStyle=_gc.sunBg; ctx.fillRect(0,0,W,H);
-    /* 10 rotating rays – solid strokes, no per-ray gradient */
+    /* background warm glow */
+    const bg = ctx.createRadialGradient(sx,sy,0,sx,sy,W*.85);
+    bg.addColorStop(0,'rgba(255,240,110,.38)'); bg.addColorStop(.45,'rgba(255,165,30,.11)'); bg.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
+    /* 10 rotating rays */
     ctx.save(); ctx.translate(sx,sy); ctx.lineCap="round";
     for (let i=0;i<10;i++) {
       const a=sunAngle+(i/10)*Math.PI*2, even=i%2===0;
-      const len=W*(.30+.05*Math.sin(t*.7+i));
+      const len=W*(.28+.05*Math.sin(t*.7+i));
       ctx.strokeStyle=even?`rgba(255,230,80,.14)`:`rgba(255,200,50,.07)`;
       ctx.lineWidth=even?2.5:1.2;
       ctx.beginPath(); ctx.moveTo(Math.cos(a)*32,Math.sin(a)*32); ctx.lineTo(Math.cos(a)*len,Math.sin(a)*len); ctx.stroke();
     }
     ctx.restore();
-    /* pulsing halo rings (no shadowBlur) */
+    /* pulsing halo rings */
     [55,85,120].forEach((r,i) => {
       ctx.strokeStyle=`rgba(255,220,80,${.20-i*.05})`; ctx.lineWidth=i===0?2.5:2;
       ctx.beginPath(); ctx.arc(sx,sy,r+Math.sin(t*1.1+i)*7,0,Math.PI*2); ctx.stroke();
     });
-    /* sun disc (cached gradient) */
+    /* sun disc */
+    const disc = ctx.createRadialGradient(sx,sy,0,sx,sy,28);
+    disc.addColorStop(0,'#FFFCD0'); disc.addColorStop(1,'#FFD700');
     ctx.shadowBlur=30; ctx.shadowColor="rgba(255,200,0,1)";
-    ctx.fillStyle=_gc.sunDisc; ctx.beginPath(); ctx.arc(sx,sy,28,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle=disc; ctx.beginPath(); ctx.arc(sx,sy,28,0,Math.PI*2); ctx.fill();
     ctx.shadowBlur=0;
-    /* sparkles */
+    /* sparkles — keep near sun */
     sparks.forEach((p,i) => {
       p.life++;
       if (p.life>p.maxLife) { sparks[i]=_newSpark(); return; }
@@ -5713,6 +5849,7 @@ const SFX = (() => {
     ctx.clearRect(0,0,W,H);
     const t=Date.now()*.001;
     ({sunny:dSunny,night:dNight,cloudy:dCloudy,fog:dFog,rain:dRain,snow:dSnow,storm:dStorm,thunder:dThunder,mahjong:dMahjong,leaves:dLeaves,spring:dSpring})[type]?.(t);
+    _drawAstro(t);
   }
   function loop(ts) { rafId=requestAnimationFrame(loop); if(document.hidden||ts-_lastFrameTs<33)return; _lastFrameTs=ts; draw(); }
   function start(wt) { type=wt; _init(); _lastFrameTs=0; if(!rafId) requestAnimationFrame(loop); }
@@ -5722,13 +5859,16 @@ const SFX = (() => {
     let el = document.getElementById('_wxCard');
     if (!el) {
       el = document.createElement('div'); el.id = '_wxCard';
+      const bs = window._bearCurrentState || 'hidden';
+      const initB = bs==='full'?'5px': bs==='peeking'?'-80px':'-200px';
       el.style.cssText =
-        'position:fixed;bottom:14px;left:14px;z-index:200;'+
-        'background:rgba(10,12,20,.65);backdrop-filter:blur(10px);'+
-        'border:1px solid rgba(255,255,255,.10);border-radius:10px;'+
+        'position:fixed;bottom:'+initB+';right:175px;z-index:9989;'+
+        'transition:bottom 0.45s cubic-bezier(0.34,1.56,0.64,1);'+
+        'background:rgba(10,12,20,.72);backdrop-filter:blur(10px);'+
+        'border:1px solid rgba(255,255,255,.12);border-radius:10px;'+
         'padding:7px 12px;color:#dde2ee;font-size:11.5px;line-height:1.72;'+
         'font-family:-apple-system,BlinkMacSystemFont,sans-serif;'+
-        'pointer-events:none;user-select:none;';
+        'pointer-events:none;user-select:none;min-width:190px;';
       document.body.appendChild(el);
     }
     const desc = _wd.desc || WMO_DESC[_wd.code] || '未知';
@@ -5752,16 +5892,21 @@ const SFX = (() => {
     fetch('/api/weather?lat='+lat+'&lon='+lon)
       .then(r => r.json())
       .then(d => {
-        _wd.source     = d.source || null;
-        _wd.temp       = d.temperature;
-        _wd.isDay      = d.is_day;
-        _wd.precip     = d.precipitation;
-        _wd.cloudCover = d.cloud_cover;
-        _wd.windSpeed  = d.wind_speed;
-        _wd.visibility = d.visibility;
-        _wd.desc       = d.description || null;
-        _wd.city       = d.location || d.station || null;
-        _wd.updatedAt  = new Date();
+        _wd.source      = d.source || null;
+        _wd.temp        = d.temperature;
+        _wd.isDay       = d.is_day;
+        _wd.precip      = d.precipitation;
+        _wd.cloudCover  = d.cloud_cover;
+        _wd.windSpeed   = d.wind_speed;
+        _wd.visibility  = d.visibility;
+        _wd.desc        = d.description || null;
+        _wd.city        = d.location || d.station || null;
+        _wd.updatedAt   = new Date();
+        _wd.sunRiseMin  = d.sun_rise_min  ?? 360;
+        _wd.sunSetMin   = d.sun_set_min   ?? 1080;
+        _wd.moonPhase   = d.moon_phase    ?? 0;
+        _wd.moonRiseMin = d.moon_rise_min ?? 1080;
+        _wd.moonSetMin  = d.moon_set_min  ?? 360;
         const pInt = Math.min(1, (d.precipitation || 0) / 20);
         const cInt = (d.cloud_cover || 0) / 100;
         _wd.intensity  = Math.max(0.3, pInt * 0.7 + cInt * 0.3);
