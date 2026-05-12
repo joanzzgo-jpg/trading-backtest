@@ -7,6 +7,8 @@ from fastapi.templating import Jinja2Templates
 from fastapi.middleware.gzip import GZipMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 import os, sys, time, subprocess, threading
+from dotenv import load_dotenv
+load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
 sys.path.insert(0, os.path.dirname(__file__))
 
