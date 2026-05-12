@@ -4190,13 +4190,13 @@ function showLoading(show) {
 
     /* 3 dice thrown in different directions with spread so they don't overlap */
     const dice = Array.from({length: 3}, (_, i) => {
-      const ang = (i - 1) * 0.7 + (Math.random() - 0.5) * 0.4;  // -0.7, 0, +0.7 rad ± noise
-      const spd = 3.5 + Math.random() * 2.0;
+      const ang = (i - 1) * 0.7 + (Math.random() - 0.5) * 0.3;  // -0.7, 0, +0.7 rad ± noise
+      const spd = 1.4 + Math.random() * 0.8;
       return {
         x: OX + (i - 1) * 10,
         y: OY,
         vx: Math.sin(ang) * spd,
-        vy: -(2.5 + Math.random() * 2.0),   // thrown upward
+        vy: -(1.6 + Math.random() * 1.0),   // thrown upward
         rot: Math.random() * Math.PI * 2,
         rotSpd: (Math.random() < .5 ? 1 : -1) * (0.12 + Math.random() * 0.18),
         face: 1 + Math.floor(Math.random() * 6),
@@ -4219,6 +4219,9 @@ function showLoading(show) {
           d.x  += d.vx;
           d.y  += d.vy;
           d.rot += d.rotSpd;
+          // bounce off walls
+          if (d.x < 18)        { d.x =  18; d.vx =  Math.abs(d.vx) * 0.6; }
+          if (d.x > SIZE - 18) { d.x = SIZE - 18; d.vx = -Math.abs(d.vx) * 0.6; }
           // bounce off floor
           if (d.y >= FLOOR) {
             d.y = FLOOR;
