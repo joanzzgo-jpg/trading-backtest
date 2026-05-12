@@ -3526,7 +3526,7 @@ function startTickerRefresh() {
   if (_tickerTimer) clearInterval(_tickerTimer);
   _loadTickerCache();   // ← 先從 localStorage 即時渲染
   fetchTickers();       // ← 背景拉新資料
-  _tickerTimer = setInterval(fetchTickers, 2000);
+  _tickerTimer = setInterval(fetchTickers, 10000);
 }
 
 function bindTickerPanel() {
@@ -3945,8 +3945,8 @@ function showLoading(show) {
     const ctx = cvs.getContext("2d");
     const ox = SIZE/2, oy = SIZE/2;
     const pts = Array.from({length:N}, () => {
-      const a = Math.random()*Math.PI*2, spd = 2+Math.random()*3.5;
-      return { x:ox, y:oy, vx:Math.cos(a)*spd, vy:Math.sin(a)*spd-1.2,
+      const a = Math.random()*Math.PI*2, spd = 1+Math.random()*2;
+      return { x:ox, y:oy, vx:Math.cos(a)*spd, vy:Math.sin(a)*spd-0.6,
                g:0.08+Math.random()*.05, rot:Math.random()*Math.PI*2,
                rs:(Math.random()-.5)*.15, sw:3+Math.random()*3, sh:1.5+Math.random()*2,
                col:C[Math.floor(Math.random()*C.length)], life:1 };
@@ -3978,8 +3978,8 @@ function showLoading(show) {
     const ctx = cvs.getContext("2d");
     const ox = SIZE/2, oy = SIZE/2;
     const pts = Array.from({length:N}, (_,i) => {
-      const a = (i/N)*Math.PI*2+(Math.random()-.5)*.5, spd=3+Math.random()*4;
-      return { x:ox, y:oy, vx:Math.cos(a)*spd, vy:Math.sin(a)*spd, g:.12, len:3+Math.random()*4, life:1 };
+      const a = (i/N)*Math.PI*2+(Math.random()-.5)*.5, spd=1.5+Math.random()*2;
+      return { x:ox, y:oy, vx:Math.cos(a)*spd, vy:Math.sin(a)*spd, g:.08, len:3+Math.random()*4, life:1 };
     });
     let raf; function loop() {
       ctx.clearRect(0,0,SIZE,SIZE); let alive=false;
@@ -4007,9 +4007,9 @@ function showLoading(show) {
     const ctx = cvs.getContext("2d");
     const ox = SIZE/2, oy = SIZE/2;
     const pts = Array.from({length:N}, () => {
-      const a = Math.random()*Math.PI*2, spd=1.5+Math.random()*2.5;
-      return { x:ox, y:oy, vx:Math.cos(a)*spd, vy:Math.sin(a)*spd-.5,
-               g:.03, rot:Math.random()*Math.PI*2, rs:(Math.random()-.5)*.06,
+      const a = Math.random()*Math.PI*2, spd=0.8+Math.random()*1.5;
+      return { x:ox, y:oy, vx:Math.cos(a)*spd, vy:Math.sin(a)*spd-.3,
+               g:.02, rot:Math.random()*Math.PI*2, rs:(Math.random()-.5)*.06,
                r:2.5+Math.random()*2.5, life:1 };
     });
     function drawFlake(f) {
@@ -4047,8 +4047,8 @@ function showLoading(show) {
     const ctx = cvs.getContext("2d");
     const ox = SIZE/2, oy = SIZE/2;
     const pts = Array.from({length:N}, () => {
-      const a = Math.random()*Math.PI*2, spd=1.8+Math.random()*3;
-      return { x:ox, y:oy, vx:Math.cos(a)*spd, vy:Math.sin(a)*spd-1,
+      const a = Math.random()*Math.PI*2, spd=0.9+Math.random()*1.5;
+      return { x:ox, y:oy, vx:Math.cos(a)*spd, vy:Math.sin(a)*spd-0.5,
                g:.06, rot:Math.random()*Math.PI*2, rs:(Math.random()-.5)*.12,
                w:2.5+Math.random()*2.5, h:2+Math.random()*2, seed:Math.random()*100,
                col:C[Math.floor(Math.random()*C.length)], life:1 };
@@ -4154,24 +4154,24 @@ function showLoading(show) {
     const fw=S*1.85, dX=S*.68, dY=S*.38, r=3;
     /* center 3D bounding box at origin */
     const fx=-(fw+dX)/2, fy=-fw/2+dY/2;
-    /* right face (shadow) */
-    ctx.fillStyle='#B8A070';
+    /* right face (shadow) — 本體 10% 透明 */
+    ctx.fillStyle='rgba(184,160,112,.10)';
     ctx.beginPath(); ctx.moveTo(fx+fw,fy); ctx.lineTo(fx+fw+dX,fy-dY); ctx.lineTo(fx+fw+dX,fy+fw-dY); ctx.lineTo(fx+fw,fy+fw); ctx.closePath(); ctx.fill();
     ctx.strokeStyle='rgba(80,50,10,.28)'; ctx.lineWidth=.8; ctx.stroke();
     /* top face (highlight) */
-    ctx.fillStyle='#F5EDD2';
+    ctx.fillStyle='rgba(245,237,210,.10)';
     ctx.beginPath(); ctx.moveTo(fx,fy); ctx.lineTo(fx+fw,fy); ctx.lineTo(fx+fw+dX,fy-dY); ctx.lineTo(fx+dX,fy-dY); ctx.closePath(); ctx.fill();
     ctx.strokeStyle='rgba(80,50,10,.28)'; ctx.lineWidth=.8; ctx.stroke();
     /* front face */
     ctx.shadowColor='rgba(40,20,0,.35)'; ctx.shadowBlur=8; ctx.shadowOffsetX=1; ctx.shadowOffsetY=2;
     const bodyG=ctx.createLinearGradient(fx,fy,fx+fw,fy+fw);
-    bodyG.addColorStop(0,'#F8F0DC'); bodyG.addColorStop(.45,'#EDE0BE'); bodyG.addColorStop(1,'#D8C898');
+    bodyG.addColorStop(0,'rgba(248,240,220,.10)'); bodyG.addColorStop(.45,'rgba(237,224,190,.10)'); bodyG.addColorStop(1,'rgba(216,200,152,.10)');
     function faceRect(){ctx.beginPath(); ctx.moveTo(fx+r,fy); ctx.lineTo(fx+fw-r,fy); ctx.arcTo(fx+fw,fy,fx+fw,fy+r,r); ctx.lineTo(fx+fw,fy+fw-r); ctx.arcTo(fx+fw,fy+fw,fx+fw-r,fy+fw,r); ctx.lineTo(fx+r,fy+fw); ctx.arcTo(fx,fy+fw,fx,fy+fw-r,r); ctx.lineTo(fx,fy+r); ctx.arcTo(fx,fy,fx+r,fy,r); ctx.closePath();}
     ctx.fillStyle=bodyG; faceRect(); ctx.fill();
     ctx.shadowBlur=0; ctx.shadowOffsetX=0; ctx.shadowOffsetY=0;
     ctx.strokeStyle='rgba(120,90,50,.30)'; ctx.lineWidth=1; faceRect(); ctx.stroke();
     const hlG=ctx.createLinearGradient(fx,fy,fx+fw*.6,fy+fw*.6);
-    hlG.addColorStop(0,'rgba(255,255,255,.40)'); hlG.addColorStop(.5,'rgba(255,255,255,.12)'); hlG.addColorStop(1,'rgba(255,255,255,0)');
+    hlG.addColorStop(0,'rgba(255,255,255,.04)'); hlG.addColorStop(.5,'rgba(255,255,255,.01)'); hlG.addColorStop(1,'rgba(255,255,255,0)');
     ctx.fillStyle=hlG; faceRect(); ctx.fill();
     /* dots on front face */
     const dots=_DICE_DOTS[face], spread=fw*.30, R=1.9, cx=fx+fw/2, cy=fy+fw/2;
@@ -4187,9 +4187,9 @@ function showLoading(show) {
     const ox=SIZE/2, oy=SIZE/2;
     const dice=Array.from({length:3},(_,i)=>{
       const baseAng=Math.random()*Math.PI*2;          /* 完全隨機方向 */
-      const dist=28+Math.random()*28;
+      const dist=14+Math.random()*14;
       return { x:ox, y:oy,
-               vx:(Math.random()-.5)*1.8, vy:(Math.random()-.5)*1.8,  /* 漂移 */
+               vx:(Math.random()-.5)*0.9, vy:(Math.random()-.5)*0.9,  /* 漂移 */
                tx:ox+Math.cos(baseAng)*dist, ty:oy+Math.sin(baseAng)*dist,
                rot:Math.random()*Math.PI*2,
                rotSpd:(Math.random()<.5?1:-1)*(.5+Math.random()*.6),   /* 更快更亂 */
@@ -4225,7 +4225,7 @@ function showLoading(show) {
   function spawnDefault(cx, cy) {
     const BIG=6;
     for(let i=0;i<BIG;i++){
-      const a=(i/BIG)*Math.PI*2, dist=50+Math.random()*40;
+      const a=(i/BIG)*Math.PI*2, dist=25+Math.random()*20;
       const w=8+Math.random()*8, h=w*(.35+Math.random()*.55);
       const col=DEF_COLORS[Math.floor(Math.random()*DEF_COLORS.length)];
       const el=spawnEl("spark-big",cx,cy,
@@ -4236,7 +4236,7 @@ function showLoading(show) {
     }
     const DUST=8;
     for(let i=0;i<DUST;i++){
-      const a=Math.random()*Math.PI*2, dist=65+Math.random()*70;
+      const a=Math.random()*Math.PI*2, dist=30+Math.random()*30;
       const sz=3+Math.random()*5, delay=40+Math.random()*100;
       const col=DEF_COLORS[Math.floor(Math.random()*DEF_COLORS.length)];
       const el=spawnEl("spark-dust",cx,cy,
@@ -5126,28 +5126,30 @@ const SFX = (() => {
       c.fillStyle='#CC2200'; c.beginPath(); c.ellipse(sx+sw/2,sy+sh/2,sw*.32,sh*.05,0,0,Math.PI*2); c.fill();
       return;
     }
-    /* cols×rows 格，每格一根竹子（高細長條＋紅節帶） */
-    const GRIDS={2:{c:2,r:1},3:{c:2,r:2},4:{c:2,r:2},5:{c:2,r:3},
+    /* 竹節形竹子：橢圓帽＋窄身＋中節，五條第3根紅色 */
+    const GRIDS={2:{c:2,r:1},3:{c:3,r:1},4:{c:2,r:2},5:{c:2,r:3},
                  6:{c:2,r:3},7:{c:2,r:4},8:{c:2,r:4},9:{c:3,r:3}};
     const {c:cols,r:rows}=GRIDS[n]||{c:2,r:4};
     const pad=3, cw=(TW-pad*2)/cols, rh=(TH-pad*2)/rows;
-    const sw=cw*.70, sh=rh*.84;
+    const sw=cw*.76, sh=rh*.90;
     let drawn=0;
     for(let r=0;r<rows;r++){
       for(let col=0;col<cols&&drawn<n;col++,drawn++){
-        /* n=3 的第 3 根、n=5 的第 5 根：置中在該列 */
-        const centred = (n===3&&drawn===2)||(n===5&&drawn===4);
+        const centred=(n===5&&drawn===4)||(n===7&&drawn===6);
         const cx=pad+(centred?cols/2:col+.5)*cw, cy=pad+(r+.5)*rh;
-        const x=cx-sw/2, y=cy-sh/2;
-        c.fillStyle='#2B8000'; _tileRR(c,x,y,sw,sh,sw*.25); c.fill();
-        c.strokeStyle='#1A5000'; c.lineWidth=.8; _tileRR(c,x,y,sw,sh,sw*.25); c.stroke();
-        c.fillStyle='#CC2200';
-        const rx=sw*.44, ry=Math.max(1.3,sh*.09);
+        const isRed=n===5&&drawn===2;
+        const mainC=isRed?'#CC2200':'#1E7800';
+        const darkC=isRed?'#8B0A00':'#0C4400';
+        const capRX=sw/2;
+        const capRY=Math.max(1.8,Math.min(capRX*.68,sh*.23));
+        const bW=sw*.68;
+        c.fillStyle=mainC;
+        c.fillRect(cx-bW/2,cy-sh/2+capRY*.8,bW,sh-capRY*1.6);
+        c.beginPath();c.ellipse(cx,cy-sh/2+capRY,capRX,capRY,0,0,Math.PI*2);c.fill();
+        c.beginPath();c.ellipse(cx,cy+sh/2-capRY,capRX,capRY,0,0,Math.PI*2);c.fill();
         if(sh>=16){
-          c.beginPath(); c.ellipse(cx,y+sh/3,rx,ry,0,0,Math.PI*2); c.fill();
-          c.beginPath(); c.ellipse(cx,y+sh*2/3,rx,ry,0,0,Math.PI*2); c.fill();
-        } else {
-          c.beginPath(); c.ellipse(cx,cy,rx,Math.max(1.3,sh*.13),0,0,Math.PI*2); c.fill();
+          c.fillStyle=darkC;
+          c.beginPath();c.ellipse(cx,cy,capRX*.85,capRY*.72,0,0,Math.PI*2);c.fill();
         }
       }
     }
