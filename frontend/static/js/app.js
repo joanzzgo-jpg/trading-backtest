@@ -2496,6 +2496,7 @@ function nextVisiblePane(el) {
    資料載入
 ══════════════════════════════════════════ */
 async function loadData(autoLoad = false) {
+  if (replayActive) exitReplay();
   /* 記住切換前的可見 K 棒數量，載入後還原相同縮放比例 */
   if (mainChart) {
     const _r = mainChart.timeScale().getVisibleLogicalRange();
@@ -2729,6 +2730,7 @@ function stopRealtime() {
 }
 
 async function fetchLatest() {
+  if (replayActive) return;
   try {
     const res  = await fetch("/api/latest", {
       method:"POST", headers:{"Content-Type":"application/json"},
@@ -4211,7 +4213,7 @@ function showLoading(show) {
         } else if (frame<=56) {
           _drawDie(c,d.x,d.y,0,d.face,d.alpha);
         } else {
-          d.alpha=Math.max(0,d.alpha-(d.alpha/14));
+          d.alpha=Math.max(0,d.alpha-0.04);
           _drawDie(c,d.x,d.y,0,d.face,d.alpha);
         }
       }
@@ -5125,7 +5127,7 @@ const SFX = (() => {
       return;
     }
     /* cols×rows 格，每格一根竹子（高細長條＋紅節帶） */
-    const GRIDS={2:{c:2,r:1},3:{c:3,r:1},4:{c:2,r:2},5:{c:2,r:3},
+    const GRIDS={2:{c:2,r:1},3:{c:2,r:2},4:{c:2,r:2},5:{c:2,r:3},
                  6:{c:2,r:3},7:{c:2,r:4},8:{c:2,r:4},9:{c:3,r:3}};
     const {c:cols,r:rows}=GRIDS[n]||{c:2,r:4};
     const pad=3, cw=(TW-pad*2)/cols, rh=(TH-pad*2)/rows;
@@ -5133,7 +5135,9 @@ const SFX = (() => {
     let drawn=0;
     for(let r=0;r<rows;r++){
       for(let col=0;col<cols&&drawn<n;col++,drawn++){
-        const cx=pad+(col+.5)*cw, cy=pad+(r+.5)*rh;
+        /* n=3 的第 3 根、n=5 的第 5 根：置中在該列 */
+        const centred = (n===3&&drawn===2)||(n===5&&drawn===4);
+        const cx=pad+(centred?cols/2:col+.5)*cw, cy=pad+(r+.5)*rh;
         const x=cx-sw/2, y=cy-sh/2;
         c.fillStyle='#2B8000'; _tileRR(c,x,y,sw,sh,sw*.25); c.fill();
         c.strokeStyle='#1A5000'; c.lineWidth=.8; _tileRR(c,x,y,sw,sh,sw*.25); c.stroke();
