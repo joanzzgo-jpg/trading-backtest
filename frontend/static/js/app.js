@@ -3526,7 +3526,7 @@ function startTickerRefresh() {
   if (_tickerTimer) clearInterval(_tickerTimer);
   _loadTickerCache();   // ← 先從 localStorage 即時渲染
   fetchTickers();       // ← 背景拉新資料
-  _tickerTimer = setInterval(fetchTickers, 10000);
+  _tickerTimer = setInterval(fetchTickers, 2000);
 }
 
 function bindTickerPanel() {
