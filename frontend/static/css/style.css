@@ -1538,8 +1538,8 @@ html, body {
 .peek-bear.peeking {
   bottom: -80px;
 }
-.peek-bear.peeking:hover,
-.peek-bear.peek-visit {
+.peek-bear.peek-visit,
+.peek-bear.peek-full {
   bottom: 5px;
 }
 .peek-bear img {

@@ -4361,6 +4361,8 @@ function showLoading(show) {
 
   let _bubbleTimer = null;
   let _bearHover = false;
+  let _bearTransitioning = false;
+  let _bearTransTimer = null;
 
   function showBubble() {
     if (!bubble) return;
@@ -4379,15 +4381,20 @@ function showLoading(show) {
 
   function _onEnter() {
     _bearHover = true;
+    clearTimeout(_bearTransTimer);
+    _bearTransitioning = true;
+    bear.classList.add('peek-full');
+    _bearTransTimer = setTimeout(() => { _bearTransitioning = false; }, 520);
     clearTimeout(_bubbleTimer);
     if (!bubble?.classList.contains("visible")) showBubble();
     window._syncWeatherCard('full');
   }
   function _onLeave(e) {
-    /* only hide if cursor left BOTH the bear and the bubble */
+    if (_bearTransitioning) return;   // ignore during slide-up animation
     const to = e.relatedTarget;
     if (bear.contains(to) || bubble?.contains(to)) return;
     _bearHover = false;
+    bear.classList.remove('peek-full');
     _startHideBubble();
     window._syncWeatherCard('peeking');
   }
