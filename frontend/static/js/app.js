@@ -5198,13 +5198,34 @@ const SFX = (() => {
              a:.60+Math.random()*.38 };
   }
   let _autoType = "sunny";
+  let _wxLat = 25.04, _wxLon = 121.51, _wxTimer = null;
+  const _wd = { code:0, temp:null, precip:0, cloudCover:50, windSpeed:0, visibility:10000, isDay:true, city:null, updatedAt:null, intensity:0.5 };
+  const WMO_DESC = {
+    0:'晴天',1:'晴時多雲',2:'局部多雲',3:'陰天',
+    45:'霧',48:'霧凇',
+    51:'毛毛雨',53:'毛毛雨',55:'濃毛毛雨',56:'凍毛毛雨',57:'濃凍毛毛雨',
+    61:'小雨',63:'中雨',65:'大雨',66:'凍雨',67:'大凍雨',
+    71:'小雪',73:'中雪',75:'大雪',77:'雪粒',
+    80:'陣雨',81:'中陣雨',82:'暴雨',85:'小陣雪',86:'大陣雪',
+    95:'雷暴',96:'冰雹雷暴',99:'冰雹雷暴'
+  };
+  const _TZ_CITY = {
+    'Taipei':'台北','Hong_Kong':'香港','Tokyo':'東京','Seoul':'首爾',
+    'Shanghai':'上海','Beijing':'北京','Singapore':'新加坡',
+    'Bangkok':'曼谷','New_York':'紐約','Los_Angeles':'洛杉磯',
+    'Chicago':'芝加哥','London':'倫敦','Paris':'巴黎','Dubai':'杜拜',
+    'Sydney':'雪梨','Melbourne':'墨爾本','Auckland':'奧克蘭',
+  };
 
   function wmoType(c, d) {
-    if (c === 0) return d ? "sunny" : "night";
-    if (c <= 3)  return "cloudy";
-    if (c <= 48) return "fog";
-    if (c <= 67 || (c >= 80 && c <= 82)) return "rain";
-    if (c <= 77 || c === 85 || c === 86) return "snow";
+    if (c <= 1)                                    return d ? "sunny" : "night";
+    if (c <= 3)                                    return "cloudy";
+    if (c >= 45 && c <= 48)                        return "fog";
+    if (c >= 51 && c <= 57)                        return "rain";
+    if (c >= 61 && c <= 67)                        return c >= 65 ? "storm" : "rain";
+    if ((c >= 71 && c <= 77) || c===85 || c===86)  return "snow";
+    if (c >= 80 && c <= 82)                        return c === 82 ? "storm" : "rain";
+    if (c === 95 || c === 96 || c === 99)           return "thunder";
     return "storm";
   }
 
@@ -5242,15 +5263,21 @@ const SFX = (() => {
   }
 
   function _init() {
+    const ri = Math.max(0.3, _wd.intensity);          /* precip intensity 0.3-1 */
+    const ci = Math.min(1, _wd.cloudCover / 100);      /* cloud cover 0-1 */
     stars  = Array.from({length:100}, () => ({ x:Math.random()*W, y:Math.random()*H*.88, r:.3+Math.random()*1.8, ph:Math.random()*Math.PI*2, sp:.8+Math.random()*1.5 }));
     sparks = Array.from({length:14}, _newSpark);
-    rainP  = [
-      ...Array.from({length:95},  () => ({ x:Math.random()*W, y:Math.random()*H, spd:3+Math.random()*2.5, len:6+Math.random()*8,  a:.09+Math.random()*.13 })),
-      ...Array.from({length:55},  () => ({ x:Math.random()*W, y:Math.random()*H, spd:9+Math.random()*6,   len:14+Math.random()*16, a:.34+Math.random()*.44 })),
+    const nFine=Math.round(40+80*ri), nHeavy=Math.round(15+50*ri);
+    rainP = [
+      ...Array.from({length:nFine},  () => ({ x:Math.random()*W, y:Math.random()*H, spd:3+Math.random()*2.5,  len:6+Math.random()*8,  a:.09+Math.random()*.13 })),
+      ...Array.from({length:nHeavy}, () => ({ x:Math.random()*W, y:Math.random()*H, spd:9+Math.random()*6,    len:14+Math.random()*16, a:.34+Math.random()*.44 })),
     ];
     ripples = [];
-    snowP  = Array.from({length:38}, () => ({ x:Math.random()*W, y:Math.random()*H, r:2+Math.random()*5, spd:.4+Math.random()*1.2, drift:(Math.random()-.5)*.6, rot:Math.random()*Math.PI/3, rotSpd:(Math.random()-.5)*.022, a:.5+Math.random()*.5 }));
-    cloudP = Array.from({length:5}, (_, i) => ({ x:Math.random()*W, y:H*(.06+i*.17), sc:.13+Math.random()*.13, al:.20+Math.random()*.16, sp:.04+Math.random()*.12 }));
+    const nSnow = Math.round(18+30*ri);
+    snowP  = Array.from({length:nSnow}, () => ({ x:Math.random()*W, y:Math.random()*H, r:2+Math.random()*5, spd:.4+Math.random()*1.2, drift:(Math.random()-.5)*.6, rot:Math.random()*Math.PI/3, rotSpd:(Math.random()-.5)*.022, a:.5+Math.random()*.5 }));
+    const nCloud=Math.max(2, Math.round(2+5*ci));
+    const alBase=0.15+ci*.30, scBase=0.11+ci*.08;
+    cloudP = Array.from({length:nCloud}, (_, i) => ({ x:Math.random()*W, y:H*(.05+i*(0.88/nCloud)), sc:scBase+Math.random()*.10, al:alBase+Math.random()*.12, sp:.04+Math.random()*.12 }));
     leafP  = Array.from({length:42}, () => { const lf=_newLeaf(); lf.y=Math.random()*H; return lf; });
     petalP  = Array.from({length:38}, () => { const p=_newPetal(); p.y=Math.random()*H; return p; });
     mahjongP= Array.from({length:28}, () => { const p=_newMahjong(); p.y=Math.random()*H; return p; });
@@ -5690,11 +5717,72 @@ const SFX = (() => {
   function loop(ts) { rafId=requestAnimationFrame(loop); if(document.hidden||ts-_lastFrameTs<33)return; _lastFrameTs=ts; draw(); }
   function start(wt) { type=wt; _init(); _lastFrameTs=0; if(!rafId) requestAnimationFrame(loop); }
 
-  function fetchWeather(lat,lon) {
-    fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&timezone=auto`)
-      .then(r=>r.json())
-      .then(d=>{ const cw=d.current_weather; _autoType=wmoType(cw.weathercode,cw.is_day===1); if(type!=="leaves") start(_autoType); })
-      .catch(()=>{ _autoType="sunny"; if(type!=="leaves") start("sunny"); });
+  function _renderWeatherCard() {
+    if (_wd.temp == null) return;
+    let el = document.getElementById('_wxCard');
+    if (!el) {
+      el = document.createElement('div'); el.id = '_wxCard';
+      el.style.cssText =
+        'position:fixed;bottom:14px;left:14px;z-index:200;'+
+        'background:rgba(10,12,20,.65);backdrop-filter:blur(10px);'+
+        'border:1px solid rgba(255,255,255,.10);border-radius:10px;'+
+        'padding:7px 12px;color:#dde2ee;font-size:11.5px;line-height:1.72;'+
+        'font-family:-apple-system,BlinkMacSystemFont,sans-serif;'+
+        'pointer-events:none;user-select:none;';
+      document.body.appendChild(el);
+    }
+    const desc = WMO_DESC[_wd.code] || '未知';
+    const city = _wd.city ? _wd.city + '　' : '';
+    const hm   = _wd.updatedAt
+      ? String(_wd.updatedAt.getHours()).padStart(2,'0')+':'+
+        String(_wd.updatedAt.getMinutes()).padStart(2,'0')
+      : '';
+    const vis  = _wd.visibility >= 1000
+      ? (_wd.visibility/1000).toFixed(1)+' km' : _wd.visibility+' m';
+    el.innerHTML =
+      '<div style="font-size:13px;font-weight:600;letter-spacing:.3px">'+city+_wd.temp+'°C　'+desc+'</div>'+
+      '<div style="opacity:.68">風速 '+_wd.windSpeed+' km/h　雲量 '+_wd.cloudCover+'%</div>'+
+      '<div style="opacity:.68">降雨 '+_wd.precip+' mm　能見度 '+vis+'</div>'+
+      '<div style="opacity:.38;font-size:10px">'+hm+' 更新</div>';
+  }
+
+  function fetchWeather(lat, lon) {
+    _wxLat = lat; _wxLon = lon;
+    if (!_wxTimer) _wxTimer = setInterval(() => fetchWeather(_wxLat, _wxLon), 30*60*1000);
+    const url = 'https://api.open-meteo.com/v1/forecast?latitude='+lat+'&longitude='+lon+
+      '&current=weather_code,temperature_2m,is_day,precipitation,cloud_cover,wind_speed_10m,visibility'+
+      '&timezone=auto';
+    fetch(url)
+      .then(r => r.json())
+      .then(d => {
+        const c = d.current;
+        _wd.code       = c.weather_code;
+        _wd.temp       = Math.round(c.temperature_2m);
+        _wd.isDay      = c.is_day === 1;
+        _wd.precip     = +(c.precipitation || 0).toFixed(1);
+        _wd.cloudCover = c.cloud_cover || 0;
+        _wd.windSpeed  = Math.round(c.wind_speed_10m || 0);
+        _wd.visibility = c.visibility ?? 10000;
+        _wd.updatedAt  = new Date();
+        const pInt = Math.min(1, (c.precipitation || 0) / 20);
+        const cInt = (c.cloud_cover || 0) / 100;
+        _wd.intensity  = Math.max(0.3, pInt * 0.7 + cInt * 0.3);
+        const tzPart = (d.timezone || '').split('/').pop();
+        _wd.city = _TZ_CITY[tzPart] || (tzPart ? tzPart.replace(/_/g,' ') : null);
+        _autoType = wmoType(_wd.code, _wd.isDay);
+        const manualOn = ['leaf','rain','snow','spring','thunder','mahjong'].some(
+          w => document.getElementById(w+'ToggleBtn')?.classList.contains(w+'-active')
+        );
+        if (!manualOn) start(_autoType);
+        _renderWeatherCard();
+      })
+      .catch(() => {
+        _autoType = 'sunny'; _wd.intensity = 0.5;
+        const manualOn = ['leaf','rain','snow','spring','thunder','mahjong'].some(
+          w => document.getElementById(w+'ToggleBtn')?.classList.contains(w+'-active')
+        );
+        if (!manualOn) start('sunny');
+      });
   }
   function _clearWeatherBtns() {
     document.getElementById("leafToggleBtn")    ?.classList.remove("leaf-active");
