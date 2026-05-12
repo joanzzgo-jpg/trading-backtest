@@ -3524,7 +3524,7 @@ function startTickerRefresh() {
   if (_tickerTimer) clearInterval(_tickerTimer);
   _loadTickerCache();   // ← 先從 localStorage 即時渲染
   fetchTickers();       // ← 背景拉新資料
-  _tickerTimer = setInterval(fetchTickers, 2000);
+  _tickerTimer = setInterval(fetchTickers, 5000);
 }
 
 function bindTickerPanel() {
@@ -3921,14 +3921,17 @@ function showLoading(show) {
 
 /* ── 點擊特效（依天氣型別：落葉 / 雨滴 / 雪花 / 花瓣 / 預設魔法粒子） ── */
 (function initClickSparks() {
-  let _lastClick = 0;
+  let _lastClick = 0, _activeFx = 0;
 
-  /* ── 建立暫時 Canvas ── */
+  /* ── 建立暫時 Canvas；超過 4 個並行特效時跳過 ── */
   function makeCanvas(cx, cy, size) {
+    if (_activeFx >= 4) return null;
+    _activeFx++;
     const cvs = document.createElement("canvas");
     cvs.width = size; cvs.height = size;
     cvs.style.cssText = `position:fixed;left:${cx-size/2}px;top:${cy-size/2}px;pointer-events:none;z-index:9999;`;
     document.body.appendChild(cvs);
+    cvs._fxDone = () => { _activeFx--; cvs.remove(); };
     return cvs;
   }
 
@@ -3936,7 +3939,7 @@ function showLoading(show) {
   function spawnLeaves(cx, cy) {
     const C = ["#8B4513","#CD853F","#D2691E","#A0522D","#6B8E23","#9ACD32","#DAA520","#FF8C00"];
     const SIZE = 240, N = 11;
-    const cvs = makeCanvas(cx, cy, SIZE);
+    const cvs = makeCanvas(cx, cy, SIZE); if(!cvs) return;
     const ctx = cvs.getContext("2d");
     const ox = SIZE/2, oy = SIZE/2;
     const pts = Array.from({length:N}, () => {
@@ -3962,14 +3965,14 @@ function showLoading(show) {
         lf.x+=lf.vx; lf.y+=lf.vy; lf.vy+=lf.g; lf.vx*=.98; lf.rot+=lf.rs; lf.life-=.013;
         if(lf.life>0){alive=true;draw(lf);}
       }
-      if(alive) raf=requestAnimationFrame(loop); else{cancelAnimationFrame(raf);cvs.remove();}
+      if(alive) raf=requestAnimationFrame(loop); else{cancelAnimationFrame(raf);cvs._fxDone();}
     } loop();
   }
 
   /* ── 雨滴（藍白發光線條） ── */
   function spawnRain(cx, cy) {
     const SIZE = 240, N = 16;
-    const cvs = makeCanvas(cx, cy, SIZE);
+    const cvs = makeCanvas(cx, cy, SIZE); if(!cvs) return;
     const ctx = cvs.getContext("2d");
     const ox = SIZE/2, oy = SIZE/2;
     const pts = Array.from({length:N}, (_,i) => {
@@ -3991,14 +3994,14 @@ function showLoading(show) {
           ctx.stroke(); ctx.restore();
         }
       }
-      if(alive) raf=requestAnimationFrame(loop); else{cancelAnimationFrame(raf);cvs.remove();}
+      if(alive) raf=requestAnimationFrame(loop); else{cancelAnimationFrame(raf);cvs._fxDone();}
     } loop();
   }
 
   /* ── 雪花（冰藍發光晶體） ── */
   function spawnSnow(cx, cy) {
     const SIZE = 240, N = 9;
-    const cvs = makeCanvas(cx, cy, SIZE);
+    const cvs = makeCanvas(cx, cy, SIZE); if(!cvs) return;
     const ctx = cvs.getContext("2d");
     const ox = SIZE/2, oy = SIZE/2;
     const pts = Array.from({length:N}, () => {
@@ -4030,7 +4033,7 @@ function showLoading(show) {
         f.x+=f.vx; f.y+=f.vy; f.vy+=f.g; f.vx*=.99; f.rot+=f.rs; f.life-=.014;
         if(f.life>0){alive=true;drawFlake(f);}
       }
-      if(alive) raf=requestAnimationFrame(loop); else{cancelAnimationFrame(raf);cvs.remove();}
+      if(alive) raf=requestAnimationFrame(loop); else{cancelAnimationFrame(raf);cvs._fxDone();}
     } loop();
   }
 
@@ -4038,7 +4041,7 @@ function showLoading(show) {
   function spawnPetals(cx, cy) {
     const C = ["#FFB7C5","#FF91A4","#FFD1DC","#FF69B4","#FFC0CB","#FFFFFF","#FFE4E1"];
     const SIZE = 240, N = 13;
-    const cvs = makeCanvas(cx, cy, SIZE);
+    const cvs = makeCanvas(cx, cy, SIZE); if(!cvs) return;
     const ctx = cvs.getContext("2d");
     const ox = SIZE/2, oy = SIZE/2;
     const pts = Array.from({length:N}, () => {
@@ -4069,7 +4072,7 @@ function showLoading(show) {
         p.rot+=p.rs; p.life-=.013;
         if(p.life>0){alive=true;drawPetal(p);}
       }
-      if(alive) raf=requestAnimationFrame(loop); else{cancelAnimationFrame(raf);cvs.remove();}
+      if(alive) raf=requestAnimationFrame(loop); else{cancelAnimationFrame(raf);cvs._fxDone();}
     } loop();
   }
 
@@ -4085,7 +4088,7 @@ function showLoading(show) {
   /* ── 雷暴點擊：小閃電向外輻射 ── */
   function spawnLightning(cx, cy) {
     const SIZE = 150, N = 5;
-    const cvs = makeCanvas(cx, cy, SIZE);
+    const cvs = makeCanvas(cx, cy, SIZE); if(!cvs) return;
     const ctx = cvs.getContext("2d");
     const ox = SIZE/2, oy = SIZE/2;
     function minibolt(x1,y1,x2,y2,d) {
@@ -4129,7 +4132,7 @@ function showLoading(show) {
         b.alpha-=.07;
       }
       frame++;
-      if(alive||flashA>0) raf=requestAnimationFrame(loop); else{cancelAnimationFrame(raf);cvs.remove();}
+      if(alive||flashA>0) raf=requestAnimationFrame(loop); else{cancelAnimationFrame(raf);cvs._fxDone();}
     } loop();
   }
 
@@ -4177,7 +4180,7 @@ function showLoading(show) {
   }
   function spawnDice(cx, cy) {
     const SIZE=150;
-    const cvs=makeCanvas(cx,cy,SIZE);
+    const cvs=makeCanvas(cx,cy,SIZE); if(!cvs) return;
     const c=cvs.getContext("2d");
     const ox=SIZE/2, oy=SIZE/2;
     const dice=Array.from({length:3},(_,i)=>{
@@ -4213,7 +4216,7 @@ function showLoading(show) {
         }
       }
       frame++;
-      if(alive) raf=requestAnimationFrame(loop); else{cancelAnimationFrame(raf);cvs.remove();}
+      if(alive) raf=requestAnimationFrame(loop); else{cancelAnimationFrame(raf);cvs._fxDone();}
     } loop();
   }
 
@@ -4244,7 +4247,7 @@ function showLoading(show) {
 
   document.addEventListener("click", e => {
     const now = Date.now();
-    if (now - _lastClick < 50) return;
+    if (now - _lastClick < 80) return;
     _lastClick = now;
     const cx = e.clientX, cy = e.clientY;
     const wt = window._getWeatherType ? window._getWeatherType() : null;
@@ -5044,7 +5047,7 @@ const SFX = (() => {
   const canvas = document.getElementById("weatherBg");
   if (!canvas) return;
   const ctx = canvas.getContext("2d");
-  let W = 0, H = 0, type = "sunny", rafId = null;
+  let W = 0, H = 0, type = "sunny", rafId = null, _gc = {}, _lastFrameTs = 0;
 
   /* shared state */
   let sunAngle = 0, moonGlow = 0;
@@ -5202,6 +5205,7 @@ const SFX = (() => {
   function resize() {
     W = canvas.width  = window.innerWidth  || 1200;
     H = canvas.height = window.innerHeight || 700;
+    _buildGradCache();
     _init();
   }
 
@@ -5210,19 +5214,40 @@ const SFX = (() => {
     return { x: W*.85+Math.cos(a)*d, y: H*.08+Math.sin(a)*d, r: .8+Math.random()*2.2, life: 0, maxLife: 50+Math.random()*80 };
   }
 
+  /* pre-build all gradients that are constant between resizes */
+  function _buildGradCache() {
+    const sx=W*.85, sy=H*.08;
+    function rg(x0,y0,r0,x1,y1,r1,...stops){const g=ctx.createRadialGradient(x0,y0,r0,x1,y1,r1);stops.forEach(([p,c])=>g.addColorStop(p,c));return g;}
+    function lg(x0,y0,x1,y1,...stops){const g=ctx.createLinearGradient(x0,y0,x1,y1);stops.forEach(([p,c])=>g.addColorStop(p,c));return g;}
+    _gc.sunBg    = rg(sx,sy,0,sx,sy,W*.85,[0,"rgba(255,240,110,.38)"],[.45,"rgba(255,165,30,.11)"],[1,"rgba(0,0,0,0)"]);
+    _gc.sunDisc  = rg(sx,sy,0,sx,sy,28,[0,"#FFFCD0"],[1,"#FFD700"]);
+    _gc.nebula   = [rg(W*.38,H*.28,0,W*.38,H*.28,W*.55,[0,"rgba(75,25,115,.09)"],[1,"rgba(0,0,0,0)"]),
+                    rg(W*.72,H*.55,0,W*.72,H*.55,W*.45,[0,"rgba(18,52,118,.07)"],[1,"rgba(0,0,0,0)"])];
+    _gc.stormVg  = rg(W/2,H/2,H*.15,W/2,H/2,W*.88,[0,"rgba(0,0,0,0)"],[1,"rgba(12,12,32,.20)"]);
+    _gc.thunderVg= rg(W/2,H/2,H*.06,W/2,H/2,W*.95,[0,"rgba(6,6,22,.52)"],[1,"rgba(2,2,10,.78)"]);
+    _gc.fogVg    = rg(W/2,H/2,H*.22,W/2,H/2,W*.8,[0,"rgba(0,0,0,0)"],[1,"rgba(150,175,205,.08)"]);
+    _gc.rainSky  = lg(0,0,0,H,[0,"rgba(28,42,66,.26)"],[1,"rgba(8,18,38,.06)"]);
+    _gc.rainGnd  = lg(0,H*.88,0,H,[0,"rgba(100,160,220,0)"],[1,"rgba(80,130,200,.09)"]);
+    _gc.rainMist = lg(0,H*.62,0,H,[0,"rgba(140,195,245,0)"],[.55,"rgba(140,195,245,.035)"],[1,"rgba(140,195,245,.10)"]);
+    _gc.snowAtm  = lg(0,0,0,H*.35,[0,"rgba(200,218,240,.07)"],[1,"rgba(0,0,0,0)"]);
+    _gc.leafAmb  = rg(W*.82,0,0,W*.82,0,H*.78,[0,"rgba(255,148,28,.09)"],[1,"rgba(0,0,0,0)"]);
+    _gc.leafGnd  = lg(0,H*.82,0,H,[0,"rgba(0,0,0,0)"],[1,"rgba(55,28,8,.06)"]);
+    _gc.springSky= lg(0,0,0,H*.7,[0,"rgba(255,210,232,.07)"],[1,"rgba(255,240,248,.02)"]);
+  }
+
   function _init() {
-    stars  = Array.from({length:200}, () => ({ x:Math.random()*W, y:Math.random()*H*.88, r:.3+Math.random()*1.8, ph:Math.random()*Math.PI*2, sp:.8+Math.random()*1.5 }));
-    sparks = Array.from({length:22}, _newSpark);
+    stars  = Array.from({length:100}, () => ({ x:Math.random()*W, y:Math.random()*H*.88, r:.3+Math.random()*1.8, ph:Math.random()*Math.PI*2, sp:.8+Math.random()*1.5 }));
+    sparks = Array.from({length:14}, _newSpark);
     rainP  = [
-      ...Array.from({length:130}, () => ({ x:Math.random()*W, y:Math.random()*H, spd:3+Math.random()*2.5, len:6+Math.random()*8,  a:.09+Math.random()*.13 })),
-      ...Array.from({length:80},  () => ({ x:Math.random()*W, y:Math.random()*H, spd:9+Math.random()*6,   len:14+Math.random()*16, a:.34+Math.random()*.44 })),
+      ...Array.from({length:95},  () => ({ x:Math.random()*W, y:Math.random()*H, spd:3+Math.random()*2.5, len:6+Math.random()*8,  a:.09+Math.random()*.13 })),
+      ...Array.from({length:55},  () => ({ x:Math.random()*W, y:Math.random()*H, spd:9+Math.random()*6,   len:14+Math.random()*16, a:.34+Math.random()*.44 })),
     ];
     ripples = [];
-    snowP  = Array.from({length:55}, () => ({ x:Math.random()*W, y:Math.random()*H, r:2+Math.random()*5, spd:.4+Math.random()*1.2, drift:(Math.random()-.5)*.6, rot:Math.random()*Math.PI/3, rotSpd:(Math.random()-.5)*.022, a:.5+Math.random()*.5 }));
-    cloudP = Array.from({length:8}, (_, i) => ({ x:Math.random()*W, y:H*(.05+i*.11), sc:.12+Math.random()*.14, al:.20+Math.random()*.16, sp:.04+Math.random()*.12 }));
-    leafP  = Array.from({length:65}, () => { const lf=_newLeaf(); lf.y=Math.random()*H; return lf; });
-    petalP  = Array.from({length:55}, () => { const p=_newPetal(); p.y=Math.random()*H; return p; });
-    mahjongP= Array.from({length:38}, () => { const p=_newMahjong(); p.y=Math.random()*H; return p; });
+    snowP  = Array.from({length:38}, () => ({ x:Math.random()*W, y:Math.random()*H, r:2+Math.random()*5, spd:.4+Math.random()*1.2, drift:(Math.random()-.5)*.6, rot:Math.random()*Math.PI/3, rotSpd:(Math.random()-.5)*.022, a:.5+Math.random()*.5 }));
+    cloudP = Array.from({length:5}, (_, i) => ({ x:Math.random()*W, y:H*(.06+i*.17), sc:.13+Math.random()*.13, al:.20+Math.random()*.16, sp:.04+Math.random()*.12 }));
+    leafP  = Array.from({length:42}, () => { const lf=_newLeaf(); lf.y=Math.random()*H; return lf; });
+    petalP  = Array.from({length:38}, () => { const p=_newPetal(); p.y=Math.random()*H; return p; });
+    mahjongP= Array.from({length:28}, () => { const p=_newMahjong(); p.y=Math.random()*H; return p; });
     shootTimer = 200+Math.floor(Math.random()*250);
   }
 
@@ -5303,39 +5328,33 @@ const SFX = (() => {
   function dSunny(t) {
     const sx=W*.85, sy=H*.08;
     sunAngle += .0035;
-    /* background warm glow */
-    const bg=ctx.createRadialGradient(sx,sy,0,sx,sy,W*.85);
-    bg.addColorStop(0,"rgba(255,240,110,.38)"); bg.addColorStop(.45,"rgba(255,165,30,.11)"); bg.addColorStop(1,"rgba(0,0,0,0)");
-    ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
-    /* 16 rotating rays */
-    ctx.save(); ctx.translate(sx,sy);
-    for (let i=0;i<16;i++) {
-      const a=sunAngle+(i/16)*Math.PI*2, even=i%2===0;
-      const len=W*(.32+.06*Math.sin(t*.7+i));
-      const gr=ctx.createLinearGradient(0,0,Math.cos(a)*len,Math.sin(a)*len);
-      gr.addColorStop(0,`rgba(255,230,80,${even?.19:.10})`); gr.addColorStop(1,"rgba(255,180,20,0)");
-      ctx.strokeStyle=gr; ctx.lineWidth=even?2.5:1.2;
-      ctx.beginPath(); ctx.moveTo(Math.cos(a)*30,Math.sin(a)*30); ctx.lineTo(Math.cos(a)*len,Math.sin(a)*len); ctx.stroke();
+    /* background warm glow (cached gradient) */
+    ctx.fillStyle=_gc.sunBg; ctx.fillRect(0,0,W,H);
+    /* 10 rotating rays – solid strokes, no per-ray gradient */
+    ctx.save(); ctx.translate(sx,sy); ctx.lineCap="round";
+    for (let i=0;i<10;i++) {
+      const a=sunAngle+(i/10)*Math.PI*2, even=i%2===0;
+      const len=W*(.30+.05*Math.sin(t*.7+i));
+      ctx.strokeStyle=even?`rgba(255,230,80,.14)`:`rgba(255,200,50,.07)`;
+      ctx.lineWidth=even?2.5:1.2;
+      ctx.beginPath(); ctx.moveTo(Math.cos(a)*32,Math.sin(a)*32); ctx.lineTo(Math.cos(a)*len,Math.sin(a)*len); ctx.stroke();
     }
     ctx.restore();
-    /* pulsing halo rings */
+    /* pulsing halo rings (no shadowBlur) */
     [55,85,120].forEach((r,i) => {
-      ctx.strokeStyle=`rgba(255,220,80,${.22-i*.06})`; ctx.lineWidth=2;
-      ctx.shadowBlur=14; ctx.shadowColor="rgba(255,200,0,.7)";
+      ctx.strokeStyle=`rgba(255,220,80,${.20-i*.05})`; ctx.lineWidth=i===0?2.5:2;
       ctx.beginPath(); ctx.arc(sx,sy,r+Math.sin(t*1.1+i)*7,0,Math.PI*2); ctx.stroke();
     });
-    /* sun disc */
-    ctx.shadowBlur=42; ctx.shadowColor="rgba(255,200,0,1)";
-    const sg=ctx.createRadialGradient(sx,sy,0,sx,sy,28);
-    sg.addColorStop(0,"#FFFCD0"); sg.addColorStop(1,"#FFD700");
-    ctx.fillStyle=sg; ctx.beginPath(); ctx.arc(sx,sy,28,0,Math.PI*2); ctx.fill();
+    /* sun disc (cached gradient) */
+    ctx.shadowBlur=30; ctx.shadowColor="rgba(255,200,0,1)";
+    ctx.fillStyle=_gc.sunDisc; ctx.beginPath(); ctx.arc(sx,sy,28,0,Math.PI*2); ctx.fill();
     ctx.shadowBlur=0;
     /* sparkles */
     sparks.forEach((p,i) => {
       p.life++;
       if (p.life>p.maxLife) { sparks[i]=_newSpark(); return; }
       const a=Math.sin((p.life/p.maxLife)*Math.PI)*.88;
-      if (a>.5) { ctx.shadowBlur=7; ctx.shadowColor="rgba(255,220,0,.9)"; }
+      if (a>.75) { ctx.shadowBlur=5; ctx.shadowColor="rgba(255,220,0,.9)"; }
       ctx.fillStyle=`rgba(255,242,120,${a})`;
       ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2); ctx.fill(); ctx.shadowBlur=0;
     });
@@ -5343,16 +5362,12 @@ const SFX = (() => {
 
   function dNight(t) {
     moonGlow = Math.sin(t*.5)*.12+.5;
-    /* nebula blobs */
-    [[.38,.28,.55,"rgba(75,25,115,.09)"],[.72,.55,.45,"rgba(18,52,118,.07)"]].forEach(([cx,cy,rr,c]) => {
-      const g=ctx.createRadialGradient(W*cx,H*cy,0,W*cx,H*cy,W*rr);
-      g.addColorStop(0,c); g.addColorStop(1,"rgba(0,0,0,0)");
-      ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
-    });
+    /* nebula blobs (cached gradients) */
+    _gc.nebula.forEach(g => { ctx.fillStyle=g; ctx.fillRect(0,0,W,H); });
     /* twinkling stars */
     stars.forEach(p => {
       const a=.15+.75*Math.sin(t*p.sp+p.ph);
-      if (a>.72) { ctx.shadowBlur=7; ctx.shadowColor="rgba(200,220,255,.9)"; }
+      if (a>.88) { ctx.shadowBlur=5; ctx.shadowColor="rgba(200,220,255,.9)"; }
       ctx.fillStyle=`rgba(222,232,255,${a})`;
       ctx.beginPath(); ctx.arc(p.x,p.y,a>.6?p.r*1.3:p.r,0,Math.PI*2); ctx.fill(); ctx.shadowBlur=0;
     });
@@ -5388,23 +5403,19 @@ const SFX = (() => {
   }
 
   function dFog(t) {
+    /* flat bands – no per-band gradient allocation */
     for (let i=0;i<8;i++) {
       const y=H*(.10+i*.12)+Math.sin(t*(.2+i*.04)+i)*H*.04;
       const dn=.05+(i===3||i===4?.04:0);
-      const gr=ctx.createLinearGradient(0,y-65,0,y+65);
-      gr.addColorStop(0,"rgba(180,200,228,0)"); gr.addColorStop(.5,`rgba(180,200,228,${dn})`); gr.addColorStop(1,"rgba(180,200,228,0)");
-      ctx.fillStyle=gr; ctx.fillRect(0,y-65,W,130);
+      ctx.fillStyle=`rgba(180,200,228,${(dn*.55).toFixed(3)})`;
+      ctx.fillRect(0,Math.round(y-65),W,130);
     }
-    const vg=ctx.createRadialGradient(W/2,H/2,H*.22,W/2,H/2,W*.8);
-    vg.addColorStop(0,"rgba(0,0,0,0)"); vg.addColorStop(1,"rgba(150,175,205,.08)");
-    ctx.fillStyle=vg; ctx.fillRect(0,0,W,H);
+    ctx.fillStyle=_gc.fogVg; ctx.fillRect(0,0,W,H);
   }
 
   function dRain() {
-    /* stormy sky overlay */
-    const sky=ctx.createLinearGradient(0,0,0,H);
-    sky.addColorStop(0,"rgba(28,42,66,.26)"); sky.addColorStop(1,"rgba(8,18,38,.06)");
-    ctx.fillStyle=sky; ctx.fillRect(0,0,W,H);
+    /* stormy sky overlay (cached gradient) */
+    ctx.fillStyle=_gc.rainSky; ctx.fillRect(0,0,W,H);
 
     ctx.lineCap="round";
     const near=p=>p.a>0.3;
@@ -5430,17 +5441,10 @@ const SFX = (() => {
       if (rp.a<=0) ripples.splice(i,1);
     }
 
-    /* wet ground sheen */
-    const gnd=ctx.createLinearGradient(0,H*.88,0,H);
-    gnd.addColorStop(0,"rgba(100,160,220,0)"); gnd.addColorStop(1,"rgba(80,130,200,.09)");
-    ctx.fillStyle=gnd; ctx.fillRect(0,H*.88,W,H*.12);
-
-    /* bottom mist */
-    const mist=ctx.createLinearGradient(0,H*.62,0,H);
-    mist.addColorStop(0,"rgba(140,195,245,0)");
-    mist.addColorStop(.55,"rgba(140,195,245,.035)");
-    mist.addColorStop(1,"rgba(140,195,245,.10)");
-    ctx.fillStyle=mist; ctx.fillRect(0,H*.62,W,H*.38);
+    /* wet ground sheen (cached) */
+    ctx.fillStyle=_gc.rainGnd; ctx.fillRect(0,H*.88,W,H*.12);
+    /* bottom mist (cached) */
+    ctx.fillStyle=_gc.rainMist; ctx.fillRect(0,H*.62,W,H*.38);
   }
 
   function dSnow(t) {
@@ -5450,9 +5454,7 @@ const SFX = (() => {
       if (p.y>H+p.r*2) { p.y=-p.r*2; p.x=Math.random()*W; }
       if (p.x<-10) p.x=W+10; if (p.x>W+10) p.x=-10;
     });
-    const sa=ctx.createLinearGradient(0,0,0,H*.35);
-    sa.addColorStop(0,"rgba(200,218,240,.07)"); sa.addColorStop(1,"rgba(0,0,0,0)");
-    ctx.fillStyle=sa; ctx.fillRect(0,0,W,H*.35);
+    ctx.fillStyle=_gc.snowAtm; ctx.fillRect(0,0,W,H*.35);
   }
 
   function dStorm() {
@@ -5487,10 +5489,8 @@ const SFX = (() => {
       flashAlpha=Math.max(0,flashAlpha-.024);
       if (flashAlpha<=0) lightningPath=[];
     }
-    /* dark storm vignette */
-    const vg=ctx.createRadialGradient(W/2,H/2,H*.15,W/2,H/2,W*.88);
-    vg.addColorStop(0,"rgba(0,0,0,0)"); vg.addColorStop(1,"rgba(12,12,32,.20)");
-    ctx.fillStyle=vg; ctx.fillRect(0,0,W,H);
+    /* dark storm vignette (cached) */
+    ctx.fillStyle=_gc.stormVg; ctx.fillRect(0,0,W,H);
   }
 
   /* ── 超強雷暴：傾盆大雨 + 頻繁多叉閃電 + 雷聲 ── */
@@ -5557,10 +5557,8 @@ const SFX = (() => {
       ctx.fillStyle=`rgba(215,230,255,${fl.alpha})`; ctx.fillRect(0,0,W,H);
       fl.alpha=Math.max(0,fl.alpha-fl.decay);
     }
-    /* heavy dark vignette */
-    const vg=ctx.createRadialGradient(W/2,H/2,H*.06,W/2,H/2,W*.95);
-    vg.addColorStop(0,"rgba(6,6,22,.52)"); vg.addColorStop(1,"rgba(2,2,10,.78)");
-    ctx.fillStyle=vg; ctx.fillRect(0,0,W,H);
+    /* heavy dark vignette (cached) */
+    ctx.fillStyle=_gc.thunderVg; ctx.fillRect(0,0,W,H);
   }
 
   /* ── 麻將牌飄落 ── */
@@ -5576,10 +5574,9 @@ const SFX = (() => {
       ctx.globalAlpha = p.a;
       ctx.translate(p.x, p.y);
       ctx.rotate(p.rot);
-      if      (p.sym==='中') { ctx.shadowColor='rgba(255,60,60,.85)';   ctx.shadowBlur=16; }
-      else if (p.sym==='發') { ctx.shadowColor='rgba(50,210,80,.85)';   ctx.shadowBlur=16; }
-      else if (p.sym==='白') { ctx.shadowColor='rgba(200,220,255,.70)'; ctx.shadowBlur=12; }
-      else                   { ctx.shadowColor='rgba(0,0,0,.20)';       ctx.shadowBlur=5;  }
+      if      (p.sym==='中') { ctx.shadowColor='rgba(255,60,60,.85)';   ctx.shadowBlur=12; }
+      else if (p.sym==='發') { ctx.shadowColor='rgba(50,210,80,.85)';   ctx.shadowBlur=12; }
+      else if (p.sym==='白') { ctx.shadowColor='rgba(200,220,255,.70)'; ctx.shadowBlur=8;  }
       ctx.drawImage(img, -19, -25);
       ctx.restore();
     });
@@ -5594,24 +5591,13 @@ const SFX = (() => {
              swing:Math.random()*Math.PI*2, swingSpd:.016+Math.random()*.022,
              swingAmp:.8+Math.random()*2.2, sz:7+Math.random()*13,
              col:LCOLS[Math.floor(Math.random()*LCOLS.length)],
-             a:.6+Math.random()*.4, shadow:Math.random()>.5 };
+             a:.6+Math.random()*.4 };
   }
   function _drawLeaf(lf) {
-    const {x,y,rot,sz,col,a,shadow}=lf;
+    const {x,y,rot,sz,col,a}=lf;
     ctx.save(); ctx.globalAlpha=a; ctx.translate(x,y); ctx.rotate(rot);
-    if (shadow) { ctx.shadowBlur=7; ctx.shadowColor="rgba(0,0,0,.18)"; }
     /* leaf body */
     ctx.fillStyle=col;
-    ctx.beginPath();
-    ctx.moveTo(0,-sz);
-    ctx.bezierCurveTo( sz*.72,-sz*.5,  sz*.68, sz*.5,  0, sz);
-    ctx.bezierCurveTo(-sz*.68, sz*.5, -sz*.72,-sz*.5,  0,-sz);
-    ctx.closePath(); ctx.fill();
-    ctx.shadowBlur=0;
-    /* specular highlight */
-    const hl=ctx.createRadialGradient(-sz*.22,-sz*.32,0,0,0,sz*.9);
-    hl.addColorStop(0,"rgba(255,255,255,.17)"); hl.addColorStop(1,"rgba(255,255,255,0)");
-    ctx.fillStyle=hl;
     ctx.beginPath();
     ctx.moveTo(0,-sz);
     ctx.bezierCurveTo( sz*.72,-sz*.5,  sz*.68, sz*.5,  0, sz);
@@ -5635,13 +5621,9 @@ const SFX = (() => {
     ctx.restore();
   }
   function dLeaves(t) {
-    /* warm autumn ambient */
-    const amb=ctx.createRadialGradient(W*.82,0,0,W*.82,0,H*.78);
-    amb.addColorStop(0,"rgba(255,148,28,.09)"); amb.addColorStop(1,"rgba(0,0,0,0)");
-    ctx.fillStyle=amb; ctx.fillRect(0,0,W,H);
-    const gnd=ctx.createLinearGradient(0,H*.82,0,H);
-    gnd.addColorStop(0,"rgba(0,0,0,0)"); gnd.addColorStop(1,"rgba(55,28,8,.06)");
-    ctx.fillStyle=gnd; ctx.fillRect(0,H*.82,W,H*.18);
+    /* warm autumn ambient (cached gradients) */
+    ctx.fillStyle=_gc.leafAmb; ctx.fillRect(0,0,W,H);
+    ctx.fillStyle=_gc.leafGnd; ctx.fillRect(0,H*.82,W,H*.18);
     /* wind: multiple sine waves for gust feel */
     const wind=Math.sin(t*.28)*1.5+Math.sin(t*.73)*.7+Math.sin(t*1.6)*.22;
     leafP.forEach((lf,i) => {
@@ -5674,19 +5656,13 @@ const SFX = (() => {
     ctx.bezierCurveTo(  0,-sz*.76,  sz*.12,-sz*.92, sz*.30,-sz*.60);
     ctx.bezierCurveTo( sz*.70,-sz*.40,  sz*.60, sz*.30,  0, sz*.80);
     ctx.closePath();
-    const g=ctx.createRadialGradient(0,-sz*.10,0, 0,sz*.30,sz);
-    g.addColorStop(0.00,"rgba(255,240,250,.95)");
-    g.addColorStop(0.45,"rgba(255,198,220,.90)");
-    g.addColorStop(1.00,"rgba(255,158,192,.66)");
-    ctx.fillStyle=g; ctx.fill();
+    ctx.fillStyle="rgba(255,195,218,.90)"; ctx.fill();
     ctx.strokeStyle="rgba(255,130,170,.20)"; ctx.lineWidth=.5;
     ctx.beginPath(); ctx.moveTo(0,sz*.72); ctx.quadraticCurveTo(sz*.04,-sz*.05,0,-sz*.52); ctx.stroke();
     ctx.restore();
   }
   function dSpring(t) {
-    const sky=ctx.createLinearGradient(0,0,0,H*.7);
-    sky.addColorStop(0,"rgba(255,210,232,.07)"); sky.addColorStop(1,"rgba(255,240,248,.02)");
-    ctx.fillStyle=sky; ctx.fillRect(0,0,W,H*.7);
+    ctx.fillStyle=_gc.springSky; ctx.fillRect(0,0,W,H*.7);
     const wind=Math.sin(t*.22)*1.0+Math.sin(t*.61)*.4;
     petalP.forEach((p,i)=>{
       p.swing+=p.swingSpd;
@@ -5705,8 +5681,8 @@ const SFX = (() => {
     const t=Date.now()*.001;
     ({sunny:dSunny,night:dNight,cloudy:dCloudy,fog:dFog,rain:dRain,snow:dSnow,storm:dStorm,thunder:dThunder,mahjong:dMahjong,leaves:dLeaves,spring:dSpring})[type]?.(t);
   }
-  function loop() { draw(); rafId=requestAnimationFrame(loop); }
-  function start(wt) { type=wt; _init(); if (!rafId) loop(); }
+  function loop(ts) { rafId=requestAnimationFrame(loop); if(document.hidden||ts-_lastFrameTs<33)return; _lastFrameTs=ts; draw(); }
+  function start(wt) { type=wt; _init(); _lastFrameTs=0; if(!rafId) requestAnimationFrame(loop); }
 
   function fetchWeather(lat,lon) {
     fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&timezone=auto`)
