@@ -373,9 +373,10 @@ def _fetch_okx(symbol: str, timeframe: str,
 # ══════════════════════════════════════════════════════════════
 #  Pionex native klines
 # ══════════════════════════════════════════════════════════════
+# Pionex klines interval 格式（與 Binance 相同小寫格式）
 PIONEX_TF_MAP = {
-    "1M": "1MONTH", "1w": "1WEEK", "1d": "1DAY",
-    "4h": "4HOUR", "1h": "1HOUR", "15m": "15MIN", "5m": "5MIN",
+    "1M": "1M", "1w": "1w", "1d": "1d",
+    "4h": "4h", "1h": "1h", "15m": "15m", "5m": "5m",
 }
 
 
@@ -470,6 +471,14 @@ def fetch_crypto_ohlcv(
                     return df
             except Exception:
                 pass
+            # PERP 找不到時也試 Pionex 現貨版本
+            if is_perp:
+                try:
+                    df = _fetch_pionex_klines(symbol, timeframe, start, end, limit, max_candles=mc, is_perp=False)
+                    if not df.empty:
+                        return df
+                except Exception:
+                    pass
         # Binance 永續合約
         try:
             df = _fetch_binance_fapi(symbol, timeframe, start, end, limit, max_candles=mc)
