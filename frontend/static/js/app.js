@@ -76,6 +76,7 @@ let paneCollapseFlex = {};  // 面板收合前的 flex 值（module-level，供 
 let _restoringPrefs  = false; // 還原偏好設定時，暫停自動儲存
 let _savedBarCount      = null;  // 切換標的前保存的可見 K 棒數量，載入後還原
 let _pendingRestoreRange = null; // 重整後要還原的畫面位置 { barCount, toOffset }
+let _bgLoadInProgress   = false; // 背景分段載入舊 K 棒中
 
 const PANE_FLEX_DEFAULTS = { mainPane:5, kdjPane:1, rsiPane:1, macdPane:1 };
 
@@ -2631,10 +2632,12 @@ async function loadData(autoLoad = false) {
     const json = await res.json();
     if (!res.ok) throw new Error(json.detail || "載入失敗");
     ohlcvData = json.data;
+    _bgLoadInProgress = false; // 重置（切換標的時取消舊的背景請求）
     renderAll(json.data);
     startRealtime();
     saveLastSymbol();   // 載入成功後記憶此次標的
     _updateStarBtn();
+    _bgLoadOlderBars(); // 背景靜默載入更早的 K 棒
   } catch(e) {
     if (!autoLoad) alert("❌ " + e.message);
     throw e;
@@ -4084,6 +4087,92 @@ function initSymSearch() {
       _renderSymSearchList();
     });
   });
+}
+
+/* ══════════════════════════════════════════
+   背景分段載入（progressive loading）
+══════════════════════════════════════════ */
+function _bgApplyAll(data) {
+  _applyPriceFormat(data);
+  const anchorTimes = data.map(d => ({ time: toTime(d.time), value: 50 }));
+  kdjAnchor.setData(anchorTimes);
+  rsiAnchor.setData(anchorTimes);
+  macdAnchor.setData(anchorTimes.map(d => ({ ...d, value: 0 })));
+  renderCandles(data);
+  renderBB(data);
+  renderCRT(data);
+  renderKDJCross(data);
+  renderResonance(data);
+  renderVolume(data);
+  renderKDJ(data);
+  renderRSI(data);
+  renderMACD(data);
+  updateSymbolBar(data);
+  resizeAll();
+}
+
+async function _bgLoadOlderBars() {
+  const BG_TF = new Set(["5m", "15m", "1h", "4h"]);
+  if (!BG_TF.has(currentTF) || _bgLoadInProgress || !ohlcvData.length) return;
+
+  const snapMarket  = document.getElementById("marketSelect").value;
+  const snapSymbol  = document.getElementById("symbolInput").value.trim();
+  const snapTf      = currentTF;
+  const snapExchange = document.getElementById("exchangeSelect").value;
+
+  const BG_DAYS = { "5m": 7, "15m": 30, "1h": 90, "4h": 180 };
+  const days = BG_DAYS[snapTf] || 30;
+
+  const earliestTs = toTime(ohlcvData[0].time); // unix seconds
+  const endTs   = earliestTs - 1;
+  const startTs = endTs - days * 86400;
+  const toIso = ts => new Date(ts * 1000).toISOString().slice(0, 10);
+
+  _bgLoadInProgress = true;
+  try {
+    const payload = {
+      market:    snapMarket,
+      symbol:    snapSymbol,
+      timeframe: snapTf,
+      exchange:  snapExchange,
+      start:     toIso(startTs),
+      end:       toIso(endTs),
+      limit:     0,
+    };
+    const res = await fetch("/api/ohlcv", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) return;
+    const json = await res.json();
+    if (!json.data?.length) return;
+
+    // 確認使用者沒有切換標的/週期
+    if (document.getElementById("marketSelect").value !== snapMarket) return;
+    if (document.getElementById("symbolInput").value.trim() !== snapSymbol) return;
+    if (currentTF !== snapTf) return;
+
+    // 過濾重疊（保留比現有最早一根還早的）
+    const existingEarliest = toTime(ohlcvData[0].time);
+    const newBars = json.data.filter(b => toTime(b.time) < existingEarliest);
+    if (!newBars.length) return;
+
+    const nPrepended = newBars.length;
+    const visRange   = mainChart.timeScale().getVisibleLogicalRange();
+
+    ohlcvData = [...newBars, ...ohlcvData];
+    _bgApplyAll(ohlcvData);
+
+    // 恢復畫面位置（往右移 nPrepended 根補償新增的舊資料）
+    if (visRange) {
+      const shifted = { from: visRange.from + nPrepended, to: visRange.to + nPrepended };
+      mainChart.timeScale().setVisibleLogicalRange(shifted);
+      [kdjChart, rsiChart, macdChart].forEach(c => c.timeScale().setVisibleLogicalRange(shifted));
+    }
+  } catch { /* 背景失敗靜默，不影響前景 */ } finally {
+    _bgLoadInProgress = false;
+  }
 }
 
 /* ══════════════════════════════════════════
