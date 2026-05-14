@@ -1058,8 +1058,9 @@ function showLegColorPopup(clientX, clientY, sections) {
 
 function _magnetSnap(x, y) {
   if (!ohlcvData.length || !candleSeries) return null;
-  const curTime = mainChart.timeScale().coordinateToTime(x);
-  if (curTime == null) return null;
+  const curTime  = mainChart.timeScale().coordinateToTime(x);
+  const curPrice = candleSeries.coordinateToPrice(y);
+  if (curTime == null || curPrice == null) return null;
   // Binary search for the bar with time closest to curTime
   let lo = 0, hi = ohlcvData.length - 1;
   while (lo < hi) {
@@ -1074,17 +1075,13 @@ function _magnetSnap(x, y) {
   }
   const barX = mainChart.timeScale().timeToCoordinate(toTime(bar.time));
   if (barX == null || Math.abs(barX - x) > 50) return null;
-  const prices = [bar.open, bar.high, bar.low, bar.close];
-  let snapPrice = null, minDY = Infinity;
-  for (const p of prices) {
-    if (p == null) continue;
-    const py = candleSeries.priceToCoordinate(p);
-    if (py == null) continue;
-    const dy = Math.abs(py - y);
-    if (dy < minDY) { minDY = dy; snapPrice = p; }
-  }
-  if (snapPrice == null) return null;
-  return { x: barX, y: candleSeries.priceToCoordinate(snapPrice) ?? y, time: toTime(bar.time), price: snapPrice };
+  // Compare by price value directly — avoids priceToCoordinate returning null
+  const prices = [bar.open, bar.high, bar.low, bar.close].filter(p => p != null);
+  if (!prices.length) return null;
+  const snapPrice = prices.reduce((best, p) =>
+    Math.abs(p - curPrice) < Math.abs(best - curPrice) ? p : best, prices[0]);
+  const snapY = candleSeries.priceToCoordinate(snapPrice);
+  return { x: barX, y: snapY ?? y, time: toTime(bar.time), price: snapPrice };
 }
 
 function screenToChart(x, y) {
