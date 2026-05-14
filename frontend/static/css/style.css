@@ -429,10 +429,14 @@ html, body {
 /* 行情列表星號按鈕 */
 .tk-star {
   background: none; border: none; color: var(--muted);
-  font-size: 13px; line-height: 1; cursor: pointer; padding: 0 2px;
-  flex-shrink: 0; transition: color .1s;
+  line-height: 1; cursor: pointer; padding: 0 2px;
+  flex-shrink: 0; display: flex; align-items: center;
+  transition: color .15s, transform .15s;
 }
-.tk-star:hover, .tk-star.active { color: #f5c518; }
+.tk-star:hover { color: var(--blue); transform: scale(1.2) rotate(-6deg); }
+.tk-star:hover .star-fill { opacity: 0.18 !important; }
+.tk-star.active { color: var(--blue); }
+.tk-star.active .star-fill { opacity: 1 !important; }
 
 /* leg-val 為純文字 span */
 .leg-val { display: inline; }

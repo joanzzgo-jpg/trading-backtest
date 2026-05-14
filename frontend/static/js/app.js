@@ -3789,6 +3789,8 @@ function _fmtAmt(amt, price) {
   return amt.toFixed(4);
 }
 
+const _STAR_SVG = `<svg class="star-svg" width="16" height="16" viewBox="0 0 18 18" fill="none"><path class="star-outline" d="M9 2.2C9.1 2 9.3 2 9.4 2.3L11.1 6.1C11.2 6.3 11.4 6.5 11.6 6.5L15.7 7C16 7.1 16.1 7.4 15.9 7.6L12.9 10.5C12.7 10.7 12.6 11 12.7 11.2L13.5 15.3C13.6 15.6 13.3 15.8 13.1 15.7L9.4 13.6C9.2 13.5 8.8 13.5 8.6 13.6L4.9 15.7C4.7 15.8 4.4 15.6 4.5 15.3L5.3 11.2C5.4 11 5.3 10.7 5.1 10.5L2.1 7.6C1.9 7.4 2 7.1 2.3 7L6.4 6.5C6.6 6.5 6.8 6.3 6.9 6.1Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/><path class="star-fill" d="M9 2.2C9.1 2 9.3 2 9.4 2.3L11.1 6.1C11.2 6.3 11.4 6.5 11.6 6.5L15.7 7C16 7.1 16.1 7.4 15.9 7.6L12.9 10.5C12.7 10.7 12.6 11 12.7 11.2L13.5 15.3C13.6 15.6 13.3 15.8 13.1 15.7L9.4 13.6C9.2 13.5 8.8 13.5 8.6 13.6L4.9 15.7C4.7 15.8 4.4 15.6 4.5 15.3L5.3 11.2C5.4 11 5.3 10.7 5.1 10.5L2.1 7.6C1.9 7.4 2 7.1 2.3 7L6.4 6.5C6.6 6.5 6.8 6.3 6.9 6.1Z" fill="currentColor" opacity="0"/></svg>`;
+
 function renderTickers() {
   const container = document.getElementById("tickerList");
   if (!container) return;
@@ -3893,7 +3895,7 @@ function renderTickers() {
             <span class="tk-chg ${cls}">${sign}${t.change_pct.toFixed(2)}%</span>
           </div>
         </div>
-        <div class="tk-action"><button class="tk-star${inWl ? " active" : ""}" title="${inWl ? "移除自選" : "加入自選"}">${inWl ? "★" : "☆"}</button></div>
+        <div class="tk-action"><button class="tk-star${inWl ? " active" : ""}" title="${inWl ? "移除自選" : "加入自選"}">${_STAR_SVG}</button></div>
       </div>`;
     }).join("");
 
@@ -3949,7 +3951,7 @@ function renderTickers() {
           <span class="tk-chg ${cls}">${sign}${t.change_pct.toFixed(2)}%</span>
         </div>
       </div>
-      <div class="tk-action"><button class="tk-star${inWl ? " active" : ""}" title="${inWl ? "移除自選" : "加入自選"}">${inWl ? "★" : "☆"}</button></div>
+      <div class="tk-action"><button class="tk-star${inWl ? " active" : ""}" title="${inWl ? "移除自選" : "加入自選"}">${_STAR_SVG}</button></div>
     </div>`;
   }).join("");
 
