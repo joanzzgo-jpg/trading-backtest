@@ -4420,7 +4420,7 @@ function showLoading(show) {
 
   /* 定時隨機冒出全身並說話 */
   function scheduleVisit() {
-    const wait = 35000 + Math.random() * 40000; // 35~75 秒後出現
+    const wait = 600000; // 10 分鐘後出現
     setTimeout(() => {
       if (!bear.classList.contains("peeking")) { scheduleVisit(); return; }
       bear.classList.add("peek-visit");
