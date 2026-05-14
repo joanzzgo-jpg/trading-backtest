@@ -57,7 +57,9 @@ def get_ohlcv(req: OHLCVRequest):
                 try:
                     df = fetch_tw_intraday_yf(req.symbol, req.timeframe, start, end)
                 except Exception:
-                    df = fetch_tw_intraday(req.symbol, req.timeframe, start, end, req.finmind_token)
+                    # FinMind 分鐘線 API 上限約 90 天，超出會 422
+                    fm_start = max(start, (date.fromisoformat(end) - timedelta(days=90)).isoformat())
+                    df = fetch_tw_intraday(req.symbol, req.timeframe, fm_start, end, req.finmind_token)
                 if use_limit:
                     df = df.tail(req.limit)
             else:
