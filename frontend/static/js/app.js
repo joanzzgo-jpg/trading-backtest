@@ -2603,9 +2603,9 @@ async function loadData(autoLoad = false) {
   if (!autoLoad) {
     const mkt = document.getElementById("marketSelect").value;
     const TF_MAX_DAYS =
-      mkt === "crypto" ? {} :
-      mkt === "us"     ? { "4h": 60, "1h": 730, "15m": 60, "5m": 60 } :
-      mkt === "tw"     ? { "5m": 60, "15m": 60, "1h": 730 } : {};
+      mkt === "crypto" ? { "4h": 120, "1h": 120, "15m": 30, "5m": 7 } :
+      mkt === "us"     ? { "4h": 60,  "1h": 730, "15m": 60, "5m": 60 } :
+      mkt === "tw"     ? { "5m": 60,  "15m": 60, "1h": 730 } : {};
     const maxDays = TF_MAX_DAYS[currentTF];
     if (maxDays) {
       const startEl = document.getElementById("startDate");
@@ -2635,7 +2635,6 @@ async function loadData(autoLoad = false) {
     startRealtime();
     saveLastSymbol();   // 載入成功後記憶此次標的
     _updateStarBtn();
-    _syncTickerToChart();
   } catch(e) {
     if (!autoLoad) alert("❌ " + e.message);
     throw e;
@@ -3367,6 +3366,8 @@ function _updateTickerPrices() {
   const container = document.getElementById("tickerList");
   if (!container) return;
   const src = _tickerMkt === "tw" ? _twTickerData : _tickerData;
+  // 圖表最後一根的收盤價，用來同步 active 標的
+  const chartLastClose = ohlcvData.length ? ohlcvData[ohlcvData.length - 1]?.close : null;
   container.querySelectorAll(".ticker-item[data-display]").forEach(el => {
     const t = src.find(x => (x.display || x.symbol) === el.dataset.display || x.symbol === el.dataset.display);
     if (!t) return;
@@ -3375,7 +3376,10 @@ function _updateTickerPrices() {
     const priceEl = el.querySelector(".tk-price-val");
     const chgEl   = el.querySelector(".tk-chg");
     const amtEl   = el.querySelector(".tk-chg-amt");
-    if (priceEl) priceEl.textContent = fmtTickerPrice(t.price);
+    // active 標的用圖表最後一根收盤價，其他用 ticker API 價格
+    const displayPrice = (el.classList.contains("tk-active") && chartLastClose != null)
+      ? chartLastClose : t.price;
+    if (priceEl) priceEl.textContent = fmtTickerPrice(displayPrice);
     if (chgEl)  { chgEl.textContent = `${sign}${t.change_pct.toFixed(2)}%`; chgEl.className = `tk-chg ${cls}`; }
     if (amtEl) {
       const amt = t.change_amt != null ? t.change_amt : t.price * t.change_pct / 100 / (1 + t.change_pct / 100);

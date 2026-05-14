@@ -173,7 +173,7 @@ _TF_BAR_SECONDS = {
 # 各時間級別的合理上限（根數），避免 API 請求過多
 _TF_MAX_CANDLES = {
     "1M": 500, "1w": 800, "1d": 5000,
-    "4h": 8000, "1h": 18000, "15m": 35500, "5m": 18000,
+    "4h": 3000, "1h": 3000, "15m": 3000, "5m": 2000,
 }
 
 def _calc_max_candles(start: Optional[str], end: Optional[str], timeframe: str) -> int:
