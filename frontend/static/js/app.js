@@ -65,7 +65,7 @@ let macdChart,   macdLine, macdSignal, macdHist;
 let kdjAnchor, rsiAnchor, macdAnchor;   // 透明錨定系列，確保時間軸對齊
 
 /* ── 狀態 ── */
-let currentChartType = "candlestick"; // candlestick | bar | line | area
+const currentChartType = "candlestick";
 let ohlcvData       = [];
 let currentTF       = "1d";
 let realtimeTimer   = null;
@@ -306,37 +306,24 @@ document.addEventListener("DOMContentLoaded", async () => {
 function createCandleSeries() {
   if (candleSeries) { try { mainChart.removeSeries(candleSeries); } catch {} candleSeries = null; }
   latestPriceLine = null;
-  if (currentChartType === "candlestick") {
-    candleSeries = mainChart.addCandlestickSeries({
-      upColor:   S.bodyVisible   !== false ? C.up   : "rgba(0,0,0,0)",
-      downColor: S.bodyVisible   !== false ? C.down : "rgba(0,0,0,0)",
-      borderVisible:   S.borderVisible !== false,
-      borderUpColor:   C.borderUp,   borderDownColor: C.borderDown,
-      wickVisible:     S.wickVisible  !== false,
-      wickUpColor:     C.wickUp,      wickDownColor:   C.wickDown,
-      priceLineVisible: false, lastValueVisible: false,
-    });
-  } else if (currentChartType === "bar") {
-    candleSeries = mainChart.addBarSeries({ upColor: C.up, downColor: C.down, priceLineVisible: false, lastValueVisible: false });
-  } else if (currentChartType === "line") {
-    candleSeries = mainChart.addLineSeries({ color: C.up, lineWidth: 2, priceLineVisible: false, lastValueVisible: false });
-  } else if (currentChartType === "area") {
-    candleSeries = mainChart.addAreaSeries({
-      lineColor: C.up, topColor: C.up + "30", bottomColor: C.up + "00",
-      lineWidth: 2, priceLineVisible: false, lastValueVisible: false,
-    });
-  }
+  candleSeries = mainChart.addCandlestickSeries({
+    upColor:   S.bodyVisible   !== false ? C.up   : "rgba(0,0,0,0)",
+    downColor: S.bodyVisible   !== false ? C.down : "rgba(0,0,0,0)",
+    borderVisible:   S.borderVisible !== false,
+    borderUpColor:   C.borderUp,   borderDownColor: C.borderDown,
+    wickVisible:     S.wickVisible  !== false,
+    wickUpColor:     C.wickUp,      wickDownColor:   C.wickDown,
+    priceLineVisible: false, lastValueVisible: false,
+  });
 }
 
 /* ── 將 ohlcv 資料套用到目前 series ── */
 function applyOhlcvToSeries(data) {
   if (!candleSeries || !data.length) return;
-  if (currentChartType === "candlestick" || currentChartType === "bar") {
+  {
     candleSeries.setData(data.map(d => ({
       time: d.time ? toTime(d.time) : d, open: d.open, high: d.high, low: d.low, close: d.close,
     })));
-  } else {
-    candleSeries.setData(data.map(d => ({ time: d.time ? toTime(d.time) : d, value: d.close })));
   }
   updateLatestPriceLine(data[data.length - 1].close);
 }
@@ -1601,9 +1588,9 @@ function applyAllColors() {
   const _cc = document.querySelector(".charts-container");
   if (_cc) _cc.style.background = bg;
 
-  if (currentChartType === "candlestick") {
-    const bodyUp   = S.bodyVisible   !== false ? C.up        : "rgba(0,0,0,0)";
-    const bodyDown = S.bodyVisible   !== false ? C.down      : "rgba(0,0,0,0)";
+  {
+    const bodyUp   = S.bodyVisible   !== false ? C.up   : "rgba(0,0,0,0)";
+    const bodyDown = S.bodyVisible   !== false ? C.down : "rgba(0,0,0,0)";
     candleSeries.applyOptions({
       upColor: bodyUp, downColor: bodyDown,
       borderVisible: S.borderVisible !== false,
@@ -1611,12 +1598,6 @@ function applyAllColors() {
       wickVisible: S.wickVisible !== false,
       wickUpColor: C.wickUp, wickDownColor: C.wickDown,
     });
-  } else if (currentChartType === "bar") {
-    candleSeries.applyOptions({ upColor:C.up, downColor:C.down });
-  } else if (currentChartType === "line") {
-    candleSeries.applyOptions({ color:C.up });
-  } else if (currentChartType === "area") {
-    candleSeries.applyOptions({ lineColor:C.up, topColor:C.up+"30", bottomColor:C.up+"00" });
   }
   bbU.applyOptions({ color:C.bbU }); bbM.applyOptions({ color:C.bbM }); bbL.applyOptions({ color:C.bbL });
   kdjK.applyOptions({ color:C.kdjK }); kdjD.applyOptions({ color:C.kdjD }); kdjJ.applyOptions({ color:C.kdjJ });
@@ -2083,22 +2064,6 @@ function bindEvents() {
   document.addEventListener("click", e => {
     const wrap = document.getElementById("rpCalWrap");
     if (wrap && !wrap.contains(e.target)) _rpCal.close();
-  });
-
-  // ── 圖表類型切換 ──────────────────────────────
-  document.querySelectorAll(".ct-btn").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const type = btn.dataset.ct;
-      if (type === currentChartType) return;
-      currentChartType = type;
-      document.querySelectorAll(".ct-btn").forEach(b => b.classList.toggle("active", b.dataset.ct === type));
-      createCandleSeries();
-      if (ohlcvData.length) {
-        applyOhlcvToSeries(ohlcvData);
-        candleSeries.setMarkers(lastCRTMarkers);
-      }
-      syncTimeScales();
-    });
   });
 
   // ── 繪圖工具欄 ──────────────────────────────
@@ -2918,11 +2883,7 @@ async function fetchLatest() {
       if (t === lastT) ohlcvData[ohlcvData.length - 1] = { ...last, ...bar };
       else if (t > lastT) ohlcvData.push(bar);
       else return;
-      if (currentChartType === "candlestick" || currentChartType === "bar") {
-        candleSeries.update({ time:t, open:bar.open, high:bar.high, low:bar.low, close:bar.close });
-      } else {
-        candleSeries.update({ time:t, value:bar.close });
-      }
+      candleSeries.update({ time:t, open:bar.open, high:bar.high, low:bar.low, close:bar.close });
       const _va2 = Math.round((S.volAlpha ?? 0.67) * 255).toString(16).padStart(2, "0");
       volSeries.update({ time:t, value:bar.volume||0, color: bar.close>=bar.open ? C.volUp+_va2 : C.volDown+_va2 });
       const _maPeriod = S.volMaPeriod || 5;
@@ -3347,10 +3308,7 @@ function _replayStep(bar) {
   const t  = toTime(bar.time);
   const _va = Math.round((S.volAlpha ?? 0.67) * 255).toString(16).padStart(2, "0");
 
-  if (currentChartType === "candlestick" || currentChartType === "bar")
-    candleSeries.update({ time:t, open:bar.open, high:bar.high, low:bar.low, close:bar.close });
-  else
-    candleSeries.update({ time:t, value:bar.close });
+  candleSeries.update({ time:t, open:bar.open, high:bar.high, low:bar.low, close:bar.close });
 
   if (bar.bb_upper != null) {
     bbU.update({ time:t, value:bar.bb_upper });
@@ -3791,7 +3749,7 @@ function _fmtAmt(amt, price) {
   return amt.toFixed(4);
 }
 
-const _STAR_SVG = `<svg class="star-svg" width="16" height="16" viewBox="0 0 18 18" fill="none"><path class="star-outline" d="M9 2.2C9.1 2 9.3 2 9.4 2.3L11.1 6.1C11.2 6.3 11.4 6.5 11.6 6.5L15.7 7C16 7.1 16.1 7.4 15.9 7.6L12.9 10.5C12.7 10.7 12.6 11 12.7 11.2L13.5 15.3C13.6 15.6 13.3 15.8 13.1 15.7L9.4 13.6C9.2 13.5 8.8 13.5 8.6 13.6L4.9 15.7C4.7 15.8 4.4 15.6 4.5 15.3L5.3 11.2C5.4 11 5.3 10.7 5.1 10.5L2.1 7.6C1.9 7.4 2 7.1 2.3 7L6.4 6.5C6.6 6.5 6.8 6.3 6.9 6.1Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/><path class="star-fill" d="M9 2.2C9.1 2 9.3 2 9.4 2.3L11.1 6.1C11.2 6.3 11.4 6.5 11.6 6.5L15.7 7C16 7.1 16.1 7.4 15.9 7.6L12.9 10.5C12.7 10.7 12.6 11 12.7 11.2L13.5 15.3C13.6 15.6 13.3 15.8 13.1 15.7L9.4 13.6C9.2 13.5 8.8 13.5 8.6 13.6L4.9 15.7C4.7 15.8 4.4 15.6 4.5 15.3L5.3 11.2C5.4 11 5.3 10.7 5.1 10.5L2.1 7.6C1.9 7.4 2 7.1 2.3 7L6.4 6.5C6.6 6.5 6.8 6.3 6.9 6.1Z" fill="currentColor" opacity="0"/></svg>`;
+const _STAR_SVG = `<svg class="star-svg" width="16" height="16" viewBox="0 0 18 18" fill="none"><path class="star-outline" d="M9 15.5C8.7 15.3 2 10.8 2 6.8C2 4.6 3.7 3 5.7 3C7 3 8.2 3.7 9 4.8C9.8 3.7 11 3 12.3 3C14.3 3 16 4.6 16 6.8C16 10.8 9.3 15.3 9 15.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round"/><path class="star-fill" d="M9 15.5C8.7 15.3 2 10.8 2 6.8C2 4.6 3.7 3 5.7 3C7 3 8.2 3.7 9 4.8C9.8 3.7 11 3 12.3 3C14.3 3 16 4.6 16 6.8C16 10.8 9.3 15.3 9 15.5Z" fill="currentColor" opacity="0"/></svg>`;
 
 function renderTickers() {
   const container = document.getElementById("tickerList");
@@ -5101,7 +5059,7 @@ function showLoading(show) {
    按鈕漣漪效果
 ══════════════════════════════════════════ */
 (function initButtonRipple() {
-  const TARGETS = "button,.tf-btn,.ct-btn,.rp-btn,.dt-btn,.music-theme-btn,.tk-seg-btn,.sym-tab";
+  const TARGETS = "button,.tf-btn,.rp-btn,.dt-btn,.music-theme-btn,.tk-seg-btn,.sym-tab";
   document.addEventListener("pointerdown", e => {
     const btn = e.target.closest(TARGETS);
     if (!btn) return;
@@ -5205,7 +5163,7 @@ const SFX = (() => {
 /* 把音效掛上常用按鈕 */
 (function wireSFX() {
   /* TF / 圖表類型 切換 */
-  document.querySelectorAll(".tf-btn, .ct-btn").forEach(b =>
+  document.querySelectorAll(".tf-btn").forEach(b =>
     b.addEventListener("click", () => SFX.switch_(), { capture: true })
   );
   /* 重播控制欄 step tick */
