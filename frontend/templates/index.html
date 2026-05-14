@@ -96,10 +96,6 @@
 
     <div class="tb-divider-v"></div>
 
-    <!-- 日期範圍 -->
-    <input id="startDate" class="tb-input tb-date" type="date" />
-    <span class="tb-sep">→</span>
-    <input id="endDate"   class="tb-input tb-date" type="date" />
     <button id="loadBtn" class="btn-load">載入</button>
 
   </div>
@@ -339,6 +335,18 @@
   <input type="date" id="replayDatePicker" class="rp-date-picker" title="選擇跳轉日期">
   <span id="replayTime" class="rp-time"></span>
   <span id="replayProgress" class="rp-progress"></span>
+</div>
+
+<!-- Replay Start Date Picker -->
+<div id="replayPickerOverlay" class="rp-picker-overlay hidden">
+  <div class="rp-picker-modal">
+    <div class="rp-picker-title">選擇復盤起始日期</div>
+    <input type="date" id="replayStartDate" class="rp-picker-date" />
+    <div class="rp-picker-actions">
+      <button id="replayPickerCancel"  class="rp-picker-btn rp-picker-cancel">取消</button>
+      <button id="replayPickerConfirm" class="rp-picker-btn rp-picker-confirm">開始復盤</button>
+    </div>
+  </div>
 </div>
 
 <!-- Symbol Search Modal -->

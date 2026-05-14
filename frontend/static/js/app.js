@@ -272,12 +272,6 @@ function makeBaseOpts(scaleMargins = null, showTime = false) {
 document.addEventListener("DOMContentLoaded", async () => {
   loadPrefs();
 
-  const today = new Date();
-  const ymd = d => [d.getFullYear(), String(d.getMonth()+1).padStart(2,"0"), String(d.getDate()).padStart(2,"0")].join("-");
-  const twoYearsAgo = new Date(today); twoYearsAgo.setFullYear(today.getFullYear() - 2);
-  document.getElementById("endDate").value   = ymd(today);
-  document.getElementById("startDate").value = ymd(twoYearsAgo);
-
   _loadWatchlist();
   loadLastSymbol();     // 還原上次標的、交易所、市場、時間框架
   loadSystemColors();
@@ -2004,7 +1998,19 @@ function bindEvents() {
   document.getElementById("replayModeBtn").addEventListener("click", () => {
     if (replayActive) { exitReplay(); return; }
     if (!ohlcvData.length) return alert("請先載入資料再使用重播");
-    enterReplay();
+    _openReplayPicker();
+  });
+  document.getElementById("replayPickerConfirm").addEventListener("click", () => {
+    const val = document.getElementById("replayStartDate").value;
+    document.getElementById("replayPickerOverlay").classList.add("hidden");
+    enterReplay(val || null);
+  });
+  document.getElementById("replayPickerCancel").addEventListener("click", () => {
+    document.getElementById("replayPickerOverlay").classList.add("hidden");
+  });
+  document.getElementById("replayPickerOverlay").addEventListener("click", e => {
+    if (e.target === document.getElementById("replayPickerOverlay"))
+      document.getElementById("replayPickerOverlay").classList.add("hidden");
   });
 
   // ── 圖表類型切換 ──────────────────────────────
@@ -2607,7 +2613,7 @@ async function loadData(autoLoad = false) {
   try {
     const res  = await fetch("/api/ohlcv", {
       method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify(buildPayload(autoLoad)),
+      body: JSON.stringify(buildPayload()),
     });
     const json = await res.json();
     if (!res.ok) throw new Error(json.detail || "載入失敗");
@@ -2995,7 +3001,24 @@ let replayActive   = false;
 let _replaySpan    = 50;   // 進入重播時保存的可視 bar 數
 let _replayLastIdx = -1;   // 上一幀渲染的 idx，用於增量更新判斷
 
-function enterReplay() {
+function _openReplayPicker() {
+  const overlay  = document.getElementById("replayPickerOverlay");
+  const dateInp  = document.getElementById("replayStartDate");
+  const _toYmd = ts => {
+    const d = new Date(ts * 1000);
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,"0")}-${String(d.getUTCDate()).padStart(2,"0")}`;
+  };
+  dateInp.min = _toYmd(toTime(ohlcvData[0].time));
+  dateInp.max = _toYmd(toTime(ohlcvData[ohlcvData.length - 1].time));
+  // 預設停在資料的 20% 處（若還沒選過）
+  if (!dateInp.value || dateInp.value < dateInp.min || dateInp.value > dateInp.max) {
+    dateInp.value = _toYmd(toTime(ohlcvData[Math.floor(ohlcvData.length * 0.2)].time));
+  }
+  overlay.classList.remove("hidden");
+  dateInp.focus();
+}
+
+function enterReplay(startDate = null) {
   if (replayActive) return;
   replayActive = true;
   stopRealtime();
@@ -3005,7 +3028,14 @@ function enterReplay() {
   const curRange = mainChart.timeScale().getVisibleLogicalRange();
   _replaySpan = curRange ? Math.max(10, Math.round(curRange.to - curRange.from)) : 50;
 
-  replayIdx = Math.max(_replaySpan, Math.floor(replayData.length * 0.2));
+  if (startDate) {
+    const targetTs = Math.floor(new Date(startDate + "T00:00:00Z").getTime() / 1000);
+    let idx = replayData.findIndex(b => toTime(b.time) >= targetTs);
+    if (idx < 0) idx = replayData.length - 1;
+    replayIdx = Math.max(_replaySpan, idx);
+  } else {
+    replayIdx = Math.max(_replaySpan, Math.floor(replayData.length * 0.2));
+  }
   _replayLastIdx = -1;
 
   const scrubber = document.getElementById("replayScrubber");
@@ -4208,14 +4238,14 @@ async function _bgLoadOlderBars() {
 /* ══════════════════════════════════════════
    工具函式
 ══════════════════════════════════════════ */
-function buildPayload(useLimit = false) {
+function buildPayload() {
   const sym = document.getElementById("symbolInput").value.trim();
   return {
     market:    document.getElementById("marketSelect").value,
     symbol:    sym,
-    start:     useLimit ? "" : document.getElementById("startDate").value,
-    end:       useLimit ? "" : document.getElementById("endDate").value,
-    limit:     useLimit ? ({ "1M":120,"1w":520,"1d":1095,"4h":2190,"1h":2160,"15m":2000,"5m":2000 }[currentTF] ?? 500) : 0,
+    start:     "",
+    end:       "",
+    limit:     { "1M":120,"1w":520,"1d":1095,"4h":2190,"1h":2160,"15m":2000,"5m":2000 }[currentTF] ?? 500,
     timeframe: currentTF,
     exchange:  document.getElementById("exchangeSelect").value,
   };
