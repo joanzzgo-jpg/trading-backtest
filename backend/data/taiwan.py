@@ -136,14 +136,18 @@ def fetch_tw_intraday_yf(symbol: str, timeframe: str, start: str, end: str) -> p
     import yfinance as yf
     from datetime import date, timedelta
 
-    interval   = YF_TF_MAP.get(timeframe, "1h")
-    end_dt     = date.today().isoformat()
+    interval    = YF_TF_MAP.get(timeframe, "1h")
+    # yfinance end 不含當天，+1 天確保抓到今日資料
+    end_incl    = (date.today() + timedelta(days=1)).isoformat()
     short_start = (date.today() - timedelta(days=30)).isoformat()
+    # 同樣修正傳入的 end
+    end_incl_req = (date.fromisoformat(end) + timedelta(days=1)).isoformat() if end else end_incl
 
     for suffix in (".TW", ".TWO"):
         ticker = yf.Ticker(f"{symbol}{suffix}")
-        raw = _yf_history(ticker, interval, start, end) or \
-              _yf_history(ticker, interval, short_start, end_dt)
+        raw = _yf_history(ticker, interval, start, end_incl_req)
+        if raw is None:
+            raw = _yf_history(ticker, interval, short_start, end_incl)
         if raw is None:
             continue
         df = raw[["Open", "High", "Low", "Close", "Volume"]].copy()
