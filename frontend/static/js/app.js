@@ -3435,10 +3435,10 @@ function renderTickers() {
         if (e.target.closest(".wl-del")) return;
         const item = _watchlist[i];
         if (!item) return;
-        document.getElementById("symbolInput").value = item.symbol;
         document.getElementById("marketSelect").value = item.market;
         if (item.market === "crypto") document.getElementById("exchangeSelect").value = item.exchange || "pionex";
         updateMarketUI();
+        document.getElementById("symbolInput").value = item.symbol;
         loadData(false);
         container.querySelectorAll(".ticker-item").forEach(x => x.classList.remove("tk-active"));
         el.classList.add("tk-active");
