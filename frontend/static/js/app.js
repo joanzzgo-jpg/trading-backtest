@@ -1983,12 +1983,27 @@ function bindEvents() {
   });
   document.getElementById("panelOverlay").addEventListener("click", closeTicker);
 
+  // 共用：關閉所有浮動面板（確保同時只開一個）
+  window._closeAllFloatPanels = function(except) {
+    if (except !== "fx") {
+      document.getElementById("fxPanel")?.classList.add("hidden");
+      document.getElementById("fxToggleBtn")?.classList.remove("fx-open");
+    }
+    if (except !== "music") {
+      document.getElementById("musicPanel")?.classList.add("hidden");
+    }
+    if (except !== "sys") {
+      document.getElementById("sysSettingsPopup")?.classList.remove("open");
+    }
+  };
+
   // 系統外觀設定按鈕
   const _sysBtn = document.getElementById("sysSettingsBtn");
   const _sysPop = document.getElementById("sysSettingsPopup");
   _sysBtn?.addEventListener("click", e => {
     e.stopPropagation();
     const opening = !_sysPop.classList.contains("open");
+    if (opening) _closeAllFloatPanels("sys");
     _sysPop.classList.toggle("open");
     if (opening) {
       syncSysSwatches();
@@ -5195,6 +5210,8 @@ const SFX = (() => {
   if (!panel || !btn) return;
   btn.addEventListener("click", e => {
     e.stopPropagation();
+    const willOpen = panel.classList.contains("hidden");
+    if (willOpen) window._closeAllFloatPanels?.("fx");
     const open = panel.classList.toggle("hidden");
     btn.classList.toggle("fx-open", !open);
   });
@@ -5581,6 +5598,8 @@ const SFX = (() => {
 
   toggleBtn.addEventListener("click", e => {
     e.stopPropagation();
+    const willOpen = panel.classList.contains("hidden");
+    if (willOpen) window._closeAllFloatPanels?.("music");
     panel.classList.toggle("hidden");
   });
   document.addEventListener("click", e => {
