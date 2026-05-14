@@ -3353,6 +3353,7 @@ let _tickerMkt      = "crypto";  // "crypto" | "tw"
 let _tickerSort     = "desc";    // desc=漲幅 asc=跌幅 vol=成交量
 let _tickerTimer    = null;
 let _lastTickerKey  = "";        // 追蹤目前渲染的 ticker 結構，避免不必要的 DOM 重建
+let _lastPageTitle  = "";        // 快取上次 title，避免重複寫 DOM
 
 /* 只更新價格文字，不重建 DOM */
 function _syncTickerToChart() {
@@ -3377,10 +3378,12 @@ function _updateTickerPrices() {
   const container = document.getElementById("tickerList");
   if (!container) return;
   const src = _tickerMkt === "tw" ? _twTickerData : _tickerData;
-  // 圖表最後一根的收盤價，用來同步 active 標的
+  // Map 查表取代 O(n) find，整體從 O(n²) 降為 O(n)
+  const srcMap = new Map();
+  src.forEach(x => { srcMap.set(x.display || x.symbol, x); srcMap.set(x.symbol, x); });
   const chartLastClose = ohlcvData.length ? ohlcvData[ohlcvData.length - 1]?.close : null;
   container.querySelectorAll(".ticker-item[data-display]").forEach(el => {
-    const t = src.find(x => (x.display || x.symbol) === el.dataset.display || x.symbol === el.dataset.display);
+    const t = srcMap.get(el.dataset.display);
     if (!t) return;
     const sign    = t.change_pct >= 0 ? "+" : "";
     const cls     = t.change_pct >= 0 ? "up" : "dn";
@@ -3415,10 +3418,13 @@ async function fetchTickers() {
       if (spotRes.ok) { const j = await spotRes.json(); if (j.tickers?.length) _spotTickerData = j.tickers; }
     }
 
-    /* 計算目前應渲染的結構 key */
+    // 面板未開啟：只更新頁籤標題，完全跳過 DOM 更新
+    const panelOpen = document.getElementById("tickerPanel").classList.contains("ticker-open");
+    if (!panelOpen) { updatePageTitle(); return; }
+
     if (_tickerSort !== "wl") {
-      const search   = (document.getElementById("tickerSearch")?.value || "").toLowerCase();
-      const srcList  = _tickerMkt === "tw" ? _twTickerData : _tickerData;
+      const search  = (document.getElementById("tickerSearch")?.value || "").toLowerCase();
+      const srcList = _tickerMkt === "tw" ? _twTickerData : _tickerData;
       let list = srcList.filter(t =>
         !search ||
         (t.display || t.symbol).toLowerCase().includes(search) ||
@@ -3434,12 +3440,11 @@ async function fetchTickers() {
         renderTickers();
         _lastTickerKey = newKey;
         _updateTickerPrices();
+        _saveTickerCache(); // 只在結構改變時存 localStorage
       }
     } else {
       renderTickers();
     }
-
-    _saveTickerCache();
 
     if (!document.getElementById("symOverlay")?.classList.contains("hidden")) {
       renderSymSearch();
@@ -3474,19 +3479,16 @@ async function _refreshWlPrices() {
 function updatePageTitle() {
   const sym = (document.getElementById("symbolInput")?.value || "").trim().toUpperCase();
   if (!sym) { document.title = "回測系統"; return; }
-  // 在 _tickerData 或 _spotTickerData 中找到目前標的的即時價格
-  const all  = [..._tickerData, ..._spotTickerData];
-  const hit  = all.find(t =>
+  const all = [..._tickerData, ..._spotTickerData];
+  const hit = all.find(t =>
     t.symbol.toUpperCase() === sym.replace("/","").replace(".P","") ||
     (t.spot  || "").toUpperCase() === sym ||
     (t.display || "").toUpperCase() === sym
   );
-  if (hit) {
-    const chg  = hit.change_pct >= 0 ? `+${hit.change_pct.toFixed(2)}%` : `${hit.change_pct.toFixed(2)}%`;
-    document.title = `${hit.display || sym} ${fmtTickerPrice(hit.price)} ${chg}`;
-  } else {
-    document.title = sym;
-  }
+  const newTitle = hit
+    ? `${hit.display || sym} ${fmtTickerPrice(hit.price)} ${hit.change_pct >= 0 ? "+" : ""}${hit.change_pct.toFixed(2)}%`
+    : sym;
+  if (newTitle !== _lastPageTitle) { _lastPageTitle = newTitle; document.title = newTitle; }
 }
 
 /* ── ticker 輔助 ── */
@@ -4115,7 +4117,7 @@ function _bgSetStatus(ts) {
   }
 }
 
-// 背景載入完成後一次性更新所有系列，同步執行避免 LWT 中間幀閃爍
+// 背景載入完成後一次性更新所有系列
 function _bgFinalRender(data, nAdded) {
   const visRange = mainChart.timeScale().getVisibleLogicalRange();
   _applyPriceFormat(data);
@@ -4123,22 +4125,21 @@ function _bgFinalRender(data, nAdded) {
   kdjAnchor.setData(anchorTimes);
   rsiAnchor.setData(anchorTimes);
   macdAnchor.setData(anchorTimes.map(d => ({ ...d, value: 0 })));
+  // 快速系列（不阻塞）：K線、量、BB、Marker 指標
   renderCandles(data);
+  renderVolume(data);
   renderBB(data);
   renderCRT(data);
   renderKDJCross(data);
   renderResonance(data);
-  renderVolume(data);
-  renderKDJ(data);
-  renderRSI(data);
-  renderMACD(data);
-  // setVisibleLogicalRange 與上方所有 setData 在同一 JS frame，
-  // LWT 統一在下一個 rAF 渲染，使用者看不到中間狀態
+  // 視圖恢復：與上方 setData 同一 JS frame，LWT 在同一 rAF 統一繪製
   if (visRange && nAdded > 0) {
     const shifted = { from: visRange.from + nAdded, to: visRange.to + nAdded };
     mainChart.timeScale().setVisibleLogicalRange(shifted);
     [kdjChart, rsiChart, macdChart].forEach(c => c.timeScale().setVisibleLogicalRange(shifted));
   }
+  // 重計算量大的振盪器指標移到非同步，不阻塞主執行緒
+  setTimeout(() => { renderKDJ(data); renderRSI(data); renderMACD(data); }, 0);
 }
 
 async function _bgLoadOlderBars() {
