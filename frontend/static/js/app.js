@@ -2635,6 +2635,7 @@ async function loadData(autoLoad = false) {
     startRealtime();
     saveLastSymbol();   // 載入成功後記憶此次標的
     _updateStarBtn();
+    _syncTickerToChart();
   } catch(e) {
     if (!autoLoad) alert("❌ " + e.message);
     throw e;
@@ -3344,6 +3345,24 @@ let _tickerTimer    = null;
 let _lastTickerKey  = "";        // 追蹤目前渲染的 ticker 結構，避免不必要的 DOM 重建
 
 /* 只更新價格文字，不重建 DOM */
+function _syncTickerToChart() {
+  if (!ohlcvData.length) return;
+  const lastBar = ohlcvData[ohlcvData.length - 1];
+  if (!lastBar?.close) return;
+  const sym = document.getElementById("symbolInput")?.value.trim().toUpperCase();
+  if (!sym) return;
+  // 在 futures / spot 資料中找到對應標的，同步最新 close 價格
+  const allSrc = [..._tickerData, ..._spotTickerData, ..._twTickerData];
+  const target = allSrc.find(t =>
+    (t.display || t.symbol || "").toUpperCase() === sym ||
+    (t.symbol || "").toUpperCase() === sym
+  );
+  if (target) {
+    target.price = lastBar.close;
+    _updateTickerPrices();
+  }
+}
+
 function _updateTickerPrices() {
   const container = document.getElementById("tickerList");
   if (!container) return;

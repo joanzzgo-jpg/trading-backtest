@@ -413,6 +413,8 @@ def _fetch_pionex_klines(symbol: str, timeframe: str,
         if end_ms: params2["endTime"]   = end_ms
         url  = f"{PIONEX_BASE}/api/v1/market/klines?{urllib.parse.urlencode(params2)}"
         data = _get(url, timeout=10)
+        if not data.get("result", True):
+            break  # Pionex 明確回傳失敗，停止重試
         klines = (data.get("data") or {}).get("klines") or []
         if not klines:
             break
