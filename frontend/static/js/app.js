@@ -2019,15 +2019,18 @@ function updateMarketUI() {
 
   document.getElementById("exchangeSelect").style.display = isCrypto ? "" : "none";
 
+  const _inp = document.getElementById("symbolInput");
+  const _cur = _inp.value.trim();
+  const _defaults = ["BTC/USDT", "AAPL", "2330"];
   if (isCrypto) {
-    document.getElementById("symbolInput").placeholder = "BTC/USDT";
-    document.getElementById("symbolInput").value       = "BTC/USDT";
+    _inp.placeholder = "BTC/USDT";
+    if (!_cur || _defaults.includes(_cur)) _inp.value = "BTC/USDT";
   } else if (isUS) {
-    document.getElementById("symbolInput").placeholder = "AAPL";
-    document.getElementById("symbolInput").value       = "AAPL";
+    _inp.placeholder = "AAPL";
+    if (!_cur || _defaults.includes(_cur)) _inp.value = "AAPL";
   } else {
-    document.getElementById("symbolInput").placeholder = "2330";
-    document.getElementById("symbolInput").value       = "2330";
+    _inp.placeholder = "2330";
+    if (!_cur || _defaults.includes(_cur)) _inp.value = "2330";
   }
 
   // 台股：不支援 4h（盤中僅 4.5 小時）；美股：只支援日/週/月線

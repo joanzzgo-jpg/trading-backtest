@@ -410,7 +410,10 @@ def fetch_crypto_ohlcv(
                 return df
         except Exception:
             pass
-        return _fetch_binance(symbol, timeframe, start, end, limit, max_candles=mc)
+        try:
+            return _fetch_binance(symbol, timeframe, start, end, limit, max_candles=mc)
+        except Exception:
+            raise ValueError(f"找不到 {symbol} 的行情資料，請確認標的代號是否正確")
     elif ex == "bybit":
         return _fetch_bybit(symbol, timeframe, start, end, limit, max_candles=mc)
     elif ex == "okx":
