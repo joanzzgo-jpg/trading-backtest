@@ -3258,7 +3258,7 @@ function enterReplay(startDate = null) {
   document.getElementById("chartsContainer").style.paddingBottom = "42px";
   resizeAll();
 
-  // 進入重播：禁止 series.update() 自動捲到最新 bar
+  // 進入重播：禁止自動捲動，鎖定滾輪縮放（避免 LWT 內部 reset 視圖）
   [mainChart, kdjChart, rsiChart, macdChart].forEach(c =>
     c?.applyOptions({ timeScale: { shiftVisibleRangeOnNewBar: false } })
   );
@@ -3371,12 +3371,15 @@ function _replayStep(bar) {
 function _replayRender() {
   const slice = replayData.slice(0, replayIdx + 1);
   const n     = slice.length;
-  const range = { from: n - _replaySpan - 1, to: n - 1 };
+  const range = { from: Math.max(0, n - _replaySpan - 1), to: n - 1 };
+  const _setRange = () =>
+    [mainChart, kdjChart, rsiChart, macdChart].forEach(c => c?.timeScale().setVisibleLogicalRange(range));
 
   _blockSync = true;
 
   if (_replayLastIdx >= 0 && replayIdx === _replayLastIdx + 1) {
-    // 逐格前進：只更新新 bar，避免全量 setData 閃爍
+    // 逐格前進：先鎖定視圖再 update，避免 LWT 內部 timescale reset 蓋掉範圍
+    _setRange();
     _replayStep(replayData[replayIdx]);
   } else {
     // 跳躍或倒退：全量重繪
@@ -3396,7 +3399,8 @@ function _replayRender() {
     updateSymbolBar(slice);
   }
 
-  [mainChart, kdjChart, rsiChart, macdChart].forEach(c => c?.timeScale().setVisibleLogicalRange(range));
+  // 雙保險：update/setData 後再確認一次視圖（LWT 可能在 setData 後重設 timescale）
+  _setRange();
   _blockSync = false;
   _replayLastIdx = replayIdx;
 
