@@ -74,7 +74,8 @@ let lastKDJCrossMarkers  = [];
 let lastResonanceMarkers = [];
 let paneCollapseFlex = {};  // 面板收合前的 flex 值（module-level，供 loadVisibilityPrefs 使用）
 let _restoringPrefs  = false; // 還原偏好設定時，暫停自動儲存
-let _savedBarCount   = null;  // 切換標的前保存的可見 K 棒數量，載入後還原
+let _savedBarCount      = null;  // 切換標的前保存的可見 K 棒數量，載入後還原
+let _pendingRestoreRange = null; // 重整後要還原的畫面位置 { barCount, toOffset }
 
 const PANE_FLEX_DEFAULTS = { mainPane:5, kdjPane:1, rsiPane:1, macdPane:1 };
 
@@ -112,11 +113,15 @@ function loadPrefs() {
 
 function saveLastSymbol() {
   try {
+    const r = mainChart?.timeScale().getVisibleLogicalRange();
+    const rangeBarCount = r ? Math.max(1, Math.round(r.to - r.from)) : null;
+    const rangeToOffset = (r && ohlcvData.length) ? Math.max(0, ohlcvData.length - 1 - Math.round(r.to)) : null;
     localStorage.setItem("lastSymbol", JSON.stringify({
       symbol:   document.getElementById("symbolInput")?.value  || "",
       exchange: document.getElementById("exchangeSelect")?.value || "pionex",
       market:   document.getElementById("marketSelect")?.value  || "crypto",
       tf:       currentTF,
+      rangeBarCount, rangeToOffset,
     }));
   } catch {}
 }
@@ -132,6 +137,9 @@ function loadLastSymbol() {
       currentTF = last.tf;
       document.querySelectorAll(".tf-btn").forEach(b =>
         b.classList.toggle("active", b.dataset.tf === currentTF));
+    }
+    if (last.rangeBarCount != null) {
+      _pendingRestoreRange = { barCount: last.rangeBarCount, toOffset: last.rangeToOffset ?? 0 };
     }
   } catch {}
 }
@@ -283,6 +291,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   updateMarketUI();
   applyAllColors();
   startTickerRefresh();
+  window.addEventListener("beforeunload", () => { saveLastSymbol(); });
+
   loadData(true)
     .then(() => { loadVisibilityPrefs(); applyAllLineStyles(); })
     .catch(() => showToast("⚠️ 載入失敗，請點「載入」重試"));
@@ -2601,18 +2611,24 @@ function renderAll(data) {
   // fit 讓各子圖時間範圍對齊
   [mainChart, kdjChart, rsiChart, macdChart].forEach(c => c.timeScale().fitContent());
 
-  // 保留切換前的 K 棒顯示數量；若無紀錄（首次載入）預設 50 根
-  const _prevRange = mainChart.timeScale().getVisibleLogicalRange();
-  const _barCount  = (_prevRange && _savedBarCount != null)
-    ? _savedBarCount
-    : 50;
-  if (data.length > _barCount) {
-    mainChart.timeScale().setVisibleLogicalRange({
-      from: data.length - _barCount,
-      to:   data.length - 1,
-    });
+  // 還原畫面位置：重整後優先用 _pendingRestoreRange，切換標的用 _savedBarCount，預設 50 根
+  if (_pendingRestoreRange) {
+    const { barCount, toOffset } = _pendingRestoreRange;
+    _pendingRestoreRange = null;
+    const to   = data.length - 1 - toOffset;
+    const from = to - barCount;
+    if (to >= 0) mainChart.timeScale().setVisibleLogicalRange({ from: Math.max(0, from), to });
+  } else {
+    const _prevRange = mainChart.timeScale().getVisibleLogicalRange();
+    const _barCount  = (_prevRange && _savedBarCount != null) ? _savedBarCount : 50;
+    if (data.length > _barCount) {
+      mainChart.timeScale().setVisibleLogicalRange({
+        from: data.length - _barCount,
+        to:   data.length - 1,
+      });
+    }
   }
-  _savedBarCount = null;   // 用完清除，讓使用者自由縮放
+  _savedBarCount = null;
 
   resizeAll();
 }
