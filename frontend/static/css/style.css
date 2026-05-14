@@ -623,6 +623,16 @@ html, body {
 }
 .ticker-title { font-size: 12px; font-weight: 600; color: var(--text); }
 
+.tk-mkt-tabs { display: flex; gap: 2px; }
+.tk-mkt-btn {
+  background: none; border: none; cursor: pointer;
+  padding: 2px 8px; border-radius: 4px;
+  font-size: 12px; font-weight: 600; color: var(--muted);
+  transition: background .15s, color .15s;
+}
+.tk-mkt-btn.active { background: var(--blue); color: #fff; }
+.tk-mkt-btn:hover:not(.active) { background: var(--bg3); color: var(--text); }
+
 .tk-seg {
   display: flex;
   border: 1px solid var(--bg4);
@@ -690,6 +700,12 @@ html, body {
   flex-shrink: 0;
   user-select: none;
   line-height: 0;
+}
+.tk-logo-tw {
+  width: 30px; height: 30px; border-radius: 50%;
+  background: var(--blue); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 700; line-height: 1;
 }
 
 /* 中間：標的名 + 全名 */

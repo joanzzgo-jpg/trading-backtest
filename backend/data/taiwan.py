@@ -155,6 +155,79 @@ def fetch_tw_intraday_yf(symbol: str, timeframe: str, start: str, end: str) -> p
 TWSE_MIS_URL = "https://mis.twse.com.tw/stock/api/getStockInfo.jsp"
 TWSE_MIS_HEADERS = {"Referer": "https://mis.twse.com.tw/stock/index.jsp"}
 
+# 熱門台股清單 (代號, tse上市/otc上櫃)
+TW_POPULAR = [
+    ("2330","tse"),("2317","tse"),("2454","tse"),("2412","tse"),("2308","tse"),
+    ("2382","tse"),("2881","tse"),("2882","tse"),("2886","tse"),("2891","tse"),
+    ("2884","tse"),("2885","tse"),("2892","tse"),("2002","tse"),("1301","tse"),
+    ("1303","tse"),("1326","tse"),("2357","tse"),("2303","tse"),("3711","tse"),
+    ("2379","tse"),("2395","tse"),("4904","tse"),("4938","tse"),("3034","tse"),
+    ("3008","tse"),("2327","tse"),("2376","tse"),("2408","tse"),("5880","tse"),
+    ("2890","tse"),("6505","tse"),("1216","tse"),("2912","tse"),("2301","tse"),
+    ("2353","tse"),("2409","tse"),("3045","tse"),("2887","tse"),("2615","tse"),
+    ("2603","tse"),("2609","tse"),("2610","tse"),("2618","tse"),("2883","tse"),
+    ("2880","tse"),("2337","tse"),("6669","otc"),("3231","otc"),("6770","tse"),
+]
+
+TW_NAME_MAP = {
+    "2330":"台積電","2317":"鴻海","2454":"聯發科","2412":"中華電","2308":"台達電",
+    "2382":"廣達","2881":"富邦金","2882":"國泰金","2886":"兆豐金","2891":"中信金",
+    "2884":"玉山金","2885":"元大金","2892":"第一金","2002":"中鋼","1301":"台塑",
+    "1303":"南亞","1326":"台化","2357":"華碩","2303":"聯電","3711":"日月光投控",
+    "2379":"瑞昱","2395":"研華","4904":"遠傳","4938":"和碩","3034":"聯詠",
+    "3008":"大立光","2327":"國巨","2376":"技嘉","2408":"南亞科","5880":"合庫金",
+    "2890":"永豐金","6505":"台塑化","1216":"統一","2912":"統一超","2301":"光寶科",
+    "2353":"宏碁","2409":"友達","3045":"台灣大","2887":"台新金","2615":"萬海",
+    "2603":"長榮","2609":"陽明","2610":"華航","2618":"長榮航","2883":"開發金",
+    "2880":"華南金","2337":"旺宏","6669":"緯穎","3231":"緯創","6770":"力積電",
+}
+
+
+def fetch_tw_tickers() -> list:
+    """批量抓取熱門台股即時行情（TWSE MIS），盤後用昨收價計算漲跌。"""
+    ex_ch = "|".join(f"{ex}_{sym}.tw" for sym, ex in TW_POPULAR)
+    try:
+        resp = requests.get(
+            TWSE_MIS_URL,
+            params={"ex_ch": ex_ch, "json": "1", "delay": "0"},
+            headers=TWSE_MIS_HEADERS,
+            timeout=10,
+        )
+        resp.raise_for_status()
+        arr = resp.json().get("msgArray", [])
+        tickers = []
+        for d in arr:
+            sym = d.get("c", "")
+            if not sym:
+                continue
+            z = d.get("z", "-")   # 最新成交價
+            y = d.get("y", "-")   # 昨收價
+            if not z or z == "-":
+                z = y             # 盤後 / 未成交用昨收
+            try:
+                price      = float(z)
+                prev       = float(y)
+                change_amt = round(price - prev, 2)
+                change_pct = round((change_amt / prev * 100) if prev else 0.0, 2)
+                raw_vol    = d.get("v", "0") or "0"
+                volume     = float(raw_vol.replace(",", "")) * 1000
+                name       = d.get("n", "") or TW_NAME_MAP.get(sym, sym)
+                tickers.append({
+                    "symbol":     sym,
+                    "display":    sym,
+                    "name":       name,
+                    "price":      price,
+                    "change_pct": change_pct,
+                    "change_amt": change_amt,
+                    "volume":     volume,
+                })
+            except (ValueError, TypeError):
+                continue
+        tickers.sort(key=lambda x: x["change_pct"], reverse=True)
+        return tickers
+    except Exception:
+        return []
+
 
 def fetch_tw_latest_bar_yf(symbol: str) -> dict | None:
     """用 yfinance 抓最新一根日線（盤中即更新，盤後取當日收盤）"""

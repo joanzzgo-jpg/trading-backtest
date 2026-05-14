@@ -38,7 +38,12 @@ def us_search(q: str = ""):
 @router.get("/tickers")
 def get_tickers(market: str = "futures"):
     """取得標的列表：優先從記憶體即時快取讀取，啟動初期才 fallback 至直接 API。"""
-    from utils.live_data import get as live_get, has_data
+    from utils.live_data import get as live_get, has_data, has_tw_data
+    from data.taiwan import fetch_tw_tickers
+    if market == "tw":
+        if has_tw_data():
+            return {"tickers": live_get("tw"), "source": "live"}
+        return {"tickers": fetch_tw_tickers(), "source": "direct"}
     if has_data():
         return {"tickers": live_get(market), "source": "live"}
     # 冷啟動 fallback：直接呼叫 API

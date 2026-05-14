@@ -3268,57 +3268,69 @@ function bindSystemColors() {
 }
 
 /* ══════════════════════════════════════════
-   右側合約行情列表
+   右側行情列表
 ══════════════════════════════════════════ */
 let _tickerData     = [];
 let _spotTickerData = [];
-let _tickerSort     = "desc";   // desc=漲幅 asc=跌幅 vol=成交量
+let _twTickerData   = [];
+let _tickerMkt      = "crypto";  // "crypto" | "tw"
+let _tickerSort     = "desc";    // desc=漲幅 asc=跌幅 vol=成交量
 let _tickerTimer    = null;
-let _lastTickerKey  = "";       // 追蹤目前渲染的 ticker 結構，避免不必要的 DOM 重建
+let _lastTickerKey  = "";        // 追蹤目前渲染的 ticker 結構，避免不必要的 DOM 重建
 
 /* 只更新價格文字，不重建 DOM */
 function _updateTickerPrices() {
   const container = document.getElementById("tickerList");
   if (!container) return;
+  const src = _tickerMkt === "tw" ? _twTickerData : _tickerData;
   container.querySelectorAll(".ticker-item[data-display]").forEach(el => {
-    const t = _tickerData.find(x => x.display === el.dataset.display || x.symbol === el.dataset.display);
+    const t = src.find(x => (x.display || x.symbol) === el.dataset.display || x.symbol === el.dataset.display);
     if (!t) return;
     const sign    = t.change_pct >= 0 ? "+" : "";
     const cls     = t.change_pct >= 0 ? "up" : "dn";
     const priceEl = el.querySelector(".tk-price-val");
     const chgEl   = el.querySelector(".tk-chg");
     const amtEl   = el.querySelector(".tk-chg-amt");
-    const amt     = t.change_amt != null ? t.change_amt : t.price * t.change_pct / 100 / (1 + t.change_pct / 100);
     if (priceEl) priceEl.textContent = fmtTickerPrice(t.price);
     if (chgEl)  { chgEl.textContent = `${sign}${t.change_pct.toFixed(2)}%`; chgEl.className = `tk-chg ${cls}`; }
-    if (amtEl)  { amtEl.textContent = sign + _fmtAmt(amt, t.price);         amtEl.className = `tk-chg-amt ${cls}`; }
+    if (amtEl) {
+      const amt = t.change_amt != null ? t.change_amt : t.price * t.change_pct / 100 / (1 + t.change_pct / 100);
+      const amtTxt = _tickerMkt === "tw" ? sign + Math.abs(amt).toFixed(2) : sign + _fmtAmt(amt, t.price);
+      amtEl.textContent = amtTxt; amtEl.className = `tk-chg-amt ${cls}`;
+    }
   });
   updatePageTitle();
 }
 
 async function fetchTickers() {
   try {
-    const [futRes, spotRes] = await Promise.all([
-      fetch("/api/tickers?market=futures"),
-      fetch("/api/tickers?market=spot"),
-    ]);
-    if (futRes.ok)  { const j = await futRes.json();  _tickerData     = j.tickers || []; }
-    if (spotRes.ok) { const j = await spotRes.json(); _spotTickerData = j.tickers || []; }
+    if (_tickerMkt === "tw") {
+      const res = await fetch("/api/tickers?market=tw");
+      if (res.ok) { const j = await res.json(); _twTickerData = j.tickers || []; }
+    } else {
+      const [futRes, spotRes] = await Promise.all([
+        fetch("/api/tickers?market=futures"),
+        fetch("/api/tickers?market=spot"),
+      ]);
+      if (futRes.ok)  { const j = await futRes.json();  _tickerData     = j.tickers || []; }
+      if (spotRes.ok) { const j = await spotRes.json(); _spotTickerData = j.tickers || []; }
+    }
 
-    /* 計算目前應渲染的結構 key（排序 + 篩選 + 標的順序） */
+    /* 計算目前應渲染的結構 key */
     if (_tickerSort !== "wl") {
-      const search = (document.getElementById("tickerSearch")?.value || "").toLowerCase();
-      let list = _tickerData.filter(t =>
+      const search   = (document.getElementById("tickerSearch")?.value || "").toLowerCase();
+      const srcList  = _tickerMkt === "tw" ? _twTickerData : _tickerData;
+      let list = srcList.filter(t =>
         !search ||
-        t.display.toLowerCase().includes(search) ||
-        t.symbol.toLowerCase().includes(search) ||
-        t.symbol.toLowerCase().replace("usdt","").includes(search)
+        (t.display || t.symbol).toLowerCase().includes(search) ||
+        (t.name || "").toLowerCase().includes(search) ||
+        t.symbol.toLowerCase().includes(search)
       );
       if (_tickerSort === "asc")  list = [...list].reverse();
       if (_tickerSort === "vol")  list = [...list].sort((a, b) => b.volume - a.volume);
-      const newKey = `${_tickerSort}|${search}|${list.map(t => t.display).join(",")}`;
+      const newKey = `${_tickerMkt}|${_tickerSort}|${search}|${list.map(t => t.display || t.symbol).join(",")}`;
       if (newKey === _lastTickerKey) {
-        _updateTickerPrices();   // 結構不變→只刷新數字
+        _updateTickerPrices();
       } else {
         renderTickers();
         _lastTickerKey = newKey;
@@ -3329,7 +3341,6 @@ async function fetchTickers() {
 
     _saveTickerCache();
 
-    /* 搜尋 Modal 只在開啟時才更新 */
     if (!document.getElementById("symOverlay")?.classList.contains("hidden")) {
       renderSymSearch();
     }
@@ -3498,8 +3509,61 @@ function renderTickers() {
     return;
   }
 
-  // ── 合約行情 tab ──────────────────────────────────────
   const search = (document.getElementById("tickerSearch")?.value || "").toLowerCase();
+
+  // ── 台股 tab ──────────────────────────────────────────
+  if (_tickerMkt === "tw") {
+    let list = _twTickerData.filter(t =>
+      !search ||
+      t.symbol.includes(search) ||
+      (t.name || "").toLowerCase().includes(search)
+    );
+    if (_tickerSort === "asc")  list = [...list].reverse();
+    if (_tickerSort === "vol")  list = [...list].sort((a, b) => b.volume - a.volume);
+
+    container.innerHTML = list.map(t => {
+      const cls    = t.change_pct >= 0 ? "up" : "dn";
+      const sign   = t.change_pct >= 0 ? "+" : "";
+      const active = t.symbol === currentSym ? " tk-active" : "";
+      const key    = `tw::${t.symbol}`;
+      const inWl   = _watchlist.some(w => `${w.market}:${w.exchange || ""}:${w.symbol}` === key);
+      return `<div class="ticker-item${active}" data-symbol="${t.symbol}" data-display="${t.symbol}" data-mkt="tw">
+        <div class="tk-logo tk-logo-tw">${t.symbol.slice(0,1)}</div>
+        <div class="tk-info">
+          <span class="tk-sym">${t.symbol}</span>
+          <span class="tk-full">${t.name || ""}</span>
+        </div>
+        <div class="tk-prices">
+          <span class="tk-price-val">${fmtTickerPrice(t.price)}</span>
+          <div class="tk-chg-row">
+            <span class="tk-chg-amt ${cls}">${sign}${Math.abs(t.change_amt).toFixed(2)}</span>
+            <span class="tk-chg ${cls}">${sign}${t.change_pct.toFixed(2)}%</span>
+          </div>
+        </div>
+        <div class="tk-action"><button class="tk-star${inWl ? " active" : ""}" title="${inWl ? "移除自選" : "加入自選"}">${inWl ? "★" : "☆"}</button></div>
+      </div>`;
+    }).join("");
+
+    container.querySelectorAll(".ticker-item").forEach(el => {
+      el.querySelector(".tk-star")?.addEventListener("click", e => {
+        e.stopPropagation();
+        _toggleWatchlist(el.dataset.symbol, "tw", "");
+      });
+      el.addEventListener("click", e => {
+        if (e.target.closest(".tk-star")) return;
+        const mktEl = document.getElementById("marketSelect");
+        if (mktEl.value !== "tw") { mktEl.value = "tw"; updateMarketUI(); }
+        document.getElementById("symbolInput").value = el.dataset.symbol;
+        loadData(false);
+        container.querySelectorAll(".ticker-item").forEach(x => x.classList.remove("tk-active"));
+        el.classList.add("tk-active");
+      });
+    });
+    updatePageTitle();
+    return;
+  }
+
+  // ── 合約行情 tab ──────────────────────────────────────
   let list = _tickerData.filter(t =>
     !search ||
     t.display.toLowerCase().includes(search) ||
@@ -3583,18 +3647,34 @@ function _loadTickerCache() {
 
 function startTickerRefresh() {
   if (_tickerTimer) clearInterval(_tickerTimer);
-  _loadTickerCache();   // ← 先從 localStorage 即時渲染
-  fetchTickers();       // ← 背景拉新資料
-  _tickerTimer = setInterval(fetchTickers, 2000);
+  _loadTickerCache();
+  fetchTickers();
+  // crypto 2秒；台股 10秒（setInterval 動態切換）
+  _tickerTimer = setInterval(fetchTickers, _tickerMkt === "tw" ? 10000 : 2000);
 }
 
 function bindTickerPanel() {
+  // 市場切換 tab（合約 / 台股）
+  document.querySelectorAll(".tk-mkt-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      if (btn.dataset.mkt === _tickerMkt) return;
+      document.querySelectorAll(".tk-mkt-btn").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      _tickerMkt     = btn.dataset.mkt;
+      _lastTickerKey = "";
+      // 重設更新頻率
+      if (_tickerTimer) clearInterval(_tickerTimer);
+      fetchTickers();
+      _tickerTimer = setInterval(fetchTickers, _tickerMkt === "tw" ? 10000 : 2000);
+    });
+  });
+
   document.querySelectorAll(".tk-seg-btn").forEach(btn => {
     btn.addEventListener("click", () => {
       document.querySelectorAll(".tk-seg-btn").forEach(b => b.classList.remove("active"));
       btn.classList.add("active");
       _tickerSort = btn.dataset.sort;
-      _lastTickerKey = "";   // 強制完整重建
+      _lastTickerKey = "";
       renderTickers();
       if (btn.dataset.sort === "wl") _refreshWlPrices();
     });

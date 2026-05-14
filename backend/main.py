@@ -49,7 +49,7 @@ except Exception:
 
 
 def _ticker_worker():
-    """背景執行緒：每 2 秒從 Pionex 抓 ticker 存入記憶體。"""
+    """背景執行緒：每 2 秒從 Pionex 抓 crypto ticker 存入記憶體。"""
     from data.crypto import fetch_tickers
     from utils.live_data import update as live_update
     while True:
@@ -63,6 +63,20 @@ def _ticker_worker():
         time.sleep(2)
 
 
+def _tw_ticker_worker():
+    """背景執行緒：每 10 秒從 TWSE MIS 抓台股即時行情存入記憶體。"""
+    from data.taiwan import fetch_tw_tickers
+    from utils.live_data import update_tw as live_update_tw
+    while True:
+        try:
+            tw = fetch_tw_tickers()
+            if tw:
+                live_update_tw(tw)
+        except Exception:
+            pass
+        time.sleep(10)
+
+
 @app.on_event("startup")
 async def _warmup():
     """啟動時立即預熱並啟動背景 ticker 更新。"""
@@ -70,8 +84,8 @@ async def _warmup():
     loop = asyncio.get_event_loop()
     loop.run_in_executor(None, _fetch_pionex_symbols)
     loop.run_in_executor(None, _fetch_pionex_perp_symbols)
-    t = threading.Thread(target=_ticker_worker, daemon=True)
-    t.start()
+    threading.Thread(target=_ticker_worker,    daemon=True).start()
+    threading.Thread(target=_tw_ticker_worker, daemon=True).start()
 
 
 @app.get("/")
