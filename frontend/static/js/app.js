@@ -4115,60 +4115,67 @@ async function _bgLoadOlderBars() {
   const BG_TF = new Set(["5m", "15m", "1h", "4h"]);
   if (!BG_TF.has(currentTF) || _bgLoadInProgress || !ohlcvData.length) return;
 
-  const snapMarket  = document.getElementById("marketSelect").value;
-  const snapSymbol  = document.getElementById("symbolInput").value.trim();
-  const snapTf      = currentTF;
+  const snapMarket   = document.getElementById("marketSelect").value;
+  const snapSymbol   = document.getElementById("symbolInput").value.trim();
+  const snapTf       = currentTF;
   const snapExchange = document.getElementById("exchangeSelect").value;
 
-  const BG_DAYS = { "5m": 7, "15m": 30, "1h": 90, "4h": 180 };
-  const days = BG_DAYS[snapTf] || 30;
+  // 目標回溯天數（從現在往回算）
+  const TARGET_DAYS = { "5m": 365, "15m": 365, "1h": 730, "4h": 1825 };
+  const totalDays   = TARGET_DAYS[snapTf] || 30;
+  const targetStartTs = Math.floor(Date.now() / 1000) - totalDays * 86400;
 
-  const earliestTs = toTime(ohlcvData[0].time); // unix seconds
-  const endTs   = earliestTs - 1;
-  const startTs = endTs - days * 86400;
+  // 每枝 request 涵蓋的天數（配合後端 _TF_MAX_CANDLES）
+  const CHUNK_DAYS = { "5m": 25, "15m": 80, "1h": 240, "4h": 950 };
+  const chunkDays  = CHUNK_DAYS[snapTf] || 30;
+
   const toIso = ts => new Date(ts * 1000).toISOString().slice(0, 10);
+  const guard = () =>
+    document.getElementById("marketSelect").value === snapMarket &&
+    document.getElementById("symbolInput").value.trim() === snapSymbol &&
+    currentTF === snapTf;
 
   _bgLoadInProgress = true;
   try {
-    const payload = {
-      market:    snapMarket,
-      symbol:    snapSymbol,
-      timeframe: snapTf,
-      exchange:  snapExchange,
-      start:     toIso(startTs),
-      end:       toIso(endTs),
-      limit:     0,
-    };
-    const res = await fetch("/api/ohlcv", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) return;
-    const json = await res.json();
-    if (!json.data?.length) return;
+    while (_bgLoadInProgress && guard()) {
+      const currentEarliestTs = toTime(ohlcvData[0].time);
+      if (currentEarliestTs <= targetStartTs) break; // 已達目標
 
-    // 確認使用者沒有切換標的/週期
-    if (document.getElementById("marketSelect").value !== snapMarket) return;
-    if (document.getElementById("symbolInput").value.trim() !== snapSymbol) return;
-    if (currentTF !== snapTf) return;
+      const endTs   = currentEarliestTs - 1;
+      const startTs = Math.max(endTs - chunkDays * 86400, targetStartTs);
 
-    // 過濾重疊（保留比現有最早一根還早的）
-    const existingEarliest = toTime(ohlcvData[0].time);
-    const newBars = json.data.filter(b => toTime(b.time) < existingEarliest);
-    if (!newBars.length) return;
+      const res = await fetch("/api/ohlcv", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          market: snapMarket, symbol: snapSymbol,
+          timeframe: snapTf,  exchange: snapExchange,
+          start: toIso(startTs), end: toIso(endTs), limit: 0,
+        }),
+      });
+      if (!res.ok) break;
+      const json = await res.json();
+      if (!json.data?.length) break;
 
-    const nPrepended = newBars.length;
-    const visRange   = mainChart.timeScale().getVisibleLogicalRange();
+      if (!guard()) break; // 使用者已切換
 
-    ohlcvData = [...newBars, ...ohlcvData];
-    _bgApplyAll(ohlcvData);
+      const existingEarliest = toTime(ohlcvData[0].time);
+      const newBars = json.data.filter(b => toTime(b.time) < existingEarliest);
+      if (!newBars.length) break;
 
-    // 恢復畫面位置（往右移 nPrepended 根補償新增的舊資料）
-    if (visRange) {
-      const shifted = { from: visRange.from + nPrepended, to: visRange.to + nPrepended };
-      mainChart.timeScale().setVisibleLogicalRange(shifted);
-      [kdjChart, rsiChart, macdChart].forEach(c => c.timeScale().setVisibleLogicalRange(shifted));
+      const nPrepended = newBars.length;
+      const visRange   = mainChart.timeScale().getVisibleLogicalRange();
+
+      ohlcvData = [...newBars, ...ohlcvData];
+      _bgApplyAll(ohlcvData);
+
+      if (visRange) {
+        const shifted = { from: visRange.from + nPrepended, to: visRange.to + nPrepended };
+        mainChart.timeScale().setVisibleLogicalRange(shifted);
+        [kdjChart, rsiChart, macdChart].forEach(c => c.timeScale().setVisibleLogicalRange(shifted));
+      }
+
+      await new Promise(r => setTimeout(r, 300)); // 每枝間隔 300ms 避免打爆後端
     }
   } catch { /* 背景失敗靜默，不影響前景 */ } finally {
     _bgLoadInProgress = false;
