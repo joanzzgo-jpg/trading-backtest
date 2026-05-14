@@ -49,7 +49,11 @@ def get_ohlcv(req: OHLCVRequest):
                     end   = date.today().isoformat()
                     start = (date.today() - timedelta(days=days)).isoformat()
                 else:
-                    start, end = req.start, req.end
+                    end   = req.end or date.today().isoformat()
+                    # 分鐘/小時線日期範圍不可超過 yfinance 上限，避免 FinMind 422
+                    start_raw = req.start or end
+                    min_start = (date.fromisoformat(end) - timedelta(days=max_d)).isoformat()
+                    start = max(start_raw, min_start)
                 try:
                     df = fetch_tw_intraday_yf(req.symbol, req.timeframe, start, end)
                 except Exception:
