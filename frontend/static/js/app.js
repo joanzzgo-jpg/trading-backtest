@@ -3764,6 +3764,37 @@ function _fmtAmt(amt, price) {
   return amt.toFixed(4);
 }
 
+/* 台股 Blob Logo — 依股票族群配色，以中文名首字為標籤 */
+const _TW_SECTOR_COLORS = [
+  [7000, "#3d7ab8"],  // 其他
+  [6000, "#5b3de8"],  // 科技服務
+  [5000, "#8B6540"],  // 建設
+  [4000, "#c83dde"],  // 生技電信
+  [3000, "#2aaa58"],  // 電子零組件
+  [2900, "#d05060"],  // 運輸貿易
+  [2800, "#c4a030"],  // 金融保險
+  [2500, "#7a5de8"],  // 電子零件
+  [2300, "#1aadad"],  // 半導體
+  [2000, "#4e6ef2"],  // 電子製造
+  [0,    "#c17340"],  // 傳統產業
+];
+function _twLogoHtml(symbol, name) {
+  const num = parseInt(symbol) || 0;
+  const bg  = (_TW_SECTOR_COLORS.find(([threshold]) => num >= threshold) || _TW_SECTOR_COLORS[0])[1];
+  const hash = symbol.split("").reduce((s, c) => s + c.charCodeAt(0), 0);
+  const path = _LOGO_BLOBS[hash % _LOGO_BLOBS.length];
+  const rot  = (hash % 15) - 7;
+  const lbl  = name ? name.slice(0, 1) : symbol.slice(0, 2);
+  return `<div class="tk-logo" style="transform:rotate(${rot}deg)">
+    <svg viewBox="0 0 100 100" width="30" height="30" xmlns="http://www.w3.org/2000/svg">
+      <path d="${path}" fill="${bg}" stroke="rgba(255,255,255,0.25)" stroke-width="3" stroke-linejoin="round"/>
+      <text x="50" y="55" text-anchor="middle" dominant-baseline="middle"
+            font-size="44" font-weight="700" fill="white"
+            transform="rotate(${-rot},50,50)">${lbl}</text>
+    </svg>
+  </div>`;
+}
+
 const _STAR_SVG = `<svg class="star-svg" width="16" height="16" viewBox="0 0 18 18" fill="none"><path class="star-outline" d="M9 15.5C8.7 15.3 2 10.8 2 6.8C2 4.6 3.7 3 5.7 3C7 3 8.2 3.7 9 4.8C9.8 3.7 11 3 12.3 3C14.3 3 16 4.6 16 6.8C16 10.8 9.3 15.3 9 15.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round"/><path class="star-fill" d="M9 15.5C8.7 15.3 2 10.8 2 6.8C2 4.6 3.7 3 5.7 3C7 3 8.2 3.7 9 4.8C9.8 3.7 11 3 12.3 3C14.3 3 16 4.6 16 6.8C16 10.8 9.3 15.3 9 15.5Z" fill="currentColor" opacity="0"/></svg>`;
 
 function renderTickers() {
@@ -3852,13 +3883,19 @@ function renderTickers() {
     if (_tickerSort === "vol")  list = [...list].sort((a, b) => b.volume - a.volume);
 
     container.innerHTML = list.map(t => {
-      const cls    = t.change_pct >= 0 ? "up" : "dn";
-      const sign   = t.change_pct >= 0 ? "+" : "";
-      const active = t.symbol === currentSym ? " tk-active" : "";
-      const key    = `tw::${t.symbol}`;
-      const inWl   = _watchlist.some(w => `${w.market}:${w.exchange || ""}:${w.symbol}` === key);
-      return `<div class="ticker-item${active}" data-symbol="${t.symbol}" data-display="${t.symbol}" data-mkt="tw">
-        <div class="tk-logo tk-logo-tw">${t.symbol.slice(0,1)}</div>
+      const cls       = t.change_pct >= 0 ? "up" : "dn";
+      const sign      = t.change_pct >= 0 ? "+" : "";
+      const active    = t.symbol === currentSym ? " tk-active" : "";
+      const key       = `tw::${t.symbol}`;
+      const inWl      = _watchlist.some(w => `${w.market}:${w.exchange || ""}:${w.symbol}` === key);
+      const isLimitUp = t.change_pct >= 9.7;
+      const isLimitDn = t.change_pct <= -9.7;
+      const limitCls  = isLimitUp ? " tk-limit-up" : isLimitDn ? " tk-limit-dn" : "";
+      const limitBadge = isLimitUp
+        ? '<span class="tk-limit-badge">漲停</span>'
+        : isLimitDn ? '<span class="tk-limit-badge">跌停</span>' : "";
+      return `<div class="ticker-item${active}${limitCls}" data-symbol="${t.symbol}" data-display="${t.symbol}" data-mkt="tw">
+        ${_twLogoHtml(t.symbol, t.name)}
         <div class="tk-info">
           <span class="tk-sym">${t.symbol}</span>
           <span class="tk-full">${t.name || ""}</span>
@@ -3868,6 +3905,7 @@ function renderTickers() {
           <div class="tk-chg-row">
             <span class="tk-chg-amt ${cls}">${sign}${Math.abs(t.change_amt).toFixed(2)}</span>
             <span class="tk-chg ${cls}">${sign}${t.change_pct.toFixed(2)}%</span>
+            ${limitBadge}
           </div>
         </div>
         <div class="tk-action"><button class="tk-star${inWl ? " active" : ""}" title="${inWl ? "移除自選" : "加入自選"}">${_STAR_SVG}</button></div>

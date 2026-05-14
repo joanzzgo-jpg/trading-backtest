@@ -724,19 +724,15 @@ html, body {
 .ticker-item:hover { background: var(--bg3); }
 .ticker-item.tk-active { background: var(--bg3); border-left: 2px solid var(--blue); padding-left: 6px; }
 
-/* logo 手繪塗鴉 */
+/* logo 手繪塗鴉（台股 / 加密貨幣共用 blob 風格） */
 .tk-logo {
   width: 30px; height: 30px;
   flex-shrink: 0;
   user-select: none;
   line-height: 0;
+  transition: transform .2s;
 }
-.tk-logo-tw {
-  width: 30px; height: 30px; border-radius: 50%;
-  background: var(--blue); color: #fff;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 13px; font-weight: 700; line-height: 1;
-}
+.ticker-item:hover .tk-logo { transform: rotate(0deg) scale(1.1) !important; }
 
 /* 中間：標的名 + 全名 */
 .tk-info { flex: 1; min-width: 0; }
@@ -749,6 +745,25 @@ html, body {
 .tk-chg-row   { font-size: 9px; display: flex; justify-content: flex-end; align-items: center; gap: 4px; margin-top: 2px; }
 .tk-chg-amt   { color: var(--muted); transition: color .25s; }
 .tk-chg       { font-weight: 700; transition: color .25s; }
+
+/* 漲停 / 跌停 標籤 */
+.ticker-item.tk-limit-up { background: rgba(239,83,80,.09); }
+.ticker-item.tk-limit-dn { background: rgba(38,166,154,.09); }
+.ticker-item.tk-limit-up:hover { background: rgba(239,83,80,.15); }
+.ticker-item.tk-limit-dn:hover { background: rgba(38,166,154,.15); }
+.tk-limit-badge {
+  display: inline-block;
+  font-size: 8px;
+  font-weight: 800;
+  padding: 1px 4px;
+  border-radius: 3px;
+  letter-spacing: .4px;
+  line-height: 1.5;
+  animation: tk-limitPulse 1.6s ease-in-out infinite;
+}
+.ticker-item.tk-limit-up .tk-limit-badge { background: var(--red); color: #fff; }
+.ticker-item.tk-limit-dn .tk-limit-badge { background: var(--green); color: #fff; }
+@keyframes tk-limitPulse { 0%,100%{opacity:1} 50%{opacity:.45} }
 
 /* 操作按鈕（星號 / 刪除） */
 .tk-action { flex-shrink: 0; }
