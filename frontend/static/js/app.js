@@ -2603,29 +2603,6 @@ async function loadData(autoLoad = false) {
 
   stopRealtime();
 
-  // 各時間級別依市場實際 API 限制回溯天數（加密貨幣無限制）
-  if (!autoLoad) {
-    const mkt = document.getElementById("marketSelect").value;
-    const TF_MAX_DAYS =
-      mkt === "crypto" ? { "4h": 120, "1h": 120, "15m": 30, "5m": 7 } :
-      mkt === "us"     ? { "4h": 60,  "1h": 730, "15m": 60, "5m": 60 } :
-      mkt === "tw"     ? { "5m": 60,  "15m": 60, "1h": 730 } : {};
-    const maxDays = TF_MAX_DAYS[currentTF];
-    if (maxDays) {
-      const startEl = document.getElementById("startDate");
-      const endEl   = document.getElementById("endDate");
-      if (startEl.value && endEl.value) {
-        const endMs   = new Date(endEl.value).getTime();
-        const startMs = new Date(startEl.value).getTime();
-        if ((endMs - startMs) / 86400000 > maxDays) {
-          const newStart = new Date(endMs - maxDays * 86400000).toISOString().slice(0, 10);
-          startEl.value = newStart;
-          showToast(`⚠️ ${TF_LABELS[currentTF]} 資料來源最多回溯 ${maxDays} 天，起始日調整為 ${newStart}`);
-        }
-      }
-    }
-  }
-
   showLoading(true);
   try {
     const res  = await fetch("/api/ohlcv", {
