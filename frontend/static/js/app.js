@@ -3905,7 +3905,7 @@ function buildPayload(useLimit = false) {
     symbol:    sym,
     start:     useLimit ? "" : document.getElementById("startDate").value,
     end:       useLimit ? "" : document.getElementById("endDate").value,
-    limit:     useLimit ? ({ "1M":120,"1w":520,"1d":1095,"4h":2190,"1h":2160,"15m":300,"5m":300 }[currentTF] ?? 300) : 0,
+    limit:     useLimit ? ({ "1M":120,"1w":520,"1d":1095,"4h":2190,"1h":2160,"15m":2000,"5m":2000 }[currentTF] ?? 500) : 0,
     timeframe: currentTF,
     exchange:  document.getElementById("exchangeSelect").value,
   };

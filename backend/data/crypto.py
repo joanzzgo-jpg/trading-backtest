@@ -7,7 +7,7 @@ import time
 import urllib.request
 import urllib.parse
 import pandas as pd
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Union, Optional
 
 # ── Binance（含 Pionex）────────────────────────────────────────
@@ -165,6 +165,10 @@ def _make_df(rows: list, time_col=0, unit="ms") -> pd.DataFrame:
 _TF_BARS_PER_DAY = {
     "1M": 1/30, "1w": 1/7, "1d": 1,
     "4h": 6, "1h": 24, "15m": 96, "5m": 288,
+}
+_TF_BAR_SECONDS = {
+    "1M": 2592000, "1w": 604800, "1d": 86400,
+    "4h": 14400,   "1h": 3600,   "15m": 900, "5m": 300,
 }
 # 各時間級別的合理上限（根數），避免 API 請求過多
 _TF_MAX_CANDLES = {
@@ -383,6 +387,20 @@ def fetch_crypto_ohlcv(
     if symbol.upper().endswith(".P"):
         symbol = symbol[:-2]
     ex = exchange_id.lower()
+
+    # 若日期範圍超過 cap，把 start 往後移到 end - cap×bar_duration
+    # 確保永遠抓到最新的資料，而非從太久之前截斷
+    if start and end:
+        bar_secs = _TF_BAR_SECONDS.get(timeframe, 86400)
+        cap = _TF_MAX_CANDLES.get(timeframe, 5000)
+        try:
+            end_dt   = datetime.strptime(end, "%Y-%m-%d")
+            min_start = end_dt - timedelta(seconds=int(cap * bar_secs * 1.02))
+            if datetime.strptime(start, "%Y-%m-%d") < min_start:
+                start = min_start.strftime("%Y-%m-%d")
+        except Exception:
+            pass
+
     mc = _calc_max_candles(start, end, timeframe)
     if ex in ("pionex", "binance"):
         # 優先使用永續合約 K 線；fapi 不可用時退回現貨
