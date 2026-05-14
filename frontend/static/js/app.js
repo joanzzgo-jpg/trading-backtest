@@ -3422,6 +3422,7 @@ async function fetchTickers() {
       } else {
         renderTickers();
         _lastTickerKey = newKey;
+        _updateTickerPrices();
       }
     } else {
       renderTickers();
@@ -3737,8 +3738,8 @@ function startTickerRefresh() {
   if (_tickerTimer) clearInterval(_tickerTimer);
   _loadTickerCache();
   fetchTickers();
-  // crypto 2秒；台股 10秒（setInterval 動態切換）
-  _tickerTimer = setInterval(fetchTickers, _tickerMkt === "tw" ? 10000 : 2000);
+  // crypto 1秒；台股 10秒（setInterval 動態切換）
+  _tickerTimer = setInterval(fetchTickers, _tickerMkt === "tw" ? 10000 : 1000);
 }
 
 function bindTickerPanel() {
@@ -3753,7 +3754,7 @@ function bindTickerPanel() {
       // 重設更新頻率
       if (_tickerTimer) clearInterval(_tickerTimer);
       fetchTickers();
-      _tickerTimer = setInterval(fetchTickers, _tickerMkt === "tw" ? 10000 : 2000);
+      _tickerTimer = setInterval(fetchTickers, _tickerMkt === "tw" ? 10000 : 1000);
     });
   });
 
