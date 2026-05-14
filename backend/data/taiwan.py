@@ -56,7 +56,8 @@ def resample_tw(df: pd.DataFrame, timeframe: str) -> pd.DataFrame:
     """將日線資料聚合為週線或月線"""
     if timeframe == "1d":
         return df
-    rule = {"1w": "W-FRI", "1M": "MS"}.get(timeframe, "1d")
+    # 月線用 ME（月末最後一天），與台股月K對齊；週線用週五
+    rule = {"1w": "W-FRI", "1M": "ME"}.get(timeframe, "1d")
     df = df.set_index("time")
     resampled = df.resample(rule).agg({
         "open": "first",
@@ -124,7 +125,8 @@ def _yf_history(ticker, interval: str, start: str, end: str):
     try:
         raw = ticker.history(start=start, end=end, interval=interval, auto_adjust=True)
         return raw if not raw.empty else None
-    except Exception:
+    except Exception as e:
+        print(f"[yf_history] {ticker.ticker} {interval} {start}~{end}: {e}")
         return None
 
 
@@ -255,7 +257,10 @@ def fetch_tw_latest_bar_yf(symbol: str) -> dict | None:
             ts = pd.Timestamp(raw.index[-1])
             if ts.tzinfo is not None:
                 ts = ts.tz_convert("Asia/Taipei").tz_localize(None)
-            ts = ts.normalize()  # 取日期部分
+            else:
+                # naive timestamp 假設已是台北時間（yfinance 日線通常如此）
+                pass
+            ts = ts.normalize()  # 取日期部分（00:00:00）
             return {
                 "time":   ts,
                 "open":   float(last["Open"]),
