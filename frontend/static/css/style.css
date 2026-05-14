@@ -930,8 +930,8 @@ html, body {
   position: fixed;
   bottom: 0; left: 0; right: 0;
   height: 42px;
-  background: rgba(19,23,34,0.96);
-  border-top: 1px solid #2962ff55;
+  background: var(--bg2);
+  border-top: 1px solid var(--border);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -956,7 +956,7 @@ html, body {
 .rp-exit { color: var(--muted); font-size: 11px; }
 .rp-exit:hover { border-color: #ef5350; color: #ef5350; }
 .rp-play { min-width: 32px; font-size: 13px; }
-.rp-play.playing { border-color: #ff9800; color: #ff9800; }
+.rp-play.playing { border-color: var(--blue); color: var(--blue); }
 .rp-step { font-size: 11px; padding: 3px 7px; }
 .rp-divider { width: 1px; height: 20px; background: var(--border); margin: 0 4px; flex-shrink: 0; }
 .rp-speeds { display: flex; gap: 3px; }
@@ -1005,24 +1005,24 @@ html, body {
 }
 .rp-picker-overlay.hidden { display: none; }
 .rp-picker-modal {
-  background: #181c2a;
-  border: 1px solid rgba(41,98,255,.25);
+  background: var(--bg2);
+  border: 1px solid var(--border);
   border-radius: 18px;
   padding: 34px 34px 26px;
   display: flex; flex-direction: column; align-items: center; gap: 16px;
   width: 360px;
-  box-shadow: 0 28px 72px rgba(0,0,0,.65), 0 0 0 1px rgba(41,98,255,.08);
+  box-shadow: 0 28px 72px rgba(0,0,0,.65);
   position: relative; overflow: visible;
 }
 .rp-picker-modal::before {
   content: "";
   position: absolute; top: 0; left: 0; right: 0; height: 3px;
-  background: linear-gradient(90deg, #2962ff 0%, #7c3aed 100%);
+  background: var(--blue);
   border-radius: 18px 18px 0 0;
 }
 .rp-picker-icon { color: var(--blue); margin-bottom: 2px; }
 .rp-picker-title {
-  font-size: 16px; font-weight: 700; color: var(--fg);
+  font-size: 16px; font-weight: 700; color: var(--text);
   letter-spacing: .02em; align-self: flex-start;
 }
 .rp-preset-row {
@@ -1030,28 +1030,28 @@ html, body {
 }
 .rp-preset {
   padding: 9px 0; font-size: 12px; font-weight: 600;
-  background: rgba(255,255,255,.05);
+  background: var(--bg3);
   border: 1px solid var(--border); border-radius: 8px;
   color: var(--muted); cursor: pointer; white-space: nowrap;
   transition: all .15s;
 }
-.rp-preset:hover { border-color: var(--blue); color: var(--blue); background: rgba(59,130,246,.12); }
+.rp-preset:hover { border-color: var(--blue); color: var(--blue); background: var(--bg4); }
 /* Custom calendar picker */
 .rp-cal-wrap { position: relative; width: 100%; }
 .rp-cal-display {
   width: 100%; padding: 15px 18px; box-sizing: border-box;
-  background: rgba(41,98,255,.08); border: 2px solid rgba(41,98,255,.35);
+  background: var(--bg3); border: 2px solid var(--border);
   border-radius: 11px; cursor: pointer;
   display: flex; align-items: center; justify-content: center; gap: 10px;
   font-size: 22px; font-family: monospace; font-weight: 600;
-  color: #d0dbff; letter-spacing: .1em; transition: all .15s;
+  color: var(--text); letter-spacing: .1em; transition: all .15s;
   user-select: none;
 }
-.rp-cal-display:hover { background: rgba(41,98,255,.14); border-color: rgba(41,98,255,.65); }
-.rp-cal-icon { color: rgba(100,150,255,.75); flex-shrink: 0; }
+.rp-cal-display:hover { background: var(--bg4); border-color: var(--blue); }
+.rp-cal-icon { color: var(--muted); flex-shrink: 0; }
 .rp-cal-panel {
   width: 100%; margin-top: 8px;
-  background: #0d1124; border: 1px solid rgba(41,98,255,.28);
+  background: var(--bg); border: 1px solid var(--border);
   border-radius: 11px; padding: 10px 10px 12px; box-sizing: border-box;
 }
 .rp-cal-panel.hidden { display: none; }
@@ -1059,12 +1059,12 @@ html, body {
   display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;
 }
 .rp-cal-nav {
-  background: none; border: 1px solid rgba(255,255,255,.1);
+  background: none; border: 1px solid var(--border);
   border-radius: 6px; color: var(--muted); cursor: pointer;
   font-size: 16px; padding: 2px 11px; line-height: 1.6; transition: all .12s;
 }
 .rp-cal-nav:hover { border-color: var(--blue); color: var(--blue); }
-.rp-cal-hd-title { font-size: 13px; font-weight: 700; color: var(--fg); }
+.rp-cal-hd-title { font-size: 13px; font-weight: 700; color: var(--text); }
 .rp-cal-dows {
   display: grid; grid-template-columns: repeat(7, 1fr);
   text-align: center; font-size: 11px; color: var(--muted);
@@ -1074,27 +1074,27 @@ html, body {
 .rp-cal-day {
   aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
   font-size: 12px; border-radius: 6px; cursor: pointer;
-  color: var(--fg); border: 1px solid transparent; transition: all .1s;
+  color: var(--text); border: 1px solid transparent; transition: all .1s;
 }
 .rp-cal-day:not(.disabled):not(.empty):hover {
-  background: rgba(41,98,255,.22); border-color: rgba(41,98,255,.45);
+  background: var(--bg3); border-color: var(--border);
 }
-.rp-cal-day.today { border-color: rgba(41,98,255,.55); color: #6fa3ff; }
-.rp-cal-day.selected { background: var(--blue); color: #fff; border-color: var(--blue); }
-.rp-cal-day.today.selected { background: var(--blue); color: #fff; }
-.rp-cal-day.other-month { color: rgba(255,255,255,.18); }
-.rp-cal-day.disabled { color: rgba(255,255,255,.14); cursor: default; }
+.rp-cal-day.today { border-color: var(--blue); color: var(--blue); }
+.rp-cal-day.selected { background: var(--blue); color: var(--bg); border-color: var(--blue); }
+.rp-cal-day.today.selected { background: var(--blue); color: var(--bg); }
+.rp-cal-day.other-month { color: var(--muted); opacity: .4; }
+.rp-cal-day.disabled { color: var(--muted); opacity: .25; cursor: default; }
 .rp-cal-day.empty { cursor: default; }
 .rp-picker-confirm {
   width: 100%; padding: 14px 0; margin-top: 2px;
-  background: linear-gradient(135deg, #2962ff 0%, #1a4fd6 100%);
-  color: #fff; border: none; border-radius: 10px;
+  background: var(--blue); color: var(--bg);
+  border: none; border-radius: 10px;
   font-size: 15px; font-weight: 700; cursor: pointer;
   letter-spacing: .04em;
-  box-shadow: 0 4px 18px rgba(41,98,255,.38);
+  box-shadow: 0 4px 18px rgba(255,145,71,.3);
   transition: all .15s;
 }
-.rp-picker-confirm:hover { filter: brightness(1.1); box-shadow: 0 6px 24px rgba(41,98,255,.52); transform: translateY(-1px); }
+.rp-picker-confirm:hover { filter: brightness(1.1); box-shadow: 0 6px 24px rgba(255,145,71,.45); transform: translateY(-1px); }
 .rp-picker-confirm:active { transform: translateY(0); }
 .rp-picker-confirm:disabled { opacity: .6; cursor: default; transform: none; box-shadow: none; }
 .rp-picker-cancel {
@@ -1102,7 +1102,7 @@ html, body {
   font-size: 13px; cursor: pointer; padding: 4px 0;
   transition: color .12s;
 }
-.rp-picker-cancel:hover { color: var(--fg); }
+.rp-picker-cancel:hover { color: var(--text); }
 .rp-progress-wrap {
   width: 64px; height: 5px;
   background: rgba(255,255,255,.1);
