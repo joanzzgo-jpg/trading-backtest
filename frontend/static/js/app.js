@@ -1181,14 +1181,31 @@ function drawingDist(d, x, y) {
     const barsV = visR ? Math.max(10, visR.to - visR.from) : 50;
     const zw    = Math.max(20, Math.min(W2 * 0.4, Math.round(W2 * (d.barWidth ?? 3) / barsV)));
     const ex = startX, rx3 = Math.min(W2, ex + zw);
-    // 只有在色塊區（ex..rx3）或右側標籤區（W-100..W）才命中
     if (x < ex - 10) return Infinity;
     if (x > rx3 + 20 && x < W2 - 100) return Infinity;
     const ey = candleSeries?.priceToCoordinate(d.p1.price);
     const ty = candleSeries?.priceToCoordinate(d.tp);
     const sy = candleSeries?.priceToCoordinate(d.sl);
+    // inside the colored zone → always a hit
+    if (ey != null && ty != null && sy != null) {
+      const zTop = Math.min(ty, sy), zBot = Math.max(ty, sy);
+      if (x >= ex && x <= rx3 && y >= zTop && y <= zBot) return 4;
+    }
     const dists = [ey, ty, sy].filter(v => v != null).map(v => Math.abs(v - y));
     return dists.length ? Math.min(...dists) : Infinity;
+  }
+  if (d.type === "fib" && d.p1 && d.p2) {
+    const a = chartToScreen(d.p1.time, d.p1.price);
+    const b = chartToScreen(d.p2.time, d.p2.price);
+    if (!a || !b) return Infinity;
+    if (x < Math.min(a.x, b.x) - 10) return Infinity;
+    const priceRange = d.p2.price - d.p1.price;
+    const dists = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1].map(lvl => {
+      const price = d.p1.price + priceRange * (1 - lvl);
+      const ly = candleSeries?.priceToCoordinate(price);
+      return ly != null ? Math.abs(ly - y) : Infinity;
+    });
+    return Math.min(...dists);
   }
   if (d.p1 && d.p2) {
     const a = chartToScreen(d.p1.time, d.p1.price);
@@ -1346,6 +1363,15 @@ function drawOne(d, W, H, isHovered, isSelected) {
       drawCtx.font = "10px monospace"; drawCtx.fillStyle = lcol;
       drawCtx.fillText(`${(lvl*100).toFixed(1)}%  ${_fibPriceFmt(price)}`, W - 88, y - 3);
     });
+    // endpoint handles at p1 / p2
+    if (isHovered || isSelected) {
+      const hoverPartFib = (isHovered || isSelected) ? _endpointHit(d, _mx, _my) : null;
+      drawCtx.fillStyle = col;
+      [[a, "p1"], [b, "p2"]].forEach(([p, ep]) => {
+        const r = isSelected ? (hoverPartFib === ep ? 7 : 5) : 3;
+        drawCtx.beginPath(); drawCtx.arc(p.x, p.y, r, 0, Math.PI*2); drawCtx.fill();
+      });
+    }
   }
   else if (d.type === "text") {
     const p = chartToScreen(d.time, d.price);
