@@ -554,7 +554,7 @@ def _apply_pionex_filter(tickers: list) -> list:
 
 
 def fetch_tickers(market: str = "futures") -> list:
-    """直接從 Pionex API 取得即時 24h 行情，不再透過 Binance。"""
+    """從 Pionex API 取得即時 24h 行情；失敗時 futures 改用 Binance FAPI 備援。"""
     type_param = "PERP" if market == "futures" else ""
     url = f"{PIONEX_BASE}/api/v1/market/tickers"
     if type_param:
@@ -591,11 +591,19 @@ def fetch_tickers(market: str = "futures") -> list:
                     "price":      close,
                     "change_pct": round(change_pct, 2),
                     "change_amt": round(close - open_, 8),
-                    "volume":     float(t.get("amount", 0)),  # USDT 計價成交量
+                    "volume":     float(t.get("amount", 0)),
                 })
             except (KeyError, ValueError):
                 continue
-        tickers.sort(key=lambda x: x["change_pct"], reverse=True)
-        return tickers
+        if tickers:
+            tickers.sort(key=lambda x: x["change_pct"], reverse=True)
+            return tickers
     except Exception:
-        return []
+        pass
+    # Pionex 失敗 → Binance FAPI 備援（僅合約）
+    if market == "futures":
+        tickers = _fetch_futures_tickers_fapi()
+        if tickers:
+            tickers.sort(key=lambda x: x["change_pct"], reverse=True)
+            return tickers
+    return []

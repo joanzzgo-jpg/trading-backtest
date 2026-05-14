@@ -3377,8 +3377,8 @@ async function fetchTickers() {
         fetch("/api/tickers?market=futures"),
         fetch("/api/tickers?market=spot"),
       ]);
-      if (futRes.ok)  { const j = await futRes.json();  _tickerData     = j.tickers || []; }
-      if (spotRes.ok) { const j = await spotRes.json(); _spotTickerData = j.tickers || []; }
+      if (futRes.ok)  { const j = await futRes.json();  if (j.tickers?.length) _tickerData     = j.tickers; }
+      if (spotRes.ok) { const j = await spotRes.json(); if (j.tickers?.length) _spotTickerData = j.tickers; }
     }
 
     /* 計算目前應渲染的結構 key */
