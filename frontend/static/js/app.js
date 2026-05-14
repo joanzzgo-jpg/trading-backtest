@@ -4434,7 +4434,7 @@ function showLoading(show) {
     window._bearCurrentState = state;
     const el = document.getElementById('_wxCard');
     if (!el) return;
-    el.style.bottom = state==='full'?'5px': state==='peeking'?'-80px':'-200px';
+    el.style.bottom = state==='full'?'5px':'-300px';
   };
 
   const LINES = [
@@ -6013,7 +6013,7 @@ const SFX = (() => {
     if (!el) {
       el = document.createElement('div'); el.id = '_wxCard';
       const bs = window._bearCurrentState || 'hidden';
-      const initB = bs==='full'?'5px': bs==='peeking'?'-80px':'-200px';
+      const initB = bs==='full'?'5px':'-300px';
       el.style.cssText =
         'position:fixed;bottom:'+initB+';right:175px;z-index:9989;'+
         'transition:bottom 0.45s cubic-bezier(0.34,1.56,0.64,1);'+
