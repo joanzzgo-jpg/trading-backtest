@@ -442,7 +442,7 @@ function syncTimeScales() {
         const now = Date.now();
         if (now - _scrollLoadTs > 1500) { // 1.5 秒節流，避免連發
           _scrollLoadTs = now;
-          _bgLoadOlderBars();
+          _bgLoadOlderBars(true); // 滑動觸發，載入更早的資料
         }
       }
     });
@@ -619,9 +619,22 @@ function findNearest(x, y, maxDist = 12) {
   return found;
 }
 
+/* 偵測游標是否靠近 p1 或 p2 端點 */
+function _endpointHit(d, x, y, thresh = 10) {
+  if (!d.p1 || !d.p2) return null;
+  const a = chartToScreen(d.p1.time, d.p1.price);
+  const b = chartToScreen(d.p2.time, d.p2.price);
+  if (a && Math.hypot(a.x - x, a.y - y) <= thresh) return "p1";
+  if (b && Math.hypot(b.x - x, b.y - y) <= thresh) return "p2";
+  return null;
+}
+
 /* 對 longpos/shortpos 判斷拖移的是哪一條線 */
 function _drawingHitPart(d, x, y) {
-  if (d.type !== "longpos" && d.type !== "shortpos") return "move";
+  if (d.type !== "longpos" && d.type !== "shortpos") {
+    const ep = _endpointHit(d, x, y);
+    return ep || "move";
+  }
   if (!d.p1) return "move";
   const ey = candleSeries?.priceToCoordinate(d.p1.price);
   const ty = candleSeries?.priceToCoordinate(d.tp);
@@ -736,11 +749,12 @@ function _updateCursor() {
   if (drawTool === "pointer") {
     if (hoveredId) {
       const hd = drawings.find(d => d.id === hoveredId);
-      if (hd && (hd.type === "longpos" || hd.type === "shortpos")) {
+      if (hd) {
         const part = _drawingHitPart(hd, _mx, _my);
-        chartEl.style.cursor = (part === "tp" || part === "sl") ? "ns-resize" : part === "width" ? "ew-resize" : "grab";
-      } else {
-        chartEl.style.cursor = "grab";
+        if (part === "p1" || part === "p2") chartEl.style.cursor = "nwse-resize";
+        else if (part === "tp" || part === "sl") chartEl.style.cursor = "ns-resize";
+        else if (part === "width") chartEl.style.cursor = "ew-resize";
+        else chartEl.style.cursor = "grab";
       }
     } else {
       chartEl.style.cursor = "";   // "" → 交回 LWC
@@ -1014,13 +1028,22 @@ function _updateDrag(x, y) {
     const op = chartToScreen(orig.time, orig.price);
     if (op) { const np = screenToChart(op.x + dx, op.y + dy); if (np) { d.time = np.time; d.price = np.price; } }
   } else if (d.p1 && d.p2) {
-    const a = chartToScreen(orig.p1.time, orig.p1.price);
-    const b = chartToScreen(orig.p2.time, orig.p2.price);
-    if (a && b) {
-      const na = screenToChart(a.x + dx, a.y + dy);
-      const nb = screenToChart(b.x + dx, b.y + dy);
-      if (na) d.p1 = { time:na.time, price:na.price };
-      if (nb) d.p2 = { time:nb.time, price:nb.price };
+    const part = dragState.part;
+    if (part === "p1") {
+      const np = screenToChart(x, y);
+      if (np) d.p1 = { time: np.time, price: np.price };
+    } else if (part === "p2") {
+      const np = screenToChart(x, y);
+      if (np) d.p2 = { time: np.time, price: np.price };
+    } else {
+      const a = chartToScreen(orig.p1.time, orig.p1.price);
+      const b = chartToScreen(orig.p2.time, orig.p2.price);
+      if (a && b) {
+        const na = screenToChart(a.x + dx, a.y + dy);
+        const nb = screenToChart(b.x + dx, b.y + dy);
+        if (na) d.p1 = { time:na.time, price:na.price };
+        if (nb) d.p2 = { time:nb.time, price:nb.price };
+      }
     }
   }
   requestAnimationFrame(renderDrawings);
@@ -1273,8 +1296,11 @@ function drawOne(d, W, H, isHovered, isSelected) {
     if (!a || !b) { drawCtx.restore(); return; }
     drawCtx.beginPath(); drawCtx.moveTo(a.x, a.y); drawCtx.lineTo(b.x, b.y); drawCtx.stroke();
     drawCtx.shadowBlur = 0;
-    const dotR = isSelected ? 5 : 3;
-    [a, b].forEach(p => { drawCtx.beginPath(); drawCtx.arc(p.x, p.y, dotR, 0, Math.PI*2); drawCtx.fill(); });
+    const hoverPart = (isHovered || isSelected) ? _endpointHit(d, _mx, _my) : null;
+    [[a, "p1"], [b, "p2"]].forEach(([p, ep]) => {
+      const r = isSelected ? (hoverPart === ep ? 7 : 5) : 3;
+      drawCtx.beginPath(); drawCtx.arc(p.x, p.y, r, 0, Math.PI*2); drawCtx.fill();
+    });
   }
   else if (d.type === "ray" && d.p1 && d.p2) {
     const a = chartToScreen(d.p1.time, d.p1.price);
@@ -1284,8 +1310,11 @@ function drawOne(d, W, H, isHovered, isSelected) {
     const t  = dx ? (W - a.x) / dx : 0;
     drawCtx.beginPath(); drawCtx.moveTo(a.x, a.y); drawCtx.lineTo(a.x + t*dx, a.y + t*dy); drawCtx.stroke();
     drawCtx.shadowBlur = 0;
-    const dotR = isSelected ? 5 : 3;
-    drawCtx.beginPath(); drawCtx.arc(a.x, a.y, dotR, 0, Math.PI*2); drawCtx.fill();
+    const hoverPartRay = (isHovered || isSelected) ? _endpointHit(d, _mx, _my) : null;
+    [[a, "p1"], [b, "p2"]].forEach(([p, ep]) => {
+      const r = isSelected ? (hoverPartRay === ep ? 7 : 5) : 3;
+      drawCtx.beginPath(); drawCtx.arc(p.x, p.y, r, 0, Math.PI*2); drawCtx.fill();
+    });
   }
   else if (d.type === "fib" && d.p1 && d.p2) {
     const a = chartToScreen(d.p1.time, d.p1.price);
@@ -4366,7 +4395,7 @@ function _bgScheduleIndicators() {
   }, 800);
 }
 
-async function _bgLoadOlderBars() {
+async function _bgLoadOlderBars(scrollTriggered = false) {
   const BG_TF = new Set(["5m", "15m", "1h", "4h"]);
   if (!BG_TF.has(currentTF) || _bgLoadInProgress || !ohlcvData.length) return;
 
@@ -4375,8 +4404,10 @@ async function _bgLoadOlderBars() {
   const snapTf       = currentTF;
   const snapExchange = document.getElementById("exchangeSelect").value;
 
-  const TARGET_DAYS = { "5m": 365, "15m": 365, "1h": 730, "4h": 1825 };
-  const totalDays   = TARGET_DAYS[snapTf] || 30;
+  // 初始自動載入目標：1h=1年, 15m/5m=半年；滑動觸發則繼續往更早載
+  const INIT_DAYS   = { "5m": 180, "15m": 180, "1h": 365, "4h": 1825 };
+  const SCROLL_DAYS = { "5m": 730, "15m": 730, "1h": 1825, "4h": 3650 };
+  const totalDays   = scrollTriggered ? (SCROLL_DAYS[snapTf] || 365) : (INIT_DAYS[snapTf] || 30);
   const targetStartTs = Math.floor(Date.now() / 1000) - totalDays * 86400;
 
   const CHUNK_DAYS = { "5m": 25, "15m": 80, "1h": 240, "4h": 950 };
