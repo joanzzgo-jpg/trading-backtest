@@ -2758,6 +2758,12 @@ async function fetchLatest() {
       }
       const _va2 = Math.round((S.volAlpha ?? 0.67) * 255).toString(16).padStart(2, "0");
       volSeries.update({ time:t, value:bar.volume||0, color: bar.close>=bar.open ? C.volUp+_va2 : C.volDown+_va2 });
+      const _maPeriod = S.volMaPeriod || 5;
+      const _maIdx = ohlcvData.length - 1;
+      if (_maIdx >= _maPeriod - 1) {
+        const _maAvg = ohlcvData.slice(_maIdx - _maPeriod + 1, _maIdx + 1).reduce((s, d) => s + (d.volume || 0), 0) / _maPeriod;
+        volMaSeries.update({ time: t, value: _maAvg });
+      }
       updateLatestPriceLine(bar.close);
     });
     updateSymbolBar(ohlcvData);

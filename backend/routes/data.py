@@ -88,6 +88,9 @@ def get_ohlcv(req: OHLCVRequest):
     except Exception as e:
         raise HTTPException(400, str(e))
 
+    if df.empty:
+        raise HTTPException(400, f"查無 {req.symbol} 的資料，該標的可能不支援此交易所")
+
     df = enrich_df(df)
     result = {"data": df_to_records(df)}
     safe_df_cleanup(df)

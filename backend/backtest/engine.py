@@ -20,6 +20,17 @@ class Trade:
     exit_reason: str = ""
 
 
+_CANDLES_PER_YEAR = {
+    "1M": 12,
+    "1w": 52,
+    "1d": 252,
+    "4h": 252 * 6,
+    "1h": 252 * 24,
+    "15m": 252 * 96,
+    "5m": 252 * 288,
+}
+
+
 @dataclass
 class BacktestConfig:
     initial_capital: float = 100_000.0
@@ -28,6 +39,7 @@ class BacktestConfig:
     size_pct: float = 0.1           # 每次用 10% 資金
     allow_short: bool = False       # 是否允許做空
     max_positions: int = 1          # 最大同時持倉數
+    timeframe: str = "1d"
 
 
 class BacktestEngine:
@@ -73,7 +85,7 @@ class BacktestEngine:
             last_row = self.df.iloc[-1]
             self._close_all(last_row, "end of data")
 
-        return BacktestResult(self.trades, self.equity_curve, self.config.initial_capital)
+        return BacktestResult(self.trades, self.equity_curve, self.config.initial_capital, self.config.timeframe)
 
     # ── 內部操作 ─────────────────────────────────────────────
     def _open_long(self, row):
@@ -103,18 +115,19 @@ class BacktestEngine:
     def _close_all(self, row, reason: str):
         for trade in list(self._open_trades):
             exit_price = row["close"]
+            entry_fee = trade.entry_price * trade.size * self.config.commission
             if trade.side == "long":
                 exit_price *= (1 - self.config.slippage)
                 gross = (exit_price - trade.entry_price) * trade.size
                 fee = exit_price * trade.size * self.config.commission
-                pnl = gross - fee
-                pnl_pct = (exit_price - trade.entry_price) / trade.entry_price
+                pnl = gross - fee - entry_fee
+                pnl_pct = pnl / (trade.entry_price * trade.size)
             else:
                 exit_price *= (1 + self.config.slippage)
                 gross = (trade.entry_price - exit_price) * trade.size
                 fee = exit_price * trade.size * self.config.commission
-                pnl = gross - fee
-                pnl_pct = (trade.entry_price - exit_price) / trade.entry_price
+                pnl = gross - fee - entry_fee
+                pnl_pct = pnl / (trade.entry_price * trade.size)
 
             self._capital += exit_price * trade.size - fee
             trade.exit_time = row["time"]
@@ -128,10 +141,11 @@ class BacktestEngine:
 
 
 class BacktestResult:
-    def __init__(self, trades: list[Trade], equity_curve: list[dict], initial_capital: float):
+    def __init__(self, trades: list[Trade], equity_curve: list[dict], initial_capital: float, timeframe: str = "1d"):
         self.trades = trades
         self.equity_curve = equity_curve
         self.initial_capital = initial_capital
+        self.timeframe = timeframe
 
     def stats(self) -> dict:
         if not self.trades:
@@ -150,12 +164,13 @@ class BacktestResult:
         final_equity = equity.iloc[-1]
         total_return = (final_equity - self.initial_capital) / self.initial_capital
 
-        # 夏普比率（簡化：日報酬）
         eq_df = pd.DataFrame(self.equity_curve).set_index("time")
-        daily_returns = eq_df["equity"].pct_change().dropna()
-        sharpe = (daily_returns.mean() / daily_returns.std() * np.sqrt(252)) if daily_returns.std() > 0 else 0
+        per_bar_returns = eq_df["equity"].pct_change().dropna()
+        annual_factor = _CANDLES_PER_YEAR.get(self.timeframe, 252)
+        sharpe = (per_bar_returns.mean() / per_bar_returns.std() * np.sqrt(annual_factor)) if per_bar_returns.std() > 0 else 0
 
-        profit_factor = abs(sum(winners) / sum(losers)) if losers else float("inf")
+        total_loss = sum(losers)
+        profit_factor = abs(sum(winners) / total_loss) if total_loss != 0 else float("inf")
 
         return {
             "total_trades": len(self.trades),
@@ -163,7 +178,7 @@ class BacktestResult:
             "profit_factor": round(profit_factor, 2),
             "total_return": round(total_return * 100, 2),
             "final_equity": round(final_equity, 2),
-            "max_drawdown": round(max_drawdown * 100, 2),
+            "max_drawdown": round(abs(max_drawdown) * 100, 2),
             "sharpe_ratio": round(sharpe, 2),
             "avg_win": round(np.mean(winners), 2) if winners else 0,
             "avg_loss": round(np.mean(losers), 2) if losers else 0,

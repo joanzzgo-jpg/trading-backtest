@@ -47,16 +47,23 @@ def run_backtest(req: BacktestRequest):
     except Exception as e:
         raise HTTPException(400, f"資料抓取失敗: {e}")
 
-    if len(df) < 10:
-        raise HTTPException(400, "資料不足，請擴大日期範圍")
+    if df.empty or len(df) < 10:
+        raise HTTPException(400, "資料不足，請確認標的與日期範圍")
 
     strategy_def = BUILTIN_STRATEGIES.get(req.strategy_id)
     if not strategy_def:
         raise HTTPException(400, f"找不到策略: {req.strategy_id}")
 
-    signal_fn, required_indicators = strategy_def["fn"](**req.strategy_params)
-    df = add_indicators(df, required_indicators)
-    df = enrich_df(df)
+    try:
+        signal_fn, required_indicators = strategy_def["fn"](**req.strategy_params)
+    except Exception as e:
+        raise HTTPException(400, f"策略參數錯誤: {e}")
+
+    try:
+        df = add_indicators(df, required_indicators)
+        df = enrich_df(df)
+    except Exception as e:
+        raise HTTPException(400, f"指標計算失敗: {e}")
 
     config = BacktestConfig(
         initial_capital=req.initial_capital,
@@ -64,6 +71,7 @@ def run_backtest(req: BacktestRequest):
         slippage=req.slippage,
         size_pct=req.size_pct,
         allow_short=req.allow_short,
+        timeframe=req.timeframe,
     )
     engine = BacktestEngine(df, config)
     result = engine.run(signal_fn)

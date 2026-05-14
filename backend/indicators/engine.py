@@ -67,21 +67,17 @@ def crt_markers(high: pd.Series, low: pd.Series, open_: pd.Series, close: pd.Ser
     紅K（漲）→ 下一根綠K（跌）且最高點 > 紅K最高點 → 看空 (-1)
     綠K（跌）→ 下一根紅K（漲）且最低點 < 綠K最低點 → 看多 (1)
     """
-    n = len(close)
+    cur_bull = close > open_
+    cur_bear = close < open_
+    next_bull = cur_bull.shift(-1)
+    next_bear = cur_bear.shift(-1)
+
+    bearish = cur_bull & next_bear & (high.shift(-1) > high)
+    bullish = cur_bear & next_bull & (low.shift(-1) < low)
+
     signals = pd.Series(0, index=close.index, dtype=int)
-
-    for i in range(n - 1):
-        cur_bull  = close.iloc[i] > open_.iloc[i]   # 漲（紅K）
-        cur_bear  = close.iloc[i] < open_.iloc[i]   # 跌（綠K）
-        next_bull = close.iloc[i+1] > open_.iloc[i+1]
-        next_bear = close.iloc[i+1] < open_.iloc[i+1]
-
-        if cur_bull and next_bear and high.iloc[i+1] > high.iloc[i]:
-            signals.iloc[i+1] = -1   # 看空：紅K後綠K掃上影
-
-        elif cur_bear and next_bull and low.iloc[i+1] < low.iloc[i]:
-            signals.iloc[i+1] = 1    # 看多：綠K後紅K掃下影
-
+    signals[bearish.shift(1).fillna(False)] = -1
+    signals[bullish.shift(1).fillna(False)] = 1
     return signals
 
 
