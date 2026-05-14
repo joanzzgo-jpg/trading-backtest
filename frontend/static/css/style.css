@@ -1036,17 +1036,21 @@ html, body {
 }
 .rp-preset:hover { border-color: var(--blue); color: var(--blue); background: rgba(59,130,246,.12); }
 .rp-picker-date {
-  width: 100%; padding: 13px 16px;
-  background: rgba(255,255,255,.05);
-  border: 1.5px solid rgba(41,98,255,.35);
-  border-radius: 10px;
-  color: var(--text); font-size: 17px; font-family: monospace;
+  width: 100%; padding: 18px 20px;
+  background: rgba(41,98,255,.07);
+  border: 2px solid rgba(41,98,255,.45);
+  border-radius: 12px;
+  color: #e0e6ff; font-size: 24px; font-family: monospace; font-weight: 600;
   color-scheme: dark; cursor: pointer; box-sizing: border-box;
-  text-align: center; letter-spacing: .08em;
-  transition: border-color .15s;
+  text-align: center; letter-spacing: .12em;
+  transition: border-color .15s, background .15s;
 }
-.rp-picker-date:focus { outline: none; border-color: var(--blue); }
-.rp-picker-date::-webkit-calendar-picker-indicator { filter: invert(0.7); cursor: pointer; width: 20px; height: 20px; }
+.rp-picker-date:hover { background: rgba(41,98,255,.12); border-color: rgba(41,98,255,.7); }
+.rp-picker-date:focus { outline: none; border-color: var(--blue); background: rgba(41,98,255,.14); }
+.rp-picker-date::-webkit-calendar-picker-indicator {
+  filter: invert(0.6) sepia(1) saturate(3) hue-rotate(190deg);
+  cursor: pointer; width: 24px; height: 24px; margin-left: 8px; opacity: .8;
+}
 .rp-picker-confirm {
   width: 100%; padding: 14px 0; margin-top: 2px;
   background: linear-gradient(135deg, #2962ff 0%, #1a4fd6 100%);
