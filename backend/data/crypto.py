@@ -467,23 +467,8 @@ def fetch_crypto_ohlcv(
 
     mc = _calc_max_candles(start, end, timeframe)
     if ex in ("pionex", "binance"):
-        if ex == "pionex":
-            # 優先使用 Pionex 自有 K 線 API（支援 Pionex 獨有合約）
-            try:
-                df = _fetch_pionex_klines(symbol, timeframe, start, end, limit, max_candles=mc, is_perp=is_perp)
-                if not df.empty:
-                    return df
-            except Exception:
-                pass
-            # PERP 找不到時也試 Pionex 現貨版本
-            if is_perp:
-                try:
-                    df = _fetch_pionex_klines(symbol, timeframe, start, end, limit, max_candles=mc, is_perp=False)
-                    if not df.empty:
-                        return df
-                except Exception:
-                    pass
-        # Binance 永續合約
+        # Pionex 使用 Binance 流動性，直接從 Binance 抓（歷史更深、更穩定）
+        # 優先永續合約（fapi），其次現貨
         try:
             df = _fetch_binance_fapi(symbol, timeframe, start, end, limit, max_candles=mc)
             if not df.empty:
