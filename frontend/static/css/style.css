@@ -999,57 +999,70 @@ html, body {
 /* Replay start date picker modal */
 .rp-picker-overlay {
   position: fixed; inset: 0;
-  background: rgba(0,0,0,.6);
-  z-index: 900; backdrop-filter: blur(2px);
+  background: rgba(0,0,0,.65);
+  z-index: 900; backdrop-filter: blur(4px);
   display: flex; align-items: center; justify-content: center;
 }
 .rp-picker-overlay.hidden { display: none; }
 .rp-picker-modal {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 28px 28px 20px;
-  display: flex; flex-direction: column; align-items: center; gap: 12px;
-  width: 230px;
-  box-shadow: 0 16px 48px rgba(0,0,0,.5);
+  background: #181c2a;
+  border: 1px solid rgba(41,98,255,.25);
+  border-radius: 18px;
+  padding: 34px 34px 26px;
+  display: flex; flex-direction: column; align-items: center; gap: 16px;
+  width: 360px;
+  box-shadow: 0 28px 72px rgba(0,0,0,.65), 0 0 0 1px rgba(41,98,255,.08);
+  position: relative; overflow: hidden;
+}
+.rp-picker-modal::before {
+  content: "";
+  position: absolute; top: 0; left: 0; right: 0; height: 3px;
+  background: linear-gradient(90deg, #2962ff 0%, #7c3aed 100%);
 }
 .rp-picker-icon { color: var(--blue); margin-bottom: 2px; }
 .rp-picker-title {
-  font-size: 13px; font-weight: 700; color: var(--fg);
+  font-size: 16px; font-weight: 700; color: var(--fg);
   letter-spacing: .02em; align-self: flex-start;
 }
 .rp-preset-row {
-  display: flex; gap: 6px; width: 100%; flex-wrap: wrap;
+  display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; width: 100%;
 }
 .rp-preset {
-  flex: 1; padding: 5px 0; font-size: 11px; font-weight: 600;
+  padding: 9px 0; font-size: 12px; font-weight: 600;
   background: rgba(255,255,255,.05);
-  border: 1px solid var(--border); border-radius: 5px;
+  border: 1px solid var(--border); border-radius: 8px;
   color: var(--muted); cursor: pointer; white-space: nowrap;
+  transition: all .15s;
 }
-.rp-preset:hover { border-color: var(--blue); color: var(--blue); background: rgba(59,130,246,.08); }
+.rp-preset:hover { border-color: var(--blue); color: var(--blue); background: rgba(59,130,246,.12); }
 .rp-picker-date {
-  width: 100%; padding: 8px 10px;
-  background: rgba(255,255,255,.04);
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  color: var(--text); font-size: 13px; font-family: monospace;
+  width: 100%; padding: 13px 16px;
+  background: rgba(255,255,255,.05);
+  border: 1.5px solid rgba(41,98,255,.35);
+  border-radius: 10px;
+  color: var(--text); font-size: 17px; font-family: monospace;
   color-scheme: dark; cursor: pointer; box-sizing: border-box;
-  text-align: center;
+  text-align: center; letter-spacing: .08em;
+  transition: border-color .15s;
 }
 .rp-picker-date:focus { outline: none; border-color: var(--blue); }
-.rp-picker-date::-webkit-calendar-picker-indicator { filter: invert(0.7); cursor: pointer; }
+.rp-picker-date::-webkit-calendar-picker-indicator { filter: invert(0.7); cursor: pointer; width: 20px; height: 20px; }
 .rp-picker-confirm {
-  width: 100%; padding: 9px 0; margin-top: 4px;
-  background: var(--blue); color: #fff;
-  border: none; border-radius: 7px;
-  font-size: 13px; font-weight: 700; cursor: pointer;
-  letter-spacing: .03em;
+  width: 100%; padding: 14px 0; margin-top: 2px;
+  background: linear-gradient(135deg, #2962ff 0%, #1a4fd6 100%);
+  color: #fff; border: none; border-radius: 10px;
+  font-size: 15px; font-weight: 700; cursor: pointer;
+  letter-spacing: .04em;
+  box-shadow: 0 4px 18px rgba(41,98,255,.38);
+  transition: all .15s;
 }
-.rp-picker-confirm:hover { filter: brightness(1.12); }
+.rp-picker-confirm:hover { filter: brightness(1.1); box-shadow: 0 6px 24px rgba(41,98,255,.52); transform: translateY(-1px); }
+.rp-picker-confirm:active { transform: translateY(0); }
+.rp-picker-confirm:disabled { opacity: .6; cursor: default; transform: none; box-shadow: none; }
 .rp-picker-cancel {
   background: none; border: none; color: var(--muted);
-  font-size: 12px; cursor: pointer; padding: 2px 0;
+  font-size: 13px; cursor: pointer; padding: 4px 0;
+  transition: color .12s;
 }
 .rp-picker-cancel:hover { color: var(--fg); }
 .rp-progress-wrap {
