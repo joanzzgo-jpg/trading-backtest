@@ -373,10 +373,10 @@ def _fetch_okx(symbol: str, timeframe: str,
 # ══════════════════════════════════════════════════════════════
 #  Pionex native klines
 # ══════════════════════════════════════════════════════════════
-# Pionex klines interval 格式（與 Binance 相同小寫格式）
+# Pionex klines interval 格式（實測：大寫縮寫，1h=60M；1w/1M 不支援）
 PIONEX_TF_MAP = {
-    "1M": "1M", "1w": "1w", "1d": "1d",
-    "4h": "4h", "1h": "1h", "15m": "15m", "5m": "5m",
+    "1M": None, "1w": None, "1d": "1D",
+    "4h": "4H", "1h": "60M", "15m": "15M", "5m": "5M",
 }
 
 
@@ -384,10 +384,12 @@ def _fetch_pionex_klines(symbol: str, timeframe: str,
                           start: Optional[str], end: Optional[str], limit: int,
                           max_candles: int = 3000, is_perp: bool = False) -> pd.DataFrame:
     """Pionex 自有 K 線 API，支援 Pionex 獨有合約（不在 Binance fapi 上的）"""
+    tf = PIONEX_TF_MAP.get(timeframe)
+    if tf is None:
+        return pd.DataFrame(columns=["time","open","high","low","close","volume"])
     sym = symbol.replace("/", "_").upper()
     if is_perp and not sym.endswith("_PERP"):
         sym += "_PERP"
-    tf = PIONEX_TF_MAP.get(timeframe, "1DAY")
 
     # limit-only mode → 換算成時間範圍，部分 Pionex API 對純 limit 請求回傳異常
     if start is None and end is None:
