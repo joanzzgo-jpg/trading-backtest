@@ -401,6 +401,10 @@ def _fetch_pionex_klines(symbol: str, timeframe: str,
 
     since  = _to_ms(start) if start else None
     end_ms = _to_ms(end, end_of_day=True) if end else None
+    # Pionex 不接受未來的 endTime，限制在當前時間
+    now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+    if end_ms and end_ms > now_ms:
+        end_ms = now_ms
     all_rows: list = []
 
     while True:
