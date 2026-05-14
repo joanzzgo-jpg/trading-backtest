@@ -5,7 +5,7 @@ from datetime import date, timedelta, datetime as dt
 from typing import Optional
 import os
 
-from data.taiwan import fetch_tw_stock, resample_tw, fetch_tw_intraday, fetch_tw_realtime, fetch_tw_intraday_yf, YF_MAX_DAYS as TW_YF_MAX_DAYS
+from data.taiwan import fetch_tw_stock, resample_tw, fetch_tw_intraday, fetch_tw_realtime, fetch_tw_intraday_yf, fetch_tw_latest_bar_yf, YF_MAX_DAYS as TW_YF_MAX_DAYS
 from data.us_stock import fetch_us_stock, MAX_DAYS as US_MAX_DAYS
 from data.crypto import fetch_crypto_ohlcv
 from utils.cache import cache
@@ -132,6 +132,17 @@ def get_latest(req: LatestRequest):
                     "low":    rt["low"],
                     "close":  rt["close"],
                     "volume": rt["volume"],
+                }]}
+            # 盤後 fallback：yfinance 優先（當日收盤即可取到），再試 FinMind
+            yf_bar = fetch_tw_latest_bar_yf(req.symbol)
+            if yf_bar:
+                return {"live": False, "data": [{
+                    "time":   yf_bar["time"].isoformat(),
+                    "open":   yf_bar["open"],
+                    "high":   yf_bar["high"],
+                    "low":    yf_bar["low"],
+                    "close":  yf_bar["close"],
+                    "volume": yf_bar["volume"],
                 }]}
             end   = date.today().isoformat()
             start = (date.today() - timedelta(days=5)).isoformat()

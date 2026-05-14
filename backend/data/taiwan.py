@@ -156,6 +156,34 @@ TWSE_MIS_URL = "https://mis.twse.com.tw/stock/api/getStockInfo.jsp"
 TWSE_MIS_HEADERS = {"Referer": "https://mis.twse.com.tw/stock/index.jsp"}
 
 
+def fetch_tw_latest_bar_yf(symbol: str) -> dict | None:
+    """用 yfinance 抓最新一根日線（盤中即更新，盤後取當日收盤）"""
+    try:
+        import yfinance as yf
+        for suffix in (".TW", ".TWO"):
+            raw = yf.Ticker(f"{symbol}{suffix}").history(
+                period="5d", interval="1d", auto_adjust=True
+            )
+            if raw.empty:
+                continue
+            last = raw.iloc[-1]
+            ts = pd.Timestamp(raw.index[-1])
+            if ts.tzinfo is not None:
+                ts = ts.tz_convert("Asia/Taipei").tz_localize(None)
+            ts = ts.normalize()  # 取日期部分
+            return {
+                "time":   ts,
+                "open":   float(last["Open"]),
+                "high":   float(last["High"]),
+                "low":    float(last["Low"]),
+                "close":  float(last["Close"]),
+                "volume": float(last["Volume"]),
+            }
+    except Exception:
+        pass
+    return None
+
+
 def fetch_tw_realtime(symbol: str):
     """
     TWSE MIS 即時報價（盤中）。
