@@ -77,6 +77,9 @@ let _restoringPrefs  = false; // 還原偏好設定時，暫停自動儲存
 let _savedBarCount      = null;  // 切換標的前保存的可見 K 棒數量，載入後還原
 let _pendingRestoreRange = null; // 重整後要還原的畫面位置 { barCount, toOffset }
 let _bgLoadInProgress   = false; // 背景分段載入舊 K 棒中
+let _bgIndicatorTimer   = null;  // 指標 debounce timer
+let _bgAnchorCache      = null;  // 增量錨點陣列（KDJ/RSI）
+let _bgMacdCache        = null;  // 增量錨點陣列（MACD）
 
 const PANE_FLEX_DEFAULTS = { mainPane:5, kdjPane:1, rsiPane:1, macdPane:1 };
 
@@ -2616,6 +2619,9 @@ async function loadData(autoLoad = false) {
     if (!res.ok) throw new Error(json.detail || "載入失敗");
     ohlcvData = json.data;
     _bgLoadInProgress = false; // 重置（切換標的時取消舊的背景請求）
+    clearTimeout(_bgIndicatorTimer);
+    _bgAnchorCache = null;
+    _bgMacdCache   = null;
     _bgSetStatus(null);
     renderAll(json.data);
     startRealtime();
@@ -4127,29 +4133,41 @@ function _bgSetStatus(ts) {
   }
 }
 
-// 背景載入完成後一次性更新所有系列
-function _bgFinalRender(data, nAdded) {
-  const visRange = mainChart.timeScale().getVisibleLogicalRange();
-  _applyPriceFormat(data);
-  const anchorTimes = data.map(d => ({ time: toTime(d.time), value: 50 }));
-  kdjAnchor.setData(anchorTimes);
-  rsiAnchor.setData(anchorTimes);
-  macdAnchor.setData(anchorTimes.map(d => ({ ...d, value: 0 })));
-  // 快速系列（不阻塞）：K線、量、BB、Marker 指標
-  renderCandles(data);
-  renderVolume(data);
-  renderBB(data);
-  renderCRT(data);
-  renderKDJCross(data);
-  renderResonance(data);
-  // 視圖恢復：與上方 setData 同一 JS frame，LWT 在同一 rAF 統一繪製
-  if (visRange && nAdded > 0) {
-    const shifted = { from: visRange.from + nAdded, to: visRange.to + nAdded };
-    mainChart.timeScale().setVisibleLogicalRange(shifted);
-    [kdjChart, rsiChart, macdChart].forEach(c => c.timeScale().setVisibleLogicalRange(shifted));
+// 每段 chunk 更新：只動 K線/量/錨點，不碰 markers 或指標
+function _bgApplyChunk(data, nPrepended) {
+  // 增量建錨點（只 map 新的那段，不重建全量）
+  if (_bgAnchorCache && nPrepended > 0) {
+    const slice   = data.slice(0, nPrepended);
+    _bgAnchorCache = [...slice.map(d => ({ time: toTime(d.time), value: 50 })), ..._bgAnchorCache];
+    _bgMacdCache   = [...slice.map(d => ({ time: toTime(d.time), value: 0  })), ..._bgMacdCache];
+  } else {
+    _bgAnchorCache = data.map(d => ({ time: toTime(d.time), value: 50 }));
+    _bgMacdCache   = data.map(d => ({ time: toTime(d.time), value: 0  }));
   }
-  // 重計算量大的振盪器指標移到非同步，不阻塞主執行緒
-  setTimeout(() => { renderKDJ(data); renderRSI(data); renderMACD(data); }, 0);
+  kdjAnchor.setData(_bgAnchorCache);
+  rsiAnchor.setData(_bgAnchorCache);
+  macdAnchor.setData(_bgMacdCache);
+  // applyOhlcvToSeries：直接更新 candleSeries，不呼叫 setMarkers（避免 marker 清空閃爍）
+  applyOhlcvToSeries(data);
+  // 輕量 volume 更新（跳過 priceScale.applyOptions 避免 layout thrashing）
+  const _va = Math.round((S.volAlpha ?? 0.67) * 255).toString(16).padStart(2, "0");
+  volSeries.setData(data.map(d => ({
+    time: toTime(d.time), value: d.volume || 0,
+    color: d.close >= d.open ? C.volUp + _va : C.volDown + _va,
+  })));
+}
+
+// 指標 debounce：每段 chunk 後重設計時器，最後一段完成 800ms 後才計算
+function _bgScheduleIndicators() {
+  clearTimeout(_bgIndicatorTimer);
+  _bgIndicatorTimer = setTimeout(() => {
+    if (!ohlcvData.length) return;
+    renderBB(ohlcvData);
+    renderCRT(ohlcvData);
+    renderKDJCross(ohlcvData);
+    renderResonance(ohlcvData);
+    setTimeout(() => { renderKDJ(ohlcvData); renderRSI(ohlcvData); renderMACD(ohlcvData); }, 0);
+  }, 800);
 }
 
 async function _bgLoadOlderBars() {
@@ -4174,8 +4192,10 @@ async function _bgLoadOlderBars() {
     document.getElementById("symbolInput").value.trim() === snapSymbol &&
     currentTF === snapTf;
 
-  const initialLen      = ohlcvData.length;
-  _bgLoadInProgress     = true;
+  // 以現有資料初始化錨點快取
+  _bgAnchorCache = ohlcvData.map(d => ({ time: toTime(d.time), value: 50 }));
+  _bgMacdCache   = ohlcvData.map(d => ({ time: toTime(d.time), value: 0  }));
+  _bgLoadInProgress = true;
 
   try {
     while (_bgLoadInProgress && guard()) {
@@ -4203,17 +4223,39 @@ async function _bgLoadOlderBars() {
       const newBars = json.data.filter(b => toTime(b.time) < existingEarliest);
       if (!newBars.length) break;
 
-      // 靜默累積資料，完全不碰圖表（零閃爍）
+      const nPrepended = newBars.length;
+      const visRange   = mainChart.timeScale().getVisibleLogicalRange();
+
       ohlcvData = [...newBars, ...ohlcvData];
+
+      // 先鎖定視圖位置，再更新資料，再確認一次（雙保險防 LWT 內部 reset）
+      const shifted = visRange
+        ? { from: visRange.from + nPrepended, to: visRange.to + nPrepended }
+        : null;
+      if (shifted) {
+        mainChart.timeScale().setVisibleLogicalRange(shifted);
+        [kdjChart, rsiChart, macdChart].forEach(c => c.timeScale().setVisibleLogicalRange(shifted));
+      }
+      _bgApplyChunk(ohlcvData, nPrepended);
+      if (shifted) {
+        mainChart.timeScale().setVisibleLogicalRange(shifted);
+        [kdjChart, rsiChart, macdChart].forEach(c => c.timeScale().setVisibleLogicalRange(shifted));
+      }
+
+      _bgScheduleIndicators();
       _bgSetStatus(toTime(ohlcvData[0].time));
 
-      await new Promise(r => setTimeout(r, 150));
+      await new Promise(r => setTimeout(r, 200));
     }
   } catch { /* 背景失敗靜默 */ } finally {
     _bgLoadInProgress = false;
-    const nAdded = ohlcvData.length - initialLen;
-    if (nAdded > 0 && guard()) {
-      _bgFinalRender(ohlcvData, nAdded);
+    _bgAnchorCache    = null;
+    _bgMacdCache      = null;
+    // 確保指標在載入完成後一定會算
+    clearTimeout(_bgIndicatorTimer);
+    if (guard() && ohlcvData.length) {
+      renderBB(ohlcvData); renderCRT(ohlcvData); renderKDJCross(ohlcvData); renderResonance(ohlcvData);
+      setTimeout(() => { renderKDJ(ohlcvData); renderRSI(ohlcvData); renderMACD(ohlcvData); }, 0);
     }
     setTimeout(() => _bgSetStatus(null), 2000);
   }
