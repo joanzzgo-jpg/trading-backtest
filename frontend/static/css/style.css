@@ -361,13 +361,12 @@ html, body {
 .sym-name    { font-size: 12px; font-weight: 700; color: var(--text); white-space: nowrap; }
 .sym-tag     { background: var(--bg3); color: var(--muted); padding: 1px 5px; border-radius: 3px; font-size: 10px; white-space: nowrap; }
 .sym-divider { color: var(--border); margin: 0 2px; }
-.sym-label   { color: var(--muted); font-size: 11px; }
-.sym-val     { font-weight: 600; margin-right: 2px; white-space: nowrap; font-size: 11px; }
-.sym-high    { color: var(--red); }
-.sym-low     { color: var(--green); }
-.sym-chg     { font-weight: 700; margin-left: 2px; white-space: nowrap; font-size: 11px; }
-.sym-chg.up  { color: var(--red); }
-.sym-chg.dn  { color: var(--green); }
+.sym-label         { color: var(--muted); font-size: 11px; }
+.sym-label-v       { margin-left: 4px; }
+.sym-val           { font-weight: 600; margin-right: 2px; white-space: nowrap; font-size: 11px; color: var(--text); }
+.sym-chg           { font-weight: 700; margin-left: 4px; white-space: nowrap; font-size: 11px; }
+.sym-chg.up        { color: var(--red); }
+.sym-chg.dn        { color: var(--green); }
 
 .realtime-dot {
   width: 6px; height: 6px; border-radius: 50%;

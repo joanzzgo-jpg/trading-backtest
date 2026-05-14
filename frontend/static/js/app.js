@@ -2813,6 +2813,8 @@ function updateAllLegends(t) {
   document.getElementById("symL").textContent = fmt(d.low);
   document.getElementById("symC").textContent = fmt(d.close);
   document.getElementById("symV").textContent = fmtVol(d.volume);
+  const dIdx = ohlcvData.indexOf(d);
+  if (dIdx > 0) _updateSymChg(d.close, ohlcvData[dIdx - 1].close);
 
   // BB
   if (d.bb_upper != null)
@@ -2848,7 +2850,10 @@ function onMainCrosshair(param) {
     document.getElementById("symL").textContent = fmt(c.low);
     document.getElementById("symC").textContent = fmt(c.close);
     const idx = ohlcvData.findIndex(r => toTime(r.time) === param.time);
-    if (idx >= 0) document.getElementById("symV").textContent = fmtVol(ohlcvData[idx].volume);
+    if (idx >= 0) {
+      document.getElementById("symV").textContent = fmtVol(ohlcvData[idx].volume);
+      if (idx > 0) _updateSymChg(c.close, ohlcvData[idx - 1].close);
+    }
   }
   const bu = param.seriesData.get(bbU)?.value;
   const bm = param.seriesData.get(bbM)?.value;
@@ -2888,6 +2893,15 @@ function onMacdCrosshair(param) {
   }
 }
 
+function _updateSymChg(close, prevClose) {
+  const el   = document.getElementById("symChg");
+  const amt  = close - prevClose;
+  const pct  = prevClose ? (amt / prevClose * 100) : 0;
+  const sign = amt >= 0 ? "+" : "";
+  el.textContent = `${sign}${fmt(amt)}  (${sign}${pct.toFixed(2)}%)`;
+  el.className   = "sym-chg " + (amt >= 0 ? "up" : "dn");
+}
+
 /* ══════════════════════════════════════════
    符號資訊 + 統計 + 明細
 ══════════════════════════════════════════ */
@@ -2909,10 +2923,7 @@ function updateSymbolBar(data) {
   document.getElementById("symL").textContent = fmt(last.low);
   document.getElementById("symC").textContent = fmt(last.close);
   document.getElementById("symV").textContent = fmtVol(last.volume);
-  const chg = ((last.close - prev.close) / prev.close * 100).toFixed(2);
-  const el  = document.getElementById("symChg");
-  el.textContent = `${chg >= 0 ? "+" : ""}${chg}%`;
-  el.className   = "sym-chg " + (chg >= 0 ? "up" : "dn");
+  _updateSymChg(last.close, prev.close);
 }
 
 /* ══════════════════════════════════════════
