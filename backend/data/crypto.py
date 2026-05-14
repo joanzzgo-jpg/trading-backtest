@@ -467,19 +467,28 @@ def fetch_crypto_ohlcv(
 
     mc = _calc_max_candles(start, end, timeframe)
     if ex in ("pionex", "binance"):
-        # Pionex 使用 Binance 流動性，直接從 Binance 抓（歷史更深、更穩定）
-        # 優先永續合約（fapi），其次現貨
+        # Binance 優先（歷史深、穩定）：永續合約 → 現貨
         try:
             df = _fetch_binance_fapi(symbol, timeframe, start, end, limit, max_candles=mc)
             if not df.empty:
                 return df
         except Exception:
             pass
-        # Binance 現貨
         try:
-            return _fetch_binance(symbol, timeframe, start, end, limit, max_candles=mc)
+            df = _fetch_binance(symbol, timeframe, start, end, limit, max_candles=mc)
+            if not df.empty:
+                return df
         except Exception:
-            raise ValueError(f"找不到 {symbol} 的行情資料，請確認標的代號是否正確")
+            pass
+        # Pionex 獨有合約（不在 Binance 上）→ 走 Pionex 自己的 klines 作為最後備援
+        if ex == "pionex":
+            try:
+                df = _fetch_pionex_klines(symbol, timeframe, start, end, limit, max_candles=mc, is_perp=is_perp)
+                if not df.empty:
+                    return df
+            except Exception:
+                pass
+        raise ValueError(f"找不到 {symbol} 的行情資料，請確認標的代號是否正確")
     elif ex == "bybit":
         return _fetch_bybit(symbol, timeframe, start, end, limit, max_candles=mc)
     elif ex == "okx":
