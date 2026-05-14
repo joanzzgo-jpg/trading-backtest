@@ -1095,6 +1095,8 @@ function _magnetSnap(x, y) {
     // 20 pixels → (curPrice - pRef) price units; so px per price = 20/(curPrice-pRef)
     snapY = y + (curPrice - snapPrice) * 20 / (curPrice - pRef);
   }
+  // Only snap if close enough in Y (within 20px of nearest OHLC price)
+  if (Math.abs(snapY - y) > 20) return null;
   return { x: barX, y: snapY, time: toTime(bar.time), price: snapPrice };
 }
 
