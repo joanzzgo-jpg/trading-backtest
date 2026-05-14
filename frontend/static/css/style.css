@@ -375,13 +375,6 @@ html, body {
 }
 @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.15} }
 
-.bg-load-status {
-  margin-left: 8px;
-  font-size: 10px;
-  color: #888;
-  white-space: nowrap;
-  opacity: .85;
-}
 
 /* ═══ BODY LAYOUT ═══ */
 .body-layout {
@@ -1059,7 +1052,22 @@ html, body {
   font-size: 12px; cursor: pointer; padding: 2px 0;
 }
 .rp-picker-cancel:hover { color: var(--fg); }
-.rp-progress { font-size: 11px; color: var(--muted); margin-left: 6px; }
+.rp-progress-wrap {
+  width: 64px; height: 5px;
+  background: rgba(255,255,255,.1);
+  border-radius: 3px;
+  overflow: hidden;
+  flex-shrink: 0;
+  margin-left: 6px;
+}
+.rp-progress-bar {
+  height: 100%;
+  width: 0%;
+  background: var(--blue);
+  border-radius: 3px;
+  transition: width .15s ease;
+}
+.rp-progress { font-size: 11px; color: var(--muted); font-family: monospace; margin-left: 4px; min-width: 32px; }
 
 /* ═══ MISC ═══ */
 .loading-overlay {

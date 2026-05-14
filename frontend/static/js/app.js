@@ -77,6 +77,7 @@ let _restoringPrefs  = false; // 還原偏好設定時，暫停自動儲存
 let _savedBarCount      = null;  // 切換標的前保存的可見 K 棒數量，載入後還原
 let _pendingRestoreRange = null; // 重整後要還原的畫面位置 { barCount, toOffset }
 let _bgLoadInProgress   = false; // 背景分段載入舊 K 棒中
+let _bgLoadGen          = 0;     // 每次新的載入任務遞增，用於取消舊的非同步迴圈
 let _bgIndicatorTimer   = null;  // 指標 debounce timer
 let _bgAnchorCache      = null;  // 增量錨點陣列（KDJ/RSI）
 let _bgMacdCache        = null;  // 增量錨點陣列（MACD）
@@ -2009,8 +2010,18 @@ function bindEvents() {
     if (!ohlcvData.length) return alert("請先載入資料再使用重播");
     _openReplayPicker();
   });
-  document.getElementById("replayPickerConfirm").addEventListener("click", () => {
+  document.getElementById("replayPickerConfirm").addEventListener("click", async () => {
     const val = document.getElementById("replayStartDate").value;
+    if (val && ohlcvData.length) {
+      const targetTs = Math.floor(new Date(val + "T00:00:00Z").getTime() / 1000);
+      if (targetTs < toTime(ohlcvData[0].time)) {
+        const btn = document.getElementById("replayPickerConfirm");
+        const orig = btn.textContent;
+        btn.disabled = true; btn.textContent = "載入中…";
+        await _replayPreload(targetTs);
+        btn.disabled = false; btn.textContent = orig;
+      }
+    }
     document.getElementById("replayPickerOverlay").classList.add("hidden");
     enterReplay(val || null);
   });
@@ -2643,11 +2654,10 @@ async function loadData(autoLoad = false) {
     const json = await res.json();
     if (!res.ok) throw new Error(json.detail || "載入失敗");
     ohlcvData = json.data;
-    _bgLoadInProgress = false; // 重置（切換標的時取消舊的背景請求）
+    ++_bgLoadGen; _bgLoadInProgress = false; // 取消舊的背景請求
     clearTimeout(_bgIndicatorTimer);
     _bgAnchorCache = null;
     _bgMacdCache   = null;
-    _bgSetStatus(null);
     renderAll(json.data);
     startRealtime();
     saveLastSymbol();   // 載入成功後記憶此次標的
@@ -3035,7 +3045,8 @@ function _openReplayPicker() {
     const d = new Date(ts * 1000);
     return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,"0")}-${String(d.getUTCDate()).padStart(2,"0")}`;
   };
-  dateInp.min = _toYmd(toTime(ohlcvData[0].time));
+  const _TF_HIST = { "5m":365,"15m":365,"1h":730,"4h":1825,"1d":3650,"1w":3650,"1M":3650 };
+  dateInp.min = _toYmd(Math.floor(Date.now()/1000) - (_TF_HIST[currentTF] || 365) * 86400);
   dateInp.max = _toYmd(toTime(ohlcvData[ohlcvData.length - 1].time));
   // 預設停在資料的 20% 處（若還沒選過）
   if (!dateInp.value || dateInp.value < dateInp.min || dateInp.value > dateInp.max) {
@@ -3045,9 +3056,46 @@ function _openReplayPicker() {
   dateInp.focus();
 }
 
+async function _replayPreload(targetTs) {
+  const snapMarket   = document.getElementById("marketSelect").value;
+  const snapSymbol   = document.getElementById("symbolInput").value.trim();
+  const snapTf       = currentTF;
+  const snapExchange = document.getElementById("exchangeSelect").value;
+  const CHUNK_DAYS   = { "5m":25,"15m":80,"1h":240,"4h":950 };
+  const chunkDays    = CHUNK_DAYS[snapTf] || 60;
+  const toIso        = ts => new Date(ts * 1000).toISOString().slice(0, 10);
+
+  const myGen = ++_bgLoadGen;
+  _bgLoadInProgress = true;
+  try {
+    while (myGen === _bgLoadGen && _bgLoadInProgress) {
+      if (!ohlcvData.length) break;
+      const earliest = toTime(ohlcvData[0].time);
+      if (earliest <= targetTs) break;
+      const endTs   = earliest - 1;
+      const startTs = Math.max(endTs - chunkDays * 86400, targetTs - 86400);
+      const res = await fetch("/api/ohlcv", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ market:snapMarket, symbol:snapSymbol,
+          timeframe:snapTf, exchange:snapExchange,
+          start:toIso(startTs), end:toIso(endTs), limit:0 }),
+      });
+      if (myGen !== _bgLoadGen || !res.ok) break;
+      const json = await res.json();
+      if (!json.data?.length || myGen !== _bgLoadGen) break;
+      const newBars = json.data.filter(b => toTime(b.time) < toTime(ohlcvData[0].time));
+      if (!newBars.length) break;
+      ohlcvData = [...newBars, ...ohlcvData];
+    }
+  } catch { /* silent */ } finally {
+    if (myGen === _bgLoadGen) _bgLoadInProgress = false;
+  }
+}
+
 function enterReplay(startDate = null) {
   if (replayActive) return;
   replayActive = true;
+  ++_bgLoadGen; _bgLoadInProgress = false; // 取消任何正在進行的背景載入
   stopRealtime();
   replayData = [...ohlcvData];
 
@@ -3110,7 +3158,7 @@ function exitReplay() {
   document.getElementById("replayModeBtn").classList.remove("active");
   document.getElementById("replayPlay").classList.remove("playing");
   document.getElementById("replayPlay").textContent = "▶";
-  if (replayData.length) renderAll(replayData);
+  renderAll(ohlcvData.length ? ohlcvData : replayData);
 }
 
 /* 重播：以台灣時間格式化 bar 的日期，並同步日期選擇器 */
@@ -3226,7 +3274,9 @@ function _replayRender() {
   _replayLastIdx = replayIdx;
 
   _replayRenderDate(replayData[replayIdx]);
-  document.getElementById("replayProgress").textContent = `${n} / ${replayData.length}`;
+  const pct = replayData.length > 1 ? Math.round((replayIdx / (replayData.length - 1)) * 100) : 100;
+  document.getElementById("replayProgressBar").style.width = pct + "%";
+  document.getElementById("replayProgress").textContent = pct + "%";
   document.getElementById("replayScrubber").value = replayIdx;
 }
 
@@ -4144,19 +4194,6 @@ function initSymSearch() {
    背景分段載入（progressive loading）
 ══════════════════════════════════════════ */
 
-function _bgSetStatus(ts) {
-  const el = document.getElementById("bgLoadStatus");
-  if (!el) return;
-  if (ts == null) {
-    el.textContent = "";
-    el.classList.add("hidden");
-  } else {
-    const d = new Date(ts * 1000);
-    const s = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
-    el.textContent = `歷史至 ${s}`;
-    el.classList.remove("hidden");
-  }
-}
 
 // 每段 chunk 更新：只動 K線/量/錨點，不碰 markers 或指標
 function _bgApplyChunk(data, nPrepended) {
@@ -4220,10 +4257,12 @@ async function _bgLoadOlderBars() {
   // 以現有資料初始化錨點快取
   _bgAnchorCache = ohlcvData.map(d => ({ time: toTime(d.time), value: 50 }));
   _bgMacdCache   = ohlcvData.map(d => ({ time: toTime(d.time), value: 0  }));
+
+  const myGen = ++_bgLoadGen;
   _bgLoadInProgress = true;
 
   try {
-    while (_bgLoadInProgress && guard()) {
+    while (myGen === _bgLoadGen && _bgLoadInProgress && guard()) {
       const currentEarliestTs = toTime(ohlcvData[0].time);
       if (currentEarliestTs <= targetStartTs) break;
 
@@ -4239,50 +4278,53 @@ async function _bgLoadOlderBars() {
           start: toIso(startTs), end: toIso(endTs), limit: 0,
         }),
       });
-      if (!res.ok) break;
+      if (myGen !== _bgLoadGen || !res.ok) break;
       const json = await res.json();
-      if (!json.data?.length) break;
-      if (!guard()) break;
+      if (!json.data?.length || !guard() || myGen !== _bgLoadGen) break;
 
       const existingEarliest = toTime(ohlcvData[0].time);
       const newBars = json.data.filter(b => toTime(b.time) < existingEarliest);
       if (!newBars.length) break;
 
       const nPrepended = newBars.length;
-      const visRange   = mainChart.timeScale().getVisibleLogicalRange();
-
       ohlcvData = [...newBars, ...ohlcvData];
 
-      // 先鎖定視圖位置，再更新資料，再確認一次（雙保險防 LWT 內部 reset）
-      const shifted = visRange
-        ? { from: visRange.from + nPrepended, to: visRange.to + nPrepended }
-        : null;
-      if (shifted) {
-        mainChart.timeScale().setVisibleLogicalRange(shifted);
-        [kdjChart, rsiChart, macdChart].forEach(c => c.timeScale().setVisibleLogicalRange(shifted));
+      if (replayActive) {
+        // 重播中：靜默累積，不碰圖表
+      } else {
+        // 先鎖定視圖位置，再更新資料，再確認一次（雙保險防 LWT 內部 reset）
+        const visRange = mainChart.timeScale().getVisibleLogicalRange();
+        const shifted  = visRange
+          ? { from: visRange.from + nPrepended, to: visRange.to + nPrepended }
+          : null;
+        if (shifted) {
+          mainChart.timeScale().setVisibleLogicalRange(shifted);
+          [kdjChart, rsiChart, macdChart].forEach(c => c.timeScale().setVisibleLogicalRange(shifted));
+        }
+        _bgApplyChunk(ohlcvData, nPrepended);
+        if (shifted) {
+          mainChart.timeScale().setVisibleLogicalRange(shifted);
+          [kdjChart, rsiChart, macdChart].forEach(c => c.timeScale().setVisibleLogicalRange(shifted));
+        }
+        _bgScheduleIndicators();
       }
-      _bgApplyChunk(ohlcvData, nPrepended);
-      if (shifted) {
-        mainChart.timeScale().setVisibleLogicalRange(shifted);
-        [kdjChart, rsiChart, macdChart].forEach(c => c.timeScale().setVisibleLogicalRange(shifted));
-      }
-
-      _bgScheduleIndicators();
-      _bgSetStatus(toTime(ohlcvData[0].time));
 
       await new Promise(r => setTimeout(r, 200));
     }
   } catch { /* 背景失敗靜默 */ } finally {
-    _bgLoadInProgress = false;
-    _bgAnchorCache    = null;
-    _bgMacdCache      = null;
-    // 確保指標在載入完成後一定會算
-    clearTimeout(_bgIndicatorTimer);
-    if (guard() && ohlcvData.length) {
-      renderBB(ohlcvData); renderCRT(ohlcvData); renderKDJCross(ohlcvData); renderResonance(ohlcvData);
-      setTimeout(() => { renderKDJ(ohlcvData); renderRSI(ohlcvData); renderMACD(ohlcvData); }, 0);
+    if (myGen === _bgLoadGen) {
+      _bgLoadInProgress = false;
+      _bgAnchorCache    = null;
+      _bgMacdCache      = null;
+      // 確保指標在載入完成後一定會算（重播中不算，離開重播時 exitReplay 會 renderAll）
+      if (!replayActive) {
+        clearTimeout(_bgIndicatorTimer);
+        if (guard() && ohlcvData.length) {
+          renderBB(ohlcvData); renderCRT(ohlcvData); renderKDJCross(ohlcvData); renderResonance(ohlcvData);
+          setTimeout(() => { renderKDJ(ohlcvData); renderRSI(ohlcvData); renderMACD(ohlcvData); }, 0);
+        }
+      }
     }
-    setTimeout(() => _bgSetStatus(null), 2000);
   }
 }
 
