@@ -3546,7 +3546,7 @@ function renderTickers() {
       const mktEl  = document.getElementById("marketSelect");
       const exchEl = document.getElementById("exchangeSelect");
       if (mktEl.value !== "crypto") { mktEl.value = "crypto"; updateMarketUI(); }
-      if (exchEl && !["pionex","binance"].includes(exchEl.value)) exchEl.value = "pionex";
+      if (exchEl) exchEl.value = "pionex";
       document.getElementById("symbolInput").value = el.dataset.display;
       loadData(false);
       container.querySelectorAll(".ticker-item").forEach(x => x.classList.remove("tk-active"));
