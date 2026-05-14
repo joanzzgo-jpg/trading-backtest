@@ -610,7 +610,7 @@ function _addToWatchlist() {
   _renderWatchlist();
 }
 
-function findNearest(x, y, maxDist = 12) {
+function findNearest(x, y, maxDist = 20) {
   let best = maxDist, found = null;
   drawings.forEach(d => {
     const dist = drawingDist(d, x, y);
