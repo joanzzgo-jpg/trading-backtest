@@ -113,7 +113,13 @@ def get_latest(req: LatestRequest):
     """取得最新 K 棒"""
     try:
         if req.market == "tw":
-            rt = fetch_tw_realtime(req.symbol)
+            # 1. TWSE MIS 即時（盤中），快取 30 秒避免頻繁打官方 API
+            mis_key = f"tw_mis_{req.symbol}"
+            rt = cache.get(mis_key, ttl=30)
+            if rt is None:
+                rt = fetch_tw_realtime(req.symbol)
+                if rt:
+                    cache.set(mis_key, rt)
             if rt:
                 ts = rt["time"]
                 tf = req.timeframe
@@ -133,10 +139,14 @@ def get_latest(req: LatestRequest):
                     "close":  rt["close"],
                     "volume": rt["volume"],
                 }]}
-            # 盤後 fallback：yfinance 優先（當日收盤即可取到），再試 FinMind
+            # 2. yfinance fallback（盤中約 15 分鐘延遲，盤後即時），快取 5 分鐘
+            yf_key = f"tw_yf_{req.symbol}"
+            yf_cached = cache.get(yf_key, ttl=300)
+            if yf_cached:
+                return yf_cached
             yf_bar = fetch_tw_latest_bar_yf(req.symbol)
             if yf_bar:
-                return {"live": False, "data": [{
+                result = {"live": False, "data": [{
                     "time":   yf_bar["time"].isoformat(),
                     "open":   yf_bar["open"],
                     "high":   yf_bar["high"],
@@ -144,6 +154,9 @@ def get_latest(req: LatestRequest):
                     "close":  yf_bar["close"],
                     "volume": yf_bar["volume"],
                 }]}
+                cache.set(yf_key, result)
+                return result
+            # 3. FinMind 最終備援
             end   = date.today().isoformat()
             start = (date.today() - timedelta(days=5)).isoformat()
             df = fetch_tw_stock(req.symbol, start, end, req.finmind_token)
