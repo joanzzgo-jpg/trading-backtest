@@ -354,7 +354,22 @@
       <button class="rp-preset" data-months="12">1年前</button>
       <button class="rp-preset" id="replayPresetEarliest">最早</button>
     </div>
-    <input type="date" id="replayStartDate" class="rp-picker-date" />
+    <input type="hidden" id="replayStartDate" />
+    <div class="rp-cal-wrap" id="rpCalWrap">
+      <div class="rp-cal-display" id="rpCalDisplay">
+        <svg class="rp-cal-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="18" rx="3" ry="3"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="16" y1="2" x2="16" y2="6"/></svg>
+        <span id="rpCalText">請選擇日期</span>
+      </div>
+      <div class="rp-cal-panel hidden" id="rpCalPanel">
+        <div class="rp-cal-nav-row">
+          <button class="rp-cal-nav" id="rpCalPrev">‹</button>
+          <span class="rp-cal-hd-title" id="rpCalTitle"></span>
+          <button class="rp-cal-nav" id="rpCalNext">›</button>
+        </div>
+        <div class="rp-cal-dows"><span>日</span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span></div>
+        <div class="rp-cal-grid" id="rpCalGrid"></div>
+      </div>
+    </div>
     <button id="replayPickerConfirm" class="rp-picker-confirm">▶ 開始復盤</button>
     <button id="replayPickerCancel"  class="rp-picker-cancel">取消</button>
   </div>

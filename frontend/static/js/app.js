@@ -2038,15 +2038,21 @@ function bindEvents() {
       const months = parseInt(btn.dataset.months);
       const d = new Date();
       d.setMonth(d.getMonth() - months);
-      const ymd = n => String(n).padStart(2, "0");
-      const v = `${d.getFullYear()}-${ymd(d.getMonth()+1)}-${ymd(d.getDate())}`;
-      const inp = document.getElementById("replayStartDate");
-      inp.value = v < inp.min ? inp.min : v > inp.max ? inp.max : v;
+      const p = n => String(n).padStart(2, "0");
+      _rpCal.setValue(`${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`);
     });
   });
   document.getElementById("replayPresetEarliest")?.addEventListener("click", () => {
-    const inp = document.getElementById("replayStartDate");
-    inp.value = inp.min;
+    _rpCal.setValue(document.getElementById("replayStartDate").min);
+  });
+  // Calendar nav buttons
+  document.getElementById("rpCalDisplay")?.addEventListener("click", () => _rpCal.toggle());
+  document.getElementById("rpCalPrev")?.addEventListener("click", e => { e.stopPropagation(); _rpCal.prevMonth(); });
+  document.getElementById("rpCalNext")?.addEventListener("click", e => { e.stopPropagation(); _rpCal.nextMonth(); });
+  // Close calendar when clicking outside
+  document.addEventListener("click", e => {
+    const wrap = document.getElementById("rpCalWrap");
+    if (wrap && !wrap.contains(e.target)) _rpCal.close();
   });
 
   // ── 圖表類型切換 ──────────────────────────────
@@ -3038,6 +3044,81 @@ let replayActive   = false;
 let _replaySpan    = 50;   // 進入重播時保存的可視 bar 數
 let _replayLastIdx = -1;   // 上一幀渲染的 idx，用於增量更新判斷
 
+const _rpCal = (() => {
+  const pad = n => String(n).padStart(2, "0");
+  const toYmd = d => `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())}`;
+  let _min = "", _max = "", _sel = "", _vy = 2024, _vm = 0;
+
+  function _render() {
+    const titleEl = document.getElementById("rpCalTitle");
+    const gridEl  = document.getElementById("rpCalGrid");
+    if (!titleEl || !gridEl) return;
+    titleEl.textContent = `${_vy}年${pad(_vm+1)}月`;
+    const today    = toYmd(new Date());
+    const startDow = new Date(Date.UTC(_vy, _vm, 1)).getUTCDay();
+    const daysInM  = new Date(Date.UTC(_vy, _vm + 1, 0)).getUTCDate();
+    let html = "";
+    for (let i = 0; i < startDow; i++) html += `<div class="rp-cal-day empty"></div>`;
+    for (let d = 1; d <= daysInM; d++) {
+      const ymd = `${_vy}-${pad(_vm+1)}-${pad(d)}`;
+      let cls = "rp-cal-day";
+      if (ymd === today) cls += " today";
+      if (ymd === _sel)  cls += " selected";
+      if ((_min && ymd < _min) || (_max && ymd > _max)) cls += " disabled";
+      html += `<div class="${cls}" data-date="${ymd}">${d}</div>`;
+    }
+    gridEl.innerHTML = html;
+    gridEl.querySelectorAll(".rp-cal-day[data-date]:not(.disabled)").forEach(el =>
+      el.addEventListener("click", () => { setValue(el.dataset.date); close(); })
+    );
+  }
+
+  function _updateDisplay() {
+    const el = document.getElementById("rpCalText");
+    if (el) el.textContent = _sel || "請選擇日期";
+  }
+
+  function setRange(min, max) {
+    _min = min; _max = max;
+    const ref = _sel && _sel >= _min && _sel <= _max ? _sel : (_sel > _max ? _max : _min);
+    const d = new Date((ref || max) + "T12:00:00Z");
+    _vy = d.getUTCFullYear(); _vm = d.getUTCMonth();
+    _render();
+  }
+
+  function setValue(ymd) {
+    if (!ymd) return;
+    if (_min && ymd < _min) ymd = _min;
+    if (_max && ymd > _max) ymd = _max;
+    _sel = ymd;
+    const inp = document.getElementById("replayStartDate");
+    if (inp) inp.value = ymd;
+    const d = new Date(ymd + "T12:00:00Z");
+    _vy = d.getUTCFullYear(); _vm = d.getUTCMonth();
+    _updateDisplay(); _render();
+  }
+
+  function getValue() { return _sel; }
+
+  function toggle() {
+    document.getElementById("rpCalPanel")?.classList.toggle("hidden");
+  }
+
+  function close() {
+    document.getElementById("rpCalPanel")?.classList.add("hidden");
+  }
+
+  function prevMonth() {
+    _vm--; if (_vm < 0) { _vm = 11; _vy--; } _render();
+  }
+
+  function nextMonth() {
+    _vm++; if (_vm > 11) { _vm = 0; _vy++; } _render();
+  }
+
+  return { setRange, setValue, getValue, toggle, close, prevMonth, nextMonth };
+})();
+
 function _openReplayPicker() {
   const overlay  = document.getElementById("replayPickerOverlay");
   const dateInp  = document.getElementById("replayStartDate");
@@ -3046,12 +3127,15 @@ function _openReplayPicker() {
     return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,"0")}-${String(d.getUTCDate()).padStart(2,"0")}`;
   };
   const _TF_HIST = { "5m":365,"15m":365,"1h":730,"4h":1825,"1d":3650,"1w":3650,"1M":3650 };
-  dateInp.min = _toYmd(Math.floor(Date.now()/1000) - (_TF_HIST[currentTF] || 365) * 86400);
-  dateInp.max = _toYmd(toTime(ohlcvData[ohlcvData.length - 1].time));
-  // 預設停在資料的 20% 處（若還沒選過）
-  if (!dateInp.value || dateInp.value < dateInp.min || dateInp.value > dateInp.max) {
-    dateInp.value = _toYmd(toTime(ohlcvData[Math.floor(ohlcvData.length * 0.2)].time));
-  }
+  const minYmd = _toYmd(Math.floor(Date.now()/1000) - (_TF_HIST[currentTF] || 365) * 86400);
+  const maxYmd = _toYmd(toTime(ohlcvData[ohlcvData.length - 1].time));
+  dateInp.min = minYmd; dateInp.max = maxYmd;
+  const curVal = _rpCal.getValue();
+  const defaultYmd = (!curVal || curVal < minYmd || curVal > maxYmd)
+    ? _toYmd(toTime(ohlcvData[Math.floor(ohlcvData.length * 0.2)].time))
+    : curVal;
+  _rpCal.setRange(minYmd, maxYmd);
+  _rpCal.setValue(defaultYmd);
   overlay.classList.remove("hidden");
   dateInp.focus();
 }
@@ -3096,6 +3180,7 @@ function enterReplay(startDate = null) {
   if (replayActive) return;
   replayActive = true;
   ++_bgLoadGen; _bgLoadInProgress = false; // 取消任何正在進行的背景載入
+  clearTimeout(_bgIndicatorTimer);
   stopRealtime();
   replayData = [...ohlcvData];
 
@@ -4221,6 +4306,7 @@ function _bgApplyChunk(data, nPrepended) {
 
 // 指標 debounce：每段 chunk 後重設計時器，最後一段完成 800ms 後才計算
 function _bgScheduleIndicators() {
+  if (replayActive) return;
   clearTimeout(_bgIndicatorTimer);
   _bgIndicatorTimer = setTimeout(() => {
     if (!ohlcvData.length) return;

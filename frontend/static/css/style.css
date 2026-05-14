@@ -1012,12 +1012,13 @@ html, body {
   display: flex; flex-direction: column; align-items: center; gap: 16px;
   width: 360px;
   box-shadow: 0 28px 72px rgba(0,0,0,.65), 0 0 0 1px rgba(41,98,255,.08);
-  position: relative; overflow: hidden;
+  position: relative; overflow: visible;
 }
 .rp-picker-modal::before {
   content: "";
   position: absolute; top: 0; left: 0; right: 0; height: 3px;
   background: linear-gradient(90deg, #2962ff 0%, #7c3aed 100%);
+  border-radius: 18px 18px 0 0;
 }
 .rp-picker-icon { color: var(--blue); margin-bottom: 2px; }
 .rp-picker-title {
@@ -1035,22 +1036,55 @@ html, body {
   transition: all .15s;
 }
 .rp-preset:hover { border-color: var(--blue); color: var(--blue); background: rgba(59,130,246,.12); }
-.rp-picker-date {
-  width: 100%; padding: 18px 20px;
-  background: rgba(41,98,255,.07);
-  border: 2px solid rgba(41,98,255,.45);
-  border-radius: 12px;
-  color: #e0e6ff; font-size: 24px; font-family: monospace; font-weight: 600;
-  color-scheme: dark; cursor: pointer; box-sizing: border-box;
-  text-align: center; letter-spacing: .12em;
-  transition: border-color .15s, background .15s;
+/* Custom calendar picker */
+.rp-cal-wrap { position: relative; width: 100%; }
+.rp-cal-display {
+  width: 100%; padding: 15px 18px; box-sizing: border-box;
+  background: rgba(41,98,255,.08); border: 2px solid rgba(41,98,255,.35);
+  border-radius: 11px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  font-size: 22px; font-family: monospace; font-weight: 600;
+  color: #d0dbff; letter-spacing: .1em; transition: all .15s;
+  user-select: none;
 }
-.rp-picker-date:hover { background: rgba(41,98,255,.12); border-color: rgba(41,98,255,.7); }
-.rp-picker-date:focus { outline: none; border-color: var(--blue); background: rgba(41,98,255,.14); }
-.rp-picker-date::-webkit-calendar-picker-indicator {
-  filter: invert(0.6) sepia(1) saturate(3) hue-rotate(190deg);
-  cursor: pointer; width: 24px; height: 24px; margin-left: 8px; opacity: .8;
+.rp-cal-display:hover { background: rgba(41,98,255,.14); border-color: rgba(41,98,255,.65); }
+.rp-cal-icon { color: rgba(100,150,255,.75); flex-shrink: 0; }
+.rp-cal-panel {
+  width: 100%; margin-top: 8px;
+  background: #0d1124; border: 1px solid rgba(41,98,255,.28);
+  border-radius: 11px; padding: 10px 10px 12px; box-sizing: border-box;
 }
+.rp-cal-panel.hidden { display: none; }
+.rp-cal-nav-row {
+  display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;
+}
+.rp-cal-nav {
+  background: none; border: 1px solid rgba(255,255,255,.1);
+  border-radius: 6px; color: var(--muted); cursor: pointer;
+  font-size: 16px; padding: 2px 11px; line-height: 1.6; transition: all .12s;
+}
+.rp-cal-nav:hover { border-color: var(--blue); color: var(--blue); }
+.rp-cal-hd-title { font-size: 13px; font-weight: 700; color: var(--fg); }
+.rp-cal-dows {
+  display: grid; grid-template-columns: repeat(7, 1fr);
+  text-align: center; font-size: 11px; color: var(--muted);
+  margin-bottom: 4px;
+}
+.rp-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+.rp-cal-day {
+  aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
+  font-size: 12px; border-radius: 6px; cursor: pointer;
+  color: var(--fg); border: 1px solid transparent; transition: all .1s;
+}
+.rp-cal-day:not(.disabled):not(.empty):hover {
+  background: rgba(41,98,255,.22); border-color: rgba(41,98,255,.45);
+}
+.rp-cal-day.today { border-color: rgba(41,98,255,.55); color: #6fa3ff; }
+.rp-cal-day.selected { background: var(--blue); color: #fff; border-color: var(--blue); }
+.rp-cal-day.today.selected { background: var(--blue); color: #fff; }
+.rp-cal-day.other-month { color: rgba(255,255,255,.18); }
+.rp-cal-day.disabled { color: rgba(255,255,255,.14); cursor: default; }
+.rp-cal-day.empty { cursor: default; }
 .rp-picker-confirm {
   width: 100%; padding: 14px 0; margin-top: 2px;
   background: linear-gradient(135deg, #2962ff 0%, #1a4fd6 100%);
