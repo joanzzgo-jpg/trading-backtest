@@ -3390,15 +3390,24 @@ function _updateTickerPrices() {
     const priceEl = el.querySelector(".tk-price-val");
     const chgEl   = el.querySelector(".tk-chg");
     const amtEl   = el.querySelector(".tk-chg-amt");
-    // active 標的用圖表最後一根收盤價，其他用 ticker API 價格
     const displayPrice = (el.classList.contains("tk-active") && chartLastClose != null)
       ? chartLastClose : t.price;
-    if (priceEl) priceEl.textContent = fmtTickerPrice(displayPrice);
-    if (chgEl)  { chgEl.textContent = `${sign}${t.change_pct.toFixed(2)}%`; chgEl.className = `tk-chg ${cls}`; }
+    // 比對後再寫，值相同不觸發 repaint
+    if (priceEl) {
+      const v = fmtTickerPrice(displayPrice);
+      if (priceEl.textContent !== v) priceEl.textContent = v;
+    }
+    if (chgEl) {
+      const v = `${sign}${t.change_pct.toFixed(2)}%`, c = `tk-chg ${cls}`;
+      if (chgEl.textContent !== v) chgEl.textContent = v;
+      if (chgEl.className   !== c) chgEl.className   = c;
+    }
     if (amtEl) {
       const amt = t.change_amt != null ? t.change_amt : t.price * t.change_pct / 100 / (1 + t.change_pct / 100);
-      const amtTxt = _tickerMkt === "tw" ? sign + Math.abs(amt).toFixed(2) : sign + _fmtAmt(amt, t.price);
-      amtEl.textContent = amtTxt; amtEl.className = `tk-chg-amt ${cls}`;
+      const v = _tickerMkt === "tw" ? sign + Math.abs(amt).toFixed(2) : sign + _fmtAmt(amt, t.price);
+      const c = `tk-chg-amt ${cls}`;
+      if (amtEl.textContent !== v) amtEl.textContent = v;
+      if (amtEl.className   !== c) amtEl.className   = c;
     }
   });
   updatePageTitle();
@@ -3418,8 +3427,9 @@ async function fetchTickers() {
       if (spotRes.ok) { const j = await spotRes.json(); if (j.tickers?.length) _spotTickerData = j.tickers; }
     }
 
-    // 面板未開啟：只更新頁籤標題，完全跳過 DOM 更新
-    const panelOpen = document.getElementById("tickerPanel").classList.contains("ticker-open");
+    // 手機版面板未滑出時跳過 DOM 更新；桌面版面板永遠可見
+    const isMobile = window.innerWidth <= 900;
+    const panelOpen = !isMobile || document.getElementById("tickerPanel").classList.contains("ticker-open");
     if (!panelOpen) { updatePageTitle(); return; }
 
     if (_tickerSort !== "wl") {

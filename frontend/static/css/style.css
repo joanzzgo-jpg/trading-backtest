@@ -744,10 +744,10 @@ html, body {
 
 /* 右側：價格 + 漲跌 */
 .tk-prices { text-align: right; flex-shrink: 0; }
-.tk-price-val { font-size: 12px; font-weight: 600; color: var(--text); display: block; }
+.tk-price-val { font-size: 12px; font-weight: 600; color: var(--text); display: block; transition: color .25s; }
 .tk-chg-row   { font-size: 9px; display: flex; justify-content: flex-end; align-items: center; gap: 4px; margin-top: 2px; }
-.tk-chg-amt   { color: var(--muted); }
-.tk-chg       { font-weight: 700; }
+.tk-chg-amt   { color: var(--muted); transition: color .25s; }
+.tk-chg       { font-weight: 700; transition: color .25s; }
 
 /* 操作按鈕（星號 / 刪除） */
 .tk-action { flex-shrink: 0; }
