@@ -755,6 +755,26 @@ function _updateCursor() {
   }
 }
 
+function _showTextInput(clientX, clientY, onConfirm) {
+  const wrap = document.createElement("div");
+  wrap.style.cssText = `position:fixed;left:${clientX}px;top:${clientY - 36}px;z-index:9999;display:flex;gap:4px;`;
+  const inp = document.createElement("input");
+  inp.type = "text";
+  inp.placeholder = "文字 Enter 確認";
+  inp.style.cssText = "background:#1e222d;color:#d1d4dc;border:1px solid #758696;padding:3px 8px;border-radius:4px;font-size:12px;width:150px;outline:none;font-family:sans-serif;";
+  const ok = document.createElement("button");
+  ok.textContent = "✓";
+  ok.style.cssText = "background:#2962ff;color:#fff;border:none;border-radius:4px;padding:3px 7px;cursor:pointer;font-size:12px;";
+  wrap.append(inp, ok);
+  document.body.appendChild(wrap);
+  inp.focus();
+  const confirm = () => { document.body.removeChild(wrap); onConfirm(inp.value); };
+  const cancel  = () => { document.body.removeChild(wrap); onConfirm(null); };
+  inp.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); confirm(); } if (e.key === "Escape") cancel(); });
+  ok.addEventListener("click", confirm);
+  inp.addEventListener("blur", () => setTimeout(() => { if (document.body.contains(wrap)) cancel(); }, 200));
+}
+
 function setDrawTool(tool) {
   drawTool = tool;
   selectedId = null;
@@ -860,12 +880,14 @@ function _onChartClick(e) {
     saveDrawings(); _returnToPointer(); return;
   }
   if (drawTool === "text") {
-    const txt = window.prompt("輸入文字：");
-    if (txt?.trim()) {
-      drawings.push({ id:_did(), type:"text", time:pt.time, price:pt.price, text:txt.trim(), color:_drawColor });
-      saveDrawings();
-    }
-    _returnToPointer(); return;
+    _showTextInput(e.clientX, e.clientY, txt => {
+      if (txt?.trim()) {
+        drawings.push({ id:_did(), type:"text", time:pt.time, price:pt.price, text:txt.trim(), color:_drawColor });
+        saveDrawings();
+      }
+      _returnToPointer();
+    });
+    return;
   }
 
   // 做多盈虧比（longpos）
@@ -1253,7 +1275,8 @@ function drawOne(d, W, H, isHovered, isSelected) {
     drawCtx.beginPath(); drawCtx.moveTo(0, y); drawCtx.lineTo(W, y); drawCtx.stroke();
     drawCtx.shadowBlur = 0;
     drawCtx.font = "10px monospace";
-    drawCtx.fillText(d.price.toFixed(4), 5, y - 3);
+    const _hp = d.price;
+    drawCtx.fillText(_hp >= 1000 ? _hp.toFixed(1) : _hp >= 10 ? _hp.toFixed(2) : _hp >= 1 ? _hp.toFixed(3) : _hp.toFixed(4), 5, y - 3);
     if (isSelected) {
       drawCtx.fillStyle = "rgba(255,255,255,0.15)";
       drawCtx.fillRect(0, y - 6, W, 12);
@@ -1294,7 +1317,8 @@ function drawOne(d, W, H, isHovered, isSelected) {
     const b = chartToScreen(d.p2.time, d.p2.price);
     if (!a || !b) { drawCtx.restore(); return; }
     const dx = b.x - a.x, dy = b.y - a.y;
-    const t  = dx ? (W - a.x) / dx : 0;
+    if (Math.abs(dx) < 0.5) { drawCtx.restore(); return; }
+    const t = dx > 0 ? (W - a.x) / dx : -a.x / dx;
     drawCtx.beginPath(); drawCtx.moveTo(a.x, a.y); drawCtx.lineTo(a.x + t*dx, a.y + t*dy); drawCtx.stroke();
     drawCtx.shadowBlur = 0;
     const hoverPartRay = (isHovered || isSelected) ? _endpointHit(d, _mx, _my) : null;
@@ -1308,8 +1332,8 @@ function drawOne(d, W, H, isHovered, isSelected) {
     const b = chartToScreen(d.p2.time, d.p2.price);
     if (!a || !b) { drawCtx.restore(); return; }
     const priceRange = d.p2.price - d.p1.price;
-    const x1 = Math.min(a.x, b.x), x2 = Math.max(a.x, b.x);
-    const extraW = isSelected ? W : 0;
+    const xLeft = Math.min(a.x, b.x);
+    const _fibPriceFmt = p => p >= 1000 ? p.toFixed(1) : p >= 10 ? p.toFixed(2) : p >= 1 ? p.toFixed(3) : p.toFixed(4);
     [[0,"#ef5350"],[0.236,"#ff9800"],[0.382,"#ffcc02"],[0.5,"#26a69a"],[0.618,"#26a69a"],[0.786,"#ff9800"],[1,"#ef5350"]].forEach(([lvl, lcol]) => {
       const price = d.p1.price + priceRange * (1 - lvl);
       const y = candleSeries?.priceToCoordinate(price);
@@ -1317,10 +1341,10 @@ function drawOne(d, W, H, isHovered, isSelected) {
       drawCtx.strokeStyle = lcol; drawCtx.lineWidth = (lvl===0||lvl===1) ? 1.5 : 1;
       drawCtx.setLineDash((lvl===0||lvl===1) ? [] : [5,3]);
       drawCtx.shadowBlur = isSelected ? 6 : 0; drawCtx.shadowColor = lcol;
-      drawCtx.beginPath(); drawCtx.moveTo(x1, y); drawCtx.lineTo(x2 + extraW * 0.3, y); drawCtx.stroke();
+      drawCtx.beginPath(); drawCtx.moveTo(xLeft, y); drawCtx.lineTo(W, y); drawCtx.stroke();
       drawCtx.setLineDash([]); drawCtx.shadowBlur = 0;
       drawCtx.font = "10px monospace"; drawCtx.fillStyle = lcol;
-      drawCtx.fillText(`${(lvl*100).toFixed(1)}%  ${price.toFixed(2)}`, x2+4, y+4);
+      drawCtx.fillText(`${(lvl*100).toFixed(1)}%  ${_fibPriceFmt(price)}`, W - 88, y - 3);
     });
   }
   else if (d.type === "text") {
@@ -1560,13 +1584,35 @@ function drawOne(d, W, H, isHovered, isSelected) {
 
 function drawPreview(type, a, b, W, H) {
   drawCtx.save();
+
+  if (type === "longpos" || type === "shortpos") {
+    const mirrorY = 2 * a.y - b.y;
+    const isLong  = type === "longpos";
+    const tpY     = isLong ? Math.min(b.y, mirrorY) : Math.max(b.y, mirrorY);
+    const slY     = isLong ? Math.max(b.y, mirrorY) : Math.min(b.y, mirrorY);
+    const lineW   = Math.min(100, W - a.x);
+    // 色塊
+    drawCtx.fillStyle = "rgba(38,166,154,0.13)";
+    drawCtx.fillRect(a.x, isLong ? tpY : a.y, lineW, isLong ? a.y - tpY : slY - a.y);
+    drawCtx.fillStyle = "rgba(239,83,80,0.13)";
+    drawCtx.fillRect(a.x, isLong ? a.y : tpY, lineW, isLong ? slY - a.y : a.y - tpY);
+    // TP / Entry / SL 線
+    [[isLong ? tpY : slY, "#26a69a"], [a.y, "rgba(255,255,255,0.7)"], [isLong ? slY : tpY, "#ef5350"]].forEach(([ly, lc]) => {
+      drawCtx.strokeStyle = lc; drawCtx.lineWidth = 1; drawCtx.setLineDash([4, 3]);
+      drawCtx.beginPath(); drawCtx.moveTo(a.x, ly); drawCtx.lineTo(a.x + lineW, ly); drawCtx.stroke();
+    });
+    drawCtx.restore();
+    return;
+  }
+
   drawCtx.strokeStyle = "rgba(255,255,255,0.55)";
   drawCtx.lineWidth   = 1;
   drawCtx.setLineDash([5, 4]);
   drawCtx.beginPath();
   if (type === "ray") {
     const dx = b.x - a.x, dy = b.y - a.y;
-    const t  = dx ? (W - a.x) / dx : 0;
+    if (Math.abs(dx) < 0.5) { drawCtx.restore(); return; }
+    const t = dx > 0 ? (W - a.x) / dx : -a.x / dx;
     drawCtx.moveTo(a.x, a.y); drawCtx.lineTo(a.x + t*dx, a.y + t*dy);
   } else {
     drawCtx.moveTo(a.x, a.y); drawCtx.lineTo(b.x, b.y);
