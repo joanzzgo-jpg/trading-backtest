@@ -1961,17 +1961,15 @@ function _updateStarBtn() {
   const symbol   = document.getElementById("symbolInput")?.value?.trim();
   const market   = document.getElementById("marketSelect")?.value || "crypto";
   const exchange = document.getElementById("exchangeSelect")?.value || "pionex";
-  if (!symbol) { btn.textContent = "☆"; btn.classList.remove("active"); return; }
+  if (!symbol) { btn.classList.remove("active", "starred"); return; }
   const key  = `${market}:${exchange}:${symbol}`;
   const inWl = _watchlist.some(w => `${w.market}:${w.exchange || ""}:${w.symbol}` === key);
-  btn.textContent = inWl ? "★" : "☆";
-  btn.classList.toggle("active", inWl);
+  btn.classList.toggle("active",  inWl);
+  btn.classList.toggle("starred", inWl);
 }
 
 function bindEvents() {
   document.getElementById("marketSelect").addEventListener("change", updateMarketUI);
-  document.getElementById("loadBtn").addEventListener("click", () => loadData(false));
-  document.getElementById("loadBtnMob")?.addEventListener("click", () => loadData(false));
 
   // ── 自選星號按鈕 ──────────────────────────────
   document.getElementById("watchlistStarBtn")?.addEventListener("click", () => {
@@ -5202,10 +5200,6 @@ const SFX = (() => {
 
 /* 把音效掛上常用按鈕 */
 (function wireSFX() {
-  /* 載入按鈕 */
-  ["loadBtn", "loadBtnMob"].forEach(id => {
-    document.getElementById(id)?.addEventListener("click", () => SFX.load(), { capture: true });
-  });
   /* TF / 圖表類型 切換 */
   document.querySelectorAll(".tf-btn, .ct-btn").forEach(b =>
     b.addEventListener("click", () => SFX.switch_(), { capture: true })
@@ -5220,8 +5214,6 @@ const SFX = (() => {
   /* 攔截 loadData 完成後的音效（monkey-patch fetch） */
   const _origFetch = window.fetch;
   let _loadPending = false;
-  document.getElementById("loadBtn")?.addEventListener("click", () => { _loadPending = true; });
-  document.getElementById("loadBtnMob")?.addEventListener("click", () => { _loadPending = true; });
   window.fetch = async function(...args) {
     const res = await _origFetch.apply(this, args);
     const url = typeof args[0] === "string" ? args[0] : (args[0]?.url || "");

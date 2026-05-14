@@ -158,17 +158,21 @@ html, body {
   background: transparent;
   border: none;
   color: var(--muted);
-  font-size: 15px;
-  width: 24px; height: 24px;
+  width: 26px; height: 26px;
   cursor: pointer;
   display: flex; align-items: center; justify-content: center;
-  border-radius: 3px;
-  transition: color .12s;
+  border-radius: 4px;
+  transition: color .15s, transform .15s;
   flex-shrink: 0;
   padding: 0;
 }
-.tb-star-btn:hover { color: #f5c518; }
-.tb-star-btn.active { color: #f5c518; }
+.tb-star-btn:hover { color: var(--blue); transform: scale(1.15) rotate(-6deg); }
+.tb-star-btn:hover .star-fill { opacity: 0.18 !important; }
+.tb-star-btn.active,
+#watchlistStarBtn.starred { color: var(--blue) !important; }
+#watchlistStarBtn.starred .star-fill { opacity: 1 !important; }
+#watchlistStarBtn.starred .star-outline { stroke: var(--blue); }
+.star-fill { transition: opacity .15s; }
 
 /* Symbol group */
 .tb-symbol-group {
