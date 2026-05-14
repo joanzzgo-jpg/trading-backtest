@@ -3911,9 +3911,7 @@ function initSymSearch() {
    工具函式
 ══════════════════════════════════════════ */
 function buildPayload(useLimit = false) {
-  // 去除 .P 後綴（後端 fetch_crypto_ohlcv 也會處理，雙重保險）
-  let sym = document.getElementById("symbolInput").value.trim();
-  if (sym.toUpperCase().endsWith(".P")) sym = sym.slice(0, -2);
+  const sym = document.getElementById("symbolInput").value.trim();
   return {
     market:    document.getElementById("marketSelect").value,
     symbol:    sym,
