@@ -39,6 +39,8 @@ def get_ohlcv(req: OHLCVRequest):
 
     try:
         if req.market == "tw":
+            if "/" in req.symbol:
+                raise ValueError(f"{req.symbol} 不是台股代號，請確認市場選擇")
             if req.timeframe in ("5m", "15m", "1h"):
                 max_d = TW_YF_MAX_DAYS.get(req.timeframe, 60)
                 if use_limit:
@@ -113,6 +115,8 @@ def get_latest(req: LatestRequest):
     """取得最新 K 棒"""
     try:
         if req.market == "tw":
+            if "/" in req.symbol:
+                raise ValueError(f"{req.symbol} 不是台股代號，請確認市場選擇")
             # 1. TWSE MIS 即時（盤中），快取 30 秒避免頻繁打官方 API
             mis_key = f"tw_mis_{req.symbol}"
             rt = cache.get(mis_key, ttl=30)
