@@ -1075,13 +1075,19 @@ function _magnetSnap(x, y) {
   }
   const barX = mainChart.timeScale().timeToCoordinate(toTime(bar.time));
   if (barX == null || Math.abs(barX - x) > 50) return null;
-  // Compare by price value directly — avoids priceToCoordinate returning null
+  // Compare OHLC to cursor price numerically
   const prices = [bar.open, bar.high, bar.low, bar.close].filter(p => p != null);
   if (!prices.length) return null;
   const snapPrice = prices.reduce((best, p) =>
     Math.abs(p - curPrice) < Math.abs(best - curPrice) ? p : best, prices[0]);
-  const snapY = candleSeries.priceToCoordinate(snapPrice);
-  return { x: barX, y: snapY ?? y, time: toTime(bar.time), price: snapPrice };
+  // Derive snapY from price scale ratio — avoids priceToCoordinate null issue
+  const pRef = candleSeries.coordinateToPrice(y + 20);
+  let snapY = y;
+  if (pRef != null && pRef !== curPrice) {
+    // 20 pixels → (curPrice - pRef) price units; so px per price = 20/(curPrice-pRef)
+    snapY = y + (curPrice - snapPrice) * 20 / (curPrice - pRef);
+  }
+  return { x: barX, y: snapY, time: toTime(bar.time), price: snapPrice };
 }
 
 function screenToChart(x, y) {
