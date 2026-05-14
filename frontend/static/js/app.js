@@ -429,12 +429,21 @@ function syncTimeScales() {
   // 捲動 / 縮放：以 logical range 同步（anchor series 確保各圖索引一致）
   const allCharts = [mainChart, kdjChart, rsiChart, macdChart];
   let syncing = false;
+  let _scrollLoadTs = 0; // throttle scroll-triggered loading
   allCharts.forEach((src, si) => {
     src.timeScale().subscribeVisibleLogicalRangeChange(range => {
       if (syncing || !range || _blockSync) return;
       syncing = true;
       allCharts.forEach((dst, di) => { if (di !== si) dst.timeScale().setVisibleLogicalRange(range); });
       syncing = false;
+      // 滑到左側邊界時自動觸發更多歷史載入
+      if (range.from < 30 && !_bgLoadInProgress && ohlcvData.length) {
+        const now = Date.now();
+        if (now - _scrollLoadTs > 1500) { // 1.5 秒節流，避免連發
+          _scrollLoadTs = now;
+          _bgLoadOlderBars();
+        }
+      }
     });
   });
 
@@ -2011,6 +2020,22 @@ function bindEvents() {
   document.getElementById("replayPickerOverlay").addEventListener("click", e => {
     if (e.target === document.getElementById("replayPickerOverlay"))
       document.getElementById("replayPickerOverlay").classList.add("hidden");
+  });
+  // 快速預設按鈕
+  document.querySelectorAll(".rp-preset[data-months]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const months = parseInt(btn.dataset.months);
+      const d = new Date();
+      d.setMonth(d.getMonth() - months);
+      const ymd = n => String(n).padStart(2, "0");
+      const v = `${d.getFullYear()}-${ymd(d.getMonth()+1)}-${ymd(d.getDate())}`;
+      const inp = document.getElementById("replayStartDate");
+      inp.value = v < inp.min ? inp.min : v > inp.max ? inp.max : v;
+    });
+  });
+  document.getElementById("replayPresetEarliest")?.addEventListener("click", () => {
+    const inp = document.getElementById("replayStartDate");
+    inp.value = inp.min;
   });
 
   // ── 圖表類型切換 ──────────────────────────────
