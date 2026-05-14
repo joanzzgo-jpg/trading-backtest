@@ -3216,7 +3216,7 @@ async function _replayPreload(targetTs) {
       if (!json.data?.length || myGen !== _bgLoadGen) break;
       const newBars = json.data.filter(b => toTime(b.time) < toTime(ohlcvData[0].time));
       if (!newBars.length) break;
-      ohlcvData = [...newBars, ...ohlcvData];
+      ohlcvData = newBars.concat(ohlcvData);
     }
   } catch { /* silent */ } finally {
     if (myGen === _bgLoadGen) _bgLoadInProgress = false;
@@ -4465,7 +4465,7 @@ async function _bgLoadOlderBars(scrollTriggered = false) {
       if (!newBars.length) break;
 
       const nPrepended = newBars.length;
-      ohlcvData = [...newBars, ...ohlcvData];
+      ohlcvData = newBars.concat(ohlcvData);
 
       if (replayActive) {
         // 重播中：靜默累積，不碰圖表

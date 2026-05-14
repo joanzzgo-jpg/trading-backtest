@@ -8,7 +8,7 @@ from data.crypto import fetch_crypto_ohlcv
 from indicators.engine import add_indicators
 from backtest.engine import BacktestEngine, BacktestConfig
 from strategies.builtin import BUILTIN_STRATEGIES
-from utils.data import enrich_df, df_to_records, safe_df_cleanup
+from utils.data import enrich_df, df_to_records
 
 router = APIRouter(prefix="/api", tags=["backtest"])
 
@@ -91,5 +91,4 @@ def run_backtest(req: BacktestRequest):
         "ohlcv":        ohlcv.to_dict(orient="records"),
         "indicators":   indicators_data,
     }
-    safe_df_cleanup(df)
     return response

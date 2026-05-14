@@ -9,7 +9,7 @@ from data.taiwan import fetch_tw_stock, resample_tw, fetch_tw_intraday, fetch_tw
 from data.us_stock import fetch_us_stock, MAX_DAYS as US_MAX_DAYS
 from data.crypto import fetch_crypto_ohlcv
 from utils.cache import cache
-from utils.data import enrich_df, df_to_records, safe_df_cleanup
+from utils.data import enrich_df, df_to_records
 
 router = APIRouter(prefix="/api", tags=["data"])
 
@@ -104,7 +104,6 @@ def get_ohlcv(req: OHLCVRequest):
 
     df = enrich_df(df)
     result = {"data": df_to_records(df)}
-    safe_df_cleanup(df)
     cache.set(cache_key, result)
     return result
 

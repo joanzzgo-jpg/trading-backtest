@@ -44,6 +44,3 @@ def df_to_records(df: pd.DataFrame):
                 r[key] = None
     return records
 
-
-def safe_df_cleanup(df: pd.DataFrame):
-    del df

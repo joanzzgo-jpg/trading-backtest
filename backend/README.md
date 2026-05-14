@@ -40,7 +40,6 @@ backend/
 #### utils/data.py
 - `enrich_df()` - 統一計算指標 (BB, KDJ, RSI, MACD)
 - `df_to_records()` - 轉換為 JSON 格式
-- `safe_df_cleanup()` - 安全釋放記憶體
 
 #### routes/data.py (~170 行)
 - `/api/ohlcv` - 取得 OHLCV 數據
