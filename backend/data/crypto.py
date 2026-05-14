@@ -371,8 +371,66 @@ def _fetch_okx(symbol: str, timeframe: str,
 
 
 # ══════════════════════════════════════════════════════════════
-#  公開介面
+#  Pionex native klines
 # ══════════════════════════════════════════════════════════════
+PIONEX_TF_MAP = {
+    "1M": "1MONTH", "1w": "1WEEK", "1d": "1DAY",
+    "4h": "4HOUR", "1h": "1HOUR", "15m": "15MIN", "5m": "5MIN",
+}
+
+
+def _fetch_pionex_klines(symbol: str, timeframe: str,
+                          start: Optional[str], end: Optional[str], limit: int,
+                          max_candles: int = 3000, is_perp: bool = False) -> pd.DataFrame:
+    """Pionex 自有 K 線 API，支援 Pionex 獨有合約（不在 Binance fapi 上的）"""
+    sym = symbol.replace("/", "_").upper()
+    if is_perp and not sym.endswith("_PERP"):
+        sym += "_PERP"
+    tf = PIONEX_TF_MAP.get(timeframe, "1DAY")
+
+    # limit-only mode（無日期範圍）
+    if start is None and end is None:
+        params: dict = {"symbol": sym, "interval": tf, "limit": min(limit, 500)}
+        data = _get(f"{PIONEX_BASE}/api/v1/market/klines?{urllib.parse.urlencode(params)}", timeout=10)
+        klines = (data.get("data") or {}).get("klines") or []
+        rows = []
+        for k in klines:
+            try:
+                rows.append([int(k["time"]), k["open"], k["high"], k["low"], k["close"], k.get("volume", k.get("amount", 0))])
+            except (KeyError, TypeError):
+                continue
+        return _make_df(rows)
+
+    since  = _to_ms(start) if start else None
+    end_ms = _to_ms(end, end_of_day=True) if end else None
+    all_rows: list = []
+
+    while True:
+        params2: dict = {"symbol": sym, "interval": tf, "limit": 500}
+        if since:  params2["startTime"] = since
+        if end_ms: params2["endTime"]   = end_ms
+        url  = f"{PIONEX_BASE}/api/v1/market/klines?{urllib.parse.urlencode(params2)}"
+        data = _get(url, timeout=10)
+        klines = (data.get("data") or {}).get("klines") or []
+        if not klines:
+            break
+        rows = []
+        for k in klines:
+            try:
+                rows.append([int(k["time"]), k["open"], k["high"], k["low"], k["close"], k.get("volume", k.get("amount", 0))])
+            except (KeyError, TypeError):
+                continue
+        if not rows:
+            break
+        all_rows.extend(rows)
+        last_ts = rows[-1][0]
+        if (end_ms and last_ts >= end_ms) or len(klines) < 500 or len(all_rows) >= max_candles:
+            break
+        since = last_ts + 1
+
+    return _make_df(all_rows)
+
+
 def fetch_crypto_ohlcv(
     symbol: str,
     timeframe: str = "1d",
@@ -383,8 +441,9 @@ def fetch_crypto_ohlcv(
     api_key: str = "",
     api_secret: str = "",
 ) -> pd.DataFrame:
-    # 去除永續合約後綴 .P（前端顯示用）
-    if symbol.upper().endswith(".P"):
+    # 去除永續合約後綴 .P（前端顯示用），並記錄是否為永續合約
+    is_perp = symbol.upper().endswith(".P")
+    if is_perp:
         symbol = symbol[:-2]
     ex = exchange_id.lower()
 
@@ -403,13 +462,22 @@ def fetch_crypto_ohlcv(
 
     mc = _calc_max_candles(start, end, timeframe)
     if ex in ("pionex", "binance"):
-        # 優先使用永續合約 K 線；fapi 不可用時退回現貨
+        if ex == "pionex":
+            # 優先使用 Pionex 自有 K 線 API（支援 Pionex 獨有合約）
+            try:
+                df = _fetch_pionex_klines(symbol, timeframe, start, end, limit, max_candles=mc, is_perp=is_perp)
+                if not df.empty:
+                    return df
+            except Exception:
+                pass
+        # Binance 永續合約
         try:
             df = _fetch_binance_fapi(symbol, timeframe, start, end, limit, max_candles=mc)
             if not df.empty:
                 return df
         except Exception:
             pass
+        # Binance 現貨
         try:
             return _fetch_binance(symbol, timeframe, start, end, limit, max_candles=mc)
         except Exception:
