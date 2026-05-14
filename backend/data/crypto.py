@@ -389,18 +389,13 @@ def _fetch_pionex_klines(symbol: str, timeframe: str,
         sym += "_PERP"
     tf = PIONEX_TF_MAP.get(timeframe, "1DAY")
 
-    # limit-only mode（無日期範圍）
+    # limit-only mode → 換算成時間範圍，部分 Pionex API 對純 limit 請求回傳異常
     if start is None and end is None:
-        params: dict = {"symbol": sym, "interval": tf, "limit": min(limit, 500)}
-        data = _get(f"{PIONEX_BASE}/api/v1/market/klines?{urllib.parse.urlencode(params)}", timeout=10)
-        klines = (data.get("data") or {}).get("klines") or []
-        rows = []
-        for k in klines:
-            try:
-                rows.append([int(k["time"]), k["open"], k["high"], k["low"], k["close"], k.get("volume", k.get("amount", 0))])
-            except (KeyError, TypeError):
-                continue
-        return _make_df(rows)
+        now_dt    = datetime.now(timezone.utc)
+        bar_secs  = _TF_BAR_SECONDS.get(timeframe, 86400)
+        start_dt  = now_dt - timedelta(seconds=int(limit * bar_secs * 1.1) + bar_secs)
+        start = start_dt.strftime("%Y-%m-%d")
+        end   = now_dt.strftime("%Y-%m-%d")
 
     since  = _to_ms(start) if start else None
     end_ms = _to_ms(end, end_of_day=True) if end else None
