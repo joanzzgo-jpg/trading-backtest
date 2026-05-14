@@ -340,12 +340,16 @@
 <!-- Replay Start Date Picker -->
 <div id="replayPickerOverlay" class="rp-picker-overlay hidden">
   <div class="rp-picker-modal">
-    <div class="rp-picker-title">選擇復盤起始日期</div>
-    <input type="date" id="replayStartDate" class="rp-picker-date" />
-    <div class="rp-picker-actions">
-      <button id="replayPickerCancel"  class="rp-picker-btn rp-picker-cancel">取消</button>
-      <button id="replayPickerConfirm" class="rp-picker-btn rp-picker-confirm">開始復盤</button>
+    <div class="rp-picker-icon">
+      <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+        <circle cx="11" cy="11" r="9.5" stroke="currentColor" stroke-width="1.4"/>
+        <path d="M7.5 6.5L14 11L7.5 15.5V6.5Z" fill="currentColor"/>
+      </svg>
     </div>
+    <div class="rp-picker-title">復盤起始時間</div>
+    <input type="date" id="replayStartDate" class="rp-picker-date" />
+    <button id="replayPickerConfirm" class="rp-picker-confirm">開始復盤</button>
+    <button id="replayPickerCancel"  class="rp-picker-cancel">取消</button>
   </div>
 </div>
 

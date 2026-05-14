@@ -1006,40 +1006,49 @@ html, body {
 /* Replay start date picker modal */
 .rp-picker-overlay {
   position: fixed; inset: 0;
-  background: rgba(0,0,0,.55);
-  z-index: 900;
+  background: rgba(0,0,0,.6);
+  z-index: 900; backdrop-filter: blur(2px);
   display: flex; align-items: center; justify-content: center;
 }
 .rp-picker-overlay.hidden { display: none; }
 .rp-picker-modal {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 20px 24px;
-  display: flex; flex-direction: column; gap: 14px;
-  min-width: 260px;
-  box-shadow: 0 8px 32px rgba(0,0,0,.4);
+  border-radius: 14px;
+  padding: 28px 28px 20px;
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  width: 230px;
+  box-shadow: 0 16px 48px rgba(0,0,0,.5);
 }
-.rp-picker-title { font-size: 13px; font-weight: 700; color: var(--fg); }
+.rp-picker-icon { color: var(--blue); margin-bottom: 2px; }
+.rp-picker-title {
+  font-size: 13px; font-weight: 700; color: var(--fg);
+  letter-spacing: .02em;
+}
 .rp-picker-date {
-  width: 100%; padding: 7px 10px;
-  background: var(--bg2, #111);
+  width: 100%; padding: 8px 10px;
+  background: rgba(255,255,255,.04);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 7px;
   color: var(--text); font-size: 13px; font-family: monospace;
   color-scheme: dark; cursor: pointer; box-sizing: border-box;
+  text-align: center;
 }
 .rp-picker-date:focus { outline: none; border-color: var(--blue); }
 .rp-picker-date::-webkit-calendar-picker-indicator { filter: invert(0.7); cursor: pointer; }
-.rp-picker-actions { display: flex; gap: 8px; justify-content: flex-end; }
-.rp-picker-btn {
-  padding: 5px 14px; border-radius: 5px; font-size: 12px;
-  border: 1px solid var(--border); cursor: pointer; font-weight: 600;
+.rp-picker-confirm {
+  width: 100%; padding: 9px 0; margin-top: 4px;
+  background: var(--blue); color: #fff;
+  border: none; border-radius: 7px;
+  font-size: 13px; font-weight: 700; cursor: pointer;
+  letter-spacing: .03em;
 }
-.rp-picker-cancel  { background: transparent; color: var(--muted); }
-.rp-picker-cancel:hover { border-color: var(--fg); color: var(--fg); }
-.rp-picker-confirm { background: var(--blue); color: #fff; border-color: var(--blue); }
-.rp-picker-confirm:hover { filter: brightness(1.15); }
+.rp-picker-confirm:hover { filter: brightness(1.12); }
+.rp-picker-cancel {
+  background: none; border: none; color: var(--muted);
+  font-size: 12px; cursor: pointer; padding: 2px 0;
+}
+.rp-picker-cancel:hover { color: var(--fg); }
 .rp-progress { font-size: 11px; color: var(--muted); margin-left: 6px; }
 
 /* ═══ MISC ═══ */
