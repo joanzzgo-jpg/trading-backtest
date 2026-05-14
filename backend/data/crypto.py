@@ -443,6 +443,13 @@ def fetch_crypto_ohlcv(
         symbol = symbol[:-2]
     ex = exchange_id.lower()
 
+    # limit 超過 1000 時換算成時間範圍（Binance 單次請求上限 1500，統一用分頁安全）
+    if limit > 1000 and not start and not end:
+        now_dt   = datetime.now(timezone.utc)
+        bar_secs = _TF_BAR_SECONDS.get(timeframe, 86400)
+        end   = now_dt.strftime("%Y-%m-%d")
+        start = (now_dt - timedelta(seconds=int(limit * bar_secs * 1.05))).strftime("%Y-%m-%d")
+
     # 若日期範圍超過 cap，把 start 往後移到 end - cap×bar_duration
     # 確保永遠抓到最新的資料，而非從太久之前截斷
     if start and end:
