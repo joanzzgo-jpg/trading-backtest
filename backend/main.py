@@ -64,7 +64,7 @@ def _ticker_worker():
 
 
 def _tw_ticker_worker():
-    """背景執行緒：每 10 秒從 TWSE MIS 抓台股即時行情存入記憶體。"""
+    """背景執行緒：每 30 秒從 TWSE/TPEX opendata 抓全台股行情存入記憶體。"""
     from data.taiwan import fetch_tw_tickers
     from utils.live_data import update_tw as live_update_tw
     while True:
@@ -74,7 +74,7 @@ def _tw_ticker_worker():
                 live_update_tw(tw)
         except Exception:
             pass
-        time.sleep(10)
+        time.sleep(30)
 
 
 @app.on_event("startup")

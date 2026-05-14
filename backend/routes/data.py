@@ -132,19 +132,12 @@ def get_latest(req: LatestRequest):
                 rt = fetch_tw_realtime(req.symbol)
                 if rt:
                     cache.set(mis_key, rt)
-            if rt:
+            tf = req.timeframe
+            if rt and tf == "1d":
+                # MIS 只在日線使用：回傳整日 OHLCV 符合日線語意
                 # TWSE MIS 回傳台灣本地時間（UTC+8），前端 toTime() 預期 UTC
-                # 先轉 UTC（-8h），再截斷到對應時間框架的整點
                 ts = rt["time"] - timedelta(hours=8)
-                tf = req.timeframe
-                if tf == "1d":
-                    ts = dt(ts.year, ts.month, ts.day)
-                elif tf == "1h":
-                    ts = ts.replace(minute=0, second=0, microsecond=0)
-                elif tf == "15m":
-                    ts = ts.replace(minute=(ts.minute // 15) * 15, second=0, microsecond=0)
-                elif tf == "5m":
-                    ts = ts.replace(minute=(ts.minute // 5) * 5, second=0, microsecond=0)
+                ts = dt(ts.year, ts.month, ts.day)
                 return {"live": True, "data": [{
                     "time":   ts.isoformat(),
                     "open":   rt["open"],
@@ -153,6 +146,23 @@ def get_latest(req: LatestRequest):
                     "close":  rt["close"],
                     "volume": rt["volume"],
                 }]}
+            # 分鐘/小時時框：MIS 提供整日累計 OHLCV，不能用於分 K
+            # 改用 yfinance intraday 取最新一根實際 K 棒，快取 60 秒
+            if tf in ("5m", "15m", "1h", "4h"):
+                intra_key = f"tw_intra_{req.symbol}_{tf}"
+                intra_cached = cache.get(intra_key, ttl=60)
+                if intra_cached:
+                    return intra_cached
+                try:
+                    end_d   = date.today().isoformat()
+                    start_d = (date.today() - timedelta(days=3)).isoformat()
+                    df_intra = fetch_tw_intraday_yf(req.symbol, tf, start_d, end_d)
+                    if not df_intra.empty:
+                        result = {"live": False, "data": df_to_records(df_intra.tail(2))}
+                        cache.set(intra_key, result)
+                        return result
+                except Exception:
+                    pass
             # 2. yfinance fallback（盤中約 15 分鐘延遲，盤後即時），快取 5 分鐘
             yf_key = f"tw_yf_{req.symbol}"
             yf_cached = cache.get(yf_key, ttl=300)

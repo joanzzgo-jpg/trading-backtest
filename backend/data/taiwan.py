@@ -1,6 +1,8 @@
 """
 台股資料抓取 - 歷史日線用 FinMind，分鐘/小時用 yfinance（不需 token）
 """
+import re as _re
+import time as _time
 import pandas as pd
 import requests
 from datetime import datetime, timedelta, date
@@ -166,10 +168,14 @@ def fetch_tw_intraday_yf(symbol: str, timeframe: str, start: str, end: str) -> p
     raise ValueError(f"找不到 {symbol} 的分鐘資料（請確認代號正確，例如 2330）")
 
 
-TWSE_MIS_URL = "https://mis.twse.com.tw/stock/api/getStockInfo.jsp"
+TWSE_MIS_URL     = "https://mis.twse.com.tw/stock/api/getStockInfo.jsp"
 TWSE_MIS_HEADERS = {"Referer": "https://mis.twse.com.tw/stock/index.jsp"}
+# TWSE opendata：全上市股票每日行情（盤中更新）
+TWSE_DAY_ALL_URL = "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL"
+# TPEX opendata：全上櫃股票每日行情
+TPEX_DAY_ALL_URL = "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes"
 
-# 熱門台股清單 (代號, tse上市/otc上櫃)
+# 備援熱門清單（opendata 失敗時用 MIS 抓這 50 支）
 TW_POPULAR = [
     ("2330","tse"),("2317","tse"),("2454","tse"),("2412","tse"),("2308","tse"),
     ("2382","tse"),("2881","tse"),("2882","tse"),("2886","tse"),("2891","tse"),
@@ -197,8 +203,85 @@ TW_NAME_MAP = {
 }
 
 
+def _parse_tw_change(s: str) -> float:
+    """解析 TWSE/TPEX 漲跌字串，正負均支援（含 ▲▼ 或 +- 前綴）。"""
+    s = (s or "").strip()
+    if not s or s in ("---", "--", ""):
+        return 0.0
+    neg = s.startswith("-") or "▼" in s
+    clean = _re.sub(r"[^0-9.]", "", s)
+    if not clean:
+        return 0.0
+    val = float(clean)
+    return -val if neg else val
+
+
 def fetch_tw_tickers() -> list:
-    """批量抓取熱門台股即時行情（TWSE MIS），盤後用昨收價計算漲跌。"""
+    """抓取全台股（上市＋上櫃）每日行情，以漲跌幅排序。
+    主力：TWSE/TPEX opendata（全量，盤中更新）。
+    備援：MIS 熱門 50 支即時。
+    """
+    tickers: dict[str, dict] = {}
+
+    # ── 1. TWSE 上市全量 ──────────────────────────────────────
+    try:
+        resp = requests.get(TWSE_DAY_ALL_URL, timeout=15)
+        resp.raise_for_status()
+        for d in resp.json():
+            code = (d.get("Code") or "").strip()
+            if not (code and code.isdigit() and len(code) == 4):
+                continue
+            close_s = (d.get("ClosingPrice") or "").replace(",", "").strip()
+            if not close_s or close_s in ("--", "0", "0.00"):
+                continue
+            try:
+                close      = float(close_s)
+                change_amt = _parse_tw_change(d.get("Change", "0"))
+                prev       = close - change_amt
+                change_pct = round(change_amt / prev * 100, 2) if prev else 0.0
+                vol        = float((d.get("TradeVolume") or "0").replace(",", ""))
+                tickers[code] = {
+                    "symbol": code, "display": code,
+                    "name": (d.get("Name") or code).strip(),
+                    "price": close, "change_pct": change_pct,
+                    "change_amt": round(change_amt, 2), "volume": vol,
+                }
+            except (ValueError, TypeError):
+                continue
+    except Exception as e:
+        print(f"[tw_tickers] TWSE opendata error: {e}")
+
+    # ── 2. TPEX 上櫃全量 ──────────────────────────────────────
+    try:
+        resp = requests.get(TPEX_DAY_ALL_URL, timeout=15)
+        resp.raise_for_status()
+        for d in resp.json():
+            code = (d.get("SecuritiesCompanyCode") or "").strip()
+            if not (code and code.isdigit() and len(code) == 4):
+                continue
+            close_s = (d.get("Close") or "").replace(",", "").strip()
+            if not close_s or close_s in ("--", "0", "0.00"):
+                continue
+            if code in tickers:
+                continue  # TSE 優先
+            try:
+                close      = float(close_s)
+                change_amt = _parse_tw_change(d.get("Change", "0"))
+                prev       = close - change_amt
+                change_pct = round(change_amt / prev * 100, 2) if prev else 0.0
+                vol        = float((d.get("Volume") or "0").replace(",", ""))
+                tickers[code] = {
+                    "symbol": code, "display": code,
+                    "name": (d.get("CompanyName") or code).strip(),
+                    "price": close, "change_pct": change_pct,
+                    "change_amt": round(change_amt, 2), "volume": vol,
+                }
+            except (ValueError, TypeError):
+                continue
+    except Exception as e:
+        print(f"[tw_tickers] TPEX opendata error: {e}")
+
+    # ── 3. MIS 即時補強（盤中），或 opendata 失敗時的備援 ────────
     ex_ch = "|".join(f"{ex}_{sym}.tw" for sym, ex in TW_POPULAR)
     try:
         resp = requests.get(
@@ -208,16 +291,16 @@ def fetch_tw_tickers() -> list:
             timeout=10,
         )
         resp.raise_for_status()
-        arr = resp.json().get("msgArray", [])
-        tickers = []
-        for d in arr:
+        for d in resp.json().get("msgArray", []):
             sym = d.get("c", "")
             if not sym:
                 continue
-            z = d.get("z", "-")   # 最新成交價
-            y = d.get("y", "-")   # 昨收價
+            z = d.get("z", "-")
+            y = d.get("y", "-")
             if not z or z == "-":
-                z = y             # 盤後 / 未成交用昨收
+                z = y
+            if not y or y == "-":
+                continue
             try:
                 price      = float(z)
                 prev       = float(y)
@@ -226,21 +309,19 @@ def fetch_tw_tickers() -> list:
                 raw_vol    = d.get("v", "0") or "0"
                 volume     = float(raw_vol.replace(",", "")) * 1000
                 name       = d.get("n", "") or TW_NAME_MAP.get(sym, sym)
-                tickers.append({
-                    "symbol":     sym,
-                    "display":    sym,
-                    "name":       name,
-                    "price":      price,
-                    "change_pct": change_pct,
-                    "change_amt": change_amt,
-                    "volume":     volume,
-                })
+                tickers[sym] = {
+                    "symbol": sym, "display": sym, "name": name,
+                    "price": price, "change_pct": change_pct,
+                    "change_amt": change_amt, "volume": volume,
+                }
             except (ValueError, TypeError):
                 continue
-        tickers.sort(key=lambda x: x["change_pct"], reverse=True)
-        return tickers
-    except Exception:
-        return []
+    except Exception as e:
+        print(f"[tw_tickers] MIS error: {e}")
+
+    result = [t for t in tickers.values() if t["price"] > 0]
+    result.sort(key=lambda x: x["change_pct"], reverse=True)
+    return result
 
 
 def fetch_tw_latest_bar_yf(symbol: str) -> dict | None:
