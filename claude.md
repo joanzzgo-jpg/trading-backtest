@@ -1,5 +1,8 @@
 # trading Claude Instructions
 
+## 語言規範
+- **所有回覆請使用繁體中文**，包含說明、建議、程式碼注釋（非英文關鍵字）。
+
 ## 專案概覽
 - `trading` 是一個回測系統，包含 FastAPI 後端、靜態前端、資料模組與策略引擎。
 - 後端位於 `backend/`，前端位於 `frontend/`。
