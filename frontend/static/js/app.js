@@ -610,7 +610,7 @@ function _addToWatchlist() {
   _renderWatchlist();
 }
 
-function findNearest(x, y, maxDist = 20) {
+function findNearest(x, y, maxDist = 12) {
   let best = maxDist, found = null;
   drawings.forEach(d => {
     const dist = drawingDist(d, x, y);
@@ -706,7 +706,7 @@ function initDrawTools() {
     if (drawTool === "pointer") {
       // 點擊選取繪圖，帶出顏色選擇器
       const { x, y } = _canvasXY(fake);
-      const near = findNearest(x, y, 20);
+      const near = findNearest(x, y, _magnetMode ? 20 : 12);
       if (near) {
         e.preventDefault(); e.stopPropagation();
         selectedId = near.id;
@@ -781,7 +781,7 @@ function _onChartMouseMove(e) {
   }
 
   if (drawTool === "pointer" || drawTool === "eraser") {
-    const near = findNearest(x, y);
+    const near = findNearest(x, y, _magnetMode ? 20 : 12);
     const nid  = near?.id ?? null;
     if (nid !== hoveredId) { hoveredId = nid; _updateCursor(); requestAnimationFrame(renderDrawings); }
   } else if (drawTool !== "crosshair") {
@@ -796,7 +796,7 @@ function _onChartMouseDown(e) {
 
   // 只有 pointer 模式且滑鼠在線上才啟動拖移
   if (drawTool === "pointer") {
-    const near = findNearest(x, y);
+    const near = findNearest(x, y, _magnetMode ? 20 : 12);
     if (near) {
       e.stopPropagation();   // 阻止 LWC pan
       selectedId = near.id;
@@ -827,7 +827,7 @@ function _onChartClick(e) {
 
   if (drawTool === "pointer") {
     if (dragState?.moved) return;
-    const near = findNearest(x, y);
+    const near = findNearest(x, y, _magnetMode ? 20 : 12);
     if (near) {
       selectedId = near.id;
       e.stopPropagation();
