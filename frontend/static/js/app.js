@@ -153,6 +153,17 @@ function applyLineStyle(inputId) {
 /* 頁面載入後重新套用所有儲存的線條樣式 */
 function applyAllLineStyles() {
   Object.keys(LINE_STYLES).forEach(applyLineStyle);
+  // ⚙ popup 的設定（S）優先，覆蓋 LINE_STYLES 可能帶來的舊值
+  rsiLine14?.applyOptions({ lineWidth: S.rsi14Width,    lineStyle: S.rsi14Style });
+  rsiLine7?.applyOptions({  lineWidth: S.rsi7Width,     lineStyle: S.rsi7Style  });
+  kdjK?.applyOptions({      lineWidth: S.kdjKWidth,     lineStyle: S.kdjKStyle  });
+  kdjD?.applyOptions({      lineWidth: S.kdjDWidth,     lineStyle: S.kdjDStyle  });
+  kdjJ?.applyOptions({      lineWidth: S.kdjJWidth,     lineStyle: S.kdjJStyle  });
+  bbU?.applyOptions({       lineWidth: S.bbWidth  });
+  bbL?.applyOptions({       lineWidth: S.bbWidth  });
+  bbM?.applyOptions({       lineWidth: S.bbMWidth });
+  macdLine?.applyOptions({  lineWidth: S.macdWidth,    lineStyle: S.macdStyle    });
+  macdSignal?.applyOptions({ lineWidth: S.macdSigWidth, lineStyle: S.macdSigStyle });
 }
 
 function savePaneFlexes() {
