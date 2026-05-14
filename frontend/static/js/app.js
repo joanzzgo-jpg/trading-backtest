@@ -293,9 +293,14 @@ document.addEventListener("DOMContentLoaded", async () => {
   startTickerRefresh();
   window.addEventListener("beforeunload", () => { saveLastSymbol(); });
 
-  loadData(true)
-    .then(() => { loadVisibilityPrefs(); applyAllLineStyles(); })
-    .catch(() => showToast("⚠️ 載入失敗，請點「載入」重試"));
+  const _afterLoad = () => { loadVisibilityPrefs(); applyAllLineStyles(); };
+  loadData(true).then(_afterLoad).catch(() => {
+    // 失敗後 2 秒自動重試一次（Railway 冷啟動約需 1-3 秒）
+    showToast("⚠️ 連線中，2 秒後自動重試…");
+    setTimeout(() => {
+      loadData(true).then(_afterLoad).catch(() => showToast("⚠️ 載入失敗，請點「載入」重試"));
+    }, 2000);
+  });
 });
 
 /* ── 建立 / 重建主圖 series ── */
@@ -2620,7 +2625,10 @@ function renderAll(data) {
     _pendingRestoreRange = null;
     const to   = data.length - 1 - toOffset;
     const from = to - barCount;
-    if (to >= 0) mainChart.timeScale().setVisibleLogicalRange({ from: Math.max(0, from), to });
+    if (to >= 0 && to < data.length) {
+      mainChart.timeScale().setVisibleLogicalRange({ from: Math.max(0, from), to });
+    }
+    // to 超出資料範圍（儲存的資料比現在多）→ 維持 fitContent 顯示最新 K 棒
   } else {
     const _prevRange = mainChart.timeScale().getVisibleLogicalRange();
     const _barCount  = (_prevRange && _savedBarCount != null) ? _savedBarCount : 50;
