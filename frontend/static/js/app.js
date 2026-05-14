@@ -252,8 +252,8 @@ function makeBaseOpts(scaleMargins = null, showTime = false) {
     grid:      { vertLines:{ color:"#2a2e39" }, horzLines:{ color:"#2a2e39" } },
     crosshair: {
       mode: LightweightCharts.CrosshairMode.Normal,
-      vertLine: { style: 0, width: 1, color: "#758696", labelBackgroundColor: "#2a2e39" },
-      horzLine: { style: 0, width: 1, color: "#758696", labelBackgroundColor: "#2a2e39" },
+      vertLine: { style: 2, width: 1, color: "#758696", labelBackgroundColor: "#2a2e39" },
+      horzLine: { style: 2, width: 1, color: "#758696", labelBackgroundColor: "#2a2e39" },
     },
     rightPriceScale: { borderColor:"#2a2e39", minimumWidth: 80 },
     timeScale: {
