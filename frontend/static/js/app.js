@@ -3367,8 +3367,9 @@ function _replayStep(bar) {
   const period = Math.max(1, S.volMaPeriod);
   if (replayIdx >= period - 1) {
     const s = Math.max(0, replayIdx - period + 1);
-    const avg = replayData.slice(s, replayIdx + 1).reduce((a,d) => a + (d.volume||0), 0) / period;
-    volMaSeries.update({ time:t, value:avg });
+    let volSum = 0;
+    for (let i = s; i <= replayIdx; i++) volSum += replayData[i].volume || 0;
+    volMaSeries.update({ time:t, value: volSum / period });
   }
 
   if (bar.kdj_k != null) {
@@ -3394,12 +3395,12 @@ function _replayStep(bar) {
   if (bar.resonance === -1) lastResonanceMarkers.push({ time:t, position:"aboveBar", color:C.resonanceBear, shape:"arrowDown", size:1.5, text:"超買" });
   _applyMainMarkers();
 
-  updateSymbolBar(replayData.slice(0, replayIdx + 1));
+  const _prevBar = replayIdx > 0 ? replayData[replayIdx - 1] : bar;
+  updateSymbolBar([_prevBar, bar]);
 }
 
 function _replayRender() {
-  const slice = replayData.slice(0, replayIdx + 1);
-  const n     = slice.length;
+  const n     = replayIdx + 1;
   const range = { from: Math.max(0, n - _replaySpan - 1), to: n - 1 };
   const _setRange = () =>
     [mainChart, kdjChart, rsiChart, macdChart].forEach(c => c?.timeScale().setVisibleLogicalRange(range));
@@ -3407,11 +3408,12 @@ function _replayRender() {
   _blockSync = true;
 
   if (_replayLastIdx >= 0 && replayIdx === _replayLastIdx + 1) {
-    // 逐格前進：先鎖定視圖再 update，避免 LWT 內部 timescale reset 蓋掉範圍
+    // 逐格前進：不建陣列，直接 update 單根 K 棒
     _setRange();
     _replayStep(replayData[replayIdx]);
   } else {
-    // 跳躍或倒退：全量重繪
+    // 跳躍或倒退：只在這裡建一次 slice
+    const slice = replayData.slice(0, n);
     const anchorTimes = slice.map(d => ({ time:toTime(d.time), value:50 }));
     kdjAnchor.setData(anchorTimes);
     rsiAnchor.setData(anchorTimes);
