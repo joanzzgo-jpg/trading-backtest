@@ -134,7 +134,9 @@ def get_latest(req: LatestRequest):
                 if rt:
                     cache.set(mis_key, rt)
             if rt:
-                ts = rt["time"]
+                # TWSE MIS 回傳台灣本地時間（UTC+8），前端 toTime() 預期 UTC
+                # 先轉 UTC（-8h），再截斷到對應時間框架的整點
+                ts = rt["time"] - timedelta(hours=8)
                 tf = req.timeframe
                 if tf == "1d":
                     ts = dt(ts.year, ts.month, ts.day)
