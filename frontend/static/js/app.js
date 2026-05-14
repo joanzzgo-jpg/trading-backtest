@@ -2047,8 +2047,9 @@ function bindEvents() {
   });
   // Calendar nav buttons
   document.getElementById("rpCalDisplay")?.addEventListener("click", () => _rpCal.toggle());
-  document.getElementById("rpCalPrev")?.addEventListener("click", e => { e.stopPropagation(); _rpCal.prevMonth(); });
-  document.getElementById("rpCalNext")?.addEventListener("click", e => { e.stopPropagation(); _rpCal.nextMonth(); });
+  document.getElementById("rpCalPrev")?.addEventListener("click", e => { e.stopPropagation(); _rpCal.prev(); });
+  document.getElementById("rpCalNext")?.addEventListener("click", e => { e.stopPropagation(); _rpCal.next(); });
+  document.getElementById("rpCalTitle")?.addEventListener("click", e => { e.stopPropagation(); _rpCal.toggleMode(); });
   // Close calendar when clicking outside
   document.addEventListener("click", e => {
     const wrap = document.getElementById("rpCalWrap");
@@ -3047,13 +3048,18 @@ let _replayLastIdx = -1;   // 上一幀渲染的 idx，用於增量更新判斷
 const _rpCal = (() => {
   const pad = n => String(n).padStart(2, "0");
   const toYmd = d => `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())}`;
-  let _min = "", _max = "", _sel = "", _vy = 2024, _vm = 0;
+  let _min = "", _max = "", _sel = "", _vy = 2024, _vm = 0, _mode = "month";
 
   function _render() {
+    _mode === "year" ? _renderYear() : _renderMonth();
+  }
+
+  function _renderMonth() {
     const titleEl = document.getElementById("rpCalTitle");
     const gridEl  = document.getElementById("rpCalGrid");
     if (!titleEl || !gridEl) return;
-    titleEl.textContent = `${_vy}年${pad(_vm+1)}月`;
+    titleEl.textContent = `${_vy}年 ${pad(_vm+1)}月`;
+    gridEl.className = "rp-cal-grid";
     const today    = toYmd(new Date());
     const startDow = new Date(Date.UTC(_vy, _vm, 1)).getUTCDay();
     const daysInM  = new Date(Date.UTC(_vy, _vm + 1, 0)).getUTCDate();
@@ -3070,6 +3076,33 @@ const _rpCal = (() => {
     gridEl.innerHTML = html;
     gridEl.querySelectorAll(".rp-cal-day[data-date]:not(.disabled)").forEach(el =>
       el.addEventListener("click", () => { setValue(el.dataset.date); close(); })
+    );
+  }
+
+  function _renderYear() {
+    const titleEl = document.getElementById("rpCalTitle");
+    const gridEl  = document.getElementById("rpCalGrid");
+    if (!titleEl || !gridEl) return;
+    const base = Math.floor(_vy / 12) * 12;
+    titleEl.textContent = `${base} – ${base + 11}`;
+    gridEl.className = "rp-cal-grid rp-cal-grid--year";
+    const minY = _min ? parseInt(_min) : 0;
+    const maxY = _max ? parseInt(_max) : 9999;
+    const selY = _sel ? parseInt(_sel) : -1;
+    let html = "";
+    for (let y = base; y < base + 12; y++) {
+      let cls = "rp-cal-day rp-cal-year";
+      if (y === _vy)  cls += " selected";
+      if (y === selY && y !== _vy) cls += " today";
+      if (y < minY || y > maxY) cls += " disabled";
+      html += `<div class="${cls}" data-year="${y}">${y}</div>`;
+    }
+    gridEl.innerHTML = html;
+    gridEl.querySelectorAll(".rp-cal-year[data-year]:not(.disabled)").forEach(el =>
+      el.addEventListener("click", () => {
+        _vy = parseInt(el.dataset.year);
+        _mode = "month"; _render();
+      })
     );
   }
 
@@ -3095,6 +3128,7 @@ const _rpCal = (() => {
     if (inp) inp.value = ymd;
     const d = new Date(ymd + "T12:00:00Z");
     _vy = d.getUTCFullYear(); _vm = d.getUTCMonth();
+    _mode = "month";
     _updateDisplay(); _render();
   }
 
@@ -3105,18 +3139,26 @@ const _rpCal = (() => {
   }
 
   function close() {
+    _mode = "month";
     document.getElementById("rpCalPanel")?.classList.add("hidden");
   }
 
-  function prevMonth() {
-    _vm--; if (_vm < 0) { _vm = 11; _vy--; } _render();
+  function toggleMode() {
+    _mode = _mode === "year" ? "month" : "year";
+    _render();
   }
 
-  function nextMonth() {
-    _vm++; if (_vm > 11) { _vm = 0; _vy++; } _render();
+  function prev() {
+    if (_mode === "year") { _vy -= 12; _render(); }
+    else { _vm--; if (_vm < 0) { _vm = 11; _vy--; } _render(); }
   }
 
-  return { setRange, setValue, getValue, toggle, close, prevMonth, nextMonth };
+  function next() {
+    if (_mode === "year") { _vy += 12; _render(); }
+    else { _vm++; if (_vm > 11) { _vm = 0; _vy++; } _render(); }
+  }
+
+  return { setRange, setValue, getValue, toggle, close, toggleMode, prev, next };
 })();
 
 function _openReplayPicker() {

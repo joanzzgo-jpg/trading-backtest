@@ -1005,13 +1005,15 @@ html, body {
 }
 .rp-picker-overlay.hidden { display: none; }
 .rp-picker-modal {
-  background: var(--bg2);
+  background: rgba(31,20,16,.55);
   border: 1px solid var(--border);
   border-radius: 18px;
   padding: 34px 34px 26px;
   display: flex; flex-direction: column; align-items: center; gap: 16px;
   width: 360px;
   box-shadow: 0 28px 72px rgba(0,0,0,.65);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
   position: relative; overflow: visible;
 }
 .rp-picker-modal::before {
@@ -1051,8 +1053,9 @@ html, body {
 .rp-cal-icon { color: var(--muted); flex-shrink: 0; }
 .rp-cal-panel {
   width: 100%; margin-top: 8px;
-  background: var(--bg); border: 1px solid var(--border);
+  background: rgba(23,15,12,.6); border: 1px solid var(--border);
   border-radius: 11px; padding: 10px 10px 12px; box-sizing: border-box;
+  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
 }
 .rp-cal-panel.hidden { display: none; }
 .rp-cal-nav-row {
@@ -1064,13 +1067,19 @@ html, body {
   font-size: 16px; padding: 2px 11px; line-height: 1.6; transition: all .12s;
 }
 .rp-cal-nav:hover { border-color: var(--blue); color: var(--blue); }
-.rp-cal-hd-title { font-size: 13px; font-weight: 700; color: var(--text); }
+.rp-cal-hd-title {
+  font-size: 13px; font-weight: 700; color: var(--text);
+  cursor: pointer; padding: 2px 8px; border-radius: 6px; transition: background .12s;
+}
+.rp-cal-hd-title:hover { background: var(--bg3); }
 .rp-cal-dows {
   display: grid; grid-template-columns: repeat(7, 1fr);
   text-align: center; font-size: 11px; color: var(--muted);
   margin-bottom: 4px;
 }
 .rp-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+.rp-cal-grid--year { grid-template-columns: repeat(4, 1fr); gap: 5px; }
+.rp-cal-year { aspect-ratio: unset !important; height: 38px; font-size: 13px; border-radius: 8px; }
 .rp-cal-day {
   aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
   font-size: 12px; border-radius: 6px; cursor: pointer;
