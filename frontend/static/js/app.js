@@ -547,6 +547,7 @@ let dragState      = null;   // { id, startX, startY, moved, snapshot }
 let _dragJustMoved = false;  // 拖移結束後抑制下一個 click，避免開啟顏色面板
 let _mx = 0, _my = 0;
 let _drawColor  = "#f5c518";  // 目前繪圖顏色
+let _magnetMode = false;
 
 const DCP_COLORS = ["#f5c518","#ef5350","#26a69a","#2962ff","#ff9800","#7e57c2","#ec407a","#26c6da","#ffffff","#787b86"];
 const DRAW_WIDTH  = 1.5;
@@ -1055,7 +1056,42 @@ function showLegColorPopup(clientX, clientY, sections) {
   _cpShowDirect(clientX, clientY, { sections, onDelete: null });
 }
 
+function _magnetSnap(x, y) {
+  if (!ohlcvData.length || !candleSeries) return null;
+  const curTime = mainChart.timeScale().coordinateToTime(x);
+  if (curTime == null) return null;
+  // Binary search for the bar with time closest to curTime
+  let lo = 0, hi = ohlcvData.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (toTime(ohlcvData[mid].time) < curTime) lo = mid + 1;
+    else hi = mid;
+  }
+  let bar = ohlcvData[lo];
+  if (lo > 0) {
+    const prev = ohlcvData[lo - 1];
+    if (Math.abs(toTime(prev.time) - curTime) < Math.abs(toTime(bar.time) - curTime)) bar = prev;
+  }
+  const barX = mainChart.timeScale().timeToCoordinate(toTime(bar.time));
+  if (barX == null || Math.abs(barX - x) > 50) return null;
+  const prices = [bar.open, bar.high, bar.low, bar.close];
+  let snapPrice = null, minDY = Infinity;
+  for (const p of prices) {
+    if (p == null) continue;
+    const py = candleSeries.priceToCoordinate(p);
+    if (py == null) continue;
+    const dy = Math.abs(py - y);
+    if (dy < minDY) { minDY = dy; snapPrice = p; }
+  }
+  if (snapPrice == null) return null;
+  return { x: barX, y: candleSeries.priceToCoordinate(snapPrice) ?? y, time: toTime(bar.time), price: snapPrice };
+}
+
 function screenToChart(x, y) {
+  if (_magnetMode) {
+    const snapped = _magnetSnap(x, y);
+    if (snapped) return snapped;
+  }
   const time  = mainChart.timeScale().coordinateToTime(x);
   const price = candleSeries?.coordinateToPrice(y);
   if (time == null || price == null) return null;
@@ -1131,9 +1167,16 @@ function renderDrawings() {
   drawings.filter(d => d.id === hoveredId && d.id !== selectedId).forEach(d => drawOne(d, W, H, true, false));
   drawings.filter(d => d.id === selectedId).forEach(d => drawOne(d, W, H, false, true));
 
+  // Compute snapped cursor position when magnet is active
+  let _cmx = _mx, _cmy = _my;
+  if (_magnetMode && drawTool !== "pointer" && drawTool !== "crosshair" && drawTool !== "eraser") {
+    const snp = _magnetSnap(_mx, _my);
+    if (snp) { _cmx = snp.x; _cmy = snp.y; }
+  }
+
   if (drawingWIP) {
     const p1s = chartToScreen(drawingWIP.p1.time, drawingWIP.p1.price);
-    if (p1s) drawPreview(drawingWIP.type, p1s, { x:_mx, y:_my }, W, H);
+    if (p1s) drawPreview(drawingWIP.type, p1s, { x:_cmx, y:_cmy }, W, H);
   }
 
   if (drawTool !== "pointer" && drawTool !== "crosshair") {
@@ -1142,10 +1185,20 @@ function renderDrawings() {
     drawCtx.lineWidth = 1;
     drawCtx.setLineDash([4, 4]);
     drawCtx.beginPath();
-    drawCtx.moveTo(_mx, 0); drawCtx.lineTo(_mx, H);
-    drawCtx.moveTo(0, _my); drawCtx.lineTo(W, _my);
+    drawCtx.moveTo(_cmx, 0); drawCtx.lineTo(_cmx, H);
+    drawCtx.moveTo(0, _cmy); drawCtx.lineTo(W, _cmy);
     drawCtx.stroke();
     drawCtx.restore();
+    // Snap indicator circle
+    if (_magnetMode && (_cmx !== _mx || _cmy !== _my)) {
+      drawCtx.save();
+      drawCtx.strokeStyle = "rgba(38,198,218,0.8)";
+      drawCtx.lineWidth = 1.5;
+      drawCtx.beginPath();
+      drawCtx.arc(_cmx, _cmy, 5, 0, Math.PI * 2);
+      drawCtx.stroke();
+      drawCtx.restore();
+    }
   }
 }
 
@@ -1971,6 +2024,11 @@ function bindEvents() {
       setDrawTool(btn.dataset.tool);
     });
   });
+  // 弱磁鐵切換
+  document.getElementById("btnMagnet")?.addEventListener("click", () => {
+    _magnetMode = !_magnetMode;
+    document.getElementById("btnMagnet").classList.toggle("active", _magnetMode);
+  });
   // Esc 回到 pointer / 取消進行中的繪圖
   document.addEventListener("keydown", e => {
     if (e.key === "Escape" && !document.getElementById("symOverlay").classList.contains("hidden")) return;
@@ -1994,6 +2052,10 @@ function bindEvents() {
       document.getElementById("cpPopup")?.classList.remove("open");
       saveDrawings();
       requestAnimationFrame(renderDrawings);
+    }
+    if ((e.key === "m" || e.key === "M") && document.activeElement.tagName !== "INPUT") {
+      _magnetMode = !_magnetMode;
+      document.getElementById("btnMagnet")?.classList.toggle("active", _magnetMode);
     }
   });
 
