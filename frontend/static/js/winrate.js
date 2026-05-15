@@ -1,0 +1,154 @@
+let _wrCache = {};
+async function fetchWinRate() {
+  const market    = document.getElementById("marketSelect")?.value || "crypto";
+  const symbol    = document.getElementById("symbolInput")?.value?.trim() || "";
+  const exchange  = document.getElementById("exchangeSelect")?.value || "pionex";
+  const timeframe = currentTF || "1d";
+  if (!symbol) return;
+  const cacheKey = `${market}:${symbol}:${exchange}:${timeframe}`;
+  if (_wrCache[cacheKey]) {
+    _renderWinRate(_wrCache[cacheKey]);
+    _renderWRSignals(_wrCache[cacheKey].signals);
+    return;
+  }
+  const statusEl = document.getElementById("wrStatus");
+  if (statusEl) statusEl.textContent = "計算中…";
+  try {
+    const p   = new URLSearchParams({ market, symbol, exchange, timeframe });
+    const res = await fetch("/api/crt_winrate?" + p);
+    const d   = await res.json();
+    if (!res.ok) throw new Error(d.detail || "failed");
+    _wrCache[cacheKey] = d;
+    _renderWinRate(d);
+    _renderWRSignals(d.signals);
+  } catch(e) {
+    if (statusEl) statusEl.textContent = "—";
+    lastWRSignalMarkers = [];
+    _applyMainMarkers();
+  }
+}
+
+function _renderWRSignals(signals) {
+  if (signals !== undefined) _lastWRSignals = signals || [];
+  const list = _lastWRSignals;
+  const chartTimeSet = new Set(ohlcvData.map(d => toTime(d.time)));
+
+  const allMarkers = [];
+
+  for (const s of list) {
+    const et = toTime(s.t);
+    if (!chartTimeSet.has(et)) continue;
+
+    const isShort = s.d === "s";
+    const k = s.k || "abc";
+
+    // ── 進場標記 ──
+    const eColor = k === "abc" ? (isShort ? "#ff6b6b" : "#4fc3f7")
+                 : k === "ab"  ? (isShort ? "#ff9800" : "#26c6da")
+                 : k === "3"   ? (isShort ? "#ce93d8" : "#b39ddb")
+                 : k === "4"   ? (isShort ? "#80cbc4" : "#4db6ac")
+                 :                (isShort ? "#ffb74d" : "#ffa726");
+    const eShape = k === "abc" ? "circle"
+                 : k === "ab"  ? "square"
+                 :                (isShort ? "arrowDown" : "arrowUp");
+    const eText  = k === "abc" ? (isShort ? "空" : "多")
+                 : k === "ab"  ? (isShort ? "空²" : "多²")
+                 : k === "3"   ? (isShort ? "空³" : "多³")
+                 : k === "4"   ? (isShort ? "空⁴" : "多⁴")
+                 :                (isShort ? "空⁵" : "多⁵");
+    allMarkers.push({
+      time: et, position: isShort ? "aboveBar" : "belowBar",
+      color: eColor, shape: eShape, size: 1.2, text: eText,
+    });
+
+    // ── 結果標記（在結算那根K棒上顯示 ✓ 或 ✗）──
+    if (s.r != null && s.ot) {
+      const ot = toTime(s.ot);
+      if (chartTimeSet.has(ot)) {
+        const isWin = s.r === "w";
+        // 勝：標在目標方向（空→下方，多→上方）；敗：標在止損方向（空→上方，多→下方）
+        const oPos = isWin
+          ? (isShort ? "belowBar" : "aboveBar")
+          : (isShort ? "aboveBar" : "belowBar");
+        const oShape = isWin
+          ? (isShort ? "arrowDown" : "arrowUp")
+          : (isShort ? "arrowUp"   : "arrowDown");
+        allMarkers.push({
+          time: ot, position: oPos,
+          color: isWin ? "#26a69a" : "#ef5350",
+          shape: oShape, size: 1.0,
+          text: isWin ? "✓" : "✗",
+        });
+      }
+    }
+  }
+
+  // Lightweight Charts 要求按時間升序排列
+  allMarkers.sort((a, b) => a.time - b.time);
+  lastWRSignalMarkers = allMarkers;
+
+  const entryCount = list.filter(s => chartTimeSet.has(toTime(s.t))).length;
+  const ss = document.getElementById("wrStatus");
+  if (ss) ss.textContent = entryCount > 0 ? `${entryCount}筆` : "";
+  _applyMainMarkers();
+}
+
+function _renderWinRate(d) {
+  const setRow = (id, s) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const dir = el.dataset.dir || "";
+    const arrow = dir === "s" ? "▼" : "▲";
+    if (!s || s.win_rate == null) {
+      el.className = "tb-wr-v";
+      el.innerHTML = `<i class="tb-wr-arr ${dir}">${arrow}</i><span class="tb-wr-pct">—</span>`;
+      el.removeAttribute("title"); return;
+    }
+    const good = s.win_rate >= 60, bad = s.win_rate < 45;
+    const losses = s.losses ?? (s.total - s.wins);
+    el.className = `tb-wr-v${good ? " good" : bad ? " bad" : ""}`;
+    el.innerHTML = `<i class="tb-wr-arr ${dir}">${arrow}</i><span class="tb-wr-pct">${s.win_rate}%</span><span class="tb-wr-cnt">${s.wins}/${losses}</span>`;
+    el.title = `${s.wins}勝 ${losses}負 共${s.total}筆`;
+  };
+
+  setRow("wrAbcS", d.abc?.short);
+  setRow("wrAbcL", d.abc?.long);
+  setRow("wrAbS",  d.ab?.short);
+  setRow("wrAbL",  d.ab?.long);
+  setRow("wrS3S",  d.s3?.short);
+  setRow("wrS3L",  d.s3?.long);
+  setRow("wrS4S",  d.s4?.short);
+  setRow("wrS4L",  d.s4?.long);
+  setRow("wrS5S",  d.s5?.short);
+  setRow("wrS5L",  d.s5?.long);
+
+  const sa = document.getElementById("wrAll");
+  if (sa) {
+    if (d.win_rate != null) {
+      const good = d.win_rate >= 60, bad = d.win_rate < 45;
+      sa.className = `tb-wr-total${good ? " good" : bad ? " bad" : ""}`;
+      sa.textContent = `${d.win_rate}%`;
+      sa.title = `${d.wins}勝 ${d.total - d.wins}負 共${d.total}筆`;
+    } else {
+      sa.textContent = "—"; sa.className = "tb-wr-total"; sa.removeAttribute("title");
+    }
+  }
+
+  const fd = document.getElementById("wrFromDate");
+  if (fd) {
+    if (d.from_date) {
+      const [y, m, day] = d.from_date.split("-");
+      fd.textContent = `←${y}/${m}/${day}`;
+      fd.title = `回測自 ${d.from_date}`;
+    } else {
+      fd.textContent = "";
+    }
+  }
+
+  const ss = document.getElementById("wrStatus");
+  if (ss) ss.textContent = "";
+}
+
+/* ══════════════════════════════════════════
+   資料載入
+══════════════════════════════════════════ */

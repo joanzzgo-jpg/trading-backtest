@@ -37,7 +37,7 @@
 - **按鈕漣漪**：`initButtonRipple()` IIFE，`pointerdown` 時動態插入 `span.btn-ripple-wave`
 - **偷看熊氣泡**：Fisher-Yates 隨機排序（`_nextLine()`），耗盡後自動重洗牌
 
-## 音效與背景音樂（app.js）
+## 音效與背景音樂（`effects.js`）
 - **SFX**：`SFX` 物件含 `click / load / success / error / tick / boop / switch_` 七種 Web Audio 音效
 - **音樂面板**：`initMusicPlayer()` IIFE，右上角 `#musicToggleBtn` 開關
 - **主題**（`THEMES`）：`lofi / bull / bear / scalp / ghibli / merry / inochi / totoro / mononoke / sanpo / auto`
@@ -60,6 +60,7 @@
 - `backend/utils/` - 共用工具
   - `cache.py` - TTL + LRU 快取
   - `data.py` - 指標富集、DataFrame 序列化
+  - `crt.py` - CRT 訊號掃描與勝率計算（`_ts`, `_scan_outcome`, `_calc_crt_winrate`）
 
 ### 資料與指標
 - `backend/data/` - 資料獲取與整合
@@ -77,9 +78,27 @@
 
 ### 前端
 - `frontend/templates/index.html` - 主頁面（工具列、圖表、重播列、偷看熊）
-- `frontend/static/js/app.js` - 主 JS（圖表邏輯、重播、點擊特效、偷看熊初始化）
 - `frontend/static/css/style.css` - 樣式（含游標、粒子特效、偷看熊動畫）
 - `frontend/static/img/` - 所有圖片（見上方圖片資源表格）
+
+#### JS 模組（`frontend/static/js/`，按 `<script>` 載入順序）
+| 檔案 | 行數 | 內容 |
+|------|------|------|
+| `config.js` | ~90 | 全域常數（DEFAULT_COLORS/STYLES）、狀態變數（ohlcvData、currentTF 等） |
+| `utils.js` | ~218 | toTime、hexAlpha、偏好設定存取（savePrefs/loadPrefs）、格式化工具（fmt/fmtVol/fmtT）、showToast、showLoading |
+| `charts.js` | ~254 | makeBaseOpts、createCandleSeries、applyOhlcvToSeries、updateLatestPriceLine、buildCharts、resizeAll、syncTimeScales |
+| `draw.js` | ~1455 | 繪圖工具全部（drawings 狀態、initDrawTools、renderDrawings、drawOne、initColorPicker、_updateStarBtn） |
+| `ticker.js` | ~846 | 自選清單（_loadWatchlist/_saveWatchlist/_renderWatchlist）、行情面板（fetchTickers/renderTickers）、標的搜尋（initSymSearch） |
+| `winrate.js` | ~154 | `_wrCache`、`fetchWinRate`、`_renderWRSignals`、`_renderWinRate` |
+| `render.js` | ~354 | loadData、_applyPriceFormat、renderAll、renderCandles/BB/CRT/KDJCross/Resonance/Volume/KDJ/RSI/MACD、_bgApplyChunk、_bgScheduleIndicators、_bgLoadOlderBars |
+| `realtime.js` | ~180 | startRealtime、stopRealtime、fetchLatest、updateAllLegends、onXxxCrosshair、updateSymbolBar |
+| `replay.js` | ~450 | replayData 狀態、_rpCal 日曆 IIFE、enterReplay/exitReplay、replayPlay/Step、bindReplayBar |
+| `ui.js` | ~771 | bindEvents、updateMarketUI、bindPaneDividers、bindIndicatorPanel、bindLegendColors、bindLegendToggles、bindSystemColors |
+| `effects.js` | ~2075 | initClickSparks、initButtonRipple IIFE、SFX 音效引擎、BGM 背景音樂、YouTube 播放器、天氣動畫 Canvas |
+| `main.js` | ~32 | DOMContentLoaded 初始化入口（呼叫所有 init 函數、loadData） |
+
+> **原 `app.js` 已拆分為上述 12 個檔案，不再使用。**  
+> **新增功能時請編輯對應的模組檔案，不要修改 app.js。**
 
 ## 重要技術細節
 - **時間戳**：所有圖表時間戳 +8 小時（Taiwan Time），`toTime()` 函數處理
@@ -166,7 +185,7 @@
 - **共振**：`bb_kdj_rsi_resonance()`，高觸布林上軌 + KD>80 + RSI7>65 → -1；低觸下軌 + KD<20 + RSI7<35 → +1
 - **`enrich_df()`** 中共振使用 `rsi_7`（7 期 RSI），閾值 `rsi_ob=65, rsi_os=35`
 
-### 後端結構（`_calc_crt_winrate`）
+### 後端結構（`backend/utils/crt.py`）
 ```python
 # 共用 helper（模組層級）
 _ts(row)                                           # pd.Timestamp → isoformat 字串
