@@ -2722,16 +2722,17 @@ function nextVisiblePane(el) {
 
 let _wrCache = {};
 async function fetchWinRate() {
-  const market   = document.getElementById("marketSelect")?.value || "crypto";
-  const symbol   = document.getElementById("symbolInput")?.value?.trim() || "";
-  const exchange = document.getElementById("exchangeSelect")?.value || "pionex";
+  const market    = document.getElementById("marketSelect")?.value || "crypto";
+  const symbol    = document.getElementById("symbolInput")?.value?.trim() || "";
+  const exchange  = document.getElementById("exchangeSelect")?.value || "pionex";
+  const timeframe = currentTF || "1d";
   if (!symbol) return;
-  const cacheKey = `${market}:${symbol}:${exchange}`;
+  const cacheKey = `${market}:${symbol}:${exchange}:${timeframe}`;
   if (_wrCache[cacheKey]) { _renderWinRate(_wrCache[cacheKey]); return; }
   const statusEl = document.getElementById("wrStatus");
   if (statusEl) statusEl.textContent = "計算中…";
   try {
-    const p   = new URLSearchParams({ market, symbol, exchange });
+    const p   = new URLSearchParams({ market, symbol, exchange, timeframe });
     const res = await fetch("/api/crt_winrate?" + p);
     const d   = await res.json();
     if (!res.ok) throw new Error(d.detail || "failed");
