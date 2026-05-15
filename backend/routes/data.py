@@ -54,7 +54,7 @@ def _ts(row) -> str:
 
 
 def _scan_outcome(df: pd.DataFrame, entry_i: int, stop_px: float, direction: str):
-    """從 entry_i 向後掃描，回傳 'win' / 'loss' / None（未結算）"""
+    """從 entry_i 向後掃描，回傳 ('win'/'loss', bar_time) 或 (None, None)"""
     n = len(df)
     for j in range(entry_i, n):
         bar    = df.iloc[j]
@@ -67,17 +67,20 @@ def _scan_outcome(df: pd.DataFrame, entry_i: int, stop_px: float, direction: str
             hit_stop = hi >= stop_px
             hit_tgt  = lo <= bb_mid
             if hit_stop and hit_tgt:
-                return "win" if cl <= bb_mid else "loss"
-            if hit_stop: return "loss"
-            if hit_tgt:  return "win"
+                result = "win" if cl <= bb_mid else "loss"
+            elif hit_stop: result = "loss"
+            elif hit_tgt:  result = "win"
+            else: continue
         else:
             hit_stop = lo <= stop_px
             hit_tgt  = hi >= bb_mid
             if hit_stop and hit_tgt:
-                return "win" if cl >= bb_mid else "loss"
-            if hit_stop: return "loss"
-            if hit_tgt:  return "win"
-    return None
+                result = "win" if cl >= bb_mid else "loss"
+            elif hit_stop: result = "loss"
+            elif hit_tgt:  result = "win"
+            else: continue
+        return result, _ts(bar)
+    return None, None
 
 
 def _calc_crt_winrate(df: pd.DataFrame) -> dict:
@@ -108,8 +111,10 @@ def _calc_crt_winrate(df: pd.DataFrame) -> dict:
         if entry_i >= n: continue
         stop_px  = float(row["high"]) if direction == "short" else float(row["low"])
         sig_time = _ts(df.iloc[i])
-        signals.append({"t": sig_time, "d": "s" if direction == "short" else "l", "k": "abc"})
-        outcome = _scan_outcome(df, entry_i, stop_px, direction)
+        d_str    = "s" if direction == "short" else "l"
+        outcome, ot = _scan_outcome(df, entry_i, stop_px, direction)
+        signals.append({"t": sig_time, "d": d_str, "k": "abc",
+                         "r": "w" if outcome == "win" else ("l" if outcome else None), "ot": ot})
         if outcome is None: continue
         if direction == "short":
             if outcome == "win": ws_abc += 1
@@ -117,8 +122,7 @@ def _calc_crt_winrate(df: pd.DataFrame) -> dict:
         else:
             if outcome == "win": wl_abc += 1
             else:                ll_abc += 1
-        recent.append({"t": sig_time, "d": "s" if direction == "short" else "l",
-                        "r": "w" if outcome == "win" else "l", "k": "abc"})
+        recent.append({"t": sig_time, "d": d_str, "r": "w" if outcome == "win" else "l", "k": "abc"})
 
     # ── 訊號二：AB（A=共振，B=CRT+死/金叉）─────────────────
     for i in range(n - 2):
@@ -144,8 +148,10 @@ def _calc_crt_winrate(df: pd.DataFrame) -> dict:
         if entry_i >= n: continue
         stop_px  = float(row_b["high"]) if direction == "short" else float(row_b["low"])
         sig_time = _ts(df.iloc[i + 1])   # 訊號棒 = B棒
-        signals.append({"t": sig_time, "d": "s" if direction == "short" else "l", "k": "ab"})
-        outcome = _scan_outcome(df, entry_i, stop_px, direction)
+        d_str    = "s" if direction == "short" else "l"
+        outcome, ot = _scan_outcome(df, entry_i, stop_px, direction)
+        signals.append({"t": sig_time, "d": d_str, "k": "ab",
+                         "r": "w" if outcome == "win" else ("l" if outcome else None), "ot": ot})
         if outcome is None: continue
         if direction == "short":
             if outcome == "win": ws_ab += 1
@@ -153,8 +159,7 @@ def _calc_crt_winrate(df: pd.DataFrame) -> dict:
         else:
             if outcome == "win": wl_ab += 1
             else:                ll_ab += 1
-        recent.append({"t": sig_time, "d": "s" if direction == "short" else "l",
-                        "r": "w" if outcome == "win" else "l", "k": "ab"})
+        recent.append({"t": sig_time, "d": d_str, "r": "w" if outcome == "win" else "l", "k": "ab"})
 
     # ── 訊號三：ABC三棒（每棒最多兩個指標觸發）────────────────
     # A/B 棒：有共振，且 CRT 與 KDJ叉 不能同時觸發（最多兩個）
@@ -186,8 +191,10 @@ def _calc_crt_winrate(df: pd.DataFrame) -> dict:
         else:
             stop_px = min(float(row_a["low"]),  float(row_b["low"]),  float(row_c["low"]))
         sig_time = _ts(df.iloc[i + 2])   # 訊號棒 = C棒
-        signals.append({"t": sig_time, "d": "s" if direction == "short" else "l", "k": "3"})
-        outcome = _scan_outcome(df, entry_i, stop_px, direction)
+        d_str    = "s" if direction == "short" else "l"
+        outcome, ot = _scan_outcome(df, entry_i, stop_px, direction)
+        signals.append({"t": sig_time, "d": d_str, "k": "3",
+                         "r": "w" if outcome == "win" else ("l" if outcome else None), "ot": ot})
         if outcome is None: continue
         if direction == "short":
             if outcome == "win": ws_3 += 1
@@ -195,8 +202,7 @@ def _calc_crt_winrate(df: pd.DataFrame) -> dict:
         else:
             if outcome == "win": wl_3 += 1
             else:                ll_3 += 1
-        recent.append({"t": sig_time, "d": "s" if direction == "short" else "l",
-                        "r": "w" if outcome == "win" else "l", "k": "3"})
+        recent.append({"t": sig_time, "d": d_str, "r": "w" if outcome == "win" else "l", "k": "3"})
 
     # ── 統計 ────────────────────────────────────────────────
     def _stats(w, l):
@@ -435,7 +441,7 @@ def get_crt_winrate(
 ):
     """CRT 策略各時間級別勝率（每個子統計至少 10 個案例，不足則往前翻倍）"""
     from datetime import date, timedelta
-    cache_key = f"crt_wr:{market}:{symbol}:{exchange}:{timeframe}"
+    cache_key = f"crt_wr3:{market}:{symbol}:{exchange}:{timeframe}"
     cached = cache.get(cache_key, ttl=3600)
     if cached:
         return cached

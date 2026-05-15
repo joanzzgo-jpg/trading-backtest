@@ -2756,27 +2756,60 @@ function _renderWRSignals(signals) {
   if (signals !== undefined) _lastWRSignals = signals || [];
   const list = _lastWRSignals;
   const chartTimeSet = new Set(ohlcvData.map(d => toTime(d.time)));
-  const matched = list.filter(s => chartTimeSet.has(toTime(s.t)));
 
-  // 訊號一(abc)=圓圈  訊號二(ab)=方塊  訊號三(3)=箭頭
-  lastWRSignalMarkers = matched.map(s => {
+  const allMarkers = [];
+
+  for (const s of list) {
+    const et = toTime(s.t);
+    if (!chartTimeSet.has(et)) continue;
+
     const isShort = s.d === "s";
     const k = s.k || "abc";
-    const color = k === "abc" ? (isShort ? "#ff6b6b" : "#4fc3f7")
-                : k === "ab"  ? (isShort ? "#ff9800" : "#26c6da")
-                :                (isShort ? "#ce93d8" : "#b39ddb");
-    const shape = k === "abc" ? "circle"
-                : k === "ab"  ? "square"
-                :                (isShort ? "arrowDown" : "arrowUp");
-    const text  = k === "abc" ? (isShort ? "空" : "多")
-                : k === "ab"  ? (isShort ? "空²" : "多²")
-                :                (isShort ? "空³" : "多³");
-    return { time: toTime(s.t), position: isShort ? "aboveBar" : "belowBar",
-             color, shape, size: 1.2, text };
-  });
 
+    // ── 進場標記 ──
+    const eColor = k === "abc" ? (isShort ? "#ff6b6b" : "#4fc3f7")
+                 : k === "ab"  ? (isShort ? "#ff9800" : "#26c6da")
+                 :                (isShort ? "#ce93d8" : "#b39ddb");
+    const eShape = k === "abc" ? "circle"
+                 : k === "ab"  ? "square"
+                 :                (isShort ? "arrowDown" : "arrowUp");
+    const eText  = k === "abc" ? (isShort ? "空" : "多")
+                 : k === "ab"  ? (isShort ? "空²" : "多²")
+                 :                (isShort ? "空³" : "多³");
+    allMarkers.push({
+      time: et, position: isShort ? "aboveBar" : "belowBar",
+      color: eColor, shape: eShape, size: 1.2, text: eText,
+    });
+
+    // ── 結果標記（在結算那根K棒上顯示 ✓ 或 ✗）──
+    if (s.r != null && s.ot) {
+      const ot = toTime(s.ot);
+      if (chartTimeSet.has(ot)) {
+        const isWin = s.r === "w";
+        // 勝：標在目標方向（空→下方，多→上方）；敗：標在止損方向（空→上方，多→下方）
+        const oPos = isWin
+          ? (isShort ? "belowBar" : "aboveBar")
+          : (isShort ? "aboveBar" : "belowBar");
+        const oShape = isWin
+          ? (isShort ? "arrowDown" : "arrowUp")
+          : (isShort ? "arrowUp"   : "arrowDown");
+        allMarkers.push({
+          time: ot, position: oPos,
+          color: isWin ? "#26a69a" : "#ef5350",
+          shape: oShape, size: 1.0,
+          text: isWin ? "✓" : "✗",
+        });
+      }
+    }
+  }
+
+  // Lightweight Charts 要求按時間升序排列
+  allMarkers.sort((a, b) => a.time - b.time);
+  lastWRSignalMarkers = allMarkers;
+
+  const entryCount = list.filter(s => chartTimeSet.has(toTime(s.t))).length;
   const ss = document.getElementById("wrStatus");
-  if (ss) ss.textContent = matched.length > 0 ? `${matched.length}筆` : "";
+  if (ss) ss.textContent = entryCount > 0 ? `${entryCount}筆` : "";
   _applyMainMarkers();
 }
 
