@@ -84,7 +84,7 @@
 ## 重要技術細節
 - **時間戳**：所有圖表時間戳 +8 小時（Taiwan Time），`toTime()` 函數處理
 - **台股 yfinance 時區**：`fetch_tw_intraday_yf()` 中，naive timestamp 一律先 `tz_localize("Asia/Taipei")` 再 `tz_convert("UTC")`，否則小時線會位移 +8h。在 tz_localize 前必須確認 `if df.index.tz is None` 否則有 double-localize 風險
-- **max_candles**：按時間框架動態計算，避免長日期範圍資料截斷（4h 上限 8000 根）
+- **max_candles**：按時間框架動態計算，避免長日期範圍資料截斷；`_TF_MAX_CANDLES`：4h=12000、1h/15m/5m=20000（已調高以支援 CRT 勝率 retry loop）
 - **即時更新**：`fetchLatest()` 有間距保護（>5 根週期差距不插入），防止歷史圖表被今日資料污染
 - **Ticker 刷新間隔**：`startTickerRefresh()` 中 `setInterval(fetchTickers, 2000)` 固定 **2 秒**，不可調整（行情即時性需求），禁止以「減輕伺服器負擔」為由更改
 - **重播日期選擇**：`<input type="date">` 讓使用者跳至指定日期
@@ -110,7 +110,9 @@
 
 ## CRT 策略自動回測（`/api/crt_winrate`）
 
-### 三種訊號並行計算
+### 五種訊號並行計算
+
+> **訊號一（S1/ABC）僅獨立顯示，不計入總勝率合計；`_sufficient` 也不要求 S1 達最低案例數。**
 
 #### 訊號一（ABC）：同一棒三條件同時成立
 | 方向 | CRT | KDJ 交叉 | 共振（resonance） |
@@ -120,29 +122,46 @@
 
 - 進場：訊號棒（i）下一根開盤（`entry_i = i + 1`）
 - 停損：訊號棒 i 的最高價（做空）/ 最低價（做多）
+- **不計入總勝率**，僅作參考顯示
 
 #### 訊號二（AB）：連續兩棒接力
 - **A 棒（i）**：`resonance == ±1`（超買或超賣共振）
-- **B 棒（i+1，緊接A）**：`crt == ±1` 且 `kdj_cross == ±1`（同方向）
-- **排除條件**：B 棒不能同時滿足訊號一（ABC）——即 B 棒的 resonance 也成立時跳過
-- 進場：B 棒收盤後下一根（`entry_i = i + 2`）
+- **B 棒（i+1）**：`crt == ±1` 且 `kdj_cross == ±1`（同方向）
+- **排除條件①**：B 棒同時有 resonance（等同訊號一）→ 跳過
+- **排除條件②**：B 棒的 low（做空）/ high（做多）已碰至 BB 中軌 → 目標已提前觸及，跳過
+- 進場：B 棒下一根（`entry_i = i + 2`）
 - 停損：**B 棒**最高價（做空）/ 最低價（做多）
 
-#### 訊號三（S3）：連續三棒 ABC 接力（放寬版）
-- **A 棒（i）**：`resonance == ±1`，但**不可同時**具備另外兩個指標（即最多 1 個 CRT/KDJ 條件）
-- **B 棒（i+1）**：`resonance == ±1`，同樣最多 2 個指標（不能三個都成立）
-- **C 棒（i+2）**：`kdj_cross == ±1`，同樣最多 2 個指標
-- 排除邏輯（做空示例）：`s_a = res_a==-1 and not (crt_a==-1 and cross_a==-1)`（A 棒有共振，但不是三條件同時）
+#### 訊號三（S3）：連續三棒，放寬版（每棒最多 2 個指標）
+- **A 棒（i）**：有 resonance，但 CRT 與 KDJ叉 不能同時出現（最多兩個指標）
+- **B 棒（i+1）**：同 A 棒規則（有 resonance，最多兩個）
+- **C 棒（i+2）**：有 KDJ叉，但 CRT 與 resonance 不能同時出現（最多兩個）
+- **排除條件**：C 棒影線觸及布林上/下軌（`high >= bb_upper*0.995` 做空 / `low <= bb_lower*1.005` 做多）→ 跳過
 - 進場：C 棒下一根（`entry_i = i + 3`）
-- 停損：**三根棒最高價的最大值**（做空）/ **三根棒最低價的最小值**（做多）
-- 主圖標記：紫色 `arrowDown/arrowUp`（▲），標記文字 `空³/多³`
+- 停損：三棒最高高點（做空）/ 最低低點（做多）
 
-#### 共同勝負條件
-- **獲勝**：後續任意 K 棒影線或本體 `low ≤ BB中軌`（做空）或 `high ≥ BB中軌`（做多）
+#### 訊號四（S4）：連續三棒，嚴格純淨版（A=純共振，B=無，C=純叉）
+- **A 棒（i）**：**只有** resonance（CRT=0、KDJ叉=0）
+- **B 棒（i+1）**：**三個指標全無**（CRT=0、KDJ叉=0、resonance=0）
+- **C 棒（i+2）**：**只有** KDJ叉（CRT=0、resonance=0）
+- **排除條件**：C 棒 low/high 碰至 BB 中軌 → 跳過
+- 進場：C 棒下一根（`entry_i = i + 3`）
+- 停損：三棒最高高點（做空）/ 最低低點（做多）
+
+#### 訊號五（S5）：連續三棒，嚴格純淨版（A=無，B=純共振，C=純叉）
+- **A 棒（i）**：**三個指標全無**（CRT=0、KDJ叉=0、resonance=0）
+- **B 棒（i+1）**：**只有** resonance（CRT=0、KDJ叉=0）
+- **C 棒（i+2）**：**只有** KDJ叉（CRT=0、resonance=0）
+- **排除條件**：C 棒 low/high 碰至 BB 中軌 → 跳過（同 S4）
+- 進場：C 棒下一根（`entry_i = i + 3`）
+- 停損：三棒最高高點（做空）/ 最低低點（做多）
+
+#### 共同勝負條件（全部訊號適用）
+- **獲勝**：後續 K 棒 `low ≤ BB中軌`（做空）或 `high ≥ BB中軌`（做多）
 - **失敗**：後續 K 棒觸及停損位
-- **同棒雙觸**：以收盤價判定先後順序（收在獲利側 → 成功）
+- **同棒雙觸**：以收盤價判定先後（收在獲利側 → 成功）
 
-#### 指標說明
+#### 指標欄位說明
 - **CRT**：`crt_markers()`，信號落在完成棒（第二根），`signals[bearish.shift(1)] = -1`
 - **共振**：`bb_kdj_rsi_resonance()`，高觸布林上軌 + KD>80 + RSI7>65 → -1；低觸下軌 + KD<20 + RSI7<35 → +1
 - **`enrich_df()`** 中共振使用 `rsi_7`（7 期 RSI），閾值 `rsi_ob=65, rsi_os=35`
@@ -155,21 +174,24 @@ _scan_outcome(df, entry_i, stop_px, dir)           # 回傳 ('win'/'loss'/None, 
 
 # 回傳結構
 {
-  "total", "wins", "win_rate",                     # 三種訊號合計
-  "short": {...}, "long": {...},                   # 合計空/多
-  "abc": {"short": {...}, "long": {...}},          # 訊號一細分
-  "ab":  {"short": {...}, "long": {...}},          # 訊號二細分
-  "s3":  {"short": {...}, "long": {...}},          # 訊號三細分
-  "recent": [...],                                 # 最近30筆（含 k:"abc"/"ab"/"s3" 欄位）
-  "signals": [{"t":..., "d":..., "k":..., "r":..., "ot":...}]  # 所有訊號（含結果）
+  "total", "wins", "win_rate",   # S2~S5 合計（S1 不計入）
+  "short": {...}, "long": {...}, # S2~S5 空/多合計
+  "abc": {"short":{}, "long":{}},# 訊號一（僅顯示）
+  "ab":  {"short":{}, "long":{}},# 訊號二
+  "s3":  {"short":{}, "long":{}},# 訊號三
+  "s4":  {"short":{}, "long":{}},# 訊號四
+  "s5":  {"short":{}, "long":{}},# 訊號五
+  "from_date": "YYYY-MM-DD",     # 回測起始日（最早 K 棒日期）
+  "recent": [...],               # 最近30筆（k: "abc"/"ab"/"3"/"4"/"5"）
+  "signals": [{"t","d","k","r","ot"}]  # 所有訊號（含進場時間、方向、種類、結果）
 }
 # _stats(w, l) → {"total", "wins", "losses", "win_rate"}
 ```
 
-### 最低案例數保證（每種訊號空/多各≥10筆）
-- `MIN_CASES = 10`；`_sufficient(r)` 檢查全部 6 個子統計是否達標
+### 最低案例數保證（S2~S5 各空/多各≥10筆）
+- `MIN_CASES = 10`；`_sufficient(r)` 檢查 S2/S3/S4/S5 各空/多共 **8 個**子統計（S1 不在內）
 - 若不足，自動加倍 `days` 重新抓資料（上限 `TF_MAX`），直到足夠或抵達上限為止
-- cache key 為 `crt_wr3:market:symbol:exchange:timeframe`（v3，較舊 v1 key 已廢棄）
+- cache key：`crt_wr7:market:symbol:exchange:timeframe`（每次訊號邏輯變更時遞增版號）
 
 ### 各時間框架資料來源與回測天數
 | TF | 初始天數 | 天數上限 | TW 來源 | US 來源 | Crypto |
@@ -182,29 +204,34 @@ _scan_outcome(df, entry_i, stop_px, dir)           # 回傳 ('win'/'loss'/None, 
 | 15m | 60d | 180d | yfinance 15分線 | yfinance | ccxt |
 | 5m | 30d | 60d | yfinance 5分線 | yfinance | ccxt |
 
-- 快取 TTL：1 小時；cache key 含 `market:symbol:exchange:timeframe`
+- 快取 TTL：1 小時；cache key 含 `market:symbol:exchange:timeframe` + 版號
 - 最少 50 根 K 棒才能回測，不足時回傳 400
 
 ### 訊號棒視覺化（`_renderWRSignals`）
 - `_lastWRSignals`：模組全域，儲存完整訊號列表（背景載入後重新過濾用）
 - 只顯示圖表**已載入**時間範圍內的訊號（用 `chartTimeSet` O(1) 查詢）
-- 背景載入新批次後自動重呼叫 `_renderWRSignals()` 更新可見標記
-- **進場標記**：
-  - 訊號一 ABC：圓圈（circle），做空=紅 `#ff6b6b`，做多=藍 `#4fc3f7`，文字 `空/多`
-  - 訊號二 AB：方塊（square），做空=橘 `#ff9800`，做多=青 `#26c6da`，文字 `空²/多²`
-  - 訊號三 S3：箭頭（arrowDown/Up），做空=紫 `#ce93d8`，做多=淡紫 `#b39ddb`，文字 `空³/多³`
-- **結果標記**（`s.r` + `s.ot` 欄位）：
-  - `s.r = "w"` → 綠色 `#26a69a` 箭頭，文字 `✓`
-  - `s.r = "l"` → 紅色 `#ef5350` 箭頭，文字 `✗`
-  - 標記位置在結算當根 K 棒（`s.ot`），勝=目標方向，敗=止損方向
+- **觸發時機**：首次 winrate 回傳時、`_bgScheduleIndicators`（debounce 800ms）、`_bgLoadOlderBars` finally 區塊——任何背景載入舊 K 棒後都會重新過濾標記
+- **進場標記**（`s.k` 欄位對應）：
+  | k | 圖示形狀 | 做空色 | 做多色 | 文字 |
+  |---|---------|-------|-------|------|
+  | `"abc"` | circle | `#ff6b6b` | `#4fc3f7` | 空/多 |
+  | `"ab"` | square | `#ff9800` | `#26c6da` | 空²/多² |
+  | `"3"` | arrowDown/Up | `#ce93d8` | `#b39ddb` | 空³/多³ |
+  | `"4"` | arrowDown/Up | `#80cbc4` | `#4db6ac` | 空⁴/多⁴ |
+  | `"5"` | arrowDown/Up | `#ffb74d` | `#ffa726` | 空⁵/多⁵ |
+- **結果標記**（`s.r` + `s.ot` 欄位，所有訊號通用）：
+  - `s.r = "w"` → 綠色 `#26a69a`，文字 `✓`，位置在目標方向
+  - `s.r = "l"` → 紅色 `#ef5350`，文字 `✗`，位置在止損方向
+  - 結算棒時間 = `s.ot`；`s.r/s.ot` 為 null 表示末端尚未結算
 - 透過 `lastWRSignalMarkers` 合入 `_applyMainMarkers()`；切換標的/時框時清除
 
 ### 勝率顯示欄（topbar 正中央，Tech HUD 設計）
-- 三組訊號各有空/多兩行，▼=做空（紅），▲=做多（綠），顯示 `勝率% W/L筆數`
-- `wrAbcS/L`：訊號一空/多；`wrAbS/L`：訊號二；`wrS3S/L`：訊號三
-- `wrAll`：三種訊號合計勝率；`wrStatus`：顯示「N筆」
+- 共 5 組訊號（S1~S5），各有空/多兩行，▼=做空（紅），▲=做多（綠），顯示 `勝率% W/L筆數`
+- 元素 ID：`wrAbcS/L`（S1）、`wrAbS/L`（S2）、`wrS3S/L`（S3）、`wrS4S/L`（S4）、`wrS5S/L`（S5）
+- `wrAll`：**S2~S5** 合計勝率（S1 不計入）；`wrFromDate`：回測起始日（`←YYYY/MM/DD`）；`wrStatus`：「N筆」
 - 勝率 ≥60% → 亮綠（`.good`），<45% → 淡紅（`.bad`）
-- 風格：毛玻璃背景 + 橘色漸層邊框 + SF Mono 字型 + glow 效果（`backdrop-filter: blur(18px)`）
+- 圖示顏色：S1=紅●、S2=橘■、S3=紫▲、S4=青綠◆、S5=橘黃★
+- 風格：毛玻璃背景 + 橘色漸層邊框 + SF Mono 字型 + glow 效果（`backdrop-filter: blur(18px)`）；無 CRT 文字標籤
 
 ### 時間戳格式規範（重要）
 - 後端傳給前端的所有時間戳必須用 `.isoformat()`，**不能用 `str(pd.Timestamp)`**
