@@ -54,16 +54,13 @@ def _calc_crt_winrate(df: pd.DataFrame) -> dict:
     n = len(df)
     for i in range(n - 1):
         row = df.iloc[i]
-        crt_v   = int(row.get("crt", 0) or 0)
-        cross_v  = int(row.get("kdj_cross", 0) or 0)
-        rsi_v   = row.get("rsi_14")
-        if pd.isna(rsi_v):
-            continue
-        rsi_v = float(rsi_v)
+        crt_v      = int(row.get("crt", 0) or 0)
+        cross_v    = int(row.get("kdj_cross", 0) or 0)
+        resonance_v = int(row.get("resonance", 0) or 0)
         direction = None
-        if crt_v == -1 and cross_v == -1 and rsi_v > 65:
+        if crt_v == -1 and cross_v == -1 and resonance_v == -1:
             direction = "short"
-        elif crt_v == 1 and cross_v == 1 and rsi_v < 35:
+        elif crt_v == 1 and cross_v == 1 and resonance_v == 1:
             direction = "long"
         if direction is None:
             continue
