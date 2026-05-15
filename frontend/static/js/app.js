@@ -4630,6 +4630,7 @@ function _bgScheduleIndicators() {
     renderKDJCross(ohlcvData);
     renderResonance(ohlcvData);
     setTimeout(() => { renderKDJ(ohlcvData); renderRSI(ohlcvData); renderMACD(ohlcvData); }, 0);
+    if (_lastWRSignals.length) _renderWRSignals();
   }, 800);
 }
 
@@ -4725,6 +4726,7 @@ async function _bgLoadOlderBars(scrollTriggered = false) {
         if (guard() && ohlcvData.length) {
           renderBB(ohlcvData); renderCRT(ohlcvData); renderKDJCross(ohlcvData); renderResonance(ohlcvData);
           setTimeout(() => { renderKDJ(ohlcvData); renderRSI(ohlcvData); renderMACD(ohlcvData); }, 0);
+          if (_lastWRSignals.length) _renderWRSignals();
         }
       }
     }
