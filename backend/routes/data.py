@@ -129,6 +129,12 @@ def _calc_crt_winrate(df: pd.DataFrame) -> dict:
         if   res_a == -1 and crt_b == -1 and cross_b == -1: direction = "short"
         elif res_a ==  1 and crt_b ==  1 and cross_b ==  1: direction = "long"
         else: continue
+        # B 棒若影線或本體已碰到 BB 中軌，訊號無效（目標已提前觸及）
+        bb_mid_b = row_b.get("bb_middle")
+        if bb_mid_b is None or pd.isna(bb_mid_b): continue
+        bb_mid_b = float(bb_mid_b)
+        if direction == "short" and float(row_b["low"])  <= bb_mid_b: continue
+        if direction == "long"  and float(row_b["high"]) >= bb_mid_b: continue
         entry_i = i + 2
         if entry_i >= n: continue
         stop_px  = float(row_b["high"]) if direction == "short" else float(row_b["low"])
