@@ -2789,16 +2789,22 @@ function _renderWRSignals(signals) {
 }
 function _renderWinRate(d) {
   const fmtRate = (s) => {
-    if (s == null || s.win_rate == null) return "—";
+    if (s == null || s.win_rate == null) return "<span class='tb-wr-rate'>—</span>";
     const good = s.win_rate >= 60, bad = s.win_rate < 45;
     const cls = good ? "tb-wr-rate good" : bad ? "tb-wr-rate bad" : "tb-wr-rate";
     return `<span class="${cls}">${s.win_rate}%</span><span style="color:var(--muted);font-size:10px">(${s.wins}/${s.total})</span>`;
   };
   const el = (id) => document.getElementById(id);
-  const sh = el("wrShort"), sl = el("wrLong"), sa = el("wrAll"), sd = el("wrDots"), ss = el("wrStatus");
-  if (!sh) return;
-  sh.innerHTML = fmtRate(d.short);
-  sl.innerHTML = fmtRate(d.long);
+  // 訊號一（ABC）
+  const abcS = el("wrAbcShort"), abcL = el("wrAbcLong");
+  if (abcS) abcS.innerHTML = fmtRate(d.abc?.short);
+  if (abcL) abcL.innerHTML = fmtRate(d.abc?.long);
+  // 訊號二（AB）
+  const abS = el("wrAbShort"), abL = el("wrAbLong");
+  if (abS) abS.innerHTML = fmtRate(d.ab?.short);
+  if (abL) abL.innerHTML = fmtRate(d.ab?.long);
+  // 合計
+  const sa = el("wrAll");
   if (sa) {
     const good = d.win_rate >= 60, bad = d.win_rate < 45;
     const cls = good ? "tb-wr-rate good" : bad ? "tb-wr-rate bad" : "tb-wr-rate";
@@ -2806,9 +2812,12 @@ function _renderWinRate(d) {
       ? `<span class="${cls}">${d.win_rate}%</span><span style="color:var(--muted);font-size:10px">${d.total}筆</span>`
       : "—";
   }
-  if (sd) sd.innerHTML = (d.recent||[]).slice(-25).map(t =>
-    `<span class="wr-dot ${t.r}" title="${t.t} ${t.d==="s"?"做空":"做多"} ${t.r==="w"?"✓":"✗"}"></span>`
-  ).join("");
+  const sd = el("wrDots");
+  if (sd) sd.innerHTML = (d.recent||[]).slice(-25).map(t => {
+    const sym = (t.k || "abc") === "abc" ? "●" : "■";
+    return `<span class="wr-dot ${t.r}" title="${t.t} ${t.d==="s"?"做空":"做多"} ${sym} ${t.r==="w"?"✓":"✗"}"></span>`;
+  }).join("");
+  const ss = el("wrStatus");
   if (ss) ss.textContent = "";
 }
 

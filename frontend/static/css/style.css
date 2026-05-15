@@ -390,6 +390,9 @@ html, body {
   z-index: 2;
 }
 .tb-winrate > * { pointer-events: auto; }
+.tb-wr-sym   { font-size: 9px; flex-shrink: 0; cursor: default; }
+.wr-abc      { color: #ff6b6b; }
+.wr-ab       { color: #ff9800; }
 .tb-wr-item  { color: var(--muted); }
 .tb-wr-rate  { font-weight: 700; color: var(--text); margin-left: 2px; }
 .tb-wr-rate.good { color: #26a69a; }
