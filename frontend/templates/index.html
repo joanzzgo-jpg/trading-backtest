@@ -58,7 +58,18 @@
 
   </div>
 
-  <!-- 時間框架 strip（桌面：inline；手機：第二列全寬） -->
+  <!-- CRT 策略勝率（絕對居中） -->
+  <div class="tb-winrate" id="winrateBar">
+    <span class="tb-wr-item">空<span id="wrShort" class="tb-wr-rate">—</span></span>
+    <span class="tb-wr-sep">|</span>
+    <span class="tb-wr-item">多<span id="wrLong" class="tb-wr-rate">—</span></span>
+    <span class="tb-wr-sep">|</span>
+    <span class="tb-wr-item">計<span id="wrAll" class="tb-wr-rate">—</span></span>
+    <span class="tb-wr-dots" id="wrDots"></span>
+    <span id="wrStatus" class="tb-wr-status"></span>
+  </div>
+
+  <!-- 時間框架 strip（桌面：右側；手機：第二列全寬） -->
   <div class="topbar-tf">
     <div class="tf-group">
       <button class="tf-btn" data-tf="1M">1M</button>
@@ -69,17 +80,6 @@
       <button class="tf-btn" data-tf="15m">15m</button>
       <button class="tf-btn" data-tf="5m">5m</button>
     </div>
-  </div>
-
-  <!-- CRT 策略勝率（topbar 右側） -->
-  <div class="tb-winrate" id="winrateBar">
-    <span class="tb-wr-item">空<span id="wrShort" class="tb-wr-rate">—</span></span>
-    <span class="tb-wr-sep">|</span>
-    <span class="tb-wr-item">多<span id="wrLong" class="tb-wr-rate">—</span></span>
-    <span class="tb-wr-sep">|</span>
-    <span class="tb-wr-item">計<span id="wrAll" class="tb-wr-rate">—</span></span>
-    <span class="tb-wr-dots" id="wrDots"></span>
-    <span id="wrStatus" class="tb-wr-status"></span>
   </div>
 
   <div class="topbar-right">
