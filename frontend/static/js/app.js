@@ -73,6 +73,7 @@ let lastCRTMarkers       = [];
 let lastKDJCrossMarkers  = [];
 let lastResonanceMarkers = [];
 let lastWRSignalMarkers  = [];
+let _lastWRSignals       = [];   // 完整訊號列表（背景載入後重新過濾用）
 let paneCollapseFlex = {};  // 面板收合前的 flex 值（module-level，供 loadVisibilityPrefs 使用）
 let _restoringPrefs  = false; // 還原偏好設定時，暫停自動儲存
 let _savedBarCount      = null;  // 切換標的前保存的可見 K 棒數量，載入後還原
@@ -2752,8 +2753,14 @@ async function fetchWinRate() {
 }
 
 function _renderWRSignals(signals) {
-  // abc=紅/藍圓  ab=橘/青方塊，hover 顯示訊號類型
-  lastWRSignalMarkers = (signals || []).map(s => {
+  if (signals !== undefined) _lastWRSignals = signals || [];
+  const list = _lastWRSignals;
+  // 只保留圖表已載入資料範圍內的訊號（用 time set 做 O(1) 查詢）
+  const chartTimeSet = new Set(ohlcvData.map(d => toTime(d.time)));
+  const matched = list.filter(s => chartTimeSet.has(toTime(s.t)));
+
+  // abc=圓圈（紅/藍）  ab=方塊（橘/青）
+  lastWRSignalMarkers = matched.map(s => {
     const isShort = s.d === "s";
     const isABC   = (s.k || "abc") === "abc";
     return {
@@ -2767,6 +2774,17 @@ function _renderWRSignals(signals) {
                       : (isShort ? "空²" : "多²"),
     };
   });
+
+  // 有回測訊號但全在圖表範圍外時，顯示提示
+  const ss = document.getElementById("wrStatus");
+  if (ss) {
+    if (list.length > 0 && matched.length === 0)
+      ss.textContent = "訊號在歷史區（往左滑）";
+    else if (matched.length > 0)
+      ss.textContent = `圖內${matched.length}筆`;
+    else
+      ss.textContent = "";
+  }
   _applyMainMarkers();
 }
 function _renderWinRate(d) {
@@ -3365,6 +3383,7 @@ async function _replayPreload(targetTs) {
       const newBars = json.data.filter(b => toTime(b.time) < toTime(ohlcvData[0].time));
       if (!newBars.length) break;
       ohlcvData = newBars.concat(ohlcvData);
+      if (_lastWRSignals.length) _renderWRSignals();  // 重新過濾顯示新範圍內的訊號
     }
   } catch { /* silent */ } finally {
     if (myGen === _bgLoadGen) _bgLoadInProgress = false;
