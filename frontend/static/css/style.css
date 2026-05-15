@@ -503,6 +503,7 @@ html, body {
 .tb-wr-total.bad  { color: #ef7070; text-shadow: 0 0 8px rgba(239,112,112,.32); }
 
 .tb-wr-status { color: var(--muted); font-size: 10px; margin-left: 2px; }
+.tb-wr-from   { font-size: 8.5px; color: rgba(154,122,88,.5); font-family: 'SF Mono','Courier New',monospace; margin-left: 4px; letter-spacing: .01em; white-space: nowrap; }
 
 .realtime-dot {
   width: 6px; height: 6px; border-radius: 50%;

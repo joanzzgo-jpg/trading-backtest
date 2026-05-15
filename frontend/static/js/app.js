@@ -2855,6 +2855,17 @@ function _renderWinRate(d) {
     }
   }
 
+  const fd = document.getElementById("wrFromDate");
+  if (fd) {
+    if (d.from_date) {
+      const [y, m, day] = d.from_date.split("-");
+      fd.textContent = `←${y}/${m}/${day}`;
+      fd.title = `回測自 ${d.from_date}`;
+    } else {
+      fd.textContent = "";
+    }
+  }
+
   const ss = document.getElementById("wrStatus");
   if (ss) ss.textContent = "";
 }

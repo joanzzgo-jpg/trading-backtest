@@ -234,6 +234,12 @@ def _calc_crt_winrate(df: pd.DataFrame) -> dict:
         if   s_a and s_b and s_c: direction = "short"
         elif l_a and l_b and l_c: direction = "long"
         else: continue
+        # C棒本體或影線碰至布林中軌 → 目標已提前觸及，不算訊號四
+        bb_mid_c = row_c.get("bb_middle")
+        if bb_mid_c is None or pd.isna(bb_mid_c): continue
+        bb_mid_c = float(bb_mid_c)
+        if direction == "short" and float(row_c["low"])  <= bb_mid_c: continue
+        if direction == "long"  and float(row_c["high"]) >= bb_mid_c: continue
         entry_i = i + 3
         if entry_i >= n: continue
         if direction == "short":
@@ -259,11 +265,13 @@ def _calc_crt_winrate(df: pd.DataFrame) -> dict:
         t = w + l
         return {"total": t, "wins": w, "losses": l, "win_rate": round(w / t * 100, 1) if t else None}
 
-    wins_s = ws_abc + ws_ab + ws_3 + ws_4;  losses_s = ls_abc + ls_ab + ls_3 + ls_4
-    wins_l = wl_abc + wl_ab + wl_3 + wl_4;  losses_l = ll_abc + ll_ab + ll_3 + ll_4
+    # 訊號一不計入總勝率（僅顯示，不影響合計）
+    wins_s = ws_ab + ws_3 + ws_4;  losses_s = ls_ab + ls_3 + ls_4
+    wins_l = wl_ab + wl_3 + wl_4;  losses_l = ll_ab + ll_3 + ll_4
     tot_s = wins_s + losses_s; tot_l = wins_l + losses_l
     total = tot_s + tot_l;     wins  = wins_s + wins_l
     recent.sort(key=lambda x: x["t"])
+    from_date = str(df.iloc[0]["time"])[:10]   # 回測最早日期 "YYYY-MM-DD"
 
     return {
         "total":    total,
@@ -275,6 +283,7 @@ def _calc_crt_winrate(df: pd.DataFrame) -> dict:
         "ab":       {"short": _stats(ws_ab,  ls_ab),  "long": _stats(wl_ab,  ll_ab)},
         "s3":       {"short": _stats(ws_3,   ls_3),   "long": _stats(wl_3,   ll_3)},
         "s4":       {"short": _stats(ws_4,   ls_4),   "long": _stats(wl_4,   ll_4)},
+        "from_date": from_date,
         "recent":   recent[-30:],
         "signals":  signals,
     }
@@ -492,7 +501,7 @@ def get_crt_winrate(
 ):
     """CRT 策略各時間級別勝率（每個子統計至少 10 個案例，不足則往前翻倍）"""
     from datetime import date, timedelta
-    cache_key = f"crt_wr5:{market}:{symbol}:{exchange}:{timeframe}"
+    cache_key = f"crt_wr6:{market}:{symbol}:{exchange}:{timeframe}"
     cached = cache.get(cache_key, ttl=3600)
     if cached:
         return cached
