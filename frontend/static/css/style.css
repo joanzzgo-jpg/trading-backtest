@@ -451,12 +451,13 @@ html, body {
   line-height: 1;
 }
 .tb-wr-arr {
-  font-size: 7px;
+  font-size: 9px;
   font-style: normal;
   flex-shrink: 0;
+  line-height: 1;
 }
-.tb-wr-arr.s { color: rgba(239,112,112,.6); }
-.tb-wr-arr.l { color: rgba(77,208,196,.6); }
+.tb-wr-arr.s { color: #ef5350; }
+.tb-wr-arr.l { color: #26a69a; }
 .tb-wr-pct {
   font-size: 10.5px;
   font-weight: 700;

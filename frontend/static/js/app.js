@@ -2785,7 +2785,7 @@ function _renderWinRate(d) {
     const el = document.getElementById(id);
     if (!el) return;
     const dir = el.dataset.dir || "";
-    const arrow = dir === "s" ? "↓" : "↑";
+    const arrow = dir === "s" ? "▼" : "▲";
     if (!s || s.win_rate == null) {
       el.className = "tb-wr-v";
       el.innerHTML = `<i class="tb-wr-arr ${dir}">${arrow}</i><span class="tb-wr-pct">—</span>`;
