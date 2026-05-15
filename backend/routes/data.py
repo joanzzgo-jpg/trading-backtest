@@ -433,70 +433,98 @@ def get_crt_winrate(
     api_secret: str = "",
     finmind_token: str = "",
 ):
-    """CRT 策略各時間級別勝率"""
+    """CRT 策略各時間級別勝率（每個子統計至少 10 個案例，不足則往前翻倍）"""
     from datetime import date, timedelta
     cache_key = f"crt_wr:{market}:{symbol}:{exchange}:{timeframe}"
     cached = cache.get(cache_key, ttl=3600)
     if cached:
         return cached
 
-    # 各時間框架的回測天數上限
-    TF_DAYS = {
-        "1M": 3650, "1w": 1825, "1d": 730,
-        "4h": 365,  "1h": 365,  "15m": 60, "5m": 30,
-    }
-    days = TF_DAYS.get(timeframe, 730)
-    end  = date.today().isoformat()
+    MIN_CASES = 10
+    # 各時間框架：初始天數 / 最大天數
+    TF_INIT = {"1M": 3650, "1w": 1825, "1d": 730,  "4h": 365,  "1h": 365,  "15m": 60,  "5m": 30}
+    TF_MAX  = {"1M": 3650, "1w": 3650, "1d": 3650, "4h": 1825, "1h": 730,  "15m": 180, "5m": 60}
 
-    try:
+    def _sufficient(r: dict) -> bool:
+        """每個訊號的空/多案例數都達到 MIN_CASES"""
+        return all(
+            (r.get(sig) or {}).get(d, {}).get("total", 0) >= MIN_CASES
+            for sig in ("abc", "ab", "s3") for d in ("short", "long")
+        )
+
+    def _fetch_df(days: int) -> pd.DataFrame:
+        """依市場 / 時間框架取得指定天數的 K 棒"""
+        end = date.today().isoformat()
         if market == "tw":
             if timeframe in ("5m", "15m", "1h"):
                 max_d = TW_YF_MAX_DAYS.get(timeframe, 60)
                 start = (date.today() - timedelta(days=min(days, max_d))).isoformat()
                 try:
-                    df = fetch_tw_intraday_yf(symbol, timeframe, start, end)
+                    return fetch_tw_intraday_yf(symbol, timeframe, start, end)
                 except Exception:
                     if finmind_token:
-                        df = fetch_tw_intraday(symbol, timeframe, start, end, finmind_token)
-                    else:
-                        raise
+                        return fetch_tw_intraday(symbol, timeframe, start, end, finmind_token)
+                    raise
             elif timeframe == "4h":
                 max_d = TW_YF_MAX_DAYS.get("1h", 730)
                 start = (date.today() - timedelta(days=min(days, max_d))).isoformat()
                 try:
-                    df = fetch_tw_intraday_yf(symbol, "1h", start, end)
+                    _df = fetch_tw_intraday_yf(symbol, "1h", start, end)
                 except Exception:
                     if finmind_token:
-                        df = fetch_tw_intraday(symbol, "1h", start, end, finmind_token)
+                        _df = fetch_tw_intraday(symbol, "1h", start, end, finmind_token)
                     else:
                         raise
-                df = df.set_index("time")
-                df = df.resample("4h").agg({"open":"first","high":"max","low":"min","close":"last","volume":"sum"})
-                df = df.dropna(subset=["open"]).reset_index()
+                _df = _df.set_index("time")
+                _df = _df.resample("4h").agg({"open":"first","high":"max","low":"min","close":"last","volume":"sum"})
+                return _df.dropna(subset=["open"]).reset_index()
             else:
                 start = (date.today() - timedelta(days=days)).isoformat()
                 try:
-                    df = fetch_tw_daily_yf(symbol, start, end)
+                    _df = fetch_tw_daily_yf(symbol, start, end)
                 except Exception:
-                    df = fetch_tw_stock(symbol, start, end, finmind_token)
+                    _df = fetch_tw_stock(symbol, start, end, finmind_token)
                 if timeframe != "1d":
-                    df = resample_tw(df, timeframe)
+                    _df = resample_tw(_df, timeframe)
+                return _df
         elif market == "us":
             max_d = US_MAX_DAYS.get(timeframe, 3650)
             start = (date.today() - timedelta(days=min(days, max_d))).isoformat()
-            df = fetch_us_stock(symbol, start, end, timeframe)
+            return fetch_us_stock(symbol, start, end, timeframe)
         elif market == "crypto":
             start = (date.today() - timedelta(days=days)).isoformat()
-            df = fetch_crypto_ohlcv(symbol, timeframe, start, end, exchange,
-                                    api_key=api_key, api_secret=api_secret)
-        else:
-            raise HTTPException(400, f"不支援的市場: {market}")
-    except Exception as e:
-        raise HTTPException(400, str(e))
+            return fetch_crypto_ohlcv(symbol, timeframe, start, end, exchange,
+                                      api_key=api_key, api_secret=api_secret)
+        raise HTTPException(400, f"不支援的市場: {market}")
 
-    if len(df) < 50:
-        raise HTTPException(400, f"資料不足 50 根K棒（{timeframe}）")
-    df = enrich_df(df)
-    result = _calc_crt_winrate(df)
+    days      = TF_INIT.get(timeframe, 730)
+    days_max  = TF_MAX.get(timeframe, 3650)
+    result    = None
+    last_bars = 0
+
+    while True:
+        try:
+            df = _fetch_df(days)
+        except Exception as e:
+            if result is None:
+                raise HTTPException(400, str(e))
+            break   # 無法取得更多資料，以目前結果回傳
+
+        n = len(df)
+        if n < 50:
+            if result is None:
+                raise HTTPException(400, f"資料不足 50 根K棒（{timeframe}）")
+            break
+        if n <= last_bars:
+            break   # 資料源已無法再往前，不再嘗試
+        last_bars = n
+
+        df      = enrich_df(df)
+        result  = _calc_crt_winrate(df)
+
+        if _sufficient(result) or days >= days_max:
+            break
+        days = min(days * 2, days_max)
+
     cache.set(cache_key, result)
     return result
