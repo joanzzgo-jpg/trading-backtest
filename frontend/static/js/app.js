@@ -2754,39 +2754,66 @@ async function fetchWinRate() {
 
 function _renderWRSignals(signals) {
   if (signals !== undefined) _lastWRSignals = signals || [];
-  // 不在K棒圖上顯示訊號標記
-  lastWRSignalMarkers = [];
+  const list = _lastWRSignals;
+  const chartTimeSet = new Set(ohlcvData.map(d => toTime(d.time)));
+  const matched = list.filter(s => chartTimeSet.has(toTime(s.t)));
+
+  // 訊號一(abc)=圓圈  訊號二(ab)=方塊  訊號三(3)=箭頭
+  lastWRSignalMarkers = matched.map(s => {
+    const isShort = s.d === "s";
+    const k = s.k || "abc";
+    const color = k === "abc" ? (isShort ? "#ff6b6b" : "#4fc3f7")
+                : k === "ab"  ? (isShort ? "#ff9800" : "#26c6da")
+                :                (isShort ? "#ce93d8" : "#b39ddb");
+    const shape = k === "abc" ? "circle"
+                : k === "ab"  ? "square"
+                :                (isShort ? "arrowDown" : "arrowUp");
+    const text  = k === "abc" ? (isShort ? "空" : "多")
+                : k === "ab"  ? (isShort ? "空²" : "多²")
+                :                (isShort ? "空³" : "多³");
+    return { time: toTime(s.t), position: isShort ? "aboveBar" : "belowBar",
+             color, shape, size: 1.2, text };
+  });
+
+  const ss = document.getElementById("wrStatus");
+  if (ss) ss.textContent = matched.length > 0 ? `${matched.length}筆` : "";
   _applyMainMarkers();
 }
+
 function _renderWinRate(d) {
-  const setPct = (id, s) => {
+  const setRow = (id, s) => {
     const el = document.getElementById(id);
     if (!el) return;
+    const dir = el.dataset.dir || "";
+    const arrow = dir === "s" ? "↓" : "↑";
     if (!s || s.win_rate == null) {
-      el.textContent = "—"; el.className = "tb-wr-pct"; el.removeAttribute("title"); return;
+      el.className = "tb-wr-v";
+      el.innerHTML = `<i class="tb-wr-arr ${dir}">${arrow}</i><span class="tb-wr-pct">—</span>`;
+      el.removeAttribute("title"); return;
     }
     const good = s.win_rate >= 60, bad = s.win_rate < 45;
-    el.className = `tb-wr-pct${good ? " good" : bad ? " bad" : ""}`;
-    el.textContent = `${s.win_rate}%`;
-    el.title = `${s.wins}勝 ${s.losses ?? (s.total - s.wins)}負 共${s.total}筆`;
+    const losses = s.losses ?? (s.total - s.wins);
+    el.className = `tb-wr-v${good ? " good" : bad ? " bad" : ""}`;
+    el.innerHTML = `<i class="tb-wr-arr ${dir}">${arrow}</i><span class="tb-wr-pct">${s.win_rate}%</span><span class="tb-wr-cnt">${s.wins}/${losses}</span>`;
+    el.title = `${s.wins}勝 ${losses}負 共${s.total}筆`;
   };
 
-  setPct("wrAbcS", d.abc?.short);
-  setPct("wrAbcL", d.abc?.long);
-  setPct("wrAbS",  d.ab?.short);
-  setPct("wrAbL",  d.ab?.long);
-  setPct("wrS3S",  d.s3?.short);
-  setPct("wrS3L",  d.s3?.long);
+  setRow("wrAbcS", d.abc?.short);
+  setRow("wrAbcL", d.abc?.long);
+  setRow("wrAbS",  d.ab?.short);
+  setRow("wrAbL",  d.ab?.long);
+  setRow("wrS3S",  d.s3?.short);
+  setRow("wrS3L",  d.s3?.long);
 
   const sa = document.getElementById("wrAll");
   if (sa) {
     if (d.win_rate != null) {
       const good = d.win_rate >= 60, bad = d.win_rate < 45;
-      sa.className = `tb-wr-pct${good ? " good" : bad ? " bad" : ""}`;
+      sa.className = `tb-wr-total${good ? " good" : bad ? " bad" : ""}`;
       sa.textContent = `${d.win_rate}%`;
       sa.title = `${d.wins}勝 ${d.total - d.wins}負 共${d.total}筆`;
     } else {
-      sa.textContent = "—"; sa.className = "tb-wr-pct"; sa.removeAttribute("title");
+      sa.textContent = "—"; sa.className = "tb-wr-total"; sa.removeAttribute("title");
     }
   }
 

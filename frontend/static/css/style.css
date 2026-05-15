@@ -377,39 +377,130 @@ html, body {
 .tb-winrate {
   position: absolute;
   left: 50%;
-  transform: translateX(-50%);
   top: 50%;
   transform: translate(-50%, -50%);
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 0 10px;
-  height: 26px;
-  background: rgba(255,145,71,.07);
-  border: 1px solid rgba(255,145,71,.15);
-  border-radius: 99px;
-  font-size: 11px;
+  gap: 5px;
+  padding: 0 11px;
+  height: 32px;
+  background: linear-gradient(135deg, rgba(12,6,2,.94) 0%, rgba(24,12,5,.94) 100%);
+  border: 1px solid rgba(255,145,71,.22);
+  border-radius: 8px;
   white-space: nowrap;
   pointer-events: none;
   z-index: 2;
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  box-shadow:
+    0 0 20px rgba(255,145,71,.08),
+    inset 0 1px 0 rgba(255,255,255,.05),
+    0 2px 10px rgba(0,0,0,.55);
 }
 .tb-winrate > * { pointer-events: auto; }
-.tb-wr-title   { font-size: 9px; font-weight: 800; color: rgba(255,145,71,.55); letter-spacing: .14em; text-transform: uppercase; flex-shrink: 0; }
-.tb-wr-group   { display: flex; align-items: center; gap: 2px; }
-.tb-wr-dot-sep { color: var(--border); font-size: 10px; flex-shrink: 0; }
-.tb-wr-vsep    { width: 1px; height: 10px; background: var(--border); flex-shrink: 0; }
-.tb-wr-sym     { font-size: 8px; flex-shrink: 0; cursor: default; line-height: 1; }
-.wr-abc        { color: #ff6b6b; }
-.wr-ab         { color: #ff9800; }
-.wr-s3         { color: #ab47bc; }
-.tb-wr-dir     { font-size: 9px; flex-shrink: 0; }
-.wr-s-lbl      { color: #ef5350; opacity: .7; }
-.wr-l-lbl      { color: #26a69a; opacity: .7; }
-.tb-wr-slash   { color: var(--border); font-size: 9px; flex-shrink: 0; }
-.tb-wr-pct     { font-size: 11px; font-weight: 700; color: var(--text); cursor: default; }
-.tb-wr-pct.good { color: #26a69a; }
-.tb-wr-pct.bad  { color: #ef5350; }
-.tb-wr-status  { color: var(--muted); font-size: 10px; }
+
+/* 左側 CRT 標籤 */
+.tb-wr-tag {
+  font-size: 7px;
+  font-weight: 900;
+  color: rgba(255,145,71,.42);
+  letter-spacing: .22em;
+  text-transform: uppercase;
+  flex-shrink: 0;
+  padding-right: 7px;
+  border-right: 1px solid rgba(255,145,71,.14);
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+}
+
+/* 每個訊號的容器 */
+.tb-wr-block {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 2px;
+}
+
+/* 訊號符號 */
+.tb-wr-icon {
+  font-size: 9px;
+  flex-shrink: 0;
+  cursor: default;
+  line-height: 1;
+  filter: drop-shadow(0 0 3px currentColor);
+}
+.wr-abc { color: #ff6b6b; }
+.wr-ab  { color: #ff9800; }
+.wr-s3  { color: #ce93d8; }
+
+/* 空/多兩行堆疊 */
+.tb-wr-vals {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+/* 每一行：方向箭頭 + 勝率% + 勝/負數 */
+.tb-wr-v {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+  font-family: 'SF Mono', 'Courier New', monospace;
+  cursor: default;
+  line-height: 1;
+}
+.tb-wr-arr {
+  font-size: 7px;
+  font-style: normal;
+  flex-shrink: 0;
+}
+.tb-wr-arr.s { color: rgba(239,112,112,.6); }
+.tb-wr-arr.l { color: rgba(77,208,196,.6); }
+.tb-wr-pct {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--muted);
+  letter-spacing: .01em;
+}
+.tb-wr-v.good .tb-wr-pct { color: #4dd0c4; text-shadow: 0 0 5px rgba(77,208,196,.45); }
+.tb-wr-v.bad  .tb-wr-pct { color: #ef7070; }
+.tb-wr-cnt {
+  font-size: 8px;
+  color: rgba(154,122,88,.5);
+  letter-spacing: 0;
+}
+
+/* 訊號間分隔線 */
+.tb-wr-divider {
+  width: 1px;
+  height: 20px;
+  background: linear-gradient(to bottom, transparent, rgba(255,145,71,.14), transparent);
+  flex-shrink: 0;
+}
+
+/* 合計前分隔線（稍粗） */
+.tb-wr-total-sep {
+  width: 1px;
+  height: 22px;
+  background: linear-gradient(to bottom, transparent, rgba(255,145,71,.28), transparent);
+  flex-shrink: 0;
+  margin: 0 2px;
+}
+
+/* 總勝率 */
+.tb-wr-total {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--text);
+  font-family: 'SF Mono', 'Courier New', monospace;
+  cursor: default;
+  letter-spacing: .02em;
+}
+.tb-wr-total.good { color: #4dd0c4; text-shadow: 0 0 8px rgba(77,208,196,.38); }
+.tb-wr-total.bad  { color: #ef7070; text-shadow: 0 0 8px rgba(239,112,112,.32); }
+
+.tb-wr-status { color: var(--muted); font-size: 10px; margin-left: 2px; }
 
 .realtime-dot {
   width: 6px; height: 6px; border-radius: 50%;
