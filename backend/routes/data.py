@@ -156,7 +156,10 @@ def _calc_crt_winrate(df: pd.DataFrame) -> dict:
         recent.append({"t": sig_time, "d": "s" if direction == "short" else "l",
                         "r": "w" if outcome == "win" else "l", "k": "ab"})
 
-    # ── 訊號三：ABC三棒（A=僅共振，B=僅共振，C=僅KDJ叉）──────
+    # ── 訊號三：ABC三棒（每棒最多兩個指標觸發）────────────────
+    # A/B 棒：有共振，且 CRT 與 KDJ叉 不能同時觸發（最多兩個）
+    # C 棒：有 KDJ叉，且 CRT 與共振 不能同時觸發（最多兩個）
+    # 止損：三棒最極端影線（做空=最高高點，做多=最低低點）
     for i in range(n - 3):
         row_a = df.iloc[i]
         row_b = df.iloc[i + 1]
@@ -164,21 +167,24 @@ def _calc_crt_winrate(df: pd.DataFrame) -> dict:
         res_a = _iv(row_a, "resonance"); crt_a = _iv(row_a, "crt"); cross_a = _iv(row_a, "kdj_cross")
         res_b = _iv(row_b, "resonance"); crt_b = _iv(row_b, "crt"); cross_b = _iv(row_b, "kdj_cross")
         res_c = _iv(row_c, "resonance"); crt_c = _iv(row_c, "crt"); cross_c = _iv(row_c, "kdj_cross")
-        # 做空：A 僅共振(-1)，B 僅共振(-1)，C 僅死叉(-1)
-        if (res_a == -1 and crt_a == 0 and cross_a == 0 and
-                res_b == -1 and crt_b == 0 and cross_b == 0 and
-                cross_c == -1 and crt_c == 0 and res_c == 0):
-            direction = "short"
-        # 做多：A 僅共振(1)，B 僅共振(1)，C 僅金叉(1)
-        elif (res_a == 1 and crt_a == 0 and cross_a == 0 and
-                res_b == 1 and crt_b == 0 and cross_b == 0 and
-                cross_c == 1 and crt_c == 0 and res_c == 0):
-            direction = "long"
-        else:
-            continue
+        # 做空條件
+        s_a = res_a == -1 and not (crt_a == -1 and cross_a == -1)
+        s_b = res_b == -1 and not (crt_b == -1 and cross_b == -1)
+        s_c = cross_c == -1 and not (crt_c == -1 and res_c == -1)
+        # 做多條件
+        l_a = res_a == 1 and not (crt_a == 1 and cross_a == 1)
+        l_b = res_b == 1 and not (crt_b == 1 and cross_b == 1)
+        l_c = cross_c == 1 and not (crt_c == 1 and res_c == 1)
+        if   s_a and s_b and s_c: direction = "short"
+        elif l_a and l_b and l_c: direction = "long"
+        else: continue
         entry_i = i + 3
         if entry_i >= n: continue
-        stop_px  = float(row_c["high"]) if direction == "short" else float(row_c["low"])
+        # 止損為三棒最極端影線
+        if direction == "short":
+            stop_px = max(float(row_a["high"]), float(row_b["high"]), float(row_c["high"]))
+        else:
+            stop_px = min(float(row_a["low"]),  float(row_b["low"]),  float(row_c["low"]))
         sig_time = _ts(df.iloc[i + 2])   # 訊號棒 = C棒
         signals.append({"t": sig_time, "d": "s" if direction == "short" else "l", "k": "3"})
         outcome = _scan_outcome(df, entry_i, stop_px, direction)
