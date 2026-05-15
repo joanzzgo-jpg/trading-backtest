@@ -194,8 +194,12 @@ def fetch_tw_intraday_yf(symbol: str, timeframe: str, start: str, end: str) -> p
         df.index = idx
         df.index.name = "time"
         df = df.reset_index()
-        df["time"] = pd.to_datetime(df["time"]).dt.floor("s")
-        return df
+        # Floor to bar boundary so partial/in-progress bars (e.g. stamped 11:40
+        # by yfinance instead of 11:00) align to clean period starts.
+        freq = {"5m": "5min", "15m": "15min", "1h": "60min", "4h": "240min"}.get(timeframe, "s")
+        df["time"] = pd.to_datetime(df["time"]).dt.floor(freq)
+        df = df.drop_duplicates(subset=["time"], keep="last").reset_index(drop=True)
+        return df.dropna(subset=["close"])
     raise ValueError(f"找不到 {symbol} 的分鐘資料（請確認代號正確，例如 2330）")
 
 

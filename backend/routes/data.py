@@ -17,9 +17,8 @@ router = APIRouter(prefix="/api", tags=["data"])
 
 def _mis_overlay(df: pd.DataFrame, rt: dict, minutes: int):
     """Overlay TWSE MIS live price onto the latest intraday bar. Returns (df, is_live).
-    Never creates new bars — avoids spurious jumps when MIS crosses an hour boundary
-    while yfinance cache still holds the previous bar. New bars appear naturally on
-    the next yfinance refresh (5 min cache).
+    fetch_tw_intraday_yf already floors timestamps to bar boundaries, so last_ts
+    should already be clean. We also floor defensively here for safety.
     """
     mis_utc = rt["time"] - timedelta(hours=8)          # TST naive → UTC naive
     total_min = mis_utc.hour * 60 + mis_utc.minute
@@ -28,18 +27,24 @@ def _mis_overlay(df: pd.DataFrame, rt: dict, minutes: int):
                              second=0, microsecond=0)
     last = df.iloc[-1]
     last_ts = pd.Timestamp(last["time"])
-    # Floor last_ts to the bar boundary so partial-bar timestamps from yfinance
-    # (e.g. 03:40 UTC for an in-progress 11:00 TST bar) still match correctly.
     last_bar_ts = last_ts.floor(f"{minutes}min")
-    if bar_ts != last_bar_ts:
-        return df, False
     close = rt["close"]
-    df = df.copy()
-    i = df.index[-1]
-    df.at[i, "close"] = close
-    df.at[i, "high"]  = max(float(last["high"] or close), close)
-    df.at[i, "low"]   = min(float(last["low"]  or close), close)
-    return df, True
+    if bar_ts == last_bar_ts:
+        df = df.copy()
+        i = df.index[-1]
+        df.at[i, "close"] = close
+        df.at[i, "high"]  = max(float(last["high"] or close), close)
+        df.at[i, "low"]   = min(float(last["low"]  or close), close)
+        return df, True
+    if bar_ts > last_bar_ts:
+        new = {"time": bar_ts, "open": float(last["close"] or close),
+               "high": close, "low": close, "close": close, "volume": 0}
+        for col in df.columns:
+            if col not in new:
+                new[col] = None
+        df = pd.concat([df, pd.DataFrame([new])], ignore_index=True)
+        return df, True
+    return df, False
 
 
 class OHLCVRequest(BaseModel):
