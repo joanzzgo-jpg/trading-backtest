@@ -93,6 +93,7 @@ def _calc_crt_winrate(df: pd.DataFrame) -> dict:
     ws_abc = ls_abc = wl_abc = ll_abc = 0   # 訊號一
     ws_ab  = ls_ab  = wl_ab  = ll_ab  = 0   # 訊號二
     ws_3   = ls_3   = wl_3   = ll_3   = 0   # 訊號三
+    ws_4   = ls_4   = wl_4   = ll_4   = 0   # 訊號四
     recent:  list = []
     signals: list = []
     n = len(df)
@@ -210,13 +211,56 @@ def _calc_crt_winrate(df: pd.DataFrame) -> dict:
             else:                ll_3 += 1
         recent.append({"t": sig_time, "d": d_str, "r": "w" if outcome == "win" else "l", "k": "3"})
 
+    # ── 訊號四：ABC三棒（嚴格純淨版）────────────────────────────
+    # A 棒：純共振（無 CRT、無 KDJ叉）
+    # B 棒：三個指標都沒有
+    # C 棒：純 KDJ叉（無 CRT、無共振）
+    # 止損：三棒最極端影線
+    for i in range(n - 3):
+        row_a = df.iloc[i]
+        row_b = df.iloc[i + 1]
+        row_c = df.iloc[i + 2]
+        res_a = _iv(row_a, "resonance"); crt_a = _iv(row_a, "crt"); cross_a = _iv(row_a, "kdj_cross")
+        res_b = _iv(row_b, "resonance"); crt_b = _iv(row_b, "crt"); cross_b = _iv(row_b, "kdj_cross")
+        res_c = _iv(row_c, "resonance"); crt_c = _iv(row_c, "crt"); cross_c = _iv(row_c, "kdj_cross")
+        # 做空條件
+        s_a = res_a == -1 and crt_a == 0 and cross_a == 0
+        s_b = res_b == 0  and crt_b == 0 and cross_b == 0
+        s_c = cross_c == -1 and crt_c == 0 and res_c == 0
+        # 做多條件
+        l_a = res_a == 1 and crt_a == 0 and cross_a == 0
+        l_b = res_b == 0 and crt_b == 0 and cross_b == 0
+        l_c = cross_c == 1 and crt_c == 0 and res_c == 0
+        if   s_a and s_b and s_c: direction = "short"
+        elif l_a and l_b and l_c: direction = "long"
+        else: continue
+        entry_i = i + 3
+        if entry_i >= n: continue
+        if direction == "short":
+            stop_px = max(float(row_a["high"]), float(row_b["high"]), float(row_c["high"]))
+        else:
+            stop_px = min(float(row_a["low"]),  float(row_b["low"]),  float(row_c["low"]))
+        sig_time = _ts(df.iloc[i + 2])
+        d_str    = "s" if direction == "short" else "l"
+        outcome, ot = _scan_outcome(df, entry_i, stop_px, direction)
+        signals.append({"t": sig_time, "d": d_str, "k": "4",
+                         "r": "w" if outcome == "win" else ("l" if outcome else None), "ot": ot})
+        if outcome is None: continue
+        if direction == "short":
+            if outcome == "win": ws_4 += 1
+            else:                ls_4 += 1
+        else:
+            if outcome == "win": wl_4 += 1
+            else:                ll_4 += 1
+        recent.append({"t": sig_time, "d": d_str, "r": "w" if outcome == "win" else "l", "k": "4"})
+
     # ── 統計 ────────────────────────────────────────────────
     def _stats(w, l):
         t = w + l
         return {"total": t, "wins": w, "losses": l, "win_rate": round(w / t * 100, 1) if t else None}
 
-    wins_s = ws_abc + ws_ab + ws_3;  losses_s = ls_abc + ls_ab + ls_3
-    wins_l = wl_abc + wl_ab + wl_3;  losses_l = ll_abc + ll_ab + ll_3
+    wins_s = ws_abc + ws_ab + ws_3 + ws_4;  losses_s = ls_abc + ls_ab + ls_3 + ls_4
+    wins_l = wl_abc + wl_ab + wl_3 + wl_4;  losses_l = ll_abc + ll_ab + ll_3 + ll_4
     tot_s = wins_s + losses_s; tot_l = wins_l + losses_l
     total = tot_s + tot_l;     wins  = wins_s + wins_l
     recent.sort(key=lambda x: x["t"])
@@ -230,6 +274,7 @@ def _calc_crt_winrate(df: pd.DataFrame) -> dict:
         "abc":      {"short": _stats(ws_abc, ls_abc), "long": _stats(wl_abc, ll_abc)},
         "ab":       {"short": _stats(ws_ab,  ls_ab),  "long": _stats(wl_ab,  ll_ab)},
         "s3":       {"short": _stats(ws_3,   ls_3),   "long": _stats(wl_3,   ll_3)},
+        "s4":       {"short": _stats(ws_4,   ls_4),   "long": _stats(wl_4,   ll_4)},
         "recent":   recent[-30:],
         "signals":  signals,
     }
@@ -447,7 +492,7 @@ def get_crt_winrate(
 ):
     """CRT 策略各時間級別勝率（每個子統計至少 10 個案例，不足則往前翻倍）"""
     from datetime import date, timedelta
-    cache_key = f"crt_wr4:{market}:{symbol}:{exchange}:{timeframe}"
+    cache_key = f"crt_wr5:{market}:{symbol}:{exchange}:{timeframe}"
     cached = cache.get(cache_key, ttl=3600)
     if cached:
         return cached
@@ -461,7 +506,7 @@ def get_crt_winrate(
         """每個訊號的空/多案例數都達到 MIN_CASES"""
         return all(
             (r.get(sig) or {}).get(d, {}).get("total", 0) >= MIN_CASES
-            for sig in ("abc", "ab", "s3") for d in ("short", "long")
+            for sig in ("abc", "ab", "s3", "s4") for d in ("short", "long")
         )
 
     def _fetch_df(days: int) -> pd.DataFrame:
