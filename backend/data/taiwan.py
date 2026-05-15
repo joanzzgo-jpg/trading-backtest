@@ -390,8 +390,14 @@ def fetch_tw_realtime(symbol: str):
     """
     TWSE MIS 即時報價（盤中）。
     先試上市(tse)，再試上櫃(otc)。
-    盤後或無成交時回傳 None。
+    z（最新成交）盤中偶爾為 '-'，改用委買最佳價補位；盤後或無委買才回 None。
     """
+    def _f(s, fallback="0"):
+        try:
+            return float(str(s or fallback).replace(",", ""))
+        except Exception:
+            return float(str(fallback).replace(",", ""))
+
     for exchange in ("tse", "otc"):
         try:
             resp = requests.get(
@@ -405,22 +411,26 @@ def fetch_tw_realtime(symbol: str):
             if not arr:
                 continue
             d = arr[0]
-            z = d.get("z", "-")
-            if not z or z == "-":
-                return None  # 盤後或尚未成交
             date_str = d.get("d", "")
-            time_str = d.get("t", "09:00:00")
             if not date_str:
-                return None
+                continue
+            # z = 最新成交價；盤中可能瞬間為 '-'，改用委買最佳價補位
+            z = (d.get("z") or "-").strip()
+            if z == "-":
+                b_raw = (d.get("b") or "").split("_")[0].strip()
+                if b_raw and b_raw not in ("-", ""):
+                    z = b_raw  # 委買最佳價作為近似現價
+                else:
+                    continue   # 真的沒有即時報價，試下一個交易所
+            time_str = d.get("t", "09:00:00")
             ts = datetime.strptime(f"{date_str} {time_str}", "%Y%m%d %H:%M:%S")
-            raw_vol = d.get("v", "0") or "0"
-            volume = float(raw_vol.replace(",", "")) * 1000  # 張 → 股
+            volume = _f(d.get("v"), "0") * 1000  # 張 → 股
             return {
                 "time":   ts,
-                "open":   float(d.get("o") or z),
-                "high":   float(d.get("h") or z),
-                "low":    float(d.get("l") or z),
-                "close":  float(z),
+                "open":   _f(d.get("o"), z),
+                "high":   _f(d.get("h"), z),
+                "low":    _f(d.get("l"), z),
+                "close":  _f(z),
                 "volume": volume,
             }
         except Exception:
