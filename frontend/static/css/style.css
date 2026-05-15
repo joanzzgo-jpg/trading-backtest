@@ -378,30 +378,35 @@ html, body {
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
-  top: 0;
-  height: var(--topbar-h);
+  top: 50%;
+  transform: translate(-50%, -50%);
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 0 8px;
+  gap: 6px;
+  padding: 0 10px;
+  height: 26px;
+  background: rgba(255,145,71,.07);
+  border: 1px solid rgba(255,145,71,.15);
+  border-radius: 99px;
   font-size: 11px;
   white-space: nowrap;
   pointer-events: none;
   z-index: 2;
 }
 .tb-winrate > * { pointer-events: auto; }
-.tb-wr-sym   { font-size: 9px; flex-shrink: 0; cursor: default; }
-.wr-abc      { color: #ff6b6b; }
-.wr-ab       { color: #ff9800; }
-.tb-wr-item  { color: var(--muted); }
-.tb-wr-rate  { font-weight: 700; color: var(--text); margin-left: 2px; }
-.tb-wr-rate.good { color: #26a69a; }
-.tb-wr-rate.bad  { color: #ef5350; }
-.tb-wr-sep   { color: var(--border); }
-.tb-wr-dots  { display: flex; gap: 2px; align-items: center; margin-left: 2px; }
-.wr-dot      { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; cursor: default; }
-.wr-dot.w    { background: #26a69a; }
-.wr-dot.l    { background: #ef5350; }
+.tb-wr-title  { font-size: 9px; font-weight: 800; color: rgba(255,145,71,.55); letter-spacing: .14em; text-transform: uppercase; flex-shrink: 0; }
+.tb-wr-chip   { display: flex; align-items: center; gap: 3px; }
+.tb-wr-vsep   { width: 1px; height: 10px; background: var(--border); flex-shrink: 0; }
+.tb-wr-sym    { font-size: 8px; flex-shrink: 0; cursor: default; line-height: 1; }
+.wr-abc       { color: #ff6b6b; }
+.wr-ab        { color: #ff9800; }
+.tb-wr-pct    { font-size: 12px; font-weight: 700; color: var(--text); cursor: default; }
+.tb-wr-pct.good { color: #26a69a; }
+.tb-wr-pct.bad  { color: #ef5350; }
+.tb-wr-dots   { display: flex; gap: 2px; align-items: center; margin-left: 1px; }
+.wr-dot       { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; cursor: default; }
+.wr-dot.w     { background: #26a69a; }
+.wr-dot.l     { background: #ef5350; }
 .tb-wr-status { color: var(--muted); font-size: 10px; }
 
 .realtime-dot {

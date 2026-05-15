@@ -2788,36 +2788,39 @@ function _renderWRSignals(signals) {
   _applyMainMarkers();
 }
 function _renderWinRate(d) {
-  const fmtRate = (s) => {
-    if (s == null || s.win_rate == null) return "<span class='tb-wr-rate'>—</span>";
-    const good = s.win_rate >= 60, bad = s.win_rate < 45;
-    const cls = good ? "tb-wr-rate good" : bad ? "tb-wr-rate bad" : "tb-wr-rate";
-    return `<span class="${cls}">${s.win_rate}%</span><span style="color:var(--muted);font-size:10px">(${s.wins}/${s.total})</span>`;
+  // 合併空多成單一勝率
+  const combined = (s) => {
+    if (!s) return null;
+    const sw = s.short?.wins || 0, sl = s.short?.losses || 0;
+    const lw = s.long?.wins  || 0, ll = s.long?.losses  || 0;
+    const wins = sw + lw, total = sw + sl + lw + ll;
+    return total > 0 ? {wins, total, win_rate: Math.round(wins / total * 1000) / 10} : null;
   };
-  const el = (id) => document.getElementById(id);
-  // 訊號一（ABC）
-  const abcS = el("wrAbcShort"), abcL = el("wrAbcLong");
-  if (abcS) abcS.innerHTML = fmtRate(d.abc?.short);
-  if (abcL) abcL.innerHTML = fmtRate(d.abc?.long);
-  // 訊號二（AB）
-  const abS = el("wrAbShort"), abL = el("wrAbLong");
-  if (abS) abS.innerHTML = fmtRate(d.ab?.short);
-  if (abL) abL.innerHTML = fmtRate(d.ab?.long);
-  // 合計
-  const sa = el("wrAll");
-  if (sa) {
-    const good = d.win_rate >= 60, bad = d.win_rate < 45;
-    const cls = good ? "tb-wr-rate good" : bad ? "tb-wr-rate bad" : "tb-wr-rate";
-    sa.innerHTML = d.win_rate != null
-      ? `<span class="${cls}">${d.win_rate}%</span><span style="color:var(--muted);font-size:10px">${d.total}筆</span>`
-      : "—";
-  }
-  const sd = el("wrDots");
-  if (sd) sd.innerHTML = (d.recent||[]).slice(-25).map(t => {
+  const setWR = (id, s, detail) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (!s || s.win_rate == null) {
+      el.textContent = "—"; el.className = "tb-wr-pct"; el.removeAttribute("title"); return;
+    }
+    const good = s.win_rate >= 60, bad = s.win_rate < 45;
+    el.className = `tb-wr-pct${good ? " good" : bad ? " bad" : ""}`;
+    el.textContent = `${s.win_rate}%`;
+    let tip = `${s.wins}勝 ${s.total - s.wins}負 共${s.total}筆`;
+    if (detail) tip += `\n空 ${detail.short?.win_rate ?? "—"}%  多 ${detail.long?.win_rate ?? "—"}%`;
+    el.title = tip;
+  };
+
+  setWR("wrAbc", combined(d.abc), d.abc);
+  setWR("wrAb",  combined(d.ab),  d.ab);
+  setWR("wrAll", d.win_rate != null ? {wins: d.wins, total: d.total, win_rate: d.win_rate} : null);
+
+  const sd = document.getElementById("wrDots");
+  if (sd) sd.innerHTML = (d.recent || []).slice(-25).map(t => {
     const sym = (t.k || "abc") === "abc" ? "●" : "■";
-    return `<span class="wr-dot ${t.r}" title="${t.t} ${t.d==="s"?"做空":"做多"} ${sym} ${t.r==="w"?"✓":"✗"}"></span>`;
+    return `<span class="wr-dot ${t.r}" title="${t.t} ${t.d === "s" ? "空" : "多"}${sym} ${t.r === "w" ? "✓" : "✗"}"></span>`;
   }).join("");
-  const ss = el("wrStatus");
+
+  const ss = document.getElementById("wrStatus");
   if (ss) ss.textContent = "";
 }
 
