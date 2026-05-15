@@ -2752,14 +2752,21 @@ async function fetchWinRate() {
 }
 
 function _renderWRSignals(signals) {
-  lastWRSignalMarkers = (signals || []).map(s => ({
-    time:     toTime(s.t),
-    position: s.d === "s" ? "aboveBar" : "belowBar",
-    color:    s.d === "s" ? "#ff6b6b"  : "#4fc3f7",
-    shape:    "circle",
-    size:     1.2,
-    text:     s.d === "s" ? "空" : "多",
-  }));
+  // abc=紅/藍圓  ab=橘/青方塊，hover 顯示訊號類型
+  lastWRSignalMarkers = (signals || []).map(s => {
+    const isShort = s.d === "s";
+    const isABC   = (s.k || "abc") === "abc";
+    return {
+      time:     toTime(s.t),
+      position: isShort ? "aboveBar" : "belowBar",
+      color:    isABC ? (isShort ? "#ff6b6b" : "#4fc3f7")
+                      : (isShort ? "#ff9800" : "#26c6da"),
+      shape:    isABC ? "circle" : "square",
+      size:     1.2,
+      text:     isABC ? (isShort ? "空" : "多")
+                      : (isShort ? "空²" : "多²"),
+    };
+  });
   _applyMainMarkers();
 }
 function _renderWinRate(d) {

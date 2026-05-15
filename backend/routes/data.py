@@ -47,80 +47,125 @@ def _mis_overlay(df: pd.DataFrame, rt: dict, minutes: int):
     return df, False
 
 
-def _calc_crt_winrate(df: pd.DataFrame) -> dict:
-    """CRT + 超買(rsi>65) + KDJ死叉 / 超賣(rsi<35) + 金叉 策略勝率。"""
-    wins_s = losses_s = wins_l = losses_l = 0
-    recent: list = []
-    signals: list = []   # 所有偵測到的訊號棒（供圖表標記）
+def _ts(row) -> str:
+    """pandas Timestamp → ISO 字串（含 T，避免 toTime 解析 NaN）"""
+    t = row["time"]
+    return t.isoformat() if hasattr(t, "isoformat") else str(t)
+
+
+def _scan_outcome(df: pd.DataFrame, entry_i: int, stop_px: float, direction: str):
+    """從 entry_i 向後掃描，回傳 'win' / 'loss' / None（未結算）"""
     n = len(df)
+    for j in range(entry_i, n):
+        bar    = df.iloc[j]
+        bb_mid = bar.get("bb_middle")
+        if pd.isna(bb_mid):
+            continue
+        hi, lo, cl = float(bar["high"]), float(bar["low"]), float(bar["close"])
+        bb_mid = float(bb_mid)
+        if direction == "short":
+            hit_stop = hi >= stop_px
+            hit_tgt  = lo <= bb_mid
+            if hit_stop and hit_tgt:
+                return "win" if cl <= bb_mid else "loss"
+            if hit_stop: return "loss"
+            if hit_tgt:  return "win"
+        else:
+            hit_stop = lo <= stop_px
+            hit_tgt  = hi >= bb_mid
+            if hit_stop and hit_tgt:
+                return "win" if cl >= bb_mid else "loss"
+            if hit_stop: return "loss"
+            if hit_tgt:  return "win"
+    return None
+
+
+def _calc_crt_winrate(df: pd.DataFrame) -> dict:
+    """
+    兩種訊號合併計算勝率：
+    1. ABC：同一棒 CRT + KDJ死/金叉 + 超買/超賣共振
+    2. AB ：A棒超買/超賣，B棒（緊接）CRT + KDJ死/金叉
+    """
+    # 空/多 各自勝負計數（兩種訊號合計）
+    ws_abc = ls_abc = wl_abc = ll_abc = 0   # ABC 訊號
+    ws_ab  = ls_ab  = wl_ab  = ll_ab  = 0   # AB  訊號
+    recent:  list = []
+    signals: list = []
+    n = len(df)
+
+    def _iv(row, col):
+        return int(row.get(col, 0) or 0)
+
+    # ── 訊號一：ABC（同棒三條件）────────────────────────────
     for i in range(n - 1):
         row = df.iloc[i]
-        crt_v      = int(row.get("crt", 0) or 0)
-        cross_v    = int(row.get("kdj_cross", 0) or 0)
-        resonance_v = int(row.get("resonance", 0) or 0)
-        direction = None
-        if crt_v == -1 and cross_v == -1 and resonance_v == -1:
-            direction = "short"
-        elif crt_v == 1 and cross_v == 1 and resonance_v == 1:
-            direction = "long"
-        if direction is None:
-            continue
+        crt_v = _iv(row, "crt"); cross_v = _iv(row, "kdj_cross"); res_v = _iv(row, "resonance")
+        if   crt_v == -1 and cross_v == -1 and res_v == -1: direction = "short"
+        elif crt_v ==  1 and cross_v ==  1 and res_v ==  1: direction = "long"
+        else: continue
         entry_i = i + 1
-        if entry_i >= n:
-            continue
+        if entry_i >= n: continue
         stop_px  = float(row["high"]) if direction == "short" else float(row["low"])
-        # 完整時間戳（分鐘K需精確到分鐘），用 isoformat 確保含 T 分隔符
-        raw_t = df.iloc[i]["time"]
-        sig_time = raw_t.isoformat() if hasattr(raw_t, "isoformat") else str(raw_t)
-        # 登記所有訊號棒（含未結算者）
-        signals.append({"t": sig_time, "d": "s" if direction == "short" else "l"})
-        outcome  = None
-        for j in range(entry_i, n):
-            bar    = df.iloc[j]
-            bb_mid = bar.get("bb_middle")
-            if pd.isna(bb_mid):
-                continue
-            hi, lo, cl = float(bar["high"]), float(bar["low"]), float(bar["close"])
-            bb_mid = float(bb_mid)
-            if direction == "short":
-                hit_stop = hi >= stop_px
-                hit_tgt  = lo <= bb_mid
-                if hit_stop and hit_tgt:
-                    outcome = "win" if cl <= bb_mid else "loss"; break
-                if hit_stop:                outcome = "loss"; break
-                if hit_tgt:                 outcome = "win";  break
-            else:
-                hit_stop = lo <= stop_px
-                hit_tgt  = hi >= bb_mid
-                if hit_stop and hit_tgt:
-                    outcome = "win" if cl >= bb_mid else "loss"; break
-                if hit_stop:                outcome = "loss"; break
-                if hit_tgt:                 outcome = "win";  break
-        if outcome is None:
-            continue
+        sig_time = _ts(df.iloc[i])
+        signals.append({"t": sig_time, "d": "s" if direction == "short" else "l", "k": "abc"})
+        outcome = _scan_outcome(df, entry_i, stop_px, direction)
+        if outcome is None: continue
         if direction == "short":
-            if outcome == "win": wins_s += 1
-            else:               losses_s += 1
+            if outcome == "win": ws_abc += 1
+            else:                ls_abc += 1
         else:
-            if outcome == "win": wins_l += 1
-            else:               losses_l += 1
-        recent.append({"t": sig_time,
-                        "d": "s" if direction == "short" else "l",
-                        "r": "w" if outcome == "win" else "l"})
-    tot_s = wins_s + losses_s
-    tot_l = wins_l + losses_l
-    total = tot_s + tot_l
-    wins  = wins_s + wins_l
+            if outcome == "win": wl_abc += 1
+            else:                ll_abc += 1
+        recent.append({"t": sig_time, "d": "s" if direction == "short" else "l",
+                        "r": "w" if outcome == "win" else "l", "k": "abc"})
+
+    # ── 訊號二：AB（A=共振，B=CRT+死/金叉）─────────────────
+    for i in range(n - 2):
+        row_a = df.iloc[i]
+        row_b = df.iloc[i + 1]
+        res_a   = _iv(row_a, "resonance")
+        crt_b   = _iv(row_b, "crt")
+        cross_b = _iv(row_b, "kdj_cross")
+        if   res_a == -1 and crt_b == -1 and cross_b == -1: direction = "short"
+        elif res_a ==  1 and crt_b ==  1 and cross_b ==  1: direction = "long"
+        else: continue
+        entry_i = i + 2
+        if entry_i >= n: continue
+        stop_px  = float(row_b["high"]) if direction == "short" else float(row_b["low"])
+        sig_time = _ts(df.iloc[i + 1])   # 訊號棒 = B棒
+        signals.append({"t": sig_time, "d": "s" if direction == "short" else "l", "k": "ab"})
+        outcome = _scan_outcome(df, entry_i, stop_px, direction)
+        if outcome is None: continue
+        if direction == "short":
+            if outcome == "win": ws_ab += 1
+            else:                ls_ab += 1
+        else:
+            if outcome == "win": wl_ab += 1
+            else:                ll_ab += 1
+        recent.append({"t": sig_time, "d": "s" if direction == "short" else "l",
+                        "r": "w" if outcome == "win" else "l", "k": "ab"})
+
+    # ── 統計 ────────────────────────────────────────────────
+    def _stats(w, l):
+        t = w + l
+        return {"total": t, "wins": w, "win_rate": round(w / t * 100, 1) if t else None}
+
+    wins_s = ws_abc + ws_ab;  losses_s = ls_abc + ls_ab
+    wins_l = wl_abc + wl_ab;  losses_l = ll_abc + ll_ab
+    tot_s = wins_s + losses_s; tot_l = wins_l + losses_l
+    total = tot_s + tot_l;     wins  = wins_s + wins_l
+    recent.sort(key=lambda x: x["t"])
+
     return {
         "total":    total,
         "wins":     wins,
         "win_rate": round(wins / total * 100, 1) if total else None,
-        "short": {"total": tot_s, "wins": wins_s,
-                  "win_rate": round(wins_s / tot_s * 100, 1) if tot_s else None},
-        "long":  {"total": tot_l, "wins": wins_l,
-                  "win_rate": round(wins_l / tot_l * 100, 1) if tot_l else None},
-        "recent":  recent[-30:],
-        "signals": signals,      # 所有訊號棒時間戳，供圖表標記
+        "short":    _stats(wins_s, losses_s),
+        "long":     _stats(wins_l, losses_l),
+        "abc":      {"short": _stats(ws_abc, ls_abc), "long": _stats(wl_abc, ll_abc)},
+        "ab":       {"short": _stats(ws_ab,  ls_ab),  "long": _stats(wl_ab,  ll_ab)},
+        "recent":   recent[-30:],
+        "signals":  signals,
     }
 
 
