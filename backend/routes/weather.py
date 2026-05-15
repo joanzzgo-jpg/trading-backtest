@@ -4,7 +4,7 @@
 否則 fallback 到 Open-Meteo（免 key）。
 """
 import os, math, time
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 import aiohttp
 from fastapi import APIRouter, Query
 
@@ -235,7 +235,10 @@ def _sun_times_local(lat: float, lon: float) -> tuple[int, int]:
     cos_ha  = max(-1.0, min(1.0, cos_ha))
     ha      = math.degrees(math.acos(cos_ha))
     noon_utc = 720 - 4 * lon - eq_time
-    tz_off   = datetime.now(timezone.utc).astimezone().utcoffset().total_seconds() / 60
+    # Use the location's natural timezone (lon/15 h) instead of the server's
+    # timezone so sun times are in the user's local time regardless of where
+    # the server is deployed.
+    tz_off = round(lon / 15) * 60
     return (int((noon_utc - ha * 4 + tz_off) % 1440),
             int((noon_utc + ha * 4 + tz_off) % 1440))
 
