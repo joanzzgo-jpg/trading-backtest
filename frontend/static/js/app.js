@@ -2720,6 +2720,47 @@ function nextVisiblePane(el) {
   return null;
 }
 
+let _wrCache = {};
+async function fetchWinRate() {
+  const market   = document.getElementById("marketSelect")?.value || "crypto";
+  const symbol   = document.getElementById("symbolInput")?.value?.trim() || "";
+  const exchange = document.getElementById("exchangeSelect")?.value || "pionex";
+  if (!symbol) return;
+  const cacheKey = `${market}:${symbol}:${exchange}`;
+  if (_wrCache[cacheKey]) { _renderWinRate(_wrCache[cacheKey]); return; }
+  const statusEl = document.getElementById("wrStatus");
+  if (statusEl) statusEl.textContent = "計算中…";
+  try {
+    const p   = new URLSearchParams({ market, symbol, exchange });
+    const res = await fetch("/api/crt_winrate?" + p);
+    const d   = await res.json();
+    if (!res.ok) throw new Error(d.detail || "failed");
+    _wrCache[cacheKey] = d;
+    _renderWinRate(d);
+  } catch(e) {
+    if (statusEl) statusEl.textContent = "—";
+  }
+}
+function _renderWinRate(d) {
+  const fmt = (s) => {
+    if (s == null || s.win_rate == null) return "—";
+    const cls = s.win_rate >= 60 ? " class='wr-rate good'" : s.win_rate < 45 ? " class='wr-rate bad'" : " class='wr-rate'";
+    return `<b${cls} style="font-size:12px">${s.win_rate}%</b><span style="color:var(--muted);font-size:10px"> (${s.wins}/${s.total})</span>`;
+  };
+  const el = (id) => document.getElementById(id);
+  const sh = el("wrShort"), sl = el("wrLong"), sa = el("wrAll"), sd = el("wrDots"), ss = el("wrStatus");
+  if (!sh) return;
+  sh.innerHTML = fmt(d.short);
+  sl.innerHTML = fmt(d.long);
+  sa.innerHTML = d.win_rate != null
+    ? `<b class="wr-rate${d.win_rate>=60?' good':d.win_rate<45?' bad':''}" style="font-size:12px">${d.win_rate}%</b><span style="color:var(--muted);font-size:10px"> ${d.total}筆</span>`
+    : "—";
+  if (sd) sd.innerHTML = (d.recent||[]).slice(-25).map(t =>
+    `<span class="wr-dot ${t.r}" title="${t.t} ${t.d==="s"?"做空":"做多"} ${t.r==="w"?"✓":"✗"}"></span>`
+  ).join("");
+  if (ss) ss.textContent = "";
+}
+
 /* ══════════════════════════════════════════
    資料載入
 ══════════════════════════════════════════ */
@@ -2750,6 +2791,7 @@ async function loadData(autoLoad = false) {
     startRealtime();
     saveLastSymbol();   // 載入成功後記憶此次標的
     _updateStarBtn();
+    fetchWinRate();
     _bgLoadOlderBars(); // 背景靜默載入更早的 K 棒
   } catch(e) {
     if (!autoLoad) alert("❌ " + e.message);

@@ -47,6 +47,72 @@ def _mis_overlay(df: pd.DataFrame, rt: dict, minutes: int):
     return df, False
 
 
+def _calc_crt_winrate(df: pd.DataFrame) -> dict:
+    """CRT + 超買(rsi>65) + KDJ死叉 / 超賣(rsi<35) + 金叉 策略勝率。"""
+    wins_s = losses_s = wins_l = losses_l = 0
+    recent: list = []
+    n = len(df)
+    for i in range(n - 1):
+        row = df.iloc[i]
+        crt_v   = int(row.get("crt", 0) or 0)
+        cross_v  = int(row.get("kdj_cross", 0) or 0)
+        rsi_v   = row.get("rsi_14")
+        if pd.isna(rsi_v):
+            continue
+        rsi_v = float(rsi_v)
+        direction = None
+        if crt_v == -1 and cross_v == -1 and rsi_v > 65:
+            direction = "short"
+        elif crt_v == 1 and cross_v == 1 and rsi_v < 35:
+            direction = "long"
+        if direction is None:
+            continue
+        entry_i = i + 1
+        if entry_i >= n:
+            continue
+        stop_px  = float(row["high"]) if direction == "short" else float(row["low"])
+        sig_time = str(df.iloc[i]["time"])[:10]
+        outcome  = None
+        for j in range(entry_i, n):
+            bar    = df.iloc[j]
+            bb_mid = bar.get("bb_middle")
+            if pd.isna(bb_mid):
+                continue
+            hi, lo, cl = float(bar["high"]), float(bar["low"]), float(bar["close"])
+            bb_mid = float(bb_mid)
+            if direction == "short":
+                if hi >= stop_px:   outcome = "loss"; break
+                if cl <= bb_mid:    outcome = "win";  break
+            else:
+                if lo <= stop_px:   outcome = "loss"; break
+                if cl >= bb_mid:    outcome = "win";  break
+        if outcome is None:
+            continue
+        if direction == "short":
+            if outcome == "win": wins_s += 1
+            else:               losses_s += 1
+        else:
+            if outcome == "win": wins_l += 1
+            else:               losses_l += 1
+        recent.append({"t": sig_time,
+                        "d": "s" if direction == "short" else "l",
+                        "r": "w" if outcome == "win" else "l"})
+    tot_s = wins_s + losses_s
+    tot_l = wins_l + losses_l
+    total = tot_s + tot_l
+    wins  = wins_s + wins_l
+    return {
+        "total":    total,
+        "wins":     wins,
+        "win_rate": round(wins / total * 100, 1) if total else None,
+        "short": {"total": tot_s, "wins": wins_s,
+                  "win_rate": round(wins_s / tot_s * 100, 1) if tot_s else None},
+        "long":  {"total": tot_l, "wins": wins_l,
+                  "win_rate": round(wins_l / tot_l * 100, 1) if tot_l else None},
+        "recent": recent[-30:],
+    }
+
+
 class OHLCVRequest(BaseModel):
     market: str
     symbol: str
@@ -245,3 +311,43 @@ def get_latest(req: LatestRequest):
     records = df_to_records(df.tail(2))
     live = req.market not in ("tw", "us")
     return {"live": live, "data": records}
+
+
+@router.get("/crt_winrate")
+def get_crt_winrate(
+    market: str,
+    symbol: str,
+    exchange: str = "pionex",
+    api_key: str = "",
+    api_secret: str = "",
+    finmind_token: str = "",
+):
+    """CRT 策略日K勝率（近 2 年資料）"""
+    from datetime import date, timedelta
+    cache_key = f"crt_wr:{market}:{symbol}:{exchange}"
+    cached = cache.get(cache_key, ttl=3600)
+    if cached:
+        return cached
+    try:
+        start = (date.today() - timedelta(days=730)).isoformat()
+        end   = date.today().isoformat()
+        if market == "tw":
+            try:
+                df = fetch_tw_daily_yf(symbol, start, end)
+            except Exception:
+                df = fetch_tw_stock(symbol, start, end, finmind_token)
+        elif market == "us":
+            df = fetch_us_stock(symbol, start, end, "1d")
+        elif market == "crypto":
+            df = fetch_crypto_ohlcv(symbol, "1d", start, end, exchange,
+                                    api_key=api_key, api_secret=api_secret)
+        else:
+            raise HTTPException(400, f"不支援的市場: {market}")
+    except Exception as e:
+        raise HTTPException(400, str(e))
+    if len(df) < 50:
+        raise HTTPException(400, "資料不足 50 根日K")
+    df = enrich_df(df)
+    result = _calc_crt_winrate(df)
+    cache.set(cache_key, result)
+    return result
