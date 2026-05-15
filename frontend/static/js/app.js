@@ -2754,49 +2754,12 @@ async function fetchWinRate() {
 
 function _renderWRSignals(signals) {
   if (signals !== undefined) _lastWRSignals = signals || [];
-  const list = _lastWRSignals;
-  // 只保留圖表已載入資料範圍內的訊號（用 time set 做 O(1) 查詢）
-  const chartTimeSet = new Set(ohlcvData.map(d => toTime(d.time)));
-  const matched = list.filter(s => chartTimeSet.has(toTime(s.t)));
-
-  // abc=圓圈（紅/藍）  ab=方塊（橘/青）
-  lastWRSignalMarkers = matched.map(s => {
-    const isShort = s.d === "s";
-    const isABC   = (s.k || "abc") === "abc";
-    return {
-      time:     toTime(s.t),
-      position: isShort ? "aboveBar" : "belowBar",
-      color:    isABC ? (isShort ? "#ff6b6b" : "#4fc3f7")
-                      : (isShort ? "#ff9800" : "#26c6da"),
-      shape:    isABC ? "circle" : "square",
-      size:     1.2,
-      text:     isABC ? (isShort ? "空" : "多")
-                      : (isShort ? "空²" : "多²"),
-    };
-  });
-
-  // 有回測訊號但全在圖表範圍外時，顯示提示
-  const ss = document.getElementById("wrStatus");
-  if (ss) {
-    if (list.length > 0 && matched.length === 0)
-      ss.textContent = "訊號在歷史區（往左滑）";
-    else if (matched.length > 0)
-      ss.textContent = `圖內${matched.length}筆`;
-    else
-      ss.textContent = "";
-  }
+  // 不在K棒圖上顯示訊號標記
+  lastWRSignalMarkers = [];
   _applyMainMarkers();
 }
 function _renderWinRate(d) {
-  // 合併空多成單一勝率
-  const combined = (s) => {
-    if (!s) return null;
-    const sw = s.short?.wins || 0, sl = s.short?.losses || 0;
-    const lw = s.long?.wins  || 0, ll = s.long?.losses  || 0;
-    const wins = sw + lw, total = sw + sl + lw + ll;
-    return total > 0 ? {wins, total, win_rate: Math.round(wins / total * 1000) / 10} : null;
-  };
-  const setWR = (id, s, detail) => {
+  const setPct = (id, s) => {
     const el = document.getElementById(id);
     if (!el) return;
     if (!s || s.win_rate == null) {
@@ -2805,20 +2768,27 @@ function _renderWinRate(d) {
     const good = s.win_rate >= 60, bad = s.win_rate < 45;
     el.className = `tb-wr-pct${good ? " good" : bad ? " bad" : ""}`;
     el.textContent = `${s.win_rate}%`;
-    let tip = `${s.wins}勝 ${s.total - s.wins}負 共${s.total}筆`;
-    if (detail) tip += `\n空 ${detail.short?.win_rate ?? "—"}%  多 ${detail.long?.win_rate ?? "—"}%`;
-    el.title = tip;
+    el.title = `${s.wins}勝 ${s.losses ?? (s.total - s.wins)}負 共${s.total}筆`;
   };
 
-  setWR("wrAbc", combined(d.abc), d.abc);
-  setWR("wrAb",  combined(d.ab),  d.ab);
-  setWR("wrAll", d.win_rate != null ? {wins: d.wins, total: d.total, win_rate: d.win_rate} : null);
+  setPct("wrAbcS", d.abc?.short);
+  setPct("wrAbcL", d.abc?.long);
+  setPct("wrAbS",  d.ab?.short);
+  setPct("wrAbL",  d.ab?.long);
+  setPct("wrS3S",  d.s3?.short);
+  setPct("wrS3L",  d.s3?.long);
 
-  const sd = document.getElementById("wrDots");
-  if (sd) sd.innerHTML = (d.recent || []).slice(-25).map(t => {
-    const sym = (t.k || "abc") === "abc" ? "●" : "■";
-    return `<span class="wr-dot ${t.r}" title="${t.t} ${t.d === "s" ? "空" : "多"}${sym} ${t.r === "w" ? "✓" : "✗"}"></span>`;
-  }).join("");
+  const sa = document.getElementById("wrAll");
+  if (sa) {
+    if (d.win_rate != null) {
+      const good = d.win_rate >= 60, bad = d.win_rate < 45;
+      sa.className = `tb-wr-pct${good ? " good" : bad ? " bad" : ""}`;
+      sa.textContent = `${d.win_rate}%`;
+      sa.title = `${d.wins}勝 ${d.total - d.wins}負 共${d.total}筆`;
+    } else {
+      sa.textContent = "—"; sa.className = "tb-wr-pct"; sa.removeAttribute("title");
+    }
+  }
 
   const ss = document.getElementById("wrStatus");
   if (ss) ss.textContent = "";

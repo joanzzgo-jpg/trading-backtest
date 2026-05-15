@@ -82,13 +82,14 @@ def _scan_outcome(df: pd.DataFrame, entry_i: int, stop_px: float, direction: str
 
 def _calc_crt_winrate(df: pd.DataFrame) -> dict:
     """
-    兩種訊號合併計算勝率：
+    三種訊號合併計算勝率：
     1. ABC：同一棒 CRT + KDJ死/金叉 + 超買/超賣共振
     2. AB ：A棒超買/超賣，B棒（緊接）CRT + KDJ死/金叉
+    3. S3 ：A棒僅共振，B棒僅共振，C棒（緊接）僅KDJ死/金叉
     """
-    # 空/多 各自勝負計數（兩種訊號合計）
-    ws_abc = ls_abc = wl_abc = ll_abc = 0   # ABC 訊號
-    ws_ab  = ls_ab  = wl_ab  = ll_ab  = 0   # AB  訊號
+    ws_abc = ls_abc = wl_abc = ll_abc = 0   # 訊號一
+    ws_ab  = ls_ab  = wl_ab  = ll_ab  = 0   # 訊號二
+    ws_3   = ls_3   = wl_3   = ll_3   = 0   # 訊號三
     recent:  list = []
     signals: list = []
     n = len(df)
@@ -155,13 +156,49 @@ def _calc_crt_winrate(df: pd.DataFrame) -> dict:
         recent.append({"t": sig_time, "d": "s" if direction == "short" else "l",
                         "r": "w" if outcome == "win" else "l", "k": "ab"})
 
+    # ── 訊號三：ABC三棒（A=僅共振，B=僅共振，C=僅KDJ叉）──────
+    for i in range(n - 3):
+        row_a = df.iloc[i]
+        row_b = df.iloc[i + 1]
+        row_c = df.iloc[i + 2]
+        res_a = _iv(row_a, "resonance"); crt_a = _iv(row_a, "crt"); cross_a = _iv(row_a, "kdj_cross")
+        res_b = _iv(row_b, "resonance"); crt_b = _iv(row_b, "crt"); cross_b = _iv(row_b, "kdj_cross")
+        res_c = _iv(row_c, "resonance"); crt_c = _iv(row_c, "crt"); cross_c = _iv(row_c, "kdj_cross")
+        # 做空：A 僅共振(-1)，B 僅共振(-1)，C 僅死叉(-1)
+        if (res_a == -1 and crt_a == 0 and cross_a == 0 and
+                res_b == -1 and crt_b == 0 and cross_b == 0 and
+                cross_c == -1 and crt_c == 0 and res_c == 0):
+            direction = "short"
+        # 做多：A 僅共振(1)，B 僅共振(1)，C 僅金叉(1)
+        elif (res_a == 1 and crt_a == 0 and cross_a == 0 and
+                res_b == 1 and crt_b == 0 and cross_b == 0 and
+                cross_c == 1 and crt_c == 0 and res_c == 0):
+            direction = "long"
+        else:
+            continue
+        entry_i = i + 3
+        if entry_i >= n: continue
+        stop_px  = float(row_c["high"]) if direction == "short" else float(row_c["low"])
+        sig_time = _ts(df.iloc[i + 2])   # 訊號棒 = C棒
+        signals.append({"t": sig_time, "d": "s" if direction == "short" else "l", "k": "3"})
+        outcome = _scan_outcome(df, entry_i, stop_px, direction)
+        if outcome is None: continue
+        if direction == "short":
+            if outcome == "win": ws_3 += 1
+            else:                ls_3 += 1
+        else:
+            if outcome == "win": wl_3 += 1
+            else:                ll_3 += 1
+        recent.append({"t": sig_time, "d": "s" if direction == "short" else "l",
+                        "r": "w" if outcome == "win" else "l", "k": "3"})
+
     # ── 統計 ────────────────────────────────────────────────
     def _stats(w, l):
         t = w + l
-        return {"total": t, "wins": w, "win_rate": round(w / t * 100, 1) if t else None}
+        return {"total": t, "wins": w, "losses": l, "win_rate": round(w / t * 100, 1) if t else None}
 
-    wins_s = ws_abc + ws_ab;  losses_s = ls_abc + ls_ab
-    wins_l = wl_abc + wl_ab;  losses_l = ll_abc + ll_ab
+    wins_s = ws_abc + ws_ab + ws_3;  losses_s = ls_abc + ls_ab + ls_3
+    wins_l = wl_abc + wl_ab + wl_3;  losses_l = ll_abc + ll_ab + ll_3
     tot_s = wins_s + losses_s; tot_l = wins_l + losses_l
     total = tot_s + tot_l;     wins  = wins_s + wins_l
     recent.sort(key=lambda x: x["t"])
@@ -174,6 +211,7 @@ def _calc_crt_winrate(df: pd.DataFrame) -> dict:
         "long":     _stats(wins_l, losses_l),
         "abc":      {"short": _stats(ws_abc, ls_abc), "long": _stats(wl_abc, ll_abc)},
         "ab":       {"short": _stats(ws_ab,  ls_ab),  "long": _stats(wl_ab,  ll_ab)},
+        "s3":       {"short": _stats(ws_3,   ls_3),   "long": _stats(wl_3,   ll_3)},
         "recent":   recent[-30:],
         "signals":  signals,
     }

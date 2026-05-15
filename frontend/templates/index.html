@@ -61,17 +61,28 @@
   <!-- CRT 策略勝率（絕對居中） -->
   <div class="tb-winrate" id="winrateBar">
     <span class="tb-wr-title">CRT</span>
-    <span class="tb-wr-chip">
-      <span class="tb-wr-sym wr-abc" title="訊號一：同棒 CRT＋共振＋KDJ叉">●</span>
-      <span id="wrAbc" class="tb-wr-pct">—</span>
+    <span class="tb-wr-group">
+      <span class="tb-wr-sym wr-abc" title="訊號一：同棒CRT＋共振＋KDJ叉">●</span>
+      <span class="tb-wr-dir wr-s-lbl">空</span><span id="wrAbcS" class="tb-wr-pct">—</span>
+      <span class="tb-wr-slash">/</span>
+      <span class="tb-wr-dir wr-l-lbl">多</span><span id="wrAbcL" class="tb-wr-pct">—</span>
     </span>
-    <span class="tb-wr-chip">
-      <span class="tb-wr-sym wr-ab" title="訊號二：A棒共振→B棒CRT＋KDJ叉">■</span>
-      <span id="wrAb" class="tb-wr-pct">—</span>
+    <span class="tb-wr-dot-sep">·</span>
+    <span class="tb-wr-group">
+      <span class="tb-wr-sym wr-ab" title="訊號二：A共振→B CRT＋KDJ叉">■</span>
+      <span class="tb-wr-dir wr-s-lbl">空</span><span id="wrAbS" class="tb-wr-pct">—</span>
+      <span class="tb-wr-slash">/</span>
+      <span class="tb-wr-dir wr-l-lbl">多</span><span id="wrAbL" class="tb-wr-pct">—</span>
+    </span>
+    <span class="tb-wr-dot-sep">·</span>
+    <span class="tb-wr-group">
+      <span class="tb-wr-sym wr-s3" title="訊號三：A共振→B共振→C KDJ叉">▲</span>
+      <span class="tb-wr-dir wr-s-lbl">空</span><span id="wrS3S" class="tb-wr-pct">—</span>
+      <span class="tb-wr-slash">/</span>
+      <span class="tb-wr-dir wr-l-lbl">多</span><span id="wrS3L" class="tb-wr-pct">—</span>
     </span>
     <span class="tb-wr-vsep"></span>
     <span id="wrAll" class="tb-wr-pct">—</span>
-    <span class="tb-wr-dots" id="wrDots"></span>
     <span id="wrStatus" class="tb-wr-status"></span>
   </div>
 
