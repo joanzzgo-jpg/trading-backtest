@@ -72,6 +72,7 @@ let realtimeTimer   = null;
 let lastCRTMarkers       = [];
 let lastKDJCrossMarkers  = [];
 let lastResonanceMarkers = [];
+let lastWRSignalMarkers  = [];
 let paneCollapseFlex = {};  // 面板收合前的 flex 值（module-level，供 loadVisibilityPrefs 使用）
 let _restoringPrefs  = false; // 還原偏好設定時，暫停自動儲存
 let _savedBarCount      = null;  // 切換標的前保存的可見 K 棒數量，載入後還原
@@ -2728,7 +2729,11 @@ async function fetchWinRate() {
   const timeframe = currentTF || "1d";
   if (!symbol) return;
   const cacheKey = `${market}:${symbol}:${exchange}:${timeframe}`;
-  if (_wrCache[cacheKey]) { _renderWinRate(_wrCache[cacheKey]); return; }
+  if (_wrCache[cacheKey]) {
+    _renderWinRate(_wrCache[cacheKey]);
+    _renderWRSignals(_wrCache[cacheKey].signals);
+    return;
+  }
   const statusEl = document.getElementById("wrStatus");
   if (statusEl) statusEl.textContent = "計算中…";
   try {
@@ -2738,9 +2743,24 @@ async function fetchWinRate() {
     if (!res.ok) throw new Error(d.detail || "failed");
     _wrCache[cacheKey] = d;
     _renderWinRate(d);
+    _renderWRSignals(d.signals);
   } catch(e) {
     if (statusEl) statusEl.textContent = "—";
+    lastWRSignalMarkers = [];
+    _applyMainMarkers();
   }
+}
+
+function _renderWRSignals(signals) {
+  lastWRSignalMarkers = (signals || []).map(s => ({
+    time:     toTime(s.t),
+    position: s.d === "s" ? "aboveBar" : "belowBar",
+    color:    s.d === "s" ? "#ff6b6b"  : "#4fc3f7",
+    shape:    "circle",
+    size:     1.2,
+    text:     s.d === "s" ? "空" : "多",
+  }));
+  _applyMainMarkers();
 }
 function _renderWinRate(d) {
   const fmtRate = (s) => {
@@ -2875,7 +2895,7 @@ function renderAll(data) {
 
 function renderCandles(data) {
   applyOhlcvToSeries(data);
-  lastCRTMarkers = []; lastKDJCrossMarkers = []; lastResonanceMarkers = [];
+  lastCRTMarkers = []; lastKDJCrossMarkers = []; lastResonanceMarkers = []; lastWRSignalMarkers = [];
   candleSeries.setMarkers([]);
 }
 
@@ -2892,6 +2912,7 @@ function _applyMainMarkers() {
     ...(crtHidden       ? [] : lastCRTMarkers),
     ...(kdjCrossHidden  ? [] : lastKDJCrossMarkers),
     ...(resonanceHidden ? [] : lastResonanceMarkers),
+    ...lastWRSignalMarkers,
   ].sort((a, b) => a.time - b.time);
   candleSeries.setMarkers(all);
 }

@@ -51,6 +51,7 @@ def _calc_crt_winrate(df: pd.DataFrame) -> dict:
     """CRT + 超買(rsi>65) + KDJ死叉 / 超賣(rsi<35) + 金叉 策略勝率。"""
     wins_s = losses_s = wins_l = losses_l = 0
     recent: list = []
+    signals: list = []   # 所有偵測到的訊號棒（供圖表標記）
     n = len(df)
     for i in range(n - 1):
         row = df.iloc[i]
@@ -68,7 +69,10 @@ def _calc_crt_winrate(df: pd.DataFrame) -> dict:
         if entry_i >= n:
             continue
         stop_px  = float(row["high"]) if direction == "short" else float(row["low"])
-        sig_time = str(df.iloc[i]["time"])[:10]
+        # 完整時間戳（分鐘K需精確到分鐘）
+        sig_time = str(df.iloc[i]["time"])
+        # 登記所有訊號棒（含未結算者）
+        signals.append({"t": sig_time, "d": "s" if direction == "short" else "l"})
         outcome  = None
         for j in range(entry_i, n):
             bar    = df.iloc[j]
@@ -114,7 +118,8 @@ def _calc_crt_winrate(df: pd.DataFrame) -> dict:
                   "win_rate": round(wins_s / tot_s * 100, 1) if tot_s else None},
         "long":  {"total": tot_l, "wins": wins_l,
                   "win_rate": round(wins_l / tot_l * 100, 1) if tot_l else None},
-        "recent": recent[-30:],
+        "recent":  recent[-30:],
+        "signals": signals,      # 所有訊號棒時間戳，供圖表標記
     }
 
 
