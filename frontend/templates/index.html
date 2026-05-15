@@ -71,6 +71,17 @@
     </div>
   </div>
 
+  <!-- CRT 策略勝率（topbar 右側） -->
+  <div class="tb-winrate" id="winrateBar">
+    <span class="tb-wr-item">空<span id="wrShort" class="tb-wr-rate">—</span></span>
+    <span class="tb-wr-sep">|</span>
+    <span class="tb-wr-item">多<span id="wrLong" class="tb-wr-rate">—</span></span>
+    <span class="tb-wr-sep">|</span>
+    <span class="tb-wr-item">計<span id="wrAll" class="tb-wr-rate">—</span></span>
+    <span class="tb-wr-dots" id="wrDots"></span>
+    <span id="wrStatus" class="tb-wr-status"></span>
+  </div>
+
   <div class="topbar-right">
     <button id="replayModeBtn" class="btn-mode">
       <svg width="13" height="13" viewBox="0 0 13 13"><circle cx="6.5" cy="6.5" r="5.5" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M5 4.2L9.5 6.5L5 8.8V4.2Z" fill="currentColor"/></svg>
@@ -104,18 +115,6 @@
 
 </div>
 
-<!-- ③ CRT 策略勝率列 -->
-<div class="winrate-bar" id="winrateBar">
-  <span class="wr-label">CRT策略</span>
-  <span class="wr-sep">·</span>
-  <span class="wr-group">做空 <span id="wrShort" class="wr-rate">—</span></span>
-  <span class="wr-sep">|</span>
-  <span class="wr-group">做多 <span id="wrLong" class="wr-rate">—</span></span>
-  <span class="wr-sep">|</span>
-  <span class="wr-group">合計 <span id="wrAll" class="wr-rate">—</span></span>
-  <span class="wr-dots" id="wrDots"></span>
-  <span class="wr-status" id="wrStatus"></span>
-</div>
 
 <!-- 遮罩 -->
 <div id="panelOverlay" class="panel-overlay hidden"></div>
