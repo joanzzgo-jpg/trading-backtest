@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from datetime import date, timedelta, datetime as dt
 from typing import Optional
 import os
+import pandas as pd
 
 from data.taiwan import fetch_tw_stock, resample_tw, fetch_tw_intraday, fetch_tw_realtime, fetch_tw_intraday_yf, fetch_tw_latest_bar_yf, fetch_tw_daily_yf, YF_MAX_DAYS as TW_YF_MAX_DAYS
 from data.us_stock import fetch_us_stock, MAX_DAYS as US_MAX_DAYS
@@ -12,6 +13,34 @@ from utils.cache import cache
 from utils.data import enrich_df, df_to_records
 
 router = APIRouter(prefix="/api", tags=["data"])
+
+
+def _mis_overlay(df: pd.DataFrame, rt: dict, minutes: int):
+    """Overlay TWSE MIS live price onto the latest intraday bar. Returns (df, is_live)."""
+    mis_utc = rt["time"] - timedelta(hours=8)          # TST naive → UTC naive
+    total_min = mis_utc.hour * 60 + mis_utc.minute
+    bar_min = (total_min // minutes) * minutes
+    bar_ts = mis_utc.replace(hour=bar_min // 60, minute=bar_min % 60,
+                             second=0, microsecond=0)
+    last = df.iloc[-1]
+    last_ts = pd.Timestamp(last["time"])
+    close = rt["close"]
+    if bar_ts == last_ts:
+        df = df.copy()
+        i = df.index[-1]
+        df.at[i, "close"] = close
+        df.at[i, "high"]  = max(float(last["high"] or close), close)
+        df.at[i, "low"]   = min(float(last["low"]  or close), close)
+        return df, True
+    if bar_ts > last_ts:
+        new = {"time": bar_ts, "open": float(last["close"] or close),
+               "high": close, "low": close, "close": close, "volume": 0}
+        for col in df.columns:
+            if col not in new:
+                new[col] = None
+        df = pd.concat([df, pd.DataFrame([new])], ignore_index=True)
+        return df, True
+    return df, False
 
 
 class OHLCVRequest(BaseModel):
@@ -149,23 +178,26 @@ def get_latest(req: LatestRequest):
                     "close":  rt["close"],
                     "volume": rt["volume"],
                 }]}
-            # 分鐘/小時時框：MIS 提供整日累計 OHLCV，不能用於分 K
-            # 改用 yfinance intraday 取最新一根實際 K 棒，快取 60 秒
+            # 分鐘/小時時框：yfinance 快取 5 分鐘，MIS 即時價疊加每 30 秒刷新
             if tf in ("5m", "15m", "1h", "4h"):
-                intra_key = f"tw_intra_{req.symbol}_{tf}"
-                intra_cached = cache.get(intra_key, ttl=60)
-                if intra_cached:
-                    return intra_cached
-                try:
-                    end_d   = date.today().isoformat()
-                    start_d = (date.today() - timedelta(days=3)).isoformat()
-                    df_intra = fetch_tw_intraday_yf(req.symbol, tf, start_d, end_d)
-                    if not df_intra.empty:
-                        result = {"live": False, "data": df_to_records(df_intra.tail(2))}
-                        cache.set(intra_key, result)
-                        return result
-                except Exception:
-                    pass
+                yf_intra_key = f"tw_yf_intra_{req.symbol}_{tf}"
+                df_intra = cache.get(yf_intra_key, ttl=300)
+                if df_intra is None:
+                    try:
+                        end_d   = date.today().isoformat()
+                        start_d = (date.today() - timedelta(days=3)).isoformat()
+                        df_intra = fetch_tw_intraday_yf(req.symbol, tf, start_d, end_d)
+                        if not df_intra.empty:
+                            cache.set(yf_intra_key, df_intra)
+                    except Exception:
+                        pass
+                if df_intra is not None and not df_intra.empty:
+                    df_out = df_intra.tail(2).copy()
+                    is_live = False
+                    if rt and tf in ("5m", "15m", "1h"):
+                        minutes = {"5m": 5, "15m": 15, "1h": 60}[tf]
+                        df_out, is_live = _mis_overlay(df_out, rt, minutes)
+                    return {"live": is_live, "data": df_to_records(df_out)}
                 # 分鐘/小時不可 fall-through 到日線來源（時間戳不相容）
                 return {"live": False, "data": []}
             # 2. yfinance fallback（盤中約 15 分鐘延遲，盤後即時），快取 5 分鐘
