@@ -110,22 +110,49 @@
 
 ## CRT 策略自動回測（`/api/crt_winrate`）
 
-### 訊號條件（三者必須同時出現在同一根 K 棒）
+### 兩種訊號並行計算
+
+#### 訊號一（ABC）：同一棒三條件同時成立
 | 方向 | CRT | KDJ 交叉 | 共振（resonance） |
 |------|-----|---------|-----------------|
 | 做空 | -1（看跌完成棒） | -1（死叉） | -1（超買） |
 | 做多 | +1（看漲完成棒） | +1（金叉） | +1（超賣） |
 
-- **CRT**：`crt_markers()`，信號落在完成棒（第二根，bearish completion bar），`signals[bearish.shift(1)] = -1`
+- 進場：訊號棒（i）下一根開盤（`entry_i = i + 1`）
+- 停損：訊號棒 i 的最高價（做空）/ 最低價（做多）
+
+#### 訊號二（AB）：連續兩棒接力
+- **A 棒（i）**：`resonance == ±1`（超買或超賣共振）
+- **B 棒（i+1，緊接A）**：`crt == ±1` 且 `kdj_cross == ±1`（同方向）
+- 進場：B 棒收盤後下一根（`entry_i = i + 2`）
+- 停損：**B 棒**最高價（做空）/ 最低價（做多）
+
+#### 共同勝負條件
+- **獲勝**：後續任意 K 棒影線或本體 `low ≤ BB中軌`（做空）或 `high ≥ BB中軌`（做多）
+- **失敗**：後續 K 棒觸及停損位
+- **同棒雙觸**：以收盤價判定先後順序（收在獲利側 → 成功）
+
+#### 指標說明
+- **CRT**：`crt_markers()`，信號落在完成棒（第二根），`signals[bearish.shift(1)] = -1`
 - **共振**：`bb_kdj_rsi_resonance()`，高觸布林上軌 + KD>80 + RSI7>65 → -1；低觸下軌 + KD<20 + RSI7<35 → +1
 - **`enrich_df()`** 中共振使用 `rsi_7`（7 期 RSI），閾值 `rsi_ob=65, rsi_os=35`
 
-### 進出場邏輯
-- **進場**：訊號棒收盤後，下一根開盤（`entry_i = i + 1`）
-- **停損**：訊號棒最高價（做空）或最低價（做多）
-- **獲勝**：後續 K 棒任意影線或本體 `low ≤ BB中軌`（做空）或 `high ≥ BB中軌`（做多）
-- **失敗**：後續 K 棒 `high ≥ stop_px`（做空）或 `low ≤ stop_px`（做多）
-- **同棒雙觸**：以收盤價判定順序（收在獲利側 → 成功）
+### 後端結構（`_calc_crt_winrate`）
+```python
+# 共用 helper（模組層級）
+_ts(row)                                    # pd.Timestamp → isoformat 字串
+_scan_outcome(df, entry_i, stop_px, dir)    # 掃描後續棒，回傳 'win'/'loss'/None
+
+# 回傳結構
+{
+  "total", "wins", "win_rate",              # 兩種訊號合計
+  "short": {...}, "long": {...},            # 合計空/多
+  "abc": {"short": {...}, "long": {...}},   # 訊號一細分
+  "ab":  {"short": {...}, "long": {...}},   # 訊號二細分
+  "recent": [...],                          # 最近30筆（含 k:"abc"/"ab" 欄位）
+  "signals": [{"t":..., "d":..., "k":...}] # 所有訊號棒（供圖表標記）
+}
+```
 
 ### 各時間框架資料來源與回測天數
 | TF | 天數上限 | TW 來源 | US 來源 | Crypto |
@@ -142,16 +169,29 @@
 - 最少 50 根 K 棒才能回測，不足時回傳 400
 
 ### 訊號棒視覺化（`_renderWRSignals`）
-- 回測結果 `signals[]` 含所有偵測到的訊號棒（非只限最近30筆）
-- 前端用紅圓（做空）/ 藍圓（做多）標在主圖對應 K 棒上
-- 透過 `lastWRSignalMarkers` 合入 `_applyMainMarkers()`
-- 切換標的/時框時 `lastWRSignalMarkers = []` 清除
+- `_lastWRSignals`：模組全域，儲存完整訊號列表（背景載入後重新過濾用）
+- 只顯示圖表**已載入**時間範圍內的訊號（用 `chartTimeSet` O(1) 查詢）
+- 背景載入新批次後自動重呼叫 `_renderWRSignals()` 更新可見標記
+- 訊號全在歷史區時 `wrStatus` 顯示「訊號在歷史區（往左滑）」
+- **訊號一 ABC**：圓圈（●），做空=紅 `#ff6b6b`，做多=藍 `#4fc3f7`
+- **訊號二 AB**：方塊（■），做空=橘 `#ff9800`，做多=青 `#26c6da`
+- 透過 `lastWRSignalMarkers` 合入 `_applyMainMarkers()`；切換標的/時框時清除
+
+### 勝率顯示欄（topbar 正中央）
+```
+● 空[ABC空%] 多[ABC多%]  |  ■ 空[AB空%] 多[AB多%]  |  計[總%]N筆  [點點] [status]
+```
+- `wrAbcShort / wrAbcLong`：訊號一空/多勝率
+- `wrAbShort / wrAbLong`：訊號二空/多勝率
+- `wrAll`：兩種訊號合計
+- `wrDots`：最近 25 筆歷史點（hover 顯示日期、方向、策略符號 ●/■）
+- `wrStatus`：「計算中…」/ 「圖內N筆」/ 「訊號在歷史區（往左滑）」
 
 ### 時間戳格式規範（重要）
 - 後端傳給前端的所有時間戳必須用 `.isoformat()`，**不能用 `str(pd.Timestamp)`**
   - `str()` → `"2024-01-15 00:00:00"`（空格），`toTime()` 找不到 T → 拼出無效字串 → NaN
   - NaN 時間戳餵給 `setMarkers()` → Lightweight Charts 內部狀態損壞 → **十字線鉛垂線全面斷裂**
-  - 正確：`raw_t.isoformat() if hasattr(raw_t, "isoformat") else str(raw_t)`
+  - 正確：`raw_t.isoformat() if hasattr(raw_t, "isoformat") else str(raw_t)`（已封裝於 `_ts(row)`）
 
 ---
 
