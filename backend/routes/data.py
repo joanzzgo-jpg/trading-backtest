@@ -69,8 +69,9 @@ def _calc_crt_winrate(df: pd.DataFrame) -> dict:
         if entry_i >= n:
             continue
         stop_px  = float(row["high"]) if direction == "short" else float(row["low"])
-        # 完整時間戳（分鐘K需精確到分鐘）
-        sig_time = str(df.iloc[i]["time"])
+        # 完整時間戳（分鐘K需精確到分鐘），用 isoformat 確保含 T 分隔符
+        raw_t = df.iloc[i]["time"]
+        sig_time = raw_t.isoformat() if hasattr(raw_t, "isoformat") else str(raw_t)
         # 登記所有訊號棒（含未結算者）
         signals.append({"t": sig_time, "d": "s" if direction == "short" else "l"})
         outcome  = None
