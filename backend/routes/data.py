@@ -80,13 +80,15 @@ def _calc_crt_winrate(df: pd.DataFrame) -> dict:
             if direction == "short":
                 hit_stop = hi >= stop_px
                 hit_tgt  = lo <= bb_mid
-                if hit_stop and hit_tgt:    outcome = "loss"; break
+                if hit_stop and hit_tgt:
+                    outcome = "win" if cl <= bb_mid else "loss"; break
                 if hit_stop:                outcome = "loss"; break
                 if hit_tgt:                 outcome = "win";  break
             else:
                 hit_stop = lo <= stop_px
                 hit_tgt  = hi >= bb_mid
-                if hit_stop and hit_tgt:    outcome = "loss"; break
+                if hit_stop and hit_tgt:
+                    outcome = "win" if cl >= bb_mid else "loss"; break
                 if hit_stop:                outcome = "loss"; break
                 if hit_tgt:                 outcome = "win";  break
         if outcome is None:
