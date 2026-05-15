@@ -132,6 +132,37 @@ def _yf_history(ticker, interval: str, start: str, end: str):
         return None
 
 
+def fetch_tw_daily_yf(symbol: str, start: str, end: str) -> pd.DataFrame:
+    """
+    用 yfinance 抓台股日線資料（不需 token，盤中即更新）。
+    先試 .TW 再試 .TWO；end 自動 +1 天確保包含當日。
+    """
+    import yfinance as yf
+    from datetime import date, timedelta
+    try:
+        end_incl = (date.fromisoformat(end) + timedelta(days=1)).isoformat()
+    except Exception:
+        end_incl = (date.today() + timedelta(days=1)).isoformat()
+    for suffix in (".TW", ".TWO"):
+        raw = _yf_history(yf.Ticker(f"{symbol}{suffix}"), "1d", start, end_incl)
+        if raw is None:
+            continue
+        df = raw[["Open", "High", "Low", "Close", "Volume"]].copy()
+        df.columns = ["open", "high", "low", "close", "volume"]
+        idx = pd.to_datetime(df.index)
+        if idx.tz is not None:
+            idx = idx.tz_convert("Asia/Taipei").tz_localize(None)
+        idx = idx.normalize()
+        df.index = idx
+        df.index.name = "time"
+        df = df.reset_index()
+        df["time"] = pd.to_datetime(df["time"])
+        for col in ["open", "high", "low", "close", "volume"]:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+        return df.dropna(subset=["close"])
+    raise ValueError(f"找不到 {symbol} 的日線資料（yfinance .TW/.TWO 均失敗）")
+
+
 def fetch_tw_intraday_yf(symbol: str, timeframe: str, start: str, end: str) -> pd.DataFrame:
     """
     用 yfinance 抓台股分鐘/小時資料（不需 token）。

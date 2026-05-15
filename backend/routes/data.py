@@ -5,7 +5,7 @@ from datetime import date, timedelta, datetime as dt
 from typing import Optional
 import os
 
-from data.taiwan import fetch_tw_stock, resample_tw, fetch_tw_intraday, fetch_tw_realtime, fetch_tw_intraday_yf, fetch_tw_latest_bar_yf, YF_MAX_DAYS as TW_YF_MAX_DAYS
+from data.taiwan import fetch_tw_stock, resample_tw, fetch_tw_intraday, fetch_tw_realtime, fetch_tw_intraday_yf, fetch_tw_latest_bar_yf, fetch_tw_daily_yf, YF_MAX_DAYS as TW_YF_MAX_DAYS
 from data.us_stock import fetch_us_stock, MAX_DAYS as US_MAX_DAYS
 from data.crypto import fetch_crypto_ohlcv
 from utils.cache import cache
@@ -71,7 +71,10 @@ def get_ohlcv(req: OHLCVRequest):
                     start = (date.today() - timedelta(days=req.limit * 2)).isoformat()
                 else:
                     start, end = req.start, req.end
-                df = fetch_tw_stock(req.symbol, start, end, req.finmind_token)
+                try:
+                    df = fetch_tw_daily_yf(req.symbol, start, end)
+                except Exception:
+                    df = fetch_tw_stock(req.symbol, start, end, req.finmind_token)
                 df = resample_tw(df, req.timeframe)
                 if use_limit:
                     df = df.tail(req.limit)
@@ -163,6 +166,8 @@ def get_latest(req: LatestRequest):
                         return result
                 except Exception:
                     pass
+                # 分鐘/小時不可 fall-through 到日線來源（時間戳不相容）
+                return {"live": False, "data": []}
             # 2. yfinance fallback（盤中約 15 分鐘延遲，盤後即時），快取 5 分鐘
             yf_key = f"tw_yf_{req.symbol}"
             yf_cached = cache.get(yf_key, ttl=300)
