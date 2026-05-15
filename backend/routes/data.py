@@ -566,7 +566,7 @@ def get_crt_winrate(
         """每個訊號的空/多案例數都達到 MIN_CASES"""
         return all(
             (r.get(sig) or {}).get(d, {}).get("total", 0) >= MIN_CASES
-            for sig in ("abc", "ab", "s3", "s4", "s5") for d in ("short", "long")
+            for sig in ("ab", "s3", "s4", "s5") for d in ("short", "long")
         )
 
     def _fetch_df(days: int) -> pd.DataFrame:
