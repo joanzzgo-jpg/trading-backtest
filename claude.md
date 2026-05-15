@@ -108,6 +108,91 @@
 - **頂部工具列**：`#watchlistStarBtn`，class `starred` 控制填滿，JS 用 `classList.toggle("starred", inWl)` 而非 `textContent`
 - **行情列表（合約/台股）**：使用 `_STAR_SVG` 常數注入相同 SVG，`tk-star.active` CSS 控制填滿效果
 
+## CRT 策略自動回測（`/api/crt_winrate`）
+
+### 訊號條件（三者必須同時出現在同一根 K 棒）
+| 方向 | CRT | KDJ 交叉 | 共振（resonance） |
+|------|-----|---------|-----------------|
+| 做空 | -1（看跌完成棒） | -1（死叉） | -1（超買） |
+| 做多 | +1（看漲完成棒） | +1（金叉） | +1（超賣） |
+
+- **CRT**：`crt_markers()`，信號落在完成棒（第二根，bearish completion bar），`signals[bearish.shift(1)] = -1`
+- **共振**：`bb_kdj_rsi_resonance()`，高觸布林上軌 + KD>80 + RSI7>65 → -1；低觸下軌 + KD<20 + RSI7<35 → +1
+- **`enrich_df()`** 中共振使用 `rsi_7`（7 期 RSI），閾值 `rsi_ob=65, rsi_os=35`
+
+### 進出場邏輯
+- **進場**：訊號棒收盤後，下一根開盤（`entry_i = i + 1`）
+- **停損**：訊號棒最高價（做空）或最低價（做多）
+- **獲勝**：後續 K 棒任意影線或本體 `low ≤ BB中軌`（做空）或 `high ≥ BB中軌`（做多）
+- **失敗**：後續 K 棒 `high ≥ stop_px`（做空）或 `low ≤ stop_px`（做多）
+- **同棒雙觸**：以收盤價判定順序（收在獲利側 → 成功）
+
+### 各時間框架資料來源與回測天數
+| TF | 天數上限 | TW 來源 | US 來源 | Crypto |
+|----|---------|---------|---------|--------|
+| 1M | 3650d | 日線→月線重採樣 | yfinance 原生 | ccxt |
+| 1W | 1825d | 日線→週線重採樣 | yfinance 原生 | ccxt |
+| 1D | 730d | yfinance 日線 | yfinance | ccxt |
+| 4H | 365d | 1h→4h 重採樣 | yfinance | ccxt |
+| 1H | 365d | yfinance 小時線（上限730d）| yfinance | ccxt |
+| 15m | 60d | yfinance 15分線 | yfinance | ccxt |
+| 5m | 30d | yfinance 5分線 | yfinance | ccxt |
+
+- 快取 TTL：1 小時；cache key 含 `market:symbol:exchange:timeframe`
+- 最少 50 根 K 棒才能回測，不足時回傳 400
+
+### 訊號棒視覺化（`_renderWRSignals`）
+- 回測結果 `signals[]` 含所有偵測到的訊號棒（非只限最近30筆）
+- 前端用紅圓（做空）/ 藍圓（做多）標在主圖對應 K 棒上
+- 透過 `lastWRSignalMarkers` 合入 `_applyMainMarkers()`
+- 切換標的/時框時 `lastWRSignalMarkers = []` 清除
+
+### 時間戳格式規範（重要）
+- 後端傳給前端的所有時間戳必須用 `.isoformat()`，**不能用 `str(pd.Timestamp)`**
+  - `str()` → `"2024-01-15 00:00:00"`（空格），`toTime()` 找不到 T → 拼出無效字串 → NaN
+  - NaN 時間戳餵給 `setMarkers()` → Lightweight Charts 內部狀態損壞 → **十字線鉛垂線全面斷裂**
+  - 正確：`raw_t.isoformat() if hasattr(raw_t, "isoformat") else str(raw_t)`
+
+---
+
+## 即時行情疊加（台股分鐘K）
+
+### `_mis_overlay(df, rt, minutes)` in `routes/data.py`
+- 從 TWSE MIS 抓到即時價後疊加到 yfinance 最新 K 棒
+- MIS 時間為台灣本地時間（UTC+8），需先 `-timedelta(hours=8)` 轉 UTC
+- K 棒對齊：用 `last_ts.floor(f"{minutes}min")` 比對，避免 yfinance 不完整棒造成跳空
+- 若 `bar_ts == last_bar_ts`：更新最後一棒的 close/high/low
+- 若 `bar_ts > last_bar_ts`：新增一根合成棒（volume=0）
+- 適用 5m / 15m / 1h；4h 及以上不做疊加
+
+### `fetch_tw_intraday_yf` 時間戳修正
+- yfinance 不完整棒時間戳可能錯誤（如 1h K 出現 11:40）
+- 修正：`df["time"] = df["time"].dt.floor(freq)`，再 `drop_duplicates(subset=["time"], keep="last")`
+
+---
+
+## 天文計算（`routes/weather.py`）
+
+### `_sun_times_local(lat, lon)` 太陽升落時間
+- 使用 **地理位置自然時區**（`round(lon/15)*60` 分鐘）而非伺服器時區
+- 台灣（lon≈121.5）→ UTC+8 → tz_off=480 分鐘
+- 若用伺服器 `astimezone().utcoffset()`，部署到不同時區後太陽位置會錯
+
+---
+
+## 版面配置
+
+### 頂部工具列（topbar）結構
+```
+[左：Logo + 標的選擇] [絕對居中：勝率 tb-winrate] [右：TF按鈕 + 圖示按鈕]
+```
+- `.tb-winrate` 用 `position:absolute; left:50%; transform:translateX(-50%)` 居中
+- `.topbar` 需有 `position:relative`
+- 手機 `@media (max-width:768px)`：`.tb-winrate { display:none }`
+- TF 按鈕（`.topbar-tf`）在 HTML 中排在 winrate 之後，視覺上靠右
+
+---
+
 ## 快速啟動
 ```bash
 cd /Users/noah/trading
