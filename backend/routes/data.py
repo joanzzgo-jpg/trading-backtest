@@ -183,6 +183,12 @@ def _calc_crt_winrate(df: pd.DataFrame) -> dict:
         if   s_a and s_b and s_c: direction = "short"
         elif l_a and l_b and l_c: direction = "long"
         else: continue
+        # C 棒本體或影線碰至布林上/下軌 → 不算訊號三
+        bb_up_c = row_c.get("bb_upper"); bb_lo_c = row_c.get("bb_lower")
+        if bb_up_c is None or pd.isna(bb_up_c): continue
+        if bb_lo_c is None or pd.isna(bb_lo_c): continue
+        if direction == "short" and float(row_c["high"]) >= float(bb_up_c) * 0.995: continue
+        if direction == "long"  and float(row_c["low"])  <= float(bb_lo_c) * 1.005: continue
         entry_i = i + 3
         if entry_i >= n: continue
         # 止損為三棒最極端影線
@@ -441,7 +447,7 @@ def get_crt_winrate(
 ):
     """CRT 策略各時間級別勝率（每個子統計至少 10 個案例，不足則往前翻倍）"""
     from datetime import date, timedelta
-    cache_key = f"crt_wr3:{market}:{symbol}:{exchange}:{timeframe}"
+    cache_key = f"crt_wr4:{market}:{symbol}:{exchange}:{timeframe}"
     cached = cache.get(cache_key, ttl=3600)
     if cached:
         return cached
