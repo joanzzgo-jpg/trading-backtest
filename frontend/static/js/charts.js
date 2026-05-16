@@ -1,11 +1,12 @@
 function makeBaseOpts(scaleMargins = null, showTime = false) {
   // 極簡模式用亮色系，其他維持原本暗色
   const _perf = document.documentElement.classList.contains("perf-mode");
-  const _txt  = _perf ? "#5C5347" : "#d1d4dc";
-  const _grd  = _perf ? "#E8E4D9" : "#2a2e39";
-  const _cx   = _perf ? "#A89E89" : "#758696";
-  const _brd  = _perf ? "#D9D4C5" : "#2a2e39";
-  const _lbg  = _perf ? "#F2EFE8" : "#2a2e39";
+  const _txt  = _perf ? "#2A2620" : "#d1d4dc";
+  const _grd  = _perf ? "#ECECEC" : "#2a2e39";
+  const _cx   = _perf ? "#9C9C9C" : "#758696";
+  const _brd  = _perf ? "#D9D9D9" : "#2a2e39";
+  const _lbg  = _perf ? "#F5F5F5" : "#2a2e39";
+  // 圖表背景維持透明，由 body 的純白底襯出（讓浮水印也能透過 -1 z-index 顯現）
   const opts = {
     layout:    { background:{ color: "rgba(0,0,0,0)" }, textColor: _txt },
     grid:      { vertLines:{ color: _grd }, horzLines:{ color: _grd } },

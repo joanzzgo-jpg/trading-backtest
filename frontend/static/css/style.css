@@ -58,6 +58,47 @@ html.perf-mode .fx-btn:hover,
 html.perf-mode .tb-icon-btn:hover { background: rgba(232,90,26,0.08); }
 /* 系統色設定按鈕在極簡模式下隱藏（避免使用者改色破壞配色） */
 html.perf-mode #sysSettingsBtn { display: none; }
+/* 鎖住所有色票調整入口：指標齒輪、圖例顏色點點、背景預設色 */
+html.perf-mode .ind-gear-btn,
+html.perf-mode .sys-color-swatch,
+html.perf-mode #resetSysColors { display: none !important; }
+html.perf-mode .leg-dot,
+html.perf-mode .leg-item { cursor: default !important; }
+html.perf-mode .leg-dot { pointer-events: none; }
+/* topbar 極簡風：純白底＋單純 1px 邊線，無 hover 強對比 */
+html.perf-mode .topbar {
+  background: #FFFFFF;
+  border-bottom: 1px solid #E5E5E5;
+}
+html.perf-mode .tb-icon-btn,
+html.perf-mode .topbar-tf .tf-btn,
+html.perf-mode .btn-mode,
+html.perf-mode .btn-load {
+  background: transparent;
+  border: 1px solid #E5E5E5;
+  color: #1F1F1F;
+}
+html.perf-mode .tb-icon-btn:hover,
+html.perf-mode .topbar-tf .tf-btn:hover,
+html.perf-mode .btn-mode:hover {
+  background: #F5F5F5;
+  border-color: #D9D9D9;
+}
+html.perf-mode .topbar-tf .tf-btn.active,
+html.perf-mode .btn-mode.active {
+  background: #FF6A1A;
+  border-color: #FF6A1A;
+  color: #FFFFFF;
+}
+html.perf-mode .btn-load { background: #FF6A1A; border-color: #FF6A1A; color: #FFFFFF; }
+html.perf-mode .btn-load:hover { background: #E55A0A; border-color: #E55A0A; }
+html.perf-mode .topbar-brand-name,
+html.perf-mode .topbar-brand-sub { color: #1F1F1F; }
+/* 勝率欄在亮色下加邊線方便閱讀 */
+html.perf-mode .tb-winrate {
+  background: #FAFAFA;
+  border: 1px solid #E5E5E5;
+}
 
 /* 極簡模式：背景效能優化 ============================
    舊裝置最大的 GPU 負擔來自 backdrop-filter: blur() 跟大面積陰影/濾鏡，

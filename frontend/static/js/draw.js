@@ -524,6 +524,8 @@ function showDrawColorPicker(drawing, clientX, clientY) {
 /* ── 圖例 / K棒 顏色 Popup（無刪除按鈕）── */
 // sections: [{ label, currentColor, apply }]
 function showLegColorPopup(clientX, clientY, sections) {
+  // 極簡模式：完全鎖住所有色票調整，使用固定的系統配色
+  if (document.documentElement.classList.contains("perf-mode")) return;
   if (!_cpShowDirect) return;
   _cpShowDirect(clientX, clientY, { sections, onDelete: null });
 }
