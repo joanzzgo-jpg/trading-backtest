@@ -235,10 +235,6 @@ html, body {
   align-items: center;
   flex-shrink: 0;
   height: var(--topbar-h);
-  /* TF 按鈕區永遠在 winrate 之上，且有實心底色避免被遮 */
-  position: relative;
-  z-index: 3;
-  background: var(--bg2);
 }
 .mob-load { display: none; }
 .tb-desk-only { /* dividers only shown on desktop */ }
@@ -246,7 +242,8 @@ html, body {
 .topbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  /* 改用 flex-start + winrate 用 margin:0 auto 居中，避免 space-between 干擾 */
+  justify-content: flex-start;
   padding: 0 6px;
   height: var(--topbar-h);
   min-height: var(--topbar-h);
@@ -261,7 +258,8 @@ html, body {
   display: flex;
   align-items: center;
   gap: 0;
-  flex: 1;
+  /* flex:0 1 auto → 不主動 grow（讓 winrate 的 margin auto 居中），但可以 shrink */
+  flex: 0 1 auto;
   overflow-x: auto;
   min-width: 0;
   scrollbar-width: none;
@@ -572,27 +570,21 @@ html, body {
 .sym-chg.dn        { color: var(--green); }
 
 /* ═══ TOPBAR WIN-RATE ═══ */
-/* 視窗寬度不夠時依序隱藏細項 → 整欄，避免擋到 TF 按鈕區 */
-@media (max-width: 1500px) {
-  .tb-winrate .tb-wr-block,
-  .tb-winrate .tb-wr-divider {
-    display: none;
-  }
-}
-@media (max-width: 1200px) {
+/* 細項永遠顯示；只在窄到會嚴重重疊時整欄隱藏（TF 按鈕已 z-index:3 蓋過勝率欄） */
+@media (max-width: 1100px) {
   .tb-winrate { display: none !important; }
 }
-html.perf-mode .topbar-tf { background: #FFFFFF !important; }
 .tb-winrate {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
+  /* margin auto 在 flex 容器內居中，永遠不與其他 flex item 重疊 */
+  margin: 0 auto;
   display: flex;
   align-items: center;
   gap: 5px;
   padding: 0 11px;
   height: 32px;
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
   background: linear-gradient(135deg, rgba(12,6,2,.94) 0%, rgba(24,12,5,.94) 100%);
   border: 1px solid rgba(255,145,71,.22);
   border-radius: 8px;
