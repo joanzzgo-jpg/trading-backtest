@@ -5,6 +5,23 @@ document.addEventListener("DOMContentLoaded", async () => {
   loadLastSymbol();     // 還原上次標的、交易所、市場、時間框架
   loadSystemColors();
   applyAllSystemColors();
+  // 極簡模式：覆蓋成全新亮色配色（蓋掉 applyAllSystemColors 寫入的暗色 inline style）
+  if (document.documentElement.classList.contains("perf-mode")) {
+    const _lightPalette = {
+      "sc-bg":     "#FAFAF7",
+      "sc-panel":  "#F2EFE8",
+      "sc-border": "#D9D4C5",
+      "sc-text":   "#2A2620",
+      "sc-muted":  "#9C907A",
+      "sc-blue":   "#E85A1A",
+    };
+    for (const [id, color] of Object.entries(_lightPalette)) applySystemColor(id, color);
+    const _ds = document.documentElement.style;
+    _ds.setProperty("--bg4",    "#E8E4D9");
+    _ds.setProperty("--green",  "#16a34a");
+    _ds.setProperty("--red",    "#dc2626");
+    _ds.setProperty("--accent", "#E85A1A");
+  }
   loadSymHistory();
   loadPaneFlexes();   // 套用儲存的面板比例（在 buildCharts 前，讓第一次 resize 即正確）
   buildCharts();

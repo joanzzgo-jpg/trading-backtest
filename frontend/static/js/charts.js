@@ -1,15 +1,22 @@
 function makeBaseOpts(scaleMargins = null, showTime = false) {
+  // 極簡模式用亮色系，其他維持原本暗色
+  const _perf = document.documentElement.classList.contains("perf-mode");
+  const _txt  = _perf ? "#5C5347" : "#d1d4dc";
+  const _grd  = _perf ? "#E8E4D9" : "#2a2e39";
+  const _cx   = _perf ? "#A89E89" : "#758696";
+  const _brd  = _perf ? "#D9D4C5" : "#2a2e39";
+  const _lbg  = _perf ? "#F2EFE8" : "#2a2e39";
   const opts = {
-    layout:    { background:{ color: "rgba(0,0,0,0)" }, textColor:"#d1d4dc" },
-    grid:      { vertLines:{ color:"#2a2e39" }, horzLines:{ color:"#2a2e39" } },
+    layout:    { background:{ color: "rgba(0,0,0,0)" }, textColor: _txt },
+    grid:      { vertLines:{ color: _grd }, horzLines:{ color: _grd } },
     crosshair: {
       mode: LightweightCharts.CrosshairMode.Normal,
-      vertLine: { style: 3, width: 1, color: "#758696", labelBackgroundColor: "#2a2e39" },
-      horzLine: { style: 3, width: 1, color: "#758696", labelBackgroundColor: "#2a2e39" },
+      vertLine: { style: 3, width: 1, color: _cx, labelBackgroundColor: _lbg },
+      horzLine: { style: 3, width: 1, color: _cx, labelBackgroundColor: _lbg },
     },
-    rightPriceScale: { borderColor:"#2a2e39", minimumWidth: 80 },
+    rightPriceScale: { borderColor: _brd, minimumWidth: 80 },
     timeScale: {
-      borderColor: "#2a2e39",
+      borderColor: _brd,
       timeVisible: true,
       secondsVisible: false,
       visible: showTime,          // 只有最下方面板顯示時間座標

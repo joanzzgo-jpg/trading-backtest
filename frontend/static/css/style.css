@@ -43,12 +43,28 @@ html.perf-mode .chart-bear-bg.perf-only {
   left: 50%;
   transform: translate(-50%, -50%);
   width: min(88%, 680px);
-  opacity: 0.25;
+  opacity: 0.12;
   pointer-events: none;
-  filter: invert(1) hue-rotate(180deg);
   z-index: -1;
   user-select: none;
 }
+
+/* 極簡模式：亮色系微調 ============================ */
+html.perf-mode body {
+  color: #2A2620;
+}
+/* 主題色 hover 在亮色下太刺眼，淡化 */
+html.perf-mode .fx-btn:hover,
+html.perf-mode .tb-icon-btn:hover { background: rgba(232,90,26,0.08); }
+/* 浮層面板加柔和陰影 */
+html.perf-mode .music-panel,
+html.perf-mode #drawToolbar,
+html.perf-mode .ticker-panel,
+html.perf-mode #symModalBackdrop > * {
+  box-shadow: 0 8px 28px rgba(60, 40, 20, 0.08);
+}
+/* 系統色設定按鈕在極簡模式下隱藏（避免使用者改色破壞配色） */
+html.perf-mode #sysSettingsBtn { display: none; }
 
 :root {
   --bg:      #170F0C;
