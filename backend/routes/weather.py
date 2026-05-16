@@ -13,9 +13,12 @@ router = APIRouter(prefix="/api", tags=["weather"])
 CWA_KEY  = os.getenv("CWA_API_KEY", "")
 CWA_URL  = "https://opendata.cwa.gov.tw/api/v1/rest/datastore/O-A0001-001"
 OMT_URL  = "https://api.open-meteo.com/v1/forecast"
+NOM_URL  = "https://nominatim.openstreetmap.org/reverse"
 
 # 站點資料快取（10 分鐘）
 _STATION_CACHE: dict = {"data": None, "ts": 0.0}
+# 反向地理編碼快取（lat/lon 取小數後2位 ≈ 1km 格）
+_GEOCODE_CACHE: dict = {}
 
 # ─── 共用工具 ────────────────────────────────────────────────
 
@@ -57,6 +60,30 @@ def _nearest_station(stations: list, lat: float, lon: float):
             if d < bd:
                 bd, best = d, s
     return best
+
+# ─── 反向地理編碼（鄉/區層級）──────────────────────────────────
+
+async def _reverse_geocode(lat: float, lon: float) -> str:
+    """用 Nominatim 取得鄉/區層級地名（快取、5秒 timeout）"""
+    key = (round(lat, 2), round(lon, 2))
+    if key in _GEOCODE_CACHE:
+        return _GEOCODE_CACHE[key]
+    try:
+        headers = {"User-Agent": "trading-backtest-weather/1.0 (contact: joanzzgo@gmail.com)"}
+        params  = {"lat": lat, "lon": lon, "format": "json", "zoom": 10, "accept-language": "zh-TW"}
+        timeout = aiohttp.ClientTimeout(total=5)
+        async with aiohttp.ClientSession(timeout=timeout) as sess:
+            async with sess.get(NOM_URL, params=params, headers=headers) as r:
+                data = await r.json(content_type=None)
+        addr     = data.get("address", {})
+        district = (addr.get("city_district") or addr.get("suburb")
+                    or addr.get("town") or addr.get("village") or "")
+        city     = addr.get("city") or addr.get("county") or addr.get("state") or ""
+        location = (city + district) if (city and district) else (district or city or "")
+        _GEOCODE_CACHE[key] = location
+        return location
+    except Exception:
+        return ""
 
 # ─── CWA 描述 → 動畫類型 ─────────────────────────────────────
 
@@ -125,8 +152,12 @@ async def _from_cwa(lat: float, lon: float) -> dict:
         except ValueError:
             pass
 
-    county = s.get("GeoInfo", {}).get("CountyName", "")
+    geo          = s.get("GeoInfo", {})
+    county       = geo.get("CountyName", "")
+    town         = geo.get("TownName", "")
     station_name = s.get("StationName", "")
+    # 縣市＋鄉鎮市區，例如「台北市中正區」；缺 TownName 時退回站名
+    location = (county + town) if (county and town) else (town or county or station_name)
 
     sr, ss = _sun_times_local(lat, lon)
     mp = _moon_phase()
@@ -142,7 +173,7 @@ async def _from_cwa(lat: float, lon: float) -> dict:
         "visibility":   vis,
         "humidity":     round(humidity),
         "is_day":       is_day,
-        "location":     county or station_name,
+        "location":     location,
         "station":      station_name,
         "sun_rise_min":  sr,
         "sun_set_min":   ss,
@@ -196,7 +227,12 @@ async def _from_omt(lat: float, lon: float) -> dict:
     c    = data.get("current", {})
     code = int(c.get("weather_code") or 0)
     is_day = int(c.get("is_day") or 1) == 1
-    tzp  = (data.get("timezone") or "").split("/")[-1]
+
+    # 優先用 Nominatim 取得鄉/區層級地名；失敗時退回時區城市名
+    location = await _reverse_geocode(lat, lon)
+    if not location:
+        tzp = (data.get("timezone") or "").split("/")[-1]
+        location = _TZ_CITY.get(tzp) or tzp.replace("_", " ") or None
 
     sr, ss = _sun_times_local(lat, lon)
     mp = _moon_phase()
@@ -212,7 +248,7 @@ async def _from_omt(lat: float, lon: float) -> dict:
         "visibility":   float(c.get("visibility") or 10000),
         "humidity":     0,
         "is_day":       is_day,
-        "location":     _TZ_CITY.get(tzp) or tzp.replace("_", " ") or None,
+        "location":     location,
         "station":      None,
         "sun_rise_min":  sr,
         "sun_set_min":   ss,
