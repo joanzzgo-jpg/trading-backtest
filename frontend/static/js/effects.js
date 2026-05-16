@@ -1516,9 +1516,9 @@ const SFX = (() => {
     const nCloud=Math.max(2, Math.round(2+5*ci));
     const alBase=0.15+ci*.30, scBase=0.11+ci*.08;
     const wf = 1 + Math.min(4, _wd.windSpeed / 12); // wind speed factor: calm=1×, 50km/h=5×
-    cloudP = Array.from({length:nCloud}, (_, i) => ({
+    cloudP = Array.from({length:nCloud}, () => ({
       x: Math.random()*W,
-      y: H*(.05+i*(0.88/nCloud)),
+      y: H*(.05 + Math.random()*.55),        // 隨機分布上方 5%–60%，允許重疊
       sc: scBase+Math.random()*.10,
       al: alBase+Math.random()*.12,
       sp: (.04+Math.random()*.12)*wf,
