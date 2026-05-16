@@ -151,32 +151,32 @@ def _calc_crt_winrate(df: pd.DataFrame) -> dict:
             om, otm, ob, otb = _scan_dual(i + 2, float(stop_px), direction)
             _push_signal(sig_time, d_str, "ab", direction, om, otm, ob, otb)
 
-    # ── 訊號六 S6（CRT 放量觸軌）──────────────────────────────
-    # 新規則：CRT + 放量 + 訊號棒影線觸到布林上/下軌 + 訊號棒沒碰到中軌
-    # 這樣確保進場時價格在「極端 + 還沒回頭」位置，有足夠空間衝中軌（target）
-    VOL_LOOKBACK = 20
-    VOL_MULT     = 1.5
-    if "volume" in df.columns and n >= VOL_LOOKBACK + 2:
-        vol = df["volume"].fillna(0).astype(float).to_numpy()
-        vol_prior_ma = pd.Series(vol).shift(1).rolling(VOL_LOOKBACK).mean().to_numpy()
-        vol_surge = ~np.isnan(vol_prior_ma) & (vol >= vol_prior_ma * VOL_MULT)
-        # 觸軌條件（high 觸上軌 / low 觸下軌）
-        touch_upper = ~np.isnan(bb_up) & (highs >= bb_up)
-        touch_lower = ~np.isnan(bb_lo) & (lows  <= bb_lo)
-        # 沒碰到中軌（短：low > middle；多：high < middle）
-        no_touch_mid_short = ~np.isnan(bb_mid) & (lows  > bb_mid)
-        no_touch_mid_long  = ~np.isnan(bb_mid) & (highs < bb_mid)
-        s6_short = (crt == -1) & vol_surge & touch_upper & no_touch_mid_short
-        s6_long  = (crt ==  1) & vol_surge & touch_lower & no_touch_mid_long
-        s6_short[n-1] = False
-        s6_long[n-1]  = False
+    # ── 訊號六 S6（4 棒 pattern：ABC 無指標 + D 觸軌 CRT）─────
+    # A、B、C 三根都不能有任何指標（crt=0, cross=0, res=0）
+    # D 棒：做空 → crt=-1 且 high >= bb_upper（影線或本體觸上軌）
+    #       做多 → crt=+1 且 low  <= bb_lower
+    # 邏輯：3 根「安靜」棒後突然出現觸軌反轉 K → 高品質的「轉折開始」訊號
+    if n >= 5:
+        a_clean = (crt[:n-4]   == 0) & (cross[:n-4]   == 0) & (res[:n-4]   == 0)
+        b_clean = (crt[1:n-3]  == 0) & (cross[1:n-3]  == 0) & (res[1:n-3]  == 0)
+        c_clean = (crt[2:n-2]  == 0) & (cross[2:n-2]  == 0) & (res[2:n-2]  == 0)
+        d_crt   = crt[3:n-1]
+        d_hi    = highs[3:n-1]
+        d_lo_   = lows[3:n-1]
+        d_bbu   = bb_up[3:n-1]
+        d_bbl   = bb_lo[3:n-1]
+        s6_short = a_clean & b_clean & c_clean \
+                 & (d_crt == -1) & ~np.isnan(d_bbu) & (d_hi  >= d_bbu)
+        s6_long  = a_clean & b_clean & c_clean \
+                 & (d_crt ==  1) & ~np.isnan(d_bbl) & (d_lo_ <= d_bbl)
         for i in np.flatnonzero(s6_short | s6_long):
             i = int(i)
             direction = "short" if s6_short[i] else "long"
-            stop_px = highs[i] if direction == "short" else lows[i]
+            d_bar = i + 3  # D 棒在原始 array 的索引
+            stop_px = highs[d_bar] if direction == "short" else lows[d_bar]
             d_str = "s" if direction == "short" else "l"
-            sig_time = times_iso[i]
-            om, otm, ob, otb = _scan_dual(i + 1, float(stop_px), direction)
+            sig_time = times_iso[d_bar]
+            om, otm, ob, otb = _scan_dual(d_bar + 1, float(stop_px), direction)
             _push_signal(sig_time, d_str, "6", direction, om, otm, ob, otb)
 
     # ── 訊號三/四/五（三棒）共用 slice ─────────────────────────
