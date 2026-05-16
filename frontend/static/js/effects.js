@@ -2076,7 +2076,8 @@ const SFX = (() => {
         const manualOn = ['leaf','rain','snow','spring','thunder','mahjong'].some(
           w => document.getElementById(w+'ToggleBtn')?.classList.contains(w+'-active')
         );
-        if (!manualOn) start(_autoType);
+        // 首次進來：button 還沒高亮 → 嘗試從 localStorage 恢復；否則依 _autoType
+        if (!manualOn && !window._restoreManualWxIfAny?.()) start(_autoType);
         _renderWeatherCard();
       })
       .catch(() => {
@@ -2084,7 +2085,7 @@ const SFX = (() => {
         const manualOn = ['leaf','rain','snow','spring','thunder','mahjong'].some(
           w => document.getElementById(w+'ToggleBtn')?.classList.contains(w+'-active')
         );
-        if (!manualOn) start('sunny');
+        if (!manualOn && !window._restoreManualWxIfAny?.()) start('sunny');
       });
   }
   function _clearWeatherBtns() {
@@ -2097,39 +2098,46 @@ const SFX = (() => {
   }
   window._getWeatherType = () => type;
 
-  window._leafToggle = function() {
-    const btn=document.getElementById("leafToggleBtn");
-    if (type==="leaves") { start(_autoType); _clearWeatherBtns(); }
-    else { _clearWeatherBtns(); start("leaves"); btn&&btn.classList.add("leaf-active"); }
+  // 記住使用者上次手動選的天氣特效（leaves/rain/snow/spring/thunder/mahjong）
+  // 若沒選則回到 _autoType（依 API 自動切）
+  const _WX_KEY = "weatherManual";
+  function _saveManualWx(name) { try { localStorage.setItem(_WX_KEY, name); } catch(e){} }
+  function _clearManualWx()    { try { localStorage.removeItem(_WX_KEY); } catch(e){} }
+  function _getManualWx() {
+    try { return localStorage.getItem(_WX_KEY) || null; } catch(e) { return null; }
+  }
+  // 啟動指定手動天氣特效（含按鈕高亮）；name 對應 type 值
+  function _applyManualWx(name) {
+    _clearWeatherBtns();
+    const cls = (name === "leaves") ? "leaf-active" : name + "-active";
+    const btnId = (name === "leaves") ? "leafToggleBtn" : name + "ToggleBtn";
+    if (name === "thunder") { thunderBolts=[]; thunderFlashes=[]; thunderTimer=10; }
+    start(name);
+    document.getElementById(btnId)?.classList.add(cls);
+  }
+  // 給 fetchWeather 用：在 _autoType 設好之後恢復上次選擇
+  window._restoreManualWxIfAny = function() {
+    const saved = _getManualWx();
+    if (!saved) return false;
+    const valid = ["leaves","rain","snow","spring","thunder","mahjong"];
+    if (!valid.includes(saved)) { _clearManualWx(); return false; }
+    _applyManualWx(saved);
+    return true;
   };
-  window._rainToggle = function() {
-    const btn=document.getElementById("rainToggleBtn");
-    if (type==="rain") { start(_autoType); _clearWeatherBtns(); }
-    else { _clearWeatherBtns(); start("rain"); btn&&btn.classList.add("rain-active"); }
-  };
-  window._snowToggle = function() {
-    const btn=document.getElementById("snowToggleBtn");
-    if (type==="snow") { start(_autoType); _clearWeatherBtns(); }
-    else { _clearWeatherBtns(); start("snow"); btn&&btn.classList.add("snow-active"); }
-  };
-  window._springToggle = function() {
-    const btn=document.getElementById("springToggleBtn");
-    if (type==="spring") { start(_autoType); _clearWeatherBtns(); }
-    else { _clearWeatherBtns(); start("spring"); btn&&btn.classList.add("spring-active"); }
-  };
-  window._mahjongToggle = function() {
-    const btn=document.getElementById("mahjongToggleBtn");
-    if (type==="mahjong") { start(_autoType); _clearWeatherBtns(); }
-    else { _clearWeatherBtns(); start("mahjong"); btn?.classList.add("mahjong-active"); }
-  };
-  window._thunderToggle = function() {
-    const btn=document.getElementById("thunderToggleBtn");
-    if (type==="thunder") { start(_autoType); _clearWeatherBtns(); }
-    else {
-      _clearWeatherBtns(); thunderBolts=[]; thunderFlashes=[]; thunderTimer=10;
-      start("thunder"); btn&&btn.classList.add("thunder-active");
+
+  function _toggleWx(name) {
+    if (type === name) {
+      start(_autoType); _clearWeatherBtns(); _clearManualWx();
+    } else {
+      _applyManualWx(name); _saveManualWx(name);
     }
-  };
+  }
+  window._leafToggle    = () => _toggleWx("leaves");
+  window._rainToggle    = () => _toggleWx("rain");
+  window._snowToggle    = () => _toggleWx("snow");
+  window._springToggle  = () => _toggleWx("spring");
+  window._mahjongToggle = () => _toggleWx("mahjong");
+  window._thunderToggle = () => _toggleWx("thunder");
 
   window.addEventListener("resize", resize);
   resize();
