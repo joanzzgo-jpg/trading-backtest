@@ -57,7 +57,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   updateMarketUI();
   applyAllColors();
   startTickerRefresh();
-  _initWrTargetBtn();  // 勝率欄目標切換按鈕初始狀態
+  _initWrTargetBtn();   // 勝率欄目標切換按鈕初始狀態
+  _initWrStopBuffer();  // 勝率欄停損緩衝輸入
   window.addEventListener("beforeunload", () => { saveLastSymbol(); });
 
   const _afterLoad = () => { loadVisibilityPrefs(); applyAllLineStyles(); };

@@ -70,6 +70,10 @@
   <div class="tb-winrate" id="winrateBar">
     <button id="wrTargetToggle" class="tb-wr-toggle" onclick="_toggleWrTarget()"
             title="切換目標：中軌（保守）↔ 帶軌（短=下軌 / 多=上軌，更極端）">中</button>
+    <span class="tb-wr-buffer" title="停損緩衝：短=高於最高值 X%、多=低於最低值 X% 才算停損">
+      <input id="wrStopBuffer" class="tb-wr-buffer-input" type="number" step="0.1" min="0" max="10" value="0" />
+      <span class="tb-wr-buffer-pct">%</span>
+    </span>
     <span class="tb-wr-block">
       <span class="tb-wr-icon wr-abc" title="訊號一：同棒CRT＋共振＋KDJ叉">●</span>
       <span class="tb-wr-vals">

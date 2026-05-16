@@ -6,11 +6,31 @@ const _WR_VIEW_KEY = "wrTargetView";
 let _wrTargetView = "mid";
 try { _wrTargetView = localStorage.getItem(_WR_VIEW_KEY) || "mid"; } catch (e) {}
 
+// 停損緩衝（%；UI 顯示 0.5 表示 0.5%，API 收 decimal 0.005）
+const _WR_BUFFER_KEY = "wrStopBuffer";
+let _wrStopBuffer = 0;
+try { _wrStopBuffer = parseFloat(localStorage.getItem(_WR_BUFFER_KEY)) || 0; } catch (e) {}
+
 function _initWrTargetBtn() {
   const btn = document.getElementById("wrTargetToggle");
   if (!btn) return;
   btn.textContent = _wrTargetView === "band" ? "帶" : "中";
   btn.classList.toggle("band", _wrTargetView === "band");
+}
+
+function _initWrStopBuffer() {
+  const inp = document.getElementById("wrStopBuffer");
+  if (!inp) return;
+  inp.value = _wrStopBuffer;
+  inp.addEventListener("change", () => {
+    const v = Math.max(0, Math.min(10, parseFloat(inp.value) || 0));
+    inp.value = v;
+    _wrStopBuffer = v;
+    try { localStorage.setItem(_WR_BUFFER_KEY, String(v)); } catch (e) {}
+    // 緩衝變更要清掉 cache 重新抓
+    _wrCache = {};
+    fetchWinRate();
+  });
 }
 
 function _toggleWrTarget() {
@@ -26,7 +46,8 @@ async function fetchWinRate() {
   const exchange  = document.getElementById("exchangeSelect")?.value || "pionex";
   const timeframe = currentTF || "1d";
   if (!symbol) return;
-  const cacheKey = `${market}:${symbol}:${exchange}:${timeframe}`;
+  const bufDec = (_wrStopBuffer || 0) / 100;
+  const cacheKey = `${market}:${symbol}:${exchange}:${timeframe}:${bufDec.toFixed(4)}`;
   if (_wrCache[cacheKey]) {
     _renderWinRate(_wrCache[cacheKey]);
     _renderWRSignals(_wrCache[cacheKey].signals);
@@ -35,7 +56,7 @@ async function fetchWinRate() {
   const statusEl = document.getElementById("wrStatus");
   if (statusEl) statusEl.textContent = "計算中…";
   try {
-    const p   = new URLSearchParams({ market, symbol, exchange, timeframe });
+    const p   = new URLSearchParams({ market, symbol, exchange, timeframe, stop_buffer_pct: bufDec.toFixed(4) });
     const res = await fetch("/api/crt_winrate?" + p);
     const d   = await res.json();
     if (!res.ok) throw new Error(d.detail || "failed");

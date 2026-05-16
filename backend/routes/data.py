@@ -256,13 +256,19 @@ def get_crt_winrate(
     symbol: str,
     timeframe: str = "1d",
     exchange: str = "pionex",
+    stop_buffer_pct: float = 0.0,
     api_key: str = "",
     api_secret: str = "",
     finmind_token: str = "",
 ):
-    """CRT 策略各時間級別勝率（每個子統計至少 10 個案例，不足則往前翻倍）"""
+    """CRT 策略各時間級別勝率（每個子統計至少 10 個案例，不足則往前翻倍）。
+
+    stop_buffer_pct：停損緩衝（decimal，例 0.005 = 0.5%）。
+    短：stop = base_high × (1 + buf)；多：stop = base_low × (1 - buf)。
+    """
     from datetime import date, timedelta
-    cache_key = f"crt_wr13:{market}:{symbol}:{exchange}:{timeframe}"
+    _buf = round(max(0.0, float(stop_buffer_pct or 0.0)), 4)
+    cache_key = f"crt_wr14:{market}:{symbol}:{exchange}:{timeframe}:{_buf}"
     cached = cache.get(cache_key, ttl=3600)
     if cached:
         return cached
@@ -347,7 +353,7 @@ def get_crt_winrate(
         last_bars = n
 
         df      = enrich_df(df)
-        result  = _calc_crt_winrate(df)
+        result  = _calc_crt_winrate(df, stop_buffer_pct=_buf)
 
         if _sufficient(result) or days >= days_max:
             break

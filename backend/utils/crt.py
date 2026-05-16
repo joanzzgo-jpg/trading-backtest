@@ -46,16 +46,14 @@ def _scan_outcome_np(highs, lows, closes, target_arr, times_iso, entry_i, n, sto
     return None, None
 
 
-def _calc_crt_winrate(df: pd.DataFrame) -> dict:
+def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0) -> dict:
     """
-    六種訊號合併計算勝率（中軌目標 + 帶軌目標雙統計）：
-    1. ABC：同一棒 CRT + KDJ死/金叉 + 超買/超賣共振
-    2. AB ：A棒共振，B棒（緊接）CRT + KDJ死/金叉
-    3. S3 ：A棒僅共振，B棒僅共振，C棒僅KDJ死/金叉
-    4. S4 ：A棒純共振，B棒無指標，C棒純KDJ死/金叉
-    5. S5 ：A棒無指標，B棒純共振，C棒純KDJ死/金叉
-    6. S6 ：單棒 CRT + 放量（vol ≥ 前 20 根均量 × 1.5）
-    訊號一不計入總勝率
+    六種訊號合併計算勝率（中軌目標 + 帶軌目標雙統計）。
+
+    stop_buffer_pct：停損緩衝百分比（decimal，例如 0.005 = 0.5%）。
+    短：stop = base_high × (1 + buffer)（高於最高值幾 %）
+    多：stop = base_low  × (1 - buffer)（低於最低值幾 %）
+    給訊號更多空間發展，避免被雜訊掃停損。
     """
     n = len(df)
 
@@ -97,6 +95,12 @@ def _calc_crt_winrate(df: pd.DataFrame) -> dict:
         else:
             counters[sig_key][2 if outcome == "win" else 3] += 1
 
+    def _stop(base, direction):
+        """套用停損緩衝：短=base×(1+buf)、多=base×(1-buf)"""
+        if direction == "short":
+            return base * (1.0 + stop_buffer_pct)
+        return base * (1.0 - stop_buffer_pct)
+
     def _scan_dual(entry_i, stop_px, direction):
         """同時掃中軌與帶軌目標。
         帶軌目標：short→bb_lower、long→bb_upper（更遠的反向極端）"""
@@ -125,7 +129,7 @@ def _calc_crt_winrate(df: pd.DataFrame) -> dict:
         for i in np.flatnonzero(m_short | m_long):
             i = int(i)
             direction = "short" if m_short[i] else "long"
-            stop_px = highs[i] if direction == "short" else lows[i]
+            stop_px = _stop(highs[i] if direction == "short" else lows[i], direction)
             d_str = "s" if direction == "short" else "l"
             sig_time = times_iso[i]
             om, otm, ob, otb = _scan_dual(i + 1, float(stop_px), direction)
@@ -145,7 +149,7 @@ def _calc_crt_winrate(df: pd.DataFrame) -> dict:
             i = int(i)
             direction = "short" if m_short[i] else "long"
             ib = i + 1
-            stop_px = highs[ib] if direction == "short" else lows[ib]
+            stop_px = _stop(highs[ib] if direction == "short" else lows[ib], direction)
             d_str = "s" if direction == "short" else "l"
             sig_time = times_iso[ib]
             om, otm, ob, otb = _scan_dual(i + 2, float(stop_px), direction)
@@ -173,7 +177,7 @@ def _calc_crt_winrate(df: pd.DataFrame) -> dict:
             i = int(i)
             direction = "short" if s6_short[i] else "long"
             d_bar = i + 3  # D 棒在原始 array 的索引
-            stop_px = highs[d_bar] if direction == "short" else lows[d_bar]
+            stop_px = _stop(highs[d_bar] if direction == "short" else lows[d_bar], direction)
             d_str = "s" if direction == "short" else "l"
             sig_time = times_iso[d_bar]
             om, otm, ob, otb = _scan_dual(d_bar + 1, float(stop_px), direction)
@@ -223,9 +227,9 @@ def _calc_crt_winrate(df: pd.DataFrame) -> dict:
                 i = int(i)
                 direction = "short" if short_mask[i] else "long"
                 if direction == "short":
-                    stop_px = max(a_hi[i], b_hi[i], c_hi[i])
+                    stop_px = _stop(max(a_hi[i], b_hi[i], c_hi[i]), direction)
                 else:
-                    stop_px = min(a_lo_[i], b_lo_[i], c_lo_[i])
+                    stop_px = _stop(min(a_lo_[i], b_lo_[i], c_lo_[i]), direction)
                 d_str = "s" if direction == "short" else "l"
                 sig_time = times_iso[i + 2]
                 om, otm, ob, otb = _scan_dual(i + 3, float(stop_px), direction)
