@@ -141,6 +141,9 @@ function _renderWinRate(d) {
   _wrCacheLast = d;
   // 依目標切換取 mid（頂層）或 band（巢狀）
   const view = (_wrTargetView === "band" && d && d.band) ? d.band : d;
+  // 台股 long_only：把勝率欄加上 class 隱藏空單 row
+  const bar = document.getElementById("winrateBar");
+  if (bar) bar.classList.toggle("long-only", !!d.long_only);
   d = view;
   const setRow = (id, s) => {
     const el = document.getElementById(id);

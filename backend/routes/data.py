@@ -268,7 +268,8 @@ def get_crt_winrate(
     """
     from datetime import date, timedelta
     _buf = round(max(0.0, float(stop_buffer_pct or 0.0)), 4)
-    cache_key = f"crt_wr14:{market}:{symbol}:{exchange}:{timeframe}:{_buf}"
+    _long_only = (market == "tw")  # 台股不能放空
+    cache_key = f"crt_wr15:{market}:{symbol}:{exchange}:{timeframe}:{_buf}:{int(_long_only)}"
     cached = cache.get(cache_key, ttl=3600)
     if cached:
         return cached
@@ -353,7 +354,7 @@ def get_crt_winrate(
         last_bars = n
 
         df      = enrich_df(df)
-        result  = _calc_crt_winrate(df, stop_buffer_pct=_buf)
+        result  = _calc_crt_winrate(df, stop_buffer_pct=_buf, long_only=_long_only)
 
         if _sufficient(result) or days >= days_max:
             break

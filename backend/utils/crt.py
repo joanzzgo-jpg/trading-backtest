@@ -46,14 +46,15 @@ def _scan_outcome_np(highs, lows, closes, target_arr, times_iso, entry_i, n, sto
     return None, None
 
 
-def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0) -> dict:
+def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only: bool = False) -> dict:
     """
     六種訊號合併計算勝率（中軌目標 + 帶軌目標雙統計）。
 
     stop_buffer_pct：停損緩衝百分比（decimal，例如 0.005 = 0.5%）。
-    短：stop = base_high × (1 + buffer)（高於最高值幾 %）
-    多：stop = base_low  × (1 - buffer)（低於最低值幾 %）
-    給訊號更多空間發展，避免被雜訊掃停損。
+    short：stop = base_high × (1 + buffer)（高於最高值幾 %）
+    long ：stop = base_low  × (1 - buffer)（低於最低值幾 %）
+
+    long_only：True 時只算多單（台股不能放空），所有 short mask 強制清空。
     """
     n = len(df)
 
@@ -126,6 +127,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0) -> dict:
         m_long  = (crt ==  1) & (cross ==  1) & (res ==  1)
         m_short[n-1] = False  # 最後一根沒有 i+1
         m_long[n-1]  = False
+        if long_only: m_short[:] = False
         for i in np.flatnonzero(m_short | m_long):
             i = int(i)
             direction = "short" if m_short[i] else "long"
@@ -145,6 +147,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0) -> dict:
                   & ~np.isnan(b_bb) & (b_lo_ > b_bb)
         m_long  = (a_res ==  1) & (b_crt ==  1) & (b_cross ==  1) & (b_res !=  1) \
                   & ~np.isnan(b_bb) & (b_hi_ < b_bb)
+        if long_only: m_short[:] = False
         for i in np.flatnonzero(m_short | m_long):
             i = int(i)
             direction = "short" if m_short[i] else "long"
@@ -173,6 +176,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0) -> dict:
                  & (d_crt == -1) & ~np.isnan(d_bbu) & (d_hi  >= d_bbu)
         s6_long  = a_clean & b_clean & c_clean \
                  & (d_crt ==  1) & ~np.isnan(d_bbl) & (d_lo_ <= d_bbl)
+        if long_only: s6_short[:] = False
         for i in np.flatnonzero(s6_short | s6_long):
             i = int(i)
             direction = "short" if s6_short[i] else "long"
@@ -221,6 +225,11 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0) -> dict:
                  & (b_res ==  1) & (b_crt == 0) & (b_cross == 0) \
                  & (c_cross ==  1) & (c_crt == 0) & (c_res == 0) \
                  & ~np.isnan(c_bbm) & (c_hi < c_bbm)
+
+        if long_only:
+            s3_short[:] = False
+            s4_short[:] = False
+            s5_short[:] = False
 
         def _process_3bar(short_mask, long_mask, k_str):
             for i in np.flatnonzero(short_mask | long_mask):
@@ -275,7 +284,8 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0) -> dict:
 
     return {
         **mid_out,                # backward compat：mid 統計放在頂層
-        "band": band_out,         # 新增：帶軌（short=BB 下軌、long=BB 上軌）統計
+        "band": band_out,         # 帶軌（short=BB 下軌、long=BB 上軌）統計
+        "long_only": long_only,   # 是否只算多單（台股=True）
         "from_date": from_date,
         "recent":   recent[-30:],
         "signals":  signals,

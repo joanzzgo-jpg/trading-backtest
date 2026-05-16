@@ -600,6 +600,9 @@ html, body {
 }
 .tb-winrate > * { pointer-events: auto; }
 
+/* 台股 long_only 模式：隱藏空單行（data-dir="s"） */
+.tb-winrate.long-only .tb-wr-v[data-dir="s"] { display: none; }
+
 /* 停損緩衝輸入（高於最高/低於最低 X% 才算停損） */
 .tb-wr-buffer {
   display: flex;
