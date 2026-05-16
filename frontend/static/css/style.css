@@ -67,8 +67,20 @@ html.perf-mode .leg-item { cursor: default !important; }
 html.perf-mode .leg-dot { pointer-events: none; }
 /* topbar 極簡風：純白底＋單純 1px 邊線，無 hover 強對比 */
 html.perf-mode .topbar {
-  background: #FFFFFF;
-  border-bottom: 1px solid #E5E5E5;
+  background: #FFFFFF !important;
+  border-bottom: 1px solid #E5E5E5 !important;
+  box-shadow: none !important;
+}
+html.perf-mode .symbol-bar {
+  background: #FFFFFF !important;
+  border-bottom: 1px solid #E5E5E5 !important;
+}
+/* 橘子熊風格的 brand name 漸層在亮色下也要關掉 */
+html.perf-mode .topbar-brand-name {
+  background: none !important;
+  -webkit-background-clip: initial !important;
+  -webkit-text-fill-color: #1F1F1F !important;
+  color: #1F1F1F !important;
 }
 html.perf-mode .tb-icon-btn,
 html.perf-mode .topbar-tf .tf-btn,
