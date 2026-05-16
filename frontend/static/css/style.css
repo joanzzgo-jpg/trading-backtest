@@ -56,15 +56,46 @@ html.perf-mode body {
 /* 主題色 hover 在亮色下太刺眼，淡化 */
 html.perf-mode .fx-btn:hover,
 html.perf-mode .tb-icon-btn:hover { background: rgba(232,90,26,0.08); }
-/* 浮層面板加柔和陰影 */
+/* 系統色設定按鈕在極簡模式下隱藏（避免使用者改色破壞配色） */
+html.perf-mode #sysSettingsBtn { display: none; }
+
+/* 極簡模式：背景效能優化 ============================
+   舊裝置最大的 GPU 負擔來自 backdrop-filter: blur() 跟大面積陰影/濾鏡，
+   全部關掉，改用實心半透明背景，視覺仍乾淨但 GPU 用量大幅下降。 */
+html.perf-mode * ,
+html.perf-mode *::before,
+html.perf-mode *::after {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+/* 大範圍陰影也關掉（小範圍 1px border 仍允許） */
 html.perf-mode .music-panel,
 html.perf-mode #drawToolbar,
 html.perf-mode .ticker-panel,
-html.perf-mode #symModalBackdrop > * {
-  box-shadow: 0 8px 28px rgba(60, 40, 20, 0.08);
+html.perf-mode .sym-modal,
+html.perf-mode #symModalBackdrop > *,
+html.perf-mode #fxPanel,
+html.perf-mode #musicPanel {
+  box-shadow: 0 1px 4px rgba(60,40,20,0.06);
 }
-/* 系統色設定按鈕在極簡模式下隱藏（避免使用者改色破壞配色） */
-html.perf-mode #sysSettingsBtn { display: none; }
+/* 原本依賴模糊的半透明背景改成實心，避免穿透露出後面的圖表造成可讀性差 */
+html.perf-mode .music-panel,
+html.perf-mode #fxPanel,
+html.perf-mode #musicPanel,
+html.perf-mode .sym-modal,
+html.perf-mode #drawToolbar,
+html.perf-mode .ticker-panel {
+  background: #FFFFFF;
+  border: 1px solid var(--border);
+}
+/* 關掉非必要的無限動畫（loading 那種仍保留） */
+html.perf-mode .blink,
+html.perf-mode .tk-limit-pulse { animation: none !important; }
+/* 大型過場 transition 簡化 */
+html.perf-mode .peek-bear,
+html.perf-mode .music-panel,
+html.perf-mode #fxPanel,
+html.perf-mode #musicPanel { transition: none !important; }
 
 :root {
   --bg:      #170F0C;
