@@ -1220,33 +1220,53 @@ const SFX = (() => {
       c.fillStyle='#CC2200'; c.beginPath(); c.ellipse(sx+sw/2,sy+sh/2,sw*.32,sh*.05,0,0,Math.PI*2); c.fill();
       return;
     }
-    /* 竹節形竹子：橢圓帽＋窄身＋中節，五條第3根紅色 */
-    const GRIDS={2:{c:2,r:1},3:{c:3,r:1},4:{c:2,r:2},5:{c:2,r:3},
-                 6:{c:2,r:3},7:{c:2,r:4},8:{c:2,r:4},9:{c:3,r:3}};
-    const {c:cols,r:rows}=GRIDS[n]||{c:2,r:4};
-    const pad=3, cw=(TW-pad*2)/cols, rh=(TH-pad*2)/rows;
-    const sw=cw*.76, sh=rh*.90;
-    let drawn=0;
-    for(let r=0;r<rows;r++){
-      for(let col=0;col<cols&&drawn<n;col++,drawn++){
-        const centred=(n===5&&drawn===4)||(n===7&&drawn===6);
-        const cx=pad+(centred?cols/2:col+.5)*cw, cy=pad+(r+.5)*rh;
-        const isRed=n===5&&drawn===2;
-        const mainC=isRed?'#CC2200':'#1E7800';
-        const darkC=isRed?'#8B0A00':'#0C4400';
-        const capRX=sw/2;
-        const capRY=Math.max(1.8,Math.min(capRX*.68,sh*.23));
-        const bW=sw*.68;
-        c.fillStyle=mainC;
-        c.fillRect(cx-bW/2,cy-sh/2+capRY*.8,bW,sh-capRY*1.6);
-        c.beginPath();c.ellipse(cx,cy-sh/2+capRY,capRX,capRY,0,0,Math.PI*2);c.fill();
-        c.beginPath();c.ellipse(cx,cy+sh/2-capRY,capRX,capRY,0,0,Math.PI*2);c.fill();
-        if(sh>=16){
-          c.fillStyle=darkC;
-          c.beginPath();c.ellipse(cx,cy,capRX*.85,capRY*.72,0,0,Math.PI*2);c.fill();
-        }
-      }
+    /* 標準麻將條子排列（fractional [x,y]）；5條中心紅、7條頂端紅 */
+    const LAYOUTS={
+      2:[[.50,.28],[.50,.72]],
+      3:[[.50,.16],[.50,.50],[.50,.84]],
+      4:[[.30,.28],[.70,.28],[.30,.72],[.70,.72]],
+      5:[[.30,.20],[.70,.20],[.50,.50],[.30,.80],[.70,.80]],
+      6:[[.30,.18],[.70,.18],[.30,.50],[.70,.50],[.30,.82],[.70,.82]],
+      7:[[.50,.13],[.28,.45],[.50,.45],[.72,.45],[.28,.80],[.50,.80],[.72,.80]],
+      8:[[.30,.16],[.70,.16],[.30,.39],[.70,.39],[.30,.62],[.70,.62],[.30,.85],[.70,.85]],
+      9:[[.24,.18],[.50,.18],[.76,.18],[.24,.50],[.50,.50],[.76,.50],[.24,.82],[.50,.82],[.76,.82]],
+    };
+    const RED_IDX={5:2,7:0};
+    const layout=LAYOUTS[n]||[];
+    const redIdx=RED_IDX[n]??-1;
+    /* 竹身尺寸：依數量自動縮放 */
+    const w = n<=3 ? 8 : (n<=6 ? 7 : 5.6);
+    const h = n<=3 ? 14 : (n===4 ? 17 : (n<=6 ? 14 : (n===8 ? 10 : 12)));
+    layout.forEach(([fx,fy],i)=>_drawBamboo(c, fx*TW, fy*TH, w, h, i===redIdx));
+  }
+  /* 單根竹子：兩端橢圓帽 + 竹節分段 + 左側高光 */
+  function _drawBamboo(c, cx, cy, w, h, isRed) {
+    const main = isRed?'#CC2200':'#1E7800';
+    const dark = isRed?'#8B1A00':'#0A4400';
+    const lite = isRed?'#FF6644':'#3FA040';
+    const capRX = w/2;
+    const capRY = Math.max(1.4, Math.min(capRX*.5, h*.13));
+    const bW   = w*.72;
+    /* 主幹 */
+    c.fillStyle=main;
+    c.fillRect(cx-bW/2, cy-h/2+capRY*.5, bW, h-capRY);
+    /* 兩端橢圓帽 */
+    c.beginPath(); c.ellipse(cx, cy-h/2+capRY*.5, capRX, capRY, 0, 0, Math.PI*2); c.fill();
+    c.beginPath(); c.ellipse(cx, cy+h/2-capRY*.5, capRX, capRY, 0, 0, Math.PI*2); c.fill();
+    /* 竹節分段（h≥12 兩節，否則一節） */
+    c.fillStyle=dark;
+    if (h>=12) {
+      c.beginPath(); c.ellipse(cx, cy-h*.17, capRX*.92, capRY*.6, 0, 0, Math.PI*2); c.fill();
+      c.beginPath(); c.ellipse(cx, cy+h*.17, capRX*.92, capRY*.6, 0, 0, Math.PI*2); c.fill();
+    } else {
+      c.beginPath(); c.ellipse(cx, cy, capRX*.92, capRY*.6, 0, 0, Math.PI*2); c.fill();
     }
+    /* 左側高光：3D 立體感 */
+    c.save();
+    c.globalAlpha=.55;
+    c.fillStyle=lite;
+    c.fillRect(cx-bW*.38, cy-h/2+capRY*1.3, bW*.16, h-capRY*2.6);
+    c.restore();
   }
   function _getTileImg(sym) {
     if (_TILE_CACHE[sym]) return _TILE_CACHE[sym];
@@ -1496,33 +1516,57 @@ const SFX = (() => {
     const nCloud=Math.max(2, Math.round(2+5*ci));
     const alBase=0.15+ci*.30, scBase=0.11+ci*.08;
     const wf = 1 + Math.min(4, _wd.windSpeed / 12); // wind speed factor: calm=1×, 50km/h=5×
-    cloudP = Array.from({length:nCloud}, (_, i) => ({ x:Math.random()*W, y:H*(.05+i*(0.88/nCloud)), sc:scBase+Math.random()*.10, al:alBase+Math.random()*.12, sp:(.04+Math.random()*.12)*wf }));
+    cloudP = Array.from({length:nCloud}, (_, i) => ({
+      x: Math.random()*W,
+      y: H*(.05+i*(0.88/nCloud)),
+      sc: scBase+Math.random()*.10,
+      al: alBase+Math.random()*.12,
+      sp: (.04+Math.random()*.12)*wf,
+      shape: Math.floor(Math.random()*4),    // 0-3: pick a cloud silhouette variant
+      flip: Math.random() < .5 ? 1 : -1,     // mirror for extra variety
+    }));
     leafP  = Array.from({length:42}, () => { const lf=_newLeaf(); lf.y=Math.random()*H; return lf; });
     petalP  = Array.from({length:38}, () => { const p=_newPetal(); p.y=Math.random()*H; return p; });
     mahjongP= Array.from({length:28}, () => { const p=_newMahjong(); p.y=Math.random()*H; return p; });
     shootTimer = 200+Math.floor(Math.random()*250);
   }
 
-  /* ── cumulus cloud: overlapping circles union, top-lit gradient ── */
-  function _cloud(cx, cy, w, alpha) {
+  /* ── cloud puff layouts (relative to baseY = cy + h*0.35) ──
+     0: classic cumulus (高聳對稱)
+     1: stratocumulus (寬扁延展)
+     2: towering cumulus (中央雙峰高聳)
+     3: small fluffy (小巧緊湊)            */
+  const _CLOUD_VARIANTS = [
+    [ // 0
+      [-.40, -.18, .46],[-.20, -.50, .66],[.02, -.72, .78],
+      [ .22, -.48, .62],[ .40, -.18, .46],[.02, -.20, .55],
+    ],
+    [ // 1
+      [-.48, -.10, .42],[-.28, -.30, .55],[-.05, -.42, .58],
+      [ .18, -.38, .54],[ .40, -.20, .48],[.50, -.05, .38],[-.05, -.05, .50],
+    ],
+    [ // 2
+      [-.32, -.20, .48],[-.10, -.55, .65],[.08, -.78, .70],
+      [ .26, -.55, .68],[ .42, -.20, .48],[-.18, -.05, .50],[ .20, -.05, .55],
+    ],
+    [ // 3
+      [-.30, -.15, .52],[-.05, -.50, .68],[ .25, -.30, .58],[ .05, -.05, .52],
+    ],
+  ];
+  /* 不同形狀 + 翻轉 + 漸層的雲 */
+  function _cloud(cx, cy, w, alpha, shape = 0, flip = 1) {
     ctx.save(); ctx.globalAlpha = alpha;
     const h = w * 0.42;
-    const baseY = cy + h * 0.35; // flat-ish bottom line
-    /* 6 overlapping puffs: low edges, taller center → natural cumulus */
-    const puffs = [
-      [cx - w*.40, baseY - h*.18, h*.46],  // left edge
-      [cx - w*.20, baseY - h*.50, h*.66],  // upper-left
-      [cx + w*.02, baseY - h*.72, h*.78],  // top (tallest)
-      [cx + w*.22, baseY - h*.48, h*.62],  // upper-right
-      [cx + w*.40, baseY - h*.18, h*.46],  // right edge
-      [cx + w*.02, baseY - h*.20, h*.55],  // bottom-center filler
-    ];
+    const baseY = cy + h * 0.35;
+    const puffs = _CLOUD_VARIANTS[shape % _CLOUD_VARIANTS.length];
     ctx.beginPath();
-    for (const [px, py, pr] of puffs) {
+    for (const [fx, fy, fr] of puffs) {
+      const px = cx + fx * w * flip;
+      const py = baseY + fy * h;
+      const pr = h * fr;
       ctx.moveTo(px + pr, py);
       ctx.arc(px, py, pr, 0, Math.PI * 2);
     }
-    /* linear gradient: white top → soft blue-grey shadow underneath */
     const g = ctx.createLinearGradient(cx, cy - h*1.05, cx, baseY + h*.10);
     g.addColorStop(0.00, "rgba(255,255,255,.97)");
     g.addColorStop(0.42, "rgba(244,249,254,.93)");
@@ -1668,7 +1712,7 @@ const SFX = (() => {
     cloudP.forEach((c, i) => {
       c.x += c.sp;
       if (c.x - W*c.sc > W) c.x = -W*c.sc*1.5;
-      _cloud(c.x, c.y + Math.sin(t*.18 + i*1.3)*3.5, W*c.sc, c.al);
+      _cloud(c.x, c.y + Math.sin(t*.18 + i*1.3)*3.5, W*c.sc, c.al, c.shape, c.flip);
     });
   }
 
@@ -1954,7 +1998,14 @@ const SFX = (() => {
     _drawAstro(t);
   }
   function loop(ts) { rafId=requestAnimationFrame(loop); if(document.hidden||ts-_lastFrameTs<33)return; _lastFrameTs=ts; draw(); }
-  function start(wt) { type=wt; _init(); _lastFrameTs=0; if(!rafId) requestAnimationFrame(loop); }
+  let _inited = false;
+  function start(wt) {
+    const changed = wt !== type || !_inited;
+    type = wt;
+    if (changed) { _init(); _inited = true; }
+    _lastFrameTs = 0;
+    if (!rafId) requestAnimationFrame(loop);
+  }
 
   function _renderWeatherCard() {
     if (_wd.temp == null) return;
@@ -2073,7 +2124,8 @@ const SFX = (() => {
 
   window.addEventListener("resize", resize);
   resize();
-  start("sunny");
+  // 不在這裡 start()——等 fetchWeather 回來再用真實 _wd 啟動，
+  // 避免「先用預設值畫一次→拿到 API 又重畫」造成的閃爍/位移
 
   if (navigator.geolocation) {
     navigator.geolocation.getCurrentPosition(
