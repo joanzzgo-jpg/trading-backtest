@@ -141,6 +141,9 @@ async def _from_cwa(lat: float, lon: float) -> dict:
     wind_ms = _safe_float(we.get("WindSpeed"), 0.0)
     humidity = _safe_float(we.get("RelativeHumidity"), 0.0)
     vis = _parse_vis(we.get("Visibility"))
+    # SunshineDuration: past-10-min sunshine in hours (max ≈ 0.1667 h)
+    # multiply by 6 to get 0-1 fraction; -1.0 sentinel = sensor absent
+    sun_h = _safe_float(we.get("SunshineDuration"), -1.0)
 
     obs_str = s.get("ObsTime", {}).get("DateTime", "")
     is_day = True
@@ -159,6 +162,12 @@ async def _from_cwa(lat: float, lon: float) -> dict:
     # 縣市＋鄉鎮市區，例如「台北市中正區」；缺 TownName 時退回站名
     location = (county + town) if (county and town) else (town or county or station_name)
 
+    # Cloud cover: prefer sunshine sensor; fall back to text when night or sensor absent
+    if sun_h >= 0 and is_day:
+        cloud_cover = max(0, round((1 - min(1.0, sun_h * 6)) * 100))
+    else:
+        cloud_cover = _desc_to_cloud(desc)
+
     sr, ss = _sun_times_local(lat, lon)
     mp = _moon_phase()
     mr, ms = _moon_times(sr, ss, mp)
@@ -168,7 +177,7 @@ async def _from_cwa(lat: float, lon: float) -> dict:
         "temperature":  round(temp),
         "description":  desc,
         "precipitation": round(precip, 1),
-        "cloud_cover":  _desc_to_cloud(desc),
+        "cloud_cover":  cloud_cover,
         "wind_speed":   round(wind_ms * 3.6, 1),   # m/s → km/h
         "visibility":   vis,
         "humidity":     round(humidity),
