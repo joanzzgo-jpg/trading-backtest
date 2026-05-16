@@ -1085,10 +1085,13 @@ function drawPreview(type, a, b, W, H) {
    顏色 / 樣式
 ══════════════════════════════════════════ */
 function applyAllColors() {
-  const bg = C.chartBg || C.bg;
+  // 極簡模式：背景強制純白、文字深色；不受 C.chartBg（使用者暗色設定）影響
+  const _perf = document.documentElement.classList.contains("perf-mode");
+  const bg = _perf ? "#FFFFFF" : (C.chartBg || C.bg);
+  const _txt = _perf ? "#1F1F1F" : "#d1d4dc";
   // LWC canvas 保持透明，讓浮水印顯示在 K棒下方；背景色由 CSS 提供
   [mainChart, kdjChart, rsiChart, macdChart].forEach(c =>
-    c?.applyOptions({ layout: { background:{ color:"rgba(0,0,0,0)" }, textColor:"#d1d4dc" } })
+    c?.applyOptions({ layout: { background:{ color:"rgba(0,0,0,0)" }, textColor: _txt } })
   );
   document.body.style.background = bg;
   const _cc = document.querySelector(".charts-container");
