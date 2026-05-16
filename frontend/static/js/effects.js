@@ -1310,7 +1310,25 @@ const SFX = (() => {
     } else {
       c.fillStyle='#111'; c.font='bold 24px serif'; c.fillText(sym,TW/2,TH/2);
     }
-    _TILE_CACHE[sym]=oc; return oc;
+    // 為中/發/白把發光烤進快取畫布 → 動畫迴圈內不需要再每幀設 shadowBlur（最大的 CPU 來源）
+    const _glow = sym==='中' ? ['rgba(255,60,60,.85)',12]
+                : sym==='發' ? ['rgba(50,210,80,.85)',12]
+                : sym==='白' ? ['rgba(200,220,255,.70)',8]
+                : null;
+    let out = oc;
+    if (_glow) {
+      const pad = Math.ceil(_glow[1] * 1.5);
+      const W2 = TW + pad*2, H2 = TH + pad*2;
+      const gc = document.createElement('canvas');
+      gc.width = W2; gc.height = H2;
+      const gx = gc.getContext('2d');
+      gx.shadowColor = _glow[0]; gx.shadowBlur = _glow[1];
+      gx.drawImage(oc, pad, pad);
+      gx.shadowBlur = 0;
+      gx.drawImage(oc, pad, pad); // 再描一次本體確保不被陰影沖淡
+      out = gc;
+    }
+    _TILE_CACHE[sym]=out; return out;
   }
   function _newMahjong() {
     return { x:Math.random()*W, y:-44-Math.random()*220,
@@ -1887,23 +1905,23 @@ const SFX = (() => {
 
   /* ── 麻將牌飄落 ── */
   function dMahjong() {
-    mahjongP.forEach((p, i) => {
+    const len = mahjongP.length;
+    for (let i = 0; i < len; i++) {
+      const p = mahjongP[i];
       p.swing += p.swingSpd;
       p.x += p.vx + Math.sin(p.swing) * .55;
       p.y += p.vy;
       p.rot += p.rotV;
-      if (p.y > H+55 || p.x < -60 || p.x > W+60) { mahjongP[i]=_newMahjong(); return; }
+      if (p.y > H+55 || p.x < -60 || p.x > W+60) { mahjongP[i] = _newMahjong(); continue; }
       const img = _getTileImg(p.sym);
-      ctx.save();
+      const cs = Math.cos(p.rot), sn = Math.sin(p.rot);
+      // setTransform 一次到位，省下每張牌兩次 save/restore（28 張 × 60fps = 3360 次/秒）
+      ctx.setTransform(cs, sn, -sn, cs, p.x, p.y);
       ctx.globalAlpha = p.a;
-      ctx.translate(p.x, p.y);
-      ctx.rotate(p.rot);
-      if      (p.sym==='中') { ctx.shadowColor='rgba(255,60,60,.85)';   ctx.shadowBlur=12; }
-      else if (p.sym==='發') { ctx.shadowColor='rgba(50,210,80,.85)';   ctx.shadowBlur=12; }
-      else if (p.sym==='白') { ctx.shadowColor='rgba(200,220,255,.70)'; ctx.shadowBlur=8;  }
-      ctx.drawImage(img, -19, -25);
-      ctx.restore();
-    });
+      ctx.drawImage(img, -img.width/2, -img.height/2);
+    }
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalAlpha = 1;
   }
 
   /* ── falling leaves ── */
