@@ -116,6 +116,41 @@ html.perf-mode .wl-item:hover { background: #F5F5F5; }
 /* 圖例文字 fallback：本來會吃 JS 動態色，極簡模式統一深灰 */
 html.perf-mode .leg-toggle .leg-val { color: #1F1F1F; }
 
+/* 勝率欄內部元件——原本為暗底配色，全部改成在純白下對比夠的深色 */
+html.perf-mode .tb-wr-icon { filter: none; }
+html.perf-mode .wr-abc { color: #E53935; }
+html.perf-mode .wr-ab  { color: #FB8C00; }
+html.perf-mode .wr-s3  { color: #8E24AA; }
+html.perf-mode .wr-s4  { color: #00897B; }
+html.perf-mode .wr-s5  { color: #F57C00; }
+html.perf-mode .tb-wr-pct { color: #1F1F1F; }
+html.perf-mode .tb-wr-v.good .tb-wr-pct { color: #16a34a; text-shadow: none; }
+html.perf-mode .tb-wr-v.bad  .tb-wr-pct { color: #dc2626; text-shadow: none; }
+html.perf-mode .tb-wr-cnt    { color: #8B8B8B; }
+html.perf-mode .tb-wr-total  { color: #1F1F1F; text-shadow: none; }
+html.perf-mode .tb-wr-total.good { color: #16a34a; text-shadow: none; }
+html.perf-mode .tb-wr-total.bad  { color: #dc2626; text-shadow: none; }
+html.perf-mode .tb-wr-divider,
+html.perf-mode .tb-wr-total-sep { background: #E5E5E5; }
+html.perf-mode .tb-wr-status { color: #8B8B8B; }
+html.perf-mode .tb-wr-from   { color: #8B8B8B; }
+
+/* topbar 中央／左側其他元件補上 */
+html.perf-mode .tb-mkt-select,
+html.perf-mode .tb-exc-select { color: #1F1F1F; }
+html.perf-mode .tb-mkt-select:hover,
+html.perf-mode .tb-exc-select:hover { background: #F5F5F5; color: #1F1F1F; }
+html.perf-mode .tb-symbol-wrap { background: #F5F5F5; border-color: #E5E5E5; }
+html.perf-mode .tb-symbol-wrap:hover { border-color: #FF6A1A; }
+html.perf-mode .tb-symbol-input { color: #1F1F1F; }
+html.perf-mode .tb-sym-caret { color: #8B8B8B; }
+html.perf-mode .tb-star-btn .star-svg { color: #BDBDBD; }
+html.perf-mode .tb-star-btn.starred .star-svg,
+html.perf-mode .tb-star-btn .star-svg.starred { color: #FF6A1A; }
+
+/* 即時更新點點 */
+html.perf-mode .realtime-dot { background: #16a34a; }
+
 /* 極簡模式：背景效能優化 ============================
    舊裝置最大的 GPU 負擔來自 backdrop-filter: blur() 跟大面積陰影/濾鏡，
    全部關掉，改用實心半透明背景，視覺仍乾淨但 GPU 用量大幅下降。 */
