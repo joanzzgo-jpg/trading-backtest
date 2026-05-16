@@ -54,8 +54,10 @@ def _calc_crt_winrate(df: pd.DataFrame) -> dict:
     n = len(df)
 
     # ── 全部欄位一次抽成 numpy array（避免在 5 個迴圈內反覆 df.iloc）──
-    times_arr = df["time"].values
-    times_iso = [_ts_val(t) for t in times_arr]
+    # 注意：df["time"].values 是 numpy.datetime64（沒有 .isoformat），會被 str()
+    # 出 '2024-01-23T00:00:00.000000000' 帶 nanosecond → 前端 toTime() 解析失敗，
+    # 訊號棒會從圖表上消失。要先過 pandas Timestamp 才能拿到乾淨 ISO。
+    times_iso = [_ts_val(t) for t in df["time"]]
     highs  = df["high"].to_numpy(dtype=float)
     lows   = df["low"].to_numpy(dtype=float)
     closes = df["close"].to_numpy(dtype=float)
