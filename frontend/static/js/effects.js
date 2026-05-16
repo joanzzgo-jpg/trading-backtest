@@ -1168,7 +1168,7 @@ const SFX = (() => {
     c.lineTo(x+r,y+h); c.arcTo(x,y+h,x,y+h-r,r);
     c.lineTo(x,y+r); c.arcTo(x,y,x+r,y,r); c.closePath();
   }
-  /* 筒子：彩色外環 + 米白內圓 + 5瓣花 + 中心圓；綠紅配色依位置 */
+  /* 筒子：彩色外環 + 米白內圓 + 5瓣花 + 中心圓；三色（綠/紅/黑） */
   function _drawTong(c,n,TW,TH) {
     const POS={
       1:[[.5,.5]],
@@ -1176,26 +1176,28 @@ const SFX = (() => {
       3:[[.72,.18],[.5,.5],[.28,.82]],
       4:[[.29,.26],[.71,.26],[.29,.74],[.71,.74]],
       5:[[.29,.2],[.71,.2],[.5,.5],[.29,.8],[.71,.8]],
-      6:[[.29,.18],[.71,.18],[.29,.5],[.71,.5],[.29,.82],[.71,.82]],
-      7:[[.22,.16],[.5,.16],[.78,.16],[.30,.48],[.70,.48],[.30,.80],[.70,.80]],
+      /* 6餅：上 2 + 下 4（2×2） */
+      6:[[.30,.18],[.70,.18], [.30,.55],[.70,.55],[.30,.85],[.70,.85]],
+      /* 7餅：上 3 綠斜線剛好相切（不重疊）+ 下 4 紅 2×2 */
+      7:[[.70,.10],[.50,.25],[.30,.40], [.32,.65],[.68,.65],[.32,.92],[.68,.92]],
       8:[[.3,.1],[.7,.1],[.3,.36],[.7,.36],[.3,.62],[.7,.62],[.3,.88],[.7,.88]],
       9:[[.22,.15],[.5,.15],[.78,.15],[.22,.5],[.5,.5],[.78,.5],[.22,.85],[.5,.85],[.78,.85]],
     };
-    const Gn='#006633',Rd='#CC0000';
+    const Gn='#0E6B33', Rd='#C42020', Bk='#1A1A1A';
     const CLRS={
-      1:[Rd],
-      2:[Gn,Rd],
-      3:[Rd,Gn,Rd],
+      1:[Gn],                                         // 全綠
+      2:[Gn,Bk],                                      // 上綠 + 下黑
+      3:[Gn,Rd,Gn],
       4:[Gn,Rd,Rd,Gn],
-      5:[Gn,Rd,Gn,Rd,Gn],
-      6:[Gn,Rd,Gn,Rd,Gn,Rd],
-      7:[Gn,Gn,Gn,Rd,Rd,Rd,Rd],
-      8:[Gn,Gn,Rd,Rd,Rd,Rd,Gn,Gn],
-      9:[Rd,Gn,Rd,Gn,Gn,Gn,Rd,Gn,Rd],
+      5:[Gn,Gn,Rd,Gn,Gn],                             // 4 綠角 + 中心紅
+      6:[Gn,Gn, Rd,Rd,Rd,Rd],                         // 上 2 綠 + 下 4 紅
+      7:[Gn,Gn,Gn, Rd,Rd,Rd,Rd],                      // 上 3 綠 + 下 4 紅
+      8:[Bk,Bk,Bk,Bk,Bk,Bk,Bk,Bk],                    // 全黑
+      9:[Bk,Bk,Bk, Rd,Rd,Rd, Gn,Gn,Gn],               // 上黑 / 中紅 / 下綠
     };
     const bg='#FDF6E3';
     const pos=POS[n]||[], clrs=CLRS[n]||[];
-    const Rv=n===1?11.5:n<=4?6.8:n<=6?6:n===7?4.0:4.5;
+    const Rv=n===1?11.5:n<=4?6.8:n<=6?6:n===7?5.0:4.5; // 7 餅放大
     pos.forEach(([fx,fy],i)=>{
       const x=fx*TW, y=3+fy*(TH-6), clr=clrs[i]||Gn;
       c.fillStyle=clr; c.beginPath(); c.arc(x,y,Rv,0,Math.PI*2); c.fill();
@@ -1207,65 +1209,72 @@ const SFX = (() => {
   }
   /* 條子：竹節方塊 + 紅節點；1條是鳥 */
   function _drawTiao(c,n,TW,TH) {
-    if(n===1){
-      const bx=TW*.38,by=TH*.46;
-      c.fillStyle='#1A6B00'; c.beginPath(); c.ellipse(bx,by+1,8,6,-.2,0,Math.PI*2); c.fill();
-      c.fillStyle='#CC3300'; c.beginPath(); c.arc(bx+7,by-4,4.5,0,Math.PI*2); c.fill();
-      c.fillStyle='#FF8800'; c.beginPath(); c.moveTo(bx+10.5,by-4); c.lineTo(bx+16,by-2.5); c.lineTo(bx+10.5,by-.5); c.closePath(); c.fill();
-      c.fillStyle='#0A4400'; c.beginPath(); c.moveTo(bx-7,by-1); c.lineTo(bx-13,by-5); c.lineTo(bx-11,by+3); c.closePath(); c.fill();
-      c.fillStyle='#000'; c.beginPath(); c.arc(bx+8.5,by-5,1.2,0,Math.PI*2); c.fill();
-      const sx=TW*.63,sy=TH*.07,sw=TW*.11,sh=TH*.84;
-      c.fillStyle='#2B8000'; _tileRR(c,sx,sy,sw,sh,sw*.3); c.fill();
-      c.strokeStyle='#1A5000'; c.lineWidth=.6; _tileRR(c,sx,sy,sw,sh,sw*.3); c.stroke();
-      c.fillStyle='#CC2200'; c.beginPath(); c.ellipse(sx+sw/2,sy+sh/2,sw*.32,sh*.05,0,0,Math.PI*2); c.fill();
-      return;
-    }
-    /* 標準麻將條子排列（fractional [x,y]）；5條中心紅、7條頂端紅 */
+    if(n===1){_drawBird(c,TW,TH);return;}
+    /* layout: [fx, fy, rotation?]；rotation 弧度（正＝順時針，頂端向右斜） */
     const LAYOUTS={
-      2:[[.50,.28],[.50,.72]],
-      3:[[.50,.16],[.50,.50],[.50,.84]],
-      4:[[.30,.28],[.70,.28],[.30,.72],[.70,.72]],
-      5:[[.30,.20],[.70,.20],[.50,.50],[.30,.80],[.70,.80]],
-      6:[[.30,.18],[.70,.18],[.30,.50],[.70,.50],[.30,.82],[.70,.82]],
-      7:[[.50,.13],[.28,.45],[.50,.45],[.72,.45],[.28,.80],[.50,.80],[.72,.80]],
-      8:[[.30,.16],[.70,.16],[.30,.39],[.70,.39],[.30,.62],[.70,.62],[.30,.85],[.70,.85]],
-      9:[[.24,.18],[.50,.18],[.76,.18],[.24,.50],[.50,.50],[.76,.50],[.24,.82],[.50,.82],[.76,.82]],
+      2:[[.50,.28],[.50,.72]],                                                    // 中央上下 2 根
+      3:[[.50,.22],[.22,.66],[.78,.66]],                                          // 倒三角（中上、左右下）
+      4:[[.30,.27],[.70,.27],[.30,.73],[.70,.73]],                                // 2×2
+      5:[[.28,.22],[.72,.22],[.50,.50],[.28,.78],[.72,.78]],                      // X 對稱、中心紅
+      6:[[.20,.30],[.50,.30],[.80,.30],[.20,.70],[.50,.70],[.80,.70]],            // 3×2
+      7:[[.50,.13],[.20,.45],[.50,.45],[.80,.45],[.20,.80],[.50,.80],[.80,.80]], // 頂 1 紅 + 下 3+3
+      /* 上倒M（W）+ 下M：外直、內加大斜度 + 縮小上下間距 → 連貫成「)(」對稱 */
+      8:[
+        [.14,.27,0], [.36,.30,.55],  [.64,.30,-.55], [.86,.27,0],
+        [.14,.73,0], [.36,.70,-.55], [.64,.70,.55],  [.86,.73,0],
+      ],
+      9:[[.20,.18],[.50,.18],[.80,.18],[.20,.50],[.50,.50],[.80,.50],[.20,.82],[.50,.82],[.80,.82]], // 3×3
     };
-    const RED_IDX={5:2,7:0};
+    /* RED_IDX: 哪幾根紅。5條中心、7條頂端、9條中間整列 */
+    const RED_IDX={5:[2],7:[0],9:[1,4,7]};
     const layout=LAYOUTS[n]||[];
-    const redIdx=RED_IDX[n]??-1;
-    /* 竹身尺寸：依數量自動縮放 */
-    const w = n<=3 ? 8 : (n<=6 ? 7 : 5.6);
-    const h = n<=3 ? 14 : (n===4 ? 17 : (n<=6 ? 14 : (n===8 ? 10 : 12)));
-    layout.forEach(([fx,fy],i)=>_drawBamboo(c, fx*TW, fy*TH, w, h, i===redIdx));
+    const redSet=new Set(RED_IDX[n]||[]);
+    const W_TBL={2:8,3:7.5,4:7,5:6.5,6:6.5,7:6.5,8:5.5,9:5.8};
+    const H_TBL={2:18,3:14,4:18,5:14,6:18,7:13,8:20,9:12};
+    const w=W_TBL[n]||6, h=H_TBL[n]||14;
+    layout.forEach(([fx,fy,rot=0],i)=>_drawBamboo(c, fx*TW, fy*TH, w, h, redSet.has(i), rot));
   }
-  /* 單根竹子：兩端橢圓帽 + 竹節分段 + 左側高光 */
-  function _drawBamboo(c, cx, cy, w, h, isRed) {
+  /* 1條：孔雀風格的鳥（中央，不含右側竹子） */
+  function _drawBird(c, TW, TH) {
+    const bx=TW*.50, by=TH*.50;
+    c.fillStyle='#2B8000'; c.beginPath(); c.ellipse(bx,by+3,11,8.5,-.15,0,Math.PI*2); c.fill();
+    c.fillStyle='#0A4400'; c.beginPath();
+    c.moveTo(bx-3,by-1); c.quadraticCurveTo(bx-11,by+3,bx-8,by+8); c.quadraticCurveTo(bx-3,by+6,bx,by+4); c.closePath(); c.fill();
+    c.fillStyle='#CC2200'; c.beginPath(); c.arc(bx+6,by-5,5.5,0,Math.PI*2); c.fill();
+    c.fillStyle='#FFB000'; c.beginPath();
+    c.moveTo(bx+10,by-6); c.lineTo(bx+18,by-4); c.lineTo(bx+10,by-2); c.closePath(); c.fill();
+    c.fillStyle='#fff'; c.beginPath(); c.arc(bx+7,by-6,1.8,0,Math.PI*2); c.fill();
+    c.fillStyle='#000'; c.beginPath(); c.arc(bx+7.7,by-6,1,0,Math.PI*2); c.fill();
+    c.fillStyle='#CC2200'; c.beginPath();
+    c.moveTo(bx+3,by-10); c.lineTo(bx+6,by-14); c.lineTo(bx+9,by-10); c.closePath(); c.fill();
+    c.strokeStyle='#FFB000'; c.lineWidth=1.4; c.lineCap='round';
+    c.beginPath(); c.moveTo(bx-2,by+10); c.lineTo(bx-2,by+15); c.stroke();
+    c.beginPath(); c.moveTo(bx+4,by+10); c.lineTo(bx+4,by+15); c.stroke();
+    c.fillStyle='#0A4400'; c.beginPath();
+    c.moveTo(bx-9,by); c.lineTo(bx-15,by-4); c.lineTo(bx-13,by+2); c.lineTo(bx-15,by+6); c.lineTo(bx-9,by+4); c.closePath(); c.fill();
+  }
+  /* 單根竹子：圓角矩形 + 水平竹節線 + 左側高光，可選 rotation */
+  function _drawBamboo(c, cx, cy, w, h, isRed, rot=0) {
     const main = isRed?'#CC2200':'#1E7800';
-    const dark = isRed?'#8B1A00':'#0A4400';
+    const dark = isRed?'#7A1500':'#0A4400';
     const lite = isRed?'#FF6644':'#3FA040';
-    const capRX = w/2;
-    const capRY = Math.max(1.4, Math.min(capRX*.5, h*.13));
-    const bW   = w*.72;
-    /* 主幹 */
-    c.fillStyle=main;
-    c.fillRect(cx-bW/2, cy-h/2+capRY*.5, bW, h-capRY);
-    /* 兩端橢圓帽 */
-    c.beginPath(); c.ellipse(cx, cy-h/2+capRY*.5, capRX, capRY, 0, 0, Math.PI*2); c.fill();
-    c.beginPath(); c.ellipse(cx, cy+h/2-capRY*.5, capRX, capRY, 0, 0, Math.PI*2); c.fill();
-    /* 竹節分段（h≥12 兩節，否則一節） */
-    c.fillStyle=dark;
-    if (h>=12) {
-      c.beginPath(); c.ellipse(cx, cy-h*.17, capRX*.92, capRY*.6, 0, 0, Math.PI*2); c.fill();
-      c.beginPath(); c.ellipse(cx, cy+h*.17, capRX*.92, capRY*.6, 0, 0, Math.PI*2); c.fill();
-    } else {
-      c.beginPath(); c.ellipse(cx, cy, capRX*.92, capRY*.6, 0, 0, Math.PI*2); c.fill();
-    }
-    /* 左側高光：3D 立體感 */
+    const r = Math.min(w*.45, 2.4);
     c.save();
-    c.globalAlpha=.55;
+    c.translate(cx, cy);
+    if (rot) c.rotate(rot);
+    c.fillStyle=main;
+    _tileRR(c, -w/2, -h/2, w, h, r); c.fill();
+    c.fillStyle=dark;
+    const nJoints = h>=30 ? 4 : (h>=18 ? 3 : (h>=12 ? 2 : 1));
+    const lineH = Math.max(.9, h*.025);
+    for (let i=1; i<=nJoints; i++) {
+      const yj = -h/2 + (h*i)/(nJoints+1);
+      c.fillRect(-w/2+.3, yj-lineH/2, w-.6, lineH);
+    }
+    c.globalAlpha=.5;
     c.fillStyle=lite;
-    c.fillRect(cx-bW*.38, cy-h/2+capRY*1.3, bW*.16, h-capRY*2.6);
+    const sw = Math.max(.8, w*.16);
+    c.fillRect(-w*.32, -h/2+r*.8, sw, h-r*1.6);
     c.restore();
   }
   function _getTileImg(sym) {
