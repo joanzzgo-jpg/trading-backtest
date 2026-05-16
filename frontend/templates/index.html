@@ -12,6 +12,14 @@
   <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;500;700;800;900&family=Caveat:wght@700&display=swap" rel="stylesheet">
   <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
   <link rel="stylesheet" href="/static/css/style.css?v={{ ver }}" />
+  <script>
+    // 極簡模式（perf mode）：在 body 渲染前先掛上 class，避免特效資源被瀏覽器排程
+    try {
+      if (localStorage.getItem("perfMode") === "1") {
+        document.documentElement.classList.add("perf-mode");
+      }
+    } catch (e) {}
+  </script>
 </head>
 <body>
 
@@ -426,6 +434,10 @@
 <!-- 音樂面板 -->
 <div id="fxPanel" class="music-panel fx-panel hidden">
   <div class="music-panel-title">✨ 背景 &amp; 特效</div>
+  <div class="fx-section-label">效能</div>
+  <div class="fx-grid">
+    <button id="perfModeBtn" class="fx-btn fx-btn-perf" title="關閉所有特效以提升舊裝置的流暢度">🌙 極簡模式</button>
+  </div>
   <div class="fx-section-label">背景動畫</div>
   <div class="fx-grid">
     <button id="leafToggleBtn"    class="fx-btn" onclick="window._leafToggle   &&window._leafToggle()">🍂 落葉</button>

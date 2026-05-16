@@ -29,6 +29,46 @@ document.addEventListener("DOMContentLoaded", async () => {
     }, 2000);
   });
 
+  // 極簡模式按鈕：開/關後重新整理頁面（最乾淨）
+  const _perfBtn = document.getElementById("perfModeBtn");
+  if (_perfBtn) {
+    const _isPerf = document.documentElement.classList.contains("perf-mode");
+    if (_isPerf) {
+      _perfBtn.classList.add("active");
+      _perfBtn.textContent = "☀️ 恢復完整特效";
+    }
+    _perfBtn.addEventListener("click", () => {
+      try {
+        if (localStorage.getItem("perfMode") === "1") {
+          localStorage.removeItem("perfMode");
+        } else {
+          localStorage.setItem("perfMode", "1");
+        }
+      } catch (e) {}
+      location.reload();
+    });
+  }
+
+  // 極簡模式：跳過 effects.js（SFX、BGM、天氣動畫、點擊特效），改用最小化的 FX 面板開關
+  if (document.documentElement.classList.contains("perf-mode")) {
+    const _panel = document.getElementById("fxPanel");
+    const _btn   = document.getElementById("fxToggleBtn");
+    if (_panel && _btn) {
+      _btn.addEventListener("click", e => {
+        e.stopPropagation();
+        const open = _panel.classList.toggle("hidden");
+        _btn.classList.toggle("fx-open", !open);
+      });
+      document.addEventListener("click", e => {
+        if (!_panel.contains(e.target) && e.target !== _btn) {
+          _panel.classList.add("hidden");
+          _btn.classList.remove("fx-open");
+        }
+      });
+    }
+    return; // 不載入 effects.js
+  }
+
   // 延遲載入 effects.js（SFX、BGM、天氣動畫），等瀏覽器閒置後再執行
   const _loadFx = () => {
     const s = document.createElement("script");

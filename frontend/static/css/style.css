@@ -7,6 +7,33 @@
 * { cursor: url('/static/img/cursor-wand.png') 27 27, auto; }
 input[type="text"], input[type="number"], input[type="date"], textarea, .sym-modal-input, .tb-symbol-input, .tk-search, .ind-sp-num { cursor: text; }
 
+/* ══════════════════════════════════════
+   極簡模式（perf-mode）— 給較舊裝置用，關掉所有視覺特效但保留核心功能
+══════════════════════════════════════ */
+html.perf-mode,
+html.perf-mode * { cursor: auto; }
+html.perf-mode input[type="text"],
+html.perf-mode input[type="number"],
+html.perf-mode input[type="date"],
+html.perf-mode textarea { cursor: text; }
+html.perf-mode .peek-bear,
+html.perf-mode #weatherBg,
+html.perf-mode #musicToggleBtn,
+html.perf-mode .click-spark,
+html.perf-mode .btn-ripple-wave { display: none !important; }
+/* 極簡模式下，除了「恢復特效」按鈕，其他 FX 按鈕標示為停用 */
+html.perf-mode #fxPanel .fx-btn:not(#perfModeBtn) {
+  opacity: 0.35;
+  pointer-events: none;
+  filter: grayscale(1);
+}
+/* 極簡模式按鈕高亮：被啟用時顯示為「目前已在極簡模式」 */
+#perfModeBtn.active {
+  background: linear-gradient(135deg, rgba(255,140,60,0.25), rgba(255,140,60,0.12));
+  border-color: rgba(255,140,60,0.55);
+  color: #ffb878;
+}
+
 :root {
   --bg:      #170F0C;
   --bg2:     #1F1410;
