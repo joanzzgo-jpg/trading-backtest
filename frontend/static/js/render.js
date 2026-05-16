@@ -329,7 +329,7 @@ async function _bgLoadOlderBars(scrollTriggered = false) {
         _bgScheduleIndicators();
       }
 
-      await new Promise(r => setTimeout(r, 200));
+      await new Promise(r => setTimeout(r, 100));
     }
   } catch { /* 背景失敗靜默 */ } finally {
     if (myGen === _bgLoadGen) {

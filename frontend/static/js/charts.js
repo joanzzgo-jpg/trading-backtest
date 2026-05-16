@@ -146,9 +146,9 @@ function syncTimeScales() {
       allCharts.forEach((dst, di) => { if (di !== si) dst.timeScale().setVisibleLogicalRange(range); });
       syncing = false;
       // 滑到左側邊界時自動觸發更多歷史載入
-      if (range.from < 120 && !_bgLoadInProgress && ohlcvData.length) {
+      if (range.from < 200 && !_bgLoadInProgress && ohlcvData.length) {
         const now = Date.now();
-        if (now - _scrollLoadTs > 1500) { // 1.5 秒節流，避免連發
+        if (now - _scrollLoadTs > 800) { // 0.8 秒節流，避免連發
           _scrollLoadTs = now;
           _bgLoadOlderBars(true); // 滑動觸發，載入更早的資料
         }
