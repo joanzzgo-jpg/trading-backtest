@@ -568,6 +568,13 @@ html, body {
 .sym-chg.dn        { color: var(--green); }
 
 /* ═══ TOPBAR WIN-RATE ═══ */
+/* 視窗寬度不夠時隱藏細項，只留總勝率，避免擋到時間級別按鈕 */
+@media (max-width: 1400px) {
+  .tb-winrate .tb-wr-block,
+  .tb-winrate .tb-wr-divider {
+    display: none;
+  }
+}
 .tb-winrate {
   position: absolute;
   left: 50%;
