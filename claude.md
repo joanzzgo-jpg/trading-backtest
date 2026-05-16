@@ -8,6 +8,7 @@
 - 後端位於 `backend/`，前端位於 `frontend/`。
 - `start.sh` 安裝依賴並啟動 `backend/main.py`。
 - 部署於 Railway，推送 `main` branch 自動觸發部署（GitHub repo: `joanzzgo-jpg/trading-backtest`）。
+- Railway 用 `Procfile`／`railway.toml` 直接跑 `cd backend && uvicorn main:app`，**沒有跑 `start.sh`**。前端 JS 打包改由 `backend/main.py` 的 `_build_js_bundle()` 在 import 時自動執行（偵測來源 JS 比 bundle 新就重建）。修改前端 JS 後**不需要**手動跑 `start.sh`。
 
 ## 圖片資源
 所有原始圖片存放於 **桌面 `Claude-分類/虛擬貨幣/`**，已複製至 `frontend/static/img/`。
@@ -47,6 +48,48 @@
   - `mononoke` = もののけ姫（78 BPM 史詩）
   - `sanpo` = さんぽ（132 BPM 進行曲）
   - `auto` = 依 `symChg` 漲跌幅每 5 秒自動切換主題
+
+## 極簡模式（perf-mode）
+給較舊裝置使用的純白系版本，**關掉所有特效並鎖住所有色票調整**，但保留圖表／回測／行情等核心功能。
+
+### 啟用機制
+- `localStorage.perfMode === "1"` → 啟用
+- `<head>` 內 inline script 在 body 渲染前讀 localStorage 並掛 `html.perf-mode` class（避免暗色閃一下）
+- FX 面板（✨）頂端「🌙 極簡模式」按鈕切換，按下後寫 localStorage 並 `location.reload()`（最乾淨）
+
+### main.js 啟動流程
+1. `loadPrefs()` 從 localStorage 讀使用者的 chart colors 進 `C`
+2. **若 perf-mode：`Object.assign(C, _PERF_PALETTE)`**（in-memory only）— 把白底看不見的色（黃中軌、淡青 resonance）換成深色
+3. `loadSystemColors()` + `applyAllSystemColors()` 套上使用者的系統色
+4. **若 perf-mode：再次 `applySystemColor()` 覆蓋成純白系 SC palette**（蓋掉 inline style）
+5. `buildCharts()`、`applyAllColors()` 等正常流程
+6. **若 perf-mode：跳過載入 effects.js**，改裝最小化的 FX 面板開關
+
+### 「不影響正常模式」三大保險
+- `savePrefs()` 在 perf-mode 直接 `return`（utils.js）— 避免 `applyAllColors()` 結尾的 savePrefs 把 in-memory perf palette 寫回 `localStorage.chartColors`
+- `showLegColorPopup()` 在 perf-mode 直接 `return`（draw.js）— 鎖住所有色票調整入口
+- CSS 隱藏 `#sysSettingsBtn`、`.ind-gear-btn`、`.sys-color-swatch`，`.leg-dot` 設 `pointer-events: none`
+
+### 配色 palette（純白系）
+- 系統色 SC：bg=`#FFFFFF` / panel=`#FAFAFA` / border=`#E5E5E5` / text=`#1F1F1F` / muted=`#8B8B8B` / accent=`#FF6A1A`
+- chart 額外變數：green=`#16a34a` / red=`#dc2626` / bg4=`#F0F0F0`
+- LWC 圖表：text=`#1F1F1F` / grid=`#ECECEC` / crosshair=`#9C9C9C` / border=`#D9D9D9` / labelBg=`#F5F5F5`，背景**維持透明**讓 body 純白＋浮水印（z-index:-1）襯出
+- 指標／線條（in-memory C 覆寫）：BB 中軌 `#ffcc02` 黃 → `#f57c00` 深橘、resonance bull `#26c6da` 淡青 → `#00838f` 深青、其他全部深色化
+
+### CSS `!important` 注意事項
+`style.css` 末段「橘子熊可愛風格」區塊（行 ~2288 起）對 `.topbar` / `.symbol-bar` / `.topbar-brand-name` 用 `!important` 強制套暗色漸層。所有 perf-mode 對 topbar 相關的覆寫**必須**也用 `!important` 才壓得過。
+
+### 背景效能優化（perf-mode 專屬）
+舊裝置 GPU 主要負擔來自 `backdrop-filter: blur()`，perf-mode CSS 強制：
+- `html.perf-mode *` 設 `backdrop-filter: none !important`
+- 浮層改實心白底＋極淡單層陰影（取代 blur）
+- 關閉 `.blink`、`.tk-limitPulse` 等非必要無限動畫
+- 浮層 transition 設 `none`
+
+### 浮水印
+極簡模式背景顯示橘子熊浮水印（`<img class="chart-bear-bg perf-only">` 在 `#mainChart` 內）：
+- 預設 `display: none`
+- `html.perf-mode` 才顯示，`opacity: 0.12`、`z-index: -1`、無 invert filter
 
 ## 資料夾用途
 
