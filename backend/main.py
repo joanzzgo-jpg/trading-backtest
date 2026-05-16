@@ -20,6 +20,35 @@ from routes.bear import router as bear_router
 from routes.weather import router as weather_router
 from data.crypto import _fetch_pionex_symbols, _fetch_pionex_perp_symbols
 
+def _build_js_bundle():
+    """啟動時自動打包前端 JS bundle（取代 start.sh，Railway 部署需要）。
+    若任一來源檔比 bundle 新就重建；否則沿用既有 bundle 不動。"""
+    try:
+        from pathlib import Path
+        js = Path(os.path.dirname(__file__)) / ".." / "frontend" / "static" / "js"
+        js = js.resolve()
+        names = ["config","utils","charts","draw","ticker","winrate","render","realtime","replay","ui","main"]
+        srcs = [js / f"{n}.js" for n in names]
+        bundle = js / "app.bundle.js"
+        srcs_exist = [p for p in srcs if p.exists()]
+        if not srcs_exist:
+            return
+        newest = max(p.stat().st_mtime for p in srcs_exist)
+        if bundle.exists() and bundle.stat().st_mtime >= newest:
+            return  # 已是最新
+        content = "\n".join(p.read_text(encoding="utf-8") for p in srcs_exist)
+        try:
+            import rjsmin
+            content = rjsmin.jsmin(content)
+        except ImportError:
+            pass
+        bundle.write_text(content, encoding="utf-8")
+        print(f"  ✓ app.bundle.js rebuilt ({len(content)//1024} KB)")
+    except Exception as e:
+        print(f"  ⚠ bundle build failed: {e}")
+
+_build_js_bundle()
+
 app = FastAPI(title="回測系統")
 
 # ── GZip 壓縮（JS 166KB→35KB，CSS 38KB→8KB）──────────────────
