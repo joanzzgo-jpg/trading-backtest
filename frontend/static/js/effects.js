@@ -1445,20 +1445,6 @@ const SFX = (() => {
       const disc = ctx.createRadialGradient(sx,sy,0,sx,sy,17);
       disc.addColorStop(0,'#FFFCD0'); disc.addColorStop(1,'#FFD700');
       ctx.fillStyle=disc; ctx.beginPath(); ctx.arc(sx,sy,17,0,Math.PI*2); ctx.fill();
-      // cute face (scaled for R=17 disc)
-      ctx.save(); ctx.globalAlpha=1;
-      ctx.fillStyle='rgba(255,130,80,.22)';
-      ctx.beginPath(); ctx.ellipse(sx-7,sy+3,4,2.2,0,0,Math.PI*2); ctx.fill();
-      ctx.beginPath(); ctx.ellipse(sx+7,sy+3,4,2.2,0,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle='rgba(110,50,0,.80)';
-      ctx.beginPath(); ctx.arc(sx-5,sy-4,1.9,0,Math.PI*2); ctx.fill();
-      ctx.beginPath(); ctx.arc(sx+5,sy-4,1.9,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle='rgba(255,255,255,.92)';
-      ctx.beginPath(); ctx.arc(sx-4.3,sy-4.9,.7,0,Math.PI*2); ctx.fill();
-      ctx.beginPath(); ctx.arc(sx+5.7,sy-4.9,.7,0,Math.PI*2); ctx.fill();
-      ctx.strokeStyle='rgba(110,50,0,.68)'; ctx.lineWidth=1.5; ctx.lineCap='round';
-      ctx.beginPath(); ctx.arc(sx,sy+.5,5.5,.15*Math.PI,.85*Math.PI); ctx.stroke();
-      ctx.restore();
       // corona pulse
       const pls = 0.5+0.5*Math.sin(t*1.4);
       ctx.strokeStyle=`rgba(255,210,55,${0.13+0.07*pls})`; ctx.lineWidth=1.5;
@@ -1624,20 +1610,6 @@ const SFX = (() => {
     ctx.shadowBlur=30; ctx.shadowColor="rgba(255,200,0,1)";
     ctx.fillStyle=disc; ctx.beginPath(); ctx.arc(sx,sy,28,0,Math.PI*2); ctx.fill();
     ctx.shadowBlur=0;
-    /* cute face */
-    ctx.save();
-    ctx.fillStyle='rgba(255,130,80,.24)'; // blush
-    ctx.beginPath(); ctx.ellipse(sx-12,sy+5,6,3.5,0,0,Math.PI*2); ctx.fill();
-    ctx.beginPath(); ctx.ellipse(sx+12,sy+5,6,3.5,0,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle='rgba(110,50,0,.82)'; // eyes
-    ctx.beginPath(); ctx.arc(sx-8,sy-7,3,0,Math.PI*2); ctx.fill();
-    ctx.beginPath(); ctx.arc(sx+8,sy-7,3,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle='rgba(255,255,255,.95)'; // eye shine
-    ctx.beginPath(); ctx.arc(sx-7,sy-8.5,1.1,0,Math.PI*2); ctx.fill();
-    ctx.beginPath(); ctx.arc(sx+9,sy-8.5,1.1,0,Math.PI*2); ctx.fill();
-    ctx.strokeStyle='rgba(110,50,0,.72)'; ctx.lineWidth=2.2; ctx.lineCap='round'; // smile
-    ctx.beginPath(); ctx.arc(sx,sy+1,9,.15*Math.PI,.85*Math.PI); ctx.stroke();
-    ctx.restore();
     /* sparkles — keep near sun */
     sparks.forEach((p,i) => {
       p.life++;
@@ -1647,6 +1619,8 @@ const SFX = (() => {
       ctx.fillStyle=`rgba(255,242,120,${a})`;
       ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2); ctx.fill(); ctx.shadowBlur=0;
     });
+    /* clouds — draw on top of sun when cloud cover > 0 */
+    if (_wd.cloudCover > 5) dCloudy(t);
   }
 
   function dNight(t) {
