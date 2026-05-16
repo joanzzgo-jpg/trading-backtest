@@ -1503,29 +1503,32 @@ const SFX = (() => {
     shootTimer = 200+Math.floor(Math.random()*250);
   }
 
-  /* ── smooth bezier cloud ── */
+  /* ── cumulus cloud: overlapping circles union, top-lit gradient ── */
   function _cloud(cx, cy, w, alpha) {
     ctx.save(); ctx.globalAlpha = alpha;
-    const h = w * 0.44;
-    /* organic silhouette traced with bezier curves */
+    const h = w * 0.42;
+    const baseY = cy + h * 0.35; // flat-ish bottom line
+    /* 6 overlapping puffs: low edges, taller center → natural cumulus */
+    const puffs = [
+      [cx - w*.40, baseY - h*.18, h*.46],  // left edge
+      [cx - w*.20, baseY - h*.50, h*.66],  // upper-left
+      [cx + w*.02, baseY - h*.72, h*.78],  // top (tallest)
+      [cx + w*.22, baseY - h*.48, h*.62],  // upper-right
+      [cx + w*.40, baseY - h*.18, h*.46],  // right edge
+      [cx + w*.02, baseY - h*.20, h*.55],  // bottom-center filler
+    ];
     ctx.beginPath();
-    ctx.moveTo(cx - w*.40, cy + h*.55);
-    ctx.bezierCurveTo(cx - w*.40, cy + h*.92, cx + w*.40, cy + h*.92, cx + w*.40, cy + h*.55); /* flat bottom */
-    ctx.bezierCurveTo(cx + w*.60, cy + h*.55, cx + w*.62, cy + h*.06, cx + w*.36, cy - h*.04); /* right up */
-    ctx.bezierCurveTo(cx + w*.30, cy - h*.52, cx + w*.08, cy - h*.56, cx + w*.04, cy - h*.08); /* top-right puff */
-    ctx.bezierCurveTo(cx + w*.06, cy - h*.90, cx - w*.20, cy - h*.94, cx - w*.16, cy - h*.08); /* tallest center puff */
-    ctx.bezierCurveTo(cx - w*.20, cy - h*.58, cx - w*.50, cy - h*.50, cx - w*.44, cy - h*.04); /* top-left puff */
-    ctx.bezierCurveTo(cx - w*.62, cy + h*.06, cx - w*.60, cy + h*.55, cx - w*.40, cy + h*.55); /* left down */
-    ctx.closePath();
-    /* volumetric gradient: bright white top → blue-grey bottom */
-    const g = ctx.createRadialGradient(cx - w*.07, cy - h*.18, 0, cx, cy + h*.30, w*.72);
-    g.addColorStop(0.00, "rgba(250,253,255,.96)");
-    g.addColorStop(0.38, "rgba(232,243,252,.92)");
-    g.addColorStop(0.75, "rgba(200,222,242,.82)");
-    g.addColorStop(1.00, "rgba(168,198,226,.60)");
+    for (const [px, py, pr] of puffs) {
+      ctx.moveTo(px + pr, py);
+      ctx.arc(px, py, pr, 0, Math.PI * 2);
+    }
+    /* linear gradient: white top → soft blue-grey shadow underneath */
+    const g = ctx.createLinearGradient(cx, cy - h*1.05, cx, baseY + h*.10);
+    g.addColorStop(0.00, "rgba(255,255,255,.97)");
+    g.addColorStop(0.42, "rgba(244,249,254,.93)");
+    g.addColorStop(0.78, "rgba(202,220,238,.80)");
+    g.addColorStop(1.00, "rgba(170,194,220,.60)");
     ctx.fillStyle = g; ctx.fill();
-    /* subtle bright edge highlight */
-    ctx.strokeStyle = "rgba(255,255,255,.22)"; ctx.lineWidth = 1.2; ctx.stroke();
     ctx.restore();
   }
 
