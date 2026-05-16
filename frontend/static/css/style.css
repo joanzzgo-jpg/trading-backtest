@@ -94,11 +94,27 @@ html.perf-mode .btn-load { background: #FF6A1A; border-color: #FF6A1A; color: #F
 html.perf-mode .btn-load:hover { background: #E55A0A; border-color: #E55A0A; }
 html.perf-mode .topbar-brand-name,
 html.perf-mode .topbar-brand-sub { color: #1F1F1F; }
-/* 勝率欄在亮色下加邊線方便閱讀 */
+/* 勝率欄在亮色下：純白底＋單純邊線，移除暗色漸層、橘光暈、陰影 */
 html.perf-mode .tb-winrate {
-  background: #FAFAFA;
-  border: 1px solid #E5E5E5;
+  background: #FAFAFA !important;
+  border: 1px solid #E5E5E5 !important;
+  box-shadow: none !important;
 }
+html.perf-mode .tb-wr-tag { color: #FF6A1A; }
+/* 圖表面板下分隔線顏色淡化 */
+html.perf-mode .pane-divider { background: #E5E5E5; }
+/* 主圖右上「⚙」齒輪本來就已隱藏；指標面板若還是開著時，文字色 fallback */
+html.perf-mode .ind-sp-row,
+html.perf-mode .ind-sp-lbl,
+html.perf-mode .ind-sp-wlbl { color: #1F1F1F; }
+/* 行情列表（ticker panel）內部色 fallback */
+html.perf-mode .tk-mkt-btn { color: #1F1F1F; border-color: #E5E5E5; }
+html.perf-mode .tk-mkt-btn:hover:not(.active) { background: #F5F5F5; }
+html.perf-mode .tk-mkt-btn.active { background: #FF6A1A; color: #FFFFFF; border-color: #FF6A1A; }
+/* 自選清單 hover 顏色 */
+html.perf-mode .wl-item:hover { background: #F5F5F5; }
+/* 圖例文字 fallback：本來會吃 JS 動態色，極簡模式統一深灰 */
+html.perf-mode .leg-toggle .leg-val { color: #1F1F1F; }
 
 /* 極簡模式：背景效能優化 ============================
    舊裝置最大的 GPU 負擔來自 backdrop-filter: blur() 跟大面積陰影/濾鏡，

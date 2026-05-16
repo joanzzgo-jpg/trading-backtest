@@ -1,6 +1,27 @@
 document.addEventListener("DOMContentLoaded", async () => {
   loadPrefs();
 
+  // 極簡模式：覆蓋 C（指標／線條／蠟燭顏色）為純白底專用配色（in-memory only，savePrefs 已擋）
+  // 黃色、淡青、淡藍在白底上看不見，這份 palette 全部換成在白底上對比夠的深色
+  if (document.documentElement.classList.contains("perf-mode")) {
+    Object.assign(C, {
+      up: "#ef5350", down: "#26a69a",
+      borderUp: "#ef5350", borderDown: "#26a69a",
+      wickUp: "#ef5350", wickDown: "#26a69a",
+      volUp: "#ef5350", volDown: "#26a69a",
+      bbU: "#1976d2", bbM: "#f57c00", bbL: "#1976d2",      // 黃色換成深橘
+      kdjK: "#d32f2f", kdjD: "#1565c0", kdjJ: "#ef6c00",
+      kdjH20: "#9e9e9e", kdjH50: "#bdbdbd", kdjH80: "#9e9e9e",
+      kdjCrossBull: "#16a34a", kdjCrossBear: "#dc2626",
+      rsi14: "#6a1b9a", rsi7: "#d32f2f",
+      rsiH30: "#9e9e9e", rsiH50: "#bdbdbd", rsiH70: "#9e9e9e",
+      macd: "#1565c0", macdSig: "#ef6c00", macdHist: "#9e9e9e",
+      crtBull: "#16a34a", crtBear: "#dc2626",
+      resonanceBull: "#00838f", resonanceBear: "#ef6c00",  // 淡青換成深青
+      bg: "#FFFFFF", chartBg: "#FFFFFF",
+    });
+  }
+
   _loadWatchlist();
   loadLastSymbol();     // 還原上次標的、交易所、市場、時間框架
   loadSystemColors();

@@ -13,6 +13,8 @@ function hexAlpha(hex, opacity) {
 
 /* ── localStorage ── */
 function savePrefs() {
+  // 極簡模式禁止寫入 chart 偏好——避免暫時套上的純白配色汙染使用者的正常模式設定
+  if (document.documentElement.classList.contains("perf-mode")) return;
   try {
     localStorage.setItem("chartColors",     JSON.stringify(C));
     localStorage.setItem("chartStyles",     JSON.stringify(S));
