@@ -151,15 +151,23 @@ def _calc_crt_winrate(df: pd.DataFrame) -> dict:
             om, otm, ob, otb = _scan_dual(i + 2, float(stop_px), direction)
             _push_signal(sig_time, d_str, "ab", direction, om, otm, ob, otb)
 
-    # ── 訊號六 S6（CRT 放量確認）──────────────────────────────
+    # ── 訊號六 S6（CRT 放量觸軌）──────────────────────────────
+    # 新規則：CRT + 放量 + 訊號棒影線觸到布林上/下軌 + 訊號棒沒碰到中軌
+    # 這樣確保進場時價格在「極端 + 還沒回頭」位置，有足夠空間衝中軌（target）
     VOL_LOOKBACK = 20
     VOL_MULT     = 1.5
     if "volume" in df.columns and n >= VOL_LOOKBACK + 2:
         vol = df["volume"].fillna(0).astype(float).to_numpy()
         vol_prior_ma = pd.Series(vol).shift(1).rolling(VOL_LOOKBACK).mean().to_numpy()
         vol_surge = ~np.isnan(vol_prior_ma) & (vol >= vol_prior_ma * VOL_MULT)
-        s6_short = (crt == -1) & vol_surge
-        s6_long  = (crt ==  1) & vol_surge
+        # 觸軌條件（high 觸上軌 / low 觸下軌）
+        touch_upper = ~np.isnan(bb_up) & (highs >= bb_up)
+        touch_lower = ~np.isnan(bb_lo) & (lows  <= bb_lo)
+        # 沒碰到中軌（短：low > middle；多：high < middle）
+        no_touch_mid_short = ~np.isnan(bb_mid) & (lows  > bb_mid)
+        no_touch_mid_long  = ~np.isnan(bb_mid) & (highs < bb_mid)
+        s6_short = (crt == -1) & vol_surge & touch_upper & no_touch_mid_short
+        s6_long  = (crt ==  1) & vol_surge & touch_lower & no_touch_mid_long
         s6_short[n-1] = False
         s6_long[n-1]  = False
         for i in np.flatnonzero(s6_short | s6_long):
@@ -181,14 +189,16 @@ def _calc_crt_winrate(df: pd.DataFrame) -> dict:
         c_hi, c_lo_ = highs[2:n-1], lows[2:n-1]
         c_bbu, c_bbl, c_bbm = bb_up[2:n-1], bb_lo[2:n-1], bb_mid[2:n-1]
 
+        # 排除「真正觸軌」：c_hi 必須 < bb_upper（嚴格不能觸到）才允許 S3 短
+        # 舊版用 *0.995 緩衝太嚴，把離上軌 0.5% 內的都當「觸軌」排掉了
         s3_short = (a_res == -1) & ~((a_crt == -1) & (a_cross == -1)) \
                  & (b_res == -1) & ~((b_crt == -1) & (b_cross == -1)) \
                  & (c_cross == -1) & ~((c_crt == -1) & (c_res == -1)) \
-                 & ~np.isnan(c_bbu) & (c_hi < c_bbu * 0.995)
+                 & ~np.isnan(c_bbu) & (c_hi < c_bbu)
         s3_long  = (a_res ==  1) & ~((a_crt ==  1) & (a_cross ==  1)) \
                  & (b_res ==  1) & ~((b_crt ==  1) & (b_cross ==  1)) \
                  & (c_cross ==  1) & ~((c_crt ==  1) & (c_res ==  1)) \
-                 & ~np.isnan(c_bbl) & (c_lo_ > c_bbl * 1.005)
+                 & ~np.isnan(c_bbl) & (c_lo_ > c_bbl)
 
         s4_short = (a_res == -1) & (a_crt == 0) & (a_cross == 0) \
                  & (b_res == 0)  & (b_crt == 0) & (b_cross == 0) \

@@ -259,9 +259,8 @@ html, body {
   display: flex;
   align-items: center;
   gap: 0;
-  /* flex:0 1 auto → 不主動 grow（讓 winrate 的 margin auto 居中），但可以 shrink */
-  flex: 0 1 auto;
-  overflow-x: auto;
+  /* flex-shrink:0 保留左側內容空間；不主動 grow（讓 winrate 的 margin auto 居中） */
+  flex: 0 0 auto;
   min-width: 0;
   scrollbar-width: none;
 }
@@ -580,9 +579,9 @@ html, body {
   margin: 0 auto;
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 0 11px;
-  height: 32px;
+  gap: 3px;
+  padding: 0 7px;
+  height: 30px;
   flex-shrink: 1;
   min-width: 0;
   overflow: hidden;
@@ -646,13 +645,14 @@ html.perf-mode .tb-wr-toggle.band {
 .tb-wr-block {
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 0 2px;
+  gap: 3px;
+  padding: 0 1px;
+  flex-shrink: 0;
 }
 
 /* 訊號符號 */
 .tb-wr-icon {
-  font-size: 9px;
+  font-size: 8px;
   flex-shrink: 0;
   cursor: default;
   line-height: 1;
@@ -682,7 +682,7 @@ html.perf-mode .tb-wr-toggle.band {
   line-height: 1;
 }
 .tb-wr-arr {
-  font-size: 9px;
+  font-size: 8px;
   font-style: normal;
   flex-shrink: 0;
   line-height: 1;
@@ -690,7 +690,7 @@ html.perf-mode .tb-wr-toggle.band {
 .tb-wr-arr.s { color: #ef5350; }
 .tb-wr-arr.l { color: #26a69a; }
 .tb-wr-pct {
-  font-size: 10.5px;
+  font-size: 9.5px;
   font-weight: 700;
   color: var(--muted);
   letter-spacing: .01em;
@@ -698,7 +698,7 @@ html.perf-mode .tb-wr-toggle.band {
 .tb-wr-v.good .tb-wr-pct { color: #4dd0c4; text-shadow: 0 0 5px rgba(77,208,196,.45); }
 .tb-wr-v.bad  .tb-wr-pct { color: #ef7070; }
 .tb-wr-cnt {
-  font-size: 8px;
+  font-size: 7px;
   color: rgba(154,122,88,.5);
   letter-spacing: 0;
 }
@@ -706,7 +706,7 @@ html.perf-mode .tb-wr-toggle.band {
 /* 訊號間分隔線 */
 .tb-wr-divider {
   width: 1px;
-  height: 20px;
+  height: 16px;
   background: linear-gradient(to bottom, transparent, rgba(255,145,71,.14), transparent);
   flex-shrink: 0;
 }
