@@ -348,6 +348,7 @@ html, body {
 .fx-btn.thunder-active  { background: rgba(120,100,255,.22); color: #A090FF; border-color: rgba(120,100,255,.35); }
 .fx-btn.mahjong-active  { background: rgba(200,50,50,.20);  color: #E84040; border-color: rgba(200,50,50,.35); }
 .fx-btn.dice-active     { background: rgba(80,160,80,.20);  color: #5CBF5C; border-color: rgba(80,160,80,.35); }
+.fx-btn.nofx-active     { background: rgba(120,120,120,.20); color: #BFBFBF; border-color: rgba(120,120,120,.45); }
 
 .tb-sidebar-btn { margin-right: 2px; }
 

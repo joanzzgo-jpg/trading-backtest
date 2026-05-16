@@ -353,6 +353,7 @@
     _lastClick = now;
     const cx = e.clientX, cy = e.clientY;
     const wt = window._getWeatherType ? window._getWeatherType() : null;
+    if (wt === "off") return;  // 「無」模式：跳過點擊特效
     if      (wt === "leaves")                 spawnLeaves(cx, cy);
     else if (wt === "rain" || wt === "storm") spawnRain(cx, cy);
     else if (wt === "snow")                   spawnSnow(cx, cy);
@@ -2020,6 +2021,7 @@ const SFX = (() => {
   /* ── main loop ── */
   function draw() {
     ctx.clearRect(0,0,W,H);
+    if (type === "off") return;  // 「無」模式：清空畫布即可，不畫任何特效
     const t=Date.now()*.001;
     ({sunny:dSunny,night:dNight,cloudy:dCloudy,fog:dFog,rain:dRain,snow:dSnow,storm:dStorm,thunder:dThunder,mahjong:dMahjong,leaves:dLeaves,spring:dSpring})[type]?.(t);
     _drawAstro(t);
@@ -2113,6 +2115,7 @@ const SFX = (() => {
     document.getElementById("springToggleBtn")  ?.classList.remove("spring-active");
     document.getElementById("thunderToggleBtn") ?.classList.remove("thunder-active");
     document.getElementById("mahjongToggleBtn") ?.classList.remove("mahjong-active");
+    document.getElementById("noFxToggleBtn")    ?.classList.remove("nofx-active");
   }
   window._getWeatherType = () => type;
 
@@ -2127,6 +2130,11 @@ const SFX = (() => {
   // 啟動指定手動天氣特效（含按鈕高亮）；name 對應 type 值
   function _applyManualWx(name) {
     _clearWeatherBtns();
+    if (name === "off") {
+      start("off");
+      document.getElementById("noFxToggleBtn")?.classList.add("nofx-active");
+      return;
+    }
     const cls = (name === "leaves") ? "leaf-active" : name + "-active";
     const btnId = (name === "leaves") ? "leafToggleBtn" : name + "ToggleBtn";
     if (name === "thunder") { thunderBolts=[]; thunderFlashes=[]; thunderTimer=10; }
@@ -2137,7 +2145,7 @@ const SFX = (() => {
   window._restoreManualWxIfAny = function() {
     const saved = _getManualWx();
     if (!saved) return false;
-    const valid = ["leaves","rain","snow","spring","thunder","mahjong"];
+    const valid = ["leaves","rain","snow","spring","thunder","mahjong","off"];
     if (!valid.includes(saved)) { _clearManualWx(); return false; }
     _applyManualWx(saved);
     return true;
@@ -2155,6 +2163,7 @@ const SFX = (() => {
   window._snowToggle    = () => _toggleWx("snow");
   window._springToggle  = () => _toggleWx("spring");
   window._mahjongToggle = () => _toggleWx("mahjong");
+  window._noFxToggle    = () => _toggleWx("off");
   window._thunderToggle = () => _toggleWx("thunder");
 
   window.addEventListener("resize", resize);
