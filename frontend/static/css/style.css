@@ -235,6 +235,10 @@ html, body {
   align-items: center;
   flex-shrink: 0;
   height: var(--topbar-h);
+  /* TF 按鈕區永遠在 winrate 之上，且有實心底色避免被遮 */
+  position: relative;
+  z-index: 3;
+  background: var(--bg2);
 }
 .mob-load { display: none; }
 .tb-desk-only { /* dividers only shown on desktop */ }
@@ -568,13 +572,17 @@ html, body {
 .sym-chg.dn        { color: var(--green); }
 
 /* ═══ TOPBAR WIN-RATE ═══ */
-/* 視窗寬度不夠時隱藏細項，只留總勝率，避免擋到時間級別按鈕 */
-@media (max-width: 1400px) {
+/* 視窗寬度不夠時依序隱藏細項 → 整欄，避免擋到 TF 按鈕區 */
+@media (max-width: 1500px) {
   .tb-winrate .tb-wr-block,
   .tb-winrate .tb-wr-divider {
     display: none;
   }
 }
+@media (max-width: 1200px) {
+  .tb-winrate { display: none !important; }
+}
+html.perf-mode .topbar-tf { background: #FFFFFF !important; }
 .tb-winrate {
   position: absolute;
   left: 50%;
