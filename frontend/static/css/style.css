@@ -135,6 +135,7 @@ html.perf-mode .wr-ab  { color: #FB8C00; }
 html.perf-mode .wr-s3  { color: #8E24AA; }
 html.perf-mode .wr-s4  { color: #00897B; }
 html.perf-mode .wr-s5  { color: #F57C00; }
+html.perf-mode .wr-s6  { color: #3949AB; }
 html.perf-mode .tb-wr-pct { color: #1F1F1F; }
 html.perf-mode .tb-wr-v.good .tb-wr-pct { color: #16a34a; text-shadow: none; }
 html.perf-mode .tb-wr-v.bad  .tb-wr-pct { color: #dc2626; text-shadow: none; }
@@ -636,6 +637,7 @@ html, body {
 .wr-s3  { color: #ce93d8; }
 .wr-s4  { color: #80cbc4; }
 .wr-s5  { color: #ffb74d; }
+.wr-s6  { color: #9fa8da; }
 
 /* 空/多兩行堆疊 */
 .tb-wr-vals {

@@ -262,7 +262,7 @@ def get_crt_winrate(
 ):
     """CRT 策略各時間級別勝率（每個子統計至少 10 個案例，不足則往前翻倍）"""
     from datetime import date, timedelta
-    cache_key = f"crt_wr7:{market}:{symbol}:{exchange}:{timeframe}"
+    cache_key = f"crt_wr8:{market}:{symbol}:{exchange}:{timeframe}"
     cached = cache.get(cache_key, ttl=3600)
     if cached:
         return cached
@@ -276,7 +276,7 @@ def get_crt_winrate(
         """每個訊號的空/多案例數都達到 MIN_CASES"""
         return all(
             (r.get(sig) or {}).get(d, {}).get("total", 0) >= MIN_CASES
-            for sig in ("ab", "s3", "s4", "s5") for d in ("short", "long")
+            for sig in ("ab", "s3", "s4", "s5", "s6") for d in ("short", "long")
         )
 
     def _fetch_df(days: int) -> pd.DataFrame:

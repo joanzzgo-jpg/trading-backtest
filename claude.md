@@ -218,6 +218,15 @@
 - 進場：C 棒下一根（`entry_i = i + 3`）
 - 停損：三棒最高高點（做空）/ 最低低點（做多）
 
+#### 訊號六（S6）：CRT 先行二棒版（A=純 CRT，B=KDJ 叉＋共振 同方向）
+與 S2 對稱互補——S2 是「共振先行」、S6 是「CRT 結構先行 + 雙重動能/過熱確認」。
+- **A 棒（i）**：**只有** CRT（CRT=±1、KDJ叉=0、resonance=0）
+- **B 棒（i+1）**：**同時要** KDJ叉 + 共振（同方向），且 B 不能有 CRT
+- **排除條件**：B 棒 low(空)/high(多) 碰至 BB 中軌 → 跳過（目標已提前觸及）
+- 進場：B 棒下一根（`entry_i = i + 2`）
+- 停損：**A/B 兩棒**最高高點（做空）/ 最低低點（做多）
+- 前端圖示：◇（紫藍 `#9fa8da`，極簡模式 `#3949AB`）；標籤：空⁶／多⁶
+
 #### 共同勝負條件（全部訊號適用）
 - **獲勝**：後續 K 棒 `low ≤ BB中軌`（做空）或 `high ≥ BB中軌`（做多）
 - **失敗**：後續 K 棒觸及停損位
@@ -236,24 +245,25 @@ _scan_outcome(df, entry_i, stop_px, dir)           # 回傳 ('win'/'loss'/None, 
 
 # 回傳結構
 {
-  "total", "wins", "win_rate",   # S2~S5 合計（S1 不計入）
-  "short": {...}, "long": {...}, # S2~S5 空/多合計
+  "total", "wins", "win_rate",   # S2~S6 合計（S1 不計入）
+  "short": {...}, "long": {...}, # S2~S6 空/多合計
   "abc": {"short":{}, "long":{}},# 訊號一（僅顯示）
   "ab":  {"short":{}, "long":{}},# 訊號二
   "s3":  {"short":{}, "long":{}},# 訊號三
   "s4":  {"short":{}, "long":{}},# 訊號四
   "s5":  {"short":{}, "long":{}},# 訊號五
+  "s6":  {"short":{}, "long":{}},# 訊號六（CRT 先行版）
   "from_date": "YYYY-MM-DD",     # 回測起始日（最早 K 棒日期）
-  "recent": [...],               # 最近30筆（k: "abc"/"ab"/"3"/"4"/"5"）
+  "recent": [...],               # 最近30筆（k: "abc"/"ab"/"3"/"4"/"5"/"6"）
   "signals": [{"t","d","k","r","ot"}]  # 所有訊號（含進場時間、方向、種類、結果）
 }
 # _stats(w, l) → {"total", "wins", "losses", "win_rate"}
 ```
 
-### 最低案例數保證（S2~S5 各空/多各≥10筆）
-- `MIN_CASES = 10`；`_sufficient(r)` 檢查 S2/S3/S4/S5 各空/多共 **8 個**子統計（S1 不在內）
+### 最低案例數保證（S2~S6 各空/多各≥10筆）
+- `MIN_CASES = 10`；`_sufficient(r)` 檢查 S2/S3/S4/S5/S6 各空/多共 **10 個**子統計（S1 不在內）
 - 若不足，自動加倍 `days` 重新抓資料（上限 `TF_MAX`），直到足夠或抵達上限為止
-- cache key：`crt_wr7:market:symbol:exchange:timeframe`（每次訊號邏輯變更時遞增版號）
+- cache key：`crt_wr8:market:symbol:exchange:timeframe`（每次訊號邏輯變更時遞增版號）
 
 ### 各時間框架資料來源與回測天數
 | TF | 初始天數 | 天數上限 | TW 來源 | US 來源 | Crypto |
@@ -281,6 +291,7 @@ _scan_outcome(df, entry_i, stop_px, dir)           # 回傳 ('win'/'loss'/None, 
   | `"3"` | arrowDown/Up | `#ce93d8` | `#b39ddb` | 空³/多³ |
   | `"4"` | arrowDown/Up | `#80cbc4` | `#4db6ac` | 空⁴/多⁴ |
   | `"5"` | arrowDown/Up | `#ffb74d` | `#ffa726` | 空⁵/多⁵ |
+  | `"6"` | arrowDown/Up | `#9fa8da` | `#7986cb` | 空⁶/多⁶ |
 - **結果標記**（`s.r` + `s.ot` 欄位，所有訊號通用）：
   - `s.r = "w"` → 綠色 `#26a69a`，文字 `✓`，位置在目標方向
   - `s.r = "l"` → 紅色 `#ef5350`，文字 `✗`，位置在止損方向
@@ -288,11 +299,11 @@ _scan_outcome(df, entry_i, stop_px, dir)           # 回傳 ('win'/'loss'/None, 
 - 透過 `lastWRSignalMarkers` 合入 `_applyMainMarkers()`；切換標的/時框時清除
 
 ### 勝率顯示欄（topbar 正中央，Tech HUD 設計）
-- 共 5 組訊號（S1~S5），各有空/多兩行，▼=做空（紅），▲=做多（綠），顯示 `勝率% W/L筆數`
-- 元素 ID：`wrAbcS/L`（S1）、`wrAbS/L`（S2）、`wrS3S/L`（S3）、`wrS4S/L`（S4）、`wrS5S/L`（S5）
+- 共 6 組訊號（S1~S6），各有空/多兩行，▼=做空（紅），▲=做多（綠），顯示 `勝率% W/L筆數`
+- 元素 ID：`wrAbcS/L`（S1）、`wrAbS/L`（S2）、`wrS3S/L`（S3）、`wrS4S/L`（S4）、`wrS5S/L`（S5）、`wrS6S/L`（S6）
 - `wrAll`：**S2~S5** 合計勝率（S1 不計入）；`wrFromDate`：回測起始日（`←YYYY/MM/DD`）；`wrStatus`：「N筆」
 - 勝率 ≥60% → 亮綠（`.good`），<45% → 淡紅（`.bad`）
-- 圖示顏色：S1=紅●、S2=橘■、S3=紫▲、S4=青綠◆、S5=橘黃★
+- 圖示顏色：S1=紅●、S2=橘■、S3=紫▲、S4=青綠◆、S5=橘黃★、S6=紫藍◇
 - 風格：毛玻璃背景 + 橘色漸層邊框 + SF Mono 字型 + glow 效果（`backdrop-filter: blur(18px)`）；無 CRT 文字標籤
 
 ### 時間戳格式規範（重要）

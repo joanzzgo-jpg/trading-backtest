@@ -85,6 +85,7 @@ def _calc_crt_winrate(df: pd.DataFrame) -> dict:
     ws_3   = ls_3   = wl_3   = ll_3   = 0
     ws_4   = ls_4   = wl_4   = ll_4   = 0
     ws_5   = ls_5   = wl_5   = ll_5   = 0
+    ws_6   = ls_6   = wl_6   = ll_6   = 0
     recent:  list = []
     signals: list = []
 
@@ -144,6 +145,44 @@ def _calc_crt_winrate(df: pd.DataFrame) -> dict:
                 if outcome == "win": wl_ab += 1
                 else:                ll_ab += 1
             recent.append({"t": sig_time, "d": d_str, "r": "w" if outcome == "win" else "l", "k": "ab"})
+
+    # ── 訊號六 S6（CRT 先行二棒版）：A=純 CRT，B=KDJ叉+共振 ────────
+    # 與 S2 對稱：S2 是「共振先行」、S6 是「結構先行 + 雙重動能/過熱確認」
+    if n >= 3:
+        a_res2 = res[:n-2]; a_crt2 = crt[:n-2]; a_cross2 = cross[:n-2]
+        b_res2 = res[1:n-1]; b_crt2 = crt[1:n-1]; b_cross2 = cross[1:n-1]
+        b_bb2 = bb_mid[1:n-1]
+        b_lo2 = lows[1:n-1]; b_hi2 = highs[1:n-1]
+        # A 純 CRT（only crt，無 cross 無 resonance）
+        # B 同時要 KDJ叉 + 共振（同方向），且 B 不能有 CRT（避免重疊到 S1）
+        s6_short = (a_crt2 == -1) & (a_cross2 == 0) & (a_res2 == 0) \
+                 & (b_cross2 == -1) & (b_res2 == -1) & (b_crt2 == 0) \
+                 & ~np.isnan(b_bb2) & (b_lo2 > b_bb2)
+        s6_long  = (a_crt2 ==  1) & (a_cross2 == 0) & (a_res2 == 0) \
+                 & (b_cross2 ==  1) & (b_res2 ==  1) & (b_crt2 == 0) \
+                 & ~np.isnan(b_bb2) & (b_hi2 < b_bb2)
+        for i in np.flatnonzero(s6_short | s6_long):
+            i = int(i)
+            direction = "short" if s6_short[i] else "long"
+            ib = i + 1
+            # 停損用 A/B 兩棒的極端（比 S2 多考慮 A 棒）
+            if direction == "short":
+                stop_px = max(highs[i], highs[ib])
+            else:
+                stop_px = min(lows[i], lows[ib])
+            d_str = "s" if direction == "short" else "l"
+            sig_time = times_iso[ib]
+            outcome, ot = _scan(i + 2, float(stop_px), direction)
+            signals.append({"t": sig_time, "d": d_str, "k": "6",
+                            "r": "w" if outcome == "win" else ("l" if outcome else None), "ot": ot})
+            if outcome is None: continue
+            if direction == "short":
+                if outcome == "win": ws_6 += 1
+                else:                ls_6 += 1
+            else:
+                if outcome == "win": wl_6 += 1
+                else:                ll_6 += 1
+            recent.append({"t": sig_time, "d": d_str, "r": "w" if outcome == "win" else "l", "k": "6"})
 
     # ── 訊號三/四/五（三棒）共用 slice ─────────────────────────
     if n >= 4:
@@ -235,8 +274,8 @@ def _calc_crt_winrate(df: pd.DataFrame) -> dict:
         return {"total": t, "wins": w, "losses": l, "win_rate": round(w / t * 100, 1) if t else None}
 
     # 訊號一不計入總勝率（僅顯示，不影響合計）
-    wins_s = ws_ab + ws_3 + ws_4 + ws_5;  losses_s = ls_ab + ls_3 + ls_4 + ls_5
-    wins_l = wl_ab + wl_3 + wl_4 + wl_5;  losses_l = ll_ab + ll_3 + ll_4 + ll_5
+    wins_s = ws_ab + ws_3 + ws_4 + ws_5 + ws_6;  losses_s = ls_ab + ls_3 + ls_4 + ls_5 + ls_6
+    wins_l = wl_ab + wl_3 + wl_4 + wl_5 + wl_6;  losses_l = ll_ab + ll_3 + ll_4 + ll_5 + ll_6
     tot_s = wins_s + losses_s; tot_l = wins_l + losses_l
     total = tot_s + tot_l;     wins  = wins_s + wins_l
     recent.sort(key=lambda x: x["t"])
@@ -253,6 +292,7 @@ def _calc_crt_winrate(df: pd.DataFrame) -> dict:
         "s3":       {"short": _stats(ws_3,   ls_3),   "long": _stats(wl_3,   ll_3)},
         "s4":       {"short": _stats(ws_4,   ls_4),   "long": _stats(wl_4,   ll_4)},
         "s5":       {"short": _stats(ws_5,   ls_5),   "long": _stats(wl_5,   ll_5)},
+        "s6":       {"short": _stats(ws_6,   ls_6),   "long": _stats(wl_6,   ll_6)},
         "from_date": from_date,
         "recent":   recent[-30:],
         "signals":  signals,
