@@ -77,28 +77,36 @@ def get_ohlcv(req: OHLCVRequest):
         if req.market == "tw":
             if "/" in req.symbol:
                 raise ValueError(f"{req.symbol} 不是台股代號，請確認市場選擇")
-            if req.timeframe in ("5m", "15m", "1h"):
-                max_d = TW_YF_MAX_DAYS.get(req.timeframe, 60)
+            if req.timeframe in ("5m", "15m", "1h", "4h"):
+                # 4h 走 1h 來源再重採樣（避免 yfinance 1h bug）
+                src_tf = "1h" if req.timeframe == "4h" else req.timeframe
+                max_d = TW_YF_MAX_DAYS.get(src_tf, 60)
                 if use_limit:
-                    days = min(max_d, req.limit // {"5m":78,"15m":26,"1h":7}.get(req.timeframe,26))
+                    bars_per_day = {"5m": 78, "15m": 26, "1h": 5, "4h": 2}.get(req.timeframe, 26)
+                    days = min(max_d, req.limit // bars_per_day)
                     days = max(days, 5)
                     end   = date.today().isoformat()
                     start = (date.today() - timedelta(days=days)).isoformat()
                 else:
                     end   = req.end or date.today().isoformat()
-                    # yfinance 台股實際上限約 60 天（1h 理論 730 天但常失敗）
                     start_raw = req.start or end
-                    min_start = (date.fromisoformat(end) - timedelta(days=60)).isoformat()
+                    min_start = (date.fromisoformat(end) - timedelta(days=max_d)).isoformat()
                     start = max(start_raw, min_start)
                 try:
-                    df = fetch_tw_intraday_yf(req.symbol, req.timeframe, start, end)
+                    df = fetch_tw_intraday_yf(req.symbol, src_tf, start, end)
                 except Exception:
                     # 無 token 時 FinMind 會直接 422，有 token 才 fallback
                     if req.finmind_token:
                         fm_start = max(start, (date.fromisoformat(end) - timedelta(days=90)).isoformat())
-                        df = fetch_tw_intraday(req.symbol, req.timeframe, fm_start, end, req.finmind_token)
+                        df = fetch_tw_intraday(req.symbol, src_tf, fm_start, end, req.finmind_token)
                     else:
                         raise
+                # 4h 重採樣（對齊台北 09:00 = UTC 01:00）
+                if req.timeframe == "4h":
+                    df = df.set_index("time").resample(
+                        "4h", origin="start_day", offset="1h"
+                    ).agg({"open":"first","high":"max","low":"min","close":"last","volume":"sum"}) \
+                     .dropna(subset=["open"]).reset_index()
                 if use_limit:
                     df = df.tail(req.limit)
             else:
@@ -300,7 +308,7 @@ def get_crt_winrate(
                         return fetch_tw_intraday(symbol, timeframe, start, end, finmind_token)
                     raise
             elif timeframe == "4h":
-                max_d = TW_YF_MAX_DAYS.get("1h", 730)
+                max_d = TW_YF_MAX_DAYS.get("1h", 60)
                 start = (date.today() - timedelta(days=min(days, max_d))).isoformat()
                 try:
                     _df = fetch_tw_intraday_yf(symbol, "1h", start, end)
@@ -310,7 +318,11 @@ def get_crt_winrate(
                     else:
                         raise
                 _df = _df.set_index("time")
-                _df = _df.resample("4h").agg({"open":"first","high":"max","low":"min","close":"last","volume":"sum"})
+                # offset="1h" 對齊到 UTC 01:00 = 台北 09:00（TW 開盤）
+                # 4h bins：UTC 01:00-04:59（TPE 09:00-13:00 主力交易）、05:00 後半段（13:00-13:30 收尾，極短）
+                _df = _df.resample("4h", origin="start_day", offset="1h").agg(
+                    {"open":"first","high":"max","low":"min","close":"last","volume":"sum"}
+                )
                 return _df.dropna(subset=["open"]).reset_index()
             else:
                 start = (date.today() - timedelta(days=days)).isoformat()

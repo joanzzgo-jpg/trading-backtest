@@ -335,6 +335,17 @@ _scan_outcome(df, entry_i, stop_px, dir)           # 回傳 ('win'/'loss'/None, 
 - yfinance 不完整棒時間戳可能錯誤（如 1h K 出現 11:40）
 - 修正：`df["time"] = df["time"].dt.floor(freq)`，再 `drop_duplicates(subset=["time"], keep="last")`
 
+### TW 1h 與 4h 內部用 15m 重採樣
+- yfinance 直接抓台股 1h 有兩個 bug：
+  - **成交量缺漏 ~37%**（少最後 30 分鐘 + 集合競價量）
+  - **開盤錯位**：第一根 1h 落在「10:00」而非「09:00」（少了第一個交易小時）
+- **修法**：`fetch_tw_intraday_yf(symbol, "1h", ...)` 內部改成「抓 15m → resample
+  `1h` with `origin="start_day", offset="1h"`」對齊到 UTC 01:00（台北 09:00）。
+  4h 同理：`offset="1h"` 對齊 09:00、第一個 4h bin 為 TPE 09:00-13:00。
+- **副作用**：1h 可回溯範圍從 730 天降為 60 天（受 15m 限制，`TW_YF_MAX_DAYS["1h"] = 60`）。
+- **開盤集合競價 vol=0 棒過濾**：yfinance 對台股 15m/1h 在 09:00 有時放一根
+  vol=0 的「集合競價快照」棒，影線會誤導圖表。一律 `df = df[df["volume"] > 0]` 過濾。
+
 ---
 
 ## 天文計算（`routes/weather.py`）

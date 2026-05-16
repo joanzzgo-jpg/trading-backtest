@@ -119,7 +119,9 @@ def fetch_tw_intraday(symbol: str, timeframe: str, start: str, end: str, api_tok
 YF_TF_MAP = {"5m": "5m", "15m": "15m", "1h": "1h", "4h": "1h"}  # yfinance 不支援 4h，用 1h 替代
 
 # yfinance 各 interval 最多可回溯天數
-YF_MAX_DAYS = {"5m": 60, "15m": 60, "1h": 730}
+# 注意：1h 改用 15m 內部重採樣（避開 yfinance 1h 對台股的成交量缺漏 bug），
+# 所以實際 1h 上限受 15m 60 天限制
+YF_MAX_DAYS = {"5m": 60, "15m": 60, "1h": 60}
 
 
 def _yf_history(ticker, interval: str, start: str, end: str):
@@ -167,15 +169,19 @@ def fetch_tw_intraday_yf(symbol: str, timeframe: str, start: str, end: str) -> p
     """
     用 yfinance 抓台股分鐘/小時資料（不需 token）。
     先試 .TW 再試 .TWO；若指定範圍失敗，自動縮短至近 30 天重試。
+
+    注意：1h 改用 15m 內部重採樣（避開 yfinance 1h 對台股的「成交量缺漏 + 開盤
+    錯位」bug——yfinance 直接抓 1h 會少 35% 成交量、第一根落在 10:00 而非 09:00）。
     """
     import yfinance as yf
     from datetime import date, timedelta
 
-    interval    = YF_TF_MAP.get(timeframe, "1h")
+    # 1h 內部用 15m 重組（解決 yfinance 1h bug）
+    src_tf      = "15m" if timeframe == "1h" else timeframe
+    interval    = YF_TF_MAP.get(src_tf, "1h")
     # yfinance end 不含當天，+1 天確保抓到今日資料
     end_incl    = (date.today() + timedelta(days=1)).isoformat()
     short_start = (date.today() - timedelta(days=30)).isoformat()
-    # 同樣修正傳入的 end
     end_incl_req = (date.fromisoformat(end) + timedelta(days=1)).isoformat() if end else end_incl
 
     for suffix in (".TW", ".TWO"):
@@ -196,10 +202,26 @@ def fetch_tw_intraday_yf(symbol: str, timeframe: str, start: str, end: str) -> p
         df = df.reset_index()
         # Floor to bar boundary so partial/in-progress bars (e.g. stamped 11:40
         # by yfinance instead of 11:00) align to clean period starts.
-        freq = {"5m": "5min", "15m": "15min", "1h": "60min", "4h": "240min"}.get(timeframe, "s")
-        df["time"] = pd.to_datetime(df["time"]).dt.floor(freq)
+        src_freq = {"5m": "5min", "15m": "15min"}.get(src_tf, "60min")
+        df["time"] = pd.to_datetime(df["time"]).dt.floor(src_freq)
         df = df.drop_duplicates(subset=["time"], keep="last").reset_index(drop=True)
-        return df.dropna(subset=["close"])
+        df = df.dropna(subset=["close"])
+        # ─ TW 開盤集合競價過濾 ──────────────────────────────
+        # yfinance 對台股 15m/1h 在 09:00 會放一根 vol=0「集合競價快照」棒：
+        # 第一根 1h「10:00」實際缺資料，第一根 15m「09:00」有資料但若 yfinance
+        # 回傳 vol=0 就濾掉。一律過濾以避免長影線誤導圖表。
+        df = df[df["volume"] > 0].reset_index(drop=True)
+        # ─ 1h 內部重採樣（15m → 1h，對齊台北 09:00 為第一根） ──
+        # 用 origin="start_day" + offset="1h" 把 1h bins 對齊到 UTC 01:00（=台北
+        # 09:00），讓第一根 1h 包含 09:00-09:59 完整成交量（解決 yfinance 1h bug）。
+        if timeframe == "1h":
+            df = df.set_index("time").resample(
+                "1h", origin="start_day", offset="1h"
+            ).agg({
+                "open": "first", "high": "max", "low": "min",
+                "close": "last", "volume": "sum",
+            }).dropna(subset=["open"]).reset_index()
+        return df
     raise ValueError(f"找不到 {symbol} 的分鐘資料（請確認代號正確，例如 2330）")
 
 
@@ -359,7 +381,7 @@ def fetch_tw_tickers() -> list:
     return result
 
 
-def fetch_tw_latest_bar_yf(symbol: str) -> dict | None:
+def fetch_tw_latest_bar_yf(symbol: str):
     """用 yfinance 抓最新一根日線（盤中即更新，盤後取當日收盤）"""
     try:
         import yfinance as yf
