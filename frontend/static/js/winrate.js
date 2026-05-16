@@ -1,4 +1,25 @@
 let _wrCache = {};
+let _wrCacheLast = null;  // 保留最近一次資料，給 toggle target 重渲用
+
+// 目標切換（中軌 ↔ 帶軌）狀態
+const _WR_VIEW_KEY = "wrTargetView";
+let _wrTargetView = "mid";
+try { _wrTargetView = localStorage.getItem(_WR_VIEW_KEY) || "mid"; } catch (e) {}
+
+function _initWrTargetBtn() {
+  const btn = document.getElementById("wrTargetToggle");
+  if (!btn) return;
+  btn.textContent = _wrTargetView === "band" ? "帶" : "中";
+  btn.classList.toggle("band", _wrTargetView === "band");
+}
+
+function _toggleWrTarget() {
+  _wrTargetView = _wrTargetView === "mid" ? "band" : "mid";
+  try { localStorage.setItem(_WR_VIEW_KEY, _wrTargetView); } catch (e) {}
+  _initWrTargetBtn();
+  if (_wrCacheLast) _renderWinRate(_wrCacheLast);
+}
+
 async function fetchWinRate() {
   const market    = document.getElementById("marketSelect")?.value || "crypto";
   const symbol    = document.getElementById("symbolInput")?.value?.trim() || "";
@@ -96,6 +117,10 @@ function _renderWRSignals(signals) {
 }
 
 function _renderWinRate(d) {
+  _wrCacheLast = d;
+  // 依目標切換取 mid（頂層）或 band（巢狀）
+  const view = (_wrTargetView === "band" && d && d.band) ? d.band : d;
+  d = view;
   const setRow = (id, s) => {
     const el = document.getElementById(id);
     if (!el) return;

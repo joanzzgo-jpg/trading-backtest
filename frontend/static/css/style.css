@@ -601,6 +601,32 @@ html, body {
 }
 .tb-winrate > * { pointer-events: auto; }
 
+/* 目標切換按鈕（中軌 ↔ 帶軌） */
+.tb-wr-toggle {
+  font: 700 9.5px/1 'SF Mono', 'Courier New', monospace;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid rgba(255,145,71,.32);
+  border-radius: 4px;
+  padding: 3px 5px;
+  cursor: pointer;
+  flex-shrink: 0;
+  margin-right: 2px;
+  transition: all .15s;
+  letter-spacing: .02em;
+}
+.tb-wr-toggle:hover { color: var(--text); border-color: rgba(255,145,71,.6); }
+.tb-wr-toggle.band {
+  color: #FFB878;
+  background: rgba(255,145,71,.18);
+  border-color: rgba(255,145,71,.7);
+}
+html.perf-mode .tb-wr-toggle { color: #8B8B8B; border-color: #E5E5E5; background: #FFFFFF; }
+html.perf-mode .tb-wr-toggle:hover { color: #1F1F1F; border-color: #FF6A1A; }
+html.perf-mode .tb-wr-toggle.band {
+  color: #FFFFFF; background: #FF6A1A; border-color: #FF6A1A;
+}
+
 /* 左側 CRT 標籤 */
 .tb-wr-tag {
   font-size: 7px;
