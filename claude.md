@@ -218,13 +218,14 @@
 - 進場：C 棒下一根（`entry_i = i + 3`）
 - 停損：三棒最高高點（做空）/ 最低低點（做多）
 
-#### 訊號六（S6）：CRT 先行二棒版（A=純 CRT，B=KDJ 叉＋共振 同方向）
-與 S2 對稱互補——S2 是「共振先行」、S6 是「CRT 結構先行 + 雙重動能/過熱確認」。
-- **A 棒（i）**：**只有** CRT（CRT=±1、KDJ叉=0、resonance=0）
-- **B 棒（i+1）**：**同時要** KDJ叉 + 共振（同方向），且 B 不能有 CRT
-- **排除條件**：B 棒 low(空)/high(多) 碰至 BB 中軌 → 跳過（目標已提前觸及）
-- 進場：B 棒下一根（`entry_i = i + 2`）
-- 停損：**A/B 兩棒**最高高點（做空）/ 最低低點（做多）
+#### 訊號六（S6）：放量共振單棒（共振 + 成交量 ≥ 前 20 根均量 × 1.5）
+邏輯：價格到極端（共振 = 觸軌 + KD 超買/賣 + RSI 超買/賣）＋ 大量參與 → 「衰竭/投降」反轉訊號。volume 作為進場濾網，過濾掉低量假訊號。
+- **訊號棒（i）**：`resonance == ±1` 同時 `volume[i] ≥ vol_prior_ma_20[i] × 1.5`
+  - `vol_prior_ma_20` = 前 20 根（不含當前）成交量均值，用 `pd.Series(vol).shift(1).rolling(20).mean()` 算
+  - 常數定義在 crt.py：`VOL_LOOKBACK = 20`、`VOL_MULT = 1.5`
+- **方向**：跟 resonance 同向（-1 做空 / +1 做多）
+- 進場：訊號棒下一根（`entry_i = i + 1`）
+- 停損：**訊號棒**最高（做空）/ 最低（做多）
 - 前端圖示：◇（紫藍 `#9fa8da`，極簡模式 `#3949AB`）；標籤：空⁶／多⁶
 
 #### 共同勝負條件（全部訊號適用）
@@ -252,7 +253,7 @@ _scan_outcome(df, entry_i, stop_px, dir)           # 回傳 ('win'/'loss'/None, 
   "s3":  {"short":{}, "long":{}},# 訊號三
   "s4":  {"short":{}, "long":{}},# 訊號四
   "s5":  {"short":{}, "long":{}},# 訊號五
-  "s6":  {"short":{}, "long":{}},# 訊號六（CRT 先行版）
+  "s6":  {"short":{}, "long":{}},# 訊號六（放量共振）
   "from_date": "YYYY-MM-DD",     # 回測起始日（最早 K 棒日期）
   "recent": [...],               # 最近30筆（k: "abc"/"ab"/"3"/"4"/"5"/"6"）
   "signals": [{"t","d","k","r","ot"}]  # 所有訊號（含進場時間、方向、種類、結果）
@@ -263,7 +264,7 @@ _scan_outcome(df, entry_i, stop_px, dir)           # 回傳 ('win'/'loss'/None, 
 ### 最低案例數保證（S2~S6 各空/多各≥10筆）
 - `MIN_CASES = 10`；`_sufficient(r)` 檢查 S2/S3/S4/S5/S6 各空/多共 **10 個**子統計（S1 不在內）
 - 若不足，自動加倍 `days` 重新抓資料（上限 `TF_MAX`），直到足夠或抵達上限為止
-- cache key：`crt_wr8:market:symbol:exchange:timeframe`（每次訊號邏輯變更時遞增版號）
+- cache key：`crt_wr9:market:symbol:exchange:timeframe`（每次訊號邏輯變更時遞增版號）
 
 ### 各時間框架資料來源與回測天數
 | TF | 初始天數 | 天數上限 | TW 來源 | US 來源 | Crypto |

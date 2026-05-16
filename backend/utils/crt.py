@@ -146,33 +146,28 @@ def _calc_crt_winrate(df: pd.DataFrame) -> dict:
                 else:                ll_ab += 1
             recent.append({"t": sig_time, "d": d_str, "r": "w" if outcome == "win" else "l", "k": "ab"})
 
-    # ── 訊號六 S6（CRT 先行二棒版）：A=純 CRT，B=KDJ叉+共振 ────────
-    # 與 S2 對稱：S2 是「共振先行」、S6 是「結構先行 + 雙重動能/過熱確認」
-    if n >= 3:
-        a_res2 = res[:n-2]; a_crt2 = crt[:n-2]; a_cross2 = cross[:n-2]
-        b_res2 = res[1:n-1]; b_crt2 = crt[1:n-1]; b_cross2 = cross[1:n-1]
-        b_bb2 = bb_mid[1:n-1]
-        b_lo2 = lows[1:n-1]; b_hi2 = highs[1:n-1]
-        # A 純 CRT（only crt，無 cross 無 resonance）
-        # B 同時要 KDJ叉 + 共振（同方向），且 B 不能有 CRT（避免重疊到 S1）
-        s6_short = (a_crt2 == -1) & (a_cross2 == 0) & (a_res2 == 0) \
-                 & (b_cross2 == -1) & (b_res2 == -1) & (b_crt2 == 0) \
-                 & ~np.isnan(b_bb2) & (b_lo2 > b_bb2)
-        s6_long  = (a_crt2 ==  1) & (a_cross2 == 0) & (a_res2 == 0) \
-                 & (b_cross2 ==  1) & (b_res2 ==  1) & (b_crt2 == 0) \
-                 & ~np.isnan(b_bb2) & (b_hi2 < b_bb2)
+    # ── 訊號六 S6（放量共振）：單棒，共振 + 放量確認 ─────────────
+    # 邏輯：價格到極端（共振 = 觸軌 + KD 超買/賣 + RSI 超買/賣）
+    #      + 成交量 ≥ 過去 20 根均量 × 1.5
+    # → 「衰竭/投降」反轉訊號（用 volume 作為進場濾網）
+    VOL_LOOKBACK = 20
+    VOL_MULT     = 1.5
+    if "volume" in df.columns and n >= VOL_LOOKBACK + 2:
+        vol = df["volume"].fillna(0).astype(float).to_numpy()
+        # 過去 N 根均量（不含當前）—— shift(1) 後 rolling 才是「prior N」
+        vol_prior_ma = pd.Series(vol).shift(1).rolling(VOL_LOOKBACK).mean().to_numpy()
+        vol_surge = ~np.isnan(vol_prior_ma) & (vol >= vol_prior_ma * VOL_MULT)
+        s6_short = (res == -1) & vol_surge
+        s6_long  = (res ==  1) & vol_surge
+        s6_short[n-1] = False  # 最後一根沒有 i+1
+        s6_long[n-1]  = False
         for i in np.flatnonzero(s6_short | s6_long):
             i = int(i)
             direction = "short" if s6_short[i] else "long"
-            ib = i + 1
-            # 停損用 A/B 兩棒的極端（比 S2 多考慮 A 棒）
-            if direction == "short":
-                stop_px = max(highs[i], highs[ib])
-            else:
-                stop_px = min(lows[i], lows[ib])
+            stop_px = highs[i] if direction == "short" else lows[i]
             d_str = "s" if direction == "short" else "l"
-            sig_time = times_iso[ib]
-            outcome, ot = _scan(i + 2, float(stop_px), direction)
+            sig_time = times_iso[i]
+            outcome, ot = _scan(i + 1, float(stop_px), direction)
             signals.append({"t": sig_time, "d": d_str, "k": "6",
                             "r": "w" if outcome == "win" else ("l" if outcome else None), "ot": ot})
             if outcome is None: continue
