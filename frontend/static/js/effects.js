@@ -1445,17 +1445,31 @@ const SFX = (() => {
       const disc = ctx.createRadialGradient(sx,sy,0,sx,sy,17);
       disc.addColorStop(0,'#FFFCD0'); disc.addColorStop(1,'#FFD700');
       ctx.fillStyle=disc; ctx.beginPath(); ctx.arc(sx,sy,17,0,Math.PI*2); ctx.fill();
+      // cute face (scaled for R=17 disc)
+      ctx.save(); ctx.globalAlpha=1;
+      ctx.fillStyle='rgba(255,130,80,.22)';
+      ctx.beginPath(); ctx.ellipse(sx-7,sy+3,4,2.2,0,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(sx+7,sy+3,4,2.2,0,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='rgba(110,50,0,.80)';
+      ctx.beginPath(); ctx.arc(sx-5,sy-4,1.9,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(sx+5,sy-4,1.9,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='rgba(255,255,255,.92)';
+      ctx.beginPath(); ctx.arc(sx-4.3,sy-4.9,.7,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(sx+5.7,sy-4.9,.7,0,Math.PI*2); ctx.fill();
+      ctx.strokeStyle='rgba(110,50,0,.68)'; ctx.lineWidth=1.5; ctx.lineCap='round';
+      ctx.beginPath(); ctx.arc(sx,sy+.5,5.5,.15*Math.PI,.85*Math.PI); ctx.stroke();
+      ctx.restore();
       // corona pulse
       const pls = 0.5+0.5*Math.sin(t*1.4);
       ctx.strokeStyle=`rgba(255,210,55,${0.13+0.07*pls})`; ctx.lineWidth=1.5;
       ctx.beginPath(); ctx.arc(sx,sy,23+pls*3,0,Math.PI*2); ctx.stroke();
       ctx.globalAlpha=1; ctx.restore();
     } else {
-      if (type === 'thunder') return;
+      if (type === 'thunder' || type === 'night') return; // dNight handles its own moon
       const rise = _wd.moonRiseMin, set = _wd.moonSetMin;
       const phase = _wd.moonPhase;
       const vis = Math.sin(phase * Math.PI);
-      if (vis < 0.06) return; // new moon, skip
+      if (vis < 0.02) return; // true new moon, skip
       // only draw moon when actually above the horizon
       let prog;
       if (rise < set) {
@@ -1469,13 +1483,13 @@ const SFX = (() => {
       }
       const mx = lx + prog * (rx - lx);
       const my = horizonY - (horizonY - peakY) * Math.sin(prog * Math.PI);
-      let al = vis * 0.92;
+      let al = Math.max(0.18, vis) * 0.92; // floor so near-new-moon still faintly shows
       if (type==='storm') al*=0.2; else if (type==='rain') al*=0.45; else if (type==='fog') al*=0.55;
       ctx.save(); ctx.globalAlpha = al;
-      const mglow = ctx.createRadialGradient(mx,my,0,mx,my,52);
+      const mglow = ctx.createRadialGradient(mx,my,0,mx,my,65);
       mglow.addColorStop(0,'rgba(180,210,255,0.22)'); mglow.addColorStop(1,'rgba(0,0,0,0)');
-      ctx.fillStyle=mglow; ctx.beginPath(); ctx.arc(mx,my,52,0,Math.PI*2); ctx.fill();
-      _drawMoonPhase(mx, my, 13, phase);
+      ctx.fillStyle=mglow; ctx.beginPath(); ctx.arc(mx,my,65,0,Math.PI*2); ctx.fill();
+      _drawMoonPhase(mx, my, 18, phase); // bigger radius for visibility
       ctx.globalAlpha=1; ctx.restore();
     }
   }
@@ -1495,7 +1509,8 @@ const SFX = (() => {
     snowP  = Array.from({length:nSnow}, () => ({ x:Math.random()*W, y:Math.random()*H, r:2+Math.random()*5, spd:.4+Math.random()*1.2, drift:(Math.random()-.5)*.6, rot:Math.random()*Math.PI/3, rotSpd:(Math.random()-.5)*.022, a:.5+Math.random()*.5 }));
     const nCloud=Math.max(2, Math.round(2+5*ci));
     const alBase=0.15+ci*.30, scBase=0.11+ci*.08;
-    cloudP = Array.from({length:nCloud}, (_, i) => ({ x:Math.random()*W, y:H*(.05+i*(0.88/nCloud)), sc:scBase+Math.random()*.10, al:alBase+Math.random()*.12, sp:.04+Math.random()*.12 }));
+    const wf = 1 + Math.min(4, _wd.windSpeed / 12); // wind speed factor: calm=1×, 50km/h=5×
+    cloudP = Array.from({length:nCloud}, (_, i) => ({ x:Math.random()*W, y:H*(.05+i*(0.88/nCloud)), sc:scBase+Math.random()*.10, al:alBase+Math.random()*.12, sp:(.04+Math.random()*.12)*wf }));
     leafP  = Array.from({length:42}, () => { const lf=_newLeaf(); lf.y=Math.random()*H; return lf; });
     petalP  = Array.from({length:38}, () => { const p=_newPetal(); p.y=Math.random()*H; return p; });
     mahjongP= Array.from({length:28}, () => { const p=_newMahjong(); p.y=Math.random()*H; return p; });
@@ -1609,6 +1624,20 @@ const SFX = (() => {
     ctx.shadowBlur=30; ctx.shadowColor="rgba(255,200,0,1)";
     ctx.fillStyle=disc; ctx.beginPath(); ctx.arc(sx,sy,28,0,Math.PI*2); ctx.fill();
     ctx.shadowBlur=0;
+    /* cute face */
+    ctx.save();
+    ctx.fillStyle='rgba(255,130,80,.24)'; // blush
+    ctx.beginPath(); ctx.ellipse(sx-12,sy+5,6,3.5,0,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(sx+12,sy+5,6,3.5,0,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='rgba(110,50,0,.82)'; // eyes
+    ctx.beginPath(); ctx.arc(sx-8,sy-7,3,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(sx+8,sy-7,3,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='rgba(255,255,255,.95)'; // eye shine
+    ctx.beginPath(); ctx.arc(sx-7,sy-8.5,1.1,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(sx+9,sy-8.5,1.1,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle='rgba(110,50,0,.72)'; ctx.lineWidth=2.2; ctx.lineCap='round'; // smile
+    ctx.beginPath(); ctx.arc(sx,sy+1,9,.15*Math.PI,.85*Math.PI); ctx.stroke();
+    ctx.restore();
     /* sparkles — keep near sun */
     sparks.forEach((p,i) => {
       p.life++;
@@ -1647,11 +1676,15 @@ const SFX = (() => {
       ctx.shadowBlur=0;
       shootX+=shootDX; shootY+=shootDY; shootLen-=Math.hypot(shootDX,shootDY);
     }
-    /* moon with crescent shadow */
-    ctx.shadowBlur=34; ctx.shadowColor=`rgba(200,232,255,${moonGlow*.72})`;
-    ctx.fillStyle="#EAF5FF"; ctx.beginPath(); ctx.arc(W*.82,H*.09,23,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle="rgba(10,12,24,1)"; ctx.beginPath(); ctx.arc(W*.82+9,H*.09-4,20,0,Math.PI*2); ctx.fill();
-    ctx.shadowBlur=0;
+    /* moon — proper phase rendering */
+    const _mx=W*.82, _my=H*.09, _mr=22;
+    ctx.save();
+    const _mglow=ctx.createRadialGradient(_mx,_my,0,_mx,_my,_mr*2.8);
+    _mglow.addColorStop(0,`rgba(190,220,255,${moonGlow*.26})`); _mglow.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle=_mglow; ctx.beginPath(); ctx.arc(_mx,_my,_mr*2.8,0,Math.PI*2); ctx.fill();
+    ctx.shadowBlur=32; ctx.shadowColor=`rgba(200,230,255,${moonGlow*.70})`;
+    _drawMoonPhase(_mx, _my, _mr, _wd.moonPhase);
+    ctx.shadowBlur=0; ctx.restore();
   }
 
   function dCloudy(t) {
@@ -1679,12 +1712,13 @@ const SFX = (() => {
 
     ctx.lineCap="round";
     const near=p=>p.a>0.3;
+    const _wd_drift=_wd.windSpeed*.016; // wind-driven horizontal shift per frame
     rainP.forEach(p => {
       const n=near(p);
       ctx.strokeStyle=n?`rgba(185,225,255,${p.a})`:`rgba(130,175,225,${p.a})`;
       ctx.lineWidth=n?1.1:.55;
-      ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(p.x-p.len*.13,p.y+p.len); ctx.stroke();
-      p.y+=p.spd; p.x-=p.spd*.13;
+      ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(p.x-p.len*.13-_wd_drift*p.len*.08,p.y+p.len); ctx.stroke();
+      p.y+=p.spd; p.x-=p.spd*.13+_wd_drift;
       if (p.y>H+p.len) {
         if (n && ripples.length<45)
           ripples.push({x:p.x, y:H*.968, r:0, maxR:7+Math.random()*13, a:.42});
@@ -1710,7 +1744,7 @@ const SFX = (() => {
   function dSnow(t) {
     snowP.forEach(p => {
       _snowflake(p.x,p.y,p.r,p.rot,p.a);
-      p.y+=p.spd; p.x+=p.drift+Math.sin(t*.5+p.x*.01)*.3; p.rot+=p.rotSpd;
+      p.y+=p.spd; p.x+=p.drift+Math.sin(t*.5+p.x*.01)*.3+_wd.windSpeed*.007; p.rot+=p.rotSpd;
       if (p.y>H+p.r*2) { p.y=-p.r*2; p.x=Math.random()*W; }
       if (p.x<-10) p.x=W+10; if (p.x>W+10) p.x=-10;
     });
@@ -1722,7 +1756,7 @@ const SFX = (() => {
     rainP.forEach(p => {
       ctx.strokeStyle=`rgba(130,180,255,${p.a*.75})`; ctx.lineWidth=1;
       ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(p.x-5,p.y+p.len*1.3); ctx.stroke();
-      p.y+=p.spd*1.6; p.x-=2.2;
+      p.y+=p.spd*1.6; p.x-=2.2+_wd.windSpeed*.012;
       if (p.y>H+p.len) { p.y=-p.len; p.x=Math.random()*W; }
     });
     /* lightning */
