@@ -172,10 +172,13 @@ def get_ohlcv(req: OHLCVRequest):
                 min_start = (date.fromisoformat(end) - timedelta(days=max_d)).isoformat()
                 start = max(start_raw, min_start)
             df = fetch_us_stock(req.symbol, start, end, req.timeframe)
-            # Finnhub 即時報價疊加到最後一根 K 棒
+            # Finnhub 即時報價疊加到最後一根 K 棒（失敗不影響主流程）
             if os.getenv("FINNHUB_TOKEN"):
-                quote = fetch_us_quote(req.symbol)
-                df, _ = _finnhub_overlay(df, quote)
+                try:
+                    quote = fetch_us_quote(req.symbol)
+                    df, _ = _finnhub_overlay(df, quote)
+                except Exception:
+                    pass  # Finnhub 出錯就純用 yfinance 資料，不阻塞
         else:
             raise HTTPException(400, f"不支援的市場: {req.market}")
     except Exception as e:
@@ -276,10 +279,13 @@ def get_latest(req: LatestRequest):
             end   = date.today().isoformat()
             start = (date.today() - timedelta(days=10)).isoformat()
             df = fetch_us_stock(req.symbol, start, end, req.timeframe)
-            # Finnhub 即時報價疊加（若 FINNHUB_TOKEN 環境變數有設）
+            # Finnhub 即時報價疊加（失敗不影響主流程）
             if os.getenv("FINNHUB_TOKEN"):
-                quote = fetch_us_quote(req.symbol)
-                df, _ = _finnhub_overlay(df, quote)
+                try:
+                    quote = fetch_us_quote(req.symbol)
+                    df, _ = _finnhub_overlay(df, quote)
+                except Exception:
+                    pass  # Finnhub 出錯就純用 yfinance 資料
         else:
             df = fetch_crypto_ohlcv(
                 req.symbol, req.timeframe, limit=3,
