@@ -97,7 +97,10 @@ function updateAllLegends(t) {
 /* ══════════════════════════════════════════
    圖例 crosshair（單圖 hover 仍保留）
 ══════════════════════════════════════════ */
+// 追蹤十字線是否正 hover 某根 K 棒；hover 中時 realtime poll 不覆寫上方 K 棒資訊
+let _hoveredTime = null;
 function onMainCrosshair(param) {
+  _hoveredTime = param.time || null;
   if (!param.time) return;
   const c = param.seriesData.get(candleSeries);
   if (c) {
@@ -173,6 +176,9 @@ function updateSymbolBar(data) {
     market === "us" ? `美股 · ${tfLabel}` :
     `${exch} · ${tfLabel}`;
   if (!data.length) return;
+  // 若使用者正在 hover 某根 K 棒，不要覆寫上方 OHLCV（避免 realtime poll
+  // 每秒打斷使用者觀看歷史 K 棒）。crosshair 移開後下次 poll 才會更新。
+  if (_hoveredTime) return;
   const last = data[data.length-1], prev = data.length>1 ? data[data.length-2] : last;
   document.getElementById("symO").textContent = fmt(last.open);
   document.getElementById("symH").textContent = fmt(last.high);
