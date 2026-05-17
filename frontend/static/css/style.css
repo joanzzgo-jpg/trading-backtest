@@ -585,22 +585,69 @@ html, body {
   height: 30px;
   flex-shrink: 1;
   min-width: 0;
-  /* 內容超過寬度時可橫向滾動（用滑鼠滾輪/觸控滑動），scrollbar 隱藏 */
+  /* 內容超過寬度時可橫向滾動，scrollbar 隱藏 */
   overflow-x: auto;
   overflow-y: hidden;
-  scrollbar-width: none;  /* Firefox */
-  background: linear-gradient(135deg, rgba(12,6,2,.94) 0%, rgba(24,12,5,.94) 100%);
-  border: 1px solid rgba(255,145,71,.22);
-  border-radius: 8px;
+  scrollbar-width: none;
+  /* 漸層流線：多 stop 立體深度 */
+  background:
+    linear-gradient(135deg,
+      rgba(10,5,2,.96) 0%,
+      rgba(35,16,8,.92) 35%,
+      rgba(45,22,10,.90) 50%,
+      rgba(28,14,6,.93) 75%,
+      rgba(12,6,2,.96) 100%);
+  border: 1px solid rgba(255,145,71,.28);
+  border-radius: 10px;
   white-space: nowrap;
   pointer-events: none;
   z-index: 2;
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
   box-shadow:
-    0 0 20px rgba(255,145,71,.08),
-    inset 0 1px 0 rgba(255,255,255,.05),
-    0 2px 10px rgba(0,0,0,.55);
+    0 0 30px rgba(255,145,71,.12),
+    0 0 60px rgba(255,145,71,.04),
+    inset 0 1px 0 rgba(255,200,160,.10),
+    inset 0 -1px 0 rgba(255,145,71,.06),
+    0 3px 14px rgba(0,0,0,.55);
+}
+/* 流線動畫：從左到右掃過的微光 */
+.tb-winrate::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -40%;
+  width: 30%;
+  height: 100%;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(255,200,150,.06) 35%,
+    rgba(255,180,120,.10) 50%,
+    rgba(255,200,150,.06) 65%,
+    transparent 100%);
+  animation: wr-flow 6s linear infinite;
+  pointer-events: none;
+  z-index: 1;
+  border-radius: 10px;
+}
+@keyframes wr-flow {
+  0%   { left: -40%; }
+  100% { left: 110%; }
+}
+/* 頂部與底部各一條超細漸層邊（HUD 風格） */
+.tb-winrate::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 8%; right: 8%;
+  height: 1px;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(255,200,140,.4) 30%,
+    rgba(255,200,140,.5) 50%,
+    rgba(255,200,140,.4) 70%,
+    transparent 100%);
+  pointer-events: none;
+  z-index: 1;
 }
 .tb-winrate > * { pointer-events: auto; }
 .tb-winrate::-webkit-scrollbar { display: none; }  /* WebKit 隱藏 scrollbar */
@@ -693,12 +740,19 @@ html.perf-mode .tb-winrate.calculating .tb-wr-status { color: #FF6A1A; }
   background: rgba(255,145,71,.1);
 }
 .tb-wr-seg-btn.active {
-  background: linear-gradient(180deg, rgba(255,145,71,.42), rgba(255,145,71,.22));
+  background:
+    linear-gradient(180deg,
+      rgba(255,170,90,.55) 0%,
+      rgba(255,120,40,.4) 45%,
+      rgba(255,90,20,.5) 100%);
   color: #FFFFFF;
-  text-shadow: 0 0 4px rgba(255,180,120,.7);
+  text-shadow: 0 0 5px rgba(255,200,140,.85);
   box-shadow:
-    inset 0 0 5px rgba(255,200,160,.3),
-    inset 0 1px 0 rgba(255,255,255,.12);
+    inset 0 0 6px rgba(255,200,160,.4),
+    inset 0 1px 0 rgba(255,255,255,.18),
+    0 0 8px rgba(255,145,71,.3);
+  position: relative;
+  z-index: 1;
 }
 /* 極簡模式 */
 html.perf-mode .tb-wr-ctl-lbl { color: #B0B0B0; }
@@ -792,21 +846,38 @@ html.perf-mode .tb-wr-seg-btn.active {
 /* 訊號間分隔線 */
 .tb-wr-divider {
   width: 1px;
-  height: 16px;
-  background: linear-gradient(to bottom, transparent, rgba(255,145,71,.14), transparent);
+  height: 18px;
+  background: linear-gradient(to bottom,
+    transparent 0%,
+    rgba(255,200,140,.05) 20%,
+    rgba(255,180,120,.22) 50%,
+    rgba(255,200,140,.05) 80%,
+    transparent 100%);
   flex-shrink: 0;
+  position: relative;
+  z-index: 2;
 }
 
-/* 合計前分隔線（稍粗） */
+/* 合計前分隔線（稍粗 + 雙線） */
 .tb-wr-total-sep {
-  width: 1px;
+  width: 2px;
   height: 22px;
-  background: linear-gradient(to bottom, transparent, rgba(255,145,71,.28), transparent);
+  background:
+    linear-gradient(to bottom,
+      transparent 0%,
+      rgba(255,180,120,.08) 15%,
+      rgba(255,160,90,.4) 50%,
+      rgba(255,180,120,.08) 85%,
+      transparent 100%);
+  border-radius: 2px;
   flex-shrink: 0;
-  margin: 0 2px;
+  margin: 0 4px;
+  box-shadow: 0 0 4px rgba(255,145,71,.2);
+  position: relative;
+  z-index: 2;
 }
 
-/* 總勝率 */
+/* 總勝率 — 漸層流線高亮 */
 .tb-wr-total {
   font-size: 13px;
   font-weight: 800;
@@ -814,9 +885,24 @@ html.perf-mode .tb-wr-seg-btn.active {
   font-family: 'SF Mono', 'Courier New', monospace;
   cursor: default;
   letter-spacing: .02em;
+  padding: 0 4px;
+  position: relative;
+  z-index: 2;
 }
-.tb-wr-total.good { color: #4dd0c4; text-shadow: 0 0 8px rgba(77,208,196,.38); }
-.tb-wr-total.bad  { color: #ef7070; text-shadow: 0 0 8px rgba(239,112,112,.32); }
+.tb-wr-total.good {
+  background: linear-gradient(180deg, #6FE0D2 0%, #2BB8A8 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 0 6px rgba(77,208,196,.5));
+}
+.tb-wr-total.bad {
+  background: linear-gradient(180deg, #FF8888 0%, #E04848 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 0 6px rgba(239,112,112,.45));
+}
 
 .tb-wr-status { color: var(--muted); font-size: 10px; margin-left: 2px; }
 .tb-wr-from   { font-size: 8.5px; color: rgba(154,122,88,.5); font-family: 'SF Mono','Courier New',monospace; margin-left: 4px; letter-spacing: .01em; white-space: nowrap; }
