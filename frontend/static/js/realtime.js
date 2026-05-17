@@ -1,9 +1,12 @@
 function startRealtime() {
   const dot    = document.getElementById("realtimeDot");
   const market = document.getElementById("marketSelect").value;
-  if (market === "us") { dot.classList.add("hidden"); return; }
   dot.classList.remove("hidden");
-  const interval = market === "tw" ? 5000 : 1000;
+  // 各市場 polling 間隔（對齊後端快取 TTL，避免冗餘請求）：
+  // - crypto: 2s（後端 _ticker_worker 也是 2s）
+  // - tw    : 5s（MIS 即時報價，盤中夠快）
+  // - us    : 5s（Finnhub overlay；無 token 時走 yfinance 15min 延遲，5s 已過剩）
+  const interval = { tw: 5000, us: 5000, crypto: 2000 }[market] || 2000;
   realtimeTimer = setInterval(fetchLatest, interval);
 }
 
@@ -31,7 +34,11 @@ async function fetchLatest() {
       const lastT = last ? toTime(last.time) : 0;
       // 歷史資料模式：若新 bar 與最後一根相差 > 5 根週期，不插入（避免 2024→2026 跳躍）
       if (t > lastT && (t - lastT) > (_tfSec[currentTF] || 86400) * 5) return;
-      if (t === lastT) ohlcvData[ohlcvData.length - 1] = { ...last, ...bar };
+      if (t === lastT) {
+        // 性能：若 OHLC 完全沒變，跳過 LWC update 與 indicator 重算（省 CPU）
+        if (last.close === bar.close && last.high === bar.high && last.low === bar.low && last.open === bar.open) return;
+        ohlcvData[ohlcvData.length - 1] = { ...last, ...bar };
+      }
       else if (t > lastT) ohlcvData.push(bar);
       else return;
       candleSeries.update({ time:t, open:bar.open, high:bar.high, low:bar.low, close:bar.close });

@@ -1,5 +1,6 @@
 let _wrCache = {};
 let _wrCacheLast = null;  // 保留最近一次資料，給 toggle target 重渲用
+let _wrFetchTimer = null; // 切換標的時 debounce，避免連續觸發後端重算
 
 // 目標切換（中軌 ↔ 帶軌）狀態
 const _WR_VIEW_KEY = "wrTargetView";
@@ -40,7 +41,13 @@ function _toggleWrTarget() {
   if (_wrCacheLast) _renderWinRate(_wrCacheLast);
 }
 
-async function fetchWinRate() {
+// 公開的進入點：debounced，避免切換標的時連續觸發
+function fetchWinRate() {
+  clearTimeout(_wrFetchTimer);
+  _wrFetchTimer = setTimeout(_fetchWinRateNow, 250);
+}
+
+async function _fetchWinRateNow() {
   const market    = document.getElementById("marketSelect")?.value || "crypto";
   const symbol    = document.getElementById("symbolInput")?.value?.trim() || "";
   const exchange  = document.getElementById("exchangeSelect")?.value || "pionex";

@@ -1,5 +1,5 @@
 """搜索 API 路由"""
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response
 from data.taiwan import search_tw_stock
 from data.us_stock import search_us_stocks
 from data.crypto import fetch_crypto_markets, fetch_tickers, _fetch_pionex_symbols, _fetch_pionex_perp_symbols
@@ -36,10 +36,13 @@ def us_search(q: str = ""):
 
 
 @router.get("/tickers")
-def get_tickers(market: str = "futures"):
+def get_tickers(response: Response, market: str = "futures"):
     """取得標的列表：優先從記憶體即時快取讀取，啟動初期才 fallback 至直接 API。"""
     from utils.live_data import get as live_get, has_data, has_tw_data
     from data.taiwan import fetch_tw_tickers
+    # HTTP 快取：crypto 2s（對齊 _ticker_worker）、tw 10s。瀏覽器與中介層可用此短快取
+    # 避免多分頁/多用戶同步 polling 造成的重複請求
+    response.headers["Cache-Control"] = f"public, max-age={10 if market == 'tw' else 2}"
     if market == "tw":
         if has_tw_data():
             return {"tickers": live_get("tw"), "source": "live"}
