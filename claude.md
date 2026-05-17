@@ -311,13 +311,59 @@ _scan_outcome(df, entry_i, stop_px, dir)           # 回傳 ('win'/'loss'/None, 
   - 結算棒時間 = `s.ot`；`s.r/s.ot` 為 null 表示末端尚未結算
 - 透過 `lastWRSignalMarkers` 合入 `_applyMainMarkers()`；切換標的/時框時清除
 
-### 勝率顯示欄（topbar 正中央，Tech HUD 設計）
-- 共 6 組訊號（S1~S6），各有空/多兩行，▼=做空（紅），▲=做多（綠），顯示 `勝率% W/L筆數`
-- 元素 ID：`wrAbcS/L`（S1）、`wrAbS/L`（S2）、`wrS3S/L`（S3）、`wrS4S/L`（S4）、`wrS5S/L`（S5）、`wrS6S/L`（S6）
-- `wrAll`：**S2~S5** 合計勝率（S1 不計入）；`wrFromDate`：回測起始日（`←YYYY/MM/DD`）；`wrStatus`：「N筆」
-- 勝率 ≥60% → 亮綠（`.good`），<45% → 淡紅（`.bad`）
-- 圖示顏色：S1=紅●、S2=橘■、S3=紫▲、S4=青綠◆、S5=橘黃★、S6=紫藍◇
-- 風格：毛玻璃背景 + 橘色漸層邊框 + SF Mono 字型 + glow 效果（`backdrop-filter: blur(18px)`）；無 CRT 文字標籤
+### 勝率顯示欄（topbar，三段式 HUD 設計）
+**佈局：** `flex: 1 1 auto` 佔滿 `topbar-left` 與 `topbar-tf` 之間所有可用空間。內部三段：
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ [中軌|0%]    [S1│S2│S3│S4│S5│S6 ← 可橫向滾動]    [↕75% ←date筆數] │
+│ ↑ tb-wr-fixed-left  ↑ tb-wr-scroll              ↑ tb-wr-fixed-right
+└─────────────────────────────────────────────────────────────┘
+```
+
+- **左固定區 `.tb-wr-fixed-left`**（z-index:3 不隨滾動移動）
+  - `#wrTargetToggle`：單鍵 toggle 切換目標
+    - 「中軌」（預設）= BB middle target
+    - 「上/下軌」= 多→BB upper、空→BB lower（方向相關的極端反向目標）
+    - 點擊呼叫 `_toggleWrTarget()`，state 存 `localStorage.wrTargetView`（mid/band）
+  - `#wrStopBuffer`：number input 0~10，止損緩衝百分比
+    - 多單 `stop = base_low × (1 - buffer)`、空單 `stop = base_high × (1 + buffer)`
+    - state 存 `localStorage.wrStopBuffer`（decimal 字串）
+    - 變更 → 清前端 `_wrCache` → re-fetch
+- **中央滾動區 `.tb-wr-scroll`**（`overflow-x: auto`，scrollbar 隱藏，左右各 4% mask fade）
+  - 6 組訊號區塊（S1~S6 + 5 條分隔線）
+  - 每組：圖示 + 空/多兩行勝率
+  - 元素 ID：`wrAbcS/L`（S1）、`wrAbS/L`（S2）、`wrS3S/L`、`wrS4S/L`、`wrS5S/L`、`wrS6S/L`
+  - 圖示顏色：S1=紅●、S2=橘■、S3=紫▲、S4=青綠◆、S5=橘黃★、S6=紫藍◇
+  - 勝率 ≥60% → 亮綠 `.good`，<45% → 淡紅 `.bad`
+- **右固定區 `.tb-wr-fixed-right`**（z-index:3 不隨滾動移動）
+  - `#wrAll`：**S2~S6** 合計勝率（S1 不計入），CSS gradient text + drop-shadow glow
+  - `#wrFromDate`：回測起始日 `←YYYY/MM/DD`
+  - `#wrStatus`：「N筆」目前圖表可見訊號數
+
+**漸層流線視覺：**
+- 主背景 5-stop 對角漸層（深褐→暖橘→深褐）+ `backdrop-filter: blur(18px)`
+- `::before` 動畫 `wr-flow` 6s loop 橘色微光由左掃到右
+- `::after` 1px 暖色漸層細線於頂部（HUD 細節）
+- 圓角 10px、雙層 outer glow（30px + 60px halo）
+
+**計算中狀態 `.calculating`：**
+- 全資料變暗 32% opacity（提示「舊資料」）
+- 中央 `.tb-wr-loading`（小熊頭 `bear.png` + 「計算中…」）淡入，z-index:6
+  - 熊頭 `bear-bounce` 0.9s loop（上下彈跳 + 左右搖擺 + 微縮放）
+  - 文字 `wr-loading-pulse` 1.4s loop（opacity 75%↔100%）
+- 底部 `.tb-wr-progress` 進度條 — 水流動態漸層：
+  - 8-stop 漸層 + `background-size: 200%`
+  - 雙動畫：`wr-progress-fill`（2.5s 寬度 0→95%）+ `wr-progress-flow`（1.6s 漸層位置 200%→0%）
+  - 像液態金屬/燃料條流動
+
+**hover 狀態保護：**
+- `_mouseOverChart`（DOM `mouseenter/leave`，比 LWC crosshair 可靠）
+- 滑鼠在任一圖表內 → `updateSymbolBar` 跳過，上方 OHLCV 不被 realtime poll 跳回
+
+**極簡模式：**
+- 所有橘色 glow / 漸層改成純白底 + 橘 `#FF6A1A` solid active
+- 動畫保留（不顯著影響效能）但色彩淡化
 
 ### 時間戳格式規範（重要）
 - 後端傳給前端的所有時間戳必須用 `.isoformat()`，**不能用 `str(pd.Timestamp)`**
@@ -367,10 +413,13 @@ _scan_outcome(df, entry_i, stop_px, dir)           # 回傳 ('win'/'loss'/None, 
 
 ### 頂部工具列（topbar）結構
 ```
-[左：Logo + 標的選擇] [絕對居中：勝率 tb-winrate] [右：TF按鈕 + 圖示按鈕]
+[左：Logo + 標的選擇] [勝率欄 flex:1 撐滿] [TF按鈕] [icon 按鈕]
 ```
-- `.tb-winrate` 用 `position:absolute; left:50%; transform:translateX(-50%)` 居中
-- `.topbar` 需有 `position:relative`
+- `.topbar` 用 `display: flex; justify-content: flex-start`
+- `.topbar-left` `flex: 0 0 auto`（不主動 grow，保護內容空間）
+- `.tb-winrate` `flex: 1 1 auto`（佔滿可用空間），內部三段式（見上方「勝率顯示欄」章節）
+- `.topbar-tf` 與 `.topbar-right` `flex-shrink: 0`（固定不縮）
+- 注：舊版用 `position:absolute; left:50%` 居中，但會擋到 TF 按鈕，改為 flex 佈局後解決
 - 手機 `@media (max-width:768px)`：`.tb-winrate { display:none }`
 - TF 按鈕（`.topbar-tf`）在 HTML 中排在 winrate 之後，視覺上靠右
 
