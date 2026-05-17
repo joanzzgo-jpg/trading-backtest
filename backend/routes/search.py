@@ -40,9 +40,9 @@ def get_tickers(response: Response, market: str = "futures"):
     """取得標的列表：優先從記憶體即時快取讀取，啟動初期才 fallback 至直接 API。"""
     from utils.live_data import get as live_get, has_data, has_tw_data
     from data.taiwan import fetch_tw_tickers
-    # HTTP 快取：crypto 2s（對齊 _ticker_worker）、tw 10s。瀏覽器與中介層可用此短快取
+    # HTTP 快取：crypto 1s（每秒輪詢）、tw 10s。瀏覽器與中介層可用此短快取
     # 避免多分頁/多用戶同步 polling 造成的重複請求
-    response.headers["Cache-Control"] = f"public, max-age={10 if market == 'tw' else 2}"
+    response.headers["Cache-Control"] = f"public, max-age={10 if market == 'tw' else 1}"
     if market == "tw":
         if has_tw_data():
             return {"tickers": live_get("tw"), "source": "live"}

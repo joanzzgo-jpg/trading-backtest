@@ -2,11 +2,11 @@ function startRealtime() {
   const dot    = document.getElementById("realtimeDot");
   const market = document.getElementById("marketSelect").value;
   dot.classList.remove("hidden");
-  // 各市場 polling 間隔（對齊後端快取 TTL，避免冗餘請求）：
-  // - crypto: 2s（後端 _ticker_worker 也是 2s）
+  // 各市場 polling 間隔：
+  // - crypto: 1s（24/7 高波動，要每秒）
   // - tw    : 5s（MIS 即時報價，盤中夠快）
   // - us    : 5s（Finnhub overlay；無 token 時走 yfinance 15min 延遲，5s 已過剩）
-  const interval = { tw: 5000, us: 5000, crypto: 2000 }[market] || 2000;
+  const interval = { tw: 5000, us: 5000, crypto: 1000 }[market] || 1000;
   realtimeTimer = setInterval(fetchLatest, interval);
 }
 
