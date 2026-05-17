@@ -11,11 +11,12 @@ TF_MAP = {
     "4h": "4h",
     "1h": "1h",
     "15m": "15m",
+    "5m": "5m",
 }
 
 MAX_DAYS = {
     "1M": 3650, "1w": 3650, "1d": 3650,
-    "4h": 60, "1h": 730, "15m": 60,
+    "4h": 60, "1h": 730, "15m": 60, "5m": 60,
 }
 
 
@@ -37,7 +38,16 @@ def fetch_us_stock(symbol: str, start: str, end: str, timeframe: str = "1d") -> 
     df.index = idx
     df.index.name = "time"
     df = df.reset_index()
-    df["time"] = pd.to_datetime(df["time"]).dt.floor("s")
+    # 美股 1h/4h 用 09:30 半小時錯位（如 09:30、10:30），不能 floor 到整點，
+    # 否則 13:30 UTC（=09:30 ET 開盤）會被往前推到 13:00（盤前），時間軸全錯。
+    # 只對 5m/15m 做 floor（這些對齊整點/十五分鐘），其他直接保留 yfinance 原時間。
+    freq = {"5m": "5min", "15m": "15min"}.get(timeframe)
+    if freq:
+        df["time"] = pd.to_datetime(df["time"]).dt.floor(freq)
+        df = df.drop_duplicates(subset=["time"], keep="last").reset_index(drop=True)
+    else:
+        df["time"] = pd.to_datetime(df["time"]).dt.floor("s")
+    df = df.dropna(subset=["close"]).reset_index(drop=True)
     return df
 
 

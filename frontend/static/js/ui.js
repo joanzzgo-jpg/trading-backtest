@@ -214,16 +214,11 @@ function updateMarketUI() {
     if (!_cur || _defaults.includes(_cur)) _inp.value = "2330";
   }
 
-  // 台股：不支援 4h（盤中僅 4.5 小時）；美股：只支援日/週/月線
+  // 全部 TF 都啟用：
+  // - 台股 4h 後端已支援（15m → 1h → 4h 重採樣，對齊台北 09:00 開盤）
+  // - 美股 1h/4h/15m/5m 後端 yfinance 都支援（5m/15m 最多 60 天、1h 最多 730 天）
   document.querySelectorAll(".tf-btn").forEach(btn => {
-    const off = (isTW && ["4h"].includes(btn.dataset.tf)) ||
-                (isUS && ["4h","1h","15m","5m"].includes(btn.dataset.tf));
-    btn.disabled = off;
-    if (off && btn.classList.contains("active")) {
-      btn.classList.remove("active");
-      document.querySelector(".tf-btn[data-tf='1d']").classList.add("active");
-      currentTF = "1d";
-    }
+    btn.disabled = false;
   });
 
   // 符號搜尋 modal tabs

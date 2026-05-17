@@ -139,12 +139,16 @@ def get_ohlcv(req: OHLCVRequest):
                     req.exchange, api_key=req.api_key, api_secret=req.api_secret,
                 )
         elif req.market == "us":
+            max_d = US_MAX_DAYS.get(req.timeframe, 3650)
             if use_limit:
-                max_d = US_MAX_DAYS.get(req.timeframe, 365)
                 end   = date.today().isoformat()
                 start = (date.today() - timedelta(days=min(req.limit * 2, max_d))).isoformat()
             else:
-                start, end = req.start, req.end
+                end   = req.end or date.today().isoformat()
+                start_raw = req.start or end
+                # 限制 start 不超過 yfinance 對該 interval 的天數上限（5m/15m=60、1h=730）
+                min_start = (date.fromisoformat(end) - timedelta(days=max_d)).isoformat()
+                start = max(start_raw, min_start)
             df = fetch_us_stock(req.symbol, start, end, req.timeframe)
         else:
             raise HTTPException(400, f"不支援的市場: {req.market}")
