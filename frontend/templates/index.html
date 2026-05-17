@@ -66,17 +66,20 @@
 
   </div>
 
-  <!-- CRT 策略勝率（絕對居中） -->
+  <!-- CRT 策略勝率（絕對居中）— 三段式：左固定 / 中可滾 / 右固定 -->
   <div class="tb-winrate" id="winrateBar">
-    <!-- 目標切換（中軌 ↔ 上下軌）— 單鍵 toggle -->
-    <button id="wrTargetToggle" class="tb-wr-toggle" onclick="_toggleWrTarget()"
-            title="切換目標：中軌（保守，BB middle）↔ 上下軌（極端反向：多→上軌、空→下軌）">中軌</button>
-    <!-- 止損緩衝（%）— 自由輸入 0~10 -->
-    <span class="tb-wr-buffer" title="停損緩衝 %（0~10）：短=高於最高值 X%、多=低於最低值 X% 才算停損">
-      <input id="wrStopBuffer" class="tb-wr-buffer-input" type="number"
-             step="0.1" min="0" max="10" value="0" />
-      <span class="tb-wr-buffer-pct">%</span>
-    </span>
+    <!-- 左固定區：目標切換 + SL 輸入 -->
+    <div class="tb-wr-fixed-left">
+      <button id="wrTargetToggle" class="tb-wr-toggle" onclick="_toggleWrTarget()"
+              title="切換目標：中軌（保守，BB middle）↔ 上下軌（極端反向：多→上軌、空→下軌）">中軌</button>
+      <span class="tb-wr-buffer" title="停損緩衝 %（0~10）：短=高於最高值 X%、多=低於最低值 X% 才算停損">
+        <input id="wrStopBuffer" class="tb-wr-buffer-input" type="number"
+               step="0.1" min="0" max="10" value="0" />
+        <span class="tb-wr-buffer-pct">%</span>
+      </span>
+    </div>
+    <!-- 中央可滾動區：6 個訊號區塊 -->
+    <div class="tb-wr-scroll" id="wrScroll">
     <span class="tb-wr-block">
       <span class="tb-wr-icon wr-abc" title="訊號一：同棒CRT＋共振＋KDJ叉">●</span>
       <span class="tb-wr-vals">
@@ -134,12 +137,15 @@
         <span id="wrS6L" class="tb-wr-v" data-dir="l">—</span>
       </span>
     </span>
-
-    <span class="tb-wr-total-sep"></span>
-    <span id="wrAll" class="tb-wr-total">—</span>
-    <span id="wrFromDate" class="tb-wr-from"></span>
-    <span id="wrStatus" class="tb-wr-status"></span>
-    <!-- 計算中進度條（絕對定位，由 .calculating 觸發） -->
+    </div>
+    <!-- 右固定區：總勝率 + 起始日 + 筆數 -->
+    <div class="tb-wr-fixed-right">
+      <span class="tb-wr-total-sep"></span>
+      <span id="wrAll" class="tb-wr-total">—</span>
+      <span id="wrFromDate" class="tb-wr-from"></span>
+      <span id="wrStatus" class="tb-wr-status"></span>
+    </div>
+    <!-- 計算中進度條（絕對定位，跨整列） -->
     <div class="tb-wr-progress" id="wrProgress"></div>
   </div>
 

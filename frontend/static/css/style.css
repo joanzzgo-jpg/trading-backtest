@@ -585,10 +585,8 @@ html, body {
   height: 30px;
   flex-shrink: 1;
   min-width: 0;
-  /* 內容超過寬度時可橫向滾動，scrollbar 隱藏 */
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
+  /* 外層不滾動；滾動由內部 .tb-wr-scroll 處理 */
+  overflow: hidden;
   /* 漸層流線：多 stop 立體深度 */
   background:
     linear-gradient(135deg,
@@ -650,8 +648,37 @@ html, body {
   z-index: 1;
 }
 .tb-winrate > * { pointer-events: auto; }
-.tb-winrate::-webkit-scrollbar { display: none; }  /* WebKit 隱藏 scrollbar */
 .tb-winrate { position: relative; }                /* 給絕對定位的 progress bar */
+
+/* 三段式：左 / 中（可滾）/ 右 ─── 左右固定，只有中央滾動 */
+.tb-wr-fixed-left,
+.tb-wr-fixed-right {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  position: relative;
+  z-index: 3;  /* 在中央滾動內容之上，防止視覺壓到 */
+}
+.tb-wr-scroll {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  /* 中央內容超寬時內部橫向滾動，scrollbar 隱藏 */
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  position: relative;
+  z-index: 1;
+}
+.tb-wr-scroll::-webkit-scrollbar { display: none; }
+/* 滾動區左右各加 1px 暗影遮罩，暗示「可滾動」 */
+.tb-wr-scroll {
+  mask-image: linear-gradient(90deg, transparent 0%, #000 4%, #000 96%, transparent 100%);
+  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 4%, #000 96%, transparent 100%);
+}
 
 /* 計算中：底部進度條 — 水流動態漸層 */
 .tb-wr-progress {
