@@ -162,13 +162,19 @@ def get_ohlcv(req: OHLCVRequest):
                 )
         elif req.market == "us":
             max_d = US_MAX_DAYS.get(req.timeframe, 3650)
+            # 美股各 TF 每日 bar 數（用於 limit→days 反推，避免過量請求觸 yfinance 邊界）
+            # 6.5h 交易：4h≈2、1h≈7、15m≈26、5m≈78
+            _bpd = {"1M": 1/30, "1w": 1/7, "1d": 1, "4h": 2, "1h": 7, "15m": 26, "5m": 78}
             if use_limit:
+                bars_per_day = _bpd.get(req.timeframe, 1)
+                # 1.6 倍 buffer 容納週末/假日
+                days_need = max(5, int(req.limit / bars_per_day * 1.6))
+                days = min(days_need, max_d)
                 end   = date.today().isoformat()
-                start = (date.today() - timedelta(days=min(req.limit * 2, max_d))).isoformat()
+                start = (date.today() - timedelta(days=days)).isoformat()
             else:
                 end   = req.end or date.today().isoformat()
                 start_raw = req.start or end
-                # 限制 start 不超過 yfinance 對該 interval 的天數上限（5m/15m=60、1h=730）
                 min_start = (date.fromisoformat(end) - timedelta(days=max_d)).isoformat()
                 start = max(start_raw, min_start)
             df = fetch_us_stock(req.symbol, start, end, req.timeframe)
