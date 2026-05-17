@@ -47,6 +47,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   loadSymHistory();
   loadPaneFlexes();   // 套用儲存的面板比例（在 buildCharts 前，讓第一次 resize 即正確）
   buildCharts();
+  _bindChartHoverTracking();  // 綁定圖表 hover 偵測，hover 時 realtime poll 不打斷
   bindEvents();
   _renderWatchlist();
   bindTickerPanel();

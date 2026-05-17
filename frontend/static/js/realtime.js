@@ -99,6 +99,21 @@ function updateAllLegends(t) {
 ══════════════════════════════════════════ */
 // 追蹤十字線是否正 hover 某根 K 棒；hover 中時 realtime poll 不覆寫上方 K 棒資訊
 let _hoveredTime = null;
+// 滑鼠是否在任一圖表內（mouseenter/leave 觸發；比 LWC crosshair 事件更可靠，
+// 不會因為 candleSeries.update() 時短暫 fire 假事件就誤清狀態）
+let _mouseOverChart = false;
+function _bindChartHoverTracking() {
+  ["mainChart", "kdjPane", "rsiPane", "macdPane", "winratePane"].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el || el._hoverBound) return;
+    el.addEventListener("mouseenter", () => { _mouseOverChart = true; });
+    el.addEventListener("mouseleave", () => {
+      _mouseOverChart = false;
+      _hoveredTime = null;
+    });
+    el._hoverBound = true;
+  });
+}
 function onMainCrosshair(param) {
   _hoveredTime = param.time || null;
   if (!param.time) return;
@@ -176,9 +191,11 @@ function updateSymbolBar(data) {
     market === "us" ? `美股 · ${tfLabel}` :
     `${exch} · ${tfLabel}`;
   if (!data.length) return;
-  // 若使用者正在 hover 某根 K 棒，不要覆寫上方 OHLCV（避免 realtime poll
-  // 每秒打斷使用者觀看歷史 K 棒）。crosshair 移開後下次 poll 才會更新。
-  if (_hoveredTime) return;
+  // 滑鼠在任一圖表內時，不要覆寫上方 OHLCV——避免 realtime poll 每秒
+  // 打斷使用者觀看歷史 K 棒。滑鼠離開圖表後下次 poll 才會更新回最新。
+  // 用 _mouseOverChart（mouseenter/leave）比 _hoveredTime 可靠，不會因為
+  // LWC 重畫時 fire 假 crosshair 事件就誤清狀態。
+  if (_mouseOverChart) return;
   const last = data[data.length-1], prev = data.length>1 ? data[data.length-2] : last;
   document.getElementById("symO").textContent = fmt(last.open);
   document.getElementById("symH").textContent = fmt(last.high);
