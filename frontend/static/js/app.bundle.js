@@ -308,7 +308,7 @@ _selectSymbol(items[_symSearchFocusIdx]);return;}else{return;}
 items.forEach((el,i)=>el.classList.toggle("sym-focused",i===_symSearchFocusIdx));items[_symSearchFocusIdx]?.scrollIntoView({block:"nearest"});});document.querySelectorAll(".sym-tab").forEach(btn=>{btn.addEventListener("click",()=>{document.querySelectorAll(".sym-tab").forEach(b=>b.classList.remove("active"));btn.classList.add("active");_symSearchMarket=btn.dataset.market;_symSearchFocusIdx=-1;_renderSymSearchList();});});}
 let _wrCache={};let _wrCacheLast=null;let _wrFetchTimer=null;const _WR_VIEW_KEY="wrTargetView";let _wrTargetView="mid";try{_wrTargetView=localStorage.getItem(_WR_VIEW_KEY)||"mid";}catch(e){}
 const _WR_BUFFER_KEY="wrStopBuffer";let _wrStopBuffer=0;try{_wrStopBuffer=parseFloat(localStorage.getItem(_WR_BUFFER_KEY))||0;}catch(e){}
-function _initWrTargetBtn(){const btn=document.getElementById("wrTargetToggle");if(!btn)return;btn.textContent=_wrTargetView==="band"?"上軌":"中軌";btn.classList.toggle("band",_wrTargetView==="band");}
+function _initWrTargetBtn(){const btn=document.getElementById("wrTargetToggle");if(!btn)return;btn.textContent=_wrTargetView==="band"?"上/下軌":"中軌";btn.classList.toggle("band",_wrTargetView==="band");}
 function _initWrStopBuffer(){const inp=document.getElementById("wrStopBuffer");if(!inp)return;inp.value=_wrStopBuffer;inp.addEventListener("change",()=>{const v=Math.max(0,Math.min(10,parseFloat(inp.value)||0));inp.value=v;_wrStopBuffer=v;try{localStorage.setItem(_WR_BUFFER_KEY,String(v));}catch(e){}
 _wrCache={};fetchWinRate();});}
 function _toggleWrTarget(){_wrTargetView=_wrTargetView==="mid"?"band":"mid";try{localStorage.setItem(_WR_VIEW_KEY,_wrTargetView);}catch(e){}

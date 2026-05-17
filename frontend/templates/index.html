@@ -68,9 +68,9 @@
 
   <!-- CRT 策略勝率（絕對居中） -->
   <div class="tb-winrate" id="winrateBar">
-    <!-- 目標切換（中軌 ↔ 上軌）— 單鍵 toggle -->
+    <!-- 目標切換（中軌 ↔ 上下軌）— 單鍵 toggle -->
     <button id="wrTargetToggle" class="tb-wr-toggle" onclick="_toggleWrTarget()"
-            title="切換目標：中軌（保守）↔ 上軌（短=下軌、多=上軌，極端反向）">中軌</button>
+            title="切換目標：中軌（保守，BB middle）↔ 上下軌（極端反向：多→上軌、空→下軌）">中軌</button>
     <!-- 止損緩衝（%）— 自由輸入 0~10 -->
     <span class="tb-wr-buffer" title="停損緩衝 %（0~10）：短=高於最高值 X%、多=低於最低值 X% 才算停損">
       <input id="wrStopBuffer" class="tb-wr-buffer-input" type="number"

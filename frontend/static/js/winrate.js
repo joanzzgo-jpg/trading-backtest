@@ -15,7 +15,8 @@ try { _wrStopBuffer = parseFloat(localStorage.getItem(_WR_BUFFER_KEY)) || 0; } c
 function _initWrTargetBtn() {
   const btn = document.getElementById("wrTargetToggle");
   if (!btn) return;
-  btn.textContent = _wrTargetView === "band" ? "上軌" : "中軌";
+  // 帶軌目標是方向相關：多單→BB 上軌、空單→BB 下軌
+  btn.textContent = _wrTargetView === "band" ? "上/下軌" : "中軌";
   btn.classList.toggle("band", _wrTargetView === "band");
 }
 
