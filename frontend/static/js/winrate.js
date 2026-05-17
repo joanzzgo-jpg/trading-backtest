@@ -60,7 +60,14 @@ async function _fetchWinRateNow() {
     _renderWRSignals(_wrCache[cacheKey].signals);
     return;
   }
+  // 進入「計算中」狀態：舊數據變暗、進度條動畫 0→95%，避免使用者誤判前一個 symbol 的數據
+  const bar = document.getElementById("winrateBar");
   const statusEl = document.getElementById("wrStatus");
+  if (bar) {
+    bar.classList.remove("calculating"); // 強制重啟動畫
+    void bar.offsetWidth;                // 強制 reflow
+    bar.classList.add("calculating");
+  }
   if (statusEl) statusEl.textContent = "計算中…";
   try {
     const p   = new URLSearchParams({ market, symbol, exchange, timeframe, stop_buffer_pct: bufDec.toFixed(4) });
@@ -74,6 +81,8 @@ async function _fetchWinRateNow() {
     if (statusEl) statusEl.textContent = "—";
     lastWRSignalMarkers = [];
     _applyMainMarkers();
+  } finally {
+    if (bar) bar.classList.remove("calculating");
   }
 }
 

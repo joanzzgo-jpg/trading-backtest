@@ -604,6 +604,50 @@ html, body {
 }
 .tb-winrate > * { pointer-events: auto; }
 .tb-winrate::-webkit-scrollbar { display: none; }  /* WebKit 隱藏 scrollbar */
+.tb-winrate { position: relative; }                /* 給絕對定位的 progress bar */
+
+/* 計算中：底部進度條 0→95% 動畫 */
+.tb-wr-progress {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  width: 0;
+  background: linear-gradient(90deg, #FF6A1A, #FFB878);
+  border-radius: 0 0 8px 8px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .15s;
+  box-shadow: 0 0 6px rgba(255,145,71,.5);
+}
+.tb-winrate.calculating .tb-wr-progress {
+  opacity: 1;
+  animation: wr-progress-fill 2.5s linear forwards;
+}
+@keyframes wr-progress-fill {
+  0%  { width: 1%;  }
+  60% { width: 70%; }
+  100%{ width: 95%; }  /* 停在 95%，等真正完成才掉到 0 */
+}
+/* 計算中：把舊數據變暗，提示「這不是當前資料」 */
+.tb-winrate.calculating .tb-wr-block,
+.tb-winrate.calculating .tb-wr-divider,
+.tb-winrate.calculating .tb-wr-total,
+.tb-winrate.calculating .tb-wr-total-sep,
+.tb-winrate.calculating .tb-wr-from {
+  opacity: 0.32;
+  transition: opacity .15s;
+}
+.tb-winrate.calculating .tb-wr-status {
+  color: #FFB878;
+  font-weight: 700;
+}
+/* 極簡模式：進度條改深橘 + 文字色調整 */
+html.perf-mode .tb-wr-progress {
+  background: linear-gradient(90deg, #FF6A1A, #E55A0A);
+  box-shadow: 0 0 4px rgba(255,106,26,.4);
+}
+html.perf-mode .tb-winrate.calculating .tb-wr-status { color: #FF6A1A; }
 
 /* 台股 long_only 模式：隱藏空單行（data-dir="s"） */
 .tb-winrate.long-only .tb-wr-v[data-dir="s"] { display: none; }
