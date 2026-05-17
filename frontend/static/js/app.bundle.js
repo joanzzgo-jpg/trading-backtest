@@ -308,11 +308,12 @@ _selectSymbol(items[_symSearchFocusIdx]);return;}else{return;}
 items.forEach((el,i)=>el.classList.toggle("sym-focused",i===_symSearchFocusIdx));items[_symSearchFocusIdx]?.scrollIntoView({block:"nearest"});});document.querySelectorAll(".sym-tab").forEach(btn=>{btn.addEventListener("click",()=>{document.querySelectorAll(".sym-tab").forEach(b=>b.classList.remove("active"));btn.classList.add("active");_symSearchMarket=btn.dataset.market;_symSearchFocusIdx=-1;_renderSymSearchList();});});}
 let _wrCache={};let _wrCacheLast=null;let _wrFetchTimer=null;const _WR_VIEW_KEY="wrTargetView";let _wrTargetView="mid";try{_wrTargetView=localStorage.getItem(_WR_VIEW_KEY)||"mid";}catch(e){}
 const _WR_BUFFER_KEY="wrStopBuffer";let _wrStopBuffer=0;try{_wrStopBuffer=parseFloat(localStorage.getItem(_WR_BUFFER_KEY))||0;}catch(e){}
-function _initWrTargetBtn(){const btn=document.getElementById("wrTargetToggle");if(!btn)return;btn.textContent=_wrTargetView==="band"?"帶":"中";btn.classList.toggle("band",_wrTargetView==="band");}
-function _initWrStopBuffer(){const inp=document.getElementById("wrStopBuffer");if(!inp)return;inp.value=_wrStopBuffer;inp.addEventListener("change",()=>{const v=Math.max(0,Math.min(10,parseFloat(inp.value)||0));inp.value=v;_wrStopBuffer=v;try{localStorage.setItem(_WR_BUFFER_KEY,String(v));}catch(e){}
-_wrCache={};fetchWinRate();});}
-function _toggleWrTarget(){_wrTargetView=_wrTargetView==="mid"?"band":"mid";try{localStorage.setItem(_WR_VIEW_KEY,_wrTargetView);}catch(e){}
-_initWrTargetBtn();if(_wrCacheLast)_renderWinRate(_wrCacheLast);}
+function _initWrControls(){const segT=document.getElementById("wrTargetSeg");if(segT){segT.querySelectorAll(".tb-wr-seg-btn").forEach(btn=>{btn.classList.toggle("active",btn.dataset.v===_wrTargetView);btn.addEventListener("click",()=>{if(btn.dataset.v===_wrTargetView)return;_wrTargetView=btn.dataset.v;try{localStorage.setItem(_WR_VIEW_KEY,_wrTargetView);}catch(e){}
+segT.querySelectorAll(".tb-wr-seg-btn").forEach(b=>b.classList.toggle("active",b.dataset.v===_wrTargetView));if(_wrCacheLast)_renderWinRate(_wrCacheLast);});});}
+const segB=document.getElementById("wrBufSeg");if(segB){segB.querySelectorAll(".tb-wr-seg-btn").forEach(btn=>{const v=parseFloat(btn.dataset.v);btn.classList.toggle("active",v===_wrStopBuffer);btn.addEventListener("click",()=>{if(v===_wrStopBuffer)return;_wrStopBuffer=v;try{localStorage.setItem(_WR_BUFFER_KEY,String(v));}catch(e){}
+segB.querySelectorAll(".tb-wr-seg-btn").forEach(b=>b.classList.toggle("active",parseFloat(b.dataset.v)===v));_wrCache={};fetchWinRate();});});}}
+function _initWrTargetBtn(){_initWrControls();}
+function _initWrStopBuffer(){}
 function fetchWinRate(){clearTimeout(_wrFetchTimer);_wrFetchTimer=setTimeout(_fetchWinRateNow,250);}
 async function _fetchWinRateNow(){const market=document.getElementById("marketSelect")?.value||"crypto";const symbol=document.getElementById("symbolInput")?.value?.trim()||"";const exchange=document.getElementById("exchangeSelect")?.value||"pionex";const timeframe=currentTF||"1d";if(!symbol)return;const bufDec=(_wrStopBuffer||0)/100;const cacheKey=`${market}:${symbol}:${exchange}:${timeframe}:${bufDec.toFixed(4)}`;if(_wrCache[cacheKey]){_renderWinRate(_wrCache[cacheKey]);_renderWRSignals(_wrCache[cacheKey].signals);return;}
 const bar=document.getElementById("winrateBar");const statusEl=document.getElementById("wrStatus");if(bar){bar.classList.remove("calculating");void bar.offsetWidth;bar.classList.add("calculating");}
