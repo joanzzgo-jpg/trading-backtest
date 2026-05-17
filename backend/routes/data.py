@@ -26,6 +26,11 @@ def _mis_overlay(df: pd.DataFrame, rt: dict, minutes: int):
     bar_min = (total_min // minutes) * minutes
     bar_ts = mis_utc.replace(hour=bar_min // 60, minute=bar_min % 60,
                              second=0, microsecond=0)
+    # 台股交易時間：09:00-13:30 Taipei。bar_ts 對應的 TPE 時間若在交易時間外，
+    # 不建立/更新 bar（避免 13:30 收盤後 MIS 還回傳資料時造出 phantom 13:30 bar）
+    bar_tpe_min = ((bar_ts.hour + 8) % 24) * 60 + bar_ts.minute
+    if bar_tpe_min < 9 * 60 or bar_tpe_min >= 13 * 60 + 30:
+        return df, False
     last = df.iloc[-1]
     last_ts = pd.Timestamp(last["time"])
     last_bar_ts = last_ts.floor(f"{minutes}min")

@@ -211,6 +211,10 @@ def fetch_tw_intraday_yf(symbol: str, timeframe: str, start: str, end: str) -> p
         # 第一根 1h「10:00」實際缺資料，第一根 15m「09:00」有資料但若 yfinance
         # 回傳 vol=0 就濾掉。一律過濾以避免長影線誤導圖表。
         df = df[df["volume"] > 0].reset_index(drop=True)
+        # ─ 台股交易時間過濾（09:00-13:30 Taipei）──────────
+        # 防 yfinance 偶爾回傳 13:30 收盤集合競價 bar 或盤前/盤後 bar
+        tpe_min = ((df["time"].dt.hour + 8) % 24) * 60 + df["time"].dt.minute
+        df = df[(tpe_min >= 9 * 60) & (tpe_min < 13 * 60 + 30)].reset_index(drop=True)
         # ─ 1h 內部重採樣（15m → 1h，對齊台北 09:00 為第一根） ──
         # 用 origin="start_day" + offset="1h" 把 1h bins 對齊到 UTC 01:00（=台北
         # 09:00），讓第一根 1h 包含 09:00-09:59 完整成交量（解決 yfinance 1h bug）。
