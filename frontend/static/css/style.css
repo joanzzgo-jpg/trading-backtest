@@ -680,6 +680,56 @@ html, body {
   -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 4%, #000 96%, transparent 100%);
 }
 
+/* 計算中 overlay：橘子熊 + 文字 */
+.tb-wr-loading {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  pointer-events: none;
+  z-index: 6;
+  opacity: 0;
+  transition: opacity .2s ease-out;
+}
+.tb-wr-loading-bear {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  filter: drop-shadow(0 0 5px rgba(255,145,71,.65));
+  animation: bear-bounce 0.9s ease-in-out infinite;
+}
+.tb-wr-loading-text {
+  font: 800 10px/1 'SF Mono', 'Courier New', monospace;
+  color: #FFD8B0;
+  text-shadow:
+    0 0 5px rgba(255,180,120,.7),
+    0 0 12px rgba(255,145,71,.4);
+  letter-spacing: .18em;
+  /* 文字微脈動 */
+  animation: wr-loading-pulse 1.4s ease-in-out infinite;
+}
+.tb-winrate.calculating .tb-wr-loading {
+  opacity: 1;
+}
+@keyframes bear-bounce {
+  0%, 100% { transform: translateY(0) rotate(-6deg) scale(1);    }
+  25%      { transform: translateY(-4px) rotate(0deg) scale(1.05); }
+  50%      { transform: translateY(0) rotate(6deg) scale(1);    }
+  75%      { transform: translateY(-2px) rotate(0deg) scale(1.05); }
+}
+@keyframes wr-loading-pulse {
+  0%, 100% { opacity: .75; }
+  50%      { opacity: 1;   }
+}
+html.perf-mode .tb-wr-loading-bear { filter: drop-shadow(0 0 3px rgba(255,106,26,.5)); }
+html.perf-mode .tb-wr-loading-text {
+  color: #FF6A1A;
+  text-shadow: 0 0 3px rgba(255,106,26,.3);
+}
+
 /* 計算中：底部進度條 — 水流動態漸層 */
 .tb-wr-progress {
   position: absolute;

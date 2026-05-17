@@ -68,7 +68,8 @@ async function _fetchWinRateNow() {
     void bar.offsetWidth;                // 強制 reflow
     bar.classList.add("calculating");
   }
-  if (statusEl) statusEl.textContent = "計算中…";
+  // 不寫 "計算中…" 到 wrStatus，由中央 .tb-wr-loading（小熊 + 文字）顯示
+  if (statusEl) statusEl.textContent = "";
   try {
     const p   = new URLSearchParams({ market, symbol, exchange, timeframe, stop_buffer_pct: bufDec.toFixed(4) });
     const res = await fetch("/api/crt_winrate?" + p);
