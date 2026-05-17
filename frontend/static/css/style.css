@@ -576,14 +576,14 @@ html, body {
   .tb-winrate { display: none !important; }
 }
 .tb-winrate {
-  /* margin auto 在 flex 容器內居中，永遠不與其他 flex item 重疊 */
-  margin: 0 auto;
+  /* flex:1 佔滿 topbar 內 left 與 tf+right 之間的所有可用空間 */
+  flex: 1 1 auto;
+  margin: 0 6px;
   display: flex;
   align-items: center;
   gap: 3px;
   padding: 0 7px;
   height: 30px;
-  flex-shrink: 1;
   min-width: 0;
   /* 外層不滾動；滾動由內部 .tb-wr-scroll 處理 */
   overflow: hidden;
