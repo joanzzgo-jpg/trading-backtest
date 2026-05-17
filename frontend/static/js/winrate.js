@@ -12,45 +12,33 @@ const _WR_BUFFER_KEY = "wrStopBuffer";
 let _wrStopBuffer = 0;
 try { _wrStopBuffer = parseFloat(localStorage.getItem(_WR_BUFFER_KEY)) || 0; } catch (e) {}
 
-// 統一初始化兩組分段按鈕（中軌/上軌、SL 緩衝）
-function _initWrControls() {
-  // 目標（中軌/上軌）分段
-  const segT = document.getElementById("wrTargetSeg");
-  if (segT) {
-    segT.querySelectorAll(".tb-wr-seg-btn").forEach(btn => {
-      btn.classList.toggle("active", btn.dataset.v === _wrTargetView);
-      btn.addEventListener("click", () => {
-        if (btn.dataset.v === _wrTargetView) return;
-        _wrTargetView = btn.dataset.v;
-        try { localStorage.setItem(_WR_VIEW_KEY, _wrTargetView); } catch (e) {}
-        segT.querySelectorAll(".tb-wr-seg-btn").forEach(b =>
-          b.classList.toggle("active", b.dataset.v === _wrTargetView));
-        if (_wrCacheLast) _renderWinRate(_wrCacheLast);
-      });
-    });
-  }
-  // 止損緩衝（%）分段
-  const segB = document.getElementById("wrBufSeg");
-  if (segB) {
-    segB.querySelectorAll(".tb-wr-seg-btn").forEach(btn => {
-      const v = parseFloat(btn.dataset.v);
-      btn.classList.toggle("active", v === _wrStopBuffer);
-      btn.addEventListener("click", () => {
-        if (v === _wrStopBuffer) return;
-        _wrStopBuffer = v;
-        try { localStorage.setItem(_WR_BUFFER_KEY, String(v)); } catch (e) {}
-        segB.querySelectorAll(".tb-wr-seg-btn").forEach(b =>
-          b.classList.toggle("active", parseFloat(b.dataset.v) === v));
-        // 緩衝變更要清掉前端 cache 重新抓
-        _wrCache = {};
-        fetchWinRate();
-      });
-    });
-  }
+function _initWrTargetBtn() {
+  const btn = document.getElementById("wrTargetToggle");
+  if (!btn) return;
+  btn.textContent = _wrTargetView === "band" ? "上軌" : "中軌";
+  btn.classList.toggle("band", _wrTargetView === "band");
 }
-// 向後相容（舊 API 名稱）
-function _initWrTargetBtn() { _initWrControls(); }
-function _initWrStopBuffer() {}
+
+function _initWrStopBuffer() {
+  const inp = document.getElementById("wrStopBuffer");
+  if (!inp) return;
+  inp.value = _wrStopBuffer;
+  inp.addEventListener("change", () => {
+    const v = Math.max(0, Math.min(10, parseFloat(inp.value) || 0));
+    inp.value = v;
+    _wrStopBuffer = v;
+    try { localStorage.setItem(_WR_BUFFER_KEY, String(v)); } catch (e) {}
+    _wrCache = {};
+    fetchWinRate();
+  });
+}
+
+function _toggleWrTarget() {
+  _wrTargetView = _wrTargetView === "mid" ? "band" : "mid";
+  try { localStorage.setItem(_WR_VIEW_KEY, _wrTargetView); } catch (e) {}
+  _initWrTargetBtn();
+  if (_wrCacheLast) _renderWinRate(_wrCacheLast);
+}
 
 // 公開的進入點：debounced，避免切換標的時連續觸發
 function fetchWinRate() {
