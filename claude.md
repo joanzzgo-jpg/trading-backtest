@@ -10,6 +10,12 @@
 - 部署於 Railway，推送 `main` branch 自動觸發部署（GitHub repo: `joanzzgo-jpg/trading-backtest`）。
 - Railway 用 `Procfile`／`railway.toml` 直接跑 `cd backend && uvicorn main:app`，**沒有跑 `start.sh`**。前端 JS 打包改由 `backend/main.py` 的 `_build_js_bundle()` 在 import 時自動執行（偵測來源 JS 比 bundle 新就重建）。修改前端 JS 後**不需要**手動跑 `start.sh`。
 
+### 環境變數
+- `ANTHROPIC_API_KEY`：橘子熊台詞生成（routes/bear.py 用 Claude Haiku）
+- `FINNHUB_TOKEN`：美股即時報價（免費註冊 https://finnhub.io）。設定後 `/api/latest`
+  與 `/api/ohlcv` 的 US 路徑會把 Finnhub `/quote` 即時價疊加到 yfinance 最後一根
+  K 棒（_finnhub_overlay）。不設定就純用 yfinance（15min 延遲）。
+
 ## 圖片資源
 所有原始圖片存放於 **桌面 `Claude-分類/虛擬貨幣/`**，已複製至 `frontend/static/img/`。
 

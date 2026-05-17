@@ -8,12 +8,34 @@ import pandas as pd
 
 from data.taiwan import fetch_tw_stock, resample_tw, fetch_tw_intraday, fetch_tw_realtime, fetch_tw_intraday_yf, fetch_tw_latest_bar_yf, fetch_tw_daily_yf, YF_MAX_DAYS as TW_YF_MAX_DAYS
 from data.us_stock import fetch_us_stock, MAX_DAYS as US_MAX_DAYS
+from data.us_finnhub import fetch_us_quote
 from data.crypto import fetch_crypto_ohlcv
 from utils.cache import cache
 from utils.data import enrich_df, df_to_records
 from utils.crt import _calc_crt_winrate
 
 router = APIRouter(prefix="/api", tags=["data"])
+
+
+def _finnhub_overlay(df: pd.DataFrame, quote: dict):
+    """把 Finnhub 即時報價疊加到 yfinance 最後一根 K 棒。Returns (df, is_live).
+    只更新「close」並擴展 high/low；不建新 bar（避免半小時錯位的 1h/4h 對齊問題，
+    讓 yfinance 自己掃進新 bar，Finnhub 只負責即時更新最後一根的價格）。
+    """
+    import time as _time
+    if not quote or df.empty:
+        return df, False
+    # 報價超過 5 分鐘就不算即時（市場已收盤或 token 出錯）
+    if (_time.time() - quote.get("timestamp", 0)) > 300:
+        return df, False
+    df = df.copy()
+    i = df.index[-1]
+    last = df.iloc[-1]
+    close = float(quote["close"])
+    df.at[i, "close"] = close
+    df.at[i, "high"]  = max(float(last["high"] or close), close)
+    df.at[i, "low"]   = min(float(last["low"]  or close), close)
+    return df, True
 
 
 def _mis_overlay(df: pd.DataFrame, rt: dict, minutes: int):
@@ -150,6 +172,10 @@ def get_ohlcv(req: OHLCVRequest):
                 min_start = (date.fromisoformat(end) - timedelta(days=max_d)).isoformat()
                 start = max(start_raw, min_start)
             df = fetch_us_stock(req.symbol, start, end, req.timeframe)
+            # Finnhub 即時報價疊加到最後一根 K 棒
+            if os.getenv("FINNHUB_TOKEN"):
+                quote = fetch_us_quote(req.symbol)
+                df, _ = _finnhub_overlay(df, quote)
         else:
             raise HTTPException(400, f"不支援的市場: {req.market}")
     except Exception as e:
@@ -250,6 +276,10 @@ def get_latest(req: LatestRequest):
             end   = date.today().isoformat()
             start = (date.today() - timedelta(days=10)).isoformat()
             df = fetch_us_stock(req.symbol, start, end, req.timeframe)
+            # Finnhub 即時報價疊加（若 FINNHUB_TOKEN 環境變數有設）
+            if os.getenv("FINNHUB_TOKEN"):
+                quote = fetch_us_quote(req.symbol)
+                df, _ = _finnhub_overlay(df, quote)
         else:
             df = fetch_crypto_ohlcv(
                 req.symbol, req.timeframe, limit=3,
@@ -263,7 +293,8 @@ def get_latest(req: LatestRequest):
         raise HTTPException(400, "無資料")
 
     records = df_to_records(df.tail(2))
-    live = req.market not in ("tw", "us")
+    # 若有 FINNHUB_TOKEN，美股也算即時
+    live = (req.market == "crypto") or (req.market == "us" and bool(os.getenv("FINNHUB_TOKEN")))
     return {"live": live, "data": records}
 
 
