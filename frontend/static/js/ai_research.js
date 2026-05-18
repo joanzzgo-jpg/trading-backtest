@@ -173,11 +173,40 @@
     }
   }
 
+  function _setTfs(values) {
+    document.querySelectorAll("#aiTfChips input").forEach(c => {
+      c.checked = values.includes(c.value);
+    });
+  }
+
+  function _applyPreset(name) {
+    const sym = $("symbolInput")?.value?.trim() || "BTC/USDT";
+    if (name === "current") {
+      $("aiSymbols").value = sym;
+      _setTfs(["4h", "1h"]);
+    } else if (name === "multi") {
+      $("aiSymbols").value = "BTC/USDT,ETH/USDT,SOL/USDT";
+      _setTfs(["4h", "1h"]);
+    } else if (name === "deep") {
+      $("aiSymbols").value = sym;
+      _setTfs(["1d", "4h", "1h", "15m", "5m"]);
+    }
+    $("aiRobustOnly").checked = true;
+    _run();
+  }
+
+  function _toggleAdv() {
+    const sec = $("aiAdvSection");
+    const btn = $("aiAdvToggle");
+    if (!sec || !btn) return;
+    const open = sec.classList.toggle("hidden");
+    btn.textContent = open ? "▶ 進階參數" : "▼ 進階參數";
+  }
+
   function init() {
     const openBtn = $("aiResearchBtn");
     if (!openBtn) return;
     openBtn.addEventListener("click", () => {
-      // 預設帶入目前標的
       if (!$("aiSymbols").value) _useCurrentSymbol();
       _show();
     });
@@ -187,6 +216,10 @@
     });
     $("aiSymbolUseCurrent")?.addEventListener("click", _useCurrentSymbol);
     $("aiRunBtn")?.addEventListener("click", _run);
+    $("aiAdvToggle")?.addEventListener("click", _toggleAdv);
+    document.querySelectorAll(".ai-preset").forEach(btn => {
+      btn.addEventListener("click", () => _applyPreset(btn.dataset.preset));
+    });
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape" && !$("aiResearchOverlay")?.classList.contains("hidden")) _hide();
     });
