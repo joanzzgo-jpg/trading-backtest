@@ -39,6 +39,8 @@ function _toggleWrTarget() {
   try { localStorage.setItem(_WR_VIEW_KEY, _wrTargetView); } catch (e) {}
   _initWrTargetBtn();
   if (_wrCacheLast) _renderWinRate(_wrCacheLast);
+  // marker 也要跟著切：止盈位置會從 BB 中軌 → 上/下軌
+  _renderWRSignals();
 }
 
 // 公開的進入點：debounced，避免切換標的時連續觸發
@@ -91,6 +93,7 @@ function _renderWRSignals(signals) {
   if (signals !== undefined) _lastWRSignals = signals || [];
   const list = _lastWRSignals;
   const chartTimeSet = new Set(ohlcvData.map(d => toTime(d.time)));
+  const useBand = _wrTargetView === "band";
 
   const allMarkers = [];
 
@@ -100,6 +103,9 @@ function _renderWRSignals(signals) {
 
     const isShort = s.d === "s";
     const k = s.k || "abc";
+    // 依目標切換取結果欄位：mid → r/ot；band → r_b/ot_b
+    const sr  = useBand ? s.r_b  : s.r;
+    const sot = useBand ? s.ot_b : s.ot;
 
     // ── 進場標記 ──
     const eColor = k === "abc" ? (isShort ? "#ff6b6b" : "#4fc3f7")
@@ -123,10 +129,10 @@ function _renderWRSignals(signals) {
     });
 
     // ── 結果標記（在結算那根K棒上顯示 ✓ 或 ✗）──
-    if (s.r != null && s.ot) {
-      const ot = toTime(s.ot);
+    if (sr != null && sot) {
+      const ot = toTime(sot);
       if (chartTimeSet.has(ot)) {
-        const isWin = s.r === "w";
+        const isWin = sr === "w";
         // 勝：標在目標方向（空→下方，多→上方）；敗：標在止損方向（空→上方，多→下方）
         const oPos = isWin
           ? (isShort ? "belowBar" : "aboveBar")
