@@ -173,6 +173,7 @@ async function _replayPreload(targetTs) {
       const newBars = json.data.filter(b => toTime(b.time) < toTime(ohlcvData[0].time));
       if (!newBars.length) break;
       ohlcvData = newBars.concat(ohlcvData);
+      if (typeof _rebuildTimeIndex === "function") _rebuildTimeIndex();
       if (_lastWRSignals.length) _renderWRSignals();  // 重新過濾顯示新範圍內的訊號
     }
   } catch { /* silent */ } finally {

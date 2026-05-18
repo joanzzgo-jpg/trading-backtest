@@ -92,14 +92,33 @@ function _toggleAutoRR(barTime) {
 // 由訊號 + 目前 view 算出盈虧比盒參數
 // tp     = 預估止盈（進場時 BB 位置）→ 主線
 // tpAct  = 實際止盈（結算棒 BB 位置）→ 副線（僅 win 有）
+// memo 結果以 (sig.t, view, buf, dataVersion) 為 key 快取，避免每幀重算 findIndex
+const _autoRRBoxCache = new Map();
+function _autoRRCacheKey(sig) {
+  const buf = (typeof _wrStopBuffer !== "undefined") ? _wrStopBuffer : 0;
+  const view = (typeof _wrTargetView !== "undefined") ? _wrTargetView : "mid";
+  const ver = (typeof _dataVersion !== "undefined") ? _dataVersion : 0;
+  return `${sig.t}|${view}|${buf}|${ver}`;
+}
+
 function _computeAutoRRBox(sig) {
   if (!sig || !ohlcvData || !ohlcvData.length) return null;
+  const cacheKey = _autoRRCacheKey(sig);
+  if (_autoRRBoxCache.has(cacheKey)) return _autoRRBoxCache.get(cacheKey);
+
   const useBand = _wrTargetView === "band";
-  const sigIdx = ohlcvData.findIndex(d => d.time === sig.t);
-  if (sigIdx < 0 || sigIdx >= ohlcvData.length - 1) return null;  // 無進場棒
-  const sigBar = ohlcvData[sigIdx];
+  // O(1) Map.get 取代 findIndex 線性掃描
+  const sigIdx = (typeof _timeToIdx !== "undefined" && _timeToIdx.has(sig.t))
+    ? _timeToIdx.get(sig.t)
+    : ohlcvData.findIndex(d => d.time === sig.t);
+  if (sigIdx < 0 || sigIdx >= ohlcvData.length - 1) {
+    _autoRRBoxCache.set(cacheKey, null); return null;
+  }
+  const sigBar   = ohlcvData[sigIdx];
   const entryBar = ohlcvData[sigIdx + 1];
-  if (entryBar == null || entryBar.open == null) return null;
+  if (entryBar == null || entryBar.open == null) {
+    _autoRRBoxCache.set(cacheKey, null); return null;
+  }
   const dir = sig.d;
   const buf = (_wrStopBuffer || 0) / 100;
   let tp, sl, type, color;
@@ -112,33 +131,37 @@ function _computeAutoRRBox(sig) {
     tp = useBand ? entryBar.bb_upper : entryBar.bb_middle;
     type = "longpos"; color = "#26a69a";
   }
-  if (tp == null) return null;
+  if (tp == null) { _autoRRBoxCache.set(cacheKey, null); return null; }
 
   // 實際止盈：只在贏的訊號 + 找得到結算棒時才算
   let tpAct = null;
   const exitT  = useBand ? sig.ot_b : sig.ot;
   const result = useBand ? sig.r_b  : sig.r;
-  if (exitT && result === "w") {
-    const exitBar = ohlcvData.find(d => d.time === exitT);
-    if (exitBar) {
-      if (dir === "s") tpAct = useBand ? exitBar.bb_lower : exitBar.bb_middle;
-      else             tpAct = useBand ? exitBar.bb_upper : exitBar.bb_middle;
-    }
+  let exitIdx = -1;
+  if (exitT) {
+    exitIdx = (typeof _timeToIdx !== "undefined" && _timeToIdx.has(exitT))
+      ? _timeToIdx.get(exitT)
+      : ohlcvData.findIndex(d => d.time === exitT);
+  }
+  if (exitT && result === "w" && exitIdx >= 0) {
+    const exitBar = ohlcvData[exitIdx];
+    if (dir === "s") tpAct = useBand ? exitBar.bb_lower : exitBar.bb_middle;
+    else             tpAct = useBand ? exitBar.bb_upper : exitBar.bb_middle;
   }
 
   // 盒寬：從進場棒到結算棒，沒結算就 8 根
   let barWidth = 8;
-  if (exitT) {
-    const exitIdx = ohlcvData.findIndex(d => d.time === exitT);
-    if (exitIdx > sigIdx) barWidth = Math.max(3, exitIdx - sigIdx);
-  }
-  return {
+  if (exitIdx > sigIdx) barWidth = Math.max(3, exitIdx - sigIdx);
+
+  const box = {
     id: "_autoRR_" + sig.t,
     type, color, barWidth,
     p1: { time: toTime(entryBar.time), price: entryBar.open },
     tp, sl, tpAct,
     _isAutoRR: true,
   };
+  _autoRRBoxCache.set(cacheKey, box);
+  return box;
 }
 
 // 渲染所有展開中的自動盈虧比盒（由 draw.js 的 renderDrawings 末端呼叫）
@@ -154,6 +177,7 @@ function _renderAutoRRBoxes(W, H) {
 
 // 切換標的/時框時清空已展開的盒（舊訊號的時間在新資料中不存在）
 function _clearAutoRR() {
+  _autoRRBoxCache.clear();  // 清 memo cache
   if (_autoRRSet.size) {
     _autoRRSet.clear();
     if (typeof renderDrawings === "function") requestAnimationFrame(renderDrawings);
@@ -210,14 +234,17 @@ async function _fetchWinRateNow() {
 function _renderWRSignals(signals) {
   if (signals !== undefined) _lastWRSignals = signals || [];
   const list = _lastWRSignals;
-  const chartTimeSet = new Set(ohlcvData.map(d => toTime(d.time)));
+  // 用 _secToIdx Map（O(1)）取代每次重建 Set（O(n)）
+  const hasIdx = (typeof _secToIdx !== "undefined" && _secToIdx.size > 0);
+  const chartTimeSet = hasIdx ? null : new Set(ohlcvData.map(d => toTime(d.time)));
+  const _has = t => hasIdx ? _secToIdx.has(t) : chartTimeSet.has(t);
   const useBand = _wrTargetView === "band";
 
   const allMarkers = [];
 
   for (const s of list) {
     const et = toTime(s.t);
-    if (!chartTimeSet.has(et)) continue;
+    if (!_has(et)) continue;
 
     const isShort = s.d === "s";
     const k = s.k || "abc";
@@ -249,7 +276,7 @@ function _renderWRSignals(signals) {
     // ── 結果標記（在結算那根K棒上顯示 ✓ 或 ✗）──
     if (sr != null && sot) {
       const ot = toTime(sot);
-      if (chartTimeSet.has(ot)) {
+      if (_has(ot)) {
         const isWin = sr === "w";
         // 勝：標在目標方向（空→下方，多→上方）；敗：標在止損方向（空→上方，多→下方）
         const oPos = isWin
@@ -272,7 +299,7 @@ function _renderWRSignals(signals) {
   allMarkers.sort((a, b) => a.time - b.time);
   lastWRSignalMarkers = allMarkers;
 
-  const entryCount = list.filter(s => chartTimeSet.has(toTime(s.t))).length;
+  const entryCount = list.filter(s => _has(toTime(s.t))).length;
   const ss = document.getElementById("wrStatus");
   if (ss) ss.textContent = entryCount > 0 ? `${entryCount}筆` : "";
   _applyMainMarkers();

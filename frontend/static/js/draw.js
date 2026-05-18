@@ -282,9 +282,11 @@ function _onChartClick(e) {
     if (dragState?.moved) return;
     const near = findNearest(x, y, _magnetMode ? 20 : 12);
     if (near) {
+      // 單擊：只選取繪圖（顯示控制點），不自動開色盤——避免點到文字/盈虧比盒就跳調色盤
+      // 改色請用右鍵 context menu 或 dblclick
       selectedId = near.id;
       e.stopPropagation();
-      showDrawColorPicker(near, e.clientX, e.clientY);
+      document.getElementById("cpPopup")?.classList.remove("open");
     } else {
       // 沒命中既有繪圖 → 試試點到訊號 K 棒 toggle 自動盈虧比
       const pt = screenToChart(x, y);
@@ -400,9 +402,10 @@ function _onChartDblClick(e) {
   const { x, y } = _canvasXY(e);
   const near = findNearest(x, y, 16);
   if (near) {
-    // 顏色面板由 _onChartClick 計時器負責開啟，此處只確保選中
+    // 雙擊：選取 + 開色盤（單擊不開，避免誤觸）
     e.stopPropagation();
     selectedId = near.id;
+    showDrawColorPicker(near, e.clientX, e.clientY);
     requestAnimationFrame(renderDrawings);
     return;
   }

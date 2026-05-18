@@ -21,6 +21,7 @@ async function loadData(autoLoad = false) {
     clearTimeout(_bgIndicatorTimer);
     _bgAnchorCache = null;
     _bgMacdCache   = null;
+    _rebuildTimeIndex();  // 效能：重建 time→idx Map（O(1) 取代 findIndex）
     // 切換標的/時框：清空已展開的自動盈虧比盒（舊訊號時間不存在於新資料）
     if (typeof _clearAutoRR === "function") _clearAutoRR();
     renderAll(json.data);
@@ -35,6 +36,22 @@ async function loadData(autoLoad = false) {
   } finally { showLoading(false); }
 }
 
+
+/* ══════════════════════════════════════════
+   效能：time-string → ohlcvData idx Map
+   給 hot path（auto-RR box、updateAllLegends、wr signals 過濾）用，
+   省 findIndex 的 O(n) 線性掃描。每次 ohlcvData 變更後呼叫一次。
+══════════════════════════════════════════ */
+function _rebuildTimeIndex() {
+  _timeToIdx = new Map();
+  _secToIdx  = new Map();
+  for (let i = 0; i < ohlcvData.length; i++) {
+    const t = ohlcvData[i].time;
+    _timeToIdx.set(t, i);
+    _secToIdx.set(toTime(t), i);
+  }
+  ++_dataVersion;
+}
 
 /* ══════════════════════════════════════════
    渲染
@@ -310,6 +327,7 @@ async function _bgLoadOlderBars(scrollTriggered = false) {
 
       const nPrepended = newBars.length;
       ohlcvData = newBars.concat(ohlcvData);
+      _rebuildTimeIndex();  // 效能：背景載入舊 K 棒後重建 Map
 
       if (replayActive) {
         // 重播中：靜默累積，不碰圖表

@@ -84,6 +84,13 @@ let _bgIndicatorTimer   = null;  // 指標 debounce timer
 let _bgAnchorCache      = null;  // 增量錨點陣列（KDJ/RSI）
 let _bgMacdCache        = null;  // 增量錨點陣列（MACD）
 
+// 效能快取：時間 ISO 字串 → ohlcvData 索引（O(1) 取代 findIndex 線性掃描）
+// 由 render.js 的 _rebuildTimeIndex() 在每次 ohlcvData 更新後重建
+let _timeToIdx          = new Map();
+// UNIX seconds → idx：LWC crosshair param.time 是秒，給 updateAllLegends 用
+let _secToIdx           = new Map();
+let _dataVersion        = 0;     // ohlcvData 變更時 ++，給 memo cache 用
+
 const PANE_FLEX_DEFAULTS = { mainPane:5, kdjPane:1, rsiPane:1, macdPane:1 };
 
 const TF_LABELS = { "1M":"月","1w":"週","1d":"日","4h":"4H","1h":"1H","15m":"15m","5m":"5m" };

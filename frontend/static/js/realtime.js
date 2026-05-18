@@ -38,8 +38,15 @@ async function fetchLatest() {
         // 性能：若 OHLC 完全沒變，跳過 LWC update 與 indicator 重算（省 CPU）
         if (last.close === bar.close && last.high === bar.high && last.low === bar.low && last.open === bar.open) return;
         ohlcvData[ohlcvData.length - 1] = { ...last, ...bar };
+        // 同時間不需重建 Map（key 不變）
       }
-      else if (t > lastT) ohlcvData.push(bar);
+      else if (t > lastT) {
+        ohlcvData.push(bar);
+        if (typeof _timeToIdx !== "undefined") {
+          _timeToIdx.set(bar.time, ohlcvData.length - 1);
+          _secToIdx.set(t, ohlcvData.length - 1);
+        }
+      }
       else return;
       candleSeries.update({ time:t, open:bar.open, high:bar.high, low:bar.low, close:bar.close });
       const _va2 = Math.round((S.volAlpha ?? 0.67) * 255).toString(16).padStart(2, "0");
@@ -60,7 +67,14 @@ async function fetchLatest() {
    統一更新所有面板圖例（鉛直線跨圖同步）
 ══════════════════════════════════════════ */
 function updateAllLegends(t) {
-  const d = ohlcvData.find(r => toTime(r.time) === t);
+  // 熱路徑（每次 crosshair 移動觸發）：O(n) find 改成由 _toTimeIdxBySec 查 Map
+  // 因 ohlcvData 的 time 是 ISO 字串、t 是 UNIX 秒，需另建 sec→idx 查找
+  let d = null;
+  if (_secToIdx && _secToIdx.has(t)) {
+    d = ohlcvData[_secToIdx.get(t)];
+  } else {
+    d = ohlcvData.find(r => toTime(r.time) === t);
+  }
   if (!d) return;
 
   // 符號列
