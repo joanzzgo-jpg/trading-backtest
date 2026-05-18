@@ -17,7 +17,7 @@ def _ts_val(t) -> str:
 def _scan_outcome_np(highs, lows, closes, target_arr, times_iso, entry_i, n, stop_px, direction):
     """從 entry_i 向後掃描，target_arr 提供每根的目標價（中軌或上下軌）。
 
-    回傳 ('win'/'loss', bar_time_iso) 或 (None, None)。
+    回傳 ('win'/'loss', bar_time_iso, exit_idx) 或 (None, None, -1)。
     SHORT：target_arr 應為 bb_middle 或 bb_lower；命中條件 low <= target
     LONG ：target_arr 應為 bb_middle 或 bb_upper；命中條件 high >= target
     """
@@ -42,8 +42,8 @@ def _scan_outcome_np(highs, lows, closes, target_arr, times_iso, entry_i, n, sto
             elif hit_stop: result = "loss"
             elif hit_tgt:  result = "win"
             else: continue
-        return result, times_iso[j]
-    return None, None
+        return result, times_iso[j], j
+    return None, None, -1
 
 
 def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only: bool = False) -> dict:
@@ -63,6 +63,8 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
     highs  = df["high"].to_numpy(dtype=float)
     lows   = df["low"].to_numpy(dtype=float)
     closes = df["close"].to_numpy(dtype=float)
+    # 進場價：用次根 open；若無 open 欄位（不應該發生）退回用 close
+    opens  = df["open"].to_numpy(dtype=float) if "open" in df.columns else closes
 
     def _col_f(name):
         if name not in df.columns:
@@ -86,6 +88,22 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
     SIG_KEYS = ["abc", "ab", "3", "4", "5", "6"]
     mid_cnt  = {k: [0, 0, 0, 0] for k in SIG_KEYS}
     band_cnt = {k: [0, 0, 0, 0] for k in SIG_KEYS}
+    # RR 累計：mid_rr[k][dir] = {"est_sum": 預估 RR 總和（所有訊號）,
+    #                          "est_n": 預估 RR 樣本數,
+    #                          "act_win_sum": 實際贏的 R 總和（用結算時 BB）,
+    #                          "n_win": 贏的筆數, "n_loss": 輸的筆數}
+    def _new_rr_bucket():
+        # est_sum_all/est_n_all：所有訊號的預估 RR（平均 RR_預估）
+        # est_sum_win：贏的訊號預估 RR 總和（拿來算預估淨 R = est_sum_win - n_loss）
+        # act_sum_win：贏的訊號實際 RR 總和（拿來算實際淨 R 與 PF）
+        return {
+            "est_sum_all": 0.0, "est_n_all": 0,
+            "est_sum_win": 0.0,
+            "act_sum_win": 0.0,
+            "n_win": 0, "n_loss": 0,
+        }
+    mid_rr  = {k: {"short": _new_rr_bucket(), "long": _new_rr_bucket()} for k in SIG_KEYS}
+    band_rr = {k: {"short": _new_rr_bucket(), "long": _new_rr_bucket()} for k in SIG_KEYS}
     recent:  list = []
     signals: list = []
 
@@ -105,12 +123,44 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
     def _scan_dual(entry_i, stop_px, direction):
         """同時掃中軌與帶軌目標。
         帶軌目標：short→bb_lower、long→bb_upper（更遠的反向極端）"""
-        om, otm = _scan_outcome_np(highs, lows, closes, bb_mid, times_iso, entry_i, n, stop_px, direction)
+        om, otm, omj = _scan_outcome_np(highs, lows, closes, bb_mid, times_iso, entry_i, n, stop_px, direction)
         band_arr = bb_lo if direction == "short" else bb_up
-        ob, otb = _scan_outcome_np(highs, lows, closes, band_arr, times_iso, entry_i, n, stop_px, direction)
-        return om, otm, ob, otb
+        ob, otb, obj = _scan_outcome_np(highs, lows, closes, band_arr, times_iso, entry_i, n, stop_px, direction)
+        return om, otm, omj, ob, otb, obj
 
-    def _push_signal(sig_time, d_str, sig_key, direction, om, otm, ob, otb):
+    def _rr_at(entry_i, exit_idx, stop_px, direction, target_arr):
+        """計算 RR：reward / risk。
+        - 預估（exit_idx=-1 → 用 entry_i 的 target）
+        - 實際（exit_idx≥0 → 用 exit_idx 的 target，僅 win 有意義）
+        單根 RR cap 10 避免 BB 極端展寬時 outlier 拉爆統計。"""
+        if entry_i < 0 or entry_i >= n: return None
+        entry_px = opens[entry_i]
+        idx = entry_i if exit_idx < 0 else exit_idx
+        tgt = target_arr[idx]
+        if entry_px != entry_px or tgt != tgt:  # NaN
+            return None
+        risk = abs(entry_px - stop_px)
+        if risk < 1e-12: return None
+        return min(abs(entry_px - tgt) / risk, 10.0)
+
+    def _bump_rr(rr_dict, sig_key, direction, entry_i, exit_idx, stop_px, outcome, target_arr):
+        b = rr_dict[sig_key][direction]
+        rr_est = _rr_at(entry_i, -1, stop_px, direction, target_arr)
+        if rr_est is not None:
+            b["est_sum_all"] += rr_est
+            b["est_n_all"]   += 1
+        if outcome == "win":
+            if rr_est is not None:
+                b["est_sum_win"] += rr_est
+            rr_act = _rr_at(entry_i, exit_idx, stop_px, direction, target_arr)
+            if rr_act is not None:
+                b["act_sum_win"] += rr_act
+            b["n_win"] += 1
+        elif outcome == "loss":
+            b["n_loss"] += 1
+
+    def _push_signal(sig_time, d_str, sig_key, direction, entry_i, stop_px,
+                     om, otm, omj, ob, otb, obj):
         signals.append({
             "t": sig_time, "d": d_str, "k": sig_key,
             "r":   "w" if om == "win" else ("l" if om else None), "ot":   otm,
@@ -118,6 +168,9 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         })
         _bump(mid_cnt,  sig_key, direction, om)
         _bump(band_cnt, sig_key, direction, ob)
+        _bump_rr(mid_rr,  sig_key, direction, entry_i, omj, stop_px, om, bb_mid)
+        band_arr = bb_lo if direction == "short" else bb_up
+        _bump_rr(band_rr, sig_key, direction, entry_i, obj, stop_px, ob, band_arr)
         if om is not None:
             recent.append({"t": sig_time, "d": d_str, "r": "w" if om == "win" else "l", "k": sig_key})
 
@@ -134,8 +187,10 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             stop_px = _stop(highs[i] if direction == "short" else lows[i], direction)
             d_str = "s" if direction == "short" else "l"
             sig_time = times_iso[i]
-            om, otm, ob, otb = _scan_dual(i + 1, float(stop_px), direction)
-            _push_signal(sig_time, d_str, "abc", direction, om, otm, ob, otb)
+            entry_i = i + 1
+            om, otm, omj, ob, otb, obj = _scan_dual(entry_i, float(stop_px), direction)
+            _push_signal(sig_time, d_str, "abc", direction, entry_i, float(stop_px),
+                         om, otm, omj, ob, otb, obj)
 
     # ── 訊號二 AB（A=共振，B=CRT+KDJ叉）─────────────────────
     if n >= 3:
@@ -155,8 +210,10 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             stop_px = _stop(highs[ib] if direction == "short" else lows[ib], direction)
             d_str = "s" if direction == "short" else "l"
             sig_time = times_iso[ib]
-            om, otm, ob, otb = _scan_dual(i + 2, float(stop_px), direction)
-            _push_signal(sig_time, d_str, "ab", direction, om, otm, ob, otb)
+            entry_i = i + 2
+            om, otm, omj, ob, otb, obj = _scan_dual(entry_i, float(stop_px), direction)
+            _push_signal(sig_time, d_str, "ab", direction, entry_i, float(stop_px),
+                         om, otm, omj, ob, otb, obj)
 
     # ── 訊號六 S6（4 棒 pattern：ABC 無指標 + D 觸軌 CRT）─────
     # A、B、C 三根都不能有任何指標（crt=0, cross=0, res=0）
@@ -184,8 +241,10 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             stop_px = _stop(highs[d_bar] if direction == "short" else lows[d_bar], direction)
             d_str = "s" if direction == "short" else "l"
             sig_time = times_iso[d_bar]
-            om, otm, ob, otb = _scan_dual(d_bar + 1, float(stop_px), direction)
-            _push_signal(sig_time, d_str, "6", direction, om, otm, ob, otb)
+            entry_i = d_bar + 1
+            om, otm, omj, ob, otb, obj = _scan_dual(entry_i, float(stop_px), direction)
+            _push_signal(sig_time, d_str, "6", direction, entry_i, float(stop_px),
+                         om, otm, omj, ob, otb, obj)
 
     # ── 訊號三/四/五（三棒）共用 slice ─────────────────────────
     if n >= 4:
@@ -241,21 +300,47 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                     stop_px = _stop(min(a_lo_[i], b_lo_[i], c_lo_[i]), direction)
                 d_str = "s" if direction == "short" else "l"
                 sig_time = times_iso[i + 2]
-                om, otm, ob, otb = _scan_dual(i + 3, float(stop_px), direction)
-                _push_signal(sig_time, d_str, k_str, direction, om, otm, ob, otb)
+                entry_i = i + 3
+                om, otm, omj, ob, otb, obj = _scan_dual(entry_i, float(stop_px), direction)
+                _push_signal(sig_time, d_str, k_str, direction, entry_i, float(stop_px),
+                             om, otm, omj, ob, otb, obj)
 
         _process_3bar(s3_short, s3_long, "3")
         _process_3bar(s4_short, s4_long, "4")
         _process_3bar(s5_short, s5_long, "5")
 
     # ── 統計輸出 ─────────────────────────────────────────────
-    def _stats(w, l):
+    def _stats(w, l, rr=None):
+        """rr：對應方向的 RR bucket（含 est_sum_all/est_sum_win/act_sum_win/n_win/n_loss）"""
         t = w + l
-        return {"total": t, "wins": w, "losses": l, "win_rate": round(w / t * 100, 1) if t else None}
+        out = {"total": t, "wins": w, "losses": l, "win_rate": round(w / t * 100, 1) if t else None}
+        if not rr:
+            return out
+        n_all = rr["est_n_all"]
+        avg_rr_est = (rr["est_sum_all"] / n_all) if n_all else None
+        avg_rr_act = (rr["act_sum_win"] / rr["n_win"]) if rr["n_win"] else None
+        # 淨 R：贏的 RR 總和 - 輸的筆數×1R
+        net_r_est = (rr["est_sum_win"] - rr["n_loss"]) if (rr["n_win"] + rr["n_loss"]) else None
+        net_r_act = (rr["act_sum_win"] - rr["n_loss"]) if (rr["n_win"] + rr["n_loss"]) else None
+        # Profit Factor（實際）= 總實際贏 R / 總輸 R（輸=每筆 1R）
+        pf_act = (rr["act_sum_win"] / rr["n_loss"]) if rr["n_loss"] > 0 else (None if rr["n_win"] == 0 else float("inf"))
+        out["avg_rr_est"]  = round(avg_rr_est, 2) if avg_rr_est is not None else None
+        out["avg_rr_act"]  = round(avg_rr_act, 2) if avg_rr_act is not None else None
+        out["net_r_est"]   = round(net_r_est, 2)  if net_r_est  is not None else None
+        out["net_r_act"]   = round(net_r_act, 2)  if net_r_act  is not None else None
+        out["profit_factor"] = (round(pf_act, 2) if isinstance(pf_act, float) and pf_act != float("inf") else
+                                ("inf" if pf_act == float("inf") else None))
+        return out
 
-    def _build_target_stats(cnt):
-        """從 cnt dict 算出該 target 的完整統計結構。"""
-        per_sig = {k: {"short": _stats(v[0], v[1]), "long": _stats(v[2], v[3])} for k, v in cnt.items()}
+    def _build_target_stats(cnt, rr_cnt):
+        """從 cnt + rr_cnt 算出該 target 的完整統計結構。"""
+        per_sig = {
+            k: {
+                "short": _stats(v[0], v[1], rr_cnt[k]["short"]),
+                "long":  _stats(v[2], v[3], rr_cnt[k]["long"]),
+            }
+            for k, v in cnt.items()
+        }
         # 訊號一不計入合計
         wins_s   = sum(cnt[k][0] for k in ("ab", "3", "4", "5", "6"))
         losses_s = sum(cnt[k][1] for k in ("ab", "3", "4", "5", "6"))
@@ -277,8 +362,8 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             "s6":       per_sig["6"],
         }
 
-    mid_out  = _build_target_stats(mid_cnt)
-    band_out = _build_target_stats(band_cnt)
+    mid_out  = _build_target_stats(mid_cnt,  mid_rr)
+    band_out = _build_target_stats(band_cnt, band_rr)
     recent.sort(key=lambda x: x["t"])
     from_date = str(df.iloc[0]["time"])[:10] if n else ""
 

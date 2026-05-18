@@ -152,6 +152,33 @@
     </div>`;
   }
 
+  function _rrBlock(s) {
+    if (!s || s.total == null || s.total === 0) return "";
+    // 沒任何 metrics（極舊資料）就跳過
+    if (s.avg_rr_est == null && s.avg_rr_act == null) return "";
+    const fmtR = v => v == null ? "—" : (v >= 0 ? "+" : "") + v.toFixed(2) + " R";
+    const fmtRR = v => v == null ? "—" : v.toFixed(2);
+    const pf = s.profit_factor;
+    const pfStr = pf === "inf" ? "∞" : (pf == null ? "—" : pf.toFixed(2));
+    const pfCls = (pf === "inf" || (typeof pf === "number" && pf >= 1.5)) ? "good"
+                : (typeof pf === "number" && pf < 1.0) ? "bad" : "";
+    const netActCls = s.net_r_act != null && s.net_r_act > 0 ? "good"
+                    : s.net_r_act != null && s.net_r_act < 0 ? "bad" : "";
+    return `<div class="sig-rr-grid">
+      <div class="sig-rr-col">
+        <div class="sig-rr-hd">📐 預估（進場時）</div>
+        <div class="sig-rr-line"><span>平均 RR</span><b>${fmtRR(s.avg_rr_est)}</b></div>
+        <div class="sig-rr-line"><span>累計淨 R</span><b>${fmtR(s.net_r_est)}</b></div>
+      </div>
+      <div class="sig-rr-col">
+        <div class="sig-rr-hd">📊 實際（含 BB 漂移）</div>
+        <div class="sig-rr-line"><span>平均贏 RR</span><b>${fmtRR(s.avg_rr_act)}</b></div>
+        <div class="sig-rr-line"><span>累計淨 R</span><b class="${netActCls}">${fmtR(s.net_r_act)}</b></div>
+        <div class="sig-rr-line"><span>PF</span><b class="${pfCls}">${pfStr}</b></div>
+      </div>
+    </div>`;
+  }
+
   function _renderDrawer(key) {
     const info = SIGNAL_INFO[key];
     if (!info) return;
@@ -233,7 +260,9 @@
         <section class="sig-section">
           <h3 class="sig-h3">當前統計（${viewLabel}目標）</h3>
           ${_statRow("空單", stats?.short)}
+          ${_rrBlock(stats?.short)}
           ${_statRow("多單", stats?.long)}
+          ${_rrBlock(stats?.long)}
           <div class="sig-visible-line">${visibleLine}</div>
         </section>
 

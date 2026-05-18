@@ -90,6 +90,8 @@ function _toggleAutoRR(barTime) {
 }
 
 // 由訊號 + 目前 view 算出盈虧比盒參數
+// tp     = 預估止盈（進場時 BB 位置）→ 主線
+// tpAct  = 實際止盈（結算棒 BB 位置）→ 副線（僅 win 有）
 function _computeAutoRRBox(sig) {
   if (!sig || !ohlcvData || !ohlcvData.length) return null;
   const useBand = _wrTargetView === "band";
@@ -112,9 +114,20 @@ function _computeAutoRRBox(sig) {
   }
   if (tp == null) return null;
 
+  // 實際止盈：只在贏的訊號 + 找得到結算棒時才算
+  let tpAct = null;
+  const exitT  = useBand ? sig.ot_b : sig.ot;
+  const result = useBand ? sig.r_b  : sig.r;
+  if (exitT && result === "w") {
+    const exitBar = ohlcvData.find(d => d.time === exitT);
+    if (exitBar) {
+      if (dir === "s") tpAct = useBand ? exitBar.bb_lower : exitBar.bb_middle;
+      else             tpAct = useBand ? exitBar.bb_upper : exitBar.bb_middle;
+    }
+  }
+
   // 盒寬：從進場棒到結算棒，沒結算就 8 根
   let barWidth = 8;
-  const exitT = useBand ? sig.ot_b : sig.ot;
   if (exitT) {
     const exitIdx = ohlcvData.findIndex(d => d.time === exitT);
     if (exitIdx > sigIdx) barWidth = Math.max(3, exitIdx - sigIdx);
@@ -123,7 +136,7 @@ function _computeAutoRRBox(sig) {
     id: "_autoRR_" + sig.t,
     type, color, barWidth,
     p1: { time: toTime(entryBar.time), price: entryBar.open },
-    tp, sl,
+    tp, sl, tpAct,
     _isAutoRR: true,
   };
 }

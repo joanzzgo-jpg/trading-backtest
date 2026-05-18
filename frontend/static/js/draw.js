@@ -875,10 +875,25 @@ function drawOne(d, W, H, isHovered, isSelected) {
       drawCtx.setLineDash([]);
     }
 
-    // 水平線（ex → rx）
+    // 水平線（ex → rx）：預估 TP 主線
     drawCtx.strokeStyle = "#26a69a";
     drawCtx.lineWidth = isSelected ? lw + 0.5 : lw;
     drawCtx.beginPath(); drawCtx.moveTo(ex, tpY); drawCtx.lineTo(rx, tpY); drawCtx.stroke();
+
+    // 實際 TP（虛線，僅 _isAutoRR 且有 tpAct 才畫）
+    let tpActY = null;
+    if (d.tpAct != null) {
+      tpActY = candleSeries?.priceToCoordinate(d.tpAct);
+      if (tpActY != null) {
+        drawCtx.save();
+        drawCtx.strokeStyle = "rgba(38,166,154,0.8)";
+        drawCtx.lineWidth = 1;
+        drawCtx.setLineDash([5, 3]);
+        drawCtx.beginPath(); drawCtx.moveTo(ex, tpActY); drawCtx.lineTo(rx, tpActY); drawCtx.stroke();
+        drawCtx.setLineDash([]);
+        drawCtx.restore();
+      }
+    }
 
     drawCtx.strokeStyle = col;
     drawCtx.lineWidth = isSelected ? lw * 1.5 : lw * 1.2;
@@ -899,22 +914,28 @@ function drawOne(d, W, H, isHovered, isSelected) {
       drawCtx.closePath(); drawCtx.fill();
     }
 
-    // R:R 置中（綠色區塊中央）
-    const reward = Math.abs(d.tp - d.p1.price);
-    const risk   = Math.abs(d.p1.price - d.sl);
-    const rr     = risk > 0 ? (reward / risk).toFixed(2) : "∞";
-    const tpCY   = (tpY + entryY) / 2;
+    // R:R 置中（綠色區塊中央）— 自動盈虧比盒同時顯示預估／實際 RR
+    const reward    = Math.abs(d.tp - d.p1.price);
+    const risk      = Math.abs(d.p1.price - d.sl);
+    const rrEst     = risk > 0 ? (reward / risk).toFixed(2) : "∞";
+    const rewardAct = (d.tpAct != null) ? Math.abs(d.tpAct - d.p1.price) : null;
+    const rrAct     = (rewardAct != null && risk > 0) ? (rewardAct / risk).toFixed(2) : null;
+    const tpCY      = (tpY + entryY) / 2;
     drawCtx.font = "bold 12px sans-serif";
-    const rrTxt  = `1 : ${rr}`;
-    const rrW    = drawCtx.measureText(rrTxt).width;
+    const rrTxt = (rrAct != null && d._isAutoRR)
+      ? `預估 1:${rrEst}  ⇢  實際 1:${rrAct}`
+      : `1 : ${rrEst}`;
+    const rrW   = drawCtx.measureText(rrTxt).width;
     drawCtx.fillStyle = "rgba(38,166,154,0.95)";
     if (rx - ex > rrW + 10) drawCtx.fillText(rrTxt, ex + (rx - ex - rrW) / 2, tpCY + 4);
 
     // 右側標籤
     drawCtx.font = "11px sans-serif";
-    rightLabel(tpY,    `TP  ${_fmtPx(d.tp)}`,      "rgba(38,166,154,0.9)", "#fff");
-    rightLabel(entryY, `▶  ${_fmtPx(d.p1.price)}`, "rgba(55,55,55,0.9)",   "#ddd");
-    rightLabel(slY,    `SL  ${_fmtPx(d.sl)}`,      "rgba(239,83,80,0.9)",  "#fff");
+    const tpLabel = d._isAutoRR ? `預估 ${_fmtPx(d.tp)}` : `TP  ${_fmtPx(d.tp)}`;
+    rightLabel(tpY,    tpLabel,                       "rgba(38,166,154,0.9)", "#fff");
+    if (tpActY != null) rightLabel(tpActY, `實際 ${_fmtPx(d.tpAct)}`, "rgba(38,166,154,0.55)", "#fff");
+    rightLabel(entryY, `▶  ${_fmtPx(d.p1.price)}`,    "rgba(55,55,55,0.9)",   "#ddd");
+    rightLabel(slY,    `SL  ${_fmtPx(d.sl)}`,         "rgba(239,83,80,0.9)",  "#fff");
 
     // 選中時：TP/SL 拖移把手 + 右邊緣寬度把手
     if (isSelected) {
@@ -997,6 +1018,21 @@ function drawOne(d, W, H, isHovered, isSelected) {
     drawCtx.lineWidth = isSelected ? lw + 0.5 : lw;
     drawCtx.beginPath(); drawCtx.moveTo(ex, tpY); drawCtx.lineTo(rx, tpY); drawCtx.stroke();
 
+    // 實際 TP（虛線；shortpos：tpAct 通常在 tp 上下方）
+    let tpActY = null;
+    if (d.tpAct != null) {
+      tpActY = candleSeries?.priceToCoordinate(d.tpAct);
+      if (tpActY != null) {
+        drawCtx.save();
+        drawCtx.strokeStyle = "rgba(38,166,154,0.8)";
+        drawCtx.lineWidth = 1;
+        drawCtx.setLineDash([5, 3]);
+        drawCtx.beginPath(); drawCtx.moveTo(ex, tpActY); drawCtx.lineTo(rx, tpActY); drawCtx.stroke();
+        drawCtx.setLineDash([]);
+        drawCtx.restore();
+      }
+    }
+
     // 進場三角
     if (ex >= 0 && ex <= W) {
       const ts = 7;
@@ -1008,21 +1044,27 @@ function drawOne(d, W, H, isHovered, isSelected) {
       drawCtx.closePath(); drawCtx.fill();
     }
 
-    // R:R 置中
-    const reward = Math.abs(d.p1.price - d.tp);
-    const risk   = Math.abs(d.sl - d.p1.price);
-    const rr     = risk > 0 ? (reward / risk).toFixed(2) : "∞";
-    const tpCY   = (entryY + tpY) / 2;
+    // R:R 置中（自動盈虧比盒同時顯示預估／實際）
+    const reward    = Math.abs(d.p1.price - d.tp);
+    const risk      = Math.abs(d.sl - d.p1.price);
+    const rrEst     = risk > 0 ? (reward / risk).toFixed(2) : "∞";
+    const rewardAct = (d.tpAct != null) ? Math.abs(d.p1.price - d.tpAct) : null;
+    const rrAct     = (rewardAct != null && risk > 0) ? (rewardAct / risk).toFixed(2) : null;
+    const tpCY      = (entryY + tpY) / 2;
     drawCtx.font = "bold 12px sans-serif";
-    const rrTxt  = `1 : ${rr}`;
-    const rrW    = drawCtx.measureText(rrTxt).width;
+    const rrTxt = (rrAct != null && d._isAutoRR)
+      ? `預估 1:${rrEst}  ⇢  實際 1:${rrAct}`
+      : `1 : ${rrEst}`;
+    const rrW   = drawCtx.measureText(rrTxt).width;
     drawCtx.fillStyle = "rgba(38,166,154,0.95)";
     if (rx - ex > rrW + 10) drawCtx.fillText(rrTxt, ex + (rx - ex - rrW) / 2, tpCY + 4);
 
     drawCtx.font = "11px sans-serif";
+    const tpLabel = d._isAutoRR ? `預估 ${_fmtPx(d.tp)}` : `TP  ${_fmtPx(d.tp)}`;
     rightLabel(slY,    `SL  ${_fmtPx(d.sl)}`,      "rgba(239,83,80,0.9)",  "#fff");
     rightLabel(entryY, `▶  ${_fmtPx(d.p1.price)}`, "rgba(55,55,55,0.9)",   "#ddd");
-    rightLabel(tpY,    `TP  ${_fmtPx(d.tp)}`,      "rgba(38,166,154,0.9)", "#fff");
+    rightLabel(tpY,    tpLabel,                    "rgba(38,166,154,0.9)", "#fff");
+    if (tpActY != null) rightLabel(tpActY, `實際 ${_fmtPx(d.tpAct)}`, "rgba(38,166,154,0.55)", "#fff");
 
     if (isSelected) {
       [[ex, entryY, "#ffffff"], [ex, slY, "#ef5350"], [ex, tpY, "#26a69a"]].forEach(([px, py, fc]) => {
