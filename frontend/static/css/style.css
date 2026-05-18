@@ -2765,3 +2765,195 @@ html.perf-mode .tb-wr-buffer-pct { color: #8B8B8B; }
 
 /* star button */
 #watchlistStarBtn.starred { color: #FF9147 !important; }
+
+/* ════════════════════════════════════════
+   AI 策略研究 Modal — 暴力枚舉指標組合
+═══════════════════════════════════════ */
+.ai-overlay {
+  position: fixed; inset: 0; z-index: 1100;
+  background: rgba(0,0,0,.62);
+  backdrop-filter: blur(4px);
+  display: flex; align-items: flex-start; justify-content: center;
+  padding-top: 48px;
+}
+.ai-overlay.hidden { display: none; }
+
+.ai-modal {
+  width: 980px; max-width: 96vw;
+  max-height: 86vh;
+  background: var(--bg2);
+  border: 1px solid var(--bg4);
+  border-radius: 12px;
+  overflow: hidden;
+  display: flex; flex-direction: column;
+  box-shadow: 0 24px 80px rgba(0,0,0,.7), 0 0 0 1px rgba(255,145,71,.08);
+}
+
+.ai-modal-hd {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 14px 18px;
+  background: linear-gradient(135deg, rgba(255,145,71,.10), rgba(255,145,71,.03));
+  border-bottom: 1px solid var(--bg4);
+}
+.ai-modal-title { font-size: 14px; font-weight: 700; color: var(--text); letter-spacing: .3px; }
+.ai-modal-close {
+  background: none; border: none; color: var(--muted); font-size: 16px;
+  cursor: pointer; padding: 4px 8px; border-radius: 4px;
+  transition: background .12s, color .12s;
+}
+.ai-modal-close:hover { background: var(--bg3); color: var(--text); }
+
+.ai-modal-form {
+  padding: 14px 18px 12px;
+  border-bottom: 1px solid var(--bg4);
+  display: flex; flex-direction: column; gap: 10px;
+}
+.ai-form-row {
+  display: flex; align-items: center; gap: 10px;
+  flex-wrap: wrap;
+}
+.ai-form-row-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  align-items: end;
+}
+.ai-form-cell { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ai-form-cell-grow { grid-column: span 2; }
+.ai-form-label { font-size: 11px; color: var(--muted); font-weight: 500; }
+.ai-form-input {
+  background: var(--bg3); border: 1px solid var(--bg4);
+  color: var(--text); padding: 7px 10px; border-radius: 6px;
+  font-size: 13px; outline: none;
+  transition: border-color .12s;
+  flex: 1; min-width: 100px;
+}
+.ai-form-input:focus { border-color: var(--blue); }
+.ai-form-input-sm { padding: 6px 8px; font-size: 12px; flex: 0 1 auto; }
+.ai-form-btn-mini {
+  background: var(--bg3); border: 1px solid var(--bg4); color: var(--muted);
+  font-size: 11px; padding: 6px 10px; border-radius: 5px;
+  cursor: pointer; transition: background .12s, color .12s;
+}
+.ai-form-btn-mini:hover { background: var(--bg4); color: var(--text); }
+
+.ai-tf-chips { display: flex; gap: 4px; flex-wrap: wrap; }
+.ai-tf-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: var(--bg3); border: 1px solid var(--bg4);
+  padding: 5px 10px; border-radius: 5px;
+  font-size: 12px; color: var(--muted);
+  cursor: pointer; transition: background .12s, color .12s, border-color .12s;
+}
+.ai-tf-chip input { display: none; }
+.ai-tf-chip:has(input:checked) {
+  background: rgba(255,145,71,.18);
+  color: #FFB178;
+  border-color: rgba(255,145,71,.55);
+}
+.ai-size-chips .ai-tf-chip { padding: 5px 12px; }
+
+.ai-form-actions { display: flex; align-items: center; gap: 12px; margin-top: 4px; }
+.ai-run-btn {
+  background: linear-gradient(135deg, #FF9147, #E85A1A);
+  color: #fff; border: none; padding: 9px 22px;
+  border-radius: 7px; font-size: 13px; font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(232,90,26,.35);
+  transition: transform .08s, box-shadow .12s;
+}
+.ai-run-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(232,90,26,.45); }
+.ai-run-btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+.ai-status { font-size: 12px; color: var(--muted); }
+
+.ai-modal-results {
+  flex: 1; overflow: auto; padding: 0;
+  background: var(--bg1);
+}
+.ai-empty {
+  color: var(--muted); font-size: 12px;
+  padding: 32px; text-align: center;
+}
+.ai-results-table {
+  width: 100%; border-collapse: collapse; font-size: 12px;
+}
+.ai-results-table thead th {
+  position: sticky; top: 0; z-index: 1;
+  background: var(--bg2); color: var(--muted);
+  font-weight: 600; font-size: 11px; text-transform: uppercase;
+  padding: 9px 8px; text-align: left;
+  border-bottom: 1px solid var(--bg4);
+}
+.ai-results-table tbody td {
+  padding: 7px 8px; border-bottom: 1px solid rgba(255,255,255,.03);
+  color: var(--text);
+}
+.ai-results-table tbody tr:hover { background: rgba(255,145,71,.04); }
+.ai-results-table .ai-rank { color: var(--muted); width: 38px; text-align: right; }
+.ai-results-table .ai-dir-s { color: #ef5350; font-weight: 600; }
+.ai-results-table .ai-dir-l { color: #26a69a; font-weight: 600; }
+.ai-results-table .ai-wr-good { color: #4caf50; font-weight: 700; }
+.ai-results-table .ai-wr-mid  { color: var(--text); }
+.ai-results-table .ai-wr-bad  { color: #ef5350; }
+.ai-results-table .ai-num { font-variant-numeric: tabular-nums; text-align: right; }
+.ai-results-table .ai-combo {
+  display: inline-flex; flex-wrap: wrap; gap: 4px;
+}
+.ai-combo-tag {
+  background: var(--bg3); border: 1px solid var(--bg4);
+  padding: 2px 7px; border-radius: 4px;
+  font-size: 11px; color: var(--text);
+}
+
+.ai-target-summary {
+  padding: 10px 18px;
+  background: var(--bg1);
+  border-bottom: 1px solid var(--bg4);
+  font-size: 11px; color: var(--muted);
+  display: flex; flex-wrap: wrap; gap: 12px;
+}
+.ai-target-summary .ai-tgt-ok { color: var(--text); }
+.ai-target-summary .ai-tgt-err { color: #ef5350; }
+
+@media (max-width: 768px) {
+  .ai-modal { width: 100%; max-width: 100%; height: 92vh; max-height: 92vh; border-radius: 0; }
+  .ai-overlay { padding-top: 0; }
+  .ai-form-row-grid { grid-template-columns: 1fr 1fr; }
+  .ai-form-cell-grow { grid-column: span 2; }
+}
+
+/* perf-mode：純白系 */
+html.perf-mode .ai-modal { background: #FFFFFF; border-color: #E5E5E5; box-shadow: 0 12px 40px rgba(0,0,0,.10); }
+html.perf-mode .ai-modal-hd { background: #FAFAFA; border-bottom-color: #E5E5E5; }
+html.perf-mode .ai-form-input { background: #FAFAFA; border-color: #E5E5E5; }
+html.perf-mode .ai-tf-chip { background: #FAFAFA; border-color: #E5E5E5; color: #555; }
+html.perf-mode .ai-tf-chip:has(input:checked) { background: rgba(255,106,26,.12); color: #E85A1A; border-color: #FF6A1A; }
+html.perf-mode .ai-modal-results { background: #FFFFFF; }
+html.perf-mode .ai-results-table thead th { background: #FAFAFA; color: #555; border-bottom-color: #E5E5E5; }
+html.perf-mode .ai-results-table tbody td { color: #1F1F1F; border-bottom-color: #F0F0F0; }
+html.perf-mode .ai-target-summary { background: #FAFAFA; border-bottom-color: #E5E5E5; color: #555; }
+
+/* AI 研究表格 — 新欄位（v2：CI、PF、連敗、test、穩健） */
+.ai-results-table .ai-streak { color: #ff9800; font-weight: 600; }
+.ai-results-table .ai-test-n {
+  color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums;
+  margin-left: 2px;
+}
+.ai-results-table .ai-test-ratio {
+  color: var(--muted); font-size: 10px; margin-left: 4px;
+}
+.ai-results-table .ai-test-empty { color: var(--muted); }
+.ai-results-table .ai-robust {
+  font-size: 14px;
+  filter: drop-shadow(0 0 4px rgba(255,145,71,.5));
+}
+.ai-results-table .ai-row-robust {
+  background: linear-gradient(90deg, rgba(255,145,71,.03), transparent 80%);
+}
+.ai-results-table .ai-row-robust:hover {
+  background: linear-gradient(90deg, rgba(255,145,71,.08), rgba(255,145,71,.03) 80%);
+}
+html.perf-mode .ai-results-table .ai-row-robust {
+  background: linear-gradient(90deg, rgba(255,106,26,.04), transparent 80%);
+}
+html.perf-mode .ai-results-table .ai-robust { filter: none; color: #FF6A1A; }

@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 js = Path("frontend/static/js")
-files = ["config","utils","charts","draw","ticker","winrate","render","realtime","replay","ui","main"]
+files = ["config","utils","charts","draw","ticker","winrate","render","realtime","replay","ui","ai_research","main"]
 parts = []
 for name in files:
     f = js / f"{name}.js"

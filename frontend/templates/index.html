@@ -175,6 +175,7 @@
     <button id="tickerToggle" class="tb-icon-btn" title="行情列表">
       <svg width="14" height="14" viewBox="0 0 14 14"><rect width="6" height="1.6" rx=".8" fill="currentColor"/><rect y="4" width="14" height="1.6" rx=".8" fill="currentColor"/><rect y="8" width="14" height="1.6" rx=".8" fill="currentColor"/><rect y="12" width="10" height="1.6" rx=".8" fill="currentColor"/></svg>
     </button>
+    <button id="aiResearchBtn" class="tb-icon-btn" title="AI 策略研究：暴力枚舉指標組合找可獲利配方">🤖</button>
     <button id="fxToggleBtn" class="tb-icon-btn" title="背景 & 點擊特效">✨</button>
     <button id="musicToggleBtn" class="tb-icon-btn" title="背景音樂">
       <svg width="14" height="14" viewBox="0 0 14 14"><path d="M5.5 2.5v7a2 2 0 1 0 1.2 1.83V5.8l4-1.1v3.8a2 2 0 1 0 1.2 1.83V1.5L5.5 2.5z" fill="currentColor"/></svg>
@@ -446,6 +447,107 @@
     </div>
     <div class="sym-modal-list" id="symModalList">
       <div class="sym-loading">載入中…</div>
+    </div>
+  </div>
+</div>
+
+<!-- AI 策略研究 Modal -->
+<div id="aiResearchOverlay" class="ai-overlay hidden">
+  <div class="ai-modal">
+    <div class="ai-modal-hd">
+      <div class="ai-modal-title">🤖 AI 策略研究 — 暴力枚舉指標組合</div>
+      <button class="ai-modal-close" id="aiResearchClose">✕</button>
+    </div>
+
+    <div class="ai-modal-form">
+      <div class="ai-form-row">
+        <label class="ai-form-label">標的（逗號分隔，最多 6 個）</label>
+        <input id="aiSymbols" class="ai-form-input" type="text" placeholder="BTC/USDT,ETH/USDT" />
+        <button id="aiSymbolUseCurrent" class="ai-form-btn-mini" title="改用目前標的">📍 用目前</button>
+      </div>
+
+      <div class="ai-form-row">
+        <label class="ai-form-label">時間框架（可多選）</label>
+        <div class="ai-tf-chips" id="aiTfChips">
+          <label class="ai-tf-chip"><input type="checkbox" value="1d"/><span>1D</span></label>
+          <label class="ai-tf-chip"><input type="checkbox" value="4h" checked/><span>4H</span></label>
+          <label class="ai-tf-chip"><input type="checkbox" value="1h" checked/><span>1H</span></label>
+          <label class="ai-tf-chip"><input type="checkbox" value="15m"/><span>15m</span></label>
+          <label class="ai-tf-chip"><input type="checkbox" value="5m"/><span>5m</span></label>
+        </div>
+      </div>
+
+      <div class="ai-form-row ai-form-row-grid">
+        <div class="ai-form-cell">
+          <label class="ai-form-label">回測天數（0=預設）</label>
+          <input id="aiDays" class="ai-form-input ai-form-input-sm" type="number" min="0" max="3650" value="0"/>
+        </div>
+        <div class="ai-form-cell">
+          <label class="ai-form-label">最低筆數</label>
+          <input id="aiMinTrades" class="ai-form-input ai-form-input-sm" type="number" min="2" max="500" value="10"/>
+        </div>
+        <div class="ai-form-cell">
+          <label class="ai-form-label">停損緩衝 %</label>
+          <input id="aiStopBuf" class="ai-form-input ai-form-input-sm" type="number" min="0" max="10" step="0.1" value="0"/>
+        </div>
+        <div class="ai-form-cell">
+          <label class="ai-form-label">Top N</label>
+          <input id="aiTopN" class="ai-form-input ai-form-input-sm" type="number" min="1" max="200" value="30"/>
+        </div>
+      </div>
+
+      <div class="ai-form-row ai-form-row-grid">
+        <div class="ai-form-cell">
+          <label class="ai-form-label">組合大小</label>
+          <div class="ai-tf-chips ai-size-chips">
+            <label class="ai-tf-chip"><input type="checkbox" value="2" checked/><span>2</span></label>
+            <label class="ai-tf-chip"><input type="checkbox" value="3" checked/><span>3</span></label>
+            <label class="ai-tf-chip"><input type="checkbox" value="4" checked/><span>4</span></label>
+          </div>
+        </div>
+        <div class="ai-form-cell ai-form-cell-grow">
+          <label class="ai-form-label">排序依據</label>
+          <select id="aiSortBy" class="ai-form-input ai-form-input-sm">
+            <option value="score" selected>綜合分數（CI下界×√筆數，穩健 ×1.2）</option>
+            <option value="ci_low">Wilson 95% 信賴下界（保守）</option>
+            <option value="win_rate">純勝率（可能過擬合）</option>
+            <option value="profit_factor">獲利因子（總賺R/總賠R）</option>
+            <option value="expectancy">期望值（R 倍數）</option>
+            <option value="total">樣本數最多</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="ai-form-row ai-form-row-grid">
+        <div class="ai-form-cell">
+          <label class="ai-form-label">max_hold（持倉最久 K 棒，0=不限）</label>
+          <input id="aiMaxHold" class="ai-form-input ai-form-input-sm" type="number" min="-1" max="500" value="-1"/>
+        </div>
+        <div class="ai-form-cell">
+          <label class="ai-form-label">訓練集比例</label>
+          <input id="aiTrainSplit" class="ai-form-input ai-form-input-sm" type="number" min="0.3" max="0.9" step="0.05" value="0.7"/>
+        </div>
+        <div class="ai-form-cell">
+          <label class="ai-form-label">workers</label>
+          <input id="aiWorkers" class="ai-form-input ai-form-input-sm" type="number" min="1" max="8" value="4"/>
+        </div>
+        <div class="ai-form-cell">
+          <label class="ai-form-label">&nbsp;</label>
+          <label class="ai-tf-chip" style="padding:7px 12px;">
+            <input id="aiRobustOnly" type="checkbox"/>
+            <span>🔒 只看穩健（test/train ≥ 85%）</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="ai-form-actions">
+        <button id="aiRunBtn" class="ai-run-btn">🚀 開始研究</button>
+        <span id="aiStatus" class="ai-status"></span>
+      </div>
+    </div>
+
+    <div class="ai-modal-results" id="aiResults">
+      <div class="ai-empty">設定上方參數後點「開始研究」。每跑一個 (symbol×TF) 約 5–15 秒。</div>
     </div>
   </div>
 </div>
