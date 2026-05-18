@@ -3071,6 +3071,15 @@ html.perf-mode .ai-adv-section { background: #FAFAFA; border-color: #E5E5E5; }
   pointer-events: none;
 }
 
+/* 內層 wrapper 也要 flex 容器；補上 flex chain 讓 .sig-dwr-body overflow-y:auto 生效 */
+.sig-drawer-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;  /* 關鍵：允許 flex child 縮到內容下方再 overflow */
+  overflow: hidden;
+}
+
 .sig-dwr-hd {
   display: flex; align-items: center; gap: 10px;
   padding: 14px 16px 12px;
@@ -3296,3 +3305,11 @@ html.perf-mode .sig-rr-grid {
   border-color: rgba(255,106,26,.22);
 }
 html.perf-mode .sig-rr-hd { border-bottom-color: #E5E5E5; }
+
+.sig-low-sample {
+  color: #ffa726;
+  font-weight: 700;
+  margin-left: 4px;
+  cursor: help;
+}
+html.perf-mode .sig-low-sample { color: #E85A1A; }
