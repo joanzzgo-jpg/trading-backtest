@@ -80,8 +80,8 @@
     </div>
     <!-- 中央可滾動區：6 個訊號區塊 -->
     <div class="tb-wr-scroll" id="wrScroll">
-    <span class="tb-wr-block">
-      <span class="tb-wr-icon wr-abc" title="訊號一：同棒CRT＋共振＋KDJ叉">●</span>
+    <span class="tb-wr-block" data-sig="abc" title="點擊查看訊號一詳細資訊">
+      <span class="tb-wr-icon wr-abc">●</span>
       <span class="tb-wr-vals">
         <span id="wrAbcS" class="tb-wr-v" data-dir="s">—</span>
         <span id="wrAbcL" class="tb-wr-v" data-dir="l">—</span>
@@ -90,8 +90,8 @@
 
     <span class="tb-wr-divider"></span>
 
-    <span class="tb-wr-block">
-      <span class="tb-wr-icon wr-ab" title="訊號二：A共振→B CRT＋KDJ叉">■</span>
+    <span class="tb-wr-block" data-sig="ab" title="點擊查看訊號二詳細資訊">
+      <span class="tb-wr-icon wr-ab">■</span>
       <span class="tb-wr-vals">
         <span id="wrAbS" class="tb-wr-v" data-dir="s">—</span>
         <span id="wrAbL" class="tb-wr-v" data-dir="l">—</span>
@@ -100,8 +100,8 @@
 
     <span class="tb-wr-divider"></span>
 
-    <span class="tb-wr-block">
-      <span class="tb-wr-icon wr-s3" title="訊號三：A共振→B共振→C KDJ叉">▲</span>
+    <span class="tb-wr-block" data-sig="s3" title="點擊查看訊號三詳細資訊">
+      <span class="tb-wr-icon wr-s3">▲</span>
       <span class="tb-wr-vals">
         <span id="wrS3S" class="tb-wr-v" data-dir="s">—</span>
         <span id="wrS3L" class="tb-wr-v" data-dir="l">—</span>
@@ -110,8 +110,8 @@
 
     <span class="tb-wr-divider"></span>
 
-    <span class="tb-wr-block">
-      <span class="tb-wr-icon wr-s4" title="訊號四：A純共振→B無指標→C純KDJ叉">◆</span>
+    <span class="tb-wr-block" data-sig="s4" title="點擊查看訊號四詳細資訊">
+      <span class="tb-wr-icon wr-s4">◆</span>
       <span class="tb-wr-vals">
         <span id="wrS4S" class="tb-wr-v" data-dir="s">—</span>
         <span id="wrS4L" class="tb-wr-v" data-dir="l">—</span>
@@ -120,8 +120,8 @@
 
     <span class="tb-wr-divider"></span>
 
-    <span class="tb-wr-block">
-      <span class="tb-wr-icon wr-s5" title="訊號五：A無指標→B純共振→C純KDJ叉">★</span>
+    <span class="tb-wr-block" data-sig="s5" title="點擊查看訊號五詳細資訊">
+      <span class="tb-wr-icon wr-s5">★</span>
       <span class="tb-wr-vals">
         <span id="wrS5S" class="tb-wr-v" data-dir="s">—</span>
         <span id="wrS5L" class="tb-wr-v" data-dir="l">—</span>
@@ -130,8 +130,8 @@
 
     <span class="tb-wr-divider"></span>
 
-    <span class="tb-wr-block">
-      <span class="tb-wr-icon wr-s6" title="訊號六：ABCD 四棒 — A/B/C 三棒無任何指標，D 棒為 CRT 觸軌（空：高觸上軌+CRT-1 / 多：低觸下軌+CRT+1）">◇</span>
+    <span class="tb-wr-block" data-sig="s6" title="點擊查看訊號六詳細資訊">
+      <span class="tb-wr-icon wr-s6">◇</span>
       <span class="tb-wr-vals">
         <span id="wrS6S" class="tb-wr-v" data-dir="s">—</span>
         <span id="wrS6L" class="tb-wr-v" data-dir="l">—</span>
@@ -449,6 +449,11 @@
       <div class="sym-loading">載入中…</div>
     </div>
   </div>
+</div>
+
+<!-- 訊號詳細資訊抽屜（左側滑出） -->
+<div id="signalDrawer" class="sig-drawer hidden">
+  <div class="sig-drawer-content" id="signalDrawerContent"><!-- JS render --></div>
 </div>
 
 <!-- AI 策略研究 Modal -->

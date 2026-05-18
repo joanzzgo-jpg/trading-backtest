@@ -184,6 +184,7 @@ async function _fetchWinRateNow() {
     _wrCache[cacheKey] = d;
     _renderWinRate(d);
     _renderWRSignals(d.signals);
+    if (typeof window._refreshSignalDrawer === "function") window._refreshSignalDrawer();
   } catch(e) {
     if (statusEl) statusEl.textContent = "—";
     lastWRSignalMarkers = [];

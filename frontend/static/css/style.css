@@ -3040,3 +3040,218 @@ html.perf-mode .ai-preset-name { color: #1F1F1F; }
 html.perf-mode .ai-preset-desc { color: #888; }
 html.perf-mode .ai-preset-hint { background: rgba(255,106,26,.05); border-left-color: #FF6A1A; color: #555; }
 html.perf-mode .ai-adv-section { background: #FAFAFA; border-color: #E5E5E5; }
+
+/* ════════════════════════════════════════
+   訊號詳細資訊抽屜（左側滑出）
+═══════════════════════════════════════ */
+.tb-wr-block[data-sig] {
+  cursor: pointer;
+  transition: background .12s;
+  border-radius: 4px;
+}
+.tb-wr-block[data-sig]:hover {
+  background: rgba(255,145,71,.08);
+}
+
+.sig-drawer {
+  position: fixed;
+  top: 0; left: 0; bottom: 0;
+  width: 420px;
+  max-width: 92vw;
+  z-index: 1050;
+  background: var(--bg2);
+  border-right: 1px solid var(--bg4);
+  box-shadow: 8px 0 32px rgba(0,0,0,.45);
+  display: flex; flex-direction: column;
+  transform: translateX(0);
+  transition: transform .22s cubic-bezier(.4,0,.2,1);
+}
+.sig-drawer.hidden {
+  transform: translateX(-100%);
+  pointer-events: none;
+}
+
+.sig-dwr-hd {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--bg4);
+  background: linear-gradient(135deg, rgba(255,145,71,.08), rgba(255,145,71,.02));
+}
+.sig-dwr-icon { font-size: 26px; line-height: 1; }
+.sig-dwr-titles { flex: 1; min-width: 0; }
+.sig-dwr-name {
+  font-size: 15px; font-weight: 700; color: var(--text); letter-spacing: .3px;
+}
+.sig-dwr-sub {
+  font-size: 11px; color: var(--muted); margin-top: 2px;
+}
+.sig-dwr-close {
+  background: none; border: none; color: var(--muted);
+  cursor: pointer; font-size: 16px; padding: 4px 8px;
+  border-radius: 4px; transition: background .12s, color .12s;
+}
+.sig-dwr-close:hover { background: var(--bg3); color: var(--text); }
+
+.sig-dwr-body {
+  flex: 1; overflow-y: auto;
+  padding: 14px 16px 22px;
+  font-size: 12.5px; line-height: 1.55;
+}
+.sig-dwr-body::-webkit-scrollbar { width: 6px; }
+.sig-dwr-body::-webkit-scrollbar-thumb { background: var(--bg3); border-radius: 3px; }
+
+.sig-section {
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(255,255,255,.05);
+}
+.sig-section:last-child { border-bottom: none; }
+.sig-h3 {
+  font-size: 11px; font-weight: 700; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 1.5px;
+  margin-bottom: 8px;
+}
+.sig-gist {
+  background: rgba(255,145,71,.06);
+  border-left: 2px solid rgba(255,145,71,.45);
+  padding: 8px 10px; border-radius: 4px;
+  color: var(--text); font-size: 12px;
+}
+.sig-gist b { color: #FFB178; }
+
+.sig-pat-row {
+  display: flex; gap: 8px;
+  padding: 4px 0;
+  font-size: 12px;
+}
+.sig-pat-dir {
+  flex-shrink: 0; min-width: 80px;
+  color: #FFB178; font-weight: 600;
+}
+.sig-pat-cond { color: var(--text); }
+.sig-pat-cond b { color: #FFB178; }
+
+.sig-list {
+  list-style: none; padding: 0; margin: 0;
+}
+.sig-list li {
+  position: relative;
+  padding: 3px 0 3px 14px;
+  color: var(--text); font-size: 12px;
+}
+.sig-list li::before {
+  content: "•"; position: absolute; left: 2px;
+  color: rgba(255,145,71,.7);
+}
+
+.sig-rule {
+  display: flex; gap: 12px;
+  padding: 4px 0;
+  font-size: 12px;
+}
+.sig-rule-lbl {
+  flex-shrink: 0; min-width: 44px;
+  color: var(--muted); font-weight: 600;
+}
+
+.sig-stat-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 8px;
+  background: var(--bg3);
+  border-radius: 5px;
+  margin-bottom: 4px;
+}
+.sig-stat-lbl {
+  flex-shrink: 0; min-width: 46px;
+  color: var(--muted); font-size: 12px; font-weight: 600;
+}
+.sig-stat-val {
+  font-size: 16px; font-weight: 700;
+  color: var(--text); font-variant-numeric: tabular-nums;
+}
+.sig-stat-val.good { color: #4caf50; }
+.sig-stat-val.bad  { color: #ef5350; }
+.sig-stat-cnt {
+  color: var(--muted); font-size: 11px;
+  margin-left: auto;
+}
+.sig-visible-line {
+  color: var(--muted); font-size: 11px;
+  margin-top: 6px; padding: 4px 8px;
+  background: rgba(255,255,255,.02);
+  border-radius: 3px;
+}
+.sig-visible-line b { color: #FFB178; }
+
+.sig-list-box {
+  background: var(--bg3);
+  border-radius: 5px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 2px 0;
+}
+.sig-list-box::-webkit-scrollbar { width: 4px; }
+.sig-list-box::-webkit-scrollbar-thumb { background: var(--bg4); border-radius: 2px; }
+
+.sig-row {
+  display: grid;
+  grid-template-columns: 110px 28px 26px 1fr;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-bottom: 1px solid rgba(255,255,255,.03);
+  font-size: 11px;
+  cursor: pointer;
+  transition: background .1s;
+}
+.sig-row:hover { background: rgba(255,145,71,.08); }
+.sig-row:last-child { border-bottom: none; }
+.sig-row-t {
+  color: var(--text); font-variant-numeric: tabular-nums; font-family: monospace;
+}
+.sig-row-d.dir-s { color: #ef5350; font-weight: 700; text-align: center; }
+.sig-row-d.dir-l { color: #26a69a; font-weight: 700; text-align: center; }
+.sig-row-r { text-align: center; font-weight: 700; }
+.sig-row-r.win  { color: #4caf50; }
+.sig-row-r.loss { color: #ef5350; }
+.sig-row-ot {
+  color: var(--muted); font-size: 10px;
+  font-family: monospace; text-align: right;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.sig-empty {
+  color: var(--muted); font-size: 11px;
+  padding: 18px; text-align: center;
+}
+
+/* 抽屜開啟時，圖表稍微讓位（可選）— 預設不縮，浮在上方 */
+body.sig-drawer-open { /* 留作未來用 */ }
+
+@media (max-width: 768px) {
+  .sig-drawer { width: 100%; max-width: 100%; }
+}
+
+/* perf-mode 純白系適配 */
+html.perf-mode .sig-drawer {
+  background: #FFFFFF;
+  border-right-color: #E5E5E5;
+  box-shadow: 4px 0 18px rgba(0,0,0,.08);
+}
+html.perf-mode .sig-dwr-hd {
+  background: #FAFAFA;
+  border-bottom-color: #E5E5E5;
+}
+html.perf-mode .sig-section { border-bottom-color: #F0F0F0; }
+html.perf-mode .sig-gist {
+  background: rgba(255,106,26,.06);
+  border-left-color: #FF6A1A;
+}
+html.perf-mode .sig-gist b,
+html.perf-mode .sig-pat-cond b,
+html.perf-mode .sig-pat-dir,
+html.perf-mode .sig-visible-line b { color: #E85A1A; }
+html.perf-mode .sig-stat-row { background: #FAFAFA; }
+html.perf-mode .sig-list-box { background: #FAFAFA; }
+html.perf-mode .sig-row { border-bottom-color: #F0F0F0; }
+html.perf-mode .sig-row:hover { background: rgba(255,106,26,.06); }
+html.perf-mode .tb-wr-block[data-sig]:hover { background: rgba(255,106,26,.08); }
