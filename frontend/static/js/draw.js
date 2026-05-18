@@ -286,6 +286,12 @@ function _onChartClick(e) {
       e.stopPropagation();
       showDrawColorPicker(near, e.clientX, e.clientY);
     } else {
+      // 沒命中既有繪圖 → 試試點到訊號 K 棒 toggle 自動盈虧比
+      const pt = screenToChart(x, y);
+      if (pt && typeof _toggleAutoRR === "function" && _toggleAutoRR(pt.time)) {
+        e.stopPropagation();
+        return;
+      }
       selectedId = null;
       document.getElementById("cpPopup")?.classList.remove("open");
     }
@@ -662,6 +668,9 @@ function renderDrawings() {
   drawings.filter(d => d.id !== selectedId && d.id !== hoveredId).forEach(d => drawOne(d, W, H, false, false));
   drawings.filter(d => d.id === hoveredId && d.id !== selectedId).forEach(d => drawOne(d, W, H, true, false));
   drawings.filter(d => d.id === selectedId).forEach(d => drawOne(d, W, H, false, true));
+
+  // 點擊訊號 K 棒展開的自動盈虧比盒（由 winrate.js 提供）
+  if (typeof _renderAutoRRBoxes === "function") _renderAutoRRBoxes(W, H);
 
   // Compute snapped cursor position when magnet is active
   let _cmx = _mx, _cmy = _my;

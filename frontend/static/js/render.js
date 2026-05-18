@@ -21,6 +21,8 @@ async function loadData(autoLoad = false) {
     clearTimeout(_bgIndicatorTimer);
     _bgAnchorCache = null;
     _bgMacdCache   = null;
+    // 切換標的/時框：清空已展開的自動盈虧比盒（舊訊號時間不存在於新資料）
+    if (typeof _clearAutoRR === "function") _clearAutoRR();
     renderAll(json.data);
     startRealtime();
     saveLastSymbol();   // 載入成功後記憶此次標的

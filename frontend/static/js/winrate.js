@@ -7,6 +7,11 @@ const _WR_VIEW_KEY = "wrTargetView";
 let _wrTargetView = "mid";
 try { _wrTargetView = localStorage.getItem(_WR_VIEW_KEY) || "mid"; } catch (e) {}
 
+// 點擊訊號 K 棒展開的自動盈虧比盒：Set<signal.t>
+const _autoRRSet = new Set();
+let _autoRRHintShown = false;
+try { _autoRRHintShown = localStorage.getItem("wrAutoRRHintShown") === "1"; } catch (e) {}
+
 // 停損緩衝（%；UI 顯示 0.5 表示 0.5%，API 收 decimal 0.005）
 const _WR_BUFFER_KEY = "wrStopBuffer";
 let _wrStopBuffer = 0;
@@ -31,6 +36,8 @@ function _initWrStopBuffer() {
     try { localStorage.setItem(_WR_BUFFER_KEY, String(v)); } catch (e) {}
     _wrCache = {};
     fetchWinRate();
+    // 已展開的自動盈虧比盒也跟著新 buffer 重畫止損位
+    if (typeof renderDrawings === "function") requestAnimationFrame(renderDrawings);
   });
 }
 
@@ -39,8 +46,105 @@ function _toggleWrTarget() {
   try { localStorage.setItem(_WR_VIEW_KEY, _wrTargetView); } catch (e) {}
   _initWrTargetBtn();
   if (_wrCacheLast) _renderWinRate(_wrCacheLast);
-  // marker 也要跟著切：止盈位置會從 BB 中軌 → 上/下軌
+  // marker 與自動盈虧比盒都跟著切：止盈位置 BB 中軌 ↔ 上/下軌
   _renderWRSignals();
+  if (typeof renderDrawings === "function") requestAnimationFrame(renderDrawings);
+}
+
+/* ══════════════════════════════════════════
+   點擊訊號 K 棒 → 自動畫盈虧比盒（功能類似左邊 longpos/shortpos 工具）
+   - 切換中軌/上下軌時自動重算目標位
+   - 點擊已展開的訊號 → 收回
+   - 多個訊號可同時顯示
+══════════════════════════════════════════ */
+
+// 找出與點擊時間（K 棒）對應的訊號：可命中進場棒（s.t）或結算棒（s.ot/s.ot_b）
+function _findSignalAtTime(barTime) {
+  if (!barTime || !_lastWRSignals) return null;
+  const useBand = _wrTargetView === "band";
+  for (const s of _lastWRSignals) {
+    if (toTime(s.t) === barTime) return s;
+    const exitT = useBand ? s.ot_b : s.ot;
+    if (exitT && toTime(exitT) === barTime) return s;
+  }
+  return null;
+}
+
+// 點擊訊號棒 toggle 顯示盈虧比盒；回傳是否成功 toggle
+function _toggleAutoRR(barTime) {
+  const sig = _findSignalAtTime(barTime);
+  if (!sig) return false;
+  const key = sig.t;  // 用進場棒時間當 key
+  if (_autoRRSet.has(key)) {
+    _autoRRSet.delete(key);
+  } else {
+    _autoRRSet.add(key);
+    if (!_autoRRHintShown && typeof showToast === "function") {
+      showToast("📊 已展開盈虧比；切換中軌/上下軌會自動更新；再點一次收回");
+      _autoRRHintShown = true;
+      try { localStorage.setItem("wrAutoRRHintShown", "1"); } catch (e) {}
+    }
+  }
+  if (typeof renderDrawings === "function") requestAnimationFrame(renderDrawings);
+  return true;
+}
+
+// 由訊號 + 目前 view 算出盈虧比盒參數
+function _computeAutoRRBox(sig) {
+  if (!sig || !ohlcvData || !ohlcvData.length) return null;
+  const useBand = _wrTargetView === "band";
+  const sigIdx = ohlcvData.findIndex(d => d.time === sig.t);
+  if (sigIdx < 0 || sigIdx >= ohlcvData.length - 1) return null;  // 無進場棒
+  const sigBar = ohlcvData[sigIdx];
+  const entryBar = ohlcvData[sigIdx + 1];
+  if (entryBar == null || entryBar.open == null) return null;
+  const dir = sig.d;
+  const buf = (_wrStopBuffer || 0) / 100;
+  let tp, sl, type, color;
+  if (dir === "s") {
+    sl = sigBar.high * (1 + buf);
+    tp = useBand ? entryBar.bb_lower : entryBar.bb_middle;
+    type = "shortpos"; color = "#ef5350";
+  } else {
+    sl = sigBar.low * (1 - buf);
+    tp = useBand ? entryBar.bb_upper : entryBar.bb_middle;
+    type = "longpos"; color = "#26a69a";
+  }
+  if (tp == null) return null;
+
+  // 盒寬：從進場棒到結算棒，沒結算就 8 根
+  let barWidth = 8;
+  const exitT = useBand ? sig.ot_b : sig.ot;
+  if (exitT) {
+    const exitIdx = ohlcvData.findIndex(d => d.time === exitT);
+    if (exitIdx > sigIdx) barWidth = Math.max(3, exitIdx - sigIdx);
+  }
+  return {
+    id: "_autoRR_" + sig.t,
+    type, color, barWidth,
+    p1: { time: toTime(entryBar.time), price: entryBar.open },
+    tp, sl,
+    _isAutoRR: true,
+  };
+}
+
+// 渲染所有展開中的自動盈虧比盒（由 draw.js 的 renderDrawings 末端呼叫）
+function _renderAutoRRBoxes(W, H) {
+  if (!_autoRRSet.size || typeof drawOne !== "function") return;
+  for (const t of _autoRRSet) {
+    const sig = _lastWRSignals && _lastWRSignals.find(s => s.t === t);
+    if (!sig) continue;
+    const box = _computeAutoRRBox(sig);
+    if (box) drawOne(box, W, H, false, false);
+  }
+}
+
+// 切換標的/時框時清空已展開的盒（舊訊號的時間在新資料中不存在）
+function _clearAutoRR() {
+  if (_autoRRSet.size) {
+    _autoRRSet.clear();
+    if (typeof renderDrawings === "function") requestAnimationFrame(renderDrawings);
+  }
 }
 
 // 公開的進入點：debounced，避免切換標的時連續觸發
