@@ -175,12 +175,12 @@ _TF_BAR_SECONDS = {
 # 否則資料會在 start+cap 提早結束（不到 end），造成最近幾天無訊號
 _TF_MAX_CANDLES = {
     "1M":   500,
-    "1w":   800,
-    "1d":   7500,    # 1d:  TF_MAX 5475 天 → cap 至少 5475
-    "4h":   30000,   # 4h:  TF_MAX 3650 天 × 6 bars = 21900
-    "1h":   50000,   # 1h:  TF_MAX 1825 天 × 24 bars = 43800
-    "15m":  40000,   # 15m: TF_MAX 365 天 × 96 bars = 35040
-    "5m":   30000,   # 5m:  TF_MAX 90 天 × 288 bars = 25920
+    "1w":   1200,    # 1w: TF_MAX 7300 天 / 7 = 1043
+    "1d":   10000,   # 1d: TF_MAX 7300 天
+    "4h":   40000,   # 4h: TF_MAX 5475 天 × 6 bars = 32850
+    "1h":   80000,   # 1h: TF_MAX 2920 天 × 24 bars = 70080
+    "15m":  75000,   # 15m: TF_MAX 720 天 × 96 bars = 69120
+    "5m":   55000,   # 5m: TF_MAX 180 天 × 288 bars = 51840
 }
 
 def _calc_max_candles(start: Optional[str], end: Optional[str], timeframe: str) -> int:

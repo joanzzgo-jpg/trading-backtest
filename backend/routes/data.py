@@ -329,16 +329,16 @@ def get_crt_winrate(
     from datetime import date, timedelta
     _buf = round(max(0.0, float(stop_buffer_pct or 0.0)), 4)
     _long_only = (market == "tw")  # 台股不能放空
-    cache_key = f"crt_wr27:{market}:{symbol}:{exchange}:{timeframe}:{_buf}:{int(_long_only)}"
+    cache_key = f"crt_wr28:{market}:{symbol}:{exchange}:{timeframe}:{_buf}:{int(_long_only)}"
     cached = cache.get(cache_key, ttl=3600)
     if cached:
         return cached
 
     MIN_CASES = 40   # 每個訊號（S1~S7 × 空/多）最少採樣數；不足會自動往前加倍天數
     # 各時間框架：初始天數 / 最大天數
-    # 上限拉高：讓 binance/bybit（支援多年歷史）能取到更多樣本；資料源用完會自然停（n <= last_bars）
+    # 上限拉到資料源實際可能的歷史深度（Binance fapi BTC 2019/9~、spot 2017/8~、Bybit/OKX 類似）
     TF_INIT = {"1M": 3650, "1w": 1825, "1d": 730,  "4h": 365,  "1h": 365,   "15m": 60,  "5m": 30}
-    TF_MAX  = {"1M": 5475, "1w": 5475, "1d": 5475, "4h": 3650, "1h": 1825,  "15m": 365, "5m": 90}
+    TF_MAX  = {"1M": 7300, "1w": 7300, "1d": 7300, "4h": 5475, "1h": 2920,  "15m": 720, "5m": 180}
 
     def _sufficient(r: dict) -> bool:
         """每個訊號的空/多案例數都達到 MIN_CASES"""
