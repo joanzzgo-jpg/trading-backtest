@@ -3490,3 +3490,27 @@ html.perf-mode .tb-wr-total { font-size: 20px !important; }
 @media (max-width: 768px) {
   .topbar { padding: 4px !important; }
 }
+
+/* ════════════════════════════════════════
+   還原 topbar 按鈕原始樣式（先前放大反而醜）
+   只保留結構性改動：margin-left:auto + flex-wrap + winrate 獨立列
+═══════════════════════════════════════ */
+.topbar-tf .tf-btn {
+  font-size: inherit;
+  padding: revert;
+  min-width: revert;
+}
+.topbar-right .tb-icon-btn,
+.topbar-right .btn-mode {
+  padding: revert;
+  font-size: revert;
+}
+.topbar {
+  padding: revert !important;
+  row-gap: 0;
+}
+@media (max-width: 768px) {
+  .topbar-tf .tf-btn { padding: revert; font-size: revert; }
+  .topbar-right .tb-icon-btn { padding: revert; }
+  .topbar { padding: revert !important; }
+}
