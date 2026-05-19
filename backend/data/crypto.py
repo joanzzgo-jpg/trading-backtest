@@ -171,9 +171,16 @@ _TF_BAR_SECONDS = {
     "4h": 14400,   "1h": 3600,   "15m": 900, "5m": 300,
 }
 # 各時間級別的合理上限（根數），避免 API 請求過多
+# 注意：fetcher 是「FROM start 往前 paginate 直到撞 cap」，所以 cap 必須 ≥ TF_MAX × bars/day
+# 否則資料會在 start+cap 提早結束（不到 end），造成最近幾天無訊號
 _TF_MAX_CANDLES = {
-    "1M": 500, "1w": 800, "1d": 5000,
-    "4h": 12000, "1h": 20000, "15m": 20000, "5m": 20000,
+    "1M":   500,
+    "1w":   800,
+    "1d":   7500,    # 1d:  TF_MAX 5475 天 → cap 至少 5475
+    "4h":   30000,   # 4h:  TF_MAX 3650 天 × 6 bars = 21900
+    "1h":   50000,   # 1h:  TF_MAX 1825 天 × 24 bars = 43800
+    "15m":  40000,   # 15m: TF_MAX 365 天 × 96 bars = 35040
+    "5m":   30000,   # 5m:  TF_MAX 90 天 × 288 bars = 25920
 }
 
 def _calc_max_candles(start: Optional[str], end: Optional[str], timeframe: str) -> int:
