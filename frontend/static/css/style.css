@@ -3477,3 +3477,16 @@ html.perf-mode .tb-wr-total { font-size: 20px !important; }
   .topbar-tf .tf-btn { padding: 5px 8px; font-size: 11px; }
   .topbar-right .tb-icon-btn { padding: 6px 8px; }
 }
+
+/* 修正：topbar 開 flex-wrap 後，height fixed 會把第二列擠到 symbol-bar 上方
+   改為 height:auto；min-height 維持原 topbar 高度 */
+.topbar {
+  height: auto !important;
+  min-height: var(--topbar-h);
+  padding: 4px 6px !important;
+  row-gap: 4px;
+}
+/* 移動端不變 */
+@media (max-width: 768px) {
+  .topbar { padding: 4px !important; }
+}
