@@ -3337,3 +3337,21 @@ html.perf-mode #wrVariantToggle.variant {
   border-color: #7e57c2 !important;
   color: #5e35b1 !important;
 }
+
+/* ════════════════════════════════════════
+   勝率欄獨立成新一列（在 topbar 與 symbol-bar 之間）
+   - topbar 開 flex-wrap
+   - .tb-winrate flex-basis 100% + order 999 強制換到第二列
+═══════════════════════════════════════ */
+.topbar { flex-wrap: wrap; }
+.tb-winrate {
+  flex: 0 0 100% !important;
+  order: 999;
+  margin: 4px 0 0 !important;   /* 上方留小間距 */
+  border-radius: 6px;            /* 比較貼合整列 */
+  height: 32px;                  /* 略加高一點獨立列的呼吸 */
+}
+html.perf-mode .tb-winrate { margin-top: 3px !important; }
+@media (max-width: 768px) {
+  .tb-winrate { height: 30px; }
+}

@@ -335,9 +335,7 @@ function _renderWRSignals(signals) {
   allMarkers.sort((a, b) => a.time - b.time);
   lastWRSignalMarkers = allMarkers;
 
-  const entryCount = list.filter(s => _has(toTime(s.t))).length;
-  const ss = document.getElementById("wrStatus");
-  if (ss) ss.textContent = entryCount > 0 ? `${entryCount}筆` : "";
+  // wrStatus 顯示由 _renderWinRate 管理（後端總筆數），這裡不覆寫
   _applyMainMarkers();
 }
 
@@ -410,8 +408,9 @@ function _renderWinRate(d) {
     }
   }
 
+  // wrStatus 顯示「後端回測總筆數」（跟 wrAll tooltip 的「共 Z 筆」一致）
   const ss = document.getElementById("wrStatus");
-  if (ss) ss.textContent = "";
+  if (ss) ss.textContent = (d && d.total != null) ? `${d.total}筆` : "";
 }
 
 /* ══════════════════════════════════════════
