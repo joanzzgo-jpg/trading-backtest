@@ -125,6 +125,29 @@
       target: "BB 中軌 / BB 上下軌",
       notes: ["S4 純淨版的放寬版本，A 棒多了 CRT 要求，C 棒不再強制無 CRT"],
     },
+    s10: {
+      name: "訊號十 S10",
+      subtitle: "ABCD 四棒視窗：CRT + MACD 叉 + BB 觸軌",
+      icon: "✪",
+      color: "#90caf9",
+      gist: "四根 K 棒視窗內必須<b>三條件都出現</b>：CRT 反向 + MACD 反向叉 + 觸 BB 上/下軌。比 S9（只要兩條件）更嚴格。",
+      patterns: [
+        { dir: "A/B/C/D 任一根 做空", cond: "CRT = -1（看跌反轉 K）" },
+        { dir: "A/B/C/D 任一根 做空", cond: "MACD hist 過零下降（死叉）" },
+        { dir: "A/B/C/D 任一根 做空", cond: "high ≥ BB 上軌 × 0.997（觸上軌）" },
+        { dir: "A/B/C/D 任一根 做多", cond: "CRT = +1（看漲反轉 K）" },
+        { dir: "A/B/C/D 任一根 做多", cond: "MACD hist 過零上升（金叉）" },
+        { dir: "A/B/C/D 任一根 做多", cond: "low ≤ BB 下軌 × 1.003（觸下軌）" },
+      ],
+      excludes: ["四棒中任一根影線已碰 BB 中軌（短：low ≤ bb_mid；多：high ≥ bb_mid）"],
+      entry: "D 棒下一根開盤（i+4）",
+      stop:  "四棒最高高點（空）／最低低點（多） × (1 ± SL buffer)",
+      target: "BB 中軌 / BB 上下軌",
+      notes: [
+        "三條件可分布在任意棒、不需同棒、不需順序",
+        "比 S9 多了 CRT 條件，更嚴格，預期勝率較高",
+      ],
+    },
     s9: {
       name: "訊號九 S9",
       subtitle: "三棒視窗：BB 觸軌 + MACD 叉",
@@ -172,7 +195,7 @@
   };
 
   // signals 列表中 s.k 用「3/4/5/6/7」（無 s 前綴），需要對應
-  const _S_KEY_MAP = { abc: "abc", ab: "ab", s3: "3", s4: "4", s5: "5", s6: "6", s7: "7", s8: "8", s9: "9" };
+  const _S_KEY_MAP = { abc: "abc", ab: "ab", s3: "3", s4: "4", s5: "5", s6: "6", s7: "7", s8: "8", s9: "9", s10: "10" };
 
   const $ = id => document.getElementById(id);
 

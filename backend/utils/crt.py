@@ -15,13 +15,14 @@ def _ts_val(t) -> str:
 
 
 def _scan_outcome_fixed(highs, lows, closes, entry_i, n, stop_px, target_px, direction):
-    """向量化掃描固定目標價的勝敗。比 Python for-loop 快 ~10x。
+    """向量化掃描固定目標價的勝敗（同樣有 max_hold cap）。
     用於「打到一開始預估止盈」機率。回傳 'win' / 'loss' / None"""
-    if entry_i >= n:
+    end = min(n, entry_i + _SCAN_MAX_HOLD)
+    if entry_i >= end:
         return None
-    hi = highs[entry_i:n]
-    lo = lows[entry_i:n]
-    cl = closes[entry_i:n]
+    hi = highs[entry_i:end]
+    lo = lows[entry_i:end]
+    cl = closes[entry_i:end]
     if direction == "short":
         hit_stop = hi >= stop_px
         hit_tgt  = lo <= target_px
@@ -41,36 +42,46 @@ def _scan_outcome_fixed(highs, lows, closes, entry_i, n, stop_px, target_px, dir
     return "win" if hit_tgt[j] else "loss"
 
 
+_SCAN_MAX_HOLD = 500   # 單個訊號最長掃描 K 棒數（避免最近的未結算訊號掃到資料底）
+
 def _scan_outcome_np(highs, lows, closes, target_arr, times_iso, entry_i, n, stop_px, direction):
-    """從 entry_i 向後掃描，target_arr 提供每根的目標價（中軌或上下軌）。
+    """向量化版本：從 entry_i 掃描動態目標，比 Python for-loop 快 ~30x。
 
     回傳 ('win'/'loss', bar_time_iso, exit_idx) 或 (None, None, -1)。
-    SHORT：target_arr 應為 bb_middle 或 bb_lower；命中條件 low <= target
-    LONG ：target_arr 應為 bb_middle 或 bb_upper；命中條件 high >= target
+    target NaN 的 K 棒整根跳過（不計止損也不計目標，與原版一致）。
+    最多掃 _SCAN_MAX_HOLD 根 K 棒。
     """
-    for j in range(entry_i, n):
-        t = target_arr[j]
-        if t != t:  # 比 math.isnan 還快一點：NaN != NaN
-            continue
-        hi = highs[j]; lo = lows[j]; cl = closes[j]
+    end = min(n, entry_i + _SCAN_MAX_HOLD)
+    if entry_i >= end:
+        return None, None, -1
+    hi = highs[entry_i:end]
+    lo = lows[entry_i:end]
+    cl = closes[entry_i:end]
+    t  = target_arr[entry_i:end]
+    t_valid = ~np.isnan(t)
+    if direction == "short":
+        hit_stop = (hi >= stop_px) & t_valid   # NaN bar 整根跳過
+        hit_tgt  = (lo <= t) & t_valid
+    else:
+        hit_stop = (lo <= stop_px) & t_valid
+        hit_tgt  = (hi >= t) & t_valid
+    rel_idx = np.flatnonzero(hit_stop | hit_tgt)
+    if len(rel_idx) == 0:
+        return None, None, -1
+    j = rel_idx[0]
+    j_abs = entry_i + int(j)
+    tj = t[j]
+    if hit_stop[j] and hit_tgt[j]:
+        # 同棒雙觸 → 看收盤
         if direction == "short":
-            hit_stop = hi >= stop_px
-            hit_tgt  = lo <= t
-            if hit_stop and hit_tgt:
-                result = "win" if cl <= t else "loss"
-            elif hit_stop: result = "loss"
-            elif hit_tgt:  result = "win"
-            else: continue
+            result = "win" if cl[j] <= tj else "loss"
         else:
-            hit_stop = lo <= stop_px
-            hit_tgt  = hi >= t
-            if hit_stop and hit_tgt:
-                result = "win" if cl >= t else "loss"
-            elif hit_stop: result = "loss"
-            elif hit_tgt:  result = "win"
-            else: continue
-        return result, times_iso[j], j
-    return None, None, -1
+            result = "win" if cl[j] >= tj else "loss"
+    elif hit_stop[j]:
+        result = "loss"
+    else:
+        result = "win"
+    return result, times_iso[j_abs], j_abs
 
 
 def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only: bool = False) -> dict:
@@ -110,18 +121,15 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
     crt   = _col_i("crt")
     cross = _col_i("kdj_cross")
     res   = _col_i("resonance")
-    # 強化版 filter：訊號棒量能放大（vol > 1.3× MA20）
-    # 試過反向收盤（過寬鬆，91% 訊號都通過）、拒絕影線（反而更差），最後回到量能
-    # 1.5× 太緊（樣本掉太多），1.3× 是兼顧樣本與品質的平衡點
-    vol = _col_f("volume")
-    vol_ma20 = np.full(n, np.nan, dtype=float)
-    if n >= 20:
-        csum = np.cumsum(vol)
-        vol_ma20[19:] = (csum[19:] - np.concatenate([[0.0], csum[:-20]])) / 20.0
-    vol_climax = (~np.isnan(vol_ma20)) & (vol > vol_ma20 * 1.3)
-    # 為了沿用既有變數名（避免改 5 處 signal block），重新命名
-    rev_short = vol_climax
-    rev_long  = vol_climax
+    # 強化版 filter：訊號棒實體佔比 ≥ 40%（不再用量能——loss 分析顯示 body_pct
+    # effect=+0.29 比 vol_ratio +0.17 強。win 中位 0.41 / loss 中位 0.31）
+    bar_range = highs - lows
+    bar_body  = np.abs(closes - opens)
+    body_pct  = np.where(bar_range > 1e-9, bar_body / bar_range, 0.0)
+    solid_bar = body_pct >= 0.40
+    # 沿用既有變數名（rev_short / rev_long 已被多處引用）
+    rev_short = solid_bar
+    rev_long  = solid_bar
 
     # ── 給 S9 用的 BB 觸軌 + MACD 叉判定 ─────────────────────
     # 觸軌用 0.3% 緩衝（與共振一致）
@@ -135,7 +143,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
 
     # ── 計數器：mid_cnt[k] = [ws, ls, wl, ll]；band_cnt 同結構 ──
     # 同時為「強化版」（_v）建一份，只計入 macd_hist 方向一致的訊號
-    SIG_KEYS = ["abc", "ab", "3", "4", "5", "6", "7", "8", "9"]
+    SIG_KEYS = ["abc", "ab", "3", "4", "5", "6", "7", "8", "9", "10"]
     mid_cnt   = {k: [0, 0, 0, 0] for k in SIG_KEYS}
     band_cnt  = {k: [0, 0, 0, 0] for k in SIG_KEYS}
     mid_cnt_v = {k: [0, 0, 0, 0] for k in SIG_KEYS}
@@ -455,6 +463,59 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         _process_3bar(s8_short, s8_long, "8")
         _process_3bar(s9_short, s9_long, "9")
 
+    # ── 訊號十 S10（ABCD 四棒視窗：CRT + MACD 叉 + BB 觸軌） ──
+    # 短：A/B/C/D 任一根 CRT=-1 AND 任一根 MACD 死叉 AND 任一根觸上軌
+    # 多：對稱（CRT=+1 + MACD 金叉 + 觸下軌）
+    # 排除：四棒任一根影線已碰中軌（短：low ≤ bbm；多：high ≥ bbm）
+    if n >= 5:
+        a4_crt = crt[:n-4];   b4_crt = crt[1:n-3];   c4_crt = crt[2:n-2];   d4_crt = crt[3:n-1]
+        a4_bup = bb_up_touch[:n-4]; b4_bup = bb_up_touch[1:n-3]
+        c4_bup = bb_up_touch[2:n-2]; d4_bup = bb_up_touch[3:n-1]
+        a4_blo = bb_lo_touch[:n-4]; b4_blo = bb_lo_touch[1:n-3]
+        c4_blo = bb_lo_touch[2:n-2]; d4_blo = bb_lo_touch[3:n-1]
+        a4_mdd = macd_dead[:n-4]; b4_mdd = macd_dead[1:n-3]
+        c4_mdd = macd_dead[2:n-2]; d4_mdd = macd_dead[3:n-1]
+        a4_mdg = macd_gold[:n-4]; b4_mdg = macd_gold[1:n-3]
+        c4_mdg = macd_gold[2:n-2]; d4_mdg = macd_gold[3:n-1]
+        a4_hi = highs[:n-4]; b4_hi = highs[1:n-3]; c4_hi = highs[2:n-2]; d4_hi = highs[3:n-1]
+        a4_lo = lows[:n-4];  b4_lo = lows[1:n-3];  c4_lo = lows[2:n-2];  d4_lo = lows[3:n-1]
+        a4_bbm = bb_mid[:n-4]; b4_bbm = bb_mid[1:n-3]
+        c4_bbm = bb_mid[2:n-2]; d4_bbm = bb_mid[3:n-1]
+
+        # 任一根都不可碰到中軌（NaN bbm 的比較會回 False → 也排除）
+        no_mid_short = (a4_lo > a4_bbm) & (b4_lo > b4_bbm) & (c4_lo > c4_bbm) & (d4_lo > d4_bbm)
+        no_mid_long  = (a4_hi < a4_bbm) & (b4_hi < b4_bbm) & (c4_hi < c4_bbm) & (d4_hi < d4_bbm)
+
+        s10_short = ((a4_crt == -1) | (b4_crt == -1) | (c4_crt == -1) | (d4_crt == -1)) \
+                  & (a4_bup | b4_bup | c4_bup | d4_bup) \
+                  & (a4_mdd | b4_mdd | c4_mdd | d4_mdd) \
+                  & no_mid_short
+        s10_long  = ((a4_crt ==  1) | (b4_crt ==  1) | (c4_crt ==  1) | (d4_crt ==  1)) \
+                  & (a4_blo | b4_blo | c4_blo | d4_blo) \
+                  & (a4_mdg | b4_mdg | c4_mdg | d4_mdg) \
+                  & no_mid_long
+
+        if long_only:
+            s10_short[:] = False
+
+        for i in np.flatnonzero(s10_short | s10_long):
+            i = int(i)
+            direction = "short" if s10_short[i] else "long"
+            d_bar = i + 3  # D 棒（訊號棒）
+            # 停損：4 棒最高/最低（保守）
+            if direction == "short":
+                stop_px = _stop(max(a4_hi[i], b4_hi[i], c4_hi[i], d4_hi[i]), direction)
+            else:
+                stop_px = _stop(min(a4_lo[i], b4_lo[i], c4_lo[i], d4_lo[i]), direction)
+            d_str = "s" if direction == "short" else "l"
+            sig_time = times_iso[d_bar]
+            entry_i = d_bar + 1
+            # 強化版：D 棒（訊號棒）量能爆發
+            variant = rev_short[d_bar] if direction == "short" else rev_long[d_bar]
+            om, otm, omj, ob, otb, obj = _scan_dual(entry_i, float(stop_px), direction)
+            _push_signal(sig_time, d_str, "10", direction, entry_i, float(stop_px),
+                         om, otm, omj, ob, otb, obj, variant=bool(variant))
+
     # ── 統計輸出 ─────────────────────────────────────────────
     def _stats(w, l, rr=None):
         """rr：對應方向的 RR bucket（含 est_sum_all/est_sum_win/act_sum_win/n_win/n_loss）"""
@@ -508,10 +569,10 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                 for k, v in cnt_v.items()
             }
         # 訊號一不計入合計
-        wins_s   = sum(cnt[k][0] for k in ("ab", "3", "4", "5", "6", "7", "8", "9"))
-        losses_s = sum(cnt[k][1] for k in ("ab", "3", "4", "5", "6", "7", "8", "9"))
-        wins_l   = sum(cnt[k][2] for k in ("ab", "3", "4", "5", "6", "7", "8", "9"))
-        losses_l = sum(cnt[k][3] for k in ("ab", "3", "4", "5", "6", "7", "8", "9"))
+        wins_s   = sum(cnt[k][0] for k in ("ab", "3", "4", "5", "6", "7", "8", "9", "10"))
+        losses_s = sum(cnt[k][1] for k in ("ab", "3", "4", "5", "6", "7", "8", "9", "10"))
+        wins_l   = sum(cnt[k][2] for k in ("ab", "3", "4", "5", "6", "7", "8", "9", "10"))
+        losses_l = sum(cnt[k][3] for k in ("ab", "3", "4", "5", "6", "7", "8", "9", "10"))
         tot = wins_s + losses_s + wins_l + losses_l
         wins = wins_s + wins_l
         out = {
@@ -529,15 +590,16 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             "s7":       per_sig["7"],
             "s8":       per_sig["8"],
             "s9":       per_sig["9"],
+            "s10":      per_sig["10"],
         }
         if est is not None:
             out.update(_est_stats_dict(est))
         if per_sig_v is not None:
-            # 強化版合計（S2~S9 _v）
-            wins_s_v   = sum(cnt_v[k][0] for k in ("ab", "3", "4", "5", "6", "7", "8", "9"))
-            losses_s_v = sum(cnt_v[k][1] for k in ("ab", "3", "4", "5", "6", "7", "8", "9"))
-            wins_l_v   = sum(cnt_v[k][2] for k in ("ab", "3", "4", "5", "6", "7", "8", "9"))
-            losses_l_v = sum(cnt_v[k][3] for k in ("ab", "3", "4", "5", "6", "7", "8", "9"))
+            # 強化版合計（S2~S10 _v）
+            wins_s_v   = sum(cnt_v[k][0] for k in ("ab", "3", "4", "5", "6", "7", "8", "9", "10"))
+            losses_s_v = sum(cnt_v[k][1] for k in ("ab", "3", "4", "5", "6", "7", "8", "9", "10"))
+            wins_l_v   = sum(cnt_v[k][2] for k in ("ab", "3", "4", "5", "6", "7", "8", "9", "10"))
+            losses_l_v = sum(cnt_v[k][3] for k in ("ab", "3", "4", "5", "6", "7", "8", "9", "10"))
             tot_v = wins_s_v + losses_s_v + wins_l_v + losses_l_v
             wins_v = wins_s_v + wins_l_v
             out["variant"] = {
@@ -555,6 +617,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                 "s7":       per_sig_v["7"],
                 "s8":       per_sig_v["8"],
                 "s9":       per_sig_v["9"],
+                "s10":      per_sig_v["10"],
             }
             if est_v is not None:
                 out["variant"].update(_est_stats_dict(est_v))

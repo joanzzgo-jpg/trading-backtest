@@ -3563,3 +3563,6 @@ html.perf-mode .tb-wr-total { font-size: 14px !important; }
 @media (max-width: 768px) {
   .tb-wr-est { font-size: 9px; }
 }
+
+.wr-s10 { color: #90caf9; }
+html.perf-mode .wr-s10 { color: #1976D2; }

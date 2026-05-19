@@ -329,7 +329,7 @@ def get_crt_winrate(
     from datetime import date, timedelta
     _buf = round(max(0.0, float(stop_buffer_pct or 0.0)), 4)
     _long_only = (market == "tw")  # 台股不能放空
-    cache_key = f"crt_wr30:{market}:{symbol}:{exchange}:{timeframe}:{_buf}:{int(_long_only)}"
+    cache_key = f"crt_wr32:{market}:{symbol}:{exchange}:{timeframe}:{_buf}:{int(_long_only)}"
     cached = cache.get(cache_key, ttl=3600)
     if cached:
         return cached
@@ -344,7 +344,7 @@ def get_crt_winrate(
         """每個訊號的空/多案例數都達到 MIN_CASES"""
         return all(
             (r.get(sig) or {}).get(d, {}).get("total", 0) >= MIN_CASES
-            for sig in ("abc", "ab", "s3", "s4", "s5", "s6", "s7", "s8", "s9") for d in ("short", "long")
+            for sig in ("abc", "ab", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10") for d in ("short", "long")
         )
 
     def _fetch_df(days: int) -> pd.DataFrame:
@@ -396,34 +396,19 @@ def get_crt_winrate(
                                       api_key=api_key, api_secret=api_secret)
         raise HTTPException(400, f"不支援的市場: {market}")
 
-    days      = TF_INIT.get(timeframe, 730)
+    # 直接一次抓 TF_MAX 天的資料（不再做 doubling loop —— 過去 S1/S5/S7 等稀有訊號
+    # 永遠達不到 MIN_CASES=40，doubling 會跑滿 4 次浪費 80% 時間）
     days_max  = TF_MAX.get(timeframe, 3650)
-    result    = None
-    last_bars = 0
+    try:
+        df = _fetch_df(days_max)
+    except Exception as e:
+        raise HTTPException(400, str(e))
 
-    while True:
-        try:
-            df = _fetch_df(days)
-        except Exception as e:
-            if result is None:
-                raise HTTPException(400, str(e))
-            break   # 無法取得更多資料，以目前結果回傳
+    if len(df) < 50:
+        raise HTTPException(400, f"資料不足 50 根K棒（{timeframe}）")
 
-        n = len(df)
-        if n < 50:
-            if result is None:
-                raise HTTPException(400, f"資料不足 50 根K棒（{timeframe}）")
-            break
-        if n <= last_bars:
-            break   # 資料源已無法再往前，不再嘗試
-        last_bars = n
-
-        df      = enrich_df(df)
-        result  = _calc_crt_winrate(df, stop_buffer_pct=_buf, long_only=_long_only)
-
-        if _sufficient(result) or days >= days_max:
-            break
-        days = min(days * 2, days_max)
+    df = enrich_df(df)
+    result = _calc_crt_winrate(df, stop_buffer_pct=_buf, long_only=_long_only)
 
     cache.set(cache_key, result)
     return result
