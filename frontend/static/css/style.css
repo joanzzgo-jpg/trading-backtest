@@ -3548,3 +3548,18 @@ html.perf-mode .tb-wr-total { font-size: 14px !important; }
   .tb-wr-divider { height: 18px; }
   .tb-wr-total-sep { height: 22px; }
 }
+
+/* 「打到一開始預估止盈」機率 — 小字顯示在總勝率右邊 */
+.tb-wr-est {
+  font-size: 10px;
+  color: var(--muted);
+  font-family: 'SF Mono','Courier New',monospace;
+  margin-left: 5px;
+  letter-spacing: .02em;
+  white-space: nowrap;
+  opacity: .85;
+  cursor: help;
+}
+@media (max-width: 768px) {
+  .tb-wr-est { font-size: 9px; }
+}

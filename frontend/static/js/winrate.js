@@ -397,6 +397,18 @@ function _renderWinRate(d) {
     }
   }
 
+  // 「打到一開始預估止盈位子」機率（用固定目標掃描）
+  const eh = document.getElementById("wrEstHit");
+  if (eh) {
+    if (d.est_win_rate != null) {
+      eh.textContent = `預估 ${d.est_win_rate}%`;
+      eh.title = `打到「進場時 BB 預估止盈」機率：${d.est_wins}勝 / ${d.est_total - d.est_wins}負 共${d.est_total}筆`;
+    } else {
+      eh.textContent = "—";
+      eh.removeAttribute("title");
+    }
+  }
+
   const fd = document.getElementById("wrFromDate");
   if (fd) {
     if (d.from_date) {

@@ -14,6 +14,33 @@ def _ts_val(t) -> str:
     return t.isoformat() if hasattr(t, "isoformat") else str(t)
 
 
+def _scan_outcome_fixed(highs, lows, closes, entry_i, n, stop_px, target_px, direction):
+    """向量化掃描固定目標價的勝敗。比 Python for-loop 快 ~10x。
+    用於「打到一開始預估止盈」機率。回傳 'win' / 'loss' / None"""
+    if entry_i >= n:
+        return None
+    hi = highs[entry_i:n]
+    lo = lows[entry_i:n]
+    cl = closes[entry_i:n]
+    if direction == "short":
+        hit_stop = hi >= stop_px
+        hit_tgt  = lo <= target_px
+    else:
+        hit_stop = lo <= stop_px
+        hit_tgt  = hi >= target_px
+    hit_any = hit_stop | hit_tgt
+    rel_idx = np.flatnonzero(hit_any)
+    if len(rel_idx) == 0:
+        return None
+    j = rel_idx[0]
+    if hit_stop[j] and hit_tgt[j]:
+        # 同棒雙觸 → 看收盤
+        if direction == "short":
+            return "win" if cl[j] <= target_px else "loss"
+        return "win" if cl[j] >= target_px else "loss"
+    return "win" if hit_tgt[j] else "loss"
+
+
 def _scan_outcome_np(highs, lows, closes, target_arr, times_iso, entry_i, n, stop_px, direction):
     """從 entry_i 向後掃描，target_arr 提供每根的目標價（中軌或上下軌）。
 
@@ -131,6 +158,12 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
     band_rr  = {k: {"short": _new_rr_bucket(), "long": _new_rr_bucket()} for k in SIG_KEYS}
     mid_rr_v = {k: {"short": _new_rr_bucket(), "long": _new_rr_bucket()} for k in SIG_KEYS}
     band_rr_v= {k: {"short": _new_rr_bucket(), "long": _new_rr_bucket()} for k in SIG_KEYS}
+    # 「打到一開始預估止盈位子」機率：用進場時 BB 值當固定目標掃描
+    # 只統計合計（S2~S9 不含 abc）；mid/band/variant 各一份
+    est_mid   = {"sw": 0, "sl": 0, "lw": 0, "ll": 0}
+    est_band  = {"sw": 0, "sl": 0, "lw": 0, "ll": 0}
+    est_mid_v = {"sw": 0, "sl": 0, "lw": 0, "ll": 0}
+    est_band_v= {"sw": 0, "sl": 0, "lw": 0, "ll": 0}
     recent:  list = []
     signals: list = []
 
@@ -186,19 +219,38 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         elif outcome == "loss":
             b["n_loss"] += 1
 
+    def _est_scan_bump(est_dict, target_px, entry_i, stop_px, direction):
+        """掃固定目標 + 更新 est 計數器"""
+        if target_px != target_px:  # NaN
+            return
+        o = _scan_outcome_fixed(highs, lows, closes, entry_i, n, stop_px, float(target_px), direction)
+        if o == "win":
+            est_dict["sw" if direction == "short" else "lw"] += 1
+        elif o == "loss":
+            est_dict["sl" if direction == "short" else "ll"] += 1
+
     def _push_signal(sig_time, d_str, sig_key, direction, entry_i, stop_px,
                      om, otm, omj, ob, otb, obj, variant=False):
         signals.append({
             "t": sig_time, "d": d_str, "k": sig_key,
             "r":   "w" if om == "win" else ("l" if om else None), "ot":   otm,
             "r_b": "w" if ob == "win" else ("l" if ob else None), "ot_b": otb,
-            "v": bool(variant),  # 強化版（macd_hist 方向一致）才為 True
+            "v": bool(variant),  # 強化版（量能 > 1.3× MA20）才為 True
         })
         _bump(mid_cnt,  sig_key, direction, om)
         _bump(band_cnt, sig_key, direction, ob)
         _bump_rr(mid_rr,  sig_key, direction, entry_i, omj, stop_px, om, bb_mid)
         band_arr = bb_lo if direction == "short" else bb_up
         _bump_rr(band_rr, sig_key, direction, entry_i, obj, stop_px, ob, band_arr)
+        # est: 進場時 bb 固定目標掃描（S1 abc 不計入合計）
+        if sig_key != "abc" and entry_i < n:
+            tgt_mid_fix  = bb_mid[entry_i]
+            tgt_band_fix = bb_lo[entry_i] if direction == "short" else bb_up[entry_i]
+            _est_scan_bump(est_mid,  tgt_mid_fix,  entry_i, stop_px, direction)
+            _est_scan_bump(est_band, tgt_band_fix, entry_i, stop_px, direction)
+            if variant:
+                _est_scan_bump(est_mid_v,  tgt_mid_fix,  entry_i, stop_px, direction)
+                _est_scan_bump(est_band_v, tgt_band_fix, entry_i, stop_px, direction)
         # 強化版：只有 macd_hist 方向一致的訊號才進 _v 計數器
         if variant:
             _bump(mid_cnt_v,  sig_key, direction, om)
@@ -426,7 +478,17 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                                 ("inf" if pf_act == float("inf") else None))
         return out
 
-    def _build_target_stats(cnt, rr_cnt, cnt_v=None, rr_cnt_v=None):
+    def _est_stats_dict(es):
+        """把 est tracker 轉成 {est_total, est_wins, est_win_rate}"""
+        t = es["sw"] + es["sl"] + es["lw"] + es["ll"]
+        w = es["sw"] + es["lw"]
+        return {
+            "est_total": t,
+            "est_wins":  w,
+            "est_win_rate": round(w / t * 100, 1) if t else None,
+        }
+
+    def _build_target_stats(cnt, rr_cnt, cnt_v=None, rr_cnt_v=None, est=None, est_v=None):
         """從 cnt + rr_cnt 算出該 target 的完整統計結構。
         如帶 cnt_v / rr_cnt_v，再算出 *_v（強化版 = 加 MACD 方向 filter）"""
         per_sig = {
@@ -468,6 +530,8 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             "s8":       per_sig["8"],
             "s9":       per_sig["9"],
         }
+        if est is not None:
+            out.update(_est_stats_dict(est))
         if per_sig_v is not None:
             # 強化版合計（S2~S9 _v）
             wins_s_v   = sum(cnt_v[k][0] for k in ("ab", "3", "4", "5", "6", "7", "8", "9"))
@@ -492,10 +556,12 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                 "s8":       per_sig_v["8"],
                 "s9":       per_sig_v["9"],
             }
+            if est_v is not None:
+                out["variant"].update(_est_stats_dict(est_v))
         return out
 
-    mid_out  = _build_target_stats(mid_cnt,  mid_rr,  mid_cnt_v,  mid_rr_v)
-    band_out = _build_target_stats(band_cnt, band_rr, band_cnt_v, band_rr_v)
+    mid_out  = _build_target_stats(mid_cnt,  mid_rr,  mid_cnt_v,  mid_rr_v,  est=est_mid,  est_v=est_mid_v)
+    band_out = _build_target_stats(band_cnt, band_rr, band_cnt_v, band_rr_v, est=est_band, est_v=est_band_v)
     recent.sort(key=lambda x: x["t"])
     from_date = str(df.iloc[0]["time"])[:10] if n else ""
 
