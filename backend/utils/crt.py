@@ -166,12 +166,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
     band_rr  = {k: {"short": _new_rr_bucket(), "long": _new_rr_bucket()} for k in SIG_KEYS}
     mid_rr_v = {k: {"short": _new_rr_bucket(), "long": _new_rr_bucket()} for k in SIG_KEYS}
     band_rr_v= {k: {"short": _new_rr_bucket(), "long": _new_rr_bucket()} for k in SIG_KEYS}
-    # 「打到一開始預估止盈位子」機率：用進場時 BB 值當固定目標掃描
-    # 只統計合計（S2~S9 不含 abc）；mid/band/variant 各一份
-    est_mid   = {"sw": 0, "sl": 0, "lw": 0, "ll": 0}
-    est_band  = {"sw": 0, "sl": 0, "lw": 0, "ll": 0}
-    est_mid_v = {"sw": 0, "sl": 0, "lw": 0, "ll": 0}
-    est_band_v= {"sw": 0, "sl": 0, "lw": 0, "ll": 0}
+    # 所有 est 計數已改為從 signals 列表 dedupe 計算（見 _dedupe_totals）
     recent:  list = []
     signals: list = []
 
@@ -227,39 +222,35 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         elif outcome == "loss":
             b["n_loss"] += 1
 
-    def _est_scan_bump(est_dict, target_px, entry_i, stop_px, direction):
-        """掃固定目標 + 更新 est 計數器"""
-        if target_px != target_px:  # NaN
-            return
-        o = _scan_outcome_fixed(highs, lows, closes, entry_i, n, stop_px, float(target_px), direction)
-        if o == "win":
-            est_dict["sw" if direction == "short" else "lw"] += 1
-        elif o == "loss":
-            est_dict["sl" if direction == "short" else "ll"] += 1
-
     def _push_signal(sig_time, d_str, sig_key, direction, entry_i, stop_px,
                      om, otm, omj, ob, otb, obj, variant=False):
+        # est_r / est_r_b：固定目標掃描結果（要存到 signal 才能算 deduped total）
+        est_r = None; est_r_b = None
+        if sig_key != "abc" and entry_i < n:
+            tgt_mid_fix  = bb_mid[entry_i]
+            tgt_band_fix = bb_lo[entry_i] if direction == "short" else bb_up[entry_i]
+            if tgt_mid_fix == tgt_mid_fix:
+                o = _scan_outcome_fixed(highs, lows, closes, entry_i, n,
+                                         stop_px, float(tgt_mid_fix), direction)
+                est_r = "w" if o == "win" else ("l" if o == "loss" else None)
+            if tgt_band_fix == tgt_band_fix:
+                o = _scan_outcome_fixed(highs, lows, closes, entry_i, n,
+                                         stop_px, float(tgt_band_fix), direction)
+                est_r_b = "w" if o == "win" else ("l" if o == "loss" else None)
         signals.append({
             "t": sig_time, "d": d_str, "k": sig_key,
             "r":   "w" if om == "win" else ("l" if om else None), "ot":   otm,
             "r_b": "w" if ob == "win" else ("l" if ob else None), "ot_b": otb,
-            "v": bool(variant),  # 強化版（量能 > 1.3× MA20）才為 True
+            "est_r":   est_r,
+            "est_r_b": est_r_b,
+            "v": bool(variant),
         })
         _bump(mid_cnt,  sig_key, direction, om)
         _bump(band_cnt, sig_key, direction, ob)
         _bump_rr(mid_rr,  sig_key, direction, entry_i, omj, stop_px, om, bb_mid)
         band_arr = bb_lo if direction == "short" else bb_up
         _bump_rr(band_rr, sig_key, direction, entry_i, obj, stop_px, ob, band_arr)
-        # est: 進場時 bb 固定目標掃描（S1 abc 不計入合計）
-        if sig_key != "abc" and entry_i < n:
-            tgt_mid_fix  = bb_mid[entry_i]
-            tgt_band_fix = bb_lo[entry_i] if direction == "short" else bb_up[entry_i]
-            _est_scan_bump(est_mid,  tgt_mid_fix,  entry_i, stop_px, direction)
-            _est_scan_bump(est_band, tgt_band_fix, entry_i, stop_px, direction)
-            if variant:
-                _est_scan_bump(est_mid_v,  tgt_mid_fix,  entry_i, stop_px, direction)
-                _est_scan_bump(est_band_v, tgt_band_fix, entry_i, stop_px, direction)
-        # 強化版：只有 macd_hist 方向一致的訊號才進 _v 計數器
+        # 強化版（量能 → body_pct ≥ 0.4）
         if variant:
             _bump(mid_cnt_v,  sig_key, direction, om)
             _bump(band_cnt_v, sig_key, direction, ob)
@@ -627,8 +618,77 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                 out["variant"].update(_est_stats_dict(est_v))
         return out
 
-    mid_out  = _build_target_stats(mid_cnt,  mid_rr,  mid_cnt_v,  mid_rr_v,  est=est_mid,  est_v=est_mid_v)
-    band_out = _build_target_stats(band_cnt, band_rr, band_cnt_v, band_rr_v, est=est_band, est_v=est_band_v)
+    # ── Dedupe：同 signal_bar + 同方向 多個訊號類型只算一次（避免 S6/S10、S2/S3、S9/S10 等重複） ──
+    def _dedupe_totals(filter_variant=False):
+        seen_m = set(); seen_b = set(); seen_em = set(); seen_eb = set()
+        # 每組: [sw, sl, lw, ll]
+        m = [0, 0, 0, 0]; b = [0, 0, 0, 0]
+        em = [0, 0, 0, 0]; eb = [0, 0, 0, 0]
+        for s in signals:
+            if s["k"] == "abc":   # S1 不計入總勝率
+                continue
+            if filter_variant and not s.get("v"):
+                continue
+            key = (s["t"], s["d"])
+            d_idx_w = 0 if s["d"] == "s" else 2
+            d_idx_l = 1 if s["d"] == "s" else 3
+            if key not in seen_m:
+                seen_m.add(key)
+                if s.get("r") == "w": m[d_idx_w] += 1
+                elif s.get("r") == "l": m[d_idx_l] += 1
+            if key not in seen_b:
+                seen_b.add(key)
+                if s.get("r_b") == "w": b[d_idx_w] += 1
+                elif s.get("r_b") == "l": b[d_idx_l] += 1
+            if key not in seen_em:
+                seen_em.add(key)
+                if s.get("est_r") == "w": em[d_idx_w] += 1
+                elif s.get("est_r") == "l": em[d_idx_l] += 1
+            if key not in seen_eb:
+                seen_eb.add(key)
+                if s.get("est_r_b") == "w": eb[d_idx_w] += 1
+                elif s.get("est_r_b") == "l": eb[d_idx_l] += 1
+        return m, b, em, eb
+
+    dedup_m,  dedup_b,  dedup_em,  dedup_eb  = _dedupe_totals(filter_variant=False)
+    dedup_mv, dedup_bv, dedup_emv, dedup_ebv = _dedupe_totals(filter_variant=True)
+
+    def _dedup_total_dict(arr):
+        sw, sl, lw, ll = arr
+        t = sw + sl + lw + ll
+        w = sw + lw
+        return {
+            "total":    t,
+            "wins":     w,
+            "win_rate": round(w / t * 100, 1) if t else None,
+            "short":    _stats(sw, sl),
+            "long":     _stats(lw, ll),
+        }
+
+    def _dedup_est_dict(arr):
+        sw, sl, lw, ll = arr
+        t = sw + sl + lw + ll
+        w = sw + lw
+        return {
+            "est_total":    t,
+            "est_wins":     w,
+            "est_win_rate": round(w / t * 100, 1) if t else None,
+        }
+
+    mid_out  = _build_target_stats(mid_cnt,  mid_rr,  mid_cnt_v,  mid_rr_v)
+    band_out = _build_target_stats(band_cnt, band_rr, band_cnt_v, band_rr_v)
+
+    # 把 dedup 後的合計覆寫到 mid_out / band_out 的頂層
+    mid_out.update(_dedup_total_dict(dedup_m))
+    mid_out.update(_dedup_est_dict(dedup_em))
+    band_out.update(_dedup_total_dict(dedup_b))
+    band_out.update(_dedup_est_dict(dedup_eb))
+    if "variant" in mid_out:
+        mid_out["variant"].update(_dedup_total_dict(dedup_mv))
+        mid_out["variant"].update(_dedup_est_dict(dedup_emv))
+    if "variant" in band_out:
+        band_out["variant"].update(_dedup_total_dict(dedup_bv))
+        band_out["variant"].update(_dedup_est_dict(dedup_ebv))
     recent.sort(key=lambda x: x["t"])
     from_date = str(df.iloc[0]["time"])[:10] if n else ""
 

@@ -329,7 +329,7 @@ def get_crt_winrate(
     from datetime import date, timedelta
     _buf = round(max(0.0, float(stop_buffer_pct or 0.0)), 4)
     _long_only = (market == "tw")  # 台股不能放空
-    cache_key = f"crt_wr33:{market}:{symbol}:{exchange}:{timeframe}:{_buf}:{int(_long_only)}"
+    cache_key = f"crt_wr34:{market}:{symbol}:{exchange}:{timeframe}:{_buf}:{int(_long_only)}"
     cached = cache.get(cache_key, ttl=3600)
     if cached:
         return cached
