@@ -138,6 +138,7 @@ html.perf-mode .wr-s5  { color: #F57C00; }
 html.perf-mode .wr-s6  { color: #3949AB; }
 html.perf-mode .wr-s7  { color: #0097A7; }
 html.perf-mode .wr-s8  { color: #C2185B; }
+html.perf-mode .wr-s9  { color: #F57F17; }
 html.perf-mode .tb-wr-pct { color: #1F1F1F; }
 html.perf-mode .tb-wr-v.good .tb-wr-pct { color: #16a34a; text-shadow: none; }
 html.perf-mode .tb-wr-v.bad  .tb-wr-pct { color: #dc2626; text-shadow: none; }
@@ -986,6 +987,7 @@ html.perf-mode .tb-wr-buffer-pct { color: #8B8B8B; }
 .wr-s6  { color: #9fa8da; }
 .wr-s7  { color: #4dd0e1; }
 .wr-s8  { color: #f06292; }
+.wr-s9  { color: #fff176; }
 
 /* 空/多兩行堆疊 */
 .tb-wr-vals {

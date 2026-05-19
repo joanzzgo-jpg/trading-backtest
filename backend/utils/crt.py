@@ -96,9 +96,19 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
     rev_short = vol_climax
     rev_long  = vol_climax
 
+    # ── 給 S9 用的 BB 觸軌 + MACD 叉判定 ─────────────────────
+    # 觸軌用 0.3% 緩衝（與共振一致）
+    bb_up_touch = (~np.isnan(bb_up)) & (highs >= bb_up * 0.997)
+    bb_lo_touch = (~np.isnan(bb_lo)) & (lows  <= bb_lo * 1.003)
+    # MACD hist 過零
+    hist = _col_f("macd_hist")
+    prev_hist = np.concatenate([[np.nan], hist[:-1]])
+    macd_dead = (prev_hist > 0) & (hist <= 0) & ~np.isnan(prev_hist) & ~np.isnan(hist)
+    macd_gold = (prev_hist < 0) & (hist >= 0) & ~np.isnan(prev_hist) & ~np.isnan(hist)
+
     # ── 計數器：mid_cnt[k] = [ws, ls, wl, ll]；band_cnt 同結構 ──
     # 同時為「強化版」（_v）建一份，只計入 macd_hist 方向一致的訊號
-    SIG_KEYS = ["abc", "ab", "3", "4", "5", "6", "7", "8"]
+    SIG_KEYS = ["abc", "ab", "3", "4", "5", "6", "7", "8", "9"]
     mid_cnt   = {k: [0, 0, 0, 0] for k in SIG_KEYS}
     band_cnt  = {k: [0, 0, 0, 0] for k in SIG_KEYS}
     mid_cnt_v = {k: [0, 0, 0, 0] for k in SIG_KEYS}
@@ -348,12 +358,25 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                  & (c_cross ==  1) & (c_res == 0) & (c_crt == 0) \
                  & ~np.isnan(c_bbm) & (c_hi < c_bbm)
 
+        # ── 訊號九 S9（三棒視窗：BB 觸軌 + MACD 叉）──────────
+        # 短：A/B/C 任一根碰布林上軌 AND 任一根 MACD 死叉
+        # 多：A/B/C 任一根碰布林下軌 AND 任一根 MACD 金叉
+        a_bup = bb_up_touch[:n-3]; b_bup = bb_up_touch[1:n-2]; c_bup = bb_up_touch[2:n-1]
+        a_blo = bb_lo_touch[:n-3]; b_blo = bb_lo_touch[1:n-2]; c_blo = bb_lo_touch[2:n-1]
+        a_mdd = macd_dead[:n-3];   b_mdd = macd_dead[1:n-2];   c_mdd = macd_dead[2:n-1]
+        a_mdg = macd_gold[:n-3];   b_mdg = macd_gold[1:n-2];   c_mdg = macd_gold[2:n-1]
+        s9_short = (a_bup | b_bup | c_bup) & (a_mdd | b_mdd | c_mdd) \
+                 & ~np.isnan(c_bbm) & (c_lo_ > c_bbm)
+        s9_long  = (a_blo | b_blo | c_blo) & (a_mdg | b_mdg | c_mdg) \
+                 & ~np.isnan(c_bbm) & (c_hi < c_bbm)
+
         if long_only:
             s3_short[:] = False
             s4_short[:] = False
             s5_short[:] = False
             s7_short[:] = False
             s8_short[:] = False
+            s9_short[:] = False
 
         def _process_3bar(short_mask, long_mask, k_str):
             for i in np.flatnonzero(short_mask | long_mask):
@@ -378,6 +401,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         _process_3bar(s5_short, s5_long, "5")
         _process_3bar(s7_short, s7_long, "7")
         _process_3bar(s8_short, s8_long, "8")
+        _process_3bar(s9_short, s9_long, "9")
 
     # ── 統計輸出 ─────────────────────────────────────────────
     def _stats(w, l, rr=None):
@@ -422,10 +446,10 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                 for k, v in cnt_v.items()
             }
         # 訊號一不計入合計
-        wins_s   = sum(cnt[k][0] for k in ("ab", "3", "4", "5", "6", "7", "8"))
-        losses_s = sum(cnt[k][1] for k in ("ab", "3", "4", "5", "6", "7", "8"))
-        wins_l   = sum(cnt[k][2] for k in ("ab", "3", "4", "5", "6", "7", "8"))
-        losses_l = sum(cnt[k][3] for k in ("ab", "3", "4", "5", "6", "7", "8"))
+        wins_s   = sum(cnt[k][0] for k in ("ab", "3", "4", "5", "6", "7", "8", "9"))
+        losses_s = sum(cnt[k][1] for k in ("ab", "3", "4", "5", "6", "7", "8", "9"))
+        wins_l   = sum(cnt[k][2] for k in ("ab", "3", "4", "5", "6", "7", "8", "9"))
+        losses_l = sum(cnt[k][3] for k in ("ab", "3", "4", "5", "6", "7", "8", "9"))
         tot = wins_s + losses_s + wins_l + losses_l
         wins = wins_s + wins_l
         out = {
@@ -442,13 +466,14 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             "s6":       per_sig["6"],
             "s7":       per_sig["7"],
             "s8":       per_sig["8"],
+            "s9":       per_sig["9"],
         }
         if per_sig_v is not None:
-            # 強化版合計（S2~S8 _v）
-            wins_s_v   = sum(cnt_v[k][0] for k in ("ab", "3", "4", "5", "6", "7", "8"))
-            losses_s_v = sum(cnt_v[k][1] for k in ("ab", "3", "4", "5", "6", "7", "8"))
-            wins_l_v   = sum(cnt_v[k][2] for k in ("ab", "3", "4", "5", "6", "7", "8"))
-            losses_l_v = sum(cnt_v[k][3] for k in ("ab", "3", "4", "5", "6", "7", "8"))
+            # 強化版合計（S2~S9 _v）
+            wins_s_v   = sum(cnt_v[k][0] for k in ("ab", "3", "4", "5", "6", "7", "8", "9"))
+            losses_s_v = sum(cnt_v[k][1] for k in ("ab", "3", "4", "5", "6", "7", "8", "9"))
+            wins_l_v   = sum(cnt_v[k][2] for k in ("ab", "3", "4", "5", "6", "7", "8", "9"))
+            losses_l_v = sum(cnt_v[k][3] for k in ("ab", "3", "4", "5", "6", "7", "8", "9"))
             tot_v = wins_s_v + losses_s_v + wins_l_v + losses_l_v
             wins_v = wins_s_v + wins_l_v
             out["variant"] = {
@@ -465,6 +490,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                 "s6":       per_sig_v["6"],
                 "s7":       per_sig_v["7"],
                 "s8":       per_sig_v["8"],
+                "s9":       per_sig_v["9"],
             }
         return out
 

@@ -290,7 +290,8 @@ function _renderWRSignals(signals) {
                  : k === "5"   ? (isShort ? "#ffb74d" : "#ffa726")
                  : k === "6"   ? (isShort ? "#9fa8da" : "#7986cb")
                  : k === "7"   ? (isShort ? "#4dd0e1" : "#80deea")
-                 :                (isShort ? "#f06292" : "#f48fb1");  // k=8
+                 : k === "8"   ? (isShort ? "#f06292" : "#f48fb1")
+                 :                (isShort ? "#fff176" : "#fff59d");  // k=9
     const eShape = k === "abc" ? "circle"
                  : k === "ab"  ? "square"
                  :                (isShort ? "arrowDown" : "arrowUp");
@@ -301,7 +302,8 @@ function _renderWRSignals(signals) {
                  : k === "5"   ? (isShort ? "空⁵" : "多⁵")
                  : k === "6"   ? (isShort ? "空⁶" : "多⁶")
                  : k === "7"   ? (isShort ? "空⁷" : "多⁷")
-                 :                (isShort ? "空⁸" : "多⁸");
+                 : k === "8"   ? (isShort ? "空⁸" : "多⁸")
+                 :                (isShort ? "空⁹" : "多⁹");
     allMarkers.push({
       time: et, position: isShort ? "aboveBar" : "belowBar",
       color: eColor, shape: eShape, size: 1.2, text: eText,
@@ -382,6 +384,8 @@ function _renderWinRate(d) {
   setRow("wrS7L",  d.s7?.long);
   setRow("wrS8S",  d.s8?.short);
   setRow("wrS8L",  d.s8?.long);
+  setRow("wrS9S",  d.s9?.short);
+  setRow("wrS9L",  d.s9?.long);
 
   const sa = document.getElementById("wrAll");
   if (sa) {

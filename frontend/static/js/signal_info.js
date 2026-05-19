@@ -125,6 +125,27 @@
       target: "BB 中軌 / BB 上下軌",
       notes: ["S4 純淨版的放寬版本，A 棒多了 CRT 要求，C 棒不再強制無 CRT"],
     },
+    s9: {
+      name: "訊號九 S9",
+      subtitle: "三棒視窗：BB 觸軌 + MACD 叉",
+      icon: "✦",
+      color: "#fff176",
+      gist: "三根 K 棒視窗內，<b>任一根</b> 觸 BB 上/下軌 + <b>任一根</b> MACD 死/金叉。比 S1-S8 寬鬆，不要求順序、可同棒可分棒。",
+      patterns: [
+        { dir: "A/B/C 任一根 做空", cond: "high ≥ BB 上軌 × 0.997（觸上軌）" },
+        { dir: "A/B/C 任一根 做空", cond: "MACD hist 過零下降（死叉）" },
+        { dir: "A/B/C 任一根 做多", cond: "low ≤ BB 下軌 × 1.003（觸下軌）" },
+        { dir: "A/B/C 任一根 做多", cond: "MACD hist 過零上升（金叉）" },
+      ],
+      excludes: ["C 棒（視窗最末棒）影線已碰中軌"],
+      entry: "C 棒下一根開盤（i+3）",
+      stop:  "三棒最高高點（空）／最低低點（多） × (1 ± SL buffer)",
+      target: "BB 中軌 / BB 上下軌",
+      notes: [
+        "兩條件可同棒可分棒，三根視窗內出現即算",
+        "結構最寬鬆，訊號頻率較高，可作為其他訊號的補充",
+      ],
+    },
     s8: {
       name: "訊號八 S8",
       subtitle: "三棒「一棒一指標」序列",
@@ -151,7 +172,7 @@
   };
 
   // signals 列表中 s.k 用「3/4/5/6/7」（無 s 前綴），需要對應
-  const _S_KEY_MAP = { abc: "abc", ab: "ab", s3: "3", s4: "4", s5: "5", s6: "6", s7: "7", s8: "8" };
+  const _S_KEY_MAP = { abc: "abc", ab: "ab", s3: "3", s4: "4", s5: "5", s6: "6", s7: "7", s8: "8", s9: "9" };
 
   const $ = id => document.getElementById(id);
 
