@@ -418,16 +418,20 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                  & (c_cross ==  1) & (c_res == 0) & (c_crt == 0) \
                  & ~np.isnan(c_bbm) & (c_hi < c_bbm)
 
-        # ── 訊號九 S9（三棒視窗：BB 觸軌 + MACD 叉）──────────
-        # 短：A/B/C 任一根碰布林上軌 AND 任一根 MACD 死叉
-        # 多：A/B/C 任一根碰布林下軌 AND 任一根 MACD 金叉
+        # ── 訊號九 S9（三棒視窗：BB 觸軌 + MACD 叉，<b>但三棒都不可有 CRT</b>）──
+        # S9 與 S10 區分：S10 必須含 CRT，S9 必須不含
+        # 短：A/B/C 任一根碰布林上軌 AND 任一根 MACD 死叉 AND 三棒皆 CRT=0
+        # 多：對稱
         a_bup = bb_up_touch[:n-3]; b_bup = bb_up_touch[1:n-2]; c_bup = bb_up_touch[2:n-1]
         a_blo = bb_lo_touch[:n-3]; b_blo = bb_lo_touch[1:n-2]; c_blo = bb_lo_touch[2:n-1]
         a_mdd = macd_dead[:n-3];   b_mdd = macd_dead[1:n-2];   c_mdd = macd_dead[2:n-1]
         a_mdg = macd_gold[:n-3];   b_mdg = macd_gold[1:n-2];   c_mdg = macd_gold[2:n-1]
+        no_crt_3bar = (a_crt == 0) & (b_crt == 0) & (c_crt == 0)
         s9_short = (a_bup | b_bup | c_bup) & (a_mdd | b_mdd | c_mdd) \
+                 & no_crt_3bar \
                  & ~np.isnan(c_bbm) & (c_lo_ > c_bbm)
         s9_long  = (a_blo | b_blo | c_blo) & (a_mdg | b_mdg | c_mdg) \
+                 & no_crt_3bar \
                  & ~np.isnan(c_bbm) & (c_hi < c_bbm)
 
         if long_only:
