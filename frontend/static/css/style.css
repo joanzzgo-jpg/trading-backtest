@@ -3514,3 +3514,37 @@ html.perf-mode .tb-wr-total { font-size: 20px !important; }
   .topbar-right .tb-icon-btn { padding: revert; }
   .topbar { padding: revert !important; }
 }
+
+/* ════════════════════════════════════════
+   勝率欄字級縮回（先前放大太多）
+   只略大於原版，主要靠獨立列的寬鬆呼吸感
+═══════════════════════════════════════ */
+.tb-winrate { height: 38px !important; padding: 0 8px !important; }
+.tb-wr-icon { font-size: 11px; }
+.tb-wr-arr  { font-size: 9px; }
+.tb-wr-pct  { font-size: 11px; }
+.tb-wr-cnt  { font-size: 8px; }
+.tb-wr-divider { height: 22px; }
+.tb-wr-total-sep { height: 26px; }
+.tb-wr-total { font-size: 15px !important; padding: 0 5px; }
+.tb-wr-status { font-size: 11px; }
+.tb-wr-from { font-size: 9.5px; }
+.tb-wr-toggle { font-size: 11px !important; padding: 4px 9px !important; }
+.tb-wr-buffer-input { font-size: 11px !important; width: 38px !important; height: 22px !important; }
+.tb-wr-buffer-pct { font-size: 10px !important; }
+.tb-wr-loading-text { font-size: 11px !important; }
+.tb-wr-loading-bear { width: 18px !important; height: 18px !important; }
+
+html.perf-mode .tb-winrate { height: 36px !important; }
+html.perf-mode .tb-wr-icon { font-size: 11px; filter: none; }
+html.perf-mode .tb-wr-pct  { font-size: 11px; }
+html.perf-mode .tb-wr-total { font-size: 14px !important; }
+
+@media (max-width: 768px) {
+  .tb-winrate { height: 34px !important; padding: 0 6px !important; }
+  .tb-wr-icon { font-size: 10px; }
+  .tb-wr-pct  { font-size: 10px; }
+  .tb-wr-total { font-size: 13px !important; }
+  .tb-wr-divider { height: 18px; }
+  .tb-wr-total-sep { height: 22px; }
+}
