@@ -3355,3 +3355,125 @@ html.perf-mode .tb-winrate { margin-top: 3px !important; }
 @media (max-width: 768px) {
   .tb-winrate { height: 30px; }
 }
+
+/* ════════════════════════════════════════
+   勝率欄獨立列後放大優化（v2 顯示）
+   原版字級太小（icon 8px / pct 9.5px），獨立列有空間就放大
+═══════════════════════════════════════ */
+.tb-winrate {
+  height: 56px !important;             /* 32 → 56 */
+  padding: 0 12px !important;
+  gap: 6px;
+  border-radius: 8px;
+}
+
+/* 訊號 icon：放大 + 加陰影更顯眼 */
+.tb-wr-icon {
+  font-size: 16px;                     /* 8 → 16 */
+  filter: drop-shadow(0 0 5px currentColor);
+}
+
+/* 訊號 block 加 padding/間距 */
+.tb-wr-block {
+  gap: 6px;
+  padding: 2px 4px;
+}
+
+/* 空/多兩行的勝率數字 */
+.tb-wr-vals { gap: 2px; }
+.tb-wr-v    { gap: 4px; }
+.tb-wr-arr  { font-size: 11px; }       /* 8 → 11 */
+.tb-wr-pct  { font-size: 14px; letter-spacing: .02em; }     /* 9.5 → 14 */
+.tb-wr-cnt  { font-size: 10px; }                            /* 7 → 10 */
+
+/* 分隔線拉高 */
+.tb-wr-divider { height: 34px; }       /* 18 → 34 */
+
+/* 合計分隔線拉高 */
+.tb-wr-total-sep { height: 40px; }     /* 22 → 40 */
+
+/* 總勝率字級大幅放大（最主要的顯示） */
+.tb-wr-total {
+  font-size: 22px !important;          /* 13 → 22 */
+  padding: 0 8px;
+  letter-spacing: .03em;
+}
+
+/* 起始日/狀態字級配合放大 */
+.tb-wr-status {
+  font-size: 13px;                      /* 10 → 13 */
+  font-family: 'SF Mono','Courier New',monospace;
+  letter-spacing: .02em;
+}
+.tb-wr-from {
+  font-size: 11px;                      /* 8.5 → 11 */
+  margin-left: 6px;
+}
+
+/* 左側 toggle 按鈕也放大 */
+.tb-wr-toggle {
+  font-size: 12px !important;           /* 原來約 10 */
+  padding: 6px 12px !important;
+  height: auto !important;
+  line-height: 1.2;
+}
+
+/* SL% 輸入框配合放大 */
+.tb-wr-buffer-input {
+  font-size: 12px !important;
+  width: 44px !important;
+  height: 26px !important;
+}
+.tb-wr-buffer-pct { font-size: 11px !important; }
+
+/* 左/右固定區的 gap 變寬 */
+.tb-wr-fixed-left,
+.tb-wr-fixed-right { gap: 6px; }
+
+/* 計算中 overlay 字級配合放大 */
+.tb-wr-loading-text { font-size: 13px !important; }
+.tb-wr-loading-bear { width: 24px !important; height: 24px !important; }
+
+/* perf-mode 略小一點（白底字小可讀） */
+html.perf-mode .tb-winrate { height: 50px !important; }
+html.perf-mode .tb-wr-icon { font-size: 15px; filter: none; }
+html.perf-mode .tb-wr-pct  { font-size: 13px; }
+html.perf-mode .tb-wr-total { font-size: 20px !important; }
+
+@media (max-width: 768px) {
+  .tb-winrate { height: 48px !important; padding: 0 8px !important; }
+  .tb-wr-icon { font-size: 14px; }
+  .tb-wr-pct  { font-size: 12px; }
+  .tb-wr-total { font-size: 18px !important; }
+  .tb-wr-divider { height: 26px; }
+  .tb-wr-total-sep { height: 32px; }
+}
+
+/* ════════════════════════════════════════
+   Topbar 分左右兩邊（v2）
+   - 左：logo + symbol（保持原樣）
+   - 中間填空白
+   - 右：TF buttons + icon buttons（margin-left:auto 推到右邊）
+═══════════════════════════════════════ */
+.topbar-tf {
+  margin-left: auto;            /* 把 TF + 右側 icons 全部推到右邊 */
+}
+
+/* TF 按鈕略放大 */
+.topbar-tf .tf-btn {
+  font-size: 12px;
+  padding: 6px 12px;
+  min-width: 38px;
+}
+
+/* 右側 icon 按鈕略放大 + 更清楚 */
+.topbar-right .tb-icon-btn,
+.topbar-right .btn-mode {
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+@media (max-width: 768px) {
+  .topbar-tf .tf-btn { padding: 5px 8px; font-size: 11px; }
+  .topbar-right .tb-icon-btn { padding: 6px 8px; }
+}
