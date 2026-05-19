@@ -125,10 +125,33 @@
       target: "BB 中軌 / BB 上下軌",
       notes: ["S4 純淨版的放寬版本，A 棒多了 CRT 要求，C 棒不再強制無 CRT"],
     },
+    s8: {
+      name: "訊號八 S8",
+      subtitle: "三棒「一棒一指標」序列",
+      icon: "⬡",
+      color: "#f06292",
+      gist: "ABC 三棒分別出現「共振」「CRT」「KDJ 叉」其中一個指標，依序累積反轉力道。每棒只能有一個指標，最乾淨的階段式 setup。",
+      patterns: [
+        { dir: "A 棒（i） 做空", cond: "<b>只有</b> 共振 = -1（超買；CRT=0、KDJ=0）" },
+        { dir: "A 棒（i） 做多", cond: "<b>只有</b> 共振 = +1（超賣；CRT=0、KDJ=0）" },
+        { dir: "B 棒（i+1） 做空", cond: "<b>只有</b> CRT = -1（CRT 空；共振=0、KDJ=0）" },
+        { dir: "B 棒（i+1） 做多", cond: "<b>只有</b> CRT = +1（CRT 多；共振=0、KDJ=0）" },
+        { dir: "C 棒（i+2） 做空", cond: "<b>只有</b> KDJ 死叉（共振=0、CRT=0）" },
+        { dir: "C 棒（i+2） 做多", cond: "<b>只有</b> KDJ 金叉（共振=0、CRT=0）" },
+      ],
+      excludes: ["C 棒影線已碰中軌"],
+      entry: "C 棒下一根開盤（i+3）",
+      stop:  "三棒最高高點（空）／最低低點（多） × (1 ± SL buffer)",
+      target: "BB 中軌 / BB 上下軌",
+      notes: [
+        "與 S4/S5 不同：S4 是「A 共振、B 全無、C KDJ叉」；S8 是「A 共振、B CRT、C KDJ叉」",
+        "每棒承接前棒，三步累積反轉，結構最完整",
+      ],
+    },
   };
 
   // signals 列表中 s.k 用「3/4/5/6/7」（無 s 前綴），需要對應
-  const _S_KEY_MAP = { abc: "abc", ab: "ab", s3: "3", s4: "4", s5: "5", s6: "6", s7: "7" };
+  const _S_KEY_MAP = { abc: "abc", ab: "ab", s3: "3", s4: "4", s5: "5", s6: "6", s7: "7", s8: "8" };
 
   const $ = id => document.getElementById(id);
 
