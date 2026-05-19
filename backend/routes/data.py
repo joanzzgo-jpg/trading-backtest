@@ -329,12 +329,12 @@ def get_crt_winrate(
     from datetime import date, timedelta
     _buf = round(max(0.0, float(stop_buffer_pct or 0.0)), 4)
     _long_only = (market == "tw")  # 台股不能放空
-    cache_key = f"crt_wr20:{market}:{symbol}:{exchange}:{timeframe}:{_buf}:{int(_long_only)}"
+    cache_key = f"crt_wr24:{market}:{symbol}:{exchange}:{timeframe}:{_buf}:{int(_long_only)}"
     cached = cache.get(cache_key, ttl=3600)
     if cached:
         return cached
 
-    MIN_CASES = 30   # 每個訊號（S2~S6 × 空/多）最少採樣數；不足會自動往前加倍天數
+    MIN_CASES = 30   # 每個訊號（S2~S7 × 空/多）最少採樣數；不足會自動往前加倍天數
     # 各時間框架：初始天數 / 最大天數
     # 上限拉高：讓 binance/bybit（支援多年歷史）能取到更多樣本；資料源用完會自然停（n <= last_bars）
     TF_INIT = {"1M": 3650, "1w": 1825, "1d": 730,  "4h": 365,  "1h": 365,   "15m": 60,  "5m": 30}
@@ -344,7 +344,7 @@ def get_crt_winrate(
         """每個訊號的空/多案例數都達到 MIN_CASES"""
         return all(
             (r.get(sig) or {}).get(d, {}).get("total", 0) >= MIN_CASES
-            for sig in ("ab", "s3", "s4", "s5", "s6") for d in ("short", "long")
+            for sig in ("ab", "s3", "s4", "s5", "s6", "s7") for d in ("short", "long")
         )
 
     def _fetch_df(days: int) -> pd.DataFrame:

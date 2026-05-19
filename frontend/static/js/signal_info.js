@@ -107,10 +107,28 @@
         "「轉折開始」訊號，常見於趨勢底/頂",
       ],
     },
+    s7: {
+      name: "訊號七 S7",
+      subtitle: "S4 寬鬆版（A 含 CRT、C 允許 CRT）",
+      icon: "⬢",
+      color: "#4dd0e1",
+      gist: "S4 進場條件略放寬：A 棒必須含 CRT（與訊號方向一致），C 棒可有可無 CRT。比 S4 訊號更多、結構仍嚴謹。",
+      patterns: [
+        { dir: "A 棒（i） 做空",   cond: "CRT = -1 AND 共振 = -1 AND KDJ = 0" },
+        { dir: "A 棒（i） 做多",   cond: "CRT = +1 AND 共振 = +1 AND KDJ = 0" },
+        { dir: "B 棒（i+1）", cond: "<b>三個指標全無</b>（CRT=0、KDJ=0、共振=0）" },
+        { dir: "C 棒（i+2）", cond: "KDJ 叉（方向一致） AND 共振 = 0（CRT 不限）" },
+      ],
+      excludes: ["C 棒影線已碰中軌"],
+      entry: "C 棒下一根開盤（i+3）",
+      stop:  "三棒最高高點（空）／最低低點（多） × (1 ± SL buffer)",
+      target: "BB 中軌 / BB 上下軌",
+      notes: ["S4 純淨版的放寬版本，A 棒多了 CRT 要求，C 棒不再強制無 CRT"],
+    },
   };
 
-  // signals 列表中 s.k 用「3/4/5/6」（無 s 前綴），需要對應
-  const _S_KEY_MAP = { abc: "abc", ab: "ab", s3: "3", s4: "4", s5: "5", s6: "6" };
+  // signals 列表中 s.k 用「3/4/5/6/7」（無 s 前綴），需要對應
+  const _S_KEY_MAP = { abc: "abc", ab: "ab", s3: "3", s4: "4", s5: "5", s6: "6", s7: "7" };
 
   const $ = id => document.getElementById(id);
 
