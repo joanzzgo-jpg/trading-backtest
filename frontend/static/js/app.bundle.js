@@ -546,7 +546,7 @@ return view?.[key];}
 function _signalsFor(key){if(typeof _lastWRSignals==="undefined"||!_lastWRSignals)return[];const sk=_S_KEY_MAP[key];const useBand=(typeof _wrTargetView!=="undefined")&&_wrTargetView==="band";const useVariant=(typeof _wrVariantView!=="undefined")&&_wrVariantView==="variant";return _lastWRSignals.filter(s=>s.k===sk&&(!useVariant||s.v)).map(s=>({t:s.t,d:s.d,r:useBand?s.r_b:s.r,ot:useBand?s.ot_b:s.ot,}));}
 function _formatTime(iso){if(!iso)return"—";return iso.replace("T"," ").slice(0,16);}
 function _statRow(label,s){if(!s||s.win_rate==null){return`<div class="sig-stat-row"><span class="sig-stat-lbl">${label}</span><span class="sig-stat-val">—</span></div>`;}
-const good=s.win_rate>=60,bad=s.win_rate<45;const cls=good?"good":bad?"bad":"";const losses=s.losses??(s.total-s.wins);const lowSample=s.total<30?` <span class="sig-low-sample" title="樣本 < 30，資料源可能已達上限">⚠</span>`:"";return`<div class="sig-stat-row">
+const good=s.win_rate>=60,bad=s.win_rate<45;const cls=good?"good":bad?"bad":"";const losses=s.losses??(s.total-s.wins);const lowSample=s.total<40?` <span class="sig-low-sample" title="樣本 < 40，資料源可能已達上限">⚠</span>`:"";return`<div class="sig-stat-row">
       <span class="sig-stat-lbl">${label}</span>
       <span class="sig-stat-val ${cls}">${s.win_rate}%</span>
       <span class="sig-stat-cnt">${s.wins}勝 / ${losses}負（共 ${s.total} 筆）${lowSample}</span>

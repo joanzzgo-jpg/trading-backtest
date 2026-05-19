@@ -171,8 +171,8 @@
     const cls = good ? "good" : bad ? "bad" : "";
     const losses = s.losses ?? (s.total - s.wins);
     // 樣本不足 (< 30) 加警示提示：資料源可能已用盡
-    const lowSample = s.total < 30
-      ? ` <span class="sig-low-sample" title="樣本 < 30，資料源可能已達上限">⚠</span>`
+    const lowSample = s.total < 40
+      ? ` <span class="sig-low-sample" title="樣本 < 40，資料源可能已達上限">⚠</span>`
       : "";
     return `<div class="sig-stat-row">
       <span class="sig-stat-lbl">${label}</span>
