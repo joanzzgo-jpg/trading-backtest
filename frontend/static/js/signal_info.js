@@ -237,14 +237,16 @@
     const good = s.win_rate >= 60, bad = s.win_rate < 45;
     const cls = good ? "good" : bad ? "bad" : "";
     const losses = s.losses ?? (s.total - s.wins);
-    // 樣本不足 (< 30) 加警示提示：資料源可能已用盡
     const lowSample = s.total < 40
       ? ` <span class="sig-low-sample" title="樣本 < 40，資料源可能已達上限">⚠</span>`
+      : "";
+    const streak = (s.max_loss_streak && s.max_loss_streak > 0)
+      ? ` <span class="sig-stat-streak" title="該訊號歷史中最長連續 loss 次數">最大連敗 ${s.max_loss_streak}</span>`
       : "";
     return `<div class="sig-stat-row">
       <span class="sig-stat-lbl">${label}</span>
       <span class="sig-stat-val ${cls}">${s.win_rate}%</span>
-      <span class="sig-stat-cnt">${s.wins}勝 / ${losses}負（共 ${s.total} 筆）${lowSample}</span>
+      <span class="sig-stat-cnt">${s.wins}勝 / ${losses}負（共 ${s.total} 筆）${lowSample}${streak}</span>
     </div>`;
   }
 

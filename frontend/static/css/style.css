@@ -3566,3 +3566,12 @@ html.perf-mode .tb-wr-total { font-size: 14px !important; }
 
 .wr-s10 { color: #90caf9; }
 html.perf-mode .wr-s10 { color: #1976D2; }
+
+.sig-stat-streak {
+  margin-left: 6px;
+  color: #ffa726;
+  font-size: 10.5px;
+  font-weight: 600;
+  cursor: help;
+}
+html.perf-mode .sig-stat-streak { color: #E85A1A; }

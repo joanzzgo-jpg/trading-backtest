@@ -134,7 +134,6 @@ function _computeAutoRRBox(sig) {
   if (_autoRRBoxCache.has(cacheKey)) return _autoRRBoxCache.get(cacheKey);
 
   const useBand = _wrTargetView === "band";
-  // O(1) Map.get 取代 findIndex 線性掃描
   const sigIdx = (typeof _timeToIdx !== "undefined" && _timeToIdx.has(sig.t))
     ? _timeToIdx.get(sig.t)
     : ohlcvData.findIndex(d => d.time === sig.t);
@@ -147,9 +146,10 @@ function _computeAutoRRBox(sig) {
     _autoRRBoxCache.set(cacheKey, null); return null;
   }
   const dir = sig.d;
+  const isShort = dir === "s";
   const buf = (_wrStopBuffer || 0) / 100;
   let tp, sl, type, color;
-  if (dir === "s") {
+  if (isShort) {
     sl = sigBar.high * (1 + buf);
     tp = useBand ? entryBar.bb_lower : entryBar.bb_middle;
     type = "shortpos"; color = "#ef5350";
@@ -160,7 +160,7 @@ function _computeAutoRRBox(sig) {
   }
   if (tp == null) { _autoRRBoxCache.set(cacheKey, null); return null; }
 
-  // 實際止盈：只在贏的訊號 + 找得到結算棒時才算
+  // 結算位置
   let tpAct = null;
   const exitT  = useBand ? sig.ot_b : sig.ot;
   const result = useBand ? sig.r_b  : sig.r;
@@ -172,11 +172,32 @@ function _computeAutoRRBox(sig) {
   }
   if (exitT && result === "w" && exitIdx >= 0) {
     const exitBar = ohlcvData[exitIdx];
-    if (dir === "s") tpAct = useBand ? exitBar.bb_lower : exitBar.bb_middle;
-    else             tpAct = useBand ? exitBar.bb_upper : exitBar.bb_middle;
+    if (isShort) tpAct = useBand ? exitBar.bb_lower : exitBar.bb_middle;
+    else         tpAct = useBand ? exitBar.bb_upper : exitBar.bb_middle;
   }
 
-  // 盒寬：從進場棒到結算棒，沒結算就 8 根
+  // 加碼系統：進場後到 TP/SL 之前，每次出現同方向 CRT/共振/KDJ叉，下根加碼
+  // 加碼價 = 該下一根的開盤價
+  const entryIdx = sigIdx + 1;
+  const lastIdx = (exitIdx > entryIdx) ? exitIdx : ohlcvData.length - 1;
+  const pyramids = [];   // {time, price, idx}
+  const cond = isShort
+    ? (b) => b.crt === -1 || b.kdj_cross === -1 || b.resonance === -1
+    : (b) => b.crt === 1  || b.kdj_cross === 1  || b.resonance === 1;
+  for (let j = entryIdx; j < lastIdx; j++) {
+    const bar = ohlcvData[j];
+    if (!bar) continue;
+    if (cond(bar)) {
+      const next = ohlcvData[j + 1];
+      if (!next || next.open == null) continue;
+      pyramids.push({ idx: j + 1, time: toTime(next.time), price: next.open });
+    }
+  }
+  // 均減進場價（含初始進場 + 所有加碼，等權平均）
+  const allPrices = [entryBar.open, ...pyramids.map(p => p.price)];
+  const avgEntry = allPrices.reduce((a, b) => a + b, 0) / allPrices.length;
+
+  // 盒寬：到結算棒，沒結算就 8 根
   let barWidth = 8;
   if (exitIdx > sigIdx) barWidth = Math.max(3, exitIdx - sigIdx);
 
@@ -185,6 +206,8 @@ function _computeAutoRRBox(sig) {
     type, color, barWidth,
     p1: { time: toTime(entryBar.time), price: entryBar.open },
     tp, sl, tpAct,
+    pyramids: pyramids,
+    avgEntry: avgEntry,
     _isAutoRR: true,
   };
   _autoRRBoxCache.set(cacheKey, box);

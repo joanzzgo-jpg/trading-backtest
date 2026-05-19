@@ -917,20 +917,52 @@ function drawOne(d, W, H, isHovered, isSelected) {
       drawCtx.closePath(); drawCtx.fill();
     }
 
-    // R:R 置中（綠色區塊中央）— 自動盈虧比盒同時顯示預估／實際 RR
-    const reward    = Math.abs(d.tp - d.p1.price);
-    const risk      = Math.abs(d.p1.price - d.sl);
-    const rrEst     = risk > 0 ? (reward / risk).toFixed(2) : "∞";
-    const rewardAct = (d.tpAct != null) ? Math.abs(d.tpAct - d.p1.price) : null;
-    const rrAct     = (rewardAct != null && risk > 0) ? (rewardAct / risk).toFixed(2) : null;
+    // R:R — 用 avg_entry（含加碼）；長單 reward = tp-avg、risk = avg-sl；正負號保留
+    const refEntry = (d._isAutoRR && d.avgEntry != null) ? d.avgEntry : d.p1.price;
+    const reward    = d.tp - refEntry;           // long: 正 = 對 / 負 = 反向（不利）
+    const risk      = refEntry - d.sl;           // 預期為正
+    const rrEst     = (risk !== 0) ? (reward / risk).toFixed(2) : "∞";
+    const rewardAct = (d.tpAct != null) ? (d.tpAct - refEntry) : null;
+    const rrAct     = (rewardAct != null && risk !== 0) ? (rewardAct / risk).toFixed(2) : null;
     const tpCY      = (tpY + entryY) / 2;
     drawCtx.font = "bold 12px sans-serif";
     const rrTxt = (rrAct != null && d._isAutoRR)
       ? `預估 1:${rrEst}  ⇢  實際 1:${rrAct}`
       : `1 : ${rrEst}`;
     const rrW   = drawCtx.measureText(rrTxt).width;
-    drawCtx.fillStyle = "rgba(38,166,154,0.95)";
+    drawCtx.fillStyle = (parseFloat(rrEst) < 0) ? "rgba(239,83,80,0.95)" : "rgba(38,166,154,0.95)";
     if (rx - ex > rrW + 10) drawCtx.fillText(rrTxt, ex + (rx - ex - rrW) / 2, tpCY + 4);
+
+    // 加碼點：在進場後出現的小圓點 + + 號
+    if (d._isAutoRR && d.pyramids && d.pyramids.length) {
+      drawCtx.save();
+      drawCtx.shadowBlur = 0;
+      for (const p of d.pyramids) {
+        const ppx = mainChart.timeScale().timeToCoordinate(p.time);
+        const ppy = candleSeries?.priceToCoordinate(p.price);
+        if (ppx == null || ppy == null) continue;
+        drawCtx.fillStyle = "rgba(255,193,7,0.95)";
+        drawCtx.beginPath(); drawCtx.arc(ppx, ppy, 5, 0, Math.PI*2); drawCtx.fill();
+        drawCtx.fillStyle = "#1a1a1a";
+        drawCtx.font = "bold 8px sans-serif";
+        drawCtx.fillText("+", ppx - 2.5, ppy + 3);
+      }
+      drawCtx.restore();
+      // 均減進場線（若有加碼才畫）
+      if (d.avgEntry != null && d.avgEntry !== d.p1.price) {
+        const avgY = candleSeries?.priceToCoordinate(d.avgEntry);
+        if (avgY != null) {
+          drawCtx.save();
+          drawCtx.strokeStyle = "rgba(255,193,7,0.7)";
+          drawCtx.lineWidth = 1;
+          drawCtx.setLineDash([2, 3]);
+          drawCtx.beginPath(); drawCtx.moveTo(ex, avgY); drawCtx.lineTo(rx, avgY); drawCtx.stroke();
+          drawCtx.setLineDash([]);
+          drawCtx.restore();
+          rightLabel(avgY, `均 ${_fmtPx(d.avgEntry)}`, "rgba(255,193,7,0.85)", "#1a1a1a");
+        }
+      }
+    }
 
     // 右側標籤
     drawCtx.font = "11px sans-serif";
@@ -1047,20 +1079,51 @@ function drawOne(d, W, H, isHovered, isSelected) {
       drawCtx.closePath(); drawCtx.fill();
     }
 
-    // R:R 置中（自動盈虧比盒同時顯示預估／實際）
-    const reward    = Math.abs(d.p1.price - d.tp);
-    const risk      = Math.abs(d.sl - d.p1.price);
-    const rrEst     = risk > 0 ? (reward / risk).toFixed(2) : "∞";
-    const rewardAct = (d.tpAct != null) ? Math.abs(d.p1.price - d.tpAct) : null;
-    const rrAct     = (rewardAct != null && risk > 0) ? (rewardAct / risk).toFixed(2) : null;
+    // R:R — 用 avg_entry（含加碼）；空單 reward = avg-tp、risk = sl-avg；正負號保留
+    const refEntry = (d._isAutoRR && d.avgEntry != null) ? d.avgEntry : d.p1.price;
+    const reward    = refEntry - d.tp;           // short: 正 = 對 / 負 = 反向
+    const risk      = d.sl - refEntry;
+    const rrEst     = (risk !== 0) ? (reward / risk).toFixed(2) : "∞";
+    const rewardAct = (d.tpAct != null) ? (refEntry - d.tpAct) : null;
+    const rrAct     = (rewardAct != null && risk !== 0) ? (rewardAct / risk).toFixed(2) : null;
     const tpCY      = (entryY + tpY) / 2;
     drawCtx.font = "bold 12px sans-serif";
     const rrTxt = (rrAct != null && d._isAutoRR)
       ? `預估 1:${rrEst}  ⇢  實際 1:${rrAct}`
       : `1 : ${rrEst}`;
     const rrW   = drawCtx.measureText(rrTxt).width;
-    drawCtx.fillStyle = "rgba(38,166,154,0.95)";
+    drawCtx.fillStyle = (parseFloat(rrEst) < 0) ? "rgba(239,83,80,0.95)" : "rgba(38,166,154,0.95)";
     if (rx - ex > rrW + 10) drawCtx.fillText(rrTxt, ex + (rx - ex - rrW) / 2, tpCY + 4);
+
+    // 加碼點 + 均減進場線
+    if (d._isAutoRR && d.pyramids && d.pyramids.length) {
+      drawCtx.save();
+      drawCtx.shadowBlur = 0;
+      for (const p of d.pyramids) {
+        const ppx = mainChart.timeScale().timeToCoordinate(p.time);
+        const ppy = candleSeries?.priceToCoordinate(p.price);
+        if (ppx == null || ppy == null) continue;
+        drawCtx.fillStyle = "rgba(255,193,7,0.95)";
+        drawCtx.beginPath(); drawCtx.arc(ppx, ppy, 5, 0, Math.PI*2); drawCtx.fill();
+        drawCtx.fillStyle = "#1a1a1a";
+        drawCtx.font = "bold 8px sans-serif";
+        drawCtx.fillText("+", ppx - 2.5, ppy + 3);
+      }
+      drawCtx.restore();
+      if (d.avgEntry != null && d.avgEntry !== d.p1.price) {
+        const avgY = candleSeries?.priceToCoordinate(d.avgEntry);
+        if (avgY != null) {
+          drawCtx.save();
+          drawCtx.strokeStyle = "rgba(255,193,7,0.7)";
+          drawCtx.lineWidth = 1;
+          drawCtx.setLineDash([2, 3]);
+          drawCtx.beginPath(); drawCtx.moveTo(ex, avgY); drawCtx.lineTo(rx, avgY); drawCtx.stroke();
+          drawCtx.setLineDash([]);
+          drawCtx.restore();
+          rightLabel(avgY, `均 ${_fmtPx(d.avgEntry)}`, "rgba(255,193,7,0.85)", "#1a1a1a");
+        }
+      }
+    }
 
     drawCtx.font = "11px sans-serif";
     const tpLabel = d._isAutoRR ? `預估 ${_fmtPx(d.tp)}` : `TP  ${_fmtPx(d.tp)}`;

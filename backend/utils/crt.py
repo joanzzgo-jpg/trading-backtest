@@ -512,10 +512,11 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                          om, otm, omj, ob, otb, obj, variant=bool(variant))
 
     # ── 統計輸出 ─────────────────────────────────────────────
-    def _stats(w, l, rr=None):
-        """rr：對應方向的 RR bucket（含 est_sum_all/est_sum_win/act_sum_win/n_win/n_loss）"""
+    def _stats(w, l, rr=None, streak=0):
+        """rr：對應方向的 RR bucket；streak：該 (sig×dir) 的最大連敗數"""
         t = w + l
-        out = {"total": t, "wins": w, "losses": l, "win_rate": round(w / t * 100, 1) if t else None}
+        out = {"total": t, "wins": w, "losses": l, "win_rate": round(w / t * 100, 1) if t else None,
+               "max_loss_streak": streak}
         if not rr:
             return out
         n_all = rr["est_n_all"]
@@ -544,13 +545,15 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             "est_win_rate": round(w / t * 100, 1) if t else None,
         }
 
-    def _build_target_stats(cnt, rr_cnt, cnt_v=None, rr_cnt_v=None, est=None, est_v=None):
-        """從 cnt + rr_cnt 算出該 target 的完整統計結構。
-        如帶 cnt_v / rr_cnt_v，再算出 *_v（強化版 = 加 MACD 方向 filter）"""
+    def _build_target_stats(cnt, rr_cnt, cnt_v=None, rr_cnt_v=None, est=None, est_v=None,
+                              streak=None, streak_v=None):
+        """從 cnt + rr_cnt + streak 算出該 target 的完整統計結構。"""
+        streak = streak or {}
+        streak_v = streak_v or {}
         per_sig = {
             k: {
-                "short": _stats(v[0], v[1], rr_cnt[k]["short"]),
-                "long":  _stats(v[2], v[3], rr_cnt[k]["long"]),
+                "short": _stats(v[0], v[1], rr_cnt[k]["short"], streak=streak.get((k, "s"), 0)),
+                "long":  _stats(v[2], v[3], rr_cnt[k]["long"],  streak=streak.get((k, "l"), 0)),
             }
             for k, v in cnt.items()
         }
@@ -558,8 +561,8 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         if cnt_v is not None and rr_cnt_v is not None:
             per_sig_v = {
                 k: {
-                    "short": _stats(v[0], v[1], rr_cnt_v[k]["short"]),
-                    "long":  _stats(v[2], v[3], rr_cnt_v[k]["long"]),
+                    "short": _stats(v[0], v[1], rr_cnt_v[k]["short"], streak=streak_v.get((k, "s"), 0)),
+                    "long":  _stats(v[2], v[3], rr_cnt_v[k]["long"],  streak=streak_v.get((k, "l"), 0)),
                 }
                 for k, v in cnt_v.items()
             }
@@ -653,6 +656,35 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
     dedup_m,  dedup_b,  dedup_em,  dedup_eb  = _dedupe_totals(filter_variant=False)
     dedup_mv, dedup_bv, dedup_emv, dedup_ebv = _dedupe_totals(filter_variant=True)
 
+    # ── 最大連敗數：每 (sig_key, direction) 依時間順序統計最長連續 loss ──
+    def _calc_streaks(use_band=False, only_variant=False):
+        """回傳 {(sig_key, direction): max_streak}"""
+        streaks = {}
+        # 訊號需依時間排序（不同 sig_key 已經各自時序，這裡按 t 全排）
+        sorted_sigs = sorted(signals, key=lambda x: x["t"])
+        # 用每 (k, d) 自己的當前連敗值追蹤
+        cur = {}
+        for s in sorted_sigs:
+            if only_variant and not s.get("v"):
+                continue
+            key = (s["k"], s["d"])
+            r = s.get("r_b" if use_band else "r")
+            if key not in cur:
+                cur[key] = 0
+                streaks[key] = 0
+            if r == "l":
+                cur[key] += 1
+                if cur[key] > streaks[key]:
+                    streaks[key] = cur[key]
+            elif r == "w":
+                cur[key] = 0
+        return streaks
+
+    streak_mid    = _calc_streaks(use_band=False, only_variant=False)
+    streak_band   = _calc_streaks(use_band=True,  only_variant=False)
+    streak_mid_v  = _calc_streaks(use_band=False, only_variant=True)
+    streak_band_v = _calc_streaks(use_band=True,  only_variant=True)
+
     def _dedup_total_dict(arr):
         sw, sl, lw, ll = arr
         t = sw + sl + lw + ll
@@ -675,8 +707,19 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             "est_win_rate": round(w / t * 100, 1) if t else None,
         }
 
-    mid_out  = _build_target_stats(mid_cnt,  mid_rr,  mid_cnt_v,  mid_rr_v)
-    band_out = _build_target_stats(band_cnt, band_rr, band_cnt_v, band_rr_v)
+    mid_out  = _build_target_stats(mid_cnt,  mid_rr,  mid_cnt_v,  mid_rr_v,
+                                    streak=streak_mid,  streak_v=streak_mid_v)
+    band_out = _build_target_stats(band_cnt, band_rr, band_cnt_v, band_rr_v,
+                                    streak=streak_band, streak_v=streak_band_v)
+    # 頂層也存最大連敗（依當前 cnt 的合計）
+    def _all_max_streak(streak_dict):
+        return max((v for v in streak_dict.values()), default=0)
+    mid_out["max_loss_streak"]  = _all_max_streak(streak_mid)
+    band_out["max_loss_streak"] = _all_max_streak(streak_band)
+    if "variant" in mid_out:
+        mid_out["variant"]["max_loss_streak"]  = _all_max_streak(streak_mid_v)
+    if "variant" in band_out:
+        band_out["variant"]["max_loss_streak"] = _all_max_streak(streak_band_v)
 
     # 把 dedup 後的合計覆寫到 mid_out / band_out 的頂層
     mid_out.update(_dedup_total_dict(dedup_m))
