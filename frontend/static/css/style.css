@@ -3313,3 +3313,21 @@ html.perf-mode .sig-rr-hd { border-bottom-color: #E5E5E5; }
   cursor: help;
 }
 html.perf-mode .sig-low-sample { color: #E85A1A; }
+
+/* 原版/強化版切換 — 復用 wrTargetToggle 樣式但加區別 */
+#wrVariantToggle.variant {
+  background: linear-gradient(135deg, rgba(126,87,194,.22), rgba(126,87,194,.10));
+  border-color: rgba(126,87,194,.55) !important;
+  color: #b39ddb !important;
+}
+#wrVariantToggle.variant::after {
+  content: "⚡";
+  margin-left: 3px;
+  font-size: 9px;
+  opacity: .8;
+}
+html.perf-mode #wrVariantToggle.variant {
+  background: rgba(126,87,194,.10);
+  border-color: #7e57c2 !important;
+  color: #5e35b1 !important;
+}

@@ -7,6 +7,11 @@ const _WR_VIEW_KEY = "wrTargetView";
 let _wrTargetView = "mid";
 try { _wrTargetView = localStorage.getItem(_WR_VIEW_KEY) || "mid"; } catch (e) {}
 
+// 訊號版本（原版 ↔ 強化版：量能 > 1.5× MA20）狀態
+const _WR_VARIANT_KEY = "wrVariantView";
+let _wrVariantView = "base";  // "base" | "variant"
+try { _wrVariantView = localStorage.getItem(_WR_VARIANT_KEY) || "base"; } catch (e) {}
+
 // 點擊訊號 K 棒展開的自動盈虧比盒：Set<signal.t>
 const _autoRRSet = new Set();
 let _autoRRHintShown = false;
@@ -23,6 +28,24 @@ function _initWrTargetBtn() {
   // 帶軌目標是方向相關：多單→BB 上軌、空單→BB 下軌
   btn.textContent = _wrTargetView === "band" ? "上/下軌" : "中軌";
   btn.classList.toggle("band", _wrTargetView === "band");
+}
+
+function _initWrVariantBtn() {
+  const btn = document.getElementById("wrVariantToggle");
+  if (!btn) return;
+  btn.textContent = _wrVariantView === "variant" ? "強化版" : "原版";
+  btn.classList.toggle("variant", _wrVariantView === "variant");
+}
+
+function _toggleWrVariant() {
+  _wrVariantView = _wrVariantView === "variant" ? "base" : "variant";
+  try { localStorage.setItem(_WR_VARIANT_KEY, _wrVariantView); } catch (e) {}
+  _initWrVariantBtn();
+  if (_wrCacheLast) _renderWinRate(_wrCacheLast);
+  _renderWRSignals();  // 主圖 marker 過濾改變
+  if (typeof window._refreshSignalDrawer === "function") window._refreshSignalDrawer();
+  // 自動盈虧比盒目標位也會改變（變強的 marker 數量變了）
+  if (typeof renderDrawings === "function") requestAnimationFrame(renderDrawings);
 }
 
 function _initWrStopBuffer() {
@@ -62,7 +85,11 @@ function _toggleWrTarget() {
 function _findSignalAtTime(barTime) {
   if (!barTime || !_lastWRSignals) return null;
   const useBand = _wrTargetView === "band";
-  for (const s of _lastWRSignals) {
+  // 強化版時只考慮 v=true 訊號
+  const list = _wrVariantView === "variant"
+    ? _lastWRSignals.filter(s => s.v)
+    : _lastWRSignals;
+  for (const s of list) {
     if (toTime(s.t) === barTime) return s;
     const exitT = useBand ? s.ot_b : s.ot;
     if (exitT && toTime(exitT) === barTime) return s;
@@ -233,7 +260,10 @@ async function _fetchWinRateNow() {
 
 function _renderWRSignals(signals) {
   if (signals !== undefined) _lastWRSignals = signals || [];
-  const list = _lastWRSignals;
+  // 強化版時只顯示 s.v=true 的訊號
+  const list = _wrVariantView === "variant"
+    ? _lastWRSignals.filter(s => s.v)
+    : _lastWRSignals;
   // 用 _secToIdx Map（O(1)）取代每次重建 Set（O(n)）
   const hasIdx = (typeof _secToIdx !== "undefined" && _secToIdx.size > 0);
   const chartTimeSet = hasIdx ? null : new Set(ohlcvData.map(d => toTime(d.time)));
@@ -308,7 +338,9 @@ function _renderWRSignals(signals) {
 function _renderWinRate(d) {
   _wrCacheLast = d;
   // 依目標切換取 mid（頂層）或 band（巢狀）
-  const view = (_wrTargetView === "band" && d && d.band) ? d.band : d;
+  let view = (_wrTargetView === "band" && d && d.band) ? d.band : d;
+  // 再依強化版切換：若 variant view 且該層有 .variant 子物件，使用之
+  if (_wrVariantView === "variant" && view && view.variant) view = view.variant;
   // 台股 long_only：把勝率欄加上 class 隱藏空單 row
   const bar = document.getElementById("winrateBar");
   if (bar) bar.classList.toggle("long-only", !!d.long_only);

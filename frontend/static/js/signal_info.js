@@ -117,7 +117,11 @@
   function _statsFor(key) {
     const d = (typeof _wrCacheLast !== "undefined") ? _wrCacheLast : null;
     if (!d) return null;
-    const view = (typeof _wrTargetView !== "undefined" && _wrTargetView === "band" && d.band) ? d.band : d;
+    let view = (typeof _wrTargetView !== "undefined" && _wrTargetView === "band" && d.band) ? d.band : d;
+    // 強化版時取巢狀 .variant
+    if (typeof _wrVariantView !== "undefined" && _wrVariantView === "variant" && view && view.variant) {
+      view = view.variant;
+    }
     return view?.[key];
   }
 
@@ -125,12 +129,15 @@
     if (typeof _lastWRSignals === "undefined" || !_lastWRSignals) return [];
     const sk = _S_KEY_MAP[key];
     const useBand = (typeof _wrTargetView !== "undefined") && _wrTargetView === "band";
-    return _lastWRSignals.filter(s => s.k === sk).map(s => ({
-      t: s.t,
-      d: s.d,
-      r: useBand ? s.r_b : s.r,
-      ot: useBand ? s.ot_b : s.ot,
-    }));
+    const useVariant = (typeof _wrVariantView !== "undefined") && _wrVariantView === "variant";
+    return _lastWRSignals
+      .filter(s => s.k === sk && (!useVariant || s.v))
+      .map(s => ({
+        t: s.t,
+        d: s.d,
+        r: useBand ? s.r_b : s.r,
+        ot: useBand ? s.ot_b : s.ot,
+      }));
   }
 
   function _formatTime(iso) {
@@ -189,6 +196,9 @@
     const stats = _statsFor(key);
     const sigs  = _signalsFor(key);
     const viewLabel = (typeof _wrTargetView !== "undefined" && _wrTargetView === "band") ? "上/下軌" : "中軌";
+    const variantLabel = (typeof _wrVariantView !== "undefined" && _wrVariantView === "variant") ? "強化版" : "原版";
+    // 訊號名稱加 "-1" 標記強化版
+    const nameWithVariant = variantLabel === "強化版" ? `${info.name}-1` : info.name;
 
     const patternsHTML = (info.patterns || []).map(p =>
       `<div class="sig-pat-row"><span class="sig-pat-dir">${p.dir}</span><span class="sig-pat-cond">${p.cond}</span></div>`
@@ -236,8 +246,8 @@
       <div class="sig-dwr-hd" style="border-left:3px solid ${info.color}">
         <span class="sig-dwr-icon" style="color:${info.color}">${info.icon}</span>
         <div class="sig-dwr-titles">
-          <div class="sig-dwr-name">${info.name}</div>
-          <div class="sig-dwr-sub">${info.subtitle}</div>
+          <div class="sig-dwr-name">${nameWithVariant}</div>
+          <div class="sig-dwr-sub">${info.subtitle}${variantLabel === "強化版" ? " + 量能爆發濾鏡" : ""}</div>
         </div>
         <button class="sig-dwr-close" id="sigDrawerClose">✕</button>
       </div>
@@ -262,7 +272,7 @@
         </section>
 
         <section class="sig-section">
-          <h3 class="sig-h3">當前統計（${viewLabel}目標）</h3>
+          <h3 class="sig-h3">當前統計（${viewLabel}目標，${variantLabel}）</h3>
           ${_statRow("空單", stats?.short)}
           ${_rrBlock(stats?.short)}
           ${_statRow("多單", stats?.long)}
@@ -346,16 +356,16 @@
       _hide();
     }, true);
 
-    // 切換中軌/上下軌時：如果抽屜開著，重新渲染
-    const tgl = $("wrTargetToggle");
-    if (tgl) {
+    // 切換中軌/上下軌、原/強化版時：如果抽屜開著，重新渲染
+    ["wrTargetToggle", "wrVariantToggle"].forEach(id => {
+      const tgl = $(id);
+      if (!tgl) return;
       tgl.addEventListener("click", () => {
         if (_currentKey && !$("signalDrawer")?.classList.contains("hidden")) {
-          // 等 _toggleWrTarget 跑完（同步），再 render
           setTimeout(() => _renderDrawer(_currentKey), 0);
         }
       });
-    }
+    });
   }
 
   if (document.readyState === "loading") {

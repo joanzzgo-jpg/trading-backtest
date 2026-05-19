@@ -59,6 +59,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   applyAllColors();
   startTickerRefresh();
   _initWrTargetBtn();   // 勝率欄目標切換按鈕初始狀態
+  _initWrVariantBtn();  // 勝率欄原版/強化版切換按鈕初始狀態
   _initWrStopBuffer();  // 勝率欄停損緩衝輸入
   window.addEventListener("beforeunload", () => { saveLastSymbol(); });
 
