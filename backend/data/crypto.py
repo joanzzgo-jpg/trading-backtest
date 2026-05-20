@@ -311,7 +311,10 @@ def _fetch_binance_klines_parallel(base_url, sym, tf, since_ms, end_ms, timefram
             continue
         seen.add(r[0])
         uniq.append(r)
-    return _make_df(uniq[:max_candles])
+    # 超過上限時保留「最近」max_candles 根（不是最舊的）→ 避免最近幾根 K 被砍掉沒訊號
+    if len(uniq) > max_candles:
+        uniq = uniq[-max_candles:]
+    return _make_df(uniq)
 
 
 def _fetch_futures_tickers_fapi() -> list:
