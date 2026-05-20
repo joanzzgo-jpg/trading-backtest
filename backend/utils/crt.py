@@ -121,19 +121,8 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
     crt   = _col_i("crt")
     cross = _col_i("kdj_cross")
     res   = _col_i("resonance")
-    # 強化版 filter：訊號棒實體佔比 ≥ 45% AND BB 寬度 ≤ 4%
-    # 跨 BTC/ETH/SOL×1h/4h 8272 筆研究：
-    #   base 55.8% → body≥0.45 61.7% → body≥0.45 AND bbw≤0.04 = 63.6%（+7.8）
-    # 量能（vol_ratio）證實無效；實體大（堅決方向）+ BB 窄（非震盪）才是真 edge
-    bar_range = highs - lows
-    bar_body  = np.abs(closes - opens)
-    body_pct  = np.where(bar_range > 1e-9, bar_body / bar_range, 0.0)
-    # 只用「實體佔比 ≥ 45%」：研究顯示 body≥0.45 +5.9% 且保留 41% 樣本；
-    # 再加 BB 窄(≤4%) 雖到 +7.8% 但樣本掉到 15%（稀有訊號直接歸零）→ 不值得
-    strong_setup = body_pct >= 0.45
-    # 沿用既有變數名（rev_short / rev_long 已被多處引用）
-    rev_short = strong_setup
-    rev_long  = strong_setup
+    # 強化版（variant）判定改在 _push_signal 內以「預估 RR ≤ 1.5」計算，
+    # 不再用訊號棒型態 filter（研究：est_rr≤1.5 +11.7% 保留 50%，遠勝 body≥0.45）
 
     # ── 給 S9 用的 BB 觸軌 + MACD 叉判定 ─────────────────────
     # 觸軌用 0.3% 緩衝（與共振一致）
@@ -227,7 +216,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             b["n_loss"] += 1
 
     def _push_signal(sig_time, d_str, sig_key, direction, entry_i, stop_px,
-                     om, otm, omj, ob, otb, obj, variant=False):
+                     om, otm, omj, ob, otb, obj):
         # est_r / est_r_b：固定目標掃描結果（要存到 signal 才能算 deduped total）
         est_r = None; est_r_b = None
         if sig_key != "abc" and entry_i < n:
@@ -266,7 +255,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         _bump_rr(mid_rr,  sig_key, direction, entry_i, omj, stop_px, om, bb_mid)
         band_arr = bb_lo if direction == "short" else bb_up
         _bump_rr(band_rr, sig_key, direction, entry_i, obj, stop_px, ob, band_arr)
-        # 強化版（量能 → body_pct ≥ 0.4）
+        # 強化版：variant 由上方 est_rr 判定
         if variant:
             _bump(mid_cnt_v,  sig_key, direction, om)
             _bump(band_cnt_v, sig_key, direction, ob)
@@ -292,11 +281,9 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             d_str = "s" if direction == "short" else "l"
             sig_time = times_iso[i]
             entry_i = i + 1
-            # 強化版：訊號棒（i）反向收盤（空：收低半 / 多：收高半）
-            variant = rev_short[i] if direction == "short" else rev_long[i]
             om, otm, omj, ob, otb, obj = _scan_dual(entry_i, float(stop_px), direction)
             _push_signal(sig_time, d_str, "abc", direction, entry_i, float(stop_px),
-                         om, otm, omj, ob, otb, obj, variant=bool(variant))
+                         om, otm, omj, ob, otb, obj)
 
     # ── 訊號二 AB（A=共振，B=CRT+KDJ叉）─────────────────────
     if n >= 3:
@@ -317,11 +304,9 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             d_str = "s" if direction == "short" else "l"
             sig_time = times_iso[ib]
             entry_i = i + 2
-            # 強化版：B 棒（訊號棒）反向收盤
-            variant = rev_short[ib] if direction == "short" else rev_long[ib]
             om, otm, omj, ob, otb, obj = _scan_dual(entry_i, float(stop_px), direction)
             _push_signal(sig_time, d_str, "ab", direction, entry_i, float(stop_px),
-                         om, otm, omj, ob, otb, obj, variant=bool(variant))
+                         om, otm, omj, ob, otb, obj)
 
     # ── 訊號六 S6（4 棒 pattern：ABC 無指標 + D 觸軌 CRT）─────
     # A、B、C 三根都不能有任何指標（crt=0, cross=0, res=0）
@@ -354,11 +339,9 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             d_str = "s" if direction == "short" else "l"
             sig_time = times_iso[d_bar]
             entry_i = d_bar + 1
-            # 強化版：D 棒（訊號棒）反向收盤
-            variant = rev_short[d_bar] if direction == "short" else rev_long[d_bar]
             om, otm, omj, ob, otb, obj = _scan_dual(entry_i, float(stop_px), direction)
             _push_signal(sig_time, d_str, "6", direction, entry_i, float(stop_px),
-                         om, otm, omj, ob, otb, obj, variant=bool(variant))
+                         om, otm, omj, ob, otb, obj)
 
     # ── 訊號三/四/五（三棒）共用 slice ─────────────────────────
     if n >= 4:
@@ -461,11 +444,9 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                 c_bar = i + 2  # C 棒（訊號棒）
                 sig_time = times_iso[c_bar]
                 entry_i = i + 3
-                # 強化版：C 棒（訊號棒）反向收盤
-                variant = rev_short[c_bar] if direction == "short" else rev_long[c_bar]
                 om, otm, omj, ob, otb, obj = _scan_dual(entry_i, float(stop_px), direction)
                 _push_signal(sig_time, d_str, k_str, direction, entry_i, float(stop_px),
-                             om, otm, omj, ob, otb, obj, variant=bool(variant))
+                             om, otm, omj, ob, otb, obj)
 
         _process_3bar(s3_short, s3_long, "3")
         _process_3bar(s4_short, s4_long, "4")
@@ -521,10 +502,9 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             d_str = "s" if direction == "short" else "l"
             sig_time = times_iso[d_bar]
             entry_i = d_bar + 1
-            variant = rev_short[d_bar] if direction == "short" else rev_long[d_bar]
             om, otm, omj, ob, otb, obj = _scan_dual(entry_i, float(stop_px), direction)
             _push_signal(sig_time, d_str, "10", direction, entry_i, float(stop_px),
-                         om, otm, omj, ob, otb, obj, variant=bool(variant))
+                         om, otm, omj, ob, otb, obj)
 
         # ── 訊號十一 S11（ABCD：A 純超買/超賣、BC 全無、D 純 KDJ 叉）──
         # 短：A 只 res=-1（crt=0,kdj=0）、B/C 全無、D 只 kdj=-1（crt=0,res=0）
@@ -554,10 +534,9 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             d_str = "s" if direction == "short" else "l"
             sig_time = times_iso[d_bar]
             entry_i = d_bar + 1
-            variant = rev_short[d_bar] if direction == "short" else rev_long[d_bar]
             om, otm, omj, ob, otb, obj = _scan_dual(entry_i, float(stop_px), direction)
             _push_signal(sig_time, d_str, "11", direction, entry_i, float(stop_px),
-                         om, otm, omj, ob, otb, obj, variant=bool(variant))
+                         om, otm, omj, ob, otb, obj)
 
     # ── 統計輸出 ─────────────────────────────────────────────
     def _stats(w, l, rr=None, streak=0):
