@@ -834,7 +834,9 @@ function drawOne(d, W, H, isHovered, isSelected) {
     }
   }
   else if (d.type === "longpos" && d.p1) {
-    const entryY = candleSeries?.priceToCoordinate(d.p1.price);
+    // 加碼後入場線改用均價（avgEntry）動態調整；綠/紅色塊以均價為界
+    const entryRefP = (d._isAutoRR && d.avgEntry != null) ? d.avgEntry : d.p1.price;
+    const entryY = candleSeries?.priceToCoordinate(entryRefP);
     const tpY    = candleSeries?.priceToCoordinate(d.tp);
     const slY    = candleSeries?.priceToCoordinate(d.sl);
     const startX = mainChart.timeScale().timeToCoordinate(d.p1.time);
@@ -948,28 +950,28 @@ function drawOne(d, W, H, isHovered, isSelected) {
         drawCtx.fillText("+", ppx - 2.5, ppy + 3);
       }
       drawCtx.restore();
-      // 均減進場線（若有加碼才畫）
+      // 初始進場位（均價已成為主入場線）用小灰點標示，方便對照漂移
       if (d.avgEntry != null && d.avgEntry !== d.p1.price) {
-        const avgY = candleSeries?.priceToCoordinate(d.avgEntry);
-        if (avgY != null) {
+        const initY = candleSeries?.priceToCoordinate(d.p1.price);
+        if (initY != null && ex >= 0 && ex <= W) {
           drawCtx.save();
-          drawCtx.strokeStyle = "rgba(255,193,7,0.7)";
-          drawCtx.lineWidth = 1;
-          drawCtx.setLineDash([2, 3]);
-          drawCtx.beginPath(); drawCtx.moveTo(ex, avgY); drawCtx.lineTo(rx, avgY); drawCtx.stroke();
-          drawCtx.setLineDash([]);
+          drawCtx.fillStyle = "rgba(180,180,180,0.7)";
+          drawCtx.beginPath(); drawCtx.arc(ex, initY, 3, 0, Math.PI*2); drawCtx.fill();
           drawCtx.restore();
-          rightLabel(avgY, `均 ${_fmtPx(d.avgEntry)}`, "rgba(255,193,7,0.85)", "#1a1a1a");
         }
       }
     }
 
-    // 右側標籤
+    // 右側標籤（入場線標籤：有加碼顯示「均」+均價，無加碼顯示原入場價）
     drawCtx.font = "11px sans-serif";
     const tpLabel = d._isAutoRR ? `預估 ${_fmtPx(d.tp)}` : `TP  ${_fmtPx(d.tp)}`;
-    rightLabel(tpY,    tpLabel,                       "rgba(38,166,154,0.9)", "#fff");
+    const hasPyr  = d._isAutoRR && d.pyramids && d.pyramids.length;
+    const entryLabel = hasPyr
+      ? `均 ${_fmtPx(entryRefP)}（+${d.pyramids.length}）`
+      : `▶  ${_fmtPx(d.p1.price)}`;
+    rightLabel(tpY,    tpLabel,    "rgba(38,166,154,0.9)", "#fff");
     if (tpActY != null) rightLabel(tpActY, `實際 ${_fmtPx(d.tpAct)}`, "rgba(38,166,154,0.55)", "#fff");
-    rightLabel(entryY, `▶  ${_fmtPx(d.p1.price)}`,    "rgba(55,55,55,0.9)",   "#ddd");
+    rightLabel(entryY, entryLabel, hasPyr ? "rgba(255,193,7,0.9)" : "rgba(55,55,55,0.9)", hasPyr ? "#1a1a1a" : "#ddd");
     rightLabel(slY,    `SL  ${_fmtPx(d.sl)}`,         "rgba(239,83,80,0.9)",  "#fff");
 
     // 選中時：TP/SL 拖移把手 + 右邊緣寬度把手
@@ -999,7 +1001,9 @@ function drawOne(d, W, H, isHovered, isSelected) {
   }
   else if (d.type === "shortpos" && d.p1) {
     // shortpos: SL 在 entry 上方（紅），TP 在 entry 下方（綠）
-    const entryY = candleSeries?.priceToCoordinate(d.p1.price);
+    // 加碼後入場線改用均價動態調整
+    const entryRefP = (d._isAutoRR && d.avgEntry != null) ? d.avgEntry : d.p1.price;
+    const entryY = candleSeries?.priceToCoordinate(entryRefP);
     const tpY    = candleSeries?.priceToCoordinate(d.tp);   // tp < entry → tpY > entryY
     const slY    = candleSeries?.priceToCoordinate(d.sl);   // sl > entry → slY < entryY
     const startX = mainChart.timeScale().timeToCoordinate(d.p1.time);
@@ -1110,25 +1114,26 @@ function drawOne(d, W, H, isHovered, isSelected) {
         drawCtx.fillText("+", ppx - 2.5, ppy + 3);
       }
       drawCtx.restore();
+      // 初始進場位用小灰點標示
       if (d.avgEntry != null && d.avgEntry !== d.p1.price) {
-        const avgY = candleSeries?.priceToCoordinate(d.avgEntry);
-        if (avgY != null) {
+        const initY = candleSeries?.priceToCoordinate(d.p1.price);
+        if (initY != null && ex >= 0 && ex <= W) {
           drawCtx.save();
-          drawCtx.strokeStyle = "rgba(255,193,7,0.7)";
-          drawCtx.lineWidth = 1;
-          drawCtx.setLineDash([2, 3]);
-          drawCtx.beginPath(); drawCtx.moveTo(ex, avgY); drawCtx.lineTo(rx, avgY); drawCtx.stroke();
-          drawCtx.setLineDash([]);
+          drawCtx.fillStyle = "rgba(180,180,180,0.7)";
+          drawCtx.beginPath(); drawCtx.arc(ex, initY, 3, 0, Math.PI*2); drawCtx.fill();
           drawCtx.restore();
-          rightLabel(avgY, `均 ${_fmtPx(d.avgEntry)}`, "rgba(255,193,7,0.85)", "#1a1a1a");
         }
       }
     }
 
     drawCtx.font = "11px sans-serif";
     const tpLabel = d._isAutoRR ? `預估 ${_fmtPx(d.tp)}` : `TP  ${_fmtPx(d.tp)}`;
+    const hasPyr  = d._isAutoRR && d.pyramids && d.pyramids.length;
+    const entryLabel = hasPyr
+      ? `均 ${_fmtPx(entryRefP)}（+${d.pyramids.length}）`
+      : `▶  ${_fmtPx(d.p1.price)}`;
     rightLabel(slY,    `SL  ${_fmtPx(d.sl)}`,      "rgba(239,83,80,0.9)",  "#fff");
-    rightLabel(entryY, `▶  ${_fmtPx(d.p1.price)}`, "rgba(55,55,55,0.9)",   "#ddd");
+    rightLabel(entryY, entryLabel, hasPyr ? "rgba(255,193,7,0.9)" : "rgba(55,55,55,0.9)", hasPyr ? "#1a1a1a" : "#ddd");
     rightLabel(tpY,    tpLabel,                    "rgba(38,166,154,0.9)", "#fff");
     if (tpActY != null) rightLabel(tpActY, `實際 ${_fmtPx(d.tpAct)}`, "rgba(38,166,154,0.55)", "#fff");
 

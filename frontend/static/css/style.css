@@ -3580,14 +3580,14 @@ html.perf-mode .sig-stat-streak { color: #E85A1A; }
    勝率欄上方 TOP 3 列
 ═══════════════════════════════════════ */
 .tb-wr-top3 {
-  flex: 0 0 100% !important;
-  order: 998;                      /* 在 row 1 之下、勝率欄(999)之上 */
+  flex: 1 1 auto !important;      /* 撐滿 row 1 左 logo 與右 TF 之間的中間空白 */
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 6px;
-  height: 26px;
+  height: 28px;
   padding: 0 10px;
-  margin: 3px 0 0;
+  margin: 0 8px;
   background: linear-gradient(135deg, rgba(50,30,15,.45), rgba(80,50,20,.38) 50%, rgba(50,30,15,.45));
   border: 1px solid rgba(255,180,120,.22);
   border-radius: 6px;
