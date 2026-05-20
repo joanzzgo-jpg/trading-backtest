@@ -29,6 +29,10 @@ function loadDrawings() {
 
 /* ── 自選標的 ── */
 
+// canvas 的 CSS 邏輯寬/高（backing store 是 device px，要除以 dpr）
+function _cssW() { return drawCanvas ? drawCanvas.width  / (window.devicePixelRatio || 1) : 800; }
+function _cssH() { return drawCanvas ? drawCanvas.height / (window.devicePixelRatio || 1) : 600; }
+
 function findNearest(x, y, maxDist = 12) {
   let best = maxDist, found = null;
   drawings.forEach(d => {
@@ -61,7 +65,7 @@ function _drawingHitPart(d, x, y) {
   // 左邊緣寬度把手優先偵測
   const ex = mainChart.timeScale().timeToCoordinate(d.p1.time);
   if (ex != null && ty != null && sy != null) {
-    const W2 = drawCanvas?.width || 800;
+    const W2 = _cssW();
     const visR = mainChart.timeScale().getVisibleLogicalRange();
     const barsV = visR ? Math.max(10, visR.to - visR.from) : 50;
     const ZW = Math.max(20, Math.min(W2 * 0.4, Math.round(W2 * (d.barWidth ?? 3) / barsV)));
@@ -90,8 +94,14 @@ function initDrawTools() {
   drawCtx = drawCanvas.getContext("2d");
 
   const resize = () => {
-    drawCanvas.width  = chartEl.clientWidth;
-    drawCanvas.height = chartEl.clientHeight;
+    // 高 DPI（Retina）清晰化：backing store 用 devicePixelRatio 倍數，CSS 維持邏輯尺寸
+    const dpr = window.devicePixelRatio || 1;
+    const w = chartEl.clientWidth, h = chartEl.clientHeight;
+    drawCanvas.width  = Math.round(w * dpr);
+    drawCanvas.height = Math.round(h * dpr);
+    drawCanvas.style.width  = w + "px";
+    drawCanvas.style.height = h + "px";
+    drawCtx.setTransform(dpr, 0, 0, dpr, 0, 0);  // 之後所有繪圖座標都用 CSS px
     requestAnimationFrame(renderDrawings);
   };
   resize();
@@ -350,7 +360,7 @@ function _onChartClick(e) {
       const _ex2 = mainChart.timeScale().timeToCoordinate(pt.time);
       const _vr  = mainChart.timeScale().getVisibleLogicalRange();
       const _bv  = _vr ? Math.max(10, _vr.to - _vr.from) : 50;
-      const _ppb = (drawCanvas?.width || 800) / _bv;
+      const _ppb = _cssW() / _bv;
       const _bw  = Math.max(3, Math.round(Math.abs((_ex2 ?? 0) - (_ex1 ?? 0)) / _ppb));
       drawings.push({ id:_did(), type:"longpos", p1:drawingWIP.p1, tp, sl, color:_drawColor, barWidth:_bw });
       drawingWIP = null;
@@ -378,7 +388,7 @@ function _onChartClick(e) {
       const _ex2s = mainChart.timeScale().timeToCoordinate(pt.time);
       const _vrs  = mainChart.timeScale().getVisibleLogicalRange();
       const _bvs  = _vrs ? Math.max(10, _vrs.to - _vrs.from) : 50;
-      const _ppbs = (drawCanvas?.width || 800) / _bvs;
+      const _ppbs = _cssW() / _bvs;
       const _bws  = Math.max(3, Math.round(Math.abs((_ex2s ?? 0) - (_ex1s ?? 0)) / _ppbs));
       drawings.push({ id:_did(), type:"shortpos", p1:drawingWIP.p1, tp, sl, color:_drawColor, barWidth:_bws });
       drawingWIP = null;
@@ -456,7 +466,7 @@ function _updateDrag(x, y) {
       // 拖移左邊緣調整色塊寬度（往左拉→變寬，往右推→變窄）
       const visR = mainChart.timeScale().getVisibleLogicalRange();
       const barsV = visR ? Math.max(10, visR.to - visR.from) : 50;
-      const W2 = drawCanvas?.width || 800;
+      const W2 = _cssW();
       d.barWidth = Math.max(3, (orig.barWidth ?? 3) + Math.round(dx / (W2 / barsV)));
     } else {
       // entry：整體平移（TP/SL 跟隨）
@@ -604,7 +614,7 @@ function eraseNear(x, y) {
 function drawingDist(d, x, y) {
   if (d.type === "hline") {
     // price scale 區域（右側，coordinateToTime 回傳 null）不攔截，讓 LWC 處理上下拖移
-    if (mainChart.timeScale().coordinateToTime(x) == null && x > (drawCanvas?.width ?? 0) * 0.6) return Infinity;
+    if (mainChart.timeScale().coordinateToTime(x) == null && x > _cssW() * 0.6) return Infinity;
     const py = candleSeries?.priceToCoordinate(d.price);
     return py != null ? Math.abs(py - y) : Infinity;
   }
@@ -617,7 +627,7 @@ function drawingDist(d, x, y) {
     return p ? Math.hypot(p.x - x, p.y - y) : Infinity;
   }
   if ((d.type === "longpos" || d.type === "shortpos") && d.p1) {
-    const W2 = drawCanvas?.width || 800;
+    const W2 = _cssW();
     const startX = mainChart.timeScale().timeToCoordinate(d.p1.time);
     if (startX == null) return Infinity;
     const visR  = mainChart.timeScale().getVisibleLogicalRange();
@@ -664,7 +674,9 @@ function drawingDist(d, x, y) {
 
 function renderDrawings() {
   if (!drawCtx || !drawCanvas) return;
-  const W = drawCanvas.width, H = drawCanvas.height;
+  // W/H 用 CSS 邏輯尺寸（backing store 是 device px，已由 setTransform(dpr) 縮放）
+  const dpr = window.devicePixelRatio || 1;
+  const W = drawCanvas.width / dpr, H = drawCanvas.height / dpr;
   drawCtx.clearRect(0, 0, W, H);
 
   // Draw non-selected first, then hovered, then selected on top
