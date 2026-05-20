@@ -125,6 +125,25 @@
       target: "BB 中軌 / BB 上下軌",
       notes: ["S4 純淨版的放寬版本，A 棒多了 CRT 要求，C 棒不再強制無 CRT"],
     },
+    s11: {
+      name: "訊號十一 S11",
+      subtitle: "ABCD 四棒純淨：A純超買/賣、BC全無、D純KDJ叉",
+      icon: "✸",
+      color: "#aed581",
+      gist: "S4 的四棒版：A 只有共振、中間兩根（B/C）完全沒指標、D 只有 KDJ 叉。比 S4 多一根「安靜」棒，要求更純淨的醞釀。",
+      patterns: [
+        { dir: "A 棒（i） 做空", cond: "<b>只有</b> 共振 = -1（超買；CRT=0、KDJ=0）" },
+        { dir: "A 棒（i） 做多", cond: "<b>只有</b> 共振 = +1（超賣；CRT=0、KDJ=0）" },
+        { dir: "B / C 棒", cond: "<b>三個指標全無</b>（CRT=0、KDJ=0、共振=0）" },
+        { dir: "D 棒（i+3） 做空", cond: "<b>只有</b> KDJ 死叉（CRT=0、共振=0）" },
+        { dir: "D 棒（i+3） 做多", cond: "<b>只有</b> KDJ 金叉（CRT=0、共振=0）" },
+      ],
+      excludes: ["D 棒影線已碰中軌"],
+      entry: "D 棒下一根開盤（i+4）",
+      stop:  "四棒最高高點（空）／最低低點（多） × (1 ± SL buffer)",
+      target: "BB 中軌 / BB 上下軌",
+      notes: ["S4（A共振→B無→C叉）的四棒延伸版，中間多一根安靜棒"],
+    },
     s10: {
       name: "訊號十 S10",
       subtitle: "ABCD 四棒視窗：CRT + MACD 叉 + BB 觸軌",
@@ -195,7 +214,7 @@
   };
 
   // signals 列表中 s.k 用「3/4/5/6/7」（無 s 前綴），需要對應
-  const _S_KEY_MAP = { abc: "abc", ab: "ab", s3: "3", s4: "4", s5: "5", s6: "6", s7: "7", s8: "8", s9: "9", s10: "10" };
+  const _S_KEY_MAP = { abc: "abc", ab: "ab", s3: "3", s4: "4", s5: "5", s6: "6", s7: "7", s8: "8", s9: "9", s10: "10", s11: "11" };
 
   const $ = id => document.getElementById(id);
 
@@ -334,7 +353,7 @@
         <span class="sig-dwr-icon" style="color:${info.color}">${info.icon}</span>
         <div class="sig-dwr-titles">
           <div class="sig-dwr-name">${nameWithVariant}</div>
-          <div class="sig-dwr-sub">${info.subtitle}${variantLabel === "強化版" ? " + 強化濾鏡（實體≥45%＋BB窄）" : ""}</div>
+          <div class="sig-dwr-sub">${info.subtitle}${variantLabel === "強化版" ? " + 強化濾鏡（訊號棒實體≥45%）" : ""}</div>
         </div>
         <button class="sig-dwr-close" id="sigDrawerClose">✕</button>
       </div>

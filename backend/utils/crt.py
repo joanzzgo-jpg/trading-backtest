@@ -128,10 +128,9 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
     bar_range = highs - lows
     bar_body  = np.abs(closes - opens)
     body_pct  = np.where(bar_range > 1e-9, bar_body / bar_range, 0.0)
-    bb_width_pct = np.where(closes > 0, (bb_up - bb_lo) / closes, np.nan)
-    solid_bar = body_pct >= 0.45
-    narrow_bb = (~np.isnan(bb_width_pct)) & (bb_width_pct <= 0.04)
-    strong_setup = solid_bar & narrow_bb
+    # 只用「實體佔比 ≥ 45%」：研究顯示 body≥0.45 +5.9% 且保留 41% 樣本；
+    # 再加 BB 窄(≤4%) 雖到 +7.8% 但樣本掉到 15%（稀有訊號直接歸零）→ 不值得
+    strong_setup = body_pct >= 0.45
     # 沿用既有變數名（rev_short / rev_long 已被多處引用）
     rev_short = strong_setup
     rev_long  = strong_setup
@@ -148,7 +147,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
 
     # ── 計數器：mid_cnt[k] = [ws, ls, wl, ll]；band_cnt 同結構 ──
     # 同時為「強化版」（_v）建一份，只計入 macd_hist 方向一致的訊號
-    SIG_KEYS = ["abc", "ab", "3", "4", "5", "6", "7", "8", "9", "10"]
+    SIG_KEYS = ["abc", "ab", "3", "4", "5", "6", "7", "8", "9", "10", "11"]
     mid_cnt   = {k: [0, 0, 0, 0] for k in SIG_KEYS}
     band_cnt  = {k: [0, 0, 0, 0] for k in SIG_KEYS}
     mid_cnt_v = {k: [0, 0, 0, 0] for k in SIG_KEYS}
@@ -510,10 +509,42 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             d_str = "s" if direction == "short" else "l"
             sig_time = times_iso[d_bar]
             entry_i = d_bar + 1
-            # 強化版：D 棒（訊號棒）量能爆發
             variant = rev_short[d_bar] if direction == "short" else rev_long[d_bar]
             om, otm, omj, ob, otb, obj = _scan_dual(entry_i, float(stop_px), direction)
             _push_signal(sig_time, d_str, "10", direction, entry_i, float(stop_px),
+                         om, otm, omj, ob, otb, obj, variant=bool(variant))
+
+        # ── 訊號十一 S11（ABCD：A 純超買/超賣、BC 全無、D 純 KDJ 叉）──
+        # 短：A 只 res=-1（crt=0,kdj=0）、B/C 全無、D 只 kdj=-1（crt=0,res=0）
+        # 多：對稱（A res=+1、D kdj=+1）；排除 D 棒影線已碰中軌
+        a4_res = res[:n-4];   b4_res = res[1:n-3];   c4_res = res[2:n-2];   d4_res = res[3:n-1]
+        a4_cr  = cross[:n-4]; b4_cr  = cross[1:n-3]; c4_cr  = cross[2:n-2]; d4_cr  = cross[3:n-1]
+        bc_empty = (b4_crt == 0) & (b4_cr == 0) & (b4_res == 0) \
+                 & (c4_crt == 0) & (c4_cr == 0) & (c4_res == 0)
+        s11_short = (a4_res == -1) & (a4_crt == 0) & (a4_cr == 0) \
+                  & bc_empty \
+                  & (d4_cr == -1) & (d4_crt == 0) & (d4_res == 0) \
+                  & ~np.isnan(d4_bbm) & (d4_lo > d4_bbm)
+        s11_long  = (a4_res ==  1) & (a4_crt == 0) & (a4_cr == 0) \
+                  & bc_empty \
+                  & (d4_cr ==  1) & (d4_crt == 0) & (d4_res == 0) \
+                  & ~np.isnan(d4_bbm) & (d4_hi < d4_bbm)
+        if long_only:
+            s11_short[:] = False
+        for i in np.flatnonzero(s11_short | s11_long):
+            i = int(i)
+            direction = "short" if s11_short[i] else "long"
+            d_bar = i + 3
+            if direction == "short":
+                stop_px = _stop(max(a4_hi[i], b4_hi[i], c4_hi[i], d4_hi[i]), direction)
+            else:
+                stop_px = _stop(min(a4_lo[i], b4_lo[i], c4_lo[i], d4_lo[i]), direction)
+            d_str = "s" if direction == "short" else "l"
+            sig_time = times_iso[d_bar]
+            entry_i = d_bar + 1
+            variant = rev_short[d_bar] if direction == "short" else rev_long[d_bar]
+            om, otm, omj, ob, otb, obj = _scan_dual(entry_i, float(stop_px), direction)
+            _push_signal(sig_time, d_str, "11", direction, entry_i, float(stop_px),
                          om, otm, omj, ob, otb, obj, variant=bool(variant))
 
     # ── 統計輸出 ─────────────────────────────────────────────
@@ -572,10 +603,11 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                 for k, v in cnt_v.items()
             }
         # 訊號一不計入合計
-        wins_s   = sum(cnt[k][0] for k in ("ab", "3", "4", "5", "6", "7", "8", "9", "10"))
-        losses_s = sum(cnt[k][1] for k in ("ab", "3", "4", "5", "6", "7", "8", "9", "10"))
-        wins_l   = sum(cnt[k][2] for k in ("ab", "3", "4", "5", "6", "7", "8", "9", "10"))
-        losses_l = sum(cnt[k][3] for k in ("ab", "3", "4", "5", "6", "7", "8", "9", "10"))
+        _AGG = ("ab", "3", "4", "5", "6", "7", "8", "9", "10", "11")
+        wins_s   = sum(cnt[k][0] for k in _AGG)
+        losses_s = sum(cnt[k][1] for k in _AGG)
+        wins_l   = sum(cnt[k][2] for k in _AGG)
+        losses_l = sum(cnt[k][3] for k in _AGG)
         tot = wins_s + losses_s + wins_l + losses_l
         wins = wins_s + wins_l
         out = {
@@ -594,15 +626,16 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             "s8":       per_sig["8"],
             "s9":       per_sig["9"],
             "s10":      per_sig["10"],
+            "s11":      per_sig["11"],
         }
         if est is not None:
             out.update(_est_stats_dict(est))
         if per_sig_v is not None:
-            # 強化版合計（S2~S10 _v）
-            wins_s_v   = sum(cnt_v[k][0] for k in ("ab", "3", "4", "5", "6", "7", "8", "9", "10"))
-            losses_s_v = sum(cnt_v[k][1] for k in ("ab", "3", "4", "5", "6", "7", "8", "9", "10"))
-            wins_l_v   = sum(cnt_v[k][2] for k in ("ab", "3", "4", "5", "6", "7", "8", "9", "10"))
-            losses_l_v = sum(cnt_v[k][3] for k in ("ab", "3", "4", "5", "6", "7", "8", "9", "10"))
+            # 強化版合計（S2~S11 _v）
+            wins_s_v   = sum(cnt_v[k][0] for k in _AGG)
+            losses_s_v = sum(cnt_v[k][1] for k in _AGG)
+            wins_l_v   = sum(cnt_v[k][2] for k in _AGG)
+            losses_l_v = sum(cnt_v[k][3] for k in _AGG)
             tot_v = wins_s_v + losses_s_v + wins_l_v + losses_l_v
             wins_v = wins_s_v + wins_l_v
             out["variant"] = {
@@ -621,6 +654,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                 "s8":       per_sig_v["8"],
                 "s9":       per_sig_v["9"],
                 "s10":      per_sig_v["10"],
+                "s11":      per_sig_v["11"],
             }
             if est_v is not None:
                 out["variant"].update(_est_stats_dict(est_v))

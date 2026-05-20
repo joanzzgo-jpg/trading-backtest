@@ -315,7 +315,8 @@ function _renderWRSignals(signals) {
                  : k === "7"   ? (isShort ? "#4dd0e1" : "#80deea")
                  : k === "8"   ? (isShort ? "#f06292" : "#f48fb1")
                  : k === "9"   ? (isShort ? "#fff176" : "#fff59d")
-                 :                (isShort ? "#90caf9" : "#bbdefb");  // k=10
+                 : k === "10"  ? (isShort ? "#90caf9" : "#bbdefb")
+                 :                (isShort ? "#aed581" : "#c5e1a5");  // k=11
     const eShape = k === "abc" ? "circle"
                  : k === "ab"  ? "square"
                  :                (isShort ? "arrowDown" : "arrowUp");
@@ -328,7 +329,8 @@ function _renderWRSignals(signals) {
                  : k === "7"   ? (isShort ? "空⁷" : "多⁷")
                  : k === "8"   ? (isShort ? "空⁸" : "多⁸")
                  : k === "9"   ? (isShort ? "空⁹" : "多⁹")
-                 :                (isShort ? "空¹⁰" : "多¹⁰");
+                 : k === "10"  ? (isShort ? "空¹⁰" : "多¹⁰")
+                 :                (isShort ? "空¹¹" : "多¹¹");
     allMarkers.push({
       time: et, position: isShort ? "aboveBar" : "belowBar",
       color: eColor, shape: eShape, size: 1.2, text: eText,
@@ -411,6 +413,8 @@ function _renderWinRate(d) {
   setRow("wrS9L",  d.s9?.long);
   setRow("wrS10S", d.s10?.short);
   setRow("wrS10L", d.s10?.long);
+  setRow("wrS11S", d.s11?.short);
+  setRow("wrS11L", d.s11?.long);
 
   const sa = document.getElementById("wrAll");
   if (sa) {
@@ -457,19 +461,19 @@ function _renderWinRate(d) {
 /* ══════════════════════════════════════════
    勝率欄上方 TOP 3 列：當前標的最高勝率前 3 個 (sig × dir) + 合計（dedupe）
 ══════════════════════════════════════════ */
-const _SIG_KEYS = ["abc", "ab", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10"];
+const _SIG_KEYS = ["abc", "ab", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11"];
 const _SIG_LABEL = {
   abc:"S1", ab:"S2", s3:"S3", s4:"S4", s5:"S5",
-  s6:"S6", s7:"S7", s8:"S8", s9:"S9", s10:"S10",
+  s6:"S6", s7:"S7", s8:"S8", s9:"S9", s10:"S10", s11:"S11",
 };
 const _SIG_ICON = {
   abc:"●", ab:"■", s3:"▲", s4:"◆", s5:"★",
-  s6:"◇", s7:"⬢", s8:"⬡", s9:"✦", s10:"✪",
+  s6:"◇", s7:"⬢", s8:"⬡", s9:"✦", s10:"✪", s11:"✸",
 };
 // signal.k 對應到 stat key（去掉 s 前綴的 3-10）
 const _STATKEY_TO_SIGK = {
   abc:"abc", ab:"ab", s3:"3", s4:"4", s5:"5",
-  s6:"6", s7:"7", s8:"8", s9:"9", s10:"10",
+  s6:"6", s7:"7", s8:"8", s9:"9", s10:"10", s11:"11",
 };
 
 function _renderWrTop3() {

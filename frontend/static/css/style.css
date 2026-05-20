@@ -3653,3 +3653,6 @@ html.perf-mode .wr-top3-item { background: rgba(255,180,80,.12); }
   .wr-top3-wr   { font-size: 11px; }
   .wr-top3-sum  { font-size: 11px; }
 }
+
+.wr-s11 { color: #aed581; }
+html.perf-mode .wr-s11 { color: #558B2F; }
