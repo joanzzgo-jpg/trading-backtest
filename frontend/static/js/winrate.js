@@ -450,6 +450,90 @@ function _renderWinRate(d) {
   // wrStatus 顯示「後端回測總筆數」（跟 wrAll tooltip 的「共 Z 筆」一致）
   const ss = document.getElementById("wrStatus");
   if (ss) ss.textContent = (d && d.total != null) ? `${d.total}筆` : "";
+
+  _renderWrTop3();
+}
+
+/* ══════════════════════════════════════════
+   勝率欄上方 TOP 3 列：當前標的最高勝率前 3 個 (sig × dir) + 合計（dedupe）
+══════════════════════════════════════════ */
+const _SIG_KEYS = ["abc", "ab", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10"];
+const _SIG_LABEL = {
+  abc:"S1", ab:"S2", s3:"S3", s4:"S4", s5:"S5",
+  s6:"S6", s7:"S7", s8:"S8", s9:"S9", s10:"S10",
+};
+const _SIG_ICON = {
+  abc:"●", ab:"■", s3:"▲", s4:"◆", s5:"★",
+  s6:"◇", s7:"⬢", s8:"⬡", s9:"✦", s10:"✪",
+};
+// signal.k 對應到 stat key（去掉 s 前綴的 3-10）
+const _STATKEY_TO_SIGK = {
+  abc:"abc", ab:"ab", s3:"3", s4:"4", s5:"5",
+  s6:"6", s7:"7", s8:"8", s9:"9", s10:"10",
+};
+
+function _renderWrTop3() {
+  const root = document.getElementById("wrTop3");
+  if (!root) return;
+  const d = _wrCacheLast;
+  if (!d) { root.innerHTML = ""; return; }
+
+  // 取當前 view（mid / band / variant）
+  let view = (_wrTargetView === "band" && d.band) ? d.band : d;
+  if (_wrVariantView === "variant" && view && view.variant) view = view.variant;
+
+  // 蒐集所有 (sig, dir) 且樣本 >= 10
+  const items = [];
+  for (const k of _SIG_KEYS) {
+    const ss = view?.[k];
+    if (!ss) continue;
+    for (const dir of ["short", "long"]) {
+      const stat = ss[dir];
+      if (!stat || stat.win_rate == null || (stat.total || 0) < 10) continue;
+      items.push({ k, dir, wr: stat.win_rate, total: stat.total, wins: stat.wins });
+    }
+  }
+  items.sort((a, b) => b.wr - a.wr);
+  const top3 = items.slice(0, 3);
+  if (top3.length === 0) { root.innerHTML = ""; return; }
+
+  // 合計勝率（dedupe by (t, d) 只算 top3 的 (sig, dir)）
+  const topSet = new Set(top3.map(t => `${_STATKEY_TO_SIGK[t.k]}|${t.dir === "short" ? "s" : "l"}`));
+  const sigs = _lastWRSignals || [];
+  const useBand    = _wrTargetView === "band";
+  const useVariant = _wrVariantView === "variant";
+  const seen = new Set();
+  let w = 0, l = 0;
+  for (const s of sigs) {
+    if (useVariant && !s.v) continue;
+    if (!topSet.has(`${s.k}|${s.d}`)) continue;
+    const key = s.t + "|" + s.d;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const r = useBand ? s.r_b : s.r;
+    if (r === "w") w++;
+    else if (r === "l") l++;
+  }
+  const cTot = w + l;
+  const cWr  = cTot > 0 ? (w / cTot * 100).toFixed(1) : null;
+
+  const itemsHtml = top3.map(t => {
+    const dirSym = t.dir === "short" ? "空" : "多";
+    const dirCls = t.dir === "short" ? "s" : "l";
+    return `<span class="wr-top3-item">
+      <span class="wr-top3-icon wr-${t.k}">${_SIG_ICON[t.k]}</span>
+      <span class="wr-top3-name">${_SIG_LABEL[t.k]}</span>
+      <span class="wr-top3-dir ${dirCls}">${dirSym}</span>
+      <span class="wr-top3-wr">${t.wr.toFixed(1)}%</span>
+      <span class="wr-top3-n">(${t.total})</span>
+    </span>`;
+  }).join('<span class="wr-top3-sep">·</span>');
+
+  const sumHtml = (cWr != null)
+    ? `<span class="wr-top3-sum" title="只計入這 3 個 (訊號×方向) 且同 signal-bar+同方向去重">合計 ${cWr}% <span class="wr-top3-sum-n">(${cTot}筆)</span></span>`
+    : "";
+
+  root.innerHTML = `<span class="wr-top3-label">TOP 3</span><span class="wr-top3-items">${itemsHtml}</span>${sumHtml}`;
 }
 
 /* ══════════════════════════════════════════
