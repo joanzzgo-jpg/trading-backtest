@@ -210,7 +210,9 @@ function _computeAutoRRBox(sig) {
   //   (a) 同方向 CRT/共振/KDJ叉
   //   (b) BB 反轉型態：多→前根碰下軌+綠K(跌)、當根紅K(漲)且收中軌上；空→對稱
   const entryIdx = sigIdx + 1;
-  const lastIdx = (exitIdx > entryIdx) ? exitIdx : ohlcvData.length - 1;
+  // 未結算訊號不可掃到資料尾端（會讓加碼點散落整張圖）→ 設 50 根上限
+  const PYR_CAP = 50;
+  const lastIdx = (exitIdx > entryIdx) ? exitIdx : Math.min(ohlcvData.length - 1, entryIdx + PYR_CAP);
   const pyramids = [];   // {time, price, idx}
   const indCond = isShort
     ? (b) => b.crt === -1 || b.kdj_cross === -1 || b.resonance === -1
@@ -248,9 +250,13 @@ function _computeAutoRRBox(sig) {
   const weightedSum = entryBar.open + pyramids.reduce((a, p) => a + p.price * sz, 0);
   const avgEntry = weightedSum / totalUnits;
 
-  // 盒寬：到結算棒，沒結算就 8 根
+  // 盒寬：到結算棒，沒結算就 8 根；並確保涵蓋所有加碼點
   let barWidth = 8;
   if (exitIdx > sigIdx) barWidth = Math.max(3, exitIdx - sigIdx);
+  if (pyramids.length) {
+    const lastPyrIdx = pyramids[pyramids.length - 1].idx;
+    barWidth = Math.max(barWidth, lastPyrIdx - sigIdx);
+  }
 
   const box = {
     id: "_autoRR_" + sig.t,
