@@ -364,31 +364,37 @@
         </section>
 
         <section class="sig-section">
-          <h3 class="sig-h3">訊號定義</h3>
-          <div class="sig-patterns">${patternsHTML}</div>
+          <h3 class="sig-h3 sig-h3-toggle">訊號定義 <span class="sig-collapse-arr">▾</span></h3>
+          <div class="sig-sec-body"><div class="sig-patterns">${patternsHTML}</div></div>
         </section>
 
         ${excludesHTML}
 
         <section class="sig-section">
-          <h3 class="sig-h3">進場 / 止損 / 目標</h3>
-          <div class="sig-rule"><span class="sig-rule-lbl">進場</span><span>${info.entry}</span></div>
-          <div class="sig-rule"><span class="sig-rule-lbl">止損</span><span>${info.stop}</span></div>
-          <div class="sig-rule"><span class="sig-rule-lbl">目標</span><span>${info.target}</span></div>
+          <h3 class="sig-h3 sig-h3-toggle">進場 / 止損 / 目標 <span class="sig-collapse-arr">▾</span></h3>
+          <div class="sig-sec-body">
+            <div class="sig-rule"><span class="sig-rule-lbl">進場</span><span>${info.entry}</span></div>
+            <div class="sig-rule"><span class="sig-rule-lbl">止損</span><span>${info.stop}</span></div>
+            <div class="sig-rule"><span class="sig-rule-lbl">目標</span><span>${info.target}</span></div>
+          </div>
         </section>
 
         <section class="sig-section">
-          <h3 class="sig-h3">當前統計（${viewLabel}目標，${variantLabel}）</h3>
-          ${_statRow("空單", stats?.short)}
-          ${_rrBlock(stats?.short)}
-          ${_statRow("多單", stats?.long)}
-          ${_rrBlock(stats?.long)}
-          <div class="sig-visible-line">${visibleLine}</div>
+          <h3 class="sig-h3 sig-h3-toggle">當前統計（${viewLabel}目標，${variantLabel}） <span class="sig-collapse-arr">▾</span></h3>
+          <div class="sig-sec-body">
+            ${_statRow("空單", stats?.short)}
+            ${_rrBlock(stats?.short)}
+            ${_statRow("多單", stats?.long)}
+            ${_rrBlock(stats?.long)}
+            <div class="sig-visible-line">${visibleLine}</div>
+          </div>
         </section>
 
+        ${_pyrSettingsHTML()}
+
         <section class="sig-section">
-          <h3 class="sig-h3">訊號列表（最近 ${Math.min(sigs.length, 30)} 筆，點擊跳到該位置）</h3>
-          <div class="sig-list-box">${recentHTML}</div>
+          <h3 class="sig-h3 sig-h3-toggle">訊號列表（最近 ${Math.min(sigs.length, 30)} 筆，點擊跳到該位置） <span class="sig-collapse-arr">▾</span></h3>
+          <div class="sig-sec-body"><div class="sig-list-box">${recentHTML}</div></div>
         </section>
 
         ${notesHTML}
@@ -404,7 +410,52 @@
         _jumpChartTo(t);
       });
     });
+    // section header 點擊收合
+    root.querySelectorAll(".sig-h3-toggle").forEach(h => {
+      h.addEventListener("click", () => h.parentElement.classList.toggle("collapsed"));
+    });
+    _bindPyrSettings(root);
     $("sigDrawerClose")?.addEventListener("click", _hide);
+  }
+
+  // 加碼設定 section（全域設定，影響所有 auto-RR 盒）
+  function _pyrSettingsHTML() {
+    const p = (typeof window._getPyrSettings === "function")
+      ? window._getPyrSettings() : { size: 1, indicator: true, bbrev: false };
+    return `
+      <section class="sig-section">
+        <h3 class="sig-h3 sig-h3-toggle">⚙ 加碼設定 <span class="sig-collapse-arr">▾</span></h3>
+        <div class="sig-sec-body">
+          <div class="sig-pyr-row">
+            <label class="sig-pyr-lbl">加碼量（× 初始倉）</label>
+            <input id="pyrSize" class="sig-pyr-num" type="number" step="0.1" min="0.1" max="5" value="${p.size}"/>
+          </div>
+          <label class="sig-pyr-check">
+            <input id="pyrIndicator" type="checkbox" ${p.indicator ? "checked" : ""}/>
+            <span>同方向 CRT / 共振 / KDJ叉 觸發加碼</span>
+          </label>
+          <label class="sig-pyr-check">
+            <input id="pyrBBrev" type="checkbox" ${p.bbrev ? "checked" : ""}/>
+            <span>BB 反轉型態觸發（多：碰下軌＋綠K接紅K收中軌上；空：對稱）</span>
+          </label>
+          <div class="sig-pyr-hint">設定即時套用到主圖已展開的盈虧比盒（均減進場線會重算）</div>
+        </div>
+      </section>
+    `;
+  }
+
+  function _bindPyrSettings(root) {
+    const setFn = window._setPyrSetting;
+    if (typeof setFn !== "function") return;
+    const sz = root.querySelector("#pyrSize");
+    if (sz) sz.addEventListener("change", () => {
+      const v = Math.max(0.1, Math.min(5, parseFloat(sz.value) || 1));
+      sz.value = v; setFn("size", v);
+    });
+    const ind = root.querySelector("#pyrIndicator");
+    if (ind) ind.addEventListener("change", () => setFn("indicator", ind.checked));
+    const bb = root.querySelector("#pyrBBrev");
+    if (bb) bb.addEventListener("change", () => setFn("bbrev", bb.checked));
   }
 
   function _jumpChartTo(isoTime) {

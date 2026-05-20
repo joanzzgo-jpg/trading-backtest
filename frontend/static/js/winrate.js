@@ -22,6 +22,16 @@ const _WR_BUFFER_KEY = "wrStopBuffer";
 let _wrStopBuffer = 0;
 try { _wrStopBuffer = parseFloat(localStorage.getItem(_WR_BUFFER_KEY)) || 0; } catch (e) {}
 
+// 加碼設定（auto-RR 盒用）：加碼量倍數 + 觸發來源開關
+let _pyrSize = 1.0;           // 每次加碼 = 初始量 × 此倍數
+let _pyrUseIndicator = true;  // 同方向 CRT/共振/KDJ叉 觸發加碼
+let _pyrUseBBrev = false;     // BB 反轉型態觸發加碼（碰下軌綠K接紅K收中軌上 / 反之）
+try {
+  const v = localStorage.getItem("wrPyrSize"); if (v != null) _pyrSize = parseFloat(v) || 1.0;
+  _pyrUseIndicator = localStorage.getItem("wrPyrIndicator") !== "0";
+  _pyrUseBBrev = localStorage.getItem("wrPyrBBrev") === "1";
+} catch (e) {}
+
 function _initWrTargetBtn() {
   const btn = document.getElementById("wrTargetToggle");
   if (!btn) return;
@@ -47,6 +57,25 @@ function _toggleWrVariant() {
   // 自動盈虧比盒目標位也會改變（變強的 marker 數量變了）
   if (typeof renderDrawings === "function") requestAnimationFrame(renderDrawings);
 }
+
+// 給左側抽屜的加碼設定呼叫：更新 module 變數 + localStorage + 重畫盒子
+window._setPyrSetting = function (key, val) {
+  if (key === "size") {
+    _pyrSize = (val > 0 ? val : 1.0);
+    try { localStorage.setItem("wrPyrSize", String(_pyrSize)); } catch (e) {}
+  } else if (key === "indicator") {
+    _pyrUseIndicator = !!val;
+    try { localStorage.setItem("wrPyrIndicator", val ? "1" : "0"); } catch (e) {}
+  } else if (key === "bbrev") {
+    _pyrUseBBrev = !!val;
+    try { localStorage.setItem("wrPyrBBrev", val ? "1" : "0"); } catch (e) {}
+  }
+  if (typeof _autoRRBoxCache !== "undefined") _autoRRBoxCache.clear();  // 重算盒子
+  if (typeof renderDrawings === "function") requestAnimationFrame(renderDrawings);
+};
+window._getPyrSettings = function () {
+  return { size: _pyrSize, indicator: _pyrUseIndicator, bbrev: _pyrUseBBrev };
+};
 
 function _initWrStopBuffer() {
   const inp = document.getElementById("wrStopBuffer");
@@ -176,26 +205,48 @@ function _computeAutoRRBox(sig) {
     else         tpAct = useBand ? exitBar.bb_upper : exitBar.bb_middle;
   }
 
-  // 加碼系統：進場後到 TP/SL 之前，每次出現同方向 CRT/共振/KDJ叉，下根加碼
-  // 加碼價 = 該下一根的開盤價
+  // 加碼系統：進場後到 TP/SL 之前，每次出現加碼訊號，下根用開盤價加碼
+  // 觸發來源（可在抽屜設定）：
+  //   (a) 同方向 CRT/共振/KDJ叉
+  //   (b) BB 反轉型態：多→前根碰下軌+綠K(跌)、當根紅K(漲)且收中軌上；空→對稱
   const entryIdx = sigIdx + 1;
   const lastIdx = (exitIdx > entryIdx) ? exitIdx : ohlcvData.length - 1;
   const pyramids = [];   // {time, price, idx}
-  const cond = isShort
+  const indCond = isShort
     ? (b) => b.crt === -1 || b.kdj_cross === -1 || b.resonance === -1
     : (b) => b.crt === 1  || b.kdj_cross === 1  || b.resonance === 1;
+  const bbRevCond = (j) => {
+    if (j < 1) return false;
+    const prev = ohlcvData[j - 1], cur = ohlcvData[j];
+    if (!prev || !cur) return false;
+    if (isShort) {
+      // 碰上軌 + 前根紅K(漲) + 當根綠K(跌) 且收中軌下
+      return prev.bb_upper != null && cur.bb_middle != null
+        && prev.high >= prev.bb_upper
+        && prev.close > prev.open && cur.close < cur.open
+        && cur.close < cur.bb_middle;
+    }
+    // 碰下軌 + 前根綠K(跌) + 當根紅K(漲) 且收中軌上
+    return prev.bb_lower != null && cur.bb_middle != null
+      && prev.low <= prev.bb_lower
+      && prev.close < prev.open && cur.close > cur.open
+      && cur.close > cur.bb_middle;
+  };
   for (let j = entryIdx; j < lastIdx; j++) {
     const bar = ohlcvData[j];
     if (!bar) continue;
-    if (cond(bar)) {
+    const hit = (_pyrUseIndicator && indCond(bar)) || (_pyrUseBBrev && bbRevCond(j));
+    if (hit) {
       const next = ohlcvData[j + 1];
       if (!next || next.open == null) continue;
       pyramids.push({ idx: j + 1, time: toTime(next.time), price: next.open });
     }
   }
-  // 均減進場價（含初始進場 + 所有加碼，等權平均）
-  const allPrices = [entryBar.open, ...pyramids.map(p => p.price)];
-  const avgEntry = allPrices.reduce((a, b) => a + b, 0) / allPrices.length;
+  // 均減進場價（初始 1 單位 + 每加碼 _pyrSize 單位，加權平均）
+  const sz = (_pyrSize > 0 ? _pyrSize : 1.0);
+  const totalUnits = 1 + pyramids.length * sz;
+  const weightedSum = entryBar.open + pyramids.reduce((a, p) => a + p.price * sz, 0);
+  const avgEntry = weightedSum / totalUnits;
 
   // 盒寬：到結算棒，沒結算就 8 根
   let barWidth = 8;

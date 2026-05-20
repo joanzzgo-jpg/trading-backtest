@@ -319,11 +319,13 @@ let _wrCache={};let _wrCacheLast=null;let _wrFetchTimer=null;const _WR_VIEW_KEY=
 const _WR_VARIANT_KEY="wrVariantView";let _wrVariantView="base";try{_wrVariantView=localStorage.getItem(_WR_VARIANT_KEY)||"base";}catch(e){}
 const _autoRRSet=new Set();let _autoRRHintShown=false;try{_autoRRHintShown=localStorage.getItem("wrAutoRRHintShown")==="1";}catch(e){}
 const _WR_BUFFER_KEY="wrStopBuffer";let _wrStopBuffer=0;try{_wrStopBuffer=parseFloat(localStorage.getItem(_WR_BUFFER_KEY))||0;}catch(e){}
+let _pyrSize=1.0;let _pyrUseIndicator=true;let _pyrUseBBrev=false;try{const v=localStorage.getItem("wrPyrSize");if(v!=null)_pyrSize=parseFloat(v)||1.0;_pyrUseIndicator=localStorage.getItem("wrPyrIndicator")!=="0";_pyrUseBBrev=localStorage.getItem("wrPyrBBrev")==="1";}catch(e){}
 function _initWrTargetBtn(){const btn=document.getElementById("wrTargetToggle");if(!btn)return;btn.textContent=_wrTargetView==="band"?"上/下軌":"中軌";btn.classList.toggle("band",_wrTargetView==="band");}
 function _initWrVariantBtn(){const btn=document.getElementById("wrVariantToggle");if(!btn)return;btn.textContent=_wrVariantView==="variant"?"強化版":"原版";btn.classList.toggle("variant",_wrVariantView==="variant");}
 function _toggleWrVariant(){_wrVariantView=_wrVariantView==="variant"?"base":"variant";try{localStorage.setItem(_WR_VARIANT_KEY,_wrVariantView);}catch(e){}
 _initWrVariantBtn();if(_wrCacheLast)_renderWinRate(_wrCacheLast);_renderWRSignals();if(typeof window._refreshSignalDrawer==="function")window._refreshSignalDrawer();if(typeof renderDrawings==="function")requestAnimationFrame(renderDrawings);}
-function _initWrStopBuffer(){const inp=document.getElementById("wrStopBuffer");if(!inp)return;inp.value=_wrStopBuffer;inp.addEventListener("change",()=>{const v=Math.max(0,Math.min(10,parseFloat(inp.value)||0));inp.value=v;_wrStopBuffer=v;try{localStorage.setItem(_WR_BUFFER_KEY,String(v));}catch(e){}
+window._setPyrSetting=function(key,val){if(key==="size"){_pyrSize=(val>0?val:1.0);try{localStorage.setItem("wrPyrSize",String(_pyrSize));}catch(e){}}else if(key==="indicator"){_pyrUseIndicator=!!val;try{localStorage.setItem("wrPyrIndicator",val?"1":"0");}catch(e){}}else if(key==="bbrev"){_pyrUseBBrev=!!val;try{localStorage.setItem("wrPyrBBrev",val?"1":"0");}catch(e){}}
+if(typeof _autoRRBoxCache!=="undefined")_autoRRBoxCache.clear();if(typeof renderDrawings==="function")requestAnimationFrame(renderDrawings);};window._getPyrSettings=function(){return{size:_pyrSize,indicator:_pyrUseIndicator,bbrev:_pyrUseBBrev};};function _initWrStopBuffer(){const inp=document.getElementById("wrStopBuffer");if(!inp)return;inp.value=_wrStopBuffer;inp.addEventListener("change",()=>{const v=Math.max(0,Math.min(10,parseFloat(inp.value)||0));inp.value=v;_wrStopBuffer=v;try{localStorage.setItem(_WR_BUFFER_KEY,String(v));}catch(e){}
 _wrCache={};fetchWinRate();if(typeof renderDrawings==="function")requestAnimationFrame(renderDrawings);});}
 function _toggleWrTarget(){_wrTargetView=_wrTargetView==="mid"?"band":"mid";try{localStorage.setItem(_WR_VIEW_KEY,_wrTargetView);}catch(e){}
 _initWrTargetBtn();if(_wrCacheLast)_renderWinRate(_wrCacheLast);_renderWRSignals();if(typeof renderDrawings==="function")requestAnimationFrame(renderDrawings);}
@@ -338,8 +340,9 @@ const dir=sig.d;const isShort=dir==="s";const buf=(_wrStopBuffer||0)/100;let tp,
 if(tp==null){_autoRRBoxCache.set(cacheKey,null);return null;}
 let tpAct=null;const exitT=useBand?sig.ot_b:sig.ot;const result=useBand?sig.r_b:sig.r;let exitIdx=-1;if(exitT){exitIdx=(typeof _timeToIdx!=="undefined"&&_timeToIdx.has(exitT))?_timeToIdx.get(exitT):ohlcvData.findIndex(d=>d.time===exitT);}
 if(exitT&&result==="w"&&exitIdx>=0){const exitBar=ohlcvData[exitIdx];if(isShort)tpAct=useBand?exitBar.bb_lower:exitBar.bb_middle;else tpAct=useBand?exitBar.bb_upper:exitBar.bb_middle;}
-const entryIdx=sigIdx+1;const lastIdx=(exitIdx>entryIdx)?exitIdx:ohlcvData.length-1;const pyramids=[];const cond=isShort?(b)=>b.crt===-1||b.kdj_cross===-1||b.resonance===-1:(b)=>b.crt===1||b.kdj_cross===1||b.resonance===1;for(let j=entryIdx;j<lastIdx;j++){const bar=ohlcvData[j];if(!bar)continue;if(cond(bar)){const next=ohlcvData[j+1];if(!next||next.open==null)continue;pyramids.push({idx:j+1,time:toTime(next.time),price:next.open});}}
-const allPrices=[entryBar.open,...pyramids.map(p=>p.price)];const avgEntry=allPrices.reduce((a,b)=>a+b,0)/allPrices.length;let barWidth=8;if(exitIdx>sigIdx)barWidth=Math.max(3,exitIdx-sigIdx);const box={id:"_autoRR_"+sig.t,type,color,barWidth,p1:{time:toTime(entryBar.time),price:entryBar.open},tp,sl,tpAct,pyramids:pyramids,avgEntry:avgEntry,_isAutoRR:true,};_autoRRBoxCache.set(cacheKey,box);return box;}
+const entryIdx=sigIdx+1;const lastIdx=(exitIdx>entryIdx)?exitIdx:ohlcvData.length-1;const pyramids=[];const indCond=isShort?(b)=>b.crt===-1||b.kdj_cross===-1||b.resonance===-1:(b)=>b.crt===1||b.kdj_cross===1||b.resonance===1;const bbRevCond=(j)=>{if(j<1)return false;const prev=ohlcvData[j-1],cur=ohlcvData[j];if(!prev||!cur)return false;if(isShort){return prev.bb_upper!=null&&cur.bb_middle!=null&&prev.high>=prev.bb_upper&&prev.close>prev.open&&cur.close<cur.open&&cur.close<cur.bb_middle;}
+return prev.bb_lower!=null&&cur.bb_middle!=null&&prev.low<=prev.bb_lower&&prev.close<prev.open&&cur.close>cur.open&&cur.close>cur.bb_middle;};for(let j=entryIdx;j<lastIdx;j++){const bar=ohlcvData[j];if(!bar)continue;const hit=(_pyrUseIndicator&&indCond(bar))||(_pyrUseBBrev&&bbRevCond(j));if(hit){const next=ohlcvData[j+1];if(!next||next.open==null)continue;pyramids.push({idx:j+1,time:toTime(next.time),price:next.open});}}
+const sz=(_pyrSize>0?_pyrSize:1.0);const totalUnits=1+pyramids.length*sz;const weightedSum=entryBar.open+pyramids.reduce((a,p)=>a+p.price*sz,0);const avgEntry=weightedSum/totalUnits;let barWidth=8;if(exitIdx>sigIdx)barWidth=Math.max(3,exitIdx-sigIdx);const box={id:"_autoRR_"+sig.t,type,color,barWidth,p1:{time:toTime(entryBar.time),price:entryBar.open},tp,sl,tpAct,pyramids:pyramids,avgEntry:avgEntry,_isAutoRR:true,};_autoRRBoxCache.set(cacheKey,box);return box;}
 function _renderAutoRRBoxes(W,H){if(!_autoRRSet.size||typeof drawOne!=="function")return;for(const t of _autoRRSet){const sig=_lastWRSignals&&_lastWRSignals.find(s=>s.t===t);if(!sig)continue;const box=_computeAutoRRBox(sig);if(box)drawOne(box,W,H,false,false);}}
 function _clearAutoRR(){_autoRRBoxCache.clear();if(_autoRRSet.size){_autoRRSet.clear();if(typeof renderDrawings==="function")requestAnimationFrame(renderDrawings);}}
 function fetchWinRate(){clearTimeout(_wrFetchTimer);_wrFetchTimer=setTimeout(_fetchWinRateNow,250);}
@@ -610,36 +613,63 @@ function _renderDrawer(key){const info=SIGNAL_INFO[key];if(!info)return;const st
         </section>
 
         <section class="sig-section">
-          <h3 class="sig-h3">訊號定義</h3>
-          <div class="sig-patterns">${patternsHTML}</div>
+          <h3 class="sig-h3 sig-h3-toggle">訊號定義 <span class="sig-collapse-arr">▾</span></h3>
+          <div class="sig-sec-body"><div class="sig-patterns">${patternsHTML}</div></div>
         </section>
 
         ${excludesHTML}
 
         <section class="sig-section">
-          <h3 class="sig-h3">進場 / 止損 / 目標</h3>
-          <div class="sig-rule"><span class="sig-rule-lbl">進場</span><span>${info.entry}</span></div>
-          <div class="sig-rule"><span class="sig-rule-lbl">止損</span><span>${info.stop}</span></div>
-          <div class="sig-rule"><span class="sig-rule-lbl">目標</span><span>${info.target}</span></div>
+          <h3 class="sig-h3 sig-h3-toggle">進場 / 止損 / 目標 <span class="sig-collapse-arr">▾</span></h3>
+          <div class="sig-sec-body">
+            <div class="sig-rule"><span class="sig-rule-lbl">進場</span><span>${info.entry}</span></div>
+            <div class="sig-rule"><span class="sig-rule-lbl">止損</span><span>${info.stop}</span></div>
+            <div class="sig-rule"><span class="sig-rule-lbl">目標</span><span>${info.target}</span></div>
+          </div>
         </section>
 
         <section class="sig-section">
-          <h3 class="sig-h3">當前統計（${viewLabel}目標，${variantLabel}）</h3>
-          ${_statRow("空單", stats?.short)}
-          ${_rrBlock(stats?.short)}
-          ${_statRow("多單", stats?.long)}
-          ${_rrBlock(stats?.long)}
-          <div class="sig-visible-line">${visibleLine}</div>
+          <h3 class="sig-h3 sig-h3-toggle">當前統計（${viewLabel}目標，${variantLabel}） <span class="sig-collapse-arr">▾</span></h3>
+          <div class="sig-sec-body">
+            ${_statRow("空單", stats?.short)}
+            ${_rrBlock(stats?.short)}
+            ${_statRow("多單", stats?.long)}
+            ${_rrBlock(stats?.long)}
+            <div class="sig-visible-line">${visibleLine}</div>
+          </div>
         </section>
 
+        ${_pyrSettingsHTML()}
+
         <section class="sig-section">
-          <h3 class="sig-h3">訊號列表（最近 ${Math.min(sigs.length, 30)} 筆，點擊跳到該位置）</h3>
-          <div class="sig-list-box">${recentHTML}</div>
+          <h3 class="sig-h3 sig-h3-toggle">訊號列表（最近 ${Math.min(sigs.length, 30)} 筆，點擊跳到該位置） <span class="sig-collapse-arr">▾</span></h3>
+          <div class="sig-sec-body"><div class="sig-list-box">${recentHTML}</div></div>
         </section>
 
         ${notesHTML}
       </div>
-    `;const root=$("signalDrawerContent");if(root)root.innerHTML=html;root.querySelectorAll(".sig-row").forEach(row=>{row.addEventListener("click",()=>{const t=row.dataset.jump;_jumpChartTo(t);});});$("sigDrawerClose")?.addEventListener("click",_hide);}
+    `;const root=$("signalDrawerContent");if(root)root.innerHTML=html;root.querySelectorAll(".sig-row").forEach(row=>{row.addEventListener("click",()=>{const t=row.dataset.jump;_jumpChartTo(t);});});root.querySelectorAll(".sig-h3-toggle").forEach(h=>{h.addEventListener("click",()=>h.parentElement.classList.toggle("collapsed"));});_bindPyrSettings(root);$("sigDrawerClose")?.addEventListener("click",_hide);}
+function _pyrSettingsHTML(){const p=(typeof window._getPyrSettings==="function")?window._getPyrSettings():{size:1,indicator:true,bbrev:false};return`
+      <section class="sig-section">
+        <h3 class="sig-h3 sig-h3-toggle">⚙ 加碼設定 <span class="sig-collapse-arr">▾</span></h3>
+        <div class="sig-sec-body">
+          <div class="sig-pyr-row">
+            <label class="sig-pyr-lbl">加碼量（× 初始倉）</label>
+            <input id="pyrSize" class="sig-pyr-num" type="number" step="0.1" min="0.1" max="5" value="${p.size}"/>
+          </div>
+          <label class="sig-pyr-check">
+            <input id="pyrIndicator" type="checkbox" ${p.indicator ? "checked" : ""}/>
+            <span>同方向 CRT / 共振 / KDJ叉 觸發加碼</span>
+          </label>
+          <label class="sig-pyr-check">
+            <input id="pyrBBrev" type="checkbox" ${p.bbrev ? "checked" : ""}/>
+            <span>BB 反轉型態觸發（多：碰下軌＋綠K接紅K收中軌上；空：對稱）</span>
+          </label>
+          <div class="sig-pyr-hint">設定即時套用到主圖已展開的盈虧比盒（均減進場線會重算）</div>
+        </div>
+      </section>
+    `;}
+function _bindPyrSettings(root){const setFn=window._setPyrSetting;if(typeof setFn!=="function")return;const sz=root.querySelector("#pyrSize");if(sz)sz.addEventListener("change",()=>{const v=Math.max(0.1,Math.min(5,parseFloat(sz.value)||1));sz.value=v;setFn("size",v);});const ind=root.querySelector("#pyrIndicator");if(ind)ind.addEventListener("change",()=>setFn("indicator",ind.checked));const bb=root.querySelector("#pyrBBrev");if(bb)bb.addEventListener("change",()=>setFn("bbrev",bb.checked));}
 function _jumpChartTo(isoTime){if(!isoTime||typeof mainChart==="undefined")return;const t=(typeof toTime==="function")?toTime(isoTime):null;if(!t||!ohlcvData)return;const idx=ohlcvData.findIndex(d=>(typeof toTime==="function"?toTime(d.time):d.time)===t);if(idx<0)return;const range=mainChart.timeScale().getVisibleLogicalRange();const span=range?Math.max(20,range.to-range.from):80;const half=Math.floor(span/2);mainChart.timeScale().setVisibleLogicalRange({from:Math.max(0,idx-half),to:Math.min(ohlcvData.length-1,idx+half),});}
 function _show(key){_renderDrawer(key);$("signalDrawer")?.classList.remove("hidden");document.body.classList.add("sig-drawer-open");_currentKey=key;}
 function _hide(){$("signalDrawer")?.classList.add("hidden");document.body.classList.remove("sig-drawer-open");_currentKey=null;}

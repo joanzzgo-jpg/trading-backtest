@@ -528,7 +528,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
 
         # ── 訊號十一 S11（ABCD：A 純超買/超賣、BC 全無、D 純 KDJ 叉）──
         # 短：A 只 res=-1（crt=0,kdj=0）、B/C 全無、D 只 kdj=-1（crt=0,res=0）
-        # 多：對稱（A res=+1、D kdj=+1）；排除 D 棒影線已碰中軌
+        # 多：對稱（A res=+1、D kdj=+1）；排除：A/B/C/D 任一棒影線已碰中軌（用 no_mid）
         a4_res = res[:n-4];   b4_res = res[1:n-3];   c4_res = res[2:n-2];   d4_res = res[3:n-1]
         a4_cr  = cross[:n-4]; b4_cr  = cross[1:n-3]; c4_cr  = cross[2:n-2]; d4_cr  = cross[3:n-1]
         bc_empty = (b4_crt == 0) & (b4_cr == 0) & (b4_res == 0) \
@@ -536,11 +536,11 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         s11_short = (a4_res == -1) & (a4_crt == 0) & (a4_cr == 0) \
                   & bc_empty \
                   & (d4_cr == -1) & (d4_crt == 0) & (d4_res == 0) \
-                  & ~np.isnan(d4_bbm) & (d4_lo > d4_bbm)
+                  & no_mid_short
         s11_long  = (a4_res ==  1) & (a4_crt == 0) & (a4_cr == 0) \
                   & bc_empty \
                   & (d4_cr ==  1) & (d4_crt == 0) & (d4_res == 0) \
-                  & ~np.isnan(d4_bbm) & (d4_hi < d4_bbm)
+                  & no_mid_long
         if long_only:
             s11_short[:] = False
         for i in np.flatnonzero(s11_short | s11_long):

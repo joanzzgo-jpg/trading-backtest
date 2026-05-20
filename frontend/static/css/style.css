@@ -3656,3 +3656,27 @@ html.perf-mode .wr-top3-item { background: rgba(255,180,80,.12); }
 
 .wr-s11 { color: #aed581; }
 html.perf-mode .wr-s11 { color: #558B2F; }
+
+/* 抽屜 section 可收納 + 加碼設定 */
+.sig-h3-toggle { cursor: pointer; user-select: none; display: flex; align-items: center; justify-content: space-between; }
+.sig-h3-toggle:hover { color: #FFB178; }
+.sig-collapse-arr { font-size: 9px; opacity: .6; transition: transform .15s; }
+.sig-section.collapsed .sig-collapse-arr { transform: rotate(-90deg); }
+.sig-section.collapsed .sig-sec-body { display: none; }
+.sig-sec-body { margin-top: 2px; }
+
+.sig-pyr-row { display: flex; align-items: center; justify-content: space-between; padding: 4px 0; }
+.sig-pyr-lbl { font-size: 12px; color: var(--text); }
+.sig-pyr-num {
+  width: 64px; background: var(--bg3); border: 1px solid var(--bg4);
+  color: var(--text); border-radius: 5px; padding: 5px 8px; font-size: 12px; outline: none;
+}
+.sig-pyr-num:focus { border-color: rgba(255,193,7,.6); }
+.sig-pyr-check {
+  display: flex; align-items: flex-start; gap: 7px; padding: 5px 0;
+  font-size: 12px; color: var(--text); cursor: pointer; line-height: 1.4;
+}
+.sig-pyr-check input { margin-top: 2px; flex-shrink: 0; accent-color: #FFC107; }
+.sig-pyr-hint { font-size: 10.5px; color: var(--muted); margin-top: 4px; line-height: 1.5; }
+
+html.perf-mode .sig-pyr-num { background: #FAFAFA; border-color: #E5E5E5; }
