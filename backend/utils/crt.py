@@ -121,15 +121,20 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
     crt   = _col_i("crt")
     cross = _col_i("kdj_cross")
     res   = _col_i("resonance")
-    # 強化版 filter：訊號棒實體佔比 ≥ 40%（不再用量能——loss 分析顯示 body_pct
-    # effect=+0.29 比 vol_ratio +0.17 強。win 中位 0.41 / loss 中位 0.31）
+    # 強化版 filter：訊號棒實體佔比 ≥ 45% AND BB 寬度 ≤ 4%
+    # 跨 BTC/ETH/SOL×1h/4h 8272 筆研究：
+    #   base 55.8% → body≥0.45 61.7% → body≥0.45 AND bbw≤0.04 = 63.6%（+7.8）
+    # 量能（vol_ratio）證實無效；實體大（堅決方向）+ BB 窄（非震盪）才是真 edge
     bar_range = highs - lows
     bar_body  = np.abs(closes - opens)
     body_pct  = np.where(bar_range > 1e-9, bar_body / bar_range, 0.0)
-    solid_bar = body_pct >= 0.40
+    bb_width_pct = np.where(closes > 0, (bb_up - bb_lo) / closes, np.nan)
+    solid_bar = body_pct >= 0.45
+    narrow_bb = (~np.isnan(bb_width_pct)) & (bb_width_pct <= 0.04)
+    strong_setup = solid_bar & narrow_bb
     # 沿用既有變數名（rev_short / rev_long 已被多處引用）
-    rev_short = solid_bar
-    rev_long  = solid_bar
+    rev_short = strong_setup
+    rev_long  = strong_setup
 
     # ── 給 S9 用的 BB 觸軌 + MACD 叉判定 ─────────────────────
     # 觸軌用 0.3% 緩衝（與共振一致）

@@ -599,7 +599,7 @@ function _renderDrawer(key){const info=SIGNAL_INFO[key];if(!info)return;const st
         <span class="sig-dwr-icon" style="color:${info.color}">${info.icon}</span>
         <div class="sig-dwr-titles">
           <div class="sig-dwr-name">${nameWithVariant}</div>
-          <div class="sig-dwr-sub">${info.subtitle}${variantLabel === "強化版" ? " + 量能爆發濾鏡" : ""}</div>
+          <div class="sig-dwr-sub">${info.subtitle}${variantLabel === "強化版" ? " + 強化濾鏡（實體≥45%＋BB窄）" : ""}</div>
         </div>
         <button class="sig-dwr-close" id="sigDrawerClose">✕</button>
       </div>
