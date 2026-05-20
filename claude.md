@@ -178,6 +178,29 @@
 
 ## CRT 策略自動回測（`/api/crt_winrate`）
 
+### 🔧 新增訊號（Sxx）的完整 checklist（降低維修成本）
+目前已有 S1(abc)、S2(ab)、S3~S11。新增一個訊號要改這些地方（缺一就會壞）：
+
+**後端 `backend/utils/crt.py`**
+1. `SIG_KEYS` 串列加入新 key（用字串如 `"12"`）
+2. 在對應的 `if n>=X` 區塊算出 `sXX_short` / `sXX_long` mask
+3. 呼叫 `_process_3bar(...)`（3 棒）或自寫迴圈（4 棒，仿 S10/S11）+ `_push_signal(... "12" ...)`
+4. `_build_target_stats` 的 `out` dict 加 `"sXX": per_sig["12"]`，variant 區塊加 `"sXX": per_sig_v["12"]`
+5. 合計 tuple `_AGG`（在 `_build_target_stats` 內）加入 `"12"`
+
+**後端 `backend/routes/data.py`**
+6. `_sufficient` 的 sig 迴圈加入 `"sXX"`
+7. `cache_key` 版號 +1（`crt_wrNN` → `crt_wrNN+1`）強制重算
+
+**前端**
+8. `templates/index.html`：勝率欄加一個 `.tb-wr-block`（data-sig + icon + wrSXXS/wrSXXL）
+9. `winrate.js`：`setRow("wrSXXS", d.sXX?.short)`；marker 的 `eColor`/`eText` 加 `k==="12"` 分支；`_SIG_KEYS`/`_SIG_LABEL`/`_SIG_ICON`/`_STATKEY_TO_SIGK` 各加一項
+10. `signal_info.js`：`_S_KEY_MAP` 加 `sXX:"12"`；`SIGNAL_INFO` 加該訊號 metadata
+11. `style.css`：`.wr-sXX { color }` + perf-mode 版
+
+> **變數命名**：stat key 用 `s3`~`s11`（有 s 前綴），但 signal record 的 `s.k` 與 SIG_KEYS 用 `"3"`~`"11"`（無前綴）。`_STATKEY_TO_SIGK` 負責轉換。abc/ab 兩者同名。
+> **強化版（variant）** 統一在 `_push_signal` 內以「預估 RR(中軌) ≤ 1.5」判定，新訊號自動套用，不需另外處理。
+
 ### 五種訊號並行計算
 
 > **訊號一（S1/ABC）僅獨立顯示，不計入總勝率合計；`_sufficient` 也不要求 S1 達最低案例數。**
