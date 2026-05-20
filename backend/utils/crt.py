@@ -241,6 +241,18 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                 o = _scan_outcome_fixed(highs, lows, closes, entry_i, n,
                                          stop_px, float(tgt_band_fix), direction)
                 est_r_b = "w" if o == "win" else ("l" if o == "loss" else None)
+        # 強化版判定：改用「預估 RR (中軌目標) ≤ 1.5」
+        #   研究（10911 筆跨 4 幣×2TF）：est_rr≤1.5 勝率 +11.7%、保留 50%
+        #   遠勝 body≥0.45 (+5.4%)。低 RR = 目標離進場近 = 均值回歸好達成
+        variant = False
+        if sig_key != "abc" and entry_i < n:
+            entry_px = opens[entry_i]
+            tgt_mid  = bb_mid[entry_i]
+            if not (math.isnan(entry_px) or math.isnan(tgt_mid)):
+                risk = abs(entry_px - stop_px)
+                if risk > 1e-9:
+                    est_rr_mid = abs(entry_px - tgt_mid) / risk
+                    variant = est_rr_mid <= 1.5
         signals.append({
             "t": sig_time, "d": d_str, "k": sig_key,
             "r":   "w" if om == "win" else ("l" if om else None), "ot":   otm,
