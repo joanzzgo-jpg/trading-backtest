@@ -47,6 +47,18 @@ function _initWrVariantBtn() {
   btn.classList.toggle("variant", _wrVariantView === "variant");
 }
 
+// 連敗風險顯示 N：0=關、2=2連(敗後再敗)、3=三連敗、4=四連敗。預設關（避免擠到 TOP3 列）
+// 按鈕本身就畫在 TOP3 上列（_renderWrTop3 內），用 inline onclick 不需另外綁事件
+let _wrStreakN = 0;
+try { _wrStreakN = parseInt(localStorage.getItem("wrStreakN")) || 0; } catch (e) {}
+
+function _cycleStreakN() {
+  // 關 → 2連 → 3連 → 4連 → 敗後停手(5) → 關
+  _wrStreakN = _wrStreakN === 0 ? 2 : _wrStreakN >= 5 ? 0 : _wrStreakN + 1;
+  try { localStorage.setItem("wrStreakN", String(_wrStreakN)); } catch (e) {}
+  _renderWrTop3();
+}
+
 function _toggleWrVariant() {
   _wrVariantView = _wrVariantView === "variant" ? "base" : "variant";
   try { localStorage.setItem(_WR_VARIANT_KEY, _wrVariantView); } catch (e) {}
@@ -545,6 +557,40 @@ function _renderWrTop3() {
   let view = (_wrTargetView === "band" && d.band) ? d.band : d;
   if (_wrVariantView === "variant" && view && view.variant) view = view.variant;
 
+  // 連敗按鈕（畫在 TOP3 上列）：關 → 2連 → 3連 → 4連 → 敗後停手策略 → 關
+  //   2/3/4 連 = 同方向連敗 N-1 根後再敗機率（合併時間軸，中間夾反方向不算連續）
+  //   敗後停手 = 輸了停手、旁觀同方向直到會贏才回場，顯示套用後的總/空/多勝率
+  const _streakLabel = _wrStreakN === 0 ? "連敗 關"
+                     : _wrStreakN === 5 ? "敗後停手"
+                     : `連敗 ${_wrStreakN}`;
+  const streakBtn = `<button class="wr-streak-btn${_wrStreakN ? " on" : ""}" onclick="_cycleStreakN()" title="連敗風險 / 再進場策略（S2~S11 去重綜合）：關 → 2連 → 3連 → 4連 → 敗後停手。&#10;2/3/4連=同方向連敗 N-1 根後、下一筆也敗的機率（合併時間軸，兩敗中間夾反方向不算連續）。&#10;敗後停手=輸了就停手、旁觀同方向直到會贏才回場，顯示套用後的總勝率。">${_streakLabel}</button>`;
+  let condNums = "";
+  if (_wrStreakN >= 2 && _wrStreakN <= 4) {
+    const _pick = (st) => (st?.loss_streak || []).find(x => x.after === _wrStreakN - 1) || null;
+    const _condItem = (lbl, st) => {
+      const e = _pick(st);
+      if (!e || e.p == null) return `<span class="wr-cond-i">${lbl}<b>—</b></span>`;
+      const c = e.p >= 60 ? " bad" : e.p <= 40 ? " good" : "";
+      return `<span class="wr-cond-i${c}">${lbl}<b>${e.p}%</b><small>(${e.n})</small></span>`;
+    };
+    condNums = _condItem("空", view?.short) + _condItem("多", view?.long);
+  } else if (_wrStreakN === 5) {
+    const ss = view?.stop_strategy;
+    const _si = (lbl, o) => {
+      if (!o || o.win_rate == null) return `<span class="wr-cond-i">${lbl}<b>—</b></span>`;
+      const c = o.win_rate >= 60 ? " good" : o.win_rate < 45 ? " bad" : "";
+      return `<span class="wr-cond-i${c}">${lbl}<b>${o.win_rate}%</b><small>(${o.total})</small></span>`;
+    };
+    if (ss && ss.win_rate != null) {
+      const tc = ss.win_rate >= 60 ? " good" : ss.win_rate < 45 ? " bad" : "";
+      condNums = `<span class="wr-cond-i${tc}">總<b>${ss.win_rate}%</b><small>(${ss.total})</small></span>`
+               + _si("空", ss.short) + _si("多", ss.long);
+    } else {
+      condNums = `<span class="wr-cond-i">總<b>—</b></span>`;
+    }
+  }
+  const streakHtml = `<span class="wr-streak-wrap">${streakBtn}${condNums}</span>`;
+
   // 蒐集所有 (sig, dir) 且樣本 >= 10
   const items = [];
   for (const k of _SIG_KEYS) {
@@ -558,7 +604,7 @@ function _renderWrTop3() {
   }
   items.sort((a, b) => b.wr - a.wr);
   const top3 = items.slice(0, 3);
-  if (top3.length === 0) { root.innerHTML = ""; return; }
+  if (top3.length === 0) { root.innerHTML = streakHtml; return; }
 
   // 合計勝率（dedupe by (t, d) 只算 top3 的 (sig, dir)）
   const topSet = new Set(top3.map(t => `${_STATKEY_TO_SIGK[t.k]}|${t.dir === "short" ? "s" : "l"}`));
@@ -596,7 +642,7 @@ function _renderWrTop3() {
     ? `<span class="wr-top3-sum" title="只計入這 3 個 (訊號×方向) 且同 signal-bar+同方向去重">合計 ${cWr}% <span class="wr-top3-sum-n">(${cTot}筆)</span></span>`
     : "";
 
-  root.innerHTML = `<span class="wr-top3-label">TOP 3</span><span class="wr-top3-items">${itemsHtml}</span>${sumHtml}`;
+  root.innerHTML = `<span class="wr-top3-label">TOP 3</span><span class="wr-top3-items">${itemsHtml}</span>${sumHtml}${streakHtml}`;
 }
 
 /* ══════════════════════════════════════════

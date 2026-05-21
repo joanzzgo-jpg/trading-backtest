@@ -38,9 +38,6 @@ function bindEvents() {
       document.getElementById("fxPanel")?.classList.add("hidden");
       document.getElementById("fxToggleBtn")?.classList.remove("fx-open");
     }
-    if (except !== "music") {
-      document.getElementById("musicPanel")?.classList.add("hidden");
-    }
     if (except !== "sys") {
       document.getElementById("sysSettingsPopup")?.classList.remove("open");
     }

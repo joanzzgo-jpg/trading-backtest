@@ -538,11 +538,18 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                          om, otm, omj, ob, otb, obj)
 
     # ── 統計輸出 ─────────────────────────────────────────────
-    def _stats(w, l, rr=None, streak=0):
-        """rr：對應方向的 RR bucket；streak：該 (sig×dir) 的最大連敗數"""
+    def _stats(w, l, rr=None, streak=0, cond=None):
+        """rr：RR bucket；streak：最大連敗數；cond：條件連續機率 dict
+        （loss_after_loss=敗後再敗%、win_after_win=勝後再勝%，含樣本數）"""
         t = w + l
         out = {"total": t, "wins": w, "losses": l, "win_rate": round(w / t * 100, 1) if t else None,
                "max_loss_streak": streak}
+        if cond:
+            out["loss_streak"]     = cond.get("loss_streak")
+            out["loss_after_loss"] = cond.get("loss_after_loss")
+            out["n_after_loss"]    = cond.get("n_after_loss", 0)
+            out["win_after_win"]   = cond.get("win_after_win")
+            out["n_after_win"]     = cond.get("n_after_win", 0)
         if not rr:
             return out
         n_all = rr["est_n_all"]
@@ -714,16 +721,114 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
     streak_mid_v  = _calc_streaks(use_band=False, only_variant=True)
     streak_band_v = _calc_streaks(use_band=True,  only_variant=True)
 
-    def _dedup_total_dict(arr):
+    # ── 條件連敗機率（以「合併時間軸」為準）──
+    #    連敗 = 同方向且在合併時間軸上「真正相鄰」的連續敗單。
+    #    例：空敗→多敗→空敗 不算做空 2 連敗（中間夾了多敗，連續被打斷）。
+    #    loss_streak[k] = 同方向連敗 k 根後、下一筆同方向也敗的機率
+    #                     （k=1→2連、k=2→3連、k=3→4連）；win_after_win = 同方向勝後再勝。
+    def _build_combined(use_band, only_variant):
+        """合併時間軸的已結算序列 [(d, r)]（dedupe by (t,d)、S1 不計入）。"""
+        seen = set(); seq = []
+        for s in sorted(signals, key=lambda x: x["t"]):
+            if s["k"] == "abc":
+                continue
+            if only_variant and not s.get("v"):
+                continue
+            key = (s["t"], s["d"])
+            if key in seen:
+                continue
+            seen.add(key)
+            r = s.get("r_b" if use_band else "r")
+            if r not in ("w", "l"):
+                continue
+            seq.append((s["d"], r))
+        return seq
+
+    def _cond_for_dir(seq, D):
+        streak = []
+        for k in (1, 2, 3):
+            denom = nxt_loss = 0
+            for i in range(k, len(seq)):
+                if seq[i][0] != D:
+                    continue
+                # 前 k 筆（合併時間軸上相鄰）必須都是「同方向 D 的敗單」才算連敗
+                if all(seq[i-j] == (D, "l") for j in range(1, k + 1)):
+                    denom += 1
+                    if seq[i][1] == "l":
+                        nxt_loss += 1
+            streak.append({
+                "after": k,
+                "p":     round(nxt_loss / denom * 100, 1) if denom else None,
+                "n":     denom,
+            })
+        after_win = win_after_win = 0
+        for i in range(1, len(seq)):
+            if seq[i][0] != D:
+                continue
+            if seq[i-1] == (D, "w"):
+                after_win += 1
+                if seq[i][1] == "w":
+                    win_after_win += 1
+        return {
+            "loss_streak":     streak,
+            "loss_after_loss": streak[0]["p"],
+            "n_after_loss":    streak[0]["n"],
+            "win_after_win":   round(win_after_win / after_win * 100, 1) if after_win else None,
+            "n_after_win":     after_win,
+        }
+
+    def _calc_cond_total(use_band=False, only_variant=False):
+        seq = _build_combined(use_band, only_variant)
+        return {"s": _cond_for_dir(seq, "s"), "l": _cond_for_dir(seq, "l")}
+
+    def _calc_stop_strategy(use_band=False, only_variant=False):
+        """「敗後停手」策略總勝率（合併時間軸）：
+        - 某方向「進場中」遇敗 → 該方向「停手」（計入這一敗）
+        - 「停手中」跳過該方向訊號（不計），但反方向不受影響、照自己的狀態進場
+        - 解除停手（回進場中）兩種觸發：①同方向出現紙上會贏 ②反方向訊號出現（中斷連敗）
+        回傳實際進場單的空/多/合計勝率。母體同總勝率（S2~S11 去重、合併時間軸）。"""
+        combined = _build_combined(use_band, only_variant)   # [(d, r)] 已結算、依時間排序
+        active = {"s": True, "l": True}
+        w = {"s": 0, "l": 0}; l = {"s": 0, "l": 0}
+        for d, r in combined:
+            if active[d]:
+                if r == "w":
+                    w[d] += 1
+                else:
+                    l[d] += 1; active[d] = False              # 遇敗停手
+            elif r == "w":
+                active[d] = True                              # 同方向紙上回穩
+            active["l" if d == "s" else "s"] = True           # 反方向出現 → 解除其停手
+        def _mk(dk):
+            t = w[dk] + l[dk]
+            return {"total": t, "wins": w[dk], "losses": l[dk],
+                    "win_rate": round(w[dk] / t * 100, 1) if t else None}
+        sr = _mk("s"); lr = _mk("l")
+        tot = sr["total"] + lr["total"]; win = sr["wins"] + lr["wins"]
+        return {"short": sr, "long": lr, "total": tot, "wins": win,
+                "win_rate": round(win / tot * 100, 1) if tot else None}
+
+    cond_tot_mid    = _calc_cond_total(use_band=False, only_variant=False)
+    cond_tot_band   = _calc_cond_total(use_band=True,  only_variant=False)
+    cond_tot_mid_v  = _calc_cond_total(use_band=False, only_variant=True)
+    cond_tot_band_v = _calc_cond_total(use_band=True,  only_variant=True)
+
+    stop_mid    = _calc_stop_strategy(use_band=False, only_variant=False)
+    stop_band   = _calc_stop_strategy(use_band=True,  only_variant=False)
+    stop_mid_v  = _calc_stop_strategy(use_band=False, only_variant=True)
+    stop_band_v = _calc_stop_strategy(use_band=True,  only_variant=True)
+
+    def _dedup_total_dict(arr, cond=None):
         sw, sl, lw, ll = arr
         t = sw + sl + lw + ll
         w = sw + lw
+        cond = cond or {}
         return {
             "total":    t,
             "wins":     w,
             "win_rate": round(w / t * 100, 1) if t else None,
-            "short":    _stats(sw, sl),
-            "long":     _stats(lw, ll),
+            "short":    _stats(sw, sl, cond=cond.get("s")),
+            "long":     _stats(lw, ll, cond=cond.get("l")),
         }
 
     def _dedup_est_dict(arr):
@@ -750,17 +855,21 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
     if "variant" in band_out:
         band_out["variant"]["max_loss_streak"] = _all_max_streak(streak_band_v)
 
-    # 把 dedup 後的合計覆寫到 mid_out / band_out 的頂層
-    mid_out.update(_dedup_total_dict(dedup_m))
+    # 把 dedup 後的合計覆寫到 mid_out / band_out 的頂層（含條件連續機率 cond + 停手策略）
+    mid_out.update(_dedup_total_dict(dedup_m, cond_tot_mid))
     mid_out.update(_dedup_est_dict(dedup_em))
-    band_out.update(_dedup_total_dict(dedup_b))
+    mid_out["stop_strategy"] = stop_mid
+    band_out.update(_dedup_total_dict(dedup_b, cond_tot_band))
     band_out.update(_dedup_est_dict(dedup_eb))
+    band_out["stop_strategy"] = stop_band
     if "variant" in mid_out:
-        mid_out["variant"].update(_dedup_total_dict(dedup_mv))
+        mid_out["variant"].update(_dedup_total_dict(dedup_mv, cond_tot_mid_v))
         mid_out["variant"].update(_dedup_est_dict(dedup_emv))
+        mid_out["variant"]["stop_strategy"] = stop_mid_v
     if "variant" in band_out:
-        band_out["variant"].update(_dedup_total_dict(dedup_bv))
+        band_out["variant"].update(_dedup_total_dict(dedup_bv, cond_tot_band_v))
         band_out["variant"].update(_dedup_est_dict(dedup_ebv))
+        band_out["variant"]["stop_strategy"] = stop_band_v
     recent.sort(key=lambda x: x["t"])
     from_date = str(df.iloc[0]["time"])[:10] if n else ""
 

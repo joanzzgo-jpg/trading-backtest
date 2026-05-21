@@ -18,7 +18,6 @@ html.perf-mode input[type="date"],
 html.perf-mode textarea { cursor: text; }
 html.perf-mode .peek-bear,
 html.perf-mode #weatherBg,
-html.perf-mode #musicToggleBtn,
 html.perf-mode .click-spark,
 html.perf-mode .btn-ripple-wave { display: none !important; }
 /* 極簡模式下，除了「恢復特效」按鈕，其他 FX 按鈕標示為停用 */
@@ -182,14 +181,12 @@ html.perf-mode #drawToolbar,
 html.perf-mode .ticker-panel,
 html.perf-mode .sym-modal,
 html.perf-mode #symModalBackdrop > *,
-html.perf-mode #fxPanel,
-html.perf-mode #musicPanel {
+html.perf-mode #fxPanel {
   box-shadow: 0 1px 4px rgba(60,40,20,0.06);
 }
 /* 原本依賴模糊的半透明背景改成實心，避免穿透露出後面的圖表造成可讀性差 */
 html.perf-mode .music-panel,
 html.perf-mode #fxPanel,
-html.perf-mode #musicPanel,
 html.perf-mode .sym-modal,
 html.perf-mode #drawToolbar,
 html.perf-mode .ticker-panel {
@@ -202,8 +199,7 @@ html.perf-mode .tk-limit-pulse { animation: none !important; }
 /* 大型過場 transition 簡化 */
 html.perf-mode .peek-bear,
 html.perf-mode .music-panel,
-html.perf-mode #fxPanel,
-html.perf-mode #musicPanel { transition: none !important; }
+html.perf-mode #fxPanel { transition: none !important; }
 
 :root {
   --bg:      #170F0C;
@@ -2500,7 +2496,7 @@ html.perf-mode .tb-wr-buffer-pct { color: #8B8B8B; }
 .tf-btn, .ct-btn, .btn-load, .btn-mode,
 .rp-btn, .rp-speed, .dt-btn, .tb-icon-btn,
 .tb-indicators-btn, .pane-collapse-btn, .ind-gear-btn,
-.sym-tab, .tk-seg-btn, .music-theme-btn {
+.sym-tab, .tk-seg-btn {
   position: relative;
   overflow: hidden;
 }
@@ -2508,7 +2504,7 @@ html.perf-mode .tb-wr-buffer-pct { color: #8B8B8B; }
 .btn-mode:active,  .rp-btn:active,      .rp-speed:active,
 .dt-btn:active,    .tb-icon-btn:active, .tb-indicators-btn:active,
 .pane-collapse-btn:active, .ind-gear-btn:active,
-.sym-tab:active,   .tk-seg-btn:active,  .music-theme-btn:active {
+.sym-tab:active,   .tk-seg-btn:active {
   transform: scale(0.88);
   transition: transform 0.07s ease;
 }
@@ -2526,7 +2522,7 @@ html.perf-mode .tb-wr-buffer-pct { color: #8B8B8B; }
 }
 
 /* ══════════════════════════════════════════
-   音樂面板
+   浮動面板基底（.music-panel 為歷史名稱，現由 #fxPanel 等共用）
 ══════════════════════════════════════════ */
 .music-panel {
   position: fixed;
@@ -2555,126 +2551,6 @@ html.perf-mode .tb-wr-buffer-pct { color: #8B8B8B; }
   text-transform: uppercase;
   margin-bottom: 10px;
 }
-.music-themes {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  margin-bottom: 12px;
-}
-.music-theme-btn {
-  background: transparent;
-  border: 1px solid transparent;
-  color: var(--muted);
-  padding: 5px 9px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 12px;
-  text-align: left;
-  transition: background .12s, color .12s, border-color .12s, transform .07s;
-  white-space: nowrap;
-}
-.music-theme-btn:hover {
-  background: var(--bg3);
-  color: var(--text);
-  border-color: var(--border);
-}
-.music-theme-btn.active {
-  background: rgba(41,98,255,.14);
-  border-color: rgba(41,98,255,.4);
-  color: #7aadff;
-}
-.music-vol-row {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  color: var(--muted);
-  border-top: 1px solid var(--border);
-  padding-top: 10px;
-}
-.music-vol-row input[type=range] {
-  flex: 1;
-  cursor: pointer;
-  accent-color: var(--blue);
-  height: 3px;
-}
-#musicVolLabel {
-  font-size: 11px;
-  color: var(--muted);
-  min-width: 28px;
-  text-align: right;
-}
-/* YouTube 播放區 */
-.music-yt-section {
-  border-top: 1px solid var(--border);
-  padding-top: 10px;
-  margin-top: 8px;
-}
-.music-yt-title {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--muted);
-  letter-spacing: .05em;
-  margin-bottom: 7px;
-}
-.music-yt-row {
-  display: flex;
-  gap: 5px;
-  margin-bottom: 0;
-}
-.music-yt-input {
-  flex: 1;
-  background: var(--bg3);
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  color: var(--text);
-  font-size: 11px;
-  padding: 4px 7px;
-  outline: none;
-  min-width: 0;
-}
-.music-yt-input:focus { border-color: var(--blue); }
-.music-yt-input::placeholder { color: var(--muted); }
-.music-yt-btn {
-  background: var(--blue);
-  border: none;
-  border-radius: 5px;
-  color: #fff;
-  font-size: 11px;
-  font-weight: 600;
-  padding: 4px 10px;
-  cursor: pointer;
-  white-space: nowrap;
-  flex-shrink: 0;
-  transition: opacity .12s;
-  position: relative;
-  overflow: hidden;
-}
-.music-yt-btn:hover { opacity: 0.85; }
-.music-yt-btn:active { transform: scale(0.93); }
-#ytFrame { margin-top: 6px; }
-#ytFrame iframe { border-radius: 6px; display: block; width: 100%; }
-
-.music-note-icon {
-  display: inline-block;
-  transition: color .2s;
-}
-#musicToggleBtn.playing { color: var(--blue); }
-@keyframes music-eq {
-  0%,100% { transform: scaleY(1);   }
-  50%      { transform: scaleY(1.8); }
-}
-.music-eq-bar {
-  display: inline-block;
-  width: 2px;
-  height: 8px;
-  background: var(--blue);
-  border-radius: 1px;
-  margin: 0 1px;
-  vertical-align: middle;
-  animation: music-eq 0.8s ease-in-out infinite;
-}
-.music-eq-bar:nth-child(2) { animation-delay: 0.2s; }
-.music-eq-bar:nth-child(3) { animation-delay: 0.4s; }
 
 /* ── 天氣背景 canvas（fixed 覆蓋整頁，避免 stacking context 問題） ── */
 #weatherBg {
@@ -2709,7 +2585,7 @@ html.perf-mode .tb-wr-buffer-pct { color: #8B8B8B; }
 /* rounder corners on all interactive elements */
 .tb-icon-btn, .tf-btn, .ct-btn, .tb-indicators-btn,
 .btn-mode, .rp-btn, .dt-btn, .wl-header-btn, .btn-reset,
-.ind-sp-inc, .ind-sp-dec, .music-theme-btn      { border-radius: 12px !important; }
+.ind-sp-inc, .ind-sp-dec      { border-radius: 12px !important; }
 .tb-mkt-select, .tb-exc-select, .tb-symbol-wrap { border-radius: 10px !important; }
 .sym-tag                                         { border-radius: 99px !important; padding: 2px 8px !important; }
 .sym-modal                                       { border-radius: 24px !important; }
@@ -2757,14 +2633,8 @@ html.perf-mode .tb-wr-buffer-pct { color: #8B8B8B; }
 ::-webkit-scrollbar-thumb { background: rgba(255,145,71,.38) !important; border-radius: 99px !important; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(255,145,71,.62) !important; }
 
-/* music panel warm */
+/* float panel warm（.music-panel 為共用基底，#fxPanel 等沿用） */
 .music-panel { border-color: #3D2820 !important; box-shadow: 0 10px 36px rgba(0,0,0,.55), 0 0 0 1px rgba(255,145,71,.08) !important; }
-.music-theme-btn.active {
-  background: rgba(255,145,71,.20) !important;
-  color: #FF9147 !important;
-  border-color: rgba(255,145,71,.42) !important;
-}
-.music-eq-bar { background: #FF9147 !important; }
 
 /* watchlist item hover orange tint */
 .wl-item:hover { background: rgba(255,145,71,.08) !important; }
@@ -3580,7 +3450,7 @@ html.perf-mode .sig-stat-streak { color: #E85A1A; }
    勝率欄上方 TOP 3 列
 ═══════════════════════════════════════ */
 .tb-wr-top3 {
-  flex: 1 1 auto !important;      /* 撐滿 row 1 左 logo 與右 TF 之間的中間空白 */
+  flex: 1 1 0 !important;         /* basis 0：只填可用空間、內容過寬時內部捲動，不撐開 row 1 換行 */
   min-width: 0;
   display: flex;
   align-items: center;
@@ -3636,6 +3506,36 @@ html.perf-mode .sig-stat-streak { color: #E85A1A; }
   flex-shrink: 0;
 }
 .wr-top3-sum-n { color: var(--muted); font-size: 10px; font-weight: normal; margin-left: 2px; }
+
+/* 綜合連敗風險（敗後再敗）— 按鈕 + 數字，接在 TOP3 合計後面 */
+.wr-streak-wrap {
+  display: inline-flex; align-items: center; gap: 5px;
+  margin-left: 10px; padding-left: 10px;
+  border-left: 1px solid rgba(255,180,120,.25);
+  font-size: 11px; flex-shrink: 0;
+}
+.wr-streak-btn {
+  font-size: 10.5px; font-weight: 700;
+  color: var(--muted);
+  background: rgba(255,180,120,.10);
+  border: 1px solid rgba(255,180,120,.30);
+  border-radius: 5px; padding: 1px 7px;
+  cursor: pointer; white-space: nowrap;
+  font-family: inherit;
+}
+.wr-streak-btn:hover { background: rgba(255,180,120,.20); }
+.wr-streak-btn.on { color: #FFB178; border-color: rgba(255,180,120,.6); background: rgba(255,160,90,.18); }
+.wr-cond-i { color: #c9cdd6; font-family: 'SF Mono','Courier New',monospace; }
+.wr-cond-i b { font-weight: 800; color: #FFB178; margin-left: 1px; }
+.wr-cond-i.bad  b { color: #ef5350; }
+.wr-cond-i.good b { color: #26a69a; }
+.wr-cond-i small { color: var(--muted); font-size: 9px; margin-left: 1px; }
+html.perf-mode .wr-cond-i b { color: #E85A1A; }
+html.perf-mode .wr-cond-i.bad  b { color: #dc2626; }
+html.perf-mode .wr-cond-i.good b { color: #16a34a; }
+html.perf-mode .wr-cond-i small { color: #8B8B8B; }
+html.perf-mode .wr-streak-btn { color: #8B6B4A; background: #FFF3E0; border-color: #FFCC80; }
+html.perf-mode .wr-streak-btn.on { color: #E85A1A; border-color: #FFB74D; }
 
 html.perf-mode .tb-wr-top3 {
   background: #FFF8E1;
