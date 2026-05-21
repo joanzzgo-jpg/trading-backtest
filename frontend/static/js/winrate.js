@@ -22,12 +22,21 @@ const _WR_BUFFER_KEY = "wrStopBuffer";
 let _wrStopBuffer = 0;
 try { _wrStopBuffer = parseFloat(localStorage.getItem(_WR_BUFFER_KEY)) || 0; } catch (e) {}
 
-// 加碼設定（auto-RR 盒用）：加碼量倍數 + 觸發來源開關
-let _pyrSize = 1.0;           // 每次加碼 = 初始量 × 此倍數
+// 強化版門檻：只取「預估 RR(中軌) ≤ 此值」的訊號（決定是否做單），預設 1.5
+const _WR_VRR_KEY = "wrVariantRR";
+let _wrVariantRR = 1.5;
+try { const v = parseFloat(localStorage.getItem(_WR_VRR_KEY)); if (v > 0) _wrVariantRR = v; } catch (e) {}
+
+// 加碼設定（auto-RR 盒用）：加碼量分「低於/高於入場價」兩種 + 觸發來源開關
+let _pyrSizeBelow = 1.0;      // 加碼點價格 < 入場價 時的加碼量（× 初始倉）
+let _pyrSizeAbove = 1.0;      // 加碼點價格 ≥ 入場價 時的加碼量（× 初始倉）
 let _pyrUseIndicator = true;  // 同方向 CRT/共振/KDJ叉 觸發加碼
 let _pyrUseBBrev = false;     // BB 反轉型態觸發加碼（碰下軌綠K接紅K收中軌上 / 反之）
 try {
-  const v = localStorage.getItem("wrPyrSize"); if (v != null) _pyrSize = parseFloat(v) || 1.0;
+  const _old = parseFloat(localStorage.getItem("wrPyrSize"));   // 舊單一值 → 兩者預設
+  const _dft = (_old > 0) ? _old : 1.0;
+  const b = parseFloat(localStorage.getItem("wrPyrSizeBelow")); _pyrSizeBelow = (b > 0) ? b : _dft;
+  const a = parseFloat(localStorage.getItem("wrPyrSizeAbove")); _pyrSizeAbove = (a > 0) ? a : _dft;
   _pyrUseIndicator = localStorage.getItem("wrPyrIndicator") !== "0";
   _pyrUseBBrev = localStorage.getItem("wrPyrBBrev") === "1";
 } catch (e) {}
@@ -72,9 +81,12 @@ function _toggleWrVariant() {
 
 // 給左側抽屜的加碼設定呼叫：更新 module 變數 + localStorage + 重畫盒子
 window._setPyrSetting = function (key, val) {
-  if (key === "size") {
-    _pyrSize = (val > 0 ? val : 1.0);
-    try { localStorage.setItem("wrPyrSize", String(_pyrSize)); } catch (e) {}
+  if (key === "sizeBelow") {
+    _pyrSizeBelow = (val > 0 ? val : 1.0);
+    try { localStorage.setItem("wrPyrSizeBelow", String(_pyrSizeBelow)); } catch (e) {}
+  } else if (key === "sizeAbove") {
+    _pyrSizeAbove = (val > 0 ? val : 1.0);
+    try { localStorage.setItem("wrPyrSizeAbove", String(_pyrSizeAbove)); } catch (e) {}
   } else if (key === "indicator") {
     _pyrUseIndicator = !!val;
     try { localStorage.setItem("wrPyrIndicator", val ? "1" : "0"); } catch (e) {}
@@ -86,7 +98,8 @@ window._setPyrSetting = function (key, val) {
   if (typeof renderDrawings === "function") requestAnimationFrame(renderDrawings);
 };
 window._getPyrSettings = function () {
-  return { size: _pyrSize, indicator: _pyrUseIndicator, bbrev: _pyrUseBBrev };
+  return { sizeBelow: _pyrSizeBelow, sizeAbove: _pyrSizeAbove,
+           indicator: _pyrUseIndicator, bbrev: _pyrUseBBrev };
 };
 
 function _initWrStopBuffer() {
@@ -102,6 +115,20 @@ function _initWrStopBuffer() {
     fetchWinRate();
     // 已展開的自動盈虧比盒也跟著新 buffer 重畫止損位
     if (typeof renderDrawings === "function") requestAnimationFrame(renderDrawings);
+  });
+}
+
+function _initWrVariantRR() {
+  const inp = document.getElementById("wrVariantRR");
+  if (!inp) return;
+  inp.value = _wrVariantRR;
+  inp.addEventListener("change", () => {
+    const v = Math.max(0.1, Math.min(20, parseFloat(inp.value) || 1.5));
+    inp.value = v;
+    _wrVariantRR = v;
+    try { localStorage.setItem(_WR_VRR_KEY, String(v)); } catch (e) {}
+    _wrCache = {};       // 門檻變了，後端 variant 要重算
+    fetchWinRate();
   });
 }
 
@@ -248,6 +275,12 @@ function _computeAutoRRBox(sig) {
       && prev.close < prev.open && cur.close > cur.open
       && cur.close > cur.bb_middle;
   };
+  const entryPx = entryBar.open;
+  const szBelow = (_pyrSizeBelow > 0 ? _pyrSizeBelow : 1.0);
+  const szAbove = (_pyrSizeAbove > 0 ? _pyrSizeAbove : 1.0);
+  // 已結算單的結算棒時間（秒）。用時間比對當保險：即使 exitIdx 在已載入資料中
+  // 找不到（結算棒未載入 / band 視圖未結算），也不會把加碼掃到結算之後。
+  const exitSec = exitT ? toTime(exitT) : null;
   for (let j = entryIdx; j < lastIdx; j++) {
     const bar = ohlcvData[j];
     if (!bar) continue;
@@ -255,13 +288,16 @@ function _computeAutoRRBox(sig) {
     if (hit) {
       const next = ohlcvData[j + 1];
       if (!next || next.open == null) continue;
-      pyramids.push({ idx: j + 1, time: toTime(next.time), price: next.open });
+      // 加碼點必須嚴格在結算棒之前；到達結算棒(含)就停止加碼
+      if (exitSec != null && toTime(next.time) >= exitSec) break;
+      // 加碼量依「加碼價 vs 入場價」決定：低於入場價用 szBelow、否則 szAbove
+      const sz = next.open < entryPx ? szBelow : szAbove;
+      pyramids.push({ idx: j + 1, time: toTime(next.time), price: next.open, sz });
     }
   }
-  // 均減進場價（初始 1 單位 + 每加碼 _pyrSize 單位，加權平均）
-  const sz = (_pyrSize > 0 ? _pyrSize : 1.0);
-  const totalUnits = 1 + pyramids.length * sz;
-  const weightedSum = entryBar.open + pyramids.reduce((a, p) => a + p.price * sz, 0);
+  // 均減進場價（初始 1 單位 + 每加碼 p.sz 單位，加權平均）
+  const totalUnits = 1 + pyramids.reduce((a, p) => a + p.sz, 0);
+  const weightedSum = entryPx + pyramids.reduce((a, p) => a + p.price * p.sz, 0);
   const avgEntry = weightedSum / totalUnits;
 
   // 盒寬：到結算棒，沒結算就 8 根；並確保涵蓋所有加碼點
@@ -318,7 +354,8 @@ async function _fetchWinRateNow() {
   const timeframe = currentTF || "1d";
   if (!symbol) return;
   const bufDec = (_wrStopBuffer || 0) / 100;
-  const cacheKey = `${market}:${symbol}:${exchange}:${timeframe}:${bufDec.toFixed(4)}`;
+  const vrr = (_wrVariantRR > 0 ? _wrVariantRR : 1.5).toFixed(2);
+  const cacheKey = `${market}:${symbol}:${exchange}:${timeframe}:${bufDec.toFixed(4)}:${vrr}`;
   if (_wrCache[cacheKey]) {
     _renderWinRate(_wrCache[cacheKey]);
     _renderWRSignals(_wrCache[cacheKey].signals);
@@ -335,7 +372,7 @@ async function _fetchWinRateNow() {
   // 不寫 "計算中…" 到 wrStatus，由中央 .tb-wr-loading（小熊 + 文字）顯示
   if (statusEl) statusEl.textContent = "";
   try {
-    const p   = new URLSearchParams({ market, symbol, exchange, timeframe, stop_buffer_pct: bufDec.toFixed(4) });
+    const p   = new URLSearchParams({ market, symbol, exchange, timeframe, stop_buffer_pct: bufDec.toFixed(4), variant_rr: vrr });
     const res = await fetch("/api/crt_winrate?" + p);
     const d   = await res.json();
     if (!res.ok) throw new Error(d.detail || "failed");
@@ -583,8 +620,12 @@ function _renderWrTop3() {
     };
     if (ss && ss.win_rate != null) {
       const tc = ss.win_rate >= 60 ? " good" : ss.win_rate < 45 ? " bad" : "";
-      condNums = `<span class="wr-cond-i${tc}">總<b>${ss.win_rate}%</b><small>(${ss.total})</small></span>`
-               + _si("空", ss.short) + _si("多", ss.long);
+      const est = ss.est;
+      const estHtml = (est && est.win_rate != null)
+        ? `<span class="wr-cond-i${est.win_rate >= 60 ? " good" : est.win_rate < 45 ? " bad" : ""}" title="敗後停手套用後，到達『進場時固定預估止盈』的機率">預估<b>${est.win_rate}%</b><small>(${est.total})</small></span>`
+        : "";
+      condNums = `<span class="wr-cond-i${tc}" title="敗後停手套用後、實際到達動態中軌目標的總勝率">總<b>${ss.win_rate}%</b><small>(${ss.total})</small></span>`
+               + estHtml + _si("空", ss.short) + _si("多", ss.long);
     } else {
       condNums = `<span class="wr-cond-i">總<b>—</b></span>`;
     }
@@ -626,23 +667,22 @@ function _renderWrTop3() {
   const cTot = w + l;
   const cWr  = cTot > 0 ? (w / cTot * 100).toFixed(1) : null;
 
+  // 精簡：去掉筆數(n)與分隔點、勝率取整數，完整數字移到 tooltip，讓出連敗顯示空間
   const itemsHtml = top3.map(t => {
     const dirSym = t.dir === "short" ? "空" : "多";
     const dirCls = t.dir === "short" ? "s" : "l";
-    return `<span class="wr-top3-item">
-      <span class="wr-top3-icon wr-${t.k}">${_SIG_ICON[t.k]}</span>
-      <span class="wr-top3-name">${_SIG_LABEL[t.k]}</span>
-      <span class="wr-top3-dir ${dirCls}">${dirSym}</span>
-      <span class="wr-top3-wr">${t.wr.toFixed(1)}%</span>
-      <span class="wr-top3-n">(${t.total})</span>
-    </span>`;
-  }).join('<span class="wr-top3-sep">·</span>');
+    return `<span class="wr-top3-item" title="${_SIG_LABEL[t.k]} ${dirSym} ${t.wr.toFixed(1)}%（${t.wins}勝/${t.total - t.wins}負，共${t.total}筆）">`
+      + `<span class="wr-top3-name wr-${t.k}">${_SIG_LABEL[t.k]}</span>`
+      + `<span class="wr-top3-dir ${dirCls}">${dirSym}</span>`
+      + `<span class="wr-top3-wr">${Math.round(t.wr)}%</span>`
+      + `</span>`;
+  }).join("");
 
   const sumHtml = (cWr != null)
-    ? `<span class="wr-top3-sum" title="只計入這 3 個 (訊號×方向) 且同 signal-bar+同方向去重">合計 ${cWr}% <span class="wr-top3-sum-n">(${cTot}筆)</span></span>`
+    ? `<span class="wr-top3-sum" title="只計入這 3 個 (訊號×方向) 且同 signal-bar+同方向去重，共 ${cTot} 筆">${Math.round(cWr)}%</span>`
     : "";
 
-  root.innerHTML = `<span class="wr-top3-label">TOP 3</span><span class="wr-top3-items">${itemsHtml}</span>${sumHtml}${streakHtml}`;
+  root.innerHTML = `<span class="wr-top3-label">T3</span><span class="wr-top3-items">${itemsHtml}</span>${sumHtml}${streakHtml}`;
 }
 
 /* ══════════════════════════════════════════

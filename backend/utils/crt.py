@@ -84,7 +84,8 @@ def _scan_outcome_np(highs, lows, closes, target_arr, times_iso, entry_i, n, sto
     return result, times_iso[j_abs], j_abs
 
 
-def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only: bool = False) -> dict:
+def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only: bool = False,
+                      variant_rr: float = 1.5) -> dict:
     """
     六種訊號合併計算勝率（中軌目標 + 帶軌目標雙統計）。
 
@@ -230,9 +231,9 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                 o = _scan_outcome_fixed(highs, lows, closes, entry_i, n,
                                          stop_px, float(tgt_band_fix), direction)
                 est_r_b = "w" if o == "win" else ("l" if o == "loss" else None)
-        # 強化版判定：改用「預估 RR (中軌目標) ≤ 1.5」
-        #   研究（10911 筆跨 4 幣×2TF）：est_rr≤1.5 勝率 +11.7%、保留 50%
-        #   遠勝 body≥0.45 (+5.4%)。低 RR = 目標離進場近 = 均值回歸好達成
+        # 強化版判定：只取「預估 RR (中軌目標) > variant_rr」的訊號
+        #   （門檻可由前端調整，預設 1.5）。即只做「報酬/風險 大於門檻」的單，
+        #   再看這些單的勝率。RR 越高 = 目標離進場越遠。
         variant = False
         if sig_key != "abc" and entry_i < n:
             entry_px = opens[entry_i]
@@ -241,7 +242,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                 risk = abs(entry_px - stop_px)
                 if risk > 1e-9:
                     est_rr_mid = abs(entry_px - tgt_mid) / risk
-                    variant = est_rr_mid <= 1.5
+                    variant = est_rr_mid > variant_rr
         signals.append({
             "t": sig_time, "d": d_str, "k": sig_key,
             "r":   "w" if om == "win" else ("l" if om else None), "ot":   otm,
@@ -300,7 +301,11 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             i = int(i)
             direction = "short" if m_short[i] else "long"
             ib = i + 1   # B 棒（訊號棒）
-            stop_px = _stop(highs[ib] if direction == "short" else lows[ib], direction)
+            # 止損：A、B 兩棒取最高（做空）/ 最低（做多）
+            if direction == "short":
+                stop_px = _stop(max(highs[i], highs[ib]), direction)
+            else:
+                stop_px = _stop(min(lows[i], lows[ib]), direction)
             d_str = "s" if direction == "short" else "l"
             sig_time = times_iso[ib]
             entry_i = i + 2
@@ -335,7 +340,11 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             i = int(i)
             direction = "short" if s6_short[i] else "long"
             c_bar = i + 2  # C 棒（訊號棒 = 觸軌 CRT 反轉棒）在原始 array 的索引
-            stop_px = _stop(highs[c_bar] if direction == "short" else lows[c_bar], direction)
+            # 止損：A、B、C 三棒取最高（做空）/ 最低（做多）
+            if direction == "short":
+                stop_px = _stop(max(highs[i], highs[i+1], highs[c_bar]), direction)
+            else:
+                stop_px = _stop(min(lows[i], lows[i+1], lows[c_bar]), direction)
             d_str = "s" if direction == "short" else "l"
             sig_time = times_iso[c_bar]
             entry_i = c_bar + 1
@@ -726,8 +735,13 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
     #    例：空敗→多敗→空敗 不算做空 2 連敗（中間夾了多敗，連續被打斷）。
     #    loss_streak[k] = 同方向連敗 k 根後、下一筆同方向也敗的機率
     #                     （k=1→2連、k=2→3連、k=3→4連）；win_after_win = 同方向勝後再勝。
-    def _build_combined(use_band, only_variant):
-        """合併時間軸的已結算序列 [(d, r)]（dedupe by (t,d)、S1 不計入）。"""
+    def _build_combined(use_band, only_variant, est=False):
+        """合併時間軸的已結算序列 [(d, r)]（dedupe by (t,d)、S1 不計入）。
+        est=True 改用『進場時固定預估目標』的結果（est_r/est_r_b）。"""
+        if est:
+            rk = "est_r_b" if use_band else "est_r"
+        else:
+            rk = "r_b" if use_band else "r"
         seen = set(); seq = []
         for s in sorted(signals, key=lambda x: x["t"]):
             if s["k"] == "abc":
@@ -738,7 +752,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             if key in seen:
                 continue
             seen.add(key)
-            r = s.get("r_b" if use_band else "r")
+            r = s.get(rk)
             if r not in ("w", "l"):
                 continue
             seq.append((s["d"], r))
@@ -786,27 +800,32 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         - 某方向「進場中」遇敗 → 該方向「停手」（計入這一敗）
         - 「停手中」跳過該方向訊號（不計），但反方向不受影響、照自己的狀態進場
         - 解除停手（回進場中）兩種觸發：①同方向出現紙上會贏 ②反方向訊號出現（中斷連敗）
-        回傳實際進場單的空/多/合計勝率。母體同總勝率（S2~S11 去重、合併時間軸）。"""
-        combined = _build_combined(use_band, only_variant)   # [(d, r)] 已結算、依時間排序
-        active = {"s": True, "l": True}
-        w = {"s": 0, "l": 0}; l = {"s": 0, "l": 0}
-        for d, r in combined:
-            if active[d]:
-                if r == "w":
-                    w[d] += 1
-                else:
-                    l[d] += 1; active[d] = False              # 遇敗停手
-            elif r == "w":
-                active[d] = True                              # 同方向紙上回穩
-            active["l" if d == "s" else "s"] = True           # 反方向出現 → 解除其停手
-        def _mk(dk):
-            t = w[dk] + l[dk]
-            return {"total": t, "wins": w[dk], "losses": l[dk],
-                    "win_rate": round(w[dk] / t * 100, 1) if t else None}
-        sr = _mk("s"); lr = _mk("l")
-        tot = sr["total"] + lr["total"]; win = sr["wins"] + lr["wins"]
-        return {"short": sr, "long": lr, "total": tot, "wins": win,
-                "win_rate": round(win / tot * 100, 1) if tot else None}
+        回傳實際進場單的空/多/合計勝率。母體同總勝率（S2~S11 去重、合併時間軸）。
+        另含 "est"：用『進場時固定預估目標』結果跑同一套停手模擬（到達預估盈虧比的機率）。"""
+        def _run(est):
+            combined = _build_combined(use_band, only_variant, est=est)  # 依時間排序
+            active = {"s": True, "l": True}
+            w = {"s": 0, "l": 0}; l = {"s": 0, "l": 0}
+            for d, r in combined:
+                if active[d]:
+                    if r == "w":
+                        w[d] += 1
+                    else:
+                        l[d] += 1; active[d] = False              # 遇敗停手
+                elif r == "w":
+                    active[d] = True                              # 同方向紙上回穩
+                active["l" if d == "s" else "s"] = True           # 反方向出現 → 解除其停手
+            def _mk(dk):
+                t = w[dk] + l[dk]
+                return {"total": t, "wins": w[dk], "losses": l[dk],
+                        "win_rate": round(w[dk] / t * 100, 1) if t else None}
+            sr = _mk("s"); lr = _mk("l")
+            tot = sr["total"] + lr["total"]; win = sr["wins"] + lr["wins"]
+            return {"short": sr, "long": lr, "total": tot, "wins": win,
+                    "win_rate": round(win / tot * 100, 1) if tot else None}
+        out = _run(est=False)
+        out["est"] = _run(est=True)   # 到達預估盈虧比（固定目標）的停手版機率
+        return out
 
     cond_tot_mid    = _calc_cond_total(use_band=False, only_variant=False)
     cond_tot_band   = _calc_cond_total(use_band=True,  only_variant=False)

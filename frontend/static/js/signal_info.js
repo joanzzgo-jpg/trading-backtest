@@ -355,7 +355,7 @@
         <span class="sig-dwr-icon" style="color:${info.color}">${info.icon}</span>
         <div class="sig-dwr-titles">
           <div class="sig-dwr-name">${nameWithVariant}</div>
-          <div class="sig-dwr-sub">${info.subtitle}${variantLabel === "強化版" ? " + 強化濾鏡（預估RR≤1.5）" : ""}</div>
+          <div class="sig-dwr-sub">${info.subtitle}${variantLabel === "強化版" ? " + 強化濾鏡（預估RR&gt;門檻）" : ""}</div>
         </div>
         <button class="sig-dwr-close" id="sigDrawerClose">✕</button>
       </div>
@@ -423,14 +423,18 @@
   // 加碼設定 section（全域設定，影響所有 auto-RR 盒）
   function _pyrSettingsHTML() {
     const p = (typeof window._getPyrSettings === "function")
-      ? window._getPyrSettings() : { size: 1, indicator: true, bbrev: false };
+      ? window._getPyrSettings() : { sizeBelow: 1, sizeAbove: 1, indicator: true, bbrev: false };
     return `
       <section class="sig-section">
         <h3 class="sig-h3 sig-h3-toggle">⚙ 加碼設定 <span class="sig-collapse-arr">▾</span></h3>
         <div class="sig-sec-body">
           <div class="sig-pyr-row">
-            <label class="sig-pyr-lbl">加碼量（× 初始倉）</label>
-            <input id="pyrSize" class="sig-pyr-num" type="number" step="0.1" min="0.1" max="5" value="${p.size}"/>
+            <label class="sig-pyr-lbl" title="加碼點價格『低於入場價』時的加碼量">低於入場價加碼（× 初始倉）</label>
+            <input id="pyrSizeBelow" class="sig-pyr-num" type="number" step="0.1" min="0.1" max="5" value="${p.sizeBelow}"/>
+          </div>
+          <div class="sig-pyr-row">
+            <label class="sig-pyr-lbl" title="加碼點價格『高於（含等於）入場價』時的加碼量">高於入場價加碼（× 初始倉）</label>
+            <input id="pyrSizeAbove" class="sig-pyr-num" type="number" step="0.1" min="0.1" max="5" value="${p.sizeAbove}"/>
           </div>
           <label class="sig-pyr-check">
             <input id="pyrIndicator" type="checkbox" ${p.indicator ? "checked" : ""}/>
@@ -449,10 +453,15 @@
   function _bindPyrSettings(root) {
     const setFn = window._setPyrSetting;
     if (typeof setFn !== "function") return;
-    const sz = root.querySelector("#pyrSize");
-    if (sz) sz.addEventListener("change", () => {
-      const v = Math.max(0.1, Math.min(5, parseFloat(sz.value) || 1));
-      sz.value = v; setFn("size", v);
+    const szB = root.querySelector("#pyrSizeBelow");
+    if (szB) szB.addEventListener("change", () => {
+      const v = Math.max(0.1, Math.min(5, parseFloat(szB.value) || 1));
+      szB.value = v; setFn("sizeBelow", v);
+    });
+    const szA = root.querySelector("#pyrSizeAbove");
+    if (szA) szA.addEventListener("change", () => {
+      const v = Math.max(0.1, Math.min(5, parseFloat(szA.value) || 1));
+      szA.value = v; setFn("sizeAbove", v);
     });
     const ind = root.querySelector("#pyrIndicator");
     if (ind) ind.addEventListener("change", () => setFn("indicator", ind.checked));

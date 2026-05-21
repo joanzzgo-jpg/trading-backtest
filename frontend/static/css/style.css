@@ -3471,41 +3471,37 @@ html.perf-mode .sig-stat-streak { color: #E85A1A; }
 .tb-wr-top3:empty { display: none; }
 
 .wr-top3-label {
-  font-size: 10px; font-weight: 700;
-  color: #FFB178; letter-spacing: 1.5px;
+  font-size: 9px; font-weight: 700;
+  color: #FFB178; letter-spacing: .5px;
   flex-shrink: 0;
 }
 .wr-top3-items {
-  display: flex; align-items: center; gap: 4px;
+  display: flex; align-items: center; gap: 3px;
   flex-shrink: 0;
 }
 .wr-top3-item {
-  display: inline-flex; align-items: baseline; gap: 3px;
-  padding: 1px 5px;
+  display: inline-flex; align-items: baseline; gap: 2px;
+  padding: 1px 4px;
   border-radius: 3px;
   background: rgba(255,180,120,.06);
 }
-.wr-top3-icon { font-size: 11px; line-height: 1; filter: drop-shadow(0 0 2px currentColor); }
-.wr-top3-name { font-weight: 700; font-size: 11px; color: var(--text); }
-.wr-top3-dir { font-weight: 700; font-size: 11px; }
+.wr-top3-name { font-weight: 700; font-size: 10.5px; }   /* 顏色由 wr-{key} class 提供 */
+.wr-top3-dir { font-weight: 700; font-size: 10px; }
 .wr-top3-dir.s { color: #ef7070; }
 .wr-top3-dir.l { color: #4dd0c4; }
 .wr-top3-wr {
   font-family: 'SF Mono','Courier New',monospace;
-  font-size: 12px; font-weight: 800;
+  font-size: 11px; font-weight: 800;
   color: #fff;
 }
-.wr-top3-n { color: var(--muted); font-size: 10px; }
-.wr-top3-sep { color: rgba(255,180,120,.4); font-size: 11px; margin: 0 2px; }
 .wr-top3-sum {
   margin-left: auto;
-  font-size: 12px; font-weight: 800;
+  font-size: 11px; font-weight: 800;
   color: #FFB178;
   font-family: 'SF Mono','Courier New',monospace;
   cursor: help;
   flex-shrink: 0;
 }
-.wr-top3-sum-n { color: var(--muted); font-size: 10px; font-weight: normal; margin-left: 2px; }
 
 /* 綜合連敗風險（敗後再敗）— 按鈕 + 數字，接在 TOP3 合計後面 */
 .wr-streak-wrap {

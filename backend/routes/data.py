@@ -317,6 +317,7 @@ def get_crt_winrate(
     timeframe: str = "1d",
     exchange: str = "pionex",
     stop_buffer_pct: float = 0.0,
+    variant_rr: float = 1.5,
     api_key: str = "",
     api_secret: str = "",
     finmind_token: str = "",
@@ -325,11 +326,13 @@ def get_crt_winrate(
 
     stop_buffer_pct：停損緩衝（decimal，例 0.005 = 0.5%）。
     短：stop = base_high × (1 + buf)；多：stop = base_low × (1 - buf)。
+    variant_rr：強化版門檻——只取「預估 RR(中軌) > variant_rr」的訊號（預設 1.5）。
     """
     from datetime import date, timedelta
     _buf = round(max(0.0, float(stop_buffer_pct or 0.0)), 4)
+    _vrr = round(max(0.1, min(20.0, float(variant_rr or 1.5))), 2)
     _long_only = (market == "tw")  # 台股不能放空
-    cache_key = f"crt_wr46:{market}:{symbol}:{exchange}:{timeframe}:{_buf}:{int(_long_only)}"
+    cache_key = f"crt_wr48:{market}:{symbol}:{exchange}:{timeframe}:{_buf}:{_vrr}:{int(_long_only)}"
     cached = cache.get(cache_key, ttl=3600)
     if cached:
         return cached
@@ -408,7 +411,7 @@ def get_crt_winrate(
         raise HTTPException(400, f"資料不足 50 根K棒（{timeframe}）")
 
     df = enrich_df(df)
-    result = _calc_crt_winrate(df, stop_buffer_pct=_buf, long_only=_long_only)
+    result = _calc_crt_winrate(df, stop_buffer_pct=_buf, long_only=_long_only, variant_rr=_vrr)
 
     cache.set(cache_key, result)
     return result
