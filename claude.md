@@ -192,7 +192,7 @@
 11. `style.css`：`.wr-sXX { color }` + perf-mode 版
 
 > **變數命名**：stat key 用 `s3`~`s11`（有 s 前綴），但 signal record 的 `s.k` 與 SIG_KEYS 用 `"3"`~`"11"`（無前綴）。`_STATKEY_TO_SIGK` 負責轉換。abc/ab 兩者同名。
-> **強化版（variant）** 統一在 `_push_signal` 內以「預估 RR(中軌) ≤ 1.5」判定，新訊號自動套用，不需另外處理。
+> **強化版（variant）** 統一在 `_push_signal` 內以「預估盈虧比 RR(中軌) 落在 `_VARIANT_RR_LO`~`_VARIANT_RR_HI`（目前 0.6~1.1）之間」判定，新訊號自動套用。此帶為研究結果（高勝率＋獲利適中）：剔除極低 RR（0~0.6，勝率高但期望值極低=獲利殺手）與高 RR（>1.1，低勝率）。**注意：低 RR 雖勝率高但期望值差，不可只用「RR 越低越好」當濾鏡。** 門檻為固定值、不由前端調整。
 
 ### 五種訊號並行計算
 

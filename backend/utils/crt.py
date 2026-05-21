@@ -84,8 +84,15 @@ def _scan_outcome_np(highs, lows, closes, target_arr, times_iso, entry_i, n, sto
     return result, times_iso[j_abs], j_abs
 
 
-def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only: bool = False,
-                      variant_rr: float = 1.5) -> dict:
+# 強化版濾鏡：預估盈虧比 RR(中軌) 落在 [_VARIANT_RR_LO, _VARIANT_RR_HI] 之間才入選。
+# 研究（2864 筆跨 4 幣×3 時框）：此帶勝率 63%（基準 55%）、期望值 0.164R（≈基準，
+# 不像「RR≤1.5」會把獲利拖到 0.108）。剔除極低 RR（0~0.6，勝率高但賺太少=獲利殺手）
+# 與高 RR（>1.1，低勝率）。目標＝勝率高、獲利率適中。
+_VARIANT_RR_LO = 0.6
+_VARIANT_RR_HI = 1.1
+
+
+def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only: bool = False) -> dict:
     """
     六種訊號合併計算勝率（中軌目標 + 帶軌目標雙統計）。
 
@@ -231,24 +238,26 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                 o = _scan_outcome_fixed(highs, lows, closes, entry_i, n,
                                          stop_px, float(tgt_band_fix), direction)
                 est_r_b = "w" if o == "win" else ("l" if o == "loss" else None)
-        # 強化版判定：只取「預估 RR (中軌目標) > variant_rr」的訊號
-        #   （門檻可由前端調整，預設 1.5）。即只做「報酬/風險 大於門檻」的單，
-        #   再看這些單的勝率。RR 越高 = 目標離進場越遠。
+        # 強化版判定：預估盈虧比 RR(中軌) 落在 [_VARIANT_RR_LO, _VARIANT_RR_HI] 之間
+        #   盈虧比 = |進場-目標|/|進場-止損| = 賺的距離/賠的距離。
+        #   研究後固定此帶（高勝率＋獲利適中），不再由前端調整。
         variant = False
+        est_rr_val = None
         if sig_key != "abc" and entry_i < n:
             entry_px = opens[entry_i]
             tgt_mid  = bb_mid[entry_i]
             if not (math.isnan(entry_px) or math.isnan(tgt_mid)):
                 risk = abs(entry_px - stop_px)
                 if risk > 1e-9:
-                    est_rr_mid = abs(entry_px - tgt_mid) / risk
-                    variant = est_rr_mid > variant_rr
+                    est_rr_val = round(abs(entry_px - tgt_mid) / risk, 3)
+                    variant = _VARIANT_RR_LO <= est_rr_val <= _VARIANT_RR_HI
         signals.append({
             "t": sig_time, "d": d_str, "k": sig_key,
             "r":   "w" if om == "win" else ("l" if om else None), "ot":   otm,
             "r_b": "w" if ob == "win" else ("l" if ob else None), "ot_b": otb,
             "est_r":   est_r,
             "est_r_b": est_r_b,
+            "rr": est_rr_val,
             "v": bool(variant),
         })
         _bump(mid_cnt,  sig_key, direction, om)

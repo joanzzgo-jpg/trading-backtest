@@ -76,12 +76,7 @@
       <button id="wrTargetToggle" class="tb-wr-toggle" onclick="_toggleWrTarget()"
               title="切換目標：中軌（保守，BB middle）↔ 上下軌（極端反向：多→上軌、空→下軌）">中軌</button>
       <button id="wrVariantToggle" class="tb-wr-toggle" onclick="_toggleWrVariant()"
-              title="切換訊號版本：原版 ↔ 強化版（只取預估RR大於門檻的訊號；門檻用右邊 RR> 框調整）">原版</button>
-      <span class="tb-wr-buffer" title="強化版門檻：只取『預估盈虧比 RR(中軌) 大於此值』的訊號，再看這些單的勝率（預設 1.5）">
-        <span class="tb-wr-buffer-pct">RR&gt;</span>
-        <input id="wrVariantRR" class="tb-wr-buffer-input" type="number"
-               step="0.1" min="0.1" max="20" value="1.5" />
-      </span>
+              title="切換訊號版本：原版 ↔ 強化版（研究後固定濾鏡：只取預估盈虧比 RR 0.6~1.1 的訊號＝高勝率＋獲利適中）">原版</button>
       <span class="tb-wr-buffer" title="停損緩衝 %（0~10）：短=高於最高值 X%、多=低於最低值 X% 才算停損">
         <input id="wrStopBuffer" class="tb-wr-buffer-input" type="number"
                step="0.1" min="0" max="10" value="0" />

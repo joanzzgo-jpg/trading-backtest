@@ -22,11 +22,6 @@ const _WR_BUFFER_KEY = "wrStopBuffer";
 let _wrStopBuffer = 0;
 try { _wrStopBuffer = parseFloat(localStorage.getItem(_WR_BUFFER_KEY)) || 0; } catch (e) {}
 
-// 強化版門檻：只取「預估 RR(中軌) ≤ 此值」的訊號（決定是否做單），預設 1.5
-const _WR_VRR_KEY = "wrVariantRR";
-let _wrVariantRR = 1.5;
-try { const v = parseFloat(localStorage.getItem(_WR_VRR_KEY)); if (v > 0) _wrVariantRR = v; } catch (e) {}
-
 // 加碼設定（auto-RR 盒用）：加碼量分「低於/高於入場價」兩種 + 觸發來源開關
 let _pyrSizeBelow = 1.0;      // 加碼點價格 < 入場價 時的加碼量（× 初始倉）
 let _pyrSizeAbove = 1.0;      // 加碼點價格 ≥ 入場價 時的加碼量（× 初始倉）
@@ -115,20 +110,6 @@ function _initWrStopBuffer() {
     fetchWinRate();
     // 已展開的自動盈虧比盒也跟著新 buffer 重畫止損位
     if (typeof renderDrawings === "function") requestAnimationFrame(renderDrawings);
-  });
-}
-
-function _initWrVariantRR() {
-  const inp = document.getElementById("wrVariantRR");
-  if (!inp) return;
-  inp.value = _wrVariantRR;
-  inp.addEventListener("change", () => {
-    const v = Math.max(0.1, Math.min(20, parseFloat(inp.value) || 1.5));
-    inp.value = v;
-    _wrVariantRR = v;
-    try { localStorage.setItem(_WR_VRR_KEY, String(v)); } catch (e) {}
-    _wrCache = {};       // 門檻變了，後端 variant 要重算
-    fetchWinRate();
   });
 }
 
@@ -354,8 +335,7 @@ async function _fetchWinRateNow() {
   const timeframe = currentTF || "1d";
   if (!symbol) return;
   const bufDec = (_wrStopBuffer || 0) / 100;
-  const vrr = (_wrVariantRR > 0 ? _wrVariantRR : 1.5).toFixed(2);
-  const cacheKey = `${market}:${symbol}:${exchange}:${timeframe}:${bufDec.toFixed(4)}:${vrr}`;
+  const cacheKey = `${market}:${symbol}:${exchange}:${timeframe}:${bufDec.toFixed(4)}`;
   if (_wrCache[cacheKey]) {
     _renderWinRate(_wrCache[cacheKey]);
     _renderWRSignals(_wrCache[cacheKey].signals);
@@ -372,7 +352,7 @@ async function _fetchWinRateNow() {
   // 不寫 "計算中…" 到 wrStatus，由中央 .tb-wr-loading（小熊 + 文字）顯示
   if (statusEl) statusEl.textContent = "";
   try {
-    const p   = new URLSearchParams({ market, symbol, exchange, timeframe, stop_buffer_pct: bufDec.toFixed(4), variant_rr: vrr });
+    const p   = new URLSearchParams({ market, symbol, exchange, timeframe, stop_buffer_pct: bufDec.toFixed(4) });
     const res = await fetch("/api/crt_winrate?" + p);
     const d   = await res.json();
     if (!res.ok) throw new Error(d.detail || "failed");

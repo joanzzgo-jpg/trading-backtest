@@ -355,7 +355,7 @@
         <span class="sig-dwr-icon" style="color:${info.color}">${info.icon}</span>
         <div class="sig-dwr-titles">
           <div class="sig-dwr-name">${nameWithVariant}</div>
-          <div class="sig-dwr-sub">${info.subtitle}${variantLabel === "強化版" ? " + 強化濾鏡（預估RR&gt;門檻）" : ""}</div>
+          <div class="sig-dwr-sub">${info.subtitle}${variantLabel === "強化版" ? " + 強化濾鏡（預估RR 0.6~1.1）" : ""}</div>
         </div>
         <button class="sig-dwr-close" id="sigDrawerClose">✕</button>
       </div>
