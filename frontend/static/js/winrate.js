@@ -339,6 +339,8 @@ async function _fetchWinRateNow() {
   if (_wrCache[cacheKey]) {
     _renderWinRate(_wrCache[cacheKey]);
     _renderWRSignals(_wrCache[cacheKey].signals);
+    // 快取命中也要刷新左抽屜（含敗後停手求解），否則切回已載入過的標的時抽屜不更新
+    if (typeof window._refreshSignalDrawer === "function") window._refreshSignalDrawer();
     return;
   }
   // 進入「計算中」狀態：舊數據變暗、進度條動畫 0→95%，避免使用者誤判前一個 symbol 的數據
