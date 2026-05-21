@@ -598,17 +598,20 @@ function _renderWrTop3() {
       const c = o.win_rate >= 60 ? " good" : o.win_rate < 45 ? " bad" : "";
       return `<span class="wr-cond-i${c}">${lbl}<b>${o.win_rate}%</b><small>(${o.total})</small></span>`;
     };
+    let inner;
     if (ss && ss.win_rate != null) {
       const tc = ss.win_rate >= 60 ? " good" : ss.win_rate < 45 ? " bad" : "";
       const est = ss.est;
       const estHtml = (est && est.win_rate != null)
-        ? `<span class="wr-cond-i${est.win_rate >= 60 ? " good" : est.win_rate < 45 ? " bad" : ""}" title="敗後停手套用後，到達『進場時固定預估止盈』的機率">預估<b>${est.win_rate}%</b><small>(${est.total})</small></span>`
+        ? `<span class="wr-cond-i${est.win_rate >= 60 ? " good" : est.win_rate < 45 ? " bad" : ""}">預估<b>${est.win_rate}%</b><small>(${est.total})</small></span>`
         : "";
-      condNums = `<span class="wr-cond-i${tc}" title="敗後停手套用後、實際到達動態中軌目標的總勝率">總<b>${ss.win_rate}%</b><small>(${ss.total})</small></span>`
-               + estHtml + _si("空", ss.short) + _si("多", ss.long);
+      inner = `<span class="wr-cond-i${tc}">總<b>${ss.win_rate}%</b><small>(${ss.total})</small></span>`
+            + estHtml + _si("空", ss.short) + _si("多", ss.long);
     } else {
-      condNums = `<span class="wr-cond-i">總<b>—</b></span>`;
+      inner = `<span class="wr-cond-i">總<b>—</b></span>`;
     }
+    // 點數字 → 開敗後停手細節抽屜
+    condNums = `<span class="wr-stop-detail" title="點擊看敗後停手策略細節" onclick="window._showStopStrategyDrawer&&window._showStopStrategyDrawer()">${inner}</span>`;
   }
   const streakHtml = `<span class="wr-streak-wrap">${streakBtn}${condNums}</span>`;
 

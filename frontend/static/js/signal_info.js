@@ -298,7 +298,122 @@
     </div>`;
   }
 
+  // 敗後停手策略 細節抽屜
+  function _renderStopDrawer() {
+    const d = (typeof _wrCacheLast !== "undefined") ? _wrCacheLast : null;
+    if (!d) return;
+    let view = (typeof _wrTargetView !== "undefined" && _wrTargetView === "band" && d.band) ? d.band : d;
+    if (typeof _wrVariantView !== "undefined" && _wrVariantView === "variant" && view && view.variant) view = view.variant;
+    const viewLabel = (typeof _wrTargetView !== "undefined" && _wrTargetView === "band") ? "上/下軌" : "中軌";
+    const variantLabel = (typeof _wrVariantView !== "undefined" && _wrVariantView === "variant") ? "強化版" : "原版";
+    const ss = view && view.stop_strategy;
+    const base = view;  // 不用策略的去重總勝率（對照）
+
+    const _wrCell = (o) => {
+      if (!o || o.win_rate == null) return `<span class="sig-stat-val">—</span>`;
+      const c = o.win_rate >= 60 ? "good" : o.win_rate < 45 ? "bad" : "";
+      const losses = (o.total != null && o.wins != null) ? (o.total - o.wins) : "—";
+      return `<span class="sig-stat-val ${c}">${o.win_rate}%</span><span class="sig-stat-cnt">${o.wins}勝/${losses}負（${o.total}筆）</span>`;
+    };
+    const _row = (label, o) => `<div class="sig-stat-row"><span class="sig-stat-lbl">${label}</span>${_wrCell(o)}</div>`;
+
+    const actBlock = ss ? `
+      <div class="sig-rule-lbl" style="margin:4px 0">📊 實際（動態${viewLabel}目標）</div>
+      ${_row("合計", ss)}
+      ${_row("空單", ss.short)}
+      ${_row("多單", ss.long)}` : `<div class="sig-empty">尚無資料</div>`;
+    const estBlock = (ss && ss.est) ? `
+      <div class="sig-rule-lbl" style="margin:8px 0 4px">📐 預估（進場時固定目標）</div>
+      ${_row("合計", ss.est)}
+      ${_row("空單", ss.est.short)}
+      ${_row("多單", ss.est.long)}` : "";
+
+    // 對照：不用策略 vs 用策略（合計）
+    const cmp = (base && base.win_rate != null && ss && ss.win_rate != null) ? `
+      <div class="sig-stat-row"><span class="sig-stat-lbl">不用停手（全進場）</span><span class="sig-stat-val">${base.win_rate}%</span><span class="sig-stat-cnt">${base.total}筆</span></div>
+      <div class="sig-stat-row"><span class="sig-stat-lbl">敗後停手</span><span class="sig-stat-val ${ss.win_rate>=base.win_rate?'good':'bad'}">${ss.win_rate}%</span><span class="sig-stat-cnt">${ss.total}筆（${ss.win_rate>=base.win_rate?'+':''}${(ss.win_rate-base.win_rate).toFixed(1)}）</span></div>` : "";
+
+    const html = `
+      <div class="sig-dwr-hd" style="border-left:3px solid #ffb74d">
+        <span class="sig-dwr-icon" style="color:#ffb74d">⏸</span>
+        <div class="sig-dwr-titles">
+          <div class="sig-dwr-name">敗後停手策略</div>
+          <div class="sig-dwr-sub">${viewLabel}目標 · ${variantLabel}（母體同總勝率 S2~S11 去重）</div>
+        </div>
+        <button class="sig-dwr-close" id="sigDrawerClose">✕</button>
+      </div>
+      <div class="sig-dwr-body">
+        <section class="sig-section">
+          <p class="sig-gist">輸一次就<b>停手</b>該方向、旁觀後續同方向訊號（不計）；直到<b>同方向出現會贏的單</b>或<b>反方向訊號出現</b>才解除、從下一筆回場。用來避開連敗段。</p>
+        </section>
+        <section class="sig-section">
+          <h3 class="sig-h3 sig-h3-toggle">規則細節 <span class="sig-collapse-arr">▾</span></h3>
+          <div class="sig-sec-body">
+            <ul class="sig-list">
+              <li>進場中遇敗 → 該方向停手（這一敗計入）</li>
+              <li>停手中：跳過該方向訊號（不計），反方向不受影響照常進場</li>
+              <li>解除①：同方向出現「紙上會贏」的訊號（那筆不計，下一筆才回場）</li>
+              <li>解除②：反方向訊號出現（中斷連敗，立刻打回進場中）</li>
+              <li>空、多在同一條合併時間軸上各自獨立判斷</li>
+            </ul>
+          </div>
+        </section>
+        <section class="sig-section">
+          <h3 class="sig-h3 sig-h3-toggle">套用後勝率 <span class="sig-collapse-arr">▾</span></h3>
+          <div class="sig-sec-body">${actBlock}${estBlock}</div>
+        </section>
+        <section class="sig-section">
+          <h3 class="sig-h3">🎯 達標建議止損（目標 80%，需 &gt;5% 則改 75%）</h3>
+          <div class="sig-sec-body"><div id="stopSolveResult" class="sig-solve">求解中…</div></div>
+        </section>
+        <section class="sig-section">
+          <h3 class="sig-h3 sig-h3-toggle">對照（合計） <span class="sig-collapse-arr">▾</span></h3>
+          <div class="sig-sec-body">${cmp || '<div class="sig-empty">尚無資料</div>'}</div>
+        </section>
+        <section class="sig-section">
+          <h3 class="sig-h3">備註</h3>
+          <ul class="sig-list">
+            <li>「預估」用進場時固定目標掃描；「實際」用會隨 BB 漂移的動態目標</li>
+            <li>停手中那筆回穩勝單不計入勝率（人不在場、紙上訊號）</li>
+          </ul>
+        </section>
+      </div>`;
+    const root = $("signalDrawerContent");
+    if (root) root.innerHTML = html;
+    root.querySelectorAll(".sig-h3-toggle").forEach(h => {
+      h.addEventListener("click", () => h.parentElement.classList.toggle("collapsed"));
+    });
+    $("sigDrawerClose")?.addEventListener("click", _hide);
+    _fetchStopSolve(root);   // 非同步求解達標建議止損
+  }
+
+  // 求解「達 80% 敗後停手所需止損%」並填入抽屜（依目前 中軌/上下軌 + 原/強化版）
+  function _fetchStopSolve(root) {
+    const el = root && root.querySelector("#stopSolveResult");
+    if (!el) return;
+    const market   = document.getElementById("marketSelect")?.value || "crypto";
+    const symbol   = document.getElementById("symbolInput")?.value?.trim() || "";
+    const exchange = document.getElementById("exchangeSelect")?.value || "pionex";
+    const tf       = (typeof currentTF !== "undefined" && currentTF) ? currentTF : "1d";
+    if (!symbol) { el.textContent = "—"; return; }
+    const tgt = (typeof _wrTargetView !== "undefined" && _wrTargetView === "band") ? "band" : "mid";
+    const variant = (typeof _wrVariantView !== "undefined" && _wrVariantView === "variant") ? 1 : 0;
+    const p = new URLSearchParams({ market, symbol, exchange, timeframe: tf,
+      solve: 1, solve_target: tgt, solve_variant: variant });
+    fetch("/api/crt_winrate?" + p).then(r => r.json()).then(d => {
+      if (!d || d.stop_pct == null) { el.textContent = "—"; return; }
+      if (d.achieved) {
+        const cls = d.win_rate >= 80 ? "good" : "";
+        el.innerHTML = `用止損 <b class="${cls}">${d.stop_pct}%</b> → 敗後停手 <b class="${cls}">${d.win_rate}%</b>`
+          + `<span class="sig-stat-cnt">（達目標 ${d.target}%，${d.total} 筆）</span>`;
+      } else {
+        el.innerHTML = `止損 6% 內無法達 75%；最高 <b>${d.win_rate}%</b>（止損 ${d.stop_pct}%）`;
+      }
+    }).catch(() => { el.textContent = "求解失敗"; });
+  }
+
   function _renderDrawer(key) {
+    if (key === "__stop__") { _renderStopDrawer(); return; }
     const info = SIGNAL_INFO[key];
     if (!info) return;
     const stats = _statsFor(key);
@@ -491,6 +606,11 @@
     document.body.classList.add("sig-drawer-open");
     _currentKey = key;
   }
+  // 點 TOP3 列的「敗後停手」數字 → 開細節抽屜（winrate.js 的 onclick 呼叫）
+  window._showStopStrategyDrawer = function () {
+    if (_currentKey === "__stop__" && !$("signalDrawer")?.classList.contains("hidden")) _hide();
+    else _show("__stop__");
+  };
   function _hide() {
     $("signalDrawer")?.classList.add("hidden");
     document.body.classList.remove("sig-drawer-open");
@@ -521,6 +641,7 @@
       if (!drawer || drawer.classList.contains("hidden")) return;
       if (drawer.contains(e.target)) return;
       if (e.target.closest(".tb-wr-block")) return;  // 點別的訊號塊：交給 block 自己處理
+      if (e.target.closest(".wr-stop-detail")) return;  // 點敗後停手數字：交給它自己 toggle
       _hide();
     }, true);
 

@@ -310,6 +310,44 @@ def get_latest(req: LatestRequest):
     return {"live": live, "data": records}
 
 
+def _solve_stop_pct(df, target: str, variant: bool, long_only: bool):
+    """掃描止損%，找出讓「敗後停手」總勝率達標的最小止損%。
+    目標 80%（止損 ≤5%）；若需 >5% 才達 80%，改找達 75% 的止損%。
+    回傳 {stop_pct, win_rate, total, target, sweep}。"""
+    def _wr_at(buf):
+        r = _calc_crt_winrate(df, stop_buffer_pct=buf, long_only=long_only)
+        view = r["band"] if target == "band" else r
+        if variant and isinstance(view.get("variant"), dict):
+            view = view["variant"]
+        ss = view.get("stop_strategy") or {}
+        return ss.get("win_rate"), (ss.get("total") or 0)
+
+    sweep = []
+    buf = 0.0
+    while buf <= 0.0601:
+        wr, tot = _wr_at(round(buf, 4))
+        sweep.append({"pct": round(buf * 100, 2), "wr": wr, "total": tot})
+        buf += 0.005
+
+    def _first(thresh, max_pct):
+        for s in sweep:
+            if s["wr"] is not None and s["wr"] >= thresh and s["pct"] <= max_pct + 1e-9:
+                return s
+        return None
+
+    hit = _first(80, 5.0)
+    if hit:
+        return {"stop_pct": hit["pct"], "win_rate": hit["wr"], "total": hit["total"],
+                "target": 80, "achieved": True, "sweep": sweep}
+    hit = _first(75, 6.0)
+    if hit:
+        return {"stop_pct": hit["pct"], "win_rate": hit["wr"], "total": hit["total"],
+                "target": 75, "achieved": True, "sweep": sweep}
+    best = max(sweep, key=lambda s: (s["wr"] or 0))
+    return {"stop_pct": best["pct"], "win_rate": best["wr"], "total": best["total"],
+            "target": 80, "achieved": False, "sweep": sweep}
+
+
 @router.get("/crt_winrate")
 def get_crt_winrate(
     market: str,
@@ -317,6 +355,9 @@ def get_crt_winrate(
     timeframe: str = "1d",
     exchange: str = "pionex",
     stop_buffer_pct: float = 0.0,
+    solve: int = 0,
+    solve_target: str = "mid",
+    solve_variant: int = 0,
     api_key: str = "",
     api_secret: str = "",
     finmind_token: str = "",
@@ -400,15 +441,30 @@ def get_crt_winrate(
     # 直接一次抓 TF_MAX 天的資料（不再做 doubling loop —— 過去 S1/S5/S7 等稀有訊號
     # 永遠達不到 MIN_CASES=40，doubling 會跑滿 4 次浪費 80% 時間）
     days_max  = TF_MAX.get(timeframe, 3650)
-    try:
-        df = _fetch_df(days_max)
-    except Exception as e:
-        raise HTTPException(400, str(e))
+    # 已抓+enrich 的 df 另外快取（不含 buffer）→ 換 SL 緩衝等重算時免重抓（抓資料佔總時間 90%+）
+    df_key = f"crt_df1:{market}:{symbol}:{exchange}:{timeframe}"
+    df = cache.get(df_key, ttl=3600)
+    if df is None:
+        try:
+            df = _fetch_df(days_max)
+        except Exception as e:
+            raise HTTPException(400, str(e))
+        if len(df) < 50:
+            raise HTTPException(400, f"資料不足 50 根K棒（{timeframe}）")
+        df = enrich_df(df)
+        cache.set(df_key, df)
 
-    if len(df) < 50:
-        raise HTTPException(400, f"資料不足 50 根K棒（{timeframe}）")
+    # 求解模式：掃描止損% 找達標的建議值（用已快取的 df，免重抓）
+    if solve:
+        solve_key = f"crt_solve1:{market}:{symbol}:{exchange}:{timeframe}:{solve_target}:{solve_variant}:{int(_long_only)}"
+        cached_s = cache.get(solve_key, ttl=3600)
+        if cached_s:
+            return cached_s
+        sol = _solve_stop_pct(df, target=("band" if solve_target == "band" else "mid"),
+                              variant=(solve_variant == 1), long_only=_long_only)
+        cache.set(solve_key, sol)
+        return sol
 
-    df = enrich_df(df)
     result = _calc_crt_winrate(df, stop_buffer_pct=_buf, long_only=_long_only)
 
     cache.set(cache_key, result)

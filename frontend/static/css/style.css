@@ -3003,6 +3003,17 @@ html.perf-mode .ai-adv-section { background: #FAFAFA; border-color: #E5E5E5; }
 }
 .sig-gist b { color: #FFB178; }
 
+/* 達標建議止損 求解結果 */
+.sig-solve {
+  font-size: 13px; color: var(--text); padding: 6px 0;
+  background: rgba(255,180,120,.06); border-radius: 4px; padding: 8px 10px;
+}
+.sig-solve b { color: #FFB178; font-size: 15px; }
+.sig-solve b.good { color: #26a69a; }
+.sig-solve .sig-stat-cnt { display: block; margin-top: 2px; color: var(--muted); font-size: 11px; }
+html.perf-mode .sig-solve b { color: #E85A1A; }
+html.perf-mode .sig-solve b.good { color: #16a34a; }
+
 .sig-pat-row {
   display: flex; gap: 8px;
   padding: 4px 0;
@@ -3521,6 +3532,8 @@ html.perf-mode .sig-stat-streak { color: #E85A1A; }
 }
 .wr-streak-btn:hover { background: rgba(255,180,120,.20); }
 .wr-streak-btn.on { color: #FFB178; border-color: rgba(255,180,120,.6); background: rgba(255,160,90,.18); }
+.wr-stop-detail { cursor: pointer; display: inline-flex; align-items: center; gap: 5px; border-radius: 4px; padding: 0 2px; }
+.wr-stop-detail:hover { background: rgba(255,180,120,.14); box-shadow: 0 0 0 1px rgba(255,180,120,.3) inset; }
 .wr-cond-i { color: #c9cdd6; font-family: 'SF Mono','Courier New',monospace; }
 .wr-cond-i b { font-weight: 800; color: #FFB178; margin-left: 1px; }
 .wr-cond-i.bad  b { color: #ef5350; }

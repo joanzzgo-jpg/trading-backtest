@@ -361,8 +361,9 @@ const eh=document.getElementById("wrEstHit");if(eh){if(d.est_win_rate!=null){eh.
 const fd=document.getElementById("wrFromDate");if(fd){if(d.from_date){const[y,m,day]=d.from_date.split("-");fd.textContent=`←${y}/${m}/${day}`;fd.title=`回測自 ${d.from_date}`;}else{fd.textContent="";}}
 const ss=document.getElementById("wrStatus");if(ss)ss.textContent=(d&&d.total!=null)?`${d.total}筆`:"";_renderWrTop3();}
 const _SIG_KEYS=["abc","ab","s3","s4","s5","s6","s7","s8","s9","s10","s11"];const _SIG_LABEL={abc:"S1",ab:"S2",s3:"S3",s4:"S4",s5:"S5",s6:"S6",s7:"S7",s8:"S8",s9:"S9",s10:"S10",s11:"S11",};const _SIG_ICON={abc:"●",ab:"■",s3:"▲",s4:"◆",s5:"★",s6:"◇",s7:"⬢",s8:"⬡",s9:"✦",s10:"✪",s11:"✸",};const _STATKEY_TO_SIGK={abc:"abc",ab:"ab",s3:"3",s4:"4",s5:"5",s6:"6",s7:"7",s8:"8",s9:"9",s10:"10",s11:"11",};function _renderWrTop3(){const root=document.getElementById("wrTop3");if(!root)return;const d=_wrCacheLast;if(!d){root.innerHTML="";return;}
-let view=(_wrTargetView==="band"&&d.band)?d.band:d;if(_wrVariantView==="variant"&&view&&view.variant)view=view.variant;const _streakLabel=_wrStreakN===0?"連敗 關":_wrStreakN===5?"敗後停手":`連敗 ${_wrStreakN}`;const streakBtn=`<button class="wr-streak-btn${_wrStreakN ? " on" : ""}" onclick="_cycleStreakN()" title="連敗風險 / 再進場策略（S2~S11 去重綜合）：關 → 2連 → 3連 → 4連 → 敗後停手。&#10;2/3/4連=同方向連敗 N-1 根後、下一筆也敗的機率（合併時間軸，兩敗中間夾反方向不算連續）。&#10;敗後停手=輸了就停手、旁觀同方向直到會贏才回場，顯示套用後的總勝率。">${_streakLabel}</button>`;let condNums="";if(_wrStreakN>=2&&_wrStreakN<=4){const _pick=(st)=>(st?.loss_streak||[]).find(x=>x.after===_wrStreakN-1)||null;const _condItem=(lbl,st)=>{const e=_pick(st);if(!e||e.p==null)return`<span class="wr-cond-i">${lbl}<b>—</b></span>`;const c=e.p>=60?" bad":e.p<=40?" good":"";return`<span class="wr-cond-i${c}">${lbl}<b>${e.p}%</b><small>(${e.n})</small></span>`;};condNums=_condItem("空",view?.short)+_condItem("多",view?.long);}else if(_wrStreakN===5){const ss=view?.stop_strategy;const _si=(lbl,o)=>{if(!o||o.win_rate==null)return`<span class="wr-cond-i">${lbl}<b>—</b></span>`;const c=o.win_rate>=60?" good":o.win_rate<45?" bad":"";return`<span class="wr-cond-i${c}">${lbl}<b>${o.win_rate}%</b><small>(${o.total})</small></span>`;};if(ss&&ss.win_rate!=null){const tc=ss.win_rate>=60?" good":ss.win_rate<45?" bad":"";const est=ss.est;const estHtml=(est&&est.win_rate!=null)?`<span class="wr-cond-i${est.win_rate >= 60 ? " good" : est.win_rate < 45 ? " bad" : ""}" title="敗後停手套用後，到達『進場時固定預估止盈』的機率">預估<b>${est.win_rate}%</b><small>(${est.total})</small></span>`:"";condNums=`<span class="wr-cond-i${tc}" title="敗後停手套用後、實際到達動態中軌目標的總勝率">總<b>${ss.win_rate}%</b><small>(${ss.total})</small></span>`
-+estHtml+_si("空",ss.short)+_si("多",ss.long);}else{condNums=`<span class="wr-cond-i">總<b>—</b></span>`;}}
+let view=(_wrTargetView==="band"&&d.band)?d.band:d;if(_wrVariantView==="variant"&&view&&view.variant)view=view.variant;const _streakLabel=_wrStreakN===0?"連敗 關":_wrStreakN===5?"敗後停手":`連敗 ${_wrStreakN}`;const streakBtn=`<button class="wr-streak-btn${_wrStreakN ? " on" : ""}" onclick="_cycleStreakN()" title="連敗風險 / 再進場策略（S2~S11 去重綜合）：關 → 2連 → 3連 → 4連 → 敗後停手。&#10;2/3/4連=同方向連敗 N-1 根後、下一筆也敗的機率（合併時間軸，兩敗中間夾反方向不算連續）。&#10;敗後停手=輸了就停手、旁觀同方向直到會贏才回場，顯示套用後的總勝率。">${_streakLabel}</button>`;let condNums="";if(_wrStreakN>=2&&_wrStreakN<=4){const _pick=(st)=>(st?.loss_streak||[]).find(x=>x.after===_wrStreakN-1)||null;const _condItem=(lbl,st)=>{const e=_pick(st);if(!e||e.p==null)return`<span class="wr-cond-i">${lbl}<b>—</b></span>`;const c=e.p>=60?" bad":e.p<=40?" good":"";return`<span class="wr-cond-i${c}">${lbl}<b>${e.p}%</b><small>(${e.n})</small></span>`;};condNums=_condItem("空",view?.short)+_condItem("多",view?.long);}else if(_wrStreakN===5){const ss=view?.stop_strategy;const _si=(lbl,o)=>{if(!o||o.win_rate==null)return`<span class="wr-cond-i">${lbl}<b>—</b></span>`;const c=o.win_rate>=60?" good":o.win_rate<45?" bad":"";return`<span class="wr-cond-i${c}">${lbl}<b>${o.win_rate}%</b><small>(${o.total})</small></span>`;};let inner;if(ss&&ss.win_rate!=null){const tc=ss.win_rate>=60?" good":ss.win_rate<45?" bad":"";const est=ss.est;const estHtml=(est&&est.win_rate!=null)?`<span class="wr-cond-i${est.win_rate >= 60 ? " good" : est.win_rate < 45 ? " bad" : ""}">預估<b>${est.win_rate}%</b><small>(${est.total})</small></span>`:"";inner=`<span class="wr-cond-i${tc}">總<b>${ss.win_rate}%</b><small>(${ss.total})</small></span>`
++estHtml+_si("空",ss.short)+_si("多",ss.long);}else{inner=`<span class="wr-cond-i">總<b>—</b></span>`;}
+condNums=`<span class="wr-stop-detail" title="點擊看敗後停手策略細節" onclick="window._showStopStrategyDrawer&&window._showStopStrategyDrawer()">${inner}</span>`;}
 const streakHtml=`<span class="wr-streak-wrap">${streakBtn}${condNums}</span>`;const items=[];for(const k of _SIG_KEYS){const ss=view?.[k];if(!ss)continue;for(const dir of["short","long"]){const stat=ss[dir];if(!stat||stat.win_rate==null||(stat.total||0)<10)continue;items.push({k,dir,wr:stat.win_rate,total:stat.total,wins:stat.wins});}}
 items.sort((a,b)=>b.wr-a.wr);const top3=items.slice(0,3);if(top3.length===0){root.innerHTML=streakHtml;return;}
 const topSet=new Set(top3.map(t=>`${_STATKEY_TO_SIGK[t.k]}|${t.dir === "short" ? "s" : "l"}`));const sigs=_lastWRSignals||[];const useBand=_wrTargetView==="band";const useVariant=_wrVariantView==="variant";const seen=new Set();let w=0,l=0;for(const s of sigs){if(useVariant&&!s.v)continue;if(!topSet.has(`${s.k}|${s.d}`))continue;const key=s.t+"|"+s.d;if(seen.has(key))continue;seen.add(key);const r=useBand?s.r_b:s.r;if(r==="w")w++;else if(r==="l")l++;}
@@ -589,7 +590,67 @@ function _rrBlock(s){if(!s||s.total==null||s.total===0)return"";if(s.avg_rr_est=
         <div class="sig-rr-line"><span>PF</span><b class="${pfCls}">${pfStr}</b></div>
       </div>
     </div>`;}
-function _renderDrawer(key){const info=SIGNAL_INFO[key];if(!info)return;const stats=_statsFor(key);const sigs=_signalsFor(key);const viewLabel=(typeof _wrTargetView!=="undefined"&&_wrTargetView==="band")?"上/下軌":"中軌";const variantLabel=(typeof _wrVariantView!=="undefined"&&_wrVariantView==="variant")?"強化版":"原版";const nameWithVariant=variantLabel==="強化版"?`${info.name}-1`:info.name;const patternsHTML=(info.patterns||[]).map(p=>`<div class="sig-pat-row"><span class="sig-pat-dir">${p.dir}</span><span class="sig-pat-cond">${p.cond}</span></div>`).join("");const excludesHTML=(info.excludes||[]).length?`<section class="sig-section">
+function _renderStopDrawer(){const d=(typeof _wrCacheLast!=="undefined")?_wrCacheLast:null;if(!d)return;let view=(typeof _wrTargetView!=="undefined"&&_wrTargetView==="band"&&d.band)?d.band:d;if(typeof _wrVariantView!=="undefined"&&_wrVariantView==="variant"&&view&&view.variant)view=view.variant;const viewLabel=(typeof _wrTargetView!=="undefined"&&_wrTargetView==="band")?"上/下軌":"中軌";const variantLabel=(typeof _wrVariantView!=="undefined"&&_wrVariantView==="variant")?"強化版":"原版";const ss=view&&view.stop_strategy;const base=view;const _wrCell=(o)=>{if(!o||o.win_rate==null)return`<span class="sig-stat-val">—</span>`;const c=o.win_rate>=60?"good":o.win_rate<45?"bad":"";const losses=(o.total!=null&&o.wins!=null)?(o.total-o.wins):"—";return`<span class="sig-stat-val ${c}">${o.win_rate}%</span><span class="sig-stat-cnt">${o.wins}勝/${losses}負（${o.total}筆）</span>`;};const _row=(label,o)=>`<div class="sig-stat-row"><span class="sig-stat-lbl">${label}</span>${_wrCell(o)}</div>`;const actBlock=ss?`
+      <div class="sig-rule-lbl" style="margin:4px 0">📊 實際（動態${viewLabel}目標）</div>
+      ${_row("合計", ss)}
+      ${_row("空單", ss.short)}
+      ${_row("多單", ss.long)}`:`<div class="sig-empty">尚無資料</div>`;const estBlock=(ss&&ss.est)?`
+      <div class="sig-rule-lbl" style="margin:8px 0 4px">📐 預估（進場時固定目標）</div>
+      ${_row("合計", ss.est)}
+      ${_row("空單", ss.est.short)}
+      ${_row("多單", ss.est.long)}`:"";const cmp=(base&&base.win_rate!=null&&ss&&ss.win_rate!=null)?`
+      <div class="sig-stat-row"><span class="sig-stat-lbl">不用停手（全進場）</span><span class="sig-stat-val">${base.win_rate}%</span><span class="sig-stat-cnt">${base.total}筆</span></div>
+      <div class="sig-stat-row"><span class="sig-stat-lbl">敗後停手</span><span class="sig-stat-val ${ss.win_rate>=base.win_rate?'good':'bad'}">${ss.win_rate}%</span><span class="sig-stat-cnt">${ss.total}筆（${ss.win_rate>=base.win_rate?'+':''}${(ss.win_rate-base.win_rate).toFixed(1)}）</span></div>`:"";const html=`
+      <div class="sig-dwr-hd" style="border-left:3px solid #ffb74d">
+        <span class="sig-dwr-icon" style="color:#ffb74d">⏸</span>
+        <div class="sig-dwr-titles">
+          <div class="sig-dwr-name">敗後停手策略</div>
+          <div class="sig-dwr-sub">${viewLabel}目標 · ${variantLabel}（母體同總勝率 S2~S11 去重）</div>
+        </div>
+        <button class="sig-dwr-close" id="sigDrawerClose">✕</button>
+      </div>
+      <div class="sig-dwr-body">
+        <section class="sig-section">
+          <p class="sig-gist">輸一次就<b>停手</b>該方向、旁觀後續同方向訊號（不計）；直到<b>同方向出現會贏的單</b>或<b>反方向訊號出現</b>才解除、從下一筆回場。用來避開連敗段。</p>
+        </section>
+        <section class="sig-section">
+          <h3 class="sig-h3 sig-h3-toggle">規則細節 <span class="sig-collapse-arr">▾</span></h3>
+          <div class="sig-sec-body">
+            <ul class="sig-list">
+              <li>進場中遇敗 → 該方向停手（這一敗計入）</li>
+              <li>停手中：跳過該方向訊號（不計），反方向不受影響照常進場</li>
+              <li>解除①：同方向出現「紙上會贏」的訊號（那筆不計，下一筆才回場）</li>
+              <li>解除②：反方向訊號出現（中斷連敗，立刻打回進場中）</li>
+              <li>空、多在同一條合併時間軸上各自獨立判斷</li>
+            </ul>
+          </div>
+        </section>
+        <section class="sig-section">
+          <h3 class="sig-h3 sig-h3-toggle">套用後勝率 <span class="sig-collapse-arr">▾</span></h3>
+          <div class="sig-sec-body">${actBlock}${estBlock}</div>
+        </section>
+        <section class="sig-section">
+          <h3 class="sig-h3">🎯 達標建議止損（目標 80%，需 &gt;5% 則改 75%）</h3>
+          <div class="sig-sec-body"><div id="stopSolveResult" class="sig-solve">求解中…</div></div>
+        </section>
+        <section class="sig-section">
+          <h3 class="sig-h3 sig-h3-toggle">對照（合計） <span class="sig-collapse-arr">▾</span></h3>
+          <div class="sig-sec-body">${cmp || '<div class="sig-empty">尚無資料</div>'}</div>
+        </section>
+        <section class="sig-section">
+          <h3 class="sig-h3">備註</h3>
+          <ul class="sig-list">
+            <li>「預估」用進場時固定目標掃描；「實際」用會隨 BB 漂移的動態目標</li>
+            <li>停手中那筆回穩勝單不計入勝率（人不在場、紙上訊號）</li>
+          </ul>
+        </section>
+      </div>`;const root=$("signalDrawerContent");if(root)root.innerHTML=html;root.querySelectorAll(".sig-h3-toggle").forEach(h=>{h.addEventListener("click",()=>h.parentElement.classList.toggle("collapsed"));});$("sigDrawerClose")?.addEventListener("click",_hide);_fetchStopSolve(root);}
+function _fetchStopSolve(root){const el=root&&root.querySelector("#stopSolveResult");if(!el)return;const market=document.getElementById("marketSelect")?.value||"crypto";const symbol=document.getElementById("symbolInput")?.value?.trim()||"";const exchange=document.getElementById("exchangeSelect")?.value||"pionex";const tf=(typeof currentTF!=="undefined"&&currentTF)?currentTF:"1d";if(!symbol){el.textContent="—";return;}
+const tgt=(typeof _wrTargetView!=="undefined"&&_wrTargetView==="band")?"band":"mid";const variant=(typeof _wrVariantView!=="undefined"&&_wrVariantView==="variant")?1:0;const p=new URLSearchParams({market,symbol,exchange,timeframe:tf,solve:1,solve_target:tgt,solve_variant:variant});fetch("/api/crt_winrate?"+p).then(r=>r.json()).then(d=>{if(!d||d.stop_pct==null){el.textContent="—";return;}
+if(d.achieved){const cls=d.win_rate>=80?"good":"";el.innerHTML=`用止損 <b class="${cls}">${d.stop_pct}%</b> → 敗後停手 <b class="${cls}">${d.win_rate}%</b>`
++`<span class="sig-stat-cnt">（達目標 ${d.target}%，${d.total} 筆）</span>`;}else{el.innerHTML=`止損 6% 內無法達 75%；最高 <b>${d.win_rate}%</b>（止損 ${d.stop_pct}%）`;}}).catch(()=>{el.textContent="求解失敗";});}
+function _renderDrawer(key){if(key==="__stop__"){_renderStopDrawer();return;}
+const info=SIGNAL_INFO[key];if(!info)return;const stats=_statsFor(key);const sigs=_signalsFor(key);const viewLabel=(typeof _wrTargetView!=="undefined"&&_wrTargetView==="band")?"上/下軌":"中軌";const variantLabel=(typeof _wrVariantView!=="undefined"&&_wrVariantView==="variant")?"強化版":"原版";const nameWithVariant=variantLabel==="強化版"?`${info.name}-1`:info.name;const patternsHTML=(info.patterns||[]).map(p=>`<div class="sig-pat-row"><span class="sig-pat-dir">${p.dir}</span><span class="sig-pat-cond">${p.cond}</span></div>`).join("");const excludesHTML=(info.excludes||[]).length?`<section class="sig-section">
           <h3 class="sig-h3">排除條件</h3>
           <ul class="sig-list">${info.excludes.map(x => `<li>${x}</li>`).join("")}</ul>
         </section>`:"";const notesHTML=(info.notes||[]).length?`<section class="sig-section">
@@ -679,8 +740,8 @@ function _pyrSettingsHTML(){const p=(typeof window._getPyrSettings==="function")
 function _bindPyrSettings(root){const setFn=window._setPyrSetting;if(typeof setFn!=="function")return;const szB=root.querySelector("#pyrSizeBelow");if(szB)szB.addEventListener("change",()=>{const v=Math.max(0.1,Math.min(5,parseFloat(szB.value)||1));szB.value=v;setFn("sizeBelow",v);});const szA=root.querySelector("#pyrSizeAbove");if(szA)szA.addEventListener("change",()=>{const v=Math.max(0.1,Math.min(5,parseFloat(szA.value)||1));szA.value=v;setFn("sizeAbove",v);});const ind=root.querySelector("#pyrIndicator");if(ind)ind.addEventListener("change",()=>setFn("indicator",ind.checked));const bb=root.querySelector("#pyrBBrev");if(bb)bb.addEventListener("change",()=>setFn("bbrev",bb.checked));}
 function _jumpChartTo(isoTime){if(!isoTime||typeof mainChart==="undefined")return;const t=(typeof toTime==="function")?toTime(isoTime):null;if(!t||!ohlcvData)return;const idx=ohlcvData.findIndex(d=>(typeof toTime==="function"?toTime(d.time):d.time)===t);if(idx<0)return;const range=mainChart.timeScale().getVisibleLogicalRange();const span=range?Math.max(20,range.to-range.from):80;const half=Math.floor(span/2);mainChart.timeScale().setVisibleLogicalRange({from:Math.max(0,idx-half),to:Math.min(ohlcvData.length-1,idx+half),});}
 function _show(key){_renderDrawer(key);$("signalDrawer")?.classList.remove("hidden");document.body.classList.add("sig-drawer-open");_currentKey=key;}
-function _hide(){$("signalDrawer")?.classList.add("hidden");document.body.classList.remove("sig-drawer-open");_currentKey=null;}
-let _currentKey=null;function init(){document.querySelectorAll(".tb-wr-block[data-sig]").forEach(blk=>{blk.addEventListener("click",()=>{const k=blk.dataset.sig;if(!k)return;if(_currentKey===k&&!$("signalDrawer")?.classList.contains("hidden"))_hide();else _show(k);});});document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!$("signalDrawer")?.classList.contains("hidden"))_hide();});document.addEventListener("click",e=>{const drawer=$("signalDrawer");if(!drawer||drawer.classList.contains("hidden"))return;if(drawer.contains(e.target))return;if(e.target.closest(".tb-wr-block"))return;_hide();},true);["wrTargetToggle","wrVariantToggle"].forEach(id=>{const tgl=$(id);if(!tgl)return;tgl.addEventListener("click",()=>{if(_currentKey&&!$("signalDrawer")?.classList.contains("hidden")){setTimeout(()=>_renderDrawer(_currentKey),0);}});});}
+window._showStopStrategyDrawer=function(){if(_currentKey==="__stop__"&&!$("signalDrawer")?.classList.contains("hidden"))_hide();else _show("__stop__");};function _hide(){$("signalDrawer")?.classList.add("hidden");document.body.classList.remove("sig-drawer-open");_currentKey=null;}
+let _currentKey=null;function init(){document.querySelectorAll(".tb-wr-block[data-sig]").forEach(blk=>{blk.addEventListener("click",()=>{const k=blk.dataset.sig;if(!k)return;if(_currentKey===k&&!$("signalDrawer")?.classList.contains("hidden"))_hide();else _show(k);});});document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!$("signalDrawer")?.classList.contains("hidden"))_hide();});document.addEventListener("click",e=>{const drawer=$("signalDrawer");if(!drawer||drawer.classList.contains("hidden"))return;if(drawer.contains(e.target))return;if(e.target.closest(".tb-wr-block"))return;if(e.target.closest(".wr-stop-detail"))return;_hide();},true);["wrTargetToggle","wrVariantToggle"].forEach(id=>{const tgl=$(id);if(!tgl)return;tgl.addEventListener("click",()=>{if(_currentKey&&!$("signalDrawer")?.classList.contains("hidden")){setTimeout(()=>_renderDrawer(_currentKey),0);}});});}
 if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded",init);}else{init();}
 window._refreshSignalDrawer=()=>{if(_currentKey&&!$("signalDrawer")?.classList.contains("hidden")){_renderDrawer(_currentKey);}};})();document.addEventListener("DOMContentLoaded",async()=>{loadPrefs();if(document.documentElement.classList.contains("perf-mode")){Object.assign(C,{up:"#ef5350",down:"#26a69a",borderUp:"#ef5350",borderDown:"#26a69a",wickUp:"#ef5350",wickDown:"#26a69a",volUp:"#ef5350",volDown:"#26a69a",bbU:"#1976d2",bbM:"#f57c00",bbL:"#1976d2",kdjK:"#d32f2f",kdjD:"#1565c0",kdjJ:"#ef6c00",kdjH20:"#9e9e9e",kdjH50:"#bdbdbd",kdjH80:"#9e9e9e",kdjCrossBull:"#16a34a",kdjCrossBear:"#dc2626",rsi14:"#6a1b9a",rsi7:"#d32f2f",rsiH30:"#9e9e9e",rsiH50:"#bdbdbd",rsiH70:"#9e9e9e",macd:"#1565c0",macdSig:"#ef6c00",macdHist:"#9e9e9e",crtBull:"#16a34a",crtBear:"#dc2626",resonanceBull:"#00838f",resonanceBear:"#ef6c00",bg:"#FFFFFF",chartBg:"#FFFFFF",});}
 _loadWatchlist();loadLastSymbol();loadSystemColors();applyAllSystemColors();if(document.documentElement.classList.contains("perf-mode")){const _lightPalette={"sc-bg":"#FFFFFF","sc-panel":"#FAFAFA","sc-border":"#E5E5E5","sc-text":"#1F1F1F","sc-muted":"#8B8B8B","sc-blue":"#FF6A1A",};for(const[id,color]of Object.entries(_lightPalette))applySystemColor(id,color);const _ds=document.documentElement.style;_ds.setProperty("--bg4","#F0F0F0");_ds.setProperty("--green","#16a34a");_ds.setProperty("--red","#dc2626");_ds.setProperty("--accent","#FF6A1A");}

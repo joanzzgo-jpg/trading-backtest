@@ -296,7 +296,9 @@ def _fetch_binance_klines_parallel(base_url, sym, tf, since_ms, end_ms, timefram
         first = []
     all_rows.extend(first)
     if len(windows) > 1:
-        with ThreadPoolExecutor(max_workers=8) as pool:
+        # worker 數依 window 數動態調整（上限 16），多段大範圍抓取更快、又不過度並發
+        _workers = min(16, max(8, len(windows) - 1))
+        with ThreadPoolExecutor(max_workers=_workers) as pool:
             for batch in pool.map(_fetch_window, windows[1:]):
                 if batch:
                     all_rows.extend(batch)
