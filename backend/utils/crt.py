@@ -308,37 +308,37 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             _push_signal(sig_time, d_str, "ab", direction, entry_i, float(stop_px),
                          om, otm, omj, ob, otb, obj)
 
-    # ── 訊號六 S6（4 棒 pattern：ABC 無指標 + D 觸軌 CRT）─────
-    # A、B、C 三根都不能有任何指標（crt=0, cross=0, res=0）
-    # D 棒：做空 → crt=-1 且 high >= bb_upper（影線或本體觸上軌）
-    #       做多 → crt=+1 且 low  <= bb_lower
-    # 邏輯：3 根「安靜」棒後突然出現觸軌反轉 K → 高品質的「轉折開始」訊號
-    if n >= 5:
-        a_clean = (crt[:n-4]   == 0) & (cross[:n-4]   == 0) & (res[:n-4]   == 0)
-        b_clean = (crt[1:n-3]  == 0) & (cross[1:n-3]  == 0) & (res[1:n-3]  == 0)
-        c_clean = (crt[2:n-2]  == 0) & (cross[2:n-2]  == 0) & (res[2:n-2]  == 0)
-        d_crt   = crt[3:n-1]
-        d_hi    = highs[3:n-1]
-        d_lo_   = lows[3:n-1]
-        d_bbu   = bb_up[3:n-1]
-        d_bbl   = bb_lo[3:n-1]
-        # 加排除「D 棒已碰中軌」（與其他訊號統一）
-        d_bbm   = bb_mid[3:n-1]
-        s6_short = a_clean & b_clean & c_clean \
-                 & (d_crt == -1) & ~np.isnan(d_bbu) & (d_hi  >= d_bbu) \
-                 & ~np.isnan(d_bbm) & (d_lo_ > d_bbm)
-        s6_long  = a_clean & b_clean & c_clean \
-                 & (d_crt ==  1) & ~np.isnan(d_bbl) & (d_lo_ <= d_bbl) \
-                 & ~np.isnan(d_bbm) & (d_hi < d_bbm)
+    # ── 訊號六 S6（3 棒 pattern：AB 無指標 + C 觸軌 CRT 反轉）─────
+    # A、B 兩根都不能有任何指標（crt=0, cross=0, res=0）
+    # C 棒（訊號棒）：做空 → crt=-1 且 high >= bb_upper（影線或本體觸上軌）
+    #               做多 → crt=+1 且 low  <= bb_lower
+    # 邏輯：2 根「安靜」棒後突然出現觸軌反轉 K → 高品質的「轉折開始」訊號。
+    #       原為「3 安靜棒 + 第 4 根反轉」，但前 3 根全乾淨太嚴格、實戰常漏；
+    #       改為「2 安靜棒 + 第 3 根反轉」更貼近實際復盤所見。
+    if n >= 4:
+        s6_a = (crt[:n-3]  == 0) & (cross[:n-3]  == 0) & (res[:n-3]  == 0)
+        s6_b = (crt[1:n-2] == 0) & (cross[1:n-2] == 0) & (res[1:n-2] == 0)
+        s6c_crt = crt[2:n-1]
+        s6c_hi  = highs[2:n-1]
+        s6c_lo  = lows[2:n-1]
+        s6c_bbu = bb_up[2:n-1]
+        s6c_bbl = bb_lo[2:n-1]
+        s6c_bbm = bb_mid[2:n-1]   # 排除「C 棒已碰中軌」（與其他訊號統一）
+        s6_short = s6_a & s6_b \
+                 & (s6c_crt == -1) & ~np.isnan(s6c_bbu) & (s6c_hi >= s6c_bbu) \
+                 & ~np.isnan(s6c_bbm) & (s6c_lo > s6c_bbm)
+        s6_long  = s6_a & s6_b \
+                 & (s6c_crt ==  1) & ~np.isnan(s6c_bbl) & (s6c_lo <= s6c_bbl) \
+                 & ~np.isnan(s6c_bbm) & (s6c_hi < s6c_bbm)
         if long_only: s6_short[:] = False
         for i in np.flatnonzero(s6_short | s6_long):
             i = int(i)
             direction = "short" if s6_short[i] else "long"
-            d_bar = i + 3  # D 棒（訊號棒）在原始 array 的索引
-            stop_px = _stop(highs[d_bar] if direction == "short" else lows[d_bar], direction)
+            c_bar = i + 2  # C 棒（訊號棒 = 觸軌 CRT 反轉棒）在原始 array 的索引
+            stop_px = _stop(highs[c_bar] if direction == "short" else lows[c_bar], direction)
             d_str = "s" if direction == "short" else "l"
-            sig_time = times_iso[d_bar]
-            entry_i = d_bar + 1
+            sig_time = times_iso[c_bar]
+            entry_i = c_bar + 1
             om, otm, omj, ob, otb, obj = _scan_dual(entry_i, float(stop_px), direction)
             _push_signal(sig_time, d_str, "6", direction, entry_i, float(stop_px),
                          om, otm, omj, ob, otb, obj)
