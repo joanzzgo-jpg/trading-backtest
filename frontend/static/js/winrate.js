@@ -212,7 +212,9 @@ function _computeAutoRRBox(sig) {
   const entryIdx = sigIdx + 1;
   // 未結算訊號不可掃到資料尾端（會讓加碼點散落整張圖）→ 設 50 根上限
   const PYR_CAP = 50;
-  const lastIdx = (exitIdx > entryIdx) ? exitIdx : Math.min(ohlcvData.length - 1, entryIdx + PYR_CAP);
+  // 已結算的單：加碼點必須嚴格落在「結算棒之前」→ 掃到 exitIdx-1（加碼點 j+1 最多 exitIdx-1）。
+  // 否則交易已於結算棒平倉，卻還在同根補一個無效加碼部位。
+  const lastIdx = (exitIdx > entryIdx) ? (exitIdx - 1) : Math.min(ohlcvData.length - 1, entryIdx + PYR_CAP);
   const pyramids = [];   // {time, price, idx}
   const indCond = isShort
     ? (b) => b.crt === -1 || b.kdj_cross === -1 || b.resonance === -1

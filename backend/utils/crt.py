@@ -353,17 +353,16 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         c_hi, c_lo_ = highs[2:n-1], lows[2:n-1]
         c_bbu, c_bbl, c_bbm = bb_up[2:n-1], bb_lo[2:n-1], bb_mid[2:n-1]
 
-        # 排除「真正觸軌」：c_hi 必須 < bb_upper（嚴格不能觸到）才允許 S3 短
-        # 加排除「已碰中軌」（與 S2/S4/S5 統一）：c 棒影線必須在中軌的「外側」
+        # 只排除「已碰中軌」（與 S2/S4/S5 統一）：c 棒影線必須在中軌的「外側」。
+        # 不再排除「C 棒觸到上/下軌」——均值回歸時，死叉棒刺到上軌（超買後反轉）
+        # 正是最佳進場點，排除它反而漏掉強訊號（例：超賣叢集→金叉、叉棒刺破下軌）。
         s3_short = (a_res == -1) & ~((a_crt == -1) & (a_cross == -1)) \
                  & (b_res == -1) & ~((b_crt == -1) & (b_cross == -1)) \
                  & (c_cross == -1) & ~((c_crt == -1) & (c_res == -1)) \
-                 & ~np.isnan(c_bbu) & (c_hi < c_bbu) \
                  & ~np.isnan(c_bbm) & (c_lo_ > c_bbm)
         s3_long  = (a_res ==  1) & ~((a_crt ==  1) & (a_cross ==  1)) \
                  & (b_res ==  1) & ~((b_crt ==  1) & (b_cross ==  1)) \
                  & (c_cross ==  1) & ~((c_crt ==  1) & (c_res ==  1)) \
-                 & ~np.isnan(c_bbl) & (c_lo_ > c_bbl) \
                  & ~np.isnan(c_bbm) & (c_hi < c_bbm)
 
         s4_short = (a_res == -1) & (a_crt == 0) & (a_cross == 0) \
