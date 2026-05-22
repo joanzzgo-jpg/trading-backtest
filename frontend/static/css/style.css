@@ -3011,6 +3011,14 @@ html.perf-mode .ai-adv-section { background: #FAFAFA; border-color: #E5E5E5; }
 .sig-solve b { color: #FFB178; font-size: 15px; }
 .sig-solve b.good { color: #26a69a; }
 .sig-solve .sig-stat-cnt { display: block; margin-top: 2px; color: var(--muted); font-size: 11px; }
+.sig-apply-btn {
+  display: inline-block; margin-top: 6px;
+  font-size: 12px; font-weight: 700; cursor: pointer;
+  color: #1a1a1a; background: #FFB178; border: none;
+  border-radius: 5px; padding: 3px 10px; font-family: inherit;
+}
+.sig-apply-btn:hover { background: #ffc599; }
+.sig-apply-btn:active { transform: scale(0.94); }
 html.perf-mode .sig-solve b { color: #E85A1A; }
 html.perf-mode .sig-solve b.good { color: #16a34a; }
 

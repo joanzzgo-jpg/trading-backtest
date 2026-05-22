@@ -308,6 +308,7 @@
     const variantLabel = (typeof _wrVariantView !== "undefined" && _wrVariantView === "variant") ? "強化版" : "原版";
     const ss = view && view.stop_strategy;
     const base = view;  // 不用策略的去重總勝率（對照）
+    const curBuf = (typeof _wrStopBuffer !== "undefined") ? _wrStopBuffer : 0;
 
     const _wrCell = (o) => {
       if (!o || o.win_rate == null) return `<span class="sig-stat-val">—</span>`;
@@ -364,7 +365,13 @@
         </section>
         <section class="sig-section">
           <h3 class="sig-h3">🎯 達標建議止損（目標 80%，需 &gt;5% 則改 75%）</h3>
-          <div class="sig-sec-body"><div id="stopSolveResult" class="sig-solve">求解中…</div></div>
+          <div class="sig-sec-body">
+            <div id="stopSolveResult" class="sig-solve">求解中…</div>
+            <div class="sig-pyr-row" style="margin-top:8px">
+              <label class="sig-pyr-lbl">你的止損%（即時套用、與上方 SL 同步）</label>
+              <input id="stopBufInput" class="sig-pyr-num" type="number" step="0.1" min="0" max="10" value="${curBuf}"/>
+            </div>
+          </div>
         </section>
         <section class="sig-section">
           <h3 class="sig-h3 sig-h3-toggle">對照（合計） <span class="sig-collapse-arr">▾</span></h3>
@@ -384,32 +391,47 @@
       h.addEventListener("click", () => h.parentElement.classList.toggle("collapsed"));
     });
     $("sigDrawerClose")?.addEventListener("click", _hide);
-    _fetchStopSolve(root);   // 非同步求解達標建議止損
+    // 止損%輸入框：即時套用（同步上方 SL 緩衝）
+    const bufInp = root.querySelector("#stopBufInput");
+    if (bufInp) bufInp.addEventListener("change", () => {
+      if (typeof window._setStopBuffer === "function") window._setStopBuffer(bufInp.value);
+    });
+    _fetchStopSolve();   // 非同步求解達標建議止損
   }
 
   // 求解「達 80% 敗後停手所需止損%」並填入抽屜（依目前 中軌/上下軌 + 原/強化版）
-  function _fetchStopSolve(root) {
-    const el = root && root.querySelector("#stopSolveResult");
-    if (!el) return;
+  // 更新時一律用 id 重查 live 元素、並用請求序號丟棄過時回應 → 不怕抽屜重繪/快速切換
+  let _stopSolveSeq = 0;
+  function _fetchStopSolve() {
+    const seq = ++_stopSolveSeq;
+    const _set = (txt, isHtml) => {
+      if (seq !== _stopSolveSeq) return;                 // 已有更新請求 → 丟棄
+      const live = document.getElementById("stopSolveResult");
+      if (!live) return;
+      if (isHtml) live.innerHTML = txt; else live.textContent = txt;
+    };
     const market   = document.getElementById("marketSelect")?.value || "crypto";
     const symbol   = document.getElementById("symbolInput")?.value?.trim() || "";
     const exchange = document.getElementById("exchangeSelect")?.value || "pionex";
     const tf       = (typeof currentTF !== "undefined" && currentTF) ? currentTF : "1d";
-    if (!symbol) { el.textContent = "—"; return; }
+    if (!symbol) { _set("—"); return; }
+    _set("求解中…");
     const tgt = (typeof _wrTargetView !== "undefined" && _wrTargetView === "band") ? "band" : "mid";
     const variant = (typeof _wrVariantView !== "undefined" && _wrVariantView === "variant") ? 1 : 0;
     const p = new URLSearchParams({ market, symbol, exchange, timeframe: tf,
       solve: 1, solve_target: tgt, solve_variant: variant });
     fetch("/api/crt_winrate?" + p).then(r => r.json()).then(d => {
-      if (!d || d.stop_pct == null) { el.textContent = "—"; return; }
+      if (!d || d.stop_pct == null) { _set("—"); return; }
       if (d.achieved) {
         const cls = d.win_rate >= 80 ? "good" : "";
-        el.innerHTML = `用止損 <b class="${cls}">${d.stop_pct}%</b> → 敗後停手 <b class="${cls}">${d.win_rate}%</b>`
-          + `<span class="sig-stat-cnt">（達目標 ${d.target}%，${d.total} 筆）</span>`;
+        _set(`用止損 <b class="${cls}">${d.stop_pct}%</b> → 敗後停手 <b class="${cls}">${d.win_rate}%</b>`
+          + `<span class="sig-stat-cnt">（達目標 ${d.target}%，${d.total} 筆）</span>`
+          + ` <button class="sig-apply-btn" onclick="window._setStopBuffer&&window._setStopBuffer(${d.stop_pct})">套用 ${d.stop_pct}%</button>`, true);
       } else {
-        el.innerHTML = `止損 6% 內無法達 75%；最高 <b>${d.win_rate}%</b>（止損 ${d.stop_pct}%）`;
+        _set(`止損 6% 內無法達 75%；最高 <b>${d.win_rate}%</b>（止損 ${d.stop_pct}%）`
+          + ` <button class="sig-apply-btn" onclick="window._setStopBuffer&&window._setStopBuffer(${d.stop_pct})">套用 ${d.stop_pct}%</button>`, true);
       }
-    }).catch(() => { el.textContent = "求解失敗"; });
+    }).catch(() => { _set("求解失敗"); });
   }
 
   function _renderDrawer(key) {

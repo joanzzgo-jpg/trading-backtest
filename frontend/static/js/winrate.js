@@ -97,6 +97,18 @@ window._getPyrSettings = function () {
            indicator: _pyrUseIndicator, bbrev: _pyrUseBBrev };
 };
 
+// 設定止損緩衝%（給左抽屜的「套用建議」鈕與止損輸入框共用）→ 同步上方 SL 框 + 重算
+window._setStopBuffer = function (pct) {
+  const v = Math.max(0, Math.min(10, parseFloat(pct) || 0));
+  _wrStopBuffer = v;
+  const inp = document.getElementById("wrStopBuffer");
+  if (inp) inp.value = v;
+  try { localStorage.setItem(_WR_BUFFER_KEY, String(v)); } catch (e) {}
+  _wrCache = {};
+  fetchWinRate();
+  if (typeof renderDrawings === "function") requestAnimationFrame(renderDrawings);
+};
+
 function _initWrStopBuffer() {
   const inp = document.getElementById("wrStopBuffer");
   if (!inp) return;

@@ -328,7 +328,8 @@ _renderWrTop3();}
 function _toggleWrVariant(){_wrVariantView=_wrVariantView==="variant"?"base":"variant";try{localStorage.setItem(_WR_VARIANT_KEY,_wrVariantView);}catch(e){}
 _initWrVariantBtn();if(_wrCacheLast)_renderWinRate(_wrCacheLast);_renderWRSignals();if(typeof window._refreshSignalDrawer==="function")window._refreshSignalDrawer();if(typeof renderDrawings==="function")requestAnimationFrame(renderDrawings);}
 window._setPyrSetting=function(key,val){if(key==="sizeBelow"){_pyrSizeBelow=(val>0?val:1.0);try{localStorage.setItem("wrPyrSizeBelow",String(_pyrSizeBelow));}catch(e){}}else if(key==="sizeAbove"){_pyrSizeAbove=(val>0?val:1.0);try{localStorage.setItem("wrPyrSizeAbove",String(_pyrSizeAbove));}catch(e){}}else if(key==="indicator"){_pyrUseIndicator=!!val;try{localStorage.setItem("wrPyrIndicator",val?"1":"0");}catch(e){}}else if(key==="bbrev"){_pyrUseBBrev=!!val;try{localStorage.setItem("wrPyrBBrev",val?"1":"0");}catch(e){}}
-if(typeof _autoRRBoxCache!=="undefined")_autoRRBoxCache.clear();if(typeof renderDrawings==="function")requestAnimationFrame(renderDrawings);};window._getPyrSettings=function(){return{sizeBelow:_pyrSizeBelow,sizeAbove:_pyrSizeAbove,indicator:_pyrUseIndicator,bbrev:_pyrUseBBrev};};function _initWrStopBuffer(){const inp=document.getElementById("wrStopBuffer");if(!inp)return;inp.value=_wrStopBuffer;inp.addEventListener("change",()=>{const v=Math.max(0,Math.min(10,parseFloat(inp.value)||0));inp.value=v;_wrStopBuffer=v;try{localStorage.setItem(_WR_BUFFER_KEY,String(v));}catch(e){}
+if(typeof _autoRRBoxCache!=="undefined")_autoRRBoxCache.clear();if(typeof renderDrawings==="function")requestAnimationFrame(renderDrawings);};window._getPyrSettings=function(){return{sizeBelow:_pyrSizeBelow,sizeAbove:_pyrSizeAbove,indicator:_pyrUseIndicator,bbrev:_pyrUseBBrev};};window._setStopBuffer=function(pct){const v=Math.max(0,Math.min(10,parseFloat(pct)||0));_wrStopBuffer=v;const inp=document.getElementById("wrStopBuffer");if(inp)inp.value=v;try{localStorage.setItem(_WR_BUFFER_KEY,String(v));}catch(e){}
+_wrCache={};fetchWinRate();if(typeof renderDrawings==="function")requestAnimationFrame(renderDrawings);};function _initWrStopBuffer(){const inp=document.getElementById("wrStopBuffer");if(!inp)return;inp.value=_wrStopBuffer;inp.addEventListener("change",()=>{const v=Math.max(0,Math.min(10,parseFloat(inp.value)||0));inp.value=v;_wrStopBuffer=v;try{localStorage.setItem(_WR_BUFFER_KEY,String(v));}catch(e){}
 _wrCache={};fetchWinRate();if(typeof renderDrawings==="function")requestAnimationFrame(renderDrawings);});}
 function _toggleWrTarget(){_wrTargetView=_wrTargetView==="mid"?"band":"mid";try{localStorage.setItem(_WR_VIEW_KEY,_wrTargetView);}catch(e){}
 _initWrTargetBtn();if(_wrCacheLast)_renderWinRate(_wrCacheLast);_renderWRSignals();if(typeof renderDrawings==="function")requestAnimationFrame(renderDrawings);}
@@ -590,7 +591,7 @@ function _rrBlock(s){if(!s||s.total==null||s.total===0)return"";if(s.avg_rr_est=
         <div class="sig-rr-line"><span>PF</span><b class="${pfCls}">${pfStr}</b></div>
       </div>
     </div>`;}
-function _renderStopDrawer(){const d=(typeof _wrCacheLast!=="undefined")?_wrCacheLast:null;if(!d)return;let view=(typeof _wrTargetView!=="undefined"&&_wrTargetView==="band"&&d.band)?d.band:d;if(typeof _wrVariantView!=="undefined"&&_wrVariantView==="variant"&&view&&view.variant)view=view.variant;const viewLabel=(typeof _wrTargetView!=="undefined"&&_wrTargetView==="band")?"上/下軌":"中軌";const variantLabel=(typeof _wrVariantView!=="undefined"&&_wrVariantView==="variant")?"強化版":"原版";const ss=view&&view.stop_strategy;const base=view;const _wrCell=(o)=>{if(!o||o.win_rate==null)return`<span class="sig-stat-val">—</span>`;const c=o.win_rate>=60?"good":o.win_rate<45?"bad":"";const losses=(o.total!=null&&o.wins!=null)?(o.total-o.wins):"—";return`<span class="sig-stat-val ${c}">${o.win_rate}%</span><span class="sig-stat-cnt">${o.wins}勝/${losses}負（${o.total}筆）</span>`;};const _row=(label,o)=>`<div class="sig-stat-row"><span class="sig-stat-lbl">${label}</span>${_wrCell(o)}</div>`;const actBlock=ss?`
+function _renderStopDrawer(){const d=(typeof _wrCacheLast!=="undefined")?_wrCacheLast:null;if(!d)return;let view=(typeof _wrTargetView!=="undefined"&&_wrTargetView==="band"&&d.band)?d.band:d;if(typeof _wrVariantView!=="undefined"&&_wrVariantView==="variant"&&view&&view.variant)view=view.variant;const viewLabel=(typeof _wrTargetView!=="undefined"&&_wrTargetView==="band")?"上/下軌":"中軌";const variantLabel=(typeof _wrVariantView!=="undefined"&&_wrVariantView==="variant")?"強化版":"原版";const ss=view&&view.stop_strategy;const base=view;const curBuf=(typeof _wrStopBuffer!=="undefined")?_wrStopBuffer:0;const _wrCell=(o)=>{if(!o||o.win_rate==null)return`<span class="sig-stat-val">—</span>`;const c=o.win_rate>=60?"good":o.win_rate<45?"bad":"";const losses=(o.total!=null&&o.wins!=null)?(o.total-o.wins):"—";return`<span class="sig-stat-val ${c}">${o.win_rate}%</span><span class="sig-stat-cnt">${o.wins}勝/${losses}負（${o.total}筆）</span>`;};const _row=(label,o)=>`<div class="sig-stat-row"><span class="sig-stat-lbl">${label}</span>${_wrCell(o)}</div>`;const actBlock=ss?`
       <div class="sig-rule-lbl" style="margin:4px 0">📊 實際（動態${viewLabel}目標）</div>
       ${_row("合計", ss)}
       ${_row("空單", ss.short)}
@@ -631,7 +632,13 @@ function _renderStopDrawer(){const d=(typeof _wrCacheLast!=="undefined")?_wrCach
         </section>
         <section class="sig-section">
           <h3 class="sig-h3">🎯 達標建議止損（目標 80%，需 &gt;5% 則改 75%）</h3>
-          <div class="sig-sec-body"><div id="stopSolveResult" class="sig-solve">求解中…</div></div>
+          <div class="sig-sec-body">
+            <div id="stopSolveResult" class="sig-solve">求解中…</div>
+            <div class="sig-pyr-row" style="margin-top:8px">
+              <label class="sig-pyr-lbl">你的止損%（即時套用、與上方 SL 同步）</label>
+              <input id="stopBufInput" class="sig-pyr-num" type="number" step="0.1" min="0" max="10" value="${curBuf}"/>
+            </div>
+          </div>
         </section>
         <section class="sig-section">
           <h3 class="sig-h3 sig-h3-toggle">對照（合計） <span class="sig-collapse-arr">▾</span></h3>
@@ -644,11 +651,13 @@ function _renderStopDrawer(){const d=(typeof _wrCacheLast!=="undefined")?_wrCach
             <li>停手中那筆回穩勝單不計入勝率（人不在場、紙上訊號）</li>
           </ul>
         </section>
-      </div>`;const root=$("signalDrawerContent");if(root)root.innerHTML=html;root.querySelectorAll(".sig-h3-toggle").forEach(h=>{h.addEventListener("click",()=>h.parentElement.classList.toggle("collapsed"));});$("sigDrawerClose")?.addEventListener("click",_hide);_fetchStopSolve(root);}
-function _fetchStopSolve(root){const el=root&&root.querySelector("#stopSolveResult");if(!el)return;const market=document.getElementById("marketSelect")?.value||"crypto";const symbol=document.getElementById("symbolInput")?.value?.trim()||"";const exchange=document.getElementById("exchangeSelect")?.value||"pionex";const tf=(typeof currentTF!=="undefined"&&currentTF)?currentTF:"1d";if(!symbol){el.textContent="—";return;}
-const tgt=(typeof _wrTargetView!=="undefined"&&_wrTargetView==="band")?"band":"mid";const variant=(typeof _wrVariantView!=="undefined"&&_wrVariantView==="variant")?1:0;const p=new URLSearchParams({market,symbol,exchange,timeframe:tf,solve:1,solve_target:tgt,solve_variant:variant});fetch("/api/crt_winrate?"+p).then(r=>r.json()).then(d=>{if(!d||d.stop_pct==null){el.textContent="—";return;}
-if(d.achieved){const cls=d.win_rate>=80?"good":"";el.innerHTML=`用止損 <b class="${cls}">${d.stop_pct}%</b> → 敗後停手 <b class="${cls}">${d.win_rate}%</b>`
-+`<span class="sig-stat-cnt">（達目標 ${d.target}%，${d.total} 筆）</span>`;}else{el.innerHTML=`止損 6% 內無法達 75%；最高 <b>${d.win_rate}%</b>（止損 ${d.stop_pct}%）`;}}).catch(()=>{el.textContent="求解失敗";});}
+      </div>`;const root=$("signalDrawerContent");if(root)root.innerHTML=html;root.querySelectorAll(".sig-h3-toggle").forEach(h=>{h.addEventListener("click",()=>h.parentElement.classList.toggle("collapsed"));});$("sigDrawerClose")?.addEventListener("click",_hide);const bufInp=root.querySelector("#stopBufInput");if(bufInp)bufInp.addEventListener("change",()=>{if(typeof window._setStopBuffer==="function")window._setStopBuffer(bufInp.value);});_fetchStopSolve();}
+let _stopSolveSeq=0;function _fetchStopSolve(){const seq=++_stopSolveSeq;const _set=(txt,isHtml)=>{if(seq!==_stopSolveSeq)return;const live=document.getElementById("stopSolveResult");if(!live)return;if(isHtml)live.innerHTML=txt;else live.textContent=txt;};const market=document.getElementById("marketSelect")?.value||"crypto";const symbol=document.getElementById("symbolInput")?.value?.trim()||"";const exchange=document.getElementById("exchangeSelect")?.value||"pionex";const tf=(typeof currentTF!=="undefined"&&currentTF)?currentTF:"1d";if(!symbol){_set("—");return;}
+_set("求解中…");const tgt=(typeof _wrTargetView!=="undefined"&&_wrTargetView==="band")?"band":"mid";const variant=(typeof _wrVariantView!=="undefined"&&_wrVariantView==="variant")?1:0;const p=new URLSearchParams({market,symbol,exchange,timeframe:tf,solve:1,solve_target:tgt,solve_variant:variant});fetch("/api/crt_winrate?"+p).then(r=>r.json()).then(d=>{if(!d||d.stop_pct==null){_set("—");return;}
+if(d.achieved){const cls=d.win_rate>=80?"good":"";_set(`用止損 <b class="${cls}">${d.stop_pct}%</b> → 敗後停手 <b class="${cls}">${d.win_rate}%</b>`
++`<span class="sig-stat-cnt">（達目標 ${d.target}%，${d.total} 筆）</span>`
++` <button class="sig-apply-btn" onclick="window._setStopBuffer&&window._setStopBuffer(${d.stop_pct})">套用 ${d.stop_pct}%</button>`,true);}else{_set(`止損 6% 內無法達 75%；最高 <b>${d.win_rate}%</b>（止損 ${d.stop_pct}%）`
++` <button class="sig-apply-btn" onclick="window._setStopBuffer&&window._setStopBuffer(${d.stop_pct})">套用 ${d.stop_pct}%</button>`,true);}}).catch(()=>{_set("求解失敗");});}
 function _renderDrawer(key){if(key==="__stop__"){_renderStopDrawer();return;}
 const info=SIGNAL_INFO[key];if(!info)return;const stats=_statsFor(key);const sigs=_signalsFor(key);const viewLabel=(typeof _wrTargetView!=="undefined"&&_wrTargetView==="band")?"上/下軌":"中軌";const variantLabel=(typeof _wrVariantView!=="undefined"&&_wrVariantView==="variant")?"強化版":"原版";const nameWithVariant=variantLabel==="強化版"?`${info.name}-1`:info.name;const patternsHTML=(info.patterns||[]).map(p=>`<div class="sig-pat-row"><span class="sig-pat-dir">${p.dir}</span><span class="sig-pat-cond">${p.cond}</span></div>`).join("");const excludesHTML=(info.excludes||[]).length?`<section class="sig-section">
           <h3 class="sig-h3">排除條件</h3>
