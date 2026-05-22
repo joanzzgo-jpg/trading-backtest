@@ -402,6 +402,7 @@
   // 求解「達 80% 敗後停手所需止損%」並填入抽屜（依目前 中軌/上下軌 + 原/強化版）
   // 更新時一律用 id 重查 live 元素、並用請求序號丟棄過時回應 → 不怕抽屜重繪/快速切換
   let _stopSolveSeq = 0;
+  let _autoAppliedKey = null;   // 每個 (標的|時框|視圖) 只自動套用一次，不蓋使用者後續手動輸入
   function _fetchStopSolve() {
     const seq = ++_stopSolveSeq;
     const _set = (txt, isHtml) => {
@@ -420,16 +421,25 @@
     const variant = (typeof _wrVariantView !== "undefined" && _wrVariantView === "variant") ? 1 : 0;
     const p = new URLSearchParams({ market, symbol, exchange, timeframe: tf,
       solve: 1, solve_target: tgt, solve_variant: variant });
+    const applyKey = `${symbol}|${tf}|${tgt}|${variant}`;
     fetch("/api/crt_winrate?" + p).then(r => r.json()).then(d => {
       if (!d || d.stop_pct == null) { _set("—"); return; }
       if (d.achieved) {
         const cls = d.win_rate >= 80 ? "good" : "";
-        _set(`用止損 <b class="${cls}">${d.stop_pct}%</b> → 敗後停手 <b class="${cls}">${d.win_rate}%</b>`
-          + `<span class="sig-stat-cnt">（達目標 ${d.target}%，${d.total} 筆）</span>`
-          + ` <button class="sig-apply-btn" onclick="window._setStopBuffer&&window._setStopBuffer(${d.stop_pct})">套用 ${d.stop_pct}%</button>`, true);
+        _set(`已自動帶入止損 <b class="${cls}">${d.stop_pct}%</b> → 敗後停手 <b class="${cls}">${d.win_rate}%</b>`
+          + `<span class="sig-stat-cnt">（達目標 ${d.target}%，${d.total} 筆；可於下方自行調整）</span>`
+          + ` <button class="sig-apply-btn" onclick="window._setStopBuffer&&window._setStopBuffer(${d.stop_pct})">重新套用 ${d.stop_pct}%</button>`, true);
       } else {
         _set(`止損 6% 內無法達 75%；最高 <b>${d.win_rate}%</b>（止損 ${d.stop_pct}%）`
           + ` <button class="sig-apply-btn" onclick="window._setStopBuffer&&window._setStopBuffer(${d.stop_pct})">套用 ${d.stop_pct}%</button>`, true);
+      }
+      // 自動 key 入：每個 (標的|時框|視圖) 首次求解出可達標結果時，自動把建議止損套入
+      if (d.achieved && d.stop_pct != null && _autoAppliedKey !== applyKey) {
+        _autoAppliedKey = applyKey;
+        const cur = (typeof _wrStopBuffer !== "undefined") ? _wrStopBuffer : 0;
+        if (Math.abs(cur - d.stop_pct) > 1e-9 && typeof window._setStopBuffer === "function") {
+          window._setStopBuffer(d.stop_pct);
+        }
       }
     }).catch(() => { _set("求解失敗"); });
   }

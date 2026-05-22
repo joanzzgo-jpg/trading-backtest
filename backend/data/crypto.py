@@ -74,7 +74,9 @@ def _fetch_pionex_perp_symbols() -> set:
     global _PIONEX_PERP_SYMS_CACHE
     now = time.time()
     cached = _PIONEX_PERP_SYMS_CACHE
-    if now - cached["ts"] < 3600 and cached["syms"] is not None:
+    # 成功快取 1hr；失敗（fallback）只快取 60s（負快取）→ 避免每 2 秒重打 Pionex 觸發 429
+    _ttl = 60 if cached.get("fallback") else 3600
+    if now - cached["ts"] < _ttl and cached["syms"] is not None:
         return cached["syms"]
 
     syms: set = set()
@@ -93,10 +95,11 @@ def _fetch_pionex_perp_symbols() -> set:
         pass
 
     if len(syms) >= 5:
-        _PIONEX_PERP_SYMS_CACHE = {"ts": now, "syms": syms}
+        _PIONEX_PERP_SYMS_CACHE = {"ts": now, "syms": syms, "fallback": False}
         return syms
 
-    # API 失敗 → 使用硬編碼備援（不快取，下次仍重試 API）
+    # API 失敗 → 用硬編碼備援，並負快取 60s（不每次重打 Pionex）
+    _PIONEX_PERP_SYMS_CACHE = {"ts": now, "syms": PIONEX_PERP_FALLBACK, "fallback": True}
     return PIONEX_PERP_FALLBACK
 
 
@@ -106,7 +109,9 @@ def _fetch_pionex_symbols() -> set:
     """
     global _PIONEX_SYMS_CACHE
     now = time.time()
-    if now - _PIONEX_SYMS_CACHE["ts"] < 3600 and _PIONEX_SYMS_CACHE["syms"] is not None:
+    # 成功快取 1hr；失敗（空集合）只快取 60s（負快取）→ 避免每 2 秒重打 Pionex 觸發 429
+    _ttl = 60 if _PIONEX_SYMS_CACHE.get("fallback") else 3600
+    if now - _PIONEX_SYMS_CACHE["ts"] < _ttl and _PIONEX_SYMS_CACHE["syms"] is not None:
         return _PIONEX_SYMS_CACHE["syms"]
     syms: set = set()
     for endpoint in (
@@ -126,8 +131,9 @@ def _fetch_pionex_symbols() -> set:
         except Exception:
             continue
     if len(syms) >= 5:
-        _PIONEX_SYMS_CACHE = {"ts": now, "syms": syms}
+        _PIONEX_SYMS_CACHE = {"ts": now, "syms": syms, "fallback": False}
         return syms
+    _PIONEX_SYMS_CACHE = {"ts": now, "syms": set(), "fallback": True}   # 負快取 60s
     return set()
 
 
@@ -333,6 +339,7 @@ def _fetch_futures_tickers_fapi() -> list:
                 tickers.append({
                     "symbol":     sym,
                     "price":      float(t["lastPrice"]),
+                    "open":       float(t.get("openPrice", 0)),   # 24h 開盤，給每秒重算漲跌幅
                     "change_pct": float(t["priceChangePercent"]),
                     "change_amt": float(t.get("priceChange", 0)),
                     "volume":     float(t.get("quoteVolume", 0)),
@@ -615,8 +622,57 @@ def _apply_pionex_filter(tickers: list) -> list:
     return [t for t in tickers if t["symbol"][:-4].upper() in pionex_syms]
 
 
-def fetch_tickers(market: str = "futures") -> list:
-    """從 Pionex API 取得即時 24h 行情；失敗時 futures 改用 Binance FAPI 備援。"""
+def _fetch_fapi_prices() -> dict:
+    """Binance 永續全合約最新價 {SYMBOL: price}（weight 2，給每秒高頻更新用）。"""
+    try:
+        data = _get(f"{BINANCE_FAPI_BASE}/fapi/v1/ticker/price", timeout=8)
+        return {d["symbol"]: float(d["price"]) for d in data
+                if isinstance(d, dict) and d.get("symbol") and d.get("price")}
+    except Exception:
+        return {}
+
+
+def _fetch_spot_prices() -> dict:
+    """Binance 現貨全標的最新價 {SYMBOL: price}（weight 4，給每秒高頻更新用）。"""
+    try:
+        data = _get(f"{BINANCE_BASE}/api/v3/ticker/price", timeout=8)
+        return {d["symbol"]: float(d["price"]) for d in data
+                if isinstance(d, dict) and d.get("symbol") and d.get("price")}
+    except Exception:
+        return {}
+
+
+def _fetch_spot_tickers_binance() -> list:
+    """Binance 現貨 24h ticker（USDT 對），格式與 Pionex 一致；失敗回 []。"""
+    try:
+        data = _get(f"{BINANCE_BASE}/api/v3/ticker/24hr", timeout=10)
+        tickers = []
+        for t in data:
+            sym = t.get("symbol", "")
+            if not sym.endswith("USDT"):
+                continue
+            base = sym[:-4]
+            try:
+                close = float(t["lastPrice"])
+                tickers.append({
+                    "symbol":     sym,
+                    "display":    base + "/USDT",
+                    "spot":       base + "/USDT",
+                    "price":      close,
+                    "open":       float(t.get("openPrice", 0)),
+                    "change_pct": round(float(t["priceChangePercent"]), 2),
+                    "change_amt": round(float(t.get("priceChange", 0)), 8),
+                    "volume":     float(t.get("quoteVolume", 0)),
+                })
+            except (KeyError, ValueError):
+                continue
+        return tickers
+    except Exception:
+        return []
+
+
+def _fetch_pionex_tickers(market: str = "futures") -> list:
+    """直接從 Pionex API 取 24h 行情（僅備援用；正常走 Binance 以免狂打 Pionex 觸 429）。"""
     type_param = "PERP" if market == "futures" else ""
     url = f"{PIONEX_BASE}/api/v1/market/tickers"
     if type_param:
@@ -630,43 +686,45 @@ def fetch_tickers(market: str = "futures") -> list:
             if market == "futures":
                 if not sym.endswith("_USDT_PERP"):
                     continue
-                base = sym[: -len("_USDT_PERP")]
-                display = base + "/USDT.P"
-                spot    = base + "/USDT"
+                base = sym[: -len("_USDT_PERP")]; display = base + "/USDT.P"; spot = base + "/USDT"
             else:
                 if not sym.endswith("_USDT"):
                     continue
-                # 排除含底線的複合標的（如 BTC_ETH_USDT）
                 if "_" in sym[: -len("_USDT")]:
                     continue
-                base    = sym[: -len("_USDT")]
-                display = base + "/USDT"
-                spot    = display
+                base = sym[: -len("_USDT")]; display = base + "/USDT"; spot = display
             try:
-                open_  = float(t["open"])
-                close  = float(t["close"])
+                open_ = float(t["open"]); close = float(t["close"])
                 change_pct = (close - open_) / open_ * 100 if open_ else 0.0
                 tickers.append({
-                    "symbol":     sym,
-                    "display":    display,
-                    "spot":       spot,
-                    "price":      close,
-                    "change_pct": round(change_pct, 2),
-                    "change_amt": round(close - open_, 8),
-                    "volume":     float(t.get("amount", 0)),
+                    "symbol": sym, "display": display, "spot": spot, "price": close,
+                    "open": open_,
+                    "change_pct": round(change_pct, 2), "change_amt": round(close - open_, 8),
+                    "volume": float(t.get("amount", 0)),
                 })
             except (KeyError, ValueError):
                 continue
-        if tickers:
-            tickers.sort(key=lambda x: x["change_pct"], reverse=True)
-            return tickers
+        return tickers
     except Exception:
-        pass
-    # Pionex 失敗 → Binance FAPI 備援（僅合約）。
-    # 必須過濾成「Pionex 有的永續合約」，否則會冒出非 Pionex 標的（Binance 永續比 Pionex 多）。
+        return []
+
+
+def fetch_tickers(market: str = "futures") -> list:
+    """24h 行情。**改以 Binance 為主**（Pionex 用 Binance 流動性、價格一致、限流寬鬆），
+    過濾成 Pionex 有的標的；Binance 失敗才退回 Pionex。
+
+    為何這樣做：原本每 2 秒輪詢 Pionex tickers 會觸發 429（Too Many Requests），
+    連帶讓 Pionex klines 失效 → Pionex 獨有標的「找不到」。改走 Binance 後 Pionex
+    幾乎不被呼叫（只剩 1hr 快取的標的清單），429 解除、klines 恢復。"""
     if market == "futures":
         tickers = _apply_pionex_perp_filter(_fetch_futures_tickers_fapi())
         if tickers:
             tickers.sort(key=lambda x: x["change_pct"], reverse=True)
             return tickers
-    return []
+        return _fetch_pionex_tickers("futures")   # Binance 失敗才退回 Pionex
+    # 現貨：Binance 現貨過濾成 Pionex 現貨。Pionex 現貨清單暫抓不到時，退用永續清單
+    # （有硬編碼備援）當過濾代理，避免 spot 空白；都不打 Pionex tickers 以免 429。
+    psyms = _fetch_pionex_symbols() or _fetch_pionex_perp_symbols()
+    tickers = [t for t in _fetch_spot_tickers_binance() if t["symbol"][:-4].upper() in psyms]
+    tickers.sort(key=lambda x: x["change_pct"], reverse=True)
+    return tickers

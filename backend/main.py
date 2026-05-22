@@ -91,18 +91,44 @@ def _asset_ver() -> str:
 
 
 def _ticker_worker():
-    """背景執行緒：每 2 秒從 Pionex 抓 crypto ticker 存入記憶體。"""
-    from data.crypto import fetch_tickers
+    """背景執行緒：每秒更新 crypto ticker 最新價（輕量 weight2 端點），每 6 秒重抓
+    24h 漲跌幅/量。資料源為 Binance（Pionex 同流動性、價格一致、限流寬鬆）。
+    這樣可達「每秒有新報價」又不撞 Binance FAPI 權重上限。"""
+    from data.crypto import fetch_tickers, _fetch_fapi_prices, _fetch_spot_prices
     from utils.live_data import update as live_update
+    futures, spot = [], []
+    cnt = 0
     while True:
         try:
-            futures = fetch_tickers("futures")
-            spot    = fetch_tickers("spot")
+            if cnt % 6 == 0 or not (futures or spot):
+                # 每 6 秒（或首次）重抓完整 24h（含漲跌幅、量）
+                futures = fetch_tickers("futures")
+                spot    = fetch_tickers("spot")
+            else:
+                # 其餘每秒只抓最新價（weight 低），並用「現價＋快取24h開盤」重算漲跌幅
+                # → 漲跌幅也每秒更新（24h 開盤一秒內不變，不需每秒抓 24hr 而撞權重）
+                def _apply_prices(rows, prices):
+                    for t in rows:
+                        p = prices.get(t["symbol"])
+                        if p is None:
+                            continue
+                        t["price"] = p
+                        o = t.get("open") or 0
+                        if o:
+                            t["change_amt"] = round(p - o, 8)
+                            t["change_pct"] = round((p - o) / o * 100, 2)
+                fp = _fetch_fapi_prices()
+                if fp:
+                    _apply_prices(futures, fp)
+                sp = _fetch_spot_prices()
+                if sp:
+                    _apply_prices(spot, sp)
             if futures or spot:
                 live_update(futures, spot)
         except Exception:
             pass
-        time.sleep(2)
+        cnt += 1
+        time.sleep(1)
 
 
 def _tw_ticker_worker():
