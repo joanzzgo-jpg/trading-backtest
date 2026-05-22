@@ -315,12 +315,10 @@ def _solve_stop_pct(df, target: str, variant: bool, long_only: bool):
     目標 80%（止損 ≤5%）；若需 >5% 才達 80%，改找達 75% 的止損%。
     回傳 {stop_pct, win_rate, total, target, sweep}。"""
     def _wr_at(buf):
-        r = _calc_crt_winrate(df, stop_buffer_pct=buf, long_only=long_only)
-        view = r["band"] if target == "band" else r
-        if variant and isinstance(view.get("variant"), dict):
-            view = view["variant"]
-        ss = view.get("stop_strategy") or {}
-        return ss.get("win_rate"), (ss.get("total") or 0)
+        # _solve 精簡模式：只算選定 target 的「敗後停手」勝率（比完整計算快 ~4-6x）
+        r = _calc_crt_winrate(df, stop_buffer_pct=buf, long_only=long_only,
+                              _solve=(target, variant))
+        return r.get("win_rate"), (r.get("total") or 0)
 
     sweep = []
     buf = 0.0

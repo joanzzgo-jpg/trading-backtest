@@ -46,7 +46,7 @@
 
 ## 音效（`effects.js`）
 - **SFX**：`SFX` 物件含 `click / load / success / error / tick / boop / switch_` 七種 Web Audio 音效
-- **背景音樂（BGM）功能已整個移除**（原 `initMusicPlayer()` IIFE、`#musicToggleBtn`、`#musicPanel`、`THEMES`、YouTube 播放器）。`.music-panel` / `.music-panel-title` CSS class 為歷史名稱，現由 `#fxPanel` 等浮動面板共用，**勿刪**。舊單體 `app.js`（已停用）內仍有殘留音樂碼，不影響執行。
+- **背景音樂（BGM）功能已整個移除**（原 `initMusicPlayer()` IIFE、`#musicToggleBtn`、`#musicPanel`、`THEMES`、YouTube 播放器）。`.music-panel` / `.music-panel-title` CSS class 為歷史名稱，現由 `#fxPanel` 等浮動面板共用，**勿刪**。
 
 ## 極簡模式（perf-mode）
 給較舊裝置使用的純白系版本，**關掉所有特效並鎖住所有色票調整**，但保留圖表／回測／行情等核心功能。
@@ -139,8 +139,7 @@
 | `effects.js` | ~1630 | initClickSparks、initButtonRipple IIFE、SFX 音效引擎、天氣動畫 Canvas（背景音樂已移除） |
 | `main.js` | ~32 | DOMContentLoaded 初始化入口（呼叫所有 init 函數、loadData） |
 
-> **原 `app.js` 已拆分為上述 12 個檔案，不再使用。**  
-> **新增功能時請編輯對應的模組檔案，不要修改 app.js。**
+> **原單體 `app.js` 已拆分為上述 12 個模組檔案並刪除（不復存在）。新增功能請編輯對應的模組檔案。**
 
 ## 重要技術細節
 - **時間戳**：所有圖表時間戳 +8 小時（Taiwan Time），`toTime()` 函數處理
