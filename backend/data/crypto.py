@@ -662,9 +662,10 @@ def fetch_tickers(market: str = "futures") -> list:
             return tickers
     except Exception:
         pass
-    # Pionex 失敗 → Binance FAPI 備援（僅合約）
+    # Pionex 失敗 → Binance FAPI 備援（僅合約）。
+    # 必須過濾成「Pionex 有的永續合約」，否則會冒出非 Pionex 標的（Binance 永續比 Pionex 多）。
     if market == "futures":
-        tickers = _fetch_futures_tickers_fapi()
+        tickers = _apply_pionex_perp_filter(_fetch_futures_tickers_fapi())
         if tickers:
             tickers.sort(key=lambda x: x["change_pct"], reverse=True)
             return tickers
