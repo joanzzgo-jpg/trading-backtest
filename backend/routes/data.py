@@ -372,9 +372,11 @@ def get_crt_winrate(
     _buf = round(max(0.0, float(stop_buffer_pct or 0.0)), 4)
     _long_only = (market == "tw")  # 台股不能放空
     cache_key = f"crt_wr50:{market}:{symbol}:{exchange}:{timeframe}:{_buf}:{int(_long_only)}"
-    cached = cache.get(cache_key, ttl=3600)
-    if cached:
-        return cached
+    # 注意：solve 模式不可命中此勝率快取（cache_key 不含 solve），否則會回傳勝率而非求解結果
+    if not solve:
+        cached = cache.get(cache_key, ttl=3600)
+        if cached:
+            return cached
 
     MIN_CASES = 40   # 每個訊號（S1~S7 × 空/多）最少採樣數；不足會自動往前加倍天數
     # 各時間框架：初始天數 / 最大天數
