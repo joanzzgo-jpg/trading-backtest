@@ -847,7 +847,7 @@ function drawOne(d, W, H, isHovered, isSelected) {
   }
   else if (d.type === "longpos" && d.p1) {
     // 加碼後入場線改用均價（avgEntry）動態調整；綠/紅色塊以均價為界
-    const entryRefP = (d._isAutoRR && d.avgEntry != null) ? d.avgEntry : d.p1.price;
+    const entryRefP = (d._isAutoRR && !d._rrFixed && d.avgEntry != null) ? d.avgEntry : d.p1.price;
     const entryY = candleSeries?.priceToCoordinate(entryRefP);
     const tpY    = candleSeries?.priceToCoordinate(d.tp);
     const slY    = candleSeries?.priceToCoordinate(d.sl);
@@ -932,7 +932,7 @@ function drawOne(d, W, H, isHovered, isSelected) {
     }
 
     // R:R — 用 avg_entry（含加碼）；長單 reward = tp-avg、risk = avg-sl；正負號保留
-    const refEntry = (d._isAutoRR && d.avgEntry != null) ? d.avgEntry : d.p1.price;
+    const refEntry = (d._isAutoRR && !d._rrFixed && d.avgEntry != null) ? d.avgEntry : d.p1.price;
     const reward    = d.tp - refEntry;           // long: 正 = 對 / 負 = 反向（不利）
     const risk      = refEntry - d.sl;           // 預期為正
     const rrEst     = (risk !== 0) ? (reward / risk).toFixed(2) : "∞";
@@ -948,7 +948,7 @@ function drawOne(d, W, H, isHovered, isSelected) {
     if (rx - ex > rrW + 10) drawCtx.fillText(rrTxt, ex + (rx - ex - rrW) / 2, tpCY + 4);
 
     // 加碼點：在進場後出現的小圓點 + + 號
-    if (d._isAutoRR && d.pyramids && d.pyramids.length) {
+    if (d._isAutoRR && !d._rrFixed && d.pyramids && d.pyramids.length) {
       drawCtx.save();
       drawCtx.shadowBlur = 0;
       for (const p of d.pyramids) {
@@ -977,7 +977,7 @@ function drawOne(d, W, H, isHovered, isSelected) {
     // 右側標籤（入場線標籤：有加碼顯示「均」+均價，無加碼顯示原入場價）
     drawCtx.font = "11px sans-serif";
     const tpLabel = d._isAutoRR ? `預估 ${_fmtPx(d.tp)}` : `TP  ${_fmtPx(d.tp)}`;
-    const hasPyr  = d._isAutoRR && d.pyramids && d.pyramids.length;
+    const hasPyr  = d._isAutoRR && !d._rrFixed && d.pyramids && d.pyramids.length;
     const entryLabel = hasPyr
       ? `均 ${_fmtPx(entryRefP)}（+${d.pyramids.length}）`
       : `▶  ${_fmtPx(d.p1.price)}`;
@@ -1014,7 +1014,7 @@ function drawOne(d, W, H, isHovered, isSelected) {
   else if (d.type === "shortpos" && d.p1) {
     // shortpos: SL 在 entry 上方（紅），TP 在 entry 下方（綠）
     // 加碼後入場線改用均價動態調整
-    const entryRefP = (d._isAutoRR && d.avgEntry != null) ? d.avgEntry : d.p1.price;
+    const entryRefP = (d._isAutoRR && !d._rrFixed && d.avgEntry != null) ? d.avgEntry : d.p1.price;
     const entryY = candleSeries?.priceToCoordinate(entryRefP);
     const tpY    = candleSeries?.priceToCoordinate(d.tp);   // tp < entry → tpY > entryY
     const slY    = candleSeries?.priceToCoordinate(d.sl);   // sl > entry → slY < entryY
@@ -1096,7 +1096,7 @@ function drawOne(d, W, H, isHovered, isSelected) {
     }
 
     // R:R — 用 avg_entry（含加碼）；空單 reward = avg-tp、risk = sl-avg；正負號保留
-    const refEntry = (d._isAutoRR && d.avgEntry != null) ? d.avgEntry : d.p1.price;
+    const refEntry = (d._isAutoRR && !d._rrFixed && d.avgEntry != null) ? d.avgEntry : d.p1.price;
     const reward    = refEntry - d.tp;           // short: 正 = 對 / 負 = 反向
     const risk      = d.sl - refEntry;
     const rrEst     = (risk !== 0) ? (reward / risk).toFixed(2) : "∞";
@@ -1112,7 +1112,7 @@ function drawOne(d, W, H, isHovered, isSelected) {
     if (rx - ex > rrW + 10) drawCtx.fillText(rrTxt, ex + (rx - ex - rrW) / 2, tpCY + 4);
 
     // 加碼點 + 均減進場線
-    if (d._isAutoRR && d.pyramids && d.pyramids.length) {
+    if (d._isAutoRR && !d._rrFixed && d.pyramids && d.pyramids.length) {
       drawCtx.save();
       drawCtx.shadowBlur = 0;
       for (const p of d.pyramids) {
@@ -1140,7 +1140,7 @@ function drawOne(d, W, H, isHovered, isSelected) {
 
     drawCtx.font = "11px sans-serif";
     const tpLabel = d._isAutoRR ? `預估 ${_fmtPx(d.tp)}` : `TP  ${_fmtPx(d.tp)}`;
-    const hasPyr  = d._isAutoRR && d.pyramids && d.pyramids.length;
+    const hasPyr  = d._isAutoRR && !d._rrFixed && d.pyramids && d.pyramids.length;
     const entryLabel = hasPyr
       ? `均 ${_fmtPx(entryRefP)}（+${d.pyramids.length}）`
       : `▶  ${_fmtPx(d.p1.price)}`;

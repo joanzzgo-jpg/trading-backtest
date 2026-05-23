@@ -340,6 +340,9 @@ function _computeAutoRRBox(sig) {
     pyramids: pyramids,
     avgEntry: avgEntry,
     _isAutoRR: true,
+    // 1:1 目標：止盈/止損以「原始進場價」等距定義，盒子的區塊/RR 須用原始進場價當基準
+    // （不可用加碼均價 avgEntry，否則紅綠區塊不對稱、標示看起來不是 1:1）
+    _rrFixed: isRR,
   };
   _autoRRBoxCache.set(cacheKey, box);
   return box;
