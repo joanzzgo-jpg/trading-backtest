@@ -98,7 +98,11 @@ def _fetch_pionex_perp_symbols() -> set:
         _PIONEX_PERP_SYMS_CACHE = {"ts": now, "syms": syms, "fallback": False}
         return syms
 
-    # API 失敗 → 用硬編碼備援，並負快取 60s（不每次重打 Pionex）
+    # API 失敗（常見：429 限流）→ 優先沿用上次成功清單（stale-serve），否則用硬編碼備援；負快取 60s
+    prev = cached.get("syms")
+    if prev and not cached.get("fallback"):
+        _PIONEX_PERP_SYMS_CACHE = {"ts": now, "syms": prev, "fallback": True}
+        return prev
     _PIONEX_PERP_SYMS_CACHE = {"ts": now, "syms": PIONEX_PERP_FALLBACK, "fallback": True}
     return PIONEX_PERP_FALLBACK
 
@@ -133,7 +137,13 @@ def _fetch_pionex_symbols() -> set:
     if len(syms) >= 5:
         _PIONEX_SYMS_CACHE = {"ts": now, "syms": syms, "fallback": False}
         return syms
-    _PIONEX_SYMS_CACHE = {"ts": now, "syms": set(), "fallback": True}   # 負快取 60s
+    # API 全失敗（常見：429 限流）→ 沿用上次成功清單（stale-serve），避免現貨過濾整個失效；
+    # 只短暫負快取（60s）以便儘快重試，但繼續用舊資料撐住列表/搜尋。
+    prev = _PIONEX_SYMS_CACHE.get("syms")
+    if prev:
+        _PIONEX_SYMS_CACHE = {"ts": now, "syms": prev, "fallback": True}
+        return prev
+    _PIONEX_SYMS_CACHE = {"ts": now, "syms": set(), "fallback": True}   # 從未成功過 → 空集合
     return set()
 
 
@@ -540,27 +550,32 @@ def fetch_crypto_ohlcv(
 
     mc = _calc_max_candles(start, end, timeframe)
     if ex in ("pionex", "binance"):
-        # Binance 優先（歷史深、穩定）：永續合約 → 現貨
+        # Binance 優先（歷史深、穩定）：永續合約 → 現貨。記錄最後一個錯誤以區分「限流」vs「找不到」
+        last_err = None
         try:
             df = _fetch_binance_fapi(symbol, timeframe, start, end, limit, max_candles=mc)
             if not df.empty:
                 return df
-        except Exception:
-            pass
+        except Exception as e:
+            last_err = e
         try:
             df = _fetch_binance(symbol, timeframe, start, end, limit, max_candles=mc)
             if not df.empty:
                 return df
-        except Exception:
-            pass
+        except Exception as e:
+            last_err = e
         # Pionex 獨有合約（不在 Binance 上）→ 走 Pionex 自己的 klines 作為最後備援
         if ex == "pionex":
             try:
                 df = _fetch_pionex_klines(symbol, timeframe, start, end, limit, max_candles=mc, is_perp=is_perp)
                 if not df.empty:
                     return df
-            except Exception:
-                pass
+            except Exception as e:
+                last_err = e
+        # 區分限流（429）與真的找不到：限流時別誤導使用者「代號錯誤」
+        es = str(last_err).lower() if last_err is not None else ""
+        if "429" in es or "too many" in es or "rate limit" in es:
+            raise ValueError(f"{symbol} 暫時無法取得：資料源限流（429），請稍後再試")
         raise ValueError(f"找不到 {symbol} 的行情資料，請確認標的代號是否正確")
     elif ex == "bybit":
         return _fetch_bybit(symbol, timeframe, start, end, limit, max_candles=mc)
@@ -576,14 +591,17 @@ def fetch_crypto_markets(exchange_id: str = "pionex"):
     try:
         if ex in ("pionex", "binance"):
             data = _get(f"{BINANCE_BASE}/api/v3/exchangeInfo")
-            pionex_syms = _fetch_pionex_symbols() if ex == "pionex" else set()
+            # Pionex：嚴格只留 Pionex 有的標的；現貨清單暫抓不到（429）時退用永續清單
+            # （有硬編碼備援）當過濾宇集，**絕不**退回成全 Binance（否則冒出非 Pionex 標的）。
+            # binance 交易所則不過濾（psyms=None）。
+            psyms = (_fetch_pionex_symbols() or _fetch_pionex_perp_symbols()) if ex == "pionex" else None
             results = [
                 {"symbol": f"{s['baseAsset']}/{s['quoteAsset']}",
                  "base": s["baseAsset"], "quote": s["quoteAsset"]}
                 for s in data.get("symbols", [])
                 if s.get("status") == "TRADING" and s.get("quoteAsset") == "USDT"
                    and s.get("isSpotTradingAllowed")
-                   and (not pionex_syms or s["baseAsset"].upper() in pionex_syms)
+                   and (psyms is None or s["baseAsset"].upper() in psyms)
             ]
         elif ex == "bybit":
             data = _get(f"{BYBIT_BASE}/v5/market/instruments-info?category=spot")

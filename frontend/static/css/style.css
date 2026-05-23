@@ -3469,8 +3469,22 @@ html.perf-mode .tb-wr-total { font-size: 14px !important; }
   opacity: .85;
   cursor: help;
 }
+.tb-wr-recent {
+  font-size: 10px;
+  color: var(--muted);
+  font-family: 'SF Mono','Courier New',monospace;
+  margin-left: 5px;
+  letter-spacing: .02em;
+  white-space: nowrap;
+  cursor: help;
+}
+.tb-wr-recent.good { color: #26d07c; }
+.tb-wr-recent.bad  { color: #ff7a7a; }
+html.perf-mode .tb-wr-recent.good { color: #16a34a; }
+html.perf-mode .tb-wr-recent.bad  { color: #dc2626; }
 @media (max-width: 768px) {
   .tb-wr-est { font-size: 9px; }
+  .tb-wr-recent { font-size: 9px; }
 }
 
 .wr-s10 { color: #90caf9; }

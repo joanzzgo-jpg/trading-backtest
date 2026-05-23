@@ -1075,6 +1075,25 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         rr_out["variant"].update(_dedup_total_dict(dedup_rrv, cond_tot_rr_v))
         rr_out["variant"].update(_dedup_est_dict(dedup_rrv))
         rr_out["variant"]["stop_strategy"] = stop_rr_v
+
+    # ── 近 N 筆勝率（合併時間軸去重後最近 N 筆，看近期表現）──
+    def _recent_wr(target, only_variant, n_recent=100):
+        seq = _build_combined(target, only_variant)   # 已依時間排序、去重、S1 不計
+        tail = seq[-n_recent:]
+        w = sum(1 for _d, r in tail if r == "w")
+        t = len(tail)
+        return {"win_rate": round(w / t * 100, 1) if t else None, "total": t, "wins": w}
+
+    mid_out["recent100"]  = _recent_wr("mid",  False)
+    band_out["recent100"] = _recent_wr("band", False)
+    rr_out["recent100"]   = _recent_wr("rr",   False)
+    if "variant" in mid_out:
+        mid_out["variant"]["recent100"]  = _recent_wr("mid",  True)
+    if "variant" in band_out:
+        band_out["variant"]["recent100"] = _recent_wr("band", True)
+    if "variant" in rr_out:
+        rr_out["variant"]["recent100"]   = _recent_wr("rr",   True)
+
     recent.sort(key=lambda x: x["t"])
     from_date = str(df.iloc[0]["time"])[:10] if n else ""
 

@@ -565,6 +565,20 @@ function _renderWinRate(d) {
     }
   }
 
+  // 近 ~100 筆勝率（合併時間軸去重後最近 100 筆，看近期表現）
+  const r100 = document.getElementById("wrRecent100");
+  if (r100) {
+    const rc = d.recent100;
+    if (rc && rc.win_rate != null) {
+      const good = rc.win_rate >= 60, bad = rc.win_rate < 45;
+      r100.className = `tb-wr-recent${good ? " good" : bad ? " bad" : ""}`;
+      r100.textContent = `近${rc.total} ${rc.win_rate}%`;
+      r100.title = `最近 ${rc.total} 筆：${rc.wins}勝 / ${rc.total - rc.wins}負（${rc.win_rate}%）`;
+    } else {
+      r100.textContent = "—"; r100.className = "tb-wr-recent"; r100.removeAttribute("title");
+    }
+  }
+
   // 「打到一開始預估止盈位子」機率（用固定目標掃描）
   const eh = document.getElementById("wrEstHit");
   if (eh) {

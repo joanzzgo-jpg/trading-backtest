@@ -355,6 +355,7 @@ _scan_outcome(df, entry_i, stop_px, dir)           # 回傳 ('win'/'loss'/None, 
   - 勝率 ≥60% → 亮綠 `.good`，<45% → 淡紅 `.bad`
 - **右固定區 `.tb-wr-fixed-right`**（z-index:3 不隨滾動移動）
   - `#wrAll`：**S2~S6** 合計勝率（S1 不計入），CSS gradient text + drop-shadow glow
+  - `#wrRecent100`：**近 ~100 筆**勝率（合併時間軸去重後最近 100 筆，看近期表現 vs 全期）。後端各 target/variant 存 `recent100`（由 `_build_combined` 取末 100 筆算）；跟目標鈕/強化版切換
   - `#wrFromDate`：回測起始日 `←YYYY/MM/DD`
   - `#wrStatus`：「N筆」目前圖表可見訊號數
 
