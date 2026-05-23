@@ -336,10 +336,13 @@ _scan_outcome(df, entry_i, stop_px, dir)           # 回傳 ('win'/'loss'/None, 
 ```
 
 - **左固定區 `.tb-wr-fixed-left`**（z-index:3 不隨滾動移動）
-  - `#wrTargetToggle`：單鍵 toggle 切換目標
+  - `#wrTargetToggle`：單鍵 toggle 切換目標（三段循環 中軌 → 上/下軌 → 1:1 → 中軌）
     - 「中軌」（預設）= BB middle target
     - 「上/下軌」= 多→BB upper、空→BB lower（方向相關的極端反向目標）
-    - 點擊呼叫 `_toggleWrTarget()`，state 存 `localStorage.wrTargetView`（mid/band）
+    - 「1:1」= 止盈距離 = 止損距離（盈虧比 1:1）；目標 = 進場價 ∓ |進場價−止損|（短減多加），固定目標
+    - 點擊呼叫 `_toggleWrTarget()`，state 存 `localStorage.wrTargetView`（mid/band/rr）
+    - 後端三種目標各算一份完整統計：mid 放頂層、band 在 `d.band`、rr 在 `d.rr`（結構相同：總/各訊號/強化版/連敗/敗後停手）。前端用 `_wrPickView(d)`/`_wrResultKey()`/`_wrOtKey()` 三幫手依 view 取值
+    - **1:1 實作（crt.py）**：訊號的 `r_rr`/`ot_rr` 由 `_scan_rr()`（呼叫 `_scan_outcome_fixed_t`）算；盈虧比恆為 1，故 RR 統計（avg_rr/net_r/PF）由勝負數直接推得（`_stats_rr`），不需 RR bucket。est=實際（目標已固定）
   - `#wrStopBuffer`：number input 0~10，止損緩衝百分比
     - 多單 `stop = base_low × (1 - buffer)`、空單 `stop = base_high × (1 + buffer)`
     - state 存 `localStorage.wrStopBuffer`（decimal 字串）

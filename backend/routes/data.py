@@ -369,7 +369,7 @@ def get_crt_winrate(
     from datetime import date, timedelta
     _buf = round(max(0.0, float(stop_buffer_pct or 0.0)), 4)
     _long_only = (market == "tw")  # 台股不能放空
-    cache_key = f"crt_wr50:{market}:{symbol}:{exchange}:{timeframe}:{_buf}:{int(_long_only)}"
+    cache_key = f"crt_wr52:{market}:{symbol}:{exchange}:{timeframe}:{_buf}:{int(_long_only)}"
     # 注意：solve 模式不可命中此勝率快取（cache_key 不含 solve），否則會回傳勝率而非求解結果
     if not solve:
         cached = cache.get(cache_key, ttl=3600)
@@ -456,11 +456,12 @@ def get_crt_winrate(
 
     # 求解模式：掃描止損% 找達標的建議值（用已快取的 df，免重抓）
     if solve:
-        solve_key = f"crt_solve1:{market}:{symbol}:{exchange}:{timeframe}:{solve_target}:{solve_variant}:{int(_long_only)}"
+        solve_key = f"crt_solve2:{market}:{symbol}:{exchange}:{timeframe}:{solve_target}:{solve_variant}:{int(_long_only)}"
         cached_s = cache.get(solve_key, ttl=3600)
         if cached_s:
             return cached_s
-        sol = _solve_stop_pct(df, target=("band" if solve_target == "band" else "mid"),
+        _solve_tgt = solve_target if solve_target in ("mid", "band", "rr") else "mid"
+        sol = _solve_stop_pct(df, target=_solve_tgt,
                               variant=(solve_variant == 1), long_only=_long_only)
         cache.set(solve_key, sol)
         return sol

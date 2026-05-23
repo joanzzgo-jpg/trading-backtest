@@ -39,9 +39,27 @@ try {
 function _initWrTargetBtn() {
   const btn = document.getElementById("wrTargetToggle");
   if (!btn) return;
-  // 帶軌目標是方向相關：多單→BB 上軌、空單→BB 下軌
-  btn.textContent = _wrTargetView === "band" ? "上/下軌" : "中軌";
+  // 三種目標：中軌（BB middle）／上下軌（方向相關極端，多→上軌、空→下軌）／1:1（止盈距離=止損距離）
+  btn.textContent = _wrTargetView === "band" ? "上/下軌"
+                  : _wrTargetView === "rr"   ? "1:1"
+                  :                            "中軌";
   btn.classList.toggle("band", _wrTargetView === "band");
+  btn.classList.toggle("rr",   _wrTargetView === "rr");
+}
+
+// 取當前目標 view（mid 在頂層、band/rr 在巢狀子物件）
+function _wrPickView(d) {
+  if (!d) return d;
+  if (_wrTargetView === "band" && d.band) return d.band;
+  if (_wrTargetView === "rr"   && d.rr)   return d.rr;
+  return d;
+}
+// 當前目標對應的「訊號結果 / 結算時間」欄位名
+function _wrResultKey() {
+  return _wrTargetView === "band" ? "r_b" : _wrTargetView === "rr" ? "r_rr" : "r";
+}
+function _wrOtKey() {
+  return _wrTargetView === "band" ? "ot_b" : _wrTargetView === "rr" ? "ot_rr" : "ot";
 }
 
 function _initWrVariantBtn() {
@@ -126,12 +144,16 @@ function _initWrStopBuffer() {
 }
 
 function _toggleWrTarget() {
-  _wrTargetView = _wrTargetView === "mid" ? "band" : "mid";
+  // 三段循環：中軌 → 上/下軌 → 1:1 → 中軌
+  _wrTargetView = _wrTargetView === "mid" ? "band"
+                : _wrTargetView === "band" ? "rr"
+                : "mid";
   try { localStorage.setItem(_WR_VIEW_KEY, _wrTargetView); } catch (e) {}
   _initWrTargetBtn();
   if (_wrCacheLast) _renderWinRate(_wrCacheLast);
-  // marker 與自動盈虧比盒都跟著切：止盈位置 BB 中軌 ↔ 上/下軌
+  // marker 與自動盈虧比盒都跟著切：止盈位置 BB 中軌 ↔ 上/下軌 ↔ 1:1
   _renderWRSignals();
+  if (typeof window._refreshSignalDrawer === "function") window._refreshSignalDrawer();
   if (typeof renderDrawings === "function") requestAnimationFrame(renderDrawings);
 }
 
@@ -145,14 +167,14 @@ function _toggleWrTarget() {
 // 找出與點擊時間（K 棒）對應的訊號：可命中進場棒（s.t）或結算棒（s.ot/s.ot_b）
 function _findSignalAtTime(barTime) {
   if (!barTime || !_lastWRSignals) return null;
-  const useBand = _wrTargetView === "band";
+  const otKey = _wrOtKey();
   // 強化版時只考慮 v=true 訊號
   const list = _wrVariantView === "variant"
     ? _lastWRSignals.filter(s => s.v)
     : _lastWRSignals;
   for (const s of list) {
     if (toTime(s.t) === barTime) return s;
-    const exitT = useBand ? s.ot_b : s.ot;
+    const exitT = s[otKey];
     if (exitT && toTime(exitT) === barTime) return s;
   }
   return null;
@@ -195,6 +217,7 @@ function _computeAutoRRBox(sig) {
   if (_autoRRBoxCache.has(cacheKey)) return _autoRRBoxCache.get(cacheKey);
 
   const useBand = _wrTargetView === "band";
+  const isRR    = _wrTargetView === "rr";
   const sigIdx = (typeof _timeToIdx !== "undefined" && _timeToIdx.has(sig.t))
     ? _timeToIdx.get(sig.t)
     : ohlcvData.findIndex(d => d.time === sig.t);
@@ -209,22 +232,26 @@ function _computeAutoRRBox(sig) {
   const dir = sig.d;
   const isShort = dir === "s";
   const buf = (_wrStopBuffer || 0) / 100;
+  // 止損價優先用後端實際值（含 buffer、多棒取極值）；缺漏時退回單根訊號棒（舊資料相容）
   let tp, sl, type, color;
   if (isShort) {
-    sl = sigBar.high * (1 + buf);
-    tp = useBand ? entryBar.bb_lower : entryBar.bb_middle;
+    sl = (sig.stop != null) ? sig.stop : sigBar.high * (1 + buf);
+    // 1:1：止盈距離 = 止損距離（進場價 - 風險）；否則中軌/下軌
+    tp = isRR ? (entryBar.open - (sl - entryBar.open))
+       : useBand ? entryBar.bb_lower : entryBar.bb_middle;
     type = "shortpos"; color = "#ef5350";
   } else {
-    sl = sigBar.low * (1 - buf);
-    tp = useBand ? entryBar.bb_upper : entryBar.bb_middle;
+    sl = (sig.stop != null) ? sig.stop : sigBar.low * (1 - buf);
+    tp = isRR ? (entryBar.open + (entryBar.open - sl))
+       : useBand ? entryBar.bb_upper : entryBar.bb_middle;
     type = "longpos"; color = "#26a69a";
   }
   if (tp == null) { _autoRRBoxCache.set(cacheKey, null); return null; }
 
   // 結算位置
   let tpAct = null;
-  const exitT  = useBand ? sig.ot_b : sig.ot;
-  const result = useBand ? sig.r_b  : sig.r;
+  const exitT  = sig[_wrOtKey()];
+  const result = sig[_wrResultKey()];
   let exitIdx = -1;
   if (exitT) {
     exitIdx = (typeof _timeToIdx !== "undefined" && _timeToIdx.has(exitT))
@@ -232,9 +259,13 @@ function _computeAutoRRBox(sig) {
       : ohlcvData.findIndex(d => d.time === exitT);
   }
   if (exitT && result === "w" && exitIdx >= 0) {
-    const exitBar = ohlcvData[exitIdx];
-    if (isShort) tpAct = useBand ? exitBar.bb_lower : exitBar.bb_middle;
-    else         tpAct = useBand ? exitBar.bb_upper : exitBar.bb_middle;
+    if (isRR) {
+      tpAct = tp;  // 1:1 目標固定，實際止盈 = 預估止盈
+    } else {
+      const exitBar = ohlcvData[exitIdx];
+      if (isShort) tpAct = useBand ? exitBar.bb_lower : exitBar.bb_middle;
+      else         tpAct = useBand ? exitBar.bb_upper : exitBar.bb_middle;
+    }
   }
 
   // 加碼系統：進場後到 TP/SL 之前，每次出現加碼訊號，下根用開盤價加碼
@@ -393,7 +424,8 @@ function _renderWRSignals(signals) {
   const hasIdx = (typeof _secToIdx !== "undefined" && _secToIdx.size > 0);
   const chartTimeSet = hasIdx ? null : new Set(ohlcvData.map(d => toTime(d.time)));
   const _has = t => hasIdx ? _secToIdx.has(t) : chartTimeSet.has(t);
-  const useBand = _wrTargetView === "band";
+  const rKey = _wrResultKey();
+  const otKey = _wrOtKey();
 
   const allMarkers = [];
 
@@ -403,9 +435,9 @@ function _renderWRSignals(signals) {
 
     const isShort = s.d === "s";
     const k = s.k || "abc";
-    // 依目標切換取結果欄位：mid → r/ot；band → r_b/ot_b
-    const sr  = useBand ? s.r_b  : s.r;
-    const sot = useBand ? s.ot_b : s.ot;
+    // 依目標切換取結果欄位：mid → r/ot；band → r_b/ot_b；1:1 → r_rr/ot_rr
+    const sr  = s[rKey];
+    const sot = s[otKey];
 
     // ── 進場標記 ──
     const eColor = k === "abc" ? (isShort ? "#ff6b6b" : "#4fc3f7")
@@ -470,8 +502,8 @@ function _renderWRSignals(signals) {
 
 function _renderWinRate(d) {
   _wrCacheLast = d;
-  // 依目標切換取 mid（頂層）或 band（巢狀）
-  let view = (_wrTargetView === "band" && d && d.band) ? d.band : d;
+  // 依目標切換取 mid（頂層）/ band / rr（巢狀）
+  let view = _wrPickView(d);
   // 再依強化版切換：若 variant view 且該層有 .variant 子物件，使用之
   if (_wrVariantView === "variant" && view && view.variant) view = view.variant;
   // 台股 long_only：把勝率欄加上 class 隱藏空單 row
@@ -584,8 +616,8 @@ function _renderWrTop3() {
   const d = _wrCacheLast;
   if (!d) { root.innerHTML = ""; return; }
 
-  // 取當前 view（mid / band / variant）
-  let view = (_wrTargetView === "band" && d.band) ? d.band : d;
+  // 取當前 view（mid / band / rr / variant）
+  let view = _wrPickView(d);
   if (_wrVariantView === "variant" && view && view.variant) view = view.variant;
 
   // 連敗按鈕（畫在 TOP3 上列）：關 → 2連 → 3連 → 4連 → 敗後停手策略 → 關
@@ -647,7 +679,7 @@ function _renderWrTop3() {
   // 合計勝率（dedupe by (t, d) 只算 top3 的 (sig, dir)）
   const topSet = new Set(top3.map(t => `${_STATKEY_TO_SIGK[t.k]}|${t.dir === "short" ? "s" : "l"}`));
   const sigs = _lastWRSignals || [];
-  const useBand    = _wrTargetView === "band";
+  const rKey = _wrResultKey();
   const useVariant = _wrVariantView === "variant";
   const seen = new Set();
   let w = 0, l = 0;
@@ -657,7 +689,7 @@ function _renderWrTop3() {
     const key = s.t + "|" + s.d;
     if (seen.has(key)) continue;
     seen.add(key);
-    const r = useBand ? s.r_b : s.r;
+    const r = s[rKey];
     if (r === "w") w++;
     else if (r === "l") l++;
   }

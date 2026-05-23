@@ -15,7 +15,7 @@
       excludes: ["訊號棒影線已碰 BB 中軌（短：low ≤ 中軌；多：high ≥ 中軌）"],
       entry: "訊號棒下一根開盤（i+1）",
       stop:  "訊號棒最高（空）／最低（多）× (1 ± SL buffer)",
-      target: "BB 中軌（中軌模式）／BB 上下軌（上下軌模式）",
+      target: "BB 中軌 / BB 上下軌 / 1:1（止盈距離=止損距離）",
       notes: ["三指標同棒會發生較頻繁，但勝率最不穩定", "通常配合 ABC 與其他訊號做交叉驗證"],
     },
     ab: {
@@ -34,7 +34,7 @@
       ],
       entry: "B 棒下一根開盤（i+2）",
       stop:  "B 棒最高（空）／最低（多）× (1 ± SL buffer)",
-      target: "BB 中軌 / BB 上下軌",
+      target: "BB 中軌 / BB 上下軌 / 1:1（止盈距離=止損距離）",
       notes: ["兩棒接力比同棒更可靠，是常用的進場 setup"],
     },
     s3: {
@@ -51,7 +51,7 @@
       excludes: ["C 棒影線已碰 BB 中軌（短：low ≤ 中軌；多：high ≥ 中軌）"],
       entry: "C 棒下一根開盤（i+3）",
       stop:  "三棒最高高點（空）／最低低點（多） × (1 ± SL buffer)",
-      target: "BB 中軌 / BB 上下軌",
+      target: "BB 中軌 / BB 上下軌 / 1:1（止盈距離=止損距離）",
       notes: ["三棒結構比 S2 更穩，但訊號量會少很多"],
     },
     s4: {
@@ -68,7 +68,7 @@
       excludes: ["C 棒 low/high 已碰到 BB 中軌"],
       entry: "C 棒下一根開盤（i+3）",
       stop:  "三棒最高高點（空）／最低低點（多） × (1 ± SL buffer)",
-      target: "BB 中軌 / BB 上下軌",
+      target: "BB 中軌 / BB 上下軌 / 1:1（止盈距離=止損距離）",
       notes: ["純淨版發生率低但質量高；建議搭配 BB 中軌目標"],
     },
     s5: {
@@ -85,7 +85,7 @@
       excludes: ["C 棒 low/high 已碰到 BB 中軌"],
       entry: "C 棒下一根開盤（i+3）",
       stop:  "三棒最高高點（空）／最低低點（多） × (1 ± SL buffer)",
-      target: "BB 中軌 / BB 上下軌",
+      target: "BB 中軌 / BB 上下軌 / 1:1（止盈距離=止損距離）",
       notes: ["共振在中間棒；和 S4 互補形成不同的 setup pattern"],
     },
     s6: {
@@ -102,7 +102,7 @@
       excludes: ["C 棒影線已碰 BB 中軌（短：low ≤ 中軌；多：high ≥ 中軌）"],
       entry: "C 棒下一根開盤（i+3）",
       stop:  "C 棒最高（空）／最低（多） × (1 ± SL buffer)",
-      target: "BB 中軌 / BB 上下軌",
+      target: "BB 中軌 / BB 上下軌 / 1:1（止盈距離=止損距離）",
       notes: [
         "原為「3 安靜棒 + 第 4 根反轉」（4 棒），因前 3 根全乾淨太嚴格、實戰常漏，改為「2 安靜棒 + 第 3 根反轉」（3 棒）",
         "「轉折開始」訊號，常見於趨勢底/頂",
@@ -123,7 +123,7 @@
       excludes: ["C 棒影線已碰中軌"],
       entry: "C 棒下一根開盤（i+3）",
       stop:  "三棒最高高點（空）／最低低點（多） × (1 ± SL buffer)",
-      target: "BB 中軌 / BB 上下軌",
+      target: "BB 中軌 / BB 上下軌 / 1:1（止盈距離=止損距離）",
       notes: ["S4 純淨版的放寬版本，A 棒多了 CRT 要求，C 棒不再強制無 CRT"],
     },
     s11: {
@@ -142,7 +142,7 @@
       excludes: ["A / B / C / D 四棒<b>任一根</b>影線已碰中軌（短：low ≤ 中軌；多：high ≥ 中軌）"],
       entry: "D 棒下一根開盤（i+4）",
       stop:  "四棒最高高點（空）／最低低點（多） × (1 ± SL buffer)",
-      target: "BB 中軌 / BB 上下軌",
+      target: "BB 中軌 / BB 上下軌 / 1:1（止盈距離=止損距離）",
       notes: ["S4（A共振→B無→C叉）的四棒延伸版，中間多一根安靜棒"],
     },
     s10: {
@@ -162,7 +162,7 @@
       excludes: ["四棒中任一根影線已碰 BB 中軌（短：low ≤ bb_mid；多：high ≥ bb_mid）"],
       entry: "D 棒下一根開盤（i+4）",
       stop:  "四棒最高高點（空）／最低低點（多） × (1 ± SL buffer)",
-      target: "BB 中軌 / BB 上下軌",
+      target: "BB 中軌 / BB 上下軌 / 1:1（止盈距離=止損距離）",
       notes: [
         "三條件可分布在任意棒、不需同棒、不需順序",
         "比 S9 多了 CRT 條件，更嚴格，預期勝率較高",
@@ -184,7 +184,7 @@
       excludes: ["C 棒（視窗最末棒）影線已碰中軌"],
       entry: "C 棒下一根開盤（i+3）",
       stop:  "三棒最高高點（空）／最低低點（多） × (1 ± SL buffer)",
-      target: "BB 中軌 / BB 上下軌",
+      target: "BB 中軌 / BB 上下軌 / 1:1（止盈距離=止損距離）",
       notes: [
         "兩條件可同棒可分棒，三根視窗內出現即算",
         "結構最寬鬆，訊號頻率較高，可作為其他訊號的補充",
@@ -207,7 +207,7 @@
       excludes: ["C 棒影線已碰中軌"],
       entry: "C 棒下一根開盤（i+3）",
       stop:  "三棒最高高點（空）／最低低點（多） × (1 ± SL buffer)",
-      target: "BB 中軌 / BB 上下軌",
+      target: "BB 中軌 / BB 上下軌 / 1:1（止盈距離=止損距離）",
       notes: [
         "與 S4/S5 不同：S4 是「A 共振、B 全無、C KDJ叉」；S8 是「A 共振、B CRT、C KDJ叉」",
         "每棒承接前棒，三步累積反轉，結構最完整",
@@ -220,10 +220,16 @@
 
   const $ = id => document.getElementById(id);
 
+  // 目標標籤（中軌 / 上/下軌 / 1:1）— 與 winrate.js 的 _wrTargetView 共用
+  function _viewLabel() {
+    const v = (typeof _wrTargetView !== "undefined") ? _wrTargetView : "mid";
+    return v === "band" ? "上/下軌" : v === "rr" ? "1:1" : "中軌";
+  }
+
   function _statsFor(key) {
     const d = (typeof _wrCacheLast !== "undefined") ? _wrCacheLast : null;
     if (!d) return null;
-    let view = (typeof _wrTargetView !== "undefined" && _wrTargetView === "band" && d.band) ? d.band : d;
+    let view = (typeof _wrPickView === "function") ? _wrPickView(d) : d;
     // 強化版時取巢狀 .variant
     if (typeof _wrVariantView !== "undefined" && _wrVariantView === "variant" && view && view.variant) {
       view = view.variant;
@@ -234,15 +240,16 @@
   function _signalsFor(key) {
     if (typeof _lastWRSignals === "undefined" || !_lastWRSignals) return [];
     const sk = _S_KEY_MAP[key];
-    const useBand = (typeof _wrTargetView !== "undefined") && _wrTargetView === "band";
+    const rKey = (typeof _wrResultKey === "function") ? _wrResultKey() : "r";
+    const otKey = (typeof _wrOtKey === "function") ? _wrOtKey() : "ot";
     const useVariant = (typeof _wrVariantView !== "undefined") && _wrVariantView === "variant";
     return _lastWRSignals
       .filter(s => s.k === sk && (!useVariant || s.v))
       .map(s => ({
         t: s.t,
         d: s.d,
-        r: useBand ? s.r_b : s.r,
-        ot: useBand ? s.ot_b : s.ot,
+        r: s[rKey],
+        ot: s[otKey],
       }));
   }
 
@@ -302,9 +309,9 @@
   function _renderStopDrawer() {
     const d = (typeof _wrCacheLast !== "undefined") ? _wrCacheLast : null;
     if (!d) return;
-    let view = (typeof _wrTargetView !== "undefined" && _wrTargetView === "band" && d.band) ? d.band : d;
+    let view = (typeof _wrPickView === "function") ? _wrPickView(d) : d;
     if (typeof _wrVariantView !== "undefined" && _wrVariantView === "variant" && view && view.variant) view = view.variant;
-    const viewLabel = (typeof _wrTargetView !== "undefined" && _wrTargetView === "band") ? "上/下軌" : "中軌";
+    const viewLabel = _viewLabel();
     const variantLabel = (typeof _wrVariantView !== "undefined" && _wrVariantView === "variant") ? "強化版" : "原版";
     const ss = view && view.stop_strategy;
     const base = view;  // 不用策略的去重總勝率（對照）
@@ -319,7 +326,7 @@
     const _row = (label, o) => `<div class="sig-stat-row"><span class="sig-stat-lbl">${label}</span>${_wrCell(o)}</div>`;
 
     const actBlock = ss ? `
-      <div class="sig-rule-lbl" style="margin:4px 0">📊 實際（動態${viewLabel}目標）</div>
+      <div class="sig-rule-lbl" style="margin:4px 0">📊 實際（${viewLabel}目標）</div>
       ${_row("合計", ss)}
       ${_row("空單", ss.short)}
       ${_row("多單", ss.long)}` : `<div class="sig-empty">尚無資料</div>`;
@@ -417,7 +424,8 @@
     const tf       = (typeof currentTF !== "undefined" && currentTF) ? currentTF : "1d";
     if (!symbol) { _set("—"); return; }
     _set("求解中…");
-    const tgt = (typeof _wrTargetView !== "undefined" && _wrTargetView === "band") ? "band" : "mid";
+    const tgt = (typeof _wrTargetView !== "undefined" && (_wrTargetView === "band" || _wrTargetView === "rr"))
+      ? _wrTargetView : "mid";
     const variant = (typeof _wrVariantView !== "undefined" && _wrVariantView === "variant") ? 1 : 0;
     const p = new URLSearchParams({ market, symbol, exchange, timeframe: tf,
       solve: 1, solve_target: tgt, solve_variant: variant });
@@ -450,7 +458,7 @@
     if (!info) return;
     const stats = _statsFor(key);
     const sigs  = _signalsFor(key);
-    const viewLabel = (typeof _wrTargetView !== "undefined" && _wrTargetView === "band") ? "上/下軌" : "中軌";
+    const viewLabel = _viewLabel();
     const variantLabel = (typeof _wrVariantView !== "undefined" && _wrVariantView === "variant") ? "強化版" : "原版";
     // 訊號名稱加 "-1" 標記強化版
     const nameWithVariant = variantLabel === "強化版" ? `${info.name}-1` : info.name;
