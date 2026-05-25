@@ -19,3 +19,6 @@ env/
 
 # Logs
 *.log
+
+# Pionex 標的清單執行期快取（勿進版控）
+backend/data/.pionex_syms_cache.json

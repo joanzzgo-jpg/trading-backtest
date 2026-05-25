@@ -3,9 +3,11 @@
 Pionex 使用 Binance 流動性，行情相同；Bybit / OKX 也各自實作。
 """
 import json
+import os
 import time
 import urllib.request
 import urllib.parse
+import urllib.error
 import pandas as pd
 from datetime import datetime, timezone, timedelta
 from typing import Union, Optional
@@ -41,6 +43,26 @@ def _get(url: str, timeout: int = 30) -> Union[dict, list]:
         return json.loads(r.read())
 
 
+# ── Pionex 全域熔斷 ────────────────────────────────────────────
+# Pionex 429 規則：封鎖 60s，且封鎖期間「每多打一次 +10s」→ 持續重試會讓封鎖永遠清不掉。
+# 對策：任一 Pionex 呼叫吃到 429，就觸發 5 分鐘全域冷卻，期間所有 Pionex 呼叫直接跳過（不再戳它），
+# 讓封鎖窗口能真正過完。呼叫端本來就有 fallback / stale-serve，熔斷期間自動降級不會壞。
+_PIONEX_COOLDOWN_UNTIL = 0.0
+_PIONEX_COOLDOWN_SECS   = 300
+
+def _pionex_get(url: str, timeout: int = 30) -> Union[dict, list]:
+    """Pionex 專用 GET：熔斷期間直接拋例外（不打 Pionex）；偵測到 429 即觸發全域冷卻。"""
+    global _PIONEX_COOLDOWN_UNTIL
+    if time.time() < _PIONEX_COOLDOWN_UNTIL:
+        raise RuntimeError("Pionex 熔斷中（429 冷卻），暫不請求")
+    try:
+        return _get(url, timeout=timeout)
+    except urllib.error.HTTPError as e:
+        if getattr(e, "code", None) == 429:
+            _PIONEX_COOLDOWN_UNTIL = time.time() + _PIONEX_COOLDOWN_SECS
+        raise
+
+
 # ── Pionex 已知合約（硬編碼備援，API 失敗時使用）────────────────
 # 來源：Pionex 官網合約列表（2025 年常見永續合約）
 PIONEX_PERP_FALLBACK: set = {
@@ -65,6 +87,38 @@ PIONEX_PERP_FALLBACK: set = {
 _PIONEX_SYMS_CACHE:      dict = {"ts": 0.0, "syms": None}   # spot
 _PIONEX_PERP_SYMS_CACHE: dict = {"ts": 0.0, "syms": None}   # futures/PERP
 
+# ── Pionex 標的清單「硬碟快取」：24hr 內讀檔、完全不打 Pionex；過期才抓一次寫回。
+# 重啟也直接讀檔不重抓 → Pionex 一天約被呼叫 1 次，徹底避開 10/秒限流。
+_PIONEX_CACHE_FILE = os.path.join(os.path.dirname(__file__), ".pionex_syms_cache.json")
+_PIONEX_DISK_TTL   = 86400   # 24 小時
+
+def _load_disk_syms(key: str):
+    """讀硬碟清單快取。回傳 (set, age_seconds)；無/壞檔回 (None, None)。"""
+    try:
+        with open(_PIONEX_CACHE_FILE, encoding="utf-8") as f:
+            d = json.load(f)
+        entry = d.get(key)
+        if entry and entry.get("syms"):
+            return set(entry["syms"]), time.time() - float(entry.get("ts", 0))
+    except Exception:
+        pass
+    return None, None
+
+def _save_disk_syms(key: str, syms: set):
+    """把成功抓到的清單寫硬碟（合併現有，不動另一個 key）。"""
+    try:
+        d = {}
+        try:
+            with open(_PIONEX_CACHE_FILE, encoding="utf-8") as f:
+                d = json.load(f)
+        except Exception:
+            d = {}
+        d[key] = {"syms": sorted(syms), "ts": time.time()}
+        with open(_PIONEX_CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(d, f)
+    except Exception:
+        pass
+
 
 def _fetch_pionex_perp_symbols() -> set:
     """取得 Pionex 永續合約 base 幣集合（大寫），快取 1 小時。
@@ -74,14 +128,21 @@ def _fetch_pionex_perp_symbols() -> set:
     global _PIONEX_PERP_SYMS_CACHE
     now = time.time()
     cached = _PIONEX_PERP_SYMS_CACHE
-    # 成功快取 1hr；失敗（fallback）只快取 60s（負快取）→ 避免每 2 秒重打 Pionex 觸發 429
-    _ttl = 60 if cached.get("fallback") else 3600
+    # 成功快取 1hr；失敗（429）退避 5 分鐘（負快取）。Pionex 429 會封鎖 60s 且「期間每多打一次
+    # +10s」，60s 重試會一直戳到封鎖、永遠清不掉 → 拉長到 300s 讓封鎖窗口過完、靠 stale-serve 撐住。
+    _ttl = 300 if cached.get("fallback") else 3600
     if now - cached["ts"] < _ttl and cached["syms"] is not None:
         return cached["syms"]
 
+    # 先讀硬碟：24hr 內就用硬碟，完全不打 Pionex
+    disk_syms, age = _load_disk_syms("perp")
+    if disk_syms and age is not None and age < _PIONEX_DISK_TTL:
+        _PIONEX_PERP_SYMS_CACHE = {"ts": now, "syms": disk_syms, "fallback": False}
+        return disk_syms
+
     syms: set = set()
     try:
-        data  = _get(f"{PIONEX_BASE}/api/v1/common/symbols?type=PERP", timeout=10)
+        data  = _pionex_get(f"{PIONEX_BASE}/api/v1/common/symbols?type=PERP", timeout=10)
         items = (data.get("data") or {}).get("symbols") or []
         for s in items:
             base = s.get("baseAsset") or s.get("baseCurrency") or s.get("base") or ""
@@ -96,13 +157,17 @@ def _fetch_pionex_perp_symbols() -> set:
 
     if len(syms) >= 5:
         _PIONEX_PERP_SYMS_CACHE = {"ts": now, "syms": syms, "fallback": False}
+        _save_disk_syms("perp", syms)
         return syms
 
-    # API 失敗（常見：429 限流）→ 優先沿用上次成功清單（stale-serve），否則用硬編碼備援；負快取 60s
+    # API 失敗（429）→ stale-serve：記憶體上次成功 → 硬碟(即使過期) → 硬編碼備援；退避 5 分鐘
     prev = cached.get("syms")
     if prev and not cached.get("fallback"):
         _PIONEX_PERP_SYMS_CACHE = {"ts": now, "syms": prev, "fallback": True}
         return prev
+    if disk_syms:
+        _PIONEX_PERP_SYMS_CACHE = {"ts": now, "syms": disk_syms, "fallback": True}
+        return disk_syms
     _PIONEX_PERP_SYMS_CACHE = {"ts": now, "syms": PIONEX_PERP_FALLBACK, "fallback": True}
     return PIONEX_PERP_FALLBACK
 
@@ -113,17 +178,23 @@ def _fetch_pionex_symbols() -> set:
     """
     global _PIONEX_SYMS_CACHE
     now = time.time()
-    # 成功快取 1hr；失敗（空集合）只快取 60s（負快取）→ 避免每 2 秒重打 Pionex 觸發 429
-    _ttl = 60 if _PIONEX_SYMS_CACHE.get("fallback") else 3600
+    # 成功快取 1hr；失敗（429）退避 5 分鐘（負快取）。理由同 perp：60s 重試會一直戳到 Pionex
+    # 封鎖（429 期間每多打一次 +10s）導致永遠清不掉 → 300s 讓封鎖過完，期間靠 stale-serve 撐住。
+    _ttl = 300 if _PIONEX_SYMS_CACHE.get("fallback") else 3600
     if now - _PIONEX_SYMS_CACHE["ts"] < _ttl and _PIONEX_SYMS_CACHE["syms"] is not None:
         return _PIONEX_SYMS_CACHE["syms"]
+    # 先讀硬碟：24hr 內就用硬碟，完全不打 Pionex
+    disk_syms, age = _load_disk_syms("spot")
+    if disk_syms and age is not None and age < _PIONEX_DISK_TTL:
+        _PIONEX_SYMS_CACHE = {"ts": now, "syms": disk_syms, "fallback": False}
+        return disk_syms
     syms: set = set()
     for endpoint in (
         f"{PIONEX_BASE}/api/v1/common/symbols",
         f"{PIONEX_BASE}/api/v2/common/symbols",
     ):
         try:
-            data  = _get(endpoint, timeout=8)
+            data  = _pionex_get(endpoint, timeout=8)
             items = (data.get("data") or {}).get("symbols") or data.get("symbols") or []
             for s in items:
                 base  = s.get("baseCurrency") or s.get("base") or ""
@@ -136,13 +207,16 @@ def _fetch_pionex_symbols() -> set:
             continue
     if len(syms) >= 5:
         _PIONEX_SYMS_CACHE = {"ts": now, "syms": syms, "fallback": False}
+        _save_disk_syms("spot", syms)
         return syms
-    # API 全失敗（常見：429 限流）→ 沿用上次成功清單（stale-serve），避免現貨過濾整個失效；
-    # 只短暫負快取（60s）以便儘快重試，但繼續用舊資料撐住列表/搜尋。
+    # API 全失敗（429）→ stale-serve：記憶體上次成功 → 硬碟(即使過期) → 空集合；退避 5 分鐘
     prev = _PIONEX_SYMS_CACHE.get("syms")
     if prev:
         _PIONEX_SYMS_CACHE = {"ts": now, "syms": prev, "fallback": True}
         return prev
+    if disk_syms:
+        _PIONEX_SYMS_CACHE = {"ts": now, "syms": disk_syms, "fallback": True}
+        return disk_syms
     _PIONEX_SYMS_CACHE = {"ts": now, "syms": set(), "fallback": True}   # 從未成功過 → 空集合
     return set()
 
@@ -489,7 +563,7 @@ def _fetch_pionex_klines(symbol: str, timeframe: str,
         if since:  params2["startTime"] = since
         if end_ms: params2["endTime"]   = end_ms
         url  = f"{PIONEX_BASE}/api/v1/market/klines?{urllib.parse.urlencode(params2)}"
-        data = _get(url, timeout=10)
+        data = _pionex_get(url, timeout=10)
         if not data.get("result", True):
             break  # Pionex 明確回傳失敗，停止重試
         klines = (data.get("data") or {}).get("klines") or []
@@ -696,7 +770,7 @@ def _fetch_pionex_tickers(market: str = "futures") -> list:
     if type_param:
         url += f"?type={type_param}"
     try:
-        data = _get(url, timeout=10)
+        data = _pionex_get(url, timeout=10)
         raw = data.get("data", {}).get("tickers", [])
         tickers = []
         for t in raw:
