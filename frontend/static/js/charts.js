@@ -153,6 +153,8 @@ function syncTimeScales() {
       syncing = true;
       allCharts.forEach((dst, di) => { if (di !== si) dst.timeScale().setVisibleLogicalRange(range); });
       syncing = false;
+      // 平移/縮放 → 重算可見範圍的標記視窗（debounced，避免長範圍時 setMarkers 拖慢）
+      if (typeof _scheduleMarkerRewindow === "function") _scheduleMarkerRewindow();
       // 滑到左側邊界時自動觸發更多歷史載入
       if (range.from < 200 && !_bgLoadInProgress && ohlcvData.length) {
         const now = Date.now();

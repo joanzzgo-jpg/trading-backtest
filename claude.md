@@ -160,6 +160,29 @@
 - **滑動觸發目標**（`_bgLoadOlderBars(true)`）：5m=730天, 15m=730天, 1h=1825天, 4h=3650天
 - **觸發門檻**：`range.from < 120`（距左邊 120 根開始預載），節流 1500ms
 
+## 效能優化
+
+### 後端勝率計算（`utils/crt.py`）
+- **時間戳向量化**：`times_iso = df["time"].to_numpy("datetime64[s]").astype(str).tolist()`，取代逐根 `_ts_val` + pandas 慢速 `__iter__`。tz-naive 秒精度下與 `.isoformat()` 完全一致，**省整體 ~30%**。
+- **`signals` 排序一次**：`signals_sorted` 共用給 `_calc_streaks` / `_build_combined`（原本各自 `sorted` ~16 次）。
+- **`_build_combined` memoize**：cond/stop/recent 會重複要同組合（24 呼叫、12 種唯一）→ `_combined_memo` 快取免重算。
+- **`_solve` 精簡模式**：`_calc_crt_winrate(_solve=(target, only_variant))`——每訊號只掃選定目標、跳過 est/RR/全部統計，只跑敗後停手模擬回 `{win_rate, total}`。求解（達標止損）13× 掃描用此模式（偵測 mask 與完整版共用，~4-6× 快）。
+- **df 快取**（`crt_df1:...`，不含 buffer）：換 SL 緩衝免重抓（抓資料佔總時間 90%+）。
+- > 三目標（中/帶/1:1）+ recent100 讓計算比早期重約 40%，但有 1hr 快取，非使用者可感瓶頸。剩餘最大塊是每訊號 5 次掃描（mid/帶/1:1/est×2），屬功能必要、不再硬壓。
+
+### 前端圖表標記視窗化（`render.js` / `charts.js`）
+- 小時/4H 背景載入上千根 → CRT+KDJ叉+共振+多空訊號可達**數千標記**（4h 滑到底 ~8500），全丟 `setMarkers` 會讓每次平移/縮放重繪全部 → 卡。
+- `_applyMainMarkers` 只渲染「**可見範圍 ±一屏**」（`_windowMarkers` 用 `getVisibleRange` 過濾）；平移/縮放時 `_scheduleMarkerRewindow`（debounce 100ms）重算（掛在 `syncTimeScales` 的範圍變化）。
+- 安全網：標記 <400 個或取不到可見範圍 → 照舊全顯示（短範圍不受影響、無功能損失）。
+
+## Pionex 限流防護（`data/crypto.py`）
+Pionex API：**10 次/秒/IP**，超過回 **429 封鎖 60s**，且**封鎖期間每多打一次 +10s**（持續重試會永遠清不掉）。對策（行情/價格本來就走 Binance，Pionex 僅用於標的清單與獨有標的 klines）：
+- **標的清單硬碟快取 24hr**（`.pionex_syms_cache.json`，已 gitignore）：24h 內讀檔、**完全不打 Pionex**；重啟也讀檔不重抓 → 一天約 1 次。`_load_disk_syms` / `_save_disk_syms`。
+- **全域熔斷 `_pionex_get`**：任一 Pionex 呼叫吃到 429 → `_PIONEX_COOLDOWN_UNTIL` 設 5 分鐘，期間所有 Pionex 呼叫**直接拋例外不發請求**；呼叫端 fallback/stale 降級。
+- **失敗退避 300s + stale-serve**：`_fetch_pionex_symbols` / `_fetch_pionex_perp_symbols` 失敗時沿用上次成功清單（perp 另有 `PIONEX_PERP_FALLBACK` 硬編碼）。
+- **只顯示 Pionex 標的**：`fetch_crypto_markets`（搜尋）與 `fetch_tickers`（列表）用 `psyms = 現貨清單 or perp 備援`、嚴格 `base in psyms`，**絕不**回退成全 Binance。
+- **錯誤訊息正名**：`fetch_crypto_ohlcv` 區分 429（限流）與真的找不到，不再誤導「請確認代號」。
+
 ## 已知問題
 - **台股月線**：`resample_tw()` 使用 `"MS"`（月初），台股月K應為最後交易日收盤，技術上應改 `"ME"` 但需測試相容性
 - **台股 yfinance `dropna` 可能跳空**：`fetch_tw_intraday_yf` 在重新取樣後 dropna 可能刪除假日邊界的 K 棒，造成小時/15 分鐘視圖出現不連續缺口
@@ -193,8 +216,9 @@
 > **變數命名**：stat key 用 `s3`~`s11`（有 s 前綴），但 signal record 的 `s.k` 與 SIG_KEYS 用 `"3"`~`"11"`（無前綴）。`_STATKEY_TO_SIGK` 負責轉換。abc/ab 兩者同名。
 > **強化版（variant）** 統一在 `_push_signal` 內以「預估盈虧比 RR(中軌) 落在 `_VARIANT_RR_LO`~`_VARIANT_RR_HI`（目前 0.6~1.1）之間」判定，新訊號自動套用。此帶為研究結果（高勝率＋獲利適中）：剔除極低 RR（0~0.6，勝率高但期望值極低=獲利殺手）與高 RR（>1.1，低勝率）。**注意：低 RR 雖勝率高但期望值差，不可只用「RR 越低越好」當濾鏡。** 門檻為固定值、不由前端調整。
 
-### 五種訊號並行計算
+### 訊號並行計算（S1~S11）
 
+> 目前共 11 種訊號（S1=abc、S2=ab、S3~S11）。下方詳列 S1~S6；S7~S11 的條件見各自 mask 與 `signal_info.js` 的 `SIGNAL_INFO`。新增訊號照上方 checklist。
 > **訊號一（S1/ABC）僅獨立顯示，不計入總勝率合計；`_sufficient` 也不要求 S1 達最低案例數。**
 
 #### 訊號一（ABC）：同一棒三條件同時成立
@@ -265,32 +289,21 @@
 - **`enrich_df()`** 中共振使用 `rsi_7`（7 期 RSI），閾值 `rsi_ob=65, rsi_os=35`
 
 ### 後端結構（`backend/utils/crt.py`）
-```python
-# 共用 helper（模組層級）
-_ts(row)                                           # pd.Timestamp → isoformat 字串
-_scan_outcome(df, entry_i, stop_px, dir)           # 回傳 ('win'/'loss'/None, bar_time/None)
+- **共用 helper（模組層級）**：
+  - `_ts_val(t)` → ISO 字串（`.isoformat()` 等價，給單一時間戳用；批次轉換已向量化，見效能優化）
+  - `_scan_outcome_np(...)` 動態目標掃描，回 `('win'/'loss'/None, 結算時間, exit_idx)`
+  - `_scan_outcome_fixed(...)` / `_scan_outcome_fixed_t(...)` 固定目標掃描（後者另回結算時間，給 1:1 用）
+- **主函數** `_calc_crt_winrate(df, stop_buffer_pct=0, long_only=False, _solve=None)`，**三目標各一份完整統計**：
+  - **頂層 = 中軌(mid)**；`"band"` = 上下軌（多→上軌、空→下軌）；`"rr"` = 1:1（止盈距離 = 止損距離）。三者結構相同。
+  - 每個 target 含：`total/wins/win_rate`、`short/long`、各訊號 `abc/ab/s3~s11`、`variant`（強化版，預估 RR 0.6~1.1）、`stop_strategy`（敗後停手，內含 `.est`）、`recent100`（近 ~100 筆勝率）、`est_*`（預估盈虧比達標）、`max_loss_streak`、cond（連敗機率，在 short/long 內）。
+  - `signals`：每筆 `{t, d, k, r/ot(中軌), r_b/ot_b(帶軌), r_rr/ot_rr(1:1), est_r/est_r_b, rr(預估盈虧比值), v(是否強化版), stop(實際止損價,含 buffer/多棒取極值)}`。
+  - 另含 `from_date`、`recent`（最近 30 筆）、`long_only`。
+- **`_solve=(target, only_variant)`**：求解專用精簡模式——只掃選定 target、跳過 est/RR/全部統計，只跑敗後停手模擬回傳 `{win_rate, total}`（偵測 mask 與完整版共用）。詳見「效能優化」。
 
-# 回傳結構
-{
-  "total", "wins", "win_rate",   # S2~S6 合計（S1 不計入）
-  "short": {...}, "long": {...}, # S2~S6 空/多合計
-  "abc": {"short":{}, "long":{}},# 訊號一（僅顯示）
-  "ab":  {"short":{}, "long":{}},# 訊號二
-  "s3":  {"short":{}, "long":{}},# 訊號三
-  "s4":  {"short":{}, "long":{}},# 訊號四
-  "s5":  {"short":{}, "long":{}},# 訊號五
-  "s6":  {"short":{}, "long":{}},# 訊號六（放量共振）
-  "from_date": "YYYY-MM-DD",     # 回測起始日（最早 K 棒日期）
-  "recent": [...],               # 最近30筆（k: "abc"/"ab"/"3"/"4"/"5"/"6"）
-  "signals": [{"t","d","k","r","ot"}]  # 所有訊號（含進場時間、方向、種類、結果）
-}
-# _stats(w, l) → {"total", "wins", "losses", "win_rate"}
-```
-
-### 最低案例數保證（S2~S6 各空/多各≥10筆）
-- `MIN_CASES = 10`；`_sufficient(r)` 檢查 S2/S3/S4/S5/S6 各空/多共 **10 個**子統計（S1 不在內）
-- 若不足，自動加倍 `days` 重新抓資料（上限 `TF_MAX`），直到足夠或抵達上限為止
-- cache key：`crt_wr9:market:symbol:exchange:timeframe`（每次訊號邏輯變更時遞增版號）
+### 最低案例數保證
+- `MIN_CASES = 40`；`_sufficient(r)` 檢查 abc/ab/s3~s11 各空/多是否達標。
+- **不再 doubling**：直接一次抓 `TF_MAX` 天（過去 doubling 對 S1/S5/S7 等稀有訊號永遠達不到、浪費 80% 時間）。
+- cache key：`crt_wr53:market:symbol:exchange:timeframe:buffer:long_only`（訊號邏輯／輸出結構變更時遞增版號）；solve 另用 `crt_solve2:...`；enrich 後的 df 另快取 `crt_df1:...`（不含 buffer，換 SL 緩衝免重抓，抓資料佔總時間 90%+）。
 
 ### 各時間框架資料來源與回測天數
 | TF | 初始天數 | 天數上限 | TW 來源 | US 來源 | Crypto |
@@ -319,10 +332,16 @@ _scan_outcome(df, entry_i, stop_px, dir)           # 回傳 ('win'/'loss'/None, 
   | `"4"` | arrowDown/Up | `#80cbc4` | `#4db6ac` | 空⁴/多⁴ |
   | `"5"` | arrowDown/Up | `#ffb74d` | `#ffa726` | 空⁵/多⁵ |
   | `"6"` | arrowDown/Up | `#9fa8da` | `#7986cb` | 空⁶/多⁶ |
-- **結果標記**（`s.r` + `s.ot` 欄位，所有訊號通用）：
-  - `s.r = "w"` → 綠色 `#26a69a`，文字 `✓`，位置在目標方向
-  - `s.r = "l"` → 紅色 `#ef5350`，文字 `✗`，位置在止損方向
-  - 結算棒時間 = `s.ot`；`s.r/s.ot` 為 null 表示末端尚未結算
+  | `"7"` | arrowDown/Up | `#4dd0e1` | `#80deea` | 空⁷/多⁷ |
+  | `"8"` | arrowDown/Up | `#f06292` | `#f48fb1` | 空⁸/多⁸ |
+  | `"9"` | arrowDown/Up | `#fff176` | `#fff59d` | 空⁹/多⁹ |
+  | `"10"` | arrowDown/Up | `#90caf9` | `#bbdefb` | 空¹⁰/多¹⁰ |
+  | `"11"` | arrowDown/Up | `#aed581` | `#c5e1a5` | 空¹¹/多¹¹ |
+- **結果標記 + 目標切換**：結果欄位依目標鈕（中軌/上下軌/1:1）取 `s.r/s.ot`、`s.r_b/s.ot_b`、`s.r_rr/s.ot_rr`（前端 `_wrResultKey()`/`_wrOtKey()` 幫手）：
+  - `= "w"` → 綠色 `#26a69a`，文字 `✓`，位置在目標方向
+  - `= "l"` → 紅色 `#ef5350`，文字 `✗`，位置在止損方向
+  - 結算棒時間 = 對應 ot 欄位；為 null 表示末端尚未結算
+- **標記視窗化**（效能）：見「效能優化」——只渲染可見範圍 ±一屏的標記。
 - 透過 `lastWRSignalMarkers` 合入 `_applyMainMarkers()`；切換標的/時框時清除
 
 ### 勝率顯示欄（topbar，三段式 HUD 設計）

@@ -131,6 +131,25 @@ function renderBB(data) {
   bbU.setData(line("bb_upper")); bbM.setData(line("bb_middle")); bbL.setData(line("bb_lower"));
 }
 
+// 標記視窗化：長範圍（小時/4H 背景載入上千根）時，CRT+KDJ+共振+多空訊號會產生數千個標記，
+// 一次全丟 setMarkers 會讓 LWC 每次平移/縮放/十字線都重繪全部 → 卡。只渲染「可見範圍 ±一屏」的
+// 標記（通常幾百個），平移時由 _scheduleMarkerRewindow 重算 → 大幅降低 setMarkers 負擔。
+function _windowMarkers(all) {
+  if (!mainChart || all.length <= 400) return all;   // 少量不必視窗化
+  let vr = null;
+  try { vr = mainChart.timeScale().getVisibleRange(); } catch (e) {}
+  if (!vr) return all;
+  const span = (vr.to - vr.from) || 0;
+  const lo = vr.from - span, hi = vr.to + span;       // 左右各加一屏緩衝
+  return all.filter(m => m.time >= lo && m.time <= hi);
+}
+
+let _markerWinTimer = null;
+function _scheduleMarkerRewindow() {
+  clearTimeout(_markerWinTimer);
+  _markerWinTimer = setTimeout(_applyMainMarkers, 100);
+}
+
 function _applyMainMarkers() {
   const crtHidden       = document.getElementById("legCRT")?.classList.contains("line-off");
   const kdjCrossHidden  = document.getElementById("legKDJCross")?.classList.contains("line-off");
@@ -141,7 +160,7 @@ function _applyMainMarkers() {
     ...(resonanceHidden ? [] : lastResonanceMarkers),
     ...lastWRSignalMarkers,
   ].sort((a, b) => a.time - b.time);
-  candleSeries.setMarkers(all);
+  candleSeries.setMarkers(_windowMarkers(all));
 }
 
 function renderCRT(data) {

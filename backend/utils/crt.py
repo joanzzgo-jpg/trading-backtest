@@ -143,7 +143,12 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
     n = len(df)
 
     # ── 全部欄位一次抽成 numpy array（避免在 6 個迴圈內反覆 df.iloc）──
-    times_iso = [_ts_val(t) for t in df["time"]]
+    # 時間戳→ISO 字串：向量化（numpy datetime64[s]→str），取代逐根 _ts_val + pandas 慢速 __iter__，
+    # 省下整體計算 ~30% 時間。tz-naive 秒精度下與 _ts_val(t.isoformat()) 完全一致；異常時退回逐根。
+    try:
+        times_iso = df["time"].to_numpy("datetime64[s]").astype(str).tolist()
+    except Exception:
+        times_iso = [_ts_val(t) for t in df["time"]]
     highs  = df["high"].to_numpy(dtype=float)
     lows   = df["low"].to_numpy(dtype=float)
     closes = df["close"].to_numpy(dtype=float)
@@ -908,9 +913,15 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
     #    例：空敗→多敗→空敗 不算做空 2 連敗（中間夾了多敗，連續被打斷）。
     #    loss_streak[k] = 同方向連敗 k 根後、下一筆同方向也敗的機率
     #                     （k=1→2連、k=2→3連、k=3→4連）；win_after_win = 同方向勝後再勝。
+    _combined_memo = {}
     def _build_combined(target, only_variant, est=False):
         """合併時間軸的已結算序列 [(d, r)]（dedupe by (t,d)、S1 不計入）。
-        est=True 改用『進場時固定預估目標』的結果（est_r/est_r_b；1:1 目標固定 est=實際）。"""
+        est=True 改用『進場時固定預估目標』的結果（est_r/est_r_b；1:1 目標固定 est=實際）。
+        memoize：cond/stop/recent 會重複要同一組合（共 24 呼叫、12 種唯一）→ 快取免重算。"""
+        _mk = (target, only_variant, est)
+        _hit = _combined_memo.get(_mk)
+        if _hit is not None:
+            return _hit
         rk = _RKEY_EST[target] if est else _RKEY[target]
         seen = set(); seq = []
         for s in signals_sorted:
@@ -926,6 +937,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             if r not in ("w", "l"):
                 continue
             seq.append((s["d"], r))
+        _combined_memo[_mk] = seq
         return seq
 
     def _cond_for_dir(seq, D):
