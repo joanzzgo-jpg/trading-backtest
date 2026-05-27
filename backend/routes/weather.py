@@ -1,7 +1,8 @@
 """
-天氣 API 路由
-有設定 CWA_API_KEY 環境變數時優先使用中央氣象署 O-A0001-001，
-否則 fallback 到 Open-Meteo（免 key）。
+天氣 API 路由 — 一律使用中央氣象署 (CWA) O-A0001-001 自動氣象站資料
+需設定環境變數 CWA_API_KEY（申請：https://opendata.cwa.gov.tw/）
+無 key / CWA 失敗 → 回 503，不再 fallback Open-Meteo。
+（_from_omt / OMT_URL 保留為未使用程式碼，未來如需回退快速恢復）
 """
 import os, math, time
 from datetime import date, datetime
@@ -304,9 +305,13 @@ async def weather(
     lat: float = Query(25.04, description="緯度"),
     lon: float = Query(121.51, description="經度"),
 ):
-    if CWA_KEY:
-        try:
-            return await _from_cwa(lat, lon)
-        except Exception:
-            pass  # fallback to Open-Meteo
-    return await _from_omt(lat, lon)
+    """天氣 API — 一律使用中央氣象署 (CWA) O-A0001-001 自動氣象站資料。
+    需設定環境變數 CWA_API_KEY；申請：https://opendata.cwa.gov.tw/
+    無 key 或 CWA 失敗時回 503（不再 fallback Open-Meteo）。"""
+    from fastapi import HTTPException
+    if not CWA_KEY:
+        raise HTTPException(status_code=503, detail="未設定 CWA_API_KEY（中央氣象署授權碼）")
+    try:
+        return await _from_cwa(lat, lon)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"CWA 資料取得失敗：{e}")
