@@ -222,8 +222,11 @@ html, body {
   height: 100%;
   background: var(--bg);
   color: var(--text);
-  font-family: 'M PLUS Rounded 1c', -apple-system, 'Trebuchet MS', 'Segoe UI', sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
+               "Helvetica Neue", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
   font-size: 12px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -288,17 +291,23 @@ html, body {
   gap: 1px;
 }
 .topbar-brand-name {
-  font-size: 15px;
-  font-weight: 900;
+  font-size: 16px;
+  font-weight: 800;
   color: #fff;
-  letter-spacing: 2px;
-  font-family: 'Arial Black', Arial, sans-serif;
+  letter-spacing: 0.5px;
+  /* 統一 SF Pro Display：跟整個介面同字體家族 */
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
+               "Helvetica Neue", "PingFang TC", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 .topbar-brand-sub {
-  font-size: 8px;
+  font-size: 8.5px;
   font-weight: 600;
   color: #E2A52A;
-  letter-spacing: 3px;
+  letter-spacing: 2.4px;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue",
+               "PingFang TC", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 .topbar-right { display: flex; align-items: center; gap: 4px; flex-shrink: 0; padding-left: 6px; }
 
@@ -331,6 +340,13 @@ html, body {
 #springToggleBtn.spring-active  { background: rgba(255,160,200,.18); color: #FF9ABF; }
 #fxToggleBtn.fx-open { color: var(--blue); }
 .fx-panel { min-width: 200px; }
+/* FX 按鈕內手繪 SVG icon — currentColor 自動跟隨按鈕字色 */
+.fx-icon {
+  display: inline-block;
+  vertical-align: -2px;
+  margin-right: 5px;
+  flex-shrink: 0;
+}
 .fx-section-label { font-size: 10px; font-weight: 700; color: var(--muted); letter-spacing: .06em; text-transform: uppercase; margin-bottom: 6px; }
 .fx-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
 .fx-btn {
@@ -586,27 +602,15 @@ html, body {
   min-width: 0;
   /* 外層不滾動；滾動由內部 .tb-wr-scroll 處理 */
   overflow: hidden;
-  /* 漸層流線：多 stop 立體深度 */
-  background:
-    linear-gradient(135deg,
-      rgba(10,5,2,.96) 0%,
-      rgba(35,16,8,.92) 35%,
-      rgba(45,22,10,.90) 50%,
-      rgba(28,14,6,.93) 75%,
-      rgba(12,6,2,.96) 100%);
-  border: 1px solid rgba(255,145,71,.28);
-  border-radius: 10px;
+  /* 完全透明 — z-index:2 + 無背景 → 看穿到 z:1 的天氣動畫（疊在 topbar 之上）*/
+  background: transparent;
+  border: 1px solid rgba(255,180,120,.22);
+  border-radius: 6px;
   white-space: nowrap;
   pointer-events: none;
-  z-index: 2;
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-  box-shadow:
-    0 0 30px rgba(255,145,71,.12),
-    0 0 60px rgba(255,145,71,.04),
-    inset 0 1px 0 rgba(255,200,160,.10),
-    inset 0 -1px 0 rgba(255,145,71,.06),
-    0 3px 14px rgba(0,0,0,.55);
+  z-index: 2;   /* 維持原值：勝率欄子元素（fixed-right z:3 / scroll z:1）依賴此 stacking context */
+  /* 無重 glow / 無 blur，跟 top3 一致 */
+  box-shadow: none;
 }
 /* 流線動畫：從左到右掃過的微光 */
 .tb-winrate::before {
@@ -978,85 +982,223 @@ html.perf-mode .tb-wr-buffer-pct { color: #8B8B8B; }
   align-items: center;
 }
 
-/* 每個訊號的容器 */
+/* ─────────────────────────────────────────────────────────
+   S1~S11 — TF 按鈕同款手感：透明底、hover 才有 subtle bg、無邊框
+   - 符號保留（短、緊湊）：●■▲◆★◇⬢⬡✦✪✸
+   - 移除 drop-shadow glow（Apple 風格）
+   - 暖橘色族 hover、原訊號色保留作識別
+   ───────────────────────────────────────────────────────── */
 .tb-wr-block {
-  display: flex;
+  display: inline-flex;
+  flex-direction: row;
   align-items: center;
   gap: 3px;
-  padding: 0 1px;
+  padding: 3px 5px;
   flex-shrink: 0;
+  border-radius: 4px;                          /* 同 .tf-btn */
+  background: transparent;                     /* 同 .tf-btn 透明底 */
+  cursor: pointer;
+  transition: background .12s ease, color .12s ease;
+  position: relative;
+}
+.tb-wr-block:hover {
+  background: var(--bg3);                      /* 同 .tf-btn hover */
 }
 
-/* 訊號符號 */
+/* 訊號符號 — 簡單美學：全部統一暖橘 + 微透明，靠形狀區辨；無 glow */
 .tb-wr-icon {
-  font-size: 8px;
+  font-size: 9px;
   flex-shrink: 0;
-  cursor: default;
+  cursor: pointer;
   line-height: 1;
-  filter: drop-shadow(0 0 3px currentColor);
+  filter: none;
+  opacity: .72;
 }
-.wr-abc { color: #ff6b6b; }
-.wr-ab  { color: #ff9800; }
-.wr-s3  { color: #ce93d8; }
-.wr-s4  { color: #80cbc4; }
-.wr-s5  { color: #ffb74d; }
-.wr-s6  { color: #9fa8da; }
-.wr-s7  { color: #4dd0e1; }
-.wr-s8  { color: #f06292; }
-.wr-s9  { color: #fff176; }
 
-/* 空/多兩行堆疊 */
+/* ─────────────────────────────────────────────────────
+   S1~S11 策略「數字浮水印」— ::after 大字浮在 block 後方
+   不擴張 block 尺寸；用 z-index 把浮水印壓到內容下方
+   ───────────────────────────────────────────────────── */
+.tb-wr-block::after {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font: 900 28px/1 -apple-system, "SF Pro Display", system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 200, 160, 0.22);     /* 0.07 → 0.22，明顯多了 */
+  letter-spacing: -0.04em;
+  pointer-events: none;
+  z-index: 0;
+  white-space: nowrap;
+}
+.tb-wr-block > * { position: relative; z-index: 1; }  /* content 蓋過浮水印 */
+.tb-wr-block:hover::after { color: rgba(255, 200, 160, 0.40); }
+
+/* data-sig → 數字 1~11 映射 */
+.tb-wr-block[data-sig="abc"]::after { content: "1"; }
+.tb-wr-block[data-sig="ab"]::after  { content: "2"; }
+.tb-wr-block[data-sig="s3"]::after  { content: "3"; }
+.tb-wr-block[data-sig="s4"]::after  { content: "4"; }
+.tb-wr-block[data-sig="s5"]::after  { content: "5"; }
+.tb-wr-block[data-sig="s6"]::after  { content: "6"; }
+.tb-wr-block[data-sig="s7"]::after  { content: "7"; }
+.tb-wr-block[data-sig="s8"]::after  { content: "8"; }
+.tb-wr-block[data-sig="s9"]::after  { content: "9"; }
+.tb-wr-block[data-sig="s10"]::after { content: "10"; }
+.tb-wr-block[data-sig="s11"]::after { content: "11"; }
+
+/* 只顯示 2 的倍數 — 奇數策略（1/3/5/7/9/11）浮水印隱藏 */
+.tb-wr-block[data-sig="abc"]::after,
+.tb-wr-block[data-sig="s3"]::after,
+.tb-wr-block[data-sig="s5"]::after,
+.tb-wr-block[data-sig="s7"]::after,
+.tb-wr-block[data-sig="s9"]::after,
+.tb-wr-block[data-sig="s11"]::after { display: none !important; }
+
+/* ═══ 市場切換單鍵循環按鈕 — 配色跟 .tb-icon-btn / .tf-btn 一致（中性、不分市場著色）═══ */
+.tb-mkt-cycle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  width: 68px;                          /* 容納 "Crypto" 12px 字 */
+  height: 28px;                         /* 跟 .tf-btn / .tb-icon-btn 同高 */
+  padding: 0;
+  box-sizing: border-box;
+  margin: 0 6px 0 2px;
+  background: transparent;
+  border: none;
+  outline: none;
+  border-radius: 12px !important;       /* 同 .tb-icon-btn / .tf-btn 共用大圓角 */
+  color: var(--muted);
+  font: 500 12px/1 inherit;             /* 同 .tf-btn 12px */
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  flex-shrink: 0;
+  box-shadow: none;
+  text-shadow: none;
+  transition: background .12s, color .12s, transform .15s cubic-bezier(.34,1.56,.64,1);
+}
+.tb-mkt-cycle:hover { background: var(--bg3); color: var(--text); }
+.tb-mkt-cycle:active { transform: scale(0.96); }
+
+/* 重播按鈕 active 狀態（進入重播模式時綠色高亮）*/
+#replayModeBtn.active {
+  background: rgba(38, 166, 154, 0.15);
+  color: #26a69a;
+}
+#replayModeBtn.active:hover {
+  background: rgba(38, 166, 154, 0.22);
+  color: #26a69a;
+}
+
+/* 文字 slide 動畫（切換時舊文字上滑、新文字從下滑入） */
+.mkt-cycle-label {
+  display: inline-block;
+  transition: transform .28s cubic-bezier(.4, 0, .2, 1), opacity .28s ease;
+  will-change: transform, opacity;
+}
+.tb-mkt-cycle.cycling .mkt-cycle-label {
+  transform: translateY(-130%);
+  opacity: 0;
+}
+.tb-mkt-cycle.cycling-in .mkt-cycle-label {
+  transform: translateY(130%);
+  opacity: 0;
+  transition: none;   /* 瞬間放到底部，再 transition 回中央 */
+}
+
+/* perf-mode：純橘色按鈕無漸層 */
+html.perf-mode .tb-mkt-cycle {
+  background: transparent;
+  border: none;
+  color: #8B8B8B;
+  box-shadow: none;
+  text-shadow: none;
+}
+html.perf-mode .tb-mkt-cycle:hover {
+  background: rgba(232, 90, 26, 0.08);
+  color: #1F1F1F;
+}
+
+/* TF 按鈕 + 合約行情按鈕「凹陷軌道」感 — 加深版 */
+.tf-group,
+.tk-mkt-tabs,
+.tk-seg {
+  background: rgba(0, 0, 0, 0.55) !important;        /* 底色 */
+  background-image: none !important;
+  border: none !important;                            /* tk-seg 原本有 1px border，避免雙線 */
+  border-radius: 9px !important;
+  padding: 3px !important;
+  box-shadow:
+    inset 0 2px 5px rgba(0, 0, 0, 0.85),
+    inset 0 1px 1px rgba(0, 0, 0, 0.5),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.06),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.35) !important;
+}
+/* tk-seg 內部子按鈕分隔線：原本 border-right 1px，凹陷風格下不需要 */
+.tk-seg-btn { border-right: none !important; }
+/* perf-mode 對應淺色版 */
+html.perf-mode .tf-group,
+html.perf-mode .tk-mkt-tabs,
+html.perf-mode .tk-seg {
+  background: #F5F5F5 !important;
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.10),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.05) !important;
+}
+.wr-abc, .wr-ab, .wr-s3, .wr-s4, .wr-s5, .wr-s6,
+.wr-s7, .wr-s8, .wr-s9, .wr-s10, .wr-s11 {
+  color: #C48560;     /* 暖橘 accent — 單一色，明顯降飽和（無螢光）*/
+}
+.tb-wr-block:hover .tb-wr-icon { opacity: 1; }
+
+/* 空/多上下堆疊（緊湊縱列）*/
 .tb-wr-vals {
   display: flex;
   flex-direction: column;
   gap: 1px;
 }
 
-/* 每一行：方向箭頭 + 勝率% + 勝/負數 */
+/* 每個 percentage — 簡單美學：SF Pro 系統字、中性偏暖灰、tabular-nums */
 .tb-wr-v {
-  display: flex;
+  display: inline-flex;
   align-items: baseline;
-  gap: 2px;
-  font-family: 'SF Mono', 'Courier New', monospace;
+  gap: 3px;
+  font: 500 11px/1 -apple-system, "SF Pro Text", "Helvetica Neue", "PingFang TC", system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
   cursor: default;
   line-height: 1;
+  letter-spacing: -0.005em;
 }
 .tb-wr-arr {
   font-size: 8px;
   font-style: normal;
   flex-shrink: 0;
   line-height: 1;
+  opacity: 0.45;
+  font-weight: 600;
 }
-.tb-wr-arr.s { color: #ef5350; }
-.tb-wr-arr.l { color: #26a69a; }
+/* 方向色：更降飽和，無螢光感 */
+.tb-wr-arr.s { color: rgba(184,124,124,.6); }
+.tb-wr-arr.l { color: rgba(122,174,147,.6); }
 .tb-wr-pct {
-  font-size: 9.5px;
-  font-weight: 700;
-  color: var(--muted);
-  letter-spacing: .01em;
-}
-.tb-wr-v.good .tb-wr-pct { color: #4dd0c4; text-shadow: 0 0 5px rgba(77,208,196,.45); }
-.tb-wr-v.bad  .tb-wr-pct { color: #ef7070; }
-.tb-wr-cnt {
-  font-size: 7px;
-  color: rgba(154,122,88,.5);
+  font-size: 11px;
+  font-weight: 500;
+  color: rgba(228,218,206,.88);   /* 暖灰提亮 — 不螢光、有存在感 */
   letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
 }
+/* good/bad：適度飽和、不發光 */
+.tb-wr-v.good .tb-wr-pct { color: #8fcba6; text-shadow: none; }
+.tb-wr-v.bad  .tb-wr-pct { color: #d49595; text-shadow: none; }
+/* 勝/負數冗餘訊息隱藏（hover 才看符號夠了；如需顯示請改 inline-block）*/
+.tb-wr-cnt { display: none; }
 
-/* 訊號間分隔線 */
-.tb-wr-divider {
-  width: 1px;
-  height: 18px;
-  background: linear-gradient(to bottom,
-    transparent 0%,
-    rgba(255,200,140,.05) 20%,
-    rgba(255,180,120,.22) 50%,
-    rgba(255,200,140,.05) 80%,
-    transparent 100%);
-  flex-shrink: 0;
-  position: relative;
-  z-index: 2;
-}
+/* 訊號間分隔線 — Apple HUD 改用 pill spacing 區隔，divider 隱藏 */
+.tb-wr-divider { display: none !important; }
 
 /* 合計前分隔線（稍粗 + 雙線） */
 .tb-wr-total-sep {
@@ -2583,15 +2725,25 @@ html.perf-mode .tb-wr-buffer-pct { color: #8B8B8B; }
 
 /* ═══════════════ 橘子熊可愛風格 ═══════════════ */
 
-/* warm topbar gradient */
+/* warm topbar gradient — 維持不透明色塊，天氣 canvas（z:1, opacity:.28）會自然疊在其上 */
 .topbar {
   background: linear-gradient(135deg, #1F1410 0%, #261810 100%) !important;
-  border-bottom: 1px solid #3D2820 !important;
+  border-bottom: 1px solid transparent !important;
   box-shadow: 0 2px 18px rgba(255,145,71,.07) !important;
 }
 .symbol-bar {
   background: linear-gradient(135deg, #1A0F09 0%, #221408 100%) !important;
-  border-bottom: 1px solid #3D2820 !important;
+  border-bottom: 1px solid transparent !important;
+}
+
+/* 合約行情：跟 topbar 連貫 — 不透明色塊，天氣 canvas 自然疊在其上 */
+.ticker-panel {
+  background: linear-gradient(180deg, #261810 0%, #1F1410 100%) !important;
+  border-left: 1px solid transparent !important;
+}
+/* 合約行情頂部分隔線（標題下方）也淡化，與 topbar 連成一塊 */
+.ticker-hd {
+  border-bottom: 1px solid rgba(61, 40, 32, 0.35) !important;
 }
 
 /* brand name orange gradient */
@@ -3276,10 +3428,10 @@ html.perf-mode .tb-winrate { margin-top: 3px !important; }
   border-radius: 8px;
 }
 
-/* 訊號 icon：放大 + 加陰影更顯眼 */
+/* 訊號 icon：放大（不加陰影，保持 Apple clean）*/
 .tb-wr-icon {
   font-size: 16px;                     /* 8 → 16 */
-  filter: drop-shadow(0 0 5px currentColor);
+  filter: none;                        /* 去 glow */
 }
 
 /* 訊號 block 加 padding/間距 */
@@ -3487,8 +3639,8 @@ html.perf-mode .tb-wr-recent.bad  { color: #dc2626; }
   .tb-wr-recent { font-size: 9px; }
 }
 
-.wr-s10 { color: #90caf9; }
-html.perf-mode .wr-s10 { color: #1976D2; }
+.wr-s10 { color: #C48560; }   /* 簡單美學：統一柔和暖橘 */
+html.perf-mode .wr-s10 { color: #FF6A1A; }
 
 .sig-stat-streak {
   margin-left: 6px;
@@ -3605,8 +3757,8 @@ html.perf-mode .wr-top3-item { background: rgba(255,180,80,.12); }
   .wr-top3-sum  { font-size: 11px; }
 }
 
-.wr-s11 { color: #aed581; }
-html.perf-mode .wr-s11 { color: #558B2F; }
+.wr-s11 { color: #C48560; }   /* 簡單美學：統一柔和暖橘 */
+html.perf-mode .wr-s11 { color: #FF6A1A; }
 
 /* 抽屜 section 可收納 + 加碼設定 */
 .sig-h3-toggle { cursor: pointer; user-select: none; display: flex; align-items: center; justify-content: space-between; }
@@ -3631,3 +3783,1317 @@ html.perf-mode .wr-s11 { color: #558B2F; }
 .sig-pyr-hint { font-size: 10.5px; color: var(--muted); margin-top: 4px; line-height: 1.5; }
 
 html.perf-mode .sig-pyr-num { background: #FAFAFA; border-color: #E5E5E5; }
+
+/* ═══════════════════════════════════════════════════════════
+   Apple 輕量打磨（topbar only）— 保留橘子熊暖色，只升級控制項手感
+   - 字體：SF Pro / system font（保留 brand 用 Arial Black）
+   - 字距 tracking 收緊
+   - TF 按鈕：iOS segmented control（凹陷軌道 + 浮起膠囊）
+   - 圓角統一
+   - 間距均化
+   ═══════════════════════════════════════════════════════════ */
+
+/* 控制項字體：Apple 系統字 */
+.topbar .tb-icon-btn,
+.topbar .tb-mkt-select,
+.topbar .tb-symbol-input,
+.topbar .tf-btn,
+.topbar .btn-mode,
+.topbar .ct-btn {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue",
+               "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif !important;
+  letter-spacing: -0.01em !important;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Topbar 高度＆呼吸感 */
+:root { --topbar-h: 44px; }
+.topbar { padding: 0 10px !important; gap: 2px !important; }
+.topbar-left { gap: 4px !important; }
+.topbar-right { gap: 6px !important; padding-left: 10px !important; }
+
+/* Logo + brand 微調 */
+.topbar-logo { margin-right: 12px !important; gap: 8px !important; }
+.topbar-bear { height: 30px !important; width: 30px !important; }
+.topbar-brand-name {
+  letter-spacing: 0.4px !important;
+  font-size: 16px !important;
+  font-weight: 800 !important;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
+               "Helvetica Neue", "PingFang TC", system-ui, sans-serif !important;
+}
+.topbar-brand-sub {
+  letter-spacing: 2.2px !important;
+  font-size: 8px !important;
+  font-weight: 600 !important;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue",
+               "PingFang TC", system-ui, sans-serif !important;
+}
+
+/* 標的群組 — 統一圓角、間距 */
+.tb-symbol-group { gap: 6px !important; padding: 0 4px !important; }
+.tb-mkt-select, .tb-exc-select {
+  font-size: 11.5px !important;
+  padding: 4px 6px !important;
+  border-radius: 7px !important;
+}
+.tb-symbol-wrap {
+  border-radius: 9px !important;
+  padding: 5px 10px !important;
+  background: var(--bg3) !important;
+  transition: background .12s, border-color .12s !important;
+}
+.tb-symbol-wrap:hover { background: var(--bg4) !important; }
+.tb-symbol-input { font-size: 13px !important; font-weight: 600 !important; }
+
+/* Icon buttons — 統一 7px 圓角、稍大觸控面積 */
+.tb-icon-btn {
+  width: 30px !important;
+  height: 30px !important;
+  border-radius: 7px !important;
+}
+.tb-star-btn { border-radius: 7px !important; width: 28px !important; height: 28px !important; }
+
+/* ═══ iOS segmented control：TF 按鈕 ═══ */
+.tf-group {
+  background: var(--bg) !important;       /* 凹陷軌道：比 topbar bg2 更深 */
+  border-radius: 9px !important;
+  padding: 3px !important;
+  gap: 2px !important;
+  margin: 0 8px !important;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,.35);
+}
+.tf-btn {
+  height: 28px !important;
+  padding: 4px 11px !important;
+  border-radius: 6px !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  background: transparent !important;
+  transition: background .15s, color .15s, box-shadow .15s !important;
+}
+.tf-btn:hover  { background: rgba(255,145,71,.08) !important; color: var(--text) !important; }
+.tf-btn.active {
+  background: var(--bg3) !important;
+  color: var(--accent) !important;
+  font-weight: 600 !important;
+  box-shadow:
+    0 1px 2px rgba(0,0,0,.45),
+    0 0 0 0.5px rgba(255,145,71,.18) !important;
+}
+
+/* 重播 / 加載按鈕（topbar-right）— 圓角統一 */
+.btn-mode, .btn-load { border-radius: 7px !important; }
+
+/* symbol-bar：主圖上方分界線改用漸層接續，移除 hairline */
+.symbol-bar { border-bottom-color: transparent !important; }
+
+/* 隱藏的元素確實不佔位 */
+#exchangeSelect[hidden],
+#aiResearchBtn[hidden] { display: none !important; }
+
+/* ═══════════════════════════════════════════════════════════
+   Apple 輕量打磨（ticker-panel 合約行情）
+   同 topbar 配方：字體 SF Pro、iOS segmented、圓角統一、間距均化
+   ═══════════════════════════════════════════════════════════ */
+
+/* 控制項字體統一 Apple 系統字 */
+.ticker-panel .ticker-title,
+.ticker-panel .tk-mkt-btn,
+.ticker-panel .tk-seg-btn,
+.ticker-panel .tk-search,
+.ticker-panel .tk-sym,
+.ticker-panel .tk-full,
+.ticker-panel .tk-price-val,
+.ticker-panel .tk-chg-row {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue",
+               "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif !important;
+  letter-spacing: -0.01em !important;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Header — 視覺對齊 topbar；hairline 大幅淡化（與 topbar 連貫，分界靠漸層） */
+.ticker-hd {
+  padding: 9px 10px 8px !important;
+  border-bottom-color: rgba(61, 40, 32, 0.35) !important;
+}
+.ticker-title { font-size: 12.5px !important; font-weight: 600 !important; }
+
+/* ═══ iOS segmented：市場分類（台股/合約）── 同 TF 按鈕配方 ═══ */
+.tk-mkt-tabs {
+  background: var(--bg) !important;
+  border-radius: 9px !important;
+  padding: 3px !important;
+  gap: 2px !important;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,.35);
+}
+.tk-mkt-btn {
+  padding: 4px 10px !important;
+  border-radius: 6px !important;
+  font-size: 11.5px !important;
+  font-weight: 500 !important;
+  background: transparent !important;
+  transition: background .15s, color .15s, box-shadow .15s !important;
+}
+.tk-mkt-btn:hover:not(.active) { background: rgba(255,145,71,.08) !important; color: var(--text) !important; }
+.tk-mkt-btn.active {
+  background: var(--bg3) !important;
+  color: var(--accent) !important;
+  font-weight: 600 !important;
+  box-shadow:
+    0 1px 2px rgba(0,0,0,.45),
+    0 0 0 0.5px rgba(255,145,71,.18) !important;
+}
+
+/* ═══ iOS segmented：排序 ═══ */
+.tk-seg {
+  background: var(--bg) !important;
+  border: none !important;
+  border-radius: 9px !important;
+  padding: 3px !important;
+  gap: 2px !important;
+  overflow: visible !important;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,.35);
+}
+.tk-seg-btn {
+  background: transparent !important;
+  border: none !important;
+  padding: 3px 9px !important;
+  border-radius: 6px !important;
+  font-size: 10.5px !important;
+  transition: background .15s, color .15s, box-shadow .15s !important;
+}
+.tk-seg-btn:hover:not(.active) { background: rgba(255,145,71,.08) !important; color: var(--text) !important; }
+.tk-seg-btn.active {
+  background: var(--bg3) !important;
+  color: var(--accent) !important;
+  font-weight: 600 !important;
+  box-shadow:
+    0 1px 2px rgba(0,0,0,.45),
+    0 0 0 0.5px rgba(255,145,71,.18) !important;
+}
+
+/* Search — 圓角放大、focus 用 accent ring */
+.tk-search {
+  margin: 8px 8px 0 !important;
+  padding: 7px 11px !important;
+  width: calc(100% - 16px) !important;
+  background: var(--bg3) !important;
+  border: 1px solid transparent !important;
+  border-radius: 8px !important;
+  font-size: 12px !important;
+  transition: border-color .15s, box-shadow .15s !important;
+}
+.tk-search:focus {
+  border-color: rgba(255,145,71,.45) !important;
+  box-shadow: 0 0 0 3px rgba(255,145,71,.10) !important;
+}
+
+/* Ticker item — hairline 更淡、active 改用左側 accent 細條 */
+.ticker-list { margin-top: 6px !important; }
+.ticker-item {
+  padding: 8px 10px !important;
+  gap: 9px !important;
+  border-bottom-color: rgba(255,255,255,.025) !important;
+}
+.ticker-item:hover { background: rgba(255,145,71,.05) !important; }
+.ticker-item.tk-active {
+  background: rgba(255,145,71,.08) !important;
+  border-left: 2px solid var(--accent) !important;
+  padding-left: 8px !important;
+}
+
+/* 字級／數字採 tabular-nums（對齊更工整）*/
+.tk-sym       { font-size: 12.5px !important; font-weight: 600 !important; }
+.tk-full      { font-size: 9.5px !important; }
+.tk-price-val { font-size: 12.5px !important; font-weight: 600 !important; font-variant-numeric: tabular-nums !important; }
+.tk-chg-row   { font-variant-numeric: tabular-nums !important; }
+
+/* 自選項目（watchlist）圓角＆hover 一致 */
+.wl-item {
+  border-radius: 8px !important;
+  padding: 6px 8px !important;
+  transition: background .12s !important;
+}
+.wl-item:hover { background: rgba(255,145,71,.06) !important; }
+
+/* ── ticker-hd：合約/台股 與 漲跌量 改單列（緊湊 + 最大上移）── */
+.ticker-hd {
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 6px !important;
+  padding: 0 8px 2px !important;       /* 上 0、下 2，最大壓縮 */
+  min-height: 0 !important;
+  margin-top: 0 !important;
+}
+/* 搜尋框緊貼 header */
+.tk-search { margin-top: 2px !important; }
+.tk-mkt-tabs,
+.tk-seg {
+  align-self: center !important;
+  justify-content: center !important;
+  flex-shrink: 1 !important;
+}
+/* 合約/台股 緊湊化（按鈕本身高度也減） */
+.tk-mkt-btn {
+  flex: 0 0 auto !important;
+  padding: 2px 7px !important;
+  font-size: 11px !important;
+  line-height: 1.2 !important;
+}
+/* 排序四鈕緊湊化 */
+.tk-seg-btn {
+  flex: 0 0 auto !important;
+  padding: 2px 6px !important;
+  font-size: 10px !important;
+  line-height: 1.2 !important;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   三區域漸層融合（topbar / 主圖 / ticker-panel）
+   - 純靜態 linear-gradient，沒有動畫/blur/ambient
+   - 利用色階 var(--bg2) ←→ var(--bg) 讓邊界淡化
+   ═══════════════════════════════════════════════════════════ */
+
+/* Topbar：垂直漸層 — 頂端 bg2（亮）→ 底端淡化到 bg（深），讓底邊與主圖融合 */
+.topbar {
+  background: linear-gradient(180deg,
+    var(--bg2) 0%,
+    var(--bg2) 60%,
+    color-mix(in srgb, var(--bg2) 70%, var(--bg) 30%) 100%) !important;
+}
+
+/* Symbol-bar：延續 topbar 漸層下緣 → 主圖 bg */
+.symbol-bar {
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--bg2) 70%, var(--bg) 30%) 0%,
+    color-mix(in srgb, var(--bg2) 35%, var(--bg) 65%) 100%) !important;
+  border-bottom: 1px solid transparent !important;
+}
+
+/* Charts-container：不覆寫，讓原始 .charts-container 與系統色彩設定接管 */
+
+/* Ticker-panel：水平漸層 — 左邊淡化（接主圖）→ 右邊 bg2（亮） */
+.ticker-panel {
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--bg2) 40%, var(--bg) 60%) 0%,
+    color-mix(in srgb, var(--bg2) 75%, var(--bg) 25%) 30%,
+    var(--bg2) 100%) !important;
+  border-left: 1px solid transparent !important;
+}
+
+/* Ticker-hd 不要額外底色（讓 panel 漸層通過） */
+.ticker-hd { background: transparent !important; }
+
+/* ── 極簡模式：純白底，關掉所有漸層 ── */
+html.perf-mode .topbar,
+html.perf-mode .symbol-bar,
+html.perf-mode .charts-container,
+html.perf-mode .ticker-panel,
+html.perf-mode .ticker-hd { background: #FFFFFF !important; }
+
+/* ═══════════════════════════════════════════════════════════
+   策略勝率欄 + TOP3/敗後停手 — Apple 暗色橘暖調和
+   - 11 個訊號色統一 L≈63%, S≈48%，warm 留鮮、cool 退飽和
+   - icon 加大、block 間距拉寬、hover affordance
+   - TOP3 列改用同色族 gradient + 暖色 accent
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── S1-S11 訊號 icon 色：HSL 同明度/同飽和度調和（warm 留亮、cool 退飽和）── */
+.wr-abc { color: #e07474 !important; }   /* S1 暖紅 */
+.wr-ab  { color: #e09955 !important; }   /* S2 暖橘（接 brand） */
+.wr-s3  { color: #c889c2 !important; }   /* S3 mauve */
+.wr-s4  { color: #6db8a5 !important; }   /* S4 退飽和青 */
+.wr-s5  { color: #e0a85a !important; }   /* S5 蜂蜜 */
+.wr-s6  { color: #8e94b8 !important; }   /* S6 退飽和淡紫 */
+.wr-s7  { color: #6fb0b8 !important; }   /* S7 退飽和青 */
+.wr-s8  { color: #d878a0 !important; }   /* S8 玫瑰 */
+.wr-s9  { color: #d4c060 !important; }   /* S9 米金（不再鮮黃） */
+.wr-s10 { color: #7298b8 !important; }   /* S10 退飽和藍 */
+.wr-s11 { color: #94b870 !important; }   /* S11 鼠尾草綠 */
+
+/* Icon 加大 + 柔和 glow（不再硬光） */
+.tb-wr-icon {
+  font-size: 11px !important;
+  filter: drop-shadow(0 0 2px currentColor) !important;
+  opacity: .92;
+}
+
+/* Block 間距加寬 + hover affordance */
+.tb-wr-scroll { gap: 5px !important; }
+.tb-wr-block {
+  gap: 5px !important;
+  padding: 2px 5px !important;
+  border-radius: 6px !important;
+  cursor: pointer;
+  transition: background .15s !important;
+}
+.tb-wr-block:hover {
+  background: rgba(255,145,71,.07) !important;
+}
+
+/* 訊號間細分隔線：更淡（拉開間距後不需明顯線） */
+.tb-wr-divider {
+  background: linear-gradient(to bottom,
+    transparent 0%,
+    rgba(255,200,140,.10) 50%,
+    transparent 100%) !important;
+  height: 14px !important;
+}
+
+/* 勝率數字 — 字體稍大、配色柔化 */
+.tb-wr-pct { font-size: 11px !important; }
+.tb-wr-v.good .tb-wr-pct {
+  color: #8fcba6 !important;            /* 適度飽和，無螢光 */
+  text-shadow: none !important;
+}
+.tb-wr-v.bad  .tb-wr-pct { color: #d49595 !important; text-shadow: none !important; }
+.tb-wr-cnt { color: rgba(255,180,120,.42) !important; }
+
+/* ═══ TOP3 + 敗後停手列：同色族 gradient ═══ */
+.tb-wr-top3 {
+  height: 30px !important;
+  gap: 8px !important;
+  padding: 0 12px !important;
+  background: linear-gradient(135deg,
+    rgba(45,28,16,.55) 0%,
+    rgba(70,42,20,.48) 50%,
+    rgba(45,28,16,.55) 100%) !important;
+  border: 1px solid rgba(255,165,90,.22) !important;
+  border-radius: 8px !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,200,150,.06),
+    0 2px 8px rgba(0,0,0,.30) !important;
+}
+
+.wr-top3-label {
+  color: var(--accent) !important;
+  letter-spacing: .14em !important;
+  font-size: 9.5px !important;
+  opacity: .85;
+}
+
+.wr-top3-item {
+  padding: 2px 6px !important;
+  border-radius: 5px !important;
+  background: rgba(255,165,90,.08) !important;
+  transition: background .15s !important;
+}
+.wr-top3-item:hover { background: rgba(255,165,90,.16) !important; }
+.wr-top3-name { font-size: 11px !important; opacity: .95; }
+.wr-top3-dir.s { color: #e89090 !important; }   /* 配 .bad pct 同階 */
+.wr-top3-dir.l { color: #6dd8c8 !important; }   /* 配 .good pct 同階 */
+.wr-top3-wr {
+  font-size: 11.5px !important;
+  color: #FFE0BE !important;                      /* 暖白、不再純白 */
+  letter-spacing: 0 !important;
+}
+.wr-top3-sum {
+  color: var(--accent) !important;
+  font-size: 11.5px !important;
+  text-shadow: 0 0 6px rgba(255,145,71,.35) !important;
+}
+
+/* 敗後停手 / 連敗按鈕 */
+.wr-streak-wrap {
+  border-left-color: rgba(255,165,90,.20) !important;
+  padding-left: 12px !important;
+  margin-left: 12px !important;
+}
+.wr-streak-btn {
+  font-size: 10.5px !important;
+  padding: 3px 9px !important;
+  border-radius: 6px !important;
+  background: rgba(255,165,90,.08) !important;
+  border-color: rgba(255,165,90,.28) !important;
+  color: rgba(255,200,160,.78) !important;
+  transition: all .15s !important;
+}
+.wr-streak-btn:hover {
+  background: rgba(255,165,90,.18) !important;
+  border-color: rgba(255,165,90,.45) !important;
+  color: var(--text) !important;
+}
+.wr-streak-btn.on {
+  background: linear-gradient(180deg,
+    rgba(255,170,90,.40) 0%,
+    rgba(255,130,50,.30) 100%) !important;
+  border-color: rgba(255,180,120,.55) !important;
+  color: #FFE0BE !important;
+  text-shadow: 0 0 4px rgba(255,180,120,.45) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,220,180,.18),
+    0 0 6px rgba(255,145,71,.25) !important;
+}
+
+/* 條件數字（連敗風險 / 敗後停手結果）— 統一 hover ring */
+.wr-stop-detail {
+  padding: 1px 5px !important;
+  border-radius: 5px !important;
+  transition: background .15s, box-shadow .15s !important;
+}
+.wr-stop-detail:hover {
+  background: rgba(255,165,90,.12) !important;
+  box-shadow: 0 0 0 1px rgba(255,180,120,.35) inset !important;
+}
+.wr-cond-i { color: #d4b8a0 !important; }                /* 由 #c9cdd6 改暖灰 */
+.wr-cond-i b { color: var(--accent) !important; }
+.wr-cond-i.bad  b { color: #e89090 !important; }
+.wr-cond-i.good b { color: #6dd8c8 !important; }
+.wr-cond-i small { color: rgba(255,180,120,.45) !important; }
+
+/* ═══════════════════════════════════════════════════════════
+   策略區 — 漸層感強化（多 stop + gradient text-fill）
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── S1-S11 icon 改成 gradient fill（從亮→當前色→暗），有立體感 ── */
+.tb-wr-icon {
+  background: linear-gradient(135deg,
+    color-mix(in srgb, currentColor 100%, white 35%) 0%,
+    currentColor 50%,
+    color-mix(in srgb, currentColor 100%, black 30%) 100%) !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+  filter: drop-shadow(0 0 3px currentColor)
+          drop-shadow(0 1px 1px rgba(0,0,0,.4)) !important;
+}
+
+/* ── Block hover：扁平 tint → 暖橘對角漸層 ── */
+.tb-wr-block:hover {
+  background: linear-gradient(135deg,
+    rgba(255,165,90,.04) 0%,
+    rgba(255,140,60,.14) 50%,
+    rgba(255,165,90,.04) 100%) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,200,150,.10),
+    inset 0 -1px 0 rgba(0,0,0,.25) !important;
+}
+
+/* ── 勝率數字（good/bad）：純色 + 適度飽和（無漸層 / 無 glow）── */
+.tb-wr-v.good .tb-wr-pct {
+  background: none !important;
+  -webkit-text-fill-color: currentColor !important;
+  color: #8fcba6 !important;
+  text-shadow: none !important;
+  filter: none !important;
+}
+.tb-wr-v.bad .tb-wr-pct {
+  background: none !important;
+  -webkit-text-fill-color: currentColor !important;
+  color: #d49595 !important;
+  text-shadow: none !important;
+  filter: none !important;
+}
+
+/* ── 分隔線 — 多 stop 流線（亮中暗循環）── */
+.tb-wr-divider {
+  background: linear-gradient(180deg,
+    transparent 0%,
+    rgba(255,140,60,.05) 15%,
+    rgba(255,200,140,.25) 38%,
+    rgba(255,230,180,.35) 50%,
+    rgba(255,200,140,.25) 62%,
+    rgba(255,140,60,.05) 85%,
+    transparent 100%) !important;
+  height: 16px !important;
+  width: 1px !important;
+  box-shadow: 0 0 3px rgba(255,180,120,.20) !important;
+}
+
+/* ═══ TOP3 列 — 多 stop 大跨度漸層 + ::before 流光 ═══ */
+.tb-wr-top3 {
+  position: relative;
+  background:
+    linear-gradient(135deg,
+      rgba(28,16,8,.70) 0%,
+      rgba(55,32,16,.55) 25%,
+      rgba(78,46,22,.50) 50%,
+      rgba(55,32,16,.55) 75%,
+      rgba(28,16,8,.70) 100%) !important;
+  border: 1px solid transparent !important;
+  border-image: linear-gradient(135deg,
+    rgba(255,145,71,.35) 0%,
+    rgba(255,200,140,.18) 50%,
+    rgba(255,145,71,.35) 100%) 1 !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,210,160,.12),
+    inset 0 -1px 0 rgba(0,0,0,.45),
+    0 2px 10px rgba(0,0,0,.40) !important;
+  overflow: hidden;
+}
+/* TOP3 內部頂部一條超細漸層高光（HUD 感）*/
+.tb-wr-top3::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 10%; right: 10%;
+  height: 1px;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(255,200,140,.45) 35%,
+    rgba(255,220,170,.55) 50%,
+    rgba(255,200,140,.45) 65%,
+    transparent 100%);
+  pointer-events: none;
+}
+
+/* TOP3 item — 暖橘對角漸層底 */
+.wr-top3-item {
+  background: linear-gradient(135deg,
+    rgba(255,165,90,.04) 0%,
+    rgba(255,140,60,.12) 50%,
+    rgba(255,165,90,.04) 100%) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,200,150,.08),
+    inset 0 -1px 0 rgba(0,0,0,.20) !important;
+  transition: background .15s, box-shadow .15s !important;
+}
+.wr-top3-item:hover {
+  background: linear-gradient(135deg,
+    rgba(255,165,90,.10) 0%,
+    rgba(255,140,60,.24) 50%,
+    rgba(255,165,90,.10) 100%) !important;
+}
+
+/* TOP3 sum 改 gradient text-fill */
+.wr-top3-sum {
+  background: linear-gradient(180deg, #FFD8B0 0%, #FF9147 55%, #E55A0A 100%) !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+  color: transparent !important;
+  filter: drop-shadow(0 0 4px rgba(255,145,71,.45)) !important;
+}
+
+/* TOP3 wr 數字 — 暖白漸層 */
+.wr-top3-wr {
+  background: linear-gradient(180deg, #FFEFD8 0%, #FFD8B0 100%) !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+  color: transparent !important;
+}
+
+/* TOP3 label */
+.wr-top3-label {
+  background: linear-gradient(180deg, #FFC890 0%, #FF8C40 100%) !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+  color: transparent !important;
+}
+
+/* ═══ 連敗 / 敗後停手按鈕 — base 與 .on 都加深漸層 ═══ */
+.wr-streak-btn {
+  background: linear-gradient(180deg,
+    rgba(255,165,90,.12) 0%,
+    rgba(255,140,60,.04) 100%) !important;
+  border: 1px solid transparent !important;
+  border-image: linear-gradient(180deg,
+    rgba(255,165,90,.38) 0%,
+    rgba(255,140,60,.18) 100%) 1 !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,200,150,.10),
+    inset 0 -1px 0 rgba(0,0,0,.20) !important;
+}
+.wr-streak-btn:hover {
+  background: linear-gradient(180deg,
+    rgba(255,165,90,.22) 0%,
+    rgba(255,140,60,.10) 100%) !important;
+}
+.wr-streak-btn.on {
+  background: linear-gradient(180deg,
+    rgba(255,200,130,.55) 0%,
+    rgba(255,140,60,.40) 45%,
+    rgba(255,100,30,.50) 100%) !important;
+  border-image: linear-gradient(180deg,
+    rgba(255,210,150,.7) 0%,
+    rgba(255,160,80,.5) 100%) 1 !important;
+  color: #FFFFFF !important;
+  text-shadow:
+    0 0 5px rgba(255,200,140,.85),
+    0 1px 0 rgba(0,0,0,.30) !important;
+  box-shadow:
+    inset 0 0 6px rgba(255,210,170,.40),
+    inset 0 1px 0 rgba(255,255,255,.22),
+    0 0 10px rgba(255,145,71,.40) !important;
+}
+
+/* 條件數字 hover 改漸層底 */
+.wr-stop-detail:hover {
+  background: linear-gradient(135deg,
+    rgba(255,165,90,.06) 0%,
+    rgba(255,140,60,.20) 50%,
+    rgba(255,165,90,.06) 100%) !important;
+  box-shadow: 0 0 0 1px rgba(255,180,120,.40) inset !important;
+}
+.wr-cond-i b {
+  background: linear-gradient(180deg, #FFD8B0 0%, #FF9147 100%) !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+  color: transparent !important;
+}
+.wr-cond-i.bad b {
+  background: linear-gradient(180deg, #FFA8A8 0%, #EF5350 100%) !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+}
+.wr-cond-i.good b {
+  background: linear-gradient(180deg, #6DD8C8 0%, #26A69A 100%) !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   策略區 — 打破單調感（節奏 / 分組 / hero / 紋理）
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── 訊號 block 交錯底色（odd/even nth-child 視覺節奏）── */
+.tb-wr-scroll .tb-wr-block:nth-of-type(odd) {
+  background: linear-gradient(180deg,
+    rgba(255,165,90,.025) 0%,
+    rgba(255,140,60,.06) 100%) !important;
+}
+.tb-wr-scroll .tb-wr-block:nth-of-type(even) {
+  background: linear-gradient(180deg,
+    rgba(80,55,30,.10) 0%,
+    rgba(50,32,18,.15) 100%) !important;
+}
+/* hover 仍蓋過交錯（用 .tb-wr-block:hover 已 !important） */
+
+/* ── 分組分隔線：S1 後（abc）/ S6 後（前段結束）特別粗 ── */
+/* 由 HTML 結構推算：abc(S1) 後第 1 條 divider；S6 後是第 6 條 */
+.tb-wr-scroll .tb-wr-divider:nth-of-type(2),
+.tb-wr-scroll .tb-wr-divider:nth-of-type(12) {
+  width: 2px !important;
+  height: 22px !important;
+  background: linear-gradient(180deg,
+    transparent 0%,
+    rgba(255,140,60,.15) 12%,
+    rgba(255,180,100,.55) 38%,
+    rgba(255,210,140,.70) 50%,
+    rgba(255,180,100,.55) 62%,
+    rgba(255,140,60,.15) 88%,
+    transparent 100%) !important;
+  box-shadow:
+    0 0 4px rgba(255,160,80,.35),
+    0 0 8px rgba(255,140,60,.18) !important;
+  border-radius: 2px !important;
+  margin: 0 4px !important;
+}
+
+/* ── TOP3 hero：sum 數字升級為大型重點顯示 ── */
+.wr-top3-sum {
+  font-size: 14px !important;
+  font-weight: 900 !important;
+  letter-spacing: -.01em !important;
+  padding: 2px 8px !important;
+  border-radius: 6px !important;
+  background:
+    linear-gradient(135deg,
+      rgba(255,200,130,.22) 0%,
+      rgba(255,140,60,.32) 50%,
+      rgba(255,100,30,.28) 100%) !important;
+  border: 1px solid rgba(255,180,120,.45) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,220,180,.25),
+    0 0 8px rgba(255,145,71,.30) !important;
+  /* gradient text-fill 蓋過外層 bg */
+  color: #FFFFFF !important;
+  -webkit-background-clip: border-box !important;
+  background-clip: border-box !important;
+  -webkit-text-fill-color: #FFFFFF !important;
+  text-shadow:
+    0 0 6px rgba(255,200,140,.85),
+    0 1px 0 rgba(0,0,0,.30) !important;
+  filter: none !important;
+}
+
+/* ── TOP3 bg 加 subtle 噪點紋理（避免大色塊單調）── */
+.tb-wr-top3 {
+  background-image:
+    /* 對角細條紋（極淡，1px 間距） */
+    repeating-linear-gradient(135deg,
+      transparent 0px,
+      transparent 2px,
+      rgba(255,200,140,.018) 2px,
+      rgba(255,200,140,.018) 3px),
+    linear-gradient(135deg,
+      rgba(28,16,8,.70) 0%,
+      rgba(55,32,16,.55) 25%,
+      rgba(78,46,22,.50) 50%,
+      rgba(55,32,16,.55) 75%,
+      rgba(28,16,8,.70) 100%) !important;
+}
+
+/* ── winrate 列保持透明（讓天氣 canvas 透過）— 條紋紋理移除 ── */
+.tb-winrate {
+  background-image: none !important;
+  background-color: transparent !important;
+}
+
+/* ── S1 (abc) block：標註「參考」— 簡單美學：只用 opacity 降階，不加框 ── */
+.tb-wr-scroll .tb-wr-block:first-of-type {
+  opacity: .55;
+}
+.tb-wr-scroll .tb-wr-block:first-of-type:hover {
+  opacity: 1;
+}
+
+/* ── 連敗按鈕 .on 加 subtle pulse（節奏感不只在配色，動態也算）── */
+@keyframes wr-streak-pulse {
+  0%, 100% { box-shadow:
+    inset 0 0 6px rgba(255,210,170,.40),
+    inset 0 1px 0 rgba(255,255,255,.22),
+    0 0 10px rgba(255,145,71,.40); }
+  50%      { box-shadow:
+    inset 0 0 8px rgba(255,220,180,.55),
+    inset 0 1px 0 rgba(255,255,255,.30),
+    0 0 16px rgba(255,145,71,.60); }
+}
+.wr-streak-btn.on {
+  animation: wr-streak-pulse 2.2s ease-in-out infinite !important;
+}
+
+/* ── TOP3 item 內部數字加上下微縱條（區分視覺重心）── */
+.wr-top3-name {
+  border-left: 2px solid rgba(255,165,90,.35);
+  padding-left: 5px;
+  margin-right: 2px;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   色彩系統整合 — 三層 layer：互動暖橘 / 數據冷青紅 / 文字暖白
+   ═══════════════════════════════════════════════════════════ */
+:root {
+  /* ── 互動 UI 層（暖橘家族）── */
+  --ui-accent:        #FF9147;
+  --ui-accent-soft:   rgba(255,145,71,.18);
+  --ui-accent-faint:  rgba(255,145,71,.08);
+  --ui-accent-glow:   rgba(255,145,71,.35);
+  --ui-accent-hi:     #FFD8B0;          /* 亮橘（hover/active 文字）*/
+  --ui-accent-deep:   #E55A0A;          /* 深橘（gradient 終點）*/
+
+  /* ── 數據結果層（冷色 — 跟暖橘形成 contrast）── */
+  --data-win:         #4DD0C4;          /* 統一勝率 teal */
+  --data-win-hi:      #8FEDD8;          /* 漸層起點 */
+  --data-win-deep:    #28A89A;          /* 漸層終點 */
+  --data-win-glow:    rgba(77,208,196,.40);
+  --data-loss:        #EF7070;          /* 統一敗率 red */
+  --data-loss-hi:     #FFA8A8;
+  --data-loss-deep:   #D04848;
+  --data-loss-glow:   rgba(239,112,112,.35);
+
+  /* ── 中性文字層（暖白）── */
+  --txt-hi:    #FFEFD8;     /* 重點數字 */
+  --txt-base:  #EDD4A8;     /* 一般文字（同 --text） */
+  --txt-mute:  rgba(255,180,120,.55);   /* 次要 */
+  --txt-faint: rgba(255,180,120,.35);   /* 標籤/單位 */
+}
+html.perf-mode {
+  --ui-accent:        #FF6A1A;
+  --ui-accent-soft:   rgba(255,106,26,.10);
+  --ui-accent-faint:  rgba(255,106,26,.05);
+  --ui-accent-glow:   rgba(255,106,26,.20);
+  --ui-accent-hi:     #1F1F1F;
+  --ui-accent-deep:   #E55A0A;
+  --data-win:         #16a34a;
+  --data-win-hi:      #16a34a;
+  --data-win-deep:    #16a34a;
+  --data-win-glow:    transparent;
+  --data-loss:        #dc2626;
+  --data-loss-hi:     #dc2626;
+  --data-loss-deep:   #dc2626;
+  --data-loss-glow:   transparent;
+  --txt-hi:    #1F1F1F;
+  --txt-base:  #1F1F1F;
+  --txt-mute:  #8B8B8B;
+  --txt-faint: #8B8B8B;
+}
+
+/* ── 套用：勝率數字（純色，適度飽和、無漸層、無 glow）── */
+.tb-wr-v.good .tb-wr-pct {
+  background: none !important;
+  -webkit-text-fill-color: currentColor !important;
+  color: #8fcba6 !important;
+  filter: none !important;
+}
+.tb-wr-v.bad .tb-wr-pct {
+  background: none !important;
+  -webkit-text-fill-color: currentColor !important;
+  color: #d49595 !important;
+  filter: none !important;
+}
+
+/* ── 套用：總勝率 ── */
+.tb-wr-total.good {
+  background: linear-gradient(180deg, var(--data-win-hi) 0%, var(--data-win-deep) 100%) !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+  filter: drop-shadow(0 0 6px var(--data-win-glow)) !important;
+}
+.tb-wr-total.bad {
+  background: linear-gradient(180deg, var(--data-loss-hi) 0%, var(--data-loss-deep) 100%) !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+  filter: drop-shadow(0 0 6px var(--data-loss-glow)) !important;
+}
+
+/* ── 套用：TOP3 / 敗後停手 方向色（s=空=loss、l=多=win）── */
+.tb-wr-arr.s,
+.wr-top3-dir.s,
+/* 只覆蓋 winrate 內部的方向色，不動全站 .up/.dn（ticker 價格、K 線等保留 var(--red)/var(--green)） */
+.tb-wr-arr.l,
+.wr-top3-dir.l { color: var(--data-win) !important; }
+
+/* ── 條件數字（bad/good）統一 ── */
+.wr-cond-i.bad b {
+  background: linear-gradient(180deg, var(--data-loss-hi) 0%, var(--data-loss) 100%) !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+}
+.wr-cond-i.good b {
+  background: linear-gradient(180deg, var(--data-win-hi) 0%, var(--data-win) 100%) !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+}
+.wr-cond-i b {
+  background: linear-gradient(180deg, var(--ui-accent-hi) 0%, var(--ui-accent) 100%) !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+}
+
+/* ── TOP3 / 連敗按鈕都改吃 --ui-accent 系列 ── */
+.wr-top3-label,
+.wr-top3-sum {
+  background: linear-gradient(180deg, var(--ui-accent-hi) 0%, var(--ui-accent) 55%, var(--ui-accent-deep) 100%) !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+  color: transparent !important;
+}
+.wr-top3-sum {
+  /* sum 還是有外框 hero — 強制疊回外框 + 透明文字漸層 */
+  -webkit-text-fill-color: #FFFFFF !important;
+  background:
+    linear-gradient(135deg, var(--ui-accent-soft) 0%, var(--ui-accent-glow) 50%, var(--ui-accent-soft) 100%) !important;
+  border-color: var(--ui-accent-soft) !important;
+}
+
+/* ── Topbar 互動元素：所有 active/hover 都吃 --ui-accent ── */
+.tf-btn.active,
+.tk-mkt-btn.active,
+.tk-seg-btn.active {
+  color: var(--ui-accent) !important;
+}
+.tf-btn:hover, .tk-mkt-btn:hover:not(.active), .tk-seg-btn:hover:not(.active),
+.wl-item:hover, .ticker-item:hover {
+  background: var(--ui-accent-faint) !important;
+}
+
+/* ── Symbol-bar：靜態 label 暖白、即時數值微暖橘 ── */
+.symbol-bar .sym-label { color: var(--txt-mute) !important; }
+.symbol-bar .sym-val   { color: var(--txt-hi) !important; }
+.symbol-bar .sym-name  { color: var(--txt-hi) !important; }
+.symbol-bar .sym-tag   { color: var(--ui-accent) !important; background: var(--ui-accent-faint) !important; }
+.symbol-bar .sym-divider { color: var(--txt-faint) !important; }
+
+/* ── Ticker-panel：價格暖白、漲跌吃數據色 ── */
+.tk-sym       { color: var(--txt-hi) !important; }
+.tk-full      { color: var(--txt-mute) !important; }
+.tk-price-val { color: var(--txt-hi) !important; }
+.tk-chg-amt   { color: var(--txt-mute) !important; }
+
+/* ── 移除過去散落的硬色（讓 var token 接管）── */
+.tb-wr-arr.s, .tb-wr-arr.l { font-weight: 700; }
+
+/* ═══════════════════════════════════════════════════════════
+   策略勝率框 — 邊界漸層用 user 選的 var(--bg)/var(--bg2) 衍生
+   - 拿掉硬橘框 + 外發光 glow + backdrop blur（HUD 科幻感）
+   - 保留漸層感（從 user color 衍生 + 細邊框 hairline gradient）
+   ═══════════════════════════════════════════════════════════ */
+.tb-winrate {
+  /* 完全透明 + 只保留上下兩條淡 hairline（左右無邊、無圓角，融入 topbar） */
+  background: transparent !important;
+  background-image: none !important;
+  border: none !important;
+  border-top: 1px solid rgba(255, 200, 160, 0.10) !important;
+  border-bottom: 1px solid rgba(255, 200, 160, 0.10) !important;
+  border-image: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* 動畫流光與頂部高光：拿掉（HUD 感太重） */
+.tb-winrate::before,
+.tb-winrate::after { display: none !important; }
+
+/* TOP3 列 — 同樣用 user color 衍生漸層 + gradient hairline */
+.tb-wr-top3 {
+  background:
+    repeating-linear-gradient(135deg,
+      transparent 0px,
+      transparent 2px,
+      rgba(255,200,140,.012) 2px,
+      rgba(255,200,140,.012) 3px),
+    linear-gradient(135deg,
+      color-mix(in srgb, var(--bg) 75%, var(--bg2) 25%) 0%,
+      color-mix(in srgb, var(--bg) 55%, var(--bg2) 45%) 50%,
+      color-mix(in srgb, var(--bg) 75%, var(--bg2) 25%) 100%) !important;
+  border: 1px solid transparent !important;
+  border-image: linear-gradient(135deg,
+    transparent 0%,
+    rgba(255,145,71,.25) 30%,
+    rgba(255,200,140,.40) 50%,
+    rgba(255,145,71,.25) 70%,
+    transparent 100%) 1 !important;
+  border-radius: 8px !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,200,150,.06),
+    inset 0 -1px 0 rgba(0,0,0,.30),
+    0 1px 4px rgba(0,0,0,.30) !important;
+}
+.tb-wr-top3::before { display: none !important; }
+
+/* ── 區邊界改用漸層銜接（不再畫 hairline）；保留 border-bottom:0 ── */
+.topbar {
+  position: relative;
+  border-bottom: 0 !important;
+}
+.topbar::after { display: none !important; }
+
+.symbol-bar {
+  position: relative;
+  border-bottom: 0 !important;
+}
+.symbol-bar::after { display: none !important; }
+
+.ticker-panel {
+  position: relative;
+  border-left: 0 !important;
+}
+.ticker-panel::before { display: none !important; }
+
+/* ═══════════════════════════════════════════════════════════
+   主圖邊界漸層 — 中間純 var(--bg)（user 選的色），三個邊（上/左/右）
+   靠近相鄰區域 60px 內漸層淡化，讓邊界線消失
+   ═══════════════════════════════════════════════════════════ */
+.charts-container {
+  background:
+    /* 上緣 60px：接 symbol-bar 色 → 主圖色 */
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--bg) 50%, var(--bg2) 50%) 0,
+      transparent 60px),
+    /* 右緣 60px：接 ticker-panel 色 → 主圖色 */
+    linear-gradient(270deg,
+      color-mix(in srgb, var(--bg) 50%, var(--bg2) 50%) 0,
+      transparent 60px),
+    /* 左緣 40px：接 draw-toolbar 色 → 主圖色 */
+    linear-gradient(90deg,
+      color-mix(in srgb, var(--bg) 55%, var(--bg2) 45%) 0,
+      transparent 40px),
+    /* 底層：user 選的純色（中間維持這個色）*/
+    var(--bg) !important;
+}
+
+/* html 主背景：保留純色，由 user 選擇控制（不加漸層）*/
+html { background: var(--bg) !important; }
+
+/* 極簡模式：純白底（已在前面定義為 #FFFFFF，這邊維持白底覆蓋）*/
+html.perf-mode { background: #FFFFFF !important; }
+html.perf-mode .charts-container { background: #FFFFFF !important; }
+
+/* ═══════════════════════════════════════════════════════════
+   FINAL：簡單美學 — TOP3 / 敗後停手列全面去螢光、去漸層文字
+   蓋掉前面散落的 gradient text-fill + drop-shadow + text-shadow
+   ═══════════════════════════════════════════════════════════ */
+/* TOP3 名稱 / 數字 / 標籤 — 純色 */
+.wr-top3-sum,
+.wr-top3-wr,
+.wr-top3-label {
+  background: none !important;
+  background-image: none !important;
+  -webkit-text-fill-color: currentColor !important;
+  color: #E8A270 !important;       /* 暖橘 accent，無漸層 */
+  filter: none !important;
+  text-shadow: none !important;
+  border-color: transparent !important;
+}
+.wr-top3-name { color: rgba(228,218,206,.88) !important; }
+.wr-top3-dir.s { color: #d49595 !important; }
+.wr-top3-dir.l { color: #8fcba6 !important; }
+
+/* 連敗 / 敗後停手按鈕 — 透明底、純色字、無 glow / 無 pulse */
+.wr-streak-btn {
+  background: transparent !important;
+  background-image: none !important;
+  border: none !important;                 /* 完全無框 */
+  border-image: none !important;
+  outline: none !important;
+  color: rgba(228,218,206,.78) !important;
+  text-shadow: none !important;
+  box-shadow: none !important;
+  animation: none !important;
+}
+.wr-streak-btn:hover {
+  background: rgba(255,180,120,.10) !important;
+  background-image: none !important;
+  border: none !important;
+  color: #E8A270 !important;
+}
+.wr-streak-btn.on {
+  background: rgba(255,140,60,.16) !important;
+  background-image: none !important;
+  border: none !important;                 /* .on 也無框 */
+  color: #E8A270 !important;
+  text-shadow: none !important;
+  box-shadow: none !important;
+  animation: none !important;
+}
+
+/* 條件數字（連敗 / 敗後停手結果）— 純色 b 元素 */
+.wr-cond-i      { color: rgba(228,218,206,.88) !important; font-family: inherit !important; }
+.wr-cond-i b    {
+  background: none !important; background-image: none !important;
+  -webkit-text-fill-color: currentColor !important;
+  color: #E8A270 !important;
+  filter: none !important; text-shadow: none !important;
+}
+.wr-cond-i.good b {
+  -webkit-text-fill-color: currentColor !important;
+  color: #8fcba6 !important;
+  background: none !important; background-image: none !important;
+  filter: none !important;
+}
+.wr-cond-i.bad b {
+  -webkit-text-fill-color: currentColor !important;
+  color: #d49595 !important;
+  background: none !important; background-image: none !important;
+  filter: none !important;
+}
+.wr-cond-i small { color: rgba(228,218,206,.40) !important; }
+
+/* hover detail：簡化（無 inset 雙線、無漸層）*/
+.wr-stop-detail:hover {
+  background: rgba(255,180,120,.10) !important;
+  background-image: none !important;
+  box-shadow: none !important;
+}
+
+/* TOP3 行 item hover：簡化 */
+.wr-top3-item:hover {
+  background: rgba(255,180,120,.08) !important;
+  background-image: none !important;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   游標鎖定：任何狀況、任何元素都用魔法棒游標
+   — 用 :is(*) :where() :hover :focus :active 全狀態 + 偽元素全覆寫
+   ═══════════════════════════════════════════════════════════ */
+*,
+*::before,
+*::after,
+*:hover,
+*:focus,
+*:active,
+*:disabled,
+*[title],
+[style*="cursor"] {
+  cursor: url('/static/img/cursor-wand.png') 27 27, auto !important;
+}
+/* 內建特殊游標的元素（input/textarea/range/help）也要強制覆蓋 */
+input, textarea, select, button, a, label,
+[draggable], [contenteditable],
+::-webkit-resizer, ::-webkit-scrollbar {
+  cursor: url('/static/img/cursor-wand.png') 27 27, auto !important;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   全站字體統一：所有元素改 SF Pro 系統字（保留品牌名 Arial Black）
+   - 數字自動 tabular-nums
+   - 把所有散落 SF Mono / Courier New / monospace 統一掉
+   ═══════════════════════════════════════════════════════════ */
+body, button, input, select, textarea,
+.tb-wr-v, .tb-wr-pct, .tb-wr-arr, .tb-wr-cnt,
+.tb-wr-total, .tb-wr-recent, .tb-wr-est, .tb-wr-from, .tb-wr-status,
+.tb-wr-toggle, .tb-wr-buffer-input, .tb-wr-buffer-pct, .tb-wr-loading-text,
+.wr-cond-i, .wr-streak-btn, .wr-stop-detail,
+.wr-top3-name, .wr-top3-dir, .wr-top3-wr, .wr-top3-sum, .wr-top3-label,
+.rp-time, .rp-progress, .sym-label, .sym-val, .sym-name,
+.tk-sym, .tk-full, .tk-price-val, .tk-chg-row {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
+               "Helvetica Neue", "PingFang TC", "Microsoft JhengHei",
+               system-ui, sans-serif !important;
+}
+/* 數字統一 tabular-nums 對齊（不影響非數字） */
+.tb-wr-v, .tb-wr-pct, .tb-wr-total, .tb-wr-recent, .tb-wr-est,
+.tb-wr-from, .tb-wr-status, .tb-wr-buffer-input,
+.wr-cond-i, .wr-cond-i b, .wr-top3-wr, .wr-top3-sum,
+.tk-price-val, .tk-chg-row, .rp-time, .rp-progress,
+.sym-val { font-variant-numeric: tabular-nums !important; }
+
+/* ═══════════════════════════════════════════════════════════
+   敗後停手列 (.tb-wr-top3)：TOP3 已移除，只剩單按鈕 → 右收齊
+   無背景、無邊框、保持 row 高度供按鈕浮在右側
+   ═══════════════════════════════════════════════════════════ */
+.tb-wr-top3 {
+  background: transparent !important;
+  background-image: none !important;
+  border: none !important;
+  border-image: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  padding: 0 8px !important;
+  justify-content: flex-start !important;  /* 按鈕靠左：cond 數字往右延伸，按鈕不亂跳 */
+  height: 26px !important;
+}
+.tb-wr-top3::before { display: none !important; }
+
+/* TOP3 個別 item — 透明底、圓角，hover 才微亮 */
+.wr-top3-item {
+  background: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  border-radius: 7px !important;
+  padding: 2px 8px !important;
+  transition: background .15s ease !important;
+}
+.wr-top3-item:hover {
+  background: rgba(255,180,120,.08) !important;
+  background-image: none !important;
+  box-shadow: none !important;
+}
+
+/* 「敗後停手」/ 連敗按鈕本身 — 全圓角膠囊（pill），消除稜角 */
+.wr-streak-btn {
+  border-radius: 99px !important;     /* 完全圓 */
+  padding: 4px 12px !important;        /* 配合膠囊形狀 */
+  min-width: 72px !important;          /* 固定寬：避免「關/2連/敗後停手」標籤切換時尺寸跳動 */
+  text-align: center !important;
+  transition: background-color .12s ease, color .12s ease !important;  /* 收斂 transition，不再 all */
+}
+
+/* ─────────────────────────────────────────────────────
+   副圖指標 顯示/隱藏 — 左側 draw-toolbar 最底部
+   ───────────────────────────────────────────────────── */
+.dt-subcharts-btn {
+  margin-top: auto !important;   /* 推到工具列底部 */
+}
+.dt-subcharts-btn svg { transition: transform .2s ease; }
+/* data-expanded="true"（副圖展開）→ 箭頭朝上（提示「收合」往下方）
+   data-expanded="false"（副圖隱藏，預設）→ 箭頭朝下（提示「展開」往下展開）*/
+.dt-subcharts-btn[data-expanded="true"] svg { transform: rotate(180deg); }
+
+/* 隱藏副圖 panes + 它們上方的分隔線 */
+.charts-container.subcharts-hidden #kdjPane,
+.charts-container.subcharts-hidden #rsiPane,
+.charts-container.subcharts-hidden #macdPane,
+.charts-container.subcharts-hidden .pane-divider[data-target="mainPane"],
+.charts-container.subcharts-hidden .pane-divider[data-target="kdjPane"],
+.charts-container.subcharts-hidden .pane-divider[data-target="rsiPane"] {
+  display: none !important;
+}
+.wr-streak-btn.on {
+  border-radius: 99px !important;
+}
+
+/* 中軌/上下軌/1:1 切換按鈕 — 同樣 fix 「閃一下」：固定寬 + 收斂 transition */
+.tb-wr-toggle {
+  min-width: 56px !important;           /* 容納最長的「上/下軌」三字 + 一字 + 餘裕 */
+  text-align: center !important;
+  transition: background-color .12s ease, color .12s ease !important;
+}
+/* 同時拿掉 .band/.rr 的 glow/inset — 跟簡單美學一致、也降低 transition 起點/終點差距 */
+.tb-wr-toggle.band, .tb-wr-toggle.rr {
+  text-shadow: none !important;
+  box-shadow: none !important;
+}
+
+/* ═══ 右側總勝率區（wrAll / wrRecent100 / wrEstHit / wrFromDate / wrStatus）═══
+   全部統一 SF Pro 系統字、tabular-nums、無 gradient text / 無 glow */
+.tb-wr-total {
+  font-size: 17px !important;
+  font-weight: 600 !important;
+  font-family: -apple-system, "SF Pro Display", "SF Pro Text", "Helvetica Neue",
+               "PingFang TC", system-ui, sans-serif !important;
+  font-variant-numeric: tabular-nums !important;
+  letter-spacing: -0.01em !important;
+  padding: 0 6px !important;
+  /* 純色（預設暖橘 accent）— 不漸層、不發光 */
+  background: none !important;
+  background-image: none !important;
+  -webkit-text-fill-color: currentColor !important;
+  color: #E8A270 !important;
+  filter: none !important;
+  text-shadow: none !important;
+}
+.tb-wr-total.good {
+  background: none !important;
+  -webkit-text-fill-color: currentColor !important;
+  color: #8fcba6 !important;
+  filter: none !important;
+}
+.tb-wr-total.bad {
+  background: none !important;
+  -webkit-text-fill-color: currentColor !important;
+  color: #d49595 !important;
+  filter: none !important;
+}
+
+/* total 前的縱向分隔 — 簡化為單色 hairline */
+.tb-wr-total-sep {
+  width: 1px !important;
+  height: 18px !important;
+  background: rgba(255,255,255,.08) !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  margin: 0 6px !important;
+}
+
+/* recent 100 / est — 比 total 小一級 */
+.tb-wr-recent,
+.tb-wr-est {
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  font-family: -apple-system, "SF Pro Text", "Helvetica Neue", "PingFang TC", system-ui, sans-serif !important;
+  font-variant-numeric: tabular-nums !important;
+  letter-spacing: 0 !important;
+  margin-left: 6px !important;
+  color: rgba(228,218,206,.78) !important;
+  opacity: 1 !important;
+}
+.tb-wr-recent.good { color: #8fcba6 !important; }
+.tb-wr-recent.bad  { color: #d49595 !important; }
+
+/* from date / status — 最小，最暗 */
+.tb-wr-from {
+  font-size: 10px !important;
+  font-weight: 400 !important;
+  font-family: -apple-system, "SF Pro Text", "Helvetica Neue", "PingFang TC", system-ui, sans-serif !important;
+  font-variant-numeric: tabular-nums !important;
+  color: rgba(228,218,206,.45) !important;
+  letter-spacing: 0 !important;
+  margin-left: 6px !important;
+}
+.tb-wr-status {
+  font-size: 10px !important;
+  font-weight: 400 !important;
+  font-family: -apple-system, "SF Pro Text", "Helvetica Neue", "PingFang TC", system-ui, sans-serif !important;
+  font-variant-numeric: tabular-nums !important;
+  color: rgba(228,218,206,.45) !important;
+  letter-spacing: 0 !important;
+  margin-left: 4px !important;
+}
+

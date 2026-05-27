@@ -9,8 +9,9 @@ try { _wrTargetView = localStorage.getItem(_WR_VIEW_KEY) || "mid"; } catch (e) {
 
 // 訊號版本（原版 ↔ 強化版：量能 > 1.5× MA20）狀態
 const _WR_VARIANT_KEY = "wrVariantView";
-let _wrVariantView = "base";  // "base" | "variant"
-try { _wrVariantView = localStorage.getItem(_WR_VARIANT_KEY) || "base"; } catch (e) {}
+// 強化版功能已從 UI 移除 — 強制 base（不再讀 localStorage 避免舊設定卡死）
+let _wrVariantView = "base";
+try { localStorage.removeItem(_WR_VARIANT_KEY); } catch (e) {}
 
 // 點擊訊號 K 棒展開的自動盈虧比盒：Set<signal.t>
 const _autoRRSet = new Set();
@@ -724,11 +725,8 @@ function _renderWrTop3() {
       + `</span>`;
   }).join("");
 
-  const sumHtml = (cWr != null)
-    ? `<span class="wr-top3-sum" title="只計入這 3 個 (訊號×方向) 且同 signal-bar+同方向去重，共 ${cTot} 筆">${Math.round(cWr)}%</span>`
-    : "";
-
-  root.innerHTML = `<span class="wr-top3-label">T3</span><span class="wr-top3-items">${itemsHtml}</span>${sumHtml}${streakHtml}`;
+  // TOP3 元件已移除，只保留敗後停手按鈕（+條件數字）
+  root.innerHTML = streakHtml;
 }
 
 /* ══════════════════════════════════════════

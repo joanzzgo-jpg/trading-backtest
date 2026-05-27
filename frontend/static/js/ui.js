@@ -304,7 +304,7 @@ function updateBottomTimeAxis() {
 function bindLegendColors() {
   const map = [
     { id:"legBB",      key:"bbU",     apply: c => { C.bbU = C.bbL = c; bbU?.applyOptions({color:c}); bbL?.applyOptions({color:c}); savePrefs(); } },
-    { id:"legCRT",     key:"crtBull", apply: c => { C.crtBull = c; if (ohlcvData.length) renderCRT(ohlcvData); savePrefs(); } },
+    // legCRT 不掛色盤：CRT 是 markers 不是 series，使用者點它應該是要切顯隱（由 leg-toggle 處理）
     { id:"legVol",     key:"up",      apply: c => { if (ohlcvData.length) renderVolume(ohlcvData); savePrefs(); } },
     { id:"legK",       key:"kdjK",    apply: c => { C.kdjK = c; kdjK?.applyOptions({color:c}); const el=document.getElementById("legK");       if(el) el.style.color=c; savePrefs(); } },
     { id:"legD",       key:"kdjD",    apply: c => { C.kdjD = c; kdjD?.applyOptions({color:c}); const el=document.getElementById("legD");       if(el) el.style.color=c; savePrefs(); } },
@@ -324,6 +324,22 @@ function bindLegendColors() {
   map.forEach(({ id, key, apply }) => {
     const legEl = document.getElementById(id);
     if (!legEl) return;
+    const dot = legEl.querySelector(".leg-dot");
+    if (!dot) return;
+    dot.style.cursor = "pointer";
+    dot.addEventListener("click", e => {
+      e.stopPropagation();   // 不要觸發 leg-toggle 的顯隱切換
+      const cur = (C[key] || "#888").substring(0, 7);
+      showLegColorPopup(e.clientX, e.clientY, [{
+        label: null,
+        currentColor: cur,
+        apply: c => {
+          dot.style.background = c;
+          dot.style.borderColor = c;
+          apply(c);
+        }
+      }]);
+    });
   });
 }
 
@@ -362,9 +378,7 @@ function bindIndicatorPanel() {
         { divider: true },
         { label:"主圖背景", colorKey:"chartBg", bgPresets: true, onColor: c=>{
             C.chartBg = c;
-            document.body.style.background = c;
-            const _cc = document.querySelector(".charts-container");
-            if (_cc) _cc.style.background = c;
+            _applyChartBgGradient(c);   // mainPane 上下漸層至系統 var(--bg)
             savePrefs();
           }
         },
@@ -708,11 +722,82 @@ const SC_CSS_MAP = {
 };
 let SC = { ...SC_DEFAULTS };
 
+// 市場切換單鍵循環按鈕（Crypto → TW → US → Crypto）— 帶 label slide 動畫
+// hidden <select id="marketSelect"> 仍是 source-of-truth（既有 JS change handler 不動）
+function _initMarketPill() {
+  const pill  = document.getElementById("marketPill");
+  const sel   = document.getElementById("marketSelect");
+  if (!pill || !sel) return;
+  const label = pill.querySelector(".mkt-cycle-label");
+  const MKTS  = ["crypto", "tw", "us"];
+  const LBL   = { crypto: "Crypto", tw: "TW", us: "US" };
+
+  const setMarket = (mkt) => {
+    if (!LBL[mkt]) return;
+    pill.dataset.mkt = mkt;            // 觸發 CSS 變色（不同市場不同漸層）
+    label.textContent = LBL[mkt];
+  };
+  // 初始同步 select → pill 顯示
+  setMarket(sel.value || "crypto");
+
+  pill.addEventListener("click", () => {
+    const cur  = sel.value || "crypto";
+    const next = MKTS[(MKTS.indexOf(cur) + 1) % MKTS.length];
+    // 1) 舊文字上滑淡出
+    pill.classList.add("cycling");
+    setTimeout(() => {
+      // 2) 切換 select.value + 觸發 change（既有市場切換流程接手）
+      sel.value = next;
+      sel.dispatchEvent(new Event("change", { bubbles: true }));
+      // 3) 換新文字 + 瞬時放到下方
+      pill.classList.remove("cycling");
+      pill.classList.add("cycling-in");
+      setMarket(next);
+      // 4) 強制 reflow → 移除 cycling-in → 文字從下方 slide 回中央
+      void label.offsetWidth;
+      requestAnimationFrame(() => pill.classList.remove("cycling-in"));
+    }, 280);
+  });
+
+  // 別處改變 select 時也同步 pill
+  sel.addEventListener("change", () => setMarket(sel.value || "crypto"));
+}
+
+// 副圖指標 顯示/隱藏 toggle — draw-toolbar 最底部按鈕
+// 預設隱藏，state 存 localStorage.subChartsHidden（"1"=隱藏、"0"=顯示）
+function _initSubChartsToggle() {
+  const btn = document.getElementById("subChartsToggle");
+  const container = document.getElementById("chartsContainer");
+  if (!btn || !container) return;
+  const _syncBtn = () => {
+    const hidden = container.classList.contains("subcharts-hidden");
+    btn.dataset.expanded = hidden ? "false" : "true";   // 給 CSS 旋轉箭頭用
+    btn.title = hidden ? "顯示副圖指標（KDJ / RSI / MACD）" : "隱藏副圖指標";
+  };
+  let hidden = "1";
+  try { hidden = localStorage.getItem("subChartsHidden") ?? "1"; } catch (e) {}
+  if (hidden === "1") container.classList.add("subcharts-hidden");
+  _syncBtn();
+  btn.addEventListener("click", () => {
+    container.classList.toggle("subcharts-hidden");
+    const nowHidden = container.classList.contains("subcharts-hidden");
+    try { localStorage.setItem("subChartsHidden", nowHidden ? "1" : "0"); } catch (e) {}
+    _syncBtn();
+    // 觸發 LWC 重新計算大小（主圖會撐滿/縮回）
+    setTimeout(() => { if (typeof resizeAll === "function") resizeAll(); }, 50);
+  });
+}
+
 function applySystemColor(id, color) {
   const vars = SC_CSS_MAP[id];
   if (!vars) return;
-  vars.forEach(v => document.documentElement.style.setProperty(v, color));
-  if (id === "sc-bg") document.body.style.background = color;
+  // 主背景（sc-bg）強制變暗：任何 picker 色經 _darkenForChart 壓到接近黑
+  // 這樣天氣動畫、weather canvas 永遠有對比可見
+  const applied = (id === "sc-bg" && typeof _darkenForChart === "function")
+    ? _darkenForChart(color)
+    : color;
+  vars.forEach(v => document.documentElement.style.setProperty(v, applied));
+  if (id === "sc-bg") document.body.style.background = applied;
 }
 function applyAllSystemColors() {
   for (const [id, color] of Object.entries(SC)) applySystemColor(id, color);

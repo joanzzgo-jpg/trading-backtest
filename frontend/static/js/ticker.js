@@ -146,7 +146,8 @@ async function fetchTickers() {
     }
 
     if (!document.getElementById("symOverlay")?.classList.contains("hidden")) {
-      renderSymSearch();
+      // 滑鼠 hover 在搜尋列上時跳過週期性重渲（避免 innerHTML 重建讓 hover 一閃一閃）
+      if (!window._symListHovered) renderSymSearch();
     }
   } catch {}
 }
@@ -280,7 +281,7 @@ function renderTickers() {
   // ── 自選標的 tab ──────────────────────────────────────
   if (_tickerSort === "wl") {
     if (!_watchlist.length) {
-      container.innerHTML = '<div class="tk-loading">尚無自選，點 ☆ 加入</div>';
+      container.innerHTML = '<div class="tk-loading">尚無自選，點 ♡ 加入</div>';
       return;
     }
     container.innerHTML = _watchlist.map((item, i) => {
@@ -785,6 +786,13 @@ function initSymSearch() {
   document.getElementById("symOverlay").addEventListener("click", e => {
     if (e.target === document.getElementById("symOverlay")) closeSymSearch();
   });
+
+  // 滑鼠在搜尋列表上時設旗標，跳過 fetchTickers 週期性 innerHTML 重建（避免 hover 一閃一閃）
+  const _symList = document.getElementById("symModalList");
+  if (_symList) {
+    _symList.addEventListener("mouseenter", () => { window._symListHovered = true; });
+    _symList.addEventListener("mouseleave", () => { window._symListHovered = false; });
+  }
 
   // 搜尋輸入（美股加 debounce 300ms）
   const modalInp = document.getElementById("symModalInput");

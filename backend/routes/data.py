@@ -369,7 +369,7 @@ def get_crt_winrate(
     from datetime import date, timedelta
     _buf = round(max(0.0, float(stop_buffer_pct or 0.0)), 4)
     _long_only = (market == "tw")  # 台股不能放空
-    cache_key = f"crt_wr53:{market}:{symbol}:{exchange}:{timeframe}:{_buf}:{int(_long_only)}"
+    cache_key = f"crt_wr54:{market}:{symbol}:{exchange}:{timeframe}:{_buf}:{int(_long_only)}"
     # 注意：solve 模式不可命中此勝率快取（cache_key 不含 solve），否則會回傳勝率而非求解結果
     if not solve:
         cached = cache.get(cache_key, ttl=3600)
@@ -379,8 +379,8 @@ def get_crt_winrate(
     MIN_CASES = 40   # 每個訊號（S1~S7 × 空/多）最少採樣數；不足會自動往前加倍天數
     # 各時間框架：初始天數 / 最大天數
     # 上限拉到資料源實際可能的歷史深度（Binance fapi BTC 2019/9~、spot 2017/8~、Bybit/OKX 類似）
-    TF_INIT = {"1M": 3650, "1w": 1825, "1d": 730,  "4h": 365,  "1h": 365,   "15m": 60,  "5m": 30}
-    TF_MAX  = {"1M": 7300, "1w": 7300, "1d": 7300, "4h": 5475, "1h": 2920,  "15m": 720, "5m": 180}
+    TF_INIT = {"1M": 3650, "1w": 1825, "1d": 730,  "8h": 730,  "4h": 365,  "1h": 365,   "30m": 90,  "15m": 60,  "5m": 30}
+    TF_MAX  = {"1M": 7300, "1w": 7300, "1d": 7300, "8h": 5475, "4h": 5475, "1h": 2920,  "30m": 365, "15m": 720, "5m": 180}
 
     def _sufficient(r: dict) -> bool:
         """每個訊號的空/多案例數都達到 MIN_CASES"""
@@ -456,7 +456,7 @@ def get_crt_winrate(
 
     # 求解模式：掃描止損% 找達標的建議值（用已快取的 df，免重抓）
     if solve:
-        solve_key = f"crt_solve2:{market}:{symbol}:{exchange}:{timeframe}:{solve_target}:{solve_variant}:{int(_long_only)}"
+        solve_key = f"crt_solve3:{market}:{symbol}:{exchange}:{timeframe}:{solve_target}:{solve_variant}:{int(_long_only)}"
         cached_s = cache.get(solve_key, ttl=3600)
         if cached_s:
             return cached_s

@@ -93,5 +93,5 @@ let _dataVersion        = 0;     // ohlcvData 變更時 ++，給 memo cache 用
 
 const PANE_FLEX_DEFAULTS = { mainPane:5, kdjPane:1, rsiPane:1, macdPane:1 };
 
-const TF_LABELS = { "1M":"月","1w":"週","1d":"日","4h":"4H","1h":"1H","15m":"15m","5m":"5m" };
+const TF_LABELS = { "1M":"月","1w":"週","1d":"日","8h":"8H","4h":"4H","1h":"1H","30m":"30m","15m":"15m","5m":"5m" };
 

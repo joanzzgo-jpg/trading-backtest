@@ -36,18 +36,20 @@
       </span>
     </a>
 
+    <!-- 市場切換（單鍵循環：Crypto → TW → US → Crypto，帶滑動切換動畫） -->
+    <button class="tb-mkt-cycle" id="marketPill" type="button" data-mkt="crypto" title="點擊切換市場（Crypto / TW / US）">
+      <span class="mkt-cycle-label">Crypto</span>
+    </button>
+
     <!-- 標的選擇 -->
     <div class="tb-symbol-group">
-      <select id="marketSelect" class="tb-mkt-select">
+      <select id="marketSelect" class="tb-mkt-select" hidden>
         <option value="crypto">Crypto</option>
         <option value="us">US</option>
         <option value="tw">TW</option>
       </select>
-      <select id="exchangeSelect" class="tb-exc-select">
-        <option value="pionex">Pionex</option>
-        <option value="binance">Binance</option>
-        <option value="bybit">Bybit</option>
-        <option value="okx">OKX</option>
+      <select id="exchangeSelect" class="tb-exc-select" hidden>
+        <option value="pionex" selected>Pionex</option>
       </select>
       <div class="tb-symbol-wrap">
         <input id="symbolInput" class="tb-symbol-input" type="text" value="BTC/USDT" placeholder="BTC/USDT" />
@@ -55,9 +57,9 @@
       </div>
       <button id="watchlistStarBtn" class="tb-star-btn" title="加入自選">
         <svg class="star-svg" width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path class="star-outline" d="M9 2.2 C9.1 2 9.3 2 9.4 2.3 L11.1 6.1 C11.2 6.3 11.4 6.5 11.6 6.5 L15.7 7 C16 7.1 16.1 7.4 15.9 7.6 L12.9 10.5 C12.7 10.7 12.6 11 12.7 11.2 L13.5 15.3 C13.6 15.6 13.3 15.8 13.1 15.7 L9.4 13.6 C9.2 13.5 8.8 13.5 8.6 13.6 L4.9 15.7 C4.7 15.8 4.4 15.6 4.5 15.3 L5.3 11.2 C5.4 11 5.3 10.7 5.1 10.5 L2.1 7.6 C1.9 7.4 2 7.1 2.3 7 L6.4 6.5 C6.6 6.5 6.8 6.3 6.9 6.1 Z"
-            stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/>
-          <path class="star-fill" d="M9 2.2 C9.1 2 9.3 2 9.4 2.3 L11.1 6.1 C11.2 6.3 11.4 6.5 11.6 6.5 L15.7 7 C16 7.1 16.1 7.4 15.9 7.6 L12.9 10.5 C12.7 10.7 12.6 11 12.7 11.2 L13.5 15.3 C13.6 15.6 13.3 15.8 13.1 15.7 L9.4 13.6 C9.2 13.5 8.8 13.5 8.6 13.6 L4.9 15.7 C4.7 15.8 4.4 15.6 4.5 15.3 L5.3 11.2 C5.4 11 5.3 10.7 5.1 10.5 L2.1 7.6 C1.9 7.4 2 7.1 2.3 7 L6.4 6.5 C6.6 6.5 6.8 6.3 6.9 6.1 Z"
+          <path class="star-outline" d="M9 15.5C8.7 15.3 2 10.8 2 6.8C2 4.6 3.7 3 5.7 3C7 3 8.2 3.7 9 4.8C9.8 3.7 11 3 12.3 3C14.3 3 16 4.6 16 6.8C16 10.8 9.3 15.3 9 15.5Z"
+            stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round"/>
+          <path class="star-fill" d="M9 15.5C8.7 15.3 2 10.8 2 6.8C2 4.6 3.7 3 5.7 3C7 3 8.2 3.7 9 4.8C9.8 3.7 11 3 12.3 3C14.3 3 16 4.6 16 6.8C16 10.8 9.3 15.3 9 15.5Z"
             fill="currentColor" opacity="0"/>
         </svg>
       </button>
@@ -75,8 +77,6 @@
     <div class="tb-wr-fixed-left">
       <button id="wrTargetToggle" class="tb-wr-toggle" onclick="_toggleWrTarget()"
               title="切換目標：中軌（保守，BB middle）→ 上下軌（極端反向：多→上軌、空→下軌）→ 1:1（止盈距離=止損距離，盈虧比 1:1）">中軌</button>
-      <button id="wrVariantToggle" class="tb-wr-toggle" onclick="_toggleWrVariant()"
-              title="切換訊號版本：原版 ↔ 強化版（研究後固定濾鏡：只取預估盈虧比 RR 0.6~1.1 的訊號＝高勝率＋獲利適中）">原版</button>
       <span class="tb-wr-buffer" title="停損緩衝 %（0~10）：短=高於最高值 X%、多=低於最低值 X% 才算停損">
         <input id="wrStopBuffer" class="tb-wr-buffer-input" type="number"
                step="0.1" min="0" max="10" value="0" />
@@ -217,23 +217,43 @@
       <button class="tf-btn" data-tf="1M">1M</button>
       <button class="tf-btn" data-tf="1w">1W</button>
       <button class="tf-btn active" data-tf="1d">1D</button>
+      <button class="tf-btn" data-tf="8h">8H</button>
       <button class="tf-btn" data-tf="4h">4H</button>
       <button class="tf-btn" data-tf="1h">1H</button>
+      <button class="tf-btn" data-tf="30m">30m</button>
       <button class="tf-btn" data-tf="15m">15m</button>
       <button class="tf-btn" data-tf="5m">5m</button>
     </div>
   </div>
 
   <div class="topbar-right">
-    <button id="replayModeBtn" class="btn-mode">
-      <svg width="13" height="13" viewBox="0 0 13 13"><circle cx="6.5" cy="6.5" r="5.5" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M5 4.2L9.5 6.5L5 8.8V4.2Z" fill="currentColor"/></svg>
-      <span>重播</span>
+    <button id="replayModeBtn" class="tb-icon-btn" title="重播">
+      <svg width="14" height="14" viewBox="0 0 14 14">
+        <circle cx="7" cy="7" r="6" fill="none" stroke="currentColor" stroke-width="1.3"/>
+        <path d="M5.5 4.4L10 7L5.5 9.6V4.4Z" fill="currentColor"/>
+      </svg>
     </button>
     <button id="tickerToggle" class="tb-icon-btn" title="行情列表">
       <svg width="14" height="14" viewBox="0 0 14 14"><rect width="6" height="1.6" rx=".8" fill="currentColor"/><rect y="4" width="14" height="1.6" rx=".8" fill="currentColor"/><rect y="8" width="14" height="1.6" rx=".8" fill="currentColor"/><rect y="12" width="10" height="1.6" rx=".8" fill="currentColor"/></svg>
     </button>
-    <button id="aiResearchBtn" class="tb-icon-btn" title="AI 策略研究：暴力枚舉指標組合找可獲利配方">🤖</button>
-    <button id="fxToggleBtn" class="tb-icon-btn" title="背景 & 點擊特效">✨</button>
+    <button id="aiResearchBtn" class="tb-icon-btn" title="AI 策略研究：暴力枚舉指標組合找可獲利配方" hidden>🤖</button>
+    <button id="fxToggleBtn" class="tb-icon-btn" title="背景 & 點擊特效">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+        <!-- 主四角星（cross 形，curve-pinched 腰身，Apple Intelligence 風格）-->
+        <path d="M8 0.6 L8.7 6.0 C8.85 6.85 9.15 7.15 10 7.3 L15.4 8 L10 8.7 C9.15 8.85 8.85 9.15 8.7 10 L8 15.4 L7.3 10 C7.15 9.15 6.85 8.85 6 8.7 L0.6 8 L6 7.3 C6.85 7.15 7.15 6.85 7.3 6 Z"
+              fill="currentColor"/>
+        <!-- 左上對角副星 -->
+        <path d="M2.8 1.6 L3.0 2.85 C3.05 3.13 3.22 3.3 3.5 3.35 L4.75 3.55 L3.5 3.75 C3.22 3.8 3.05 3.97 3.0 4.25 L2.8 5.5 L2.6 4.25 C2.55 3.97 2.38 3.8 2.1 3.75 L0.85 3.55 L2.1 3.35 C2.38 3.3 2.55 3.13 2.6 2.85 Z"
+              fill="currentColor" opacity="0.75"/>
+        <!-- 右下對角副星 -->
+        <path d="M13.3 11.0 L13.45 12.0 C13.5 12.22 13.63 12.35 13.85 12.4 L14.85 12.55 L13.85 12.7 C13.63 12.75 13.5 12.88 13.45 13.1 L13.3 14.1 L13.15 13.1 C13.1 12.88 12.97 12.75 12.75 12.7 L11.75 12.55 L12.75 12.4 C12.97 12.35 13.1 12.22 13.15 12.0 Z"
+              fill="currentColor" opacity="0.65"/>
+        <!-- 右上塵點 -->
+        <circle cx="13.5" cy="2.5" r="0.55" fill="currentColor" opacity="0.55"/>
+        <!-- 左下塵點 -->
+        <circle cx="2.5" cy="13.5" r="0.5" fill="currentColor" opacity="0.45"/>
+      </svg>
+    </button>
     <button id="sysSettingsBtn" class="tb-icon-btn" title="系統外觀">
       <svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="2" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M7 0.5v2M7 11.5v2M0.5 7h2M11.5 7h2M2.15 2.15l1.41 1.41M10.44 10.44l1.41 1.41M2.15 11.85l1.41-1.41M10.44 3.56l1.41-1.41" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
     </button>
@@ -322,6 +342,13 @@
         <path d="M2.5 13 L2.5 7.5 A5 5 0 0 1 12.5 7.5 L12.5 13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
         <line x1="0.5" y1="12" x2="4.5" y2="12" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
         <line x1="10.5" y1="12" x2="14.5" y2="12" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+      </svg>
+    </button>
+
+    <!-- 副圖指標 顯示/隱藏切換（最底部、點擊展開 KDJ/RSI/MACD）-->
+    <button class="dt-btn dt-subcharts-btn" id="subChartsToggle" title="顯示／隱藏副圖指標（KDJ / RSI / MACD）">
+      <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+        <path d="M3 6 L7.5 10.5 L12 6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
     </button>
   </div>
@@ -414,7 +441,7 @@
         <button class="tk-seg-btn active" data-sort="desc">漲↑</button>
         <button class="tk-seg-btn" data-sort="asc">跌↓</button>
         <button class="tk-seg-btn" data-sort="vol">量</button>
-        <button class="tk-seg-btn" data-sort="wl">★</button>
+        <button class="tk-seg-btn" data-sort="wl">♥</button>
       </div>
     </div>
     <input id="tickerSearch" class="tk-search" type="text" placeholder="搜尋標的…" />
@@ -653,22 +680,94 @@
   <button id="resetSysColors" class="btn-reset">重設預設色</button>
 </div>
 
-<!-- 音樂面板 -->
+<!-- FX 面板（手繪 SVG icons）-->
 <div id="fxPanel" class="music-panel fx-panel hidden">
-  <div class="music-panel-title">✨ 背景 &amp; 特效</div>
+  <div class="music-panel-title">
+    <svg class="fx-icon" width="14" height="14" viewBox="0 0 16 16" fill="none">
+      <path d="M8 1 L8.6 5.4 C8.74 6.2 9 6.46 9.8 6.6 L14.2 7.2 L9.8 7.8 C9 7.94 8.74 8.2 8.6 9 L8 13.4 L7.4 9 C7.26 8.2 7 7.94 6.2 7.8 L1.8 7.2 L6.2 6.6 C7 6.46 7.26 6.2 7.4 5.4 Z" fill="currentColor"/>
+      <path d="M12.5 1.8 L12.7 2.85 L13.75 3.05 L12.7 3.25 L12.5 4.3 L12.3 3.25 L11.25 3.05 L12.3 2.85 Z" fill="currentColor" opacity="0.7"/>
+      <circle cx="2.5" cy="12.5" r="0.6" fill="currentColor" opacity="0.55"/>
+    </svg>
+    背景 &amp; 特效
+  </div>
   <div class="fx-section-label">效能</div>
   <div class="fx-grid">
-    <button id="perfModeBtn" class="fx-btn fx-btn-perf" title="關閉所有特效以提升舊裝置的流暢度">🌙 極簡模式</button>
+    <button id="perfModeBtn" class="fx-btn fx-btn-perf" title="關閉所有特效以提升舊裝置的流暢度">
+      <svg class="fx-icon" width="14" height="14" viewBox="0 0 14 14" fill="none">
+        <path d="M11 8.5 A 5 5 0 1 1 7 2.2 A 4 4 0 0 0 11 8.5 Z" fill="currentColor"/>
+      </svg>
+      極簡模式
+    </button>
   </div>
   <div class="fx-section-label">背景動畫</div>
   <div class="fx-grid">
-    <button id="noFxToggleBtn"    class="fx-btn" onclick="window._noFxToggle   &&window._noFxToggle()"   title="關閉所有背景動畫＋點擊特效">🚫 無</button>
-    <button id="leafToggleBtn"    class="fx-btn" onclick="window._leafToggle   &&window._leafToggle()">🍂 落葉</button>
-    <button id="rainToggleBtn"    class="fx-btn" onclick="window._rainToggle   &&window._rainToggle()">🌧️ 下雨</button>
-    <button id="snowToggleBtn"    class="fx-btn" onclick="window._snowToggle   &&window._snowToggle()">❄️ 下雪</button>
-    <button id="springToggleBtn"  class="fx-btn" onclick="window._springToggle &&window._springToggle()">🌸 花瓣</button>
-    <button id="thunderToggleBtn" class="fx-btn" onclick="window._thunderToggle&&window._thunderToggle()">⛈️ 雷暴</button>
-    <button id="mahjongToggleBtn" class="fx-btn" onclick="window._mahjongToggle&&window._mahjongToggle()">🀄 麻將</button>
+    <button id="noFxToggleBtn" class="fx-btn" onclick="window._noFxToggle&&window._noFxToggle()" title="關閉所有背景動畫＋點擊特效">
+      <svg class="fx-icon" width="14" height="14" viewBox="0 0 14 14" fill="none">
+        <circle cx="7" cy="7" r="5.5" stroke="currentColor" stroke-width="1.4"/>
+        <line x1="3.2" y1="10.8" x2="10.8" y2="3.2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+      </svg>
+      無
+    </button>
+    <button id="leafToggleBtn" class="fx-btn" onclick="window._leafToggle&&window._leafToggle()">
+      <svg class="fx-icon" width="14" height="14" viewBox="0 0 14 14" fill="none">
+        <path d="M7 1.5 C 10.5 3.5 12 6 11.5 8.5 C 11 11 8.5 12.5 7 12.5 C 5.5 12.5 3 11 2.5 8.5 C 2 6 3.5 3.5 7 1.5 Z" fill="currentColor"/>
+        <path d="M7 2.5 L7 12" stroke="rgba(0,0,0,0.35)" stroke-width="0.6" stroke-linecap="round"/>
+        <path d="M7 5.5 L5 7" stroke="rgba(0,0,0,0.25)" stroke-width="0.5"/>
+        <path d="M7 5.5 L9 7" stroke="rgba(0,0,0,0.25)" stroke-width="0.5"/>
+        <path d="M7 8 L5 9.5" stroke="rgba(0,0,0,0.25)" stroke-width="0.5"/>
+        <path d="M7 8 L9 9.5" stroke="rgba(0,0,0,0.25)" stroke-width="0.5"/>
+      </svg>
+      落葉
+    </button>
+    <button id="rainToggleBtn" class="fx-btn" onclick="window._rainToggle&&window._rainToggle()">
+      <svg class="fx-icon" width="14" height="14" viewBox="0 0 14 14" fill="none">
+        <path d="M3.5 7.5 C 2 7.5 1.2 6.2 2 5 C 2.2 3.5 4 2.7 5.3 3.5 C 6 1.8 9 1.8 10 3.8 C 12 3.8 12.8 5.5 11.5 7 C 11.4 7.4 11 7.5 10.5 7.5 Z" fill="currentColor"/>
+        <line x1="4" y1="9" x2="3.4" y2="11.5" stroke="currentColor" stroke-width="1" stroke-linecap="round"/>
+        <line x1="7" y1="9" x2="6.4" y2="11.5" stroke="currentColor" stroke-width="1" stroke-linecap="round"/>
+        <line x1="10" y1="9" x2="9.4" y2="11.5" stroke="currentColor" stroke-width="1" stroke-linecap="round"/>
+      </svg>
+      下雨
+    </button>
+    <button id="snowToggleBtn" class="fx-btn" onclick="window._snowToggle&&window._snowToggle()">
+      <svg class="fx-icon" width="14" height="14" viewBox="0 0 14 14" fill="none">
+        <g stroke="currentColor" stroke-width="1.2" stroke-linecap="round">
+          <line x1="7" y1="1.5" x2="7" y2="12.5"/>
+          <line x1="2.2" y1="4.5" x2="11.8" y2="9.5"/>
+          <line x1="11.8" y1="4.5" x2="2.2" y2="9.5"/>
+        </g>
+        <g stroke="currentColor" stroke-width="0.9" stroke-linecap="round" fill="none">
+          <path d="M5.8 2.5 L7 1.5 L8.2 2.5"/>
+          <path d="M5.8 11.5 L7 12.5 L8.2 11.5"/>
+        </g>
+      </svg>
+      下雪
+    </button>
+    <button id="springToggleBtn" class="fx-btn" onclick="window._springToggle&&window._springToggle()">
+      <svg class="fx-icon" width="14" height="14" viewBox="0 0 14 14" fill="none">
+        <ellipse cx="7" cy="3.4" rx="1.7" ry="2.2" fill="currentColor"/>
+        <ellipse cx="10.4" cy="5.7" rx="1.7" ry="2.2" transform="rotate(72 10.4 5.7)" fill="currentColor"/>
+        <ellipse cx="9.2" cy="9.8" rx="1.7" ry="2.2" transform="rotate(144 9.2 9.8)" fill="currentColor"/>
+        <ellipse cx="4.8" cy="9.8" rx="1.7" ry="2.2" transform="rotate(216 4.8 9.8)" fill="currentColor"/>
+        <ellipse cx="3.6" cy="5.7" rx="1.7" ry="2.2" transform="rotate(288 3.6 5.7)" fill="currentColor"/>
+        <circle cx="7" cy="7" r="1.3" fill="rgba(0,0,0,0.4)"/>
+      </svg>
+      花瓣
+    </button>
+    <button id="thunderToggleBtn" class="fx-btn" onclick="window._thunderToggle&&window._thunderToggle()">
+      <svg class="fx-icon" width="14" height="14" viewBox="0 0 14 14" fill="none">
+        <path d="M3.5 6.5 C 2 6.5 1.2 5.2 2 4 C 2.2 2.5 4 1.7 5.3 2.5 C 6 0.8 9 0.8 10 2.8 C 12 2.8 12.8 4.5 11.5 6 C 11.4 6.4 11 6.5 10.5 6.5 Z" fill="currentColor"/>
+        <path d="M7.2 7 L9.2 7 L7.5 9.6 L9 9.6 L6 13.2 L7.2 10.3 L5.5 10.3 Z" fill="currentColor"/>
+      </svg>
+      雷暴
+    </button>
+    <button id="mahjongToggleBtn" class="fx-btn" onclick="window._mahjongToggle&&window._mahjongToggle()">
+      <svg class="fx-icon" width="14" height="14" viewBox="0 0 14 14" fill="none">
+        <rect x="2.5" y="1.5" width="9" height="11" rx="1.3" stroke="currentColor" stroke-width="1.2" fill="none"/>
+        <rect x="6.4" y="3.5" width="1.2" height="7" fill="currentColor"/>
+        <rect x="4" y="5.5" width="6" height="3" stroke="currentColor" stroke-width="1.1" fill="none"/>
+      </svg>
+      麻將
+    </button>
   </div>
 </div>
 

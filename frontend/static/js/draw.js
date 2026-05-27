@@ -1218,6 +1218,65 @@ function drawPreview(type, a, b, W, H) {
 /* ══════════════════════════════════════════
    顏色 / 樣式
 ══════════════════════════════════════════ */
+// 將任意色強制轉為深色版本（保留色相＋飽和度，壓低亮度到 ~8% L）
+// 這樣 picker 顯示原色，但實際套到圖表是低亮度版（保證天氣動畫看得見）
+function _darkenForChart(hex) {
+  const m = String(hex || "").match(/^#?([a-f\d]{6})$/i);
+  if (!m) return hex;
+  let r = parseInt(m[1].slice(0,2), 16) / 255;
+  let g = parseInt(m[1].slice(2,4), 16) / 255;
+  let b = parseInt(m[1].slice(4,6), 16) / 255;
+  // RGB → HSL
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  let h = 0, s = 0; const l_orig = (max + min) / 2;
+  if (max !== min) {
+    const d = max - min;
+    s = l_orig > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case r: h = ((g - b) / d + (g < b ? 6 : 0)); break;
+      case g: h = ((b - r) / d + 2); break;
+      case b: h = ((r - g) / d + 4); break;
+    }
+    h /= 6;
+  }
+  // 比例縮放 + 軟上限：L 按 30% 縮放（保留同色相深淺差），但極亮的不超過 18%
+  // 例：#FF0000(L=50%)→15%、#CC0000(L=40%)→12%、#660000(L=20%)→6%
+  // 任何同色相不同深淺的色都會保留相對亮度差，不會被壓成同一個值
+  const L = Math.min(l_orig * 0.30, 0.18);
+  const S = s;                             // S 完全保留（hue 區辨力 +++）
+  const q = L < 0.5 ? L * (1 + S) : L + S - L * S;
+  const p = 2 * L - q;
+  const hue2rgb = (p, q, t) => {
+    if (t < 0) t += 1; if (t > 1) t -= 1;
+    if (t < 1/6) return p + (q - p) * 6 * t;
+    if (t < 1/2) return q;
+    if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+    return p;
+  };
+  const R = hue2rgb(p, q, h + 1/3);
+  const G = hue2rgb(p, q, h);
+  const B = hue2rgb(p, q, h - 1/3);
+  const toHex = v => Math.round(v * 255).toString(16).padStart(2, "0");
+  return `#${toHex(R)}${toHex(G)}${toHex(B)}`;
+}
+
+// 主圖背景套用：picker 任何色都會經 _darkenForChart 強制變暗
+// 三層 background：
+//   ① 右上角 radial — 圓弧化拐角，視覺上「包覆」主圖右上
+//   ② 右側水平淡入 var(--bg) 過渡到合約行情面板
+//   ③ 上下垂直淡入 var(--bg)（user color 在中間）
+function _applyChartBgGradient(color) {
+  const pane = document.getElementById("mainPane");
+  if (!pane) return;
+  const _perf = document.documentElement.classList.contains("perf-mode");
+  if (_perf) { pane.style.background = ""; return; }   // 極簡模式不上色，浮水印才看得到
+  const dark = _darkenForChart(color);
+  pane.style.background =
+    `radial-gradient(circle 200px at 100% 0%, var(--bg) 0%, transparent 70%), ` +
+    `linear-gradient(to right, transparent 0%, transparent 96%, var(--bg) 100%), ` +
+    `linear-gradient(to bottom, var(--bg) 0%, ${dark} 6%, ${dark} 94%, var(--bg) 100%)`;
+}
+
 function applyAllColors() {
   // 極簡模式：背景強制純白、文字深色；不受 C.chartBg（使用者暗色設定）影響
   const _perf = document.documentElement.classList.contains("perf-mode");
@@ -1227,9 +1286,11 @@ function applyAllColors() {
   [mainChart, kdjChart, rsiChart, macdChart].forEach(c =>
     c?.applyOptions({ layout: { background:{ color:"rgba(0,0,0,0)" }, textColor: _txt } })
   );
-  document.body.style.background = bg;
+  // body / charts-container 維持 var(--bg)（CSS 預設），只有主圖 pane 套使用者色 + 漸層
+  document.body.style.background = "";
   const _cc = document.querySelector(".charts-container");
-  if (_cc) _cc.style.background = bg;
+  if (_cc) _cc.style.background = "";
+  _applyChartBgGradient(bg);
 
   {
     const bodyUp   = S.bodyVisible   !== false ? C.up   : "rgba(0,0,0,0)";

@@ -217,6 +217,11 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
     recent:  list = []
     signals: list = []
 
+    # 連續去重：S9 / S10 因為是「視窗式掃描」，連續多根 K 棒會重複觸發同個 setup
+    # → 只計第一筆（連續同方向 entry_i 相差 1 視為延續）
+    _DEDUP_SIG_KEYS = {"9", "10"}
+    _last_entry_per_kd = {}   # (sig_key, direction) → 最後一次 entry_i（push 與 skip 都更新）
+
     def _bump(counters, sig_key, direction, outcome):
         if outcome is None: return
         if direction == "short":
@@ -297,6 +302,15 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
 
     def _push_signal(sig_time, d_str, sig_key, direction, entry_i, stop_px,
                      om, otm, omj, ob, otb, obj):
+        # 連續去重：S9 / S10 視窗式掃描，連續 entry_i 視為同一個 setup → 只保留第一筆
+        # （無論是否被 skip，都更新 last_entry_i 以正確處理 N 根連續的長串）
+        if sig_key in _DEDUP_SIG_KEYS:
+            _kd = (sig_key, direction)
+            _prev = _last_entry_per_kd.get(_kd)
+            _last_entry_per_kd[_kd] = entry_i
+            if _prev is not None and entry_i == _prev + 1:
+                return   # 連續同方向 → 跳過（既不 push 進 signals 也不算進統計）
+
         # _solve 精簡模式：只存敗後停手所需欄位（t/d/k/r/r_b/r_rr/v），跳過 est/RR/recent
         if _solve is not None:
             variant = False

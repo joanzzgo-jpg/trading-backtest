@@ -61,6 +61,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   _initWrTargetBtn();   // 勝率欄目標切換按鈕初始狀態
   _initWrVariantBtn();  // 勝率欄原版/強化版切換按鈕初始狀態
   _initWrStopBuffer();  // 勝率欄停損緩衝輸入
+  _initSubChartsToggle();  // 副圖指標 顯示/隱藏 toggle（左下浮按鈕）
+  _initMarketPill();       // 市場切換動畫 pill（Crypto / TW / US）
   window.addEventListener("beforeunload", () => { saveLastSymbol(); });
 
   const _afterLoad = () => { loadVisibilityPrefs(); applyAllLineStyles(); };
