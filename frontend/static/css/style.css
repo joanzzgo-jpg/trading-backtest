@@ -590,6 +590,9 @@ html, body {
 /* 細項永遠顯示；只在窄到會嚴重重疊時整欄隱藏（TF 按鈕已 z-index:3 蓋過勝率欄） */
 @media (max-width: 1100px) {
   .tb-winrate { display: none !important; }
+  /* iPad / 手機：ticker 側欄直接隱藏（不浮層、不轉場），chart 用既有 flex:1 自然填滿。
+     使用者要找標的可改用左上 symbol input 或 ⭐ 自選清單。 */
+  .ticker-panel { display: none !important; }
 }
 .tb-winrate {
   /* flex:1 佔滿 topbar 內 left 與 tf+right 之間的所有可用空間 */
