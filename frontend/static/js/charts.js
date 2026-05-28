@@ -120,18 +120,35 @@ function buildCharts() {
   ro.observe(document.getElementById("chartsContainer"));
   // 等 DOM 完成 layout 後再 resize（rAF 兩次確保 flex 已計算完畢）
   requestAnimationFrame(() => requestAnimationFrame(resizeAll));
-  // iPad/Safari 初始化救援：若 100ms 後 chartsContainer 還是 0 寬，再排幾次 resize。
-  // 起因：Safari 偶爾在 buildCharts 時還沒把 flex 算好，chart resize(0, h) 卡死後 ResizeObserver
-  // 因為 size 真的沒變不會 fire。fallback 強制重試直到拿到寬度。
-  let _retry = 0;
-  const _safariRescue = () => {
+  // 暴力救援：每 200ms 檢查 chart 寬度是否同步 container；不同步就強制 resize。
+  // 為什麼這樣寫：iPad Safari + LWC 的 ResizeObserver 在某些時序下不會 fire（已實測），
+  // chart canvas 卡在初始小寬度 → 右半螢幕完全空白。每 200ms 比對一次能在 1 秒內救回來。
+  // 跑 5 秒後改成每秒一次（穩定後降頻），避免長期佔 CPU。
+  let _chkCount = 0;
+  const _enforceWidth = () => {
     const el = document.getElementById("chartsContainer");
-    if (!el) return;
-    if (el.clientWidth > 0) { resizeAll(); return; }
-    if (++_retry < 10) setTimeout(_safariRescue, 200);
+    if (!el || !mainChart) return;
+    const targetW = el.clientWidth;
+    if (targetW <= 0) return;
+    const mainEl = document.getElementById("mainChart");
+    const canvasW = mainEl?.querySelector("canvas")?.clientWidth || 0;
+    // 若 canvas 寬度跟 container 差超過 5px，強制 resize 全部 chart
+    if (Math.abs(canvasW - targetW) > 5) {
+      [[mainChart,"mainChart"],[kdjChart,"kdjChart"],[rsiChart,"rsiChart"],[macdChart,"macdChart"]].forEach(([c, id]) => {
+        const e = document.getElementById(id);
+        if (e && c) {
+          const h = e.clientHeight;
+          if (h > 10) c.resize(targetW, h);
+        }
+      });
+    }
   };
-  setTimeout(_safariRescue, 100);
-  // window resize（含 iPad 旋轉、Safari 工具列出現/隱藏時觸發 viewport 改變）
+  const _enforceTick = () => {
+    _enforceWidth();
+    _chkCount++;
+    setTimeout(_enforceTick, _chkCount < 25 ? 200 : 1000);
+  };
+  setTimeout(_enforceTick, 100);
   window.addEventListener("resize", () => requestAnimationFrame(resizeAll));
   window.addEventListener("orientationchange", () => setTimeout(resizeAll, 300));
 }
