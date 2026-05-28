@@ -120,11 +120,26 @@ function buildCharts() {
   ro.observe(document.getElementById("chartsContainer"));
   // 等 DOM 完成 layout 後再 resize（rAF 兩次確保 flex 已計算完畢）
   requestAnimationFrame(() => requestAnimationFrame(resizeAll));
+  // iPad/Safari 初始化救援：若 100ms 後 chartsContainer 還是 0 寬，再排幾次 resize。
+  // 起因：Safari 偶爾在 buildCharts 時還沒把 flex 算好，chart resize(0, h) 卡死後 ResizeObserver
+  // 因為 size 真的沒變不會 fire。fallback 強制重試直到拿到寬度。
+  let _retry = 0;
+  const _safariRescue = () => {
+    const el = document.getElementById("chartsContainer");
+    if (!el) return;
+    if (el.clientWidth > 0) { resizeAll(); return; }
+    if (++_retry < 10) setTimeout(_safariRescue, 200);
+  };
+  setTimeout(_safariRescue, 100);
+  // window resize（含 iPad 旋轉、Safari 工具列出現/隱藏時觸發 viewport 改變）
+  window.addEventListener("resize", () => requestAnimationFrame(resizeAll));
+  window.addEventListener("orientationchange", () => setTimeout(resizeAll, 300));
 }
 
 function resizeAll() {
   const container = document.getElementById("chartsContainer");
   const w = container.clientWidth;
+  if (w <= 0) return;   // 寬度 0 不 resize，避免把 chart 卡死在 0 寬
   const charts = [
     [mainChart,   "mainChart"],
     [kdjChart,    "kdjChart"],
