@@ -2337,13 +2337,12 @@ html.perf-mode .tk-seg {
   .symbol-bar { padding-left: 12px; }  /* 移除桌面左側繪圖欄空白 */
 }
 
-@media (max-width: 768px) {
+/* iPad / 中小螢幕：ticker 也走浮層，避免 230px 側欄把圖表擠到剩價格軸 */
+@media (max-width: 1100px) {
   #tickerToggle { display: flex !important; }
-
-  /* Ticker panel: slide-in overlay */
   .ticker-panel {
     position: fixed; right: 0; top: 0; bottom: 0; z-index: 500;
-    width: min(80vw, 260px);
+    width: min(80vw, 280px);
     transform: translateX(100%);
     transition: transform .25s cubic-bezier(.4,0,.2,1);
     box-shadow: -4px 0 20px rgba(0,0,0,.6);
@@ -2351,6 +2350,9 @@ html.perf-mode .tk-seg {
   }
   .ticker-panel.ticker-open { transform: translateX(0); }
   .charts-container { width: 100%; }
+}
+
+@media (max-width: 768px) {
 
   /* ── Topbar 2-row layout ── */
   .topbar {
