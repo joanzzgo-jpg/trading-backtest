@@ -22,23 +22,9 @@ function bindEvents() {
   }
 
   document.getElementById("tickerToggle")?.addEventListener("click", () => {
-    if (isMobile()) {
-      const open = document.getElementById("tickerPanel").classList.contains("ticker-open");
-      open ? closeTicker() : openTicker();
-    } else {
-      document.getElementById("tickerPanel").classList.toggle("ticker-collapsed");
-      // 連 3 次 rAF + setTimeout 補保險 — 確保 ticker width:0 套用後 chart 才 resize
-      requestAnimationFrame(() => requestAnimationFrame(() => {
-        resizeAll();
-        // LWC 視野範圍若沒有跟新寬度同步，candles 會卡在原比例
-        // 用 fitContent 強制重新分配 bar 寬度
-        [mainChart, kdjChart, rsiChart, macdChart].forEach(c => c?.timeScale().fitContent());
-      }));
-      setTimeout(() => {
-        resizeAll();
-        [mainChart, kdjChart, rsiChart, macdChart].forEach(c => c?.timeScale().fitContent());
-      }, 200);
-    }
+    // ticker 永遠是浮層（所有尺寸統一行為），不再分 mobile/desktop
+    const open = document.getElementById("tickerPanel").classList.contains("ticker-open");
+    open ? closeTicker() : openTicker();
   });
   document.getElementById("panelOverlay").addEventListener("click", closeTicker);
 
