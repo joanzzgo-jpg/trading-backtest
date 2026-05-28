@@ -27,7 +27,17 @@ function bindEvents() {
       open ? closeTicker() : openTicker();
     } else {
       document.getElementById("tickerPanel").classList.toggle("ticker-collapsed");
-      setTimeout(resizeAll, 50);
+      // 連 3 次 rAF + setTimeout 補保險 — 確保 ticker width:0 套用後 chart 才 resize
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        resizeAll();
+        // LWC 視野範圍若沒有跟新寬度同步，candles 會卡在原比例
+        // 用 fitContent 強制重新分配 bar 寬度
+        [mainChart, kdjChart, rsiChart, macdChart].forEach(c => c?.timeScale().fitContent());
+      }));
+      setTimeout(() => {
+        resizeAll();
+        [mainChart, kdjChart, rsiChart, macdChart].forEach(c => c?.timeScale().fitContent());
+      }, 200);
     }
   });
   document.getElementById("panelOverlay").addEventListener("click", closeTicker);

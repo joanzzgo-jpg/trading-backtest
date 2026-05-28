@@ -2337,8 +2337,9 @@ html.perf-mode .tk-seg {
   .symbol-bar { padding-left: 12px; }  /* 移除桌面左側繪圖欄空白 */
 }
 
-/* iPad / 中小螢幕：ticker 也走浮層，避免 230px 側欄把圖表擠到剩價格軸 */
-@media (max-width: 1100px) {
+/* iPad / 中小螢幕：ticker 走浮層，避免 230px 側欄把圖表擠到剩價格軸 + 圖表自動全寬 */
+/* 1400px 覆蓋到 iPad Pro 12.9" 橫向（1366px），桌面通常 >1400 才保留側欄 */
+@media (max-width: 1400px) {
   #tickerToggle { display: flex !important; }
   .ticker-panel {
     position: fixed; right: 0; top: 0; bottom: 0; z-index: 500;
