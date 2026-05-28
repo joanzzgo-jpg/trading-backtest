@@ -1449,6 +1449,8 @@ html.perf-mode .tk-seg {
   overflow: hidden;
   position: relative;
   background: var(--bg);
+  /* 蓋住 weatherBg（z-index:1）— 否則天氣會穿透 chart canvas（透明）疊在圖表上 */
+  z-index: 2;
 }
 
 .chart-pane {
