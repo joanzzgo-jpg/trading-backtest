@@ -1,4 +1,13 @@
+// LRU 上限避免切大量標的時記憶體無限累積（每筆結果 ~50KB，5 個夠用）
+const _WR_CACHE_MAX = 5;
 let _wrCache = {};
+function _wrCacheSet(key, value) {
+  const keys = Object.keys(_wrCache);
+  if (keys.length >= _WR_CACHE_MAX && !(key in _wrCache)) {
+    delete _wrCache[keys[0]];   // 移除最舊（插入順序）
+  }
+  _wrCache[key] = value;
+}
 let _wrCacheLast = null;  // 保留最近一次資料，給 toggle target 重渲用
 let _wrFetchTimer = null; // 切換標的時 debounce，避免連續觸發後端重算
 
@@ -375,6 +384,7 @@ function fetchWinRate() {
   _wrFetchTimer = setTimeout(_fetchWinRateNow, 250);
 }
 
+let _wrFetchCtrl = null;   // 切標的時取消舊勝率請求
 async function _fetchWinRateNow() {
   const market    = document.getElementById("marketSelect")?.value || "crypto";
   const symbol    = document.getElementById("symbolInput")?.value?.trim() || "";
@@ -390,6 +400,11 @@ async function _fetchWinRateNow() {
     if (typeof window._refreshSignalDrawer === "function") window._refreshSignalDrawer();
     return;
   }
+  // 取消上次未完成的勝率請求
+  if (_wrFetchCtrl) _wrFetchCtrl.abort();
+  _wrFetchCtrl = new AbortController();
+  const myCtrl = _wrFetchCtrl;
+  const timeoutId = setTimeout(() => myCtrl.abort(), 45000);   // 勝率計算較重，45s 上限
   // 進入「計算中」狀態：舊數據變暗、進度條動畫 0→95%，避免使用者誤判前一個 symbol 的數據
   const bar = document.getElementById("winrateBar");
   const statusEl = document.getElementById("wrStatus");
@@ -402,19 +417,23 @@ async function _fetchWinRateNow() {
   if (statusEl) statusEl.textContent = "";
   try {
     const p   = new URLSearchParams({ market, symbol, exchange, timeframe, stop_buffer_pct: bufDec.toFixed(4) });
-    const res = await fetch("/api/crt_winrate?" + p);
+    const res = await fetch("/api/crt_winrate?" + p, { signal: myCtrl.signal });
     const d   = await res.json();
     if (!res.ok) throw new Error(d.detail || "failed");
-    _wrCache[cacheKey] = d;
+    _wrCacheSet(cacheKey, d);
     _renderWinRate(d);
     _renderWRSignals(d.signals);
     if (typeof window._refreshSignalDrawer === "function") window._refreshSignalDrawer();
   } catch(e) {
-    if (statusEl) statusEl.textContent = "—";
-    lastWRSignalMarkers = [];
-    _applyMainMarkers();
+    // AbortError = 被新請求取代或超時 → 安靜處理；其他 error 才顯示
+    if (e.name !== "AbortError") {
+      if (statusEl) statusEl.textContent = "—";
+      lastWRSignalMarkers = [];
+      _applyMainMarkers();
+    }
   } finally {
-    if (bar) bar.classList.remove("calculating");
+    clearTimeout(timeoutId);
+    if (myCtrl === _wrFetchCtrl && bar) bar.classList.remove("calculating");
   }
 }
 

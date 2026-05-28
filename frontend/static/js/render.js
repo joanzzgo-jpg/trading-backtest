@@ -1,3 +1,5 @@
+// 切標的時 abort 上一筆未完成請求；30s timeout 防止後端卡住前端
+let _loadDataCtrl = null;
 async function loadData(autoLoad = false) {
   if (replayActive) exitReplay();
   /* 記住切換前的可見 K 棒數量，載入後還原相同縮放比例 */
@@ -8,11 +10,23 @@ async function loadData(autoLoad = false) {
 
   stopRealtime();
 
+  // 取消上次未完成的請求（連續切標的時避免疊加）
+  if (_loadDataCtrl) _loadDataCtrl.abort();
+  _loadDataCtrl = new AbortController();
+  const myCtrl = _loadDataCtrl;
+  const timeoutId = setTimeout(() => myCtrl.abort(), 30000);   // 30s 上限
+  // 等 > 5s 提示「仍在載入中…」（給使用者回饋避免誤以為當機）
+  const slowHint = setTimeout(() => {
+    const el = document.querySelector("#loadingOverlay .loading-text");
+    if (el) el.textContent = "仍在載入中… 後端可能繁忙";
+  }, 5000);
+
   showLoading(true);
   try {
     const res  = await fetch("/api/ohlcv", {
       method:"POST", headers:{"Content-Type":"application/json"},
       body: JSON.stringify(buildPayload()),
+      signal: myCtrl.signal,
     });
     const json = await res.json();
     if (!res.ok) throw new Error(json.detail || "載入失敗");
@@ -31,9 +45,20 @@ async function loadData(autoLoad = false) {
     fetchWinRate();
     _bgLoadOlderBars(); // 背景靜默載入更早的 K 棒
   } catch(e) {
-    if (!autoLoad) alert("❌ " + e.message);
+    if (e.name === "AbortError") {
+      // 被新請求取代或 30s 超時 — 不顯示 alert 避免擾民
+      if (myCtrl === _loadDataCtrl && !autoLoad) {
+        if (typeof showToast === "function") showToast("⏱ 載入超時（後端繁忙），請稍後重試");
+      }
+    } else if (!autoLoad) {
+      alert("❌ " + e.message);
+    }
     throw e;
-  } finally { showLoading(false); }
+  } finally {
+    clearTimeout(timeoutId);
+    clearTimeout(slowHint);
+    if (myCtrl === _loadDataCtrl) showLoading(false);
+  }
 }
 
 

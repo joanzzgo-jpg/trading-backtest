@@ -63,6 +63,21 @@ function _syncTickerToChart() {
   }
 }
 
+// 子元素 ref 快取（key: ticker-item el）— DOM 被移除時 WeakMap 會自動釋放
+const _tickerChildCache = new WeakMap();
+function _tkChildren(el) {
+  let c = _tickerChildCache.get(el);
+  if (!c) {
+    c = {
+      price: el.querySelector(".tk-price-val"),
+      chg:   el.querySelector(".tk-chg"),
+      amt:   el.querySelector(".tk-chg-amt"),
+    };
+    _tickerChildCache.set(el, c);
+  }
+  return c;
+}
+
 function _updateTickerPrices() {
   const container = document.getElementById("tickerList");
   if (!container) return;
@@ -76,9 +91,7 @@ function _updateTickerPrices() {
     if (!t) return;
     const sign    = t.change_pct >= 0 ? "+" : "";
     const cls     = t.change_pct >= 0 ? "up" : "dn";
-    const priceEl = el.querySelector(".tk-price-val");
-    const chgEl   = el.querySelector(".tk-chg");
-    const amtEl   = el.querySelector(".tk-chg-amt");
+    const { price: priceEl, chg: chgEl, amt: amtEl } = _tkChildren(el);
     const displayPrice = (el.classList.contains("tk-active") && chartLastClose != null)
       ? chartLastClose : t.price;
     // 比對後再寫，值相同不觸發 repaint
@@ -337,7 +350,7 @@ function renderTickers() {
         updateMarketUI();
         document.getElementById("symbolInput").value = item.symbol;
         loadData(false);
-        container.querySelectorAll(".ticker-item").forEach(x => x.classList.remove("tk-active"));
+        container.querySelector(".ticker-item.tk-active")?.classList.remove("tk-active");
         el.classList.add("tk-active");
       });
     });
@@ -397,7 +410,7 @@ function renderTickers() {
         if (mktEl.value !== "tw") { mktEl.value = "tw"; updateMarketUI(); }
         document.getElementById("symbolInput").value = el.dataset.symbol;
         loadData(false);
-        container.querySelectorAll(".ticker-item").forEach(x => x.classList.remove("tk-active"));
+        container.querySelector(".ticker-item.tk-active")?.classList.remove("tk-active");
         el.classList.add("tk-active");
       });
     });
@@ -455,7 +468,7 @@ function renderTickers() {
       if (exchEl) exchEl.value = "pionex";
       document.getElementById("symbolInput").value = el.dataset.display;
       loadData(false);
-      container.querySelectorAll(".ticker-item").forEach(x => x.classList.remove("tk-active"));
+      container.querySelector(".ticker-item.tk-active")?.classList.remove("tk-active");
       el.classList.add("tk-active");
     });
   });

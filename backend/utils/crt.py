@@ -719,6 +719,9 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             _push_signal(sig_time, d_str, "12", direction, entry_i, float(stop_px),
                          om, otm, omj, ob, otb, obj)
 
+    # 依時間排一次，供 _solve / _calc_streaks / _build_combined 共用（原本各自 sort）
+    signals_sorted = sorted(signals, key=lambda x: x["t"])
+
     # ── _solve 精簡模式：只跑「敗後停手」模擬後直接回傳（省下全部統計） ──
     #    與完整版 _build_combined(use_band, only_variant, est=False) + stop_strategy 一致
     if _solve is not None:
@@ -727,7 +730,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         _seen = set(); _seq = []
         # S12 insertion order 排在 S11 之後 → 穩定排序下，同 t 上其他策略會先入 _seen，
         # S12 只在「(t,d) 不與其他策略重疊」時才進入敗後停手序列
-        for s in sorted(signals, key=lambda x: x["t"]):
+        for s in signals_sorted:
             if s["k"] == "abc":
                 continue
             if _only_v and not s.get("v"):
@@ -753,9 +756,6 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         _tot = _w["s"] + _l["s"] + _w["l"] + _l["l"]
         _win = _w["s"] + _w["l"]
         return {"win_rate": round(_win / _tot * 100, 1) if _tot else None, "total": _tot}
-
-    # 依時間排一次，供 _calc_streaks / _build_combined 共用（原本各自 sort 共 ~16 次）
-    signals_sorted = sorted(signals, key=lambda x: x["t"])
 
     # ── 統計輸出 ─────────────────────────────────────────────
     def _stats(w, l, rr=None, streak=0, cond=None):
@@ -902,8 +902,9 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         return out
 
     # ── Dedupe：同 signal_bar + 同方向 多個訊號類型只算一次（避免 S6/S10、S2/S3、S9/S10 等重複） ──
+    # 5 個原本平行的 seen Set 內容完全一致（lockstep 更新），合併成單一 seen 省 4 倍 hash 查詢
     def _dedupe_totals(filter_variant=False):
-        seen_m = set(); seen_b = set(); seen_rr = set(); seen_em = set(); seen_eb = set()
+        seen = set()
         # 每組: [sw, sl, lw, ll]
         m = [0, 0, 0, 0]; b = [0, 0, 0, 0]; rr = [0, 0, 0, 0]
         em = [0, 0, 0, 0]; eb = [0, 0, 0, 0]
@@ -913,28 +914,23 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             if filter_variant and not s.get("v"):
                 continue
             key = (s["t"], s["d"])
+            if key in seen:
+                continue
+            seen.add(key)
             d_idx_w = 0 if s["d"] == "s" else 2
             d_idx_l = 1 if s["d"] == "s" else 3
-            if key not in seen_m:
-                seen_m.add(key)
-                if s.get("r") == "w": m[d_idx_w] += 1
-                elif s.get("r") == "l": m[d_idx_l] += 1
-            if key not in seen_b:
-                seen_b.add(key)
-                if s.get("r_b") == "w": b[d_idx_w] += 1
-                elif s.get("r_b") == "l": b[d_idx_l] += 1
-            if key not in seen_rr:
-                seen_rr.add(key)
-                if s.get("r_rr") == "w": rr[d_idx_w] += 1
-                elif s.get("r_rr") == "l": rr[d_idx_l] += 1
-            if key not in seen_em:
-                seen_em.add(key)
-                if s.get("est_r") == "w": em[d_idx_w] += 1
-                elif s.get("est_r") == "l": em[d_idx_l] += 1
-            if key not in seen_eb:
-                seen_eb.add(key)
-                if s.get("est_r_b") == "w": eb[d_idx_w] += 1
-                elif s.get("est_r_b") == "l": eb[d_idx_l] += 1
+            r = s.get("r");      r_b = s.get("r_b");      r_rr = s.get("r_rr")
+            est_r = s.get("est_r"); est_r_b = s.get("est_r_b")
+            if r == "w":      m[d_idx_w] += 1
+            elif r == "l":    m[d_idx_l] += 1
+            if r_b == "w":    b[d_idx_w] += 1
+            elif r_b == "l":  b[d_idx_l] += 1
+            if r_rr == "w":   rr[d_idx_w] += 1
+            elif r_rr == "l": rr[d_idx_l] += 1
+            if est_r == "w":  em[d_idx_w] += 1
+            elif est_r == "l":em[d_idx_l] += 1
+            if est_r_b == "w":  eb[d_idx_w] += 1
+            elif est_r_b == "l":eb[d_idx_l] += 1
         return m, b, rr, em, eb
 
     dedup_m,  dedup_b,  dedup_rr,  dedup_em,  dedup_eb  = _dedupe_totals(filter_variant=False)
@@ -981,6 +977,9 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
     #    loss_streak[k] = 同方向連敗 k 根後、下一筆同方向也敗的機率
     #                     （k=1→2連、k=2→3連、k=3→4連）；win_after_win = 同方向勝後再勝。
     _combined_memo = {}
+    # 預篩：base / variant 子集只算一次（迴圈外，避免 12 次重複 only_variant 判斷）
+    _signals_base    = [s for s in signals_sorted if s["k"] != "abc"]
+    _signals_variant = [s for s in _signals_base if s.get("v")]
     def _build_combined(target, only_variant, est=False):
         """合併時間軸的已結算序列 [(d, r)]（dedupe by (t,d)、S1 不計入）。
         est=True 改用『進場時固定預估目標』的結果（est_r/est_r_b；1:1 目標固定 est=實際）。
@@ -993,11 +992,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         seen = set(); seq = []
         # S12 排在 signals 列表最後 push → 穩定排序下，(t,d) 與其他策略重疊時其他先入 seen，
         # S12 只在「獨有進場點」才會進入合併時間軸（敗後停手 / 連敗條件統計都用這個）
-        for s in signals_sorted:
-            if s["k"] == "abc":
-                continue
-            if only_variant and not s.get("v"):
-                continue
+        for s in (_signals_variant if only_variant else _signals_base):
             key = (s["t"], s["d"])
             if key in seen:
                 continue

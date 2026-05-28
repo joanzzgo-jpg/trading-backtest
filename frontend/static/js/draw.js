@@ -33,12 +33,21 @@ function loadDrawings() {
 function _cssW() { return drawCanvas ? drawCanvas.width  / (window.devicePixelRatio || 1) : 800; }
 function _cssH() { return drawCanvas ? drawCanvas.height / (window.devicePixelRatio || 1) : 600; }
 
+// 短距離 cache：mousemove 60+ Hz，4px 內位移直接重用上次結果
+// 拖移時 drawings 內容變但長度不變、被拖那筆仍是同物件 → 命中也正確
+let _findNearestCache = { x: -1e9, y: -1e9, maxDist: 0, len: -1, result: null };
 function findNearest(x, y, maxDist = 12) {
+  const c = _findNearestCache;
+  if (c.maxDist === maxDist && c.len === drawings.length
+      && Math.abs(c.x - x) < 4 && Math.abs(c.y - y) < 4) {
+    return c.result;
+  }
   let best = maxDist, found = null;
   drawings.forEach(d => {
     const dist = drawingDist(d, x, y);
     if (dist < best) { best = dist; found = d; }
   });
+  _findNearestCache = { x, y, maxDist, len: drawings.length, result: found };
   return found;
 }
 
