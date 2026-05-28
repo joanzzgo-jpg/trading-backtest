@@ -541,7 +541,10 @@ def _fetch_okx(symbol: str, timeframe: str,
 # Pionex klines interval 格式（實測：大寫縮寫，1h=60M；1w/1M 不支援）
 PIONEX_TF_MAP = {
     "1M": None, "1w": None, "1d": "1D",
-    "4h": "4H", "1h": "60M", "15m": "15M", "5m": "5M",
+    "8h": "8H", "4h": "4H", "1h": "60M",
+    "30m": "30M", "15m": "15M", "5m": "5M",
+    # 2h: Pionex API 不支援原生 2H，由 _fetch_pionex_klines 內部抓 1H 重採樣
+    "2h": "_RESAMPLE_FROM_1H",
 }
 
 
@@ -552,6 +555,17 @@ def _fetch_pionex_klines(symbol: str, timeframe: str,
     tf = PIONEX_TF_MAP.get(timeframe)
     if tf is None:
         return pd.DataFrame(columns=["time","open","high","low","close","volume"])
+    # 2h：Pionex 不支援原生 2H，遞迴抓 1h 然後重採樣
+    if tf == "_RESAMPLE_FROM_1H":
+        df_1h = _fetch_pionex_klines(symbol, "1h", start, end,
+                                       limit=limit * 2, max_candles=max_candles * 2, is_perp=is_perp)
+        if df_1h.empty:
+            return df_1h
+        df_1h = df_1h.set_index("time")
+        df_2h = df_1h.resample("2h").agg(
+            {"open":"first","high":"max","low":"min","close":"last","volume":"sum"}
+        ).dropna(subset=["open"]).reset_index()
+        return df_2h
     sym = symbol.replace("/", "_").upper()
     if is_perp and not sym.endswith("_PERP"):
         sym += "_PERP"
@@ -657,8 +671,23 @@ def fetch_crypto_ohlcv(
 
     mc = _calc_max_candles(start, end, timeframe)
     if ex in ("pionex", "binance"):
-        # Binance 優先（歷史深、穩定）：永續合約 → 現貨。記錄最後一個錯誤以區分「限流」vs「找不到」
         last_err = None
+        # `.P` 明示使用者要的是 **Pionex 永續**——直接打 Pionex，**跳過 Binance**。
+        # 為什麼：Binance fapi 同名標的（如 LYNUSDT）可能跟 Pionex LYN_USDT_PERP **不是同一個市場**，
+        # vol 規模差 ~200x；若有時 Binance 回應有時失敗，realtime poll 會在兩種規模間隨機跳，
+        # 圖表成交量看起來像「亂跳」。`.P` 後綴是使用者明示意圖，必須尊重它。
+        if ex == "pionex" and is_perp:
+            try:
+                df = _fetch_pionex_klines(symbol, timeframe, start, end, limit, max_candles=mc, is_perp=True)
+                if not df.empty:
+                    return df
+            except Exception as e:
+                last_err = e
+            # `.P` 走完 Pionex 還空 → 直接走錯誤分支（不要 fallback 到 Binance 避免 vol 跳變）
+            if time.time() < _PIONEX_COOLDOWN_UNTIL:
+                raise ValueError(f"{symbol} 暫時無法取得：Pionex 限流冷卻中（剩 {int(_PIONEX_COOLDOWN_UNTIL - time.time())} 秒，請等待後再試）")
+            raise ValueError(f"找不到 {symbol} 的行情資料，請確認標的代號是否正確")
+        # 無 .P：Binance 優先（歷史深、穩定）
         try:
             df = _fetch_binance_fapi(symbol, timeframe, start, end, limit, max_candles=mc)
             if not df.empty:
@@ -671,7 +700,6 @@ def fetch_crypto_ohlcv(
                 return df
         except Exception as e:
             last_err = e
-        # Pionex 獨有合約（不在 Binance 上）→ 走 Pionex 自己的 klines 作為最後備援
         # 若使用者沒加 .P 後綴，但標的只在 Pionex 永續存在 → 自動視為 perp
         if ex == "pionex" and not is_perp:
             try:

@@ -42,7 +42,7 @@ async function loadData(autoLoad = false) {
     _rebuildTimeIndex();  // 效能：重建 time→idx Map（O(1) 取代 findIndex）
     // 切換標的/時框：清空已展開的自動盈虧比盒（舊訊號時間不存在於新資料）
     if (typeof _clearAutoRR === "function") _clearAutoRR();
-    renderAll(json.data);
+    renderAll(json.data);   // 內部 renderCandles 會清 marker，但 renderAll 結尾會重填 WR markers
     startRealtime();
     saveLastSymbol();   // 載入成功後記憶此次標的
     _updateStarBtn();
@@ -121,6 +121,11 @@ function renderAll(data) {
   renderRSI(data);
   renderMACD(data);
   updateSymbolBar(data);
+  // renderCandles 會清空 lastWRSignalMarkers + setMarkers([])，必須在這裡重填
+  // 否則切標的/TF 時即使 _lastWRSignals 已有資料，主圖也看不到進出場標記
+  if (typeof _renderWRSignals === "function" && _lastWRSignals && _lastWRSignals.length) {
+    _renderWRSignals();
+  }
 
   // fit 讓各子圖時間範圍對齊
   [mainChart, kdjChart, rsiChart, macdChart].forEach(c => c.timeScale().fitContent());
