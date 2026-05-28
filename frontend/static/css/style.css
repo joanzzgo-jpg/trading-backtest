@@ -589,9 +589,14 @@ html, body {
 /* ═══ TOPBAR WIN-RATE ═══ */
 /* 細項永遠顯示；只在窄到會嚴重重疊時整欄隱藏（TF 按鈕已 z-index:3 蓋過勝率欄） */
 @media (max-width: 1100px) {
-  .tb-winrate { display: none !important; }
-  /* iPad / 手機：ticker 側欄直接隱藏（不浮層、不轉場），chart 用既有 flex:1 自然填滿。
-     使用者要找標的可改用左上 symbol input 或 ⭐ 自選清單。 */
+  /* iPad / 手機：勝率欄縮小成「只剩右側摘要」，總勝率 + 敗後停手仍可見 */
+  .tb-winrate { flex: 0 0 auto !important; margin: 0 4px !important; padding: 0 4px !important; }
+  /* 隱藏左側目標切換 / SL buffer 設定（進階控制，桌面才需要） */
+  .tb-wr-fixed-left { display: none !important; }
+  /* 隱藏中間 S1~S11 細項橫向滾動列（太寬） */
+  .tb-wr-scroll { display: none !important; }
+  /* ticker 側欄直接隱藏 → chart 用 flex:1 自然填滿
+     使用者要找標的可改用左上 symbol input 或 ⭐ 自選清單 */
   .ticker-panel { display: none !important; }
 }
 .tb-winrate {
