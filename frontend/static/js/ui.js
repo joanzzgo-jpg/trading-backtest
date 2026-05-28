@@ -22,9 +22,13 @@ function bindEvents() {
   }
 
   document.getElementById("tickerToggle")?.addEventListener("click", () => {
-    // ticker 永遠是浮層（所有尺寸統一行為），不再分 mobile/desktop
-    const open = document.getElementById("tickerPanel").classList.contains("ticker-open");
-    open ? closeTicker() : openTicker();
+    if (isMobile()) {
+      const open = document.getElementById("tickerPanel").classList.contains("ticker-open");
+      open ? closeTicker() : openTicker();
+    } else {
+      document.getElementById("tickerPanel").classList.toggle("ticker-collapsed");
+      setTimeout(resizeAll, 50);
+    }
   });
   document.getElementById("panelOverlay").addEventListener("click", closeTicker);
 
