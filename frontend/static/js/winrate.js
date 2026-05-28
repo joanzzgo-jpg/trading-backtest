@@ -46,13 +46,18 @@ try {
   _pyrUseBBrev = localStorage.getItem("wrPyrBBrev") === "1";
 } catch (e) {}
 
+function _wrViewLabel(v) {
+  return v === "band" ? "上/下軌" : v === "rr" ? "1:1" : "中軌";
+}
 function _initWrTargetBtn() {
   const btn = document.getElementById("wrTargetToggle");
   if (!btn) return;
-  // 三種目標：中軌（BB middle）／上下軌（方向相關極端，多→上軌、空→下軌）／1:1（止盈距離=止損距離）
-  btn.textContent = _wrTargetView === "band" ? "上/下軌"
-                  : _wrTargetView === "rr"   ? "1:1"
-                  :                            "中軌";
+  // 三種目標：中軌（BB middle）／上下軌（方向相關極端）／1:1（止盈距離=止損距離）
+  if (!btn.querySelector(".tb-wr-toggle-inner")) {
+    btn.innerHTML = `<span class="tb-wr-toggle-inner">${_wrViewLabel(_wrTargetView)}</span>`;
+  } else {
+    btn.querySelector(".tb-wr-toggle-inner").textContent = _wrViewLabel(_wrTargetView);
+  }
   btn.classList.toggle("band", _wrTargetView === "band");
   btn.classList.toggle("rr",   _wrTargetView === "rr");
 }
@@ -154,14 +159,54 @@ function _initWrStopBuffer() {
 }
 
 function _toggleWrTarget() {
+  const btn = document.getElementById("wrTargetToggle");
+
   // 三段循環：中軌 → 上/下軌 → 1:1 → 中軌
   _wrTargetView = _wrTargetView === "mid" ? "band"
                 : _wrTargetView === "band" ? "rr"
                 : "mid";
   try { localStorage.setItem(_WR_VIEW_KEY, _wrTargetView); } catch (e) {}
-  _initWrTargetBtn();
+
+  // 動畫：rapid-click 安全 — 先清除所有殘留 inner、取消舊 timer 再開新動畫
+  if (btn) {
+    btn.classList.toggle("band", _wrTargetView === "band");
+    btn.classList.toggle("rr",   _wrTargetView === "rr");
+
+    // 取消上一輪未完成的清理 timer（避免殘留 inner 累積）
+    if (btn._wrAnimTimer) { clearTimeout(btn._wrAnimTimer); btn._wrAnimTimer = null; }
+    // 找出當前「實際顯示」的 inner（最後一個非 slide-out）；其餘殘留全部立即移除
+    const inners = btn.querySelectorAll(".tb-wr-toggle-inner");
+    let active = null;
+    for (let i = inners.length - 1; i >= 0; i--) {
+      const el = inners[i];
+      if (!active && !el.classList.contains("tb-wr-slide-out")) { active = el; continue; }
+      el.remove();
+    }
+    if (active) {
+      active.classList.remove("tb-wr-slide-in");   // 強制停止 slide-in 動畫
+      // 強制 reflow 讓瀏覽器接受重啟動畫
+      void active.offsetWidth;
+      active.classList.add("tb-wr-slide-out");
+    }
+    const newInner = document.createElement("span");
+    newInner.className = "tb-wr-toggle-inner tb-wr-slide-in";
+    newInner.textContent = _wrViewLabel(_wrTargetView);
+    btn.appendChild(newInner);
+    btn.classList.remove("tb-wr-flash");
+    void btn.offsetWidth;   // 重啟閃光動畫
+    btn.classList.add("tb-wr-flash");
+
+    btn._wrAnimTimer = setTimeout(() => {
+      btn._wrAnimTimer = null;
+      if (active && active.parentNode) active.remove();
+      newInner.classList.remove("tb-wr-slide-in");
+      btn.classList.remove("tb-wr-flash");
+    }, 280);
+  } else {
+    _initWrTargetBtn();
+  }
+
   if (_wrCacheLast) _renderWinRate(_wrCacheLast);
-  // marker 與自動盈虧比盒都跟著切：止盈位置 BB 中軌 ↔ 上/下軌 ↔ 1:1
   _renderWRSignals();
   if (typeof window._refreshSignalDrawer === "function") window._refreshSignalDrawer();
   if (typeof renderDrawings === "function") requestAnimationFrame(renderDrawings);
@@ -425,8 +470,13 @@ async function _fetchWinRateNow() {
     _renderWRSignals(d.signals);
     if (typeof window._refreshSignalDrawer === "function") window._refreshSignalDrawer();
   } catch(e) {
-    // AbortError = 被新請求取代或超時 → 安靜處理；其他 error 才顯示
-    if (e.name !== "AbortError") {
+    console.error("[fetchWinRate] error:", e.name, e.message);
+    // Abort / TypeError(Failed to fetch) / 被新請求取代 → 全部視為中斷，靜默
+    const isAbortLike = e.name === "AbortError"
+                     || myCtrl.signal.aborted
+                     || /failed to fetch/i.test(e.message || "")
+                     || myCtrl !== _wrFetchCtrl;
+    if (!isAbortLike) {
       if (statusEl) statusEl.textContent = "—";
       lastWRSignalMarkers = [];
       _applyMainMarkers();
@@ -437,12 +487,24 @@ async function _fetchWinRateNow() {
   }
 }
 
+// memo variant 篩選結果 — _lastWRSignals 變更時自動失效
+let _variantListMemo = { src: null, list: null };
 function _renderWRSignals(signals) {
-  if (signals !== undefined) _lastWRSignals = signals || [];
-  // 強化版時只顯示 s.v=true 的訊號
-  let list = _wrVariantView === "variant"
-    ? _lastWRSignals.filter(s => s.v)
-    : _lastWRSignals;
+  if (signals !== undefined) {
+    _lastWRSignals = signals || [];
+    _variantListMemo.src = null;   // 失效
+  }
+  // 強化版時只顯示 s.v=true 的訊號（memo 避免每次切目標/重繪都重新 filter）
+  let list;
+  if (_wrVariantView === "variant") {
+    if (_variantListMemo.src !== _lastWRSignals) {
+      _variantListMemo.src  = _lastWRSignals;
+      _variantListMemo.list = _lastWRSignals.filter(s => s.v);
+    }
+    list = _variantListMemo.list;
+  } else {
+    list = _lastWRSignals;
+  }
   // 雙擊隱藏的策略 marker 過濾掉
   const _hidden = window._hiddenWrSigs;
   if (_hidden && _hidden.size) list = list.filter(s => !_hidden.has(s.k));

@@ -9,13 +9,21 @@ router = APIRouter(prefix="/api", tags=["search"])
 
 
 @router.get("/search")
-def search(market: str, keyword: str, token: str = ""):
+def search(market: str, keyword: str, exchange: str = "pionex", token: str = ""):
     """搜索標的"""
     if market == "tw":
         return {"results": search_tw_stock(keyword, token)}
     elif market == "crypto":
-        exchange = keyword if keyword in ["pionex", "binance", "bybit", "okx"] else "pionex"
-        markets  = fetch_crypto_markets(exchange)
+        # keyword 為交易所名稱時當交易所過濾用（舊行為兼容）；否則當搜尋關鍵字
+        if keyword in ["pionex", "binance", "bybit", "okx"]:
+            exchange = keyword
+            kw = ""
+        else:
+            kw = (keyword or "").strip().upper()
+        markets = fetch_crypto_markets(exchange)
+        if kw:
+            # 按關鍵字過濾（base 或 symbol contains）
+            markets = [m for m in markets if kw in m.get("base", "").upper() or kw in m.get("symbol", "").upper()]
         return {"results": markets[:50]}
     return {"results": []}
 

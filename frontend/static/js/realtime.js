@@ -67,15 +67,11 @@ async function fetchLatest() {
    統一更新所有面板圖例（鉛直線跨圖同步）
 ══════════════════════════════════════════ */
 function updateAllLegends(t) {
-  // 熱路徑（每次 crosshair 移動觸發）：O(n) find 改成由 _toTimeIdxBySec 查 Map
-  // 因 ohlcvData 的 time 是 ISO 字串、t 是 UNIX 秒，需另建 sec→idx 查找
-  let d = null;
-  if (_secToIdx && _secToIdx.has(t)) {
-    d = ohlcvData[_secToIdx.get(t)];
-  } else {
-    d = ohlcvData.find(r => toTime(r.time) === t);
-  }
+  // 熱路徑（每次 crosshair 移動觸發 60Hz）：O(1) Map 查 idx 共用，避免後續 indexOf O(n)
+  let idx = (_secToIdx && _secToIdx.has(t)) ? _secToIdx.get(t) : -1;
+  let d = idx >= 0 ? ohlcvData[idx] : ohlcvData.find(r => toTime(r.time) === t);
   if (!d) return;
+  if (idx < 0) idx = ohlcvData.indexOf(d);   // fallback（罕見路徑）
 
   // 符號列
   document.getElementById("symO").textContent = fmt(d.open);
@@ -83,8 +79,7 @@ function updateAllLegends(t) {
   document.getElementById("symL").textContent = fmt(d.low);
   document.getElementById("symC").textContent = fmt(d.close);
   document.getElementById("symV").textContent = fmtVol(d.volume);
-  const dIdx = ohlcvData.indexOf(d);
-  if (dIdx > 0) _updateSymChg(d.close, ohlcvData[dIdx - 1].close);
+  if (idx > 0) _updateSymChg(d.close, ohlcvData[idx - 1].close);
 
   // BB
   if (d.bb_upper != null)
@@ -137,7 +132,8 @@ function onMainCrosshair(param) {
     document.getElementById("symH").textContent = fmt(c.high);
     document.getElementById("symL").textContent = fmt(c.low);
     document.getElementById("symC").textContent = fmt(c.close);
-    const idx = ohlcvData.findIndex(r => toTime(r.time) === param.time);
+    // O(1) Map 取代 O(n) findIndex（70k 根 × 60Hz mouseMove = 每秒 4M 次 toTime 字串轉換的主因）
+    const idx = (_secToIdx && _secToIdx.has(param.time)) ? _secToIdx.get(param.time) : -1;
     if (idx >= 0) {
       document.getElementById("symV").textContent = fmtVol(ohlcvData[idx].volume);
       if (idx > 0) _updateSymChg(c.close, ohlcvData[idx - 1].close);

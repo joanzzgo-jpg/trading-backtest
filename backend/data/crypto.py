@@ -21,20 +21,20 @@ PIONEX_BASE       = "https://api.pionex.com"
 BYBIT_BASE   = "https://api.bybit.com"
 BYBIT_TF = {
     "1M": "M", "1w": "W", "1d": "D",
-    "4h": "240", "1h": "60", "15m": "15", "5m": "5",
+    "4h": "240", "2h": "120", "1h": "60", "15m": "15", "5m": "5",
 }
 
 # ── OKX ───────────────────────────────────────────────────────
 OKX_BASE  = "https://www.okx.com"
 OKX_TF = {
     "1M": "1M", "1w": "1W", "1d": "1D",
-    "8h": "8H", "4h": "4H", "1h": "1H",
+    "8h": "8H", "4h": "4H", "2h": "2H", "1h": "1H",
     "30m": "30m", "15m": "15m", "5m": "5m",
 }
 
 TIMEFRAME_MAP = {
     "1M": "1M", "1w": "1w", "1d": "1d",
-    "8h": "8h", "4h": "4h", "1h": "1h",
+    "8h": "8h", "4h": "4h", "2h": "2h", "1h": "1h",
     "30m": "30m", "15m": "15m", "5m": "5m",
 }
 
@@ -52,17 +52,24 @@ def _get(url: str, timeout: int = 30) -> Union[dict, list]:
 _PIONEX_COOLDOWN_UNTIL = 0.0
 _PIONEX_COOLDOWN_SECS   = 300
 
+import threading as _threading
+# 同時最多 3 個 Pionex 請求（Pionex 限制 10 req/s，留餘裕）。
+# 不再用 lock + sleep 序列化 — 那會讓單次請求內的深度分頁卡 17s+。
+# 改用 Semaphore：併發抓但限總量，內部分頁可一起跑，整體快 ~3x。
+_PIONEX_SEM = _threading.Semaphore(3)
+
 def _pionex_get(url: str, timeout: int = 30) -> Union[dict, list]:
-    """Pionex 專用 GET：熔斷期間直接拋例外（不打 Pionex）；偵測到 429 即觸發全域冷卻。"""
+    """Pionex 專用 GET：併發上限 3 + 429 熔斷保護。"""
     global _PIONEX_COOLDOWN_UNTIL
     if time.time() < _PIONEX_COOLDOWN_UNTIL:
         raise RuntimeError("Pionex 熔斷中（429 冷卻），暫不請求")
-    try:
-        return _get(url, timeout=timeout)
-    except urllib.error.HTTPError as e:
-        if getattr(e, "code", None) == 429:
-            _PIONEX_COOLDOWN_UNTIL = time.time() + _PIONEX_COOLDOWN_SECS
-        raise
+    with _PIONEX_SEM:
+        try:
+            return _get(url, timeout=timeout)
+        except urllib.error.HTTPError as e:
+            if getattr(e, "code", None) == 429:
+                _PIONEX_COOLDOWN_UNTIL = time.time() + _PIONEX_COOLDOWN_SECS
+            raise
 
 
 # ── Pionex 已知合約（硬編碼備援，API 失敗時使用）────────────────
@@ -256,12 +263,12 @@ def _make_df(rows: list, time_col=0, unit="ms") -> pd.DataFrame:
 
 _TF_BARS_PER_DAY = {
     "1M": 1/30, "1w": 1/7, "1d": 1,
-    "8h": 3, "4h": 6, "1h": 24,
+    "8h": 3, "4h": 6, "2h": 12, "1h": 24,
     "30m": 48, "15m": 96, "5m": 288,
 }
 _TF_BAR_SECONDS = {
     "1M": 2592000, "1w": 604800, "1d": 86400,
-    "8h": 28800,   "4h": 14400,   "1h": 3600,
+    "8h": 28800,   "4h": 14400,   "2h": 7200,   "1h": 3600,
     "30m": 1800,   "15m": 900,    "5m": 300,
 }
 # 各時間級別的合理上限（根數），避免 API 請求過多
@@ -273,6 +280,7 @@ _TF_MAX_CANDLES = {
     "1d":   10000,   # 1d: TF_MAX 7300 天
     "8h":   20000,   # 8h: TF_MAX 5475 天 × 3 bars = 16425
     "4h":   40000,   # 4h: TF_MAX 5475 天 × 6 bars = 32850
+    "2h":   55000,   # 2h: TF_MAX 4380 天 × 12 bars = 52560
     "1h":   80000,   # 1h: TF_MAX 2920 天 × 24 bars = 70080
     "30m":  35000,   # 30m: TF_MAX 720 天 × 48 bars = 34560
     "15m":  75000,   # 15m: TF_MAX 720 天 × 96 bars = 69120
@@ -564,10 +572,14 @@ def _fetch_pionex_klines(symbol: str, timeframe: str,
         end_ms = now_ms
     all_rows: list = []
 
+    # Pionex klines 回傳是 **newest-first** 排序（rows[0]=最新, rows[-1]=最舊）
+    # 分頁邏輯：用「最舊一根的 time-1」當下次的 endTime，往更早抓
+    seen_ts = set()   # 用來偵測 API 回傳同一批資料（防止無限迴圈）
+    cur_end = end_ms
     while True:
         params2: dict = {"symbol": sym, "interval": tf, "limit": 500}
-        if since:  params2["startTime"] = since
-        if end_ms: params2["endTime"]   = end_ms
+        if since:    params2["startTime"] = since
+        if cur_end:  params2["endTime"]   = cur_end
         url  = f"{PIONEX_BASE}/api/v1/market/klines?{urllib.parse.urlencode(params2)}"
         data = _pionex_get(url, timeout=10)
         if not data.get("result", True):
@@ -583,12 +595,27 @@ def _fetch_pionex_klines(symbol: str, timeframe: str,
                 continue
         if not rows:
             break
-        all_rows.extend(rows)
-        last_ts = rows[-1][0]
-        if (end_ms and last_ts >= end_ms) or len(klines) < 500 or len(all_rows) >= max_candles:
+        # Pionex 回傳是 newest-first；oldest_ts 是這批最舊的一根
+        # 防呆：若這批的最舊 ts 已在 seen_ts，表示 API 拒絕分頁 / 卡死 → 跳出
+        oldest_ts = min(r[0] for r in rows)
+        if oldest_ts in seen_ts:
             break
-        since = last_ts + 1
+        seen_ts.add(oldest_ts)
+        all_rows.extend(rows)
+        # 已抓到 startTime 邊界 / 不足一頁 / 達 max → 結束
+        if (since and oldest_ts <= since) or len(klines) < 500 or len(all_rows) >= max_candles:
+            break
+        cur_end = oldest_ts - 1   # 下一頁往更早抓
 
+    # 排序去重後回傳（Pionex newest-first + 多頁可能有重複邊界）
+    if all_rows:
+        all_rows.sort(key=lambda r: r[0])
+        dedup = []
+        prev_t = -1
+        for r in all_rows:
+            if r[0] != prev_t:
+                dedup.append(r); prev_t = r[0]
+        all_rows = dedup
     return _make_df(all_rows)
 
 
@@ -645,6 +672,15 @@ def fetch_crypto_ohlcv(
         except Exception as e:
             last_err = e
         # Pionex 獨有合約（不在 Binance 上）→ 走 Pionex 自己的 klines 作為最後備援
+        # 若使用者沒加 .P 後綴，但標的只在 Pionex 永續存在 → 自動視為 perp
+        if ex == "pionex" and not is_perp:
+            try:
+                _perp_syms = _fetch_pionex_perp_symbols()
+                base_sym = symbol.split("/")[0].upper()
+                if base_sym in _perp_syms:
+                    is_perp = True   # 自動補 perp
+            except Exception:
+                pass
         if ex == "pionex":
             try:
                 df = _fetch_pionex_klines(symbol, timeframe, start, end, limit, max_candles=mc, is_perp=is_perp)
@@ -654,8 +690,12 @@ def fetch_crypto_ohlcv(
                 last_err = e
         # 區分限流（429）與真的找不到：限流時別誤導使用者「代號錯誤」
         es = str(last_err).lower() if last_err is not None else ""
-        if "429" in es or "too many" in es or "rate limit" in es:
-            raise ValueError(f"{symbol} 暫時無法取得：資料源限流（429），請稍後再試")
+        es_zh = str(last_err) if last_err is not None else ""
+        if "429" in es or "too many" in es or "rate limit" in es or "熔斷" in es_zh:
+            raise ValueError(f"{symbol} 暫時無法取得：Pionex 限流冷卻中，請稍後再試")
+        # 全域冷卻中也視為限流（即使 last_err 是 Binance 找不到 — 因為冷卻中 Pionex 沒實際嘗試）
+        if time.time() < _PIONEX_COOLDOWN_UNTIL:
+            raise ValueError(f"{symbol} 暫時無法取得：Pionex 限流冷卻中（剩 {int(_PIONEX_COOLDOWN_UNTIL - time.time())} 秒，請等待後再試）")
         raise ValueError(f"找不到 {symbol} 的行情資料，請確認標的代號是否正確")
     elif ex == "bybit":
         return _fetch_bybit(symbol, timeframe, start, end, limit, max_candles=mc)
@@ -666,22 +706,22 @@ def fetch_crypto_ohlcv(
 
 
 def fetch_crypto_markets(exchange_id: str = "pionex"):
-    """取得 USDT 現貨交易對（只回傳前 200 筆）"""
+    """取得 USDT 永續合約清單（Pionex 預設用 perp，配合前端 .P 後綴）"""
     ex = exchange_id.lower()
     try:
-        if ex in ("pionex", "binance"):
+        if ex == "pionex":
+            # Pionex 主用途是永續合約 → 直接返回 perp 清單（含 .P 後綴）
+            # 包含 Pionex 永續清單上所有標的（含 Binance 沒有的 Pionex 獨有）
+            perp = _fetch_pionex_perp_symbols()
+            results = [{"symbol": f"{s}/USDT.P", "base": s, "quote": "USDT"} for s in sorted(perp)]
+        elif ex == "binance":
             data = _get(f"{BINANCE_BASE}/api/v3/exchangeInfo")
-            # Pionex：嚴格只留 Pionex 有的標的；現貨清單暫抓不到（429）時退用永續清單
-            # （有硬編碼備援）當過濾宇集，**絕不**退回成全 Binance（否則冒出非 Pionex 標的）。
-            # binance 交易所則不過濾（psyms=None）。
-            psyms = (_fetch_pionex_symbols() or _fetch_pionex_perp_symbols()) if ex == "pionex" else None
             results = [
                 {"symbol": f"{s['baseAsset']}/{s['quoteAsset']}",
                  "base": s["baseAsset"], "quote": s["quoteAsset"]}
                 for s in data.get("symbols", [])
                 if s.get("status") == "TRADING" and s.get("quoteAsset") == "USDT"
                    and s.get("isSpotTradingAllowed")
-                   and (psyms is None or s["baseAsset"].upper() in psyms)
             ]
         elif ex == "bybit":
             data = _get(f"{BYBIT_BASE}/v5/market/instruments-info?category=spot")

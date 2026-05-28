@@ -17,6 +17,28 @@ from utils.crt import _calc_crt_winrate
 router = APIRouter(prefix="/api", tags=["data"])
 
 
+@router.post("/reset_pionex_cooldown")
+def reset_pionex_cooldown():
+    """手動清除 Pionex 5 分鐘限流冷卻（給卡死時應急用）"""
+    import data.crypto as _c
+    _c._PIONEX_COOLDOWN_UNTIL = 0.0
+    return {"ok": True, "msg": "Pionex 冷卻已清除"}
+
+
+@router.get("/pionex_status")
+def pionex_status():
+    """看 Pionex 冷卻狀態：是否冷卻中、剩幾秒、上次呼叫多久前"""
+    import data.crypto as _c
+    import time as _t
+    now = _t.time()
+    return {
+        "cooldown_active": now < _c._PIONEX_COOLDOWN_UNTIL,
+        "cooldown_remaining_sec": max(0, int(_c._PIONEX_COOLDOWN_UNTIL - now)),
+        "concurrency_limit": 3,
+    }
+
+
+
 def _finnhub_overlay(df: pd.DataFrame, quote: dict):
     """把 Finnhub 即時報價疊加到 yfinance 最後一根 K 棒。Returns (df, is_live).
     只更新「close」並擴展 high/low；不建新 bar（避免半小時錯位的 1h/4h 對齊問題，
@@ -164,7 +186,7 @@ def get_ohlcv(req: OHLCVRequest):
             max_d = US_MAX_DAYS.get(req.timeframe, 3650)
             # 美股各 TF 每日 bar 數（用於 limit→days 反推，避免過量請求觸 yfinance 邊界）
             # 6.5h 交易：4h≈2、1h≈7、15m≈26、5m≈78
-            _bpd = {"1M": 1/30, "1w": 1/7, "1d": 1, "4h": 2, "1h": 7, "15m": 26, "5m": 78}
+            _bpd = {"1M": 1/30, "1w": 1/7, "1d": 1, "4h": 2, "2h": 3.25, "1h": 7, "15m": 26, "5m": 78}
             if use_limit:
                 bars_per_day = _bpd.get(req.timeframe, 1)
                 # 1.6 倍 buffer 容納週末/假日
@@ -369,18 +391,20 @@ def get_crt_winrate(
     from datetime import date, timedelta
     _buf = round(max(0.0, float(stop_buffer_pct or 0.0)), 4)
     _long_only = (market == "tw")  # 台股不能放空
-    cache_key = f"crt_wr67:{market}:{symbol}:{exchange}:{timeframe}:{_buf}:{int(_long_only)}"
+    cache_key = f"crt_wr68:{market}:{symbol}:{exchange}:{timeframe}:{_buf}:{int(_long_only)}"
     # 注意：solve 模式不可命中此勝率快取（cache_key 不含 solve），否則會回傳勝率而非求解結果
     if not solve:
-        cached = cache.get(cache_key, ttl=3600)
+        cached = cache.get(cache_key, ttl=10800)   # 3 小時：減少重算頻率（資料新增 1h 內 fetchLatest 自動更新最新棒）
         if cached:
             return cached
 
     MIN_CASES = 40   # 每個訊號（S1~S7 × 空/多）最少採樣數；不足會自動往前加倍天數
     # 各時間框架：初始天數 / 最大天數
     # 上限拉到資料源實際可能的歷史深度（Binance fapi BTC 2019/9~、spot 2017/8~、Bybit/OKX 類似）
-    TF_INIT = {"1M": 3650, "1w": 1825, "1d": 730,  "8h": 730,  "4h": 365,  "1h": 365,   "30m": 90,  "15m": 60,  "5m": 30}
-    TF_MAX  = {"1M": 7300, "1w": 7300, "1d": 7300, "8h": 5475, "4h": 5475, "1h": 2920,  "30m": 365, "15m": 720, "5m": 180}
+    TF_INIT = {"1M": 3650, "1w": 1825, "1d": 730,  "8h": 730,  "4h": 365,  "2h": 365,  "1h": 365,   "30m": 90,  "15m": 60,  "5m": 30}
+    # 注意：TF_MAX 是「勝率計算」用的歷史深度，不是圖表顯示深度
+    # 5/15/30m 圖上不必看到太久以前，但統計需要足夠案例數（MIN_CASES=40 × 11 訊號 × 空/多）
+    TF_MAX  = {"1M": 7300, "1w": 7300, "1d": 7300, "8h": 5475, "4h": 5475, "2h": 4380, "1h": 2920,  "30m": 730, "15m": 720, "5m": 180}
 
     def _sufficient(r: dict) -> bool:
         """每個訊號的空/多案例數都達到 MIN_CASES"""
@@ -442,8 +466,8 @@ def get_crt_winrate(
     # 永遠達不到 MIN_CASES=40，doubling 會跑滿 4 次浪費 80% 時間）
     days_max  = TF_MAX.get(timeframe, 3650)
     # 已抓+enrich 的 df 另外快取（不含 buffer）→ 換 SL 緩衝等重算時免重抓（抓資料佔總時間 90%+）
-    df_key = f"crt_df1:{market}:{symbol}:{exchange}:{timeframe}"
-    df = cache.get(df_key, ttl=3600)
+    df_key = f"crt_df2:{market}:{symbol}:{exchange}:{timeframe}"
+    df = cache.get(df_key, ttl=10800)   # 3 小時（fetch + enrich 結果）
     if df is None:
         try:
             df = _fetch_df(days_max)

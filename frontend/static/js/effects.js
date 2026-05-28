@@ -500,6 +500,8 @@
     if (!items.length) return;
 
     e.preventDefault();
+    // 凍結 ticker 清單排序 3 秒，避免每 2 秒重排讓 ↑↓ 跳到不預期的位置
+    if (typeof window._markKbNav === "function") window._markKbNav();
 
     /* 空白鍵：直接跳到列表第一個標的 */
     if (e.key === " ") {

@@ -202,7 +202,7 @@ function syncTimeScales() {
     const d = new Date(time * 1000);
     const pad = n => String(n).padStart(2, "0");
     let timeStr;
-    if (["4h","1h","15m","5m"].includes(currentTF)) {
+    if (["8h","4h","2h","1h","30m","15m","5m"].includes(currentTF)) {
       timeStr = `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
     } else {
       timeStr = `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())}`;

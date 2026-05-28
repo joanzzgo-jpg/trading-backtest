@@ -845,13 +845,51 @@ html.perf-mode .tb-winrate.calculating .tb-wr-status { color: #FF6A1A; }
   cursor: pointer;
   flex-shrink: 0;
   margin-right: 2px;
-  transition: all .15s;
+  /* 顏色/邊框平滑漸變；不要 all（避免文字寬度變動造成跳動） */
+  transition: background .28s ease, border-color .28s ease, color .28s ease, box-shadow .28s ease;
   letter-spacing: .04em;
   position: relative;
   z-index: 2;
   min-width: 44px;
   white-space: nowrap;
+  overflow: hidden;   /* slide-out 不溢出 */
 }
+.tb-wr-toggle-inner {
+  display: inline-block;
+  position: relative;
+  transition: transform .25s cubic-bezier(.4,0,.2,1), opacity .22s ease;
+}
+.tb-wr-toggle-inner.tb-wr-slide-out {
+  position: absolute;
+  left: 7px; top: 4px;
+  transform: translateY(-140%);
+  opacity: 0;
+  pointer-events: none;
+}
+.tb-wr-toggle-inner.tb-wr-slide-in {
+  animation: tb-wr-slide-in .26s cubic-bezier(.4,0,.2,1);
+}
+@keyframes tb-wr-slide-in {
+  0%   { transform: translateY(140%); opacity: 0; }
+  60%  { opacity: 1; }
+  100% { transform: translateY(0);    opacity: 1; }
+}
+/* 點擊閃光 ring */
+.tb-wr-toggle.tb-wr-flash::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 8px;
+  pointer-events: none;
+  background: radial-gradient(circle, rgba(255,200,160,.55) 0%, transparent 65%);
+  animation: tb-wr-flash-pulse .35s ease-out forwards;
+}
+@keyframes tb-wr-flash-pulse {
+  0%   { opacity: 0; transform: scale(.7); }
+  45%  { opacity: 1; transform: scale(1.0); }
+  100% { opacity: 0; transform: scale(1.35); }
+}
+.tb-wr-toggle:active { transform: scale(.96); }
 .tb-wr-toggle:hover {
   color: #FFD8B0;
   border-color: rgba(255,180,120,.6);
@@ -4939,6 +4977,7 @@ html.perf-mode .charts-container { background: #FFFFFF !important; }
    游標鎖定：任何狀況、任何元素都用魔法棒游標
    — 用 :is(*) :where() :hover :focus :active 全狀態 + 偽元素全覆寫
    ═══════════════════════════════════════════════════════════ */
+html, body,
 *,
 *::before,
 *::after,
@@ -4953,7 +4992,13 @@ html.perf-mode .charts-container { background: #FFFFFF !important; }
 /* 內建特殊游標的元素（input/textarea/range/help）也要強制覆蓋 */
 input, textarea, select, button, a, label,
 [draggable], [contenteditable],
-::-webkit-resizer, ::-webkit-scrollbar {
+canvas, svg, iframe, embed, object,
+::-webkit-resizer, ::-webkit-scrollbar, ::-webkit-scrollbar-thumb {
+  cursor: url('/static/img/cursor-wand.png') 27 27, auto !important;
+}
+/* LWT 圖表 canvas / 內部容器（拖移時 LWT 會 inline 改 cursor）一律強制 */
+.charts-container, .charts-container *, .pane, .pane *,
+.tv-lightweight-charts, .tv-lightweight-charts * {
   cursor: url('/static/img/cursor-wand.png') 27 27, auto !important;
 }
 

@@ -22,6 +22,10 @@ async function loadData(autoLoad = false) {
   }, 5000);
 
   showLoading(true);
+  // 智慧並行：Pionex 獨有標的（.P）ohlcv 走 Pionex API 較慢，提前發 winrate 省 2-6s；
+  // Binance 標的 ohlcv 已 <1s，提前發只會讓「計算中…」動畫多顯示 0.5s 反而看起來變慢
+  const _isPerpSym = /\.P$/i.test(document.getElementById("symbolInput").value.trim());
+  if (_isPerpSym) fetchWinRate();
   try {
     const res  = await fetch("/api/ohlcv", {
       method:"POST", headers:{"Content-Type":"application/json"},
@@ -42,16 +46,17 @@ async function loadData(autoLoad = false) {
     startRealtime();
     saveLastSymbol();   // 載入成功後記憶此次標的
     _updateStarBtn();
-    fetchWinRate();
+    if (!_isPerpSym) fetchWinRate();   // Binance 標的：照舊在 ohlcv 後跑
     _bgLoadOlderBars(); // 背景靜默載入更早的 K 棒
   } catch(e) {
-    if (e.name === "AbortError") {
-      // 被新請求取代或 30s 超時 — 不顯示 alert 避免擾民
-      if (myCtrl === _loadDataCtrl && !autoLoad) {
-        if (typeof showToast === "function") showToast("⏱ 載入超時（後端繁忙），請稍後重試");
-      }
+    console.error("[loadData] error:", e.name, e.message, e);   // 給 user 看實際錯誤類型
+    if (myCtrl !== _loadDataCtrl) {
+      // 靜默 — 新請求接手
     } else if (!autoLoad) {
-      alert("❌ " + e.message);
+      const isAbortLike = e.name === "AbortError" || /failed to fetch/i.test(e.message || "") || myCtrl.signal.aborted;
+      if (typeof showToast === "function") {
+        showToast(isAbortLike ? "⏱ 載入中斷，請再試一次" : ("❌ " + (e.message || "載入失敗")));
+      }
     }
     throw e;
   } finally {

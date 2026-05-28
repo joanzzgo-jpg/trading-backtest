@@ -43,6 +43,27 @@ let _tickerSort     = "desc";    // desc=漲幅 asc=跌幅 vol=成交量
 let _tickerTimer    = null;
 let _lastTickerKey  = "";        // 追蹤目前渲染的 ticker 結構，避免不必要的 DOM 重建
 let _lastPageTitle  = "";        // 快取上次 title，避免重複寫 DOM
+let _kbNavLockUntil = 0;         // 鍵盤導航凍結期：使用者用 ↑↓ 切標的時不重排清單，避免每 2 秒重排讓位置在腳下變動
+
+// 鍵盤導航時呼叫：凍結清單順序 3 秒，避免使用者按↓時清單在腳下重排
+function _markKbNav() { _kbNavLockUntil = Date.now() + 3000; }
+window._markKbNav = _markKbNav;
+
+// 排序 helper：鍵盤導航期間用上次的順序（透過 prevOrder 索引），其他時候照 _tickerSort 排
+function _sortTickerList(list) {
+  if (Date.now() < _kbNavLockUntil && _lastTickerKey) {
+    const prevOrder = _lastTickerKey.split("|").pop().split(",");
+    const idxMap = new Map(prevOrder.map((s, i) => [s, i]));
+    return [...list].sort((a, b) => {
+      const ia = idxMap.get(a.display || a.symbol);
+      const ib = idxMap.get(b.display || b.symbol);
+      return (ia ?? 9999) - (ib ?? 9999);
+    });
+  }
+  if (_tickerSort === "asc")      return [...list].sort((a, b) => a.change_pct - b.change_pct);
+  if (_tickerSort === "vol")      return [...list].sort((a, b) => b.volume - a.volume);
+  return [...list].sort((a, b) => b.change_pct - a.change_pct);
+}
 
 /* 只更新價格文字，不重建 DOM */
 function _syncTickerToChart() {
@@ -143,8 +164,8 @@ async function fetchTickers() {
         (t.name || "").toLowerCase().includes(search) ||
         t.symbol.toLowerCase().includes(search)
       );
-      if (_tickerSort === "asc")  list = [...list].reverse();
-      if (_tickerSort === "vol")  list = [...list].sort((a, b) => b.volume - a.volume);
+      // 顯式排序（鍵盤導航期間沿用上次順序，避免使用者按↓時清單在腳下重排）
+      list = _sortTickerList(list);
       const newKey = `${_tickerMkt}|${_tickerSort}|${search}|${list.map(t => t.display || t.symbol).join(",")}`;
       if (newKey === _lastTickerKey) {
         _updateTickerPrices();
@@ -366,8 +387,7 @@ function renderTickers() {
       t.symbol.includes(search) ||
       (t.name || "").toLowerCase().includes(search)
     );
-    if (_tickerSort === "asc")  list = [...list].reverse();
-    if (_tickerSort === "vol")  list = [...list].sort((a, b) => b.volume - a.volume);
+    list = _sortTickerList(list);
 
     container.innerHTML = list.map(t => {
       const cls       = t.change_pct >= 0 ? "up" : "dn";
@@ -425,8 +445,7 @@ function renderTickers() {
     t.symbol.toLowerCase().includes(search) ||
     t.symbol.toLowerCase().replace("usdt","").includes(search)
   );
-  if (_tickerSort === "asc") list = [...list].reverse();
-  else if (_tickerSort === "vol") list = [...list].sort((a, b) => b.volume - a.volume);
+  list = _sortTickerList(list);
 
   container.innerHTML = list.map(t => {
     const cls    = t.change_pct >= 0 ? "up" : "dn";
