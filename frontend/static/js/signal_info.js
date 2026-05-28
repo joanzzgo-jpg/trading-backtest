@@ -126,6 +126,26 @@
       target: "BB 中軌 / BB 上下軌 / 1:1（止盈距離=止損距離）",
       notes: ["S4 純淨版的放寬版本，A 棒多了 CRT 要求，C 棒不再強制無 CRT"],
     },
+    s12: {
+      name: "訊號十二 S12",
+      subtitle: "10 K 棒視窗：超賣/超買 → 金叉/死叉",
+      icon: "❖",
+      color: "#ffab91",
+      gist: "10 根 K 棒視窗內，<b>共振（超賣/超買）必須先於或同時於 KDJ 叉</b>，且 KDJ 叉棒不可碰中軌。S12 <b>不計入</b>總勝率合計，僅獨立顯示。",
+      patterns: [
+        { dir: "做空（cross 棒 i）", cond: "KDJ 死叉（cross = -1），且過去 10 根（含當棒）內存在 共振 = -1（超買）" },
+        { dir: "做多（cross 棒 i）", cond: "KDJ 金叉（cross = +1），且過去 10 根（含當棒）內存在 共振 = +1（超賣）" },
+      ],
+      excludes: ["KDJ 叉棒影線已碰中軌（短：low ≤ 中軌；多：high ≥ 中軌）"],
+      entry: "KDJ 叉棒下一根開盤（i+1）",
+      stop:  "10 棒視窗內最高（空）／最低（多） × (1 ± SL buffer)",
+      target: "BB 中軌 / BB 上下軌 / 1:1（止盈距離=止損距離）",
+      notes: [
+        "共振先表態 → 隨後出現金叉/死叉確認反轉",
+        "視窗式掃描：連續同方向 cross 只計第一筆，避免重複",
+        "<b>不計入</b>總勝率合計，僅作參考",
+      ],
+    },
     s11: {
       name: "訊號十一 S11",
       subtitle: "ABCD 四棒純淨：A純超買/賣、BC全無、D純KDJ叉",
@@ -216,7 +236,7 @@
   };
 
   // signals 列表中 s.k 用「3/4/5/6/7」（無 s 前綴），需要對應
-  const _S_KEY_MAP = { abc: "abc", ab: "ab", s3: "3", s4: "4", s5: "5", s6: "6", s7: "7", s8: "8", s9: "9", s10: "10", s11: "11" };
+  const _S_KEY_MAP = { abc: "abc", ab: "ab", s3: "3", s4: "4", s5: "5", s6: "6", s7: "7", s8: "8", s9: "9", s10: "10", s11: "11", s12: "12" };
 
   const $ = id => document.getElementById(id);
 
@@ -659,14 +679,52 @@
 
   let _currentKey = null;
 
+  // 隱藏的策略 marker key set（用 signal.k 的格式："abc"/"ab"/"3".."12"）
+  window._hiddenWrSigs = window._hiddenWrSigs || new Set();
+  try {
+    const saved = JSON.parse(localStorage.getItem("wrHiddenSigs") || "[]");
+    saved.forEach(k => window._hiddenWrSigs.add(k));
+  } catch (e) {}
+
   function init() {
+    // 還原雙擊隱藏的視覺狀態
     document.querySelectorAll(".tb-wr-block[data-sig]").forEach(blk => {
-      blk.addEventListener("click", () => {
-        const k = blk.dataset.sig;
-        if (!k) return;
-        // 同一個再點一次 = 關閉
-        if (_currentKey === k && !$("signalDrawer")?.classList.contains("hidden")) _hide();
-        else _show(k);
+      const k = _S_KEY_MAP[blk.dataset.sig];
+      if (k && window._hiddenWrSigs.has(k)) blk.classList.add("sig-hidden");
+    });
+
+    document.querySelectorAll(".tb-wr-block[data-sig]").forEach(blk => {
+      let _clickTimer = null;
+      let _lastTs = 0;
+      const DBL_MS = 350;
+      blk.addEventListener("click", (e) => {
+        const now = Date.now();
+        if (now - _lastTs < DBL_MS) {
+          // 視為雙擊 — 取消單擊計時器並 toggle 隱藏
+          if (_clickTimer) { clearTimeout(_clickTimer); _clickTimer = null; }
+          _lastTs = 0;
+          const sig = blk.dataset.sig;
+          const k = _S_KEY_MAP[sig];
+          if (!k) return;
+          if (window._hiddenWrSigs.has(k)) {
+            window._hiddenWrSigs.delete(k);
+            blk.classList.remove("sig-hidden");
+          } else {
+            window._hiddenWrSigs.add(k);
+            blk.classList.add("sig-hidden");
+          }
+          try { localStorage.setItem("wrHiddenSigs", JSON.stringify([...window._hiddenWrSigs])); } catch (er) {}
+          if (typeof _renderWRSignals === "function") _renderWRSignals();
+          return;
+        }
+        _lastTs = now;
+        _clickTimer = setTimeout(() => {
+          _clickTimer = null; _lastTs = 0;
+          const k = blk.dataset.sig;
+          if (!k) return;
+          if (_currentKey === k && !$("signalDrawer")?.classList.contains("hidden")) _hide();
+          else _show(k);
+        }, DBL_MS);
       });
     });
 

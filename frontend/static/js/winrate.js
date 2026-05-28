@@ -421,9 +421,12 @@ async function _fetchWinRateNow() {
 function _renderWRSignals(signals) {
   if (signals !== undefined) _lastWRSignals = signals || [];
   // 強化版時只顯示 s.v=true 的訊號
-  const list = _wrVariantView === "variant"
+  let list = _wrVariantView === "variant"
     ? _lastWRSignals.filter(s => s.v)
     : _lastWRSignals;
+  // 雙擊隱藏的策略 marker 過濾掉
+  const _hidden = window._hiddenWrSigs;
+  if (_hidden && _hidden.size) list = list.filter(s => !_hidden.has(s.k));
   // 用 _secToIdx Map（O(1)）取代每次重建 Set（O(n)）
   const hasIdx = (typeof _secToIdx !== "undefined" && _secToIdx.size > 0);
   const chartTimeSet = hasIdx ? null : new Set(ohlcvData.map(d => toTime(d.time)));
@@ -454,7 +457,8 @@ function _renderWRSignals(signals) {
                  : k === "8"   ? (isShort ? "#f06292" : "#f48fb1")
                  : k === "9"   ? (isShort ? "#fff176" : "#fff59d")
                  : k === "10"  ? (isShort ? "#90caf9" : "#bbdefb")
-                 :                (isShort ? "#aed581" : "#c5e1a5");  // k=11
+                 : k === "11"  ? (isShort ? "#aed581" : "#c5e1a5")
+                 :                (isShort ? "#ffab91" : "#ffccbc");  // k=12
     const eShape = k === "abc" ? "circle"
                  : k === "ab"  ? "square"
                  :                (isShort ? "arrowDown" : "arrowUp");
@@ -468,7 +472,8 @@ function _renderWRSignals(signals) {
                  : k === "8"   ? (isShort ? "空⁸" : "多⁸")
                  : k === "9"   ? (isShort ? "空⁹" : "多⁹")
                  : k === "10"  ? (isShort ? "空¹⁰" : "多¹⁰")
-                 :                (isShort ? "空¹¹" : "多¹¹");
+                 : k === "11"  ? (isShort ? "空¹¹" : "多¹¹")
+                 :                (isShort ? "空¹²" : "多¹²");
     allMarkers.push({
       time: et, position: isShort ? "aboveBar" : "belowBar",
       color: eColor, shape: eShape, size: 1.2, text: eText,
@@ -527,7 +532,7 @@ function _renderWinRate(d) {
     const good = s.win_rate >= 60, bad = s.win_rate < 45;
     const losses = s.losses ?? (s.total - s.wins);
     el.className = `tb-wr-v${good ? " good" : bad ? " bad" : ""}`;
-    el.innerHTML = `<i class="tb-wr-arr ${dir}">${arrow}</i><span class="tb-wr-pct">${s.win_rate}%</span><span class="tb-wr-cnt">${s.wins}/${losses}</span>`;
+    el.innerHTML = `<i class="tb-wr-arr ${dir}">${arrow}</i><span class="tb-wr-pct">${s.win_rate}%</span><span class="tb-wr-cnt">${s.wins}勝${losses}負</span>`;
     el.title = `${s.wins}勝 ${losses}負 共${s.total}筆`;
   };
 
@@ -553,6 +558,8 @@ function _renderWinRate(d) {
   setRow("wrS10L", d.s10?.long);
   setRow("wrS11S", d.s11?.short);
   setRow("wrS11L", d.s11?.long);
+  setRow("wrS12S", d.s12?.short);
+  setRow("wrS12L", d.s12?.long);
 
   const sa = document.getElementById("wrAll");
   if (sa) {
@@ -613,19 +620,19 @@ function _renderWinRate(d) {
 /* ══════════════════════════════════════════
    勝率欄上方 TOP 3 列：當前標的最高勝率前 3 個 (sig × dir) + 合計（dedupe）
 ══════════════════════════════════════════ */
-const _SIG_KEYS = ["abc", "ab", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11"];
+const _SIG_KEYS = ["abc", "ab", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11", "s12"];
 const _SIG_LABEL = {
   abc:"S1", ab:"S2", s3:"S3", s4:"S4", s5:"S5",
-  s6:"S6", s7:"S7", s8:"S8", s9:"S9", s10:"S10", s11:"S11",
+  s6:"S6", s7:"S7", s8:"S8", s9:"S9", s10:"S10", s11:"S11", s12:"S12",
 };
 const _SIG_ICON = {
   abc:"●", ab:"■", s3:"▲", s4:"◆", s5:"★",
-  s6:"◇", s7:"⬢", s8:"⬡", s9:"✦", s10:"✪", s11:"✸",
+  s6:"◇", s7:"⬢", s8:"⬡", s9:"✦", s10:"✪", s11:"✸", s12:"❖",
 };
 // signal.k 對應到 stat key（去掉 s 前綴的 3-10）
 const _STATKEY_TO_SIGK = {
   abc:"abc", ab:"ab", s3:"3", s4:"4", s5:"5",
-  s6:"6", s7:"7", s8:"8", s9:"9", s10:"10", s11:"11",
+  s6:"6", s7:"7", s8:"8", s9:"9", s10:"10", s11:"11", s12:"12",
 };
 
 function _renderWrTop3() {

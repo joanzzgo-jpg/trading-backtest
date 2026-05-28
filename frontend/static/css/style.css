@@ -138,6 +138,7 @@ html.perf-mode .wr-s6  { color: #3949AB; }
 html.perf-mode .wr-s7  { color: #0097A7; }
 html.perf-mode .wr-s8  { color: #C2185B; }
 html.perf-mode .wr-s9  { color: #F57F17; }
+html.perf-mode .wr-s12 { color: #E65100; }
 html.perf-mode .tb-wr-pct { color: #1F1F1F; }
 html.perf-mode .tb-wr-v.good .tb-wr-pct { color: #16a34a; text-shadow: none; }
 html.perf-mode .tb-wr-v.bad  .tb-wr-pct { color: #dc2626; text-shadow: none; }
@@ -679,8 +680,8 @@ html, body {
 .tb-wr-scroll::-webkit-scrollbar { display: none; }
 /* 滾動區左右各加 1px 暗影遮罩，暗示「可滾動」 */
 .tb-wr-scroll {
-  mask-image: linear-gradient(90deg, transparent 0%, #000 4%, #000 96%, transparent 100%);
-  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 4%, #000 96%, transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0%, #000 2%, #000 99%, transparent 100%);
+  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 2%, #000 99%, transparent 100%);
 }
 
 /* 計算中 overlay：橘子熊 + 文字 */
@@ -1047,6 +1048,21 @@ html.perf-mode .tb-wr-buffer-pct { color: #8B8B8B; }
 .tb-wr-block[data-sig="s9"]::after  { content: "9"; }
 .tb-wr-block[data-sig="s10"]::after { content: "10"; }
 .tb-wr-block[data-sig="s11"]::after { content: "11"; }
+.tb-wr-block[data-sig="s12"]::after { content: "12"; }
+
+/* 雙擊隱藏的策略 — 主圖不顯示其 marker；block 縮小到剩 icon（標籤）+ 浮水印 */
+.tb-wr-block.sig-hidden { opacity: 0.55; padding: 0 4px !important; min-width: 0 !important; }
+.tb-wr-block.sig-hidden .tb-wr-vals { display: none !important; }
+.tb-wr-block.sig-hidden .tb-wr-icon { filter: grayscale(1) brightness(0.85); }
+/* 隱藏時所有 block 都顯示浮水印（覆蓋奇數隱藏規則） */
+.tb-wr-block.sig-hidden::after {
+  display: inline !important;
+  font-size: 18px !important;
+  position: static !important;
+  transform: none !important;
+  color: rgba(255, 200, 160, 0.55) !important;
+  margin-left: 2px;
+}
 
 /* 只顯示 2 的倍數 — 奇數策略（1/3/5/7/9/11）浮水印隱藏 */
 .tb-wr-block[data-sig="abc"]::after,
@@ -1150,7 +1166,7 @@ html.perf-mode .tk-seg {
     inset 0 0 0 1px rgba(0, 0, 0, 0.05) !important;
 }
 .wr-abc, .wr-ab, .wr-s3, .wr-s4, .wr-s5, .wr-s6,
-.wr-s7, .wr-s8, .wr-s9, .wr-s10, .wr-s11 {
+.wr-s7, .wr-s8, .wr-s9, .wr-s10, .wr-s11, .wr-s12 {
   color: #C48560;     /* 暖橘 accent — 單一色，明顯降飽和（無螢光）*/
 }
 .tb-wr-block:hover .tb-wr-icon { opacity: 1; }
@@ -1194,8 +1210,8 @@ html.perf-mode .tk-seg {
 /* good/bad：適度飽和、不發光 */
 .tb-wr-v.good .tb-wr-pct { color: #8fcba6; text-shadow: none; }
 .tb-wr-v.bad  .tb-wr-pct { color: #d49595; text-shadow: none; }
-/* 勝/負數冗餘訊息隱藏（hover 才看符號夠了；如需顯示請改 inline-block）*/
-.tb-wr-cnt { display: none; }
+/* 筆數（每訊號空/多總筆數）顯示在勝率右側 */
+.tb-wr-cnt { display: inline-block; margin-left: 3px; opacity: 0.6; }
 
 /* 訊號間分隔線 — Apple HUD 改用 pill spacing 區隔，divider 隱藏 */
 .tb-wr-divider { display: none !important; }
@@ -3641,6 +3657,8 @@ html.perf-mode .tb-wr-recent.bad  { color: #dc2626; }
 
 .wr-s10 { color: #C48560; }   /* 簡單美學：統一柔和暖橘 */
 html.perf-mode .wr-s10 { color: #FF6A1A; }
+.wr-s12 { color: #C48560; }   /* 簡單美學：統一柔和暖橘 */
+html.perf-mode .wr-s12 { color: #FF6A1A; }
 
 .sig-stat-streak {
   margin-left: 6px;
@@ -3737,6 +3755,24 @@ html.perf-mode .wr-cond-i b { color: #E85A1A; }
 html.perf-mode .wr-cond-i.bad  b { color: #dc2626; }
 html.perf-mode .wr-cond-i.good b { color: #16a34a; }
 html.perf-mode .wr-cond-i small { color: #8B8B8B; }
+
+/* S12 特別敗後停手（顯示在敗後停手右邊）*/
+.wr-byzantine {
+  color: #c9cdd6;
+  font-family: 'SF Mono','Courier New',monospace;
+  margin-left: 6px;
+  padding: 0 4px;
+  border-left: 1px solid rgba(255,180,120,.24);
+}
+.wr-byzantine b { font-weight: 800; color: #FFB178; margin-left: 2px; }
+.wr-byzantine.bad  b { color: #ef5350; }
+.wr-byzantine.good b { color: #26a69a; }
+.wr-byzantine small { color: var(--muted); font-size: 9px; margin-left: 1px; }
+html.perf-mode .wr-byzantine b { color: #E85A1A; }
+html.perf-mode .wr-byzantine.bad  b { color: #dc2626; }
+html.perf-mode .wr-byzantine.good b { color: #16a34a; }
+html.perf-mode .wr-byzantine small { color: #8B8B8B; }
+html.perf-mode .wr-byzantine { border-left-color: #FFCC80; }
 html.perf-mode .wr-streak-btn { color: #8B6B4A; background: #FFF3E0; border-color: #FFCC80; }
 html.perf-mode .wr-streak-btn.on { color: #E85A1A; border-color: #FFB74D; }
 
@@ -4113,6 +4149,7 @@ html.perf-mode .ticker-hd { background: #FFFFFF !important; }
 .wr-s9  { color: #d4c060 !important; }   /* S9 米金（不再鮮黃） */
 .wr-s10 { color: #7298b8 !important; }   /* S10 退飽和藍 */
 .wr-s11 { color: #94b870 !important; }   /* S11 鼠尾草綠 */
+.wr-s12 { color: #d89270 !important; }   /* S12 焦糖橙 */
 
 /* Icon 加大 + 柔和 glow（不再硬光） */
 .tb-wr-icon {
@@ -5083,7 +5120,7 @@ body, button, input, select, textarea,
   font-weight: 400 !important;
   font-family: -apple-system, "SF Pro Text", "Helvetica Neue", "PingFang TC", system-ui, sans-serif !important;
   font-variant-numeric: tabular-nums !important;
-  color: rgba(228,218,206,.45) !important;
+  color: rgba(228,218,206,.78) !important;
   letter-spacing: 0 !important;
   margin-left: 6px !important;
 }
@@ -5092,7 +5129,7 @@ body, button, input, select, textarea,
   font-weight: 400 !important;
   font-family: -apple-system, "SF Pro Text", "Helvetica Neue", "PingFang TC", system-ui, sans-serif !important;
   font-variant-numeric: tabular-nums !important;
-  color: rgba(228,218,206,.45) !important;
+  color: rgba(228,218,206,.78) !important;
   letter-spacing: 0 !important;
   margin-left: 4px !important;
 }

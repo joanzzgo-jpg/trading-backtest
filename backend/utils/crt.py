@@ -187,7 +187,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
 
     # ── 計數器：mid_cnt[k] = [ws, ls, wl, ll]；band_cnt 同結構 ──
     # 同時為「強化版」（_v）建一份，只計入 macd_hist 方向一致的訊號
-    SIG_KEYS = ["abc", "ab", "3", "4", "5", "6", "7", "8", "9", "10", "11"]
+    SIG_KEYS = ["abc", "ab", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"]
     mid_cnt   = {k: [0, 0, 0, 0] for k in SIG_KEYS}
     band_cnt  = {k: [0, 0, 0, 0] for k in SIG_KEYS}
     mid_cnt_v = {k: [0, 0, 0, 0] for k in SIG_KEYS}
@@ -217,9 +217,9 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
     recent:  list = []
     signals: list = []
 
-    # 連續去重：S9 / S10 因為是「視窗式掃描」，連續多根 K 棒會重複觸發同個 setup
+    # 連續去重：S9 / S10 / S12 因為是「視窗式掃描」，連續多根 K 棒會重複觸發同個 setup
     # → 只計第一筆（連續同方向 entry_i 相差 1 視為延續）
-    _DEDUP_SIG_KEYS = {"9", "10"}
+    _DEDUP_SIG_KEYS = {"9", "10", "12"}
     _last_entry_per_kd = {}   # (sig_key, direction) → 最後一次 entry_i（push 與 skip 都更新）
 
     def _bump(counters, sig_key, direction, outcome):
@@ -670,12 +670,63 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             _push_signal(sig_time, d_str, "11", direction, entry_i, float(stop_px),
                          om, otm, omj, ob, otb, obj)
 
+    # ── 訊號十二 S12（10 K 棒視窗：res + cross；不計入總勝率） ──
+    # 短：cross[i] == -1（死叉）+ 過去 10 棒內（含 i）有 res == -1（超買）
+    #     + 訊號棒（cross 棒）不可碰中軌（low > bbm）
+    #     + 共振 K 與 cross K「之間」每根都不能有任何指標（crt=0, cross=0, res=0）
+    # 多：對稱（cross == 1 金叉、res == 1 超賣、high < bbm）
+    # 邏輯：超賣（共振）先表態 → 中間 K 棒安靜醞釀 → 出現金叉（且未碰中軌）→ 入場
+    WIN_S12 = 10
+    if n >= 2:
+        for i in range(n - 1):
+            c_i = int(cross[i])
+            if c_i not in (-1, 1):
+                continue
+            direction = "short" if c_i == -1 else "long"
+            if long_only and direction == "short":
+                continue
+            # 從 i 往前找最近一根同方向 res 的位置（含 i 自己）
+            lo_j = max(0, i - WIN_S12 + 1)
+            res_idx = -1
+            for j in range(i, lo_j - 1, -1):
+                if res[j] == c_i:
+                    res_idx = j
+                    break
+            if res_idx < 0:
+                continue
+            # res K 與 cross K「之間」每根都不可有任何指標
+            if res_idx < i - 1:
+                if (np.any(crt[res_idx+1:i] != 0)
+                    or np.any(cross[res_idx+1:i] != 0)
+                    or np.any(res[res_idx+1:i] != 0)):
+                    continue
+            # cross 棒（訊號棒）不可碰中軌
+            bbm_i = bb_mid[i]
+            if math.isnan(bbm_i):
+                continue
+            if direction == "short":
+                if lows[i] <= bbm_i:
+                    continue
+                stop_px = _stop(float(np.max(highs[res_idx:i+1])), direction)
+            else:
+                if highs[i] >= bbm_i:
+                    continue
+                stop_px = _stop(float(np.min(lows[res_idx:i+1])), direction)
+            d_str = "s" if direction == "short" else "l"
+            sig_time = times_iso[i]
+            entry_i = i + 1
+            om, otm, omj, ob, otb, obj = _scan_dual(entry_i, float(stop_px), direction)
+            _push_signal(sig_time, d_str, "12", direction, entry_i, float(stop_px),
+                         om, otm, omj, ob, otb, obj)
+
     # ── _solve 精簡模式：只跑「敗後停手」模擬後直接回傳（省下全部統計） ──
     #    與完整版 _build_combined(use_band, only_variant, est=False) + stop_strategy 一致
     if _solve is not None:
         _target, _only_v = _solve
         _rk = {"mid": "r", "band": "r_b", "rr": "r_rr"}[_target]
         _seen = set(); _seq = []
+        # S12 insertion order 排在 S11 之後 → 穩定排序下，同 t 上其他策略會先入 _seen，
+        # S12 只在「(t,d) 不與其他策略重疊」時才進入敗後停手序列
         for s in sorted(signals, key=lambda x: x["t"]):
             if s["k"] == "abc":
                 continue
@@ -790,7 +841,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         per_sig_v = None
         if cnt_v is not None and (is_rr or rr_cnt_v is not None):
             per_sig_v = {k: _mk_v(v, k) for k, v in cnt_v.items()}
-        # 訊號一不計入合計
+        # 訊號一、十二 不計入合計
         _AGG = ("ab", "3", "4", "5", "6", "7", "8", "9", "10", "11")
         wins_s   = sum(cnt[k][0] for k in _AGG)
         losses_s = sum(cnt[k][1] for k in _AGG)
@@ -815,6 +866,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             "s9":       per_sig["9"],
             "s10":      per_sig["10"],
             "s11":      per_sig["11"],
+            "s12":      per_sig["12"],
         }
         if est is not None:
             out.update(_est_stats_dict(est))
@@ -843,6 +895,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                 "s9":       per_sig_v["9"],
                 "s10":      per_sig_v["10"],
                 "s11":      per_sig_v["11"],
+                "s12":      per_sig_v["12"],
             }
             if est_v is not None:
                 out["variant"].update(_est_stats_dict(est_v))
@@ -855,7 +908,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         m = [0, 0, 0, 0]; b = [0, 0, 0, 0]; rr = [0, 0, 0, 0]
         em = [0, 0, 0, 0]; eb = [0, 0, 0, 0]
         for s in signals:
-            if s["k"] == "abc":   # S1 不計入總勝率
+            if s["k"] == "abc":   # S1 不計入總勝率；S12 計入（但與其他策略重疊處由 (t,d) dedup 自然丟棄）
                 continue
             if filter_variant and not s.get("v"):
                 continue
@@ -938,6 +991,8 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             return _hit
         rk = _RKEY_EST[target] if est else _RKEY[target]
         seen = set(); seq = []
+        # S12 排在 signals 列表最後 push → 穩定排序下，(t,d) 與其他策略重疊時其他先入 seen，
+        # S12 只在「獨有進場點」才會進入合併時間軸（敗後停手 / 連敗條件統計都用這個）
         for s in signals_sorted:
             if s["k"] == "abc":
                 continue
@@ -1037,6 +1092,56 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
     stop_band_v = _calc_stop_strategy(target="band", only_variant=True)
     stop_rr_v   = _calc_stop_strategy(target="rr",   only_variant=True)
 
+    # S12 敗後停手：只算 S12 自己的訊號，套用標準敗後停手規則
+    #   敗 → 該方向停手；解除條件：任一 S12 勝出（同向實際勝、同向紙上勝、反向勝皆觸發）
+    def _calc_s12_stop_plus(target, only_variant=False):
+        rkey = _RKEY[target]
+        seen = set(); seq = []
+        for s in signals_sorted:
+            if s["k"] != "12":
+                continue
+            if only_variant and not s.get("v"):
+                continue
+            key = (s["t"], s["d"])
+            if key in seen:
+                continue
+            seen.add(key)
+            r = s.get(rkey)
+            if r not in ("w", "l"):
+                continue
+            seq.append((s["d"], r))
+
+        active = {"s": True, "l": True}
+        w = {"s": 0, "l": 0}; ll_ = {"s": 0, "l": 0}
+        for d, r in seq:
+            if active[d]:
+                if r == "w":
+                    w[d] += 1
+                    active["s"] = True              # 任一 S12 勝出 → 解除所有方向停手
+                    active["l"] = True
+                else:
+                    ll_[d] += 1; active[d] = False
+            elif r == "w":                          # 停手中、紙上勝 → 解除所有方向停手
+                active["s"] = True
+                active["l"] = True
+
+        def _mk(dk):
+            t = w[dk] + ll_[dk]
+            return {"total": t, "wins": w[dk], "losses": ll_[dk],
+                    "win_rate": round(w[dk] / t * 100, 1) if t else None}
+        sr = _mk("s"); lr = _mk("l")
+        tot = sr["total"] + lr["total"]; win = sr["wins"] + lr["wins"]
+        return {"short": sr, "long": lr, "total": tot, "wins": win,
+                "win_rate": round(win / tot * 100, 1) if tot else None}
+
+    byz_mid    = _calc_s12_stop_plus("mid",  only_variant=False)
+    byz_band   = _calc_s12_stop_plus("band", only_variant=False)
+    byz_rr     = _calc_s12_stop_plus("rr",   only_variant=False)
+    byz_mid_v  = _calc_s12_stop_plus("mid",  only_variant=True)
+    byz_band_v = _calc_s12_stop_plus("band", only_variant=True)
+    byz_rr_v   = _calc_s12_stop_plus("rr",   only_variant=True)
+
+
     def _dedup_total_dict(arr, cond=None):
         sw, sl, lw, ll = arr
         t = sw + sl + lw + ll
@@ -1078,6 +1183,15 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         band_out["variant"]["max_loss_streak"] = _all_max_streak(streak_band_v)
     if "variant" in rr_out:
         rr_out["variant"]["max_loss_streak"]   = _all_max_streak(streak_rr_v)
+
+    # 拜占庭手：寫在每個 target 頂層，供前端在「敗後停手」按鈕右側顯示
+    mid_out["byzantine"]  = byz_mid
+    band_out["byzantine"] = byz_band
+    rr_out["byzantine"]   = byz_rr
+    if "variant" in mid_out:  mid_out["variant"]["byzantine"]  = byz_mid_v
+    if "variant" in band_out: band_out["variant"]["byzantine"] = byz_band_v
+    if "variant" in rr_out:   rr_out["variant"]["byzantine"]   = byz_rr_v
+
 
     # 把 dedup 後的合計覆寫到 mid_out / band_out / rr_out 的頂層（含條件連續機率 cond + 停手策略）
     mid_out.update(_dedup_total_dict(dedup_m, cond_tot_mid))

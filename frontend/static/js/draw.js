@@ -1260,11 +1260,6 @@ function _darkenForChart(hex) {
   return `#${toHex(R)}${toHex(G)}${toHex(B)}`;
 }
 
-// 主圖背景套用：picker 任何色都會經 _darkenForChart 強制變暗
-// 三層 background：
-//   ① 右上角 radial — 圓弧化拐角，視覺上「包覆」主圖右上
-//   ② 右側水平淡入 var(--bg) 過渡到合約行情面板
-//   ③ 上下垂直淡入 var(--bg)（user color 在中間）
 function _applyChartBgGradient(color) {
   const pane = document.getElementById("mainPane");
   if (!pane) return;
