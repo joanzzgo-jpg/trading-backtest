@@ -989,10 +989,15 @@ const SFX = (() => {
   }
 
   /* ── 太陽 / 月亮弧線 ── */
-  /* 隕石坑相對座標 [fx, fy, 半徑比] */
-  const _MOON_CRATERS = [
-    [-.30,-.30,.16],[.28,.10,.20],[.04,.42,.12],[-.18,.34,.095],
-    [.40,-.28,.10],[-.46,.10,.08],[.16,-.14,.07],[-.06,-.02,.06],
+  /* 真實月面：月海(maria) 大片不規則暗斑 [fx,fy,rx,ry,暗度]（近側月海近似位置，非對稱） */
+  const _MOON_MARIA = [
+    [-.38,-.34,.30,.26,.26],[-.02,-.40,.19,.17,.20],[ .22,-.15,.22,.21,.24],
+    [ .50,-.27,.12,.12,.22],[-.50, .05,.20,.33,.21],[-.20, .34,.21,.15,.19],
+  ];
+  /* 散布的小隕石坑 [fx,fy,半徑比]（小、散、不對稱）*/
+  const _MOON_CRA = [
+    [-.14,-.06,.055],[.34,.30,.05],[-.40,-.10,.045],[.08,.50,.05],
+    [ .42,.12,.035],[-.28,.16,.03],[.18,.40,.028],
   ];
   function _drawMoonPhase(cx, cy, R, phase) {
     const DARK = 'rgba(12,16,34,0.97)';
@@ -1022,11 +1027,19 @@ const SFX = (() => {
       if (phase < 0.5) ctx.rect(cx, cy-R, R, 2*R); else ctx.rect(cx-R, cy-R, R, 2*R);
       ctx.clip();
     }
-    _MOON_CRATERS.forEach(([fx,fy,fr]) => {
+    // 月海：大片柔邊暗灰斑（橢圓，用 translate+scale 壓扁圓形漸層）→ 真實月面感、非臉譜
+    _MOON_MARIA.forEach(([fx,fy,rx,ry,d]) => {
+      const x=cx+fx*R, y=cy+fy*R, rr=rx*R;
+      const g=ctx.createRadialGradient(0,0,0,0,0,rr);
+      g.addColorStop(0,`rgba(98,106,126,${d})`); g.addColorStop(.65,`rgba(106,114,132,${(d*.6).toFixed(3)})`); g.addColorStop(1,'rgba(106,114,132,0)');
+      ctx.save(); ctx.translate(x,y); ctx.scale(1, ry/rx); ctx.fillStyle=g;
+      ctx.beginPath(); ctx.arc(0,0,rr,0,Math.PI*2); ctx.fill(); ctx.restore();
+    });
+    // 小隕石坑：暗點 + 受光緣（小而散）
+    _MOON_CRA.forEach(([fx,fy,fr]) => {
       const x=cx+fx*R, y=cy+fy*R, r=fr*R;
-      ctx.fillStyle='rgba(150,162,184,.42)'; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle='rgba(116,130,156,.40)'; ctx.beginPath(); ctx.arc(x+r*.16,y+r*.18,r*.66,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle='rgba(253,251,244,.32)'; ctx.beginPath(); ctx.arc(x-r*.34,y-r*.34,r*.42,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='rgba(108,118,140,.40)'; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='rgba(252,250,244,.28)'; ctx.beginPath(); ctx.arc(x-r*.32,y-r*.32,r*.5,0,Math.PI*2); ctx.fill();
     });
     ctx.restore();
     // 整顆 limb darkening（邊緣再壓暗 → 更像球體）
@@ -1160,7 +1173,7 @@ const SFX = (() => {
         x: Math.random()*W,
         y: isCb ? H*(.10 + Math.random()*.16)        // 積雨雲底部偏低（塔身往上長）
                 : H*(.04 + (1-z)*.32 + Math.random()*.18),  // 遠雲偏高、近雲偏低
-        sc: (isCb ? scBase*(1.0+z*.6)+.04 : scBase*(.45+z*1.2)) + Math.random()*.04,  // 近大遠小（差距拉大）
+        sc: (isCb ? scBase*(.7+z*.45)+.02 : scBase*(.5+z*.7)) + Math.random()*.03,  // 近大遠小（縮小整體、保留景深）
         al: Math.min(.96, (isCb ? alBase*(.9+z*.5)+.10 : alBase*(.7+z*.7)) + Math.random()*.08),
         sp: (.03+Math.random()*.10)*wf*(.5+z),       // 近快遠慢（視差）
         shape: isCb ? 4 : Math.floor(Math.random()*4),
@@ -1179,6 +1192,21 @@ const SFX = (() => {
     petalP  = Array.from({length:38}, () => { const p=_newPetal(); p.y=Math.random()*H; return p; });
     mahjongP= Array.from({length:28}, () => { const p=_newMahjong(); p.y=Math.random()*H; return p; });
     shootTimer = 200+Math.floor(Math.random()*250);
+    // ── 天然災害狀態 ──
+    // 冰雹：帶景深，近大快、遠小慢
+    hailP = Array.from({length: Math.round(40+60*ri)}, () => {
+      const z = Math.random();
+      return { x:Math.random()*W, y:Math.random()*H, z, r:2+z*z*5, spd:7+z*z*15, a:.5+z*.45 };
+    }).sort((p,q)=>p.z-q.z);
+    hailSplash = [];
+    // 龍卷風：漏斗位置 + 旋轉碎屑
+    tornadoX = W*0.5;
+    tDebris = Array.from({length:48}, () => ({
+      h: Math.random(), ang: Math.random()*Math.PI*2,
+      spd: .10+Math.random()*.20, rise: .002+Math.random()*.004, sz: 1.4+Math.random()*3.2,
+    }));
+    // 地震：裂縫 / 落塵 / 計時
+    qCracks = []; qDust = []; quakeT = 0;
   }
 
   /* ── cloud puff layouts (relative to baseY = cy + h*0.35) ──
@@ -1574,6 +1602,115 @@ const SFX = (() => {
     ctx.fillStyle=_gc.thunderVg; ctx.fillRect(0,0,W,H);
   }
 
+  /* ══════════════ 天然災害 ══════════════ */
+
+  /* ── 冰雹：白色冰球高速砸落 + 落地彈跳濺起（帶景深）── */
+  function dHail(t) {
+    ctx.fillStyle="rgba(40,55,80,.20)"; ctx.fillRect(0,0,W,H);   // 陰沉天幕
+    const wDrift=_windDriftPx(), gndY=H*.94;
+    let blurOn=false;
+    hailP.forEach(p => {
+      if (p.z>0.9 && !blurOn) { ctx.shadowBlur=4; ctx.shadowColor="rgba(220,238,255,.6)"; blurOn=true; }  // 近景柔焦
+      ctx.fillStyle=`rgba(232,243,255,${p.a})`;
+      ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle=`rgba(255,255,255,${Math.min(1,p.a+.25)})`;       // 上方高光
+      ctx.beginPath(); ctx.arc(p.x-p.r*.32,p.y-p.r*.32,p.r*.42,0,Math.PI*2); ctx.fill();
+      p.y+=p.spd; p.x+=wDrift*(0.5+p.z);
+      if (p.y>gndY) {
+        if (p.z>0.45 && hailSplash.length<70)
+          for (let k=0;k<2;k++) hailSplash.push({x:p.x,y:gndY,r:p.r*.6,vx:(Math.random()-.5)*5,vy:-(2+Math.random()*4)*p.z,a:.8});
+        p.y=-p.r; p.x=Math.random()*W;
+      }
+    });
+    if (blurOn) ctx.shadowBlur=0;
+    for (let i=hailSplash.length-1;i>=0;i--){
+      const s=hailSplash[i];
+      ctx.fillStyle=`rgba(226,241,255,${s.a})`;
+      ctx.beginPath(); ctx.arc(s.x,s.y,s.r,0,Math.PI*2); ctx.fill();
+      s.x+=s.vx; s.y+=s.vy; s.vy+=.55; s.a-=.045;
+      if (s.a<=0||s.y>gndY+5) hailSplash.splice(i,1);
+    }
+    ctx.fillStyle="rgba(222,236,255,.05)"; ctx.fillRect(0,gndY,W,H-gndY);  // 地面薄白堆積
+  }
+
+  /* ── 龍卷風：旋轉漏斗雲 + 螺旋上升碎屑 + 底部塵爆（隨風水平移動）── */
+  function dTornado(t) {
+    ctx.fillStyle="rgba(42,44,56,.32)"; ctx.fillRect(0,0,W,H);     // 暗天幕
+    tornadoX += _windVecX()*0.5;                                   // 隨風緩慢橫移
+    if (tornadoX<W*0.2) tornadoX=W*0.2; if (tornadoX>W*0.8) tornadoX=W*0.8;
+    const xc=tornadoX, topY=H*0.05, botY=H*0.88, topR=W*0.15, botR=W*0.018;
+    const Rat=h=>topR+(botR-topR)*h, Yat=h=>topY+(botY-topY)*h;
+    const Xat=h=>xc+Math.sin(h*7+t*2.4)*Rat(h)*0.32;              // 漏斗本身的擺動
+    // 頂部風暴雲
+    ctx.save(); ctx.fillStyle="rgba(54,58,74,.62)";
+    ctx.beginPath(); ctx.ellipse(xc, topY+H*0.025, topR*1.5, H*0.06, 0,0,Math.PI*2); ctx.fill(); ctx.restore();
+    // 漏斗填色（兩側收斂）
+    ctx.beginPath();
+    for (let h=0;h<=1.0001;h+=0.05){ const x=Xat(h)-Rat(h)*0.5, y=Yat(h); h===0?ctx.moveTo(x,y):ctx.lineTo(x,y); }
+    for (let h=1;h>=-0.0001;h-=0.05){ ctx.lineTo(Xat(h)+Rat(h)*0.5, Yat(h)); }
+    ctx.closePath();
+    const fg=ctx.createLinearGradient(xc-topR,0,xc+topR,0);
+    fg.addColorStop(0,"rgba(70,74,90,.32)"); fg.addColorStop(.5,"rgba(124,128,144,.58)"); fg.addColorStop(1,"rgba(70,74,90,.32)");
+    ctx.fillStyle=fg; ctx.fill();
+    // 旋轉條帶（barber-pole）
+    ctx.lineCap="round";
+    for (let b=0;b<5;b++){
+      const phase=b/5*Math.PI*2;
+      ctx.strokeStyle=`rgba(158,162,178,${(.10+.05*b).toFixed(3)})`; ctx.lineWidth=2;
+      ctx.beginPath();
+      for (let h=0;h<=1.0001;h+=0.04){ const x=Xat(h)+Math.sin(h*9+t*3+phase)*Rat(h)*0.5, y=Yat(h); h===0?ctx.moveTo(x,y):ctx.lineTo(x,y); }
+      ctx.stroke();
+    }
+    // 螺旋上升碎屑
+    tDebris.forEach(d=>{
+      d.ang+=d.spd; d.h-=d.rise; if(d.h<0){ d.h=1; d.ang=Math.random()*Math.PI*2; }
+      const R=Rat(d.h), x=Xat(d.h)+Math.cos(d.ang)*R*0.55, y=Yat(d.h)+Math.sin(d.ang)*R*0.12;
+      ctx.fillStyle=Math.sin(d.ang)>0?"rgba(92,86,74,.85)":"rgba(60,56,50,.5)";   // 前側亮、後側暗
+      ctx.beginPath(); ctx.arc(x,y,d.sz,0,Math.PI*2); ctx.fill();
+    });
+    // 底部塵爆
+    ctx.save();
+    const dust=ctx.createRadialGradient(xc,botY,0,xc,botY,W*0.13);
+    dust.addColorStop(0,"rgba(122,112,96,.48)"); dust.addColorStop(1,"rgba(122,112,96,0)");
+    ctx.fillStyle=dust; ctx.beginPath(); ctx.ellipse(xc,botY,W*0.13,H*0.055,0,0,Math.PI*2); ctx.fill(); ctx.restore();
+  }
+
+  /* ── 地震：背景層震動 + 地面裂縫蔓延 + 落塵（不影響交易 UI）── */
+  function dQuake(t) {
+    quakeT += 1;
+    // 地震波：一陣一陣（強弱脈動）
+    const wave = Math.max(0, Math.sin(quakeT*0.04)) * (0.6+0.4*Math.abs(Math.sin(quakeT*0.27)));
+    const mag = wave*9, gndY=H*0.84;
+    ctx.fillStyle=`rgba(92,42,30,${(0.04+0.10*wave).toFixed(3)})`; ctx.fillRect(0,0,W,H);   // 紅褐警示脈動
+    ctx.save();
+    ctx.translate((Math.random()-.5)*mag, (Math.random()-.5)*mag);   // 只晃背景層（地面/裂縫/落塵）
+    ctx.fillStyle="rgba(45,38,32,.5)"; ctx.fillRect(-30,gndY,W+60,H-gndY+60);   // 地面帶
+    if (wave>0.5 && Math.random()<0.05 && qCracks.length<9) {        // 強震時偶爾新裂縫
+      let cx=Math.random()*W, cy=gndY; const seg=[[cx,cy]];
+      const n=4+Math.floor(Math.random()*4);
+      for(let i=0;i<n;i++){ cx+=(Math.random()-.5)*64; cy+=18+Math.random()*30; seg.push([cx,cy]); }
+      qCracks.push({pts:seg, a:1});
+    }
+    for(let i=qCracks.length-1;i>=0;i--){
+      const c=qCracks[i];
+      ctx.lineCap="round"; ctx.lineJoin="round";
+      ctx.strokeStyle=`rgba(18,14,12,${c.a})`; ctx.lineWidth=2.6;
+      ctx.beginPath(); ctx.moveTo(c.pts[0][0],c.pts[0][1]); c.pts.slice(1).forEach(([x,y])=>ctx.lineTo(x,y)); ctx.stroke();
+      ctx.strokeStyle=`rgba(132,66,44,${(c.a*0.5).toFixed(3)})`; ctx.lineWidth=1; ctx.stroke();   // 內側暖光
+      c.a-=0.004; if(c.a<=0) qCracks.splice(i,1);
+    }
+    if (wave>0.3 && qDust.length<90 && Math.random()<0.6)
+      qDust.push({x:Math.random()*W,y:-5,vx:(Math.random()-.5)*1.6,vy:1+Math.random()*2.2,a:.4+Math.random()*.4,r:.6+Math.random()*1.9});
+    for(let i=qDust.length-1;i>=0;i--){
+      const d=qDust[i];
+      ctx.fillStyle=`rgba(150,135,115,${d.a.toFixed(3)})`;
+      ctx.beginPath(); ctx.arc(d.x,d.y,d.r,0,Math.PI*2); ctx.fill();
+      d.x+=d.vx; d.y+=d.vy; d.a-=0.004;
+      if(d.y>H||d.a<=0) qDust.splice(i,1);
+    }
+    ctx.restore();
+  }
+
   /* ── 麻將牌飄落 ── */
   function dMahjong() {
     const len = mahjongP.length;
@@ -1766,7 +1903,7 @@ const SFX = (() => {
     ctx.clearRect(0,0,W,H);
     if (type === "off") return;  // 「無」模式：清空畫布即可，不畫任何特效
     const t=Date.now()*.001;
-    ({sunny:dSunny,night:dNight,cloudy:dCloudy,fog:dFog,rain:dRain,snow:dSnow,storm:dStorm,thunder:dThunder,mahjong:dMahjong,leaves:dLeaves,spring:dSpring,partly:dPartly,overcast:dOvercast,drizzle:dDrizzle,windy:dWindy})[type]?.(t);
+    ({sunny:dSunny,night:dNight,cloudy:dCloudy,fog:dFog,rain:dRain,snow:dSnow,storm:dStorm,thunder:dThunder,mahjong:dMahjong,leaves:dLeaves,spring:dSpring,partly:dPartly,overcast:dOvercast,drizzle:dDrizzle,windy:dWindy,hail:dHail,tornado:dTornado,quake:dQuake})[type]?.(t);
     _drawAstro(t);
     _tempTint();
   }
@@ -1838,7 +1975,7 @@ const SFX = (() => {
         const cInt = (d.cloud_cover || 0) / 100;
         _wd.intensity  = Math.max(0.3, pInt * 0.7 + cInt * 0.3);
         _autoType = d.weather_type || 'sunny';
-        const manualOn = ['leaf','rain','snow','spring','thunder','mahjong'].some(
+        const manualOn = ['leaf','rain','snow','spring','thunder','mahjong','hail','tornado','quake'].some(
           w => document.getElementById(w+'ToggleBtn')?.classList.contains(w+'-active')
         );
         // 首次進來：button 還沒高亮 → 嘗試從 localStorage 恢復；否則依 _autoType
@@ -1847,7 +1984,7 @@ const SFX = (() => {
       })
       .catch(() => {
         _autoType = 'sunny'; _wd.intensity = 0.5;
-        const manualOn = ['leaf','rain','snow','spring','thunder','mahjong'].some(
+        const manualOn = ['leaf','rain','snow','spring','thunder','mahjong','hail','tornado','quake'].some(
           w => document.getElementById(w+'ToggleBtn')?.classList.contains(w+'-active')
         );
         if (!manualOn && !window._restoreManualWxIfAny?.()) start('sunny');
@@ -1860,6 +1997,9 @@ const SFX = (() => {
     document.getElementById("springToggleBtn")  ?.classList.remove("spring-active");
     document.getElementById("thunderToggleBtn") ?.classList.remove("thunder-active");
     document.getElementById("mahjongToggleBtn") ?.classList.remove("mahjong-active");
+    document.getElementById("hailToggleBtn")    ?.classList.remove("hail-active");
+    document.getElementById("tornadoToggleBtn") ?.classList.remove("tornado-active");
+    document.getElementById("quakeToggleBtn")   ?.classList.remove("quake-active");
     document.getElementById("noFxToggleBtn")    ?.classList.remove("nofx-active");
   }
   window._getWeatherType = () => type;
@@ -1890,7 +2030,7 @@ const SFX = (() => {
   window._restoreManualWxIfAny = function() {
     const saved = _getManualWx();
     if (!saved) return false;
-    const valid = ["leaves","rain","snow","spring","thunder","mahjong","off"];
+    const valid = ["leaves","rain","snow","spring","thunder","mahjong","hail","tornado","quake","off"];
     if (!valid.includes(saved)) { _clearManualWx(); return false; }
     _applyManualWx(saved);
     return true;
@@ -1910,6 +2050,9 @@ const SFX = (() => {
   window._mahjongToggle = () => _toggleWx("mahjong");
   window._noFxToggle    = () => _toggleWx("off");
   window._thunderToggle = () => _toggleWx("thunder");
+  window._hailToggle    = () => _toggleWx("hail");
+  window._tornadoToggle = () => _toggleWx("tornado");
+  window._quakeToggle   = () => _toggleWx("quake");
 
   window.addEventListener("resize", resize);
   resize();
