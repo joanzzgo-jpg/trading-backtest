@@ -11,6 +11,7 @@ from data.us_stock import fetch_us_stock, MAX_DAYS as US_MAX_DAYS
 from data.us_finnhub import fetch_us_quote
 from data.crypto import fetch_crypto_ohlcv
 from utils.cache import cache, data_cache
+from utils import disk_cache
 from utils.data import enrich_df, df_to_records
 from utils.crt import _calc_crt_winrate
 
@@ -477,7 +478,12 @@ def get_crt_winrate(
     days_max  = TF_MAX.get(timeframe, 3650)
     # 已抓+enrich 的 df 另外快取（不含 buffer）→ 換 SL 緩衝等重算時免重抓（抓資料佔總時間 90%+）
     df_key = f"crt_df3:{market}:{symbol}:{exchange}:{timeframe}"
-    df = data_cache.get(df_key, ttl=10800)   # 3 小時（fetch + enrich 結果）
+    df = data_cache.get(df_key, ttl=10800)   # 3 小時（fetch + enrich 結果，記憶體）
+    if df is None:
+        # 記憶體 miss → 試磁碟（跨重啟/部署存活，尤其 Pionex 獨有慢標的免重抓重新限流）
+        df = disk_cache.get(df_key, ttl=10800)
+        if df is not None:
+            data_cache.set(df_key, df)   # 回填記憶體
     if df is None:
         try:
             df = _fetch_df(days_max)
@@ -487,6 +493,7 @@ def get_crt_winrate(
             raise HTTPException(400, f"資料不足 50 根K棒（{timeframe}）")
         df = enrich_df(df)
         data_cache.set(df_key, df)
+        disk_cache.set(df_key, df)       # 寫磁碟（下次重啟/部署免重抓）
 
     # 求解模式：掃描止損% 找達標的建議值（用已快取的 df，免重抓）
     if solve:

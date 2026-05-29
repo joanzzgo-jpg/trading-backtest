@@ -28,3 +28,6 @@ frontend/static/js/app.bundle.js
 
 # Pionex 標的清單執行期快取（勿進版控）
 backend/data/.pionex_syms_cache.json
+
+# DataFrame 磁碟快取（執行期、勿進版控）
+backend/.df_cache/
