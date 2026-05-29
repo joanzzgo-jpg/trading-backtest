@@ -706,7 +706,7 @@ const SFX = (() => {
   let sunAngle = 0, moonGlow = 0;
   let flashAlpha = 0, lightningTimer = 80, lightningPath = [];
   let shootTimer = 200, shootX = 0, shootY = 0, shootDX = 0, shootDY = 0, shootLen = 0;
-  let stars = [], sparks = [], rainP = [], ripples = [], snowP = [], cloudP = [], leafP = [], petalP = [], mahjongP = [];
+  let stars = [], sparks = [], rainP = [], ripples = [], snowP = [], cloudP = [], leafP = [], petalP = [], mahjongP = [], windStreaks = [];
   let thunderBolts = [], thunderFlashes = [], thunderTimer = 15;
 
   /* ── 麻將牌預渲染快取 ── */
@@ -1011,7 +1011,7 @@ const SFX = (() => {
     const horizonY = H * 0.88, peakY = H * 0.08;
 
     if (_wd.isDay) {
-      if (type === 'thunder' || type === 'sunny') return; // dSunny handles arc for sunny
+      if (type === 'thunder' || type === 'sunny' || type === 'partly') return; // 這些由 dSunny 自畫太陽
       const rise = _wd.sunRiseMin, set = _wd.sunSetMin;
       if (nowMin < rise || nowMin > set) return;
       const prog = (nowMin - rise) / (set - rise);
@@ -1031,8 +1031,8 @@ const SFX = (() => {
       ctx.lineWidth = 1; ctx.setLineDash([3, 9]); ctx.stroke(); ctx.setLineDash([]);
       // opacity by weather, boosted near horizon
       let al = 1.0;
-      if (type==='storm') al=0.15; else if (type==='rain') al=0.35;
-      else if (type==='fog') al=0.50; else if (type==='cloudy') al=0.62;
+      if (type==='storm'||type==='overcast') al=0.15; else if (type==='rain'||type==='drizzle') al=0.35;
+      else if (type==='fog') al=0.50; else if (type==='cloudy'||type==='windy') al=0.62;
       al = Math.max(al, edgeFade < 1 ? 0.80 : 0); // sunrise/sunset always bright
       ctx.globalAlpha = al;
       // horizon glow at low prog (sunrise) or high prog (sunset)
@@ -1074,7 +1074,7 @@ const SFX = (() => {
       const mx = lx + prog * (rx - lx);
       const my = horizonY - (horizonY - peakY) * Math.sin(prog * Math.PI);
       let al = Math.max(0.18, vis) * 0.92; // floor so near-new-moon still faintly shows
-      if (type==='storm') al*=0.2; else if (type==='rain') al*=0.45; else if (type==='fog') al*=0.55;
+      if (type==='storm'||type==='overcast') al*=0.2; else if (type==='rain'||type==='drizzle') al*=0.45; else if (type==='fog'||type==='windy') al*=0.55;
       ctx.save(); ctx.globalAlpha = al;
       const mglow = ctx.createRadialGradient(mx,my,0,mx,my,65);
       mglow.addColorStop(0,'rgba(180,210,255,0.22)'); mglow.addColorStop(1,'rgba(0,0,0,0)');
@@ -1108,6 +1108,13 @@ const SFX = (() => {
       sp: (.04+Math.random()*.12)*wf,
       shape: Math.floor(Math.random()*4),    // 0-3: pick a cloud silhouette variant
       flip: Math.random() < .5 ? 1 : -1,     // mirror for extra variety
+    }));
+    // 風線（大風動畫用）：橫向掠過的氣流線，數量隨風速增加
+    const nWind = Math.round(10 + 14 * Math.min(1, _wd.windSpeed / 40));
+    windStreaks = Array.from({length:nWind}, () => ({
+      x: Math.random()*W, y: Math.random()*H*0.82,
+      len: 50+Math.random()*130, spd: 5+Math.random()*9,
+      a: 0.05+Math.random()*0.10, bow: (Math.random()-.5)*10,
     }));
     leafP  = Array.from({length:42}, () => { const lf=_newLeaf(); lf.y=Math.random()*H; return lf; });
     petalP  = Array.from({length:38}, () => { const p=_newPetal(); p.y=Math.random()*H; return p; });
@@ -1574,12 +1581,70 @@ const SFX = (() => {
     });
   }
 
+  /* ── 晴時多雲：白天太陽+雲；夜間只畫雲（月亮交給 _drawAstro）── */
+  function dPartly(t) {
+    if (_wd.isDay) {
+      dSunny(t);                     // dSunny 內含 cloudCover>5 時畫雲
+      if (_wd.cloudCover <= 5) dCloudy(t);   // 雲量太低也保證有幾朵雲飄過
+    } else {
+      dCloudy(t);                    // 夜間多雲：畫雲，月亮由 _drawAstro 畫（會穿雲）
+    }
+  }
+
+  /* ── 陰天/密雲：全灰滿雲、無太陽（比 cloudy 更暗更密）── */
+  function dOvercast(t) {
+    ctx.fillStyle = "rgba(150,160,176,.30)"; ctx.fillRect(0,0,W,H);   // 灰天幕
+    cloudP.forEach((c, i) => {
+      c.x += c.sp;
+      if (c.x - W*c.sc > W) c.x = -W*c.sc*1.5;
+      // 雲更大、更不透明 → 密雲感
+      _cloud(c.x, c.y + Math.sin(t*.14 + i*1.1)*3, W*c.sc*1.18,
+             Math.min(.92, c.al + .28), c.shape, c.flip);
+    });
+    ctx.fillStyle = "rgba(118,128,144,.16)"; ctx.fillRect(0,0,W,H);   // 再壓一層暗
+  }
+
+  /* ── 毛毛雨/微雨：稀疏細小雨絲、無漣漪無暴風天幕（比 rain 輕很多）── */
+  function dDrizzle() {
+    ctx.fillStyle = "rgba(150,165,186,.13)"; ctx.fillRect(0,0,W,H);   // 淡灰濛
+    ctx.lineCap = "round";
+    rainP.forEach(p => {
+      if (p.a > 0.30) return;        // 只畫細雨絲，跳過大雨滴
+      ctx.strokeStyle = `rgba(176,204,232,${(p.a*0.7).toFixed(3)})`;
+      ctx.lineWidth = .5;
+      ctx.beginPath(); ctx.moveTo(p.x, p.y);
+      ctx.lineTo(p.x - p.len*.10, p.y + p.len*.55); ctx.stroke();
+      p.y += p.spd*.55; p.x -= .2 + _wd.windSpeed*.004;
+      if (p.y > H + p.len) { p.y = -p.len; p.x = Math.random()*W; }
+    });
+  }
+
+  /* ── 大風：快速飄移的雲 + 橫向掠過的氣流線 ── */
+  function dWindy(t) {
+    cloudP.forEach((c, i) => {
+      c.x += c.sp * 3.4;             // 雲跑很快
+      if (c.x - W*c.sc > W) c.x = -W*c.sc*1.5;
+      _cloud(c.x, c.y + Math.sin(t*.32 + i)*2, W*c.sc, c.al, c.shape, c.flip);
+    });
+    ctx.strokeStyle = "rgba(224,232,246,.10)"; ctx.lineWidth = 1.2; ctx.lineCap = "round";
+    windStreaks.forEach(s => {
+      ctx.globalAlpha = s.a * 6;     // a 0.05~0.15 → 0.3~0.9
+      ctx.beginPath();
+      ctx.moveTo(s.x, s.y);
+      ctx.bezierCurveTo(s.x + s.len*.4, s.y - s.bow, s.x + s.len*.6, s.y + s.bow, s.x + s.len, s.y);
+      ctx.stroke();
+      s.x += s.spd;
+      if (s.x > W + s.len) { s.x = -s.len; s.y = Math.random()*H*0.82; }
+    });
+    ctx.globalAlpha = 1;
+  }
+
   /* ── main loop ── */
   function draw() {
     ctx.clearRect(0,0,W,H);
     if (type === "off") return;  // 「無」模式：清空畫布即可，不畫任何特效
     const t=Date.now()*.001;
-    ({sunny:dSunny,night:dNight,cloudy:dCloudy,fog:dFog,rain:dRain,snow:dSnow,storm:dStorm,thunder:dThunder,mahjong:dMahjong,leaves:dLeaves,spring:dSpring})[type]?.(t);
+    ({sunny:dSunny,night:dNight,cloudy:dCloudy,fog:dFog,rain:dRain,snow:dSnow,storm:dStorm,thunder:dThunder,mahjong:dMahjong,leaves:dLeaves,spring:dSpring,partly:dPartly,overcast:dOvercast,drizzle:dDrizzle,windy:dWindy})[type]?.(t);
     _drawAstro(t);
   }
   function loop(ts) { rafId=requestAnimationFrame(loop); if(document.hidden||ts-_lastFrameTs<33)return; _lastFrameTs=ts; draw(); }

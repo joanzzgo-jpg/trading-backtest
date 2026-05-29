@@ -1,8 +1,9 @@
 """
-天氣 API 路由 — 一律使用中央氣象署 (CWA) O-A0001-001 自動氣象站資料
-需設定環境變數 CWA_API_KEY（申請：https://opendata.cwa.gov.tw/）
-無 key / CWA 失敗 → 回 503，不再 fallback Open-Meteo。
-（_from_omt / OMT_URL 保留為未使用程式碼，未來如需回退快速恢復）
+天氣 API 路由 — 地理分流：
+  • 台灣範圍內 → 中央氣象署 (CWA) O-A0001-001 自動氣象站（測站精準到鄉/區）
+  • 台灣以外（如香港）→ Open-Meteo 全球預報（_from_omt）
+需設定環境變數 CWA_API_KEY（申請：https://opendata.cwa.gov.tw/）。
+CWA 無 key 或失敗時，一律回退 Open-Meteo。
 """
 import os, math, time
 from datetime import date, datetime
@@ -46,8 +47,19 @@ def _parse_vis(val) -> float:
     except ValueError:
         return 10000.0
 
+def _station_has_temp(s: dict) -> bool:
+    """測站溫度感測器是否在線（CWA 以 -99 代表離線/缺值）。"""
+    try:
+        return float(s.get("WeatherElement", {}).get("AirTemperature")) > -98
+    except (TypeError, ValueError):
+        return False
+
 def _nearest_station(stations: list, lat: float, lon: float):
-    best, bd = None, float("inf")
+    """挑最近測站。優先挑「溫度感測器在線」的最近站，避免選到離線站
+    （全台約 23/853 站溫度為 -99）而退化成假的 20°C 預設；
+    若附近完全沒有在線站，才退回最近的任一站。"""
+    best, bd = None, float("inf")             # 最近且溫度在線
+    best_any, bd_any = None, float("inf")     # 最近任一站（fallback）
     for s in stations:
         for c in s.get("GeoInfo", {}).get("Coordinates", []):
             if c.get("CoordinateName") != "WGS84":
@@ -58,9 +70,11 @@ def _nearest_station(stations: list, lat: float, lon: float):
             except (KeyError, ValueError):
                 continue
             d = math.hypot(slat - lat, slon - lon)
-            if d < bd:
+            if d < bd_any:
+                bd_any, best_any = d, s
+            if d < bd and _station_has_temp(s):
                 bd, best = d, s
-    return best
+    return best or best_any
 
 # ─── 反向地理編碼（鄉/區層級）──────────────────────────────────
 
@@ -94,13 +108,21 @@ def _desc_to_type(desc: str, is_day: bool) -> str:
         return "thunder"
     if any(k in d for k in ["豪雨", "大雨", "暴雨"]):
         return "storm"
-    if any(k in d for k in ["雨", "陣雨", "毛毛雨", "細雨"]):
+    if any(k in d for k in ["毛毛雨", "細雨", "微雨"]):   # 細分：毛毛雨 → drizzle
+        return "drizzle"
+    if any(k in d for k in ["雨", "陣雨"]):
         return "rain"
     if any(k in d for k in ["雪", "霰", "冰雹"]):
         return "snow"
     if any(k in d for k in ["霧", "靄", "霾"]):
         return "fog"
-    if any(k in d for k in ["陰", "多雲"]):
+    if any(k in d for k in ["大風", "強風"]):              # 細分：大風 → windy
+        return "windy"
+    if ("晴" in d) and ("多雲" in d):                      # 細分：晴時多雲 → partly
+        return "partly"
+    if "陰" in d:                                          # 細分：陰天 → overcast
+        return "overcast"
+    if "多雲" in d:
         return "cloudy"
     return "sunny" if is_day else "night"
 
@@ -213,10 +235,11 @@ _TZ_CITY = {
 }
 
 def _wmo_type(c: int, is_day: bool) -> str:
-    if c <= 1:                              return "sunny" if is_day else "night"
-    if c <= 3:                              return "cloudy"
+    if c == 0:                              return "sunny" if is_day else "night"
+    if c in (1, 2):                         return "partly"      # 晴時多雲/局部多雲
+    if c == 3:                              return "overcast"    # 陰天
     if 45 <= c <= 48:                       return "fog"
-    if 51 <= c <= 57:                       return "rain"
+    if 51 <= c <= 57:                       return "drizzle"     # 毛毛雨
     if 61 <= c <= 67:                       return "storm" if c >= 65 else "rain"
     if (71 <= c <= 77) or c in (85, 86):   return "snow"
     if 80 <= c <= 82:                       return "storm" if c == 82 else "rain"
@@ -267,6 +290,193 @@ async def _from_omt(lat: float, lon: float) -> dict:
         "moon_set_min":  ms,
     }
 
+# ─── 香港天文台 (HKO) 資料源 ─────────────────────────────────
+# 即時天氣報告 rhrread（免金鑰、繁中）。香港在地官方資料，等同台灣的 CWA。
+HKO_URL = "https://data.weather.gov.hk/weatherAPI/opendata/weather.php"
+
+# HKO 天氣圖示碼 → (描述, 動畫類型)。參考官方 weather icon 對照表。
+_HKO_ICON = {
+    50: ("晴朗", "sunny"),     51: ("間有陽光", "partly"),  52: ("短暫陽光", "partly"),
+    53: ("短暫陽光 有驟雨", "rain"), 54: ("間有陽光 有幾陣驟雨", "rain"),
+    60: ("多雲", "cloudy"),    61: ("密雲", "overcast"),
+    62: ("微雨", "drizzle"),   63: ("雨", "rain"),          64: ("大雨", "storm"),
+    65: ("雷暴", "thunder"),
+    70: ("天色良好", "night"), 71: ("部分多雲", "night"),   72: ("部分多雲", "night"),
+    73: ("大致多雲", "night"), 74: ("大致多雲", "night"),   75: ("天色良好", "night"),
+    76: ("大致多雲", "cloudy"),77: ("天色良好", "night"),
+    80: ("大風", "windy"),     81: ("乾燥", "sunny"),       82: ("潮濕", "cloudy"),
+    83: ("霧", "fog"),         84: ("薄霧", "fog"),         85: ("大霧", "fog"),
+    90: ("酷熱", "sunny"),     91: ("炎熱", "sunny"),       92: ("寒冷", "cloudy"),
+    93: ("嚴寒", "cloudy"),
+}
+
+async def _from_hko(lat: float, lon: float) -> dict:
+    timeout = aiohttp.ClientTimeout(total=12)
+    async with aiohttp.ClientSession(timeout=timeout) as sess:
+        async with sess.get(HKO_URL, params={"dataType": "rhrread", "lang": "tc"}) as r:
+            data = await r.json(content_type=None)
+
+    # 溫度：優先用「香港天文台」總部站，否則取各區平均
+    temps = data.get("temperature", {}).get("data", []) or []
+    hq = next((t for t in temps if t.get("place") == "香港天文台"), None)
+    if hq:
+        temp = float(hq.get("value", 20))
+    elif temps:
+        temp = sum(float(t.get("value", 0)) for t in temps) / len(temps)
+    else:
+        temp = 20.0
+
+    hums = data.get("humidity", {}).get("data", []) or []
+    humidity = float(hums[0].get("value", 0)) if hums else 0.0
+    # 降雨：取各區最大值（mm）
+    rains = data.get("rainfall", {}).get("data", []) or []
+    precip = max((float(rr.get("max") or 0) for rr in rains), default=0.0)
+
+    icons = data.get("icon", []) or []
+    code  = int(icons[0]) if icons else 50
+    desc, wtype = _HKO_ICON.get(code, ("", "cloudy"))
+
+    # is_day：用記錄時間的小時判定（rhrread 時間含 +08:00）
+    is_day = True
+    rec = data.get("temperature", {}).get("recordTime") or data.get("updateTime") or ""
+    if rec:
+        try:
+            is_day = 6 <= datetime.fromisoformat(rec).hour < 19
+        except ValueError:
+            pass
+    if wtype == "night" and is_day:
+        wtype = "sunny"   # 白天卻拿到夜間碼 → 修正
+
+    # 區級地名（如「香港油尖旺區」）；失敗時退回「香港」
+    location = await _reverse_geocode(lat, lon) or "香港"
+
+    sr, ss = _sun_times_local(lat, lon)
+    mp = _moon_phase()
+    mr, ms = _moon_times(sr, ss, mp)
+    return {
+        "source":       "hko",
+        "weather_type": wtype,
+        "temperature":  round(temp),
+        "description":  desc,
+        "precipitation": round(precip, 1),
+        "cloud_cover":  _desc_to_cloud(desc),
+        "wind_speed":   0.0,            # rhrread 不含風速
+        "visibility":   10000.0,        # rhrread 不含能見度
+        "humidity":     round(humidity),
+        "is_day":       is_day,
+        "location":     location,
+        "station":      "香港天文台",
+        "sun_rise_min":  sr,
+        "sun_set_min":   ss,
+        "moon_phase":    round(mp, 3),
+        "moon_rise_min": mr,
+        "moon_set_min":  ms,
+    }
+
+# ─── 日本氣象廳 (JMA / 気象庁) 資料源 ────────────────────────
+# AMeDAS 自動觀測網（免金鑰）。JMA API 不吃經緯度 → 用站點座標表找最近站。
+JMA_TABLE_URL  = "https://www.jma.go.jp/bosai/amedas/const/amedastable.json"
+JMA_LATEST_URL = "https://www.jma.go.jp/bosai/amedas/data/latest_time.txt"
+JMA_MAP_URL    = "https://www.jma.go.jp/bosai/amedas/data/map/{ts}.json"
+_JMA_TABLE_CACHE = {"data": None, "ts": 0.0}              # 站點座標表（快取 24h）
+_JMA_MAP_CACHE   = {"key": "", "data": None}              # 觀測資料（依時間戳）
+
+_JMA_DESC  = {"sunny":"晴","night":"晴朗","partly":"晴時多雲","cloudy":"多雲",
+              "overcast":"陰","drizzle":"毛毛雨","rain":"雨","storm":"大雨","windy":"大風"}
+_JMA_CLOUD = {"sunny":10,"night":10,"partly":35,"cloudy":65,"overcast":85,
+              "drizzle":70,"rain":85,"storm":95,"windy":55}
+
+def _jma_decimal(coord):
+    """JMA 座標 [度, 分] → 十進位度。"""
+    try:
+        return float(coord[0]) + float(coord[1]) / 60.0
+    except (TypeError, ValueError, IndexError):
+        return None
+
+async def _from_jma(lat: float, lon: float) -> dict:
+    now = time.time()
+    timeout = aiohttp.ClientTimeout(total=12)
+    async with aiohttp.ClientSession(timeout=timeout) as sess:
+        # 站點座標表（24h 快取，內容極少變動）
+        if _JMA_TABLE_CACHE["data"] and now - _JMA_TABLE_CACHE["ts"] < 86400:
+            table = _JMA_TABLE_CACHE["data"]
+        else:
+            async with sess.get(JMA_TABLE_URL) as r:
+                table = await r.json(content_type=None)
+            _JMA_TABLE_CACHE.update({"data": table, "ts": now})
+        # 最新觀測時間 → 檔名時間戳（每 10 分鐘更新一次）
+        async with sess.get(JMA_LATEST_URL) as r:
+            latest = (await r.text()).strip()
+        ts = "".join(ch for ch in latest.split("+")[0] if ch.isdigit())
+        if _JMA_MAP_CACHE["key"] == ts and _JMA_MAP_CACHE["data"] is not None:
+            obs = _JMA_MAP_CACHE["data"]
+        else:
+            async with sess.get(JMA_MAP_URL.format(ts=ts)) as r:
+                obs = await r.json(content_type=None)
+            _JMA_MAP_CACHE.update({"key": ts, "data": obs})
+
+    # 找最近且有溫度觀測的站（AMeDAS 部分站只測雨量/風，無溫度）
+    best, bd = None, float("inf")
+    for sid, info in table.items():
+        slat = _jma_decimal(info.get("lat")); slon = _jma_decimal(info.get("lon"))
+        if slat is None or slon is None:
+            continue
+        rec = obs.get(sid)
+        if not rec or "temp" not in rec:
+            continue
+        d = math.hypot(slat - lat, slon - lon)
+        if d < bd:
+            bd, best = d, (info, rec)
+    if not best:
+        raise RuntimeError("no_jma_station")
+    info, rec = best
+
+    def _v(key):
+        x = rec.get(key)
+        return float(x[0]) if isinstance(x, list) and x and x[0] is not None else None
+
+    temp = _v("temp"); humidity = _v("humidity"); wind_ms = _v("wind")
+    precip = _v("precipitation1h"); sun1h = _v("sun1h")
+
+    is_day = True
+    try:
+        is_day = 6 <= datetime.fromisoformat(latest).hour < 19
+    except ValueError:
+        pass
+
+    # 天氣類型：先看雨量，無雨再用日照/風推斷（AMeDAS 無雲量/天氣文字）
+    if   precip is not None and precip >= 4:   wtype = "storm"
+    elif precip is not None and precip >= 1:   wtype = "rain"
+    elif precip is not None and precip >= 0.2: wtype = "drizzle"
+    elif wind_ms is not None and wind_ms >= 9 and (sun1h is None or sun1h < .3): wtype = "windy"
+    elif not is_day:                            wtype = "night"
+    elif sun1h is None:                         wtype = "cloudy"
+    elif sun1h >= .6:                           wtype = "sunny"
+    elif sun1h >= .3:                           wtype = "partly"
+    elif sun1h >= .1:                           wtype = "cloudy"
+    else:                                       wtype = "overcast"
+
+    location = await _reverse_geocode(lat, lon) or info.get("kjName") or "日本"
+    sr, ss = _sun_times_local(lat, lon)
+    mp = _moon_phase()
+    mr, ms = _moon_times(sr, ss, mp)
+    return {
+        "source":       "jma",
+        "weather_type": wtype,
+        "temperature":  round(temp) if temp is not None else 20,
+        "description":  _JMA_DESC.get(wtype, ""),
+        "precipitation": round(precip, 1) if precip is not None else 0.0,
+        "cloud_cover":  _JMA_CLOUD.get(wtype, 50),
+        "wind_speed":   round(wind_ms * 3.6, 1) if wind_ms is not None else 0.0,  # m/s→km/h
+        "visibility":   10000.0,
+        "humidity":     round(humidity) if humidity is not None else 0,
+        "is_day":       is_day,
+        "location":     location,
+        "station":      info.get("kjName"),
+        "sun_rise_min":  sr, "sun_set_min": ss,
+        "moon_phase":    round(mp, 3), "moon_rise_min": mr, "moon_set_min": ms,
+    }
+
 # ─── 天文計算 ────────────────────────────────────────────────
 
 def _sun_times_local(lat: float, lon: float) -> tuple[int, int]:
@@ -300,18 +510,60 @@ def _moon_times(sun_rise: int, sun_set: int, phase: float) -> tuple[int, int]:
 
 # ─── 端點 ────────────────────────────────────────────────────
 
+def _in_taiwan(lat: float, lon: float) -> bool:
+    """座標是否落在台灣（含金門/馬祖/澎湖）大致範圍內。
+    香港(22.3,114.2)、東京(35,139)、首爾(37,127) 等皆在範圍外。"""
+    return 21.5 <= lat <= 26.5 and 118.0 <= lon <= 122.5
+
+
+def _in_hong_kong(lat: float, lon: float) -> bool:
+    """座標是否落在香港範圍內（含離島）。"""
+    return 22.13 <= lat <= 22.58 and 113.82 <= lon <= 114.45
+
+
+def _in_japan(lat: float, lon: float) -> bool:
+    """座標是否落在日本範圍內（北海道至沖繩）。
+    經度 ≥122.5 與台灣(≤122.5)不重疊；香港(114)在範圍外。
+    排除朝鮮半島（韓國/北韓，經度與日本西側重疊但非日本）→ 走 Open-Meteo。"""
+    if not (24.0 <= lat <= 46.0 and 122.5 <= lon <= 154.0):
+        return False
+    if 33.0 <= lat <= 43.0 and 124.0 <= lon <= 129.5:   # 朝鮮半島
+        return False
+    return True
+
+
 @router.get("/weather")
 async def weather(
     lat: float = Query(25.04, description="緯度"),
     lon: float = Query(121.51, description="經度"),
 ):
-    """天氣 API — 一律使用中央氣象署 (CWA) O-A0001-001 自動氣象站資料。
-    需設定環境變數 CWA_API_KEY；申請：https://opendata.cwa.gov.tw/
-    無 key 或 CWA 失敗時回 503（不再 fallback Open-Meteo）。"""
+    """天氣 API — 在地化分流：
+      • 台灣 → 中央氣象署 (CWA) 自動氣象站
+      • 香港 → 香港天文台 (HKO) 即時天氣
+      • 日本 → 日本氣象廳 (JMA) AMeDAS 觀測
+      • 其他 → Open-Meteo 全球預報
+    各在地源失敗時一律回退 Open-Meteo，全部失敗才回 503。"""
     from fastapi import HTTPException
-    if not CWA_KEY:
-        raise HTTPException(status_code=503, detail="未設定 CWA_API_KEY（中央氣象署授權碼）")
+    # 台灣境內且有 CWA 授權碼 → 測站資料（精準到鄉/區）
+    if CWA_KEY and _in_taiwan(lat, lon):
+        try:
+            return await _from_cwa(lat, lon)
+        except Exception:
+            pass
+    # 香港 → 香港天文台官方即時資料
+    if _in_hong_kong(lat, lon):
+        try:
+            return await _from_hko(lat, lon)
+        except Exception:
+            pass
+    # 日本 → 日本氣象廳 AMeDAS 最近觀測站
+    if _in_japan(lat, lon):
+        try:
+            return await _from_jma(lat, lon)
+        except Exception:
+            pass
+    # 其他地區或在地源失敗 → Open-Meteo 全球預報
     try:
-        return await _from_cwa(lat, lon)
+        return await _from_omt(lat, lon)
     except Exception as e:
-        raise HTTPException(status_code=503, detail=f"CWA 資料取得失敗：{e}")
+        raise HTTPException(status_code=503, detail=f"天氣取得失敗：{e}")
