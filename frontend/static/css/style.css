@@ -3888,8 +3888,8 @@ html.perf-mode .sig-pyr-num { background: #FAFAFA; border-color: #E5E5E5; }
   -webkit-font-smoothing: antialiased;
 }
 
-/* Topbar 高度＆呼吸感 */
-:root { --topbar-h: 44px; }
+/* Topbar 高度＆呼吸感（扁版：44→38px，整個頂部更矮）*/
+:root { --topbar-h: 38px; }
 .topbar { padding: 0 10px !important; gap: 2px !important; }
 .topbar-left { gap: 4px !important; }
 .topbar-right { gap: 6px !important; padding-left: 10px !important; }
