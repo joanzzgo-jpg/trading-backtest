@@ -164,6 +164,7 @@ async def _from_cwa(lat: float, lon: float) -> dict:
     temp = _safe_float(we.get("AirTemperature"), 20.0)
     precip = _safe_float((we.get("Now") or {}).get("Precipitation"), 0.0)
     wind_ms = _safe_float(we.get("WindSpeed"), 0.0)
+    wind_deg = _safe_float(we.get("WindDirection"), -1.0)   # 風向（度，來向）；-99/缺值 → None
     humidity = _safe_float(we.get("RelativeHumidity"), 0.0)
     vis = _parse_vis(we.get("Visibility"))
     # SunshineDuration: past-10-min sunshine in hours (max ≈ 0.1667 h)
@@ -211,6 +212,7 @@ async def _from_cwa(lat: float, lon: float) -> dict:
         "precipitation": round(precip, 1),
         "cloud_cover":  cloud_cover,
         "wind_speed":   round(wind_ms * 3.6, 1),   # m/s → km/h
+        "wind_dir":     (None if wind_deg < 0 else round(wind_deg)),
         "visibility":   vis,
         "humidity":     round(humidity),
         "is_day":       is_day,
@@ -259,7 +261,7 @@ async def _from_omt(lat: float, lon: float) -> dict:
     params = {
         "latitude": lat, "longitude": lon, "timezone": "auto",
         "current": "weather_code,temperature_2m,is_day,precipitation,"
-                   "cloud_cover,wind_speed_10m,visibility",
+                   "cloud_cover,wind_speed_10m,wind_direction_10m,visibility",
     }
     timeout = aiohttp.ClientTimeout(total=12)
     async with aiohttp.ClientSession(timeout=timeout) as sess:
@@ -287,6 +289,7 @@ async def _from_omt(lat: float, lon: float) -> dict:
         "precipitation": round(float(c.get("precipitation") or 0), 1),
         "cloud_cover":  int(c.get("cloud_cover") or 0),
         "wind_speed":   round(float(c.get("wind_speed_10m") or 0), 1),
+        "wind_dir":     (None if c.get("wind_direction_10m") is None else round(float(c.get("wind_direction_10m")))),
         "visibility":   float(c.get("visibility") or 10000),
         "humidity":     0,
         "is_day":       is_day,
