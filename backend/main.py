@@ -59,8 +59,14 @@ app.add_middleware(GZipMiddleware, minimum_size=500)
 class StaticCacheMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
-        if request.url.path.startswith("/static/"):
-            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        path = request.url.path
+        if path.startswith("/static/"):
+            # PWA manifest 不可永久快取：否則 Chrome 讀到舊 manifest（display_override/
+            # 圖示/主題色更新不到 → WCO 等模式裝不起來）。改為每次重新驗證。
+            if path == "/static/manifest.json":
+                response.headers["Cache-Control"] = "no-cache"
+            else:
+                response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
         return response
 
 app.add_middleware(StaticCacheMiddleware)
