@@ -47,8 +47,10 @@ class SimpleCache:
 
 
 # 一般／揮發性快取：ohlcv、即時報價、搜尋、AI 等（量多、重算便宜）
-cache = SimpleCache(max_size=16)
+cache = SimpleCache(max_size=48)
 
 # CRT 勝率重量級產物：fetch+enrich 的 df、勝率結果、求解結果。
 # 抓資料佔總時間 90%+，與揮發性快取分池，避免被例行 ohlcv 請求擠掉。
-data_cache = SimpleCache(max_size=8)
+# 多人化加大到 32（每標的約佔 df+wr 2 格 → 約 16 個標的同時熱）。每個 df 約 1–8MB，
+# 32 格上限約 100–250MB（30 分 TTL 會自動釋放、單飛鎖避免重抓）。Railway RAM 緊就調小。
+data_cache = SimpleCache(max_size=32)
