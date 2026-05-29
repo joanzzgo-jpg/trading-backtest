@@ -3,8 +3,9 @@
 ═══════════════════════════════════════ */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-/* 魔法棒手繪游標（原圖 PNG） */
-* { cursor: url('/static/img/cursor-wand.png') 27 27, auto; }
+/* 魔法棒手繪游標（原圖 PNG，43x60）；熱點 2 2 對在棒尖（左上）= 實際點擊位
+   ?v=2：/static 是 immutable 長快取，換圖必須改 URL 才能讓舊用戶拿到新游標 */
+* { cursor: url('/static/img/cursor-wand.png?v=2') 2 2, auto; }
 input[type="text"], input[type="number"], input[type="date"], textarea, .sym-modal-input, .tb-symbol-input, .tk-search, .ind-sp-num { cursor: text; }
 
 /* ══════════════════════════════════════
@@ -5316,7 +5317,8 @@ body, button, input, select, textarea,
     -webkit-tap-highlight-color: transparent;
   }
   .m-tab.active { color: var(--accent); }
-  .m-tab-ico { font-size: 19px; line-height: 1; }
+  .m-tab-ico { display: flex; align-items: center; justify-content: center; height: 22px; }
+  .m-tab-ico svg { width: 21px; height: 21px; display: block; }
 
   /* 內容底部留出分頁列高度，避免被蓋住 */
   .charts-container { padding-bottom: 56px !important; }
@@ -5337,6 +5339,28 @@ body, button, input, select, textarea,
   /* 防止行情列右側價格被切：禁止橫向溢出（不動 header 結構，避免搜尋框撐爆） */
   body.m-tab-watch .ticker-list { overflow-x: hidden !important; }
   body.m-tab-watch .ticker-item { max-width: 100% !important; box-sizing: border-box; }
+
+  /* ══ 手機：大部分東西固定不橫滑（依使用者要求）══ */
+
+  /* TF 時間框架列：10 顆按鈕等分塞滿、不再橫向滑動（固定全部可見） */
+  .topbar-tf { overflow-x: hidden !important; }
+  .topbar-tf .tf-group { width: 100% !important; }
+  .topbar-tf .tf-btn {
+    flex: 1 1 0 !important;
+    min-width: 0 !important;
+    font-size: 11px !important;
+    padding: 0 1px !important;
+  }
+
+  /* K 棒資訊：把 開/高/低/收/量 標籤顯示回來（手機原本藏了標籤只剩裸數字），
+     並允許換行（固定不橫滑），讓資訊一眼可讀 */
+  .symbol-bar { flex-wrap: wrap !important; row-gap: 1px; overflow-x: hidden !important; }
+  .symbol-bar .sym-label { display: inline !important; color: var(--muted) !important; }
+
+  /* 布林通道數值：手機原本把所有圖例文字藏掉（只剩色點），
+     這裡把主圖 BB 的 U/M/L 數值顯示回來（ID 優先序蓋過 ≤520 的隱藏規則） */
+  #legBB .leg-val { display: inline !important; }
+  .pane-legend { flex-wrap: wrap !important; overflow-x: hidden !important; }
 
   /* ── 📊 勝率分頁：v1 先沿用圖表畫面，專屬勝率版面下一步做 ── */
 }

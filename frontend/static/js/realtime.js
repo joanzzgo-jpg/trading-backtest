@@ -213,6 +213,10 @@ function updateSymbolBar(data) {
   document.getElementById("symC").textContent = fmt(last.close);
   document.getElementById("symV").textContent = fmtVol(last.volume);
   _updateSymChg(last.close, prev.close);
+  // 主圖 BB 數值：手機沒有 hover crosshair，這裡用最新一根 K 棒把布林通道數值填進
+  // 圖例（桌面未 hover 時也順便顯示最新值，行為更像專業看盤 app）
+  if (last.bb_upper != null)
+    _setLegText("legBB", `BB  U:${fmt(last.bb_upper)}  M:${fmt(last.bb_middle)}  L:${fmt(last.bb_lower)}`);
 }
 
 /* ══════════════════════════════════════════
