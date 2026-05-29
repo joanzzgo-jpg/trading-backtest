@@ -332,14 +332,14 @@ def get_latest(req: LatestRequest):
     return {"live": live, "data": records}
 
 
-def _solve_stop_pct(df, target: str, variant: bool, long_only: bool):
+def _solve_stop_pct(df, target: str, long_only: bool):
     """掃描止損%，找出讓「敗後停手」總勝率達標的最小止損%。
     目標 80%（止損 ≤5%）；若需 >5% 才達 80%，改找達 75% 的止損%。
     回傳 {stop_pct, win_rate, total, target, sweep}。"""
     def _wr_at(buf):
         # _solve 精簡模式：只算選定 target 的「敗後停手」勝率（比完整計算快 ~4-6x）
         r = _calc_crt_winrate(df, stop_buffer_pct=buf, long_only=long_only,
-                              _solve=(target, variant))
+                              _solve=target)
         return r.get("win_rate"), (r.get("total") or 0)
 
     sweep = []
@@ -377,7 +377,6 @@ def get_crt_winrate(
     stop_buffer_pct: float = 0.0,
     solve: int = 0,
     solve_target: str = "mid",
-    solve_variant: int = 0,
     api_key: str = "",
     api_secret: str = "",
     finmind_token: str = "",
@@ -386,12 +385,11 @@ def get_crt_winrate(
 
     stop_buffer_pct：停損緩衝（decimal，例 0.005 = 0.5%）。
     短：stop = base_high × (1 + buf)；多：stop = base_low × (1 - buf)。
-    強化版濾鏡為研究後固定（est_rr 0.6~1.1），不再由前端參數調整。
     """
     from datetime import date, timedelta
     _buf = round(max(0.0, float(stop_buffer_pct or 0.0)), 4)
     _long_only = (market == "tw")  # 台股不能放空
-    cache_key = f"crt_wr68:{market}:{symbol}:{exchange}:{timeframe}:{_buf}:{int(_long_only)}"
+    cache_key = f"crt_wr69:{market}:{symbol}:{exchange}:{timeframe}:{_buf}:{int(_long_only)}"
     # 注意：solve 模式不可命中此勝率快取（cache_key 不含 solve），否則會回傳勝率而非求解結果
     if not solve:
         cached = data_cache.get(cache_key, ttl=10800)   # 3 小時：減少重算頻率（資料新增 1h 內 fetchLatest 自動更新最新棒）
@@ -480,13 +478,12 @@ def get_crt_winrate(
 
     # 求解模式：掃描止損% 找達標的建議值（用已快取的 df，免重抓）
     if solve:
-        solve_key = f"crt_solve4:{market}:{symbol}:{exchange}:{timeframe}:{solve_target}:{solve_variant}:{int(_long_only)}"
+        solve_key = f"crt_solve5:{market}:{symbol}:{exchange}:{timeframe}:{solve_target}:{int(_long_only)}"
         cached_s = data_cache.get(solve_key, ttl=3600)
         if cached_s:
             return cached_s
         _solve_tgt = solve_target if solve_target in ("mid", "band", "rr") else "mid"
-        sol = _solve_stop_pct(df, target=_solve_tgt,
-                              variant=(solve_variant == 1), long_only=_long_only)
+        sol = _solve_stop_pct(df, target=_solve_tgt, long_only=_long_only)
         data_cache.set(solve_key, sol)
         return sol
 

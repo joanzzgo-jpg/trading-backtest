@@ -116,14 +116,6 @@ def _scan_outcome_np(highs, lows, closes, target_arr, times_iso, entry_i, n, sto
     return result, times_iso[j_abs], j_abs
 
 
-# 強化版濾鏡：預估盈虧比 RR(中軌) 落在 [_VARIANT_RR_LO, _VARIANT_RR_HI] 之間才入選。
-# 研究（2864 筆跨 4 幣×3 時框）：此帶勝率 63%（基準 55%）、期望值 0.164R（≈基準，
-# 不像「RR≤1.5」會把獲利拖到 0.108）。剔除極低 RR（0~0.6，勝率高但賺太少=獲利殺手）
-# 與高 RR（>1.1，低勝率）。目標＝勝率高、獲利率適中。
-_VARIANT_RR_LO = 0.6
-_VARIANT_RR_HI = 1.1
-
-
 def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only: bool = False,
                       _solve=None) -> dict:
     """
@@ -135,7 +127,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
 
     long_only：True 時只算多單（台股不能放空），所有 short mask 強制清空。
 
-    _solve：求解專用精簡模式 = (target, only_variant)，target ∈ {"mid","band"}。
+    _solve：求解專用精簡模式 = target 字串（"mid"/"band"/"rr"）。
         設定後：每個訊號只掃選定目標（省 3/4 掃描）、跳過 est/RR/全部統計，
         只跑「敗後停手」模擬並回傳 {"win_rate", "total"}。
         偵測 mask 與完整版完全共用，結果與完整版 stop_strategy 一致。
@@ -172,9 +164,6 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
     crt   = _col_i("crt")
     cross = _col_i("kdj_cross")
     res   = _col_i("resonance")
-    # 強化版（variant）判定改在 _push_signal 內以「預估 RR ≤ 1.5」計算，
-    # 不再用訊號棒型態 filter（研究：est_rr≤1.5 +11.7% 保留 50%，遠勝 body≥0.45）
-
     # ── 給 S9 用的 BB 觸軌 + MACD 叉判定 ─────────────────────
     # 觸軌用 0.3% 緩衝（與共振一致）
     bb_up_touch = (~np.isnan(bb_up)) & (highs >= bb_up * 0.997)
@@ -186,12 +175,9 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
     macd_gold = (prev_hist < 0) & (hist >= 0) & ~np.isnan(prev_hist) & ~np.isnan(hist)
 
     # ── 計數器：mid_cnt[k] = [ws, ls, wl, ll]；band_cnt 同結構 ──
-    # 同時為「強化版」（_v）建一份，只計入 macd_hist 方向一致的訊號
     SIG_KEYS = ["abc", "ab", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"]
     mid_cnt   = {k: [0, 0, 0, 0] for k in SIG_KEYS}
     band_cnt  = {k: [0, 0, 0, 0] for k in SIG_KEYS}
-    mid_cnt_v = {k: [0, 0, 0, 0] for k in SIG_KEYS}
-    band_cnt_v= {k: [0, 0, 0, 0] for k in SIG_KEYS}
     # RR 累計：mid_rr[k][dir] = {"est_sum": 預估 RR 總和（所有訊號）,
     #                          "est_n": 預估 RR 樣本數,
     #                          "act_win_sum": 實際贏的 R 總和（用結算時 BB）,
@@ -208,11 +194,8 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         }
     mid_rr   = {k: {"short": _new_rr_bucket(), "long": _new_rr_bucket()} for k in SIG_KEYS}
     band_rr  = {k: {"short": _new_rr_bucket(), "long": _new_rr_bucket()} for k in SIG_KEYS}
-    mid_rr_v = {k: {"short": _new_rr_bucket(), "long": _new_rr_bucket()} for k in SIG_KEYS}
-    band_rr_v= {k: {"short": _new_rr_bucket(), "long": _new_rr_bucket()} for k in SIG_KEYS}
     # 1:1 目標（止盈距離 = 止損距離）：盈虧比恆為 1，RR 統計可由勝負數直接推得，不需 bucket
     rr11_cnt   = {k: [0, 0, 0, 0] for k in SIG_KEYS}
-    rr11_cnt_v = {k: [0, 0, 0, 0] for k in SIG_KEYS}
     # 所有 est 計數已改為從 signals 列表 dedupe 計算（見 _dedupe_totals）
     recent:  list = []
     signals: list = []
@@ -240,9 +223,9 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         帶軌目標：short→bb_lower、long→bb_upper（更遠的反向極端）。
         _solve 模式只掃選定目標，另一目標回 None（省一半掃描）。"""
         if _solve is not None:
-            if _solve[0] == "rr":
+            if _solve == "rr":
                 return None, None, -1, None, None, -1   # 1:1 在 _push_signal 內算
-            if _solve[0] == "band":
+            if _solve == "band":
                 band_arr = bb_lo if direction == "short" else bb_up
                 ob, otb, obj = _scan_outcome_np(highs, lows, closes, band_arr, times_iso, entry_i, n, stop_px, direction)
                 return None, None, -1, ob, otb, obj
@@ -311,28 +294,16 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             if _prev is not None and entry_i == _prev + 1:
                 return   # 連續同方向 → 跳過（既不 push 進 signals 也不算進統計）
 
-        # _solve 精簡模式：只存敗後停手所需欄位（t/d/k/r/r_b/r_rr/v），跳過 est/RR/recent
+        # _solve 精簡模式：只存敗後停手所需欄位（t/d/k/r/r_b/r_rr），跳過 est/RR/recent
         if _solve is not None:
-            variant = False
-            # 只有「強化版求解」(_solve[1]=only_variant) 會讀 v 旗標；
-            # 預設（非強化版）求解不讀 v → 跳過整段 variant 計算（含 round，省 ~8%），輸出等價。
-            if _solve[1] and sig_key != "abc" and entry_i < n:
-                entry_px = opens[entry_i]
-                tgt_mid  = bb_mid[entry_i]
-                if not (math.isnan(entry_px) or math.isnan(tgt_mid)):
-                    risk = abs(entry_px - stop_px)
-                    if risk > 1e-9:
-                        rrv = round(abs(entry_px - tgt_mid) / risk, 3)
-                        variant = _VARIANT_RR_LO <= rrv <= _VARIANT_RR_HI
             r_rr = None
-            if _solve[0] == "rr":
+            if _solve == "rr":
                 r_rr, _ = _scan_rr(sig_key, direction, entry_i, stop_px)
             signals.append({
                 "t": sig_time, "d": d_str, "k": sig_key,
                 "r":   "w" if om == "win" else ("l" if om else None),
                 "r_b": "w" if ob == "win" else ("l" if ob else None),
                 "r_rr": r_rr,
-                "v": bool(variant),
             })
             return
         # est_r / est_r_b：固定目標掃描結果（要存到 signal 才能算 deduped total）
@@ -348,10 +319,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                 o = _scan_outcome_fixed(highs, lows, closes, entry_i, n,
                                          stop_px, float(tgt_band_fix), direction)
                 est_r_b = "w" if o == "win" else ("l" if o == "loss" else None)
-        # 強化版判定：預估盈虧比 RR(中軌) 落在 [_VARIANT_RR_LO, _VARIANT_RR_HI] 之間
-        #   盈虧比 = |進場-目標|/|進場-止損| = 賺的距離/賠的距離。
-        #   研究後固定此帶（高勝率＋獲利適中），不再由前端調整。
-        variant = False
+        # 預估盈虧比 RR(中軌) = |進場-目標|/|進場-止損|，供前端盈虧比盒顯示
         est_rr_val = None
         if sig_key != "abc" and entry_i < n:
             entry_px = opens[entry_i]
@@ -360,7 +328,6 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                 risk = abs(entry_px - stop_px)
                 if risk > 1e-9:
                     est_rr_val = round(abs(entry_px - tgt_mid) / risk, 3)
-                    variant = _VARIANT_RR_LO <= est_rr_val <= _VARIANT_RR_HI
         # 1:1 目標結果（止盈距離 = 止損距離）
         r_rr, ot_rr = _scan_rr(sig_key, direction, entry_i, stop_px)
         rr_out = "win" if r_rr == "w" else ("loss" if r_rr == "l" else None)
@@ -373,7 +340,6 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             "est_r":   est_r,
             "est_r_b": est_r_b,
             "rr": est_rr_val,
-            "v": bool(variant),
         })
         _bump(mid_cnt,  sig_key, direction, om)
         _bump(band_cnt, sig_key, direction, ob)
@@ -381,13 +347,6 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         _bump_rr(mid_rr,  sig_key, direction, entry_i, omj, stop_px, om, bb_mid)
         band_arr = bb_lo if direction == "short" else bb_up
         _bump_rr(band_rr, sig_key, direction, entry_i, obj, stop_px, ob, band_arr)
-        # 強化版：variant 由上方 est_rr 判定
-        if variant:
-            _bump(mid_cnt_v,  sig_key, direction, om)
-            _bump(band_cnt_v, sig_key, direction, ob)
-            _bump(rr11_cnt_v, sig_key, direction, rr_out)
-            _bump_rr(mid_rr_v,  sig_key, direction, entry_i, omj, stop_px, om, bb_mid)
-            _bump_rr(band_rr_v, sig_key, direction, entry_i, obj, stop_px, ob, band_arr)
         if om is not None:
             recent.append({"t": sig_time, "d": d_str, "r": "w" if om == "win" else "l", "k": sig_key})
 
@@ -725,17 +684,14 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
     signals_sorted = sorted(signals, key=lambda x: x["t"])
 
     # ── _solve 精簡模式：只跑「敗後停手」模擬後直接回傳（省下全部統計） ──
-    #    與完整版 _build_combined(use_band, only_variant, est=False) + stop_strategy 一致
+    #    與完整版 _build_combined(target, est=False) + stop_strategy 一致
     if _solve is not None:
-        _target, _only_v = _solve
-        _rk = {"mid": "r", "band": "r_b", "rr": "r_rr"}[_target]
+        _rk = {"mid": "r", "band": "r_b", "rr": "r_rr"}[_solve]
         _seen = set(); _seq = []
         # S12 insertion order 排在 S11 之後 → 穩定排序下，同 t 上其他策略會先入 _seen，
         # S12 只在「(t,d) 不與其他策略重疊」時才進入敗後停手序列
         for s in signals_sorted:
             if s["k"] == "abc":
-                continue
-            if _only_v and not s.get("v"):
                 continue
             _key = (s["t"], s["d"])
             if _key in _seen:
@@ -813,12 +769,10 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             "est_win_rate": round(w / t * 100, 1) if t else None,
         }
 
-    def _build_target_stats(cnt, rr_cnt, cnt_v=None, rr_cnt_v=None, est=None, est_v=None,
-                              streak=None, streak_v=None, is_rr=False):
+    def _build_target_stats(cnt, rr_cnt, est=None, streak=None, is_rr=False):
         """從 cnt + rr_cnt + streak 算出該 target 的完整統計結構。
         is_rr=True 時為 1:1 目標：用 _stats_rr（RR 由勝負數推得），rr_cnt 可為 None。"""
         streak = streak or {}
-        streak_v = streak_v or {}
         def _mk(v, sk):
             if is_rr:
                 return {
@@ -829,20 +783,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                 "short": _stats(v[0], v[1], rr_cnt[sk]["short"], streak=streak.get((sk, "s"), 0)),
                 "long":  _stats(v[2], v[3], rr_cnt[sk]["long"],  streak=streak.get((sk, "l"), 0)),
             }
-        def _mk_v(v, sk):
-            if is_rr:
-                return {
-                    "short": _stats_rr(v[0], v[1], streak=streak_v.get((sk, "s"), 0)),
-                    "long":  _stats_rr(v[2], v[3], streak=streak_v.get((sk, "l"), 0)),
-                }
-            return {
-                "short": _stats(v[0], v[1], rr_cnt_v[sk]["short"], streak=streak_v.get((sk, "s"), 0)),
-                "long":  _stats(v[2], v[3], rr_cnt_v[sk]["long"],  streak=streak_v.get((sk, "l"), 0)),
-            }
         per_sig = {k: _mk(v, k) for k, v in cnt.items()}
-        per_sig_v = None
-        if cnt_v is not None and (is_rr or rr_cnt_v is not None):
-            per_sig_v = {k: _mk_v(v, k) for k, v in cnt_v.items()}
         # 訊號一、十二 不計入合計
         _AGG = ("ab", "3", "4", "5", "6", "7", "8", "9", "10", "11")
         wins_s   = sum(cnt[k][0] for k in _AGG)
@@ -872,48 +813,17 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         }
         if est is not None:
             out.update(_est_stats_dict(est))
-        if per_sig_v is not None:
-            # 強化版合計（S2~S11 _v）
-            wins_s_v   = sum(cnt_v[k][0] for k in _AGG)
-            losses_s_v = sum(cnt_v[k][1] for k in _AGG)
-            wins_l_v   = sum(cnt_v[k][2] for k in _AGG)
-            losses_l_v = sum(cnt_v[k][3] for k in _AGG)
-            tot_v = wins_s_v + losses_s_v + wins_l_v + losses_l_v
-            wins_v = wins_s_v + wins_l_v
-            out["variant"] = {
-                "total":    tot_v,
-                "wins":     wins_v,
-                "win_rate": round(wins_v / tot_v * 100, 1) if tot_v else None,
-                "short":    _stats(wins_s_v, losses_s_v),
-                "long":     _stats(wins_l_v, losses_l_v),
-                "abc":      per_sig_v["abc"],
-                "ab":       per_sig_v["ab"],
-                "s3":       per_sig_v["3"],
-                "s4":       per_sig_v["4"],
-                "s5":       per_sig_v["5"],
-                "s6":       per_sig_v["6"],
-                "s7":       per_sig_v["7"],
-                "s8":       per_sig_v["8"],
-                "s9":       per_sig_v["9"],
-                "s10":      per_sig_v["10"],
-                "s11":      per_sig_v["11"],
-                "s12":      per_sig_v["12"],
-            }
-            if est_v is not None:
-                out["variant"].update(_est_stats_dict(est_v))
         return out
 
     # ── Dedupe：同 signal_bar + 同方向 多個訊號類型只算一次（避免 S6/S10、S2/S3、S9/S10 等重複） ──
     # 5 個原本平行的 seen Set 內容完全一致（lockstep 更新），合併成單一 seen 省 4 倍 hash 查詢
-    def _dedupe_totals(filter_variant=False):
+    def _dedupe_totals():
         seen = set()
         # 每組: [sw, sl, lw, ll]
         m = [0, 0, 0, 0]; b = [0, 0, 0, 0]; rr = [0, 0, 0, 0]
         em = [0, 0, 0, 0]; eb = [0, 0, 0, 0]
         for s in signals:
             if s["k"] == "abc":   # S1 不計入總勝率；S12 計入（但與其他策略重疊處由 (t,d) dedup 自然丟棄）
-                continue
-            if filter_variant and not s.get("v"):
                 continue
             key = (s["t"], s["d"])
             if key in seen:
@@ -935,15 +845,14 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             elif est_r_b == "l":eb[d_idx_l] += 1
         return m, b, rr, em, eb
 
-    dedup_m,  dedup_b,  dedup_rr,  dedup_em,  dedup_eb  = _dedupe_totals(filter_variant=False)
-    dedup_mv, dedup_bv, dedup_rrv, dedup_emv, dedup_ebv = _dedupe_totals(filter_variant=True)
+    dedup_m,  dedup_b,  dedup_rr,  dedup_em,  dedup_eb  = _dedupe_totals()
 
     # target → 結果欄位 key（mid=中軌、band=上下軌、rr=1:1）
     _RKEY      = {"mid": "r",     "band": "r_b",     "rr": "r_rr"}
     _RKEY_EST  = {"mid": "est_r", "band": "est_r_b", "rr": "r_rr"}  # 1:1 目標固定，est=實際
 
     # ── 最大連敗數：每 (sig_key, direction) 依時間順序統計最長連續 loss ──
-    def _calc_streaks(target="mid", only_variant=False):
+    def _calc_streaks(target="mid"):
         """回傳 {(sig_key, direction): max_streak}"""
         streaks = {}
         # 訊號需依時間排序（共用預排好的 signals_sorted）
@@ -951,8 +860,6 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         cur = {}
         rkey = _RKEY[target]
         for s in signals_sorted:
-            if only_variant and not s.get("v"):
-                continue
             key = (s["k"], s["d"])
             r = s.get(rkey)
             if key not in cur:
@@ -966,12 +873,9 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                 cur[key] = 0
         return streaks
 
-    streak_mid    = _calc_streaks(target="mid",  only_variant=False)
-    streak_band   = _calc_streaks(target="band", only_variant=False)
-    streak_rr     = _calc_streaks(target="rr",   only_variant=False)
-    streak_mid_v  = _calc_streaks(target="mid",  only_variant=True)
-    streak_band_v = _calc_streaks(target="band", only_variant=True)
-    streak_rr_v   = _calc_streaks(target="rr",   only_variant=True)
+    streak_mid    = _calc_streaks(target="mid")
+    streak_band   = _calc_streaks(target="band")
+    streak_rr     = _calc_streaks(target="rr")
 
     # ── 條件連敗機率（以「合併時間軸」為準）──
     #    連敗 = 同方向且在合併時間軸上「真正相鄰」的連續敗單。
@@ -979,14 +883,12 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
     #    loss_streak[k] = 同方向連敗 k 根後、下一筆同方向也敗的機率
     #                     （k=1→2連、k=2→3連、k=3→4連）；win_after_win = 同方向勝後再勝。
     _combined_memo = {}
-    # 預篩：base / variant 子集只算一次（迴圈外，避免 12 次重複 only_variant 判斷）
-    _signals_base    = [s for s in signals_sorted if s["k"] != "abc"]
-    _signals_variant = [s for s in _signals_base if s.get("v")]
-    def _build_combined(target, only_variant, est=False):
+    _signals_base = [s for s in signals_sorted if s["k"] != "abc"]
+    def _build_combined(target, est=False):
         """合併時間軸的已結算序列 [(d, r)]（dedupe by (t,d)、S1 不計入）。
         est=True 改用『進場時固定預估目標』的結果（est_r/est_r_b；1:1 目標固定 est=實際）。
-        memoize：cond/stop/recent 會重複要同一組合（共 24 呼叫、12 種唯一）→ 快取免重算。"""
-        _mk = (target, only_variant, est)
+        memoize：cond/stop/recent 會重複要同一組合 → 快取免重算。"""
+        _mk = (target, est)
         _hit = _combined_memo.get(_mk)
         if _hit is not None:
             return _hit
@@ -994,7 +896,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         seen = set(); seq = []
         # S12 排在 signals 列表最後 push → 穩定排序下，(t,d) 與其他策略重疊時其他先入 seen，
         # S12 只在「獨有進場點」才會進入合併時間軸（敗後停手 / 連敗條件統計都用這個）
-        for s in (_signals_variant if only_variant else _signals_base):
+        for s in _signals_base:
             key = (s["t"], s["d"])
             if key in seen:
                 continue
@@ -1039,11 +941,11 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             "n_after_win":     after_win,
         }
 
-    def _calc_cond_total(target="mid", only_variant=False):
-        seq = _build_combined(target, only_variant)
+    def _calc_cond_total(target="mid"):
+        seq = _build_combined(target)
         return {"s": _cond_for_dir(seq, "s"), "l": _cond_for_dir(seq, "l")}
 
-    def _calc_stop_strategy(target="mid", only_variant=False):
+    def _calc_stop_strategy(target="mid"):
         """「敗後停手」策略總勝率（合併時間軸）：
         - 某方向「進場中」遇敗 → 該方向「停手」（計入這一敗）
         - 「停手中」跳過該方向訊號（不計），但反方向不受影響、照自己的狀態進場
@@ -1051,7 +953,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         回傳實際進場單的空/多/合計勝率。母體同總勝率（S2~S11 去重、合併時間軸）。
         另含 "est"：用『進場時固定預估目標』結果跑同一套停手模擬（到達預估盈虧比的機率）。"""
         def _run(est):
-            combined = _build_combined(target, only_variant, est=est)  # 依時間排序
+            combined = _build_combined(target, est=est)  # 依時間排序
             active = {"s": True, "l": True}
             w = {"s": 0, "l": 0}; l = {"s": 0, "l": 0}
             for d, r in combined:
@@ -1075,19 +977,13 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         out["est"] = _run(est=True)   # 到達預估盈虧比（固定目標）的停手版機率
         return out
 
-    cond_tot_mid    = _calc_cond_total(target="mid",  only_variant=False)
-    cond_tot_band   = _calc_cond_total(target="band", only_variant=False)
-    cond_tot_rr     = _calc_cond_total(target="rr",   only_variant=False)
-    cond_tot_mid_v  = _calc_cond_total(target="mid",  only_variant=True)
-    cond_tot_band_v = _calc_cond_total(target="band", only_variant=True)
-    cond_tot_rr_v   = _calc_cond_total(target="rr",   only_variant=True)
+    cond_tot_mid    = _calc_cond_total(target="mid")
+    cond_tot_band   = _calc_cond_total(target="band")
+    cond_tot_rr     = _calc_cond_total(target="rr")
 
-    stop_mid    = _calc_stop_strategy(target="mid",  only_variant=False)
-    stop_band   = _calc_stop_strategy(target="band", only_variant=False)
-    stop_rr     = _calc_stop_strategy(target="rr",   only_variant=False)
-    stop_mid_v  = _calc_stop_strategy(target="mid",  only_variant=True)
-    stop_band_v = _calc_stop_strategy(target="band", only_variant=True)
-    stop_rr_v   = _calc_stop_strategy(target="rr",   only_variant=True)
+    stop_mid    = _calc_stop_strategy(target="mid")
+    stop_band   = _calc_stop_strategy(target="band")
+    stop_rr     = _calc_stop_strategy(target="rr")
 
     # _calc_s12_stop_plus / byzantine 已從前端移除，後端計算亦移除以加速
 
@@ -1115,27 +1011,15 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             "est_win_rate": round(w / t * 100, 1) if t else None,
         }
 
-    mid_out  = _build_target_stats(mid_cnt,  mid_rr,  mid_cnt_v,  mid_rr_v,
-                                    streak=streak_mid,  streak_v=streak_mid_v)
-    band_out = _build_target_stats(band_cnt, band_rr, band_cnt_v, band_rr_v,
-                                    streak=streak_band, streak_v=streak_band_v)
-    rr_out   = _build_target_stats(rr11_cnt, None, rr11_cnt_v, None,
-                                    streak=streak_rr, streak_v=streak_rr_v, is_rr=True)
+    mid_out  = _build_target_stats(mid_cnt,  mid_rr,  streak=streak_mid)
+    band_out = _build_target_stats(band_cnt, band_rr, streak=streak_band)
+    rr_out   = _build_target_stats(rr11_cnt, None, streak=streak_rr, is_rr=True)
     # 頂層也存最大連敗（依當前 cnt 的合計）
     def _all_max_streak(streak_dict):
         return max((v for v in streak_dict.values()), default=0)
     mid_out["max_loss_streak"]  = _all_max_streak(streak_mid)
     band_out["max_loss_streak"] = _all_max_streak(streak_band)
     rr_out["max_loss_streak"]   = _all_max_streak(streak_rr)
-    if "variant" in mid_out:
-        mid_out["variant"]["max_loss_streak"]  = _all_max_streak(streak_mid_v)
-    if "variant" in band_out:
-        band_out["variant"]["max_loss_streak"] = _all_max_streak(streak_band_v)
-    if "variant" in rr_out:
-        rr_out["variant"]["max_loss_streak"]   = _all_max_streak(streak_rr_v)
-
-    # 拜占庭手：寫在每個 target 頂層，供前端在「敗後停手」按鈕右側顯示
-
 
     # 把 dedup 後的合計覆寫到 mid_out / band_out / rr_out 的頂層（含條件連續機率 cond + 停手策略）
     mid_out.update(_dedup_total_dict(dedup_m, cond_tot_mid))
@@ -1147,36 +1031,18 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
     rr_out.update(_dedup_total_dict(dedup_rr, cond_tot_rr))
     rr_out.update(_dedup_est_dict(dedup_rr))   # 1:1 目標固定，est 合計 = 實際合計
     rr_out["stop_strategy"] = stop_rr
-    if "variant" in mid_out:
-        mid_out["variant"].update(_dedup_total_dict(dedup_mv, cond_tot_mid_v))
-        mid_out["variant"].update(_dedup_est_dict(dedup_emv))
-        mid_out["variant"]["stop_strategy"] = stop_mid_v
-    if "variant" in band_out:
-        band_out["variant"].update(_dedup_total_dict(dedup_bv, cond_tot_band_v))
-        band_out["variant"].update(_dedup_est_dict(dedup_ebv))
-        band_out["variant"]["stop_strategy"] = stop_band_v
-    if "variant" in rr_out:
-        rr_out["variant"].update(_dedup_total_dict(dedup_rrv, cond_tot_rr_v))
-        rr_out["variant"].update(_dedup_est_dict(dedup_rrv))
-        rr_out["variant"]["stop_strategy"] = stop_rr_v
 
     # ── 近 N 筆勝率（合併時間軸去重後最近 N 筆，看近期表現）──
-    def _recent_wr(target, only_variant, n_recent=100):
-        seq = _build_combined(target, only_variant)   # 已依時間排序、去重、S1 不計
+    def _recent_wr(target, n_recent=100):
+        seq = _build_combined(target)   # 已依時間排序、去重、S1 不計
         tail = seq[-n_recent:]
         w = sum(1 for _d, r in tail if r == "w")
         t = len(tail)
         return {"win_rate": round(w / t * 100, 1) if t else None, "total": t, "wins": w}
 
-    mid_out["recent100"]  = _recent_wr("mid",  False)
-    band_out["recent100"] = _recent_wr("band", False)
-    rr_out["recent100"]   = _recent_wr("rr",   False)
-    if "variant" in mid_out:
-        mid_out["variant"]["recent100"]  = _recent_wr("mid",  True)
-    if "variant" in band_out:
-        band_out["variant"]["recent100"] = _recent_wr("band", True)
-    if "variant" in rr_out:
-        rr_out["variant"]["recent100"]   = _recent_wr("rr",   True)
+    mid_out["recent100"]  = _recent_wr("mid")
+    band_out["recent100"] = _recent_wr("band")
+    rr_out["recent100"]   = _recent_wr("rr")
 
     recent.sort(key=lambda x: x["t"])
     from_date = str(df.iloc[0]["time"])[:10] if n else ""
