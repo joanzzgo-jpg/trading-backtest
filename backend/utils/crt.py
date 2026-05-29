@@ -314,7 +314,9 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         # _solve 精簡模式：只存敗後停手所需欄位（t/d/k/r/r_b/r_rr/v），跳過 est/RR/recent
         if _solve is not None:
             variant = False
-            if sig_key != "abc" and entry_i < n:
+            # 只有「強化版求解」(_solve[1]=only_variant) 會讀 v 旗標；
+            # 預設（非強化版）求解不讀 v → 跳過整段 variant 計算（含 round，省 ~8%），輸出等價。
+            if _solve[1] and sig_key != "abc" and entry_i < n:
                 entry_px = opens[entry_i]
                 tgt_mid  = bb_mid[entry_i]
                 if not (math.isnan(entry_px) or math.isnan(tgt_mid)):

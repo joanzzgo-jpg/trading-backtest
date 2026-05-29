@@ -10,7 +10,7 @@ from data.taiwan import fetch_tw_stock, resample_tw, fetch_tw_intraday, fetch_tw
 from data.us_stock import fetch_us_stock, MAX_DAYS as US_MAX_DAYS
 from data.us_finnhub import fetch_us_quote
 from data.crypto import fetch_crypto_ohlcv
-from utils.cache import cache
+from utils.cache import cache, data_cache
 from utils.data import enrich_df, df_to_records
 from utils.crt import _calc_crt_winrate
 
@@ -394,7 +394,7 @@ def get_crt_winrate(
     cache_key = f"crt_wr68:{market}:{symbol}:{exchange}:{timeframe}:{_buf}:{int(_long_only)}"
     # 注意：solve 模式不可命中此勝率快取（cache_key 不含 solve），否則會回傳勝率而非求解結果
     if not solve:
-        cached = cache.get(cache_key, ttl=10800)   # 3 小時：減少重算頻率（資料新增 1h 內 fetchLatest 自動更新最新棒）
+        cached = data_cache.get(cache_key, ttl=10800)   # 3 小時：減少重算頻率（資料新增 1h 內 fetchLatest 自動更新最新棒）
         if cached:
             return cached
 
@@ -467,7 +467,7 @@ def get_crt_winrate(
     days_max  = TF_MAX.get(timeframe, 3650)
     # 已抓+enrich 的 df 另外快取（不含 buffer）→ 換 SL 緩衝等重算時免重抓（抓資料佔總時間 90%+）
     df_key = f"crt_df2:{market}:{symbol}:{exchange}:{timeframe}"
-    df = cache.get(df_key, ttl=10800)   # 3 小時（fetch + enrich 結果）
+    df = data_cache.get(df_key, ttl=10800)   # 3 小時（fetch + enrich 結果）
     if df is None:
         try:
             df = _fetch_df(days_max)
@@ -476,21 +476,21 @@ def get_crt_winrate(
         if len(df) < 50:
             raise HTTPException(400, f"資料不足 50 根K棒（{timeframe}）")
         df = enrich_df(df)
-        cache.set(df_key, df)
+        data_cache.set(df_key, df)
 
     # 求解模式：掃描止損% 找達標的建議值（用已快取的 df，免重抓）
     if solve:
         solve_key = f"crt_solve4:{market}:{symbol}:{exchange}:{timeframe}:{solve_target}:{solve_variant}:{int(_long_only)}"
-        cached_s = cache.get(solve_key, ttl=3600)
+        cached_s = data_cache.get(solve_key, ttl=3600)
         if cached_s:
             return cached_s
         _solve_tgt = solve_target if solve_target in ("mid", "band", "rr") else "mid"
         sol = _solve_stop_pct(df, target=_solve_tgt,
                               variant=(solve_variant == 1), long_only=_long_only)
-        cache.set(solve_key, sol)
+        data_cache.set(solve_key, sol)
         return sol
 
     result = _calc_crt_winrate(df, stop_buffer_pct=_buf, long_only=_long_only)
 
-    cache.set(cache_key, result)
+    data_cache.set(cache_key, result)
     return result

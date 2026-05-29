@@ -20,5 +20,11 @@ env/
 # Logs
 *.log
 
+# 手動備份檔（git 本身即備份，勿進版控）
+*.bak
+
+# 前端 JS bundle 為衍生物（main.py 的 _build_js_bundle() 在 import 時自動重建）
+frontend/static/js/app.bundle.js
+
 # Pionex 標的清單執行期快取（勿進版控）
 backend/data/.pionex_syms_cache.json
