@@ -5368,3 +5368,30 @@ body, button, input, select, textarea,
   /* ── 📊 勝率分頁：v1 先沿用圖表畫面，專屬勝率版面下一步做 ── */
 }
 
+
+/* ══════════════════════════════════════════════════════════════
+   開場首頁 Landing（極簡黑白：黑底白「開始」鈕；其餘圖稍後由使用者提供）
+   ══════════════════════════════════════════════════════════════ */
+.landing {
+  position: fixed; inset: 0; z-index: 100000;
+  display: flex; align-items: center; justify-content: center;
+  background: #000;
+  opacity: 1; visibility: visible;
+  transition: opacity .6s ease, visibility .6s ease;
+  overflow: hidden;
+}
+.landing.landing-hide { opacity: 0; visibility: hidden; pointer-events: none; }
+.landing-start {
+  padding: 15px 64px; font-size: 20px; font-weight: 700; letter-spacing: 6px;
+  color: #fff; background: transparent;
+  border: 2px solid #fff; border-radius: 999px;
+  cursor: pointer;
+  transition: background .2s ease, color .2s ease, transform .15s ease;
+}
+.landing-start:hover  { background: #fff; color: #000; transform: scale(1.04); }
+.landing-start:active { transform: scale(.98); }
+@media (max-width: 768px) { .landing-start { padding: 14px 54px; font-size: 18px; } }
+/* 極簡模式：白底黑鈕（仍維持黑白） */
+html.perf-mode .landing { background: #fff; }
+html.perf-mode .landing-start { color: #000; border-color: #000; }
+html.perf-mode .landing-start:hover { background: #000; color: #fff; }

@@ -1,6 +1,19 @@
 document.addEventListener("DOMContentLoaded", async () => {
   loadPrefs();
 
+  // 開場首頁：按「開始」淡出進入圖表（圖表已在背景照常載入，按下時已就緒）
+  (function initLanding() {
+    const scr = document.getElementById("landingScreen");
+    const btn = document.getElementById("landingStartBtn");
+    if (!scr || !btn) return;
+    const enter = () => {
+      scr.classList.add("landing-hide");
+      setTimeout(() => { scr.style.display = "none"; }, 650);
+      if (typeof resizeAll === "function") setTimeout(resizeAll, 120);  // 進場後重算圖表尺寸
+    };
+    btn.addEventListener("click", enter);
+  })();
+
   // 極簡模式：覆蓋 C（指標／線條／蠟燭顏色）為純白底專用配色（in-memory only，savePrefs 已擋）
   // 黃色、淡青、淡藍在白底上看不見，這份 palette 全部換成在白底上對比夠的深色
   if (document.documentElement.classList.contains("perf-mode")) {
