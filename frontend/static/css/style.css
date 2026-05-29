@@ -5274,8 +5274,20 @@ body, button, input, select, textarea,
   .peek-bear, #bearBubble { display: none !important; }
 
   /* 修：≤1100px 的 display:none 把 ticker 面板砍掉、害抽屜滑不出來（合約行情點不到）。
-     重新啟用 → 由抽屜 CSS 定位到畫面外（不擋圖表），按右上「行情」鈕(#tickerToggle)滑入。 */
-  .ticker-panel { display: flex !important; }
+     重新啟用＋強制抽屜定位（line 4866 的 position:relative 會蓋掉抽屜的 fixed、
+     害面板回到正常流佔寬度把圖表推左 → 這裡用 !important 強制 fixed 蓋回去）。
+     平常滑到畫面外（不擋圖表），按右上「行情」鈕(#tickerToggle)滑入。 */
+  .ticker-panel {
+    display: flex !important;
+    position: fixed !important;
+    right: 0 !important; top: 0 !important; bottom: 0 !important;
+    width: min(82vw, 300px) !important;
+    transform: translateX(100%) !important;
+    z-index: 600 !important;
+    transition: transform .25s cubic-bezier(.4,0,.2,1) !important;
+  }
+  .ticker-panel.ticker-open { transform: translateX(0) !important; }
+  .charts-container { width: 100% !important; }
 
   /* 手機不需要重播功能 → 隱藏重播按鈕（沒按鈕就進不了重播模式） */
   #replayModeBtn { display: none !important; }
