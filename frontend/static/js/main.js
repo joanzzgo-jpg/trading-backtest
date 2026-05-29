@@ -7,6 +7,11 @@ document.addEventListener("DOMContentLoaded", async () => {
     const btn = document.getElementById("landingStartBtn");
     if (!scr || !btn) return;
     const enter = () => {
+      // 記住「今天看過了」→ 當天再開直接進圖表（head inline script 會判斷）
+      try {
+        const d = new Date();
+        localStorage.setItem("landingSeen", d.getFullYear() + "-" + (d.getMonth()+1) + "-" + d.getDate());
+      } catch (e) {}
       scr.classList.add("landing-hide");
       setTimeout(() => { scr.style.display = "none"; }, 650);
       if (typeof resizeAll === "function") setTimeout(resizeAll, 120);  // 進場後重算圖表尺寸

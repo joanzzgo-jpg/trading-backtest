@@ -27,6 +27,15 @@
         document.documentElement.classList.add("perf-mode");
       }
     } catch (e) {}
+    // 開場首頁：同一天看過一次（按過「開始」）就直接進圖表、不再跳首頁；隔天才再跳。
+    // 在首屏前判斷 → 不會閃一下首頁。
+    try {
+      var _d = new Date();
+      var _today = _d.getFullYear() + "-" + (_d.getMonth()+1) + "-" + _d.getDate();
+      if (localStorage.getItem("landingSeen") === _today) {
+        document.documentElement.classList.add("landing-skip");
+      }
+    } catch (e) {}
   </script>
 </head>
 <body>

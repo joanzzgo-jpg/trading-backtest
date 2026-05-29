@@ -5381,6 +5381,8 @@ body, button, input, select, textarea,
   overflow: hidden;
 }
 .landing.landing-hide { opacity: 0; visibility: hidden; pointer-events: none; }
+/* 同一天已看過 → 首屏前就隱藏，不跳首頁、不閃 */
+html.landing-skip .landing { display: none !important; }
 .landing-start {
   padding: 15px 64px; font-size: 20px; font-weight: 700; letter-spacing: 6px;
   color: #fff; background: transparent;
