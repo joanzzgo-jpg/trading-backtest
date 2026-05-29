@@ -25,6 +25,10 @@ router = APIRouter(prefix="/api", tags=["data"])
 _inflight_locks: dict = {}
 _inflight_guard = threading.Lock()
 
+# 勝率 / df 快取保鮮期（秒）。30 分鐘：最近一根訊號最多慢 30 分（即時價另走每秒路徑、
+# 不受此影響）。有單飛鎖護著故不會雪崩；想更新鮮可再調小、想更省限流可調大。
+_WR_CACHE_TTL = 1800
+
 def _keyed_lock(key: str) -> threading.Lock:
     with _inflight_guard:
         lk = _inflight_locks.get(key)
@@ -409,7 +413,7 @@ def get_crt_winrate(
     cache_key = f"crt_wr70:{market}:{symbol}:{exchange}:{timeframe}:{_buf}:{int(_long_only)}"
     # 注意：solve 模式不可命中此勝率快取（cache_key 不含 solve），否則會回傳勝率而非求解結果
     if not solve:
-        cached = data_cache.get(cache_key, ttl=10800)   # 3 小時：減少重算頻率（資料新增 1h 內 fetchLatest 自動更新最新棒）
+        cached = data_cache.get(cache_key, ttl=_WR_CACHE_TTL)   # 保鮮期內直接回快取（即時價另走每秒路徑）
         if cached:
             return cached
 
@@ -503,9 +507,9 @@ def get_crt_winrate(
     # 已抓+enrich 的 df 另外快取（不含 buffer）→ 換 SL 緩衝等重算時免重抓（抓資料佔總時間 90%+）
     df_key = f"crt_df3:{market}:{symbol}:{exchange}:{timeframe}"
     def _load_df():
-        d = data_cache.get(df_key, ttl=10800)   # 記憶體（3 小時）
+        d = data_cache.get(df_key, ttl=_WR_CACHE_TTL)   # 記憶體
         if d is None:
-            d = disk_cache.get(df_key, ttl=10800)   # 磁碟（跨重啟/部署存活）
+            d = disk_cache.get(df_key, ttl=_WR_CACHE_TTL)   # 磁碟（跨重啟/部署存活）
             if d is not None:
                 data_cache.set(df_key, d)           # 回填記憶體
         return d
