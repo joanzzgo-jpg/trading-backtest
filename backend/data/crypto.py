@@ -316,23 +316,17 @@ def _fetch_binance(symbol: str, timeframe: str,
 
     since  = _to_ms(start) if start else None
     end_ms = _to_ms(end, end_of_day=True) if end else None
-    all_rows: list = []
+    now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+    if end_ms and end_ms > now_ms:
+        end_ms = now_ms
+    if since is None:
+        since = now_ms - max_candles * _TF_BAR_SECONDS.get(timeframe, 86400) * 1000
+    if end_ms is None:
+        end_ms = now_ms
 
-    while True:
-        params = {"symbol": sym, "interval": tf, "limit": 1000}
-        if since:   params["startTime"] = since
-        if end_ms:  params["endTime"]   = end_ms
-        url   = f"{BINANCE_BASE}/api/v3/klines?{urllib.parse.urlencode(params)}"
-        batch = _get(url)
-        if not batch:
-            break
-        all_rows.extend(batch)
-        last_ts = batch[-1][0]
-        if (end_ms and last_ts >= end_ms) or len(batch) < 1000 or len(all_rows) >= max_candles:
-            break
-        since = last_ts + 1
-
-    return _make_df(all_rows)
+    # 並行分段抓取（與 fapi 共用）；spot 單頁上限 1000
+    return _fetch_binance_klines_parallel(
+        f"{BINANCE_BASE}/api/v3/klines", sym, tf, since, end_ms, timeframe, max_candles, page=1000)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -369,16 +363,19 @@ def _fetch_binance_fapi(symbol: str, timeframe: str,
 _BINANCE_PAGE = 1500
 
 
-def _fetch_binance_klines_parallel(base_url, sym, tf, since_ms, end_ms, timeframe, max_candles):
-    """把 [since, end] 依「每頁 1500 根」切成多個 window，用 ThreadPool 同時抓。
-    Binance klines 接受 startTime+endTime+limit，每 window 自包含、可平行。"""
+def _fetch_binance_klines_parallel(base_url, sym, tf, since_ms, end_ms, timeframe, max_candles,
+                                   page=_BINANCE_PAGE):
+    """把 [since, end] 依「每頁 page 根」切成多個 window，用 ThreadPool 同時抓。
+    Binance klines 接受 startTime+endTime+limit，每 window 自包含、可平行。
+    page：單頁上限——合約(fapi) 1500、現貨(spot) 1000（spot 給 1500 也只回 1000，
+    window 步進須等於實際頁數，否則會出現缺口）。"""
     from concurrent.futures import ThreadPoolExecutor
     bar_ms  = _TF_BAR_SECONDS.get(timeframe, 86400) * 1000
-    page_ms = _BINANCE_PAGE * bar_ms
+    page_ms = page * bar_ms
 
     windows = []
     s = since_ms
-    while s < end_ms and len(windows) * _BINANCE_PAGE < max_candles:
+    while s < end_ms and len(windows) * page < max_candles:
         e = min(s + page_ms - bar_ms, end_ms)
         windows.append((s, e))
         s = e + bar_ms
@@ -387,7 +384,7 @@ def _fetch_binance_klines_parallel(base_url, sym, tf, since_ms, end_ms, timefram
 
     def _fetch_window(w):
         ws, we = w
-        url = f"{base_url}?symbol={sym}&interval={tf}&startTime={ws}&endTime={we}&limit={_BINANCE_PAGE}"
+        url = f"{base_url}?symbol={sym}&interval={tf}&startTime={ws}&endTime={we}&limit={page}"
         try:
             return _get(url, timeout=10)
         except Exception:
@@ -400,8 +397,9 @@ def _fetch_binance_klines_parallel(base_url, sym, tf, since_ms, end_ms, timefram
         first = []
     all_rows.extend(first)
     if len(windows) > 1:
-        # worker 數依 window 數動態調整（上限 16），多段大範圍抓取更快、又不過度並發
-        _workers = min(16, max(8, len(windows) - 1))
+        # worker 數依 window 數動態調整（上限 8）。實測 Binance 對單 IP 並發有甜蜜點：
+        # 4 太少、16 反被降速，8 最快 → 上限 8 兼顧速度與避免限流。
+        _workers = min(8, max(4, len(windows) - 1))
         with ThreadPoolExecutor(max_workers=_workers) as pool:
             for batch in pool.map(_fetch_window, windows[1:]):
                 if batch:
