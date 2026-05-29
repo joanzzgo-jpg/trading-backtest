@@ -389,7 +389,7 @@ def get_crt_winrate(
     from datetime import date, timedelta
     _buf = round(max(0.0, float(stop_buffer_pct or 0.0)), 4)
     _long_only = (market == "tw")  # 台股不能放空
-    cache_key = f"crt_wr69:{market}:{symbol}:{exchange}:{timeframe}:{_buf}:{int(_long_only)}"
+    cache_key = f"crt_wr70:{market}:{symbol}:{exchange}:{timeframe}:{_buf}:{int(_long_only)}"
     # 注意：solve 模式不可命中此勝率快取（cache_key 不含 solve），否則會回傳勝率而非求解結果
     if not solve:
         cached = data_cache.get(cache_key, ttl=10800)   # 3 小時：減少重算頻率（資料新增 1h 內 fetchLatest 自動更新最新棒）
@@ -456,6 +456,18 @@ def get_crt_winrate(
             return fetch_us_stock(symbol, start, end, timeframe)
         elif market == "crypto":
             start = (date.today() - timedelta(days=days)).isoformat()
+            # 勝率只用 OHLC（不看成交量）→ 優先用 Binance 合約並行抓取（快、無 Pionex 10req/s 限流）。
+            # 主流幣兩邊 OHLC 幾乎一致、訊號相同；Pionex 獨有小幣 Binance 抓不到 → fallback 原路由。
+            # 圖表顯示仍走原 exchange（Pionex，成交量一致），不受此影響。
+            from data.crypto import _fetch_binance_fapi, _calc_max_candles
+            _base = symbol[:-2] if symbol.upper().endswith(".P") else symbol
+            try:
+                _mc = _calc_max_candles(start, end, timeframe)
+                _dfb = _fetch_binance_fapi(_base, timeframe, start, end, 0, max_candles=_mc)
+                if not _dfb.empty and len(_dfb) >= 50:
+                    return _dfb
+            except Exception:
+                pass   # Binance 無此合約（Pionex 獨有）或失敗 → 走原路由
             return fetch_crypto_ohlcv(symbol, timeframe, start, end, exchange,
                                       api_key=api_key, api_secret=api_secret)
         raise HTTPException(400, f"不支援的市場: {market}")
@@ -464,7 +476,7 @@ def get_crt_winrate(
     # 永遠達不到 MIN_CASES=40，doubling 會跑滿 4 次浪費 80% 時間）
     days_max  = TF_MAX.get(timeframe, 3650)
     # 已抓+enrich 的 df 另外快取（不含 buffer）→ 換 SL 緩衝等重算時免重抓（抓資料佔總時間 90%+）
-    df_key = f"crt_df2:{market}:{symbol}:{exchange}:{timeframe}"
+    df_key = f"crt_df3:{market}:{symbol}:{exchange}:{timeframe}"
     df = data_cache.get(df_key, ttl=10800)   # 3 小時（fetch + enrich 結果）
     if df is None:
         try:
