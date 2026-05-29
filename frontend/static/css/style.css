@@ -5211,3 +5211,63 @@ body, button, input, select, textarea,
   }
 }
 
+/* ══════════════════════════════════════════════════════════════
+   手機/平板版面整併（≤768px）— 置於檔案最後，蓋過先前零散的多段 768px 規則。
+   目標：①標的完整顯示可點 ②勝率數字看得到（最在意）③工具列分列不擁擠。
+   分列：列1 標的+圖示／列2 勝率／列3 TF。
+   ══════════════════════════════════════════════════════════════ */
+@media (max-width: 768px) {
+  .topbar {
+    height: auto !important;
+    min-height: 0 !important;
+    flex-wrap: wrap !important;
+    align-items: center !important;
+    padding: 4px 6px !important;
+    gap: 4px 6px !important;
+  }
+
+  /* ── 列1：市場 + 標的（完整顯示）+ 星號 ── */
+  .topbar-left  { order: 1 !important; flex: 1 1 auto !important; min-width: 0 !important; overflow: visible !important; gap: 4px !important; }
+  .tb-symbol-group { flex: 1 1 auto !important; min-width: 0 !important; }
+  .tb-symbol-wrap  { flex: 1 1 auto !important; min-width: 0 !important; }
+  .tb-symbol-input { width: 100% !important; min-width: 96px !important; font-size: 15px !important; height: 34px !important; }
+
+  /* 右側圖示跟在列1尾端 */
+  .topbar-right { order: 2 !important; flex: 0 0 auto !important; margin-left: auto !important; gap: 2px !important; }
+
+  /* ── 列2：勝率（整列）。內部再分兩行：總數列 + 各訊號橫滑列 ── */
+  .tb-winrate {
+    order: 3 !important;
+    display: flex !important;
+    flex-wrap: wrap !important;
+    width: 100% !important;
+    flex: 1 1 100% !important;
+    height: auto !important;
+    min-height: 32px !important;
+    padding: 3px 6px !important;
+    margin: 0 !important;
+    row-gap: 2px;
+  }
+  /* 第一行：中軌/緩衝（左）＋ 總/近100/預估/日期（右靠） */
+  .tb-wr-fixed-left  { order: 1 !important; display: flex !important; align-items: center; }
+  .tb-wr-fixed-right { order: 2 !important; display: flex !important; align-items: center; margin-left: auto !important; }
+  /* 第二行：12 個訊號小區塊，整列橫向滑動 */
+  .tb-wr-scroll { order: 3 !important; width: 100% !important; flex: 1 1 100% !important; overflow-x: auto !important; }
+
+  /* ── 列3：TF 橫向滑動 ── */
+  .topbar-tf { order: 4 !important; width: 100% !important; flex: 1 1 100% !important; overflow-x: auto !important; flex-wrap: nowrap !important; gap: 2px; }
+
+  /* Top3/連敗那排在手機隱藏（避免孤立的「連敗 關」佔一整列）；勝率細項仍可在桌面看 */
+  .tb-wr-top3 { display: none !important; }
+
+  /* 手機不需要繪圖工具列（觸控畫線不實用、又佔底部空間）→ 隱藏、把空間還給圖表 */
+  .draw-toolbar { display: none !important; }
+
+  /* ── 效能：減少手機卡頓 ── */
+  /* backdrop-filter 毛玻璃在手機 GPU 負擔很大、捲動/操作會卡 → 全關，改實心背景 */
+  * { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+  /* 持續跑的裝飾動畫（勝率欄掃光、閃爍）→ 關掉，省掉不必要的每幀重繪 */
+  .tb-winrate::before, .tb-winrate::after { animation: none !important; }
+  .blink, .tk-limitPulse { animation: none !important; }
+}
+
