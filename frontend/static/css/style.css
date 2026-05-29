@@ -5326,12 +5326,17 @@ body, button, input, select, textarea,
   body.m-tab-watch .ticker-panel {
     transform: none !important;
     width: 100% !important;
+    left: auto !important;
     top: 0 !important;
     bottom: 52px !important;     /* 上到頂、下到分頁列 */
     z-index: 650 !important;
     box-shadow: none !important;
+    overflow-x: hidden !important;
     padding-top: env(safe-area-inset-top, 0px) !important;  /* 避開 iOS 狀態列 */
   }
+  /* 防止行情列右側價格被切：禁止橫向溢出（不動 header 結構，避免搜尋框撐爆） */
+  body.m-tab-watch .ticker-list { overflow-x: hidden !important; }
+  body.m-tab-watch .ticker-item { max-width: 100% !important; box-sizing: border-box; }
 
   /* ── 📊 勝率分頁：v1 先沿用圖表畫面，專屬勝率版面下一步做 ── */
 }
