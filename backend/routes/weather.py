@@ -158,7 +158,9 @@ async def _from_cwa(lat: float, lon: float) -> dict:
         raise RuntimeError("no_station")
 
     we   = s.get("WeatherElement", {})
-    desc = we.get("Weather") or ""
+    desc = str(we.get("Weather") or "").strip()
+    if desc in ("-99", "-990", "-"):   # CWA 自動站常以 "-99" 表示「無天氣文字」
+        desc = ""
     temp = _safe_float(we.get("AirTemperature"), 20.0)
     precip = _safe_float((we.get("Now") or {}).get("Precipitation"), 0.0)
     wind_ms = _safe_float(we.get("WindSpeed"), 0.0)
@@ -190,6 +192,13 @@ async def _from_cwa(lat: float, lon: float) -> dict:
         cloud_cover = max(0, round((1 - min(1.0, sun_h * 6)) * 100))
     else:
         cloud_cover = _desc_to_cloud(desc)
+
+    # 無天氣文字（CWA 自動站 "-99"）→ 用雲量推回描述，避免前端顯示空白/"-99"
+    if not desc:
+        if cloud_cover < 20:   desc = "晴" if is_day else "晴朗"
+        elif cloud_cover < 50: desc = "晴時多雲"
+        elif cloud_cover < 80: desc = "多雲"
+        else:                  desc = "陰"
 
     sr, ss = _sun_times_local(lat, lon)
     mp = _moon_phase()
