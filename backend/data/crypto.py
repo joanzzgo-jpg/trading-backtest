@@ -779,7 +779,9 @@ def fetch_crypto_markets(exchange_id: str = "pionex"):
             results = []
     except Exception:
         results = []
-    return results[:200]
+    # 不截斷——搜尋端點會用 keyword 過濾完整清單再取前 50。
+    # （舊版 [:200] 會讓字母排序靠後的標的如 WTI 永遠搜不到）
+    return results
 
 
 def _apply_pionex_perp_filter(tickers: list) -> list:
