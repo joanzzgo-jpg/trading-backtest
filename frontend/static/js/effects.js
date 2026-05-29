@@ -1177,7 +1177,7 @@ const SFX = (() => {
         al: Math.min(.96, (isCb ? alBase*(.9+z*.5)+.10 : alBase*(.7+z*.7)) + Math.random()*.08),
         sp: (.03+Math.random()*.10)*wf*(.5+z),       // 近快遠慢（視差）
         shape: isCb ? 4 : 0,
-        puffs: isCb ? null : _genCloudPuffs(),   // 一般雲：每朵獨立隨機（不重複、不像動物）；積雨雲用塔狀範本
+        puffs: isCb ? _genCbPuffs() : _genCloudPuffs(),   // 一般雲 / 積雨雲皆每朵獨立隨機（不重複、不對稱、不像動物）
         flip: Math.random() < .5 ? 1 : -1,
         z,
       };
@@ -1254,6 +1254,30 @@ const SFX = (() => {
       const mound = Math.max(0, 1 - Math.abs(t - peak)/0.55);   // 三角凸起，峰在 peak
       const fy = -(0.22 + mound*0.55 + (Math.random()-0.5)*0.26);
       const fr = 0.40 + mound*0.22 + Math.random()*0.12;
+      puffs.push([fx, fy, fr]);
+    }
+    return puffs;
+  }
+  /* 程序化生成「積雨雲（cumulonimbus）」：塔身(底→頂堆疊、左右搖擺) + 砧頂(向兩側外擴、不對稱)
+     每朵都不同、不對稱 → 不會看起來像熊 */
+  function _genCbPuffs() {
+    const puffs = [];
+    const towerN = 4 + Math.floor(Math.random()*2);    // 塔身 4-5 段
+    const sway = (Math.random()-0.5)*0.2;              // 整座塔的傾斜
+    for (let i=0;i<towerN;i++){
+      const t = i/(towerN-1);                          // 0底 1頂
+      const fy = -0.04 - t*0.72;
+      const fx = sway*t + (Math.random()-0.5)*0.26;
+      const fr = 0.58 - t*0.13 + Math.random()*0.08;
+      puffs.push([fx, fy, fr]);
+    }
+    const anvilN = 3 + Math.floor(Math.random()*3);    // 砧頂 3-5 凸
+    const spread = 0.42 + Math.random()*0.16;
+    const skew = (Math.random()-0.5)*0.3;              // 砧頂偏一邊（不對稱）
+    for (let i=0;i<anvilN;i++){
+      const fx = -spread + (anvilN>1 ? (i/(anvilN-1))*spread*2 : spread) + skew + (Math.random()-0.5)*0.12;
+      const fy = -0.86 - Math.random()*0.12;
+      const fr = 0.28 + Math.random()*0.13;
       puffs.push([fx, fy, fr]);
     }
     return puffs;
