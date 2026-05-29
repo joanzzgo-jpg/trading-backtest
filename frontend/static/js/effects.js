@@ -1176,7 +1176,8 @@ const SFX = (() => {
         sc: (isCb ? scBase*(.7+z*.45)+.02 : scBase*(.5+z*.7)) + Math.random()*.03,  // 近大遠小（縮小整體、保留景深）
         al: Math.min(.96, (isCb ? alBase*(.9+z*.5)+.10 : alBase*(.7+z*.7)) + Math.random()*.08),
         sp: (.03+Math.random()*.10)*wf*(.5+z),       // 近快遠慢（視差）
-        shape: isCb ? 4 : Math.floor(Math.random()*4),
+        shape: isCb ? 4 : 0,
+        puffs: isCb ? null : _genCloudPuffs(),   // 一般雲：每朵獨立隨機（不重複、不像動物）；積雨雲用塔狀範本
         flip: Math.random() < .5 ? 1 : -1,
         z,
       };
@@ -1238,8 +1239,28 @@ const SFX = (() => {
       [-.04,-.02,.60],[-.24,-.02,.50],[ .18,-.02,.52],                              // 塔底（雨幕起點）
     ],
   ];
-  /* 不同形狀 + 翻轉 + 漸層的雲；shape===4 為積雨雲；depth(0遠~1近) 控制空氣透視 */
-  function _cloud(cx, cy, w, alpha, shape = 0, flip = 1, depth = 1) {
+  /* 程序化生成一朵「自然積雲」的凸起 [fx,fy,fr]：底部平、頂部高低不一的圓凸，
+     峰位置隨機（不置中→不對稱）、數量/大小隨機 → 每朵都不同、不重複、不像動物 */
+  function _genCloudPuffs() {
+    const puffs = [];
+    const baseN = 2 + Math.floor(Math.random()*2);     // 底排（拉平雲底）
+    for (let i=0;i<baseN;i++)
+      puffs.push([-0.42 + Math.random()*0.84, -0.04 + Math.random()*0.08, 0.46 + Math.random()*0.12]);
+    const n = 5 + Math.floor(Math.random()*4);         // 上部 5-8 個凸起
+    const peak = 0.25 + Math.random()*0.5;             // 最高凸起位置（隨機破對稱）
+    for (let i=0;i<n;i++){
+      const t = n>1 ? i/(n-1) : 0.5;
+      const fx = -0.45 + t*0.9 + (Math.random()-0.5)*0.14;
+      const mound = Math.max(0, 1 - Math.abs(t - peak)/0.55);   // 三角凸起，峰在 peak
+      const fy = -(0.22 + mound*0.55 + (Math.random()-0.5)*0.26);
+      const fr = 0.40 + mound*0.22 + Math.random()*0.12;
+      puffs.push([fx, fy, fr]);
+    }
+    return puffs;
+  }
+  /* 不同形狀 + 翻轉 + 漸層的雲；shape===4 為積雨雲；depth(0遠~1近) 控制空氣透視；
+     傳入 puffsOverride 則用該組凸起（程序化雲），否則用固定範本 */
+  function _cloud(cx, cy, w, alpha, shape = 0, flip = 1, depth = 1, puffsOverride = null) {
     ctx.save();
     const conv = shape === 4;                 // 對流雲：高聳塔狀
     const h = w * (conv ? 0.82 : 0.42);
@@ -1253,7 +1274,7 @@ const SFX = (() => {
     ctx.beginPath(); ctx.ellipse(cx, baseY + h*0.18, w*0.5, h*0.34, 0, 0, Math.PI*2); ctx.fill();
     // 雲體
     ctx.globalAlpha = alpha;
-    const puffs = _CLOUD_VARIANTS[shape % _CLOUD_VARIANTS.length];
+    const puffs = puffsOverride || _CLOUD_VARIANTS[shape % _CLOUD_VARIANTS.length];
     ctx.beginPath();
     for (const [fx, fy, fr] of puffs) {
       const px = cx + fx * w * flip;
@@ -1423,7 +1444,7 @@ const SFX = (() => {
       c.x += c.sp * cdir;
       if (cdir > 0 && c.x - W*c.sc > W) c.x = -margin;       // 往右飄出 → 從左回來
       else if (cdir < 0 && c.x + W*c.sc < 0) c.x = W+margin; // 往左飄出 → 從右回來
-      _cloud(c.x, c.y + Math.sin(t*.18 + i*1.3)*3.5, W*c.sc, c.al, c.shape, c.flip, c.z);
+      _cloud(c.x, c.y + Math.sin(t*.18 + i*1.3)*3.5, W*c.sc, c.al, c.shape, c.flip, c.z, c.puffs);
     });
   }
 
@@ -1845,7 +1866,7 @@ const SFX = (() => {
       else if (cdir < 0 && c.x + W*c.sc < 0) c.x = W+margin;
       // 雲更大、更不透明 → 密雲感
       _cloud(c.x, c.y + Math.sin(t*.14 + i*1.1)*3, W*c.sc*1.18,
-             Math.min(.92, c.al + .28), c.shape, c.flip);
+             Math.min(.92, c.al + .28), c.shape, c.flip, 1, c.puffs);
     });
     ctx.fillStyle = "rgba(118,128,144,.16)"; ctx.fillRect(0,0,W,H);   // 再壓一層暗
   }
@@ -1873,7 +1894,7 @@ const SFX = (() => {
       c.x += c.sp * 3.4 * cdir;      // 雲跑很快、方向跟著風
       if (cdir > 0 && c.x - W*c.sc > W) c.x = -margin;
       else if (cdir < 0 && c.x + W*c.sc < 0) c.x = W+margin;
-      _cloud(c.x, c.y + Math.sin(t*.32 + i)*2, W*c.sc, c.al, c.shape, c.flip);
+      _cloud(c.x, c.y + Math.sin(t*.32 + i)*2, W*c.sc, c.al, c.shape, c.flip, c.z, c.puffs);
     });
     ctx.strokeStyle = "rgba(224,232,246,.10)"; ctx.lineWidth = 1.2; ctx.lineCap = "round";
     windStreaks.forEach(s => {
