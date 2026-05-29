@@ -154,11 +154,16 @@ def _fetch_pionex_perp_symbols() -> set:
         data  = _pionex_get(f"{PIONEX_BASE}/api/v1/common/symbols?type=PERP", timeout=10)
         items = (data.get("data") or {}).get("symbols") or []
         for s in items:
-            base = s.get("baseAsset") or s.get("baseCurrency") or s.get("base") or ""
-            # symbol 格式如 BTC_USDT_PERP，也嘗試從 symbol 解析
-            if not base:
-                sym_str = s.get("symbol", "")
-                base = sym_str.split("_")[0] if "_" in sym_str else ""
+            sym_str = s.get("symbol", "")
+            quote = (s.get("quoteCurrency") or s.get("quoteAsset") or s.get("quote") or "")
+            # 真實 base 從 symbol 取（USDT 永續 = BASE_USDT_PERP）——比 baseCurrency 可靠：
+            # 部分標的 baseCurrency 是別名（CL→WTI、INCH→1INCH、ZEROG→0G、CNBARS→中文），
+            # 用別名建構 klines symbol 會抓不到、且與 Pionex 顯示名不一致（使用者搜不到）。
+            if str(quote).upper() == "USDT" and sym_str.endswith("_USDT_PERP"):
+                base = sym_str[:-len("_USDT_PERP")]
+            else:
+                base = s.get("baseAsset") or s.get("baseCurrency") or s.get("base") \
+                       or (sym_str.split("_")[0] if "_" in sym_str else "")
             if base:
                 syms.add(str(base).upper())
     except Exception:
@@ -206,8 +211,13 @@ def _fetch_pionex_symbols() -> set:
             data  = _pionex_get(endpoint, timeout=8)
             items = (data.get("data") or {}).get("symbols") or data.get("symbols") or []
             for s in items:
-                base  = s.get("baseCurrency") or s.get("base") or ""
+                sym_str = s.get("symbol", "")
                 quote = s.get("quoteCurrency") or s.get("quote") or ""
+                # 真實 base 從 symbol 取（現貨 = BASE_USDT），避開別名（8BALL/GORK/VINE/WLFI）
+                if str(quote).upper() == "USDT" and sym_str.endswith("_USDT"):
+                    base = sym_str[:-len("_USDT")]
+                else:
+                    base = s.get("baseCurrency") or s.get("base") or ""
                 if str(quote).upper() == "USDT" and base:
                     syms.add(str(base).upper())
             if len(syms) >= 5:
