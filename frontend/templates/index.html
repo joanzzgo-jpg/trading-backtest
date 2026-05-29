@@ -4,6 +4,13 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>AHH Trading</title>
+  <!-- PWA：可加到主畫面、全螢幕 app 體驗 -->
+  <link rel="manifest" href="/static/manifest.json?v={{ ver }}">
+  <meta name="theme-color" content="#FF6A1A">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="AHH">
+  <link rel="apple-touch-icon" href="/static/img/icon-192.png?v={{ ver }}">
   <link rel="icon" type="image/png" href="/static/img/bear.png?v={{ ver }}"/>
   <link rel="preload" href="/static/img/bear.png?v={{ ver }}" as="image">
   <link rel="preload" href="/static/img/bear-full.png?v={{ ver }}" as="image">
@@ -790,6 +797,14 @@
 
 <canvas id="weatherBg"></canvas>
 <script>window._APP_VER="{{ ver }}";</script>
+<script>
+  // PWA service worker（只快取靜態資源，API/HTML 走網路；失敗不影響功能）
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", function () {
+      navigator.serviceWorker.register("/sw.js").catch(function () {});
+    });
+  }
+</script>
 <script src="/static/js/app.bundle.js?v={{ ver }}"></script>
 </body>
 </html>

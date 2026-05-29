@@ -168,6 +168,17 @@ def index(request: Request):
     )
 
 
+@app.get("/sw.js")
+def service_worker():
+    """從根路徑提供 service worker（PWA 需要 root scope 才能控制整站）。"""
+    from fastapi.responses import FileResponse
+    return FileResponse(
+        os.path.join(FRONTEND_DIR, "static", "sw.js"),
+        media_type="application/javascript",
+        headers={"Cache-Control": "no-cache"},   # SW 本身不快取，改版即時生效
+    )
+
+
 app.include_router(data_router)
 app.include_router(search_router)
 app.include_router(strategies_router)

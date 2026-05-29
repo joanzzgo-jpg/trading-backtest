@@ -1,0 +1,16 @@
+{
+  "name": "AHH Trading",
+  "short_name": "AHH",
+  "description": "加密貨幣 / 台股 / 美股 回測與 CRT 勝率分析",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#170F0C",
+  "theme_color": "#FF6A1A",
+  "icons": [
+    { "src": "/static/img/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/static/img/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/static/img/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

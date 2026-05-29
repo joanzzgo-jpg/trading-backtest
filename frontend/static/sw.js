@@ -1,0 +1,48 @@
+/* AHH Trading service worker — 保守策略：只快取靜態資源，API/HTML 一律走網路。
+ *
+ * 設計重點（避免吃到舊資料）：
+ *  - /api/*       → 不攔截（即時行情/勝率永遠走網路）
+ *  - 導覽/HTML    → 不攔截（每次拿最新的 ?v= 資產版號）
+ *  - /static/*、CDN → cache-first。靜態 URL 都帶 ?v=版號，改版即換 URL → 不會吃到舊檔。
+ * 換快取策略時把 CACHE 版號 +1 即可讓舊快取在 activate 時清掉。
+ */
+const CACHE = "ahh-static-v1";
+
+self.addEventListener("install", (e) => {
+  self.skipWaiting();
+});
+
+self.addEventListener("activate", (e) => {
+  e.waitUntil(
+    caches.keys()
+      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+      .then(() => self.clients.claim())
+  );
+});
+
+self.addEventListener("fetch", (e) => {
+  const req = e.request;
+  if (req.method !== "GET") return;
+  let url;
+  try { url = new URL(req.url); } catch (_) { return; }
+
+  // 只處理靜態資源（同源 /static/ 或 unpkg CDN）；其餘（HTML、/api/）交給瀏覽器預設走網路。
+  const isStatic =
+    (url.origin === self.location.origin && url.pathname.startsWith("/static/")) ||
+    url.hostname.endsWith("unpkg.com");
+  if (!isStatic) return;
+
+  e.respondWith(
+    caches.match(req).then((hit) => {
+      if (hit) return hit;
+      return fetch(req).then((resp) => {
+        // 只快取成功回應
+        if (resp && resp.status === 200) {
+          const copy = resp.clone();
+          caches.open(CACHE).then((c) => c.put(req, copy));
+        }
+        return resp;
+      });
+    })
+  );
+});
