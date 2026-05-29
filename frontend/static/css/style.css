@@ -5187,3 +5187,27 @@ body, button, input, select, textarea,
   margin-left: 4px !important;
 }
 
+/* ══════════════════════════════════════════════════════════════
+   桌面 PWA：window-controls-overlay
+   把系統標題列整條去掉，畫面內容頂到最上方；視窗控制鈕（關閉/縮小/
+   最大化）浮在 topbar 上。topbar 對齊系統提供的「可用區」避開控制鈕，
+   空白處可拖曳移動視窗，互動元素設 no-drag 維持可點。
+   只在「已安裝桌面 PWA 且支援 WCO」時生效 → 瀏覽器/手機完全不受影響。
+   ══════════════════════════════════════════════════════════════ */
+@media (display-mode: window-controls-overlay) {
+  .topbar {
+    margin-left: env(titlebar-area-x, 0px);          /* Mac：避開左側紅綠燈 */
+    width: env(titlebar-area-width, 100%);           /* Win：避開右側控制鈕 */
+    box-sizing: border-box;
+    -webkit-app-region: drag;                        /* 空白處拖曳移動視窗 */
+    app-region: drag;
+  }
+  /* 互動元素不可被拖曳吃掉點擊 */
+  .topbar button, .topbar input, .topbar select, .topbar a,
+  .topbar label, .topbar [role="button"], .topbar [tabindex],
+  .topbar .tb-wr-scroll, .topbar .leg-dot {
+    -webkit-app-region: no-drag;
+    app-region: no-drag;
+  }
+}
+
