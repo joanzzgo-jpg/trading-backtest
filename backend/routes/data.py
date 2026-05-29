@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from datetime import date, timedelta, datetime as dt
 from typing import Optional
 import os
+import threading
 import pandas as pd
 
 from data.taiwan import fetch_tw_stock, resample_tw, fetch_tw_intraday, fetch_tw_realtime, fetch_tw_intraday_yf, fetch_tw_latest_bar_yf, fetch_tw_daily_yf, YF_MAX_DAYS as TW_YF_MAX_DAYS
@@ -16,6 +17,21 @@ from utils.data import enrich_df, df_to_records
 from utils.crt import _calc_crt_winrate
 
 router = APIRouter(prefix="/api", tags=["data"])
+
+# ── 單飛鎖（single-flight）：多人同時要同一份重量級 df 時，只有一個請求真的去抓，
+#    其餘等它的結果。防「快取雪崩」（cache stampede）——避免 N 個使用者同時觸發 N 次
+#    一模一樣的 12 秒抓取＋撞共用 IP 限流。每個 key 一把 threading.Lock（端點為同步、跑在
+#    threadpool，故用 thread lock）。 ──
+_inflight_locks: dict = {}
+_inflight_guard = threading.Lock()
+
+def _keyed_lock(key: str) -> threading.Lock:
+    with _inflight_guard:
+        lk = _inflight_locks.get(key)
+        if lk is None:
+            lk = threading.Lock()
+            _inflight_locks[key] = lk
+        return lk
 
 
 @router.post("/reset_pionex_cooldown")
@@ -462,13 +478,21 @@ def get_crt_winrate(
             # 圖表顯示仍走原 exchange（Pionex，成交量一致），不受此影響。
             from data.crypto import _fetch_binance_fapi, _calc_max_candles
             _base = symbol[:-2] if symbol.upper().endswith(".P") else symbol
-            try:
-                _mc = _calc_max_candles(start, end, timeframe)
-                _dfb = _fetch_binance_fapi(_base, timeframe, start, end, 0, max_candles=_mc)
-                if not _dfb.empty and len(_dfb) >= 50:
-                    return _dfb
-            except Exception:
-                pass   # Binance 無此合約（Pionex 獨有）或失敗 → 走原路由
+            _bb = _base.split("/")[0].upper()
+            _mc = _calc_max_candles(start, end, timeframe)
+            # 依序試：原名 → Binance 的 1000x 命名（PEPE→1000PEPE，價格÷1000 對齊原尺度）。
+            # 1000x 不影響訊號（指標皆相對值），把更多迷因幣移到快路徑、少打 Pionex 共用限額。
+            for _cand, _div in ((_base, 1.0), (f"1000{_bb}/USDT", 1000.0)):
+                try:
+                    _dfb = _fetch_binance_fapi(_cand, timeframe, start, end, 0, max_candles=_mc)
+                    if not _dfb.empty and len(_dfb) >= 50:
+                        if _div != 1.0:
+                            for _c in ("open", "high", "low", "close"):
+                                _dfb[_c] = _dfb[_c] / _div
+                        return _dfb
+                except Exception:
+                    pass
+            # Binance（含 1000x）都沒有 → Pionex 獨有 → 走原路由
             return fetch_crypto_ohlcv(symbol, timeframe, start, end, exchange,
                                       api_key=api_key, api_secret=api_secret)
         raise HTTPException(400, f"不支援的市場: {market}")
@@ -478,22 +502,29 @@ def get_crt_winrate(
     days_max  = TF_MAX.get(timeframe, 3650)
     # 已抓+enrich 的 df 另外快取（不含 buffer）→ 換 SL 緩衝等重算時免重抓（抓資料佔總時間 90%+）
     df_key = f"crt_df3:{market}:{symbol}:{exchange}:{timeframe}"
-    df = data_cache.get(df_key, ttl=10800)   # 3 小時（fetch + enrich 結果，記憶體）
+    def _load_df():
+        d = data_cache.get(df_key, ttl=10800)   # 記憶體（3 小時）
+        if d is None:
+            d = disk_cache.get(df_key, ttl=10800)   # 磁碟（跨重啟/部署存活）
+            if d is not None:
+                data_cache.set(df_key, d)           # 回填記憶體
+        return d
+
+    df = _load_df()
     if df is None:
-        # 記憶體 miss → 試磁碟（跨重啟/部署存活，尤其 Pionex 獨有慢標的免重抓重新限流）
-        df = disk_cache.get(df_key, ttl=10800)
-        if df is not None:
-            data_cache.set(df_key, df)   # 回填記憶體
-    if df is None:
-        try:
-            df = _fetch_df(days_max)
-        except Exception as e:
-            raise HTTPException(400, str(e))
-        if len(df) < 50:
-            raise HTTPException(400, f"資料不足 50 根K棒（{timeframe}）")
-        df = enrich_df(df)
-        data_cache.set(df_key, df)
-        disk_cache.set(df_key, df)       # 寫磁碟（下次重啟/部署免重抓）
+        # 單飛鎖：多人同時要同一 df 只有一個真的抓，其餘等結果（防雪崩＋省共用限流）
+        with _keyed_lock(df_key):
+            df = _load_df()   # double-check：可能別的請求剛抓好並回填
+            if df is None:
+                try:
+                    df = _fetch_df(days_max)
+                except Exception as e:
+                    raise HTTPException(400, str(e))
+                if len(df) < 50:
+                    raise HTTPException(400, f"資料不足 50 根K棒（{timeframe}）")
+                df = enrich_df(df)
+                data_cache.set(df_key, df)
+                disk_cache.set(df_key, df)       # 寫磁碟（下次重啟/部署免重抓）
 
     # 求解模式：掃描止損% 找達標的建議值（用已快取的 df，免重抓）
     if solve:
