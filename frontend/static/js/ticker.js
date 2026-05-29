@@ -527,6 +527,10 @@ function startTickerRefresh() {
   _tickerTimer = setInterval(fetchTickers, _tickerMkt === "tw" ? 10000 : 1000);
 }
 
+function stopTickerRefresh() {
+  if (_tickerTimer) { clearInterval(_tickerTimer); _tickerTimer = null; }
+}
+
 function bindTickerPanel() {
   // 市場切換 tab（合約 / 台股）
   document.querySelectorAll(".tk-mkt-btn").forEach(btn => {

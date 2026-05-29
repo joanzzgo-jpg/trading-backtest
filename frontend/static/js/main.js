@@ -65,6 +65,19 @@ document.addEventListener("DOMContentLoaded", async () => {
   _initMarketPill();       // 市場切換動畫 pill（Crypto / TW / US）
   window.addEventListener("beforeunload", () => { saveLastSymbol(); });
 
+  // 手機/PWA 省電：app 切到背景（鎖屏、切 app、切分頁）時暫停每秒輪詢（行情 + ticker），
+  // 回到前景再恢復。避免背景持續打 API 耗電、也減輕伺服器負擔。
+  // （天氣 canvas 動畫在 document.hidden 時本就跳過繪製、瀏覽器也會暫停 rAF，故不需另外處理）
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+      stopRealtime();
+      if (typeof stopTickerRefresh === "function") stopTickerRefresh();
+    } else {
+      if (typeof startTickerRefresh === "function") startTickerRefresh();
+      if (!replayActive && Array.isArray(ohlcvData) && ohlcvData.length) startRealtime();
+    }
+  });
+
   const _afterLoad = () => { loadVisibilityPrefs(); applyAllLineStyles(); };
   loadData(true).then(_afterLoad).catch(() => {
     // 失敗後 2 秒自動重試一次（Railway 冷啟動約需 1-3 秒）
