@@ -6,7 +6,7 @@
  *  - /static/*、CDN → cache-first。靜態 URL 都帶 ?v=版號，改版即換 URL → 不會吃到舊檔。
  * 換快取策略時把 CACHE 版號 +1 即可讓舊快取在 activate 時清掉。
  */
-const CACHE = "ahh-static-v1";
+const CACHE = "ahh-static-v2";
 
 self.addEventListener("install", (e) => {
   self.skipWaiting();
@@ -25,6 +25,10 @@ self.addEventListener("fetch", (e) => {
   if (req.method !== "GET") return;
   let url;
   try { url = new URL(req.url); } catch (_) { return; }
+
+  // manifest 一律走網路、永不快取：否則快取住舊 manifest 會害 PWA 模式（WCO/standalone）
+  // 與圖示更新不到（Chrome 讀到 SW 回的舊 manifest → 一直維持舊安裝模式）。
+  if (url.pathname === "/static/manifest.json") return;
 
   // 只處理靜態資源（同源 /static/ 或 unpkg CDN）；其餘（HTML、/api/）交給瀏覽器預設走網路。
   const isStatic =
