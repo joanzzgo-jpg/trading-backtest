@@ -5269,5 +5269,8 @@ body, button, input, select, textarea,
   /* 持續跑的裝飾動畫（勝率欄掃光、閃爍）→ 關掉，省掉不必要的每幀重繪 */
   .tb-winrate::before, .tb-winrate::after { animation: none !important; }
   .blink, .tk-limitPulse { animation: none !important; }
+
+  /* 偷看熊是桌面 hover 彩蛋：觸控只有「進」沒有「離」→ 彈出後收不回去卡住。手機隱藏。 */
+  .peek-bear, #bearBubble { display: none !important; }
 }
 
