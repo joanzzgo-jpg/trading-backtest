@@ -5,7 +5,7 @@
 
 /* 魔法棒手繪游標（原圖 PNG，43x60）；熱點 2 2 對在棒尖（左上）= 實際點擊位
    ?v=2：/static 是 immutable 長快取，換圖必須改 URL 才能讓舊用戶拿到新游標 */
-* { cursor: url('/static/img/cursor-wand.png?v=2') 2 2, auto; }
+* { cursor: url('/static/img/cursor-wand.png?v=3') 1 1, auto; }
 input[type="text"], input[type="number"], input[type="date"], textarea, .sym-modal-input, .tb-symbol-input, .tk-search, .ind-sp-num { cursor: text; }
 
 /* ══════════════════════════════════════
@@ -4996,19 +4996,19 @@ html, body,
 *:disabled,
 *[title],
 [style*="cursor"] {
-  cursor: url('/static/img/cursor-wand.png?v=2') 2 2, auto !important;
+  cursor: url('/static/img/cursor-wand.png?v=3') 1 1, auto !important;
 }
 /* 內建特殊游標的元素（input/textarea/range/help）也要強制覆蓋 */
 input, textarea, select, button, a, label,
 [draggable], [contenteditable],
 canvas, svg, iframe, embed, object,
 ::-webkit-resizer, ::-webkit-scrollbar, ::-webkit-scrollbar-thumb {
-  cursor: url('/static/img/cursor-wand.png?v=2') 2 2, auto !important;
+  cursor: url('/static/img/cursor-wand.png?v=3') 1 1, auto !important;
 }
 /* LWT 圖表 canvas / 內部容器（拖移時 LWT 會 inline 改 cursor）一律強制 */
 .charts-container, .charts-container *, .pane, .pane *,
 .tv-lightweight-charts, .tv-lightweight-charts * {
-  cursor: url('/static/img/cursor-wand.png?v=2') 2 2, auto !important;
+  cursor: url('/static/img/cursor-wand.png?v=3') 1 1, auto !important;
 }
 
 /* ═══════════════════════════════════════════════════════════
