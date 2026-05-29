@@ -4996,19 +4996,19 @@ html, body,
 *:disabled,
 *[title],
 [style*="cursor"] {
-  cursor: url('/static/img/cursor-wand.png') 27 27, auto !important;
+  cursor: url('/static/img/cursor-wand.png?v=2') 2 2, auto !important;
 }
 /* 內建特殊游標的元素（input/textarea/range/help）也要強制覆蓋 */
 input, textarea, select, button, a, label,
 [draggable], [contenteditable],
 canvas, svg, iframe, embed, object,
 ::-webkit-resizer, ::-webkit-scrollbar, ::-webkit-scrollbar-thumb {
-  cursor: url('/static/img/cursor-wand.png') 27 27, auto !important;
+  cursor: url('/static/img/cursor-wand.png?v=2') 2 2, auto !important;
 }
 /* LWT 圖表 canvas / 內部容器（拖移時 LWT 會 inline 改 cursor）一律強制 */
 .charts-container, .charts-container *, .pane, .pane *,
 .tv-lightweight-charts, .tv-lightweight-charts * {
-  cursor: url('/static/img/cursor-wand.png') 27 27, auto !important;
+  cursor: url('/static/img/cursor-wand.png?v=2') 2 2, auto !important;
 }
 
 /* ═══════════════════════════════════════════════════════════
