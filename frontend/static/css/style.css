@@ -5272,5 +5272,12 @@ body, button, input, select, textarea,
 
   /* 偷看熊是桌面 hover 彩蛋：觸控只有「進」沒有「離」→ 彈出後收不回去卡住。手機隱藏。 */
   .peek-bear, #bearBubble { display: none !important; }
+
+  /* 修：≤1100px 的 display:none 把 ticker 面板砍掉、害抽屜滑不出來（合約行情點不到）。
+     重新啟用 → 由抽屜 CSS 定位到畫面外（不擋圖表），按右上「行情」鈕(#tickerToggle)滑入。 */
+  .ticker-panel { display: flex !important; }
+
+  /* 手機不需要重播功能 → 隱藏重播按鈕（沒按鈕就進不了重播模式） */
+  #replayModeBtn { display: none !important; }
 }
 
