@@ -797,6 +797,14 @@
 </div>
 
 <canvas id="weatherBg"></canvas>
+
+<!-- 手機底部分頁列（app 風格；桌面以 CSS 隱藏）。切換 圖表 / 勝率 / 自選 三個畫面 -->
+<nav class="m-tabbar" id="mTabbar">
+  <button class="m-tab active" data-mtab="chart"><span class="m-tab-ico">📈</span>圖表</button>
+  <button class="m-tab" data-mtab="wr"><span class="m-tab-ico">📊</span>勝率</button>
+  <button class="m-tab" data-mtab="watch"><span class="m-tab-ico">⭐</span>自選</button>
+</nav>
+
 <script>window._APP_VER="{{ ver }}";</script>
 <script>
   // PWA service worker（只快取靜態資源，API/HTML 走網路；失敗不影響功能）

@@ -5293,3 +5293,46 @@ body, button, input, select, textarea,
   #replayModeBtn { display: none !important; }
 }
 
+/* ══════════════════════════════════════════════════════════════
+   手機底部分頁列（app 風格）+ 三畫面切換（圖表 / 勝率 / 自選）
+   桌面隱藏；手機固定在底部，body class m-tab-* 控制各畫面顯示。
+   ══════════════════════════════════════════════════════════════ */
+.m-tabbar { display: none; }
+
+@media (max-width: 768px) {
+  .m-tabbar {
+    display: flex;
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 700;
+    height: 52px;
+    background: #1A1009;
+    border-top: 1px solid var(--border);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .m-tab {
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 1px;
+    background: none; border: none; color: var(--muted);
+    font-size: 10px; font-weight: 600; cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .m-tab.active { color: var(--accent); }
+  .m-tab-ico { font-size: 19px; line-height: 1; }
+
+  /* 內容底部留出分頁列高度，避免被蓋住 */
+  .charts-container { padding-bottom: 56px !important; }
+
+  /* ── ⭐ 自選分頁：合約/台股行情列表「全畫面」（像股票 app）── */
+  body.m-tab-watch .charts-container { display: none !important; }
+  body.m-tab-watch .ticker-panel {
+    transform: none !important;
+    width: 100% !important;
+    top: 0 !important;
+    bottom: 52px !important;     /* 上到頂、下到分頁列 */
+    z-index: 650 !important;
+    box-shadow: none !important;
+    padding-top: env(safe-area-inset-top, 0px) !important;  /* 避開 iOS 狀態列 */
+  }
+
+  /* ── 📊 勝率分頁：v1 先沿用圖表畫面，專屬勝率版面下一步做 ── */
+}
+
