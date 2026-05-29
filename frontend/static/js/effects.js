@@ -708,6 +708,8 @@ const SFX = (() => {
   let shootTimer = 200, shootX = 0, shootY = 0, shootDX = 0, shootDY = 0, shootLen = 0;
   let stars = [], sparks = [], rainP = [], ripples = [], snowP = [], cloudP = [], leafP = [], petalP = [], mahjongP = [], windStreaks = [];
   let thunderBolts = [], thunderFlashes = [], thunderTimer = 15;
+  // 天然災害（手動特效）：冰雹 / 龍卷風 / 地震
+  let hailP = [], hailSplash = [], qCracks = [], qDust = [], tDebris = [], tornadoX = 0, quakeT = 0;
 
   /* ── 麻將牌預渲染快取 ── */
   const _TILE_SYMS = [
@@ -987,38 +989,55 @@ const SFX = (() => {
   }
 
   /* ── 太陽 / 月亮弧線 ── */
+  /* 隕石坑相對座標 [fx, fy, 半徑比] */
+  const _MOON_CRATERS = [
+    [-.30,-.30,.16],[.28,.10,.20],[.04,.42,.12],[-.18,.34,.095],
+    [.40,-.28,.10],[-.46,.10,.08],[.16,-.14,.07],[-.06,-.02,.06],
+  ];
   function _drawMoonPhase(cx, cy, R, phase) {
+    const DARK = 'rgba(12,16,34,0.97)';
+    // 受光面奶白漸層（偏移高光中心 + 邊緣壓暗 → 球體感 / limb darkening）
+    const lit = ctx.createRadialGradient(cx - R*0.30, cy - R*0.30, R*0.06, cx, cy, R*1.08);
+    lit.addColorStop(0, '#fdfcf4'); lit.addColorStop(0.60, '#e7edf6'); lit.addColorStop(1, '#bbc8da');
     ctx.save();
     ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI*2); ctx.clip();
-    // dark background inside clip
-    ctx.fillStyle = 'rgba(10,14,32,0.96)';
-    ctx.fillRect(cx-R, cy-R, R*2, R*2);
-    ctx.fillStyle = '#d8e6f5';
+    ctx.fillStyle = DARK; ctx.fillRect(cx-R, cy-R, R*2, R*2);
     const eRx = R * Math.abs(Math.cos(2 * Math.PI * phase));
-    if (phase < 0.5) {
-      // waxing: right half lit
+    ctx.fillStyle = lit;
+    if (phase < 0.5) {                       // waxing：右半受光
       ctx.beginPath(); ctx.arc(cx, cy, R, -Math.PI/2, Math.PI/2); ctx.closePath(); ctx.fill();
-      if (phase < 0.25) {
-        // crescent → dark ellipse covers right portion
-        ctx.fillStyle = 'rgba(10,14,32,0.96)';
-        ctx.beginPath(); ctx.ellipse(cx, cy, eRx, R, 0, -Math.PI/2, Math.PI/2); ctx.closePath(); ctx.fill();
-      } else {
-        // gibbous → lit ellipse extends left
-        ctx.beginPath(); ctx.ellipse(cx, cy, eRx, R, 0, Math.PI/2, -Math.PI/2); ctx.closePath(); ctx.fill();
-      }
-    } else {
-      // waning: left half lit
+      if (phase < 0.25) { ctx.fillStyle = DARK; ctx.beginPath(); ctx.ellipse(cx, cy, eRx, R, 0, -Math.PI/2, Math.PI/2); ctx.closePath(); ctx.fill(); }
+      else              { ctx.beginPath(); ctx.ellipse(cx, cy, eRx, R, 0, Math.PI/2, -Math.PI/2); ctx.closePath(); ctx.fill(); }
+    } else {                                 // waning：左半受光
       ctx.beginPath(); ctx.arc(cx, cy, R, Math.PI/2, -Math.PI/2); ctx.closePath(); ctx.fill();
       const p2 = phase - 0.5;
-      if (p2 < 0.25) {
-        // gibbous → lit ellipse extends right
-        ctx.beginPath(); ctx.ellipse(cx, cy, eRx, R, 0, -Math.PI/2, Math.PI/2); ctx.closePath(); ctx.fill();
-      } else {
-        // crescent → dark ellipse covers left
-        ctx.fillStyle = 'rgba(10,14,32,0.96)';
-        ctx.beginPath(); ctx.ellipse(cx, cy, eRx, R, 0, Math.PI/2, -Math.PI/2); ctx.closePath(); ctx.fill();
-      }
+      if (p2 < 0.25) { ctx.beginPath(); ctx.ellipse(cx, cy, eRx, R, 0, -Math.PI/2, Math.PI/2); ctx.closePath(); ctx.fill(); }
+      else           { ctx.fillStyle = DARK; ctx.beginPath(); ctx.ellipse(cx, cy, eRx, R, 0, Math.PI/2, -Math.PI/2); ctx.closePath(); ctx.fill(); }
     }
+    // 隕石坑：剪裁到受光側（暗面不畫），坑體 + 內陰影 + 受光緣 = 立體凹陷
+    const nearFull = Math.abs(phase - 0.5) < 0.07;
+    ctx.save();
+    if (!nearFull) {
+      ctx.beginPath();
+      if (phase < 0.5) ctx.rect(cx, cy-R, R, 2*R); else ctx.rect(cx-R, cy-R, R, 2*R);
+      ctx.clip();
+    }
+    _MOON_CRATERS.forEach(([fx,fy,fr]) => {
+      const x=cx+fx*R, y=cy+fy*R, r=fr*R;
+      ctx.fillStyle='rgba(150,162,184,.42)'; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='rgba(116,130,156,.40)'; ctx.beginPath(); ctx.arc(x+r*.16,y+r*.18,r*.66,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='rgba(253,251,244,.32)'; ctx.beginPath(); ctx.arc(x-r*.34,y-r*.34,r*.42,0,Math.PI*2); ctx.fill();
+    });
+    ctx.restore();
+    // 整顆 limb darkening（邊緣再壓暗 → 更像球體）
+    const ld = ctx.createRadialGradient(cx, cy, R*0.55, cx, cy, R);
+    ld.addColorStop(0, 'rgba(0,0,0,0)'); ld.addColorStop(1, 'rgba(20,28,48,0.30)');
+    ctx.fillStyle = ld; ctx.fillRect(cx-R, cy-R, R*2, R*2);
+    ctx.restore();   // 結束 disc clip
+    // 清晰邊緣描線
+    ctx.save();
+    ctx.strokeStyle='rgba(214,228,248,.55)'; ctx.lineWidth=Math.max(.6, R*.045);
+    ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI*2); ctx.stroke();
     ctx.restore();
   }
 
@@ -1107,27 +1126,27 @@ const SFX = (() => {
     const ci = Math.min(1, _wd.cloudCover / 100);      /* cloud cover 0-1 */
     stars  = Array.from({length:100}, () => ({ x:Math.random()*W, y:Math.random()*H*.88, r:.3+Math.random()*1.8, ph:Math.random()*Math.PI*2, sp:.8+Math.random()*1.5 }));
     sparks = Array.from({length:14}, _newSpark);
-    // 雨：連續景深 z（0=遠、1=近）；尺寸/速度/不透明/線寬全隨 z → 立體視差
+    // 雨：連續景深 z（0=遠、1=近）；用 z² / z³ 大幅拉開前後差距 → 立體視差明顯
     const nRain = Math.round(70+150*ri);
     rainP = Array.from({length:nRain}, () => {
       const z = Math.random();
       return { x:Math.random()*W, y:Math.random()*H, z,
-        spd: 3 + z*z*13,        // 近的明顯快（z² 拉開前後層次）
-        len: 5 + z*22,          // 近的雨絲長
-        a:   .07 + z*.50,       // 近的清楚、遠的淡
-        w:   .4 + z*1.5 };      // 線寬隨景深（近粗遠細）
+        spd: 2.5 + z*z*z*20,    // 2.5..22.5（z³：多數慢、少數近景超快 → 視差超明顯）
+        len: 4 + z*z*32,        // 4..36（近的雨絲很長）
+        a:   .06 + z*z*.6,      // .06..66
+        w:   .3 + z*z*2.6 };    // .3..2.9（近的很粗、遠的髮絲）
     }).sort((p,q)=>p.z-q.z);    // 遠先畫、近後畫（正確前後遮擋）
     ripples = [];
-    // 雪：同帶景深 z；近大慢飄、遠小成柔光點
+    // 雪：景深 z 大幅拉開——遠景小柔光點、近景大結晶（差距明顯）
     const nSnow = Math.round(28+50*ri);
     snowP  = Array.from({length:nSnow}, () => {
       const z = Math.random();
       return { x:Math.random()*W, y:Math.random()*H, z,
-        r:    1.4 + z*z*5.6,
-        spd:  .3 + z*1.6,
-        drift:(Math.random()-.5)*(.4+z*.6),
+        r:    1 + z*z*9,         // 1..10
+        spd:  .25 + z*z*2.4,     // 遠飄移、近落下明顯快
+        drift:(Math.random()-.5)*(.4+z*.7),
         rot:  Math.random()*Math.PI/3, rotSpd:(Math.random()-.5)*.022,
-        a:    .35 + z*.6 };
+        a:    .3 + z*z*.65 };
     }).sort((p,q)=>p.z-q.z);
     const nCloud=Math.max(2, Math.round(2+5*ci));
     const alBase=0.15+ci*.30, scBase=0.11+ci*.08;
@@ -1141,7 +1160,7 @@ const SFX = (() => {
         x: Math.random()*W,
         y: isCb ? H*(.10 + Math.random()*.16)        // 積雨雲底部偏低（塔身往上長）
                 : H*(.04 + (1-z)*.32 + Math.random()*.18),  // 遠雲偏高、近雲偏低
-        sc: (isCb ? scBase*(1.0+z*.6)+.04 : scBase*(.6+z*.9)) + Math.random()*.05,  // 積雨雲較大
+        sc: (isCb ? scBase*(1.0+z*.6)+.04 : scBase*(.45+z*1.2)) + Math.random()*.04,  // 近大遠小（差距拉大）
         al: Math.min(.96, (isCb ? alBase*(.9+z*.5)+.10 : alBase*(.7+z*.7)) + Math.random()*.08),
         sp: (.03+Math.random()*.10)*wf*(.5+z),       // 近快遠慢（視差）
         shape: isCb ? 4 : Math.floor(Math.random()*4),
@@ -1191,8 +1210,8 @@ const SFX = (() => {
       [-.04,-.02,.60],[-.24,-.02,.50],[ .18,-.02,.52],                              // 塔底（雨幕起點）
     ],
   ];
-  /* 不同形狀 + 翻轉 + 漸層的雲；shape===4 為積雨雲（更高聳、更暗沉、有立體投影） */
-  function _cloud(cx, cy, w, alpha, shape = 0, flip = 1) {
+  /* 不同形狀 + 翻轉 + 漸層的雲；shape===4 為積雨雲；depth(0遠~1近) 控制空氣透視 */
+  function _cloud(cx, cy, w, alpha, shape = 0, flip = 1, depth = 1) {
     ctx.save();
     const conv = shape === 4;                 // 對流雲：高聳塔狀
     const h = w * (conv ? 0.82 : 0.42);
@@ -1221,11 +1240,15 @@ const SFX = (() => {
       g.addColorStop(0.40, "rgba(208,220,240,.92)");
       g.addColorStop(0.74, "rgba(148,166,196,.86)");
       g.addColorStop(1.00, "rgba(92,108,138,.74)");
-    } else {
-      g.addColorStop(0.00, "rgba(255,255,255,.97)");
-      g.addColorStop(0.42, "rgba(244,249,254,.93)");
-      g.addColorStop(0.78, "rgba(202,220,238,.80)");
-      g.addColorStop(1.00, "rgba(170,194,220,.60)");
+    } else if (depth < 0.5) {   // 遠景雲：空氣透視 → 霧化藍灰、低對比（拉開景深）
+      g.addColorStop(0.00, "rgba(208,219,235,.86)");
+      g.addColorStop(0.55, "rgba(178,192,214,.68)");
+      g.addColorStop(1.00, "rgba(150,166,190,.50)");
+    } else {                    // 近景雲：明亮純白、高對比
+      g.addColorStop(0.00, "rgba(255,255,255,.98)");
+      g.addColorStop(0.42, "rgba(246,250,255,.94)");
+      g.addColorStop(0.78, "rgba(206,224,242,.82)");
+      g.addColorStop(1.00, "rgba(172,196,222,.60)");
     }
     ctx.fillStyle = g; ctx.fill();
     ctx.restore();
@@ -1372,7 +1395,7 @@ const SFX = (() => {
       c.x += c.sp * cdir;
       if (cdir > 0 && c.x - W*c.sc > W) c.x = -margin;       // 往右飄出 → 從左回來
       else if (cdir < 0 && c.x + W*c.sc < 0) c.x = W+margin; // 往左飄出 → 從右回來
-      _cloud(c.x, c.y + Math.sin(t*.18 + i*1.3)*3.5, W*c.sc, c.al, c.shape, c.flip);
+      _cloud(c.x, c.y + Math.sin(t*.18 + i*1.3)*3.5, W*c.sc, c.al, c.shape, c.flip, c.z);
     });
   }
 
@@ -1394,9 +1417,11 @@ const SFX = (() => {
     ctx.lineCap="round";
     const wDrift = _windDriftPx();                 // 風向水平位移（+右 -左），隨風速
     const lean   = _windVecX() * (0.10 + _wd.windSpeed*0.012);  // 雨絲傾斜度（隨風向/風速）
+    let blurOn = false;                             // 已排序：近景在最後 → 只需切一次 shadowBlur
     rainP.forEach(p => {
       const n = p.z>0.55;                           // 近景
-      ctx.strokeStyle = n?`rgba(195,230,255,${p.a})`:`rgba(135,180,228,${p.a})`;
+      if (p.z>0.92 && !blurOn) { ctx.shadowBlur=3; ctx.shadowColor="rgba(200,228,255,.55)"; blurOn=true; }  // 最近景柔焦
+      ctx.strokeStyle = n?`rgba(200,232,255,${p.a})`:`rgba(130,176,224,${p.a})`;
       ctx.lineWidth = p.w;                          // 線寬隨景深（近粗遠細）
       ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(p.x + lean*p.len, p.y+p.len); ctx.stroke();
       p.y += p.spd; p.x += wDrift*(0.4+p.z);        // 近景水平位移大（視差）；方向跟著風
@@ -1406,6 +1431,7 @@ const SFX = (() => {
         p.y=-p.len; p.x=Math.random()*(W+60)-30;
       }
     });
+    if (blurOn) ctx.shadowBlur=0;
 
     /* puddle ripple rings */
     for (let i=ripples.length-1;i>=0;i--) {
