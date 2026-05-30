@@ -5417,7 +5417,13 @@ html.landing-active .landing { background: transparent; }
   font-size: clamp(52px, 11vw, 132px);
   text-shadow: 0 4px 0 rgba(110,82,54,.3), 0 6px 18px rgba(0,0,0,.45);
 }
-.landing-logo span { display: block; margin-top: .2em; margin-left: .14em; font-size: .24em; font-weight: 800; letter-spacing: .42em; color: #FFB04A; }
+.landing-logo span {
+  display: block; margin-top: .18em; padding-top: .16em;
+  border-top: 2px solid rgba(255,255,255,.5);     /* 細底線（與 AHH 同寬） */
+  font-size: .2em; font-weight: 700; letter-spacing: .5em;
+  text-align: center; text-indent: .5em;          /* TRADING 寬字距、置中於線下 */
+  color: rgba(255,176,74,.95);
+}
 /* 所在地（依天氣 API 城市）：在左上 logo 上方 */
 .landing-loc {
   position: absolute; top: 2%; left: 5%; transform: none;
