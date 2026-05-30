@@ -5410,12 +5410,17 @@ html.landing-active .landing { background: transparent; }
 /* logo：細字、寬字距、淡化（低調），在上方窄天空帶 */
 /* logo：可愛圓粗體、放大；放在「熊左邊、城牆上方」的天空，70% 透明，z-index:1（在熊之後不擋熊） */
 .landing-logo {
-  position: absolute; top: 6%; left: 4%; transform: none;
+  position: absolute; top: 5.5%; left: 4%;
   text-align: left; line-height: .9; white-space: nowrap; z-index: 1; opacity: .7;
   font-family: "M PLUS Rounded 1c", system-ui, sans-serif;
   font-weight: 900; color: #fff; letter-spacing: .03em;
-  font-size: clamp(52px, 11vw, 132px);
+  font-size: clamp(66px, 13.5vw, 172px);          /* 再放大 */
   text-shadow: 0 4px 0 rgba(110,82,54,.3), 0 6px 18px rgba(0,0,0,.45);
+  animation: landing-logo-float 3.2s ease-in-out infinite;   /* 溫和漂浮 */
+}
+@keyframes landing-logo-float {
+  0%,100% { transform: translateY(0) scale(1); }
+  50%     { transform: translateY(-12px) scale(1.035); }
 }
 .landing-logo span {
   display: block; margin-top: .18em; padding-top: .16em;
