@@ -544,6 +544,25 @@ def _in_japan(lat: float, lon: float) -> bool:
     return True
 
 
+async def _fetch_omt_pop(lat: float, lon: float):
+    """Open-Meteo 當前小時降雨機率 %（全球、免金鑰）。
+    觀測源（CWA/HKO/JMA）多半沒有降雨機率 → 用這支補上。"""
+    params = {"latitude": lat, "longitude": lon, "timezone": "auto",
+              "hourly": "precipitation_probability", "forecast_days": 1}
+    timeout = aiohttp.ClientTimeout(total=8)
+    async with aiohttp.ClientSession(timeout=timeout) as sess:
+        async with sess.get(OMT_URL, params=params) as r:
+            data = await r.json(content_type=None)
+    probs = (data.get("hourly", {}) or {}).get("precipitation_probability", []) or []
+    if not probs:
+        return None
+    from datetime import datetime, timedelta
+    off = int(data.get("utc_offset_seconds", 0) or 0)
+    hr = (datetime.utcnow() + timedelta(seconds=off)).hour     # 當地當前小時
+    v = probs[hr] if hr < len(probs) else probs[-1]
+    return None if v is None else int(round(float(v)))
+
+
 @router.get("/weather")
 async def weather(
     lat: float = Query(25.04, description="緯度"),
@@ -554,28 +573,25 @@ async def weather(
       • 香港 → 香港天文台 (HKO) 即時天氣
       • 日本 → 日本氣象廳 (JMA) AMeDAS 觀測
       • 其他 → Open-Meteo 全球預報
-    各在地源失敗時一律回退 Open-Meteo，全部失敗才回 503。"""
+    各在地源失敗時一律回退 Open-Meteo，全部失敗才回 503。
+    降雨機率（pop）一律以 Open-Meteo 當前小時補上（觀測源無此欄）。"""
     from fastapi import HTTPException
-    # 台灣境內且有 CWA 授權碼 → 測站資料（精準到鄉/區）
-    if CWA_KEY and _in_taiwan(lat, lon):
-        try:
-            return await _from_cwa(lat, lon)
-        except Exception:
-            pass
-    # 香港 → 香港天文台官方即時資料
-    if _in_hong_kong(lat, lon):
-        try:
-            return await _from_hko(lat, lon)
-        except Exception:
-            pass
-    # 日本 → 日本氣象廳 AMeDAS 最近觀測站
-    if _in_japan(lat, lon):
-        try:
-            return await _from_jma(lat, lon)
-        except Exception:
-            pass
-    # 其他地區或在地源失敗 → Open-Meteo 全球預報
-    try:
-        return await _from_omt(lat, lon)
-    except Exception as e:
-        raise HTTPException(status_code=503, detail=f"天氣取得失敗：{e}")
+    res = None
+    if CWA_KEY and _in_taiwan(lat, lon):           # 台灣 → CWA（精準到鄉/區）
+        try: res = await _from_cwa(lat, lon)
+        except Exception: pass
+    if res is None and _in_hong_kong(lat, lon):    # 香港 → HKO
+        try: res = await _from_hko(lat, lon)
+        except Exception: pass
+    if res is None and _in_japan(lat, lon):        # 日本 → JMA
+        try: res = await _from_jma(lat, lon)
+        except Exception: pass
+    if res is None:                                # 其他/在地源失敗 → Open-Meteo
+        try: res = await _from_omt(lat, lon)
+        except Exception as e:
+            raise HTTPException(status_code=503, detail=f"天氣取得失敗：{e}")
+    # 補降雨機率（各源未提供時）
+    if res.get("pop") is None:
+        try: res["pop"] = await _fetch_omt_pop(lat, lon)
+        except Exception: res["pop"] = None
+    return res

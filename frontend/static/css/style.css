@@ -5443,15 +5443,25 @@ html.landing-active .landing { background: transparent; }
   font-size: .2em; font-weight: 700; letter-spacing: .5em;
   text-align: center; text-indent: .5em; color: rgba(255,176,74,.95);
 }
-/* 所在地（依天氣 API 城市）：在左上 logo 上方 */
+/* 所在地（依天氣 API 城市）：放在熊上方、置中、放大；兩層（城市+天氣 / 溫度+降雨機率），無定位釘 */
 .landing-loc {
-  position: absolute; top: 2%; left: 5%; transform: none;
-  z-index: 3; white-space: nowrap; text-align: left;
+  position: absolute; top: 3%; left: 50%; transform: translateX(-50%);
+  z-index: 3; white-space: nowrap; text-align: center;
+  display: flex; flex-direction: column; align-items: center; gap: .06em;
   font-family: "M PLUS Rounded 1c", system-ui, sans-serif; font-weight: 600;
-  font-size: clamp(13px, 2vw, 19px); color: rgba(255,255,255,.78);
-  letter-spacing: .03em; text-shadow: 0 1px 8px rgba(0,0,0,.6);
+  color: rgba(255,255,255,.85); letter-spacing: .03em; text-shadow: 0 2px 10px rgba(0,0,0,.6);
 }
 .landing-loc:empty { display: none; }
+.lloc-1 { font-size: clamp(17px, 2.6vw, 28px); font-weight: 700; }   /* 位置（城市）放大 */
+.lloc-wx { font-size: .62em; font-weight: 500; opacity: .82; margin-left: .15em; }  /* 天氣描述小字 */
+.lloc-2 { font-size: clamp(15px, 2.1vw, 23px); font-weight: 700; }
+/* 降雨機率：手繪雨滴符號（取代「降雨」二字） */
+.lloc-pop::before {
+  content: ""; display: inline-block; vertical-align: -.18em;
+  width: .9em; height: .9em; margin-right: .1em;
+  background: no-repeat center / contain
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 3c0 0-6.6 8.3-6.6 12.4a6.6 6.6 0 0 0 13.2 0C18.6 11.3 12 3 12 3z' fill='%2367B2EF' stroke='%233E7BB8' stroke-width='1.3' stroke-linejoin='round'/%3E%3Cpath d='M9.3 14.2c.1 1.6 1 2.7 2.4 3' fill='none' stroke='%23EAF4FF' stroke-width='1.2' stroke-linecap='round'/%3E%3C/svg%3E");
+}
 /* 箭頭：指向大門，上下跳動 */
 .landing-arrow {
   position: absolute; left: 50%; top: 42%; transform: translateX(-50%);
