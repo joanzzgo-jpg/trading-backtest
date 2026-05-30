@@ -45,8 +45,12 @@
 
 <!-- 開場首頁（按「開始」淡出進入圖表）；HTML 預設可見 → 首屏即蓋住圖表、不閃 -->
 <div id="landingScreen" class="landing">
-  <img class="landing-art" src="/static/img/landing-castle-cut.png?v={{ ver }}" alt="橘子熊城堡" draggable="false" />
-  <button id="landingStartBtn" class="landing-start">開始</button>
+  <div class="landing-logo">AHH<span>TRADING</span></div>
+  <div class="landing-stage">
+    <img class="landing-art" src="/static/img/landing-castle-gate.png?v={{ ver }}" alt="橘子熊城堡" draggable="false" />
+    <div class="landing-arrow" aria-hidden="true">▼</div>
+    <button id="landingStartBtn" class="landing-gate-btn" aria-label="進入"></button>
+  </div>
 </div>
 
 <!-- ① 頂部工具列 -->

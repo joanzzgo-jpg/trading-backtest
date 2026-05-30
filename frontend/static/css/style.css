@@ -5374,9 +5374,10 @@ body, button, input, select, textarea,
    ══════════════════════════════════════════════════════════════ */
 .landing {
   position: fixed; inset: 0; z-index: 100000;
-  display: flex; align-items: flex-start; justify-content: center;  /* 頂端對齊 → 熊頭永遠不被裁 */
-  /* 背景：主背景色（上）漸層往下接到插圖米白（下）；透明缺口由底層天氣動畫填滿 */
-  background: linear-gradient(180deg, var(--bg) 0%, var(--bg) 40%, #E5DDD9 92%, #E5DDD9 100%);
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
+  /* 背景：主背景色（上）漸層往下接到米白地板（下）；透明缺口由底層天氣動畫填滿 */
+  background: linear-gradient(180deg, var(--bg) 0%, var(--bg) 36%, #E5DDD9 84%, #EFEAE4 100%);
+  padding-bottom: 5.5vh;    /* 底部地板白：城牆離螢幕下方留一點距離 */
   opacity: 1; visibility: visible;
   transition: opacity .6s ease, visibility .6s ease;
   overflow: hidden;
@@ -5394,34 +5395,44 @@ html.landing-active .peek-bear,
 html.landing-active #_wxCard { visibility: hidden !important; }
 /* 底層漸層放在 body（天氣 canvas 之下）：主背景色（上）→ 米白（下） */
 html.landing-active body {
-  background: linear-gradient(180deg, var(--bg) 0%, var(--bg) 40%, #E5DDD9 92%, #E5DDD9 100%) !important;
+  background: linear-gradient(180deg, var(--bg) 0%, var(--bg) 36%, #E5DDD9 84%, #EFEAE4 100%) !important;
 }
 /* 天氣 canvas 疊在漸層上、放明顯一點，並升到圖表 UI 之上 */
 html.landing-active #weatherBg { opacity: .9 !important; z-index: 2 !important; }
 /* 首頁本體透明 → 露出底層「漸層 + 天氣」；插圖與按鈕仍在最上層 */
 html.landing-active .landing { background: transparent; }
-/* 插圖：填滿裝置寬度（城牆靠兩邊），等比放大；過高的下方留白由 overflow 裁掉 */
-.landing-art {
-  flex: 0 0 auto;                      /* 垂直對齊交給容器 align-items（桌面頂端、手機置中）*/
-  width: 100%; height: auto; display: block;
-  user-select: none; -webkit-user-drag: none;
+/* 舞台：插圖滿寬（城牆靠兩邊），釘在底部地板之上；箭頭/大門鈕相對它定位 */
+.landing-stage { position: relative; width: 100%; line-height: 0; }
+.landing-art { display: block; width: 100%; height: auto; user-select: none; -webkit-user-drag: none; }
+/* logo 字樣：螢幕上方天空區；重新設計 → 細字、寬字距、淡化（低調極簡） */
+.landing-logo {
+  position: absolute; top: 6%; left: 50%; transform: translateX(-50%);
+  text-align: center; line-height: 1; white-space: nowrap; z-index: 2;
+  font-family: "Helvetica Neue", "Segoe UI", system-ui, sans-serif;
+  font-weight: 300; color: rgba(255,255,255,.50);          /* 淡化 */
+  letter-spacing: .26em; font-size: clamp(34px, 7vw, 80px);
+  text-shadow: 0 1px 12px rgba(0,0,0,.4);
 }
-/* 開始鈕：手繪卡通風（暖橘 + 棕厚邊 + 立體下緣）；釘在視窗底部固定可見（城門下方留白處） */
-.landing-start {
-  position: absolute; left: 50%; bottom: 9vh; transform: translateX(-50%);
-  padding: 13px 50px; font-size: 22px; font-weight: 800; letter-spacing: 6px;
-  color: #fff; -webkit-text-stroke: 0;
-  text-shadow: 0 2px 0 rgba(110,82,54,.45);
-  background: linear-gradient(180deg, #F6BB57 0%, #ECA033 55%, #E3942A 100%);
-  border: 3px solid #6E5236; border-radius: 999px;
-  box-shadow: 0 6px 0 #6E5236, 0 12px 18px rgba(110,82,54,.30);   /* 卡通厚下緣 + 柔影 */
-  cursor: pointer; line-height: 1.1;
-  transition: transform .1s ease, box-shadow .1s ease, filter .15s ease;
+.landing-logo span {
+  display: block; margin-top: .55em; font-size: .19em; font-weight: 400;
+  letter-spacing: .62em; color: rgba(255,160,80,.5);       /* 副標更淡 */
+  text-shadow: none;
 }
-.landing-start:hover  { filter: brightness(1.06); transform: translateX(-50%) translateY(-2px); box-shadow: 0 8px 0 #6E5236, 0 14px 22px rgba(110,82,54,.34); }
-.landing-start:active { transform: translateX(-50%) translateY(4px); box-shadow: 0 2px 0 #6E5236, 0 5px 10px rgba(110,82,54,.28); }
-@media (max-width: 768px) {
-  /* 手機直式：插圖較短不會溢出 → 垂直置中（城牆仍滿寬靠兩邊），按鈕拉近一點 */
-  .landing { align-items: center; }
-  .landing-start { padding: 11px 40px; font-size: 18px; letter-spacing: 4px; bottom: 13vh; }
+/* 箭頭：指向大門，上下跳動（提示「點大門進入」） */
+.landing-arrow {
+  position: absolute; left: 50%; top: 47%; transform: translateX(-50%);
+  z-index: 4; color: #FFE08A; line-height: 1; pointer-events: none;
+  font-size: clamp(22px, 4.2vw, 42px); text-shadow: 0 0 12px rgba(255,150,20,.95), 0 2px 4px rgba(0,0,0,.5);
+  animation: landing-arrow 1s ease-in-out infinite;
 }
+@keyframes landing-arrow { 0%,100% { transform: translateX(-50%) translateY(0); } 50% { transform: translateX(-50%) translateY(10px); } }
+/* 整座大門＝進入鈕：無文字的透明熱區，蓋住整個門樓；hover 才浮現暖光暈 */
+.landing-gate-btn {
+  position: absolute; left: 50%; top: 40%; transform: translateX(-50%); z-index: 3;
+  width: 18%; height: 57%;
+  background: transparent; border: none; border-radius: 10px; padding: 0;
+  cursor: pointer;
+  transition: background .25s ease, box-shadow .25s ease;
+}
+.landing-gate-btn:hover  { background: rgba(255,180,70,.13); box-shadow: 0 0 40px rgba(255,170,40,.5), inset 0 0 30px rgba(255,170,40,.28); }
+.landing-gate-btn:active { background: rgba(255,180,70,.22); }
