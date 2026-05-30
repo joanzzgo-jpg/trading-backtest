@@ -999,59 +999,77 @@ const SFX = (() => {
     [-.14,-.06,.055],[.34,.30,.05],[-.40,-.10,.045],[.08,.50,.05],
     [ .42,.12,.035],[-.28,.16,.03],[.18,.40,.028],
   ];
-  function _drawMoonPhase(cx, cy, R, phase) {
+  // 月面繪製本體（畫進任意 2D context g；給離屏快取重複使用）
+  function _renderMoon(g, cx, cy, R, phase) {
     const DARK = 'rgba(12,16,34,0.97)';
     // 受光面奶白漸層（偏移高光中心 + 邊緣壓暗 → 球體感 / limb darkening）
-    const lit = ctx.createRadialGradient(cx - R*0.30, cy - R*0.30, R*0.06, cx, cy, R*1.08);
+    const lit = g.createRadialGradient(cx - R*0.30, cy - R*0.30, R*0.06, cx, cy, R*1.08);
     lit.addColorStop(0, '#fdfcf4'); lit.addColorStop(0.60, '#e7edf6'); lit.addColorStop(1, '#bbc8da');
-    ctx.save();
-    ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI*2); ctx.clip();
-    ctx.fillStyle = DARK; ctx.fillRect(cx-R, cy-R, R*2, R*2);
+    g.save();
+    g.beginPath(); g.arc(cx, cy, R, 0, Math.PI*2); g.clip();
+    g.fillStyle = DARK; g.fillRect(cx-R, cy-R, R*2, R*2);
     const eRx = R * Math.abs(Math.cos(2 * Math.PI * phase));
-    ctx.fillStyle = lit;
+    g.fillStyle = lit;
     if (phase < 0.5) {                       // waxing：右半受光
-      ctx.beginPath(); ctx.arc(cx, cy, R, -Math.PI/2, Math.PI/2); ctx.closePath(); ctx.fill();
-      if (phase < 0.25) { ctx.fillStyle = DARK; ctx.beginPath(); ctx.ellipse(cx, cy, eRx, R, 0, -Math.PI/2, Math.PI/2); ctx.closePath(); ctx.fill(); }
-      else              { ctx.beginPath(); ctx.ellipse(cx, cy, eRx, R, 0, Math.PI/2, -Math.PI/2); ctx.closePath(); ctx.fill(); }
+      g.beginPath(); g.arc(cx, cy, R, -Math.PI/2, Math.PI/2); g.closePath(); g.fill();
+      if (phase < 0.25) { g.fillStyle = DARK; g.beginPath(); g.ellipse(cx, cy, eRx, R, 0, -Math.PI/2, Math.PI/2); g.closePath(); g.fill(); }
+      else              { g.beginPath(); g.ellipse(cx, cy, eRx, R, 0, Math.PI/2, -Math.PI/2); g.closePath(); g.fill(); }
     } else {                                 // waning：左半受光
-      ctx.beginPath(); ctx.arc(cx, cy, R, Math.PI/2, -Math.PI/2); ctx.closePath(); ctx.fill();
+      g.beginPath(); g.arc(cx, cy, R, Math.PI/2, -Math.PI/2); g.closePath(); g.fill();
       const p2 = phase - 0.5;
-      if (p2 < 0.25) { ctx.beginPath(); ctx.ellipse(cx, cy, eRx, R, 0, -Math.PI/2, Math.PI/2); ctx.closePath(); ctx.fill(); }
-      else           { ctx.fillStyle = DARK; ctx.beginPath(); ctx.ellipse(cx, cy, eRx, R, 0, Math.PI/2, -Math.PI/2); ctx.closePath(); ctx.fill(); }
+      if (p2 < 0.25) { g.beginPath(); g.ellipse(cx, cy, eRx, R, 0, -Math.PI/2, Math.PI/2); g.closePath(); g.fill(); }
+      else           { g.fillStyle = DARK; g.beginPath(); g.ellipse(cx, cy, eRx, R, 0, Math.PI/2, -Math.PI/2); g.closePath(); g.fill(); }
     }
     // 隕石坑：剪裁到受光側（暗面不畫），坑體 + 內陰影 + 受光緣 = 立體凹陷
     const nearFull = Math.abs(phase - 0.5) < 0.07;
-    ctx.save();
+    g.save();
     if (!nearFull) {
-      ctx.beginPath();
-      if (phase < 0.5) ctx.rect(cx, cy-R, R, 2*R); else ctx.rect(cx-R, cy-R, R, 2*R);
-      ctx.clip();
+      g.beginPath();
+      if (phase < 0.5) g.rect(cx, cy-R, R, 2*R); else g.rect(cx-R, cy-R, R, 2*R);
+      g.clip();
     }
     // 月海：大片柔邊暗灰斑（橢圓，用 translate+scale 壓扁圓形漸層）→ 真實月面感、非臉譜
     _MOON_MARIA.forEach(([fx,fy,rx,ry,d]) => {
       const x=cx+fx*R, y=cy+fy*R, rr=rx*R;
-      const g=ctx.createRadialGradient(0,0,0,0,0,rr);
-      g.addColorStop(0,`rgba(98,106,126,${d})`); g.addColorStop(.65,`rgba(106,114,132,${(d*.6).toFixed(3)})`); g.addColorStop(1,'rgba(106,114,132,0)');
-      ctx.save(); ctx.translate(x,y); ctx.scale(1, ry/rx); ctx.fillStyle=g;
-      ctx.beginPath(); ctx.arc(0,0,rr,0,Math.PI*2); ctx.fill(); ctx.restore();
+      const gr=g.createRadialGradient(0,0,0,0,0,rr);
+      gr.addColorStop(0,`rgba(98,106,126,${d})`); gr.addColorStop(.65,`rgba(106,114,132,${(d*.6).toFixed(3)})`); gr.addColorStop(1,'rgba(106,114,132,0)');
+      g.save(); g.translate(x,y); g.scale(1, ry/rx); g.fillStyle=gr;
+      g.beginPath(); g.arc(0,0,rr,0,Math.PI*2); g.fill(); g.restore();
     });
     // 小隕石坑：暗點 + 受光緣（小而散）
     _MOON_CRA.forEach(([fx,fy,fr]) => {
       const x=cx+fx*R, y=cy+fy*R, r=fr*R;
-      ctx.fillStyle='rgba(108,118,140,.40)'; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle='rgba(252,250,244,.28)'; ctx.beginPath(); ctx.arc(x-r*.32,y-r*.32,r*.5,0,Math.PI*2); ctx.fill();
+      g.fillStyle='rgba(108,118,140,.40)'; g.beginPath(); g.arc(x,y,r,0,Math.PI*2); g.fill();
+      g.fillStyle='rgba(252,250,244,.28)'; g.beginPath(); g.arc(x-r*.32,y-r*.32,r*.5,0,Math.PI*2); g.fill();
     });
-    ctx.restore();
+    g.restore();
     // 整顆 limb darkening（邊緣再壓暗 → 更像球體）
-    const ld = ctx.createRadialGradient(cx, cy, R*0.55, cx, cy, R);
+    const ld = g.createRadialGradient(cx, cy, R*0.55, cx, cy, R);
     ld.addColorStop(0, 'rgba(0,0,0,0)'); ld.addColorStop(1, 'rgba(20,28,48,0.30)');
-    ctx.fillStyle = ld; ctx.fillRect(cx-R, cy-R, R*2, R*2);
-    ctx.restore();   // 結束 disc clip
+    g.fillStyle = ld; g.fillRect(cx-R, cy-R, R*2, R*2);
+    g.restore();   // 結束 disc clip
     // 清晰邊緣描線
-    ctx.save();
-    ctx.strokeStyle='rgba(214,228,248,.55)'; ctx.lineWidth=Math.max(.6, R*.045);
-    ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI*2); ctx.stroke();
-    ctx.restore();
+    g.save();
+    g.strokeStyle='rgba(214,228,248,.55)'; g.lineWidth=Math.max(.6, R*.045);
+    g.beginPath(); g.arc(cx, cy, R, 0, Math.PI*2); g.stroke();
+    g.restore();
+  }
+
+  // 月面離屏快取：只在相位/尺寸改變(≈每 30 分一次)時重繪，每幀僅 drawImage 一張
+  // → 省下每幀數十次 gradient/clip/arc（夜間最重的逐幀繪製）
+  let _moonCv=null, _moonCx=null, _moonKey='';
+  function _drawMoonPhase(cx, cy, R, phase) {
+    const key = R + '|' + phase.toFixed(3);
+    if (key !== _moonKey || !_moonCv) {
+      const pad = Math.ceil(R*0.06) + 2, sz = Math.ceil(R*2 + pad*2);
+      if (!_moonCv) { _moonCv = document.createElement('canvas'); _moonCx = _moonCv.getContext('2d'); }
+      _moonCv.width = sz; _moonCv.height = sz;
+      _moonCx.clearRect(0,0,sz,sz);
+      _renderMoon(_moonCx, sz/2, sz/2, R, phase);
+      _moonKey = key;
+    }
+    const half = _moonCv.width / 2;
+    ctx.drawImage(_moonCv, cx-half, cy-half);
   }
 
   function _drawAstro(t) {
