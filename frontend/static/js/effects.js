@@ -1962,6 +1962,30 @@ const SFX = (() => {
     if (!rafId) requestAnimationFrame(loop);
   }
 
+  /* 各國國旗（簡化版）→ inline SVG，配城堡棕旗桿 + 棕邊框（手繪風）。未對應 → 暖色小旗 */
+  function _flagSvg(country) {
+    const k = (country || '').toLowerCase();
+    let f = null;
+    if (k.indexOf('taiwan') >= 0)        f = "<rect x='5' y='4' width='17' height='11' fill='#D62828'/><rect x='5' y='4' width='8.5' height='5.5' fill='#13357B'/><circle cx='9.25' cy='6.75' r='1.9' fill='#fff'/>";
+    else if (k.indexOf('japan') >= 0)    f = "<rect x='5' y='4' width='17' height='11' fill='#fff'/><circle cx='13.5' cy='9.5' r='3' fill='#D62828'/>";
+    else if (k === 'china')              f = "<rect x='5' y='4' width='17' height='11' fill='#DE2910'/><circle cx='9' cy='7' r='1.8' fill='#FFDE00'/><circle cx='12.6' cy='5.9' r='.7' fill='#FFDE00'/><circle cx='13.3' cy='7.9' r='.7' fill='#FFDE00'/>";
+    else if (k.indexOf('korea') >= 0)    f = "<rect x='5' y='4' width='17' height='11' fill='#fff'/><circle cx='13.5' cy='9.5' r='2.8' fill='#003478'/><path d='M13.5 6.7a2.8 2.8 0 0 1 0 5.6 1.4 1.4 0 0 1 0-2.8 1.4 1.4 0 0 0 0-2.8z' fill='#C60C30'/>";
+    else if (k.indexOf('hong') >= 0)     f = "<rect x='5' y='4' width='17' height='11' fill='#DE2910'/><circle cx='13.5' cy='9.5' r='2.6' fill='#fff'/>";
+    else if (k === 'usa')                f = "<rect x='5' y='4' width='17' height='11' fill='#fff'/><rect x='5' y='5.57' width='17' height='1.57' fill='#B22234'/><rect x='5' y='8.71' width='17' height='1.57' fill='#B22234'/><rect x='5' y='11.85' width='17' height='1.57' fill='#B22234'/><rect x='5' y='4' width='17' height='1.57' fill='#B22234'/><rect x='5' y='4' width='7' height='6' fill='#3C3B6E'/>";
+    else if (k === 'uk')                 f = "<rect x='5' y='4' width='17' height='11' fill='#012169'/><path d='M5 4L22 15M22 4L5 15' stroke='#fff' stroke-width='2.4'/><path d='M13.5 4V15M5 9.5H22' stroke='#fff' stroke-width='3.4'/><path d='M13.5 4V15M5 9.5H22' stroke='#C8102E' stroke-width='1.6'/>";
+    else if (k === 'france')             f = "<rect x='5' y='4' width='5.67' height='11' fill='#0055A4'/><rect x='10.67' y='4' width='5.67' height='11' fill='#fff'/><rect x='16.33' y='4' width='5.67' height='11' fill='#EF4135'/>";
+    else if (k === 'germany')            f = "<rect x='5' y='4' width='17' height='3.67' fill='#111'/><rect x='5' y='7.67' width='17' height='3.67' fill='#D00'/><rect x='5' y='11.33' width='17' height='3.67' fill='#FFCE00'/>";
+    else if (k.indexOf('singapore') >= 0)f = "<rect x='5' y='4' width='17' height='5.5' fill='#EF3340'/><rect x='5' y='9.5' width='17' height='5.5' fill='#fff'/><circle cx='9' cy='6.75' r='2' fill='#fff'/><circle cx='9.9' cy='6.75' r='1.7' fill='#EF3340'/>";
+    else if (k.indexOf('thailand') >= 0) f = "<rect x='5' y='4' width='17' height='11' fill='#fff'/><rect x='5' y='4' width='17' height='2.2' fill='#A51931'/><rect x='5' y='12.8' width='17' height='2.2' fill='#A51931'/><rect x='5' y='7.3' width='17' height='4.4' fill='#2D2A4A'/>";
+    else if (k.indexOf('australia') >= 0)f = "<rect x='5' y='4' width='17' height='11' fill='#012169'/><path d='M5 4L12 9.5M12 4L5 9.5' stroke='#fff' stroke-width='1.2'/><circle cx='17.5' cy='11' r='1' fill='#fff'/><circle cx='9' cy='13' r='.9' fill='#fff'/>";
+    else if (k === 'uae')                f = "<rect x='5' y='4' width='4' height='11' fill='#FF0000'/><rect x='9' y='4' width='13' height='3.67' fill='#00843D'/><rect x='9' y='7.67' width='13' height='3.67' fill='#fff'/><rect x='9' y='11.33' width='13' height='3.67' fill='#111'/>";
+    const flag = f || "<path d='M6 4.6c4-1.5 7 1.4 11.4 0l-.5 5.7c-4 1.5-7-1.4-11.4 0z' fill='#D89C68'/>";
+    const box  = f ? "<rect x='5' y='4' width='17' height='11' fill='none' stroke='#5A4632' stroke-width='1' stroke-linejoin='round'/>" : "";
+    return "<svg class='ctry-flag' viewBox='0 0 26 24' xmlns='http://www.w3.org/2000/svg'>" +
+           "<path d='M4 3.2V21' fill='none' stroke='#7A5E42' stroke-width='1.6' stroke-linecap='round'/>" +
+           flag + box + "</svg>";
+  }
+
   function _renderWeatherCard() {
     if (_wd.temp == null) return;
     let el = document.getElementById('_wxCard');
@@ -2000,8 +2024,8 @@ const SFX = (() => {
         '<span class="lloc-1">' + _wd.city + ' <span class="lloc-wx">' + desc + '</span></span>' +
         '<span class="lloc-2">' + _wd.temp + '°C' + _pop + '</span>';
     }
-    const _lcountry = document.getElementById('landingCountry');   // 大門上草寫國家名
-    if (_lcountry && _wd.country) _lcountry.textContent = _wd.country;
+    const _lcountry = document.getElementById('landingCountry');   // 大門上：國旗 + 草寫國名
+    if (_lcountry && _wd.country) _lcountry.innerHTML = _flagSvg(_wd.country) + '<span class="ctry-name">' + _wd.country + '</span>';
   }
 
   function fetchWeather(lat, lon) {
