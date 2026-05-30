@@ -708,6 +708,7 @@ const SFX = (() => {
   let flashAlpha = 0, lightningTimer = 80, lightningPath = [];
   let shootTimer = 200, shootX = 0, shootY = 0, shootDX = 0, shootDY = 0, shootLen = 0;
   let stars = [], sparks = [], rainP = [], ripples = [], snowP = [], cloudP = [], leafP = [], petalP = [], mahjongP = [], windStreaks = [];
+  let glassDrops = [], splashes = [];   // 雨：前景玻璃水珠 / 地面濺起水花
   let thunderBolts = [], thunderFlashes = [], thunderTimer = 15;
   // 天然災害（手動特效）：冰雹 / 龍卷風 / 地震
   let hailP = [], hailSplash = [], qCracks = [], qDust = [], tDebris = [], tornadoX = 0, quakeT = 0;
@@ -1305,16 +1306,21 @@ const SFX = (() => {
     stars  = Array.from({length:100}, () => ({ x:Math.random()*W, y:Math.random()*H*.88, r:.3+Math.random()*1.8, ph:Math.random()*Math.PI*2, sp:.8+Math.random()*1.5 }));
     sparks = Array.from({length:14}, _newSpark);
     // 雨：連續景深 z（0=遠、1=近）；用 z² / z³ 大幅拉開前後差距 → 立體視差明顯
-    const nRain = Math.round(70+150*ri);
+    const nRain = Math.round(110+200*ri);   // 加密雨量（更有感覺）
     rainP = Array.from({length:nRain}, () => {
       const z = Math.random();
       return { x:Math.random()*W, y:Math.random()*H, z,
-        spd: 2.5 + z*z*z*20,    // 2.5..22.5（z³：多數慢、少數近景超快 → 視差超明顯）
-        len: 4 + z*z*32,        // 4..36（近的雨絲很長）
-        a:   .06 + z*z*.6,      // .06..66
-        w:   .3 + z*z*2.6 };    // .3..2.9（近的很粗、遠的髮絲）
+        spd: 3.0 + z*z*z*24,    // 更快（近景雨勢更急）
+        len: 5 + z*z*40,        // 近的雨絲更長
+        a:   .07 + z*z*.66,
+        w:   .3 + z*z*3.0 };    // 近的更粗
     }).sort((p,q)=>p.z-q.z);    // 遠先畫、近後畫（正確前後遮擋）
-    ripples = [];
+    ripples = []; splashes = [];
+    // 前景玻璃水珠（像隔著窗看雨）：少量大水珠，偶爾滑落留痕
+    glassDrops = Array.from({length: 9 + Math.round(11*ri)}, () => ({
+      x: Math.random()*W, y: Math.random()*H*0.92, r: 5 + Math.random()*12,
+      vy: 0, slide: false, age: Math.random()*500, slideAt: 160 + Math.random()*640
+    }));
     // 雪：景深 z 大幅拉開——遠景小柔光點、近景大結晶（差距明顯）
     const nSnow = Math.round(28+50*ri);
     snowP  = Array.from({length:nSnow}, () => {
@@ -1664,6 +1670,13 @@ const SFX = (() => {
       if (p.y>H+p.len) {
         if (n && ripples.length<45)
           ripples.push({x:p.x, y:H*.968, r:0, maxR:6+Math.random()*13*p.z, a:.30*p.z+.14});
+        if (p.z>0.7 && splashes.length<70) {        // 近景大雨滴落地 → 向上濺起小水花
+          const cnt = 2+Math.floor(Math.random()*2);
+          for (let k=0;k<cnt;k++){
+            const ang=-Math.PI/2 + (Math.random()-0.5)*1.15, sp=1.4+Math.random()*2.6*p.z;
+            splashes.push({ x:p.x, y:H*.963, vx:Math.cos(ang)*sp, vy:Math.sin(ang)*sp, life:0, max:9+Math.random()*8, a:.55*p.z });
+          }
+        }
         p.y=-p.len; p.x=Math.random()*(W+60)-30;
       }
     });
@@ -1678,10 +1691,37 @@ const SFX = (() => {
       if (rp.a<=0) ripples.splice(i,1);
     }
 
+    /* 落地濺起的小水花（重力拋物線） */
+    for (let i=splashes.length-1;i>=0;i--) {
+      const s=splashes[i]; s.life++; s.vy+=0.22; s.x+=s.vx; s.y+=s.vy;
+      const al=s.a*(1-s.life/s.max);
+      if (al<=0 || s.life>=s.max) { splashes.splice(i,1); continue; }
+      ctx.fillStyle=`rgba(205,230,255,${al.toFixed(3)})`;
+      ctx.beginPath(); ctx.arc(s.x,s.y,1.1,0,Math.PI*2); ctx.fill();
+    }
+
     /* wet ground sheen (cached) */
     ctx.fillStyle=_gc.rainGnd; ctx.fillRect(0,H*.88,W,H*.12);
     /* bottom mist (cached) */
     ctx.fillStyle=_gc.rainMist; ctx.fillRect(0,H*.62,W,H*.38);
+
+    /* 前景玻璃水珠（隔窗看雨）：最近平面 → 視差最大、偶爾滑落留痕 */
+    const gx=_parX(1), gy=_parY(1); ctx.lineCap="round";
+    glassDrops.forEach(d => {
+      d.age++;
+      if (!d.slide && d.age>d.slideAt) d.slide=true;
+      if (d.slide) {
+        d.vy += 0.06; d.y += d.vy;
+        ctx.strokeStyle='rgba(205,228,255,0.10)'; ctx.lineWidth=d.r*0.5;
+        ctx.beginPath(); ctx.moveTo(d.x+gx, d.y+gy-d.vy*5); ctx.lineTo(d.x+gx, d.y+gy); ctx.stroke();
+        if (d.y>H+d.r) { d.x=Math.random()*W; d.y=-d.r; d.vy=0; d.slide=false; d.age=0; d.slideAt=160+Math.random()*640; }
+      }
+      const dx=d.x+gx, dy=d.y+gy;
+      const g=ctx.createRadialGradient(dx-d.r*0.3, dy-d.r*0.35, d.r*0.1, dx, dy, d.r);
+      g.addColorStop(0,'rgba(228,242,255,0.40)'); g.addColorStop(0.6,'rgba(150,186,226,0.16)'); g.addColorStop(1,'rgba(120,160,210,0.03)');
+      ctx.fillStyle=g; ctx.beginPath(); ctx.arc(dx,dy,d.r,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='rgba(255,255,255,0.45)'; ctx.beginPath(); ctx.arc(dx-d.r*0.32, dy-d.r*0.36, d.r*0.2, 0, Math.PI*2); ctx.fill();
+    });
   }
 
   function dSnow(t) {
