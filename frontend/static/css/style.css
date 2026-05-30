@@ -5471,6 +5471,15 @@ html.landing-active .landing { background: transparent; }
   animation: landing-arrow 1s ease-in-out infinite;
 }
 @keyframes landing-arrow { 0%,100% { transform: translateX(-50%) translateY(0); } 50% { transform: translateX(-50%) translateY(10px); } }
+/* 大門上的國家名：草寫 + 城堡手繪深棕墨色（像刻在門上） */
+.landing-country {
+  position: absolute; left: 50%; top: 56%; transform: translateX(-50%);
+  z-index: 4; white-space: nowrap; pointer-events: none;
+  font-family: "Caveat", cursive; font-weight: 700;
+  font-size: clamp(15px, 2.1vw, 26px); color: #4A3526;
+  text-shadow: 0 1px 0 rgba(255,250,242,.3); letter-spacing: .01em;
+}
+.landing-country:empty { display: none; }
 /* 整座大門＝進入鈕：透明熱區，hover 浮暖光暈 */
 .landing-gate-btn {
   position: absolute; left: 50%; top: 46%; transform: translateX(-50%); z-index: 3;

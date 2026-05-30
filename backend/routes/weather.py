@@ -206,6 +206,7 @@ async def _from_cwa(lat: float, lon: float) -> dict:
     mr, ms = _moon_times(sr, ss, mp)
     return {
         "source":       "cwa",
+        "country":      "Taiwan",
         "weather_type": _desc_to_type(desc, is_day),
         "temperature":  round(temp),
         "description":  desc,
@@ -244,6 +245,14 @@ _TZ_CITY = {
     "London":"倫敦","Paris":"巴黎","Dubai":"杜拜",
     "Sydney":"雪梨","Melbourne":"墨爾本",
 }
+# 時區 → 英文國家名（Open-Meteo 來源用；首頁大門上的草寫國名）
+_TZ_COUNTRY = {
+    "Taipei":"Taiwan","Hong_Kong":"Hong Kong","Tokyo":"Japan","Seoul":"South Korea",
+    "Shanghai":"China","Beijing":"China","Singapore":"Singapore","Bangkok":"Thailand",
+    "New_York":"USA","Los_Angeles":"USA","Chicago":"USA","Denver":"USA",
+    "London":"UK","Paris":"France","Berlin":"Germany","Madrid":"Spain","Rome":"Italy",
+    "Dubai":"UAE","Sydney":"Australia","Melbourne":"Australia","Kuala_Lumpur":"Malaysia",
+}
 
 def _wmo_type(c: int, is_day: bool) -> str:
     if c == 0:                              return "sunny" if is_day else "night"
@@ -274,15 +283,17 @@ async def _from_omt(lat: float, lon: float) -> dict:
 
     # 優先用 Nominatim 取得鄉/區層級地名；失敗時退回時區城市名
     location = await _reverse_geocode(lat, lon)
+    tzp = (data.get("timezone") or "").split("/")[-1]
     if not location:
-        tzp = (data.get("timezone") or "").split("/")[-1]
         location = _TZ_CITY.get(tzp) or tzp.replace("_", " ") or None
+    _country = _TZ_COUNTRY.get(tzp) or (tzp.replace("_", " ") if tzp else "")
 
     sr, ss = _sun_times_local(lat, lon)
     mp = _moon_phase()
     mr, ms = _moon_times(sr, ss, mp)
     return {
         "source":       "openmeteo",
+        "country":      _country,
         "weather_type": _wmo_type(code, is_day),
         "temperature":  round(float(c.get("temperature_2m") or 20)),
         "description":  _WMO_DESC.get(code, ""),
@@ -367,6 +378,7 @@ async def _from_hko(lat: float, lon: float) -> dict:
     mr, ms = _moon_times(sr, ss, mp)
     return {
         "source":       "hko",
+        "country":      "Hong Kong",
         "weather_type": wtype,
         "temperature":  round(temp),
         "description":  desc,
@@ -474,6 +486,7 @@ async def _from_jma(lat: float, lon: float) -> dict:
     mr, ms = _moon_times(sr, ss, mp)
     return {
         "source":       "jma",
+        "country":      "Japan",
         "weather_type": wtype,
         "temperature":  round(temp) if temp is not None else 20,
         "description":  _JMA_DESC.get(wtype, ""),

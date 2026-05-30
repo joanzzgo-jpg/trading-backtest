@@ -899,7 +899,7 @@ const SFX = (() => {
   }
   let _autoType = "sunny";
   let _wxLat = 25.04, _wxLon = 121.51, _wxTimer = null;
-  const _wd = { code:0, temp:null, precip:0, pop:null, cloudCover:50, windSpeed:0, windDir:null, visibility:10000, isDay:true, city:null, updatedAt:null, intensity:0.5, desc:null, source:null,
+  const _wd = { code:0, temp:null, precip:0, pop:null, cloudCover:50, windSpeed:0, windDir:null, visibility:10000, isDay:true, city:null, country:null, updatedAt:null, intensity:0.5, desc:null, source:null,
                sunRiseMin:360, sunSetMin:1080, moonPhase:0, moonRiseMin:1080, moonSetMin:360 };
 
   /* ── 風向 → 螢幕水平分量（+ 往右/東、- 往左/西）。氣象風向是「來向」(0=N,90=E,180=S,270=W)，
@@ -2000,6 +2000,8 @@ const SFX = (() => {
         '<span class="lloc-1">' + _wd.city + ' <span class="lloc-wx">' + desc + '</span></span>' +
         '<span class="lloc-2">' + _wd.temp + '°C' + _pop + '</span>';
     }
+    const _lcountry = document.getElementById('landingCountry');   // 大門上草寫國家名
+    if (_lcountry && _wd.country) _lcountry.textContent = _wd.country;
   }
 
   function fetchWeather(lat, lon) {
@@ -2016,6 +2018,7 @@ const SFX = (() => {
         _wd.windSpeed   = d.wind_speed;
         _wd.windDir     = (d.wind_dir == null) ? null : +d.wind_dir;  // 風向（度，來向）；缺則 null → 預設西南風
         _wd.pop         = (d.pop == null) ? null : Math.round(+d.pop); // 降雨機率 %
+        _wd.country     = d.country || null;                          // 英文國家名（首頁大門上草寫）
         _wd.visibility  = d.visibility;
         _wd.desc        = d.description || null;
         _wd.city        = d.location || d.station || null;
