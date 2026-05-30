@@ -5404,7 +5404,9 @@ html.landing-active .landing { background: transparent; }
 /* 舞台：插圖滿寬（城牆靠兩邊），釘在底部地板之上；箭頭/大門鈕相對它定位 */
 /* 舞台＝插圖；transform-origin 對準大門口 → 進場時往大門「漸變放大」 */
 .landing-stage { position: relative; width: 100%; line-height: 0; transform-origin: 50% 76%; }
-.landing-art { display: block; width: 100%; height: auto; user-select: none; -webkit-user-drag: none; }
+/* 插圖本身不可互動（避免拖曳/點擊出現瀏覽器紅叉/禁止符號）；只有大門熱區可點 */
+.landing-art { display: block; width: 100%; height: auto; pointer-events: none; user-select: none; -webkit-user-drag: none; }
+.landing { user-select: none; -webkit-user-select: none; }
 /* logo：細字、寬字距、淡化（低調），在上方窄天空帶 */
 .landing-logo {
   position: absolute; top: 5%; left: 50%; transform: translateX(-50%);
