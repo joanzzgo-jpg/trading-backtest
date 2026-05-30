@@ -5403,7 +5403,7 @@ html.landing-active #weatherBg { opacity: .9 !important; z-index: 2 !important; 
 html.landing-active .landing { background: transparent; }
 /* 舞台：插圖滿寬（城牆靠兩邊），釘在底部地板之上；箭頭/大門鈕相對它定位 */
 /* 舞台＝插圖；transform-origin 對準大門口 → 進場時往大門「漸變放大」 */
-.landing-stage { position: relative; width: 100%; line-height: 0; transform-origin: 50% 76%; }
+.landing-stage { position: relative; width: 100%; line-height: 0; transform-origin: 50% 65%; }
 /* 插圖本身不可互動（避免拖曳/點擊出現瀏覽器紅叉/禁止符號）；只有大門熱區可點 */
 .landing-art { display: block; width: 100%; height: auto; pointer-events: none; user-select: none; -webkit-user-drag: none; }
 .landing { user-select: none; -webkit-user-select: none; }
@@ -5418,7 +5418,7 @@ html.landing-active .landing { background: transparent; }
 .landing-logo span { display: block; margin-top: .5em; font-size: .2em; font-weight: 400; letter-spacing: .6em; color: rgba(255,160,80,.5); }
 /* 箭頭：指向大門，上下跳動 */
 .landing-arrow {
-  position: absolute; left: 50%; top: 50%; transform: translateX(-50%);
+  position: absolute; left: 50%; top: 42%; transform: translateX(-50%);
   z-index: 4; color: #FFE08A; line-height: 1; pointer-events: none;
   font-size: clamp(20px, 4vw, 38px); text-shadow: 0 0 12px rgba(255,150,20,.95), 0 2px 4px rgba(0,0,0,.5);
   animation: landing-arrow 1s ease-in-out infinite;
@@ -5426,15 +5426,15 @@ html.landing-active .landing { background: transparent; }
 @keyframes landing-arrow { 0%,100% { transform: translateX(-50%) translateY(0); } 50% { transform: translateX(-50%) translateY(10px); } }
 /* 整座大門＝進入鈕：透明熱區，hover 浮暖光暈 */
 .landing-gate-btn {
-  position: absolute; left: 50%; top: 56%; transform: translateX(-50%); z-index: 3;
-  width: 15%; height: 38%;
+  position: absolute; left: 50%; top: 46%; transform: translateX(-50%); z-index: 3;
+  width: 14%; height: 46%;
   background: transparent; border: none; border-radius: 10px; padding: 0;
   cursor: pointer;            /* hover 不發光（依使用者要求），保留可點 */
 }
-/* 進場暖光：從大門口往全螢幕擴散 */
+/* 進場黑光：從大門黑洞往全螢幕擴散（被吸進去 → 全黑） */
 .landing-flash {
   position: absolute; inset: 0; z-index: 9; pointer-events: none; opacity: 0;
-  background: radial-gradient(circle at 50% 76%, #ffffff 0%, #FFF3D6 38%, #FFE2A6 66%, rgba(255,214,150,.92) 100%);
+  background: radial-gradient(circle at 50% 65%, #000000 0%, #050506 42%, #0e0e11 72%, rgba(6,6,9,.95) 100%);
 }
 /* 點門 → 進場序列：門內畫面漸變放大 + 暖光鋪滿 */
 .landing.landing-entering { pointer-events: none; }
