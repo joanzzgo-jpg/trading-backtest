@@ -5407,11 +5407,11 @@ html.landing-active .landing { background: transparent; }
 .landing-art { display: block; width: 100%; height: auto; user-select: none; -webkit-user-drag: none; }
 /* logo：細字、寬字距、淡化（低調），在上方窄天空帶 */
 .landing-logo {
-  position: absolute; top: 1.5%; left: 50%; transform: translateX(-50%);
+  position: absolute; top: 5%; left: 50%; transform: translateX(-50%);
   text-align: center; line-height: 1; white-space: nowrap; z-index: 2;
   font-family: "Helvetica Neue", "Segoe UI", system-ui, sans-serif;
-  font-weight: 300; color: rgba(255,255,255,.48); letter-spacing: .26em;
-  font-size: clamp(20px, 3.4vw, 38px); text-shadow: 0 1px 12px rgba(0,0,0,.4);
+  font-weight: 300; color: rgba(255,255,255,.52); letter-spacing: .26em;
+  font-size: clamp(28px, 5vw, 56px); text-shadow: 0 1px 12px rgba(0,0,0,.4);
 }
 .landing-logo span { display: block; margin-top: .5em; font-size: .2em; font-weight: 400; letter-spacing: .6em; color: rgba(255,160,80,.5); }
 /* 箭頭：指向大門，上下跳動 */
