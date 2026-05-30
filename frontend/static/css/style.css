@@ -5460,7 +5460,7 @@ html.landing-active .landing { background: transparent; }
   content: ""; display: inline-block; vertical-align: -.18em;
   width: .9em; height: .9em; margin-right: .1em;
   background: no-repeat center / contain
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 3c0 0-6.6 8.3-6.6 12.4a6.6 6.6 0 0 0 13.2 0C18.6 11.3 12 3 12 3z' fill='%2367B2EF' stroke='%233E7BB8' stroke-width='1.3' stroke-linejoin='round'/%3E%3Cpath d='M9.3 14.2c.1 1.6 1 2.7 2.4 3' fill='none' stroke='%23EAF4FF' stroke-width='1.2' stroke-linecap='round'/%3E%3C/svg%3E");
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 3c0 0-6.6 8.3-6.6 12.4a6.6 6.6 0 0 0 13.2 0C18.6 11.3 12 3 12 3z' fill='%23ffffff' stroke='%238a8a8a' stroke-width='1.3' stroke-linejoin='round'/%3E%3Cpath d='M9.3 14.2c.1 1.6 1 2.7 2.4 3' fill='none' stroke='%23b9b9b9' stroke-width='1.2' stroke-linecap='round'/%3E%3C/svg%3E");
 }
 /* 箭頭：指向大門，上下跳動 */
 .landing-arrow {
