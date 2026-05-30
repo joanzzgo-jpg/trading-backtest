@@ -2789,6 +2789,14 @@ html.perf-mode .tk-seg {
   opacity: 0.28;
 }
 
+/* ── 晴朗夜空：主圖「淡淡」透出夜空（月亮/星星/八大行星）；白天與其餘天氣完全不受影響 ──
+   機制：effects.js 偵測 type==='night' 掛 html.sky-night。把擋光的兩層底色（charts-container
+   與 #mainPane 漸層）轉透明，weatherBg(z:1) 即從 K 線後方透出；同時提高其不透明度讓夜空看得見。
+   K 線/指標由 LWC canvas 不透明繪製、浮在最上 → 看盤清晰不受影響。perf-mode 不載 effects.js，不會觸發。 */
+html:not(.perf-mode).sky-night #weatherBg { opacity: 0.52; }
+html:not(.perf-mode).sky-night .charts-container { background: transparent !important; }
+html:not(.perf-mode).sky-night #mainPane { background: transparent !important; }
+
 /* ═══════════════ 橘子熊可愛風格 ═══════════════ */
 
 /* warm topbar gradient — 維持不透明色塊，天氣 canvas（z:1, opacity:.28）會自然疊在其上 */

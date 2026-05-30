@@ -1134,6 +1134,124 @@ const SFX = (() => {
     }
   }
 
+  /* ───────────────── 八大行星（夜空，本地計算、無 API、無標籤） ─────────────────
+     用 Paul Schlyter 簡化克卜勒軌道根數：算各行星地心赤經/赤緯 → 觀測者地平座標
+     (方位角 az / 高度角 alt)，投影到夜空。大小依視星等(越亮越大)、顏色取實際色調。
+     地球除外（站在地球上看不到自己），共 7 顆。每 ~2 分鐘重算一次快取。 */
+  const _D2R = Math.PI/180, _R2D = 180/Math.PI;
+  const _sind = a => Math.sin(a*_D2R), _cosd = a => Math.cos(a*_D2R);
+  const _atan2d = (y,x) => Math.atan2(y,x)*_R2D;
+  const _rev = a => { a%=360; return a<0 ? a+360 : a; };
+  // 各行星：名稱、實際色 [r,g,b]、絕對星等基準 H0、相位係數 ph、
+  //          軌道根數 el = [N, i, w, a, e, M]，每項 [常數項, 每日變率]
+  const _PLANETS = [
+    { name:'Mercury', c:[185,160,126], H0:-0.36, ph:0.027,
+      el:[[48.3313,3.24587e-5],[7.0047,5.00e-8],[29.1241,1.01444e-5],[0.387098,0],[0.205635,5.59e-10],[168.6562,4.0923344368]] },
+    { name:'Venus',   c:[244,236,203], H0:-4.34, ph:0.013,
+      el:[[76.6799,2.46590e-5],[3.3946,2.75e-8],[54.8910,1.38374e-5],[0.723330,0],[0.006773,-1.302e-9],[48.0052,1.6021302244]] },
+    { name:'Mars',    c:[217,96,59],   H0:-1.51, ph:0.016,
+      el:[[49.5574,2.11081e-5],[1.8497,-1.78e-8],[286.5016,2.92961e-5],[1.523688,0],[0.093405,2.516e-9],[18.6021,0.5240207766]] },
+    { name:'Jupiter', c:[231,211,161], H0:-9.25, ph:0.014,
+      el:[[100.4542,2.76854e-5],[1.3030,-1.557e-7],[273.8777,1.64505e-5],[5.20256,0],[0.048498,4.469e-9],[19.8950,0.0830853001]] },
+    { name:'Saturn',  c:[227,201,138], H0:-9.00, ph:0.044,
+      el:[[113.6634,2.38980e-5],[2.4886,-1.081e-7],[339.3939,2.97661e-5],[9.55475,0],[0.055546,-9.499e-9],[316.9670,0.0334442282]] },
+    { name:'Uranus',  c:[166,224,230], H0:-7.15, ph:0.001,
+      el:[[74.0005,1.3978e-5],[0.7733,1.9e-8],[96.6612,3.0565e-5],[19.18171,-1.55e-8],[0.047318,7.45e-9],[142.5905,0.011725806]] },
+    { name:'Neptune', c:[93,123,228],  H0:-6.90, ph:0.001,
+      el:[[131.7806,3.0173e-5],[1.7700,-2.55e-7],[272.8461,-6.027e-6],[30.05826,3.313e-8],[0.008606,2.15e-9],[260.2471,0.005995147]] },
+  ];
+  // 太陽軌道根數（地心黃道用；N=i=0）
+  const _SUN_EL = [[0,0],[0,0],[282.9404,4.70935e-5],[1.0,0],[0.016709,-1.151e-9],[356.0470,0.9856002585]];
+
+  function _dayNum(date){
+    const Y=date.getUTCFullYear(), M=date.getUTCMonth()+1, D=date.getUTCDate();
+    const ut=date.getUTCHours()+date.getUTCMinutes()/60+date.getUTCSeconds()/3600;
+    const d=367*Y - Math.floor(7*(Y+Math.floor((M+9)/12))/4) + Math.floor(275*M/9) + D - 730530;
+    return d + ut/24;
+  }
+  // 解克卜勒方程 → 真近點角 v(度) 與向徑 r，連同 N/i/w
+  function _orbit(el,d){
+    const N=el[0][0]+el[0][1]*d, i=el[1][0]+el[1][1]*d, w=el[2][0]+el[2][1]*d,
+          a=el[3][0]+el[3][1]*d, e=el[4][0]+el[4][1]*d, M=_rev(el[5][0]+el[5][1]*d);
+    let E=M + e*_R2D*_sind(M)*(1+e*_cosd(M));
+    for(let k=0;k<6;k++){ E = E - (E - e*_R2D*_sind(E) - M)/(1 - e*_cosd(E)); }
+    const xv=a*(_cosd(E)-e), yv=a*Math.sqrt(1-e*e)*_sind(E);
+    return { N, w, v:_atan2d(yv,xv), r:Math.hypot(xv,yv) };
+  }
+  // 黃道日心直角座標
+  function _helioXYZ(o, iDeg){
+    const u=o.v+o.w;
+    return { x:o.r*(_cosd(o.N)*_cosd(u)-_sind(o.N)*_sind(u)*_cosd(iDeg)),
+             y:o.r*(_sind(o.N)*_cosd(u)+_cosd(o.N)*_sind(u)*_cosd(iDeg)),
+             z:o.r*(_sind(u)*_sind(iDeg)) };
+  }
+
+  let _planetCache = { at:0, list:[] };
+  function _computePlanets(lat,lon,date){
+    const d=_dayNum(date);
+    const ecl=23.4393-3.563e-7*d;
+    // 太陽地心位置（黃道，z=0）
+    const so=_orbit(_SUN_EL,d);
+    const lonsun=_rev(so.v+so.w);
+    const xs=so.r*_cosd(lonsun), ys=so.r*_sind(lonsun);
+    const sDist=Math.hypot(xs,ys);
+    // 地方恆星時（度）
+    const ut=date.getUTCHours()+date.getUTCMinutes()/60+date.getUTCSeconds()/3600;
+    const gmst0=_rev(so.v+so.w+180)/15;        // 小時
+    const lst=_rev((gmst0+ut)*15 + lon);       // 度
+    const out=[];
+    for(const p of _PLANETS){
+      const iDeg=p.el[1][0]+p.el[1][1]*d;
+      const o=_orbit(p.el,d), h=_helioXYZ(o,iDeg);
+      const xg=h.x+xs, yg=h.y+ys, zg=h.z;       // 地心黃道
+      const xe=xg, ye=yg*_cosd(ecl)-zg*_sind(ecl), ze=yg*_sind(ecl)+zg*_cosd(ecl);
+      const ra=_rev(_atan2d(ye,xe)), dec=_atan2d(ze,Math.hypot(xe,ye));
+      const R=Math.hypot(xg,yg,zg);             // 地心距
+      const ha=_rev(lst-ra);
+      // HA + Dec → 地平座標
+      const x1=_cosd(ha)*_cosd(dec), y1=_sind(ha)*_cosd(dec), z1=_sind(dec);
+      const xhor=x1*_sind(lat)-z1*_cosd(lat), yhor=y1, zhor=x1*_cosd(lat)+z1*_sind(lat);
+      const az=_rev(_atan2d(yhor,xhor)+180);
+      const alt=_atan2d(zhor,Math.hypot(xhor,yhor));
+      // 視星等（含相位角）
+      let cosFV=(o.r*o.r+R*R-sDist*sDist)/(2*o.r*R); cosFV=Math.max(-1,Math.min(1,cosFV));
+      const FV=Math.acos(cosFV)*_R2D;
+      const mag=p.H0+5*Math.log10(o.r*R)+p.ph*FV;
+      out.push({ c:p.c, az, alt, mag });
+    }
+    return out;
+  }
+
+  function _drawPlanets(t){
+    const now=Date.now();
+    if(now-_planetCache.at>120000) _planetCache={ at:now, list:_computePlanets(_wxLat,_wxLon,new Date()) };
+    const faceN=_wxLat<0;                        // 北半球面南、南半球面北
+    const horizonY=H*0.86, skyTop=H*0.05;
+    const cloudDim=1-Math.min(1,(_wd.cloudCover||0)/100)*0.65;
+    for(const p of _planetCache.list){
+      if(p.alt<=0.5) continue;                   // 地平線以下不畫
+      // 方位角 → x：以正南(北半球)/正北(南半球)為中心，NE→S→NW 的 270° 弧投影到全寬
+      const fa = faceN ? (p.az+180)%360 : p.az;
+      if(fa<45||fa>315) continue;                // 背向那 ~90°（正後方）略過
+      const frac=(fa-45)/270;                    // 東(升)在左、西(落)在右
+      const x=frac*W, y=horizonY-(p.alt/90)*(horizonY-skyTop);
+      let r=2.6-p.mag*0.55; r=Math.max(0.8,Math.min(4.3,r));
+      let a=(1.3-p.mag*0.17); a=Math.max(0.28,Math.min(1,a))*cloudDim;
+      const tw=0.86+0.14*Math.sin(t*1.6+x*0.05);            // 微閃爍
+      const [cr,cg,cb]=p.c;
+      ctx.save();
+      if(r>2.6){                                            // 亮行星加光暈
+        const g=ctx.createRadialGradient(x,y,0,x,y,r*3.4);
+        g.addColorStop(0,`rgba(${cr},${cg},${cb},${(0.5*a*tw).toFixed(3)})`); g.addColorStop(1,'rgba(0,0,0,0)');
+        ctx.fillStyle=g; ctx.beginPath(); ctx.arc(x,y,r*3.4,0,Math.PI*2); ctx.fill();
+      }
+      ctx.shadowBlur=r*2.2; ctx.shadowColor=`rgba(${cr},${cg},${cb},${(0.8*a).toFixed(3)})`;
+      ctx.fillStyle=`rgba(${cr},${cg},${cb},${(a*tw).toFixed(3)})`;
+      ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
+      ctx.restore();
+    }
+  }
+
   function _init() {
     const ri = Math.max(0.3, _wd.intensity);          /* precip intensity 0.3-1 */
     const ci = Math.min(1, _wd.cloudCover / 100);      /* cloud cover 0-1 */
@@ -1434,6 +1552,8 @@ const SFX = (() => {
       ctx.fillStyle=`rgba(222,232,255,${a})`;
       ctx.beginPath(); ctx.arc(p.x,p.y,a>.6?p.r*1.3:p.r,0,Math.PI*2); ctx.fill(); ctx.shadowBlur=0;
     });
+    /* 八大行星（依實際位置/亮度/顏色，無標籤） */
+    _drawPlanets(t);
     /* shooting star */
     shootTimer--;
     if (shootTimer<=0) {
@@ -1957,6 +2077,8 @@ const SFX = (() => {
   function start(wt) {
     const changed = wt !== type || !_inited;
     type = wt;
+    // 晴朗夜空（type==='night'）→ 主圖淡淡透出夜空(月亮/星星/行星)；其餘天氣/白天不透
+    document.documentElement.classList.toggle('sky-night', wt === 'night');
     if (changed) { _init(); _inited = true; }
     _lastFrameTs = 0;
     if (!rafId) requestAnimationFrame(loop);
