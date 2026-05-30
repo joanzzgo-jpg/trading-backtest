@@ -2795,7 +2795,7 @@ html.perf-mode .tk-seg {
    K 線/指標由 LWC canvas 不透明繪製、浮在最上 → 看盤清晰不受影響。perf-mode 不載 effects.js，不會觸發。 */
 html:not(.perf-mode).sky-night #weatherBg { opacity: 0.52; }
 html:not(.perf-mode).sky-night .charts-container { background: transparent !important; }
-html:not(.perf-mode).sky-night #mainPane { background: transparent !important; }
+/* #mainPane 的夜間半透明由 JS _applyChartBgGradient 處理（保留 bg↔主圖色漸層），這裡不覆寫 */
 
 /* ═══════════════ 橘子熊可愛風格 ═══════════════ */
 

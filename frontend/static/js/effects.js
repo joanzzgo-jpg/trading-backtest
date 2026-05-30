@@ -1105,7 +1105,7 @@ const SFX = (() => {
       ctx.beginPath(); ctx.arc(sx,sy,23+pls*3,0,Math.PI*2); ctx.stroke();
       ctx.globalAlpha=1; ctx.restore();
     } else {
-      if (type === 'thunder' || type === 'night') return; // dNight handles its own moon
+      if (type === 'thunder') return; // 雷雨自己處理；夜空(night)等其餘夜間天氣都走這條比例制升落弧線
       const rise = _wd.moonRiseMin, set = _wd.moonSetMin;
       const phase = _wd.moonPhase;
       const vis = Math.sin(phase * Math.PI);
@@ -1129,7 +1129,7 @@ const SFX = (() => {
       const mglow = ctx.createRadialGradient(mx,my,0,mx,my,90);
       mglow.addColorStop(0,'rgba(180,210,255,0.22)'); mglow.addColorStop(1,'rgba(0,0,0,0)');
       ctx.fillStyle=mglow; ctx.beginPath(); ctx.arc(mx,my,90,0,Math.PI*2); ctx.fill();
-      _drawMoonPhase(mx, my, 26, phase); // 放大月亮
+      _drawMoonPhase(mx, my, (type==='night'?30:26), phase); // 晴朗夜空月亮放大
       ctx.globalAlpha=1; ctx.restore();
     }
   }
@@ -1186,7 +1186,7 @@ const SFX = (() => {
              z:o.r*(_sind(u)*_sind(iDeg)) };
   }
 
-  let _planetCache = { at:0, list:[], moon:null };
+  let _planetCache = { at:0, list:[] };
   function _computePlanets(lat,lon,date){
     const d=_dayNum(date);
     const ecl=23.4393-3.563e-7*d;
@@ -1219,29 +1219,7 @@ const SFX = (() => {
       const mag=p.H0+5*Math.log10(o.r*R)+p.ph*FV;
       out.push({ c:p.c, az, alt, mag });
     }
-    // ── 月亮（地心軌道 + 主要攝動；同樣算地平座標 → 隨時間移動、低於地平線就不顯示）──
-    const Ms=_rev(_SUN_EL[5][0]+_SUN_EL[5][1]*d), ws=_SUN_EL[2][0]+_SUN_EL[2][1]*d;
-    const Nm=_rev(125.1228-0.0529538083*d), im=5.1454, wm=_rev(318.0634+0.1643573223*d),
-          am=60.2666, em=0.054900, Mm=_rev(115.3654+13.0649929509*d);
-    let Em=Mm+em*_R2D*_sind(Mm)*(1+em*_cosd(Mm));
-    for(let k=0;k<6;k++){ Em=Em-(Em-em*_R2D*_sind(Em)-Mm)/(1-em*_cosd(Em)); }
-    const mxv=am*(_cosd(Em)-em), myv=am*Math.sqrt(1-em*em)*_sind(Em);
-    const mv=_atan2d(myv,mxv), mrd=Math.hypot(mxv,myv), mu=mv+wm;
-    const mxh=mrd*(_cosd(Nm)*_cosd(mu)-_sind(Nm)*_sind(mu)*_cosd(im));
-    const myh=mrd*(_sind(Nm)*_cosd(mu)+_cosd(Nm)*_sind(mu)*_cosd(im));
-    const mzh=mrd*(_sind(mu)*_sind(im));
-    let lonM=_rev(_atan2d(myh,mxh)), latM=_atan2d(mzh,Math.hypot(mxh,myh));
-    const Lm=_rev(Nm+wm+Mm), Dm=_rev(Lm-_rev(Ms+ws)), Fm=_rev(Lm-Nm);   // 平黃經/平距角/緯度幅角
-    lonM += -1.274*_sind(Mm-2*Dm) + 0.658*_sind(2*Dm) - 0.186*_sind(Ms); // 出差+二均差+年差
-    latM += -0.173*_sind(Fm-2*Dm);
-    const mxg=mrd*_cosd(lonM)*_cosd(latM), myg=mrd*_sind(lonM)*_cosd(latM), mzg=mrd*_sind(latM);
-    const mxe=mxg, mye=myg*_cosd(ecl)-mzg*_sind(ecl), mze=myg*_sind(ecl)+mzg*_cosd(ecl);
-    const mra=_rev(_atan2d(mye,mxe)), mdec=_atan2d(mze,Math.hypot(mxe,mye));
-    const mha=_rev(lst-mra);
-    const mx1=_cosd(mha)*_cosd(mdec), my1=_sind(mha)*_cosd(mdec), mz1=_sind(mdec);
-    const mxhor=mx1*_sind(lat)-mz1*_cosd(lat), myhor=my1, mzhor=mx1*_cosd(lat)+mz1*_sind(lat);
-    const moon={ az:_rev(_atan2d(myhor,mxhor)+180), alt:_atan2d(mzhor,Math.hypot(mxhor,myhor)) };
-    return { list:out, moon };
+    return out;   // 月亮另由 _drawAstro 以比例制升落弧線繪製（跨裝置一致），不在此算
   }
 
   // 方位角 az / 高度角 alt → 夜空螢幕座標；地平線下或背向 → 回 null
@@ -1254,7 +1232,7 @@ const SFX = (() => {
 
   function _drawPlanets(t){
     const now=Date.now();
-    if(now-_planetCache.at>120000){ const s=_computePlanets(_wxLat,_wxLon,new Date()); _planetCache={ at:now, list:s.list, moon:s.moon }; }
+    if(now-_planetCache.at>120000){ _planetCache={ at:now, list:_computePlanets(_wxLat,_wxLon,new Date()) }; }
     const cloudDim=1-Math.min(1,(_wd.cloudCover||0)/100)*0.65;
     for(const p of _planetCache.list){
       const pos=_skyXY(p.az,p.alt); if(!pos) continue;
@@ -1593,18 +1571,7 @@ const SFX = (() => {
       ctx.shadowBlur=0;
       shootX+=shootDX; shootY+=shootDY; shootLen-=Math.hypot(shootDX,shootDY);
     }
-    /* 月亮：依實際地平座標繪製（隨時間移動、低於地平線就不顯示），不再固定右上角 */
-    const _moon=_planetCache.moon, _mp=_moon&&_skyXY(_moon.az,_moon.alt);
-    if(_mp){
-      const _glow=Math.sin(t*.5)*.12+.5, _mr=27;
-      ctx.save();
-      const _mglow=ctx.createRadialGradient(_mp.x,_mp.y,0,_mp.x,_mp.y,_mr*3);
-      _mglow.addColorStop(0,`rgba(190,220,255,${(_glow*.26).toFixed(3)})`); _mglow.addColorStop(1,'rgba(0,0,0,0)');
-      ctx.fillStyle=_mglow; ctx.beginPath(); ctx.arc(_mp.x,_mp.y,_mr*3,0,Math.PI*2); ctx.fill();
-      ctx.shadowBlur=32; ctx.shadowColor=`rgba(200,230,255,${(_glow*.70).toFixed(3)})`;
-      _drawMoonPhase(_mp.x, _mp.y, _mr, _wd.moonPhase);
-      ctx.shadowBlur=0; ctx.restore();
-    }
+    /* 月亮改由 _drawAstro 畫（比例制升落弧線：會隨時間移動、跨裝置一致），這裡不再畫 */
   }
 
   function dCloudy(t) {
@@ -2104,7 +2071,11 @@ const SFX = (() => {
     const changed = wt !== type || !_inited;
     type = wt;
     // 晴朗夜空（type==='night'）→ 主圖淡淡透出夜空(月亮/星星/行星)；其餘天氣/白天不透
-    document.documentElement.classList.toggle('sky-night', wt === 'night');
+    const wasNight = document.documentElement.classList.contains('sky-night');
+    const isNight = wt === 'night';
+    document.documentElement.classList.toggle('sky-night', isNight);
+    // 夜↔日切換時重套主圖漸層：夜間中央色帶半透明(露夜空)、白天恢復不透明
+    if (wasNight !== isNight) window._applyChartBgGradient?.();
     if (changed) { _init(); _inited = true; }
     _lastFrameTs = 0;
     if (!rafId) requestAnimationFrame(loop);

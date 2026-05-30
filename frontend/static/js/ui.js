@@ -303,9 +303,8 @@ function updateBottomTimeAxis() {
 /* ── 圖例顏色點（點色點即可改色）── */
 function bindLegendColors() {
   const map = [
-    { id:"legBB",      key:"bbU",     apply: c => { C.bbU = C.bbL = c; bbU?.applyOptions({color:c}); bbL?.applyOptions({color:c}); savePrefs(); } },
-    // legCRT 不掛色盤：CRT 是 markers 不是 series，使用者點它應該是要切顯隱（由 leg-toggle 處理）
-    { id:"legVol",     key:"up",      apply: c => { if (ohlcvData.length) renderVolume(ohlcvData); savePrefs(); } },
+    // legBB / legVol / legCRT 不掛色盤：點圖例只切顯隱（由 leg-toggle 處理）；
+    // 顏色改用齒輪「主圖設定」面板（BB 上/下·中、量柱漲跌）設定，避免點到就跳色盤。
     { id:"legK",       key:"kdjK",    apply: c => { C.kdjK = c; kdjK?.applyOptions({color:c}); const el=document.getElementById("legK");       if(el) el.style.color=c; savePrefs(); } },
     { id:"legD",       key:"kdjD",    apply: c => { C.kdjD = c; kdjD?.applyOptions({color:c}); const el=document.getElementById("legD");       if(el) el.style.color=c; savePrefs(); } },
     { id:"legJ",       key:"kdjJ",    apply: c => { C.kdjJ = c; kdjJ?.applyOptions({color:c}); const el=document.getElementById("legJ");       if(el) el.style.color=c; savePrefs(); } },

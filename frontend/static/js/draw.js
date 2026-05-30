@@ -1274,11 +1274,16 @@ function _applyChartBgGradient(color) {
   if (!pane) return;
   const _perf = document.documentElement.classList.contains("perf-mode");
   if (_perf) { pane.style.background = ""; return; }   // 極簡模式不上色，浮水印才看得到
+  if (color == null) color = (typeof C !== "undefined" && (C.chartBg || C.bg)) || "#131722";  // 無參數→用目前主圖色（給 effects.js 夜空切換重套用）
   const dark = _darkenForChart(color);
+  // 晴朗夜晚(html.sky-night)：中央色帶轉半透明 → 夜空(月亮/星星/行星)從 K 線後方淡淡透出，
+  // 但「系統背景 ↔ 主圖色」上下漸層的形狀保留（不再整片 transparent 把漸層蓋掉）
+  const night = document.documentElement.classList.contains("sky-night");
+  const mid = night ? `color-mix(in srgb, ${dark} 52%, transparent)` : dark;
   pane.style.background =
     `radial-gradient(circle 200px at 100% 0%, var(--bg) 0%, transparent 70%), ` +
     `linear-gradient(to right, transparent 0%, transparent 96%, var(--bg) 100%), ` +
-    `linear-gradient(to bottom, var(--bg) 0%, ${dark} 6%, ${dark} 94%, var(--bg) 100%)`;
+    `linear-gradient(to bottom, var(--bg) 0%, ${mid} 6%, ${mid} 94%, var(--bg) 100%)`;
 }
 
 function applyAllColors() {
