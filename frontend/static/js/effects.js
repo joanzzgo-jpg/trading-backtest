@@ -1396,28 +1396,31 @@ const SFX = (() => {
     }
     return puffs;
   }
-  /* 程序化生成「積雨雲（cumulonimbus）」：塔身(底→頂堆疊、左右搖擺) + 砧頂(向兩側外擴、不對稱)
-     每朵都不同、不對稱 → 不會看起來像熊 */
+  /* 程序化「積雨雲（cumulonimbus）」：用「大量小 puff」密集填滿『底寬→上窄→砧頂外擴』的塔狀輪廓，
+     重疊成連續的花椰菜狀團塊（而非少數大圓）。少數大圓會形成離散的頭/耳/腳輪廓 → 像動物；
+     密集小 puff 則只剩連續起伏的雲面，破除 pareidolia（不再像熊/動物）。每朵隨機、不對稱。 */
   function _genCbPuffs() {
     const puffs = [];
-    const towerN = 4 + Math.floor(Math.random()*2);    // 塔身 4-5 段
-    const sway = (Math.random()-0.5)*0.2;              // 整座塔的傾斜
-    for (let i=0;i<towerN;i++){
-      const t = i/(towerN-1);                          // 0底 1頂
-      const fy = -0.04 - t*0.72;
-      const fx = sway*t + (Math.random()-0.5)*0.26;
-      const fr = 0.58 - t*0.13 + Math.random()*0.08;
-      puffs.push([fx, fy, fr]);
+    const lean = (Math.random()-0.5)*0.18;             // 整座塔微傾（破對稱）
+    const layers = 7 + Math.floor(Math.random()*3);    // 7-9 層密集堆疊
+    for (let i=0;i<layers;i++){
+      const t = i/(layers-1);                          // 0底 1頂
+      // 寬度包絡：塔身往上漸窄、頂端砧狀向外擴（cumulonimbus 典型輪廓）
+      const halfW = (t < 0.80) ? (0.52 - t*0.22) : (0.36 + (t-0.80)*1.7);
+      const cxL = lean*t + (Math.random()-0.5)*0.06;
+      const fy  = -0.02 - t*0.94;
+      const per = 3 + Math.floor(Math.random()*3);     // 每層 3-5 顆小 puff 橫向散佈
+      for (let j=0;j<per;j++){
+        const fx = cxL + (Math.random()*2-1)*halfW;
+        const py = fy + (Math.random()-0.5)*0.10;
+        const fr = Math.max(0.12, (0.30 - t*0.13)*(0.78 + Math.random()*0.5));  // 小、上小下大
+        puffs.push([fx, py, fr]);
+      }
     }
-    const anvilN = 3 + Math.floor(Math.random()*3);    // 砧頂 3-5 凸
-    const spread = 0.42 + Math.random()*0.16;
-    const skew = (Math.random()-0.5)*0.3;              // 砧頂偏一邊（不對稱）
-    for (let i=0;i<anvilN;i++){
-      const fx = -spread + (anvilN>1 ? (i/(anvilN-1))*spread*2 : spread) + skew + (Math.random()-0.5)*0.12;
-      const fy = -0.86 - Math.random()*0.12;
-      const fr = 0.28 + Math.random()*0.13;
-      puffs.push([fx, fy, fr]);
-    }
+    // 拉平的雲底（cumulus 平底）
+    const baseN = 4 + Math.floor(Math.random()*2);
+    for (let i=0;i<baseN;i++)
+      puffs.push([(Math.random()*2-1)*0.48, 0.01 + Math.random()*0.05, 0.30 + Math.random()*0.10]);
     return puffs;
   }
   /* 不同形狀 + 翻轉 + 漸層的雲；shape===4 為積雨雲；depth(0遠~1近) 控制空氣透視；
