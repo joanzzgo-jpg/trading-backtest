@@ -5408,20 +5408,20 @@ html.landing-active .landing { background: transparent; }
 .landing-art { display: block; width: 100%; height: auto; pointer-events: none; user-select: none; -webkit-user-drag: none; }
 .landing { user-select: none; -webkit-user-select: none; }
 /* logo：細字、寬字距、淡化（低調），在上方窄天空帶 */
-/* logo：可愛圓粗體、放大塞滿城牆上方天空、70% 透明，z-index:1 → 在熊之後（不擋熊） */
+/* logo：可愛圓粗體、放大；放在「熊左邊、城牆上方」的天空，70% 透明，z-index:1（在熊之後不擋熊） */
 .landing-logo {
-  position: absolute; top: 6%; left: 50%; transform: translateX(-50%);
-  text-align: center; line-height: .9; white-space: nowrap; z-index: 1; opacity: .7;
+  position: absolute; top: 6%; left: 4%; transform: none;
+  text-align: left; line-height: .9; white-space: nowrap; z-index: 1; opacity: .7;
   font-family: "M PLUS Rounded 1c", system-ui, sans-serif;
   font-weight: 900; color: #fff; letter-spacing: .03em;
-  font-size: clamp(60px, 13vw, 156px);                           /* 塞滿上方空間 */
+  font-size: clamp(52px, 11vw, 132px);
   text-shadow: 0 4px 0 rgba(110,82,54,.3), 0 6px 18px rgba(0,0,0,.45);
 }
-.landing-logo span { display: block; margin-top: .2em; font-size: .24em; font-weight: 800; letter-spacing: .42em; color: #FFB04A; }
-/* 所在地（依天氣 API 城市）：在 logo 上方、最上層 */
+.landing-logo span { display: block; margin-top: .2em; margin-left: .14em; font-size: .24em; font-weight: 800; letter-spacing: .42em; color: #FFB04A; }
+/* 所在地（依天氣 API 城市）：在左上 logo 上方 */
 .landing-loc {
-  position: absolute; top: 1.8%; left: 50%; transform: translateX(-50%);
-  z-index: 3; white-space: nowrap; text-align: center;
+  position: absolute; top: 2%; left: 5%; transform: none;
+  z-index: 3; white-space: nowrap; text-align: left;
   font-family: "M PLUS Rounded 1c", system-ui, sans-serif; font-weight: 600;
   font-size: clamp(13px, 2vw, 19px); color: rgba(255,255,255,.78);
   letter-spacing: .03em; text-shadow: 0 1px 8px rgba(0,0,0,.6);
