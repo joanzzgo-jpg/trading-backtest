@@ -9,20 +9,30 @@ document.addEventListener("DOMContentLoaded", async () => {
     const DAY = 86400000;
     let timer = null;
     const seenAt = () => { try { return parseInt(sessionStorage.getItem("landingDismissedAt") || "0", 10); } catch (e) { return 0; } };
-    const hide = () => {
-      try { sessionStorage.setItem("landingDismissedAt", String(Date.now())); } catch (e) {}  // 本 session 看過 + 記時間
-      document.documentElement.classList.remove("landing-active");   // 還原圖表 UI / 天氣背景層級（圖表在淡出下方浮現）
-      scr.classList.add("landing-hide");
-      setTimeout(() => { if (scr.classList.contains("landing-hide")) scr.style.display = "none"; }, 650);
-      if (typeof resizeAll === "function") setTimeout(resizeAll, 120);   // 進場後重算圖表尺寸
+    const art = scr.querySelector(".landing-art");
+    const hide = () => {   // 點大門 → 進場序列：換開門圖 → 門內漸變放大 + 暖光鋪滿 → 進圖表
+      if (scr.classList.contains("landing-entering")) return;          // 防重複觸發
+      try { sessionStorage.setItem("landingDismissedAt", String(Date.now())); } catch (e) {}
+      if (art && art.dataset.open) art.src = art.dataset.open;          // 換成「開門」圖
+      scr.classList.add("landing-entering");                           // 觸發 zoom + 暖光動畫
+      setTimeout(() => {                                               // 暖光快鋪滿後才還原圖表（避免邊緣穿幫）
+        document.documentElement.classList.remove("landing-active");
+        if (typeof resizeAll === "function") resizeAll();
+      }, 1050);
+      setTimeout(() => {                                               // 動畫結束 → 收掉首頁、還原關門圖
+        scr.style.display = "none";
+        scr.classList.remove("landing-entering", "landing-hide");
+        if (art && art.dataset.closed) art.src = art.dataset.closed;
+      }, 1300);
       armReshow();
     };
     const show = () => {
       document.documentElement.classList.remove("landing-skip");
       document.documentElement.classList.add("landing-active");       // 重新露出天氣背景、隱藏圖表 UI
+      scr.classList.remove("landing-entering", "landing-hide");
+      if (art && art.dataset.closed) art.src = art.dataset.closed;    // 還原關門圖
       scr.style.display = "";
       void scr.offsetWidth;                 // reflow → 讓淡入 transition 生效
-      scr.classList.remove("landing-hide");
     };
     const checkExpiry = () => {                // 一直開著超過 24h → 自動重新跳首頁
       const ts = seenAt();

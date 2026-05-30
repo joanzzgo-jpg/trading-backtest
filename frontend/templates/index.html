@@ -47,10 +47,14 @@
 <div id="landingScreen" class="landing">
   <div class="landing-logo">AHH<span>TRADING</span></div>
   <div class="landing-stage">
-    <img class="landing-art" src="/static/img/landing-castle-gate.png?v={{ ver }}" alt="橘子熊城堡" draggable="false" />
+    <img class="landing-art" src="/static/img/landing-castle-gate.png?v={{ ver }}&c=2"
+         data-closed="/static/img/landing-castle-gate.png?v={{ ver }}&c=2"
+         data-open="/static/img/landing-castle-open.png?v={{ ver }}&c=2"
+         alt="橘子熊城堡" draggable="false" />
     <div class="landing-arrow" aria-hidden="true">▼</div>
     <button id="landingStartBtn" class="landing-gate-btn" aria-label="進入"></button>
   </div>
+  <div class="landing-flash" aria-hidden="true"></div>
 </div>
 
 <!-- ① 頂部工具列 -->
