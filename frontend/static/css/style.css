@@ -5411,23 +5411,37 @@ html.landing-active .landing { background: transparent; }
 /* logo：可愛圓粗體、放大；放在「熊左邊、城牆上方」的天空，70% 透明，z-index:1（在熊之後不擋熊） */
 .landing-logo {
   position: absolute; top: 11%; left: 4%;
-  text-align: left; line-height: .9; white-space: nowrap; z-index: 1; opacity: .7;
+  text-align: left; line-height: .9; white-space: nowrap; z-index: 1; opacity: .74;
   font-family: "M PLUS Rounded 1c", system-ui, sans-serif;
-  font-weight: 900; color: #fff; letter-spacing: .03em;
-  font-size: clamp(66px, 13.5vw, 172px);          /* 再放大 */
-  text-shadow: 0 4px 0 rgba(110,82,54,.3), 0 6px 18px rgba(0,0,0,.45);
-  animation: landing-logo-float 3.2s ease-in-out infinite;   /* 溫和漂浮 */
+  font-weight: 900; letter-spacing: .03em;
+  font-size: clamp(66px, 13.5vw, 172px);          /* 放大 */
+  /* 華麗三重動畫：漂浮 + 暖光暈脈動 */
+  animation: landing-logo-float 3.4s ease-in-out infinite, landing-logo-glow 2.6s ease-in-out infinite;
 }
 @keyframes landing-logo-float {
   0%,100% { transform: translateY(0) scale(1); }
-  50%     { transform: translateY(-12px) scale(1.035); }
+  50%     { transform: translateY(-13px) scale(1.04); }
 }
-.landing-logo span {
+@keyframes landing-logo-glow {
+  0%,100% { filter: drop-shadow(0 4px 6px rgba(0,0,0,.45)) drop-shadow(0 0 8px rgba(255,190,90,.22)); }
+  50%     { filter: drop-shadow(0 4px 6px rgba(0,0,0,.45)) drop-shadow(0 0 26px rgba(255,185,70,.72)); }
+}
+/* AHH：白→金 流光掃過（華麗 shimmer） */
+.ll-main {
+  display: block; color: #fff;
+  background: linear-gradient(105deg, #fff 0%, #fff 38%, #FFE7A8 47%, #FFF8E6 52%, #fff 61%, #fff 100%);
+  background-size: 260% 100%;
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: landing-logo-shine 3.6s linear infinite;
+}
+@keyframes landing-logo-shine { 0% { background-position: 210% 0; } 100% { background-position: -60% 0; } }
+/* TRADING：細底線 + 寬字距置中 */
+.ll-sub {
   display: block; margin-top: .18em; padding-top: .16em;
-  border-top: 2px solid rgba(255,255,255,.5);     /* 細底線（與 AHH 同寬） */
+  border-top: 2px solid rgba(255,255,255,.5);
   font-size: .2em; font-weight: 700; letter-spacing: .5em;
-  text-align: center; text-indent: .5em;          /* TRADING 寬字距、置中於線下 */
-  color: rgba(255,176,74,.95);
+  text-align: center; text-indent: .5em; color: rgba(255,176,74,.95);
 }
 /* 所在地（依天氣 API 城市）：在左上 logo 上方 */
 .landing-loc {
