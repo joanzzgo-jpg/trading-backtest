@@ -1186,7 +1186,7 @@ const SFX = (() => {
              z:o.r*(_sind(u)*_sind(iDeg)) };
   }
 
-  let _planetCache = { at:0, list:[] };
+  let _planetCache = { at:0, list:[], moon:null };
   function _computePlanets(lat,lon,date){
     const d=_dayNum(date);
     const ecl=23.4393-3.563e-7*d;
@@ -1219,33 +1219,57 @@ const SFX = (() => {
       const mag=p.H0+5*Math.log10(o.r*R)+p.ph*FV;
       out.push({ c:p.c, az, alt, mag });
     }
-    return out;
+    // ── 月亮（地心軌道 + 主要攝動；同樣算地平座標 → 隨時間移動、低於地平線就不顯示）──
+    const Ms=_rev(_SUN_EL[5][0]+_SUN_EL[5][1]*d), ws=_SUN_EL[2][0]+_SUN_EL[2][1]*d;
+    const Nm=_rev(125.1228-0.0529538083*d), im=5.1454, wm=_rev(318.0634+0.1643573223*d),
+          am=60.2666, em=0.054900, Mm=_rev(115.3654+13.0649929509*d);
+    let Em=Mm+em*_R2D*_sind(Mm)*(1+em*_cosd(Mm));
+    for(let k=0;k<6;k++){ Em=Em-(Em-em*_R2D*_sind(Em)-Mm)/(1-em*_cosd(Em)); }
+    const mxv=am*(_cosd(Em)-em), myv=am*Math.sqrt(1-em*em)*_sind(Em);
+    const mv=_atan2d(myv,mxv), mrd=Math.hypot(mxv,myv), mu=mv+wm;
+    const mxh=mrd*(_cosd(Nm)*_cosd(mu)-_sind(Nm)*_sind(mu)*_cosd(im));
+    const myh=mrd*(_sind(Nm)*_cosd(mu)+_cosd(Nm)*_sind(mu)*_cosd(im));
+    const mzh=mrd*(_sind(mu)*_sind(im));
+    let lonM=_rev(_atan2d(myh,mxh)), latM=_atan2d(mzh,Math.hypot(mxh,myh));
+    const Lm=_rev(Nm+wm+Mm), Dm=_rev(Lm-_rev(Ms+ws)), Fm=_rev(Lm-Nm);   // 平黃經/平距角/緯度幅角
+    lonM += -1.274*_sind(Mm-2*Dm) + 0.658*_sind(2*Dm) - 0.186*_sind(Ms); // 出差+二均差+年差
+    latM += -0.173*_sind(Fm-2*Dm);
+    const mxg=mrd*_cosd(lonM)*_cosd(latM), myg=mrd*_sind(lonM)*_cosd(latM), mzg=mrd*_sind(latM);
+    const mxe=mxg, mye=myg*_cosd(ecl)-mzg*_sind(ecl), mze=myg*_sind(ecl)+mzg*_cosd(ecl);
+    const mra=_rev(_atan2d(mye,mxe)), mdec=_atan2d(mze,Math.hypot(mxe,mye));
+    const mha=_rev(lst-mra);
+    const mx1=_cosd(mha)*_cosd(mdec), my1=_sind(mha)*_cosd(mdec), mz1=_sind(mdec);
+    const mxhor=mx1*_sind(lat)-mz1*_cosd(lat), myhor=my1, mzhor=mx1*_cosd(lat)+mz1*_sind(lat);
+    const moon={ az:_rev(_atan2d(myhor,mxhor)+180), alt:_atan2d(mzhor,Math.hypot(mxhor,myhor)) };
+    return { list:out, moon };
+  }
+
+  // 方位角 az / 高度角 alt → 夜空螢幕座標；地平線下或背向 → 回 null
+  function _skyXY(az, alt){
+    if(alt<=0.5) return null;
+    const fa=(_wxLat<0)?(az+180)%360:az;   // 北半球面南、南半球面北
+    if(fa<45||fa>315) return null;         // 背向那 ~90°（正後方）略過
+    return { x:((fa-45)/270)*W, y:H*0.86-(alt/90)*(H*0.86-H*0.05) };  // 東(升)左、西(落)右
   }
 
   function _drawPlanets(t){
     const now=Date.now();
-    if(now-_planetCache.at>120000) _planetCache={ at:now, list:_computePlanets(_wxLat,_wxLon,new Date()) };
-    const faceN=_wxLat<0;                        // 北半球面南、南半球面北
-    const horizonY=H*0.86, skyTop=H*0.05;
+    if(now-_planetCache.at>120000){ const s=_computePlanets(_wxLat,_wxLon,new Date()); _planetCache={ at:now, list:s.list, moon:s.moon }; }
     const cloudDim=1-Math.min(1,(_wd.cloudCover||0)/100)*0.65;
     for(const p of _planetCache.list){
-      if(p.alt<=0.5) continue;                   // 地平線以下不畫
-      // 方位角 → x：以正南(北半球)/正北(南半球)為中心，NE→S→NW 的 270° 弧投影到全寬
-      const fa = faceN ? (p.az+180)%360 : p.az;
-      if(fa<45||fa>315) continue;                // 背向那 ~90°（正後方）略過
-      const frac=(fa-45)/270;                    // 東(升)在左、西(落)在右
-      const x=frac*W, y=horizonY-(p.alt/90)*(horizonY-skyTop);
-      let r=2.6-p.mag*0.55; r=Math.max(0.8,Math.min(4.3,r));
-      let a=(1.3-p.mag*0.17); a=Math.max(0.28,Math.min(1,a))*cloudDim;
+      const pos=_skyXY(p.az,p.alt); if(!pos) continue;
+      const x=pos.x, y=pos.y;
+      let r=2.8-p.mag*0.55; r=Math.max(1.1,Math.min(4.4,r));            // 最小尺寸提高 → 暗行星也看得到
+      let a=(1.45-p.mag*0.16); a=Math.max(0.42,Math.min(1,a))*cloudDim; // 亮度下限提高
       const tw=0.86+0.14*Math.sin(t*1.6+x*0.05);            // 微閃爍
       const [cr,cg,cb]=p.c;
       ctx.save();
-      if(r>2.6){                                            // 亮行星加光暈
-        const g=ctx.createRadialGradient(x,y,0,x,y,r*3.4);
-        g.addColorStop(0,`rgba(${cr},${cg},${cb},${(0.5*a*tw).toFixed(3)})`); g.addColorStop(1,'rgba(0,0,0,0)');
-        ctx.fillStyle=g; ctx.beginPath(); ctx.arc(x,y,r*3.4,0,Math.PI*2); ctx.fill();
+      if(r>1.8){                                            // 含火星/土星等較亮行星加光暈
+        const g=ctx.createRadialGradient(x,y,0,x,y,r*3.2);
+        g.addColorStop(0,`rgba(${cr},${cg},${cb},${(0.45*a*tw).toFixed(3)})`); g.addColorStop(1,'rgba(0,0,0,0)');
+        ctx.fillStyle=g; ctx.beginPath(); ctx.arc(x,y,r*3.2,0,Math.PI*2); ctx.fill();
       }
-      ctx.shadowBlur=r*2.2; ctx.shadowColor=`rgba(${cr},${cg},${cb},${(0.8*a).toFixed(3)})`;
+      ctx.shadowBlur=r*2.4; ctx.shadowColor=`rgba(${cr},${cg},${cb},${(0.85*a).toFixed(3)})`;
       ctx.fillStyle=`rgba(${cr},${cg},${cb},${(a*tw).toFixed(3)})`;
       ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
       ctx.restore();
@@ -1542,7 +1566,6 @@ const SFX = (() => {
   }
 
   function dNight(t) {
-    moonGlow = Math.sin(t*.5)*.12+.5;
     /* nebula blobs (cached gradients) */
     _gc.nebula.forEach(g => { ctx.fillStyle=g; ctx.fillRect(0,0,W,H); });
     /* twinkling stars */
@@ -1570,15 +1593,18 @@ const SFX = (() => {
       ctx.shadowBlur=0;
       shootX+=shootDX; shootY+=shootDY; shootLen-=Math.hypot(shootDX,shootDY);
     }
-    /* moon — proper phase rendering */
-    const _mx=W*.82, _my=H*.09, _mr=30;
-    ctx.save();
-    const _mglow=ctx.createRadialGradient(_mx,_my,0,_mx,_my,_mr*2.8);
-    _mglow.addColorStop(0,`rgba(190,220,255,${moonGlow*.26})`); _mglow.addColorStop(1,'rgba(0,0,0,0)');
-    ctx.fillStyle=_mglow; ctx.beginPath(); ctx.arc(_mx,_my,_mr*2.8,0,Math.PI*2); ctx.fill();
-    ctx.shadowBlur=32; ctx.shadowColor=`rgba(200,230,255,${moonGlow*.70})`;
-    _drawMoonPhase(_mx, _my, _mr, _wd.moonPhase);
-    ctx.shadowBlur=0; ctx.restore();
+    /* 月亮：依實際地平座標繪製（隨時間移動、低於地平線就不顯示），不再固定右上角 */
+    const _moon=_planetCache.moon, _mp=_moon&&_skyXY(_moon.az,_moon.alt);
+    if(_mp){
+      const _glow=Math.sin(t*.5)*.12+.5, _mr=27;
+      ctx.save();
+      const _mglow=ctx.createRadialGradient(_mp.x,_mp.y,0,_mp.x,_mp.y,_mr*3);
+      _mglow.addColorStop(0,`rgba(190,220,255,${(_glow*.26).toFixed(3)})`); _mglow.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.fillStyle=_mglow; ctx.beginPath(); ctx.arc(_mp.x,_mp.y,_mr*3,0,Math.PI*2); ctx.fill();
+      ctx.shadowBlur=32; ctx.shadowColor=`rgba(200,230,255,${(_glow*.70).toFixed(3)})`;
+      _drawMoonPhase(_mp.x, _mp.y, _mr, _wd.moonPhase);
+      ctx.shadowBlur=0; ctx.restore();
+    }
   }
 
   function dCloudy(t) {
