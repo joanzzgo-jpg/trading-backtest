@@ -5477,13 +5477,14 @@ html.landing-active .landing { background: transparent; }
   z-index: 4; white-space: nowrap; pointer-events: none;
   display: inline-flex; align-items: center; gap: .2em;
   font-family: "Caveat", cursive; font-weight: 700;
-  font-size: clamp(15px, 2.1vw, 26px); color: #8A6F52;
-  text-shadow: 0 1px 0 rgba(255,250,242,.35); letter-spacing: .01em;
+  font-size: clamp(15px, 2.1vw, 26px); color: #6E5236;
+  text-shadow: 0 1px 0 rgba(255,250,242,.3); letter-spacing: .01em;
 }
 .ctry-flag {
   flex: 0 0 auto; width: 1.55em; height: 1.4em; display: block;
-  /* 降彩度 + 微暖 + 柔化 → 貼近城堡手繪水彩風（非鮮豔原色） */
-  filter: saturate(.5) sepia(.14) brightness(.97) opacity(.9);
+  transform: translateY(.16em);   /* 下移對齊草寫字的視覺中心（Caveat 字身偏低） */
+  /* 更淡：降彩度 + 微暖 + 提亮 + 降透明 → 更貼近城堡手繪水彩淡調 */
+  filter: saturate(.38) sepia(.16) brightness(1.02) opacity(.76);
 }
 .landing-country:empty { display: none; }
 /* 整座大門＝進入鈕：透明熱區，hover 浮暖光暈 */

@@ -1126,10 +1126,10 @@ const SFX = (() => {
       let al = Math.max(0.18, vis) * 0.92; // floor so near-new-moon still faintly shows
       if (type==='storm'||type==='overcast') al*=0.2; else if (type==='rain'||type==='drizzle') al*=0.45; else if (type==='fog'||type==='windy') al*=0.55;
       ctx.save(); ctx.globalAlpha = al;
-      const mglow = ctx.createRadialGradient(mx,my,0,mx,my,65);
+      const mglow = ctx.createRadialGradient(mx,my,0,mx,my,90);
       mglow.addColorStop(0,'rgba(180,210,255,0.22)'); mglow.addColorStop(1,'rgba(0,0,0,0)');
-      ctx.fillStyle=mglow; ctx.beginPath(); ctx.arc(mx,my,65,0,Math.PI*2); ctx.fill();
-      _drawMoonPhase(mx, my, 18, phase); // bigger radius for visibility
+      ctx.fillStyle=mglow; ctx.beginPath(); ctx.arc(mx,my,90,0,Math.PI*2); ctx.fill();
+      _drawMoonPhase(mx, my, 26, phase); // 放大月亮
       ctx.globalAlpha=1; ctx.restore();
     }
   }
@@ -1451,7 +1451,7 @@ const SFX = (() => {
       shootX+=shootDX; shootY+=shootDY; shootLen-=Math.hypot(shootDX,shootDY);
     }
     /* moon — proper phase rendering */
-    const _mx=W*.82, _my=H*.09, _mr=22;
+    const _mx=W*.82, _my=H*.09, _mr=30;
     ctx.save();
     const _mglow=ctx.createRadialGradient(_mx,_my,0,_mx,_my,_mr*2.8);
     _mglow.addColorStop(0,`rgba(190,220,255,${moonGlow*.26})`); _mglow.addColorStop(1,'rgba(0,0,0,0)');
