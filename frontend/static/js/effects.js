@@ -1992,6 +1992,9 @@ const SFX = (() => {
       '<div style="opacity:.68">風 '+(_wd.windDir==null?'':_dirName(_wd.windDir)+' ')+_wd.windSpeed+' km/h　雲量 '+_wd.cloudCover+'%</div>'+
       '<div style="opacity:.68">降雨 '+_wd.precip+' mm　能見度 '+vis+'</div>'+
       '<div style="opacity:.38;font-size:10px">'+hm+' 更新　'+(_wd.source==='cwa'?'中央氣象署':'Open-Meteo')+'</div>';
+    // 開場首頁上方：依天氣 API 顯示所在地（城市 + 溫度 + 天氣）
+    const _lloc = document.getElementById('landingLoc');
+    if (_lloc && _wd.city) _lloc.textContent = '📍 ' + _wd.city + '　' + _wd.temp + '°C ' + desc;
   }
 
   function fetchWeather(lat, lon) {
