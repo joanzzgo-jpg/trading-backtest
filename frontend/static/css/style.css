@@ -5374,26 +5374,54 @@ body, button, input, select, textarea,
    ══════════════════════════════════════════════════════════════ */
 .landing {
   position: fixed; inset: 0; z-index: 100000;
-  display: flex; align-items: center; justify-content: center;
-  background: #000;
+  display: flex; align-items: flex-start; justify-content: center;  /* 頂端對齊 → 熊頭永遠不被裁 */
+  /* 背景：主背景色（上）漸層往下接到插圖米白（下）；透明缺口由底層天氣動畫填滿 */
+  background: linear-gradient(180deg, var(--bg) 0%, var(--bg) 40%, #E5DDD9 92%, #E5DDD9 100%);
   opacity: 1; visibility: visible;
   transition: opacity .6s ease, visibility .6s ease;
   overflow: hidden;
 }
 .landing.landing-hide { opacity: 0; visibility: hidden; pointer-events: none; }
-/* 同一天已看過 → 首屏前就隱藏，不跳首頁、不閃 */
+/* reload 不跳首頁（同 session、未滿 24h）→ 首屏前就隱藏，不閃 */
 html.landing-skip .landing { display: none !important; }
-.landing-start {
-  padding: 15px 64px; font-size: 20px; font-weight: 700; letter-spacing: 6px;
-  color: #fff; background: transparent;
-  border: 2px solid #fff; border-radius: 999px;
-  cursor: pointer;
-  transition: background .2s ease, color .2s ease, transform .15s ease;
+/* 顯示首頁時：露出底層天氣動畫當背景、隱藏圖表 UI（圖表照常在背景載入） */
+html.landing-active .topbar,
+html.landing-active .symbol-bar,
+html.landing-active .body-layout,
+html.landing-active .ticker-panel,
+html.landing-active .m-tabbar,
+html.landing-active .peek-bear,
+html.landing-active #_wxCard { visibility: hidden !important; }
+/* 底層漸層放在 body（天氣 canvas 之下）：主背景色（上）→ 米白（下） */
+html.landing-active body {
+  background: linear-gradient(180deg, var(--bg) 0%, var(--bg) 40%, #E5DDD9 92%, #E5DDD9 100%) !important;
 }
-.landing-start:hover  { background: #fff; color: #000; transform: scale(1.04); }
-.landing-start:active { transform: scale(.98); }
-@media (max-width: 768px) { .landing-start { padding: 14px 54px; font-size: 18px; } }
-/* 極簡模式：白底黑鈕（仍維持黑白） */
-html.perf-mode .landing { background: #fff; }
-html.perf-mode .landing-start { color: #000; border-color: #000; }
-html.perf-mode .landing-start:hover { background: #000; color: #fff; }
+/* 天氣 canvas 疊在漸層上、放明顯一點，並升到圖表 UI 之上 */
+html.landing-active #weatherBg { opacity: .9 !important; z-index: 2 !important; }
+/* 首頁本體透明 → 露出底層「漸層 + 天氣」；插圖與按鈕仍在最上層 */
+html.landing-active .landing { background: transparent; }
+/* 插圖：填滿裝置寬度（城牆靠兩邊），等比放大；過高的下方留白由 overflow 裁掉 */
+.landing-art {
+  flex: 0 0 auto;                      /* 垂直對齊交給容器 align-items（桌面頂端、手機置中）*/
+  width: 100%; height: auto; display: block;
+  user-select: none; -webkit-user-drag: none;
+}
+/* 開始鈕：手繪卡通風（暖橘 + 棕厚邊 + 立體下緣）；釘在視窗底部固定可見（城門下方留白處） */
+.landing-start {
+  position: absolute; left: 50%; bottom: 9vh; transform: translateX(-50%);
+  padding: 13px 50px; font-size: 22px; font-weight: 800; letter-spacing: 6px;
+  color: #fff; -webkit-text-stroke: 0;
+  text-shadow: 0 2px 0 rgba(110,82,54,.45);
+  background: linear-gradient(180deg, #F6BB57 0%, #ECA033 55%, #E3942A 100%);
+  border: 3px solid #6E5236; border-radius: 999px;
+  box-shadow: 0 6px 0 #6E5236, 0 12px 18px rgba(110,82,54,.30);   /* 卡通厚下緣 + 柔影 */
+  cursor: pointer; line-height: 1.1;
+  transition: transform .1s ease, box-shadow .1s ease, filter .15s ease;
+}
+.landing-start:hover  { filter: brightness(1.06); transform: translateX(-50%) translateY(-2px); box-shadow: 0 8px 0 #6E5236, 0 14px 22px rgba(110,82,54,.34); }
+.landing-start:active { transform: translateX(-50%) translateY(4px); box-shadow: 0 2px 0 #6E5236, 0 5px 10px rgba(110,82,54,.28); }
+@media (max-width: 768px) {
+  /* 手機直式：插圖較短不會溢出 → 垂直置中（城牆仍滿寬靠兩邊），按鈕拉近一點 */
+  .landing { align-items: center; }
+  .landing-start { padding: 11px 40px; font-size: 18px; letter-spacing: 4px; bottom: 13vh; }
+}

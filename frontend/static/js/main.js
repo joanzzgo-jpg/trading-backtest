@@ -6,17 +6,37 @@ document.addEventListener("DOMContentLoaded", async () => {
     const scr = document.getElementById("landingScreen");
     const btn = document.getElementById("landingStartBtn");
     if (!scr || !btn) return;
-    const enter = () => {
-      // 記住「今天看過了」→ 當天再開直接進圖表（head inline script 會判斷）
-      try {
-        const d = new Date();
-        localStorage.setItem("landingSeen", d.getFullYear() + "-" + (d.getMonth()+1) + "-" + d.getDate());
-      } catch (e) {}
+    const DAY = 86400000;
+    let timer = null;
+    const seenAt = () => { try { return parseInt(sessionStorage.getItem("landingDismissedAt") || "0", 10); } catch (e) { return 0; } };
+    const hide = () => {
+      try { sessionStorage.setItem("landingDismissedAt", String(Date.now())); } catch (e) {}  // 本 session 看過 + 記時間
+      document.documentElement.classList.remove("landing-active");   // 還原圖表 UI / 天氣背景層級（圖表在淡出下方浮現）
       scr.classList.add("landing-hide");
-      setTimeout(() => { scr.style.display = "none"; }, 650);
-      if (typeof resizeAll === "function") setTimeout(resizeAll, 120);  // 進場後重算圖表尺寸
+      setTimeout(() => { if (scr.classList.contains("landing-hide")) scr.style.display = "none"; }, 650);
+      if (typeof resizeAll === "function") setTimeout(resizeAll, 120);   // 進場後重算圖表尺寸
+      armReshow();
     };
-    btn.addEventListener("click", enter);
+    const show = () => {
+      document.documentElement.classList.remove("landing-skip");
+      document.documentElement.classList.add("landing-active");       // 重新露出天氣背景、隱藏圖表 UI
+      scr.style.display = "";
+      void scr.offsetWidth;                 // reflow → 讓淡入 transition 生效
+      scr.classList.remove("landing-hide");
+    };
+    const checkExpiry = () => {                // 一直開著超過 24h → 自動重新跳首頁
+      const ts = seenAt();
+      if (ts && Date.now() - ts >= DAY) {
+        if (timer) { clearInterval(timer); timer = null; }
+        try { sessionStorage.removeItem("landingDismissedAt"); } catch (e) {}
+        show();
+      }
+    };
+    const armReshow = () => { if (timer) clearInterval(timer); timer = setInterval(checkExpiry, 60000); };
+    btn.addEventListener("click", hide);
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) checkExpiry(); });
+    // 首屏已被 head script 跳過（同 session reload）→ landing 已隱藏，仍要排程 24h 後重跳
+    if (document.documentElement.classList.contains("landing-skip")) { scr.style.display = "none"; armReshow(); }
   })();
 
   // 極簡模式：覆蓋 C（指標／線條／蠟燭顏色）為純白底專用配色（in-memory only，savePrefs 已擋）

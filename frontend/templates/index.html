@@ -27,22 +27,25 @@
         document.documentElement.classList.add("perf-mode");
       }
     } catch (e) {}
-    // 開場首頁：同一天看過一次（按過「開始」）就直接進圖表、不再跳首頁；隔天才再跳。
-    // 在首屏前判斷 → 不會閃一下首頁。
+    // 開場首頁顯示時機（用 sessionStorage 區分 reload vs 關閉重開）：
+    //  · reload：同一分頁 session → sessionStorage 還在 → 不跳首頁
+    //  · 關掉重開 / 重開 app：sessionStorage 清空 → 跳首頁
+    //  · 一直開著超過 24h：由 main.js 計時重新跳（此處只負責 reload 當下不閃）
     try {
-      var _d = new Date();
-      var _today = _d.getFullYear() + "-" + (_d.getMonth()+1) + "-" + _d.getDate();
-      if (localStorage.getItem("landingSeen") === _today) {
+      var _ts = parseInt(sessionStorage.getItem("landingDismissedAt") || "0", 10);
+      if (_ts && (Date.now() - _ts < 86400000)) {   // 本 session 看過、且未滿 24h → 跳過首頁
         document.documentElement.classList.add("landing-skip");
+      } else {
+        document.documentElement.classList.add("landing-active");   // 要顯示首頁 → 露出天氣背景、隱藏圖表 UI
       }
     } catch (e) {}
   </script>
 </head>
 <body>
 
-<!-- 開場首頁（按「開始」淡出進入圖表）；HTML 預設可見 → 首屏即蓋住圖表、不閃。
-     目前極簡：黑底白「開始」鈕；其餘圖稍後補上（使用者提供） -->
+<!-- 開場首頁（按「開始」淡出進入圖表）；HTML 預設可見 → 首屏即蓋住圖表、不閃 -->
 <div id="landingScreen" class="landing">
+  <img class="landing-art" src="/static/img/landing-castle.png?v={{ ver }}" alt="橘子熊城堡" draggable="false" />
   <button id="landingStartBtn" class="landing-start">開始</button>
 </div>
 
