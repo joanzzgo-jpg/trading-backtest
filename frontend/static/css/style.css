@@ -5402,28 +5402,29 @@ html.landing-active #weatherBg { opacity: .9 !important; z-index: 2 !important; 
 /* 首頁本體透明 → 露出底層「漸層 + 天氣」；插圖與按鈕仍在最上層 */
 html.landing-active .landing { background: transparent; }
 /* 舞台：插圖滿寬（城牆靠兩邊），釘在底部地板之上；箭頭/大門鈕相對它定位 */
-/* 舞台＝插圖；transform-origin 對準大門口 → 進場時往大門「漸變放大」 */
-.landing-stage { position: relative; width: 100%; line-height: 0; transform-origin: 50% 65%; }
+/* 舞台＝插圖；transform-origin 對準大門口 → 進場時往大門「漸變放大」。z-index:2 → 熊在 logo 之前 */
+.landing-stage { position: relative; width: 100%; line-height: 0; transform-origin: 50% 65%; z-index: 2; }
 /* 插圖本身不可互動（避免拖曳/點擊出現瀏覽器紅叉/禁止符號）；只有大門熱區可點 */
 .landing-art { display: block; width: 100%; height: auto; pointer-events: none; user-select: none; -webkit-user-drag: none; }
 .landing { user-select: none; -webkit-user-select: none; }
 /* logo：細字、寬字距、淡化（低調），在上方窄天空帶 */
+/* logo：可愛圓粗體、放大塞滿城牆上方天空、70% 透明，z-index:1 → 在熊之後（不擋熊） */
 .landing-logo {
-  position: absolute; top: 3.5%; left: 4%; transform: none;     /* 移到左上、不擋中間的熊 */
-  text-align: left; line-height: .92; white-space: nowrap; z-index: 2;
-  font-family: "M PLUS Rounded 1c", system-ui, sans-serif;       /* 可愛圓體 */
-  font-weight: 900; color: #fff; letter-spacing: .04em;          /* 粗體 */
-  font-size: clamp(44px, 8.5vw, 100px);                          /* 放大 */
-  text-shadow: 0 4px 0 rgba(110,82,54,.32), 0 5px 16px rgba(0,0,0,.45);
+  position: absolute; top: 6%; left: 50%; transform: translateX(-50%);
+  text-align: center; line-height: .9; white-space: nowrap; z-index: 1; opacity: .7;
+  font-family: "M PLUS Rounded 1c", system-ui, sans-serif;
+  font-weight: 900; color: #fff; letter-spacing: .03em;
+  font-size: clamp(60px, 13vw, 156px);                           /* 塞滿上方空間 */
+  text-shadow: 0 4px 0 rgba(110,82,54,.3), 0 6px 18px rgba(0,0,0,.45);
 }
-.landing-logo span { display: block; margin-top: .22em; margin-left: .12em; font-size: .25em; font-weight: 800; letter-spacing: .42em; color: #FFB04A; text-shadow: 0 2px 8px rgba(0,0,0,.4); }
-/* 所在地（依天氣 API 的城市）：在 logo 上方天空帶 */
+.landing-logo span { display: block; margin-top: .2em; font-size: .24em; font-weight: 800; letter-spacing: .42em; color: #FFB04A; }
+/* 所在地（依天氣 API 城市）：在 logo 上方、最上層 */
 .landing-loc {
-  position: absolute; top: 2.5%; left: 50%; transform: translateX(-50%);
-  z-index: 2; white-space: nowrap; text-align: center;
-  font-family: "M PLUS Rounded 1c", system-ui, sans-serif; font-weight: 500;
-  font-size: clamp(12px, 1.9vw, 18px); color: rgba(255,255,255,.72);
-  letter-spacing: .03em; text-shadow: 0 1px 8px rgba(0,0,0,.5);
+  position: absolute; top: 1.8%; left: 50%; transform: translateX(-50%);
+  z-index: 3; white-space: nowrap; text-align: center;
+  font-family: "M PLUS Rounded 1c", system-ui, sans-serif; font-weight: 600;
+  font-size: clamp(13px, 2vw, 19px); color: rgba(255,255,255,.78);
+  letter-spacing: .03em; text-shadow: 0 1px 8px rgba(0,0,0,.6);
 }
 .landing-loc:empty { display: none; }
 /* 箭頭：指向大門，上下跳動 */
