@@ -5410,7 +5410,7 @@ html.landing-active .landing { background: transparent; }
 /* logo：細字、寬字距、淡化（低調），在上方窄天空帶 */
 /* logo：可愛圓粗體、放大；放在「熊左邊、城牆上方」的天空，70% 透明，z-index:1（在熊之後不擋熊） */
 .landing-logo {
-  position: absolute; top: 5.5%; left: 4%;
+  position: absolute; top: 11%; left: 4%;
   text-align: left; line-height: .9; white-space: nowrap; z-index: 1; opacity: .7;
   font-family: "M PLUS Rounded 1c", system-ui, sans-serif;
   font-weight: 900; color: #fff; letter-spacing: .03em;
