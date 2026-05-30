@@ -701,6 +701,7 @@ const SFX = (() => {
   if (!canvas) return;
   const ctx = canvas.getContext("2d");
   let W = 0, H = 0, type = "sunny", rafId = null, _gc = {}, _lastFrameTs = 0;
+  let _paX = 0, _paY = 0, _paTX = 0, _paTY = 0, _paOn = false;   // 視差深度：平滑值/目標值(-1~1)，滑鼠或陀螺儀驅動
 
   /* shared state */
   let sunAngle = 0, moonGlow = 0;
@@ -953,6 +954,32 @@ const SFX = (() => {
     H = canvas.height = window.innerHeight || 700;
     _buildGradCache();
     _init();
+  }
+
+  /* ── 視差深度（3D 感）：滑鼠(桌面)/陀螺儀(手機) 驅動，遠近天氣層以不同幅度位移 ──
+     _parX/_parY 回傳某景深 z(0遠~1近) 的像素位移：近層動得多、遠層動得少 → 縱深透視。 */
+  function _parX(z){ return _paX * (8 + z*z*44); }
+  function _parY(z){ return _paY * (4 + z*z*20); }
+  function _initParallax(){
+    if (_paOn) return; _paOn = true;
+    try { if (matchMedia('(prefers-reduced-motion: reduce)').matches) return; } catch(e){}  // 尊重減少動態偏好
+    window.addEventListener('mousemove', e => {
+      _paTX = (e.clientX/(window.innerWidth||1) - 0.5) * 2;
+      _paTY = (e.clientY/(window.innerHeight||1) - 0.5) * 2;
+    }, { passive:true });
+    const onTilt = e => {
+      if (e.gamma == null) return;
+      _paTX = Math.max(-1, Math.min(1, e.gamma/35));            // 左右傾斜（°/35 → ±1）
+      _paTY = Math.max(-1, Math.min(1, ((e.beta||45)-45)/35));  // 前後傾斜（以 45° 為中立）
+    };
+    window.addEventListener('deviceorientation', onTilt, { passive:true });
+    // iOS 13+ 需使用者手勢觸發陀螺儀權限
+    if (typeof DeviceOrientationEvent !== 'undefined' && DeviceOrientationEvent.requestPermission) {
+      const rq = () => { DeviceOrientationEvent.requestPermission()
+        .then(s => { if (s==='granted') window.addEventListener('deviceorientation', onTilt, {passive:true}); })
+        .catch(()=>{}); window.removeEventListener('touchend', rq); };
+      window.addEventListener('touchend', rq, { passive:true });
+    }
   }
 
   function _sunArcPos() {
@@ -1572,7 +1599,8 @@ const SFX = (() => {
       const a=.15+.75*Math.sin(t*p.sp+p.ph);
       if (a>.88) { ctx.shadowBlur=5; ctx.shadowColor="rgba(200,220,255,.9)"; }
       ctx.fillStyle=`rgba(222,232,255,${a})`;
-      ctx.beginPath(); ctx.arc(p.x,p.y,a>.6?p.r*1.3:p.r,0,Math.PI*2); ctx.fill(); ctx.shadowBlur=0;
+      const sx=p.x+_paX*(3+p.r*3), sy=p.y+_paY*(1.5+p.r*1.5);   // 遠場微視差（亮/大星稍近、動多一點點）
+      ctx.beginPath(); ctx.arc(sx,sy,a>.6?p.r*1.3:p.r,0,Math.PI*2); ctx.fill(); ctx.shadowBlur=0;
     });
     /* 八大行星（依實際位置/亮度/顏色，無標籤） */
     _drawPlanets(t);
@@ -1602,7 +1630,7 @@ const SFX = (() => {
       c.x += c.sp * cdir;
       if (cdir > 0 && c.x - W*c.sc > W) c.x = -margin;       // 往右飄出 → 從左回來
       else if (cdir < 0 && c.x + W*c.sc < 0) c.x = W+margin; // 往左飄出 → 從右回來
-      _cloud(c.x, c.y + Math.sin(t*.18 + i*1.3)*3.5, W*c.sc, c.al, c.shape, c.flip, c.z, c.puffs);
+      _cloud(c.x + _parX(c.z), c.y + Math.sin(t*.18 + i*1.3)*3.5 + _parY(c.z), W*c.sc, c.al, c.shape, c.flip, c.z, c.puffs);
     });
   }
 
@@ -1630,7 +1658,8 @@ const SFX = (() => {
       if (p.z>0.92 && !blurOn) { ctx.shadowBlur=3; ctx.shadowColor="rgba(200,228,255,.55)"; blurOn=true; }  // 最近景柔焦
       ctx.strokeStyle = n?`rgba(200,232,255,${p.a})`:`rgba(130,176,224,${p.a})`;
       ctx.lineWidth = p.w;                          // 線寬隨景深（近粗遠細）
-      ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(p.x + lean*p.len, p.y+p.len); ctx.stroke();
+      const ox=_parX(p.z), oy=_parY(p.z);           // 視差位移（近景滑動大）
+      ctx.beginPath(); ctx.moveTo(p.x+ox,p.y+oy); ctx.lineTo(p.x+ox + lean*p.len, p.y+oy+p.len); ctx.stroke();
       p.y += p.spd; p.x += wDrift*(0.4+p.z);        // 近景水平位移大（視差）；方向跟著風
       if (p.y>H+p.len) {
         if (n && ripples.length<45)
@@ -1658,13 +1687,15 @@ const SFX = (() => {
   function dSnow(t) {
     const wDrift = _windDriftPx();
     snowP.forEach(p => {
+      const ox=_parX(p.z), oy=_parY(p.z);           // 視差位移（近景滑動大）
+      const dx=p.x+ox, dy=p.y+oy;
       if (p.r < 2.6) {
         // 遠景雪：簡單柔光點（也省效能，遠處本就看不出結晶）
         ctx.fillStyle=`rgba(226,240,255,${p.a*.72})`;
-        ctx.beginPath(); ctx.arc(p.x,p.y,p.r*.62,0,Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(dx,dy,p.r*.62,0,Math.PI*2); ctx.fill();
       } else {
         if (p.z>0.85) { ctx.shadowBlur=4; ctx.shadowColor="rgba(220,238,255,.6)"; }   // 近景結晶柔光
-        _snowflake(p.x,p.y,p.r,p.rot,p.a);
+        _snowflake(dx,dy,p.r,p.rot,p.a);
         if (p.z>0.85) ctx.shadowBlur=0;
       }
       // 近景飄擺幅度大（視差）；水平方向跟著風
@@ -2081,6 +2112,7 @@ const SFX = (() => {
   function draw() {
     ctx.clearRect(0,0,W,H);
     if (type === "off") return;  // 「無」模式：清空畫布即可，不畫任何特效
+    _paX += (_paTX - _paX) * 0.07; _paY += (_paTY - _paY) * 0.07;   // 平滑視差位移
     const t=Date.now()*.001;
     ({sunny:dSunny,night:dNight,cloudy:dCloudy,fog:dFog,rain:dRain,snow:dSnow,storm:dStorm,thunder:dThunder,mahjong:dMahjong,leaves:dLeaves,spring:dSpring,partly:dPartly,overcast:dOvercast,drizzle:dDrizzle,windy:dWindy,hail:dHail,tornado:dTornado,quake:dQuake})[type]?.(t);
     _drawAstro(t);
@@ -2277,6 +2309,7 @@ const SFX = (() => {
 
   window.addEventListener("resize", resize);
   resize();
+  _initParallax();
   // 不在這裡 start()——等 fetchWeather 回來再用真實 _wd 啟動，
   // 避免「先用預設值畫一次→拿到 API 又重畫」造成的閃爍/位移
 
