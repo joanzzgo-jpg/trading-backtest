@@ -709,6 +709,8 @@ const SFX = (() => {
   let shootTimer = 200, shootX = 0, shootY = 0, shootDX = 0, shootDY = 0, shootLen = 0;
   let stars = [], sparks = [], rainP = [], ripples = [], snowP = [], cloudP = [], leafP = [], petalP = [], mahjongP = [], windStreaks = [];
   let glassDrops = [], splashes = [];   // 雨：前景玻璃水珠 / 地面濺起水花
+  let snowAccum = 0, fogBlobs = [];     // 雪：底部積雪厚度 / 霧：體積霧團
+  let _rainRamp = 0;                     // 雨勢漸起：0→1 緩升（下雨開始時歸零）
   let thunderBolts = [], thunderFlashes = [], thunderTimer = 15;
   // 天然災害（手動特效）：冰雹 / 龍卷風 / 地震
   let hailP = [], hailSplash = [], qCracks = [], qDust = [], tDebris = [], tornadoX = 0, quakeT = 0;
@@ -1332,6 +1334,13 @@ const SFX = (() => {
         rot:  Math.random()*Math.PI/3, rotSpd:(Math.random()-.5)*.022,
         a:    .3 + z*z*.65 };
     }).sort((p,q)=>p.z-q.z);
+    snowAccum = 0;   // 重置底部積雪
+    // 霧：體積霧團（多顆大柔邊橢圓，不同景深/速度緩慢飄移billow）
+    fogBlobs = Array.from({length:8}, () => ({
+      x: Math.random()*W, y: H*(0.12+Math.random()*0.74),
+      rx: W*(0.22+Math.random()*0.30), ry: H*(0.07+Math.random()*0.13),
+      sp: (0.15+Math.random()*0.5)*(Math.random()<.5?1:-1),
+      a: 0.035+Math.random()*0.06, ph: Math.random()*6.28, z: Math.random() }));
     const nCloud=Math.max(2, Math.round(2+5*ci));
     const alBase=0.15+ci*.30, scBase=0.11+ci*.08;
     const wf = 1 + Math.min(4, _wd.windSpeed / 12); // 風速倍率：無風=1×、50km/h=5×
@@ -1563,6 +1572,19 @@ const SFX = (() => {
     const bg = ctx.createRadialGradient(sx,sy,0,sx,sy,W*.85);
     bg.addColorStop(0,'rgba(255,240,110,.38)'); bg.addColorStop(.45,'rgba(255,165,30,.11)'); bg.addColorStop(1,'rgba(0,0,0,0)');
     ctx.save(); ctx.globalAlpha=.45+.55*clr; ctx.fillStyle=bg; ctx.fillRect(0,0,W,H); ctx.restore();
+    /* god rays（體積光束）：自太陽放射的寬柔光錐，緩慢飄、隨晴朗度增強（lighter 疊加發光） */
+    ctx.save(); ctx.globalCompositeOperation='lighter'; ctx.translate(sx,sy);
+    for (let i=0;i<7;i++){
+      const a=sunAngle*0.5 + (i/7)*Math.PI*2 + Math.sin(t*0.18+i)*0.06;
+      const len=W*(0.62+0.22*Math.sin(t*0.13+i*1.7)), wid=0.04+0.028*(i%3);
+      const lg=ctx.createLinearGradient(0,0,Math.cos(a)*len,Math.sin(a)*len);
+      lg.addColorStop(0,`rgba(255,242,185,${(0.07*rk).toFixed(3)})`); lg.addColorStop(1,'rgba(255,242,185,0)');
+      ctx.fillStyle=lg; ctx.beginPath(); ctx.moveTo(0,0);
+      ctx.lineTo(Math.cos(a-wid)*len, Math.sin(a-wid)*len);
+      ctx.lineTo(Math.cos(a+wid)*len, Math.sin(a+wid)*len);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
     /* 10 rotating rays */
     ctx.save(); ctx.translate(sx,sy); ctx.lineCap="round";
     for (let i=0;i<10;i++) {
@@ -1584,6 +1606,16 @@ const SFX = (() => {
     ctx.shadowBlur=30; ctx.shadowColor="rgba(255,200,0,1)";
     ctx.fillStyle=disc; ctx.beginPath(); ctx.arc(sx,sy,28,0,Math.PI*2); ctx.fill();
     ctx.shadowBlur=0;
+    /* 鏡頭光暈：沿「太陽→畫面中心」連線散布幾個半透明光點（電影感） */
+    ctx.save(); ctx.globalCompositeOperation='lighter';
+    const vx=W/2-sx, vy=H/2-sy;
+    [[0.5,16,'255,220,140',0.10],[0.92,30,'170,215,255',0.07],[1.22,11,'255,182,200',0.08],[1.65,46,'190,255,210',0.045]].forEach(([d,r,col,al])=>{
+      const fx=sx+vx*d, fy=sy+vy*d;
+      const fg=ctx.createRadialGradient(fx,fy,0,fx,fy,r);
+      fg.addColorStop(0,`rgba(${col},${(al*rk).toFixed(3)})`); fg.addColorStop(1,`rgba(${col},0)`);
+      ctx.fillStyle=fg; ctx.beginPath(); ctx.arc(fx,fy,r,0,Math.PI*2); ctx.fill();
+    });
+    ctx.restore();
     /* sparkles — keep near sun */
     sparks.forEach((p,i) => {
       p.life++;
@@ -1641,19 +1673,25 @@ const SFX = (() => {
   }
 
   function dFog(t) {
-    /* flat bands – no per-band gradient allocation */
-    for (let i=0;i<8;i++) {
-      const y=H*(.10+i*.12)+Math.sin(t*(.2+i*.04)+i)*H*.04;
-      const dn=.05+(i===3||i===4?.04:0);
-      ctx.fillStyle=`rgba(180,200,228,${(dn*.55).toFixed(3)})`;
-      ctx.fillRect(0,Math.round(y-65),W,130);
-    }
-    ctx.fillStyle=_gc.fogVg; ctx.fillRect(0,0,W,H);
+    /* 體積霧：多顆大柔邊橢圓霧團，依景深以不同速度飄移 + 緩慢 billow + 視差 → 立體霧氣感 */
+    fogBlobs.forEach(b => {
+      b.x += b.sp * (0.5 + b.z);                         // 近的飄快
+      if (b.sp>0 && b.x-b.rx>W) b.x=-b.rx; else if (b.sp<0 && b.x+b.rx<0) b.x=W+b.rx;
+      const cxx = b.x + _parX(b.z), cyy = b.y + Math.sin(t*0.2+b.ph)*H*0.025 + _parY(b.z);
+      const g=ctx.createRadialGradient(cxx,cyy,0,cxx,cyy,b.rx);
+      g.addColorStop(0,`rgba(198,213,233,${b.a})`); g.addColorStop(.65,`rgba(190,206,228,${(b.a*.55).toFixed(3)})`); g.addColorStop(1,'rgba(190,206,228,0)');
+      ctx.save(); ctx.translate(cxx,cyy); ctx.scale(1, b.ry/b.rx); ctx.fillStyle=g;
+      ctx.beginPath(); ctx.arc(0,0,b.rx,0,Math.PI*2); ctx.fill(); ctx.restore();
+    });
+    ctx.fillStyle=_gc.fogVg; ctx.fillRect(0,0,W,H);   // 整體霧化 vignette（cached）
   }
 
-  function dRain() {
-    /* stormy sky overlay (cached gradient) */
-    ctx.fillStyle=_gc.rainSky; ctx.fillRect(0,0,W,H);
+  function dRain(t) {
+    /* 雨勢漸起：開始下雨時 _rainRamp 由 0 緩升到 1（約 6 秒），再疊一層輕微強弱起伏 → 雨會「漸漸下大」 */
+    _rainRamp += (1 - _rainRamp) * 0.012;
+    const intensity = _rainRamp * (0.84 + 0.16*Math.sin((t||0)*0.3));
+    /* stormy sky overlay (cached gradient) — 天色隨雨勢加深 */
+    ctx.save(); ctx.globalAlpha = 0.35 + 0.65*intensity; ctx.fillStyle=_gc.rainSky; ctx.fillRect(0,0,W,H); ctx.restore();
 
     ctx.lineCap="round";
     const wDrift = _windDriftPx();                 // 風向水平位移（+右 -左），隨風速
@@ -1661,16 +1699,17 @@ const SFX = (() => {
     let blurOn = false;                             // 已排序：近景在最後 → 只需切一次 shadowBlur
     rainP.forEach(p => {
       const n = p.z>0.55;                           // 近景
+      const pa = p.a * intensity;                   // 透明度隨雨勢漸起
       if (p.z>0.92 && !blurOn) { ctx.shadowBlur=3; ctx.shadowColor="rgba(200,228,255,.55)"; blurOn=true; }  // 最近景柔焦
-      ctx.strokeStyle = n?`rgba(200,232,255,${p.a})`:`rgba(130,176,224,${p.a})`;
+      ctx.strokeStyle = n?`rgba(200,232,255,${pa})`:`rgba(130,176,224,${pa})`;
       ctx.lineWidth = p.w;                          // 線寬隨景深（近粗遠細）
       const ox=_parX(p.z), oy=_parY(p.z);           // 視差位移（近景滑動大）
       ctx.beginPath(); ctx.moveTo(p.x+ox,p.y+oy); ctx.lineTo(p.x+ox + lean*p.len, p.y+oy+p.len); ctx.stroke();
       p.y += p.spd; p.x += wDrift*(0.4+p.z);        // 近景水平位移大（視差）；方向跟著風
       if (p.y>H+p.len) {
-        if (n && ripples.length<45)
+        if (n && ripples.length<45 && Math.random()<intensity)   // 雨勢越大、漣漪/水花越多
           ripples.push({x:p.x, y:H*.968, r:0, maxR:6+Math.random()*13*p.z, a:.30*p.z+.14});
-        if (p.z>0.7 && splashes.length<70) {        // 近景大雨滴落地 → 向上濺起小水花
+        if (p.z>0.7 && splashes.length<70 && Math.random()<intensity) {  // 近景大雨滴落地 → 向上濺起小水花
           const cnt = 2+Math.floor(Math.random()*2);
           for (let k=0;k<cnt;k++){
             const ang=-Math.PI/2 + (Math.random()-0.5)*1.15, sp=1.4+Math.random()*2.6*p.z;
@@ -1700,13 +1739,15 @@ const SFX = (() => {
       ctx.beginPath(); ctx.arc(s.x,s.y,1.1,0,Math.PI*2); ctx.fill();
     }
 
-    /* wet ground sheen (cached) */
+    /* wet ground sheen + bottom mist（cached）— 隨雨勢漸起 */
+    ctx.save(); ctx.globalAlpha = intensity;
     ctx.fillStyle=_gc.rainGnd; ctx.fillRect(0,H*.88,W,H*.12);
-    /* bottom mist (cached) */
     ctx.fillStyle=_gc.rainMist; ctx.fillRect(0,H*.62,W,H*.38);
+    ctx.restore();
 
-    /* 前景玻璃水珠（隔窗看雨）：最近平面 → 視差最大、偶爾滑落留痕 */
+    /* 前景玻璃水珠（隔窗看雨）：最近平面 → 視差最大、偶爾滑落留痕；隨雨勢漸起浮現 */
     const gx=_parX(1), gy=_parY(1); ctx.lineCap="round";
+    ctx.save(); ctx.globalAlpha = Math.min(1, intensity*1.15);
     glassDrops.forEach(d => {
       d.age++;
       if (!d.slide && d.age>d.slideAt) d.slide=true;
@@ -1722,6 +1763,7 @@ const SFX = (() => {
       ctx.fillStyle=g; ctx.beginPath(); ctx.arc(dx,dy,d.r,0,Math.PI*2); ctx.fill();
       ctx.fillStyle='rgba(255,255,255,0.45)'; ctx.beginPath(); ctx.arc(dx-d.r*0.32, dy-d.r*0.36, d.r*0.2, 0, Math.PI*2); ctx.fill();
     });
+    ctx.restore();
   }
 
   function dSnow(t) {
@@ -1744,6 +1786,23 @@ const SFX = (() => {
       if (p.x<-10) p.x=W+10; if (p.x>W+10) p.x=-10;
     });
     ctx.fillStyle=_gc.snowAtm; ctx.fillRect(0,0,W,H*.35);
+    /* 底部積雪堆積：隨時間緩慢增厚（封頂），起伏雪丘頂緣 + 受光緣 */
+    snowAccum = Math.min(H*0.065, snowAccum + 0.045);
+    if (snowAccum > 1) {
+      const baseY = H - snowAccum;
+      ctx.save();
+      ctx.beginPath(); ctx.moveTo(0, H);
+      ctx.lineTo(0, baseY - 4*Math.sin(0.7));
+      for (let x=0; x<=W; x+=W/22){
+        const yy = baseY - 5 - 6*Math.sin(x*0.012 + 0.6) - 3*Math.sin(x*0.05);   // 起伏雪丘
+        ctx.lineTo(x, yy);
+      }
+      ctx.lineTo(W, H); ctx.closePath();
+      const sg=ctx.createLinearGradient(0, baseY-12, 0, H);
+      sg.addColorStop(0,'rgba(246,251,255,0.97)'); sg.addColorStop(1,'rgba(214,228,245,0.9)');
+      ctx.fillStyle=sg; ctx.fill();
+      ctx.restore();
+    }
   }
 
   function dStorm() {
@@ -2162,6 +2221,9 @@ const SFX = (() => {
   let _inited = false;
   function start(wt) {
     const changed = wt !== type || !_inited;
+    // 進入下雨類型時把雨勢 ramp 歸零 → 之後在 dRain 緩升（雨水漸起感）
+    const rainy = w => w==='rain'||w==='storm'||w==='drizzle';
+    if (rainy(wt) && !rainy(type)) _rainRamp = 0;
     type = wt;
     // 晴朗夜空（type==='night'）→ 主圖淡淡透出夜空(月亮/星星/行星)；其餘天氣/白天不透
     const wasNight = document.documentElement.classList.contains('sky-night');
