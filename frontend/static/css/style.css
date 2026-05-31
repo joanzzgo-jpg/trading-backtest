@@ -5784,24 +5784,24 @@ html.perf-mode .acct-btn-ghost { background: #F5F5F5; color: #1F1F1F; border-col
   #acctTopBtn { display: none !important; }
 }
 
-/* ── 封面大門的鎖（手繪掛鎖；輸入框疊在鎖身上）──
-     預設隱藏；點門 → .landing-locking 才放大聚焦門 + 彈出此鎖。 */
+/* ── 封面大門上的鎖（手繪城堡風；在 .landing-stage 內 → 隨門一起放大、黏在門上）──
+     預設隱藏；點門 → .landing-locking 門放大、鎖在門上浮現。 */
 .landing-acct {
-  position: absolute; left: 50%; top: 44%;
-  transform: translate(-50%, -50%) scale(.6);
-  z-index: 8; width: min(72vw, 230px);
+  position: absolute; left: 50%; top: 45%;
+  transform: translate(-50%, -50%) scale(.7);
+  z-index: 6; width: min(42vw, 150px);   /* 固定好讀尺寸；門放大後鎖會明顯比門小 */
   opacity: 0; pointer-events: none;
-  transition: opacity .32s ease, transform .42s cubic-bezier(.34,1.56,.64,1);
-  filter: drop-shadow(0 10px 22px rgba(60,38,12,.45));
+  transition: opacity .3s ease .15s, transform .42s cubic-bezier(.34,1.56,.64,1) .15s;
+  filter: drop-shadow(0 5px 12px rgba(40,25,8,.5));
 }
 .landing.landing-locking .landing-acct { opacity: 1; transform: translate(-50%, -50%) scale(1); pointer-events: auto; }
 .lock-svg { display: block; width: 100%; height: auto; }
-/* 疊在鎖身上的輸入區（對齊鎖身：鎖身約在 SVG 下 60%）*/
+/* 疊在鎖身下半部的輸入區（鑰匙孔在上、輸入在下）*/
 .lock-overlay {
-  position: absolute; left: 50%; bottom: 6%;
+  position: absolute; left: 50%; top: 60%;
   transform: translateX(-50%);
-  width: 74%;
-  display: flex; flex-direction: column; align-items: stretch; gap: 6px;
+  width: 76%;
+  display: flex; flex-direction: column; align-items: stretch; gap: 5px;
 }
 .lock-title {
   font-family: "M PLUS Rounded 1c", system-ui, sans-serif;
@@ -5809,22 +5809,28 @@ html.perf-mode .acct-btn-ghost { background: #F5F5F5; color: #1F1F1F; border-col
   letter-spacing: .04em; text-shadow: 0 1px 0 rgba(255,255,255,.4);
 }
 .landing-acct-input {
-  width: 100%; height: 34px; box-sizing: border-box;
-  background: rgba(255,252,245,.95); border: 1.5px solid #A9accf00;
-  border: 1.5px solid #9C7B3E; border-radius: 8px; outline: none;
-  font-size: 15px; font-weight: 700; text-align: center; color: #5A4326;
+  width: 100%; height: 30px; box-sizing: border-box;
+  /* 嵌在鎖身上的暖色刻痕槽：米黃底 + 褐描邊 + 內凹陰影 */
+  background: #F4E8CE; border: 2px solid #7C6132; border-radius: 7px; outline: none;
+  font-size: 14px; font-weight: 800; text-align: center; color: #5A4327;
   font-family: "M PLUS Rounded 1c", system-ui, sans-serif;
+  box-shadow: inset 0 2px 3px rgba(90,60,25,.30);
 }
-.landing-acct-input::placeholder { color: #B49A78; font-weight: 500; }
-.landing-acct-input:focus { border-color: #FF7A1A; }
+.landing-acct-input::placeholder { color: #B49A78; font-weight: 600; }
+.landing-acct-input:focus { border-color: #C98A4A; background: #FBF3E0; }
 .landing-acct-btn {
-  width: 100%; height: 34px; cursor: pointer;
-  background: linear-gradient(135deg, #FFA94D, #FF7A1A);
-  color: #fff; border: none; border-radius: 8px;
-  font-size: 14px; font-weight: 800;
+  width: 100%; min-height: 30px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; gap: 4px;
+  /* 手繪木牌風：暖褐漸層 + 褐色描邊 + 微傾，與城堡木門同調 */
+  background: linear-gradient(135deg, #C98A4A, #A66A2E);
+  color: #FFF6E6; border: 2px solid #5E4326; border-radius: 9px;
+  font-size: 13px; font-weight: 800; letter-spacing: .08em;
   font-family: "M PLUS Rounded 1c", system-ui, sans-serif;
+  box-shadow: 0 2px 0 #5E4326, inset 0 1px 2px rgba(255,240,210,.4);
+  text-shadow: 0 1px 1px rgba(70,40,15,.5);
 }
-.landing-acct-btn:active { filter: brightness(.93); }
+.landing-acct-btn:active { transform: translateY(1px); box-shadow: 0 1px 0 #5E4326, inset 0 1px 2px rgba(255,240,210,.4); }
+.unlock-ico { width: 15px; height: 15px; flex: 0 0 auto; }
 .landing-acct-btn:disabled { opacity: .6; }
 .landing-acct-msg {
   font-size: 11px; font-weight: 700; text-align: center; color: #6E5236;
@@ -5832,8 +5838,12 @@ html.perf-mode .acct-btn-ghost { background: #F5F5F5; color: #1F1F1F; border-col
 }
 .landing-acct-msg.acct-err { color: #d84315; }
 
-/* 點門後：放大聚焦大門、淡出其他元素（logo/箭頭/位置/熊以外）*/
-.landing.landing-locking .landing-stage { transform: scale(1.7); transition: transform .5s cubic-bezier(.4,0,.2,1); }
+/* 點門後：大門放大並上移到畫面中央（鎖疊在放大的門上、明顯比門小）*/
+.landing.landing-locking .landing-stage {
+  transform-origin: 50% 92%;
+  transform: translateY(-32%) scale(2.1);
+  transition: transform .5s cubic-bezier(.4,0,.2,1);
+}
 .landing.landing-locking .landing-logo,
 .landing.landing-locking .landing-arrow,
 .landing.landing-locking .landing-loc,

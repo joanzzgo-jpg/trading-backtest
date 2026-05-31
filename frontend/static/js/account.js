@@ -65,7 +65,13 @@ async function _acctLogin(name) {
   return { applied: false };
 }
 
-function _acctLogout() { _acctSaveSession(null); _acctRenderSys(); }
+function _acctLogout() {
+  _acctSaveSession(null);
+  _acctRenderSys();
+  document.getElementById("sysSettingsPopup")?.classList.remove("open");   // 收掉系統外觀彈窗
+  try { sessionStorage.removeItem("landingDismissedAt"); } catch (e) {}      // 不再自動跳過封面
+  if (typeof window._landingShow === "function") window._landingShow();     // 登出 → 跳回封面頁
+}
 
 // 自動同步：登入中、設定/自選變更 → debounce 推送整包
 window._acctTouch = function () {

@@ -57,37 +57,46 @@
     <button id="landingStartBtn" class="landing-gate-btn" aria-label="進入"></button>
   </div>
 
-  <!-- 大門的鎖（手繪掛鎖圖；輸入框疊在鎖身上）：點門 → 放大 → 跳此鎖 → 輸帳號 → 解鎖 → 接續開門進場
-       （跨裝置同步設定與自選；後端未啟用會自動隱藏、點門直接進場）-->
+  <!-- 大門上的鎖（手繪城堡風）：點門 → 門放大 → 鎖浮現在門上 → 輸帳號 → 解鎖 → 接續開門進場 -->
   <div class="landing-acct" id="landingAcct" aria-hidden="true">
-    <svg class="lock-svg" viewBox="0 0 220 300" aria-hidden="true">
+    <svg class="lock-svg" viewBox="0 0 200 250" aria-hidden="true">
       <defs>
-        <linearGradient id="lockBrass" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stop-color="#FFE6AE"/>
-          <stop offset="0.5" stop-color="#F2C062"/>
-          <stop offset="1" stop-color="#D69A3F"/>
+        <linearGradient id="lockMetal" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#E4D4B2"/><stop offset="0.55" stop-color="#CBB389"/><stop offset="1" stop-color="#AE9264"/>
         </linearGradient>
-        <linearGradient id="lockShackle" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stop-color="#CDB78F"/>
-          <stop offset="1" stop-color="#8D7A56"/>
-        </linearGradient>
+        <!-- 手繪抖動：讓向量邊緣像水彩手繪，貼合城堡風 -->
+        <filter id="lockRough" x="-10%" y="-10%" width="120%" height="120%">
+          <feTurbulence type="fractalNoise" baseFrequency="0.022" numOctaves="2" seed="7" result="n"/>
+          <feDisplacementMap in="SourceGraphic" in2="n" scale="3.2"/>
+        </filter>
       </defs>
-      <!-- 鎖環（shackle）-->
-      <path d="M67 132 V96 a43 43 0 0 1 86 0 V132" fill="none" stroke="url(#lockShackle)" stroke-width="18" stroke-linecap="round"/>
-      <path d="M67 132 V96 a43 43 0 0 1 86 0 V132" fill="none" stroke="#6E5C3C" stroke-width="18" stroke-linecap="round" opacity="0.25"/>
-      <!-- 鎖身 -->
-      <rect x="34" y="120" width="152" height="150" rx="26" fill="url(#lockBrass)" stroke="#7C6132" stroke-width="3.5"/>
-      <!-- 高光 -->
-      <ellipse cx="74" cy="150" rx="26" ry="14" fill="#FFFFFF" opacity="0.28"/>
-      <!-- 鉚釘 -->
-      <circle cx="48" cy="134" r="3.4" fill="#9A7B40"/><circle cx="172" cy="134" r="3.4" fill="#9A7B40"/>
-      <circle cx="48" cy="256" r="3.4" fill="#9A7B40"/><circle cx="172" cy="256" r="3.4" fill="#9A7B40"/>
+      <g filter="url(#lockRough)">
+        <!-- 鎖環：粗褐手繪描邊 + 金屬 + 反光 -->
+        <path d="M62 128 V92 a38 38 0 0 1 76 0 V128" fill="none" stroke="#6B5436" stroke-width="21" stroke-linecap="round"/>
+        <path d="M62 128 V92 a38 38 0 0 1 76 0 V128" fill="none" stroke="#BCAA84" stroke-width="13" stroke-linecap="round"/>
+        <path d="M70 122 V92 a30 30 0 0 1 60 0" fill="none" stroke="#EFE4CB" stroke-width="3" stroke-linecap="round" opacity="0.55"/>
+        <!-- 鎖身：暖褐木金屬、褐色手繪描邊（與木門同調）-->
+        <rect x="30" y="116" width="140" height="122" rx="28" fill="url(#lockMetal)" stroke="#6B5436" stroke-width="4.5"/>
+        <ellipse cx="64" cy="140" rx="28" ry="13" fill="#FFFFFF" opacity="0.20"/>
+        <path d="M40 224 q60 14 120 0" fill="none" stroke="#8A6E45" stroke-width="6" stroke-linecap="round" opacity="0.22"/>
+        <!-- 鑰匙孔 -->
+        <circle cx="100" cy="150" r="8.5" fill="#5A4327"/>
+        <path d="M96 156 L104 156 L107 170 L93 170 Z" fill="#5A4327"/>
+      </g>
     </svg>
-    <!-- 疊在鎖身上的輸入框 + 解鎖鈕 -->
+    <!-- 疊在鎖身下半部的輸入框 + 手繪解鎖鈕 -->
     <div class="lock-overlay">
-      <div class="lock-title">輸入帳號解鎖</div>
-      <input id="landingAcctInput" class="landing-acct-input" type="text" placeholder="帳號名稱" autocomplete="off" autocapitalize="off" spellcheck="false" />
-      <button id="landingAcctBtn" class="landing-acct-btn">🔓 解鎖</button>
+      <input id="landingAcctInput" class="landing-acct-input" type="text" placeholder="帳號" autocomplete="off" autocapitalize="off" spellcheck="false" />
+      <button id="landingAcctBtn" class="landing-acct-btn">
+        <svg class="unlock-ico" viewBox="0 0 24 24" aria-hidden="true">
+          <g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="4.5" y="10.5" width="15" height="10.5" rx="3"/>
+            <path d="M8 10.5 V7 a4 4 0 0 1 7.4-2.1"/>
+            <circle cx="12" cy="15.4" r="1.5" fill="currentColor" stroke="none"/>
+          </g>
+        </svg>
+        <span>解鎖</span>
+      </button>
       <div class="landing-acct-msg" id="landingAcctMsg"></div>
     </div>
   </div>

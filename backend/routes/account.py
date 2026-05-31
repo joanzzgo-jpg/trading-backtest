@@ -40,8 +40,10 @@ def _use_pg() -> bool:
 
 
 def _enabled() -> bool:
-    # 有 Postgres → 啟用；本機(非 Railway)無 DB → SQLite 啟用；Railway 無 DB → 停用
-    return bool(_DB_URL) or not _ON_RAILWAY
+    # 一律啟用：有 DATABASE_URL → Postgres（持久）；否則 → SQLite 檔。
+    # 注意：Railway 無 Postgres 時用 SQLite，檔案在重新部署時會被清空（同步資料重置、
+    # 種子帳號 Abc/qwer 會重建）→ 要永久保存請在 Railway 加 Postgres（自動帶 DATABASE_URL）。
+    return True
 
 
 def _db():
@@ -119,7 +121,8 @@ class AdminCreateReq(BaseModel):
 # ───────── endpoints ─────────
 @router.get("/status")
 def status():
-    return {"enabled": _enabled()}
+    # store=postgres → 已接 Postgres（永久）；sqlite → 本機/未接 Postgres（Railway 重部署會重置）
+    return {"enabled": _enabled(), "store": "postgres" if _use_pg() else "sqlite"}
 
 
 @router.post("/login")

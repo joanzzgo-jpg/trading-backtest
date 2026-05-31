@@ -29,11 +29,12 @@ document.addEventListener("DOMContentLoaded", async () => {
     const show = () => {
       document.documentElement.classList.remove("landing-skip");
       document.documentElement.classList.add("landing-active");       // 重新露出天氣背景、隱藏圖表 UI
-      scr.classList.remove("landing-entering", "landing-hide");
+      scr.classList.remove("landing-entering", "landing-hide", "landing-locking");
       if (art && art.dataset.closed) art.src = art.dataset.closed;    // 還原關門圖
       scr.style.display = "";
       void scr.offsetWidth;                 // reflow → 讓淡入 transition 生效
     };
+    window._landingShow = show;   // 登出 → 跳回封面頁（account.js 呼叫）
     const checkExpiry = () => {                // 一直開著超過 24h → 自動重新跳首頁
       const ts = seenAt();
       if (ts && Date.now() - ts >= DAY) {
