@@ -5787,7 +5787,7 @@ html.perf-mode .acct-btn-ghost { background: #F5F5F5; color: #1F1F1F; border-col
 /* ── 封面大門上的鎖（手繪城堡風；在 .landing-stage 內 → 隨門一起放大、黏在門上）──
      預設隱藏；點門 → .landing-locking 門放大、鎖在門上浮現。 */
 .landing-acct {
-  position: absolute; left: 50%; top: 45%;
+  position: absolute; left: 50%; top: 37%;
   transform: translate(-50%, -50%) scale(.7);
   z-index: 6; width: min(42vw, 150px);   /* 固定好讀尺寸；門放大後鎖會明顯比門小 */
   opacity: 0; pointer-events: none;
@@ -5798,9 +5798,9 @@ html.perf-mode .acct-btn-ghost { background: #F5F5F5; color: #1F1F1F; border-col
 .lock-svg { display: block; width: 100%; height: auto; }
 /* 疊在鎖身下半部的輸入區（鑰匙孔在上、輸入在下）*/
 .lock-overlay {
-  position: absolute; left: 50%; top: 60%;
+  position: absolute; left: 50%; top: 58%;
   transform: translateX(-50%);
-  width: 76%;
+  width: 60%;
   display: flex; flex-direction: column; align-items: stretch; gap: 5px;
 }
 .lock-title {
