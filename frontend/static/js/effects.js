@@ -2211,25 +2211,38 @@ const SFX = (() => {
 
   /* ═══════════════ 新天氣：極光 / 晚霞 / 流星雨 ═══════════════ */
 
-  /* 🌌 極光：3 層綠/青/紫垂直光簾，用 lighter 疊加發光，波動 + 緩慢飄移 */
+  /* 🌌 極光：上半夜空加暗讓綠光跳出 + 整體底光暈 + 3 層綠/青/紫垂直光簾（lighter 發光、波動飄移） */
   function dAurora(t) {
+    // 上半部夜空加暗（向下淡出、不蓋到城堡）→ 提高極光對比
+    const nb=ctx.createLinearGradient(0,0,0,H*0.62);
+    nb.addColorStop(0,'rgba(6,12,28,0.62)'); nb.addColorStop(1,'rgba(6,12,28,0)');
+    ctx.fillStyle=nb; ctx.fillRect(0,0,W,H*0.62);
     stars.forEach(p => {                                   // 夜空微星
-      const a=.12+.45*Math.sin(t*p.sp+p.ph);
-      ctx.fillStyle=`rgba(205,225,255,${(a*.5).toFixed(3)})`;
+      const a=.12+.5*Math.sin(t*p.sp+p.ph);
+      ctx.fillStyle=`rgba(205,225,255,${(a*.6).toFixed(3)})`;
       ctx.beginPath(); ctx.arc(p.x+_paX*4, p.y*.72, p.r*.7, 0, 6.28); ctx.fill();
     });
     ctx.save(); ctx.globalCompositeOperation='lighter';
     const cols=[[110,255,165],[70,215,205],[150,110,255]];   // 綠 / 青 / 紫
     auroraBands.forEach((b,ci) => {
       const col=cols[ci%cols.length];
+      // 整體底光暈（大柔光帶，墊在光簾後 → 整片發亮）
+      const drift = (((t*b.drift*30) % (W+200)) - 100);
+      const gy = H*0.04 + Math.sin(t*b.sp*0.5 + b.ph)*H*0.04;
+      const bg=ctx.createLinearGradient(0, gy, 0, gy + b.h*1.05);
+      bg.addColorStop(0,`rgba(${col},0)`);
+      bg.addColorStop(0.55,`rgba(${col},${(0.07*b.a).toFixed(3)})`);
+      bg.addColorStop(1,`rgba(${col},0)`);
+      ctx.fillStyle=bg; ctx.fillRect(0, gy, W, b.h*1.05);
+      // 垂直光簾（提高亮度）
       for (let i=0;i<b.rays;i++) {
-        const rx = (((i*b.spacing + t*b.drift*30) % (W+200)) - 100) + Math.sin(t*b.sp + i*0.45 + b.ph)*16;
+        const rx = (((i*b.spacing + drift) % (W+200)) - 100) + Math.sin(t*b.sp + i*0.45 + b.ph)*16;
         const topY = H*0.03 + Math.sin(t*b.sp*0.6 + i*0.35 + b.ph)*H*0.05;
         const h = b.h*(0.72 + 0.28*Math.sin(t*1.1 + i*0.7));
         const g=ctx.createLinearGradient(0,topY,0,topY+h);
         g.addColorStop(0,`rgba(${col},0)`);
-        g.addColorStop(0.40,`rgba(${col},${(0.08*b.a).toFixed(3)})`);
-        g.addColorStop(0.82,`rgba(${col},${(0.19*b.a).toFixed(3)})`);
+        g.addColorStop(0.38,`rgba(${col},${(0.14*b.a).toFixed(3)})`);
+        g.addColorStop(0.80,`rgba(${col},${(0.32*b.a).toFixed(3)})`);
         g.addColorStop(1,`rgba(${col},0)`);
         ctx.fillStyle=g; ctx.fillRect(rx+_parX(0.3), topY, b.rayW, h);
       }
