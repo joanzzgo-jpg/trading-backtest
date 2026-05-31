@@ -20,6 +20,7 @@ function savePrefs() {
     localStorage.setItem("chartStyles",     JSON.stringify(S));
     localStorage.setItem("chartLineStyles", JSON.stringify(LINE_STYLES));
   } catch {}
+  if (window._acctTouch) window._acctTouch();   // 登入中 → debounce 同步到雲端
 }
 function loadPrefs() {
   try {
@@ -106,6 +107,7 @@ function savePaneFlexes() {
       : (parseFloat(el.style.flex)        || PANE_FLEX_DEFAULTS[id]);
   });
   try { localStorage.setItem("paneFlexes", JSON.stringify(flexes)); } catch {}
+  if (window._acctTouch) window._acctTouch();   // 登入中 → 版面比例同步到雲端
 }
 
 function loadPaneFlexes() {

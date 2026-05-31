@@ -56,6 +56,41 @@
     <div class="landing-country" id="landingCountry"></div>
     <button id="landingStartBtn" class="landing-gate-btn" aria-label="進入"></button>
   </div>
+
+  <!-- 大門的鎖（手繪掛鎖圖；輸入框疊在鎖身上）：點門 → 放大 → 跳此鎖 → 輸帳號 → 解鎖 → 接續開門進場
+       （跨裝置同步設定與自選；後端未啟用會自動隱藏、點門直接進場）-->
+  <div class="landing-acct" id="landingAcct" aria-hidden="true">
+    <svg class="lock-svg" viewBox="0 0 220 300" aria-hidden="true">
+      <defs>
+        <linearGradient id="lockBrass" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#FFE6AE"/>
+          <stop offset="0.5" stop-color="#F2C062"/>
+          <stop offset="1" stop-color="#D69A3F"/>
+        </linearGradient>
+        <linearGradient id="lockShackle" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#CDB78F"/>
+          <stop offset="1" stop-color="#8D7A56"/>
+        </linearGradient>
+      </defs>
+      <!-- 鎖環（shackle）-->
+      <path d="M67 132 V96 a43 43 0 0 1 86 0 V132" fill="none" stroke="url(#lockShackle)" stroke-width="18" stroke-linecap="round"/>
+      <path d="M67 132 V96 a43 43 0 0 1 86 0 V132" fill="none" stroke="#6E5C3C" stroke-width="18" stroke-linecap="round" opacity="0.25"/>
+      <!-- 鎖身 -->
+      <rect x="34" y="120" width="152" height="150" rx="26" fill="url(#lockBrass)" stroke="#7C6132" stroke-width="3.5"/>
+      <!-- 高光 -->
+      <ellipse cx="74" cy="150" rx="26" ry="14" fill="#FFFFFF" opacity="0.28"/>
+      <!-- 鉚釘 -->
+      <circle cx="48" cy="134" r="3.4" fill="#9A7B40"/><circle cx="172" cy="134" r="3.4" fill="#9A7B40"/>
+      <circle cx="48" cy="256" r="3.4" fill="#9A7B40"/><circle cx="172" cy="256" r="3.4" fill="#9A7B40"/>
+    </svg>
+    <!-- 疊在鎖身上的輸入框 + 解鎖鈕 -->
+    <div class="lock-overlay">
+      <div class="lock-title">輸入帳號解鎖</div>
+      <input id="landingAcctInput" class="landing-acct-input" type="text" placeholder="帳號名稱" autocomplete="off" autocapitalize="off" spellcheck="false" />
+      <button id="landingAcctBtn" class="landing-acct-btn">🔓 解鎖</button>
+      <div class="landing-acct-msg" id="landingAcctMsg"></div>
+    </div>
+  </div>
   <div class="landing-flash" aria-hidden="true"></div>
 </div>
 
@@ -726,6 +761,11 @@
   <div class="color-row"><label>次要文字</label><div class="sys-color-swatch" data-sc="sc-muted"></div></div>
   <div class="color-row"><label>強調色</label>  <div class="sys-color-swatch" data-sc="sc-blue"></div></div>
   <button id="resetSysColors" class="btn-reset">重設預設色</button>
+  <!-- 帳號：登入在封面門上的鎖；這裡顯示登入狀態 + 登出 -->
+  <div id="sysAcctRow" class="sys-acct-row">
+    <span id="sysAcctName" class="sys-acct-name"></span>
+    <button id="sysLogoutBtn" class="sys-acct-logout">登出</button>
+  </div>
 </div>
 
 <!-- FX 面板（手繪 SVG icons）-->

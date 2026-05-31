@@ -43,7 +43,26 @@ document.addEventListener("DOMContentLoaded", async () => {
       }
     };
     const armReshow = () => { if (timer) clearInterval(timer); timer = setInterval(checkExpiry, 60000); };
-    btn.addEventListener("click", hide);
+    window._landingEnter = hide;   // 帳號鎖解鎖後接續開門進場（account.js 呼叫）
+    btn.addEventListener("click", () => {
+      if (scr.classList.contains("landing-entering")) return;
+      // 帳號功能啟用且「未登入」→ 點門先放大、跳出鎖要求輸入帳號（登入後才開門）
+      if (window._acctEnabled && !window._acctName) {
+        if (!scr.classList.contains("landing-locking")) {
+          scr.classList.add("landing-locking");
+          setTimeout(() => document.getElementById("landingAcctInput")?.focus(), 420);
+        }
+        return;
+      }
+      // 已登入 或 帳號功能未啟用 → 直接開門進主圖（登入裝置不再跳鎖）
+      hide();
+    });
+    // 鎖開著時點門外暗區 → 取消、縮回（不進場）
+    scr.addEventListener("click", e => {
+      if (!scr.classList.contains("landing-locking")) return;
+      if (e.target.closest("#landingAcct") || e.target === btn) return;
+      scr.classList.remove("landing-locking");
+    });
     document.addEventListener("visibilitychange", () => { if (!document.hidden) checkExpiry(); });
     // 首屏已被 head script 跳過（同 session reload）→ landing 已隱藏，仍要排程 24h 後重跳
     if (document.documentElement.classList.contains("landing-skip")) { scr.style.display = "none"; armReshow(); }
@@ -111,6 +130,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   _initWrStopBuffer();  // 勝率欄停損緩衝輸入
   _initSubChartsToggle();  // 副圖指標 顯示/隱藏 toggle（左下浮按鈕）
   _initMarketPill();       // 市場切換動畫 pill（Crypto / TW / US）
+  if (typeof initAccount === "function") initAccount();   // 帳號 + 跨裝置同步（後端未啟用會自動隱藏入口）
   window.addEventListener("beforeunload", () => { saveLastSymbol(); });
 
   // 手機底部分頁：切換 圖表 / 勝率 / 自選 三個畫面（用 body class 控制各畫面顯示）

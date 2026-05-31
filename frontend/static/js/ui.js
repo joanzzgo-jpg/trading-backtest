@@ -803,6 +803,7 @@ function applyAllSystemColors() {
 }
 function saveSystemColors() {
   try { localStorage.setItem("sysColors", JSON.stringify(SC)); } catch {}
+  if (window._acctTouch) window._acctTouch();   // 登入中 → 系統色同步到雲端
 }
 function loadSystemColors() {
   try { Object.assign(SC, JSON.parse(localStorage.getItem("sysColors") || "{}")); } catch {}

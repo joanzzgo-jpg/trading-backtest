@@ -5,6 +5,7 @@ function _loadWatchlist() {
 }
 function _saveWatchlist() {
   try { localStorage.setItem("watchlist", JSON.stringify(_watchlist)); } catch {}
+  if (window._acctTouch) window._acctTouch();   // 登入中 → 自選變更同步到雲端
 }
 function _renderWatchlist() {
   renderTickers();   // wl tab 在 renderTickers 內處理，其餘 tab 更新星號狀態

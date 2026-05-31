@@ -5724,3 +5724,139 @@ html.landing-active .landing { background: transparent; }
   .ticker-panel .tk-price-val { font-size: 15px !important; }
   .ticker-panel .tk-chg { font-size: 13px !important; }
 }
+
+/* ══════════════════════════════════════════════════════════════
+   帳號 modal（登入/註冊 + 跨裝置同步）
+   ══════════════════════════════════════════════════════════════ */
+.acct-overlay {
+  position: fixed; inset: 0; z-index: 100050;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,.55); padding: 16px;
+}
+.acct-overlay.hidden { display: none; }
+.acct-modal {
+  width: min(92vw, 380px); background: var(--bg2);
+  border: 1px solid var(--border); border-radius: 14px;
+  box-shadow: 0 12px 48px rgba(0,0,0,.55); overflow: hidden;
+}
+.acct-modal-hd {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 13px 16px; border-bottom: 1px solid var(--border);
+}
+.acct-modal-title { font-size: 16px; font-weight: 800; color: var(--text); }
+.acct-close {
+  background: none; border: none; color: var(--muted);
+  font-size: 18px; cursor: pointer; line-height: 1; padding: 4px 6px; border-radius: 6px;
+}
+.acct-close:hover { color: var(--text); background: var(--bg3); }
+.acct-modal-body { padding: 16px; }
+.acct-hint { font-size: 12.5px; color: var(--muted); line-height: 1.5; margin-bottom: 12px; }
+.acct-input {
+  width: 100%; height: 44px; margin-bottom: 10px;
+  background: var(--bg3); border: 1px solid var(--border); border-radius: 9px;
+  color: var(--text); font-size: 15px; padding: 0 13px;
+}
+.acct-input:focus { outline: none; border-color: var(--accent, #FF6A1A); }
+.acct-btn-row { display: flex; gap: 9px; }
+.acct-btn {
+  flex: 1; height: 44px; border: none; border-radius: 9px; cursor: pointer;
+  background: var(--accent, #FF6A1A); color: #fff; font-size: 15px; font-weight: 700;
+  font-family: inherit;
+}
+.acct-btn:active { filter: brightness(.92); }
+.acct-btn-ghost { background: var(--bg3); color: var(--text); border: 1px solid var(--border); }
+.acct-status { font-size: 12.5px; color: var(--muted); margin-top: 12px; min-height: 16px; text-align: center; }
+.acct-status.acct-err { color: #ff7a7a; }
+.acct-logged-row { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
+.acct-logged-lbl { font-size: 12px; color: var(--muted); }
+.acct-logged-row b { font-size: 15px; color: var(--text); word-break: break-all; }
+.acct-logged .acct-btn { width: 100%; margin-top: 10px; }
+#acctTopBtn.acct-on { color: var(--accent, #FF6A1A); }
+
+html.perf-mode .acct-modal { background: #FFFFFF; border-color: #E5E5E5; }
+html.perf-mode .acct-modal-hd { border-bottom-color: #E5E5E5; }
+html.perf-mode .acct-input { background: #FAFAFA; border-color: #E5E5E5; }
+html.perf-mode .acct-btn { background: #FF6A1A; }
+html.perf-mode .acct-btn-ghost { background: #F5F5F5; color: #1F1F1F; border-color: #E5E5E5; }
+
+/* 手機：桌面帳號鈕隱藏（改用「設定」分頁的帳號列） */
+@media (max-width: 768px) {
+  #acctTopBtn { display: none !important; }
+}
+
+/* ── 封面大門的鎖（手繪掛鎖；輸入框疊在鎖身上）──
+     預設隱藏；點門 → .landing-locking 才放大聚焦門 + 彈出此鎖。 */
+.landing-acct {
+  position: absolute; left: 50%; top: 44%;
+  transform: translate(-50%, -50%) scale(.6);
+  z-index: 8; width: min(72vw, 230px);
+  opacity: 0; pointer-events: none;
+  transition: opacity .32s ease, transform .42s cubic-bezier(.34,1.56,.64,1);
+  filter: drop-shadow(0 10px 22px rgba(60,38,12,.45));
+}
+.landing.landing-locking .landing-acct { opacity: 1; transform: translate(-50%, -50%) scale(1); pointer-events: auto; }
+.lock-svg { display: block; width: 100%; height: auto; }
+/* 疊在鎖身上的輸入區（對齊鎖身：鎖身約在 SVG 下 60%）*/
+.lock-overlay {
+  position: absolute; left: 50%; bottom: 6%;
+  transform: translateX(-50%);
+  width: 74%;
+  display: flex; flex-direction: column; align-items: stretch; gap: 6px;
+}
+.lock-title {
+  font-family: "M PLUS Rounded 1c", system-ui, sans-serif;
+  font-size: 12px; font-weight: 800; text-align: center; color: #6E4E22;
+  letter-spacing: .04em; text-shadow: 0 1px 0 rgba(255,255,255,.4);
+}
+.landing-acct-input {
+  width: 100%; height: 34px; box-sizing: border-box;
+  background: rgba(255,252,245,.95); border: 1.5px solid #A9accf00;
+  border: 1.5px solid #9C7B3E; border-radius: 8px; outline: none;
+  font-size: 15px; font-weight: 700; text-align: center; color: #5A4326;
+  font-family: "M PLUS Rounded 1c", system-ui, sans-serif;
+}
+.landing-acct-input::placeholder { color: #B49A78; font-weight: 500; }
+.landing-acct-input:focus { border-color: #FF7A1A; }
+.landing-acct-btn {
+  width: 100%; height: 34px; cursor: pointer;
+  background: linear-gradient(135deg, #FFA94D, #FF7A1A);
+  color: #fff; border: none; border-radius: 8px;
+  font-size: 14px; font-weight: 800;
+  font-family: "M PLUS Rounded 1c", system-ui, sans-serif;
+}
+.landing-acct-btn:active { filter: brightness(.93); }
+.landing-acct-btn:disabled { opacity: .6; }
+.landing-acct-msg {
+  font-size: 11px; font-weight: 700; text-align: center; color: #6E5236;
+  min-height: 13px; text-shadow: 0 1px 2px rgba(255,255,255,.6);
+}
+.landing-acct-msg.acct-err { color: #d84315; }
+
+/* 點門後：放大聚焦大門、淡出其他元素（logo/箭頭/位置/熊以外）*/
+.landing.landing-locking .landing-stage { transform: scale(1.7); transition: transform .5s cubic-bezier(.4,0,.2,1); }
+.landing.landing-locking .landing-logo,
+.landing.landing-locking .landing-arrow,
+.landing.landing-locking .landing-loc,
+.landing.landing-locking .landing-country { opacity: 0; transition: opacity .3s ease; }
+.landing.landing-locking::after {   /* 暗化背景襯托鎖 */
+  content: ""; position: absolute; inset: 0; z-index: 7;
+  background: rgba(20,12,4,.42); pointer-events: none;
+}
+/* 進場放大時鎖淡出 */
+.landing.landing-entering .landing-acct { opacity: 0; transition: opacity .25s ease; }
+
+/* ── 系統外觀裡的帳號狀態 + 登出 ── */
+.sys-acct-row {
+  display: none; align-items: center; gap: 8px;
+  margin-top: 10px; padding-top: 9px;
+  border-top: 1px solid var(--border);
+}
+.sys-acct-name { flex: 1 1 auto; font-size: 12px; color: var(--muted); word-break: break-all; }
+.sys-acct-logout {
+  flex: 0 0 auto; cursor: pointer;
+  background: var(--bg3); border: 1px solid var(--border); border-radius: 6px;
+  color: var(--text); font-size: 12px; font-weight: 600; padding: 5px 12px;
+}
+.sys-acct-logout:hover { background: var(--bg4); }
+.sys-acct-row.sys-acct-out .sys-acct-logout { display: none; }
+html.perf-mode .sys-acct-logout { background: #F5F5F5; color: #1F1F1F; border-color: #E5E5E5; }
