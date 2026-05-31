@@ -10,6 +10,7 @@ import pandas as pd
 from data.taiwan import fetch_tw_stock, resample_tw, fetch_tw_intraday, fetch_tw_realtime, fetch_tw_intraday_yf, fetch_tw_latest_bar_yf, fetch_tw_daily_yf, YF_MAX_DAYS as TW_YF_MAX_DAYS
 from data.fugle import fetch_fugle_intraday, fugle_enabled
 from data.alpaca import fetch_alpaca_bars, alpaca_enabled
+from data.twelvedata import fetch_twelvedata_intraday, twelvedata_enabled
 from data.us_stock import fetch_us_stock, MAX_DAYS as US_MAX_DAYS
 from data.us_finnhub import fetch_us_quote
 from data.crypto import fetch_crypto_ohlcv
@@ -44,13 +45,13 @@ def _keyed_lock(key: str) -> threading.Lock:
 def diag():
     """環境變數診斷（只回名稱/長度/數量，**絕不洩漏金鑰值**），用來確認 Railway 設定是否生效。"""
     from data.fugle import _keys as _fugle_keys
+    from data.twelvedata import _keys as _td_keys
     names = sorted(os.environ.keys())
     return {
-        "fugle_keys": len(_fugle_keys()),                  # 偵測到幾把 Fugle 金鑰（0 = 沒設對）
-        "fugle_token_len": len(os.getenv("FUGLE_TOKEN", "")),   # FUGLE_TOKEN 字串長度（0 = 沒設或空值）
-        # 名字含 fugle/alpaca 的環境變數「名稱」(不含值) → 用來抓打錯字（例如設成 FUGLE_KEY）
+        "fugle_keys": len(_fugle_keys()),                  # 台股：Fugle 金鑰把數（0 = 沒設對）
+        "twelvedata_keys": len(_td_keys()),                # 美股：Twelve Data 金鑰把數
         "fugle_like_var_names": [k for k in names if "fug" in k.lower()],
-        "alpaca_like_var_names": [k for k in names if "alpac" in k.lower()],
+        "twelvedata_like_var_names": [k for k in names if "twelve" in k.lower() or "12data" in k.lower()],
         "alpaca": bool(os.getenv("ALPACA_KEY") and os.getenv("ALPACA_SECRET")),
         "finnhub": bool(os.getenv("FINNHUB_TOKEN")),
         "cwa": bool(os.getenv("CWA_API_KEY")),
@@ -477,6 +478,16 @@ def get_latest(req: LatestRequest):
                         cache.set(akey, adf)
                 if adf is not None and not adf.empty:
                     return {"live": True, "data": df_to_records(adf.tail(20))}
+            # ⭐ Twelve Data 即時 + 成交量（可選升級；設 TWELVEDATA_TOKEN 啟用）；快取 10 秒
+            if twelvedata_enabled() and req.timeframe in ("5m", "15m", "1h", "4h"):
+                tkey = f"us_td_{req.symbol}_{req.timeframe}"
+                tdf = cache.get(tkey, ttl=10)
+                if tdf is None:
+                    tdf = fetch_twelvedata_intraday(req.symbol, req.timeframe)
+                    if tdf is not None and not tdf.empty:
+                        cache.set(tkey, tdf)
+                if tdf is not None and not tdf.empty:
+                    return {"live": True, "data": df_to_records(tdf.tail(20))}
             end   = date.today().isoformat()
             start = (date.today() - timedelta(days=10)).isoformat()
             df = fetch_us_stock(req.symbol, start, end, req.timeframe)
