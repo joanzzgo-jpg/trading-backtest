@@ -12,9 +12,16 @@
 
 ### 環境變數
 - `ANTHROPIC_API_KEY`：橘子熊台詞生成（routes/bear.py 用 Claude Haiku）
-- `FINNHUB_TOKEN`：美股即時報價（免費註冊 https://finnhub.io）。設定後 `/api/latest`
-  與 `/api/ohlcv` 的 US 路徑會把 Finnhub `/quote` 即時價疊加到 yfinance 最後一根
-  K 棒（_finnhub_overlay）。不設定就純用 yfinance（15min 延遲）。
+- `FINNHUB_TOKEN`：美股即時（免費 https://finnhub.io、免 KYC、60 req/min）。`/api/latest`
+  US 分鐘(5m/15m/1h/4h)用 Finnhub `/quote` 即時價**累積出「當下這根」**(`_finnhub_accumulate`,
+  同 MIS 思路) → 無 ~15 分延遲；**即時棒無成交量**(Finnhub quote 無量, yfinance 之後回補)。
+  報價過期/日線 → 退回疊加最後一根(_finnhub_overlay)。不設就純 yfinance(15min 延遲)。
+- `TWELVEDATA_TOKEN`：美股即時**含成交量**的可選升級（免費 email 申請 https://twelvedata.com、
+  免 KYC；免費版 8 req/min → **可逗號分隔多把**輪替分散、429 冷卻）。設定後 US `/api/latest`
+  優先用 Twelve Data time_series 即時(含量) > Finnhub 累積器。`data/twelvedata.py`。
+- `ALPACA_KEY`/`ALPACA_SECRET`：美股 Alpaca IEX 即時(含量)（`data/alpaca.py`，已接好但**需券商
+  KYC+2FA、且常引導付費** → 通常不用；設了就優先）。
+- 美股即時優先序：Alpaca > Twelve Data > Finnhub 累積器 > yfinance。`/api/_diag` 可查各金鑰是否生效。
 - `CWA_API_KEY`：中央氣象署授權碼（天氣 routes/weather.py 的台灣資料源；申請
   https://opendata.cwa.gov.tw/）。未設定時台灣座標也會 fallback 到 Open-Meteo。
 - `FUGLE_TOKEN`：Fugle 富果 Marketdata 即時行情金鑰（免費申請 https://developer.fugle.tw）。
