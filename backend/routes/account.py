@@ -1,19 +1,19 @@
-"""帳號 + 跨裝置同步（設定與自選）—— 帳號只用「名稱」、無密碼、且只能由後台建立。
+"""帳號 + 跨裝置同步（設定與自選）—— 名稱-only、無密碼、無註冊、後台建立。
 
 依使用者要求：
-- 不用密碼：換裝置輸入管理員發給的帳號名稱，即可取回雲端設定與自選。
-- 不用註冊：使用者端不能自行建立帳號；查無帳號 → 拒絕（請向管理員索取）。
-- 只能由後台提供：用受保護的 admin 端點建立帳號（需 ACCOUNT_ADMIN_KEY），
-  或直接在資料庫 INSERT。一般使用者無法新增。
+- 不用密碼：換裝置輸入管理員發的帳號名稱，即可取回雲端設定與自選。
+- 不用註冊：使用者端不能自建；查無帳號 → 拒絕（請向管理員索取）。
+- 只能由後台提供：admin 端點建立（需 ACCOUNT_ADMIN_KEY）或直接 DB INSERT。
+- 大小寫敏感（"Abc" ≠ "abc"）。
 
-儲存：Railway Postgres（環境變數 DATABASE_URL）。未設 → 端點回 503、前端隱藏入口、App 照常。
-資料模型：accounts(name PK, data JSONB, updated_at)；data = 整包 localStorage 快照（設定+自選）。
+儲存（雙後端）：
+- 有 DATABASE_URL（Railway Postgres）→ 用 Postgres（跨重啟/多實例持久）。
+- 本機開發（非 Railway 且無 DATABASE_URL）→ 用 SQLite 檔（backend/.accounts.db，已 gitignore），
+  讓本機就能測試帳號功能。
+- 在 Railway 上卻沒 DATABASE_URL → 停用（避免寫到會被清空的臨時檔造成假性遺失）。
 
-建立帳號（後台，擇一）：
-  1) 設環境變數 ACCOUNT_ADMIN_KEY，然後：
-     curl -X POST .../api/account/admin/create -H 'Content-Type: application/json' \
-          -d '{"key":"你的ADMIN_KEY","name":"noah"}'
-  2) Railway 的 Postgres 直接 SQL：INSERT INTO accounts(name,data,updated_at) VALUES('noah','{}',0);
+資料模型：accounts(name PRIMARY KEY, data TEXT[JSON], updated_at)。data = 整包 localStorage 快照。
+預設種子帳號 Abc / qwer（可用 ACCOUNT_SEED 覆寫）。
 """
 import os
 import json
@@ -29,40 +29,59 @@ router = APIRouter(prefix="/api/account")
 
 _DB_URL = os.getenv("DATABASE_URL")
 _ADMIN_KEY = os.getenv("ACCOUNT_ADMIN_KEY")
-# 後台預設提供的帳號（大小寫敏感）。可用環境變數 ACCOUNT_SEED 覆寫（逗號分隔）。
 _SEED = [s.strip() for s in os.getenv("ACCOUNT_SEED", "Abc,qwer").split(",") if s.strip()]
+_ON_RAILWAY = bool(os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("RAILWAY_PROJECT_ID") or os.getenv("RAILWAY_SERVICE_ID"))
+_SQLITE_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".accounts.db")
 _inited = False
 
 
-def _enabled() -> bool:
+def _use_pg() -> bool:
     return bool(_DB_URL)
 
 
-def _conn():
-    import psycopg
-    url = _DB_URL.replace("postgres://", "postgresql://", 1) if _DB_URL else _DB_URL
-    return psycopg.connect(url, connect_timeout=8)
+def _enabled() -> bool:
+    # 有 Postgres → 啟用；本機(非 Railway)無 DB → SQLite 啟用；Railway 無 DB → 停用
+    return bool(_DB_URL) or not _ON_RAILWAY
+
+
+def _db():
+    """回 (conn, placeholder)。Postgres 用 %s、SQLite 用 ?。"""
+    if _use_pg():
+        import psycopg
+        url = _DB_URL.replace("postgres://", "postgresql://", 1)
+        return psycopg.connect(url, connect_timeout=8), "%s"
+    import sqlite3
+    return sqlite3.connect(_SQLITE_PATH, timeout=8), "?"
 
 
 def _ensure_db():
     global _inited
     if _inited or not _enabled():
         return
-    with _conn() as c:
-        c.execute("""
+    conn, ph = _db()
+    try:
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS accounts (
                 name       TEXT PRIMARY KEY,
-                data       JSONB,
+                data       TEXT,
                 updated_at DOUBLE PRECISION
             )
+        """ if _use_pg() else """
+            CREATE TABLE IF NOT EXISTS accounts (
+                name       TEXT PRIMARY KEY,
+                data       TEXT,
+                updated_at REAL
+            )
         """)
-        # 種入後台預設帳號（大小寫敏感、已存在則不動其資料）
         for nm in _SEED:
-            c.execute(
-                "INSERT INTO accounts (name, data, updated_at) VALUES (%s,'{}',%s) ON CONFLICT (name) DO NOTHING",
+            conn.execute(
+                f"INSERT INTO accounts (name, data, updated_at) VALUES ({ph},'{{}}',{ph}) "
+                f"ON CONFLICT (name) DO NOTHING",
                 (nm, time.time()),
             )
-        c.commit()
+        conn.commit()
+    finally:
+        conn.close()
     _inited = True
 
 
@@ -73,7 +92,7 @@ def _require_enabled():
 
 
 def _norm_name(name: str) -> str:
-    # 大小寫敏感（依使用者要求）：只去頭尾空白，不轉小寫 → "Abc" ≠ "abc"
+    # 大小寫敏感（依使用者要求）：只去頭尾空白，不轉小寫
     return (name or "").strip()
 
 
@@ -84,7 +103,7 @@ def _valid_name(name: str) -> bool:
 # ───────── request models ─────────
 class LoginReq(BaseModel):
     name: str
-    data: Optional[dict] = None     # 帳號雲端為空時，用本機目前設定初始化
+    data: Optional[dict] = None
 
 
 class SyncReq(BaseModel):
@@ -105,77 +124,77 @@ def status():
 
 @router.post("/login")
 def login(req: LoginReq):
-    """用帳號名稱登入（帳號須已由後台建立）：
-    - 查無帳號 → 404（不自動註冊）。
-    - 雲端已有設定 → 回 data（前端套用 + reload）。
-    - 雲端為空（剛建立）→ 用本機目前設定初始化雲端，回 existed=True/data={}。
-    """
     _require_enabled()
     name = _norm_name(req.name)
     if not _valid_name(name):
         raise HTTPException(status_code=400, detail="帳號名稱需 2~40 字、不含空白")
+    conn, ph = _db()
     try:
-        with _conn() as c:
-            cur = c.execute("SELECT data FROM accounts WHERE name=%s", (name,))
-            row = cur.fetchone()
-            if not row:
-                raise HTTPException(status_code=404, detail="查無此帳號，請向管理員索取")
-            data = row[0] or {}
-            if not data and req.data:
-                # 雲端空帳號 → 用本機現有設定初始化
-                c.execute("UPDATE accounts SET data=%s, updated_at=%s WHERE name=%s",
-                          (json.dumps(req.data), time.time(), name))
-                c.commit()
-                data = {}   # 回空 → 前端知道是「初始化」不需 reload
-            return {"ok": True, "name": name, "data": data}
+        cur = conn.execute(f"SELECT data FROM accounts WHERE name={ph}", (name,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="查無此帳號，請向管理員索取")
+        try:
+            data = json.loads(row[0]) if isinstance(row[0], str) else (row[0] or {})
+        except Exception:
+            data = {}
+        if not data and req.data:
+            conn.execute(f"UPDATE accounts SET data={ph}, updated_at={ph} WHERE name={ph}",
+                         (json.dumps(req.data), time.time(), name))
+            conn.commit()
+            data = {}
+        return {"ok": True, "name": name, "data": data}
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"登入失敗：{e}")
+    finally:
+        conn.close()
 
 
 @router.post("/sync")
 def sync(req: SyncReq):
-    """上傳整包快照（僅限已存在的帳號；不存在不建立）。"""
     _require_enabled()
     name = _norm_name(req.name)
     if not _valid_name(name):
         raise HTTPException(status_code=400, detail="帳號名稱不正確")
+    conn, ph = _db()
     try:
-        with _conn() as c:
-            cur = c.execute(
-                "UPDATE accounts SET data=%s, updated_at=%s WHERE name=%s",
-                (json.dumps(req.data or {}), time.time(), name),
-            )
-            if cur.rowcount == 0:
-                raise HTTPException(status_code=404, detail="查無此帳號")
-            c.commit()
+        cur = conn.execute(f"UPDATE accounts SET data={ph}, updated_at={ph} WHERE name={ph}",
+                           (json.dumps(req.data or {}), time.time(), name))
+        if cur.rowcount == 0:
+            raise HTTPException(status_code=404, detail="查無此帳號")
+        conn.commit()
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"同步失敗：{e}")
+    finally:
+        conn.close()
     return {"ok": True}
 
 
 @router.post("/admin/create")
 def admin_create(req: AdminCreateReq):
-    """後台建立帳號（需 ACCOUNT_ADMIN_KEY）。一般使用者無法呼叫。"""
+    """後台建立帳號（需 ACCOUNT_ADMIN_KEY）。"""
     _require_enabled()
     if not _ADMIN_KEY or not secrets.compare_digest(req.key or "", _ADMIN_KEY):
         raise HTTPException(status_code=403, detail="無權限")
     name = _norm_name(req.name)
     if not _valid_name(name):
         raise HTTPException(status_code=400, detail="帳號名稱需 2~40 字、不含空白")
+    conn, ph = _db()
     try:
-        with _conn() as c:
-            cur = c.execute("SELECT 1 FROM accounts WHERE name=%s", (name,))
-            if cur.fetchone():
-                raise HTTPException(status_code=409, detail="帳號已存在")
-            c.execute("INSERT INTO accounts (name, data, updated_at) VALUES (%s,%s,%s)",
-                      (name, "{}", time.time()))
-            c.commit()
+        cur = conn.execute(f"SELECT 1 FROM accounts WHERE name={ph}", (name,))
+        if cur.fetchone():
+            raise HTTPException(status_code=409, detail="帳號已存在")
+        conn.execute(f"INSERT INTO accounts (name, data, updated_at) VALUES ({ph},'{{}}',{ph})",
+                     (name, time.time()))
+        conn.commit()
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"建立失敗：{e}")
+    finally:
+        conn.close()
     return {"ok": True, "name": name}
