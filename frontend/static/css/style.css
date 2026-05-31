@@ -5406,6 +5406,9 @@ body, button, input, select, textarea,
   /* 行情列表鈕（四條線圖示）：手機已有底部「自選」分頁 → 多餘，隱藏 */
   #tickerToggle { display: none !important; }
 
+  /* 手機鎖住圖表上下大小：分隔線不可拖曳（觸控易誤拖改各圖高度）→ 留視覺線、停用互動 */
+  .pane-divider { pointer-events: none !important; cursor: default !important; }
+
   /* ── 手機按鈕放大、好點（app 化）── */
   .topbar-tf { height: 42px !important; }
   .topbar-tf .tf-btn { font-size: 12.5px !important; height: 42px !important; }
