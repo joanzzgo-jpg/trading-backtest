@@ -5810,14 +5810,12 @@ html.perf-mode .acct-btn-ghost { background: #F5F5F5; color: #1F1F1F; border-col
 }
 .landing-acct-input {
   width: 100%; height: 30px; box-sizing: border-box;
-  /* 嵌在鎖身上的暖色刻痕槽：米黃底 + 褐描邊 + 內凹陰影 */
-  background: #F4E8CE; border: 2px solid #7C6132; border-radius: 7px; outline: none;
-  font-size: 14px; font-weight: 800; text-align: center; color: #5A4327;
+  /* 透明輸入框 + 虛線框（依使用者要求）*/
+  background: transparent; border: 2px dashed #7C6132; border-radius: 7px; outline: none;
+  font-size: 15px; font-weight: 800; text-align: center; color: #5A4327;
   font-family: "M PLUS Rounded 1c", system-ui, sans-serif;
-  box-shadow: inset 0 2px 3px rgba(90,60,25,.30);
 }
-.landing-acct-input::placeholder { color: #B49A78; font-weight: 600; }
-.landing-acct-input:focus { border-color: #C98A4A; background: #FBF3E0; }
+.landing-acct-input:focus { border-color: #C98A4A; }
 .landing-acct-btn {
   width: 100%; min-height: 30px; cursor: pointer;
   display: flex; align-items: center; justify-content: center; gap: 4px;
