@@ -371,6 +371,7 @@ function renderTickers() {
         updateMarketUI();
         document.getElementById("symbolInput").value = item.symbol;
         loadData(false);
+        window._mSetTab && window._mSetTab("chart");   // 手機：選標的後直接跳圖表分頁
         container.querySelector(".ticker-item.tk-active")?.classList.remove("tk-active");
         el.classList.add("tk-active");
       });
@@ -430,6 +431,7 @@ function renderTickers() {
         if (mktEl.value !== "tw") { mktEl.value = "tw"; updateMarketUI(); }
         document.getElementById("symbolInput").value = el.dataset.symbol;
         loadData(false);
+        window._mSetTab && window._mSetTab("chart");   // 手機：選標的後直接跳圖表分頁
         container.querySelector(".ticker-item.tk-active")?.classList.remove("tk-active");
         el.classList.add("tk-active");
       });
@@ -487,6 +489,7 @@ function renderTickers() {
       if (exchEl) exchEl.value = "pionex";
       document.getElementById("symbolInput").value = el.dataset.display;
       loadData(false);
+      window._mSetTab && window._mSetTab("chart");   // 手機：選標的後直接跳圖表分頁
       container.querySelector(".ticker-item.tk-active")?.classList.remove("tk-active");
       el.classList.add("tk-active");
     });
@@ -789,6 +792,7 @@ function _selectSymbol(el) {
   document.getElementById("symbolInput").value = display;
   closeSymSearch();
   loadData(false);
+  window._mSetTab && window._mSetTab("chart");   // 手機：搜尋選標的後直接跳圖表分頁
   renderTickers();
 }
 

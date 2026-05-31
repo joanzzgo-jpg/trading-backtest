@@ -128,6 +128,8 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (typeof resizeAll === "function") setTimeout(resizeAll, 80);
     };
     bar.querySelectorAll(".m-tab").forEach(b => b.addEventListener("click", () => setTab(b.dataset.mtab)));
+    // 暴露給其他模組：在自選分頁點標的後切回圖表分頁（ticker.js 用）
+    window._mSetTab = setTab;
     // 初始分頁：?mtab= 可指定（方便測試），預設圖表
     const _mt = new URLSearchParams(location.search).get("mtab");
     setTab(["chart", "wr", "watch"].includes(_mt) ? _mt : "chart");

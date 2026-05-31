@@ -230,6 +230,8 @@ html, body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   overflow: hidden;
+  /* 手機原生感：禁掉橡皮筋回彈 / 下拉刷新（避免拉動時露白、誤觸刷新） */
+  overscroll-behavior: none;
   display: flex;
   flex-direction: column;
 }
@@ -5376,7 +5378,12 @@ body, button, input, select, textarea,
   #legBB .leg-val { display: inline !important; }
   .pane-legend { flex-wrap: wrap !important; overflow-x: hidden !important; }
 
-  /* ── 📊 勝率分頁：v1 先沿用圖表畫面，專屬勝率版面下一步做 ── */
+  /* ── 📈 圖表分頁：隱藏勝率欄 → 圖表多拿回 ~54px、畫面乾淨像看盤 app ──
+     （勝率資訊移到下方「勝率」分頁；iPad 769–1100px 無分頁 → 不受影響、仍顯示） */
+  body.m-tab-chart .tb-winrate { display: none !important; }
+
+  /* ── 📊 勝率分頁：頂部完整勝率欄 + 下方圖表帶訊號標記當佐證 ── */
+  body.m-tab-wr .tb-winrate { display: flex !important; }
 }
 
 
@@ -5518,3 +5525,25 @@ html.landing-active .landing { background: transparent; }
 @keyframes landing-flash { 0% { opacity: 0; } 45% { opacity: .35; } 100% { opacity: 1; } }
 .landing.landing-entering .landing-logo,
 .landing.landing-entering .landing-arrow { opacity: 0; transition: opacity .25s ease; }
+
+/* ══════════════════════════════════════════════════════════════
+   手機原生感（app-like）：去點擊灰底、慣性捲動、捲動不連鎖、介面不誤選字
+   ══════════════════════════════════════════════════════════════ */
+@media (max-width: 768px) {
+  /* 點任何按鈕都不要冒出灰色高亮方塊（iOS/Android 預設） */
+  a, button, .tb-icon-btn, .fx-btn, .m-tab, .tf-btn, .sym-tab,
+  .tk-mkt-btn, .tk-seg-btn, .ticker-item, .leg-toggle, .tb-wr-block {
+    -webkit-tap-highlight-color: transparent;
+  }
+  /* 介面元件不被長按誤選文字（更像原生 app）；輸入框與行情數字仍可選 */
+  .topbar, .symbol-bar, .m-tabbar, .pane-legend, .tb-winrate,
+  .draw-toolbar, .ticker-hd, .tk-mkt-tabs {
+    -webkit-user-select: none; user-select: none;
+  }
+  /* 可捲動區：iOS 慣性捲動 + 捲到底不把回彈傳給整頁（消除露白/卡頓） */
+  .ticker-list, .topbar-tf, .tb-wr-scroll, .topbar-left,
+  .ind-settings-popup, .sys-settings-popup, .sig-drawer, .ai-modal-results {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
+}

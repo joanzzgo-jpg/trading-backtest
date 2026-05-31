@@ -713,7 +713,15 @@ const SFX = (() => {
     } catch(e) { return false; }
   })();
   const _fxN = _lowFx ? 0.55 : 1;          // 粒子數倍率
+  const _frameMin = _lowFx ? 50 : 33;      // 幀間隔下限：手機 ~20fps（省 GPU/主執行緒）、桌面 ~30fps
   let W = 0, H = 0, type = "sunny", rafId = null, _gc = {}, _lastFrameTs = 0;
+  // 手機：手指觸控/平移圖表時暫停天氣重繪 → 主執行緒全讓給圖表，平移/縮放更順（消除「卡」感）
+  let _touchT = 0;
+  if (_lowFx) {
+    const _mark = () => { _touchT = (performance.now ? performance.now() : Date.now()); };
+    window.addEventListener('touchstart', _mark, { passive: true });
+    window.addEventListener('touchmove',  _mark, { passive: true });
+  }
   let _paX = 0, _paY = 0, _paTX = 0, _paTY = 0, _paOn = false;   // 視差深度：平滑值/目標值(-1~1)，滑鼠或陀螺儀驅動
 
   /* shared state */
@@ -2365,7 +2373,14 @@ const SFX = (() => {
     _drawAstro(t);
     _tempTint();
   }
-  function loop(ts) { rafId=requestAnimationFrame(loop); if(document.hidden||ts-_lastFrameTs<33)return; _lastFrameTs=ts; draw(); }
+  function loop(ts) {
+    rafId = requestAnimationFrame(loop);
+    if (document.hidden || ts - _lastFrameTs < _frameMin) return;
+    // 手機：觸控後 350ms 內暫停天氣重繪（平移/縮放圖表期間不搶主執行緒）
+    if (_lowFx && _touchT && (performance.now ? performance.now() : Date.now()) - _touchT < 350) return;
+    _lastFrameTs = ts;
+    draw();
+  }
   let _inited = false;
   function start(wt) {
     const changed = wt !== type || !_inited;
