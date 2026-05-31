@@ -108,14 +108,66 @@ def _mis_overlay(df: pd.DataFrame, rt: dict, minutes: int):
         df.at[i, "low"]   = min(float(last["low"]  or close), close)
         return df, True
     if bar_ts > last_bar_ts:
-        new = {"time": bar_ts, "open": float(last["close"] or close),
-               "high": close, "low": close, "close": close, "volume": 0}
+        # yfinance 台股分鐘線延遲 ~20 分：若把即時棒放到「現在」的時間點，會與最後一根真實棒
+        # 之間出現 ~20 分鐘空隙。改為把即時棒接在「最後一根真實棒的下一根」→ 連續、無 gap；
+        # 等 yfinance 之後補上真實資料(tail 多送幾根)就會覆蓋並自然往前推進。
+        o = float(last["close"] or close)
+        new = {"time": last_bar_ts + timedelta(minutes=minutes), "open": o,
+               "high": max(o, close), "low": min(o, close), "close": close, "volume": 0}
         for col in df.columns:
             if col not in new:
                 new[col] = None
         df = pd.concat([df, pd.DataFrame([new])], ignore_index=True)
         return df, True
     return df, False
+
+
+# ───────── MIS 即時累積『真實』分鐘 K（突破 yfinance 台股 ~20 分延遲）─────────
+# yfinance/Yahoo 對台股分鐘線強制延遲約 20 分鐘（無解）。但 TWSE MIS 即時報價無延遲
+# （回傳即時價 + 當日累積成交量），故逐次取樣可即時堆出『真實』分鐘 K，填補 yfinance
+# 尚未公布的最近 ~20 分鐘，讓圖表連續且即時。狀態存於模組層（隨伺服器存活；重啟後
+# 需重新累積，約一個交易時段內收斂）。
+_mis_acc: dict = {}   # key f"{symbol}:{minutes}" → {"day":date, "cur":{...}|None, "done":{ts:bar}}
+
+def _mis_acc_list(symbol: str, minutes: int):
+    st = _mis_acc.get(f"{symbol}:{minutes}")
+    if not st:
+        return []
+    keys = set(st["done"].keys())
+    if st["cur"]:
+        keys.add(st["cur"]["ts"])
+    out = []
+    for ts in sorted(keys):
+        b = st["cur"] if (st["cur"] and ts == st["cur"]["ts"]) else st["done"][ts]
+        out.append({"time": ts, "open": b["o"], "high": b["h"], "low": b["l"],
+                    "close": b["c"], "volume": b["vol"]})
+    return out
+
+def _mis_accumulate(symbol: str, minutes: int, rt: dict):
+    """用 TWSE MIS 即時報價即時堆出當前/近期『真實』分鐘 K 棒。回傳今日已累積 bar list(升冪)。"""
+    price = rt.get("close")
+    mis_utc = rt["time"] - timedelta(hours=8)              # TST naive → UTC naive
+    bar_min = (mis_utc.hour * 60 + mis_utc.minute) // minutes * minutes
+    bar_ts  = mis_utc.replace(hour=bar_min // 60, minute=bar_min % 60, second=0, microsecond=0)
+    bar_tpe = ((bar_ts.hour + 8) % 24) * 60 + bar_ts.minute
+    # 僅交易時段(09:00-13:30 TPE)累積；其餘時間回傳已累積結果不動
+    if price is None or bar_tpe < 9 * 60 or bar_tpe >= 13 * 60 + 30:
+        return _mis_acc_list(symbol, minutes)
+    key = f"{symbol}:{minutes}"
+    st = _mis_acc.get(key)
+    if st is None or st["day"] != mis_utc.date():          # 換日重置
+        st = {"day": mis_utc.date(), "cur": None, "done": {}}
+        _mis_acc[key] = st
+    cumvol = rt.get("volume") or 0
+    cur = st["cur"]
+    if cur is None or cur["ts"] != bar_ts:                 # 新分鐘 → 收掉舊棒、開新棒
+        if cur is not None:
+            st["done"][cur["ts"]] = cur
+        st["cur"] = {"ts": bar_ts, "o": price, "h": price, "l": price, "c": price, "vol0": cumvol, "vol": 0}
+    else:                                                  # 同分鐘 → 更新高/低/收 + 量(累積量差)
+        cur["h"] = max(cur["h"], price); cur["l"] = min(cur["l"], price); cur["c"] = price
+        cur["vol"] = max(0, cumvol - cur["vol0"])
+    return _mis_acc_list(symbol, minutes)
 
 
 
@@ -259,9 +311,9 @@ def get_latest(req: LatestRequest):
         if req.market == "tw":
             if "/" in req.symbol:
                 raise ValueError(f"{req.symbol} 不是台股代號，請確認市場選擇")
-            # 1. TWSE MIS 即時（盤中），快取 30 秒避免頻繁打官方 API
+            # 1. TWSE MIS 即時（盤中），快取 10 秒（即時棒要夠即時，單一標的每分鐘約 6 次、仍禮貌）
             mis_key = f"tw_mis_{req.symbol}"
-            rt = cache.get(mis_key, ttl=30)
+            rt = cache.get(mis_key, ttl=10)
             if rt is None:
                 rt = fetch_tw_realtime(req.symbol)
                 if rt:
@@ -294,12 +346,19 @@ def get_latest(req: LatestRequest):
                     except Exception:
                         pass
                 if df_intra is not None and not df_intra.empty:
-                    df_out = df_intra.tail(2).copy()
+                    df_out = df_intra.tail(6).copy()           # 多送幾根，讓 yfinance 之後補的真實棒能覆蓋暫時的 MIS 棒
+                    recs = df_to_records(df_out)
                     is_live = False
                     if rt and tf in ("5m", "15m", "1h"):
                         minutes = {"5m": 5, "15m": 15, "1h": 60}[tf]
-                        df_out, is_live = _mis_overlay(df_out, rt, minutes)
-                    return {"live": is_live, "data": df_to_records(df_out)}
+                        # MIS 即時累積真實分鐘棒：把 yfinance 最後一根之後的(含當下這根)接上 → 當下就有最新棒、無 20 分 gap
+                        yf_last = pd.Timestamp(df_out.iloc[-1]["time"]).floor(f"{minutes}min")
+                        for b in _mis_accumulate(req.symbol, minutes, rt):
+                            if pd.Timestamp(b["time"]) > yf_last:
+                                recs.append({"time": b["time"].isoformat(), "open": b["open"],
+                                             "high": b["high"], "low": b["low"], "close": b["close"], "volume": b["volume"]})
+                                is_live = True
+                    return {"live": is_live, "data": recs}
                 # 分鐘/小時不可 fall-through 到日線來源（時間戳不相容）
                 return {"live": False, "data": []}
             # 2. yfinance fallback（盤中約 15 分鐘延遲，盤後即時），快取 5 分鐘
