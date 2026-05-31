@@ -2484,6 +2484,9 @@ const SFX = (() => {
     document.getElementById("hailToggleBtn")    ?.classList.remove("hail-active");
     document.getElementById("tornadoToggleBtn") ?.classList.remove("tornado-active");
     document.getElementById("quakeToggleBtn")   ?.classList.remove("quake-active");
+    document.getElementById("auroraToggleBtn")  ?.classList.remove("aurora-active");
+    document.getElementById("sunsetToggleBtn")  ?.classList.remove("sunset-active");
+    document.getElementById("meteorToggleBtn")  ?.classList.remove("meteor-active");
     document.getElementById("noFxToggleBtn")    ?.classList.remove("nofx-active");
   }
   window._getWeatherType = () => type;
