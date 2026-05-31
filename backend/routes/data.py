@@ -9,6 +9,7 @@ import pandas as pd
 
 from data.taiwan import fetch_tw_stock, resample_tw, fetch_tw_intraday, fetch_tw_realtime, fetch_tw_intraday_yf, fetch_tw_latest_bar_yf, fetch_tw_daily_yf, YF_MAX_DAYS as TW_YF_MAX_DAYS
 from data.fugle import fetch_fugle_intraday, fugle_enabled
+from data.alpaca import fetch_alpaca_bars, alpaca_enabled
 from data.us_stock import fetch_us_stock, MAX_DAYS as US_MAX_DAYS
 from data.us_finnhub import fetch_us_quote
 from data.crypto import fetch_crypto_ohlcv
@@ -37,6 +38,18 @@ def _keyed_lock(key: str) -> threading.Lock:
             lk = threading.Lock()
             _inflight_locks[key] = lk
         return lk
+
+
+@router.get("/_diag")
+def diag():
+    """環境變數診斷（只回是否設定/幾把金鑰，**不洩漏金鑰值**），用來確認 Railway 設定是否生效。"""
+    from data.fugle import _keys as _fugle_keys
+    return {
+        "fugle_keys": len(_fugle_keys()),                  # 偵測到幾把 Fugle 金鑰（0 = 沒設對）
+        "alpaca": bool(os.getenv("ALPACA_KEY") and os.getenv("ALPACA_SECRET")),
+        "finnhub": bool(os.getenv("FINNHUB_TOKEN")),
+        "cwa": bool(os.getenv("CWA_API_KEY")),
+    }
 
 
 @router.post("/reset_pionex_cooldown")
@@ -405,6 +418,17 @@ def get_latest(req: LatestRequest):
             df = fetch_tw_stock(req.symbol, start, end, req.finmind_token)
             df = resample_tw(df, req.timeframe)
         elif req.market == "us":
+            # ⭐ Alpaca IEX 即時分鐘K 優先（無延遲、當下就有最新棒）；快取 8 秒、失敗 fallback 回 Finnhub+yfinance
+            if alpaca_enabled():
+                akey = f"us_alpaca_{req.symbol}_{req.timeframe}"
+                adf = cache.get(akey, ttl=8)
+                if adf is None:
+                    adf = fetch_alpaca_bars(req.symbol, req.timeframe,
+                                            start=(date.today() - timedelta(days=6)).isoformat())
+                    if adf is not None and not adf.empty:
+                        cache.set(akey, adf)
+                if adf is not None and not adf.empty:
+                    return {"live": True, "data": df_to_records(adf.tail(20))}
             end   = date.today().isoformat()
             start = (date.today() - timedelta(days=10)).isoformat()
             df = fetch_us_stock(req.symbol, start, end, req.timeframe)
