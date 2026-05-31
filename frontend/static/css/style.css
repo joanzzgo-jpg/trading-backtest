@@ -3713,6 +3713,27 @@ html.perf-mode .tb-wr-total { font-size: 14px !important; }
 .tb-wr-recent.bad  { color: #ff7a7a; }
 html.perf-mode .tb-wr-recent.good { color: #16a34a; }
 html.perf-mode .tb-wr-recent.bad  { color: #dc2626; }
+
+/* 敗後停手勝率：常駐顯示的關鍵指標，給暖色藥丸襯底凸顯 */
+.tb-wr-stoprate {
+  font-size: 10px;
+  font-family: 'SF Mono','Courier New',monospace;
+  color: #FFB178;
+  background: rgba(255,160,90,.14);
+  border: 1px solid rgba(255,180,120,.32);
+  border-radius: 5px;
+  padding: 1px 6px;
+  margin-left: 5px;
+  letter-spacing: .02em;
+  white-space: nowrap;
+  cursor: help;
+}
+.tb-wr-stoprate.good { color: #26d07c; border-color: rgba(38,208,124,.45); background: rgba(38,208,124,.12); }
+.tb-wr-stoprate.bad  { color: #ff7a7a; border-color: rgba(255,122,122,.4); background: rgba(255,122,122,.10); }
+html.perf-mode .tb-wr-stoprate { color: #E85A1A; background: rgba(255,106,26,.08); border-color: rgba(255,106,26,.3); }
+html.perf-mode .tb-wr-stoprate.good { color: #16a34a; }
+html.perf-mode .tb-wr-stoprate.bad  { color: #dc2626; }
+
 @media (max-width: 768px) {
   .tb-wr-est { font-size: 9px; }
   .tb-wr-recent { font-size: 9px; }
@@ -5382,8 +5403,63 @@ body, button, input, select, textarea,
      （勝率資訊移到下方「勝率」分頁；iPad 769–1100px 無分頁 → 不受影響、仍顯示） */
   body.m-tab-chart .tb-winrate { display: none !important; }
 
-  /* ── 📊 勝率分頁：頂部完整勝率欄 + 下方圖表帶訊號標記當佐證 ── */
-  body.m-tab-wr .tb-winrate { display: flex !important; }
+  /* 行情列表鈕（四條線圖示）：手機已有底部「自選」分頁 → 多餘，隱藏 */
+  #tickerToggle { display: none !important; }
+
+  /* ── 手機按鈕放大、好點（app 化）── */
+  .topbar-tf { height: 42px !important; }
+  .topbar-tf .tf-btn { font-size: 12.5px !important; height: 42px !important; }
+  .topbar-right .tb-icon-btn { width: 40px !important; height: 40px !important; }
+  .topbar-right .tb-icon-btn svg { width: 17px; height: 17px; }
+  .m-tab { font-size: 11px; }
+  .m-tab-ico svg { width: 23px; height: 23px; }
+
+  /* ── 📊 勝率分頁：放大成可讀面板（大按鈕、敗後停手常駐、訊號好點）── */
+  body.m-tab-wr .tb-winrate {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    align-content: flex-start;
+    height: auto !important;
+    min-height: 0 !important;
+    padding: 7px 10px !important;
+    row-gap: 7px;
+  }
+  /* 控制列：中軌切換 + SL% 放大好按 */
+  body.m-tab-wr .tb-wr-fixed-left { order: 1 !important; gap: 8px; flex: 0 0 auto; }
+  body.m-tab-wr .tb-wr-toggle {
+    font-size: 14px !important; font-weight: 700;
+    padding: 8px 16px !important; height: auto !important;
+    line-height: 1.1; border-radius: 9px;
+  }
+  body.m-tab-wr .tb-wr-buffer-input {
+    font-size: 14px !important; width: 56px !important; height: 36px !important;
+  }
+  body.m-tab-wr .tb-wr-buffer-pct { font-size: 13px !important; }
+  /* 數字列：總勝率特大 + 敗後停手藥丸醒目 + 近100/預估/起始日 */
+  body.m-tab-wr .tb-wr-fixed-right {
+    order: 2 !important; margin-left: auto !important;
+    display: flex !important; flex-wrap: wrap; align-items: baseline;
+    justify-content: flex-end; gap: 5px 9px;
+  }
+  body.m-tab-wr .tb-wr-total { font-size: 26px !important; padding: 0 4px; }
+  body.m-tab-wr .tb-wr-stoprate { font-size: 15px; padding: 4px 11px; }
+  body.m-tab-wr .tb-wr-recent,
+  body.m-tab-wr .tb-wr-est { font-size: 12.5px !important; }
+  body.m-tab-wr .tb-wr-from,
+  body.m-tab-wr .tb-wr-status { font-size: 11.5px; }
+  /* 訊號列（S1~S12）橫滑、每個區塊放大好點 → 點開訊號抽屜 */
+  body.m-tab-wr .tb-wr-scroll {
+    display: flex !important;      /* 蓋過 ≤1100px 的 display:none，勝率分頁要顯示各訊號明細 */
+    order: 3 !important; width: 100% !important; flex: 1 1 100% !important;
+    overflow-x: auto !important; gap: 2px; padding-top: 6px;
+    border-top: 1px solid rgba(255,180,120,.18);
+  }
+  body.m-tab-wr .tb-wr-block { gap: 5px; padding: 6px 7px; border-radius: 7px; }
+  body.m-tab-wr .tb-wr-block:active { background: rgba(255,180,120,.12); }
+  body.m-tab-wr .tb-wr-icon { font-size: 17px; }
+  body.m-tab-wr .tb-wr-v,
+  body.m-tab-wr .tb-wr-pct { font-size: 13px; }
+  body.m-tab-wr .tb-wr-divider { height: 32px; }
 }
 
 

@@ -654,6 +654,20 @@ function _renderWinRate(d) {
     }
   }
 
+  // 敗後停手勝率（常駐顯示，不必點連敗按鈕循環）：取當前 target 的 stop_strategy
+  const sr = document.getElementById("wrStopRate");
+  if (sr) {
+    const ss0 = view?.stop_strategy;
+    if (ss0 && ss0.win_rate != null) {
+      const good = ss0.win_rate >= 60, bad = ss0.win_rate < 45;
+      sr.className = `tb-wr-stoprate${good ? " good" : bad ? " bad" : ""}`;
+      sr.textContent = `敗後 ${ss0.win_rate}%`;
+      sr.title = `敗後停手：${ss0.wins != null ? ss0.wins + "勝 / " + (ss0.total - ss0.wins) + "負 共" : "共"}${ss0.total}筆（輸了停手、旁觀同方向直到會贏才回場）`;
+    } else {
+      sr.textContent = "—"; sr.className = "tb-wr-stoprate"; sr.removeAttribute("title");
+    }
+  }
+
   // 近 ~100 筆勝率（合併時間軸去重後最近 100 筆，看近期表現）
   const r100 = document.getElementById("wrRecent100");
   if (r100) {
