@@ -2437,6 +2437,28 @@ const SFX = (() => {
     if (_lcountry && _wd.country) _lcountry.innerHTML = _flagSvg(_wd.country) + '<span class="ctry-name">' + _wd.country + '</span>';
   }
 
+  // 手動是否選了天氣特效（button 高亮中）→ 自動天氣不可覆蓋
+  function _isManualOn() {
+    return ['leaf','rain','snow','spring','thunder','mahjong','hail','tornado','quake','aurora','meteor'].some(
+      w => document.getElementById(w+'ToggleBtn')?.classList.contains(w+'-active'));
+  }
+  // 解析自動天氣：好天氣(晴/少雲) + 真實日落時段(±45min) → 自動晚霞；否則照後端 _autoType
+  function _resolveAutoType() {
+    const base = _autoType || 'sunny';
+    const clearish = (base==='sunny'||base==='partly'||base==='night') && ((_wd.cloudCover==null) || _wd.cloudCover < 45);
+    if (clearish && _wd.sunSetMin!=null) {
+      const nowMin = new Date().getHours()*60 + new Date().getMinutes();
+      if (Math.abs(nowMin - _wd.sunSetMin) <= 45) return 'sunset';
+    }
+    return base;
+  }
+  // 非手動時套用自動天氣（含晚霞自動觸發）；每分鐘重評，日落時段過了會自動切回
+  function _applyAutoType() {
+    if (_isManualOn()) return;
+    const t = _resolveAutoType();
+    if (t !== type) start(t);
+  }
+
   function fetchWeather(lat, lon) {
     _wxLat = lat; _wxLon = lon;
     if (!_wxTimer) _wxTimer = setInterval(() => fetchWeather(_wxLat, _wxLon), 30*60*1000);
@@ -2465,19 +2487,13 @@ const SFX = (() => {
         const cInt = (d.cloud_cover || 0) / 100;
         _wd.intensity  = Math.max(0.3, pInt * 0.7 + cInt * 0.3);
         _autoType = d.weather_type || 'sunny';
-        const manualOn = ['leaf','rain','snow','spring','thunder','mahjong','hail','tornado','quake'].some(
-          w => document.getElementById(w+'ToggleBtn')?.classList.contains(w+'-active')
-        );
-        // 首次進來：button 還沒高亮 → 嘗試從 localStorage 恢復；否則依 _autoType
-        if (!manualOn && !window._restoreManualWxIfAny?.()) start(_autoType);
+        // 首次進來：button 還沒高亮 → 嘗試從 localStorage 恢復；否則依解析後的自動天氣（含晚霞）
+        if (!_isManualOn() && !window._restoreManualWxIfAny?.()) start(_resolveAutoType());
         _renderWeatherCard();
       })
       .catch(() => {
         _autoType = 'sunny'; _wd.intensity = 0.5;
-        const manualOn = ['leaf','rain','snow','spring','thunder','mahjong','hail','tornado','quake'].some(
-          w => document.getElementById(w+'ToggleBtn')?.classList.contains(w+'-active')
-        );
-        if (!manualOn && !window._restoreManualWxIfAny?.()) start('sunny');
+        if (!_isManualOn() && !window._restoreManualWxIfAny?.()) start(_resolveAutoType());
       });
   }
   function _clearWeatherBtns() {
@@ -2523,7 +2539,7 @@ const SFX = (() => {
   window._restoreManualWxIfAny = function() {
     const saved = _getManualWx();
     if (!saved) return false;
-    const valid = ["leaves","rain","snow","spring","thunder","mahjong","hail","tornado","quake","off","aurora","sunset","meteor"];
+    const valid = ["leaves","rain","snow","spring","thunder","mahjong","hail","tornado","off","aurora","meteor"];  // 已移除 quake/sunset 選單 → 不從 localStorage 復活
     if (!valid.includes(saved)) { _clearManualWx(); return false; }
     _applyManualWx(saved);
     return true;
@@ -2553,6 +2569,7 @@ const SFX = (() => {
   window.addEventListener("resize", resize);
   resize();
   _initParallax();
+  setInterval(_applyAutoType, 60000);   // 每分鐘重評自動天氣（讓晚霞在日落時段自動出現/退場）
   // 不在這裡 start()——等 fetchWeather 回來再用真實 _wd 啟動，
   // 避免「先用預設值畫一次→拿到 API 又重畫」造成的閃爍/位移
 
