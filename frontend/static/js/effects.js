@@ -1999,12 +1999,17 @@ const SFX = (() => {
   /* ── 地震：背景層震動 + 地面裂縫蔓延 + 落塵（不影響交易 UI）── */
   function dQuake(t) {
     quakeT += 1;
-    // 地震波：一陣一陣（強弱脈動）
-    const wave = Math.max(0, Math.sin(quakeT*0.04)) * (0.6+0.4*Math.abs(Math.sin(quakeT*0.27)));
-    const mag = wave*9, gndY=H*0.84;
-    ctx.fillStyle=`rgba(92,42,30,${(0.04+0.10*wave).toFixed(3)})`; ctx.fillRect(0,0,W,H);   // 紅褐警示脈動
+    // 地震波：持續微震 + 陣發強震（不會整段靜止 → 一直感覺得到在搖）
+    const burst = 0.34 + 0.66*Math.max(0, Math.sin(quakeT*0.045));
+    const wave = burst * (0.7 + 0.3*Math.abs(Math.sin(quakeT*0.33)));   // ~0.24..1
+    const mag = wave*6, gndY=H*0.84;
+    // 震動整個畫面（UI 跟著晃 → 真正的地震感）
+    const sk = 6 + wave*12;   // 振幅 6~18px
+    document.body.style.transform =
+      `translate(${((Math.random()-.5)*sk).toFixed(1)}px, ${((Math.random()-.5)*sk*0.7).toFixed(1)}px)`;
+    ctx.fillStyle=`rgba(92,42,30,${(0.05+0.13*wave).toFixed(3)})`; ctx.fillRect(0,0,W,H);   // 紅褐警示脈動
     ctx.save();
-    ctx.translate((Math.random()-.5)*mag, (Math.random()-.5)*mag);   // 只晃背景層（地面/裂縫/落塵）
+    ctx.translate((Math.random()-.5)*mag, (Math.random()-.5)*mag);   // 背景層再加細微晃（地面/裂縫/落塵）
     ctx.fillStyle="rgba(45,38,32,.5)"; ctx.fillRect(-30,gndY,W+60,H-gndY+60);   // 地面帶
     if (wave>0.5 && Math.random()<0.05 && qCracks.length<9) {        // 強震時偶爾新裂縫
       let cx=Math.random()*W, cy=gndY; const seg=[[cx,cy]];
@@ -2347,6 +2352,7 @@ const SFX = (() => {
     // 進入下雨類型時把雨勢 ramp 歸零 → 之後在 dRain 緩升（雨水漸起感）
     const rainy = w => w==='rain'||w==='storm'||w==='drizzle';
     if (rainy(wt) && !rainy(type)) _rainRamp = 0;
+    if (wt !== 'quake') document.body.style.transform = '';   // 離開地震 → 畫面歸位
     type = wt;
     // 晴朗夜空（type==='night'）→ 主圖淡淡透出夜空(月亮/星星/行星)；其餘天氣/白天不透
     const wasNight = document.documentElement.classList.contains('sky-night');
