@@ -17,6 +17,11 @@
   K 棒（_finnhub_overlay）。不設定就純用 yfinance（15min 延遲）。
 - `CWA_API_KEY`：中央氣象署授權碼（天氣 routes/weather.py 的台灣資料源；申請
   https://opendata.cwa.gov.tw/）。未設定時台灣座標也會 fallback 到 Open-Meteo。
+- `FUGLE_TOKEN`：Fugle 富果 Marketdata 即時行情金鑰（免費申請 https://developer.fugle.tw）。
+  設定後台股**分鐘線(5m/15m/1h)改用 Fugle 即時 candles**（突破 yfinance/Yahoo 對台股的
+  ~20 分鐘強制延遲）：`/api/latest` 回今日即時 candles tail（最新棒=當下、無空隙）、
+  `/api/ohlcv` 在查詢含今日時把今日改用 Fugle、歷史仍 yfinance（< 當日開盤切點合併）。
+  未設定 → 自動 fallback 回 yfinance + TWSE MIS 累積（`data/fugle.py`；金鑰只從環境變數讀）。
 
 ## 圖片資源
 所有原始圖片存放於 **桌面 `Claude-分類/虛擬貨幣/`**，已複製至 `frontend/static/img/`。
