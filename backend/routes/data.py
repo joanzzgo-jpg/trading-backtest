@@ -189,6 +189,49 @@ def _mis_accumulate(symbol: str, minutes: int, rt: dict):
     return _mis_acc_list(symbol, minutes)
 
 
+# ───────── Finnhub 即時累積美股分鐘 K（免費、免 KYC，用既有 FINNHUB_TOKEN）─────────
+# Alpaca 需券商 KYC/付費，故美股即時改用 Finnhub /quote 即時價自己堆分鐘棒（同 MIS 思路）。
+# Finnhub quote 無成交量 → 即時棒 volume=0（yfinance 之後回補真實量）。報價過期(>5min)不累積。
+_fh_acc: dict = {}
+
+def _fh_acc_list(symbol: str, minutes: int):
+    st = _fh_acc.get(f"{symbol}:{minutes}")
+    if not st:
+        return []
+    keys = set(st["done"].keys())
+    if st["cur"]:
+        keys.add(st["cur"]["ts"])
+    out = []
+    for ts in sorted(keys):
+        b = st["cur"] if (st["cur"] and ts == st["cur"]["ts"]) else st["done"][ts]
+        out.append({"time": ts, "open": b["o"], "high": b["h"], "low": b["l"],
+                    "close": b["c"], "volume": 0})
+    return out
+
+def _finnhub_accumulate(symbol: str, minutes: int, quote: dict):
+    """用 Finnhub 即時報價即時堆出美股當前分鐘 K。回傳今日已累積 bar list(升冪)；報價過期→不動。"""
+    import time as _t
+    if not quote:
+        return _fh_acc_list(symbol, minutes)
+    qt = int(quote.get("timestamp") or 0)
+    price = quote.get("close")
+    if not price or (_t.time() - qt) > 300:                # 報價過期(收盤/錯誤)→ 不累積
+        return _fh_acc_list(symbol, minutes)
+    step = minutes * 60
+    bar_ts = pd.Timestamp((qt // step) * step, unit="s")   # epoch floor → UTC naive
+    key = f"{symbol}:{minutes}"
+    st = _fh_acc.get(key)
+    if st is None or st["day"] != bar_ts.date():           # 換日重置
+        st = {"day": bar_ts.date(), "cur": None, "done": {}}
+        _fh_acc[key] = st
+    cur = st["cur"]
+    if cur is None or cur["ts"] != bar_ts:                 # 新分鐘 → 收掉舊棒、開新棒
+        if cur is not None:
+            st["done"][cur["ts"]] = cur
+        st["cur"] = {"ts": bar_ts, "o": price, "h": price, "l": price, "c": price}
+    else:                                                  # 同分鐘 → 更新高/低/收
+        cur["h"] = max(cur["h"], price); cur["l"] = min(cur["l"], price); cur["c"] = price
+    return _fh_acc_list(symbol, minutes)
 
 
 class OHLCVRequest(BaseModel):
@@ -437,11 +480,22 @@ def get_latest(req: LatestRequest):
             end   = date.today().isoformat()
             start = (date.today() - timedelta(days=10)).isoformat()
             df = fetch_us_stock(req.symbol, start, end, req.timeframe)
-            # Finnhub 即時報價疊加（失敗不影響主流程）
+            # Finnhub 即時報價（免費/免 KYC）：盤中分鐘/小時用即時價自己堆「當下這根」真實K(無量,
+            # yfinance 回補)→ 接在 yfinance 最後一根之後、無 20 分延遲；報價過期或日線→只疊加最後一根。
             if os.getenv("FINNHUB_TOKEN"):
                 try:
                     quote = fetch_us_quote(req.symbol)
-                    df, _ = _finnhub_overlay(df, quote)
+                    _mins = {"5m": 5, "15m": 15, "1h": 60, "4h": 240}.get(req.timeframe)
+                    acc = _finnhub_accumulate(req.symbol, _mins, quote) if (_mins and quote) else []
+                    if acc:
+                        recs = df_to_records(df.tail(6))
+                        yf_last = pd.Timestamp(df.iloc[-1]["time"]).floor(f"{_mins}min")
+                        for b in acc:
+                            if pd.Timestamp(b["time"]) > yf_last:
+                                recs.append({"time": b["time"].isoformat(), "open": b["open"],
+                                             "high": b["high"], "low": b["low"], "close": b["close"], "volume": b["volume"]})
+                        return {"live": True, "data": recs}
+                    df, _ = _finnhub_overlay(df, quote)   # 報價過期/日線 → 退回疊加最後一根
                 except Exception:
                     pass  # Finnhub 出錯就純用 yfinance 資料
         else:
