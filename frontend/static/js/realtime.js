@@ -15,6 +15,26 @@ function stopRealtime() {
   document.getElementById("realtimeDot").classList.add("hidden");
 }
 
+// 即時更新布林通道：/api/latest 只回裸價格、不含 BB → 隨時間進來的新棒布林不會延伸
+// （「布林不會畫、K棒怪怪的，要刷新才好」）。這裡用前端最後 N 根收盤即時重算 BB 補上，
+// 對齊後端 indicators/engine.py：period=20、std=2.0、pandas .std() 的樣本標準差(ddof=1)。
+function _updateBBTail() {
+  const period = 20;
+  const n = ohlcvData.length;
+  if (n < period || typeof bbU === "undefined" || !bbU) return;
+  let sum = 0;
+  for (let i = n - period; i < n; i++) sum += ohlcvData[i].close;
+  const mean = sum / period;
+  let sq = 0;
+  for (let i = n - period; i < n; i++) { const d = ohlcvData[i].close - mean; sq += d * d; }
+  const std = Math.sqrt(sq / (period - 1));
+  const up = mean + 2 * std, lo = mean - 2 * std;
+  const bar = ohlcvData[n - 1];
+  bar.bb_upper = up; bar.bb_middle = mean; bar.bb_lower = lo;   // 寫回 ohlcvData，後續 renderBB/重算才一致
+  const t = toTime(bar.time);
+  try { bbU.update({ time: t, value: up }); bbM.update({ time: t, value: mean }); bbL.update({ time: t, value: lo }); } catch (e) {}
+}
+
 async function fetchLatest() {
   if (replayActive) return;
   try {
@@ -58,6 +78,7 @@ async function fetchLatest() {
         volMaSeries.update({ time: t, value: _maAvg });
       }
       updateLatestPriceLine(bar.close);
+      _updateBBTail();   // 即時補畫布林（否則新棒沒布林、刷新才出現）
     });
     updateSymbolBar(ohlcvData);
   } catch {}
