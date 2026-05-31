@@ -42,10 +42,15 @@ def _keyed_lock(key: str) -> threading.Lock:
 
 @router.get("/_diag")
 def diag():
-    """環境變數診斷（只回是否設定/幾把金鑰，**不洩漏金鑰值**），用來確認 Railway 設定是否生效。"""
+    """環境變數診斷（只回名稱/長度/數量，**絕不洩漏金鑰值**），用來確認 Railway 設定是否生效。"""
     from data.fugle import _keys as _fugle_keys
+    names = sorted(os.environ.keys())
     return {
         "fugle_keys": len(_fugle_keys()),                  # 偵測到幾把 Fugle 金鑰（0 = 沒設對）
+        "fugle_token_len": len(os.getenv("FUGLE_TOKEN", "")),   # FUGLE_TOKEN 字串長度（0 = 沒設或空值）
+        # 名字含 fugle/alpaca 的環境變數「名稱」(不含值) → 用來抓打錯字（例如設成 FUGLE_KEY）
+        "fugle_like_var_names": [k for k in names if "fug" in k.lower()],
+        "alpaca_like_var_names": [k for k in names if "alpac" in k.lower()],
         "alpaca": bool(os.getenv("ALPACA_KEY") and os.getenv("ALPACA_SECRET")),
         "finnhub": bool(os.getenv("FINNHUB_TOKEN")),
         "cwa": bool(os.getenv("CWA_API_KEY")),
