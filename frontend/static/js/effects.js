@@ -711,6 +711,7 @@ const SFX = (() => {
   let glassDrops = [], splashes = [];   // 雨：前景玻璃水珠 / 地面濺起水花
   let snowAccum = 0, fogBlobs = [];     // 雪：底部積雪厚度 / 霧：體積霧團
   let _rainRamp = 0;                     // 雨勢漸起：0→1 緩升（下雨開始時歸零）
+  let auroraBands = [], meteors = [], meteorTimer = 0;   // 極光帶 / 流星雨
   let thunderBolts = [], thunderFlashes = [], thunderTimer = 15;
   // 天然災害（手動特效）：冰雹 / 龍卷風 / 地震
   let hailP = [], hailSplash = [], qCracks = [], qDust = [], tDebris = [], tornadoX = 0, quakeT = 0;
@@ -1103,6 +1104,7 @@ const SFX = (() => {
   }
 
   function _drawAstro(t) {
+    if (type==='aurora'||type==='sunset'||type==='meteor') return;  // 這些自帶天空/太陽，不要再疊系統日月
     const now = new Date();
     const nowMin = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
     const lx = W * 0.04, rx = W * 0.96;
@@ -1341,6 +1343,14 @@ const SFX = (() => {
       rx: W*(0.22+Math.random()*0.30), ry: H*(0.07+Math.random()*0.13),
       sp: (0.15+Math.random()*0.5)*(Math.random()<.5?1:-1),
       a: 0.035+Math.random()*0.06, ph: Math.random()*6.28, z: Math.random() }));
+    // 極光帶：3 層綠/青/紫垂直光簾，會波動飄移
+    auroraBands = Array.from({length:3}, () => {
+      const rays = 34 + Math.floor(Math.random()*8);
+      return { rays, spacing: (W*1.25)/rays, rayW: 5+Math.random()*3,
+        drift: (Math.random()-.5)*0.5, sp: 0.45+Math.random()*0.5,
+        ph: Math.random()*6.28, h: H*(0.40+Math.random()*0.24), a: 0.75+Math.random()*0.4 };
+    });
+    meteors = []; meteorTimer = 0;
     const nCloud=Math.max(2, Math.round(2+5*ci));
     const alBase=0.15+ci*.30, scBase=0.11+ci*.08;
     const wf = 1 + Math.min(4, _wd.windSpeed / 12); // 風速倍率：無風=1×、50km/h=5×
@@ -2199,6 +2209,104 @@ const SFX = (() => {
     ctx.globalAlpha = 1;
   }
 
+  /* ═══════════════ 新天氣：極光 / 晚霞 / 流星雨 ═══════════════ */
+
+  /* 🌌 極光：3 層綠/青/紫垂直光簾，用 lighter 疊加發光，波動 + 緩慢飄移 */
+  function dAurora(t) {
+    stars.forEach(p => {                                   // 夜空微星
+      const a=.12+.45*Math.sin(t*p.sp+p.ph);
+      ctx.fillStyle=`rgba(205,225,255,${(a*.5).toFixed(3)})`;
+      ctx.beginPath(); ctx.arc(p.x+_paX*4, p.y*.72, p.r*.7, 0, 6.28); ctx.fill();
+    });
+    ctx.save(); ctx.globalCompositeOperation='lighter';
+    const cols=[[110,255,165],[70,215,205],[150,110,255]];   // 綠 / 青 / 紫
+    auroraBands.forEach((b,ci) => {
+      const col=cols[ci%cols.length];
+      for (let i=0;i<b.rays;i++) {
+        const rx = (((i*b.spacing + t*b.drift*30) % (W+200)) - 100) + Math.sin(t*b.sp + i*0.45 + b.ph)*16;
+        const topY = H*0.03 + Math.sin(t*b.sp*0.6 + i*0.35 + b.ph)*H*0.05;
+        const h = b.h*(0.72 + 0.28*Math.sin(t*1.1 + i*0.7));
+        const g=ctx.createLinearGradient(0,topY,0,topY+h);
+        g.addColorStop(0,`rgba(${col},0)`);
+        g.addColorStop(0.40,`rgba(${col},${(0.08*b.a).toFixed(3)})`);
+        g.addColorStop(0.82,`rgba(${col},${(0.19*b.a).toFixed(3)})`);
+        g.addColorStop(1,`rgba(${col},0)`);
+        ctx.fillStyle=g; ctx.fillRect(rx+_parX(0.3), topY, b.rayW, h);
+      }
+    });
+    ctx.restore();
+  }
+
+  /* 晚霞用的背光雲：暗剪影 + 暖色受光頂緣 */
+  function _sunsetCloud(cx, cy, w, flip, puffs) {
+    const h=w*0.42;
+    ctx.save();
+    ctx.beginPath();
+    for (const [fx,fy,fr] of (puffs || _CLOUD_VARIANTS[0])) {
+      const px=cx+fx*w*flip, py=cy+fy*h, pr=h*fr;
+      ctx.moveTo(px+pr,py); ctx.arc(px,py,pr,0,Math.PI*2);
+    }
+    ctx.fillStyle='rgba(58,40,56,0.5)'; ctx.fill();              // 暗剪影
+    const rim=ctx.createLinearGradient(cx,cy-h,cx,cy+h*0.2);     // 頂緣暖光
+    rim.addColorStop(0,'rgba(255,190,120,0.5)'); rim.addColorStop(0.4,'rgba(255,150,90,0.12)'); rim.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.globalCompositeOperation='lighter'; ctx.fillStyle=rim; ctx.fill();
+    ctx.restore();
+  }
+
+  /* 🌅 晚霞：靛→紫→橘→暖黃天空漸層 + 低空太陽地平輝光 + 背光雲 + 初現星 */
+  function dSunset(t) {
+    const sky=ctx.createLinearGradient(0,0,0,H);
+    sky.addColorStop(0,'#241B3A'); sky.addColorStop(0.34,'#5B3A6E'); sky.addColorStop(0.60,'#B5546A'); sky.addColorStop(0.80,'#E8884B'); sky.addColorStop(1,'#F6C463');
+    ctx.fillStyle=sky; ctx.fillRect(0,0,W,H);
+    stars.forEach(p => { if (p.y<H*0.38){ const a=.1+.4*Math.sin(t*p.sp+p.ph); ctx.fillStyle=`rgba(255,255,245,${(a*.4).toFixed(3)})`; ctx.beginPath(); ctx.arc(p.x,p.y,p.r*.6,0,6.28); ctx.fill(); } });
+    const sx=W*0.5+Math.sin(t*0.05)*W*0.02, sy=H*0.82;
+    ctx.save(); ctx.globalCompositeOperation='lighter';
+    const hg=ctx.createRadialGradient(sx,sy,0,sx,sy,W*0.55);
+    hg.addColorStop(0,'rgba(255,210,120,0.5)'); hg.addColorStop(0.4,'rgba(255,150,70,0.2)'); hg.addColorStop(1,'rgba(255,120,60,0)');
+    ctx.fillStyle=hg; ctx.fillRect(0,0,W,H); ctx.restore();
+    const disc=ctx.createRadialGradient(sx,sy,0,sx,sy,40);
+    disc.addColorStop(0,'#FFF1C0'); disc.addColorStop(1,'#FF9A3C');
+    ctx.save(); ctx.shadowBlur=38; ctx.shadowColor='rgba(255,170,80,0.85)'; ctx.fillStyle=disc; ctx.beginPath(); ctx.arc(sx,sy,40,0,Math.PI*2); ctx.fill(); ctx.restore();
+    const cdir=_windVecX()>=0?1:-1;
+    cloudP.forEach((c,i) => {
+      c.x += c.sp*cdir*0.5;
+      if (cdir>0 && c.x-W*c.sc>W) c.x=-W*0.6; else if (cdir<0 && c.x+W*c.sc<0) c.x=W+W*0.6;
+      _sunsetCloud(c.x+_parX(c.z), H*(0.42+0.13*(i%3))+_parY(c.z), W*c.sc*1.1, c.flip, c.puffs);
+    });
+    const hz=ctx.createLinearGradient(0,H*0.7,0,H); hz.addColorStop(0,'rgba(255,180,110,0)'); hz.addColorStop(1,'rgba(255,170,100,0.22)');
+    ctx.fillStyle=hz; ctx.fillRect(0,H*0.7,W,H*0.3);
+  }
+
+  /* ☄️ 流星雨：暗夜 + 星 + 行星，頻繁從上方輻射射出帶光尾的流星 */
+  function dMeteor(t) {
+    _gc.nebula && _gc.nebula.forEach(g => { ctx.fillStyle=g; ctx.fillRect(0,0,W,H); });
+    stars.forEach(p => {
+      const a=.15+.7*Math.sin(t*p.sp+p.ph);
+      ctx.fillStyle=`rgba(222,232,255,${a})`;
+      ctx.beginPath(); ctx.arc(p.x+_paX*4, p.y, a>.6?p.r*1.2:p.r, 0, 6.28); ctx.fill();
+    });
+    _drawPlanets(t);
+    meteorTimer--;
+    if (meteorTimer<=0 && meteors.length<14) {
+      meteorTimer = 5+Math.floor(Math.random()*15);            // 頻繁
+      const ang=Math.PI/2.6 + (Math.random()-.5)*0.5, sp=10+Math.random()*12;
+      meteors.push({ x:W*(0.1+Math.random()*0.8), y:-20, vx:Math.cos(ang)*sp, vy:Math.sin(ang)*sp,
+        len:60+Math.random()*120, life:0, max:30+Math.random()*40, a:.6+Math.random()*.4 });
+    }
+    for (let i=meteors.length-1;i>=0;i--) {
+      const m=meteors[i]; m.life++; m.x+=m.vx; m.y+=m.vy;
+      const fade = m.life>m.max-12 ? Math.max(0,(m.max-m.life)/12) : 1;
+      const hyp=Math.hypot(m.vx,m.vy), ux=m.vx/hyp, uy=m.vy/hyp;
+      const tg=ctx.createLinearGradient(m.x,m.y,m.x-ux*m.len,m.y-uy*m.len);
+      tg.addColorStop(0,`rgba(255,255,255,${(m.a*fade).toFixed(3)})`); tg.addColorStop(1,'rgba(180,210,255,0)');
+      ctx.strokeStyle=tg; ctx.lineWidth=1.6; ctx.lineCap='round';
+      ctx.shadowBlur=8; ctx.shadowColor='rgba(200,225,255,0.8)';
+      ctx.beginPath(); ctx.moveTo(m.x,m.y); ctx.lineTo(m.x-ux*m.len,m.y-uy*m.len); ctx.stroke(); ctx.shadowBlur=0;
+      ctx.fillStyle=`rgba(255,255,255,${(m.a*fade).toFixed(3)})`; ctx.beginPath(); ctx.arc(m.x,m.y,1.6,0,6.28); ctx.fill();
+      if (m.life>=m.max || m.y>H+50 || m.x>W+60 || m.x<-60) meteors.splice(i,1);
+    }
+  }
+
   /* ── 溫度色調：熱→暖橘、冷→冷藍（全畫面極淡疊色，依實際溫度） ── */
   function _tempTint() {
     if (_wd.temp == null) return;
@@ -2213,7 +2321,7 @@ const SFX = (() => {
     if (type === "off") return;  // 「無」模式：清空畫布即可，不畫任何特效
     _paX += (_paTX - _paX) * 0.07; _paY += (_paTY - _paY) * 0.07;   // 平滑視差位移
     const t=Date.now()*.001;
-    ({sunny:dSunny,night:dNight,cloudy:dCloudy,fog:dFog,rain:dRain,snow:dSnow,storm:dStorm,thunder:dThunder,mahjong:dMahjong,leaves:dLeaves,spring:dSpring,partly:dPartly,overcast:dOvercast,drizzle:dDrizzle,windy:dWindy,hail:dHail,tornado:dTornado,quake:dQuake})[type]?.(t);
+    ({sunny:dSunny,night:dNight,cloudy:dCloudy,fog:dFog,rain:dRain,snow:dSnow,storm:dStorm,thunder:dThunder,mahjong:dMahjong,leaves:dLeaves,spring:dSpring,partly:dPartly,overcast:dOvercast,drizzle:dDrizzle,windy:dWindy,hail:dHail,tornado:dTornado,quake:dQuake,aurora:dAurora,sunset:dSunset,meteor:dMeteor})[type]?.(t);
     _drawAstro(t);
     _tempTint();
   }
@@ -2385,7 +2493,7 @@ const SFX = (() => {
   window._restoreManualWxIfAny = function() {
     const saved = _getManualWx();
     if (!saved) return false;
-    const valid = ["leaves","rain","snow","spring","thunder","mahjong","hail","tornado","quake","off"];
+    const valid = ["leaves","rain","snow","spring","thunder","mahjong","hail","tornado","quake","off","aurora","sunset","meteor"];
     if (!valid.includes(saved)) { _clearManualWx(); return false; }
     _applyManualWx(saved);
     return true;
@@ -2408,6 +2516,9 @@ const SFX = (() => {
   window._hailToggle    = () => _toggleWx("hail");
   window._tornadoToggle = () => _toggleWx("tornado");
   window._quakeToggle   = () => _toggleWx("quake");
+  window._auroraToggle  = () => _toggleWx("aurora");
+  window._sunsetToggle  = () => _toggleWx("sunset");
+  window._meteorToggle  = () => _toggleWx("meteor");
 
   window.addEventListener("resize", resize);
   resize();

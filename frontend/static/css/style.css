@@ -368,6 +368,9 @@ html, body {
 .fx-btn.hail-active     { background: rgba(150,210,255,.20); color: #AEDBFF; border-color: rgba(150,210,255,.38); }
 .fx-btn.tornado-active  { background: rgba(140,140,160,.22); color: #B8BCCF; border-color: rgba(140,140,160,.40); }
 .fx-btn.quake-active    { background: rgba(190,90,60,.22);  color: #E08A5C; border-color: rgba(190,90,60,.40); }
+.fx-btn.aurora-active   { background: rgba(90,230,170,.18); color: #5CE6AA; border-color: rgba(90,230,170,.38); }
+.fx-btn.sunset-active   { background: rgba(255,140,80,.20); color: #FF9A4D; border-color: rgba(255,140,80,.40); }
+.fx-btn.meteor-active   { background: rgba(150,180,255,.20); color: #9AB4FF; border-color: rgba(150,180,255,.40); }
 .fx-btn.nofx-active     { background: rgba(120,120,120,.20); color: #BFBFBF; border-color: rgba(120,120,120,.45); }
 
 .tb-sidebar-btn { margin-right: 2px; }
