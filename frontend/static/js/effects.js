@@ -558,7 +558,10 @@
     wave.className = "btn-ripple-wave";
     wave.style.cssText = `width:${size}px;height:${size}px;left:${x}px;top:${y}px`;
     btn.appendChild(wave);
+    // animationend 正常移除；但若按鈕所在面板隨即 display:none（動畫暫停、animationend 不觸發）
+    // 漣漪會卡住、下次開面板又出現 → 用 setTimeout 保險移除（涵蓋動畫時長）
     wave.addEventListener("animationend", () => wave.remove(), { once: true });
+    setTimeout(() => wave.remove(), 900);
   });
 })();
 
@@ -1647,8 +1650,7 @@ const SFX = (() => {
       const a=.15+.75*Math.sin(t*p.sp+p.ph);
       if (a>.88) { ctx.shadowBlur=5; ctx.shadowColor="rgba(200,220,255,.9)"; }
       ctx.fillStyle=`rgba(222,232,255,${a})`;
-      const sx=p.x+_paX*(3+p.r*3), sy=p.y+_paY*(1.5+p.r*1.5);   // 遠場微視差（亮/大星稍近、動多一點點）
-      ctx.beginPath(); ctx.arc(sx,sy,a>.6?p.r*1.3:p.r,0,Math.PI*2); ctx.fill(); ctx.shadowBlur=0;
+      ctx.beginPath(); ctx.arc(p.x,p.y,a>.6?p.r*1.3:p.r,0,Math.PI*2); ctx.fill(); ctx.shadowBlur=0;   // 星星固定，不隨滑鼠晃
     });
     /* 八大行星（依實際位置/亮度/顏色，無標籤） */
     _drawPlanets(t);
@@ -1678,7 +1680,7 @@ const SFX = (() => {
       c.x += c.sp * cdir;
       if (cdir > 0 && c.x - W*c.sc > W) c.x = -margin;       // 往右飄出 → 從左回來
       else if (cdir < 0 && c.x + W*c.sc < 0) c.x = W+margin; // 往左飄出 → 從右回來
-      _cloud(c.x + _parX(c.z), c.y + Math.sin(t*.18 + i*1.3)*3.5 + _parY(c.z), W*c.sc, c.al, c.shape, c.flip, c.z, c.puffs);
+      _cloud(c.x, c.y + Math.sin(t*.18 + i*1.3)*3.5, W*c.sc, c.al, c.shape, c.flip, c.z, c.puffs);
     });
   }
 
@@ -1687,7 +1689,7 @@ const SFX = (() => {
     fogBlobs.forEach(b => {
       b.x += b.sp * (0.5 + b.z);                         // 近的飄快
       if (b.sp>0 && b.x-b.rx>W) b.x=-b.rx; else if (b.sp<0 && b.x+b.rx<0) b.x=W+b.rx;
-      const cxx = b.x + _parX(b.z), cyy = b.y + Math.sin(t*0.2+b.ph)*H*0.025 + _parY(b.z);
+      const cxx = b.x, cyy = b.y + Math.sin(t*0.2+b.ph)*H*0.025;
       const g=ctx.createRadialGradient(cxx,cyy,0,cxx,cyy,b.rx);
       g.addColorStop(0,`rgba(198,213,233,${b.a})`); g.addColorStop(.65,`rgba(190,206,228,${(b.a*.55).toFixed(3)})`); g.addColorStop(1,'rgba(190,206,228,0)');
       ctx.save(); ctx.translate(cxx,cyy); ctx.scale(1, b.ry/b.rx); ctx.fillStyle=g;
@@ -2217,10 +2219,10 @@ const SFX = (() => {
     const nb=ctx.createLinearGradient(0,0,0,H*0.62);
     nb.addColorStop(0,'rgba(6,12,28,0.62)'); nb.addColorStop(1,'rgba(6,12,28,0)');
     ctx.fillStyle=nb; ctx.fillRect(0,0,W,H*0.62);
-    stars.forEach(p => {                                   // 夜空微星
+    stars.forEach(p => {                                   // 夜空微星（固定，不隨滑鼠）
       const a=.12+.5*Math.sin(t*p.sp+p.ph);
       ctx.fillStyle=`rgba(205,225,255,${(a*.6).toFixed(3)})`;
-      ctx.beginPath(); ctx.arc(p.x+_paX*4, p.y*.72, p.r*.7, 0, 6.28); ctx.fill();
+      ctx.beginPath(); ctx.arc(p.x, p.y*.72, p.r*.7, 0, 6.28); ctx.fill();
     });
     ctx.save(); ctx.globalCompositeOperation='lighter';
     const cols=[[110,255,165],[70,215,205],[150,110,255]];   // 綠 / 青 / 紫
@@ -2244,7 +2246,7 @@ const SFX = (() => {
         g.addColorStop(0.38,`rgba(${col},${(0.14*b.a).toFixed(3)})`);
         g.addColorStop(0.80,`rgba(${col},${(0.32*b.a).toFixed(3)})`);
         g.addColorStop(1,`rgba(${col},0)`);
-        ctx.fillStyle=g; ctx.fillRect(rx+_parX(0.3), topY, b.rayW, h);
+        ctx.fillStyle=g; ctx.fillRect(rx, topY, b.rayW, h);
       }
     });
     ctx.restore();
@@ -2284,7 +2286,7 @@ const SFX = (() => {
     cloudP.forEach((c,i) => {
       c.x += c.sp*cdir*0.5;
       if (cdir>0 && c.x-W*c.sc>W) c.x=-W*0.6; else if (cdir<0 && c.x+W*c.sc<0) c.x=W+W*0.6;
-      _sunsetCloud(c.x+_parX(c.z), H*(0.42+0.13*(i%3))+_parY(c.z), W*c.sc*1.1, c.flip, c.puffs);
+      _sunsetCloud(c.x, H*(0.42+0.13*(i%3)), W*c.sc*1.1, c.flip, c.puffs);
     });
     const hz=ctx.createLinearGradient(0,H*0.7,0,H); hz.addColorStop(0,'rgba(255,180,110,0)'); hz.addColorStop(1,'rgba(255,170,100,0.22)');
     ctx.fillStyle=hz; ctx.fillRect(0,H*0.7,W,H*0.3);
@@ -2296,7 +2298,7 @@ const SFX = (() => {
     stars.forEach(p => {
       const a=.15+.7*Math.sin(t*p.sp+p.ph);
       ctx.fillStyle=`rgba(222,232,255,${a})`;
-      ctx.beginPath(); ctx.arc(p.x+_paX*4, p.y, a>.6?p.r*1.2:p.r, 0, 6.28); ctx.fill();
+      ctx.beginPath(); ctx.arc(p.x, p.y, a>.6?p.r*1.2:p.r, 0, 6.28); ctx.fill();
     });
     _drawPlanets(t);
     meteorTimer--;
