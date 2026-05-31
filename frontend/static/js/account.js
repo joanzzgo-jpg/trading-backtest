@@ -90,20 +90,26 @@ function _acctSetMsg(msg, isErr) {
   if (el) { el.textContent = msg || ""; el.classList.toggle("acct-err", !!isErr); }
 }
 
-/* ── 系統外觀裡的「登入狀態 + 登出」── */
+/* ── 顯示登入狀態 + 登出（系統外觀[桌面] + 手機設定分頁）── */
 function _acctRenderSys() {
+  const label = _ACCT.name ? ("帳號：" + _ACCT.name)
+              : (_ACCT.enabled ? "未登入（封面登入）" : "未登入");
+  // 系統外觀（桌面）
   const row = document.getElementById("sysAcctRow");
   const nameEl = document.getElementById("sysAcctName");
-  if (!row) return;
-  if (!_ACCT.enabled) { row.style.display = "none"; return; }
-  row.style.display = "flex";
-  if (_ACCT.name) {
-    if (nameEl) nameEl.textContent = "帳號：" + _ACCT.name;
-    row.classList.remove("sys-acct-out");
-  } else {
-    if (nameEl) nameEl.textContent = "未登入（封面輸入帳號）";
-    row.classList.add("sys-acct-out");
+  if (row) {
+    if (!_ACCT.enabled) { row.style.display = "none"; }
+    else {
+      row.style.display = "flex";
+      if (nameEl) nameEl.textContent = label;
+      row.classList.toggle("sys-acct-out", !_ACCT.name);
+    }
   }
+  // 手機「設定」分頁
+  const mName = document.getElementById("mSetAcctName");
+  const mOut = document.getElementById("mSetLogoutBtn");
+  if (mName) mName.textContent = label;
+  if (mOut) mOut.style.display = (_ACCT.enabled && _ACCT.name) ? "" : "none";
 }
 
 /* ── 封面大門的鎖：解鎖 → 接續開門 ── */
@@ -149,5 +155,6 @@ async function initAccount() {
   _initLandingLock();
   _acctRenderSys();
   document.getElementById("sysLogoutBtn")?.addEventListener("click", e => { e.stopPropagation(); _acctLogout(); });
+  document.getElementById("mSetLogoutBtn")?.addEventListener("click", e => { e.stopPropagation(); _acctLogout(); });
   document.addEventListener("visibilitychange", () => { if (document.hidden && _ACCT.name) _acctFlush(); });
 }
