@@ -872,7 +872,42 @@
     <span class="m-tab-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="4" height="9" rx="1"/><rect x="10" y="4" width="4" height="16" rx="1"/><rect x="17" y="8" width="4" height="12" rx="1"/></svg></span>勝率</button>
   <button class="m-tab" data-mtab="watch">
     <span class="m-tab-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 17l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg></span>自選</button>
+  <button class="m-tab" data-mtab="settings">
+    <span class="m-tab-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg></span>設定</button>
 </nav>
+
+<!-- 手機「設定」分頁：集中所有設定入口（桌面/iPad 不顯示）。點各列 → 開既有設定面板（手機置中 sheet） -->
+<div id="mSettings" class="m-settings">
+  <div class="m-set-hd">設定</div>
+  <div class="m-set-scroll">
+    <div class="m-set-sec">顯示模式</div>
+    <button class="m-set-row" onclick="event.stopPropagation();document.getElementById('perfModeBtn').click()">
+      <span class="m-set-ico">🌙</span><span class="m-set-lbl">極簡模式<small>關閉特效、最省電（舊機更順）</small></span><span class="m-set-arr">›</span>
+    </button>
+
+    <div class="m-set-sec">外觀</div>
+    <button class="m-set-row" onclick="event.stopPropagation();document.getElementById('sysSettingsBtn').click()">
+      <span class="m-set-ico">🎨</span><span class="m-set-lbl">系統外觀<small>背景 / 面板 / 文字 / 強調色</small></span><span class="m-set-arr">›</span>
+    </button>
+    <button class="m-set-row" onclick="event.stopPropagation();document.getElementById('fxToggleBtn').click()">
+      <span class="m-set-ico">✨</span><span class="m-set-lbl">背景 &amp; 點擊特效<small>天氣動畫 / 落葉 / 點擊星光</small></span><span class="m-set-arr">›</span>
+    </button>
+
+    <div class="m-set-sec">指標設定</div>
+    <button class="m-set-row" onclick="event.stopPropagation();document.querySelector('.ind-gear-btn[data-ind=main]')?.click()">
+      <span class="m-set-ico">📈</span><span class="m-set-lbl">主圖<small>K線 / 布林通道 / 共振 / 背景</small></span><span class="m-set-arr">›</span>
+    </button>
+    <button class="m-set-row" onclick="event.stopPropagation();document.querySelector('.ind-gear-btn[data-ind=kdj]')?.click()">
+      <span class="m-set-ico">📊</span><span class="m-set-lbl">KDJ</span><span class="m-set-arr">›</span>
+    </button>
+    <button class="m-set-row" onclick="event.stopPropagation();document.querySelector('.ind-gear-btn[data-ind=rsi]')?.click()">
+      <span class="m-set-ico">📊</span><span class="m-set-lbl">RSI</span><span class="m-set-arr">›</span>
+    </button>
+    <button class="m-set-row" onclick="event.stopPropagation();document.querySelector('.ind-gear-btn[data-ind=macd]')?.click()">
+      <span class="m-set-ico">📊</span><span class="m-set-lbl">MACD</span><span class="m-set-arr">›</span>
+    </button>
+  </div>
+</div>
 
 <script>window._APP_VER="{{ ver }}";</script>
 <script>

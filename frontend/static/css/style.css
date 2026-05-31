@@ -5623,3 +5623,66 @@ html.landing-active .landing { background: transparent; }
     overscroll-behavior: contain;
   }
 }
+
+/* ══════════════════════════════════════════════════════════════
+   手機底部「設定」分頁：集中所有設定入口（桌面/iPad 不顯示）
+   點各列 → 觸發既有設定按鈕；面板在手機改成置中底部 sheet
+   ══════════════════════════════════════════════════════════════ */
+.m-settings { display: none; }
+
+@media (max-width: 768px) {
+  /* 設定分頁：全螢幕設定列表（蓋住 topbar/圖表，下到分頁列上方） */
+  body.m-tab-settings .charts-container { display: none !important; }
+  .m-settings {
+    position: fixed; left: 0; right: 0; top: 0; bottom: 52px;
+    z-index: 650; background: var(--bg);
+    flex-direction: column;
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+  body.m-tab-settings .m-settings { display: flex; }
+
+  .m-set-hd {
+    flex: 0 0 auto; height: 50px; display: flex; align-items: center;
+    padding: 0 18px; font-size: 18px; font-weight: 800; color: var(--text);
+    border-bottom: 1px solid var(--border);
+  }
+  .m-set-scroll {
+    flex: 1 1 auto; overflow-y: auto; -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain; padding-bottom: 28px;
+  }
+  .m-set-sec {
+    font-size: 12px; font-weight: 700; color: var(--muted);
+    letter-spacing: .06em; padding: 18px 18px 6px; text-transform: uppercase;
+  }
+  .m-set-row {
+    width: 100%; display: flex; align-items: center; gap: 13px;
+    min-height: 58px; padding: 11px 18px;
+    background: var(--bg2); border: none;
+    border-bottom: 1px solid var(--border);
+    color: var(--text); font-size: 16px; font-weight: 600;
+    text-align: left; cursor: pointer; font-family: inherit;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .m-set-row:active { background: rgba(255,160,90,.14); }
+  .m-set-ico { font-size: 22px; flex: 0 0 auto; width: 28px; text-align: center; }
+  .m-set-lbl { flex: 1 1 auto; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .m-set-lbl small { font-size: 12px; font-weight: 400; color: var(--muted); }
+  .m-set-arr { flex: 0 0 auto; color: var(--muted); font-size: 22px; }
+
+  /* 設定集中在「設定」分頁 → topbar 的 ✨/⚙ 圖示在手機隱藏 */
+  #fxToggleBtn, #sysSettingsBtn { display: none !important; }
+
+  /* 既有浮動設定面板：手機改成置中底部 sheet（!important 蓋掉桌面 inline 定位） */
+  .sys-settings-popup.open,
+  .ind-settings-popup.open,
+  #fxPanel:not(.hidden) {
+    position: fixed !important;
+    left: 50% !important; right: auto !important;
+    top: auto !important; bottom: calc(64px + env(safe-area-inset-bottom, 0px)) !important;
+    transform: translateX(-50%) !important;
+    width: min(92vw, 340px) !important;
+    max-height: 64vh !important; overflow-y: auto !important;
+    z-index: 900 !important;
+    box-shadow: 0 8px 40px rgba(0,0,0,.55) !important;
+  }
+}

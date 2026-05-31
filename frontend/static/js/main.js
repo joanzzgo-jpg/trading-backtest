@@ -118,7 +118,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     const bar = document.getElementById("mTabbar");
     if (!bar) return;
     const setTab = (t) => {
-      document.body.classList.remove("m-tab-chart", "m-tab-wr", "m-tab-watch");
+      document.body.classList.remove("m-tab-chart", "m-tab-wr", "m-tab-watch", "m-tab-settings");
       document.body.classList.add("m-tab-" + t);
       bar.querySelectorAll(".m-tab").forEach(b => b.classList.toggle("active", b.dataset.mtab === t));
       // 自選分頁：標記 ticker 面板為「開啟」狀態，fetchTickers/renderTickers 才會渲染（手機判斷需要）
@@ -132,7 +132,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     window._mSetTab = setTab;
     // 初始分頁：?mtab= 可指定（方便測試），預設圖表
     const _mt = new URLSearchParams(location.search).get("mtab");
-    setTab(["chart", "wr", "watch"].includes(_mt) ? _mt : "chart");
+    setTab(["chart", "wr", "watch", "settings"].includes(_mt) ? _mt : "chart");
   })();
 
   // 手機/PWA 省電：app 切到背景（鎖屏、切 app、切分頁）時暫停每秒輪詢（行情 + ticker），
