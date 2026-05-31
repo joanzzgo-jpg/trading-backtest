@@ -703,6 +703,16 @@ const SFX = (() => {
   const canvas = document.getElementById("weatherBg");
   if (!canvas) return;
   const ctx = canvas.getContext("2d");
+  // 低效能裝置降載：手機(小螢幕/觸控+低記憶體) → 減少粒子數、關 shadowBlur、簡化光束
+  const _lowFx = (() => {
+    try {
+      const small  = Math.min(window.innerWidth, window.innerHeight) < 640;
+      const coarse = matchMedia('(pointer: coarse)').matches;
+      const lowMem = (navigator.deviceMemory || 8) <= 4;
+      return small || (coarse && lowMem);
+    } catch(e) { return false; }
+  })();
+  const _fxN = _lowFx ? 0.55 : 1;          // 粒子數倍率
   let W = 0, H = 0, type = "sunny", rafId = null, _gc = {}, _lastFrameTs = 0;
   let _paX = 0, _paY = 0, _paTX = 0, _paTY = 0, _paOn = false;   // 視差深度：平滑值/目標值(-1~1)，滑鼠或陀螺儀驅動
 
@@ -1300,20 +1310,20 @@ const SFX = (() => {
         g.addColorStop(0,`rgba(${cr},${cg},${cb},${(0.45*a*tw).toFixed(3)})`); g.addColorStop(1,'rgba(0,0,0,0)');
         ctx.fillStyle=g; ctx.beginPath(); ctx.arc(x,y,r*3.2,0,Math.PI*2); ctx.fill();
       }
-      ctx.shadowBlur=r*2.4; ctx.shadowColor=`rgba(${cr},${cg},${cb},${(0.85*a).toFixed(3)})`;
+      if (!_lowFx) { ctx.shadowBlur=r*2.4; ctx.shadowColor=`rgba(${cr},${cg},${cb},${(0.85*a).toFixed(3)})`; }  // 手機關 shadowBlur（已有漸層光暈墊著）
       ctx.fillStyle=`rgba(${cr},${cg},${cb},${(a*tw).toFixed(3)})`;
       ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
-      ctx.restore();
+      ctx.shadowBlur=0; ctx.restore();
     }
   }
 
   function _init() {
     const ri = Math.max(0.3, _wd.intensity);          /* precip intensity 0.3-1 */
     const ci = Math.min(1, _wd.cloudCover / 100);      /* cloud cover 0-1 */
-    stars  = Array.from({length:100}, () => ({ x:Math.random()*W, y:Math.random()*H*.88, r:.3+Math.random()*1.8, ph:Math.random()*Math.PI*2, sp:.8+Math.random()*1.5 }));
+    stars  = Array.from({length:Math.round(100*_fxN)}, () => ({ x:Math.random()*W, y:Math.random()*H*.88, r:.3+Math.random()*1.8, ph:Math.random()*Math.PI*2, sp:.8+Math.random()*1.5 }));
     sparks = Array.from({length:14}, _newSpark);
     // 雨：連續景深 z（0=遠、1=近）；用 z² / z³ 大幅拉開前後差距 → 立體視差明顯
-    const nRain = Math.round(110+200*ri);   // 加密雨量（更有感覺）
+    const nRain = Math.round((110+200*ri)*_fxN);   // 加密雨量（手機降載）
     rainP = Array.from({length:nRain}, () => {
       const z = Math.random();
       return { x:Math.random()*W, y:Math.random()*H, z,
@@ -1324,12 +1334,12 @@ const SFX = (() => {
     }).sort((p,q)=>p.z-q.z);    // 遠先畫、近後畫（正確前後遮擋）
     ripples = []; splashes = [];
     // 前景玻璃水珠（像隔著窗看雨）：少量大水珠，偶爾滑落留痕
-    glassDrops = Array.from({length: 9 + Math.round(11*ri)}, () => ({
+    glassDrops = Array.from({length: Math.round((9 + 11*ri)*_fxN)}, () => ({
       x: Math.random()*W, y: Math.random()*H*0.92, r: 5 + Math.random()*12,
       vy: 0, slide: false, age: Math.random()*500, slideAt: 160 + Math.random()*640
     }));
     // 雪：景深 z 大幅拉開——遠景小柔光點、近景大結晶（差距明顯）
-    const nSnow = Math.round(28+50*ri);
+    const nSnow = Math.round((28+50*ri)*_fxN);
     snowP  = Array.from({length:nSnow}, () => {
       const z = Math.random();
       return { x:Math.random()*W, y:Math.random()*H, z,
@@ -1341,14 +1351,14 @@ const SFX = (() => {
     }).sort((p,q)=>p.z-q.z);
     snowAccum = 0;   // 重置底部積雪
     // 霧：體積霧團（多顆大柔邊橢圓，不同景深/速度緩慢飄移billow）
-    fogBlobs = Array.from({length:8}, () => ({
+    fogBlobs = Array.from({length:Math.round(8*_fxN)}, () => ({
       x: Math.random()*W, y: H*(0.12+Math.random()*0.74),
       rx: W*(0.22+Math.random()*0.30), ry: H*(0.07+Math.random()*0.13),
       sp: (0.15+Math.random()*0.5)*(Math.random()<.5?1:-1),
       a: 0.035+Math.random()*0.06, ph: Math.random()*6.28, z: Math.random() }));
     // 極光帶：3 層綠/青/紫垂直光簾，會波動飄移
     auroraBands = Array.from({length:3}, () => {
-      const rays = 34 + Math.floor(Math.random()*8);
+      const rays = Math.round((34 + Math.floor(Math.random()*8))*_fxN);
       return { rays, spacing: (W*1.25)/rays, rayW: 5+Math.random()*3,
         drift: (Math.random()-.5)*0.5, sp: 0.45+Math.random()*0.5,
         ph: Math.random()*6.28, h: H*(0.40+Math.random()*0.24), a: 0.75+Math.random()*0.4 };
@@ -1648,7 +1658,7 @@ const SFX = (() => {
     /* twinkling stars */
     stars.forEach(p => {
       const a=.15+.75*Math.sin(t*p.sp+p.ph);
-      if (a>.88) { ctx.shadowBlur=5; ctx.shadowColor="rgba(200,220,255,.9)"; }
+      if (a>.88 && !_lowFx) { ctx.shadowBlur=5; ctx.shadowColor="rgba(200,220,255,.9)"; }
       ctx.fillStyle=`rgba(222,232,255,${a})`;
       ctx.beginPath(); ctx.arc(p.x,p.y,a>.6?p.r*1.3:p.r,0,Math.PI*2); ctx.fill(); ctx.shadowBlur=0;   // 星星固定，不隨滑鼠晃
     });
@@ -1712,7 +1722,7 @@ const SFX = (() => {
     rainP.forEach(p => {
       const n = p.z>0.55;                           // 近景
       const pa = p.a * intensity;                   // 透明度隨雨勢漸起
-      if (p.z>0.92 && !blurOn) { ctx.shadowBlur=3; ctx.shadowColor="rgba(200,228,255,.55)"; blurOn=true; }  // 最近景柔焦
+      if (p.z>0.92 && !blurOn && !_lowFx) { ctx.shadowBlur=3; ctx.shadowColor="rgba(200,228,255,.55)"; blurOn=true; }  // 最近景柔焦
       ctx.strokeStyle = n?`rgba(200,232,255,${pa})`:`rgba(130,176,224,${pa})`;
       ctx.lineWidth = p.w;                          // 線寬隨景深（近粗遠細）
       const ox=_parX(p.z), oy=_parY(p.z);           // 視差位移（近景滑動大）
@@ -1788,7 +1798,7 @@ const SFX = (() => {
         ctx.fillStyle=`rgba(226,240,255,${p.a*.72})`;
         ctx.beginPath(); ctx.arc(dx,dy,p.r*.62,0,Math.PI*2); ctx.fill();
       } else {
-        if (p.z>0.85) { ctx.shadowBlur=4; ctx.shadowColor="rgba(220,238,255,.6)"; }   // 近景結晶柔光
+        if (p.z>0.85 && !_lowFx) { ctx.shadowBlur=4; ctx.shadowColor="rgba(220,238,255,.6)"; }   // 近景結晶柔光
         _snowflake(dx,dy,p.r,p.rot,p.a);
         if (p.z>0.85) ctx.shadowBlur=0;
       }
@@ -1931,7 +1941,7 @@ const SFX = (() => {
     const wDrift=_windDriftPx(), gndY=H*.94;
     let blurOn=false;
     hailP.forEach(p => {
-      if (p.z>0.9 && !blurOn) { ctx.shadowBlur=4; ctx.shadowColor="rgba(220,238,255,.6)"; blurOn=true; }  // 近景柔焦
+      if (p.z>0.9 && !blurOn && !_lowFx) { ctx.shadowBlur=4; ctx.shadowColor="rgba(220,238,255,.6)"; blurOn=true; }  // 近景柔焦
       ctx.fillStyle=`rgba(232,243,255,${p.a})`;
       ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2); ctx.fill();
       ctx.fillStyle=`rgba(255,255,255,${Math.min(1,p.a+.25)})`;       // 上方高光
@@ -2233,25 +2243,21 @@ const SFX = (() => {
     const cols=[[110,255,165],[70,215,205],[150,110,255]];   // 綠 / 青 / 紫
     auroraBands.forEach((b,ci) => {
       const col=cols[ci%cols.length];
-      // 整體底光暈（大柔光帶，墊在光簾後 → 整片發亮）
       const drift = (((t*b.drift*30) % (W+200)) - 100);
-      const gy = H*0.04 + Math.sin(t*b.sp*0.5 + b.ph)*H*0.04;
-      const bg=ctx.createLinearGradient(0, gy, 0, gy + b.h*1.05);
-      bg.addColorStop(0,`rgba(${col},0)`);
-      bg.addColorStop(0.55,`rgba(${col},${(0.07*b.a).toFixed(3)})`);
-      bg.addColorStop(1,`rgba(${col},0)`);
-      ctx.fillStyle=bg; ctx.fillRect(0, gy, W, b.h*1.05);
-      // 垂直光簾（提高亮度）
-      for (let i=0;i<b.rays;i++) {
+      // ⚡每幀每 band 只建「一條」垂直漸層（原本每根光簾各建一條 → ~110/幀降到 3/幀）
+      const top = H*0.02, bot = H*0.02 + b.h*1.15;
+      const g=ctx.createLinearGradient(0, top, 0, bot);
+      g.addColorStop(0,`rgba(${col},0)`);
+      g.addColorStop(0.40,`rgba(${col},${(0.12*b.a).toFixed(3)})`);
+      g.addColorStop(0.80,`rgba(${col},${(0.28*b.a).toFixed(3)})`);
+      g.addColorStop(1,`rgba(${col},0)`);
+      ctx.fillStyle=g;
+      ctx.fillRect(0, top, W, bot-top);            // 整片底光暈
+      for (let i=0;i<b.rays;i++) {                  // 垂直光簾（共用同一條漸層，免逐根建立）
         const rx = (((i*b.spacing + drift) % (W+200)) - 100) + Math.sin(t*b.sp + i*0.45 + b.ph)*16;
-        const topY = H*0.03 + Math.sin(t*b.sp*0.6 + i*0.35 + b.ph)*H*0.05;
+        const topY = top + Math.sin(t*b.sp*0.6 + i*0.35 + b.ph)*H*0.05;
         const h = b.h*(0.72 + 0.28*Math.sin(t*1.1 + i*0.7));
-        const g=ctx.createLinearGradient(0,topY,0,topY+h);
-        g.addColorStop(0,`rgba(${col},0)`);
-        g.addColorStop(0.38,`rgba(${col},${(0.14*b.a).toFixed(3)})`);
-        g.addColorStop(0.80,`rgba(${col},${(0.32*b.a).toFixed(3)})`);
-        g.addColorStop(1,`rgba(${col},0)`);
-        ctx.fillStyle=g; ctx.fillRect(rx, topY, b.rayW, h);
+        ctx.fillRect(rx, topY, b.rayW, h);
       }
     });
     ctx.restore();
@@ -2320,7 +2326,7 @@ const SFX = (() => {
       const tg=ctx.createLinearGradient(m.x,m.y,m.x-ux*m.len,m.y-uy*m.len);
       tg.addColorStop(0,`rgba(255,255,255,${(m.a*fade).toFixed(3)})`); tg.addColorStop(1,'rgba(180,210,255,0)');
       ctx.strokeStyle=tg; ctx.lineWidth=1.6; ctx.lineCap='round';
-      ctx.shadowBlur=8; ctx.shadowColor='rgba(200,225,255,0.8)';
+      if (!_lowFx) { ctx.shadowBlur=8; ctx.shadowColor='rgba(200,225,255,0.8)'; }
       ctx.beginPath(); ctx.moveTo(m.x,m.y); ctx.lineTo(m.x-ux*m.len,m.y-uy*m.len); ctx.stroke(); ctx.shadowBlur=0;
       ctx.fillStyle=`rgba(255,255,255,${(m.a*fade).toFixed(3)})`; ctx.beginPath(); ctx.arc(m.x,m.y,1.6,0,6.28); ctx.fill();
       if (m.life>=m.max || m.y>H+50 || m.x>W+60 || m.x<-60) meteors.splice(i,1);
