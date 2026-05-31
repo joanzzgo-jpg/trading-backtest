@@ -8,6 +8,7 @@ import threading
 import pandas as pd
 
 from data.taiwan import fetch_tw_stock, resample_tw, fetch_tw_intraday, fetch_tw_realtime, fetch_tw_intraday_yf, fetch_tw_latest_bar_yf, fetch_tw_daily_yf, YF_MAX_DAYS as TW_YF_MAX_DAYS
+from data.fugle import fetch_fugle_intraday, fugle_enabled
 from data.us_stock import fetch_us_stock, MAX_DAYS as US_MAX_DAYS
 from data.us_finnhub import fetch_us_quote
 from data.crypto import fetch_crypto_ohlcv
@@ -223,6 +224,15 @@ def get_ohlcv(req: OHLCVRequest):
                         df = fetch_tw_intraday(req.symbol, src_tf, fm_start, end, req.finmind_token)
                     else:
                         raise
+                # ⭐ 今日改用 Fugle 富果即時分鐘K（歷史仍 yfinance）→ 一載入就即時、無 20 分延遲、
+                #    無空隙。只在「查詢範圍含今日」時併入（歷史/重播查詢 end 為過去日，跳過不影響）。
+                if (fugle_enabled() and src_tf in ("5m", "15m", "1h")
+                        and end >= date.today().isoformat() and not df.empty):
+                    fdf = fetch_fugle_intraday(req.symbol, src_tf)
+                    if fdf is not None and not fdf.empty:
+                        cutoff = fdf["time"].min()           # Fugle 當日最早一根 → 之後全用 Fugle
+                        df = pd.concat([df[df["time"] < cutoff], fdf],
+                                       ignore_index=True).sort_values("time").reset_index(drop=True)
                 # 4h 重採樣（對齊台北 09:00 = UTC 01:00）
                 if req.timeframe == "4h":
                     df = df.set_index("time").resample(
@@ -332,8 +342,19 @@ def get_latest(req: LatestRequest):
                     "close":  rt["close"],
                     "volume": rt["volume"],
                 }]}
-            # 分鐘/小時時框：yfinance 快取 5 分鐘，MIS 即時價疊加每 30 秒刷新
+            # 分鐘/小時時框：
             if tf in ("5m", "15m", "1h", "4h"):
+                # ⭐ Fugle 富果即時分鐘K 優先（無 20 分延遲、無空隙、任何標的秒出、不需 MIS 累積）。
+                #    快取 8 秒；失敗或未設 FUGLE_TOKEN → fallback 回下方 yfinance + MIS。
+                if tf in ("5m", "15m", "1h") and fugle_enabled():
+                    fkey = f"tw_fugle_{req.symbol}_{tf}"
+                    fdf = cache.get(fkey, ttl=8)
+                    if fdf is None:
+                        fdf = fetch_fugle_intraday(req.symbol, tf)
+                        if fdf is not None and not fdf.empty:
+                            cache.set(fkey, fdf)
+                    if fdf is not None and not fdf.empty:
+                        return {"live": True, "data": df_to_records(fdf.tail(20))}
                 yf_intra_key = f"tw_yf_intra_{req.symbol}_{tf}"
                 df_intra = cache.get(yf_intra_key, ttl=300)
                 if df_intra is None:
