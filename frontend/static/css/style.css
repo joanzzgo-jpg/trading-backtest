@@ -5420,52 +5420,61 @@ body, button, input, select, textarea,
   .m-tab { font-size: 11px; }
   .m-tab-ico svg { width: 23px; height: 23px; }
 
-  /* ── 📊 勝率分頁：放大成可讀面板（大按鈕、敗後停手常駐、訊號好點）── */
+  /* ── 📊 勝率分頁：勝率欄改「直向堆疊」面板（控制列 / 數字列 / 訊號列各佔一整列）──
+     原本沿用 topbar 橫向 HUD → 右側數字會爆出螢幕被 overflow 裁掉、敗後看不到、排版亂。
+     改 flex-direction:column + 允許換行 + 取消 overflow 裁切 → 每組整列、自然換行。 */
   body.m-tab-wr .tb-winrate {
     display: flex !important;
-    flex-wrap: wrap !important;
-    align-content: flex-start;
-    height: auto !important;
-    min-height: 0 !important;
-    padding: 7px 10px !important;
-    row-gap: 7px;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    flex-wrap: nowrap !important;
+    white-space: normal !important;       /* 蓋掉 base 的 nowrap，數字列才能換行 */
+    overflow: visible !important;          /* 蓋掉 base 的 overflow:hidden，不裁切 */
+    height: auto !important; min-height: 0 !important;
+    padding: 6px 10px !important;
+    gap: 6px; row-gap: 6px;
   }
   /* 控制列：中軌切換 + SL% 放大好按 */
-  body.m-tab-wr .tb-wr-fixed-left { order: 1 !important; gap: 8px; flex: 0 0 auto; }
+  body.m-tab-wr .tb-wr-fixed-left {
+    order: 1 !important; display: flex !important; align-items: center; gap: 10px;
+    flex: 0 0 auto !important;
+  }
   body.m-tab-wr .tb-wr-toggle {
-    font-size: 14px !important; font-weight: 700;
-    padding: 8px 16px !important; height: auto !important;
-    line-height: 1.1; border-radius: 9px;
+    font-size: 12px !important; font-weight: 700;
+    padding: 5px 11px !important; height: auto !important;
+    line-height: 1.1; border-radius: 7px;
   }
   body.m-tab-wr .tb-wr-buffer-input {
-    font-size: 14px !important; width: 56px !important; height: 36px !important;
+    font-size: 12px !important; width: 46px !important; height: 28px !important;
   }
-  body.m-tab-wr .tb-wr-buffer-pct { font-size: 13px !important; }
-  /* 數字列：總勝率特大 + 敗後停手藥丸醒目 + 近100/預估/起始日 */
+  body.m-tab-wr .tb-wr-buffer-pct { font-size: 11px !important; }
+  /* 數字列：整列、靠左、自然換行；字級緊湊（依使用者要求縮小） */
   body.m-tab-wr .tb-wr-fixed-right {
-    order: 2 !important; margin-left: auto !important;
-    display: flex !important; flex-wrap: wrap; align-items: baseline;
-    justify-content: flex-end; gap: 5px 9px;
+    order: 2 !important; margin: 0 !important;
+    display: flex !important; flex-wrap: wrap !important; align-items: baseline;
+    justify-content: flex-start !important; gap: 4px 12px;
   }
-  body.m-tab-wr .tb-wr-total { font-size: 26px !important; padding: 0 4px; }
-  body.m-tab-wr .tb-wr-stoprate { font-size: 15px; padding: 4px 11px; }
+  body.m-tab-wr .tb-wr-total-sep { display: none !important; }   /* 直向版不需要左分隔線 */
+  body.m-tab-wr .tb-wr-total { font-size: 18px !important; padding: 0; margin: 0 !important; }
+  body.m-tab-wr .tb-wr-stoprate { font-size: 11.5px; padding: 2px 8px; margin: 0 !important; }
   body.m-tab-wr .tb-wr-recent,
-  body.m-tab-wr .tb-wr-est { font-size: 12.5px !important; }
+  body.m-tab-wr .tb-wr-est { font-size: 11px !important; margin: 0 !important; }
   body.m-tab-wr .tb-wr-from,
-  body.m-tab-wr .tb-wr-status { font-size: 11.5px; }
+  body.m-tab-wr .tb-wr-status { font-size: 10px; margin: 0 !important; }
   /* 訊號列（S1~S12）橫滑、每個區塊放大好點 → 點開訊號抽屜 */
   body.m-tab-wr .tb-wr-scroll {
     display: flex !important;      /* 蓋過 ≤1100px 的 display:none，勝率分頁要顯示各訊號明細 */
-    order: 3 !important; width: 100% !important; flex: 1 1 100% !important;
-    overflow-x: auto !important; gap: 2px; padding-top: 6px;
+    order: 3 !important; width: 100% !important; flex: 0 0 auto !important;
+    overflow-x: auto !important; gap: 2px; padding-top: 8px;
     border-top: 1px solid rgba(255,180,120,.18);
   }
-  body.m-tab-wr .tb-wr-block { gap: 5px; padding: 6px 7px; border-radius: 7px; }
+  body.m-tab-wr .tb-wr-scroll { padding-top: 6px; }
+  body.m-tab-wr .tb-wr-block { gap: 4px; padding: 4px 6px; border-radius: 6px; }
   body.m-tab-wr .tb-wr-block:active { background: rgba(255,180,120,.12); }
-  body.m-tab-wr .tb-wr-icon { font-size: 17px; }
+  body.m-tab-wr .tb-wr-icon { font-size: 14px; }
   body.m-tab-wr .tb-wr-v,
-  body.m-tab-wr .tb-wr-pct { font-size: 13px; }
-  body.m-tab-wr .tb-wr-divider { height: 32px; }
+  body.m-tab-wr .tb-wr-pct { font-size: 11px; }
+  body.m-tab-wr .tb-wr-divider { height: 26px; }
 }
 
 
@@ -5691,4 +5700,27 @@ html.landing-active .landing { background: transparent; }
     z-index: 900 !important;
     box-shadow: 0 8px 40px rgba(0,0,0,.55) !important;
   }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   手機「自選」分頁：把頂部按鈕放大好點（市場鈕/排序鈕原本只有 ~16px 高）
+   ══════════════════════════════════════════════════════════════ */
+@media (max-width: 768px) {
+  .ticker-hd { padding: 8px 10px !important; gap: 8px; }
+  .tk-mkt-tabs, .tk-seg { padding: 4px !important; border-radius: 11px !important; }
+  .tk-mkt-btn {
+    padding: 9px 18px !important; font-size: 15px !important;
+    border-radius: 8px !important; min-height: 38px;
+  }
+  .tk-seg-btn {
+    padding: 9px 13px !important; font-size: 14px !important;
+    border-radius: 8px !important; min-height: 38px; min-width: 40px;
+  }
+  /* 搜尋框放大 */
+  .tk-search { height: 42px !important; font-size: 15px !important; border-radius: 10px; }
+  /* 行情列：加高、字大一點，好點好讀 */
+  .ticker-panel .ticker-item { min-height: 56px !important; }
+  .ticker-panel .tk-sym { font-size: 15px !important; }
+  .ticker-panel .tk-price-val { font-size: 15px !important; }
+  .ticker-panel .tk-chg { font-size: 13px !important; }
 }
