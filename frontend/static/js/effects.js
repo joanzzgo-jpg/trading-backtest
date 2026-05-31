@@ -2285,28 +2285,27 @@ const SFX = (() => {
     sky.addColorStop(0,'#241B3A'); sky.addColorStop(0.34,'#5B3A6E'); sky.addColorStop(0.60,'#B5546A'); sky.addColorStop(0.80,'#E8884B'); sky.addColorStop(1,'#F6C463');
     ctx.fillStyle=sky; ctx.fillRect(0,0,W,H);
     stars.forEach(p => { if (p.y<H*0.38){ const a=.1+.4*Math.sin(t*p.sp+p.ph); ctx.fillStyle=`rgba(255,255,245,${(a*.4).toFixed(3)})`; ctx.beginPath(); ctx.arc(p.x,p.y,p.r*.6,0,6.28); ctx.fill(); } });
-    const sx=W*0.5+Math.sin(t*0.04)*W*0.03, sy=H*0.72, R=48;   // 低垂夕陽（暖色帶；登入頁中央會被熊擋，無妨）
+    const sx=W*0.5+Math.sin(t*0.04)*W*0.03, sy=H*0.72, R=54;   // 低垂夕陽（暖色帶；登入頁中央會被熊擋，無妨）
     ctx.save(); ctx.globalCompositeOperation='lighter';
-    // 大範圍天空輝光（柔、暖）
-    const hg=ctx.createRadialGradient(sx,sy,0,sx,sy,W*0.6);
-    hg.addColorStop(0,'rgba(255,205,120,0.42)'); hg.addColorStop(0.42,'rgba(255,150,80,0.16)'); hg.addColorStop(1,'rgba(255,120,60,0)');
+    // 大範圍天空暖輝（整片柔暖）
+    const hg=ctx.createRadialGradient(sx,sy,0,sx,sy,W*0.68);
+    hg.addColorStop(0,'rgba(255,200,110,0.40)'); hg.addColorStop(0.4,'rgba(255,140,70,0.14)'); hg.addColorStop(1,'rgba(255,110,60,0)');
     ctx.fillStyle=hg; ctx.fillRect(0,0,W,H);
-    // 太陽近處柔光暈（取代硬 shadowBlur → 自然融進天空）
-    const halo=ctx.createRadialGradient(sx,sy,R*0.6,sx,sy,R*3.4);
-    halo.addColorStop(0,'rgba(255,210,130,0.5)'); halo.addColorStop(0.5,'rgba(255,165,90,0.2)'); halo.addColorStop(1,'rgba(255,140,70,0)');
-    ctx.fillStyle=halo; ctx.beginPath(); ctx.arc(sx,sy,R*3.4,0,Math.PI*2); ctx.fill();
+    // 太陽光暈 bloom（緊貼太陽、明亮柔和 → 像在發光、無硬邊）
+    const bloom=ctx.createRadialGradient(sx,sy,R*0.5,sx,sy,R*2.6);
+    bloom.addColorStop(0,'rgba(255,236,180,0.72)'); bloom.addColorStop(0.45,'rgba(255,180,100,0.34)'); bloom.addColorStop(1,'rgba(255,150,80,0)');
+    ctx.fillStyle=bloom; ctx.beginPath(); ctx.arc(sx,sy,R*2.6,0,Math.PI*2); ctx.fill();
     ctx.restore();
-    // 太陽本體：大、柔、多層暖漸層（白心→金→橘→深橘紅），高光略偏上
-    const disc=ctx.createRadialGradient(sx,sy-R*0.18,R*0.12, sx,sy,R);
-    disc.addColorStop(0,'#FFF7DC'); disc.addColorStop(0.42,'#FFD587'); disc.addColorStop(0.78,'#FFA24E'); disc.addColorStop(1,'#F77E3C');
-    ctx.fillStyle=disc; ctx.beginPath(); ctx.arc(sx,sy,R,0,Math.PI*2); ctx.fill();
-    // 大氣壓扁的橫向霾帶（夕陽特有的水平分層，柔化下緣）
+    // 太陽本體：乾淨暖漸層（亮金心→金→橘→暖橘邊），微微脈動呼吸
+    const pr=R*(1+0.015*Math.sin(t*0.8));
+    const disc=ctx.createRadialGradient(sx,sy,0, sx,sy,pr);
+    disc.addColorStop(0,'#FFF3C4'); disc.addColorStop(0.55,'#FFC061'); disc.addColorStop(0.9,'#FF9636'); disc.addColorStop(1,'#FB7E33');
+    ctx.fillStyle=disc; ctx.beginPath(); ctx.arc(sx,sy,pr,0,Math.PI*2); ctx.fill();
+    // 柔亮邊緣（lighter 疊一圈 → 邊緣發光、不死板）
     ctx.save(); ctx.globalCompositeOperation='lighter';
-    for (let k=0;k<3;k++){
-      const by=sy - R*0.4 + k*R*0.5;
-      ctx.fillStyle=`rgba(255,${180-k*20},${110-k*20},0.10)`;
-      ctx.beginPath(); ctx.ellipse(sx,by,R*1.15,R*0.12,0,0,Math.PI*2); ctx.fill();
-    }
+    const rim=ctx.createRadialGradient(sx,sy,pr*0.82,sx,sy,pr*1.05);
+    rim.addColorStop(0,'rgba(255,240,200,0)'); rim.addColorStop(1,'rgba(255,226,172,0.5)');
+    ctx.fillStyle=rim; ctx.beginPath(); ctx.arc(sx,sy,pr*1.05,0,Math.PI*2); ctx.fill();
     ctx.restore();
     const cdir=_windVecX()>=0?1:-1;
     cloudP.forEach((c,i) => {
