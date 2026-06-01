@@ -424,7 +424,10 @@ function _renderAutoRRBoxes(W, H) {
 function _clearAutoRR() {
   _autoRRBoxCache.clear();  // 清 memo cache
   _hoverRRSigs = [];
+  _hoverCurSigs = [];
   _lastHoverBarTime = undefined;
+  clearTimeout(_hoverRRTimer);
+  if (typeof _stopHoverAutoCycle === "function") _stopHoverAutoCycle();
   _sigTimeIndex = null; _sigTimeIndexSrc = null;
   const host = document.getElementById("wrHover");
   if (host) host.innerHTML = `<span class="tb-wr-hover-hint">十字線移到訊號 K 棒 → 顯示該棒勝率</span>`;
@@ -766,9 +769,11 @@ function _buildSigTimeIndex() {
 }
 
 let _lastHoverBarTime = undefined;   // 上次 hover 的棒時間（秒）；只在換棒時重算
-let _hoverRRSigs = [];               // 目前 hover 棒上的訊號（給 RR 盒用）
+let _hoverRRSigs = [];               // 已通過 dwell、要在圖上畫 RR 盒的訊號
 let _hoverCurSigs = [];              // 目前 hover 棒上的訊號（給卡片切換重渲用）
 let _hoverCardIdx = 0;               // 卡片切換模式目前顯示第幾張（手機 3+ 訊號）
+let _hoverRRTimer = null;            // RR 盒 dwell 計時器（停留 0.5s 才顯示，避免掃動時狂閃）
+const _HOVER_RR_DWELL = 500;         // ms
 
 // 由 charts.js 的 crosshair 訂閱呼叫（每次移動）；time=null 表示離開圖表
 function _updateHoverWR(time) {
@@ -782,14 +787,26 @@ function _updateHoverWR(time) {
   if (sigs.length) {
     sigs = sigs.filter(s => (!useVariant || s.v) && !(hidden && hidden.has(s.k)));
   }
-  // 圖上 RR 盒（hover）：換棒才重畫
-  _hoverRRSigs = sigs;
-  if (typeof renderDrawings === "function") requestAnimationFrame(renderDrawings);
-  // 上方勝率顯示
+  // 上方勝率文字：立即更新（不延遲）
   _hoverCurSigs = sigs;
   _hoverCardIdx = 0;                 // 換棒 → 回到第一張卡
   const host = document.getElementById("wrHover");
   if (host) host.innerHTML = _hoverWRHtml(sigs);
+  // 手機 3+ 訊號（卡片模式）→ 啟動自動輪播；否則停止
+  const isCardMode = (typeof matchMedia === "function") && matchMedia("(max-width:768px)").matches && sigs.length >= 3;
+  if (isCardMode) _startHoverAutoCycle(); else _stopHoverAutoCycle();
+  // 圖上 RR 盒：停留 0.5s 才顯示（換棒先清掉前一根的盒，避免掃動時盒子狂閃）
+  clearTimeout(_hoverRRTimer);
+  if (_hoverRRSigs.length) {
+    _hoverRRSigs = [];
+    if (typeof renderDrawings === "function") requestAnimationFrame(renderDrawings);
+  }
+  if (sigs.length) {
+    _hoverRRTimer = setTimeout(() => {
+      _hoverRRSigs = sigs;
+      if (typeof renderDrawings === "function") requestAnimationFrame(renderDrawings);
+    }, _HOVER_RR_DWELL);
+  }
 }
 
 // 單一訊號的勝率小卡 HTML
@@ -838,13 +855,26 @@ function _hoverWRHtml(sigs) {
   return sigs.map(_hoverItemHtml).join(`<span class="tb-wr-hover-sep"></span>`);
 }
 
-// 卡片切換（手機 3+ 訊號）：循環切換目前顯示的訊號卡，不改變十字線/重算
-window._hoverCardCycle = function (delta) {
+// 卡片切換（手機 3+ 訊號）：淡出當前 → 換下一張 → 淡入（新卡片由 CSS 動畫淡入）
+let _hoverAutoTimer = null;
+function _stopHoverAutoCycle() { if (_hoverAutoTimer) { clearInterval(_hoverAutoTimer); _hoverAutoTimer = null; } }
+function _startHoverAutoCycle() { _stopHoverAutoCycle(); _hoverAutoTimer = setInterval(() => _hoverDoCycle(1), 2400); }
+function _hoverDoCycle(delta) {
   const sigs = _hoverCurSigs || [];
-  if (sigs.length < 2) return;
-  _hoverCardIdx = (_hoverCardIdx + delta + sigs.length) % sigs.length;
+  if (sigs.length < 2) { _stopHoverAutoCycle(); return; }
   const host = document.getElementById("wrHover");
-  if (host) host.innerHTML = _hoverWRHtml(sigs);
+  const cur = host && host.querySelector(".tb-wr-hover-item");
+  const advance = () => {
+    _hoverCardIdx = (_hoverCardIdx + delta + sigs.length) % sigs.length;
+    if (host) host.innerHTML = _hoverWRHtml(sigs);   // 新卡片自帶 fade-in 動畫
+  };
+  if (cur) { cur.classList.add("wr-card-out"); setTimeout(advance, 150); }  // 先淡出再換
+  else advance();
+}
+// 手動切換：立即切 + 重置自動輪播計時（避免剛點完馬上又自動跳）
+window._hoverCardCycle = function (delta) {
+  _hoverDoCycle(delta);
+  if (_hoverAutoTimer) _startHoverAutoCycle();
 };
 
 function _renderWrTop3() {
