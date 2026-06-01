@@ -731,6 +731,28 @@ function renderDrawings() {
   }
 }
 
+// 自動盈虧比的 RR 數值：盒夠寬 → 置中盒內；縮小到盒太窄 → 移到盒旁並加深色底，
+// 確保任何縮放都看得見（不必放大才顯示）。
+function _drawRRLabel(ctx, txt, color, ex, rx, cy, W) {
+  ctx.save();
+  ctx.font = "bold 12px sans-serif";
+  const tw = ctx.measureText(txt).width;
+  const y = cy + 4;
+  if (rx - ex > tw + 10) {
+    ctx.fillStyle = color;
+    ctx.fillText(txt, ex + (rx - ex - tw) / 2, y);
+  } else {
+    let x = rx + 5;                        // 預設放盒右側
+    if (x + tw > W - 2) x = ex - tw - 5;   // 會超出右緣 → 改放盒左側
+    if (x < 2) x = 2;                      // 仍超出 → 貼齊左緣
+    ctx.fillStyle = "rgba(20,22,28,0.82)"; // 深色底襯，落在 K 棒上也清楚
+    ctx.fillRect(x - 4, y - 12, tw + 8, 16);
+    ctx.fillStyle = color;
+    ctx.fillText(txt, x, y);
+  }
+  ctx.restore();
+}
+
 function _applyGlow(ctx, color, isSelected, isHovered) {
   if (isSelected) {
     ctx.shadowColor = color || "#f5c518";
@@ -951,9 +973,7 @@ function drawOne(d, W, H, isHovered, isSelected) {
     const rrTxt = (rrAct != null && d._isAutoRR)
       ? `預估 1:${rrEst}  ⇢  實際 1:${rrAct}`
       : `1 : ${rrEst}`;
-    const rrW   = drawCtx.measureText(rrTxt).width;
-    drawCtx.fillStyle = (parseFloat(rrEst) < 0) ? "rgba(239,83,80,0.95)" : "rgba(38,166,154,0.95)";
-    if (rx - ex > rrW + 10) drawCtx.fillText(rrTxt, ex + (rx - ex - rrW) / 2, tpCY + 4);
+    _drawRRLabel(drawCtx, rrTxt, (parseFloat(rrEst) < 0) ? "rgba(239,83,80,0.95)" : "rgba(38,166,154,0.95)", ex, rx, tpCY, W);
 
     // 右側標籤
     drawCtx.font = "11px sans-serif";
@@ -1084,9 +1104,7 @@ function drawOne(d, W, H, isHovered, isSelected) {
     const rrTxt = (rrAct != null && d._isAutoRR)
       ? `預估 1:${rrEst}  ⇢  實際 1:${rrAct}`
       : `1 : ${rrEst}`;
-    const rrW   = drawCtx.measureText(rrTxt).width;
-    drawCtx.fillStyle = (parseFloat(rrEst) < 0) ? "rgba(239,83,80,0.95)" : "rgba(38,166,154,0.95)";
-    if (rx - ex > rrW + 10) drawCtx.fillText(rrTxt, ex + (rx - ex - rrW) / 2, tpCY + 4);
+    _drawRRLabel(drawCtx, rrTxt, (parseFloat(rrEst) < 0) ? "rgba(239,83,80,0.95)" : "rgba(38,166,154,0.95)", ex, rx, tpCY, W);
 
     drawCtx.font = "11px sans-serif";
     const tpLabel = d._isAutoRR ? `預估 ${_fmtPx(d.tp)}` : `TP  ${_fmtPx(d.tp)}`;
