@@ -113,6 +113,15 @@ function _resetSymbolBarQuote() {
   if (chg) { chg.textContent = ""; chg.className = "sym-chg"; }
 }
 
+// 切標的瞬間先用已知現價填上方「價格」（取代「—」），避免價格閃一下再回來。
+// 與 loadData 同一個 tick 內呼叫 → 不會先 paint 出「—」。資料載入後 updateSymbolBar 會精修為同值。
+// 只填價格(symC)：ticker 的漲跌幅是 24h、上方欄是「棒對棒」漲跌，metric 不同 → 不填、留給資料載入算，
+// 否則會先顯示 24h% 再翻成棒漲跌% 反而像跳動。
+function _paintSymbolQuote(price) {
+  if (price == null) return;
+  _setSym("symC", fmt(price));
+}
+
 function updateAllLegends(t) {
   // 熱路徑（每次 crosshair 移動觸發 60Hz）：O(1) Map 查 idx 共用，避免後續 indexOf O(n)
   let idx = (_secToIdx && _secToIdx.has(t)) ? _secToIdx.get(t) : -1;

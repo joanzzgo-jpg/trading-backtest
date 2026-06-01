@@ -364,9 +364,22 @@ function _selectTickerRow(el) {
   updateMarketUI();
   document.getElementById("symbolInput").value = el.dataset.sym;
   loadData(false);
+  // 立即用該列已知現價填上方價格 → 切換時上方價格不會閃「—」再回來（資料載入後會精修為同值）
+  const _q = _quoteForRow(el);
+  if (_q && typeof _paintSymbolQuote === "function") _paintSymbolQuote(_q.price);
   window._mSetTab && window._mSetTab("chart");    // 手機：選標的後跳圖表分頁
   el.parentNode?.querySelector(".ticker-item.tk-active")?.classList.remove("tk-active");
   el.classList.add("tk-active");
+}
+
+// 從 ticker 資料找該列的已知現價/漲跌幅（給切換瞬間先填上方價格用）
+function _quoteForRow(el) {
+  const disp = (el.dataset.display || el.dataset.sym || "").toUpperCase();
+  const sym  = (el.dataset.symbol  || "").toUpperCase();
+  const t = (_tickerData || []).find(x =>
+    (x.display || "").toUpperCase() === disp || (x.symbol || "").toUpperCase() === sym);
+  if (t && t.price) return { price: t.price, changePct: t.change_pct };
+  return null;
 }
 
 function _removeWatchlistByKey(key) {
