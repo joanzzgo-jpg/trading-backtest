@@ -5685,18 +5685,18 @@ html.landing-active .landing { background: transparent; }
 @keyframes landing-arrow { 0%,100% { transform: translateX(-50%) translateY(0); } 50% { transform: translateX(-50%) translateY(10px); } }
 /* 大門上的國家名：草寫 + 城堡手繪深棕墨色（像刻在門上） */
 .landing-country {
-  position: absolute; left: 50%; top: 54%; transform: translateX(-50%);
+  position: absolute; left: 50%; top: 52.5%; transform: translateX(-50%);
   z-index: 4; white-space: nowrap; pointer-events: none;
   display: inline-flex; align-items: center; gap: .2em;
   font-family: "Caveat", cursive; font-weight: 700;
-  font-size: clamp(11px, 1.6vw, 18px); color: #6E5236;
+  font-size: clamp(13px, 1.9vw, 21px); color: #6E5236;
   text-shadow: 0 1px 0 rgba(255,250,242,.3); letter-spacing: .01em;
 }
 .ctry-flag {
   flex: 0 0 auto; width: 1.55em; height: 1.4em; display: block;
   transform: translateY(.16em);   /* 下移對齊草寫字的視覺中心（Caveat 字身偏低） */
   /* 更淡：降彩度 + 微暖 + 提亮 + 降透明 → 更貼近城堡手繪水彩淡調 */
-  filter: saturate(.38) sepia(.16) brightness(1.02) opacity(.76);
+  filter: saturate(.38) sepia(.16) brightness(1.02) opacity(.85);
 }
 .landing-country:empty { display: none; }
 /* 整座大門＝進入鈕：透明熱區，hover 浮暖光暈 */
@@ -5908,7 +5908,7 @@ html.perf-mode .acct-btn-ghost { background: #F5F5F5; color: #1F1F1F; border-col
 /* ── 封面大門上的鎖（手繪城堡風；在 .landing-stage 內 → 隨門一起放大、黏在門上）──
      預設隱藏；點門 → .landing-locking 門放大、鎖在門上浮現。 */
 .landing-acct {
-  position: absolute; left: 50%; top: 29%;
+  position: absolute; left: 50%; top: 40%;
   transform: translate(-50%, -50%) scale(.7);
   z-index: 6; width: min(42vw, 150px);   /* 固定好讀尺寸；門放大後鎖會明顯比門小 */
   opacity: 0; pointer-events: none;
