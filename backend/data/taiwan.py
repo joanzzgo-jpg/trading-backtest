@@ -3,10 +3,12 @@
 """
 import re as _re
 import time as _time
+import logging
 import pandas as pd
 import requests
 from datetime import datetime, timedelta, date
 
+_log = logging.getLogger("taiwan")
 
 FINMIND_API_URL = "https://api.finmindtrade.com/api/v4/data"
 
@@ -131,7 +133,7 @@ def _yf_history(ticker, interval: str, start: str, end: str):
         raw = ticker.history(start=start, end=end, interval=interval, auto_adjust=True)
         return raw if not raw.empty else None
     except Exception as e:
-        print(f"[yf_history] {ticker.ticker} {interval} {start}~{end}: {e}")
+        _log.warning(f"[yf_history] {ticker.ticker} {interval} {start}~{end}: {e}")
         return None
 
 
@@ -311,7 +313,7 @@ def fetch_tw_tickers() -> list:
             except (ValueError, TypeError):
                 continue
     except Exception as e:
-        print(f"[tw_tickers] TWSE opendata error: {e}")
+        _log.warning(f"[tw_tickers] TWSE opendata error: {e}")
 
     # ── 2. TPEX 上櫃全量 ──────────────────────────────────────
     try:
@@ -341,7 +343,7 @@ def fetch_tw_tickers() -> list:
             except (ValueError, TypeError):
                 continue
     except Exception as e:
-        print(f"[tw_tickers] TPEX opendata error: {e}")
+        _log.warning(f"[tw_tickers] TPEX opendata error: {e}")
 
     # ── 3. MIS 即時補強（盤中），或 opendata 失敗時的備援 ────────
     ex_ch = "|".join(f"{ex}_{sym}.tw" for sym, ex in TW_POPULAR)
@@ -379,7 +381,7 @@ def fetch_tw_tickers() -> list:
             except (ValueError, TypeError):
                 continue
     except Exception as e:
-        print(f"[tw_tickers] MIS error: {e}")
+        _log.warning(f"[tw_tickers] MIS error: {e}")
 
     result = [t for t in tickers.values() if t["price"] > 0]
     result.sort(key=lambda x: x["change_pct"], reverse=True)
