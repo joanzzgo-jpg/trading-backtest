@@ -5507,14 +5507,16 @@ body, button, input, select, textarea,
   body.m-tab-wr .tb-wr-est { font-size: 11px !important; margin: 0 !important; }
   body.m-tab-wr .tb-wr-from,
   body.m-tab-wr .tb-wr-status { font-size: 10px; margin: 0 !important; }
-  /* 訊號列（S1~S12）橫滑、每個區塊放大好點 → 點開訊號抽屜 */
+  /* 十字線 hover 勝率列：固定高度 → hover 內容增減「不」改變面板高度，
+     避免下方主圖被壓縮造成 resize 抖動（手機直向排列的關鍵修正） */
   body.m-tab-wr .tb-wr-scroll {
-    display: flex !important;      /* 蓋過 ≤1100px 的 display:none，勝率分頁要顯示各訊號明細 */
-    order: 3 !important; width: 100% !important; flex: 0 0 auto !important;
-    overflow-x: auto !important; gap: 2px; padding-top: 8px;
+    display: flex !important;      /* 蓋過 ≤1100px 的 display:none，勝率分頁要顯示 hover 列 */
+    order: 3 !important; width: 100% !important;
+    flex: 0 0 46px !important; height: 46px !important;
+    align-items: center !important;
+    overflow-x: auto !important; overflow-y: hidden !important; gap: 2px;
     border-top: 1px solid rgba(255,180,120,.18);
   }
-  body.m-tab-wr .tb-wr-scroll { padding-top: 6px; }
   body.m-tab-wr .tb-wr-block { gap: 4px; padding: 4px 6px; border-radius: 6px; }
   body.m-tab-wr .tb-wr-block:active { background: rgba(255,180,120,.12); }
   body.m-tab-wr .tb-wr-icon { font-size: 14px; }
