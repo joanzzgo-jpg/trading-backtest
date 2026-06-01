@@ -5686,11 +5686,11 @@ html.landing-active .landing { background: transparent; }
 @keyframes landing-arrow { 0%,100% { transform: translateX(-50%) translateY(0); } 50% { transform: translateX(-50%) translateY(10px); } }
 /* 大門上的國家名：草寫 + 城堡手繪深棕墨色（像刻在門上） */
 .landing-country {
-  position: absolute; left: 50%; top: 52%; transform: translateX(-50%);
+  position: absolute; left: 50%; top: 48%; transform: translateX(-50%);
   z-index: 4; white-space: nowrap; pointer-events: none;
   display: inline-flex; align-items: center; gap: .2em;
   font-family: "Caveat", cursive; font-weight: 700;
-  font-size: clamp(15px, 2.1vw, 26px); color: #6E5236;
+  font-size: clamp(11px, 1.6vw, 18px); color: #6E5236;
   text-shadow: 0 1px 0 rgba(255,250,242,.3); letter-spacing: .01em;
 }
 .ctry-flag {
@@ -5918,16 +5918,6 @@ html.perf-mode .acct-btn-ghost { background: #F5F5F5; color: #1F1F1F; border-col
 }
 .landing.landing-locking .landing-acct { opacity: 1; transform: translate(-50%, -50%) scale(1); pointer-events: auto; }
 .lock-svg { display: block; width: 100%; height: auto; opacity: 0.5; }   /* 鎖圖 50% 透明，淡融在門上；輸入框/按鈕維持清楚 */
-/* 鎖上方的國旗 + 國名（草寫）：此圖層不受門放大影響 → 鎖定畫面才看得到 */
-.lock-country {
-  position: absolute; left: 50%; top: -13%; transform: translateX(-50%);
-  display: inline-flex; align-items: center; gap: .25em; white-space: nowrap; pointer-events: none;
-  font-family: "Caveat", cursive; font-weight: 700;
-  font-size: clamp(17px, 2.4vw, 24px); color: #EBDFC8;
-  text-shadow: 0 1px 3px rgba(20,12,4,.7), 0 0 10px rgba(20,12,4,.4);
-}
-.lock-country:empty { display: none; }
-.lock-country .ctry-flag { width: 1.5em; height: 1.35em; transform: translateY(.14em); filter: saturate(.5) brightness(1.05) opacity(.9); }
 /* 疊在鎖身下半部的輸入區（鑰匙孔在上、輸入在下）*/
 .lock-overlay {
   position: absolute; left: 50%; top: 58%;
@@ -5978,8 +5968,8 @@ html.perf-mode .acct-btn-ghost { background: #F5F5F5; color: #1F1F1F; border-col
 }
 .landing.landing-locking .landing-logo,
 .landing.landing-locking .landing-arrow,
-.landing.landing-locking .landing-loc,
-.landing.landing-locking .landing-country { opacity: 0; transition: opacity .3s ease; }
+.landing.landing-locking .landing-loc { opacity: 0; transition: opacity .3s ease; }
+/* 國旗+國名：鎖定時「保持顯示」並隨門一起放大（畫在門板上）→ 不列入上面的隱藏清單 */
 .landing.landing-locking::after {   /* 暗化背景襯托鎖 */
   content: ""; position: absolute; inset: 0; z-index: 7;
   background: rgba(20,12,4,.42); pointer-events: none;
