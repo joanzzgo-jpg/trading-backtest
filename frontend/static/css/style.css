@@ -5962,7 +5962,7 @@ html.perf-mode .acct-btn-ghost { background: #F5F5F5; color: #1F1F1F; border-col
 /* 點門後：大門放大並上移到畫面中央（鎖疊在放大的門上、明顯比門小）*/
 .landing.landing-locking .landing-stage {
   transform-origin: 50% 92%;
-  transform: translateY(-45%) scale(2.1);   /* 鏡頭往上：少照到地板、門置中 */
+  transform: translateY(-10%) scale(2.1);   /* 鏡頭位置（數字越負越高/少地板） */
   transition: transform .5s cubic-bezier(.4,0,.2,1);
 }
 .landing.landing-locking .landing-logo,
