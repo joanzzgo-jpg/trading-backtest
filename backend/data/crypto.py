@@ -548,11 +548,14 @@ def _fetch_okx(symbol: str, timeframe: str,
 # ══════════════════════════════════════════════════════════════
 # Pionex klines interval 格式（實測：大寫縮寫，1h=60M；1w/1M 不支援）
 PIONEX_TF_MAP = {
-    "1M": None, "1w": None, "1d": "1D",
+    "1d": "1D",
     "8h": "8H", "4h": "4H", "1h": "60M",
     "30m": "30M", "15m": "15M", "5m": "5M",
-    # 2h: Pionex API 不支援原生 2H，由 _fetch_pionex_klines 內部抓 1H 重採樣
+    # Pionex API 不支援原生 2H / 1w / 1M → _fetch_pionex_klines 內部抓較小框重採樣
+    # （否則 Pionex 獨有標的切月/週會「查不到資料」）
     "2h": "_RESAMPLE_FROM_1H",
+    "1w": "_RESAMPLE_W_FROM_1D",
+    "1M": "_RESAMPLE_M_FROM_1D",
 }
 
 
@@ -563,17 +566,28 @@ def _fetch_pionex_klines(symbol: str, timeframe: str,
     tf = PIONEX_TF_MAP.get(timeframe)
     if tf is None:
         return pd.DataFrame(columns=["time","open","high","low","close","volume"])
-    # 2h：Pionex 不支援原生 2H，遞迴抓 1h 然後重採樣
+    # Pionex 不支援原生 2H / 1w / 1M → 抓較小時框再重採樣（聚合規則相同）
+    _AGG = {"open":"first","high":"max","low":"min","close":"last","volume":"sum"}
     if tf == "_RESAMPLE_FROM_1H":
         df_1h = _fetch_pionex_klines(symbol, "1h", start, end,
                                        limit=limit * 2, max_candles=max_candles * 2, is_perp=is_perp)
         if df_1h.empty:
             return df_1h
-        df_1h = df_1h.set_index("time")
-        df_2h = df_1h.resample("2h").agg(
-            {"open":"first","high":"max","low":"min","close":"last","volume":"sum"}
-        ).dropna(subset=["open"]).reset_index()
-        return df_2h
+        return (df_1h.set_index("time").resample("2h").agg(_AGG)
+                .dropna(subset=["open"]).reset_index())
+    if tf in ("_RESAMPLE_W_FROM_1D", "_RESAMPLE_M_FROM_1D"):
+        # 抓 1D 再聚合成週/月；1D 根數 = 目標根數 × 每根天數（上限 4000，避免過多分頁觸發限流）
+        per = 7 if tf == "_RESAMPLE_W_FROM_1D" else 31
+        d_cap = min(4000, limit * per + 60)
+        df_1d = _fetch_pionex_klines(symbol, "1d", start, end,
+                                       limit=d_cap, max_candles=d_cap, is_perp=is_perp)
+        if df_1d.empty:
+            return df_1d
+        # 週：週一開盤（closed/label=left）；月：月初開盤（MS）→ 對齊 Binance 月/週 K
+        rule = dict(rule="W-MON", label="left", closed="left") if tf == "_RESAMPLE_W_FROM_1D" \
+               else dict(rule="MS")
+        return (df_1d.set_index("time").resample(**rule).agg(_AGG)
+                .dropna(subset=["open"]).reset_index())
     sym = symbol.replace("/", "_").upper()
     if is_perp and not sym.endswith("_PERP"):
         sym += "_PERP"
