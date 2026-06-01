@@ -140,6 +140,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     const bar = document.getElementById("mTabbar");
     if (!bar) return;
     const setTab = (t) => {
+      if (t === "chart") t = "wr";   // 「圖表」分頁已併入「勝率」（勝率頁本就含圖表）→ 舊呼叫一律導向 wr
       document.body.classList.remove("m-tab-chart", "m-tab-wr", "m-tab-watch", "m-tab-settings");
       document.body.classList.add("m-tab-" + t);
       bar.querySelectorAll(".m-tab").forEach(b => b.classList.toggle("active", b.dataset.mtab === t));
@@ -152,9 +153,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     bar.querySelectorAll(".m-tab").forEach(b => b.addEventListener("click", () => setTab(b.dataset.mtab)));
     // 暴露給其他模組：在自選分頁點標的後切回圖表分頁（ticker.js 用）
     window._mSetTab = setTab;
-    // 初始分頁：?mtab= 可指定（方便測試），預設圖表
+    // 初始分頁：?mtab= 可指定（方便測試），預設勝率（圖表已併入勝率）
     const _mt = new URLSearchParams(location.search).get("mtab");
-    setTab(["chart", "wr", "watch", "settings"].includes(_mt) ? _mt : "chart");
+    setTab(["chart", "wr", "watch", "settings"].includes(_mt) ? _mt : "wr");
   })();
 
   // 手機/PWA 省電：app 切到背景（鎖屏、切 app、切分頁）時暫停每秒輪詢（行情 + ticker），
