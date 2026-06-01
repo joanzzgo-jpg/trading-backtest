@@ -268,20 +268,12 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             b["n_loss"] += 1
 
     def _scan_rr(sig_key, direction, entry_i, stop_px):
-        """1:1 目標（止盈距離 = 止損距離）的固定目標掃描。
-        target = 進場價 ∓ |進場價 - 止損|（短減多加）。回傳 ('w'/'l'/None, exit_time)。"""
-        if sig_key == "abc" or entry_i >= n:
-            return None, None
-        entry_px = opens[entry_i]
-        if math.isnan(entry_px):
-            return None, None
-        risk = abs(entry_px - stop_px)
-        if risk <= 1e-12:
-            return None, None
-        tgt = entry_px - risk if direction == "short" else entry_px + risk
-        o, ot, _ = _scan_outcome_fixed_t(highs, lows, closes, times_iso, entry_i, n,
-                                          stop_px, tgt, direction)
-        return ("w" if o == "win" else ("l" if o == "loss" else None)), ot
+        """1:1 目標（止盈距離 = 止損距離）勝負。
+
+        ⚠ 1:1(rr) 目標已從前端移除（2026-06）→ 不再掃描，省下每個訊號一次固定目標
+        掃描（勝率計算的可觀成本）。輸出仍保留 rr 結構但為空、signals r_rr=None，前端不讀。
+        若日後要恢復：掃 target = 進場價 ∓ |進場價 - 止損| 的 _scan_outcome_fixed_t。"""
+        return None, None
 
     def _push_signal(sig_time, d_str, sig_key, direction, entry_i, stop_px,
                      om, otm, omj, ob, otb, obj):
