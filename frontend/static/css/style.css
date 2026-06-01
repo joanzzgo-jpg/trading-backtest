@@ -5686,7 +5686,7 @@ html.landing-active .landing { background: transparent; }
 @keyframes landing-arrow { 0%,100% { transform: translateX(-50%) translateY(0); } 50% { transform: translateX(-50%) translateY(10px); } }
 /* 大門上的國家名：草寫 + 城堡手繪深棕墨色（像刻在門上） */
 .landing-country {
-  position: absolute; left: 50%; top: 48%; transform: translateX(-50%);
+  position: absolute; left: 50%; top: 50%; transform: translateX(-50%);
   z-index: 4; white-space: nowrap; pointer-events: none;
   display: inline-flex; align-items: center; gap: .2em;
   font-family: "Caveat", cursive; font-weight: 700;
