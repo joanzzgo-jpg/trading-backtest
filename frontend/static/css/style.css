@@ -5676,12 +5676,27 @@ html.landing-active .landing { background: transparent; }
   background: no-repeat center / contain
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 3c0 0-6.6 8.3-6.6 12.4a6.6 6.6 0 0 0 13.2 0C18.6 11.3 12 3 12 3z' fill='%23ffffff' stroke='%238a8a8a' stroke-width='1.3' stroke-linejoin='round'/%3E%3Cpath d='M9.3 14.2c.1 1.6 1 2.7 2.4 3' fill='none' stroke='%23b9b9b9' stroke-width='1.2' stroke-linecap='round'/%3E%3C/svg%3E");
 }
-/* 箭頭：指向大門，上下跳動 */
+/* 箭頭：指向大門，上下跳動（手繪墨線、城堡風） */
 .landing-arrow {
-  position: absolute; left: 50%; top: 42%; transform: translateX(-50%);
-  z-index: 4; color: #FFE08A; line-height: 1; pointer-events: none;
-  font-size: clamp(20px, 4vw, 38px); text-shadow: 0 0 12px rgba(255,150,20,.95), 0 2px 4px rgba(0,0,0,.5);
-  animation: landing-arrow 1s ease-in-out infinite;
+  position: absolute; left: 50%; top: -30%; transform: translateX(-50%);
+  z-index: 4; line-height: 0; pointer-events: none;
+  font-size: clamp(22px, 4.4vw, 42px);
+  animation: landing-arrow 1.1s ease-in-out infinite;
+}
+.landing-arrow svg {
+  width: 1em; height: 1.4em; display: block; overflow: visible;
+  /* 暖金外光暈 + 輕微落影，像門上手繪墨記 */
+  filter: drop-shadow(0 0 9px rgba(255,150,20,.85)) drop-shadow(0 2px 3px rgba(60,30,0,.5));
+}
+.landing-arrow .la-shaft,
+.landing-arrow .la-head {
+  fill: none; stroke: #F6CE7E; stroke-width: 3.6;
+  stroke-linecap: round; stroke-linejoin: round;
+}
+.landing-arrow .la-shaft { stroke-width: 3.1; opacity: .92; }
+.landing-arrow .la-spark {
+  fill: none; stroke: #FFE3A6; stroke-width: 1.8;
+  stroke-linecap: round; opacity: .7;
 }
 @keyframes landing-arrow { 0%,100% { transform: translateX(-50%) translateY(0); } 50% { transform: translateX(-50%) translateY(10px); } }
 /* 大門上的國家名：草寫 + 城堡手繪深棕墨色（像刻在門上） */
