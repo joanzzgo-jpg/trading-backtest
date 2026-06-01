@@ -2476,8 +2476,14 @@ const SFX = (() => {
         '<span class="lloc-1">' + _wd.city + ' <span class="lloc-wx">' + desc + '</span></span>' +
         '<span class="lloc-2">' + _wd.temp + '°C' + _pop + '</span>';
     }
-    const _lcountry = document.getElementById('landingCountry');   // 大門上：國旗 + 草寫國名
-    if (_lcountry && _wd.country) _lcountry.innerHTML = _flagSvg(_wd.country) + '<span class="ctry-name">' + _wd.country + '</span>';
+    // 大門上 + 鎖上方（鎖定畫面）皆顯示：國旗 + 草寫國名
+    if (_wd.country) {
+      const _ctryHtml = _flagSvg(_wd.country) + '<span class="ctry-name">' + _wd.country + '</span>';
+      const _lcountry = document.getElementById('landingCountry');        // 一般首頁：在門上（隨門放大）
+      if (_lcountry) _lcountry.innerHTML = _ctryHtml;
+      const _lockCountry = document.getElementById('landingLockCountry');  // 鎖定畫面：在鎖上方（不受放大影響）
+      if (_lockCountry) _lockCountry.innerHTML = _ctryHtml;
+    }
   }
 
   // 手動是否選了天氣特效（button 高亮中）→ 自動天氣不可覆蓋

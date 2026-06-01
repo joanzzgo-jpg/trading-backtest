@@ -62,6 +62,8 @@
 
   <!-- 大門上的鎖（手繪城堡風）：點門 → 門放大 → 鎖浮現在門上 → 輸帳號 → 解鎖 → 接續開門進場 -->
   <div class="landing-acct" id="landingAcct" aria-hidden="true">
+    <!-- 鎖上方的國旗 + 國名（此圖層不受門放大影響，鎖定畫面才看得到）-->
+    <div class="lock-country" id="landingLockCountry"></div>
     <svg class="lock-svg" viewBox="0 0 200 250" aria-hidden="true">
       <defs>
         <linearGradient id="lockMetal" x1="0" y1="0" x2="0" y2="1">

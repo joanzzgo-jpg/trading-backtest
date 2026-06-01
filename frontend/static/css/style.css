@@ -5918,6 +5918,16 @@ html.perf-mode .acct-btn-ghost { background: #F5F5F5; color: #1F1F1F; border-col
 }
 .landing.landing-locking .landing-acct { opacity: 1; transform: translate(-50%, -50%) scale(1); pointer-events: auto; }
 .lock-svg { display: block; width: 100%; height: auto; opacity: 0.5; }   /* 鎖圖 50% 透明，淡融在門上；輸入框/按鈕維持清楚 */
+/* 鎖上方的國旗 + 國名（草寫）：此圖層不受門放大影響 → 鎖定畫面才看得到 */
+.lock-country {
+  position: absolute; left: 50%; top: -13%; transform: translateX(-50%);
+  display: inline-flex; align-items: center; gap: .25em; white-space: nowrap; pointer-events: none;
+  font-family: "Caveat", cursive; font-weight: 700;
+  font-size: clamp(17px, 2.4vw, 24px); color: #EBDFC8;
+  text-shadow: 0 1px 3px rgba(20,12,4,.7), 0 0 10px rgba(20,12,4,.4);
+}
+.lock-country:empty { display: none; }
+.lock-country .ctry-flag { width: 1.5em; height: 1.35em; transform: translateY(.14em); filter: saturate(.5) brightness(1.05) opacity(.9); }
 /* 疊在鎖身下半部的輸入區（鑰匙孔在上、輸入在下）*/
 .lock-overlay {
   position: absolute; left: 50%; top: 58%;
