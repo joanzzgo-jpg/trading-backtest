@@ -29,7 +29,7 @@ router = APIRouter(prefix="/api/account")
 
 _DB_URL = os.getenv("DATABASE_URL")
 _ADMIN_KEY = os.getenv("ACCOUNT_ADMIN_KEY")
-_SEED = [s.strip() for s in os.getenv("ACCOUNT_SEED", "Abc,qwer").split(",") if s.strip()]
+_SEED = [s.strip() for s in os.getenv("ACCOUNT_SEED", "Abc,qwer,Ctt").split(",") if s.strip()]
 _ON_RAILWAY = bool(os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("RAILWAY_PROJECT_ID") or os.getenv("RAILWAY_SERVICE_ID"))
 _SQLITE_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".accounts.db")
 _inited = False
