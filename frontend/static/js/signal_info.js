@@ -249,11 +249,7 @@
   function _statsFor(key) {
     const d = (typeof _wrCacheLast !== "undefined") ? _wrCacheLast : null;
     if (!d) return null;
-    let view = (typeof _wrPickView === "function") ? _wrPickView(d) : d;
-    // 強化版時取巢狀 .variant
-    if (typeof _wrVariantView !== "undefined" && _wrVariantView === "variant" && view && view.variant) {
-      view = view.variant;
-    }
+    const view = (typeof _wrPickView === "function") ? _wrPickView(d) : d;
     return view?.[key];
   }
 
@@ -262,9 +258,8 @@
     const sk = _S_KEY_MAP[key];
     const rKey = (typeof _wrResultKey === "function") ? _wrResultKey() : "r";
     const otKey = (typeof _wrOtKey === "function") ? _wrOtKey() : "ot";
-    const useVariant = (typeof _wrVariantView !== "undefined") && _wrVariantView === "variant";
     return _lastWRSignals
-      .filter(s => s.k === sk && (!useVariant || s.v))
+      .filter(s => s.k === sk)
       .map(s => ({
         t: s.t,
         d: s.d,
@@ -329,10 +324,9 @@
   function _renderStopDrawer() {
     const d = (typeof _wrCacheLast !== "undefined") ? _wrCacheLast : null;
     if (!d) return;
-    let view = (typeof _wrPickView === "function") ? _wrPickView(d) : d;
-    if (typeof _wrVariantView !== "undefined" && _wrVariantView === "variant" && view && view.variant) view = view.variant;
+    const view = (typeof _wrPickView === "function") ? _wrPickView(d) : d;
     const viewLabel = _viewLabel();
-    const variantLabel = (typeof _wrVariantView !== "undefined" && _wrVariantView === "variant") ? "強化版" : "原版";
+    const variantLabel = "原版";
     const ss = view && view.stop_strategy;
     const base = view;  // 不用策略的去重總勝率（對照）
     const curBuf = (typeof _wrStopBuffer !== "undefined") ? _wrStopBuffer : 0;
@@ -444,12 +438,10 @@
     const tf       = (typeof currentTF !== "undefined" && currentTF) ? currentTF : "1d";
     if (!symbol) { _set("—"); return; }
     _set("求解中…");
-    const tgt = (typeof _wrTargetView !== "undefined" && (_wrTargetView === "band" || _wrTargetView === "rr"))
-      ? _wrTargetView : "mid";
-    const variant = (typeof _wrVariantView !== "undefined" && _wrVariantView === "variant") ? 1 : 0;
+    const tgt = (typeof _wrTargetView !== "undefined" && _wrTargetView === "band") ? "band" : "mid";
     const p = new URLSearchParams({ market, symbol, exchange, timeframe: tf,
-      solve: 1, solve_target: tgt, solve_variant: variant });
-    const applyKey = `${symbol}|${tf}|${tgt}|${variant}`;
+      solve: 1, solve_target: tgt });
+    const applyKey = `${symbol}|${tf}|${tgt}`;
     fetch("/api/crt_winrate?" + p).then(r => r.json()).then(d => {
       if (!d || d.stop_pct == null) { _set("—"); return; }
       if (d.achieved) {
@@ -479,9 +471,8 @@
     const stats = _statsFor(key);
     const sigs  = _signalsFor(key);
     const viewLabel = _viewLabel();
-    const variantLabel = (typeof _wrVariantView !== "undefined" && _wrVariantView === "variant") ? "強化版" : "原版";
-    // 訊號名稱加 "-1" 標記強化版
-    const nameWithVariant = variantLabel === "強化版" ? `${info.name}-1` : info.name;
+    const variantLabel = "原版";
+    const nameWithVariant = info.name;
 
     const patternsHTML = (info.patterns || []).map(p =>
       `<div class="sig-pat-row"><span class="sig-pat-dir">${p.dir}</span><span class="sig-pat-cond">${p.cond}</span></div>`

@@ -17,11 +17,8 @@ let _wrTargetView = "mid";
 try { _wrTargetView = localStorage.getItem(_WR_VIEW_KEY) || "mid"; } catch (e) {}
 if (_wrTargetView === "rr") { _wrTargetView = "mid"; try { localStorage.setItem(_WR_VIEW_KEY, "mid"); } catch (e) {} }
 
-// 訊號版本（原版 ↔ 強化版：量能 > 1.5× MA20）狀態
-const _WR_VARIANT_KEY = "wrVariantView";
-// 強化版功能已從 UI 移除 — 強制 base（不再讀 localStorage 避免舊設定卡死）
-let _wrVariantView = "base";
-try { localStorage.removeItem(_WR_VARIANT_KEY); } catch (e) {}
+// 強化版（variant）功能已整個移除（前後端皆無）；以下清掉殘留設定鍵
+try { localStorage.removeItem("wrVariantView"); } catch (e) {}
 
 // 點擊訊號 K 棒展開的自動盈虧比盒：Set<signal.t>
 const _autoRRSet = new Set();
@@ -78,13 +75,6 @@ function _wrOtKey() {
   return _wrTargetView === "band" ? "ot_b" : _wrTargetView === "rr" ? "ot_rr" : "ot";
 }
 
-function _initWrVariantBtn() {
-  const btn = document.getElementById("wrVariantToggle");
-  if (!btn) return;
-  btn.textContent = _wrVariantView === "variant" ? "強化版" : "原版";
-  btn.classList.toggle("variant", _wrVariantView === "variant");
-}
-
 // 連敗風險顯示 N：0=關、2=2連(敗後再敗)、3=三連敗、4=四連敗。預設關（避免擠到 TOP3 列）
 // 按鈕本身就畫在 TOP3 上列（_renderWrTop3 內），用 inline onclick 不需另外綁事件
 let _wrStreakN = 0;
@@ -95,17 +85,6 @@ function _cycleStreakN() {
   _wrStreakN = _wrStreakN === 0 ? 2 : _wrStreakN >= 5 ? 0 : _wrStreakN + 1;
   try { localStorage.setItem("wrStreakN", String(_wrStreakN)); } catch (e) {}
   _renderWrTop3();
-}
-
-function _toggleWrVariant() {
-  _wrVariantView = _wrVariantView === "variant" ? "base" : "variant";
-  try { localStorage.setItem(_WR_VARIANT_KEY, _wrVariantView); } catch (e) {}
-  _initWrVariantBtn();
-  if (_wrCacheLast) _renderWinRate(_wrCacheLast);
-  _renderWRSignals();  // 主圖 marker 過濾改變
-  if (typeof window._refreshSignalDrawer === "function") window._refreshSignalDrawer();
-  // 自動盈虧比盒目標位也會改變（變強的 marker 數量變了）
-  if (typeof renderDrawings === "function") requestAnimationFrame(renderDrawings);
 }
 
 // 給左側抽屜的加碼設定呼叫：更新 module 變數 + localStorage + 重畫盒子
@@ -222,11 +201,7 @@ function _toggleWrTarget() {
 function _findSignalAtTime(barTime) {
   if (!barTime || !_lastWRSignals) return null;
   const otKey = _wrOtKey();
-  // 強化版時只考慮 v=true 訊號
-  const list = _wrVariantView === "variant"
-    ? _lastWRSignals.filter(s => s.v)
-    : _lastWRSignals;
-  for (const s of list) {
+  for (const s of _lastWRSignals) {
     if (toTime(s.t) === barTime) return s;
     const exitT = s[otKey];
     if (exitT && toTime(exitT) === barTime) return s;
@@ -501,24 +476,11 @@ async function _fetchWinRateNow() {
   }
 }
 
-// memo variant 篩選結果 — _lastWRSignals 變更時自動失效
-let _variantListMemo = { src: null, list: null };
 function _renderWRSignals(signals) {
   if (signals !== undefined) {
     _lastWRSignals = signals || [];
-    _variantListMemo.src = null;   // 失效
   }
-  // 強化版時只顯示 s.v=true 的訊號（memo 避免每次切目標/重繪都重新 filter）
-  let list;
-  if (_wrVariantView === "variant") {
-    if (_variantListMemo.src !== _lastWRSignals) {
-      _variantListMemo.src  = _lastWRSignals;
-      _variantListMemo.list = _lastWRSignals.filter(s => s.v);
-    }
-    list = _variantListMemo.list;
-  } else {
-    list = _lastWRSignals;
-  }
+  let list = _lastWRSignals;
   // 雙擊隱藏的策略 marker 過濾掉
   const _hidden = window._hiddenWrSigs;
   if (_hidden && _hidden.size) list = list.filter(s => !_hidden.has(s.k));
@@ -606,10 +568,8 @@ function _renderWRSignals(signals) {
 
 function _renderWinRate(d) {
   _wrCacheLast = d;
-  // 依目標切換取 mid（頂層）/ band / rr（巢狀）
+  // 依目標切換取 mid（頂層）/ band（巢狀）
   let view = _wrPickView(d);
-  // 再依強化版切換：若 variant view 且該層有 .variant 子物件，使用之
-  if (_wrVariantView === "variant" && view && view.variant) view = view.variant;
   // 台股 long_only：把勝率欄加上 class 隱藏空單 row
   const bar = document.getElementById("winrateBar");
   if (bar) bar.classList.toggle("long-only", !!d.long_only);
@@ -781,11 +741,10 @@ function _updateHoverWR(time) {
   _lastHoverBarTime = time;
   const idx = _buildSigTimeIndex();
   let sigs = (time != null && idx.has(time)) ? idx.get(time) : [];
-  // variant / 雙擊隱藏 過濾（與主圖 marker 一致）
-  const useVariant = _wrVariantView === "variant";
+  // 雙擊隱藏 過濾（與主圖 marker 一致）
   const hidden = window._hiddenWrSigs;
-  if (sigs.length) {
-    sigs = sigs.filter(s => (!useVariant || s.v) && !(hidden && hidden.has(s.k)));
+  if (sigs.length && hidden && hidden.size) {
+    sigs = sigs.filter(s => !hidden.has(s.k));
   }
   // 上方勝率文字：立即更新（不延遲）
   _hoverCurSigs = sigs;
@@ -811,8 +770,7 @@ function _updateHoverWR(time) {
 
 // 單一訊號的勝率小卡 HTML
 function _hoverItemHtml(s) {
-  let view = _wrPickView(_wrCacheLast);
-  if (_wrVariantView === "variant" && view && view.variant) view = view.variant;
+  const view    = _wrPickView(_wrCacheLast);
   const rKey    = _wrResultKey();
   const statKey = _SIGK_TO_STATKEY[s.k] || "abc";
   const dirKey  = s.d === "s" ? "short" : "long";
@@ -883,9 +841,8 @@ function _renderWrTop3() {
   const d = _wrCacheLast;
   if (!d) { root.innerHTML = ""; return; }
 
-  // 取當前 view（mid / band / rr / variant）
-  let view = _wrPickView(d);
-  if (_wrVariantView === "variant" && view && view.variant) view = view.variant;
+  // 取當前 view（mid / band）
+  const view = _wrPickView(d);
 
   // 連敗按鈕（畫在 TOP3 上列）：關 → 2連 → 3連 → 4連 → 敗後停手策略 → 關
   //   2/3/4 連 = 同方向連敗 N-1 根後再敗機率（合併時間軸，中間夾反方向不算連續）
@@ -947,11 +904,9 @@ function _renderWrTop3() {
   const topSet = new Set(top3.map(t => `${_STATKEY_TO_SIGK[t.k]}|${t.dir === "short" ? "s" : "l"}`));
   const sigs = _lastWRSignals || [];
   const rKey = _wrResultKey();
-  const useVariant = _wrVariantView === "variant";
   const seen = new Set();
   let w = 0, l = 0;
   for (const s of sigs) {
-    if (useVariant && !s.v) continue;
     if (!topSet.has(`${s.k}|${s.d}`)) continue;
     const key = s.t + "|" + s.d;
     if (seen.has(key)) continue;
