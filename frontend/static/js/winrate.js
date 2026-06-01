@@ -767,6 +767,8 @@ function _buildSigTimeIndex() {
 
 let _lastHoverBarTime = undefined;   // 上次 hover 的棒時間（秒）；只在換棒時重算
 let _hoverRRSigs = [];               // 目前 hover 棒上的訊號（給 RR 盒用）
+let _hoverCurSigs = [];              // 目前 hover 棒上的訊號（給卡片切換重渲用）
+let _hoverCardIdx = 0;               // 卡片切換模式目前顯示第幾張（手機 3+ 訊號）
 
 // 由 charts.js 的 crosshair 訂閱呼叫（每次移動）；time=null 表示離開圖表
 function _updateHoverWR(time) {
@@ -784,40 +786,66 @@ function _updateHoverWR(time) {
   _hoverRRSigs = sigs;
   if (typeof renderDrawings === "function") requestAnimationFrame(renderDrawings);
   // 上方勝率顯示
+  _hoverCurSigs = sigs;
+  _hoverCardIdx = 0;                 // 換棒 → 回到第一張卡
   const host = document.getElementById("wrHover");
   if (host) host.innerHTML = _hoverWRHtml(sigs);
+}
+
+// 單一訊號的勝率小卡 HTML
+function _hoverItemHtml(s) {
+  let view = _wrPickView(_wrCacheLast);
+  if (_wrVariantView === "variant" && view && view.variant) view = view.variant;
+  const rKey    = _wrResultKey();
+  const statKey = _SIGK_TO_STATKEY[s.k] || "abc";
+  const dirKey  = s.d === "s" ? "short" : "long";
+  const dirSym  = s.d === "s" ? "空" : "多";
+  const stat    = view && view[statKey] ? view[statKey][dirKey] : null;
+  const wr      = (stat && stat.win_rate != null) ? stat.win_rate : null;
+  const wrCls   = wr == null ? "" : wr >= 60 ? " good" : wr < 45 ? " bad" : "";
+  const cnt     = stat ? `${stat.wins}勝${stat.total - stat.wins}負` : "";
+  const r       = s[rKey];
+  const resTxt  = r === "w" ? "✓ 勝" : r === "l" ? "✗ 敗" : "進行中";
+  const resCls  = r === "w" ? "win" : r === "l" ? "loss" : "open";
+  const icon    = _SIG_ICON[statKey] || "●";
+  const label   = _SIG_LABEL[statKey] || "";
+  // 點擊 → 開該訊號詳情抽屜（保留原 block 的功能）
+  return `<span class="tb-wr-hover-item" onclick="window._showSignalInfoByStatKey&&window._showSignalInfoByStatKey('${statKey}')">`
+    + `<span class="tb-wr-hover-ic wr-${statKey}">${icon}</span>`
+    + `<span class="tb-wr-hover-lbl">${label}<i class="tb-wr-hover-dir ${dirKey === "short" ? "s" : "l"}">${dirSym}</i></span>`
+    + `<span class="tb-wr-hover-pct${wrCls}">${wr == null ? "—" : wr + "%"}</span>`
+    + (cnt ? `<span class="tb-wr-hover-cnt">${cnt}</span>` : "")
+    + `<span class="tb-wr-hover-res ${resCls}">${resTxt}</span>`
+    + `</span>`;
 }
 
 function _hoverWRHtml(sigs) {
   if (!sigs || !sigs.length) {
     return `<span class="tb-wr-hover-hint">十字線移到訊號 K 棒 → 顯示該棒勝率</span>`;
   }
-  let view = _wrPickView(_wrCacheLast);
-  if (_wrVariantView === "variant" && view && view.variant) view = view.variant;
-  const rKey = _wrResultKey();
-  return sigs.map(s => {
-    const statKey = _SIGK_TO_STATKEY[s.k] || "abc";
-    const dirKey  = s.d === "s" ? "short" : "long";
-    const dirSym  = s.d === "s" ? "空" : "多";
-    const stat    = view && view[statKey] ? view[statKey][dirKey] : null;
-    const wr      = (stat && stat.win_rate != null) ? stat.win_rate : null;
-    const wrCls   = wr == null ? "" : wr >= 60 ? " good" : wr < 45 ? " bad" : "";
-    const cnt     = stat ? `${stat.wins}勝${stat.total - stat.wins}負` : "";
-    const r       = s[rKey];
-    const resTxt  = r === "w" ? "✓ 勝" : r === "l" ? "✗ 敗" : "進行中";
-    const resCls  = r === "w" ? "win" : r === "l" ? "loss" : "open";
-    const icon    = _SIG_ICON[statKey] || "●";
-    const label   = _SIG_LABEL[statKey] || "";
-    // 點擊 → 開該訊號詳情抽屜（保留原 block 的功能）
-    return `<span class="tb-wr-hover-item" onclick="window._showSignalInfoByStatKey&&window._showSignalInfoByStatKey('${statKey}')">`
-      + `<span class="tb-wr-hover-ic wr-${statKey}">${icon}</span>`
-      + `<span class="tb-wr-hover-lbl">${label}<i class="tb-wr-hover-dir ${dirKey === "short" ? "s" : "l"}">${dirSym}</i></span>`
-      + `<span class="tb-wr-hover-pct${wrCls}">${wr == null ? "—" : wr + "%"}</span>`
-      + (cnt ? `<span class="tb-wr-hover-cnt">${cnt}</span>` : "")
-      + `<span class="tb-wr-hover-res ${resCls}">${resTxt}</span>`
-      + `</span>`;
-  }).join(`<span class="tb-wr-hover-sep"></span>`);
+  // 手機 + 3 個以上訊號：一列塞不下 → 改「圖卡切換」一次顯示一張 + ‹ N/M › 切換
+  const isMobile = (typeof matchMedia === "function") && matchMedia("(max-width:768px)").matches;
+  if (isMobile && sigs.length >= 3) {
+    if (_hoverCardIdx >= sigs.length || _hoverCardIdx < 0) _hoverCardIdx = 0;
+    return `<div class="tb-wr-hover-cardwrap">`
+      + `<button class="tb-wr-hover-nav" onclick="event.stopPropagation();window._hoverCardCycle&&window._hoverCardCycle(-1)" aria-label="上一個">‹</button>`
+      + _hoverItemHtml(sigs[_hoverCardIdx])
+      + `<button class="tb-wr-hover-nav" onclick="event.stopPropagation();window._hoverCardCycle&&window._hoverCardCycle(1)" aria-label="下一個">›</button>`
+      + `<span class="tb-wr-hover-pager">${_hoverCardIdx + 1}/${sigs.length}</span>`
+      + `</div>`;
+  }
+  // 桌面 / 2 個以內：並列
+  return sigs.map(_hoverItemHtml).join(`<span class="tb-wr-hover-sep"></span>`);
 }
+
+// 卡片切換（手機 3+ 訊號）：循環切換目前顯示的訊號卡，不改變十字線/重算
+window._hoverCardCycle = function (delta) {
+  const sigs = _hoverCurSigs || [];
+  if (sigs.length < 2) return;
+  _hoverCardIdx = (_hoverCardIdx + delta + sigs.length) % sigs.length;
+  const host = document.getElementById("wrHover");
+  if (host) host.innerHTML = _hoverWRHtml(sigs);
+};
 
 function _renderWrTop3() {
   const root = document.getElementById("wrTop3");
