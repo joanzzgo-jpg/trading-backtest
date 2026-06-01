@@ -514,8 +514,8 @@
         const exchEl = document.getElementById("exchangeSelect");
         if (exchEl && !["pionex", "binance"].includes(exchEl.value)) exchEl.value = "pionex";
         loadData(false);
-      } else if (first.dataset.wlIdx !== undefined) {
-        first.click();
+      } else {
+        first.click();   // 自選列等無 data-display 的 row → 走 row 自己的 click（會處理市場切換）
       }
       return;
     }
@@ -536,8 +536,8 @@
       const exchEl = document.getElementById("exchangeSelect");
       if (exchEl && !["pionex", "binance"].includes(exchEl.value)) exchEl.value = "pionex";
       loadData(false);
-    } else if (next.dataset.wlIdx !== undefined) {
-      next.click();
+    } else {
+      next.click();   // 自選列等無 data-display 的 row → 走 row 自己的 click
     }
   });
 })();

@@ -306,6 +306,74 @@ function _twLogoHtml(symbol, name) {
 
 const _STAR_SVG = `<svg class="star-svg" width="16" height="16" viewBox="0 0 18 18" fill="none"><path class="star-outline" d="M9 15.5C8.7 15.3 2 10.8 2 6.8C2 4.6 3.7 3 5.7 3C7 3 8.2 3.7 9 4.8C9.8 3.7 11 3 12.3 3C14.3 3 16 4.6 16 6.8C16 10.8 9.3 15.3 9 15.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round"/><path class="star-fill" d="M9 15.5C8.7 15.3 2 10.8 2 6.8C2 4.6 3.7 3 5.7 3C7 3 8.2 3.7 9 4.8C9.8 3.7 11 3 12.3 3C14.3 3 16 4.6 16 6.8C16 10.8 9.3 15.3 9 15.5Z" fill="currentColor" opacity="0"/></svg>`;
 
+/* ── 原地協調列表：重用既有 row 節點（只改變動值 + 依序搬移），避免每秒全量重建 innerHTML
+   → 每秒更新順暢：不閃、不重置捲動位置、click 監聽只在建立時綁一次（重排不失效，讀 dataset）── */
+function _reconcileTicker(container, items, build, update) {
+  const existing = new Map();
+  for (let i = container.children.length - 1; i >= 0; i--) {
+    const el = container.children[i];
+    if (el.dataset && el.dataset.rkey != null) existing.set(el.dataset.rkey, el);
+    else el.remove();   // 清掉 loading / empty 佔位
+  }
+  let prev = null;
+  const seen = new Set();
+  for (const it of items) {
+    const k = it._k;
+    seen.add(k);
+    let el = existing.get(k);
+    if (el) { update(el, it); }
+    else {
+      const tpl = document.createElement("template");
+      tpl.innerHTML = build(it).trim();
+      el = tpl.content.firstElementChild;
+      el.dataset.rkey = k;
+      _bindTickerRow(el);
+    }
+    const ref = prev ? prev.nextSibling : container.firstChild;
+    if (el !== ref) container.insertBefore(el, ref);   // 只在位置不對時搬移
+    prev = el;
+  }
+  for (const [k, el] of existing) if (!seen.has(k)) el.remove();
+}
+
+// 每個 row 建立時綁一次 click（讀 dataset，重排/重用都有效）
+function _bindTickerRow(el) {
+  el.addEventListener("click", e => {
+    if (e.target.closest(".tk-star")) {           // 星號 → 加入/移除自選
+      e.stopPropagation();
+      _toggleWatchlist(el.dataset.sym, el.dataset.mkt, el.dataset.exch || "");
+      return;
+    }
+    if (e.target.closest(".wl-del")) {            // 自選列 → 刪除
+      e.stopPropagation();
+      _removeWatchlistByKey(el.dataset.rkey);
+      return;
+    }
+    _selectTickerRow(el);                         // 其餘 → 選此標的
+  });
+}
+
+function _selectTickerRow(el) {
+  const mkt = el.dataset.mkt;
+  const mktEl = document.getElementById("marketSelect");
+  if (mktEl && mktEl.value !== mkt) mktEl.value = mkt;
+  if (mkt === "crypto") {
+    const x = document.getElementById("exchangeSelect");
+    if (x) x.value = el.dataset.exch || "pionex";
+  }
+  updateMarketUI();
+  document.getElementById("symbolInput").value = el.dataset.sym;
+  loadData(false);
+  window._mSetTab && window._mSetTab("chart");    // 手機：選標的後跳圖表分頁
+  el.parentNode?.querySelector(".ticker-item.tk-active")?.classList.remove("tk-active");
+  el.classList.add("tk-active");
+}
+
+function _removeWatchlistByKey(key) {
+  const idx = _watchlist.findIndex(w => `${w.market}:${w.exchange || ""}:${w.symbol}` === key);
+  if (idx >= 0) { _watchlist.splice(idx, 1); _saveWatchlist(); renderTickers(); }
+}
+
 function renderTickers() {
   const container = document.getElementById("tickerList");
   if (!container) return;
@@ -319,9 +387,8 @@ function renderTickers() {
       container.innerHTML = '<div class="tk-loading">尚無自選，點 ♡ 加入</div>';
       return;
     }
-    container.innerHTML = _watchlist.map((item, i) => {
+    const items = _watchlist.map(item => {
       const mktLabel = item.market === "crypto" ? (item.exchange || "crypto").toUpperCase() : item.market.toUpperCase();
-      const active   = item.symbol.toUpperCase() === currentSym ? " tk-active" : "";
       let price = null, change_pct = null;
       if (item.market === "crypto") {
         const td = _tickerData.find(t =>
@@ -329,54 +396,21 @@ function renderTickers() {
           t.symbol?.toUpperCase() === item.symbol.toUpperCase());
         if (td) { price = td.price; change_pct = td.change_pct; }
       } else {
-        const key = `${item.market}:${item.exchange || ""}:${item.symbol}`;
-        const c = _wlPriceCache[key];
+        const c = _wlPriceCache[`${item.market}:${item.exchange || ""}:${item.symbol}`];
         if (c) { price = c.price; change_pct = c.change_pct; }
       }
-      const priceStr = price != null ? fmtTickerPrice(price) : "---";
-      const chgCls   = change_pct != null ? (change_pct >= 0 ? "up" : "dn") : "";
-      const pctStr   = change_pct != null ? (change_pct >= 0 ? "+" : "") + change_pct.toFixed(2) + "%" : mktLabel;
-      const amtStr   = change_pct != null && price != null
-        ? (change_pct >= 0 ? "+" : "") + _fmtAmt(price * change_pct / 100 / (1 + change_pct / 100), price) : "";
-      const logo     = _coinLogoHtml(item.symbol);
-      const fullName = item.market === "crypto" ? _coinFullName(item.symbol) : item.market.toUpperCase();
-      return `<div class="ticker-item${active}" data-wl-idx="${i}">
-        ${logo}
-        <div class="tk-info">
-          <span class="tk-sym">${item.symbol}</span>
-          <span class="tk-full">${fullName}</span>
-        </div>
-        <div class="tk-prices">
-          <span class="tk-price-val">${priceStr}</span>
-          <div class="tk-chg-row">
-            <span class="tk-chg-amt ${chgCls}">${amtStr}</span>
-            <span class="tk-chg ${chgCls}">${pctStr}</span>
-          </div>
-        </div>
-        <div class="tk-action"><button class="wl-del" title="移除">🗑</button></div>
-      </div>`;
-    }).join("");
-    container.querySelectorAll(".ticker-item").forEach((el, i) => {
-      el.querySelector(".wl-del")?.addEventListener("click", e => {
-        e.stopPropagation();
-        _watchlist.splice(i, 1);
-        _saveWatchlist();
-        renderTickers();
-      });
-      el.addEventListener("click", e => {
-        if (e.target.closest(".wl-del")) return;
-        const item = _watchlist[i];
-        if (!item) return;
-        document.getElementById("marketSelect").value = item.market;
-        if (item.market === "crypto") document.getElementById("exchangeSelect").value = item.exchange || "pionex";
-        updateMarketUI();
-        document.getElementById("symbolInput").value = item.symbol;
-        loadData(false);
-        window._mSetTab && window._mSetTab("chart");   // 手機：選標的後直接跳圖表分頁
-        container.querySelector(".ticker-item.tk-active")?.classList.remove("tk-active");
-        el.classList.add("tk-active");
-      });
+      return {
+        _k: `${item.market}:${item.exchange || ""}:${item.symbol}`,
+        item, mktLabel,
+        active:   item.symbol.toUpperCase() === currentSym,
+        priceStr: price != null ? fmtTickerPrice(price) : "---",
+        chgCls:   change_pct != null ? (change_pct >= 0 ? "up" : "dn") : "",
+        pctStr:   change_pct != null ? (change_pct >= 0 ? "+" : "") + change_pct.toFixed(2) + "%" : mktLabel,
+        amtStr:   (change_pct != null && price != null)
+          ? (change_pct >= 0 ? "+" : "") + _fmtAmt(price * change_pct / 100 / (1 + change_pct / 100), price) : "",
+      };
     });
+    _reconcileTicker(container, items, _buildWlRow, _updateWlRow);
     return;
   }
 
@@ -391,52 +425,21 @@ function renderTickers() {
     );
     list = _sortTickerList(list);
 
-    container.innerHTML = list.map(t => {
-      const cls       = t.change_pct >= 0 ? "up" : "dn";
-      const sign      = t.change_pct >= 0 ? "+" : "";
-      const active    = t.symbol === currentSym ? " tk-active" : "";
-      const key       = `tw::${t.symbol}`;
-      const inWl      = _watchlist.some(w => `${w.market}:${w.exchange || ""}:${w.symbol}` === key);
-      const isLimitUp = t.change_pct >= 9.7;
-      const isLimitDn = t.change_pct <= -9.7;
-      const limitCls  = isLimitUp ? " tk-limit-up" : isLimitDn ? " tk-limit-dn" : "";
-      const limitBadge = isLimitUp
-        ? '<span class="tk-limit-badge">漲停</span>'
-        : isLimitDn ? '<span class="tk-limit-badge">跌停</span>' : "";
-      return `<div class="ticker-item${active}${limitCls}" data-symbol="${t.symbol}" data-display="${t.symbol}" data-mkt="tw">
-        ${_twLogoHtml(t.symbol, t.name)}
-        <div class="tk-info">
-          <span class="tk-sym">${t.symbol}</span>
-          <span class="tk-full">${t.name || ""}</span>
-        </div>
-        <div class="tk-prices">
-          <span class="tk-price-val">${fmtTickerPrice(t.price)}</span>
-          <div class="tk-chg-row">
-            <span class="tk-chg-amt ${cls}">${sign}${Math.abs(t.change_amt).toFixed(2)}</span>
-            <span class="tk-chg ${cls}">${sign}${t.change_pct.toFixed(2)}%</span>
-            ${limitBadge}
-          </div>
-        </div>
-        <div class="tk-action"><button class="tk-star${inWl ? " active" : ""}" title="${inWl ? "移除自選" : "加入自選"}">${_STAR_SVG}</button></div>
-      </div>`;
-    }).join("");
-
-    container.querySelectorAll(".ticker-item").forEach(el => {
-      el.querySelector(".tk-star")?.addEventListener("click", e => {
-        e.stopPropagation();
-        _toggleWatchlist(el.dataset.symbol, "tw", "");
-      });
-      el.addEventListener("click", e => {
-        if (e.target.closest(".tk-star")) return;
-        const mktEl = document.getElementById("marketSelect");
-        if (mktEl.value !== "tw") { mktEl.value = "tw"; updateMarketUI(); }
-        document.getElementById("symbolInput").value = el.dataset.symbol;
-        loadData(false);
-        window._mSetTab && window._mSetTab("chart");   // 手機：選標的後直接跳圖表分頁
-        container.querySelector(".ticker-item.tk-active")?.classList.remove("tk-active");
-        el.classList.add("tk-active");
-      });
+    const items = list.map(t => {
+      const sign = t.change_pct >= 0 ? "+" : "";
+      return {
+        _k: `tw::${t.symbol}`, t,
+        cls:    t.change_pct >= 0 ? "up" : "dn",
+        active: t.symbol === currentSym,
+        inWl:   _watchlist.some(w => `${w.market}:${w.exchange || ""}:${w.symbol}` === `tw::${t.symbol}`),
+        limitCls: t.change_pct >= 9.7 ? "tk-limit-up" : t.change_pct <= -9.7 ? "tk-limit-dn" : "",
+        limitTxt: t.change_pct >= 9.7 ? "漲停" : t.change_pct <= -9.7 ? "跌停" : "",
+        priceStr: fmtTickerPrice(t.price),
+        amtStr:   sign + Math.abs(t.change_amt).toFixed(2),
+        pctStr:   sign + t.change_pct.toFixed(2) + "%",
+      };
     });
+    _reconcileTicker(container, items, _buildTwRow, _updateTwRow);
     updatePageTitle();
     return;
   }
@@ -450,53 +453,87 @@ function renderTickers() {
   );
   list = _sortTickerList(list);
 
-  container.innerHTML = list.map(t => {
-    const cls    = t.change_pct >= 0 ? "up" : "dn";
-    const sign   = t.change_pct >= 0 ? "+" : "";
-    const active = (t.display.toUpperCase() === currentSym || t.symbol.toUpperCase() === currentSym) ? " tk-active" : "";
-    const key    = `crypto:${exchVal}:${t.display}`;
-    const inWl   = _watchlist.some(w => `${w.market}:${w.exchange || ""}:${w.symbol}` === key);
-    const logo   = _coinLogoHtml(t.display);
-    const full   = _coinFullName(t.display);
-    const amt    = t.change_amt != null ? t.change_amt : t.price * t.change_pct / 100 / (1 + t.change_pct / 100);
-    const amtStr = sign + _fmtAmt(amt, t.price);
-    return `<div class="ticker-item${active}" data-symbol="${t.symbol}" data-display="${t.display}" data-spot="${t.spot || t.display}">
-      ${logo}
-      <div class="tk-info">
-        <span class="tk-sym">${t.display}</span>
-        <span class="tk-full">${full}</span>
-      </div>
-      <div class="tk-prices">
-        <span class="tk-price-val">${fmtTickerPrice(t.price)}</span>
-        <div class="tk-chg-row">
-          <span class="tk-chg-amt ${cls}">${amtStr}</span>
-          <span class="tk-chg ${cls}">${sign}${t.change_pct.toFixed(2)}%</span>
-        </div>
-      </div>
-      <div class="tk-action"><button class="tk-star${inWl ? " active" : ""}" title="${inWl ? "移除自選" : "加入自選"}">${_STAR_SVG}</button></div>
-    </div>`;
-  }).join("");
-
-  container.querySelectorAll(".ticker-item").forEach(el => {
-    el.querySelector(".tk-star")?.addEventListener("click", e => {
-      e.stopPropagation();
-      _toggleWatchlist(el.dataset.display, "crypto", exchVal);
-    });
-    el.addEventListener("click", e => {
-      if (e.target.closest(".tk-star")) return;
-      const mktEl  = document.getElementById("marketSelect");
-      const exchEl = document.getElementById("exchangeSelect");
-      if (mktEl.value !== "crypto") { mktEl.value = "crypto"; updateMarketUI(); }
-      if (exchEl) exchEl.value = "pionex";
-      document.getElementById("symbolInput").value = el.dataset.display;
-      loadData(false);
-      window._mSetTab && window._mSetTab("chart");   // 手機：選標的後直接跳圖表分頁
-      container.querySelector(".ticker-item.tk-active")?.classList.remove("tk-active");
-      el.classList.add("tk-active");
-    });
+  const items = list.map(t => {
+    const sign = t.change_pct >= 0 ? "+" : "";
+    const amt  = t.change_amt != null ? t.change_amt : t.price * t.change_pct / 100 / (1 + t.change_pct / 100);
+    return {
+      _k: `c::${t.display}`, t, exch: exchVal,
+      cls:    t.change_pct >= 0 ? "up" : "dn",
+      active: (t.display.toUpperCase() === currentSym || t.symbol.toUpperCase() === currentSym),
+      inWl:   _watchlist.some(w => `${w.market}:${w.exchange || ""}:${w.symbol}` === `crypto:${exchVal}:${t.display}`),
+      logo:   _coinLogoHtml(t.display),
+      full:   _coinFullName(t.display),
+      priceStr: fmtTickerPrice(t.price),
+      amtStr:   sign + _fmtAmt(amt, t.price),
+      pctStr:   sign + t.change_pct.toFixed(2) + "%",
+    };
   });
+  _reconcileTicker(container, items, _buildCryptoRow, _updateCryptoRow);
   updatePageTitle();
 }
+
+/* ── 三種 row 的 build（建立）/ update（重用時只改變動值）── */
+function _buildWlRow(it) {
+  const m = it.item;
+  return `<div class="ticker-item${it.active ? " tk-active" : ""}" data-mkt="${m.market}" data-exch="${m.exchange || ""}" data-sym="${m.symbol}">
+    ${_coinLogoHtml(m.symbol)}
+    <div class="tk-info"><span class="tk-sym">${m.symbol}</span><span class="tk-full">${m.market === "crypto" ? _coinFullName(m.symbol) : m.market.toUpperCase()}</span></div>
+    <div class="tk-prices">
+      <span class="tk-price-val">${it.priceStr}</span>
+      <div class="tk-chg-row"><span class="tk-chg-amt ${it.chgCls}">${it.amtStr}</span><span class="tk-chg ${it.chgCls}">${it.pctStr}</span></div>
+    </div>
+    <div class="tk-action"><button class="wl-del" title="移除">🗑</button></div>
+  </div>`;
+}
+function _updateWlRow(el, it) {
+  el.classList.toggle("tk-active", it.active);
+  _setTxt(el, ".tk-price-val", it.priceStr);
+  _setTxtCls(el, ".tk-chg-amt", it.amtStr, "tk-chg-amt " + it.chgCls);
+  _setTxtCls(el, ".tk-chg", it.pctStr, "tk-chg " + it.chgCls);
+}
+function _buildTwRow(it) {
+  const t = it.t;
+  return `<div class="ticker-item${it.active ? " tk-active" : ""}${it.limitCls ? " " + it.limitCls : ""}" data-mkt="tw" data-exch="" data-sym="${t.symbol}" data-display="${t.symbol}">
+    ${_twLogoHtml(t.symbol, t.name)}
+    <div class="tk-info"><span class="tk-sym">${t.symbol}</span><span class="tk-full">${t.name || ""}</span></div>
+    <div class="tk-prices">
+      <span class="tk-price-val">${it.priceStr}</span>
+      <div class="tk-chg-row"><span class="tk-chg-amt ${it.cls}">${it.amtStr}</span><span class="tk-chg ${it.cls}">${it.pctStr}</span><span class="tk-limit-badge">${it.limitTxt}</span></div>
+    </div>
+    <div class="tk-action"><button class="tk-star${it.inWl ? " active" : ""}" title="${it.inWl ? "移除自選" : "加入自選"}">${_STAR_SVG}</button></div>
+  </div>`;
+}
+function _updateTwRow(el, it) {
+  el.className = "ticker-item" + (it.active ? " tk-active" : "") + (it.limitCls ? " " + it.limitCls : "");
+  _setTxt(el, ".tk-price-val", it.priceStr);
+  _setTxtCls(el, ".tk-chg-amt", it.amtStr, "tk-chg-amt " + it.cls);
+  _setTxtCls(el, ".tk-chg", it.pctStr, "tk-chg " + it.cls);
+  _setTxt(el, ".tk-limit-badge", it.limitTxt);
+  _setStar(el, it.inWl);
+}
+function _buildCryptoRow(it) {
+  const t = it.t;
+  return `<div class="ticker-item${it.active ? " tk-active" : ""}" data-mkt="crypto" data-exch="${it.exch}" data-sym="${t.display}" data-symbol="${t.symbol}" data-display="${t.display}" data-spot="${t.spot || t.display}">
+    ${it.logo}
+    <div class="tk-info"><span class="tk-sym">${t.display}</span><span class="tk-full">${it.full}</span></div>
+    <div class="tk-prices">
+      <span class="tk-price-val">${it.priceStr}</span>
+      <div class="tk-chg-row"><span class="tk-chg-amt ${it.cls}">${it.amtStr}</span><span class="tk-chg ${it.cls}">${it.pctStr}</span></div>
+    </div>
+    <div class="tk-action"><button class="tk-star${it.inWl ? " active" : ""}" title="${it.inWl ? "移除自選" : "加入自選"}">${_STAR_SVG}</button></div>
+  </div>`;
+}
+function _updateCryptoRow(el, it) {
+  el.classList.toggle("tk-active", it.active);
+  _setTxt(el, ".tk-price-val", it.priceStr);
+  _setTxtCls(el, ".tk-chg-amt", it.amtStr, "tk-chg-amt " + it.cls);
+  _setTxtCls(el, ".tk-chg", it.pctStr, "tk-chg " + it.cls);
+  _setStar(el, it.inWl);
+}
+// 小工具：只在值變了才寫 DOM（省 reflow）
+function _setTxt(el, sel, txt) { const n = el.querySelector(sel); if (n && n.textContent !== txt) n.textContent = txt; }
+function _setTxtCls(el, sel, txt, cls) { const n = el.querySelector(sel); if (!n) return; if (n.textContent !== txt) n.textContent = txt; if (n.className !== cls) n.className = cls; }
+function _setStar(el, inWl) { const s = el.querySelector(".tk-star"); if (!s) return; s.classList.toggle("active", inWl); const tt = inWl ? "移除自選" : "加入自選"; if (s.title !== tt) s.title = tt; }
 
 function fmtTickerPrice(p) {
   if (p >= 10000) return p.toLocaleString(undefined, { maximumFractionDigits: 1 });

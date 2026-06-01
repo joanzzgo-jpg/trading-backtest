@@ -1757,6 +1757,7 @@ html.perf-mode .tk-seg {
 .ticker-item.tk-limit-dn { background: rgba(38,166,154,.09); }
 .ticker-item.tk-limit-up:hover { background: rgba(239,83,80,.15); }
 .ticker-item.tk-limit-dn:hover { background: rgba(38,166,154,.15); }
+.tk-limit-badge:empty { display: none; }   /* tw row 恆有此 span，無漲跌停時空字串→隱藏 */
 .tk-limit-badge {
   display: inline-block;
   font-size: 8px;
