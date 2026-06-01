@@ -1378,11 +1378,16 @@ const SFX = (() => {
     cloudP = Array.from({length:nCloud}, (_v, i) => {
       const z = Math.random();
       const isCb = conv && i < Math.max(1, Math.round(nCloud*0.5));  // 約半數畫成積雨雲
+      // 尺寸分級：約 1/3 是「大雲」、其餘中小 → 破除「每朵都差不多大」的均一感
+      const szMul = (Math.random() < 0.33) ? (1.5 + Math.random()*0.6)   // 大雲 1.5~2.1×
+                                           : (0.72 + Math.random()*0.5); // 中小 0.72~1.22×
       return {
         x: Math.random()*W,
         y: isCb ? H*(.10 + Math.random()*.16)        // 積雨雲底部偏低（塔身往上長）
                 : H*(.04 + (1-z)*.32 + Math.random()*.18),  // 遠雲偏高、近雲偏低
-        sc: (isCb ? scBase*(.7+z*.45)+.02 : scBase*(.5+z*.7)) + Math.random()*.03,  // 近大遠小（縮小整體、保留景深）
+        // 近大遠小(景深) × 尺寸分級(大/中小)；上限避免大到誇張
+        sc: isCb ? scBase*(.7+z*.45)+.02
+                 : Math.min(.46, scBase*(.58 + z*.62) * szMul) + Math.random()*.02,
         al: Math.min(.96, (isCb ? alBase*(.9+z*.5)+.10 : alBase*(.7+z*.7)) + Math.random()*.08),
         sp: (.03+Math.random()*.10)*wf*(.5+z),       // 近快遠慢（視差）
         shape: isCb ? 4 : 0,
