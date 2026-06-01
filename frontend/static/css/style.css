@@ -21,6 +21,8 @@ html.perf-mode .peek-bear,
 html.perf-mode #weatherBg,
 html.perf-mode .click-spark,
 html.perf-mode .btn-ripple-wave { display: none !important; }
+/* 手機：關掉按鈕漣漪（矮寬按鈕上會外溢成半圓放大動畫）— JS 已不建立，這是保險 */
+@media (max-width: 768px) { .btn-ripple-wave { display: none !important; } }
 /* 極簡模式下，除了「恢復特效」按鈕，其他 FX 按鈕標示為停用 */
 html.perf-mode #fxPanel .fx-btn:not(#perfModeBtn) {
   opacity: 0.35;

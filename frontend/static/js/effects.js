@@ -548,9 +548,10 @@
 (function initButtonRipple() {
   const TARGETS = "button,.tf-btn,.rp-btn,.dt-btn,.tk-seg-btn,.sym-tab";
   document.addEventListener("pointerdown", e => {
+    // 手機/觸控：整個關掉漣漪（矮寬按鈕上會外溢成半圓放大動畫，使用者不要）
+    if (window.matchMedia && (matchMedia("(max-width: 768px)").matches || matchMedia("(pointer: coarse)").matches)) return;
     const btn = e.target.closest(TARGETS);
     if (!btn) return;
-    if (btn.closest(".m-tabbar")) return;   // 手機底部分頁列不要漣漪（矮寬按鈕上會外溢成半圓形波紋）
     const rect = btn.getBoundingClientRect();
     const size = Math.max(rect.width, rect.height) * 2.2;
     const x    = e.clientX - rect.left  - size / 2;
