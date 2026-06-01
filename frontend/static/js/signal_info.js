@@ -558,8 +558,6 @@
           </div>
         </section>
 
-        ${_pyrSettingsHTML()}
-
         <section class="sig-section">
           <h3 class="sig-h3 sig-h3-toggle">訊號列表（最近 ${Math.min(sigs.length, 30)} 筆，點擊跳到該位置） <span class="sig-collapse-arr">▾</span></h3>
           <div class="sig-sec-body"><div class="sig-list-box">${recentHTML}</div></div>
@@ -582,57 +580,7 @@
     root.querySelectorAll(".sig-h3-toggle").forEach(h => {
       h.addEventListener("click", () => h.parentElement.classList.toggle("collapsed"));
     });
-    _bindPyrSettings(root);
     $("sigDrawerClose")?.addEventListener("click", _hide);
-  }
-
-  // 加碼設定 section（全域設定，影響所有 auto-RR 盒）
-  function _pyrSettingsHTML() {
-    const p = (typeof window._getPyrSettings === "function")
-      ? window._getPyrSettings() : { sizeBelow: 1, sizeAbove: 1, indicator: true, bbrev: false };
-    return `
-      <section class="sig-section">
-        <h3 class="sig-h3 sig-h3-toggle">⚙ 加碼設定 <span class="sig-collapse-arr">▾</span></h3>
-        <div class="sig-sec-body">
-          <div class="sig-pyr-row">
-            <label class="sig-pyr-lbl" title="加碼點價格『低於入場價』時的加碼量">低於入場價加碼（× 初始倉）</label>
-            <input id="pyrSizeBelow" class="sig-pyr-num" type="number" step="0.1" min="0.1" max="5" value="${p.sizeBelow}"/>
-          </div>
-          <div class="sig-pyr-row">
-            <label class="sig-pyr-lbl" title="加碼點價格『高於（含等於）入場價』時的加碼量">高於入場價加碼（× 初始倉）</label>
-            <input id="pyrSizeAbove" class="sig-pyr-num" type="number" step="0.1" min="0.1" max="5" value="${p.sizeAbove}"/>
-          </div>
-          <label class="sig-pyr-check">
-            <input id="pyrIndicator" type="checkbox" ${p.indicator ? "checked" : ""}/>
-            <span>同方向 CRT / 共振 / KDJ叉 觸發加碼</span>
-          </label>
-          <label class="sig-pyr-check">
-            <input id="pyrBBrev" type="checkbox" ${p.bbrev ? "checked" : ""}/>
-            <span>BB 反轉型態觸發（多：碰下軌＋綠K接紅K收中軌上；空：對稱）</span>
-          </label>
-          <div class="sig-pyr-hint">設定即時套用到主圖已展開的盈虧比盒（均減進場線會重算）</div>
-        </div>
-      </section>
-    `;
-  }
-
-  function _bindPyrSettings(root) {
-    const setFn = window._setPyrSetting;
-    if (typeof setFn !== "function") return;
-    const szB = root.querySelector("#pyrSizeBelow");
-    if (szB) szB.addEventListener("change", () => {
-      const v = Math.max(0.1, Math.min(5, parseFloat(szB.value) || 1));
-      szB.value = v; setFn("sizeBelow", v);
-    });
-    const szA = root.querySelector("#pyrSizeAbove");
-    if (szA) szA.addEventListener("change", () => {
-      const v = Math.max(0.1, Math.min(5, parseFloat(szA.value) || 1));
-      szA.value = v; setFn("sizeAbove", v);
-    });
-    const ind = root.querySelector("#pyrIndicator");
-    if (ind) ind.addEventListener("change", () => setFn("indicator", ind.checked));
-    const bb = root.querySelector("#pyrBBrev");
-    if (bb) bb.addEventListener("change", () => setFn("bbrev", bb.checked));
   }
 
   function _jumpChartTo(isoTime) {

@@ -30,20 +30,6 @@ const _WR_BUFFER_KEY = "wrStopBuffer";
 let _wrStopBuffer = 0;
 try { _wrStopBuffer = parseFloat(localStorage.getItem(_WR_BUFFER_KEY)) || 0; } catch (e) {}
 
-// 加碼設定（auto-RR 盒用）：加碼量分「低於/高於入場價」兩種 + 觸發來源開關
-let _pyrSizeBelow = 1.0;      // 加碼點價格 < 入場價 時的加碼量（× 初始倉）
-let _pyrSizeAbove = 1.0;      // 加碼點價格 ≥ 入場價 時的加碼量（× 初始倉）
-let _pyrUseIndicator = true;  // 同方向 CRT/共振/KDJ叉 觸發加碼
-let _pyrUseBBrev = false;     // BB 反轉型態觸發加碼（碰下軌綠K接紅K收中軌上 / 反之）
-try {
-  const _old = parseFloat(localStorage.getItem("wrPyrSize"));   // 舊單一值 → 兩者預設
-  const _dft = (_old > 0) ? _old : 1.0;
-  const b = parseFloat(localStorage.getItem("wrPyrSizeBelow")); _pyrSizeBelow = (b > 0) ? b : _dft;
-  const a = parseFloat(localStorage.getItem("wrPyrSizeAbove")); _pyrSizeAbove = (a > 0) ? a : _dft;
-  _pyrUseIndicator = localStorage.getItem("wrPyrIndicator") !== "0";
-  _pyrUseBBrev = localStorage.getItem("wrPyrBBrev") === "1";
-} catch (e) {}
-
 function _wrViewLabel(v) {
   return v === "band" ? "上/下軌" : v === "rr" ? "1:1" : "中軌";
 }
@@ -86,29 +72,6 @@ function _cycleStreakN() {
   try { localStorage.setItem("wrStreakN", String(_wrStreakN)); } catch (e) {}
   _renderWrTop3();
 }
-
-// 給左側抽屜的加碼設定呼叫：更新 module 變數 + localStorage + 重畫盒子
-window._setPyrSetting = function (key, val) {
-  if (key === "sizeBelow") {
-    _pyrSizeBelow = (val > 0 ? val : 1.0);
-    try { localStorage.setItem("wrPyrSizeBelow", String(_pyrSizeBelow)); } catch (e) {}
-  } else if (key === "sizeAbove") {
-    _pyrSizeAbove = (val > 0 ? val : 1.0);
-    try { localStorage.setItem("wrPyrSizeAbove", String(_pyrSizeAbove)); } catch (e) {}
-  } else if (key === "indicator") {
-    _pyrUseIndicator = !!val;
-    try { localStorage.setItem("wrPyrIndicator", val ? "1" : "0"); } catch (e) {}
-  } else if (key === "bbrev") {
-    _pyrUseBBrev = !!val;
-    try { localStorage.setItem("wrPyrBBrev", val ? "1" : "0"); } catch (e) {}
-  }
-  if (typeof _autoRRBoxCache !== "undefined") _autoRRBoxCache.clear();  // 重算盒子
-  if (typeof renderDrawings === "function") requestAnimationFrame(renderDrawings);
-};
-window._getPyrSettings = function () {
-  return { sizeBelow: _pyrSizeBelow, sizeAbove: _pyrSizeAbove,
-           indicator: _pyrUseIndicator, bbrev: _pyrUseBBrev };
-};
 
 // 設定止損緩衝%（給左抽屜的「套用建議」鈕與止損輸入框共用）→ 同步上方 SL 框 + 重算
 window._setStopBuffer = function (pct) {
@@ -297,81 +260,16 @@ function _computeAutoRRBox(sig) {
     }
   }
 
-  // 加碼系統：進場後到 TP/SL 之前，每次出現加碼訊號，下根用開盤價加碼
-  // 觸發來源（可在抽屜設定）：
-  //   (a) 同方向 CRT/共振/KDJ叉
-  //   (b) BB 反轉型態：多→前根碰下軌+綠K(跌)、當根紅K(漲)且收中軌上；空→對稱
-  const entryIdx = sigIdx + 1;
-  // 未結算訊號不可掃到資料尾端（會讓加碼點散落整張圖）→ 設 50 根上限
-  const PYR_CAP = 50;
-  // 已結算的單：加碼點必須嚴格落在「結算棒之前」→ 掃到 exitIdx-1（加碼點 j+1 最多 exitIdx-1）。
-  // 否則交易已於結算棒平倉，卻還在同根補一個無效加碼部位。
-  const lastIdx = (exitIdx > entryIdx) ? (exitIdx - 1) : Math.min(ohlcvData.length - 1, entryIdx + PYR_CAP);
-  const pyramids = [];   // {time, price, idx}
-  const indCond = isShort
-    ? (b) => b.crt === -1 || b.kdj_cross === -1 || b.resonance === -1
-    : (b) => b.crt === 1  || b.kdj_cross === 1  || b.resonance === 1;
-  const bbRevCond = (j) => {
-    if (j < 1) return false;
-    const prev = ohlcvData[j - 1], cur = ohlcvData[j];
-    if (!prev || !cur) return false;
-    if (isShort) {
-      // 碰上軌 + 前根紅K(漲) + 當根綠K(跌) 且收中軌下
-      return prev.bb_upper != null && cur.bb_middle != null
-        && prev.high >= prev.bb_upper
-        && prev.close > prev.open && cur.close < cur.open
-        && cur.close < cur.bb_middle;
-    }
-    // 碰下軌 + 前根綠K(跌) + 當根紅K(漲) 且收中軌上
-    return prev.bb_lower != null && cur.bb_middle != null
-      && prev.low <= prev.bb_lower
-      && prev.close < prev.open && cur.close > cur.open
-      && cur.close > cur.bb_middle;
-  };
-  const entryPx = entryBar.open;
-  const szBelow = (_pyrSizeBelow > 0 ? _pyrSizeBelow : 1.0);
-  const szAbove = (_pyrSizeAbove > 0 ? _pyrSizeAbove : 1.0);
-  // 已結算單的結算棒時間（秒）。用時間比對當保險：即使 exitIdx 在已載入資料中
-  // 找不到（結算棒未載入 / band 視圖未結算），也不會把加碼掃到結算之後。
-  const exitSec = exitT ? toTime(exitT) : null;
-  for (let j = entryIdx; j < lastIdx; j++) {
-    const bar = ohlcvData[j];
-    if (!bar) continue;
-    const hit = (_pyrUseIndicator && indCond(bar)) || (_pyrUseBBrev && bbRevCond(j));
-    if (hit) {
-      const next = ohlcvData[j + 1];
-      if (!next || next.open == null) continue;
-      // 加碼點必須嚴格在結算棒之前；到達結算棒(含)就停止加碼
-      if (exitSec != null && toTime(next.time) >= exitSec) break;
-      // 加碼量依「加碼價 vs 入場價」決定：低於入場價用 szBelow、否則 szAbove
-      const sz = next.open < entryPx ? szBelow : szAbove;
-      pyramids.push({ idx: j + 1, time: toTime(next.time), price: next.open, sz });
-    }
-  }
-  // 均減進場價（初始 1 單位 + 每加碼 p.sz 單位，加權平均）
-  const totalUnits = 1 + pyramids.reduce((a, p) => a + p.sz, 0);
-  const weightedSum = entryPx + pyramids.reduce((a, p) => a + p.price * p.sz, 0);
-  const avgEntry = weightedSum / totalUnits;
-
-  // 盒寬：到結算棒，沒結算就 8 根；並確保涵蓋所有加碼點
+  // 盒寬：到結算棒，沒結算就 8 根
   let barWidth = 8;
   if (exitIdx > sigIdx) barWidth = Math.max(3, exitIdx - sigIdx);
-  if (pyramids.length) {
-    const lastPyrIdx = pyramids[pyramids.length - 1].idx;
-    barWidth = Math.max(barWidth, lastPyrIdx - sigIdx);
-  }
 
   const box = {
     id: "_autoRR_" + sig.t,
     type, color, barWidth,
     p1: { time: toTime(entryBar.time), price: entryBar.open },
     tp, sl, tpAct,
-    pyramids: pyramids,
-    avgEntry: avgEntry,
     _isAutoRR: true,
-    // 1:1 目標：止盈/止損以「原始進場價」等距定義，盒子的區塊/RR 須用原始進場價當基準
-    // （不可用加碼均價 avgEntry，否則紅綠區塊不對稱、標示看起來不是 1:1）
-    _rrFixed: isRR,
   };
   _autoRRBoxCache.set(cacheKey, box);
   return box;
