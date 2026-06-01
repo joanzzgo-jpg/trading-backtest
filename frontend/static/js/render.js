@@ -6,6 +6,16 @@ async function loadData(autoLoad = false) {
   if (mainChart) {
     const _r = mainChart.timeScale().getVisibleLogicalRange();
     if (_r) _savedBarCount = Math.round(_r.to - _r.from);
+    // 若視窗已捲到歷史（右緣不貼最新棒）→ 另存可見「時間範圍」，切標的/時框後對齊同一時間段；
+    // 仍在看最新（_atLatest）→ 不存，照舊貼齊最新 N 根（realtime 才會接續更新）
+    const _atLatest = !_r || !ohlcvData.length || _r.to >= ohlcvData.length - 2;
+    _savedTimeRange = null;
+    if (!_atLatest) {
+      try {
+        const _tr = mainChart.timeScale().getVisibleRange();
+        if (_tr && _tr.from != null && _tr.to != null) _savedTimeRange = { from: _tr.from, to: _tr.to };
+      } catch (e) {}
+    }
   }
 
   stopRealtime();
@@ -130,7 +140,20 @@ function renderAll(data) {
   // fit 讓各子圖時間範圍對齊
   [mainChart, kdjChart, rsiChart, macdChart].forEach(c => c.timeScale().fitContent());
 
-  // 還原畫面位置：重整後優先用 _pendingRestoreRange，切換標的用 _savedBarCount，預設 50 根
+  // 還原畫面位置：
+  //  1. 重整後 → _pendingRestoreRange（bar 數 + 右緣偏移）
+  //  2. 切標的/時框且原本捲在歷史 → _savedTimeRange（對齊同一時間段，與新標的有重疊才用）
+  //  3. 其他（看最新）→ _savedBarCount 貼齊最新 N 根，預設 50
+  const _restoreByBarCount = () => {
+    const _prevRange = mainChart.timeScale().getVisibleLogicalRange();
+    const _barCount  = (_prevRange && _savedBarCount != null) ? _savedBarCount : 50;
+    if (data.length > _barCount) {
+      mainChart.timeScale().setVisibleLogicalRange({
+        from: data.length - _barCount,
+        to:   data.length - 1,
+      });
+    }
+  };
   if (_pendingRestoreRange) {
     const { barCount, toOffset } = _pendingRestoreRange;
     _pendingRestoreRange = null;
@@ -140,17 +163,22 @@ function renderAll(data) {
       mainChart.timeScale().setVisibleLogicalRange({ from: Math.max(0, from), to });
     }
     // to 超出資料範圍（儲存的資料比現在多）→ 維持 fitContent 顯示最新 K 棒
-  } else {
-    const _prevRange = mainChart.timeScale().getVisibleLogicalRange();
-    const _barCount  = (_prevRange && _savedBarCount != null) ? _savedBarCount : 50;
-    if (data.length > _barCount) {
-      mainChart.timeScale().setVisibleLogicalRange({
-        from: data.length - _barCount,
-        to:   data.length - 1,
-      });
+  } else if (_savedTimeRange && data.length) {
+    const _first = toTime(data[0].time), _last = toTime(data[data.length - 1].time);
+    const { from, to } = _savedTimeRange;
+    // 新標的/時框需與原時間段有重疊才對齊（否則該標的根本沒這段資料 → 退回 bar 數避免空白）
+    if (to >= _first && from <= _last) {
+      try {
+        mainChart.timeScale().setVisibleRange({ from: Math.max(from, _first), to: Math.min(to, _last) });
+      } catch (e) { _restoreByBarCount(); }
+    } else {
+      _restoreByBarCount();
     }
+  } else {
+    _restoreByBarCount();
   }
   _savedBarCount = null;
+  _savedTimeRange = null;
 
   resizeAll();
 }
