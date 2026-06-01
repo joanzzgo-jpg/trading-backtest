@@ -760,6 +760,40 @@ html.perf-mode .tb-wr-hover-nav { background: #F0F0F0; border-color: #E0E0E0; }
 @keyframes wrCardIn  { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 @keyframes wrCardOut { from { opacity: 1; } to { opacity: 0; transform: translateY(-4px); } }
 
+/* ── 手機字體大小選項（標準 / 大 / 特大）：放大主要可讀文字（設定分頁切換）── */
+@media (max-width: 768px) {
+  /* 大 */
+  body.m-font-lg .tk-sym                                   { font-size: 17px !important; }
+  body.m-font-lg .tk-price-val                             { font-size: 16px !important; }
+  body.m-font-lg .tk-full                                  { font-size: 12.5px !important; }
+  body.m-font-lg .tk-chg, body.m-font-lg .tk-chg-amt       { font-size: 13px !important; }
+  body.m-font-lg .symbol-bar, body.m-font-lg .symbol-bar .sym-val, body.m-font-lg .symbol-bar .sym-label { font-size: 14px !important; }
+  body.m-font-lg .symbol-name                              { font-size: 16px !important; }
+  body.m-font-lg .pane-legend, body.m-font-lg .pane-legend .leg-val { font-size: 13px !important; }
+  body.m-font-lg .tb-wr-hover-lbl, body.m-font-lg .tb-wr-hover-pct  { font-size: 15px !important; }
+  body.m-font-lg .tb-wr-hover-cnt, body.m-font-lg .tb-wr-hover-res  { font-size: 12px !important; }
+  body.m-font-lg .tb-wr-total                              { font-size: 21px !important; }
+  body.m-font-lg .tb-wr-stoprate, body.m-font-lg .tb-wr-recent      { font-size: 13px !important; }
+  body.m-font-lg .m-set-row                                { font-size: 18px !important; }
+  body.m-font-lg .m-set-lbl small                          { font-size: 13px !important; }
+  body.m-font-lg .topbar-tf .tf-btn                        { font-size: 14px !important; }
+  /* 特大 */
+  body.m-font-xl .tk-sym                                   { font-size: 20px !important; }
+  body.m-font-xl .tk-price-val                             { font-size: 18.5px !important; }
+  body.m-font-xl .tk-full                                  { font-size: 14px !important; }
+  body.m-font-xl .tk-chg, body.m-font-xl .tk-chg-amt       { font-size: 15px !important; }
+  body.m-font-xl .symbol-bar, body.m-font-xl .symbol-bar .sym-val, body.m-font-xl .symbol-bar .sym-label { font-size: 16px !important; }
+  body.m-font-xl .symbol-name                              { font-size: 18px !important; }
+  body.m-font-xl .pane-legend, body.m-font-xl .pane-legend .leg-val { font-size: 15px !important; }
+  body.m-font-xl .tb-wr-hover-lbl, body.m-font-xl .tb-wr-hover-pct  { font-size: 17px !important; }
+  body.m-font-xl .tb-wr-hover-cnt, body.m-font-xl .tb-wr-hover-res  { font-size: 13px !important; }
+  body.m-font-xl .tb-wr-total                              { font-size: 24px !important; }
+  body.m-font-xl .tb-wr-stoprate, body.m-font-xl .tb-wr-recent      { font-size: 14.5px !important; }
+  body.m-font-xl .m-set-row                                { font-size: 20px !important; }
+  body.m-font-xl .m-set-lbl small                          { font-size: 14px !important; }
+  body.m-font-xl .topbar-tf .tf-btn                        { font-size: 15.5px !important; }
+}
+
 /* 極簡模式：去掉橘光、用純色邊 */
 html.perf-mode .tb-wr-hover-item { background: #F5F5F5; border-color: #E5E5E5; }
 html.perf-mode .tb-wr-hover-item:hover { background: #EFEFEF; }

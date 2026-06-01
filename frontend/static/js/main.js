@@ -157,6 +157,25 @@ document.addEventListener("DOMContentLoaded", async () => {
     setTab(["chart", "wr", "watch", "settings"].includes(_mt) ? _mt : "wr");
   })();
 
+  // 手機字體大小（標準 / 大 / 特大）：body class 控制，存 localStorage（隨帳號同步）
+  (function initMFontScale() {
+    const apply = (v) => {
+      document.body.classList.toggle("m-font-lg", v === "lg");
+      document.body.classList.toggle("m-font-xl", v === "xl");
+      const lbl = document.getElementById("mSetFontState");
+      if (lbl) lbl.textContent = v === "lg" ? "大" : v === "xl" ? "特大" : "標準";
+    };
+    let v = ""; try { v = localStorage.getItem("mFontScale") || ""; } catch (e) {}
+    apply(v);
+    window._cycleMFontScale = () => {
+      let cur = ""; try { cur = localStorage.getItem("mFontScale") || ""; } catch (e) {}
+      const next = cur === "" ? "lg" : cur === "lg" ? "xl" : "";
+      try { localStorage.setItem("mFontScale", next); } catch (e) {}
+      apply(next);
+      if (typeof resizeAll === "function") setTimeout(resizeAll, 60);
+    };
+  })();
+
   // 手機/PWA 省電：app 切到背景（鎖屏、切 app、切分頁）時暫停每秒輪詢（行情 + ticker），
   // 回到前景再恢復。避免背景持續打 API 耗電、也減輕伺服器負擔。
   // （天氣 canvas 動畫在 document.hidden 時本就跳過繪製、瀏覽器也會暫停 rAF，故不需另外處理）
