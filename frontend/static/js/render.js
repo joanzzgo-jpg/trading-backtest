@@ -11,15 +11,19 @@ async function loadData(autoLoad = false) {
     const _atLatest = !_r || !ohlcvData.length || _r.to >= ohlcvData.length - 2;
     _savedTimeRange = null;
     _savedRightOffset = null;
+    _savedBarSpacing = null;
     if (!_atLatest) {
       try {
         const _tr = mainChart.timeScale().getVisibleRange();
         if (_tr && _tr.from != null && _tr.to != null) _savedTimeRange = { from: _tr.from, to: _tr.to };
       } catch (e) {}
     } else if (_r && ohlcvData.length) {
-      // 看最新：記住「最新棒距右緣的空白」(rightOffset)，切標的後讓新標的最新棒
-      // 出現在使用者選的同一水平位置（而非每次都貼回最右邊）
-      _savedRightOffset = Math.max(0, Math.round(_r.to - (ohlcvData.length - 1)));
+      // 看最新：記住「最新棒水平位置(rightOffset)」+「縮放(barSpacing)」，切標的後讓新標的
+      // 最新棒出現在使用者選的同一位置（而非每次貼回最右）。用持久選項還原，跨資料更新不會被沖掉。
+      try {
+        _savedRightOffset = mainChart.timeScale().scrollPosition();
+        _savedBarSpacing  = mainChart.timeScale().options().barSpacing;
+      } catch (e) {}
     }
   }
 
@@ -155,24 +159,35 @@ function renderAll(data) {
   //  2. 切標的/時框且原本捲在歷史 → _savedTimeRange（對齊同一時間段，與新標的有重疊才用）
   //  3. 其他（看最新）→ _savedBarCount 貼齊最新 N 根，預設 50
   const _restoreByBarCount = () => {
-    const _prevRange = mainChart.timeScale().getVisibleLogicalRange();
+    const ts = mainChart.timeScale();
+    // 有保存縮放(barSpacing) → 用持久選項還原縮放 + 最新棒水平位置(rightOffset)。
+    // 持久選項跨 setData/fitContent/背景載入都不會被沖掉（解決「切幾次後黏回右邊」）。
+    if (_savedBarSpacing != null) {
+      ts.applyOptions({ barSpacing: _savedBarSpacing, rightOffset: _savedRightOffset || 0 });
+      return;
+    }
+    // 否則（首次、無保存）→ 預設貼最新 N 根
+    const _prevRange = ts.getVisibleLogicalRange();
     const _barCount  = (_prevRange && _savedBarCount != null) ? _savedBarCount : 50;
-    const _off       = _savedRightOffset || 0;   // 看最新時使用者選的右緣留白（棒數）
     if (data.length > _barCount) {
-      // to 可超出最後一根（= 右側留白），讓最新棒停在使用者原本的水平位置
-      const to = data.length - 1 + _off;
-      mainChart.timeScale().setVisibleLogicalRange({ from: to - _barCount, to });
+      ts.setVisibleLogicalRange({ from: data.length - _barCount, to: data.length - 1 });
     }
   };
   if (_pendingRestoreRange) {
-    const { barCount, toOffset } = _pendingRestoreRange;
+    const pr = _pendingRestoreRange;
     _pendingRestoreRange = null;
-    const to   = data.length - 1 - toOffset;
-    const from = to - barCount;
-    if (to >= 0 && to < data.length) {
-      mainChart.timeScale().setVisibleLogicalRange({ from: Math.max(0, from), to });
+    if (pr.barSpacing != null) {
+      // 重整還原：持久選項（縮放 + 最新棒水平位置，含右側留白）
+      try { mainChart.timeScale().applyOptions({ barSpacing: pr.barSpacing, rightOffset: pr.rightOffset || 0 }); } catch (e) {}
+    } else {
+      const { barCount, toOffset } = pr;
+      const to   = data.length - 1 - toOffset;
+      const from = to - barCount;
+      if (to >= 0 && to < data.length) {
+        mainChart.timeScale().setVisibleLogicalRange({ from: Math.max(0, from), to });
+      }
+      // to 超出資料範圍（儲存的資料比現在多）→ 維持 fitContent 顯示最新 K 棒
     }
-    // to 超出資料範圍（儲存的資料比現在多）→ 維持 fitContent 顯示最新 K 棒
   } else if (_savedTimeRange && data.length) {
     const _first = toTime(data[0].time), _last = toTime(data[data.length - 1].time);
     const { from, to } = _savedTimeRange;
@@ -190,6 +205,12 @@ function renderAll(data) {
   _savedBarCount = null;
   _savedTimeRange = null;
   _savedRightOffset = null;
+  _savedBarSpacing = null;
+
+  // 切標的/時框：強制價格軸(右)重新自動貼合可見 K 棒。
+  // 否則使用者若曾手動拖曳價格軸（autoScale 會被關閉），切到價格範圍差很多的標的時
+  // K 棒會落在軸外 → 整片空白。每次載入都重開 autoScale 確保「自動顯示在有 K 棒的數值」。
+  try { mainChart.priceScale("right").applyOptions({ autoScale: true }); } catch (e) {}
 
   resizeAll();
 }

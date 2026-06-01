@@ -32,15 +32,20 @@ function loadPrefs() {
 
 function saveLastSymbol() {
   try {
-    const r = mainChart?.timeScale().getVisibleLogicalRange();
+    const ts = mainChart?.timeScale();
+    const r = ts?.getVisibleLogicalRange();
     const rangeBarCount = r ? Math.max(1, Math.round(r.to - r.from)) : null;
     const rangeToOffset = (r && ohlcvData.length) ? Math.max(0, ohlcvData.length - 1 - Math.round(r.to)) : null;
+    // 持久選項：barSpacing(縮放) + scrollPos(最新棒水平位置,可為正=右側留白) → 重整後完整還原
+    // （取代會被 Math.max(0) 夾掉右側留白的 rangeToOffset，故重整不再黏右邊）
+    let barSpacing = null, scrollPos = null;
+    try { barSpacing = ts?.options().barSpacing; scrollPos = ts?.scrollPosition(); } catch (e) {}
     localStorage.setItem("lastSymbol", JSON.stringify({
       symbol:   document.getElementById("symbolInput")?.value  || "",
       exchange: document.getElementById("exchangeSelect")?.value || "pionex",
       market:   document.getElementById("marketSelect")?.value  || "crypto",
       tf:       currentTF,
-      rangeBarCount, rangeToOffset,
+      rangeBarCount, rangeToOffset, barSpacing, scrollPos,
     }));
   } catch {}
 }
@@ -57,7 +62,10 @@ function loadLastSymbol() {
       document.querySelectorAll(".tf-btn").forEach(b =>
         b.classList.toggle("active", b.dataset.tf === currentTF));
     }
-    if (last.rangeBarCount != null) {
+    if (last.barSpacing != null) {
+      // 持久選項還原（含右側留白）→ 重整不黏右邊
+      _pendingRestoreRange = { barSpacing: last.barSpacing, rightOffset: last.scrollPos ?? 0 };
+    } else if (last.rangeBarCount != null) {
       _pendingRestoreRange = { barCount: last.rangeBarCount, toOffset: last.rangeToOffset ?? 0 };
     }
   } catch {}
