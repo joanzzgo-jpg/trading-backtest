@@ -38,6 +38,11 @@ function _updateBBTail() {
 
 async function fetchLatest() {
   if (replayActive) return;
+  // 捕捉本次輪詢的標的脈絡；await 回來後若已切換標的/市場/時框 → 整筆丟棄，
+  // 避免「舊標的還在飛的 /api/latest」回來把舊價格畫到剛切換的新標的名下（數值亂跳）
+  const _sym0 = document.getElementById("symbolInput")?.value.trim();
+  const _mkt0 = document.getElementById("marketSelect")?.value;
+  const _tf0  = currentTF;
   try {
     const res  = await fetch("/api/latest", {
       method:"POST", headers:{"Content-Type":"application/json"},
@@ -45,6 +50,10 @@ async function fetchLatest() {
     });
     if (!res.ok) return;
     const json = await res.json();
+    // 標的/市場/時框已切換 → 此結果屬於舊標的，丟棄不畫
+    if (document.getElementById("symbolInput")?.value.trim() !== _sym0
+        || document.getElementById("marketSelect")?.value !== _mkt0
+        || currentTF !== _tf0) return;
     if (!json.data?.length) return;
     const dot = document.getElementById("realtimeDot");
     if (dot) dot.classList.toggle("hidden", json.live === false);
@@ -96,6 +105,13 @@ function _symEl(id) {
   return e;
 }
 function _setSym(id, text) { const e = _symEl(id); if (e && e.textContent !== text) e.textContent = text; }
+
+// 切標的時把上方報價數字歸零成 placeholder，避免新標的名稱卻殘留舊標的價格（看起來像亂跳）
+function _resetSymbolBarQuote() {
+  ["symO", "symH", "symL", "symC", "symV"].forEach(id => _setSym(id, "—"));
+  const chg = _symEl("symChg");
+  if (chg) { chg.textContent = ""; chg.className = "sym-chg"; }
+}
 
 function updateAllLegends(t) {
   // 熱路徑（每次 crosshair 移動觸發 60Hz）：O(1) Map 查 idx 共用，避免後續 indexOf O(n)

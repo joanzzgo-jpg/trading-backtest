@@ -20,6 +20,11 @@ async function loadData(autoLoad = false) {
 
   stopRealtime();
 
+  // 切標的瞬間：上方報價列立即換成新標的名稱、價格數字暫清成「—」，
+  // 等 ohlcv 載入完才填新價（否則新標的名稱下會殘留舊標的價格，看起來像數值亂跳）
+  if (typeof updateSymbolBar === "function") updateSymbolBar([]);   // 只更新名稱（空陣列在填價前 return）
+  if (typeof _resetSymbolBarQuote === "function") _resetSymbolBarQuote();
+
   // 取消上次未完成的請求（連續切標的時避免疊加）
   if (_loadDataCtrl) _loadDataCtrl.abort();
   _loadDataCtrl = new AbortController();
