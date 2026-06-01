@@ -1,4 +1,5 @@
 function startRealtime() {
+  if (realtimeTimer) { clearInterval(realtimeTimer); realtimeTimer = null; }  // 防計時器疊加洩漏（對齊 startTickerRefresh）
   const dot    = document.getElementById("realtimeDot");
   const market = document.getElementById("marketSelect").value;
   dot.classList.remove("hidden");
