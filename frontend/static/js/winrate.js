@@ -11,10 +11,11 @@ function _wrCacheSet(key, value) {
 let _wrCacheLast = null;  // 保留最近一次資料，給 toggle target 重渲用
 let _wrFetchTimer = null; // 切換標的時 debounce，避免連續觸發後端重算
 
-// 目標切換（中軌 ↔ 帶軌）狀態
+// 目標切換（中軌 ↔ 上/下軌）狀態。1:1（rr）已移除 → 舊設定正規化回中軌
 const _WR_VIEW_KEY = "wrTargetView";
 let _wrTargetView = "mid";
 try { _wrTargetView = localStorage.getItem(_WR_VIEW_KEY) || "mid"; } catch (e) {}
+if (_wrTargetView === "rr") { _wrTargetView = "mid"; try { localStorage.setItem(_WR_VIEW_KEY, "mid"); } catch (e) {} }
 
 // 訊號版本（原版 ↔ 強化版：量能 > 1.5× MA20）狀態
 const _WR_VARIANT_KEY = "wrVariantView";
@@ -161,10 +162,8 @@ function _initWrStopBuffer() {
 function _toggleWrTarget() {
   const btn = document.getElementById("wrTargetToggle");
 
-  // 三段循環：中軌 → 上/下軌 → 1:1 → 中軌
-  _wrTargetView = _wrTargetView === "mid" ? "band"
-                : _wrTargetView === "band" ? "rr"
-                : "mid";
+  // 兩段循環：中軌 → 上/下軌 → 中軌（1:1 已移除）
+  _wrTargetView = _wrTargetView === "mid" ? "band" : "mid";
   try { localStorage.setItem(_WR_VIEW_KEY, _wrTargetView); } catch (e) {}
 
   // 動畫：rapid-click 安全 — 先清除所有殘留 inner、取消舊 timer 再開新動畫
