@@ -1448,23 +1448,34 @@ const SFX = (() => {
       [-.04,-.02,.60],[-.24,-.02,.50],[ .18,-.02,.52],                              // 塔底（雨幕起點）
     ],
   ];
-  /* 程序化生成一朵「自然積雲」的凸起 [fx,fy,fr]：底部平、頂部高低不一的圓凸，
-     峰位置隨機（不置中→不對稱）、數量/大小隨機 → 每朵都不同、不重複、不像動物 */
+  /* 程序化生成一朵「自然積雲」的凸起 [fx,fy,fr]。
+     用「大量小 puff」沿一條平滑的圓鼓雲頂包絡密集填滿（同 _genCbPuffs 的思路）：
+     少數大圓會形成離散的頭/耳/腳輪廓 → 像動物或怪形狀；密集小 puff 只剩連續起伏的
+     雲面 → 自然蓬鬆、破除 pareidolia。主圓鼓位置/高度/微傾皆隨機 → 每朵不同、不對稱。 */
   function _genCloudPuffs() {
     const puffs = [];
-    const baseN = 2 + Math.floor(Math.random()*2);     // 底排（拉平雲底）
-    for (let i=0;i<baseN;i++)
-      puffs.push([-0.42 + Math.random()*0.84, -0.04 + Math.random()*0.08, 0.46 + Math.random()*0.12]);
-    const n = 5 + Math.floor(Math.random()*4);         // 上部 5-8 個凸起
-    const peak = 0.25 + Math.random()*0.5;             // 最高凸起位置（隨機破對稱）
-    for (let i=0;i<n;i++){
-      const t = n>1 ? i/(n-1) : 0.5;
-      const fx = -0.45 + t*0.9 + (Math.random()-0.5)*0.14;
-      const mound = Math.max(0, 1 - Math.abs(t - peak)/0.55);   // 三角凸起，峰在 peak
-      const fy = -(0.22 + mound*0.55 + (Math.random()-0.5)*0.26);
-      const fr = 0.40 + mound*0.22 + Math.random()*0.12;
-      puffs.push([fx, fy, fr]);
+    const lean  = (Math.random()-0.5)*0.12;            // 整朵微傾，破對稱
+    const peak  = 0.40 + Math.random()*0.20;           // 主圓鼓位置（0左~1右）
+    const peakH = 0.74 + Math.random()*0.26;           // 主圓鼓高度
+    const cols  = 10 + Math.floor(Math.random()*4);    // 橫向取樣 10-13 柱
+    for (let c=0;c<cols;c++){
+      const t  = c/(cols-1);                           // 0..1
+      const fx = -0.48 + t*0.96 + lean*(t-0.5);
+      // 雲頂包絡：兩端平滑收斂(edge)、主圓鼓處加高(bump) → 蓬鬆圓鼓而非尖三角
+      const edge = Math.max(0, 1 - Math.pow(Math.abs(t-0.5)*2, 1.8));
+      const bump = 0.60 + 0.40*Math.max(0, 1 - Math.abs(t-peak)/0.42);
+      const topH = peakH * edge * bump;
+      const stack = 1 + Math.round(topH*3.4);          // 該柱由底到頂堆幾顆小 puff
+      for (let s=0;s<stack;s++){
+        const u  = stack>1 ? s/(stack-1) : 0;          // 0底~1頂
+        const fy = -(topH*u) - 0.02 + (Math.random()-0.5)*0.045;
+        const fr = 0.23 + Math.random()*0.08 + (1-u)*0.05;   // 小 puff、底略大
+        puffs.push([fx + (Math.random()-0.5)*0.05, fy, fr]);
+      }
     }
+    const baseN = 4 + Math.floor(Math.random()*2);     // 拉平的雲底（cumulus 平底）
+    for (let i=0;i<baseN;i++)
+      puffs.push([-0.46 + Math.random()*0.92, 0.01 + Math.random()*0.05, 0.27 + Math.random()*0.08]);
     return puffs;
   }
   /* 程序化「積雨雲（cumulonimbus）」：用「大量小 puff」密集填滿『底寬→上窄→砧頂外擴』的塔狀輪廓，
