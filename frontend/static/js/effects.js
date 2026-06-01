@@ -997,14 +997,10 @@ const SFX = (() => {
       _paTX = Math.max(-1, Math.min(1, e.gamma/35));            // 左右傾斜（°/35 → ±1）
       _paTY = Math.max(-1, Math.min(1, ((e.beta||45)-45)/35));  // 前後傾斜（以 45° 為中立）
     };
+    // 傾斜視差：被動監聽 deviceorientation（Android 直接有；iOS 已授權才有事件）。
+    // 不再主動呼叫 iOS DeviceOrientationEvent.requestPermission() → 不會每次開都跳陀螺儀權限詢問
+    // （傾斜視差只是次要效果，犧牲它換取不一直被問權限）。
     window.addEventListener('deviceorientation', onTilt, { passive:true });
-    // iOS 13+ 需使用者手勢觸發陀螺儀權限
-    if (typeof DeviceOrientationEvent !== 'undefined' && DeviceOrientationEvent.requestPermission) {
-      const rq = () => { DeviceOrientationEvent.requestPermission()
-        .then(s => { if (s==='granted') window.addEventListener('deviceorientation', onTilt, {passive:true}); })
-        .catch(()=>{}); window.removeEventListener('touchend', rq); };
-      window.addEventListener('touchend', rq, { passive:true });
-    }
   }
 
   function _sunArcPos() {
@@ -2602,12 +2598,23 @@ const SFX = (() => {
   // 不在這裡 start()——等 fetchWeather 回來再用真實 _wd 啟動，
   // 避免「先用預設值畫一次→拿到 API 又重畫」造成的閃爍/位移
 
-  if (navigator.geolocation) {
+  // 天氣定位：快取座標 → 之後每次開都用快取、不再跳「存取位置」權限詢問。
+  // 第一次成功 → 存座標；被拒/逾時 → 記 "deny" 用預設，往後都不再問。
+  let _wxCoordCache = null;
+  try { _wxCoordCache = JSON.parse(localStorage.getItem('wxCoords') || 'null'); } catch (e) {}
+  if (_wxCoordCache && _wxCoordCache.lat != null) {
+    fetchWeather(_wxCoordCache.lat, _wxCoordCache.lon);          // 用快取座標，不詢問
+  } else if (_wxCoordCache === 'deny') {
+    fetchWeather(25.04, 121.51);                                  // 之前拒絕過 → 預設，不再問
+  } else if (navigator.geolocation) {
     navigator.geolocation.getCurrentPosition(
-      p=>fetchWeather(p.coords.latitude,p.coords.longitude),
-      ()=>fetchWeather(25.04,121.51)
+      p => { try { localStorage.setItem('wxCoords', JSON.stringify({ lat: p.coords.latitude, lon: p.coords.longitude })); } catch (e) {}
+             fetchWeather(p.coords.latitude, p.coords.longitude); },
+      () => { try { localStorage.setItem('wxCoords', JSON.stringify('deny')); } catch (e) {}
+              fetchWeather(25.04, 121.51); },
+      { timeout: 8000, maximumAge: 3600000 }
     );
   } else {
-    fetchWeather(25.04,121.51);
+    fetchWeather(25.04, 121.51);
   }
 })();

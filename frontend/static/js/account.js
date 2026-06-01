@@ -7,7 +7,8 @@
    ══════════════════════════════════════════════════════════════ */
 const _ACCT = { name: null, enabled: false };
 let _acctSyncTimer = null;
-const _ACCT_SKIP = new Set(["acctName"]);
+let _acctLSHooked = false;
+const _ACCT_SKIP = new Set(["acctName", "wxCoords"]);   // wxCoords=各裝置本地天氣座標，不跨裝置同步
 
 function _acctLoadSession() {
   try { _ACCT.name = localStorage.getItem("acctName"); } catch (e) {}
@@ -156,5 +157,18 @@ async function initAccount() {
   _acctRenderSys();
   document.getElementById("sysLogoutBtn")?.addEventListener("click", e => { e.stopPropagation(); _acctLogout(); });
   document.getElementById("mSetLogoutBtn")?.addEventListener("click", e => { e.stopPropagation(); _acctLogout(); });
+
+  // 全面自動儲存：攔截 localStorage.setItem → 任何設定/自選變更都觸發雲端同步（debounce）。
+  // 確保「不論哪台裝置，設定或自選一改就自動存」，不必逐一在每個設定函式掛 hook。
+  try {
+    if (!_acctLSHooked) {
+      _acctLSHooked = true;
+      const _origSet = localStorage.setItem.bind(localStorage);
+      localStorage.setItem = function (k, v) {
+        _origSet(k, v);
+        if (k !== "acctName" && window._acctTouch) window._acctTouch();
+      };
+    }
+  } catch (e) {}
   document.addEventListener("visibilitychange", () => { if (document.hidden && _ACCT.name) _acctFlush(); });
 }

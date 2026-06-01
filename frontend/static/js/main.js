@@ -47,15 +47,16 @@ document.addEventListener("DOMContentLoaded", async () => {
     window._landingEnter = hide;   // 帳號鎖解鎖後接續開門進場（account.js 呼叫）
     btn.addEventListener("click", () => {
       if (scr.classList.contains("landing-entering")) return;
-      // 帳號功能啟用且「未登入」→ 點門先放大、跳出鎖要求輸入帳號（登入後才開門）
-      if (window._acctEnabled && !window._acctName) {
+      // 未登入 → 點門先放大、跳鎖要求輸入帳號（未登入不能直接用主圖）。
+      // _acctEnabled !== false：連狀態未知時也先擋，避免快速點擊繞過；確認停用才放行。
+      if (!window._acctName && window._acctEnabled !== false) {
         if (!scr.classList.contains("landing-locking")) {
           scr.classList.add("landing-locking");
           setTimeout(() => document.getElementById("landingAcctInput")?.focus(), 420);
         }
         return;
       }
-      // 已登入 或 帳號功能未啟用 → 直接開門進主圖（登入裝置不再跳鎖）
+      // 已登入 或 帳號功能確認停用 → 直接開門進主圖
       hide();
     });
     // 鎖開著時點門外暗區 → 取消、縮回（不進場）

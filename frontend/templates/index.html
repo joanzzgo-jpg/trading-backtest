@@ -33,10 +33,13 @@
     //  · 一直開著超過 24h：由 main.js 計時重新跳（此處只負責 reload 當下不閃）
     try {
       var _ts = parseInt(sessionStorage.getItem("landingDismissedAt") || "0", 10);
-      if (_ts && (Date.now() - _ts < 86400000)) {   // 本 session 看過、且未滿 24h → 跳過首頁
+      var _hasAcct = false; try { _hasAcct = !!localStorage.getItem("acctName"); } catch (e) {}
+      // 未登入（無 acctName）→ 一律顯示首頁要求登入（未登入不能直接用主圖）。
+      // 已登入 + 本 session 看過 + 未滿 24h → 才跳過首頁直接進主圖。
+      if (_ts && (Date.now() - _ts < 86400000) && _hasAcct) {
         document.documentElement.classList.add("landing-skip");
       } else {
-        document.documentElement.classList.add("landing-active");   // 要顯示首頁 → 露出天氣背景、隱藏圖表 UI
+        document.documentElement.classList.add("landing-active");   // 顯示首頁 → 露天氣背景、隱藏圖表 UI
       }
     } catch (e) {}
   </script>
