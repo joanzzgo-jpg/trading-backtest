@@ -585,9 +585,8 @@ function _renderWinRate(d) {
 }
 
 /* ══════════════════════════════════════════
-   勝率欄上方 TOP 3 列：當前標的最高勝率前 3 個 (sig × dir) + 合計（dedupe）
+   訊號顯示對照表（hover 勝率小卡用）
 ══════════════════════════════════════════ */
-const _SIG_KEYS = ["abc", "ab", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11", "s12"];
 const _SIG_LABEL = {
   abc:"S1", ab:"S2", s3:"S3", s4:"S4", s5:"S5",
   s6:"S6", s7:"S7", s8:"S8", s9:"S9", s10:"S10", s11:"S11", s12:"S12",
@@ -596,12 +595,7 @@ const _SIG_ICON = {
   abc:"●", ab:"■", s3:"▲", s4:"◆", s5:"★",
   s6:"◇", s7:"⬢", s8:"⬡", s9:"✦", s10:"✪", s11:"✸", s12:"❖",
 };
-// signal.k 對應到 stat key（去掉 s 前綴的 3-10）
-const _STATKEY_TO_SIGK = {
-  abc:"abc", ab:"ab", s3:"3", s4:"4", s5:"5",
-  s6:"6", s7:"7", s8:"8", s9:"9", s10:"10", s11:"11", s12:"12",
-};
-// 反向：signal.k（"3"…）→ stat key（"s3"…），給 hover 顯示該棒訊號勝率用
+// signal.k（"3"…）→ stat key（"s3"…），給 hover 顯示該棒訊號勝率用
 const _SIGK_TO_STATKEY = {
   abc:"abc", ab:"ab", "3":"s3", "4":"s4", "5":"s5",
   "6":"s6", "7":"s7", "8":"s8", "9":"s9", "10":"s10", "11":"s11", "12":"s12",
@@ -781,54 +775,10 @@ function _renderWrTop3() {
     // 點數字 → 開敗後停手細節抽屜
     condNums = `<span class="wr-stop-detail" title="點擊看敗後停手策略細節" onclick="window._showStopStrategyDrawer&&window._showStopStrategyDrawer()">${inner}</span>`;
   }
-  const streakHtml = `<span class="wr-streak-wrap">${streakBtn}${condNums}</span>`;
-
-  // 蒐集所有 (sig, dir) 且樣本 >= 10
-  const items = [];
-  for (const k of _SIG_KEYS) {
-    const ss = view?.[k];
-    if (!ss) continue;
-    for (const dir of ["short", "long"]) {
-      const stat = ss[dir];
-      if (!stat || stat.win_rate == null || (stat.total || 0) < 10) continue;
-      items.push({ k, dir, wr: stat.win_rate, total: stat.total, wins: stat.wins });
-    }
-  }
-  items.sort((a, b) => b.wr - a.wr);
-  const top3 = items.slice(0, 3);
-  if (top3.length === 0) { root.innerHTML = streakHtml; return; }
-
-  // 合計勝率（dedupe by (t, d) 只算 top3 的 (sig, dir)）
-  const topSet = new Set(top3.map(t => `${_STATKEY_TO_SIGK[t.k]}|${t.dir === "short" ? "s" : "l"}`));
-  const sigs = _lastWRSignals || [];
-  const rKey = _wrResultKey();
-  const seen = new Set();
-  let w = 0, l = 0;
-  for (const s of sigs) {
-    if (!topSet.has(`${s.k}|${s.d}`)) continue;
-    const key = s.t + "|" + s.d;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    const r = s[rKey];
-    if (r === "w") w++;
-    else if (r === "l") l++;
-  }
-  const cTot = w + l;
-  const cWr  = cTot > 0 ? (w / cTot * 100).toFixed(1) : null;
-
-  // 精簡：去掉筆數(n)與分隔點、勝率取整數，完整數字移到 tooltip，讓出連敗顯示空間
-  const itemsHtml = top3.map(t => {
-    const dirSym = t.dir === "short" ? "空" : "多";
-    const dirCls = t.dir === "short" ? "s" : "l";
-    return `<span class="wr-top3-item" title="${_SIG_LABEL[t.k]} ${dirSym} ${t.wr.toFixed(1)}%（${t.wins}勝/${t.total - t.wins}負，共${t.total}筆）">`
-      + `<span class="wr-top3-name wr-${t.k}">${_SIG_LABEL[t.k]}</span>`
-      + `<span class="wr-top3-dir ${dirCls}">${dirSym}</span>`
-      + `<span class="wr-top3-wr">${Math.round(t.wr)}%</span>`
-      + `</span>`;
-  }).join("");
-
-  // TOP3 元件已移除，只保留敗後停手按鈕（+條件數字）
-  root.innerHTML = streakHtml;
+  // TOP3 元件已移除，只保留敗後停手按鈕（+條件數字）。
+  // （原本還會蒐集 top3、跑遍所有訊號算合計勝率、組 itemsHtml，但輸出只用 streakHtml
+  //   → 全是死碼，每次 _renderWinRate 白跑一遍含 O(n) 掃訊號，已於 2026-06 移除）
+  root.innerHTML = `<span class="wr-streak-wrap">${streakBtn}${condNums}</span>`;
 }
 
 /* ══════════════════════════════════════════

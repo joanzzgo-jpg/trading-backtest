@@ -326,7 +326,6 @@
     if (!d) return;
     const view = (typeof _wrPickView === "function") ? _wrPickView(d) : d;
     const viewLabel = _viewLabel();
-    const variantLabel = "原版";
     const ss = view && view.stop_strategy;
     const base = view;  // 不用策略的去重總勝率（對照）
     const curBuf = (typeof _wrStopBuffer !== "undefined") ? _wrStopBuffer : 0;
@@ -360,7 +359,7 @@
         <span class="sig-dwr-icon" style="color:#ffb74d">⏸</span>
         <div class="sig-dwr-titles">
           <div class="sig-dwr-name">敗後停手策略</div>
-          <div class="sig-dwr-sub">${viewLabel}目標 · ${variantLabel}（母體同總勝率 S2~S11 去重）</div>
+          <div class="sig-dwr-sub">${viewLabel}目標（母體同總勝率 S2~S11 去重）</div>
         </div>
         <button class="sig-dwr-close" id="sigDrawerClose">✕</button>
       </div>
@@ -471,8 +470,6 @@
     const stats = _statsFor(key);
     const sigs  = _signalsFor(key);
     const viewLabel = _viewLabel();
-    const variantLabel = "原版";
-    const nameWithVariant = info.name;
 
     const patternsHTML = (info.patterns || []).map(p =>
       `<div class="sig-pat-row"><span class="sig-pat-dir">${p.dir}</span><span class="sig-pat-cond">${p.cond}</span></div>`
@@ -520,8 +517,8 @@
       <div class="sig-dwr-hd" style="border-left:3px solid ${info.color}">
         <span class="sig-dwr-icon" style="color:${info.color}">${info.icon}</span>
         <div class="sig-dwr-titles">
-          <div class="sig-dwr-name">${nameWithVariant}</div>
-          <div class="sig-dwr-sub">${info.subtitle}${variantLabel === "強化版" ? " + 強化濾鏡（預估RR 0.6~1.1）" : ""}</div>
+          <div class="sig-dwr-name">${info.name}</div>
+          <div class="sig-dwr-sub">${info.subtitle}</div>
         </div>
         <button class="sig-dwr-close" id="sigDrawerClose">✕</button>
       </div>
@@ -548,7 +545,7 @@
         </section>
 
         <section class="sig-section">
-          <h3 class="sig-h3 sig-h3-toggle">當前統計（${viewLabel}目標，${variantLabel}） <span class="sig-collapse-arr">▾</span></h3>
+          <h3 class="sig-h3 sig-h3-toggle">當前統計（${viewLabel}目標） <span class="sig-collapse-arr">▾</span></h3>
           <div class="sig-sec-body">
             ${_statRow("空單", stats?.short)}
             ${_rrBlock(stats?.short)}
