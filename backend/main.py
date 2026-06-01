@@ -29,7 +29,7 @@ def _build_js_bundle():
         from pathlib import Path
         js = Path(os.path.dirname(__file__)) / ".." / "frontend" / "static" / "js"
         js = js.resolve()
-        names = ["config","utils","charts","draw","ticker","winrate","render","realtime","replay","ui","ai_research","signal_info","account","main"]
+        names = ["config","utils","charts","draw","colors","ticker","winrate","render","realtime","replay","ui","ai_research","signal_info","account","main"]
         srcs = [js / f"{n}.js" for n in names]
         bundle = js / "app.bundle.js"
         srcs_exist = [p for p in srcs if p.exists()]
@@ -85,16 +85,17 @@ except Exception:
     _GIT_VER = str(int(time.time()))
 _BUNDLE_PATH  = os.path.join(FRONTEND_DIR, "static", "js", "app.bundle.js")
 _CSS_PATH     = os.path.join(FRONTEND_DIR, "static", "css", "style.css")
-# effects.js 由 main.js 動態獨立載入（不在 bundle 內），版號也須隨它變動，
-# 否則只改 effects.js 時 /static 的 immutable 長快取會讓瀏覽器吃到舊檔。
+# effects.js / weather.js 由 main.js 動態獨立載入（不在 bundle 內），版號也須隨它們變動，
+# 否則只改這兩支時 /static 的 immutable 長快取會讓瀏覽器吃到舊檔。
 _EFFECTS_PATH = os.path.join(FRONTEND_DIR, "static", "js", "effects.js")
+_WEATHER_PATH = os.path.join(FRONTEND_DIR, "static", "js", "weather.js")
 
 
 def _asset_ver() -> str:
-    """資產版號 = git hash + 前端資產最新 mtime（bundle / css / effects 取最新者）。
+    """資產版號 = git hash + 前端資產最新 mtime（bundle / css / effects / weather 取最新者）。
     每次請求即時算，本地改前端（即使沒重啟服務、沒 commit）也會改版號、破瀏覽器快取。"""
     try:
-        m = max(os.path.getmtime(p) for p in (_BUNDLE_PATH, _CSS_PATH, _EFFECTS_PATH) if os.path.exists(p))
+        m = max(os.path.getmtime(p) for p in (_BUNDLE_PATH, _CSS_PATH, _EFFECTS_PATH, _WEATHER_PATH) if os.path.exists(p))
         return f"{_GIT_VER}-{int(m)}"
     except Exception:
         return _GIT_VER

@@ -238,11 +238,16 @@ document.addEventListener("DOMContentLoaded", async () => {
     return; // 不載入 effects.js
   }
 
-  // 延遲載入 effects.js（SFX、BGM、天氣動畫），等瀏覽器閒置後再執行
+  // 延遲載入特效（點擊特效/SFX 在 effects.js；天氣動畫在 weather.js），等瀏覽器閒置後再執行
+  // 兩支皆獨立 IIFE，async=false 保留插入順序（互不依賴，順序僅為穩妥）
   const _loadFx = () => {
-    const s = document.createElement("script");
-    s.src = "/static/js/effects.js?v=" + (window._APP_VER || "1");
-    document.head.appendChild(s);
+    const ver = window._APP_VER || "1";
+    ["effects.js", "weather.js"].forEach(name => {
+      const s = document.createElement("script");
+      s.src = "/static/js/" + name + "?v=" + ver;
+      s.async = false;
+      document.head.appendChild(s);
+    });
   };
   "requestIdleCallback" in window
     ? requestIdleCallback(_loadFx, { timeout: 3000 })
