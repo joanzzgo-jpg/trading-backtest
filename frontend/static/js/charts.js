@@ -149,6 +149,8 @@ function syncTimeScales() {
   let _scrollLoadTs = 0; // throttle scroll-triggered loading
   allCharts.forEach((src, si) => {
     src.timeScale().subscribeVisibleLogicalRangeChange(range => {
+      // 標記「圖表正在移動」（平移/縮放/慣性）→ 天氣動畫看到這旗標會暫停重繪，把幀預算讓給圖表
+      window._chartMoveTs = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
       if (syncing || !range || _blockSync) return;
       syncing = true;
       allCharts.forEach((dst, di) => { if (di !== si) dst.timeScale().setVisibleLogicalRange(range); });

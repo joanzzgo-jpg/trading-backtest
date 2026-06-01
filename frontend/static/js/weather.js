@@ -1688,8 +1688,12 @@
   function loop(ts) {
     rafId = requestAnimationFrame(loop);
     if (document.hidden || ts - _lastFrameTs < _frameMin) return;
+    const _now = (performance.now ? performance.now() : Date.now());
     // 手機：觸控後 350ms 內暫停天氣重繪（平移/縮放圖表期間不搶主執行緒）
-    if (_lowFx && _touchT && (performance.now ? performance.now() : Date.now()) - _touchT < 350) return;
+    if (_lowFx && _touchT && _now - _touchT < 350) return;
+    // 任何裝置：圖表正在移動（平移/縮放/慣性滑動）→ 暫停天氣重繪 220ms，把幀預算讓給圖表，
+    // 主圖滑動更順。圖表停止移動 220ms 後天氣自動恢復。
+    if (window._chartMoveTs && _now - window._chartMoveTs < 220) return;
     _lastFrameTs = ts;
     draw();
   }
