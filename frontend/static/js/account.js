@@ -70,6 +70,8 @@ function _acctLogout() {
   _acctSaveSession(null);
   _acctRenderSys();
   document.getElementById("sysSettingsPopup")?.classList.remove("open");   // 收掉系統外觀彈窗
+  // 手機：先把分頁切回「圖表」，收掉設定面板（#mSettings）背景，否則會跟封面圖重疊
+  if (typeof window._mSetTab === "function") window._mSetTab("chart");
   try { sessionStorage.removeItem("landingDismissedAt"); } catch (e) {}      // 不再自動跳過封面
   if (typeof window._landingShow === "function") window._landingShow();     // 登出 → 跳回封面頁
 }
