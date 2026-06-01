@@ -404,11 +404,18 @@ function _computeAutoRRBox(sig) {
 }
 
 // 渲染所有展開中的自動盈虧比盒（由 draw.js 的 renderDrawings 末端呼叫）
+//  - _autoRRSet：點擊釘選的盒（常駐）
+//  - _hoverRRSigs：十字線目前所在 K 棒的訊號盒（hover，未釘選才畫，避免重複）
 function _renderAutoRRBoxes(W, H) {
-  if (!_autoRRSet.size || typeof drawOne !== "function") return;
+  if (typeof drawOne !== "function") return;
   for (const t of _autoRRSet) {
     const sig = _lastWRSignals && _lastWRSignals.find(s => s.t === t);
     if (!sig) continue;
+    const box = _computeAutoRRBox(sig);
+    if (box) drawOne(box, W, H, false, false);
+  }
+  for (const sig of (_hoverRRSigs || [])) {
+    if (_autoRRSet.has(sig.t)) continue;   // 已釘選 → 不重複畫
     const box = _computeAutoRRBox(sig);
     if (box) drawOne(box, W, H, false, false);
   }
@@ -417,6 +424,11 @@ function _renderAutoRRBoxes(W, H) {
 // 切換標的/時框時清空已展開的盒（舊訊號的時間在新資料中不存在）
 function _clearAutoRR() {
   _autoRRBoxCache.clear();  // 清 memo cache
+  _hoverRRSigs = [];
+  _lastHoverBarTime = undefined;
+  _sigTimeIndex = null; _sigTimeIndexSrc = null;
+  const host = document.getElementById("wrHover");
+  if (host) host.innerHTML = `<span class="tb-wr-hover-hint">十字線移到訊號 K 棒 → 顯示該棒勝率</span>`;
   if (_autoRRSet.size) {
     _autoRRSet.clear();
     if (typeof renderDrawings === "function") requestAnimationFrame(renderDrawings);
@@ -729,6 +741,84 @@ const _STATKEY_TO_SIGK = {
   abc:"abc", ab:"ab", s3:"3", s4:"4", s5:"5",
   s6:"6", s7:"7", s8:"8", s9:"9", s10:"10", s11:"11", s12:"12",
 };
+// 反向：signal.k（"3"…）→ stat key（"s3"…），給 hover 顯示該棒訊號勝率用
+const _SIGK_TO_STATKEY = {
+  abc:"abc", ab:"ab", "3":"s3", "4":"s4", "5":"s5",
+  "6":"s6", "7":"s7", "8":"s8", "9":"s9", "10":"s10", "11":"s11", "12":"s12",
+};
+
+/* ══════════════════════════════════════════
+   十字線 hover：移到 K 棒 → 上方 S1-S12 區顯示「該棒訊號的勝率」（多個並列）
+   + 圖上同步畫出該棒訊號的盈虧比 RR 盒。取代常駐 S1-S12 清單。
+══════════════════════════════════════════ */
+// time(秒) → 該棒上的訊號陣列（marker 落在 s.t）。_lastWRSignals 變更時自動重建。
+let _sigTimeIndex = null, _sigTimeIndexSrc = null;
+function _buildSigTimeIndex() {
+  if (_sigTimeIndexSrc === _lastWRSignals && _sigTimeIndex) return _sigTimeIndex;
+  const m = new Map();
+  for (const s of (_lastWRSignals || [])) {
+    const t = toTime(s.t);
+    let arr = m.get(t);
+    if (!arr) { arr = []; m.set(t, arr); }
+    arr.push(s);
+  }
+  _sigTimeIndex = m; _sigTimeIndexSrc = _lastWRSignals;
+  return m;
+}
+
+let _lastHoverBarTime = undefined;   // 上次 hover 的棒時間（秒）；只在換棒時重算
+let _hoverRRSigs = [];               // 目前 hover 棒上的訊號（給 RR 盒用）
+
+// 由 charts.js 的 crosshair 訂閱呼叫（每次移動）；time=null 表示離開圖表
+function _updateHoverWR(time) {
+  if (time === _lastHoverBarTime) return;   // 同一根棒不重算（避免 60Hz 重繪）
+  _lastHoverBarTime = time;
+  const idx = _buildSigTimeIndex();
+  let sigs = (time != null && idx.has(time)) ? idx.get(time) : [];
+  // variant / 雙擊隱藏 過濾（與主圖 marker 一致）
+  const useVariant = _wrVariantView === "variant";
+  const hidden = window._hiddenWrSigs;
+  if (sigs.length) {
+    sigs = sigs.filter(s => (!useVariant || s.v) && !(hidden && hidden.has(s.k)));
+  }
+  // 圖上 RR 盒（hover）：換棒才重畫
+  _hoverRRSigs = sigs;
+  if (typeof renderDrawings === "function") requestAnimationFrame(renderDrawings);
+  // 上方勝率顯示
+  const host = document.getElementById("wrHover");
+  if (host) host.innerHTML = _hoverWRHtml(sigs);
+}
+
+function _hoverWRHtml(sigs) {
+  if (!sigs || !sigs.length) {
+    return `<span class="tb-wr-hover-hint">十字線移到訊號 K 棒 → 顯示該棒勝率</span>`;
+  }
+  let view = _wrPickView(_wrCacheLast);
+  if (_wrVariantView === "variant" && view && view.variant) view = view.variant;
+  const rKey = _wrResultKey();
+  return sigs.map(s => {
+    const statKey = _SIGK_TO_STATKEY[s.k] || "abc";
+    const dirKey  = s.d === "s" ? "short" : "long";
+    const dirSym  = s.d === "s" ? "空" : "多";
+    const stat    = view && view[statKey] ? view[statKey][dirKey] : null;
+    const wr      = (stat && stat.win_rate != null) ? stat.win_rate : null;
+    const wrCls   = wr == null ? "" : wr >= 60 ? " good" : wr < 45 ? " bad" : "";
+    const cnt     = stat ? `${stat.wins}勝${stat.total - stat.wins}負` : "";
+    const r       = s[rKey];
+    const resTxt  = r === "w" ? "✓ 勝" : r === "l" ? "✗ 敗" : "進行中";
+    const resCls  = r === "w" ? "win" : r === "l" ? "loss" : "open";
+    const icon    = _SIG_ICON[statKey] || "●";
+    const label   = _SIG_LABEL[statKey] || "";
+    // 點擊 → 開該訊號詳情抽屜（保留原 block 的功能）
+    return `<span class="tb-wr-hover-item" onclick="window._showSignalInfoByStatKey&&window._showSignalInfoByStatKey('${statKey}')">`
+      + `<span class="tb-wr-hover-ic wr-${statKey}">${icon}</span>`
+      + `<span class="tb-wr-hover-lbl">${label}<i class="tb-wr-hover-dir ${dirKey === "short" ? "s" : "l"}">${dirSym}</i></span>`
+      + `<span class="tb-wr-hover-pct${wrCls}">${wr == null ? "—" : wr + "%"}</span>`
+      + (cnt ? `<span class="tb-wr-hover-cnt">${cnt}</span>` : "")
+      + `<span class="tb-wr-hover-res ${resCls}">${resTxt}</span>`
+      + `</span>`;
+  }).join(`<span class="tb-wr-hover-sep"></span>`);
+}
 
 function _renderWrTop3() {
   const root = document.getElementById("wrTop3");

@@ -246,10 +246,13 @@ function syncTimeScales() {
           lineEls.forEach(l => l.style.display = "none");
           timeLabel.style.display = "none";
         }, 60);
+        if (typeof _updateHoverWR === "function") _updateHoverWR(null);   // 離開圖表 → 清 hover 勝率/RR 盒
         return;
       }
       positionLines(param.time, param.point.x);
       updateAllLegends(param.time);
+      // 十字線移到該 K 棒 → 上方 S1-S12 區顯示該棒訊號勝率 + 圖上畫 RR 盒
+      if (typeof _updateHoverWR === "function") _updateHoverWR(param.time);
     });
   });
 

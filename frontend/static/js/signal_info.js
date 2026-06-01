@@ -767,4 +767,10 @@
       _renderDrawer(_currentKey);
     }
   };
+  // 給 winrate.js 的 hover 勝率項目點擊用：以 stat key（abc/ab/s3…）開該訊號詳情（再點同一個則收回）
+  window._showSignalInfoByStatKey = (key) => {
+    if (!key) return;
+    if (_currentKey === key && !$("signalDrawer")?.classList.contains("hidden")) _hide();
+    else _show(key);
+  };
 })();

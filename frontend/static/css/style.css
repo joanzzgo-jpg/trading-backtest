@@ -701,6 +701,52 @@ html, body {
   -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 2%, #000 99%, transparent 100%);
 }
 
+/* ── S1-S12 區改為「十字線移到該 K 棒 → 顯示該棒訊號勝率」──
+   隱藏常駐 S1-S12 清單（依使用者要求「其他不用」），只顯示 hover 內容 */
+#wrScroll > .tb-wr-block,
+#wrScroll > .tb-wr-divider { display: none !important; }
+
+.tb-wr-hover {
+  flex: 1 1 auto; min-width: 0; height: 100%;
+  display: flex; align-items: center; gap: 7px;
+}
+.tb-wr-hover-hint {
+  color: var(--muted); font-size: 12px; opacity: .72;
+  white-space: nowrap; padding-left: 2px; letter-spacing: .02em;
+}
+.tb-wr-hover-item {
+  display: flex; align-items: center; gap: 5px;
+  padding: 3px 9px; border-radius: 8px; cursor: pointer;
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,180,120,.16);
+  white-space: nowrap; flex: 0 0 auto;
+  transition: background .12s, border-color .12s;
+}
+.tb-wr-hover-item:hover { background: rgba(255,180,120,.12); border-color: rgba(255,180,120,.34); }
+.tb-wr-hover-item:active { transform: scale(.97); }
+.tb-wr-hover-ic { font-size: 13px; line-height: 1; flex: 0 0 auto; }
+.tb-wr-hover-lbl { font-size: 12.5px; font-weight: 700; color: var(--text); display: flex; align-items: baseline; gap: 2px; }
+.tb-wr-hover-dir { font-style: normal; font-size: 11px; font-weight: 700; }
+.tb-wr-hover-dir.s { color: #ef5350; }
+.tb-wr-hover-dir.l { color: #26a69a; }
+.tb-wr-hover-pct { font-size: 14px; font-weight: 800; color: var(--text); }
+.tb-wr-hover-pct.good { color: #26d07c; }
+.tb-wr-hover-pct.bad  { color: #ff7a7a; }
+.tb-wr-hover-cnt { font-size: 10.5px; color: var(--muted); }
+.tb-wr-hover-res { font-size: 10.5px; font-weight: 700; padding: 1px 6px; border-radius: 6px; }
+.tb-wr-hover-res.win  { color: #26d07c; background: rgba(38,208,124,.14); }
+.tb-wr-hover-res.loss { color: #ff7a7a; background: rgba(255,122,122,.14); }
+.tb-wr-hover-res.open { color: var(--muted); background: rgba(255,255,255,.06); }
+.tb-wr-hover-sep { width: 1px; align-self: stretch; margin: 5px 1px; background: rgba(255,180,120,.18); flex: 0 0 auto; }
+
+/* 極簡模式：去掉橘光、用純色邊 */
+html.perf-mode .tb-wr-hover-item { background: #F5F5F5; border-color: #E5E5E5; }
+html.perf-mode .tb-wr-hover-item:hover { background: #EFEFEF; }
+html.perf-mode .tb-wr-hover-pct.good { color: #16a34a; }
+html.perf-mode .tb-wr-hover-pct.bad  { color: #dc2626; }
+html.perf-mode .tb-wr-hover-res.win  { color: #16a34a; background: rgba(22,163,74,.12); }
+html.perf-mode .tb-wr-hover-res.loss { color: #dc2626; background: rgba(220,38,38,.12); }
+
 /* 計算中 overlay：橘子熊 + 文字 */
 .tb-wr-loading {
   position: absolute;
