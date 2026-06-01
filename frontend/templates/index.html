@@ -775,6 +775,7 @@
   <button id="resetSysColors" class="btn-reset">重設預設色</button>
   <!-- 帳號：登入在封面門上的鎖；這裡顯示登入狀態 + 登出 -->
   <div id="sysAcctRow" class="sys-acct-row">
+    <img src="/static/img/bear.png" class="sys-acct-avatar" alt="">
     <span id="sysAcctName" class="sys-acct-name"></span>
     <button id="sysLogoutBtn" class="sys-acct-logout">登出</button>
   </div>
@@ -929,39 +930,52 @@
 <!-- 手機「設定」分頁：集中所有設定入口（桌面/iPad 不顯示）。點各列 → 開既有設定面板（手機置中 sheet） -->
 <div id="mSettings" class="m-settings">
   <div class="m-set-hd">設定</div>
+  <!-- 手繪風線條 icon 共用「抖動」濾鏡：feTurbulence 雜訊 + 位移，讓直線變不規則手繪感 -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+    <filter id="mSketch" x="-20%" y="-20%" width="140%" height="140%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="6" result="n"/>
+      <feDisplacementMap in="SourceGraphic" in2="n" scale="1.3" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+  </defs></svg>
   <div class="m-set-scroll">
     <div class="m-set-sec">帳號</div>
     <div class="m-set-row m-set-acct">
-      <span class="m-set-ico">👤</span>
+      <img src="/static/img/bear.png" class="m-set-avatar" alt="">
       <span class="m-set-lbl" id="mSetAcctName">未登入</span>
       <button class="m-set-logout" id="mSetLogoutBtn">登出</button>
     </div>
 
+    <div class="m-set-sec">圖表</div>
+    <button class="m-set-row" id="mSetSubcharts" onclick="event.stopPropagation();document.getElementById('subChartsToggle')?.click();">
+      <span class="m-set-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" filter="url(#mSketch)"><rect x="3.5" y="3.5" width="17" height="9" rx="1.6"/><path d="M5.6 9.4 L9 6.4 L12 8.4 L15.6 5.4"/><rect x="3.5" y="15" width="17" height="5.6" rx="1.4"/><path d="M6 18.6 V17.4 M9.4 18.6 V16.4 M12.8 18.6 V17 M16.2 18.6 V15.8"/></svg></span>
+      <span class="m-set-lbl">副圖指標<small id="mSetSubchartsState">KDJ / RSI / MACD</small></span><span class="m-set-arr">›</span>
+    </button>
+
     <div class="m-set-sec">顯示模式</div>
     <button class="m-set-row" onclick="event.stopPropagation();document.getElementById('perfModeBtn').click()">
-      <span class="m-set-ico">🌙</span><span class="m-set-lbl">極簡模式<small>關閉特效、最省電（舊機更順）</small></span><span class="m-set-arr">›</span>
+      <span class="m-set-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" filter="url(#mSketch)"><path d="M20 13.8 A7.6 7.6 0 1 1 10.2 4 A6 6 0 0 0 20 13.8 Z"/></svg></span><span class="m-set-lbl">極簡模式<small>關閉特效、最省電（舊機更順）</small></span><span class="m-set-arr">›</span>
     </button>
 
     <div class="m-set-sec">外觀</div>
     <button class="m-set-row" onclick="event.stopPropagation();document.getElementById('sysSettingsBtn').click()">
-      <span class="m-set-ico">🎨</span><span class="m-set-lbl">系統外觀<small>背景 / 面板 / 文字 / 強調色</small></span><span class="m-set-arr">›</span>
+      <span class="m-set-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" filter="url(#mSketch)"><path d="M12 3.5 C6.8 3.5 3 7 3 11.6 C3 14.3 4.9 15.9 6.9 15.9 C8.1 15.9 8.7 16.8 8.5 18 C8.2 19.7 9.3 20.8 12 20.8 C16.9 20.8 21 16.8 21 11.8 C21 7 17 3.5 12 3.5 Z"/><circle cx="7.4" cy="9.2" r="1" fill="currentColor" stroke="none"/><circle cx="11" cy="6.9" r="1" fill="currentColor" stroke="none"/><circle cx="15" cy="7.3" r="1" fill="currentColor" stroke="none"/><circle cx="17.2" cy="11" r="1" fill="currentColor" stroke="none"/></svg></span><span class="m-set-lbl">系統外觀<small>背景 / 面板 / 文字 / 強調色</small></span><span class="m-set-arr">›</span>
     </button>
     <button class="m-set-row" onclick="event.stopPropagation();document.getElementById('fxToggleBtn').click()">
-      <span class="m-set-ico">✨</span><span class="m-set-lbl">背景 &amp; 點擊特效<small>天氣動畫 / 落葉 / 點擊星光</small></span><span class="m-set-arr">›</span>
+      <span class="m-set-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" filter="url(#mSketch)"><path d="M12 3 C12.5 8.4 13.6 9.5 19 11 C13.6 12.5 12.5 13.6 12 19 C11.5 13.6 10.4 12.5 5 11 C10.4 9.5 11.5 8.4 12 3 Z"/><path d="M18.6 4 C18.8 5.7 19 5.9 20.7 6.3 C19 6.7 18.8 6.9 18.6 8.6 C18.4 6.9 18.2 6.7 16.5 6.3 C18.2 5.9 18.4 5.7 18.6 4 Z"/></svg></span><span class="m-set-lbl">背景 &amp; 點擊特效<small>天氣動畫 / 落葉 / 點擊星光</small></span><span class="m-set-arr">›</span>
     </button>
 
     <div class="m-set-sec">指標設定</div>
     <button class="m-set-row" onclick="event.stopPropagation();document.querySelector('.ind-gear-btn[data-ind=main]')?.click()">
-      <span class="m-set-ico">📈</span><span class="m-set-lbl">主圖<small>K線 / 布林通道 / 共振 / 背景</small></span><span class="m-set-arr">›</span>
+      <span class="m-set-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" filter="url(#mSketch)"><path d="M4.5 4 V19.5 H20"/><path d="M7 16 L10.5 11 L13.5 13.5 L18 6.8"/></svg></span><span class="m-set-lbl">主圖<small>K線 / 布林通道 / 共振 / 背景</small></span><span class="m-set-arr">›</span>
     </button>
     <button class="m-set-row" onclick="event.stopPropagation();document.querySelector('.ind-gear-btn[data-ind=kdj]')?.click()">
-      <span class="m-set-ico">📊</span><span class="m-set-lbl">KDJ</span><span class="m-set-arr">›</span>
+      <span class="m-set-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" filter="url(#mSketch)"><path d="M4 14.5 C8 8 9 8 12 12 C15 16 16 16 20 9.5"/><path d="M4 9.5 C8 16 9 16 12 12 C15 8 16 8 20 14.5"/></svg></span><span class="m-set-lbl">KDJ<small>隨機指標 K / D / J</small></span><span class="m-set-arr">›</span>
     </button>
     <button class="m-set-row" onclick="event.stopPropagation();document.querySelector('.ind-gear-btn[data-ind=rsi]')?.click()">
-      <span class="m-set-ico">📊</span><span class="m-set-lbl">RSI</span><span class="m-set-arr">›</span>
+      <span class="m-set-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" filter="url(#mSketch)"><path d="M4 17 L8 9.5 L12 14 L16 6.5 L20 11.5"/><path d="M4 12 H20" stroke-dasharray="2.4 2.6" opacity="0.55"/></svg></span><span class="m-set-lbl">RSI<small>相對強弱指標</small></span><span class="m-set-arr">›</span>
     </button>
     <button class="m-set-row" onclick="event.stopPropagation();document.querySelector('.ind-gear-btn[data-ind=macd]')?.click()">
-      <span class="m-set-ico">📊</span><span class="m-set-lbl">MACD</span><span class="m-set-arr">›</span>
+      <span class="m-set-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" filter="url(#mSketch)"><path d="M4 12 H20"/><path d="M7 12 V7 M10 12 V15.5 M13 12 V8.5 M16 12 V14"/></svg></span><span class="m-set-lbl">MACD<small>指數平滑異同移動平均</small></span><span class="m-set-arr">›</span>
     </button>
   </div>
 </div>

@@ -772,6 +772,9 @@ function _initSubChartsToggle() {
     const hidden = container.classList.contains("subcharts-hidden");
     btn.dataset.expanded = hidden ? "false" : "true";   // 給 CSS 旋轉箭頭用
     btn.title = hidden ? "顯示副圖指標（KDJ / RSI / MACD）" : "隱藏副圖指標";
+    // 手機「設定 → 副圖指標」列的狀態文字（手機無繪圖工具列，從設定開關副圖）
+    const ms = document.getElementById("mSetSubchartsState");
+    if (ms) ms.textContent = hidden ? "已隱藏 · 點擊顯示 KDJ / RSI / MACD" : "顯示中 · 點擊隱藏";
   };
   let hidden = "1";
   try { hidden = localStorage.getItem("subChartsHidden") ?? "1"; } catch (e) {}
