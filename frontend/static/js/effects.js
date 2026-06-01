@@ -550,6 +550,7 @@
   document.addEventListener("pointerdown", e => {
     const btn = e.target.closest(TARGETS);
     if (!btn) return;
+    if (btn.closest(".m-tabbar")) return;   // 手機底部分頁列不要漣漪（矮寬按鈕上會外溢成半圓形波紋）
     const rect = btn.getBoundingClientRect();
     const size = Math.max(rect.width, rect.height) * 2.2;
     const x    = e.clientX - rect.left  - size / 2;
