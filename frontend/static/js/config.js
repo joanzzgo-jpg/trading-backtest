@@ -78,6 +78,7 @@ let paneCollapseFlex = {};  // 面板收合前的 flex 值（module-level，供 
 let _restoringPrefs  = false; // 還原偏好設定時，暫停自動儲存
 let _savedBarCount      = null;  // 切換標的前保存的可見 K 棒數量，載入後還原
 let _savedTimeRange     = null;  // 已捲到歷史時保存的可見「時間範圍」{from,to}，切標的/時框後對齊同一時間
+let _savedRightOffset   = null;  // 看最新時保存「最新棒距右緣的空白(rightOffset, 單位:棒)」，切標的後沿用同一水平位置
 let _pendingRestoreRange = null; // 重整後要還原的畫面位置 { barCount, toOffset }
 let _bgLoadInProgress   = false; // 背景分段載入舊 K 棒中
 let _bgLoadGen          = 0;     // 每次新的載入任務遞增，用於取消舊的非同步迴圈

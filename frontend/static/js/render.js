@@ -10,11 +10,16 @@ async function loadData(autoLoad = false) {
     // 仍在看最新（_atLatest）→ 不存，照舊貼齊最新 N 根（realtime 才會接續更新）
     const _atLatest = !_r || !ohlcvData.length || _r.to >= ohlcvData.length - 2;
     _savedTimeRange = null;
+    _savedRightOffset = null;
     if (!_atLatest) {
       try {
         const _tr = mainChart.timeScale().getVisibleRange();
         if (_tr && _tr.from != null && _tr.to != null) _savedTimeRange = { from: _tr.from, to: _tr.to };
       } catch (e) {}
+    } else if (_r && ohlcvData.length) {
+      // 看最新：記住「最新棒距右緣的空白」(rightOffset)，切標的後讓新標的最新棒
+      // 出現在使用者選的同一水平位置（而非每次都貼回最右邊）
+      _savedRightOffset = Math.max(0, Math.round(_r.to - (ohlcvData.length - 1)));
     }
   }
 
@@ -152,11 +157,11 @@ function renderAll(data) {
   const _restoreByBarCount = () => {
     const _prevRange = mainChart.timeScale().getVisibleLogicalRange();
     const _barCount  = (_prevRange && _savedBarCount != null) ? _savedBarCount : 50;
+    const _off       = _savedRightOffset || 0;   // 看最新時使用者選的右緣留白（棒數）
     if (data.length > _barCount) {
-      mainChart.timeScale().setVisibleLogicalRange({
-        from: data.length - _barCount,
-        to:   data.length - 1,
-      });
+      // to 可超出最後一根（= 右側留白），讓最新棒停在使用者原本的水平位置
+      const to = data.length - 1 + _off;
+      mainChart.timeScale().setVisibleLogicalRange({ from: to - _barCount, to });
     }
   };
   if (_pendingRestoreRange) {
@@ -184,6 +189,7 @@ function renderAll(data) {
   }
   _savedBarCount = null;
   _savedTimeRange = null;
+  _savedRightOffset = null;
 
   resizeAll();
 }
