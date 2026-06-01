@@ -176,9 +176,12 @@ function buildPayload() {
 }
 
 /* 更新圖例文字，只改 .leg-val，dot 完全不碰 */
+// 圖例值節點快取：crosshair 每動呼叫 ~10 次 × 60Hz，省掉每次 querySelector
+const _legValCache = {};
 function _setLegText(id, text) {
-  const val = document.querySelector(`#${id} .leg-val`);
-  if (val) val.textContent = text;
+  let val = _legValCache[id];
+  if (!val || !val.isConnected) { val = document.querySelector(`#${id} .leg-val`); _legValCache[id] = val; }
+  if (val && val.textContent !== text) val.textContent = text;   // 值未變不寫，免 repaint
 }
 
 function fmt(v)    { return v!=null ? Number(v).toLocaleString(undefined,{maximumFractionDigits:4}) : "—"; }

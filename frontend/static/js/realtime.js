@@ -88,6 +88,15 @@ async function fetchLatest() {
 /* ══════════════════════════════════════════
    統一更新所有面板圖例（鉛直線跨圖同步）
 ══════════════════════════════════════════ */
+// 符號列欄位節點快取：crosshair 60Hz 熱路徑省掉每次 getElementById
+const _symElCache = {};
+function _symEl(id) {
+  let e = _symElCache[id];
+  if (!e || !e.isConnected) { e = document.getElementById(id); _symElCache[id] = e; }
+  return e;
+}
+function _setSym(id, text) { const e = _symEl(id); if (e && e.textContent !== text) e.textContent = text; }
+
 function updateAllLegends(t) {
   // 熱路徑（每次 crosshair 移動觸發 60Hz）：O(1) Map 查 idx 共用，避免後續 indexOf O(n)
   let idx = (_secToIdx && _secToIdx.has(t)) ? _secToIdx.get(t) : -1;
@@ -96,11 +105,11 @@ function updateAllLegends(t) {
   if (idx < 0) idx = ohlcvData.indexOf(d);   // fallback（罕見路徑）
 
   // 符號列
-  document.getElementById("symO").textContent = fmt(d.open);
-  document.getElementById("symH").textContent = fmt(d.high);
-  document.getElementById("symL").textContent = fmt(d.low);
-  document.getElementById("symC").textContent = fmt(d.close);
-  document.getElementById("symV").textContent = fmtVol(d.volume);
+  _setSym("symO", fmt(d.open));
+  _setSym("symH", fmt(d.high));
+  _setSym("symL", fmt(d.low));
+  _setSym("symC", fmt(d.close));
+  _setSym("symV", fmtVol(d.volume));
   if (idx > 0) _updateSymChg(d.close, ohlcvData[idx - 1].close);
 
   // BB
@@ -150,14 +159,14 @@ function onMainCrosshair(param) {
   if (!param.time) return;
   const c = param.seriesData.get(candleSeries);
   if (c) {
-    document.getElementById("symO").textContent = fmt(c.open);
-    document.getElementById("symH").textContent = fmt(c.high);
-    document.getElementById("symL").textContent = fmt(c.low);
-    document.getElementById("symC").textContent = fmt(c.close);
+    _setSym("symO", fmt(c.open));
+    _setSym("symH", fmt(c.high));
+    _setSym("symL", fmt(c.low));
+    _setSym("symC", fmt(c.close));
     // O(1) Map 取代 O(n) findIndex（70k 根 × 60Hz mouseMove = 每秒 4M 次 toTime 字串轉換的主因）
     const idx = (_secToIdx && _secToIdx.has(param.time)) ? _secToIdx.get(param.time) : -1;
     if (idx >= 0) {
-      document.getElementById("symV").textContent = fmtVol(ohlcvData[idx].volume);
+      _setSym("symV", fmtVol(ohlcvData[idx].volume));
       if (idx > 0) _updateSymChg(c.close, ohlcvData[idx - 1].close);
     }
   }
@@ -200,7 +209,8 @@ function onMacdCrosshair(param) {
 }
 
 function _updateSymChg(close, prevClose) {
-  const el   = document.getElementById("symChg");
+  const el   = _symEl("symChg");
+  if (!el) return;
   const amt  = close - prevClose;
   const pct  = prevClose ? (amt / prevClose * 100) : 0;
   const sign = amt >= 0 ? "+" : "";
@@ -229,11 +239,11 @@ function updateSymbolBar(data) {
   // LWC 重畫時 fire 假 crosshair 事件就誤清狀態。
   if (_mouseOverChart) return;
   const last = data[data.length-1], prev = data.length>1 ? data[data.length-2] : last;
-  document.getElementById("symO").textContent = fmt(last.open);
-  document.getElementById("symH").textContent = fmt(last.high);
-  document.getElementById("symL").textContent = fmt(last.low);
-  document.getElementById("symC").textContent = fmt(last.close);
-  document.getElementById("symV").textContent = fmtVol(last.volume);
+  _setSym("symO", fmt(last.open));
+  _setSym("symH", fmt(last.high));
+  _setSym("symL", fmt(last.low));
+  _setSym("symC", fmt(last.close));
+  _setSym("symV", fmtVol(last.volume));
   _updateSymChg(last.close, prev.close);
   // 主圖 BB 數值：手機沒有 hover crosshair，這裡用最新一根 K 棒把布林通道數值填進
   // 圖例（桌面未 hover 時也順便顯示最新值，行為更像專業看盤 app）
