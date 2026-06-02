@@ -776,7 +776,14 @@ function _drawSessionOverlay(W, H) {
 function initSessionToggle() {
   const btn = document.getElementById("sessionToggleBtn");
   if (!btn) return;
-  const _sync = () => btn.classList.toggle("active", _sessionOn);
+  const _sync = () => {
+    btn.classList.toggle("active", _sessionOn);
+    // 同步手機「設定」分頁列的狀態文字
+    const st = document.getElementById("mSetSessionState");
+    if (st) st.textContent = _sessionOn ? "開啟" : "關閉";
+    const row = document.getElementById("mSetSession");
+    if (row) row.classList.toggle("m-set-on", _sessionOn);
+  };
   _sync();
   btn.addEventListener("click", () => {
     _sessionOn = !_sessionOn;

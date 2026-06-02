@@ -653,7 +653,7 @@ function bindTickerPanel() {
    Symbol Search Modal
 ══════════════════════════════════════════ */
 const SYM_ICON_COLORS = ["#f23645","#2196f3","#ff9800","#26a69a","#7e57c2","#e91e63","#00bcd4","#8bc34a"];
-let _symSearchMarket   = "futures";
+let _symSearchMarket   = "all";
 let _symSearchFocusIdx = -1;
 let _symHistory        = [];   // 最近搜尋紀錄
 
@@ -679,10 +679,14 @@ function renderSymSearch() {
   const list = document.getElementById("symModalList");
   if (!list || !document.getElementById("symOverlay").classList.contains("hidden") === false) return;
   if (!document.getElementById("symOverlay") || document.getElementById("symOverlay").classList.contains("hidden")) return;
+  // 週期性刷新只對「本地即時資料」（合約/現貨）有意義——能順帶更新清單裡的即時漲跌。
+  // API 模式（全部/美股/台股）每 2s 重抓重繪會清空 innerHTML → 列表跳動、loading 閃爍、
+  // scroll 位置重置（手機無 hover 旗標擋不住）。這些模式只在使用者輸入時才渲染。
+  if (_symSearchMarket === "all" || _symSearchMarket === "us" || _symSearchMarket === "tw") return;
   _renderSymSearchList();
 }
 
-function _symItemHTML(t, idx) {
+function _symItemHTML(t, idx, mkt) {
   // 從 symbol 推算 base（BTC_USDT_PERP → BTC, BTC_USDT → BTC, BTCUSDT → BTC）
   const rawSym = t.symbol || "";
   const base   = rawSym.includes("_") ? rawSym.split("_")[0]
@@ -692,12 +696,13 @@ function _symItemHTML(t, idx) {
   const cls    = chg >= 0 ? "up" : "dn";
   const sign   = chg >= 0 ? "+" : "";
   // 依當前 tab 決定顯示名稱，不依賴後端回傳的 display 欄位（防止 tab 切換時顯示錯誤格式）
-  const isFut  = _symSearchMarket === "futures";
+  // 「全部」/歷史模式一律視為永續合約格式（與預設合約 tab 一致），只有明確「現貨」tab 才用現貨格式
+  const isFut  = (mkt || _symSearchMarket) !== "spot";
   const name   = isFut ? `${base}/USDT.P` : `${base}/USDT`;
   const desc   = isFut ? `${base} USDT 永續合約` : `${base} / USDT`;
   // 現貨代號（供 OHLCV API 使用）
   const spot   = t.spot || `${base}/USDT`;
-  return `<div class="sym-result-item" data-idx="${idx}"
+  return `<div class="sym-result-item" data-idx="${idx}" data-market="crypto"
     data-symbol="${rawSym}" data-display="${name}"
     data-spot="${spot}"
     data-change_pct="${chg}" data-price="${t.price || 0}">
@@ -713,6 +718,33 @@ function _symItemHTML(t, idx) {
   </div>`;
 }
 
+// 台股搜尋結果項（data-market="tw"）
+function _twItemHTML(r, idx) {
+  const id = String(r.stock_id || r.symbol || r);
+  return `<div class="sym-result-item" data-idx="${idx}" data-market="tw"
+    data-symbol="${id}" data-display="${id}" tabindex="${idx}">
+    <div class="sym-icon" style="background:${symIconColor(id)}">${id.slice(0,2)}</div>
+    <div class="sym-result-info">
+      <span class="sym-result-name">${id}</span>
+      <span class="sym-result-desc">${r.stock_name || r.name || ""}</span>
+    </div>
+    <span class="sym-result-tag">台股</span>
+  </div>`;
+}
+
+// 美股搜尋結果項（data-market="us"）
+function _usItemHTML(r, idx) {
+  return `<div class="sym-result-item" data-idx="${idx}" data-market="us"
+    data-symbol="${r.symbol}" data-display="${r.symbol}" tabindex="${idx}">
+    <div class="sym-icon" style="background:${symIconColor(r.symbol)}">${r.symbol.slice(0,2).toUpperCase()}</div>
+    <div class="sym-result-info">
+      <span class="sym-result-name">${r.symbol}</span>
+      <span class="sym-result-desc">${r.name || ""}${r.exchange ? " · " + r.exchange : ""}</span>
+    </div>
+    <span class="sym-result-tag">${r.type || "美股"}</span>
+  </div>`;
+}
+
 function _bindSymItems(list) {
   list.querySelectorAll(".sym-result-item").forEach(el => {
     el.addEventListener("click", () => _selectSymbol(el));
@@ -725,9 +757,70 @@ function _bindSymItems(list) {
   });
 }
 
+// 「全部」搜尋：合約（本地即時過濾）+ 台股 + 美股（API），合併分區顯示
+function _renderAllSearchList(query) {
+  const list = document.getElementById("symModalList");
+  if (!query) {
+    let html = "";
+    if (_symHistory.length) {
+      html += `<div class="sym-section-hd">最近搜尋 <span class="sym-hist-clear" id="symHistClear">清除</span></div>`;
+      html += _symHistory.map((t, i) => _symItemHTML(t, "h" + i, "all")).join("");
+    } else {
+      html = `<div class="sym-empty">輸入代號或名稱，搜尋全部市場（合約 / 台股 / 美股）</div>`;
+    }
+    list.innerHTML = html;
+    _bindSymItems(list);
+    return;
+  }
+
+  const _thisQuery = query;
+  // 1) 合約（本地即時過濾，免等 API）
+  const cData = (_tickerData && _tickerData.length) ? _tickerData : [];
+  const cMatches = [...cData]
+    .sort((a, b) => b.volume - a.volume)
+    .filter(t => (t.display || "").toLowerCase().includes(query) ||
+                 (t.symbol  || "").toLowerCase().includes(query))
+    .slice(0, 8);
+
+  const renderMerged = (twResults, usResults, loading) => {
+    // query 已變則丟棄
+    if (((document.getElementById("symModalInput")?.value) || "").toLowerCase().trim() !== _thisQuery) return;
+    let html = "";
+    if (cMatches.length) {
+      html += `<div class="sym-section-hd">合約</div>`;
+      html += cMatches.map((t, i) => _symItemHTML(t, "c" + i, "futures")).join("");
+    }
+    if (twResults && twResults.length) {
+      html += `<div class="sym-section-hd">台股</div>`;
+      html += twResults.slice(0, 8).map((r, i) => _twItemHTML(r, "t" + i)).join("");
+    }
+    if (usResults && usResults.length) {
+      html += `<div class="sym-section-hd">美股</div>`;
+      html += usResults.slice(0, 8).map((r, i) => _usItemHTML(r, "u" + i)).join("");
+    }
+    if (loading) html += `<div class="sym-loading">搜尋台股 / 美股中…</div>`;
+    if (!html) html = `<div class="sym-empty">查無結果</div>`;
+    list.innerHTML = html;
+    _bindSymItems(list);
+  };
+
+  // 先把合約結果秒顯，台股/美股 API 回來後再補
+  renderMerged(null, null, true);
+
+  Promise.all([
+    fetch(`/api/search?market=tw&keyword=${encodeURIComponent(query)}`)
+      .then(r => r.ok ? r.json() : { results: [] }).catch(() => ({ results: [] })),
+    fetch(`/api/us/search?q=${encodeURIComponent(query)}`)
+      .then(r => r.ok ? r.json() : { results: [] }).catch(() => ({ results: [] })),
+  ]).then(([tw, us]) => renderMerged(tw?.results || [], us?.results || [], false));
+}
+
 function _renderSymSearchList() {
   const list  = document.getElementById("symModalList");
   const query = (document.getElementById("symModalInput")?.value || "").toLowerCase().trim();
+
+  // 全部：同時搜尋合約 / 台股 / 美股，合併顯示，選取後自動切換市場
+  if (_symSearchMarket === "all") { _renderAllSearchList(query); return; }
 
   // 美股：用 API 搜尋
   if (_symSearchMarket === "us") {
@@ -751,17 +844,7 @@ function _renderSymSearchList() {
           list.innerHTML = `<div class="sym-empty">查無結果，請直接輸入代號（如 AAPL）</div>`;
           return;
         }
-        list.innerHTML = results.map((r, i) => `
-          <div class="sym-result-item" data-symbol="${r.symbol}" data-display="${r.symbol}" tabindex="${i}">
-            <div class="sym-icon" style="background:${symIconColor(r.symbol)}">
-              ${r.symbol.slice(0,2).toUpperCase()}
-            </div>
-            <div class="sym-result-info">
-              <span class="sym-result-name">${r.symbol}</span>
-              <span class="sym-result-desc">${r.name} · ${r.exchange}</span>
-            </div>
-            <span class="sym-result-tag">${r.type || "Stock"}</span>
-          </div>`).join("");
+        list.innerHTML = results.map((r, i) => _usItemHTML(r, i)).join("");
         _bindSymItems(list);
       })
       .catch(() => {
@@ -790,15 +873,7 @@ function _renderSymSearchList() {
           list.innerHTML = `<div class="sym-empty">查無結果，請直接輸入代號（如 2330）</div>`;
           return;
         }
-        list.innerHTML = results.map((r, i) => `
-          <div class="sym-result-item" data-symbol="${r.stock_id || r.symbol || r}" data-display="${r.stock_id || r.symbol || r}" tabindex="${i}">
-            <div class="sym-icon" style="background:${symIconColor(String(r.stock_id || r.symbol || r))}">${String(r.stock_id || r.symbol || r).slice(0,2)}</div>
-            <div class="sym-result-info">
-              <span class="sym-result-name">${r.stock_id || r.symbol || r}</span>
-              <span class="sym-result-desc">${r.stock_name || r.name || ""}</span>
-            </div>
-            <span class="sym-result-tag">台股</span>
-          </div>`).join("");
+        list.innerHTML = results.map((r, i) => _twItemHTML(r, i)).join("");
         _bindSymItems(list);
       })
       .catch(() => {
@@ -847,23 +922,26 @@ function _renderSymSearchList() {
 
 function _selectSymbol(el) {
   const display = el.dataset.display || el.dataset.spot || el.dataset.symbol;
-  // 選擇後確保 market 與 tab 一致
-  if (_symSearchMarket === "tw") {
+  // 市場以「該項目自身」為準（全部搜尋模式各項各自帶市場），回退當前 tab
+  const mkt = el.dataset.market ||
+              (_symSearchMarket === "tw" ? "tw" : _symSearchMarket === "us" ? "us" : "crypto");
+  // 選擇後切換到對應市場
+  if (mkt === "tw") {
     document.getElementById("marketSelect").value = "tw";
     updateMarketUI();
-  } else if (_symSearchMarket === "us") {
+  } else if (mkt === "us") {
     document.getElementById("marketSelect").value = "us";
     updateMarketUI();
   } else {
-    // futures / spot → 確保切到 crypto market
+    // crypto（futures / spot）→ 確保切到 crypto market
     const mktEl = document.getElementById("marketSelect");
     if (mktEl.value !== "crypto") {
       mktEl.value = "crypto";
       updateMarketUI();  // 會先把 symbolInput 設為 "BTC/USDT"，下方再覆蓋為選到的標的
     }
   }
-  // 加入搜尋歷史（台股/美股不記入 crypto 歷史）
-  if (_symSearchMarket !== "tw") {
+  // 只記入 crypto 搜尋歷史（歷史列以合約格式渲染，台股/美股不記入避免格式錯亂）
+  if (mkt === "crypto") {
     addToSymHistory({
       symbol:     el.dataset.symbol,
       display:    display,
@@ -879,18 +957,30 @@ function _selectSymbol(el) {
   renderTickers();
 }
 
+const _SYM_PLACEHOLDER = {
+  all: "搜尋全部市場（合約 / 台股 / 美股）…",
+  futures: "搜尋永續合約…",
+  spot: "搜尋現貨…",
+  tw: "搜尋台股（如 2330、台積電）…",
+  us: "搜尋美股（如 AAPL、Tesla）…",
+};
+function _applySymPlaceholder() {
+  const inp = document.getElementById("symModalInput");
+  if (inp) inp.placeholder = _SYM_PLACEHOLDER[_symSearchMarket] || _SYM_PLACEHOLDER.all;
+}
+
 function openSymSearch() {
-  const market = document.getElementById("marketSelect").value;
   document.getElementById("symOverlay").classList.remove("hidden");
   const inp = document.getElementById("symModalInput");
   inp.value = "";
   document.getElementById("symModalClear").classList.add("hidden");
   _symSearchFocusIdx = -1;
-  // 依市場決定預設 tab
-  _symSearchMarket = market === "us" ? "us" : market === "tw" ? "tw" : "futures";
+  // 預設一律「全部」：什麼都搜得到，選取後自動切換市場
+  _symSearchMarket = "all";
   document.querySelectorAll(".sym-tab").forEach(b => {
     b.classList.toggle("active", b.dataset.market === _symSearchMarket);
   });
+  _applySymPlaceholder();
   _renderSymSearchList();
   setTimeout(() => inp.focus(), 50);
 }
@@ -925,7 +1015,8 @@ function initSymSearch() {
     clear.classList.toggle("hidden", !modalInp.value);
     _symSearchFocusIdx = -1;
     clearTimeout(_searchTimer);
-    if (_symSearchMarket === "us" || _symSearchMarket === "tw") {
+    // 會打 API 的模式（美股/台股/全部）加 debounce，純本地（合約/現貨）即時渲染
+    if (_symSearchMarket === "us" || _symSearchMarket === "tw" || _symSearchMarket === "all") {
       _searchTimer = setTimeout(_renderSymSearchList, 300);
     } else {
       _renderSymSearchList();
@@ -964,6 +1055,7 @@ function initSymSearch() {
       btn.classList.add("active");
       _symSearchMarket = btn.dataset.market;
       _symSearchFocusIdx = -1;
+      _applySymPlaceholder();
       _renderSymSearchList();
     });
   });

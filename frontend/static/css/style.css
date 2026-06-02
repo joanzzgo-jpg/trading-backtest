@@ -359,6 +359,8 @@ html.perf-mode .tb-icon-btn:hover svg { animation: none; transform: scale(1.1); 
 .tb-icon-btn.active { color: var(--accent); background: rgba(255,106,26,.14); box-shadow: inset 0 0 0 1px rgba(255,106,26,.3), 0 2px 8px rgba(255,106,26,.16); }
 /* 手機不需要策略回測 → 隱藏回測鈕（時段標記鈕仍保留） */
 @media (max-width: 768px) { #backtestBtn { display: none !important; } }
+/* 交易時段標記按鈕：手機改放「設定」分頁（topbar 太佔位） */
+@media (max-width: 768px) { #sessionToggleBtn { display: none !important; } }
 #leafToggleBtn, #rainToggleBtn, #snowToggleBtn, #springToggleBtn { font-size: 14px; }
 #leafToggleBtn.leaf-active   { background: rgba(230,126,34,.18);  color: #E67E22; }
 #rainToggleBtn.rain-active   { background: rgba(100,160,255,.18); color: #6EB5FF; }
@@ -1910,6 +1912,7 @@ html.perf-mode .tk-seg {
 
 .sym-modal-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 2px;
   padding: 10px 14px 0;
 }
@@ -2569,6 +2572,7 @@ html.perf-mode .tk-seg {
   /* Symbol bar */
   .symbol-bar { font-size: 11px; gap: 3px; padding: 3px 8px; }
   .sym-label  { display: none; }
+  .sym-name   { display: none; }   /* 手機 K 棒資訊前不顯示標的名稱（標的已在頂部選擇列） */
   .sym-tag    { display: none; }
   .sym-divider{ display: none; }
   .tb-winrate { display: none; }
@@ -3780,20 +3784,21 @@ html.perf-mode .tb-wr-total { font-size: 20px !important; }
 /* ════════════════════════════════════════
    勝率欄字級縮回（先前放大太多）
    只略大於原版，主要靠獨立列的寬鬆呼吸感
+   2026-06：依使用者要求整體再縮小一點（更不佔版面）
 ═══════════════════════════════════════ */
-.tb-winrate { height: 38px !important; padding: 0 8px !important; }
-.tb-wr-icon { font-size: 11px; }
-.tb-wr-arr  { font-size: 9px; }
-.tb-wr-pct  { font-size: 11px; }
-.tb-wr-cnt  { font-size: 8px; }
-.tb-wr-divider { height: 22px; }
-.tb-wr-total-sep { height: 26px; }
-.tb-wr-total { font-size: 15px !important; padding: 0 5px; }
-.tb-wr-status { font-size: 11px; }
-.tb-wr-from { font-size: 9.5px; }
-.tb-wr-toggle { font-size: 11px !important; padding: 4px 9px !important; }
-.tb-wr-buffer-input { font-size: 11px !important; width: 38px !important; height: 22px !important; }
-.tb-wr-buffer-pct { font-size: 10px !important; }
+.tb-winrate { height: 30px !important; padding: 0 7px !important; }
+.tb-wr-icon { font-size: 10px; }
+.tb-wr-arr  { font-size: 8px; }
+.tb-wr-pct  { font-size: 10px; }
+.tb-wr-cnt  { font-size: 7.5px; }
+.tb-wr-divider { height: 18px; }
+.tb-wr-total-sep { height: 21px; }
+.tb-wr-total { font-size: 13px !important; padding: 0 4px; }
+.tb-wr-status { font-size: 10px; }
+.tb-wr-from { font-size: 9px; }
+.tb-wr-toggle { font-size: 10px !important; padding: 3px 8px !important; }
+.tb-wr-buffer-input { font-size: 10px !important; width: 34px !important; height: 19px !important; }
+.tb-wr-buffer-pct { font-size: 9px !important; }
 .tb-wr-loading-text { font-size: 11px !important; }
 .tb-wr-loading-bear { width: 18px !important; height: 18px !important; }
 
@@ -5537,8 +5542,8 @@ body, button, input, select, textarea,
     white-space: normal !important;       /* 蓋掉 base 的 nowrap，數字列才能換行 */
     overflow: visible !important;          /* 蓋掉 base 的 overflow:hidden，不裁切 */
     height: auto !important; min-height: 0 !important;
-    padding: 6px 10px !important;
-    gap: 6px; row-gap: 6px;
+    padding: 3px 10px !important;          /* 上下縮小（依使用者要求）*/
+    gap: 3px; row-gap: 3px;
   }
   /* 控制列：中軌切換 + SL% 放大好按 */
   body.m-tab-wr .tb-wr-fixed-left {
@@ -5551,17 +5556,17 @@ body, button, input, select, textarea,
     line-height: 1.1; border-radius: 7px;
   }
   body.m-tab-wr .tb-wr-buffer-input {
-    font-size: 12px !important; width: 46px !important; height: 28px !important;
+    font-size: 12px !important; width: 46px !important; height: 26px !important;
   }
   body.m-tab-wr .tb-wr-buffer-pct { font-size: 11px !important; }
   /* 數字列：整列、靠左、自然換行；字級緊湊（依使用者要求縮小） */
   body.m-tab-wr .tb-wr-fixed-right {
     order: 2 !important; margin: 0 !important;
     display: flex !important; flex-wrap: wrap !important; align-items: baseline;
-    justify-content: flex-start !important; gap: 4px 12px;
+    justify-content: flex-start !important; gap: 2px 12px;
   }
   body.m-tab-wr .tb-wr-total-sep { display: none !important; }   /* 直向版不需要左分隔線 */
-  body.m-tab-wr .tb-wr-total { font-size: 18px !important; padding: 0; margin: 0 !important; }
+  body.m-tab-wr .tb-wr-total { font-size: 16px !important; padding: 0; margin: 0 !important; }
   body.m-tab-wr .tb-wr-stoprate { font-size: 11.5px; padding: 2px 8px; margin: 0 !important; }
   body.m-tab-wr .tb-wr-recent,
   body.m-tab-wr .tb-wr-est { font-size: 11px !important; margin: 0 !important; }
@@ -5572,10 +5577,11 @@ body, button, input, select, textarea,
   body.m-tab-wr .tb-wr-scroll {
     display: flex !important;      /* 蓋過 ≤1100px 的 display:none，勝率分頁要顯示 hover 列 */
     order: 3 !important; width: 100% !important;
-    flex: 0 0 46px !important; height: 46px !important;
+    flex: 0 0 38px !important; height: 38px !important;   /* 上下縮小 */
     align-items: center !important;
     overflow-x: auto !important; overflow-y: hidden !important; gap: 2px;
     border-top: 1px solid rgba(255,180,120,.18);
+    padding-top: 1px;
   }
   body.m-tab-wr .tb-wr-block { gap: 4px; padding: 4px 6px; border-radius: 6px; }
   body.m-tab-wr .tb-wr-block:active { background: rgba(255,180,120,.12); }

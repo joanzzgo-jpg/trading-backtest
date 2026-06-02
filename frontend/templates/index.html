@@ -647,15 +647,16 @@
     <div class="sym-modal-hd">
       <div class="sym-modal-search-wrap">
         <svg class="sym-search-icon" width="16" height="16" viewBox="0 0 16 16"><circle cx="6.5" cy="6.5" r="4.5" fill="none" stroke="#787b86" stroke-width="1.5"/><line x1="10" y1="10" x2="14" y2="14" stroke="#787b86" stroke-width="1.5" stroke-linecap="round"/></svg>
-        <input id="symModalInput" class="sym-modal-input" type="text" placeholder="搜尋合約標的…" autocomplete="off" />
+        <input id="symModalInput" class="sym-modal-input" type="text" placeholder="搜尋全部市場（合約 / 台股 / 美股）…" autocomplete="off" />
         <button id="symModalClear" class="sym-modal-clear hidden">✕</button>
       </div>
     </div>
     <div class="sym-modal-tabs" id="symModalTabs">
-      <button class="sym-tab active" data-market="futures">永續合約</button>
+      <button class="sym-tab active" data-market="all">全部</button>
+      <button class="sym-tab" data-market="futures">永續合約</button>
       <button class="sym-tab" data-market="spot">現貨</button>
-      <button class="sym-tab" data-market="us"  style="display:none">美股</button>
-      <button class="sym-tab" data-market="tw"  style="display:none">台股</button>
+      <button class="sym-tab" data-market="us">美股</button>
+      <button class="sym-tab" data-market="tw">台股</button>
     </div>
     <div class="sym-modal-list" id="symModalList">
       <div class="sym-loading">載入中…</div>
@@ -985,6 +986,10 @@
     <button class="m-set-row" id="mSetSubcharts" onclick="event.stopPropagation();document.getElementById('subChartsToggle')?.click();">
       <span class="m-set-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" filter="url(#mSketch)"><rect x="3.5" y="3.5" width="17" height="9" rx="1.6"/><path d="M5.6 9.4 L9 6.4 L12 8.4 L15.6 5.4"/><rect x="3.5" y="15" width="17" height="5.6" rx="1.4"/><path d="M6 18.6 V17.4 M9.4 18.6 V16.4 M12.8 18.6 V17 M16.2 18.6 V15.8"/></svg></span>
       <span class="m-set-lbl">副圖指標<small id="mSetSubchartsState">KDJ / RSI / MACD</small></span><span class="m-set-arr">›</span>
+    </button>
+    <button class="m-set-row" id="mSetSession" onclick="event.stopPropagation();document.getElementById('sessionToggleBtn')?.click();">
+      <span class="m-set-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" filter="url(#mSketch)"><circle cx="8.4" cy="10.5" r="5" opacity="0.5"/><circle cx="15.6" cy="10.5" r="5" opacity="0.75"/><circle cx="12" cy="14.5" r="5"/></svg></span>
+      <span class="m-set-lbl">交易時段標記<small id="mSetSessionState">開啟</small></span><span class="m-set-arr">›</span>
     </button>
 
     <div class="m-set-sec">顯示模式</div>
