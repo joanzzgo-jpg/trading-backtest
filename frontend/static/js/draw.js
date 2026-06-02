@@ -685,6 +685,11 @@ function drawingDist(d, x, y) {
 //   週一~五 8:00-12:00=台股、14:00-17:00=歐洲、20:00-23:00=美盤
 const _SESSION_INTRADAY = ["5m", "15m", "30m", "1h", "2h"];
 const _SESSION_COLOR = { asia: "rgba(38,166,154,0.09)", europe: "rgba(124,104,228,0.10)", us: "rgba(255,159,40,0.09)" };
+const _SESSION_LINE  = { asia: "rgba(38,166,154,0.85)", europe: "rgba(150,130,245,0.85)", us: "rgba(255,159,40,0.9)" };
+const _SESSION_NAME  = { asia: "台股", europe: "歐洲", us: "美盤" };
+const _WEEKDAY = ["週日", "週一", "週二", "週三", "週四", "週五", "週六"];
+// 開關（頂部按鈕；預設開）
+let _sessionOn = (() => { try { return localStorage.getItem("sessionOverlay") !== "0"; } catch (e) { return true; } })();
 function _sessionOf(t) {
   const d = new Date(toTime(t) * 1000);   // toTime 已 +8h → 用 UTC getter 得台北時間
   const day = d.getUTCDay();
@@ -695,9 +700,10 @@ function _sessionOf(t) {
   if (h >= 20 && h < 23) return "us";
   return null;
 }
-// 在 K 棒後方畫各交易時段的淡色直條（只在日內時框；日線以上一根=整天，標了無意義）
-function _drawSessionBands(W, H) {
-  if (!_SESSION_INTRADAY.includes(typeof currentTF !== "undefined" ? currentTF : "") ) return;
+// K 棒後方：①各交易時段淡色直條 ②各盤當盤高/低點虛線 ③星期標籤。只在日內時框、且開關開啟。
+function _drawSessionOverlay(W, H) {
+  if (!_sessionOn) return;
+  if (!_SESSION_INTRADAY.includes(typeof currentTF !== "undefined" ? currentTF : "")) return;
   if (typeof ohlcvData === "undefined" || !ohlcvData.length || typeof mainChart === "undefined") return;
   const ts = mainChart.timeScale();
   const vr = ts.getVisibleLogicalRange();
@@ -711,14 +717,57 @@ function _drawSessionBands(W, H) {
     const x1 = ts.timeToCoordinate(toTime(ohlcvData[runStart].time));
     const x2 = ts.timeToCoordinate(toTime(ohlcvData[endIdx].time));
     if (x1 == null || x2 == null) return;
+    const L = x1 - half, R = x2 + half;
+    // 當盤高/低點
+    let hi = -Infinity, lo = Infinity;
+    for (let i = runStart; i <= endIdx; i++) { const b = ohlcvData[i]; if (b.high > hi) hi = b.high; if (b.low < lo) lo = b.low; }
+    const yH = candleSeries?.priceToCoordinate(hi), yL = candleSeries?.priceToCoordinate(lo);
+    if (yH == null || yL == null) return;
+    // 色塊只填「當盤高點~低點」之間（上下緣＝高/低點，不上下無限延伸）
     drawCtx.fillStyle = _SESSION_COLOR[runSess];
-    drawCtx.fillRect(x1 - half, 0, (x2 - x1) + half * 2, H);
+    drawCtx.fillRect(L, yH, R - L, yL - yH);
+    // 上下緣畫線強調高/低點
+    drawCtx.save();
+    drawCtx.strokeStyle = _SESSION_LINE[runSess]; drawCtx.lineWidth = 1;
+    drawCtx.beginPath(); drawCtx.moveTo(L, yH); drawCtx.lineTo(R, yH); drawCtx.stroke();
+    drawCtx.beginPath(); drawCtx.moveTo(L, yL); drawCtx.lineTo(R, yL); drawCtx.stroke();
+    drawCtx.restore();
   };
   for (let i = from; i <= to; i++) {
     const sess = _sessionOf(ohlcvData[i].time);
     if (sess !== runSess) { flush(i - 1); runStart = i; runSess = sess; }
   }
   flush(to);
+
+  // ③ 星期標籤：日期變動的那根 K 棒上方標「週X」
+  drawCtx.save();
+  drawCtx.font = "10px sans-serif"; drawCtx.fillStyle = "rgba(255,255,255,0.42)"; drawCtx.textAlign = "left";
+  let prevDay = -1;
+  for (let i = from; i <= to; i++) {
+    const day = new Date(toTime(ohlcvData[i].time) * 1000).getUTCDay();
+    if (day !== prevDay) {
+      prevDay = day;
+      const x = ts.timeToCoordinate(toTime(ohlcvData[i].time));
+      if (x != null && x >= 0 && x <= W) {
+        if (i > from) { drawCtx.strokeStyle = "rgba(255,255,255,0.10)"; drawCtx.lineWidth = 1; drawCtx.setLineDash([2, 3]); drawCtx.beginPath(); drawCtx.moveTo(x - half, 0); drawCtx.lineTo(x - half, H); drawCtx.stroke(); drawCtx.setLineDash([]); }
+        drawCtx.fillText(_WEEKDAY[day] || "", x - half + 3, 12);
+      }
+    }
+  }
+  drawCtx.restore();
+}
+// 頂部「交易時段」開關按鈕
+function initSessionToggle() {
+  const btn = document.getElementById("sessionToggleBtn");
+  if (!btn) return;
+  const _sync = () => btn.classList.toggle("active", _sessionOn);
+  _sync();
+  btn.addEventListener("click", () => {
+    _sessionOn = !_sessionOn;
+    try { localStorage.setItem("sessionOverlay", _sessionOn ? "1" : "0"); } catch (e) {}
+    _sync();
+    requestAnimationFrame(renderDrawings);
+  });
 }
 
 function renderDrawings() {
@@ -728,8 +777,8 @@ function renderDrawings() {
   const W = drawCanvas.width / dpr, H = drawCanvas.height / dpr;
   drawCtx.clearRect(0, 0, W, H);
 
-  // 交易時段淡色背景（畫在最底層，使用者繪圖/盈虧比盒之下）
-  _drawSessionBands(W, H);
+  // 交易時段 overlay（背景帶=當盤高低範圍 + 上下緣高低線 + 星期標籤；可開關）
+  _drawSessionOverlay(W, H);
 
   // Draw non-selected first, then hovered, then selected on top
   drawings.filter(d => d.id !== selectedId && d.id !== hoveredId).forEach(d => drawOne(d, W, H, false, false));
