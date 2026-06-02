@@ -54,67 +54,70 @@ class BacktestEngine:
     # ── 策略呼叫入口 ─────────────────────────────────────────
     def run(self, signal_fn) -> "BacktestResult":
         """
-        signal_fn(row, df, idx) -> "buy" | "sell" | "short" | "cover" | None
+        signal_fn(df) -> np.ndarray[int8]，每根 K 棒：1=buy -1=sell 2=short -2=cover 0=無。
+        向量化（一次算完整個訊號陣列）+ numpy 迴圈跑部位狀態機 → 長歷史也快、不卡。
         """
-        for i, row in self.df.iterrows():
-            price = row["close"]
-            signal = signal_fn(row, self.df, i)
+        sigs   = np.asarray(signal_fn(self.df), dtype=np.int8)
+        times  = self.df["time"].tolist()   # pd.Timestamp 串列（有 .isoformat()，給 trades/equity 序列化）
+        closes = self.df["close"].to_numpy(dtype=float)
+        n = len(closes)
+        if sigs.shape[0] != n:   # 防呆：長度不符 → 補零
+            tmp = np.zeros(n, dtype=np.int8); tmp[:min(n, sigs.shape[0])] = sigs[:n]; sigs = tmp
 
-            if signal == "buy" and len(self._open_trades) < self.config.max_positions:
-                self._open_long(row)
-            elif signal == "sell":
-                self._close_all(row, "sell signal")
-            elif signal == "short" and self.config.allow_short:
-                self._open_short(row)
-            elif signal == "cover":
-                self._close_all(row, "cover signal")
+        eq = self.equity_curve
+        ot = self._open_trades
+        max_pos = self.config.max_positions
+        allow_short = self.config.allow_short
+        for i in range(n):
+            s = int(sigs[i])
+            price = closes[i]
+            if   s == 1 and len(ot) < max_pos: self._open_long(times[i], price)
+            elif s == -1:                      self._close_all(times[i], price, "sell signal")
+            elif s == 2 and allow_short:       self._open_short(times[i], price)
+            elif s == -2:                      self._close_all(times[i], price, "cover signal")
 
-            # 記錄資金曲線
-            unrealized = sum(
-                (price - t.entry_price) * t.size if t.side == "long"
-                else (t.entry_price - price) * t.size
-                for t in self._open_trades
-            )
-            self.equity_curve.append({
-                "time": row["time"],
-                "equity": self._capital + unrealized,
-            })
+            if ot:
+                unrealized = 0.0
+                for t in ot:
+                    unrealized += (price - t.entry_price) * t.size if t.side == "long" else (t.entry_price - price) * t.size
+            else:
+                unrealized = 0.0
+            eq.append({"time": times[i], "equity": self._capital + unrealized})
 
         # 強制平倉
-        if self._open_trades:
-            last_row = self.df.iloc[-1]
-            self._close_all(last_row, "end of data")
+        if ot:
+            self._close_all(times[-1], closes[-1], "end of data")
 
         return BacktestResult(self.trades, self.equity_curve, self.config.initial_capital, self.config.timeframe)
 
     # ── 內部操作 ─────────────────────────────────────────────
-    def _open_long(self, row):
-        entry_price = row["close"] * (1 + self.config.slippage)
+    def _open_long(self, time, price):
+        entry_price = price * (1 + self.config.slippage)
         size = (self._capital * self.config.size_pct) / entry_price
         cost = entry_price * size * (1 + self.config.commission)
         if cost > self._capital:
             return
         self._capital -= cost
         self._open_trades.append(Trade(
-            entry_time=row["time"],
+            entry_time=time,
             entry_price=entry_price,
             side="long",
             size=size,
         ))
 
-    def _open_short(self, row):
-        entry_price = row["close"] * (1 - self.config.slippage)
+    def _open_short(self, time, price):
+        entry_price = price * (1 - self.config.slippage)
         size = (self._capital * self.config.size_pct) / entry_price
         self._open_trades.append(Trade(
-            entry_time=row["time"],
+            entry_time=time,
             entry_price=entry_price,
             side="short",
             size=size,
         ))
 
-    def _close_all(self, row, reason: str):
+    def _close_all(self, time, price, reason: str):
         for trade in list(self._open_trades):
-            exit_price = row["close"]
+            exit_price = price
             entry_fee = trade.entry_price * trade.size * self.config.commission
             if trade.side == "long":
                 exit_price *= (1 - self.config.slippage)
@@ -130,7 +133,7 @@ class BacktestEngine:
                 pnl_pct = pnl / (trade.entry_price * trade.size)
 
             self._capital += exit_price * trade.size - fee
-            trade.exit_time = row["time"]
+            trade.exit_time = time
             trade.exit_price = exit_price
             trade.pnl = pnl
             trade.pnl_pct = pnl_pct
