@@ -1606,7 +1606,6 @@
     // 調淡：柔靛(不死黑)→霧紫→灰玫瑰(降彩度)→柔橘→淡暖黃
     sky.addColorStop(0,'#3A3358'); sky.addColorStop(0.34,'#6B5A7C'); sky.addColorStop(0.60,'#B98A92'); sky.addColorStop(0.80,'#E3AE86'); sky.addColorStop(1,'#F2D6A6');
     ctx.fillStyle=sky; ctx.fillRect(0,0,W,H);
-    stars.forEach(p => { if (p.y<H*0.38){ const a=.1+.4*Math.sin(t*p.sp+p.ph); ctx.fillStyle=`rgba(255,255,245,${(a*.4).toFixed(3)})`; ctx.beginPath(); ctx.arc(p.x,p.y,p.r*.6,0,6.28); ctx.fill(); } });
     // ── 太陽位置：依「真實時間」對齊真實日落，以真實速度緩緩下沉（逐幀平滑、sub-second 精度）──
     // 日落視窗 ±45min：set-45min → 高掛(prog0)、真實日落時刻 set → 觸地平線(prog0.5)、
     // set+45min → 沒入地平線下(prog1)。用秒+毫秒精度算 → 不是每分鐘跳一格，而是每一幀都在動。
@@ -1615,8 +1614,23 @@
     const setMin=(_wd.sunSetMin!=null)?_wd.sunSetMin:1080;
     let prog=(nowMinF-(setMin-45))/90; prog=Math.max(0,Math.min(1,prog));
     const horizonY=H*0.80;                                   // 地平線
-    const sx=W*0.5+Math.sin(t*0.04)*W*0.03;
+    const sx=W*0.5;                                          // 固定置中（真實落日不左右晃，移除原本的水平擺動）
     const sy=H*0.48+(H*1.10-H*0.48)*prog, R=54;              // 由高漸降，prog1 時圓心已沒入地平線下
+    // ── 星星：太陽越往下沉、天越暗 → 星星越多越亮（隨 prog 漸現）──
+    // 亮度與可見天區都隨 prog 增加：prog0(日落前)幾乎看不到 → prog1(沉入後)滿天星。
+    const starLit=Math.max(0, prog*prog);                   // 平方 → 前段更暗、後段才明顯冒出
+    if (starLit > 0.01) {
+      const skyLimit=H*(0.36+0.30*prog);                    // 越暗、星星往下鋪越廣
+      stars.forEach(p => {
+        if (p.y < skyLimit) {
+          const tw=.45+.55*Math.sin(t*p.sp+p.ph);           // 閃爍
+          const a=tw*starLit*0.9;
+          if (a < 0.02) return;
+          ctx.fillStyle=`rgba(255,255,245,${a.toFixed(3)})`;
+          ctx.beginPath(); ctx.arc(p.x, p.y, p.r*(0.6+0.5*prog), 0, 6.28); ctx.fill();
+        }
+      });
+    }
     ctx.save(); ctx.globalCompositeOperation='lighter';
     // 大範圍天空暖輝（整片柔暖，alpha 調淡）
     const hg=ctx.createRadialGradient(sx,sy,0,sx,sy,W*0.68);
@@ -1946,6 +1960,20 @@
   //   ② 每次啟動都重新抓真實定位（已授權 → 靜默、不再跳權限窗；被拒 → 立即 error 不跳窗）
   //   ③ 瀏覽器定位被拒/不支援 → 改用伺服器 IP 粗定位（/api/geoip）顯示真實地區
   //   ④ 連 IP 都失敗、且沒有可用快取 → 才退回台北預設
+  // ⓪ 指定地點預覽：?wxlat=22.30&wxlon=114.17（或 ?wxloc=hongkong）→ 直接鎖定該地、
+  //    跳過自動定位。方便「預覽如果我在某地，首頁/天氣會長怎樣」。
+  const _qp = new URLSearchParams(location.search);
+  const _WX_PRESET = {
+    hongkong:[22.30,114.17], hk:[22.30,114.17], tokyo:[35.68,139.76], japan:[35.68,139.76],
+    seoul:[37.57,126.98], korea:[37.57,126.98], newyork:[40.71,-74.01], usa:[40.71,-74.01],
+    london:[51.51,-0.13], uk:[51.51,-0.13], paris:[48.86,2.35], singapore:[1.35,103.82],
+    sydney:[-33.87,151.21], taipei:[25.04,121.51], taiwan:[25.04,121.51],
+  };
+  let _ovLat = parseFloat(_qp.get('wxlat')), _ovLon = parseFloat(_qp.get('wxlon'));
+  const _ovLoc = (_qp.get('wxloc') || '').toLowerCase().replace(/[^a-z]/g,'');
+  if ((isNaN(_ovLat) || isNaN(_ovLon)) && _WX_PRESET[_ovLoc]) { _ovLat = _WX_PRESET[_ovLoc][0]; _ovLon = _WX_PRESET[_ovLoc][1]; }
+  if (!isNaN(_ovLat) && !isNaN(_ovLon)) { fetchWeather(_ovLat, _ovLon); return; }
+
   let _wxCoordCache = null;
   try { _wxCoordCache = JSON.parse(localStorage.getItem('wxCoords') || 'null'); } catch (e) {}
   const _saveCoords = (lat, lon) => {
