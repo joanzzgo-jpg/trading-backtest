@@ -132,6 +132,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   _initSubChartsToggle();  // 副圖指標 顯示/隱藏 toggle（左下浮按鈕）
   _initMarketPill();       // 市場切換動畫 pill（Crypto / TW / US）
   if (typeof initAccount === "function") initAccount();   // 帳號 + 跨裝置同步（後端未啟用會自動隱藏入口）
+  if (typeof initBacktest === "function") initBacktest();  // 策略回測面板（📊 鈕）
   window.addEventListener("beforeunload", () => { saveLastSymbol(); });
 
   // 手機底部分頁：切換 圖表 / 勝率 / 自選 三個畫面（用 body class 控制各畫面顯示）
