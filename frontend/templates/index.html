@@ -34,8 +34,9 @@
     try {
       var _ts = parseInt(sessionStorage.getItem("landingDismissedAt") || "0", 10);
       var _hasAcct = false; try { _hasAcct = !!localStorage.getItem("acctName"); } catch (e) {}
-      // 指定地點預覽（?wxlat=&wxlon=）→ 強制顯示首頁，方便預覽各地天氣/國旗
-      var _wxOverride = /[?&]wxlat=/.test(location.search);
+      // 指定地點預覽（?wxlat=/?wxloc=）→ 強制顯示首頁，方便預覽各地天氣/國旗。
+      // 僅看網址參數；不帶參數的純網址一律走正常流程（真實定位）。
+      var _wxOverride = /[?&]wx(lat|loc)=/.test(location.search);
       // 未登入（無 acctName）→ 一律顯示首頁要求登入（未登入不能直接用主圖）。
       // 已登入 + 本 session 看過 + 未滿 24h → 才跳過首頁直接進主圖。
       if (!_wxOverride && _ts && (Date.now() - _ts < 86400000) && _hasAcct) {

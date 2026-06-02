@@ -228,6 +228,19 @@
   const _wd = { code:0, temp:null, precip:0, pop:null, cloudCover:50, windSpeed:0, windDir:null, visibility:10000, isDay:true, city:null, country:null, updatedAt:null, intensity:0.5, desc:null, source:null,
                sunRiseMin:360, sunSetMin:1080, moonPhase:0, moonRiseMin:1080, moonSetMin:360 };
 
+  // 晚霞「靜態漸層」快取（天空 + 地平線暖霾只跟 H 有關）→ 免每幀重建，只在尺寸變動時重算
+  const _ssGrad = { h: -1, sky: null, hz: null, hzTop: 0 };
+
+  // 依「所在經度」推地理時區（每 15°=1hr，與後端 _sun_times_local 同套）→ 回傳該地當地「一天中分鐘數」
+  // (0~1440, 含小數)。日夜/太陽/晚霞/星星全用它 → 切到外國(?wxloc=)時按「當地時間」呈現，而非裝置時間。
+  function _locNowMin() {
+    const d = new Date();
+    const utcMin = d.getUTCHours()*60 + d.getUTCMinutes() + d.getUTCSeconds()/60 + d.getUTCMilliseconds()/60000;
+    const tzOff = Math.round((_wxLon || 0) / 15) * 60;   // UTC 偏移(分)
+    let m = utcMin + tzOff;
+    return ((m % 1440) + 1440) % 1440;
+  }
+
   /* ── 風向 → 螢幕水平分量（+ 往右/東、- 往左/西）。氣象風向是「來向」(0=N,90=E,180=S,270=W)，
         實際吹向 = 來向+180。取其東西分量當水平風。缺資料時預設西南風（往右上吹）。 */
   function _windVecX() {
@@ -304,7 +317,7 @@
   }
 
   function _sunArcPos() {
-    const nowMin = (new Date()).getHours()*60 + (new Date()).getMinutes();
+    const nowMin = _locNowMin();
     const rise = _wd.sunRiseMin, set = _wd.sunSetMin;
     const prog = (rise === set) ? 0.5 : Math.max(0, Math.min(1, (nowMin-rise)/(set-rise)));
     return { x: W*0.04 + prog*W*0.92, y: H*0.88 - (H*0.88-H*0.08)*Math.sin(prog*Math.PI) };
@@ -422,8 +435,7 @@
 
   function _drawAstro(t) {
     if (type==='aurora'||type==='sunset'||type==='meteor') return;  // 這些自帶天空/太陽，不要再疊系統日月
-    const now = new Date();
-    const nowMin = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
+    const nowMin = _locNowMin();
     const lx = W * 0.04, rx = W * 0.96;
     const horizonY = H * 0.88, peakY = H * 0.08;
 
@@ -903,7 +915,7 @@
 
   function dSunny(t) {
     /* arc position: left=east/rise → right=west/set */
-    const nowMin = (new Date()).getHours()*60 + (new Date()).getMinutes() + (new Date()).getSeconds()/60;
+    const nowMin = _locNowMin();
     const rise = _wd.sunRiseMin, set = _wd.sunSetMin;
     const prog = (rise === set) ? 0.5 : Math.max(0, Math.min(1, (nowMin-rise)/(set-rise)));
     const sx = W*0.04 + prog*(W*0.92);
@@ -1602,20 +1614,28 @@
   /* 🌅 晚霞：靛→紫→橘→暖黃天空漸層 + 太陽「隨真實時間」沉入地平線下 + 背光雲 + 初現星
      配色已調淡（降彩度、降輝光 alpha）；太陽依當前時刻相對真實日落時間下降、過地平線後被遮住。*/
   function dSunset(t) {
-    const sky=ctx.createLinearGradient(0,0,0,H);
-    // 調淡：柔靛(不死黑)→霧紫→灰玫瑰(降彩度)→柔橘→淡暖黃
-    sky.addColorStop(0,'#3A3358'); sky.addColorStop(0.34,'#6B5A7C'); sky.addColorStop(0.60,'#B98A92'); sky.addColorStop(0.80,'#E3AE86'); sky.addColorStop(1,'#F2D6A6');
-    ctx.fillStyle=sky; ctx.fillRect(0,0,W,H);
+    // 靜態漸層（天空 + 地平線暖霾）只跟 H 有關 → 快取，免每幀重建
+    if (_ssGrad.h !== H) {
+      _ssGrad.h = H;
+      // 調淡：柔靛(不死黑)→霧紫→灰玫瑰(降彩度)→柔橘→淡暖黃
+      const sky=ctx.createLinearGradient(0,0,0,H);
+      sky.addColorStop(0,'#3A3358'); sky.addColorStop(0.34,'#6B5A7C'); sky.addColorStop(0.60,'#B98A92'); sky.addColorStop(0.80,'#E3AE86'); sky.addColorStop(1,'#F2D6A6');
+      _ssGrad.sky=sky;
+      const hzTop=H*0.78;
+      const hz=ctx.createLinearGradient(0,hzTop,0,H);
+      hz.addColorStop(0,'rgba(255,188,128,0)'); hz.addColorStop(0.6,'rgba(255,182,120,0.10)'); hz.addColorStop(1,'rgba(252,174,112,0.20)');
+      _ssGrad.hz=hz; _ssGrad.hzTop=hzTop;
+    }
+    ctx.fillStyle=_ssGrad.sky; ctx.fillRect(0,0,W,H);
     // ── 太陽位置：依「真實時間」對齊真實日落，以真實速度緩緩下沉（逐幀平滑、sub-second 精度）──
     // 日落視窗 ±45min：set-45min → 高掛(prog0)、真實日落時刻 set → 觸地平線(prog0.5)、
     // set+45min → 沒入地平線下(prog1)。用秒+毫秒精度算 → 不是每分鐘跳一格，而是每一幀都在動。
-    const now=new Date();
-    const nowMinF=now.getHours()*60+now.getMinutes()+now.getSeconds()/60+now.getMilliseconds()/60000;
+    const nowMinF=_locNowMin();                             // 當地時間（依經度），切外國也準
     const setMin=(_wd.sunSetMin!=null)?_wd.sunSetMin:1080;
     let prog=(nowMinF-(setMin-45))/90; prog=Math.max(0,Math.min(1,prog));
-    const horizonY=H*0.80;                                   // 地平線
+    const horizonY=H;                                       // 地平線＝螢幕最下緣（太陽落到螢幕下緣才沒入）
     const sx=W*0.5;                                          // 固定置中（真實落日不左右晃，移除原本的水平擺動）
-    const sy=H*0.48+(H*1.10-H*0.48)*prog, R=54;              // 由高漸降，prog1 時圓心已沒入地平線下
+    const sy=H*0.40+(H*1.60-H*0.40)*prog, R=54;             // 由高漸降；真實日落(prog0.5)正好觸螢幕下緣、之後沉到螢幕外
     // ── 星星：太陽越往下沉、天越暗 → 星星越多越亮（隨 prog 漸現）──
     // 亮度與可見天區都隨 prog 增加：prog0(日落前)幾乎看不到 → prog1(沉入後)滿天星。
     const starLit=Math.max(0, prog*prog);                   // 平方 → 前段更暗、後段才明顯冒出
@@ -1664,9 +1684,8 @@
       if (cdir>0 && c.x-W*c.sc>W) c.x=-W*0.6; else if (cdir<0 && c.x+W*c.sc<0) c.x=W+W*0.6;
       _sunsetCloud(c.x, H*(0.42+0.13*(i%3)), W*c.sc*1.1, c.flip, c.puffs);
     });
-    // 地平線暖霾：恰好蓋在裁切線上 → 柔化太陽沉入的硬邊（alpha 調淡）
-    const hz=ctx.createLinearGradient(0,horizonY-H*0.06,0,H); hz.addColorStop(0,'rgba(255,188,128,0)'); hz.addColorStop(0.5,'rgba(255,180,120,0.10)'); hz.addColorStop(1,'rgba(252,176,116,0.16)');
-    ctx.fillStyle=hz; ctx.fillRect(0,horizonY-H*0.06,W,H-(horizonY-H*0.06));
+    // 地平線暖霾：集中在螢幕下緣（太陽沉沒處）→ 暖光由下往上淡出，像地平線餘暉（用快取漸層）
+    ctx.fillStyle=_ssGrad.hz; ctx.fillRect(0,_ssGrad.hzTop,W,H-_ssGrad.hzTop);
   }
 
   /* ☄️ 流星雨：暗夜 + 星 + 行星，頻繁從上方輻射射出帶光尾的流星 */
@@ -1826,7 +1845,7 @@
     const base = _autoType || 'sunny';
     const clearish = (base==='sunny'||base==='partly'||base==='night') && ((_wd.cloudCover==null) || _wd.cloudCover < 45);
     if (clearish && _wd.sunSetMin!=null) {
-      const nowMin = new Date().getHours()*60 + new Date().getMinutes();
+      const nowMin = _locNowMin();
       if (Math.abs(nowMin - _wd.sunSetMin) <= 45) return 'sunset';
     }
     return base;
@@ -1960,19 +1979,29 @@
   //   ② 每次啟動都重新抓真實定位（已授權 → 靜默、不再跳權限窗；被拒 → 立即 error 不跳窗）
   //   ③ 瀏覽器定位被拒/不支援 → 改用伺服器 IP 粗定位（/api/geoip）顯示真實地區
   //   ④ 連 IP 都失敗、且沒有可用快取 → 才退回台北預設
-  // ⓪ 指定地點預覽：?wxlat=22.30&wxlon=114.17（或 ?wxloc=hongkong）→ 直接鎖定該地、
-  //    跳過自動定位。方便「預覽如果我在某地，首頁/天氣會長怎樣」。
+  // ⓪ 指定地點預覽：?wxlat=22.30&wxlon=114.17（或 ?wxloc=hongkong）→ 「只在這次帶參數時」鎖定該地、
+  //    跳過自動定位。不帶參數的純網址一律走真實自動定位（不記住、不殘留）。
   const _qp = new URLSearchParams(location.search);
   const _WX_PRESET = {
-    hongkong:[22.30,114.17], hk:[22.30,114.17], tokyo:[35.68,139.76], japan:[35.68,139.76],
-    seoul:[37.57,126.98], korea:[37.57,126.98], newyork:[40.71,-74.01], usa:[40.71,-74.01],
-    london:[51.51,-0.13], uk:[51.51,-0.13], paris:[48.86,2.35], singapore:[1.35,103.82],
-    sydney:[-33.87,151.21], taipei:[25.04,121.51], taiwan:[25.04,121.51],
+    taiwan:[25.04,121.51], taipei:[25.04,121.51], tw:[25.04,121.51],
+    hongkong:[22.30,114.17], hk:[22.30,114.17],
+    japan:[35.68,139.76], tokyo:[35.68,139.76], jp:[35.68,139.76],
+    korea:[37.57,126.98], seoul:[37.57,126.98], kr:[37.57,126.98],
+    china:[31.23,121.47], shanghai:[31.23,121.47], cn:[31.23,121.47],
+    singapore:[1.35,103.82], sg:[1.35,103.82],
+    thailand:[13.76,100.50], bangkok:[13.76,100.50], th:[13.76,100.50],
+    usa:[40.71,-74.01], newyork:[40.71,-74.01], us:[40.71,-74.01],
+    uk:[51.51,-0.13], london:[51.51,-0.13], gb:[51.51,-0.13],
+    france:[48.86,2.35], paris:[48.86,2.35], fr:[48.86,2.35],
+    germany:[52.52,13.40], berlin:[52.52,13.40], de:[52.52,13.40],
+    uae:[25.20,55.27], dubai:[25.20,55.27],
+    australia:[-33.87,151.21], sydney:[-33.87,151.21], au:[-33.87,151.21],
   };
+  try { localStorage.removeItem('wxOverride'); } catch (e) {}   // 清掉舊版殘留的持久化覆寫
   let _ovLat = parseFloat(_qp.get('wxlat')), _ovLon = parseFloat(_qp.get('wxlon'));
   const _ovLoc = (_qp.get('wxloc') || '').toLowerCase().replace(/[^a-z]/g,'');
   if ((isNaN(_ovLat) || isNaN(_ovLon)) && _WX_PRESET[_ovLoc]) { _ovLat = _WX_PRESET[_ovLoc][0]; _ovLon = _WX_PRESET[_ovLoc][1]; }
-  if (!isNaN(_ovLat) && !isNaN(_ovLon)) { fetchWeather(_ovLat, _ovLon); return; }
+  if (!isNaN(_ovLat) && !isNaN(_ovLon)) { fetchWeather(_ovLat, _ovLon); return; }   // 僅本次預覽，不寫入 localStorage
 
   let _wxCoordCache = null;
   try { _wxCoordCache = JSON.parse(localStorage.getItem('wxCoords') || 'null'); } catch (e) {}
