@@ -716,6 +716,15 @@ function _drawSessionOverlay(W, H) {
   const BUF = 64;
   const from = Math.max(0, vFrom - BUF), to = Math.min(_len - 1, vTo + BUF);
   const half = (W / Math.max(1, vr.to - vr.from)) / 2;   // 半根 K 寬，讓條覆蓋到 K 邊緣
+  // 裁切到繪圖區寬度（扣掉右側價格軸）→ 色塊/高低線/星期標籤平移到右側時不會蓋到右側價格軸
+  let plotW = W;
+  try {
+    const tw = ts.width();
+    if (tw > 0) plotW = tw;
+    else { const pw = mainChart.priceScale("right").width(); if (pw > 0) plotW = W - pw; }
+  } catch (e) {}
+  drawCtx.save();
+  drawCtx.beginPath(); drawCtx.rect(0, 0, plotW, H); drawCtx.clip();
   let runStart = -1, runSess = null;
   const flush = (endIdx) => {
     if (!runSess || runStart < 0) return;
@@ -760,7 +769,8 @@ function _drawSessionOverlay(W, H) {
       }
     }
   }
-  drawCtx.restore();
+  drawCtx.restore();   // 星期標籤
+  drawCtx.restore();   // 外層繪圖區裁切
 }
 // 頂部「交易時段」開關按鈕
 function initSessionToggle() {
