@@ -366,6 +366,11 @@ function _replayRender() {
   _blockSync = false;
   _replayLastIdx = replayIdx;
 
+  // 重播：把 S1~S12 訊號的「多/空進場 + 已揭曉勝負」標到目前重播點為止（視覺化回測）
+  if (typeof _renderWRSignals === "function" && typeof _lastWRSignals !== "undefined" && _lastWRSignals.length) {
+    _renderWRSignals();
+  }
+
   _replayRenderDate(replayData[replayIdx]);
   const pct = replayData.length > 1 ? Math.round((replayIdx / (replayData.length - 1)) * 100) : 100;
   document.getElementById("replayProgressBar").style.width = pct + "%";

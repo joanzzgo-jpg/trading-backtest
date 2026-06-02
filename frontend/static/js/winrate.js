@@ -389,11 +389,18 @@ function _renderWRSignals(signals) {
   const rKey = _wrResultKey();
   const otKey = _wrOtKey();
 
+  // 重播截點：重播時只顯示「到目前重播棒為止」的訊號（進場 ≤ 現在；結果要等出場 ≤ 現在才顯示）
+  // → 重播=看當下訊號、往前推進才揭曉勝負（視覺化回測）。
+  const _rpCut = (typeof replayActive !== "undefined" && replayActive
+    && typeof replayData !== "undefined" && replayData[replayIdx])
+    ? toTime(replayData[replayIdx].time) : null;
+
   const allMarkers = [];
 
   for (const s of list) {
     const et = toTime(s.t);
     if (!_has(et)) continue;
+    if (_rpCut != null && et > _rpCut) continue;   // 未到的進場不顯示
 
     const isShort = s.d === "s";
     const k = s.k || "abc";
@@ -437,7 +444,7 @@ function _renderWRSignals(signals) {
     // ── 結果標記（在結算那根K棒上顯示 ✓ 或 ✗）──
     if (sr != null && sot) {
       const ot = toTime(sot);
-      if (_has(ot)) {
+      if (_has(ot) && (_rpCut == null || ot <= _rpCut)) {   // 重播：出場尚未到 → 先不揭曉勝負
         const isWin = sr === "w";
         // 勝：標在目標方向（空→下方，多→上方）；敗：標在止損方向（空→上方，多→下方）
         const oPos = isWin
