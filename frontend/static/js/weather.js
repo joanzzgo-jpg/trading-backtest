@@ -228,8 +228,17 @@
   const _wd = { code:0, temp:null, precip:0, pop:null, cloudCover:50, windSpeed:0, windDir:null, visibility:10000, isDay:true, city:null, country:null, updatedAt:null, intensity:0.5, desc:null, source:null,
                sunRiseMin:360, sunSetMin:1080, moonPhase:0, moonRiseMin:1080, moonSetMin:360 };
 
-  // 晚霞「靜態漸層」快取（天空 + 地平線暖霾只跟 H 有關）→ 免每幀重建，只在尺寸變動時重算
-  const _ssGrad = { h: -1, sky: null, hz: null, hzTop: 0 };
+  // 晚霞漸層快取：天空隨「夜化係數 nf」由晚霞色混向深夜藍（鍵：H + nf 量化階）；
+  // 地平線暖霾只跟 H 有關。免每幀重建。
+  const _ssGrad = { h: -1, nfStep: -1, sky: null, hz: null, hzTop: 0, hzH: -1 };
+  // 兩個 #RRGGBB 線性內插（k=0→a, k=1→b）
+  function _hexLerp(a, b, k) {
+    const pa = parseInt(a.slice(1), 16), pb = parseInt(b.slice(1), 16);
+    const r = Math.round(((pa>>16)&255) + (((pb>>16)&255)-((pa>>16)&255))*k);
+    const g = Math.round(((pa>>8)&255)  + (((pb>>8)&255) -((pa>>8)&255)) *k);
+    const bl= Math.round((pa&255)        + ((pb&255)      -(pa&255))       *k);
+    return '#' + ((1<<24) + (r<<16) + (g<<8) + bl).toString(16).slice(1);
+  }
 
   // 依「所在經度」推地理時區（每 15°=1hr，與後端 _sun_times_local 同套）→ 回傳該地當地「一天中分鐘數」
   // (0~1440, 含小數)。日夜/太陽/晚霞/星星全用它 → 切到外國(?wxloc=)時按「當地時間」呈現，而非裝置時間。
@@ -1614,28 +1623,39 @@
   /* 🌅 晚霞：靛→紫→橘→暖黃天空漸層 + 太陽「隨真實時間」沉入地平線下 + 背光雲 + 初現星
      配色已調淡（降彩度、降輝光 alpha）；太陽依當前時刻相對真實日落時間下降、過地平線後被遮住。*/
   function dSunset(t) {
-    // 靜態漸層（天空 + 地平線暖霾）只跟 H 有關 → 快取，免每幀重建
-    if (_ssGrad.h !== H) {
-      _ssGrad.h = H;
-      // 調淡：柔靛(不死黑)→霧紫→灰玫瑰(降彩度)→柔橘→淡暖黃
-      const sky=ctx.createLinearGradient(0,0,0,H);
-      sky.addColorStop(0,'#3A3358'); sky.addColorStop(0.34,'#6B5A7C'); sky.addColorStop(0.60,'#B98A92'); sky.addColorStop(0.80,'#E3AE86'); sky.addColorStop(1,'#F2D6A6');
-      _ssGrad.sky=sky;
-      const hzTop=H*0.78;
-      const hz=ctx.createLinearGradient(0,hzTop,0,H);
-      hz.addColorStop(0,'rgba(255,188,128,0)'); hz.addColorStop(0.6,'rgba(255,182,120,0.10)'); hz.addColorStop(1,'rgba(252,174,112,0.20)');
-      _ssGrad.hz=hz; _ssGrad.hzTop=hzTop;
-    }
-    ctx.fillStyle=_ssGrad.sky; ctx.fillRect(0,0,W,H);
     // ── 太陽位置：依「真實時間」對齊真實日落，以真實速度緩緩下沉（逐幀平滑、sub-second 精度）──
     // 日落視窗 ±45min：set-45min → 高掛(prog0)、真實日落時刻 set → 觸地平線(prog0.5)、
     // set+45min → 沒入地平線下(prog1)。用秒+毫秒精度算 → 不是每分鐘跳一格，而是每一幀都在動。
     const nowMinF=_locNowMin();                             // 當地時間（依經度），切外國也準
     const setMin=(_wd.sunSetMin!=null)?_wd.sunSetMin:1080;
     let prog=(nowMinF-(setMin-45))/90; prog=Math.max(0,Math.min(1,prog));
+    // 夜化係數 nf：日落時刻(prog0.5)之後天空逐漸轉夜色，prog1（視窗結束→交棒給 dNight）已是深夜藍
+    // → 與「夜晚」無縫銜接，不再硬切。暖輝/暖霾/背光雲也隨 nf 淡出。
+    const _e=Math.max(0,Math.min(1,(prog-0.5)/0.5)); const nf=_e*_e*(3-2*_e);
+    const _wf=1-nf;                                         // 暖色保留比例
     const horizonY=H;                                       // 地平線＝螢幕最下緣（太陽落到螢幕下緣才沒入）
     const sx=W*0.5;                                          // 固定置中（真實落日不左右晃，移除原本的水平擺動）
     const sy=H*0.40+(H*1.60-H*0.40)*prog, R=54;             // 由高漸降；真實日落(prog0.5)正好觸螢幕下緣、之後沉到螢幕外
+
+    // 天空漸層：晚霞色 → 深夜藍（隨 nf 混色，鍵 H+nf 量化階以維持快取）；地平線暖霾只跟 H 有關
+    const nfStep=Math.round(nf*16);
+    if (_ssGrad.h!==H || _ssGrad.nfStep!==nfStep) {
+      _ssGrad.h=H; _ssGrad.nfStep=nfStep;
+      const k=nfStep/16;
+      const SS=['#3A3358','#6B5A7C','#B98A92','#E3AE86','#F2D6A6'];   // 晚霞：柔靛→霧紫→灰玫瑰→柔橘→淡暖黃
+      const NT=['#0C0C18','#12111E','#171425','#1C1828','#221C2C'];   // 深夜藍目標
+      const stops=[0,0.34,0.60,0.80,1];
+      const sky=ctx.createLinearGradient(0,0,0,H);
+      stops.forEach((p,i)=>sky.addColorStop(p,_hexLerp(SS[i],NT[i],k)));
+      _ssGrad.sky=sky;
+    }
+    if (_ssGrad.hzH!==H) {
+      const hzTop=H*0.78;
+      const hz=ctx.createLinearGradient(0,hzTop,0,H);
+      hz.addColorStop(0,'rgba(255,188,128,0)'); hz.addColorStop(0.6,'rgba(255,182,120,0.10)'); hz.addColorStop(1,'rgba(252,174,112,0.20)');
+      _ssGrad.hz=hz; _ssGrad.hzTop=hzTop; _ssGrad.hzH=H;
+    }
+    ctx.fillStyle=_ssGrad.sky; ctx.fillRect(0,0,W,H);
     // ── 星星：太陽越往下沉、天越暗 → 星星越多越亮（隨 prog 漸現）──
     // 亮度與可見天區都隨 prog 增加：prog0(日落前)幾乎看不到 → prog1(沉入後)滿天星。
     const starLit=Math.max(0, prog*prog);                   // 平方 → 前段更暗、後段才明顯冒出
@@ -1651,7 +1671,7 @@
         }
       });
     }
-    ctx.save(); ctx.globalCompositeOperation='lighter';
+    ctx.save(); ctx.globalCompositeOperation='lighter'; ctx.globalAlpha=_wf;   // 暖輝隨夜化淡出
     // 大範圍天空暖輝（整片柔暖，alpha 調淡）
     const hg=ctx.createRadialGradient(sx,sy,0,sx,sy,W*0.68);
     hg.addColorStop(0,'rgba(255,206,140,0.22)'); hg.addColorStop(0.4,'rgba(255,160,100,0.08)'); hg.addColorStop(1,'rgba(255,130,90,0)');
@@ -1679,13 +1699,17 @@
     ctx.restore();
     ctx.restore();   // 解除地平線裁切
     const cdir=_windVecX()>=0?1:-1;
+    ctx.save(); ctx.globalAlpha=_wf;                        // 背光雲隨夜化淡出（夜晚無雲、與 dNight 一致）
     cloudP.forEach((c,i) => {
       c.x += c.sp*cdir*0.5;
       if (cdir>0 && c.x-W*c.sc>W) c.x=-W*0.6; else if (cdir<0 && c.x+W*c.sc<0) c.x=W+W*0.6;
       _sunsetCloud(c.x, H*(0.42+0.13*(i%3)), W*c.sc*1.1, c.flip, c.puffs);
     });
-    // 地平線暖霾：集中在螢幕下緣（太陽沉沒處）→ 暖光由下往上淡出，像地平線餘暉（用快取漸層）
+    ctx.restore();
+    // 地平線暖霾：集中在螢幕下緣（太陽沉沒處）→ 暖光由下往上淡出；隨夜化整體再淡出（用快取漸層）
+    ctx.save(); ctx.globalAlpha=_wf;
     ctx.fillStyle=_ssGrad.hz; ctx.fillRect(0,_ssGrad.hzTop,W,H-_ssGrad.hzTop);
+    ctx.restore();
   }
 
   /* ☄️ 流星雨：暗夜 + 星 + 行星，頻繁從上方輻射射出帶光尾的流星 */
