@@ -170,6 +170,18 @@ let _hoveredTime = null;
 // 蓋成最新價（使用者明明按著舊 K，卻顯示最新一根的價）。
 let _mouseOverChart = false;
 let _chartTouchClearTimer = null;
+// 觸控點是否落在任一圖表窗格內（用座標幾何判斷，不依賴事件目標——手機上觸控目標常是 LWC
+// 內部 canvas 或 body，掛在窗格元素的 listener 不一定收得到）
+function _pointInCharts(x, y) {
+  const ids = ["mainChart", "kdjPane", "rsiPane", "macdPane", "winratePane"];
+  for (const id of ids) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    const b = el.getBoundingClientRect();
+    if (b.width && b.height && x >= b.left && x <= b.right && y >= b.top && y <= b.bottom) return true;
+  }
+  return false;
+}
 function _bindChartHoverTracking() {
   ["mainChart", "kdjPane", "rsiPane", "macdPane", "winratePane"].forEach(id => {
     const el = document.getElementById(id);
@@ -179,20 +191,24 @@ function _bindChartHoverTracking() {
       _mouseOverChart = false;
       _hoveredTime = null;
     });
-    // ── 觸控（手機）：按著圖表期間視為「正在看」，realtime 不覆寫上方價 ──
-    const _touchOn = () => {
-      clearTimeout(_chartTouchClearTimer);
-      _mouseOverChart = true;
-    };
-    el.addEventListener("touchstart", _touchOn, { passive: true });
-    el.addEventListener("touchmove",  _touchOn, { passive: true });
-    el.addEventListener("touchend", () => {
-      // 放開後延遲一下再恢復 realtime 覆寫，留時間看十字線停留的那根價（也避開放開瞬間的假 crosshair）
-      clearTimeout(_chartTouchClearTimer);
-      _chartTouchClearTimer = setTimeout(() => { _mouseOverChart = false; _hoveredTime = null; }, 1200);
-    }, { passive: true });
     el._hoverBound = true;
   });
+  // ── 觸控（手機）：document 層捕獲 + 座標落在圖表內 → 視為「正在看」，realtime 不覆寫上方價 ──
+  if (!window._chartTouchBound) {
+    window._chartTouchBound = true;
+    const _touchOn = (e) => {
+      const t = (e.touches && e.touches[0]) || (e.changedTouches && e.changedTouches[0]);
+      if (!t) return;
+      if (_pointInCharts(t.clientX, t.clientY)) { clearTimeout(_chartTouchClearTimer); _mouseOverChart = true; }
+    };
+    document.addEventListener("touchstart", _touchOn, { passive: true, capture: true });
+    document.addEventListener("touchmove",  _touchOn, { passive: true, capture: true });
+    document.addEventListener("touchend", () => {
+      // 放開後延遲再恢復 realtime 覆寫，留時間看十字線停留那根價（也避開放開瞬間的假 crosshair）
+      clearTimeout(_chartTouchClearTimer);
+      _chartTouchClearTimer = setTimeout(() => { _mouseOverChart = false; _hoveredTime = null; }, 1200);
+    }, { passive: true, capture: true });
+  }
 }
 function onMainCrosshair(param) {
   _hoveredTime = param.time || null;
