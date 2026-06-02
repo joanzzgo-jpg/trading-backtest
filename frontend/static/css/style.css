@@ -5713,7 +5713,7 @@ html.landing-active .landing { background: transparent; }
    以「文字中心」釘在門楣（lintel）→ 字級/圖檔縮放時不會往下掉到木門上，
    各裝置（含手機小圖）都對齊在門上匡，不再受 font min-size 破壞比例影響。 */
 .landing-country {
-  position: absolute; left: 50%; top: 53%; transform: translate(-50%, -50%);
+  position: absolute; left: 50%; top: 54%; transform: translate(-50%, -50%);
   z-index: 4; white-space: nowrap; pointer-events: none;
   display: inline-flex; align-items: center; gap: .2em;
   font-family: "Caveat", cursive; font-weight: 700;
