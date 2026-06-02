@@ -166,7 +166,10 @@ function updateAllLegends(t) {
 let _hoveredTime = null;
 // 滑鼠是否在任一圖表內（mouseenter/leave 觸發；比 LWC crosshair 事件更可靠，
 // 不會因為 candleSeries.update() 時短暫 fire 假事件就誤清狀態）
+// 手機無滑鼠 → 改用 touchstart/move/end 維護同一旗標，否則每秒 realtime 會把上方價
+// 蓋成最新價（使用者明明按著舊 K，卻顯示最新一根的價）。
 let _mouseOverChart = false;
+let _chartTouchClearTimer = null;
 function _bindChartHoverTracking() {
   ["mainChart", "kdjPane", "rsiPane", "macdPane", "winratePane"].forEach(id => {
     const el = document.getElementById(id);
@@ -176,6 +179,18 @@ function _bindChartHoverTracking() {
       _mouseOverChart = false;
       _hoveredTime = null;
     });
+    // ── 觸控（手機）：按著圖表期間視為「正在看」，realtime 不覆寫上方價 ──
+    const _touchOn = () => {
+      clearTimeout(_chartTouchClearTimer);
+      _mouseOverChart = true;
+    };
+    el.addEventListener("touchstart", _touchOn, { passive: true });
+    el.addEventListener("touchmove",  _touchOn, { passive: true });
+    el.addEventListener("touchend", () => {
+      // 放開後延遲一下再恢復 realtime 覆寫，留時間看十字線停留的那根價（也避開放開瞬間的假 crosshair）
+      clearTimeout(_chartTouchClearTimer);
+      _chartTouchClearTimer = setTimeout(() => { _mouseOverChart = false; _hoveredTime = null; }, 1200);
+    }, { passive: true });
     el._hoverBound = true;
   });
 }
