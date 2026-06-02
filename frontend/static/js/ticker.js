@@ -107,15 +107,16 @@ function _updateTickerPrices() {
   // Map 查表取代 O(n) find，整體從 O(n²) 降為 O(n)
   const srcMap = new Map();
   src.forEach(x => { srcMap.set(x.display || x.symbol, x); srcMap.set(x.symbol, x); });
-  const chartLastClose = ohlcvData.length ? ohlcvData[ohlcvData.length - 1]?.close : null;
   container.querySelectorAll(".ticker-item[data-display]").forEach(el => {
     const t = srcMap.get(el.dataset.display);
     if (!t) return;
     const sign    = t.change_pct >= 0 ? "+" : "";
     const cls     = t.change_pct >= 0 ? "up" : "dn";
     const { price: priceEl, chg: chgEl, amt: amtEl } = _tkChildren(el);
-    const displayPrice = (el.classList.contains("tk-active") && chartLastClose != null)
-      ? chartLastClose : t.price;
+    // 每列一律顯示「該標的自己的即時價」。
+    // （原本對 tk-active 列改用主圖最新收盤 chartLastClose 同步，但切標的瞬間 ohlcvData 還是
+    //   前一個標的 → 該列短暫顯示前一標的的價＝「點下去跳成別的、再跳回」的元兇，故移除。）
+    const displayPrice = t.price;
     // 比對後再寫，值相同不觸發 repaint
     if (priceEl) {
       const v = fmtTickerPrice(displayPrice);
