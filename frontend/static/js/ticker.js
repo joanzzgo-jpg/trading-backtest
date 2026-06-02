@@ -372,13 +372,18 @@ function _selectTickerRow(el) {
   el.classList.add("tk-active");
 }
 
-// 從 ticker 資料找該列的已知現價/漲跌幅（給切換瞬間先填上方價格用）
+// 取該列的已知現價（給切換瞬間先填上方價格、避免閃「—」）。
+// 優先直接讀「該列顯示中的價格」(.tk-price-val)＝使用者所見即所得，任何清單（合約/自選/台股）都有；
+// 讀不到才退回 _tickerData 查找。
 function _quoteForRow(el) {
+  const txt = el.querySelector(".tk-price-val")?.textContent || "";
+  const shown = parseFloat(txt.replace(/[, ]/g, ""));
+  if (shown > 0) return { price: shown };
   const disp = (el.dataset.display || el.dataset.sym || "").toUpperCase();
   const sym  = (el.dataset.symbol  || "").toUpperCase();
   const t = (_tickerData || []).find(x =>
     (x.display || "").toUpperCase() === disp || (x.symbol || "").toUpperCase() === sym);
-  if (t && t.price) return { price: t.price, changePct: t.change_pct };
+  if (t && t.price) return { price: t.price };
   return null;
 }
 
@@ -586,6 +591,25 @@ function stopTickerRefresh() {
 }
 
 function bindTickerPanel() {
+  // 點/觸控行情列表時凍結排序 3 秒（同鍵盤導航）：避免使用者點下去那瞬間清單剛好依漲跌幅重排、
+  // 列在指下移位 → 看到的價格「跳成別列的值」。凍結期間價格仍就地更新、只是不重排。
+  // document 層捕獲 + 座標落在清單內判斷（手機觸控目標常是內部元素/body，掛在清單上的 listener 收不到）。
+  if (!window._tkFreezeBound) {
+    window._tkFreezeBound = true;
+    const _inList = (x, y) => {
+      const el = document.getElementById("tickerList");
+      if (!el) return false;
+      const b = el.getBoundingClientRect();
+      return b.width && b.height && x >= b.left && x <= b.right && y >= b.top && y <= b.bottom;
+    };
+    const _freeze = (e) => {
+      const t = (e.touches && e.touches[0]) || e;
+      if (t && _inList(t.clientX, t.clientY) && typeof _markKbNav === "function") _markKbNav();
+    };
+    document.addEventListener("touchstart", _freeze, { passive: true, capture: true });
+    document.addEventListener("mousedown",  _freeze, { passive: true, capture: true });
+  }
+
   // 市場切換 tab（合約 / 台股）
   document.querySelectorAll(".tk-mkt-btn").forEach(btn => {
     btn.addEventListener("click", () => {
