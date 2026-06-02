@@ -73,6 +73,7 @@ let lastCRTMarkers       = [];
 let lastKDJCrossMarkers  = [];
 let lastResonanceMarkers = [];
 let lastWRSignalMarkers  = [];
+let lastBacktestMarkers  = [];   // 回測結果的進出場標記（多/空 + 勝/負）
 let _lastWRSignals       = [];   // 完整訊號列表（背景載入後重新過濾用）
 let paneCollapseFlex = {};  // 面板收合前的 flex 值（module-level，供 loadVisibilityPrefs 使用）
 let _restoringPrefs  = false; // 還原偏好設定時，暫停自動儲存

@@ -172,7 +172,7 @@
     if (ee && !ee.value) ee.value = iso(end);
     document.getElementById("btOverlay").classList.add("open");
   }
-  function _close() { document.getElementById("btOverlay")?.classList.remove("open"); }
+  function _close() { document.getElementById("btOverlay")?.classList.remove("open"); _clearTradeMarkers(); }
 
   function _ctx() {
     return {
@@ -217,6 +217,7 @@
         data = await _post("/api/backtest", body);
       }
       _renderResult(data);
+      _applyTradeMarkers(data.trades || []);
     } catch (e) {
       res.innerHTML = `<div class="bt-err">❌ ${e.message || "回測失敗"}</div>`;
     } finally {
@@ -277,6 +278,33 @@
     // 填充
     ctx.lineTo(x(vals.length - 1), H - pad); ctx.lineTo(x(0), H - pad); ctx.closePath();
     ctx.fillStyle = up ? "rgba(38,208,124,.12)" : "rgba(255,107,107,.12)"; ctx.fill();
+  }
+
+  // 把回測交易畫成主圖進出場標記（多/空 + 勝/負）。只取已載入 K 棒範圍內的（與勝率標記一致）。
+  function _applyTradeMarkers(trades) {
+    if (typeof lastBacktestMarkers === "undefined" || typeof candleSeries === "undefined") return;
+    const inChart = (sec) => (typeof _secToIdx !== "undefined" && _secToIdx.size)
+      ? _secToIdx.has(sec)
+      : (typeof ohlcvData !== "undefined" && ohlcvData.some(d => toTime(d.time) === sec));
+    const m = [];
+    for (const t of (trades || [])) {
+      const dir = t.dir || t.side;                 // CRT: s/l；通用: long/short
+      const isShort = dir === "s" || dir === "short";
+      const win = t.result === "win" || (t.pnl != null && t.pnl > 0);
+      const et = t.time || t.entry_time;           // CRT: time；通用: entry_time
+      const xt = t.exit || t.exit_time;
+      if (et) { const s = toTime(et); if (inChart(s)) m.push({ time: s, position: isShort ? "aboveBar" : "belowBar", color: isShort ? "#ef5350" : "#26a69a", shape: isShort ? "arrowDown" : "arrowUp", size: 1.3, text: isShort ? "空" : "多" }); }
+      if (xt) { const s = toTime(xt); if (inChart(s)) m.push({ time: s, position: win ? (isShort ? "belowBar" : "aboveBar") : (isShort ? "aboveBar" : "belowBar"), color: win ? "#26a69a" : "#ef5350", shape: win ? (isShort ? "arrowDown" : "arrowUp") : (isShort ? "arrowUp" : "arrowDown"), size: 1.0, text: win ? "✓" : "✗" }); }
+    }
+    m.sort((a, b) => a.time - b.time);
+    lastBacktestMarkers = m;
+    if (typeof _applyMainMarkers === "function") _applyMainMarkers();
+  }
+  function _clearTradeMarkers() {
+    if (typeof lastBacktestMarkers === "undefined") return;
+    if (!lastBacktestMarkers.length) return;
+    lastBacktestMarkers = [];
+    if (typeof _applyMainMarkers === "function") _applyMainMarkers();
   }
 
   function initBacktest() {

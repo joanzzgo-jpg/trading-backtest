@@ -217,7 +217,7 @@ function renderAll(data) {
 
 function renderCandles(data) {
   applyOhlcvToSeries(data);
-  lastCRTMarkers = []; lastKDJCrossMarkers = []; lastResonanceMarkers = []; lastWRSignalMarkers = [];
+  lastCRTMarkers = []; lastKDJCrossMarkers = []; lastResonanceMarkers = []; lastWRSignalMarkers = []; lastBacktestMarkers = [];
   candleSeries.setMarkers([]);
 }
 
@@ -254,6 +254,7 @@ function _applyMainMarkers() {
     ...(kdjCrossHidden  ? [] : lastKDJCrossMarkers),
     ...(resonanceHidden ? [] : lastResonanceMarkers),
     ...lastWRSignalMarkers,
+    ...lastBacktestMarkers,
   ].sort((a, b) => a.time - b.time);
   candleSeries.setMarkers(_windowMarkers(all));
 }
