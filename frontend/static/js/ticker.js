@@ -39,8 +39,9 @@ function _addToWatchlist() {
 let _tickerData     = [];
 let _spotTickerData = [];
 let _twTickerData   = [];
-let _tickerMkt      = "crypto";  // "crypto" | "tw"
-let _tickerSort     = "desc";    // desc=漲幅 asc=跌幅 vol=成交量
+// 記住使用者選的市場分頁與排序（重刷新/下次回來還原）
+let _tickerMkt      = (() => { try { return localStorage.getItem("tkMkt") || "crypto"; } catch (e) { return "crypto"; } })();   // "crypto" | "tw"
+let _tickerSort     = (() => { try { return localStorage.getItem("tkSort") || "desc"; } catch (e) { return "desc"; } })();      // desc=漲幅 asc=跌幅 vol=量 wl=自選
 let _tickerTimer    = null;
 let _lastTickerKey  = "";        // 追蹤目前渲染的 ticker 結構，避免不必要的 DOM 重建
 let _lastPageTitle  = "";        // 快取上次 title，避免重複寫 DOM
@@ -618,6 +619,7 @@ function bindTickerPanel() {
       document.querySelectorAll(".tk-mkt-btn").forEach(b => b.classList.remove("active"));
       btn.classList.add("active");
       _tickerMkt     = btn.dataset.mkt;
+      try { localStorage.setItem("tkMkt", _tickerMkt); } catch (e) {}
       _lastTickerKey = "";
       // 重設更新頻率
       if (_tickerTimer) clearInterval(_tickerTimer);
@@ -631,11 +633,16 @@ function bindTickerPanel() {
       document.querySelectorAll(".tk-seg-btn").forEach(b => b.classList.remove("active"));
       btn.classList.add("active");
       _tickerSort = btn.dataset.sort;
+      try { localStorage.setItem("tkSort", _tickerSort); } catch (e) {}
       _lastTickerKey = "";
       renderTickers();
       if (btn.dataset.sort === "wl") _refreshWlPrices();
     });
   });
+
+  // 還原上次選的市場分頁 + 排序（active class 對齊；資料抓取由 startTickerRefresh 依 _tickerMkt 處理）
+  document.querySelectorAll(".tk-mkt-btn").forEach(b => b.classList.toggle("active", b.dataset.mkt === _tickerMkt));
+  document.querySelectorAll(".tk-seg-btn").forEach(b => b.classList.toggle("active", b.dataset.sort === _tickerSort));
   document.getElementById("tickerSearch")?.addEventListener("input", () => {
     _lastTickerKey = "";   // 搜尋條件改變→強制完整重建
     renderTickers();
