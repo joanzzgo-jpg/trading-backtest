@@ -681,12 +681,55 @@ function drawingDist(d, x, y) {
   return Infinity;
 }
 
+// 交易時段（用 K 棒的台灣時間 = toTime 已 +8h，UTC getter 即台北時）：
+//   週一~五 8:00-12:00=台股、14:00-17:00=歐洲、20:00-23:00=美盤
+const _SESSION_INTRADAY = ["5m", "15m", "30m", "1h", "2h"];
+const _SESSION_COLOR = { asia: "rgba(38,166,154,0.09)", europe: "rgba(124,104,228,0.10)", us: "rgba(255,159,40,0.09)" };
+function _sessionOf(t) {
+  const d = new Date(toTime(t) * 1000);   // toTime 已 +8h → 用 UTC getter 得台北時間
+  const day = d.getUTCDay();
+  if (day < 1 || day > 5) return null;     // 只標週一~週五
+  const h = d.getUTCHours();
+  if (h >= 8  && h < 12) return "asia";
+  if (h >= 14 && h < 17) return "europe";
+  if (h >= 20 && h < 23) return "us";
+  return null;
+}
+// 在 K 棒後方畫各交易時段的淡色直條（只在日內時框；日線以上一根=整天，標了無意義）
+function _drawSessionBands(W, H) {
+  if (!_SESSION_INTRADAY.includes(typeof currentTF !== "undefined" ? currentTF : "") ) return;
+  if (typeof ohlcvData === "undefined" || !ohlcvData.length || typeof mainChart === "undefined") return;
+  const ts = mainChart.timeScale();
+  const vr = ts.getVisibleLogicalRange();
+  if (!vr) return;
+  const from = Math.max(0, Math.floor(vr.from)), to = Math.min(ohlcvData.length - 1, Math.ceil(vr.to));
+  if (to < from) return;
+  const half = (W / Math.max(1, vr.to - vr.from)) / 2;   // 半根 K 寬，讓條覆蓋到 K 邊緣
+  let runStart = -1, runSess = null;
+  const flush = (endIdx) => {
+    if (!runSess || runStart < 0) return;
+    const x1 = ts.timeToCoordinate(toTime(ohlcvData[runStart].time));
+    const x2 = ts.timeToCoordinate(toTime(ohlcvData[endIdx].time));
+    if (x1 == null || x2 == null) return;
+    drawCtx.fillStyle = _SESSION_COLOR[runSess];
+    drawCtx.fillRect(x1 - half, 0, (x2 - x1) + half * 2, H);
+  };
+  for (let i = from; i <= to; i++) {
+    const sess = _sessionOf(ohlcvData[i].time);
+    if (sess !== runSess) { flush(i - 1); runStart = i; runSess = sess; }
+  }
+  flush(to);
+}
+
 function renderDrawings() {
   if (!drawCtx || !drawCanvas) return;
   // W/H 用 CSS 邏輯尺寸（backing store 是 device px，已由 setTransform(dpr) 縮放）
   const dpr = window.devicePixelRatio || 1;
   const W = drawCanvas.width / dpr, H = drawCanvas.height / dpr;
   drawCtx.clearRect(0, 0, W, H);
+
+  // 交易時段淡色背景（畫在最底層，使用者繪圖/盈虧比盒之下）
+  _drawSessionBands(W, H);
 
   // Draw non-selected first, then hovered, then selected on top
   drawings.filter(d => d.id !== selectedId && d.id !== hoveredId).forEach(d => drawOne(d, W, H, false, false));
