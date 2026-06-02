@@ -708,8 +708,13 @@ function _drawSessionOverlay(W, H) {
   const ts = mainChart.timeScale();
   const vr = ts.getVisibleLogicalRange();
   if (!vr) return;
-  const from = Math.max(0, Math.floor(vr.from)), to = Math.min(ohlcvData.length - 1, Math.ceil(vr.to));
-  if (to < from) return;
+  const _len = ohlcvData.length;
+  const vFrom = Math.max(0, Math.floor(vr.from)), vTo = Math.min(_len - 1, Math.ceil(vr.to));
+  if (vTo < vFrom) return;
+  // 往兩側多算一段 buffer（涵蓋一個完整盤，最長 4h；5m=48 根）→ 邊緣盤的高低/標籤穩定，
+  // 平移時不會因「最左根一直變」而閃。off-screen 的部分畫布會自然裁掉。
+  const BUF = 64;
+  const from = Math.max(0, vFrom - BUF), to = Math.min(_len - 1, vTo + BUF);
   const half = (W / Math.max(1, vr.to - vr.from)) / 2;   // 半根 K 寬，讓條覆蓋到 K 邊緣
   let runStart = -1, runSess = null;
   const flush = (endIdx) => {
@@ -742,7 +747,8 @@ function _drawSessionOverlay(W, H) {
   // ③ 星期標籤：日期變動的那根 K 棒上方標「週X」
   drawCtx.save();
   drawCtx.font = "bold 13px sans-serif"; drawCtx.fillStyle = "rgba(255,255,255,0.55)"; drawCtx.textAlign = "left";
-  let prevDay = -1;
+  // prevDay 從可見範圍「前一根」起算 → 只在真正換日那根標籤（不會在最左根硬標、平移時閃）
+  let prevDay = (from > 0) ? new Date(toTime(ohlcvData[from - 1].time) * 1000).getUTCDay() : -1;
   for (let i = from; i <= to; i++) {
     const day = new Date(toTime(ohlcvData[i].time) * 1000).getUTCDay();
     if (day !== prevDay) {
