@@ -1599,42 +1599,60 @@
     ctx.restore();
   }
 
-  /* 🌅 晚霞：靛→紫→橘→暖黃天空漸層 + 低空太陽地平輝光 + 背光雲 + 初現星 */
+  /* 🌅 晚霞：靛→紫→橘→暖黃天空漸層 + 太陽「隨真實時間」沉入地平線下 + 背光雲 + 初現星
+     配色已調淡（降彩度、降輝光 alpha）；太陽依當前時刻相對真實日落時間下降、過地平線後被遮住。*/
   function dSunset(t) {
     const sky=ctx.createLinearGradient(0,0,0,H);
-    sky.addColorStop(0,'#241B3A'); sky.addColorStop(0.34,'#5B3A6E'); sky.addColorStop(0.60,'#B5546A'); sky.addColorStop(0.80,'#E8884B'); sky.addColorStop(1,'#F6C463');
+    // 調淡：柔靛(不死黑)→霧紫→灰玫瑰(降彩度)→柔橘→淡暖黃
+    sky.addColorStop(0,'#3A3358'); sky.addColorStop(0.34,'#6B5A7C'); sky.addColorStop(0.60,'#B98A92'); sky.addColorStop(0.80,'#E3AE86'); sky.addColorStop(1,'#F2D6A6');
     ctx.fillStyle=sky; ctx.fillRect(0,0,W,H);
     stars.forEach(p => { if (p.y<H*0.38){ const a=.1+.4*Math.sin(t*p.sp+p.ph); ctx.fillStyle=`rgba(255,255,245,${(a*.4).toFixed(3)})`; ctx.beginPath(); ctx.arc(p.x,p.y,p.r*.6,0,6.28); ctx.fill(); } });
-    const sx=W*0.5+Math.sin(t*0.04)*W*0.03, sy=H*0.72, R=54;   // 低垂夕陽（暖色帶；登入頁中央會被熊擋，無妨）
+    // ── 太陽位置：依「真實時間」對齊真實日落，以真實速度緩緩下沉（逐幀平滑、sub-second 精度）──
+    // 日落視窗 ±45min：set-45min → 高掛(prog0)、真實日落時刻 set → 觸地平線(prog0.5)、
+    // set+45min → 沒入地平線下(prog1)。用秒+毫秒精度算 → 不是每分鐘跳一格，而是每一幀都在動。
+    const now=new Date();
+    const nowMinF=now.getHours()*60+now.getMinutes()+now.getSeconds()/60+now.getMilliseconds()/60000;
+    const setMin=(_wd.sunSetMin!=null)?_wd.sunSetMin:1080;
+    let prog=(nowMinF-(setMin-45))/90; prog=Math.max(0,Math.min(1,prog));
+    const horizonY=H*0.80;                                   // 地平線
+    const sx=W*0.5+Math.sin(t*0.04)*W*0.03;
+    const sy=H*0.48+(H*1.10-H*0.48)*prog, R=54;              // 由高漸降，prog1 時圓心已沒入地平線下
     ctx.save(); ctx.globalCompositeOperation='lighter';
-    // 大範圍天空暖輝（整片柔暖）
+    // 大範圍天空暖輝（整片柔暖，alpha 調淡）
     const hg=ctx.createRadialGradient(sx,sy,0,sx,sy,W*0.68);
-    hg.addColorStop(0,'rgba(255,200,110,0.40)'); hg.addColorStop(0.4,'rgba(255,140,70,0.14)'); hg.addColorStop(1,'rgba(255,110,60,0)');
+    hg.addColorStop(0,'rgba(255,206,140,0.22)'); hg.addColorStop(0.4,'rgba(255,160,100,0.08)'); hg.addColorStop(1,'rgba(255,130,90,0)');
     ctx.fillStyle=hg; ctx.fillRect(0,0,W,H);
-    // 太陽光暈 bloom（緊貼太陽、明亮柔和 → 像在發光、無硬邊）
+    ctx.restore();
+    // ── 太陽本體與光暈：裁切在地平線以上 → 下沉時被地平線遮住，像真的落下 ──
+    ctx.save();
+    ctx.beginPath(); ctx.rect(0,0,W,horizonY); ctx.clip();
+    ctx.save(); ctx.globalCompositeOperation='lighter';
+    // 太陽光暈 bloom（緊貼太陽、柔和；alpha 調淡）
     const bloom=ctx.createRadialGradient(sx,sy,R*0.5,sx,sy,R*2.6);
-    bloom.addColorStop(0,'rgba(255,236,180,0.72)'); bloom.addColorStop(0.45,'rgba(255,180,100,0.34)'); bloom.addColorStop(1,'rgba(255,150,80,0)');
+    bloom.addColorStop(0,'rgba(255,238,196,0.52)'); bloom.addColorStop(0.45,'rgba(255,194,130,0.24)'); bloom.addColorStop(1,'rgba(255,165,105,0)');
     ctx.fillStyle=bloom; ctx.beginPath(); ctx.arc(sx,sy,R*2.6,0,Math.PI*2); ctx.fill();
     ctx.restore();
-    // 太陽本體：乾淨暖漸層（亮金心→金→橘→暖橘邊），微微脈動呼吸
+    // 太陽本體：暖漸層（柔金心→金→柔橘邊），微微脈動呼吸
     const pr=R*(1+0.015*Math.sin(t*0.8));
     const disc=ctx.createRadialGradient(sx,sy,0, sx,sy,pr);
-    disc.addColorStop(0,'#FFF3C4'); disc.addColorStop(0.55,'#FFC061'); disc.addColorStop(0.9,'#FF9636'); disc.addColorStop(1,'#FB7E33');
+    disc.addColorStop(0,'#FFF1CC'); disc.addColorStop(0.55,'#FFCD86'); disc.addColorStop(0.9,'#FBAA63'); disc.addColorStop(1,'#F2945A');
     ctx.fillStyle=disc; ctx.beginPath(); ctx.arc(sx,sy,pr,0,Math.PI*2); ctx.fill();
     // 柔亮邊緣（lighter 疊一圈 → 邊緣發光、不死板）
     ctx.save(); ctx.globalCompositeOperation='lighter';
     const rim=ctx.createRadialGradient(sx,sy,pr*0.82,sx,sy,pr*1.05);
-    rim.addColorStop(0,'rgba(255,240,200,0)'); rim.addColorStop(1,'rgba(255,226,172,0.5)');
+    rim.addColorStop(0,'rgba(255,240,200,0)'); rim.addColorStop(1,'rgba(255,226,172,0.4)');
     ctx.fillStyle=rim; ctx.beginPath(); ctx.arc(sx,sy,pr*1.05,0,Math.PI*2); ctx.fill();
     ctx.restore();
+    ctx.restore();   // 解除地平線裁切
     const cdir=_windVecX()>=0?1:-1;
     cloudP.forEach((c,i) => {
       c.x += c.sp*cdir*0.5;
       if (cdir>0 && c.x-W*c.sc>W) c.x=-W*0.6; else if (cdir<0 && c.x+W*c.sc<0) c.x=W+W*0.6;
       _sunsetCloud(c.x, H*(0.42+0.13*(i%3)), W*c.sc*1.1, c.flip, c.puffs);
     });
-    const hz=ctx.createLinearGradient(0,H*0.7,0,H); hz.addColorStop(0,'rgba(255,180,110,0)'); hz.addColorStop(1,'rgba(255,170,100,0.22)');
-    ctx.fillStyle=hz; ctx.fillRect(0,H*0.7,W,H*0.3);
+    // 地平線暖霾：恰好蓋在裁切線上 → 柔化太陽沉入的硬邊（alpha 調淡）
+    const hz=ctx.createLinearGradient(0,horizonY-H*0.06,0,H); hz.addColorStop(0,'rgba(255,188,128,0)'); hz.addColorStop(0.5,'rgba(255,180,120,0.10)'); hz.addColorStop(1,'rgba(252,176,116,0.16)');
+    ctx.fillStyle=hz; ctx.fillRect(0,horizonY-H*0.06,W,H-(horizonY-H*0.06));
   }
 
   /* ☄️ 流星雨：暗夜 + 星 + 行星，頻繁從上方輻射射出帶光尾的流星 */
