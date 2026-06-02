@@ -340,7 +340,14 @@ html, body {
 }
 .tb-icon-btn svg { transition: transform .15s cubic-bezier(.34,1.56,.64,1); }
 .tb-icon-btn:hover { background: var(--bg3); color: var(--text); transform: translateY(-1px); box-shadow: 0 3px 10px rgba(255,106,26,.18); }
-.tb-icon-btn:hover svg { transform: scale(1.12); }
+/* 懸停：icon 一點點重複「呼吸＋微擺」動畫 */
+.tb-icon-btn:hover svg { animation: tbIconPulse 1.15s ease-in-out infinite; }
+@keyframes tbIconPulse {
+  0%, 100% { transform: scale(1.08) rotate(0deg); }
+  35%      { transform: scale(1.2)  rotate(-4deg); }
+  70%      { transform: scale(1.14) rotate(4deg); }
+}
+html.perf-mode .tb-icon-btn:hover svg { animation: none; transform: scale(1.1); }
 .tb-icon-btn:active { transform: translateY(0) scale(.94); }
 .tb-icon-btn.active { color: var(--accent); background: rgba(255,106,26,.14); box-shadow: inset 0 0 0 1px rgba(255,106,26,.3), 0 2px 8px rgba(255,106,26,.16); }
 /* 手機不需要策略回測 → 隱藏回測鈕（時段標記鈕仍保留） */
