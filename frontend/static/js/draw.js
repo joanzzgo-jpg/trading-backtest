@@ -684,8 +684,8 @@ function drawingDist(d, x, y) {
 // 交易時段（用 K 棒的台灣時間 = toTime 已 +8h，UTC getter 即台北時）：
 //   週一~五 8:00-12:00=台股、14:00-17:00=歐洲、20:00-23:00=美盤
 const _SESSION_INTRADAY = ["5m", "15m", "30m", "1h", "2h"];
-const _SESSION_COLOR = { asia: "rgba(38,166,154,0.09)", europe: "rgba(124,104,228,0.10)", us: "rgba(255,159,40,0.09)" };
-const _SESSION_LINE  = { asia: "rgba(38,166,154,0.85)", europe: "rgba(150,130,245,0.85)", us: "rgba(255,159,40,0.9)" };
+const _SESSION_COLOR = { asia: "rgba(66,133,244,0.10)", europe: "rgba(124,104,228,0.10)", us: "rgba(255,159,40,0.09)" };
+const _SESSION_LINE  = { asia: "rgba(66,133,244,0.9)",  europe: "rgba(150,130,245,0.85)", us: "rgba(255,159,40,0.9)" };
 const _SESSION_NAME  = { asia: "台股", europe: "歐洲", us: "美盤" };
 const _WEEKDAY = ["週日", "週一", "週二", "週三", "週四", "週五", "週六"];
 // 開關（頂部按鈕；預設開）
@@ -741,7 +741,7 @@ function _drawSessionOverlay(W, H) {
 
   // ③ 星期標籤：日期變動的那根 K 棒上方標「週X」
   drawCtx.save();
-  drawCtx.font = "10px sans-serif"; drawCtx.fillStyle = "rgba(255,255,255,0.42)"; drawCtx.textAlign = "left";
+  drawCtx.font = "bold 13px sans-serif"; drawCtx.fillStyle = "rgba(255,255,255,0.55)"; drawCtx.textAlign = "left";
   let prevDay = -1;
   for (let i = from; i <= to; i++) {
     const day = new Date(toTime(ohlcvData[i].time) * 1000).getUTCDay();
@@ -750,7 +750,7 @@ function _drawSessionOverlay(W, H) {
       const x = ts.timeToCoordinate(toTime(ohlcvData[i].time));
       if (x != null && x >= 0 && x <= W) {
         if (i > from) { drawCtx.strokeStyle = "rgba(255,255,255,0.10)"; drawCtx.lineWidth = 1; drawCtx.setLineDash([2, 3]); drawCtx.beginPath(); drawCtx.moveTo(x - half, 0); drawCtx.lineTo(x - half, H); drawCtx.stroke(); drawCtx.setLineDash([]); }
-        drawCtx.fillText(_WEEKDAY[day] || "", x - half + 3, 12);
+        drawCtx.fillText(_WEEKDAY[day] || "", x - half + 4, 16);
       }
     }
   }
