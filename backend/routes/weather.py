@@ -576,6 +576,40 @@ async def _fetch_omt_pop(lat: float, lon: float):
     return None if v is None else int(round(float(v)))
 
 
+_SUN_CACHE: dict = {}   # (rlat, rlon, date) -> {"rise","set","tz_off"}（當天天文日出日落）
+
+async def _omt_sun(lat: float, lon: float) -> dict:
+    """用 Open-Meteo daily 取「該地真實時區（含日光節約）」的天文日出/日落時刻，作為各源
+    日出日落的權威校正（取代 _sun_times_local 的經度近似）。回 {rise,set,tz_off}（分鐘）。
+    與各國氣象局公布的日出日沒為同一天文事件、數值一致。每天每格座標只查一次（快取）。"""
+    key = (round(lat, 1), round(lon, 1), date.today().isoformat())
+    if key in _SUN_CACHE:
+        return _SUN_CACHE[key]
+    params = {"latitude": lat, "longitude": lon, "daily": "sunrise,sunset",
+              "timezone": "auto", "forecast_days": 1}
+    timeout = aiohttp.ClientTimeout(total=8)
+    async with aiohttp.ClientSession(timeout=timeout) as sess:
+        async with sess.get(OMT_URL, params=params) as r:
+            data = await r.json(content_type=None)
+    daily = data.get("daily") or {}
+
+    def _hm(iso):   # "2026-06-02T05:12" → 312（當地分鐘）
+        try:
+            hh, mm = iso.split("T")[1].split(":")[:2]
+            return int(hh) * 60 + int(mm)
+        except Exception:
+            return None
+
+    out = {
+        "rise":   _hm((daily.get("sunrise") or [None])[0]),
+        "set":    _hm((daily.get("sunset")  or [None])[0]),
+        "tz_off": int(data.get("utc_offset_seconds", 0) or 0) // 60,
+    }
+    if out["rise"] is not None or out["set"] is not None:
+        _SUN_CACHE[key] = out
+    return out
+
+
 def _client_ip(request: Request) -> str:
     """取得客戶端真實 IP：Railway/反向代理會把真實 IP 放在 X-Forwarded-For
     （逗號分隔，第一個為原始客戶端）；本機直連則用 request.client.host。"""
@@ -652,4 +686,15 @@ async def weather(
     if res.get("pop") is None:
         try: res["pop"] = await _fetch_omt_pop(lat, lon)
         except Exception: res["pop"] = None
+    # 用 Open-Meteo 天文日出/日落（含真實時區/日光節約）校正各源；並回傳該地 UTC 偏移
+    # 供前端用「當地真實時間」判斷日出日落（取代經度近似）。失敗則沿用 _sun_times_local。
+    try:
+        s = await _omt_sun(lat, lon)
+        if s.get("rise") is not None: res["sun_rise_min"] = s["rise"]
+        if s.get("set")  is not None: res["sun_set_min"]  = s["set"]
+        if s.get("rise") is not None and s.get("set") is not None:
+            res["sun_src"] = "open-meteo"
+        res["tz_offset_min"] = s.get("tz_off")
+    except Exception:
+        res["tz_offset_min"] = None
     return res

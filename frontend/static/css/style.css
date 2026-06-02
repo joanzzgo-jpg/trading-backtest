@@ -5468,8 +5468,9 @@ body, button, input, select, textarea,
   .m-tab-ico { display: flex; align-items: center; justify-content: center; height: 22px; }
   .m-tab-ico svg { width: 21px; height: 21px; display: block; }
 
-  /* 內容底部留出分頁列高度，避免被蓋住 */
-  .charts-container { padding-bottom: 56px !important; }
+  /* 內容底部只留「分頁列高度(52) + 瀏海安全區」→ 圖表底部時間軸緊貼三個分頁鈕「上方」、盡量往下，
+     又不被 tabbar 蓋住（舊版固定 56px 在有 home indicator 的手機會被較高的 tabbar 遮住時間） */
+  .charts-container { padding-bottom: calc(52px + env(safe-area-inset-bottom, 0px)) !important; }
 
   /* ── ⭐ 自選分頁：合約/台股行情列表「全畫面」（像股票 app）── */
   body.m-tab-watch .charts-container { display: none !important; }

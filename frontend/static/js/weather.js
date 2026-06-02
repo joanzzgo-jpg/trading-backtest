@@ -240,12 +240,14 @@
     return '#' + ((1<<24) + (r<<16) + (g<<8) + bl).toString(16).slice(1);
   }
 
-  // 依「所在經度」推地理時區（每 15°=1hr，與後端 _sun_times_local 同套）→ 回傳該地當地「一天中分鐘數」
-  // (0~1440, 含小數)。日夜/太陽/晚霞/星星全用它 → 切到外國(?wxloc=)時按「當地時間」呈現，而非裝置時間。
+  // 回傳該地當地「一天中分鐘數」(0~1440, 含小數)。日夜/太陽/晚霞/日出/星星全用它 → 切到外國
+  // (?wxloc=)時按「當地時間」呈現，而非裝置時間。
+  // 優先用後端 Open-Meteo 回的「真實 UTC 偏移」(_wd.tzOffMin，含日光節約)，與校正後的日出日落同一基準；
+  // 後端未提供時退回「經度近似」(每 15°=1hr)。
   function _locNowMin() {
     const d = new Date();
     const utcMin = d.getUTCHours()*60 + d.getUTCMinutes() + d.getUTCSeconds()/60 + d.getUTCMilliseconds()/60000;
-    const tzOff = Math.round((_wxLon || 0) / 15) * 60;   // UTC 偏移(分)
+    const tzOff = (_wd.tzOffMin != null) ? _wd.tzOffMin : Math.round((_wxLon || 0) / 15) * 60;
     let m = utcMin + tzOff;
     return ((m % 1440) + 1440) % 1440;
   }
@@ -443,7 +445,7 @@
   }
 
   function _drawAstro(t) {
-    if (type==='aurora'||type==='sunset'||type==='meteor') return;  // 這些自帶天空/太陽，不要再疊系統日月
+    if (type==='aurora'||type==='sunset'||type==='sunrise'||type==='meteor') return;  // 這些自帶天空/太陽，不要再疊系統日月
     const nowMin = _locNowMin();
     const lx = W * 0.04, rx = W * 0.96;
     const horizonY = H * 0.88, peakY = H * 0.08;
@@ -645,7 +647,7 @@
   function _init() {
     const ri = Math.max(0.3, _wd.intensity);          /* precip intensity 0.3-1 */
     const ci = Math.min(1, _wd.cloudCover / 100);      /* cloud cover 0-1 */
-    stars  = Array.from({length:Math.round(100*_fxN)}, () => ({ x:Math.random()*W, y:Math.random()*H*.88, r:.3+Math.random()*1.8, ph:Math.random()*Math.PI*2, sp:.8+Math.random()*1.5 }));
+    stars  = Array.from({length:Math.round(100*_fxN)}, () => ({ x:Math.random()*W, y:Math.random()*H*.88, r:.3+Math.random()*1.8, ph:Math.random()*Math.PI*2, sp:.18+Math.random()*.42 }));
     sparks = Array.from({length:14}, _newSpark);
     // 雨：連續景深 z（0=遠、1=近）；用 z² / z³ 大幅拉開前後差距 → 立體視差明顯
     const nRain = Math.round((110+200*ri)*_fxN);   // 加密雨量（手機降載）
@@ -1712,6 +1714,86 @@
     ctx.restore();
   }
 
+  /* 🌄 日出（朝霞）：dSunset 的時間鏡像 → 夜 → 朝霞暖色 → 白天；太陽自螢幕下緣升起、星星淡出。
+     日出視窗 ±45min：rise-45→深夜(prog0)、真實日出 rise→太陽觸螢幕下緣(prog0.5)、rise+45→升入天空接白天(prog1)。*/
+  function dSunrise(t) {
+    const nowMinF=_locNowMin();
+    const riseMin=(_wd.sunRiseMin!=null)?_wd.sunRiseMin:360;
+    let prog=(nowMinF-(riseMin-45))/90; prog=Math.max(0,Math.min(1,prog));
+    // 夜化係數 nf：prog0(日出前)=深夜(1) → prog0.5(真實日出)=朝霞暖(0)；之後維持暖
+    const _e=Math.max(0,Math.min(1,(0.5-prog)/0.5)); const nf=_e*_e*(3-2*_e);
+    // 入日係數 dayf：prog0.5→1 天空淡出露出白天底（接 dSunny）
+    const _d=Math.max(0,Math.min(1,(prog-0.5)/0.5)); const dayf=_d*_d*(3-2*_d);
+    const warmA=(1-nf)*(1-dayf);                            // 朝霞暖光：夜=0、日出=最強、白天=0
+    const horizonY=H, R=54;
+    const sx=W*0.5;
+    const sy=H*1.60-(H*1.60-H*0.40)*prog;                  // 由螢幕下緣外升起；prog0.5 觸下緣、prog1 升到 0.40H
+
+    // 天空漸層（朝霞色↔深夜藍，隨 nf 混色；與 dSunset 共用快取/調色盤）
+    const nfStep=Math.round(nf*16);
+    if (_ssGrad.h!==H || _ssGrad.nfStep!==nfStep) {
+      _ssGrad.h=H; _ssGrad.nfStep=nfStep; const k=nfStep/16;
+      const SS=['#3A3358','#6B5A7C','#B98A92','#E3AE86','#F2D6A6'];
+      const NT=['#0C0C18','#12111E','#171425','#1C1828','#221C2C'];
+      const sky=ctx.createLinearGradient(0,0,0,H);
+      [0,0.34,0.60,0.80,1].forEach((p,i)=>sky.addColorStop(p,_hexLerp(SS[i],NT[i],k)));
+      _ssGrad.sky=sky;
+    }
+    if (_ssGrad.hzH!==H) {
+      const hzTop=H*0.78; const hz=ctx.createLinearGradient(0,hzTop,0,H);
+      hz.addColorStop(0,'rgba(255,188,128,0)'); hz.addColorStop(0.6,'rgba(255,182,120,0.10)'); hz.addColorStop(1,'rgba(252,174,112,0.20)');
+      _ssGrad.hz=hz; _ssGrad.hzTop=hzTop; _ssGrad.hzH=H;
+    }
+    ctx.save(); ctx.globalAlpha=1-dayf; ctx.fillStyle=_ssGrad.sky; ctx.fillRect(0,0,W,H); ctx.restore();
+
+    // 星星：夜濃才多 → 用 nf（prog0 滿天、日出後淡出）
+    const starLit=nf;
+    if (starLit>0.01) {
+      const skyLimit=H*(0.36+0.30*(1-prog));
+      stars.forEach(p => {
+        if (p.y<skyLimit) {
+          const tw=.45+.55*Math.sin(t*p.sp+p.ph);
+          const a=tw*starLit*0.9; if (a<0.02) return;
+          ctx.fillStyle=`rgba(255,255,245,${a.toFixed(3)})`;
+          ctx.beginPath(); ctx.arc(p.x,p.y,p.r*(0.6+0.5*(1-prog)),0,6.28); ctx.fill();
+        }
+      });
+    }
+    // 大範圍暖輝（朝霞）
+    ctx.save(); ctx.globalCompositeOperation='lighter'; ctx.globalAlpha=warmA;
+    const hg=ctx.createRadialGradient(sx,sy,0,sx,sy,W*0.68);
+    hg.addColorStop(0,'rgba(255,206,140,0.22)'); hg.addColorStop(0.4,'rgba(255,160,100,0.08)'); hg.addColorStop(1,'rgba(255,130,90,0)');
+    ctx.fillStyle=hg; ctx.fillRect(0,0,W,H); ctx.restore();
+    // 太陽本體與光暈（裁切地平線以上 → 升起時自下緣冒出）
+    ctx.save(); ctx.beginPath(); ctx.rect(0,0,W,horizonY); ctx.clip();
+    ctx.save(); ctx.globalCompositeOperation='lighter';
+    const bloom=ctx.createRadialGradient(sx,sy,R*0.5,sx,sy,R*2.6);
+    bloom.addColorStop(0,'rgba(255,238,196,0.52)'); bloom.addColorStop(0.45,'rgba(255,194,130,0.24)'); bloom.addColorStop(1,'rgba(255,165,105,0)');
+    ctx.fillStyle=bloom; ctx.beginPath(); ctx.arc(sx,sy,R*2.6,0,Math.PI*2); ctx.fill();
+    ctx.restore();
+    const pr=R*(1+0.015*Math.sin(t*0.8));
+    const disc=ctx.createRadialGradient(sx,sy,0, sx,sy,pr);
+    disc.addColorStop(0,'#FFF1CC'); disc.addColorStop(0.55,'#FFCD86'); disc.addColorStop(0.9,'#FBAA63'); disc.addColorStop(1,'#F2945A');
+    ctx.fillStyle=disc; ctx.beginPath(); ctx.arc(sx,sy,pr,0,Math.PI*2); ctx.fill();
+    ctx.save(); ctx.globalCompositeOperation='lighter';
+    const rim=ctx.createRadialGradient(sx,sy,pr*0.82,sx,sy,pr*1.05);
+    rim.addColorStop(0,'rgba(255,240,200,0)'); rim.addColorStop(1,'rgba(255,226,172,0.4)');
+    ctx.fillStyle=rim; ctx.beginPath(); ctx.arc(sx,sy,pr*1.05,0,Math.PI*2); ctx.fill();
+    ctx.restore();
+    ctx.restore();   // 解除地平線裁切
+    const cdir=_windVecX()>=0?1:-1;
+    ctx.save(); ctx.globalAlpha=warmA;
+    cloudP.forEach((c,i) => {
+      c.x += c.sp*cdir*0.5;
+      if (cdir>0 && c.x-W*c.sc>W) c.x=-W*0.6; else if (cdir<0 && c.x+W*c.sc<0) c.x=W+W*0.6;
+      _sunsetCloud(c.x, H*(0.42+0.13*(i%3)), W*c.sc*1.1, c.flip, c.puffs);
+    });
+    ctx.restore();
+    ctx.save(); ctx.globalAlpha=warmA;
+    ctx.fillStyle=_ssGrad.hz; ctx.fillRect(0,_ssGrad.hzTop,W,H-_ssGrad.hzTop);
+    ctx.restore();
+  }
+
   /* ☄️ 流星雨：暗夜 + 星 + 行星，頻繁從上方輻射射出帶光尾的流星 */
   function dMeteor(t) {
     _gc.nebula && _gc.nebula.forEach(g => { ctx.fillStyle=g; ctx.fillRect(0,0,W,H); });
@@ -1756,7 +1838,7 @@
     if (type === "off") return;  // 「無」模式：清空畫布即可，不畫任何特效
     _paX += (_paTX - _paX) * 0.07; _paY += (_paTY - _paY) * 0.07;   // 平滑視差位移
     const t=Date.now()*.001;
-    ({sunny:dSunny,night:dNight,cloudy:dCloudy,fog:dFog,rain:dRain,snow:dSnow,storm:dStorm,thunder:dThunder,mahjong:dMahjong,leaves:dLeaves,spring:dSpring,partly:dPartly,overcast:dOvercast,drizzle:dDrizzle,windy:dWindy,hail:dHail,tornado:dTornado,quake:dQuake,aurora:dAurora,sunset:dSunset,meteor:dMeteor})[type]?.(t);
+    ({sunny:dSunny,night:dNight,cloudy:dCloudy,fog:dFog,rain:dRain,snow:dSnow,storm:dStorm,thunder:dThunder,mahjong:dMahjong,leaves:dLeaves,spring:dSpring,partly:dPartly,overcast:dOvercast,drizzle:dDrizzle,windy:dWindy,hail:dHail,tornado:dTornado,quake:dQuake,aurora:dAurora,sunset:dSunset,sunrise:dSunrise,meteor:dMeteor})[type]?.(t);
     _drawAstro(t);
     _tempTint();
   }
@@ -1868,9 +1950,10 @@
   function _resolveAutoType() {
     const base = _autoType || 'sunny';
     const clearish = (base==='sunny'||base==='partly'||base==='night') && ((_wd.cloudCover==null) || _wd.cloudCover < 45);
-    if (clearish && _wd.sunSetMin!=null) {
+    if (clearish) {
       const nowMin = _locNowMin();
-      if (Math.abs(nowMin - _wd.sunSetMin) <= 45) return 'sunset';
+      if (_wd.sunSetMin!=null  && Math.abs(nowMin - _wd.sunSetMin)  <= 45) return 'sunset';
+      if (_wd.sunRiseMin!=null && Math.abs(nowMin - _wd.sunRiseMin) <= 45) return 'sunrise';
     }
     return base;
   }
@@ -1902,6 +1985,7 @@
         _wd.updatedAt   = new Date();
         _wd.sunRiseMin  = d.sun_rise_min  ?? 360;
         _wd.sunSetMin   = d.sun_set_min   ?? 1080;
+        _wd.tzOffMin    = (d.tz_offset_min != null) ? d.tz_offset_min : null;   // 該地真實 UTC 偏移(分)，給 _locNowMin 用
         _wd.moonPhase   = d.moon_phase    ?? 0;
         _wd.moonRiseMin = d.moon_rise_min ?? 1080;
         _wd.moonSetMin  = d.moon_set_min  ?? 360;
@@ -1986,6 +2070,7 @@
   window._quakeToggle   = () => _toggleWx("quake");
   window._auroraToggle  = () => _toggleWx("aurora");
   window._sunsetToggle  = () => _toggleWx("sunset");
+  window._sunriseToggle = () => _toggleWx("sunrise");
   window._meteorToggle  = () => _toggleWx("meteor");
 
   window.addEventListener("resize", resize);
@@ -2042,15 +2127,32 @@
     }).catch(() => { if (!painted) fetchWeather(25.04, 121.51); });
   };
   const _hasCache = _wxCoordCache && typeof _wxCoordCache === 'object' && _wxCoordCache.lat != null;
-  if (_hasCache) fetchWeather(_wxCoordCache.lat, _wxCoordCache.lon);   // ① 即時畫
-  if (navigator.geolocation) {                                         // ② 每次都刷新真實定位
-    navigator.geolocation.getCurrentPosition(
-      p => { _saveCoords(p.coords.latitude, p.coords.longitude);
-             fetchWeather(p.coords.latitude, p.coords.longitude); },
-      () => { _ipFallback(_hasCache); },                               // ③ 被拒/逾時 → IP 定位
-      { timeout: 8000, maximumAge: 600000 }
-    );
-  } else {
+  if (_hasCache) fetchWeather(_wxCoordCache.lat, _wxCoordCache.lon);   // ① 有快取先即時畫（免空白）
+
+  // ② 取真實定位 — 用 Permissions API 避免「每次打開都跳權限詢問」：
+  //    · 已授權(granted)  → 靜默 getCurrentPosition 刷新（不跳窗）→ 既精準又不打擾，移動換區也會更新
+  //    · 已拒絕(denied)   → 不問，改用 IP 粗定位
+  //    · 未決定(prompt)   → 只在「第一次、且尚無快取」時問一次；之後不再每次問（用快取/IP），
+  //                        使用者一旦允許就變 granted → 往後都靜默精準定位
+  const _getPos = () => navigator.geolocation.getCurrentPosition(
+    p => { _saveCoords(p.coords.latitude, p.coords.longitude); fetchWeather(p.coords.latitude, p.coords.longitude); },
+    () => { try { localStorage.setItem('wxGeoAsked', '1'); } catch (e) {} _ipFallback(_hasCache); },
+    { timeout: 8000, maximumAge: 600000 }
+  );
+  let _asked = false; try { _asked = !!localStorage.getItem('wxGeoAsked'); } catch (e) {}
+  const _promptOnce = () => {
+    if (!_asked && !_hasCache) { try { localStorage.setItem('wxGeoAsked', '1'); } catch (e) {} _getPos(); }
+    else _ipFallback(_hasCache);          // 問過或已有快取 → 不再每次跳窗
+  };
+  if (!navigator.geolocation) {
     _ipFallback(_hasCache);
+  } else if (navigator.permissions && navigator.permissions.query) {
+    navigator.permissions.query({ name: 'geolocation' }).then(st => {
+      if (st.state === 'granted')      _getPos();          // 靜默精準刷新
+      else if (st.state === 'denied')  _ipFallback(_hasCache);
+      else                             _promptOnce();      // prompt：不每次問
+    }).catch(_promptOnce);
+  } else {
+    _promptOnce();                                         // 不支援 Permissions API → 同樣不每次問
   }
 })();

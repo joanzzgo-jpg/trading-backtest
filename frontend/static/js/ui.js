@@ -289,12 +289,14 @@ function updateBottomTimeAxis() {
   let bottomChart = null;
   for (const { paneId, chart } of panels) {
     const pane = document.getElementById(paneId);
-    if (!pane || pane.classList.contains("hidden")) continue;
-    const body = pane.querySelector(".pane-body");
-    if (body && body.style.display === "none") continue; // 已收合
+    if (!pane) continue;
+    // 用實際渲染高度判斷可見性 → 涵蓋「.hidden 類 / 收合 / CSS display:none（手機或 subcharts-hidden）」
+    // 各種隱藏方式，避免把時間軸指派到看不見的副圖面板（時間就消失）。
+    if (pane.getBoundingClientRect().height < 2) continue;
     bottomChart = chart;
     break;
   }
+  if (!bottomChart) bottomChart = mainChart;   // 保險：至少主圖顯示時間軸
   panels.forEach(({ chart }) => {
     chart.applyOptions({ timeScale: { visible: chart === bottomChart } });
   });
@@ -780,13 +782,22 @@ function _initSubChartsToggle() {
   try { hidden = localStorage.getItem("subChartsHidden") ?? "1"; } catch (e) {}
   if (hidden === "1") container.classList.add("subcharts-hidden");
   _syncBtn();
+  // 初始就把時間軸移到最下方「可見」面板：預設副圖隱藏時 → 時間軸要落在主圖（否則停在隱藏的 MACD 面板 → 時間消失）
+  setTimeout(() => { if (typeof updateBottomTimeAxis === "function") updateBottomTimeAxis(); }, 60);
   btn.addEventListener("click", () => {
     container.classList.toggle("subcharts-hidden");
     const nowHidden = container.classList.contains("subcharts-hidden");
     try { localStorage.setItem("subChartsHidden", nowHidden ? "1" : "0"); } catch (e) {}
     _syncBtn();
-    // 觸發 LWC 重新計算大小（主圖會撐滿/縮回）
-    setTimeout(() => { if (typeof resizeAll === "function") resizeAll(); }, 50);
+    // 觸發 LWC 重新計算大小（主圖會撐滿/縮回）+ 把時間軸移到目前最下方可見面板
+    setTimeout(() => {
+      if (typeof resizeAll === "function") resizeAll();
+      if (typeof updateBottomTimeAxis === "function") updateBottomTimeAxis();
+    }, 50);
+  });
+  // 視窗尺寸/方向變動（桌面↔手機、橫直切換）→ 重評最下方可見面板，時間軸不掉
+  window.addEventListener("resize", () => {
+    if (typeof updateBottomTimeAxis === "function") updateBottomTimeAxis();
   });
 }
 
