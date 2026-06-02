@@ -128,9 +128,18 @@
 
 ### 策略與回測
 - `backend/strategies/` - 交易策略
-  - `builtin.py` - 內建策略實現
+  - `builtin.py` - 7 個通用內建策略（均線/RSI/MACD/布林/KDJ/RSI+MA/BB+RSI）。**向量化**：
+    每個 `fn(**params)` 回 `(signal_fn(df)->np.int8[], required_indicators)`，1=buy/-1=sell/2=short/-2=cover/0
 - `backend/backtest/` - 回測引擎
-  - `engine.py` - 回測執行與淨值計算
+  - `engine.py` - `BacktestEngine.run(signal_fn)`：先向量化算完整訊號陣列，再用 numpy 迴圈跑部位狀態機
+    （取代 iterrows，長歷史不卡）；產出 stats(報酬/勝率/PF/夏普/最大回撤) + trades + equity_curve
+
+#### 回測功能（兩種策略來源，2026-06）
+- **通用技術**：`/api/backtest`（routes/backtest.py `run_backtest`）→ 上面 7 策略 + 向量化引擎，用使用者給的起訖日抓資料。
+- **CRT 訊號(S1~S12)**：`/api/crt_backtest`（`run_crt_backtest`）→ **重用 `/api/crt_winrate` 已算好的 `signals`**
+  （深歷史+1hr快取，不另抓），把選定訊號(或 all=S2~S11 合計，去重)的勝負序列 × 每筆預估盈虧比(`rr`)
+  做資金模擬：每筆風險 `risk_pct`、win→+rr R、loss→-1R（複利）。支援 direction(多/空/both)、target(mid/band)、stop_buffer。
+- **前端**：`backtest.js` 的 📊 鈕開 modal（用目前圖表的標的/市場/交易所/時框），兩模式切換，結果顯示績效卡 + canvas 資金曲線。
 
 ### 前端
 - `frontend/templates/index.html` - 主頁面（工具列、圖表、重播列、偷看熊）
@@ -159,7 +168,8 @@
 | `ai_research.js` | ~233 | AI 研究面板 |
 | `signal_info.js` | ~715 | 訊號詳情左抽屜（SIGNAL_INFO metadata、統計列、敗後停手細節） |
 | `account.js` | ~176 | 帳號系統（登入/登出、雲端同步 _acctTouch） |
-| `main.js` | ~251 | DOMContentLoaded 初始化入口（呼叫所有 init、loadData）、字體大小 IIFE、延遲載入特效 |
+| `backtest.js` | ~230 | 策略回測 UI（📊 鈕 #backtestBtn）：注入 modal，CRT 訊號模式→/api/crt_backtest、通用技術模式→/api/backtest；績效卡 + canvas 資金曲線 |
+| `main.js` | ~252 | DOMContentLoaded 初始化入口（呼叫所有 init、initBacktest、loadData）、字體大小 IIFE、延遲載入特效 |
 
 **B. 動態載入檔（不在 bundle，由 `main.js` 閒置後注入 `<script async=false>`，版號走 `_asset_ver` 的 mtime）**
 | 檔案 | 行數 | 內容 |
