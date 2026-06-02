@@ -5,10 +5,10 @@
 需設定環境變數 CWA_API_KEY（申請：https://opendata.cwa.gov.tw/）。
 CWA 無 key 或失敗時，一律回退 Open-Meteo。
 """
-import os, math, time
+import os, math, time, ipaddress
 from datetime import date, datetime
 import aiohttp
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 
 router = APIRouter(prefix="/api", tags=["weather"])
 
@@ -575,6 +575,51 @@ async def _fetch_omt_pop(lat: float, lon: float):
     v = probs[hr] if hr < len(probs) else probs[-1]
     return None if v is None else int(round(float(v)))
 
+
+def _client_ip(request: Request) -> str:
+    """取得客戶端真實 IP：Railway/反向代理會把真實 IP 放在 X-Forwarded-For
+    （逗號分隔，第一個為原始客戶端）；本機直連則用 request.client.host。"""
+    xff = request.headers.get("x-forwarded-for", "")
+    if xff:
+        ip = xff.split(",")[0].strip()
+        if ip:
+            return ip
+    xr = request.headers.get("x-real-ip", "")
+    if xr:
+        return xr.strip()
+    return request.client.host if request.client else ""
+
+def _is_public_ip(ip: str) -> bool:
+    """是否為可定位的公網 IP（排除 127.0.0.1 / 區域網 / 保留位址）。"""
+    try:
+        a = ipaddress.ip_address(ip)
+        return not (a.is_private or a.is_loopback or a.is_link_local
+                    or a.is_reserved or a.is_unspecified or a.is_multicast)
+    except ValueError:
+        return False
+
+@router.get("/geoip")
+async def geoip(request: Request):
+    """IP 粗略定位 — 給「瀏覽器定位被拒/不可用」時的後援：
+    用客戶端公網 IP 查 ip-api.com（免費、免金鑰、server 端 http 呼叫）取得約略經緯度，
+    讓使用者至少看到所在地區而非永遠台北預設。本機/私網 IP → ok:false（前端退預設）。"""
+    ip = _client_ip(request)
+    if not _is_public_ip(ip):
+        return {"ok": False, "reason": "private_or_local_ip", "ip": ip}
+    try:
+        url = f"http://ip-api.com/json/{ip}"
+        params = {"fields": "status,message,lat,lon,city,regionName,country,countryCode"}
+        timeout = aiohttp.ClientTimeout(total=6)
+        async with aiohttp.ClientSession(timeout=timeout) as sess:
+            async with sess.get(url, params=params) as r:
+                d = await r.json(content_type=None)
+        if d.get("status") != "success" or d.get("lat") is None:
+            return {"ok": False, "reason": d.get("message", "lookup_failed")}
+        return {"ok": True, "lat": d.get("lat"), "lon": d.get("lon"),
+                "city": d.get("city"), "region": d.get("regionName"),
+                "country": d.get("country"), "source": "ip-api"}
+    except Exception as e:
+        return {"ok": False, "reason": str(e)}
 
 @router.get("/weather")
 async def weather(

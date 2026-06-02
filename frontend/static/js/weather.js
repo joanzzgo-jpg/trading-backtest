@@ -1920,23 +1920,38 @@
   // 不在這裡 start()——等 fetchWeather 回來再用真實 _wd 啟動，
   // 避免「先用預設值畫一次→拿到 API 又重畫」造成的閃爍/位移
 
-  // 天氣定位：快取座標 → 之後每次開都用快取、不再跳「存取位置」權限詢問。
-  // 第一次成功 → 存座標；被拒/逾時 → 記 "deny" 用預設，往後都不再問。
+  // ── 天氣定位 ────────────────────────────────────────────────
+  // 修：舊版第一次成功就把座標永久快取、之後每次都只讀快取「不再更新」→ 使用者移到
+  //     其他地區仍顯示舊地點（常見：永遠台北中正區=預設值）。被拒一次更會記 "deny" 鎖死。
+  // 新流程：
+  //   ① 有快取 → 先即時畫（免空白/閃爍），但「不」當最終結果
+  //   ② 每次啟動都重新抓真實定位（已授權 → 靜默、不再跳權限窗；被拒 → 立即 error 不跳窗）
+  //   ③ 瀏覽器定位被拒/不支援 → 改用伺服器 IP 粗定位（/api/geoip）顯示真實地區
+  //   ④ 連 IP 都失敗、且沒有可用快取 → 才退回台北預設
   let _wxCoordCache = null;
   try { _wxCoordCache = JSON.parse(localStorage.getItem('wxCoords') || 'null'); } catch (e) {}
-  if (_wxCoordCache && _wxCoordCache.lat != null) {
-    fetchWeather(_wxCoordCache.lat, _wxCoordCache.lon);          // 用快取座標，不詢問
-  } else if (_wxCoordCache === 'deny') {
-    fetchWeather(25.04, 121.51);                                  // 之前拒絕過 → 預設，不再問
-  } else if (navigator.geolocation) {
+  const _saveCoords = (lat, lon) => {
+    try { localStorage.setItem('wxCoords', JSON.stringify({ lat: lat, lon: lon, ts: Date.now() })); } catch (e) {}
+  };
+  const _ipFallback = (painted) => {
+    fetch('/api/geoip').then(r => r.ok ? r.json() : null).then(g => {
+      if (g && g.ok && g.lat != null && g.lon != null) {
+        _saveCoords(g.lat, g.lon); fetchWeather(g.lat, g.lon);
+      } else if (!painted) {
+        fetchWeather(25.04, 121.51);                 // 連 IP 都查不到 → 台北預設
+      }
+    }).catch(() => { if (!painted) fetchWeather(25.04, 121.51); });
+  };
+  const _hasCache = _wxCoordCache && typeof _wxCoordCache === 'object' && _wxCoordCache.lat != null;
+  if (_hasCache) fetchWeather(_wxCoordCache.lat, _wxCoordCache.lon);   // ① 即時畫
+  if (navigator.geolocation) {                                         // ② 每次都刷新真實定位
     navigator.geolocation.getCurrentPosition(
-      p => { try { localStorage.setItem('wxCoords', JSON.stringify({ lat: p.coords.latitude, lon: p.coords.longitude })); } catch (e) {}
+      p => { _saveCoords(p.coords.latitude, p.coords.longitude);
              fetchWeather(p.coords.latitude, p.coords.longitude); },
-      () => { try { localStorage.setItem('wxCoords', JSON.stringify('deny')); } catch (e) {}
-              fetchWeather(25.04, 121.51); },
-      { timeout: 8000, maximumAge: 3600000 }
+      () => { _ipFallback(_hasCache); },                               // ③ 被拒/逾時 → IP 定位
+      { timeout: 8000, maximumAge: 600000 }
     );
   } else {
-    fetchWeather(25.04, 121.51);
+    _ipFallback(_hasCache);
   }
 })();
