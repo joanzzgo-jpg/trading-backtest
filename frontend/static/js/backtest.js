@@ -62,7 +62,7 @@
     .bt-card .v.good{color:#26d07c}.bt-card .v.bad{color:#ff6b6b}
     .bt-eq{width:100%;height:140px;background:var(--bg3,#111);border:1px solid var(--border,#333);border-radius:9px}
     .bt-err{color:#ff7a7a;font-size:13px}
-    .bt-gen-params{display:flex;flex-direction:column;gap:8px}
+    .bt-overlay .btn-ripple-wave{display:none!important}
     @media(max-width:768px){.bt-row label{flex-basis:72px;font-size:12px}}
     `;
     document.head.appendChild(s);
@@ -79,11 +79,7 @@
         <div class="bt-hd"><div><b>策略回測</b><span class="bt-sym" id="btSym"></span></div>
           <button class="bt-x" id="btClose" aria-label="關閉">✕</button></div>
         <div class="bt-body">
-          <div class="bt-tabs">
-            <button class="bt-tab on" data-mode="crt">CRT 訊號</button>
-            <button class="bt-tab" data-mode="generic">通用技術</button>
-          </div>
-          <!-- CRT 模式 -->
+          <!-- CRT 訊號回測 -->
           <div id="btCrt">
             <div class="bt-row"><label>訊號</label>
               <select id="btCrtSig">${CRT_SIGNALS.map(s => `<option value="${s.v}">${s.label}</option>`).join("")}</select></div>
@@ -96,16 +92,6 @@
             <div class="bt-row"><label>每筆風險%</label><input id="btRisk" type="number" value="2" min="0.1" max="100" step="0.5"></div>
             <div class="bt-hint">用 CRT 訊號的勝負序列 × 每筆預估盈虧比模擬資金曲線（重用勝率引擎，深歷史）。</div>
           </div>
-          <!-- 通用模式 -->
-          <div id="btGen" style="display:none">
-            <div class="bt-row"><label>策略</label><select id="btGenSel"></select></div>
-            <div class="bt-gen-params" id="btGenParams"></div>
-            <div class="bt-row"><label>起始日</label><input id="btStart" type="date"></div>
-            <div class="bt-row"><label>結束日</label><input id="btEnd" type="date"></div>
-            <div class="bt-row"><label>本金</label><input id="btCap" type="number" value="100000" min="1" step="1000"></div>
-            <div class="bt-row"><label>手續費%</label><input id="btFee" type="number" value="0.1" min="0" max="5" step="0.01"></div>
-            <div class="bt-hint">用通用技術指標策略 + 向量化引擎，依下方日期範圍回測目前標的。</div>
-          </div>
           <button class="bt-run" id="btRun">執行回測</button>
           <div class="bt-res" id="btRes" style="display:none"></div>
         </div>
@@ -114,7 +100,6 @@
 
     ov.addEventListener("click", e => { if (e.target === ov) _close(); });
     ov.querySelector("#btClose").addEventListener("click", _close);
-    ov.querySelectorAll(".bt-tab").forEach(t => t.addEventListener("click", () => _setMode(t.dataset.mode)));
     _bindSeg("btDir"); _bindSeg("btTgt");
     ov.querySelector("#btRun").addEventListener("click", _run);
     _built = true;
@@ -191,31 +176,15 @@
     btn.disabled = true; btn.textContent = "回測中…";
     res.style.display = "block"; res.innerHTML = `<div class="bt-hint">計算中…（CRT 首次需算勝率，約數秒）</div>`;
     try {
-      let data;
-      if (_curMode() === "crt") {
-        const body = {
-          ...c,
-          signal: document.getElementById("btCrtSig").value,
-          direction: _segVal("btDir"),
-          target: _segVal("btTgt"),
-          stop_buffer_pct: (parseFloat(document.getElementById("btBuf").value) || 0) / 100,
-          risk_pct: (parseFloat(document.getElementById("btRisk").value) || 2) / 100,
-        };
-        data = await _post("/api/crt_backtest", body);
-      } else {
-        const params = {};
-        document.querySelectorAll("#btGenParams .bt-gp").forEach(i => params[i.dataset.key] = parseFloat(i.value));
-        const body = {
-          ...c,
-          strategy_id: document.getElementById("btGenSel").value,
-          strategy_params: params,
-          start: document.getElementById("btStart").value,
-          end: document.getElementById("btEnd").value,
-          initial_capital: parseFloat(document.getElementById("btCap").value) || 100000,
-          commission: (parseFloat(document.getElementById("btFee").value) || 0) / 100,
-        };
-        data = await _post("/api/backtest", body);
-      }
+      const body = {
+        ...c,
+        signal: document.getElementById("btCrtSig").value,
+        direction: _segVal("btDir"),
+        target: _segVal("btTgt"),
+        stop_buffer_pct: (parseFloat(document.getElementById("btBuf").value) || 0) / 100,
+        risk_pct: (parseFloat(document.getElementById("btRisk").value) || 2) / 100,
+      };
+      const data = await _post("/api/crt_backtest", body);
       _renderResult(data);
       _applyTradeMarkers(data.trades || []);
     } catch (e) {

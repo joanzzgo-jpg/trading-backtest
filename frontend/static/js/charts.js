@@ -192,8 +192,10 @@ function syncTimeScales() {
   let hideTimer = null;
 
   function positionLines(time, fallbackX) {
-    // 主圖 x 作為時間標籤和 fallback
-    const mainX = mainChart.timeScale().timeToCoordinate(time) ?? fallbackX;
+    // 時間轉 x 座標；timeToCoordinate 只對「繪圖區內的時間」回座標 [0, plotW]。
+    // 往左滑時十字線時間捲出繪圖區 → 回 null，此時直接隱藏標籤（不可退回游標 x，
+    // 否則游標在右側價格軸區時，時間框會跑到右邊）。
+    const mainX = mainChart.timeScale().timeToCoordinate(time);
     if (mainX == null || mainX < 0) {
       lineEls.forEach(l => l.style.display = "none");
       timeLabel.style.display = "none";
