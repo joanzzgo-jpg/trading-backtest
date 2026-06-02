@@ -340,12 +340,19 @@ html, body {
 }
 .tb-icon-btn svg { transition: transform .15s cubic-bezier(.34,1.56,.64,1); }
 .tb-icon-btn:hover { background: var(--bg3); color: var(--text); transform: translateY(-1px); box-shadow: 0 3px 10px rgba(255,106,26,.18); }
-/* 懸停：icon 一點點重複「呼吸＋微擺」動畫 */
-.tb-icon-btn:hover svg { animation: tbIconPulse 1.15s ease-in-out infinite; }
+/* 懸停：icon 一點點重複「呼吸＋微擺」+ 色相循環上色（icon 用 currentColor → 動畫 color 即上色） */
+.tb-icon-btn:hover svg { animation: tbIconPulse 1.15s ease-in-out infinite, tbIconHue 2.4s linear infinite; }
 @keyframes tbIconPulse {
   0%, 100% { transform: scale(1.08) rotate(0deg); }
   35%      { transform: scale(1.2)  rotate(-4deg); }
   70%      { transform: scale(1.14) rotate(4deg); }
+}
+@keyframes tbIconHue {
+  0%   { color: #FF6A1A; }   /* 品牌橘 */
+  25%  { color: #ff5ea0; }   /* 粉 */
+  50%  { color: #ffc24d; }   /* 琥珀 */
+  75%  { color: #46c8ff; }   /* 青藍 */
+  100% { color: #FF6A1A; }
 }
 html.perf-mode .tb-icon-btn:hover svg { animation: none; transform: scale(1.1); }
 .tb-icon-btn:active { transform: translateY(0) scale(.94); }
