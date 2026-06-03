@@ -1926,7 +1926,8 @@
       '<div style="font-size:13px;font-weight:600;letter-spacing:.3px">'+city+_wd.temp+'°C　'+desc+'</div>'+
       '<div style="opacity:.68">風 '+(_wd.windDir==null?'':_dirName(_wd.windDir)+' ')+_wd.windSpeed+' km/h　雲量 '+_wd.cloudCover+'%</div>'+
       '<div style="opacity:.68">降雨 '+_wd.precip+' mm　能見度 '+vis+'</div>'+
-      '<div style="opacity:.38;font-size:10px">'+hm+' 更新　'+(_wd.source==='cwa'?'中央氣象署':'Open-Meteo')+'</div>';
+      '<div style="opacity:.38;font-size:10px">'+hm+' 更新　'+(_wd.source==='cwa'?'中央氣象署':'Open-Meteo')+
+        (window._wxGeoSrc ? '　📍'+window._wxGeoSrc+(window._wxGeoAcc?' ±'+window._wxGeoAcc+'m':'') : '')+'</div>';
     // 手機設定面板頂部天氣卡（#mSetWeather）：與浮動卡 #_wxCard 同資料；有溫度才顯示(.on)
     const _mw = document.getElementById('mSetWeather');
     if (_mw) {
@@ -1943,7 +1944,8 @@
           '<span>降雨　<b>'+_wd.precip+' mm</b></span>'+
           '<span>能見度　<b>'+vis+'</b></span>'+
         '</div>'+
-        '<div class="wx-foot">'+hm+' 更新　'+(_wd.source==='cwa'?'中央氣象署':'Open-Meteo')+'</div>';
+        '<div class="wx-foot">'+hm+' 更新　'+(_wd.source==='cwa'?'中央氣象署':'Open-Meteo')+
+          (window._wxGeoSrc ? '　📍'+window._wxGeoSrc+(window._wxGeoAcc?' ±'+window._wxGeoAcc+'m':'') : '')+'</div>';
     }
     // 開場首頁上方：依天氣 API 顯示所在地（城市 + 溫度 + 天氣）
     const _lloc = document.getElementById('landingLoc');
@@ -2138,14 +2140,15 @@
   const _ipFallback = (painted) => {
     fetch('/api/geoip').then(r => r.ok ? r.json() : null).then(g => {
       if (g && g.ok && g.lat != null && g.lon != null) {
-        _saveCoords(g.lat, g.lon); fetchWeather(g.lat, g.lon);
+        window._wxGeoSrc = 'IP約略'; window._wxGeoAcc = null;   // IP 粗定位：不寫入 wxCoords，避免污染 GPS 快取基準（先前會 IP→存快取→下次先畫IP→GPS超時又IP 惡性循環）
+        fetchWeather(g.lat, g.lon);
       } else if (!painted) {
-        fetchWeather(25.04, 121.51);                 // 連 IP 都查不到 → 台北預設
+        window._wxGeoSrc = 'IP查無·台北'; fetchWeather(25.04, 121.51);   // 連 IP 都查不到 → 台北預設
       }
-    }).catch(() => { if (!painted) fetchWeather(25.04, 121.51); });
+    }).catch(() => { if (!painted) { window._wxGeoSrc = 'IP失敗·台北'; fetchWeather(25.04, 121.51); } });
   };
   const _hasCache = _wxCoordCache && typeof _wxCoordCache === 'object' && _wxCoordCache.lat != null;
-  if (_hasCache) fetchWeather(_wxCoordCache.lat, _wxCoordCache.lon);   // ① 有快取先即時畫（免空白）
+  if (_hasCache) { window._wxGeoSrc = '快取'; fetchWeather(_wxCoordCache.lat, _wxCoordCache.lon); }   // ① 有快取先即時畫（免空白）
 
   // ② 取真實定位 — 用 Permissions API 避免「每次打開都跳權限詢問」：
   //    · 已授權(granted)  → 靜默 getCurrentPosition 刷新（不跳窗）→ 既精準又不打擾，移動換區也會更新
@@ -2153,28 +2156,15 @@
   //    · 未決定(prompt)   → 只在「第一次、且尚無快取」時問一次；之後不再每次問（用快取/IP），
   //                        使用者一旦允許就變 granted → 往後都靜默精準定位
   const _getPos = () => navigator.geolocation.getCurrentPosition(
-    p => { _saveCoords(p.coords.latitude, p.coords.longitude); fetchWeather(p.coords.latitude, p.coords.longitude); },
-    () => { try { localStorage.setItem('wxGeoAsked', '1'); } catch (e) {} _ipFallback(_hasCache); },
-    { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 }   // 高精度(GPS)→修「定位不準」；maxAge 5min→重複開啟用近期定位、免每次重抓(修「太慢」)
+    p => { window._wxGeoSrc = 'GPS'; window._wxGeoAcc = Math.round(p.coords.accuracy);   // 記來源/精度→天氣卡顯示，方便診斷
+           _saveCoords(p.coords.latitude, p.coords.longitude); fetchWeather(p.coords.latitude, p.coords.longitude); },
+    () => { _ipFallback(_hasCache); },                                  // 真的失敗(拒絕/逾時)才退 IP
+    { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }         // 高精度GPS；maxAge:0→不吃可能是IP的舊快取；timeout 20s 給 GPS 冷啟動時間
   );
-  let _asked = false; try { _asked = !!localStorage.getItem('wxGeoAsked'); } catch (e) {}
-  const _promptOnce = () => {
-    if (!_asked && !_hasCache) { try { localStorage.setItem('wxGeoAsked', '1'); } catch (e) {} _getPos(); }
-    else _ipFallback(_hasCache);          // 問過或已有快取 → 不再每次跳窗
-  };
-  if (!navigator.geolocation) {
-    _ipFallback(_hasCache);
-  } else if (navigator.permissions && navigator.permissions.query) {
-    navigator.permissions.query({ name: 'geolocation' }).then(st => {
-      if (st.state === 'granted')      _getPos();          // 靜默精準刷新
-      else if (st.state === 'denied')  _ipFallback(_hasCache);
-      else                             _promptOnce();      // prompt：不每次問
-    }).catch(_promptOnce);
-  } else {
-    // iOS 舊 Safari 等不支援 Permissions API：直接 getCurrentPosition。
-    // 修正：先前走 _promptOnce → 一旦 wxGeoAsked/有快取 就改吃 IP 粗定位（ip-api 城市級、行動網路常飄）
-    //       → 即使使用者「已授權 GPS」也永遠拿 IP 不準。改直接 _getPos：
-    //       已授權→靜默高精度定位(準)；已拒絕→error handler 轉 IP 後援；未決定→只在此時詢問一次。
-    _getPos();
-  }
+  // ② 一律直接 getCurrentPosition，不再用 Permissions API 查詢結果決策。
+  //    根因：iOS standalone PWA（加到主畫面）對 navigator.permissions.query 常誤報 denied/prompt，
+  //    導致「明明已授權卻被擋去走 IP 粗定位」→ 手機Safari/桌面 準、PWA 不準（本次 bug）。
+  //    getCurrentPosition 本身最可靠：已授權→靜默精準；已拒絕→error→IP 後援；未決定→詢問一次。
+  if (!navigator.geolocation) _ipFallback(_hasCache);
+  else                        _getPos();
 })();
