@@ -2520,34 +2520,52 @@ html.perf-mode .tk-seg {
   .topbar-tf {
     order: 10;
     flex: 0 0 100%;
-    height: 38px;
-    min-height: 38px;
+    height: 42px !important;
+    min-height: 42px;
     border-top: 1px solid var(--border);
-    overflow-x: auto;
+    overflow-x: hidden !important;   /* 依使用者要求：10 顆等分塞滿、不橫滑 */
     scrollbar-width: none;
     padding: 0;
   }
   .topbar-tf::-webkit-scrollbar { display: none; }
+  /* 手機時框＝下劃線分頁：全寬平鋪、無框/無竪線、選中橘字+底部橘線。
+     全用 !important 覆蓋桌面末段「iOS segmented 軌道膠囊」那組 !important（避免兩套設計打架）*/
   .topbar-tf .tf-group {
-    display: flex;
+    display: flex !important;
     width: 100%;
     height: 100%;
+    background: transparent !important;
+    border-radius: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    gap: 0 !important;
+    box-shadow: none !important;
   }
   .topbar-tf .tf-btn {
-    flex: 1;
-    height: 38px;
-    min-width: 40px;
-    font-size: 13px;
-    font-weight: 600;
-    padding: 0;
-    border-radius: 0;
-    border: none;
-    border-right: 1px solid var(--border);
+    flex: 1 1 0 !important;
+    height: 100% !important;
+    min-width: 0 !important;
+    padding: 0 !important;
+    font-size: 13px !important;
+    font-weight: 600 !important;
+    color: var(--muted) !important;
+    background: transparent !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    position: relative;
   }
-  .topbar-tf .tf-btn:last-child { border-right: none; }
   .topbar-tf .tf-btn.active {
+    color: var(--accent) !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+  /* 選中項：底部橘色指示線（比文字略窄、居中）*/
+  .topbar-tf .tf-btn.active::after {
+    content: '';
+    position: absolute; left: 18%; right: 18%; bottom: 0;
+    height: 2.5px; border-radius: 2px 2px 0 0;
     background: var(--accent);
-    color: #fff;
   }
 
   /* Hide logo & desktop-only elements on mobile */
@@ -3740,7 +3758,7 @@ html.perf-mode .tb-wr-total { font-size: 20px !important; }
 }
 
 @media (max-width: 768px) {
-  .topbar-tf .tf-btn { padding: 5px 8px; font-size: 11px; }
+  /* .tf-btn 尺寸統一在「下劃線分頁」區（移除此處 11px 殘留，曾覆蓋成過小字級）*/
   .topbar-right .tb-icon-btn { padding: 6px 8px; }
 }
 
@@ -3776,7 +3794,7 @@ html.perf-mode .tb-wr-total { font-size: 20px !important; }
   row-gap: 0;
 }
 @media (max-width: 768px) {
-  .topbar-tf .tf-btn { padding: revert; font-size: revert; }
+  /* .tf-btn 不再 revert（交給「下劃線分頁」區統一掌管）*/
   .topbar-right .tb-icon-btn { padding: revert; }
   .topbar { padding: revert !important; }
 }
@@ -5491,15 +5509,7 @@ body, button, input, select, textarea,
 
   /* ══ 手機：大部分東西固定不橫滑（依使用者要求）══ */
 
-  /* TF 時間框架列：10 顆按鈕等分塞滿、不再橫向滑動（固定全部可見） */
-  .topbar-tf { overflow-x: hidden !important; }
-  .topbar-tf .tf-group { width: 100% !important; }
-  .topbar-tf .tf-btn {
-    flex: 1 1 0 !important;
-    min-width: 0 !important;
-    font-size: 11px !important;
-    padding: 0 1px !important;
-  }
+  /* TF 時間框架列「10 顆等分塞滿、不橫滑」已整合進上方「下劃線分頁」區（單一來源，避免再被 11px 鎖死字級）*/
 
   /* K 棒資訊：把 開/高/低/收/量 標籤顯示回來（手機原本藏了標籤只剩裸數字），
      並允許換行（固定不橫滑），讓資訊一眼可讀 */
@@ -5525,8 +5535,8 @@ body, button, input, select, textarea,
   .ind-gear-btn { display: none !important; }
 
   /* ── 手機按鈕放大、好點（app 化）── */
-  .topbar-tf { height: 42px !important; }
-  .topbar-tf .tf-btn { font-size: 12.5px !important; height: 42px !important; }
+  /* 註：.topbar-tf / .tf-btn 的尺寸與外觀已統一收斂到上方「下劃線分頁」區，
+     不再於此重複覆寫，避免多處 !important 互相打架（先前「太醜」的根因）*/
   .topbar-right .tb-icon-btn { width: 40px !important; height: 40px !important; }
   .topbar-right .tb-icon-btn svg { width: 17px; height: 17px; }
   .m-tab { font-size: 11px; }
