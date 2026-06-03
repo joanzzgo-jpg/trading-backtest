@@ -1927,6 +1927,24 @@
       '<div style="opacity:.68">風 '+(_wd.windDir==null?'':_dirName(_wd.windDir)+' ')+_wd.windSpeed+' km/h　雲量 '+_wd.cloudCover+'%</div>'+
       '<div style="opacity:.68">降雨 '+_wd.precip+' mm　能見度 '+vis+'</div>'+
       '<div style="opacity:.38;font-size:10px">'+hm+' 更新　'+(_wd.source==='cwa'?'中央氣象署':'Open-Meteo')+'</div>';
+    // 手機設定面板頂部天氣卡（#mSetWeather）：與浮動卡 #_wxCard 同資料；有溫度才顯示(.on)
+    const _mw = document.getElementById('mSetWeather');
+    if (_mw) {
+      _mw.classList.add('on');
+      _mw.innerHTML =
+        '<div class="wx-top">'+
+          (_wd.city ? '<span class="wx-city">'+_wd.city+'</span>' : '')+
+          '<span class="wx-temp">'+_wd.temp+'°</span>'+
+          '<span class="wx-desc">'+desc+'</span>'+
+        '</div>'+
+        '<div class="wx-grid">'+
+          '<span>風　<b>'+(_wd.windDir==null?'':_dirName(_wd.windDir)+' ')+_wd.windSpeed+' km/h</b></span>'+
+          '<span>雲量　<b>'+_wd.cloudCover+'%</b></span>'+
+          '<span>降雨　<b>'+_wd.precip+' mm</b></span>'+
+          '<span>能見度　<b>'+vis+'</b></span>'+
+        '</div>'+
+        '<div class="wx-foot">'+hm+' 更新　'+(_wd.source==='cwa'?'中央氣象署':'Open-Meteo')+'</div>';
+    }
     // 開場首頁上方：依天氣 API 顯示所在地（城市 + 溫度 + 天氣）
     const _lloc = document.getElementById('landingLoc');
     if (_lloc && _wd.city) {                                       // 兩層：城市+天氣 / 溫度+降雨機率（雨滴符號）

@@ -5832,6 +5832,27 @@ html.landing-active .landing { background: transparent; }
   .m-set-lbl small { font-size: 12px; font-weight: 400; color: var(--muted); }
   .m-set-arr { flex: 0 0 auto; color: var(--muted); font-size: 22px; }
 
+  /* 手機版天氣資訊改放設定面板頂部天氣卡 → 不再自動跳出右下浮動字卡(#_wxCard)；桌面仍保留 */
+  #_wxCard { display: none !important; }
+
+  /* 頂部天氣卡：由 weather.js _renderWeatherCard 填值；無定位/無資料時不加 .on → 不顯示，避免空卡 */
+  .m-set-weather {
+    display: none; margin: 14px 14px 4px; padding: 13px 16px;
+    background: linear-gradient(135deg, rgba(255,160,90,.13), var(--bg3));
+    border: 1px solid var(--border); border-radius: 14px; color: var(--text);
+  }
+  .m-set-weather.on { display: block; }
+  .m-set-weather .wx-top { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .m-set-weather .wx-city { font-size: 15px; font-weight: 700; }
+  .m-set-weather .wx-temp { font-size: 26px; font-weight: 800; color: var(--accent); line-height: 1; }
+  .m-set-weather .wx-desc { font-size: 13px; color: var(--muted); }
+  .m-set-weather .wx-grid {
+    margin-top: 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 4px 14px;
+    font-size: 12.5px; color: var(--muted);
+  }
+  .m-set-weather .wx-grid b { color: var(--text); font-weight: 600; }
+  .m-set-weather .wx-foot { margin-top: 8px; font-size: 10.5px; color: var(--muted); opacity: .7; }
+
   /* 帳號列：顯示帳號名 + 登出鈕（不可整列點，只有登出鈕可點）*/
   .m-set-acct { cursor: default; }
   .m-set-acct:active { background: var(--bg2); }
