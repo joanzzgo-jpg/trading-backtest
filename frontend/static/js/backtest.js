@@ -109,6 +109,8 @@
                 <button data-v="both" class="on">多空</button><button data-v="long">只多</button><button data-v="short">只空</button></div></div>
             <div class="bt-row"><label>目標</label>
               <div class="bt-seg" id="btTgt"><button data-v="mid" class="on">中軌</button><button data-v="band">上/下軌</button></div></div>
+            <div class="bt-row"><label>止盈基準</label>
+              <div class="bt-seg" id="btTp"><button data-v="real" class="on">已實現</button><button data-v="est">預計止盈</button></div></div>
             <div class="bt-row"><label>止損緩衝%</label><input id="btBuf" type="number" value="0" min="0" max="10" step="0.1"></div>
             <div class="bt-row"><label>每筆風險%</label><input id="btRisk" type="number" value="2" min="0.1" max="100" step="0.5"></div>
             <div class="bt-row"><label>進場規則</label>
@@ -123,7 +125,7 @@
 
     ov.addEventListener("click", e => { if (e.target === ov) _close(); });
     ov.querySelector("#btClose").addEventListener("click", _close);
-    _bindSeg("btDir"); _bindSeg("btTgt"); _bindSeg("btRule");
+    _bindSeg("btDir"); _bindSeg("btTgt"); _bindSeg("btTp"); _bindSeg("btRule");
     ov.querySelector("#btRun").addEventListener("click", _run);
     _built = true;
   }
@@ -171,6 +173,7 @@
         target: _segVal("btTgt"),
         stop_buffer_pct: (parseFloat(document.getElementById("btBuf").value) || 0) / 100,
         risk_pct: (parseFloat(document.getElementById("btRisk").value) || 2) / 100,
+        tp_mode: _segVal("btTp") || "real",
         initial_capital: parseFloat(document.getElementById("btCap").value) || 100000,
         lookback_days: parseInt(document.getElementById("btLookback").value, 10) || 0,
         one_position: _segVal("btRule") === "single",
@@ -220,7 +223,7 @@
       <div class="bt-cards">${cards.map(c => `<div class="bt-card"><div class="v ${c.c}">${c.v}</div><div class="k">${c.k}</div></div>`).join("")}</div>
       <canvas class="bt-eq" id="btEq"></canvas>
       ${ruleLine ? `<div class="bt-hint">${ruleLine}</div>` : ""}
-      <div class="bt-hint">${s.from_date ? "回測自 " + s.from_date + "　" : ""}涵蓋 ${s.span ?? "—"}　最終淨值 ${(s.final_equity ?? 0).toLocaleString()}</div>
+      <div class="bt-hint">${d.tp_mode === "est" ? "止盈：預計（固定目標）　" : "止盈：已實現（動態）　"}${s.from_date ? "回測自 " + s.from_date + "　" : ""}涵蓋 ${s.span ?? "—"}　最終淨值 ${(s.final_equity ?? 0).toLocaleString()}</div>
       ${useLine ? `<div class="bt-hint">${useLine}</div>` : ""}
       ${_tradesTable(d.trades || [])}`;
     _drawEquity(d.equity_curve || []);

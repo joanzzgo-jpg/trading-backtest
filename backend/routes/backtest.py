@@ -37,6 +37,8 @@ class CrtBacktestRequest(BaseModel):
     stop_buffer_pct: float = 0.0
     initial_capital: float = 100_000   # 本金（使用者決定多少錢）
     risk_pct: float = 0.02     # 每筆交易風險佔資金比例（輸/止損 = -1R）
+    tp_mode: str = "real"      # 止盈基準：real=已實現(動態目標,勝負/盈虧比皆用實際出場,含號)
+                               #          est =預計止盈(進場固定目標,勝負=有沒有到est目標、盈虧比=預估值恆正)
     lookback_days: int = 0     # 回測期間（往前回測多久；0=全部可用歷史）
     one_position: bool = False # True=一次一筆（直到上一筆結算才接下一個訊號；跳過重疊）
     finmind_token: str = ""
@@ -61,11 +63,26 @@ def _fmt_dur(seconds: float) -> str:
     return f"{seconds / 60:.0f}分"
 
 
-def _simulate(picked, rkey, rrkey, otkey, init_cap, risk_pct, from_date):
-    """跑一遍資金模擬：定額風險、單利——每筆風險金額固定 = 初始本金 × risk_pct
-    （不隨資金增減複利）。盈虧用「已實現盈虧比」(rrkey，含號)：贏 +R、輸 -1R，
-    勝負依已實現 rr 是否 > 0 重新分類（動態目標漂到錯邊的『假贏』會變虧）。
+def _simulate(picked, rkey, rrkey, est_key, otkey, init_cap, risk_pct, tp_mode, from_date):
+    """跑一遍資金模擬：定額風險、單利——每筆風險金額固定 = 初始本金 × risk_pct（不複利）。
+    止盈基準 tp_mode：
+      real：已實現——勝負依「已實現 rr>0」、盈虧比＝實際出場(動態目標,含號)。
+      est ：預計止盈——勝負依「有沒有到進場固定目標」(est_r)、盈虧比＝預估值(恆正)；
+            無 est 的訊號(如 abc)退回已實現。
     回傳 (stats, trades, equity)。"""
+    def _score(s):
+        """回傳 (trade_r, win)。"""
+        if tp_mode == "est":
+            est = s.get(est_key)
+            if est in ("w", "l"):
+                win = est == "w"
+                return (float(s.get("rr") or 1.0) if win else -1.0), win
+            # 無 est（abc 等）→ 退回已實現
+        realized = s.get(rrkey)
+        if realized is None:
+            realized = float(s.get("rr") or 1.0) if s.get(rkey) == "w" else -1.0
+        return float(realized), float(realized) > 0
+
     cap = float(init_cap)
     risk_amt = float(init_cap) * risk_pct   # 單利：每筆固定金額（1R），以初始本金計、不複利
     trades, equity = [], []
@@ -79,13 +96,8 @@ def _simulate(picked, rkey, rrkey, otkey, init_cap, risk_pct, from_date):
     use_fracs = []     # 資金用量：每筆部位佔資金比例（風險% ÷ 風險距離%）
     hold_secs = []     # 持倉時間：進場→結算秒數
     for s in picked:
-        # 已實現盈虧比（含號）；取不到（舊資料）才退回預估(贏正/輸-1)
-        realized = s.get(rrkey)
-        if realized is None:
-            realized = float(s.get("rr") or 1.0) if s.get(rkey) == "w" else -1.0
-        trade_r = float(realized)
-        win = trade_r > 0          # 依「實際是否真的賺」判勝負（假贏→虧）
-        rr = trade_r               # 顯示用：已實現盈虧比（含號）
+        trade_r, win = _score(s)   # 依 tp_mode 取勝負與盈虧比（real=已實現／est=預計止盈）
+        rr = trade_r               # 顯示用：該筆盈虧比（real 含號／est 恆正）
         pnl = risk_amt * trade_r
         cap += pnl
         if win:
@@ -160,9 +172,11 @@ def run_crt_backtest(req: CrtBacktestRequest):
         raise HTTPException(400, f"勝率計算失敗: {e}")
 
     sigs = (wr or {}).get("signals") or []
-    rkey  = "r_b"       if req.target == "band" else "r"
-    otkey = "ot_b"      if req.target == "band" else "ot"
-    rrkey = "rr_b_real" if req.target == "band" else "rr_real"   # 已實現盈虧比（含號）
+    rkey   = "r_b"       if req.target == "band" else "r"
+    otkey  = "ot_b"      if req.target == "band" else "ot"
+    rrkey  = "rr_b_real" if req.target == "band" else "rr_real"   # 已實現盈虧比（含號）
+    estkey = "est_r_b"   if req.target == "band" else "est_r"     # 預計止盈：固定目標勝負
+    tp_mode = req.tp_mode if req.tp_mode in ("real", "est") else "real"
 
     want = req.signal
     if want.startswith("s") and want[1:].isdigit():
@@ -223,12 +237,13 @@ def run_crt_backtest(req: CrtBacktestRequest):
     # from_date 用實際首筆交易日（比資料起始日更精準；回測期間有限縮時也對得上）
     from_date = (picked[0].get("t") or "")[:10] if picked else (wr or {}).get("from_date")
 
-    stats, trades, equity = _simulate(picked, rkey, rrkey, otkey, req.initial_capital, risk_pct, from_date)
+    stats, trades, equity = _simulate(picked, rkey, rrkey, estkey, otkey, req.initial_capital, risk_pct, tp_mode, from_date)
 
     return {
         "stats":        stats,
         "trades":       trades,
         "equity_curve": equity,
+        "tp_mode":      tp_mode,
         "entry_rule":   "single" if req.one_position else "all",
         "n_all":        n_all,             # 該條件/期間內的全部訊號數
         "n_taken":      len(picked),       # 實際納入回測的筆數（一次一筆會少於 n_all）
