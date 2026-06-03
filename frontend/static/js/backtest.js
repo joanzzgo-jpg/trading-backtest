@@ -231,7 +231,14 @@
     if (!trades.length) return "";
     const recent = trades.slice(-30).reverse();
     const num = v => (v == null ? "—" : Math.round(v).toLocaleString());
-    const fmtT = iso => iso ? iso.slice(5, 16).replace("T", " ") : "—";   // "MM-DD HH:MM"
+    // 時間 +8（台灣時間，與圖表 toTime 一致）；後端時間戳為 UTC naive → 視為 UTC 再加 8 時
+    const fmtT = iso => {
+      if (!iso) return "—";
+      const d = new Date(iso.endsWith("Z") ? iso : iso + "Z");
+      d.setUTCHours(d.getUTCHours() + 8);
+      const p = n => String(n).padStart(2, "0");
+      return `${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`;
+    };
     const rows = recent.map(t => {
       const short = t.dir === "s", win = t.result === "win";
       const pnlPos = (t.pnl ?? 0) >= 0;

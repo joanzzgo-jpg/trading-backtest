@@ -396,6 +396,7 @@ function _renderWRSignals(signals) {
     ? toTime(replayData[replayIdx].time) : null;
 
   const allMarkers = [];
+  const entryByKey = new Map();   // "time|pos" → 合併同根同方向的進場標記（S4/S12 等常重疊，避免互相蓋住）
 
   for (const s of list) {
     const et = toTime(s.t);
@@ -436,10 +437,16 @@ function _renderWRSignals(signals) {
                  : k === "10"  ? (isShort ? "空¹⁰" : "多¹⁰")
                  : k === "11"  ? (isShort ? "空¹¹" : "多¹¹")
                  :                (isShort ? "空¹²" : "多¹²");
-    allMarkers.push({
-      time: et, position: isShort ? "aboveBar" : "belowBar",
-      color: eColor, shape: eShape, size: 1.2, text: eText,
-    });
+    // 同根同方向多個進場訊號（如 S4 與 S12 常落在同一根）→ 併成一個標記、標籤相連
+    // （空⁴ + ¹² → 空⁴¹²），保留第一個的色/形，避免箭頭互相蓋住而誤判「沒觸發」。
+    const ePos = isShort ? "aboveBar" : "belowBar";
+    const eKey = et + "|" + ePos;
+    const ePrev = entryByKey.get(eKey);
+    if (ePrev) {
+      ePrev.text += eText.slice(1);     // 去掉方向字首（空/多），只接上標數字
+    } else {
+      entryByKey.set(eKey, { time: et, position: ePos, color: eColor, shape: eShape, size: 1.2, text: eText });
+    }
 
     // ── 結果標記（在結算那根K棒上顯示 ✓ 或 ✗）──
     if (sr != null && sot) {
@@ -462,6 +469,9 @@ function _renderWRSignals(signals) {
       }
     }
   }
+
+  // 併好的進場標記加入
+  for (const em of entryByKey.values()) allMarkers.push(em);
 
   // Lightweight Charts 要求按時間升序排列
   allMarkers.sort((a, b) => a.time - b.time);
