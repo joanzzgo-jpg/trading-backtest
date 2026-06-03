@@ -2,12 +2,12 @@
 
 > 從 CLAUDE.md 拆出的 CRT 勝率與回測詳細參考。
 
-## 回測功能（兩種策略來源，2026-06）
-- **通用技術**：`/api/backtest`（routes/backtest.py `run_backtest`）→ 7 個內建策略 + 向量化引擎，用使用者給的起訖日抓資料。
-- **CRT 訊號(S1~S12)**：`/api/crt_backtest`（`run_crt_backtest`）→ **重用 `/api/crt_winrate` 已算好的 `signals`**
+## 回測功能（只有 CRT 訊號回測，2026-06）
+- **CRT 訊號(S1~S12)**：`/api/crt_backtest`（routes/backtest.py `run_crt_backtest`）→ **重用 `/api/crt_winrate` 已算好的 `signals`**
   （深歷史+1hr快取，不另抓），把選定訊號(或 all=S2~S11 合計，去重)的勝負序列 × 每筆預估盈虧比(`rr`)
   做資金模擬：每筆風險 `risk_pct`、win→+rr R、loss→-1R（複利）。支援 direction(多/空/both)、target(mid/band)、stop_buffer。
-- **前端**：`backtest.js` 的 📊 鈕開 modal（用目前圖表的標的/市場/交易所/時框），兩模式切換，結果顯示績效卡 + canvas 資金曲線。
+- **前端**：`backtest.js` 的 📊 鈕開 modal（用目前圖表的標的/市場/交易所/時框），結果顯示績效卡 + canvas 資金曲線 + 主圖進出場標記。📊 鈕在手機隱藏。
+- **已移除**：原「通用技術策略」（均線/RSI/MACD… 7 個內建策略 + `backtest/engine.py` 向量化引擎 + `/api/backtest` + `/api/strategies`）已於前端拿掉入口後一併刪除。當年它有兩個未修的 bug：① 路由 `df[col].where(notna(), None)` 在 float 欄位 None 會被還原成 NaN → Starlette `allow_nan=False` 回 500；② engine 做空帳務（`_open_short` 不扣款、`_close_all` 加回補成本而非損益）導致空單資金曲線錯。日後若要復活須一併修掉。
 
 ## 效能優化：後端勝率計算（`utils/crt.py`）
 - **時間戳向量化**：`times_iso = df["time"].to_numpy("datetime64[s]").astype(str).tolist()`，取代逐根 `_ts_val` + pandas 慢速 `__iter__`。tz-naive 秒精度下與 `.isoformat()` 完全一致，**省整體 ~30%**。

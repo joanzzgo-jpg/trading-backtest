@@ -323,12 +323,19 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         # 1:1 目標結果（止盈距離 = 止損距離）
         r_rr, ot_rr = _scan_rr(sig_key, direction, entry_i, stop_px)
         rr_out = "win" if r_rr == "w" else ("loss" if r_rr == "l" else None)
+        # 進場價（下一根開盤）→ 回測算「資金用量」用：部位佔資金 = 風險% ÷ (|進場-止損|/進場)
+        entry_px_rec = None
+        if 0 <= entry_i < n:
+            _ep = opens[entry_i]
+            if not math.isnan(_ep):
+                entry_px_rec = float(_ep)
         signals.append({
             "t": sig_time, "d": d_str, "k": sig_key,
             "r":   "w" if om == "win" else ("l" if om else None), "ot":   otm,
             "r_b": "w" if ob == "win" else ("l" if ob else None), "ot_b": otb,
             "r_rr": r_rr, "ot_rr": ot_rr,
             "stop": float(stop_px),   # 實際止損價（含 buffer、多棒取極值）→ 前端盈虧比盒/1:1 止盈用
+            "entry": entry_px_rec,    # 進場價（含 None＝末端未進場）
             "est_r":   est_r,
             "est_r_b": est_r_b,
             "rr": est_rr_val,

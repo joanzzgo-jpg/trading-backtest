@@ -7,10 +7,10 @@
    ══════════════════════════════════════════════════════════════ */
 (function () {
   let _built = false;
-  let _strategies = null;   // 通用策略 metadata（/api/strategies）
 
   const CRT_SIGNALS = [
     { v: "all", label: "合計（S2~S11）" },
+    { v: "all11", label: "綜合（S1~S11）" },
     { v: "abc", label: "S1 訊號一（ABC）" },
     { v: "ab",  label: "S2 訊號二（AB）" },
     { v: "s3",  label: "S3 訊號三" }, { v: "s4", label: "S4 訊號四" },
@@ -19,6 +19,10 @@
     { v: "s9",  label: "S9 訊號九" }, { v: "s10", label: "S10 訊號十" },
     { v: "s11", label: "S11 訊號十一" }, { v: "s12", label: "S12 訊號十二" },
   ];
+
+  // signal record 的 k（abc/ab/3~12）→ 顯示標籤（S1~S12）
+  const _SIG_LBL = { abc: "S1", ab: "S2" };
+  function _sigLabel(k) { return _SIG_LBL[k] || ("S" + k); }
 
   function _injectStyle() {
     if (document.getElementById("bt-style")) return;
@@ -37,10 +41,6 @@
     .bt-sym{font-size:12px;color:var(--muted,#999);margin-left:8px;font-weight:400}
     .bt-x{background:none;border:none;color:var(--muted,#999);font-size:18px;cursor:pointer;line-height:1;padding:4px 8px}
     .bt-body{padding:14px 16px;display:flex;flex-direction:column;gap:12px}
-    .bt-tabs{display:flex;gap:6px}
-    .bt-tab{flex:1;padding:8px;border-radius:8px;border:1px solid var(--border,#333);background:transparent;
-      color:var(--muted,#999);font-size:13px;font-weight:600;cursor:pointer}
-    .bt-tab.on{background:var(--accent,#FF6A1A);border-color:var(--accent,#FF6A1A);color:#fff}
     .bt-row{display:flex;align-items:center;gap:10px}
     .bt-row label{font-size:12.5px;color:var(--text,#eee);flex:0 0 84px}
     .bt-row select,.bt-row input{flex:1;background:var(--bg3,#111);border:1px solid var(--border,#333);
@@ -63,6 +63,15 @@
     .bt-eq{width:100%;height:140px;background:var(--bg3,#111);border:1px solid var(--border,#333);border-radius:9px}
     .bt-err{color:#ff7a7a;font-size:13px}
     .bt-overlay .btn-ripple-wave{display:none!important}
+    .bt-tbl-hd{font-size:11.5px;color:var(--muted,#999);margin-top:6px}
+    .bt-tblwrap{max-height:240px;overflow:auto;border:1px solid var(--border,#333);border-radius:8px;margin-top:4px;-webkit-overflow-scrolling:touch}
+    .bt-tbl{width:100%;border-collapse:collapse;font-size:11px}
+    .bt-tbl th{color:var(--muted,#999);font-weight:600;text-align:right;padding:5px 6px;white-space:nowrap;
+      position:sticky;top:0;background:var(--panel,#1b1b1f);border-bottom:1px solid var(--border,#333)}
+    .bt-tbl td{padding:3px 6px;text-align:right;white-space:nowrap;border-bottom:1px solid rgba(255,255,255,.05)}
+    .bt-tbl tr:last-child td{border-bottom:none}
+    .bt-tbl th:first-child,.bt-tbl td:first-child{text-align:left}
+    .bt-w{color:#26a69a}.bt-l{color:#ef5350}
     @media(max-width:768px){.bt-row label{flex-basis:72px;font-size:12px}}
     `;
     document.head.appendChild(s);
@@ -83,6 +92,18 @@
           <div id="btCrt">
             <div class="bt-row"><label>訊號</label>
               <select id="btCrtSig">${CRT_SIGNALS.map(s => `<option value="${s.v}">${s.label}</option>`).join("")}</select></div>
+            <div class="bt-row"><label>本金</label><input id="btCap" type="number" value="100000" min="1" step="1000"></div>
+            <div class="bt-row"><label>回測期間</label>
+              <select id="btLookback">
+                <option value="0">全部歷史</option>
+                <option value="1">近 24 小時</option>
+                <option value="7">近 1 週</option>
+                <option value="30">近 1 個月</option>
+                <option value="365">近 1 年</option>
+                <option value="730">近 2 年</option>
+                <option value="1095">近 3 年</option>
+                <option value="1825">近 5 年</option>
+              </select></div>
             <div class="bt-row"><label>方向</label>
               <div class="bt-seg" id="btDir">
                 <button data-v="both" class="on">多空</button><button data-v="long">只多</button><button data-v="short">只空</button></div></div>
@@ -90,7 +111,9 @@
               <div class="bt-seg" id="btTgt"><button data-v="mid" class="on">中軌</button><button data-v="band">上/下軌</button></div></div>
             <div class="bt-row"><label>止損緩衝%</label><input id="btBuf" type="number" value="0" min="0" max="10" step="0.1"></div>
             <div class="bt-row"><label>每筆風險%</label><input id="btRisk" type="number" value="2" min="0.1" max="100" step="0.5"></div>
-            <div class="bt-hint">用 CRT 訊號的勝負序列 × 每筆預估盈虧比模擬資金曲線（重用勝率引擎，深歷史）。</div>
+            <div class="bt-row"><label>進場規則</label>
+              <div class="bt-seg" id="btRule"><button data-v="all" class="on">全部訊號</button><button data-v="single">一次一筆</button></div></div>
+            <div class="bt-hint">用 CRT 訊號的勝負序列 × 每筆預估盈虧比模擬資金曲線（重用勝率引擎，深歷史）。定額風險、單利：每筆固定冒險「本金 × 每筆風險%」。</div>
           </div>
           <button class="bt-run" id="btRun">執行回測</button>
           <div class="bt-res" id="btRes" style="display:none"></div>
@@ -100,7 +123,7 @@
 
     ov.addEventListener("click", e => { if (e.target === ov) _close(); });
     ov.querySelector("#btClose").addEventListener("click", _close);
-    _bindSeg("btDir"); _bindSeg("btTgt");
+    _bindSeg("btDir"); _bindSeg("btTgt"); _bindSeg("btRule");
     ov.querySelector("#btRun").addEventListener("click", _run);
     _built = true;
   }
@@ -115,46 +138,11 @@
   }
   function _segVal(id) { return document.querySelector("#" + id + " button.on")?.dataset.v; }
 
-  function _setMode(mode) {
-    document.querySelectorAll(".bt-tab").forEach(t => t.classList.toggle("on", t.dataset.mode === mode));
-    document.getElementById("btCrt").style.display = mode === "crt" ? "" : "none";
-    document.getElementById("btGen").style.display = mode === "generic" ? "" : "none";
-    if (mode === "generic") _ensureStrategies();
-  }
-  function _curMode() { return document.querySelector(".bt-tab.on")?.dataset.mode || "crt"; }
-
-  async function _ensureStrategies() {
-    const sel = document.getElementById("btGenSel");
-    if (_strategies || !sel) return;
-    try {
-      const r = await fetch("/api/strategies");
-      _strategies = await r.json();
-      sel.innerHTML = Object.entries(_strategies).map(([k, v]) => `<option value="${k}">${v.name}</option>`).join("");
-      sel.addEventListener("change", _renderGenParams);
-      _renderGenParams();
-    } catch (e) { sel.innerHTML = `<option>載入失敗</option>`; }
-  }
-  function _renderGenParams() {
-    const sel = document.getElementById("btGenSel");
-    const box = document.getElementById("btGenParams");
-    if (!sel || !box || !_strategies) return;
-    const def = _strategies[sel.value];
-    box.innerHTML = (def?.params || []).map(p =>
-      `<div class="bt-row"><label>${p.label}</label><input class="bt-gp" data-key="${p.key}" type="number" value="${p.default}" min="${p.min ?? ""}" max="${p.max ?? ""}" step="${p.type === "float" ? "0.1" : "1"}"></div>`
-    ).join("");
-  }
-
   function _open() {
     _build();
     const sym = document.getElementById("symbolInput")?.value || "";
     const tf = (typeof currentTF !== "undefined" ? currentTF : "1d");
     document.getElementById("btSym").textContent = `${sym} · ${tf}`;
-    // 通用模式日期預設：近 2 年
-    const end = new Date(), start = new Date(); start.setFullYear(start.getFullYear() - 2);
-    const iso = d => d.toISOString().slice(0, 10);
-    const se = document.getElementById("btStart"), ee = document.getElementById("btEnd");
-    if (se && !se.value) se.value = iso(start);
-    if (ee && !ee.value) ee.value = iso(end);
     document.getElementById("btOverlay").classList.add("open");
   }
   function _close() { document.getElementById("btOverlay")?.classList.remove("open"); _clearTradeMarkers(); }
@@ -183,6 +171,9 @@
         target: _segVal("btTgt"),
         stop_buffer_pct: (parseFloat(document.getElementById("btBuf").value) || 0) / 100,
         risk_pct: (parseFloat(document.getElementById("btRisk").value) || 2) / 100,
+        initial_capital: parseFloat(document.getElementById("btCap").value) || 100000,
+        lookback_days: parseInt(document.getElementById("btLookback").value, 10) || 0,
+        one_position: _segVal("btRule") === "single",
       };
       const data = await _post("/api/crt_backtest", body);
       _renderResult(data);
@@ -215,13 +206,53 @@
       { k: "交易數", v: s.total_trades, c: "" },
       { k: "最大回撤", v: "-" + (s.max_drawdown ?? 0) + "%", c: "bad" },
       { k: "獲利因子", v: s.profit_factor ?? "—", c: (s.profit_factor >= 1) ? "good" : "bad" },
-      { k: (s.sharpe_ratio != null ? "夏普" : "平均R"), v: (s.sharpe_ratio != null ? s.sharpe_ratio : s.avg_r), c: "" },
+      { k: "平均R", v: s.avg_r ?? "—", c: "" },
+      { k: "資金用量(峰)", v: s.max_use != null ? s.max_use + "%" : "—", c: (s.max_use > 100) ? "bad" : "" },
+      { k: "平均持倉", v: s.avg_hold ?? "—", c: "" },
     ];
+    const useLine = (s.avg_use != null)
+      ? `資金用量 均${s.avg_use}% / 峰${s.max_use}%${s.max_use > 100 ? "（峰>100%需槓桿）" : ""}　持倉 均${s.avg_hold} / 最長${s.max_hold}`
+      : "";
+    const ruleLine = (d.entry_rule === "single")
+      ? `進場規則：一次一筆（${d.n_all}筆訊號中取${d.n_taken}筆不重疊，跳過${(d.n_all ?? 0) - (d.n_taken ?? 0)}筆）`
+      : "";
     res.innerHTML = `
       <div class="bt-cards">${cards.map(c => `<div class="bt-card"><div class="v ${c.c}">${c.v}</div><div class="k">${c.k}</div></div>`).join("")}</div>
       <canvas class="bt-eq" id="btEq"></canvas>
-      <div class="bt-hint">${s.from_date ? "回測自 " + s.from_date + "　" : ""}最終淨值 ${(s.final_equity ?? 0).toLocaleString()}</div>`;
+      ${ruleLine ? `<div class="bt-hint">${ruleLine}</div>` : ""}
+      <div class="bt-hint">${s.from_date ? "回測自 " + s.from_date + "　" : ""}涵蓋 ${s.span ?? "—"}　最終淨值 ${(s.final_equity ?? 0).toLocaleString()}</div>
+      ${useLine ? `<div class="bt-hint">${useLine}</div>` : ""}
+      ${_tradesTable(d.trades || [])}`;
     _drawEquity(d.equity_curve || []);
+  }
+
+  // 最近 30 筆交易明細（trades 依結算時間升冪 → 取末 30、反轉成最新在上）
+  function _tradesTable(trades) {
+    if (!trades.length) return "";
+    const recent = trades.slice(-30).reverse();
+    const num = v => (v == null ? "—" : Math.round(v).toLocaleString());
+    const fmtT = iso => iso ? iso.slice(5, 16).replace("T", " ") : "—";   // "MM-DD HH:MM"
+    const rows = recent.map(t => {
+      const short = t.dir === "s", win = t.result === "win";
+      const pnlPos = (t.pnl ?? 0) >= 0;
+      return `<tr>
+        <td>${fmtT(t.time)}</td>
+        <td>${_sigLabel(t.sig)}</td>
+        <td class="${short ? "bt-l" : "bt-w"}">${short ? "空" : "多"}</td>
+        <td class="${win ? "bt-w" : "bt-l"}">${win ? "✓" : "✗"}</td>
+        <td>${t.rr ?? "—"}</td>
+        <td class="${pnlPos ? "bt-w" : "bt-l"}">${pnlPos ? "+" : ""}${num(t.pnl)}</td>
+        <td>${t.use != null ? t.use + "%" : "—"}</td>
+        <td>${t.hold || "—"}</td>
+        <td>${num(t.equity)}</td>
+      </tr>`;
+    }).join("");
+    return `
+      <div class="bt-tbl-hd">最近 ${recent.length} 筆明細（新→舊）</div>
+      <div class="bt-tblwrap"><table class="bt-tbl">
+        <thead><tr><th>時間</th><th>訊號</th><th>向</th><th>結</th><th>R</th><th>損益</th><th>用量</th><th>持倉</th><th>淨值</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>`;
   }
 
   function _drawEquity(curve) {
@@ -240,7 +271,7 @@
     // 基準線
     ctx.strokeStyle = "rgba(255,255,255,.18)"; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
     ctx.beginPath(); ctx.moveTo(pad, y(base)); ctx.lineTo(W - pad, y(base)); ctx.stroke(); ctx.setLineDash([]);
-    // 資金曲線
+    // 資金曲線：依漲跌綠/紅、實線 + 填充
     const up = vals[vals.length - 1] >= base;
     ctx.strokeStyle = up ? "#26d07c" : "#ff6b6b"; ctx.lineWidth = 1.8;
     ctx.beginPath(); vals.forEach((v, i) => { const px = x(i), py = y(v); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); }); ctx.stroke();
@@ -257,11 +288,10 @@
       : (typeof ohlcvData !== "undefined" && ohlcvData.some(d => toTime(d.time) === sec));
     const m = [];
     for (const t of (trades || [])) {
-      const dir = t.dir || t.side;                 // CRT: s/l；通用: long/short
-      const isShort = dir === "s" || dir === "short";
-      const win = t.result === "win" || (t.pnl != null && t.pnl > 0);
-      const et = t.time || t.entry_time;           // CRT: time；通用: entry_time
-      const xt = t.exit || t.exit_time;
+      const isShort = t.dir === "s";               // CRT 訊號方向：s=空 / l=多
+      const win = t.result === "win";
+      const et = t.time;                           // 進場時間
+      const xt = t.exit;                           // 結算時間
       if (et) { const s = toTime(et); if (inChart(s)) m.push({ time: s, position: isShort ? "aboveBar" : "belowBar", color: isShort ? "#ef5350" : "#26a69a", shape: isShort ? "arrowDown" : "arrowUp", size: 1.3, text: isShort ? "空" : "多" }); }
       if (xt) { const s = toTime(xt); if (inChart(s)) m.push({ time: s, position: win ? (isShort ? "belowBar" : "aboveBar") : (isShort ? "aboveBar" : "belowBar"), color: win ? "#26a69a" : "#ef5350", shape: win ? (isShort ? "arrowDown" : "arrowUp") : (isShort ? "arrowUp" : "arrowDown"), size: 1.0, text: win ? "✓" : "✗" }); }
     }

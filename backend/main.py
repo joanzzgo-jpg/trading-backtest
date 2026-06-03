@@ -14,7 +14,6 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from routes.data import router as data_router
 from routes.search import router as search_router
-from routes.strategies import router as strategies_router
 from routes.backtest import router as backtest_router
 from routes.bear import router as bear_router
 from routes.weather import router as weather_router
@@ -189,7 +188,6 @@ def service_worker():
 
 app.include_router(data_router)
 app.include_router(search_router)
-app.include_router(strategies_router)
 app.include_router(backtest_router)
 app.include_router(bear_router)
 app.include_router(weather_router)
