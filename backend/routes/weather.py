@@ -558,7 +558,7 @@ def _in_japan(lat: float, lon: float) -> bool:
 
 
 async def _fetch_omt_pop(lat: float, lon: float):
-    """Open-Meteo 今日整天降雨機率 %（取當天各小時最大值；全球、免金鑰）。
+    """Open-Meteo 降雨機率 %：回 {"day": 今日整天最大, "now": 當地當前小時}（全球、免金鑰）。
     觀測源（CWA/HKO/JMA）多半沒有降雨機率 → 用這支補上。"""
     params = {"latitude": lat, "longitude": lon, "timezone": "auto",
               "hourly": "precipitation_probability", "forecast_days": 1}
@@ -568,9 +568,15 @@ async def _fetch_omt_pop(lat: float, lon: float):
             data = await r.json(content_type=None)
     probs = (data.get("hourly", {}) or {}).get("precipitation_probability", []) or []
     vals = [float(v) for v in probs if v is not None]      # 今日 24 小時各小時降雨機率
-    if not vals:
-        return None
-    return int(round(max(vals)))     # 整天最高降雨機率（符合一般「今日降雨機率」語意，非僅當前小時）
+    day = int(round(max(vals))) if vals else None          # 整天最高（一般「今日降雨機率」語意）
+    now = None                                             # 當地當前小時
+    if probs:
+        from datetime import datetime, timedelta
+        off = int(data.get("utc_offset_seconds", 0) or 0)
+        hr = (datetime.utcnow() + timedelta(seconds=off)).hour
+        v = probs[hr] if hr < len(probs) else probs[-1]
+        now = int(round(float(v))) if v is not None else None
+    return {"day": day, "now": now}
 
 
 _SUN_CACHE: dict = {}   # (rlat, rlon, date) -> {"rise","set","tz_off"}（當天天文日出日落）
@@ -679,10 +685,13 @@ async def weather(
         try: res = await _from_omt(lat, lon)
         except Exception as e:
             raise HTTPException(status_code=503, detail=f"天氣取得失敗：{e}")
-    # 補降雨機率（各源未提供時）
+    # 補降雨機率（各源未提供時）：今日整天最大(pop) + 當前小時(pop_now)
     if res.get("pop") is None:
-        try: res["pop"] = await _fetch_omt_pop(lat, lon)
-        except Exception: res["pop"] = None
+        try:
+            _p = await _fetch_omt_pop(lat, lon)
+            res["pop"] = _p.get("day"); res["pop_now"] = _p.get("now")
+        except Exception:
+            res["pop"] = None
     # 用 Open-Meteo 天文日出/日落（含真實時區/日光節約）校正各源；並回傳該地 UTC 偏移
     # 供前端用「當地真實時間」判斷日出日落（取代經度近似）。失敗則沿用 _sun_times_local。
     try:

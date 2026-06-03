@@ -1926,10 +1926,15 @@
       : '';
     const vis  = _wd.visibility >= 1000
       ? (_wd.visibility/1000).toFixed(1)+' km' : _wd.visibility+' m';
+    // 降雨機率：今日整天 + 當前小時兩值都顯示；浮動卡與設定面板天氣卡共用此行
+    const _popLine = (_wd.pop != null || _wd.popNow != null)
+      ? '降雨機率　'+(_wd.pop != null ? '今日 <b>'+_wd.pop+'%</b>' : '')+(_wd.popNow != null ? '　此刻 <b>'+_wd.popNow+'%</b>' : '')
+      : '';
     el.innerHTML =
       '<div style="font-size:13px;font-weight:600;letter-spacing:.3px">'+city+_wd.temp+'°C　'+desc+'</div>'+
       '<div style="opacity:.68">風 '+(_wd.windDir==null?'':_dirName(_wd.windDir)+' ')+_wd.windSpeed+' km/h　雲量 '+_wd.cloudCover+'%</div>'+
       '<div style="opacity:.68">降雨 '+_wd.precip+' mm　能見度 '+vis+'</div>'+
+      (_popLine ? '<div style="opacity:.68">'+_popLine+'</div>' : '')+
       '<div style="opacity:.38;font-size:10px">'+hm+' 更新　'+(_wd.source==='cwa'?'中央氣象署':'Open-Meteo')+
         (window._wxGeoSrc ? '　'+_PIN+window._wxGeoSrc+(window._wxGeoAcc?' ±'+window._wxGeoAcc+'m':'') : '')+'</div>';
     // 手機設定面板頂部天氣卡（#mSetWeather）：與浮動卡 #_wxCard 同資料；有溫度才顯示(.on)
@@ -1948,6 +1953,7 @@
           '<span>降雨　<b>'+_wd.precip+' mm</b></span>'+
           '<span>能見度　<b>'+vis+'</b></span>'+
         '</div>'+
+        (_popLine ? '<div class="wx-pop">'+_popLine+'</div>' : '')+
         '<div class="wx-foot">'+hm+' 更新　'+(_wd.source==='cwa'?'中央氣象署':'Open-Meteo')+
           (window._wxGeoSrc ? '　'+_PIN+window._wxGeoSrc+(window._wxGeoAcc?' ±'+window._wxGeoAcc+'m':'') : '')+'</div>';
     }
@@ -1955,9 +1961,10 @@
     const _lloc = document.getElementById('landingLoc');
     if (_lloc && _wd.city) {                                       // 兩層：城市+天氣 / 溫度+降雨機率（雨滴符號）
       const _pop = (_wd.pop != null) ? '　<span class="lloc-pop">' + _wd.pop + '%</span>' : '';
+      const _popN = (_wd.popNow != null) ? '<span class="lloc-pop-now" title="此刻降雨機率">' + _wd.popNow + '%</span>' : '';
       _lloc.innerHTML =
         '<span class="lloc-1">' + _wd.city + ' <span class="lloc-wx">' + desc + '</span></span>' +
-        '<span class="lloc-2">' + _wd.temp + '°C' + _pop + '</span>';
+        '<span class="lloc-2">' + _wd.temp + '°C' + _pop + _popN + '</span>';
     }
     // 大門上：國旗 + 草寫國名（在 .landing-stage 內 → 點門放大時隨門一起放大、鎖定畫面也保持顯示）
     const _lcountry = document.getElementById('landingCountry');
@@ -2000,7 +2007,8 @@
         _wd.cloudCover  = d.cloud_cover;
         _wd.windSpeed   = d.wind_speed;
         _wd.windDir     = (d.wind_dir == null) ? null : +d.wind_dir;  // 風向（度，來向）；缺則 null → 預設西南風
-        _wd.pop         = (d.pop == null) ? null : Math.round(+d.pop); // 降雨機率 %
+        _wd.pop         = (d.pop == null) ? null : Math.round(+d.pop);          // 今日整天降雨機率 %（各小時最大）
+        _wd.popNow      = (d.pop_now == null) ? null : Math.round(+d.pop_now);  // 當前小時降雨機率 %
         _wd.country     = d.country || null;                          // 英文國家名（首頁大門上草寫）
         _wd.visibility  = d.visibility;
         _wd.desc        = d.description || null;

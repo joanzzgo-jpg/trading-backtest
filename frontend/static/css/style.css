@@ -5689,6 +5689,13 @@ html.landing-active .landing { background: transparent; }
 .lloc-1 { font-size: clamp(17px, 2.6vw, 28px); font-weight: 700; }   /* 位置（城市）放大 */
 .lloc-wx { font-size: .62em; font-weight: 500; opacity: .82; margin-left: .15em; }  /* 天氣描述小字 */
 .lloc-2 { font-size: clamp(15px, 2.1vw, 23px); font-weight: 700; }
+/* 當前小時降雨機率：手繪時鐘符號（表「此刻」）+ %，與今日雨滴並列、一眼區分整天vs此刻 */
+.lloc-pop-now { display: inline-flex; align-items: center; gap: .14em; font-size: .6em; font-weight: 600; opacity: .82; margin-left: .5em; }
+.lloc-pop-now::before {
+  content: ""; flex: 0 0 auto; width: .98em; height: .98em;
+  background: no-repeat center / contain
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='8.3' fill='%23ffffff' stroke='%238a8a8a' stroke-width='1.4'/%3E%3Cpath d='M12 12 L12 7' fill='none' stroke='%238a8a8a' stroke-width='1.6' stroke-linecap='round'/%3E%3Cpath d='M12 12 L15.4 13.7' fill='none' stroke='%23b9b9b9' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+}
 /* 降雨機率：手繪雨滴符號（取代「降雨」二字） */
 .lloc-pop { display: inline-flex; align-items: center; gap: .12em; }   /* 雨滴與 % 垂直置中對齊 */
 .lloc-pop::before {
@@ -5861,6 +5868,8 @@ html.landing-active .landing { background: transparent; }
     font-size: 12.5px; color: var(--muted);
   }
   .m-set-weather .wx-grid b { color: var(--text); font-weight: 600; }
+  .m-set-weather .wx-pop { margin-top: 7px; font-size: 12.5px; color: var(--muted); }
+  .m-set-weather .wx-pop b { color: var(--accent); font-weight: 700; }
   .m-set-weather .wx-foot { margin-top: 8px; font-size: 10.5px; color: var(--muted); opacity: .7; }
 
   /* 帳號列：顯示帳號名 + 登出鈕（不可整列點，只有登出鈕可點）*/
