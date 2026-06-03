@@ -1989,8 +1989,7 @@
   }
 
   function fetchWeather(lat, lon) {
-    _wxLat = lat; _wxLon = lon;
-    if (!_wxTimer) _wxTimer = setInterval(() => fetchWeather(_wxLat, _wxLon), 30*60*1000);
+    _wxLat = lat; _wxLon = lon;   // 自動刷新計時器移到定位流程末尾（改為「重新定位+天氣」，見 _wxRefresh）
     fetch('/api/weather?lat='+lat+'&lon='+lon)
       .then(r => r.json())
       .then(d => {
@@ -2171,4 +2170,18 @@
   //    getCurrentPosition 本身最可靠：已授權→靜默精準；已拒絕→error→IP 後援；未決定→詢問一次。
   if (!navigator.geolocation) _ipFallback(_hasCache);
   else                        _getPos();
+
+  // 每 5 分鐘自動刷新：重新定位（移動換區→首頁/主圖的所在地與天氣都更新）+ 重抓天氣。
+  // 定位失敗 → 沿用上次座標只更新天氣（不退 IP、不把已準的所在地弄丟）。
+  // 刷新用 maximumAge:120000 允許 2 分鐘定位快取→省電；切到背景分頁時瀏覽器會自動暫停此計時器。
+  function _wxRefresh() {
+    if (!navigator.geolocation) { if (_wxLat != null) fetchWeather(_wxLat, _wxLon); return; }
+    navigator.geolocation.getCurrentPosition(
+      p => { window._wxGeoSrc = 'GPS'; window._wxGeoAcc = Math.round(p.coords.accuracy);
+             _saveCoords(p.coords.latitude, p.coords.longitude); fetchWeather(p.coords.latitude, p.coords.longitude); },
+      () => { if (_wxLat != null) fetchWeather(_wxLat, _wxLon); },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 120000 }
+    );
+  }
+  if (!_wxTimer) _wxTimer = setInterval(_wxRefresh, 5*60*1000);   // 預覽模式(?wxlat/?wxloc)已在上方 return，不會自動刷新
 })();
