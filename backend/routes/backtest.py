@@ -61,9 +61,11 @@ def _fmt_dur(seconds: float) -> str:
     return f"{seconds / 60:.0f}分"
 
 
-def _simulate(picked, rkey, otkey, init_cap, risk_pct, from_date):
+def _simulate(picked, rkey, rrkey, otkey, init_cap, risk_pct, from_date):
     """跑一遍資金模擬：定額風險、單利——每筆風險金額固定 = 初始本金 × risk_pct
-    （不隨資金增減複利；贏 +rr R、輸 -1R，R 為固定金額）。回傳 (stats, trades, equity)。"""
+    （不隨資金增減複利）。盈虧用「已實現盈虧比」(rrkey，含號)：贏 +R、輸 -1R，
+    勝負依已實現 rr 是否 > 0 重新分類（動態目標漂到錯邊的『假贏』會變虧）。
+    回傳 (stats, trades, equity)。"""
     cap = float(init_cap)
     risk_amt = float(init_cap) * risk_pct   # 單利：每筆固定金額（1R），以初始本金計、不複利
     trades, equity = [], []
@@ -77,9 +79,13 @@ def _simulate(picked, rkey, otkey, init_cap, risk_pct, from_date):
     use_fracs = []     # 資金用量：每筆部位佔資金比例（風險% ÷ 風險距離%）
     hold_secs = []     # 持倉時間：進場→結算秒數
     for s in picked:
-        win = s.get(rkey) == "w"
-        rr = float(s.get("rr") or 1.0)
-        trade_r = rr if win else -1.0
+        # 已實現盈虧比（含號）；取不到（舊資料）才退回預估(贏正/輸-1)
+        realized = s.get(rrkey)
+        if realized is None:
+            realized = float(s.get("rr") or 1.0) if s.get(rkey) == "w" else -1.0
+        trade_r = float(realized)
+        win = trade_r > 0          # 依「實際是否真的賺」判勝負（假贏→虧）
+        rr = trade_r               # 顯示用：已實現盈虧比（含號）
         pnl = risk_amt * trade_r
         cap += pnl
         if win:
@@ -154,8 +160,9 @@ def run_crt_backtest(req: CrtBacktestRequest):
         raise HTTPException(400, f"勝率計算失敗: {e}")
 
     sigs = (wr or {}).get("signals") or []
-    rkey  = "r_b"  if req.target == "band" else "r"
-    otkey = "ot_b" if req.target == "band" else "ot"
+    rkey  = "r_b"       if req.target == "band" else "r"
+    otkey = "ot_b"      if req.target == "band" else "ot"
+    rrkey = "rr_b_real" if req.target == "band" else "rr_real"   # 已實現盈虧比（含號）
 
     want = req.signal
     if want.startswith("s") and want[1:].isdigit():
@@ -216,7 +223,7 @@ def run_crt_backtest(req: CrtBacktestRequest):
     # from_date 用實際首筆交易日（比資料起始日更精準；回測期間有限縮時也對得上）
     from_date = (picked[0].get("t") or "")[:10] if picked else (wr or {}).get("from_date")
 
-    stats, trades, equity = _simulate(picked, rkey, otkey, req.initial_capital, risk_pct, from_date)
+    stats, trades, equity = _simulate(picked, rkey, rrkey, otkey, req.initial_capital, risk_pct, from_date)
 
     return {
         "stats":        stats,

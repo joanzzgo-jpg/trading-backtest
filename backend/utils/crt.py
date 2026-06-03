@@ -329,6 +329,25 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             _ep = opens[entry_i]
             if not math.isnan(_ep):
                 entry_px_rec = float(_ep)
+        # 已實現盈虧比（含號）：依「實際出場棒的目標價」算。動態中軌/帶軌會漂移，趨勢拖久時
+        # 出場目標可能漂到進場的錯邊 → 雖判 win 但實際是虧 → rr 為負。回測用此才貼近真實損益。
+        # 出場在止損 → -1R；未結算/取不到 → None。（omj/obj 為絕對出場索引）
+        rr_real = rr_b_real = None
+        if entry_px_rec is not None:
+            _risk = abs(entry_px_rec - stop_px)
+            if _risk > 1e-9:
+                def _rr_real(outcome, exit_idx, tgt_arr):
+                    if outcome == "loss":
+                        return -1.0
+                    if outcome != "win" or exit_idx is None or exit_idx < 0 or exit_idx >= n:
+                        return None
+                    xpx = tgt_arr[exit_idx]
+                    if math.isnan(xpx):
+                        return None
+                    rew = (entry_px_rec - xpx) if direction == "short" else (xpx - entry_px_rec)
+                    return round(rew / _risk, 3)
+                rr_real   = _rr_real(om, omj, bb_mid)
+                rr_b_real = _rr_real(ob, obj, bb_lo if direction == "short" else bb_up)
         signals.append({
             "t": sig_time, "d": d_str, "k": sig_key,
             "r":   "w" if om == "win" else ("l" if om else None), "ot":   otm,
@@ -338,7 +357,9 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             "entry": entry_px_rec,    # 進場價（含 None＝末端未進場）
             "est_r":   est_r,
             "est_r_b": est_r_b,
-            "rr": est_rr_val,
+            "rr": est_rr_val,         # 進場預估盈虧比（恆正，供前端 RR 盒/顯示）
+            "rr_real":   rr_real,     # 已實現盈虧比(中軌，含號)→ 回測用
+            "rr_b_real": rr_b_real,   # 已實現盈虧比(上下軌，含號)
         })
         _bump(mid_cnt,  sig_key, direction, om)
         _bump(band_cnt, sig_key, direction, ob)
