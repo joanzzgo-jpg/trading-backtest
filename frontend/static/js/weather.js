@@ -1899,6 +1899,10 @@
 
   function _renderWeatherCard() {
     if (_wd.temp == null) return;
+    // 手繪定位圖釘（取代 📍 emoji）：水滴 pin + 中心點，橘色 currentColor，套 #mSketch 手繪抖動→與設定面板手繪圖標同風格
+    const _PIN = '<svg viewBox="0 0 24 24" width="10" height="11" style="vertical-align:-1.5px;color:var(--accent);margin-right:2px" aria-hidden="true">'+
+      '<path d="M12 21.2C12 21.2 5.2 14.4 5.2 9.4 5.2 5.6 8.3 2.8 12 2.8 15.7 2.8 18.8 5.6 18.8 9.4 18.8 14.4 12 21.2 12 21.2Z" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" filter="url(#mSketch)"/>'+
+      '<circle cx="12" cy="9.2" r="2.3" fill="currentColor" filter="url(#mSketch)"/></svg>';
     let el = document.getElementById('_wxCard');
     if (!el) {
       el = document.createElement('div'); el.id = '_wxCard';
@@ -1927,7 +1931,7 @@
       '<div style="opacity:.68">風 '+(_wd.windDir==null?'':_dirName(_wd.windDir)+' ')+_wd.windSpeed+' km/h　雲量 '+_wd.cloudCover+'%</div>'+
       '<div style="opacity:.68">降雨 '+_wd.precip+' mm　能見度 '+vis+'</div>'+
       '<div style="opacity:.38;font-size:10px">'+hm+' 更新　'+(_wd.source==='cwa'?'中央氣象署':'Open-Meteo')+
-        (window._wxGeoSrc ? '　📍'+window._wxGeoSrc+(window._wxGeoAcc?' ±'+window._wxGeoAcc+'m':'') : '')+'</div>';
+        (window._wxGeoSrc ? '　'+_PIN+window._wxGeoSrc+(window._wxGeoAcc?' ±'+window._wxGeoAcc+'m':'') : '')+'</div>';
     // 手機設定面板頂部天氣卡（#mSetWeather）：與浮動卡 #_wxCard 同資料；有溫度才顯示(.on)
     const _mw = document.getElementById('mSetWeather');
     if (_mw) {
@@ -1945,7 +1949,7 @@
           '<span>能見度　<b>'+vis+'</b></span>'+
         '</div>'+
         '<div class="wx-foot">'+hm+' 更新　'+(_wd.source==='cwa'?'中央氣象署':'Open-Meteo')+
-          (window._wxGeoSrc ? '　📍'+window._wxGeoSrc+(window._wxGeoAcc?' ±'+window._wxGeoAcc+'m':'') : '')+'</div>';
+          (window._wxGeoSrc ? '　'+_PIN+window._wxGeoSrc+(window._wxGeoAcc?' ±'+window._wxGeoAcc+'m':'') : '')+'</div>';
     }
     // 開場首頁上方：依天氣 API 顯示所在地（城市 + 溫度 + 天氣）
     const _lloc = document.getElementById('landingLoc');
