@@ -558,7 +558,7 @@ def _in_japan(lat: float, lon: float) -> bool:
 
 
 async def _fetch_omt_pop(lat: float, lon: float):
-    """Open-Meteo 當前小時降雨機率 %（全球、免金鑰）。
+    """Open-Meteo 今日整天降雨機率 %（取當天各小時最大值；全球、免金鑰）。
     觀測源（CWA/HKO/JMA）多半沒有降雨機率 → 用這支補上。"""
     params = {"latitude": lat, "longitude": lon, "timezone": "auto",
               "hourly": "precipitation_probability", "forecast_days": 1}
@@ -567,13 +567,10 @@ async def _fetch_omt_pop(lat: float, lon: float):
         async with sess.get(OMT_URL, params=params) as r:
             data = await r.json(content_type=None)
     probs = (data.get("hourly", {}) or {}).get("precipitation_probability", []) or []
-    if not probs:
+    vals = [float(v) for v in probs if v is not None]      # 今日 24 小時各小時降雨機率
+    if not vals:
         return None
-    from datetime import datetime, timedelta
-    off = int(data.get("utc_offset_seconds", 0) or 0)
-    hr = (datetime.utcnow() + timedelta(seconds=off)).hour     # 當地當前小時
-    v = probs[hr] if hr < len(probs) else probs[-1]
-    return None if v is None else int(round(float(v)))
+    return int(round(max(vals)))     # 整天最高降雨機率（符合一般「今日降雨機率」語意，非僅當前小時）
 
 
 _SUN_CACHE: dict = {}   # (rlat, rlon, date) -> {"rise","set","tz_off"}（當天天文日出日落）
