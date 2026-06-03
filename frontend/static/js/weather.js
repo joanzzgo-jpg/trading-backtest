@@ -2155,7 +2155,7 @@
   const _getPos = () => navigator.geolocation.getCurrentPosition(
     p => { _saveCoords(p.coords.latitude, p.coords.longitude); fetchWeather(p.coords.latitude, p.coords.longitude); },
     () => { try { localStorage.setItem('wxGeoAsked', '1'); } catch (e) {} _ipFallback(_hasCache); },
-    { timeout: 8000, maximumAge: 600000 }
+    { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 }   // 高精度(GPS)→修「定位不準」；maxAge 5min→重複開啟用近期定位、免每次重抓(修「太慢」)
   );
   let _asked = false; try { _asked = !!localStorage.getItem('wxGeoAsked'); } catch (e) {}
   const _promptOnce = () => {
@@ -2171,6 +2171,10 @@
       else                             _promptOnce();      // prompt：不每次問
     }).catch(_promptOnce);
   } else {
-    _promptOnce();                                         // 不支援 Permissions API → 同樣不每次問
+    // iOS 舊 Safari 等不支援 Permissions API：直接 getCurrentPosition。
+    // 修正：先前走 _promptOnce → 一旦 wxGeoAsked/有快取 就改吃 IP 粗定位（ip-api 城市級、行動網路常飄）
+    //       → 即使使用者「已授權 GPS」也永遠拿 IP 不準。改直接 _getPos：
+    //       已授權→靜默高精度定位(準)；已拒絕→error handler 轉 IP 後援；未決定→只在此時詢問一次。
+    _getPos();
   }
 })();
