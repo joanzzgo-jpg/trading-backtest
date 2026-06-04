@@ -809,10 +809,12 @@ function _clearSnR() {
   _snrLines = [];
 }
 
-function _computeSnR(bars) {
-  // 用「收盤價」找擺動點（影線多為插針/掃損雜訊，收盤才是真正被接受/拒絕的價位）
+function _computeSnR(bars, maxIdx) {
+  // 用「收盤價」找擺動點（影線多為插針/掃損雜訊，收盤才是真正被接受/拒絕的價位）。
+  // maxIdx＝可見右緣：只用該根以前、且已確認(i+W<=maxIdx)的擺動點 → 向左捲動回看當時關卡。
   const W = _SNR_W, n = bars.length, hi = [], lo = [];
-  for (let i = W; i < n - W; i++) {
+  const end = (maxIdx == null ? n - 1 : Math.min(n - 1, maxIdx)) - W;
+  for (let i = W; i <= end; i++) {
     let isH = true, isL = true;
     for (let k = i - W; k <= i + W; k++) {
       if (bars[k].close > bars[i].close) isH = false;
@@ -854,15 +856,27 @@ function _majorSwings(bars, MW, startIdx, endIdx) {
   return { highs, lows };
 }
 
+// 目前「可見右緣」的 K 棒索引（向左捲動 → 變小 → 回看當時）
+function _snrRightIdx() {
+  if (typeof ohlcvData === "undefined" || !ohlcvData.length) return 0;
+  let ri = ohlcvData.length - 1;
+  try {
+    const vr = mainChart.timeScale().getVisibleLogicalRange();
+    if (vr) ri = Math.max(0, Math.min(ohlcvData.length - 1, Math.floor(vr.to)));
+  } catch (e) {}
+  return ri;
+}
+
 function _drawSnR() {
   _clearSnR();
   if (!_snrOn) return;
   if (typeof candleSeries === "undefined" || !candleSeries) return;
   if (typeof ohlcvData === "undefined" || ohlcvData.length < 2 * _SNR_W + 5) return;
   const bars = ohlcvData;
-  const lastClose = bars[bars.length - 1].close;
-  for (const lv of _computeSnR(bars)) {
-    const isRes = lv.price >= lastClose;            // 在現價上方＝壓力，下方＝支撐
+  const rightIdx = _snrRightIdx();
+  const refClose = bars[Math.min(rightIdx, bars.length - 1)].close;   // 以右緣當下收盤判壓/撐
+  for (const lv of _computeSnR(bars, rightIdx)) {
+    const isRes = lv.price >= refClose;             // 在當時現價上方＝壓力，下方＝支撐
     try {
       _snrLines.push(candleSeries.createPriceLine({
         price: lv.price,
@@ -874,8 +888,8 @@ function _drawSnR() {
       }));
     } catch (e) {}
   }
-  // 前高/前低：最近的「主要」擺動高/低（大視窗）→ 粗實線、明確標籤
-  const ms = _majorSwings(bars, _SNR_MW);
+  // 前高/前低：右緣以前最近的「主要」擺動高/低（大視窗）→ 粗實線、明確標籤
+  const ms = _majorSwings(bars, _SNR_MW, undefined, rightIdx);
   if (ms.highs.length) {
     const h = ms.highs[ms.highs.length - 1].price;
     try { _snrLines.push(candleSeries.createPriceLine({ price: h, color: "rgba(239,83,80,0.95)", lineWidth: 2, lineStyle: 0, axisLabelVisible: true, title: "前高" })); } catch (e) {}
@@ -895,9 +909,7 @@ function _drawSnRTrendlines(W, H) {
   const bars = ohlcvData;
   const ts = mainChart.timeScale();
   // 只用「可見右緣」以前的 K 棒算擺動點 → 向左捲動＝回到當時、新棒尚未出現時的趨勢線
-  let rightIdx = bars.length - 1;
-  const vr = ts.getVisibleLogicalRange();
-  if (vr) rightIdx = Math.max(0, Math.min(bars.length - 1, Math.floor(vr.to)));
+  const rightIdx = _snrRightIdx();
   const ms = _majorSwings(bars, _SNR_MW, rightIdx - 300, rightIdx);   // 近300根內找趨勢結構
   const proj = (pt) => {
     const x = ts.timeToCoordinate(toTime(bars[pt.i].time));
@@ -926,8 +938,22 @@ function _drawSnRTrendlines(W, H) {
 }
 function refreshSnR() {                               // 換標的/時框後由 renderAll 呼叫重畫
   if (!_snrOn) return;
+  _snrLastRightIdx = -1;                             // 強制重算
   _drawSnR();
+  _snrLastRightIdx = _snrRightIdx();
   requestAnimationFrame(renderDrawings);             // 趨勢線（畫布）也重畫
+}
+
+// 平移/縮放時節流重畫水平 S/R：用 rAF 合併、且只在「右緣換棒」時才重建 priceLine（避免閃爍/吃效能）
+let _snrLastRightIdx = -1;
+let _snrRaf = 0;
+function _snrOnRangeChange() {
+  if (!_snrOn || _snrRaf) return;
+  _snrRaf = requestAnimationFrame(() => {
+    _snrRaf = 0;
+    const ri = _snrRightIdx();
+    if (ri !== _snrLastRightIdx) { _snrLastRightIdx = ri; _drawSnR(); }
+  });
 }
 
 function initSnR() {
@@ -935,11 +961,14 @@ function initSnR() {
   if (!btn) return;
   try { _snrOn = localStorage.getItem("snrLevels") === "1"; } catch (e) {}
   btn.classList.toggle("active", _snrOn);
-  if (_snrOn) _drawSnR();
+  if (_snrOn) { _drawSnR(); _snrLastRightIdx = _snrRightIdx(); }
+  // 平移/縮放 → 右緣變化就重算水平 S/R（前高/前低也跟著回看當時）
+  try { mainChart.timeScale().subscribeVisibleLogicalRangeChange(_snrOnRangeChange); } catch (e) {}
   btn.addEventListener("click", () => {
     _snrOn = !_snrOn;
     try { localStorage.setItem("snrLevels", _snrOn ? "1" : "0"); } catch (e) {}
     btn.classList.toggle("active", _snrOn);
+    _snrLastRightIdx = _snrRightIdx();
     _drawSnR();
     requestAnimationFrame(renderDrawings);           // 趨勢線（畫布）開關時立即重畫
   });
