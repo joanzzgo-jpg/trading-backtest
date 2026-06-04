@@ -136,6 +136,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   if (typeof initSessionToggle === "function") initSessionToggle();  // 交易時段標記開關
   if (typeof initSnR === "function") initSnR();                      // 支撐壓力 SnR 水平線開關
   if (typeof initICT === "function") initICT();                      // ICT 工具開關（FVG/結構/掃損）
+  if (typeof initICT2022 === "function") initICT2022();              // ICT 2022 模型開關
   window.addEventListener("beforeunload", () => { saveLastSymbol(); });
 
   // 手機底部分頁：切換 圖表 / 勝率 / 自選 三個畫面（用 body class 控制各畫面顯示）

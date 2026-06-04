@@ -994,6 +994,8 @@ function renderDrawings() {
   if (typeof _drawSnRBaseline === "function") _drawSnRBaseline(W, H);
   // ICT 工具（FVG / BOS·CHoCH / 流動性掃損）
   if (typeof _drawICT === "function") _drawICT(W, H);
+  // ICT 2022 模型（成形 setup：進場/止損/目標）
+  if (typeof _drawICT2022 === "function") _drawICT2022(W, H);
 
   // Draw non-selected first, then hovered, then selected on top
   drawings.filter(d => d.id !== selectedId && d.id !== hoveredId).forEach(d => drawOne(d, W, H, false, false));

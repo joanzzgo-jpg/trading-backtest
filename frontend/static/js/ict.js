@@ -15,13 +15,46 @@ function _ictData() {
   const bars = ohlcvData;
   const key = bars.length + "|" + bars[bars.length - 1].time + "|" + bars[0].time;
   if (_ictCache.key === key && _ictCache.data) return _ictCache.data;
+  const fvg = _computeFVG(bars), sweeps = _computeSweeps(bars);
   const data = {
-    fvg:     _computeFVG(bars),
-    events:  _computeStructure(bars),
-    sweeps:  _computeSweeps(bars),
+    fvg, sweeps,
+    events: _computeStructure(bars),
+    model:  _computeICT2022(bars, fvg, sweeps),   // ICT 2022 模型 setup
   };
   _ictCache = { key, data };
   return data;
+}
+
+// ── ICT 2022 模型：掃流動性 → 反向位移留 FVG → 回補 FVG 進場、止損放被掃端、目標打對向 ──
+function _computeICT2022(bars, fvgs, sweeps) {
+  const GAP = 6, LOOK = 20, out = [];
+  for (const s of sweeps) {
+    const j = s.idx;
+    if (s.dir === "H") {                                  // 掃買方流動性(舊高) → 找空單
+      const f = fvgs.find(g => g.dir === -1 && g.i > j && g.i <= j + GAP);   // 反向(空)位移 FVG
+      if (!f) continue;
+      let stop = bars[j].high;
+      for (let k = j; k <= f.i; k++) stop = Math.max(stop, bars[k].high);    // 止損=被掃端最高
+      const entry = (f.lo + f.hi) / 2, risk = stop - entry;
+      if (risk <= 0) continue;
+      let tgt = entry - risk * 2, lowest = Infinity;                          // 預設 2R
+      for (let k = Math.max(0, f.i - LOOK); k < f.i; k++) lowest = Math.min(lowest, bars[k].low);
+      if (lowest < tgt) tgt = lowest;                                         // 對向流動性更遠就用它
+      out.push({ dir: -1, sweepIdx: j, fvg: f, entry, stop, target: tgt });
+    } else {                                              // 掃賣方流動性(舊低) → 找多單
+      const f = fvgs.find(g => g.dir === 1 && g.i > j && g.i <= j + GAP);
+      if (!f) continue;
+      let stop = bars[j].low;
+      for (let k = j; k <= f.i; k++) stop = Math.min(stop, bars[k].low);
+      const entry = (f.lo + f.hi) / 2, risk = entry - stop;
+      if (risk <= 0) continue;
+      let tgt = entry + risk * 2, highest = -Infinity;
+      for (let k = Math.max(0, f.i - LOOK); k < f.i; k++) highest = Math.max(highest, bars[k].high);
+      if (highest > tgt) tgt = highest;
+      out.push({ dir: 1, sweepIdx: j, fvg: f, entry, stop, target: tgt });
+    }
+  }
+  return out;
 }
 
 // ── FVG（失衡缺口）：bullish = 前棒high < 後棒low；bearish = 前棒low > 後棒high ──
@@ -162,7 +195,65 @@ function _drawICT(W, H) {
   }
 }
 
-function refreshICT() { _ictCache.key = ""; if (_ictOn) requestAnimationFrame(renderDrawings); }
+// ── ICT 2022 模型繪製：進場 FVG 框 + 止損/目標線 + 標籤（只畫最近 ~5 個 setup）──
+let _ict22On = false;
+function _drawICT2022(W, H) {
+  if (!_ict22On) return;
+  if (typeof mainChart === "undefined" || typeof candleSeries === "undefined" || !candleSeries) return;
+  const d = _ictData();
+  if (!d || !d.model) return;
+  const bars = ohlcvData, ts = mainChart.timeScale();
+  const X = (idx) => ts.timeToCoordinate(toTime(bars[idx].time));
+  const Y = (p) => candleSeries.priceToCoordinate(p);
+  for (const m of d.model.slice(-5)) {
+    const f = m.fvg;
+    let xs = X(f.i); if (xs == null) xs = 0;
+    const xEnd = Math.min(W, xs + 120);              // 線往右延伸一段
+    const yE = Y(m.entry), yS = Y(m.stop), yT = Y(m.target);
+    const yTop = Y(f.hi), yBot = Y(f.lo);
+    if (yE == null || yS == null || yT == null) continue;
+    const long = m.dir === 1;
+    drawCtx.save();
+    // 進場 FVG 區（較醒目）
+    if (yTop != null && yBot != null) {
+      drawCtx.fillStyle = long ? "rgba(38,166,154,0.22)" : "rgba(239,83,80,0.22)";
+      drawCtx.fillRect(xs, yTop, xEnd - xs, yBot - yTop);
+      drawCtx.strokeStyle = long ? "#26a69a" : "#ef5350"; drawCtx.lineWidth = 1.2;
+      drawCtx.strokeRect(xs, yTop, xEnd - xs, yBot - yTop);
+    }
+    // 止損(紅) / 目標(綠) 水平線
+    drawCtx.setLineDash([4, 3]); drawCtx.lineWidth = 1;
+    drawCtx.strokeStyle = "rgba(239,83,80,0.9)";
+    drawCtx.beginPath(); drawCtx.moveTo(xs, yS); drawCtx.lineTo(xEnd, yS); drawCtx.stroke();
+    drawCtx.strokeStyle = "rgba(38,208,124,0.9)";
+    drawCtx.beginPath(); drawCtx.moveTo(xs, yT); drawCtx.lineTo(xEnd, yT); drawCtx.stroke();
+    drawCtx.setLineDash([]);
+    // 標籤
+    drawCtx.fillStyle = long ? "#26a69a" : "#ef5350"; drawCtx.font = "bold 10px sans-serif";
+    drawCtx.fillText(long ? "2022多" : "2022空", xs + 2, (yTop + yBot) / 2 + 3);
+    drawCtx.fillStyle = "rgba(239,83,80,0.95)"; drawCtx.font = "8px sans-serif";
+    drawCtx.fillText("SL", xEnd - 14, yS + (long ? 9 : -3));
+    drawCtx.fillStyle = "rgba(38,208,124,0.95)";
+    drawCtx.fillText("TP", xEnd - 14, yT + (long ? -3 : 9));
+    drawCtx.restore();
+  }
+}
+
+function initICT2022() {
+  const btn = document.getElementById("ict22ToggleBtn");
+  if (!btn) return;
+  try { _ict22On = localStorage.getItem("ict2022") === "1"; } catch (e) {}
+  btn.classList.toggle("active", _ict22On);
+  btn.addEventListener("click", () => {
+    _ict22On = !_ict22On;
+    try { localStorage.setItem("ict2022", _ict22On ? "1" : "0"); } catch (e) {}
+    btn.classList.toggle("active", _ict22On);
+    requestAnimationFrame(renderDrawings);
+  });
+}
+window.initICT2022 = initICT2022;
+
+function refreshICT() { _ictCache.key = ""; if (_ictOn || _ict22On) requestAnimationFrame(renderDrawings); }
 
 function initICT() {
   const btn = document.getElementById("ictToggleBtn");
