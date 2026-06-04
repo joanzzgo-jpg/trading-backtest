@@ -714,7 +714,12 @@ function _drawSessionOverlay(W, H) {
   // 往兩側多算一段 buffer（涵蓋一個完整盤，最長 4h；5m=48 根）→ 邊緣盤的高低/標籤穩定，
   // 平移時不會因「最左根一直變」而閃。off-screen 的部分畫布會自然裁掉。
   const BUF = 64;
-  const from = Math.max(0, vFrom - BUF), to = Math.min(_len - 1, vTo + BUF);
+  const from = Math.max(0, vFrom - BUF);
+  let to = Math.min(_len - 1, vTo + BUF);
+  // 重播模式：ohlcvData 仍是全量、但圖上只到 replayIdx → 只算到「已揭曉」那根，
+  // 不把未來棒算進來（否則當前盤 run 延到未來棒、其座標為 null，flush 會整塊畫不出；也避免用未來資料）。
+  if (typeof replayActive !== "undefined" && replayActive && typeof replayIdx === "number")
+    to = Math.min(to, replayIdx);
   const half = (W / Math.max(1, vr.to - vr.from)) / 2;   // 半根 K 寬，讓條覆蓋到 K 邊緣
   // 裁切到繪圖區寬度（扣掉右側價格軸）→ 色塊/高低線/星期標籤平移到右側時不會蓋到右側價格軸
   let plotW = W;
@@ -752,6 +757,24 @@ function _drawSessionOverlay(W, H) {
     if (sess !== runSess) { flush(i - 1); runStart = i; runSess = sess; }
   }
   flush(to);
+
+  // ④ 各盤「開盤」標記：該盤第一根 K（8:00台股 / 14:00歐洲 / 20:00美盤）一出現就標，
+  //    不必等整盤收完。判定＝這根是某盤、且「真實前一根」不同盤（避免畫面左緣誤判開盤）。
+  drawCtx.save();
+  drawCtx.font = "bold 11px sans-serif"; drawCtx.textAlign = "left";
+  for (let i = Math.max(1, from); i <= to; i++) {
+    const sess = _sessionOf(ohlcvData[i].time);
+    if (!sess || _sessionOf(ohlcvData[i - 1].time) === sess) continue;   // 非該盤、或不是開盤那根
+    const x = ts.timeToCoordinate(toTime(ohlcvData[i].time));
+    if (x == null || x < 0 || x > plotW) continue;
+    const xL = x - half;
+    drawCtx.strokeStyle = _SESSION_LINE[sess]; drawCtx.lineWidth = 1; drawCtx.globalAlpha = 0.45;
+    drawCtx.beginPath(); drawCtx.moveTo(xL, 0); drawCtx.lineTo(xL, H); drawCtx.stroke();   // 開盤全高直線
+    drawCtx.globalAlpha = 1;
+    drawCtx.fillStyle = _SESSION_LINE[sess];
+    drawCtx.fillText(_SESSION_NAME[sess], xL + 3, 30);                                      // 盤名（星期列下方）
+  }
+  drawCtx.restore();
 
   // ③ 星期標籤：日期變動的那根 K 棒上方標「週X」
   drawCtx.save();

@@ -376,6 +376,9 @@ function _replayRender() {
   document.getElementById("replayProgressBar").style.width = pct + "%";
   document.getElementById("replayProgress").textContent = pct + "%";
   document.getElementById("replayScrubber").value = replayIdx;
+
+  // 重畫疊加層 → 三盤色塊/開盤標記隨重播逐根長大（_setRange 雖會觸發，這裡明確再保險一次）。
+  if (typeof renderDrawings === "function") requestAnimationFrame(renderDrawings);
 }
 
 function replayPlay() {
