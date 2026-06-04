@@ -801,7 +801,7 @@ let _snrOn = false;
 let _snrLines = [];               // candleSeries.createPriceLine 物件
 const _SNR_W = 3;                 // 擺動視窗（左右各 N 根）
 const _SNR_CLUSTER = 0.004;       // 價格相近 0.4% 內視為同一條
-const _SNR_MAX = 14;              // 最多畫幾條（取觸碰數最強）
+const _SNR_MAX = 30;              // 最多畫幾條（取觸碰數最強；含畫面外的強歷史關卡，捲到就看得到）
 
 function _clearSnR() {
   if (typeof candleSeries === "undefined" || !candleSeries) { _snrLines = []; return; }
@@ -832,8 +832,8 @@ function _computeSnR(bars, maxIdx) {
   }
   let strong = clusters.filter(c => c.n >= 2);     // ≥2 次觸碰＝較有效
   if (strong.length < 4) strong = clusters.slice(); // 太少就全放
-  strong.sort((a, b) => b.n - a.n);
-  return strong.slice(0, _SNR_MAX).map(c => ({ price: c.sum / c.n, touches: c.n }));
+  strong.sort((a, b) => b.n - a.n);                 // 依觸碰數由強到弱（數量由 _drawSnR 取）
+  return strong.map(c => ({ price: c.sum / c.n, touches: c.n }));
 }
 
 // 主要擺動點（大視窗 MW，左右各 MW 根都沒超過）→ 前高/前低與趨勢線用
@@ -908,8 +908,8 @@ function _drawSnR() {
   if (typeof ohlcvData === "undefined" || ohlcvData.length < 2 * _SNR_W + 5) return;
   const bars = ohlcvData;
   const rightIdx = _snrRightIdx();
-  const refClose = bars[Math.min(rightIdx, bars.length - 1)].close;   // 以右緣當下收盤判壓/撐
-  for (const lv of _computeSnR(bars, rightIdx)) {
+  const refClose = bars[Math.min(rightIdx, bars.length - 1)].close;   // 以基準線當下收盤判壓/撐
+  for (const lv of _computeSnR(bars, rightIdx).slice(0, _SNR_MAX)) {
     const isRes = lv.price >= refClose;             // 在當時現價上方＝壓力，下方＝支撐
     try {
       _snrLines.push(candleSeries.createPriceLine({
@@ -917,8 +917,8 @@ function _drawSnR() {
         color: isRes ? "rgba(239,83,80,0.62)" : "rgba(38,166,154,0.62)",
         lineWidth: Math.min(3, lv.touches),
         lineStyle: 2,                               // 虛線
-        axisLabelVisible: true,
-        title: (isRes ? "壓" : "撐") + (lv.touches >= 3 ? "×" + lv.touches : ""),
+        axisLabelVisible: lv.touches >= 3,          // 只強關卡上軸標籤，減少雜亂
+        title: (isRes ? "壓" : "撐") + "×" + lv.touches,
       }));
     } catch (e) {}
   }
@@ -942,16 +942,17 @@ function refreshSnR() {                               // 換標的/時框後由 
   requestAnimationFrame(renderDrawings);             // 趨勢線（畫布）也重畫
 }
 
-// 平移/縮放時節流重畫水平 S/R：用 rAF 合併、且只在「右緣換棒」時才重建 priceLine（避免閃爍/吃效能）
+// 平移/縮放時重畫水平 S/R：debounce 120ms（平移當下不重建線、停下才更新），
+// 且只在「基準線下方換棒」時才重建 priceLine（避免閃爍/吃效能）。
 let _snrLastRightIdx = -1;
-let _snrRaf = 0;
+let _snrTimer = 0;
 function _snrOnRangeChange() {
-  if (!_snrOn || _snrRaf) return;
-  _snrRaf = requestAnimationFrame(() => {
-    _snrRaf = 0;
+  if (!_snrOn) return;
+  clearTimeout(_snrTimer);
+  _snrTimer = setTimeout(() => {
     const ri = _snrRightIdx();
     if (ri !== _snrLastRightIdx) { _snrLastRightIdx = ri; _drawSnR(); }
-  });
+  }, 120);
 }
 
 function initSnR() {
