@@ -856,15 +856,49 @@ function _majorSwings(bars, MW, startIdx, endIdx) {
   return { highs, lows };
 }
 
-// 目前「可見右緣」的 K 棒索引（向左捲動 → 變小 → 回看當時）
+// SnR 基準垂直線的螢幕 X（CSS px，相對主圖容器）＝對齊時框列 8H 與 4H 之間的中點。
+// 固定螢幕位置；平移時線下方的 K 棒會換 → SnR 截止點跟著換（以這條線當「現在」）。
+function _snrBaseX() {
+  const b8 = document.querySelector('.tf-btn[data-tf="8h"]');
+  const b4 = document.querySelector('.tf-btn[data-tf="4h"]');
+  const chartEl = document.getElementById("mainChart");
+  if (!b8 || !b4 || !chartEl) return null;
+  const r8 = b8.getBoundingClientRect(), r4 = b4.getBoundingClientRect(), rc = chartEl.getBoundingClientRect();
+  if (!rc.width) return null;
+  const x = (r8.right + r4.left) / 2 - rc.left;
+  if (x < 2 || x > rc.width - 2) return null;      // 不在主圖橫向範圍內就不用
+  return x;
+}
+
+// SnR 截止 K 棒索引＝基準線下方那根（取線左側最後一根）；線在範圍外則退回可見右緣。
 function _snrRightIdx() {
   if (typeof ohlcvData === "undefined" || !ohlcvData.length) return 0;
-  let ri = ohlcvData.length - 1;
-  try {
-    const vr = mainChart.timeScale().getVisibleLogicalRange();
-    if (vr) ri = Math.max(0, Math.min(ohlcvData.length - 1, Math.floor(vr.to)));
-  } catch (e) {}
+  const n = ohlcvData.length;
+  const x = _snrBaseX();
+  if (x != null && typeof mainChart !== "undefined") {
+    try {
+      const t = mainChart.timeScale().coordinateToTime(x);
+      if (t != null) {
+        let lo = 0, hi = n - 1;
+        while (lo < hi) { const mid = (lo + hi + 1) >> 1; (toTime(ohlcvData[mid].time) <= t) ? (lo = mid) : (hi = mid - 1); }
+        return lo;
+      }
+    } catch (e) {}
+  }
+  let ri = n - 1;
+  try { const vr = mainChart.timeScale().getVisibleLogicalRange(); if (vr) ri = Math.max(0, Math.min(n - 1, Math.floor(vr.to))); } catch (e) {}
   return ri;
+}
+
+// 畫 SnR 基準垂直線（由 renderDrawings 呼叫）
+function _drawSnRBaseline(W, H) {
+  if (!_snrOn) return;
+  const x = _snrBaseX();
+  if (x == null) return;
+  drawCtx.save();
+  drawCtx.strokeStyle = "rgba(255,255,255,0.5)"; drawCtx.lineWidth = 1; drawCtx.setLineDash([5, 4]);
+  drawCtx.beginPath(); drawCtx.moveTo(x, 0); drawCtx.lineTo(x, H); drawCtx.stroke();
+  drawCtx.restore();
 }
 
 function _drawSnR() {
@@ -962,8 +996,9 @@ function initSnR() {
   try { _snrOn = localStorage.getItem("snrLevels") === "1"; } catch (e) {}
   btn.classList.toggle("active", _snrOn);
   if (_snrOn) { _drawSnR(); _snrLastRightIdx = _snrRightIdx(); }
-  // 平移/縮放 → 右緣變化就重算水平 S/R（前高/前低也跟著回看當時）
+  // 平移/縮放 → 線下方 K 棒變化就重算水平 S/R（前高/前低也跟著）
   try { mainChart.timeScale().subscribeVisibleLogicalRangeChange(_snrOnRangeChange); } catch (e) {}
+  window.addEventListener("resize", _snrOnRangeChange);   // 版面變 → 基準線 X 變 → 重算
   btn.addEventListener("click", () => {
     _snrOn = !_snrOn;
     try { localStorage.setItem("snrLevels", _snrOn ? "1" : "0"); } catch (e) {}
@@ -988,6 +1023,8 @@ function renderDrawings() {
 
   // SnR 趨勢線（斜線：上升支撐 / 下降壓力；水平 S/R 與前高前低走 createPriceLine）
   if (typeof _drawSnRTrendlines === "function") _drawSnRTrendlines(W, H);
+  // SnR 基準垂直線（截止點，固定螢幕位置對齊 8H/4H 鈕中點）
+  if (typeof _drawSnRBaseline === "function") _drawSnRBaseline(W, H);
 
   // Draw non-selected first, then hovered, then selected on top
   drawings.filter(d => d.id !== selectedId && d.id !== hoveredId).forEach(d => drawOne(d, W, H, false, false));
