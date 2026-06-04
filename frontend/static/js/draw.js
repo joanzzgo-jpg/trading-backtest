@@ -934,42 +934,6 @@ function _drawSnR() {
   }
 }
 
-// 趨勢線（斜線）：畫在 draw 畫布上，由 renderDrawings 呼叫（隨平移/縮放重畫）。
-// 支撐線＝最近兩個遞增的主要低點；壓力線＝最近兩個遞減的主要高點。各向右延伸。
-function _drawSnRTrendlines(W, H) {
-  if (!_snrOn) return;
-  if (typeof ohlcvData === "undefined" || ohlcvData.length < 2 * _SNR_MW + 5) return;
-  if (typeof mainChart === "undefined" || typeof candleSeries === "undefined" || !candleSeries) return;
-  const bars = ohlcvData;
-  const ts = mainChart.timeScale();
-  // 只用「可見右緣」以前的 K 棒算擺動點 → 向左捲動＝回到當時、新棒尚未出現時的趨勢線
-  const rightIdx = _snrRightIdx();
-  const ms = _majorSwings(bars, _SNR_MW, rightIdx - 300, rightIdx);   // 近300根內找趨勢結構
-  const proj = (pt) => {
-    const x = ts.timeToCoordinate(toTime(bars[pt.i].time));
-    const y = candleSeries.priceToCoordinate(pt.price);
-    return (x == null || y == null) ? null : { x, y };
-  };
-  const drawTL = (a, b, color) => {
-    const pa = proj(a), pb = proj(b);
-    if (!pa || !pb || pb.x === pa.x) return;
-    const m = (pb.y - pa.y) / (pb.x - pa.x);
-    const yEnd = pb.y + m * (W - pb.x);            // 向右延伸到圖右緣
-    drawCtx.save();
-    drawCtx.strokeStyle = color; drawCtx.lineWidth = 1.4; drawCtx.setLineDash([6, 4]);
-    drawCtx.beginPath(); drawCtx.moveTo(pa.x, pa.y); drawCtx.lineTo(W, yEnd); drawCtx.stroke();
-    drawCtx.restore();
-  };
-  const lows = ms.lows, highs = ms.highs;
-  if (lows.length >= 2) {
-    const a = lows[lows.length - 2], b = lows[lows.length - 1];
-    if (b.price > a.price) drawTL(a, b, "rgba(38,166,154,0.9)");   // 上升支撐
-  }
-  if (highs.length >= 2) {
-    const a = highs[highs.length - 2], b = highs[highs.length - 1];
-    if (b.price < a.price) drawTL(a, b, "rgba(239,83,80,0.9)");    // 下降壓力
-  }
-}
 function refreshSnR() {                               // 換標的/時框後由 renderAll 呼叫重畫
   if (!_snrOn) return;
   _snrLastRightIdx = -1;                             // 強制重算
@@ -1021,8 +985,6 @@ function renderDrawings() {
   // 交易時段 overlay（背景帶=當盤高低範圍 + 上下緣高低線 + 星期標籤；可開關）
   _drawSessionOverlay(W, H);
 
-  // SnR 趨勢線（斜線：上升支撐 / 下降壓力；水平 S/R 與前高前低走 createPriceLine）
-  if (typeof _drawSnRTrendlines === "function") _drawSnRTrendlines(W, H);
   // SnR 基準垂直線（截止點，固定螢幕位置對齊 8H/4H 鈕中點）
   if (typeof _drawSnRBaseline === "function") _drawSnRBaseline(W, H);
 
