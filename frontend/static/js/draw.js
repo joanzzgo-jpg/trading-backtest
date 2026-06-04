@@ -810,15 +810,16 @@ function _clearSnR() {
 }
 
 function _computeSnR(bars) {
+  // 用「收盤價」找擺動點（影線多為插針/掃損雜訊，收盤才是真正被接受/拒絕的價位）
   const W = _SNR_W, n = bars.length, hi = [], lo = [];
   for (let i = W; i < n - W; i++) {
     let isH = true, isL = true;
     for (let k = i - W; k <= i + W; k++) {
-      if (bars[k].high > bars[i].high) isH = false;
-      if (bars[k].low  < bars[i].low)  isL = false;
+      if (bars[k].close > bars[i].close) isH = false;
+      if (bars[k].close < bars[i].close) isL = false;
     }
-    if (isH) hi.push(bars[i].high);
-    if (isL) lo.push(bars[i].low);
+    if (isH) hi.push(bars[i].close);
+    if (isL) lo.push(bars[i].close);
   }
   const levels = hi.concat(lo).sort((a, b) => a - b);
   const clusters = [];
@@ -840,11 +841,11 @@ function _majorSwings(bars, MW) {
   for (let i = MW; i < n - MW; i++) {
     let isH = true, isL = true;
     for (let k = i - MW; k <= i + MW; k++) {
-      if (bars[k].high > bars[i].high) isH = false;
-      if (bars[k].low  < bars[i].low)  isL = false;
+      if (bars[k].close > bars[i].close) isH = false;   // 收盤價基準
+      if (bars[k].close < bars[i].close) isL = false;
     }
-    if (isH) highs.push({ i, price: bars[i].high });
-    if (isL) lows.push({ i, price: bars[i].low });
+    if (isH) highs.push({ i, price: bars[i].close });
+    if (isL) lows.push({ i, price: bars[i].close });
   }
   return { highs, lows };
 }
