@@ -134,6 +134,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   if (typeof initAccount === "function") initAccount();   // 帳號 + 跨裝置同步（後端未啟用會自動隱藏入口）
   if (typeof initBacktest === "function") initBacktest();  // 策略回測面板（📊 鈕）
   if (typeof initSessionToggle === "function") initSessionToggle();  // 交易時段標記開關
+  if (typeof initSnR === "function") initSnR();                      // 支撐壓力 SnR 水平線開關
   window.addEventListener("beforeunload", () => { saveLastSymbol(); });
 
   // 手機底部分頁：切換 圖表 / 勝率 / 自選 三個畫面（用 body class 控制各畫面顯示）

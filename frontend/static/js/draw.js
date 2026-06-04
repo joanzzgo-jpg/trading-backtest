@@ -793,6 +793,85 @@ function initSessionToggle() {
   });
 }
 
+/* ══════════════════════════════════════════════════════════════
+   支撐壓力（SnR）：擺動高/低點(局部峰谷) → 群聚成水平線
+   研究顯示：訊號貼著 SnR 勝率/中位R 明顯較高（沒貼的中位 −0.2R）。
+   ══════════════════════════════════════════════════════════════ */
+let _snrOn = false;
+let _snrLines = [];               // candleSeries.createPriceLine 物件
+const _SNR_W = 3;                 // 擺動視窗（左右各 N 根）
+const _SNR_CLUSTER = 0.004;       // 價格相近 0.4% 內視為同一條
+const _SNR_MAX = 14;              // 最多畫幾條（取觸碰數最強）
+
+function _clearSnR() {
+  if (typeof candleSeries === "undefined" || !candleSeries) { _snrLines = []; return; }
+  for (const l of _snrLines) { try { candleSeries.removePriceLine(l); } catch (e) {} }
+  _snrLines = [];
+}
+
+function _computeSnR(bars) {
+  const W = _SNR_W, n = bars.length, hi = [], lo = [];
+  for (let i = W; i < n - W; i++) {
+    let isH = true, isL = true;
+    for (let k = i - W; k <= i + W; k++) {
+      if (bars[k].high > bars[i].high) isH = false;
+      if (bars[k].low  < bars[i].low)  isL = false;
+    }
+    if (isH) hi.push(bars[i].high);
+    if (isL) lo.push(bars[i].low);
+  }
+  const levels = hi.concat(lo).sort((a, b) => a - b);
+  const clusters = [];
+  for (const p of levels) {
+    const last = clusters[clusters.length - 1];
+    if (last && Math.abs(p - last.sum / last.n) / p < _SNR_CLUSTER) { last.sum += p; last.n++; }
+    else clusters.push({ sum: p, n: 1 });
+  }
+  let strong = clusters.filter(c => c.n >= 2);     // ≥2 次觸碰＝較有效
+  if (strong.length < 4) strong = clusters.slice(); // 太少就全放
+  strong.sort((a, b) => b.n - a.n);
+  return strong.slice(0, _SNR_MAX).map(c => ({ price: c.sum / c.n, touches: c.n }));
+}
+
+function _drawSnR() {
+  _clearSnR();
+  if (!_snrOn) return;
+  if (typeof candleSeries === "undefined" || !candleSeries) return;
+  if (typeof ohlcvData === "undefined" || ohlcvData.length < 2 * _SNR_W + 5) return;
+  const bars = ohlcvData;
+  const lastClose = bars[bars.length - 1].close;
+  for (const lv of _computeSnR(bars)) {
+    const isRes = lv.price >= lastClose;            // 在現價上方＝壓力，下方＝支撐
+    try {
+      _snrLines.push(candleSeries.createPriceLine({
+        price: lv.price,
+        color: isRes ? "rgba(239,83,80,0.62)" : "rgba(38,166,154,0.62)",
+        lineWidth: Math.min(3, lv.touches),
+        lineStyle: 2,                               // 虛線
+        axisLabelVisible: true,
+        title: (isRes ? "壓" : "撐") + (lv.touches >= 3 ? "×" + lv.touches : ""),
+      }));
+    } catch (e) {}
+  }
+}
+function refreshSnR() { if (_snrOn) _drawSnR(); }    // 換標的/時框後由 renderAll 呼叫重畫
+
+function initSnR() {
+  const btn = document.getElementById("snrToggleBtn");
+  if (!btn) return;
+  try { _snrOn = localStorage.getItem("snrLevels") === "1"; } catch (e) {}
+  btn.classList.toggle("active", _snrOn);
+  if (_snrOn) _drawSnR();
+  btn.addEventListener("click", () => {
+    _snrOn = !_snrOn;
+    try { localStorage.setItem("snrLevels", _snrOn ? "1" : "0"); } catch (e) {}
+    btn.classList.toggle("active", _snrOn);
+    _drawSnR();
+  });
+}
+window.initSnR = initSnR;
+window.refreshSnR = refreshSnR;
+
 function renderDrawings() {
   if (!drawCtx || !drawCanvas) return;
   // W/H 用 CSS 邏輯尺寸（backing store 是 device px，已由 setTransform(dpr) 縮放）
