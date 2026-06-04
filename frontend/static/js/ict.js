@@ -16,9 +16,30 @@ function _ictData() {
   const key = bars.length + "|" + bars[bars.length - 1].time + "|" + bars[0].time;
   if (_ictCache.key === key && _ictCache.data) return _ictCache.data;
   const fvg = _computeFVG(bars), sweeps = _computeSweeps(bars), events = _computeStructure(bars);
-  const data = { fvg, sweeps, events, model: _computeICT2022(bars, fvg, sweeps, events) };
+  const data = { fvg, sweeps, events, ob: _computeOB(bars, fvg), model: _computeICT2022(bars, fvg, sweeps, events) };
   _ictCache = { key, data };
   return data;
+}
+
+// ── Order Block：位移(FVG)前最後一根「反向」K 棒；被回測(mitigated)前有效 ──
+//   多方位移前的最後一根「陰線」= 多方 OB(支撐)；空方位移前的最後一根「陽線」= 空方 OB(壓力)
+function _computeOB(bars, fvgs) {
+  const out = [], seen = new Set();
+  for (const f of fvgs) {
+    let k = -1;
+    for (let m = f.i - 1; m >= Math.max(0, f.i - 6); m--) {
+      const up = bars[m].close >= bars[m].open;
+      if ((f.dir === 1 && !up) || (f.dir === -1 && up)) { k = m; break; }
+    }
+    if (k < 0 || seen.has(k)) continue;
+    seen.add(k);
+    const o = { i: k, lo: bars[k].low, hi: bars[k].high, dir: f.dir, mit: false, mitIdx: bars.length - 1 };
+    for (let j = k + 2; j < bars.length; j++) {                      // 價格回到 OB 區 = 已回測
+      if ((f.dir === 1 && bars[j].low <= o.hi) || (f.dir === -1 && bars[j].high >= o.lo)) { o.mit = true; o.mitIdx = j; break; }
+    }
+    out.push(o);
+  }
+  return out;
 }
 
 // ── ICT 2022 模型：掃流動性 → 反向位移留 FVG → 回補 FVG 進場、止損放被掃端、目標打對向 ──
@@ -146,22 +167,47 @@ function _drawICT(W, H) {
   const X = (idx) => ts.timeToCoordinate(toTime(bars[idx].time));
   const Y = (p) => candleSeries.priceToCoordinate(p);
 
-  // FVG：畫全部未填補缺口（畫到填補棒或右緣）
-  const openFvg = d.fvg.filter(f => !f.filled);
-  for (const f of openFvg) {
-    let x1 = X(f.i); const x2r = (f.fillIdx < bars.length - 1) ? X(f.fillIdx) : W;
+  // FVG：全部都畫。未填補→畫到右緣(明顯+框+標籤)；已填補→只畫到填補棒(淡、無框標)
+  for (const f of d.fvg) {
     const yT = Y(f.hi), yB = Y(f.lo);
     if (yT == null || yB == null) continue;
-    if (x1 == null) x1 = 0;                       // 起點在畫面外 → 從左緣畫
-    const x2 = (x2r == null) ? W : x2r;
-    if (x2 <= x1) continue;
+    const x1 = X(f.i);
+    let xa, xb;
+    if (f.filled) {
+      if (x1 == null) continue;                   // 已填補舊缺口：起點不在畫面就不畫
+      const x2 = X(f.fillIdx); if (x2 == null || x2 <= x1) continue;
+      xa = x1; xb = x2;
+    } else {
+      xa = (x1 == null) ? 0 : x1; xb = W;          // 未填補：延伸到右緣
+      if (xb <= xa) continue;
+    }
+    const green = f.dir === 1;
     drawCtx.save();
-    drawCtx.fillStyle = f.dir === 1 ? "rgba(38,166,154,0.13)" : "rgba(239,83,80,0.13)";
-    drawCtx.fillRect(x1, yT, x2 - x1, yB - yT);
-    drawCtx.strokeStyle = f.dir === 1 ? "rgba(38,166,154,0.35)" : "rgba(239,83,80,0.35)";
-    drawCtx.lineWidth = 1; drawCtx.strokeRect(x1, yT, x2 - x1, yB - yT);
-    drawCtx.fillStyle = f.dir === 1 ? "rgba(38,166,154,0.85)" : "rgba(239,83,80,0.85)";
-    drawCtx.font = "9px sans-serif"; drawCtx.fillText("FVG", x1 + 2, (yT + yB) / 2 + 3);
+    drawCtx.fillStyle = green ? `rgba(38,166,154,${f.filled ? 0.06 : 0.15})` : `rgba(239,83,80,${f.filled ? 0.06 : 0.15})`;
+    drawCtx.fillRect(xa, yT, xb - xa, yB - yT);
+    if (!f.filled) {
+      drawCtx.strokeStyle = green ? "rgba(38,166,154,0.45)" : "rgba(239,83,80,0.45)";
+      drawCtx.lineWidth = 1; drawCtx.strokeRect(xa, yT, xb - xa, yB - yT);
+      drawCtx.fillStyle = green ? "rgba(38,166,154,0.85)" : "rgba(239,83,80,0.85)";
+      drawCtx.font = "9px sans-serif"; drawCtx.fillText("FVG", xa + 2, (yT + yB) / 2 + 3);
+    }
+    drawCtx.restore();
+  }
+
+  // Order Block：未被回測的 OB（位移前的反向 K 棒）→ 紫框延伸到右緣
+  for (const o of d.ob) {
+    if (o.mit) continue;
+    const yT = Y(o.hi), yB = Y(o.lo), x1 = X(o.i);
+    if (yT == null || yB == null) continue;
+    const xa = (x1 == null) ? 0 : x1;
+    if (W <= xa) continue;
+    drawCtx.save();
+    drawCtx.fillStyle = "rgba(126,87,194,0.16)";
+    drawCtx.fillRect(xa, yT, W - xa, yB - yT);
+    drawCtx.strokeStyle = "rgba(149,117,205,0.6)"; drawCtx.lineWidth = 1;
+    drawCtx.strokeRect(xa, yT, W - xa, yB - yT);
+    drawCtx.fillStyle = "rgba(179,157,219,0.95)"; drawCtx.font = "9px sans-serif";
+    drawCtx.fillText("OB", xa + 2, (yT + yB) / 2 + 3);
     drawCtx.restore();
   }
 
