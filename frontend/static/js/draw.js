@@ -992,6 +992,8 @@ function renderDrawings() {
 
   // SnR 基準垂直線（截止點，固定螢幕位置對齊 8H/4H 鈕中點）
   if (typeof _drawSnRBaseline === "function") _drawSnRBaseline(W, H);
+  // ICT 工具（FVG / BOS·CHoCH / 流動性掃損）
+  if (typeof _drawICT === "function") _drawICT(W, H);
 
   // Draw non-selected first, then hovered, then selected on top
   drawings.filter(d => d.id !== selectedId && d.id !== hoveredId).forEach(d => drawOne(d, W, H, false, false));
