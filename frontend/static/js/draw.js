@@ -896,7 +896,7 @@ function _drawSnRBaseline(W, H) {
   const x = _snrBaseX();
   if (x == null) return;
   drawCtx.save();
-  drawCtx.strokeStyle = "rgba(255,255,255,0.5)"; drawCtx.lineWidth = 1; drawCtx.setLineDash([5, 4]);
+  drawCtx.strokeStyle = "rgba(255,106,26,0.9)"; drawCtx.lineWidth = 1.5; drawCtx.setLineDash([]);  // 實線橘
   drawCtx.beginPath(); drawCtx.moveTo(x, 0); drawCtx.lineTo(x, H); drawCtx.stroke();
   drawCtx.restore();
 }
