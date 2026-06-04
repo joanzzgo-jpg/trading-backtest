@@ -15,23 +15,21 @@ function _ictData() {
   const bars = ohlcvData;
   const key = bars.length + "|" + bars[bars.length - 1].time + "|" + bars[0].time;
   if (_ictCache.key === key && _ictCache.data) return _ictCache.data;
-  const fvg = _computeFVG(bars), sweeps = _computeSweeps(bars);
-  const data = {
-    fvg, sweeps,
-    events: _computeStructure(bars),
-    model:  _computeICT2022(bars, fvg, sweeps),   // ICT 2022 模型 setup
-  };
+  const fvg = _computeFVG(bars), sweeps = _computeSweeps(bars), events = _computeStructure(bars);
+  const data = { fvg, sweeps, events, model: _computeICT2022(bars, fvg, sweeps, events) };
   _ictCache = { key, data };
   return data;
 }
 
 // ── ICT 2022 模型：掃流動性 → 反向位移留 FVG → 回補 FVG 進場、止損放被掃端、目標打對向 ──
-function _computeICT2022(bars, fvgs, sweeps) {
-  const GAP = 6, LOOK = 20, out = [];
+function _computeICT2022(bars, fvgs, sweeps, events) {
+  const GAP = 8, LOOK = 20, out = [];
   for (const s of sweeps) {
     const j = s.idx;
     if (s.dir === "H") {                                  // 掃買方流動性(舊高) → 找空單
-      const f = fvgs.find(g => g.dir === -1 && g.i > j && g.i <= j + GAP);   // 反向(空)位移 FVG
+      const mss = events.some(e => e.dir === -1 && e.idx > j && e.idx <= j + GAP);  // 必須向下破結構
+      if (!mss) continue;
+      const f = fvgs.find(g => g.dir === -1 && g.i > j && g.i <= j + GAP);          // 位移段空方 FVG
       if (!f) continue;
       let stop = bars[j].high;
       for (let k = j; k <= f.i; k++) stop = Math.max(stop, bars[k].high);    // 止損=被掃端最高
@@ -42,6 +40,8 @@ function _computeICT2022(bars, fvgs, sweeps) {
       if (lowest < tgt) tgt = lowest;                                         // 對向流動性更遠就用它
       out.push({ dir: -1, sweepIdx: j, fvg: f, entry, stop, target: tgt });
     } else {                                              // 掃賣方流動性(舊低) → 找多單
+      const mss = events.some(e => e.dir === 1 && e.idx > j && e.idx <= j + GAP); // 必須向上破結構
+      if (!mss) continue;
       const f = fvgs.find(g => g.dir === 1 && g.i > j && g.i <= j + GAP);
       if (!f) continue;
       let stop = bars[j].low;
@@ -146,8 +146,8 @@ function _drawICT(W, H) {
   const X = (idx) => ts.timeToCoordinate(toTime(bars[idx].time));
   const Y = (p) => candleSeries.priceToCoordinate(p);
 
-  // FVG：只畫最近 ~12 個未填補缺口（畫到填補棒或右緣）
-  const openFvg = d.fvg.filter(f => !f.filled).slice(-12);
+  // FVG：畫全部未填補缺口（畫到填補棒或右緣）
+  const openFvg = d.fvg.filter(f => !f.filled);
   for (const f of openFvg) {
     let x1 = X(f.i); const x2r = (f.fillIdx < bars.length - 1) ? X(f.fillIdx) : W;
     const yT = Y(f.hi), yB = Y(f.lo);
@@ -165,8 +165,8 @@ function _drawICT(W, H) {
     drawCtx.restore();
   }
 
-  // 市場結構 BOS / CHoCH：最近 ~10 個事件（從被破的擺動點畫水平線到突破棒 + 標籤）
-  for (const e of d.events.slice(-10)) {
+  // 市場結構 BOS / CHoCH：全部事件（從被破的擺動點畫水平線到突破棒 + 標籤）
+  for (const e of d.events) {
     const xa = X(e.from), xb = X(e.idx), y = Y(e.price);
     if (y == null || (xa == null && xb == null)) continue;
     const x1 = (xa == null) ? 0 : xa, x2 = (xb == null) ? W : xb;
@@ -180,8 +180,8 @@ function _drawICT(W, H) {
     drawCtx.restore();
   }
 
-  // 流動性掃損：最近 ~14 個（在掃損棒上/下畫小標記 + 細線到被掃價位）
-  for (const s of d.sweeps.slice(-14)) {
+  // 流動性掃損：全部（在掃損棒上/下畫小標記 + 細線到被掃價位）
+  for (const s of d.sweeps) {
     const x = X(s.idx), y = Y(s.price);
     if (x == null || y == null) continue;
     const up = s.dir === "H";                      // 掃買方流動性(舊高) → 上方
@@ -205,9 +205,9 @@ function _drawICT2022(W, H) {
   const bars = ohlcvData, ts = mainChart.timeScale();
   const X = (idx) => ts.timeToCoordinate(toTime(bars[idx].time));
   const Y = (p) => candleSeries.priceToCoordinate(p);
-  for (const m of d.model.slice(-5)) {
+  for (const m of d.model) {
     const f = m.fvg;
-    let xs = X(f.i); if (xs == null) xs = 0;
+    const xs = X(f.i); if (xs == null) continue;     // 起點在畫面外 → 不畫(避免擠在左緣畫錯位)
     const xEnd = Math.min(W, xs + 120);              // 線往右延伸一段
     const yE = Y(m.entry), yS = Y(m.stop), yT = Y(m.target);
     const yTop = Y(f.hi), yBot = Y(f.lo);
