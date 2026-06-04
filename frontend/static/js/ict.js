@@ -42,40 +42,80 @@ function _computeOB(bars, fvgs) {
   return out;
 }
 
-// ── ICT 2022 模型：掃流動性 → 反向位移留 FVG → 回補 FVG 進場、止損放被掃端、目標打對向 ──
+// ── ICT 2022 模型：掃流動性 → 反向位移破結構(MSS) → 同段位移留 FVG → 回補進場 ──
+//   止損放被掃端、目標打對向流動性(前低/前高)；記「進場是否觸發 + 先到TP或SL + 結束棒」。
+//   框「循序長出」(同三盤框邏輯)：框從 FVG 起、隨 K 棒長到結束棒(打到TP/SL)或最新棒(尚未結束)，
+//   不是「結束後才整塊冒出」。
 function _computeICT2022(bars, fvgs, sweeps, events) {
-  const GAP = 8, LOOK = 20, out = [];
+  const GAP = 10, N = bars.length, out = [], seen = new Set();
+  // 擺動高/低(W=3) — 找對向流動性目標(前低/前高)用
+  const W = 3, swH = [], swL = [];
+  for (let i = W; i < N - W; i++) {
+    let isH = true, isL = true;
+    for (let k = i - W; k <= i + W; k++) {
+      if (bars[k].high > bars[i].high) isH = false;
+      if (bars[k].low  < bars[i].low)  isL = false;
+    }
+    if (isH) swH.push({ idx: i, p: bars[i].high });
+    if (isL) swL.push({ idx: i, p: bars[i].low });
+  }
   for (const s of sweeps) {
     const j = s.idx;
-    if (s.dir === "H") {                                  // 掃買方流動性(舊高) → 找空單
-      const mss = events.some(e => e.dir === -1 && e.idx > j && e.idx <= j + GAP);  // 必須向下破結構
+    if (s.dir === "H") {                                  // 掃買方流動性(舊高) → 空單
+      const mss = events.find(e => e.dir === -1 && e.idx > j && e.idx <= j + GAP); // 掃後向下破結構(MSS)
       if (!mss) continue;
-      const f = fvgs.find(g => g.dir === -1 && g.i > j && g.i <= j + GAP);          // 位移段空方 FVG
-      if (!f) continue;
+      const f = fvgs.find(g => g.dir === -1 && g.i > j && g.i <= mss.idx + 1);      // FVG 須在「掃→MSS」同段位移
+      if (!f || seen.has(f.i)) continue;
       let stop = bars[j].high;
-      for (let k = j; k <= f.i; k++) stop = Math.max(stop, bars[k].high);    // 止損=被掃端最高
+      for (let k = j; k <= f.i; k++) stop = Math.max(stop, bars[k].high);           // 止損=被掃端最高
       const entry = (f.lo + f.hi) / 2, risk = stop - entry;
       if (risk <= 0) continue;
-      let tgt = entry - risk * 2, lowest = Infinity;                          // 預設 2R
-      for (let k = Math.max(0, f.i - LOOK); k < f.i; k++) lowest = Math.min(lowest, bars[k].low);
-      if (lowest < tgt) tgt = lowest;                                         // 對向流動性更遠就用它
-      out.push({ dir: -1, sweepIdx: j, fvg: f, entry, stop, target: tgt });
-    } else {                                              // 掃賣方流動性(舊低) → 找多單
-      const mss = events.some(e => e.dir === 1 && e.idx > j && e.idx <= j + GAP); // 必須向上破結構
+      let tgt = entry - risk * 2;                                                   // 預設 2R
+      for (let m = swL.length - 1; m >= 0; m--)                                     // 對向流動性=下方最近前低(≥1R)
+        if (swL[m].idx < f.i && swL[m].p <= entry - risk) { tgt = swL[m].p; break; }
+      seen.add(f.i);
+      out.push({ dir: -1, sweepIdx: j, mssIdx: mss.idx, fvg: f, entry, stop, target: tgt,
+                 ..._ict22Outcome(bars, f.i, entry, stop, tgt, -1) });
+    } else {                                              // 掃賣方流動性(舊低) → 多單
+      const mss = events.find(e => e.dir === 1 && e.idx > j && e.idx <= j + GAP);
       if (!mss) continue;
-      const f = fvgs.find(g => g.dir === 1 && g.i > j && g.i <= j + GAP);
-      if (!f) continue;
+      const f = fvgs.find(g => g.dir === 1 && g.i > j && g.i <= mss.idx + 1);
+      if (!f || seen.has(f.i)) continue;
       let stop = bars[j].low;
       for (let k = j; k <= f.i; k++) stop = Math.min(stop, bars[k].low);
       const entry = (f.lo + f.hi) / 2, risk = entry - stop;
       if (risk <= 0) continue;
-      let tgt = entry + risk * 2, highest = -Infinity;
-      for (let k = Math.max(0, f.i - LOOK); k < f.i; k++) highest = Math.max(highest, bars[k].high);
-      if (highest > tgt) tgt = highest;
-      out.push({ dir: 1, sweepIdx: j, fvg: f, entry, stop, target: tgt });
+      let tgt = entry + risk * 2;
+      for (let m = swH.length - 1; m >= 0; m--)
+        if (swH[m].idx < f.i && swH[m].p >= entry + risk) { tgt = swH[m].p; break; }
+      seen.add(f.i);
+      out.push({ dir: 1, sweepIdx: j, mssIdx: mss.idx, fvg: f, entry, stop, target: tgt,
+                 ..._ict22Outcome(bars, f.i, entry, stop, tgt, 1) });
     }
   }
   return out;
+}
+
+// 進場是否觸發 + 先到 TP 或 SL（框「循序長出」到結束棒；未結束→延到最新棒）
+function _ict22Outcome(bars, fi, entry, stop, tgt, dir) {
+  let entered = false;
+  for (let k = fi + 1; k < bars.length; k++) {
+    const b = bars[k];
+    if (dir === -1) {                          // 空：價格回踩「上沿」進場(high≥entry)
+      if (!entered && b.high >= entry) entered = true;
+      if (entered) {
+        if (b.high >= stop) return { entered, outcome: "loss", endIdx: k };
+        if (b.low  <= tgt)  return { entered, outcome: "win",  endIdx: k };
+      }
+    } else {                                   // 多：價格回踩「下沿」進場(low≤entry)
+      if (!entered && b.low <= entry) entered = true;
+      if (entered) {
+        if (b.low  <= stop) return { entered, outcome: "loss", endIdx: k };
+        if (b.high >= tgt)  return { entered, outcome: "win",  endIdx: k };
+      }
+    }
+  }
+  return { entered, outcome: "open", endIdx: bars.length - 1 };
 }
 
 // ── FVG（失衡缺口）：bullish = 前棒high < 後棒low；bearish = 前棒low > 後棒high ──
@@ -241,7 +281,9 @@ function _drawICT(W, H) {
   }
 }
 
-// ── ICT 2022 模型繪製：進場 FVG 框 + 止損/目標線 + 標籤（只畫最近 ~5 個 setup）──
+// ── ICT 2022 模型繪製：進場 FVG 框 + 止損/目標線 + 標籤 ──
+//   框「循序長出」：xs=FVG 棒、xe=結束棒(打到TP/SL)或最新棒(進行中)；隨平移/新棒自然延伸。
+//   配色＝結果：贏綠 ✓ / 輸紅 ✗ / 進行中琥珀。
 let _ict22On = false;
 function _drawICT2022(W, H) {
   if (!_ict22On) return;
@@ -253,34 +295,37 @@ function _drawICT2022(W, H) {
   const Y = (p) => candleSeries.priceToCoordinate(p);
   for (const m of d.model) {
     const f = m.fvg;
-    const xs = X(f.i); if (xs == null) continue;     // 起點在畫面外 → 不畫(避免擠在左緣畫錯位)
-    const xEnd = Math.min(W, xs + 120);              // 線往右延伸一段
-    const yE = Y(m.entry), yS = Y(m.stop), yT = Y(m.target);
+    let xs = X(f.i), xe = X(m.endIdx);
+    if (xs == null && xe == null) continue;
+    if (xs == null) xs = 0;                          // 起點在左畫面外 → 裁到左緣(框仍延續)
+    if (xe == null) xe = W;                          // 結束棒在右畫面外 → 延到右緣
+    if (xe <= xs) xe = xs + 2;                       // 同棒結束 → 至少給一點寬
+    const yS = Y(m.stop), yT = Y(m.target);
     const yTop = Y(f.hi), yBot = Y(f.lo);
-    if (yE == null || yS == null || yT == null) continue;
+    if (yS == null || yT == null || yTop == null || yBot == null) continue;
     const long = m.dir === 1;
+    const win = m.outcome === "win", loss = m.outcome === "loss";
     drawCtx.save();
-    // 進場 FVG 區（較醒目）
-    if (yTop != null && yBot != null) {
-      drawCtx.fillStyle = long ? "rgba(38,166,154,0.22)" : "rgba(239,83,80,0.22)";
-      drawCtx.fillRect(xs, yTop, xEnd - xs, yBot - yTop);
-      drawCtx.strokeStyle = long ? "#26a69a" : "#ef5350"; drawCtx.lineWidth = 1.2;
-      drawCtx.strokeRect(xs, yTop, xEnd - xs, yBot - yTop);
-    }
-    // 止損(紅) / 目標(綠) 水平線
+    // 進場 FVG 區（延伸到結束棒）
+    drawCtx.fillStyle = (long ? "rgba(38,166,154," : "rgba(239,83,80,") + "0.18)";
+    drawCtx.fillRect(xs, yTop, xe - xs, yBot - yTop);
+    drawCtx.strokeStyle = long ? "#26a69a" : "#ef5350"; drawCtx.lineWidth = 1.2;
+    drawCtx.strokeRect(xs, yTop, xe - xs, yBot - yTop);
+    // 止損(紅) / 目標(綠) 水平線（延伸到結束棒）
     drawCtx.setLineDash([4, 3]); drawCtx.lineWidth = 1;
-    drawCtx.strokeStyle = "rgba(239,83,80,0.9)";
-    drawCtx.beginPath(); drawCtx.moveTo(xs, yS); drawCtx.lineTo(xEnd, yS); drawCtx.stroke();
-    drawCtx.strokeStyle = "rgba(38,208,124,0.9)";
-    drawCtx.beginPath(); drawCtx.moveTo(xs, yT); drawCtx.lineTo(xEnd, yT); drawCtx.stroke();
+    drawCtx.strokeStyle = "rgba(239,83,80,0.85)";
+    drawCtx.beginPath(); drawCtx.moveTo(xs, yS); drawCtx.lineTo(xe, yS); drawCtx.stroke();
+    drawCtx.strokeStyle = "rgba(38,208,124,0.85)";
+    drawCtx.beginPath(); drawCtx.moveTo(xs, yT); drawCtx.lineTo(xe, yT); drawCtx.stroke();
     drawCtx.setLineDash([]);
-    // 標籤
-    drawCtx.fillStyle = long ? "#26a69a" : "#ef5350"; drawCtx.font = "bold 10px sans-serif";
-    drawCtx.fillText(long ? "2022多" : "2022空", xs + 2, (yTop + yBot) / 2 + 3);
+    // 標籤：方向（含結果色）
+    drawCtx.fillStyle = win ? "#26d07c" : loss ? "#ef5350" : "#ffb74d";
+    drawCtx.font = "bold 10px sans-serif";
+    drawCtx.fillText((long ? "2022多" : "2022空") + (win ? " ✓" : loss ? " ✗" : ""), xs + 2, (yTop + yBot) / 2 + 3);
     drawCtx.fillStyle = "rgba(239,83,80,0.95)"; drawCtx.font = "8px sans-serif";
-    drawCtx.fillText("SL", xEnd - 14, yS + (long ? 9 : -3));
+    drawCtx.fillText("SL", xe - 14, yS + (long ? 9 : -3));
     drawCtx.fillStyle = "rgba(38,208,124,0.95)";
-    drawCtx.fillText("TP", xEnd - 14, yT + (long ? -3 : 9));
+    drawCtx.fillText("TP", xe - 14, yT + (long ? -3 : 9));
     drawCtx.restore();
   }
 }
