@@ -801,7 +801,8 @@ let _snrOn = false;
 let _snrLines = [];               // candleSeries.createPriceLine 物件
 const _SNR_W = 3;                 // 擺動視窗（左右各 N 根）
 const _SNR_CLUSTER = 0.004;       // 價格相近 0.4% 內視為同一條
-const _SNR_MAX = 30;              // 最多畫幾條（取觸碰數最強；含畫面外的強歷史關卡，捲到就看得到）
+const _SNR_MAX = 12;              // 最多畫幾條（只取最強的；弱關卡是雜訊，不畫）
+const _SNR_MIN_TOUCH = 3;        // 至少被測試 3 次才算「有用」的關卡
 
 function _clearSnR() {
   if (typeof candleSeries === "undefined" || !candleSeries) { _snrLines = []; return; }
@@ -909,7 +910,10 @@ function _drawSnR() {
   const bars = ohlcvData;
   const rightIdx = _snrRightIdx();
   const refClose = bars[Math.min(rightIdx, bars.length - 1)].close;   // 以基準線當下收盤判壓/撐
-  for (const lv of _computeSnR(bars, rightIdx).slice(0, _SNR_MAX)) {
+  const _all = _computeSnR(bars, rightIdx);
+  let _levels = _all.filter(x => x.touches >= _SNR_MIN_TOUCH);        // 只留被測試 ≥3 次的
+  if (_levels.length < 3) _levels = _all;                            // 太少就放寬避免空白
+  for (const lv of _levels.slice(0, _SNR_MAX)) {
     const isRes = lv.price >= refClose;             // 在當時現價上方＝壓力，下方＝支撐
     try {
       _snrLines.push(candleSeries.createPriceLine({
