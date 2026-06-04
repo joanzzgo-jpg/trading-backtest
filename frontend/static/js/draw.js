@@ -836,9 +836,13 @@ function _computeSnR(bars) {
 
 // 主要擺動點（大視窗 MW，左右各 MW 根都沒超過）→ 前高/前低與趨勢線用
 const _SNR_MW = 8;
-function _majorSwings(bars, MW) {
+// startIdx/endIdx 可限定掃描範圍（趨勢線用「可見右緣」當 endIdx → 回看當時樣子）。
+// swing 需左右各 MW 根才確認，故 i 只到 endIdx-MW（右緣當下還沒成形的不算）。
+function _majorSwings(bars, MW, startIdx, endIdx) {
   const highs = [], lows = [], n = bars.length;
-  for (let i = MW; i < n - MW; i++) {
+  const s = Math.max(MW, startIdx == null ? MW : startIdx);
+  const e = (endIdx == null ? n - 1 : Math.min(n - 1, endIdx)) - MW;
+  for (let i = s; i <= e; i++) {
     let isH = true, isL = true;
     for (let k = i - MW; k <= i + MW; k++) {
       if (bars[k].close > bars[i].close) isH = false;   // 收盤價基準
@@ -889,8 +893,12 @@ function _drawSnRTrendlines(W, H) {
   if (typeof ohlcvData === "undefined" || ohlcvData.length < 2 * _SNR_MW + 5) return;
   if (typeof mainChart === "undefined" || typeof candleSeries === "undefined" || !candleSeries) return;
   const bars = ohlcvData;
-  const ms = _majorSwings(bars, _SNR_MW);
   const ts = mainChart.timeScale();
+  // 只用「可見右緣」以前的 K 棒算擺動點 → 向左捲動＝回到當時、新棒尚未出現時的趨勢線
+  let rightIdx = bars.length - 1;
+  const vr = ts.getVisibleLogicalRange();
+  if (vr) rightIdx = Math.max(0, Math.min(bars.length - 1, Math.floor(vr.to)));
+  const ms = _majorSwings(bars, _SNR_MW, rightIdx - 300, rightIdx);   // 近300根內找趨勢結構
   const proj = (pt) => {
     const x = ts.timeToCoordinate(toTime(bars[pt.i].time));
     const y = candleSeries.priceToCoordinate(pt.price);
