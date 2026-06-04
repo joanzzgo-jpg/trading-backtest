@@ -833,6 +833,22 @@ function _computeSnR(bars) {
   return strong.slice(0, _SNR_MAX).map(c => ({ price: c.sum / c.n, touches: c.n }));
 }
 
+// 主要擺動點（大視窗 MW，左右各 MW 根都沒超過）→ 前高/前低與趨勢線用
+const _SNR_MW = 8;
+function _majorSwings(bars, MW) {
+  const highs = [], lows = [], n = bars.length;
+  for (let i = MW; i < n - MW; i++) {
+    let isH = true, isL = true;
+    for (let k = i - MW; k <= i + MW; k++) {
+      if (bars[k].high > bars[i].high) isH = false;
+      if (bars[k].low  < bars[i].low)  isL = false;
+    }
+    if (isH) highs.push({ i, price: bars[i].high });
+    if (isL) lows.push({ i, price: bars[i].low });
+  }
+  return { highs, lows };
+}
+
 function _drawSnR() {
   _clearSnR();
   if (!_snrOn) return;
@@ -853,8 +869,57 @@ function _drawSnR() {
       }));
     } catch (e) {}
   }
+  // 前高/前低：最近的「主要」擺動高/低（大視窗）→ 粗實線、明確標籤
+  const ms = _majorSwings(bars, _SNR_MW);
+  if (ms.highs.length) {
+    const h = ms.highs[ms.highs.length - 1].price;
+    try { _snrLines.push(candleSeries.createPriceLine({ price: h, color: "rgba(239,83,80,0.95)", lineWidth: 2, lineStyle: 0, axisLabelVisible: true, title: "前高" })); } catch (e) {}
+  }
+  if (ms.lows.length) {
+    const l = ms.lows[ms.lows.length - 1].price;
+    try { _snrLines.push(candleSeries.createPriceLine({ price: l, color: "rgba(38,166,154,0.95)", lineWidth: 2, lineStyle: 0, axisLabelVisible: true, title: "前低" })); } catch (e) {}
+  }
 }
-function refreshSnR() { if (_snrOn) _drawSnR(); }    // 換標的/時框後由 renderAll 呼叫重畫
+
+// 趨勢線（斜線）：畫在 draw 畫布上，由 renderDrawings 呼叫（隨平移/縮放重畫）。
+// 支撐線＝最近兩個遞增的主要低點；壓力線＝最近兩個遞減的主要高點。各向右延伸。
+function _drawSnRTrendlines(W, H) {
+  if (!_snrOn) return;
+  if (typeof ohlcvData === "undefined" || ohlcvData.length < 2 * _SNR_MW + 5) return;
+  if (typeof mainChart === "undefined" || typeof candleSeries === "undefined" || !candleSeries) return;
+  const bars = ohlcvData;
+  const ms = _majorSwings(bars, _SNR_MW);
+  const ts = mainChart.timeScale();
+  const proj = (pt) => {
+    const x = ts.timeToCoordinate(toTime(bars[pt.i].time));
+    const y = candleSeries.priceToCoordinate(pt.price);
+    return (x == null || y == null) ? null : { x, y };
+  };
+  const drawTL = (a, b, color) => {
+    const pa = proj(a), pb = proj(b);
+    if (!pa || !pb || pb.x === pa.x) return;
+    const m = (pb.y - pa.y) / (pb.x - pa.x);
+    const yEnd = pb.y + m * (W - pb.x);            // 向右延伸到圖右緣
+    drawCtx.save();
+    drawCtx.strokeStyle = color; drawCtx.lineWidth = 1.4; drawCtx.setLineDash([6, 4]);
+    drawCtx.beginPath(); drawCtx.moveTo(pa.x, pa.y); drawCtx.lineTo(W, yEnd); drawCtx.stroke();
+    drawCtx.restore();
+  };
+  const lows = ms.lows, highs = ms.highs;
+  if (lows.length >= 2) {
+    const a = lows[lows.length - 2], b = lows[lows.length - 1];
+    if (b.price > a.price) drawTL(a, b, "rgba(38,166,154,0.9)");   // 上升支撐
+  }
+  if (highs.length >= 2) {
+    const a = highs[highs.length - 2], b = highs[highs.length - 1];
+    if (b.price < a.price) drawTL(a, b, "rgba(239,83,80,0.9)");    // 下降壓力
+  }
+}
+function refreshSnR() {                               // 換標的/時框後由 renderAll 呼叫重畫
+  if (!_snrOn) return;
+  _drawSnR();
+  requestAnimationFrame(renderDrawings);             // 趨勢線（畫布）也重畫
+}
 
 function initSnR() {
   const btn = document.getElementById("snrToggleBtn");
@@ -867,6 +932,7 @@ function initSnR() {
     try { localStorage.setItem("snrLevels", _snrOn ? "1" : "0"); } catch (e) {}
     btn.classList.toggle("active", _snrOn);
     _drawSnR();
+    requestAnimationFrame(renderDrawings);           // 趨勢線（畫布）開關時立即重畫
   });
 }
 window.initSnR = initSnR;
@@ -881,6 +947,9 @@ function renderDrawings() {
 
   // 交易時段 overlay（背景帶=當盤高低範圍 + 上下緣高低線 + 星期標籤；可開關）
   _drawSessionOverlay(W, H);
+
+  // SnR 趨勢線（斜線：上升支撐 / 下降壓力；水平 S/R 與前高前低走 createPriceLine）
+  if (typeof _drawSnRTrendlines === "function") _drawSnRTrendlines(W, H);
 
   // Draw non-selected first, then hovered, then selected on top
   drawings.filter(d => d.id !== selectedId && d.id !== hoveredId).forEach(d => drawOne(d, W, H, false, false));
