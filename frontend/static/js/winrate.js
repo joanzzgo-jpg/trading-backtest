@@ -174,6 +174,8 @@ function _findSignalAtTime(barTime) {
 
 // 點擊訊號棒 toggle 顯示盈虧比盒；回傳是否成功 toggle
 function _toggleAutoRR(barTime) {
+  // S1~S12 訊號一鍵隱藏時：點擊訊號棒不展開盈虧比盒（與主圖 marker / hover 一致）
+  if ((typeof _wrSignalsHidden !== "undefined") && _wrSignalsHidden) return false;
   const sig = _findSignalAtTime(barTime);
   if (!sig) return false;
   const key = sig.t;  // 用進場棒時間當 key
@@ -280,6 +282,8 @@ function _computeAutoRRBox(sig) {
 //  - _hoverRRSigs：十字線目前所在 K 棒的訊號盒（hover，未釘選才畫，避免重複）
 function _renderAutoRRBoxes(W, H) {
   if (typeof drawOne !== "function") return;
+  // S1~S12 訊號一鍵隱藏時：釘選/hover 的盈虧比盒都不畫（與主圖 marker 一致）
+  if ((typeof _wrSignalsHidden !== "undefined") && _wrSignalsHidden) return;
   for (const t of _autoRRSet) {
     const sig = _lastWRSignals && _lastWRSignals.find(s => s.t === t);
     if (!sig) continue;
@@ -645,7 +649,9 @@ function _updateHoverWR(time) {
   if (time === _lastHoverBarTime) return;   // 同一根棒不重算（避免 60Hz 重繪）
   _lastHoverBarTime = time;
   const idx = _buildSigTimeIndex();
-  let sigs = (time != null && idx.has(time)) ? idx.get(time) : [];
+  // S1~S12 訊號一鍵隱藏時（topbar #wrSignalsToggleBtn）：hover 也不顯示勝率/RR 盒，與主圖 marker 一致
+  const sigHidden = (typeof _wrSignalsHidden !== "undefined") && _wrSignalsHidden;
+  let sigs = (!sigHidden && time != null && idx.has(time)) ? idx.get(time) : [];
   // 雙擊隱藏 過濾（與主圖 marker 一致）
   const hidden = window._hiddenWrSigs;
   if (sigs.length && hidden && hidden.size) {

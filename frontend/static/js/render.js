@@ -291,6 +291,8 @@ function initWRSignalsToggle() {
     try { localStorage.setItem("wrSignalsHidden", _wrSignalsHidden ? "1" : "0"); } catch (e) {}
     _sync();
     _applyMainMarkers();
+    // 切換瞬間若正 hover 某根棒，清掉已展開的 hover 勝率/RR 盒（否則殘留到下次移動才更新）
+    if (typeof _updateHoverWR === "function") _updateHoverWR(null);
   });
 }
 
