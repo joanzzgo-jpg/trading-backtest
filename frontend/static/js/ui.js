@@ -281,7 +281,12 @@ function bindPaneDividers() {
   });
 }
 
-/* ── 動態把時間軸移到最下方可見面板 ── */
+/* ── 動態把時間軸移到最下方「實際可見」面板 ──
+   用渲染高度（getBoundingClientRect）判斷可見，一次涵蓋三種隱藏：
+   ① .hidden class ② subcharts-hidden（CSS display:none）③ 收合（pane-body display:none）。
+   原本用 class/display 字串比對會漏掉 subcharts-hidden（容器層 class），
+   導致中型畫面（iPad）副圖隱藏時時間軸卡在隱藏的 MACD 面板 → 主圖時間軸消失/錯位。
+   改用 rect 高度後桌面/平板/手機共用同一套邏輯，不再有寬度分支落差。 */
 function updateBottomTimeAxis() {
   // 由下而上排列（第一個找到的 = 當前最底部可見面板）
   const panels = [
@@ -290,40 +295,24 @@ function updateBottomTimeAxis() {
     { paneId: "kdjPane",    chart: kdjChart    },
     { paneId: "mainPane",   chart: mainChart   },
   ];
-  let bottomChart = null;
+  let bottomChart = mainChart;   // 保底：主圖永遠存在
   for (const { paneId, chart } of panels) {
     const pane = document.getElementById(paneId);
-    if (!pane || pane.classList.contains("hidden")) continue;
+    if (!chart || !pane) continue;
+    if (pane.getBoundingClientRect().height < 2) continue;   // display:none / subcharts-hidden → rect≈0
     const body = pane.querySelector(".pane-body");
-    if (body && body.style.display === "none") continue; // 已收合
+    if (body && body.style.display === "none") continue;     // 收合（pane 仍有 header 高度，故另判 body）
     bottomChart = chart;
     break;
-  }
-  panels.forEach(({ chart }) => {
-    chart.applyOptions({ timeScale: { visible: chart === bottomChart } });
-  });
-}
-
-/* ── 手機專用：把時間軸移到最下方「實際可見」面板（用渲染高度判斷，涵蓋 CSS display:none）──
-   只在 ≤768px 生效 → 桌面完全不受影響（桌面沿用原本 updateBottomTimeAxis）。
-   手機預設隱藏副圖 → 時間軸落到主圖、不會卡在隱藏的 MACD 面板上而消失。 */
-function _mobileTimeAxis() {
-  if (window.innerWidth > 768) return;
-  const panels = [
-    { paneId: "macdPane", chart: macdChart },
-    { paneId: "rsiPane",  chart: rsiChart  },
-    { paneId: "kdjPane",  chart: kdjChart  },
-    { paneId: "mainPane", chart: mainChart },
-  ];
-  let bottomChart = mainChart;
-  for (const { paneId, chart } of panels) {
-    const pane = document.getElementById(paneId);
-    if (pane && pane.getBoundingClientRect().height >= 2) { bottomChart = chart; break; }
   }
   panels.forEach(({ chart }) => {
     if (chart) chart.applyOptions({ timeScale: { visible: chart === bottomChart } });
   });
 }
+
+/* 舊名保留為別名：`updateBottomTimeAxis` 已用 rect 高度統一處理桌面/平板/手機，
+   不再需要 ≤768 的專用分支。原呼叫點（副圖開關、resize）續用此名即可。 */
+function _mobileTimeAxis() { updateBottomTimeAxis(); }
 
 /* ── 圖例顏色點（點色點即可改色）── */
 function bindLegendColors() {

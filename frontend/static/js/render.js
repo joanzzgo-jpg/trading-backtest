@@ -245,6 +245,9 @@ function _scheduleMarkerRewindow() {
   _markerWinTimer = setTimeout(_applyMainMarkers, 100);
 }
 
+// S1~S12 訊號標記一鍵開關（topbar 按鈕 #wrSignalsToggleBtn）；true=隱藏
+let _wrSignalsHidden = (() => { try { return localStorage.getItem("wrSignalsHidden") === "1"; } catch (e) { return false; } })();
+
 function _applyMainMarkers() {
   const crtHidden       = document.getElementById("legCRT")?.classList.contains("line-off");
   const kdjCrossHidden  = document.getElementById("legKDJCross")?.classList.contains("line-off");
@@ -253,10 +256,30 @@ function _applyMainMarkers() {
     ...(crtHidden       ? [] : lastCRTMarkers),
     ...(kdjCrossHidden  ? [] : lastKDJCrossMarkers),
     ...(resonanceHidden ? [] : lastResonanceMarkers),
-    ...lastWRSignalMarkers,
+    ...(_wrSignalsHidden ? [] : lastWRSignalMarkers),
     ...lastBacktestMarkers,
   ].sort((a, b) => a.time - b.time);
   candleSeries.setMarkers(_windowMarkers(all));
+}
+
+// 頂部「S1~S12 訊號標記」一鍵開關按鈕
+function initWRSignalsToggle() {
+  const btn = document.getElementById("wrSignalsToggleBtn");
+  if (!btn) return;
+  const _sync = () => {
+    btn.classList.toggle("active", _wrSignalsHidden);   // active = 目前隱藏中
+    const st = document.getElementById("mSetWrSigState");
+    if (st) st.textContent = _wrSignalsHidden ? "隱藏" : "顯示";
+    const row = document.getElementById("mSetWrSig");
+    if (row) row.classList.toggle("m-set-on", _wrSignalsHidden);
+  };
+  _sync();
+  btn.addEventListener("click", () => {
+    _wrSignalsHidden = !_wrSignalsHidden;
+    try { localStorage.setItem("wrSignalsHidden", _wrSignalsHidden ? "1" : "0"); } catch (e) {}
+    _sync();
+    _applyMainMarkers();
+  });
 }
 
 function renderCRT(data) {

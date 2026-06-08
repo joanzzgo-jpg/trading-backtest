@@ -361,6 +361,8 @@ html.perf-mode .tb-icon-btn:hover svg { animation: none; transform: scale(1.1); 
 @media (max-width: 768px) { #backtestBtn { display: none !important; } }
 /* 交易時段標記按鈕：手機改放「設定」分頁（topbar 太佔位） */
 @media (max-width: 768px) { #sessionToggleBtn { display: none !important; } }
+/* S1–S12 訊號標記開關：手機改放「設定」分頁（#mSetWrSig 代按 topbar 鈕） */
+@media (max-width: 768px) { #wrSignalsToggleBtn { display: none !important; } }
 #leafToggleBtn, #rainToggleBtn, #snowToggleBtn, #springToggleBtn { font-size: 14px; }
 #leafToggleBtn.leaf-active   { background: rgba(230,126,34,.18);  color: #E67E22; }
 #rainToggleBtn.rain-active   { background: rgba(100,160,255,.18); color: #6EB5FF; }
@@ -631,6 +633,29 @@ html.perf-mode .tb-icon-btn:hover svg { animation: none; transform: scale(1.1); 
   /* ticker 側欄直接隱藏 → chart 用 flex:1 自然填滿
      使用者要找標的可改用左上 symbol input 或 ⭐ 自選清單 */
   .ticker-panel { display: none !important; }
+}
+
+/* ═══ 中型畫面（iPad，769~1100px）專屬優化 ═══
+   單列 topbar 在此寬度最擠：10 顆 TF + 7 顆 icon 會把勝率欄壓到 0 寬 → 看不到勝率。
+   壓縮 TF / 標的輸入框 + 精簡勝率右摘要（只留總勝率 + 近100），騰出空間。
+   ≤768 會被後面的「2 列 topbar」區塊覆蓋（手機勝率欄整個隱藏），故此區只影響平板。 */
+@media (min-width: 769px) and (max-width: 1100px) {
+  /* TF 按鈕緊湊化（10 顆並排省最多空間） */
+  .tf-group { gap: 0 !important; padding: 0 2px !important; }
+  .tf-btn { padding: 4px 5px !important; font-size: 11px !important; letter-spacing: 0 !important; }
+  /* 標的輸入框收窄 */
+  .tb-symbol-input { max-width: 92px !important; }
+  /* 品牌副標（TRADING 小字）藏起來省左側寬度，Logo 圖示保留 */
+  .topbar-brand-sub { display: none !important; }
+  /* 勝率欄改用彈性寬、靠右對齊摘要 → 有剩餘空間就吃、不被壓成 0 */
+  .tb-winrate { flex: 1 1 auto !important; min-width: 0 !important; justify-content: flex-end !important; }
+  /* 右摘要只保留最關鍵兩項：總勝率 + 近100；其餘（敗後停手率/預估命中/起始日/筆數）平板省略 */
+  .tb-wr-fixed-right .tb-wr-stoprate,
+  .tb-wr-fixed-right .tb-wr-est,
+  .tb-wr-fixed-right .tb-wr-from,
+  .tb-wr-fixed-right .tb-wr-status { display: none !important; }
+  .tb-wr-total { font-size: 15px !important; padding: 0 4px !important; }
+  .tb-wr-recent { font-size: 12px !important; }
 }
 .tb-winrate {
   /* flex:1 佔滿 topbar 內 left 與 tf+right 之間的所有可用空間 */
