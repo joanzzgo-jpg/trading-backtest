@@ -649,13 +649,14 @@ html.perf-mode .tb-icon-btn:hover svg { animation: none; transform: scale(1.1); 
   .topbar-brand-sub { display: none !important; }
   /* 勝率欄改用彈性寬、靠右對齊摘要 → 有剩餘空間就吃、不被壓成 0 */
   .tb-winrate { flex: 1 1 auto !important; min-width: 0 !important; justify-content: flex-end !important; }
-  /* 右摘要只保留最關鍵兩項：總勝率 + 近100；其餘（敗後停手率/預估命中/起始日/筆數）平板省略 */
-  .tb-wr-fixed-right .tb-wr-stoprate,
+  /* 右摘要保留：總勝率 + 敗後停手率 + 近100 + 筆數（填滿總勝率旁空白、資訊完整）
+     只省略 預估命中 / 起始日（最長、最不即時需要） */
   .tb-wr-fixed-right .tb-wr-est,
-  .tb-wr-fixed-right .tb-wr-from,
-  .tb-wr-fixed-right .tb-wr-status { display: none !important; }
+  .tb-wr-fixed-right .tb-wr-from { display: none !important; }
   .tb-wr-total { font-size: 15px !important; padding: 0 4px !important; }
+  .tb-wr-stoprate,
   .tb-wr-recent { font-size: 12px !important; }
+  .tb-wr-status { font-size: 11px !important; }
 }
 .tb-winrate {
   /* flex:1 佔滿 topbar 內 left 與 tf+right 之間的所有可用空間 */
