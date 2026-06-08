@@ -280,9 +280,10 @@ function syncTimeScales() {
     });
   });
 
-  // 所有圖停用 LWC 原生鉛直線，改用 chartsContainer 內的自訂 pane-vline
+  // 所有圖停用 LWC 原生鉛直線（改用自訂 pane-vline），並關掉原生時間軸標籤——
+  // 否則底部會同時冒出原生「2026-05-20 00:00」與自訂「2026-05-20」兩個標籤互相重疊。
   [mainChart, kdjChart, rsiChart, macdChart].forEach(c => {
-    c?.applyOptions({ crosshair: { vertLine: { visible: false } } });
+    c?.applyOptions({ crosshair: { vertLine: { visible: false, labelVisible: false } } });
   });
 }
 
