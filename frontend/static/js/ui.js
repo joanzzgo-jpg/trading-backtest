@@ -41,6 +41,9 @@ function bindEvents() {
     if (except !== "sys") {
       document.getElementById("sysSettingsPopup")?.classList.remove("open");
     }
+    if (except !== "tf") {
+      document.getElementById("tfPopup")?.classList.remove("open");
+    }
   };
 
   // 系統外觀設定按鈕
@@ -177,7 +180,8 @@ function bindEvents() {
       document.querySelectorAll(".tf-btn").forEach(b => b.classList.remove("active"));
       btn.classList.add("active");
       currentTF = btn.dataset.tf;
-      loadData(false);   // 切換時區自動載入，不需手動按「載入」
+      if (typeof applyMobileTFVisibility === "function") applyMobileTFVisibility();  // 當前 TF 一律可見
+      loadData(false);   // 切換時間框自動載入，不需手動按「載入」
     });
   });
 
@@ -873,6 +877,76 @@ function bindSystemColors() {
     syncSysSwatches();
     applyAllSystemColors();
     saveSystemColors();
+  });
+}
+
+/* ══════════════════════════════════════════
+   手機 TF 選擇器（手機「設定 → 時間框」）
+   使用者自選最多 MOBILE_TF_MAX 個要顯示在手機上方時間框列的時間框；桌面顯示全部。
+══════════════════════════════════════════ */
+// 套用手機顯示：非選取的 tf-btn 加 .tf-hidden-mobile（CSS 只在手機隱藏）。
+// 「當前 TF」一律保留可見，避免還原到沒被選的時間框時看不到也選不回來。
+function applyMobileTFVisibility() {
+  const visible = new Set(_mobileTFs);
+  if (typeof currentTF !== "undefined") visible.add(currentTF);
+  document.querySelectorAll(".tf-btn").forEach(b => {
+    b.classList.toggle("tf-hidden-mobile", !visible.has(b.dataset.tf));
+  });
+}
+
+function initMobileTF() {
+  loadMobileTFs();
+  const popup   = document.getElementById("tfPopup");
+  const gridEl  = document.getElementById("tfPickGrid");
+  const stateEl = document.getElementById("mSetTFState");
+  applyMobileTFVisibility();
+  if (!popup || !gridEl) return;
+
+  const updateState = () => { if (stateEl) stateEl.textContent = _mobileTFs.map(tf => TF_LABELS[tf] || tf).join(" / "); };
+  const render = () => {
+    gridEl.innerHTML = MOBILE_TF_ALL.map(tf => {
+      const idx = _mobileTFs.indexOf(tf);
+      const on  = idx >= 0;
+      return `<button type="button" class="tf-pick-item${on ? " on" : ""}" data-tf="${tf}">${
+        on ? `<span class="tf-pick-ord">${idx + 1}</span>` : ""}${TF_LABELS[tf] || tf}</button>`;
+    }).join("");
+  };
+  render();
+  updateState();
+
+  gridEl.addEventListener("click", e => {
+    const btn = e.target.closest(".tf-pick-item");
+    if (!btn) return;
+    // 阻止冒泡到 document 的「點外面關閉」：render() 會重建 innerHTML 把此項拆離 DOM，
+    // 否則外層 popup.contains(e.target) 會誤判成點到面板外 → 一點就關。改成只有點空白處才關。
+    e.stopPropagation();
+    const tf  = btn.dataset.tf;
+    const cur = _mobileTFs.slice();
+    const at  = cur.indexOf(tf);
+    if (at >= 0) {
+      if (cur.length <= 1) { if (typeof showToast === "function") showToast("至少需保留一個時間框"); return; }
+      cur.splice(at, 1);                                  // 取消選取
+    } else {
+      if (cur.length >= MOBILE_TF_MAX) { if (typeof showToast === "function") showToast(`最多選 ${MOBILE_TF_MAX} 個時間框`); return; }
+      cur.push(tf);
+    }
+    saveMobileTFs(cur);
+    render();
+    updateState();
+    applyMobileTFVisibility();
+  });
+
+  // 開啟（手機設定列呼叫）；同時收掉其他浮動面板
+  window._openTFPopup = () => {
+    if (typeof _closeAllFloatPanels === "function") _closeAllFloatPanels("tf");
+    render();
+    popup.classList.add("open");
+  };
+  // 點面板外 → 關閉
+  document.addEventListener("click", e => {
+    if (popup.classList.contains("open") && !popup.contains(e.target) && !e.target.closest("#mSetMobileTF")) {
+      popup.classList.remove("open");
+    }
   });
 }
 

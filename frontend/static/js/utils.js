@@ -4,6 +4,24 @@ function toTime(s) {
   return Math.floor(new Date(iso).getTime() / 1000) + 8 * 3600;
 }
 
+/* ── 手機 TF 選擇器（使用者自選最多 4 個要顯示的時間框） ── */
+function loadMobileTFs() {
+  try {
+    const raw = JSON.parse(localStorage.getItem("mobileTFs") || "null");
+    if (Array.isArray(raw) && raw.length) {
+      const valid = raw.filter(tf => MOBILE_TF_ALL.includes(tf)).slice(0, MOBILE_TF_MAX);
+      if (valid.length) _mobileTFs = valid;
+    }
+  } catch (e) {}
+  return _mobileTFs;
+}
+function saveMobileTFs(arr) {
+  // 依「按鈕列固定順序」排序，避免顯示順序跳動
+  _mobileTFs = MOBILE_TF_ALL.filter(tf => (arr || []).includes(tf)).slice(0, MOBILE_TF_MAX);
+  if (!_mobileTFs.length) _mobileTFs = ["1d"];
+  try { localStorage.setItem("mobileTFs", JSON.stringify(_mobileTFs)); } catch (e) {}
+}
+
 /* ── hex + 透明度 ── */
 function hexAlpha(hex, opacity) {
   const a = Math.round(Math.max(0, Math.min(100, opacity)) / 100 * 255)

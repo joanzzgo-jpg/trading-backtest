@@ -151,10 +151,6 @@ function renderAll(data) {
     _renderWRSignals();
   }
 
-  // 換標的/時框後重畫 SnR 水平線、ICT（若開啟）
-  if (typeof refreshSnR === "function") refreshSnR();
-  if (typeof refreshICT === "function") refreshICT();
-
   // fit 讓各子圖時間範圍對齊
   [mainChart, kdjChart, rsiChart, macdChart].forEach(c => c.timeScale().fitContent());
 

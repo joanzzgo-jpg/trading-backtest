@@ -2726,6 +2726,32 @@ html.perf-mode .tk-seg {
 }
 .sys-settings-popup.open { display: block; }
 .sys-settings-popup .color-row { padding: 3px 0; }
+
+/* ── 手機 TF 選擇器（自選最多 4 個要顯示的時間框） ── */
+.tf-popup { min-width: 250px; }
+.tf-popup .sys-sp-title { font-weight: 700; margin-bottom: 4px; }
+.tf-pick-hint { font-size: 11px; color: var(--muted); margin: 0 0 8px; }
+.tf-pick-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; }
+.tf-pick-item {
+  position: relative;
+  display: flex; align-items: center; justify-content: center;
+  padding: 11px 4px; text-align: center;
+  background: var(--bg3); border: 1px solid var(--border); border-radius: 10px;
+  color: var(--text); font-family: inherit; font-size: 14px; font-weight: 700; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.tf-pick-item:active { background: rgba(255,160,90,.14); }
+.tf-pick-item.on { border-color: var(--accent); background: rgba(255,160,90,.16); color: var(--accent); }
+.tf-pick-item .tf-pick-ord {
+  position: absolute; top: -7px; right: -6px;
+  min-width: 16px; height: 16px; padding: 0 3px; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--accent); color: #fff; font-size: 10px; font-weight: 800;
+}
+/* 手機才依使用者選擇隱藏未選的時間框；桌面/iPad 一律顯示全部 */
+@media (max-width: 768px) {
+  .tf-btn.tf-hidden-mobile { display: none !important; }
+}
 .sys-color-swatch {
   width: 52px; height: 18px;
   border-radius: 3px;

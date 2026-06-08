@@ -9,6 +9,11 @@ const _ACCT = { name: null, enabled: false };
 let _acctSyncTimer = null;
 let _acctLSHooked = false;
 const _ACCT_SKIP = new Set(["acctName", "wxCoords"]);   // wxCoords=各裝置本地天氣座標，不跨裝置同步
+// 每個帳號各自保存、切換帳號時要「乾淨換成該帳號的」設定 key：
+//   chartColors=K棒+指標顏色 / chartStyles=指標參數·線寬·樣式 / chartLineStyles=各線寬樣式 /
+//   sysColors=系統外觀色 / mobileTFs=手機顯示的時間框
+// （這些本就含在整包快照同步內；列出來是為了切帳號時「取代而非合併」，避免殘留前一帳號的設定）
+const _ACCT_THEME_KEYS = ["chartColors", "chartStyles", "chartLineStyles", "sysColors", "mobileTFs"];
 
 function _acctLoadSession() {
   try { _ACCT.name = localStorage.getItem("acctName"); } catch (e) {}
@@ -36,6 +41,11 @@ function _acctSnapshot() {
 function _acctApplySnapshot(data) {
   if (!data || typeof data !== "object") return;
   try {
+    // 外觀類 key 採「取代」：該帳號沒存過的就先清掉本機現值（還原預設），
+    // 避免從別帳號切過來時殘留前一帳號的 K 棒/指標/系統顏色 → 確保各帳號各自帶走自己的設定。
+    for (const k of _ACCT_THEME_KEYS) {
+      if (!(k in data)) { try { localStorage.removeItem(k); } catch (e) {} }
+    }
     for (const k in data) {
       if (_ACCT_SKIP.has(k)) continue;
       if (data[k] != null) localStorage.setItem(k, String(data[k]));

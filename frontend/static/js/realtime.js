@@ -58,7 +58,7 @@ async function fetchLatest() {
     const dot = document.getElementById("realtimeDot");
     if (dot) dot.classList.toggle("hidden", json.live === false);
     const _tfSec = { "1M":2592000,"1w":604800,"1d":86400,"4h":14400,"1h":3600,"15m":900,"5m":300 };
-    let _dirty = false;   // 本輪是否真的改了 K → 決定要不要重畫疊加層(三盤色塊/SnR/ICT)
+    let _dirty = false;   // 本輪是否真的改了 K → 決定要不要重畫疊加層(三盤色塊)
     json.data.forEach(bar => {
       const t     = toTime(bar.time);
       const last  = ohlcvData[ohlcvData.length - 1];
@@ -94,7 +94,7 @@ async function fetchLatest() {
     });
     updateSymbolBar(ohlcvData);
     // 同一根 K 即時更新時時間軸不變 → 不會自動觸發 renderDrawings；這裡手動重畫疊加層，
-    // 讓三盤色塊/SnR/ICT 隨「當前 K 的高低」即時長大（否則要等換新棒或平移才更新）。
+    // 讓三盤色塊隨「當前 K 的高低」即時長大（否則要等換新棒或平移才更新）。
     if (_dirty && typeof renderDrawings === "function") requestAnimationFrame(renderDrawings);
   } catch {}
 }

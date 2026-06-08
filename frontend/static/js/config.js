@@ -99,3 +99,8 @@ const PANE_FLEX_DEFAULTS = { mainPane:5, kdjPane:1, rsiPane:1, macdPane:1 };
 
 const TF_LABELS = { "1M":"月","1w":"週","1d":"日","8h":"8H","4h":"4H","2h":"2H","1h":"1H","30m":"30m","15m":"15m","5m":"5m" };
 
+/* ── 手機 TF 選擇器：使用者自選最多 4 個要顯示的時間框（設定分頁設定；桌面顯示全部） ── */
+const MOBILE_TF_MAX = 4;
+const MOBILE_TF_ALL = ["1M","1w","1d","8h","4h","2h","1h","30m","15m","5m"];   // 順序＝按鈕列順序
+let _mobileTFs = ["1d","4h","1h","15m"];   // 預設顯示的 4 個；由 loadMobileTFs() 從 localStorage 載入
+
