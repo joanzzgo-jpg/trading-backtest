@@ -5912,7 +5912,8 @@ html.landing-active .landing { background: transparent; }
 
   .m-set-hd {
     flex: 0 0 auto; height: 50px; display: flex; align-items: center;
-    padding: 0 18px; font-size: 18px; font-weight: 800; color: var(--text);
+    padding: 0 18px; font-size: 18px; font-weight: 800;
+    color: rgba(237,212,168,.5);   /* 不上色、半透明（中性文字色淡化）*/
     border-bottom: 1px solid var(--border);
   }
   .m-set-scroll {
@@ -5928,9 +5929,9 @@ html.landing-active .landing { background: transparent; }
     width: calc(100% - 24px); display: flex; align-items: center; gap: 13px;
     /* 固定高度 + 小字單行（見下方）→ 每列大小一致、不因長短不一被撐高 */
     min-height: 60px; box-sizing: border-box; padding: 0 16px; margin: 0 12px;
-    /* 半透明暖色漸層 + 毛玻璃 → 透光感：背後頁面橘光/漸層會透出來，較亮過深色頁面、有層次不單調 */
-    background: linear-gradient(180deg, rgba(88,63,48,.58), rgba(46,32,24,.40));
-    -webkit-backdrop-filter: blur(7px); backdrop-filter: blur(7px);
+    /* 半透明暖色漸層 + 毛玻璃 → 更透光：壓低不透明度讓背後橘光/漸層大量透出，仍保留毛玻璃質感 */
+    background: linear-gradient(180deg, rgba(98,72,55,.34), rgba(52,38,29,.18));
+    -webkit-backdrop-filter: blur(9px); backdrop-filter: blur(9px);
     border: none;
     border-bottom: 1px solid rgba(255,145,71,.10);
     color: var(--text); font-size: 16px; font-weight: 600;
@@ -5944,7 +5945,7 @@ html.landing-active .landing { background: transparent; }
   .m-set-row:active { background: rgba(255,160,90,.16); }
   /* ── 切換狀態：開啟＝暖橘高亮（左側指示條 + 狀態字變橘綠）；關閉＝灰，一眼確認 ── */
   .m-set-row.m-set-on {
-    background: linear-gradient(180deg, rgba(255,145,71,.22), rgba(255,145,71,.07));
+    background: linear-gradient(180deg, rgba(255,145,71,.18), rgba(255,145,71,.05));
     box-shadow: inset 3px 0 0 var(--accent);
   }
   .m-set-row.m-set-on .m-set-lbl small { color: var(--accent); font-weight: 700; }
