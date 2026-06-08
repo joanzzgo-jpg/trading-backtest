@@ -5592,7 +5592,11 @@ body, button, input, select, textarea,
   }
   /* 防止行情列右側價格被切：禁止橫向溢出（不動 header 結構，避免搜尋框撐爆） */
   body.m-tab-watch .ticker-list { overflow-x: hidden !important; background: transparent !important; }
-  body.m-tab-watch .ticker-item { max-width: 100% !important; box-sizing: border-box; background: transparent !important; }
+  body.m-tab-watch .ticker-item {
+    max-width: 100% !important; box-sizing: border-box; background: transparent !important;
+    /* 列透明後，原本 3% 白的分隔線在暖色底上看不清 → 改暖色調分隔線，與棕橘底有對比 */
+    border-bottom: 1px solid rgba(255,190,130,.14) !important;
+  }
 
   /* ══ 手機：大部分東西固定不橫滑（依使用者要求）══ */
 
