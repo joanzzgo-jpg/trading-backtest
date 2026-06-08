@@ -5535,25 +5535,41 @@ body, button, input, select, textarea,
   .m-tabbar {
     display: flex;
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 700;
-    height: 52px;
-    background: #1A1009;
-    border-top: 1px solid var(--border);
+    height: 46px;
+    background: linear-gradient(180deg, var(--bg2) 0%, var(--bg) 100%);  /* 同主背景色系（棕橘）*/
+    border-top: 1px solid rgba(255,145,71,.20);
+    box-shadow: 0 -3px 16px rgba(0,0,0,.40);
+    -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
     padding-bottom: env(safe-area-inset-bottom, 0px);
+    /* 統一品牌圓體（橘子熊可愛風）*/
+    font-family: "M PLUS Rounded 1c", -apple-system, "PingFang TC", system-ui, sans-serif;
   }
   .m-tab {
     flex: 1; display: flex; flex-direction: column;
-    align-items: center; justify-content: center; gap: 1px;
+    align-items: center; justify-content: center; gap: 2px;
     background: none; border: none; color: var(--muted);
-    font-size: 10px; font-weight: 600; cursor: pointer;
+    font-size: 10px; font-weight: 700; cursor: pointer;
+    position: relative;
+    transition: color .18s ease;
     -webkit-tap-highlight-color: transparent;
   }
   .m-tab.active { color: var(--accent); }
-  .m-tab-ico { display: flex; align-items: center; justify-content: center; height: 22px; }
-  .m-tab-ico svg { width: 21px; height: 21px; display: block; }
+  /* 選中：圖示後方加暖橘藥丸高亮 + 微縮放，視覺更精緻 */
+  .m-tab-ico {
+    display: flex; align-items: center; justify-content: center;
+    height: 24px; width: 48px; border-radius: 12px;
+    transition: background .18s ease, transform .18s ease;
+  }
+  .m-tab.active .m-tab-ico {
+    background: rgba(255,145,71,.15);
+    transform: translateY(-1px);
+  }
+  .m-tab:active .m-tab-ico { transform: scale(.92); }
+  .m-tab-ico svg { width: 20px; height: 20px; display: block; }
 
   /* 內容底部只留「分頁列高度(52) + 瀏海安全區」→ 圖表底部時間軸緊貼三個分頁鈕「上方」、盡量往下，
      又不被 tabbar 蓋住（舊版固定 56px 在有 home indicator 的手機會被較高的 tabbar 遮住時間） */
-  .charts-container { padding-bottom: calc(52px + env(safe-area-inset-bottom, 0px)) !important; }
+  .charts-container { padding-bottom: calc(46px + env(safe-area-inset-bottom, 0px)) !important; }
 
   /* ── ⭐ 自選分頁：合約/台股行情列表「全畫面」（像股票 app）── */
   body.m-tab-watch .charts-container { display: none !important; }
@@ -5562,15 +5578,21 @@ body, button, input, select, textarea,
     width: 100% !important;
     left: auto !important;
     top: 0 !important;
-    bottom: 52px !important;     /* 上到頂、下到分頁列 */
+    bottom: 46px !important;     /* 上到頂、下到分頁列 */
     z-index: 650 !important;
     box-shadow: none !important;
     overflow-x: hidden !important;
     padding-top: env(safe-area-inset-top, 0px) !important;  /* 避開 iOS 狀態列 */
+    /* 用主題主背景色系（--bg/--bg2 棕橘）+ 頂部一抹橘光，與設定頁／全站同款 */
+    background:
+      radial-gradient(130% 45% at 50% -6%, rgba(255,145,71,.10), transparent 60%),
+      linear-gradient(180deg, var(--bg2) 0%, var(--bg) 100%) !important;
+    /* 統一品牌圓體（橘子熊可愛風）*/
+    font-family: "M PLUS Rounded 1c", -apple-system, "PingFang TC", system-ui, sans-serif !important;
   }
   /* 防止行情列右側價格被切：禁止橫向溢出（不動 header 結構，避免搜尋框撐爆） */
-  body.m-tab-watch .ticker-list { overflow-x: hidden !important; }
-  body.m-tab-watch .ticker-item { max-width: 100% !important; box-sizing: border-box; }
+  body.m-tab-watch .ticker-list { overflow-x: hidden !important; background: transparent !important; }
+  body.m-tab-watch .ticker-item { max-width: 100% !important; box-sizing: border-box; background: transparent !important; }
 
   /* ══ 手機：大部分東西固定不橫滑（依使用者要求）══ */
 
@@ -5604,8 +5626,7 @@ body, button, input, select, textarea,
      不再於此重複覆寫，避免多處 !important 互相打架（先前「太醜」的根因）*/
   .topbar-right .tb-icon-btn { width: 40px !important; height: 40px !important; }
   .topbar-right .tb-icon-btn svg { width: 17px; height: 17px; }
-  .m-tab { font-size: 11px; }
-  .m-tab-ico svg { width: 23px; height: 23px; }
+  /* 分頁列已收斂為精簡尺寸（見上方 .m-tabbar 區），此處不再放大 */
 
   /* ── 📊 勝率分頁：勝率欄改「直向堆疊」面板（控制列 / 數字列 / 訊號列各佔一整列）──
      原本沿用 topbar 橫向 HUD → 右側數字會爆出螢幕被 overflow 裁掉、敗後看不到、排版亂。
@@ -5872,10 +5893,16 @@ html.landing-active .landing { background: transparent; }
   /* 設定分頁：全螢幕設定列表（蓋住 topbar/圖表，下到分頁列上方） */
   body.m-tab-settings .charts-container { display: none !important; }
   .m-settings {
-    position: fixed; left: 0; right: 0; top: 0; bottom: 52px;
-    z-index: 650; background: var(--bg);
+    position: fixed; left: 0; right: 0; top: 0; bottom: 46px;
+    z-index: 650;
+    /* 用主題主背景色系（--bg/--bg2 棕橘）+ 頂部一抹橘光 → 與全站同款、僅多一點層次 */
+    background:
+      radial-gradient(130% 55% at 50% -8%, rgba(255,145,71,.12), transparent 62%),
+      linear-gradient(180deg, var(--bg2) 0%, var(--bg) 100%);
     flex-direction: column;
     padding-top: env(safe-area-inset-top, 0px);
+    /* 統一品牌圓體（橘子熊可愛風）→ 內部標題/列/小字皆繼承 */
+    font-family: "M PLUS Rounded 1c", -apple-system, "PingFang TC", system-ui, sans-serif;
   }
   body.m-tab-settings .m-settings { display: flex; }
 
@@ -5893,15 +5920,31 @@ html.landing-active .landing { background: transparent; }
     letter-spacing: .06em; padding: 18px 18px 6px; text-transform: uppercase;
   }
   .m-set-row {
-    width: 100%; display: flex; align-items: center; gap: 13px;
-    min-height: 58px; padding: 11px 18px;
-    background: var(--bg2); border: none;
-    border-bottom: 1px solid var(--border);
+    /* 用 calc 固定寬度填滿（button 的 width:auto 會縮成內容寬 → 各列寬度不一）*/
+    width: calc(100% - 24px); display: flex; align-items: center; gap: 13px;
+    /* 固定高度 + 小字單行（見下方）→ 每列大小一致、不因長短不一被撐高 */
+    min-height: 60px; box-sizing: border-box; padding: 0 16px; margin: 0 12px;
+    /* 半透明暖色漸層 + 毛玻璃 → 透光感：背後頁面橘光/漸層會透出來，較亮過深色頁面、有層次不單調 */
+    background: linear-gradient(180deg, rgba(88,63,48,.58), rgba(46,32,24,.40));
+    -webkit-backdrop-filter: blur(7px); backdrop-filter: blur(7px);
+    border: none;
+    border-bottom: 1px solid rgba(255,145,71,.10);
     color: var(--text); font-size: 16px; font-weight: 600;
     text-align: left; cursor: pointer; font-family: inherit;
     -webkit-tap-highlight-color: transparent;
   }
-  .m-set-row:active { background: rgba(255,160,90,.14); }
+  /* 同區段相鄰列＝一張卡片：首列圓上緣、末列圓下緣（用 longhand 避免 shorthand 互相洗掉單列群組）*/
+  .m-set-sec + .m-set-row { border-top-left-radius: 14px; border-top-right-radius: 14px; }
+  .m-set-row:has(+ .m-set-sec),
+  .m-set-row:last-child { border-bottom-left-radius: 14px; border-bottom-right-radius: 14px; border-bottom: none; }
+  .m-set-row:active { background: rgba(255,160,90,.16); }
+  /* ── 切換狀態：開啟＝暖橘高亮（左側指示條 + 狀態字變橘綠）；關閉＝灰，一眼確認 ── */
+  .m-set-row.m-set-on {
+    background: linear-gradient(180deg, rgba(255,145,71,.22), rgba(255,145,71,.07));
+    box-shadow: inset 3px 0 0 var(--accent);
+  }
+  .m-set-row.m-set-on .m-set-lbl small { color: var(--accent); font-weight: 700; }
+  .m-set-row.m-set-on .m-set-ico { filter: drop-shadow(0 0 5px rgba(255,145,71,.55)); }
   .m-set-ico { font-size: 22px; flex: 0 0 auto; width: 28px; text-align: center; color: var(--accent); }
   .m-set-ico svg { width: 25px; height: 25px; display: block; margin: 0 auto; }
   /* 帳號頭像：小啊（橘子熊）頭 = 站台 logo，圓形 */
@@ -5910,8 +5953,9 @@ html.landing-active .landing { background: transparent; }
     object-fit: cover; background: var(--bg3);
     border: 1.5px solid var(--accent); padding: 1px;
   }
-  .m-set-lbl { flex: 1 1 auto; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-  .m-set-lbl small { font-size: 12px; font-weight: 400; color: var(--muted); }
+  .m-set-lbl { flex: 1 1 auto; display: flex; flex-direction: column; justify-content: center; gap: 2px; min-width: 0; }
+  /* 狀態小字一律單行（過長以…截斷）→ 列高一致、不折行撐高 */
+  .m-set-lbl small { font-size: 12px; font-weight: 400; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
   .m-set-arr { flex: 0 0 auto; color: var(--muted); font-size: 22px; }
 
   /* 手機版天氣資訊改放設定面板頂部天氣卡 → 不再自動跳出右下浮動字卡(#_wxCard)；桌面仍保留 */
@@ -5919,7 +5963,7 @@ html.landing-active .landing { background: transparent; }
 
   /* 頂部天氣卡：由 weather.js _renderWeatherCard 填值；無定位/無資料時不加 .on → 不顯示，避免空卡 */
   .m-set-weather {
-    display: none; margin: 14px 14px 4px; padding: 13px 16px;
+    display: none; margin: 12px 12px 4px; padding: 13px 16px;
     background: linear-gradient(135deg, rgba(255,160,90,.13), var(--bg3));
     border: 1px solid var(--border); border-radius: 14px; color: var(--text);
   }
@@ -5957,7 +6001,7 @@ html.landing-active .landing { background: transparent; }
   #fxPanel:not(.hidden) {
     position: fixed !important;
     left: 50% !important; right: auto !important;
-    top: auto !important; bottom: calc(64px + env(safe-area-inset-bottom, 0px)) !important;
+    top: auto !important; bottom: calc(58px + env(safe-area-inset-bottom, 0px)) !important;
     transform: translateX(-50%) !important;
     width: min(92vw, 340px) !important;
     max-height: 64vh !important; overflow-y: auto !important;

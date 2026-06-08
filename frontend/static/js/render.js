@@ -283,7 +283,7 @@ function initWRSignalsToggle() {
     const st = document.getElementById("mSetWrSigState");
     if (st) st.textContent = _wrSignalsHidden ? "隱藏" : "顯示";
     const row = document.getElementById("mSetWrSig");
-    if (row) row.classList.toggle("m-set-on", _wrSignalsHidden);
+    if (row) row.classList.toggle("m-set-on", !_wrSignalsHidden);   // 顯示中＝高亮(開)
   };
   _sync();
   btn.addEventListener("click", () => {

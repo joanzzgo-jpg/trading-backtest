@@ -789,6 +789,8 @@ function _initSubChartsToggle() {
     // 手機「設定 → 副圖指標」列的狀態文字（手機無繪圖工具列，從設定開關副圖）
     const ms = document.getElementById("mSetSubchartsState");
     if (ms) ms.textContent = hidden ? "已隱藏 · 點擊顯示 KDJ / RSI / MACD" : "顯示中 · 點擊隱藏";
+    const row = document.getElementById("mSetSubcharts");
+    if (row) row.classList.toggle("m-set-on", !hidden);   // 顯示中＝高亮(開)
   };
   let hidden = "1";
   try { hidden = localStorage.getItem("subChartsHidden") ?? "1"; } catch (e) {}

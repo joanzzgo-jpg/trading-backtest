@@ -212,6 +212,11 @@ document.addEventListener("DOMContentLoaded", async () => {
       _perfBtn.classList.add("active");
       _perfBtn.textContent = "☀️ 恢復完整特效";
     }
+    // 手機「設定 → 極簡模式」列：開啟時高亮 + 狀態字（切換會 reload，故只需 init 設定）
+    const _perfRow = document.getElementById("mSetPerf");
+    if (_perfRow) _perfRow.classList.toggle("m-set-on", _isPerf);
+    const _perfSt = document.getElementById("mSetPerfState");
+    if (_perfSt) _perfSt.textContent = _isPerf ? "開啟中 · 關閉特效最省電" : "關閉 · 點擊開啟最省電模式";
     _perfBtn.addEventListener("click", () => {
       try {
         if (localStorage.getItem("perfMode") === "1") {
