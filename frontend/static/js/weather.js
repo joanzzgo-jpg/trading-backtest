@@ -1845,8 +1845,14 @@
   function loop(ts) {
     rafId = requestAnimationFrame(loop);
     if (document.hidden) { _lastClockTs = 0; return; }
-    if (ts - _lastFrameTs < _frameMin) return;
-    // 背景動畫恆定全速續動（不再因圖表平移/縮放而暫停或放慢）→ 移動圖表時背景不會凍結。
+    const _now = (performance.now ? performance.now() : Date.now());
+    // 圖表移動中（平移/縮放/慣性，或手機剛觸控）→ 背景降到 ~15fps（仍正常速度、不放慢時鐘，
+    // 所以看得出在動、不會像凍結），把大部分幀預算讓給圖表 → 主圖滑動順、背景又不停。
+    const _moving = (window._chartMoveTs && _now - window._chartMoveTs < 220) ||
+                    (_lowFx && _touchT && _now - _touchT < 350);
+    const _frameGap = _moving ? 66 : _frameMin;       // 移動中 ~15fps；平時 桌面~30 / 手機~20
+    if (ts - _lastFrameTs < _frameGap) return;
+    // 動畫時鐘恆定 1x（正常速度）；只調幀率、不調速度 → 移動時是「低幀率正常動」而非慢動作。
     if (!_lastClockTs) _lastClockTs = ts;
     _animClock += (ts - _lastClockTs);
     _lastClockTs = ts;

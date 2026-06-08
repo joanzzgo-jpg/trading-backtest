@@ -218,6 +218,7 @@ function renderAll(data) {
 function renderCandles(data) {
   applyOhlcvToSeries(data);
   lastCRTMarkers = []; lastKDJCrossMarkers = []; lastResonanceMarkers = []; lastWRSignalMarkers = []; lastBacktestMarkers = [];
+  _sortedMarkerCache = null;   // 標記陣列已清空 → 失效快取，避免平移重切視窗時殘留舊標記
   candleSeries.setMarkers([]);
 }
 
@@ -236,30 +237,41 @@ function _windowMarkers(all) {
   if (!vr) return all;
   const span = (vr.to - vr.from) || 0;
   const lo = vr.from - span, hi = vr.to + span;       // 左右各加一屏緩衝
-  return all.filter(m => m.time >= lo && m.time <= hi);
+  // all 已依 time 升序 → 二分找 [lo, hi] 邊界再 slice，避免整列 filter（平移時上千筆每次掃描很貴）
+  let a = 0, b = all.length;
+  while (a < b) { const m = (a + b) >> 1; all[m].time < lo ? a = m + 1 : b = m; }   // 第一個 >= lo
+  const start = a;
+  b = all.length;
+  while (a < b) { const m = (a + b) >> 1; all[m].time <= hi ? a = m + 1 : b = m; }  // 第一個 > hi
+  return all.slice(start, a);
 }
 
 let _markerWinTimer = null;
 function _scheduleMarkerRewindow() {
   clearTimeout(_markerWinTimer);
-  _markerWinTimer = setTimeout(_applyMainMarkers, 100);
+  _markerWinTimer = setTimeout(() => _applyMainMarkers(true), 100);   // 平移：只重切視窗，不重建/重排
 }
 
 // S1~S12 訊號標記一鍵開關（topbar 按鈕 #wrSignalsToggleBtn）；true=隱藏
 let _wrSignalsHidden = (() => { try { return localStorage.getItem("wrSignalsHidden") === "1"; } catch (e) { return false; } })();
 
-function _applyMainMarkers() {
-  const crtHidden       = document.getElementById("legCRT")?.classList.contains("line-off");
-  const kdjCrossHidden  = document.getElementById("legKDJCross")?.classList.contains("line-off");
-  const resonanceHidden = document.getElementById("legResonance")?.classList.contains("line-off");
-  const all = [
-    ...(crtHidden       ? [] : lastCRTMarkers),
-    ...(kdjCrossHidden  ? [] : lastKDJCrossMarkers),
-    ...(resonanceHidden ? [] : lastResonanceMarkers),
-    ...(_wrSignalsHidden ? [] : lastWRSignalMarkers),
-    ...lastBacktestMarkers,
-  ].sort((a, b) => a.time - b.time);
-  candleSeries.setMarkers(_windowMarkers(all));
+// 合併+排序後的全部標記快取：只在「資料/圖層開關變動」時重建；平移只重切視窗時沿用，
+// 省掉每次平移都 concat 五陣列 + 整列 sort（上千筆時很貴）。
+let _sortedMarkerCache = null;
+function _applyMainMarkers(windowOnly) {
+  if (!windowOnly || !_sortedMarkerCache) {
+    const crtHidden       = document.getElementById("legCRT")?.classList.contains("line-off");
+    const kdjCrossHidden  = document.getElementById("legKDJCross")?.classList.contains("line-off");
+    const resonanceHidden = document.getElementById("legResonance")?.classList.contains("line-off");
+    _sortedMarkerCache = [
+      ...(crtHidden       ? [] : lastCRTMarkers),
+      ...(kdjCrossHidden  ? [] : lastKDJCrossMarkers),
+      ...(resonanceHidden ? [] : lastResonanceMarkers),
+      ...(_wrSignalsHidden ? [] : lastWRSignalMarkers),
+      ...lastBacktestMarkers,
+    ].sort((a, b) => a.time - b.time);
+  }
+  candleSeries.setMarkers(_windowMarkers(_sortedMarkerCache));
 }
 
 // 頂部「S1~S12 訊號標記」一鍵開關按鈕
@@ -416,8 +428,10 @@ async function _bgLoadOlderBars(scrollTriggered = false) {
   const snapTf       = currentTF;
   const snapExchange = document.getElementById("exchangeSelect").value;
 
-  // 初始自動載入目標：1h=1年, 15m/5m=半年；滑動觸發則繼續往更早載
-  const INIT_DAYS   = { "5m": 180, "15m": 180, "1h": 365, "4h": 1825 };
+  // 初始自動載入目標：只預載適量緩衝（約數千根），其餘可視範圍外的舊資料延後 → 滑動時再分頁抓
+  // （scrollTriggered 走 SCROLL_DAYS）。常駐根數大降 → 縮放/平移順（5m 原 180d≈5.2萬根 → 14d≈4千根）。
+  // 代價：較舊的訊號標記要滑到才顯示；勝率 HUD 統計走後端、不受影響。
+  const INIT_DAYS   = { "5m": 14, "15m": 45, "1h": 120, "4h": 730 };
   const SCROLL_DAYS = { "5m": 730, "15m": 730, "1h": 1825, "4h": 3650 };
   const totalDays   = scrollTriggered ? (SCROLL_DAYS[snapTf] || 365) : (INIT_DAYS[snapTf] || 30);
   const targetStartTs = Math.floor(Date.now() / 1000) - totalDays * 86400;
@@ -437,6 +451,8 @@ async function _bgLoadOlderBars(scrollTriggered = false) {
 
   const myGen = ++_bgLoadGen;
   _bgLoadInProgress = true;
+  let loadedThisRun = 0;                 // 本次滑動載入累計根數
+  const SCROLL_BUDGET = 10000;           // 滑動每次約載這麼多根就停（5m≈35天），滑到左緣再載下一批
 
   try {
     while (myGen === _bgLoadGen && _bgLoadInProgress && guard()) {
@@ -487,6 +503,10 @@ async function _bgLoadOlderBars(scrollTriggered = false) {
         _bgScheduleIndicators();
       }
 
+      // 滑動觸發：累計載到 SCROLL_BUDGET 根就停（夠深、感覺連續），滑到左緣再載下一批；不一口氣
+      // cascade 到 SCROLL_DAYS 把常駐撐爆。自動預載(非 scroll)仍照舊把 INIT_DAYS 緩衝補滿。
+      loadedThisRun += nPrepended;
+      if (scrollTriggered && loadedThisRun >= SCROLL_BUDGET) break;
       await new Promise(r => setTimeout(r, 100));
     }
   } catch { /* 背景失敗靜默 */ } finally {

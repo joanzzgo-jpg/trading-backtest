@@ -111,13 +111,13 @@ function initDrawTools() {
     drawCanvas.style.width  = w + "px";
     drawCanvas.style.height = h + "px";
     drawCtx.setTransform(dpr, 0, 0, dpr, 0, 0);  // 之後所有繪圖座標都用 CSS px
-    requestAnimationFrame(renderDrawings);
+    _scheduleRenderDrawings();
   };
   resize();
   new ResizeObserver(resize).observe(chartEl);
 
-  mainChart.timeScale().subscribeVisibleTimeRangeChange(() => requestAnimationFrame(renderDrawings));
-  mainChart.subscribeCrosshairMove(() => requestAnimationFrame(renderDrawings));
+  mainChart.timeScale().subscribeVisibleTimeRangeChange(() => _scheduleRenderDrawings());
+  mainChart.subscribeCrosshairMove(() => _scheduleRenderDrawings());
 
   // 事件監聽全部掛在父容器（capture 優先），不攔截時讓 LWC 正常處理
   chartEl.addEventListener("mousemove",   _onChartMouseMove,   { capture: true });
@@ -162,7 +162,7 @@ function initDrawTools() {
         e.preventDefault(); e.stopPropagation();
         selectedId = near.id;
         showDrawColorPicker(near, touch.clientX, touch.clientY);
-        requestAnimationFrame(renderDrawings);
+        _scheduleRenderDrawings();
       }
       return;
     }
@@ -232,7 +232,7 @@ function setDrawTool(tool) {
   drawingWIP = null;
   document.getElementById("cpPopup")?.classList.remove("open");
   _updateCursor();
-  requestAnimationFrame(renderDrawings);
+  _scheduleRenderDrawings();
 }
 
 function _returnToPointer() {
@@ -255,9 +255,9 @@ function _onChartMouseMove(e) {
   if (drawTool === "pointer" || drawTool === "eraser") {
     const near = findNearest(x, y, _magnetMode ? 20 : 12);
     const nid  = near?.id ?? null;
-    if (nid !== hoveredId) { hoveredId = nid; _updateCursor(); requestAnimationFrame(renderDrawings); }
+    if (nid !== hoveredId) { hoveredId = nid; _updateCursor(); _scheduleRenderDrawings(); }
   } else if (drawTool !== "crosshair") {
-    requestAnimationFrame(renderDrawings);   // 預覽線
+    _scheduleRenderDrawings();   // 預覽線
   }
   // crosshair / pointer 無 hover → 不攔截，LWC 正常顯示十字
 }
@@ -276,7 +276,7 @@ function _onChartMouseDown(e) {
                      snapshot: JSON.parse(JSON.stringify(near)),
                      part: _drawingHitPart(near, x, y) };
       _updateCursor();
-      requestAnimationFrame(renderDrawings);
+      _scheduleRenderDrawings();
     }
   }
   // 其他工具：讓 LWC 正常處理
@@ -290,7 +290,7 @@ function _onChartMouseUp() {
   }
   dragState = null;
   _updateCursor();
-  requestAnimationFrame(renderDrawings);
+  _scheduleRenderDrawings();
 }
 
 function _onChartClick(e) {
@@ -316,7 +316,7 @@ function _onChartClick(e) {
       selectedId = null;
       document.getElementById("cpPopup")?.classList.remove("open");
     }
-    requestAnimationFrame(renderDrawings);
+    _scheduleRenderDrawings();
     return;
   }
 
@@ -413,7 +413,7 @@ function _onChartClick(e) {
     drawings.push({ id:_did(), type:drawTool, p1:drawingWIP.p1, p2:pt, color:_drawColor });
     drawingWIP = null;
     saveDrawings(); _returnToPointer();
-    requestAnimationFrame(renderDrawings);
+    _scheduleRenderDrawings();
   }
 }
 
@@ -425,7 +425,7 @@ function _onChartDblClick(e) {
     e.stopPropagation();
     selectedId = near.id;
     showDrawColorPicker(near, e.clientX, e.clientY);
-    requestAnimationFrame(renderDrawings);
+    _scheduleRenderDrawings();
     return;
   }
 }
@@ -438,14 +438,14 @@ function _onChartContextMenu(e) {
     e.stopPropagation();
     selectedId = near.id;
     showDrawColorPicker(near, e.clientX, e.clientY);
-    requestAnimationFrame(renderDrawings);
+    _scheduleRenderDrawings();
     return;
   }
   if (drawTool === "crosshair" || drawTool === "pointer") return;
   e.preventDefault();
   e.stopPropagation();
   drawingWIP = null;
-  requestAnimationFrame(renderDrawings);
+  _scheduleRenderDrawings();
 }
 
 /* ── 拖移 ── */
@@ -515,7 +515,7 @@ function _updateDrag(x, y) {
       }
     }
   }
-  requestAnimationFrame(renderDrawings);
+  _scheduleRenderDrawings();
 }
 
 /* ── 顏色 Popup ── */
@@ -530,21 +530,21 @@ function showDrawColorPicker(drawing, clientX, clientY) {
         drawing.color = c;
         _drawColor = c;
         saveDrawings();
-        requestAnimationFrame(renderDrawings);
+        _scheduleRenderDrawings();
       }
     }],
     onDelete: () => {
       drawings = drawings.filter(d => d.id !== drawing.id);
       if (selectedId === drawing.id) selectedId = null;
       saveDrawings();
-      requestAnimationFrame(renderDrawings);
+      _scheduleRenderDrawings();
     },
     showStyle: !noStyle,
     currentWidth: drawing.width || 1,
     currentLineStyle: drawing.lineStyle ?? 0,
     onStyleChange: (w, s) => {
       drawing.width = w; drawing.lineStyle = s;
-      saveDrawings(); requestAnimationFrame(renderDrawings);
+      saveDrawings(); _scheduleRenderDrawings();
     }
   });
 }
@@ -617,7 +617,7 @@ function eraseNear(x, y) {
     const dist = drawingDist(d, x, y);
     if (dist < best) { best = dist; idx = i; }
   });
-  if (idx >= 0) { drawings.splice(idx, 1); requestAnimationFrame(renderDrawings); }
+  if (idx >= 0) { drawings.splice(idx, 1); _scheduleRenderDrawings(); }
 }
 
 function drawingDist(d, x, y) {
@@ -690,19 +690,38 @@ const _SESSION_NAME  = { asia: "台股", europe: "歐洲", us: "美盤" };
 const _WEEKDAY = ["週日", "週一", "週二", "週三", "週四", "週五", "週六"];
 // 開關（頂部按鈕；預設開）
 let _sessionOn = (() => { try { return localStorage.getItem("sessionOverlay") !== "0"; } catch (e) { return true; } })();
+// 時段/星期只取決於時間戳 → 記憶化（同一根 K 每幀被查多遍，避免每次都 new Date）。
+// key 用原始 time 值；跨標的/重載皆有效（同時刻必同時段/星期），無需失效。
+const _sessCache = new Map();
+const _dayCache = new Map();
+function _dayOf(t) {
+  let v = _dayCache.get(t);
+  if (v !== undefined) return v;
+  v = new Date(toTime(t) * 1000).getUTCDay();   // toTime 已 +8h → UTC getter 得台北時間
+  _dayCache.set(t, v);
+  return v;
+}
 function _sessionOf(t) {
-  const d = new Date(toTime(t) * 1000);   // toTime 已 +8h → 用 UTC getter 得台北時間
+  let v = _sessCache.get(t);
+  if (v !== undefined) return v;
+  const d = new Date(toTime(t) * 1000);
   const day = d.getUTCDay();
-  if (day < 1 || day > 5) return null;     // 只標週一~週五
-  const h = d.getUTCHours();
-  if (h >= 8  && h < 12) return "asia";
-  if (h >= 14 && h < 17) return "europe";
-  if (h >= 20 && h < 23) return "us";
-  return null;
+  if (day < 1 || day > 5) v = null;        // 只標週一~週五
+  else {
+    const h = d.getUTCHours();
+    v = (h >= 8 && h < 12) ? "asia"
+      : (h >= 14 && h < 17) ? "europe"
+      : (h >= 20 && h < 23) ? "us" : null;
+  }
+  _sessCache.set(t, v);
+  return v;
 }
 // K 棒後方：①各交易時段淡色直條 ②各盤當盤高/低點虛線 ③星期標籤。只在日內時框、且開關開啟。
 function _drawSessionOverlay(W, H) {
   if (!_sessionOn) return;
+  // 圖表移動中（平移/縮放/慣性）略過交易時段層繪製 —— 它是盤中滑動唯一的重負載；
+  // 略過後主圖滑動全速，停手後由 _scheduleRenderDrawings 的尾段重畫把它補回來。
+  if (window._chartMoveTs && ((performance.now ? performance.now() : Date.now()) - window._chartMoveTs < 220)) return;
   if (!_SESSION_INTRADAY.includes(typeof currentTF !== "undefined" ? currentTF : "")) return;
   if (typeof ohlcvData === "undefined" || !ohlcvData.length || typeof mainChart === "undefined") return;
   const ts = mainChart.timeScale();
@@ -780,9 +799,9 @@ function _drawSessionOverlay(W, H) {
   drawCtx.save();
   drawCtx.font = "bold 13px sans-serif"; drawCtx.fillStyle = "rgba(255,255,255,0.55)"; drawCtx.textAlign = "left";
   // prevDay 從可見範圍「前一根」起算 → 只在真正換日那根標籤（不會在最左根硬標、平移時閃）
-  let prevDay = (from > 0) ? new Date(toTime(ohlcvData[from - 1].time) * 1000).getUTCDay() : -1;
+  let prevDay = (from > 0) ? _dayOf(ohlcvData[from - 1].time) : -1;
   for (let i = from; i <= to; i++) {
-    const day = new Date(toTime(ohlcvData[i].time) * 1000).getUTCDay();
+    const day = _dayOf(ohlcvData[i].time);
     if (day !== prevDay) {
       prevDay = day;
       const x = ts.timeToCoordinate(toTime(ohlcvData[i].time));
@@ -812,7 +831,26 @@ function initSessionToggle() {
     _sessionOn = !_sessionOn;
     try { localStorage.setItem("sessionOverlay", _sessionOn ? "1" : "0"); } catch (e) {}
     _sync();
-    requestAnimationFrame(renderDrawings);
+    _scheduleRenderDrawings();
+  });
+}
+
+// renderDrawings 合併排程：滑動時 subscribeVisibleTimeRangeChange / crosshairMove 一幀會觸發多次，
+// 若每次都 _scheduleRenderDrawings() → 同一幀把疊加層(交易時段 overlay 等)重畫好幾遍。
+// 用 pending 旗標收斂成「每幀最多畫一次」，盤中時框滑動大幅減負。
+let _rdRafPending = false, _rdTrailTimer = null;
+function _scheduleRenderDrawings() {
+  if (_rdRafPending) return;
+  _rdRafPending = true;
+  requestAnimationFrame(() => {
+    _rdRafPending = false;
+    renderDrawings();
+    // 移動中時 _drawSessionOverlay 會略過最重的交易時段層 → 安排「尾段重畫」，等停手(>220ms)後補回。
+    const _now = (performance.now ? performance.now() : Date.now());
+    if (window._chartMoveTs && _now - window._chartMoveTs < 220) {
+      clearTimeout(_rdTrailTimer);
+      _rdTrailTimer = setTimeout(() => requestAnimationFrame(renderDrawings), 240);
+    }
   });
 }
 

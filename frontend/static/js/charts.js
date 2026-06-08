@@ -152,21 +152,29 @@ function syncTimeScales() {
   // 同步一次」：把最新 range 記下來，用單一 rAF 在下一幀統一推給其它圖，負載大降、背景有空檔更新。
   let _pendingSync = null;      // { range, si } 最新待同步狀態
   let _syncRaf = 0;
+  let _lastFlushTs = 0;
   function _flushSync() {
     _syncRaf = 0;
-    const p = _pendingSync; _pendingSync = null;
-    if (!p || _blockSync) return;
+    const p = _pendingSync;
+    if (!p || _blockSync) { _pendingSync = null; return; }
+    // 平移/縮放/慣性進行中：子圖同步降到 ~30fps（主圖維持全速；盤中上萬根時 4 張圖每幀重排太重）。
+    // 節流時保留 _pendingSync、下一幀再試，確保停手時以「最新 range」做最後一次同步、子圖補正。
+    const _now = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+    const _moving = window._chartMoveTs && (_now - window._chartMoveTs < 220);
+    if (_moving && _now - _lastFlushTs < 33) { _syncRaf = requestAnimationFrame(_flushSync); return; }
+    _lastFlushTs = _now;
+    _pendingSync = null;
     syncing = true;
     allCharts.forEach((dst, di) => { if (di !== p.si) dst.timeScale().setVisibleLogicalRange(p.range); });
     syncing = false;
     // 平移/縮放 → 重算可見範圍的標記視窗（debounced，避免長範圍時 setMarkers 拖慢）
     if (typeof _scheduleMarkerRewindow === "function") _scheduleMarkerRewindow();
-    // 滑到左側邊界時自動觸發更多歷史載入
-    if (p.range.from < 200 && !_bgLoadInProgress && ohlcvData.length) {
+    // 接近左側邊界就提前預抓下一塊歷史（門檻拉大 → 還沒滑到空白就先載好，補資料更快不卡頓）
+    if (p.range.from < 600 && !_bgLoadInProgress && ohlcvData.length) {
       const now = Date.now();
-      if (now - _scrollLoadTs > 800) { // 0.8 秒節流，避免連發
+      if (now - _scrollLoadTs > 250) { // 節流縮短 → 連續往回滑時下一塊能更快接上
         _scrollLoadTs = now;
-        _bgLoadOlderBars(true); // 滑動觸發，載入更早的資料
+        _bgLoadOlderBars(true); // 滑動觸發，分頁載入更早的資料（一次一塊）
       }
     }
   }
