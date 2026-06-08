@@ -1737,7 +1737,7 @@ html.perf-mode .tk-seg {
 }
 
 .ticker-panel {
-  width: 230px;
+  width: 249px;   /* 230px + 0.5cm(≈18.9px) 加寬 */
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
