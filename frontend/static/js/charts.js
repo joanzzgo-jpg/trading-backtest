@@ -234,9 +234,9 @@ function syncTimeScales() {
     timeLabel.textContent = timeStr;
     timeLabel.style.display = "block";
     timeLabel.style.left   = Math.round(mainX) + "px";
-    timeLabel.style.bottom = replayActive ? "42px" : "0";
 
     const cRect = container.getBoundingClientRect();
+    let maxPaneBottom = cRect.top;        // 最底可見 pane 的底緣＝時間軸所在位置
     panesConf.forEach(({ elId, chart }, i) => {
       const pane = document.getElementById(elId);
       const ln   = lineEls[i];
@@ -248,6 +248,7 @@ function syncTimeScales() {
 
       const pRect = pane.getBoundingClientRect();
       let height  = pRect.height;
+      if (pRect.bottom > maxPaneBottom) maxPaneBottom = pRect.bottom;
 
       // 往下延伸，覆蓋緊接的 pane-divider（若可見）
       const nextSib = pane.nextElementSibling;
@@ -260,6 +261,12 @@ function syncTimeScales() {
       ln.style.top     = Math.round(pRect.top - cRect.top) + "px";
       ln.style.height  = Math.round(height) + "px";
     });
+
+    // 時間標籤錨定到時間軸（最底可見 pane 底緣），而非容器底。
+    // 桌面容器底＝圖表底 → offset≈0；手機容器延伸到底部分頁列後方 → offset≈分頁列高，
+    // 否則標籤會被推到時間軸下方、藏進 m-tabbar 後面而看不到。
+    const axisOffset = Math.max(0, Math.round(cRect.bottom - maxPaneBottom));
+    timeLabel.style.bottom = (axisOffset + (replayActive ? 42 : 0)) + "px";
   }
 
   panesConf.forEach(({ chart }) => {
