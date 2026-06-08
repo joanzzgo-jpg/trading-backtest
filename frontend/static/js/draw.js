@@ -716,12 +716,31 @@ function _sessionOf(t) {
   _sessCache.set(t, v);
   return v;
 }
+// 交易時段區段快取：把整份 ohlcvData 切成連續同盤的「區段」並預存當盤高/低點。
+// 過去每幀(平移/縮放)都對可見每根 K 重算高低 → 拉遠時上千根，是盤中滑動唯一重負載。
+// 改成只在資料變動(長度/首尾時戳/時框)時算一次，每幀只做座標換算 → 滑動全程也能畫且不卡。
+let _sessRuns = null, _sessRunsKey = "";
+function _getSessionRuns() {
+  const n = ohlcvData.length;
+  const key = n + "|" + (n ? ohlcvData[0].time + "_" + ohlcvData[n - 1].time : "") + "|" + (typeof currentTF !== "undefined" ? currentTF : "");
+  if (_sessRunsKey === key && _sessRuns) return _sessRuns;
+  const runs = [];
+  let s = -1, cur = null, hi = -Infinity, lo = Infinity;
+  for (let i = 0; i < n; i++) {
+    const sess = _sessionOf(ohlcvData[i].time);
+    if (sess !== cur) {
+      if (cur && s >= 0) runs.push({ s, e: i - 1, sess: cur, hi, lo });
+      s = i; cur = sess; hi = -Infinity; lo = Infinity;
+    }
+    if (cur) { const b = ohlcvData[i]; if (b.high > hi) hi = b.high; if (b.low < lo) lo = b.low; }
+  }
+  if (cur && s >= 0) runs.push({ s, e: n - 1, sess: cur, hi, lo });
+  _sessRuns = runs; _sessRunsKey = key;
+  return runs;
+}
 // K 棒後方：①各交易時段淡色直條 ②各盤當盤高/低點虛線 ③星期標籤。只在日內時框、且開關開啟。
 function _drawSessionOverlay(W, H) {
   if (!_sessionOn) return;
-  // 圖表移動中（平移/縮放/慣性）略過交易時段層繪製 —— 它是盤中滑動唯一的重負載；
-  // 略過後主圖滑動全速，停手後由 _scheduleRenderDrawings 的尾段重畫把它補回來。
-  if (window._chartMoveTs && ((performance.now ? performance.now() : Date.now()) - window._chartMoveTs < 220)) return;
   if (!_SESSION_INTRADAY.includes(typeof currentTF !== "undefined" ? currentTF : "")) return;
   if (typeof ohlcvData === "undefined" || !ohlcvData.length || typeof mainChart === "undefined") return;
   const ts = mainChart.timeScale();
@@ -749,33 +768,32 @@ function _drawSessionOverlay(W, H) {
   } catch (e) {}
   drawCtx.save();
   drawCtx.beginPath(); drawCtx.rect(0, 0, plotW, H); drawCtx.clip();
-  let runStart = -1, runSess = null;
-  const flush = (endIdx) => {
-    if (!runSess || runStart < 0) return;
-    const x1 = ts.timeToCoordinate(toTime(ohlcvData[runStart].time));
+  // 用預先算好的時段區段（含當盤高低）逐段畫 → 每幀只做座標換算，不再每根 K 重算高低。
+  const runs = _getSessionRuns();
+  for (const r of runs) {
+    if (r.e < from || r.s > to) continue;       // 不在可見(+buffer)範圍 → 略過
+    let endIdx = r.e, rHi = r.hi, rLo = r.lo;
+    // 重播：區段若延伸到「尚未揭曉」的未來棒 → 只算到已揭曉那根（避免用未來資料/座標為 null）
+    if (endIdx > to) {
+      endIdx = to; rHi = -Infinity; rLo = Infinity;
+      for (let i = r.s; i <= endIdx; i++) { const b = ohlcvData[i]; if (b.high > rHi) rHi = b.high; if (b.low < rLo) rLo = b.low; }
+    }
+    const x1 = ts.timeToCoordinate(toTime(ohlcvData[r.s].time));
     const x2 = ts.timeToCoordinate(toTime(ohlcvData[endIdx].time));
-    if (x1 == null || x2 == null) return;
+    if (x1 == null || x2 == null) continue;
     const L = x1 - half, R = x2 + half;
-    // 當盤高/低點
-    let hi = -Infinity, lo = Infinity;
-    for (let i = runStart; i <= endIdx; i++) { const b = ohlcvData[i]; if (b.high > hi) hi = b.high; if (b.low < lo) lo = b.low; }
-    const yH = candleSeries?.priceToCoordinate(hi), yL = candleSeries?.priceToCoordinate(lo);
-    if (yH == null || yL == null) return;
+    const yH = candleSeries?.priceToCoordinate(rHi), yL = candleSeries?.priceToCoordinate(rLo);
+    if (yH == null || yL == null) continue;
     // 色塊只填「當盤高點~低點」之間（上下緣＝高/低點，不上下無限延伸）
-    drawCtx.fillStyle = _SESSION_COLOR[runSess];
+    drawCtx.fillStyle = _SESSION_COLOR[r.sess];
     drawCtx.fillRect(L, yH, R - L, yL - yH);
     // 上下緣畫線強調高/低點
     drawCtx.save();
-    drawCtx.strokeStyle = _SESSION_LINE[runSess]; drawCtx.lineWidth = 1;
+    drawCtx.strokeStyle = _SESSION_LINE[r.sess]; drawCtx.lineWidth = 1;
     drawCtx.beginPath(); drawCtx.moveTo(L, yH); drawCtx.lineTo(R, yH); drawCtx.stroke();
     drawCtx.beginPath(); drawCtx.moveTo(L, yL); drawCtx.lineTo(R, yL); drawCtx.stroke();
     drawCtx.restore();
-  };
-  for (let i = from; i <= to; i++) {
-    const sess = _sessionOf(ohlcvData[i].time);
-    if (sess !== runSess) { flush(i - 1); runStart = i; runSess = sess; }
   }
-  flush(to);
 
   // ④ 各盤「開盤」標記：該盤第一根 K（8:00台股 / 14:00歐洲 / 20:00美盤）一出現就標，
   //    不必等整盤收完。判定＝這根是某盤、且「真實前一根」不同盤（避免畫面左緣誤判開盤）。
@@ -838,19 +856,13 @@ function initSessionToggle() {
 // renderDrawings 合併排程：滑動時 subscribeVisibleTimeRangeChange / crosshairMove 一幀會觸發多次，
 // 若每次都 _scheduleRenderDrawings() → 同一幀把疊加層(交易時段 overlay 等)重畫好幾遍。
 // 用 pending 旗標收斂成「每幀最多畫一次」，盤中時框滑動大幅減負。
-let _rdRafPending = false, _rdTrailTimer = null;
+let _rdRafPending = false;
 function _scheduleRenderDrawings() {
   if (_rdRafPending) return;
   _rdRafPending = true;
   requestAnimationFrame(() => {
     _rdRafPending = false;
     renderDrawings();
-    // 移動中時 _drawSessionOverlay 會略過最重的交易時段層 → 安排「尾段重畫」，等停手(>220ms)後補回。
-    const _now = (performance.now ? performance.now() : Date.now());
-    if (window._chartMoveTs && _now - window._chartMoveTs < 220) {
-      clearTimeout(_rdTrailTimer);
-      _rdTrailTimer = setTimeout(() => requestAnimationFrame(renderDrawings), 240);
-    }
   });
 }
 
