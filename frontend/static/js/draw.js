@@ -766,6 +766,9 @@ function _drawSessionOverlay(W, H) {
     if (tw > 0) plotW = tw;
     else { const pw = mainChart.priceScale("right").width(); if (pw > 0) plotW = W - pw; }
   } catch (e) {}
+  // 繪圖區底（扣掉下方時間軸高）→ 直立線只畫到 K 棒區，不延伸進時間軸
+  let plotBottom = H;
+  try { const th = ts.height(); if (th > 0) plotBottom = H - th; } catch (e) {}
   drawCtx.save();
   drawCtx.beginPath(); drawCtx.rect(0, 0, plotW, H); drawCtx.clip();
   // 用預先算好的時段區段（含當盤高低）逐段畫 → 每幀只做座標換算，不再每根 K 重算高低。
@@ -806,7 +809,7 @@ function _drawSessionOverlay(W, H) {
     if (x == null || x < 0 || x > plotW) continue;
     const xL = x - half;
     drawCtx.strokeStyle = _SESSION_LINE[sess]; drawCtx.lineWidth = 1; drawCtx.globalAlpha = 0.45;
-    drawCtx.beginPath(); drawCtx.moveTo(xL, 0); drawCtx.lineTo(xL, H); drawCtx.stroke();   // 開盤全高直線
+    drawCtx.beginPath(); drawCtx.moveTo(xL, 0); drawCtx.lineTo(xL, plotBottom); drawCtx.stroke();   // 開盤直線（止於時間軸上緣）
     drawCtx.globalAlpha = 1;
     drawCtx.fillStyle = _SESSION_LINE[sess];
     drawCtx.fillText(_SESSION_NAME[sess], xL + 3, 30);                                      // 盤名（星期列下方）
@@ -824,7 +827,7 @@ function _drawSessionOverlay(W, H) {
       prevDay = day;
       const x = ts.timeToCoordinate(toTime(ohlcvData[i].time));
       if (x != null && x >= 0 && x <= W) {
-        if (i > from) { drawCtx.strokeStyle = "rgba(255,255,255,0.10)"; drawCtx.lineWidth = 1; drawCtx.setLineDash([2, 3]); drawCtx.beginPath(); drawCtx.moveTo(x - half, 0); drawCtx.lineTo(x - half, H); drawCtx.stroke(); drawCtx.setLineDash([]); }
+        if (i > from) { drawCtx.strokeStyle = "rgba(255,255,255,0.10)"; drawCtx.lineWidth = 1; drawCtx.setLineDash([2, 3]); drawCtx.beginPath(); drawCtx.moveTo(x - half, 0); drawCtx.lineTo(x - half, plotBottom); drawCtx.stroke(); drawCtx.setLineDash([]); }
         drawCtx.fillText(_WEEKDAY[day] || "", x - half + 4, 16);
       }
     }
