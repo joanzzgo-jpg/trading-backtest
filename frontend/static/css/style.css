@@ -5514,11 +5514,13 @@ body, button, input, select, textarea,
     position: fixed !important;
     right: 0 !important; top: 0 !important; bottom: 0 !important;
     width: min(82vw, 300px) !important;
-    transform: translateX(100%) !important;
+    /* 手機改用底部分頁切換（非手動抽屜）→ 不要抽屜滑動，改 opacity 淡入淡出 */
+    transform: none !important;
     z-index: 600 !important;
-    transition: transform .25s cubic-bezier(.4,0,.2,1) !important;
+    opacity: 0; visibility: hidden; pointer-events: none;
+    transition: opacity .2s ease, visibility .2s ease !important;
   }
-  .ticker-panel.ticker-open { transform: translateX(0) !important; }
+  .ticker-panel.ticker-open { transform: none !important; }
   .charts-container { width: 100% !important; }
 
   /* 手機不需要重播功能 → 隱藏重播按鈕（沒按鈕就進不了重播模式） */
@@ -5575,6 +5577,7 @@ body, button, input, select, textarea,
   body.m-tab-watch .charts-container { display: none !important; }
   body.m-tab-watch .ticker-panel {
     transform: none !important;
+    opacity: 1 !important; visibility: visible !important; pointer-events: auto !important;  /* 淡入 */
     width: 100% !important;
     left: auto !important;
     top: 0 !important;
@@ -5907,8 +5910,11 @@ html.landing-active .landing { background: transparent; }
     padding-top: env(safe-area-inset-top, 0px);
     /* 統一品牌圓體（橘子熊可愛風）→ 內部標題/列/小字皆繼承 */
     font-family: "M PLUS Rounded 1c", -apple-system, "PingFang TC", system-ui, sans-serif;
+    /* 常駐 flex，用 opacity 淡入淡出（取代 display 直接切換，與自選頁一致）*/
+    display: flex !important; opacity: 0; visibility: hidden; pointer-events: none;
+    transition: opacity .2s ease, visibility .2s ease;
   }
-  body.m-tab-settings .m-settings { display: flex; }
+  body.m-tab-settings .m-settings { opacity: 1; visibility: visible; pointer-events: auto; }
 
   .m-set-hd {
     flex: 0 0 auto; height: 50px; display: flex; align-items: center;
