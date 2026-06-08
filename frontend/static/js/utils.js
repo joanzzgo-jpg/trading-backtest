@@ -30,21 +30,35 @@ function hexAlpha(hex, opacity) {
 }
 
 /* ── localStorage ── */
+// 顏色/樣式設定「手機端與電腦端各自獨立」：手機用 _m 後綴的 key。
+// 兩套 key 都在帳戶快照內 → 都隨帳戶同步，但各平台讀寫自己那份、互不影響。
+function _isMobilePrefs() {
+  try { return !!(window.matchMedia && window.matchMedia("(max-width: 768px)").matches); }
+  catch (e) { return false; }
+}
+function _prefKey(base) { return _isMobilePrefs() ? base + "_m" : base; }
 function savePrefs() {
   // 極簡模式禁止寫入 chart 偏好——避免暫時套上的純白配色汙染使用者的正常模式設定
   if (document.documentElement.classList.contains("perf-mode")) return;
   try {
-    localStorage.setItem("chartColors",     JSON.stringify(C));
-    localStorage.setItem("chartStyles",     JSON.stringify(S));
-    localStorage.setItem("chartLineStyles", JSON.stringify(LINE_STYLES));
+    localStorage.setItem(_prefKey("chartColors"),     JSON.stringify(C));
+    localStorage.setItem(_prefKey("chartStyles"),     JSON.stringify(S));
+    localStorage.setItem(_prefKey("chartLineStyles"), JSON.stringify(LINE_STYLES));
   } catch {}
   if (window._acctTouch) window._acctTouch();   // 登入中 → debounce 同步到雲端
 }
 function loadPrefs() {
+  // 讀平台專屬 key；手機首次（尚無 _m）沿用既有(電腦)設定當起點，之後一改即分流。
+  const _get = base => {
+    const k = _prefKey(base);
+    let raw = localStorage.getItem(k);
+    if (raw == null && k !== base) raw = localStorage.getItem(base);
+    return raw || "{}";
+  };
   try {
-    Object.assign(C, JSON.parse(localStorage.getItem("chartColors") || "{}"));
-    Object.assign(S, JSON.parse(localStorage.getItem("chartStyles") || "{}"));
-    Object.assign(LINE_STYLES, JSON.parse(localStorage.getItem("chartLineStyles") || "{}"));
+    Object.assign(C, JSON.parse(_get("chartColors")));
+    Object.assign(S, JSON.parse(_get("chartStyles")));
+    Object.assign(LINE_STYLES, JSON.parse(_get("chartLineStyles")));
   } catch {}
 }
 

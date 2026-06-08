@@ -13,7 +13,10 @@ const _ACCT_SKIP = new Set(["acctName", "wxCoords"]);   // wxCoords=各裝置本
 //   chartColors=K棒+指標顏色 / chartStyles=指標參數·線寬·樣式 / chartLineStyles=各線寬樣式 /
 //   sysColors=系統外觀色 / mobileTFs=手機顯示的時間框
 // （這些本就含在整包快照同步內；列出來是為了切帳號時「取代而非合併」，避免殘留前一帳號的設定）
-const _ACCT_THEME_KEYS = ["chartColors", "chartStyles", "chartLineStyles", "sysColors", "mobileTFs"];
+// 含手機端專屬 _m 變體（顏色/樣式手機與電腦各自獨立）→ 切帳號時也要一併清掉殘留
+const _ACCT_THEME_KEYS = ["chartColors", "chartStyles", "chartLineStyles",
+                          "chartColors_m", "chartStyles_m", "chartLineStyles_m",
+                          "sysColors", "mobileTFs"];
 
 function _acctLoadSession() {
   try { _ACCT.name = localStorage.getItem("acctName"); } catch (e) {}
