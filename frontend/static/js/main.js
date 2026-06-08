@@ -152,6 +152,8 @@ document.addEventListener("DOMContentLoaded", async () => {
       const tp = document.getElementById("tickerPanel");
       if (tp) tp.classList.toggle("ticker-open", t === "watch");
       if (t === "watch" && typeof fetchTickers === "function") fetchTickers();
+      // 切到「設定」分頁 → 立即更新頂部天氣卡（重新定位+抓天氣，weather.js 內建 10s 節流）
+      if (t === "settings" && window._wxRefreshNow) window._wxRefreshNow();
       if (typeof resizeAll === "function") setTimeout(resizeAll, 80);
     };
     bar.querySelectorAll(".m-tab").forEach(b => b.addEventListener("click", () => setTab(b.dataset.mtab)));

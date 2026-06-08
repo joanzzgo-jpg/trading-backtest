@@ -2161,35 +2161,58 @@
   const _hasCache = _wxCoordCache && typeof _wxCoordCache === 'object' && _wxCoordCache.lat != null;
   if (_hasCache) { window._wxGeoSrc = '快取'; fetchWeather(_wxCoordCache.lat, _wxCoordCache.lon); }   // ① 有快取先即時畫（免空白）
 
-  // ② 取真實定位 — 用 Permissions API 避免「每次打開都跳權限詢問」：
-  //    · 已授權(granted)  → 靜默 getCurrentPosition 刷新（不跳窗）→ 既精準又不打擾，移動換區也會更新
-  //    · 已拒絕(denied)   → 不問，改用 IP 粗定位
-  //    · 未決定(prompt)   → 只在「第一次、且尚無快取」時問一次；之後不再每次問（用快取/IP），
-  //                        使用者一旦允許就變 granted → 往後都靜默精準定位
-  const _getPos = () => navigator.geolocation.getCurrentPosition(
-    p => { window._wxGeoSrc = 'GPS'; window._wxGeoAcc = Math.round(p.coords.accuracy);   // 記來源/精度→天氣卡顯示，方便診斷
-           _saveCoords(p.coords.latitude, p.coords.longitude); fetchWeather(p.coords.latitude, p.coords.longitude); },
-    () => { _ipFallback(_hasCache); },                                  // 真的失敗(拒絕/逾時)才退 IP
-    { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }         // 高精度GPS；maxAge:0→不吃可能是IP的舊快取；timeout 20s 給 GPS 冷啟動時間
-  );
-  // ② 一律直接 getCurrentPosition，不再用 Permissions API 查詢結果決策。
-  //    根因：iOS standalone PWA（加到主畫面）對 navigator.permissions.query 常誤報 denied/prompt，
-  //    導致「明明已授權卻被擋去走 IP 粗定位」→ 手機Safari/桌面 準、PWA 不準（本次 bug）。
-  //    getCurrentPosition 本身最可靠：已授權→靜默精準；已拒絕→error→IP 後援；未決定→詢問一次。
-  if (!navigator.geolocation) _ipFallback(_hasCache);
-  else                        _getPos();
-
-  // 每 5 分鐘自動刷新：重新定位（移動換區→首頁/主圖的所在地與天氣都更新）+ 重抓天氣。
-  // 定位失敗 → 沿用上次座標只更新天氣（不退 IP、不把已準的所在地弄丟）。
-  // 刷新用 maximumAge:120000 允許 2 分鐘定位快取→省電；切到背景分頁時瀏覽器會自動暫停此計時器。
-  function _wxRefresh() {
-    if (!navigator.geolocation) { if (_wxLat != null) fetchWeather(_wxLat, _wxLon); return; }
-    navigator.geolocation.getCurrentPosition(
-      p => { window._wxGeoSrc = 'GPS'; window._wxGeoAcc = Math.round(p.coords.accuracy);
-             _saveCoords(p.coords.latitude, p.coords.longitude); fetchWeather(p.coords.latitude, p.coords.longitude); },
-      () => { if (_wxLat != null) fetchWeather(_wxLat, _wxLon); },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 120000 }
+  // ② 取真實定位 — 用 watchPosition「收斂精度」，根治「有時候定位到附近的區」：
+  //    根因：getCurrentPosition 就算開 enableHighAccuracy，第一筆常是 WiFi/基地台的粗略網路定位
+  //          (accuracy 數百~數千公尺)，GPS 晶片還沒鎖定就先回來→被當 GPS 採用甚至寫進快取→落在鄰近的區。
+  //    解法：watchPosition 持續收，永遠保留「最準的一筆」；夠準(≤_GOOD_ACC)立刻採用，否則給幾秒讓 GPS 收斂後再用。
+  //    (一律直接定位、不查 Permissions API：iOS standalone PWA 對 permissions.query 常誤報→已授權卻被擋去走 IP。)
+  const _GOOD_ACC = 150;   // accuracy ≤150m 視為精準GPS，立即採用、不再等
+  const _onPos = (p) => {
+    window._wxGeoSrc = 'GPS'; window._wxGeoAcc = Math.round(p.coords.accuracy);   // 記來源/精度→天氣卡顯示，方便診斷
+    _saveCoords(p.coords.latitude, p.coords.longitude); fetchWeather(p.coords.latitude, p.coords.longitude);
+  };
+  // settle：拿到第一筆(粗略)定位後，再給 settle ms 讓 GPS 收斂，到時採用期間「最準的一筆」。
+  // 完全拿不到定位(perFix 內無回應/被拒) → onFail。
+  function _locate(onOk, onFail, settle, perFix) {
+    if (!navigator.geolocation) { onFail(); return; }
+    let best = null, done = false, watchId = null, timer = null;
+    const finish = () => {
+      if (done) return; done = true;
+      try { if (watchId != null) navigator.geolocation.clearWatch(watchId); } catch (e) {}
+      if (timer) clearTimeout(timer);
+      best ? onOk(best) : onFail();
+    };
+    watchId = navigator.geolocation.watchPosition(
+      p => {
+        if (!best || p.coords.accuracy < best.coords.accuracy) best = p;   // 永遠保留最準的一筆
+        if (p.coords.accuracy <= _GOOD_ACC) { finish(); return; }          // 已夠準→不再等
+        if (!timer) timer = setTimeout(finish, settle);                    // 第一筆粗略定位→給 settle 讓 GPS 收斂
+      },
+      () => finish(),                                                      // 出錯/逾時→用期間最佳(沒有則 onFail)
+      { enableHighAccuracy: true, timeout: perFix, maximumAge: 0 }         // maxAge:0→不吃可能是IP的舊快取
     );
   }
+  if (!navigator.geolocation) _ipFallback(_hasCache);
+  else                        _locate(_onPos, () => _ipFallback(_hasCache), 8000, 20000);   // 冷啟動給 20s 拿首筆，再 8s 收斂
+
+  // 每 5 分鐘自動刷新：重新定位（移動換區→首頁/主圖的所在地與天氣都更新）+ 重抓天氣。
+  // 定位失敗 → 沿用上次座標只更新天氣（不退 IP、不把已準的所在地弄丟）。切到背景分頁時瀏覽器會自動暫停此計時器。
+  // 刷新一樣走 _locate(maxAge:0 收斂精度)→不再吃可能粗略的舊定位快取。
+  function _wxRefresh() {
+    if (!navigator.geolocation) { if (_wxLat != null) fetchWeather(_wxLat, _wxLon); return; }
+    _locate(_onPos, () => { if (_wxLat != null) fetchWeather(_wxLat, _wxLon); }, 6000, 15000);
+  }
   if (!_wxTimer) _wxTimer = setInterval(_wxRefresh, 5*60*1000);   // 預覽模式(?wxlat/?wxloc)已在上方 return，不會自動刷新
+
+  // 手機「設定」分頁開啟時呼叫（main.js setTab）→ 天氣卡即時更新，不必等下一輪 5 分鐘刷新。
+  //  · 先用現有資料即時重繪 #mSetWeather（秒顯、無空白）
+  //  · 再背景重新定位+抓天氣；10s 節流→快速來回切分頁不會狂打定位/天氣 API
+  let _wxManualTs = 0;
+  window._wxRefreshNow = function () {
+    _renderWeatherCard();                          // 先用現有資料即時重繪（有溫度才會顯示，見 _renderWeatherCard）
+    const now = Date.now();
+    if (now - _wxManualTs < 10000) return;         // 10s 內剛刷過→不重打定位/API，只重繪
+    _wxManualTs = now;
+    _wxRefresh();                                  // 重新定位 + 重抓天氣 → 完成後 _renderWeatherCard 會再更新一次
+  };
 })();
