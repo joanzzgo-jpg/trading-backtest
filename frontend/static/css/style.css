@@ -5509,14 +5509,15 @@ body, button, input, select, textarea,
      重新啟用＋強制抽屜定位（line 4866 的 position:relative 會蓋掉抽屜的 fixed、
      害面板回到正常流佔寬度把圖表推左 → 這裡用 !important 強制 fixed 蓋回去）。
      平常滑到畫面外（不擋圖表），按右上「行情」鈕(#tickerToggle)滑入。 */
+  /* 手機改用底部分頁切換（非手動抽屜）：面板「一直保持全螢幕幾何」不變，
+     切換只改 opacity → 純淡入淡出。原本寬度在 100%↔300px 突變會像抽屜往右收。 */
   .ticker-panel {
     display: flex !important;
     position: fixed !important;
-    right: 0 !important; top: 0 !important; bottom: 0 !important;
-    width: min(82vw, 300px) !important;
-    /* 手機改用底部分頁切換（非手動抽屜）→ 不要抽屜滑動，改 opacity 淡入淡出 */
+    left: 0 !important; right: 0 !important; top: 0 !important; bottom: 46px !important;
+    width: 100% !important;
     transform: none !important;
-    z-index: 600 !important;
+    z-index: 650 !important;
     opacity: 0; visibility: hidden; pointer-events: none;
     transition: opacity .2s ease, visibility .2s ease !important;
   }
@@ -5916,12 +5917,8 @@ html.landing-active .landing { background: transparent; }
   }
   body.m-tab-settings .m-settings { opacity: 1; visibility: visible; pointer-events: auto; }
 
-  .m-set-hd {
-    flex: 0 0 auto; height: 50px; display: flex; align-items: center;
-    padding: 0 18px; font-size: 18px; font-weight: 800;
-    color: rgba(237,212,168,.5);   /* 不上色、半透明（中性文字色淡化）*/
-    border-bottom: 1px solid var(--border);
-  }
+  /* 設定頁不顯示「設定」標題（依使用者要求）→ 內容直接從天氣卡開始 */
+  .m-set-hd { display: none; }
   .m-set-scroll {
     flex: 1 1 auto; overflow-y: auto; -webkit-overflow-scrolling: touch;
     overscroll-behavior: contain; padding-bottom: 28px;
