@@ -45,6 +45,28 @@ def _get(url: str, timeout: int = 30) -> Union[dict, list]:
         return json.loads(r.read())
 
 
+def _binance_get(url: str, timeout: int = 30, retries: int = 1) -> Union[dict, list]:
+    """Binance 專用 GET：暫時性失敗（逾時／連線中斷／5xx）重試 retries 次。
+    切標的瞬間 Binance 偶發 timeout 會被誤報成「無此標的」，一次重試即可大幅減少。
+    ⚠️ 只給 Binance 用——絕不可套到 Pionex（429 期間每多打一次 +10s，重試會讓封鎖永遠清不掉）。
+    400/404（真的無此標的）不重試，直接拋讓呼叫端 fallback。"""
+    last = None
+    for attempt in range(retries + 1):
+        try:
+            return _get(url, timeout=timeout)
+        except urllib.error.HTTPError as e:
+            code = getattr(e, "code", None)
+            # 4xx（標的不存在/參數錯）非暫時性 → 不重試
+            if code is not None and 400 <= code < 500:
+                raise
+            last = e
+        except Exception as e:   # URLError / timeout / 連線中斷
+            last = e
+        if attempt < retries:
+            time.sleep(0.4)
+    raise last
+
+
 # ── Pionex 全域熔斷 ────────────────────────────────────────────
 # Pionex 429 規則：封鎖 60s，且封鎖期間「每多打一次 +10s」→ 持續重試會讓封鎖永遠清不掉。
 # 對策：任一 Pionex 呼叫吃到 429，就觸發 5 分鐘全域冷卻，期間所有 Pionex 呼叫直接跳過（不再戳它），
@@ -322,7 +344,7 @@ def _fetch_binance(symbol: str, timeframe: str,
 
     if start is None and end is None:
         url = f"{BINANCE_BASE}/api/v3/klines?symbol={sym}&interval={tf}&limit={limit}"
-        return _make_df(_get(url))
+        return _make_df(_binance_get(url))
 
     since  = _to_ms(start) if start else None
     end_ms = _to_ms(end, end_of_day=True) if end else None
@@ -352,7 +374,7 @@ def _fetch_binance_fapi(symbol: str, timeframe: str,
 
     if start is None and end is None:
         url = f"{BINANCE_FAPI_BASE}/fapi/v1/klines?symbol={sym}&interval={tf}&limit={limit}"
-        return _make_df(_get(url, timeout=10))
+        return _make_df(_binance_get(url, timeout=10))
 
     since  = _to_ms(start) if start else None
     end_ms = _to_ms(end, end_of_day=True) if end else None
@@ -392,28 +414,41 @@ def _fetch_binance_klines_parallel(base_url, sym, tf, since_ms, end_ms, timefram
     if not windows:
         return _make_df([])
 
+    # 單一 window 抓取：成功回 list（可能為 []＝該段「真的」沒資料，如上市前）、
+    # 暫時性失敗（逾時/連線/5xx）回 None → 待補抓。
+    # 用 None vs [] 精準區分「網路抖動掉段」與「本來就無資料」：只補前者，
+    # 既不在歷史留整段缺口（圖上一段有策略一段沒有），也不對死標的一直重打。
     def _fetch_window(w):
         ws, we = w
         url = f"{base_url}?symbol={sym}&interval={tf}&startTime={ws}&endTime={we}&limit={page}"
         try:
-            return _get(url, timeout=10)
+            return _binance_get(url, timeout=10, retries=0)   # 第一輪不 inline 重試（不卡 worker）
         except Exception:
-            return []
+            return None
+
+    # worker 數依 window 數動態調整（上限 8）。實測 Binance 對單 IP 並發有甜蜜點：
+    # 4 太少、16 反被降速，8 最快 → 上限 8 兼顧速度與避免限流。
+    def _run(ws_list):
+        if not ws_list:
+            return {}
+        n = min(8, max(4, len(ws_list)))
+        with ThreadPoolExecutor(max_workers=n) as pool:
+            return dict(zip(ws_list, pool.map(_fetch_window, ws_list)))
+
+    # ① 一次平行抓全部 window（含原本被單獨序列打的第一個 → 省一次往返 ~250ms）
+    res = _run(windows)
+    # ② 只補抓暫時性失敗的 window；全部失敗多半是「此來源無此標的」（非暫時性）→ 不補，
+    #    直接回空讓 caller fallback（省一輪無謂重打 + 0.3s）。
+    missing = [w for w in windows if res.get(w) is None]
+    if missing and len(missing) < len(windows):
+        time.sleep(0.3)   # 一次性退避讓瞬間抖動過去（非每 window）
+        res.update(_run(missing))
 
     all_rows: list = []
-    # 第一個 window 先單獨打——失敗就拋例外（讓 caller fallback 到別的來源）
-    first = _fetch_window(windows[0])
-    if first is None:
-        first = []
-    all_rows.extend(first)
-    if len(windows) > 1:
-        # worker 數依 window 數動態調整（上限 8）。實測 Binance 對單 IP 並發有甜蜜點：
-        # 4 太少、16 反被降速，8 最快 → 上限 8 兼顧速度與避免限流。
-        _workers = min(8, max(4, len(windows) - 1))
-        with ThreadPoolExecutor(max_workers=_workers) as pool:
-            for batch in pool.map(_fetch_window, windows[1:]):
-                if batch:
-                    all_rows.extend(batch)
+    for w in windows:
+        r = res.get(w)
+        if r:
+            all_rows.extend(r)
 
     if not all_rows:
         return _make_df([])
@@ -746,6 +781,14 @@ def fetch_crypto_ohlcv(
         # 全域冷卻中也視為限流（即使 last_err 是 Binance 找不到 — 因為冷卻中 Pionex 沒實際嘗試）
         if time.time() < _PIONEX_COOLDOWN_UNTIL:
             raise ValueError(f"{symbol} 暫時無法取得：Pionex 限流冷卻中（剩 {int(_PIONEX_COOLDOWN_UNTIL - time.time())} 秒，請等待後再試）")
+        # 網路類暫時性失敗（逾時／連線中斷／5xx／DNS）≠ 標的不存在：別誤導使用者「代號錯誤」，
+        # 否則切標的瞬間 Binance 一個 timeout 就被報成「無此標的」，使用者其實只要重試即可。
+        if last_err is not None and (
+            "timeout" in es or "timed out" in es or "connection" in es
+            or "max retries" in es or "temporarily" in es or "getaddrinfo" in es
+            or any(c in es for c in ("500", "502", "503", "504"))
+        ):
+            raise ValueError(f"{symbol} 暫時無法取得：行情來源連線不穩，請稍後再試")
         raise ValueError(f"找不到 {symbol} 的行情資料，請確認標的代號是否正確")
     elif ex == "bybit":
         return _fetch_bybit(symbol, timeframe, start, end, limit, max_candles=mc)

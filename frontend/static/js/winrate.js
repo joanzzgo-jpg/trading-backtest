@@ -326,6 +326,9 @@ async function _fetchWinRateNow() {
   const bufDec = (_wrStopBuffer || 0) / 100;
   const cacheKey = `${market}:${symbol}:${exchange}:${timeframe}:${bufDec.toFixed(4)}`;
   if (_wrCache[cacheKey]) {
+    // 快取命中也要取消上一個還在飛的勝率請求，否則它稍後成功回來會用「舊標的」的
+    // 訊號覆寫 _lastWRSignals → 訊號時間不存在於新標的 ohlcv → markers 全被過濾 → 策略不顯示。
+    if (_wrFetchCtrl) { _wrFetchCtrl.abort(); _wrFetchCtrl = null; }
     _renderWinRate(_wrCache[cacheKey]);
     _renderWRSignals(_wrCache[cacheKey].signals);
     // 快取命中也要刷新左抽屜（含敗後停手求解），否則切回已載入過的標的時抽屜不更新
@@ -352,7 +355,10 @@ async function _fetchWinRateNow() {
     const res = await fetch("/api/crt_winrate?" + p, { signal: myCtrl.signal });
     const d   = await res.json();
     if (!res.ok) throw new Error(d.detail || "failed");
-    _wrCacheSet(cacheKey, d);
+    _wrCacheSet(cacheKey, d);   // 結果照常進快取，下次切回直接命中
+    // 世代守衛：成功回來時若已被更新的請求 / 快取命中取代，丟棄此陳舊結果，
+    // 否則舊標的的訊號會覆寫當前標的 → markers 全被過濾 → 切標的後策略消失。
+    if (myCtrl !== _wrFetchCtrl) return;
     _renderWinRate(d);
     _renderWRSignals(d.signals);
     if (typeof window._refreshSignalDrawer === "function") window._refreshSignalDrawer();
