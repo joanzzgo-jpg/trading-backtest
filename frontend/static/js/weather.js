@@ -15,6 +15,7 @@
   const _fxN = _lowFx ? 0.55 : 1;          // 粒子數倍率
   const _frameMin = _lowFx ? 50 : 33;      // 幀間隔下限：手機 ~20fps（省 GPU/主執行緒）、桌面 ~30fps
   let W = 0, H = 0, type = "sunny", rafId = null, _gc = {}, _lastFrameTs = 0;
+  let _animClock = 0, _lastClockTs = 0;    // 動畫虛擬時鐘（毫秒）：圖表移動中放慢 → 慢動作而非凍結
   // 手機：手指觸控/平移圖表時暫停天氣重繪 → 主執行緒全讓給圖表，平移/縮放更順（消除「卡」感）
   let _touchT = 0;
   if (_lowFx) {
@@ -1833,26 +1834,24 @@
   }
 
   /* ── main loop ── */
-  function draw() {
+  function draw(t) {
     ctx.clearRect(0,0,W,H);
     if (type === "off") return;  // 「無」模式：清空畫布即可，不畫任何特效
     _paX += (_paTX - _paX) * 0.07; _paY += (_paTY - _paY) * 0.07;   // 平滑視差位移
-    const t=Date.now()*.001;
     ({sunny:dSunny,night:dNight,cloudy:dCloudy,fog:dFog,rain:dRain,snow:dSnow,storm:dStorm,thunder:dThunder,mahjong:dMahjong,leaves:dLeaves,spring:dSpring,partly:dPartly,overcast:dOvercast,drizzle:dDrizzle,windy:dWindy,hail:dHail,tornado:dTornado,quake:dQuake,aurora:dAurora,sunset:dSunset,sunrise:dSunrise,meteor:dMeteor})[type]?.(t);
     _drawAstro(t);
     _tempTint();
   }
   function loop(ts) {
     rafId = requestAnimationFrame(loop);
-    if (document.hidden || ts - _lastFrameTs < _frameMin) return;
-    const _now = (performance.now ? performance.now() : Date.now());
-    // 手機：觸控後 350ms 內暫停天氣重繪（平移/縮放圖表期間不搶主執行緒）
-    if (_lowFx && _touchT && _now - _touchT < 350) return;
-    // 任何裝置：圖表正在移動（平移/縮放/慣性滑動）→ 暫停天氣重繪 220ms，把幀預算讓給圖表，
-    // 主圖滑動更順。圖表停止移動 220ms 後天氣自動恢復。
-    if (window._chartMoveTs && _now - window._chartMoveTs < 220) return;
+    if (document.hidden) { _lastClockTs = 0; return; }
+    if (ts - _lastFrameTs < _frameMin) return;
+    // 背景動畫恆定全速續動（不再因圖表平移/縮放而暫停或放慢）→ 移動圖表時背景不會凍結。
+    if (!_lastClockTs) _lastClockTs = ts;
+    _animClock += (ts - _lastClockTs);
+    _lastClockTs = ts;
     _lastFrameTs = ts;
-    draw();
+    draw(_animClock * 0.001);
   }
   let _inited = false;
   function start(wt) {

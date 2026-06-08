@@ -147,24 +147,36 @@ function syncTimeScales() {
   const allCharts = [mainChart, kdjChart, rsiChart, macdChart];
   let syncing = false;
   let _scrollLoadTs = 0; // throttle scroll-triggered loading
+  // 跨圖同步用 rAF 合併：一次拖曳/縮放每幀可能觸發多次 range-change，若每次都同步 3 張子圖
+  // → 主執行緒被重繪塞滿，連帶把背景天氣動畫的 rAF 擠掉（拖曳時背景凍結）。改成「每幀最多
+  // 同步一次」：把最新 range 記下來，用單一 rAF 在下一幀統一推給其它圖，負載大降、背景有空檔更新。
+  let _pendingSync = null;      // { range, si } 最新待同步狀態
+  let _syncRaf = 0;
+  function _flushSync() {
+    _syncRaf = 0;
+    const p = _pendingSync; _pendingSync = null;
+    if (!p || _blockSync) return;
+    syncing = true;
+    allCharts.forEach((dst, di) => { if (di !== p.si) dst.timeScale().setVisibleLogicalRange(p.range); });
+    syncing = false;
+    // 平移/縮放 → 重算可見範圍的標記視窗（debounced，避免長範圍時 setMarkers 拖慢）
+    if (typeof _scheduleMarkerRewindow === "function") _scheduleMarkerRewindow();
+    // 滑到左側邊界時自動觸發更多歷史載入
+    if (p.range.from < 200 && !_bgLoadInProgress && ohlcvData.length) {
+      const now = Date.now();
+      if (now - _scrollLoadTs > 800) { // 0.8 秒節流，避免連發
+        _scrollLoadTs = now;
+        _bgLoadOlderBars(true); // 滑動觸發，載入更早的資料
+      }
+    }
+  }
   allCharts.forEach((src, si) => {
     src.timeScale().subscribeVisibleLogicalRangeChange(range => {
-      // 標記「圖表正在移動」（平移/縮放/慣性）→ 天氣動畫看到這旗標會暫停重繪，把幀預算讓給圖表
+      // 標記「圖表正在移動」（平移/縮放/慣性）→ 供其它模組參考（背景天氣等）
       window._chartMoveTs = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
       if (syncing || !range || _blockSync) return;
-      syncing = true;
-      allCharts.forEach((dst, di) => { if (di !== si) dst.timeScale().setVisibleLogicalRange(range); });
-      syncing = false;
-      // 平移/縮放 → 重算可見範圍的標記視窗（debounced，避免長範圍時 setMarkers 拖慢）
-      if (typeof _scheduleMarkerRewindow === "function") _scheduleMarkerRewindow();
-      // 滑到左側邊界時自動觸發更多歷史載入
-      if (range.from < 200 && !_bgLoadInProgress && ohlcvData.length) {
-        const now = Date.now();
-        if (now - _scrollLoadTs > 800) { // 0.8 秒節流，避免連發
-          _scrollLoadTs = now;
-          _bgLoadOlderBars(true); // 滑動觸發，載入更早的資料
-        }
-      }
+      _pendingSync = { range, si };               // 只記最新，丟棄同幀內較舊的中間值
+      if (!_syncRaf) _syncRaf = requestAnimationFrame(_flushSync);
     });
   });
 
