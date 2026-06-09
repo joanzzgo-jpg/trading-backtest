@@ -175,7 +175,9 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
     macd_gold = (prev_hist < 0) & (hist >= 0) & ~np.isnan(prev_hist) & ~np.isnan(hist)
 
     # ── 計數器：mid_cnt[k] = [ws, ls, wl, ll]；band_cnt 同結構 ──
-    SIG_KEYS = ["abc", "ab", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"]
+    # SS 系列：獨立於 S1~S12 的新訊號群，自成一套合計與「敗後停手」（不與 S 的合併時間軸混搭）。
+    _SS_KEYS = ("ss1",)
+    SIG_KEYS = ["abc", "ab", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", *_SS_KEYS]
     mid_cnt   = {k: [0, 0, 0, 0] for k in SIG_KEYS}
     band_cnt  = {k: [0, 0, 0, 0] for k in SIG_KEYS}
     # RR 累計：mid_rr[k][dir] = {"est_sum": 預估 RR 總和（所有訊號）,
@@ -367,7 +369,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         _bump_rr(mid_rr,  sig_key, direction, entry_i, omj, stop_px, om, bb_mid)
         band_arr = bb_lo if direction == "short" else bb_up
         _bump_rr(band_rr, sig_key, direction, entry_i, obj, stop_px, ob, band_arr)
-        if om is not None:
+        if om is not None and sig_key not in _SS_KEYS:   # SS 系列不混入 S 的近期清單
             recent.append({"t": sig_time, "d": d_str, "r": "w" if om == "win" else "l", "k": sig_key})
 
     # ── 訊號一 ABC（同棒三條件）──────────────────────────────
@@ -700,6 +702,40 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             _push_signal(sig_time, d_str, "12", direction, entry_i, float(stop_px),
                          om, otm, omj, ob, otb, obj)
 
+    # ── SS1（獨立系列）：布林軌道反轉 2 棒 ───────────────────────
+    # 顏色：紅K=上漲(close>open)、綠K=下跌(close<open)。
+    # 做多（下軌反轉）：A=綠K，B=紅K 且 收>下軌，A/B 任一觸下軌，排除 B 已碰中軌；停損取兩棒最低。
+    # 做空（上軌反轉）：A=紅K，B=綠K 且 收<上軌，A/B 任一觸上軌，排除 B 已碰中軌；停損取兩棒最高。
+    if n >= 3:
+        bull = closes > opens        # 紅K 上漲
+        bear = closes < opens        # 綠K 下跌
+        a_bull = bull[:n-2]; a_bear = bear[:n-2]
+        b_bull = bull[1:n-1]; b_bear = bear[1:n-1]
+        b_close = closes[1:n-1]; b_high = highs[1:n-1]; b_low = lows[1:n-1]
+        b_lo_band = bb_lo[1:n-1]; b_up_band = bb_up[1:n-1]; b_mid = bb_mid[1:n-1]
+        a_lo_t = bb_lo_touch[:n-2]; b_lo_t = bb_lo_touch[1:n-1]
+        a_up_t = bb_up_touch[:n-2]; b_up_t = bb_up_touch[1:n-1]
+        ss_long  = a_bear & b_bull & (b_close > b_lo_band) & (a_lo_t | b_lo_t) \
+                   & ~np.isnan(b_mid) & (b_high < b_mid)
+        ss_short = a_bull & b_bear & (b_close < b_up_band) & (a_up_t | b_up_t) \
+                   & ~np.isnan(b_mid) & (b_low > b_mid)
+        if long_only:
+            ss_short[:] = False
+        for i in np.flatnonzero(ss_short | ss_long):
+            i = int(i)
+            direction = "short" if ss_short[i] else "long"
+            ib = i + 1   # B 棒（訊號棒）
+            if direction == "short":
+                stop_px = _stop(max(highs[i], highs[ib]), direction)
+            else:
+                stop_px = _stop(min(lows[i], lows[ib]), direction)
+            d_str = "s" if direction == "short" else "l"
+            sig_time = times_iso[ib]
+            entry_i = i + 2
+            om, otm, omj, ob, otb, obj = _scan_dual(entry_i, float(stop_px), direction)
+            _push_signal(sig_time, d_str, "ss1", direction, entry_i, float(stop_px),
+                         om, otm, omj, ob, otb, obj)
+
     # 依時間排一次，供 _solve / _calc_streaks / _build_combined 共用（原本各自 sort）
     signals_sorted = sorted(signals, key=lambda x: x["t"])
 
@@ -711,7 +747,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         # S12 insertion order 排在 S11 之後 → 穩定排序下，同 t 上其他策略會先入 _seen，
         # S12 只在「(t,d) 不與其他策略重疊」時才進入敗後停手序列
         for s in signals_sorted:
-            if s["k"] == "abc":
+            if s["k"] == "abc" or s["k"] in _SS_KEYS:   # SS 系列不混入 S 的敗後停手
                 continue
             _key = (s["t"], s["d"])
             if _key in _seen:
@@ -903,7 +939,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
     #    loss_streak[k] = 同方向連敗 k 根後、下一筆同方向也敗的機率
     #                     （k=1→2連、k=2→3連、k=3→4連）；win_after_win = 同方向勝後再勝。
     _combined_memo = {}
-    _signals_base = [s for s in signals_sorted if s["k"] != "abc"]
+    _signals_base = [s for s in signals_sorted if s["k"] != "abc" and s["k"] not in _SS_KEYS]
     def _build_combined(target, est=False):
         """合併時間軸的已結算序列 [(d, r)]（dedupe by (t,d)、S1 不計入）。
         est=True 改用『進場時固定預估目標』的結果（est_r/est_r_b；1:1 目標固定 est=實際）。
@@ -1067,8 +1103,66 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
     recent.sort(key=lambda x: x["t"])
     from_date = str(df.iloc[0]["time"])[:10] if n else ""
 
+    # ── SS 系列：獨立合計 + 敗後停手（只用 _SS_KEYS、自己的合併時間軸，不含 S）──
+    def _build_combined_ss(target="mid"):
+        rk = _RKEY[target]
+        seen = set(); seq = []
+        for s in signals_sorted:
+            if s["k"] not in _SS_KEYS:
+                continue
+            key = (s["t"], s["d"])
+            if key in seen:
+                continue
+            seen.add(key)
+            r = s.get(rk)
+            if r in ("w", "l"):
+                seq.append((s["d"], r))
+        return seq
+
+    def _ss_stop_strategy(target="mid"):
+        seq = _build_combined_ss(target)
+        active = {"s": True, "l": True}; w = {"s": 0, "l": 0}; l = {"s": 0, "l": 0}
+        for d, r in seq:
+            if active[d]:
+                if r == "w": w[d] += 1
+                else: l[d] += 1; active[d] = False
+            elif r == "w": active[d] = True
+            active["l" if d == "s" else "s"] = True
+        def _mk(dk):
+            t = w[dk] + l[dk]
+            return {"total": t, "wins": w[dk], "losses": l[dk],
+                    "win_rate": round(w[dk] / t * 100, 1) if t else None}
+        sr = _mk("s"); lr = _mk("l"); tot = sr["total"] + lr["total"]; win = sr["wins"] + lr["wins"]
+        return {"short": sr, "long": lr, "total": tot, "wins": win,
+                "win_rate": round(win / tot * 100, 1) if tot else None}
+
+    def _ss_per_sig(k):
+        return {
+            "short": _stats(mid_cnt[k][0], mid_cnt[k][1], mid_rr[k]["short"], streak=streak_mid.get((k, "s"), 0)),
+            "long":  _stats(mid_cnt[k][2], mid_cnt[k][3], mid_rr[k]["long"],  streak=streak_mid.get((k, "l"), 0)),
+        }
+
+    _ss_seq = _build_combined_ss("mid")
+    _ss_cond = {"s": _cond_for_dir(_ss_seq, "s"), "l": _cond_for_dir(_ss_seq, "l")}
+    _ss_ws = sum(mid_cnt[k][0] for k in _SS_KEYS); _ss_ls = sum(mid_cnt[k][1] for k in _SS_KEYS)
+    _ss_wl = sum(mid_cnt[k][2] for k in _SS_KEYS); _ss_ll = sum(mid_cnt[k][3] for k in _SS_KEYS)
+    _ss_tot = _ss_ws + _ss_ls + _ss_wl + _ss_ll; _ss_win = _ss_ws + _ss_wl
+    _ss_tail = _ss_seq[-100:]
+    _ss_tw = sum(1 for _d, r in _ss_tail if r == "w")
+    ss_out = {
+        "total": _ss_tot, "wins": _ss_win,
+        "win_rate": round(_ss_win / _ss_tot * 100, 1) if _ss_tot else None,
+        "short": _stats(_ss_ws, _ss_ls, cond=_ss_cond["s"]),
+        "long":  _stats(_ss_wl, _ss_ll, cond=_ss_cond["l"]),
+        "stop_strategy": _ss_stop_strategy("mid"),
+        "recent100": {"win_rate": round(_ss_tw / len(_ss_tail) * 100, 1) if _ss_tail else None,
+                      "total": len(_ss_tail), "wins": _ss_tw},
+        **{k: _ss_per_sig(k) for k in _SS_KEYS},
+    }
+
     return {
         **mid_out,                # backward compat：mid 統計放在頂層
+        "ss":   ss_out,           # SS 系列（獨立合計 + 敗後停手，不與 S 混）
         "band": band_out,         # 帶軌（short=BB 下軌、long=BB 上軌）統計
         "rr":   rr_out,           # 1:1 目標（止盈距離 = 止損距離）統計
         "long_only": long_only,   # 是否只算多單（台股=True）

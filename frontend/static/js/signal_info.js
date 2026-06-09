@@ -146,6 +146,25 @@
         "<b>不計入</b>總勝率合計，僅作參考",
       ],
     },
+    ss1: {
+      name: "SS1（SS 系列）",
+      subtitle: "布林軌道反轉 2 棒",
+      icon: "⇋",
+      color: "#26a69a",
+      gist: "軌道反轉 2 棒：下跌K(綠)插軌、上漲K(紅)收回軌內 → 反轉到中軌。<b>SS 為獨立系列，自己一套合計與「敗後停手」，不與 S1~S12 合併、不計入 S 總勝率。</b>（紅K=漲、綠K=跌）",
+      patterns: [
+        { dir: "做多（下軌反轉，訊號棒=B 紅K）", cond: "A 棒=綠K（跌），B 棒=紅K（漲）且收盤 > 下軌；A 或 B 任一根 low 觸下軌" },
+        { dir: "做空（上軌反轉，訊號棒=B 綠K）", cond: "A 棒=紅K（漲），B 棒=綠K（跌）且收盤 < 上軌；A 或 B 任一根 high 觸上軌" },
+      ],
+      excludes: ["訊號棒 B 已碰中軌（多：high ≥ 中軌；空：low ≤ 中軌）→ 無空間，跳過"],
+      entry: "訊號棒 B 下一根開盤（i+2）",
+      stop:  "A、B 兩棒最低（多）／最高（空） × (1 ± SL buffer)",
+      target: "BB 中軌",
+      notes: [
+        "為短時框（5m/15m）設計，但所有時框都算",
+        "<b>獨立敗後停手</b>：勝負序列只用 SS 自己的訊號，不跟 S2~S11 混",
+      ],
+    },
     s11: {
       name: "訊號十一 S11",
       subtitle: "ABCD 四棒純淨：A純超買/賣、BC全無、D純KDJ叉",
@@ -236,7 +255,7 @@
   };
 
   // signals 列表中 s.k 用「3/4/5/6/7」（無 s 前綴），需要對應
-  const _S_KEY_MAP = { abc: "abc", ab: "ab", s3: "3", s4: "4", s5: "5", s6: "6", s7: "7", s8: "8", s9: "9", s10: "10", s11: "11", s12: "12" };
+  const _S_KEY_MAP = { abc: "abc", ab: "ab", s3: "3", s4: "4", s5: "5", s6: "6", s7: "7", s8: "8", s9: "9", s10: "10", s11: "11", s12: "12", ss1: "ss1" };
 
   const $ = id => document.getElementById(id);
 
@@ -249,6 +268,7 @@
   function _statsFor(key) {
     const d = (typeof _wrCacheLast !== "undefined") ? _wrCacheLast : null;
     if (!d) return null;
+    if (key.startsWith("ss")) return d.ss?.[key];   // SS 系列只算 mid，固定在 d.ss
     const view = (typeof _wrPickView === "function") ? _wrPickView(d) : d;
     return view?.[key];
   }

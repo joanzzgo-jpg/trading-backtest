@@ -12,7 +12,7 @@ const _NTF = { enabled: false, vapidKey: null, endpoint: null, prefs: null, supp
 // 偏好預設與可選清單（前端固定；後端 _ALL_SIGS/_ALL_TFS 同義）
 const _NTF_DEFAULT  = { tfs: ["1h", "4h", "1d"], sigs: ["ab", "3", "4", "5", "6", "7", "8", "9", "10", "11"] };
 const _NTF_ALL_TFS  = ["5m", "15m", "30m", "1h", "2h", "4h", "8h", "1d", "1w"];
-const _NTF_SIG_ORDER = ["ab", "3", "4", "5", "6", "7", "8", "9", "10", "11", "abc", "12"];
+const _NTF_SIG_ORDER = ["ab", "3", "4", "5", "6", "7", "8", "9", "10", "11", "abc", "12", "ss1"];
 
 // 偏好讀寫：存 localStorage["notifyPrefs"]，帳號登入時會自動同步到雲端、跨裝置一致
 function _ntfLoadPrefs() {
@@ -27,6 +27,7 @@ function _ntfLoadPrefs() {
 function _ntfSigLabel(k) {
   if (k === "abc") return "S1";
   if (k === "ab")  return "S2";
+  if (k === "ss1") return "SS1";
   return "S" + k;
 }
 const _NTF_TF_ORDER = ["5m", "15m", "30m", "1h", "2h", "4h", "8h", "1d", "1w", "1M"];

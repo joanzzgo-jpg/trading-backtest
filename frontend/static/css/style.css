@@ -1383,7 +1383,7 @@ html.perf-mode .tk-seg {
     inset 0 0 0 1px rgba(0, 0, 0, 0.05) !important;
 }
 .wr-abc, .wr-ab, .wr-s3, .wr-s4, .wr-s5, .wr-s6,
-.wr-s7, .wr-s8, .wr-s9, .wr-s10, .wr-s11, .wr-s12 {
+.wr-s7, .wr-s8, .wr-s9, .wr-s10, .wr-s11, .wr-s12, .wr-ss1 {
   color: #C48560;     /* 暖橘 accent — 單一色，明顯降飽和（無螢光）*/
 }
 .tb-wr-block:hover .tb-wr-icon { opacity: 1; }
@@ -4118,6 +4118,8 @@ html.perf-mode .tb-wr-stoprate.bad  { color: #dc2626; }
 html.perf-mode .wr-s10 { color: #FF6A1A; }
 .wr-s12 { color: #C48560; }   /* 簡單美學：統一柔和暖橘 */
 html.perf-mode .wr-s12 { color: #FF6A1A; }
+.wr-ss1 { color: #26a69a; }   /* SS 系列：青綠（軌道反轉）*/
+html.perf-mode .wr-ss1 { color: #00897B; }
 
 .sig-stat-streak {
   margin-left: 6px;

@@ -430,6 +430,7 @@ function _renderWRSignals(signals) {
                  : k === "9"   ? (isShort ? "#fff176" : "#fff59d")
                  : k === "10"  ? (isShort ? "#90caf9" : "#bbdefb")
                  : k === "11"  ? (isShort ? "#aed581" : "#c5e1a5")
+                 : k === "ss1" ? (isShort ? "#ff7043" : "#26a69a")   // SS1 軌道反轉
                  :                (isShort ? "#ffab91" : "#ffccbc");  // k=12
     const eShape = k === "abc" ? "circle"
                  : k === "ab"  ? "square"
@@ -445,6 +446,7 @@ function _renderWRSignals(signals) {
                  : k === "9"   ? (isShort ? "空⁹" : "多⁹")
                  : k === "10"  ? (isShort ? "空¹⁰" : "多¹⁰")
                  : k === "11"  ? (isShort ? "空¹¹" : "多¹¹")
+                 : k === "ss1" ? (isShort ? "空ˢ" : "多ˢ")
                  :                (isShort ? "空¹²" : "多¹²");
     allMarkers.push({
       time: et, position: isShort ? "aboveBar" : "belowBar",
@@ -530,6 +532,9 @@ function _renderWinRate(d) {
   setRow("wrS11L", d.s11?.long);
   setRow("wrS12S", d.s12?.short);
   setRow("wrS12L", d.s12?.long);
+  // SS 系列只算 mid，資料固定在完整結果的 _wrCacheLast.ss（不隨 mid/band/rr 切換）
+  setRow("wrSS1S", _wrCacheLast.ss?.ss1?.short);
+  setRow("wrSS1L", _wrCacheLast.ss?.ss1?.long);
 
   const sa = document.getElementById("wrAll");
   if (sa) {
@@ -606,16 +611,16 @@ function _renderWinRate(d) {
 ══════════════════════════════════════════ */
 const _SIG_LABEL = {
   abc:"S1", ab:"S2", s3:"S3", s4:"S4", s5:"S5",
-  s6:"S6", s7:"S7", s8:"S8", s9:"S9", s10:"S10", s11:"S11", s12:"S12",
+  s6:"S6", s7:"S7", s8:"S8", s9:"S9", s10:"S10", s11:"S11", s12:"S12", ss1:"SS1",
 };
 const _SIG_ICON = {
   abc:"●", ab:"■", s3:"▲", s4:"◆", s5:"★",
-  s6:"◇", s7:"⬢", s8:"⬡", s9:"✦", s10:"✪", s11:"✸", s12:"❖",
+  s6:"◇", s7:"⬢", s8:"⬡", s9:"✦", s10:"✪", s11:"✸", s12:"❖", ss1:"⇋",
 };
 // signal.k（"3"…）→ stat key（"s3"…），給 hover 顯示該棒訊號勝率用
 const _SIGK_TO_STATKEY = {
   abc:"abc", ab:"ab", "3":"s3", "4":"s4", "5":"s5",
-  "6":"s6", "7":"s7", "8":"s8", "9":"s9", "10":"s10", "11":"s11", "12":"s12",
+  "6":"s6", "7":"s7", "8":"s8", "9":"s9", "10":"s10", "11":"s11", "12":"s12", ss1:"ss1",
 };
 
 /* ══════════════════════════════════════════
@@ -686,7 +691,10 @@ function _hoverItemHtml(s) {
   const statKey = _SIGK_TO_STATKEY[s.k] || "abc";
   const dirKey  = s.d === "s" ? "short" : "long";
   const dirSym  = s.d === "s" ? "空" : "多";
-  const stat    = view && view[statKey] ? view[statKey][dirKey] : null;
+  // SS 系列只算 mid，資料在 _wrCacheLast.ss.*；其餘走目前 view（mid/band/rr）
+  const stat    = statKey.startsWith("ss")
+    ? (_wrCacheLast?.ss?.[statKey] ? _wrCacheLast.ss[statKey][dirKey] : null)
+    : (view && view[statKey] ? view[statKey][dirKey] : null);
   const wr      = (stat && stat.win_rate != null) ? stat.win_rate : null;
   const wrCls   = wr == null ? "" : wr >= 60 ? " good" : wr < 45 ? " bad" : "";
   const cnt     = stat ? `${stat.wins}勝${stat.total - stat.wins}負` : "";
