@@ -54,10 +54,12 @@ function _applyChartBgGradient(color) {
   // 但「系統背景 ↔ 主圖色」上下漸層的形狀保留（不再整片 transparent 把漸層蓋掉）
   const night = document.documentElement.classList.contains("sky-night");
   const mid = night ? `color-mix(in srgb, ${dark} 52%, transparent)` : dark;
+  // 下方時間軸區：底緣改成半透明（不再實色蓋到 var(--bg)）→ 時間軸漸層透一些、背景/天氣淡淡透出
+  const botFade = `color-mix(in srgb, var(--bg) 38%, transparent)`;
   pane.style.background =
     `radial-gradient(circle 200px at 100% 0%, var(--bg) 0%, transparent 70%), ` +
     `linear-gradient(to right, transparent 0%, transparent 96%, var(--bg) 100%), ` +
-    `linear-gradient(to bottom, var(--bg) 0%, ${mid} 6%, ${mid} 94%, var(--bg) 100%)`;
+    `linear-gradient(to bottom, var(--bg) 0%, ${mid} 6%, ${mid} 90%, ${botFade} 100%)`;
 }
 
 function applyAllColors() {

@@ -33,6 +33,47 @@ function loadDrawings() {
 function _cssW() { return drawCanvas ? drawCanvas.width  / (window.devicePixelRatio || 1) : 800; }
 function _cssH() { return drawCanvas ? drawCanvas.height / (window.devicePixelRatio || 1) : 600; }
 
+// 繪圖區寬度（扣掉右側價格軸）→ 用來判斷「最新K棒右邊空白處」與「價格軸」的界線
+function _plotW() {
+  try { const tw = mainChart.timeScale().width(); if (tw > 0) return tw; } catch (e) {}
+  try { const pw = mainChart.priceScale("right").width(); if (pw > 0) return _cssW() - pw; } catch (e) {}
+  return _cssW();
+}
+
+// 最後一根 K 棒的參考：logical index、時間、平均 bar 間隔（秒）
+function _barRef() {
+  const n = (typeof ohlcvData !== "undefined") ? ohlcvData.length : 0;
+  if (!n) return null;
+  const lastTime = toTime(ohlcvData[n - 1].time);
+  let interval = 60;
+  if (n >= 2) { const d = lastTime - toTime(ohlcvData[n - 2].time); if (d > 0) interval = d; }
+  return { lastLogical: n - 1, lastTime, interval };
+}
+
+// time → x：超出最後一根 K 棒（右側未來空白區）時，用 logical index 線性外推。
+// 原生 timeToCoordinate 在空白區回 null → 繪圖會被擋在最後一根；外推後可延伸到空白處。
+function _timeToX(time) {
+  const ts = mainChart.timeScale();
+  const x = ts.timeToCoordinate(time);
+  if (x != null) return x;
+  const r = _barRef();
+  if (r && time > r.lastTime) return ts.logicalToCoordinate(r.lastLogical + (time - r.lastTime) / r.interval);
+  return null;
+}
+
+// x → time：落在右側未來空白區時，回推一個外推時間戳（以平均 bar 間隔換算）。
+// 價格軸區域（x > plotW）與左側空白不外推 → 回 null，維持原行為。
+function _xToTime(x) {
+  const ts = mainChart.timeScale();
+  const t = ts.coordinateToTime(x);
+  if (t != null) return t;
+  const r = _barRef();
+  if (!r || x > _plotW()) return null;
+  const lg = ts.coordinateToLogical(x);
+  if (lg == null || lg <= r.lastLogical) return null;   // 左側空白不外推
+  return Math.round(r.lastTime + (lg - r.lastLogical) * r.interval);
+}
+
 // 短距離 cache：mousemove 60+ Hz，4px 內位移直接重用上次結果
 // 拖移時 drawings 內容變但長度不變、被拖那筆仍是同物件 → 命中也正確
 let _findNearestCache = { x: -1e9, y: -1e9, maxDist: 0, len: -1, result: null };
@@ -72,7 +113,7 @@ function _drawingHitPart(d, x, y) {
   const ty = candleSeries?.priceToCoordinate(d.tp);
   const sy = candleSeries?.priceToCoordinate(d.sl);
   // 左邊緣寬度把手優先偵測
-  const ex = mainChart.timeScale().timeToCoordinate(d.p1.time);
+  const ex = _timeToX(d.p1.time);
   if (ex != null && ty != null && sy != null) {
     const W2 = _cssW();
     const visR = mainChart.timeScale().getVisibleLogicalRange();
@@ -259,7 +300,7 @@ function _onChartMouseMove(e) {
   } else if (drawTool !== "crosshair") {
     _scheduleRenderDrawings();   // 預覽線
   }
-  // crosshair / pointer 無 hover → 不攔截，LWC 正常顯示十字
+  // crosshair / pointer 無 hover → 不攔截，LWC 正常顯示十字（鉛直線由 charts.js 的 pane-vline 處理）
 }
 
 function _onChartMouseDown(e) {
@@ -365,8 +406,8 @@ function _onChartClick(e) {
         tp = entry + (entry - sl);
       }
       // 色塊寬度 = 兩次點擊的水平距離（換算成 K棒數）
-      const _ex1 = mainChart.timeScale().timeToCoordinate(drawingWIP.p1.time);
-      const _ex2 = mainChart.timeScale().timeToCoordinate(pt.time);
+      const _ex1 = _timeToX(drawingWIP.p1.time);
+      const _ex2 = _timeToX(pt.time);
       const _vr  = mainChart.timeScale().getVisibleLogicalRange();
       const _bv  = _vr ? Math.max(10, _vr.to - _vr.from) : 50;
       const _ppb = _cssW() / _bv;
@@ -393,8 +434,8 @@ function _onChartClick(e) {
         sl = clicked;
         tp = entry - (sl - entry);
       }
-      const _ex1s = mainChart.timeScale().timeToCoordinate(drawingWIP.p1.time);
-      const _ex2s = mainChart.timeScale().timeToCoordinate(pt.time);
+      const _ex1s = _timeToX(drawingWIP.p1.time);
+      const _ex2s = _timeToX(pt.time);
       const _vrs  = mainChart.timeScale().getVisibleLogicalRange();
       const _bvs  = _vrs ? Math.max(10, _vrs.to - _vrs.from) : 50;
       const _ppbs = _cssW() / _bvs;
@@ -487,12 +528,12 @@ function _updateDrag(x, y) {
         d.tp = orig.tp + entryDiff;
         d.sl = orig.sl + entryDiff;
       }
-      const ox = mainChart.timeScale().timeToCoordinate(orig.p1.time);
-      if (ox != null) { const nt = mainChart.timeScale().coordinateToTime(ox + dx); if (nt != null) d.p1 = { ...d.p1, time: nt }; }
+      const ox = _timeToX(orig.p1.time);
+      if (ox != null) { const nt = _xToTime(ox + dx); if (nt != null) d.p1 = { ...d.p1, time: nt }; }
     }
   } else if (d.type === "vline") {
-    const ox = mainChart.timeScale().timeToCoordinate(orig.time);
-    if (ox != null) { const nt = mainChart.timeScale().coordinateToTime(ox + dx); if (nt != null) d.time = nt; }
+    const ox = _timeToX(orig.time);
+    if (ox != null) { const nt = _xToTime(ox + dx); if (nt != null) d.time = nt; }
   } else if (d.type === "text") {
     const op = chartToScreen(orig.time, orig.price);
     if (op) { const np = screenToChart(op.x + dx, op.y + dy); if (np) { d.time = np.time; d.price = np.price; } }
@@ -599,14 +640,14 @@ function screenToChart(x, y) {
     const snapped = _magnetSnap(x, y);
     if (snapped) return snapped;
   }
-  const time  = mainChart.timeScale().coordinateToTime(x);
+  const time  = _xToTime(x);
   const price = candleSeries?.coordinateToPrice(y);
   if (time == null || price == null) return null;
   return { x, y, time, price };
 }
 
 function chartToScreen(time, price) {
-  const x = mainChart.timeScale().timeToCoordinate(time);
+  const x = _timeToX(time);
   const y = candleSeries?.priceToCoordinate(price);
   return (x != null && y != null && isFinite(x) && isFinite(y)) ? { x, y } : null;
 }
@@ -622,13 +663,14 @@ function eraseNear(x, y) {
 
 function drawingDist(d, x, y) {
   if (d.type === "hline") {
-    // price scale 區域（右側，coordinateToTime 回傳 null）不攔截，讓 LWC 處理上下拖移
-    if (mainChart.timeScale().coordinateToTime(x) == null && x > _cssW() * 0.6) return Infinity;
+    // 只在右側價格軸區域（x > 繪圖區寬）不攔截，讓 LWC 處理上下拖移；
+    // 最新K棒右邊的空白處仍在繪圖區內 → 可正常命中 hline
+    if (x > _plotW()) return Infinity;
     const py = candleSeries?.priceToCoordinate(d.price);
     return py != null ? Math.abs(py - y) : Infinity;
   }
   if (d.type === "vline") {
-    const px = mainChart.timeScale().timeToCoordinate(d.time);
+    const px = _timeToX(d.time);
     return px != null ? Math.abs(px - x) : Infinity;
   }
   if (d.type === "text") {
@@ -637,7 +679,7 @@ function drawingDist(d, x, y) {
   }
   if ((d.type === "longpos" || d.type === "shortpos") && d.p1) {
     const W2 = _cssW();
-    const startX = mainChart.timeScale().timeToCoordinate(d.p1.time);
+    const startX = _timeToX(d.p1.time);
     if (startX == null) return Infinity;
     const visR  = mainChart.timeScale().getVisibleLogicalRange();
     const barsV = visR ? Math.max(10, visR.to - visR.from) : 50;
@@ -984,7 +1026,7 @@ function drawOne(d, W, H, isHovered, isSelected) {
     }
   }
   else if (d.type === "vline") {
-    const x = mainChart.timeScale().timeToCoordinate(d.time);
+    const x = _timeToX(d.time);
     if (x == null || x < -5 || x > W + 5) { drawCtx.restore(); return; }
     drawCtx.beginPath(); drawCtx.moveTo(x, 0); drawCtx.lineTo(x, H); drawCtx.stroke();
     if (isSelected) {
@@ -1072,7 +1114,7 @@ function drawOne(d, W, H, isHovered, isSelected) {
     const entryY = candleSeries?.priceToCoordinate(entryRefP);
     const tpY    = candleSeries?.priceToCoordinate(d.tp);
     const slY    = candleSeries?.priceToCoordinate(d.sl);
-    const startX = mainChart.timeScale().timeToCoordinate(d.p1.time);
+    const startX = _timeToX(d.p1.time);
     if (entryY == null || tpY == null || slY == null || startX == null) { drawCtx.restore(); return; }
 
     // 色塊寬度隨縮放動態計算（約 18 根 K 棒的寬度）
@@ -1206,7 +1248,7 @@ function drawOne(d, W, H, isHovered, isSelected) {
     const entryY = candleSeries?.priceToCoordinate(entryRefP);
     const tpY    = candleSeries?.priceToCoordinate(d.tp);   // tp < entry → tpY > entryY
     const slY    = candleSeries?.priceToCoordinate(d.sl);   // sl > entry → slY < entryY
-    const startX = mainChart.timeScale().timeToCoordinate(d.p1.time);
+    const startX = _timeToX(d.p1.time);
     if (entryY == null || tpY == null || slY == null || startX == null) { drawCtx.restore(); return; }
 
     const visR2  = mainChart.timeScale().getVisibleLogicalRange();

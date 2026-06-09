@@ -269,9 +269,44 @@ function syncTimeScales() {
     timeLabel.style.bottom = (axisOffset + (replayActive ? 42 : 0)) + "px";
   }
 
+  // 用游標 x 直接定位鉛直線（給「最後一根K棒右側空白區」用：該處無對應時間，
+  // 原生會把十字線時間 snap 到最後一根 → 線卡在最後一根不動。改用游標 x 讓線跟著進入空白）。
+  function positionLinesByX(px) {
+    timeLabel.style.display = "none";          // 空白區無對應時間 → 不顯示時間標籤
+    const cRect = container.getBoundingClientRect();
+    panesConf.forEach(({ elId }, i) => {
+      const pane = document.getElementById(elId);
+      const ln   = lineEls[i];
+      if (!pane || pane.classList.contains("hidden")) { ln.style.display = "none"; return; }
+      if (pane.querySelector(".pane-body")?.style.display === "none") { ln.style.display = "none"; return; }
+      const pRect = pane.getBoundingClientRect();
+      let height = pRect.height;
+      const nextSib = pane.nextElementSibling;
+      if (nextSib?.classList.contains("pane-divider") && !nextSib.classList.contains("hidden")) {
+        height += nextSib.getBoundingClientRect().height;
+      }
+      ln.style.display = "block";
+      ln.style.left    = Math.round(px) + "px";
+      ln.style.top     = Math.round(pRect.top - cRect.top) + "px";
+      ln.style.height  = Math.round(height) + "px";
+    });
+  }
+
   panesConf.forEach(({ chart }) => {
     chart.subscribeCrosshairMove(param => {
       clearTimeout(hideTimer);
+      // 游標在「最後一根K棒右側空白區」：用游標 x 直接定位鉛直線，跟著游標進入空白、不卡在最後一根
+      if (param.point) {
+        const ts = mainChart.timeScale();
+        const n = (typeof ohlcvData !== "undefined") ? ohlcvData.length : 0;
+        const lastX = n ? ts.logicalToCoordinate(n - 1) : null;
+        let pw = ts.width();
+        if (lastX != null && param.point.x > lastX + 0.5 && param.point.x <= pw) {
+          positionLinesByX(param.point.x);
+          if (typeof _updateHoverWR === "function") _updateHoverWR(null);
+          return;
+        }
+      }
       if (!param.time || !param.point) {
         hideTimer = setTimeout(() => {
           lineEls.forEach(l => l.style.display = "none");
