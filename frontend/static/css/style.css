@@ -1561,7 +1561,7 @@ html.perf-mode .tk-seg {
   width: 18px;
   z-index: 25;            /* 在圖表之上，可接收滑鼠 hover 觸發彈出 */
 }
-/* 收起時左緣的小握把：暖橘細條，提示「這裡可滑出工具」，hover 發光放大 */
+/* 收起時左緣的小握把：暖橘細條，提示「這裡可滑出工具」，平時緩慢呼吸發光、hover 放大 */
 .dt-edge-trigger::before {
   content: "";
   position: absolute;
@@ -1570,16 +1570,21 @@ html.perf-mode .tk-seg {
   transform: translateY(-50%);
   border-radius: 4px;
   background: linear-gradient(180deg,
-              color-mix(in srgb, var(--accent) 72%, transparent),
-              color-mix(in srgb, var(--accent) 34%, transparent));
-  box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 40%, transparent);
+              color-mix(in srgb, var(--accent) 75%, transparent),
+              color-mix(in srgb, var(--accent) 32%, transparent));
   opacity: .5;
   transition: opacity .25s ease, width .2s ease, box-shadow .25s ease;
+  animation: dt-handle-breathe 3.4s ease-in-out infinite;   /* 緩慢呼吸光暈，溫和提示 */
+}
+@keyframes dt-handle-breathe {
+  0%, 100% { box-shadow: 0 0 6px  color-mix(in srgb, var(--accent) 32%, transparent); opacity: .42; }
+  50%      { box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 55%, transparent); opacity: .62; }
 }
 .dt-edge-trigger:hover::before {
-  opacity: .92;
+  opacity: .95;
   width: 5px;
-  box-shadow: 0 0 14px color-mix(in srgb, var(--accent) 70%, transparent);
+  box-shadow: 0 0 16px color-mix(in srgb, var(--accent) 72%, transparent);
+  animation: none;                       /* hover 時停止呼吸，定住高亮 */
 }
 .draw-toolbar {
   position: absolute;
@@ -1608,6 +1613,7 @@ html.perf-mode .tk-seg {
   overflow-y: auto;
   overflow-x: hidden;
   z-index: 30;
+  will-change: transform, opacity;       /* 滑入動畫更順 */
   /* 收起：整塊推到左緣外（被 body-layout 的 overflow:hidden 裁掉、不擋圖表）*/
   transform: translateY(-50%) translateX(calc(-100% - 18px));
   opacity: 0;
@@ -1636,14 +1642,20 @@ html.perf-mode .tk-seg {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background .12s, color .12s, border-color .12s;
+  transition: background .14s ease, color .14s ease, border-color .14s ease, transform .14s cubic-bezier(.34,1.56,.64,1);
   flex-shrink: 0;
 }
-.dt-btn:hover { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--text); }
+.dt-btn:hover {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--text);
+  transform: scale(1.1);                 /* 觸感微放大 */
+}
+.dt-btn:active { transform: scale(.96); }
 .dt-btn.active {
   color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
-  border-color: color-mix(in srgb, var(--accent) 38%, transparent);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 30%, transparent);  /* 選中暖橘暈 */
 }
 .dt-eraser:hover { color: var(--red); }
 
@@ -1669,10 +1681,14 @@ html.perf-mode .tk-seg {
 }
 
 .dt-sep {
-  width: 22px;
+  width: 26px;
   height: 1px;
-  background: var(--border);
-  margin: 3px 0;
+  /* 兩端淡出的細分隔線，融進圓角玻璃島不會有硬邊 */
+  background: linear-gradient(to right,
+    transparent,
+    color-mix(in srgb, var(--accent) 28%, var(--border)) 50%,
+    transparent);
+  margin: 4px 0;
   flex-shrink: 0;
 }
 
