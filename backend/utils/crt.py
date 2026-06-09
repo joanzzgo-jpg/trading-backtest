@@ -713,8 +713,12 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         b_bull = bull[1:n-1]; b_bear = bear[1:n-1]
         b_close = closes[1:n-1]; b_high = highs[1:n-1]; b_low = lows[1:n-1]
         b_lo_band = bb_lo[1:n-1]; b_up_band = bb_up[1:n-1]; b_mid = bb_mid[1:n-1]
-        a_lo_t = bb_lo_touch[:n-2]; b_lo_t = bb_lo_touch[1:n-1]
-        a_up_t = bb_up_touch[:n-2]; b_up_t = bb_up_touch[1:n-1]
+        # SS1 用「嚴格觸軌」：low 真的 ≤ 下軌 / high 真的 ≥ 上軌（不套用 S 系列那組 0.3% 容差，
+        # 否則 low 在軌上方 0.3% 內也被算「碰」→ 出現「沒碰軌卻觸發」）。
+        lo_touch = (~np.isnan(bb_lo)) & (lows <= bb_lo)
+        up_touch = (~np.isnan(bb_up)) & (highs >= bb_up)
+        a_lo_t = lo_touch[:n-2]; b_lo_t = lo_touch[1:n-1]
+        a_up_t = up_touch[:n-2]; b_up_t = up_touch[1:n-1]
         ss_long  = a_bear & b_bull & (b_close > b_lo_band) & (a_lo_t | b_lo_t) \
                    & ~np.isnan(b_mid) & (b_high < b_mid)
         ss_short = a_bull & b_bear & (b_close < b_up_band) & (a_up_t | b_up_t) \
