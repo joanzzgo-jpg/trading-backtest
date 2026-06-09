@@ -320,6 +320,25 @@ function initWRSignalsToggle() {
     // 切換瞬間若正 hover 某根棒，清掉已展開的 hover 勝率/RR 盒（否則殘留到下次移動才更新）
     if (typeof _updateHoverWR === "function") _updateHoverWR(null);
   });
+
+  // 主圖標記系列循環鈕：全部 → 只 S → 只 SS
+  const sBtn = document.getElementById("wrSigSeriesBtn");
+  if (sBtn) {
+    try { window._wrSigSeries = localStorage.getItem("wrSigSeries") || "all"; } catch (e) { window._wrSigSeries = "all"; }
+    const _lbl = { all: "全", s: "S", ss: "SS" };
+    const _syncS = () => {
+      sBtn.textContent = _lbl[window._wrSigSeries] || "全";
+      sBtn.classList.toggle("active", window._wrSigSeries !== "all");
+    };
+    _syncS();
+    sBtn.addEventListener("click", () => {
+      window._wrSigSeries = window._wrSigSeries === "all" ? "s" : window._wrSigSeries === "s" ? "ss" : "all";
+      try { localStorage.setItem("wrSigSeries", window._wrSigSeries); } catch (e) {}
+      _syncS();
+      if (typeof _renderWRSignals === "function") _renderWRSignals();   // 重建主圖標記（套系列過濾）
+      if (typeof _updateHoverWR === "function") _updateHoverWR(null);
+    });
+  }
 }
 
 function renderCRT(data) {

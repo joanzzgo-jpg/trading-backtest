@@ -393,6 +393,10 @@ function _renderWRSignals(signals) {
   // 雙擊隱藏的策略 marker 過濾掉
   const _hidden = window._hiddenWrSigs;
   if (_hidden && _hidden.size) list = list.filter(s => !_hidden.has(s.k));
+  // 主圖右上「S/SS 標記」鈕：依系列過濾圖上標記（all=全部、s=只S、ss=只SS）
+  const _sf = window._wrSigSeries || "all";
+  if (_sf === "s")  list = list.filter(s => !(s.k || "").startsWith("ss"));
+  else if (_sf === "ss") list = list.filter(s =>  (s.k || "").startsWith("ss"));
   // 用 _secToIdx Map（O(1)）取代每次重建 Set（O(n)）
   const hasIdx = (typeof _secToIdx !== "undefined" && _secToIdx.size > 0);
   const chartTimeSet = hasIdx ? null : new Set(ohlcvData.map(d => toTime(d.time)));
@@ -431,7 +435,7 @@ function _renderWRSignals(signals) {
                  : k === "9"   ? (isShort ? "#fff176" : "#fff59d")
                  : k === "10"  ? (isShort ? "#90caf9" : "#bbdefb")
                  : k === "11"  ? (isShort ? "#aed581" : "#c5e1a5")
-                 : k === "ss1" ? (isShort ? "#ff7043" : "#26a69a")   // SS1 軌道反轉
+                 : k === "ss1" ? (isShort ? "#ff2a6d" : "#05d9e8")   // SS1 軌道反轉：賽博龐克霓虹（空=霓虹粉、多=霓虹青）
                  :                (isShort ? "#ffab91" : "#ffccbc");  // k=12
     const eShape = k === "abc" ? "circle"
                  : k === "ab"  ? "square"

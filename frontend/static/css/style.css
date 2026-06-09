@@ -4121,6 +4121,8 @@ html.perf-mode .wr-s12 { color: #FF6A1A; }
 .wr-ss1 { color: #26a69a; }   /* SS 系列：青綠（軌道反轉）*/
 html.perf-mode .wr-ss1 { color: #00897B; }
 #wrSeriesToggle.active { background: #26a69a !important; color: #fff !important; border-color: #26a69a !important; }
+.tb-icon-btn-txt { font-size: 11px; font-weight: 800; letter-spacing: .3px; }
+#wrSigSeriesBtn.active { color: #05d9e8; text-shadow: 0 0 6px rgba(5,217,232,.7); }   /* 賽博龐克霓虹青 */
 
 .sig-stat-streak {
   margin-left: 6px;
