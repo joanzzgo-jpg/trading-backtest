@@ -1784,65 +1784,111 @@ html.perf-mode .tk-seg {
   display: none;
 }
 
-/* Crosshair time label */
+/* ── 圖表三個標籤（十字線價格 / 現價 / 十字線時間）：簡約平底小標籤 ──
+   無玻璃、無漸層、無發光，乾淨單色平底 + 等寬字 */
+.crosshair-price-label,
+.current-price-label,
 .crosshair-time-label {
   position: absolute;
+  background: rgba(117, 134, 150, 0.55);     /* ＝主圖十字線色，半透明 */
+  backdrop-filter: blur(10px) saturate(1.15);
+  -webkit-backdrop-filter: blur(10px) saturate(1.15);
+  border: 1px solid rgba(117, 134, 150, 0.9);  /* 邊框＝線色 */
+  color: #fff;
+  font: 600 11px/1.3 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "PingFang TC", system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;        /* 數字等寬不跳動 */
+  padding: 2px 6px;
+  border-radius: 3px;
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 26;
+  display: none;
+}
+
+/* 右側價格標籤：游標價(上) + 距目前價的 % 價差(下) */
+.crosshair-price-label {
+  right: 8px;                  /* 對齊價格軸 */
+  transform: translateY(-50%);
+  border-radius: 4px;
+  text-align: left;            /* 靠左：左緣固定不動、內容往右長 → 不抖、不吃 K 棒 */
+  width: 66px;                 /* 固定寬，左緣釘在價格軸內 */
+  box-sizing: border-box;
+  font-size: 10px;             /* 縮小讓 BTC(含十萬位)塞進 80px 軸內 */
+}
+/* % 在價格下方一行、小字；顏色由 JS 綁主圖 K 棒漲跌色 */
+.crosshair-price-label .cpl-pct {
+  display: block;
+  font-size: 9px;
+  line-height: 1.15;
+  margin-top: 1px;
+  font-weight: 700;
+}
+
+/* 現價標籤：平底琥珀 + 深字 */
+.current-price-label {
+  right: 8px;                  /* 對齊價格軸 */
+  transform: translateY(-50%);
+  border-radius: 4px;
+  text-align: left;
+  width: 66px;                 /* 與十字線價格框同寬、靠左 */
+  box-sizing: border-box;
+  font-size: 10px;
+  background: rgba(255, 145, 71, 0.55);       /* ＝最新價線色，半透明 */
+  border-color: rgba(255, 145, 71, 0.9);      /* 邊框＝最新價線色 */
+  color: #fff;
+  z-index: 25;
+}
+
+/* 底部時間標籤：圓角在上緣兩角 */
+.crosshair-time-label {
   bottom: 0;
   transform: translateX(-50%);
-  background: var(--bg3);
-  border: 1px solid var(--bg4);
-  color: var(--text);
-  font-size: 11px;
-  padding: 2px 6px;
-  border-radius: 3px 3px 0 0;
-  pointer-events: none;
-  z-index: 26;
-  white-space: nowrap;
-  display: none;
+  border-radius: 4px;
+  text-align: center;
 }
 
-/* Crosshair 右側價格標籤：游標所在價格 + 距離目前價(最新價線)的 % 價差 */
-.crosshair-price-label {
-  position: absolute;
-  right: 0;
-  transform: translateY(-50%);
-  background: var(--bg3);
-  border: 1px solid var(--bg4);
-  color: var(--text);
-  font-size: 10.5px;
-  line-height: 1.25;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  padding: 2px 6px;
-  border-radius: 4px 0 0 4px;
-  pointer-events: none;
-  z-index: 26;
-  white-space: nowrap;
-  text-align: right;
-  display: none;
+/* 極簡(白)模式：十字線標籤配該模式的十字線色 #9C9C9C */
+html.perf-mode .crosshair-price-label,
+html.perf-mode .crosshair-time-label {
+  background: rgba(156, 156, 156, 0.55);
+  border-color: rgba(156, 156, 156, 0.9);
+  color: #fff;
 }
-.crosshair-price-label .cpl-pct { font-weight: 600; }
-.crosshair-price-label.up   .cpl-pct { color: var(--green); }
-.crosshair-price-label.down .cpl-pct { color: var(--red); }
 
-/* 現價標籤：與十字線價格標籤同款圓角小卡，文字用暖橘（＝最新價線色）以資辨識 */
-.current-price-label {
+/* 時間軸右下角的年份（價格軸下方）：放大鏤空描邊，編輯設計感水印 */
+.time-axis-year {
   position: absolute;
-  right: 0;
-  transform: translateY(-50%);
-  background: var(--bg3);
-  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--bg4));
-  color: var(--accent);
-  font-size: 10.5px;
-  line-height: 1.25;
-  font-weight: 600;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  padding: 2px 6px;
-  border-radius: 4px 0 0 4px;
+  right: 10px;
+  bottom: 9px;                                          /* 略抬離底緣 */
+  font: 300 56px/0.85 -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", "PingFang TC", system-ui, sans-serif;
+  letter-spacing: 4px;
+  /* 線條感(描邊) + 內餡凹陷(內填上暗下亮漸層，像陷進去的凹槽) */
+  background: linear-gradient(180deg,
+    rgba(0, 0, 0, 0.06) 0%,
+    rgba(0, 0, 0, 0.012) 52%,
+    rgba(245, 230, 205, 0.025) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;                 /* 內餡＝漸層；描邊另畫 */
+  -webkit-text-stroke: 1px rgba(237, 212, 168, 0.07);   /* 線條感 */
+  text-stroke: 1px rgba(237, 212, 168, 0.07);
+  text-indent: 4px;                                     /* 抵銷字距讓右側對齊 */
   pointer-events: none;
-  z-index: 25;          /* 比十字線價格標籤(26)低 → hover 時被十字線標籤蓋過 */
+  z-index: 24;
   white-space: nowrap;
-  text-align: right;
-  display: none;
+  user-select: none;
+}
+html.perf-mode .time-axis-year {
+  /* 白底：內餡上暗下白亮、描邊深 */
+  background: linear-gradient(180deg,
+    rgba(0, 0, 0, 0.04) 0%,
+    rgba(0, 0, 0, 0.01) 52%,
+    rgba(255, 255, 255, 0.12) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  -webkit-text-stroke-color: rgba(42, 38, 32, 0.04);
+  text-stroke: 1px rgba(42, 38, 32, 0.04);
 }
 
 /* ═══ TICKER PANEL ═══ */

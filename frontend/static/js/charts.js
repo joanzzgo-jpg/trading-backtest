@@ -240,6 +240,23 @@ function syncTimeScales() {
   timeLabel.className = "crosshair-time-label";
   container.appendChild(timeLabel);
 
+  // 年份：固定顯示在價格軸下方的右下角（取右側可見範圍的年份），不再塞進游標時間標籤
+  const yearLabel = document.createElement("div");
+  yearLabel.className = "time-axis-year";
+  container.appendChild(yearLabel);
+  function updateYearLabel() {
+    let yr = "";
+    try {
+      const r = mainChart.timeScale().getVisibleRange();
+      if (r && r.to != null) yr = new Date(r.to * 1000).getUTCFullYear();
+      else if (typeof ohlcvData !== "undefined" && ohlcvData.length)
+        yr = new Date(toTime(ohlcvData[ohlcvData.length - 1].time) * 1000).getUTCFullYear();
+    } catch (e) {}
+    yearLabel.textContent = yr || "";
+  }
+  mainChart.timeScale().subscribeVisibleTimeRangeChange(updateYearLabel);
+  setTimeout(updateYearLabel, 0);
+
   let hideTimer = null;
 
   function positionLines(time, fallbackX) {
@@ -256,11 +273,12 @@ function syncTimeScales() {
     // 底部時間標籤
     const d = new Date(time * 1000);
     const pad = n => String(n).padStart(2, "0");
+    // 年份不放在游標標籤裡（改固定顯示在價格軸下方右下角）→ 這裡只留 月-日 (時:分)
     let timeStr;
     if (["8h","4h","2h","1h","30m","15m","5m"].includes(currentTF)) {
-      timeStr = `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
+      timeStr = `${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
     } else {
-      timeStr = `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())}`;
+      timeStr = `${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())}`;
     }
     timeLabel.textContent = timeStr;
     timeLabel.style.display = "block";
@@ -381,12 +399,12 @@ function syncTimeScales() {
         refIdx = Math.min(refIdx, replayIdx);
       const ref = (n && refIdx >= 0) ? ohlcvData[refIdx].close : null;
       const pct = (ref && ref !== 0) ? (price - ref) / ref * 100 : null;
-      lbl.classList.toggle("up",   pct != null && pct >= 0);
-      lbl.classList.toggle("down", pct != null && pct < 0);
       const priceStr = (typeof _fmtPx === "function") ? _fmtPx(price) : price.toFixed(2);
+      // 高於現價=綠(漲)、低於=紅(跌)，寫死避免被任何設定反轉
+      const pctCol = (pct == null) ? "" : (pct >= 0 ? "#93cf7e" : "#ec8463");
       const pctStr = (pct == null) ? "" :
-        `<span class="cpl-pct">${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%</span>`;
-      lbl.innerHTML = pctStr ? `${priceStr}<br>${pctStr}` : priceStr;
+        `<span class="cpl-pct" style="color:${pctCol}">${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%</span>`;
+      lbl.innerHTML = pctStr ? `${priceStr}<br>${pctStr}` : priceStr;   // 上價下%（兩行）
       lbl.style.top = Math.round(param.point.y) + "px";
       lbl.style.display = "block";
     });
