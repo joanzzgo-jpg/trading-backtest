@@ -8,7 +8,10 @@
 const _ACCT = { name: null, enabled: false };
 let _acctSyncTimer = null;
 let _acctLSHooked = false;
-const _ACCT_SKIP = new Set(["acctName", "wxCoords"]);   // wxCoords=各裝置本地天氣座標，不跨裝置同步
+// 不跨裝置同步、也不可觸發同步的「裝置本地」key：
+//  wxCoords=各裝置本地天氣座標；notifyFeedSeen=訊號分頁已讀時間（高頻寫入，會頻繁觸發整包推送
+//  → 把這台的自選蓋掉另一台，造成自選不同步）。
+const _ACCT_SKIP = new Set(["acctName", "wxCoords", "notifyFeedSeen"]);
 // 每個帳號各自保存、切換帳號時要「乾淨換成該帳號的」設定 key：
 //   chartColors=K棒+指標顏色 / chartStyles=指標參數·線寬·樣式 / chartLineStyles=各線寬樣式 /
 //   sysColors=系統外觀色 / mobileTFs=手機顯示的時間框
@@ -184,7 +187,9 @@ async function initAccount() {
       const _origSet = localStorage.setItem.bind(localStorage);
       localStorage.setItem = function (k, v) {
         _origSet(k, v);
-        if (k !== "acctName" && window._acctTouch) window._acctTouch();
+        // 裝置本地 key（_ACCT_SKIP）不觸發雲端同步 → 否則高頻寫入會把整包設定（含自選）
+        // 反覆推上雲端、覆蓋其他裝置的自選。
+        if (!_ACCT_SKIP.has(k) && window._acctTouch) window._acctTouch();
       };
     }
   } catch (e) {}

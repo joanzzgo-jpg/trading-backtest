@@ -502,7 +502,7 @@ function _buildWlRow(it) {
       <span class="tk-price-val">${it.priceStr}</span>
       <div class="tk-chg-row"><span class="tk-chg-amt ${it.chgCls}">${it.amtStr}</span><span class="tk-chg ${it.chgCls}">${it.pctStr}</span></div>
     </div>
-    <div class="tk-action"><button class="wl-del" title="移除">🗑</button></div>
+    <div class="tk-action"><button class="wl-del" title="移除"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V5.6A1.6 1.6 0 0 1 10.6 4h2.8A1.6 1.6 0 0 1 15 5.6V7"/><path d="M6.2 7l.9 12.4A1.6 1.6 0 0 0 8.7 21h6.6a1.6 1.6 0 0 0 1.6-1.5L17.8 7"/><path d="M10 11v6M14 11v6"/></svg></button></div>
   </div>`;
 }
 function _updateWlRow(el, it) {

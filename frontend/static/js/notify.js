@@ -321,10 +321,16 @@ function _ntfRenderFeed() {
   const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 60;
   list.innerHTML = items.map(it => {
     const cls = it.event === "tp" ? "m-sig-bubble evt-tp" : "m-sig-bubble";
-    return `<div class="${cls}" data-sym="${it.symbol || ""}" data-mkt="${it.market || ""}" data-exch="${it.exchange || ""}">
-      <div class="m-sig-b-title">${_ntfEsc(it.title)}</div>
-      <div class="m-sig-b-body">${_ntfEsc(it.body)}</div>
-      <div class="m-sig-b-time">${_ntfFmtTime(it.ts)}</div>
+    return `<div class="m-sig-msg">
+      <img class="m-sig-avatar" src="/static/img/bear.png" alt="小啊">
+      <div class="m-sig-col">
+        <div class="m-sig-name">小啊</div>
+        <div class="${cls}" data-sym="${it.symbol || ""}" data-mkt="${it.market || ""}" data-exch="${it.exchange || ""}">
+          <div class="m-sig-b-title">${_ntfEsc(it.title)}</div>
+          <div class="m-sig-b-body">${_ntfEsc(it.body)}</div>
+          <div class="m-sig-b-time">${_ntfFmtTime(it.ts)}</div>
+        </div>
+      </div>
     </div>`;
   }).join("");
   list.querySelectorAll(".m-sig-bubble").forEach(b => b.addEventListener("click", () => {
