@@ -136,6 +136,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   if (typeof initSessionToggle === "function") initSessionToggle();  // 交易時段標記開關
   if (typeof initWRSignalsToggle === "function") initWRSignalsToggle();  // S1~S12 訊號標記 一鍵開關
   if (typeof initMobileTF === "function") initMobileTF();            // 手機 TF 選擇器（自選最多4個顯示）
+  if (typeof initNotify === "function") initNotify();                // CRT 訊號 Web Push 通知（後端未設 VAPID 會自動隱藏入口）
   window.addEventListener("beforeunload", () => { saveLastSymbol(); });
 
   // 手機底部分頁：切換 圖表 / 勝率 / 自選 三個畫面（用 body class 控制各畫面顯示）

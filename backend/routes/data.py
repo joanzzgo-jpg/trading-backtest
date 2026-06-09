@@ -32,6 +32,74 @@ _inflight_guard = threading.Lock()
 # 不受此影響）。有單飛鎖護著故不會雪崩；想更新鮮可再調小、想更省限流可調大。
 _WR_CACHE_TTL = 1800
 
+
+def fetch_crt_df(market: str, symbol: str, timeframe: str, days: int,
+                 exchange: str = "pionex", api_key: str = "", api_secret: str = "",
+                 finmind_token: str = "") -> pd.DataFrame:
+    """依市場 / 時間框架取得指定天數的 K 棒（CRT 勝率與訊號監控共用）。
+
+    從 get_crt_winrate 內的 _fetch_df 抽出成模組層級，讓背景訊號監控器能以「短窗、即時」
+    取得最新 K 棒（不吃 30 分勝率快取），同時 route 仍委派此函式（行為不變）。
+    """
+    end = date.today().isoformat()
+    if market == "tw":
+        if timeframe in ("5m", "15m", "1h"):
+            max_d = TW_YF_MAX_DAYS.get(timeframe, 60)
+            start = (date.today() - timedelta(days=min(days, max_d))).isoformat()
+            try:
+                return fetch_tw_intraday_yf(symbol, timeframe, start, end)
+            except Exception:
+                if finmind_token:
+                    return fetch_tw_intraday(symbol, timeframe, start, end, finmind_token)
+                raise
+        elif timeframe == "4h":
+            max_d = TW_YF_MAX_DAYS.get("1h", 60)
+            start = (date.today() - timedelta(days=min(days, max_d))).isoformat()
+            try:
+                _df = fetch_tw_intraday_yf(symbol, "1h", start, end)
+            except Exception:
+                if finmind_token:
+                    _df = fetch_tw_intraday(symbol, "1h", start, end, finmind_token)
+                else:
+                    raise
+            _df = _df.set_index("time")
+            _df = _df.resample("4h", origin="start_day", offset="1h").agg(
+                {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
+            )
+            return _df.dropna(subset=["open"]).reset_index()
+        else:
+            start = (date.today() - timedelta(days=days)).isoformat()
+            try:
+                _df = fetch_tw_daily_yf(symbol, start, end)
+            except Exception:
+                _df = fetch_tw_stock(symbol, start, end, finmind_token)
+            if timeframe != "1d":
+                _df = resample_tw(_df, timeframe)
+            return _df
+    elif market == "us":
+        max_d = US_MAX_DAYS.get(timeframe, 3650)
+        start = (date.today() - timedelta(days=min(days, max_d))).isoformat()
+        return fetch_us_stock(symbol, start, end, timeframe)
+    elif market == "crypto":
+        start = (date.today() - timedelta(days=days)).isoformat()
+        from data.crypto import _fetch_binance_fapi, _calc_max_candles
+        _base = symbol[:-2] if symbol.upper().endswith(".P") else symbol
+        _bb = _base.split("/")[0].upper()
+        _mc = _calc_max_candles(start, end, timeframe)
+        for _cand, _div in ((_base, 1.0), (f"1000{_bb}/USDT", 1000.0)):
+            try:
+                _dfb = _fetch_binance_fapi(_cand, timeframe, start, end, 0, max_candles=_mc)
+                if not _dfb.empty and len(_dfb) >= 50:
+                    if _div != 1.0:
+                        for _c in ("open", "high", "low", "close"):
+                            _dfb[_c] = _dfb[_c] / _div
+                    return _dfb
+            except Exception:
+                pass
+        return fetch_crypto_ohlcv(symbol, timeframe, start, end, exchange,
+                                  api_key=api_key, api_secret=api_secret)
+    raise HTTPException(400, f"不支援的市場: {market}")
+
 def _keyed_lock(key: str) -> threading.Lock:
     with _inflight_guard:
         lk = _inflight_locks.get(key)
@@ -607,73 +675,9 @@ def get_crt_winrate(
         )
 
     def _fetch_df(days: int) -> pd.DataFrame:
-        """依市場 / 時間框架取得指定天數的 K 棒"""
-        end = date.today().isoformat()
-        if market == "tw":
-            if timeframe in ("5m", "15m", "1h"):
-                max_d = TW_YF_MAX_DAYS.get(timeframe, 60)
-                start = (date.today() - timedelta(days=min(days, max_d))).isoformat()
-                try:
-                    return fetch_tw_intraday_yf(symbol, timeframe, start, end)
-                except Exception:
-                    if finmind_token:
-                        return fetch_tw_intraday(symbol, timeframe, start, end, finmind_token)
-                    raise
-            elif timeframe == "4h":
-                max_d = TW_YF_MAX_DAYS.get("1h", 60)
-                start = (date.today() - timedelta(days=min(days, max_d))).isoformat()
-                try:
-                    _df = fetch_tw_intraday_yf(symbol, "1h", start, end)
-                except Exception:
-                    if finmind_token:
-                        _df = fetch_tw_intraday(symbol, "1h", start, end, finmind_token)
-                    else:
-                        raise
-                _df = _df.set_index("time")
-                # offset="1h" 對齊到 UTC 01:00 = 台北 09:00（TW 開盤）
-                # 4h bins：UTC 01:00-04:59（TPE 09:00-13:00 主力交易）、05:00 後半段（13:00-13:30 收尾，極短）
-                _df = _df.resample("4h", origin="start_day", offset="1h").agg(
-                    {"open":"first","high":"max","low":"min","close":"last","volume":"sum"}
-                )
-                return _df.dropna(subset=["open"]).reset_index()
-            else:
-                start = (date.today() - timedelta(days=days)).isoformat()
-                try:
-                    _df = fetch_tw_daily_yf(symbol, start, end)
-                except Exception:
-                    _df = fetch_tw_stock(symbol, start, end, finmind_token)
-                if timeframe != "1d":
-                    _df = resample_tw(_df, timeframe)
-                return _df
-        elif market == "us":
-            max_d = US_MAX_DAYS.get(timeframe, 3650)
-            start = (date.today() - timedelta(days=min(days, max_d))).isoformat()
-            return fetch_us_stock(symbol, start, end, timeframe)
-        elif market == "crypto":
-            start = (date.today() - timedelta(days=days)).isoformat()
-            # 勝率只用 OHLC（不看成交量）→ 優先用 Binance 合約並行抓取（快、無 Pionex 10req/s 限流）。
-            # 主流幣兩邊 OHLC 幾乎一致、訊號相同；Pionex 獨有小幣 Binance 抓不到 → fallback 原路由。
-            # 圖表顯示仍走原 exchange（Pionex，成交量一致），不受此影響。
-            from data.crypto import _fetch_binance_fapi, _calc_max_candles
-            _base = symbol[:-2] if symbol.upper().endswith(".P") else symbol
-            _bb = _base.split("/")[0].upper()
-            _mc = _calc_max_candles(start, end, timeframe)
-            # 依序試：原名 → Binance 的 1000x 命名（PEPE→1000PEPE，價格÷1000 對齊原尺度）。
-            # 1000x 不影響訊號（指標皆相對值），把更多迷因幣移到快路徑、少打 Pionex 共用限額。
-            for _cand, _div in ((_base, 1.0), (f"1000{_bb}/USDT", 1000.0)):
-                try:
-                    _dfb = _fetch_binance_fapi(_cand, timeframe, start, end, 0, max_candles=_mc)
-                    if not _dfb.empty and len(_dfb) >= 50:
-                        if _div != 1.0:
-                            for _c in ("open", "high", "low", "close"):
-                                _dfb[_c] = _dfb[_c] / _div
-                        return _dfb
-                except Exception:
-                    pass
-            # Binance（含 1000x）都沒有 → Pionex 獨有 → 走原路由
-            return fetch_crypto_ohlcv(symbol, timeframe, start, end, exchange,
-                                      api_key=api_key, api_secret=api_secret)
-        raise HTTPException(400, f"不支援的市場: {market}")
+        """依市場 / 時間框架取得指定天數的 K 棒（委派模組層級 fetch_crt_df，邏輯不變）。"""
+        return fetch_crt_df(market, symbol, timeframe, days, exchange,
+                            api_key=api_key, api_secret=api_secret, finmind_token=finmind_token)
 
     # 直接一次抓 TF_MAX 天的資料（不再做 doubling loop —— 過去 S1/S5/S7 等稀有訊號
     # 永遠達不到 MIN_CASES=40，doubling 會跑滿 4 次浪費 80% 時間）

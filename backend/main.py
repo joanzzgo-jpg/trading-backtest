@@ -19,6 +19,7 @@ from routes.bear import router as bear_router
 from routes.weather import router as weather_router
 from routes.ai_research import router as ai_research_router
 from routes.account import router as account_router
+from routes.notify import router as notify_router
 from data.crypto import _fetch_pionex_symbols, _fetch_pionex_perp_symbols
 
 def _build_js_bundle():
@@ -28,7 +29,7 @@ def _build_js_bundle():
         from pathlib import Path
         js = Path(os.path.dirname(__file__)) / ".." / "frontend" / "static" / "js"
         js = js.resolve()
-        names = ["config","utils","charts","draw","colors","ticker","winrate","render","realtime","replay","ui","ai_research","signal_info","account","backtest","main"]
+        names = ["config","utils","charts","draw","colors","ticker","winrate","render","realtime","replay","ui","ai_research","signal_info","account","notify","backtest","main"]
         srcs = [js / f"{n}.js" for n in names]
         bundle = js / "app.bundle.js"
         srcs_exist = [p for p in srcs if p.exists()]
@@ -164,6 +165,11 @@ async def _warmup():
     loop.run_in_executor(None, _fetch_pionex_perp_symbols)
     threading.Thread(target=_ticker_worker,    daemon=True).start()
     threading.Thread(target=_tw_ticker_worker, daemon=True).start()
+    try:
+        import notify_monitor
+        notify_monitor.start()   # CRT 訊號 Web Push 背景監控（無訂閱時自動空轉、極低成本）
+    except Exception as e:
+        print(f"  ⚠ 訊號監控啟動失敗：{e}")
 
 
 @app.get("/")
@@ -193,3 +199,4 @@ app.include_router(bear_router)
 app.include_router(weather_router)
 app.include_router(ai_research_router)
 app.include_router(account_router)
+app.include_router(notify_router)

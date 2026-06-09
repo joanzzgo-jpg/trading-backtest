@@ -6,7 +6,7 @@
  *  - /static/*、CDN → cache-first。靜態 URL 都帶 ?v=版號，改版即換 URL → 不會吃到舊檔。
  * 換快取策略時把 CACHE 版號 +1 即可讓舊快取在 activate 時清掉。
  */
-const CACHE = "ahh-static-v3";
+const CACHE = "ahh-static-v4";
 
 self.addEventListener("install", (e) => {
   self.skipWaiting();
@@ -17,6 +17,46 @@ self.addEventListener("activate", (e) => {
     caches.keys()
       .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
+  );
+});
+
+// ── Web Push：收到推播 → 顯示系統通知 ──────────────────────────
+self.addEventListener("push", (e) => {
+  let d = {};
+  try { d = e.data ? e.data.json() : {}; } catch (_) {
+    try { d = { title: "AHH Trading", body: e.data && e.data.text() }; } catch (_) {}
+  }
+  const title = d.title || "AHH Trading 訊號";
+  const opts = {
+    body: d.body || "",
+    icon: "/static/img/icon-192.png",
+    badge: "/static/img/icon-192.png",
+    tag: d.tag || undefined,            // 同 tag 會取代舊通知，避免堆疊
+    renotify: !!d.tag,
+    data: d.data || {},                 // {symbol, market, exchange, tf}
+  };
+  e.waitUntil(self.registration.showNotification(title, opts));
+});
+
+// 點通知 → 聚焦既有分頁（帶標的資訊）或開新視窗
+self.addEventListener("notificationclick", (e) => {
+  e.notification.close();
+  const info = e.notification.data || {};
+  const qs = info.symbol
+    ? ("?notify_sym=" + encodeURIComponent(info.symbol) +
+       "&notify_mkt=" + encodeURIComponent(info.market || "") +
+       "&notify_exch=" + encodeURIComponent(info.exchange || ""))
+    : "";
+  e.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((cs) => {
+      for (const c of cs) {
+        if ("focus" in c) {
+          if (info.symbol && "postMessage" in c) c.postMessage({ type: "notify-open", info });
+          return c.focus();
+        }
+      }
+      return self.clients.openWindow ? self.clients.openWindow("/" + qs) : null;
+    })
   );
 });
 
