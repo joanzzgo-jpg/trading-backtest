@@ -58,18 +58,53 @@ def _fmt_price(p) -> str:
     return f"{p:.6g}"
 
 
+def _fmt_dt(iso):
+    """訊號時間（UTC naive）→ 台灣時間 M/D HH:MM。"""
+    import pandas as pd
+    try:
+        d = pd.Timestamp(iso) + pd.Timedelta(hours=8)
+        return f"{d.month}/{d.day} {d.hour:02d}:{d.minute:02d}"
+    except Exception:
+        return ""
+
+
 def _build_payload(symbol, market, exchange, tf, k, d, sig, event="entry"):
     dir_txt = "做空" if d == "s" else "做多"
+    label = _sig_label(k)
     title = f"{symbol} · {tf}"
+    entry = sig.get("entry"); stop = sig.get("stop"); rr = sig.get("rr")
+    risk = abs(entry - stop) if (entry is not None and stop is not None) else None
+
     if event == "tp":
-        body = f"{_sig_label(k)} {dir_txt} · 止盈達成（觸及中軌）"
+        rr_real = sig.get("rr_real")
+        exit_px = None
+        if entry is not None and risk and rr_real is not None:
+            exit_px = entry - rr_real * risk if d == "s" else entry + rr_real * risk
+        rr_show = rr_real if rr_real is not None else rr
+        l1 = f"{label} {dir_txt} 止盈達成"
+        if rr_show is not None:
+            l1 += f" · 盈虧比 {rr_show:+.2f}"
+        l2 = (f"進場 {_fmt_price(entry)}" if entry is not None else "")
+        if exit_px is not None:
+            l2 += f" → 出場 {_fmt_price(exit_px)}"
+        l3 = _fmt_dt(sig.get("t")) + (f" → {_fmt_dt(sig.get('ot'))}" if sig.get("ot") else "")
         tag = f"{market}:{exchange}:{symbol}:{tf}:{k}:{d}:tp"
     else:
-        body = f"{_sig_label(k)} {dir_txt}訊號"
-        entry = sig.get("entry")
-        if entry:
-            body += f" · 進場參考 {_fmt_price(entry)}"
+        target = None
+        if entry is not None and risk and rr is not None:
+            target = entry - rr * risk if d == "s" else entry + rr * risk
+        l1 = f"{label} {dir_txt}訊號"
+        if rr is not None:
+            l1 += f" · 盈虧比 {rr:.2g}"
+        l2 = (f"進場 {_fmt_price(entry)}" if entry is not None else "")
+        if target is not None:
+            l2 += f" → 目標 {_fmt_price(target)}"
+        l3 = (f"停損 {_fmt_price(stop)}" if stop is not None else "")
+        if sig.get("t"):
+            l3 += (" · " if l3 else "") + _fmt_dt(sig["t"])
         tag = f"{market}:{exchange}:{symbol}:{tf}:{k}:{d}:entry"
+
+    body = "\n".join(x for x in (l1, l2, l3) if x)
     return {
         "title": title,
         "body": body,
