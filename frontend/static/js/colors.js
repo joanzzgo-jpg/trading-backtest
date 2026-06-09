@@ -99,6 +99,7 @@ function applyAllColors() {
   rsiH50.applyOptions({ color:C.rsiH50, lineWidth:S.rsiHLWidth });
   rsiH70.applyOptions({ color:C.rsiH70, lineWidth:S.rsiHLWidth });
   macdLine.applyOptions({ color:C.macd }); macdSignal.applyOptions({ color:C.macdSig }); macdHist?.applyOptions({ color:C.macdHist });
+  volMaSeries?.applyOptions({ color:C.volMa });
 
   if (ohlcvData.length > 0) { renderCRT(ohlcvData); renderVolume(ohlcvData); }
 

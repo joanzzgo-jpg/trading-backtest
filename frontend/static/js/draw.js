@@ -17,13 +17,39 @@ let _cpShowDirect = null; // set by initColorPicker()
 
 function _did() { return "d" + Date.now().toString(36) + Math.random().toString(36).slice(2,5); }
 
+// 繪圖按「標的」分桶儲存（market:exchange:symbol）→ 各標的繪圖互不干擾。
+function _drawSymKey() {
+  const sym = document.getElementById("symbolInput")?.value || "";
+  const mkt = document.getElementById("marketSelect")?.value || "crypto";
+  const exc = document.getElementById("exchangeSelect")?.value || "pionex";
+  return `${mkt}:${exc}:${sym}`.toUpperCase();
+}
+function _loadDrawStore() {
+  try { return JSON.parse(localStorage.getItem("tv_drawings_v2") || "{}") || {}; } catch { return {}; }
+}
 function saveDrawings() {
-  try { localStorage.setItem("tv_drawings", JSON.stringify(drawings)); } catch {}
+  try {
+    const store = _loadDrawStore();
+    const key = _drawSymKey();
+    if (drawings.length) store[key] = drawings; else delete store[key];
+    localStorage.setItem("tv_drawings_v2", JSON.stringify(store));
+  } catch {}
 }
 function loadDrawings() {
   try {
-    const s = JSON.parse(localStorage.getItem("tv_drawings") || "[]");
-    drawings = Array.isArray(s) ? s.filter(d => d.id && d.type) : [];
+    const store = _loadDrawStore();
+    const key = _drawSymKey();
+    // 舊版單一全域 key → 一次性遷移到目前標的（避免遺失既有繪圖），遷移後刪除舊 key
+    if (!(key in store)) {
+      const legacy = JSON.parse(localStorage.getItem("tv_drawings") || "[]");
+      if (Array.isArray(legacy) && legacy.length) {
+        store[key] = legacy;
+        localStorage.setItem("tv_drawings_v2", JSON.stringify(store));
+      }
+    }
+    if (localStorage.getItem("tv_drawings") != null) localStorage.removeItem("tv_drawings");
+    const arr = store[key];
+    drawings = Array.isArray(arr) ? arr.filter(d => d.id && d.type) : [];
   } catch { drawings = []; }
 }
 
@@ -1074,19 +1100,45 @@ function drawOne(d, W, H, isHovered, isSelected) {
     const b = chartToScreen(d.p2.time, d.p2.price);
     if (!a || !b) { drawCtx.restore(); return; }
     const priceRange = d.p2.price - d.p1.price;
-    const xLeft = Math.min(a.x, b.x);
+    const xLeft  = Math.min(a.x, b.x);
+    const xRight = Math.max(a.x, b.x);   // 線只畫到右端點，不再無限延伸到畫布右緣
     const _fibPriceFmt = p => p >= 1000 ? p.toFixed(1) : p >= 10 ? p.toFixed(2) : p >= 1 ? p.toFixed(3) : p.toFixed(4);
-    [[0,"#ef5350"],[0.236,"#ff9800"],[0.382,"#ffcc02"],[0.5,"#26a69a"],[0.618,"#26a69a"],[0.786,"#ff9800"],[1,"#ef5350"]].forEach(([lvl, lcol]) => {
+    // hex → rgba（線條／底色淡化用）
+    const _fibRgba = (hex, al) => {
+      const m = String(hex).match(/^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i);
+      return m ? `rgba(${parseInt(m[1],16)},${parseInt(m[2],16)},${parseInt(m[3],16)},${al})` : hex;
+    };
+    const _fibLevels = [[0,"#ef5350"],[0.236,"#ff9800"],[0.382,"#ffcc02"],[0.5,"#26a69a"],[0.618,"#26a69a"],[0.786,"#ff9800"],[1,"#ef5350"]];
+    // 先算每層級的 y 座標
+    const _fibYs = _fibLevels.map(([lvl, lcol]) => {
       const price = d.p1.price + priceRange * (1 - lvl);
-      const y = candleSeries?.priceToCoordinate(price);
+      return { lvl, lcol, price, y: candleSeries?.priceToCoordinate(price) };
+    });
+    // ① 各層級之間填半透明底色（仿台歐美三盤），底色取下緣層級的色
+    for (let i = 0; i < _fibYs.length - 1; i++) {
+      const top = _fibYs[i], bot = _fibYs[i + 1];
+      if (top.y == null || bot.y == null) continue;
+      drawCtx.fillStyle = _fibRgba(bot.lcol, 0.04);
+      drawCtx.fillRect(xLeft, top.y, xRight - xLeft, bot.y - top.y);
+    }
+    // ② 各層級線（色淡一些）＋ 右側標籤
+    _fibYs.forEach(({ lvl, lcol, price, y }) => {
       if (y == null) return;
-      drawCtx.strokeStyle = lcol; drawCtx.lineWidth = (lvl===0||lvl===1) ? 1.5 : 1;
-      drawCtx.setLineDash((lvl===0||lvl===1) ? [] : [5,3]);
+      const edge = (lvl === 0 || lvl === 1);
+      drawCtx.strokeStyle = _fibRgba(lcol, edge ? 0.75 : 0.5);   // 線條淡化
+      drawCtx.lineWidth = edge ? 1.5 : 1;
+      drawCtx.setLineDash(edge ? [] : [5,3]);
       drawCtx.shadowBlur = isSelected ? 6 : 0; drawCtx.shadowColor = lcol;
-      drawCtx.beginPath(); drawCtx.moveTo(xLeft, y); drawCtx.lineTo(W, y); drawCtx.stroke();
+      drawCtx.beginPath(); drawCtx.moveTo(xLeft, y); drawCtx.lineTo(xRight, y); drawCtx.stroke();
       drawCtx.setLineDash([]); drawCtx.shadowBlur = 0;
-      drawCtx.font = "10px monospace"; drawCtx.fillStyle = lcol;
-      drawCtx.fillText(`${(lvl*100).toFixed(1)}%  ${_fibPriceFmt(price)}`, W - 88, y - 3);
+      drawCtx.font = "10px monospace"; drawCtx.fillStyle = _fibRgba(lcol, 0.85);
+      const _fibTxt = `${(lvl*100).toFixed(1)}%  ${_fibPriceFmt(price)}`;
+      // 預設標籤放右端點外側；若太靠畫布右緣會被裁切 → 改放右端點內側靠右對齊
+      if (xRight + 90 > W) {
+        drawCtx.textAlign = "right"; drawCtx.fillText(_fibTxt, xRight - 4, y - 3); drawCtx.textAlign = "left";
+      } else {
+        drawCtx.fillText(_fibTxt, xRight + 4, y - 3);
+      }
     });
     // endpoint handles at p1 / p2
     if (isHovered || isSelected) {

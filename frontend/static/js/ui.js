@@ -400,6 +400,7 @@ function bindIndicatorPanel() {
           onColor: ()=>{ if (ohlcvData.length) renderVolume(ohlcvData); },
           onAlpha: ()=>{ if (ohlcvData.length) renderVolume(ohlcvData); }
         },
+        { label:"量均線", colorKey:"volMa", onColor: c=>{ volMaSeries?.applyOptions({color:c}); } },
       ]
     },
     kdj: {

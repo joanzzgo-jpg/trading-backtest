@@ -20,8 +20,11 @@ async function loadData(autoLoad = false) {
     } else if (_r && ohlcvData.length) {
       // 看最新：記住「最新棒水平位置(rightOffset)」+「縮放(barSpacing)」，切標的後讓新標的
       // 最新棒出現在使用者選的同一位置（而非每次貼回最右）。用持久選項還原，跨資料更新不會被沖掉。
+      // ⚠ 右緣留白用「可見範圍幾何」算（to − 最後棒index），不可用 scrollPosition()：
+      //   scrollPosition() 只反映「使用者手動捲動量」，程式用 rightOffset 設定的留白它回 0 →
+      //   切到第二個標的後留白存進 rightOffset、scrollPosition 歸 0 → 第三個標的存到 0 → 黏回右緣。
       try {
-        _savedRightOffset = mainChart.timeScale().scrollPosition();
+        _savedRightOffset = Math.max(0, _r.to - (ohlcvData.length - 1));
         _savedBarSpacing  = mainChart.timeScale().options().barSpacing;
       } catch (e) {}
     }
@@ -69,6 +72,10 @@ async function loadData(autoLoad = false) {
     renderAll(json.data);   // 內部 renderCandles 會清 marker，但 renderAll 結尾會重填 WR markers
     startRealtime();
     saveLastSymbol();   // 載入成功後記憶此次標的
+    if (typeof loadDrawings === "function") {   // 切換標的：載入該標的專屬繪圖並重繪
+      loadDrawings();
+      if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();
+    }
     _updateStarBtn();
     if (!_isPerpSym) fetchWinRate();   // Binance 標的：照舊在 ohlcv 後跑
     _bgLoadOlderBars(); // 背景靜默載入更早的 K 棒
@@ -163,7 +170,9 @@ function renderAll(data) {
     // 有保存縮放(barSpacing) → 用持久選項還原縮放 + 最新棒水平位置(rightOffset)。
     // 持久選項跨 setData/fitContent/背景載入都不會被沖掉（解決「切幾次後黏回右邊」）。
     if (_savedBarSpacing != null) {
-      ts.applyOptions({ barSpacing: _savedBarSpacing, rightOffset: _savedRightOffset || 0 });
+      const opt = { barSpacing: _savedBarSpacing, rightOffset: _savedRightOffset || 0 };
+      ts.applyOptions(opt);
+      _bgPosAnchor = opt;   // 背景分頁載入每段後重套此錨點，防縮放被 fitContent 壓回 0.5
       return;
     }
     // 否則（首次、無保存）→ 預設貼最新 N 根
@@ -173,12 +182,17 @@ function renderAll(data) {
       ts.setVisibleLogicalRange({ from: data.length - _barCount, to: data.length - 1 });
     }
   };
+  _bgPosAnchor = null;   // 預設無錨點（捲到歷史/時間範圍還原時不鎖縮放）；下方看最新分支才設
   if (_pendingRestoreRange) {
     const pr = _pendingRestoreRange;
     _pendingRestoreRange = null;
     if (pr.barSpacing != null) {
       // 重整還原：持久選項（縮放 + 最新棒水平位置，含右側留白）
-      try { mainChart.timeScale().applyOptions({ barSpacing: pr.barSpacing, rightOffset: pr.rightOffset || 0 }); } catch (e) {}
+      try {
+        const opt = { barSpacing: pr.barSpacing, rightOffset: pr.rightOffset || 0 };
+        mainChart.timeScale().applyOptions(opt);
+        _bgPosAnchor = opt;
+      } catch (e) {}
     } else {
       const { barCount, toOffset } = pr;
       const to   = data.length - 1 - toOffset;
@@ -206,6 +220,18 @@ function renderAll(data) {
   _savedTimeRange = null;
   _savedRightOffset = null;
   _savedBarSpacing = null;
+
+  // ⚠ fitContent()（上方）是 LWC「延遲」操作，可能在本次 restore 之後的某一幀才真正執行 →
+  //   把 barSpacing 壓回最小值（全部 K 擠進寬度），蓋掉剛還原的縮放；ResizeObserver 觸發的 resize
+  //   也可能稍後重排。這正是「切標的有機率最新棒黏回右緣（縮放也歸零）」的根因（非固定第幾個，純時序競態）。
+  //   → 看最新有錨點時，於後續數幀＋數百 ms 內重套錨點，搶贏這些延遲操作；子圖由既有 range 同步跟上。
+  if (_bgPosAnchor) {
+    const _a = _bgPosAnchor;
+    const _reassert = () => { if (_bgPosAnchor === _a) { try { mainChart.timeScale().applyOptions(_a); } catch (e) {} } };
+    requestAnimationFrame(() => { _reassert(); requestAnimationFrame(_reassert); });
+    setTimeout(_reassert, 120);
+    setTimeout(_reassert, 350);
+  }
 
   // 切標的/時框：強制價格軸(右)重新自動貼合可見 K 棒。
   // 否則使用者若曾手動拖曳價格軸（autoScale 會被關閉），切到價格範圍差很多的標的時
@@ -502,6 +528,9 @@ async function _bgLoadOlderBars(scrollTriggered = false) {
           mainChart.timeScale().setVisibleLogicalRange(shifted);
           [kdjChart, rsiChart, macdChart].forEach(c => c.timeScale().setVisibleLogicalRange(shifted));
         }
+        // 看最新：重套縮放+右緣留白錨點 → 即使 setData/fitContent 把 barSpacing 壓回最小(0.5)，
+        // 也立刻還原使用者的縮放與水平位置（修「切第三個標的最新棒黏回右緣」）。子圖已由 shifted 對齊。
+        if (_bgPosAnchor) { try { mainChart.timeScale().applyOptions(_bgPosAnchor); } catch (e) {} }
         _bgScheduleIndicators();
       }
 

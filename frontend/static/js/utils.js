@@ -70,8 +70,10 @@ function saveLastSymbol() {
     const rangeToOffset = (r && ohlcvData.length) ? Math.max(0, ohlcvData.length - 1 - Math.round(r.to)) : null;
     // 持久選項：barSpacing(縮放) + scrollPos(最新棒水平位置,可為正=右側留白) → 重整後完整還原
     // （取代會被 Math.max(0) 夾掉右側留白的 rangeToOffset，故重整不再黏右邊）
+    // ⚠ scrollPos 用「可見範圍幾何」算(to − 最後棒index)，不可用 scrollPosition()：後者只反映手動捲動量，
+    //   程式以 rightOffset 設定的留白會回 0 → 切標的數次後留白歸零黏回右緣（與 render.js 同因）。
     let barSpacing = null, scrollPos = null;
-    try { barSpacing = ts?.options().barSpacing; scrollPos = ts?.scrollPosition(); } catch (e) {}
+    try { barSpacing = ts?.options().barSpacing; scrollPos = (r && ohlcvData.length) ? Math.max(0, r.to - (ohlcvData.length - 1)) : 0; } catch (e) {}
     localStorage.setItem("lastSymbol", JSON.stringify({
       symbol:   document.getElementById("symbolInput")?.value  || "",
       exchange: document.getElementById("exchangeSelect")?.value || "pionex",
