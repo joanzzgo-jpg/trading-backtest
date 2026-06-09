@@ -66,7 +66,8 @@ function applyAllColors() {
   // 極簡模式：背景強制純白、文字深色；不受 C.chartBg（使用者暗色設定）影響
   const _perf = document.documentElement.classList.contains("perf-mode");
   const bg = _perf ? "#FFFFFF" : (C.chartBg || C.bg);
-  const _txt = _perf ? "#1F1F1F" : "#d1d4dc";
+  // 軸刻度數字調淡（與 makeBaseOpts 一致），降低存在感
+  const _txt = _perf ? "rgba(31,31,31,0.55)" : "rgba(209,212,220,0.55)";
   // LWC canvas 保持透明，讓浮水印顯示在 K棒下方；背景色由 CSS 提供
   [mainChart, kdjChart, rsiChart, macdChart].forEach(c =>
     c?.applyOptions({ layout: { background:{ color:"rgba(0,0,0,0)" }, textColor: _txt } })

@@ -1801,6 +1801,50 @@ html.perf-mode .tk-seg {
   display: none;
 }
 
+/* Crosshair 右側價格標籤：游標所在價格 + 距離目前價(最新價線)的 % 價差 */
+.crosshair-price-label {
+  position: absolute;
+  right: 0;
+  transform: translateY(-50%);
+  background: var(--bg3);
+  border: 1px solid var(--bg4);
+  color: var(--text);
+  font-size: 10.5px;
+  line-height: 1.25;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  padding: 2px 6px;
+  border-radius: 4px 0 0 4px;
+  pointer-events: none;
+  z-index: 26;
+  white-space: nowrap;
+  text-align: right;
+  display: none;
+}
+.crosshair-price-label .cpl-pct { font-weight: 600; }
+.crosshair-price-label.up   .cpl-pct { color: var(--green); }
+.crosshair-price-label.down .cpl-pct { color: var(--red); }
+
+/* 現價標籤：與十字線價格標籤同款圓角小卡，文字用暖橘（＝最新價線色）以資辨識 */
+.current-price-label {
+  position: absolute;
+  right: 0;
+  transform: translateY(-50%);
+  background: var(--bg3);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--bg4));
+  color: var(--accent);
+  font-size: 10.5px;
+  line-height: 1.25;
+  font-weight: 600;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  padding: 2px 6px;
+  border-radius: 4px 0 0 4px;
+  pointer-events: none;
+  z-index: 25;          /* 比十字線價格標籤(26)低 → hover 時被十字線標籤蓋過 */
+  white-space: nowrap;
+  text-align: right;
+  display: none;
+}
+
 /* ═══ TICKER PANEL ═══ */
 .ticker-panel.ticker-collapsed {
   width: 0 !important;

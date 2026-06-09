@@ -1,7 +1,8 @@
 function makeBaseOpts(scaleMargins = null, showTime = false) {
   // 極簡模式用亮色系，其他維持原本暗色
   const _perf = document.documentElement.classList.contains("perf-mode");
-  const _txt  = _perf ? "#2A2620" : "#d1d4dc";
+  // 軸刻度數字（右側價格軸／底部時間軸）調淡一些，降低存在感
+  const _txt  = _perf ? "rgba(42,38,32,0.55)" : "rgba(209,212,220,0.55)";
   const _grd  = _perf ? "#ECECEC" : "#2a2e39";
   const _cx   = _perf ? "#9C9C9C" : "#758696";
   const _brd  = _perf ? "#D9D9D9" : "#2a2e39";
@@ -57,21 +58,51 @@ function applyOhlcvToSeries(data) {
   updateLatestPriceLine(data[data.length - 1].close);
 }
 
+let _curPriceLabelEl = null;   // 現價的自訂 DOM 標籤（與十字線價格標籤同風格）
+
 function updateLatestPriceLine(price) {
   if (!candleSeries || price == null) return;
   if (latestPriceLine) {
-    try { latestPriceLine.applyOptions({ price }); return; } catch { latestPriceLine = null; }
+    try { latestPriceLine.applyOptions({ price }); }
+    catch { latestPriceLine = null; }
   }
-  latestPriceLine = candleSeries.createPriceLine({
-    price,
-    color: "rgba(255,145,71,.80)",
-    lineWidth: 1,
-    lineStyle: 2,        /* 2 = Dashed */
-    axisLabelVisible: true,
-    axisLabelColor: "rgba(255,145,71,.90)",
-    axisLabelTextColor: "#fff",
-    title: "",
-  });
+  if (!latestPriceLine) {
+    latestPriceLine = candleSeries.createPriceLine({
+      price,
+      color: "rgba(255,145,71,.80)",
+      lineWidth: 1,
+      lineStyle: 2,            /* 2 = Dashed */
+      axisLabelVisible: false, /* 關掉原生橘色標籤，改用下方自訂 DOM 標籤 */
+      title: "",
+    });
+  }
+  updateCurrentPriceLabel();
+}
+
+// 現價在右軸的標示：改成跟十字線價格標籤同款（圓角小卡、等寬字），不再用 LWC 原生方塊標籤。
+function updateCurrentPriceLabel() {
+  if (typeof candleSeries === "undefined" || !candleSeries) return;
+  const mainEl = document.getElementById("mainChart");
+  if (!mainEl) return;
+  if (!_curPriceLabelEl || !_curPriceLabelEl.isConnected) {
+    if (getComputedStyle(mainEl).position === "static") mainEl.style.position = "relative";
+    _curPriceLabelEl = document.createElement("div");
+    _curPriceLabelEl.className = "current-price-label";
+    mainEl.appendChild(_curPriceLabelEl);
+  }
+  const lbl = _curPriceLabelEl;
+  const n = (typeof ohlcvData !== "undefined") ? ohlcvData.length : 0;
+  if (!n) { lbl.style.display = "none"; return; }
+  let idx = n - 1;
+  if (typeof replayActive !== "undefined" && replayActive && typeof replayIdx === "number")
+    idx = Math.min(idx, replayIdx);
+  const price = ohlcvData[idx] && ohlcvData[idx].close;
+  if (price == null) { lbl.style.display = "none"; return; }
+  const y = candleSeries.priceToCoordinate(price);
+  if (y == null) { lbl.style.display = "none"; return; }
+  lbl.textContent = (typeof _fmtPx === "function") ? _fmtPx(price) : price.toFixed(2);
+  lbl.style.top = Math.round(y) + "px";
+  lbl.style.display = "block";
 }
 
 /* ── 建立圖表 ── */
@@ -327,6 +358,39 @@ function syncTimeScales() {
   [mainChart, kdjChart, rsiChart, macdChart].forEach(c => {
     c?.applyOptions({ crosshair: { vertLine: { visible: false, labelVisible: false } } });
   });
+
+  // ── 主圖右側價格標籤：游標所在價格 + 距離「目前價(最新價線)」幾 % ──
+  // 取代主圖原生橫線價格標籤（只在主圖；副圖維持原生數值標籤）。
+  (function setupCrosshairPriceLabel() {
+    const mainEl = document.getElementById("mainChart");
+    if (!mainEl) return;
+    if (getComputedStyle(mainEl).position === "static") mainEl.style.position = "relative";
+    const lbl = document.createElement("div");
+    lbl.className = "crosshair-price-label";
+    mainEl.appendChild(lbl);
+    mainChart.applyOptions({ crosshair: { horzLine: { labelVisible: false } } });
+
+    mainChart.subscribeCrosshairMove(param => {
+      if (!param.point || !candleSeries) { lbl.style.display = "none"; return; }
+      const price = candleSeries.coordinateToPrice(param.point.y);
+      if (price == null) { lbl.style.display = "none"; return; }
+      // 參考價＝目前價（最新價線；重播時取「已揭曉」那根的收盤）
+      const n = (typeof ohlcvData !== "undefined") ? ohlcvData.length : 0;
+      let refIdx = n - 1;
+      if (typeof replayActive !== "undefined" && replayActive && typeof replayIdx === "number")
+        refIdx = Math.min(refIdx, replayIdx);
+      const ref = (n && refIdx >= 0) ? ohlcvData[refIdx].close : null;
+      const pct = (ref && ref !== 0) ? (price - ref) / ref * 100 : null;
+      lbl.classList.toggle("up",   pct != null && pct >= 0);
+      lbl.classList.toggle("down", pct != null && pct < 0);
+      const priceStr = (typeof _fmtPx === "function") ? _fmtPx(price) : price.toFixed(2);
+      const pctStr = (pct == null) ? "" :
+        `<span class="cpl-pct">${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%</span>`;
+      lbl.innerHTML = pctStr ? `${priceStr}<br>${pctStr}` : priceStr;
+      lbl.style.top = Math.round(param.point.y) + "px";
+      lbl.style.display = "block";
+    });
+  })();
 }
 
 /* ══════════════════════════════════════════

@@ -918,6 +918,9 @@ function renderDrawings() {
   const W = drawCanvas.width / dpr, H = drawCanvas.height / dpr;
   drawCtx.clearRect(0, 0, W, H);
 
+  // 現價標籤位置跟著價格軸縮放/平移/即時更新（renderDrawings 是 overlay 重畫的共同入口）
+  if (typeof updateCurrentPriceLabel === "function") updateCurrentPriceLabel();
+
   // 交易時段 overlay（背景帶=當盤高低範圍 + 上下緣高低線 + 星期標籤；可開關）
   _drawSessionOverlay(W, H);
 
