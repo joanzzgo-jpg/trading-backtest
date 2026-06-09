@@ -452,10 +452,17 @@ def test_push(req: TestReq):
         conn.close()
     if not rows:
         raise HTTPException(status_code=404, detail="此帳號尚無通知訂閱")
+    # 擬真範例：用與真實訊號相同的多行格式，讓使用者看到實際長相
+    import time as _t
+    d = _t.localtime()
+    when = f"{d.tm_mon}/{d.tm_mday} {d.tm_hour:02d}:{d.tm_min:02d}"
     payload = {
-        "title": "AHH Trading",
-        "body": "訊號通知已連線，之後有 CRT 訊號會即時通知你。",
+        "title": "BTC/USDT · 4h（測試）",
+        "body": ("S6 做空訊號 · 盈虧比 1.5\n"
+                 "進場 80,815.00 → 目標 79,200.00\n"
+                 f"停損 81,900.00 · {when}"),
         "tag": "test",
+        "data": {"symbol": "BTC/USDT", "market": "crypto", "exchange": "pionex", "tf": "4h"},
     }
     sent = sum(1 for ep, p, a in rows
                if send_push({"endpoint": ep, "p256dh": p, "auth": a}, payload))
