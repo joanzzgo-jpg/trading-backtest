@@ -466,4 +466,7 @@ def test_push(req: TestReq):
     }
     sent = sum(1 for ep, p, a in rows
                if send_push({"endpoint": ep, "p256dh": p, "auth": a}, payload))
+    # 也寫進訊號歷史（聊天室分頁），讓使用者在分頁裡看到範例
+    log_signal(name, _t.time(), "entry", payload["title"], payload["body"],
+               "BTC/USDT", "crypto", "pionex", "4h")
     return {"ok": True, "sent": sent, "total": len(rows)}
