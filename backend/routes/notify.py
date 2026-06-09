@@ -145,11 +145,6 @@ class UnsubscribeReq(BaseModel):
     endpoint: str
 
 
-class PrefsReq(BaseModel):
-    endpoint: str
-    prefs: dict
-
-
 class TestReq(BaseModel):
     name: str
 
@@ -199,26 +194,38 @@ def _delete_sub(endpoint: str):
 
 # ── 背景監控器要用的查詢 helper ───────────────────────────────
 def all_active_subs() -> List[Dict[str, Any]]:
-    """回所有 enabled 的訂閱：[{name, endpoint, p256dh, auth, prefs}]。"""
+    """回所有訂閱：[{name, endpoint, p256dh, auth}]。
+    偏好（時框/訊號）改為帳號級（account_prefs），跨裝置同步，不再存於每筆訂閱。"""
     if not notify_enabled():
         return []
     _ensure_db()
     conn, ph = _acct._db()
     try:
-        cur = conn.execute("SELECT endpoint, name, p256dh, auth, prefs FROM push_subs")
+        cur = conn.execute("SELECT endpoint, name, p256dh, auth FROM push_subs")
         rows = cur.fetchall()
     finally:
         conn.close()
-    out = []
-    for ep, name, p256dh, auth, prefs in rows:
+    return [{"name": name, "endpoint": ep, "p256dh": p256dh, "auth": auth}
+            for ep, name, p256dh, auth in rows]
+
+
+def account_prefs(name: str) -> dict:
+    """讀某帳號同步上來的通知偏好（存在 accounts.data.notifyPrefs）；無則回預設。
+    偏好跟著帳號快照跨裝置同步，所以同帳號的手機/電腦會一致。"""
+    if name:
         try:
-            pf = _clean_prefs(json.loads(prefs) if isinstance(prefs, str) else (prefs or {}))
+            conn, ph = _acct._db()
+            try:
+                cur = conn.execute(f"SELECT data FROM accounts WHERE name={ph}", (name,))
+                row = cur.fetchone()
+            finally:
+                conn.close()
+            if row and row[0]:
+                data = json.loads(row[0]) if isinstance(row[0], str) else row[0]
+                return _clean_prefs((data or {}).get("notifyPrefs"))
         except Exception:
-            pf = _clean_prefs(None)
-        if not pf["enabled"]:
-            continue
-        out.append({"name": name, "endpoint": ep, "p256dh": p256dh, "auth": auth, "prefs": pf})
-    return out
+            pass
+    return _clean_prefs(None)
 
 
 def account_watchlist(name: str) -> List[dict]:
@@ -329,40 +336,8 @@ def unsubscribe(req: UnsubscribeReq):
     return {"ok": True}
 
 
-@router.get("/prefs")
-def get_prefs(endpoint: str):
-    _require_enabled()
-    conn, ph = _acct._db()
-    try:
-        cur = conn.execute(f"SELECT prefs FROM push_subs WHERE endpoint={ph}", (endpoint,))
-        row = cur.fetchone()
-    finally:
-        conn.close()
-    if not row:
-        raise HTTPException(status_code=404, detail="查無此訂閱")
-    try:
-        prefs = _clean_prefs(json.loads(row[0]) if isinstance(row[0], str) else row[0])
-    except Exception:
-        prefs = _clean_prefs(None)
-    return {"prefs": prefs, "all_sigs": sorted(_ALL_SIGS), "all_tfs": sorted(_ALL_TFS)}
-
-
-@router.post("/prefs")
-def set_prefs(req: PrefsReq):
-    _require_enabled()
-    prefs = json.dumps(_clean_prefs(req.prefs))
-    conn, ph = _acct._db()
-    try:
-        cur = conn.execute(
-            f"UPDATE push_subs SET prefs={ph}, updated_at={ph} WHERE endpoint={ph}",
-            (prefs, time.time(), req.endpoint),
-        )
-        if cur.rowcount == 0:
-            raise HTTPException(status_code=404, detail="查無此訂閱，請先啟用通知")
-        conn.commit()
-    finally:
-        conn.close()
-    return {"ok": True, "prefs": json.loads(prefs)}
+# 通知偏好（時框/訊號）改為帳號級：前端寫 localStorage["notifyPrefs"]，沿用帳號快照
+# 同步機制跨裝置一致；監控器以 account_prefs(name) 讀取。故此處不再提供 prefs 端點。
 
 
 @router.post("/test")

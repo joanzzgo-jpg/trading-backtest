@@ -1,12 +1,27 @@
 /* ══════════════════════════════════════════════════════════════
    CRT 訊號 Web Push 通知（多使用者）
-   - 訂閱：requestPermission → pushManager.subscribe → /api/notify/subscribe
-   - 偏好：監控時框 + 要通知的訊號（預設 S2~S11）→ /api/notify/prefs
+   - 訂閱：requestPermission → pushManager.subscribe → /api/notify/subscribe（每裝置各自開）
+   - 偏好：監控時框 + 要通知的訊號（預設 S2~S11）存 localStorage["notifyPrefs"]，
+     沿用帳號快照同步機制 → 跨裝置一致；後端監控器以 account_prefs(name) 讀取
    - 測試：/api/notify/test
    - 入口：桌面「系統外觀」彈窗 + 手機「設定」分頁，共用單一 #notifyPopup
    - 通知綁定目前登入帳號（window._acctName）；後端監控器依帳號 watchlist 推播
    ══════════════════════════════════════════════════════════════ */
 const _NTF = { enabled: false, vapidKey: null, endpoint: null, prefs: null, supported: false };
+
+// 偏好預設與可選清單（前端固定；後端 _ALL_SIGS/_ALL_TFS 同義）
+const _NTF_DEFAULT  = { tfs: ["1h", "4h", "1d"], sigs: ["ab", "3", "4", "5", "6", "7", "8", "9", "10", "11"] };
+const _NTF_ALL_TFS  = ["5m", "15m", "30m", "1h", "2h", "4h", "8h", "1d", "1w"];
+const _NTF_SIG_ORDER = ["ab", "3", "4", "5", "6", "7", "8", "9", "10", "11", "abc", "12"];
+
+// 偏好讀寫：存 localStorage["notifyPrefs"]，帳號登入時會自動同步到雲端、跨裝置一致
+function _ntfLoadPrefs() {
+  try {
+    const p = JSON.parse(localStorage.getItem("notifyPrefs") || "null");
+    if (p && (p.tfs || p.sigs)) return { tfs: p.tfs || _NTF_DEFAULT.tfs.slice(), sigs: p.sigs || _NTF_DEFAULT.sigs.slice() };
+  } catch (e) {}
+  return { tfs: _NTF_DEFAULT.tfs.slice(), sigs: _NTF_DEFAULT.sigs.slice() };
+}
 
 // 訊號鍵 → 顯示名（abc=S1, ab=S2, "3".."12"=S3..S12）
 function _ntfSigLabel(k) {
@@ -57,12 +72,10 @@ async function _ntfEnable() {
         applicationServerKey: _urlB64ToU8(_NTF.vapidKey),
       });
     }
-    const prefs = _NTF.prefs || { enabled: true };
-    prefs.enabled = true;
-    const j = await _ntfApi("POST", "subscribe", { name: window._acctName, subscription: sub.toJSON(), prefs });
+    await _ntfApi("POST", "subscribe", { name: window._acctName, subscription: sub.toJSON() });
     _NTF.enabled = true;
     _NTF.endpoint = sub.endpoint;
-    _NTF.prefs = j.prefs;
+    if (!_NTF.prefs) _NTF.prefs = _ntfLoadPrefs();
     _ntfMsg("通知已啟用");
     _ntfRender();
   } catch (e) {
@@ -85,12 +98,9 @@ async function _ntfDisable() {
   _ntfRender();
 }
 
-async function _ntfSavePrefs() {
-  if (!_NTF.enabled || !_NTF.endpoint) return;
-  try {
-    const j = await _ntfApi("POST", "prefs", { endpoint: _NTF.endpoint, prefs: _NTF.prefs });
-    _NTF.prefs = j.prefs;
-  } catch (e) { _ntfMsg("儲存偏好失敗：" + e.message, true); }
+// 存偏好到 localStorage → account.js 的 setItem hook 會自動 debounce 同步到雲端（跨裝置一致）
+function _ntfSavePrefs() {
+  try { localStorage.setItem("notifyPrefs", JSON.stringify({ tfs: _NTF.prefs.tfs, sigs: _NTF.prefs.sigs })); } catch (e) {}
 }
 
 async function _ntfTest() {
@@ -118,13 +128,14 @@ function _ntfRender() {
   pop.querySelector(".ntf-toggle").classList.toggle("ntf-on", on);
   pop.querySelector(".ntf-body").style.opacity = on ? "1" : "0.4";
   pop.querySelector(".ntf-body").style.pointerEvents = on ? "auto" : "none";
+  document.querySelectorAll(".ntf-state").forEach(el => { el.textContent = on ? "已啟用" : "未啟用"; });
   // 勾選狀態
   const p = _NTF.prefs || {};
   pop.querySelectorAll(".ntf-tf").forEach(b => b.classList.toggle("sel", (p.tfs || []).includes(b.dataset.tf)));
   pop.querySelectorAll(".ntf-sig").forEach(b => b.classList.toggle("sel", (p.sigs || []).includes(b.dataset.sig)));
 }
 
-function _ntfBuildPopup(allTfs, allSigs) {
+function _ntfBuildPopup() {
   if (document.getElementById("notifyPopup")) return;
   const css = document.createElement("style");
   css.textContent = `
@@ -150,10 +161,10 @@ function _ntfBuildPopup(allTfs, allSigs) {
   const pop = document.createElement("div");
   pop.id = "notifyPopup";
   pop.className = "sys-settings-popup";
-  const tfChips = (allTfs && allTfs.length ? _NTF_TF_ORDER.filter(t => allTfs.includes(t)) : ["1h","4h","1d"])
+  const tfChips = _NTF_ALL_TFS
     .map(t => `<button class="ntf-chip ntf-tf" data-tf="${t}">${t}</button>`).join("");
-  const sigOrder = ["ab","3","4","5","6","7","8","9","10","11","abc","12"].filter(s => !allSigs || allSigs.includes(s));
-  const sigChips = sigOrder.map(s => `<button class="ntf-chip ntf-sig" data-sig="${s}">${_ntfSigLabel(s)}</button>`).join("");
+  const sigChips = _NTF_SIG_ORDER
+    .map(s => `<button class="ntf-chip ntf-sig" data-sig="${s}">${_ntfSigLabel(s)}</button>`).join("");
   const iosHint = (_ntfIsIOS() && !navigator.standalone)
     ? `<div class="ntf-hint">iOS 需先把本站「加到主畫面」並從主畫面開啟，才能收推播。</div>` : "";
   pop.innerHTML = `
@@ -247,20 +258,14 @@ async function initNotify() {
   try { st = await _ntfApi("GET", "status"); } catch (e) { st = { enabled: false }; }
   if (!st.enabled || !_NTF.supported) return;   // 後端未設 VAPID / 瀏覽器不支援 → 不顯示入口
 
-  // 取得偏好選項（all_tfs/all_sigs）；用任一已存在訂閱讀回 prefs
-  let allTfs = null, allSigs = null;
+  // 偏好來自 localStorage（登入時由帳號快照同步而來）；是否啟用 = 此裝置是否有訂閱
+  _NTF.prefs = _ntfLoadPrefs();
   try {
     const reg = await navigator.serviceWorker.ready;
     const sub = await reg.pushManager.getSubscription();
-    if (sub) {
-      _NTF.endpoint = sub.endpoint;
-      try {
-        const j = await _ntfApi("GET", "prefs?endpoint=" + encodeURIComponent(sub.endpoint));
-        _NTF.enabled = true; _NTF.prefs = j.prefs; allTfs = j.all_tfs; allSigs = j.all_sigs;
-      } catch (e) { /* 後端沒這筆（換帳號/清過 DB）→ 視為未啟用 */ }
-    }
+    if (sub) { _NTF.endpoint = sub.endpoint; _NTF.enabled = true; }
   } catch (e) {}
-  _ntfBuildPopup(allTfs, allSigs);
+  _ntfBuildPopup();
   _ntfInjectEntries();
   _ntfRender();
 

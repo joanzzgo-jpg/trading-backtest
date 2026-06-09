@@ -137,6 +137,14 @@ def _tick(last_seen: dict):
         return
     now = time.time()
 
+    # 套用「帳號級」偏好（時框/訊號）→ 同帳號的手機/電腦一致（每帳號讀一次）
+    prefs_cache = {}
+    for s in subs:
+        nm = s["name"]
+        if nm not in prefs_cache:
+            prefs_cache[nm] = notify.account_prefs(nm)
+        s["prefs"] = prefs_cache[nm]
+
     # 哪些時框「剛收一根新棒」（gating）→ 只算這些
     active_tfs = set()
     for s in subs:
