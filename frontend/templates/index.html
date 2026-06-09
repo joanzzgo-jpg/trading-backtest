@@ -168,6 +168,8 @@
   <div class="tb-winrate" id="winrateBar">
     <!-- 左固定區：目標切換 + SL 輸入 -->
     <div class="tb-wr-fixed-left">
+      <button id="wrSeriesToggle" class="tb-wr-toggle" onclick="_toggleWrSeries&&_toggleWrSeries()"
+              title="切換訊號系列：S 系列（S1~S12）↔ SS 系列（軌道反轉，獨立合計/敗後停手）">S</button>
       <button id="wrTargetToggle" class="tb-wr-toggle" onclick="_toggleWrTarget()"
               title="切換目標：中軌（保守，BB middle）→ 上下軌（極端反向：多→上軌、空→下軌）">中軌</button>
       <span class="tb-wr-buffer" title="停損緩衝 %（0~10）：短=高於最高值 X%、多=低於最低值 X% 才算停損">
@@ -297,7 +299,7 @@
       </span>
     </span>
 
-    <span class="tb-wr-divider"></span>
+    <span class="tb-wr-divider wr-ss-div"></span>
 
     <span class="tb-wr-block" data-sig="ss1" title="點擊查看 SS1 詳細資訊（布林軌道反轉2棒；SS 系列獨立敗後停手，不計入 S 總勝率）">
       <span class="tb-wr-icon wr-ss1">⇋</span>

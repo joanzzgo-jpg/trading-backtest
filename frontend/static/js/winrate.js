@@ -13,6 +13,7 @@ let _wrFetchTimer = null; // 切換標的時 debounce，避免連續觸發後端
 
 // 目標切換（中軌 ↔ 上/下軌）狀態。1:1（rr）已移除 → 舊設定正規化回中軌
 const _WR_VIEW_KEY = "wrTargetView";
+let _wrSeries = "s";   // "s"=S1~S12 / "ss"=SS 系列（軌道反轉，獨立合計/敗後停手）
 let _wrTargetView = "mid";
 try { _wrTargetView = localStorage.getItem(_WR_VIEW_KEY) || "mid"; } catch (e) {}
 if (_wrTargetView === "rr") { _wrTargetView = "mid"; try { localStorage.setItem(_WR_VIEW_KEY, "mid"); } catch (e) {} }
@@ -536,22 +537,27 @@ function _renderWinRate(d) {
   setRow("wrSS1S", _wrCacheLast.ss?.ss1?.short);
   setRow("wrSS1L", _wrCacheLast.ss?.ss1?.long);
 
+  // 系列切換：SS 系列時，右側「合計 / 敗後停手 / 近期」改用 d.ss.*（S 系列維持 view）
+  _applySeriesVisibility();
+  const agg = (_wrSeries === "ss") ? (_wrCacheLast.ss || {}) : d;
+  const aggStop = (_wrSeries === "ss") ? (_wrCacheLast.ss && _wrCacheLast.ss.stop_strategy) : view?.stop_strategy;
+
   const sa = document.getElementById("wrAll");
   if (sa) {
-    if (d.win_rate != null) {
-      const good = d.win_rate >= 60, bad = d.win_rate < 45;
+    if (agg.win_rate != null) {
+      const good = agg.win_rate >= 60, bad = agg.win_rate < 45;
       sa.className = `tb-wr-total${good ? " good" : bad ? " bad" : ""}`;
-      sa.textContent = `${d.win_rate}%`;
-      sa.title = `${d.wins}勝 ${d.total - d.wins}負 共${d.total}筆`;
+      sa.textContent = `${agg.win_rate}%`;
+      sa.title = `${agg.wins}勝 ${agg.total - agg.wins}負 共${agg.total}筆`;
     } else {
       sa.textContent = "—"; sa.className = "tb-wr-total"; sa.removeAttribute("title");
     }
   }
 
-  // 敗後停手勝率（常駐顯示，不必點連敗按鈕循環）：取當前 target 的 stop_strategy
+  // 敗後停手勝率（常駐顯示，不必點連敗按鈕循環）：取當前系列/目標的 stop_strategy
   const sr = document.getElementById("wrStopRate");
   if (sr) {
-    const ss0 = view?.stop_strategy;
+    const ss0 = aggStop;
     if (ss0 && ss0.win_rate != null) {
       const good = ss0.win_rate >= 60, bad = ss0.win_rate < 45;
       sr.className = `tb-wr-stoprate${good ? " good" : bad ? " bad" : ""}`;
@@ -565,7 +571,7 @@ function _renderWinRate(d) {
   // 近 ~100 筆勝率（合併時間軸去重後最近 100 筆，看近期表現）
   const r100 = document.getElementById("wrRecent100");
   if (r100) {
-    const rc = d.recent100;
+    const rc = agg.recent100;
     if (rc && rc.win_rate != null) {
       const good = rc.win_rate >= 60, bad = rc.win_rate < 45;
       r100.className = `tb-wr-recent${good ? " good" : bad ? " bad" : ""}`;
@@ -579,9 +585,9 @@ function _renderWinRate(d) {
   // 「打到一開始預估止盈位子」機率（用固定目標掃描）
   const eh = document.getElementById("wrEstHit");
   if (eh) {
-    if (d.est_win_rate != null) {
-      eh.textContent = `預估 ${d.est_win_rate}%`;
-      eh.title = `打到「進場時 BB 預估止盈」機率：${d.est_wins}勝 / ${d.est_total - d.est_wins}負 共${d.est_total}筆`;
+    if (agg.est_win_rate != null) {
+      eh.textContent = `預估 ${agg.est_win_rate}%`;
+      eh.title = `打到「進場時 BB 預估止盈」機率：${agg.est_wins}勝 / ${agg.est_total - agg.est_wins}負 共${agg.est_total}筆`;
     } else {
       eh.textContent = "—";
       eh.removeAttribute("title");
@@ -601,10 +607,35 @@ function _renderWinRate(d) {
 
   // wrStatus 顯示「後端回測總筆數」（跟 wrAll tooltip 的「共 Z 筆」一致）
   const ss = document.getElementById("wrStatus");
-  if (ss) ss.textContent = (d && d.total != null) ? `${d.total}筆` : "";
+  if (ss) ss.textContent = (agg && agg.total != null) ? `${agg.total}筆` : "";
 
   _renderWrTop3();
 }
+
+// 系列區塊顯示切換：S 模式顯示 S1~S12、SS 模式只顯示 SS 區塊
+function _applySeriesVisibility() {
+  const ssMode = _wrSeries === "ss";
+  document.querySelectorAll("#wrScroll .tb-wr-block").forEach(b => {
+    const isSS = (b.dataset.sig || "").startsWith("ss");
+    b.style.display = (ssMode === isSS) ? "" : "none";
+  });
+  document.querySelectorAll("#wrScroll .tb-wr-divider").forEach(dv => {
+    // SS 模式只有單一區塊 → 隱藏所有分隔線；S 模式 → 只隱藏 SS 專用分隔線
+    dv.style.display = ssMode ? "none" : (dv.classList.contains("wr-ss-div") ? "none" : "");
+  });
+}
+
+// 切換系列按鈕（index.html onclick）
+window._toggleWrSeries = function () {
+  _wrSeries = _wrSeries === "ss" ? "s" : "ss";
+  const btn = document.getElementById("wrSeriesToggle");
+  if (btn) { btn.textContent = _wrSeries === "ss" ? "SS" : "S"; btn.classList.toggle("active", _wrSeries === "ss"); }
+  if (_wrCacheLast) _renderWinRate(_wrCacheLast);
+  else _applySeriesVisibility();
+};
+
+// 初始：預設 S 系列 → 先隱藏 SS 區塊，避免資料載入前閃現
+try { _applySeriesVisibility(); } catch (e) {}
 
 /* ══════════════════════════════════════════
    訊號顯示對照表（hover 勝率小卡用）

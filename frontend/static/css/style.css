@@ -4120,6 +4120,7 @@ html.perf-mode .wr-s10 { color: #FF6A1A; }
 html.perf-mode .wr-s12 { color: #FF6A1A; }
 .wr-ss1 { color: #26a69a; }   /* SS 系列：青綠（軌道反轉）*/
 html.perf-mode .wr-ss1 { color: #00897B; }
+#wrSeriesToggle.active { background: #26a69a !important; color: #fff !important; border-color: #26a69a !important; }
 
 .sig-stat-streak {
   margin-left: 6px;
