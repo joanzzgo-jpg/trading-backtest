@@ -145,7 +145,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (!bar) return;
     const setTab = (t) => {
       if (t === "chart") t = "wr";   // 「圖表」分頁已併入「勝率」（勝率頁本就含圖表）→ 舊呼叫一律導向 wr
-      document.body.classList.remove("m-tab-chart", "m-tab-wr", "m-tab-watch", "m-tab-settings");
+      document.body.classList.remove("m-tab-chart", "m-tab-wr", "m-tab-watch", "m-tab-signals", "m-tab-settings");
       document.body.classList.add("m-tab-" + t);
       bar.querySelectorAll(".m-tab").forEach(b => b.classList.toggle("active", b.dataset.mtab === t));
       // 自選分頁：標記 ticker 面板為「開啟」狀態，fetchTickers/renderTickers 才會渲染（手機判斷需要）
@@ -154,6 +154,9 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (t === "watch" && typeof fetchTickers === "function") fetchTickers();
       // 切到「設定」分頁 → 立即更新頂部天氣卡（重新定位+抓天氣，weather.js 內建 10s 節流）
       if (t === "settings" && window._wxRefreshNow) window._wxRefreshNow();
+      // 切到「訊號」分頁 → 載入訊號通知中心（聊天室）並開始輪詢
+      if (t === "signals" && window._ntfLoadFeed) window._ntfLoadFeed();
+      if (t !== "signals" && window._ntfStopFeedPoll) window._ntfStopFeedPoll();
       if (typeof resizeAll === "function") setTimeout(resizeAll, 80);
     };
     bar.querySelectorAll(".m-tab").forEach(b => b.addEventListener("click", () => setTab(b.dataset.mtab)));
@@ -161,7 +164,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     window._mSetTab = setTab;
     // 初始分頁：?mtab= 可指定（方便測試），預設勝率（圖表已併入勝率）
     const _mt = new URLSearchParams(location.search).get("mtab");
-    setTab(["chart", "wr", "watch", "settings"].includes(_mt) ? _mt : "wr");
+    setTab(["chart", "wr", "watch", "signals", "settings"].includes(_mt) ? _mt : "wr");
   })();
 
   // 手機字體大小（標準 / 大 / 特大）：body class 控制，存 localStorage（隨帳號同步）

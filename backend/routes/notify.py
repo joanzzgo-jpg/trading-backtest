@@ -110,6 +110,30 @@ def _ensure_db():
                 last_t TEXT
             )
         """)
+        # 事件級精確去重（止盈等「以結算時間觸發」的事件，結算順序未必同進場順序 →
+        # 不能用 notify_state 的「比上次更新」邏輯，改逐事件記一筆，並定期清舊）。
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS notify_seen (
+                evt_key TEXT PRIMARY KEY,
+                ts      REAL
+            )
+        """)
+        # 訊號歷史（聊天室式通知中心）：每帳號每事件一筆，前端拉清單顯示。
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS notify_log (
+                id       BIGSERIAL PRIMARY KEY,
+                name     TEXT, ts REAL, event TEXT,
+                title    TEXT, body TEXT,
+                symbol   TEXT, market TEXT, exchange TEXT, tf TEXT
+            )
+        """ if _acct._use_pg() else """
+            CREATE TABLE IF NOT EXISTS notify_log (
+                id       INTEGER PRIMARY KEY AUTOINCREMENT,
+                name     TEXT, ts REAL, event TEXT,
+                title    TEXT, body TEXT,
+                symbol   TEXT, market TEXT, exchange TEXT, tf TEXT
+            )
+        """)
         conn.commit()
     finally:
         conn.close()
@@ -280,10 +304,84 @@ def mark_notified(scope: str, t: str):
         conn.close()
 
 
+def log_signal(name, ts, event, title, body, symbol, market, exchange, tf):
+    """記一筆訊號到該帳號的歷史（聊天室通知中心用），並裁切只留最近 200 筆。"""
+    conn, ph = _acct._db()
+    try:
+        conn.execute(
+            f"INSERT INTO notify_log (name,ts,event,title,body,symbol,market,exchange,tf) "
+            f"VALUES ({ph},{ph},{ph},{ph},{ph},{ph},{ph},{ph},{ph})",
+            (name, ts, event, title, body, symbol, market, exchange, tf),
+        )
+        # 裁切：保留該帳號最近 200 筆
+        conn.execute(
+            f"DELETE FROM notify_log WHERE name={ph} AND id NOT IN "
+            f"(SELECT id FROM notify_log WHERE name={ph} ORDER BY id DESC LIMIT 200)",
+            (name, name),
+        )
+        conn.commit()
+    except Exception:
+        pass
+    finally:
+        conn.close()
+
+
+def seen_event(evt_key: str) -> bool:
+    """此事件是否已推過（逐事件精確去重，給止盈等事件用）。"""
+    conn, ph = _acct._db()
+    try:
+        cur = conn.execute(f"SELECT 1 FROM notify_seen WHERE evt_key={ph}", (evt_key,))
+        return cur.fetchone() is not None
+    finally:
+        conn.close()
+
+
+def mark_event(evt_key: str):
+    """記一筆已推事件，並順手清掉 14 天前的舊紀錄（避免無限增長）。"""
+    now = time.time()
+    conn, ph = _acct._db()
+    try:
+        if _acct._use_pg():
+            conn.execute(
+                f"INSERT INTO notify_seen (evt_key, ts) VALUES ({ph},{ph}) "
+                f"ON CONFLICT (evt_key) DO NOTHING", (evt_key, now))
+        else:
+            conn.execute(
+                f"INSERT INTO notify_seen (evt_key, ts) VALUES ({ph},{ph}) "
+                f"ON CONFLICT (evt_key) DO NOTHING", (evt_key, now))
+        conn.execute(f"DELETE FROM notify_seen WHERE ts < {ph}", (now - 14 * 86400,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
 # ── endpoints ─────────────────────────────────────────────────
 @router.get("/status")
 def status():
     return {"enabled": notify_enabled(), "has_vapid": _vapid is not None}
+
+
+@router.get("/feed")
+def feed(name: str, limit: int = 80):
+    """某帳號的訊號歷史（聊天室通知中心）。回傳由舊到新（最新在最後）。"""
+    _require_enabled()
+    nm = _acct._norm_name(name)
+    if not nm:
+        return {"items": []}
+    limit = max(1, min(int(limit or 80), 200))
+    conn, ph = _acct._db()
+    try:
+        cur = conn.execute(
+            f"SELECT ts,event,title,body,symbol,market,exchange,tf FROM notify_log "
+            f"WHERE name={ph} ORDER BY id DESC LIMIT {limit}", (nm,))
+        rows = cur.fetchall()
+    finally:
+        conn.close()
+    items = [{"ts": r[0], "event": r[1], "title": r[2], "body": r[3],
+              "symbol": r[4], "market": r[5], "exchange": r[6], "tf": r[7]}
+             for r in rows]
+    items.reverse()   # 由舊到新（聊天室最新在最下方）
+    return {"items": items}
 
 
 @router.get("/vapid_public")

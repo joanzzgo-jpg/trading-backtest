@@ -6061,6 +6061,55 @@ html.landing-active .landing { background: transparent; }
    ══════════════════════════════════════════════════════════════ */
 .m-settings { display: none; }
 
+/* ── 訊號通知中心（聊天室式底部分頁）────────────────────────── */
+.m-signals { display: none; }
+.m-sig-badge {
+  position: absolute; top: -3px; right: 6px; min-width: 15px; height: 15px; padding: 0 3px;
+  border-radius: 8px; background: #e5533d; color: #fff; font-size: 9px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center; line-height: 1;
+}
+@media (max-width: 768px) {
+  body.m-tab-signals .charts-container { display: none !important; }
+  .m-signals {
+    position: fixed; left: 0; right: 0; top: 0; bottom: 46px; z-index: 650;
+    background:
+      radial-gradient(130% 55% at 50% -8%, rgba(255,145,71,.12), transparent 62%),
+      linear-gradient(180deg, var(--bg2) 0%, var(--bg) 100%);
+    flex-direction: column; padding-top: env(safe-area-inset-top, 0px);
+    font-family: "M PLUS Rounded 1c", -apple-system, "PingFang TC", system-ui, sans-serif;
+    display: flex !important; opacity: 0; visibility: hidden; pointer-events: none;
+    transition: opacity .2s ease, visibility .2s ease;
+  }
+  body.m-tab-signals .m-signals { opacity: 1; visibility: visible; pointer-events: auto; }
+  .m-sig-hd {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 16px 8px; font-size: 15px; font-weight: 800; color: var(--text);
+    flex: 0 0 auto;
+  }
+  .m-sig-set {
+    background: none; border: 1px solid var(--border); color: var(--muted);
+    border-radius: 8px; padding: 4px 10px; font-size: 12px; cursor: pointer;
+  }
+  .m-sig-list {
+    flex: 1 1 auto; overflow-y: auto; -webkit-overflow-scrolling: touch;
+    padding: 8px 12px calc(12px + env(safe-area-inset-bottom, 0px));
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .m-sig-bubble {
+    align-self: flex-start; max-width: 90%;
+    background: rgba(255,255,255,.04); border: 1px solid var(--border);
+    border-left: 3px solid var(--accent, #ff9147);
+    border-radius: 12px; padding: 8px 12px; cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .m-sig-bubble:active { background: rgba(255,145,71,.12); }
+  .m-sig-bubble.evt-tp { border-left-color: #46c08a; }
+  .m-sig-b-title { font-size: 13px; font-weight: 800; color: var(--text); }
+  .m-sig-b-body  { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .m-sig-b-time  { font-size: 10px; color: var(--muted); opacity: .7; margin-top: 3px; }
+  .m-sig-empty   { text-align: center; color: var(--muted); font-size: 13px; margin-top: 48px; }
+}
+
 @media (max-width: 768px) {
   /* 設定分頁：全螢幕設定列表（蓋住 topbar/圖表，下到分頁列上方） */
   body.m-tab-settings .charts-container { display: none !important; }

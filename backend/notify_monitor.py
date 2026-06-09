@@ -58,17 +58,22 @@ def _fmt_price(p) -> str:
     return f"{p:.6g}"
 
 
-def _build_payload(symbol, market, exchange, tf, k, d, sig):
+def _build_payload(symbol, market, exchange, tf, k, d, sig, event="entry"):
     dir_txt = "做空" if d == "s" else "做多"
     title = f"{symbol} · {tf}"
-    body = f"{_sig_label(k)} {dir_txt}訊號"
-    entry = sig.get("entry")
-    if entry:
-        body += f" · 進場參考 {_fmt_price(entry)}"
+    if event == "tp":
+        body = f"{_sig_label(k)} {dir_txt} · 止盈達成（觸及中軌）"
+        tag = f"{market}:{exchange}:{symbol}:{tf}:{k}:{d}:tp"
+    else:
+        body = f"{_sig_label(k)} {dir_txt}訊號"
+        entry = sig.get("entry")
+        if entry:
+            body += f" · 進場參考 {_fmt_price(entry)}"
+        tag = f"{market}:{exchange}:{symbol}:{tf}:{k}:{d}:entry"
     return {
         "title": title,
         "body": body,
-        "tag": f"{market}:{exchange}:{symbol}:{tf}:{k}:{d}",
+        "tag": tag,
         "data": {"symbol": symbol, "market": market, "exchange": exchange, "tf": tf},
     }
 
@@ -120,12 +125,40 @@ def _process_combo(market, exchange, symbol, tf, subs_here, now):
         targets = [s for s in subs_here if k in (s["prefs"].get("sigs") or [])]
         if not targets:
             continue
-        payload = _build_payload(symbol, market, exchange, tf, k, d, sig)
+        payload = _build_payload(symbol, market, exchange, tf, k, d, sig, event="entry")
         for s in targets:
             notify.send_push(s, payload)
+        for nm_ in {s["name"] for s in targets}:
+            notify.log_signal(nm_, now, "entry", payload["title"], payload["body"],
+                              symbol, market, exchange, tf)
         new_max[scope] = t
     for scope, t in new_max.items():
         notify.mark_notified(scope, t)
+
+    # ── 止盈通知：訊號剛在最近數根收盤棒「結算為 win」(觸及動態中軌) → 推一次 ──
+    # 重用勝率計算結果：r=='w' 表示在停損前先碰到中軌(止盈)，ot 為結算時間（中軌逐根漂移，
+    # 掃描本就逐根比當下中軌，正好對應使用者要的「會動的止盈」）。停損(l) 依使用者選擇不推。
+    # 結算順序未必同進場順序 → 用逐事件精確去重（seen_event/mark_event）。
+    for sig in sigs:
+        if sig.get("r") != "w":          # 只看「止盈達成」；停損/未結算不推
+            continue
+        ot = sig.get("ot")
+        if not ot or _epoch(ot) < fresh_cut:   # 結算棒不在最近數根 → 不新鮮
+            continue
+        k = sig["k"]; d = sig.get("d")
+        targets = [s for s in subs_here if k in (s["prefs"].get("sigs") or [])]
+        if not targets:
+            continue
+        evt_key = f"tp:{market}:{exchange}:{symbol}:{tf}:{k}:{d}:{sig['t']}"
+        if notify.seen_event(evt_key):
+            continue
+        payload = _build_payload(symbol, market, exchange, tf, k, d, sig, event="tp")
+        for s in targets:
+            notify.send_push(s, payload)
+        for nm_ in {s["name"] for s in targets}:
+            notify.log_signal(nm_, now, "tp", payload["title"], payload["body"],
+                              symbol, market, exchange, tf)
+        notify.mark_event(evt_key)
 
 
 def _tick(last_seen: dict):

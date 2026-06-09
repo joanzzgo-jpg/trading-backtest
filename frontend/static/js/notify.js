@@ -269,12 +269,108 @@ async function initNotify() {
   _ntfInjectEntries();
   _ntfRender();
 
+  // 訊號分頁頭的「設定」鈕 → 開通知設定彈窗
+  document.getElementById("mSigSettingsBtn")?.addEventListener("click", e => {
+    e.stopPropagation(); _ntfOpenPopup(e.currentTarget);
+  });
+
+  // 背景輪詢（每 60s）：更新未讀紅點；在訊號分頁時也即時刷新清單
+  _ntfFeed.bgTimer = setInterval(_ntfBgPoll, 60000);
+  _ntfBgPoll();
+
   // 通知點擊 → SW postMessage（聚焦既有分頁）→ best-effort 切到該標的
   navigator.serviceWorker.addEventListener("message", ev => {
     const m = ev.data || {};
     if (m.type === "notify-open" && m.info && m.info.symbol) _ntfGoSymbol(m.info);
   });
 }
+
+// ── 訊號通知中心（聊天室式歷史清單）──────────────────────────
+const _ntfFeed = { items: [], pollTimer: null, bgTimer: null };
+
+function _ntfSeenTs() { try { return parseFloat(localStorage.getItem("notifyFeedSeen") || "0") || 0; } catch (e) { return 0; } }
+function _ntfSetSeen(ts) { try { localStorage.setItem("notifyFeedSeen", String(ts || 0)); } catch (e) {} }
+
+async function _ntfFetchFeed() {
+  if (!window._acctName) return [];
+  try {
+    const j = await _ntfApi("GET", "feed?name=" + encodeURIComponent(window._acctName) + "&limit=80");
+    return j.items || [];
+  } catch (e) { return []; }
+}
+
+function _ntfFmtTime(ts) {
+  const d = new Date(ts * 1000), now = Date.now();
+  const diff = (now - d.getTime()) / 1000;
+  if (diff < 60) return "剛剛";
+  if (diff < 3600) return Math.floor(diff / 60) + " 分鐘前";
+  const p = n => String(n).padStart(2, "0");
+  const sameDay = d.toDateString() === new Date().toDateString();
+  return sameDay ? `${p(d.getHours())}:${p(d.getMinutes())}`
+                 : `${d.getMonth() + 1}/${d.getDate()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+function _ntfRenderFeed() {
+  const list = document.getElementById("mSigList");
+  if (!list) return;
+  const items = _ntfFeed.items;
+  if (!items.length) {
+    list.innerHTML = `<div class="m-sig-empty">${window._acctName ? "尚無訊號通知" : "請先登入帳號"}</div>`;
+    return;
+  }
+  const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 60;
+  list.innerHTML = items.map(it => {
+    const cls = it.event === "tp" ? "m-sig-bubble evt-tp" : "m-sig-bubble";
+    return `<div class="${cls}" data-sym="${it.symbol || ""}" data-mkt="${it.market || ""}" data-exch="${it.exchange || ""}">
+      <div class="m-sig-b-title">${_ntfEsc(it.title)}</div>
+      <div class="m-sig-b-body">${_ntfEsc(it.body)}</div>
+      <div class="m-sig-b-time">${_ntfFmtTime(it.ts)}</div>
+    </div>`;
+  }).join("");
+  list.querySelectorAll(".m-sig-bubble").forEach(b => b.addEventListener("click", () => {
+    if (b.dataset.sym) _ntfGoSymbol({ symbol: b.dataset.sym, market: b.dataset.mkt, exchange: b.dataset.exch });
+  }));
+  if (atBottom) list.scrollTop = list.scrollHeight;   // 新訊息時保持在底部（聊天室行為）
+}
+
+function _ntfEsc(s) { return String(s || "").replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
+
+function _ntfUpdateBadge() {
+  const badge = document.getElementById("mSignalsBadge");
+  if (!badge) return;
+  const seen = _ntfSeenTs();
+  const n = _ntfFeed.items.filter(it => it.ts > seen).length;
+  const onTab = document.body.classList.contains("m-tab-signals");
+  if (n > 0 && !onTab) { badge.style.display = "flex"; badge.textContent = n > 99 ? "99+" : String(n); }
+  else { badge.style.display = "none"; }
+}
+
+async function _ntfBgPoll() {
+  _ntfFeed.items = await _ntfFetchFeed();
+  if (document.body.classList.contains("m-tab-signals")) {
+    _ntfRenderFeed();
+    if (_ntfFeed.items.length) _ntfSetSeen(_ntfFeed.items[_ntfFeed.items.length - 1].ts);
+  }
+  _ntfUpdateBadge();
+}
+
+// 切到訊號分頁時呼叫（main.js）：載入清單 + 標記已讀 + 開快輪詢
+window._ntfLoadFeed = async function () {
+  _ntfFeed.items = await _ntfFetchFeed();
+  _ntfRenderFeed();
+  if (_ntfFeed.items.length) _ntfSetSeen(_ntfFeed.items[_ntfFeed.items.length - 1].ts);
+  _ntfUpdateBadge();
+  const list = document.getElementById("mSigList");
+  if (list) list.scrollTop = list.scrollHeight;
+  clearInterval(_ntfFeed.pollTimer);
+  _ntfFeed.pollTimer = setInterval(async () => {
+    _ntfFeed.items = await _ntfFetchFeed();
+    _ntfRenderFeed();
+    if (_ntfFeed.items.length) _ntfSetSeen(_ntfFeed.items[_ntfFeed.items.length - 1].ts);
+    _ntfUpdateBadge();
+  }, 20000);
+};
+window._ntfStopFeedPoll = function () { clearInterval(_ntfFeed.pollTimer); _ntfFeed.pollTimer = null; };
 
 // best-effort：切到通知標的（對不到格式只是圖不變，不會壞）
 function _ntfGoSymbol(info) {
