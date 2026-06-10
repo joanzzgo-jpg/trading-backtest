@@ -24,9 +24,11 @@
   // [名稱, translateZ(px), 高解析?]；高解析層 backing 不縮（透視縮小恰好抵銷補償縮放 → 1:1 顯示、不糊），
   // 給細節重的內容用（astro：月面/行星；fore：本來就 1:1）。其餘層縮 1/s 省填充率。
   // astro＝天體專屬深景層：太陽/月亮/行星/星空在最深處大幅視差，前方雲雨會從它面前掠過（真遮擋）。
+  // mid/near 也走全解析（雲/雨等主要內容都在這兩層，縮減解析在大螢幕看得出糊 → 桌面比手機糊）；
+  // sky/far 只有柔光漸層/遠景 → 維持縮減省填充率，柔一點反而對
   const _LAYER_DEFS = _lowFx                // 手機省層數
-    ? [["sky", -1600, 0], ["astro", -1400, 1], ["mid", -450, 0], ["fore", 0, 1]]
-    : [["sky", -1600, 0], ["astro", -1400, 1], ["far", -900, 0], ["mid", -450, 0], ["near", -150, 0], ["fore", 0, 1]];
+    ? [["sky", -1600, 0], ["astro", -1400, 1], ["mid", -450, 1], ["fore", 0, 1]]
+    : [["sky", -1600, 0], ["astro", -1400, 1], ["far", -900, 0], ["mid", -450, 1], ["near", -150, 1], ["fore", 0, 1]];
   let stage = document.getElementById("weatherStage");
   if (!stage) {                             // 防舊快取頁（HTML 還沒有 stage）→ JS 自建
     stage = document.createElement("div");
