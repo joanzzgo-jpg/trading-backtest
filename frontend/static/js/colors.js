@@ -50,10 +50,14 @@ function _applyChartBgGradient(color) {
   if (_perf) { pane.style.background = ""; return; }   // 極簡模式不上色，浮水印才看得到
   if (color == null) color = (typeof C !== "undefined" && (C.chartBg || C.bg)) || "#131722";  // 無參數→用目前主圖色（給 effects.js 夜空切換重套用）
   const dark = _darkenForChart(color);
-  // 晴朗夜晚(html.sky-night)：中央色帶轉半透明 → 夜空(月亮/星星/行星)從 K 線後方淡淡透出，
-  // 但「系統背景 ↔ 主圖色」上下漸層的形狀保留（不再整片 transparent 把漸層蓋掉）
+  // 透景：中央色帶轉半透明 → 天氣/天文 3D 場景從 K 線後方透出，
+  // 但「系統背景 ↔ 主圖色」上下漸層的形狀保留（不再整片 transparent 把漸層蓋掉）。
+  // sky-night（晴朗夜空）透最多 52%；sky-show（其餘所有天氣，weather.js 掛）較含蓄 74% 保白天可讀性。
   const night = document.documentElement.classList.contains("sky-night");
-  const mid = night ? `color-mix(in srgb, ${dark} 52%, transparent)` : dark;
+  const show  = document.documentElement.classList.contains("sky-show");
+  const mid = night ? `color-mix(in srgb, ${dark} 52%, transparent)`
+            : show  ? `color-mix(in srgb, ${dark} 74%, transparent)`
+            : dark;
   // 下方時間軸區：底緣改成半透明（不再實色蓋到 var(--bg)）→ 時間軸漸層透一些、背景/天氣淡淡透出
   const botFade = `color-mix(in srgb, var(--bg) 38%, transparent)`;
   pane.style.background =

@@ -989,7 +989,11 @@
   <img src="/static/img/bear-full.png?v={{ ver }}" alt="橘子熊偷看" draggable="false" />
 </div>
 
-<canvas id="weatherBg"></canvas>
+<!-- 3D 天氣舞台：CSS perspective 容器，weather.js 會在內部依 translateZ 建立多張景深 canvas
+     （#weatherBg 為 sky 層；保留 id 供 perf-mode / sky-night / landing 各 CSS 與 JS 掛勾） -->
+<div id="weatherStage" aria-hidden="true">
+  <canvas id="weatherBg" class="wx-layer"></canvas>
+</div>
 
 <!-- 手機底部分頁列（app 風格；桌面以 CSS 隱藏）。切換 圖表 / 自選 / 設定 三個畫面 -->
 <nav class="m-tabbar" id="mTabbar">

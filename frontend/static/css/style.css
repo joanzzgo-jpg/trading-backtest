@@ -18,7 +18,7 @@ html.perf-mode input[type="number"],
 html.perf-mode input[type="date"],
 html.perf-mode textarea { cursor: text; }
 html.perf-mode .peek-bear,
-html.perf-mode #weatherBg,
+html.perf-mode #weatherStage,
 html.perf-mode .click-spark,
 html.perf-mode .btn-ripple-wave { display: none !important; }
 /* 手機：關掉按鈕漣漪（矮寬按鈕上會外溢成半圓放大動畫）— JS 已不建立，這是保險 */
@@ -3176,21 +3176,42 @@ html.perf-mode .time-axis-year {
 }
 
 /* ── 天氣背景 canvas（fixed 覆蓋整頁，避免 stacking context 問題） ── */
-#weatherBg {
+/* ── 3D 天氣舞台：perspective 容器，內含多張依 translateZ 排景深的 canvas 層 ──
+   相機由 weather.js 動 perspective-origin → GPU 算真透視視差（遠層動多、近層動少）。
+   perspective 值必須與 weather.js 的 _P 一致（1200）。三態 opacity（平時/.28、夜空/.52、
+   封面/.9）掛在 stage 上一處控制，子層繼承。 */
+#weatherStage {
   position: fixed;
   inset: 0;
   pointer-events: none;
   z-index: 1;
   opacity: 0.28;
+  perspective: 1200px;
+  perspective-origin: 50% 50%;
+}
+.wx-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  backface-visibility: hidden;
+  transform-origin: 50% 50%;
+  /* translateZ + 補償 scale 由 weather.js 依層定義套上 */
+}
+/* 減少動態偏好：鎖死相機（JS 也會停用，雙保險；!important 壓過 inline style） */
+@media (prefers-reduced-motion: reduce) {
+  #weatherStage { perspective-origin: 50% 50% !important; }
 }
 
-/* ── 晴朗夜空：主圖「淡淡」透出夜空（月亮/星星/八大行星）；白天與其餘天氣完全不受影響 ──
-   機制：effects.js 偵測 type==='night' 掛 html.sky-night。把擋光的兩層底色（charts-container
-   與 #mainPane 漸層）轉透明，weatherBg(z:1) 即從 K 線後方透出；同時提高其不透明度讓夜空看得見。
-   K 線/指標由 LWC canvas 不透明繪製、浮在最上 → 看盤清晰不受影響。perf-mode 不載 effects.js，不會觸發。 */
-html:not(.perf-mode).sky-night #weatherBg { opacity: 0.52; }
-html:not(.perf-mode).sky-night .charts-container { background: transparent !important; }
-/* #mainPane 的夜間半透明由 JS _applyChartBgGradient 處理（保留 bg↔主圖色漸層），這裡不覆寫 */
+/* ── 全天氣透景（sky-show）：主圖背後透出 3D 天氣場景，而不是疊在 K 線上的濾鏡 ──
+   機制：weather.js 對任何非 off 天氣掛 html.sky-show。把擋光的兩層底色（charts-container
+   與 #mainPane 漸層中央色帶，後者由 JS _applyChartBgGradient 以 color-mix 處理）轉半透明，
+   weatherStage 即從 K 線後方透出。K 線/指標由 LWC canvas 不透明繪製、浮在最上 → 看盤清晰。
+   晴朗夜空（sky-night，疊加於 sky-show 之上）透更多、更亮。perf-mode 不載 weather.js，不會觸發。 */
+html:not(.perf-mode).sky-show .charts-container { background: transparent !important; }
+html:not(.perf-mode).sky-show #weatherStage { opacity: 0.45; }
+html:not(.perf-mode).sky-night #weatherStage { opacity: 0.6; }
 
 /* ═══════════════ 橘子熊可愛風格 ═══════════════ */
 
@@ -5912,8 +5933,8 @@ html.landing-active #_wxCard { visibility: hidden !important; }
 html.landing-active body {
   background: linear-gradient(180deg, var(--bg) 0%, var(--bg) 36%, #E5DDD9 84%, #EFEAE4 100%) !important;
 }
-/* 天氣 canvas 疊在漸層上、放明顯一點，並升到圖表 UI 之上 */
-html.landing-active #weatherBg { opacity: .9 !important; z-index: 2 !important; }
+/* 天氣舞台疊在漸層上、放明顯一點，並升到圖表 UI 之上 */
+html.landing-active #weatherStage { opacity: .9 !important; z-index: 2 !important; }
 /* 首頁本體透明 → 露出底層「漸層 + 天氣」；插圖與按鈕仍在最上層 */
 html.landing-active .landing { background: transparent; }
 /* 舞台：插圖滿寬（城牆靠兩邊），釘在底部地板之上；箭頭/大門鈕相對它定位 */

@@ -1,8 +1,7 @@
-/* ── 天氣背景動畫（華麗版）── */
+/* ── 天氣背景動畫（華麗版・CSS3D 分層）── */
 (function initWeatherBg() {
   const canvas = document.getElementById("weatherBg");
   if (!canvas) return;
-  const ctx = canvas.getContext("2d");
   // 低效能裝置降載：手機(小螢幕/觸控+低記憶體) → 減少粒子數、關 shadowBlur、簡化光束
   const _lowFx = (() => {
     try {
@@ -14,6 +13,47 @@
   })();
   const _fxN = _lowFx ? 0.55 : 1;          // 粒子數倍率
   const _frameMin = _lowFx ? 50 : 33;      // 幀間隔下限：手機 ~20fps（省 GPU/主執行緒）、桌面 ~30fps
+
+  /* ── 3D 舞台與景深層（規格：docs/weather-3d-spec.md）──
+     #weatherStage 套 CSS perspective(=_P)，內含多張 canvas 依 translateZ 排不同景深；
+     相機（滑鼠/陀螺儀）動 perspective-origin → 瀏覽器 GPU 算真透視視差（如隔窗看景：
+     遠層相對位移大、近層小），取代舊的逐粒子 _parX/_parY 軟體視差。
+     各層 canvas 實際解析度縮小 1/s（s=補償縮放；CSS transform 放大回鋪滿）→ 遠層省填充率，
+     並把 scale(1/s) 烤進 ctx 基準變換 → 所有繪製程式照舊用「螢幕座標」，零改動成本。 */
+  const _P = 1200;                          // 必須與 CSS #weatherStage 的 perspective 一致
+  // [名稱, translateZ(px), 高解析?]；高解析層 backing 不縮（透視縮小恰好抵銷補償縮放 → 1:1 顯示、不糊），
+  // 給細節重的內容用（astro：月面/行星；fore：本來就 1:1）。其餘層縮 1/s 省填充率。
+  // astro＝天體專屬深景層：太陽/月亮/行星/星空在最深處大幅視差，前方雲雨會從它面前掠過（真遮擋）。
+  const _LAYER_DEFS = _lowFx                // 手機省層數
+    ? [["sky", -1600, 0], ["astro", -1400, 1], ["mid", -450, 0], ["fore", 0, 1]]
+    : [["sky", -1600, 0], ["astro", -1400, 1], ["far", -900, 0], ["mid", -450, 0], ["near", -150, 0], ["fore", 0, 1]];
+  let stage = document.getElementById("weatherStage");
+  if (!stage) {                             // 防舊快取頁（HTML 還沒有 stage）→ JS 自建
+    stage = document.createElement("div");
+    stage.id = "weatherStage";
+    canvas.parentNode.insertBefore(stage, canvas);
+    stage.appendChild(canvas);
+  }
+  const _CAM_AMP = _lowFx ? 8 : 12;         // 相機 perspective-origin 振幅（% 視窗）；層出血量也用它算
+  const _layers = {};
+  _LAYER_DEFS.forEach(([name, d, hi], i) => {
+    const cv = (i === 0) ? canvas : document.createElement("canvas");   // sky 沿用既有 #weatherBg（CSS 掛勾都在它身上）
+    cv.classList.add("wx-layer");
+    if (cv !== canvas) stage.appendChild(cv);                            // DOM 順序＝疊放順序（transform-style 預設 flat）
+    const s = 1 - d / _P;                   // 補償縮放：translateZ 往後縮小 k=P/(P-d)，scale=1/k 補回鋪滿
+    // 出血放大 ov：相機運鏡時此層最多橫移 (−d/(P−d))×AMP% 視窗 → 額外放大兩倍此量，
+    // 邊緣才永遠蓋住視窗（否則層一移動邊邊就露出空白 → 破圖）
+    const ov = d === 0 ? 1 : 1 + 2 * (-d / (_P - d)) * (_CAM_AMP / 100) + 0.01;
+    cv.style.transform = "translateZ(" + d + "px) scale(" + (s * ov).toFixed(4) + ")";
+    _layers[name] = { cv: cv, ctx: cv.getContext("2d"), s: s, bs: hi ? 1 : 1 / s };   // bs＝backing 縮放
+  });
+  if (!_layers.far)  _layers.far  = _layers.sky;   // 手機：遠景併天空、近景併中景
+  if (!_layers.near) _layers.near = _layers.mid;
+  // 預設繪圖層＝mid（中景）：尚未分層的天氣全畫這裡（中等視差、螢幕位置與既往一致）
+  const ctx = _layers.mid.ctx;
+  // 依粒子景深 z（0遠~1近）選繪圖層
+  function _ctxFor(z) { return (z < 0.33 ? _layers.far : z < 0.66 ? _layers.mid : _layers.near).ctx; }
+
   let W = 0, H = 0, type = "sunny", rafId = null, _gc = {}, _lastFrameTs = 0;
   let _animClock = 0, _lastClockTs = 0;    // 動畫虛擬時鐘（毫秒）：圖表移動中放慢 → 慢動作而非凍結
   // 手機：手指觸控/平移圖表時暫停天氣重繪 → 主執行緒全讓給圖表，平移/縮放更順（消除「卡」感）
@@ -23,7 +63,7 @@
     window.addEventListener('touchstart', _mark, { passive: true });
     window.addEventListener('touchmove',  _mark, { passive: true });
   }
-  let _paX = 0, _paY = 0, _paTX = 0, _paTY = 0, _paOn = false;   // 視差深度：平滑值/目標值(-1~1)，滑鼠或陀螺儀驅動
+  let _camX = 0, _camY = 0, _camTX = 0, _camTY = 0, _camOn = false, _camRM = false;  // 3D 相機：平滑值/目標值(-1~1)，滑鼠或陀螺儀驅動 perspective-origin
 
   /* shared state */
   let sunAngle = 0, moonGlow = 0;
@@ -300,27 +340,45 @@
   }
 
   function resize() {
-    W = canvas.width  = window.innerWidth  || 1200;
-    H = canvas.height = window.innerHeight || 700;
+    W = window.innerWidth  || 1200;
+    H = window.innerHeight || 700;
+    _LAYER_DEFS.forEach(([name]) => {
+      const L = _layers[name];
+      L.cv.width  = Math.ceil(W * L.bs);    // 一般層 backing 縮 1/s 省填充率；高解析層（astro/fore）1:1 保細節
+      L.cv.height = Math.ceil(H * L.bs);
+      L.ctx.setTransform(L.bs, 0, 0, L.bs, 0, 0);   // 基準變換：繪製程式照舊用螢幕座標
+    });
     _buildGradCache();
     _init();
   }
 
-  /* ── 視差深度（3D 感）：滑鼠(桌面)/陀螺儀(手機) 驅動，遠近天氣層以不同幅度位移 ──
-     _parX/_parY 回傳某景深 z(0遠~1近) 的像素位移：近層動得多、遠層動得少 → 縱深透視。 */
-  function _parX(z){ return _paX * (8 + z*z*44); }
-  function _parY(z){ return _paY * (4 + z*z*20); }
+  /* ── 3D 相機：滑鼠(桌面)/陀螺儀(手機) 驅動 #weatherStage 的 perspective-origin ──
+     GPU 對各 translateZ 層自動算透視位移（遠層相對位移大、近層小 → 真縱深，如隔窗看景），
+     取代舊的逐粒子 _parX/_parY 軟體位移（已移除，避免雙重視差）。 */
+  let _camInputTs = -1e9;            // 最近一次陀螺儀輸入時間（秒）；_CAM_AMP 已上移至層建立處（出血計算共用）
+  function _applyCamera(){
+    if (_camRM || !_camOn) return;
+    // 閒置自動運鏡：3 秒沒輸入 → 相機緩慢繞行（李薩茹軌跡）→ 不動滑鼠/沒陀螺儀權限
+    // 也隨時看得到層層分離的縱深（這才「看起來是 3D」，而非互動才有）
+    const now = (performance.now ? performance.now() : Date.now()) * 0.001;
+    if (now - _camInputTs > 3) {
+      _camTX = Math.sin(now * 0.40) * 0.55;
+      _camTY = Math.cos(now * 0.28) * 0.40;
+    }
+    _camX += (_camTX - _camX) * 0.07; _camY += (_camTY - _camY) * 0.07;   // 平滑跟隨
+    stage.style.perspectiveOrigin =
+      (50 - _camX * _CAM_AMP).toFixed(2) + '% ' + (50 - _camY * _CAM_AMP).toFixed(2) + '%';
+  }
+  const _camNowS = () => (performance.now ? performance.now() : Date.now()) * 0.001;
   function _initParallax(){
-    if (_paOn) return; _paOn = true;
-    try { if (matchMedia('(prefers-reduced-motion: reduce)').matches) return; } catch(e){}  // 尊重減少動態偏好
-    window.addEventListener('mousemove', e => {
-      _paTX = (e.clientX/(window.innerWidth||1) - 0.5) * 2;
-      _paTY = (e.clientY/(window.innerHeight||1) - 0.5) * 2;
-    }, { passive:true });
+    if (_camOn) return; _camOn = true;
+    try { if (matchMedia('(prefers-reduced-motion: reduce)').matches) { _camRM = true; return; } } catch(e){}  // 尊重減少動態偏好（CSS 端也有 !important 鎖，雙保險）
+    // 滑鼠跟隨已移除（使用者不要背景跟滑鼠動）→ 桌面恆走「閒置自動運鏡」；手機保留陀螺儀傾斜
     const onTilt = e => {
       if (e.gamma == null) return;
-      _paTX = Math.max(-1, Math.min(1, e.gamma/35));            // 左右傾斜（°/35 → ±1）
-      _paTY = Math.max(-1, Math.min(1, ((e.beta||45)-45)/35));  // 前後傾斜（以 45° 為中立）
+      _camInputTs = _camNowS();      // 有輸入 → 暫停自動運鏡、跟著傾斜
+      _camTX = Math.max(-1, Math.min(1, e.gamma/35));            // 左右傾斜（°/35 → ±1）
+      _camTY = Math.max(-1, Math.min(1, ((e.beta||45)-45)/35));  // 前後傾斜（以 45° 為中立）
     };
     // 傾斜視差：被動監聽 deviceorientation（Android 直接有；iOS 已授權才有事件）。
     // 不再主動呼叫 iOS DeviceOrientationEvent.requestPermission() → 不會每次開都跳陀螺儀權限詢問
@@ -374,24 +432,33 @@
   ];
   // 月面繪製本體（畫進任意 2D context g；給離屏快取重複使用）
   function _renderMoon(g, cx, cy, R, phase) {
-    const DARK = 'rgba(12,16,34,0.97)';
-    // 受光面奶白漸層（偏移高光中心 + 邊緣壓暗 → 球體感 / limb darkening）
-    const lit = g.createRadialGradient(cx - R*0.30, cy - R*0.30, R*0.06, cx, cy, R*1.08);
+    const DARK = 'rgba(30,38,64,0.94)';      // 暗面帶「地照」微透藍灰（真實月相細節，不再死黑）
+    // 受光面奶白漸層：高光中心朝太陽方向（waxing 右 / waning 左）+ 邊緣壓暗 → 球體感
+    const sunSide = (phase < 0.5) ? 1 : -1;
+    const lit = g.createRadialGradient(cx + sunSide*R*0.30, cy - R*0.24, R*0.06, cx, cy, R*1.08);
     lit.addColorStop(0, '#fdfcf4'); lit.addColorStop(0.60, '#e7edf6'); lit.addColorStop(1, '#bbc8da');
     g.save();
     g.beginPath(); g.arc(cx, cy, R, 0, Math.PI*2); g.clip();
     g.fillStyle = DARK; g.fillRect(cx-R, cy-R, R*2, R*2);
     const eRx = R * Math.abs(Math.cos(2 * Math.PI * phase));
+    // 相位遮罩改 3 層漸縮橢圓 → 柔和的明暗交界線（terminator），不再是銳利剪影 → 立體球
+    const softCover = (style, a0, a1) => {
+      [[1.08, .38], [1, .80], [0.92, .38]].forEach(([k, aa]) => {
+        g.globalAlpha = aa; g.fillStyle = style;
+        g.beginPath(); g.ellipse(cx, cy, Math.min(R, eRx * k), R, 0, a0, a1); g.closePath(); g.fill();
+      });
+      g.globalAlpha = 1;
+    };
     g.fillStyle = lit;
     if (phase < 0.5) {                       // waxing：右半受光
       g.beginPath(); g.arc(cx, cy, R, -Math.PI/2, Math.PI/2); g.closePath(); g.fill();
-      if (phase < 0.25) { g.fillStyle = DARK; g.beginPath(); g.ellipse(cx, cy, eRx, R, 0, -Math.PI/2, Math.PI/2); g.closePath(); g.fill(); }
-      else              { g.beginPath(); g.ellipse(cx, cy, eRx, R, 0, Math.PI/2, -Math.PI/2); g.closePath(); g.fill(); }
+      if (phase < 0.25) softCover(DARK, -Math.PI/2, Math.PI/2);
+      else              softCover(lit,   Math.PI/2, -Math.PI/2);
     } else {                                 // waning：左半受光
       g.beginPath(); g.arc(cx, cy, R, Math.PI/2, -Math.PI/2); g.closePath(); g.fill();
       const p2 = phase - 0.5;
-      if (p2 < 0.25) { g.beginPath(); g.ellipse(cx, cy, eRx, R, 0, -Math.PI/2, Math.PI/2); g.closePath(); g.fill(); }
-      else           { g.fillStyle = DARK; g.beginPath(); g.ellipse(cx, cy, eRx, R, 0, Math.PI/2, -Math.PI/2); g.closePath(); g.fill(); }
+      if (p2 < 0.25) softCover(lit, -Math.PI/2, Math.PI/2);
+      else           softCover(DARK, Math.PI/2, -Math.PI/2);
     }
     // 隕石坑：剪裁到受光側（暗面不畫），坑體 + 內陰影 + 受光緣 = 立體凹陷
     const nearFull = Math.abs(phase - 0.5) < 0.07;
@@ -442,17 +509,29 @@
       _moonKey = key;
     }
     const half = _moonCv.width / 2;
-    ctx.drawImage(_moonCv, cx-half, cy-half);
+    _layers.astro.ctx.drawImage(_moonCv, cx-half, cy-half);   // 月亮 → 天體深景層（3D 視差 + 全解析不糊）
   }
 
   function _drawAstro(t) {
     if (type==='aurora'||type==='sunset'||type==='sunrise'||type==='meteor') return;  // 這些自帶天空/太陽，不要再疊系統日月
+    const ga = _layers.astro.ctx;   // 天體深景層：3D 相機下大幅視差、前方雲雨真遮擋、全解析不糊
     const nowMin = _locNowMin();
     const lx = W * 0.04, rx = W * 0.96;
     const horizonY = H * 0.88, peakY = H * 0.08;
 
     if (_wd.isDay) {
-      if (type === 'thunder' || type === 'sunny' || type === 'partly') return; // 這些由 dSunny 自畫太陽
+      // 白天淡月（真實天文）：月亮在地平線上、天氣晴朗時，白晝天空也掛一輪極淡的月
+      const dimD = _astroDim();
+      if (dimD > 0.35) {
+        const mp = _moonProg(nowMin);
+        if (mp != null && Math.sin(_wd.moonPhase * Math.PI) >= 0.05) {
+          const mx = lx + mp * (rx - lx), my = horizonY - (horizonY - peakY) * Math.sin(mp * Math.PI);
+          ga.save(); ga.globalAlpha = 0.16 * dimD;
+          _drawMoonPhase(mx, my, 22, _wd.moonPhase);
+          ga.restore();
+        }
+      }
+      if (type === 'thunder' || type === 'sunny' || type === 'partly') return; // 這些由 dSunny 自畫太陽（淡月已畫）
       const rise = _wd.sunRiseMin, set = _wd.sunSetMin;
       if (nowMin < rise || nowMin > set) return;
       const prog = (nowMin - rise) / (set - rise);
@@ -461,67 +540,74 @@
       // horizon warmth near sunrise/sunset
       const edgeFade = Math.min(prog, 1 - prog) * 6; // 0 at edges → 1 past 1/6 of day
       // arc guide
-      ctx.save();
-      ctx.beginPath();
+      ga.save();
+      ga.beginPath();
       for (let p = 0; p <= 1; p += 0.025) {
         const ax = lx + p * (rx - lx);
         const ay = horizonY - (horizonY - peakY) * Math.sin(p * Math.PI);
-        p === 0 ? ctx.moveTo(ax, ay) : ctx.lineTo(ax, ay);
+        p === 0 ? ga.moveTo(ax, ay) : ga.lineTo(ax, ay);
       }
-      ctx.strokeStyle = 'rgba(255,200,60,0.07)';
-      ctx.lineWidth = 1; ctx.setLineDash([3, 9]); ctx.stroke(); ctx.setLineDash([]);
+      ga.strokeStyle = 'rgba(255,200,60,0.07)';
+      ga.lineWidth = 1; ga.setLineDash([3, 9]); ga.stroke(); ga.setLineDash([]);
       // opacity by weather, boosted near horizon
       let al = 1.0;
       if (type==='storm'||type==='overcast') al=0.15; else if (type==='rain'||type==='drizzle') al=0.35;
       else if (type==='fog') al=0.50; else if (type==='cloudy'||type==='windy') al=0.62;
       al = Math.max(al, edgeFade < 1 ? 0.80 : 0); // sunrise/sunset always bright
-      ctx.globalAlpha = al;
+      ga.globalAlpha = al;
       // horizon glow at low prog (sunrise) or high prog (sunset)
       if (edgeFade < 1) {
-        const hg = ctx.createRadialGradient(sx, horizonY, 0, sx, horizonY, W * 0.35);
+        const hg = ga.createRadialGradient(sx, horizonY, 0, sx, horizonY, W * 0.35);
         hg.addColorStop(0, 'rgba(255,160,40,0.22)'); hg.addColorStop(1, 'rgba(0,0,0,0)');
-        ctx.fillStyle = hg; ctx.fillRect(0, 0, W, H);
+        ga.fillStyle = hg; ga.fillRect(0, 0, W, H);
       }
       // glow
-      const glow = ctx.createRadialGradient(sx,sy,0,sx,sy,62);
+      const glow = ga.createRadialGradient(sx,sy,0,sx,sy,62);
       glow.addColorStop(0,'rgba(255,240,100,0.45)'); glow.addColorStop(0.42,'rgba(255,160,30,0.15)'); glow.addColorStop(1,'rgba(0,0,0,0)');
-      ctx.fillStyle=glow; ctx.beginPath(); ctx.arc(sx,sy,62,0,Math.PI*2); ctx.fill();
-      // disc
-      const disc = ctx.createRadialGradient(sx,sy,0,sx,sy,17);
-      disc.addColorStop(0,'#FFFCD0'); disc.addColorStop(1,'#FFD700');
-      ctx.fillStyle=disc; ctx.beginPath(); ctx.arc(sx,sy,17,0,Math.PI*2); ctx.fill();
+      ga.fillStyle=glow; ga.beginPath(); ga.arc(sx,sy,62,0,Math.PI*2); ga.fill();
+      // disc（3D 球體 + 電漿表面）
+      _drawSun3D(ga, sx, sy, 17, t);
       // corona pulse
       const pls = 0.5+0.5*Math.sin(t*1.4);
-      ctx.strokeStyle=`rgba(255,210,55,${0.13+0.07*pls})`; ctx.lineWidth=1.5;
-      ctx.beginPath(); ctx.arc(sx,sy,23+pls*3,0,Math.PI*2); ctx.stroke();
-      ctx.globalAlpha=1; ctx.restore();
+      ga.strokeStyle=`rgba(255,210,55,${0.13+0.07*pls})`; ga.lineWidth=1.5;
+      ga.beginPath(); ga.arc(sx,sy,23+pls*3,0,Math.PI*2); ga.stroke();
+      ga.globalAlpha=1; ga.restore();
     } else {
-      if (type === 'thunder') return; // 雷雨自己處理；夜空(night)等其餘夜間天氣都走這條比例制升落弧線
-      const rise = _wd.moonRiseMin, set = _wd.moonSetMin;
+      if (type === 'thunder') return; // 雷雨自己處理；夜空(night)等其餘夜間天氣都走這條
+      /* ── 夜間天文全餐（所有夜間天氣都有，依天氣/雲量減光）：銀河 → 星空 → 星座 → 行星 → 月亮 ── */
+      const dim = _astroDim();
+      if (dim > 0.05) {
+        if (dim > 0.32) _milkyWay(Math.min(1, (dim - 0.32) / 0.5) * 0.9);   // 銀河：天氣稍好就浮現
+        if (type !== 'night') {                               // night 型的星空由 dNight 畫（含高光），避免雙重
+          stars.forEach(p => {
+            const raw = Math.max(0, .34 + .66 * Math.sin(t * p.sp + p.ph));
+            const a = raw * dim;
+            if (a <= 0.02) return;
+            ga.fillStyle = `rgba(228,238,255,${a.toFixed(3)})`;
+            ga.beginPath(); ga.arc(p.x, p.y, raw > .6 ? p.r * 1.25 : p.r * .9, 0, 6.283); ga.fill();
+            if (raw > .8 && p.r > 1.2) _starSpike(ga, p.x, p.y, p.r * 3.6, a);
+          });
+        }
+        _drawConstellations(t, dim);                          // 真實星座（北斗/獵戶/仙后/夏季大三角/天蠍）
+        _drawEcliptic(t, dim);                                // 行星軌道（黃道發光弧，行星都落在這條線上）
+        _drawPlanets(t);                                      // 行星：原只在晴夜，現所有夜間天氣（內部依雲量減光）
+      }
+      /* 月亮（比例制升落弧線） */
       const phase = _wd.moonPhase;
       const vis = Math.sin(phase * Math.PI);
       if (vis < 0.02) return; // true new moon, skip
-      // only draw moon when actually above the horizon
-      let prog;
-      if (rise < set) {
-        if (nowMin < rise || nowMin > set) return;
-        prog = (nowMin - rise) / (set - rise);
-      } else {
-        const dur = (1440 - rise) + set;
-        if (nowMin >= rise)       prog = (nowMin - rise) / dur;
-        else if (nowMin <= set)   prog = (1440 - rise + nowMin) / dur;
-        else return;
-      }
+      const prog = _moonProg(nowMin);
+      if (prog == null) return;                               // 月亮不在天上
       const mx = lx + prog * (rx - lx);
       const my = horizonY - (horizonY - peakY) * Math.sin(prog * Math.PI);
       let al = Math.max(0.18, vis) * 0.92; // floor so near-new-moon still faintly shows
-      if (type==='storm'||type==='overcast') al*=0.2; else if (type==='rain'||type==='drizzle') al*=0.45; else if (type==='fog'||type==='windy') al*=0.55;
-      ctx.save(); ctx.globalAlpha = al;
-      const mglow = ctx.createRadialGradient(mx,my,0,mx,my,90);
+      if (type==='storm'||type==='overcast') al*=0.42; else if (type==='rain'||type==='drizzle') al*=0.55; else if (type==='fog'||type==='windy') al*=0.65;
+      ga.save(); ga.globalAlpha = al;
+      const mglow = ga.createRadialGradient(mx,my,0,mx,my,90);
       mglow.addColorStop(0,'rgba(180,210,255,0.22)'); mglow.addColorStop(1,'rgba(0,0,0,0)');
-      ctx.fillStyle=mglow; ctx.beginPath(); ctx.arc(mx,my,90,0,Math.PI*2); ctx.fill();
+      ga.fillStyle=mglow; ga.beginPath(); ga.arc(mx,my,90,0,Math.PI*2); ga.fill();
       _drawMoonPhase(mx, my, (type==='night'?30:26), phase); // 晴朗夜空月亮放大
-      ctx.globalAlpha=1; ctx.restore();
+      ga.globalAlpha=1; ga.restore();
     }
   }
 
@@ -553,6 +639,7 @@
   ];
   // 太陽軌道根數（地心黃道用；N=i=0）
   const _SUN_EL = [[0,0],[0,0],[282.9404,4.70935e-5],[1.0,0],[0.016709,-1.151e-9],[356.0470,0.9856002585]];
+  const _PZH = { Mercury:'水星', Venus:'金星', Mars:'火星', Jupiter:'木星', Saturn:'土星', Uranus:'天王星', Neptune:'海王星' };
 
   function _dayNum(date){
     const Y=date.getUTCFullYear(), M=date.getUTCMonth()+1, D=date.getUTCDate();
@@ -608,7 +695,7 @@
       let cosFV=(o.r*o.r+R*R-sDist*sDist)/(2*o.r*R); cosFV=Math.max(-1,Math.min(1,cosFV));
       const FV=Math.acos(cosFV)*_R2D;
       const mag=p.H0+5*Math.log10(o.r*R)+p.ph*FV;
-      out.push({ c:p.c, az, alt, mag });
+      out.push({ c:p.c, az, alt, mag, zh:_PZH[p.name] || p.name });
     }
     return out;   // 月亮另由 _drawAstro 以比例制升落弧線繪製（跨裝置一致），不在此算
   }
@@ -624,7 +711,8 @@
   function _drawPlanets(t){
     const now=Date.now();
     if(now-_planetCache.at>120000){ _planetCache={ at:now, list:_computePlanets(_wxLat,_wxLon,new Date()) }; }
-    const cloudDim=1-Math.min(1,(_wd.cloudCover||0)/100)*0.65;
+    const ga=_layers.astro.ctx;                              // 行星 → 天體深景層（3D 視差 + 全解析）
+    const cloudDim=1-Math.min(1,(_wd.cloudCover||0)/100)*0.4;   // 雲多調暗但保有下限（裝飾優先）
     for(const p of _planetCache.list){
       const pos=_skyXY(p.az,p.alt); if(!pos) continue;
       const x=pos.x, y=pos.y;
@@ -632,17 +720,269 @@
       let a=(1.45-p.mag*0.16); a=Math.max(0.42,Math.min(1,a))*cloudDim; // 亮度下限提高
       const tw=0.86+0.14*Math.sin(t*1.6+x*0.05);            // 微閃爍
       const [cr,cg,cb]=p.c;
-      ctx.save();
+      ga.save();
       if(r>1.8){                                            // 含火星/土星等較亮行星加光暈
-        const g=ctx.createRadialGradient(x,y,0,x,y,r*3.2);
+        const g=ga.createRadialGradient(x,y,0,x,y,r*3.2);
         g.addColorStop(0,`rgba(${cr},${cg},${cb},${(0.45*a*tw).toFixed(3)})`); g.addColorStop(1,'rgba(0,0,0,0)');
-        ctx.fillStyle=g; ctx.beginPath(); ctx.arc(x,y,r*3.2,0,Math.PI*2); ctx.fill();
+        ga.fillStyle=g; ga.beginPath(); ga.arc(x,y,r*3.2,0,Math.PI*2); ga.fill();
       }
-      if (!_lowFx) { ctx.shadowBlur=r*2.4; ctx.shadowColor=`rgba(${cr},${cg},${cb},${(0.85*a).toFixed(3)})`; }  // 手機關 shadowBlur（已有漸層光暈墊著）
-      ctx.fillStyle=`rgba(${cr},${cg},${cb},${(a*tw).toFixed(3)})`;
-      ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
-      ctx.shadowBlur=0; ctx.restore();
+      if (!_lowFx) { ga.shadowBlur=r*2.4; ga.shadowColor=`rgba(${cr},${cg},${cb},${(0.85*a).toFixed(3)})`; }  // 手機關 shadowBlur（已有漸層光暈墊著）
+      ga.fillStyle=`rgba(${cr},${cg},${cb},${(a*tw).toFixed(3)})`;
+      ga.beginPath(); ga.arc(x,y,r,0,Math.PI*2); ga.fill();
+      ga.shadowBlur=0;
+      // 科技 HUD：內圈旋轉虛線環 + 外圈反向旋轉「目標括號」（4 段弧，像鎖定框）
+      ga.strokeStyle=`rgba(120,225,255,${(0.55*a).toFixed(3)})`;
+      ga.lineWidth=.9; ga.setLineDash([4,5]); ga.lineDashOffset=-t*6;
+      ga.beginPath(); ga.arc(x,y,r*3.2+3,0,Math.PI*2); ga.stroke();
+      ga.setLineDash([]);
+      const R2=r*3.2+8, a0=-t*0.7;
+      ga.strokeStyle=`rgba(170,240,255,${(0.75*a).toFixed(3)})`; ga.lineWidth=1.4;
+      for(let k2=0;k2<4;k2++){
+        const s0=a0+k2*Math.PI/2;
+        ga.beginPath(); ga.arc(x,y,R2,s0,s0+0.5); ga.stroke();
+      }
+      // 精確讀數：固定 4 向細刻線 + 45° 引線 + 名稱/視星等標籤（儀器感）
+      ga.lineWidth=1; ga.strokeStyle=`rgba(150,235,255,${(0.6*a).toFixed(3)})`;
+      ga.beginPath();
+      for(let k3=0;k3<4;k3++){
+        const ang=k3*Math.PI/2;
+        ga.moveTo(x+Math.cos(ang)*(R2+2), y+Math.sin(ang)*(R2+2));
+        ga.lineTo(x+Math.cos(ang)*(R2+6), y+Math.sin(ang)*(R2+6));
+      }
+      ga.stroke();
+      const lx2=x+R2+9, ly2=y-R2-9;
+      ga.beginPath(); ga.moveTo(x+R2*0.74, y-R2*0.74); ga.lineTo(lx2, ly2); ga.lineTo(lx2+6, ly2); ga.stroke();
+      ga.font='10px ui-monospace, Menlo, monospace'; ga.textAlign='left'; ga.textBaseline='bottom';
+      ga.fillStyle=`rgba(180,242,255,${(0.95*a).toFixed(3)})`;
+      ga.fillText(p.zh+' '+(p.mag>=0?'+':'')+p.mag.toFixed(1), lx2+8, ly2+4);
+      ga.restore();
     }
+  }
+
+  /* ── 天文減光：天氣越差/雲越多 → 星空/銀河/星座越暗 ──
+     ⚠ 有「下限」設計：這是裝飾性背景不是天文台——天文永遠看得到，天氣只調高低
+     （曾因寫實減光在陰天夜把星空壓到 0.08 → 使用者「看不到」）。 */
+  function _astroDim() {
+    let al = 1;
+    if (type==='storm'||type==='thunder') al = 0.45;
+    else if (type==='overcast') al = 0.55;          // 陰天自帶灰天幕會再蓋一層 → 下限要更高
+    else if (type==='rain'||type==='drizzle'||type==='hail') al = 0.55;
+    else if (type==='fog') al = 0.62;
+    else if (type==='snow') al = 0.68;
+    else if (type==='cloudy'||type==='windy') al = 0.80;
+    return al * (1 - Math.min(1, (_wd.cloudCover || 0) / 100) * 0.25);
+  }
+
+  /* ── 亮星十字繞射光芒（望遠鏡攝影感 → 科技感）── */
+  function _starSpike(g, x, y, len, a) {
+    g.strokeStyle = `rgba(215,238,255,${(a * .5).toFixed(3)})`;
+    g.lineWidth = .8;
+    g.beginPath();
+    g.moveTo(x - len, y); g.lineTo(x + len, y);
+    g.moveTo(x, y - len); g.lineTo(x, y + len);
+    g.stroke();
+  }
+
+  /* ── 3D 太陽：限邊減光球體 + 兩層反向慢轉的電漿表面紋理（米粒組織「沸騰」感）── */
+  let _sunTexA = null, _sunTexB = null;
+  function _bakeSunTex(R, n) {
+    const cv = document.createElement('canvas'); cv.width = cv.height = R * 2;
+    const g = cv.getContext('2d');
+    const base = g.createRadialGradient(R, R, 0, R, R, R);   // 限邊減光：中心亮白金 → 邊緣深金橘（真實太陽特徵）
+    base.addColorStop(0, '#FFFDE8'); base.addColorStop(.55, '#FFE99A'); base.addColorStop(.85, '#FFC93C'); base.addColorStop(1, '#F5A623');
+    g.fillStyle = base; g.beginPath(); g.arc(R, R, R, 0, 6.283); g.fill();
+    for (let i = 0; i < n; i++) {                            // 亮斑/暗斑隨機散佈（表面紋理）
+      const a = Math.random() * 6.283, d = Math.sqrt(Math.random()) * R * .92;
+      const x = R + Math.cos(a) * d, y = R + Math.sin(a) * d, r = R * (0.06 + Math.random() * 0.16);
+      const sg = g.createRadialGradient(x, y, 0, x, y, r);
+      sg.addColorStop(0, Math.random() < .5 ? `rgba(255,255,235,${(.10 + Math.random() * .14).toFixed(3)})`
+                                            : `rgba(214,120,20,${(.08 + Math.random() * .12).toFixed(3)})`);
+      sg.addColorStop(1, 'rgba(255,255,255,0)');
+      g.fillStyle = sg; g.beginPath(); g.arc(x, y, r, 0, 6.283); g.fill();
+    }
+    return cv;
+  }
+  function _drawSun3D(g, x, y, R, t) {
+    if (!_sunTexA) { _sunTexA = _bakeSunTex(64, 26); _sunTexB = _bakeSunTex(64, 20); }
+    g.save();
+    g.beginPath(); g.arc(x, y, R, 0, 6.283); g.clip();
+    g.translate(x, y);
+    g.rotate(t * 0.05);          g.drawImage(_sunTexA, -R, -R, R * 2, R * 2);
+    g.globalAlpha = .55; g.rotate(-t * 0.115); g.drawImage(_sunTexB, -R, -R, R * 2, R * 2);   // 反向第二層 → 表面緩慢翻騰
+    g.globalAlpha = 1;
+    g.restore();
+    const rim = g.createRadialGradient(x, y, R * .8, x, y, R * 1.12);   // 球緣輝光圈（球體感）
+    rim.addColorStop(0, 'rgba(255,220,90,0)'); rim.addColorStop(.85, 'rgba(255,190,60,.5)'); rim.addColorStop(1, 'rgba(255,170,40,0)');
+    g.fillStyle = rim; g.beginPath(); g.arc(x, y, R * 1.12, 0, 6.283); g.fill();
+  }
+
+  /* ── 銀河帶：斜跨夜空的柔光帶（三層柔光橢圓 + 暗塵帶 + 星塵），離屏預烤、每幀一次 drawImage ── */
+  let _mwCv = null, _mwKey = '';
+  function _milkyWay(al) {
+    const ga = _layers.astro.ctx, key = W + 'x' + H;
+    if (key !== _mwKey) {
+      _mwKey = key;
+      _mwCv = document.createElement('canvas');
+      const s2 = 0.5;                                   // 半解析度即可（柔光帶，放大不影響觀感）
+      _mwCv.width = Math.ceil(W * s2); _mwCv.height = Math.ceil(H * s2);
+      const g = _mwCv.getContext('2d'); g.scale(s2, s2);
+      g.save(); g.translate(W * 0.5, H * 0.40); g.rotate(-0.5);
+      for (const [len, wid, a] of [[W*0.72, H*0.16, 0.10], [W*0.66, H*0.10, 0.12], [W*0.50, H*0.05, 0.14]]) {
+        const gr = g.createRadialGradient(0, 0, 0, 0, 0, len);
+        gr.addColorStop(0, `rgba(190,205,240,${a})`); gr.addColorStop(0.6, `rgba(170,185,230,${(a*0.5).toFixed(3)})`); gr.addColorStop(1, 'rgba(170,185,230,0)');
+        g.save(); g.scale(1, wid / len); g.fillStyle = gr; g.beginPath(); g.arc(0, 0, len, 0, 6.283); g.fill(); g.restore();
+      }
+      const dl = g.createRadialGradient(0, 0, 0, 0, 0, W * 0.5);   // 中央暗塵帶（銀河特徵）
+      dl.addColorStop(0, 'rgba(10,14,30,0.16)'); dl.addColorStop(1, 'rgba(10,14,30,0)');
+      g.save(); g.scale(1, 0.07); g.fillStyle = dl; g.beginPath(); g.arc(0, 0, W * 0.5, 0, 6.283); g.fill(); g.restore();
+      for (let i = 0; i < 260; i++) {                   // 沿帶密集星塵
+        const tt = Math.random() * 2 - 1;
+        const x = tt * W * 0.55, y = (Math.random() * 2 - 1) * H * 0.085 * (1 + (1 - Math.abs(tt)) * 0.8);
+        g.fillStyle = `rgba(215,228,255,${((0.05 + Math.random() * 0.30) * (1 - Math.abs(tt) * 0.5)).toFixed(3)})`;
+        const r = Math.random() < 0.92 ? 0.7 : 1.3;
+        g.fillRect(x, y, r, r);
+      }
+      g.restore();
+    }
+    ga.save(); ga.globalAlpha = al; ga.drawImage(_mwCv, 0, 0, W, H); ga.restore();
+  }
+
+  /* ── 星座（真實天文）：J2000 赤經/赤緯 → 當地恆星時 → 地平座標，與行星同一套 _skyXY 投影 ──
+     s=[RA°, Dec°, 視星等, 暖色 0藍白~1紅]；l=星點索引連線。每 2 分鐘重算快取。 */
+  const _CONSTS = [
+    { s:[[165.93,61.75,1.79,.15],[165.46,56.38,2.37,.1],[178.46,53.69,2.44,.1],[183.86,57.03,3.31,.1],[193.51,55.96,1.77,.1],[200.98,54.93,2.27,.1],[206.89,49.31,1.86,.05]],
+      l:[[0,1],[1,2],[2,3],[3,0],[3,4],[4,5],[5,6]] },                                   // 北斗七星
+    { s:[[88.79,7.41,0.42,.9],[81.28,6.35,1.64,.1],[85.19,-1.94,1.77,.1],[84.05,-1.20,1.69,.1],[83.00,-0.30,2.23,.1],[86.94,-9.67,2.09,.1],[78.63,-8.20,0.13,0]],
+      l:[[0,2],[1,4],[2,3],[3,4],[2,5],[4,6]] },                                         // 獵戶座（參宿四紅、參宿七藍白）
+    { s:[[2.29,59.15,2.27,.1],[10.13,56.54,2.24,.5],[14.18,60.72,2.47,.1],[21.45,60.24,2.68,.1],[28.60,63.67,3.38,.1]],
+      l:[[0,1],[1,2],[2,3],[3,4]] },                                                     // 仙后座 W
+    { s:[[279.23,38.78,0.03,0],[310.36,45.28,1.25,.05],[297.70,8.87,0.77,.1]],
+      l:[[0,1],[1,2],[2,0]] },                                                           // 夏季大三角（織女/天津四/牛郎）
+    { s:[[247.35,-26.43,1.06,.95],[240.08,-22.62,2.29,.2],[263.40,-37.10,1.62,.1]],
+      l:[[1,0],[0,2]] },                                                                 // 天蠍座（心宿二紅超巨星）
+  ];
+  function _lstDeg(date, lon) {              // 地方恆星時（度）——與 _computePlanets 同式
+    const d = _dayNum(date), so = _orbit(_SUN_EL, d);
+    const ut = date.getUTCHours() + date.getUTCMinutes()/60 + date.getUTCSeconds()/3600;
+    return _rev((_rev(so.v + so.w + 180) / 15 + ut) * 15 + lon);
+  }
+  let _constCache = { at: 0, list: [] };
+  function _computeConsts(lat, lon, date) {
+    const lst = _lstDeg(date, lon);
+    return _CONSTS.map(c => c.s.map(([ra, dec, mag, warm]) => {
+      const ha = _rev(lst - ra);
+      const x1 = _cosd(ha)*_cosd(dec), y1 = _sind(ha)*_cosd(dec), z1 = _sind(dec);
+      const xh = x1*_sind(lat) - z1*_cosd(lat), yh = y1, zh = x1*_cosd(lat) + z1*_sind(lat);
+      const pos = _skyXY(_rev(_atan2d(yh, xh) + 180), _atan2d(zh, Math.hypot(xh, yh)));
+      return pos ? { x: pos.x, y: pos.y, mag, warm } : null;   // 地平線下/背向 → null
+    }));
+  }
+  function _drawConstellations(t, dim) {
+    const ga = _layers.astro.ctx, now = Date.now();
+    if (now - _constCache.at > 120000) _constCache = { at: now, list: _computeConsts(_wxLat, _wxLon, new Date()) };
+    _constCache.list.forEach((pts, ci) => {
+      const def = _CONSTS[ci];
+      ga.strokeStyle = `rgba(115,222,255,${(0.10 + 0.24 * dim).toFixed(3)})`; ga.lineWidth = 1;   // 青色發光連線（科技感、含可見下限）
+      if (!_lowFx) { ga.shadowBlur = 4; ga.shadowColor = 'rgba(115,222,255,.7)'; }
+      ga.beginPath();
+      def.l.forEach(([a, b]) => { const p = pts[a], q = pts[b]; if (p && q) { ga.moveTo(p.x, p.y); ga.lineTo(q.x, q.y); } });
+      ga.stroke(); ga.shadowBlur = 0;
+      pts.forEach(p => {
+        if (!p) return;
+        let r = 2.6 - p.mag * 0.45; r = Math.max(1.1, Math.min(2.8, r));
+        const tw = 0.8 + 0.2 * Math.sin(t * 1.8 + p.x * 0.07);
+        const al = Math.min(1, 1.25 - p.mag * 0.18) * dim * tw;
+        const cr = Math.round(200 + 55*p.warm), cg = Math.round(215 - 30*p.warm), cb = Math.round(255 - 110*p.warm);
+        ga.fillStyle = `rgba(${cr},${cg},${cb},${al.toFixed(3)})`;
+        ga.beginPath(); ga.arc(p.x, p.y, r, 0, 6.283); ga.fill();
+        if (p.mag < 1.0) {                                   // 一等星：十字光芒 + 節點細環（HUD）
+          _starSpike(ga, p.x, p.y, r * 3.4, al);
+          ga.strokeStyle = `rgba(120,225,255,${(0.30 * dim).toFixed(3)})`; ga.lineWidth = .8;
+          ga.beginPath(); ga.arc(p.x, p.y, r + 3, 0, 6.283); ga.stroke();
+        }
+      });
+    });
+  }
+
+  /* ── 行星軌道（黃道帶）：行星實際沿黃道運行 → 把黃道投影成發光青色虛線弧（科技 HUD 感），
+        行星全部落在這條弧上。黃道座標 → 赤道座標 → 地平座標，與行星/星座同一套投影；2 分鐘快取。 ── */
+  const _ECL_E = 23.4393;                     // 黃赤交角
+  let _eclCache = { at: 0, pts: [] };
+  function _drawEcliptic(t, dim) {
+    const ga = _layers.astro.ctx, now = Date.now();
+    if (now - _eclCache.at > 120000) {
+      const lst = _lstDeg(new Date(), _wxLon), lat = _wxLat, pts = [];
+      for (let L = 0; L < 360; L += 3) {      // 沿黃經每 3° 取樣（i×3=黃經 → 12°/30° 刻度都落在整點，精確）
+        const dec = Math.asin(_sind(L) * _sind(_ECL_E)) * _R2D;
+        const ra  = _rev(_atan2d(_sind(L) * _cosd(_ECL_E), _cosd(L)));
+        const ha  = _rev(lst - ra);
+        const x1 = _cosd(ha)*_cosd(dec), y1 = _sind(ha)*_cosd(dec), z1 = _sind(dec);
+        const xh = x1*_sind(lat) - z1*_cosd(lat), yh = y1, zh = x1*_cosd(lat) + z1*_sind(lat);
+        pts.push(_skyXY(_rev(_atan2d(yh, xh) + 180), _atan2d(zh, Math.hypot(xh, yh))));
+      }
+      _eclCache = { at: now, pts };
+    }
+    const pts = _eclCache.pts, A = 0.14 + 0.22 * dim;
+    ga.save();
+    // 1) 軌道走廊底光（寬幅淡青）
+    ga.lineWidth = 5; ga.strokeStyle = `rgba(80,200,255,${(A * 0.28).toFixed(3)})`;
+    _eclPath(ga, pts); ga.stroke();
+    // 2) 核心亮線：流動虛線（資料流感）
+    ga.lineWidth = 1.3; ga.strokeStyle = `rgba(150,238,255,${A.toFixed(3)})`;
+    ga.setLineDash([11, 7]); ga.lineDashOffset = -(t * 30) % 18;
+    if (!_lowFx) { ga.shadowBlur = 8; ga.shadowColor = 'rgba(110,220,255,.9)'; }
+    _eclPath(ga, pts); ga.stroke();
+    ga.setLineDash([]); ga.shadowBlur = 0;
+    // 3) 精確儀表刻度：小刻度每 12°、大刻度每 30°（黃道十二宮界）+ 宮位符號
+    const ZOD = '♈♉♊♋♌♍♎♏♐♑♒♓';
+    ga.lineWidth = 1;
+    ga.font = '10px ui-monospace, Menlo, monospace'; ga.textAlign = 'center'; ga.textBaseline = 'middle';
+    for (let i = 0; i < pts.length; i++) {
+      const major = i % 10 === 0;             // i×3° → 每 30°（宮界）
+      if (!major && i % 4 !== 0) continue;    // 其餘每 12° 小刻度
+      const p = pts[i], q = pts[i + 1] || pts[i - 1];
+      if (!p || !q) continue;
+      const dx = q.x - p.x, dy = q.y - p.y, L = Math.hypot(dx, dy) || 1;
+      if (L > W * 0.25) continue;
+      const nx = -dy / L, ny = dx / L, s = major ? 7 : 3.5;
+      ga.strokeStyle = `rgba(120,225,255,${((major ? 0.95 : 0.55) * A).toFixed(3)})`;
+      ga.beginPath(); ga.moveTo(p.x - nx * s, p.y - ny * s); ga.lineTo(p.x + nx * s, p.y + ny * s); ga.stroke();
+      if (major) {                            // 宮位符號（黃經 0°=♈ 春分點起算，天文正確）
+        ga.fillStyle = `rgba(150,235,255,${(0.9 * A).toFixed(3)})`;
+        ga.fillText(ZOD[(i / 10) % 12], p.x + nx * 16, p.y + ny * 16);
+      }
+    }
+    // 4) 沿軌道滑行的脈衝光點 ×2（等距相位，像衛星巡航）
+    for (let k = 0; k < 2; k++) {
+      const f = ((t * 0.020 + k * 0.5) % 1) * pts.length;
+      const i = Math.floor(f), p = pts[i % pts.length], q = pts[(i + 1) % pts.length];
+      if (!p || !q || Math.abs(q.x - p.x) > W * 0.25) continue;
+      const u = f - i, x = p.x + (q.x - p.x) * u, y = p.y + (q.y - p.y) * u;
+      const pg = ga.createRadialGradient(x, y, 0, x, y, 8);
+      pg.addColorStop(0, `rgba(215,247,255,${(0.25 + 0.7 * dim).toFixed(3)})`); pg.addColorStop(1, 'rgba(110,220,255,0)');
+      ga.fillStyle = pg; ga.beginPath(); ga.arc(x, y, 8, 0, 6.283); ga.fill();
+    }
+    ga.restore();
+  }
+  function _eclPath(ga, pts) {           // 黃道折線（跨螢幕大跳 → 斷線重起）
+    ga.beginPath();
+    let prev = null;
+    for (const p of pts) {
+      if (!p) { prev = null; continue; }
+      if (prev && Math.abs(p.x - prev.x) < W * 0.25) ga.lineTo(p.x, p.y);
+      else ga.moveTo(p.x, p.y);
+      prev = p;
+    }
+  }
+
+  /* 月亮在弧線上的進度（0升~1落）；不在天上 → null。日夜兩分支共用 */
+  function _moonProg(nowMin) {
+    const rise = _wd.moonRiseMin, set = _wd.moonSetMin;
+    if (rise < set) return (nowMin >= rise && nowMin <= set) ? (nowMin - rise) / (set - rise) : null;
+    const dur = (1440 - rise) + set;
+    if (nowMin >= rise) return (nowMin - rise) / dur;
+    if (nowMin <= set) return (1440 - rise + nowMin) / dur;
+    return null;
   }
 
   function _init() {
@@ -832,49 +1172,61 @@
       puffs.push([(Math.random()*2-1)*0.48, 0.01 + Math.random()*0.05, 0.30 + Math.random()*0.10]);
     return puffs;
   }
-  /* 不同形狀 + 翻轉 + 漸層的雲；shape===4 為積雨雲；depth(0遠~1近) 控制空氣透視；
-     傳入 puffsOverride 則用該組凸起（程序化雲），否則用固定範本 */
-  function _cloud(cx, cy, w, alpha, shape = 0, flip = 1, depth = 1, puffsOverride = null) {
-    ctx.save();
-    const conv = shape === 4;                 // 對流雲：高聳塔狀
+  /* ── 立體雲：每朵雲烤一次「體積著色」sprite，之後每幀只 drawImage ──
+     配方：雲底柔影 → 基底剪影 → 逐球頂光（source-atop 鎖在剪影內，光從上方來 → 花椰菜球狀立體）
+     → 整體底部陰影。比舊版（每幀重畫 path+整片線性漸層）更快也更立體。
+     shape===4 為積雨雲；depth(0遠~1近) 控制空氣透視色票；
+     layerZ：3D 景深層選擇（預設＝depth）；想要近景色票但仍按 z 分層時可單獨傳（dOvercast） */
+  const _cloudSpr = new WeakMap();    // puffs 陣列 → { key: {cv,ox,oy} }（同 puffs 可有 overcast 放大等多鍵）
+  function _bakeCloud(puffs, w, conv, flip, depth) {
     const h = w * (conv ? 0.82 : 0.42);
-    const baseY = cy + h * 0.35;
-    // 立體感：雲底下方一抹柔和暗影（體積/景深），先畫
-    ctx.globalAlpha = alpha * 0.55;
-    const sh = ctx.createRadialGradient(cx, baseY + h*0.16, 0, cx, baseY + h*0.16, w*0.5);
-    sh.addColorStop(0, conv ? "rgba(38,46,64,.6)" : "rgba(64,84,116,.5)");
-    sh.addColorStop(1, "rgba(64,84,116,0)");
-    ctx.fillStyle = sh;
-    ctx.beginPath(); ctx.ellipse(cx, baseY + h*0.18, w*0.5, h*0.34, 0, 0, Math.PI*2); ctx.fill();
-    // 雲體
-    ctx.globalAlpha = alpha;
-    const puffs = puffsOverride || _CLOUD_VARIANTS[shape % _CLOUD_VARIANTS.length];
-    ctx.beginPath();
+    const ox = Math.ceil(w * 1.15), oy = Math.ceil(h * 1.6);   // 錨點＝呼叫時的 (cx,cy)
+    const cv = document.createElement('canvas');
+    cv.width = ox * 2; cv.height = oy + Math.ceil(h * 1.0);
+    const g = cv.getContext('2d');
+    const cx = ox, cy = oy, baseY = cy + h * 0.35;
+    // 色票 [頂光, 基底, 球緣暗]：對流雲對比最強 / 遠景霧化藍灰 / 近景亮白
+    const pal = conv ? ['rgba(252,254,255,.97)', 'rgba(192,206,230,.93)', 'rgba(70,86,116,.42)']
+      : depth < 0.5  ? ['rgba(228,237,249,.88)', 'rgba(182,196,217,.74)', 'rgba(120,136,160,.32)']
+                     : ['rgba(255,255,255,.98)', 'rgba(222,236,250,.92)', 'rgba(140,164,196,.40)'];
+    // 雲底柔影
+    g.globalAlpha = .5;
+    const sh = g.createRadialGradient(cx, baseY + h*.16, 0, cx, baseY + h*.16, w*.5);
+    sh.addColorStop(0, conv ? 'rgba(38,46,64,.6)' : 'rgba(64,84,116,.5)');
+    sh.addColorStop(1, 'rgba(64,84,116,0)');
+    g.fillStyle = sh; g.beginPath(); g.ellipse(cx, baseY + h*.18, w*.5, h*.34, 0, 0, 6.283); g.fill();
+    g.globalAlpha = 1;
+    // 1) 基底剪影
+    g.beginPath();
+    for (const [fx, fy, fr] of puffs) { const px = cx + fx*w*flip, py = baseY + fy*h, pr = h*fr; g.moveTo(px + pr, py); g.arc(px, py, pr, 0, 6.283); }
+    g.fillStyle = pal[1]; g.fill();
+    // 2) 逐球頂光（鎖在剪影內）：偏上的高光中心 + 球緣壓暗 → 每球都是立體鼓包
+    g.globalCompositeOperation = 'source-atop';
     for (const [fx, fy, fr] of puffs) {
-      const px = cx + fx * w * flip;
-      const py = baseY + fy * h;
-      const pr = h * fr;
-      ctx.moveTo(px + pr, py);
-      ctx.arc(px, py, pr, 0, Math.PI * 2);
+      const px = cx + fx*w*flip, py = baseY + fy*h, pr = h*fr;
+      const lg = g.createRadialGradient(px - pr*.30, py - pr*.45, pr*.10, px, py, pr*1.15);
+      lg.addColorStop(0, pal[0]); lg.addColorStop(.55, 'rgba(255,255,255,0)'); lg.addColorStop(1, pal[2]);
+      g.fillStyle = lg; g.beginPath(); g.arc(px, py, pr, 0, 6.283); g.fill();
     }
-    const g = ctx.createLinearGradient(cx, cy - h*1.05, cx, baseY + h*.10);
-    if (conv) {   // 對流雲：頂亮受光、底暗（雨幕），對比更強
-      g.addColorStop(0.00, "rgba(248,250,255,.96)");
-      g.addColorStop(0.40, "rgba(208,220,240,.92)");
-      g.addColorStop(0.74, "rgba(148,166,196,.86)");
-      g.addColorStop(1.00, "rgba(92,108,138,.74)");
-    } else if (depth < 0.5) {   // 遠景雲：空氣透視 → 霧化藍灰、低對比（拉開景深）
-      g.addColorStop(0.00, "rgba(208,219,235,.86)");
-      g.addColorStop(0.55, "rgba(178,192,214,.68)");
-      g.addColorStop(1.00, "rgba(150,166,190,.50)");
-    } else {                    // 近景雲：明亮純白、高對比
-      g.addColorStop(0.00, "rgba(255,255,255,.98)");
-      g.addColorStop(0.42, "rgba(246,250,255,.94)");
-      g.addColorStop(0.78, "rgba(206,224,242,.82)");
-      g.addColorStop(1.00, "rgba(172,196,222,.60)");
-    }
-    ctx.fillStyle = g; ctx.fill();
-    ctx.restore();
+    // 3) 整體底部陰影（大尺度體積光影）
+    const vg = g.createLinearGradient(0, cy - h*1.05, 0, baseY + h*.30);
+    vg.addColorStop(0, 'rgba(255,255,255,0)'); vg.addColorStop(.72, 'rgba(110,130,162,0)'); vg.addColorStop(1, conv ? 'rgba(70,86,118,.5)' : 'rgba(96,114,144,.38)');
+    g.fillStyle = vg; g.fillRect(0, 0, cv.width, cv.height);
+    g.globalCompositeOperation = 'source-over';
+    return { cv, ox, oy };
+  }
+  function _cloud(cx, cy, w, alpha, shape = 0, flip = 1, depth = 1, puffsOverride = null, layerZ = null) {
+    const c2 = _ctxFor(layerZ == null ? depth : layerZ);   // 依景深落 far/mid/near 層 → 相機移動時真透視分離
+    const puffs = puffsOverride || _CLOUD_VARIANTS[shape % _CLOUD_VARIANTS.length];
+    const conv = shape === 4;
+    const key = Math.round(w) + '|' + (conv ? 1 : 0) + '|' + flip + '|' + (depth < 0.5 ? 0 : 1);
+    let m = _cloudSpr.get(puffs);
+    if (!m) { m = {}; _cloudSpr.set(puffs, m); }
+    const e = m[key] || (m[key] = _bakeCloud(puffs, w, conv, flip, depth));
+    // 雲整體高度半透（×0.42、上限 0.55）：後方星空/月亮/行星軌道清楚透出 → 雲只是輕紗
+    c2.globalAlpha = Math.min(0.55, alpha * 0.42);
+    c2.drawImage(e.cv, cx - e.ox, cy - e.oy);
+    c2.globalAlpha = 1;
   }
 
   /* ── 6-arm snowflake crystal (optimised: single path per flake, no shadowBlur) ── */
@@ -935,79 +1287,82 @@
     sunAngle += .0035;
     /* 晴朗度：雲量越高 → 陽光（光芒/光暈）越弱（有下限，不會完全消失） */
     const clr = Math.max(0, 1 - _wd.cloudCover/100), rk = .35 + .65*clr;
-    /* background warm glow */
-    const bg = ctx.createRadialGradient(sx,sy,0,sx,sy,W*.85);
+    /* background warm glow → 天空層（最遠的大氣底光；太陽本體/光束留在 mid 層 → 相機移動時微微分離出縱深） */
+    const gs = _layers.sky.ctx;
+    const bg = gs.createRadialGradient(sx,sy,0,sx,sy,W*.85);
     bg.addColorStop(0,'rgba(255,240,110,.38)'); bg.addColorStop(.45,'rgba(255,165,30,.11)'); bg.addColorStop(1,'rgba(0,0,0,0)');
-    ctx.save(); ctx.globalAlpha=.45+.55*clr; ctx.fillStyle=bg; ctx.fillRect(0,0,W,H); ctx.restore();
+    gs.save(); gs.globalAlpha=.45+.55*clr; gs.fillStyle=bg; gs.fillRect(0,0,W,H); gs.restore();
+    /* 太陽本體與所有光效 → 天體深景層：相機運鏡時大幅視差，前方雲層（far/mid/near）真遮擋 */
+    const ga = _layers.astro.ctx;
     /* god rays（體積光束）：自太陽放射的寬柔光錐，緩慢飄、隨晴朗度增強（lighter 疊加發光） */
-    ctx.save(); ctx.globalCompositeOperation='lighter'; ctx.translate(sx,sy);
+    ga.save(); ga.globalCompositeOperation='lighter'; ga.translate(sx,sy);
     for (let i=0;i<7;i++){
       const a=sunAngle*0.5 + (i/7)*Math.PI*2 + Math.sin(t*0.18+i)*0.06;
       const len=W*(0.62+0.22*Math.sin(t*0.13+i*1.7)), wid=0.04+0.028*(i%3);
-      const lg=ctx.createLinearGradient(0,0,Math.cos(a)*len,Math.sin(a)*len);
+      const lg=ga.createLinearGradient(0,0,Math.cos(a)*len,Math.sin(a)*len);
       lg.addColorStop(0,`rgba(255,242,185,${(0.07*rk).toFixed(3)})`); lg.addColorStop(1,'rgba(255,242,185,0)');
-      ctx.fillStyle=lg; ctx.beginPath(); ctx.moveTo(0,0);
-      ctx.lineTo(Math.cos(a-wid)*len, Math.sin(a-wid)*len);
-      ctx.lineTo(Math.cos(a+wid)*len, Math.sin(a+wid)*len);
-      ctx.closePath(); ctx.fill();
+      ga.fillStyle=lg; ga.beginPath(); ga.moveTo(0,0);
+      ga.lineTo(Math.cos(a-wid)*len, Math.sin(a-wid)*len);
+      ga.lineTo(Math.cos(a+wid)*len, Math.sin(a+wid)*len);
+      ga.closePath(); ga.fill();
     }
-    ctx.restore();
+    ga.restore();
     /* 10 rotating rays */
-    ctx.save(); ctx.translate(sx,sy); ctx.lineCap="round";
+    ga.save(); ga.translate(sx,sy); ga.lineCap="round";
     for (let i=0;i<10;i++) {
       const a=sunAngle+(i/10)*Math.PI*2, even=i%2===0;
       const len=W*(.28+.05*Math.sin(t*.7+i));
-      ctx.strokeStyle=even?`rgba(255,230,80,${(.14*rk).toFixed(3)})`:`rgba(255,200,50,${(.07*rk).toFixed(3)})`;
-      ctx.lineWidth=even?2.5:1.2;
-      ctx.beginPath(); ctx.moveTo(Math.cos(a)*32,Math.sin(a)*32); ctx.lineTo(Math.cos(a)*len,Math.sin(a)*len); ctx.stroke();
+      ga.strokeStyle=even?`rgba(255,230,80,${(.14*rk).toFixed(3)})`:`rgba(255,200,50,${(.07*rk).toFixed(3)})`;
+      ga.lineWidth=even?2.5:1.2;
+      ga.beginPath(); ga.moveTo(Math.cos(a)*32,Math.sin(a)*32); ga.lineTo(Math.cos(a)*len,Math.sin(a)*len); ga.stroke();
     }
-    ctx.restore();
+    ga.restore();
     /* pulsing halo rings */
     [55,85,120].forEach((r,i) => {
-      ctx.strokeStyle=`rgba(255,220,80,${((.20-i*.05)*rk).toFixed(3)})`; ctx.lineWidth=i===0?2.5:2;
-      ctx.beginPath(); ctx.arc(sx,sy,r+Math.sin(t*1.1+i)*7,0,Math.PI*2); ctx.stroke();
+      ga.strokeStyle=`rgba(255,220,80,${((.20-i*.05)*rk).toFixed(3)})`; ga.lineWidth=i===0?2.5:2;
+      ga.beginPath(); ga.arc(sx,sy,r+Math.sin(t*1.1+i)*7,0,Math.PI*2); ga.stroke();
     });
-    /* sun disc */
-    const disc = ctx.createRadialGradient(sx,sy,0,sx,sy,28);
-    disc.addColorStop(0,'#FFFCD0'); disc.addColorStop(1,'#FFD700');
-    ctx.shadowBlur=30; ctx.shadowColor="rgba(255,200,0,1)";
-    ctx.fillStyle=disc; ctx.beginPath(); ctx.arc(sx,sy,28,0,Math.PI*2); ctx.fill();
-    ctx.shadowBlur=0;
+    /* sun disc（3D：限邊減光球體 + 雙層反向慢轉電漿表面） */
+    ga.shadowBlur=30; ga.shadowColor="rgba(255,200,0,1)";
+    ga.fillStyle="rgba(255,214,80,.95)"; ga.beginPath(); ga.arc(sx,sy,28,0,Math.PI*2); ga.fill();
+    ga.shadowBlur=0;
+    _drawSun3D(ga, sx, sy, 28, t);
     /* 鏡頭光暈：沿「太陽→畫面中心」連線散布幾個半透明光點（電影感） */
-    ctx.save(); ctx.globalCompositeOperation='lighter';
+    ga.save(); ga.globalCompositeOperation='lighter';
     const vx=W/2-sx, vy=H/2-sy;
     [[0.5,16,'255,220,140',0.10],[0.92,30,'170,215,255',0.07],[1.22,11,'255,182,200',0.08],[1.65,46,'190,255,210',0.045]].forEach(([d,r,col,al])=>{
       const fx=sx+vx*d, fy=sy+vy*d;
-      const fg=ctx.createRadialGradient(fx,fy,0,fx,fy,r);
+      const fg=ga.createRadialGradient(fx,fy,0,fx,fy,r);
       fg.addColorStop(0,`rgba(${col},${(al*rk).toFixed(3)})`); fg.addColorStop(1,`rgba(${col},0)`);
-      ctx.fillStyle=fg; ctx.beginPath(); ctx.arc(fx,fy,r,0,Math.PI*2); ctx.fill();
+      ga.fillStyle=fg; ga.beginPath(); ga.arc(fx,fy,r,0,Math.PI*2); ga.fill();
     });
-    ctx.restore();
+    ga.restore();
     /* sparkles — keep near sun */
     sparks.forEach((p,i) => {
       p.life++;
       if (p.life>p.maxLife) { sparks[i]=_newSpark(); return; }
       const a=Math.sin((p.life/p.maxLife)*Math.PI)*.88;
-      if (a>.75) { ctx.shadowBlur=5; ctx.shadowColor="rgba(255,220,0,.9)"; }
-      ctx.fillStyle=`rgba(255,242,120,${a})`;
-      ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2); ctx.fill(); ctx.shadowBlur=0;
+      if (a>.75) { ga.shadowBlur=5; ga.shadowColor="rgba(255,220,0,.9)"; }
+      ga.fillStyle=`rgba(255,242,120,${a})`;
+      ga.beginPath(); ga.arc(p.x,p.y,p.r,0,Math.PI*2); ga.fill(); ga.shadowBlur=0;
     });
     /* clouds — draw on top of sun when cloud cover > 0 */
     if (_wd.cloudCover > 5) dCloudy(t);
   }
 
   function dNight(t) {
+    const ga = _layers.astro.ctx;   // 整片夜空（星雲/星星/流星）＝天文 → 天體深景層（3D 視差 + 全解析）
     /* nebula blobs (cached gradients) */
-    _gc.nebula.forEach(g => { ctx.fillStyle=g; ctx.fillRect(0,0,W,H); });
-    /* twinkling stars */
+    _gc.nebula.forEach(g => { ga.fillStyle=g; ga.fillRect(0,0,W,H); });
+    /* twinkling stars（加亮 + 亮星十字光芒） */
     stars.forEach(p => {
-      const a=.15+.75*Math.sin(t*p.sp+p.ph);
-      if (a>.88 && !_lowFx) { ctx.shadowBlur=5; ctx.shadowColor="rgba(200,220,255,.9)"; }
-      ctx.fillStyle=`rgba(222,232,255,${a})`;
-      ctx.beginPath(); ctx.arc(p.x,p.y,a>.6?p.r*1.3:p.r,0,Math.PI*2); ctx.fill(); ctx.shadowBlur=0;   // 星星固定，不隨滑鼠晃
+      const a=Math.max(.08, Math.min(1, .32+.72*Math.sin(t*p.sp+p.ph)));
+      if (a>.85 && !_lowFx) { ga.shadowBlur=8; ga.shadowColor="rgba(205,225,255,.95)"; }
+      ga.fillStyle=`rgba(228,238,255,${a.toFixed(3)})`;
+      ga.beginPath(); ga.arc(p.x,p.y,a>.6?p.r*1.5:p.r,0,Math.PI*2); ga.fill(); ga.shadowBlur=0;
+      if (a>.78 && p.r>1.1) _starSpike(ga, p.x, p.y, p.r*4.2, a);
     });
-    /* 八大行星（依實際位置/亮度/顏色，無標籤） */
-    _drawPlanets(t);
+    /* 行星/星座/銀河改由 _drawAstro 統一畫（所有夜間天氣都有），這裡不再重複 */
     /* shooting star */
     shootTimer--;
     if (shootTimer<=0) {
@@ -1017,11 +1372,11 @@
       shootDX=Math.cos(ang)*13; shootDY=Math.sin(ang)*13; shootLen=90+Math.random()*120;
     }
     if (shootLen>0) {
-      const tl=ctx.createLinearGradient(shootX,shootY,shootX-shootDX*7,shootY-shootDY*7);
+      const tl=ga.createLinearGradient(shootX,shootY,shootX-shootDX*7,shootY-shootDY*7);
       tl.addColorStop(0,"rgba(255,255,255,.93)"); tl.addColorStop(1,"rgba(255,255,255,0)");
-      ctx.strokeStyle=tl; ctx.lineWidth=1.8; ctx.shadowBlur=10; ctx.shadowColor="white";
-      ctx.beginPath(); ctx.moveTo(shootX,shootY); ctx.lineTo(shootX-shootDX*6,shootY-shootDY*6); ctx.stroke();
-      ctx.shadowBlur=0;
+      ga.strokeStyle=tl; ga.lineWidth=1.8; ga.shadowBlur=10; ga.shadowColor="white";
+      ga.beginPath(); ga.moveTo(shootX,shootY); ga.lineTo(shootX-shootDX*6,shootY-shootDY*6); ga.stroke();
+      ga.shadowBlur=0;
       shootX+=shootDX; shootY+=shootDY; shootLen-=Math.hypot(shootDX,shootDY);
     }
     /* 月亮改由 _drawAstro 畫（比例制升落弧線：會隨時間移動、跨裝置一致），這裡不再畫 */
@@ -1056,22 +1411,23 @@
     /* 雨勢漸起：開始下雨時 _rainRamp 由 0 緩升到 1（約 6 秒），再疊一層輕微強弱起伏 → 雨會「漸漸下大」 */
     _rainRamp += (1 - _rainRamp) * 0.012;
     const intensity = _rainRamp * (0.84 + 0.16*Math.sin((t||0)*0.3));
-    /* stormy sky overlay (cached gradient) — 天色隨雨勢加深 */
-    ctx.save(); ctx.globalAlpha = 0.35 + 0.65*intensity; ctx.fillStyle=_gc.rainSky; ctx.fillRect(0,0,W,H); ctx.restore();
+    /* stormy sky overlay (cached gradient) — 天色隨雨勢加深 → 天空層 */
+    const gs = _layers.sky.ctx, gn = _layers.near.ctx, gf = _layers.fore.ctx;
+    gs.save(); gs.globalAlpha = 0.35 + 0.65*intensity; gs.fillStyle=_gc.rainSky; gs.fillRect(0,0,W,H); gs.restore();
 
-    ctx.lineCap="round";
+    _layers.far.ctx.lineCap = _layers.mid.ctx.lineCap = gn.lineCap = "round";
     const wDrift = _windDriftPx();                 // 風向水平位移（+右 -左），隨風速
     const lean   = _windVecX() * (0.10 + _wd.windSpeed*0.012);  // 雨絲傾斜度（隨風向/風速）
     let blurOn = false;                             // 已排序：近景在最後 → 只需切一次 shadowBlur
     rainP.forEach(p => {
+      const g2 = _ctxFor(p.z);                      // 依景深落層：相機移動時近雨快掠、遠雨幾乎不動（真透視）
       const n = p.z>0.55;                           // 近景
       const pa = p.a * intensity;                   // 透明度隨雨勢漸起
-      if (p.z>0.92 && !blurOn && !_lowFx) { ctx.shadowBlur=3; ctx.shadowColor="rgba(200,228,255,.55)"; blurOn=true; }  // 最近景柔焦
-      ctx.strokeStyle = n?`rgba(200,232,255,${pa})`:`rgba(130,176,224,${pa})`;
-      ctx.lineWidth = p.w;                          // 線寬隨景深（近粗遠細）
-      const ox=_parX(p.z), oy=_parY(p.z);           // 視差位移（近景滑動大）
-      ctx.beginPath(); ctx.moveTo(p.x+ox,p.y+oy); ctx.lineTo(p.x+ox + lean*p.len, p.y+oy+p.len); ctx.stroke();
-      p.y += p.spd; p.x += wDrift*(0.4+p.z);        // 近景水平位移大（視差）；方向跟著風
+      if (p.z>0.92 && !blurOn && !_lowFx) { gn.shadowBlur=3; gn.shadowColor="rgba(200,228,255,.55)"; blurOn=true; }  // 最近景柔焦（z>0.92 必在 near 層）
+      g2.strokeStyle = n?`rgba(200,232,255,${pa})`:`rgba(130,176,224,${pa})`;
+      g2.lineWidth = p.w;                           // 線寬隨景深（近粗遠細）
+      g2.beginPath(); g2.moveTo(p.x,p.y); g2.lineTo(p.x + lean*p.len, p.y+p.len); g2.stroke();
+      p.y += p.spd; p.x += wDrift*(0.4+p.z);        // 近景水平位移大；方向跟著風（鏡頭視差交給 3D 層）
       if (p.y>H+p.len) {
         if (n && ripples.length<45 && Math.random()<intensity)   // 雨勢越大、漣漪/水花越多
           ripples.push({x:p.x, y:H*.968, r:0, maxR:6+Math.random()*13*p.z, a:.30*p.z+.14});
@@ -1085,58 +1441,56 @@
         p.y=-p.len; p.x=Math.random()*(W+60)-30;
       }
     });
-    if (blurOn) ctx.shadowBlur=0;
+    if (blurOn) gn.shadowBlur=0;
 
-    /* puddle ripple rings */
+    /* puddle ripple rings → 近景層（地面在觀者腳前） */
     for (let i=ripples.length-1;i>=0;i--) {
       const rp=ripples[i];
-      ctx.strokeStyle=`rgba(165,215,255,${rp.a})`; ctx.lineWidth=.8;
-      ctx.beginPath(); ctx.ellipse(rp.x,rp.y,rp.r,rp.r*.28,0,0,Math.PI*2); ctx.stroke();
+      gn.strokeStyle=`rgba(165,215,255,${rp.a})`; gn.lineWidth=.8;
+      gn.beginPath(); gn.ellipse(rp.x,rp.y,rp.r,rp.r*.28,0,0,Math.PI*2); gn.stroke();
       rp.r+=.85; rp.a-=.026;
       if (rp.a<=0) ripples.splice(i,1);
     }
 
-    /* 落地濺起的小水花（重力拋物線） */
+    /* 落地濺起的小水花（重力拋物線）→ 近景層 */
     for (let i=splashes.length-1;i>=0;i--) {
       const s=splashes[i]; s.life++; s.vy+=0.22; s.x+=s.vx; s.y+=s.vy;
       const al=s.a*(1-s.life/s.max);
       if (al<=0 || s.life>=s.max) { splashes.splice(i,1); continue; }
-      ctx.fillStyle=`rgba(205,230,255,${al.toFixed(3)})`;
-      ctx.beginPath(); ctx.arc(s.x,s.y,1.1,0,Math.PI*2); ctx.fill();
+      gn.fillStyle=`rgba(205,230,255,${al.toFixed(3)})`;
+      gn.beginPath(); gn.arc(s.x,s.y,1.1,0,Math.PI*2); gn.fill();
     }
 
-    /* wet ground sheen + bottom mist（cached）— 隨雨勢漸起 */
-    ctx.save(); ctx.globalAlpha = intensity;
-    ctx.fillStyle=_gc.rainGnd; ctx.fillRect(0,H*.88,W,H*.12);
-    ctx.fillStyle=_gc.rainMist; ctx.fillRect(0,H*.62,W,H*.38);
-    ctx.restore();
+    /* wet ground sheen + bottom mist（cached）— 隨雨勢漸起 → 近景層 */
+    gn.save(); gn.globalAlpha = intensity;
+    gn.fillStyle=_gc.rainGnd; gn.fillRect(0,H*.88,W,H*.12);
+    gn.fillStyle=_gc.rainMist; gn.fillRect(0,H*.62,W,H*.38);
+    gn.restore();
 
-    /* 前景玻璃水珠（隔窗看雨）：最近平面 → 視差最大、偶爾滑落留痕；隨雨勢漸起浮現 */
-    const gx=_parX(1), gy=_parY(1); ctx.lineCap="round";
-    ctx.save(); ctx.globalAlpha = Math.min(1, intensity*1.15);
+    /* 前景玻璃水珠（隔窗看雨）→ fore 層（貼著「窗」、相機移動時靜止 → 與後方雨形成最大反差）；隨雨勢漸起浮現 */
+    gf.lineCap="round";
+    gf.save(); gf.globalAlpha = Math.min(1, intensity*1.15);
     glassDrops.forEach(d => {
       d.age++;
       if (!d.slide && d.age>d.slideAt) d.slide=true;
       if (d.slide) {
         d.vy += 0.06; d.y += d.vy;
-        ctx.strokeStyle='rgba(205,228,255,0.10)'; ctx.lineWidth=d.r*0.5;
-        ctx.beginPath(); ctx.moveTo(d.x+gx, d.y+gy-d.vy*5); ctx.lineTo(d.x+gx, d.y+gy); ctx.stroke();
+        gf.strokeStyle='rgba(205,228,255,0.10)'; gf.lineWidth=d.r*0.5;
+        gf.beginPath(); gf.moveTo(d.x, d.y-d.vy*5); gf.lineTo(d.x, d.y); gf.stroke();
         if (d.y>H+d.r) { d.x=Math.random()*W; d.y=-d.r; d.vy=0; d.slide=false; d.age=0; d.slideAt=160+Math.random()*640; }
       }
-      const dx=d.x+gx, dy=d.y+gy;
-      const g=ctx.createRadialGradient(dx-d.r*0.3, dy-d.r*0.35, d.r*0.1, dx, dy, d.r);
+      const g=gf.createRadialGradient(d.x-d.r*0.3, d.y-d.r*0.35, d.r*0.1, d.x, d.y, d.r);
       g.addColorStop(0,'rgba(228,242,255,0.40)'); g.addColorStop(0.6,'rgba(150,186,226,0.16)'); g.addColorStop(1,'rgba(120,160,210,0.03)');
-      ctx.fillStyle=g; ctx.beginPath(); ctx.arc(dx,dy,d.r,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle='rgba(255,255,255,0.45)'; ctx.beginPath(); ctx.arc(dx-d.r*0.32, dy-d.r*0.36, d.r*0.2, 0, Math.PI*2); ctx.fill();
+      gf.fillStyle=g; gf.beginPath(); gf.arc(d.x,d.y,d.r,0,Math.PI*2); gf.fill();
+      gf.fillStyle='rgba(255,255,255,0.45)'; gf.beginPath(); gf.arc(d.x-d.r*0.32, d.y-d.r*0.36, d.r*0.2, 0, Math.PI*2); gf.fill();
     });
-    ctx.restore();
+    gf.restore();
   }
 
   function dSnow(t) {
     const wDrift = _windDriftPx();
     snowP.forEach(p => {
-      const ox=_parX(p.z), oy=_parY(p.z);           // 視差位移（近景滑動大）
-      const dx=p.x+ox, dy=p.y+oy;
+      const dx=p.x, dy=p.y;                          // 鏡頭視差交給 3D 相機/層（雪的逐粒分層待 Phase 3）
       if (p.r < 2.6) {
         // 遠景雪：簡單柔光點（也省效能，遠處本就看不出結晶）
         ctx.fillStyle=`rgba(226,240,255,${p.a*.72})`;
@@ -1402,13 +1756,13 @@
       p.rot += p.rotV;
       if (p.y > H+55 || p.x < -60 || p.x > W+60) { mahjongP[i] = _newMahjong(); continue; }
       const img = _getTileImg(p.sym);
-      const cs = Math.cos(p.rot), sn = Math.sin(p.rot);
-      // setTransform 一次到位，省下每張牌兩次 save/restore（28 張 × 60fps = 3360 次/秒）
-      ctx.setTransform(cs, sn, -sn, cs, p.x, p.y);
+      // 層 ctx 帶基準縮放變換（3D 層解析度補償），不可用絕對 setTransform 蓋掉 → 改 save/translate/rotate
+      ctx.save();
+      ctx.translate(p.x, p.y); ctx.rotate(p.rot);
       ctx.globalAlpha = p.a;
       ctx.drawImage(img, -img.width/2, -img.height/2);
+      ctx.restore();
     }
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalAlpha = 1;
   }
 
@@ -1517,17 +1871,17 @@
 
   /* ── 陰天/密雲：全灰滿雲、無太陽（比 cloudy 更暗更密）── */
   function dOvercast(t) {
-    ctx.fillStyle = "rgba(150,160,176,.30)"; ctx.fillRect(0,0,W,H);   // 灰天幕
+    ctx.fillStyle = "rgba(150,160,176,.16)"; ctx.fillRect(0,0,W,H);   // 灰天幕（調淡：讓後方天文透出）
     const cdir = _windVecX() >= 0 ? 1 : -1, margin = W*0.6;
     cloudP.forEach((c, i) => {
       c.x += c.sp * cdir;
       if (cdir > 0 && c.x - W*c.sc > W) c.x = -margin;
       else if (cdir < 0 && c.x + W*c.sc < 0) c.x = W+margin;
-      // 雲更大、更不透明 → 密雲感
+      // 雲更大、更不透明 → 密雲感（漸層用近景版 depth=1，但 3D 層仍按 c.z 分 → 保有視差）
       _cloud(c.x, c.y + Math.sin(t*.14 + i*1.1)*3, W*c.sc*1.18,
-             Math.min(.92, c.al + .28), c.shape, c.flip, 1, c.puffs);
+             Math.min(.92, c.al + .28), c.shape, c.flip, 1, c.puffs, c.z);
     });
-    ctx.fillStyle = "rgba(118,128,144,.16)"; ctx.fillRect(0,0,W,H);   // 再壓一層暗
+    ctx.fillStyle = "rgba(118,128,144,.09)"; ctx.fillRect(0,0,W,H);   // 再壓一層暗（調淡）
   }
 
   /* ── 毛毛雨/微雨：稀疏細小雨絲、無漣漪無暴風天幕（比 rain 輕很多）── */
@@ -1795,14 +2149,16 @@
     ctx.restore();
   }
 
-  /* ☄️ 流星雨：暗夜 + 星 + 行星，頻繁從上方輻射射出帶光尾的流星 */
+  /* ☄️ 流星雨：暗夜 + 星 + 行星，頻繁從上方輻射射出帶光尾的流星（整片夜空 → 天體深景層） */
   function dMeteor(t) {
-    _gc.nebula && _gc.nebula.forEach(g => { ctx.fillStyle=g; ctx.fillRect(0,0,W,H); });
+    const ga = _layers.astro.ctx;
+    _gc.nebula && _gc.nebula.forEach(g => { ga.fillStyle=g; ga.fillRect(0,0,W,H); });
     stars.forEach(p => {
       const a=.15+.7*Math.sin(t*p.sp+p.ph);
-      ctx.fillStyle=`rgba(222,232,255,${a})`;
-      ctx.beginPath(); ctx.arc(p.x, p.y, a>.6?p.r*1.2:p.r, 0, 6.28); ctx.fill();
+      ga.fillStyle=`rgba(222,232,255,${a})`;
+      ga.beginPath(); ga.arc(p.x, p.y, a>.6?p.r*1.2:p.r, 0, 6.28); ga.fill();
     });
+    _drawEcliptic(t, 1);
     _drawPlanets(t);
     meteorTimer--;
     if (meteorTimer<=0 && meteors.length<14) {
@@ -1815,31 +2171,116 @@
       const m=meteors[i]; m.life++; m.x+=m.vx; m.y+=m.vy;
       const fade = m.life>m.max-12 ? Math.max(0,(m.max-m.life)/12) : 1;
       const hyp=Math.hypot(m.vx,m.vy), ux=m.vx/hyp, uy=m.vy/hyp;
-      const tg=ctx.createLinearGradient(m.x,m.y,m.x-ux*m.len,m.y-uy*m.len);
+      const tg=ga.createLinearGradient(m.x,m.y,m.x-ux*m.len,m.y-uy*m.len);
       tg.addColorStop(0,`rgba(255,255,255,${(m.a*fade).toFixed(3)})`); tg.addColorStop(1,'rgba(180,210,255,0)');
-      ctx.strokeStyle=tg; ctx.lineWidth=1.6; ctx.lineCap='round';
-      if (!_lowFx) { ctx.shadowBlur=8; ctx.shadowColor='rgba(200,225,255,0.8)'; }
-      ctx.beginPath(); ctx.moveTo(m.x,m.y); ctx.lineTo(m.x-ux*m.len,m.y-uy*m.len); ctx.stroke(); ctx.shadowBlur=0;
-      ctx.fillStyle=`rgba(255,255,255,${(m.a*fade).toFixed(3)})`; ctx.beginPath(); ctx.arc(m.x,m.y,1.6,0,6.28); ctx.fill();
+      ga.strokeStyle=tg; ga.lineWidth=1.6; ga.lineCap='round';
+      if (!_lowFx) { ga.shadowBlur=8; ga.shadowColor='rgba(200,225,255,0.8)'; }
+      ga.beginPath(); ga.moveTo(m.x,m.y); ga.lineTo(m.x-ux*m.len,m.y-uy*m.len); ga.stroke(); ga.shadowBlur=0;
+      ga.fillStyle=`rgba(255,255,255,${(m.a*fade).toFixed(3)})`; ga.beginPath(); ga.arc(m.x,m.y,1.6,0,6.28); ga.fill();
       if (m.life>=m.max || m.y>H+50 || m.x>W+60 || m.x<-60) meteors.splice(i,1);
     }
   }
 
-  /* ── 溫度色調：熱→暖橘、冷→冷藍（全畫面極淡疊色，依實際溫度） ── */
+  /* ── 亮麗天色底（sky 最深層）：每種天氣「白天/黑夜」雙色票，依當地真實日出日落平滑混色 ──
+     d=白天、n=黑夜，各 3 個 stop（位置 0/.55/1）的 [r,g,b,a]；黃昏黎明（±40min）自動過渡 →
+     雨天鐵灰藍、雨夜深墨藍、晴天蔚藍→暖金地平線、夜空靛藍紫…天色永遠符合「天氣＋時刻」。
+     aurora/sunset/sunrise/meteor/tornado/quake 自帶天空 → 不在表內、自然跳過。 */
+  const _SKY_BD = {
+    sunny:   { d:[[46,111,216,.50],[127,184,240,.28],[255,217,160,.32]], n:[[10,16,48,.55],[22,36,84,.35],[40,30,72,.25]] },
+    partly:  { d:[[58,118,205,.45],[140,188,234,.26],[252,222,178,.28]], n:[[12,18,52,.52],[26,40,88,.33],[44,34,76,.24]] },
+    cloudy:  { d:[[92,127,168,.42],[159,180,204,.25],[217,201,168,.18]], n:[[18,26,52,.55],[36,48,82,.32],[58,48,80,.22]] },
+    windy:   { d:[[96,138,176,.40],[150,176,200,.28],[190,206,222,.20]], n:[[20,30,56,.50],[44,60,90,.30],[70,82,108,.22]] },
+    night:   { d:[[11,18,56,.55],[27,43,102,.35],[46,32,80,.25]],        n:[[11,18,56,.55],[27,43,102,.35],[46,32,80,.25]] },
+    rain:    { d:[[41,67,95,.50],[56,84,112,.38],[70,99,127,.30]],       n:[[12,20,38,.58],[20,32,52,.44],[30,44,66,.34]] },
+    drizzle: { d:[[70,96,120,.40],[90,116,138,.30],[110,134,156,.24]],   n:[[18,28,48,.50],[32,44,64,.36],[46,60,82,.26]] },
+    storm:   { d:[[22,34,58,.55],[30,44,68,.44],[38,52,78,.35]],         n:[[8,12,28,.62],[14,20,38,.50],[22,30,50,.38]] },
+    thunder: { d:[[14,20,40,.60],[22,30,52,.50],[30,38,64,.40]],         n:[[6,8,24,.65],[10,16,34,.54],[18,24,44,.44]] },
+    snow:    { d:[[94,127,166,.35],[150,178,205,.28],[220,233,245,.22]], n:[[24,34,60,.50],[56,74,104,.36],[96,114,144,.28]] },
+    fog:     { d:[[143,163,184,.30],[170,188,204,.24],[199,211,222,.20]],n:[[30,38,58,.45],[54,64,84,.36],[82,94,114,.28]] },
+    overcast:{ d:[[74,86,104,.45],[96,108,126,.34],[120,132,150,.28]],   n:[[22,28,44,.55],[34,42,60,.42],[50,58,78,.32]] },
+    leaves:  { d:[[200,116,44,.28],[160,88,36,.22],[120,62,28,.18]],     n:[[44,28,22,.46],[70,42,26,.32],[96,56,32,.22]] },
+    spring:  { d:[[224,143,180,.24],[240,186,212,.18],[255,228,240,.14]],n:[[42,26,50,.42],[80,52,86,.28],[120,82,116,.18]] },
+    mahjong: { d:[[31,92,61,.30],[24,72,48,.24],[18,52,36,.20]],         n:[[8,28,20,.45],[12,40,28,.32],[18,52,36,.22]] },
+    hail:    { d:[[52,68,92,.45],[70,86,110,.35],[88,104,128,.28]],      n:[[16,24,44,.55],[30,40,62,.40],[44,56,80,.30]] },
+  };
+  /* 白晝係數：1=全白天、0=全黑夜；日出/日落 ±40min 線性過渡（用當地真實時刻） */
+  function _dayK() {
+    const m = _locNowMin(), r = _wd.sunRiseMin ?? 360, s = _wd.sunSetMin ?? 1080, T = 40;
+    const up = Math.max(0, Math.min(1, (m - (r - T)) / (2 * T)));   // 日出段 0→1
+    const dn = Math.max(0, Math.min(1, ((s + T) - m) / (2 * T)));   // 日落段 1→0
+    return Math.max(0, Math.min(up, dn));
+  }
+  /* 流動色彩光暈：每種天氣一對互補色 [colA, colB]，兩團大光暈緩慢繞行（lighter 疊加）
+     → 主背景顏色隨時間柔和變化、不再是死板的單一漸層 */
+  const _SKY_AC = {
+    sunny:[[255,196,84],[84,170,255]],   partly:[[255,200,120],[96,170,250]],
+    cloudy:[[150,190,235],[190,160,220]],windy:[[150,210,235],[170,190,230]],
+    night:[[120,90,220],[60,190,255]],   rain:[[70,160,220],[90,110,220]],
+    drizzle:[[110,180,220],[130,150,220]],storm:[[80,110,200],[120,90,200]],
+    thunder:[[100,120,255],[160,90,230]],snow:[[140,200,255],[200,180,255]],
+    fog:[[160,190,220],[190,200,230]],   overcast:[[120,150,200],[160,150,200]],
+    leaves:[[255,160,70],[220,100,60]],  spring:[[255,150,200],[170,200,255]],
+    mahjong:[[90,210,140],[60,170,200]], hail:[[120,170,230],[160,180,240]],
+  };
+  let _bdGrad = null, _bdKey = '';
+  function _drawBackdrop(t) {
+    const bd = _SKY_BD[type]; if (!bd) return;
+    const gs = _layers.sky.ctx;
+    const step = Math.round((1 - _dayK()) * 12);          // 夜化 0..12 量化 → 漸層可快取
+    const key = type + '|' + H + '|' + step;
+    if (key !== _bdKey) {
+      _bdKey = key;
+      const k = step / 12, POS = [0, .55, 1];
+      _bdGrad = gs.createLinearGradient(0, 0, 0, H);
+      for (let i = 0; i < 3; i++) {
+        const d = bd.d[i], n = bd.n[i];
+        const r = Math.round(d[0] + (n[0] - d[0]) * k), g = Math.round(d[1] + (n[1] - d[1]) * k),
+              b = Math.round(d[2] + (n[2] - d[2]) * k), a = d[3] + (n[3] - d[3]) * k;
+        _bdGrad.addColorStop(POS[i], `rgba(${r},${g},${b},${a.toFixed(3)})`);
+      }
+    }
+    // 清晰度控制：主圖模式（非 landing）天色/光暈「減半」→ K 線區不蒙霧；
+    // 封面（landing）天氣是主角 → 全濃。星/月/軌道/雲等場景元素不受影響、保持清晰。
+    const sceneA = document.documentElement.classList.contains('landing-active') ? 1 : 0.5;
+    gs.save(); gs.globalAlpha = sceneA;
+    gs.fillStyle = _bdGrad; gs.fillRect(0, 0, W, H);
+    gs.restore();
+    // 雙色流動光暈：互補色兩團緩慢繞行 → 背景色彩持續微妙變化
+    const ac = _SKY_AC[type];
+    if (ac) {
+      gs.save(); gs.globalCompositeOperation = 'lighter';
+      const kk = (1 - _dayK() * 0.45) * sceneA;           // 白天收斂一點；主圖模式再減半（清晰）
+      for (let i = 0; i < 2; i++) {
+        const [r, g2, b] = ac[i];
+        const ang = t * (i ? -0.018 : 0.023) + i * 2.6;
+        const x = W * 0.5 + Math.cos(ang) * W * 0.33;
+        const y = H * (0.32 + 0.30 * i) + Math.sin(ang * 1.3) * H * 0.18;
+        const rad = Math.max(W, H) * 0.5;
+        const gr = gs.createRadialGradient(x, y, 0, x, y, rad);
+        gr.addColorStop(0, `rgba(${r},${g2},${b},${(0.12 * kk).toFixed(3)})`);
+        gr.addColorStop(1, 'rgba(0,0,0,0)');
+        gs.fillStyle = gr; gs.beginPath(); gs.arc(x, y, rad, 0, 6.283); gs.fill();
+      }
+      gs.restore();
+    }
+  }
+
+  /* ── 溫度色調：熱→暖橘、冷→冷藍（全畫面極淡疊色，依實際溫度）→ fore 最前層（罩住所有景深層） ── */
   function _tempTint() {
     if (_wd.temp == null) return;
-    const tmp = _wd.temp;
-    if (tmp >= 28)      { ctx.fillStyle = `rgba(255,150,40,${Math.min(.12,(tmp-28)*.012).toFixed(3)})`; ctx.fillRect(0,0,W,H); }
-    else if (tmp <= 6)  { ctx.fillStyle = `rgba(120,170,255,${Math.min(.14,(6-tmp)*.012).toFixed(3)})`; ctx.fillRect(0,0,W,H); }
+    const tmp = _wd.temp, gf = _layers.fore.ctx;
+    if (tmp >= 28)      { gf.fillStyle = `rgba(255,150,40,${Math.min(.12,(tmp-28)*.012).toFixed(3)})`; gf.fillRect(0,0,W,H); }
+    else if (tmp <= 6)  { gf.fillStyle = `rgba(120,170,255,${Math.min(.14,(6-tmp)*.012).toFixed(3)})`; gf.fillRect(0,0,W,H); }
   }
 
   /* ── main loop ── */
   function draw(t) {
-    ctx.clearRect(0,0,W,H);
+    _LAYER_DEFS.forEach(([name]) => _layers[name].ctx.clearRect(0,0,W,H));
     if (type === "off") return;  // 「無」模式：清空畫布即可，不畫任何特效
-    _paX += (_paTX - _paX) * 0.07; _paY += (_paTY - _paY) * 0.07;   // 平滑視差位移
+    _applyCamera();              // 3D 相機：平滑移動 perspective-origin（純 GPU 合成、不觸發重繪）
+    _drawBackdrop(t);            // 亮麗天色底 + 雙色流動光暈（sky 最深層，最先畫）
     ({sunny:dSunny,night:dNight,cloudy:dCloudy,fog:dFog,rain:dRain,snow:dSnow,storm:dStorm,thunder:dThunder,mahjong:dMahjong,leaves:dLeaves,spring:dSpring,partly:dPartly,overcast:dOvercast,drizzle:dDrizzle,windy:dWindy,hail:dHail,tornado:dTornado,quake:dQuake,aurora:dAurora,sunset:dSunset,sunrise:dSunrise,meteor:dMeteor})[type]?.(t);
-    _drawAstro(t);
+    _drawAstro(t);               // 太陽/月亮/行星 → astro 天體深景層（大視差+全解析）；雲/雨各層從前方掠過（真遮擋）
     _tempTint();
   }
   function loop(ts) {
@@ -1867,12 +2308,17 @@
     if (rainy(wt) && !rainy(type)) _rainRamp = 0;
     if (wt !== 'quake') document.body.style.transform = '';   // 離開地震 → 畫面歸位
     type = wt;
-    // 晴朗夜空（type==='night'）→ 主圖淡淡透出夜空(月亮/星星/行星)；其餘天氣/白天不透
+    // 晴朗夜空（type==='night'）→ 夜空更亮地透出（月亮/星星/行星）
     const wasNight = document.documentElement.classList.contains('sky-night');
     const isNight = wt === 'night';
     document.documentElement.classList.toggle('sky-night', isNight);
-    // 夜↔日切換時重套主圖漸層：夜間中央色帶半透明(露夜空)、白天恢復不透明
-    if (wasNight !== isNight) window._applyChartBgGradient?.();
+    // 全天氣透景（sky-show）：任何非 off 天氣 → 主圖容器轉透明、中央色帶半透明 →
+    // 天氣是「主圖後面的 3D 場景」而非疊在 K 線上的濾鏡（generalize 自 sky-night 機制）
+    const wasShow = document.documentElement.classList.contains('sky-show');
+    const isShow = wt !== 'off';
+    document.documentElement.classList.toggle('sky-show', isShow);
+    // 透景狀態變化時重套主圖漸層（中央色帶透明度隨 night/show 不同）
+    if (wasNight !== isNight || wasShow !== isShow) window._applyChartBgGradient?.();
     if (changed) { _init(); _inited = true; }
     _lastFrameTs = 0;
     if (!rafId) requestAnimationFrame(loop);

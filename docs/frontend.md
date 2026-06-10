@@ -114,7 +114,7 @@
 | 檔案 | 行數 | 內容 |
 |------|------|------|
 | `effects.js` | ~702 | initClickSparks、initPeekBear、initTickerKeyNav、initButtonRipple、SFX 音效引擎、initFxPanel（背景音樂已移除） |
-| `weather.js` | ~1938 | **天氣/天文背景動畫 Canvas**（2026-06 從 effects.js 拆出）：initWeatherBg 單一 IIFE，含各天氣繪製、天然災害、極光/晚霞/流星雨。完全自足、不引用 effects 全域 |
+| `weather.js` | ~2000 | **天氣/天文背景動畫 Canvas**（2026-06 從 effects.js 拆出）：initWeatherBg 單一 IIFE，含各天氣繪製、天然災害、極光/晚霞/流星雨。完全自足、不引用 effects 全域。**2026-06 改 CSS3D 分層**：`#weatherStage`(perspective:1200) 內 6 層 canvas（sky -1600/astro -1400/far -900/mid -450/near -150/fore 0，手機 4 層）依 translateZ 排景深，相機驅 perspective-origin → GPU 真透視視差，閒置 3s 自動運鏡（李薩茹）；太陽/月亮/行星/星空在 astro 深景層（全解析不糊、前方雲雨真遮擋）；16 種天氣有天色底漸層（`_SKY_BD`，sky 層）。一般層解析度縮 1/s、基準變換烤進 ctx（繪製仍用螢幕座標、**勿對層 ctx 用絕對 setTransform**）。**透景**：非 off 天氣掛 `html.sky-show` → charts-container 透明 + mainPane 中央色帶 74%（colors.js color-mix；sky-night 52%）→ 天氣從 K 線後方透出；舞台 opacity 四態 .28(off)/.45(sky-show)/.6(sky-night)/.9(landing) 掛 `#weatherStage`。規格/分層原則見 [docs/weather-3d-spec.md](weather-3d-spec.md) |
 
 > **原單體 `app.js` 早已拆分為多個模組並刪除（不復存在）。新增功能請編輯對應的模組檔案。**
 > **拆檔注意**：bundle 檔拆完要更新 `names`；動態檔（effects/weather）拆完要更新 `main.js` 的 `_loadFx` 與 `main.py` 的 `_asset_ver`。`effects.js` / `weather.js` 為 classic script（非 module），頂層 `const`/`let` 走「全域語彙環境」跨檔共享，故拆檔後仍可互相引用（被引用者需先載入）。
