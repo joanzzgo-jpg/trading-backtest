@@ -185,8 +185,11 @@ async def _from_cwa(lat: float, lon: float) -> dict:
     county       = geo.get("CountyName", "")
     town         = geo.get("TownName", "")
     station_name = s.get("StationName", "")
-    # 縣市＋鄉鎮市區，例如「台北市中正區」；缺 TownName 時退回站名
-    location = (county + town) if (county and town) else (town or county or station_name)
+    # 地名以「使用者 GPS 的實際行政區」為準（反向地理編碼），而非最近測站所在鄉鎮：
+    # 萬華等無自身測站的區，最近站常落在鄰區（如隔新店溪的永和），直接用站名會顯示錯區。
+    # 天氣『數據』仍取自最近站（相距數 km、天氣相同）；反向地理編碼失敗才退回站名鄉鎮。
+    station_town = (county + town) if (county and town) else (town or county or station_name)
+    location = await _reverse_geocode(lat, lon) or station_town
 
     # Cloud cover: prefer sunshine sensor; fall back to text when night or sensor absent
     if sun_h >= 0 and is_day:
