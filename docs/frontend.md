@@ -89,22 +89,26 @@
 
 | 檔案 | 行數 | 內容 |
 |------|------|------|
-| `config.js` | ~98 | 全域常數（DEFAULT_COLORS/STYLES）、狀態變數（ohlcvData、currentTF、_savedTimeRange 等） |
-| `utils.js` | ~225 | toTime、hexAlpha、偏好設定存取（savePrefs/loadPrefs）、格式化工具（fmt/fmtVol/fmtT）、showToast、showLoading |
-| `charts.js` | ~267 | makeBaseOpts、createCandleSeries、applyOhlcvToSeries、updateLatestPriceLine、buildCharts、resizeAll、syncTimeScales |
-| `draw.js` | ~1164 | **繪圖工具核心**：drawings 狀態、initDrawTools、滑鼠/觸控事件、hit-test（findNearest/_drawingHitPart）、renderDrawings、drawOne（含 longpos/shortpos 盈虧比盒）、drawPreview |
-| `colors.js` | ~438 | **顏色/樣式系統**（2026-06 從 draw.js 拆出）：_darkenForChart、_applyChartBgGradient、applyAllColors、initColorPicker（色票面板）、_updateStarBtn |
-| `ticker.js` | ~932 | 自選清單、行情面板（fetchTickers/renderTickers + `_reconcileTicker` 鍵控重用）、標的搜尋（initSymSearch） |
-| `winrate.js` | ~836 | `_wrCache`、fetchWinRate、_renderWRSignals、_renderWinRate、hover 勝率（_updateHoverWR）、自動盈虧比盒（_computeAutoRRBox/_renderAutoRRBoxes） |
-| `render.js` | ~461 | loadData、_applyPriceFormat、renderAll、renderCandles/BB/CRT/KDJCross/Resonance/Volume/KDJ/RSI/MACD、_bgApplyChunk、_bgScheduleIndicators、_bgLoadOlderBars |
-| `realtime.js` | ~285 | startRealtime、stopRealtime、fetchLatest（含切標的丟棄守衛）、_resetSymbolBarQuote、updateAllLegends、onXxxCrosshair、updateSymbolBar |
-| `replay.js` | ~451 | replayData 狀態、_rpCal 日曆 IIFE、enterReplay/exitReplay、replayPlay/Step、bindReplayBar |
-| `ui.js` | ~851 | bindEvents、updateMarketUI、bindPaneDividers、bindIndicatorPanel、bindLegendColors、bindLegendToggles、bindSystemColors |
+| `config.js` | ~107 | 全域常數（DEFAULT_COLORS/STYLES）、狀態變數（ohlcvData、currentTF、_savedTimeRange 等） |
+| `utils.js` | ~267 | toTime、hexAlpha、偏好設定存取（savePrefs/loadPrefs）、格式化工具（fmt/fmtVol/fmtT）、showToast、showLoading |
+| `charts.js` | ~416 | makeBaseOpts、createCandleSeries、applyOhlcvToSeries、updateLatestPriceLine、buildCharts、resizeAll、syncTimeScales |
+| `draw.js` | ~1470 | **繪圖工具核心**：drawings 狀態、initDrawTools（懸浮島工具欄）、滑鼠/觸控事件（含主圖空白區可繪圖）、hit-test（findNearest/_drawingHitPart）、renderDrawings、drawOne（含 longpos/shortpos 盈虧比盒、斐波那契）、drawPreview。繪圖按標的/帳戶隔離 |
+| `colors.js` | ~442 | **顏色/樣式系統**（2026-06 從 draw.js 拆出）：_darkenForChart、_applyChartBgGradient、applyAllColors、initColorPicker（色票面板）、_updateStarBtn。手機端/電腦端配色各自獨立、皆隨帳戶同步 |
+| `ticker.js` | ~1069 | 自選清單、行情面板（fetchTickers/renderTickers + `_reconcileTicker` 鍵控重用）、標的搜尋（initSymSearch） |
+| `winrate.js` | ~848 | `_wrCache`、fetchWinRate、_renderWRSignals、_renderWinRate、hover 勝率（_updateHoverWR）、自動盈虧比盒、**系列切換 `_wrSeries`（S↔SS）+ 主圖「標記系列」過濾（全部/只S/只SS）** |
+| `render.js` | ~582 | loadData、_applyPriceFormat、renderAll、renderCandles/BB/CRT/KDJCross/Resonance/Volume/KDJ/RSI/MACD、_bgApplyChunk、_bgScheduleIndicators、_bgLoadOlderBars |
+| `realtime.js` | ~317 | startRealtime、stopRealtime、fetchLatest（含切標的丟棄守衛）、_resetSymbolBarQuote、updateAllLegends、onXxxCrosshair、updateSymbolBar |
+| `replay.js` | ~459 | replayData 狀態、_rpCal 日曆 IIFE、enterReplay/exitReplay、replayPlay/Step、bindReplayBar |
+| `ui.js` | ~947 | bindEvents、updateMarketUI、bindPaneDividers、bindIndicatorPanel、bindLegendColors、bindLegendToggles、bindSystemColors、手機底部分頁切換（淡入淡出） |
 | `ai_research.js` | ~233 | AI 研究面板 |
-| `signal_info.js` | ~715 | 訊號詳情左抽屜（SIGNAL_INFO metadata、統計列、敗後停手細節） |
-| `account.js` | ~176 | 帳號系統（登入/登出、雲端同步 _acctTouch） |
-| `backtest.js` | ~230 | 策略回測 UI（📊 鈕 #backtestBtn）：注入 modal，CRT 訊號模式→/api/crt_backtest、通用技術模式→/api/backtest；績效卡 + canvas 資金曲線 |
-| `main.js` | ~252 | DOMContentLoaded 初始化入口（呼叫所有 init、initBacktest、loadData）、字體大小 IIFE、延遲載入特效 |
+| `signal_info.js` | ~732 | 訊號詳情左抽屜（SIGNAL_INFO metadata、統計列、敗後停手細節） |
+| `notify.js` | ~393 | **訊號通知中心**（聊天室式底部分頁）+ Web Push 訂閱（VAPID）：偏好（監控時框/通知事件）帳號級同步、`/api/notify/feed` 訊號歷史、測試通知。詳見「訊號通知中心」節 |
+| `account.js` | ~197 | 帳號系統（登入/登出、雲端同步 _acctTouch）+ landing 帳號鎖（`_initLandingLock`） |
+| `backtest.js` | ~324 | 策略回測 UI（📊 鈕 #backtestBtn）：注入 modal，CRT 訊號模式→/api/crt_backtest；績效卡 + canvas 資金曲線 |
+| `main.js` | ~271 | DOMContentLoaded 初始化入口（呼叫所有 init、initBacktest、loadData）、字體大小 IIFE、延遲載入特效、**landing 封面進場/重跳邏輯（`initLanding`）** |
+
+> bundle `names` 順序（main.py）：`config, utils, charts, draw, colors, ticker, winrate, render, realtime, replay, ui, ai_research, signal_info, account, notify, backtest, main`。
+> **已移除功能**：ICT 工具（FVG/BOS/CHoCH/Order Block/2022 模型）與 SnR 支撐壓力曾加入後又於 commit f1d0f25 整組移除（視覺太雜），現已無相關程式碼。
 
 **B. 動態載入檔（不在 bundle，由 `main.js` 閒置後注入 `<script async=false>`，版號走 `_asset_ver` 的 mtime）**
 | 檔案 | 行數 | 內容 |
@@ -155,3 +159,21 @@
 ### chartBg 預設值
 - `config.js` 預設 `C.chartBg = "#131722"`（深藍）。第一次載入時主圖會是深藍漸層，使用者可改成系統色 `#170F0C`（暖褐底）或其他偏好色
 - 存於 `localStorage.chartColors.chartBg`，由 `savePrefs()` 持久化
+
+---
+
+## 訊號通知中心（`notify.js` + 後端 Web Push）
+聊天室式的 CRT 訊號通知中心，掛在手機底部分頁；支援瀏覽器/PWA Web Push（多使用者）。後端細節（VAPID、`notify_monitor` 背景掃描、資料表）見 [docs/backend.md](backend.md) 的「Web Push 訊號通知」節。
+
+- **訂閱**：`/api/notify/vapid_public` 取 applicationServerKey → `serviceWorker` `pushManager.subscribe` → `POST /api/notify/subscribe`（帶 endpoint + 帳號名 + 偏好）。`/api/notify/status` 查是否啟用。
+- **偏好帳號級同步**：監控時框（預設 1h/4h/1d，已開放 5m）、要不要收「止盈達成」通知等，存後端帳號（隨帳戶跨裝置同步），不只存 localStorage。
+- **訊號歷史 feed**：`GET /api/notify/feed?name=&limit=` 回最近通知（entry 進場 / tp 止盈達成），通知中心分頁以聊天室氣泡呈現（含小啊頭像）。**測試通知**（`/api/notify/test`）也會寫入 feed，當作擬真範例（多行：訊號／盈虧比／進場→目標/停損·時間）。
+- **未讀紅點**：`notifyFeedSeen` 記最後已讀時間戳。⚠️ 注意此值**高頻寫入**曾觸發帳號整包覆蓋、造成自選跨裝置不同步（commit e00d9ae 已修）——改動已讀邏輯時別讓它連帶把整個帳號 payload 寫回雲端。
+
+## 首頁封面（landing，`main.js` `initLanding` + `account.js`）
+進站先顯示城堡門封面（`#landingScreen`），點「開始」開門進場（zoom + 暖光動畫），未登入則先彈帳號鎖（`landingAcct`）。
+
+- **狀態類別**（掛在 `<html>`）：`landing-active`（封面中，露出天氣背景、隱藏圖表 UI）、`landing-skip`（同 session reload 已看過→head script 直接跳過）、`landing-entering`/`landing-locking`/`landing-hide`（動畫過場）。
+- **跳過記錄**：`sessionStorage.landingDismissedAt`（**session 級**，非 localStorage→每次新開分頁會再看到封面；同 session reload 才跳過，並排程 24h 後重跳 `armReshow`）。
+- **帳號鎖**：`account.js` `_initLandingLock` 綁定 `landingAcctInput/Btn`；解鎖後呼叫 `window._landingEnter()` 接續開門。登出 → `window._landingShow()` 跳回封面。
+- 封面圖：`frontend/static/img/landing-castle-gate.png`（國名門上框位置、手機時間軸等微調散見近期 commit）。

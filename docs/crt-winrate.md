@@ -105,6 +105,7 @@
 - 前端圖示：◇（紫藍 `#9fa8da`，極簡模式 `#3949AB`）；標籤：空⁶／多⁶
 
 ### 共同勝負條件（全部訊號適用）
+> 下方條件適用 S1~S12 與 SS 系列；唯 SS 系列**自成一套合計／敗後停手／近期**，不與 S 混（見下節）。
 - **獲勝**：後續 K 棒 `low ≤ BB中軌`（做空）或 `high ≥ BB中軌`（做多）
 - **失敗**：後續 K 棒觸及停損位
 - **同棒雙觸**：以收盤價判定先後（收在獲利側 → 成功）
@@ -113,6 +114,24 @@
 - **CRT**：`crt_markers()`，信號落在完成棒（第二根），`signals[bearish.shift(1)] = -1`
 - **共振**：`bb_kdj_rsi_resonance()`，高觸布林上軌 + KD>80 + RSI7>65 → -1；低觸下軌 + KD<20 + RSI7<35 → +1
 - **`enrich_df()`** 中共振使用 `rsi_7`（7 期 RSI），閾值 `rsi_ob=65, rsi_os=35`
+
+## SS 系列訊號（軌道反轉，獨立於 S1~S12）
+> SS 是與 S1~S12 **平行的另一套訊號群**，刻意**不**混入 S 的合併時間軸：自己的合計、自己的敗後停手、自己的近期勝率。後端 `_SS_KEYS = ("ss1",)`、`SIG_KEYS` 含 `*_SS_KEYS`。前端用「系列切換」鈕（S ↔ SS）與主圖右上「標記系列」鈕（全部／只 S／只 SS）控制顯示。
+
+### SS1：布林軌道反轉 2 棒
+- 顏色定義：紅K=上漲（`close>open`）、綠K=下跌（`close<open`）。
+- **做多（下軌反轉）**：A=綠K、B=紅K 且 `B收 > 下軌`，A/B 任一根**觸下軌**，排除 B 已碰中軌（`b_high < b_mid`）；停損取兩棒最低。
+- **做空（上軌反轉）**：A=紅K、B=綠K 且 `B收 < 上軌`，A/B 任一根**觸上軌**，排除 B 已碰中軌（`b_low > b_mid`）；停損取兩棒最高。
+- **嚴格觸軌**：`low <= 下軌` / `high >= 上軌` 真的碰到才算，**不套用 S 系列那組 0.3% 容差**（容差會讓「沒碰軌卻觸發」，見 commit f303233）。
+- 進場：B 棒（訊號棒）下一根（`entry_i = i + 2`）；勝負判定同「共同勝負條件」（碰中軌=win／觸停損=loss）。
+- 前端標記：圖示 `⇋`，**賽博龐克霓虹色**（空=霓虹粉 `#ff2a6d`、多=霓虹青 `#05d9e8`），標籤 空ˢ／多ˢ。
+
+### SS 在勝率結果中的位置（後端 `_calc_crt_winrate` 回傳）
+- 頂層回傳新增 `"ss"` key（與 `band`/`rr` 並列）：
+  - `ss.total/wins/win_rate`、`ss.short/long`（各含連敗機率 cond）、`ss.stop_strategy`（**獨立**敗後停手）、`ss.recent100`、`ss.ss1`（per-signal short/long 統計）。
+  - SS 只算 **mid（中軌）** 目標，**不隨**目標鈕（中軌/上下軌/rr）切換 → 前端固定讀 `_wrCacheLast.ss.*`。
+- 獨立合計實作：`_build_combined_ss` / `_ss_stop_strategy` 只掃 `_SS_KEYS`、用自己的合併時間軸；S 系列的 `_build_combined` / `stop_strategy` / `recent` 則以 `s["k"] not in _SS_KEYS` 排除 SS（見 crt.py 372、754、946 行）。
+- 新增 SS 訊號（如 SS2）：`_SS_KEYS` 加 key、算 mask、`_push_signal(... "ssX" ...)`、`SIG_KEYS` 自動含；前端 `winrate.js` 的 `_SIG_LABEL`/`_SIG_ICON`/`_SIGK_TO_STATKEY`/marker 分支 + `templates/index.html` 加 SS 區塊（`data-sig` 以 `ss` 開頭，供系列切換隱顯）。
 
 ## 後端結構（`backend/utils/crt.py`）
 - **共用 helper（模組層級）**：
@@ -124,7 +143,7 @@
   - **`"rr"`（1:1，止盈距離 = 止損距離）已於 2026-06 從前端移除** → `_scan_rr()` 短路回 `None`、`rr` 結構保留但為空、`signals` 的 `r_rr/ot_rr=None`，前端不讀（`_wrTargetView` 載入時把舊存的 `"rr"` 正規化成 `"mid"`）。省下每訊號一次固定目標掃描。
   - 每個 target 含：`total/wins/win_rate`、`short/long`、各訊號 `abc/ab/s3~s12`、`stop_strategy`（敗後停手，內含 `.est`）、`recent100`（近 ~100 筆勝率）、`est_*`（預估盈虧比達標）、`max_loss_streak`、cond（連敗機率，在 short/long 內）。
   - `signals`：每筆 `{t, d, k, r/ot(中軌), r_b/ot_b(帶軌), r_rr/ot_rr(=None,1:1已移除), est_r/est_r_b, rr(預估盈虧比值,供前端顯示), stop(實際止損價,含 buffer/多棒取極值)}`。
-  - 另含 `from_date`、`recent`（最近 30 筆）、`long_only`。
+  - 另含 `from_date`、`recent`（最近 30 筆）、`long_only`，以及 `"ss"`（SS 系列獨立統計，見「SS 系列訊號」節）。
 - **`_solve=target`**（字串 mid/band）：求解專用精簡模式——只掃選定 target、跳過 est/RR/全部統計，只跑敗後停手模擬回傳 `{win_rate, total}`（偵測 mask 與完整版共用）。詳見「效能優化」。
 
 ## 最低案例數保證
@@ -165,6 +184,8 @@
   | `"10"` | arrowDown/Up | `#90caf9` | `#bbdefb` | 空¹⁰/多¹⁰ |
   | `"11"` | arrowDown/Up | `#aed581` | `#c5e1a5` | 空¹¹/多¹¹ |
   | `"12"` | arrowDown/Up | `#ffab91` | `#ffccbc` | 空¹²/多¹² |
+  | `"ss1"` | arrowDown/Up | `#ff2a6d`（霓虹粉） | `#05d9e8`（霓虹青） | 空ˢ/多ˢ |
+- **標記系列過濾**（主圖右上「標記系列」鈕，winrate.js ~396 行）：`all`=全部、`s`=只顯示 S1~S12、`ss`=只顯示 SS 系列。與下方勝率欄的「系列切換」是兩個獨立開關（一個控圖上標記、一個控勝率欄數字）。
 - **結果標記 + 目標切換**：結果欄位依目標鈕（中軌/上下軌）取 `s.r/s.ot` 或 `s.r_b/s.ot_b`（前端 `_wrResultKey()`/`_wrOtKey()` 幫手；1:1 的 `s.r_rr/s.ot_rr` 已移除、恆為 null）：
   - `= "w"` → 綠色 `#26a69a`，文字 `✓`，位置在目標方向
   - `= "l"` → 紅色 `#ef5350`，文字 `✗`，位置在止損方向
@@ -196,8 +217,9 @@
     - 變更 → 清前端 `_wrCache` → re-fetch
 - **中央區 `.tb-wr-scroll`**：實際內容為 `#wrHover`（hover 勝率小卡，見上方改版說明）。被隱藏的 `.tb-wr-block` 元素 ID 仍為 `wrAbcS/L`、`wrAbS/L`、`wrS3S/L`~`wrS12S/L`（hover 小卡用 `_SIG_LABEL`/`_SIG_ICON` 對照表上色）
 - **右固定區 `.tb-wr-fixed-right`**（z-index:3 不隨滾動移動）
-  - `#wrAll`：**S2~S11** 合計勝率（`_AGG`；S1、S12 皆不計入），CSS gradient text + drop-shadow glow
-  - `#wrRecent100`：**近 ~100 筆**勝率（合併時間軸去重後最近 100 筆，看近期表現 vs 全期）。後端各 target 存 `recent100`（由 `_build_combined` 取末 100 筆算）；跟目標鈕切換
+  - **系列切換鈕（S ↔ SS）**：`winrate.js` 的 `_wrSeries`（"s"/"ss"）。切到 SS 時，右側「合計／敗後停手／近期」改讀 `d.ss.*`（固定 mid，不隨目標鈕），勝率欄下方的訊號區塊用 `data-sig` 前綴隱顯（S 模式顯示 S1~S12、SS 模式只顯示 SS 區塊）。與主圖「標記系列」鈕互相獨立。
+  - `#wrAll`：**S2~S11** 合計勝率（`_AGG`；S1、S12 皆不計入；SS 系列另計），CSS gradient text + drop-shadow glow
+  - `#wrRecent100`：**近 ~100 筆**勝率（合併時間軸去重後最近 100 筆，看近期表現 vs 全期）。後端各 target 存 `recent100`（由 `_build_combined` 取末 100 筆算；SS 系列用 `ss.recent100`）；跟目標鈕切換
   - `#wrFromDate`：回測起始日 `←YYYY/MM/DD`
   - `#wrStatus`：「N筆」目前圖表可見訊號數
 
