@@ -883,7 +883,9 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         m = [0, 0, 0, 0]; b = [0, 0, 0, 0]; rr = [0, 0, 0, 0]
         em = [0, 0, 0, 0]; eb = [0, 0, 0, 0]
         for s in signals:
-            if s["k"] == "abc":   # S1 不計入總勝率；S12 計入（但與其他策略重疊處由 (t,d) dedup 自然丟棄）
+            # 合計＝純 S2~S11（_AGG）：S1(abc)、S12、SS 系列皆不計入總勝率
+            # （SS 自成一套合計；S12 僅獨立顯示。與 _build_combined 的母體一致）
+            if s["k"] == "abc" or s["k"] == "12" or s["k"] in _SS_KEYS:
                 continue
             key = (s["t"], s["d"])
             if key in seen:
@@ -943,7 +945,8 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
     #    loss_streak[k] = 同方向連敗 k 根後、下一筆同方向也敗的機率
     #                     （k=1→2連、k=2→3連、k=3→4連）；win_after_win = 同方向勝後再勝。
     _combined_memo = {}
-    _signals_base = [s for s in signals_sorted if s["k"] != "abc" and s["k"] not in _SS_KEYS]
+    # 母體＝純 S2~S11：排除 S1(abc)、S12、SS 系列（與 _dedupe_totals 的總勝率母體一致）
+    _signals_base = [s for s in signals_sorted if s["k"] != "abc" and s["k"] != "12" and s["k"] not in _SS_KEYS]
     def _build_combined(target, est=False):
         """合併時間軸的已結算序列 [(d, r)]（dedupe by (t,d)、S1 不計入）。
         est=True 改用『進場時固定預估目標』的結果（est_r/est_r_b；1:1 目標固定 est=實際）。
@@ -954,8 +957,6 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             return _hit
         rk = _RKEY_EST[target] if est else _RKEY[target]
         seen = set(); seq = []
-        # S12 排在 signals 列表最後 push → 穩定排序下，(t,d) 與其他策略重疊時其他先入 seen，
-        # S12 只在「獨有進場點」才會進入合併時間軸（敗後停手 / 連敗條件統計都用這個）
         for s in _signals_base:
             key = (s["t"], s["d"])
             if key in seen:

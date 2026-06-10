@@ -659,7 +659,7 @@ def get_crt_winrate(
     from datetime import date, timedelta
     _buf = round(max(0.0, float(stop_buffer_pct or 0.0)), 4)
     _long_only = (market == "tw")  # 台股不能放空
-    cache_key = f"crt_wr74:{market}:{symbol}:{exchange}:{timeframe}:{_buf}:{int(_long_only)}"
+    cache_key = f"crt_wr75:{market}:{symbol}:{exchange}:{timeframe}:{_buf}:{int(_long_only)}"
     bar_key = cache_key + ":bar"
     # bar-aware 新鮮度：記下「算這份結果時最新那根棒的開盤時刻」。crypto 在「同一根棒內」吃快取，
     # 一旦有新棒收盤就讓快取失效 → 走下方短窗補抓重算 → 最新訊號最多慢到「收盤後第一次請求」，
