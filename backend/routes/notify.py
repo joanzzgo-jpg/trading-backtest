@@ -25,6 +25,18 @@ from routes import account as _acct
 
 router = APIRouter(prefix="/api/notify")
 
+
+def _coerce(v):
+    """帳號快照是「整包 localStorage」，每個值都是字串 → watchlist/notifyPrefs
+    其實是被二次 JSON 編碼的字串（如 '[{...}]'）。這裡若拿到字串就再解碼一次，
+    否則 list/dict 直接回傳。解不出來回 None（交由呼叫端套預設）。"""
+    if isinstance(v, str):
+        try:
+            return json.loads(v)
+        except Exception:
+            return None
+    return v
+
 # ── 預設監控設定 ──────────────────────────────────────────────
 # 訊號鍵：abc=S1, ab=S2, "3".."12"=S3..S12。預設＝計入交易的 S2~S11（與 crt.py 的 _AGG 一致）。
 DEFAULT_SIGS: List[str] = ["ab", "3", "4", "5", "6", "7", "8", "9", "10", "11"]
@@ -246,7 +258,7 @@ def account_prefs(name: str) -> dict:
                 conn.close()
             if row and row[0]:
                 data = json.loads(row[0]) if isinstance(row[0], str) else row[0]
-                return _clean_prefs((data or {}).get("notifyPrefs"))
+                return _clean_prefs(_coerce((data or {}).get("notifyPrefs")))
         except Exception:
             pass
     return _clean_prefs(None)
@@ -266,7 +278,7 @@ def account_watchlist(name: str) -> List[dict]:
         if not row or not row[0]:
             return []
         data = json.loads(row[0]) if isinstance(row[0], str) else row[0]
-        wl = (data or {}).get("watchlist") or []
+        wl = _coerce((data or {}).get("watchlist")) or []
         return [w for w in wl if isinstance(w, dict) and w.get("symbol")]
     except Exception:
         return []
