@@ -4,6 +4,8 @@ from pydantic import BaseModel
 from datetime import date, timedelta, datetime as dt
 from typing import Optional
 import os
+import time
+import math
 import threading
 import pandas as pd
 
@@ -28,9 +30,14 @@ router = APIRouter(prefix="/api", tags=["data"])
 _inflight_locks: dict = {}
 _inflight_guard = threading.Lock()
 
-# 勝率 / df 快取保鮮期（秒）。30 分鐘：最近一根訊號最多慢 30 分（即時價另走每秒路徑、
-# 不受此影響）。有單飛鎖護著故不會雪崩；想更新鮮可再調小、想更省限流可調大。
+# 勝率 / df 快取保鮮期（秒）。30 分鐘：深歷史統計（算勝率用）這麼久重抓一次就夠。
+# 注意：「最新一根訊號」不受此 30 分拖累 —— crypto 走下方 bar-aware 機制，一收新棒就
+# 補抓短窗尾巴重算（即時價另走每秒路徑、也不受此影響）。想更省限流可調大。
 _WR_CACHE_TTL = 1800
+
+# 各時框秒數（bar-aware 新鮮度用；與 notify_monitor._TF_SEC 同義）
+_CRT_IV = {"5m": 300, "15m": 900, "30m": 1800, "1h": 3600, "2h": 7200,
+           "4h": 14400, "8h": 28800, "1d": 86400, "1w": 604800, "1M": 2592000}
 
 
 def fetch_crt_df(market: str, symbol: str, timeframe: str, days: int,
@@ -653,11 +660,20 @@ def get_crt_winrate(
     _buf = round(max(0.0, float(stop_buffer_pct or 0.0)), 4)
     _long_only = (market == "tw")  # 台股不能放空
     cache_key = f"crt_wr74:{market}:{symbol}:{exchange}:{timeframe}:{_buf}:{int(_long_only)}"
+    bar_key = cache_key + ":bar"
+    # bar-aware 新鮮度：記下「算這份結果時最新那根棒的開盤時刻」。crypto 在「同一根棒內」吃快取，
+    # 一旦有新棒收盤就讓快取失效 → 走下方短窗補抓重算 → 最新訊號最多慢到「收盤後第一次請求」，
+    # 不再被 30 分 TTL 拖。tw/us 維持原 30 分行為（盤外不必每根棒重抓、也避免多打 yfinance）。
+    _iv = _CRT_IV.get(timeframe)
+    _bar_now = math.floor(time.time() / _iv) * _iv if _iv else None
     # 注意：solve 模式不可命中此勝率快取（cache_key 不含 solve），否則會回傳勝率而非求解結果
     if not solve:
         cached = data_cache.get(cache_key, ttl=_WR_CACHE_TTL)   # 保鮮期內直接回快取（即時價另走每秒路徑）
         if cached:
-            return cached
+            _fresh = (market != "crypto" or _bar_now is None
+                      or data_cache.get(bar_key, ttl=_WR_CACHE_TTL) == _bar_now)
+            if _fresh:
+                return cached
 
     MIN_CASES = 40   # 每個訊號（S1~S7 × 空/多）最少採樣數；不足會自動往前加倍天數
     # 各時間框架：初始天數 / 最大天數
@@ -708,6 +724,26 @@ def get_crt_winrate(
                 data_cache.set(df_key, df)
                 disk_cache.set(df_key, df)       # 寫磁碟（下次重啟/部署免重抓）
 
+    # ── bar-aware 尾巴補抓（crypto）──────────────────────────────
+    # 深歷史沿用快取，只在「已有新棒收盤」時補抓一段短窗、接到尾巴後重算 → 便宜又即時。
+    # 短窗夠長（~400 根）涵蓋指標 lookback，且 df 受 30 分 TTL 護著，尾巴最多差 30 分→必然重疊不留 gap。
+    if market == "crypto" and not solve and _bar_now is not None and df is not None:
+        try:
+            _last = pd.Timestamp(df["time"].iloc[-1]).value / 1e9
+            if _last < _bar_now:                      # 快取尾巴比現在最新棒舊 → 補抓
+                _rd = max(2, math.ceil(400 * _iv / 86400) + 2)
+                _recent = _fetch_df(_rd)              # 短窗 raw OHLCV（抓量小、便宜）
+                if _recent is not None and len(_recent):
+                    _cols = ["time", "open", "high", "low", "close", "volume"]
+                    _cut = _recent["time"].iloc[0]
+                    _merged = pd.concat(
+                        [df[df["time"] < _cut][_cols], _recent[_cols]], ignore_index=True)
+                    df = enrich_df(_merged)
+                    data_cache.set(df_key, df)
+                    disk_cache.set(df_key, df)
+        except Exception:
+            pass                                       # 補抓失敗就用舊 df，不影響可用性
+
     # 求解模式：掃描止損% 找達標的建議值（用已快取的 df，免重抓）
     if solve:
         solve_key = f"crt_solve5:{market}:{symbol}:{exchange}:{timeframe}:{solve_target}:{int(_long_only)}"
@@ -722,4 +758,6 @@ def get_crt_winrate(
     result = _calc_crt_winrate(df, stop_buffer_pct=_buf, long_only=_long_only)
 
     data_cache.set(cache_key, result)
+    if _bar_now is not None:
+        data_cache.set(bar_key, _bar_now)   # 標記此結果對應的最新棒 → bar-aware 新鮮度判定用
     return result
