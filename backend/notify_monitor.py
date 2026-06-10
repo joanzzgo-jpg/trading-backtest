@@ -129,17 +129,19 @@ def _process_combo(market, exchange, symbol, tf, subs_here, now):
         return
     df = enrich_df(df)
 
-    # 去掉「正在形成中」的最後一根（Binance 會把當前未收 K 放最後）→ 只看已收盤棒
+    # ⚠ 不丟「正在形成中」的最後一根：CRT 訊號棒需要「下一根(進場棒)」存在，引擎才會輸出
+    #   （bull/bear 切片到 [1:n-1]，最後一根永遠不能當訊號棒）。若像以前丟掉形成棒，最後已收盤
+    #   棒就變成最後一根→當不了訊號棒→要再等下一根收盤才偵測到，整整慢一根 K（曾發生：15m 訊號
+    #   棒 11:15 一收盤主圖就標記，推播卻拖到 11:30）。保留形成棒當「進場棒」，即可在訊號棒一
+    #   收盤就偵測並推播（＝主圖即時標記的時點）。進場價＝進場棒開盤（一形成即固定、不 repaint），
+    #   且引擎絕不會把形成棒當訊號棒 → 進場訊號無盤中 repaint 風險；止盈(TP)另以收盤棒門檻防呆。
     cur_open = math.floor(now / iv) * iv
-    last_open = _epoch(df["time"].iloc[-1])
-    if last_open >= cur_open:
-        df = df.iloc[:-1]
-        if len(df) < 50:
-            return
-        last_open = _epoch(df["time"].iloc[-1])
+    last_row_open = _epoch(df["time"].iloc[-1])
+    forming = last_row_open >= cur_open                     # Binance 把當前未收 K 放最後
+    last_closed_open = last_row_open - iv if forming else last_row_open   # 最後「已收盤」棒的 open
 
     # 資料太舊（停牌/抓不到新棒）→ 跳過，避免把舊訊號當新訊號推
-    if now - (last_open + iv) > max(2 * iv, 180):
+    if now - (last_closed_open + iv) > max(2 * iv, 180):
         return
 
     res = _calc_crt_winrate(df, long_only=(market == "tw"))
@@ -147,7 +149,7 @@ def _process_combo(market, exchange, symbol, tf, subs_here, now):
     if not signals:
         return
 
-    fresh_cut = last_open - (FRESH_BARS - 1) * iv
+    fresh_cut = last_closed_open - (FRESH_BARS - 1) * iv
     # 由舊到新處理，每個 scope 只推「比已推過的最新時間更新」的訊號 → 不重發、不漏發
     sigs = sorted((s for s in signals if s.get("k") and s.get("t")), key=lambda s: _epoch(s["t"]))
     new_max = {}   # scope -> 本輪推到的最新訊號時間
@@ -180,7 +182,9 @@ def _process_combo(market, exchange, symbol, tf, subs_here, now):
         if sig.get("r") != "w":          # 只看「止盈達成」；停損/未結算不推
             continue
         ot = sig.get("ot")
-        if not ot or _epoch(ot) < fresh_cut:   # 結算棒不在最近數根 → 不新鮮
+        # 結算棒須「在最近數根」且「已收盤」：保留形成棒後，止盈可能由形成棒的盤中高低點
+        # 觸發中軌 → 那是 intrabar、會 repaint，不可推（與「收盤確認」一致，故 ot 限收盤棒）。
+        if not ot or _epoch(ot) < fresh_cut or _epoch(ot) > last_closed_open:
             continue
         k = sig["k"]; d = sig.get("d")
         targets = [s for s in subs_here if k in (s["prefs"].get("sigs") or [])]
