@@ -1970,6 +1970,22 @@ html.perf-mode .time-axis-year {
 .tk-search:focus { border-color: var(--blue); }
 .tk-search::placeholder { color: #555; }
 
+/* 搜尋欄外層：接管間距，內部 input 填滿、右側留出叉叉鈕空間 */
+.tk-search-wrap { position: relative; margin: 8px 8px 0; flex-shrink: 0; }
+.tk-search-wrap .tk-search { margin: 0 !important; width: 100% !important; padding-right: 28px !important; box-sizing: border-box; }
+.tk-search-clear {
+  position: absolute; top: 50%; right: 7px; transform: translateY(-50%);
+  display: flex; align-items: center; justify-content: center;
+  background: none; border: none; color: var(--muted); cursor: pointer;
+  font-size: 12px; line-height: 1; padding: 2px 4px; border-radius: 4px;
+  transition: color .12s, background .12s;
+}
+.tk-search-clear:hover { color: var(--text); background: var(--bg3); }
+.tk-search-clear.hidden { display: none; }
+
+/* 搜尋後用 ↑↓ 選取的高亮列 */
+.ticker-item.tk-kbfocus { background: var(--bg3); box-shadow: inset 2px 0 0 var(--blue); }
+
 .ticker-list {
   flex: 1;
   overflow-y: auto;

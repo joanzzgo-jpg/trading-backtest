@@ -51,6 +51,16 @@ let _kbNavLockUntil = 0;         // 鍵盤導航凍結期：使用者用 ↑↓ 
 function _markKbNav() { _kbNavLockUntil = Date.now() + 3000; }
 window._markKbNav = _markKbNav;
 
+// ── 搜尋欄鍵盤導航（↑↓ 選列、Enter 載入該標的）──────────────
+let _tkSearchFocusIdx = -1;
+function _tkRows() { return document.querySelectorAll("#tickerList .ticker-item"); }
+function _tkHighlight() {
+  const rows = _tkRows();
+  if (_tkSearchFocusIdx >= rows.length) _tkSearchFocusIdx = rows.length - 1;
+  rows.forEach((el, i) => el.classList.toggle("tk-kbfocus", i === _tkSearchFocusIdx));
+  if (_tkSearchFocusIdx >= 0) rows[_tkSearchFocusIdx]?.scrollIntoView({ block: "nearest" });
+}
+
 // 排序 helper：鍵盤導航期間用上次的順序（透過 prevOrder 索引），其他時候照 _tickerSort 排
 function _sortTickerList(list) {
   if (Date.now() < _kbNavLockUntil && _lastTickerKey) {
@@ -524,7 +534,8 @@ function _buildTwRow(it) {
   </div>`;
 }
 function _updateTwRow(el, it) {
-  el.className = "ticker-item" + (it.active ? " tk-active" : "") + (it.limitCls ? " " + it.limitCls : "");
+  const kb = el.classList.contains("tk-kbfocus") ? " tk-kbfocus" : "";   // 保留鍵盤高亮（className 整段重建會洗掉）
+  el.className = "ticker-item" + (it.active ? " tk-active" : "") + (it.limitCls ? " " + it.limitCls : "") + kb;
   _setTxt(el, ".tk-price-val", it.priceStr);
   _setTxtCls(el, ".tk-chg-amt", it.amtStr, "tk-chg-amt " + it.cls);
   _setTxtCls(el, ".tk-chg", it.pctStr, "tk-chg " + it.cls);
@@ -643,9 +654,49 @@ function bindTickerPanel() {
   // 還原上次選的市場分頁 + 排序（active class 對齊；資料抓取由 startTickerRefresh 依 _tickerMkt 處理）
   document.querySelectorAll(".tk-mkt-btn").forEach(b => b.classList.toggle("active", b.dataset.mkt === _tickerMkt));
   document.querySelectorAll(".tk-seg-btn").forEach(b => b.classList.toggle("active", b.dataset.sort === _tickerSort));
-  document.getElementById("tickerSearch")?.addEventListener("input", () => {
-    _lastTickerKey = "";   // 搜尋條件改變→強制完整重建
+  const _tkSearch = document.getElementById("tickerSearch");
+  const _tkClear  = document.getElementById("tickerSearchClear");
+  _tkSearch?.addEventListener("input", () => {
+    if (_tkClear) _tkClear.classList.toggle("hidden", !_tkSearch.value);
+    _tkSearchFocusIdx = -1;     // 搜尋詞變→重設選取
+    _lastTickerKey = "";        // 搜尋條件改變→強制完整重建
     renderTickers();
+  });
+  // 叉叉：清空搜尋、還原完整清單、焦點留在輸入框
+  _tkClear?.addEventListener("click", () => {
+    _tkSearch.value = "";
+    _tkClear.classList.add("hidden");
+    _tkSearchFocusIdx = -1;
+    _lastTickerKey = "";
+    renderTickers();
+    _tkSearch.focus();
+  });
+  // ↑↓ 即時切換高亮列（不必按 Enter）、Enter 載入第一筆、Esc 先清搜尋再取消選取
+  // 對處理到的鍵 stopPropagation：避免 effects.js 的全域「↑↓ 切標的」也在搜尋框內觸發
+  // （那個用「完整清單」索引、會與此處過濾清單打架）。改由此 handler 獨佔搜尋框內導航。
+  _tkSearch?.addEventListener("keydown", e => {
+    const rows = _tkRows();
+    if (e.key === "Escape") {
+      e.stopPropagation();
+      if (_tkSearch.value) { _tkSearch.value = ""; _tkClear?.classList.add("hidden"); _lastTickerKey = ""; renderTickers(); }
+      _tkSearchFocusIdx = -1; _tkHighlight();
+      return;
+    }
+    if (e.key === "ArrowDown") {
+      e.preventDefault(); e.stopPropagation(); _markKbNav();
+      _tkSearchFocusIdx = Math.min(_tkSearchFocusIdx + 1, rows.length - 1);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault(); e.stopPropagation(); _markKbNav();
+      _tkSearchFocusIdx = Math.max(_tkSearchFocusIdx - 1, 0);
+    } else if (e.key === "Enter") {
+      e.preventDefault(); e.stopPropagation();
+      if (_tkSearchFocusIdx < 0) _tkSearchFocusIdx = 0;   // 沒選過→Enter 載第一筆
+    } else {
+      return;
+    }
+    _tkHighlight();
+    const cur = _tkRows()[_tkSearchFocusIdx];
+    if (cur) _selectTickerRow(cur);   // ↑↓／Enter 即時載入該標的（自動顯示，不必再按 Enter）
   });
 }
 
