@@ -951,7 +951,8 @@
       ga.beginPath(); ga.moveTo(p.x - nx * s, p.y - ny * s); ga.lineTo(p.x + nx * s, p.y + ny * s); ga.stroke();
       if (major) {                            // 宮位符號（黃經 0°=♈ 春分點起算，天文正確）
         ga.fillStyle = `rgba(150,235,255,${(0.9 * A).toFixed(3)})`;
-        ga.fillText(ZOD[(i / 10) % 12], p.x + nx * 16, p.y + ny * 16);
+        // U+FE0E 文字樣式變體選擇符：iOS 會把宮位符號渲染成彩色 emoji → 強制純文字字形
+        ga.fillText(ZOD[(i / 10) % 12] + '\uFE0E', p.x + nx * 16, p.y + ny * 16);
       }
     }
     // 4) 沿軌道滑行的脈衝光點 ×2（等距相位，像衛星巡航）
@@ -975,6 +976,53 @@
       else ga.moveTo(p.x, p.y);
       prev = p;
     }
+  }
+
+  /* ── 太陽系即時儀（orrery）：八大行星「真實位置」俯視圖（北黃極往下看）──
+     位置取自既有 Schlyter 軌道計算（日心黃經/距離，2 分鐘快取），地球＝太陽地心位置反推；
+     半徑對數壓縮（0.39~30AU 塞進小圓盤），行星畫在「當前真實距離」上 → 水星/火星的離心率
+     會真實偏離軌道圈。畫在 fore 層（不隨視差晃、全解析銳利）。 */
+  let _orrCache = { at: 0, list: [], earth: null };
+  function _drawOrrery() {
+    const g = _layers.fore.ctx;
+    const R = Math.min(W, H) * (_lowFx ? 0.11 : 0.13);
+    const cx = W - R - Math.max(16, W * 0.02), cy = R + Math.max(60, H * 0.10);   // 右上開闊天空區（左下會被 landing 城堡擋住）
+    const now = Date.now();
+    if (now - _orrCache.at > 120000) {
+      const d = _dayNum(new Date());
+      const so = _orbit(_SUN_EL, d);
+      const list = _PLANETS.map(p => {
+        const o = _orbit(p.el, d), iDeg = p.el[1][0] + p.el[1][1] * d;
+        const h = _helioXYZ(o, iDeg);
+        return { c: p.c, lon: _atan2d(h.y, h.x), r: Math.hypot(h.x, h.y), a: p.el[3][0] };
+      });
+      _orrCache = { at: now, list, earth: { lon: _rev(so.v + so.w + 180), r: so.r } };   // 地球日心黃經＝太陽地心黃經+180°
+    }
+    const rad = au => R * (0.16 + 0.84 * Math.log10(au / 0.28) / Math.log10(31 / 0.28));
+    g.save(); g.globalAlpha = 0.92;
+    const bg2 = g.createRadialGradient(cx, cy, 0, cx, cy, R * 1.15);   // 底盤暗暈
+    bg2.addColorStop(0, 'rgba(8,16,30,.55)'); bg2.addColorStop(1, 'rgba(8,16,30,0)');
+    g.fillStyle = bg2; g.beginPath(); g.arc(cx, cy, R * 1.15, 0, 6.283); g.fill();
+    const sg2 = g.createRadialGradient(cx, cy, 0, cx, cy, 5);          // 中心太陽
+    sg2.addColorStop(0, '#FFF6C8'); sg2.addColorStop(1, 'rgba(255,180,40,0)');
+    g.fillStyle = sg2; g.beginPath(); g.arc(cx, cy, 5, 0, 6.283); g.fill();
+    // 8 顆：水金 + 地球 + 火木土天海（軌道圈 + 當前位置點；黃經逆時針）
+    const all = [..._orrCache.list.slice(0, 2),
+                 { c: [110,170,255], lon: _orrCache.earth.lon, r: _orrCache.earth.r, a: 1, earth: true },
+                 ..._orrCache.list.slice(2)];
+    all.forEach(p => {
+      g.strokeStyle = 'rgba(110,220,255,.20)'; g.lineWidth = .8; g.setLineDash([3, 4]);
+      g.beginPath(); g.arc(cx, cy, rad(p.a), 0, 6.283); g.stroke(); g.setLineDash([]);
+      const pr2 = rad(Math.max(0.28, p.r));
+      const px = cx + Math.cos(p.lon * _D2R) * pr2, py = cy - Math.sin(p.lon * _D2R) * pr2;
+      g.fillStyle = `rgb(${p.c[0]},${p.c[1]},${p.c[2]})`;
+      g.beginPath(); g.arc(px, py, p.earth ? 2.6 : 2.1, 0, 6.283); g.fill();
+      if (p.earth) { g.strokeStyle = 'rgba(120,225,255,.85)'; g.lineWidth = 1; g.beginPath(); g.arc(px, py, 4.6, 0, 6.283); g.stroke(); }   // 地球鎖定圈（我們在這）
+    });
+    g.font = '9px ui-monospace, Menlo, monospace'; g.textAlign = 'left'; g.textBaseline = 'top';
+    g.fillStyle = 'rgba(150,235,255,.78)';
+    g.fillText('SOLAR SYSTEM · LIVE', cx - R, cy + R + 7);
+    g.restore();
   }
 
   /* 月亮在弧線上的進度（0升~1落）；不在天上 → null。日夜兩分支共用 */
@@ -2283,6 +2331,7 @@
     _drawBackdrop(t);            // 亮麗天色底 + 雙色流動光暈（sky 最深層，最先畫）
     ({sunny:dSunny,night:dNight,cloudy:dCloudy,fog:dFog,rain:dRain,snow:dSnow,storm:dStorm,thunder:dThunder,mahjong:dMahjong,leaves:dLeaves,spring:dSpring,partly:dPartly,overcast:dOvercast,drizzle:dDrizzle,windy:dWindy,hail:dHail,tornado:dTornado,quake:dQuake,aurora:dAurora,sunset:dSunset,sunrise:dSunrise,meteor:dMeteor})[type]?.(t);
     _drawAstro(t);               // 太陽/月亮/行星 → astro 天體深景層（大視差+全解析）；雲/雨各層從前方掠過（真遮擋）
+    _drawOrrery();               // 太陽系即時儀：八大行星真實位置/軌道（fore 層左下角 HUD）
     _tempTint();
   }
   function loop(ts) {
