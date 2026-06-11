@@ -37,6 +37,12 @@
 > - **3D 太陽 `_drawSun3D`**：限邊減光球體＋兩層反向慢轉電漿表面紋理（烤 sprite），dSunny（R28）與 _drawAstro 日間（R17）共用。**3D 月球**：暗面地照（藍灰微透）、球面高光朝太陽側（waxing 右/waning 左）、3 層漸縮橢圓柔化明暗交界線（terminator）——全烤進月相快取。
 > - **流動配色 `_SKY_AC`**：每天氣一對互補色光暈緩慢繞行（lighter 疊加）→ 背景色彩隨時間變化。
 > - **清晰度**：天色底＋流動光暈在主圖模式（非 landing-active）強度 ×0.5 → K 線區不蒙霧；封面全濃。雲半透係數 ×0.42（上限 .55）。
+>
+> **第六批（2026-06-11，白天加料 + 動畫級夜空 + 太陽系儀）**：
+> - **白天**：黃道儀表全天顯示（`_drawEcliptic(t, dim*0.5)` 於 _drawAstro 日分支）、22° 日暈 `_sunHalo`（雲量~50%最顯）、雨後彩虹 `_drawRainbow`（rain→clear 轉場掛 3 分鐘，主虹+霓）、飛機凝結尾 `_drawContrail`、V 字飛鳥群 `_drawBirds`（far/near 層）、熱氣球 `_drawBalloon`（mid 層）。雲半透改日夜自適應（白天 ×0.66 / 夜 ×0.42 —— 白天太透會「看不見雲」）。
+> - **動畫電影級夜空**（對標新海誠參考圖）：彩色銀河 v2（紫/洋紅/青 billow ×46 + 白粉亮核 + 蜿蜒暗塵帶 + 700 星塵）、星空 230 顆（8% 大亮星 + 三色溫 `p.col`）、豔紫 night 色票、夜間地平線城市暖光、bokeh 鏡頭光斑 `_drawBokeh`（fore 層 lighter）。流星雨模式銀河全亮（showcase）。
+> - **太陽系儀 `_drawOrrery`**：斜俯視 TILT=0.42（軌道橢圓、遠半圈淡近半圈亮、雷達掃描線）、立體星球 `_bakeOrrPlanets`（球面光影 sprite 受光面旋轉朝中心太陽；土星環/木星帶/地球大陸+雲絲）、中心太陽共用 `_drawSun3D`+日冕。桌面右中 R=0.19；**手機只在自選分頁顯示**（body.m-tab-watch）置中 R=0.34、亮度 ×1.7，且 sky-show 下 `.ticker-panel` 背景改 color-mix 58% 半透（style.css）讓儀表透出。
+> - 黃道宮位符號加 U+FE0E（文字樣式變體選擇符）防 iOS emoji 化；行星鎖定環 45° 引線讀數標籤（中文名+視星等）。
 
 ---
 
