@@ -71,26 +71,27 @@ def _fmt_dt(iso):
 
 
 def _build_payload(symbol, market, exchange, tf, k, d, sig, event="entry"):
+    """event: entry=進場訊號 / tp=止盈達成 / sl=止損出場。"""
     dir_txt = "做空" if d == "s" else "做多"
     label = _sig_label(k)
     title = f"{symbol} · {tf}"
     entry = sig.get("entry"); stop = sig.get("stop"); rr = sig.get("rr")
     risk = abs(entry - stop) if (entry is not None and stop is not None) else None
 
-    if event == "tp":
-        rr_real = sig.get("rr_real")
+    if event in ("tp", "sl"):
+        rr_real = sig.get("rr_real")     # 止損時引擎已給 -1.0
         exit_px = None
         if entry is not None and risk and rr_real is not None:
             exit_px = entry - rr_real * risk if d == "s" else entry + rr_real * risk
         rr_show = rr_real if rr_real is not None else rr
-        l1 = f"{label} {dir_txt} 止盈達成"
+        l1 = f"{label} {dir_txt} " + ("止盈達成" if event == "tp" else "止損出場")
         if rr_show is not None:
             l1 += f" · 盈虧比 {rr_show:+.2f}"
         l2 = (f"進場 {_fmt_price(entry)}" if entry is not None else "")
         if exit_px is not None:
             l2 += f" → 出場 {_fmt_price(exit_px)}"
         l3 = _fmt_dt(sig.get("t")) + (f" → {_fmt_dt(sig.get('ot'))}" if sig.get("ot") else "")
-        tag = f"{market}:{exchange}:{symbol}:{tf}:{k}:{d}:tp"
+        tag = f"{market}:{exchange}:{symbol}:{tf}:{k}:{d}:{event}"
     else:
         target = None
         if entry is not None and risk and rr is not None:
@@ -111,7 +112,9 @@ def _build_payload(symbol, market, exchange, tf, k, d, sig, event="entry"):
         "title": title,
         "body": body,
         "tag": tag,
-        "data": {"symbol": symbol, "market": market, "exchange": exchange, "tf": tf},
+        # t=進場訊號棒時間（UTC naive ISO）→ 前端點通知可跳到對應時框與時間位置
+        "data": {"symbol": symbol, "market": market, "exchange": exchange, "tf": tf,
+                 "t": str(sig.get("t") or "")},
     }
 
 
@@ -165,40 +168,52 @@ def _process_combo(market, exchange, symbol, tf, subs_here, now):
         if not targets:
             continue
         payload = _build_payload(symbol, market, exchange, tf, k, d, sig, event="entry")
+        ok = False
         for s in targets:
-            notify.send_push(s, payload)
+            ok = notify.send_push(s, payload) or ok
+        # 全部裝置都發送失敗（推播服務暫時故障）→ 不標記已推、不記歷史，
+        # 下一根收盤棒（FRESH_BARS 窗內）自動重試 → 修「有訊號卻沒收到」。
+        if not ok:
+            continue
         for nm_ in {s["name"] for s in targets}:
             notify.log_signal(nm_, now, "entry", payload["title"], payload["body"],
-                              symbol, market, exchange, tf)
+                              symbol, market, exchange, tf,
+                              sig=k, d=d, sigt=str(t))
         new_max[scope] = t
     for scope, t in new_max.items():
         notify.mark_notified(scope, t)
 
-    # ── 止盈通知：訊號剛在最近數根收盤棒「結算為 win」(觸及動態中軌) → 推一次 ──
-    # 重用勝率計算結果：r=='w' 表示在停損前先碰到中軌(止盈)，ot 為結算時間（中軌逐根漂移，
-    # 掃描本就逐根比當下中軌，正好對應使用者要的「會動的止盈」）。停損(l) 依使用者選擇不推。
+    # ── 止盈/止損通知：訊號剛在最近數根收盤棒「結算」→ 各推一次 ──
+    # 重用勝率計算結果：r=='w' 表示在停損前先碰到中軌(止盈)、r=='l' 表示先打到止損，
+    # ot 為結算時間（中軌逐根漂移，掃描本就逐根比當下中軌＝會動的止盈）。
     # 結算順序未必同進場順序 → 用逐事件精確去重（seen_event/mark_event）。
     for sig in sigs:
-        if sig.get("r") != "w":          # 只看「止盈達成」；停損/未結算不推
+        r = sig.get("r")
+        if r not in ("w", "l"):          # 未結算不推
             continue
         ot = sig.get("ot")
-        # 結算棒須「在最近數根」且「已收盤」：保留形成棒後，止盈可能由形成棒的盤中高低點
-        # 觸發中軌 → 那是 intrabar、會 repaint，不可推（與「收盤確認」一致，故 ot 限收盤棒）。
+        # 結算棒須「在最近數根」且「已收盤」：保留形成棒後，止盈/止損可能由形成棒的盤中
+        # 高低點觸發 → 那是 intrabar、會 repaint，不可推（與「收盤確認」一致，故 ot 限收盤棒）。
         if not ot or _epoch(ot) < fresh_cut or _epoch(ot) > last_closed_open:
             continue
         k = sig["k"]; d = sig.get("d")
         targets = [s for s in subs_here if k in (s["prefs"].get("sigs") or [])]
         if not targets:
             continue
-        evt_key = f"tp:{market}:{exchange}:{symbol}:{tf}:{k}:{d}:{sig['t']}"
+        event = "tp" if r == "w" else "sl"
+        evt_key = f"{event}:{market}:{exchange}:{symbol}:{tf}:{k}:{d}:{sig['t']}"
         if notify.seen_event(evt_key):
             continue
-        payload = _build_payload(symbol, market, exchange, tf, k, d, sig, event="tp")
+        payload = _build_payload(symbol, market, exchange, tf, k, d, sig, event=event)
+        ok = False
         for s in targets:
-            notify.send_push(s, payload)
+            ok = notify.send_push(s, payload) or ok
+        if not ok:                       # 全失敗 → 不標記，下一輪重試
+            continue
         for nm_ in {s["name"] for s in targets}:
-            notify.log_signal(nm_, now, "tp", payload["title"], payload["body"],
-                              symbol, market, exchange, tf)
+            notify.log_signal(nm_, now, event, payload["title"], payload["body"],
+                              symbol, market, exchange, tf,
+                              sig=k, d=d, sigt=str(sig["t"]))
         notify.mark_event(evt_key)
 
 

@@ -6150,6 +6150,26 @@ html.landing-active .landing { background: transparent; }
   }
   .m-sig-bubble:active { background: rgba(255,145,71,.12); }
   .m-sig-bubble.evt-tp { border-left-color: #46c08a; }
+  .m-sig-bubble.evt-sl { border-left-color: #e05a6d; }
+  /* 止盈/止損的「回覆」引用塊（LINE/Messenger 感）：點它捲回原進場訊息 */
+  .m-sig-quote {
+    margin: 4px 0 5px; padding: 5px 9px;
+    border-left: 3px solid rgba(255,255,255,.28);
+    background: rgba(255,255,255,.07);
+    border-radius: 6px; cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .m-sig-quote .m-sig-q-t {
+    font-size: 11px; font-weight: 700; color: var(--text); opacity: .8;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .m-sig-quote .m-sig-q-b {
+    font-size: 11px; color: var(--muted); margin-top: 1px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  /* 點引用後原訊息短暫高亮 */
+  .m-sig-msg.m-sig-hl .m-sig-bubble { background: rgba(255,145,71,.2); }
+  .m-sig-msg .m-sig-bubble { transition: background .35s; }
   .m-sig-b-title { font-size: 13px; font-weight: 800; color: var(--text); }
   .m-sig-b-body  { font-size: 12px; color: var(--muted); margin-top: 2px; white-space: pre-line; line-height: 1.5; }
   .m-sig-b-time  { font-size: 10px; color: var(--muted); opacity: .7; margin-top: 3px; }

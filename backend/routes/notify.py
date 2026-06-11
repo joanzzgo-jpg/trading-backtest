@@ -131,22 +131,50 @@ def _ensure_db():
             )
         """)
         # 訊號歷史（聊天室式通知中心）：每帳號每事件一筆，前端拉清單顯示。
+        # sig/dir/sigt = 訊號鍵/方向/進場訊號棒時間 → 止盈止損訊息可精確「回覆」原進場訊息。
         conn.execute("""
             CREATE TABLE IF NOT EXISTS notify_log (
                 id       BIGSERIAL PRIMARY KEY,
                 name     TEXT, ts REAL, event TEXT,
                 title    TEXT, body TEXT,
-                symbol   TEXT, market TEXT, exchange TEXT, tf TEXT
+                symbol   TEXT, market TEXT, exchange TEXT, tf TEXT,
+                sig      TEXT, dir TEXT, sigt TEXT
             )
         """ if _acct._use_pg() else """
             CREATE TABLE IF NOT EXISTS notify_log (
                 id       INTEGER PRIMARY KEY AUTOINCREMENT,
                 name     TEXT, ts REAL, event TEXT,
                 title    TEXT, body TEXT,
-                symbol   TEXT, market TEXT, exchange TEXT, tf TEXT
+                symbol   TEXT, market TEXT, exchange TEXT, tf TEXT,
+                sig      TEXT, dir TEXT, sigt TEXT
+            )
+        """)
+        # 通知偏好寫穿表：前端改完設定立即 POST 寫入（不等帳號快照 debounce 同步，
+        # 也不會被「另一台裝置的整包舊快照」蓋回舊值 → 修「收到沒設定的策略」）。
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS notify_prefs (
+                name       TEXT PRIMARY KEY,
+                prefs      TEXT,
+                updated_at DOUBLE PRECISION
+            )
+        """ if _acct._use_pg() else """
+            CREATE TABLE IF NOT EXISTS notify_prefs (
+                name       TEXT PRIMARY KEY,
+                prefs      TEXT,
+                updated_at REAL
             )
         """)
         conn.commit()
+        # 既有 notify_log 補欄位（已存在會失敗 → 忽略）
+        for col in ("sig", "dir", "sigt"):
+            try:
+                conn.execute(f"ALTER TABLE notify_log ADD COLUMN {col} TEXT")
+                conn.commit()
+            except Exception:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
     finally:
         conn.close()
     _inited = True
@@ -159,9 +187,13 @@ def _require_enabled():
 
 
 def _clean_prefs(p: Optional[dict]) -> dict:
+    """缺欄位（None/讀不到）→ 套預設；**明確給空清單 → 尊重空**（使用者全取消＝不要通知）。
+    以前空清單會退回預設 → 使用者收到一堆沒設定的策略，不可回退。"""
     p = p or {}
-    sigs = [s for s in (p.get("sigs") or DEFAULT_SIGS) if s in _ALL_SIGS] or list(DEFAULT_SIGS)
-    tfs  = [t for t in (p.get("tfs")  or DEFAULT_TFS)  if t in _ALL_TFS]  or list(DEFAULT_TFS)
+    raw_sigs = p.get("sigs")
+    raw_tfs  = p.get("tfs")
+    sigs = list(DEFAULT_SIGS) if raw_sigs is None else [s for s in raw_sigs if s in _ALL_SIGS]
+    tfs  = list(DEFAULT_TFS)  if raw_tfs  is None else [t for t in raw_tfs  if t in _ALL_TFS]
     return {"enabled": bool(p.get("enabled", True)), "sigs": sigs, "tfs": tfs}
 
 
@@ -246,12 +278,16 @@ def all_active_subs() -> List[Dict[str, Any]]:
 
 
 def account_prefs(name: str) -> dict:
-    """讀某帳號同步上來的通知偏好（存在 accounts.data.notifyPrefs）；無則回預設。
-    偏好跟著帳號快照跨裝置同步，所以同帳號的手機/電腦會一致。"""
+    """讀某帳號的通知偏好：優先讀寫穿表 notify_prefs（改設定立即生效、不被舊快照蓋掉），
+    沒有才退回帳號快照 accounts.data.notifyPrefs（舊資料相容），再沒有回預設。"""
     if name:
         try:
             conn, ph = _acct._db()
             try:
+                cur = conn.execute(f"SELECT prefs FROM notify_prefs WHERE name={ph}", (name,))
+                row = cur.fetchone()
+                if row and row[0]:
+                    return _clean_prefs(_coerce(row[0]))
                 cur = conn.execute(f"SELECT data FROM accounts WHERE name={ph}", (name,))
                 row = cur.fetchone()
             finally:
@@ -316,14 +352,16 @@ def mark_notified(scope: str, t: str):
         conn.close()
 
 
-def log_signal(name, ts, event, title, body, symbol, market, exchange, tf):
-    """記一筆訊號到該帳號的歷史（聊天室通知中心用），並裁切只留最近 200 筆。"""
+def log_signal(name, ts, event, title, body, symbol, market, exchange, tf,
+               sig=None, d=None, sigt=None):
+    """記一筆訊號到該帳號的歷史（聊天室通知中心用），並裁切只留最近 200 筆。
+    sig/d/sigt（訊號鍵/方向/進場訊號棒時間）讓止盈止損訊息能配對原進場訊息。"""
     conn, ph = _acct._db()
     try:
         conn.execute(
-            f"INSERT INTO notify_log (name,ts,event,title,body,symbol,market,exchange,tf) "
-            f"VALUES ({ph},{ph},{ph},{ph},{ph},{ph},{ph},{ph},{ph})",
-            (name, ts, event, title, body, symbol, market, exchange, tf),
+            f"INSERT INTO notify_log (name,ts,event,title,body,symbol,market,exchange,tf,sig,dir,sigt) "
+            f"VALUES ({ph},{ph},{ph},{ph},{ph},{ph},{ph},{ph},{ph},{ph},{ph},{ph})",
+            (name, ts, event, title, body, symbol, market, exchange, tf, sig, d, sigt),
         )
         # 裁切：保留該帳號最近 200 筆
         conn.execute(
@@ -384,13 +422,14 @@ def feed(name: str, limit: int = 80):
     conn, ph = _acct._db()
     try:
         cur = conn.execute(
-            f"SELECT ts,event,title,body,symbol,market,exchange,tf FROM notify_log "
+            f"SELECT ts,event,title,body,symbol,market,exchange,tf,sig,dir,sigt FROM notify_log "
             f"WHERE name={ph} ORDER BY id DESC LIMIT {limit}", (nm,))
         rows = cur.fetchall()
     finally:
         conn.close()
     items = [{"ts": r[0], "event": r[1], "title": r[2], "body": r[3],
-              "symbol": r[4], "market": r[5], "exchange": r[6], "tf": r[7]}
+              "symbol": r[4], "market": r[5], "exchange": r[6], "tf": r[7],
+              "sig": r[8], "dir": r[9], "t": r[10]}
              for r in rows]
     items.reverse()   # 由舊到新（聊天室最新在最下方）
     return {"items": items}
@@ -446,8 +485,32 @@ def unsubscribe(req: UnsubscribeReq):
     return {"ok": True}
 
 
-# 通知偏好（時框/訊號）改為帳號級：前端寫 localStorage["notifyPrefs"]，沿用帳號快照
-# 同步機制跨裝置一致；監控器以 account_prefs(name) 讀取。故此處不再提供 prefs 端點。
+class PrefsReq(BaseModel):
+    name: str
+    prefs: Optional[dict] = None
+
+
+@router.post("/prefs")
+def set_prefs(req: PrefsReq):
+    """通知偏好寫穿端點：前端改完設定立即寫入（仍同時存 localStorage 供 UI 顯示）。
+    修正：純靠帳號快照同步時，另一台裝置任何設定變更都會推「整包舊快照」上來，
+    把剛改好的 notifyPrefs 蓋回舊值 → 收到沒設定的策略/漏收。寫穿表為單一真相來源。"""
+    _require_enabled()
+    name = _acct._norm_name(req.name)
+    if not name:
+        raise HTTPException(status_code=400, detail="缺少帳號")
+    prefs = json.dumps(_clean_prefs(req.prefs))
+    conn, ph = _acct._db()
+    try:
+        conn.execute(
+            f"INSERT INTO notify_prefs (name, prefs, updated_at) VALUES ({ph},{ph},{ph}) "
+            f"ON CONFLICT (name) DO UPDATE SET prefs=excluded.prefs, updated_at=excluded.updated_at",
+            (name, prefs, time.time()),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True, "prefs": json.loads(prefs)}
 
 
 @router.post("/test")

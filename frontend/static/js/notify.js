@@ -99,9 +99,18 @@ async function _ntfDisable() {
   _ntfRender();
 }
 
-// 存偏好到 localStorage → account.js 的 setItem hook 會自動 debounce 同步到雲端（跨裝置一致）
+// 存偏好：localStorage（UI 顯示/快照相容）+ 立即寫穿到伺服器 notify_prefs 表。
+// 寫穿是單一真相來源：不等帳號快照 debounce，也不會被別台裝置的整包舊快照蓋回
+// （以前純靠快照同步 → 後端讀到舊偏好 → 收到沒設定的策略）。
+let _ntfPrefsPushTimer = null;
 function _ntfSavePrefs() {
   try { localStorage.setItem("notifyPrefs", JSON.stringify({ tfs: _NTF.prefs.tfs, sigs: _NTF.prefs.sigs })); } catch (e) {}
+  if (!window._acctName) return;
+  clearTimeout(_ntfPrefsPushTimer);
+  _ntfPrefsPushTimer = setTimeout(() => {
+    _ntfApi("POST", "prefs", { name: window._acctName, prefs: { tfs: _NTF.prefs.tfs, sigs: _NTF.prefs.sigs } })
+      .catch(() => {});
+  }, 600);
 }
 
 async function _ntfTest() {
@@ -264,7 +273,16 @@ async function initNotify() {
   try {
     const reg = await navigator.serviceWorker.ready;
     const sub = await reg.pushManager.getSubscription();
-    if (sub) { _NTF.endpoint = sub.endpoint; _NTF.enabled = true; }
+    if (sub) {
+      _NTF.endpoint = sub.endpoint;
+      _NTF.enabled = true;
+      // 重綁帳號（冪等 upsert）：換帳號登入後，這台裝置的訂閱仍綁前一帳號 →
+      // 會照「別的帳號」的自選/策略推播。每次啟動把訂閱綁回目前帳號，
+      // 也順便復活被伺服器清掉（404/410）的訂閱列。
+      if (window._acctName) {
+        _ntfApi("POST", "subscribe", { name: window._acctName, subscription: sub.toJSON() }).catch(() => {});
+      }
+    }
   } catch (e) {}
   _ntfBuildPopup();
   _ntfInjectEntries();
@@ -320,14 +338,31 @@ function _ntfRenderFeed() {
     return;
   }
   const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 60;
-  list.innerHTML = items.map(it => {
-    const cls = it.event === "tp" ? "m-sig-bubble evt-tp" : "m-sig-bubble";
-    return `<div class="m-sig-msg">
+  list.innerHTML = items.map((it, i) => {
+    const cls = it.event === "tp" ? "m-sig-bubble evt-tp"
+              : it.event === "sl" ? "m-sig-bubble evt-sl" : "m-sig-bubble";
+    // 止盈/止損 → 引用原進場訊息（LINE/Messenger「回覆」感）：
+    // 用 sig/dir/t（進場訊號棒時間）精確配對同一筆交易的 entry 訊息
+    let quote = "";
+    if ((it.event === "tp" || it.event === "sl") && it.sig) {
+      const qi = items.findIndex(o => o.event === "entry" && o.sig === it.sig && o.dir === it.dir &&
+                                      o.symbol === it.symbol && o.tf === it.tf && o.t === it.t);
+      if (qi >= 0) {
+        const lines = String(items[qi].body || "").split("\n");
+        quote = `<div class="m-sig-quote" data-qi="${qi}">
+          <div class="m-sig-q-t">${_ntfEsc(lines[0] || items[qi].title)}</div>
+          ${lines[1] ? `<div class="m-sig-q-b">${_ntfEsc(lines[1])}</div>` : ""}
+        </div>`;
+      }
+    }
+    return `<div class="m-sig-msg" id="mSigMsg${i}">
       <img class="m-sig-avatar" src="/static/img/bear.png" alt="小啊">
       <div class="m-sig-col">
         <div class="m-sig-name">小啊</div>
-        <div class="${cls}" data-sym="${it.symbol || ""}" data-mkt="${it.market || ""}" data-exch="${it.exchange || ""}">
+        <div class="${cls}" data-sym="${it.symbol || ""}" data-mkt="${it.market || ""}" data-exch="${it.exchange || ""}"
+             data-tf="${it.tf || ""}" data-t="${_ntfEsc(it.t || "")}">
           <div class="m-sig-b-title">${_ntfEsc(it.title)}</div>
+          ${quote}
           <div class="m-sig-b-body">${_ntfEsc(it.body)}</div>
           <div class="m-sig-b-time">${_ntfFmtTime(it.ts)}</div>
         </div>
@@ -335,7 +370,18 @@ function _ntfRenderFeed() {
     </div>`;
   }).join("");
   list.querySelectorAll(".m-sig-bubble").forEach(b => b.addEventListener("click", () => {
-    if (b.dataset.sym) _ntfGoSymbol({ symbol: b.dataset.sym, market: b.dataset.mkt, exchange: b.dataset.exch });
+    if (b.dataset.sym) _ntfGoSymbol({ symbol: b.dataset.sym, market: b.dataset.mkt, exchange: b.dataset.exch,
+                                      tf: b.dataset.tf, t: b.dataset.t });
+  }));
+  // 點引用塊 → 捲到原進場訊息並短暫高亮（不觸發跳圖）
+  list.querySelectorAll(".m-sig-quote").forEach(q => q.addEventListener("click", e => {
+    e.stopPropagation();
+    const el = document.getElementById("mSigMsg" + q.dataset.qi);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      el.classList.add("m-sig-hl");
+      setTimeout(() => el.classList.remove("m-sig-hl"), 1400);
+    }
   }));
   if (atBottom) list.scrollTop = list.scrollHeight;   // 新訊息時保持在底部（聊天室行為）
 }
@@ -379,7 +425,7 @@ window._ntfLoadFeed = async function () {
 };
 window._ntfStopFeedPoll = function () { clearInterval(_ntfFeed.pollTimer); _ntfFeed.pollTimer = null; };
 
-// best-effort：切到通知標的（對不到格式只是圖不變，不會壞）
+// best-effort：切到通知標的＋對應時框，載入後捲到訊號時間（對不到格式只是圖不變，不會壞）
 function _ntfGoSymbol(info) {
   try {
     const mktEl = document.getElementById("marketSelect");
@@ -387,7 +433,31 @@ function _ntfGoSymbol(info) {
     if (mktEl && mktEl.value !== mkt) { mktEl.value = mkt; if (typeof updateMarketUI === "function") updateMarketUI(); }
     const inp = document.getElementById("symbolInput");
     if (inp) inp.value = info.symbol;
-    if (typeof loadData === "function") loadData(false);
+    // 切到通知對應的時框（1h/30m/15m…）：與 tf-btn 點擊行為一致
+    if (info.tf && document.querySelector(`.tf-btn[data-tf="${info.tf}"]`) && typeof currentTF !== "undefined") {
+      currentTF = info.tf;
+      document.querySelectorAll(".tf-btn").forEach(b => b.classList.toggle("active", b.dataset.tf === info.tf));
+      if (typeof applyMobileTFVisibility === "function") applyMobileTFVisibility();
+    }
+    const p = (typeof loadData === "function") ? loadData(false) : null;
     if (typeof window._mSetTab === "function") window._mSetTab("chart");
+    if (p && p.then && info.t) p.then(() => _ntfScrollToTime(info.t, info.tf)).catch(() => {});
+  } catch (e) {}
+}
+
+// 圖表捲到訊號時間附近（圖表時間 = UTC+8，與 toTime 慣例一致）；
+// 超出已載入歷史時 Lightweight Charts 會自動夾在最舊處，不會壞。
+const _NTF_TF_SEC = { "5m": 300, "15m": 900, "30m": 1800, "1h": 3600, "2h": 7200,
+                      "4h": 14400, "8h": 28800, "1d": 86400, "1w": 604800, "1M": 2592000 };
+function _ntfScrollToTime(t, tf) {
+  try {
+    if (typeof mainChart === "undefined" || !mainChart || !t) return;
+    let iso = String(t).trim().replace(" ", "T");
+    if (!/[Zz]|[+-]\d{2}:?\d{2}$/.test(iso)) iso += "Z";   // 後端為 UTC naive ISO
+    const ep = Date.parse(iso);
+    if (!isFinite(ep)) return;
+    const sec = _NTF_TF_SEC[tf] || _NTF_TF_SEC[(typeof currentTF !== "undefined" && currentTF) || ""] || 86400;
+    const tgt = Math.floor(ep / 1000) + 8 * 3600;
+    mainChart.timeScale().setVisibleRange({ from: tgt - 90 * sec, to: tgt + 30 * sec });
   } catch (e) {}
 }
