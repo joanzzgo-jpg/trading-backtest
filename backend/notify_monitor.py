@@ -84,7 +84,8 @@ def _build_payload(symbol, market, exchange, tf, k, d, sig, event="entry"):
         if entry is not None and risk and rr_real is not None:
             exit_px = entry - rr_real * risk if d == "s" else entry + rr_real * risk
         rr_show = rr_real if rr_real is not None else rr
-        l1 = f"{label} {dir_txt} " + ("止盈達成" if event == "tp" else "止損出場")
+        mark = "✅" if event == "tp" else "❌"   # 止盈勾勾 / 止損叉叉（推播與聊天室都吃 body）
+        l1 = f"{mark} {label} {dir_txt} " + ("止盈達成" if event == "tp" else "止損出場")
         if rr_show is not None:
             l1 += f" · 盈虧比 {rr_show:+.2f}"
         l2 = (f"進場 {_fmt_price(entry)}" if entry is not None else "")
