@@ -27,6 +27,26 @@
 - `VAPID_PRIVATE_KEY`（PEM）/`VAPID_SUBJECT`（`mailto:`）：Web Push 訊號通知的 VAPID 金鑰。
   未設定 → 通知功能停用（`notify_enabled()` 回 False），其餘功能不受影響。`routes/notify.py` 啟動時載入、
   推導 applicationServerKey 給前端 subscribe。詳見「Web Push 訊號通知」節。
+- `BINANCE_TRADE_API_KEY`/`BINANCE_TRADE_API_SECRET`：Binance USDⓈ-M 永續**下單**金鑰
+  （`utils/binance_trade.py`）。未設定 → 交易功能整組停用、前端入口自動隱藏。
+- `BINANCE_TRADE_ENV`：`testnet`（預設，https://testnet.binancefuture.com，金鑰到
+  https://testnet.binancefuture.com 登入後 API Key 頁產生）或 `live`（實盤真錢）。
+- `TRADE_ACCESS_KEY`：交易口令。站是公開多人用 → 除 `/api/trade/status` 外所有交易端點都要求
+  此口令（前端輸入一次存 localStorage["tradeKey"]）。**Railway 上沒設此值 → 交易端點一律 403**
+  （避免任何訪客動到下單）；本機開發無此值可直用。
+
+## Binance 永續交易（`routes/trade.py` + `utils/binance_trade.py`）
+- **手動交易**：前端交易面板（`trade.js`，桌面系統外觀彈窗/手機設定分頁入口）→
+  `/api/trade/order|close|cancel|overview|history`。保證金×槓桿=名目，數量/價格依 exchangeInfo
+  stepSize/tickSize 量化（快取 1hr）；停損/止盈用 `closePosition=true` 條件市價單交易所託管。
+- **自動交易**：設定存 DB 單列 `trade_auto`（10s 快取）。`notify_monitor._process_combo` 偵測到
+  新進場訊號 → `execute_signal_trade()`（市價進場+掛 SL/TP；逐事件去重 `atrade:*` 走 notify_seen，
+  先標記再下單=只試一次）；策略判定止盈/止損 → `settle_signal_trade()` 平掉對應倉位（與回測邏輯
+  對齊；交易所端先出場則冪等跳過）。**前提**：標的在帳號自選 + 帳號至少一台裝置有啟用通知訂閱
+  （監控器以訂閱者的 watchlist 組掃描清單）。
+- 符號解析：圖表符號 `BTC/USDT(.P)` → `BTCUSDT`；找不到時試 `1000`+base（圖上 1000 倍合約已
+  ÷1000 顯示 → 下單價格 ×scale 換回）。每筆下單記 `trade_log`（含 testnet/live 標記）。
+- 單向持倉模式（One-way）。同合約已有持倉 → 自動交易跳過（不加倉不對沖）。
 
 ## 資料夾用途（後端）
 

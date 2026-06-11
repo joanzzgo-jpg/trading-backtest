@@ -103,11 +103,12 @@
 | `ai_research.js` | ~233 | AI 研究面板 |
 | `signal_info.js` | ~732 | 訊號詳情左抽屜（SIGNAL_INFO metadata、統計列、敗後停手細節） |
 | `notify.js` | ~393 | **訊號通知中心**（聊天室式底部分頁）+ Web Push 訂閱（VAPID）：偏好（監控時框/通知事件）帳號級同步、`/api/notify/feed` 訊號歷史、測試通知。詳見「訊號通知中心」節 |
+| `trade.js` | ~300 | **Binance 永續交易面板**（手動下單/持倉/平倉/撤單 + 自動交易設定）：後端未設交易金鑰時入口自動隱藏；testnet/實盤徽章；交易口令存 localStorage["tradeKey"]；面板開著時每 5s 刷新持倉。後端見 docs/backend.md「Binance 永續交易」節 |
 | `account.js` | ~197 | 帳號系統（登入/登出、雲端同步 _acctTouch）+ landing 帳號鎖（`_initLandingLock`） |
 | `backtest.js` | ~324 | 策略回測 UI（📊 鈕 #backtestBtn）：注入 modal，CRT 訊號模式→/api/crt_backtest；績效卡 + canvas 資金曲線 |
 | `main.js` | ~271 | DOMContentLoaded 初始化入口（呼叫所有 init、initBacktest、loadData）、字體大小 IIFE、延遲載入特效、**landing 封面進場/重跳邏輯（`initLanding`）** |
 
-> bundle `names` 順序（main.py）：`config, utils, charts, draw, colors, ticker, winrate, render, realtime, replay, ui, ai_research, signal_info, account, notify, backtest, main`。
+> bundle `names` 順序（main.py）：`config, utils, charts, draw, colors, ticker, winrate, render, realtime, replay, ui, ai_research, signal_info, account, notify, trade, backtest, main`。
 > **已移除功能**：ICT 工具（FVG/BOS/CHoCH/Order Block/2022 模型）與 SnR 支撐壓力曾加入後又於 commit f1d0f25 整組移除（視覺太雜），現已無相關程式碼。
 
 **B. 動態載入檔（不在 bundle，由 `main.js` 閒置後注入 `<script async=false>`，版號走 `_asset_ver` 的 mtime）**
