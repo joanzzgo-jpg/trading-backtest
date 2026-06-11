@@ -220,7 +220,7 @@ function _ntfOpenPopup(anchorBtn) {
   if (typeof window._closeAllFloatPanels === "function") window._closeAllFloatPanels("");
   const opening = !pop.classList.contains("open");
   pop.classList.toggle("open");
-  if (opening && anchorBtn && !window.matchMedia("(max-width:768px)").matches) {
+  if (opening && anchorBtn && !isMobileUI()) {
     requestAnimationFrame(() => {
       const r = anchorBtn.getBoundingClientRect();
       let left = r.right - pop.offsetWidth; if (left < 4) left = 4;

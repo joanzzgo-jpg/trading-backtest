@@ -12,7 +12,7 @@ function bindEvents() {
   });
 
   // ── 側欄 / 行情列表 ──────────────────────────────
-  const isMobile = () => window.innerWidth <= 768;
+  const isMobile = () => isMobileUI();
   function openTicker()   { document.getElementById("tickerPanel").classList.add("ticker-open");  showOverlay(); }
   function closeTicker()  { document.getElementById("tickerPanel").classList.remove("ticker-open"); checkOverlay(); }
   function showOverlay()  { document.getElementById("panelOverlay").classList.remove("hidden"); }

@@ -22,7 +22,7 @@ html.perf-mode #weatherStage,
 html.perf-mode .click-spark,
 html.perf-mode .btn-ripple-wave { display: none !important; }
 /* 手機：關掉按鈕漣漪（矮寬按鈕上會外溢成半圓放大動畫）— JS 已不建立，這是保險 */
-@media (max-width: 768px) { .btn-ripple-wave { display: none !important; } }
+@media (max-width: 1180px), (hover: none) and (pointer: coarse) { .btn-ripple-wave { display: none !important; } }
 /* 極簡模式下，除了「恢復特效」按鈕，其他 FX 按鈕標示為停用 */
 html.perf-mode #fxPanel .fx-btn:not(#perfModeBtn) {
   opacity: 0.35;
@@ -261,6 +261,9 @@ html, body {
   flex-shrink: 0;
   gap: 0;
   position: relative;
+  /* 注意：不可加 z-index 蓋過 #weatherStage——雲/天氣物件「飄過主圖上方控制列」是設計特色
+     （曾為去毛玻璃感誤加 z-index:2 → 天氣物件全被蓋掉）。毛玻璃感由 weather.js 把全幕灰膜
+     移到最深天空層解決。 */
 }
 
 .topbar-left {
@@ -358,11 +361,11 @@ html.perf-mode .tb-icon-btn:hover svg { animation: none; transform: scale(1.1); 
 .tb-icon-btn:active { transform: translateY(0) scale(.94); }
 .tb-icon-btn.active { color: var(--accent); background: rgba(255,106,26,.14); box-shadow: inset 0 0 0 1px rgba(255,106,26,.3), 0 2px 8px rgba(255,106,26,.16); }
 /* 手機不需要策略回測 → 隱藏回測鈕（時段標記鈕仍保留） */
-@media (max-width: 768px) { #backtestBtn { display: none !important; } }
+@media (max-width: 1180px), (hover: none) and (pointer: coarse) { #backtestBtn { display: none !important; } }
 /* 交易時段標記按鈕：手機改放「設定」分頁（topbar 太佔位） */
-@media (max-width: 768px) { #sessionToggleBtn { display: none !important; } }
+@media (max-width: 1180px), (hover: none) and (pointer: coarse) { #sessionToggleBtn { display: none !important; } }
 /* S1–S12 訊號標記開關：手機改放「設定」分頁（#mSetWrSig 代按 topbar 鈕） */
-@media (max-width: 768px) { #wrSignalsToggleBtn { display: none !important; } }
+@media (max-width: 1180px), (hover: none) and (pointer: coarse) { #wrSignalsToggleBtn { display: none !important; } }
 #leafToggleBtn, #rainToggleBtn, #snowToggleBtn, #springToggleBtn { font-size: 14px; }
 #leafToggleBtn.leaf-active   { background: rgba(230,126,34,.18);  color: #E67E22; }
 #rainToggleBtn.rain-active   { background: rgba(100,160,255,.18); color: #6EB5FF; }
@@ -623,7 +626,7 @@ html.perf-mode .tb-icon-btn:hover svg { animation: none; transform: scale(1.1); 
 
 /* ═══ TOPBAR WIN-RATE ═══ */
 /* 細項永遠顯示；只在窄到會嚴重重疊時整欄隱藏（TF 按鈕已 z-index:3 蓋過勝率欄） */
-@media (max-width: 1100px) {
+@media (max-width: 1180px), (hover: none) and (pointer: coarse) {
   /* iPad / 手機：勝率欄縮小成「只剩右側摘要」，總勝率 + 敗後停手仍可見 */
   .tb-winrate { flex: 0 0 auto !important; margin: 0 4px !important; padding: 0 4px !important; }
   /* 隱藏左側目標切換 / SL buffer 設定（進階控制，桌面才需要） */
@@ -635,42 +638,7 @@ html.perf-mode .tb-icon-btn:hover svg { animation: none; transform: scale(1.1); 
   .ticker-panel { display: none !important; }
 }
 
-/* ═══ 中型畫面（iPad，769~1100px）專屬優化 ═══
-   單列 topbar 在此寬度最擠：10 顆 TF + 7 顆 icon 會把勝率欄壓到 0 寬 → 看不到勝率。
-   作法：壓縮 TF / 標的輸入框騰空間 → 勝率欄左側常駐「各指標(S1~S12)勝率」可橫滑清單、
-   右側「總勝率 + 敗後停手率 + 近100 + 筆數」摘要。
-   ≤768 會被後面的「2 列 topbar」區塊覆蓋（手機勝率欄整個隱藏），故此區只影響平板。 */
-@media (min-width: 769px) and (max-width: 1100px) {
-  /* TF 按鈕緊湊化（10 顆並排省最多空間） */
-  .tf-group { gap: 0 !important; padding: 0 2px !important; }
-  .tf-btn { padding: 4px 5px !important; font-size: 11px !important; letter-spacing: 0 !important; }
-  /* 標的輸入框收窄 */
-  .tb-symbol-input { max-width: 92px !important; }
-  /* 品牌副標（TRADING 小字）藏起來省左側寬度，Logo 圖示保留 */
-  .topbar-brand-sub { display: none !important; }
-  /* 勝率欄彈性撐滿（左:指標勝率清單 / 右:總勝率摘要） */
-  .tb-winrate { flex: 1 1 auto !important; min-width: 0 !important; }
-
-  /* ── 總勝率左邊：常駐顯示各指標（S1~S12）勝率 ──
-     觸控裝置無十字線 hover → 把原本「hover 才出現」的靜態 S1~S12 清單放出來常駐，
-     橫向可左右滑（.tb-wr-scroll 本身 overflow-x:auto + 邊緣淡出遮罩已暗示可滾）。
-     用 .tb-winrate 前綴提高權重，蓋過全域 `#wrScroll > .tb-wr-block{display:none}`。 */
-  .tb-wr-scroll { display: flex !important; }
-  .tb-wr-hover  { display: none !important; }          /* 觸控無 hover，藏提示文字 */
-  .tb-winrate #wrScroll > .tb-wr-block   { display: inline-flex !important; }
-  .tb-winrate #wrScroll > .tb-wr-divider { display: inline-block !important; }
-  /* block 緊湊化：省略「X勝Y負」小字，只留訊號符號 + ▼空% / ▲多%，一眼多看幾個 */
-  .tb-wr-block { padding: 2px 4px !important; gap: 2px !important; }
-  .tb-wr-block .tb-wr-cnt { display: none !important; }
-
-  /* 右摘要保留：總勝率 + 敗後停手率 + 近100 + 筆數；省略 預估命中 / 起始日（最長、最不即時） */
-  .tb-wr-fixed-right .tb-wr-est,
-  .tb-wr-fixed-right .tb-wr-from { display: none !important; }
-  .tb-wr-total { font-size: 15px !important; padding: 0 4px !important; }
-  .tb-wr-stoprate,
-  .tb-wr-recent { font-size: 12px !important; }
-  .tb-wr-status { font-size: 11px !important; }
-}
+/* （2026-06 移除）769~1100px 平板專屬優化：手機斷點已拉到 ≤1180px，此區間一律走手機版 UI */
 .tb-winrate {
   /* flex:1 佔滿 topbar 內 left 與 tf+right 之間的所有可用空間 */
   flex: 1 1 auto;
@@ -822,7 +790,7 @@ html.perf-mode .tb-wr-hover-nav { background: #F0F0F0; border-color: #E0E0E0; }
 @keyframes wrCardOut { from { opacity: 1; } to { opacity: 0; transform: translateY(-4px); } }
 
 /* ── 手機字體大小選項（標準 / 大 / 特大）：放大主要可讀文字（設定分頁切換）── */
-@media (max-width: 768px) {
+@media (max-width: 1180px), (hover: none) and (pointer: coarse) {
   /* 大 */
   body.m-font-lg .tk-sym                                   { font-size: 17px !important; }
   body.m-font-lg .tk-price-val                             { font-size: 16px !important; }
@@ -2671,7 +2639,7 @@ html.perf-mode .time-axis-year {
 .panel-overlay.hidden { display: none; }
 
 /* ═══ MOBILE RESPONSIVE ═══ */
-@media (max-width: 900px) {
+@media (max-width: 1180px), (hover: none) and (pointer: coarse) {
   .tb-indicators-btn { display: none; }
 
   /* 繪圖工具欄移到底部 */
@@ -2699,7 +2667,7 @@ html.perf-mode .time-axis-year {
   .symbol-bar { padding-left: 12px; }  /* 移除桌面左側繪圖欄空白 */
 }
 
-@media (max-width: 768px) {
+@media (max-width: 1180px), (hover: none) and (pointer: coarse) {
   #tickerToggle { display: flex !important; }
 
   /* Ticker panel: slide-in overlay */
@@ -2969,7 +2937,7 @@ html.perf-mode .time-axis-year {
   background: var(--accent); color: #fff; font-size: 10px; font-weight: 800;
 }
 /* 手機才依使用者選擇隱藏未選的時間框；桌面/iPad 一律顯示全部 */
-@media (max-width: 768px) {
+@media (max-width: 1180px), (hover: none) and (pointer: coarse) {
   .tf-btn.tf-hidden-mobile { display: none !important; }
 }
 .sys-color-swatch {
@@ -3471,7 +3439,7 @@ html:not(.perf-mode).sky-night #weatherStage { opacity: 0.6; }
 .ai-target-summary .ai-tgt-ok { color: var(--text); }
 .ai-target-summary .ai-tgt-err { color: #ef5350; }
 
-@media (max-width: 768px) {
+@media (max-width: 1180px), (hover: none) and (pointer: coarse) {
   .ai-modal { width: 100%; max-width: 100%; height: 92vh; max-height: 92vh; border-radius: 0; }
   .ai-overlay { padding-top: 0; }
   .ai-form-row-grid { grid-template-columns: 1fr 1fr; }
@@ -3811,7 +3779,7 @@ html.perf-mode .sig-solve b.good { color: #16a34a; }
 /* 抽屜開啟時，圖表稍微讓位（可選）— 預設不縮，浮在上方 */
 body.sig-drawer-open { /* 留作未來用 */ }
 
-@media (max-width: 768px) {
+@media (max-width: 1180px), (hover: none) and (pointer: coarse) {
   .sig-drawer { width: 100%; max-width: 100%; }
 }
 
@@ -3921,7 +3889,7 @@ html.perf-mode #wrVariantToggle.variant {
   height: 32px;                  /* 略加高一點獨立列的呼吸 */
 }
 html.perf-mode .tb-winrate { margin-top: 3px !important; }
-@media (max-width: 768px) {
+@media (max-width: 1180px), (hover: none) and (pointer: coarse) {
   .tb-winrate { height: 30px; }
 }
 
@@ -4009,7 +3977,7 @@ html.perf-mode .tb-wr-icon { font-size: 15px; filter: none; }
 html.perf-mode .tb-wr-pct  { font-size: 13px; }
 html.perf-mode .tb-wr-total { font-size: 20px !important; }
 
-@media (max-width: 768px) {
+@media (max-width: 1180px), (hover: none) and (pointer: coarse) {
   .tb-winrate { height: 48px !important; padding: 0 8px !important; }
   .tb-wr-icon { font-size: 14px; }
   .tb-wr-pct  { font-size: 12px; }
@@ -4042,7 +4010,7 @@ html.perf-mode .tb-wr-total { font-size: 20px !important; }
   font-size: 13px;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 1180px), (hover: none) and (pointer: coarse) {
   /* .tf-btn 尺寸統一在「下劃線分頁」區（移除此處 11px 殘留，曾覆蓋成過小字級）*/
   .topbar-right .tb-icon-btn { padding: 6px 8px; }
 }
@@ -4056,7 +4024,7 @@ html.perf-mode .tb-wr-total { font-size: 20px !important; }
   row-gap: 4px;
 }
 /* 移動端不變 */
-@media (max-width: 768px) {
+@media (max-width: 1180px), (hover: none) and (pointer: coarse) {
   .topbar { padding: 4px !important; }
 }
 
@@ -4078,7 +4046,7 @@ html.perf-mode .tb-wr-total { font-size: 20px !important; }
   padding: revert !important;
   row-gap: 0;
 }
-@media (max-width: 768px) {
+@media (max-width: 1180px), (hover: none) and (pointer: coarse) {
   /* .tf-btn 不再 revert（交給「下劃線分頁」區統一掌管）*/
   .topbar-right .tb-icon-btn { padding: revert; }
   .topbar { padding: revert !important; }
@@ -4110,7 +4078,7 @@ html.perf-mode .tb-wr-icon { font-size: 11px; filter: none; }
 html.perf-mode .tb-wr-pct  { font-size: 11px; }
 html.perf-mode .tb-wr-total { font-size: 14px !important; }
 
-@media (max-width: 768px) {
+@media (max-width: 1180px), (hover: none) and (pointer: coarse) {
   .tb-winrate { height: 34px !important; padding: 0 6px !important; }
   .tb-wr-icon { font-size: 10px; }
   .tb-wr-pct  { font-size: 10px; }
@@ -4164,7 +4132,7 @@ html.perf-mode .tb-wr-stoprate { color: #E85A1A; background: rgba(255,106,26,.08
 html.perf-mode .tb-wr-stoprate.good { color: #16a34a; }
 html.perf-mode .tb-wr-stoprate.bad  { color: #dc2626; }
 
-@media (max-width: 768px) {
+@media (max-width: 1180px), (hover: none) and (pointer: coarse) {
   .tb-wr-est { font-size: 9px; }
   .tb-wr-recent { font-size: 9px; }
 }
@@ -4305,7 +4273,7 @@ html.perf-mode .wr-top3-sum { color: #E85A1A; }
 html.perf-mode .wr-top3-wr { color: #1F1F1F; }
 html.perf-mode .wr-top3-item { background: rgba(255,180,80,.12); }
 
-@media (max-width: 768px) {
+@media (max-width: 1180px), (hover: none) and (pointer: coarse) {
   .tb-wr-top3 { font-size: 10px; height: 22px; padding: 0 6px; }
   .wr-top3-icon { font-size: 10px; }
   .wr-top3-wr   { font-size: 11px; }
@@ -5673,7 +5641,7 @@ body, button, input, select, textarea,
    目標：①標的完整顯示可點 ②勝率數字看得到（最在意）③工具列分列不擁擠。
    分列：列1 標的+圖示／列2 勝率／列3 TF。
    ══════════════════════════════════════════════════════════════ */
-@media (max-width: 768px) {
+@media (max-width: 1180px), (hover: none) and (pointer: coarse) {
   .topbar {
     height: auto !important;
     min-height: 0 !important;
@@ -5760,7 +5728,7 @@ body, button, input, select, textarea,
    ══════════════════════════════════════════════════════════════ */
 .m-tabbar { display: none; }
 
-@media (max-width: 768px) {
+@media (max-width: 1180px), (hover: none) and (pointer: coarse) {
   .m-tabbar {
     display: flex;
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 700;
@@ -5820,11 +5788,14 @@ body, button, input, select, textarea,
     /* 統一品牌圓體（橘子熊可愛風）*/
     font-family: "M PLUS Rounded 1c", -apple-system, "PingFang TC", system-ui, sans-serif !important;
   }
-  /* 自選頁天氣/太陽系儀：面板維持不透明（半透明會讓後方圖表頁 UI 鬼影透出），
-     改把天氣舞台升到面板之上（pointer-events:none 不影響點擊）→ 儀表畫在清單上方當裝飾 HUD */
+  /* 自選頁：舞台升到清單之上，但「只露 fore 層」（太陽系儀 HUD）——
+     天空/雲各層隱藏，否則半透明天空整片罩在列表上像毛玻璃濾鏡（使用者回饋：背景不要毛玻璃過濾；
+     太陽系儀則指定手機/iPad 都放自選頁）。面板維持不透明（防後方圖表頁鬼影）。 */
   html:not(.perf-mode).sky-show body.m-tab-watch #weatherStage {
     z-index: 690 !important;   /* > .ticker-panel(650)、< 底部分頁列(700) */
   }
+  html:not(.perf-mode).sky-show body.m-tab-watch #weatherStage .wx-layer { visibility: hidden; }
+  html:not(.perf-mode).sky-show body.m-tab-watch #weatherStage .wx-fore  { visibility: visible; }
   /* 防止行情列右側價格被切：禁止橫向溢出（不動 header 結構，避免搜尋框撐爆） */
   body.m-tab-watch .ticker-list { overflow-x: hidden !important; background: transparent !important; }
   body.m-tab-watch .ticker-item {
@@ -6103,7 +6074,7 @@ html.landing-active .landing { background: transparent; }
 /* ══════════════════════════════════════════════════════════════
    手機原生感（app-like）：去點擊灰底、慣性捲動、捲動不連鎖、介面不誤選字
    ══════════════════════════════════════════════════════════════ */
-@media (max-width: 768px) {
+@media (max-width: 1180px), (hover: none) and (pointer: coarse) {
   /* 點任何按鈕都不要冒出灰色高亮方塊（iOS/Android 預設） */
   a, button, .tb-icon-btn, .fx-btn, .m-tab, .tf-btn, .sym-tab,
   .tk-mkt-btn, .tk-seg-btn, .ticker-item, .leg-toggle, .tb-wr-block {
@@ -6135,7 +6106,7 @@ html.landing-active .landing { background: transparent; }
   border-radius: 8px; background: #e5533d; color: #fff; font-size: 9px; font-weight: 700;
   display: flex; align-items: center; justify-content: center; line-height: 1;
 }
-@media (max-width: 768px) {
+@media (max-width: 1180px), (hover: none) and (pointer: coarse) {
   body.m-tab-signals .charts-container { display: none !important; }
   .m-signals {
     position: fixed; left: 0; right: 0; top: 0; bottom: 46px; z-index: 650;
@@ -6185,7 +6156,7 @@ html.landing-active .landing { background: transparent; }
   .m-sig-empty   { text-align: center; color: var(--muted); font-size: 13px; margin-top: 48px; }
 }
 
-@media (max-width: 768px) {
+@media (max-width: 1180px), (hover: none) and (pointer: coarse) {
   /* 設定分頁：全螢幕設定列表（蓋住 topbar/圖表，下到分頁列上方） */
   body.m-tab-settings .charts-container { display: none !important; }
   .m-settings {
@@ -6309,7 +6280,7 @@ html.landing-active .landing { background: transparent; }
 /* ══════════════════════════════════════════════════════════════
    手機「自選」分頁：把頂部按鈕放大好點（市場鈕/排序鈕原本只有 ~16px 高）
    ══════════════════════════════════════════════════════════════ */
-@media (max-width: 768px) {
+@media (max-width: 1180px), (hover: none) and (pointer: coarse) {
   .ticker-hd { padding: 8px 10px !important; gap: 8px; }
   .tk-mkt-tabs, .tk-seg { padding: 4px !important; border-radius: 11px !important; }
   .tk-mkt-btn {
@@ -6384,7 +6355,7 @@ html.perf-mode .acct-btn { background: #FF6A1A; }
 html.perf-mode .acct-btn-ghost { background: #F5F5F5; color: #1F1F1F; border-color: #E5E5E5; }
 
 /* 手機：桌面帳號鈕隱藏（改用「設定」分頁的帳號列） */
-@media (max-width: 768px) {
+@media (max-width: 1180px), (hover: none) and (pointer: coarse) {
   #acctTopBtn { display: none !important; }
 }
 

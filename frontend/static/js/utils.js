@@ -32,9 +32,19 @@ function hexAlpha(hex, opacity) {
 /* ── localStorage ── */
 // 顏色/樣式設定「手機端與電腦端各自獨立」：手機用 _m 後綴的 key。
 // 兩套 key 都在帳戶快照內 → 都隨帳戶同步，但各平台讀寫自己那份、互不影響。
+/* 手機版 UI 判斷（全站唯一準則）：寬 ≤1180（涵蓋手機 + 所有 iPad 尺寸 + 桌機縮窄視窗）
+   或「觸控為主、無 hover」裝置（補 12.9" iPad 橫向 1366px）。介面只分兩種：手機款 / 桌面款。
+   觸控筆電不受影響（主指標為 fine pointer）。CSS 端對應：style.css 各斷點同步用
+   `(max-width: 1180px), (hover: none) and (pointer: coarse)`，兩邊判斷必須保持一致。 */
+function isMobileUI() {
+  try {
+    return !!(window.matchMedia && (
+      window.matchMedia("(max-width: 1180px)").matches ||
+      window.matchMedia("(hover: none) and (pointer: coarse)").matches));
+  } catch (e) { return window.innerWidth <= 1180; }
+}
 function _isMobilePrefs() {
-  try { return !!(window.matchMedia && window.matchMedia("(max-width: 768px)").matches); }
-  catch (e) { return false; }
+  return isMobileUI();
 }
 function _prefKey(base) { return _isMobilePrefs() ? base + "_m" : base; }
 function savePrefs() {

@@ -164,7 +164,7 @@ async function fetchTickers() {
     }
 
     // 手機版面板未滑出時跳過 DOM 更新；桌面版面板永遠可見
-    const isMobile = window.innerWidth <= 900;
+    const isMobile = window.innerWidth <= 900 || isMobileUI();
     const panelOpen = !isMobile || document.getElementById("tickerPanel").classList.contains("ticker-open");
     if (!panelOpen) { updatePageTitle(); return; }
 

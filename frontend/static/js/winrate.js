@@ -703,7 +703,7 @@ function _updateHoverWR(time) {
   const host = document.getElementById("wrHover");
   if (host) host.innerHTML = _hoverWRHtml(sigs);
   // 手機 3+ 訊號（卡片模式）→ 啟動自動輪播；否則停止
-  const isCardMode = (typeof matchMedia === "function") && matchMedia("(max-width:768px)").matches && sigs.length >= 3;
+  const isCardMode = isMobileUI() && sigs.length >= 3;
   if (isCardMode) _startHoverAutoCycle(); else _stopHoverAutoCycle();
   // 圖上 RR 盒：停留 0.5s 才顯示（換棒先清掉前一根的盒，避免掃動時盒子狂閃）
   clearTimeout(_hoverRRTimer);
@@ -753,7 +753,7 @@ function _hoverWRHtml(sigs) {
     return `<span class="tb-wr-hover-hint">十字線移到訊號 K 棒 → 顯示該棒勝率</span>`;
   }
   // 手機 + 3 個以上訊號：一列塞不下 → 改「圖卡切換」一次顯示一張 + ‹ N/M › 切換
-  const isMobile = (typeof matchMedia === "function") && matchMedia("(max-width:768px)").matches;
+  const isMobile = isMobileUI();
   if (isMobile && sigs.length >= 3) {
     if (_hoverCardIdx >= sigs.length || _hoverCardIdx < 0) _hoverCardIdx = 0;
     return `<div class="tb-wr-hover-cardwrap">`

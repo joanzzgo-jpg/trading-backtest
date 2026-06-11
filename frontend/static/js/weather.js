@@ -40,7 +40,7 @@
   const _layers = {};
   _LAYER_DEFS.forEach(([name, d, hi], i) => {
     const cv = (i === 0) ? canvas : document.createElement("canvas");   // sky 沿用既有 #weatherBg（CSS 掛勾都在它身上）
-    cv.classList.add("wx-layer");
+    cv.classList.add("wx-layer", "wx-" + name);   // wx-<層名>：CSS 可單獨控某層顯隱（自選頁只露 fore 層太陽系儀）
     if (cv !== canvas) stage.appendChild(cv);                            // DOM 順序＝疊放順序（transform-style 預設 flat）
     const s = 1 - d / _P;                   // 補償縮放：translateZ 往後縮小 k=P/(P-d)，scale=1/k 補回鋪滿
     // 出血放大 ov：相機運鏡時此層最多橫移 (−d/(P−d))×AMP% 視窗 → 額外放大兩倍此量，
@@ -999,8 +999,10 @@
   function _drawOrrery() {
     const g = _layers.fore.ctx;
     let R, cx, cy;
-    if (_lowFx) {
-      // 手機：只在「自選」分頁顯示（body.m-tab-watch，main.js setTab 掛的），置中放大當背景儀表
+    // 手機/iPad（手機版 UI，非僅 _lowFx：iPad 螢幕大不算 lowFx 但介面同手機）：
+    // 只在「自選」分頁顯示（body.m-tab-watch，main.js setTab 掛的），置中放大當背景儀表
+    const _mobUI = (typeof isMobileUI === "function") ? isMobileUI() : _lowFx;
+    if (_mobUI) {
       if (!document.body.classList.contains('m-tab-watch')) return;
       R = Math.min(W, H) * 0.34;
       cx = W * 0.5; cy = H * 0.38;
@@ -1446,15 +1448,16 @@
       const z = Math.random();
       const isCb = conv && i < Math.max(1, Math.round(nCloud*0.5));  // 約半數畫成積雨雲
       // 尺寸分級：約 1/3 是「大雲」、其餘中小 → 破除「每朵都差不多大」的均一感
-      const szMul = (Math.random() < 0.33) ? (1.5 + Math.random()*0.6)   // 大雲 1.5~2.1×
-                                           : (0.72 + Math.random()*0.5); // 中小 0.72~1.22×
+      // （2026-06 全面縮小 ~30%：使用者回饋雲太大，整朵最寬不超過 1/3 螢幕）
+      const szMul = (Math.random() < 0.33) ? (1.15 + Math.random()*0.4)  // 大雲 1.15~1.55×
+                                           : (0.55 + Math.random()*0.38);// 中小 0.55~0.93×
       return {
         x: Math.random()*W,
         y: isCb ? H*(.10 + Math.random()*.16)        // 積雨雲底部偏低（塔身往上長）
                 : H*(.04 + (1-z)*.32 + Math.random()*.18),  // 遠雲偏高、近雲偏低
         // 近大遠小(景深) × 尺寸分級(大/中小)；上限避免大到誇張
         sc: isCb ? scBase*(.7+z*.45)+.02
-                 : Math.min(.46, scBase*(.58 + z*.62) * szMul) + Math.random()*.02,
+                 : Math.min(.30, scBase*(.58 + z*.62) * szMul) + Math.random()*.02,
         al: Math.min(.96, (isCb ? alBase*(.9+z*.5)+.10 : alBase*(.7+z*.7)) + Math.random()*.08),
         sp: (.03+Math.random()*.10)*wf*(.5+z),       // 近快遠慢（視差）
         shape: isCb ? 4 : 0,
@@ -2303,7 +2306,10 @@
 
   /* ── 陰天/密雲：全灰滿雲、無太陽（比 cloudy 更暗更密）── */
   function dOvercast(t) {
-    ctx.fillStyle = "rgba(150,160,176,.16)"; ctx.fillRect(0,0,W,H);   // 灰天幕（調淡：讓後方天文透出）
+    // 灰天幕改畫在最深的天空層：只當「天色」、不再像毛玻璃膜罩在雲/UI 前面（使用者回饋）
+    const gsky = _layers.sky.ctx;
+    gsky.fillStyle = "rgba(150,160,176,.16)"; gsky.fillRect(0,0,W,H);
+    gsky.fillStyle = "rgba(118,128,144,.09)"; gsky.fillRect(0,0,W,H);
     const cdir = _windVecX() >= 0 ? 1 : -1, margin = W*0.6;
     cloudP.forEach((c, i) => {
       c.x += c.sp * cdir;
@@ -2313,12 +2319,12 @@
       _cloud(c.x, c.y + Math.sin(t*.14 + i*1.1)*3, W*c.sc*1.18,
              Math.min(.92, c.al + .28), c.shape, c.flip, 1, c.puffs, c.z);
     });
-    ctx.fillStyle = "rgba(118,128,144,.09)"; ctx.fillRect(0,0,W,H);   // 再壓一層暗（調淡）
   }
 
   /* ── 毛毛雨/微雨：稀疏細小雨絲、無漣漪無暴風天幕（比 rain 輕很多）── */
   function dDrizzle() {
-    ctx.fillStyle = "rgba(150,165,186,.13)"; ctx.fillRect(0,0,W,H);   // 淡灰濛
+    // 淡灰濛改畫在天空層（同 dOvercast：去毛玻璃膜感）
+    _layers.sky.ctx.fillStyle = "rgba(150,165,186,.13)"; _layers.sky.ctx.fillRect(0,0,W,H);
     ctx.lineCap = "round";
     const lean = _windVecX()*.10, wd = _windDriftPx()*.5;   // 傾斜/飄移跟著風
     rainP.forEach(p => {
