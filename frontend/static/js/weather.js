@@ -1021,7 +1021,7 @@
     }
     const rad = au => R * (0.16 + 0.84 * Math.log10(au / 0.28) / Math.log10(31 / 0.28));
     const TILT = 0.42;                                                 // 斜上方俯視：y 軸壓縮（軌道面傾斜）
-    const B = _lowFx ? 1.7 : 1;          // 手機：隔著自選頁半透面板 → 整體增亮
+    const B = _lowFx ? 1.1 : 1;          // 手機：儀表畫在自選清單上方（舞台升層），微增亮即可
     g.save(); g.globalAlpha = Math.min(1, 0.92 * B);
     // 底盤暗暈：跟著傾斜壓扁 → 像一塊懸浮的儀表平面
     g.save(); g.translate(cx, cy); g.scale(1, TILT);

@@ -5820,11 +5820,10 @@ body, button, input, select, textarea,
     /* 統一品牌圓體（橘子熊可愛風）*/
     font-family: "M PLUS Rounded 1c", -apple-system, "PingFang TC", system-ui, sans-serif !important;
   }
-  /* 透景（sky-show）：自選頁主背景改半透明 → 後方天氣/太陽系儀（手機版置中在此頁）透得出來 */
-  html:not(.perf-mode).sky-show body.m-tab-watch .ticker-panel {
-    background:
-      radial-gradient(130% 45% at 50% -6%, rgba(255,145,71,.10), transparent 60%),
-      linear-gradient(180deg, color-mix(in srgb, var(--bg2) 58%, transparent) 0%, color-mix(in srgb, var(--bg) 58%, transparent) 100%) !important;
+  /* 自選頁天氣/太陽系儀：面板維持不透明（半透明會讓後方圖表頁 UI 鬼影透出），
+     改把天氣舞台升到面板之上（pointer-events:none 不影響點擊）→ 儀表畫在清單上方當裝飾 HUD */
+  html:not(.perf-mode).sky-show body.m-tab-watch #weatherStage {
+    z-index: 690 !important;   /* > .ticker-panel(650)、< 底部分頁列(700) */
   }
   /* 防止行情列右側價格被切：禁止橫向溢出（不動 header 結構，避免搜尋框撐爆） */
   body.m-tab-watch .ticker-list { overflow-x: hidden !important; background: transparent !important; }
