@@ -2703,6 +2703,9 @@
       hg2.addColorStop(1, `rgba(255,150,95,${(0.15 * nf2 * sceneA).toFixed(3)})`);
       gs.fillStyle = hg2; gs.fillRect(0, H * 0.82, W, H * 0.18);
     }
+    // 品牌暖調和聲：整片極淡暖橘罩 → 天氣場景色溫往主背景（暖褐橘系）靠攏，不與品牌色打架
+    gs.fillStyle = `rgba(255,150,88,${(0.035 * sceneA).toFixed(3)})`;
+    gs.fillRect(0, 0, W, H);
   }
 
   /* ── Bokeh 光斑（鏡頭散景）：夜間最前層幾顆大柔光圓緩慢漂移、邊緣微亮（電影鏡頭感）── */

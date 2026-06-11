@@ -3207,6 +3207,12 @@ html.perf-mode .time-axis-year {
 html:not(.perf-mode) #mainPane {
   box-shadow: inset 0 1px 0 rgba(255,255,255,.045), inset 0 -1px 0 rgba(0,0,0,.35);
 }
+/* 行情側欄與主圖同調：頂部一抹「當前天氣 accent」微光（--wxA/--wxB 由 colors.js 隨天氣更新） */
+html:not(.perf-mode).sky-show .ticker-panel {
+  background:
+    radial-gradient(130% 26% at 50% -4%, color-mix(in srgb, var(--wxA, transparent) 7%, transparent) 0%, transparent 62%),
+    linear-gradient(180deg, color-mix(in srgb, var(--wxB, transparent) 3%, var(--bg2)) 0%, var(--bg2) 45%);
+}
 /* 主背景升級：死平單色 → 極淡的對角色暈（右上 accent 橘 / 左下 靛紫），整頁有空氣感
    （applyAllColors 會清掉 body inline background → 此 CSS 生效；landing 有自己的 !important 漸層不受影響） */
 html:not(.perf-mode) body {

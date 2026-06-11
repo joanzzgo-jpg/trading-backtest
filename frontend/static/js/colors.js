@@ -47,7 +47,11 @@ function _applyChartBgGradient(color) {
   const pane = document.getElementById("mainPane");
   if (!pane) return;
   const _perf = document.documentElement.classList.contains("perf-mode");
-  if (_perf) { pane.style.background = ""; return; }   // 極簡模式不上色，浮水印才看得到
+  if (_perf) {
+    pane.style.background = "";   // 極簡模式不上色，浮水印才看得到
+    ["kdjPane", "rsiPane", "macdPane"].forEach(id => { const el = document.getElementById(id); if (el) el.style.background = ""; });
+    return;
+  }
   if (color == null) color = (typeof C !== "undefined" && (C.chartBg || C.bg)) || "#131722";  // 無參數→用目前主圖色（給 effects.js 夜空切換重套用）
   const dark = _darkenForChart(color);
   // 透景：中央色帶轉半透明 → 天氣/天文 3D 場景從 K 線後方透出，
@@ -78,13 +82,25 @@ function _applyChartBgGradient(color) {
     : "";
   const sheen    = `linear-gradient(115deg, rgba(255,255,255,.020) 0%, transparent 30%), `;          // 微光澤
   const vignette = `radial-gradient(125% 95% at 50% 42%, transparent 62%, rgba(0,0,6,.08) 100%), `;  // 極輕暗角
-  // 下方時間軸區：底緣改成半透明（不再實色蓋到 var(--bg)）→ 時間軸漸層透一些、背景/天氣淡淡透出
+  // 上下淡接改「獨立垂直層」：斜向漸層在寬面板會讓頂/底緣兩端落在不同漸層位置 →
+  // 「主背景↔主圖」的上下淡入曾因此消失。垂直層專管淡接、斜向層專管配色，各司其職。
   const botFade = `color-mix(in srgb, var(--bg) 38%, transparent)`;
   pane.style.background =
     `radial-gradient(circle 200px at 100% 0%, var(--bg) 0%, transparent 70%), ` +
     sheen + vignette + glows +
     `linear-gradient(to right, transparent 0%, transparent 96%, var(--bg) 100%), ` +
-    `linear-gradient(168deg, var(--bg) 0%, ${c1} 10%, ${c2} 90%, ${botFade} 100%)`;
+    `linear-gradient(to bottom, var(--bg) 0%, transparent 8%), ` +                 // 頂部：主背景 → 主圖 淡入
+    `linear-gradient(to top, ${botFade} 0%, transparent 10%), ` +                  // 底部：時間軸區半透淡出
+    `linear-gradient(168deg, ${c1} 0%, ${c2} 100%)`;                               // 斜向：天氣 accent 配色
+  // 整體 UI 同調：天氣 accent 寫進 CSS 變數（側欄等元件用）+ 指標區（KDJ/RSI/MACD）同步微染
+  document.documentElement.style.setProperty("--wxA", AC ? AC[0] : "transparent");
+  document.documentElement.style.setProperty("--wxB", AC ? AC[1] : "transparent");
+  ["kdjPane", "rsiPane", "macdPane"].forEach(id => {
+    const el = document.getElementById(id); if (!el) return;
+    el.style.background = AC
+      ? `linear-gradient(168deg, color-mix(in srgb, ${base} 96%, ${AC[0]}) 0%, color-mix(in srgb, ${base} 93%, ${AC[1]}) 100%)`
+      : "";
+  });
 }
 
 function applyAllColors() {
