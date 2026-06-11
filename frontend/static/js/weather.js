@@ -2715,40 +2715,6 @@
     gs.fillRect(0, 0, W, H);
   }
 
-  /* ── Bokeh 光斑（鏡頭散景）：夜間最前層幾顆大柔光圓緩慢漂移、邊緣微亮（電影鏡頭感）── */
-  let _bokeh = null, _bokehSpr = null;
-  function _drawBokeh(t) {
-    if (_wd.isDay) return;
-    if (!_bokehSpr) {
-      _bokehSpr = [[255,170,200], [150,190,255], [255,210,160]].map(c => {
-        const cv = document.createElement('canvas'); cv.width = cv.height = 256;
-        const g2 = cv.getContext('2d');
-        const gr = g2.createRadialGradient(128, 128, 30, 128, 128, 128);
-        gr.addColorStop(0, `rgba(${c[0]},${c[1]},${c[2]},.50)`);
-        gr.addColorStop(0.75, `rgba(${c[0]},${c[1]},${c[2]},.28)`);
-        gr.addColorStop(0.95, `rgba(${c[0]},${c[1]},${c[2]},.40)`);   // 邊緣微亮 → 真實 bokeh 特徵
-        gr.addColorStop(1, 'rgba(0,0,0,0)');
-        g2.fillStyle = gr; g2.beginPath(); g2.arc(128, 128, 128, 0, 6.283); g2.fill();
-        return cv;
-      });
-      _bokeh = Array.from({ length: _lowFx ? 3 : 5 }, (_, i) => ({
-        si: i % 3, r: 60 + Math.random() * 130,
-        x: Math.random() * W, y: Math.random() * H * 0.8,
-        dx: (Math.random() - .5) * 0.08, dy: (Math.random() - .5) * 0.05,
-        ph: Math.random() * 6.28, a: 0.05 + Math.random() * 0.06 }));
-    }
-    const g = _layers.fore.ctx;
-    g.save(); g.globalCompositeOperation = 'lighter';
-    _bokeh.forEach(b => {
-      b.x += b.dx; b.y += b.dy;
-      if (b.x < -b.r) b.x = W + b.r; else if (b.x > W + b.r) b.x = -b.r;
-      if (b.y < -b.r) b.y = H * 0.8; else if (b.y > H * 0.85) b.y = -b.r;
-      g.globalAlpha = b.a * (0.75 + 0.25 * Math.sin(t * 0.3 + b.ph));
-      g.drawImage(_bokehSpr[b.si], b.x - b.r, b.y - b.r, b.r * 2, b.r * 2);
-    });
-    g.restore();
-  }
-
   /* ── 溫度色調：熱→暖橘、冷→冷藍（全畫面極淡疊色，依實際溫度）→ fore 最前層（罩住所有景深層） ── */
   function _tempTint() {
     if (_wd.temp == null) return;
@@ -2770,7 +2736,6 @@
     _drawBalloon(t);             // 熱氣球（mid 層）
     _drawAstro(t);               // 太陽/月亮/行星 → astro 天體深景層（大視差+全解析）；雲/雨各層從前方掠過（真遮擋）
     _drawOrrery();               // 太陽系即時儀：八大行星真實位置/軌道（fore 層右中 HUD，斜俯視）
-    _drawBokeh(t);               // 鏡頭散景光斑（夜間最前層）
     _tempTint();
   }
   function loop(ts) {
