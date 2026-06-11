@@ -55,15 +55,36 @@ function _applyChartBgGradient(color) {
   // sky-night（晴朗夜空）透最多 52%；sky-show（其餘所有天氣，weather.js 掛）較含蓄 74% 保白天可讀性。
   const night = document.documentElement.classList.contains("sky-night");
   const show  = document.documentElement.classList.contains("sky-show");
-  const mid = night ? `color-mix(in srgb, ${dark} 52%, transparent)`
-            : show  ? `color-mix(in srgb, ${dark} 74%, transparent)`
-            : dark;
+  const mixPct = night ? 52 : show ? 74 : 100;
+  const base = mixPct < 100 ? `color-mix(in srgb, ${dark} ${mixPct}%, transparent)` : dark;
+  // 天氣聯動色：中央色帶混入當前天氣 accent（上/下兩色 → 雙色斜向漸層），
+  // 雨天透藍灰、晴天透暖金、夜透靛紫…看盤瞄一眼底色就知道外面天氣
+  const _WX_ACCENT = {
+    sunny:["#FFB347","#3E7BD6"], partly:["#F2B45C","#4A7FD0"], cloudy:["#7C93B5","#8B7BB8"],
+    windy:["#7FA8C9","#88A0C0"], night:["#7B6BD8","#3FB6DE"], rain:["#4E8BC4","#5C6FD0"],
+    drizzle:["#6E97BC","#7C88C4"], storm:["#5470B8","#7C66B8"], thunder:["#6E7BFF","#9A66D8"],
+    snow:["#8FBCE8","#B8A8E8"], fog:["#9AAEC4","#AAB4CC"], overcast:["#7E8EA8","#988EB0"],
+    leaves:["#E89045","#C06438"], spring:["#E895B8","#9CB8E8"], mahjong:["#52B584","#3E9EC4"],
+    hail:["#7AA0C8","#90A4D0"],
+  };
+  const wxt = (typeof window._getWeatherType === "function" && window._getWeatherType()) || null;
+  const AC = _WX_ACCENT[wxt] || null;
+  // 質感拋光（極淡版，使用者連續要求調淡）：accent 微染、極淡光暈、微光澤、極輕 vignette
+  const c1 = AC ? `color-mix(in srgb, ${base} 95%, ${AC[0]})` : base;   // 上：accent 5%
+  const c2 = AC ? `color-mix(in srgb, ${base} 90%, ${AC[1]})` : base;   // 下：accent 10%
+  const glows = AC
+    ? `radial-gradient(480px at 8% 96%, color-mix(in srgb, ${AC[1]} 7%, transparent) 0%, transparent 70%), ` +
+      `radial-gradient(380px at 94% 6%, color-mix(in srgb, ${AC[0]} 4%, transparent) 0%, transparent 70%), `
+    : "";
+  const sheen    = `linear-gradient(115deg, rgba(255,255,255,.020) 0%, transparent 30%), `;          // 微光澤
+  const vignette = `radial-gradient(125% 95% at 50% 42%, transparent 62%, rgba(0,0,6,.08) 100%), `;  // 極輕暗角
   // 下方時間軸區：底緣改成半透明（不再實色蓋到 var(--bg)）→ 時間軸漸層透一些、背景/天氣淡淡透出
   const botFade = `color-mix(in srgb, var(--bg) 38%, transparent)`;
   pane.style.background =
     `radial-gradient(circle 200px at 100% 0%, var(--bg) 0%, transparent 70%), ` +
+    sheen + vignette + glows +
     `linear-gradient(to right, transparent 0%, transparent 96%, var(--bg) 100%), ` +
-    `linear-gradient(to bottom, var(--bg) 0%, ${mid} 6%, ${mid} 90%, ${botFade} 100%)`;
+    `linear-gradient(168deg, var(--bg) 0%, ${c1} 10%, ${c2} 90%, ${botFade} 100%)`;
 }
 
 function applyAllColors() {

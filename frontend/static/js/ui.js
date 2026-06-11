@@ -536,8 +536,9 @@ function bindIndicatorPanel() {
 
       // 背景色快速預設色塊
       if (row.bgPresets) {
-        const presets = ["#131722","#0d1117","#1a1a2e","#0f2027","#1b2838",
-                         "#1e1e1e","#0a0a0a","#ffffff","#f5f5f0","#fdf6e3"];
+        // 氛圍色票庫：深靛(預設)/午夜紫/深海藍綠/墨綠/暖咖啡/酒紅棕/石墨/深紫藍 + 兩款亮色
+        const presets = ["#131722","#1A1430","#0E2229","#14201A","#221710",
+                         "#251216","#16181D","#1E1530","#ffffff","#fdf6e3"];
         const wrap = document.createElement("div");
         wrap.style.cssText = "display:flex;flex-wrap:wrap;gap:3px;margin-left:6px;";
         presets.forEach(hex => {

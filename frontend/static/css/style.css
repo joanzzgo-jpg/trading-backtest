@@ -3203,6 +3203,18 @@ html.perf-mode .time-axis-year {
 @media (prefers-reduced-motion: reduce) {
   #weatherStage { perspective-origin: 50% 50% !important; }
 }
+/* 玻璃面板感：主圖中央色帶頂緣 1px 高光 + 底緣陰影 → K 線區像一塊浮起的玻璃板 */
+html:not(.perf-mode) #mainPane {
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.045), inset 0 -1px 0 rgba(0,0,0,.35);
+}
+/* 主背景升級：死平單色 → 極淡的對角色暈（右上 accent 橘 / 左下 靛紫），整頁有空氣感
+   （applyAllColors 會清掉 body inline background → 此 CSS 生效；landing 有自己的 !important 漸層不受影響） */
+html:not(.perf-mode) body {
+  background:
+    radial-gradient(140% 90% at 86% -12%, color-mix(in srgb, var(--accent) 2.5%, transparent) 0%, transparent 55%),
+    radial-gradient(130% 85% at -12% 112%, rgba(96,76,212, .018) 0%, transparent 55%),
+    var(--bg);
+}
 
 /* ── 全天氣透景（sky-show）：主圖背後透出 3D 天氣場景，而不是疊在 K 線上的濾鏡 ──
    機制：weather.js 對任何非 off 天氣掛 html.sky-show。把擋光的兩層底色（charts-container

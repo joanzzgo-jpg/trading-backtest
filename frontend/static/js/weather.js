@@ -533,8 +533,6 @@
           ga.restore();
         }
       }
-      // 白天黃道儀表（更淡的青色）：太陽本來就沿黃道運行 → 科技 HUD 全天不斷線
-      _drawEcliptic(t, dimD * 0.5);
       if (type === 'thunder' || type === 'sunny' || type === 'partly') return; // 這些由 dSunny 自畫太陽（淡月已畫）
       const rise = _wd.sunRiseMin, set = _wd.sunSetMin;
       if (nowMin < rise || nowMin > set) return;
@@ -594,7 +592,6 @@
           });
         }
         _drawConstellations(t, dim);                          // 真實星座（北斗/獵戶/仙后/夏季大三角/天蠍）
-        _drawEcliptic(t, dim);                                // 行星軌道（黃道發光弧，行星都落在這條線上）
         _drawPlanets(t);                                      // 行星：原只在晴夜，現所有夜間天氣（內部依雲量減光）
       }
       /* 月亮（比例制升落弧線） */
@@ -942,77 +939,7 @@
     });
   }
 
-  /* ── 行星軌道（黃道帶）：行星實際沿黃道運行 → 把黃道投影成發光青色虛線弧（科技 HUD 感），
-        行星全部落在這條弧上。黃道座標 → 赤道座標 → 地平座標，與行星/星座同一套投影；2 分鐘快取。 ── */
-  const _ECL_E = 23.4393;                     // 黃赤交角
-  let _eclCache = { at: 0, pts: [] };
-  function _drawEcliptic(t, dim) {
-    const ga = _layers.astro.ctx, now = Date.now();
-    if (now - _eclCache.at > 120000) {
-      const lst = _lstDeg(new Date(), _wxLon), lat = _wxLat, pts = [];
-      for (let L = 0; L < 360; L += 3) {      // 沿黃經每 3° 取樣（i×3=黃經 → 12°/30° 刻度都落在整點，精確）
-        const dec = Math.asin(_sind(L) * _sind(_ECL_E)) * _R2D;
-        const ra  = _rev(_atan2d(_sind(L) * _cosd(_ECL_E), _cosd(L)));
-        const ha  = _rev(lst - ra);
-        const x1 = _cosd(ha)*_cosd(dec), y1 = _sind(ha)*_cosd(dec), z1 = _sind(dec);
-        const xh = x1*_sind(lat) - z1*_cosd(lat), yh = y1, zh = x1*_cosd(lat) + z1*_sind(lat);
-        pts.push(_skyXY(_rev(_atan2d(yh, xh) + 180), _atan2d(zh, Math.hypot(xh, yh))));
-      }
-      _eclCache = { at: now, pts };
-    }
-    const pts = _eclCache.pts, A = 0.14 + 0.22 * dim;
-    ga.save();
-    // 1) 軌道走廊底光（寬幅淡青）
-    ga.lineWidth = 5; ga.strokeStyle = `rgba(80,200,255,${(A * 0.28).toFixed(3)})`;
-    _eclPath(ga, pts); ga.stroke();
-    // 2) 核心亮線：流動虛線（資料流感）
-    ga.lineWidth = 1.3; ga.strokeStyle = `rgba(150,238,255,${A.toFixed(3)})`;
-    ga.setLineDash([11, 7]); ga.lineDashOffset = -(t * 30) % 18;
-    if (!_lowFx) { ga.shadowBlur = 8; ga.shadowColor = 'rgba(110,220,255,.9)'; }
-    _eclPath(ga, pts); ga.stroke();
-    ga.setLineDash([]); ga.shadowBlur = 0;
-    // 3) 精確儀表刻度：小刻度每 12°、大刻度每 30°（黃道十二宮界）+ 宮位符號
-    const ZOD = '♈♉♊♋♌♍♎♏♐♑♒♓';
-    ga.lineWidth = 1;
-    ga.font = '10px ui-monospace, Menlo, monospace'; ga.textAlign = 'center'; ga.textBaseline = 'middle';
-    for (let i = 0; i < pts.length; i++) {
-      const major = i % 10 === 0;             // i×3° → 每 30°（宮界）
-      if (!major && i % 4 !== 0) continue;    // 其餘每 12° 小刻度
-      const p = pts[i], q = pts[i + 1] || pts[i - 1];
-      if (!p || !q) continue;
-      const dx = q.x - p.x, dy = q.y - p.y, L = Math.hypot(dx, dy) || 1;
-      if (L > W * 0.25) continue;
-      const nx = -dy / L, ny = dx / L, s = major ? 7 : 3.5;
-      ga.strokeStyle = `rgba(120,225,255,${((major ? 0.95 : 0.55) * A).toFixed(3)})`;
-      ga.beginPath(); ga.moveTo(p.x - nx * s, p.y - ny * s); ga.lineTo(p.x + nx * s, p.y + ny * s); ga.stroke();
-      if (major) {                            // 宮位符號（黃經 0°=♈ 春分點起算，天文正確）
-        ga.fillStyle = `rgba(150,235,255,${(0.9 * A).toFixed(3)})`;
-        // U+FE0E 文字樣式變體選擇符：iOS 會把宮位符號渲染成彩色 emoji → 強制純文字字形
-        ga.fillText(ZOD[(i / 10) % 12] + '\uFE0E', p.x + nx * 16, p.y + ny * 16);
-      }
-    }
-    // 4) 沿軌道滑行的脈衝光點 ×2（等距相位，像衛星巡航）
-    for (let k = 0; k < 2; k++) {
-      const f = ((t * 0.020 + k * 0.5) % 1) * pts.length;
-      const i = Math.floor(f), p = pts[i % pts.length], q = pts[(i + 1) % pts.length];
-      if (!p || !q || Math.abs(q.x - p.x) > W * 0.25) continue;
-      const u = f - i, x = p.x + (q.x - p.x) * u, y = p.y + (q.y - p.y) * u;
-      const pg = ga.createRadialGradient(x, y, 0, x, y, 8);
-      pg.addColorStop(0, `rgba(215,247,255,${(0.25 + 0.7 * dim).toFixed(3)})`); pg.addColorStop(1, 'rgba(110,220,255,0)');
-      ga.fillStyle = pg; ga.beginPath(); ga.arc(x, y, 8, 0, 6.283); ga.fill();
-    }
-    ga.restore();
-  }
-  function _eclPath(ga, pts) {           // 黃道折線（跨螢幕大跳 → 斷線重起）
-    ga.beginPath();
-    let prev = null;
-    for (const p of pts) {
-      if (!p) { prev = null; continue; }
-      if (prev && Math.abs(p.x - prev.x) < W * 0.25) ga.lineTo(p.x, p.y);
-      else ga.moveTo(p.x, p.y);
-      prev = p;
-    }
-  }
+  /* 黃道弧視覺已依使用者要求整組移除（宮位符號→刻度→虛線→脈衝光點）；行星/鎖定環保留 */
 
   /* ── 太陽系即時儀（orrery）：八大行星「真實位置」俯視圖（北黃極往下看）──
      位置取自既有 Schlyter 軌道計算（日心黃經/距離，2 分鐘快取），地球＝太陽地心位置反推；
@@ -1141,10 +1068,7 @@
       g.restore();
       if (p.earth) { g.strokeStyle = 'rgba(120,225,255,.9)'; g.lineWidth = 1; g.beginPath(); g.arc(px, py, vr + 2.6, 0, 6.283); g.stroke(); }   // 地球鎖定圈（我們在這）
     });
-    g.font = '9px ui-monospace, Menlo, monospace'; g.textAlign = 'left'; g.textBaseline = 'top';
-    g.fillStyle = 'rgba(150,235,255,.78)';
-    g.fillText('SOLAR SYSTEM · LIVE', cx - R, cy + R * TILT + 14);
-    g.restore();
+    g.restore();   // 英文標籤已依使用者要求移除（純圖像儀表）
   }
 
   /* ═══════ 白天加料：22°日暈 / 雨後彩虹 / 飛機凝結尾 / 飛鳥群 / 熱氣球 ═══════ */
@@ -1294,6 +1218,160 @@
     if (_balloon.dir > 0 ? _balloon.x > W + 60 : _balloon.x < -60) _balloon = null;
   }
 
+  /* ═══════ 雨天加料：遠景雨幕 / 水窪反光 / 簷滴 / 小蝸牛 / 小黃鴨 ═══════ */
+
+  /* 遠景雨幕：灰色半透雨簾一片片橫移掃過（far 層）→ 真實雨胞的縱深感 */
+  let _curtains = null;
+  function _rainCurtains(t, inten) {
+    const g = _layers.far.ctx;
+    if (!_curtains) _curtains = Array.from({ length: 3 }, () => ({
+      x: Math.random() * W, w: W * (0.12 + Math.random() * 0.18),
+      sp: 0.35 + Math.random() * 0.45, a: 0.05 + Math.random() * 0.05, ph: Math.random() * 6.28 }));
+    const dir = _windVecX() >= 0 ? 1 : -1, lean = _windVecX() * 0.12;
+    _curtains.forEach(c => {
+      c.x += c.sp * dir;
+      if (dir > 0 && c.x - c.w > W) c.x = -c.w; else if (dir < 0 && c.x + c.w < 0) c.x = W + c.w;
+      const a = c.a * inten * (0.7 + 0.3 * Math.sin(t * 0.4 + c.ph));
+      if (a <= 0.005) return;
+      const gr = g.createLinearGradient(c.x, 0, c.x + c.w, 0);
+      gr.addColorStop(0, 'rgba(150,170,195,0)');
+      gr.addColorStop(0.5, `rgba(150,170,195,${a.toFixed(3)})`);
+      gr.addColorStop(1, 'rgba(150,170,195,0)');
+      g.save(); g.transform(1, 0, lean, 1, 0, 0);   // 隨風斜切
+      g.fillStyle = gr; g.fillRect(c.x, 0, c.w, H);
+      g.restore();
+    });
+  }
+
+  /* 水窪反光：底部積水帶的光柱倒影，隨漣漪左右搖曳（near 層）；冷光為主、偶有暖光 */
+  let _pudl = null;
+  function _puddles(t, inten) {
+    const g = _layers.near.ctx;
+    if (!_pudl) _pudl = Array.from({ length: 9 }, () => ({
+      x: Math.random() * W, w: 2 + Math.random() * 5, h: H * (0.015 + Math.random() * 0.03),
+      ph: Math.random() * 6.28, warm: Math.random() < 0.35 }));
+    const y0 = H * 0.985;
+    _pudl.forEach(p => {
+      const a = inten * (0.10 + 0.10 * Math.sin(t * 1.3 + p.ph));
+      if (a <= 0.01) return;
+      const sw = Math.sin(t * 2.1 + p.ph) * 1.5;
+      const col = p.warm ? '255,205,150' : '170,215,255';
+      const gr = g.createLinearGradient(0, y0 - p.h, 0, y0);
+      gr.addColorStop(0, `rgba(${col},0)`); gr.addColorStop(1, `rgba(${col},${a.toFixed(3)})`);
+      g.fillStyle = gr; g.fillRect(p.x + sw, y0 - p.h, p.w, p.h);
+    });
+  }
+
+  /* 簷滴：螢幕頂緣醞釀的大水滴墜落 → 觸地大水花+漣漪（near 層，像躲屋簷下看雨） */
+  let _eaves = [];
+  function _eaveDrips(t, inten) {
+    const g = _layers.near.ctx;
+    if (_eaves.length < 4 && Math.random() < 0.012 * inten)
+      _eaves.push({ x: Math.random() * W, y: 2, vy: 0, grow: 0, r: 2.2 + Math.random() * 1.6 });
+    for (let i = _eaves.length - 1; i >= 0; i--) {
+      const d = _eaves[i];
+      if (d.grow < 1) {                        // 醞釀變大、欲墜
+        d.grow += 0.012;
+        const rr = d.r * d.grow;
+        g.fillStyle = 'rgba(200,228,255,.75)';
+        g.beginPath(); g.ellipse(d.x, d.y + rr * 0.6, rr * 0.8, rr, 0, 0, 6.283); g.fill();
+        continue;
+      }
+      d.vy += 0.5; d.y += d.vy;                // 墜落（拉長水滴形）
+      g.fillStyle = 'rgba(205,230,255,.8)';
+      g.beginPath(); g.ellipse(d.x, d.y, d.r * 0.55, d.r, 0, 0, 6.283); g.fill();
+      if (d.y > H * 0.96) {
+        for (let k = 0; k < 4; k++) {
+          const ang = -Math.PI / 2 + (Math.random() - 0.5) * 1.3, sp = 2 + Math.random() * 3;
+          splashes.push({ x: d.x, y: H * 0.963, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp, life: 0, max: 12 + Math.random() * 8, a: .6 });
+        }
+        ripples.push({ x: d.x, y: H * .968, r: 0, maxR: 14 + Math.random() * 8, a: .4 });
+        _eaves.splice(i, 1);
+      }
+    }
+  }
+
+  /* 小蝸牛：雨天偶爾一隻慢慢爬過畫面底部，殼帶雨天反光、身體蠕動（fore 層彩蛋） */
+  let _snail = null, _snailNext = 0, _snailCv = null;
+  function _bakeSnail() {
+    const cv = document.createElement('canvas'); cv.width = 36; cv.height = 24;
+    const g = cv.getContext('2d');
+    g.fillStyle = '#C9A06B'; g.beginPath(); g.ellipse(16, 19, 13, 4.5, 0, 0, 6.283); g.fill();   // 身體
+    g.strokeStyle = '#C9A06B'; g.lineWidth = 2; g.lineCap = 'round';                              // 觸角
+    g.beginPath(); g.moveTo(27, 17); g.lineTo(31, 11); g.stroke();
+    g.beginPath(); g.moveTo(29, 17); g.lineTo(33, 13); g.stroke();
+    g.fillStyle = '#7A5A33';
+    g.beginPath(); g.arc(31, 10.5, 1.3, 0, 6.283); g.fill();
+    g.beginPath(); g.arc(33, 12.5, 1.2, 0, 6.283); g.fill();
+    g.fillStyle = '#9A6A3F'; g.beginPath(); g.arc(13, 12, 8.5, 0, 6.283); g.fill();              // 殼
+    g.strokeStyle = '#6E4424'; g.lineWidth = 1.4;                                                 // 螺旋
+    g.beginPath(); g.arc(13, 12, 5.6, 0.6, 5.6); g.stroke();
+    g.beginPath(); g.arc(14.5, 12.5, 2.6, 0.6, 5.2); g.stroke();
+    g.fillStyle = 'rgba(255,255,255,.5)';                                                         // 雨天殼面反光
+    g.beginPath(); g.ellipse(10, 8.5, 2.8, 1.6, -0.6, 0, 6.283); g.fill();
+    return cv;
+  }
+  function _drawSnail(t) {
+    const g = _layers.fore.ctx;
+    if (!_snail) {
+      if (!_snailNext) _snailNext = t + 15 + Math.random() * 45;
+      if (t < _snailNext) return;
+      const ltr = Math.random() < .5;
+      _snail = { x: ltr ? -40 : W + 40, dir: ltr ? 1 : -1, sp: 0.10 + Math.random() * 0.05, ph: Math.random() * 6.28 };
+      if (!_snailCv) _snailCv = _bakeSnail();
+      _snailNext = 0;
+    }
+    _snail.x += _snail.sp * _snail.dir;
+    const stretch = 1 + 0.08 * Math.sin(t * 2.2 + _snail.ph);     // 蠕動
+    let gy = H - (_lowFx ? 92 : 30);                 // 預設：避開手機底部分頁列/桌面時間軸
+    if (document.documentElement.classList.contains('landing-active')) {
+      const img = document.querySelector('.landing-stage img');  // 封面：沿城牆頂爬（讀城堡圖實際位置）
+      if (img) { const rc = img.getBoundingClientRect(); gy = rc.top + rc.height * 0.30; }
+    }
+    g.save();
+    g.translate(_snail.x, gy);
+    g.scale(_snail.dir * 1.6 * stretch, 1.6);
+    g.drawImage(_snailCv, -18, -22);
+    g.restore();
+    if (_snail.dir > 0 ? _snail.x > W + 60 : _snail.x < -60) { _snail = null; _snailNext = t + 12 + Math.random() * 40; }
+  }
+
+  /* 小黃鴨：雨天水窪上漂一隻，上下浮動、隨風緩慢漂移（near 層彩蛋，漂約一分鐘） */
+  let _duck = null, _duckNext = 0, _duckCv = null;
+  function _bakeDuck() {
+    const cv = document.createElement('canvas'); cv.width = 36; cv.height = 28;
+    const g = cv.getContext('2d');
+    g.fillStyle = '#FFD43B'; g.beginPath(); g.ellipse(14, 19, 11, 7, 0, 0, 6.283); g.fill();     // 身體
+    g.beginPath(); g.arc(23, 9, 6, 0, 6.283); g.fill();                                          // 頭
+    g.fillStyle = '#FF8C2E'; g.beginPath();                                                       // 嘴
+    g.moveTo(28, 8); g.lineTo(34, 9.5); g.lineTo(28, 11); g.closePath(); g.fill();
+    g.fillStyle = '#3A2E1E'; g.beginPath(); g.arc(24.5, 7.5, 1.1, 0, 6.283); g.fill();           // 眼
+    g.strokeStyle = '#E8B62E'; g.lineWidth = 1.4;                                                 // 翅
+    g.beginPath(); g.arc(12, 18, 6, -0.6, 1.2); g.stroke();
+    return cv;
+  }
+  function _drawDuck(t, inten) {
+    const g = _layers.near.ctx;
+    if (!_duck) {
+      if (!_duckNext) _duckNext = t + 6 + Math.random() * 14;
+      if (t < _duckNext) return;
+      _duck = { x: Math.random() * W * 0.8 + W * 0.1, drift: (Math.random() - .5) * 0.06, ph: Math.random() * 6.28, life: 0 };
+      if (!_duckCv) _duckCv = _bakeDuck();
+      _duckNext = 0;
+    }
+    _duck.life += 1 / 30;
+    const vx = _duck.drift + _windDriftPx() * 0.15;
+    _duck.x += vx;
+    const bob = Math.sin(t * 1.7 + _duck.ph) * 1.6;               // 隨漣漪上下浮
+    const rock = Math.sin(t * 1.1 + _duck.ph) * 0.06;             // 微搖晃
+    g.save(); g.globalAlpha = Math.max(0.55, Math.min(1, inten * 1.6));   // 下限：雨勢漸起期間也看得到
+    g.translate(_duck.x, H - (_lowFx ? 104 : 44) + bob); g.rotate(rock);   // 上移：避開手機底部分頁列
+    g.scale(vx >= 0 ? 1.4 : -1.4, 1.4);
+    g.drawImage(_duckCv, -18, -22);
+    g.restore();
+    if (_duck.life > 60 || _duck.x < -50 || _duck.x > W + 50) { _duck = null; _duckNext = t + 15 + Math.random() * 30; }
+  }
+
   /* 月亮在弧線上的進度（0升~1落）；不在天上 → null。日夜兩分支共用 */
   function _moonProg(nowMin) {
     const rise = _wd.moonRiseMin, set = _wd.moonSetMin;
@@ -1330,7 +1408,8 @@
     // 前景玻璃水珠（像隔著窗看雨）：少量大水珠，偶爾滑落留痕
     glassDrops = Array.from({length: Math.round((9 + 11*ri)*_fxN)}, () => ({
       x: Math.random()*W, y: Math.random()*H*0.92, r: 5 + Math.random()*12,
-      vy: 0, slide: false, age: Math.random()*500, slideAt: 160 + Math.random()*640
+      vy: 0, slide: false, age: Math.random()*500, slideAt: 160 + Math.random()*640,
+      ph: Math.random()*6.28, trail: []   // 蜿蜒相位 / 滑落水痕
     }));
     // 雪：景深 z 大幅拉開——遠景小柔光點、近景大結晶（差距明顯）
     const nSnow = Math.round((28+50*ri)*_fxN);
@@ -1738,7 +1817,9 @@
   function dRain(t) {
     /* 雨勢漸起：開始下雨時 _rainRamp 由 0 緩升到 1（約 6 秒），再疊一層輕微強弱起伏 → 雨會「漸漸下大」 */
     _rainRamp += (1 - _rainRamp) * 0.012;
-    const intensity = _rainRamp * (0.84 + 0.16*Math.sin((t||0)*0.3));
+    // 雨勢起伏：兩組慢週期正弦疊出「一陣大一陣小」的真實節奏（0.55~1 擺動）
+    const gust = 0.5 + 0.5 * Math.sin((t||0) * 0.21) * (0.6 + 0.4 * Math.sin((t||0) * 0.047 + 2));
+    const intensity = _rainRamp * (0.55 + 0.45 * gust);
     /* stormy sky overlay (cached gradient) — 天色隨雨勢加深 → 天空層 */
     const gs = _layers.sky.ctx, gn = _layers.near.ctx, gf = _layers.fore.ctx;
     gs.save(); gs.globalAlpha = 0.35 + 0.65*intensity; gs.fillStyle=_gc.rainSky; gs.fillRect(0,0,W,H); gs.restore();
@@ -1795,6 +1876,13 @@
     gn.fillStyle=_gc.rainMist; gn.fillRect(0,H*.62,W,H*.38);
     gn.restore();
 
+    /* 雨天加料：遠景雨幕 / 水窪反光 / 簷滴 / 小黃鴨 / 小蝸牛 */
+    _rainCurtains(t, intensity);
+    _puddles(t, intensity);
+    _eaveDrips(t, intensity);
+    _drawDuck(t, intensity);
+    _drawSnail(t);
+
     /* 前景玻璃水珠（隔窗看雨）→ fore 層（貼著「窗」、相機移動時靜止 → 與後方雨形成最大反差）；隨雨勢漸起浮現 */
     gf.lineCap="round";
     gf.save(); gf.globalAlpha = Math.min(1, intensity*1.15);
@@ -1802,10 +1890,16 @@
       d.age++;
       if (!d.slide && d.age>d.slideAt) d.slide=true;
       if (d.slide) {
-        d.vy += 0.06; d.y += d.vy;
-        gf.strokeStyle='rgba(205,228,255,0.10)'; gf.lineWidth=d.r*0.5;
-        gf.beginPath(); gf.moveTo(d.x, d.y-d.vy*5); gf.lineTo(d.x, d.y); gf.stroke();
-        if (d.y>H+d.r) { d.x=Math.random()*W; d.y=-d.r; d.vy=0; d.slide=false; d.age=0; d.slideAt=160+Math.random()*640; }
+        d.vy += 0.07; d.y += d.vy;
+        d.x += Math.sin(d.y * 0.045 + d.ph) * 0.9;            // 蜿蜒：左右扭著流（真實玻璃水痕）
+        d.trail.push({ x: d.x, y: d.y });
+        if (d.trail.length > 16) d.trail.shift();
+        for (let k = 0; k < d.trail.length; k++) {            // 漸淡的水痕珠串
+          const tr = d.trail[k], ta = 0.12 * (k / d.trail.length);
+          gf.fillStyle = `rgba(205,228,255,${ta.toFixed(3)})`;
+          gf.beginPath(); gf.arc(tr.x, tr.y, d.r * 0.32, 0, 6.283); gf.fill();
+        }
+        if (d.y>H+d.r) { d.x=Math.random()*W; d.y=-d.r; d.vy=0; d.slide=false; d.age=0; d.slideAt=160+Math.random()*640; d.trail.length=0; }
       }
       const g=gf.createRadialGradient(d.x-d.r*0.3, d.y-d.r*0.35, d.r*0.1, d.x, d.y, d.r);
       g.addColorStop(0,'rgba(228,242,255,0.40)'); g.addColorStop(0.6,'rgba(150,186,226,0.16)'); g.addColorStop(1,'rgba(120,160,210,0.03)');
@@ -1813,6 +1907,16 @@
       gf.fillStyle='rgba(255,255,255,0.45)'; gf.beginPath(); gf.arc(d.x-d.r*0.32, d.y-d.r*0.36, d.r*0.2, 0, Math.PI*2); gf.fill();
     });
     gf.restore();
+
+    /* 玻璃霧氣凝結：邊緣霧白 vignette 呼吸般淡入淡出（隔窗看雨的濕氣感） */
+    if (!_gc.glassFog || _gc.glassFogKey !== W + 'x' + H) {
+      _gc.glassFogKey = W + 'x' + H;
+      const fg2 = gf.createRadialGradient(W/2, H/2, Math.min(W,H)*0.38, W/2, H/2, Math.max(W,H)*0.72);
+      fg2.addColorStop(0, 'rgba(208,224,236,0)'); fg2.addColorStop(1, 'rgba(208,224,236,0.5)');
+      _gc.glassFog = fg2;
+    }
+    gf.save(); gf.globalAlpha = intensity * (0.10 + 0.06 * Math.sin((t||0) * 0.13));
+    gf.fillStyle = _gc.glassFog; gf.fillRect(0, 0, W, H); gf.restore();
   }
 
   function dSnow(t) {
@@ -2487,7 +2591,6 @@
       ga.fillStyle=`rgba(${p.col||'222,232,255'},${a.toFixed(3)})`;
       ga.beginPath(); ga.arc(p.x, p.y, a>.6?p.r*1.2:p.r, 0, 6.28); ga.fill();
     });
-    _drawEcliptic(t, 1);
     _drawPlanets(t);
     meteorTimer--;
     if (meteorTimer<=0 && meteors.length<14) {
@@ -2698,8 +2801,8 @@
     const wasShow = document.documentElement.classList.contains('sky-show');
     const isShow = wt !== 'off';
     document.documentElement.classList.toggle('sky-show', isShow);
-    // 透景狀態變化時重套主圖漸層（中央色帶透明度隨 night/show 不同）
-    if (wasNight !== isNight || wasShow !== isShow) window._applyChartBgGradient?.();
+    // 透景/天氣變化時重套主圖漸層（中央色帶透明度隨 night/show、accent 雙色隨天氣型態）
+    if (wasNight !== isNight || wasShow !== isShow || changed) window._applyChartBgGradient?.();
     if (changed) { _init(); _inited = true; }
     _lastFrameTs = 0;
     if (!rafId) requestAnimationFrame(loop);
