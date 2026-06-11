@@ -56,10 +56,11 @@ function _applyChartBgGradient(color) {
   const dark = _darkenForChart(color);
   // 透景：中央色帶轉半透明 → 天氣/天文 3D 場景從 K 線後方透出，
   // 但「系統背景 ↔ 主圖色」上下漸層的形狀保留（不再整片 transparent 把漸層蓋掉）。
-  // sky-night（晴朗夜空）透最多 52%；sky-show（其餘所有天氣，weather.js 掛）較含蓄 74% 保白天可讀性。
+  // sky-night（晴朗夜空）透最多 52%；sky-show（其餘所有天氣，weather.js 掛）84% ——
+  // 白天亮灰天空（陰天尤甚）透 26% 曾讓主圖整片「白白的」（使用者回報），收到 16%。
   const night = document.documentElement.classList.contains("sky-night");
   const show  = document.documentElement.classList.contains("sky-show");
-  const mixPct = night ? 52 : show ? 74 : 100;
+  const mixPct = night ? 52 : show ? 84 : 100;
   const base = mixPct < 100 ? `color-mix(in srgb, ${dark} ${mixPct}%, transparent)` : dark;
   // 天氣聯動色：中央色帶混入當前天氣 accent（上/下兩色 → 雙色斜向漸層），
   // 雨天透藍灰、晴天透暖金、夜透靛紫…看盤瞄一眼底色就知道外面天氣
@@ -73,14 +74,14 @@ function _applyChartBgGradient(color) {
   };
   const wxt = (typeof window._getWeatherType === "function" && window._getWeatherType()) || null;
   const AC = _WX_ACCENT[wxt] || null;
-  // 質感拋光（極淡版，使用者連續要求調淡）：accent 微染、極淡光暈、微光澤、極輕 vignette
-  const c1 = AC ? `color-mix(in srgb, ${base} 95%, ${AC[0]})` : base;   // 上：accent 5%
-  const c2 = AC ? `color-mix(in srgb, ${base} 90%, ${AC[1]})` : base;   // 下：accent 10%
+  // 質感拋光（再調淡：accent 多為淺色，混多了主圖會「白白的」——使用者連續要求調淡後又回報泛白）
+  const c1 = AC ? `color-mix(in srgb, ${base} 97.5%, ${AC[0]})` : base;   // 上：accent 2.5%
+  const c2 = AC ? `color-mix(in srgb, ${base} 95%, ${AC[1]})` : base;     // 下：accent 5%
   const glows = AC
-    ? `radial-gradient(480px at 8% 96%, color-mix(in srgb, ${AC[1]} 7%, transparent) 0%, transparent 70%), ` +
-      `radial-gradient(380px at 94% 6%, color-mix(in srgb, ${AC[0]} 4%, transparent) 0%, transparent 70%), `
+    ? `radial-gradient(480px at 8% 96%, color-mix(in srgb, ${AC[1]} 3%, transparent) 0%, transparent 70%), ` +
+      `radial-gradient(380px at 94% 6%, color-mix(in srgb, ${AC[0]} 2%, transparent) 0%, transparent 70%), `
     : "";
-  const sheen    = `linear-gradient(115deg, rgba(255,255,255,.020) 0%, transparent 30%), `;          // 微光澤
+  const sheen    = "";                                                                               // 白色光澤層移除（泛白主因之一）
   const vignette = `radial-gradient(125% 95% at 50% 42%, transparent 62%, rgba(0,0,6,.08) 100%), `;  // 極輕暗角
   // 上下淡接改「獨立垂直層」：斜向漸層在寬面板會讓頂/底緣兩端落在不同漸層位置 →
   // 「主背景↔主圖」的上下淡入曾因此消失。垂直層專管淡接、斜向層專管配色，各司其職。
@@ -98,7 +99,7 @@ function _applyChartBgGradient(color) {
   ["kdjPane", "rsiPane", "macdPane"].forEach(id => {
     const el = document.getElementById(id); if (!el) return;
     el.style.background = AC
-      ? `linear-gradient(168deg, color-mix(in srgb, ${base} 96%, ${AC[0]}) 0%, color-mix(in srgb, ${base} 93%, ${AC[1]}) 100%)`
+      ? `linear-gradient(168deg, color-mix(in srgb, ${base} 98%, ${AC[0]}) 0%, color-mix(in srgb, ${base} 96%, ${AC[1]}) 100%)`
       : "";
   });
 }
