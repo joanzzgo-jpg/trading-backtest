@@ -358,6 +358,24 @@ def _update_trade(row_id: int, status: str, msg: str = None):
         pass
 
 
+def _push_owner(owner, title, body, symbol, tf="", event="atrade"):
+    """把自動交易結果推給擁有者帳號（Web Push）並寫進訊號聊天室。絕不向外拋例外。"""
+    try:
+        import routes.notify as notify
+        payload = {
+            "title": title, "body": body,
+            "tag": f"atrade:{symbol}:{event}:{int(time.time())}",
+            "data": {"symbol": symbol, "market": "crypto", "exchange": "pionex", "tf": tf},
+        }
+        on = _acct._norm_name(owner)
+        for s in notify.all_active_subs():
+            if _acct._norm_name(s.get("name")) == on:
+                notify.send_push(s, payload)
+        notify.log_signal(owner, time.time(), event, title, body, symbol, "crypto", "pionex", tf)
+    except Exception as e:
+        print(f"  ⚠ 自動交易通知失敗：{e}")
+
+
 def _sig_epoch(t) -> float:
     """訊號時間 → epoch 秒（naive 以 UTC 解讀，對齊 Binance）。"""
     try:
@@ -532,6 +550,8 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
                        qty=qty, entry=str(entry), sl=str(round(stop_chart, 8)), sig=k, d=d, tf=tf,
                        sigt=str(sig.get("t")),
                        msg=f"停損無法掛單（{e}）→ 已即時平倉，不留無保護持倉")
+            _push_owner(owner, f"⚠ 自動進場取消 · {symbol}",
+                        f"停損無法掛單、為避免無保護持倉已即時平倉\n{e}", symbol, tf=tf, event="atrade_open")
             print(f"  ⚠ 自動下單 {bsym} 停損掛單失敗，已平倉：{e}")
             return
         warn = []
@@ -544,6 +564,12 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
                    qty=qty, entry=str(entry), sl=str(round(stop_chart, 8)),
                    tp=(str(tp_px) if tp_px else None), sig=k, d=d, tf=tf,
                    sigt=str(sig.get("t")), msg="；".join(warn) or None)
+        # 通知擁有者：自動進場
+        envtag = "實盤" if client.env == "live" else "測試網"
+        body = (f"{'做空' if want == 'short' else '做多'}　數量 {qty}\n"
+                f"進場 {entry}　停損 {round(stop_chart, 8)}"
+                + (f"　止盈 {tp_px}" if tp_px else ""))
+        _push_owner(owner, f"🤖 自動進場 · {symbol}（{envtag}）", body, symbol, tf=tf, event="atrade_open")
         print(f"  🤖 自動下單 {client.env}: {bsym} {side} {qty}（{symbol} {tf} "
               f"{k}/{d}）" + (f" ⚠{warn}" if warn else ""))
     except Exception as e:
@@ -584,7 +610,24 @@ def settle_signal_trade(market, exchange, symbol, tf, k, d, sig, event):
         if not r.get("ok"):
             msg += "（交易所端已先出場）"
         _update_trade(row_id, "closed", msg)
-        print(f"  🤖 自動平倉 {client.env}: {bsym}（{event}）")
+        # 實際已實現盈虧（剛平倉這筆，從 income 取最近一筆該合約 REALIZED_PNL）
+        pnl = None
+        try:
+            for inc in client.income_history(15):
+                if inc.get("symbol") == bsym:
+                    pnl = inc.get("pnl")
+                    break
+        except bt.TradeError:
+            pass
+        # 通知擁有者：自動平倉（含盈虧）
+        result = "止盈" if event == "tp" else "止損"
+        body = f"{result}平倉　{symbol}"
+        if pnl is not None:
+            body += f"\n已實現盈虧 {pnl:+.2f} USDT"
+        _push_owner((cfg.get("owner") or "").strip(),
+                    f"🤖 自動{result} · {symbol}", body, symbol, tf=tf,
+                    event=("atrade_tp" if event == "tp" else "atrade_sl"))
+        print(f"  🤖 自動平倉 {client.env}: {bsym}（{event}）pnl={pnl}")
     except Exception as e:
         print(f"  ⚠ 自動平倉失敗 {symbol} {tf}：{e}")
 

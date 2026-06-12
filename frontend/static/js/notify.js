@@ -339,8 +339,9 @@ function _ntfRenderFeed() {
   }
   const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 60;
   list.innerHTML = items.map((it, i) => {
-    const cls = it.event === "tp" ? "m-sig-bubble evt-tp"
-              : it.event === "sl" ? "m-sig-bubble evt-sl" : "m-sig-bubble";
+    const cls = (it.event === "tp" || it.event === "atrade_tp") ? "m-sig-bubble evt-tp"
+              : (it.event === "sl" || it.event === "atrade_sl") ? "m-sig-bubble evt-sl"
+              : "m-sig-bubble";
     // 止盈/止損 → 引用原進場訊息（LINE/Messenger「回覆」感）：
     // 用 sig/dir/t（進場訊號棒時間）精確配對同一筆交易的 entry 訊息
     let quote = "";

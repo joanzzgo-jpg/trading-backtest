@@ -101,8 +101,20 @@ async function _acctLogin(name) {
   return { applied: false };
 }
 
-function _acctLogout() {
+async function _acctLogout() {
+  // ① 先把目前帳號的資料完整存回伺服器（不遺失）→ ② 清空裝置上所有「會同步」的 key
+  //    （避免殘留渲染到下一個登入帳號）→ ③ 回封面頁。與登入時的完全隔離對稱。
+  const hadName = !!_ACCT.name;
+  try { if (hadName) await _acctFlush(); } catch (e) {}     // 存檔（等它完成再清）
   _acctSaveSession(null);
+  try {
+    const toRemove = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && !_ACCT_SKIP.has(k)) toRemove.push(k);        // 保留裝置本地 key
+    }
+    for (const k of toRemove) localStorage.removeItem(k);
+  } catch (e) {}
   _acctRenderSys();
   document.getElementById("sysSettingsPopup")?.classList.remove("open");   // 收掉系統外觀彈窗
   // 手機：先把分頁切回「圖表」，收掉設定面板（#mSettings）背景，否則會跟封面圖重疊
