@@ -435,7 +435,8 @@ function _renderWRSignals(signals) {
                  : k === "9"   ? (isShort ? "#fff176" : "#fff59d")
                  : k === "10"  ? (isShort ? "#90caf9" : "#bbdefb")
                  : k === "11"  ? (isShort ? "#aed581" : "#c5e1a5")
-                 : k === "ss1" ? (isShort ? "#ff2a6d" : "#05d9e8")   // SS1 軌道反轉：賽博龐克霓虹（空=霓虹粉、多=霓虹青）
+                 : k === "ss1" ? (isShort ? "#ff2a6d" : "#05d9e8")   // SS1 軌道反轉（深）：賽博龐克霓虹（空=霓虹粉、多=霓虹青）
+                 : k === "ss2" ? (isShort ? "#c724b1" : "#39ff14")   // SS2 軌道反轉（淺）：霓虹紫 / 霓虹綠
                  :                (isShort ? "#ffab91" : "#ffccbc");  // k=12
     const eShape = k === "abc" ? "circle"
                  : k === "ab"  ? "square"
@@ -452,6 +453,7 @@ function _renderWRSignals(signals) {
                  : k === "10"  ? (isShort ? "空¹⁰" : "多¹⁰")
                  : k === "11"  ? (isShort ? "空¹¹" : "多¹¹")
                  : k === "ss1" ? (isShort ? "空ˢ" : "多ˢ")
+                 : k === "ss2" ? (isShort ? "空ˢ²" : "多ˢ²")
                  :                (isShort ? "空¹²" : "多¹²");
     allMarkers.push({
       time: et, position: isShort ? "aboveBar" : "belowBar",
@@ -540,6 +542,8 @@ function _renderWinRate(d) {
   // SS 系列只算 mid，資料固定在完整結果的 _wrCacheLast.ss（不隨 mid/band/rr 切換）
   setRow("wrSS1S", _wrCacheLast.ss?.ss1?.short);
   setRow("wrSS1L", _wrCacheLast.ss?.ss1?.long);
+  setRow("wrSS2S", _wrCacheLast.ss?.ss2?.short);
+  setRow("wrSS2L", _wrCacheLast.ss?.ss2?.long);
 
   // 系列切換：SS 系列時，右側「合計 / 敗後停手 / 近期」改用 d.ss.*（S 系列維持 view）
   _applySeriesVisibility();
@@ -646,16 +650,16 @@ try { _applySeriesVisibility(); } catch (e) {}
 ══════════════════════════════════════════ */
 const _SIG_LABEL = {
   abc:"S1", ab:"S2", s3:"S3", s4:"S4", s5:"S5",
-  s6:"S6", s7:"S7", s8:"S8", s9:"S9", s10:"S10", s11:"S11", s12:"S12", ss1:"SS1",
+  s6:"S6", s7:"S7", s8:"S8", s9:"S9", s10:"S10", s11:"S11", s12:"S12", ss1:"SS1", ss2:"SS2",
 };
 const _SIG_ICON = {
   abc:"●", ab:"■", s3:"▲", s4:"◆", s5:"★",
-  s6:"◇", s7:"⬢", s8:"⬡", s9:"✦", s10:"✪", s11:"✸", s12:"❖", ss1:"⇋",
+  s6:"◇", s7:"⬢", s8:"⬡", s9:"✦", s10:"✪", s11:"✸", s12:"❖", ss1:"⇋", ss2:"⇌",
 };
 // signal.k（"3"…）→ stat key（"s3"…），給 hover 顯示該棒訊號勝率用
 const _SIGK_TO_STATKEY = {
   abc:"abc", ab:"ab", "3":"s3", "4":"s4", "5":"s5",
-  "6":"s6", "7":"s7", "8":"s8", "9":"s9", "10":"s10", "11":"s11", "12":"s12", ss1:"ss1",
+  "6":"s6", "7":"s7", "8":"s8", "9":"s9", "10":"s10", "11":"s11", "12":"s12", ss1:"ss1", ss2:"ss2",
 };
 
 /* ══════════════════════════════════════════

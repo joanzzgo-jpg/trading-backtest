@@ -176,7 +176,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
 
     # ── 計數器：mid_cnt[k] = [ws, ls, wl, ll]；band_cnt 同結構 ──
     # SS 系列：獨立於 S1~S12 的新訊號群，自成一套合計與「敗後停手」（不與 S 的合併時間軸混搭）。
-    _SS_KEYS = ("ss1",)
+    _SS_KEYS = ("ss1", "ss2")
     SIG_KEYS = ["abc", "ab", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", *_SS_KEYS]
     mid_cnt   = {k: [0, 0, 0, 0] for k in SIG_KEYS}
     band_cnt  = {k: [0, 0, 0, 0] for k in SIG_KEYS}
@@ -725,19 +725,26 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                    & ~np.isnan(b_mid) & (b_low > b_mid)
         if long_only:
             ss_short[:] = False
+        # 依 B 棒收盤價在「軌道↔中軌」的深度，把同一觸發拆成 SS1（深）/ SS2（淺）：
+        #   做多：以 (下軌+中軌)/2 為界 → 收盤 < 界 → SS1（靠下軌、較深）；界 ≤ 收盤 < 中軌 → SS2（上半、較淺）
+        #   做空：以 (上軌+中軌)/2 為界 → 收盤 > 界 → SS1（靠上軌）；中軌 < 收盤 ≤ 界 → SS2
+        ss_mid_lo = (b_lo_band + b_mid) / 2.0   # 下半界（多用）
+        ss_mid_up = (b_up_band + b_mid) / 2.0   # 上半界（空用）
         for i in np.flatnonzero(ss_short | ss_long):
             i = int(i)
             direction = "short" if ss_short[i] else "long"
             ib = i + 1   # B 棒（訊號棒）
             if direction == "short":
                 stop_px = _stop(max(highs[i], highs[ib]), direction)
+                ss_key = "ss1" if b_close[i] > ss_mid_up[i] else "ss2"
             else:
                 stop_px = _stop(min(lows[i], lows[ib]), direction)
+                ss_key = "ss1" if b_close[i] < ss_mid_lo[i] else "ss2"
             d_str = "s" if direction == "short" else "l"
             sig_time = times_iso[ib]
             entry_i = i + 2
             om, otm, omj, ob, otb, obj = _scan_dual(entry_i, float(stop_px), direction)
-            _push_signal(sig_time, d_str, "ss1", direction, entry_i, float(stop_px),
+            _push_signal(sig_time, d_str, ss_key, direction, entry_i, float(stop_px),
                          om, otm, omj, ob, otb, obj)
 
     # 依時間排一次，供 _solve / _calc_streaks / _build_combined 共用（原本各自 sort）

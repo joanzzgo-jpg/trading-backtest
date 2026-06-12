@@ -1351,7 +1351,7 @@ html.perf-mode .tk-seg {
     inset 0 0 0 1px rgba(0, 0, 0, 0.05) !important;
 }
 .wr-abc, .wr-ab, .wr-s3, .wr-s4, .wr-s5, .wr-s6,
-.wr-s7, .wr-s8, .wr-s9, .wr-s10, .wr-s11, .wr-s12, .wr-ss1 {
+.wr-s7, .wr-s8, .wr-s9, .wr-s10, .wr-s11, .wr-s12, .wr-ss1, .wr-ss2 {
   color: #C48560;     /* 暖橘 accent — 單一色，明顯降飽和（無螢光）*/
 }
 .tb-wr-block:hover .tb-wr-icon { opacity: 1; }
@@ -4141,8 +4141,10 @@ html.perf-mode .tb-wr-stoprate.bad  { color: #dc2626; }
 html.perf-mode .wr-s10 { color: #FF6A1A; }
 .wr-s12 { color: #C48560; }   /* 簡單美學：統一柔和暖橘 */
 html.perf-mode .wr-s12 { color: #FF6A1A; }
-.wr-ss1 { color: #26a69a; }   /* SS 系列：青綠（軌道反轉）*/
+.wr-ss1 { color: #26a69a; }   /* SS1 系列：青綠（軌道反轉・深）*/
 html.perf-mode .wr-ss1 { color: #00897B; }
+.wr-ss2 { color: #5aa469; }   /* SS2 系列：黃綠（軌道反轉・淺）*/
+html.perf-mode .wr-ss2 { color: #2E7D32; }
 #wrSeriesToggle.active { background: #26a69a !important; color: #fff !important; border-color: #26a69a !important; }
 .tb-icon-btn-txt { font-size: 11px; font-weight: 800; letter-spacing: .3px; }
 #wrSigSeriesBtn.active { color: #05d9e8; text-shadow: 0 0 6px rgba(5,217,232,.7); }   /* 賽博龐克霓虹青 */

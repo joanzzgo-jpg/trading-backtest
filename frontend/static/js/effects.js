@@ -552,6 +552,8 @@
     if (window.matchMedia && (matchMedia("(max-width: 768px)").matches || matchMedia("(pointer: coarse)").matches)) return;
     const btn = e.target.closest(TARGETS);
     if (!btn) return;
+    // 交易面板（桌面嵌入合約行情底部 / 手機交易分頁）：矮寬按鈕漣漪會外溢成半圓動畫，使用者不要 → 整面板關閉
+    if (btn.closest("#tradePopup")) return;
     const rect = btn.getBoundingClientRect();
     const size = Math.max(rect.width, rect.height) * 2.2;
     const x    = e.clientX - rect.left  - size / 2;

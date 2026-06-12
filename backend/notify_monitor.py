@@ -29,6 +29,8 @@ def _sig_label(k: str) -> str:
         return "S2"
     if k == "ss1":
         return "SS1"
+    if k == "ss2":
+        return "SS2"
     return "S" + k
 
 

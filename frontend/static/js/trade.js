@@ -9,13 +9,13 @@
    ══════════════════════════════════════════════════════════════ */
 const _TRD = { st: null, ov: null, pollTimer: null, busy: false };
 
-const _TRD_SIG_ORDER = ["ab", "3", "4", "5", "6", "7", "8", "9", "10", "11", "abc", "12", "ss1"];
+const _TRD_SIG_ORDER = ["ab", "3", "4", "5", "6", "7", "8", "9", "10", "11", "abc", "12", "ss1", "ss2"];
 const _TRD_ALL_TFS = ["5m", "15m", "30m", "1h", "2h", "4h", "8h", "1d", "1w"];
 
 const _TRD_ICO = `<svg class="trd-ico" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4.5 13.5H11L9.5 22 19 9.5h-6.5L13 2Z"/></svg>`;
 
 function _trdKey() { try { return localStorage.getItem("tradeKey") || ""; } catch (e) { return ""; } }
-function _trdSigLabel(k) { return k === "abc" ? "S1" : k === "ab" ? "S2" : k === "ss1" ? "SS1" : "S" + k; }
+function _trdSigLabel(k) { return k === "abc" ? "S1" : k === "ab" ? "S2" : k === "ss1" ? "SS1" : k === "ss2" ? "SS2" : "S" + k; }
 
 async function _trdApi(path, body) {
   // 一律帶上 key（口令）+ name（登入帳號，供後端 owner 白名單檢查）；body 同名欄位可覆寫
@@ -101,8 +101,11 @@ function _trdRenderOverview() {
 
   // 自動交易設定
   const a = ov.auto || {};
-  pop.querySelector(".trd-auto-toggle").classList.toggle("trd-on", !!a.on);
-  pop.querySelector(".trd-auto-toggle").textContent = a.on ? "自動交易：開" : "自動交易：關";
+  const tog = pop.querySelector(".trd-auto-toggle");
+  tog.classList.toggle("trd-on", !!a.on);
+  const stEl = tog.querySelector(".trd-auto-state");
+  if (stEl) stEl.textContent = a.on ? "運行中" : "關閉";
+  pop.querySelector(".trd-auto-card")?.classList.toggle("trd-active", !!a.on);
   pop.querySelectorAll(".trd-a-sig").forEach(x => x.classList.toggle("sel", (a.sigs || []).includes(x.dataset.sig)));
   pop.querySelectorAll(".trd-a-tf").forEach(x => x.classList.toggle("sel", (a.tfs || []).includes(x.dataset.tf)));
   const $ = id => pop.querySelector(id);
@@ -242,11 +245,42 @@ function _trdBuildPopup() {
       background:transparent; color:#f06a6a; cursor:pointer; font-size:11px; }
     #tradePopup .trd-empty { font-size:11px; color:var(--muted,#778); padding:4px 0; }
     #tradePopup .trd-chips { display:flex; flex-wrap:wrap; gap:4px; }
-    #tradePopup .trd-chip { padding:2px 8px; border-radius:11px; border:1px solid var(--border,#445);
-      background:transparent; color:var(--muted,#99a); cursor:pointer; font-size:11px; }
-    #tradePopup .trd-auto-toggle { width:100%; padding:7px; margin:4px 0; border-radius:8px; border:1px solid var(--border,#445);
-      background:transparent; color:var(--text,#ddd); cursor:pointer; font-size:12px; }
-    #tradePopup .trd-auto-toggle.trd-on { background:#2a6f4e; color:#fff; border-color:transparent; }
+    #tradePopup .trd-chip { padding:3px 9px; border-radius:11px; border:1px solid var(--border,#445);
+      background:transparent; color:var(--muted,#99a); cursor:pointer; font-size:11px; transition:all .15s ease; }
+    #tradePopup .trd-chip:hover { border-color:var(--blue,#4a90d9); color:var(--text,#ddd); }
+    #tradePopup .trd-chip.sel { box-shadow:0 2px 7px -3px var(--blue,#4a90d9); }
+    /* 自動交易卡片：標題列＝實體開關 + 運行指示燈，開啟時整張卡片亮起 */
+    #tradePopup .trd-auto-card { margin:4px 0 2px; padding:6px 10px 9px; border-radius:12px;
+      border:1px solid var(--border,#3a3a50); background:rgba(255,255,255,.02);
+      transition:border-color .2s ease, box-shadow .2s ease, background .2s ease; }
+    #tradePopup .trd-auto-card.trd-active { border-color:#2a6f4e88;
+      box-shadow:0 0 0 1px #2a6f4e44, 0 6px 20px -10px #2a6f4e99;
+      background:linear-gradient(180deg,#2a6f4e16,rgba(255,255,255,.02) 42%); }
+    #tradePopup .trd-auto-toggle { display:flex; align-items:center; gap:8px; width:100%;
+      padding:5px 2px; margin:0; border:none; background:transparent; cursor:pointer; }
+    #tradePopup .trd-auto-led { flex:0 0 auto; width:8px; height:8px; border-radius:50%;
+      background:var(--muted,#667); transition:background .2s ease, box-shadow .2s ease; }
+    #tradePopup .trd-auto-toggle.trd-on .trd-auto-led { background:#4cc38a;
+      box-shadow:0 0 0 3px #4cc38a33, 0 0 8px #4cc38aaa; animation:trdLed 1.8s ease-in-out infinite; }
+    @keyframes trdLed { 0%,100%{opacity:1} 50%{opacity:.4} }
+    #tradePopup .trd-auto-label { font-size:13px; font-weight:700; color:var(--text,#ddd); letter-spacing:.5px; }
+    #tradePopup .trd-auto-state { margin-left:auto; font-size:11px; color:var(--muted,#889); }
+    #tradePopup .trd-auto-toggle.trd-on .trd-auto-state { color:#4cc38a; }
+    #tradePopup .trd-switch { flex:0 0 auto; position:relative; width:38px; height:21px; border-radius:11px;
+      background:var(--border,#445); transition:background .2s ease; }
+    #tradePopup .trd-auto-toggle.trd-on .trd-switch { background:#2a6f4e; }
+    #tradePopup .trd-switch-knob { position:absolute; top:2px; left:2px; width:17px; height:17px;
+      border-radius:50%; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,.45); transition:transform .2s ease; }
+    #tradePopup .trd-auto-toggle.trd-on .trd-switch-knob { transform:translateX(17px); }
+    #tradePopup .trd-grid label small { display:block; font-size:9px; line-height:1.3; font-weight:400;
+      color:var(--muted,#778); opacity:.85; margin-top:1px; }
+    #tradePopup .trd-sub.trd-grp-hd { display:flex; align-items:baseline; gap:6px; font-weight:700;
+      color:var(--text,#cdd); border-top:1px dashed var(--border,#3a3a50); padding-top:7px; margin-top:9px; }
+    #tradePopup .trd-sub.trd-grp-hd small { font-weight:400; font-size:10px; color:var(--muted,#778); }
+    #tradePopup .trd-sal-cell { display:flex; flex-direction:column; }
+    #tradePopup .trd-sal-btn { margin-top:auto; width:100%; padding:6px 0; }
+    #tradePopup .trd-note { font-size:10px; line-height:1.55; color:#c6ab6e;
+      background:#b8a06a14; border:1px solid #b8a06a33; border-radius:8px; padding:6px 8px; margin-top:9px; }
     #tradePopup .trd-msg { font-size:11px; color:var(--muted,#889); margin-top:6px; min-height:14px; white-space:pre-wrap; }
     #tradePopup .trd-msg.trd-err { color:#e57; }
     #tradePopup .trd-key-row { display:none; gap:5px; margin:4px 0; }
@@ -337,25 +371,36 @@ function _trdBuildPopup() {
     <div class="trd-pos"></div>
     <div class="trd-ord"></div>
     <hr>
-    <button class="trd-auto-toggle">自動交易：關</button>
-    <div class="trd-sub">自動交易訊號</div>
-    <div class="trd-chips">${sigChips}</div>
-    <div class="trd-sub">自動交易時框</div>
-    <div class="trd-chips">${tfChips}</div>
-    <div class="trd-grid">
-      <div><label>每筆風險 $（0=用保證金）</label><input id="trdAutoRisk" type="number" min="0" step="1" placeholder="0"></div>
-      <div><label>槓桿（風險模式=上限）</label><input id="trdAutoLev" type="number" min="1" max="50"></div>
-      <div><label>每筆保證金 USDT（風險=0時用）</label><input id="trdAutoUsdt" type="number" min="1"></div>
-      <div><label>最大同時持倉</label><input id="trdAutoMax" type="number" min="1" max="20"></div>
-      <div><label>方向</label><select id="trdAutoDirs">
-        <option value="both">多空都做</option><option value="long">只做多</option><option value="short">只做空</option>
-      </select></div>
-      <div><label>止損緩衝 %（策略停損外推；0=用策略停損）</label><input id="trdAutoSl" type="number" min="0" max="50" step="0.1" placeholder="0"></div>
-      <div><label>敗後停手</label><button id="trdAutoSal" class="trd-chip" style="width:100%;padding:6px 0">關</button></div>
+    <div class="trd-auto-card">
+      <button class="trd-auto-toggle">
+        <span class="trd-auto-led"></span>
+        <span class="trd-auto-label">自動交易</span>
+        <span class="trd-auto-state">關閉</span>
+        <span class="trd-switch"><span class="trd-switch-knob"></span></span>
+      </button>
+      <div class="trd-sub">進場訊號</div>
+      <div class="trd-chips">${sigChips}</div>
+      <div class="trd-sub">時間框</div>
+      <div class="trd-chips">${tfChips}</div>
+      <div class="trd-sub trd-grp-hd">倉位</div>
+      <div class="trd-grid">
+        <div><label>方向</label><select id="trdAutoDirs">
+          <option value="both">多空都做</option><option value="long">只做多</option><option value="short">只做空</option>
+        </select></div>
+        <div><label>槓桿<small>風險模式為上限</small></label><input id="trdAutoLev" type="number" min="1" max="50"></div>
+        <div><label>每筆保證金 USDT<small>風險＝0 時採用</small></label><input id="trdAutoUsdt" type="number" min="1"></div>
+        <div><label>每筆風險 $<small>0＝改用保證金</small></label><input id="trdAutoRisk" type="number" min="0" step="1" placeholder="0"></div>
+      </div>
+      <div class="trd-sub trd-grp-hd">風險控制</div>
+      <div class="trd-grid">
+        <div><label>最大同時持倉</label><input id="trdAutoMax" type="number" min="1" max="20"></div>
+        <div><label>止損緩衝 %<small>策略停損外推；0＝用策略</small></label><input id="trdAutoSl" type="number" min="0" max="50" step="0.1" placeholder="0"></div>
+        <div class="trd-sal-cell"><label>敗後停手<small>當日虧損後暫停</small></label><button id="trdAutoSal" class="trd-chip trd-sal-btn">關</button></div>
+      </div>
+      <div class="trd-sub trd-grp-hd">各標的×時框 止損緩衝 %<small>留空＝用上方預設；選時框才分時框</small></div>
+      <div class="trd-persym" id="trdPerSym"></div>
+      <div class="trd-note">⚠ 自動交易掃描的標的＝帳號自選清單（僅合約），且帳號需至少一台裝置啟用訊號通知。進場後停損/止盈由交易所託管，策略提前止盈止損時會同步平倉。</div>
     </div>
-    <div class="trd-sub">各標的×時框 止損緩衝 %（留空＝用上方預設；選了自動交易時框才分時框）</div>
-    <div class="trd-persym" id="trdPerSym"></div>
-    <div class="trd-sub" style="color:#b8a06a">⚠ 自動交易掃描的標的＝帳號自選清單（僅合約），且帳號需至少一台裝置啟用訊號通知。進場後停損/止盈由交易所託管，策略提前止盈止損時會同步平倉。</div>
     </div>
     <div class="trd-msg"></div>`;
   document.body.appendChild(pop);
