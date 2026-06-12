@@ -33,8 +33,8 @@ _ON_RAILWAY = _acct._ON_RAILWAY
 
 _ALL_SIGS = {"abc", "ab", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "ss1"}
 _ALL_TFS = {"5m", "15m", "30m", "1h", "2h", "4h", "8h", "1d", "1w", "1M"}
-_AUTO_DEFAULT = {"on": False, "sigs": [], "tfs": [], "usdt": 50.0, "lev": 3,
-                 "maxPos": 3, "dirs": "both"}
+_AUTO_DEFAULT = {"on": False, "owner": "", "sigs": [], "tfs": [], "usdt": 50.0,
+                 "lev": 3, "maxPos": 3, "dirs": "both"}
 
 
 # ── 訪問控制 ──────────────────────────────────────────────────
@@ -103,6 +103,22 @@ def _ensure_db():
                 msg       TEXT, closed_ts REAL
             )
         """)
+        # 交易口令寫穿表（每帳號一筆）：讓口令「跟著帳戶移動」、輸一次換裝置免再輸。
+        # 不靠整包 localStorage 快照同步（會被別台舊快照蓋掉、登入時機不對就帶不到）。
+        # 注意：存的是「交易口令」(TRADE_ACCESS_KEY 的門禁碼)，非 Binance 金鑰；金鑰仍只在 env。
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS trade_userkey (
+                name       TEXT PRIMARY KEY,
+                tkey       TEXT,
+                updated_at DOUBLE PRECISION
+            )
+        """ if _acct._use_pg() else """
+            CREATE TABLE IF NOT EXISTS trade_userkey (
+                name       TEXT PRIMARY KEY,
+                tkey       TEXT,
+                updated_at REAL
+            )
+        """)
         conn.commit()
     finally:
         conn.close()
@@ -113,6 +129,9 @@ def _clean_auto(p: Optional[dict]) -> dict:
     p = p or {}
     out = dict(_AUTO_DEFAULT)
     out["on"] = bool(p.get("on"))
+    # owner = 綁定的擁有者帳號名稱：自動交易只下「這個帳號自選清單裡」的標的，
+    # 避免掃到別的帳號（種子帳號/其他用戶）的自選就用你的 Binance 帳戶下單。
+    out["owner"] = (p.get("owner") or "").strip()[:40]
     out["sigs"] = [s for s in (p.get("sigs") or []) if s in _ALL_SIGS]
     out["tfs"] = [t for t in (p.get("tfs") or []) if t in _ALL_TFS]
     try:
@@ -223,6 +242,16 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig):
         if cfg["dirs"] != "both" and cfg["dirs"] != want:
             return
         import routes.notify as notify
+        # ⚠ 關鍵：只交易「擁有者帳號自己的自選清單」裡的標的。
+        # 監控器會掃描所有訂閱推播帳號（種子帳號/其他用戶）的自選 → 若不限定擁有者，
+        # 別人自選的訊號就會用你的 Binance 帳戶下單（曾發生：自動開了 ICNT/SPORTFUN 等
+        # 根本不在自選的單）。owner 未綁定 → 不交易。
+        owner = (cfg.get("owner") or "").strip()
+        if not owner:
+            return
+        owner_syms = {(w.get("symbol") or "") for w in notify.account_watchlist(owner)}
+        if symbol not in owner_syms:
+            return
         evt_key = f"atrade:{symbol}:{tf}:{k}:{d}:{sig.get('t')}"
         if notify.seen_event(evt_key):
             return
@@ -270,16 +299,27 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig):
             tgt = float(entry) - rr * risk if d == "s" else float(entry) + rr * risk
             tp_px = bt.quantize_price(bsym, tgt * scale)
         close_side = "SELL" if want == "long" else "BUY"
-        warn = []
+        # 先掛停損（自動單的安全命脈）。掛失敗 → 立刻市價平掉剛進的倉，絕不留「無停損保護」
+        # 的自動倉位（曾發生：冷門合約不支援條件單 -4120，倉位開了卻沒 SL）。
         try:
             bt.place_close_trigger(bsym, close_side, sl_px, "sl")
         except bt.TradeError as e:
-            warn.append(f"SL 掛單失敗：{e}")
+            try:
+                bt.close_position(bsym)
+            except bt.TradeError:
+                pass
+            _log_trade(source="auto", status="failed", symbol=symbol, bsym=bsym, side=want,
+                       qty=qty, entry=str(entry), sl=str(stop), sig=k, d=d, tf=tf,
+                       sigt=str(sig.get("t")),
+                       msg=f"停損無法掛單（{e}）→ 已即時平倉，不留無保護持倉")
+            print(f"  ⚠ 自動下單 {bsym} 停損掛單失敗，已平倉：{e}")
+            return
+        warn = []
         if tp_px:
             try:
                 bt.place_close_trigger(bsym, close_side, tp_px, "tp")
             except bt.TradeError as e:
-                warn.append(f"TP 掛單失敗：{e}")
+                warn.append(f"TP 掛單失敗（不影響停損保護）：{e}")
         _log_trade(source="auto", status="open", symbol=symbol, bsym=bsym, side=want,
                    qty=qty, entry=str(entry), sl=str(stop),
                    tp=(str(tp_px) if tp_px else None), sig=k, d=d, tf=tf,
@@ -358,10 +398,55 @@ class AutoReq(BaseModel):
     cfg: dict
 
 
+class SaveKeyReq(BaseModel):
+    name: str
+    tkey: str
+
+
+class MyKeyReq(BaseModel):
+    name: str
+
+
 # ── endpoints ─────────────────────────────────────────────────
 @router.get("/status")
 def status():
     return {"configured": bt.configured(), "env": bt.env_name(), "locked": _locked()}
+
+
+@router.post("/savekey")
+def save_key(req: SaveKeyReq):
+    """把交易口令綁到帳號（寫穿表）→ 換裝置登入即可取回、不必再輸。
+    存的是門禁口令（非 Binance 金鑰）；以帳號名稱為識別，與帳號同步同一信任模型。"""
+    name = _acct._norm_name(req.name)
+    if not name:
+        raise HTTPException(400, "缺少帳號")
+    _ensure_db()
+    conn, ph = _acct._db()
+    try:
+        conn.execute(
+            f"INSERT INTO trade_userkey (name, tkey, updated_at) VALUES ({ph},{ph},{ph}) "
+            f"ON CONFLICT (name) DO UPDATE SET tkey=excluded.tkey, updated_at=excluded.updated_at",
+            (name, req.tkey or "", time.time()))
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True}
+
+
+@router.post("/mykey")
+def my_key(req: MyKeyReq):
+    """取回該帳號綁定的交易口令（登入後前端用它免去再次輸入）。"""
+    name = _acct._norm_name(req.name)
+    if not name:
+        return {"tkey": ""}
+    _ensure_db()
+    conn, ph = _acct._db()
+    try:
+        cur = conn.execute(f"SELECT tkey FROM trade_userkey WHERE name={ph}", (name,))
+        row = cur.fetchone()
+    finally:
+        conn.close()
+    return {"tkey": (row[0] if row and row[0] else "")}
 
 
 @router.post("/overview")

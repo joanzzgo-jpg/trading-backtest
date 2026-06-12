@@ -122,6 +122,7 @@ function _trdSaveAuto() {
   a.lev = +pop.querySelector("#trdAutoLev").value || 3;
   a.maxPos = +pop.querySelector("#trdAutoMax").value || 3;
   a.dirs = pop.querySelector("#trdAutoDirs").value;
+  a.owner = window._acctName || "";   // 綁定擁有者帳號 → 只自動交易此帳號的自選（防別人自選下你的單）
   clearTimeout(_trdAutoSaveTimer);
   _trdAutoSaveTimer = setTimeout(async () => {
     try { await _trdApi("auto", { cfg: a }); _trdMsg("自動交易設定已儲存"); }
@@ -272,11 +273,15 @@ function _trdBuildPopup() {
   pop.querySelector(".trd-go").addEventListener("click", e => { e.stopPropagation(); _trdSubmit(); });
   pop.querySelector(".trd-key-save").addEventListener("click", e => {
     e.stopPropagation();
-    try { localStorage.setItem("tradeKey", pop.querySelector("#trdKeyInput").value.trim()); } catch (err) {}
-    // 口令跟著帳戶：tradeKey 本就含在帳號同步快照內（不在 _ACCT_SKIP）→ 立即推上雲端，
-    // 縮小「另一台舊快照把口令蓋掉」的時間窗 → 換裝置登入即自動帶過來、不必再輸入一次。
-    if (window._acctName && typeof _acctFlush === "function") { try { _acctFlush(); } catch (err) {} }
-    else if (!window._acctName) _trdMsg("已存本機。提醒：登入帳號後口令才會跨裝置同步、不必再輸入", false);
+    const v = pop.querySelector("#trdKeyInput").value.trim();
+    try { localStorage.setItem("tradeKey", v); } catch (err) {}
+    // 口令跟著帳戶：寫穿伺服器（/savekey）→ 換裝置登入用 /mykey 取回、不必再輸。
+    // 不靠整包 localStorage 快照（會被別台舊快照蓋掉、登入時機不對就帶不到）。
+    if (window._acctName) {
+      _trdApi("savekey", { name: window._acctName, tkey: v }).catch(() => {});
+    } else {
+      _trdMsg("已存本機。提醒：登入帳號後口令才會跟著帳戶、換裝置免再輸", false);
+    }
     _trdShowKeyRow(false); _trdRefresh();
   });
   pop.querySelector(".trd-auto-toggle").addEventListener("click", async e => {
@@ -285,10 +290,12 @@ function _trdBuildPopup() {
     const a = _TRD.ov.auto = _TRD.ov.auto || {};
     const turningOn = !a.on;
     if (turningOn) {
+      if (!window._acctName) { _trdMsg("請先登入帳號再開自動交易（自動交易只會下你帳號自選的標的）", true); return; }
       const envTxt = _TRD.st && _TRD.st.env === "live" ? "【實盤・真錢】" : "【測試網】";
-      if (!confirm(`${envTxt}開啟自動交易？\n勾選的訊號出現時會自動下單。`)) return;
+      if (!confirm(`${envTxt}開啟自動交易？\n只會自動交易「${window._acctName}」自選清單裡的標的，訊號出現就下單。`)) return;
     }
     a.on = turningOn;
+    a.owner = window._acctName || "";   // 綁定擁有者帳號（同上）
     _trdRenderOverview();
     try { await _trdApi("auto", { cfg: a }); _trdMsg(turningOn ? "自動交易已開啟" : "自動交易已關閉"); }
     catch (err) { a.on = !turningOn; _trdRenderOverview(); _trdMsg(err.message, true); }
@@ -322,8 +329,16 @@ function _trdOpenPopup(anchorBtn) {
     const sym = document.getElementById("symbolInput")?.value?.trim();
     if (mkt === "crypto" && sym && !pop.querySelector("#trdSym").value) pop.querySelector("#trdSym").value = sym;
   } catch (e) {}
-  if (_TRD.st.locked && !_trdKey()) _trdShowKeyRow(true);
-  _trdRefresh();
+  // 口令跟著帳戶：已登入 → 先從伺服器取回此帳號綁定的口令（換裝置免再輸），取到才刷新。
+  if (window._acctName) {
+    _trdApi("mykey", { name: window._acctName })
+      .then(j => { if (j && j.tkey) { try { localStorage.setItem("tradeKey", j.tkey); } catch (e) {} } })
+      .catch(() => {})
+      .finally(() => { if (_TRD.st.locked && !_trdKey()) _trdShowKeyRow(true); _trdRefresh(); });
+  } else {
+    if (_TRD.st.locked && !_trdKey()) _trdShowKeyRow(true);
+    _trdRefresh();
+  }
   _trdStopPoll();
   _TRD.pollTimer = setInterval(_trdRefresh, 5000);   // 開著時每 5s 刷新持倉/盈虧
   if (anchorBtn && !isMobileUI()) {

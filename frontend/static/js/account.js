@@ -11,7 +11,9 @@ let _acctLSHooked = false;
 // 不跨裝置同步、也不可觸發同步的「裝置本地」key：
 //  wxCoords=各裝置本地天氣座標；notifyFeedSeen=訊號分頁已讀時間（高頻寫入，會頻繁觸發整包推送
 //  → 把這台的自選蓋掉另一台，造成自選不同步）。
-const _ACCT_SKIP = new Set(["acctName", "wxCoords", "notifyFeedSeen"]);
+// tradeKey=交易口令改走伺服器寫穿表（/api/trade/savekey|mykey）當唯一真相，不進整包快照
+// （快照 last-write-wins 會被別台舊快照蓋掉、換裝置帶不到）。
+const _ACCT_SKIP = new Set(["acctName", "wxCoords", "notifyFeedSeen", "tradeKey"]);
 // 每個帳號各自保存、切換帳號時要「乾淨換成該帳號的」設定 key：
 //   chartColors=K棒+指標顏色 / chartStyles=指標參數·線寬·樣式 / chartLineStyles=各線寬樣式 /
 //   sysColors=系統外觀色 / mobileTFs=手機顯示的時間框
