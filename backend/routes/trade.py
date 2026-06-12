@@ -30,8 +30,15 @@ router = APIRouter(prefix="/api/trade")
 
 _ACCESS_KEY = (os.getenv("TRADE_ACCESS_KEY") or "").strip()
 _ON_RAILWAY = _acct._ON_RAILWAY
-# 交易功能僅限這個帳號使用（其他帳號一律擋）。空＝不限帳號（只靠口令）。設為 "qwer" 即只有 qwer 能交易。
+# TRADE_OWNER=用「共用 env 金鑰」的那一個帳號（如 qwer）。其他帳號要交易須各自綁自己的金鑰。
 _OWNER = (os.getenv("TRADE_OWNER") or "").strip()
+# TRADE_ALLOW=允許使用交易功能（看得到入口、可綁自己金鑰）的帳號白名單（逗號分隔）。
+# 未設 → 預設只有 _OWNER。要開放某帳號：把它加進 TRADE_ALLOW，再讓它綁自己的金鑰。
+_ALLOW = {_acct._norm_name(s) for s in (os.getenv("TRADE_ALLOW") or _OWNER).split(",") if s.strip()}
+
+
+def _allowed(name: str) -> bool:
+    return _acct._norm_name(name or "") in _ALLOW if _ALLOW else False
 
 _ALL_SIGS = {"abc", "ab", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "ss1"}
 _ALL_TFS = {"5m", "15m", "30m", "1h", "2h", "4h", "8h", "1d", "1w", "1M"}
@@ -44,26 +51,97 @@ _AUTO_DEFAULT = {"on": False, "owner": "", "sigs": [], "tfs": [], "usdt": 50.0,
                  "stopAfterLoss": False}
 
 
+# ── 金鑰加密（Fernet）：Secret 加密後才入庫 ───────────────────
+_fernet_obj = None
+
+
+def _fernet():
+    """Fernet 加解密器。金鑰來源：env TRADE_ENC_KEY（urlsafe-b64 32 byte）→ 否則由
+    VAPID_PRIVATE_KEY 以 PBKDF2 推導（伺服器有此 env 才能解 → DB 外洩無 env 仍解不開）。"""
+    global _fernet_obj
+    if _fernet_obj is not None:
+        return _fernet_obj
+    import base64
+    from cryptography.fernet import Fernet
+    raw = (os.getenv("TRADE_ENC_KEY") or "").strip()
+    if raw:
+        try:
+            _fernet_obj = Fernet(raw.encode())
+            return _fernet_obj
+        except Exception:
+            pass
+    seed = (os.getenv("VAPID_PRIVATE_KEY") or os.getenv("ACCOUNT_ADMIN_KEY") or "trade-fallback").encode()
+    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+    from cryptography.hazmat.primitives import hashes
+    kdf = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=b"trade-creds-v1", iterations=200000)
+    _fernet_obj = Fernet(base64.urlsafe_b64encode(kdf.derive(seed)))
+    return _fernet_obj
+
+
+def _enc(s: str) -> str:
+    return _fernet().encrypt((s or "").encode()).decode()
+
+
+def _dec(s: str) -> str:
+    return _fernet().decrypt((s or "").encode()).decode()
+
+
+# ── 帳號金鑰解析：自綁金鑰 → 否則擁有者退回 env ──────────────
+def _own_creds(name: str):
+    """讀某帳號自綁的 Binance 金鑰（已解密）。回 (api_key, api_secret, env) 或 None。"""
+    name = _acct._norm_name(name or "")
+    if not name:
+        return None
+    try:
+        _ensure_db()
+        conn, ph = _acct._db()
+        try:
+            cur = conn.execute(f"SELECT api_key, secret_enc, env FROM trade_creds WHERE name={ph}", (name,))
+            row = cur.fetchone()
+        finally:
+            conn.close()
+        if row and row[0] and row[1]:
+            return (row[0], _dec(row[1]), bt.norm_env(row[2] or "testnet"))
+    except Exception as e:
+        print(f"  ⚠ 讀取金鑰失敗（{name}）：{e}")
+    return None
+
+
+def _client_for(name: str):
+    """依帳號解析交易 Client：①自綁金鑰 ②擁有者帳號退回 env 金鑰 ③都沒 → None。
+    不在白名單的帳號一律 None（即使誤綁了金鑰也不放行）。回 (client_or_None, is_env_owner)。"""
+    if not _allowed(name):
+        return None, False
+    creds = _own_creds(name)
+    if creds:
+        return bt.Client(*creds), False
+    if _OWNER and _acct._norm_name(name or "") == _acct._norm_name(_OWNER) and bt.env_configured():
+        return bt.env_client(), True
+    return None, False
+
+
 # ── 訪問控制 ──────────────────────────────────────────────────
 def _locked() -> bool:
     return bool(_ACCESS_KEY) or _ON_RAILWAY
 
 
 def _guard(key: Optional[str], name: Optional[str] = None):
-    # 第一道：交易口令（公網沒設口令 → 一律拒）
-    if _ACCESS_KEY:
-        if not secrets.compare_digest(key or "", _ACCESS_KEY):
-            raise HTTPException(403, "交易口令錯誤（TRADE_ACCESS_KEY）")
-    elif _ON_RAILWAY:
-        raise HTTPException(403, "伺服器未設定 TRADE_ACCESS_KEY，公網環境停用交易")
-    # 第二道：帳號白名單（只有 TRADE_OWNER 能交易，其他帳號擋掉）
-    if _OWNER and _acct._norm_name(name or "") != _acct._norm_name(_OWNER):
-        raise HTTPException(403, f"交易功能僅限帳號「{_OWNER}」使用")
-
-
-def _require_configured():
-    if not bt.configured():
-        raise HTTPException(503, "未設定 Binance 交易金鑰（BINANCE_TRADE_API_KEY/SECRET）")
+    """驗證並回傳此帳號的交易 Client。無金鑰 → 403。
+    使用 env 金鑰的擁有者帳號 → 另需 TRADE_ACCESS_KEY 口令（保護共用 env 帳戶）。
+    自綁金鑰的帳號 → 不需口令（自己的金鑰、登入該帳號即可）。"""
+    nm = _acct._norm_name(name or "")
+    if not nm:
+        raise HTTPException(403, "請先登入帳號")
+    client, is_env_owner = _client_for(nm)
+    if client is None:
+        raise HTTPException(403, "此帳號尚未綁定 Binance 金鑰")
+    if is_env_owner:
+        if _ACCESS_KEY:
+            if not secrets.compare_digest(key or "", _ACCESS_KEY):
+                raise HTTPException(403, "交易口令錯誤（TRADE_ACCESS_KEY）")
+        elif _ON_RAILWAY:
+            raise HTTPException(403, "伺服器未設定 TRADE_ACCESS_KEY，公網環境停用 env 帳戶交易")
+    return client
 
 
 # ── 自動交易設定（DB 單列，重啟不丟）──────────────────────────
@@ -125,6 +203,25 @@ def _ensure_db():
             CREATE TABLE IF NOT EXISTS trade_userkey (
                 name       TEXT PRIMARY KEY,
                 tkey       TEXT,
+                updated_at REAL
+            )
+        """)
+        # 每帳號自綁的 Binance 金鑰：api_key 明文（公鑰）、secret_enc=Fernet 加密、env=testnet/live。
+        # 伺服器需 env 加密金鑰才能解 → DB 外洩無 env 仍解不開。
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS trade_creds (
+                name       TEXT PRIMARY KEY,
+                api_key    TEXT,
+                secret_enc TEXT,
+                env        TEXT,
+                updated_at DOUBLE PRECISION
+            )
+        """ if _acct._use_pg() else """
+            CREATE TABLE IF NOT EXISTS trade_creds (
+                name       TEXT PRIMARY KEY,
+                api_key    TEXT,
+                secret_enc TEXT,
+                env        TEXT,
                 updated_at REAL
             )
         """)
@@ -211,7 +308,7 @@ def _log_trade(**kw) -> Optional[int]:
         try:
             cols = ("ts", "mode", "source", "status", "symbol", "bsym", "side", "qty",
                     "entry", "sl", "tp", "sig", "dir", "tf", "sigt", "msg")
-            vals = (time.time(), bt.env_name(), kw.get("source"), kw.get("status"),
+            vals = (time.time(), kw.get("mode") or bt.env_name(), kw.get("source"), kw.get("status"),
                     kw.get("symbol"), kw.get("bsym"), kw.get("side"), kw.get("qty"),
                     kw.get("entry"), kw.get("sl"), kw.get("tp"), kw.get("sig"),
                     kw.get("d"), kw.get("tf"), kw.get("sigt"), kw.get("msg"))
@@ -284,7 +381,7 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
     """新進場訊號 → 依自動交易設定市價進場 + 掛交易所託管 SL/TP。
     all_signals=該標的當前完整訊號列表（含結算結果），供「敗後停手」模擬用。"""
     try:
-        if market != "crypto" or not bt.configured():
+        if market != "crypto":
             return
         cfg = get_auto_cfg()
         if not (cfg["on"] and k in cfg["sigs"] and tf in cfg["tfs"]):
@@ -293,12 +390,13 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
         if cfg["dirs"] != "both" and cfg["dirs"] != want:
             return
         import routes.notify as notify
-        # ⚠ 關鍵：只交易「擁有者帳號自己的自選清單」裡的標的。
-        # 監控器會掃描所有訂閱推播帳號（種子帳號/其他用戶）的自選 → 若不限定擁有者，
-        # 別人自選的訊號就會用你的 Binance 帳戶下單（曾發生：自動開了 ICNT/SPORTFUN 等
-        # 根本不在自選的單）。owner 未綁定 → 不交易。
+        # ⚠ 關鍵：只交易「擁有者帳號自己的自選清單」裡的標的，且用該帳號自己的金鑰下單。
+        # owner 未綁定、或該帳號沒金鑰 → 不交易。
         owner = (cfg.get("owner") or "").strip()
         if not owner:
+            return
+        client, _ = _client_for(owner)
+        if client is None:
             return
         owner_syms = {(w.get("symbol") or "") for w in notify.account_watchlist(owner)}
         if symbol not in owner_syms:
@@ -321,34 +419,34 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
         rr = sig.get("rr")
         if entry is None or stop is None:
             return
-        bsym, scale = bt.resolve_symbol(symbol)
-        pos = bt.positions()
+        bsym, scale = client.resolve_symbol(symbol)
+        pos = client.positions()
         if any(p["symbol"] == bsym for p in pos):
-            _log_trade(source="auto", status="skipped", symbol=symbol, bsym=bsym,
+            _log_trade(source="auto", mode=client.env, status="skipped", symbol=symbol, bsym=bsym,
                        side=want, sig=k, d=d, tf=tf, sigt=str(sig.get("t")),
                        msg="已有同合約持倉，略過")
             return
         if len(pos) >= cfg["maxPos"]:
-            _log_trade(source="auto", status="skipped", symbol=symbol, bsym=bsym,
+            _log_trade(source="auto", mode=client.env, status="skipped", symbol=symbol, bsym=bsym,
                        side=want, sig=k, d=d, tf=tf, sigt=str(sig.get("t")),
                        msg=f"持倉數已達上限 {cfg['maxPos']}")
             return
 
         notional = cfg["usdt"] * cfg["lev"]
-        px = bt.last_price(bsym)
-        if notional < bt.min_notional(bsym):
-            _log_trade(source="auto", status="failed", symbol=symbol, bsym=bsym,
+        px = client.last_price(bsym)
+        if notional < client.min_notional(bsym):
+            _log_trade(source="auto", mode=client.env, status="failed", symbol=symbol, bsym=bsym,
                        side=want, sig=k, d=d, tf=tf, sigt=str(sig.get("t")),
-                       msg=f"名目金額 {notional:.1f} 低於合約下限 {bt.min_notional(bsym)}")
+                       msg=f"名目金額 {notional:.1f} 低於合約下限 {client.min_notional(bsym)}")
             return
-        qty = bt.quantize_qty(bsym, notional / px)
+        qty = client.quantize_qty(bsym, notional / px)
         try:
-            bt.set_leverage(bsym, cfg["lev"])
+            client.set_leverage(bsym, cfg["lev"])
         except bt.TradeError:
             pass   # 槓桿設定失敗就用現值（有倉位/掛單時交易所會拒改）
 
         side = "BUY" if want == "long" else "SELL"
-        o = bt.place_order(bsym, side, qty, "MARKET")
+        o = client.place_order(bsym, side, qty, "MARKET")
 
         # 停損價（圖表價）：slPct>0 → 設在進場價上下 X%（多單下方、空單上方）；否則用訊號原停損。
         slpct = cfg.get("slPct") or 0
@@ -356,24 +454,24 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
             stop_chart = float(entry) * (1 + slpct / 100) if d == "s" else float(entry) * (1 - slpct / 100)
         else:
             stop_chart = float(stop)
-        sl_px = bt.quantize_price(bsym, stop_chart * scale)
+        sl_px = client.quantize_price(bsym, stop_chart * scale)
         # TP=進場 ± 盈虧比×風險（風險用「實際採用的停損」算 → rr 與顯示停損一致）
         tp_px = None
         if rr:
             risk = abs(float(entry) - stop_chart)
             tgt = float(entry) - rr * risk if d == "s" else float(entry) + rr * risk
-            tp_px = bt.quantize_price(bsym, tgt * scale)
+            tp_px = client.quantize_price(bsym, tgt * scale)
         close_side = "SELL" if want == "long" else "BUY"
         # 先掛停損（自動單的安全命脈）。掛失敗 → 立刻市價平掉剛進的倉，絕不留「無停損保護」
         # 的自動倉位（曾發生：冷門合約不支援條件單 -4120，倉位開了卻沒 SL）。
         try:
-            bt.place_close_trigger(bsym, close_side, sl_px, "sl")
+            client.place_close_trigger(bsym, close_side, sl_px, "sl")
         except bt.TradeError as e:
             try:
-                bt.close_position(bsym)
+                client.close_position(bsym)
             except bt.TradeError:
                 pass
-            _log_trade(source="auto", status="failed", symbol=symbol, bsym=bsym, side=want,
+            _log_trade(source="auto", mode=client.env, status="failed", symbol=symbol, bsym=bsym, side=want,
                        qty=qty, entry=str(entry), sl=str(round(stop_chart, 8)), sig=k, d=d, tf=tf,
                        sigt=str(sig.get("t")),
                        msg=f"停損無法掛單（{e}）→ 已即時平倉，不留無保護持倉")
@@ -382,14 +480,14 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
         warn = []
         if tp_px:
             try:
-                bt.place_close_trigger(bsym, close_side, tp_px, "tp")
+                client.place_close_trigger(bsym, close_side, tp_px, "tp")
             except bt.TradeError as e:
                 warn.append(f"TP 掛單失敗（不影響停損保護）：{e}")
-        _log_trade(source="auto", status="open", symbol=symbol, bsym=bsym, side=want,
+        _log_trade(source="auto", mode=client.env, status="open", symbol=symbol, bsym=bsym, side=want,
                    qty=qty, entry=str(entry), sl=str(round(stop_chart, 8)),
                    tp=(str(tp_px) if tp_px else None), sig=k, d=d, tf=tf,
                    sigt=str(sig.get("t")), msg="；".join(warn) or None)
-        print(f"  🤖 自動下單 {bt.env_name()}: {bsym} {side} {qty}（{symbol} {tf} "
+        print(f"  🤖 自動下單 {client.env}: {bsym} {side} {qty}（{symbol} {tf} "
               f"{k}/{d}）" + (f" ⚠{warn}" if warn else ""))
     except Exception as e:
         try:
@@ -403,7 +501,11 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
 def settle_signal_trade(market, exchange, symbol, tf, k, d, sig, event):
     """訊號引擎判定止盈/止損 → 平掉對應的自動倉位（中軌出場早於交易所掛單時對齊策略）。"""
     try:
-        if market != "crypto" or not bt.configured():
+        if market != "crypto":
+            return
+        cfg = get_auto_cfg()
+        client, _ = _client_for((cfg.get("owner") or "").strip())
+        if client is None:
             return
         sigt = str(sig.get("t"))
         _ensure_db()
@@ -420,12 +522,12 @@ def settle_signal_trade(market, exchange, symbol, tf, k, d, sig, event):
         if not row:
             return
         row_id, bsym = row
-        r = bt.close_position(bsym)
+        r = client.close_position(bsym)
         msg = "策略止盈平倉" if event == "tp" else "策略止損平倉"
         if not r.get("ok"):
             msg += "（交易所端已先出場）"
         _update_trade(row_id, "closed", msg)
-        print(f"  🤖 自動平倉 {bt.env_name()}: {bsym}（{event}）")
+        print(f"  🤖 自動平倉 {client.env}: {bsym}（{event}）")
     except Exception as e:
         print(f"  ⚠ 自動平倉失敗 {symbol} {tf}：{e}")
 
@@ -479,10 +581,87 @@ class MyKeyReq(BaseModel):
 
 # ── endpoints ─────────────────────────────────────────────────
 @router.get("/status")
-def status():
-    # owner = 交易功能限定的帳號（前端據此只在登入該帳號時顯示交易入口）；空＝不限帳號
-    return {"configured": bt.configured(), "env": bt.env_name(), "locked": _locked(),
-            "owner": _OWNER}
+def status(name: str = ""):
+    """全域 + 此帳號的交易可用性。
+    canTrade=此帳號能否交易（自綁金鑰 或 擁有者帳號有 env 金鑰）→ 前端據此決定是否顯示入口。
+    hasOwnKeys=此帳號是否自綁了金鑰；env=此帳號將使用的環境（testnet/live）。"""
+    nm = _acct._norm_name(name or "")
+    own = _own_creds(nm) if nm else None
+    client, is_env_owner = _client_for(nm) if nm else (None, False)
+    return {
+        "envConfigured": bt.env_configured(),     # 全域 env 是否設了金鑰（給擁有者）
+        "owner": _OWNER,
+        "locked": _locked(),
+        "allowed": _allowed(nm),                  # 此帳號是否在白名單（可看入口/綁金鑰）
+        "isEnvOwner": bool(_OWNER and nm and _acct._norm_name(nm) == _acct._norm_name(_OWNER)),
+        "canTrade": client is not None,           # 此帳號當下能否交易（有金鑰）
+        "hasOwnKeys": own is not None,
+        "usingEnv": is_env_owner,                 # 此帳號用的是共用 env 金鑰（擁有者）
+        "env": (own[2] if own else (bt.env_name() if is_env_owner else "testnet")),
+    }
+
+
+# ── 綁定 Binance 金鑰（每帳號各自）──────────────────────────────
+class BindReq(BaseModel):
+    name: str
+    api_key: str
+    api_secret: str
+    env: str = "testnet"
+
+
+class CredReq(BaseModel):
+    name: str
+
+
+@router.post("/bind")
+def bind_keys(req: BindReq):
+    """綁定/更新此帳號的 Binance 金鑰：先驗證能查餘額 → Secret 加密入庫。"""
+    name = _acct._norm_name(req.name)
+    if not name:
+        raise HTTPException(400, "請先登入帳號")
+    if not _allowed(name):
+        raise HTTPException(403, "此帳號未獲准使用交易功能（請管理員加入白名單）")
+    ak = (req.api_key or "").strip()
+    sk = (req.api_secret or "").strip()
+    env = bt.norm_env(req.env)
+    if not ak or not sk:
+        raise HTTPException(400, "請填入 API Key 與 Secret")
+    # 禁止用「共用 env 帳戶」的金鑰去綁別的帳號（避免冒用擁有者帳戶）
+    if bt.env_configured() and ak == bt._ENV_API_KEY and _acct._norm_name(name) != _acct._norm_name(_OWNER):
+        raise HTTPException(403, "此金鑰為共用帳戶金鑰，不可綁到其他帳號")
+    try:
+        bal = bt.verify_keys(ak, sk, env)        # 驗證金鑰可用（並確認 env 對）
+    except bt.TradeError as e:
+        raise HTTPException(400, f"金鑰驗證失敗：{e}")
+    _ensure_db()
+    conn, ph = _acct._db()
+    try:
+        conn.execute(
+            f"INSERT INTO trade_creds (name, api_key, secret_enc, env, updated_at) "
+            f"VALUES ({ph},{ph},{ph},{ph},{ph}) "
+            f"ON CONFLICT (name) DO UPDATE SET api_key=excluded.api_key, "
+            f"secret_enc=excluded.secret_enc, env=excluded.env, updated_at=excluded.updated_at",
+            (name, ak, _enc(sk), env, time.time()))
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True, "env": env, "balance": bal}
+
+
+@router.post("/unbind")
+def unbind_keys(req: CredReq):
+    """解除此帳號自綁的金鑰（之後此帳號不能交易，除非它是擁有者退回 env）。"""
+    name = _acct._norm_name(req.name)
+    if not name:
+        raise HTTPException(400, "缺少帳號")
+    _ensure_db()
+    conn, ph = _acct._db()
+    try:
+        conn.execute(f"DELETE FROM trade_creds WHERE name={ph}", (name,))
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True}
 
 
 @router.post("/savekey")
@@ -523,11 +702,10 @@ def my_key(req: MyKeyReq):
 
 @router.post("/overview")
 def overview(req: KeyReq):
-    _guard(req.key, req.name)
-    _require_configured()
+    client = _guard(req.key, req.name)
     try:
-        return {"env": bt.env_name(), "balance": bt.balance(),
-                "positions": bt.positions(), "orders": bt.open_orders(),
+        return {"env": client.env, "balance": client.balance(),
+                "positions": client.positions(), "orders": client.open_orders(),
                 "auto": get_auto_cfg(fresh=True)}
     except bt.TradeError as e:
         raise HTTPException(502, str(e))
@@ -535,36 +713,35 @@ def overview(req: KeyReq):
 
 @router.post("/order")
 def order(req: OrderReq):
-    _guard(req.key, req.name)
-    _require_configured()
+    client = _guard(req.key, req.name)
     want = "long" if req.side == "long" else "short"
     try:
-        bsym, scale = bt.resolve_symbol(req.symbol)
+        bsym, scale = client.resolve_symbol(req.symbol)
         usdt = max(1.0, float(req.usdt))
         lev = max(1, min(int(req.lev), 50))
         notional = usdt * lev
-        if notional < bt.min_notional(bsym):
+        if notional < client.min_notional(bsym):
             raise bt.TradeError(f"名目金額 {notional:.1f} USDT 低於此合約下限 "
-                                f"{bt.min_notional(bsym)}，請加大金額或槓桿")
+                                f"{client.min_notional(bsym)}，請加大金額或槓桿")
         try:
-            bt.set_leverage(bsym, lev)
+            client.set_leverage(bsym, lev)
         except bt.TradeError:
             pass
         side = "BUY" if want == "long" else "SELL"
         otype = "LIMIT" if req.type == "LIMIT" else "MARKET"
-        ref_px = float(req.price) * scale if (otype == "LIMIT" and req.price) else bt.last_price(bsym)
-        qty = bt.quantize_qty(bsym, notional / ref_px)
-        price = bt.quantize_price(bsym, float(req.price) * scale) if (otype == "LIMIT" and req.price) else None
-        o = bt.place_order(bsym, side, qty, otype, price=price)
+        ref_px = float(req.price) * scale if (otype == "LIMIT" and req.price) else client.last_price(bsym)
+        qty = client.quantize_qty(bsym, notional / ref_px)
+        price = client.quantize_price(bsym, float(req.price) * scale) if (otype == "LIMIT" and req.price) else None
+        o = client.place_order(bsym, side, qty, otype, price=price)
         close_side = "SELL" if want == "long" else "BUY"
         warn = []
         for v, kind in ((req.sl, "sl"), (req.tp, "tp")):
             if v:
                 try:
-                    bt.place_close_trigger(bsym, close_side, bt.quantize_price(bsym, float(v) * scale), kind)
+                    client.place_close_trigger(bsym, close_side, client.quantize_price(bsym, float(v) * scale), kind)
                 except bt.TradeError as e:
                     warn.append(f"{'停損' if kind == 'sl' else '止盈'}掛單失敗：{e}")
-        _log_trade(source="manual", status="open" if otype == "MARKET" else "pending",
+        _log_trade(source="manual", mode=client.env, status="open" if otype == "MARKET" else "pending",
                    symbol=req.symbol, bsym=bsym, side=want, qty=qty,
                    entry=(str(req.price) if price else None),
                    sl=(str(req.sl) if req.sl else None), tp=(str(req.tp) if req.tp else None),
@@ -576,12 +753,11 @@ def order(req: OrderReq):
 
 @router.post("/close")
 def close(req: CloseReq):
-    _guard(req.key, req.name)
-    _require_configured()
+    client = _guard(req.key, req.name)
     try:
-        r = bt.close_position(req.bsym.upper())
+        r = client.close_position(req.bsym.upper())
         if r.get("ok"):
-            _log_trade(source="manual", status="closed", symbol=req.bsym,
+            _log_trade(source="manual", mode=client.env, status="closed", symbol=req.bsym,
                        bsym=req.bsym.upper(), msg="手動平倉")
         return r
     except bt.TradeError as e:
@@ -590,10 +766,9 @@ def close(req: CloseReq):
 
 @router.post("/cancel")
 def cancel(req: CancelReq):
-    _guard(req.key, req.name)
-    _require_configured()
+    client = _guard(req.key, req.name)
     try:
-        bt.cancel_order(req.bsym.upper(), req.orderId)
+        client.cancel_order(req.bsym.upper(), req.orderId)
         return {"ok": True}
     except bt.TradeError as e:
         raise HTTPException(400, str(e))
@@ -609,7 +784,7 @@ def set_auto(req: AutoReq):
 
 @router.post("/history")
 def history(req: KeyReq):
-    _guard(req.key, req.name)
+    client = _guard(req.key, req.name)
     _ensure_db()
     conn, ph = _acct._db()
     try:
@@ -624,9 +799,8 @@ def history(req: KeyReq):
             "tp": r[10], "sig": r[11], "dir": r[12], "tf": r[13], "msg": r[14],
             "closed_ts": r[15]} for r in rows]
     pnl = []
-    if bt.configured():
-        try:
-            pnl = bt.income_history(40)
-        except bt.TradeError:
-            pass
+    try:
+        pnl = client.income_history(40)
+    except bt.TradeError:
+        pass
     return {"log": log, "pnl": pnl}

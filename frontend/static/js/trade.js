@@ -222,7 +222,13 @@ function _trdBuildPopup() {
     #trdDock .trd-dock-hd .trd-dock-caret { margin-left:auto; color:var(--muted,#889);
       transition:transform .18s ease; font-size:10px; }
     #trdDock.trd-collapsed .trd-dock-caret { transform:rotate(-90deg); }
-    #trdDock .trd-dock-body { flex:1 1 auto; min-height:0; overflow-y:auto; max-height:56vh; }
+    #trdDock .trd-dock-body { flex:1 1 auto; min-height:0; overflow-y:auto; max-height:46vh; }
+    #tradePopup .trd-bind { display:none; }
+    #tradePopup.trd-need-bind .trd-bind { display:block; }
+    #tradePopup.trd-need-bind .trd-main { display:none; }
+    #tradePopup .trd-bind .trd-bsub { font-size:11px; color:var(--muted,#889); margin:8px 0 4px; }
+    #tradePopup .trd-bind input, #tradePopup .trd-bind select { margin-bottom:6px; }
+    #tradePopup .trd-bind .trd-go { margin-top:2px; }
     #trdDock.trd-collapsed .trd-dock-body { display:none; }
     /* 嵌入態的交易面板：取消浮窗定位，貼齊面板寬度 */
     #tradePopup.trd-docked { display:block !important; position:static !important;
@@ -247,6 +253,15 @@ function _trdBuildPopup() {
       <input id="trdKeyInput" type="password" placeholder="交易口令（TRADE_ACCESS_KEY）">
       <button class="trd-x trd-key-save" style="color:var(--text,#ddd)">確定</button>
     </div>
+    <div class="trd-bind">
+      <div class="trd-bsub">綁定你自己的 Binance 永續金鑰（只存伺服器、加密保存；交易進你自己的帳戶）</div>
+      <input id="trdBindKey" type="text" placeholder="API Key" autocomplete="off">
+      <input id="trdBindSec" type="password" placeholder="API Secret" autocomplete="off">
+      <select id="trdBindEnv"><option value="testnet">測試網（假錢）</option><option value="live">實盤（真錢）</option></select>
+      <button class="trd-go" id="trdBindBtn">驗證並綁定</button>
+      <div class="trd-bsub">提示：API 金鑰請開「合約交易」權限、勿開提現權限。</div>
+    </div>
+    <div class="trd-main">
     <div class="trd-bal">載入中…</div>
     <div class="trd-sub">手動下單</div>
     <input id="trdSym" type="text" placeholder="標的（如 BTC/USDT.P）" style="margin-bottom:4px">
@@ -287,6 +302,7 @@ function _trdBuildPopup() {
       <div><label>敗後停手</label><button id="trdAutoSal" class="trd-chip" style="width:100%;padding:6px 0">關</button></div>
     </div>
     <div class="trd-sub" style="color:#b8a06a">⚠ 自動交易掃描的標的＝帳號自選清單（僅合約），且帳號需至少一台裝置啟用訊號通知。進場後停損/止盈由交易所託管，策略提前止盈止損時會同步平倉。</div>
+    </div>
     <div class="trd-msg"></div>`;
   document.body.appendChild(pop);
 
@@ -311,6 +327,25 @@ function _trdBuildPopup() {
       _trdMsg("已存本機。提醒：登入帳號後口令才會跟著帳戶、換裝置免再輸", false);
     }
     _trdShowKeyRow(false); _trdRefresh();
+  });
+  // 綁定自己的 Binance 金鑰
+  pop.querySelector("#trdBindBtn").addEventListener("click", async e => {
+    e.stopPropagation();
+    if (!window._acctName) { _trdMsg("請先登入帳號", true); return; }
+    const api_key = pop.querySelector("#trdBindKey").value.trim();
+    const api_secret = pop.querySelector("#trdBindSec").value.trim();
+    const env = pop.querySelector("#trdBindEnv").value;
+    if (!api_key || !api_secret) { _trdMsg("請填入 API Key 與 Secret", true); return; }
+    if (env === "live" && !confirm("綁定【實盤】金鑰？之後下單會動用真錢。確定？")) return;
+    _trdMsg("驗證金鑰中…");
+    try {
+      const j = await _trdApi("bind", { name: window._acctName, api_key, api_secret, env });
+      _trdMsg(`綁定成功（${env === "live" ? "實盤" : "測試網"}）餘額 ${(+j.balance.total).toFixed(2)} USDT`);
+      pop.querySelector("#trdBindSec").value = "";
+      // 重抓 status → 切到交易介面
+      try { _TRD.st = await (await fetch("/api/trade/status?name=" + encodeURIComponent(window._acctName))).json(); } catch (er) {}
+      _trdApplyMode(); _trdRefresh();
+    } catch (er) { _trdMsg(er.message, true); }
   });
   pop.querySelector(".trd-auto-toggle").addEventListener("click", async e => {
     e.stopPropagation();
@@ -424,10 +459,26 @@ function _trdInjectDesktopDock() {
   applyCollapsed();
 }
 
+// 依 canTrade 切換「綁金鑰表單」或「交易介面」；同步環境徽章文字
+function _trdApplyMode() {
+  const pop = document.getElementById("tradePopup");
+  if (!pop) return;
+  const need = !(_TRD.st && _TRD.st.canTrade);   // 沒金鑰 → 顯示綁定表單
+  pop.classList.toggle("trd-need-bind", need);
+  const badge = pop.querySelector(".sys-sp-title .trd-env");
+  if (badge && _TRD.st) {
+    const live = _TRD.st.env === "live";
+    badge.textContent = live ? "實盤" : "測試網";
+    badge.className = "trd-env " + (live ? "trd-env-live" : "trd-env-test");
+  }
+}
+
 // 手機「交易」分頁：把交易面板撐成滿版頁（CSS body.m-tab-trade 控制）→ 進頁載入、離頁停輪詢
 function _trdLoadPanel() {
   const pop = document.getElementById("tradePopup");
   if (!pop) return;
+  _trdApplyMode();
+  if (!(_TRD.st && _TRD.st.canTrade)) return;   // 未綁金鑰 → 只顯示綁定表單，不查倉位
   try {
     const mkt = document.getElementById("marketSelect")?.value;
     const sym = document.getElementById("symbolInput")?.value?.trim();
@@ -437,9 +488,8 @@ function _trdLoadPanel() {
     _trdApi("mykey", { name: window._acctName })
       .then(j => { if (j && j.tkey) { try { localStorage.setItem("tradeKey", j.tkey); } catch (e) {} } })
       .catch(() => {})
-      .finally(() => { if (_TRD.st.locked && !_trdKey()) _trdShowKeyRow(true); _trdRefresh(); });
+      .finally(() => { if (_TRD.st.usingEnv && _TRD.st.locked && !_trdKey()) _trdShowKeyRow(true); _trdRefresh(); });
   } else {
-    if (_TRD.st.locked && !_trdKey()) _trdShowKeyRow(true);
     _trdRefresh();
   }
   _trdStopPoll();
@@ -447,13 +497,13 @@ function _trdLoadPanel() {
 }
 
 async function initTrade() {
+  if (!window._acctName) return;   // 未登入 → 不顯示交易（交易須綁帳號）
   try {
-    const r = await fetch("/api/trade/status");
+    const r = await fetch("/api/trade/status?name=" + encodeURIComponent(window._acctName));
     _TRD.st = await r.json();
   } catch (e) { return; }
-  if (!_TRD.st || !_TRD.st.configured) return;   // 後端未設交易金鑰 → 不顯示任何入口
-  // 交易功能限定帳號（owner）：只有登入該帳號才顯示入口；其他帳號/未登入 → 完全不顯示
-  if (_TRD.st.owner && window._acctName !== _TRD.st.owner) return;
+  // 只有「白名單帳號」才顯示交易入口（其他帳號完全看不到，避免誤入共用戶頭）
+  if (!_TRD.st || !_TRD.st.allowed) return;
   _trdBuildPopup();
 
   // 依裝置分流（決定於載入時）：
