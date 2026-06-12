@@ -273,6 +273,10 @@ function _trdBuildPopup() {
   pop.querySelector(".trd-key-save").addEventListener("click", e => {
     e.stopPropagation();
     try { localStorage.setItem("tradeKey", pop.querySelector("#trdKeyInput").value.trim()); } catch (err) {}
+    // 口令跟著帳戶：tradeKey 本就含在帳號同步快照內（不在 _ACCT_SKIP）→ 立即推上雲端，
+    // 縮小「另一台舊快照把口令蓋掉」的時間窗 → 換裝置登入即自動帶過來、不必再輸入一次。
+    if (window._acctName && typeof _acctFlush === "function") { try { _acctFlush(); } catch (err) {} }
+    else if (!window._acctName) _trdMsg("已存本機。提醒：登入帳號後口令才會跨裝置同步、不必再輸入", false);
     _trdShowKeyRow(false); _trdRefresh();
   });
   pop.querySelector(".trd-auto-toggle").addEventListener("click", async e => {
