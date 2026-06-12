@@ -58,11 +58,15 @@ function _acctSnapshot() {
 function _acctApplySnapshot(data) {
   if (!data || typeof data !== "object") return;
   try {
-    // 外觀類 key 採「取代」：該帳號沒存過的就先清掉本機現值（還原預設），
-    // 避免從別帳號切過來時殘留前一帳號的 K 棒/指標/系統顏色 → 確保各帳號各自帶走自己的設定。
-    for (const k of _ACCT_THEME_KEYS) {
-      if (!(k in data)) { try { localStorage.removeItem(k); } catch (e) {} }
+    // 完全隔離：登入時先清掉裝置上「所有會同步」的 key（只保留 _ACCT_SKIP 裝置本地），
+    // 再完全用此帳號雲端那一列重建 → 裝置狀態 == 此帳號資料，前一帳號殘留一律歸零，
+    // 杜絕跨帳號污染（自選/通知/繪圖/顏色都各自獨立）。
+    const toRemove = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && !_ACCT_SKIP.has(k)) toRemove.push(k);
     }
+    for (const k of toRemove) { try { localStorage.removeItem(k); } catch (e) {} }
     for (const k in data) {
       if (_ACCT_SKIP.has(k)) continue;
       if (data[k] != null) localStorage.setItem(k, String(data[k]));
