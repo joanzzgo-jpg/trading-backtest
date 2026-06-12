@@ -24,7 +24,13 @@ const _ACCT_THEME_KEYS = ["chartColors", "chartStyles", "chartLineStyles",
                           "sysColors", "mobileTFs",
                           // 繪圖（各標的分桶）跟著帳戶移動：切帳號採「取代」→ 對方帳號沒繪圖就清空，
                           // 不殘留前一帳號的線/斐波那契。tv_drawings 為舊版單一全域 key（一併清掉）。
-                          "tv_drawings_v2", "tv_drawings"];
+                          "tv_drawings_v2", "tv_drawings",
+                          // 自選 + 通知偏好＝每帳號專屬：切帳號必須「取代」→ 否則前一帳號的自選會殘留、
+                          // 被當成新帳號的自選同步上去（曾發生：Abc 的自選灌進 qwer，通知/自動交易跳錯標的）。
+                          "watchlist", "notifyPrefs"];
+// 登入「種子」不可帶的每帳號專屬 key：避免把上一個帳號的自選/偏好灌進「剛登入的空帳號」。
+const _ACCT_SEED_SKIP = new Set(["watchlist", "notifyPrefs",
+                                 "tv_drawings_v2", "tv_drawings"]);
 
 function _acctLoadSession() {
   try { _ACCT.name = localStorage.getItem("acctName"); } catch (e) {}
@@ -76,7 +82,11 @@ async function _acctApi(path, body) {
 // 登入（帳號須已由後台建立）。雲端有資料 → 套用；雲端空 → 用本機初始化。
 // 回 { applied }：applied=true → 需 reload 才生效（套了雲端設定）。
 async function _acctLogin(name) {
-  const j = await _acctApi("login", { name, data: _acctSnapshot() });
+  // 種子（給雲端為空的新帳號用本機現值初始化）剔除每帳號專屬 key → 不把上一個帳號的自選/偏好
+  // 灌進剛登入的帳號（跨帳號污染根因）。雲端已有資料的帳號不受影響（會直接套雲端的）。
+  const seed = _acctSnapshot();
+  for (const k of _ACCT_SEED_SKIP) delete seed[k];
+  const j = await _acctApi("login", { name, data: seed });
   _acctSaveSession(j.name || name);
   const hasData = j.data && typeof j.data === "object" && Object.keys(j.data).length > 0;
   if (hasData) {
