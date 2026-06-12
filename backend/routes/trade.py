@@ -47,8 +47,9 @@ _AUTO_DEFAULT = {"on": False, "owner": "", "sigs": [], "tfs": [], "usdt": 50.0,
                  # riskUsd=每筆風險金額（打到停損約虧這麼多 USDT，含來回手續費）；>0 時改用「固定風險倉位」
                  # 模式：數量由停損距離自動算、槓桿自動挑（強平在停損外），lev 當槓桿上限。0=用保證金×槓桿。
                  "riskUsd": 0.0,
-                 # slPct=止損改設在進場價上下 X%（0=用訊號原停損價）
+                 # slPct=全域止損緩衝 %（0=用訊號原停損）。perSym={標的:止損緩衝%} 個別覆寫（每標的不同）。
                  "slPct": 0.0,
+                 "perSym": {},
                  # stopAfterLoss=敗後停手（同圖表）：某方向落敗後停手、跳過後續同向訊號，
                  # 直到同向「紙上會贏」或反向訊號出現才解除（非時間冷卻）
                  "stopAfterLoss": False}
@@ -265,6 +266,16 @@ def _clean_auto(p: Optional[dict]) -> dict:
         out["riskUsd"] = max(0.0, min(float(p.get("riskUsd", 0) or 0), 100000.0))
     except (TypeError, ValueError):
         pass
+    # 各標的止損緩衝%覆寫：{標的: 緩衝%}（0~50；空值/非法略過 → 該標的用全域 slPct）
+    ps = {}
+    for sym, v in (p.get("perSym") or {}).items():
+        try:
+            fv = float(v)
+        except (TypeError, ValueError):
+            continue
+        if fv > 0:
+            ps[str(sym)] = max(0.0, min(fv, 50.0))
+    out["perSym"] = ps
     out["stopAfterLoss"] = bool(p.get("stopAfterLoss"))
     return out
 
@@ -449,7 +460,9 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
         # 停損價（圖表價）：slPct=止損緩衝 %。以「策略訊號停損」為基準，再往「離進場更遠」
         # 方向外推 X%（多單→更低、空單→更高），給緩衝、避免被插針掃掉；0=直接用策略停損。
         orig_stop = float(stop)
-        slpct = cfg.get("slPct") or 0
+        # 此標的若有個別止損緩衝%設定 → 用它；否則用全域 slPct
+        per = (cfg.get("perSym") or {}).get(symbol)
+        slpct = per if per is not None else (cfg.get("slPct") or 0)
         if slpct > 0:
             stop_chart = orig_stop * (1 + slpct / 100) if d == "s" else orig_stop * (1 - slpct / 100)
         else:

@@ -114,6 +114,38 @@ function _trdRenderOverview() {
   if (document.activeElement !== $("#trdAutoSl")) $("#trdAutoSl").value = a.slPct ?? 0;
   const sal = $("#trdAutoSal");
   if (sal) { sal.classList.toggle("sel", !!a.stopAfterLoss); sal.textContent = a.stopAfterLoss ? "開" : "關"; }
+  _trdRenderPerSym();
+}
+
+// 各標的止損緩衝%：列出合約自選標的，各自一個輸入框（留空＝用全域 slPct）
+let _trdPerSymSig = "";
+function _trdRenderPerSym() {
+  const box = document.getElementById("trdPerSym");
+  if (!box) return;
+  const wl = (typeof _watchlist !== "undefined" ? _watchlist : []);
+  const syms = [...new Set(wl.filter(w => w.market === "crypto").map(w => w.symbol))];
+  const a = (_TRD.ov && _TRD.ov.auto) || {};
+  const ps = a.perSym || {};
+  const sig = syms.join(",");
+  if (sig === _trdPerSymSig) {   // 標的集合沒變 → 只更新非聚焦輸入的值，不重建（避免打字被打斷）
+    box.querySelectorAll(".trd-ps-in").forEach(inp => {
+      if (document.activeElement !== inp) { const v = ps[inp.dataset.sym]; inp.value = (v != null ? v : ""); }
+    });
+    return;
+  }
+  _trdPerSymSig = sig;
+  if (!syms.length) { box.innerHTML = `<div class="trd-empty">自選清單沒有合約標的</div>`; return; }
+  box.innerHTML = syms.map(s =>
+    `<div class="trd-ps-row"><span class="trd-ps-sym" title="${s}">${s}</span>`
+    + `<input class="trd-ps-in" data-sym="${s}" type="number" min="0" max="50" step="0.1" placeholder="預設" value="${ps[s] != null ? ps[s] : ""}"></div>`).join("");
+  box.querySelectorAll(".trd-ps-in").forEach(inp => inp.addEventListener("change", e => {
+    e.stopPropagation();
+    const a2 = _TRD.ov.auto = _TRD.ov.auto || {};
+    a2.perSym = a2.perSym || {};
+    const v = +inp.value;
+    if (v > 0) a2.perSym[inp.dataset.sym] = v; else delete a2.perSym[inp.dataset.sym];
+    _trdSaveAuto();
+  }));
 }
 
 let _trdAutoSaveTimer = null;
@@ -231,6 +263,10 @@ function _trdBuildPopup() {
     #tradePopup .trd-bind .trd-bsub { font-size:11px; color:var(--muted,#889); margin:8px 0 4px; }
     #tradePopup .trd-bind input, #tradePopup .trd-bind select { margin-bottom:6px; }
     #tradePopup .trd-bind .trd-go { margin-top:2px; }
+    #tradePopup .trd-persym { display:flex; flex-direction:column; gap:3px; max-height:160px; overflow-y:auto; margin-bottom:4px; }
+    #tradePopup .trd-ps-row { display:flex; align-items:center; gap:6px; }
+    #tradePopup .trd-ps-sym { flex:1; font-size:11px; color:var(--muted,#99a); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    #tradePopup .trd-ps-in { width:74px; flex:0 0 auto; padding:3px 6px; font-size:11px; }
     #trdDock.trd-collapsed .trd-dock-body { display:none; }
     /* 嵌入態的交易面板：取消浮窗定位，貼齊面板寬度 */
     #tradePopup.trd-docked { display:block !important; position:static !important;
@@ -304,6 +340,8 @@ function _trdBuildPopup() {
       <div><label>止損緩衝 %（策略停損外推；0=用策略停損）</label><input id="trdAutoSl" type="number" min="0" max="50" step="0.1" placeholder="0"></div>
       <div><label>敗後停手</label><button id="trdAutoSal" class="trd-chip" style="width:100%;padding:6px 0">關</button></div>
     </div>
+    <div class="trd-sub">各標的止損緩衝 %（留空＝用上方預設）</div>
+    <div class="trd-persym" id="trdPerSym"></div>
     <div class="trd-sub" style="color:#b8a06a">⚠ 自動交易掃描的標的＝帳號自選清單（僅合約），且帳號需至少一台裝置啟用訊號通知。進場後停損/止盈由交易所託管，策略提前止盈止損時會同步平倉。</div>
     </div>
     <div class="trd-msg"></div>`;
