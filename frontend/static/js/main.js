@@ -146,9 +146,12 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (!bar) return;
     const setTab = (t) => {
       if (t === "chart") t = "wr";   // 「圖表」分頁已併入「勝率」（勝率頁本就含圖表）→ 舊呼叫一律導向 wr
-      document.body.classList.remove("m-tab-chart", "m-tab-wr", "m-tab-watch", "m-tab-signals", "m-tab-settings");
+      document.body.classList.remove("m-tab-chart", "m-tab-wr", "m-tab-watch", "m-tab-signals", "m-tab-settings", "m-tab-trade");
       document.body.classList.add("m-tab-" + t);
       bar.querySelectorAll(".m-tab").forEach(b => b.classList.toggle("active", b.dataset.mtab === t));
+      // 交易分頁：把交易面板撐成滿版（_trdEnterTab 載入持倉/口令並開輪詢）；離開即收掉輪詢
+      if (t === "trade" && window._trdEnterTab) window._trdEnterTab();
+      if (t !== "trade" && window._trdLeaveTab) window._trdLeaveTab();
       // 自選分頁：標記 ticker 面板為「開啟」狀態，fetchTickers/renderTickers 才會渲染（手機判斷需要）
       const tp = document.getElementById("tickerPanel");
       if (tp) tp.classList.toggle("ticker-open", t === "watch");
@@ -165,7 +168,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     window._mSetTab = setTab;
     // 初始分頁：?mtab= 可指定（方便測試），預設勝率（圖表已併入勝率）
     const _mt = new URLSearchParams(location.search).get("mtab");
-    setTab(["chart", "wr", "watch", "signals", "settings"].includes(_mt) ? _mt : "wr");
+    setTab(["chart", "wr", "watch", "signals", "settings", "trade"].includes(_mt) ? _mt : "wr");
   })();
 
   // 手機字體大小（標準 / 大 / 特大）：body class 控制，存 localStorage（隨帳號同步）

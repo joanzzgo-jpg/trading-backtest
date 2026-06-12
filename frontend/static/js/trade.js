@@ -204,6 +204,18 @@ function _trdBuildPopup() {
     #tradePopup hr { border:none; border-top:1px solid var(--border,#3a3a50); margin:8px 0; }
     .trd-ico { vertical-align:-2px; }
     .trd-entry .trd-ico { margin-right:4px; }
+    /* 桌面：合約行情面板底部的交易 dock 按鈕（可用 ✕ 隱藏）*/
+    #trdDock { flex:0 0 auto; display:flex; gap:5px; align-items:stretch; padding:6px;
+      border-top:1px solid var(--border,#3a3a50); background:var(--bg2,#1a1a28); }
+    #trdDock .trd-dock-btn { flex:1; display:flex; align-items:center; justify-content:center; gap:6px;
+      padding:8px 10px; border-radius:9px; border:1px solid var(--border,#445); background:transparent;
+      color:var(--text,#ddd); cursor:pointer; font-size:13px; font-weight:600; }
+    #trdDock .trd-dock-btn:hover { background:var(--blue,#4a90d9); color:#fff; border-color:transparent; }
+    #trdDock .trd-dock-btn small { color:var(--muted,#99a); font-weight:400; font-size:11px; }
+    #trdDock .trd-dock-btn:hover small { color:#dfeaf7; }
+    #trdDock .trd-dock-x { flex:0 0 auto; width:30px; border-radius:9px; border:1px solid var(--border,#445);
+      background:transparent; color:var(--muted,#889); cursor:pointer; font-size:12px; }
+    #trdDock .trd-dock-x:hover { color:#f06a6a; border-color:#f06a6a66; }
   `;
   document.head.appendChild(css);
 
@@ -307,6 +319,8 @@ function _trdBuildPopup() {
     pop.querySelector(id).addEventListener("change", _trdSaveAuto));
   pop.addEventListener("click", e => e.stopPropagation());
   document.addEventListener("click", e => {
+    // 手機「交易」分頁時，面板是常駐滿版頁 → 不因點外面（含底部分頁列）而關閉
+    if (document.body.classList.contains("m-tab-trade")) return;
     if (!pop.contains(e.target) && !e.target.closest(".trd-entry")) {
       pop.classList.remove("open");
       _trdStopPoll();
@@ -352,27 +366,63 @@ function _trdOpenPopup(anchorBtn) {
   }
 }
 
+// 桌面入口：①系統外觀彈窗一顆（永遠在，也是隱藏 dock 後的「找回」管道）
+//          ②合約行情面板底部的 dock 按鈕（可用 ✕ 隱藏，偏好存 localStorage["trdDockHidden"]）
 function _trdInjectEntries() {
   const envTag = _TRD.st.env === "live" ? "實盤" : "測試網";
-  // 桌面：系統外觀彈窗內加入口
   const sysPop = document.getElementById("sysSettingsPopup");
   if (sysPop && !sysPop.querySelector(".trd-entry")) {
     const b = document.createElement("button");
     b.className = "btn-reset trd-entry";
     b.innerHTML = `${_TRD_ICO} 交易（${envTag}）`;
-    b.addEventListener("click", e => { e.stopPropagation(); _trdOpenPopup(b); });
+    b.addEventListener("click", e => {
+      e.stopPropagation();
+      // 從系統外觀開 → 順手把被隱藏的 dock 找回來（唯一的還原入口）
+      const dk = document.getElementById("trdDock");
+      if (dk) { dk.style.display = ""; try { localStorage.removeItem("trdDockHidden"); } catch (err) {} }
+      _trdOpenPopup(b);
+    });
     sysPop.appendChild(b);
   }
-  // 手機：設定分頁，插在通知列之後（沒有通知列就插在帳號列後）
-  const anchor = document.querySelector("#mSettings .ntf-entry") || document.querySelector("#mSettings .m-set-acct");
-  if (anchor && !document.querySelector("#mSettings .trd-entry")) {
-    const sec = document.createElement("div"); sec.className = "m-set-sec"; sec.textContent = "交易";
-    const row = document.createElement("button");
-    row.className = "m-set-row trd-entry";
-    row.innerHTML = `<span class="m-set-ico">${_TRD_ICO}</span><span class="m-set-lbl">Binance 交易<small>${envTag}</small></span><span class="m-set-arr">›</span>`;
-    row.addEventListener("click", e => { e.stopPropagation(); _trdOpenPopup(row); });
-    anchor.after(sec, row);
+  // 合約行情面板底部 dock
+  const panel = document.getElementById("tickerPanel");
+  if (panel && !document.getElementById("trdDock")) {
+    const dock = document.createElement("div");
+    dock.id = "trdDock";
+    dock.innerHTML = `<button class="trd-dock-btn">${_TRD_ICO}<span>交易</span><small>${envTag}</small></button>`
+      + `<button class="trd-dock-x" title="隱藏（可從系統外觀的「交易」找回）">✕</button>`;
+    panel.appendChild(dock);
+    dock.querySelector(".trd-dock-btn").addEventListener("click", e => {
+      e.stopPropagation(); _trdOpenPopup(dock.querySelector(".trd-dock-btn"));
+    });
+    dock.querySelector(".trd-dock-x").addEventListener("click", e => {
+      e.stopPropagation(); dock.style.display = "none";
+      try { localStorage.setItem("trdDockHidden", "1"); } catch (err) {}
+    });
+    try { if (localStorage.getItem("trdDockHidden") === "1") dock.style.display = "none"; } catch (e) {}
   }
+}
+
+// 手機「交易」分頁：把交易面板撐成滿版頁（CSS body.m-tab-trade 控制）→ 進頁載入、離頁停輪詢
+function _trdLoadPanel() {
+  const pop = document.getElementById("tradePopup");
+  if (!pop) return;
+  try {
+    const mkt = document.getElementById("marketSelect")?.value;
+    const sym = document.getElementById("symbolInput")?.value?.trim();
+    if (mkt === "crypto" && sym && !pop.querySelector("#trdSym").value) pop.querySelector("#trdSym").value = sym;
+  } catch (e) {}
+  if (window._acctName) {
+    _trdApi("mykey", { name: window._acctName })
+      .then(j => { if (j && j.tkey) { try { localStorage.setItem("tradeKey", j.tkey); } catch (e) {} } })
+      .catch(() => {})
+      .finally(() => { if (_TRD.st.locked && !_trdKey()) _trdShowKeyRow(true); _trdRefresh(); });
+  } else {
+    if (_TRD.st.locked && !_trdKey()) _trdShowKeyRow(true);
+    _trdRefresh();
+  }
+  _trdStopPoll();
+  _TRD.pollTimer = setInterval(_trdRefresh, 5000);
 }
 
 async function initTrade() {
@@ -380,7 +430,21 @@ async function initTrade() {
     const r = await fetch("/api/trade/status");
     _TRD.st = await r.json();
   } catch (e) { return; }
-  if (!_TRD.st || !_TRD.st.configured) return;   // 後端未設交易金鑰 → 不顯示入口
+  if (!_TRD.st || !_TRD.st.configured) return;   // 後端未設交易金鑰 → 不顯示任何入口
   _trdBuildPopup();
   _trdInjectEntries();
+  // 顯示手機底部「交易」分頁（預設隱藏；只有交易功能啟用才出現）
+  const tab = document.getElementById("mTabTrade");
+  if (tab) tab.style.display = "";
+  // 手機分頁進/離場 hook（main.js setTab 呼叫）
+  window._trdEnterTab = function () {
+    const pop = document.getElementById("tradePopup");
+    if (pop) pop.classList.add("open");
+    _trdLoadPanel();
+  };
+  window._trdLeaveTab = function () {
+    const pop = document.getElementById("tradePopup");
+    if (pop) pop.classList.remove("open");
+    _trdStopPoll();
+  };
 }
