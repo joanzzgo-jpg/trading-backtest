@@ -146,6 +146,10 @@ def verify_keys(api_key: str, api_secret: str, env: str = "testnet") -> dict:
     return Client(api_key, api_secret, env).balance()
 
 
+# 合約槓桿分級快取：(env, sym) → (max_leverage, maintenance_margin_rate)
+_levbr_cache = {}
+
+
 # ── 私有端點客戶端（每個帳號一個 Client）──────────────────────
 class Client:
     def __init__(self, api_key: str, api_secret: str, env: str = "testnet"):
@@ -183,6 +187,25 @@ class Client:
     def quantize_price(self, sym, p):  return quantize_price(sym, p, self.env)
     def min_notional(self, sym):       return min_notional(sym, self.env)
     def last_price(self, sym):         return last_price(sym, self.env)
+
+    def lev_bracket(self, sym):
+        """回 (該合約最大可用槓桿, 第一級維持保證金率 mmr)。簽名端點、依 (env,sym) 快取。
+        失敗 → 保守預設 (20, 0.01)。"""
+        key = (self.env, sym)
+        c = _levbr_cache.get(key)
+        if c:
+            return c
+        try:
+            rows = self._request("GET", "/fapi/v1/leverageBracket", {"symbol": sym})
+            br = (rows[0].get("brackets") if rows else []) or []
+            max_lev = max(int(b.get("initialLeverage", 1)) for b in br) if br else 20
+            # 取最低門檻那一級的維持保證金率（最寬鬆、最保守地估強平緩衝）
+            mmr = min(float(b.get("maintMarginRatio", 0.01)) for b in br) if br else 0.01
+            out = (max_lev, mmr if mmr > 0 else 0.005)
+        except Exception:
+            out = (20, 0.01)
+        _levbr_cache[key] = out
+        return out
 
     # ── 查詢 ──
     def balance(self) -> dict:

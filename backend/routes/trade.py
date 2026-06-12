@@ -460,7 +460,7 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
         risk_usd = cfg.get("riskUsd") or 0
         lev_cap = max(1, min(int(cfg["lev"]), 50))
         if risk_usd > 0:
-            # 固定風險倉位：數量 = 風險金額 ÷（停損距離 + 來回吃單手續費），槓桿自動挑（強平在停損外）。
+            # 固定風險倉位：數量 = 風險金額 ÷（停損距離 + 進出兩腿手續費），槓桿自動挑（強平在停損外）。
             e_c = px * scale                       # 用「實際成交參考價」算（市價單以現價成交）
             s_c = stop_chart * scale               # 停損合約價
             dist = abs(e_c - s_c)
@@ -470,13 +470,17 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
                            msg="停損距離為 0，無法計算風險倉位")
                 return
             fee = 0.0005                           # Binance 合約吃單 0.05%/邊
-            per_unit_loss = dist + 2 * fee * e_c   # 每單位（含來回手續費）的虧損
+            # 每單位虧損（把手續費全算進去）：停損距離 + 進場腿(以進場價)手續費 + 出場腿(以停損價)手續費
+            per_unit_loss = dist + fee * e_c + fee * s_c
             q_base = risk_usd / per_unit_loss      # 風險金額換算的數量
             notional = q_base * e_c
             stop_pct = dist / e_c if e_c else 0.05
-            # 自動槓桿：取「強平距離約 2 倍停損距離」的安全值（≈ 0.5/stop_pct），上限 lev_cap、合約上限
-            auto_lev = int(0.5 / stop_pct) if stop_pct > 0 else lev_cap
-            lev = max(1, min(auto_lev, lev_cap))
+            # 自動槓桿（保守，防大波動/插針在停損前被強平）：強平距離 ≥ 停損距離×2.5 + 維持保證金緩衝。
+            # 用該合約「真實維持保證金率 mmr 與最大槓桿」上限把關。
+            max_lev, mmr = client.lev_bracket(bsym)
+            denom = stop_pct * 2.5 + mmr
+            auto_lev = int(1.0 / denom) if denom > 0 else lev_cap
+            lev = max(1, min(auto_lev, lev_cap, max_lev))
             qty = client.quantize_qty(bsym, q_base)
         else:
             lev = lev_cap
