@@ -18,9 +18,10 @@ function _trdKey() { try { return localStorage.getItem("tradeKey") || ""; } catc
 function _trdSigLabel(k) { return k === "abc" ? "S1" : k === "ab" ? "S2" : k === "ss1" ? "SS1" : "S" + k; }
 
 async function _trdApi(path, body) {
+  // 一律帶上 key（口令）+ name（登入帳號，供後端 owner 白名單檢查）；body 同名欄位可覆寫
   const r = await fetch("/api/trade/" + path, {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(Object.assign({ key: _trdKey() }, body || {})),
+    body: JSON.stringify(Object.assign({ key: _trdKey(), name: window._acctName || "" }, body || {})),
   });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.detail || ("錯誤 " + r.status));
@@ -431,6 +432,8 @@ async function initTrade() {
     _TRD.st = await r.json();
   } catch (e) { return; }
   if (!_TRD.st || !_TRD.st.configured) return;   // 後端未設交易金鑰 → 不顯示任何入口
+  // 交易功能限定帳號（owner）：只有登入該帳號才顯示入口；其他帳號/未登入 → 完全不顯示
+  if (_TRD.st.owner && window._acctName !== _TRD.st.owner) return;
   _trdBuildPopup();
   _trdInjectEntries();
   // 顯示手機底部「交易」分頁（預設隱藏；只有交易功能啟用才出現）

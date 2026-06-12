@@ -30,6 +30,8 @@ router = APIRouter(prefix="/api/trade")
 
 _ACCESS_KEY = (os.getenv("TRADE_ACCESS_KEY") or "").strip()
 _ON_RAILWAY = _acct._ON_RAILWAY
+# 交易功能僅限這個帳號使用（其他帳號一律擋）。空＝不限帳號（只靠口令）。設為 "qwer" 即只有 qwer 能交易。
+_OWNER = (os.getenv("TRADE_OWNER") or "").strip()
 
 _ALL_SIGS = {"abc", "ab", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "ss1"}
 _ALL_TFS = {"5m", "15m", "30m", "1h", "2h", "4h", "8h", "1d", "1w", "1M"}
@@ -42,14 +44,16 @@ def _locked() -> bool:
     return bool(_ACCESS_KEY) or _ON_RAILWAY
 
 
-def _guard(key: Optional[str]):
+def _guard(key: Optional[str], name: Optional[str] = None):
+    # 第一道：交易口令（公網沒設口令 → 一律拒）
     if _ACCESS_KEY:
         if not secrets.compare_digest(key or "", _ACCESS_KEY):
             raise HTTPException(403, "交易口令錯誤（TRADE_ACCESS_KEY）")
-        return
-    if _ON_RAILWAY:
-        # 公網部署卻沒設口令 → 一律拒絕，避免任何訪客都能下單
+    elif _ON_RAILWAY:
         raise HTTPException(403, "伺服器未設定 TRADE_ACCESS_KEY，公網環境停用交易")
+    # 第二道：帳號白名單（只有 TRADE_OWNER 能交易，其他帳號擋掉）
+    if _OWNER and _acct._norm_name(name or "") != _acct._norm_name(_OWNER):
+        raise HTTPException(403, f"交易功能僅限帳號「{_OWNER}」使用")
 
 
 def _require_configured():
@@ -368,10 +372,12 @@ def settle_signal_trade(market, exchange, symbol, tf, k, d, sig, event):
 # ── request models ────────────────────────────────────────────
 class KeyReq(BaseModel):
     key: Optional[str] = None
+    name: Optional[str] = None       # 登入帳號（owner 白名單檢查用）
 
 
 class OrderReq(BaseModel):
     key: Optional[str] = None
+    name: Optional[str] = None
     symbol: str                      # 圖表符號，如 BTC/USDT.P
     side: str                        # long / short
     type: str = "MARKET"             # MARKET / LIMIT
@@ -384,17 +390,20 @@ class OrderReq(BaseModel):
 
 class CloseReq(BaseModel):
     key: Optional[str] = None
+    name: Optional[str] = None
     bsym: str                        # Binance 合約符號（持倉列回傳的）
 
 
 class CancelReq(BaseModel):
     key: Optional[str] = None
+    name: Optional[str] = None
     bsym: str
     orderId: int
 
 
 class AutoReq(BaseModel):
     key: Optional[str] = None
+    name: Optional[str] = None
     cfg: dict
 
 
@@ -410,7 +419,9 @@ class MyKeyReq(BaseModel):
 # ── endpoints ─────────────────────────────────────────────────
 @router.get("/status")
 def status():
-    return {"configured": bt.configured(), "env": bt.env_name(), "locked": _locked()}
+    # owner = 交易功能限定的帳號（前端據此只在登入該帳號時顯示交易入口）；空＝不限帳號
+    return {"configured": bt.configured(), "env": bt.env_name(), "locked": _locked(),
+            "owner": _OWNER}
 
 
 @router.post("/savekey")
@@ -451,7 +462,7 @@ def my_key(req: MyKeyReq):
 
 @router.post("/overview")
 def overview(req: KeyReq):
-    _guard(req.key)
+    _guard(req.key, req.name)
     _require_configured()
     try:
         return {"env": bt.env_name(), "balance": bt.balance(),
@@ -463,7 +474,7 @@ def overview(req: KeyReq):
 
 @router.post("/order")
 def order(req: OrderReq):
-    _guard(req.key)
+    _guard(req.key, req.name)
     _require_configured()
     want = "long" if req.side == "long" else "short"
     try:
@@ -504,7 +515,7 @@ def order(req: OrderReq):
 
 @router.post("/close")
 def close(req: CloseReq):
-    _guard(req.key)
+    _guard(req.key, req.name)
     _require_configured()
     try:
         r = bt.close_position(req.bsym.upper())
@@ -518,7 +529,7 @@ def close(req: CloseReq):
 
 @router.post("/cancel")
 def cancel(req: CancelReq):
-    _guard(req.key)
+    _guard(req.key, req.name)
     _require_configured()
     try:
         bt.cancel_order(req.bsym.upper(), req.orderId)
@@ -529,7 +540,7 @@ def cancel(req: CancelReq):
 
 @router.post("/auto")
 def set_auto(req: AutoReq):
-    _guard(req.key)
+    _guard(req.key, req.name)
     cfg = _clean_auto(req.cfg)
     _save_auto_cfg(cfg)
     return {"ok": True, "cfg": cfg}
@@ -537,7 +548,7 @@ def set_auto(req: AutoReq):
 
 @router.post("/history")
 def history(req: KeyReq):
-    _guard(req.key)
+    _guard(req.key, req.name)
     _ensure_db()
     conn, ph = _acct._db()
     try:
