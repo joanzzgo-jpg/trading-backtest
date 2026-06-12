@@ -36,7 +36,12 @@ _OWNER = (os.getenv("TRADE_OWNER") or "").strip()
 _ALL_SIGS = {"abc", "ab", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "ss1"}
 _ALL_TFS = {"5m", "15m", "30m", "1h", "2h", "4h", "8h", "1d", "1w", "1M"}
 _AUTO_DEFAULT = {"on": False, "owner": "", "sigs": [], "tfs": [], "usdt": 50.0,
-                 "lev": 3, "maxPos": 3, "dirs": "both"}
+                 "lev": 3, "maxPos": 3, "dirs": "both",
+                 # slPct=止損改設在進場價上下 X%（0=用訊號原停損價）
+                 "slPct": 0.0,
+                 # stopAfterLoss=敗後停手（同圖表）：某方向落敗後停手、跳過後續同向訊號，
+                 # 直到同向「紙上會贏」或反向訊號出現才解除（非時間冷卻）
+                 "stopAfterLoss": False}
 
 
 # ── 訪問控制 ──────────────────────────────────────────────────
@@ -152,6 +157,11 @@ def _clean_auto(p: Optional[dict]) -> dict:
         pass
     if p.get("dirs") in ("both", "long", "short"):
         out["dirs"] = p["dirs"]
+    try:
+        out["slPct"] = max(0.0, min(float(p.get("slPct", 0) or 0), 50.0))
+    except (TypeError, ValueError):
+        pass
+    out["stopAfterLoss"] = bool(p.get("stopAfterLoss"))
     return out
 
 
@@ -233,9 +243,46 @@ def _update_trade(row_id: int, status: str, msg: str = None):
         pass
 
 
+def _sig_epoch(t) -> float:
+    """訊號時間 → epoch 秒（naive 以 UTC 解讀，對齊 Binance）。"""
+    try:
+        import pandas as pd
+        return pd.Timestamp(t).value / 1e9
+    except Exception:
+        return 0.0
+
+
+def _stop_after_loss_ok(d, sig, all_signals) -> bool:
+    """重現圖表「敗後停手」：用「此訊號之前、已結算(w/l)」的訊號序列（按時間排序、(t,d) 去重）
+    跑逐方向狀態機，回此方向當下是否「可進場」(active)。無資料 → 預設可進場。"""
+    if not all_signals:
+        return True
+    cur_t = _sig_epoch(sig.get("t"))
+    prior = {}
+    for s in all_signals:
+        t = s.get("t"); r = s.get("r")
+        if not t or r not in ("w", "l"):
+            continue
+        if _sig_epoch(t) >= cur_t:        # 只看「此訊號之前」已結算的
+            continue
+        prior[(str(t), s.get("d"))] = s   # (t,d) 去重（同圖表合併時間軸）
+    seq = sorted(prior.values(), key=lambda s: _sig_epoch(s.get("t")))
+    active = {"s": True, "l": True}
+    for s in seq:
+        sd = s.get("d"); r = s.get("r")
+        if active.get(sd, True):
+            if r != "w":
+                active[sd] = False                  # 進場中遇敗 → 該方向停手
+        elif r == "w":
+            active[sd] = True                       # 停手中、同向紙上會贏 → 解除
+        active["l" if sd == "s" else "s"] = True    # 反向訊號出現 → 解除其停手
+    return active.get(d, True)
+
+
 # ── 自動交易執行器（notify_monitor 呼叫；絕不向外拋例外）───────
-def execute_signal_trade(market, exchange, symbol, tf, k, d, sig):
-    """新進場訊號 → 依自動交易設定市價進場 + 掛交易所託管 SL/TP。"""
+def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=None):
+    """新進場訊號 → 依自動交易設定市價進場 + 掛交易所託管 SL/TP。
+    all_signals=該標的當前完整訊號列表（含結算結果），供「敗後停手」模擬用。"""
     try:
         if market != "crypto" or not bt.configured():
             return
@@ -260,6 +307,14 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig):
         if notify.seen_event(evt_key):
             return
         notify.mark_event(evt_key)   # 先標記：下單只該嘗試一次，失敗也不無限重試
+
+        # 敗後停手（同圖表 crt._calc_stop_strategy 的逐方向狀態機）：用「此訊號之前、已結算」的
+        # 同/反向訊號序列重跑模擬，若此方向當下「停手中」→ 跳過進場。
+        if cfg.get("stopAfterLoss") and not _stop_after_loss_ok(d, sig, all_signals):
+            _log_trade(source="auto", status="skipped", symbol=symbol, side=want,
+                       sig=k, d=d, tf=tf, sigt=str(sig.get("t")),
+                       msg="敗後停手：此方向上次落敗、停手中，跳過此進場")
+            return
 
         entry = sig.get("entry")
         stop = sig.get("stop")
@@ -295,11 +350,17 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig):
         side = "BUY" if want == "long" else "SELL"
         o = bt.place_order(bsym, side, qty, "MARKET")
 
-        # SL=訊號停損價、TP=進場 ± 盈虧比×風險（皆為圖表價 → ×scale 換回合約價）
-        sl_px = bt.quantize_price(bsym, float(stop) * scale)
+        # 停損價（圖表價）：slPct>0 → 設在進場價上下 X%（多單下方、空單上方）；否則用訊號原停損。
+        slpct = cfg.get("slPct") or 0
+        if slpct > 0:
+            stop_chart = float(entry) * (1 + slpct / 100) if d == "s" else float(entry) * (1 - slpct / 100)
+        else:
+            stop_chart = float(stop)
+        sl_px = bt.quantize_price(bsym, stop_chart * scale)
+        # TP=進場 ± 盈虧比×風險（風險用「實際採用的停損」算 → rr 與顯示停損一致）
         tp_px = None
         if rr:
-            risk = abs(float(entry) - float(stop))
+            risk = abs(float(entry) - stop_chart)
             tgt = float(entry) - rr * risk if d == "s" else float(entry) + rr * risk
             tp_px = bt.quantize_price(bsym, tgt * scale)
         close_side = "SELL" if want == "long" else "BUY"
@@ -313,7 +374,7 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig):
             except bt.TradeError:
                 pass
             _log_trade(source="auto", status="failed", symbol=symbol, bsym=bsym, side=want,
-                       qty=qty, entry=str(entry), sl=str(stop), sig=k, d=d, tf=tf,
+                       qty=qty, entry=str(entry), sl=str(round(stop_chart, 8)), sig=k, d=d, tf=tf,
                        sigt=str(sig.get("t")),
                        msg=f"停損無法掛單（{e}）→ 已即時平倉，不留無保護持倉")
             print(f"  ⚠ 自動下單 {bsym} 停損掛單失敗，已平倉：{e}")
@@ -325,7 +386,7 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig):
             except bt.TradeError as e:
                 warn.append(f"TP 掛單失敗（不影響停損保護）：{e}")
         _log_trade(source="auto", status="open", symbol=symbol, bsym=bsym, side=want,
-                   qty=qty, entry=str(entry), sl=str(stop),
+                   qty=qty, entry=str(entry), sl=str(round(stop_chart, 8)),
                    tp=(str(tp_px) if tp_px else None), sig=k, d=d, tf=tf,
                    sigt=str(sig.get("t")), msg="；".join(warn) or None)
         print(f"  🤖 自動下單 {bt.env_name()}: {bsym} {side} {qty}（{symbol} {tf} "

@@ -166,9 +166,10 @@ def _process_combo(market, exchange, symbol, tf, subs_here, now):
         if prev and _epoch(t) <= _epoch(prev):   # 已推過（或更舊）→ 略過
             continue
         # 自動交易：新進場訊號 → 依設定下單（自帶逐事件去重，與推播成敗無關；絕不拋例外）
+        # 傳入完整 signals（含結算結果）供「敗後停手」模擬
         try:
             from routes.trade import execute_signal_trade
-            execute_signal_trade(market, exchange, symbol, tf, k, d, sig)
+            execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=signals)
         except Exception as e:
             print(f"  ⚠ 自動交易 hook 失敗：{e}")
         targets = [s for s in subs_here if k in (s["prefs"].get("sigs") or [])]

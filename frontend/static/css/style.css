@@ -6296,10 +6296,13 @@ html.landing-active .landing { background: transparent; }
     box-shadow: 0 8px 40px rgba(0,0,0,.55) !important;
   }
 
+  /* 桌面把交易面板嵌在合約行情底部的 dock：手機寬度一律隱藏（#tickerPanel 在手機=自選分頁
+     內容 → 否則交易會出現在自選頁下方）。手機交易改走底部「交易」分頁。 */
+  #trdDock { display: none !important; }
+
   /* 手機「交易」分頁：把交易面板 #tradePopup 撐成滿版頁（蓋掉上面的底部 sheet 定位）。
-     與設定/訊號分頁同款：滿版、下到分頁列上方、頂部一抹橘光。dock 桌面才用→這裡隱藏。 */
+     與設定/訊號分頁同款：滿版、下到分頁列上方、頂部一抹橘光。 */
   body.m-tab-trade .charts-container { display: none !important; }
-  body.m-tab-trade #trdDock { display: none !important; }
   body.m-tab-trade #tradePopup.open {
     position: fixed !important;
     left: 0 !important; right: 0 !important; top: 0 !important;

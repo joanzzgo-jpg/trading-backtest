@@ -110,6 +110,9 @@ function _trdRenderOverview() {
   if (document.activeElement !== $("#trdAutoLev")) $("#trdAutoLev").value = a.lev ?? 3;
   if (document.activeElement !== $("#trdAutoMax")) $("#trdAutoMax").value = a.maxPos ?? 3;
   if ($("#trdAutoDirs").value !== a.dirs) $("#trdAutoDirs").value = a.dirs || "both";
+  if (document.activeElement !== $("#trdAutoSl")) $("#trdAutoSl").value = a.slPct ?? 0;
+  const sal = $("#trdAutoSal");
+  if (sal) { sal.classList.toggle("sel", !!a.stopAfterLoss); sal.textContent = a.stopAfterLoss ? "開" : "關"; }
 }
 
 let _trdAutoSaveTimer = null;
@@ -123,6 +126,8 @@ function _trdSaveAuto() {
   a.lev = +pop.querySelector("#trdAutoLev").value || 3;
   a.maxPos = +pop.querySelector("#trdAutoMax").value || 3;
   a.dirs = pop.querySelector("#trdAutoDirs").value;
+  a.slPct = Math.max(0, +pop.querySelector("#trdAutoSl").value || 0);
+  a.stopAfterLoss = pop.querySelector("#trdAutoSal").classList.contains("sel");
   a.owner = window._acctName || "";   // 綁定擁有者帳號 → 只自動交易此帳號的自選（防別人自選下你的單）
   clearTimeout(_trdAutoSaveTimer);
   _trdAutoSaveTimer = setTimeout(async () => {
@@ -205,18 +210,26 @@ function _trdBuildPopup() {
     #tradePopup hr { border:none; border-top:1px solid var(--border,#3a3a50); margin:8px 0; }
     .trd-ico { vertical-align:-2px; }
     .trd-entry .trd-ico { margin-right:4px; }
-    /* 桌面：合約行情面板底部的交易 dock 按鈕（可用 ✕ 隱藏）*/
-    #trdDock { flex:0 0 auto; display:flex; gap:5px; align-items:stretch; padding:6px;
+    /* 桌面：完整交易面板嵌在合約行情面板底部，可收合 */
+    #trdDock { flex:0 0 auto; display:flex; flex-direction:column; min-height:0;
       border-top:1px solid var(--border,#3a3a50); background:var(--bg2,#1a1a28); }
-    #trdDock .trd-dock-btn { flex:1; display:flex; align-items:center; justify-content:center; gap:6px;
-      padding:8px 10px; border-radius:9px; border:1px solid var(--border,#445); background:transparent;
-      color:var(--text,#ddd); cursor:pointer; font-size:13px; font-weight:600; }
-    #trdDock .trd-dock-btn:hover { background:var(--blue,#4a90d9); color:#fff; border-color:transparent; }
-    #trdDock .trd-dock-btn small { color:var(--muted,#99a); font-weight:400; font-size:11px; }
-    #trdDock .trd-dock-btn:hover small { color:#dfeaf7; }
-    #trdDock .trd-dock-x { flex:0 0 auto; width:30px; border-radius:9px; border:1px solid var(--border,#445);
-      background:transparent; color:var(--muted,#889); cursor:pointer; font-size:12px; }
-    #trdDock .trd-dock-x:hover { color:#f06a6a; border-color:#f06a6a66; }
+    #trdDock .trd-dock-hd { flex:0 0 auto; display:flex; align-items:center; gap:5px;
+      padding:4px 10px; cursor:pointer; font-size:12px; font-weight:700; color:var(--text,#ddd);
+      user-select:none; -webkit-tap-highlight-color:transparent; }
+    #trdDock .trd-dock-hd:hover { background:rgba(255,255,255,.04); }
+    #trdDock .trd-dock-hd .trd-ico { width:13px; height:13px; }
+    #trdDock .trd-dock-hd .trd-env { padding:0 6px; font-size:10px; }
+    #trdDock .trd-dock-hd .trd-dock-caret { margin-left:auto; color:var(--muted,#889);
+      transition:transform .18s ease; font-size:10px; }
+    #trdDock.trd-collapsed .trd-dock-caret { transform:rotate(-90deg); }
+    #trdDock .trd-dock-body { flex:1 1 auto; min-height:0; overflow-y:auto; max-height:56vh; }
+    #trdDock.trd-collapsed .trd-dock-body { display:none; }
+    /* 嵌入態的交易面板：取消浮窗定位，貼齊面板寬度 */
+    #tradePopup.trd-docked { display:block !important; position:static !important;
+      width:auto !important; max-width:none !important; max-height:none !important;
+      border:none !important; border-radius:0 !important; box-shadow:none !important;
+      background:transparent !important; padding:4px 12px 12px !important; z-index:auto !important; }
+    #tradePopup.trd-docked .sys-sp-title { display:none; }
   `;
   document.head.appendChild(css);
 
@@ -270,6 +283,8 @@ function _trdBuildPopup() {
       <div><label>方向</label><select id="trdAutoDirs">
         <option value="both">多空都做</option><option value="long">只做多</option><option value="short">只做空</option>
       </select></div>
+      <div><label>止損 %（0=用訊號停損）</label><input id="trdAutoSl" type="number" min="0" max="50" step="0.1" placeholder="0"></div>
+      <div><label>敗後停手</label><button id="trdAutoSal" class="trd-chip" style="width:100%;padding:6px 0">關</button></div>
     </div>
     <div class="trd-sub" style="color:#b8a06a">⚠ 自動交易掃描的標的＝帳號自選清單（僅合約），且帳號需至少一台裝置啟用訊號通知。進場後停損/止盈由交易所託管，策略提前止盈止損時會同步平倉。</div>
     <div class="trd-msg"></div>`;
@@ -316,12 +331,19 @@ function _trdBuildPopup() {
   pop.querySelectorAll(".trd-a-sig, .trd-a-tf").forEach(b => b.addEventListener("click", e => {
     e.stopPropagation(); b.classList.toggle("sel"); _trdSaveAuto();
   }));
-  ["#trdAutoUsdt", "#trdAutoLev", "#trdAutoMax", "#trdAutoDirs"].forEach(id =>
+  ["#trdAutoUsdt", "#trdAutoLev", "#trdAutoMax", "#trdAutoDirs", "#trdAutoSl"].forEach(id =>
     pop.querySelector(id).addEventListener("change", _trdSaveAuto));
+  pop.querySelector("#trdAutoSal").addEventListener("click", e => {
+    e.stopPropagation();
+    const b = e.currentTarget;
+    b.classList.toggle("sel"); b.textContent = b.classList.contains("sel") ? "開" : "關";
+    _trdSaveAuto();
+  });
   pop.addEventListener("click", e => e.stopPropagation());
   document.addEventListener("click", e => {
-    // 手機「交易」分頁時，面板是常駐滿版頁 → 不因點外面（含底部分頁列）而關閉
+    // 手機「交易」分頁、桌面嵌入態 → 面板常駐，不因點外面而關閉
     if (document.body.classList.contains("m-tab-trade")) return;
+    if (pop.classList.contains("trd-docked")) return;
     if (!pop.contains(e.target) && !e.target.closest(".trd-entry")) {
       pop.classList.remove("open");
       _trdStopPoll();
@@ -367,41 +389,39 @@ function _trdOpenPopup(anchorBtn) {
   }
 }
 
-// 桌面入口：①系統外觀彈窗一顆（永遠在，也是隱藏 dock 後的「找回」管道）
-//          ②合約行情面板底部的 dock 按鈕（可用 ✕ 隱藏，偏好存 localStorage["trdDockHidden"]）
-function _trdInjectEntries() {
-  const envTag = _TRD.st.env === "live" ? "實盤" : "測試網";
-  const sysPop = document.getElementById("sysSettingsPopup");
-  if (sysPop && !sysPop.querySelector(".trd-entry")) {
-    const b = document.createElement("button");
-    b.className = "btn-reset trd-entry";
-    b.innerHTML = `${_TRD_ICO} 交易（${envTag}）`;
-    b.addEventListener("click", e => {
-      e.stopPropagation();
-      // 從系統外觀開 → 順手把被隱藏的 dock 找回來（唯一的還原入口）
-      const dk = document.getElementById("trdDock");
-      if (dk) { dk.style.display = ""; try { localStorage.removeItem("trdDockHidden"); } catch (err) {} }
-      _trdOpenPopup(b);
-    });
-    sysPop.appendChild(b);
-  }
-  // 合約行情面板底部 dock
+// 桌面：把完整交易面板嵌進「合約行情」面板底部，可收合（標題列點擊展開/收合，偏好存 localStorage）
+function _trdInjectDesktopDock() {
   const panel = document.getElementById("tickerPanel");
-  if (panel && !document.getElementById("trdDock")) {
-    const dock = document.createElement("div");
-    dock.id = "trdDock";
-    dock.innerHTML = `<button class="trd-dock-btn">${_TRD_ICO}<span>交易</span><small>${envTag}</small></button>`
-      + `<button class="trd-dock-x" title="隱藏（可從系統外觀的「交易」找回）">✕</button>`;
-    panel.appendChild(dock);
-    dock.querySelector(".trd-dock-btn").addEventListener("click", e => {
-      e.stopPropagation(); _trdOpenPopup(dock.querySelector(".trd-dock-btn"));
-    });
-    dock.querySelector(".trd-dock-x").addEventListener("click", e => {
-      e.stopPropagation(); dock.style.display = "none";
-      try { localStorage.setItem("trdDockHidden", "1"); } catch (err) {}
-    });
-    try { if (localStorage.getItem("trdDockHidden") === "1") dock.style.display = "none"; } catch (e) {}
-  }
+  const pop = document.getElementById("tradePopup");
+  if (!panel || !pop || document.getElementById("trdDock")) return;
+  const envTag = _TRD.st.env === "live" ? "實盤" : "測試網";
+  const envCls = _TRD.st.env === "live" ? "trd-env-live" : "trd-env-test";
+  const dock = document.createElement("div");
+  dock.id = "trdDock";
+  dock.innerHTML =
+    `<div class="trd-dock-hd">${_TRD_ICO}<span>交易</span>`
+    + `<span class="trd-env ${envCls}">${envTag}</span>`
+    + `<span class="trd-dock-caret">▼</span></div>`
+    + `<div class="trd-dock-body"></div>`;
+  panel.appendChild(dock);
+  // 把交易面板本體搬進 dock body（保留所有事件處理器），切成嵌入態
+  const body = dock.querySelector(".trd-dock-body");
+  body.appendChild(pop);
+  pop.classList.add("open", "trd-docked");
+  // 收合狀態（預設展開）
+  let collapsed = false;
+  try { collapsed = localStorage.getItem("trdDockCollapsed") === "1"; } catch (e) {}
+  const applyCollapsed = () => {
+    dock.classList.toggle("trd-collapsed", collapsed);
+    if (collapsed) { _trdStopPoll(); }
+    else { _trdLoadPanel(); }
+  };
+  dock.querySelector(".trd-dock-hd").addEventListener("click", () => {
+    collapsed = !collapsed;
+    try { localStorage.setItem("trdDockCollapsed", collapsed ? "1" : "0"); } catch (e) {}
+    applyCollapsed();
+  });
+  applyCollapsed();
 }
 
 // 手機「交易」分頁：把交易面板撐成滿版頁（CSS body.m-tab-trade 控制）→ 進頁載入、離頁停輪詢
@@ -435,19 +455,25 @@ async function initTrade() {
   // 交易功能限定帳號（owner）：只有登入該帳號才顯示入口；其他帳號/未登入 → 完全不顯示
   if (_TRD.st.owner && window._acctName !== _TRD.st.owner) return;
   _trdBuildPopup();
-  _trdInjectEntries();
-  // 顯示手機底部「交易」分頁（預設隱藏；只有交易功能啟用才出現）
-  const tab = document.getElementById("mTabTrade");
-  if (tab) tab.style.display = "";
-  // 手機分頁進/離場 hook（main.js setTab 呼叫）
-  window._trdEnterTab = function () {
-    const pop = document.getElementById("tradePopup");
-    if (pop) pop.classList.add("open");
-    _trdLoadPanel();
-  };
-  window._trdLeaveTab = function () {
-    const pop = document.getElementById("tradePopup");
-    if (pop) pop.classList.remove("open");
-    _trdStopPoll();
-  };
+
+  // 依裝置分流（決定於載入時）：
+  //  手機 → 底部「交易」分頁（面板留在 body、滿版頁顯示）；不可注入到 #tickerPanel，
+  //         否則會出現在「自選」分頁下方（#tickerPanel 即自選頁內容）。
+  //  桌面 → 把完整面板嵌進合約行情面板底部、可收合。
+  if (typeof isMobileUI === "function" && isMobileUI()) {
+    const tab = document.getElementById("mTabTrade");
+    if (tab) tab.style.display = "";   // 顯示手機底部「交易」分頁
+    window._trdEnterTab = function () {
+      const pop = document.getElementById("tradePopup");
+      if (pop) pop.classList.add("open");
+      _trdLoadPanel();
+    };
+    window._trdLeaveTab = function () {
+      const pop = document.getElementById("tradePopup");
+      if (pop) pop.classList.remove("open");
+      _trdStopPoll();
+    };
+  } else {
+    _trdInjectDesktopDock();
+  }
 }
