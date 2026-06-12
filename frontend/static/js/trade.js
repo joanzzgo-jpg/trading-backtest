@@ -107,6 +107,7 @@ function _trdRenderOverview() {
   pop.querySelectorAll(".trd-a-tf").forEach(x => x.classList.toggle("sel", (a.tfs || []).includes(x.dataset.tf)));
   const $ = id => pop.querySelector(id);
   if (document.activeElement !== $("#trdAutoUsdt")) $("#trdAutoUsdt").value = a.usdt ?? 50;
+  if (document.activeElement !== $("#trdAutoRisk")) $("#trdAutoRisk").value = a.riskUsd ?? 0;
   if (document.activeElement !== $("#trdAutoLev")) $("#trdAutoLev").value = a.lev ?? 3;
   if (document.activeElement !== $("#trdAutoMax")) $("#trdAutoMax").value = a.maxPos ?? 3;
   if ($("#trdAutoDirs").value !== a.dirs) $("#trdAutoDirs").value = a.dirs || "both";
@@ -123,6 +124,7 @@ function _trdSaveAuto() {
   a.sigs = [...pop.querySelectorAll(".trd-a-sig.sel")].map(x => x.dataset.sig);
   a.tfs = [...pop.querySelectorAll(".trd-a-tf.sel")].map(x => x.dataset.tf);
   a.usdt = +pop.querySelector("#trdAutoUsdt").value || 50;
+  a.riskUsd = Math.max(0, +pop.querySelector("#trdAutoRisk").value || 0);
   a.lev = +pop.querySelector("#trdAutoLev").value || 3;
   a.maxPos = +pop.querySelector("#trdAutoMax").value || 3;
   a.dirs = pop.querySelector("#trdAutoDirs").value;
@@ -292,8 +294,9 @@ function _trdBuildPopup() {
     <div class="trd-sub">自動交易時框</div>
     <div class="trd-chips">${tfChips}</div>
     <div class="trd-grid">
-      <div><label>每筆保證金 USDT</label><input id="trdAutoUsdt" type="number" min="1"></div>
-      <div><label>槓桿</label><input id="trdAutoLev" type="number" min="1" max="50"></div>
+      <div><label>每筆風險 $（0=用保證金）</label><input id="trdAutoRisk" type="number" min="0" step="1" placeholder="0"></div>
+      <div><label>槓桿（風險模式=上限）</label><input id="trdAutoLev" type="number" min="1" max="50"></div>
+      <div><label>每筆保證金 USDT（風險=0時用）</label><input id="trdAutoUsdt" type="number" min="1"></div>
       <div><label>最大同時持倉</label><input id="trdAutoMax" type="number" min="1" max="20"></div>
       <div><label>方向</label><select id="trdAutoDirs">
         <option value="both">多空都做</option><option value="long">只做多</option><option value="short">只做空</option>
@@ -366,7 +369,7 @@ function _trdBuildPopup() {
   pop.querySelectorAll(".trd-a-sig, .trd-a-tf").forEach(b => b.addEventListener("click", e => {
     e.stopPropagation(); b.classList.toggle("sel"); _trdSaveAuto();
   }));
-  ["#trdAutoUsdt", "#trdAutoLev", "#trdAutoMax", "#trdAutoDirs", "#trdAutoSl"].forEach(id =>
+  ["#trdAutoUsdt", "#trdAutoRisk", "#trdAutoLev", "#trdAutoMax", "#trdAutoDirs", "#trdAutoSl"].forEach(id =>
     pop.querySelector(id).addEventListener("change", _trdSaveAuto));
   pop.querySelector("#trdAutoSal").addEventListener("click", e => {
     e.stopPropagation();

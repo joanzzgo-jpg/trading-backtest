@@ -44,6 +44,9 @@ _ALL_SIGS = {"abc", "ab", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "
 _ALL_TFS = {"5m", "15m", "30m", "1h", "2h", "4h", "8h", "1d", "1w", "1M"}
 _AUTO_DEFAULT = {"on": False, "owner": "", "sigs": [], "tfs": [], "usdt": 50.0,
                  "lev": 3, "maxPos": 3, "dirs": "both",
+                 # riskUsd=每筆風險金額（打到停損約虧這麼多 USDT，含來回手續費）；>0 時改用「固定風險倉位」
+                 # 模式：數量由停損距離自動算、槓桿自動挑（強平在停損外），lev 當槓桿上限。0=用保證金×槓桿。
+                 "riskUsd": 0.0,
                  # slPct=止損改設在進場價上下 X%（0=用訊號原停損價）
                  "slPct": 0.0,
                  # stopAfterLoss=敗後停手（同圖表）：某方向落敗後停手、跳過後續同向訊號，
@@ -258,6 +261,10 @@ def _clean_auto(p: Optional[dict]) -> dict:
         out["slPct"] = max(0.0, min(float(p.get("slPct", 0) or 0), 50.0))
     except (TypeError, ValueError):
         pass
+    try:
+        out["riskUsd"] = max(0.0, min(float(p.get("riskUsd", 0) or 0), 100000.0))
+    except (TypeError, ValueError):
+        pass
     out["stopAfterLoss"] = bool(p.get("stopAfterLoss"))
     return out
 
@@ -437,21 +444,7 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
                        msg=f"持倉數已達上限 {cfg['maxPos']}")
             return
 
-        notional = cfg["usdt"] * cfg["lev"]
         px = client.last_price(bsym)
-        if notional < client.min_notional(bsym):
-            _log_trade(source="auto", mode=client.env, status="failed", symbol=symbol, bsym=bsym,
-                       side=want, sig=k, d=d, tf=tf, sigt=str(sig.get("t")),
-                       msg=f"名目金額 {notional:.1f} 低於合約下限 {client.min_notional(bsym)}")
-            return
-        qty = client.quantize_qty(bsym, notional / px)
-        try:
-            client.set_leverage(bsym, cfg["lev"])
-        except bt.TradeError:
-            pass   # 槓桿設定失敗就用現值（有倉位/掛單時交易所會拒改）
-
-        side = "BUY" if want == "long" else "SELL"
-        o = client.place_order(bsym, side, qty, "MARKET")
 
         # 停損價（圖表價）：slPct=止損緩衝 %。以「策略訊號停損」為基準，再往「離進場更遠」
         # 方向外推 X%（多單→更低、空單→更高），給緩衝、避免被插針掃掉；0=直接用策略停損。
@@ -462,6 +455,46 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
         else:
             stop_chart = orig_stop
         sl_px = client.quantize_price(bsym, stop_chart * scale)
+
+        # ── 倉位大小 + 槓桿 ──
+        risk_usd = cfg.get("riskUsd") or 0
+        lev_cap = max(1, min(int(cfg["lev"]), 50))
+        if risk_usd > 0:
+            # 固定風險倉位：數量 = 風險金額 ÷（停損距離 + 來回吃單手續費），槓桿自動挑（強平在停損外）。
+            e_c = px * scale                       # 用「實際成交參考價」算（市價單以現價成交）
+            s_c = stop_chart * scale               # 停損合約價
+            dist = abs(e_c - s_c)
+            if dist <= 0:
+                _log_trade(source="auto", mode=client.env, status="failed", symbol=symbol, bsym=bsym,
+                           side=want, sig=k, d=d, tf=tf, sigt=str(sig.get("t")),
+                           msg="停損距離為 0，無法計算風險倉位")
+                return
+            fee = 0.0005                           # Binance 合約吃單 0.05%/邊
+            per_unit_loss = dist + 2 * fee * e_c   # 每單位（含來回手續費）的虧損
+            q_base = risk_usd / per_unit_loss      # 風險金額換算的數量
+            notional = q_base * e_c
+            stop_pct = dist / e_c if e_c else 0.05
+            # 自動槓桿：取「強平距離約 2 倍停損距離」的安全值（≈ 0.5/stop_pct），上限 lev_cap、合約上限
+            auto_lev = int(0.5 / stop_pct) if stop_pct > 0 else lev_cap
+            lev = max(1, min(auto_lev, lev_cap))
+            qty = client.quantize_qty(bsym, q_base)
+        else:
+            lev = lev_cap
+            notional = cfg["usdt"] * lev
+            qty = client.quantize_qty(bsym, notional / px)
+        if notional < client.min_notional(bsym):
+            _log_trade(source="auto", mode=client.env, status="failed", symbol=symbol, bsym=bsym,
+                       side=want, sig=k, d=d, tf=tf, sigt=str(sig.get("t")),
+                       msg=f"名目金額 {notional:.1f} 低於合約下限 {client.min_notional(bsym)}"
+                           + ("（風險金額太小、把每筆風險或上限槓桿調大）" if risk_usd > 0 else ""))
+            return
+        try:
+            client.set_leverage(bsym, lev)
+        except bt.TradeError:
+            pass   # 槓桿設定失敗就用現值（有倉位/掛單時交易所會拒改）
+
+        side = "BUY" if want == "long" else "SELL"
+        o = client.place_order(bsym, side, qty, "MARKET")
         # 止盈維持策略目標（用「原始策略風險 = 進場到策略停損」算 → 不受停損緩衝影響）
         tp_px = None
         if rr:
