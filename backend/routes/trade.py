@@ -389,6 +389,11 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
         want = "short" if d == "s" else "long"
         if cfg["dirs"] != "both" and cfg["dirs"] != want:
             return
+        # ⚠ 已結算訊號不追進場：剛開自動交易時，監控器會掃到最近窗內「已經到止盈/止損」的舊訊號
+        # （r=w/l）。若照樣進場，settle 會立刻判定它已結算 → 馬上平倉（＝開單馬上關單）。
+        # 只進「還沒結算(live)」的訊號。
+        if sig.get("r") in ("w", "l"):
+            return
         import routes.notify as notify
         # ⚠ 關鍵：只交易「擁有者帳號自己的自選清單」裡的標的，且用該帳號自己的金鑰下單。
         # owner 未綁定、或該帳號沒金鑰 → 不交易。
