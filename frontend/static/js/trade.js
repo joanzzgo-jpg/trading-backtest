@@ -298,7 +298,7 @@ function _trdBuildPopup() {
       <div><label>方向</label><select id="trdAutoDirs">
         <option value="both">多空都做</option><option value="long">只做多</option><option value="short">只做空</option>
       </select></div>
-      <div><label>止損 %（0=用訊號停損）</label><input id="trdAutoSl" type="number" min="0" max="50" step="0.1" placeholder="0"></div>
+      <div><label>止損緩衝 %（策略停損外推；0=用策略停損）</label><input id="trdAutoSl" type="number" min="0" max="50" step="0.1" placeholder="0"></div>
       <div><label>敗後停手</label><button id="trdAutoSal" class="trd-chip" style="width:100%;padding:6px 0">關</button></div>
     </div>
     <div class="trd-sub" style="color:#b8a06a">⚠ 自動交易掃描的標的＝帳號自選清單（僅合約），且帳號需至少一台裝置啟用訊號通知。進場後停損/止盈由交易所託管，策略提前止盈止損時會同步平倉。</div>

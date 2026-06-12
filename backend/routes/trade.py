@@ -448,17 +448,19 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
         side = "BUY" if want == "long" else "SELL"
         o = client.place_order(bsym, side, qty, "MARKET")
 
-        # 停損價（圖表價）：slPct>0 → 設在進場價上下 X%（多單下方、空單上方）；否則用訊號原停損。
+        # 停損價（圖表價）：slPct=止損緩衝 %。以「策略訊號停損」為基準，再往「離進場更遠」
+        # 方向外推 X%（多單→更低、空單→更高），給緩衝、避免被插針掃掉；0=直接用策略停損。
+        orig_stop = float(stop)
         slpct = cfg.get("slPct") or 0
         if slpct > 0:
-            stop_chart = float(entry) * (1 + slpct / 100) if d == "s" else float(entry) * (1 - slpct / 100)
+            stop_chart = orig_stop * (1 + slpct / 100) if d == "s" else orig_stop * (1 - slpct / 100)
         else:
-            stop_chart = float(stop)
+            stop_chart = orig_stop
         sl_px = client.quantize_price(bsym, stop_chart * scale)
-        # TP=進場 ± 盈虧比×風險（風險用「實際採用的停損」算 → rr 與顯示停損一致）
+        # 止盈維持策略目標（用「原始策略風險 = 進場到策略停損」算 → 不受停損緩衝影響）
         tp_px = None
         if rr:
-            risk = abs(float(entry) - stop_chart)
+            risk = abs(float(entry) - orig_stop)
             tgt = float(entry) - rr * risk if d == "s" else float(entry) + rr * risk
             tp_px = client.quantize_price(bsym, tgt * scale)
         close_side = "SELL" if want == "long" else "BUY"
