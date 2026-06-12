@@ -2819,7 +2819,7 @@
       const bs = window._bearCurrentState || 'hidden';
       const initB = bs==='full'?'5px':'-300px';
       el.style.cssText =
-        'position:fixed;bottom:'+initB+';right:175px;z-index:9989;'+
+        'position:fixed;bottom:'+initB+';left:175px;z-index:9989;'+
         'transition:bottom 0.45s cubic-bezier(0.34,1.56,0.64,1);'+
         'background:rgba(10,12,20,.72);backdrop-filter:blur(10px);'+
         'border:1px solid rgba(255,255,255,.12);border-radius:10px;'+

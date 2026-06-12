@@ -3019,7 +3019,7 @@ html.perf-mode .time-axis-year {
 .peek-bear {
   position: fixed;
   bottom: -200px;
-  right: 20px;
+  left: 20px;
   width: 140px;
   z-index: 9990;
   cursor: pointer;
