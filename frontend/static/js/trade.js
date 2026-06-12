@@ -117,7 +117,8 @@ function _trdRenderOverview() {
   _trdRenderPerSym();
 }
 
-// 各標的止損緩衝%：列出合約自選標的，各自一個輸入框（留空＝用全域 slPct）
+// 各「標的×時間框」止損緩衝%：列出合約自選標的，依選的自動交易時框各一個輸入框（留空＝用全域）。
+// key 格式：「標的|時框」（有選時框時）或「標的」（沒選時框時，全時框共用）。
 let _trdPerSymSig = "";
 function _trdRenderPerSym() {
   const box = document.getElementById("trdPerSym");
@@ -126,24 +127,32 @@ function _trdRenderPerSym() {
   const syms = [...new Set(wl.filter(w => w.market === "crypto").map(w => w.symbol))];
   const a = (_TRD.ov && _TRD.ov.auto) || {};
   const ps = a.perSym || {};
-  const sig = syms.join(",");
-  if (sig === _trdPerSymSig) {   // 標的集合沒變 → 只更新非聚焦輸入的值，不重建（避免打字被打斷）
+  const tfs = (a.tfs || []).slice();
+  const sig = syms.join(",") + "#" + tfs.join(",");
+  if (sig === _trdPerSymSig) {   // 標的/時框集合沒變 → 只更新非聚焦輸入的值（不重建、不打斷輸入）
     box.querySelectorAll(".trd-ps-in").forEach(inp => {
-      if (document.activeElement !== inp) { const v = ps[inp.dataset.sym]; inp.value = (v != null ? v : ""); }
+      if (document.activeElement !== inp) { const v = ps[inp.dataset.key]; inp.value = (v != null ? v : ""); }
     });
     return;
   }
   _trdPerSymSig = sig;
   if (!syms.length) { box.innerHTML = `<div class="trd-empty">自選清單沒有合約標的</div>`; return; }
-  box.innerHTML = syms.map(s =>
-    `<div class="trd-ps-row"><span class="trd-ps-sym" title="${s}">${s}</span>`
-    + `<input class="trd-ps-in" data-sym="${s}" type="number" min="0" max="50" step="0.1" placeholder="預設" value="${ps[s] != null ? ps[s] : ""}"></div>`).join("");
+  const cell = key => `<input class="trd-ps-in" data-key="${key}" type="number" min="0" max="50" step="0.1" placeholder="預設" value="${ps[key] != null ? ps[key] : ""}">`;
+  box.innerHTML = syms.map(s => {
+    if (!tfs.length) {   // 沒選時框 → 每標的一個（全時框共用）
+      return `<div class="trd-ps-row"><span class="trd-ps-sym" title="${s}">${s}</span>${cell(s)}</div>`;
+    }
+    // 有選時框 → 標的標頭 + 各時框一格
+    return `<div class="trd-ps-sym-hd">${s}</div>`
+      + `<div class="trd-ps-tfs">` + tfs.map(t =>
+          `<span class="trd-ps-tf"><b>${t}</b>${cell(s + "|" + t)}</span>`).join("") + `</div>`;
+  }).join("");
   box.querySelectorAll(".trd-ps-in").forEach(inp => inp.addEventListener("change", e => {
     e.stopPropagation();
     const a2 = _TRD.ov.auto = _TRD.ov.auto || {};
     a2.perSym = a2.perSym || {};
     const v = +inp.value;
-    if (v > 0) a2.perSym[inp.dataset.sym] = v; else delete a2.perSym[inp.dataset.sym];
+    if (v > 0) a2.perSym[inp.dataset.key] = v; else delete a2.perSym[inp.dataset.key];
     _trdSaveAuto();
   }));
 }
@@ -267,6 +276,10 @@ function _trdBuildPopup() {
     #tradePopup .trd-ps-row { display:flex; align-items:center; gap:6px; }
     #tradePopup .trd-ps-sym { flex:1; font-size:11px; color:var(--muted,#99a); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     #tradePopup .trd-ps-in { width:74px; flex:0 0 auto; padding:3px 6px; font-size:11px; }
+    #tradePopup .trd-ps-sym-hd { font-size:11px; color:var(--text,#ddd); font-weight:700; margin-top:5px; }
+    #tradePopup .trd-ps-tfs { display:flex; flex-wrap:wrap; gap:6px 8px; margin:2px 0 2px 4px; }
+    #tradePopup .trd-ps-tf { display:flex; align-items:center; gap:3px; font-size:10px; color:var(--muted,#99a); }
+    #tradePopup .trd-ps-tf .trd-ps-in { width:50px; }
     #trdDock.trd-collapsed .trd-dock-body { display:none; }
     /* 嵌入態的交易面板：取消浮窗定位，貼齊面板寬度 */
     #tradePopup.trd-docked { display:block !important; position:static !important;
@@ -340,7 +353,7 @@ function _trdBuildPopup() {
       <div><label>止損緩衝 %（策略停損外推；0=用策略停損）</label><input id="trdAutoSl" type="number" min="0" max="50" step="0.1" placeholder="0"></div>
       <div><label>敗後停手</label><button id="trdAutoSal" class="trd-chip" style="width:100%;padding:6px 0">關</button></div>
     </div>
-    <div class="trd-sub">各標的止損緩衝 %（留空＝用上方預設）</div>
+    <div class="trd-sub">各標的×時框 止損緩衝 %（留空＝用上方預設；選了自動交易時框才分時框）</div>
     <div class="trd-persym" id="trdPerSym"></div>
     <div class="trd-sub" style="color:#b8a06a">⚠ 自動交易掃描的標的＝帳號自選清單（僅合約），且帳號需至少一台裝置啟用訊號通知。進場後停損/止盈由交易所託管，策略提前止盈止損時會同步平倉。</div>
     </div>

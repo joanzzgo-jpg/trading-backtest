@@ -478,8 +478,11 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
         # 停損價（圖表價）：slPct=止損緩衝 %。以「策略訊號停損」為基準，再往「離進場更遠」
         # 方向外推 X%（多單→更低、空單→更高），給緩衝、避免被插針掃掉；0=直接用策略停損。
         orig_stop = float(stop)
-        # 此標的若有個別止損緩衝%設定 → 用它；否則用全域 slPct
-        per = (cfg.get("perSym") or {}).get(symbol)
+        # 止損緩衝%查詢順序：該「標的×時間框」個別值 → 該標的（全時框）→ 全域 slPct。
+        ps = cfg.get("perSym") or {}
+        per = ps.get(f"{symbol}|{tf}")
+        if per is None:
+            per = ps.get(symbol)
         slpct = per if per is not None else (cfg.get("slPct") or 0)
         if slpct > 0:
             stop_chart = orig_stop * (1 + slpct / 100) if d == "s" else orig_stop * (1 - slpct / 100)
