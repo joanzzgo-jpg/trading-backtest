@@ -294,6 +294,10 @@ class Client:
         # 條件單(SL/TP)現為 Algo Order，allOpenOrders 不含 → 需用 algo 專屬端點取消（避免孤兒停損）
         self._request("DELETE", "/fapi/v1/algoOrders", {"symbol": sym})
 
+    def cancel_algo(self, sym, algo_id):
+        # 取消單一 Algo 條件單（用 algoId）：供「TP 跟著中軌移動」只取消舊 TP、不動 SL
+        self._request("DELETE", "/fapi/v1/algoOrder", {"symbol": sym, "algoId": algo_id})
+
     def close_position(self, sym) -> dict:
         pos = [p for p in self.positions() if p["symbol"] == sym]
         try:

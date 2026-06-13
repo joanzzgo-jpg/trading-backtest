@@ -150,6 +150,16 @@ def _process_combo(market, exchange, symbol, tf, subs_here, now):
     if now - (last_closed_open + iv) > max(2 * iv, 180):
         return
 
+    # TP 跟著中軌移動：用最新「已收盤」棒的中軌，把未平自動倉的交易所 TP 重掛到中軌（只動 TP、不碰 SL）
+    try:
+        from routes.trade import retarget_auto_tp
+        if "bb_middle" in df.columns:        # 中軌欄位名（crt.py 用 _col_f("bb_middle")）
+            _mi = -2 if forming else -1
+            if len(df) >= abs(_mi):
+                retarget_auto_tp(market, exchange, symbol, tf, float(df["bb_middle"].iloc[_mi]))
+    except Exception as e:
+        print(f"  ⚠ TP 移動 hook 失敗：{e}")
+
     res = _calc_crt_winrate(df, long_only=(market == "tw"))
     signals = res.get("signals") or []
     if not signals:

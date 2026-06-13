@@ -230,6 +230,16 @@ def _ensure_db():
             )
         """)
         conn.commit()
+        # 既有 DB 補欄位：tp_oid = 交易所 TP(algo) 單 id，供「TP 跟著中軌移動」用 id 精準取消重掛。
+        # idempotent：欄位已存在會丟錯 → rollback（Postgres 失敗交易須回滾，否則後續語句全失敗）。
+        try:
+            conn.execute("ALTER TABLE trade_log ADD COLUMN tp_oid TEXT")
+            conn.commit()
+        except Exception:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
     finally:
         conn.close()
     _inited = True
@@ -325,11 +335,12 @@ def _log_trade(**kw) -> Optional[int]:
         conn, ph = _acct._db()
         try:
             cols = ("ts", "mode", "source", "status", "symbol", "bsym", "side", "qty",
-                    "entry", "sl", "tp", "sig", "dir", "tf", "sigt", "msg")
+                    "entry", "sl", "tp", "sig", "dir", "tf", "sigt", "msg", "tp_oid")
             vals = (time.time(), kw.get("mode") or bt.env_name(), kw.get("source"), kw.get("status"),
                     kw.get("symbol"), kw.get("bsym"), kw.get("side"), kw.get("qty"),
                     kw.get("entry"), kw.get("sl"), kw.get("tp"), kw.get("sig"),
-                    kw.get("d"), kw.get("tf"), kw.get("sigt"), kw.get("msg"))
+                    kw.get("d"), kw.get("tf"), kw.get("sigt"), kw.get("msg"),
+                    str(kw["tp_oid"]) if kw.get("tp_oid") is not None else None)
             cur = conn.execute(
                 f"INSERT INTO trade_log ({','.join(cols)}) VALUES ({','.join([ph]*len(cols))})",
                 vals)
@@ -351,6 +362,21 @@ def _update_trade(row_id: int, status: str, msg: str = None):
             conn.execute(
                 f"UPDATE trade_log SET status={ph}, msg=COALESCE({ph},msg), closed_ts={ph} WHERE id={ph}",
                 (status, msg, time.time(), row_id))
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception:
+        pass
+
+
+def _set_trade_tp(row_id: int, tp: str, tp_oid):
+    """更新某筆開倉的 TP 價與交易所 TP(algo) 單 id（供「TP 跟著中軌移動」記錄最新掛單）。"""
+    try:
+        conn, ph = _acct._db()
+        try:
+            conn.execute(
+                f"UPDATE trade_log SET tp={ph}, tp_oid={ph} WHERE id={ph}",
+                (tp, str(tp_oid) if tp_oid is not None else None, row_id))
             conn.commit()
         finally:
             conn.close()
@@ -586,14 +612,16 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
             print(f"  ⚠ 自動下單 {bsym} 停損掛單失敗，已平倉：{e}")
             return
         warn = []
+        tp_oid = None
         if tp_px:
             try:
-                client.place_close_trigger(bsym, close_side, tp_px, "tp")
+                _otp = client.place_close_trigger(bsym, close_side, tp_px, "tp")
+                tp_oid = _otp.get("orderId")    # 存 TP(algo) 單 id → 之後「跟著中軌移動」用 id 精準取消重掛
             except bt.TradeError as e:
                 warn.append(f"TP 掛單失敗（不影響停損保護）：{e}")
         _log_trade(source="auto", mode=client.env, status="open", symbol=symbol, bsym=bsym, side=want,
                    qty=qty, entry=str(entry), sl=str(round(stop_chart, 8)),
-                   tp=(str(tp_px) if tp_px else None), sig=k, d=d, tf=tf,
+                   tp=(str(tp_px) if tp_px else None), tp_oid=tp_oid, sig=k, d=d, tf=tf,
                    sigt=str(sig.get("t")), msg="；".join(warn) or None)
         # 通知擁有者：自動進場
         envtag = "實盤" if client.env == "live" else "測試網"
@@ -661,6 +689,57 @@ def settle_signal_trade(market, exchange, symbol, tf, k, d, sig, event):
         print(f"  🤖 自動平倉 {client.env}: {bsym}（{event}）pnl={pnl}")
     except Exception as e:
         print(f"  ⚠ 自動平倉失敗 {symbol} {tf}：{e}")
+
+
+def retarget_auto_tp(market, exchange, symbol, tf, mid_chart):
+    """TP 跟著中軌移動：用最新中軌(已收盤棒)把該「標的×時框」所有未平自動倉的交易所 TP 單
+    取消重掛到中軌。只動 TP（用開倉時存下的 algoId 精準取消）→ 絕不碰 SL（零 SL 空窗）。
+    中軌已越過現價(目標達成側)→ 不重掛(避免 -2021)、交給 settle 市價平倉。每根 K 收盤呼叫一次。
+    絕不拋例外。"""
+    try:
+        if market != "crypto" or mid_chart is None or mid_chart != mid_chart:   # NaN
+            return
+        cfg = get_auto_cfg()
+        if not cfg.get("on"):
+            return
+        _ensure_db()
+        conn, ph = _acct._db()
+        try:
+            cur = conn.execute(
+                f"SELECT id, bsym, dir, tp, tp_oid FROM trade_log WHERE source='auto' "
+                f"AND status='open' AND symbol={ph} AND tf={ph}", (symbol, tf))
+            rows = cur.fetchall()
+        finally:
+            conn.close()
+        if not rows:
+            return                              # 此標的×時框無未平自動倉 → 不碰交易所
+        client, _ = _client_for((cfg.get("owner") or "").strip())
+        if client is None:
+            return
+        bsym0, scale = client.resolve_symbol(symbol)
+        new_tp_px = client.quantize_price(bsym0, float(mid_chart) * scale)
+        new_tp_f = float(new_tp_px)
+        px = client.last_price(bsym0)
+        for row_id, bsym, d, old_tp, tp_oid in rows:
+            try:
+                want = "short" if d == "s" else "long"
+                # 中軌已越過現價（多單→中軌已在現價下、空單→已在現價上）＝目標達成側 → 不重掛、交給 settle 平倉
+                if (want == "long" and new_tp_f <= px) or (want == "short" and new_tp_f >= px):
+                    continue
+                if old_tp is not None and str(new_tp_px) == str(old_tp):
+                    continue                    # 中軌沒移動（同 tick）→ 不動，免徒增掛單
+                close_side = "SELL" if want == "long" else "BUY"
+                if tp_oid:                       # 先用 id 取消舊 TP（取消失敗＝已不存在，無妨）；SL 完全不碰
+                    try:
+                        client.cancel_algo(bsym, tp_oid)
+                    except bt.TradeError:
+                        pass
+                o = client.place_close_trigger(bsym, close_side, new_tp_px, "tp")
+                _set_trade_tp(row_id, str(new_tp_px), o.get("orderId"))
+            except bt.TradeError as e:
+                print(f"  ⚠ TP 移動失敗 {bsym}：{e}")
+    except Exception as e:
+        print(f"  ⚠ retarget_auto_tp 失敗 {symbol} {tf}：{e}")
 
 
 # ── request models ────────────────────────────────────────────
