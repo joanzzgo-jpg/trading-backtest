@@ -466,39 +466,49 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
         if market != "crypto":
             return
         cfg = get_auto_cfg()
+        # 設定層過濾（未開／此訊號未勾／此時框未勾／方向不符）→ 靜默：每根非目標訊號都會進來，
+        # 記 log 會洗版。這四項屬「使用者設定」，前端面板看得到，不必入交易紀錄。
         if not (cfg["on"] and k in cfg["sigs"] and tf in cfg["tfs"]):
             return
         want = "short" if d == "s" else "long"
         if cfg["dirs"] != "both" and cfg["dirs"] != want:
             return
-        # ⚠ 已結算訊號不追進場：剛開自動交易時，監控器會掃到最近窗內「已經到止盈/止損」的舊訊號
-        # （r=w/l）。若照樣進場，settle 會立刻判定它已結算 → 馬上平倉（＝開單馬上關單）。
-        # 只進「還沒結算(live)」的訊號。
-        if sig.get("r") in ("w", "l"):
-            return
         import routes.notify as notify
-        # ⚠ 關鍵：只交易「擁有者帳號自己的自選清單」裡的標的，且用該帳號自己的金鑰下單。
-        # owner 未綁定、或該帳號沒金鑰 → 不交易。
-        owner = (cfg.get("owner") or "").strip()
-        if not owner:
-            return
-        client, _ = _client_for(owner)
-        if client is None:
-            return
-        owner_syms = {(w.get("symbol") or "") for w in notify.account_watchlist(owner)}
-        if symbol not in owner_syms:
-            return
+        # 逐事件去重前移：每個「設定上要交易」的訊號只評估一次 → 之後每個「跳過原因」都只記一次 log
+        # （不洗版）→ 用來診斷「設定都對了卻沒觸發」卡在哪一關。
         evt_key = f"atrade:{symbol}:{tf}:{k}:{d}:{sig.get('t')}"
         if notify.seen_event(evt_key):
             return
-        notify.mark_event(evt_key)   # 先標記：下單只該嘗試一次，失敗也不無限重試
+        notify.mark_event(evt_key)   # 標記：此訊號只嘗試/記錄一次，不重複
+
+        def _skip(msg):
+            """記一筆 skipped 交易紀錄（前端交易面板看得到）：說明此訊號為何沒進場。"""
+            _log_trade(source="auto", status="skipped", symbol=symbol, side=want,
+                       sig=k, d=d, tf=tf, sigt=str(sig.get("t")), msg=msg)
+
+        # ⚠ 已結算訊號不追進場：監控器會掃到最近窗內「已到止盈/止損」的舊訊號(r=w/l)，照樣進場 →
+        # settle 會立刻判定已結算 → 馬上平倉（開單即關單）。只進「還沒結算(live)」的訊號。
+        if sig.get("r") in ("w", "l"):
+            _skip("訊號已結算(非 live)，不追進場（避免開單即平倉）")
+            return
+        # ⚠ 關鍵：只交易「擁有者帳號自己的自選清單」裡的標的，且用該帳號自己的金鑰下單。
+        owner = (cfg.get("owner") or "").strip()
+        if not owner:
+            _skip("自動交易未綁定擁有者帳號(owner)")
+            return
+        client, _ = _client_for(owner)
+        if client is None:
+            _skip(f"擁有者帳號「{owner}」沒有交易所金鑰，無法下單")
+            return
+        owner_syms = {(w.get("symbol") or "") for w in notify.account_watchlist(owner)}
+        if symbol not in owner_syms:
+            _skip(f"{symbol} 不在擁有者帳號「{owner}」的合約自選清單，跳過")
+            return
 
         # 敗後停手（同圖表 crt._calc_stop_strategy 的逐方向狀態機）：用「此訊號之前、已結算」的
         # 同/反向訊號序列重跑模擬，若此方向當下「停手中」→ 跳過進場。
         if cfg.get("stopAfterLoss") and not _stop_after_loss_ok(d, sig, all_signals):
-            _log_trade(source="auto", status="skipped", symbol=symbol, side=want,
-                       sig=k, d=d, tf=tf, sigt=str(sig.get("t")),
-                       msg="敗後停手：此方向上次落敗、停手中，跳過此進場")
+            _skip("敗後停手：此方向上次落敗、停手中，跳過此進場")
             return
 
         entry = sig.get("entry")
