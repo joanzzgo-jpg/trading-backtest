@@ -384,8 +384,22 @@ def _set_trade_tp(row_id: int, tp: str, tp_oid):
         pass
 
 
-def _push_owner(owner, title, body, symbol, tf="", event="atrade"):
-    """把自動交易結果推給擁有者帳號（Web Push）並寫進訊號聊天室。絕不向外拋例外。"""
+def _fmt_px(p) -> str:
+    """價格格式化：大數加千分位、小數保留有效位（與 notify_monitor._fmt_price 一致）。"""
+    try:
+        p = float(p)
+    except (TypeError, ValueError):
+        return str(p)
+    if p >= 1000:
+        return f"{p:,.2f}"
+    if p >= 1:
+        return f"{p:.4g}"
+    return f"{p:.6g}"
+
+
+def _push_owner(owner, title, body, symbol, tf="", event="atrade", sig=None, d=None, sigt=None):
+    """把自動交易結果推給擁有者帳號（Web Push）並寫進訊號聊天室。絕不向外拋例外。
+    sig/d/sigt：對應進場訊號鍵/方向/訊號棒時間 → 讓自動平倉訊息能串接回自動進場訊息。"""
     try:
         import routes.notify as notify
         payload = {
@@ -397,7 +411,8 @@ def _push_owner(owner, title, body, symbol, tf="", event="atrade"):
         for s in notify.all_active_subs():
             if _acct._norm_name(s.get("name")) == on:
                 notify.send_push(s, payload)
-        notify.log_signal(owner, time.time(), event, title, body, symbol, "crypto", "pionex", tf)
+        notify.log_signal(owner, time.time(), event, title, body, symbol, "crypto", "pionex", tf,
+                          sig=sig, d=d, sigt=sigt)
     except Exception as e:
         print(f"  ⚠ 自動交易通知失敗：{e}")
 
@@ -633,7 +648,7 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
                        sigt=str(sig.get("t")),
                        msg=f"停損無法掛單（{e}）→ 已即時平倉，不留無保護持倉")
             _push_owner(owner, f"⚠ 自動進場取消 · {symbol}",
-                        f"停損無法掛單、為避免無保護持倉已即時平倉\n{e}", symbol, tf=tf, event="atrade_open")
+                        f"停損無法掛單、為避免無保護持倉已即時平倉\n{e}", symbol, tf=tf, event="atrade")
             print(f"  ⚠ 自動下單 {bsym} 停損掛單失敗，已平倉：{e}")
             return
         warn = []
@@ -652,11 +667,13 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
                    sigt=str(sig.get("t")), msg="；".join(warn) or None)
         # 通知擁有者：自動進場
         envtag = "實盤" if client.env == "live" else "測試網"
-        body = (f"{'做空' if want == 'short' else '做多'}　{lev}x　數量 {qty}\n"
-                f"進場 {entry}　停損 {round(stop_chart, 8)}"
-                + (f"　止盈 {tp_px}" if tp_px else "")
-                + (f"\n⚠ {_size_warn}" if _size_warn else ""))
-        _push_owner(owner, f"🤖 自動進場 · {symbol}（{envtag}）", body, symbol, tf=tf, event="atrade_open")
+        dir_txt = "做空" if want == "short" else "做多"
+        l1 = f"{dir_txt} · {lev}x · 數量 {qty} · {envtag}"
+        l2 = f"進場 {_fmt_px(entry)}" + (f" → 止盈 {_fmt_px(tp_px)}" if tp_px else "")
+        l3 = f"停損 {_fmt_px(stop_chart)}"
+        body = "\n".join([l1, l2, l3]) + (f"\n⚠ {_size_warn}" if _size_warn else "")
+        _push_owner(owner, f"🤖 自動進場 · {symbol}（{envtag}）", body, symbol, tf=tf, event="atrade_open",
+                    sig=k, d=d, sigt=str(sig.get("t")))
         print(f"  🤖 自動下單 {client.env}: {bsym} {side} {qty}（{symbol} {tf} "
               f"{k}/{d}）" + (f" ⚠{warn}" if warn else ""))
     except Exception as e:
@@ -668,8 +685,10 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
         print(f"  ⚠ 自動下單失敗 {symbol} {tf} {k}/{d}：{e}")
 
 
-def _close_auto_position(owner, client, row_id, bsym, symbol, tf, event, reason):
-    """市價平掉一筆自動倉 + 更新紀錄 + 通知 owner（含已實現盈虧）。settle 與 retarget 共用。"""
+def _close_auto_position(owner, client, row_id, bsym, symbol, tf, event, reason,
+                         sig=None, d=None, sigt=None):
+    """市價平掉一筆自動倉 + 更新紀錄 + 通知 owner（含已實現盈虧）。settle 與 retarget 共用。
+    sig/d/sigt：對應的進場訊號鍵/方向/訊號棒時間 → 讓平倉通知能串接到自動進場通知。"""
     r = client.close_position(bsym)               # 內部會取消該合約所有 algo（SL/TP）
     msg = reason if r.get("ok") else reason + "（交易所端已先出場）"
     _update_trade(row_id, "closed", msg)
@@ -681,11 +700,10 @@ def _close_auto_position(owner, client, row_id, bsym, symbol, tf, event, reason)
     except bt.TradeError:
         pass
     result = "止盈" if event == "tp" else "止損"
-    body = f"{result}平倉　{symbol}"
-    if pnl is not None:
-        body += f"\n已實現盈虧 {pnl:+.2f} USDT"
+    body = f"{result}平倉" + (f"\n已實現盈虧 {pnl:+.2f} USDT" if pnl is not None else "")
     _push_owner(owner, f"🤖 自動{result} · {symbol}", body, symbol, tf=tf,
-                event=("atrade_tp" if event == "tp" else "atrade_sl"))
+                event=("atrade_tp" if event == "tp" else "atrade_sl"),
+                sig=sig, d=d, sigt=sigt)
     print(f"  🤖 自動平倉 {client.env}: {bsym}（{event}）pnl={pnl}")
     return pnl
 
@@ -715,7 +733,8 @@ def settle_signal_trade(market, exchange, symbol, tf, k, d, sig, event):
             return
         row_id, bsym = row
         reason = "策略止盈平倉" if event == "tp" else "策略止損平倉"
-        _close_auto_position((cfg.get("owner") or "").strip(), client, row_id, bsym, symbol, tf, event, reason)
+        _close_auto_position((cfg.get("owner") or "").strip(), client, row_id, bsym, symbol, tf, event, reason,
+                             sig=k, d=d, sigt=sigt)
     except Exception as e:
         print(f"  ⚠ 自動平倉失敗 {symbol} {tf}：{e}")
 
@@ -735,7 +754,7 @@ def retarget_auto_tp(market, exchange, symbol, tf, upper_chart, lower_chart):
         conn, ph = _acct._db()
         try:
             cur = conn.execute(
-                f"SELECT id, bsym, dir, tp, tp_oid FROM trade_log WHERE source='auto' "
+                f"SELECT id, bsym, dir, tp, tp_oid, sig, sigt FROM trade_log WHERE source='auto' "
                 f"AND status='open' AND symbol={ph} AND tf={ph}", (symbol, tf))
             rows = cur.fetchall()
         finally:
@@ -747,7 +766,7 @@ def retarget_auto_tp(market, exchange, symbol, tf, upper_chart, lower_chart):
             return
         bsym0, scale = client.resolve_symbol(symbol)
         px = client.last_price(bsym0)
-        for row_id, bsym, d, old_tp, tp_oid in rows:
+        for row_id, bsym, d, old_tp, tp_oid, rsig, rsigt in rows:
             try:
                 want = "short" if d == "s" else "long"
                 band = lower_chart if want == "short" else upper_chart   # 空→下軌、多→上軌
@@ -759,7 +778,7 @@ def retarget_auto_tp(market, exchange, symbol, tf, upper_chart, lower_chart):
                 # 不丟給收盤確認的 settle（碰到就馬上止盈，且避免「掛不了 TP 又裸著等下一根」）。
                 if (want == "long" and new_tp_f <= px) or (want == "short" and new_tp_f >= px):
                     _close_auto_position((cfg.get("owner") or "").strip(), client, row_id, bsym, symbol, tf,
-                                         "tp", "策略止盈平倉(上下軌觸及，即時平倉)")
+                                         "tp", "策略止盈平倉(上下軌觸及，即時平倉)", sig=rsig, d=d, sigt=rsigt)
                     continue
                 if old_tp is not None and str(new_tp_px) == str(old_tp):
                     continue                    # 軌沒移動（同 tick）→ 不動，免徒增掛單

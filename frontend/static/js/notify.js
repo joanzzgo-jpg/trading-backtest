@@ -294,6 +294,28 @@ async function initNotify() {
     e.stopPropagation(); _ntfOpenPopup(e.currentTarget);
   });
 
+  // 分類過濾列：全部 / 訊號 / 自動交易（記住上次選擇）
+  document.querySelectorAll("#mSigFilter .m-sig-fchip").forEach(chip => {
+    chip.classList.toggle("on", (chip.dataset.f || "all") === _ntfFilter);   // 還原上次篩選
+    chip.addEventListener("click", () => {
+      _ntfFilter = chip.dataset.f || "all";
+      try { localStorage.setItem("notifyFeedFilter", _ntfFilter); } catch (e) {}
+      document.querySelectorAll("#mSigFilter .m-sig-fchip").forEach(c => c.classList.toggle("on", c === chip));
+      _ntfRenderFeed({ force: true, toBottom: true });   // 切換後重畫並回到最新
+    });
+  });
+  // 「↓ 新訊息」提示：點了捲到底並隱藏
+  document.getElementById("mSigNewPill")?.addEventListener("click", () => {
+    const list = document.getElementById("mSigList");
+    if (list) list.scrollTop = list.scrollHeight;
+    _ntfHideNewPill();
+  });
+  // 捲到底時自動收起「新訊息」提示
+  document.getElementById("mSigList")?.addEventListener("scroll", () => {
+    const list = document.getElementById("mSigList");
+    if (list && list.scrollHeight - list.scrollTop - list.clientHeight < 60) _ntfHideNewPill();
+  });
+
   // 背景輪詢（每 60s）：更新未讀紅點；在訊號分頁時也即時刷新清單
   _ntfFeed.bgTimer = setInterval(_ntfBgPoll, 60000);
   _ntfBgPoll();
@@ -330,47 +352,145 @@ function _ntfFmtTime(ts) {
                  : `${d.getMonth() + 1}/${d.getDate()} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-function _ntfRenderFeed() {
+// 事件 → 分類（篩選用）：signal=訊號通知 / auto=自動交易
+function _ntfCat(ev) {
+  return (ev === "entry" || ev === "tp" || ev === "sl") ? "signal" : "auto";
+}
+// 事件 → 種類標籤（顯示用）：label=標籤字 / cls=標籤色 / bub=泡泡邊色
+function _ntfType(ev) {
+  switch (ev) {
+    case "entry":       return { label: "進場",     cls: "t-entry",   bub: "evt-entry" };
+    case "tp":          return { label: "止盈",     cls: "t-tp",      bub: "evt-tp" };
+    case "sl":          return { label: "止損",     cls: "t-sl",      bub: "evt-sl" };
+    case "atrade_open": return { label: "🤖 進場",  cls: "t-auto",    bub: "evt-auto" };
+    case "atrade_tp":   return { label: "🤖 止盈",  cls: "t-auto-tp", bub: "evt-auto" };
+    case "atrade_sl":   return { label: "🤖 止損",  cls: "t-auto-sl", bub: "evt-auto" };
+    default:            return { label: "🤖 自動",  cls: "t-auto",    bub: "evt-auto" };  // atrade(取消/其他)
+  }
+}
+let _ntfFilter = (() => { try { return localStorage.getItem("notifyFeedFilter") || "all"; } catch (e) { return "all"; } })();
+let _ntfRenderSig = "";   // 上次渲染內容簽章（篩選+筆數+末筆ts）→ 沒變就不重畫（消除每 20 秒閃爍/捲動跳）
+
+// 事件 ts → 日期分隔標籤：今天 / 昨天 / M/D
+function _ntfDayLabel(ts) {
+  const d = new Date(ts * 1000); d.setHours(0, 0, 0, 0);
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const diff = Math.round((today - d) / 86400000);
+  if (diff <= 0) return "今天";
+  if (diff === 1) return "昨天";
+  return `${d.getMonth() + 1}/${d.getDate()}`;
+}
+
+// 今日摘要：訊號數 / 自動勝敗 / 已實現盈虧（盈虧由自動平倉 body 解析）
+function _ntfTodayStats() {
+  const t0 = (() => { const x = new Date(); x.setHours(0, 0, 0, 0); return x.getTime() / 1000; })();
+  let sigN = 0, aWin = 0, aLoss = 0, pnl = 0, hasPnl = false;
+  for (const it of _ntfFeed.items) {
+    if (it.ts < t0) continue;
+    if (it.event === "entry") sigN++;
+    else if (it.event === "atrade_tp") aWin++;
+    else if (it.event === "atrade_sl") aLoss++;
+    if (it.event === "atrade_tp" || it.event === "atrade_sl") {
+      const m = String(it.body || "").match(/已實現盈虧\s*([+-]?[\d,.]+)\s*USDT/);
+      if (m) { pnl += parseFloat(m[1].replace(/,/g, "")); hasPnl = true; }
+    }
+  }
+  return { sigN, aWin, aLoss, autoN: aWin + aLoss, pnl, hasPnl };
+}
+
+function _ntfRenderSummary() {
+  const wrap = document.getElementById("mSigSummary");
+  if (!wrap) return;
+  const s = _ntfTodayStats();
+  if (!window._acctName || (!s.sigN && !s.autoN)) { wrap.innerHTML = ""; return; }
+  const pnlTxt = s.hasPnl
+    ? `<span class="${s.pnl >= 0 ? "sc-pos" : "sc-neg"}">${s.pnl >= 0 ? "+" : ""}${s.pnl.toFixed(2)}</span>`
+    : "—";
+  wrap.innerHTML = `<div class="m-sig-summary">
+    <span class="sc-day">今日</span>
+    <div class="sc-cell"><div class="sc-v">${s.sigN}</div><div class="sc-k">訊號</div></div>
+    <div class="sc-cell"><div class="sc-v"><span class="sc-pos">${s.aWin}</span><span class="sc-sep">/</span><span class="sc-neg">${s.aLoss}</span></div><div class="sc-k">自動勝敗</div></div>
+    <div class="sc-cell"><div class="sc-v">${pnlTxt}</div><div class="sc-k">盈虧</div></div>
+  </div>`;
+}
+
+// 找此「平倉」要引用的「進場」index：訊號 tp/sl→entry；自動 tp/sl→atrade_open（用 sig/dir/t 精配）
+function _ntfQuoteIdx(items, it) {
+  if (!it.sig) return -1;
+  const target = (it.event === "tp" || it.event === "sl") ? "entry"
+               : (it.event === "atrade_tp" || it.event === "atrade_sl") ? "atrade_open" : null;
+  if (!target) return -1;
+  return items.findIndex(o => o.event === target && o.sig === it.sig && o.dir === it.dir &&
+                              o.symbol === it.symbol && o.tf === it.tf && o.t === it.t);
+}
+
+function _ntfShowNewPill() { const p = document.getElementById("mSigNewPill"); if (p) p.hidden = false; }
+function _ntfHideNewPill() { const p = document.getElementById("mSigNewPill"); if (p) p.hidden = true; }
+
+function _ntfRenderFeed(opts) {
+  opts = opts || {};
   const list = document.getElementById("mSigList");
   if (!list) return;
-  const items = _ntfFeed.items;
+  let items = _ntfFeed.items;
+  if (_ntfFilter !== "all") items = items.filter(it => _ntfCat(it.event) === _ntfFilter);
+
   if (!items.length) {
-    list.innerHTML = `<div class="m-sig-empty">${window._acctName ? "尚無訊號通知" : "請先登入帳號"}</div>`;
+    _ntfRenderSig = _ntfFilter + ":0:0";
+    _ntfRenderSummary();
+    const why = !window._acctName ? "請先登入帳號"
+              : (_ntfFilter === "auto") ? "尚無自動交易紀錄" : "尚無訊號通知";
+    list.innerHTML = `<div class="m-sig-empty">${why}</div>`;
+    _ntfHideNewPill();
     return;
   }
+
+  // 內容簽章：篩選+筆數+末筆ts 沒變 → 完全不動 DOM（避免每 20 秒整批重畫造成閃爍/捲動跳）
+  const sig = _ntfFilter + ":" + items.length + ":" + items[items.length - 1].ts;
+  if (!opts.force && sig === _ntfRenderSig) return;
+  const prevCount = parseInt(_ntfRenderSig.split(":")[1] || "0", 10);
+  const grew = _ntfRenderSig.split(":")[0] === _ntfFilter && items.length > prevCount;
+  _ntfRenderSig = sig;
+  _ntfRenderSummary();   // 內容有變才重建摘要卡
+
   const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 60;
-  list.innerHTML = items.map((it, i) => {
-    const cls = (it.event === "tp" || it.event === "atrade_tp") ? "m-sig-bubble evt-tp"
-              : (it.event === "sl" || it.event === "atrade_sl") ? "m-sig-bubble evt-sl"
-              : "m-sig-bubble";
-    // 止盈/止損 → 引用原進場訊息（LINE/Messenger「回覆」感）：
-    // 用 sig/dir/t（進場訊號棒時間）精確配對同一筆交易的 entry 訊息
+  const prevTop = list.scrollTop;
+
+  let html = ""; let lastDay = "";
+  items.forEach((it, i) => {
+    const day = _ntfDayLabel(it.ts);
+    if (day !== lastDay) { html += `<div class="m-sig-day"><span>${day}</span></div>`; lastDay = day; }
+    const ty = _ntfType(it.event);
+    // 平倉 → 引用對應進場（LINE/Messenger「回覆」感）：訊號 tp/sl→entry、自動 tp/sl→atrade_open
     let quote = "";
-    if ((it.event === "tp" || it.event === "sl") && it.sig) {
-      const qi = items.findIndex(o => o.event === "entry" && o.sig === it.sig && o.dir === it.dir &&
-                                      o.symbol === it.symbol && o.tf === it.tf && o.t === it.t);
-      if (qi >= 0) {
-        const lines = String(items[qi].body || "").split("\n");
-        quote = `<div class="m-sig-quote" data-qi="${qi}">
-          <div class="m-sig-q-t">${_ntfEsc(lines[0] || items[qi].title)}</div>
-          ${lines[1] ? `<div class="m-sig-q-b">${_ntfEsc(lines[1])}</div>` : ""}
-        </div>`;
-      }
+    const qi = _ntfQuoteIdx(items, it);
+    if (qi >= 0) {
+      const lines = String(items[qi].body || "").split("\n");
+      quote = `<div class="m-sig-quote" data-qi="${qi}">
+        <div class="m-sig-q-t">${_ntfEsc(lines[0] || items[qi].title)}</div>
+        ${lines[1] ? `<div class="m-sig-q-b">${_ntfEsc(lines[1])}</div>` : ""}
+      </div>`;
     }
-    return `<div class="m-sig-msg" id="mSigMsg${i}">
+    // 標題統一成「標的 · 時框」（不管後端 title 怎麼帶）→ 種類由左側 tag 標示
+    const headline = (it.symbol || "") + (it.tf ? " · " + it.tf : "");
+    html += `<div class="m-sig-msg" id="mSigMsg${i}">
       <img class="m-sig-avatar" src="/static/img/bear.png" alt="小啊">
       <div class="m-sig-col">
         <div class="m-sig-name">小啊</div>
-        <div class="${cls}" data-sym="${it.symbol || ""}" data-mkt="${it.market || ""}" data-exch="${it.exchange || ""}"
+        <div class="m-sig-bubble ${ty.bub}" data-sym="${it.symbol || ""}" data-mkt="${it.market || ""}" data-exch="${it.exchange || ""}"
              data-tf="${it.tf || ""}" data-t="${_ntfEsc(it.t || "")}">
-          <div class="m-sig-b-title">${_ntfEsc(it.title)}</div>
+          <div class="m-sig-b-head">
+            <span class="m-sig-tag ${ty.cls}">${ty.label}</span>
+            <span class="m-sig-b-title">${_ntfEsc(headline)}</span>
+          </div>
           ${quote}
           <div class="m-sig-b-body">${_ntfEsc(it.body)}</div>
           <div class="m-sig-b-time">${_ntfFmtTime(it.ts)}</div>
         </div>
       </div>
     </div>`;
-  }).join("");
+  });
+  list.innerHTML = html;
+
   list.querySelectorAll(".m-sig-bubble").forEach(b => b.addEventListener("click", () => {
     if (b.dataset.sym) _ntfGoSymbol({ symbol: b.dataset.sym, market: b.dataset.mkt, exchange: b.dataset.exch,
                                       tf: b.dataset.tf, t: b.dataset.t });
@@ -385,7 +505,10 @@ function _ntfRenderFeed() {
       setTimeout(() => el.classList.remove("m-sig-hl"), 1400);
     }
   }));
-  if (atBottom) list.scrollTop = list.scrollHeight;   // 新訊息時保持在底部（聊天室行為）
+
+  // 捲動策略：原本在底部(或強制) → 跟到最新；否則保持原位、有新訊息時給「↓ 新訊息」提示（不打斷閱讀）
+  if (atBottom || opts.toBottom) { list.scrollTop = list.scrollHeight; _ntfHideNewPill(); }
+  else { list.scrollTop = prevTop; if (grew) _ntfShowNewPill(); }
 }
 
 function _ntfEsc(s) { return String(s || "").replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
@@ -412,11 +535,9 @@ async function _ntfBgPoll() {
 // 切到訊號分頁時呼叫（main.js）：載入清單 + 標記已讀 + 開快輪詢
 window._ntfLoadFeed = async function () {
   _ntfFeed.items = await _ntfFetchFeed();
-  _ntfRenderFeed();
+  _ntfRenderFeed({ force: true, toBottom: true });   // 進分頁：重畫並捲到最新
   if (_ntfFeed.items.length) _ntfSetSeen(_ntfFeed.items[_ntfFeed.items.length - 1].ts);
   _ntfUpdateBadge();
-  const list = document.getElementById("mSigList");
-  if (list) list.scrollTop = list.scrollHeight;
   clearInterval(_ntfFeed.pollTimer);
   _ntfFeed.pollTimer = setInterval(async () => {
     _ntfFeed.items = await _ntfFetchFeed();

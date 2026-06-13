@@ -5735,10 +5735,13 @@ body, button, input, select, textarea,
     display: flex;
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 700;
     height: 46px;
-    background: linear-gradient(180deg, var(--bg2) 0%, var(--bg) 100%);  /* 同主背景色系（棕橘）*/
-    border-top: 1px solid rgba(255,145,71,.20);
-    box-shadow: 0 -3px 16px rgba(0,0,0,.40);
-    -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+    /* 玻璃透亮：半透明暖棕底，讓後方內容透出模糊感 */
+    background: linear-gradient(180deg, rgba(48,31,21,.55) 0%, rgba(23,15,12,.68) 100%);
+    border-top: 1px solid rgba(255,225,200,.10);   /* 極淡玻璃邊（不再是明顯橫線）*/
+    /* 外陰影分層 + 頂部內側泛白沿光（玻璃高光）*/
+    box-shadow: 0 -4px 26px rgba(0,0,0,.42), inset 0 1px 0 rgba(255,245,235,.12);
+    -webkit-backdrop-filter: blur(24px) saturate(1.5);
+    backdrop-filter: blur(24px) saturate(1.5);
     padding-bottom: env(safe-area-inset-bottom, 0px);
     /* 統一品牌圓體（橘子熊可愛風）*/
     font-family: "M PLUS Rounded 1c", -apple-system, "PingFang TC", system-ui, sans-serif;
@@ -5753,18 +5756,78 @@ body, button, input, select, textarea,
     -webkit-tap-highlight-color: transparent;
   }
   .m-tab.active { color: var(--accent); }
-  /* 選中：圖示後方加暖橘藥丸高亮 + 微縮放，視覺更精緻 */
+  /* 選中：圖示後方暖橘藥丸高亮 + 微浮 + 柔光，彈跳手感 */
   .m-tab-ico {
     display: flex; align-items: center; justify-content: center;
-    height: 24px; width: 48px; border-radius: 12px;
-    transition: background .18s ease, transform .18s ease;
+    height: 24px; width: 48px; border-radius: 13px;
+    transition: background .2s ease, box-shadow .2s ease,
+                transform .24s cubic-bezier(.34,1.56,.64,1);
   }
   .m-tab.active .m-tab-ico {
-    background: rgba(255,145,71,.15);
-    transform: translateY(-1px);
+    background: rgba(255,145,71,.16);
+    box-shadow: 0 2px 12px rgba(255,145,71,.2);
+    transform: translateY(-2px);
   }
-  .m-tab:active .m-tab-ico { transform: scale(.92); }
-  .m-tab-ico svg { width: 20px; height: 20px; display: block; }
+  .m-tab:active .m-tab-ico { transform: scale(.9); }
+  .m-tab-ico svg { width: 20px; height: 20px; display: block; transition: color .2s ease; }
+
+  /* ── 點選圖標動畫（每個分頁不同個性）：JS 點擊時加 .m-ico-anim 重播一次 ── */
+  .m-tab[data-mtab="signals"] .m-tab-ico.m-ico-anim svg {
+    animation: mTabBell .65s ease both; transform-origin: 50% 16%;
+  }
+  .m-tab[data-mtab="wr"] .m-tab-ico.m-ico-anim svg {
+    animation: mTabUpFlash .55s ease both;
+  }
+  .m-tab[data-mtab="watch"] .m-tab-ico.m-ico-anim svg {
+    animation: mTabStar .72s cubic-bezier(.34,1.56,.64,1) both; transform-origin: 50% 52%;
+  }
+  /* 交易：描邊「畫出」上升折線 + 箭頭彈出 + 綠色上色 */
+  .m-tab[data-mtab="trade"] .m-tab-ico.m-ico-anim svg { animation: mTabGreenFlash .72s ease both; }
+  .m-tab[data-mtab="trade"] .m-tab-ico.m-ico-anim svg path:nth-child(1) {
+    stroke-dasharray: 24; animation: mTabDrawLine .72s ease both;
+  }
+  .m-tab[data-mtab="trade"] .m-tab-ico.m-ico-anim svg path:nth-child(2) {
+    transform-box: fill-box; transform-origin: center; animation: mTabArrowPop .72s ease both;
+  }
+  .m-tab[data-mtab="settings"] .m-tab-ico.m-ico-anim svg {
+    animation: mTabGear .6s ease both; transform-origin: 50% 50%;
+  }
+  @keyframes mTabBell {   /* 鈴鐺晃一下 */
+    0%,100% { transform: rotate(0); }
+    18% { transform: rotate(-14deg); } 36% { transform: rotate(11deg); }
+    54% { transform: rotate(-7deg); }  72% { transform: rotate(4deg); }
+  }
+  @keyframes mTabUpFlash {   /* 圖表/交易：綠色上色 + 彈一下（漲）*/
+    0% { color: var(--accent, #ff9147); transform: scale(1); }
+    28% { color: #3ddc84; transform: scale(1.28) translateY(-1px); }
+    60% { color: #3ddc84; transform: scale(.96); }
+    100% { color: var(--accent, #ff9147); transform: scale(1); }
+  }
+  @keyframes mTabStar {   /* 星星：360°旋轉 + 彈跳 + 金色閃爍 */
+    0%   { transform: scale(1) rotate(0deg);     color: var(--accent, #ff9147); }
+    28%  { transform: scale(1.4) rotate(165deg); color: #FFD24A; }
+    58%  { transform: scale(.88) rotate(330deg); color: #FFD24A; }
+    80%  { transform: scale(1.12) rotate(374deg); }
+    100% { transform: scale(1) rotate(360deg);   color: var(--accent, #ff9147); }
+  }
+  @keyframes mTabGear {   /* 齒輪：轉一下 */
+    0% { transform: rotate(0); } 100% { transform: rotate(150deg); }
+  }
+  @keyframes mTabGreenFlash {   /* 交易：綠色上色（漲）*/
+    0% { color: var(--accent, #ff9147); }
+    35% { color: #3ddc84; } 75% { color: #3ddc84; }
+    100% { color: var(--accent, #ff9147); }
+  }
+  @keyframes mTabDrawLine {   /* 上升折線：描邊由左畫到右 */
+    0% { stroke-dashoffset: 24; } 65% { stroke-dashoffset: 0; } 100% { stroke-dashoffset: 0; }
+  }
+  @keyframes mTabArrowPop {   /* 折線畫到頂 → 箭頭彈出 */
+    0%, 50% { opacity: 0; transform: scale(.4); }
+    74% { opacity: 1; transform: scale(1.25); }
+    100% { opacity: 1; transform: scale(1); }
+  }
+  /* 紅綠提示：訊號分頁未讀紅點脈動（更醒目）*/
+  .m-tab.active .m-tab-ico.m-ico-anim svg { will-change: transform; }
 
   /* 內容底部只留「分頁列高度(52) + 瀏海安全區」→ 圖表底部時間軸緊貼三個分頁鈕「上方」、盡量往下，
      又不被 tabbar 蓋住（舊版固定 56px 在有 home indicator 的手機會被較高的 tabbar 遮住時間） */
@@ -6130,6 +6193,68 @@ html.landing-active .landing { background: transparent; }
     background: none; border: 1px solid var(--border); color: var(--muted);
     border-radius: 8px; padding: 4px 10px; font-size: 12px; cursor: pointer;
   }
+  /* 分類過濾列：全部 / 訊號 / 自動交易（圓體膠囊 + 彈跳手感）*/
+  .m-sig-filter {
+    display: flex; gap: 7px; padding: 0 14px 9px; flex: 0 0 auto;
+  }
+  .m-sig-fchip {
+    background: rgba(255,145,71,.06); border: 1px solid var(--border); color: var(--muted);
+    border-radius: 999px; padding: 5px 16px; font-size: 12px; font-weight: 700;
+    cursor: pointer; -webkit-tap-highlight-color: transparent;
+    transition: transform .16s cubic-bezier(.34,1.56,.64,1), background .15s, color .15s, border-color .15s;
+  }
+  .m-sig-fchip:active { transform: scale(.93); }
+  .m-sig-fchip.on {
+    background: linear-gradient(135deg, #FFA85C, #FF9147); border-color: transparent;
+    color: #2A1606; box-shadow: 0 2px 10px rgba(255,145,71,.28);
+  }
+  /* 今日摘要卡：訊號數 / 自動勝敗 / 今日盈虧（暖色漸層卡）*/
+  .m-sig-summary-wrap { flex: 0 0 auto; padding: 0 14px; }
+  .m-sig-summary-wrap:empty { display: none; }
+  .m-sig-summary {
+    display: grid; grid-template-columns: auto repeat(3, minmax(0, 1fr)); align-items: stretch;
+    margin-bottom: 9px;
+    background: linear-gradient(135deg, #2A1B12 0%, #1F1410 100%);
+    border: 1px solid var(--border); border-radius: 13px; overflow: hidden;
+    box-shadow: 0 2px 12px rgba(255,145,71,.06);
+  }
+  .m-sig-summary .sc-day {
+    display: flex; align-items: center; padding: 0 12px;
+    font-size: 11px; font-weight: 800; color: var(--accent, #ff9147);
+    background: rgba(255,145,71,.1); letter-spacing: .5px;
+  }
+  .m-sig-summary .sc-cell {
+    min-width: 0; text-align: center; padding: 6px 4px; position: relative;
+    display: flex; flex-direction: column; justify-content: center;
+  }
+  .m-sig-summary .sc-cell + .sc-cell::before {
+    content: ""; position: absolute; left: 0; top: 26%; bottom: 26%; width: 1px; background: var(--border);
+  }
+  .m-sig-summary .sc-v { font-size: 15px; font-weight: 800; color: var(--text); line-height: 1.2; }
+  .m-sig-summary .sc-k { font-size: 9px; color: var(--muted); margin-top: 1px; }
+  .m-sig-summary .sc-sep { color: var(--muted); margin: 0 2px; font-weight: 600; }
+  .m-sig-summary .sc-pos { color: #57c79a; }
+  .m-sig-summary .sc-neg { color: #e8697b; }
+  /* 日期分隔線（暖色膠囊）*/
+  .m-sig-day { text-align: center; margin: 6px 0 3px; }
+  .m-sig-day span {
+    font-size: 10px; font-weight: 700; color: var(--muted);
+    background: rgba(255,145,71,.1); padding: 3px 13px; border-radius: 999px;
+  }
+  /* 「↓ 新訊息」浮動提示鈕（暖橘漸層 + 彈出）*/
+  .m-sig-newpill {
+    position: absolute; left: 50%; transform: translateX(-50%);
+    bottom: calc(14px + env(safe-area-inset-bottom, 0px)); z-index: 5;
+    background: linear-gradient(135deg, #FFA85C, #FF9147); color: #2A1606; border: none;
+    border-radius: 999px; padding: 7px 18px; font-size: 12px; font-weight: 800;
+    box-shadow: 0 4px 16px rgba(255,145,71,.4); cursor: pointer;
+    animation: mSigPillIn .28s cubic-bezier(.34,1.56,.64,1);
+  }
+  @keyframes mSigPillIn {
+    from { transform: translateX(-50%) translateY(8px) scale(.8); opacity: 0; }
+    to   { transform: translateX(-50%) translateY(0) scale(1); opacity: 1; }
+  }
+  .m-sig-newpill[hidden] { display: none; }
   .m-sig-list {
     flex: 1 1 auto; overflow-y: auto; -webkit-overflow-scrolling: touch;
     padding: 8px 12px calc(12px + env(safe-area-inset-bottom, 0px));
@@ -6138,27 +6263,43 @@ html.landing-active .landing { background: transparent; }
   /* 聊天列：小啊頭像 + 名稱 + 泡泡（像他在說話）*/
   .m-sig-msg { display: flex; align-items: flex-start; gap: 8px; }
   .m-sig-avatar {
-    width: 34px; height: 34px; border-radius: 50%; flex: 0 0 auto; margin-top: 14px;
-    object-fit: cover; background: rgba(255,145,71,.12); border: 1px solid var(--border);
+    width: 34px; height: 34px; border-radius: 50%; flex: 0 0 auto; margin-top: 16px;
+    object-fit: cover; background: rgba(255,145,71,.14); border: 1.5px solid rgba(255,145,71,.28);
   }
   .m-sig-col { display: flex; flex-direction: column; min-width: 0; flex: 1 1 auto; }
-  .m-sig-name { font-size: 11px; color: var(--muted); margin: 0 0 2px 2px; font-weight: 700; }
+  .m-sig-name { font-size: 11px; color: var(--muted); margin: 0 0 3px 2px; font-weight: 700; }
   .m-sig-bubble {
     align-self: flex-start; max-width: 100%;
-    background: rgba(255,255,255,.04); border: 1px solid var(--border);
+    background: rgba(60,41,32,.5); border: 1px solid var(--border);
     border-left: 3px solid var(--accent, #ff9147);
-    border-radius: 4px 12px 12px 12px; padding: 8px 12px; cursor: pointer;
-    -webkit-tap-highlight-color: transparent;
+    border-radius: 5px 16px 16px 16px; padding: 9px 13px; cursor: pointer;
+    -webkit-tap-highlight-color: transparent; box-shadow: 0 1px 6px rgba(0,0,0,.18);
   }
   .m-sig-bubble:active { background: rgba(255,145,71,.12); }
+  .m-sig-bubble.evt-entry { border-left-color: var(--accent, #ff9147); }
   .m-sig-bubble.evt-tp { border-left-color: #46c08a; }
   .m-sig-bubble.evt-sl { border-left-color: #e05a6d; }
+  /* 自動交易：暖金色系 + 淡金底 → 跟訊號區隔但仍貼合暖色調 */
+  .m-sig-bubble.evt-auto { border-left-color: #E3A93E; background: rgba(227,169,62,.08); }
+  .m-sig-bubble.evt-auto:active { background: rgba(227,169,62,.16); }
+  /* 種類標頭：tag 標籤 + 標的·時框 */
+  .m-sig-b-head { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; }
+  .m-sig-tag {
+    flex: 0 0 auto; font-size: 10px; font-weight: 800; line-height: 1.7;
+    padding: 0 8px; border-radius: 999px; white-space: nowrap;
+  }
+  .m-sig-tag.t-entry   { background: rgba(255,145,71,.2);  color: #ffae6e; }
+  .m-sig-tag.t-tp      { background: rgba(70,192,138,.2);  color: #5ccb9d; }
+  .m-sig-tag.t-sl      { background: rgba(224,90,109,.2);  color: #ed7588; }
+  .m-sig-tag.t-auto    { background: rgba(227,169,62,.22); color: #E3A93E; }
+  .m-sig-tag.t-auto-tp { background: rgba(70,192,138,.2);  color: #5ccb9d; }
+  .m-sig-tag.t-auto-sl { background: rgba(224,90,109,.2);  color: #ed7588; }
   /* 止盈/止損的「回覆」引用塊（LINE/Messenger 感）：點它捲回原進場訊息 */
   .m-sig-quote {
-    margin: 4px 0 5px; padding: 5px 9px;
-    border-left: 3px solid rgba(255,255,255,.28);
-    background: rgba(255,255,255,.07);
-    border-radius: 6px; cursor: pointer;
+    margin: 5px 0; padding: 5px 10px;
+    border-left: 3px solid rgba(255,145,71,.4);
+    background: rgba(255,145,71,.08);
+    border-radius: 8px; cursor: pointer;
     -webkit-tap-highlight-color: transparent;
   }
   .m-sig-quote .m-sig-q-t {
@@ -6172,7 +6313,8 @@ html.landing-active .landing { background: transparent; }
   /* 點引用後原訊息短暫高亮 */
   .m-sig-msg.m-sig-hl .m-sig-bubble { background: rgba(255,145,71,.2); }
   .m-sig-msg .m-sig-bubble { transition: background .35s; }
-  .m-sig-b-title { font-size: 13px; font-weight: 800; color: var(--text); }
+  .m-sig-b-title { font-size: 13px; font-weight: 800; color: var(--text);
+    min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .m-sig-b-body  { font-size: 12px; color: var(--muted); margin-top: 2px; white-space: pre-line; line-height: 1.5; }
   .m-sig-b-time  { font-size: 10px; color: var(--muted); opacity: .7; margin-top: 3px; }
   .m-sig-empty   { text-align: center; color: var(--muted); font-size: 13px; margin-top: 48px; }

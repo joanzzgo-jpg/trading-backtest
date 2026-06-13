@@ -163,7 +163,12 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (t !== "signals" && window._ntfStopFeedPoll) window._ntfStopFeedPoll();
       if (typeof resizeAll === "function") setTimeout(resizeAll, 80);
     };
-    bar.querySelectorAll(".m-tab").forEach(b => b.addEventListener("click", () => setTab(b.dataset.mtab)));
+    bar.querySelectorAll(".m-tab").forEach(b => b.addEventListener("click", () => {
+      setTab(b.dataset.mtab);
+      // 點選圖標動畫：移除→強制 reflow→加回 class，確保每次點都重播一次
+      const ico = b.querySelector(".m-tab-ico");
+      if (ico) { ico.classList.remove("m-ico-anim"); void ico.offsetWidth; ico.classList.add("m-ico-anim"); }
+    }));
     // 暴露給其他模組：在自選分頁點標的後切回圖表分頁（ticker.js 用）
     window._mSetTab = setTab;
     // 初始分頁：?mtab= 可指定（方便測試），預設勝率（圖表已併入勝率）
