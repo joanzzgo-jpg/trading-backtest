@@ -54,6 +54,12 @@ function _wrPickView(d) {
   if (_wrTargetView === "rr"   && d.rr)   return d.rr;
   return d;
 }
+// SS 系列的當前目標 view：mid 在 d.ss、上下軌在 d.ss.band（切換時 SS 也跟著變）
+function _wrSsView(d) {
+  const ss = d && d.ss;
+  if (!ss) return ss;
+  return (_wrTargetView === "band" && ss.band) ? ss.band : ss;
+}
 // 當前目標對應的「訊號結果 / 結算時間」欄位名
 function _wrResultKey() {
   return _wrTargetView === "band" ? "r_b" : _wrTargetView === "rr" ? "r_rr" : "r";
@@ -539,16 +545,17 @@ function _renderWinRate(d) {
   setRow("wrS11L", d.s11?.long);
   setRow("wrS12S", d.s12?.short);
   setRow("wrS12L", d.s12?.long);
-  // SS 系列只算 mid，資料固定在完整結果的 _wrCacheLast.ss（不隨 mid/band/rr 切換）
-  setRow("wrSS1S", _wrCacheLast.ss?.ss1?.short);
-  setRow("wrSS1L", _wrCacheLast.ss?.ss1?.long);
-  setRow("wrSS2S", _wrCacheLast.ss?.ss2?.short);
-  setRow("wrSS2L", _wrCacheLast.ss?.ss2?.long);
+  // SS 系列：中軌在 ss、上下軌在 ss.band → 跟著目標切換
+  const ssView = _wrSsView(_wrCacheLast);
+  setRow("wrSS1S", ssView?.ss1?.short);
+  setRow("wrSS1L", ssView?.ss1?.long);
+  setRow("wrSS2S", ssView?.ss2?.short);
+  setRow("wrSS2L", ssView?.ss2?.long);
 
-  // 系列切換：SS 系列時，右側「合計 / 敗後停手 / 近期」改用 d.ss.*（S 系列維持 view）
+  // 系列切換：SS 系列時，右側「合計 / 敗後停手 / 近期」改用 ssView（含上下軌）；S 系列維持 view
   _applySeriesVisibility();
-  const agg = (_wrSeries === "ss") ? (_wrCacheLast.ss || {}) : d;
-  const aggStop = (_wrSeries === "ss") ? (_wrCacheLast.ss && _wrCacheLast.ss.stop_strategy) : view?.stop_strategy;
+  const agg = (_wrSeries === "ss") ? (ssView || {}) : d;
+  const aggStop = (_wrSeries === "ss") ? (ssView && ssView.stop_strategy) : view?.stop_strategy;
 
   const sa = document.getElementById("wrAll");
   if (sa) {
@@ -799,8 +806,8 @@ function _renderWrTop3() {
   const d = _wrCacheLast;
   if (!d) { root.innerHTML = ""; return; }
 
-  // 取當前 view：SS 系列 → 用 SS 獨立統計（連敗/敗後停手皆含 SS 新規則）；S 系列 → S2~S11 綜合（mid/band）
-  const view = (_wrSeries === "ss") ? (d.ss || {}) : _wrPickView(d);
+  // 取當前 view：SS 系列 → SS 獨立統計（含上下軌 ss.band、連敗/敗後停手含 SS 新規則）；S 系列 → S2~S11 綜合（mid/band）
+  const view = (_wrSeries === "ss") ? (_wrSsView(d) || {}) : _wrPickView(d);
   const _scopeLbl = (_wrSeries === "ss") ? "SS 系列獨立" : "S2~S11 去重綜合";
 
   // 連敗按鈕（畫在 TOP3 上列）：關 → 2連 → 3連 → 4連 → 敗後停手策略 → 關

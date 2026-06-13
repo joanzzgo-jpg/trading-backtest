@@ -1165,29 +1165,34 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         return {"short": sr, "long": lr, "total": tot, "wins": win,
                 "win_rate": round(win / tot * 100, 1) if tot else None}
 
-    def _ss_per_sig(k):
-        return {
-            "short": _stats(mid_cnt[k][0], mid_cnt[k][1], mid_rr[k]["short"], streak=streak_mid.get((k, "s"), 0)),
-            "long":  _stats(mid_cnt[k][2], mid_cnt[k][3], mid_rr[k]["long"],  streak=streak_mid.get((k, "l"), 0)),
+    # SS 系列統計：依目標(mid/band)各算一份 → 前端切「中軌/上下軌」時 SS 也能跟著變。
+    def _build_ss_out(target, cnt, rr, streak):
+        def _per_sig(k):
+            return {
+                "short": _stats(cnt[k][0], cnt[k][1], rr[k]["short"], streak=streak.get((k, "s"), 0)),
+                "long":  _stats(cnt[k][2], cnt[k][3], rr[k]["long"],  streak=streak.get((k, "l"), 0)),
+            }
+        seq = _build_combined_ss(target)
+        cond = {"s": _cond_for_dir(seq, "s"), "l": _cond_for_dir(seq, "l")}
+        ws = sum(cnt[k][0] for k in _SS_KEYS); ls = sum(cnt[k][1] for k in _SS_KEYS)
+        wl = sum(cnt[k][2] for k in _SS_KEYS); ll = sum(cnt[k][3] for k in _SS_KEYS)
+        tot = ws + ls + wl + ll; win = ws + wl
+        tail = seq[-100:]; tw = sum(1 for _d, r in tail if r == "w")
+        out = {
+            "total": tot, "wins": win,
+            "win_rate": round(win / tot * 100, 1) if tot else None,
+            "short": _stats(ws, ls, cond=cond["s"]),
+            "long":  _stats(wl, ll, cond=cond["l"]),
+            "stop_strategy": _ss_stop_strategy(target),
+            "recent100": {"win_rate": round(tw / len(tail) * 100, 1) if tail else None,
+                          "total": len(tail), "wins": tw},
         }
+        for k in _SS_KEYS:
+            out[k] = _per_sig(k)
+        return out
 
-    _ss_seq = _build_combined_ss("mid")
-    _ss_cond = {"s": _cond_for_dir(_ss_seq, "s"), "l": _cond_for_dir(_ss_seq, "l")}
-    _ss_ws = sum(mid_cnt[k][0] for k in _SS_KEYS); _ss_ls = sum(mid_cnt[k][1] for k in _SS_KEYS)
-    _ss_wl = sum(mid_cnt[k][2] for k in _SS_KEYS); _ss_ll = sum(mid_cnt[k][3] for k in _SS_KEYS)
-    _ss_tot = _ss_ws + _ss_ls + _ss_wl + _ss_ll; _ss_win = _ss_ws + _ss_wl
-    _ss_tail = _ss_seq[-100:]
-    _ss_tw = sum(1 for _d, r in _ss_tail if r == "w")
-    ss_out = {
-        "total": _ss_tot, "wins": _ss_win,
-        "win_rate": round(_ss_win / _ss_tot * 100, 1) if _ss_tot else None,
-        "short": _stats(_ss_ws, _ss_ls, cond=_ss_cond["s"]),
-        "long":  _stats(_ss_wl, _ss_ll, cond=_ss_cond["l"]),
-        "stop_strategy": _ss_stop_strategy("mid"),
-        "recent100": {"win_rate": round(_ss_tw / len(_ss_tail) * 100, 1) if _ss_tail else None,
-                      "total": len(_ss_tail), "wins": _ss_tw},
-        **{k: _ss_per_sig(k) for k in _SS_KEYS},
-    }
+    ss_out = _build_ss_out("mid", mid_cnt, mid_rr, streak_mid)
+    ss_out["band"] = _build_ss_out("band", band_cnt, band_rr, streak_band)   # 上下軌版（前端切換用）
 
     return {
         **mid_out,                # backward compat：mid 統計放在頂層
