@@ -490,12 +490,27 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
             stop_chart = orig_stop
         sl_px = client.quantize_price(bsym, stop_chart * scale)
 
+        # ── 進場前防呆：停損必須在進場價的「虧損側」，否則根本不進場 ──
+        # 停損用 STOP_MARKET：多單＝SELL stop（停損價須 < 現價）、空單＝BUY stop（停損價須 > 現價）。
+        # 若止損緩衝太小、或進場棒已越過設定區間極值 → 停損價會落到現價的同側/錯側，交易所會判
+        # 「立即觸發」(-2021) 拒掛 → 過去因此「開了倉卻掛不上停損 → 即時平倉 → 推自動進場取消」，
+        # 白繳兩趟手續費又發警報。改成這裡直接放棄：不開倉、不平倉、不發取消。
+        sl_f = float(sl_px)
+        if (want == "long" and sl_f >= px) or (want == "short" and sl_f <= px):
+            _log_trade(source="auto", mode=client.env, status="skipped", symbol=symbol, bsym=bsym,
+                       side=want, sig=k, d=d, tf=tf, sigt=str(sig.get("t")),
+                       entry=str(entry), sl=str(round(stop_chart, 8)),
+                       msg=f"現價 {px} 已在停損 {sl_f} 的{'下方' if want == 'long' else '上方'}"
+                           f"（止損緩衝過小／進場棒越過極值）→ 放棄進場，不開倉")
+            print(f"  ⏭ 自動下單跳過 {bsym}：停損 {sl_f} 在現價 {px} 錯側，放棄進場")
+            return
+
         # ── 倉位大小 + 槓桿 ──
         risk_usd = cfg.get("riskUsd") or 0
         lev_cap = max(1, min(int(cfg["lev"]), 50))
         if risk_usd > 0:
             # 固定風險倉位：數量 = 風險金額 ÷（停損距離 + 進出兩腿手續費），槓桿自動挑（強平在停損外）。
-            e_c = px * scale                       # 用「實際成交參考價」算（市價單以現價成交）
+            e_c = px                               # px=last_price(bsym) 已是合約價 → 不可再 ×scale（曾雙重縮放，1000 倍合約數量算成 1/1000）
             s_c = stop_chart * scale               # 停損合約價
             dist = abs(e_c - s_c)
             if dist <= 0:
