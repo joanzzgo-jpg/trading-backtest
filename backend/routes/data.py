@@ -638,7 +638,38 @@ def _solve_stop_pct(df, target: str, long_only: bool):
             "target": 80, "achieved": False, "sweep": sweep}
 
 
+# 只後端(回測/自動交易)用、前端不讀的 per-signal 欄位 → 回前端 JSON 時砍掉
+_WR_SLIM_DROP = frozenset({"est_r", "est_r_b", "rr", "rr_b", "rr_real", "rr_b_real"})
+
+
 @router.get("/crt_winrate")
+def crt_winrate_api(
+    market: str,
+    symbol: str,
+    timeframe: str = "1d",
+    exchange: str = "pionex",
+    stop_buffer_pct: float = 0.0,
+    solve: int = 0,
+    solve_target: str = "mid",
+    api_key: str = "",
+    api_secret: str = "",
+    finmind_token: str = "",
+):
+    """/api/crt_winrate 路由：呼叫 get_crt_winrate(含快取) → 回前端時把 signals『瘦身』
+    （拿掉只後端用的 est/rr 欄位 + 省略 None 值），省 ~40% 傳輸量、加快手機端載入。
+    ⚠ 回測/自動交易是 Python 直接呼叫 get_crt_winrate → 拿『完整』signals，不受此瘦身影響。"""
+    wr = get_crt_winrate(market, symbol, timeframe, exchange, stop_buffer_pct,
+                         solve, solve_target, api_key, api_secret, finmind_token)
+    if solve or not isinstance(wr, dict):        # solve 模式非勝率結構 → 原樣回
+        return wr
+    sigs = wr.get("signals")
+    if not sigs:
+        return wr
+    # 前端只讀 t/d/k/r/ot/r_b/ot_b/r_rr/ot_rr/stop/entry；其餘為後端專用 → 砍。None 一律省略（前端皆 !=null/truthy 判斷）
+    slim = [{k: v for k, v in s.items() if v is not None and k not in _WR_SLIM_DROP} for s in sigs]
+    return {**wr, "signals": slim}              # 淺拷貝頂層、只換 signals；不動快取裡的完整版
+
+
 def get_crt_winrate(
     market: str,
     symbol: str,
