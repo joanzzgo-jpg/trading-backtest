@@ -361,12 +361,12 @@
   let _camInputTs = -1e9;            // 最近一次陀螺儀輸入時間（秒）；_CAM_AMP 已上移至層建立處（出血計算共用）
   function _applyCamera(){
     if (_camRM || !_camOn) return;
-    // 閒置自動運鏡：3 秒沒輸入 → 相機緩慢繞行（李薩茹軌跡）→ 不動滑鼠/沒陀螺儀權限
-    // 也隨時看得到層層分離的縱深（這才「看起來是 3D」，而非互動才有）
+    // 閒置 3 秒沒輸入 → 相機回正中、不自動繞行：自動繞行會讓最深的 astro 層（太陽/月亮/星空）
+    // 被視差帶著飄＝看起來「亂晃」。改回正中後天體只走自己的時間弧線（正常軌道），雲仍隨風飄。
+    // 手機陀螺儀傾斜（onTilt）仍會即時運鏡，那是使用者主動輸入、不算亂晃。
     const now = (performance.now ? performance.now() : Date.now()) * 0.001;
     if (now - _camInputTs > 3) {
-      _camTX = Math.sin(now * 0.40) * 0.55;
-      _camTY = Math.cos(now * 0.28) * 0.40;
+      _camTX = 0; _camTY = 0;
     }
     _camX += (_camTX - _camX) * 0.07; _camY += (_camTY - _camY) * 0.07;   // 平滑跟隨
     stage.style.perspectiveOrigin =
@@ -376,7 +376,7 @@
   function _initParallax(){
     if (_camOn) return; _camOn = true;
     try { if (matchMedia('(prefers-reduced-motion: reduce)').matches) { _camRM = true; return; } } catch(e){}  // 尊重減少動態偏好（CSS 端也有 !important 鎖，雙保險）
-    // 滑鼠跟隨已移除（使用者不要背景跟滑鼠動）→ 桌面恆走「閒置自動運鏡」；手機保留陀螺儀傾斜
+    // 滑鼠跟隨已移除（使用者不要背景跟滑鼠動）；閒置自動運鏡也已關（會讓太陽/月亮亂晃）→ 桌面背景靜止、只各層自轉/弧線；手機保留陀螺儀傾斜
     const onTilt = e => {
       if (e.gamma == null) return;
       _camInputTs = _camNowS();      // 有輸入 → 暫停自動運鏡、跟著傾斜
