@@ -116,6 +116,13 @@ function _trdRenderOverview() {
   if (document.activeElement !== $("#trdAutoMax")) $("#trdAutoMax").value = a.maxPos ?? 3;
   if ($("#trdAutoDirs").value !== a.dirs) $("#trdAutoDirs").value = a.dirs || "both";
   if (document.activeElement !== $("#trdAutoSl")) $("#trdAutoSl").value = a.slPct ?? 0;
+  // 倉位模式：riskUsd>0=固定風險、否則固定保證金。輸入中(focus)不切，免刷新打斷操作。
+  const _isRisk = (a.riskUsd || 0) > 0, _af = document.activeElement;
+  if (_af !== $("#trdAutoRisk") && _af !== $("#trdAutoUsdt") && pop.querySelector(".trd-amode-btn")) {
+    pop.querySelectorAll(".trd-amode-btn").forEach(x => x.classList.toggle("sel", x.dataset.mode === (_isRisk ? "risk" : "margin")));
+    $("#trdCellMargin").hidden = _isRisk; $("#trdCellRisk").hidden = !_isRisk;
+    const _lh = $("#trdLevHint"); if (_lh) _lh.textContent = _isRisk ? "上限・自動" : "固定";
+  }
   const sal = $("#trdAutoSal");
   if (sal) { sal.classList.toggle("sel", !!a.stopAfterLoss); sal.textContent = a.stopAfterLoss ? "開" : "關"; }
   _trdRenderPerSym();
@@ -168,8 +175,10 @@ function _trdSaveAuto() {
   const a = _TRD.ov.auto = _TRD.ov.auto || {};
   a.sigs = [...pop.querySelectorAll(".trd-a-sig.sel")].map(x => x.dataset.sig);
   a.tfs = [...pop.querySelectorAll(".trd-a-tf.sel")].map(x => x.dataset.tf);
+  const _mode = pop.querySelector(".trd-amode-btn.sel")?.dataset.mode || "margin";
   a.usdt = +pop.querySelector("#trdAutoUsdt").value || 50;
-  a.riskUsd = Math.max(0, +pop.querySelector("#trdAutoRisk").value || 0);
+  // 固定風險模式才送 riskUsd(>0)；固定保證金模式 riskUsd=0（後端據此走保證金×槓桿）
+  a.riskUsd = (_mode === "risk") ? Math.max(0, +pop.querySelector("#trdAutoRisk").value || 0) : 0;
   a.lev = +pop.querySelector("#trdAutoLev").value || 3;
   a.maxPos = +pop.querySelector("#trdAutoMax").value || 3;
   a.dirs = pop.querySelector("#trdAutoDirs").value;
@@ -240,17 +249,41 @@ function _trdBuildPopup() {
     #tradePopup .trd-up { color:#4cc38a; } #tradePopup .trd-dn { color:#f06a6a; }
     #tradePopup .trd-sub { font-size:11px; color:var(--muted,#889); margin:8px 0 3px; }
     #tradePopup .trd-seg { display:flex; gap:5px; margin:4px 0; }
-    #tradePopup .trd-seg button { flex:1; padding:5px 0; border-radius:8px; border:1px solid var(--border,#445);
-      background:transparent; color:var(--muted,#99a); cursor:pointer; font-size:12px; }
-    #tradePopup .trd-side-btn.sel[data-side="long"] { background:#2a6f4e; color:#fff; border-color:transparent; }
-    #tradePopup .trd-side-btn.sel[data-side="short"] { background:#9f3a3a; color:#fff; border-color:transparent; }
-    #tradePopup .trd-type-btn.sel, #tradePopup .trd-chip.sel { background:var(--blue,#4a90d9); color:#fff; border-color:transparent; }
+    #tradePopup .trd-seg button { flex:1; padding:7px 0; border-radius:8px; border:1px solid var(--border,#445);
+      background:transparent; color:var(--muted,#99a); cursor:pointer; font-size:12px;
+      transition:all .15s ease; -webkit-tap-highlight-color:transparent; }
+    #tradePopup .trd-seg button:hover { border-color:var(--blue,#4a90d9); }
+    #tradePopup .trd-side-btn.sel[data-side="long"] { background:linear-gradient(180deg,#36926a,#2a6f4e);
+      color:#fff; border-color:transparent; box-shadow:0 2px 10px -3px rgba(42,111,78,.85); }
+    #tradePopup .trd-side-btn.sel[data-side="short"] { background:linear-gradient(180deg,#b84a4a,#9f3a3a);
+      color:#fff; border-color:transparent; box-shadow:0 2px 10px -3px rgba(159,58,58,.85); }
+    #tradePopup .trd-type-btn.sel, #tradePopup .trd-chip.sel { background:linear-gradient(180deg,#5aa0e6,#4a90d9);
+      color:#fff; border-color:transparent; box-shadow:0 2px 9px -3px rgba(74,144,217,.65); }
+    /* 倉位模式二選一切換鈕 */
+    #tradePopup .trd-amode { gap:3px; padding:3px; margin:4px 0 5px; border-radius:10px;
+      background:rgba(0,0,0,.2); border:1px solid var(--border,#3a3a50); }
+    #tradePopup .trd-amode .trd-amode-btn { flex:1; padding:8px 0; border:none; border-radius:7px;
+      background:transparent; color:var(--muted,#99a); cursor:pointer; font-size:12px; font-weight:700;
+      transition:all .18s ease; -webkit-tap-highlight-color:transparent; }
+    #tradePopup .trd-amode .trd-amode-btn:hover { color:var(--text,#cde); }
+    #tradePopup .trd-amode .trd-amode-btn.sel { background:linear-gradient(180deg,#5aa0e6,#4a90d9); color:#fff;
+      box-shadow:0 2px 10px -3px rgba(74,144,217,.7); }
     #tradePopup .trd-grid { display:grid; grid-template-columns:1fr 1fr; gap:5px; margin:4px 0; }
     #tradePopup .trd-grid label { font-size:10px; color:var(--muted,#889); display:block; margin-bottom:2px; }
-    #tradePopup input, #tradePopup select { width:100%; box-sizing:border-box; padding:5px 7px; border-radius:7px;
-      border:1px solid var(--border,#445); background:transparent; color:var(--text,#ddd); font-size:12px; }
-    #tradePopup .trd-go { width:100%; padding:8px; margin:6px 0 2px; border-radius:8px; border:none;
-      background:var(--blue,#4a90d9); color:#fff; cursor:pointer; font-size:13px; font-weight:600; }
+    #tradePopup input, #tradePopup select { width:100%; box-sizing:border-box; padding:7px 9px; border-radius:7px;
+      border:1px solid var(--border,#445); background:rgba(255,255,255,.02); color:var(--text,#ddd);
+      font-size:12px; transition:border-color .15s ease, box-shadow .15s ease; }
+    #tradePopup input:focus, #tradePopup select:focus { outline:none; border-color:var(--blue,#4a90d9);
+      box-shadow:0 0 0 2px rgba(74,144,217,.16); background:rgba(74,144,217,.04); }
+    /* 名目即時顯示（保證金×槓桿） */
+    #tradePopup .trd-notional { font-size:11px; color:var(--muted,#99a); margin:1px 0 3px; }
+    #tradePopup .trd-notional b { color:var(--text,#cde); font-weight:600; }
+    #tradePopup .trd-go { width:100%; padding:10px; margin:8px 0 2px; border-radius:9px; border:none;
+      background:linear-gradient(180deg,#5aa0e6,#4a90d9); color:#fff; cursor:pointer; font-size:13px; font-weight:700;
+      letter-spacing:.5px; box-shadow:0 3px 12px -4px rgba(74,144,217,.7);
+      transition:filter .15s ease, transform .05s ease, box-shadow .15s ease; }
+    #tradePopup .trd-go:hover { filter:brightness(1.07); box-shadow:0 4px 16px -4px rgba(74,144,217,.85); }
+    #tradePopup .trd-go:active { transform:translateY(1px); box-shadow:0 2px 8px -4px rgba(74,144,217,.7); }
     #tradePopup .trd-row { display:flex; align-items:center; gap:6px; padding:4px 0; font-size:12px;
       border-bottom:1px dashed var(--border,#3a3a50); }
     #tradePopup .trd-row-sm { font-size:11px; }
@@ -260,8 +293,9 @@ function _trdBuildPopup() {
       background:transparent; color:#f06a6a; cursor:pointer; font-size:11px; }
     #tradePopup .trd-empty { font-size:11px; color:var(--muted,#778); padding:4px 0; }
     #tradePopup .trd-chips { display:flex; flex-wrap:wrap; gap:4px; }
-    #tradePopup .trd-chip { padding:3px 9px; border-radius:11px; border:1px solid var(--border,#445);
-      background:transparent; color:var(--muted,#99a); cursor:pointer; font-size:11px; transition:all .15s ease; }
+    #tradePopup .trd-chip { padding:4px 10px; border-radius:11px; border:1px solid var(--border,#445);
+      background:transparent; color:var(--muted,#99a); cursor:pointer; font-size:11px; transition:all .15s ease;
+      -webkit-tap-highlight-color:transparent; }
     #tradePopup .trd-chip:hover { border-color:var(--blue,#4a90d9); color:var(--text,#ddd); }
     #tradePopup .trd-chip.sel { box-shadow:0 2px 7px -3px var(--blue,#4a90d9); }
     /* 自動交易卡片：標題列＝實體開關 + 運行指示燈，開啟時整張卡片亮起 */
@@ -381,10 +415,16 @@ function _trdBuildPopup() {
     <div class="trd-grid">
       <div><label>保證金 USDT</label><input id="trdUsdt" type="number" min="1" value="50"></div>
       <div><label>槓桿</label><input id="trdLev" type="number" min="1" max="50" value="3"></div>
-      <div><label>限價（限價單）</label><input id="trdPrice" type="number" step="any" placeholder="-"></div>
-      <div><label>&nbsp;</label><span></span></div>
-      <div><label>停損價（選填）</label><input id="trdSl" type="number" step="any" placeholder="-"></div>
-      <div><label>止盈價（選填）</label><input id="trdTp" type="number" step="any" placeholder="-"></div>
+    </div>
+    <div class="trd-notional" id="trdNotional">名目 ≈ <b>—</b></div>
+    <div id="trdLimitRow" hidden>
+      <label style="font-size:10px;color:var(--muted,#889);display:block;margin:2px 0">限價成交價</label>
+      <input id="trdPrice" type="number" step="any" placeholder="限價單觸發價">
+    </div>
+    <div class="trd-sub">停損 / 止盈（選填）</div>
+    <div class="trd-grid">
+      <div><label>停損價</label><input id="trdSl" type="number" step="any" placeholder="-"></div>
+      <div><label>止盈價</label><input id="trdTp" type="number" step="any" placeholder="-"></div>
     </div>
     <button class="trd-go">下單</button>
     <div class="trd-sub">持倉</div>
@@ -403,18 +443,22 @@ function _trdBuildPopup() {
       <div class="trd-chips">${sigChips}</div>
       <div class="trd-sub">時間框</div>
       <div class="trd-chips">${tfChips}</div>
-      <div class="trd-sub trd-grp-hd">倉位</div>
+      <div class="trd-sub trd-grp-hd">倉位<small>下單金額怎麼決定</small></div>
+      <div class="trd-seg trd-amode" id="trdAutoMode">
+        <button class="trd-amode-btn sel" data-mode="margin">固定保證金</button>
+        <button class="trd-amode-btn" data-mode="risk">固定風險</button>
+      </div>
       <div class="trd-grid">
         <div><label>方向</label><select id="trdAutoDirs">
           <option value="both">多空都做</option><option value="long">只做多</option><option value="short">只做空</option>
         </select></div>
-        <div><label>槓桿<small>風險模式為上限</small></label><input id="trdAutoLev" type="number" min="1" max="50"></div>
-        <div><label>每筆保證金 USDT<small>風險＝0 時採用</small></label><input id="trdAutoUsdt" type="number" min="1"></div>
-        <div><label>每筆風險 $<small>0＝改用保證金</small></label><input id="trdAutoRisk" type="number" min="0" step="1" placeholder="0"></div>
+        <div><label>槓桿<small id="trdLevHint">固定</small></label><input id="trdAutoLev" type="number" min="1" max="50"></div>
+        <div id="trdCellMargin"><label>每筆保證金 USDT</label><input id="trdAutoUsdt" type="number" min="1"></div>
+        <div id="trdCellRisk" hidden><label>每筆風險 USDT<small>打到停損約虧這麼多</small></label><input id="trdAutoRisk" type="number" min="0" step="1" placeholder="0"></div>
       </div>
       <div class="trd-sub trd-grp-hd">風險控制</div>
       <div class="trd-grid">
-        <div><label>最大同時持倉</label><input id="trdAutoMax" type="number" min="1" max="20"></div>
+        <div><label>最大同時持倉<small>筆</small></label><input id="trdAutoMax" type="number" min="1" max="20"></div>
         <div><label>止損緩衝 %<small>策略停損外推；0＝用策略</small></label><input id="trdAutoSl" type="number" min="0" max="50" step="0.1" placeholder="0"></div>
         <div class="trd-sal-cell"><label>敗後停手<small>當日虧損後暫停</small></label><button id="trdAutoSal" class="trd-chip trd-sal-btn">關</button></div>
       </div>
@@ -442,7 +486,20 @@ function _trdBuildPopup() {
   pop.querySelectorAll(".trd-type-btn").forEach(b => b.addEventListener("click", () => {
     pop.querySelectorAll(".trd-type-btn").forEach(x => x.classList.remove("sel"));
     b.classList.add("sel");
+    // 限價欄只在「限價」單顯示（市價單用不到）
+    const lr = pop.querySelector("#trdLimitRow");
+    if (lr) lr.hidden = b.dataset.type !== "LIMIT";
   }));
+  // 名目即時顯示：保證金 × 槓桿
+  const _updNotional = () => {
+    const el = pop.querySelector("#trdNotional");
+    if (!el) return;
+    const u = +pop.querySelector("#trdUsdt").value || 0, l = +pop.querySelector("#trdLev").value || 0;
+    el.innerHTML = (u > 0 && l > 0) ? `名目 ≈ <b>${(u * l).toLocaleString()}</b> USDT` : "名目 ≈ <b>—</b>";
+  };
+  pop.querySelector("#trdUsdt").addEventListener("input", _updNotional);
+  pop.querySelector("#trdLev").addEventListener("input", _updNotional);
+  _updNotional();
   pop.querySelector(".trd-go").addEventListener("click", e => { e.stopPropagation(); _trdSubmit(); });
   pop.querySelector(".trd-key-save").addEventListener("click", e => {
     e.stopPropagation();
@@ -494,6 +551,20 @@ function _trdBuildPopup() {
   });
   pop.querySelectorAll(".trd-a-sig, .trd-a-tf").forEach(b => b.addEventListener("click", e => {
     e.stopPropagation(); b.classList.toggle("sel"); _trdSaveAuto();
+  }));
+  // 倉位模式二選一：固定保證金 / 固定風險
+  pop.querySelectorAll(".trd-amode-btn").forEach(b => b.addEventListener("click", e => {
+    e.stopPropagation();
+    pop.querySelectorAll(".trd-amode-btn").forEach(x => x.classList.toggle("sel", x === b));
+    const risk = b.dataset.mode === "risk";
+    pop.querySelector("#trdCellMargin").hidden = risk;
+    pop.querySelector("#trdCellRisk").hidden = !risk;
+    pop.querySelector("#trdLevHint").textContent = risk ? "上限・自動" : "固定";
+    if (risk) {   // 切到風險模式但還沒填 → 給預設 10，免存成 0 又被切回保證金
+      const rf = pop.querySelector("#trdAutoRisk");
+      if (!(+rf.value > 0)) rf.value = 10;
+    }
+    _trdSaveAuto();
   }));
   ["#trdAutoUsdt", "#trdAutoRisk", "#trdAutoLev", "#trdAutoMax", "#trdAutoDirs", "#trdAutoSl"].forEach(id =>
     pop.querySelector(id).addEventListener("change", _trdSaveAuto));
