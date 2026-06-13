@@ -18,10 +18,11 @@
     { v: "s7",  label: "S7 訊號七" }, { v: "s8", label: "S8 訊號八" },
     { v: "s9",  label: "S9 訊號九" }, { v: "s10", label: "S10 訊號十" },
     { v: "s11", label: "S11 訊號十一" }, { v: "s12", label: "S12 訊號十二" },
+    { v: "ss1", label: "SS1 軌道反轉（深）" }, { v: "ss2", label: "SS2 軌道反轉（淺）" },
   ];
 
-  // signal record 的 k（abc/ab/3~12）→ 顯示標籤（S1~S12）
-  const _SIG_LBL = { abc: "S1", ab: "S2" };
+  // signal record 的 k（abc/ab/3~12/ss1/ss2）→ 顯示標籤（S1~S12 / SS1 / SS2）
+  const _SIG_LBL = { abc: "S1", ab: "S2", ss1: "SS1", ss2: "SS2" };
   function _sigLabel(k) { return _SIG_LBL[k] || ("S" + k); }
 
   function _injectStyle() {

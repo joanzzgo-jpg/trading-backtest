@@ -391,6 +391,7 @@ def _stop_after_loss_ok(d, sig, all_signals) -> bool:
     if not all_signals:
         return True
     cur_t = _sig_epoch(sig.get("t"))
+    is_ss = sig.get("k") in ("ss1", "ss2")    # SS 系列獨立敗後停手（與圖表 _ss_stop_strategy 一致）
     prior = {}
     for s in all_signals:
         t = s.get("t"); r = s.get("r")
@@ -398,17 +399,29 @@ def _stop_after_loss_ok(d, sig, all_signals) -> bool:
             continue
         if _sig_epoch(t) >= cur_t:        # 只看「此訊號之前」已結算的
             continue
+        if is_ss and s.get("k") not in ("ss1", "ss2"):
+            continue                      # SS 只看 SS 自己的歷史，不混入 S 系列
         prior[(str(t), s.get("d"))] = s   # (t,d) 去重（同圖表合併時間軸）
     seq = sorted(prior.values(), key=lambda s: _sig_epoch(s.get("t")))
     active = {"s": True, "l": True}
+    stop_ot = {"s": None, "l": None}                # 讓該方向停手的那筆敗單「止損出場棒」
     for s in seq:
         sd = s.get("d"); r = s.get("r")
+        # 新規則（僅 SS）：被停損出場的那根 K，同時又冒出同向 SS 訊號（出場棒==訊號棒）→ 視同回場
+        if is_ss and not active.get(sd, True) and stop_ot.get(sd) is not None \
+           and str(s.get("t")) == str(stop_ot[sd]):
+            active[sd] = True
         if active.get(sd, True):
             if r != "w":
                 active[sd] = False                  # 進場中遇敗 → 該方向停手
+                stop_ot[sd] = s.get("ot")           # 記下此敗單的止損出場棒（供新規則比對）
         elif r == "w":
             active[sd] = True                       # 停手中、同向紙上會贏 → 解除
         active["l" if sd == "s" else "s"] = True    # 反向訊號出現 → 解除其停手
+    # 新規則同樣作用在「當前這筆 SS 訊號」本身：此方向停手中，但訊號棒 == 該方向止損出場棒 → 放行
+    if is_ss and not active.get(d, True) and stop_ot.get(d) is not None \
+       and str(sig.get("t")) == str(stop_ot[d]):
+        return True
     return active.get(d, True)
 
 

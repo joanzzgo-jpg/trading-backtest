@@ -799,8 +799,9 @@ function _renderWrTop3() {
   const d = _wrCacheLast;
   if (!d) { root.innerHTML = ""; return; }
 
-  // 取當前 view（mid / band）
-  const view = _wrPickView(d);
+  // 取當前 view：SS 系列 → 用 SS 獨立統計（連敗/敗後停手皆含 SS 新規則）；S 系列 → S2~S11 綜合（mid/band）
+  const view = (_wrSeries === "ss") ? (d.ss || {}) : _wrPickView(d);
+  const _scopeLbl = (_wrSeries === "ss") ? "SS 系列獨立" : "S2~S11 去重綜合";
 
   // 連敗按鈕（畫在 TOP3 上列）：關 → 2連 → 3連 → 4連 → 敗後停手策略 → 關
   //   2/3/4 連 = 同方向連敗 N-1 根後再敗機率（合併時間軸，中間夾反方向不算連續）
@@ -808,7 +809,7 @@ function _renderWrTop3() {
   const _streakLabel = _wrStreakN === 0 ? "連敗 關"
                      : _wrStreakN === 5 ? "敗後停手"
                      : `連敗 ${_wrStreakN}`;
-  const streakBtn = `<button class="wr-streak-btn${_wrStreakN ? " on" : ""}" onclick="_cycleStreakN()" title="連敗風險 / 再進場策略（S2~S11 去重綜合）：關 → 2連 → 3連 → 4連 → 敗後停手。&#10;2/3/4連=同方向連敗 N-1 根後、下一筆也敗的機率（合併時間軸，兩敗中間夾反方向不算連續）。&#10;敗後停手=輸了就停手、旁觀同方向直到會贏才回場，顯示套用後的總勝率。">${_streakLabel}</button>`;
+  const streakBtn = `<button class="wr-streak-btn${_wrStreakN ? " on" : ""}" onclick="_cycleStreakN()" title="連敗風險 / 再進場策略（${_scopeLbl}）：關 → 2連 → 3連 → 4連 → 敗後停手。&#10;2/3/4連=同方向連敗 N-1 根後、下一筆也敗的機率（合併時間軸，兩敗中間夾反方向不算連續）。&#10;敗後停手=輸了就停手、旁觀同方向直到會贏才回場，顯示套用後的總勝率。">${_streakLabel}</button>`;
   let condNums = "";
   if (_wrStreakN >= 2 && _wrStreakN <= 4) {
     const _pick = (st) => (st?.loss_streak || []).find(x => x.after === _wrStreakN - 1) || null;

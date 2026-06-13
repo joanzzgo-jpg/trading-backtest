@@ -1132,12 +1132,29 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         return seq
 
     def _ss_stop_strategy(target="mid"):
-        seq = _build_combined_ss(target)
-        active = {"s": True, "l": True}; w = {"s": 0, "l": 0}; l = {"s": 0, "l": 0}
-        for d, r in seq:
+        rk = _RKEY[target]; otk = {"mid": "ot", "band": "ot_b", "rr": "ot_rr"}[target]
+        # 富序列（帶訊號棒 t / 止損出場棒 ot）：SS 獨立合併時間軸、(t,d) 去重、只取已結算。
+        seen = set(); seq = []
+        for s in signals_sorted:
+            if s["k"] not in _SS_KEYS:
+                continue
+            key = (s["t"], s["d"])
+            if key in seen:
+                continue
+            seen.add(key)
+            r = s.get(rk)
+            if r in ("w", "l"):
+                seq.append((s["d"], r, s.get("t"), s.get(otk)))
+        active = {"s": True, "l": True}; stop_ot = {"s": None, "l": None}
+        w = {"s": 0, "l": 0}; l = {"s": 0, "l": 0}
+        for d, r, st, ot in seq:
+            # 新規則（僅 SS）：被停損出場的那根 K，同時又冒出同向 SS 進場訊號（出場棒==訊號棒）
+            # → 視同回場、放行進場（不被敗後停手擋）。
+            if not active[d] and stop_ot[d] is not None and st is not None and str(st) == str(stop_ot[d]):
+                active[d] = True
             if active[d]:
                 if r == "w": w[d] += 1
-                else: l[d] += 1; active[d] = False
+                else: l[d] += 1; active[d] = False; stop_ot[d] = ot   # 記下這筆敗單的出場棒
             elif r == "w": active[d] = True
             active["l" if d == "s" else "s"] = True
         def _mk(dk):
