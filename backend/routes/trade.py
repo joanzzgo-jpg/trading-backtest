@@ -413,7 +413,10 @@ def _sig_epoch(t) -> float:
 
 def _stop_after_loss_ok(d, sig, all_signals) -> bool:
     """重現圖表「敗後停手」：用「此訊號之前、已結算(w/l)」的訊號序列（按時間排序、(t,d) 去重）
-    跑逐方向狀態機，回此方向當下是否「可進場」(active)。無資料 → 預設可進場。"""
+    跑逐方向狀態機，回此方向當下是否「可進場」(active)。無資料 → 預設可進場。
+    已內含「一次一筆」（同策略回測 _filter_stop_after_loss）：重建狀態時，前筆未結算(持倉中)
+    期間出現的訊號『不算進場、也不計輸贏』——比照實盤同標的同時只持一倉（執行層 trade.py:504
+    本就擋同合約重複開倉，這裡讓敗後停手的歷史狀態跟它一致）。"""
     if not all_signals:
         return True
     cur_t = _sig_epoch(sig.get("t"))
@@ -431,13 +434,17 @@ def _stop_after_loss_ok(d, sig, all_signals) -> bool:
     seq = sorted(prior.values(), key=lambda s: _sig_epoch(s.get("t")))
     active = {"s": True, "l": True}
     stop_ot = {"s": None, "l": None}                # 讓該方向停手的那筆敗單「止損出場棒」
+    busy_until = 0.0                                # 一次一筆：目前持倉的結算時間(epoch)；0＝無持倉
     for s in seq:
         sd = s.get("d"); r = s.get("r")
+        if busy_until and _sig_epoch(s.get("t")) < busy_until:
+            continue                                # 持倉中 → 完全略過（開不了倉，不進場/不回穩/不解除反向）
         # 新規則（僅 SS）：被停損出場的那根 K，同時又冒出同向 SS 訊號（出場棒==訊號棒）→ 視同回場
         if is_ss and not active.get(sd, True) and stop_ot.get(sd) is not None \
            and str(s.get("t")) == str(stop_ot[sd]):
             active[sd] = True
         if active.get(sd, True):
+            busy_until = _sig_epoch(s.get("ot")) or 0.0   # 開倉 → 鎖到此筆結算為止
             if r != "w":
                 active[sd] = False                  # 進場中遇敗 → 該方向停手
                 stop_ot[sd] = s.get("ot")           # 記下此敗單的止損出場棒（供新規則比對）

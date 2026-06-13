@@ -222,7 +222,7 @@
     const ruleLine = (d.entry_rule === "single")
       ? `進場規則：一次一筆（${d.n_all}筆訊號中取${d.n_taken}筆不重疊，跳過${(d.n_all ?? 0) - (d.n_taken ?? 0)}筆）`
       : (d.entry_rule === "stop")
-      ? `進場規則：敗後停手（${d.n_all}筆訊號中取${d.n_taken}筆，停手期間跳過${(d.n_all ?? 0) - (d.n_taken ?? 0)}筆）`
+      ? `進場規則：敗後停手＋一次一筆（${d.n_all}筆訊號中取${d.n_taken}筆，停手或持倉中跳過${(d.n_all ?? 0) - (d.n_taken ?? 0)}筆）`
       : "";
     res.innerHTML = `
       <div class="bt-cards">${cards.map(c => `<div class="bt-card"><div class="v ${c.c}">${c.v}</div><div class="k">${c.k}</div></div>`).join("")}</div>
