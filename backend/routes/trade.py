@@ -503,7 +503,8 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
 
         entry = sig.get("entry")
         stop = sig.get("stop")
-        rr = sig.get("rr")
+        rr = sig.get("rr")          # 中軌預估盈虧比
+        rr_b = sig.get("rr_b")      # 上下軌預估盈虧比（自動交易止盈目標＝上下軌）
         if entry is None or stop is None:
             return
         bsym, scale = client.resolve_symbol(symbol)
@@ -599,11 +600,13 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
 
         side = "BUY" if want == "long" else "SELL"
         o = client.place_order(bsym, side, qty, "MARKET")
-        # 止盈維持策略目標（用「原始策略風險 = 進場到策略停損」算 → 不受停損緩衝影響）
+        # 止盈到「上下軌」（空→下軌、多→上軌；用原始策略風險＝進場到策略停損算 → 不受停損緩衝影響）。
+        # rr_b＝上下軌預估盈虧比；缺(軌為 NaN)→ 退回中軌 rr。之後 retarget_auto_tp 每根 K 跟著軌移動。
         tp_px = None
-        if rr:
+        tp_rr = rr_b if rr_b else rr
+        if tp_rr:
             risk = abs(float(entry) - orig_stop)
-            tgt = float(entry) - rr * risk if d == "s" else float(entry) + rr * risk
+            tgt = float(entry) - tp_rr * risk if d == "s" else float(entry) + tp_rr * risk
             tp_px = client.quantize_price(bsym, tgt * scale)
         close_side = "SELL" if want == "long" else "BUY"
         # 先掛停損（自動單的安全命脈）。掛失敗 → 立刻市價平掉剛進的倉，絕不留「無停損保護」
@@ -655,8 +658,30 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
         print(f"  ⚠ 自動下單失敗 {symbol} {tf} {k}/{d}：{e}")
 
 
+def _close_auto_position(owner, client, row_id, bsym, symbol, tf, event, reason):
+    """市價平掉一筆自動倉 + 更新紀錄 + 通知 owner（含已實現盈虧）。settle 與 retarget 共用。"""
+    r = client.close_position(bsym)               # 內部會取消該合約所有 algo（SL/TP）
+    msg = reason if r.get("ok") else reason + "（交易所端已先出場）"
+    _update_trade(row_id, "closed", msg)
+    pnl = None                                    # 實際已實現盈虧：從 income 取最近一筆該合約 REALIZED_PNL
+    try:
+        for inc in client.income_history(15):
+            if inc.get("symbol") == bsym:
+                pnl = inc.get("pnl"); break
+    except bt.TradeError:
+        pass
+    result = "止盈" if event == "tp" else "止損"
+    body = f"{result}平倉　{symbol}"
+    if pnl is not None:
+        body += f"\n已實現盈虧 {pnl:+.2f} USDT"
+    _push_owner(owner, f"🤖 自動{result} · {symbol}", body, symbol, tf=tf,
+                event=("atrade_tp" if event == "tp" else "atrade_sl"))
+    print(f"  🤖 自動平倉 {client.env}: {bsym}（{event}）pnl={pnl}")
+    return pnl
+
+
 def settle_signal_trade(market, exchange, symbol, tf, k, d, sig, event):
-    """訊號引擎判定止盈/止損 → 平掉對應的自動倉位（中軌出場早於交易所掛單時對齊策略）。"""
+    """訊號引擎判定止盈/止損(以上下軌結算) → 平掉對應的自動倉位（軌出場早於交易所 band TP 時對齊策略）。"""
     try:
         if market != "crypto":
             return
@@ -679,40 +704,19 @@ def settle_signal_trade(market, exchange, symbol, tf, k, d, sig, event):
         if not row:
             return
         row_id, bsym = row
-        r = client.close_position(bsym)
-        msg = "策略止盈平倉" if event == "tp" else "策略止損平倉"
-        if not r.get("ok"):
-            msg += "（交易所端已先出場）"
-        _update_trade(row_id, "closed", msg)
-        # 實際已實現盈虧（剛平倉這筆，從 income 取最近一筆該合約 REALIZED_PNL）
-        pnl = None
-        try:
-            for inc in client.income_history(15):
-                if inc.get("symbol") == bsym:
-                    pnl = inc.get("pnl")
-                    break
-        except bt.TradeError:
-            pass
-        # 通知擁有者：自動平倉（含盈虧）
-        result = "止盈" if event == "tp" else "止損"
-        body = f"{result}平倉　{symbol}"
-        if pnl is not None:
-            body += f"\n已實現盈虧 {pnl:+.2f} USDT"
-        _push_owner((cfg.get("owner") or "").strip(),
-                    f"🤖 自動{result} · {symbol}", body, symbol, tf=tf,
-                    event=("atrade_tp" if event == "tp" else "atrade_sl"))
-        print(f"  🤖 自動平倉 {client.env}: {bsym}（{event}）pnl={pnl}")
+        reason = "策略止盈平倉" if event == "tp" else "策略止損平倉"
+        _close_auto_position((cfg.get("owner") or "").strip(), client, row_id, bsym, symbol, tf, event, reason)
     except Exception as e:
         print(f"  ⚠ 自動平倉失敗 {symbol} {tf}：{e}")
 
 
-def retarget_auto_tp(market, exchange, symbol, tf, mid_chart):
-    """TP 跟著中軌移動：用最新中軌(已收盤棒)把該「標的×時框」所有未平自動倉的交易所 TP 單
-    取消重掛到中軌。只動 TP（用開倉時存下的 algoId 精準取消）→ 絕不碰 SL（零 SL 空窗）。
-    中軌已越過現價(目標達成側)→ 不重掛(避免 -2021)、交給 settle 市價平倉。每根 K 收盤呼叫一次。
-    絕不拋例外。"""
+def retarget_auto_tp(market, exchange, symbol, tf, upper_chart, lower_chart):
+    """TP 跟著上下軌移動：用最新上下軌(已收盤棒)把該「標的×時框」所有未平自動倉的交易所 TP 單
+    取消重掛到對應軌（空單→下軌 lower、多單→上軌 upper）。只動 TP（用開倉時存下的 algoId 精準
+    取消）→ 絕不碰 SL（零 SL 空窗）。目標軌已越過現價(達成側)→ 不重掛(避免 -2021)、交給 settle
+    市價平倉。每根 K 收盤呼叫一次。絕不拋例外。"""
     try:
-        if market != "crypto" or mid_chart is None or mid_chart != mid_chart:   # NaN
+        if market != "crypto":
             return
         cfg = get_auto_cfg()
         if not cfg.get("on"):
@@ -732,17 +736,23 @@ def retarget_auto_tp(market, exchange, symbol, tf, mid_chart):
         if client is None:
             return
         bsym0, scale = client.resolve_symbol(symbol)
-        new_tp_px = client.quantize_price(bsym0, float(mid_chart) * scale)
-        new_tp_f = float(new_tp_px)
         px = client.last_price(bsym0)
         for row_id, bsym, d, old_tp, tp_oid in rows:
             try:
                 want = "short" if d == "s" else "long"
-                # 中軌已越過現價（多單→中軌已在現價下、空單→已在現價上）＝目標達成側 → 不重掛、交給 settle 平倉
+                band = lower_chart if want == "short" else upper_chart   # 空→下軌、多→上軌
+                if band is None or band != band:    # NaN/缺 → 跳過此倉（不動其 TP）
+                    continue
+                new_tp_px = client.quantize_price(bsym0, float(band) * scale)
+                new_tp_f = float(new_tp_px)
+                # 目標軌已碰到/越過現價（多單→軌已在現價下、空單→已在現價上）＝達成側 → 立刻市價平倉，
+                # 不丟給收盤確認的 settle（碰到就馬上止盈，且避免「掛不了 TP 又裸著等下一根」）。
                 if (want == "long" and new_tp_f <= px) or (want == "short" and new_tp_f >= px):
+                    _close_auto_position((cfg.get("owner") or "").strip(), client, row_id, bsym, symbol, tf,
+                                         "tp", "策略止盈平倉(上下軌觸及，即時平倉)")
                     continue
                 if old_tp is not None and str(new_tp_px) == str(old_tp):
-                    continue                    # 中軌沒移動（同 tick）→ 不動，免徒增掛單
+                    continue                    # 軌沒移動（同 tick）→ 不動，免徒增掛單
                 close_side = "SELL" if want == "long" else "BUY"
                 if tp_oid:                       # 先用 id 取消舊 TP（取消失敗＝已不存在，無妨）；SL 完全不碰
                     try:

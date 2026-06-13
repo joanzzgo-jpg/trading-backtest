@@ -313,15 +313,19 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                 o = _scan_outcome_fixed(highs, lows, closes, entry_i, n,
                                          stop_px, float(tgt_band_fix), direction)
                 est_r_b = "w" if o == "win" else ("l" if o == "loss" else None)
-        # 預估盈虧比 RR(中軌) = |進場-目標|/|進場-止損|，供前端盈虧比盒顯示
-        est_rr_val = None
+        # 預估盈虧比 RR(中軌/上下軌) = |進場-目標|/|進場-止損|，供前端盈虧比盒 + 自動交易初始 TP 用
+        est_rr_val = None; est_rr_b_val = None
         if sig_key != "abc" and entry_i < n:
             entry_px = opens[entry_i]
             tgt_mid  = bb_mid[entry_i]
-            if not (math.isnan(entry_px) or math.isnan(tgt_mid)):
+            tgt_band = bb_lo[entry_i] if direction == "short" else bb_up[entry_i]   # 帶軌目標：空→下軌、多→上軌
+            if not math.isnan(entry_px):
                 risk = abs(entry_px - stop_px)
                 if risk > 1e-9:
-                    est_rr_val = round(abs(entry_px - tgt_mid) / risk, 3)
+                    if not math.isnan(tgt_mid):
+                        est_rr_val = round(abs(entry_px - tgt_mid) / risk, 3)
+                    if not math.isnan(tgt_band):
+                        est_rr_b_val = round(abs(entry_px - tgt_band) / risk, 3)
         # 1:1 目標結果（止盈距離 = 止損距離）
         r_rr, ot_rr = _scan_rr(sig_key, direction, entry_i, stop_px)
         rr_out = "win" if r_rr == "w" else ("loss" if r_rr == "l" else None)
@@ -359,7 +363,8 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             "entry": entry_px_rec,    # 進場價（含 None＝末端未進場）
             "est_r":   est_r,
             "est_r_b": est_r_b,
-            "rr": est_rr_val,         # 進場預估盈虧比（恆正，供前端 RR 盒/顯示）
+            "rr": est_rr_val,         # 進場預估盈虧比(中軌，恆正，供前端 RR 盒/顯示)
+            "rr_b": est_rr_b_val,     # 進場預估盈虧比(上下軌，恆正)→ 自動交易初始 TP 用
             "rr_real":   rr_real,     # 已實現盈虧比(中軌，含號)→ 回測用
             "rr_b_real": rr_b_real,   # 已實現盈虧比(上下軌，含號)
         })

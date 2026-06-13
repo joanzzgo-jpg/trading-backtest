@@ -150,13 +150,15 @@ def _process_combo(market, exchange, symbol, tf, subs_here, now):
     if now - (last_closed_open + iv) > max(2 * iv, 180):
         return
 
-    # TP 跟著中軌移動：用最新「已收盤」棒的中軌，把未平自動倉的交易所 TP 重掛到中軌（只動 TP、不碰 SL）
+    # TP 跟著上下軌移動：用最新「已收盤」棒的上下軌，把未平自動倉的交易所 TP 重掛到對應軌
+    # （空→下軌、多→上軌；只動 TP、不碰 SL）。retarget_auto_tp 內依各倉方向挑軌。
     try:
         from routes.trade import retarget_auto_tp
-        if "bb_middle" in df.columns:        # 中軌欄位名（crt.py 用 _col_f("bb_middle")）
+        if "bb_upper" in df.columns and "bb_lower" in df.columns:   # 上下軌欄位（crt.py _col_f("bb_upper"/"bb_lower")）
             _mi = -2 if forming else -1
             if len(df) >= abs(_mi):
-                retarget_auto_tp(market, exchange, symbol, tf, float(df["bb_middle"].iloc[_mi]))
+                retarget_auto_tp(market, exchange, symbol, tf,
+                                 float(df["bb_upper"].iloc[_mi]), float(df["bb_lower"].iloc[_mi]))
     except Exception as e:
         print(f"  ⚠ TP 移動 hook 失敗：{e}")
 
@@ -203,6 +205,23 @@ def _process_combo(market, exchange, symbol, tf, subs_here, now):
     for scope, t in new_max.items():
         notify.mark_notified(scope, t)
 
+    # ── 自動交易平倉：止盈目標＝上下軌 → 以「上下軌結算」(r_b/ot_b) 平倉，與交易所 band TP 一致 ──
+    # 用 r_b（非中軌 r）：可能先到中軌(r=w)後反轉打到停損 → band 目標其實是輸(r_b=l)。
+    # settle_signal_trade 冪等（無對應未平倉就不動），與下方「中軌通知」分開，互不影響。
+    for sig in sigs:
+        rb = sig.get("r_b")
+        if rb not in ("w", "l"):
+            continue
+        otb = sig.get("ot_b")
+        if not otb or _epoch(otb) < fresh_cut or _epoch(otb) > last_closed_open:
+            continue
+        try:
+            from routes.trade import settle_signal_trade
+            settle_signal_trade(market, exchange, symbol, tf, sig["k"], sig.get("d"), sig,
+                                "tp" if rb == "w" else "sl")
+        except Exception as e:
+            print(f"  ⚠ 自動平倉 hook 失敗：{e}")
+
     # ── 止盈/止損通知：訊號剛在最近數根收盤棒「結算」→ 各推一次 ──
     # 重用勝率計算結果：r=='w' 表示在停損前先碰到中軌(止盈)、r=='l' 表示先打到止損，
     # ot 為結算時間（中軌逐根漂移，掃描本就逐根比當下中軌＝會動的止盈）。
@@ -217,13 +236,6 @@ def _process_combo(market, exchange, symbol, tf, subs_here, now):
         if not ot or _epoch(ot) < fresh_cut or _epoch(ot) > last_closed_open:
             continue
         k = sig["k"]; d = sig.get("d")
-        # 自動交易：策略判定止盈/止損 → 平掉對應自動倉位（冪等：無對應開倉紀錄就不動）
-        try:
-            from routes.trade import settle_signal_trade
-            settle_signal_trade(market, exchange, symbol, tf, k, d, sig,
-                                "tp" if r == "w" else "sl")
-        except Exception as e:
-            print(f"  ⚠ 自動平倉 hook 失敗：{e}")
         targets = [s for s in subs_here if k in (s["prefs"].get("sigs") or [])]
         if not targets:
             continue
