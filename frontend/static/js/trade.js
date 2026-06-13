@@ -106,6 +106,7 @@ function _trdRenderOverview() {
   const stEl = tog.querySelector(".trd-auto-state");
   if (stEl) stEl.textContent = a.on ? "運行中" : "關閉";
   pop.querySelector(".trd-auto-card")?.classList.toggle("trd-active", !!a.on);
+  pop.querySelector('.trd-tab[data-page="auto"]')?.classList.toggle("trd-running", !!a.on);   // 切到手動頁也看得到自動在跑
   pop.querySelectorAll(".trd-a-sig").forEach(x => x.classList.toggle("sel", (a.sigs || []).includes(x.dataset.sig)));
   pop.querySelectorAll(".trd-a-tf").forEach(x => x.classList.toggle("sel", (a.tfs || []).includes(x.dataset.tf)));
   const $ = id => pop.querySelector(id);
@@ -222,6 +223,20 @@ function _trdBuildPopup() {
     #tradePopup .trd-env-live { background:#7f1d1d44; color:#f87171; border:1px solid #f8717188; }
     #tradePopup .trd-bal { font-size:12px; color:var(--muted,#99a); margin:6px 0; }
     #tradePopup .trd-bal b { color:var(--text,#ddd); font-weight:600; }
+    /* 手動／自動 分頁切換 */
+    #tradePopup .trd-tabs { display:flex; gap:6px; margin:8px 0 6px; }
+    #tradePopup .trd-tab { flex:1; display:flex; align-items:center; justify-content:center; gap:6px;
+      padding:7px 0; border-radius:9px; border:1px solid var(--border,#3a3a50);
+      background:rgba(255,255,255,.02); color:var(--muted,#99a); cursor:pointer;
+      font-size:12px; font-weight:700; transition:all .18s ease; -webkit-tap-highlight-color:transparent; }
+    #tradePopup .trd-tab:hover { color:var(--text,#ddd); border-color:var(--blue,#4a90d9); }
+    #tradePopup .trd-tab.sel { color:var(--text,#fff); border-color:var(--blue,#4a90d9);
+      background:rgba(74,144,217,.14); box-shadow:0 2px 10px -4px var(--blue,#4a90d9); }
+    #tradePopup .trd-tab-led { width:7px; height:7px; border-radius:50%; background:transparent; transition:all .2s ease; }
+    #tradePopup .trd-tab.trd-running .trd-tab-led { background:#4cc38a;
+      box-shadow:0 0 0 3px #4cc38a33, 0 0 7px #4cc38aaa; animation:trdLed 1.8s ease-in-out infinite; }
+    #tradePopup .trd-page { display:none; }
+    #tradePopup .trd-page.show { display:block; }
     #tradePopup .trd-up { color:#4cc38a; } #tradePopup .trd-dn { color:#f06a6a; }
     #tradePopup .trd-sub { font-size:11px; color:var(--muted,#889); margin:8px 0 3px; }
     #tradePopup .trd-seg { display:flex; gap:5px; margin:4px 0; }
@@ -348,6 +363,11 @@ function _trdBuildPopup() {
     </div>
     <div class="trd-main">
     <div class="trd-bal">載入中…</div>
+    <div class="trd-tabs">
+      <button class="trd-tab sel" data-page="manual">手動交易</button>
+      <button class="trd-tab" data-page="auto"><span class="trd-tab-led"></span>自動交易</button>
+    </div>
+    <div class="trd-page trd-page-manual show">
     <div class="trd-sub">手動下單</div>
     <input id="trdSym" type="text" placeholder="標的（如 BTC/USDT.P）" style="margin-bottom:4px">
     <div class="trd-seg">
@@ -370,7 +390,8 @@ function _trdBuildPopup() {
     <div class="trd-sub">持倉</div>
     <div class="trd-pos"></div>
     <div class="trd-ord"></div>
-    <hr>
+    </div>
+    <div class="trd-page trd-page-auto">
     <div class="trd-auto-card">
       <button class="trd-auto-toggle">
         <span class="trd-auto-led"></span>
@@ -402,8 +423,17 @@ function _trdBuildPopup() {
       <div class="trd-note">⚠ 自動交易掃描的標的＝帳號自選清單（僅合約），且帳號需至少一台裝置啟用訊號通知。進場後停損/止盈由交易所託管，策略提前止盈止損時會同步平倉。</div>
     </div>
     </div>
+    </div>
     <div class="trd-msg"></div>`;
   document.body.appendChild(pop);
+
+  // 手動／自動 分頁切換
+  pop.querySelectorAll(".trd-tab").forEach(b => b.addEventListener("click", () => {
+    const page = b.dataset.page;
+    pop.querySelectorAll(".trd-tab").forEach(x => x.classList.toggle("sel", x === b));
+    pop.querySelectorAll(".trd-page").forEach(p =>
+      p.classList.toggle("show", p.classList.contains("trd-page-" + page)));
+  }));
 
   pop.querySelectorAll(".trd-side-btn").forEach(b => b.addEventListener("click", () => {
     pop.querySelectorAll(".trd-side-btn").forEach(x => x.classList.remove("sel"));
