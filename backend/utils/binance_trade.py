@@ -272,12 +272,17 @@ class Client:
                 "avgPrice": float(o.get("avgPrice", 0) or 0)}
 
     def place_close_trigger(self, sym, side, stop_price, kind) -> dict:
+        # ⚠ 2025-12-09 起 Binance USDⓈ-M 把所有條件單(STOP_MARKET/TAKE_PROFIT_MARKET/STOP/
+        # TAKE_PROFIT/TRAILING_STOP_MARKET)遷到 Algo Order API：舊的 POST /fapi/v1/order 掛這些
+        # 一律回 -4120(STOP_ORDER_SWITCH_ALGO，與幣種無關，BTC 也擋)。改用 POST /fapi/v1/algoOrder：
+        # 必帶 algoType=CONDITIONAL，且價格參數名由 stopPrice 改為 triggerPrice。
         t = "STOP_MARKET" if kind == "sl" else "TAKE_PROFIT_MARKET"
-        o = self._request("POST", "/fapi/v1/order", {
-            "symbol": sym, "side": side, "type": t, "stopPrice": stop_price,
-            "closePosition": "true", "workingType": "CONTRACT_PRICE",
+        o = self._request("POST", "/fapi/v1/algoOrder", {
+            "algoType": "CONDITIONAL", "symbol": sym, "side": side, "type": t,
+            "triggerPrice": stop_price, "closePosition": "true", "workingType": "CONTRACT_PRICE",
         })
-        return {"orderId": o.get("orderId"), "status": o.get("status")}
+        return {"orderId": o.get("orderId") or o.get("algoId") or o.get("strategyId"),
+                "status": o.get("status")}
 
     def cancel_order(self, sym, order_id):
         self._request("DELETE", "/fapi/v1/order", {"symbol": sym, "orderId": order_id})
@@ -285,10 +290,18 @@ class Client:
     def cancel_all(self, sym):
         self._request("DELETE", "/fapi/v1/allOpenOrders", {"symbol": sym})
 
+    def cancel_all_algo(self, sym):
+        # 條件單(SL/TP)現為 Algo Order，allOpenOrders 不含 → 需用 algo 專屬端點取消（避免孤兒停損）
+        self._request("DELETE", "/fapi/v1/algoOrders", {"symbol": sym})
+
     def close_position(self, sym) -> dict:
         pos = [p for p in self.positions() if p["symbol"] == sym]
         try:
             self.cancel_all(sym)
+        except TradeError:
+            pass
+        try:
+            self.cancel_all_algo(sym)    # 一併取消 Algo 條件單(SL/TP)
         except TradeError:
             pass
         if not pos:
