@@ -115,7 +115,7 @@
             <div class="bt-row"><label>止損緩衝%</label><input id="btBuf" type="number" value="0" min="0" max="10" step="0.1"></div>
             <div class="bt-row"><label>每筆風險%</label><input id="btRisk" type="number" value="2" min="0.1" max="100" step="0.5"></div>
             <div class="bt-row"><label>進場規則</label>
-              <div class="bt-seg" id="btRule"><button data-v="all" class="on">全部訊號</button><button data-v="single">一次一筆</button></div></div>
+              <div class="bt-seg" id="btRule"><button data-v="all" class="on">全部訊號</button><button data-v="single">一次一筆</button><button data-v="stop">敗後停手</button></div></div>
             <div class="bt-hint">用 CRT 訊號的勝負序列 × 每筆預估盈虧比模擬資金曲線（重用勝率引擎，深歷史）。定額風險、單利：每筆固定冒險「本金 × 每筆風險%」。</div>
           </div>
           <button class="bt-run" id="btRun">執行回測</button>
@@ -178,6 +178,7 @@
         initial_capital: parseFloat(document.getElementById("btCap").value) || 100000,
         lookback_days: parseInt(document.getElementById("btLookback").value, 10) || 0,
         one_position: _segVal("btRule") === "single",
+        stop_after_loss: _segVal("btRule") === "stop",
       };
       const data = await _post("/api/crt_backtest", body);
       _renderResult(data);
@@ -219,6 +220,8 @@
       : "";
     const ruleLine = (d.entry_rule === "single")
       ? `進場規則：一次一筆（${d.n_all}筆訊號中取${d.n_taken}筆不重疊，跳過${(d.n_all ?? 0) - (d.n_taken ?? 0)}筆）`
+      : (d.entry_rule === "stop")
+      ? `進場規則：敗後停手（${d.n_all}筆訊號中取${d.n_taken}筆，停手期間跳過${(d.n_all ?? 0) - (d.n_taken ?? 0)}筆）`
       : "";
     res.innerHTML = `
       <div class="bt-cards">${cards.map(c => `<div class="bt-card"><div class="v ${c.c}">${c.v}</div><div class="k">${c.k}</div></div>`).join("")}</div>

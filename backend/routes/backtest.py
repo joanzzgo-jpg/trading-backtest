@@ -41,6 +41,7 @@ class CrtBacktestRequest(BaseModel):
                                #          est =預計止盈(進場固定目標,勝負=有沒有到est目標、盈虧比=預估值恆正)
     lookback_days: int = 0     # 回測期間（往前回測多久；0=全部可用歷史）
     one_position: bool = False # True=一次一筆（直到上一筆結算才接下一個訊號；跳過重疊）
+    stop_after_loss: bool = False  # True=敗後停手（逐方向：輸了停手、旁觀同向到紙上會贏或反向訊號才回場；SS 套同根K放行新規則）
     finmind_token: str = ""
 
 
@@ -48,6 +49,33 @@ class CrtBacktestRequest(BaseModel):
 _CRT_AGG   = {"ab", "3", "4", "5", "6", "7", "8", "9", "10", "11"}          # all：S2~S11（與總勝率口徑一致）
 _CRT_AGG11 = {"abc", "ab", "3", "4", "5", "6", "7", "8", "9", "10", "11"}   # all11：S1~S11（多含 S1/ABC）
 _AGG_SETS  = {"all": _CRT_AGG, "all11": _CRT_AGG11}
+
+
+def _filter_stop_after_loss(picked, rkey, otkey):
+    """敗後停手：依訊號棒時間 t 跑逐方向狀態機，回「實際會進場」的子集。
+    與圖表 crt._calc_stop_strategy / _ss_stop_strategy 同邏輯：某方向進場中遇敗→停手、
+    旁觀同向直到紙上會贏或出現反方向訊號才回場。SS 另套『被停損出場那根 K 又有同向
+    SS 訊號（出場棒==訊號棒）→放行』新規則。picked 內皆已結算（rkey∈w/l）。"""
+    active  = {"s": True, "l": True}
+    stop_ot = {"s": None, "l": None}   # 讓該方向停手的那筆敗單「止損出場棒」
+    taken = []
+    for s in sorted(picked, key=lambda x: x.get("t") or ""):
+        d = s.get("d")
+        if d not in ("s", "l"):
+            continue
+        is_ss = s.get("k") in ("ss1", "ss2")
+        # SS 新規則：被停損出場的那根 K，同時又冒出同向 SS 訊號 → 視同回場、放行
+        if is_ss and not active[d] and stop_ot[d] is not None and str(s.get("t")) == str(stop_ot[d]):
+            active[d] = True
+        if active[d]:
+            taken.append(s)
+            if s.get(rkey) != "w":
+                active[d] = False                  # 遇敗 → 該方向停手
+                stop_ot[d] = s.get(otkey)          # 記下止損出場棒（供 SS 新規則比對）
+        elif s.get(rkey) == "w":
+            active[d] = True                       # 停手中、同向紙上會贏 → 回場
+        active["l" if d == "s" else "s"] = True    # 反向訊號出現 → 解除反向停手
+    return taken
 
 
 def _fmt_dur(seconds: float) -> str:
@@ -222,7 +250,11 @@ def run_crt_backtest(req: CrtBacktestRequest):
     # 一次一筆：直到上一筆結算（otkey）才接受下一個「進場時間 ≥ 前筆結算時間」的訊號，
     # 持倉期間出現的訊號全部跳過。依進場時間順序貪婪挑選。
     n_all = len(picked)
-    if req.one_position and picked:
+    if req.stop_after_loss and picked:
+        # 敗後停手（與「一次一筆」互斥；UI 為單選）：逐方向狀態機篩出實際會進場的訊號
+        picked = _filter_stop_after_loss(picked, rkey, otkey)
+        picked.sort(key=lambda s: s.get(otkey) or s.get("t") or "")
+    elif req.one_position and picked:
         by_entry = sorted(picked, key=lambda s: (s.get("t") or "", s.get(otkey) or ""))
         kept = []
         busy_until = ""   # 目前持倉的結算時間（ISO）；空＝無持倉
@@ -244,7 +276,7 @@ def run_crt_backtest(req: CrtBacktestRequest):
         "trades":       trades,
         "equity_curve": equity,
         "tp_mode":      tp_mode,
-        "entry_rule":   "single" if req.one_position else "all",
+        "entry_rule":   "stop" if req.stop_after_loss else ("single" if req.one_position else "all"),
         "n_all":        n_all,             # 該條件/期間內的全部訊號數
         "n_taken":      len(picked),       # 實際納入回測的筆數（一次一筆會少於 n_all）
     }
