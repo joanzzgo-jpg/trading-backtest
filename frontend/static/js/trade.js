@@ -116,12 +116,14 @@ function _trdRenderOverview() {
   if (document.activeElement !== $("#trdAutoMax")) $("#trdAutoMax").value = a.maxPos ?? 3;
   if ($("#trdAutoDirs").value !== a.dirs) $("#trdAutoDirs").value = a.dirs || "both";
   if (document.activeElement !== $("#trdAutoSl")) $("#trdAutoSl").value = a.slPct ?? 0;
-  // 倉位模式：riskUsd>0=固定風險、否則固定保證金。輸入中(focus)不切，免刷新打斷操作。
+  // 倉位模式：riskUsd>0=止損算槓桿、否則自訂槓桿。輸入中(focus)不切，免刷新打斷操作。
   const _isRisk = (a.riskUsd || 0) > 0, _af = document.activeElement;
-  if (_af !== $("#trdAutoRisk") && _af !== $("#trdAutoUsdt") && pop.querySelector(".trd-amode-btn")) {
+  const _editing = _af === $("#trdAutoRisk") || _af === $("#trdAutoUsdt") || _af === $("#trdAutoLev");
+  if (!_editing && pop.querySelector(".trd-amode-btn")) {
     pop.querySelectorAll(".trd-amode-btn").forEach(x => x.classList.toggle("sel", x.dataset.mode === (_isRisk ? "risk" : "margin")));
-    $("#trdCellMargin").hidden = _isRisk; $("#trdCellRisk").hidden = !_isRisk;
-    const _lh = $("#trdLevHint"); if (_lh) _lh.textContent = _isRisk ? "上限・自動" : "固定";
+    $("#trdCellLev").hidden = _isRisk; $("#trdCellRisk").hidden = !_isRisk;
+    const _la = $("#trdLevAuto"); if (_la) _la.hidden = !_isRisk;
+    const _eg = $("#trdLevEg"); if (_eg) _eg.textContent = _isRisk ? _trdLevExample(a.usdt, a.riskUsd) : "";
   }
   const sal = $("#trdAutoSal");
   if (sal) { sal.classList.toggle("sel", !!a.stopAfterLoss); sal.textContent = a.stopAfterLoss ? "開" : "關"; }
@@ -166,6 +168,13 @@ function _trdRenderPerSym() {
     if (v > 0) a2.perSym[inp.dataset.key] = v; else delete a2.perSym[inp.dataset.key];
     _trdSaveAuto();
   }));
+}
+
+// 止損算槓桿模式的「例子」：以停損 2% 估個槓桿讓使用者有概念（實際依各訊號停損距離自動算）。
+// 公式 = 止損額 ÷（金額 × 停損距離）。
+function _trdLevExample(margin, risk) {
+  if (!(margin > 0) || !(risk > 0)) return "";
+  return `　（例：停損 2% → 約 ${Math.max(1, Math.round(risk / (margin * 0.02)))}x）`;
 }
 
 let _trdAutoSaveTimer = null;
@@ -268,6 +277,10 @@ function _trdBuildPopup() {
     #tradePopup .trd-amode .trd-amode-btn:hover { color:var(--text,#cde); }
     #tradePopup .trd-amode .trd-amode-btn.sel { background:linear-gradient(180deg,#5aa0e6,#4a90d9); color:#fff;
       box-shadow:0 2px 10px -3px rgba(74,144,217,.7); }
+    /* 止損算槓桿的說明框 */
+    #tradePopup .trd-lev-auto { font-size:10px; line-height:1.5; color:#86b4e4; margin:1px 0 4px;
+      padding:5px 8px; border-radius:8px; background:rgba(74,144,217,.09); border:1px solid rgba(74,144,217,.26); }
+    #tradePopup .trd-lev-auto b { color:#b6d6f7; font-weight:600; }
     #tradePopup .trd-grid { display:grid; grid-template-columns:1fr 1fr; gap:5px; margin:4px 0; }
     #tradePopup .trd-grid label { font-size:10px; color:var(--muted,#889); display:block; margin-bottom:2px; }
     #tradePopup input, #tradePopup select { width:100%; box-sizing:border-box; padding:7px 9px; border-radius:7px;
@@ -445,17 +458,18 @@ function _trdBuildPopup() {
       <div class="trd-chips">${tfChips}</div>
       <div class="trd-sub trd-grp-hd">倉位<small>下單金額怎麼決定</small></div>
       <div class="trd-seg trd-amode" id="trdAutoMode">
-        <button class="trd-amode-btn sel" data-mode="margin">固定保證金</button>
-        <button class="trd-amode-btn" data-mode="risk">固定風險</button>
+        <button class="trd-amode-btn sel" data-mode="margin">自訂槓桿</button>
+        <button class="trd-amode-btn" data-mode="risk">止損算槓桿</button>
       </div>
       <div class="trd-grid">
         <div><label>方向</label><select id="trdAutoDirs">
           <option value="both">多空都做</option><option value="long">只做多</option><option value="short">只做空</option>
         </select></div>
-        <div><label>槓桿<small id="trdLevHint">固定</small></label><input id="trdAutoLev" type="number" min="1" max="50"></div>
-        <div id="trdCellMargin"><label>每筆保證金 USDT</label><input id="trdAutoUsdt" type="number" min="1"></div>
-        <div id="trdCellRisk" hidden><label>每筆風險 USDT<small>打到停損約虧這麼多</small></label><input id="trdAutoRisk" type="number" min="0" step="1" placeholder="0"></div>
+        <div><label>進場金額 USDT<small>保證金</small></label><input id="trdAutoUsdt" type="number" min="1"></div>
+        <div id="trdCellLev"><label>槓桿</label><input id="trdAutoLev" type="number" min="1" max="50"></div>
+        <div id="trdCellRisk" hidden><label>止損額 USDT<small>打到停損虧這麼多</small></label><input id="trdAutoRisk" type="number" min="0" step="1" placeholder="0"></div>
       </div>
+      <div class="trd-lev-auto" id="trdLevAuto" hidden>📐 槓桿自動算 ＝ 止損額 ÷（金額 × 停損距離）<b id="trdLevEg"></b></div>
       <div class="trd-sub trd-grp-hd">風險控制</div>
       <div class="trd-grid">
         <div><label>最大同時持倉<small>筆</small></label><input id="trdAutoMax" type="number" min="1" max="20"></div>
@@ -552,20 +566,29 @@ function _trdBuildPopup() {
   pop.querySelectorAll(".trd-a-sig, .trd-a-tf").forEach(b => b.addEventListener("click", e => {
     e.stopPropagation(); b.classList.toggle("sel"); _trdSaveAuto();
   }));
-  // 倉位模式二選一：固定保證金 / 固定風險
+  // 倉位模式二選一：自訂槓桿 / 止損算槓桿
+  const _trdLevEgUpd = () => {
+    const eg = pop.querySelector("#trdLevEg");
+    if (eg) eg.textContent = _trdLevExample(+pop.querySelector("#trdAutoUsdt").value,
+                                            +pop.querySelector("#trdAutoRisk").value);
+  };
   pop.querySelectorAll(".trd-amode-btn").forEach(b => b.addEventListener("click", e => {
     e.stopPropagation();
     pop.querySelectorAll(".trd-amode-btn").forEach(x => x.classList.toggle("sel", x === b));
     const risk = b.dataset.mode === "risk";
-    pop.querySelector("#trdCellMargin").hidden = risk;
-    pop.querySelector("#trdCellRisk").hidden = !risk;
-    pop.querySelector("#trdLevHint").textContent = risk ? "上限・自動" : "固定";
-    if (risk) {   // 切到風險模式但還沒填 → 給預設 10，免存成 0 又被切回保證金
+    pop.querySelector("#trdCellLev").hidden = risk;          // 自訂槓桿模式才有槓桿欄
+    pop.querySelector("#trdCellRisk").hidden = !risk;        // 止損算槓桿模式才有止損額欄
+    pop.querySelector("#trdLevAuto").hidden = !risk;
+    if (risk) {   // 切到止損模式但還沒填 → 給預設 10，免存成 0 又被切回
       const rf = pop.querySelector("#trdAutoRisk");
       if (!(+rf.value > 0)) rf.value = 10;
+      _trdLevEgUpd();
     }
     _trdSaveAuto();
   }));
+  // 止損額/金額改動 → 即時更新槓桿例子
+  pop.querySelector("#trdAutoRisk").addEventListener("input", _trdLevEgUpd);
+  pop.querySelector("#trdAutoUsdt").addEventListener("input", _trdLevEgUpd);
   ["#trdAutoUsdt", "#trdAutoRisk", "#trdAutoLev", "#trdAutoMax", "#trdAutoDirs", "#trdAutoSl"].forEach(id =>
     pop.querySelector(id).addEventListener("change", _trdSaveAuto));
   pop.querySelector("#trdAutoSal").addEventListener("click", e => {

@@ -547,28 +547,33 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
         # ── 倉位大小 + 槓桿 ──
         risk_usd = cfg.get("riskUsd") or 0
         lev_cap = max(1, min(int(cfg["lev"]), 50))
+        _size_warn = None
         if risk_usd > 0:
-            # 固定風險倉位：數量 = 風險金額 ÷（停損距離 + 進出兩腿手續費），槓桿自動挑（強平在停損外）。
+            # 「固定金額 + 固定止損 → 算槓桿」：數量由止損額 risk_usd 反推(含來回手續費)，使打到停損約虧
+            # risk_usd；槓桿 = 名目 ÷ 進場金額(保證金 cfg.usdt)。＝ 止損額 ÷（金額 × 停損距離）。
             e_c = px                               # px=last_price(bsym) 已是合約價 → 不可再 ×scale（曾雙重縮放，1000 倍合約數量算成 1/1000）
             s_c = stop_chart * scale               # 停損合約價
             dist = abs(e_c - s_c)
             if dist <= 0:
                 _log_trade(source="auto", mode=client.env, status="failed", symbol=symbol, bsym=bsym,
                            side=want, sig=k, d=d, tf=tf, sigt=str(sig.get("t")),
-                           msg="停損距離為 0，無法計算風險倉位")
+                           msg="停損距離為 0，無法計算倉位")
                 return
             fee = 0.0005                           # Binance 合約吃單 0.05%/邊
             # 每單位虧損（把手續費全算進去）：停損距離 + 進場腿(以進場價)手續費 + 出場腿(以停損價)手續費
             per_unit_loss = dist + fee * e_c + fee * s_c
-            q_base = risk_usd / per_unit_loss      # 風險金額換算的數量
+            q_base = risk_usd / per_unit_loss      # 打到停損約虧 risk_usd 的數量
             notional = q_base * e_c
             stop_pct = dist / e_c if e_c else 0.05
-            # 自動槓桿（保守，防大波動/插針在停損前被強平）：強平距離 ≥ 停損距離×2.5 + 維持保證金緩衝。
-            # 用該合約「真實維持保證金率 mmr 與最大槓桿」上限把關。
             max_lev, mmr = client.lev_bracket(bsym)
-            denom = stop_pct * 2.5 + mmr
-            auto_lev = int(1.0 / denom) if denom > 0 else lev_cap
-            lev = max(1, min(auto_lev, lev_cap, max_lev))
+            margin = cfg.get("usdt") or 0          # 進場金額(保證金)＝使用者填的「金額」
+            # 槓桿 = 名目 ÷ 金額。安全上限：強平須在停損外(~1.25×停損距離)，否則金額太小→停損前先爆倉、
+            # 虧掉整筆保證金(超過設定止損額) → 自動壓低槓桿(等於多投保證金)。
+            safe_lev = int(1.0 / (stop_pct * 1.25 + mmr)) if (stop_pct * 1.25 + mmr) > 0 else max_lev
+            want_lev = round(notional / margin) if margin > 0 else safe_lev
+            lev = max(1, min(want_lev, safe_lev, max_lev, 50))
+            if want_lev > lev:
+                _size_warn = f"槓桿 {want_lev}→{lev}x（金額太小、強平會在停損內 → 自動降槓桿、多投保證金保護）"
             qty = client.quantize_qty(bsym, q_base)
         else:
             lev = lev_cap
@@ -612,6 +617,8 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
             print(f"  ⚠ 自動下單 {bsym} 停損掛單失敗，已平倉：{e}")
             return
         warn = []
+        if _size_warn:
+            warn.append(_size_warn)
         tp_oid = None
         if tp_px:
             try:
@@ -625,9 +632,10 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
                    sigt=str(sig.get("t")), msg="；".join(warn) or None)
         # 通知擁有者：自動進場
         envtag = "實盤" if client.env == "live" else "測試網"
-        body = (f"{'做空' if want == 'short' else '做多'}　數量 {qty}\n"
+        body = (f"{'做空' if want == 'short' else '做多'}　{lev}x　數量 {qty}\n"
                 f"進場 {entry}　停損 {round(stop_chart, 8)}"
-                + (f"　止盈 {tp_px}" if tp_px else ""))
+                + (f"　止盈 {tp_px}" if tp_px else "")
+                + (f"\n⚠ {_size_warn}" if _size_warn else ""))
         _push_owner(owner, f"🤖 自動進場 · {symbol}（{envtag}）", body, symbol, tf=tf, event="atrade_open")
         print(f"  🤖 自動下單 {client.env}: {bsym} {side} {qty}（{symbol} {tf} "
               f"{k}/{d}）" + (f" ⚠{warn}" if warn else ""))
