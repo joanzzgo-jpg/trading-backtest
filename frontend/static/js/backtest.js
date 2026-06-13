@@ -18,6 +18,7 @@
     { v: "s7",  label: "S7 訊號七" }, { v: "s8", label: "S8 訊號八" },
     { v: "s9",  label: "S9 訊號九" }, { v: "s10", label: "S10 訊號十" },
     { v: "s11", label: "S11 訊號十一" }, { v: "s12", label: "S12 訊號十二" },
+    { v: "ssall", label: "SS1+SS2 合計" },
     { v: "ss1", label: "SS1 軌道反轉（深）" }, { v: "ss2", label: "SS2 軌道反轉（淺）" },
   ];
 

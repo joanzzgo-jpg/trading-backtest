@@ -48,7 +48,8 @@ class CrtBacktestRequest(BaseModel):
 # UI 的 signal key（s3..）↔ signal record 的 k（"3"..）；abc/ab 同名
 _CRT_AGG   = {"ab", "3", "4", "5", "6", "7", "8", "9", "10", "11"}          # all：S2~S11（與總勝率口徑一致）
 _CRT_AGG11 = {"abc", "ab", "3", "4", "5", "6", "7", "8", "9", "10", "11"}   # all11：S1~S11（多含 S1/ABC）
-_AGG_SETS  = {"all": _CRT_AGG, "all11": _CRT_AGG11}
+_SS_AGG    = {"ss1", "ss2"}                                                  # ssall：SS 系列合計（軌道反轉，獨立於 S）
+_AGG_SETS  = {"all": _CRT_AGG, "all11": _CRT_AGG11, "ssall": _SS_AGG}
 
 
 def _filter_stop_after_loss(picked, rkey, otkey):
