@@ -363,8 +363,8 @@ function _ntfType(ev) {
     case "tp":          return { label: "止盈",     cls: "t-tp",      bub: "evt-tp" };
     case "sl":          return { label: "止損",     cls: "t-sl",      bub: "evt-sl" };
     case "atrade_open": return { label: "🤖 進場",  cls: "t-auto",    bub: "evt-auto" };
-    case "atrade_tp":   return { label: "🤖 止盈",  cls: "t-auto-tp", bub: "evt-auto" };
-    case "atrade_sl":   return { label: "🤖 止損",  cls: "t-auto-sl", bub: "evt-auto" };
+    case "atrade_tp":   return { label: "✅ 止盈",  cls: "t-auto-tp", bub: "evt-auto" };
+    case "atrade_sl":   return { label: "👎 止損",  cls: "t-auto-sl", bub: "evt-auto" };
     default:            return { label: "🤖 自動",  cls: "t-auto",    bub: "evt-auto" };  // atrade(取消/其他)
   }
 }

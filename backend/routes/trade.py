@@ -702,8 +702,14 @@ def _close_auto_position(owner, client, row_id, bsym, symbol, tf, event, reason,
     except bt.TradeError:
         pass
     result = "止盈" if event == "tp" else "止損"
-    body = f"{result}平倉" + (f"\n已實現盈虧 {pnl:+.2f} USDT" if pnl is not None else "")
-    _push_owner(owner, f"🤖 自動{result} · {symbol}", body, symbol, tf=tf,
+    icon = "✅" if event == "tp" else "👎"            # 止盈勾勾／止損倒讚
+    # body 保留「已實現盈虧 {±x} USDT」格式（今日摘要正則解析用），後綴賺/賠金額讓人一眼看懂
+    if pnl is not None:
+        gain = "賺" if pnl >= 0 else "賠"
+        body = f"{icon} {result}平倉\n已實現盈虧 {pnl:+.2f} USDT（{gain} {abs(pnl):.2f}）"
+    else:
+        body = f"{icon} {result}平倉"
+    _push_owner(owner, f"{icon} 自動{result} · {symbol}", body, symbol, tf=tf,
                 event=("atrade_tp" if event == "tp" else "atrade_sl"),
                 sig=sig, d=d, sigt=sigt)
     print(f"  🤖 自動平倉 {client.env}: {bsym}（{event}）pnl={pnl}")
