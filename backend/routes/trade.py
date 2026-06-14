@@ -10,8 +10,10 @@
 - 設定存 DB 單列 trade_auto（沿用 account.py 的 Postgres/SQLite 雙後端）→ 重啟不丟。
 - notify_monitor 偵測到「新進場訊號」→ execute_signal_trade()：市價進場 +
   交易所託管 SL（訊號停損價）/ TP（進場 ± 盈虧比×風險）。
-- 訊號引擎判定止盈/止損（中軌會漂移，可能早於交易所掛單觸發）→ settle_signal_trade()
-  把對應倉位市價平掉 → 出場邏輯與回測/通知一致。
+- 出場：全由交易所掛的觸發單『盤中即時』觸發（止損 STOP_MARKET＝緩衝價、止盈 TAKE_PROFIT_MARKET＝上下軌，
+  retarget_auto_tp 每根把 TP 移到最新上下軌）→ 碰到止盈/止損位就出，不等收盤(整點)決定。
+  reconcile_auto_position() 每輪對帳：未平倉若交易所已無持倉(觸發單已平) → 補記錄+通知。
+  （舊的 settle_signal_trade() 會在收盤用訊號結算提早市價平倉、架空止損緩衝 → 已停用，保留定義備查。）
 - 每筆交易記 trade_log（含 testnet/live 標記），前端交易面板顯示。
 """
 import os
@@ -737,6 +739,60 @@ def settle_signal_trade(market, exchange, symbol, tf, k, d, sig, event):
                              sig=k, d=d, sigt=sigt)
     except Exception as e:
         print(f"  ⚠ 自動平倉失敗 {symbol} {tf}：{e}")
+
+
+def reconcile_auto_position(market, exchange, symbol, tf):
+    """自動倉出場對帳：該『標的×時框』的未平自動倉，若交易所已無持倉（止損/止盈觸發單『盤中即時』已平）
+    → 補記錄 + 通知。取代原本『收盤(整點) settle 平倉』：
+      • 出場改由交易所掛的觸發單盤中即時觸發（碰到止盈/止損位就出，不再整點才決定）。
+      • 止損確實落在通知顯示的緩衝價（交易所掛單），不再被『訊號自身較近的止損』提早平。
+    止盈/止損依該倉已實現盈虧正負判定。冪等：只處理 status='open' 且交易所已無倉者。"""
+    try:
+        if market != "crypto":
+            return
+        cfg = get_auto_cfg()
+        owner = (cfg.get("owner") or "").strip()
+        client, _ = _client_for(owner)
+        if client is None:
+            return
+        _ensure_db()
+        conn, ph = _acct._db()
+        try:
+            cur = conn.execute(
+                f"SELECT id, bsym, sig, dir, sigt FROM trade_log WHERE source='auto' AND status='open' "
+                f"AND symbol={ph} AND tf={ph}", (symbol, tf))
+            rows = cur.fetchall()
+        finally:
+            conn.close()
+        if not rows:
+            return
+        try:
+            pos_syms = {p["symbol"] for p in client.positions()}
+        except bt.TradeError:
+            return
+        for row_id, bsym, rsig, rd, rsigt in rows:
+            if bsym in pos_syms:
+                continue                           # 仍有持倉 → 未平，跳過
+            # 持倉已不在 → 交易所觸發單已盤中平倉。判止盈/止損：該合約最近一筆已實現盈虧正負。
+            pnl = None
+            try:
+                for inc in client.income_history(30):
+                    if inc.get("symbol") == bsym:
+                        pnl = inc.get("pnl"); break
+            except bt.TradeError:
+                pass
+            if pnl is None:
+                continue                           # 已實現盈虧尚未入帳 → 先不記，下一輪重試（避免誤判止盈/止損、漏記盈虧）
+            event = "tp" if pnl >= 0 else "sl"
+            try:
+                client.cancel_all_algo(bsym)       # 清殘留的另一張觸發單（止損觸發→殘留止盈，反之亦然），避免孤兒
+            except bt.TradeError:
+                pass
+            _close_auto_position(owner, client, row_id, bsym, symbol, tf, event,
+                                 "交易所止盈平倉（盤中觸及上下軌）" if event == "tp" else "交易所止損平倉（盤中觸及停損）",
+                                 sig=rsig, d=rd, sigt=rsigt)
+    except Exception as e:
+        print(f"  ⚠ 自動倉對帳失敗 {symbol} {tf}：{e}")
 
 
 def retarget_auto_tp(market, exchange, symbol, tf, upper_chart, lower_chart):

@@ -205,22 +205,15 @@ def _process_combo(market, exchange, symbol, tf, subs_here, now):
     for scope, t in new_max.items():
         notify.mark_notified(scope, t)
 
-    # ── 自動交易平倉：止盈目標＝上下軌 → 以「上下軌結算」(r_b/ot_b) 平倉，與交易所 band TP 一致 ──
-    # 用 r_b（非中軌 r）：可能先到中軌(r=w)後反轉打到停損 → band 目標其實是輸(r_b=l)。
-    # settle_signal_trade 冪等（無對應未平倉就不動），與下方「中軌通知」分開，互不影響。
-    for sig in sigs:
-        rb = sig.get("r_b")
-        if rb not in ("w", "l"):
-            continue
-        otb = sig.get("ot_b")
-        if not otb or _epoch(otb) < fresh_cut or _epoch(otb) > last_closed_open:
-            continue
-        try:
-            from routes.trade import settle_signal_trade
-            settle_signal_trade(market, exchange, symbol, tf, sig["k"], sig.get("d"), sig,
-                                "tp" if rb == "w" else "sl")
-        except Exception as e:
-            print(f"  ⚠ 自動平倉 hook 失敗：{e}")
+    # ── 自動交易出場：全交給交易所掛的觸發單『盤中即時』觸發（碰到止盈/止損位就出，不再整點才決定）──
+    # 這裡只『對帳』：未平自動倉若交易所已無持倉(觸發單已平) → 補記錄+通知。
+    # 不再用收盤(整點)訊號結算平倉 —— 那會把止損提早平在『訊號自身較近的止損』、架空止損緩衝，
+    # 也使止盈/止損變成整點才決定（非碰到即出）。retarget_auto_tp 仍負責每根把 TP 單移到最新上下軌。
+    try:
+        from routes.trade import reconcile_auto_position
+        reconcile_auto_position(market, exchange, symbol, tf)
+    except Exception as e:
+        print(f"  ⚠ 自動倉對帳 hook 失敗：{e}")
 
     # ── 止盈/止損通知：訊號剛在最近數根收盤棒「結算」→ 各推一次 ──
     # 重用勝率計算結果：r=='w' 表示在停損前先碰到中軌(止盈)、r=='l' 表示先打到止損，
