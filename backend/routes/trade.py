@@ -54,7 +54,10 @@ _AUTO_DEFAULT = {"on": False, "owner": "", "sigs": [], "tfs": [], "usdt": 50.0,
                  "perSym": {},
                  # stopAfterLoss=敗後停手（同圖表）：某方向落敗後停手、跳過後續同向訊號，
                  # 直到同向「紙上會贏」或反向訊號出現才解除（非時間冷卻）
-                 "stopAfterLoss": False}
+                 "stopAfterLoss": False,
+                 # maxAdds=加倉上限筆數（含首筆）。1=不加倉(同合約只一倉，同向訊號略過)；>1=持倉中同向訊號
+                 # 再現就加一筆(到上限)，合併均價、停損移到最新筆、各筆冒 1R → 最壞約虧 N×R(停損上移常更少)。
+                 "maxAdds": 1}
 
 
 # ── 金鑰加密（Fernet）：Secret 加密後才入庫 ───────────────────
@@ -242,6 +245,15 @@ def _ensure_db():
                 conn.rollback()
             except Exception:
                 pass
+        # adds = 此自動倉的加倉筆數(含首筆，預設 1)，供「加倉上限」判定與顯示。
+        try:
+            conn.execute("ALTER TABLE trade_log ADD COLUMN adds INTEGER DEFAULT 1")
+            conn.commit()
+        except Exception:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
     finally:
         conn.close()
     _inited = True
@@ -289,6 +301,10 @@ def _clean_auto(p: Optional[dict]) -> dict:
             ps[str(sym)] = max(0.0, min(fv, 50.0))
     out["perSym"] = ps
     out["stopAfterLoss"] = bool(p.get("stopAfterLoss"))
+    try:
+        out["maxAdds"] = max(1, min(int(p.get("maxAdds", 1)), 10))   # 加倉上限(含首筆)，1=不加倉
+    except (TypeError, ValueError):
+        pass
     return out
 
 
@@ -536,12 +552,33 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
             return
         bsym, scale = client.resolve_symbol(symbol)
         pos = client.positions()
-        if any(p["symbol"] == bsym for p in pos):
-            _log_trade(source="auto", mode=client.env, status="skipped", symbol=symbol, bsym=bsym,
-                       side=want, sig=k, d=d, tf=tf, sigt=str(sig.get("t")),
-                       msg="已有同合約持倉，略過")
-            return
-        if len(pos) >= cfg["maxPos"]:
+        existing = next((p for p in pos if p["symbol"] == bsym), None)
+        max_adds = int(cfg.get("maxAdds", 1) or 1)
+        is_add = False; add_row_id = None; cur_adds = 1
+        if existing:
+            # 已有同合約持倉：加倉開啟(maxAdds>1) + 同向 + 未達上限 → 加倉；否則略過。
+            try:
+                _c, _ph = _acct._db()
+                try:
+                    _r = _c.execute(
+                        f"SELECT id, adds FROM trade_log WHERE source='auto' AND status='open' "
+                        f"AND bsym={_ph} ORDER BY id DESC LIMIT 1", (bsym,)).fetchone()
+                finally:
+                    _c.close()
+            except Exception:
+                _r = None
+            cur_adds = (_r[1] if (_r and _r[1]) else 1)
+            _why = None
+            if max_adds <= 1:                  _why = "已有同合約持倉，略過"
+            elif existing.get("side") != want: _why = "已有反向持倉，略過（單向不能反手）"
+            elif not _r:                       _why = "已有持倉但查無對應自動倉，略過（不加倉）"
+            elif cur_adds >= max_adds:         _why = f"加倉已達上限 {max_adds} 筆，略過"
+            if _why:
+                _log_trade(source="auto", mode=client.env, status="skipped", symbol=symbol, bsym=bsym,
+                           side=want, sig=k, d=d, tf=tf, sigt=str(sig.get("t")), msg=_why)
+                return
+            is_add = True; add_row_id = _r[0]
+        elif len(pos) >= cfg["maxPos"]:
             _log_trade(source="auto", mode=client.env, status="skipped", symbol=symbol, bsym=bsym,
                        side=want, sig=k, d=d, tf=tf, sigt=str(sig.get("t")),
                        msg=f"持倉數已達上限 {cfg['maxPos']}")
@@ -626,7 +663,7 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
             pass   # 槓桿設定失敗就用現值（有倉位/掛單時交易所會拒改）
 
         side = "BUY" if want == "long" else "SELL"
-        o = client.place_order(bsym, side, qty, "MARKET")
+        o = client.place_order(bsym, side, qty, "MARKET")   # 市價：開倉 or 加倉(同向加進淨倉)
         # 止盈到「上下軌」（空→下軌、多→上軌；用原始策略風險＝進場到策略停損算 → 不受停損緩衝影響）。
         # rr_b＝上下軌預估盈虧比；缺(軌為 NaN)→ 退回中軌 rr。之後 retarget_auto_tp 每根 K 跟著軌移動。
         tp_px = None; tgt = None     # tgt=止盈圖表價(顯示/紀錄用)；tp_px=合約價(掛單用，=tgt×scale)
@@ -636,6 +673,63 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
             tgt = float(entry) - tp_rr * risk if d == "s" else float(entry) + tp_rr * risk
             tp_px = client.quantize_price(bsym, tgt * scale)
         close_side = "SELL" if want == "long" else "BUY"
+
+        # ── 加倉：已合併進淨倉 → 取消舊 SL/TP、依「最新筆」停損與上下軌重掛、更新該倉 row + 通知 ──
+        if is_add:
+            try:
+                client.cancel_all_algo(bsym)        # 清舊 SL+TP（將依最新停損/上下軌重掛全倉）
+            except bt.TradeError:
+                pass
+            try:
+                client.place_close_trigger(bsym, close_side, sl_px, "sl")   # closePosition 覆蓋加大後整個淨倉
+            except bt.TradeError as e:
+                try:
+                    client.close_position(bsym)
+                except bt.TradeError:
+                    pass
+                _update_trade(add_row_id, "closed", f"加倉後停損掛單失敗（{e}）→ 已平整倉")
+                _push_owner(owner, f"⚠ 自動加倉異常 · {symbol}",
+                            f"加倉後停損無法掛單、為避免無保護持倉已平整倉\n{e}", symbol, tf=tf, event="atrade")
+                return
+            tp_oid2 = None
+            if tp_px:
+                try:
+                    tp_oid2 = client.place_close_trigger(bsym, close_side, tp_px, "tp").get("orderId")
+                except bt.TradeError:
+                    pass
+            try:
+                _np = next((p for p in client.positions() if p["symbol"] == bsym), None)
+            except bt.TradeError:
+                _np = None
+            new_qty = _np.get("qty") if _np else None
+            _ne = _np.get("entry") if _np else None
+            new_entry_chart = (_ne / scale) if (_ne and scale) else _ne     # 合約均價 → 圖表均價
+            new_adds = cur_adds + 1
+            try:
+                _c2, _ph2 = _acct._db()
+                try:
+                    _c2.execute(
+                        f"UPDATE trade_log SET qty={_ph2}, entry={_ph2}, sl={_ph2}, tp={_ph2}, tp_oid={_ph2}, adds={_ph2} "
+                        f"WHERE id={_ph2}",
+                        (str(new_qty) if new_qty is not None else None,
+                         str(new_entry_chart) if new_entry_chart is not None else None,
+                         str(round(stop_chart, 8)),
+                         (str(round(tgt, 8)) if (tp_px and tgt is not None) else None),
+                         tp_oid2, new_adds, add_row_id))
+                    _c2.commit()
+                finally:
+                    _c2.close()
+            except Exception:
+                pass
+            envtag = "實盤" if client.env == "live" else "測試網"
+            l1 = f"第 {new_adds} 筆 · {'做空' if want == 'short' else '做多'} · {envtag}"
+            l2 = f"加倉 {_fmt_px(entry)} · 數量 +{qty}"
+            l3 = f"均價 {_fmt_px(new_entry_chart) if new_entry_chart else '—'} · 停損移到 {_fmt_px(stop_chart)}"
+            _push_owner(owner, f"➕ 自動加倉 · {symbol}（第{new_adds}筆）", "\n".join([l1, l2, l3]),
+                        symbol, tf=tf, event="atrade_open", sig=k, d=d, sigt=str(sig.get("t")))
+            print(f"  ➕ 自動加倉 {client.env}: {bsym} 第{new_adds}筆 +{qty}")
+            return
+
         # 先掛停損（自動單的安全命脈）。掛失敗 → 立刻市價平掉剛進的倉，絕不留「無停損保護」
         # 的自動倉位（曾發生：冷門合約不支援條件單 -4120，倉位開了卻沒 SL）。
         try:
