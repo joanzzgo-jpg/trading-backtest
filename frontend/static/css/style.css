@@ -1071,6 +1071,20 @@ html.perf-mode .tb-winrate.calculating .tb-wr-status { color: #FF6A1A; }
     inset 0 1px 0 rgba(255,255,255,.18),
     0 0 10px rgba(60,180,200,.35);
 }
+/* 8成軌：金黃色，介於中軌(預設)與上下軌(橘)之間，一眼可區分 */
+.tb-wr-toggle.band80 {
+  color: #3a2a08;
+  background: linear-gradient(180deg,
+    rgba(255,216,110,.7) 0%,
+    rgba(245,190,70,.55) 45%,
+    rgba(235,170,45,.62) 100%);
+  border-color: rgba(255,224,150,.8);
+  text-shadow: 0 0 4px rgba(255,240,190,.7);
+  box-shadow:
+    inset 0 0 6px rgba(255,235,170,.45),
+    inset 0 1px 0 rgba(255,255,255,.25),
+    0 0 10px rgba(245,195,80,.4);
+}
 html.perf-mode .tb-wr-toggle {
   color: #8B8B8B;
   background: #FFFFFF;

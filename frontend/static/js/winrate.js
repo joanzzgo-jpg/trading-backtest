@@ -32,40 +32,44 @@ let _wrStopBuffer = 0;
 try { _wrStopBuffer = parseFloat(localStorage.getItem(_WR_BUFFER_KEY)) || 0; } catch (e) {}
 
 function _wrViewLabel(v) {
-  return v === "band" ? "上/下軌" : v === "rr" ? "1:1" : "中軌";
+  return v === "band" ? "上/下軌" : v === "band80" ? "8成軌" : v === "rr" ? "1:1" : "中軌";
 }
 function _initWrTargetBtn() {
   const btn = document.getElementById("wrTargetToggle");
   if (!btn) return;
-  // 三種目標：中軌（BB middle）／上下軌（方向相關極端）／1:1（止盈距離=止損距離）
+  // 四種目標：中軌（BB middle）／上下軌（方向相關極端）／8成軌（下↔上 80%）／1:1
   if (!btn.querySelector(".tb-wr-toggle-inner")) {
     btn.innerHTML = `<span class="tb-wr-toggle-inner">${_wrViewLabel(_wrTargetView)}</span>`;
   } else {
     btn.querySelector(".tb-wr-toggle-inner").textContent = _wrViewLabel(_wrTargetView);
   }
-  btn.classList.toggle("band", _wrTargetView === "band");
-  btn.classList.toggle("rr",   _wrTargetView === "rr");
+  btn.classList.toggle("band",   _wrTargetView === "band");
+  btn.classList.toggle("band80", _wrTargetView === "band80");
+  btn.classList.toggle("rr",     _wrTargetView === "rr");
 }
 
-// 取當前目標 view（mid 在頂層、band/rr 在巢狀子物件）
+// 取當前目標 view（mid 在頂層、band/band80/rr 在巢狀子物件）
+// band80：8成軌統計來自 band_ratio=0.8 那份的 .band，前端載入後掛成 d.band80（見 _ensureBand80）。
 function _wrPickView(d) {
   if (!d) return d;
+  if (_wrTargetView === "band80") return d.band80 || d.band || d;   // 未載入時暫退上下軌/中軌
   if (_wrTargetView === "band" && d.band) return d.band;
   if (_wrTargetView === "rr"   && d.rr)   return d.rr;
   return d;
 }
-// SS 系列的當前目標 view：mid 在 d.ss、上下軌在 d.ss.band（切換時 SS 也跟著變）
+// SS 系列的當前目標 view：mid 在 d.ss、上下軌在 d.ss.band、8成軌在 d.ss.band80（切換時 SS 也跟著變）
 function _wrSsView(d) {
   const ss = d && d.ss;
   if (!ss) return ss;
+  if (_wrTargetView === "band80") return ss.band80 || ss.band || ss;
   return (_wrTargetView === "band" && ss.band) ? ss.band : ss;
 }
-// 當前目標對應的「訊號結果 / 結算時間」欄位名
+// 當前目標對應的「訊號結果 / 結算時間」欄位名（band80 暫沿用 band 的 r_b/ot_b 做圖上標記）
 function _wrResultKey() {
-  return _wrTargetView === "band" ? "r_b" : _wrTargetView === "rr" ? "r_rr" : "r";
+  return (_wrTargetView === "band" || _wrTargetView === "band80") ? "r_b" : _wrTargetView === "rr" ? "r_rr" : "r";
 }
 function _wrOtKey() {
-  return _wrTargetView === "band" ? "ot_b" : _wrTargetView === "rr" ? "ot_rr" : "ot";
+  return (_wrTargetView === "band" || _wrTargetView === "band80") ? "ot_b" : _wrTargetView === "rr" ? "ot_rr" : "ot";
 }
 
 // 連敗風險顯示 N：0=關、2=2連(敗後再敗)、3=三連敗、4=四連敗。預設關（避免擠到 TOP3 列）
@@ -111,14 +115,15 @@ function _initWrStopBuffer() {
 function _toggleWrTarget() {
   const btn = document.getElementById("wrTargetToggle");
 
-  // 兩段循環：中軌 → 上/下軌 → 中軌（1:1 已移除）
-  _wrTargetView = _wrTargetView === "mid" ? "band" : "mid";
+  // 三段循環：中軌 → 上/下軌 → 8成軌 → 中軌（1:1 已移除）
+  _wrTargetView = _wrTargetView === "mid" ? "band" : _wrTargetView === "band" ? "band80" : "mid";
   try { localStorage.setItem(_WR_VIEW_KEY, _wrTargetView); } catch (e) {}
 
   // 動畫：rapid-click 安全 — 先清除所有殘留 inner、取消舊 timer 再開新動畫
   if (btn) {
-    btn.classList.toggle("band", _wrTargetView === "band");
-    btn.classList.toggle("rr",   _wrTargetView === "rr");
+    btn.classList.toggle("band",   _wrTargetView === "band");
+    btn.classList.toggle("band80", _wrTargetView === "band80");
+    btn.classList.toggle("rr",     _wrTargetView === "rr");
 
     // 取消上一輪未完成的清理 timer（避免殘留 inner 累積）
     if (btn._wrAnimTimer) { clearTimeout(btn._wrAnimTimer); btn._wrAnimTimer = null; }
@@ -154,10 +159,43 @@ function _toggleWrTarget() {
     _initWrTargetBtn();
   }
 
+  // 8成軌：需另抓 band_ratio=0.8 那份並掛成 d.band80（首次有短暫延遲，未載入時暫顯示上下軌）
+  if (_wrCacheLast && _wrTargetView === "band80" && !_wrCacheLast.band80) {
+    _ensureBand80(_wrCacheLast, () => { if (_wrCacheLast) _renderWinRate(_wrCacheLast); });
+  }
   if (_wrCacheLast) _renderWinRate(_wrCacheLast);
   _renderWRSignals();
   if (typeof window._refreshSignalDrawer === "function") window._refreshSignalDrawer();
   if (typeof renderDrawings === "function") requestAnimationFrame(renderDrawings);
+}
+
+// 載入 8成軌統計：抓 band_ratio=0.8 的勝率，把其 .band / .ss.band 掛到當前 payload 的 band80 欄位。
+// 同一 payload 物件只抓一次（存進 _wrCache → 切回該標的免重抓）。symbol 期間若已切換則丟棄。
+let _band80Ctrl = null;
+async function _ensureBand80(d, cb) {
+  if (!d || d.band80) { cb && cb(); return; }
+  const market    = document.getElementById("marketSelect")?.value || "crypto";
+  const symbol    = document.getElementById("symbolInput")?.value?.trim() || "";
+  const exchange  = document.getElementById("exchangeSelect")?.value || "pionex";
+  const timeframe = currentTF || "1d";
+  if (!symbol) { cb && cb(); return; }
+  const bufDec = (_wrStopBuffer || 0) / 100;
+  if (_band80Ctrl) _band80Ctrl.abort();
+  _band80Ctrl = new AbortController();
+  const myCtrl = _band80Ctrl;
+  try {
+    const p = new URLSearchParams({ market, symbol, exchange, timeframe,
+      stop_buffer_pct: bufDec.toFixed(4), band_ratio: "0.8" });
+    const res = await fetch("/api/crt_winrate?" + p, { signal: myCtrl.signal });
+    const v80 = await res.json();
+    if (!res.ok) throw new Error(v80.detail || "failed");
+    if (myCtrl !== _band80Ctrl) return;          // 已被新請求/切標的取代 → 丟棄
+    d.band80 = v80.band || null;                 // 8成軌 = 0.8 那份的 .band（含 s6/stop_strategy/recent…）
+    if (d.ss && v80.ss) d.ss.band80 = v80.ss.band || v80.ss;
+    cb && cb();
+  } catch (e) {
+    if (e.name !== "AbortError") { d.band80 = d.band || null; cb && cb(); }   // 失敗 → 暫退上下軌
+  }
 }
 
 /* ══════════════════════════════════════════
@@ -217,7 +255,7 @@ function _computeAutoRRBox(sig) {
   const cacheKey = _autoRRCacheKey(sig);
   if (_autoRRBoxCache.has(cacheKey)) return _autoRRBoxCache.get(cacheKey);
 
-  const useBand = _wrTargetView === "band";
+  const useBand = _wrTargetView === "band" || _wrTargetView === "band80";  // 8成軌圖上暫用上下軌位置
   const isRR    = _wrTargetView === "rr";
   const sigIdx = (typeof _timeToIdx !== "undefined" && _timeToIdx.has(sig.t))
     ? _timeToIdx.get(sig.t)

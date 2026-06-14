@@ -42,6 +42,8 @@ class CrtBacktestRequest(BaseModel):
     lookback_days: int = 0     # 回測期間（往前回測多久；0=全部可用歷史）
     one_position: bool = False # True=一次一筆（直到上一筆結算才接下一個訊號；跳過重疊）
     stop_after_loss: bool = False  # True=敗後停手（逐方向：輸了停手、旁觀同向到紙上會贏或反向訊號才回場；SS 套同根K放行新規則；已內含一次一筆＝持倉中不接單，比照實盤）
+    pyramid: bool = False      # True=加倉（同向訊號持倉中再現就加倉，合併均價、單一停損=最新筆、止盈走上下軌動態目標；獨立模式）
+    max_adds: int = 5          # 加倉上限筆數（含首筆；超過則略過不加）
     finmind_token: str = ""
 
 
@@ -194,6 +196,208 @@ def _simulate(picked, rkey, rrkey, est_key, otkey, init_cap, risk_pct, tp_mode, 
     return stats, trades, equity
 
 
+def _build_pyramid_clusters(bars: dict, picked: list, max_adds: int):
+    """加倉（金字塔）模擬：把同向、持倉中重疊的訊號合併成一個『加倉群』，重走 K 棒結算。
+    規則（方案 B，合併均價／單一停損）：
+      • 加倉：某方向可進場時，第一筆開倉；倉位還活著（未碰共用停損/止盈）期間再出現同向訊號 → 加一筆，
+        到 max_adds 為止（超過略過不加）。反向訊號只解除反向『敗後停手』、不動現有倉（單向不能反手）。
+      • 均價：等量加倉 → 進場價 = 各加倉價算術平均。
+      • 共用停損 S：每次加倉後移到『最新那筆的停損』（順勢收緊）。
+      • 共用止盈 T：上下軌動態目標（空→下軌 bb_lower、多→上軌 bb_upper）。
+      • 重走 K 棒：從首筆進場棒往後逐棒掃，部位數量隨加倉 +1、同步更新均價與 S；先碰 T→全倉止盈、
+        先碰 S→全倉止損、同根都碰用收盤價判（沿用 crt 保守規則）；NaN 軌道棒整根跳過。
+      • 盈虧（R）：每單位風險=|均價−S|=1R，N=加倉筆數 → 止盈群組 = N×(|T−均價|/|均價−S|) R、止損 = −N R。
+      • 敗後停手：群組淨虧（碰 S）→ 該方向停手；淨賺（碰 T）不停手。停手期間同向訊號用其自身 r_b 當
+        『紙上會不會贏』判回場；反向訊號解除反向停手。
+    回傳『加倉群』list（每群一個 dict，欄位相容 _simulate：t/ot/d/k/entry/stop/r/rr_real）。
+    """
+    if not bars or not picked:
+        return []
+    from utils.crt import _SCAN_MAX_HOLD
+    import math as _m
+    times = bars.get("time") or []
+    n = len(times)
+    if n == 0:
+        return []
+    highs = bars.get("high") or []
+    lows  = bars.get("low")  or []
+    closes = bars.get("close") or []
+    bbu = bars.get("bb_upper") or []
+    bbl = bars.get("bb_lower") or []
+    t2i = {t: i for i, t in enumerate(times)}   # 訊號棒時間 → 棒索引（首筆出現為準）
+
+    def _nan(x):
+        return x is None or (isinstance(x, float) and _m.isnan(x))
+
+    # 進場棒索引：訊號棒(t) 的下一根開盤（與 crt entry_i = 訊號 i + 1 一致）
+    cand = []
+    for s in picked:
+        d = s.get("d")
+        if d not in ("s", "l"):
+            continue
+        si = t2i.get(s.get("t"))
+        if si is None:
+            continue
+        ei = si + 1
+        if ei >= n:
+            continue
+        ent = s.get("entry")
+        if ent is None or _nan(ent):
+            continue
+        cand.append({"d": d, "ei": ei, "entry": float(ent), "stop": float(s.get("stop")),
+                     "t": s.get("t"), "k": s.get("k"), "rb": s.get("r_b")})
+    cand.sort(key=lambda x: x["ei"])
+
+    def _scan_exit(direction, avg_entry, shop, from_i, to_i):
+        """從 from_i 掃到 to_i-1，回 (exit_idx, result, exit_px)；result∈win/loss；無出場回 (None,None,None)。
+        止盈=上下軌動態目標(逐棒取值)、止損=shop(共用)；同根都碰用收盤判；NaN 軌道棒整根跳過。"""
+        end = min(to_i, n)
+        for j in range(from_i, end):
+            tgt = bbl[j] if direction == "s" else bbu[j]
+            if _nan(tgt):
+                continue                          # 無軌道目標的棒：止損也跳過（與 crt _scan NaN 行為一致）
+            hi = highs[j]; lo = lows[j]
+            if direction == "s":
+                hit_stop = (not _nan(hi)) and hi >= shop
+                hit_tgt  = (not _nan(lo)) and lo <= tgt
+            else:
+                hit_stop = (not _nan(lo)) and lo <= shop
+                hit_tgt  = (not _nan(hi)) and hi >= tgt
+            if hit_stop and hit_tgt:
+                cl = closes[j]
+                if direction == "s":
+                    win = (not _nan(cl)) and cl <= tgt
+                else:
+                    win = (not _nan(cl)) and cl >= tgt
+                return j, ("win" if win else "loss"), (tgt if win else shop)
+            if hit_stop:
+                return j, "loss", shop
+            if hit_tgt:
+                return j, "win", tgt
+        return None, None, None
+
+    clusters = []
+    active = {"s": True, "l": True}
+    cur = None   # 現開倉群：{d, tranches:[cand...], scan_i, end_cap}
+
+    def _finalize(cl, exit_idx, result, exit_px):
+        """把一個加倉群結算成 _simulate 相容的 dict，並回傳是否淨虧（供敗後停手）。"""
+        N = len(cl["tranches"])
+        avg = sum(x["entry"] for x in cl["tranches"]) / N
+        shop = cl["tranches"][-1]["stop"]            # 共用停損 = 最新筆
+        risk = abs(avg - shop)
+        d = cl["d"]; k0 = cl["tranches"][0]["k"]
+        if result == "win" and risk > 1e-12:
+            ratio = abs(exit_px - avg) / risk
+            group_r = round(N * ratio, 3)
+        else:
+            group_r = float(-N)                       # 止損：加幾筆賠幾倍
+        clusters.append({
+            "t": cl["tranches"][0]["t"], "ot": times[exit_idx] if 0 <= exit_idx < n else None,
+            "d": d, "k": (k0 if N == 1 else f"{k0}×{N}"),
+            "entry": round(avg, 8), "stop": round(shop, 8),
+            "r": "w" if group_r > 0 else "l",
+            "rr_real": group_r,
+        })
+        return group_r <= 0
+
+    for s in cand:
+        d = s["d"]; ei = s["ei"]
+        # 先把現有開倉群推進到此訊號進場棒前，看是否已先出場
+        if cur is not None:
+            exit_idx, result, exit_px = _scan_exit(
+                cur["d"], None, cur["tranches"][-1]["stop"], cur["scan_i"], min(ei, cur["end_cap"]))
+            if exit_idx is not None:                  # 群在加倉前就出場 → 結算
+                lost = _finalize(cur, exit_idx, result, exit_px)
+                if lost:
+                    active[cur["d"]] = False
+                cur = None
+            elif ei >= cur["end_cap"]:                # 持倉已逾上限仍未出場 → 視為未結算丟棄（不計、不停手）
+                cur = None
+        # 同方向、且群還開著 → 嘗試加倉
+        if cur is not None and cur["d"] == d:
+            if len(cur["tranches"]) < max(1, int(max_adds)):
+                cur["tranches"].append(s)
+                cur["scan_i"] = ei                    # 之後從此棒續掃（停損已換最新筆）
+            continue                                  # 超過上限：略過不加（不另開群）
+        # 反向訊號：解除反向停手；現有反向群續開（單向不能反手）
+        if cur is not None and cur["d"] != d:
+            active["l" if d == "s" else "s"] = True
+            continue
+        # 無開倉群 → 視敗後停手決定開新群
+        if active.get(d, True):
+            cur = {"d": d, "tranches": [s], "scan_i": ei, "end_cap": ei + _SCAN_MAX_HOLD}
+        elif s.get("rb") == "w":
+            active[d] = True                          # 停手中、同向紙上會贏 → 回場（此筆不開、下一筆才開）
+        active["l" if d == "s" else "s"] = True        # 反向停手解除
+
+    if cur is not None:                                # 收尾：最後一個群掃到底
+        exit_idx, result, exit_px = _scan_exit(
+            cur["d"], None, cur["tranches"][-1]["stop"], cur["scan_i"], cur["end_cap"])
+        if exit_idx is not None:
+            _finalize(cur, exit_idx, result, exit_px)   # 未結算（掃不到出場）→ 丟棄（同單筆未結算不計）
+
+    clusters.sort(key=lambda c: c.get("ot") or c.get("t") or "")
+    return clusters
+
+
+def _inject_band80(bars: dict, sigs: list, ratio: float = 0.8):
+    """8成軌止盈：重走 K 棒，把每筆訊號對「下軌↔上軌 ratio 處」目標的勝負/出場/RR 注入 sig（就地，傳入須為副本）。
+    目標（逐棒動態）：多＝下軌+ratio×(上軌−下軌)；空＝下軌+(1−ratio)×(上軌−下軌)（＝上軌往下 ratio 處，鏡像）。
+    直接重用 crt 的向量化掃描（_scan_outcome_np 動態 / _scan_outcome_fixed 固定）→ 與既有 mid/band 同語意、同速。
+    寫入：r80(動態勝負)、ot80(出場時間)、rr80_real(已實現含號)、est_r80(固定目標勝負)；並覆寫該副本 rr(=8成軌預估RR，
+    供 _simulate 預計止盈模式的勝場倍數用)。NaN 軌道棒整根跳過（與 crt 一致）。"""
+    if not bars or not sigs:
+        return
+    import numpy as np
+    from utils.crt import _scan_outcome_np, _scan_outcome_fixed
+    times = bars.get("time") or []
+    n = len(times)
+    if n == 0:
+        return
+    H = np.asarray(bars.get("high")  or [], dtype=float)
+    L = np.asarray(bars.get("low")   or [], dtype=float)
+    C = np.asarray(bars.get("close") or [], dtype=float)
+    U = np.asarray(bars.get("bb_upper") or [], dtype=float)
+    Dn = np.asarray(bars.get("bb_lower") or [], dtype=float)
+    if min(len(H), len(L), len(C), len(U), len(Dn)) < n:
+        return
+    width = U - Dn
+    tgt_long  = Dn + ratio * width            # 多：下軌 → 上軌 80%
+    tgt_short = Dn + (1.0 - ratio) * width     # 空：上軌 → 下軌 80%（＝下軌 + 20%）
+    t2i = {t: i for i, t in enumerate(times)}
+    for s in sigs:
+        si = t2i.get(s.get("t"))
+        ent = s.get("entry")
+        s["r80"] = None; s["ot80"] = None; s["rr80_real"] = None; s["est_r80"] = None
+        if si is None or ent is None:
+            continue
+        ei = si + 1
+        if ei >= n:
+            continue
+        direction = "short" if s.get("d") == "s" else "long"
+        tgt = tgt_short if direction == "short" else tgt_long
+        stop = float(s.get("stop"))
+        ent = float(ent)
+        risk = abs(ent - stop)
+        # 動態目標（已實現）
+        res, ot, xi = _scan_outcome_np(H, L, C, tgt, times, ei, n, stop, direction)
+        s["r80"] = "w" if res == "win" else ("l" if res == "loss" else None)
+        s["ot80"] = ot
+        if res == "loss":
+            s["rr80_real"] = -1.0
+        elif res == "win" and xi is not None and 0 <= xi < n and risk > 1e-9 and not np.isnan(tgt[xi]):
+            rew = (tgt[xi] - ent) if direction == "long" else (ent - tgt[xi])
+            s["rr80_real"] = round(float(rew) / risk, 3)
+        # 固定目標（預計止盈）＋ 預估 RR
+        tfix = tgt[ei]
+        if not np.isnan(tfix):
+            o = _scan_outcome_fixed(H, L, C, ei, n, stop, float(tfix), direction)
+            s["est_r80"] = "w" if o == "win" else ("l" if o == "loss" else None)
+            if risk > 1e-9:
+                s["rr"] = round(abs(ent - float(tfix)) / risk, 3)   # 覆寫副本：8成軌預估 RR（_simulate est 用）
+
+
 @router.post("/crt_backtest")
 def run_crt_backtest(req: CrtBacktestRequest):
     """用 CRT 訊號(S1~S12) 的勝負序列 + 每筆預估盈虧比(rr) 模擬資金曲線。
@@ -204,16 +408,26 @@ def run_crt_backtest(req: CrtBacktestRequest):
             market=req.market, symbol=req.symbol, timeframe=req.timeframe,
             exchange=req.exchange, stop_buffer_pct=req.stop_buffer_pct,
             finmind_token=req.finmind_token,
+            with_bars=req.pyramid or req.target == "band80",   # 加倉/8成軌要重走 K 棒 → 附帶 K 棒陣列
         )
     except Exception as e:
         raise HTTPException(400, f"勝率計算失敗: {e}")
 
     sigs = (wr or {}).get("signals") or []
-    rkey   = "r_b"       if req.target == "band" else "r"
-    otkey  = "ot_b"      if req.target == "band" else "ot"
-    rrkey  = "rr_b_real" if req.target == "band" else "rr_real"   # 已實現盈虧比（含號）
-    estkey = "est_r_b"   if req.target == "band" else "est_r"     # 預計止盈：固定目標勝負
-    tp_mode = req.tp_mode if req.tp_mode in ("real", "est") else "real"
+    # 8成軌：下軌↔上軌 80% 處止盈（多：下軌+80%寬；空：上軌−80%寬＝下軌+20%）。crt 沒預算此目標 →
+    # 用 with_bars 的 K 棒即時重走，注入 r80/ot80/rr80_real/est_r80（在副本上，勿污染勝率快取）。
+    if req.target == "band80" and not req.pyramid:
+        sigs = [dict(s) for s in sigs]
+        _inject_band80((wr or {}).get("_bars"), sigs)
+
+    # 結算欄位組：加倉/上下軌→band；8成軌→band80；中軌→mid。決定 picked 過濾、敗後停手、_simulate 取哪組勝負/RR。
+    if req.pyramid or req.target == "band":
+        rkey, otkey, rrkey, estkey = "r_b", "ot_b", "rr_b_real", "est_r_b"
+    elif req.target == "band80":
+        rkey, otkey, rrkey, estkey = "r80", "ot80", "rr80_real", "est_r80"
+    else:
+        rkey, otkey, rrkey, estkey = "r", "ot", "rr_real", "est_r"
+    tp_mode = "real" if req.pyramid else (req.tp_mode if req.tp_mode in ("real", "est") else "real")
 
     want = req.signal
     if want.startswith("s") and want[1:].isdigit():
@@ -256,9 +470,26 @@ def run_crt_backtest(req: CrtBacktestRequest):
         cutoff = (datetime.now() - timedelta(days=lookback)).replace(microsecond=0).isoformat()
         picked = [s for s in picked if (s.get("t") or "") >= cutoff]
 
+    n_all = len(picked)
+    risk_pct = max(0.001, min(1.0, float(req.risk_pct or 0.02)))
+
+    # ── 加倉（金字塔）：獨立模式，合併均價＋單一停損＋上下軌止盈，重走 K 棒結算 ──
+    if req.pyramid:
+        bars = (wr or {}).get("_bars")
+        cand = sorted(picked, key=lambda s: (s.get("t") or "", s.get("ot_b") or ""))
+        clusters = _build_pyramid_clusters(bars, cand, req.max_adds)
+        from_date = (clusters[0].get("t") or "")[:10] if clusters else (wr or {}).get("from_date")
+        stats, trades, equity = _simulate(clusters, "r", "rr_real", "est_r", "ot",
+                                          req.initial_capital, risk_pct, "real", from_date)
+        return {
+            "stats": stats, "trades": trades, "equity_curve": equity,
+            "tp_mode": "real", "entry_rule": "pyramid", "target": "band",
+            "n_all": n_all,             # 候選進場訊號數
+            "n_taken": len(clusters),   # 實際加倉群數（一群=一筆交易，含多次加倉）
+        }
+
     # 一次一筆：直到上一筆結算（otkey）才接受下一個「進場時間 ≥ 前筆結算時間」的訊號，
     # 持倉期間出現的訊號全部跳過。依進場時間順序貪婪挑選。
-    n_all = len(picked)
     if req.stop_after_loss and picked:
         # 敗後停手（已內含「一次一筆」，比照實盤）：逐方向停手狀態機 + 持倉中不接單，篩出實際會進場的訊號
         picked = _filter_stop_after_loss(picked, rkey, otkey)
@@ -274,7 +505,6 @@ def run_crt_backtest(req: CrtBacktestRequest):
                 busy_until = s.get(otkey) or ent
         picked = sorted(kept, key=lambda s: s.get(otkey) or s.get("t") or "")
 
-    risk_pct = max(0.001, min(1.0, float(req.risk_pct or 0.02)))
     # from_date 用實際首筆交易日（比資料起始日更精準；回測期間有限縮時也對得上）
     from_date = (picked[0].get("t") or "")[:10] if picked else (wr or {}).get("from_date")
 
@@ -285,6 +515,7 @@ def run_crt_backtest(req: CrtBacktestRequest):
         "trades":       trades,
         "equity_curve": equity,
         "tp_mode":      tp_mode,
+        "target":       req.target,
         "entry_rule":   "stop" if req.stop_after_loss else ("single" if req.one_position else "all"),
         "n_all":        n_all,             # 該條件/期間內的全部訊號數
         "n_taken":      len(picked),       # 實際納入回測的筆數（一次一筆會少於 n_all）

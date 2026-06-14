@@ -117,9 +117,13 @@ def _scan_outcome_np(highs, lows, closes, target_arr, times_iso, entry_i, n, sto
 
 
 def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only: bool = False,
-                      _solve=None) -> dict:
+                      _solve=None, band_ratio: float = 1.0) -> dict:
     """
     六種訊號合併計算勝率（中軌目標 + 帶軌目標雙統計）。
+
+    band_ratio：「上下軌目標」的位置比例。1.0（預設）＝原本的上/下軌；0.8＝下軌↔上軌 80% 處
+        （做多＝下軌+80%寬、做空鏡像＝上軌−80%寬）。只影響「帶軌止盈目標」，訊號偵測（觸軌等）
+        仍用真實 bb_up/bb_lo。整套 band 統計（band_cnt/RR/敗後停手/recent/est）都自動跟著此比例。
 
     stop_buffer_pct：停損緩衝百分比（decimal，例如 0.005 = 0.5%）。
     short：stop = base_high × (1 + buffer)（高於最高值幾 %）
@@ -155,6 +159,16 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
     bb_mid = _col_f("bb_middle")
     bb_up  = _col_f("bb_upper")
     bb_lo  = _col_f("bb_lower")
+    # 帶軌「止盈目標」軌（可參數化）：band_ratio=1.0 → 原本上/下軌（完全等同舊行為）；
+    #   <1.0 → 下軌往上 ratio 處（做多目標 band_up_t）/ 上軌往下 ratio 處（做空目標 band_lo_t）。
+    #   只用於止盈目標，訊號偵測（bb_up_touch 等）一律仍用真實 bb_up/bb_lo。
+    if band_ratio >= 0.999:
+        band_lo_t = bb_lo        # 做空目標（原＝下軌）
+        band_up_t = bb_up        # 做多目標（原＝上軌）
+    else:
+        _bw = bb_up - bb_lo
+        band_lo_t = bb_lo + (1.0 - band_ratio) * _bw   # 做空：上軌往下 ratio 處（＝下軌+剩餘%）
+        band_up_t = bb_lo + band_ratio * _bw            # 做多：下軌往上 ratio 處
 
     def _col_i(name):
         if name not in df.columns:
@@ -228,13 +242,13 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             if _solve == "rr":
                 return None, None, -1, None, None, -1   # 1:1 在 _push_signal 內算
             if _solve == "band":
-                band_arr = bb_lo if direction == "short" else bb_up
+                band_arr = band_lo_t if direction == "short" else band_up_t
                 ob, otb, obj = _scan_outcome_np(highs, lows, closes, band_arr, times_iso, entry_i, n, stop_px, direction)
                 return None, None, -1, ob, otb, obj
             om, otm, omj = _scan_outcome_np(highs, lows, closes, bb_mid, times_iso, entry_i, n, stop_px, direction)
             return om, otm, omj, None, None, -1
         om, otm, omj = _scan_outcome_np(highs, lows, closes, bb_mid, times_iso, entry_i, n, stop_px, direction)
-        band_arr = bb_lo if direction == "short" else bb_up
+        band_arr = band_lo_t if direction == "short" else band_up_t
         ob, otb, obj = _scan_outcome_np(highs, lows, closes, band_arr, times_iso, entry_i, n, stop_px, direction)
         return om, otm, omj, ob, otb, obj
 
@@ -304,7 +318,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         est_r = None; est_r_b = None
         if sig_key != "abc" and entry_i < n:
             tgt_mid_fix  = bb_mid[entry_i]
-            tgt_band_fix = bb_lo[entry_i] if direction == "short" else bb_up[entry_i]
+            tgt_band_fix = band_lo_t[entry_i] if direction == "short" else band_up_t[entry_i]
             if tgt_mid_fix == tgt_mid_fix:
                 o = _scan_outcome_fixed(highs, lows, closes, entry_i, n,
                                          stop_px, float(tgt_mid_fix), direction)
@@ -318,7 +332,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         if sig_key != "abc" and entry_i < n:
             entry_px = opens[entry_i]
             tgt_mid  = bb_mid[entry_i]
-            tgt_band = bb_lo[entry_i] if direction == "short" else bb_up[entry_i]   # 帶軌目標：空→下軌、多→上軌
+            tgt_band = band_lo_t[entry_i] if direction == "short" else band_up_t[entry_i]   # 帶軌目標：空→下軌、多→上軌（依 band_ratio）
             if not math.isnan(entry_px):
                 risk = abs(entry_px - stop_px)
                 if risk > 1e-9:
@@ -353,7 +367,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                     rew = (entry_px_rec - xpx) if direction == "short" else (xpx - entry_px_rec)
                     return round(rew / _risk, 3)
                 rr_real   = _rr_real(om, omj, bb_mid)
-                rr_b_real = _rr_real(ob, obj, bb_lo if direction == "short" else bb_up)
+                rr_b_real = _rr_real(ob, obj, band_lo_t if direction == "short" else band_up_t)
         signals.append({
             "t": sig_time, "d": d_str, "k": sig_key,
             "r":   "w" if om == "win" else ("l" if om else None), "ot":   otm,
@@ -372,7 +386,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         _bump(band_cnt, sig_key, direction, ob)
         _bump(rr11_cnt, sig_key, direction, rr_out)
         _bump_rr(mid_rr,  sig_key, direction, entry_i, omj, stop_px, om, bb_mid)
-        band_arr = bb_lo if direction == "short" else bb_up
+        band_arr = band_lo_t if direction == "short" else band_up_t
         _bump_rr(band_rr, sig_key, direction, entry_i, obj, stop_px, ob, band_arr)
         if om is not None and sig_key not in _SS_KEYS:   # SS 系列不混入 S 的近期清單
             recent.append({"t": sig_time, "d": d_str, "r": "w" if om == "win" else "l", "k": sig_key})

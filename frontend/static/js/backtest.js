@@ -57,6 +57,8 @@
     .bt-run:disabled{opacity:.6;cursor:default}
     .bt-hint{font-size:11px;color:var(--muted,#999);line-height:1.5}
     .bt-res{display:flex;flex-direction:column;gap:10px;border-top:1px solid var(--border,#333);padding-top:12px}
+    .bt-res.bt-recalc{opacity:.55;transition:opacity .12s}
+    .bt-res:not(.bt-recalc){transition:opacity .12s}
     .bt-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
     .bt-card{background:var(--bg3,#111);border:1px solid var(--border,#333);border-radius:9px;padding:9px 10px;text-align:center}
     .bt-card .v{font-size:16px;font-weight:800}
@@ -110,13 +112,15 @@
               <div class="bt-seg" id="btDir">
                 <button data-v="both" class="on">多空</button><button data-v="long">只多</button><button data-v="short">只空</button></div></div>
             <div class="bt-row"><label>目標</label>
-              <div class="bt-seg" id="btTgt"><button data-v="mid" class="on">中軌</button><button data-v="band">上/下軌</button></div></div>
+              <div class="bt-seg" id="btTgt"><button data-v="mid" class="on">中軌</button><button data-v="band">上/下軌</button><button data-v="band80">8成軌</button></div></div>
             <div class="bt-row"><label>止盈基準</label>
               <div class="bt-seg" id="btTp"><button data-v="real" class="on">已實現</button><button data-v="est">預計止盈</button></div></div>
             <div class="bt-row"><label>止損緩衝%</label><input id="btBuf" type="number" value="0" min="0" max="10" step="0.1"></div>
             <div class="bt-row"><label>每筆風險%</label><input id="btRisk" type="number" value="2" min="0.1" max="100" step="0.5"></div>
             <div class="bt-row"><label>進場規則</label>
-              <div class="bt-seg" id="btRule"><button data-v="all" class="on">全部訊號</button><button data-v="single">一次一筆</button><button data-v="stop">敗後停手</button></div></div>
+              <div class="bt-seg" id="btRule"><button data-v="all" class="on">全部訊號</button><button data-v="single">一次一筆</button><button data-v="stop">敗後停手</button><button data-v="pyramid">加倉</button></div></div>
+            <div class="bt-row" id="btMaxAddsRow" style="display:none"><label>加倉上限</label><input id="btMaxAdds" type="number" value="5" min="1" max="20" step="1"></div>
+            <div class="bt-hint" id="btPyrHint" style="display:none">加倉：同向訊號持倉中再現就加一筆（到上限），合併均價、單一停損＝最新筆、止盈走<b>上下軌動態目標</b>；淨虧才停手。此模式接管「目標／止盈基準」設定。</div>
             <div class="bt-hint">用 CRT 訊號的勝負序列 × 每筆預估盈虧比模擬資金曲線（重用勝率引擎，深歷史）。定額風險、單利：每筆固定冒險「本金 × 每筆風險%」。</div>
           </div>
           <button class="bt-run" id="btRun">執行回測</button>
@@ -128,7 +132,36 @@
     ov.addEventListener("click", e => { if (e.target === ov) _close(); });
     ov.querySelector("#btClose").addEventListener("click", _close);
     _bindSeg("btDir"); _bindSeg("btTgt"); _bindSeg("btTp"); _bindSeg("btRule");
+    // 加倉模式：顯示「加倉上限」輸入與說明（並淡化被接管的 目標/止盈基準）
+    document.getElementById("btRule")?.addEventListener("click", () => {
+      const pyr = _segVal("btRule") === "pyramid";
+      const row = document.getElementById("btMaxAddsRow");
+      const hint = document.getElementById("btPyrHint");
+      if (row) row.style.display = pyr ? "" : "none";
+      if (hint) hint.style.display = pyr ? "" : "none";
+      ["btTgt", "btTp"].forEach(id => { const el = document.getElementById(id); if (el) el.style.opacity = pyr ? ".4" : ""; });
+    });
     ov.querySelector("#btRun").addEventListener("click", _run);
+    // 切換 方向/目標/止盈基準/進場規則/訊號/數值 後，若已有回測結果 → 靜默自動重跑（免再手動按執行）。
+    // 只在「設定真的改變」時才重跑（避免重點同一顆按鈕也閃）；_run(true)=保留舊結果就地替換、不清空。
+    let _lastRunKey = null;
+    const _curKey = () => [_segVal("btDir"), _segVal("btTgt"), _segVal("btTp"), _segVal("btRule"),
+      document.getElementById("btCrtSig")?.value, document.getElementById("btBuf")?.value,
+      document.getElementById("btRisk")?.value, document.getElementById("btCap")?.value,
+      document.getElementById("btLookback")?.value, document.getElementById("btMaxAdds")?.value].join("|");
+    const _maybeRerun = () => {
+      const r = document.getElementById("btRes");
+      if (!r || r.style.display === "none" || !r.querySelector(".bt-cards")) return;
+      const k = _curKey();
+      if (k === _lastRunKey) return;   // 設定沒變 → 不重跑
+      _lastRunKey = k;
+      _run(true);
+    };
+    ["btDir", "btTgt", "btTp", "btRule"].forEach(id =>
+      document.getElementById(id)?.addEventListener("click", e => { if (e.target.closest("button")) _maybeRerun(); }));
+    document.getElementById("btCrtSig")?.addEventListener("change", _maybeRerun);
+    ["btBuf", "btRisk", "btCap", "btLookback", "btMaxAdds"].forEach(id =>
+      document.getElementById(id)?.addEventListener("change", _maybeRerun));
     _built = true;
   }
 
@@ -160,13 +193,16 @@
     };
   }
 
-  async function _run() {
+  async function _run(silent) {
     const btn = document.getElementById("btRun");
     const res = document.getElementById("btRes");
     const c = _ctx();
     if (!c.symbol) { return; }
     btn.disabled = true; btn.textContent = "回測中…";
-    res.style.display = "block"; res.innerHTML = `<div class="bt-hint">計算中…（CRT 首次需算勝率，約數秒）</div>`;
+    res.style.display = "block";
+    // silent（切換選項自動重跑）：保留舊結果、只淡化，不清成「計算中」→ 避免整個面板閃一下
+    if (silent) { res.classList.add("bt-recalc"); }
+    else { res.classList.remove("bt-recalc"); res.innerHTML = `<div class="bt-hint">計算中…（CRT 首次需算勝率，約數秒）</div>`; }
     try {
       const body = {
         ...c,
@@ -180,6 +216,8 @@
         lookback_days: parseInt(document.getElementById("btLookback").value, 10) || 0,
         one_position: _segVal("btRule") === "single",
         stop_after_loss: _segVal("btRule") === "stop",
+        pyramid: _segVal("btRule") === "pyramid",
+        max_adds: parseInt(document.getElementById("btMaxAdds")?.value, 10) || 5,
       };
       const data = await _post("/api/crt_backtest", body);
       _renderResult(data);
@@ -188,6 +226,7 @@
       res.innerHTML = `<div class="bt-err">❌ ${e.message || "回測失敗"}</div>`;
     } finally {
       btn.disabled = false; btn.textContent = "執行回測";
+      res.classList.remove("bt-recalc");
     }
   }
 
@@ -223,12 +262,14 @@
       ? `進場規則：一次一筆（${d.n_all}筆訊號中取${d.n_taken}筆不重疊，跳過${(d.n_all ?? 0) - (d.n_taken ?? 0)}筆）`
       : (d.entry_rule === "stop")
       ? `進場規則：敗後停手＋一次一筆（${d.n_all}筆訊號中取${d.n_taken}筆，停手或持倉中跳過${(d.n_all ?? 0) - (d.n_taken ?? 0)}筆）`
+      : (d.entry_rule === "pyramid")
+      ? `進場規則：加倉（${d.n_all}筆候選訊號 → 合併成 ${d.n_taken} 個加倉群；止盈走上下軌動態、單一停損＝最新筆、淨虧才停手）`
       : "";
     res.innerHTML = `
       <div class="bt-cards">${cards.map(c => `<div class="bt-card"><div class="v ${c.c}">${c.v}</div><div class="k">${c.k}</div></div>`).join("")}</div>
       <canvas class="bt-eq" id="btEq"></canvas>
       ${ruleLine ? `<div class="bt-hint">${ruleLine}</div>` : ""}
-      <div class="bt-hint">${d.tp_mode === "est" ? "止盈：預計（固定目標）　" : "止盈：已實現（動態）　"}${s.from_date ? "回測自 " + s.from_date + "　" : ""}涵蓋 ${s.span ?? "—"}　最終淨值 ${(s.final_equity ?? 0).toLocaleString()}</div>
+      <div class="bt-hint">目標：${d.target === "band" ? "上下軌" : d.target === "band80" ? "8成軌（下↔上 80%）" : "中軌"}　${d.tp_mode === "est" ? "止盈：預計（固定目標）　" : "止盈：已實現（動態）　"}${s.from_date ? "回測自 " + s.from_date + "　" : ""}涵蓋 ${s.span ?? "—"}　最終淨值 ${(s.final_equity ?? 0).toLocaleString()}</div>
       ${useLine ? `<div class="bt-hint">${useLine}</div>` : ""}
       ${_tradesTable(d.trades || [])}`;
     _drawEquity(d.equity_curve || []);

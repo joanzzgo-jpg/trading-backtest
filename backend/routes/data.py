@@ -654,12 +654,15 @@ def crt_winrate_api(
     api_key: str = "",
     api_secret: str = "",
     finmind_token: str = "",
+    band_ratio: float = 1.0,
 ):
     """/api/crt_winrate 路由：呼叫 get_crt_winrate(含快取) → 回前端時把 signals『瘦身』
     （拿掉只後端用的 est/rr 欄位 + 省略 None 值），省 ~40% 傳輸量、加快手機端載入。
+    band_ratio：上下軌目標比例（1.0=上下軌；0.8=8成軌，HUD 切到 8成軌時前端帶此參數另抓一份）。
     ⚠ 回測/自動交易是 Python 直接呼叫 get_crt_winrate → 拿『完整』signals，不受此瘦身影響。"""
     wr = get_crt_winrate(market, symbol, timeframe, exchange, stop_buffer_pct,
-                         solve, solve_target, api_key, api_secret, finmind_token)
+                         solve, solve_target, api_key, api_secret, finmind_token,
+                         band_ratio=band_ratio)
     if solve or not isinstance(wr, dict):        # solve 模式非勝率結構 → 原樣回
         return wr
     sigs = wr.get("signals")
@@ -668,6 +671,23 @@ def crt_winrate_api(
     # 前端只讀 t/d/k/r/ot/r_b/ot_b/r_rr/ot_rr/stop/entry；其餘為後端專用 → 砍。None 一律省略（前端皆 !=null/truthy 判斷）
     slim = [{k: v for k, v in s.items() if v is not None and k not in _WR_SLIM_DROP} for s in sigs]
     return {**wr, "signals": slim}              # 淺拷貝頂層、只換 signals；不動快取裡的完整版
+
+
+def _export_bars(_df) -> dict:
+    """把已 enrich 的 df 轉成純陣列（給回測加倉模擬重走 K 棒用；只在後端內部流通，不序列化給前端）。
+    time 用與 crt._calc_crt_winrate 完全相同的 datetime64[s]→str，確保訊號 t 可精確對到棒索引。"""
+    try:
+        _t = _df["time"].to_numpy("datetime64[s]").astype(str).tolist()
+    except Exception:
+        _t = [(_x.isoformat() if hasattr(_x, "isoformat") else str(_x)) for _x in _df["time"]]
+    def _arr(col):
+        return _df[col].astype(float).tolist() if col in _df.columns else [float("nan")] * len(_df)
+    return {
+        "time": _t,
+        "open": _arr("open"),  "high": _arr("high"),
+        "low":  _arr("low"),   "close": _arr("close"),
+        "bb_upper": _arr("bb_upper"), "bb_lower": _arr("bb_lower"),
+    }
 
 
 def get_crt_winrate(
@@ -681,16 +701,21 @@ def get_crt_winrate(
     api_key: str = "",
     api_secret: str = "",
     finmind_token: str = "",
+    with_bars: bool = False,
+    band_ratio: float = 1.0,
 ):
     """CRT 策略各時間級別勝率（每個子統計至少 10 個案例，不足則往前翻倍）。
 
     stop_buffer_pct：停損緩衝（decimal，例 0.005 = 0.5%）。
     短：stop = base_high × (1 + buf)；多：stop = base_low × (1 - buf)。
+    band_ratio：上下軌『止盈目標』比例（1.0=原上下軌；0.8=8成軌）。非 1.0 時 cache_key 另分流，不污染主勝率。
     """
     from datetime import date, timedelta
     _buf = round(max(0.0, float(stop_buffer_pct or 0.0)), 4)
+    _br = round(max(0.1, min(1.0, float(band_ratio or 1.0))), 3)
     _long_only = (market == "tw")  # 台股不能放空
-    cache_key = f"crt_wr75:{market}:{symbol}:{exchange}:{timeframe}:{_buf}:{int(_long_only)}"
+    _br_tag = "" if _br >= 0.999 else f":br{_br}"   # 預設 1.0 不改 key（沿用既有快取）；8成軌等另分流
+    cache_key = f"crt_wr75:{market}:{symbol}:{exchange}:{timeframe}:{_buf}:{int(_long_only)}{_br_tag}"
     bar_key = cache_key + ":bar"
     # bar-aware 新鮮度：記下「算這份結果時最新那根棒的開盤時刻」。crypto 在「同一根棒內」吃快取，
     # 一旦有新棒收盤就讓快取失效 → 走下方短窗補抓重算 → 最新訊號最多慢到「收盤後第一次請求」，
@@ -698,13 +723,16 @@ def get_crt_winrate(
     _iv = _CRT_IV.get(timeframe)
     _bar_now = math.floor(time.time() / _iv) * _iv if _iv else None
     # 注意：solve 模式不可命中此勝率快取（cache_key 不含 solve），否則會回傳勝率而非求解結果
+    _wr_cached = None
     if not solve:
         cached = data_cache.get(cache_key, ttl=_WR_CACHE_TTL)   # 保鮮期內直接回快取（即時價另走每秒路徑）
         if cached:
             _fresh = (market != "crypto" or _bar_now is None
                       or data_cache.get(bar_key, ttl=_WR_CACHE_TTL) == _bar_now)
             if _fresh:
-                return cached
+                if not with_bars:
+                    return cached
+                _wr_cached = cached   # with_bars：沿用快取結果，但仍往下載 df 取 K 棒陣列
 
     MIN_CASES = 40   # 每個訊號（S1~S7 × 空/多）最少採樣數；不足會自動往前加倍天數
     # 各時間框架：初始天數 / 最大天數
@@ -786,9 +814,13 @@ def get_crt_winrate(
         data_cache.set(solve_key, sol)
         return sol
 
-    result = _calc_crt_winrate(df, stop_buffer_pct=_buf, long_only=_long_only)
-
-    data_cache.set(cache_key, result)
-    if _bar_now is not None:
-        data_cache.set(bar_key, _bar_now)   # 標記此結果對應的最新棒 → bar-aware 新鮮度判定用
+    if _wr_cached is not None:
+        result = _wr_cached
+    else:
+        result = _calc_crt_winrate(df, stop_buffer_pct=_buf, long_only=_long_only, band_ratio=_br)
+        data_cache.set(cache_key, result)
+        if _bar_now is not None:
+            data_cache.set(bar_key, _bar_now)   # 標記此結果對應的最新棒 → bar-aware 新鮮度判定用
+    if with_bars:
+        return {**result, "_bars": _export_bars(df)}   # 加倉回測：附 K 棒陣列（後端內部用）
     return result

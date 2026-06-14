@@ -282,7 +282,7 @@
   // 目標標籤（中軌 / 上/下軌 / 1:1）— 與 winrate.js 的 _wrTargetView 共用
   function _viewLabel() {
     const v = (typeof _wrTargetView !== "undefined") ? _wrTargetView : "mid";
-    return v === "band" ? "上/下軌" : v === "rr" ? "1:1" : "中軌";
+    return v === "band" ? "上/下軌" : v === "band80" ? "8成軌" : v === "rr" ? "1:1" : "中軌";
   }
 
   function _statsFor(key) {
@@ -477,7 +477,7 @@
     const tf       = (typeof currentTF !== "undefined" && currentTF) ? currentTF : "1d";
     if (!symbol) { _set("—"); return; }
     _set("求解中…");
-    const tgt = (typeof _wrTargetView !== "undefined" && _wrTargetView === "band") ? "band" : "mid";
+    const tgt = (typeof _wrTargetView !== "undefined" && (_wrTargetView === "band" || _wrTargetView === "band80")) ? "band" : "mid";
     const p = new URLSearchParams({ market, symbol, exchange, timeframe: tf,
       solve: 1, solve_target: tgt });
     const applyKey = `${symbol}|${tf}|${tgt}`;
