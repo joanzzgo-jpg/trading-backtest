@@ -382,10 +382,22 @@ function _ntfDayLabel(ts) {
 }
 
 // 今日摘要：訊號數 / 自動勝敗 / 已實現盈虧（盈虧由自動平倉 body 解析）
+// 資料源優先用 _ntfTodayItems（後端自當地午夜起抓、不被 feed 80 筆截斷）；未載入則退回顯示用 feed。
+let _ntfTodayItems = null;
+function _ntfTodayMidnight() { const x = new Date(); x.setHours(0, 0, 0, 0); return x.getTime() / 1000; }
+async function _ntfRefreshToday() {
+  if (!window._acctName) { _ntfTodayItems = null; return; }
+  try {
+    const j = await _ntfApi("GET", "feed?name=" + encodeURIComponent(window._acctName) +
+                            "&since=" + _ntfTodayMidnight() + "&limit=200");
+    _ntfTodayItems = j.items || [];
+  } catch (e) { _ntfTodayItems = null; }
+  _ntfRenderSummary();
+}
 function _ntfTodayStats() {
-  const t0 = (() => { const x = new Date(); x.setHours(0, 0, 0, 0); return x.getTime() / 1000; })();
+  const t0 = _ntfTodayMidnight();
   let sigN = 0, aWin = 0, aLoss = 0, pnl = 0, hasPnl = false;
-  for (const it of _ntfFeed.items) {
+  for (const it of (_ntfTodayItems || _ntfFeed.items)) {
     if (it.ts < t0) continue;
     if (it.event === "entry") sigN++;
     else if (it.event === "atrade_tp") aWin++;
@@ -535,12 +547,14 @@ async function _ntfBgPoll() {
 // 切到訊號分頁時呼叫（main.js）：載入清單 + 標記已讀 + 開快輪詢
 window._ntfLoadFeed = async function () {
   _ntfFeed.items = await _ntfFetchFeed();
+  _ntfRefreshToday();                                // 今日摘要：抓自當地午夜起的全部（不被 80 筆截斷）
   _ntfRenderFeed({ force: true, toBottom: true });   // 進分頁：重畫並捲到最新
   if (_ntfFeed.items.length) _ntfSetSeen(_ntfFeed.items[_ntfFeed.items.length - 1].ts);
   _ntfUpdateBadge();
   clearInterval(_ntfFeed.pollTimer);
   _ntfFeed.pollTimer = setInterval(async () => {
     _ntfFeed.items = await _ntfFetchFeed();
+    _ntfRefreshToday();
     _ntfRenderFeed();
     if (_ntfFeed.items.length) _ntfSetSeen(_ntfFeed.items[_ntfFeed.items.length - 1].ts);
     _ntfUpdateBadge();

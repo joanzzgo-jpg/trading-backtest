@@ -412,8 +412,9 @@ def status():
 
 
 @router.get("/feed")
-def feed(name: str, limit: int = 80):
-    """某帳號的訊號歷史（聊天室通知中心）。回傳由舊到新（最新在最後）。"""
+def feed(name: str, limit: int = 80, since: float = 0):
+    """某帳號的訊號歷史（聊天室通知中心）。回傳由舊到新（最新在最後）。
+    since>0：只回 ts ≥ since 的（給「今日摘要」抓自當地午夜起的全部、不被 limit 截斷漏算）。"""
     _require_enabled()
     nm = _acct._norm_name(name)
     if not nm:
@@ -421,9 +422,14 @@ def feed(name: str, limit: int = 80):
     limit = max(1, min(int(limit or 80), 200))
     conn, ph = _acct._db()
     try:
-        cur = conn.execute(
-            f"SELECT ts,event,title,body,symbol,market,exchange,tf,sig,dir,sigt FROM notify_log "
-            f"WHERE name={ph} ORDER BY id DESC LIMIT {limit}", (nm,))
+        if since and float(since) > 0:
+            cur = conn.execute(
+                f"SELECT ts,event,title,body,symbol,market,exchange,tf,sig,dir,sigt FROM notify_log "
+                f"WHERE name={ph} AND ts >= {ph} ORDER BY id DESC LIMIT 200", (nm, float(since)))
+        else:
+            cur = conn.execute(
+                f"SELECT ts,event,title,body,symbol,market,exchange,tf,sig,dir,sigt FROM notify_log "
+                f"WHERE name={ph} ORDER BY id DESC LIMIT {limit}", (nm,))
         rows = cur.fetchall()
     finally:
         conn.close()
