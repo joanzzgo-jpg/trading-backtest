@@ -99,6 +99,18 @@ function _trdRenderOverview() {
     catch (err) { _trdMsg(err.message, true); }
   }));
 
+  // 交易所實際掛的『止損/止盈條件單』（algo）→ 顯示真實觸發價供核對通知
+  const algoArr = ov.algo || [];
+  if (algoArr.length) {
+    ordEl.innerHTML += `<div class="trd-sub">止損/止盈（交易所實際掛單）</div>` + algoArr.map(o => {
+      const isSL = o.type === "STOP_MARKET";
+      return `<div class="trd-row trd-row-sm">
+        <span class="trd-sym">${o.symbol}</span>
+        <span class="trd-nums">${isSL ? "🛑 止損" : "🎯 止盈"} @ ${_trdFmt(o.triggerPrice)}</span>
+      </div>`;
+    }).join("");
+  }
+
   // 自動交易設定
   const a = ov.auto || {};
   const tog = pop.querySelector(".trd-auto-toggle");

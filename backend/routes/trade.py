@@ -629,7 +629,7 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
         o = client.place_order(bsym, side, qty, "MARKET")
         # 止盈到「上下軌」（空→下軌、多→上軌；用原始策略風險＝進場到策略停損算 → 不受停損緩衝影響）。
         # rr_b＝上下軌預估盈虧比；缺(軌為 NaN)→ 退回中軌 rr。之後 retarget_auto_tp 每根 K 跟著軌移動。
-        tp_px = None
+        tp_px = None; tgt = None     # tgt=止盈圖表價(顯示/紀錄用)；tp_px=合約價(掛單用，=tgt×scale)
         tp_rr = rr_b if rr_b else rr
         if tp_rr:
             risk = abs(float(entry) - orig_stop)
@@ -665,13 +665,13 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
                 warn.append(f"TP 掛單失敗（不影響停損保護）：{e}")
         _log_trade(source="auto", mode=client.env, status="open", symbol=symbol, bsym=bsym, side=want,
                    qty=qty, entry=str(entry), sl=str(round(stop_chart, 8)),
-                   tp=(str(tp_px) if tp_px else None), tp_oid=tp_oid, sig=k, d=d, tf=tf,
+                   tp=(str(round(tgt, 8)) if (tp_px and tgt is not None) else None), tp_oid=tp_oid, sig=k, d=d, tf=tf,
                    sigt=str(sig.get("t")), msg="；".join(warn) or None)
         # 通知擁有者：自動進場
         envtag = "實盤" if client.env == "live" else "測試網"
         dir_txt = "做空" if want == "short" else "做多"
         l1 = f"{dir_txt} · {lev}x · 數量 {qty} · {envtag}"
-        l2 = f"進場 {_fmt_px(entry)}" + (f" → 止盈 {_fmt_px(tp_px)}" if tp_px else "")
+        l2 = f"進場 {_fmt_px(entry)}" + (f" → 止盈 {_fmt_px(tgt)}" if (tp_px and tgt is not None) else "")
         l3 = f"停損 {_fmt_px(stop_chart)}"
         body = "\n".join([l1, l2, l3]) + (f"\n⚠ {_size_warn}" if _size_warn else "")
         _push_owner(owner, f"🤖 自動進場 · {symbol}（{envtag}）", body, symbol, tf=tf, event="atrade_open",
@@ -1032,9 +1032,58 @@ def overview(req: KeyReq):
     try:
         return {"env": client.env, "balance": client.balance(),
                 "positions": client.positions(), "orders": client.open_orders(),
+                "algo": client.algo_orders(),          # 交易所實際掛的止損/止盈條件單(觸發價)→ 供核對
                 "auto": get_auto_cfg(fresh=True)}
     except bt.TradeError as e:
         raise HTTPException(502, str(e))
+
+
+@router.post("/verify_sltp")
+def verify_sltp(req: KeyReq):
+    """核對未平自動倉：紀錄(通知)的止損/止盈 vs 交易所『實際掛單觸發價』（皆換算圖表價比較）。
+    sl_diff_pct/tp_diff_pct >0.15 → 通知與實際掛單不一致；has_algo=false → 交易所查不到該倉止損/止盈單(危險)。"""
+    client = _guard(req.key, req.name)
+    try:
+        algos = client.algo_orders()
+        positions = {p["symbol"] for p in client.positions()}
+    except bt.TradeError as e:
+        raise HTTPException(502, str(e))
+    by_sym = {}
+    for a in algos:
+        g = by_sym.setdefault(a["symbol"], {"sl": None, "tp": None})
+        if a["type"] == "STOP_MARKET":          g["sl"] = a["triggerPrice"]
+        elif a["type"] == "TAKE_PROFIT_MARKET": g["tp"] = a["triggerPrice"]
+    _ensure_db()
+    conn, ph = _acct._db()
+    try:
+        cur = conn.execute(
+            f"SELECT symbol, bsym, side, sl, tp, tf FROM trade_log "
+            f"WHERE source='auto' AND status='open' ORDER BY id DESC LIMIT 30")
+        rows = cur.fetchall()
+    finally:
+        conn.close()
+    def _f(v):
+        try: return float(v)
+        except (TypeError, ValueError): return None
+    def _mm(x, y):
+        if x is None or y is None or not y: return None
+        return round(abs(x - y) / abs(y) * 100, 3)
+    out = []
+    for symbol, bsym, side, sl, tp, tf in rows:
+        _, scale = client.resolve_symbol(symbol)
+        sc = scale or 1
+        a = by_sym.get(bsym, {})
+        sl_notif = _f(sl)                                          # 紀錄止損(圖表價)
+        tp_notif = _f(tp)                                          # 紀錄止盈(圖表價，已修正)
+        sl_act = (a["sl"] / sc) if a.get("sl") else None          # 交易所止損(合約→圖表)
+        tp_act = (a["tp"] / sc) if a.get("tp") else None
+        out.append({
+            "symbol": symbol, "tf": tf, "side": side,
+            "sl_notified": sl_notif, "sl_exchange": sl_act, "sl_diff_pct": _mm(sl_notif, sl_act),
+            "tp_notified": tp_notif, "tp_exchange": tp_act, "tp_diff_pct": _mm(tp_notif, tp_act),
+            "has_algo": bool(a), "in_position": (bsym in positions),
+        })
+    return {"items": out, "algo_count": len(algos)}
 
 
 @router.post("/order")

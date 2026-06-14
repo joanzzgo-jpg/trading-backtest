@@ -246,6 +246,36 @@ class Client:
             "time": o.get("time"),
         } for o in rows]
 
+    def algo_orders(self, sym: str = None) -> list:
+        """查目前掛著的 algo 條件單(SL/TP)的『實際觸發價』，供核對通知/紀錄的止損止盈是否一致。
+        Binance 2025-12 把條件單遷到 algo API → 不在 /fapi/v1/openOrders；用 algo 專屬 GET。
+        端點/權限失敗一律回空（read-only，絕不影響面板）。回 type=STOP_MARKET(止損)/TAKE_PROFIT_MARKET(止盈)。"""
+        rows = None
+        for path in ("/fapi/v1/openAlgoOrders", "/fapi/v1/algoOrders"):   # 端點不確定 → 依序嘗試
+            try:
+                rows = self._request("GET", path, {"symbol": sym} if sym else {})
+                break
+            except TradeError:
+                rows = None
+        if rows is None:
+            return []
+        if isinstance(rows, dict):
+            rows = rows.get("orders") or rows.get("data") or []
+        out = []
+        for o in (rows or []):
+            try:
+                out.append({
+                    "symbol": o.get("symbol"),
+                    "algoId": o.get("algoId") or o.get("orderId") or o.get("strategyId"),
+                    "type": o.get("type"),    # STOP_MARKET / TAKE_PROFIT_MARKET
+                    "side": o.get("side"),
+                    "triggerPrice": float(o.get("triggerPrice", 0) or o.get("stopPrice", 0) or 0),
+                    "closePosition": bool(o.get("closePosition")),
+                })
+            except (TypeError, ValueError):
+                continue
+        return out
+
     def income_history(self, limit: int = 40) -> list:
         rows = self._request("GET", "/fapi/v1/income",
                              {"incomeType": "REALIZED_PNL", "limit": max(1, min(limit, 100))})
