@@ -18,9 +18,9 @@ const _NTF_SIG_ORDER = ["ab", "3", "4", "5", "6", "7", "8", "9", "10", "11", "ab
 function _ntfLoadPrefs() {
   try {
     const p = JSON.parse(localStorage.getItem("notifyPrefs") || "null");
-    if (p && (p.tfs || p.sigs)) return { tfs: p.tfs || _NTF_DEFAULT.tfs.slice(), sigs: p.sigs || _NTF_DEFAULT.sigs.slice() };
+    if (p && (p.tfs || p.sigs)) return { tfs: p.tfs || _NTF_DEFAULT.tfs.slice(), sigs: p.sigs || _NTF_DEFAULT.sigs.slice(), sigNotify: p.sigNotify !== false };
   } catch (e) {}
-  return { tfs: _NTF_DEFAULT.tfs.slice(), sigs: _NTF_DEFAULT.sigs.slice() };
+  return { tfs: _NTF_DEFAULT.tfs.slice(), sigs: _NTF_DEFAULT.sigs.slice(), sigNotify: true };
 }
 
 // 訊號鍵 → 顯示名（abc=S1, ab=S2, "3".."12"=S3..S12）
@@ -105,12 +105,12 @@ async function _ntfDisable() {
 // （以前純靠快照同步 → 後端讀到舊偏好 → 收到沒設定的策略）。
 let _ntfPrefsPushTimer = null;
 function _ntfSavePrefs() {
-  try { localStorage.setItem("notifyPrefs", JSON.stringify({ tfs: _NTF.prefs.tfs, sigs: _NTF.prefs.sigs })); } catch (e) {}
+  const _p = { tfs: _NTF.prefs.tfs, sigs: _NTF.prefs.sigs, sigNotify: _NTF.prefs.sigNotify !== false };
+  try { localStorage.setItem("notifyPrefs", JSON.stringify(_p)); } catch (e) {}
   if (!window._acctName) return;
   clearTimeout(_ntfPrefsPushTimer);
   _ntfPrefsPushTimer = setTimeout(() => {
-    _ntfApi("POST", "prefs", { name: window._acctName, prefs: { tfs: _NTF.prefs.tfs, sigs: _NTF.prefs.sigs } })
-      .catch(() => {});
+    _ntfApi("POST", "prefs", { name: window._acctName, prefs: _p }).catch(() => {});
   }, 600);
 }
 
@@ -144,6 +144,12 @@ function _ntfRender() {
   const p = _NTF.prefs || {};
   pop.querySelectorAll(".ntf-tf").forEach(b => b.classList.toggle("sel", (p.tfs || []).includes(b.dataset.tf)));
   pop.querySelectorAll(".ntf-sig").forEach(b => b.classList.toggle("sel", (p.sigs || []).includes(b.dataset.sig)));
+  // 訊號通知總開關狀態（關＝只停訊號推播、淡化時框/訊號選項；自動交易通知不受影響）
+  const sigOn = p.sigNotify !== false;
+  const sigBtn = pop.querySelector(".ntf-signotify");
+  if (sigBtn) { sigBtn.textContent = sigOn ? "🔔 訊號通知：開" : "🔕 訊號通知：關"; sigBtn.classList.toggle("off", !sigOn); }
+  const sigWrap = pop.querySelector(".ntf-sigwrap");
+  if (sigWrap) sigWrap.classList.toggle("dim", !sigOn);
 }
 
 function _ntfBuildPopup() {
@@ -154,6 +160,11 @@ function _ntfBuildPopup() {
     #notifyPopup .ntf-toggle { width:100%; padding:8px; margin:4px 0 8px; border-radius:8px; border:1px solid var(--border,#445);
       background:transparent; color:var(--text,#ddd); cursor:pointer; font-size:13px; }
     #notifyPopup .ntf-toggle.ntf-on { background:var(--blue,#4a90d9); color:#fff; border-color:transparent; }
+    #notifyPopup .ntf-signotify { width:100%; padding:8px; margin:2px 0 3px; border-radius:8px; border:1px solid transparent;
+      background:var(--blue,#4a90d9); color:#fff; cursor:pointer; font-size:13px; font-weight:700; }
+    #notifyPopup .ntf-signotify.off { background:transparent; color:var(--muted,#99a); border-color:var(--border,#445); }
+    #notifyPopup .ntf-signotify-hint { font-size:10.5px; color:var(--muted,#889); margin:0 0 9px; line-height:1.45; }
+    #notifyPopup .ntf-sigwrap.dim { opacity:.4; pointer-events:none; }
     #notifyPopup .ntf-sub { font-size:11px; color:var(--muted,#889); margin:6px 0 3px; }
     #notifyPopup .ntf-chips { display:flex; flex-wrap:wrap; gap:5px; }
     #notifyPopup .ntf-chip { padding:3px 9px; border-radius:12px; border:1px solid var(--border,#445);
@@ -183,10 +194,14 @@ function _ntfBuildPopup() {
     ${iosHint}
     <button class="ntf-toggle">啟用通知</button>
     <div class="ntf-body">
-      <div class="ntf-sub">監控時框</div>
-      <div class="ntf-chips ntf-tf-grid">${tfChips}</div>
-      <div class="ntf-sub">通知訊號</div>
-      <div class="ntf-chips ntf-sig-grid">${sigChips}</div>
+      <button class="ntf-signotify">🔔 訊號通知：開</button>
+      <div class="ntf-signotify-hint">關掉只停「訊號」推播；「自動交易」平倉結果通知不受影響</div>
+      <div class="ntf-sigwrap">
+        <div class="ntf-sub">監控時框</div>
+        <div class="ntf-chips ntf-tf-grid">${tfChips}</div>
+        <div class="ntf-sub">通知訊號</div>
+        <div class="ntf-chips ntf-sig-grid">${sigChips}</div>
+      </div>
       <button class="ntf-test">發送測試通知</button>
     </div>
     <div class="ntf-msg"></div>`;
@@ -197,6 +212,13 @@ function _ntfBuildPopup() {
     _NTF.enabled ? _ntfDisable() : _ntfEnable();
   });
   pop.querySelector(".ntf-test").addEventListener("click", e => { e.stopPropagation(); _ntfTest(); });
+  pop.querySelector(".ntf-signotify").addEventListener("click", e => {
+    e.stopPropagation();
+    _NTF.prefs = _NTF.prefs || _ntfLoadPrefs();
+    _NTF.prefs.sigNotify = (_NTF.prefs.sigNotify === false);   // 切換：off→on / on→off
+    _ntfSavePrefs();
+    _ntfRender();
+  });
   pop.querySelectorAll(".ntf-tf").forEach(b => b.addEventListener("click", e => {
     e.stopPropagation();
     _NTF.prefs = _NTF.prefs || { tfs: [], sigs: [] };

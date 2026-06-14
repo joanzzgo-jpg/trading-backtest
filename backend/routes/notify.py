@@ -194,7 +194,9 @@ def _clean_prefs(p: Optional[dict]) -> dict:
     raw_tfs  = p.get("tfs")
     sigs = list(DEFAULT_SIGS) if raw_sigs is None else [s for s in raw_sigs if s in _ALL_SIGS]
     tfs  = list(DEFAULT_TFS)  if raw_tfs  is None else [t for t in raw_tfs  if t in _ALL_TFS]
-    return {"enabled": bool(p.get("enabled", True)), "sigs": sigs, "tfs": tfs}
+    # sigNotify：訊號通知總開關（預設開）。關掉只停『訊號』推播，不影響『自動交易』結果通知(走 _push_owner)。
+    return {"enabled": bool(p.get("enabled", True)), "sigs": sigs, "tfs": tfs,
+            "sigNotify": bool(p.get("sigNotify", True))}
 
 
 # ── request models ────────────────────────────────────────────
