@@ -255,7 +255,8 @@ function _computeAutoRRBox(sig) {
   const cacheKey = _autoRRCacheKey(sig);
   if (_autoRRBoxCache.has(cacheKey)) return _autoRRBoxCache.get(cacheKey);
 
-  const useBand = _wrTargetView === "band" || _wrTargetView === "band80";  // 8成軌圖上暫用上下軌位置
+  const useBand = _wrTargetView === "band" || _wrTargetView === "band80";  // 帶軌目標（非中軌/1:1）
+  const is80    = _wrTargetView === "band80";                              // 8成軌＝下軌↔上軌 80% 處
   const isRR    = _wrTargetView === "rr";
   const sigIdx = (typeof _timeToIdx !== "undefined" && _timeToIdx.has(sig.t))
     ? _timeToIdx.get(sig.t)
@@ -270,6 +271,13 @@ function _computeAutoRRBox(sig) {
   }
   const dir = sig.d;
   const isShort = dir === "s";
+  // 某棒的帶軌止盈目標：滿軌(空=下軌、多=上軌)；8成軌=下軌↔上軌 80% 處(空=下軌+20%、多=下軌+80%)
+  const bandTgt = (bar) => {
+    if (!is80) return isShort ? bar.bb_lower : bar.bb_upper;
+    const u = bar.bb_upper, l = bar.bb_lower;
+    if (u == null || l == null) return null;
+    return isShort ? (l + 0.2 * (u - l)) : (l + 0.8 * (u - l));
+  };
   const buf = (_wrStopBuffer || 0) / 100;
   // 止損價優先用後端實際值（含 buffer、多棒取極值）；缺漏時退回單根訊號棒（舊資料相容）
   let tp, sl, type, color;
@@ -277,12 +285,12 @@ function _computeAutoRRBox(sig) {
     sl = (sig.stop != null) ? sig.stop : sigBar.high * (1 + buf);
     // 1:1：止盈距離 = 止損距離（進場價 - 風險）；否則中軌/下軌
     tp = isRR ? (entryBar.open - (sl - entryBar.open))
-       : useBand ? entryBar.bb_lower : entryBar.bb_middle;
+       : useBand ? bandTgt(entryBar) : entryBar.bb_middle;
     type = "shortpos"; color = "#ef5350";
   } else {
     sl = (sig.stop != null) ? sig.stop : sigBar.low * (1 - buf);
     tp = isRR ? (entryBar.open + (entryBar.open - sl))
-       : useBand ? entryBar.bb_upper : entryBar.bb_middle;
+       : useBand ? bandTgt(entryBar) : entryBar.bb_middle;
     type = "longpos"; color = "#26a69a";
   }
   if (tp == null) { _autoRRBoxCache.set(cacheKey, null); return null; }
@@ -302,8 +310,7 @@ function _computeAutoRRBox(sig) {
       tpAct = tp;  // 1:1 目標固定，實際止盈 = 預估止盈
     } else {
       const exitBar = ohlcvData[exitIdx];
-      if (isShort) tpAct = useBand ? exitBar.bb_lower : exitBar.bb_middle;
-      else         tpAct = useBand ? exitBar.bb_upper : exitBar.bb_middle;
+      tpAct = useBand ? bandTgt(exitBar) : exitBar.bb_middle;
     }
   }
 
