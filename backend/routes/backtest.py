@@ -44,6 +44,9 @@ class CrtBacktestRequest(BaseModel):
     stop_after_loss: bool = False  # True=敗後停手（逐方向：輸了停手、旁觀同向到紙上會贏或反向訊號才回場；SS 套同根K放行新規則；已內含一次一筆＝持倉中不接單，比照實盤）
     pyramid: bool = False      # True=加倉（同向訊號持倉中再現就加倉，合併均價、單一停損=最新筆、止盈走上下軌動態目標；獨立模式）
     max_adds: int = 5          # 加倉上限筆數（含首筆；超過則略過不加）
+    max_use_cap: float = 0     # 自動最佳化：資金用量峰值上限%（0=不限；如 100=只列免槓桿組合）
+    fee_pct: float = 0.0       # 手續費（單邊小數，0.0005=0.05%；進出各收一次）→ 真實淨損益
+    leverage: float = 0.0      # 槓桿上限倍數（0=不限；如 10=部位最多 10×本金，超過的吃不下→該筆等比縮小）
     finmind_token: str = ""
 
 
@@ -102,12 +105,18 @@ def _fmt_dur(seconds: float) -> str:
     return f"{seconds / 60:.0f}分"
 
 
-def _simulate(picked, rkey, rrkey, est_key, otkey, init_cap, risk_pct, tp_mode, from_date):
+def _simulate(picked, rkey, rrkey, est_key, otkey, init_cap, risk_pct, tp_mode, from_date,
+              fee_pct=0.0, leverage=0.0):
     """跑一遍資金模擬：定額風險、單利——每筆風險金額固定 = 初始本金 × risk_pct（不複利）。
     止盈基準 tp_mode：
       real：已實現——勝負依「已實現 rr>0」、盈虧比＝實際出場(動態目標,含號)。
       est ：預計止盈——勝負依「有沒有到進場固定目標」(est_r)、盈虧比＝預估值(恆正)；
             無 est 的訊號(如 abc)退回已實現。
+    真實化：
+      leverage>0：部位佔資金(use_frac=風險%÷風險距%)超過槓桿上限的部分『吃不下』→ 該筆等比縮小
+                 (實際 R 與盈虧同步縮)，max_use 也被壓到 ≤ leverage，貼近實盤能下的單。
+      fee_pct>0 ：每筆進出各收一次手續費(名目×fee_pct×2)，從淨損益扣 → 高頻策略才看得出真實侵蝕。
+    勝負(win_rate)仍以『策略有沒有到目標』計；報酬/PF/淨R/回撤皆為扣費+槓桿縮放後的真實值。
     回傳 (stats, trades, equity)。"""
     def _score(s):
         """回傳 (trade_r, win)。"""
@@ -132,30 +141,44 @@ def _simulate(picked, rkey, rrkey, est_key, otkey, init_cap, risk_pct, tp_mode, 
     r_sum = 0.0
     peak = cap
     max_dd = 0.0
-    use_fracs = []     # 資金用量：每筆部位佔資金比例（風險% ÷ 風險距離%）
+    use_fracs = []     # 資金用量：每筆部位佔資金比例（槓桿縮放後的實際 eff_frac）
     hold_secs = []     # 持倉時間：進場→結算秒數
+    fee_pct = max(0.0, float(fee_pct or 0.0))
+    lev = max(0.0, float(leverage or 0.0))      # 0 = 不限槓桿
+    fees_total = 0.0; capped_n = 0
     for s in picked:
-        trade_r, win = _score(s)   # 依 tp_mode 取勝負與盈虧比（real=已實現／est=預計止盈）
-        rr = trade_r               # 顯示用：該筆盈虧比（real 含號／est 恆正）
-        pnl = risk_amt * trade_r
-        cap += pnl
-        if win:
-            wins += 1; gross_win += pnl
-        else:
-            losses += 1; gross_loss += abs(pnl)
-        r_sum += trade_r
-        peak = max(peak, cap)
-        if peak > 0:
-            max_dd = min(max_dd, (cap - peak) / peak)
-
-        # 資金用量：部位/資金 = 風險% ÷ (|進場-止損|/進場)。止損越近 → 部位（名目）越大
-        use_frac = None
+        trade_r, win = _score(s)   # 策略勝負 + 毛盈虧比（尚未含費/槓桿縮放）
+        # 部位/槓桿：use_frac = 部位佔資金 = 風險% ÷ 風險距%。lev>0 時超過上限的部分吃不下 → 該筆等比縮小。
+        use_frac = None; eff_frac = None
         entry_px = s.get("entry"); stop_px = s.get("stop")
         if entry_px and stop_px and entry_px > 0:
             risk_frac = abs(entry_px - stop_px) / entry_px
             if risk_frac > 1e-9:
                 use_frac = risk_pct / risk_frac
-                use_fracs.append(use_frac)
+                eff_frac = min(use_frac, lev) if lev > 0 else use_frac
+        scale = (eff_frac / use_frac) if (use_frac and eff_frac is not None and use_frac > 0) else 1.0
+        if scale < 0.999:
+            capped_n += 1
+        notional = (eff_frac if eff_frac is not None else (use_frac or 0.0)) * float(init_cap)
+        fee = 2.0 * fee_pct * notional            # 進出各收一次
+        fees_total += fee
+        pnl = risk_amt * trade_r * scale - fee     # 淨損益（含槓桿縮放 + 手續費）
+        net_r = (pnl / risk_amt) if risk_amt > 0 else 0.0   # 淨 R
+        cap += pnl
+        if win:
+            wins += 1
+        else:
+            losses += 1
+        if pnl >= 0:
+            gross_win += pnl
+        else:
+            gross_loss += -pnl
+        r_sum += net_r
+        peak = max(peak, cap)
+        if peak > 0:
+            max_dd = min(max_dd, (cap - peak) / peak)
+        if eff_frac is not None:
+            use_fracs.append(eff_frac)
         hold = _dur_secs(s.get("t"), s.get(otkey))
         if hold is not None:
             hold_secs.append(hold)
@@ -164,8 +187,8 @@ def _simulate(picked, rkey, rrkey, est_key, otkey, init_cap, risk_pct, tp_mode, 
             "time": s.get("t"), "exit": s.get(otkey),
             "dir": s.get("d"), "sig": s.get("k"),
             "result": "win" if win else "loss",
-            "rr": round(rr, 2), "pnl": round(pnl, 2), "equity": round(cap, 2),
-            "use": round(use_frac * 100, 1) if use_frac is not None else None,   # 該筆資金用量 %
+            "rr": round(net_r, 2), "pnl": round(pnl, 2), "equity": round(cap, 2),
+            "use": round(eff_frac * 100, 1) if eff_frac is not None else None,   # 該筆資金用量 %（已套槓桿上限）
             "hold": _fmt_dur(hold),                                              # 該筆持倉時間
         })
         equity.append({"time": s.get(otkey) or s.get("t"), "equity": round(cap, 2)})
@@ -192,6 +215,10 @@ def _simulate(picked, rkey, rrkey, est_key, otkey, init_cap, risk_pct, tp_mode, 
         "max_hold": _fmt_dur(max(hold_secs)) if hold_secs else "—",
         "span":     _fmt_dur(span_secs),
         "from_date": from_date,
+        # 真實化資訊：總手續費、被槓桿上限縮小的筆數（讓使用者知道扣了多少費 / 有幾筆吃不滿）
+        "fees_total": round(fees_total, 2) if fee_pct > 0 else None,
+        "capped_n":   capped_n if lev > 0 else None,
+        "leverage":   lev if lev > 0 else None,
     }
     return stats, trades, equity
 
@@ -414,12 +441,18 @@ def run_crt_backtest(req: CrtBacktestRequest):
         raise HTTPException(400, f"勝率計算失敗: {e}")
 
     sigs = (wr or {}).get("signals") or []
+    bars = (wr or {}).get("_bars")
     # 8成軌：下軌↔上軌 80% 處止盈（多：下軌+80%寬；空：上軌−80%寬＝下軌+20%）。crt 沒預算此目標 →
     # 用 with_bars 的 K 棒即時重走，注入 r80/ot80/rr80_real/est_r80（在副本上，勿污染勝率快取）。
     if req.target == "band80" and not req.pyramid:
         sigs = [dict(s) for s in sigs]
-        _inject_band80((wr or {}).get("_bars"), sigs)
+        _inject_band80(bars, sigs)
+    return _compute_backtest(req, sigs, bars, (wr or {}).get("from_date"))
 
+
+def _compute_backtest(req: CrtBacktestRequest, sigs: list, bars, wr_from_date=None):
+    """給定訊號(已含對應目標的結算欄位；8成軌須先 _inject_band80) + K 棒 → 過濾／進場規則／資金模擬 → 回結果 dict。
+    從 run_crt_backtest 抽出，讓『自動最佳化』重用同一份勝率/訊號跑上百組合（不重抓、band80 只注入一次）。"""
     # 結算欄位組：加倉/上下軌→band；8成軌→band80；中軌→mid。決定 picked 過濾、敗後停手、_simulate 取哪組勝負/RR。
     if req.pyramid or req.target == "band":
         rkey, otkey, rrkey, estkey = "r_b", "ot_b", "rr_b_real", "est_r_b"
@@ -475,12 +508,12 @@ def run_crt_backtest(req: CrtBacktestRequest):
 
     # ── 加倉（金字塔）：獨立模式，合併均價＋單一停損＋上下軌止盈，重走 K 棒結算 ──
     if req.pyramid:
-        bars = (wr or {}).get("_bars")
         cand = sorted(picked, key=lambda s: (s.get("t") or "", s.get("ot_b") or ""))
         clusters = _build_pyramid_clusters(bars, cand, req.max_adds)
-        from_date = (clusters[0].get("t") or "")[:10] if clusters else (wr or {}).get("from_date")
+        from_date = (clusters[0].get("t") or "")[:10] if clusters else wr_from_date
         stats, trades, equity = _simulate(clusters, "r", "rr_real", "est_r", "ot",
-                                          req.initial_capital, risk_pct, "real", from_date)
+                                          req.initial_capital, risk_pct, "real", from_date,
+                                          fee_pct=getattr(req, "fee_pct", 0.0), leverage=getattr(req, "leverage", 0.0))
         return {
             "stats": stats, "trades": trades, "equity_curve": equity,
             "tp_mode": "real", "entry_rule": "pyramid", "target": "band",
@@ -506,9 +539,10 @@ def run_crt_backtest(req: CrtBacktestRequest):
         picked = sorted(kept, key=lambda s: s.get(otkey) or s.get("t") or "")
 
     # from_date 用實際首筆交易日（比資料起始日更精準；回測期間有限縮時也對得上）
-    from_date = (picked[0].get("t") or "")[:10] if picked else (wr or {}).get("from_date")
+    from_date = (picked[0].get("t") or "")[:10] if picked else wr_from_date
 
-    stats, trades, equity = _simulate(picked, rkey, rrkey, estkey, otkey, req.initial_capital, risk_pct, tp_mode, from_date)
+    stats, trades, equity = _simulate(picked, rkey, rrkey, estkey, otkey, req.initial_capital, risk_pct, tp_mode, from_date,
+                                      fee_pct=getattr(req, "fee_pct", 0.0), leverage=getattr(req, "leverage", 0.0))
 
     return {
         "stats":        stats,
@@ -519,4 +553,79 @@ def run_crt_backtest(req: CrtBacktestRequest):
         "entry_rule":   "stop" if req.stop_after_loss else ("single" if req.one_position else "all"),
         "n_all":        n_all,             # 該條件/期間內的全部訊號數
         "n_taken":      len(picked),       # 實際納入回測的筆數（一次一筆會少於 n_all）
+    }
+
+
+# 自動最佳化搜尋空間（用面板當下的 標的/時框/止損緩衝/風險%/本金/回測天數，不變動這些）
+_OPT_SIGNALS = ["all", "all11", "ssall", "abc", "ab", "s3", "s4", "s5", "s6",
+                "s7", "s8", "s9", "s10", "s11", "s12", "ss1", "ss2"]
+_OPT_DIRS    = ["both", "long", "short"]
+_OPT_PLAIN   = [(rule, tgt) for rule in ("all", "single", "stop")
+                for tgt in ("mid", "band", "band80")]   # 一般規則 × 目標
+_OPT_MIN_TRADES = 20   # 樣本太少（<20 筆）的組合不列入排名，避免幸運小樣本灌爆報酬率
+
+
+@router.post("/crt_backtest_optimize")
+def run_crt_optimize(req: CrtBacktestRequest):
+    """自動最佳化：固定面板當下的 標的/時框/止損緩衝/風險%/本金/回測天數，窮舉
+    訊號 × 方向 × (進場規則 × 目標) ＋ 加倉，依『報酬率』排名回前 N 名。
+    只抓一次勝率、band80 只注入一次 → 上百組合共用，幾秒內跑完。"""
+    from types import SimpleNamespace
+    from routes.data import get_crt_winrate
+    import time as _t
+    t0 = _t.time()
+    try:
+        wr = get_crt_winrate(
+            market=req.market, symbol=req.symbol, timeframe=req.timeframe,
+            exchange=req.exchange, stop_buffer_pct=req.stop_buffer_pct,
+            finmind_token=req.finmind_token, with_bars=True)
+    except Exception as e:
+        raise HTTPException(400, f"勝率計算失敗: {e}")
+    base_sigs = (wr or {}).get("signals") or []
+    bars = (wr or {}).get("_bars")
+    wr_from = (wr or {}).get("from_date")
+    sigs80 = [dict(s) for s in base_sigs]   # 8成軌專用：整份注入一次，所有 band80 組合共用
+    _inject_band80(bars, sigs80)
+
+    base_fields = req.dict()
+    def _mk(**over):
+        d = dict(base_fields); d.update(over); return SimpleNamespace(**d)
+
+    rows = []
+    def _add(combo_req, sigset, label_rule):
+        try:
+            r = _compute_backtest(combo_req, sigset, bars, wr_from)
+        except Exception:
+            return
+        st = r.get("stats") or {}
+        rows.append({
+            "signal": combo_req.signal, "direction": combo_req.direction,
+            "target": r.get("target") if label_rule != "pyramid" else "band",
+            "entry_rule": label_rule,
+            "ret": st.get("total_return"), "win_rate": st.get("win_rate"),
+            "trades": st.get("total_trades"), "max_dd": st.get("max_drawdown"),
+            "pf": st.get("profit_factor"), "max_use": st.get("max_use"),
+            "net_r": st.get("net_r"), "n_taken": r.get("n_taken"),
+        })
+
+    for sig in _OPT_SIGNALS:
+        for d in _OPT_DIRS:
+            for rule, tgt in _OPT_PLAIN:
+                _add(_mk(signal=sig, direction=d, target=tgt, tp_mode="real",
+                         one_position=(rule == "single"), stop_after_loss=(rule == "stop"),
+                         pyramid=False), (sigs80 if tgt == "band80" else base_sigs), rule)
+            # 加倉（目標內定上下軌）
+            _add(_mk(signal=sig, direction=d, target="band", tp_mode="real",
+                     one_position=False, stop_after_loss=False, pyramid=True), base_sigs, "pyramid")
+
+    valid = [x for x in rows if (x.get("trades") or 0) >= _OPT_MIN_TRADES and x.get("ret") is not None]
+    # 資金用量上限：>0 時只保留「資金用量峰 ≤ cap」的組合（濾掉靠高槓桿灌報酬的假象）。
+    cap = float(req.max_use_cap or 0)
+    if cap > 0:
+        valid = [x for x in valid if (x.get("max_use") or 0) <= cap]
+    valid.sort(key=lambda x: x["ret"], reverse=True)
+    return {
+        "top": valid[:25], "tested": len(rows), "qualified": len(valid),
+        "min_trades": _OPT_MIN_TRADES, "max_use_cap": cap, "from_date": wr_from,
+        "elapsed": round(_t.time() - t0, 2),
     }

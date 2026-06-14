@@ -76,6 +76,28 @@
     .bt-tbl tr:last-child td{border-bottom:none}
     .bt-tbl th:first-child,.bt-tbl td:first-child{text-align:left}
     .bt-w{color:#26a69a}.bt-l{color:#ef5350}
+    /* 自動最佳化 */
+    .bt-optrow{display:flex;align-items:center;gap:10px;margin-top:8px;flex-wrap:wrap}
+    .bt-opt-btn{flex:1;min-width:150px;padding:9px 12px;border-radius:10px;border:1px solid rgba(255,200,120,.5);
+      background:linear-gradient(180deg,rgba(255,180,90,.22),rgba(255,120,40,.16));color:#ffd9a8;font-weight:800;
+      font-size:13px;cursor:pointer;transition:filter .15s}
+    .bt-opt-btn:hover{filter:brightness(1.15)}.bt-opt-btn:disabled{opacity:.6;cursor:default}
+    .bt-optcap{display:flex;align-items:center;gap:5px;font-size:11.5px;color:var(--muted,#999);white-space:nowrap}
+    .bt-optcap input{width:62px}
+    .bt-optres{display:flex;flex-direction:column;gap:7px;margin-top:4px}
+    .bt-opt-head{font-size:12.5px;font-weight:800;color:#ffcf9a}
+    .bt-opt-head small{display:block;font-weight:500;color:var(--muted,#999);font-size:10.5px;margin-top:2px}
+    .bt-opt-wrap{max-height:300px;overflow:auto;border:1px solid var(--border,#333);border-radius:8px;-webkit-overflow-scrolling:touch}
+    .bt-opt-t{width:100%;border-collapse:collapse;font-size:11px}
+    .bt-opt-t th{color:var(--muted,#999);font-weight:600;text-align:right;padding:5px 6px;white-space:nowrap;
+      position:sticky;top:0;background:var(--panel,#1b1b1f);border-bottom:1px solid var(--border,#333)}
+    .bt-opt-t td{padding:4px 6px;text-align:right;white-space:nowrap;border-bottom:1px solid rgba(255,255,255,.05)}
+    .bt-opt-t td small{display:block;color:var(--muted,#888);font-size:9.5px}
+    .bt-opt-t th:nth-child(2),.bt-opt-t td:nth-child(2),.bt-opt-t th:nth-child(3),.bt-opt-t td:nth-child(3){text-align:left}
+    .bt-opt-r{cursor:pointer;transition:background .12s}.bt-opt-r:hover{background:rgba(255,200,120,.12)}
+    .bt-opt-rank{color:#ffcf9a;font-weight:800}
+    .bt-opt-ret{font-weight:800}.bt-opt-ret.good{color:#26d07c}.bt-opt-ret.bad{color:#ff6b6b}
+    .bt-opt-lev{color:#ffb74d;font-weight:700}
     @media(max-width:768px){.bt-row label{flex-basis:72px;font-size:12px}}
     `;
     document.head.appendChild(s);
@@ -117,6 +139,8 @@
               <div class="bt-seg" id="btTp"><button data-v="real" class="on">已實現</button><button data-v="est">預計止盈</button></div></div>
             <div class="bt-row"><label>止損緩衝%</label><input id="btBuf" type="number" value="0" min="0" max="10" step="0.1"></div>
             <div class="bt-row"><label>每筆風險%</label><input id="btRisk" type="number" value="2" min="0.1" max="100" step="0.5"></div>
+            <div class="bt-row"><label>手續費%/邊<small>(實盤真實化)</small></label><input id="btFee" type="number" value="0.05" min="0" step="0.01" title="單邊手續費%，進出各收一次。永續taker約0.05%、maker約0.02%。0=不計"></div>
+            <div class="bt-row"><label>槓桿上限x<small>(0=不限)</small></label><input id="btLev" type="number" value="10" min="0" step="1" title="部位最多幾倍本金；超過的吃不下→該筆等比縮小，貼近實盤。0=不限(會出現50倍假象)"></div>
             <div class="bt-row"><label>進場規則</label>
               <div class="bt-seg" id="btRule"><button data-v="all" class="on">全部訊號</button><button data-v="single">一次一筆</button><button data-v="stop">敗後停手</button><button data-v="pyramid">加倉</button></div></div>
             <div class="bt-row" id="btMaxAddsRow" style="display:none"><label>加倉上限</label><input id="btMaxAdds" type="number" value="5" min="1" max="20" step="1"></div>
@@ -124,7 +148,12 @@
             <div class="bt-hint">用 CRT 訊號的勝負序列 × 每筆預估盈虧比模擬資金曲線（重用勝率引擎，深歷史）。定額風險、單利：每筆固定冒險「本金 × 每筆風險%」。</div>
           </div>
           <button class="bt-run" id="btRun">執行回測</button>
+          <div class="bt-optrow">
+            <button class="bt-opt-btn" id="btOptRun">🔍 自動找報酬最高</button>
+            <label class="bt-optcap">資金用量上限<input id="btOptCap" type="number" value="100" min="0" step="50" title="0=不限；100=只列免槓桿組合（資金用量峰≤100%）">%</label>
+          </div>
           <div class="bt-res" id="btRes" style="display:none"></div>
+          <div class="bt-optres" id="btOptRes" style="display:none"></div>
         </div>
       </div>`;
     document.body.appendChild(ov);
@@ -142,13 +171,15 @@
       ["btTgt", "btTp"].forEach(id => { const el = document.getElementById(id); if (el) el.style.opacity = pyr ? ".4" : ""; });
     });
     ov.querySelector("#btRun").addEventListener("click", _run);
+    ov.querySelector("#btOptRun").addEventListener("click", _optimize);
     // 切換 方向/目標/止盈基準/進場規則/訊號/數值 後，若已有回測結果 → 靜默自動重跑（免再手動按執行）。
     // 只在「設定真的改變」時才重跑（避免重點同一顆按鈕也閃）；_run(true)=保留舊結果就地替換、不清空。
     let _lastRunKey = null;
     const _curKey = () => [_segVal("btDir"), _segVal("btTgt"), _segVal("btTp"), _segVal("btRule"),
       document.getElementById("btCrtSig")?.value, document.getElementById("btBuf")?.value,
       document.getElementById("btRisk")?.value, document.getElementById("btCap")?.value,
-      document.getElementById("btLookback")?.value, document.getElementById("btMaxAdds")?.value].join("|");
+      document.getElementById("btLookback")?.value, document.getElementById("btMaxAdds")?.value,
+      document.getElementById("btFee")?.value, document.getElementById("btLev")?.value].join("|");
     const _maybeRerun = () => {
       const r = document.getElementById("btRes");
       if (!r || r.style.display === "none" || !r.querySelector(".bt-cards")) return;
@@ -160,7 +191,7 @@
     ["btDir", "btTgt", "btTp", "btRule"].forEach(id =>
       document.getElementById(id)?.addEventListener("click", e => { if (e.target.closest("button")) _maybeRerun(); }));
     document.getElementById("btCrtSig")?.addEventListener("change", _maybeRerun);
-    ["btBuf", "btRisk", "btCap", "btLookback", "btMaxAdds"].forEach(id =>
+    ["btBuf", "btRisk", "btCap", "btLookback", "btMaxAdds", "btFee", "btLev"].forEach(id =>
       document.getElementById(id)?.addEventListener("change", _maybeRerun));
     _built = true;
   }
@@ -218,6 +249,8 @@
         stop_after_loss: _segVal("btRule") === "stop",
         pyramid: _segVal("btRule") === "pyramid",
         max_adds: parseInt(document.getElementById("btMaxAdds")?.value, 10) || 5,
+        fee_pct: (parseFloat(document.getElementById("btFee")?.value) || 0) / 100,
+        leverage: parseFloat(document.getElementById("btLev")?.value) || 0,
       };
       const data = await _post("/api/crt_backtest", body);
       _renderResult(data);
@@ -228,6 +261,81 @@
       btn.disabled = false; btn.textContent = "執行回測";
       res.classList.remove("bt-recalc");
     }
+  }
+
+  // ── 自動最佳化：窮舉訊號×方向×目標×規則，依報酬率排名 ──
+  const _SIGLBL = { all: "S2~11合計", all11: "S1~11合計", ssall: "SS合計", abc: "S1·ABC", ab: "S2·AB", ss1: "SS1", ss2: "SS2" };
+  const _DIRLBL = { both: "多空", long: "只多", short: "只空" };
+  const _TGTLBL = { mid: "中軌", band: "上下軌", band80: "8成軌" };
+  const _RULELBL = { all: "全部", single: "一次一筆", stop: "敗後停手", pyramid: "加倉" };
+  const _sigLbl = s => _SIGLBL[s] || (s || "").toUpperCase();
+
+  async function _optimize() {
+    const btn = document.getElementById("btOptRun");
+    const res = document.getElementById("btOptRes");
+    const c = _ctx();
+    if (!c.symbol) return;
+    btn.disabled = true; const old = btn.textContent; btn.textContent = "搜尋中…";
+    res.style.display = "block";
+    res.innerHTML = `<div class="bt-hint">窮舉 訊號 × 方向 × 目標 × 進場規則 中…（約數秒）</div>`;
+    try {
+      const body = {
+        ...c,
+        stop_buffer_pct: (parseFloat(document.getElementById("btBuf").value) || 0) / 100,
+        risk_pct: (parseFloat(document.getElementById("btRisk").value) || 2) / 100,
+        initial_capital: parseFloat(document.getElementById("btCap").value) || 100000,
+        lookback_days: parseInt(document.getElementById("btLookback").value, 10) || 0,
+        fee_pct: (parseFloat(document.getElementById("btFee")?.value) || 0) / 100,
+        leverage: parseFloat(document.getElementById("btLev")?.value) || 0,
+        max_use_cap: parseFloat(document.getElementById("btOptCap").value) || 0,
+      };
+      _renderOpt(await _post("/api/crt_backtest_optimize", body));
+    } catch (e) {
+      res.innerHTML = `<div class="bt-err">❌ ${e.message || "搜尋失敗"}</div>`;
+    } finally {
+      btn.disabled = false; btn.textContent = old;
+    }
+  }
+
+  function _renderOpt(d) {
+    const res = document.getElementById("btOptRes");
+    const top = d.top || [];
+    if (!top.length) {
+      res.innerHTML = `<div class="bt-hint">沒有符合條件的組合（共測 ${d.tested} 組）。試把「資金用量上限」調高或設 0=不限，或拉長回測天數。</div>`;
+      return;
+    }
+    const capNote = d.max_use_cap > 0 ? `・限資金用量≤${d.max_use_cap}%` : "・不限槓桿";
+    const rows = top.map((x, i) => {
+      const lev = (x.max_use != null && x.max_use > 100);
+      return `<tr class="bt-opt-r" data-i="${i}">
+        <td class="bt-opt-rank">${i + 1}</td>
+        <td>${_sigLbl(x.signal)}<small>${_DIRLBL[x.direction] || x.direction}</small></td>
+        <td>${_TGTLBL[x.target] || x.target}<small>${_RULELBL[x.entry_rule] || x.entry_rule}</small></td>
+        <td class="bt-opt-ret ${x.ret >= 0 ? "good" : "bad"}">${x.ret >= 0 ? "+" : ""}${x.ret}%</td>
+        <td>${x.win_rate}%</td><td>${x.trades}</td><td class="bad">-${x.max_dd}%</td>
+        <td class="${lev ? "bt-opt-lev" : ""}">${x.max_use != null ? x.max_use + "%" : "—"}${lev ? " ⚠" : ""}</td>
+      </tr>`;
+    }).join("");
+    res.innerHTML = `
+      <div class="bt-opt-head">🏆 報酬率排名（前 ${top.length}）<small>測 ${d.tested} 組／合格 ${d.qualified}${capNote}・${d.elapsed}s・點列即套用</small></div>
+      <div class="bt-opt-wrap"><table class="bt-opt-t">
+        <thead><tr><th>#</th><th>訊號/方向</th><th>目標/規則</th><th>報酬</th><th>勝率</th><th>筆</th><th>回撤</th><th>資金用量峰</th></tr></thead>
+        <tbody>${rows}</tbody></table></div>
+      <div class="bt-hint">⚠ = 資金用量峰 &gt;100%，實盤需槓桿、未必做得到（止損緩衝太低所致；調高緩衝可降槓桿）。</div>`;
+    res.querySelectorAll(".bt-opt-r").forEach(tr => tr.addEventListener("click", () => _applyCombo(top[+tr.dataset.i])));
+  }
+
+  function _applyCombo(x) {
+    const setSeg = (id, v) => { const seg = document.getElementById(id); if (!seg) return; seg.querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.v === v)); };
+    const sigSel = document.getElementById("btCrtSig"); if (sigSel) sigSel.value = x.signal;
+    setSeg("btDir", x.direction);
+    setSeg("btRule", x.entry_rule);
+    setSeg("btTgt", x.entry_rule === "pyramid" ? "band" : x.target);
+    const pyr = x.entry_rule === "pyramid";
+    const row = document.getElementById("btMaxAddsRow"); if (row) row.style.display = pyr ? "" : "none";
+    const hint = document.getElementById("btPyrHint"); if (hint) hint.style.display = pyr ? "" : "none";
+    ["btTgt", "btTp"].forEach(id => { const el = document.getElementById(id); if (el) el.style.opacity = pyr ? ".4" : ""; });
+    _run();   // 套用後立即跑完整結果（含圖上標記）
   }
 
   async function _post(url, body) {
