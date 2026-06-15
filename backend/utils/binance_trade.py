@@ -327,14 +327,27 @@ class Client:
         self._request("DELETE", "/fapi/v1/allOpenOrders", {"symbol": sym})
 
     def cancel_all_algo(self, sym):
-        # 條件單(SL/TP)現為 Algo Order，allOpenOrders 不含 → 需用 algo 專屬「取消全部」端點。
-        # ⚠ 正確端點是 DELETE /fapi/v1/algoOrderList（官方）；曾誤用不存在的 /fapi/v1/algoOrders →
-        # 每次取消全部都失敗被吞 → 條件單從不清除、越積越多 → 撞合約 algo 上限(20) → 新止損一律 -4509。
-        self._request("DELETE", "/fapi/v1/algoOrderList", {"symbol": sym})
+        # 取消該合約所有 algo 條件單(SL/TP)。新版 Algo「取消全部」的 bulk 端點(algoOrderList)參數不明、
+        # 易失效 → 改最可靠做法：先用「列出」(GET /fapi/v1/openAlgoOrders，已確認)拿到每筆的 algoId，
+        # 再逐筆用「取消單筆」(DELETE /fapi/v1/algoOrder，已確認)刪掉。全程只用官方確認可用的端點。
+        # 回成功取消的筆數；個別失敗不中斷(盡量清乾淨)。
+        n = 0
+        for o in self.algo_orders(sym):
+            aid = o.get("algoId")
+            if not aid:
+                continue
+            try:
+                self.cancel_algo(sym, aid)
+                n += 1
+            except TradeError:
+                pass
+        return n
 
     def cancel_algo(self, sym, algo_id):
-        # 取消單一 Algo 條件單（用 algoId）：供「TP 跟著中軌移動」只取消舊 TP、不動 SL
-        self._request("DELETE", "/fapi/v1/algoOrder", {"symbol": sym, "algoId": algo_id})
+        # 取消單一 Algo 條件單（用 algoId）：供「TP 跟著中軌移動」只取消舊 TP、不動 SL。
+        # ⚠ 官方文件參數只要 algoId（不含 symbol）→ 不送 symbol，避免新版端點對未列參數嚴格驗證而拒絕
+        # （疑似害止盈一直移不動＝retarget 取消舊 TP 失敗）。sym 僅保留簽名相容、不送出。
+        self._request("DELETE", "/fapi/v1/algoOrder", {"algoId": algo_id})
 
     def close_position(self, sym) -> dict:
         pos = [p for p in self.positions() if p["symbol"] == sym]
