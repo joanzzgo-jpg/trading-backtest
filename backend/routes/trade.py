@@ -1237,26 +1237,41 @@ def cancel(req: CancelReq):
         raise HTTPException(400, str(e))
 
 
-def _sweep_orphan_algo(client) -> int:
-    """清掉『無持倉合約』上殘留的 algo 條件單(孤兒止盈/止損)。churn＋過去取消端點用錯 → 殘單從不清、
-    塞滿合約 algo 上限(約20) → 新止損一律 -4509。只清『沒有持倉』的合約(有持倉者保留其 SL/TP)。
-    回清掉的合約數。絕不拋例外(掃描失敗不影響開關)。"""
-    try:
-        algos = client.algo_orders()                 # 全標的(端點已修正 openAlgoOrders)
-        if not algos:
-            return 0
+def _sweep_orphan_algo(client) -> dict:
+    """全帳號清殘留 algo 條件單 + 回診斷。先用原始 GET /fapi/v1/openAlgoOrders 看真實回應(看得到真錯誤/
+    格式)，再對『無持倉合約』的條件單逐筆用 algoId 取消。回 dict 含各步驟數字/錯誤，供定位端點問題。"""
+    d = {"listed": 0, "orphans": 0, "cancelled": 0, "list_err": "", "cancel_err": "", "sample": ""}
+    raw = None
+    try:                                              # ① 原始列出(不經 algo_orders 的吞例外包裝 → 看真錯誤)
+        raw = client._request("GET", "/fapi/v1/openAlgoOrders", {})
+    except Exception as e:
+        d["list_err"] = str(e)[:120]
+    if isinstance(raw, dict):
+        raw = raw.get("orders") or raw.get("data") or []
+    if not isinstance(raw, list):
+        raw = []
+    d["listed"] = len(raw)
+    if raw and isinstance(raw[0], dict):
+        a0 = raw[0]
+        d["sample"] = f"{a0.get('symbol')}/{a0.get('orderType') or a0.get('type')}/id={a0.get('algoId')}"
+    try:                                              # ② 無持倉合約的孤兒條件單 → 逐筆取消
         pos_syms = {p["symbol"] for p in client.positions()}
-        orphan_syms = {a["symbol"] for a in algos if a.get("symbol") and a["symbol"] not in pos_syms}
-        n = 0
-        for s in orphan_syms:
-            try:
-                client.cancel_all_algo(s)            # DELETE /fapi/v1/algoOrderList（已修正）
-                n += 1
-            except bt.TradeError:
-                pass
-        return n
     except Exception:
-        return 0
+        pos_syms = set()
+    for o in raw:
+        if not isinstance(o, dict):
+            continue
+        sym = o.get("symbol"); aid = o.get("algoId")
+        if not sym or not aid or sym in pos_syms:
+            continue
+        d["orphans"] += 1
+        try:
+            client.cancel_algo(sym, aid)
+            d["cancelled"] += 1
+        except bt.TradeError as e:
+            if not d["cancel_err"]:
+                d["cancel_err"] = str(e)[:120]
+    return d
 
 
 @router.post("/auto")
@@ -1265,15 +1280,24 @@ def set_auto(req: AutoReq):
     prev = get_auto_cfg(fresh=True)                   # 存檔前的設定 → 判斷是否『剛從關→開』
     cfg = _clean_auto(req.cfg)
     _save_auto_cfg(cfg)
-    # 剛把自動交易打開 → 順手清掉無持倉合約的殘留條件單，避免殘單塞滿 algo 上限害進場 -4509
-    swept = 0
+    # 剛把自動交易『關→開』→ 清無持倉合約的殘留條件單，並推一則診斷通知(列出/取消數字+錯誤)，
+    # 供定位 -4509(殘單清不掉)卡在哪一步：列不出？取消被拒？上限是全帳號？
+    diag = None
     if cfg.get("on") and not prev.get("on"):
-        swept = _sweep_orphan_algo(client)
-        if swept:
-            _push_owner((cfg.get("owner") or "").strip(), "🧹 已清理殘留條件單",
-                        f"開啟自動交易 → 清掉 {swept} 個無持倉合約的殘留止盈/止損條件單"
-                        f"（避免塞滿合約條件單上限導致新止損掛不上 -4509）。", "", event="atrade")
-    return {"ok": True, "cfg": cfg, "swept": swept}
+        diag = _sweep_orphan_algo(client)
+        owner = (cfg.get("owner") or "").strip()
+        if diag.get("cancelled"):
+            _push_owner(owner, f"🧹 已清理殘留條件單 · {diag['cancelled']} 筆",
+                        f"全帳號列出 {diag['listed']} 筆 algo 條件單，清掉無持倉合約的 {diag['cancelled']} 筆"
+                        f"（共 {diag['orphans']} 筆孤兒）。", "", event="atrade")
+        else:
+            _push_owner(owner, "🔧 條件單診斷",
+                        f"列出 {diag['listed']} 筆／孤兒 {diag['orphans']} 筆／取消 {diag['cancelled']} 筆"
+                        + (f"\n列出錯誤：{diag['list_err']}" if diag['list_err'] else "")
+                        + (f"\n取消錯誤：{diag['cancel_err']}" if diag['cancel_err'] else "")
+                        + (f"\n樣本：{diag['sample']}" if diag['sample'] else ""),
+                        "", event="atrade")
+    return {"ok": True, "cfg": cfg, "diag": diag}
 
 
 @router.post("/history")
