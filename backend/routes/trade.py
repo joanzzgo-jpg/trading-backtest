@@ -1237,12 +1237,43 @@ def cancel(req: CancelReq):
         raise HTTPException(400, str(e))
 
 
+def _sweep_orphan_algo(client) -> int:
+    """清掉『無持倉合約』上殘留的 algo 條件單(孤兒止盈/止損)。churn＋過去取消端點用錯 → 殘單從不清、
+    塞滿合約 algo 上限(約20) → 新止損一律 -4509。只清『沒有持倉』的合約(有持倉者保留其 SL/TP)。
+    回清掉的合約數。絕不拋例外(掃描失敗不影響開關)。"""
+    try:
+        algos = client.algo_orders()                 # 全標的(端點已修正 openAlgoOrders)
+        if not algos:
+            return 0
+        pos_syms = {p["symbol"] for p in client.positions()}
+        orphan_syms = {a["symbol"] for a in algos if a.get("symbol") and a["symbol"] not in pos_syms}
+        n = 0
+        for s in orphan_syms:
+            try:
+                client.cancel_all_algo(s)            # DELETE /fapi/v1/algoOrderList（已修正）
+                n += 1
+            except bt.TradeError:
+                pass
+        return n
+    except Exception:
+        return 0
+
+
 @router.post("/auto")
 def set_auto(req: AutoReq):
-    _guard(req.key, req.name)
+    client = _guard(req.key, req.name)
+    prev = get_auto_cfg(fresh=True)                   # 存檔前的設定 → 判斷是否『剛從關→開』
     cfg = _clean_auto(req.cfg)
     _save_auto_cfg(cfg)
-    return {"ok": True, "cfg": cfg}
+    # 剛把自動交易打開 → 順手清掉無持倉合約的殘留條件單，避免殘單塞滿 algo 上限害進場 -4509
+    swept = 0
+    if cfg.get("on") and not prev.get("on"):
+        swept = _sweep_orphan_algo(client)
+        if swept:
+            _push_owner((cfg.get("owner") or "").strip(), "🧹 已清理殘留條件單",
+                        f"開啟自動交易 → 清掉 {swept} 個無持倉合約的殘留止盈/止損條件單"
+                        f"（避免塞滿合約條件單上限導致新止損掛不上 -4509）。", "", event="atrade")
+    return {"ok": True, "cfg": cfg, "swept": swept}
 
 
 @router.post("/history")
