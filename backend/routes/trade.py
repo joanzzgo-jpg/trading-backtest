@@ -716,18 +716,30 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
         try:
             client.place_close_trigger(bsym, close_side, sl_px, "sl")
         except bt.TradeError as e:
+            # 自癒：止損掛不上最常見＝該合約殘留條件單塞滿 algo 上限(每合約~20)→ -4509。走到這代表
+            # 進場前無持倉（is_add 早已 return）→ 該合約所有 algo 條件單必為孤兒 → 清掉後重試一次。
+            _sl_ok = False
             try:
-                client.close_position(bsym)
+                client.cancel_all_algo(bsym)                               # 清孤兒條件單(端點已修正為 algoOrderList)
+                client.place_close_trigger(bsym, close_side, sl_px, "sl")
+                _sl_ok = True
+                print(f"  ♻ 自動下單 {bsym} 止損 {e} → 清殘單後重掛成功")
             except bt.TradeError:
-                pass
-            _log_trade(source="auto", mode=client.env, status="failed", symbol=symbol, bsym=bsym, side=want,
-                       qty=qty, entry=str(entry), sl=str(round(stop_chart, 8)), sig=k, d=d, tf=tf,
-                       sigt=str(sig.get("t")),
-                       msg=f"停損無法掛單（{e}）→ 已即時平倉，不留無保護持倉")
-            _push_owner(owner, f"⚠ 自動進場取消 · {symbol}",
-                        f"停損無法掛單、為避免無保護持倉已即時平倉\n{e}", symbol, tf=tf, event="atrade")
-            print(f"  ⚠ 自動下單 {bsym} 停損掛單失敗，已平倉：{e}")
-            return
+                _sl_ok = False
+            if not _sl_ok:
+                try:
+                    client.close_position(bsym)
+                except bt.TradeError:
+                    pass
+                _log_trade(source="auto", mode=client.env, status="failed", symbol=symbol, bsym=bsym, side=want,
+                           qty=qty, entry=str(entry), sl=str(round(stop_chart, 8)), sig=k, d=d, tf=tf,
+                           sigt=str(sig.get("t")),
+                           msg=f"停損無法掛單（{e}）→ 已清殘單仍失敗 → 即時平倉，不留無保護持倉")
+                _push_owner(owner, f"⚠ 自動進場取消 · {symbol}",
+                            f"停損無法掛單（已試清殘單仍失敗）、為避免無保護持倉已即時平倉\n{e}",
+                            symbol, tf=tf, event="atrade")
+                print(f"  ⚠ 自動下單 {bsym} 停損掛單失敗（清殘單後仍失敗），已平倉：{e}")
+                return
         warn = []
         if _size_warn:
             warn.append(_size_warn)
