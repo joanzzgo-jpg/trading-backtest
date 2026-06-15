@@ -12,6 +12,7 @@
 - notify_state(scope PK, last_t)   去重；scope = market:exchange:symbol:tf:sigkey:dir
 """
 import os
+import re
 import json
 import time
 import base64
@@ -369,7 +370,7 @@ def log_signal(name, ts, event, title, body, symbol, market, exchange, tf,
         # 裁切：保留該帳號最近 2000 筆
         conn.execute(
             f"DELETE FROM notify_log WHERE name={ph} AND id NOT IN "
-            f"(SELECT id FROM notify_log WHERE name={ph} ORDER BY id DESC LIMIT 2000)",
+            f"(SELECT id FROM notify_log WHERE name={ph} ORDER BY id DESC LIMIT 20000)",
             (name, name),
         )
         conn.commit()
@@ -424,11 +425,28 @@ def feed(name: str, limit: int = 80, since: float = 0):
         return {"items": []}
     limit = max(1, min(int(limit or 80), 200))
     conn, ph = _acct._db()
+    stats = None
     try:
         if since and float(since) > 0:
-            cur = conn.execute(                                  # since=今日午夜 → 取整天(上限放寬到 2000，
-                f"SELECT ts,event,title,body,symbol,market,exchange,tf,sig,dir,sigt FROM notify_log "  # 配合保留量，今日摘要不漏算)
-                f"WHERE name={ph} AND ts >= {ph} ORDER BY id DESC LIMIT 2000", (nm, float(since)))
+            # 今日摘要：數量直接用 SQL 聚合(不撈全部筆數→量再大都準、payload 小)；盈虧只解析自動平倉那幾筆。
+            _sn = float(since)
+            cnt = dict(conn.execute(
+                f"SELECT event, COUNT(*) FROM notify_log WHERE name={ph} AND ts >= {ph} GROUP BY event",
+                (nm, _sn)).fetchall())
+            pnl = 0.0; has_pnl = False
+            for (body,) in conn.execute(
+                f"SELECT body FROM notify_log WHERE name={ph} AND ts >= {ph} "
+                f"AND event IN ('atrade_tp','atrade_sl')", (nm, _sn)).fetchall():
+                m = re.search(r"已實現盈虧\s*([+-]?[\d,.]+)\s*USDT", body or "")
+                if m:
+                    try: pnl += float(m.group(1).replace(",", "")); has_pnl = True
+                    except ValueError: pass
+            stats = {"sig_n": cnt.get("entry", 0), "win_n": cnt.get("atrade_tp", 0),
+                     "loss_n": cnt.get("atrade_sl", 0), "pnl": round(pnl, 2), "has_pnl": has_pnl}
+            # 仍回少量近期筆數供前端後備(統計以 stats 為準)
+            cur = conn.execute(
+                f"SELECT ts,event,title,body,symbol,market,exchange,tf,sig,dir,sigt FROM notify_log "
+                f"WHERE name={ph} AND ts >= {ph} ORDER BY id DESC LIMIT 300", (nm, _sn))
         else:
             cur = conn.execute(
                 f"SELECT ts,event,title,body,symbol,market,exchange,tf,sig,dir,sigt FROM notify_log "
@@ -441,7 +459,7 @@ def feed(name: str, limit: int = 80, since: float = 0):
               "sig": r[8], "dir": r[9], "t": r[10]}
              for r in rows]
     items.reverse()   # 由舊到新（聊天室最新在最下方）
-    return {"items": items}
+    return {"items": items, "stats": stats}
 
 
 @router.get("/vapid_public")

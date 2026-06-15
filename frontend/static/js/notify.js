@@ -406,17 +406,25 @@ function _ntfDayLabel(ts) {
 // 今日摘要：訊號數 / 自動勝敗 / 已實現盈虧（盈虧由自動平倉 body 解析）
 // 資料源優先用 _ntfTodayItems（後端自當地午夜起抓、不被 feed 80 筆截斷）；未載入則退回顯示用 feed。
 let _ntfTodayItems = null;
+let _ntfTodayStatsSrv = null;   // 後端 SQL 算好的今日統計(量再大都準，不靠撈全部筆數)
 function _ntfTodayMidnight() { const x = new Date(); x.setHours(0, 0, 0, 0); return x.getTime() / 1000; }
 async function _ntfRefreshToday() {
-  if (!window._acctName) { _ntfTodayItems = null; return; }
+  if (!window._acctName) { _ntfTodayItems = null; _ntfTodayStatsSrv = null; return; }
   try {
     const j = await _ntfApi("GET", "feed?name=" + encodeURIComponent(window._acctName) +
                             "&since=" + _ntfTodayMidnight() + "&limit=200");
     _ntfTodayItems = j.items || [];
-  } catch (e) { _ntfTodayItems = null; }
+    _ntfTodayStatsSrv = j.stats || null;
+  } catch (e) { _ntfTodayItems = null; _ntfTodayStatsSrv = null; }
   _ntfRenderSummary();
 }
 function _ntfTodayStats() {
+  // 優先用後端 SQL 聚合(自動交易繁忙一天上萬筆也準)；沒有才退回前端逐筆數(後備)
+  if (_ntfTodayStatsSrv) {
+    const s = _ntfTodayStatsSrv;
+    return { sigN: s.sig_n || 0, aWin: s.win_n || 0, aLoss: s.loss_n || 0,
+             autoN: (s.win_n || 0) + (s.loss_n || 0), pnl: s.pnl || 0, hasPnl: !!s.has_pnl };
+  }
   const t0 = _ntfTodayMidnight();
   let sigN = 0, aWin = 0, aLoss = 0, pnl = 0, hasPnl = false;
   for (const it of (_ntfTodayItems || _ntfFeed.items)) {
