@@ -253,13 +253,12 @@ class Client:
         # ⚠ read-only、純核對用：無論端點對錯、回傳格式如何，一律不得拋例外（曾因未知格式拖垮
         # /overview → 持倉頁卡死）。整段以 try 包住、任何例外都回 []。
         try:
-            rows = None
-            for path in ("/fapi/v1/openAlgoOrders", "/fapi/v1/algoOrders"):   # 端點不確定 → 依序嘗試
-                try:
-                    rows = self._request("GET", path, {"symbol": sym} if sym else {})
-                    break
-                except Exception:
-                    rows = None
+            # 官方端點：GET /fapi/v1/openAlgoOrders（symbol 省略=回全部標的）。回傳每筆含 orderType/
+            # algoId/triggerPrice/closePosition（type 欄位名實為 orderType）。
+            try:
+                rows = self._request("GET", "/fapi/v1/openAlgoOrders", {"symbol": sym} if sym else {})
+            except Exception:
+                rows = None
             if isinstance(rows, dict):
                 rows = rows.get("orders") or rows.get("data") or []
             if not isinstance(rows, list):
@@ -272,7 +271,7 @@ class Client:
                     out.append({
                         "symbol": o.get("symbol"),
                         "algoId": o.get("algoId") or o.get("orderId") or o.get("strategyId"),
-                        "type": o.get("type"),    # STOP_MARKET / TAKE_PROFIT_MARKET
+                        "type": o.get("orderType") or o.get("type"),    # STOP_MARKET / TAKE_PROFIT_MARKET
                         "side": o.get("side"),
                         "triggerPrice": float(o.get("triggerPrice", 0) or o.get("stopPrice", 0) or 0),
                         "closePosition": bool(o.get("closePosition")),
@@ -328,8 +327,10 @@ class Client:
         self._request("DELETE", "/fapi/v1/allOpenOrders", {"symbol": sym})
 
     def cancel_all_algo(self, sym):
-        # 條件單(SL/TP)現為 Algo Order，allOpenOrders 不含 → 需用 algo 專屬端點取消（避免孤兒停損）
-        self._request("DELETE", "/fapi/v1/algoOrders", {"symbol": sym})
+        # 條件單(SL/TP)現為 Algo Order，allOpenOrders 不含 → 需用 algo 專屬「取消全部」端點。
+        # ⚠ 正確端點是 DELETE /fapi/v1/algoOrderList（官方）；曾誤用不存在的 /fapi/v1/algoOrders →
+        # 每次取消全部都失敗被吞 → 條件單從不清除、越積越多 → 撞合約 algo 上限(20) → 新止損一律 -4509。
+        self._request("DELETE", "/fapi/v1/algoOrderList", {"symbol": sym})
 
     def cancel_algo(self, sym, algo_id):
         # 取消單一 Algo 條件單（用 algoId）：供「TP 跟著中軌移動」只取消舊 TP、不動 SL
