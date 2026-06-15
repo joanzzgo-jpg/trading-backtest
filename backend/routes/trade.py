@@ -674,64 +674,13 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
             tp_px = client.quantize_price(bsym, tgt * scale)
         close_side = "SELL" if want == "long" else "BUY"
 
-        # ── 加倉：已合併進淨倉 → 取消舊 SL/TP、依「最新筆」停損與上下軌重掛、更新該倉 row + 通知 ──
+        # ── 加倉：市價已合併進淨倉 → 只更新均價/筆數，完全不碰既有止損/止盈 ──
+        # 既有的 closePosition 止損與「數量」無關（觸發即平整個淨倉）→ 加倉後它仍保護加大後的整倉、
+        # 無需重掛。⚠ 絕不在這裡「取消舊單→掛新單」：新版 Algo API 的取消是非同步、又有單量上限，
+        # 重掛常踩 -4130/-4509，而舊邏輯一掛不上就「平整倉」→ 訊號再現又開→又加→又平，狂 churn 燒
+        # 手續費（曾 48 分鐘開平上百次、虧 -500 幾乎全是手續費）。代價：止損維持在「首筆」結構停損、
+        # 不下移到最新筆（較保守、但永不 churn）。止盈仍由 retarget_auto_tp 每根 K 跟上下軌移動。
         if is_add:
-            # closePosition 止損與「數量」無關（觸發即平整個淨倉）→ 加倉後舊止損其實仍保護加大後的倉；
-            # 這裡只是把觸發價移到「最新筆」停損。但 Binance algo 的「取消」是非同步：剛 cancel 的舊
-            # closePosition 單還沒真的清掉就掛新的 → 同方向出現兩張 closePosition 條件單衝突被拒(-4130，
-            # 表現為「加倉後停損無法掛單」)。對策：取消後稍等再掛、重試幾次。
-            sl_ok = False; last_err = None
-            for _att in range(3):
-                try:
-                    client.cancel_all_algo(bsym)        # 清舊 SL+TP（algo 取消為非同步，需給引擎時間）
-                except bt.TradeError:
-                    pass
-                time.sleep(0.5)                          # 等舊 closePosition 單真的被清掉，避開 -4130 衝突
-                try:
-                    client.place_close_trigger(bsym, close_side, sl_px, "sl")   # 重掛到最新筆停損(覆蓋整個淨倉)
-                    sl_ok = True; break
-                except bt.TradeError as e:
-                    last_err = e
-            if not sl_ok:
-                # 重試仍掛不上。closePosition 止損與數量無關 → 查交易所是否仍有止損保護：
-                #   有(舊單沒被清掉、仍生效) → 倉位仍受保護，只是沒移到最新筆 → 保留倉、發提醒，不平倉。
-                #   查無 → 無法確認保護 → 為避免無止損裸倉，平整倉（絕不留無保護的自動倉）。
-                try:
-                    _has_sl = any(o.get("type") == "STOP_MARKET" for o in client.algo_orders(bsym))
-                except Exception:
-                    _has_sl = False
-                _na = cur_adds + 1
-                if _has_sl:
-                    try:
-                        _c3, _ph3 = _acct._db()
-                        try:
-                            _c3.execute(f"UPDATE trade_log SET adds={_ph3} WHERE id={_ph3}", (_na, add_row_id))
-                            _c3.commit()
-                        finally:
-                            _c3.close()
-                    except Exception:
-                        pass
-                    _push_owner(owner, f"➕ 自動加倉 · {symbol}（第{_na}筆 · 止損未移）",
-                                f"已加倉合併進倉，但停損暫未能移到最新筆 {_fmt_px(stop_chart)}，"
-                                f"沿用前一筆停損、倉位仍受保護。\n原因：{last_err}",
-                                symbol, tf=tf, event="atrade_open", sig=k, d=d, sigt=str(sig.get("t")))
-                    print(f"  ➕ 自動加倉 {client.env}: {bsym} 第{_na}筆（止損未移、沿用舊單）：{last_err}")
-                    return
-                try:
-                    client.close_position(bsym)
-                except bt.TradeError:
-                    pass
-                _update_trade(add_row_id, "closed", f"加倉後停損無法掛單（{last_err}）→ 已平整倉")
-                _push_owner(owner, f"⚠ 自動加倉異常 · {symbol}",
-                            f"加倉後停損無法掛單、且查無既有止損保護，為避免無保護持倉已平整倉\n{last_err}",
-                            symbol, tf=tf, event="atrade")
-                return
-            tp_oid2 = None
-            if tp_px:
-                try:
-                    tp_oid2 = client.place_close_trigger(bsym, close_side, tp_px, "tp").get("orderId")
-                except bt.TradeError:
-                    pass
             try:
                 _np = next((p for p in client.positions() if p["symbol"] == bsym), None)
             except bt.TradeError:
@@ -743,14 +692,11 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
             try:
                 _c2, _ph2 = _acct._db()
                 try:
-                    _c2.execute(
-                        f"UPDATE trade_log SET qty={_ph2}, entry={_ph2}, sl={_ph2}, tp={_ph2}, tp_oid={_ph2}, adds={_ph2} "
-                        f"WHERE id={_ph2}",
+                    _c2.execute(                                            # 只更新 qty/entry/adds，sl/tp 不動
+                        f"UPDATE trade_log SET qty={_ph2}, entry={_ph2}, adds={_ph2} WHERE id={_ph2}",
                         (str(new_qty) if new_qty is not None else None,
                          str(new_entry_chart) if new_entry_chart is not None else None,
-                         str(round(stop_chart, 8)),
-                         (str(round(tgt, 8)) if (tp_px and tgt is not None) else None),
-                         tp_oid2, new_adds, add_row_id))
+                         new_adds, add_row_id))
                     _c2.commit()
                 finally:
                     _c2.close()
@@ -759,10 +705,10 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
             envtag = "實盤" if client.env == "live" else "測試網"
             l1 = f"第 {new_adds} 筆 · {'做空' if want == 'short' else '做多'} · {envtag}"
             l2 = f"加倉 {_fmt_px(entry)} · 數量 +{qty}"
-            l3 = f"均價 {_fmt_px(new_entry_chart) if new_entry_chart else '—'} · 停損移到 {_fmt_px(stop_chart)}"
+            l3 = f"均價 {_fmt_px(new_entry_chart) if new_entry_chart else '—'} · 止損維持首筆（不下移、不重掛）"
             _push_owner(owner, f"➕ 自動加倉 · {symbol}（第{new_adds}筆）", "\n".join([l1, l2, l3]),
                         symbol, tf=tf, event="atrade_open", sig=k, d=d, sigt=str(sig.get("t")))
-            print(f"  ➕ 自動加倉 {client.env}: {bsym} 第{new_adds}筆 +{qty}")
+            print(f"  ➕ 自動加倉 {client.env}: {bsym} 第{new_adds}筆 +{qty}（止損不動）")
             return
 
         # 先掛停損（自動單的安全命脈）。掛失敗 → 立刻市價平掉剛進的倉，絕不留「無停損保護」
@@ -1159,9 +1105,10 @@ def my_key(req: MyKeyReq):
 def overview(req: KeyReq):
     client = _guard(req.key, req.name)
     try:
+        # ⚠ 不在此放 algo_orders()：/overview 每 2 秒刷新持倉，是看倉的命脈；algo GET 端點未確定，
+        # 一旦變慢/出錯會拖垮整個持倉頁(曾卡死)。核對止損止盈改走手動的 /verify_sltp。
         return {"env": client.env, "balance": client.balance(),
                 "positions": client.positions(), "orders": client.open_orders(),
-                "algo": client.algo_orders(),          # 交易所實際掛的止損/止盈條件單(觸發價)→ 供核對
                 "auto": get_auto_cfg(fresh=True)}
     except bt.TradeError as e:
         raise HTTPException(502, str(e))
