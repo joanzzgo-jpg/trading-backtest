@@ -356,7 +356,8 @@ def mark_notified(scope: str, t: str):
 
 def log_signal(name, ts, event, title, body, symbol, market, exchange, tf,
                sig=None, d=None, sigt=None):
-    """記一筆訊號到該帳號的歷史（聊天室通知中心用），並裁切只留最近 200 筆。
+    """記一筆訊號到該帳號的歷史（聊天室通知中心用），並裁切只留最近 2000 筆。
+    （200 太小：自動交易繁忙時一小時就把今天稍早的訊號擠掉 → 今日摘要漏算。加大到 2000 留整天餘裕。）
     sig/d/sigt（訊號鍵/方向/進場訊號棒時間）讓止盈止損訊息能配對原進場訊息。"""
     conn, ph = _acct._db()
     try:
@@ -365,10 +366,10 @@ def log_signal(name, ts, event, title, body, symbol, market, exchange, tf,
             f"VALUES ({ph},{ph},{ph},{ph},{ph},{ph},{ph},{ph},{ph},{ph},{ph},{ph})",
             (name, ts, event, title, body, symbol, market, exchange, tf, sig, d, sigt),
         )
-        # 裁切：保留該帳號最近 200 筆
+        # 裁切：保留該帳號最近 2000 筆
         conn.execute(
             f"DELETE FROM notify_log WHERE name={ph} AND id NOT IN "
-            f"(SELECT id FROM notify_log WHERE name={ph} ORDER BY id DESC LIMIT 200)",
+            f"(SELECT id FROM notify_log WHERE name={ph} ORDER BY id DESC LIMIT 2000)",
             (name, name),
         )
         conn.commit()
@@ -425,9 +426,9 @@ def feed(name: str, limit: int = 80, since: float = 0):
     conn, ph = _acct._db()
     try:
         if since and float(since) > 0:
-            cur = conn.execute(
-                f"SELECT ts,event,title,body,symbol,market,exchange,tf,sig,dir,sigt FROM notify_log "
-                f"WHERE name={ph} AND ts >= {ph} ORDER BY id DESC LIMIT 200", (nm, float(since)))
+            cur = conn.execute(                                  # since=今日午夜 → 取整天(上限放寬到 2000，
+                f"SELECT ts,event,title,body,symbol,market,exchange,tf,sig,dir,sigt FROM notify_log "  # 配合保留量，今日摘要不漏算)
+                f"WHERE name={ph} AND ts >= {ph} ORDER BY id DESC LIMIT 2000", (nm, float(since)))
         else:
             cur = conn.execute(
                 f"SELECT ts,event,title,body,symbol,market,exchange,tf,sig,dir,sigt FROM notify_log "
