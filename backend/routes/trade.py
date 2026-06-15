@@ -676,20 +676,55 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
 
         # ── 加倉：已合併進淨倉 → 取消舊 SL/TP、依「最新筆」停損與上下軌重掛、更新該倉 row + 通知 ──
         if is_add:
-            try:
-                client.cancel_all_algo(bsym)        # 清舊 SL+TP（將依最新停損/上下軌重掛全倉）
-            except bt.TradeError:
-                pass
-            try:
-                client.place_close_trigger(bsym, close_side, sl_px, "sl")   # closePosition 覆蓋加大後整個淨倉
-            except bt.TradeError as e:
+            # closePosition 止損與「數量」無關（觸發即平整個淨倉）→ 加倉後舊止損其實仍保護加大後的倉；
+            # 這裡只是把觸發價移到「最新筆」停損。但 Binance algo 的「取消」是非同步：剛 cancel 的舊
+            # closePosition 單還沒真的清掉就掛新的 → 同方向出現兩張 closePosition 條件單衝突被拒(-4130，
+            # 表現為「加倉後停損無法掛單」)。對策：取消後稍等再掛、重試幾次。
+            sl_ok = False; last_err = None
+            for _att in range(3):
+                try:
+                    client.cancel_all_algo(bsym)        # 清舊 SL+TP（algo 取消為非同步，需給引擎時間）
+                except bt.TradeError:
+                    pass
+                time.sleep(0.5)                          # 等舊 closePosition 單真的被清掉，避開 -4130 衝突
+                try:
+                    client.place_close_trigger(bsym, close_side, sl_px, "sl")   # 重掛到最新筆停損(覆蓋整個淨倉)
+                    sl_ok = True; break
+                except bt.TradeError as e:
+                    last_err = e
+            if not sl_ok:
+                # 重試仍掛不上。closePosition 止損與數量無關 → 查交易所是否仍有止損保護：
+                #   有(舊單沒被清掉、仍生效) → 倉位仍受保護，只是沒移到最新筆 → 保留倉、發提醒，不平倉。
+                #   查無 → 無法確認保護 → 為避免無止損裸倉，平整倉（絕不留無保護的自動倉）。
+                try:
+                    _has_sl = any(o.get("type") == "STOP_MARKET" for o in client.algo_orders(bsym))
+                except Exception:
+                    _has_sl = False
+                _na = cur_adds + 1
+                if _has_sl:
+                    try:
+                        _c3, _ph3 = _acct._db()
+                        try:
+                            _c3.execute(f"UPDATE trade_log SET adds={_ph3} WHERE id={_ph3}", (_na, add_row_id))
+                            _c3.commit()
+                        finally:
+                            _c3.close()
+                    except Exception:
+                        pass
+                    _push_owner(owner, f"➕ 自動加倉 · {symbol}（第{_na}筆 · 止損未移）",
+                                f"已加倉合併進倉，但停損暫未能移到最新筆 {_fmt_px(stop_chart)}，"
+                                f"沿用前一筆停損、倉位仍受保護。\n原因：{last_err}",
+                                symbol, tf=tf, event="atrade_open", sig=k, d=d, sigt=str(sig.get("t")))
+                    print(f"  ➕ 自動加倉 {client.env}: {bsym} 第{_na}筆（止損未移、沿用舊單）：{last_err}")
+                    return
                 try:
                     client.close_position(bsym)
                 except bt.TradeError:
                     pass
-                _update_trade(add_row_id, "closed", f"加倉後停損掛單失敗（{e}）→ 已平整倉")
+                _update_trade(add_row_id, "closed", f"加倉後停損無法掛單（{last_err}）→ 已平整倉")
                 _push_owner(owner, f"⚠ 自動加倉異常 · {symbol}",
-                            f"加倉後停損無法掛單、為避免無保護持倉已平整倉\n{e}", symbol, tf=tf, event="atrade")
+                            f"加倉後停損無法掛單、且查無既有止損保護，為避免無保護持倉已平整倉\n{last_err}",
+                            symbol, tf=tf, event="atrade")
                 return
             tp_oid2 = None
             if tp_px:

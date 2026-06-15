@@ -604,8 +604,8 @@ function _trdBuildPopup() {
   // 止損額/金額改動 → 即時更新槓桿例子
   pop.querySelector("#trdAutoRisk").addEventListener("input", _trdLevEgUpd);
   pop.querySelector("#trdAutoUsdt").addEventListener("input", _trdLevEgUpd);
-  ["#trdAutoUsdt", "#trdAutoRisk", "#trdAutoLev", "#trdAutoMax", "#trdAutoDirs", "#trdAutoSl"].forEach(id =>
-    pop.querySelector(id).addEventListener("change", _trdSaveAuto));
+  ["#trdAutoUsdt", "#trdAutoRisk", "#trdAutoLev", "#trdAutoMax", "#trdAutoAdds", "#trdAutoDirs", "#trdAutoSl"].forEach(id =>
+    pop.querySelector(id)?.addEventListener("change", _trdSaveAuto));
   pop.querySelector("#trdAutoSal").addEventListener("click", e => {
     e.stopPropagation();
     const b = e.currentTarget;
