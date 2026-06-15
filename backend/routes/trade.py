@@ -17,6 +17,7 @@
 - 每筆交易記 trade_log（含 testnet/live 標記），前端交易面板顯示。
 """
 import os
+import re
 import json
 import time
 import secrets
@@ -96,11 +97,29 @@ def _dec(s: str) -> str:
 
 
 # ── 帳號金鑰解析：自綁金鑰 → 否則擁有者退回 env ──────────────
+def _acct_env_suffix(name: str) -> str:
+    """帳號名 → 環境變數後綴（大寫、非英數轉底線）。如 'Abc' → 'ABC'、'a.b@c' → 'A_B_C'。"""
+    return re.sub(r"[^A-Za-z0-9]", "_", _acct._norm_name(name or "")).upper()
+
+
 def _own_creds(name: str):
-    """讀某帳號自綁的 Binance 金鑰（已解密）。回 (api_key, api_secret, env) 或 None。"""
+    """讀某帳號的 Binance 金鑰（已解密）。回 (api_key, api_secret, env) 或 None。
+    優先序：① 該帳號專屬環境變數 TRADE_KEY_<NAME>/TRADE_SECRET_<NAME>/TRADE_ENV_<NAME>
+            ② App 自綁（trade_creds，加密）。"""
     name = _acct._norm_name(name or "")
     if not name:
         return None
+    # ① 每帳號專屬環境變數金鑰（Railway 可直接設、各帳號各自獨立、與 qwer 的共用 env 金鑰互不干擾）
+    suf = _acct_env_suffix(name)
+    ek = (os.getenv(f"TRADE_KEY_{suf}") or "").strip()
+    es = (os.getenv(f"TRADE_SECRET_{suf}") or "").strip()
+    if ek and es:
+        # 安全防護：禁止用「共用 env 金鑰(TRADE_OWNER 那把)」當別的帳號金鑰 → 避免兩帳號操作同一交易所帳戶互相干擾
+        if bt.env_configured() and ek == bt._ENV_API_KEY and _acct._norm_name(name) != _acct._norm_name(_OWNER):
+            print(f"  ⚠ {name} 的 TRADE_KEY_{suf} 與共用金鑰相同 → 忽略(避免帳號互相干擾)")
+        else:
+            return (ek, es, bt.norm_env(os.getenv(f"TRADE_ENV_{suf}") or "testnet"))
+    # ② App 自綁（trade_creds）
     try:
         _ensure_db()
         conn, ph = _acct._db()
