@@ -19,10 +19,22 @@ function _trdSigLabel(k) { return k === "abc" ? "S1" : k === "ab" ? "S2" : k ===
 
 async function _trdApi(path, body) {
   // 一律帶上 key（口令）+ name（登入帳號，供後端 owner 白名單檢查）；body 同名欄位可覆寫
-  const r = await fetch("/api/trade/" + path, {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(Object.assign({ key: _trdKey(), name: window._acctName || "" }, body || {})),
-  });
+  // ⚠ 必加逾時：fetch 預設不逾時，後端一卡住(churn 打到交易所變慢)請求就永不回 → _trdRefresh 的
+  //   _TRD.busy 永遠卡 true → 持倉頁永久凍結、得重整才復原。AbortController 15s 中止 → 釋放鎖、自動重試。
+  const ctl = new AbortController();
+  const _to = setTimeout(() => ctl.abort(), 15000);
+  let r;
+  try {
+    r = await fetch("/api/trade/" + path, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(Object.assign({ key: _trdKey(), name: window._acctName || "" }, body || {})),
+      signal: ctl.signal,
+    });
+  } catch (e) {
+    throw new Error(e.name === "AbortError" ? "連線逾時（伺服器忙線，稍後自動重試）" : "連線失敗");
+  } finally {
+    clearTimeout(_to);
+  }
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.detail || ("錯誤 " + r.status));
   return j;
