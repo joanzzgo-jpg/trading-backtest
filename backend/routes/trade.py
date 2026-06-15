@@ -626,12 +626,10 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
 def _exec_signal_for_account(name, cfg, market, exchange, symbol, tf, k, d, sig, all_signals=None):
     """單一帳號(name)的進場評估：用該帳號自己的金鑰下單、自選過濾、acct 隔離紀錄。cfg.on 必為 True。"""
     try:
-        # 設定層過濾（此訊號未勾／此時框未勾／方向不符）→ 靜默（不洗版）。
+        # 訊號/時框未勾 → 靜默 return（量大：每根掃描所有未勾的訊號×時框，留紀錄會洗版）。
         if not (k in cfg["sigs"] and tf in cfg["tfs"]):
             return
         want = "short" if d == "s" else "long"
-        if cfg["dirs"] != "both" and cfg["dirs"] != want:
-            return
         import routes.notify as notify
         # 逐事件去重（鍵含帳號名 → 每帳號各自獨立評估一次）：之後每個「跳過原因」都只記一次 log。
         evt_key = f"atrade:{name}:{symbol}:{tf}:{k}:{d}:{sig.get('t')}"
@@ -643,6 +641,11 @@ def _exec_signal_for_account(name, cfg, market, exchange, symbol, tf, k, d, sig,
             """記一筆 skipped 交易紀錄（前端交易面板看得到）：說明此訊號為何沒進場。"""
             _log_trade(source="auto", acct=name, status="skipped", symbol=symbol, side=want,
                        sig=k, d=d, tf=tf, sigt=str(sig.get("t")), msg=msg)
+
+        # 方向過濾：訊號/時框已符合、僅方向不收 → 留一筆 skipped（量小，且能解釋「為何只做多／只做空」）。
+        if cfg["dirs"] != "both" and cfg["dirs"] != want:
+            _skip(f"方向不符：此帳號自動交易只做{'多單' if cfg['dirs'] == 'long' else '空單'}，跳過{want}")
+            return
 
         # ⚠ 已結算訊號不追進場（避免開單即平倉）。只進「還沒結算(live)」的訊號。
         if sig.get("r") in ("w", "l"):
@@ -1027,7 +1030,7 @@ def reconcile_auto_position(market, exchange, symbol, tf):
                 conn, ph = _acct._db()
                 try:
                     rows = conn.execute(
-                        f"SELECT id, bsym, sig, dir, sigt FROM trade_log WHERE source='auto' AND status='open' "
+                        f"SELECT id, bsym, sig, dir, sigt, sl_oid, tp_oid FROM trade_log WHERE source='auto' AND status='open' "
                         f"AND acct={ph} AND symbol={ph} AND tf={ph}", (name, symbol, tf)).fetchall()
                 finally:
                     conn.close()
@@ -1037,7 +1040,7 @@ def reconcile_auto_position(market, exchange, symbol, tf):
                     pos_syms = {p["symbol"] for p in client.positions()}
                 except bt.TradeError:
                     continue
-                for row_id, bsym, rsig, rd, rsigt in rows:
+                for row_id, bsym, rsig, rd, rsigt, sl_oid, tp_oid in rows:
                     if bsym in pos_syms:
                         continue                       # 仍有持倉 → 未平，跳過
                     # 持倉已不在 → 交易所觸發單已盤中平倉。判止盈/止損：該合約最近一筆已實現盈虧正負。
@@ -1050,7 +1053,21 @@ def reconcile_auto_position(market, exchange, symbol, tf):
                         pass
                     if pnl is None:
                         continue                       # 盈虧尚未入帳 → 下一輪重試（避免誤判/漏記盈虧）
-                    ev = "tp" if pnl >= 0 else "sl"
+                    # 止盈/止損判定：優先看「哪張觸發單還掛著」（清孤兒前先查）→ 另一張就是已觸發的那張。
+                    # 因止盈會跟軌漂到進場價內側、賠錢的止盈出場若只看盈虧正負會被誤標成「止損」（沒到止損就止損）。
+                    # 查不到掛單（端點失敗/兩張都沒了）→ 退回用盈虧正負判定。
+                    ev = None
+                    if sl_oid or tp_oid:
+                        open_ids = {str(o.get("algoId")) for o in client.algo_orders(bsym) if o.get("algoId")}
+                        if open_ids:
+                            sl_open = sl_oid and str(sl_oid) in open_ids
+                            tp_open = tp_oid and str(tp_oid) in open_ids
+                            if sl_open and not tp_open:
+                                ev = "tp"              # 止損單還掛著 → 已觸發的是止盈
+                            elif tp_open and not sl_open:
+                                ev = "sl"              # 止盈單還掛著 → 已觸發的是止損
+                    if ev is None:
+                        ev = "tp" if pnl >= 0 else "sl"
                     try:
                         client.cancel_all_algo(bsym)   # 清殘留的另一張觸發單，避免孤兒
                     except bt.TradeError:
@@ -1067,7 +1084,9 @@ def reconcile_auto_position(market, exchange, symbol, tf):
 def retarget_auto_tp(market, exchange, symbol, tf, upper_chart, lower_chart):
     """TP 跟著上下軌移動（逐帳號獨立）：用最新上下軌把各帳號該「標的×時框」未平自動倉的交易所 TP 單
     取消重掛到對應軌（空→下軌、多→上軌）。只動 TP（用 algoId 精準取消）→ 絕不碰 SL。目標軌已越過
-    現價(達成側)→ 即時市價平倉。每根 K 收盤呼叫一次。絕不拋例外。"""
+    現價(達成側)→ 即時市價平倉。每根 K 收盤呼叫一次。絕不拋例外。
+    ⚠ 止盈目標一律夾在「含手續費的保本價」內側（多單不低於進場、空單不高於進場）→ 軌漂到進場價虧損側
+       時 TP 停在保本價，絕不掛成賠錢出場（避免「沒到止損就賠錢出」）。虧損出場只由止損單負責。"""
     try:
         if market != "crypto":
             return
@@ -1088,13 +1107,28 @@ def retarget_auto_tp(market, exchange, symbol, tf, upper_chart, lower_chart):
                     continue
                 bsym0, scale = client.resolve_symbol(symbol)
                 px = client.last_price(bsym0)
+                # 淨倉均價（合約價）→ 算「含來回手續費的保本價」，止盈絕不掛到保本價的虧損側（見下）。
+                try:
+                    _pos_map = {p["symbol"]: p for p in client.positions()}
+                except bt.TradeError:
+                    _pos_map = {}
+                fee = 0.0005                                # 與開倉/加倉計算一致（吃單 0.05%/邊）
                 for row_id, bsym, d, old_tp, tp_oid, rsig, rsigt in rows:
                     try:
                         want = "short" if d == "s" else "long"
                         band = lower_chart if want == "short" else upper_chart   # 空→下軌、多→上軌
                         if band is None or band != band:    # NaN/缺 → 跳過此倉（不動其 TP）
                             continue
-                        new_tp_px = client.quantize_price(bsym0, float(band) * scale)
+                        # ── 夾住保本價：上下軌會隨行情漂到「進場價的虧損側」（多單軌跌破進場、空單軌漲過
+                        #    進場）→ 若直接把止盈掛在軌上，TAKE_PROFIT 觸發＝賠錢出場，會「沒到止損就賠錢出」。
+                        #    這裡把止盈目標夾在含手續費的保本價：多單 TP≥E(1+fee)/(1−fee)、空單 TP≤E(1−fee)/(1+fee)。
+                        #    虧損出場只由止損單負責；軌在保本價內側時就停在保本價（不會提早認賠）。
+                        tp_c = float(band) * scale          # 軌目標（合約價）
+                        e_c = (_pos_map.get(bsym) or {}).get("entry")
+                        if e_c:
+                            be = e_c * (1 + fee) / (1 - fee) if want == "long" else e_c * (1 - fee) / (1 + fee)
+                            tp_c = max(tp_c, be) if want == "long" else min(tp_c, be)
+                        new_tp_px = client.quantize_price(bsym0, tp_c)
                         new_tp_f = float(new_tp_px)
                         # 目標軌已碰到/越過現價＝達成側 → 立刻市價平倉（碰到就馬上止盈，避免掛不了 TP 又裸著）。
                         if (want == "long" and new_tp_f <= px) or (want == "short" and new_tp_f >= px):
