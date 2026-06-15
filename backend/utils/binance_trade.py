@@ -364,5 +364,13 @@ class Client:
         p = pos[0]
         side = "SELL" if p["side"] == "long" else "BUY"
         qty = self.quantize_qty(sym, p["qty"])
-        o = self.place_order(sym, side, qty, "MARKET", reduce_only=True)
+        # 先試 reduceOnly(最安全、絕不反向)；部分帳號/測試網會全面拒絕 reduceOnly(-2022 ReduceOnly
+        # Order is rejected)→ 退回純市價平倉（數量＝持倉量、精確 → 平到 0、不會反向開倉）。
+        try:
+            o = self.place_order(sym, side, qty, "MARKET", reduce_only=True)
+        except TradeError as e:
+            if "-2022" in str(e) or "ReduceOnly" in str(e):
+                o = self.place_order(sym, side, qty, "MARKET")   # 純市價(精確數量→平到0)
+            else:
+                raise
         return {"ok": True, "order": o}
