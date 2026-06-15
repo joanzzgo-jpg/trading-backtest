@@ -337,9 +337,9 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                 risk = abs(entry_px - stop_px)
                 if risk > 1e-9:
                     if not math.isnan(tgt_mid):
-                        est_rr_val = round(abs(entry_px - tgt_mid) / risk, 3)
+                        est_rr_val = round(min(abs(entry_px - tgt_mid) / risk, 10.0), 3)
                     if not math.isnan(tgt_band):
-                        est_rr_b_val = round(abs(entry_px - tgt_band) / risk, 3)
+                        est_rr_b_val = round(min(abs(entry_px - tgt_band) / risk, 10.0), 3)
         # 1:1 目標結果（止盈距離 = 止損距離）
         r_rr, ot_rr = _scan_rr(sig_key, direction, entry_i, stop_px)
         rr_out = "win" if r_rr == "w" else ("loss" if r_rr == "l" else None)
@@ -365,7 +365,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                     if math.isnan(xpx):
                         return None
                     rew = (entry_px_rec - xpx) if direction == "short" else (xpx - entry_px_rec)
-                    return round(rew / _risk, 3)
+                    return round(max(-10.0, min(rew / _risk, 10.0)), 3)   # 封頂 ±10（與預估 _rr_at 一致，防停損極小→單筆 RR 爆大拉爆報酬）
                 rr_real   = _rr_real(om, omj, bb_mid)
                 rr_b_real = _rr_real(ob, obj, band_lo_t if direction == "short" else band_up_t)
         signals.append({

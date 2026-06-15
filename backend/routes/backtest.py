@@ -315,7 +315,11 @@ def _build_pyramid_clusters(bars: dict, picked: list, max_adds: int):
         risk = abs(avg - shop)
         d = cl["d"]; k0 = cl["tranches"][0]["k"]
         if result == "win" and risk > 1e-12:
-            ratio = abs(exit_px - avg) / risk
+            # 帶號：上下軌動態目標會漂到進場均價的錯邊（多單軌跌破均價／空單軌漲過均價）→ 雖判 win
+            # 但實際在均價錯邊出場＝虧損 → rew 為負。比照 crt._rr_real，不可用 abs() 把虧損號吃掉
+            # （舊 bug：加倉一律算正報酬 → 與敗後停手走的 realized 路徑一賺一賠、差很多）。封頂 ±10 防 outlier。
+            rew = (exit_px - avg) if d == "l" else (avg - exit_px)
+            ratio = max(-10.0, min(rew / risk, 10.0))
             group_r = round(N * ratio, 3)
         else:
             group_r = float(-N)                       # 止損：加幾筆賠幾倍
@@ -415,14 +419,14 @@ def _inject_band80(bars: dict, sigs: list, ratio: float = 0.8):
             s["rr80_real"] = -1.0
         elif res == "win" and xi is not None and 0 <= xi < n and risk > 1e-9 and not np.isnan(tgt[xi]):
             rew = (tgt[xi] - ent) if direction == "long" else (ent - tgt[xi])
-            s["rr80_real"] = round(float(rew) / risk, 3)
+            s["rr80_real"] = round(max(-10.0, min(float(rew) / risk, 10.0)), 3)   # 帶號 + 封頂 ±10（同 _rr_real）
         # 固定目標（預計止盈）＋ 預估 RR
         tfix = tgt[ei]
         if not np.isnan(tfix):
             o = _scan_outcome_fixed(H, L, C, ei, n, stop, float(tfix), direction)
             s["est_r80"] = "w" if o == "win" else ("l" if o == "loss" else None)
             if risk > 1e-9:
-                s["rr"] = round(abs(ent - float(tfix)) / risk, 3)   # 覆寫副本：8成軌預估 RR（_simulate est 用）
+                s["rr"] = round(min(abs(ent - float(tfix)) / risk, 10.0), 3)   # 覆寫副本：8成軌預估 RR（_simulate est 用）；封頂 10 同 _rr_at
 
 
 @router.post("/crt_backtest")
