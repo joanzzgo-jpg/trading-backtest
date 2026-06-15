@@ -6,10 +6,11 @@
   前端輸入一次存 localStorage，之後每個請求帶上。沒設 env 時只允許本機開發直用。
 - 預設 testnet：BINANCE_TRADE_ENV=live 才動真錢。
 
-自動交易：
-- 設定存 DB 單列 trade_auto（沿用 account.py 的 Postgres/SQLite 雙後端）→ 重啟不丟。
-- notify_monitor 偵測到「新進場訊號」→ execute_signal_trade()：市價進場 +
-  交易所託管 SL（訊號停損價）/ TP（進場 ± 盈虧比×風險）。
+自動交易（每帳號獨立）：
+- 設定存 DB 表 trade_auto_acct（每帳號一列、各自獨立、互不覆蓋；沿用 account.py 雙後端）→ 重啟不丟。
+  舊的單列 trade_auto(id=1) 於 _ensure_db 一次性遷移到其 owner 帳號的列；trade_log 以 acct 欄隔離各帳號倉位。
+- notify_monitor 偵測到「新進場訊號」→ execute_signal_trade()：逐個『已開啟自動交易』的帳號各自用自己的
+  金鑰/自選/設定市價進場 + 交易所託管 SL（訊號停損價）/ TP（進場 ± 盈虧比×風險），兩人同標的也互不干擾。
 - 出場：全由交易所掛的觸發單『盤中即時』觸發（止損 STOP_MARKET＝緩衝價、止盈 TAKE_PROFIT_MARKET＝上下軌，
   retarget_auto_tp 每根把 TP 移到最新上下軌）→ 碰到止盈/止損位就出，不等收盤(整點)決定。
   reconcile_auto_position() 每輪對帳：未平倉若交易所已無持倉(觸發單已平) → 補記錄+通知。
@@ -57,7 +58,8 @@ _AUTO_DEFAULT = {"on": False, "owner": "", "sigs": [], "tfs": [], "usdt": 50.0,
                  # 直到同向「紙上會贏」或反向訊號出現才解除（非時間冷卻）
                  "stopAfterLoss": False,
                  # maxAdds=加倉上限筆數（含首筆）。1=不加倉(同合約只一倉，同向訊號略過)；>1=持倉中同向訊號
-                 # 再現就加一筆(到上限)，合併均價、停損移到最新筆、各筆冒 1R → 最壞約虧 N×R(停損上移常更少)。
+                 # 再現就加一筆(到上限)，合併均價、淨倉止損重設到「打到就總虧 N×R」的價位(R=riskUsd)→
+                 # 每多加一筆最大虧損只多 1R。只在固定風險模式(riskUsd>0)生效；先掛新止損後取消舊、永不平倉。
                  "maxAdds": 1}
 
 
@@ -174,7 +176,8 @@ def _guard(key: Optional[str], name: Optional[str] = None):
 
 # ── 自動交易設定（DB 單列，重啟不丟）──────────────────────────
 _inited = False
-_auto_cache = {"ts": 0.0, "cfg": None}
+_auto_cache = {}                              # name -> {"ts":, "cfg":}（每帳號設定 10s 快取）
+_auto_all_cache = {"ts": 0.0, "rows": None}   # 所有「已開啟」帳號設定 [(name,cfg),...] 的 10s 快取
 
 
 def _ensure_db():
@@ -273,6 +276,61 @@ def _ensure_db():
                 conn.rollback()
             except Exception:
                 pass
+        # sl_oid = 交易所 SL(algo) 單 id，供「加倉後止損移到最新筆」用 id 精準取消重掛（不碰 TP、不清整個合約）。
+        try:
+            conn.execute("ALTER TABLE trade_log ADD COLUMN sl_oid TEXT")
+            conn.commit()
+        except Exception:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        # acct = 此筆交易屬於哪個帳號（自動交易每帳號獨立後，用它把各帳號的倉位/紀錄完全隔開，
+        # 避免兩人同標的時 trade_log 互相污染）。
+        try:
+            conn.execute("ALTER TABLE trade_log ADD COLUMN acct TEXT")
+            conn.commit()
+        except Exception:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        # 每帳號自動交易設定（取代舊的單列 trade_auto id=1）：每個帳號一列、各自獨立、互不覆蓋。
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS trade_auto_acct (
+                name       TEXT PRIMARY KEY,
+                cfg        TEXT,
+                updated_at DOUBLE PRECISION
+            )
+        """ if _acct._use_pg() else """
+            CREATE TABLE IF NOT EXISTS trade_auto_acct (
+                name       TEXT PRIMARY KEY,
+                cfg        TEXT,
+                updated_at REAL
+            )
+        """)
+        conn.commit()
+        # 一次性遷移：舊的全域單列 trade_auto(id=1) → 搬進它的 owner 帳號的 trade_auto_acct 列，
+        # 並把既有未標 acct 的自動倉/紀錄補上該 owner（否則新版『依 acct 查』會找不到既有持倉）。
+        try:
+            _row = conn.execute("SELECT cfg FROM trade_auto WHERE id=1").fetchone()
+            if _row and _row[0]:
+                _old = json.loads(_row[0])
+                _ow = (_old.get("owner") or "").strip()
+                _exists = conn.execute("SELECT 1 FROM trade_auto_acct LIMIT 1").fetchone()
+                if _ow and not _exists:           # 尚未遷移過 → 搬一次
+                    conn.execute(
+                        f"INSERT INTO trade_auto_acct (name, cfg, updated_at) VALUES ({ph},{ph},{ph}) "
+                        f"ON CONFLICT (name) DO NOTHING",
+                        (_ow, _row[0], time.time()))
+                    conn.execute(
+                        f"UPDATE trade_log SET acct={ph} WHERE source='auto' AND acct IS NULL", (_ow,))
+                    conn.commit()
+        except Exception:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
     finally:
         conn.close()
     _inited = True
@@ -327,16 +385,21 @@ def _clean_auto(p: Optional[dict]) -> dict:
     return out
 
 
-def get_auto_cfg(fresh: bool = False) -> dict:
-    """讀自動交易設定（10s 快取：監控器每訊號都會查）。"""
-    if not fresh and _auto_cache["cfg"] is not None and time.time() - _auto_cache["ts"] < 10:
-        return _auto_cache["cfg"]
+def get_auto_cfg(name: str = None, fresh: bool = False) -> dict:
+    """讀『某帳號』的自動交易設定（10s 快取）。name 省略/空 → 回預設(全關)。
+    owner 一律設成該列帳號名（不靠前端傳的 owner 欄）→ 自動交易只下此帳號自己的自選、用自己的金鑰。"""
+    nm = _acct._norm_name(name or "")
+    if not nm:
+        return dict(_AUTO_DEFAULT)
+    c = _auto_cache.get(nm)
+    if not fresh and c and time.time() - c["ts"] < 10:
+        return c["cfg"]
     cfg = dict(_AUTO_DEFAULT)
     try:
         _ensure_db()
         conn, ph = _acct._db()
         try:
-            cur = conn.execute("SELECT cfg FROM trade_auto WHERE id=1")
+            cur = conn.execute(f"SELECT cfg FROM trade_auto_acct WHERE name={ph}", (nm,))
             row = cur.fetchone()
         finally:
             conn.close()
@@ -344,25 +407,59 @@ def get_auto_cfg(fresh: bool = False) -> dict:
             cfg = _clean_auto(json.loads(row[0]))
     except Exception:
         pass
-    _auto_cache["cfg"] = cfg
-    _auto_cache["ts"] = time.time()
+    cfg["owner"] = nm
+    _auto_cache[nm] = {"ts": time.time(), "cfg": cfg}
     return cfg
 
 
-def _save_auto_cfg(cfg: dict):
+def get_all_auto_cfgs(fresh: bool = False):
+    """回所有『已開啟(on)』帳號的自動交易設定：[(name, cfg), ...]。供執行器逐帳號獨立跑、互不干擾。"""
+    if not fresh and _auto_all_cache["rows"] is not None and time.time() - _auto_all_cache["ts"] < 10:
+        return _auto_all_cache["rows"]
+    out = []
+    try:
+        _ensure_db()
+        conn, ph = _acct._db()
+        try:
+            rows = conn.execute("SELECT name, cfg FROM trade_auto_acct").fetchall()
+        finally:
+            conn.close()
+        for nm, cfgs in rows:
+            if not nm or not cfgs:
+                continue
+            try:
+                cfg = _clean_auto(json.loads(cfgs))
+            except Exception:
+                continue
+            if not cfg.get("on"):
+                continue
+            cfg["owner"] = nm
+            out.append((nm, cfg))
+    except Exception:
+        pass
+    _auto_all_cache["rows"] = out
+    _auto_all_cache["ts"] = time.time()
+    return out
+
+
+def _save_auto_cfg(name: str, cfg: dict):
+    nm = _acct._norm_name(name or "")
+    if not nm:
+        return
+    cfg["owner"] = nm
     _ensure_db()
     conn, ph = _acct._db()
     try:
         conn.execute(
-            f"INSERT INTO trade_auto (id, cfg, updated_at) VALUES (1,{ph},{ph}) "
-            f"ON CONFLICT (id) DO UPDATE SET cfg=excluded.cfg, updated_at=excluded.updated_at",
-            (json.dumps(cfg), time.time()),
+            f"INSERT INTO trade_auto_acct (name, cfg, updated_at) VALUES ({ph},{ph},{ph}) "
+            f"ON CONFLICT (name) DO UPDATE SET cfg=excluded.cfg, updated_at=excluded.updated_at",
+            (nm, json.dumps(cfg), time.time()),
         )
         conn.commit()
     finally:
         conn.close()
-    _auto_cache["cfg"] = cfg
-    _auto_cache["ts"] = time.time()
+    _auto_cache[nm] = {"ts": time.time(), "cfg": cfg}
+    _auto_all_cache["rows"] = None     # 失效 → 下次重讀（含此帳號的開/關變動）
 
 
 # ── 交易紀錄 ──────────────────────────────────────────────────
@@ -372,12 +469,14 @@ def _log_trade(**kw) -> Optional[int]:
         conn, ph = _acct._db()
         try:
             cols = ("ts", "mode", "source", "status", "symbol", "bsym", "side", "qty",
-                    "entry", "sl", "tp", "sig", "dir", "tf", "sigt", "msg", "tp_oid")
+                    "entry", "sl", "tp", "sig", "dir", "tf", "sigt", "msg", "tp_oid", "sl_oid", "acct")
             vals = (time.time(), kw.get("mode") or bt.env_name(), kw.get("source"), kw.get("status"),
                     kw.get("symbol"), kw.get("bsym"), kw.get("side"), kw.get("qty"),
                     kw.get("entry"), kw.get("sl"), kw.get("tp"), kw.get("sig"),
                     kw.get("d"), kw.get("tf"), kw.get("sigt"), kw.get("msg"),
-                    str(kw["tp_oid"]) if kw.get("tp_oid") is not None else None)
+                    str(kw["tp_oid"]) if kw.get("tp_oid") is not None else None,
+                    str(kw["sl_oid"]) if kw.get("sl_oid") is not None else None,
+                    kw.get("acct"))
             cur = conn.execute(
                 f"INSERT INTO trade_log ({','.join(cols)}) VALUES ({','.join([ph]*len(cols))})",
                 vals)
@@ -512,49 +611,52 @@ def _stop_after_loss_ok(d, sig, all_signals) -> bool:
 
 # ── 自動交易執行器（notify_monitor 呼叫；絕不向外拋例外）───────
 def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=None):
-    """新進場訊號 → 依自動交易設定市價進場 + 掛交易所託管 SL/TP。
+    """新進場訊號 → 逐個『已開啟自動交易』的帳號各自獨立評估下單
+    （每帳號用自己的金鑰/自選/設定、紀錄以 acct 隔離，互不干擾）。
     all_signals=該標的當前完整訊號列表（含結算結果），供「敗後停手」模擬用。"""
+    if market != "crypto":
+        return
+    for _name, _cfg in get_all_auto_cfgs():
+        try:
+            _exec_signal_for_account(_name, _cfg, market, exchange, symbol, tf, k, d, sig, all_signals)
+        except Exception as e:
+            print(f"  ⚠ 自動下單失敗 {_name} {symbol} {tf} {k}/{d}：{e}")
+
+
+def _exec_signal_for_account(name, cfg, market, exchange, symbol, tf, k, d, sig, all_signals=None):
+    """單一帳號(name)的進場評估：用該帳號自己的金鑰下單、自選過濾、acct 隔離紀錄。cfg.on 必為 True。"""
     try:
-        if market != "crypto":
-            return
-        cfg = get_auto_cfg()
-        # 設定層過濾（未開／此訊號未勾／此時框未勾／方向不符）→ 靜默：每根非目標訊號都會進來，
-        # 記 log 會洗版。這四項屬「使用者設定」，前端面板看得到，不必入交易紀錄。
-        if not (cfg["on"] and k in cfg["sigs"] and tf in cfg["tfs"]):
+        # 設定層過濾（此訊號未勾／此時框未勾／方向不符）→ 靜默（不洗版）。
+        if not (k in cfg["sigs"] and tf in cfg["tfs"]):
             return
         want = "short" if d == "s" else "long"
         if cfg["dirs"] != "both" and cfg["dirs"] != want:
             return
         import routes.notify as notify
-        # 逐事件去重前移：每個「設定上要交易」的訊號只評估一次 → 之後每個「跳過原因」都只記一次 log
-        # （不洗版）→ 用來診斷「設定都對了卻沒觸發」卡在哪一關。
-        evt_key = f"atrade:{symbol}:{tf}:{k}:{d}:{sig.get('t')}"
+        # 逐事件去重（鍵含帳號名 → 每帳號各自獨立評估一次）：之後每個「跳過原因」都只記一次 log。
+        evt_key = f"atrade:{name}:{symbol}:{tf}:{k}:{d}:{sig.get('t')}"
         if notify.seen_event(evt_key):
             return
-        notify.mark_event(evt_key)   # 標記：此訊號只嘗試/記錄一次，不重複
+        notify.mark_event(evt_key)   # 標記：此帳號此訊號只嘗試/記錄一次，不重複
 
         def _skip(msg):
             """記一筆 skipped 交易紀錄（前端交易面板看得到）：說明此訊號為何沒進場。"""
-            _log_trade(source="auto", status="skipped", symbol=symbol, side=want,
+            _log_trade(source="auto", acct=name, status="skipped", symbol=symbol, side=want,
                        sig=k, d=d, tf=tf, sigt=str(sig.get("t")), msg=msg)
 
-        # ⚠ 已結算訊號不追進場：監控器會掃到最近窗內「已到止盈/止損」的舊訊號(r=w/l)，照樣進場 →
-        # settle 會立刻判定已結算 → 馬上平倉（開單即關單）。只進「還沒結算(live)」的訊號。
+        # ⚠ 已結算訊號不追進場（避免開單即平倉）。只進「還沒結算(live)」的訊號。
         if sig.get("r") in ("w", "l"):
             _skip("訊號已結算(非 live)，不追進場（避免開單即平倉）")
             return
-        # ⚠ 關鍵：只交易「擁有者帳號自己的自選清單」裡的標的，且用該帳號自己的金鑰下單。
-        owner = (cfg.get("owner") or "").strip()
-        if not owner:
-            _skip("自動交易未綁定擁有者帳號(owner)")
-            return
+        # ⚠ 關鍵：用此帳號自己的金鑰下單、只交易此帳號自己的自選清單裡的標的。
+        owner = name
         client, _ = _client_for(owner)
         if client is None:
-            _skip(f"擁有者帳號「{owner}」沒有交易所金鑰，無法下單")
+            _skip(f"帳號「{owner}」沒有交易所金鑰，無法下單")
             return
         owner_syms = {(w.get("symbol") or "") for w in notify.account_watchlist(owner)}
         if symbol not in owner_syms:
-            _skip(f"{symbol} 不在擁有者帳號「{owner}」的合約自選清單，跳過")
+            _skip(f"{symbol} 不在帳號「{owner}」的合約自選清單，跳過")
             return
 
         # 敗後停手（同圖表 crt._calc_stop_strategy 的逐方向狀態機）：用「此訊號之前、已結算」的
@@ -574,14 +676,15 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
         existing = next((p for p in pos if p["symbol"] == bsym), None)
         max_adds = int(cfg.get("maxAdds", 1) or 1)
         is_add = False; add_row_id = None; cur_adds = 1
+        add_old_sl = None; add_old_sl_oid = None     # 既有自動倉的止損(圖表價)與其交易所單 id → 加倉時用來收緊重掛
         if existing:
             # 已有同合約持倉：加倉開啟(maxAdds>1) + 同向 + 未達上限 → 加倉；否則略過。
             try:
                 _c, _ph = _acct._db()
                 try:
                     _r = _c.execute(
-                        f"SELECT id, adds FROM trade_log WHERE source='auto' AND status='open' "
-                        f"AND bsym={_ph} ORDER BY id DESC LIMIT 1", (bsym,)).fetchone()
+                        f"SELECT id, adds, sl, sl_oid FROM trade_log WHERE source='auto' AND status='open' "
+                        f"AND acct={_ph} AND bsym={_ph} ORDER BY id DESC LIMIT 1", (name, bsym)).fetchone()
                 finally:
                     _c.close()
             except Exception:
@@ -593,12 +696,12 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
             elif not _r:                       _why = "已有持倉但查無對應自動倉，略過（不加倉）"
             elif cur_adds >= max_adds:         _why = f"加倉已達上限 {max_adds} 筆，略過"
             if _why:
-                _log_trade(source="auto", mode=client.env, status="skipped", symbol=symbol, bsym=bsym,
+                _log_trade(source="auto", acct=name, mode=client.env, status="skipped", symbol=symbol, bsym=bsym,
                            side=want, sig=k, d=d, tf=tf, sigt=str(sig.get("t")), msg=_why)
                 return
-            is_add = True; add_row_id = _r[0]
+            is_add = True; add_row_id = _r[0]; add_old_sl = _r[2]; add_old_sl_oid = _r[3]
         elif len(pos) >= cfg["maxPos"]:
-            _log_trade(source="auto", mode=client.env, status="skipped", symbol=symbol, bsym=bsym,
+            _log_trade(source="auto", acct=name, mode=client.env, status="skipped", symbol=symbol, bsym=bsym,
                        side=want, sig=k, d=d, tf=tf, sigt=str(sig.get("t")),
                        msg=f"持倉數已達上限 {cfg['maxPos']}")
             return
@@ -627,7 +730,7 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
         # 白繳兩趟手續費又發警報。改成這裡直接放棄：不開倉、不平倉、不發取消。
         sl_f = float(sl_px)
         if (want == "long" and sl_f >= px) or (want == "short" and sl_f <= px):
-            _log_trade(source="auto", mode=client.env, status="skipped", symbol=symbol, bsym=bsym,
+            _log_trade(source="auto", acct=name, mode=client.env, status="skipped", symbol=symbol, bsym=bsym,
                        side=want, sig=k, d=d, tf=tf, sigt=str(sig.get("t")),
                        entry=str(entry), sl=str(round(stop_chart, 8)),
                        msg=f"現價 {px} 已在停損 {sl_f} 的{'下方' if want == 'long' else '上方'}"
@@ -646,7 +749,7 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
             s_c = stop_chart * scale               # 停損合約價
             dist = abs(e_c - s_c)
             if dist <= 0:
-                _log_trade(source="auto", mode=client.env, status="failed", symbol=symbol, bsym=bsym,
+                _log_trade(source="auto", acct=name, mode=client.env, status="failed", symbol=symbol, bsym=bsym,
                            side=want, sig=k, d=d, tf=tf, sigt=str(sig.get("t")),
                            msg="停損距離為 0，無法計算倉位")
                 return
@@ -671,7 +774,7 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
             notional = cfg["usdt"] * lev
             qty = client.quantize_qty(bsym, notional / px)
         if notional < client.min_notional(bsym):
-            _log_trade(source="auto", mode=client.env, status="failed", symbol=symbol, bsym=bsym,
+            _log_trade(source="auto", acct=name, mode=client.env, status="failed", symbol=symbol, bsym=bsym,
                        side=want, sig=k, d=d, tf=tf, sigt=str(sig.get("t")),
                        msg=f"名目金額 {notional:.1f} 低於合約下限 {client.min_notional(bsym)}"
                            + ("（風險金額太小、把每筆風險或上限槓桿調大）" if risk_usd > 0 else ""))
@@ -693,12 +796,13 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
             tp_px = client.quantize_price(bsym, tgt * scale)
         close_side = "SELL" if want == "long" else "BUY"
 
-        # ── 加倉：市價已合併進淨倉 → 只更新均價/筆數，完全不碰既有止損/止盈 ──
-        # 既有的 closePosition 止損與「數量」無關（觸發即平整個淨倉）→ 加倉後它仍保護加大後的整倉、
-        # 無需重掛。⚠ 絕不在這裡「取消舊單→掛新單」：新版 Algo API 的取消是非同步、又有單量上限，
-        # 重掛常踩 -4130/-4509，而舊邏輯一掛不上就「平整倉」→ 訊號再現又開→又加→又平，狂 churn 燒
-        # 手續費（曾 48 分鐘開平上百次、虧 -500 幾乎全是手續費）。代價：止損維持在「首筆」結構停損、
-        # 不下移到最新筆（較保守、但永不 churn）。止盈仍由 retarget_auto_tp 每根 K 跟上下軌移動。
+        # ── 加倉：市價已合併進淨倉 → 把整個淨倉止損重設到「打到就總共虧 N×R」的價位 ──
+        # R＝每筆風險金額(cfg.riskUsd)。加到 N 筆 → 淨倉止損擺在 (均價 ∓ N×R÷總量)：打到就總虧約 N×R，
+        # 每多加一筆最大虧損只多 1R、不會無限放大（做多在均價下、做空在均價上）。
+        # ⚠ 安全：先掛新 SL → 成功才取消舊 SL（中間至少有一張 SL、絕無裸倉空窗）；新單掛失敗 → 保留
+        #   舊 SL、絕不市價平倉。churn 的根源是「止損掛不上就平整倉」→ 訊號再現又開又加又平（曾 48 分鐘
+        #   上百次、虧 -500 全是手續費）；這裡只重設止損價、永不平倉，就不會重演 -4130/-4509 災難。
+        #   只在 riskUsd>0(固定風險模式)才動 SL；金額×槓桿模式無 R → 維持舊 SL。止盈仍由 retarget 跟軌。
         if is_add:
             try:
                 _np = next((p for p in client.positions() if p["symbol"] == bsym), None)
@@ -708,14 +812,65 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
             _ne = _np.get("entry") if _np else None
             new_entry_chart = (_ne / scale) if (_ne and scale) else _ne     # 合約均價 → 圖表均價
             new_adds = cur_adds + 1
+
+            new_sl_oid = add_old_sl_oid          # 預設沿用舊 SL 單 id（沒移動時不變）
+            new_sl_chart = None                  # 有成功移動才寫回 sl 欄（圖表價）
+            sl_note = "止損維持原位"
+            R = risk_usd                          # = cfg.riskUsd（每筆風險）
+            fee = 0.0005                          # Binance 合約吃單 0.05%/邊（與首筆倉位計算一致）
+            if R > 0 and new_qty and _ne:
+                nr_q = (new_adds * R) / new_qty                  # 每單位要分攤的 N×R（合約價）
+                # 解「價差虧損 + 進場腿 + 出場腿手續費 = N×R」→ 含來回手續費後打到止損的『已實現總虧』剛好 N×R。
+                # 做多：(E-S)·Q + fee·E·Q + fee·S·Q = N·R → S = (E(1+fee) − N·R/Q) / (1−fee)
+                # 做空：(S-E)·Q + fee·E·Q + fee·S·Q = N·R → S = (E(1−fee) + N·R/Q) / (1+fee)
+                if want == "long":
+                    s_c = (_ne * (1 + fee) - nr_q) / (1 - fee)
+                else:
+                    s_c = (_ne * (1 - fee) + nr_q) / (1 + fee)
+                new_sl_px = client.quantize_price(bsym, s_c)
+                try:
+                    _px_now = client.last_price(bsym)
+                except bt.TradeError:
+                    _px_now = None
+                # 防呆：止損須在現價虧損側（多單<現價、空單>現價），否則交易所判即時觸發(-2021)拒掛
+                _valid = (_px_now is None) or (float(new_sl_px) < _px_now if want == "long"
+                                               else float(new_sl_px) > _px_now)
+                if _valid:
+                    try:
+                        _nsl = client.place_close_trigger(bsym, close_side, new_sl_px, "sl")  # 先掛新(N×R)SL
+                        if add_old_sl_oid:                       # 新 SL 已上 → 再取消舊 SL（無裸倉空窗）
+                            try:
+                                client.cancel_algo(bsym, add_old_sl_oid)
+                            except bt.TradeError:
+                                pass
+                        new_sl_oid = _nsl.get("orderId")
+                        new_sl_chart = (float(new_sl_px) / scale) if scale else float(new_sl_px)
+                        sl_note = (f"止損移到 {_fmt_px(new_sl_chart)}"
+                                   f"（打到總虧≈{new_adds}×{R:.0f}={new_adds * R:.0f}U）")
+                    except bt.TradeError as e:
+                        sl_note = f"止損維持原位（重設失敗、舊單仍在保護：{e}）"
+                else:
+                    sl_note = f"止損維持原位（{new_adds}×R 價位已在現價錯側、不重掛）"
+            else:
+                sl_note = "止損維持原位（非固定風險模式、無 R）"
+
             try:
                 _c2, _ph2 = _acct._db()
                 try:
-                    _c2.execute(                                            # 只更新 qty/entry/adds，sl/tp 不動
-                        f"UPDATE trade_log SET qty={_ph2}, entry={_ph2}, adds={_ph2} WHERE id={_ph2}",
-                        (str(new_qty) if new_qty is not None else None,
-                         str(new_entry_chart) if new_entry_chart is not None else None,
-                         new_adds, add_row_id))
+                    if new_sl_chart is not None:                 # 有移動 → 連 sl/sl_oid 一起更新
+                        _c2.execute(
+                            f"UPDATE trade_log SET qty={_ph2}, entry={_ph2}, adds={_ph2}, "
+                            f"sl={_ph2}, sl_oid={_ph2} WHERE id={_ph2}",
+                            (str(new_qty) if new_qty is not None else None,
+                             str(new_entry_chart) if new_entry_chart is not None else None,
+                             new_adds, str(round(new_sl_chart, 8)),
+                             str(new_sl_oid) if new_sl_oid is not None else None, add_row_id))
+                    else:                                        # 沒移動 → 只更新 qty/entry/adds
+                        _c2.execute(
+                            f"UPDATE trade_log SET qty={_ph2}, entry={_ph2}, adds={_ph2} WHERE id={_ph2}",
+                            (str(new_qty) if new_qty is not None else None,
+                             str(new_entry_chart) if new_entry_chart is not None else None,
+                             new_adds, add_row_id))
                     _c2.commit()
                 finally:
                     _c2.close()
@@ -724,23 +879,26 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
             envtag = "實盤" if client.env == "live" else "測試網"
             l1 = f"第 {new_adds} 筆 · {'做空' if want == 'short' else '做多'} · {envtag}"
             l2 = f"加倉 {_fmt_px(entry)} · 數量 +{qty}"
-            l3 = f"均價 {_fmt_px(new_entry_chart) if new_entry_chart else '—'} · 止損維持首筆（不下移、不重掛）"
+            l3 = f"均價 {_fmt_px(new_entry_chart) if new_entry_chart else '—'} · {sl_note}"
             _push_owner(owner, f"➕ 自動加倉 · {symbol}（第{new_adds}筆）", "\n".join([l1, l2, l3]),
                         symbol, tf=tf, event="atrade_open", sig=k, d=d, sigt=str(sig.get("t")))
-            print(f"  ➕ 自動加倉 {client.env}: {bsym} 第{new_adds}筆 +{qty}（止損不動）")
+            print(f"  ➕ 自動加倉 {client.env}: {bsym} 第{new_adds}筆 +{qty}（{sl_note}）")
             return
 
         # 先掛停損（自動單的安全命脈）。掛失敗 → 立刻市價平掉剛進的倉，絕不留「無停損保護」
         # 的自動倉位（曾發生：冷門合約不支援條件單 -4120，倉位開了卻沒 SL）。
+        sl_oid = None                       # 交易所 SL(algo) 單 id → 加倉時用它精準取消重掛
         try:
-            client.place_close_trigger(bsym, close_side, sl_px, "sl")
+            _osl = client.place_close_trigger(bsym, close_side, sl_px, "sl")
+            sl_oid = _osl.get("orderId")
         except bt.TradeError as e:
             # 自癒：止損掛不上最常見＝該合約殘留條件單塞滿 algo 上限(每合約~20)→ -4509。走到這代表
             # 進場前無持倉（is_add 早已 return）→ 該合約所有 algo 條件單必為孤兒 → 清掉後重試一次。
             _sl_ok = False
             try:
                 client.cancel_all_algo(bsym)                               # 清孤兒條件單(端點已修正為 algoOrderList)
-                client.place_close_trigger(bsym, close_side, sl_px, "sl")
+                _osl = client.place_close_trigger(bsym, close_side, sl_px, "sl")
+                sl_oid = _osl.get("orderId")
                 _sl_ok = True
                 print(f"  ♻ 自動下單 {bsym} 止損 {e} → 清殘單後重掛成功")
             except bt.TradeError:
@@ -750,7 +908,7 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
                     client.close_position(bsym)
                 except bt.TradeError:
                     pass
-                _log_trade(source="auto", mode=client.env, status="failed", symbol=symbol, bsym=bsym, side=want,
+                _log_trade(source="auto", acct=name, mode=client.env, status="failed", symbol=symbol, bsym=bsym, side=want,
                            qty=qty, entry=str(entry), sl=str(round(stop_chart, 8)), sig=k, d=d, tf=tf,
                            sigt=str(sig.get("t")),
                            msg=f"停損無法掛單（{e}）→ 已清殘單仍失敗 → 即時平倉，不留無保護持倉")
@@ -769,10 +927,10 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
                 tp_oid = _otp.get("orderId")    # 存 TP(algo) 單 id → 之後「跟著中軌移動」用 id 精準取消重掛
             except bt.TradeError as e:
                 warn.append(f"TP 掛單失敗（不影響停損保護）：{e}")
-        _log_trade(source="auto", mode=client.env, status="open", symbol=symbol, bsym=bsym, side=want,
+        _log_trade(source="auto", acct=name, mode=client.env, status="open", symbol=symbol, bsym=bsym, side=want,
                    qty=qty, entry=str(entry), sl=str(round(stop_chart, 8)),
-                   tp=(str(round(tgt, 8)) if (tp_px and tgt is not None) else None), tp_oid=tp_oid, sig=k, d=d, tf=tf,
-                   sigt=str(sig.get("t")), msg="；".join(warn) or None)
+                   tp=(str(round(tgt, 8)) if (tp_px and tgt is not None) else None), tp_oid=tp_oid, sl_oid=sl_oid,
+                   sig=k, d=d, tf=tf, sigt=str(sig.get("t")), msg="；".join(warn) or None)
         # 通知擁有者：自動進場
         envtag = "實盤" if client.env == "live" else "測試網"
         dir_txt = "做空" if want == "short" else "做多"
@@ -786,11 +944,11 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
               f"{k}/{d}）" + (f" ⚠{warn}" if warn else ""))
     except Exception as e:
         try:
-            _log_trade(source="auto", status="failed", symbol=symbol, side=d,
+            _log_trade(source="auto", acct=name, status="failed", symbol=symbol, side=d,
                        sig=k, d=d, tf=tf, sigt=str(sig.get("t")), msg=str(e))
         except Exception:
             pass
-        print(f"  ⚠ 自動下單失敗 {symbol} {tf} {k}/{d}：{e}")
+        print(f"  ⚠ 自動下單失敗 {name} {symbol} {tf} {k}/{d}：{e}")
 
 
 def _close_auto_position(owner, client, row_id, bsym, symbol, tf, event, reason,
@@ -823,143 +981,140 @@ def _close_auto_position(owner, client, row_id, bsym, symbol, tf, event, reason,
 
 
 def settle_signal_trade(market, exchange, symbol, tf, k, d, sig, event):
-    """訊號引擎判定止盈/止損(以上下軌結算) → 平掉對應的自動倉位（軌出場早於交易所 band TP 時對齊策略）。"""
+    """訊號引擎判定止盈/止損 → 平掉對應自動倉（逐帳號獨立）。
+    註：監控器已改走 reconcile_auto_position（盤中觸發單對帳），此函式保留備查。"""
     try:
         if market != "crypto":
             return
-        cfg = get_auto_cfg()
-        client, _ = _client_for((cfg.get("owner") or "").strip())
-        if client is None:
-            return
         sigt = str(sig.get("t"))
-        _ensure_db()
-        conn, ph = _acct._db()
-        try:
-            cur = conn.execute(
-                f"SELECT id, bsym FROM trade_log WHERE source='auto' AND status='open' "
-                f"AND symbol={ph} AND tf={ph} AND sig={ph} AND dir={ph} AND sigt={ph} "
-                f"ORDER BY id DESC LIMIT 1",
-                (symbol, tf, k, d, sigt))
-            row = cur.fetchone()
-        finally:
-            conn.close()
-        if not row:
-            return
-        row_id, bsym = row
-        reason = "策略止盈平倉" if event == "tp" else "策略止損平倉"
-        _close_auto_position((cfg.get("owner") or "").strip(), client, row_id, bsym, symbol, tf, event, reason,
-                             sig=k, d=d, sigt=sigt)
+        for name, cfg in get_all_auto_cfgs():
+            client, _ = _client_for(name)
+            if client is None:
+                continue
+            _ensure_db()
+            conn, ph = _acct._db()
+            try:
+                row = conn.execute(
+                    f"SELECT id, bsym FROM trade_log WHERE source='auto' AND status='open' "
+                    f"AND acct={ph} AND symbol={ph} AND tf={ph} AND sig={ph} AND dir={ph} AND sigt={ph} "
+                    f"ORDER BY id DESC LIMIT 1",
+                    (name, symbol, tf, k, d, sigt)).fetchone()
+            finally:
+                conn.close()
+            if not row:
+                continue
+            row_id, bsym = row
+            reason = "策略止盈平倉" if event == "tp" else "策略止損平倉"
+            _close_auto_position(name, client, row_id, bsym, symbol, tf, event, reason,
+                                 sig=k, d=d, sigt=sigt)
     except Exception as e:
         print(f"  ⚠ 自動平倉失敗 {symbol} {tf}：{e}")
 
 
 def reconcile_auto_position(market, exchange, symbol, tf):
-    """自動倉出場對帳：該『標的×時框』的未平自動倉，若交易所已無持倉（止損/止盈觸發單『盤中即時』已平）
-    → 補記錄 + 通知。取代原本『收盤(整點) settle 平倉』：
-      • 出場改由交易所掛的觸發單盤中即時觸發（碰到止盈/止損位就出，不再整點才決定）。
-      • 止損確實落在通知顯示的緩衝價（交易所掛單），不再被『訊號自身較近的止損』提早平。
-    止盈/止損依該倉已實現盈虧正負判定。冪等：只處理 status='open' 且交易所已無倉者。"""
+    """自動倉出場對帳（逐帳號獨立）：各帳號該『標的×時框』的未平自動倉，若『該帳號』交易所已無持倉
+    （止損/止盈觸發單盤中即時已平）→ 補記錄+通知。各帳號用自己的金鑰查自己的持倉、紀錄以 acct 隔離，
+    兩人同標的也互不誤判。止盈/止損依該倉已實現盈虧正負判定。冪等：只處理 status='open' 且該帳號交易所已無倉者。"""
     try:
         if market != "crypto":
             return
-        cfg = get_auto_cfg()
-        owner = (cfg.get("owner") or "").strip()
-        client, _ = _client_for(owner)
-        if client is None:
-            return
-        _ensure_db()
-        conn, ph = _acct._db()
-        try:
-            cur = conn.execute(
-                f"SELECT id, bsym, sig, dir, sigt FROM trade_log WHERE source='auto' AND status='open' "
-                f"AND symbol={ph} AND tf={ph}", (symbol, tf))
-            rows = cur.fetchall()
-        finally:
-            conn.close()
-        if not rows:
-            return
-        try:
-            pos_syms = {p["symbol"] for p in client.positions()}
-        except bt.TradeError:
-            return
-        for row_id, bsym, rsig, rd, rsigt in rows:
-            if bsym in pos_syms:
-                continue                           # 仍有持倉 → 未平，跳過
-            # 持倉已不在 → 交易所觸發單已盤中平倉。判止盈/止損：該合約最近一筆已實現盈虧正負。
-            pnl = None
+        for name, cfg in get_all_auto_cfgs():
             try:
-                for inc in client.income_history(30):
-                    if inc.get("symbol") == bsym:
-                        pnl = inc.get("pnl"); break
-            except bt.TradeError:
-                pass
-            if pnl is None:
-                continue                           # 已實現盈虧尚未入帳 → 先不記，下一輪重試（避免誤判止盈/止損、漏記盈虧）
-            event = "tp" if pnl >= 0 else "sl"
-            try:
-                client.cancel_all_algo(bsym)       # 清殘留的另一張觸發單（止損觸發→殘留止盈，反之亦然），避免孤兒
-            except bt.TradeError:
-                pass
-            _close_auto_position(owner, client, row_id, bsym, symbol, tf, event,
-                                 "交易所止盈平倉（盤中觸及上下軌）" if event == "tp" else "交易所止損平倉（盤中觸及停損）",
-                                 sig=rsig, d=rd, sigt=rsigt)
+                client, _ = _client_for(name)
+                if client is None:
+                    continue
+                _ensure_db()
+                conn, ph = _acct._db()
+                try:
+                    rows = conn.execute(
+                        f"SELECT id, bsym, sig, dir, sigt FROM trade_log WHERE source='auto' AND status='open' "
+                        f"AND acct={ph} AND symbol={ph} AND tf={ph}", (name, symbol, tf)).fetchall()
+                finally:
+                    conn.close()
+                if not rows:
+                    continue
+                try:
+                    pos_syms = {p["symbol"] for p in client.positions()}
+                except bt.TradeError:
+                    continue
+                for row_id, bsym, rsig, rd, rsigt in rows:
+                    if bsym in pos_syms:
+                        continue                       # 仍有持倉 → 未平，跳過
+                    # 持倉已不在 → 交易所觸發單已盤中平倉。判止盈/止損：該合約最近一筆已實現盈虧正負。
+                    pnl = None
+                    try:
+                        for inc in client.income_history(30):
+                            if inc.get("symbol") == bsym:
+                                pnl = inc.get("pnl"); break
+                    except bt.TradeError:
+                        pass
+                    if pnl is None:
+                        continue                       # 盈虧尚未入帳 → 下一輪重試（避免誤判/漏記盈虧）
+                    ev = "tp" if pnl >= 0 else "sl"
+                    try:
+                        client.cancel_all_algo(bsym)   # 清殘留的另一張觸發單，避免孤兒
+                    except bt.TradeError:
+                        pass
+                    _close_auto_position(name, client, row_id, bsym, symbol, tf, ev,
+                                         "交易所止盈平倉（盤中觸及上下軌）" if ev == "tp" else "交易所止損平倉（盤中觸及停損）",
+                                         sig=rsig, d=rd, sigt=rsigt)
+            except Exception as e:
+                print(f"  ⚠ 自動倉對帳失敗 {name} {symbol} {tf}：{e}")
     except Exception as e:
         print(f"  ⚠ 自動倉對帳失敗 {symbol} {tf}：{e}")
 
 
 def retarget_auto_tp(market, exchange, symbol, tf, upper_chart, lower_chart):
-    """TP 跟著上下軌移動：用最新上下軌(已收盤棒)把該「標的×時框」所有未平自動倉的交易所 TP 單
-    取消重掛到對應軌（空單→下軌 lower、多單→上軌 upper）。只動 TP（用開倉時存下的 algoId 精準
-    取消）→ 絕不碰 SL（零 SL 空窗）。目標軌已越過現價(達成側)→ 不重掛(避免 -2021)、交給 settle
-    市價平倉。每根 K 收盤呼叫一次。絕不拋例外。"""
+    """TP 跟著上下軌移動（逐帳號獨立）：用最新上下軌把各帳號該「標的×時框」未平自動倉的交易所 TP 單
+    取消重掛到對應軌（空→下軌、多→上軌）。只動 TP（用 algoId 精準取消）→ 絕不碰 SL。目標軌已越過
+    現價(達成側)→ 即時市價平倉。每根 K 收盤呼叫一次。絕不拋例外。"""
     try:
         if market != "crypto":
             return
-        cfg = get_auto_cfg()
-        if not cfg.get("on"):
-            return
-        _ensure_db()
-        conn, ph = _acct._db()
-        try:
-            cur = conn.execute(
-                f"SELECT id, bsym, dir, tp, tp_oid, sig, sigt FROM trade_log WHERE source='auto' "
-                f"AND status='open' AND symbol={ph} AND tf={ph}", (symbol, tf))
-            rows = cur.fetchall()
-        finally:
-            conn.close()
-        if not rows:
-            return                              # 此標的×時框無未平自動倉 → 不碰交易所
-        client, _ = _client_for((cfg.get("owner") or "").strip())
-        if client is None:
-            return
-        bsym0, scale = client.resolve_symbol(symbol)
-        px = client.last_price(bsym0)
-        for row_id, bsym, d, old_tp, tp_oid, rsig, rsigt in rows:
+        for name, cfg in get_all_auto_cfgs():
             try:
-                want = "short" if d == "s" else "long"
-                band = lower_chart if want == "short" else upper_chart   # 空→下軌、多→上軌
-                if band is None or band != band:    # NaN/缺 → 跳過此倉（不動其 TP）
+                _ensure_db()
+                conn, ph = _acct._db()
+                try:
+                    rows = conn.execute(
+                        f"SELECT id, bsym, dir, tp, tp_oid, sig, sigt FROM trade_log WHERE source='auto' "
+                        f"AND status='open' AND acct={ph} AND symbol={ph} AND tf={ph}", (name, symbol, tf)).fetchall()
+                finally:
+                    conn.close()
+                if not rows:
+                    continue                            # 此帳號此標的×時框無未平自動倉 → 不碰交易所
+                client, _ = _client_for(name)
+                if client is None:
                     continue
-                new_tp_px = client.quantize_price(bsym0, float(band) * scale)
-                new_tp_f = float(new_tp_px)
-                # 目標軌已碰到/越過現價（多單→軌已在現價下、空單→已在現價上）＝達成側 → 立刻市價平倉，
-                # 不丟給收盤確認的 settle（碰到就馬上止盈，且避免「掛不了 TP 又裸著等下一根」）。
-                if (want == "long" and new_tp_f <= px) or (want == "short" and new_tp_f >= px):
-                    _close_auto_position((cfg.get("owner") or "").strip(), client, row_id, bsym, symbol, tf,
-                                         "tp", "策略止盈平倉(上下軌觸及，即時平倉)", sig=rsig, d=d, sigt=rsigt)
-                    continue
-                if old_tp is not None and str(new_tp_px) == str(old_tp):
-                    continue                    # 軌沒移動（同 tick）→ 不動，免徒增掛單
-                close_side = "SELL" if want == "long" else "BUY"
-                if tp_oid:                       # 先用 id 取消舊 TP（取消失敗＝已不存在，無妨）；SL 完全不碰
+                bsym0, scale = client.resolve_symbol(symbol)
+                px = client.last_price(bsym0)
+                for row_id, bsym, d, old_tp, tp_oid, rsig, rsigt in rows:
                     try:
-                        client.cancel_algo(bsym, tp_oid)
-                    except bt.TradeError:
-                        pass
-                o = client.place_close_trigger(bsym, close_side, new_tp_px, "tp")
-                _set_trade_tp(row_id, str(new_tp_px), o.get("orderId"))
-            except bt.TradeError as e:
-                print(f"  ⚠ TP 移動失敗 {bsym}：{e}")
+                        want = "short" if d == "s" else "long"
+                        band = lower_chart if want == "short" else upper_chart   # 空→下軌、多→上軌
+                        if band is None or band != band:    # NaN/缺 → 跳過此倉（不動其 TP）
+                            continue
+                        new_tp_px = client.quantize_price(bsym0, float(band) * scale)
+                        new_tp_f = float(new_tp_px)
+                        # 目標軌已碰到/越過現價＝達成側 → 立刻市價平倉（碰到就馬上止盈，避免掛不了 TP 又裸著）。
+                        if (want == "long" and new_tp_f <= px) or (want == "short" and new_tp_f >= px):
+                            _close_auto_position(name, client, row_id, bsym, symbol, tf,
+                                                 "tp", "策略止盈平倉(上下軌觸及，即時平倉)", sig=rsig, d=d, sigt=rsigt)
+                            continue
+                        if old_tp is not None and str(new_tp_px) == str(old_tp):
+                            continue                    # 軌沒移動（同 tick）→ 不動，免徒增掛單
+                        close_side = "SELL" if want == "long" else "BUY"
+                        if tp_oid:                       # 先用 id 取消舊 TP（取消失敗＝已不存在，無妨）；SL 完全不碰
+                            try:
+                                client.cancel_algo(bsym, tp_oid)
+                            except bt.TradeError:
+                                pass
+                        o = client.place_close_trigger(bsym, close_side, new_tp_px, "tp")
+                        _set_trade_tp(row_id, str(new_tp_px), o.get("orderId"))
+                    except bt.TradeError as e:
+                        print(f"  ⚠ TP 移動失敗 {bsym}：{e}")
+            except Exception as e:
+                print(f"  ⚠ retarget_auto_tp 失敗 {name} {symbol} {tf}：{e}")
     except Exception as e:
         print(f"  ⚠ retarget_auto_tp 失敗 {symbol} {tf}：{e}")
 
@@ -1140,7 +1295,7 @@ def overview(req: KeyReq):
         # 一旦變慢/出錯會拖垮整個持倉頁(曾卡死)。核對止損止盈改走手動的 /verify_sltp。
         return {"env": client.env, "balance": client.balance(),
                 "positions": client.positions(), "orders": client.open_orders(),
-                "auto": get_auto_cfg(fresh=True)}
+                "auto": get_auto_cfg(req.name, fresh=True)}
     except bt.TradeError as e:
         raise HTTPException(502, str(e))
 
@@ -1150,6 +1305,7 @@ def verify_sltp(req: KeyReq):
     """核對未平自動倉：紀錄(通知)的止損/止盈 vs 交易所『實際掛單觸發價』（皆換算圖表價比較）。
     sl_diff_pct/tp_diff_pct >0.15 → 通知與實際掛單不一致；has_algo=false → 交易所查不到該倉止損/止盈單(危險)。"""
     client = _guard(req.key, req.name)
+    name = _acct._norm_name(req.name or "")
     try:
         algos = client.algo_orders()
         positions = {p["symbol"] for p in client.positions()}
@@ -1165,7 +1321,8 @@ def verify_sltp(req: KeyReq):
     try:
         cur = conn.execute(
             f"SELECT symbol, bsym, side, sl, tp, tf FROM trade_log "
-            f"WHERE source='auto' AND status='open' ORDER BY id DESC LIMIT 30")
+            f"WHERE source='auto' AND status='open' AND acct={ph} ORDER BY id DESC LIMIT 30",
+            (name,))
         rows = cur.fetchall()
     finally:
         conn.close()
@@ -1223,7 +1380,8 @@ def order(req: OrderReq):
                     client.place_close_trigger(bsym, close_side, client.quantize_price(bsym, float(v) * scale), kind)
                 except bt.TradeError as e:
                     warn.append(f"{'停損' if kind == 'sl' else '止盈'}掛單失敗：{e}")
-        _log_trade(source="manual", mode=client.env, status="open" if otype == "MARKET" else "pending",
+        _log_trade(source="manual", acct=_acct._norm_name(req.name or ""), mode=client.env,
+                   status="open" if otype == "MARKET" else "pending",
                    symbol=req.symbol, bsym=bsym, side=want, qty=qty,
                    entry=(str(req.price) if price else None),
                    sl=(str(req.sl) if req.sl else None), tp=(str(req.tp) if req.tp else None),
@@ -1239,8 +1397,8 @@ def close(req: CloseReq):
     try:
         r = client.close_position(req.bsym.upper())
         if r.get("ok"):
-            _log_trade(source="manual", mode=client.env, status="closed", symbol=req.bsym,
-                       bsym=req.bsym.upper(), msg="手動平倉")
+            _log_trade(source="manual", acct=_acct._norm_name(req.name or ""), mode=client.env,
+                       status="closed", symbol=req.bsym, bsym=req.bsym.upper(), msg="手動平倉")
         return r
     except bt.TradeError as e:
         raise HTTPException(400, str(e))
@@ -1296,15 +1454,16 @@ def _sweep_orphan_algo(client) -> dict:
 @router.post("/auto")
 def set_auto(req: AutoReq):
     client = _guard(req.key, req.name)
-    prev = get_auto_cfg(fresh=True)                   # 存檔前的設定 → 判斷是否『剛從關→開』
+    name = _acct._norm_name(req.name or "")
+    prev = get_auto_cfg(name, fresh=True)             # 此帳號存檔前的設定 → 判斷是否『剛從關→開』
     cfg = _clean_auto(req.cfg)
-    _save_auto_cfg(cfg)
-    # 剛把自動交易『關→開』→ 清無持倉合約的殘留條件單，並推一則診斷通知(列出/取消數字+錯誤)，
+    _save_auto_cfg(name, cfg)                          # 存進此帳號自己的列（不影響別帳號）
+    # 此帳號剛把自動交易『關→開』→ 清此帳號無持倉合約的殘留條件單，並推一則診斷通知(列出/取消數字+錯誤)，
     # 供定位 -4509(殘單清不掉)卡在哪一步：列不出？取消被拒？上限是全帳號？
     diag = None
     if cfg.get("on") and not prev.get("on"):
         diag = _sweep_orphan_algo(client)
-        owner = (cfg.get("owner") or "").strip()
+        owner = name
         if diag.get("cancelled"):
             _push_owner(owner, f"🧹 已清理殘留條件單 · {diag['cancelled']} 筆",
                         f"全帳號列出 {diag['listed']} 筆 algo 條件單，清掉無持倉合約的 {diag['cancelled']} 筆"
@@ -1322,12 +1481,14 @@ def set_auto(req: AutoReq):
 @router.post("/history")
 def history(req: KeyReq):
     client = _guard(req.key, req.name)
+    name = _acct._norm_name(req.name or "")
     _ensure_db()
     conn, ph = _acct._db()
     try:
+        # 只回此帳號自己的交易紀錄（acct=本帳號），外加未標記 acct 的舊資料（遷移前的歷史）。
         cur = conn.execute(
-            "SELECT ts,mode,source,status,symbol,bsym,side,qty,entry,sl,tp,sig,dir,tf,msg,closed_ts "
-            "FROM trade_log ORDER BY id DESC LIMIT 60")
+            f"SELECT ts,mode,source,status,symbol,bsym,side,qty,entry,sl,tp,sig,dir,tf,msg,closed_ts "
+            f"FROM trade_log WHERE acct={ph} OR acct IS NULL ORDER BY id DESC LIMIT 60", (name,))
         rows = cur.fetchall()
     finally:
         conn.close()
