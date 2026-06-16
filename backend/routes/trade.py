@@ -358,7 +358,7 @@ def _clean_auto(p: Optional[dict]) -> dict:
     except (TypeError, ValueError):
         pass
     try:
-        out["maxPos"] = max(1, min(int(p.get("maxPos", 3)), 20))
+        out["maxPos"] = max(1, min(int(p.get("maxPos", 3)), 50))
     except (TypeError, ValueError):
         pass
     if p.get("dirs") in ("both", "long", "short"):
@@ -383,7 +383,7 @@ def _clean_auto(p: Optional[dict]) -> dict:
     out["perSym"] = ps
     out["stopAfterLoss"] = bool(p.get("stopAfterLoss"))
     try:
-        out["maxAdds"] = max(1, min(int(p.get("maxAdds", 1)), 10))   # 加倉上限(含首筆)，1=不加倉
+        out["maxAdds"] = max(1, min(int(p.get("maxAdds", 1)), 20))   # 加倉上限(含首筆)，1=不加倉；上限 20
     except (TypeError, ValueError):
         pass
     return out

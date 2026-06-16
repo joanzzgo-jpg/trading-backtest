@@ -223,7 +223,7 @@ function _trdSaveAuto() {
   a.riskUsd = (_mode === "risk") ? Math.max(0, +pop.querySelector("#trdAutoRisk").value || 0) : 0;
   a.lev = +pop.querySelector("#trdAutoLev").value || 3;
   a.maxPos = +pop.querySelector("#trdAutoMax").value || 3;
-  a.maxAdds = Math.max(1, Math.min(+pop.querySelector("#trdAutoAdds")?.value || 1, 10));
+  a.maxAdds = Math.max(1, Math.min(+pop.querySelector("#trdAutoAdds")?.value || 1, 20));
   a.dirs = pop.querySelector("#trdAutoDirs").value;
   a.slPct = Math.max(0, +pop.querySelector("#trdAutoSl").value || 0);
   a.stopAfterLoss = pop.querySelector("#trdAutoSal").classList.contains("sel");
@@ -512,8 +512,8 @@ function _trdBuildPopup() {
       <div class="trd-lev-auto" id="trdLevAuto" hidden>📐 槓桿自動算 ＝ 止損額 ÷（金額 × 停損距離）<b id="trdLevEg"></b></div>
       <div class="trd-sub trd-grp-hd">風險控制</div>
       <div class="trd-grid">
-        <div><label>最大同時持倉<small>筆</small></label><input id="trdAutoMax" type="number" min="1" max="20"></div>
-        <div><label>加倉上限<small>1＝不加倉；同向持倉中再現加一筆</small></label><input id="trdAutoAdds" type="number" min="1" max="10" placeholder="1"></div>
+        <div><label>最大同時持倉<small>筆</small></label><input id="trdAutoMax" type="number" min="1" max="50"></div>
+        <div><label>加倉上限<small>1＝不加倉；同向持倉中再現加一筆</small></label><input id="trdAutoAdds" type="number" min="1" max="20" placeholder="1"></div>
         <div><label>止損緩衝 %<small>策略停損外推；0＝用策略</small></label><input id="trdAutoSl" type="number" min="0" max="50" step="0.1" placeholder="0"></div>
         <div class="trd-sal-cell"><label>敗後停手<small>當日虧損後暫停</small></label><button id="trdAutoSal" class="trd-chip trd-sal-btn">關</button></div>
       </div>
