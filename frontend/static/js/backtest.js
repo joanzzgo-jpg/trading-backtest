@@ -213,7 +213,11 @@
     document.getElementById("btSym").textContent = `${sym} · ${tf}`;
     document.getElementById("btOverlay").classList.add("open");
   }
-  function _close() { document.getElementById("btOverlay")?.classList.remove("open"); _clearTradeMarkers(); }
+  function _close() {
+    document.getElementById("btOverlay")?.classList.remove("open");
+    _clearTradeMarkers();
+    if (window._btOnClose) window._btOnClose();   // 手機分頁用：modal 關閉 → 還原底部分頁 active 狀態
+  }
 
   function _ctx() {
     return {
@@ -475,4 +479,7 @@
     if (btn) btn.addEventListener("click", _open);
   }
   window.initBacktest = initBacktest;
+  // 給手機底部「回測」分頁呼叫（開/關現成 modal，免重建 UI）
+  window._btOpen = _open;
+  window._btClose = _close;
 })();

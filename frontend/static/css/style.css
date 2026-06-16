@@ -5745,6 +5745,13 @@ body, button, input, select, textarea,
 .m-tabbar { display: none; }
 
 @media (max-width: 1180px), (hover: none) and (pointer: coarse) {
+  /* 手機「回測」分頁：回測 modal 提到設定/訊號浮層(650)之上、分頁列(700)之下 → 從任何頁開都不被蓋、
+     且底部分頁列仍可點。底部留白避免 modal 被 46px 分頁列遮住。!important 壓過 backtest.js 注入的 z-60。 */
+  .bt-overlay {
+    z-index: 690 !important;
+    padding-bottom: calc(46px + env(safe-area-inset-bottom, 0px)) !important;
+    box-sizing: border-box;
+  }
   .m-tabbar {
     display: flex;
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 700;
