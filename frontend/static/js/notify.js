@@ -378,6 +378,16 @@ function _ntfFmtTime(ts) {
 function _ntfCat(ev) {
   return (ev === "entry" || ev === "tp" || ev === "sl") ? "signal" : "auto";
 }
+// 篩選比對：all=全部、signal=策略訊號、auto=自動交易(進+出)、entry=自動進場、exit=自動出場(止盈/止損)
+function _ntfMatch(ev, f) {
+  switch (f) {
+    case "signal": return ev === "entry" || ev === "tp" || ev === "sl";
+    case "auto":   return ev === "atrade_open" || ev === "atrade_tp" || ev === "atrade_sl";
+    case "entry":  return ev === "atrade_open";
+    case "exit":   return ev === "atrade_tp" || ev === "atrade_sl";
+    default:       return true;   // all
+  }
+}
 // 事件 → 種類標籤（顯示用）：label=標籤字 / cls=標籤色 / bub=泡泡邊色
 function _ntfType(ev) {
   switch (ev) {
@@ -474,12 +484,14 @@ function _ntfRenderFeed(opts) {
   const list = document.getElementById("mSigList");
   if (!list) return;
   let items = _ntfFeed.items;
-  if (_ntfFilter !== "all") items = items.filter(it => _ntfCat(it.event) === _ntfFilter);
+  if (_ntfFilter !== "all") items = items.filter(it => _ntfMatch(it.event, _ntfFilter));
 
   if (!items.length) {
     _ntfRenderSig = _ntfFilter + ":0:0";
     _ntfRenderSummary();
     const why = !window._acctName ? "請先登入帳號"
+              : (_ntfFilter === "entry") ? "尚無自動進場紀錄"
+              : (_ntfFilter === "exit") ? "尚無自動出場紀錄"
               : (_ntfFilter === "auto") ? "尚無自動交易紀錄" : "尚無訊號通知";
     list.innerHTML = `<div class="m-sig-empty">${why}</div>`;
     _ntfHideNewPill();

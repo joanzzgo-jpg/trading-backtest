@@ -84,7 +84,7 @@ function _trdRenderOverview() {
   posEl.innerHTML = !pos.length ? `<div class="trd-empty">無持倉</div>` : pos.map(p => `
     <div class="trd-row">
       <span class="trd-side ${p.side === "long" ? "trd-up" : "trd-dn"}">${p.side === "long" ? "多" : "空"}</span>
-      <span class="trd-sym">${p.symbol}<small>×${p.lev}</small>${p.adds ? `<small class="trd-adds">加倉${p.adds}筆</small>` : ""}</span>
+      <span class="trd-sym"><b class="trd-sym-jump" data-jump="${p.symbol}">${p.symbol}</b><small>×${p.lev}</small>${p.adds ? `<small class="trd-adds">加倉${p.adds}筆</small>` : ""}</span>
       <span class="trd-nums">${_trdFmt(p.qty)} @ ${_trdFmt(p.entry)}</span>
       <span class="trd-pnl ${p.upnl >= 0 ? "trd-up" : "trd-dn"}">${p.upnl >= 0 ? "+" : ""}${_trdFmt(p.upnl, 2)}</span>
       <button class="trd-x" data-bsym="${p.symbol}">平倉</button>
@@ -94,6 +94,14 @@ function _trdRenderOverview() {
     if (!confirm(`確定市價平倉 ${btn.dataset.bsym}？`)) return;
     try { await _trdApi("close", { bsym: btn.dataset.bsym }); _trdMsg("已平倉"); _trdRefresh(); }
     catch (err) { _trdMsg(err.message, true); }
+  }));
+  // 點持倉標的 → 跳到圖表該標的（交易所符號 BTCUSDT → 圖表 BTC/USDT.P）
+  posEl.querySelectorAll(".trd-sym-jump").forEach(el => el.addEventListener("click", e => {
+    e.stopPropagation();
+    const bsym = el.dataset.jump || "";
+    const chartSym = bsym.endsWith("USDT") ? bsym.slice(0, -4) + "/USDT.P"
+                   : bsym.endsWith("USDC") ? bsym.slice(0, -4) + "/USDC.P" : bsym;
+    if (typeof _ntfGoSymbol === "function") _ntfGoSymbol({ symbol: chartSym, market: "crypto" });
   }));
 
   // 掛單（限價 / TP / SL）
@@ -328,6 +336,8 @@ function _trdBuildPopup() {
     #tradePopup .trd-row-sm { font-size:11px; }
     #tradePopup .trd-row .trd-sym { flex:1; color:var(--text,#ddd); } #tradePopup .trd-sym small { color:var(--muted,#889); margin-left:3px; }
     #tradePopup .trd-sym small.trd-adds { color:#e0a020; background:rgba(224,160,32,.14); border-radius:5px; padding:0 4px; margin-left:4px; font-weight:600; }
+    #tradePopup .trd-sym-jump { cursor:pointer; border-bottom:1px dashed rgba(74,144,217,.6); }
+    #tradePopup .trd-sym-jump:hover { color:var(--blue,#4a90d9); }
     #tradePopup .trd-row .trd-nums { color:var(--muted,#99a); font-size:11px; }
     #tradePopup .trd-x { padding:2px 8px; border-radius:7px; border:1px solid var(--border,#445);
       background:transparent; color:#f06a6a; cursor:pointer; font-size:11px; }
