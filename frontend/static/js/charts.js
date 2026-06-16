@@ -117,6 +117,9 @@ function buildCharts() {
   bbU = mainChart.addLineSeries({ color:C.bbU, lineWidth:S.bbWidth??1,  priceLineVisible:false, lastValueVisible:false });
   bbM = mainChart.addLineSeries({ color:C.bbM, lineWidth:S.bbMWidth??1, lineStyle:S.bbMStyle??2, priceLineVisible:false, lastValueVisible:false });
   bbL = mainChart.addLineSeries({ color:C.bbL, lineWidth:S.bbWidth??1,  priceLineVisible:false, lastValueVisible:false });
+  // 自動交易止盈 95% 位線（虛線）：tpHi=多單止盈(下軌→上軌95%,靠上軌)、tpLo=空單止盈(靠下軌,鏡像)
+  tpHi = mainChart.addLineSeries({ color:C.tp95, lineWidth:1, lineStyle:2, priceLineVisible:false, lastValueVisible:false });
+  tpLo = mainChart.addLineSeries({ color:C.tp95, lineWidth:1, lineStyle:2, priceLineVisible:false, lastValueVisible:false });
 
   // 成交量疊在主圖下方（獨立 priceScaleId，不影響 K 棒價格軸）
   volSeries   = mainChart.addHistogramSeries({ priceScaleId:"volume", priceLineVisible:false, lastValueVisible:false });

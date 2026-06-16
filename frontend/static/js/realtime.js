@@ -34,6 +34,12 @@ function _updateBBTail() {
   bar.bb_upper = up; bar.bb_middle = mean; bar.bb_lower = lo;   // 寫回 ohlcvData，後續 renderBB/重算才一致
   const t = toTime(bar.time);
   try { bbU.update({ time: t, value: up }); bbM.update({ time: t, value: mean }); bbL.update({ time: t, value: lo }); } catch (e) {}
+  // 形成中那根同步更新 95% 止盈線（否則新棒的止盈線要等刷新才出現）
+  try {
+    const w = up - lo;
+    tpHi?.update({ time: t, value: lo + TP_BAND_RATIO * w });
+    tpLo?.update({ time: t, value: lo + (1 - TP_BAND_RATIO) * w });
+  } catch (e) {}
 }
 
 async function fetchLatest() {

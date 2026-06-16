@@ -10,6 +10,7 @@ const DEFAULT_COLORS = {
   wickUp:  "#ef5350", wickDown:  "#26a69a",
   volUp:   "#ef5350", volDown:   "#26a69a", volMa: "#ffcc02",
   bbU:     "#42a5f5", bbM:     "#ffcc02", bbL: "#42a5f5",
+  tp95:    "#ab47bc",   // 自動交易止盈 95% 位線（下軌↔上軌 95%；多靠上軌、空靠下軌）
   kdjK:    "#f23645", kdjD:    "#1e88e5", kdjJ: "#ff9800",
   kdjH20:  "#4a4a6a", kdjH50:  "#666688", kdjH80:  "#4a4a6a",
   kdjCrossBull: "#26a69a", kdjCrossBear: "#ef5350",
@@ -56,7 +57,7 @@ const INPUT_SERIES_MAP = {
 };
 
 /* ── 圖表物件 ── */
-let mainChart,   candleSeries, bbU, bbM, bbL;
+let mainChart,   candleSeries, bbU, bbM, bbL, tpHi, tpLo;
 let latestPriceLine = null;
 let volSeries, volMaSeries;          // 成交量放在 mainChart 的獨立價格軸
 let kdjChart,    kdjK, kdjD, kdjJ, kdjH20, kdjH50, kdjH80;
