@@ -64,7 +64,11 @@ _AUTO_DEFAULT = {"on": False, "owner": "", "sigs": [], "tfs": [], "usdt": 50.0,
                  # maxAdds=加倉上限筆數（含首筆）。1=不加倉(同合約只一倉，同向訊號略過)；>1=持倉中同向訊號
                  # 再現就加一筆(到上限)，合併均價、淨倉止損重設到「打到就總虧 N×R」的價位(R=riskUsd)→
                  # 每多加一筆最大虧損只多 1R。只在固定風險模式(riskUsd>0)生效；先掛新止損後取消舊、永不平倉。
-                 "maxAdds": 1}
+                 "maxAdds": 1,
+                 # reverse=反向模式(止損↔止盈互換)：訊號照舊判定，但實際下「反方向」單——
+                 # 止損掛在原止盈軌位、止盈掛在原止損位。反向倉 SL/TP 固定不追蹤(retarget 跳過)、且不加倉。
+                 # ⚠ 回測顯示這在 SS/CRT 上會虧更多(方向毛利為正、反過來等於丟掉正確方向又付兩次手續費)。
+                 "reverse": False}
 
 
 # ── 金鑰加密（Fernet）：Secret 加密後才入庫 ───────────────────
@@ -299,6 +303,16 @@ def _ensure_db():
                 conn.rollback()
             except Exception:
                 pass
+        # rev = 1 表示「反向模式」開的倉(止損↔止盈互換、反方向)。retarget_auto_tp 看到 rev=1 直接跳過
+        # (反向倉 SL/TP 固定不追蹤軌)，避免把 TP 移到錯邊。
+        try:
+            conn.execute("ALTER TABLE trade_log ADD COLUMN rev INTEGER DEFAULT 0")
+            conn.commit()
+        except Exception:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
         # 每帳號自動交易設定（取代舊的單列 trade_auto id=1）：每個帳號一列、各自獨立、互不覆蓋。
         conn.execute("""
             CREATE TABLE IF NOT EXISTS trade_auto_acct (
@@ -382,6 +396,7 @@ def _clean_auto(p: Optional[dict]) -> dict:
             ps[str(sym)] = max(0.0, min(fv, 50.0))
     out["perSym"] = ps
     out["stopAfterLoss"] = bool(p.get("stopAfterLoss"))
+    out["reverse"] = bool(p.get("reverse"))     # 反向模式(止損↔止盈互換、反方向下單)
     try:
         out["maxAdds"] = max(1, min(int(p.get("maxAdds", 1)), 20))   # 加倉上限(含首筆)，1=不加倉；上限 20
     except (TypeError, ValueError):
@@ -473,14 +488,14 @@ def _log_trade(**kw) -> Optional[int]:
         conn, ph = _acct._db()
         try:
             cols = ("ts", "mode", "source", "status", "symbol", "bsym", "side", "qty",
-                    "entry", "sl", "tp", "sig", "dir", "tf", "sigt", "msg", "tp_oid", "sl_oid", "acct")
+                    "entry", "sl", "tp", "sig", "dir", "tf", "sigt", "msg", "tp_oid", "sl_oid", "acct", "rev")
             vals = (time.time(), kw.get("mode") or bt.env_name(), kw.get("source"), kw.get("status"),
                     kw.get("symbol"), kw.get("bsym"), kw.get("side"), kw.get("qty"),
                     kw.get("entry"), kw.get("sl"), kw.get("tp"), kw.get("sig"),
                     kw.get("d"), kw.get("tf"), kw.get("sigt"), kw.get("msg"),
                     str(kw["tp_oid"]) if kw.get("tp_oid") is not None else None,
                     str(kw["sl_oid"]) if kw.get("sl_oid") is not None else None,
-                    kw.get("acct"))
+                    kw.get("acct"), 1 if kw.get("rev") else 0)
             cur = conn.execute(
                 f"INSERT INTO trade_log ({','.join(cols)}) VALUES ({','.join([ph]*len(cols))})",
                 vals)
@@ -684,6 +699,28 @@ def _exec_signal_for_account(name, cfg, market, exchange, symbol, tf, k, d, sig,
         max_adds = int(cfg.get("maxAdds", 1) or 1)
         is_add = False; add_row_id = None; cur_adds = 1
         add_old_sl = None; add_old_sl_oid = None     # 既有自動倉的止損(圖表價)與其交易所單 id → 加倉時用來收緊重掛
+
+        # ── 反向模式(止損↔止盈互換、反方向下單)─────────────────────────
+        # 訊號照舊判定(含方向過濾/敗後停手用『訊號方向』)，但實際下「反方向」單:
+        #   新止損 = 原止盈軌位(中軌→上下軌 ratio 位)、新止盈 = 原止損價。方向反轉。
+        # 反向倉 SL/TP 固定不追蹤(rev=1 → retarget 跳過)、且不加倉(max_adds=1)。
+        _reverse = bool(cfg.get("reverse")); _rev_tp = None
+        if _reverse:
+            risk0 = abs(float(entry) - float(stop))
+            if rr_b is not None and rr is not None:
+                tp_rr0 = rr + (2.0 * _AUTO_TP_BAND_RATIO - 1.0) * (rr_b - rr)
+            else:
+                tp_rr0 = rr_b if rr_b else rr
+            if not tp_rr0 or risk0 <= 0:
+                _skip("反向模式:缺 rr/rr_b 無法算原止盈軌位,跳過")
+                return
+            orig_target = float(entry) - tp_rr0 * risk0 if d == "s" else float(entry) + tp_rr0 * risk0
+            _rev_tp = float(stop)                  # 原止損 → 新止盈
+            stop = orig_target                     # 原止盈軌位 → 新止損(基準)
+            d = "l" if d == "s" else "s"           # 方向反轉
+            want = "long" if d == "l" else "short"
+            max_adds = 1                           # 反向倉不加倉
+
         if existing:
             # 已有同合約持倉：加倉開啟(maxAdds>1) + 同向 + 未達上限 → 加倉；否則略過。
             try:
@@ -802,14 +839,18 @@ def _exec_signal_for_account(name, cfg, market, exchange, symbol, tf, k, d, sig,
         # 換算 RR：tp_rr = rr + (2r−1)(rr_b − rr)（rr＝中軌預估RR、rr_b＝外軌預估RR）。缺 rr_b/rr →
         # 退回外軌/中軌。之後 retarget_auto_tp 每根 K 跟著同一比例位移動。
         tp_px = None; tgt = None     # tgt=止盈圖表價(顯示/紀錄用)；tp_px=合約價(掛單用，=tgt×scale)
-        if rr_b is not None and rr is not None:
-            tp_rr = rr + (2.0 * _AUTO_TP_BAND_RATIO - 1.0) * (rr_b - rr)
-        else:
-            tp_rr = rr_b if rr_b else rr
-        if tp_rr:
-            risk = abs(float(entry) - orig_stop)
-            tgt = float(entry) - tp_rr * risk if d == "s" else float(entry) + tp_rr * risk
+        if _reverse:
+            tgt = _rev_tp                          # 反向:止盈=原止損價(固定,不追蹤軌)
             tp_px = client.quantize_price(bsym, tgt * scale)
+        else:
+            if rr_b is not None and rr is not None:
+                tp_rr = rr + (2.0 * _AUTO_TP_BAND_RATIO - 1.0) * (rr_b - rr)
+            else:
+                tp_rr = rr_b if rr_b else rr
+            if tp_rr:
+                risk = abs(float(entry) - orig_stop)
+                tgt = float(entry) - tp_rr * risk if d == "s" else float(entry) + tp_rr * risk
+                tp_px = client.quantize_price(bsym, tgt * scale)
         close_side = "SELL" if want == "long" else "BUY"
 
         # ── 加倉：市價已合併進淨倉。止損『固定在首筆、不隨加倉移動』──
@@ -908,16 +949,17 @@ def _exec_signal_for_account(name, cfg, market, exchange, symbol, tf, k, d, sig,
         _log_trade(source="auto", acct=name, mode=client.env, status="open", symbol=symbol, bsym=bsym, side=want,
                    qty=qty, entry=str(entry), sl=str(round(stop_chart, 8)),
                    tp=(str(round(tgt, 8)) if (tp_px and tgt is not None) else None), tp_oid=tp_oid, sl_oid=sl_oid,
-                   sig=k, d=d, tf=tf, sigt=str(sig.get("t")), msg="；".join(warn) or None)
+                   sig=k, d=d, tf=tf, sigt=str(sig.get("t")), msg="；".join(warn) or None, rev=_reverse)
         # 通知擁有者：自動進場（方向用 📈做多 / 📉做空 一眼看出）
         envtag = "實盤" if client.env == "live" else "測試網"
+        rev_tag = "🔄反向 " if _reverse else ""
         dir_emoji = "📉" if want == "short" else "📈"
         dir_txt = f"{dir_emoji} {'做空' if want == 'short' else '做多'}"
-        l1 = f"{dir_txt} · {lev}x · 數量 {qty} · {envtag}"
+        l1 = f"{rev_tag}{dir_txt} · {lev}x · 數量 {qty} · {envtag}"
         l2 = f"進場 {_fmt_px(entry)}" + (f" → 止盈 {_fmt_px(tgt)}" if (tp_px and tgt is not None) else "")
-        l3 = f"停損 {_fmt_px(stop_chart)}"
+        l3 = f"停損 {_fmt_px(stop_chart)}" + ("（反向：止損=原止盈軌、止盈=原止損）" if _reverse else "")
         body = "\n".join([l1, l2, l3]) + (f"\n⚠ {_size_warn}" if _size_warn else "")
-        _push_owner(owner, f"{dir_emoji} 自動進場{'做空' if want == 'short' else '做多'} · {symbol}（{envtag}）",
+        _push_owner(owner, f"{rev_tag}{dir_emoji} 自動進場{'做空' if want == 'short' else '做多'} · {symbol}（{envtag}）",
                     body, symbol, tf=tf, event="atrade_open", sig=k, d=d, sigt=str(sig.get("t")))
         print(f"  🤖 自動下單 {client.env}: {bsym} {side} {qty}（{symbol} {tf} "
               f"{k}/{d}）" + (f" ⚠{warn}" if warn else ""))
@@ -1084,7 +1126,7 @@ def retarget_auto_tp(market, exchange, symbol, tf, upper_chart, lower_chart):
                 conn, ph = _acct._db()
                 try:
                     rows = conn.execute(
-                        f"SELECT id, bsym, dir, tp, tp_oid, sig, sigt FROM trade_log WHERE source='auto' "
+                        f"SELECT id, bsym, dir, tp, tp_oid, sig, sigt, COALESCE(rev,0) FROM trade_log WHERE source='auto' "
                         f"AND status='open' AND acct={ph} AND symbol={ph} AND tf={ph}", (name, symbol, tf)).fetchall()
                 finally:
                     conn.close()
@@ -1107,7 +1149,9 @@ def retarget_auto_tp(market, exchange, symbol, tf, upper_chart, lower_chart):
                    or upper_chart != upper_chart or lower_chart != lower_chart:
                     continue
                 _bwidth = upper_chart - lower_chart
-                for row_id, bsym, d, old_tp, tp_oid, rsig, rsigt in rows:
+                for row_id, bsym, d, old_tp, tp_oid, rsig, rsigt, _rev in rows:
+                    if _rev:
+                        continue                        # 反向倉：SL/TP 固定不追蹤軌，retarget 不碰
                     try:
                         want = "short" if d == "s" else "long"
                         # 98% 位：多＝下軌+ratio×寬、空＝下軌+(1−ratio)×寬（鏡像，靠下軌）

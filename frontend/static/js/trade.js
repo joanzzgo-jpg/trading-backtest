@@ -160,6 +160,8 @@ function _trdRenderOverview() {
   }
   const sal = $("#trdAutoSal");
   if (sal) { sal.classList.toggle("sel", !!a.stopAfterLoss); sal.textContent = a.stopAfterLoss ? "開" : "關"; }
+  const rev = $("#trdAutoRev");
+  if (rev) { rev.classList.toggle("sel", !!a.reverse); rev.textContent = a.reverse ? "開" : "關"; }
   _trdRenderPerSym();
 }
 
@@ -227,6 +229,7 @@ function _trdSaveAuto() {
   a.dirs = pop.querySelector("#trdAutoDirs").value;
   a.slPct = Math.max(0, +pop.querySelector("#trdAutoSl").value || 0);
   a.stopAfterLoss = pop.querySelector("#trdAutoSal").classList.contains("sel");
+  a.reverse = !!pop.querySelector("#trdAutoRev")?.classList.contains("sel");
   a.owner = window._acctName || "";   // 綁定擁有者帳號 → 只自動交易此帳號的自選（防別人自選下你的單）
   clearTimeout(_trdAutoSaveTimer);
   _trdAutoSaveTimer = setTimeout(async () => {
@@ -516,6 +519,7 @@ function _trdBuildPopup() {
         <div><label>加倉上限<small>1＝不加倉；同向持倉中再現加一筆</small></label><input id="trdAutoAdds" type="number" min="1" max="20" placeholder="1"></div>
         <div><label>止損緩衝 %<small>策略停損外推；0＝用策略</small></label><input id="trdAutoSl" type="number" min="0" max="50" step="0.1" placeholder="0"></div>
         <div class="trd-sal-cell"><label>敗後停手<small>當日虧損後暫停</small></label><button id="trdAutoSal" class="trd-chip trd-sal-btn">關</button></div>
+        <div class="trd-sal-cell"><label>反向模式<small>⚠止損↔止盈互換、反方向；回測顯示會虧更多，僅供測試</small></label><button id="trdAutoRev" class="trd-chip trd-sal-btn">關</button></div>
       </div>
       <div class="trd-sub trd-grp-hd">各標的×時框 止損緩衝 %<small>留空＝用上方預設；選時框才分時框</small></div>
       <div class="trd-persym" id="trdPerSym"></div>
@@ -635,6 +639,14 @@ function _trdBuildPopup() {
   pop.querySelector("#trdAutoSal").addEventListener("click", e => {
     e.stopPropagation();
     const b = e.currentTarget;
+    b.classList.toggle("sel"); b.textContent = b.classList.contains("sel") ? "開" : "關";
+    _trdSaveAuto();
+  });
+  pop.querySelector("#trdAutoRev")?.addEventListener("click", e => {
+    e.stopPropagation();
+    const b = e.currentTarget;
+    if (!b.classList.contains("sel") &&
+        !confirm("⚠ 開啟『反向模式』？\n止損↔止盈互換、實際下反方向單。回測顯示這會『虧更多』(方向毛利為正、反過來等於丟掉正確方向又付兩次手續費)。\n僅建議在測試網、用最小金額試。確定開啟？")) return;
     b.classList.toggle("sel"); b.textContent = b.classList.contains("sel") ? "開" : "關";
     _trdSaveAuto();
   });
