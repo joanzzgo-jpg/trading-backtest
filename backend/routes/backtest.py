@@ -151,12 +151,13 @@ def _simulate(picked, rkey, rrkey, est_key, otkey, init_cap, risk_pct, tp_mode, 
         # 部位/槓桿：use_frac = 部位佔資金 = 風險% ÷ 風險距%。lev>0 時超過上限的部分吃不下 → 該筆等比縮小。
         use_frac = None; eff_frac = None
         entry_px = s.get("entry"); stop_px = s.get("stop")
+        units = s.get("units") or 1   # 加倉群＝N 筆 → 真實部位是單位部位的 N 倍（單筆交易為 1）
         if entry_px and stop_px and entry_px > 0:
             risk_frac = abs(entry_px - stop_px) / entry_px
             if risk_frac > 1e-9:
-                # 部位＝風險% ÷（停損距% ＋ 來回手續費）→ 手續費算進倉位(同自動交易「止損算槓桿」)，
-                # 不含費時退回純停損距。lev>0 時超過上限的部分吃不下 → 該筆等比縮小。
-                use_frac = risk_pct / (risk_frac + 2.0 * fee_pct)
+                # 部位＝N × 風險% ÷（停損距% ＋ 來回手續費）→ 手續費算進倉位(同自動交易「止損算槓桿」)，
+                # 並按加倉筆數 N 反映真實部位 → 槓桿上限才壓得住加倉群(否則 maxAdds 差 1、報酬暴衝 200%)。
+                use_frac = units * risk_pct / (risk_frac + 2.0 * fee_pct)
                 eff_frac = min(use_frac, lev) if lev > 0 else use_frac
         scale = (eff_frac / use_frac) if (use_frac and eff_frac is not None and use_frac > 0) else 1.0
         if scale < 0.999:
@@ -349,6 +350,7 @@ def _build_pyramid_clusters(bars: dict, picked: list, max_adds: int, target: str
             "entry": round(avg, 8), "stop": round(shop, 8),
             "r": "w" if group_r > 0 else "l",
             "rr_real": group_r,
+            "units": N,            # 加倉筆數 → _simulate 用來把「部位/槓桿/手續費」按真實 N 倍部位算
         })
         return group_r <= 0
 
