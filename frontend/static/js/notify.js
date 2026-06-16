@@ -332,10 +332,12 @@ async function initNotify() {
     if (list) list.scrollTop = list.scrollHeight;
     _ntfHideNewPill();
   });
-  // 捲到底時自動收起「新訊息」提示
+  // 捲到底時自動收起「新訊息」提示；捲到接近頂端 → 載入更早一批（分頁）
   document.getElementById("mSigList")?.addEventListener("scroll", () => {
     const list = document.getElementById("mSigList");
-    if (list && list.scrollHeight - list.scrollTop - list.clientHeight < 60) _ntfHideNewPill();
+    if (!list) return;
+    if (list.scrollHeight - list.scrollTop - list.clientHeight < 60) _ntfHideNewPill();
+    if (list.scrollTop < 80) _ntfLoadOlder();
   });
 
   // 背景輪詢（每 60s）：更新未讀紅點；在訊號分頁時也即時刷新清單
@@ -361,6 +363,27 @@ async function _ntfFetchFeed() {
     const j = await _ntfApi("GET", "feed?name=" + encodeURIComponent(window._acctName) + "&limit=80");
     return j.items || [];
   } catch (e) { return []; }
+}
+
+// 往上滑載入更早一批（用最舊一筆的 id 當游標）→ 自動交易量大也找得到整天紀錄。
+let _ntfLoadingOlder = false, _ntfNoMoreOlder = false;
+async function _ntfLoadOlder() {
+  if (_ntfLoadingOlder || _ntfNoMoreOlder || !window._acctName) return;
+  const items = _ntfFeed.items;
+  const oldestId = items.length ? items[0].id : 0;
+  if (!oldestId) return;
+  _ntfLoadingOlder = true;
+  try {
+    const j = await _ntfApi("GET", "feed?name=" + encodeURIComponent(window._acctName) +
+                            "&limit=80&before_id=" + oldestId);
+    const older = j.items || [];
+    if (older.length < 1) { _ntfNoMoreOlder = true; return; }
+    if (older.length < 80) _ntfNoMoreOlder = true;   // 不足一頁 → 到底了
+    const list = document.getElementById("mSigList");
+    const dfb = list ? (list.scrollHeight - list.scrollTop) : 0;   // 距底距離 → 載入後維持視覺位置
+    _ntfFeed.items = older.concat(items);            // older 在前（由舊到新）
+    _ntfRenderFeed({ force: true, prependDFB: dfb });
+  } catch (e) {} finally { _ntfLoadingOlder = false; }
 }
 
 function _ntfFmtTime(ts) {
@@ -560,8 +583,10 @@ function _ntfRenderFeed(opts) {
     }
   }));
 
-  // 捲動策略：原本在底部(或強制) → 跟到最新；否則保持原位、有新訊息時給「↓ 新訊息」提示（不打斷閱讀）
-  if (atBottom || opts.toBottom) { list.scrollTop = list.scrollHeight; _ntfHideNewPill(); }
+  // 捲動策略：往上載入更早(prepend) → 維持「距底距離」不變(視覺不跳)；原本在底部(或強制) → 跟到最新；
+  // 否則保持原位、有新訊息時給「↓ 新訊息」提示（不打斷閱讀）
+  if (opts.prependDFB != null) { list.scrollTop = Math.max(0, list.scrollHeight - opts.prependDFB); }
+  else if (atBottom || opts.toBottom) { list.scrollTop = list.scrollHeight; _ntfHideNewPill(); }
   else { list.scrollTop = prevTop; if (grew) _ntfShowNewPill(); }
 }
 
@@ -577,8 +602,18 @@ function _ntfUpdateBadge() {
   else { badge.style.display = "none"; }
 }
 
+// 合併最新一批進現有清單（依 id 去重、由舊到新）→ 輪詢不會洗掉「往前載入的更早筆」。
+function _ntfMergeFeed(latest) {
+  const cur = _ntfFeed.items;
+  if (!cur.length) return latest || [];
+  const have = new Set(cur.map(x => x.id));
+  const add = (latest || []).filter(x => x.id && !have.has(x.id));
+  if (!add.length) return cur;
+  return cur.concat(add).sort((a, b) => (a.id || 0) - (b.id || 0));
+}
+
 async function _ntfBgPoll() {
-  _ntfFeed.items = await _ntfFetchFeed();
+  _ntfFeed.items = _ntfMergeFeed(await _ntfFetchFeed());
   if (document.body.classList.contains("m-tab-signals")) {
     _ntfRenderFeed();
     if (_ntfFeed.items.length) _ntfSetSeen(_ntfFeed.items[_ntfFeed.items.length - 1].ts);
@@ -588,14 +623,15 @@ async function _ntfBgPoll() {
 
 // 切到訊號分頁時呼叫（main.js）：載入清單 + 標記已讀 + 開快輪詢
 window._ntfLoadFeed = async function () {
-  _ntfFeed.items = await _ntfFetchFeed();
+  _ntfNoMoreOlder = false;                           // 重新進頁 → 重置「已到底」，可再往前載入
+  _ntfFeed.items = await _ntfFetchFeed();            // 初次進頁：重置成最新一批
   _ntfRefreshToday();                                // 今日摘要：抓自當地午夜起的全部（不被 80 筆截斷）
   _ntfRenderFeed({ force: true, toBottom: true });   // 進分頁：重畫並捲到最新
   if (_ntfFeed.items.length) _ntfSetSeen(_ntfFeed.items[_ntfFeed.items.length - 1].ts);
   _ntfUpdateBadge();
   clearInterval(_ntfFeed.pollTimer);
   _ntfFeed.pollTimer = setInterval(async () => {
-    _ntfFeed.items = await _ntfFetchFeed();
+    _ntfFeed.items = _ntfMergeFeed(await _ntfFetchFeed());   // 輪詢：合併新訊息、保留往前載入的更早筆
     _ntfRefreshToday();
     _ntfRenderFeed();
     if (_ntfFeed.items.length) _ntfSetSeen(_ntfFeed.items[_ntfFeed.items.length - 1].ts);

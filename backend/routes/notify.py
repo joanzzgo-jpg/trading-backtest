@@ -416,14 +416,16 @@ def status():
 
 
 @router.get("/feed")
-def feed(name: str, limit: int = 80, since: float = 0):
+def feed(name: str, limit: int = 80, since: float = 0, before_id: int = 0):
     """某帳號的訊號歷史（聊天室通知中心）。回傳由舊到新（最新在最後）。
-    since>0：只回 ts ≥ since 的（給「今日摘要」抓自當地午夜起的全部、不被 limit 截斷漏算）。"""
+    since>0：只回 ts ≥ since 的（給「今日摘要」抓自當地午夜起的全部、不被 limit 截斷漏算）。
+    before_id>0：往前翻頁——只回 id < before_id 的更早一批（聊天室往上滑載入更早，自動交易量大也找得到）。"""
     _require_enabled()
     nm = _acct._norm_name(name)
     if not nm:
         return {"items": []}
     limit = max(1, min(int(limit or 80), 200))
+    before_id = max(0, int(before_id or 0))
     conn, ph = _acct._db()
     stats = None
     try:
@@ -445,18 +447,22 @@ def feed(name: str, limit: int = 80, since: float = 0):
                      "loss_n": cnt.get("atrade_sl", 0), "pnl": round(pnl, 2), "has_pnl": has_pnl}
             # 仍回少量近期筆數供前端後備(統計以 stats 為準)
             cur = conn.execute(
-                f"SELECT ts,event,title,body,symbol,market,exchange,tf,sig,dir,sigt FROM notify_log "
+                f"SELECT id,ts,event,title,body,symbol,market,exchange,tf,sig,dir,sigt FROM notify_log "
                 f"WHERE name={ph} AND ts >= {ph} ORDER BY id DESC LIMIT 300", (nm, _sn))
+        elif before_id > 0:
+            cur = conn.execute(
+                f"SELECT id,ts,event,title,body,symbol,market,exchange,tf,sig,dir,sigt FROM notify_log "
+                f"WHERE name={ph} AND id < {ph} ORDER BY id DESC LIMIT {limit}", (nm, before_id))
         else:
             cur = conn.execute(
-                f"SELECT ts,event,title,body,symbol,market,exchange,tf,sig,dir,sigt FROM notify_log "
+                f"SELECT id,ts,event,title,body,symbol,market,exchange,tf,sig,dir,sigt FROM notify_log "
                 f"WHERE name={ph} ORDER BY id DESC LIMIT {limit}", (nm,))
         rows = cur.fetchall()
     finally:
         conn.close()
-    items = [{"ts": r[0], "event": r[1], "title": r[2], "body": r[3],
-              "symbol": r[4], "market": r[5], "exchange": r[6], "tf": r[7],
-              "sig": r[8], "dir": r[9], "t": r[10]}
+    items = [{"id": r[0], "ts": r[1], "event": r[2], "title": r[3], "body": r[4],
+              "symbol": r[5], "market": r[6], "exchange": r[7], "tf": r[8],
+              "sig": r[9], "dir": r[10], "t": r[11]}
              for r in rows]
     items.reverse()   # 由舊到新（聊天室最新在最下方）
     return {"items": items, "stats": stats}
