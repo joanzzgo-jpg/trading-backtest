@@ -138,14 +138,14 @@
             <div class="bt-row"><label>止盈基準</label>
               <div class="bt-seg" id="btTp"><button data-v="real" class="on">已實現</button><button data-v="est">預計止盈</button></div></div>
             <div class="bt-row"><label>止損緩衝%</label><input id="btBuf" type="number" value="0" min="0" max="10" step="0.1"></div>
-            <div class="bt-row"><label>每筆風險%</label><input id="btRisk" type="number" value="2" min="0.1" max="100" step="0.5"></div>
+            <div class="bt-row"><label>每筆風險 USDT<small>(止損算槓桿,同自動交易)</small></label><input id="btRisk" type="number" value="2000" min="1" step="100"></div>
             <div class="bt-row"><label>手續費%/邊<small>(實盤真實化)</small></label><input id="btFee" type="number" value="0.05" min="0" step="0.01" title="單邊手續費%，進出各收一次。永續taker約0.05%、maker約0.02%。0=不計"></div>
             <div class="bt-row"><label>槓桿上限x<small>(0=不限)</small></label><input id="btLev" type="number" value="10" min="0" step="1" title="部位最多幾倍本金；超過的吃不下→該筆等比縮小，貼近實盤。0=不限(會出現50倍假象)"></div>
             <div class="bt-row"><label>進場規則</label>
               <div class="bt-seg" id="btRule"><button data-v="all" class="on">全部訊號</button><button data-v="single">一次一筆</button><button data-v="stop">敗後停手</button><button data-v="pyramid">加倉</button></div></div>
             <div class="bt-row" id="btMaxAddsRow" style="display:none"><label>加倉上限</label><input id="btMaxAdds" type="number" value="5" min="1" max="20" step="1"></div>
             <div class="bt-hint" id="btPyrHint" style="display:none">加倉：同向訊號持倉中再現就加一筆（到上限），合併均價、單一停損＝最新筆；止盈走你選的<b>目標位</b>（中軌／上下軌／8成／98%軌，可搭已實現或預計止盈）；淨虧才停手。</div>
-            <div class="bt-hint">用 CRT 訊號的勝負序列 × 每筆預估盈虧比模擬資金曲線（重用勝率引擎，深歷史）。定額風險、單利：每筆固定冒險「本金 × 每筆風險%」。</div>
+            <div class="bt-hint">用 CRT 訊號的勝負序列 × 每筆預估盈虧比模擬資金曲線（重用勝率引擎，深歷史）。定額風險、單利：每筆固定冒險「每筆風險 USDT」(數量由停損距離反推＝止損算槓桿，含手續費，與自動交易一致)。</div>
           </div>
           <button class="bt-run" id="btRun">執行回測</button>
           <div class="bt-optrow">
@@ -244,7 +244,7 @@
         direction: _segVal("btDir"),
         target: _segVal("btTgt"),
         stop_buffer_pct: (parseFloat(document.getElementById("btBuf").value) || 0) / 100,
-        risk_pct: (parseFloat(document.getElementById("btRisk").value) || 2) / 100,
+        risk_pct: Math.max(0.0001, ((parseFloat(document.getElementById("btRisk").value) || 2000) / (parseFloat(document.getElementById("btCap").value) || 100000))),
         tp_mode: _segVal("btTp") || "real",
         initial_capital: parseFloat(document.getElementById("btCap").value) || 100000,
         lookback_days: parseInt(document.getElementById("btLookback").value, 10) || 0,
@@ -285,7 +285,7 @@
       const body = {
         ...c,
         stop_buffer_pct: (parseFloat(document.getElementById("btBuf").value) || 0) / 100,
-        risk_pct: (parseFloat(document.getElementById("btRisk").value) || 2) / 100,
+        risk_pct: Math.max(0.0001, ((parseFloat(document.getElementById("btRisk").value) || 2000) / (parseFloat(document.getElementById("btCap").value) || 100000))),
         initial_capital: parseFloat(document.getElementById("btCap").value) || 100000,
         lookback_days: parseInt(document.getElementById("btLookback").value, 10) || 0,
         fee_pct: (parseFloat(document.getElementById("btFee")?.value) || 0) / 100,

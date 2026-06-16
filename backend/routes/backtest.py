@@ -154,7 +154,9 @@ def _simulate(picked, rkey, rrkey, est_key, otkey, init_cap, risk_pct, tp_mode, 
         if entry_px and stop_px and entry_px > 0:
             risk_frac = abs(entry_px - stop_px) / entry_px
             if risk_frac > 1e-9:
-                use_frac = risk_pct / risk_frac
+                # 部位＝風險% ÷（停損距% ＋ 來回手續費）→ 手續費算進倉位(同自動交易「止損算槓桿」)，
+                # 不含費時退回純停損距。lev>0 時超過上限的部分吃不下 → 該筆等比縮小。
+                use_frac = risk_pct / (risk_frac + 2.0 * fee_pct)
                 eff_frac = min(use_frac, lev) if lev > 0 else use_frac
         scale = (eff_frac / use_frac) if (use_frac and eff_frac is not None and use_frac > 0) else 1.0
         if scale < 0.999:
