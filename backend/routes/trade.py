@@ -46,6 +46,10 @@ def _allowed(name: str) -> bool:
 
 _ALL_SIGS = {"abc", "ab", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "ss1", "ss2"}
 _ALL_TFS = {"5m", "15m", "30m", "1h", "2h", "4h", "8h", "1d", "1w", "1M"}
+# 自動交易止盈目標＝「下軌→上軌」的此比例位（多單靠上軌、空單鏡像靠下軌），取代滿格外軌(=1.0)。
+# 0.95＝離上軌 5% 處先止盈 → 不等價格剛好碰到外軌(常常差一點點沒成交又反轉吐回)。進場初始 TP 與
+# retarget 跟軌共用此比例。改這一個值即可調整。
+_AUTO_TP_BAND_RATIO = 0.95
 _AUTO_DEFAULT = {"on": False, "owner": "", "sigs": [], "tfs": [], "usdt": 50.0,
                  "lev": 3, "maxPos": 3, "dirs": "both",
                  # riskUsd=每筆風險金額（打到停損約虧這麼多 USDT，含來回手續費）；>0 時改用「固定風險倉位」
@@ -789,10 +793,15 @@ def _exec_signal_for_account(name, cfg, market, exchange, symbol, tf, k, d, sig,
 
         side = "BUY" if want == "long" else "SELL"
         o = client.place_order(bsym, side, qty, "MARKET")   # 市價：開倉 or 加倉(同向加進淨倉)
-        # 止盈到「上下軌」（空→下軌、多→上軌；用原始策略風險＝進場到策略停損算 → 不受停損緩衝影響）。
-        # rr_b＝上下軌預估盈虧比；缺(軌為 NaN)→ 退回中軌 rr。之後 retarget_auto_tp 每根 K 跟著軌移動。
+        # 止盈到「下軌→上軌的 _AUTO_TP_BAND_RATIO 位」（空→鏡像靠下軌、多→靠上軌；用原始策略風險算→
+        # 不受停損緩衝影響）。因標準布林上下軌對稱於中軌 → 該比例位 = 中軌 + (2r−1)(外軌−中軌)，
+        # 換算 RR：tp_rr = rr + (2r−1)(rr_b − rr)（rr＝中軌預估RR、rr_b＝外軌預估RR）。缺 rr_b/rr →
+        # 退回外軌/中軌。之後 retarget_auto_tp 每根 K 跟著同一比例位移動。
         tp_px = None; tgt = None     # tgt=止盈圖表價(顯示/紀錄用)；tp_px=合約價(掛單用，=tgt×scale)
-        tp_rr = rr_b if rr_b else rr
+        if rr_b is not None and rr is not None:
+            tp_rr = rr + (2.0 * _AUTO_TP_BAND_RATIO - 1.0) * (rr_b - rr)
+        else:
+            tp_rr = rr_b if rr_b else rr
         if tp_rr:
             risk = abs(float(entry) - orig_stop)
             tgt = float(entry) - tp_rr * risk if d == "s" else float(entry) + tp_rr * risk
@@ -1113,12 +1122,18 @@ def retarget_auto_tp(market, exchange, symbol, tf, upper_chart, lower_chart):
                 except bt.TradeError:
                     _pos_map = {}
                 fee = 0.0005                                # 與開倉/加倉計算一致（吃單 0.05%/邊）
+                # 止盈目標＝「下軌→上軌的 _AUTO_TP_BAND_RATIO 位」（多單靠上軌、空單鏡像靠下軌），
+                # 取代滿格外軌。需上下軌齊備，缺一即無法算此比例位 → 該輪不動 TP。
+                if upper_chart is None or lower_chart is None \
+                   or upper_chart != upper_chart or lower_chart != lower_chart:
+                    continue
+                _bwidth = upper_chart - lower_chart
                 for row_id, bsym, d, old_tp, tp_oid, rsig, rsigt in rows:
                     try:
                         want = "short" if d == "s" else "long"
-                        band = lower_chart if want == "short" else upper_chart   # 空→下軌、多→上軌
-                        if band is None or band != band:    # NaN/缺 → 跳過此倉（不動其 TP）
-                            continue
+                        # 95% 位：多＝下軌+ratio×寬、空＝下軌+(1−ratio)×寬（鏡像，靠下軌）
+                        band = (lower_chart + _AUTO_TP_BAND_RATIO * _bwidth) if want == "long" \
+                               else (lower_chart + (1.0 - _AUTO_TP_BAND_RATIO) * _bwidth)
                         # ── 夾住保本價：上下軌會隨行情漂到「進場價的虧損側」（多單軌跌破進場、空單軌漲過
                         #    進場）→ 若直接把止盈掛在軌上，TAKE_PROFIT 觸發＝賠錢出場，會「沒到止損就賠錢出」。
                         #    這裡把止盈目標夾在含手續費的保本價：多單 TP≥E(1+fee)/(1−fee)、空單 TP≤E(1−fee)/(1+fee)。
@@ -1133,7 +1148,7 @@ def retarget_auto_tp(market, exchange, symbol, tf, upper_chart, lower_chart):
                         # 目標軌已碰到/越過現價＝達成側 → 立刻市價平倉（碰到就馬上止盈，避免掛不了 TP 又裸著）。
                         if (want == "long" and new_tp_f <= px) or (want == "short" and new_tp_f >= px):
                             _close_auto_position(name, client, row_id, bsym, symbol, tf,
-                                                 "tp", "策略止盈平倉(上下軌觸及，即時平倉)", sig=rsig, d=d, sigt=rsigt)
+                                                 "tp", "策略止盈平倉(止盈位觸及，即時平倉)", sig=rsig, d=d, sigt=rsigt)
                             continue
                         if old_tp is not None and str(new_tp_px) == str(old_tp):
                             continue                    # 軌沒移動（同 tick）→ 不動，免徒增掛單
