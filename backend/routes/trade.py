@@ -689,18 +689,20 @@ def _exec_signal_for_account(name, cfg, market, exchange, symbol, tf, k, d, sig,
             try:
                 _c, _ph = _acct._db()
                 try:
+                    # ⚠ 只認「同時框」的自動倉：交易所同合約只有一個淨倉，若不比時框，15m 訊號會看到
+                    #   5m 開的倉、誤當成 5m 的加倉（5m/15m 攪在一起）。改成只找同 tf 的自動倉。
                     _r = _c.execute(
                         f"SELECT id, adds, sl, sl_oid, sig, dir, sigt FROM trade_log WHERE source='auto' AND status='open' "
-                        f"AND acct={_ph} AND bsym={_ph} ORDER BY id DESC LIMIT 1", (name, bsym)).fetchone()
+                        f"AND acct={_ph} AND bsym={_ph} AND tf={_ph} ORDER BY id DESC LIMIT 1", (name, bsym, tf)).fetchone()
                 finally:
                     _c.close()
             except Exception:
                 _r = None
             cur_adds = (_r[1] if (_r and _r[1]) else 1)
             _why = None
-            if max_adds <= 1:                  _why = "已有同合約持倉，略過"
-            elif existing.get("side") != want: _why = "已有反向持倉，略過（單向不能反手）"
-            elif not _r:                       _why = "已有持倉但查無對應自動倉，略過（不加倉）"
+            if existing.get("side") != want:   _why = "已有反向持倉，略過（單向不能反手）"
+            elif not _r:                       _why = "此合約已被其他時框/手動持倉佔用（同合約只能一個淨倉），略過"
+            elif max_adds <= 1:                _why = "已有同合約持倉，略過"
             elif cur_adds >= max_adds:         _why = f"加倉已達上限 {max_adds} 筆，略過"
             if _why:
                 _log_trade(source="auto", acct=name, mode=client.env, status="skipped", symbol=symbol, bsym=bsym,
@@ -1082,7 +1084,13 @@ def reconcile_auto_position(market, exchange, symbol, tf):
                             elif tp_open and not sl_open:
                                 ev = "sl"              # 止盈單還掛著 → 已觸發的是止損
                     if ev is None:
-                        ev = "tp" if pnl >= 0 else "sl"
+                        # 退回判定：固定風險模式下「真止損」≈ 虧掉 riskUsd（有感金額）。若 |pnl| 遠小於它
+                        # （<40%），代表是「平盤/止盈附近」出場，不是真止損 → 標止盈，避免賠 0.01 被誤標成止損。
+                        _rk = cfg.get("riskUsd") or 0
+                        if _rk > 0 and abs(pnl) < _rk * 0.4:
+                            ev = "tp"
+                        else:
+                            ev = "tp" if pnl >= 0 else "sl"
                     try:
                         client.cancel_all_algo(bsym)   # 清殘留的另一張觸發單，避免孤兒
                     except bt.TradeError:
@@ -1151,7 +1159,17 @@ def retarget_auto_tp(market, exchange, symbol, tf, upper_chart, lower_chart):
                             tp_c = max(tp_c, be) if want == "long" else min(tp_c, be)
                         new_tp_px = client.quantize_price(bsym0, tp_c)
                         new_tp_f = float(new_tp_px)
-                        # 目標軌已碰到/越過現價＝達成側 → 立刻市價平倉（碰到就馬上止盈，避免掛不了 TP 又裸著）。
+                        # ── 只進不退(ratchet)：止盈只往獲利方向移（多單往上、空單往下），不往進場價拉回。
+                        #    避免軌暫時下飄把止盈一路拉到保本價 → 小回檔就平盤出場(曾發生 BTC 賠 0.01「止損」)。
+                        #    要嘛漲/跌到目標獲利出、要嘛打到真止損出，不再被拉回平盤。
+                        if old_tp is not None:
+                            try:
+                                _otp = float(old_tp)
+                                new_tp_f = max(new_tp_f, _otp) if want == "long" else min(new_tp_f, _otp)
+                                new_tp_px = client.quantize_price(bsym0, new_tp_f)
+                            except (TypeError, ValueError):
+                                pass
+                        # 目標已碰到/越過現價＝達成側 → 立刻市價平倉（碰到就馬上止盈，避免掛不了 TP 又裸著）。
                         if (want == "long" and new_tp_f <= px) or (want == "short" and new_tp_f >= px):
                             _close_auto_position(name, client, row_id, bsym, symbol, tf,
                                                  "tp", "策略止盈平倉(止盈位觸及，即時平倉)", sig=rsig, d=d, sigt=rsigt)
