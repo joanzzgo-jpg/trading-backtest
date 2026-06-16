@@ -5745,12 +5745,25 @@ body, button, input, select, textarea,
 .m-tabbar { display: none; }
 
 @media (max-width: 1180px), (hover: none) and (pointer: coarse) {
-  /* 手機「回測」分頁：回測 modal 提到設定/訊號浮層(650)之上、分頁列(700)之下 → 從任何頁開都不被蓋、
-     且底部分頁列仍可點。底部留白避免 modal 被 46px 分頁列遮住。!important 壓過 backtest.js 注入的 z-60。 */
+  /* 手機「回測」分頁：把桌面的置中小 modal 撐成「滿版整頁介面」(使用者要的是頁面、不是小視窗)。
+     z-index 690 → 蓋過設定/訊號浮層(650)、低於分頁列(700) 讓底部分頁仍可點切走。!important 壓過
+     backtest.js 注入的 z-60 與置中 modal 樣式。 */
   .bt-overlay {
     z-index: 690 !important;
-    padding-bottom: calc(46px + env(safe-area-inset-bottom, 0px)) !important;
+    align-items: stretch !important;     /* 不置中 → 讓 modal 撐滿 */
+    justify-content: stretch !important;
+    padding: 0 !important;
+    background: var(--panel, #1b1b1f) !important;   /* 滿版實底，不要半透明遮罩感 */
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+  .bt-modal {
+    width: 100vw !important; max-width: 100vw !important;
+    height: 100vh !important; max-height: 100vh !important;
+    border-radius: 0 !important;
     box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);                       /* 避開瀏海/狀態列 */
+    padding-bottom: calc(46px + env(safe-area-inset-bottom, 0px)) !important;  /* 避開底部分頁列 */
   }
   .m-tabbar {
     display: flex;
