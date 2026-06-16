@@ -812,13 +812,10 @@ def _exec_signal_for_account(name, cfg, market, exchange, symbol, tf, k, d, sig,
             tp_px = client.quantize_price(bsym, tgt * scale)
         close_side = "SELL" if want == "long" else "BUY"
 
-        # ── 加倉：市價已合併進淨倉 → 把整個淨倉止損重設到「打到就總共虧 N×R」的價位 ──
-        # R＝每筆風險金額(cfg.riskUsd)。加到 N 筆 → 淨倉止損擺在 (均價 ∓ N×R÷總量)：打到就總虧約 N×R，
-        # 每多加一筆最大虧損只多 1R、不會無限放大（做多在均價下、做空在均價上）。
-        # ⚠ 安全：先掛新 SL → 成功才取消舊 SL（中間至少有一張 SL、絕無裸倉空窗）；新單掛失敗 → 保留
-        #   舊 SL、絕不市價平倉。churn 的根源是「止損掛不上就平整倉」→ 訊號再現又開又加又平（曾 48 分鐘
-        #   上百次、虧 -500 全是手續費）；這裡只重設止損價、永不平倉，就不會重演 -4130/-4509 災難。
-        #   只在 riskUsd>0(固定風險模式)才動 SL；金額×槓桿模式無 R → 維持舊 SL。止盈仍由 retarget 跟軌。
+        # ── 加倉：市價已合併進淨倉。止損『固定在首筆、不隨加倉移動』──
+        # 首筆掛的 SL 是 closePosition(平整倉)→ 本就保護加倉後的整個淨倉，不需重設。
+        # 過去會重設到 N×R，但實測常撞 -4509(algo 滿)/-2021(錯側) 一直掛單失敗；且與回測「首筆止損」
+        # 不一致。改成加倉完全不動 SL → 沿用首筆止損單，只更新數量/均價/筆數。止盈仍由 retarget 跟軌。
         if is_add:
             try:
                 _np = next((p for p in client.positions() if p["symbol"] == bsym), None)
@@ -828,47 +825,9 @@ def _exec_signal_for_account(name, cfg, market, exchange, symbol, tf, k, d, sig,
             _ne = _np.get("entry") if _np else None
             new_entry_chart = (_ne / scale) if (_ne and scale) else _ne     # 合約均價 → 圖表均價
             new_adds = cur_adds + 1
-
-            new_sl_oid = add_old_sl_oid          # 預設沿用舊 SL 單 id（沒移動時不變）
-            new_sl_chart = None                  # 有成功移動才寫回 sl 欄（圖表價）
-            sl_note = "止損維持原位"
-            R = risk_usd                          # = cfg.riskUsd（每筆風險）
-            fee = 0.0005                          # Binance 合約吃單 0.05%/邊（與首筆倉位計算一致）
-            if R > 0 and new_qty and _ne:
-                nr_q = (new_adds * R) / new_qty                  # 每單位要分攤的 N×R（合約價）
-                # 解「價差虧損 + 進場腿 + 出場腿手續費 = N×R」→ 含來回手續費後打到止損的『已實現總虧』剛好 N×R。
-                # 做多：(E-S)·Q + fee·E·Q + fee·S·Q = N·R → S = (E(1+fee) − N·R/Q) / (1−fee)
-                # 做空：(S-E)·Q + fee·E·Q + fee·S·Q = N·R → S = (E(1−fee) + N·R/Q) / (1+fee)
-                if want == "long":
-                    s_c = (_ne * (1 + fee) - nr_q) / (1 - fee)
-                else:
-                    s_c = (_ne * (1 - fee) + nr_q) / (1 + fee)
-                new_sl_px = client.quantize_price(bsym, s_c)
-                try:
-                    _px_now = client.last_price(bsym)
-                except bt.TradeError:
-                    _px_now = None
-                # 防呆：止損須在現價虧損側（多單<現價、空單>現價），否則交易所判即時觸發(-2021)拒掛
-                _valid = (_px_now is None) or (float(new_sl_px) < _px_now if want == "long"
-                                               else float(new_sl_px) > _px_now)
-                if _valid:
-                    try:
-                        _nsl = client.place_close_trigger(bsym, close_side, new_sl_px, "sl")  # 先掛新(N×R)SL
-                        if add_old_sl_oid:                       # 新 SL 已上 → 再取消舊 SL（無裸倉空窗）
-                            try:
-                                client.cancel_algo(bsym, add_old_sl_oid)
-                            except bt.TradeError:
-                                pass
-                        new_sl_oid = _nsl.get("orderId")
-                        new_sl_chart = (float(new_sl_px) / scale) if scale else float(new_sl_px)
-                        sl_note = (f"止損移到 {_fmt_px(new_sl_chart)}"
-                                   f"（打到總虧≈{new_adds}×{R:.0f}={new_adds * R:.0f}U）")
-                    except bt.TradeError as e:
-                        sl_note = f"止損維持原位（重設失敗、舊單仍在保護：{e}）"
-                else:
-                    sl_note = f"止損維持原位（{new_adds}×R 價位已在現價錯側、不重掛）"
-            else:
-                sl_note = "止損維持原位（非固定風險模式、無 R）"
+            new_sl_oid = add_old_sl_oid          # 沿用首筆 SL 單 id（不動）
+            new_sl_chart = None                  # 不改 sl 欄（維持首筆止損價）
+            sl_note = "止損固定首筆、不隨加倉移動"
 
             try:
                 _c2, _ph2 = _acct._db()
