@@ -47,9 +47,9 @@ def _allowed(name: str) -> bool:
 _ALL_SIGS = {"abc", "ab", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "ss1", "ss2"}
 _ALL_TFS = {"5m", "15m", "30m", "1h", "2h", "4h", "8h", "1d", "1w", "1M"}
 # 自動交易止盈目標＝「下軌→上軌」的此比例位（多單靠上軌、空單鏡像靠下軌），取代滿格外軌(=1.0)。
-# 0.95＝離上軌 5% 處先止盈 → 不等價格剛好碰到外軌(常常差一點點沒成交又反轉吐回)。進場初始 TP 與
+# 0.98＝離上軌 2% 處先止盈 → 不等價格剛好碰到外軌(常常差一點點沒成交又反轉吐回)。進場初始 TP 與
 # retarget 跟軌共用此比例。改這一個值即可調整。
-_AUTO_TP_BAND_RATIO = 0.95
+_AUTO_TP_BAND_RATIO = 0.98
 _AUTO_DEFAULT = {"on": False, "owner": "", "sigs": [], "tfs": [], "usdt": 50.0,
                  "lev": 3, "maxPos": 3, "dirs": "both",
                  # riskUsd=每筆風險金額（打到停損約虧這麼多 USDT，含來回手續費）；>0 時改用「固定風險倉位」
@@ -1137,7 +1137,7 @@ def retarget_auto_tp(market, exchange, symbol, tf, upper_chart, lower_chart):
                 for row_id, bsym, d, old_tp, tp_oid, rsig, rsigt in rows:
                     try:
                         want = "short" if d == "s" else "long"
-                        # 95% 位：多＝下軌+ratio×寬、空＝下軌+(1−ratio)×寬（鏡像，靠下軌）
+                        # 98% 位：多＝下軌+ratio×寬、空＝下軌+(1−ratio)×寬（鏡像，靠下軌）
                         band = (lower_chart + _AUTO_TP_BAND_RATIO * _bwidth) if want == "long" \
                                else (lower_chart + (1.0 - _AUTO_TP_BAND_RATIO) * _bwidth)
                         # ── 夾住保本價：上下軌會隨行情漂到「進場價的虧損側」（多單軌跌破進場、空單軌漲過

@@ -248,12 +248,12 @@ function renderCandles(data) {
   candleSeries.setMarkers([]);
 }
 
-const TP_BAND_RATIO = 0.95;   // 與後端 _AUTO_TP_BAND_RATIO 一致：自動交易止盈＝下軌↔上軌此比例位
+const TP_BAND_RATIO = 0.98;   // 與後端 _AUTO_TP_BAND_RATIO 一致：自動交易止盈＝下軌↔上軌此比例位
 
 function renderBB(data) {
   const line = k => data.filter(d => d[k] != null).map(d => ({ time:toTime(d.time), value:d[k] }));
   bbU.setData(line("bb_upper")); bbM.setData(line("bb_middle")); bbL.setData(line("bb_lower"));
-  // 止盈 95% 位線：多單＝下軌+95%×(上軌−下軌)(靠上軌)、空單＝下軌+5%×寬(靠下軌,鏡像)
+  // 止盈 98% 位線：多單＝下軌+98%×(上軌−下軌)(靠上軌)、空單＝下軌+2%×寬(靠下軌,鏡像)
   const tp = up => data.filter(d => d.bb_upper != null && d.bb_lower != null).map(d => {
     const w = d.bb_upper - d.bb_lower;
     return { time:toTime(d.time), value: d.bb_lower + (up ? TP_BAND_RATIO : 1 - TP_BAND_RATIO) * w };

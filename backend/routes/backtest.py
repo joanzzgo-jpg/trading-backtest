@@ -33,7 +33,7 @@ class CrtBacktestRequest(BaseModel):
     exchange: str = "pionex"
     signal: str = "all"        # abc / ab / s3~s12 / all(=S2~S11 合計) / all11(=S1~S11 合計)；合計皆去重
     direction: str = "both"    # short / long / both
-    target: str = "mid"        # mid / band / band80 / band95（止盈目標位：中軌 / 上下軌 / 下↔上 80% / 95%）
+    target: str = "mid"        # mid / band / band80 / band98（止盈目標位：中軌 / 上下軌 / 下↔上 80% / 98%）
     stop_buffer_pct: float = 0.0
     initial_capital: float = 100_000   # 本金（使用者決定多少錢）
     risk_pct: float = 0.02     # 每筆交易風險佔資金比例（輸/止損 = -1R）
@@ -257,7 +257,7 @@ def _build_pyramid_clusters(bars: dict, picked: list, max_adds: int, target: str
     def _nan(x):
         return x is None or (isinstance(x, float) and _m.isnan(x))
 
-    _ratio = _BAND_RATIO.get(target, (None, None))[0]   # 比例軌→0.8/0.95；mid/band→None
+    _ratio = _BAND_RATIO.get(target, (None, None))[0]   # 比例軌→0.8/0.98；mid/band→None
     def _tval(direction, j):
         """第 j 棒、此方向的止盈目標價（依所選目標 mid/band/比例軌）。缺軌→None。
         target=mid→中軌；band→多上軌/空下軌；比例軌→下軌+ratio×寬(多)、下軌+(1−ratio)×寬(空,鏡像)。"""
@@ -394,14 +394,14 @@ def _build_pyramid_clusters(bars: dict, picked: list, max_adds: int, target: str
 
 
 # 比例軌目標 → (ratio, 欄位後綴)。下軌↔上軌的 ratio 處止盈（多靠上軌、空鏡像靠下軌）。
-# band95=0.95 與自動交易 _AUTO_TP_BAND_RATIO 一致 → 回測貼合實盤止盈。
-_BAND_RATIO = {"band80": (0.8, "80"), "band95": (0.95, "95")}
+# band98=0.98 與自動交易 _AUTO_TP_BAND_RATIO 一致 → 回測貼合實盤止盈。
+_BAND_RATIO = {"band80": (0.8, "80"), "band98": (0.98, "98")}
 
 
 def _inject_band_ratio(bars: dict, sigs: list, ratio: float, sfx: str):
     """比例軌止盈：重走 K 棒，把每筆訊號對「下軌↔上軌 ratio 處」目標的勝負/出場/RR 注入 sig（就地，傳入須為副本）。
     目標（逐棒動態）：多＝下軌+ratio×(上軌−下軌)；空＝下軌+(1−ratio)×(上軌−下軌)（＝上軌往下 ratio 處，鏡像）。
-    sfx＝欄位後綴（"80"→8成軌、"95"→95%軌…）→ 寫入 r{sfx}/ot{sfx}/rr{sfx}_real/est_r{sfx}；並覆寫該副本
+    sfx＝欄位後綴（"80"→8成軌、"98"→98%軌…）→ 寫入 r{sfx}/ot{sfx}/rr{sfx}_real/est_r{sfx}；並覆寫該副本
     rr(=此比例軌預估RR，供 _simulate 預計止盈模式的勝場倍數用)。重用 crt 向量化掃描，NaN 軌道棒整根跳過。"""
     if not bars or not sigs:
         return
@@ -472,7 +472,7 @@ def run_crt_backtest(req: CrtBacktestRequest):
 
     sigs = (wr or {}).get("signals") or []
     bars = (wr or {}).get("_bars")
-    # 比例軌（8成/95%…）：下軌↔上軌 ratio 處止盈。crt 沒預算此目標 → 用 with_bars 的 K 棒即時重走，
+    # 比例軌（8成/98%…）：下軌↔上軌 ratio 處止盈。crt 沒預算此目標 → 用 with_bars 的 K 棒即時重走，
     # 注入 r{sfx}/ot{sfx}/rr{sfx}_real/est_r{sfx}（在副本上，勿污染勝率快取）。加倉模式由 cluster 自行算目標。
     if req.target in _BAND_RATIO and not req.pyramid:
         ratio, sfx = _BAND_RATIO[req.target]
@@ -487,7 +487,7 @@ def _compute_backtest(req: CrtBacktestRequest, sigs: list, bars, wr_from_date=No
     # 結算欄位組：加倉/上下軌→band；8成軌→band80；中軌→mid。決定 picked 過濾、敗後停手、_simulate 取哪組勝負/RR。
     if req.pyramid or req.target == "band":
         rkey, otkey, rrkey, estkey = "r_b", "ot_b", "rr_b_real", "est_r_b"
-    elif req.target in _BAND_RATIO:                       # 比例軌(8成/95%…)：用對應後綴欄位
+    elif req.target in _BAND_RATIO:                       # 比例軌(8成/98%…)：用對應後綴欄位
         _, _sfx = _BAND_RATIO[req.target]
         rkey, otkey, rrkey, estkey = f"r{_sfx}", f"ot{_sfx}", f"rr{_sfx}_real", f"est_r{_sfx}"
     else:
@@ -593,8 +593,8 @@ _OPT_SIGNALS = ["all", "all11", "ssall", "abc", "ab", "s3", "s4", "s5", "s6",
                 "s7", "s8", "s9", "s10", "s11", "s12", "ss1", "ss2"]
 _OPT_DIRS    = ["both", "long", "short"]
 _OPT_PLAIN   = [(rule, tgt) for rule in ("all", "single", "stop")
-                for tgt in ("mid", "band", "band80", "band95")]   # 一般規則 × 目標(含 95%軌)
-_OPT_PYR_TGTS = ("band", "band95")   # 加倉最佳化跑的目標（上下軌 + 95%軌，貼合實盤）
+                for tgt in ("mid", "band", "band80", "band98")]   # 一般規則 × 目標(含 98%軌)
+_OPT_PYR_TGTS = ("band", "band98")   # 加倉最佳化跑的目標（上下軌 + 98%軌，貼合實盤）
 _OPT_MIN_TRADES = 20   # 樣本太少（<20 筆）的組合不列入排名，避免幸運小樣本灌爆報酬率
 
 
@@ -619,10 +619,10 @@ def run_crt_optimize(req: CrtBacktestRequest):
     wr_from = (wr or {}).get("from_date")
     sigs80 = [dict(s) for s in base_sigs]   # 8成軌專用：整份注入一次，所有 band80 組合共用
     _inject_band_ratio(bars, sigs80, 0.8, "80")
-    sigs95 = [dict(s) for s in base_sigs]   # 95%軌專用：同理注入一次共用
-    _inject_band_ratio(bars, sigs95, 0.95, "95")
+    sigs98 = [dict(s) for s in base_sigs]   # 98%軌專用：同理注入一次共用
+    _inject_band_ratio(bars, sigs98, 0.98, "98")
     def _sigset(tgt):
-        return {"band80": sigs80, "band95": sigs95}.get(tgt, base_sigs)
+        return {"band80": sigs80, "band98": sigs98}.get(tgt, base_sigs)
 
     base_fields = req.dict()
     def _mk(**over):
@@ -651,7 +651,7 @@ def run_crt_optimize(req: CrtBacktestRequest):
                 _add(_mk(signal=sig, direction=d, target=tgt, tp_mode="real",
                          one_position=(rule == "single"), stop_after_loss=(rule == "stop"),
                          pyramid=False), _sigset(tgt), rule)
-            # 加倉：跨目標（含 95%軌）→ 用 base_sigs（cluster 自行算目標，不需注入）
+            # 加倉：跨目標（含 98%軌）→ 用 base_sigs（cluster 自行算目標，不需注入）
             for tgt in _OPT_PYR_TGTS:
                 _add(_mk(signal=sig, direction=d, target=tgt, tp_mode="real",
                          one_position=False, stop_after_loss=False, pyramid=True), base_sigs, "pyramid")

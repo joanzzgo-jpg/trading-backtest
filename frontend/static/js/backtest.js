@@ -134,7 +134,7 @@
               <div class="bt-seg" id="btDir">
                 <button data-v="both" class="on">多空</button><button data-v="long">只多</button><button data-v="short">只空</button></div></div>
             <div class="bt-row"><label>目標</label>
-              <div class="bt-seg" id="btTgt"><button data-v="mid" class="on">中軌</button><button data-v="band">上/下軌</button><button data-v="band80">8成軌</button><button data-v="band95">95%軌</button></div></div>
+              <div class="bt-seg" id="btTgt"><button data-v="mid" class="on">中軌</button><button data-v="band">上/下軌</button><button data-v="band80">8成軌</button><button data-v="band98">98%軌</button></div></div>
             <div class="bt-row"><label>止盈基準</label>
               <div class="bt-seg" id="btTp"><button data-v="real" class="on">已實現</button><button data-v="est">預計止盈</button></div></div>
             <div class="bt-row"><label>止損緩衝%</label><input id="btBuf" type="number" value="0" min="0" max="10" step="0.1"></div>
@@ -144,7 +144,7 @@
             <div class="bt-row"><label>進場規則</label>
               <div class="bt-seg" id="btRule"><button data-v="all" class="on">全部訊號</button><button data-v="single">一次一筆</button><button data-v="stop">敗後停手</button><button data-v="pyramid">加倉</button></div></div>
             <div class="bt-row" id="btMaxAddsRow" style="display:none"><label>加倉上限</label><input id="btMaxAdds" type="number" value="5" min="1" max="20" step="1"></div>
-            <div class="bt-hint" id="btPyrHint" style="display:none">加倉：同向訊號持倉中再現就加一筆（到上限），合併均價、單一停損＝最新筆；止盈走你選的<b>目標位</b>（中軌／上下軌／8成／95%軌，可搭已實現或預計止盈）；淨虧才停手。</div>
+            <div class="bt-hint" id="btPyrHint" style="display:none">加倉：同向訊號持倉中再現就加一筆（到上限），合併均價、單一停損＝最新筆；止盈走你選的<b>目標位</b>（中軌／上下軌／8成／98%軌，可搭已實現或預計止盈）；淨虧才停手。</div>
             <div class="bt-hint">用 CRT 訊號的勝負序列 × 每筆預估盈虧比模擬資金曲線（重用勝率引擎，深歷史）。定額風險、單利：每筆固定冒險「本金 × 每筆風險%」。</div>
           </div>
           <button class="bt-run" id="btRun">執行回測</button>
@@ -269,7 +269,7 @@
   // ── 自動最佳化：窮舉訊號×方向×目標×規則，依報酬率排名 ──
   const _SIGLBL = { all: "S2~11合計", all11: "S1~11合計", ssall: "SS合計", abc: "S1·ABC", ab: "S2·AB", ss1: "SS1", ss2: "SS2" };
   const _DIRLBL = { both: "多空", long: "只多", short: "只空" };
-  const _TGTLBL = { mid: "中軌", band: "上下軌", band80: "8成軌", band95: "95%軌" };
+  const _TGTLBL = { mid: "中軌", band: "上下軌", band80: "8成軌", band98: "98%軌" };
   const _RULELBL = { all: "全部", single: "一次一筆", stop: "敗後停手", pyramid: "加倉" };
   const _sigLbl = s => _SIGLBL[s] || (s || "").toUpperCase();
 
@@ -380,7 +380,7 @@
       <div class="bt-cards">${cards.map(c => `<div class="bt-card"><div class="v ${c.c}">${c.v}</div><div class="k">${c.k}</div></div>`).join("")}</div>
       <canvas class="bt-eq" id="btEq"></canvas>
       ${ruleLine ? `<div class="bt-hint">${ruleLine}</div>` : ""}
-      <div class="bt-hint">目標：${d.target === "band" ? "上下軌" : d.target === "band80" ? "8成軌（下↔上 80%）" : d.target === "band95" ? "95%軌（下↔上 95%）" : "中軌"}　${d.tp_mode === "est" ? "止盈：預計（固定目標）　" : "止盈：已實現（動態）　"}${s.from_date ? "回測自 " + s.from_date + "　" : ""}涵蓋 ${s.span ?? "—"}　最終淨值 ${(s.final_equity ?? 0).toLocaleString()}</div>
+      <div class="bt-hint">目標：${d.target === "band" ? "上下軌" : d.target === "band80" ? "8成軌（下↔上 80%）" : d.target === "band98" ? "98%軌（下↔上 98%）" : "中軌"}　${d.tp_mode === "est" ? "止盈：預計（固定目標）　" : "止盈：已實現（動態）　"}${s.from_date ? "回測自 " + s.from_date + "　" : ""}涵蓋 ${s.span ?? "—"}　最終淨值 ${(s.final_equity ?? 0).toLocaleString()}</div>
       ${useLine ? `<div class="bt-hint">${useLine}</div>` : ""}
       ${_tradesTable(d.trades || [])}`;
     _drawEquity(d.equity_curve || []);
