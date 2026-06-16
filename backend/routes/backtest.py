@@ -33,7 +33,7 @@ class CrtBacktestRequest(BaseModel):
     exchange: str = "pionex"
     signal: str = "all"        # abc / ab / s3~s12 / all(=S2~S11 合計) / all11(=S1~S11 合計)；合計皆去重
     direction: str = "both"    # short / long / both
-    target: str = "mid"        # mid / band（rr 倍數以 mid 預估值為準，band 為近似）
+    target: str = "mid"        # mid / band / band80 / band95（止盈目標位：中軌 / 上下軌 / 下↔上 80% / 95%）
     stop_buffer_pct: float = 0.0
     initial_capital: float = 100_000   # 本金（使用者決定多少錢）
     risk_pct: float = 0.02     # 每筆交易風險佔資金比例（輸/止損 = -1R）
@@ -223,7 +223,7 @@ def _simulate(picked, rkey, rrkey, est_key, otkey, init_cap, risk_pct, tp_mode, 
     return stats, trades, equity
 
 
-def _build_pyramid_clusters(bars: dict, picked: list, max_adds: int):
+def _build_pyramid_clusters(bars: dict, picked: list, max_adds: int, target: str = "band", tp_mode: str = "real"):
     """加倉（金字塔）模擬：把同向、持倉中重疊的訊號合併成一個『加倉群』，重走 K 棒結算。
     規則（方案 B，合併均價／單一停損）：
       • 加倉：某方向可進場時，第一筆開倉；倉位還活著（未碰共用停損/止盈）期間再出現同向訊號 → 加一筆，
@@ -251,10 +251,27 @@ def _build_pyramid_clusters(bars: dict, picked: list, max_adds: int):
     closes = bars.get("close") or []
     bbu = bars.get("bb_upper") or []
     bbl = bars.get("bb_lower") or []
+    bbm = bars.get("bb_middle") or []
     t2i = {t: i for i, t in enumerate(times)}   # 訊號棒時間 → 棒索引（首筆出現為準）
 
     def _nan(x):
         return x is None or (isinstance(x, float) and _m.isnan(x))
+
+    _ratio = _BAND_RATIO.get(target, (None, None))[0]   # 比例軌→0.8/0.95；mid/band→None
+    def _tval(direction, j):
+        """第 j 棒、此方向的止盈目標價（依所選目標 mid/band/比例軌）。缺軌→None。
+        target=mid→中軌；band→多上軌/空下軌；比例軌→下軌+ratio×寬(多)、下軌+(1−ratio)×寬(空,鏡像)。"""
+        if target == "mid":
+            m = bbm[j] if j < len(bbm) else None
+            return None if _nan(m) else m
+        u = bbu[j] if j < len(bbu) else None
+        dn = bbl[j] if j < len(bbl) else None
+        if _nan(u) or _nan(dn):
+            return None
+        if _ratio is None:                              # band：多→上軌、空→下軌
+            return u if direction == "l" else dn
+        w = u - dn
+        return (dn + _ratio * w) if direction == "l" else (dn + (1.0 - _ratio) * w)
 
     # 進場棒索引：訊號棒(t) 的下一根開盤（與 crt entry_i = 訊號 i + 1 一致）
     cand = []
@@ -275,13 +292,14 @@ def _build_pyramid_clusters(bars: dict, picked: list, max_adds: int):
                      "t": s.get("t"), "k": s.get("k"), "rb": s.get("r_b")})
     cand.sort(key=lambda x: x["ei"])
 
-    def _scan_exit(direction, avg_entry, shop, from_i, to_i):
+    def _scan_exit(direction, avg_entry, shop, from_i, to_i, tp_fix=None):
         """從 from_i 掃到 to_i-1，回 (exit_idx, result, exit_px)；result∈win/loss；無出場回 (None,None,None)。
-        止盈=上下軌動態目標(逐棒取值)、止損=shop(共用)；同根都碰用收盤判；NaN 軌道棒整根跳過。"""
+        止盈目標：tp_fix!=None→固定(預計止盈/est)；否則逐棒動態(_tval，已實現/real)。止損=shop(共用)；
+        同根都碰用收盤判；動態時 NaN 軌道棒整根跳過（與 crt _scan 一致）。"""
         end = min(to_i, n)
         for j in range(from_i, end):
-            tgt = bbl[j] if direction == "s" else bbu[j]
-            if _nan(tgt):
+            tgt = tp_fix if tp_fix is not None else _tval(direction, j)
+            if tgt is None or _nan(tgt):
                 continue                          # 無軌道目標的棒：止損也跳過（與 crt _scan NaN 行為一致）
             hi = highs[j]; lo = lows[j]
             if direction == "s":
@@ -337,7 +355,8 @@ def _build_pyramid_clusters(bars: dict, picked: list, max_adds: int):
         # 先把現有開倉群推進到此訊號進場棒前，看是否已先出場
         if cur is not None:
             exit_idx, result, exit_px = _scan_exit(
-                cur["d"], None, cur["tranches"][-1]["stop"], cur["scan_i"], min(ei, cur["end_cap"]))
+                cur["d"], None, cur["tranches"][-1]["stop"], cur["scan_i"], min(ei, cur["end_cap"]),
+                cur.get("tp_fix"))
             if exit_idx is not None:                  # 群在加倉前就出場 → 結算
                 lost = _finalize(cur, exit_idx, result, exit_px)
                 if lost:
@@ -357,14 +376,16 @@ def _build_pyramid_clusters(bars: dict, picked: list, max_adds: int):
             continue
         # 無開倉群 → 視敗後停手決定開新群
         if active.get(d, True):
-            cur = {"d": d, "tranches": [s], "scan_i": ei, "end_cap": ei + _SCAN_MAX_HOLD}
+            # 預計止盈(est)：止盈目標固定在「首筆進場棒」的目標價（不隨棒漂移）；已實現(real)→逐棒動態(None)
+            _tf = _tval(d, ei) if tp_mode == "est" else None
+            cur = {"d": d, "tranches": [s], "scan_i": ei, "end_cap": ei + _SCAN_MAX_HOLD, "tp_fix": _tf}
         elif s.get("rb") == "w":
             active[d] = True                          # 停手中、同向紙上會贏 → 回場（此筆不開、下一筆才開）
         active["l" if d == "s" else "s"] = True        # 反向停手解除
 
     if cur is not None:                                # 收尾：最後一個群掃到底
         exit_idx, result, exit_px = _scan_exit(
-            cur["d"], None, cur["tranches"][-1]["stop"], cur["scan_i"], cur["end_cap"])
+            cur["d"], None, cur["tranches"][-1]["stop"], cur["scan_i"], cur["end_cap"], cur.get("tp_fix"))
         if exit_idx is not None:
             _finalize(cur, exit_idx, result, exit_px)   # 未結算（掃不到出場）→ 丟棄（同單筆未結算不計）
 
@@ -372,16 +393,21 @@ def _build_pyramid_clusters(bars: dict, picked: list, max_adds: int):
     return clusters
 
 
-def _inject_band80(bars: dict, sigs: list, ratio: float = 0.8):
-    """8成軌止盈：重走 K 棒，把每筆訊號對「下軌↔上軌 ratio 處」目標的勝負/出場/RR 注入 sig（就地，傳入須為副本）。
+# 比例軌目標 → (ratio, 欄位後綴)。下軌↔上軌的 ratio 處止盈（多靠上軌、空鏡像靠下軌）。
+# band95=0.95 與自動交易 _AUTO_TP_BAND_RATIO 一致 → 回測貼合實盤止盈。
+_BAND_RATIO = {"band80": (0.8, "80"), "band95": (0.95, "95")}
+
+
+def _inject_band_ratio(bars: dict, sigs: list, ratio: float, sfx: str):
+    """比例軌止盈：重走 K 棒，把每筆訊號對「下軌↔上軌 ratio 處」目標的勝負/出場/RR 注入 sig（就地，傳入須為副本）。
     目標（逐棒動態）：多＝下軌+ratio×(上軌−下軌)；空＝下軌+(1−ratio)×(上軌−下軌)（＝上軌往下 ratio 處，鏡像）。
-    直接重用 crt 的向量化掃描（_scan_outcome_np 動態 / _scan_outcome_fixed 固定）→ 與既有 mid/band 同語意、同速。
-    寫入：r80(動態勝負)、ot80(出場時間)、rr80_real(已實現含號)、est_r80(固定目標勝負)；並覆寫該副本 rr(=8成軌預估RR，
-    供 _simulate 預計止盈模式的勝場倍數用)。NaN 軌道棒整根跳過（與 crt 一致）。"""
+    sfx＝欄位後綴（"80"→8成軌、"95"→95%軌…）→ 寫入 r{sfx}/ot{sfx}/rr{sfx}_real/est_r{sfx}；並覆寫該副本
+    rr(=此比例軌預估RR，供 _simulate 預計止盈模式的勝場倍數用)。重用 crt 向量化掃描，NaN 軌道棒整根跳過。"""
     if not bars or not sigs:
         return
     import numpy as np
     from utils.crt import _scan_outcome_np, _scan_outcome_fixed
+    kr, kot, krr, kest = f"r{sfx}", f"ot{sfx}", f"rr{sfx}_real", f"est_r{sfx}"
     times = bars.get("time") or []
     n = len(times)
     if n == 0:
@@ -394,13 +420,13 @@ def _inject_band80(bars: dict, sigs: list, ratio: float = 0.8):
     if min(len(H), len(L), len(C), len(U), len(Dn)) < n:
         return
     width = U - Dn
-    tgt_long  = Dn + ratio * width            # 多：下軌 → 上軌 80%
-    tgt_short = Dn + (1.0 - ratio) * width     # 空：上軌 → 下軌 80%（＝下軌 + 20%）
+    tgt_long  = Dn + ratio * width             # 多：下軌 → 上軌 ratio
+    tgt_short = Dn + (1.0 - ratio) * width      # 空：上軌 → 下軌 ratio（鏡像）
     t2i = {t: i for i, t in enumerate(times)}
     for s in sigs:
         si = t2i.get(s.get("t"))
         ent = s.get("entry")
-        s["r80"] = None; s["ot80"] = None; s["rr80_real"] = None; s["est_r80"] = None
+        s[kr] = None; s[kot] = None; s[krr] = None; s[kest] = None
         if si is None or ent is None:
             continue
         ei = si + 1
@@ -413,20 +439,20 @@ def _inject_band80(bars: dict, sigs: list, ratio: float = 0.8):
         risk = abs(ent - stop)
         # 動態目標（已實現）
         res, ot, xi = _scan_outcome_np(H, L, C, tgt, times, ei, n, stop, direction)
-        s["r80"] = "w" if res == "win" else ("l" if res == "loss" else None)
-        s["ot80"] = ot
+        s[kr] = "w" if res == "win" else ("l" if res == "loss" else None)
+        s[kot] = ot
         if res == "loss":
-            s["rr80_real"] = -1.0
+            s[krr] = -1.0
         elif res == "win" and xi is not None and 0 <= xi < n and risk > 1e-9 and not np.isnan(tgt[xi]):
             rew = (tgt[xi] - ent) if direction == "long" else (ent - tgt[xi])
-            s["rr80_real"] = round(max(-10.0, min(float(rew) / risk, 10.0)), 3)   # 帶號 + 封頂 ±10（同 _rr_real）
+            s[krr] = round(max(-10.0, min(float(rew) / risk, 10.0)), 3)   # 帶號 + 封頂 ±10（同 _rr_real）
         # 固定目標（預計止盈）＋ 預估 RR
         tfix = tgt[ei]
         if not np.isnan(tfix):
             o = _scan_outcome_fixed(H, L, C, ei, n, stop, float(tfix), direction)
-            s["est_r80"] = "w" if o == "win" else ("l" if o == "loss" else None)
+            s[kest] = "w" if o == "win" else ("l" if o == "loss" else None)
             if risk > 1e-9:
-                s["rr"] = round(min(abs(ent - float(tfix)) / risk, 10.0), 3)   # 覆寫副本：8成軌預估 RR（_simulate est 用）；封頂 10 同 _rr_at
+                s["rr"] = round(min(abs(ent - float(tfix)) / risk, 10.0), 3)   # 覆寫副本：此比例軌預估 RR（_simulate est 用）；封頂 10 同 _rr_at
 
 
 @router.post("/crt_backtest")
@@ -439,32 +465,34 @@ def run_crt_backtest(req: CrtBacktestRequest):
             market=req.market, symbol=req.symbol, timeframe=req.timeframe,
             exchange=req.exchange, stop_buffer_pct=req.stop_buffer_pct,
             finmind_token=req.finmind_token,
-            with_bars=req.pyramid or req.target == "band80",   # 加倉/8成軌要重走 K 棒 → 附帶 K 棒陣列
+            with_bars=req.pyramid or req.target in _BAND_RATIO,   # 加倉/比例軌要重走 K 棒 → 附帶 K 棒陣列
         )
     except Exception as e:
         raise HTTPException(400, f"勝率計算失敗: {e}")
 
     sigs = (wr or {}).get("signals") or []
     bars = (wr or {}).get("_bars")
-    # 8成軌：下軌↔上軌 80% 處止盈（多：下軌+80%寬；空：上軌−80%寬＝下軌+20%）。crt 沒預算此目標 →
-    # 用 with_bars 的 K 棒即時重走，注入 r80/ot80/rr80_real/est_r80（在副本上，勿污染勝率快取）。
-    if req.target == "band80" and not req.pyramid:
+    # 比例軌（8成/95%…）：下軌↔上軌 ratio 處止盈。crt 沒預算此目標 → 用 with_bars 的 K 棒即時重走，
+    # 注入 r{sfx}/ot{sfx}/rr{sfx}_real/est_r{sfx}（在副本上，勿污染勝率快取）。加倉模式由 cluster 自行算目標。
+    if req.target in _BAND_RATIO and not req.pyramid:
+        ratio, sfx = _BAND_RATIO[req.target]
         sigs = [dict(s) for s in sigs]
-        _inject_band80(bars, sigs)
+        _inject_band_ratio(bars, sigs, ratio, sfx)
     return _compute_backtest(req, sigs, bars, (wr or {}).get("from_date"))
 
 
 def _compute_backtest(req: CrtBacktestRequest, sigs: list, bars, wr_from_date=None):
-    """給定訊號(已含對應目標的結算欄位；8成軌須先 _inject_band80) + K 棒 → 過濾／進場規則／資金模擬 → 回結果 dict。
+    """給定訊號(已含對應目標的結算欄位；比例軌須先 _inject_band_ratio) + K 棒 → 過濾／進場規則／資金模擬 → 回結果 dict。
     從 run_crt_backtest 抽出，讓『自動最佳化』重用同一份勝率/訊號跑上百組合（不重抓、band80 只注入一次）。"""
     # 結算欄位組：加倉/上下軌→band；8成軌→band80；中軌→mid。決定 picked 過濾、敗後停手、_simulate 取哪組勝負/RR。
     if req.pyramid or req.target == "band":
         rkey, otkey, rrkey, estkey = "r_b", "ot_b", "rr_b_real", "est_r_b"
-    elif req.target == "band80":
-        rkey, otkey, rrkey, estkey = "r80", "ot80", "rr80_real", "est_r80"
+    elif req.target in _BAND_RATIO:                       # 比例軌(8成/95%…)：用對應後綴欄位
+        _, _sfx = _BAND_RATIO[req.target]
+        rkey, otkey, rrkey, estkey = f"r{_sfx}", f"ot{_sfx}", f"rr{_sfx}_real", f"est_r{_sfx}"
     else:
         rkey, otkey, rrkey, estkey = "r", "ot", "rr_real", "est_r"
-    tp_mode = "real" if req.pyramid else (req.tp_mode if req.tp_mode in ("real", "est") else "real")
+    tp_mode = req.tp_mode if req.tp_mode in ("real", "est") else "real"   # 加倉也尊重止盈基準(real/est)
 
     want = req.signal
     if want.startswith("s") and want[1:].isdigit():
@@ -510,17 +538,17 @@ def _compute_backtest(req: CrtBacktestRequest, sigs: list, bars, wr_from_date=No
     n_all = len(picked)
     risk_pct = max(0.001, min(1.0, float(req.risk_pct or 0.02)))
 
-    # ── 加倉（金字塔）：獨立模式，合併均價＋單一停損＋上下軌止盈，重走 K 棒結算 ──
+    # ── 加倉（金字塔）：獨立模式，合併均價＋單一停損＋所選目標止盈，重走 K 棒結算 ──
     if req.pyramid:
         cand = sorted(picked, key=lambda s: (s.get("t") or "", s.get("ot_b") or ""))
-        clusters = _build_pyramid_clusters(bars, cand, req.max_adds)
+        clusters = _build_pyramid_clusters(bars, cand, req.max_adds, req.target, tp_mode)   # 尊重所選目標/基準
         from_date = (clusters[0].get("t") or "")[:10] if clusters else wr_from_date
         stats, trades, equity = _simulate(clusters, "r", "rr_real", "est_r", "ot",
                                           req.initial_capital, risk_pct, "real", from_date,
                                           fee_pct=getattr(req, "fee_pct", 0.0), leverage=getattr(req, "leverage", 0.0))
         return {
             "stats": stats, "trades": trades, "equity_curve": equity,
-            "tp_mode": "real", "entry_rule": "pyramid", "target": "band",
+            "tp_mode": tp_mode, "entry_rule": "pyramid", "target": req.target,
             "n_all": n_all,             # 候選進場訊號數
             "n_taken": len(clusters),   # 實際加倉群數（一群=一筆交易，含多次加倉）
         }
@@ -565,7 +593,8 @@ _OPT_SIGNALS = ["all", "all11", "ssall", "abc", "ab", "s3", "s4", "s5", "s6",
                 "s7", "s8", "s9", "s10", "s11", "s12", "ss1", "ss2"]
 _OPT_DIRS    = ["both", "long", "short"]
 _OPT_PLAIN   = [(rule, tgt) for rule in ("all", "single", "stop")
-                for tgt in ("mid", "band", "band80")]   # 一般規則 × 目標
+                for tgt in ("mid", "band", "band80", "band95")]   # 一般規則 × 目標(含 95%軌)
+_OPT_PYR_TGTS = ("band", "band95")   # 加倉最佳化跑的目標（上下軌 + 95%軌，貼合實盤）
 _OPT_MIN_TRADES = 20   # 樣本太少（<20 筆）的組合不列入排名，避免幸運小樣本灌爆報酬率
 
 
@@ -589,7 +618,11 @@ def run_crt_optimize(req: CrtBacktestRequest):
     bars = (wr or {}).get("_bars")
     wr_from = (wr or {}).get("from_date")
     sigs80 = [dict(s) for s in base_sigs]   # 8成軌專用：整份注入一次，所有 band80 組合共用
-    _inject_band80(bars, sigs80)
+    _inject_band_ratio(bars, sigs80, 0.8, "80")
+    sigs95 = [dict(s) for s in base_sigs]   # 95%軌專用：同理注入一次共用
+    _inject_band_ratio(bars, sigs95, 0.95, "95")
+    def _sigset(tgt):
+        return {"band80": sigs80, "band95": sigs95}.get(tgt, base_sigs)
 
     base_fields = req.dict()
     def _mk(**over):
@@ -604,7 +637,7 @@ def run_crt_optimize(req: CrtBacktestRequest):
         st = r.get("stats") or {}
         rows.append({
             "signal": combo_req.signal, "direction": combo_req.direction,
-            "target": r.get("target") if label_rule != "pyramid" else "band",
+            "target": r.get("target"),     # 加倉也尊重所選目標 → 直接用回傳值
             "entry_rule": label_rule,
             "ret": st.get("total_return"), "win_rate": st.get("win_rate"),
             "trades": st.get("total_trades"), "max_dd": st.get("max_drawdown"),
@@ -617,10 +650,11 @@ def run_crt_optimize(req: CrtBacktestRequest):
             for rule, tgt in _OPT_PLAIN:
                 _add(_mk(signal=sig, direction=d, target=tgt, tp_mode="real",
                          one_position=(rule == "single"), stop_after_loss=(rule == "stop"),
-                         pyramid=False), (sigs80 if tgt == "band80" else base_sigs), rule)
-            # 加倉（目標內定上下軌）
-            _add(_mk(signal=sig, direction=d, target="band", tp_mode="real",
-                     one_position=False, stop_after_loss=False, pyramid=True), base_sigs, "pyramid")
+                         pyramid=False), _sigset(tgt), rule)
+            # 加倉：跨目標（含 95%軌）→ 用 base_sigs（cluster 自行算目標，不需注入）
+            for tgt in _OPT_PYR_TGTS:
+                _add(_mk(signal=sig, direction=d, target=tgt, tp_mode="real",
+                         one_position=False, stop_after_loss=False, pyramid=True), base_sigs, "pyramid")
 
     valid = [x for x in rows if (x.get("trades") or 0) >= _OPT_MIN_TRADES and x.get("ret") is not None]
     # 資金用量上限：>0 時只保留「資金用量峰 ≤ cap」的組合（濾掉靠高槓桿灌報酬的假象）。
