@@ -1348,8 +1348,28 @@ def overview(req: KeyReq):
     try:
         # ⚠ 不在此放 algo_orders()：/overview 每 2 秒刷新持倉，是看倉的命脈；algo GET 端點未確定，
         # 一旦變慢/出錯會拖垮整個持倉頁(曾卡死)。核對止損止盈改走手動的 /verify_sltp。
+        positions = client.positions()
+        # 附上加倉筆數：把此帳號未平自動倉的 adds 依 bsym 併進持倉（手動倉/非自動倉 → 無 adds 欄）。
+        # 整段 try 包住、任何失敗都不影響持倉頁（看倉命脈絕不可被這個附加查詢拖垮）。
+        try:
+            nm = _acct._norm_name(req.name or "")
+            _ensure_db()
+            _c, _ph = _acct._db()
+            try:
+                _rows = _c.execute(
+                    f"SELECT bsym, adds FROM trade_log WHERE source='auto' AND status='open' AND acct={_ph}",
+                    (nm,)).fetchall()
+            finally:
+                _c.close()
+            _adds = {r[0]: r[1] for r in _rows if r and r[0]}
+            for p in positions:
+                a = _adds.get(p.get("symbol"))
+                if a and int(a) > 1:
+                    p["adds"] = int(a)
+        except Exception:
+            pass
         return {"env": client.env, "balance": client.balance(),
-                "positions": client.positions(), "orders": client.open_orders(),
+                "positions": positions, "orders": client.open_orders(),
                 "auto": get_auto_cfg(req.name, fresh=True)}
     except bt.TradeError as e:
         raise HTTPException(502, str(e))

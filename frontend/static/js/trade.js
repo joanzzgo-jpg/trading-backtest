@@ -84,7 +84,7 @@ function _trdRenderOverview() {
   posEl.innerHTML = !pos.length ? `<div class="trd-empty">無持倉</div>` : pos.map(p => `
     <div class="trd-row">
       <span class="trd-side ${p.side === "long" ? "trd-up" : "trd-dn"}">${p.side === "long" ? "多" : "空"}</span>
-      <span class="trd-sym">${p.symbol}<small>×${p.lev}</small></span>
+      <span class="trd-sym">${p.symbol}<small>×${p.lev}</small>${p.adds ? `<small class="trd-adds">加倉${p.adds}筆</small>` : ""}</span>
       <span class="trd-nums">${_trdFmt(p.qty)} @ ${_trdFmt(p.entry)}</span>
       <span class="trd-pnl ${p.upnl >= 0 ? "trd-up" : "trd-dn"}">${p.upnl >= 0 ? "+" : ""}${_trdFmt(p.upnl, 2)}</span>
       <button class="trd-x" data-bsym="${p.symbol}">平倉</button>
@@ -327,6 +327,7 @@ function _trdBuildPopup() {
       border-bottom:1px dashed var(--border,#3a3a50); }
     #tradePopup .trd-row-sm { font-size:11px; }
     #tradePopup .trd-row .trd-sym { flex:1; color:var(--text,#ddd); } #tradePopup .trd-sym small { color:var(--muted,#889); margin-left:3px; }
+    #tradePopup .trd-sym small.trd-adds { color:#e0a020; background:rgba(224,160,32,.14); border-radius:5px; padding:0 4px; margin-left:4px; font-weight:600; }
     #tradePopup .trd-row .trd-nums { color:var(--muted,#99a); font-size:11px; }
     #tradePopup .trd-x { padding:2px 8px; border-radius:7px; border:1px solid var(--border,#445);
       background:transparent; color:#f06a6a; cursor:pointer; font-size:11px; }
@@ -438,6 +439,7 @@ function _trdBuildPopup() {
     <div class="trd-bal">載入中…</div>
     <div class="trd-tabs">
       <button class="trd-tab sel" data-page="manual">手動交易</button>
+      <button class="trd-tab" data-page="pos">持倉</button>
       <button class="trd-tab" data-page="auto"><span class="trd-tab-led"></span>自動交易</button>
     </div>
     <div class="trd-page trd-page-manual show">
@@ -466,6 +468,8 @@ function _trdBuildPopup() {
       <div><label>止盈價</label><input id="trdTp" type="number" step="any" placeholder="-"></div>
     </div>
     <button class="trd-go">下單</button>
+    </div>
+    <div class="trd-page trd-page-pos">
     <div class="trd-sub">持倉</div>
     <div class="trd-pos"></div>
     <div class="trd-ord"></div>
@@ -505,7 +509,7 @@ function _trdBuildPopup() {
       </div>
       <div class="trd-sub trd-grp-hd">各標的×時框 止損緩衝 %<small>留空＝用上方預設；選時框才分時框</small></div>
       <div class="trd-persym" id="trdPerSym"></div>
-      <div class="trd-note">⚠ 自動交易掃描的標的＝帳號自選清單（僅合約），且帳號需至少一台裝置啟用訊號通知。進場後停損/止盈由交易所託管，策略提前止盈止損時會同步平倉。</div>
+      <div class="trd-note">⚠ 自動交易掃描的標的＝帳號自選清單（僅合約）。不需開訊號通知也會自動進場。進場後停損/止盈由交易所託管，策略提前止盈止損時會同步平倉。</div>
     </div>
     </div>
     </div>
