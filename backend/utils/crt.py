@@ -1131,6 +1131,25 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
     band_out["recent100"] = _recent_wr("band")
     rr_out["recent100"]   = _recent_wr("rr")
 
+    # ── 近 N 筆「敗後停手」勝率：取合併時間軸最後 N 筆訊號，套敗後停手狀態機，回實際進場單勝率 ──
+    #    (與 _calc_stop_strategy 同邏輯，但只看近 N 筆 → 反映近期「照敗後停手實單」的表現)
+    def _stop_strategy_recent(target="mid", n_recent=200):
+        combined = _build_combined(target)[-n_recent:]
+        active = {"s": True, "l": True}
+        w = {"s": 0, "l": 0}; l = {"s": 0, "l": 0}
+        for d, r in combined:
+            if active[d]:
+                if r == "w": w[d] += 1
+                else:        l[d] += 1; active[d] = False
+            elif r == "w":   active[d] = True
+            active["l" if d == "s" else "s"] = True
+        tot = w["s"] + w["l"] + l["s"] + l["l"]; win = w["s"] + w["l"]
+        return {"win_rate": round(win / tot * 100, 1) if tot else None, "total": tot, "wins": win}
+
+    mid_out["recent_stop200"]  = _stop_strategy_recent("mid")
+    band_out["recent_stop200"] = _stop_strategy_recent("band")
+    rr_out["recent_stop200"]   = _stop_strategy_recent("rr")
+
     recent.sort(key=lambda x: x["t"])
     from_date = str(df.iloc[0]["time"])[:10] if n else ""
 
@@ -1184,6 +1203,34 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         return {"short": sr, "long": lr, "total": tot, "wins": win,
                 "win_rate": round(win / tot * 100, 1) if tot else None}
 
+    def _ss_stop_recent(target="mid", n_recent=200):
+        """SS 近 N 筆「敗後停手」勝率（含 SS 專屬：出場棒==訊號棒視同回場）。取尾 N 筆套同狀態機。"""
+        rk = _RKEY[target]; otk = {"mid": "ot", "band": "ot_b", "rr": "ot_rr"}[target]
+        seen = set(); seq = []
+        for s in signals_sorted:
+            if s["k"] not in _SS_KEYS:
+                continue
+            key = (s["t"], s["d"])
+            if key in seen:
+                continue
+            seen.add(key)
+            r = s.get(rk)
+            if r in ("w", "l"):
+                seq.append((s["d"], r, s.get("t"), s.get(otk)))
+        seq = seq[-n_recent:]
+        active = {"s": True, "l": True}; stop_ot = {"s": None, "l": None}
+        w = {"s": 0, "l": 0}; l = {"s": 0, "l": 0}
+        for d, r, st, ot in seq:
+            if not active[d] and stop_ot[d] is not None and st is not None and str(st) == str(stop_ot[d]):
+                active[d] = True
+            if active[d]:
+                if r == "w": w[d] += 1
+                else: l[d] += 1; active[d] = False; stop_ot[d] = ot
+            elif r == "w": active[d] = True
+            active["l" if d == "s" else "s"] = True
+        tot = w["s"] + w["l"] + l["s"] + l["l"]; win = w["s"] + w["l"]
+        return {"win_rate": round(win / tot * 100, 1) if tot else None, "total": tot, "wins": win}
+
     # SS 系列統計：依目標(mid/band)各算一份 → 前端切「中軌/上下軌」時 SS 也能跟著變。
     def _build_ss_out(target, cnt, rr, streak):
         def _per_sig(k):
@@ -1205,6 +1252,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             "stop_strategy": _ss_stop_strategy(target),
             "recent100": {"win_rate": round(tw / len(tail) * 100, 1) if tail else None,
                           "total": len(tail), "wins": tw},
+            "recent_stop200": _ss_stop_recent(target),
         }
         for k in _SS_KEYS:
             out[k] = _per_sig(k)

@@ -123,8 +123,10 @@
               <select id="btLookback">
                 <option value="0">全部歷史</option>
                 <option value="1">近 24 小時</option>
+                <option value="3">近 3 天</option>
                 <option value="7">近 1 週</option>
                 <option value="30">近 1 個月</option>
+                <option value="90">近 3 個月</option>
                 <option value="365">近 1 年</option>
                 <option value="730">近 2 年</option>
                 <option value="1095">近 3 年</option>

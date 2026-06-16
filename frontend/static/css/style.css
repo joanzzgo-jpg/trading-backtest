@@ -4125,6 +4125,14 @@ html.perf-mode .tb-wr-total { font-size: 14px !important; }
 .tb-wr-recent.bad  { color: #ff7a7a; }
 html.perf-mode .tb-wr-recent.good { color: #16a34a; }
 html.perf-mode .tb-wr-recent.bad  { color: #dc2626; }
+.tb-wr-recstop {
+  font-size: 10px; color: #c89bd6; font-family: 'SF Mono','Courier New',monospace;
+  margin-left: 5px; letter-spacing: .02em; white-space: nowrap; cursor: help;
+}
+.tb-wr-recstop.good { color: #26d07c; }
+.tb-wr-recstop.bad  { color: #ff7a7a; }
+html.perf-mode .tb-wr-recstop.good { color: #16a34a; }
+html.perf-mode .tb-wr-recstop.bad  { color: #dc2626; }
 
 /* 敗後停手勝率：常駐顯示的關鍵指標，給暖色藥丸襯底凸顯 */
 .tb-wr-stoprate {

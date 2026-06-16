@@ -642,6 +642,20 @@ function _renderWinRate(d) {
     }
   }
 
+  // 近 ~200 筆「敗後停手」勝率（取最近 200 筆套敗後停手狀態機，看近期照實單表現）
+  const rs = document.getElementById("wrRecentStop");
+  if (rs) {
+    const rcs = agg.recent_stop200;
+    if (rcs && rcs.win_rate != null) {
+      const good = rcs.win_rate >= 60, bad = rcs.win_rate < 45;
+      rs.className = `tb-wr-recstop${good ? " good" : bad ? " bad" : ""}`;
+      rs.textContent = `近${rcs.total}敗後 ${rcs.win_rate}%`;
+      rs.title = `最近約 200 筆套敗後停手：實際進場 ${rcs.total} 筆，${rcs.wins}勝 / ${rcs.total - rcs.wins}負（${rcs.win_rate}%）`;
+    } else {
+      rs.textContent = "—"; rs.className = "tb-wr-recstop"; rs.removeAttribute("title");
+    }
+  }
+
   // 「打到一開始預估止盈位子」機率（用固定目標掃描）
   const eh = document.getElementById("wrEstHit");
   if (eh) {
