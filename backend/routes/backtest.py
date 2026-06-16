@@ -232,7 +232,7 @@ def _build_pyramid_clusters(bars: dict, picked: list, max_adds: int, target: str
       • 加倉：某方向可進場時，第一筆開倉；倉位還活著（未碰共用停損/止盈）期間再出現同向訊號 → 加一筆，
         到 max_adds 為止（超過略過不加）。反向訊號只解除反向『敗後停手』、不動現有倉（單向不能反手）。
       • 均價：等量加倉 → 進場價 = 各加倉價算術平均。
-      • 共用停損 S：每次加倉後移到『最新那筆的停損』（順勢收緊）。
+      • 共用停損 S：固定在『第一筆的停損』（同實盤：止損固定首筆、不隨加倉移動）。
       • 共用止盈 T：上下軌動態目標（空→下軌 bb_lower、多→上軌 bb_upper）。
       • 重走 K 棒：從首筆進場棒往後逐棒掃，部位數量隨加倉 +1、同步更新均價與 S；先碰 T→全倉止盈、
         先碰 S→全倉止損、同根都碰用收盤價判（沿用 crt 保守規則）；NaN 軌道棒整根跳過。
@@ -332,7 +332,7 @@ def _build_pyramid_clusters(bars: dict, picked: list, max_adds: int, target: str
         """把一個加倉群結算成 _simulate 相容的 dict，並回傳是否淨虧（供敗後停手）。"""
         N = len(cl["tranches"])
         avg = sum(x["entry"] for x in cl["tranches"]) / N
-        shop = cl["tranches"][-1]["stop"]            # 共用停損 = 最新筆
+        shop = cl["tranches"][0]["stop"]            # 共用停損 = 第一筆(同實盤：止損固定在首筆、不隨加倉移動)
         risk = abs(avg - shop)
         d = cl["d"]; k0 = cl["tranches"][0]["k"]
         if result == "win" and risk > 1e-12:
@@ -359,7 +359,7 @@ def _build_pyramid_clusters(bars: dict, picked: list, max_adds: int, target: str
         # 先把現有開倉群推進到此訊號進場棒前，看是否已先出場
         if cur is not None:
             exit_idx, result, exit_px = _scan_exit(
-                cur["d"], None, cur["tranches"][-1]["stop"], cur["scan_i"], min(ei, cur["end_cap"]),
+                cur["d"], None, cur["tranches"][0]["stop"], cur["scan_i"], min(ei, cur["end_cap"]),
                 cur.get("tp_fix"))
             if exit_idx is not None:                  # 群在加倉前就出場 → 結算
                 lost = _finalize(cur, exit_idx, result, exit_px)
@@ -389,7 +389,7 @@ def _build_pyramid_clusters(bars: dict, picked: list, max_adds: int, target: str
 
     if cur is not None:                                # 收尾：最後一個群掃到底
         exit_idx, result, exit_px = _scan_exit(
-            cur["d"], None, cur["tranches"][-1]["stop"], cur["scan_i"], cur["end_cap"], cur.get("tp_fix"))
+            cur["d"], None, cur["tranches"][0]["stop"], cur["scan_i"], cur["end_cap"], cur.get("tp_fix"))
         if exit_idx is not None:
             _finalize(cur, exit_idx, result, exit_px)   # 未結算（掃不到出場）→ 丟棄（同單筆未結算不計）
 
