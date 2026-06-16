@@ -690,7 +690,7 @@ def _exec_signal_for_account(name, cfg, market, exchange, symbol, tf, k, d, sig,
                 _c, _ph = _acct._db()
                 try:
                     _r = _c.execute(
-                        f"SELECT id, adds, sl, sl_oid FROM trade_log WHERE source='auto' AND status='open' "
+                        f"SELECT id, adds, sl, sl_oid, sig, dir, sigt FROM trade_log WHERE source='auto' AND status='open' "
                         f"AND acct={_ph} AND bsym={_ph} ORDER BY id DESC LIMIT 1", (name, bsym)).fetchone()
                 finally:
                     _c.close()
@@ -707,6 +707,8 @@ def _exec_signal_for_account(name, cfg, market, exchange, symbol, tf, k, d, sig,
                            side=want, sig=k, d=d, tf=tf, sigt=str(sig.get("t")), msg=_why)
                 return
             is_add = True; add_row_id = _r[0]; add_old_sl = _r[2]; add_old_sl_oid = _r[3]
+            # 原進場訊號鍵/方向/訊號棒時間 → 讓加倉通知「回覆」串接回原自動進場訊息（同一串）
+            add_entry_sig = _r[4]; add_entry_d = _r[5]; add_entry_sigt = _r[6]
         elif len(pos) >= cfg["maxPos"]:
             _log_trade(source="auto", acct=name, mode=client.env, status="skipped", symbol=symbol, bsym=bsym,
                        side=want, sig=k, d=d, tf=tf, sigt=str(sig.get("t")),
@@ -889,11 +891,14 @@ def _exec_signal_for_account(name, cfg, market, exchange, symbol, tf, k, d, sig,
             except Exception:
                 pass
             envtag = "實盤" if client.env == "live" else "測試網"
-            l1 = f"第 {new_adds} 筆 · {'做空' if want == 'short' else '做多'} · {envtag}"
+            dir_emoji = "📉" if want == "short" else "📈"
+            l1 = f"{dir_emoji} 第 {new_adds} 筆 · {'做空' if want == 'short' else '做多'} · {envtag}"
             l2 = f"加倉 {_fmt_px(entry)} · 數量 +{qty}"
             l3 = f"均價 {_fmt_px(new_entry_chart) if new_entry_chart else '—'} · {sl_note}"
-            _push_owner(owner, f"➕ 自動加倉 · {symbol}（第{new_adds}筆）", "\n".join([l1, l2, l3]),
-                        symbol, tf=tf, event="atrade_open", sig=k, d=d, sigt=str(sig.get("t")))
+            # 串接回原進場訊息：用「原進場」的 sig/d/sigt（非本次加倉訊號）→ 加倉像回覆掛在同一串
+            _push_owner(owner, f"➕ 自動加倉{dir_emoji} · {symbol}（第{new_adds}筆）", "\n".join([l1, l2, l3]),
+                        symbol, tf=tf, event="atrade_open",
+                        sig=(add_entry_sig or k), d=(add_entry_d or d), sigt=(add_entry_sigt or str(sig.get("t"))))
             print(f"  ➕ 自動加倉 {client.env}: {bsym} 第{new_adds}筆 +{qty}（{sl_note}）")
             return
 
@@ -943,15 +948,16 @@ def _exec_signal_for_account(name, cfg, market, exchange, symbol, tf, k, d, sig,
                    qty=qty, entry=str(entry), sl=str(round(stop_chart, 8)),
                    tp=(str(round(tgt, 8)) if (tp_px and tgt is not None) else None), tp_oid=tp_oid, sl_oid=sl_oid,
                    sig=k, d=d, tf=tf, sigt=str(sig.get("t")), msg="；".join(warn) or None)
-        # 通知擁有者：自動進場
+        # 通知擁有者：自動進場（方向用 📈做多 / 📉做空 一眼看出）
         envtag = "實盤" if client.env == "live" else "測試網"
-        dir_txt = "做空" if want == "short" else "做多"
+        dir_emoji = "📉" if want == "short" else "📈"
+        dir_txt = f"{dir_emoji} {'做空' if want == 'short' else '做多'}"
         l1 = f"{dir_txt} · {lev}x · 數量 {qty} · {envtag}"
         l2 = f"進場 {_fmt_px(entry)}" + (f" → 止盈 {_fmt_px(tgt)}" if (tp_px and tgt is not None) else "")
         l3 = f"停損 {_fmt_px(stop_chart)}"
         body = "\n".join([l1, l2, l3]) + (f"\n⚠ {_size_warn}" if _size_warn else "")
-        _push_owner(owner, f"🤖 自動進場 · {symbol}（{envtag}）", body, symbol, tf=tf, event="atrade_open",
-                    sig=k, d=d, sigt=str(sig.get("t")))
+        _push_owner(owner, f"{dir_emoji} 自動進場{'做空' if want == 'short' else '做多'} · {symbol}（{envtag}）",
+                    body, symbol, tf=tf, event="atrade_open", sig=k, d=d, sigt=str(sig.get("t")))
         print(f"  🤖 自動下單 {client.env}: {bsym} {side} {qty}（{symbol} {tf} "
               f"{k}/{d}）" + (f" ⚠{warn}" if warn else ""))
     except Exception as e:
