@@ -5765,6 +5765,19 @@ body, button, input, select, textarea,
     padding-top: env(safe-area-inset-top, 0px);                       /* 避開瀏海/狀態列 */
     padding-bottom: calc(46px + env(safe-area-inset-bottom, 0px)) !important;  /* 避開底部分頁列 */
   }
+  /* 回測手機介面更像原生頁面：頂欄吸頂放大、表單控件加大好點按、執行/最佳化鈕全寬 */
+  .bt-hd { position: sticky; top: 0; z-index: 3; background: var(--panel,#1b1b1f) !important;
+           padding: 16px !important; }
+  .bt-hd b { font-size: 18px !important; }
+  .bt-x { font-size: 24px !important; padding: 6px 10px !important; }
+  .bt-body { padding: 16px !important; gap: 16px !important; }
+  .bt-row label { flex: 0 0 96px !important; font-size: 14px !important; }
+  .bt-row select, .bt-row input { padding: 12px 12px !important; font-size: 16px !important; border-radius: 10px !important; }
+  .bt-seg { gap: 6px !important; }
+  .bt-seg button { padding: 11px 6px !important; font-size: 13.5px !important; border-radius: 9px !important; }
+  .bt-run { padding: 16px !important; font-size: 17px !important; border-radius: 13px !important; }
+  .bt-opt-btn { padding: 14px !important; font-size: 15px !important; }
+  .bt-card .v { font-size: 18px !important; }
   .m-tabbar {
     display: flex;
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 700;
