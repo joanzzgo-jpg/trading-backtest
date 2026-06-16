@@ -987,12 +987,18 @@ def _close_auto_position(owner, client, row_id, bsym, symbol, tf, event, reason,
         pass
     result = "止盈" if event == "tp" else "止損"
     icon = "✅" if event == "tp" else "👎"            # 止盈勾勾／止損倒讚
+    _xpx = None                                       # 實際出場價（顯示用，讓人一眼核對是不是真的到位）
+    try:
+        _xpx = client.last_fill_price(bsym)
+    except Exception:
+        pass
+    _xtxt = f"\n出場 @ {_fmt_px(_xpx)}" if _xpx else ""
     # body 保留「已實現盈虧 {±x} USDT」格式（今日摘要正則解析用），後綴賺/賠金額讓人一眼看懂
     if pnl is not None:
         gain = "賺" if pnl >= 0 else "賠"
-        body = f"{icon} {result}平倉\n已實現盈虧 {pnl:+.2f} USDT（{gain} {abs(pnl):.2f}）"
+        body = f"{icon} {result}平倉\n已實現盈虧 {pnl:+.2f} USDT（{gain} {abs(pnl):.2f}）{_xtxt}"
     else:
-        body = f"{icon} {result}平倉"
+        body = f"{icon} {result}平倉{_xtxt}"
     _push_owner(owner, f"{icon} 自動{result} · {symbol}", body, symbol, tf=tf,
                 event=("atrade_tp" if event == "tp" else "atrade_sl"),
                 sig=sig, d=d, sigt=sigt)

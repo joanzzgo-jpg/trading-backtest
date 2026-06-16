@@ -289,6 +289,16 @@ class Client:
         return [{"symbol": r.get("symbol"), "pnl": float(r.get("income", 0) or 0),
                  "ts": (r.get("time") or 0) / 1000} for r in rows]
 
+    def last_fill_price(self, sym: str):
+        """最近一筆成交價（平倉通知顯示『出場 @ X』用）。純顯示、失敗回 None、絕不拋例外。"""
+        try:
+            rows = self._request("GET", "/fapi/v1/userTrades", {"symbol": sym, "limit": 1})
+            if isinstance(rows, list) and rows:
+                return float(rows[-1].get("price", 0) or 0) or None
+        except Exception:
+            pass
+        return None
+
     # ── 下單 ──
     def set_leverage(self, sym: str, lev: int):
         lev = max(1, min(int(lev), 125))
