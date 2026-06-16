@@ -251,10 +251,15 @@ def _process_combo(market, exchange, symbol, tf, subs_here, now):
 
 def _tick(last_seen: dict):
     import routes.notify as notify
-    if not notify.notify_enabled():
-        return
-    subs = notify.all_active_subs()
-    if not subs:
+    # 推播訂閱（推播未設 VAPID → 視為無訂閱，但自動交易仍要照跑）
+    subs = notify.all_active_subs() if notify.notify_enabled() else []
+    # 自動交易已開啟的帳號（獨立於推播訂閱）→ 即使沒開訊號通知，也要掃它們的標的×時框來進場。
+    try:
+        from routes.trade import get_all_auto_cfgs
+        auto_cfgs = get_all_auto_cfgs()
+    except Exception:
+        auto_cfgs = []
+    if not subs and not auto_cfgs:
         return
     now = time.time()
 
@@ -266,10 +271,14 @@ def _tick(last_seen: dict):
             prefs_cache[nm] = notify.account_prefs(nm)
         s["prefs"] = prefs_cache[nm]
 
-    # 哪些時框「剛收一根新棒」（gating）→ 只算這些
+    # 哪些時框「剛收一根新棒」（gating）→ 只算這些。納入推播訂閱 + 自動交易帳號各自的時框。
     active_tfs = set()
     for s in subs:
         for tf in (s["prefs"].get("tfs") or []):
+            if tf in _TF_SEC:
+                active_tfs.add(tf)
+    for _nm, _cfg in auto_cfgs:
+        for tf in (_cfg.get("tfs") or []):
             if tf in _TF_SEC:
                 active_tfs.add(tf)
     fresh_tfs = set()
@@ -299,6 +308,22 @@ def _tick(last_seen: dict):
             for tf in (s["prefs"].get("tfs") or []):
                 if tf in fresh_tfs:
                     combos.setdefault((mkt, exch, sym, tf), []).append(s)
+
+    # 自動交易帳號（獨立於推播）：把它們的『合約自選 × 自動交易時框』也納入掃描。subs_here 留空＝
+    # 此 combo 不推播、但 _process_combo 仍會跑 retarget/reconcile/execute_signal_trade（自動進場）。
+    # 只收 crypto（自動交易僅支援永續）→ 不白掃台股/美股。combo 已存在(有訂閱者)則沿用、不覆蓋其清單。
+    for name, cfg in auto_cfgs:
+        if name not in wl_cache:
+            wl_cache[name] = notify.account_watchlist(name)
+        for w in wl_cache[name]:
+            sym = w.get("symbol")
+            if not sym or (w.get("market") or "crypto") != "crypto":
+                continue
+            mkt = w.get("market") or "crypto"
+            exch = w.get("exchange") or "pionex"
+            for tf in (cfg.get("tfs") or []):
+                if tf in fresh_tfs:
+                    combos.setdefault((mkt, exch, sym, tf), [])   # 確保此 combo 會被處理（無推播訂閱者）
 
     for (mkt, exch, sym, tf), subs_here in combos.items():
         try:
