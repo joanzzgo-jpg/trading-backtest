@@ -1261,6 +1261,38 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
     ss_out = _build_ss_out("mid", mid_cnt, mid_rr, streak_mid)
     ss_out["band"] = _build_ss_out("band", band_cnt, band_rr, streak_band)   # 上下軌版（前端切換用）
 
+    # ── SS3：SS 群聚衍生訊號（主圖標記用）──────────────────────────
+    # 定義：兩個「同向」SS 相隔 2 棒(中間 1 根非策略棒)、且第二個入場價更優(空→更高/多→更低)。
+    # 把符合的「第二個 SS」複製一份、k 改 "ss3" 後加入 signals → 前端當獨立訊號標記在主圖。
+    # (止損/出場的實盤細節由自動交易端處理；此處只負責「在哪些棒觸發 SS3」的視覺標記。)
+    try:
+        _t2i = {t: i for i, t in enumerate(times_iso)}
+        _ssbar = {"s": {}, "l": {}}; _allbar = set()
+        for _s in signals:
+            if _s.get("k") in ("ss1", "ss2") and _s.get("t") is not None:
+                _bi = _t2i.get(_s["t"])
+                if _bi is not None and _s.get("d") in _ssbar:
+                    _ssbar[_s["d"]][_bi] = _s; _allbar.add(_bi)
+        _ss3 = []
+        for _s in signals:
+            if _s.get("k") not in ("ss1", "ss2"):
+                continue
+            _d = _s.get("d"); _bi = _t2i.get(_s.get("t"))
+            if _bi is None or _d not in _ssbar:
+                continue
+            _prev = _ssbar[_d].get(_bi - 2)          # 前面相隔 2 棒、同向 SS
+            if _prev is None or (_bi - 1) in _allbar:  # 中間 1 根須為非策略棒
+                continue
+            _e = _s.get("entry"); _oe = _prev.get("entry")
+            if _e is None or _oe is None:
+                continue
+            if not ((_d == "s" and _e > _oe) or (_d == "l" and _e < _oe)):
+                continue                              # 第二個入場須更優
+            _c = dict(_s); _c["k"] = "ss3"; _ss3.append(_c)
+        signals = signals + _ss3
+    except Exception:
+        pass
+
     return {
         **mid_out,                # backward compat：mid 統計放在頂層
         "ss":   ss_out,           # SS 系列（獨立合計 + 敗後停手，不與 S 混）

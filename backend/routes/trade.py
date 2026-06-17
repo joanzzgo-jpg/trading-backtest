@@ -44,7 +44,7 @@ _ALLOW = {_acct._norm_name(s) for s in (os.getenv("TRADE_ALLOW") or _OWNER).spli
 def _allowed(name: str) -> bool:
     return _acct._norm_name(name or "") in _ALLOW if _ALLOW else False
 
-_ALL_SIGS = {"abc", "ab", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "ss1", "ss2"}
+_ALL_SIGS = {"abc", "ab", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "ss1", "ss2", "ss3"}
 _ALL_TFS = {"5m", "15m", "30m", "1h", "2h", "4h", "8h", "1d", "1w", "1M"}
 # 自動交易止盈目標＝「下軌→上軌」的此比例位（多單靠上軌、空單鏡像靠下軌），取代滿格外軌(=1.0)。
 # 0.98＝離上軌 2% 處先止盈 → 不等價格剛好碰到外軌(常常差一點點沒成交又反轉吐回)。進場初始 TP 與
