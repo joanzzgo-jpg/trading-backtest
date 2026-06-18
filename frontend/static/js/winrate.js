@@ -387,6 +387,7 @@ async function _fetchWinRateNow() {
     if (_wrFetchCtrl) { _wrFetchCtrl.abort(); _wrFetchCtrl = null; }
     _renderWinRate(_wrCache[cacheKey]);
     _renderWRSignals(_wrCache[cacheKey].signals);
+    if (typeof setFVGZones === "function") setFVGZones(_wrCache[cacheKey].fvg);
     // 快取命中也要刷新左抽屜（含敗後停手求解），否則切回已載入過的標的時抽屜不更新
     if (typeof window._refreshSignalDrawer === "function") window._refreshSignalDrawer();
     return;
@@ -417,6 +418,7 @@ async function _fetchWinRateNow() {
     if (myCtrl !== _wrFetchCtrl) return;
     _renderWinRate(d);
     _renderWRSignals(d.signals);
+    if (typeof setFVGZones === "function") setFVGZones(d.fvg);
     if (typeof window._refreshSignalDrawer === "function") window._refreshSignalDrawer();
   } catch(e) {
     console.error("[fetchWinRate] error:", e.name, e.message);

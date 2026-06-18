@@ -1293,6 +1293,32 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
     except Exception:
         pass
 
+    # ── FVG（失衡缺口，主圖視覺標記用）────────────────────────────
+    # 三根K [g-1],[g],[g+1]：多頭FVG(支撐) low[g+1]>high[g-1]；空頭FVG(壓力) high[g+1]<low[g-1]。
+    # 缺口寬度 > 門檻(0.3%)才算。回 {t(=g+1棒時間), top, bot, d('l'/'s'), t2(被填補時間或None)}。
+    _fvg = []
+    try:
+        _N = len(times_iso); _MS = 0.003
+        for _g in range(1, _N - 1):
+            _h0 = float(highs[_g-1]); _l0 = float(lows[_g-1])
+            _h2 = float(highs[_g+1]); _l2 = float(lows[_g+1])
+            if any(_v != _v for _v in (_h0, _l0, _h2, _l2)):   # NaN
+                continue
+            if _l2 > _h0 and (_l2 - _h0) / _h0 > _MS:          # 多頭缺口（支撐）
+                _dir, _top, _bot = "l", _l2, _h0
+            elif _h2 < _l0 and (_l0 - _h2) / _l0 > _MS:        # 空頭缺口（壓力）
+                _dir, _top, _bot = "s", _l0, _h2
+            else:
+                continue
+            _t2 = None                                          # 找回補點（價格重回缺口區）
+            for _j in range(_g + 2, _N):
+                if _dir == "l" and float(lows[_j])  <= _top: _t2 = times_iso[_j]; break
+                if _dir == "s" and float(highs[_j]) >= _bot: _t2 = times_iso[_j]; break
+            _fvg.append({"t": times_iso[_g+1], "top": _top, "bot": _bot, "d": _dir, "t2": _t2})
+        _fvg = _fvg[-300:]   # 限量，避免 payload 過大 / 畫面過雜
+    except Exception:
+        _fvg = []
+
     return {
         **mid_out,                # backward compat：mid 統計放在頂層
         "ss":   ss_out,           # SS 系列（獨立合計 + 敗後停手，不與 S 混）
@@ -1302,4 +1328,5 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         "from_date": from_date,
         "recent":   recent[-30:],
         "signals":  signals,
+        "fvg":      _fvg,         # 失衡缺口（主圖色塊）
     }

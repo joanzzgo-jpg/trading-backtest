@@ -45,7 +45,74 @@ function createCandleSeries() {
     wickUpColor:     C.wickUp,      wickDownColor:   C.wickDown,
     priceLineVisible: false, lastValueVisible: false,
   });
+  // FVG 失衡缺口色塊（自訂 primitive）：蠟燭重建時一併重掛，沿用全域 _fvgZones
+  try {
+    _fvgPrimitive = _makeFVGPrimitive();
+    candleSeries.attachPrimitive(_fvgPrimitive);
+  } catch (e) { /* 舊版 LWC 無 attachPrimitive 時靜默略過 */ }
 }
+
+/* ── FVG 失衡缺口：在主圖蠟燭上畫半透明色塊（青=多頭/支撐、紅=空頭/壓力）── */
+let _fvgZones = [];        // [{t1, t2|null, top, bot, d}]（已轉成圖表時間）
+let _fvgPrimitive = null;
+let _fvgShow = true;
+function _makeFVGPrimitive() {
+  let _chart = null, _series = null, _req = null;
+  const renderer = {
+    draw(target) {
+      if (!_fvgShow || !_fvgZones.length || !_chart || !_series) return;
+      const ts = _chart.timeScale();
+      target.useBitmapCoordinateSpace(scope => {
+        const ctx = scope.context;
+        const hr = scope.horizontalPixelRatio, vr = scope.verticalPixelRatio;
+        const wpx = scope.mediaSize.width;
+        for (const z of _fvgZones) {
+          const x1 = ts.timeToCoordinate(z.t1);
+          if (x1 == null) continue;
+          let x2 = (z.t2 != null) ? ts.timeToCoordinate(z.t2) : null;
+          if (x2 == null) x2 = wpx;                      // 未填補 → 延伸到右緣
+          if (x2 <= x1) x2 = x1 + 1;
+          const yT = _series.priceToCoordinate(z.top);
+          const yB = _series.priceToCoordinate(z.bot);
+          if (yT == null || yB == null) continue;
+          const bx = x1 * hr, bw = (x2 - x1) * hr;
+          const byTop = Math.min(yT, yB) * vr, bh = Math.abs(yB - yT) * vr;
+          ctx.fillStyle   = z.d === "l" ? "rgba(38,198,166,0.14)" : "rgba(255,82,82,0.14)";
+          ctx.strokeStyle = z.d === "l" ? "rgba(38,198,166,0.55)" : "rgba(255,82,82,0.55)";
+          ctx.fillRect(bx, byTop, bw, bh);
+          ctx.lineWidth = Math.max(1, hr);
+          ctx.setLineDash([4 * hr, 3 * hr]);
+          ctx.strokeRect(bx, byTop, bw, bh);
+          ctx.setLineDash([]);
+        }
+      });
+    },
+  };
+  const paneView = { renderer() { return renderer; } };
+  return {
+    attached(p) { _chart = p.chart; _series = p.series; _req = p.requestUpdate; },
+    detached() { _chart = _series = _req = null; },
+    updateAllViews() {},
+    paneViews() { return [paneView]; },
+    requestUpdate() { if (_req) _req(); },
+  };
+}
+// 餵入後端 fvg 陣列 [{t, top, bot, d, t2}] → 轉圖表時間並重繪
+function setFVGZones(list) {
+  _fvgZones = (Array.isArray(list) ? list : []).map(z => ({
+    t1: toTime(z.t), t2: (z.t2 != null ? toTime(z.t2) : null),
+    top: z.top, bot: z.bot, d: z.d,
+  })).filter(z => z.t1 != null && z.top != null && z.bot != null);
+  if (_fvgPrimitive) _fvgPrimitive.requestUpdate();
+}
+// 開關（預設開）：window.toggleFVG() 切換
+function toggleFVG(on) {
+  _fvgShow = (on === undefined) ? !_fvgShow : !!on;
+  if (_fvgPrimitive) _fvgPrimitive.requestUpdate();
+  return _fvgShow;
+}
+window.setFVGZones = setFVGZones;
+window.toggleFVG = toggleFVG;
 
 /* ── 將 ohlcv 資料套用到目前 series ── */
 function applyOhlcvToSeries(data) {
