@@ -5,8 +5,11 @@ function _loadWatchlist() {
 }
 function _saveWatchlist() {
   try { localStorage.setItem("watchlist", JSON.stringify(_watchlist)); } catch {}
-  if (window._acctTouch) window._acctTouch();   // 登入中 → 自選變更同步到雲端
+  // 自選走「寫穿伺服器」當唯一真相 → 多裝置/換裝置即時一致，不被整包快照 last-write-wins 蓋掉。
+  if (window._acctSaveWatch) window._acctSaveWatch(_watchlist);
 }
+// 給帳號模組在「登入 / 切回前景拉到雲端最新自選」後即時刷新清單
+window._acctReloadWatch = function () { _loadWatchlist(); _renderWatchlist(); };
 function _renderWatchlist() {
   renderTickers();   // wl tab 在 renderTickers 內處理，其餘 tab 更新星號狀態
   _updateStarBtn();

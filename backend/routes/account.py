@@ -75,6 +75,21 @@ def _ensure_db():
                 updated_at REAL
             )
         """)
+        # 自選走「寫穿表」當唯一真相（不進整包快照）：每次加/刪自選即寫入，換裝置/多裝置即時一致，
+        # 避免整包 last-write-wins 被別台舊快照蓋掉（與 trade_userkey 同模型）。
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS account_watchlist (
+                name       TEXT PRIMARY KEY,
+                wl         TEXT,
+                updated_at DOUBLE PRECISION
+            )
+        """ if _use_pg() else """
+            CREATE TABLE IF NOT EXISTS account_watchlist (
+                name       TEXT PRIMARY KEY,
+                wl         TEXT,
+                updated_at REAL
+            )
+        """)
         for nm in _SEED:
             conn.execute(
                 f"INSERT INTO accounts (name, data, updated_at) VALUES ({ph},'{{}}',{ph}) "
@@ -115,6 +130,15 @@ class SyncReq(BaseModel):
 
 class AdminCreateReq(BaseModel):
     key: str
+    name: str
+
+
+class SaveWatchReq(BaseModel):
+    name: str
+    wl: list
+
+
+class MyWatchReq(BaseModel):
     name: str
 
 
@@ -175,6 +199,51 @@ def sync(req: SyncReq):
     finally:
         conn.close()
     return {"ok": True}
+
+
+@router.post("/savewatch")
+def save_watch(req: SaveWatchReq):
+    """把自選清單寫穿到帳號的 account_watchlist 表（唯一真相）。每次加/刪自選即呼叫 →
+    多裝置/換裝置即時一致，不受整包快照 last-write-wins 影響。"""
+    _require_enabled()
+    name = _norm_name(req.name)
+    if not _valid_name(name):
+        raise HTTPException(status_code=400, detail="帳號名稱不正確")
+    conn, ph = _db()
+    try:
+        conn.execute(
+            f"INSERT INTO account_watchlist (name, wl, updated_at) VALUES ({ph},{ph},{ph}) "
+            f"ON CONFLICT (name) DO UPDATE SET wl=excluded.wl, updated_at=excluded.updated_at",
+            (name, json.dumps(req.wl or []), time.time()))
+        conn.commit()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"自選同步失敗：{e}")
+    finally:
+        conn.close()
+    return {"ok": True}
+
+
+@router.post("/mywatch")
+def my_watch(req: MyWatchReq):
+    """取回該帳號的自選清單（登入或切回前景時拉取，覆蓋本機）。
+    回 {wl: [...], exists: bool}。exists=False → 表中尚無此帳號（供前端遷移舊快照自選）。"""
+    _require_enabled()
+    name = _norm_name(req.name)
+    if not _valid_name(name):
+        return {"wl": [], "exists": False}
+    conn, ph = _db()
+    try:
+        cur = conn.execute(f"SELECT wl FROM account_watchlist WHERE name={ph}", (name,))
+        row = cur.fetchone()
+    finally:
+        conn.close()
+    if not row:
+        return {"wl": [], "exists": False}
+    try:
+        wl = json.loads(row[0]) if isinstance(row[0], str) else (row[0] or [])
+    except Exception:
+        wl = []
+    return {"wl": wl if isinstance(wl, list) else [], "exists": True}
 
 
 @router.post("/admin/create")

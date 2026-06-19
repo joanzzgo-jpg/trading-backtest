@@ -13,7 +13,9 @@ let _acctLSHooked = false;
 //  → 把這台的自選蓋掉另一台，造成自選不同步）。
 // tradeKey=交易口令改走伺服器寫穿表（/api/trade/savekey|mykey）當唯一真相，不進整包快照
 // （快照 last-write-wins 會被別台舊快照蓋掉、換裝置帶不到）。
-const _ACCT_SKIP = new Set(["acctName", "wxCoords", "notifyFeedSeen", "tradeKey"]);
+// watchlist=自選改走伺服器寫穿表（/api/account/savewatch|mywatch）當唯一真相，不進整包快照
+// （快照 last-write-wins 會被別台舊快照蓋掉 → 多裝置自選不同步、換裝置帶不到，與 tradeKey 同理）。
+const _ACCT_SKIP = new Set(["acctName", "wxCoords", "notifyFeedSeen", "tradeKey", "watchlist"]);
 // 每個帳號各自保存、切換帳號時要「乾淨換成該帳號的」設定 key：
 //   chartColors=K棒+指標顏色 / chartStyles=指標參數·線寬·樣式 / chartLineStyles=各線寬樣式 /
 //   sysColors=系統外觀色 / mobileTFs=手機顯示的時間框
@@ -92,12 +94,16 @@ async function _acctLogin(name) {
   for (const k of _ACCT_SEED_SKIP) delete seed[k];
   const j = await _acctApi("login", { name, data: seed });
   _acctSaveSession(j.name || name);
+  // 自選走寫穿表：登入即拉雲端最新覆蓋本機（含舊快照自選遷移）。在套快照前先設好。
+  await _acctPullWatch(j.name || name, j.data, true);
   const hasData = j.data && typeof j.data === "object" && Object.keys(j.data).length > 0;
   if (hasData) {
     _acctApplySnapshot(j.data);
     try { sessionStorage.setItem("landingDismissedAt", String(Date.now())); } catch (e) {}
     return { applied: true };
   }
+  // 雲端空：不 reload → 即時刷新自選清單（可能已遷移/清空）
+  if (typeof window._acctReloadWatch === "function") window._acctReloadWatch();
   return { applied: false };
 }
 
@@ -133,6 +139,36 @@ async function _acctFlush() {
   if (!_ACCT.name) return;
   try { await _acctApi("sync", { name: _ACCT.name, data: _acctSnapshot() }); }
   catch (e) { if (/查無|404/.test(e.message)) _acctSaveSession(null); }
+}
+
+// ── 自選寫穿（唯一真相，不進快照）──────────────────────────────
+let _acctWatchTimer = null;
+window._acctSaveWatch = function (wl) {
+  if (!_ACCT.name) return;
+  clearTimeout(_acctWatchTimer);
+  const arr = Array.isArray(wl) ? wl : [];
+  _acctWatchTimer = setTimeout(() => {
+    _acctApi("savewatch", { name: _ACCT.name, wl: arr }).catch(() => {});
+  }, 600);
+};
+// 從雲端拉自選覆蓋本機。snapData=登入快照（供遷移舊自選）；clearIfEmpty=雲端與快照皆無時是否清本機
+// （登入用 true 防跨帳號汙染；切回前景用 false 以免誤清本機未及上傳的自選）。
+async function _acctPullWatch(name, snapData, clearIfEmpty) {
+  if (!name) return;
+  try {
+    const r = await _acctApi("mywatch", { name });
+    if (r && r.exists && Array.isArray(r.wl)) {
+      try { localStorage.setItem("watchlist", JSON.stringify(r.wl)); } catch (e) {}
+    } else if (snapData && snapData.watchlist) {
+      // 寫穿表尚無此帳號 → 用登入快照裡的舊自選遷移過去（既有使用者不遺失）
+      try { localStorage.setItem("watchlist", String(snapData.watchlist)); } catch (e) {}
+      let wl = []; try { wl = JSON.parse(snapData.watchlist); } catch (e) {}
+      if (Array.isArray(wl) && wl.length) _acctApi("savewatch", { name, wl }).catch(() => {});
+    } else if (clearIfEmpty) {
+      // 空帳號（登入時）：清掉本機殘留，避免上一帳號自選汙染
+      try { localStorage.removeItem("watchlist"); } catch (e) {}
+    }
+  } catch (e) {}
 }
 
 function _acctSetMsg(msg, isErr) {
@@ -221,5 +257,14 @@ async function initAccount() {
       };
     }
   } catch (e) {}
-  document.addEventListener("visibilitychange", () => { if (document.hidden && _ACCT.name) _acctFlush(); });
+  document.addEventListener("visibilitychange", () => {
+    if (!_ACCT.name) return;
+    if (document.hidden) { _acctFlush(); }
+    else {
+      // 切回前景 → 拉雲端最新自選覆蓋本機並刷新（讓另一台改的自選即時跟上）
+      _acctPullWatch(_ACCT.name, null, false).then(() => {
+        if (typeof window._acctReloadWatch === "function") window._acctReloadWatch();
+      });
+    }
+  });
 }
