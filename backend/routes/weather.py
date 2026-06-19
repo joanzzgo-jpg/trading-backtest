@@ -606,8 +606,9 @@ async def _fetch_omt_forecast(lat: float, lon: float):
     另用『逐小時』判斷今日「午後(13–18時)是否有雷雨/陣雨」→ 讓小熊能準確講午後雷雨而非亂報。
     回 {"today": {...,afternoon}, "tomorrow": {...}}。"""
     params = {"latitude": lat, "longitude": lon, "timezone": "auto", "forecast_days": 2,
-              "daily": "temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code",
-              "hourly": "weather_code,precipitation_probability"}
+              "daily": "temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code,uv_index_max",
+              "hourly": "weather_code,precipitation_probability",
+              "current": "apparent_temperature,relative_humidity_2m,wind_speed_10m,temperature_2m"}
     timeout = aiohttp.ClientTimeout(total=8)
     async with aiohttp.ClientSession(timeout=timeout) as sess:
         async with sess.get(OMT_URL, params=params) as r:
@@ -617,18 +618,32 @@ async def _fetch_omt_forecast(lat: float, lon: float):
     tmin = d.get("temperature_2m_min") or []
     pop  = d.get("precipitation_probability_max") or []
     code = d.get("weather_code") or []
+    uvx  = d.get("uv_index_max") or []
     def _day(i):
         if i >= len(tmax):
             return None
         def _r(arr):
             try: return round(float(arr[i]))
             except (TypeError, ValueError, IndexError): return None
-        return {"tmax": _r(tmax), "tmin": _r(tmin),
-                "pop": _r(pop), "cond": _wmo_zh(code[i] if i < len(code) else None)}
+        o = {"tmax": _r(tmax), "tmin": _r(tmin),
+             "pop": _r(pop), "cond": _wmo_zh(code[i] if i < len(code) else None)}
+        if i < len(uvx) and uvx[i] is not None:
+            try: o["uv"] = round(float(uvx[i]))
+            except (TypeError, ValueError): pass
+        return o
     out = {}
     t0 = _day(0); t1 = _day(1)
     if t0: out["today"] = t0
     if t1: out["tomorrow"] = t1
+    # 當前體感/濕度/風速（給「悶熱/風大/體感」提醒）
+    cur = data.get("current") or {}
+    def _cf(k):
+        try: return round(float(cur[k]))
+        except (TypeError, ValueError, KeyError): return None
+    nowo = {"feels": _cf("apparent_temperature"), "temp": _cf("temperature_2m"),
+            "humidity": _cf("relative_humidity_2m"), "wind": _cf("wind_speed_10m")}
+    if any(v is not None for v in nowo.values()):
+        out["now"] = nowo
     # 逐小時：今日午後(13–18時)雷雨/陣雨偵測（timezone=auto → hourly[0] 為今日 00:00 當地）
     try:
         h = data.get("hourly") or {}
@@ -646,6 +661,25 @@ async def _fetch_omt_forecast(lat: float, lon: float):
     except Exception:
         pass
     return out or None
+
+
+AQI_URL = "https://air-quality-api.open-meteo.com/v1/air-quality"
+
+async def _fetch_omt_aqi(lat: float, lon: float):
+    """Open-Meteo 空氣品質（全球、免金鑰）：US AQI + PM2.5。回 {"us_aqi":, "pm25":} 或 None。"""
+    params = {"latitude": lat, "longitude": lon, "current": "us_aqi,pm2_5"}
+    timeout = aiohttp.ClientTimeout(total=8)
+    async with aiohttp.ClientSession(timeout=timeout) as sess:
+        async with sess.get(AQI_URL, params=params) as r:
+            data = await r.json(content_type=None)
+    c = data.get("current") or {}
+    def _r(k):
+        try: return round(float(c[k]))
+        except (TypeError, ValueError, KeyError): return None
+    aqi = _r("us_aqi"); pm = _r("pm2_5")
+    if aqi is None and pm is None:
+        return None
+    return {"us_aqi": aqi, "pm25": pm}
 
 
 _SUN_CACHE: dict = {}   # (rlat, rlon, date) -> {"rise","set","tz_off"}（當天天文日出日落）
@@ -765,6 +799,13 @@ async def weather(
     try:
         fc = await _fetch_omt_forecast(lat, lon)
         if fc: res["forecast"] = fc
+    except Exception:
+        pass
+    # 空氣品質（best-effort）
+    try:
+        aq = await _fetch_omt_aqi(lat, lon)
+        if aq:
+            res.setdefault("forecast", {})["aqi"] = aq
     except Exception:
         pass
     # 用 Open-Meteo 天文日出/日落（含真實時區/日光節約）校正各源；並回傳該地 UTC 偏移
