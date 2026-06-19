@@ -658,6 +658,23 @@ async def _fetch_omt_forecast(lat: float, lon: float):
             out["today"]["afternoon"] = {
                 "thunder": thunder, "shower": shower, "pop": aftpop,
             }
+        # 降雨時段：從當地當前小時起，找今天第一個降雨機率 ≥50% 的小時 + 是否正在下雨
+        from datetime import datetime, timedelta
+        off = int(data.get("utc_offset_seconds", 0) or 0)
+        cur_h = (datetime.utcnow() + timedelta(seconds=off)).hour
+        def _p(i):
+            try: return float(hp[i]) if i < len(hp) and hp[i] is not None else None
+            except (TypeError, ValueError): return None
+        now_p = _p(cur_h)
+        raining_now = (now_p is not None and now_p >= 60) or \
+                      (cur_h < len(hc) and hc[cur_h] in (51, 53, 55, 61, 63, 65, 80, 81, 82, 95, 96, 99))
+        from_hour = from_pop = None
+        for hh in range(cur_h, min(24, len(hp))):
+            v = _p(hh)
+            if v is not None and v >= 50:
+                from_hour = hh; from_pop = int(round(v)); break
+        out["rain"] = {"raining_now": bool(raining_now),
+                       "from_hour": from_hour, "from_pop": from_pop}
     except Exception:
         pass
     return out or None
