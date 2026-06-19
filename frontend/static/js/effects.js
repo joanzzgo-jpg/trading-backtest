@@ -401,61 +401,66 @@
     "人家說要走出舒適圈。我走出去了，外面不舒服。我回來了。舒適圈的意義，就是讓你知道外面有多難待。",
   ];
   /* Fisher-Yates shuffle, reshuffles when exhausted */
-  // 天氣預報台詞（說人話版：在地幽默 + 帶雨具/防午後雷雨建議）。資料來自 weather.js 的 _getForecast()
+  // 熊式短評（輪播洗牌袋，避免連續重複）
+  const _REMARKS = [
+    "看天氣我很準，看盤就⋯⋯算了。",
+    "天氣我能預報，你的單我不敢。",
+    "出門記得帶傘，進場記得帶停損。",
+    "睡眠是最便宜的風控。",
+    "別走進交易所，那裡的天氣永遠是看不懂的盤整。",
+    "照顧好自己，比照顧帳戶重要。",
+    "天有不測風雲、幣有旦夕禍福，傘還是要帶。",
+    "氣象是機率，跟你的勝率一樣，別 all in。",
+    "風會停、雨會停，套牢⋯⋯再說。",
+  ];
+  let _remShuf = [], _remPos = 0;
+  function _bearRemark() {
+    if (_remPos >= _remShuf.length) {
+      _remShuf = [..._REMARKS];
+      for (let i = _remShuf.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [_remShuf[i], _remShuf[j]] = [_remShuf[j], _remShuf[i]];
+      }
+      _remPos = 0;
+    }
+    return _remShuf[_remPos++];
+  }
+
+  // 天氣預報（完整版：問候＋今日總覽＋所有適用提醒＋明日＋輪播短評）。資料來自 weather.js 的 _getForecast()
   function _forecastLine() {
     const f = (typeof window._getForecast === "function") ? window._getForecast() : null;
     if (!f || !f.today) return null;
-    const t = f.today, m = f.tomorrow, a = t.afternoon || {};
-    const pool = [];
-    // 今日午後雷雨（逐小時 13–18 時真的偵測到才講）
-    if (a.thunder) pool.push(`今天午後${(a.pop != null && a.pop >= 30) ? `雷雨機率 ${a.pop}%` : "有雷雨機會"}。出門帶把傘、別在外面躲，雷雨來得快、走得也快——跟你的獲利一樣。`);
-    else if (a.shower) pool.push(`今天午後${a.pop != null ? `有 ${a.pop}% 機率` : "可能"}下陣雨，雨具塞包包當避險，成本很低。`);
-    // 今日整天降雨 / 帶雨具
-    if (t.pop != null && t.pop >= 60) pool.push(`今日降雨機率 ${t.pop}%。雨具帶著，淋濕的滋味跟被套牢一樣難受。`);
-    else if (t.pop != null && t.pop >= 30) pool.push(`今天有 ${t.pop}% 機率下雨，出門帶傘，淋雨事小、感冒事大。`);
-    // 溫度提醒
-    if (t.tmax != null && t.tmax >= 33) pool.push(`今天高溫 ${t.tmax}°，熱到融化。多喝水，別像我盯盤盯到脫水。`);
-    if (t.tmin != null && t.tmin <= 14) pool.push(`今晚最低 ${t.tmin}°，記得加件外套。保暖跟風控一樣，平常嫌煩、出事才後悔。`);
-    // 明日預報
-    if (m) {
-      if (m.cond && m.cond.includes("雷")) pool.push(`明天${m.tmin}~${m.tmax}°、有雷雨。雨具先備好，預防午後那場。`);
-      else if (m.pop != null && m.pop >= 50) pool.push(`明天降雨 ${m.pop}%、${m.tmin}~${m.tmax}°。出門記得帶傘，我負責預報、不負責幫你曬乾。`);
-    }
-    // ── 當前體感/空品/問候（資料來自 f.now、f.aqi）──
-    const now = f.now || {}, aqi = f.aqi || {};
-    // 紫外線 / 防曬
-    if (t.uv != null && t.uv >= 8) pool.push(`今天紫外線爆表（UV ${t.uv}）。防曬乳記得補，曬傷跟爆倉一樣——當下沒感覺，事後很痛。`);
-    else if (t.uv != null && t.uv >= 6) pool.push(`紫外線偏強（UV ${t.uv}），出門擦個防曬、戴頂帽子。`);
-    // 體感悶熱（體感明顯高於實際）
-    if (now.feels != null && now.temp != null && now.feels - now.temp >= 4 && now.feels >= 32)
-      pool.push(`實際 ${now.temp}°、體感卻 ${now.feels}°，濕熱黏 TT。多補水、少在外面久待。`);
-    // 濕度悶熱
-    if (now.humidity != null && now.humidity >= 80 && (now.temp == null || now.temp >= 26))
-      pool.push(`濕度 ${now.humidity}%，悶熱黏膩，出門像走進蒸籠。`);
-    // 風大
-    if (now.wind != null && now.wind >= 40) pool.push(`風很大（${now.wind} km/h），帽子壓好、輕的東西收好，騎車小心。`);
-    else if (now.wind != null && now.wind >= 25) pool.push(`今天風有點大（${now.wind} km/h），出門注意。`);
-    // 空氣品質
-    if (aqi.us_aqi != null && aqi.us_aqi >= 150) pool.push(`空氣品質差（AQI ${aqi.us_aqi}）。戴口罩、少出門、別做劇烈運動。`);
-    else if (aqi.us_aqi != null && aqi.us_aqi >= 100) pool.push(`空氣品質中等偏差（AQI ${aqi.us_aqi}），敏感族群、過敏的人注意一下。`);
-    // 適合出門綜合判斷（天氣好、低降雨、空品佳、不極端）
-    const _comfy = (t.pop == null || t.pop < 30) && !a.thunder && !a.shower
-      && (aqi.us_aqi == null || aqi.us_aqi < 100)
-      && (t.tmax == null || t.tmax < 33) && (t.tmin == null || t.tmin > 14)
-      && (t.uv == null || t.uv < 8);
-    if (_comfy) pool.push(`今天天氣不錯、適合出門走走——但別走進交易所，那裡的天氣永遠是你看不懂的盤整。`);
-    // 時段問候（依瀏覽器當地時間）+ 一句今日重點
+    const t = f.today, m = f.tomorrow, a = t.afternoon || {}, now = f.now || {}, aqi = f.aqi || {};
+    const parts = [];
+    // 1. 時段問候 + 今日總覽
     const hr = new Date().getHours();
-    const _focus = (t.pop != null && t.pop >= 50) ? `今天降雨 ${t.pop}%，帶把傘`
-      : (t.tmax != null) ? `今天 ${t.tmin ?? "?"}~${t.tmax}°`
-      : `今天${t.cond}`;
-    if (hr >= 5 && hr < 11) pool.push(`早安 ☀️ ${_focus}。新的一天，先別急著看帳戶，喝口水比較實在。`);
-    else if (hr >= 11 && hr < 14) pool.push(`午安 🍱 ${_focus}。吃飽再盯盤，餓著做決策容易衝動。`);
-    else if (hr >= 18 && hr < 23) pool.push(`晚安 🌙 ${_focus}。今天就到這，收盤了就放過自己。`);
-    else if (hr >= 23 || hr < 5) pool.push(`夜深了 🌌 ${_focus}。別熬夜盯盤，睡眠是最便宜的風控。`);
-    // 都沒特別狀況 → 給個普通今日預報
-    if (!pool.length) pool.push(`今天${t.cond}、${t.tmin}~${t.tmax}°，降雨機率 ${t.pop != null ? t.pop : 0}%。`);
-    return "🐻 " + pool[Math.floor(Math.random() * pool.length)];
+    const greet = hr < 5 ? "夜深了 🌌" : hr < 11 ? "早安 ☀️" : hr < 14 ? "午安 🍱"
+      : hr < 18 ? "午後好 🌤️" : hr < 23 ? "晚安 🌙" : "夜深了 🌌";
+    let head = `${greet}　今天${t.cond}、${t.tmin != null ? t.tmin : "?"}~${t.tmax != null ? t.tmax : "?"}°`;
+    if (t.pop != null) head += `、降雨 ${t.pop}%`;
+    parts.push(head);
+    // 2. 所有適用提醒（完整列出，非隨機挑一）
+    const tips = [];
+    if (a.thunder) tips.push(`午後雷雨${(a.pop != null && a.pop >= 30) ? `(${a.pop}%)` : ""}，帶傘別在外躲`);
+    else if (a.shower) tips.push("午後恐有陣雨，雨具備著");
+    else if (t.pop != null && t.pop >= 50) tips.push("降雨機率高，記得帶傘");
+    if (t.uv != null && t.uv >= 8) tips.push(`紫外線爆表(UV ${t.uv})，防曬補好`);
+    else if (t.uv != null && t.uv >= 6) tips.push(`紫外線偏強(UV ${t.uv})，記得防曬`);
+    if (now.feels != null && now.temp != null && now.feels - now.temp >= 4) tips.push(`體感 ${now.feels}° 偏悶，多補水`);
+    if (now.humidity != null && now.humidity >= 80) tips.push(`濕度 ${now.humidity}% 黏膩`);
+    if (now.wind != null && now.wind >= 40) tips.push(`風大 ${now.wind}km/h，東西收好`);
+    else if (now.wind != null && now.wind >= 25) tips.push(`風稍大 ${now.wind}km/h`);
+    if (aqi.us_aqi != null && aqi.us_aqi >= 150) tips.push(`空品差(AQI ${aqi.us_aqi})，戴口罩`);
+    else if (aqi.us_aqi != null && aqi.us_aqi >= 100) tips.push(`空品中等(AQI ${aqi.us_aqi})，敏感族注意`);
+    if (t.tmax != null && t.tmax >= 33) tips.push("高溫，多喝水");
+    if (t.tmin != null && t.tmin <= 14) tips.push("入夜轉涼，加外套");
+    parts.push(tips.length ? "⚠️ " + tips.join("、") : "天氣平穩，適合出門走走。");
+    // 3. 明日
+    if (m) parts.push(`明天${m.cond}、${m.tmin != null ? m.tmin : "?"}~${m.tmax != null ? m.tmax : "?"}°` +
+      (m.pop != null ? `、降雨 ${m.pop}%` : ""));
+    // 4. 輪播熊式短評（不連續重複）
+    parts.push("🐻 " + _bearRemark());
+    return parts.join("\n");
   }
 
   let _shuffled = [], _shufflePos = 0;
@@ -530,7 +535,7 @@
     bubble.textContent = _forecastLine() || _nextLine();
     bubble.classList.add("visible");
     clearTimeout(_bubbleTimer);
-    _bubbleTimer = setTimeout(() => { if (!_bearHover) bubble.classList.remove("visible"); }, 6500);
+    _bubbleTimer = setTimeout(() => { if (!_bearHover) bubble.classList.remove("visible"); }, 11000);
   }
   /* 對齊時鐘整 10 分刻度（9:00 / 9:10 / 9:20…）冒出全身播天氣預報 */
   function _doForecastVisit() {
@@ -538,7 +543,7 @@
     bear.classList.add("peek-visit");
     window._syncWeatherCard('full');
     showForecastBubble();
-    const stay = 5000;   // 預報停留久一點好讀
+    const stay = 9000;   // 完整預報多行，停留久一點好讀
     setTimeout(() => {
       bear.classList.remove("peek-visit");
       window._syncWeatherCard('peeking');
