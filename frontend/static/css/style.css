@@ -3033,7 +3033,7 @@ html.perf-mode .time-axis-year {
 .peek-bear {
   position: fixed;
   bottom: -200px;
-  left: 20px;
+  right: 20px;            /* 移回右下角 */
   width: 140px;
   z-index: 9990;
   cursor: pointer;
@@ -6042,7 +6042,12 @@ html.landing-active .body-layout,
 html.landing-active .ticker-panel,
 html.landing-active .m-tabbar,
 html.landing-active .peek-bear,
-html.landing-active #_wxCard { visibility: hidden !important; }
+html.landing-active #_wxCard,
+/* 封面（active/透明）重現時，這些浮層會從透明封面透出來重疊 → 一併隱藏 */
+html.landing-active #tradePopup,
+html.landing-active #trdDock,
+html.landing-active .bt-overlay,
+html.landing-active #sysSettingsPopup { visibility: hidden !important; }
 /* 底層漸層放在 body（天氣 canvas 之下）：主背景色（上）→ 米白（下） */
 html.landing-active body {
   background: linear-gradient(180deg, var(--bg) 0%, var(--bg) 36%, #E5DDD9 84%, #EFEAE4 100%) !important;
@@ -6076,6 +6081,10 @@ html.landing-active .landing { background: transparent; }
   0%,100% { filter: drop-shadow(0 4px 6px rgba(0,0,0,.45)) drop-shadow(0 0 8px rgba(255,190,90,.22)); }
   50%     { filter: drop-shadow(0 4px 6px rgba(0,0,0,.45)) drop-shadow(0 0 26px rgba(255,185,70,.72)); }
 }
+/* 手機版：logo 水平致中（用 left/right+text-align，不動 transform 以免蓋掉漂浮動畫）+ 往下一些 */
+@media (max-width: 1180px), (hover: none) and (pointer: coarse) {
+  .landing-logo { left: 0; right: 0; text-align: center; top: 21%; }
+}
 /* AHH：白→金 流光掃過（華麗 shimmer） */
 .ll-main {
   display: block; color: #fff;
@@ -6088,7 +6097,10 @@ html.landing-active .landing { background: transparent; }
 @keyframes landing-logo-shine { 0% { background-position: 210% 0; } 100% { background-position: -60% 0; } }
 /* TRADING：細底線 + 寬字距置中 */
 .ll-sub {
-  display: block; margin-top: .18em; padding-top: .16em;
+  /* width:fit-content → 底線(border-top)只跟 TRADING 字寬一樣長(不再跟 AHH 同寬太長)；
+     用 block+margin auto 置中，避免 inline-block 的行框間距把 AHH/TRADING 撐太開 */
+  display: block; width: fit-content; max-width: 100%;
+  margin: .18em auto 0; padding-top: .16em;
   border-top: 2px solid rgba(255,255,255,.5);
   font-size: .2em; font-weight: 700; letter-spacing: .5em;
   text-align: center; text-indent: .5em; color: rgba(255,176,74,.95);

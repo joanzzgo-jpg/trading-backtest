@@ -280,14 +280,16 @@ function _trdBuildPopup() {
     #tradePopup .trd-bal b { color:var(--text,#ddd); font-weight:600; }
     /* 手動／自動 分頁切換 */
     #tradePopup .trd-tabs { display:flex; gap:6px; margin:8px 0 6px; }
-    #tradePopup .trd-tab { flex:1; display:flex; align-items:center; justify-content:center; gap:6px;
+    #tradePopup .trd-tab { flex:1; position:relative; display:flex; align-items:center; justify-content:center; gap:6px;
       padding:7px 0; border-radius:9px; border:1px solid var(--border,#3a3a50);
       background:rgba(255,255,255,.02); color:var(--muted,#99a); cursor:pointer;
       font-size:12px; font-weight:700; transition:all .18s ease; -webkit-tap-highlight-color:transparent; }
     #tradePopup .trd-tab:hover { color:var(--text,#ddd); border-color:var(--blue,#4a90d9); }
     #tradePopup .trd-tab.sel { color:var(--text,#fff); border-color:var(--blue,#4a90d9);
       background:rgba(74,144,217,.14); box-shadow:0 2px 10px -4px var(--blue,#4a90d9); }
-    #tradePopup .trd-tab-led { width:7px; height:7px; border-radius:50%; background:transparent; transition:all .2s ease; }
+    /* led 絕對定位（移出排版流）→「自動交易」文字真正置中，不被燈+gap 往右擠 */
+    #tradePopup .trd-tab-led { position:absolute; left:9px; top:50%; transform:translateY(-50%);
+      width:7px; height:7px; border-radius:50%; background:transparent; transition:all .2s ease; }
     #tradePopup .trd-tab.trd-running .trd-tab-led { background:#4cc38a;
       box-shadow:0 0 0 3px #4cc38a33, 0 0 7px #4cc38aaa; animation:trdLed 1.8s ease-in-out infinite; }
     #tradePopup .trd-page { display:none; }
@@ -309,6 +311,7 @@ function _trdBuildPopup() {
     #tradePopup .trd-amode { gap:3px; padding:3px; margin:4px 0 5px; border-radius:10px;
       background:rgba(0,0,0,.2); border:1px solid var(--border,#3a3a50); }
     #tradePopup .trd-amode .trd-amode-btn { flex:1; padding:8px 0; border:none; border-radius:7px;
+      display:flex; align-items:center; justify-content:center; text-align:center; line-height:1.1;
       background:transparent; color:var(--muted,#99a); cursor:pointer; font-size:12px; font-weight:700;
       transition:all .18s ease; -webkit-tap-highlight-color:transparent; }
     #tradePopup .trd-amode .trd-amode-btn:hover { color:var(--text,#cde); }
@@ -389,11 +392,26 @@ function _trdBuildPopup() {
     #tradePopup hr { border:none; border-top:1px solid var(--border,#3a3a50); margin:8px 0; }
     .trd-ico { vertical-align:-2px; }
     .trd-entry .trd-ico { margin-right:4px; }
-    /* 桌面：完整交易面板嵌在合約行情面板底部，可收合 */
-    #trdDock { flex:0 0 auto; display:flex; flex-direction:column; min-height:0;
-      border-top:1px solid var(--border,#3a3a50); background:var(--bg2,#1a1a28); }
+    /* 桌面：交易面板與合約行情『並排』成最右欄（body-layout 的獨立 flex 欄），可往右收成細條 */
+    #trdDock { flex:0 0 230px; position:relative; display:flex; flex-direction:column; min-height:0; height:100%;
+      background:var(--bg2,#1a1a28); overflow:hidden; transition:flex-basis .18s ease; }
+    /* 與合約行情之間的分隔縫：漸層髮絲線(上下淡出)+ 暖橘微光，取代死板直線 */
+    #trdDock::before { content:""; position:absolute; left:0; top:0; bottom:0; width:1px; pointer-events:none; z-index:1;
+      background:linear-gradient(180deg, transparent 0%, var(--border,#3a3a50) 10%,
+        rgba(255,145,71,.26) 50%, var(--border,#3a3a50) 90%, transparent 100%);
+      box-shadow:0 0 10px rgba(255,145,71,.07); }
+    /* 縫線右側再補一道極淡暖光暈，讓邊界有層次而非硬切 */
+    #trdDock::after { content:""; position:absolute; left:0; top:0; bottom:0; width:14px; pointer-events:none;
+      background:linear-gradient(90deg, rgba(255,145,71,.03), transparent); }
+    /* 收起：往右收成 34px 細條（讓出空間給圖表）；標題改直書，點擊即展開 */
+    #trdDock.trd-collapsed { flex-basis:34px; }
+    #trdDock.trd-collapsed .trd-dock-hd { writing-mode:vertical-rl; justify-content:center;
+      height:100%; padding:12px 0; gap:10px; }
+    #trdDock.trd-collapsed .trd-dock-hd .trd-env { display:none; }
+    #trdDock.trd-collapsed .trd-dock-hd .trd-dock-caret { margin:0; }
     #trdDock .trd-dock-hd { flex:0 0 auto; display:flex; align-items:center; gap:5px;
-      padding:4px 10px; cursor:pointer; font-size:12px; font-weight:700; color:var(--text,#ddd);
+      padding:6px 10px; cursor:pointer; font-size:12px; font-weight:700; color:var(--text,#ddd);
+      border-bottom:1px solid var(--border,#3a3a50);
       user-select:none; -webkit-tap-highlight-color:transparent; }
     #trdDock .trd-dock-hd:hover { background:rgba(255,255,255,.04); }
     #trdDock .trd-dock-hd .trd-ico { width:13px; height:13px; }
@@ -401,7 +419,7 @@ function _trdBuildPopup() {
     #trdDock .trd-dock-hd .trd-dock-caret { margin-left:auto; color:var(--muted,#889);
       transition:transform .18s ease; font-size:10px; }
     #trdDock.trd-collapsed .trd-dock-caret { transform:rotate(-90deg); }
-    #trdDock .trd-dock-body { flex:1 1 auto; min-height:0; overflow-y:auto; max-height:46vh; }
+    #trdDock .trd-dock-body { flex:1 1 auto; min-height:0; overflow-y:auto; }
     #tradePopup .trd-bind { display:none; }
     #tradePopup.trd-need-bind .trd-bind { display:block; }
     #tradePopup.trd-need-bind .trd-main { display:none; }
@@ -700,7 +718,7 @@ function _trdOpenPopup(anchorBtn) {
   }
 }
 
-// 桌面：把完整交易面板嵌進「合約行情」面板底部，可收合（標題列點擊展開/收合，偏好存 localStorage）
+// 桌面：交易面板與「合約行情」面板『並排』在最右欄（不再上下堆疊），可往右收合（點標題列）
 function _trdInjectDesktopDock() {
   const panel = document.getElementById("tickerPanel");
   const pop = document.getElementById("tradePopup");
@@ -714,7 +732,7 @@ function _trdInjectDesktopDock() {
     + `<span class="trd-env ${envCls}">${envTag}</span>`
     + `<span class="trd-dock-caret">▼</span></div>`
     + `<div class="trd-dock-body"></div>`;
-  panel.appendChild(dock);
+  panel.insertAdjacentElement("afterend", dock);   // 放在合約行情面板『右側』成獨立欄（並排，非堆疊）
   // 把交易面板本體搬進 dock body（保留所有事件處理器），切成嵌入態
   const body = dock.querySelector(".trd-dock-body");
   body.appendChild(pop);
