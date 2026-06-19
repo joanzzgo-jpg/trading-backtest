@@ -13,7 +13,7 @@ let _wrFetchTimer = null; // 切換標的時 debounce，避免連續觸發後端
 
 // 目標切換（中軌 ↔ 上/下軌）狀態。1:1（rr）已移除 → 舊設定正規化回中軌
 const _WR_VIEW_KEY = "wrTargetView";
-let _wrSeries = "s";   // "s"=S1~S12 / "ss"=SS 系列（軌道反轉，獨立合計/敗後停手）
+let _wrSeries = "ss";  // S1~S12 已退役，固定只顯示 SS 系列（軌道反轉）。切換鈕已鎖定。
 let _wrTargetView = "mid";
 try { _wrTargetView = localStorage.getItem(_WR_VIEW_KEY) || "mid"; } catch (e) {}
 if (_wrTargetView === "rr") { _wrTargetView = "mid"; try { localStorage.setItem(_WR_VIEW_KEY, "mid"); } catch (e) {} }
@@ -75,11 +75,11 @@ function _wrOtKey() {
 // 連敗風險顯示 N：0=關、2=2連(敗後再敗)、3=三連敗、4=四連敗。預設關（避免擠到 TOP3 列）
 // 按鈕本身就畫在 TOP3 上列（_renderWrTop3 內），用 inline onclick 不需另外綁事件
 let _wrStreakN = 0;
-try { _wrStreakN = parseInt(localStorage.getItem("wrStreakN")) || 0; } catch (e) {}
+try { _wrStreakN = parseInt(localStorage.getItem("wrStreakN")) || 0; if (_wrStreakN >= 5) _wrStreakN = 0; } catch (e) {}
 
 function _cycleStreakN() {
-  // 關 → 2連 → 3連 → 4連 → 敗後停手(5) → 關
-  _wrStreakN = _wrStreakN === 0 ? 2 : _wrStreakN >= 5 ? 0 : _wrStreakN + 1;
+  // 敗後停手已退役：關 → 2連 → 3連 → 4連 → 關（不再進到 5=敗後停手）
+  _wrStreakN = _wrStreakN === 0 ? 2 : _wrStreakN >= 4 ? 0 : _wrStreakN + 1;
   try { localStorage.setItem("wrStreakN", String(_wrStreakN)); } catch (e) {}
   _renderWrTop3();
 }
@@ -703,14 +703,8 @@ function _applySeriesVisibility() {
   });
 }
 
-// 切換系列按鈕（index.html onclick）
-window._toggleWrSeries = function () {
-  _wrSeries = _wrSeries === "ss" ? "s" : "ss";
-  const btn = document.getElementById("wrSeriesToggle");
-  if (btn) { btn.textContent = _wrSeries === "ss" ? "SS" : "S"; btn.classList.toggle("active", _wrSeries === "ss"); }
-  if (_wrCacheLast) _renderWinRate(_wrCacheLast);
-  else _applySeriesVisibility();
-};
+// 切換系列按鈕（index.html onclick）— S1~S12 已退役，固定鎖在 SS，不再切換。
+window._toggleWrSeries = function () { _wrSeries = "ss"; };
 
 // 初始：預設 S 系列 → 先隱藏 SS 區塊，避免資料載入前閃現
 try { _applySeriesVisibility(); } catch (e) {}

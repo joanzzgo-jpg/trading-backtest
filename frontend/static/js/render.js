@@ -329,24 +329,8 @@ function initWRSignalsToggle() {
     if (typeof _updateHoverWR === "function") _updateHoverWR(null);
   });
 
-  // 主圖標記系列循環鈕：全部 → 只 S → 只 SS
-  const sBtn = document.getElementById("wrSigSeriesBtn");
-  if (sBtn) {
-    try { window._wrSigSeries = localStorage.getItem("wrSigSeries") || "all"; } catch (e) { window._wrSigSeries = "all"; }
-    const _lbl = { all: "全", s: "S", ss: "SS" };
-    const _syncS = () => {
-      sBtn.textContent = _lbl[window._wrSigSeries] || "全";
-      sBtn.classList.toggle("active", window._wrSigSeries !== "all");
-    };
-    _syncS();
-    sBtn.addEventListener("click", () => {
-      window._wrSigSeries = window._wrSigSeries === "all" ? "s" : window._wrSigSeries === "s" ? "ss" : "all";
-      try { localStorage.setItem("wrSigSeries", window._wrSigSeries); } catch (e) {}
-      _syncS();
-      if (typeof _renderWRSignals === "function") _renderWRSignals();   // 重建主圖標記（套系列過濾）
-      if (typeof _updateHoverWR === "function") _updateHoverWR(null);
-    });
-  }
+  // 主圖標記系列循環鈕（全/S/SS）已退役：S1~S12 標記已移除，固定顯示全部（剩 SS）。
+  window._wrSigSeries = "all";
 }
 
 function renderCRT(data) {

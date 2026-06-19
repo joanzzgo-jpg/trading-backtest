@@ -593,10 +593,10 @@ def _compute_backtest(req: CrtBacktestRequest, sigs: list, bars, wr_from_date=No
 
 
 # 自動最佳化搜尋空間（用面板當下的 標的/時框/止損緩衝/風險%/本金/回測天數，不變動這些）
-_OPT_SIGNALS = ["all", "all11", "ssall", "abc", "ab", "s3", "s4", "s5", "s6",
-                "s7", "s8", "s9", "s10", "s11", "s12", "ss1", "ss2"]
+# S1~S12 已退役 → 自動最佳化只列舉 SS 系列
+_OPT_SIGNALS = ["ssall", "ss1", "ss2"]
 _OPT_DIRS    = ["both", "long", "short"]
-_OPT_PLAIN   = [(rule, tgt) for rule in ("all", "single", "stop")
+_OPT_PLAIN   = [(rule, tgt) for rule in ("all", "single")   # 敗後停手(stop)已退役
                 for tgt in ("mid", "band", "band80", "band98")]   # 一般規則 × 目標(含 98%軌)
 _OPT_PYR_TGTS = ("band", "band98")   # 加倉最佳化跑的目標（上下軌 + 98%軌，貼合實盤）
 _OPT_MIN_TRADES = 20   # 樣本太少（<20 筆）的組合不列入排名，避免幸運小樣本灌爆報酬率

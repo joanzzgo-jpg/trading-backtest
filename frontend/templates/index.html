@@ -168,8 +168,9 @@
   <div class="tb-winrate" id="winrateBar">
     <!-- 左固定區：目標切換 + SL 輸入 -->
     <div class="tb-wr-fixed-left">
-      <button id="wrSeriesToggle" class="tb-wr-toggle" onclick="_toggleWrSeries&&_toggleWrSeries()"
-              title="切換訊號系列：S 系列（S1~S12）↔ SS 系列（軌道反轉，獨立合計/敗後停手）">S</button>
+      <!-- S1~S12 已退役，系列固定 SS，切換鈕隱藏 -->
+      <button id="wrSeriesToggle" class="tb-wr-toggle" style="display:none"
+              onclick="_toggleWrSeries&&_toggleWrSeries()">SS</button>
       <button id="wrTargetToggle" class="tb-wr-toggle" onclick="_toggleWrTarget()"
               title="切換目標：中軌（保守，BB middle）→ 上下軌（極端反向：多→上軌、空→下軌）">中軌</button>
       <span class="tb-wr-buffer" title="停損緩衝 %（0~10）：短=高於最高值 X%、多=低於最低值 X% 才算停損">
@@ -321,9 +322,10 @@
     <div class="tb-wr-fixed-right">
       <span class="tb-wr-total-sep"></span>
       <span id="wrAll" class="tb-wr-total">—</span>
-      <span id="wrStopRate" class="tb-wr-stoprate" title="敗後停手勝率：輸了就停手、旁觀同方向直到會贏才回場，套用後的總勝率（點開連敗按鈕看空/多細節）">—</span>
-      <span id="wrRecent100" class="tb-wr-recent" title="最近約 100 筆已結算訊號的勝率（S2~S11 合併時間軸去重；看近期表現 vs 全期）">—</span>
-      <span id="wrRecentStop" class="tb-wr-recstop" title="最近約 200 筆套「敗後停手」後的勝率（輸了停手、旁觀同方向直到會贏才回場；看近期照敗後停手實單的表現）">—</span>
+      <!-- 敗後停手已退役，隱藏 -->
+      <span id="wrStopRate" class="tb-wr-stoprate" style="display:none">—</span>
+      <span id="wrRecent100" class="tb-wr-recent" title="最近約 100 筆已結算訊號的勝率（合併時間軸去重；看近期表現 vs 全期）">—</span>
+      <span id="wrRecentStop" class="tb-wr-recstop" style="display:none">—</span>
       <span id="wrEstHit" class="tb-wr-est" title="打到「進場時 BB 預估止盈位」的機率（固定目標掃描，不隨 BB 漂移）">—</span>
       <span id="wrFromDate" class="tb-wr-from"></span>
       <span id="wrStatus" class="tb-wr-status"></span>
@@ -368,7 +370,8 @@
         <circle cx="8" cy="8" r="1.3" fill="currentColor" opacity="0.85"/>
       </svg>
     </button>
-    <button id="wrSigSeriesBtn" class="tb-icon-btn tb-icon-btn-txt" title="主圖訊號標記系列：全部 / 只 S（S1~S12）/ 只 SS（軌道反轉）">全</button>
+    <!-- S1~S12 標記已退役，全/S/SS 過濾鈕隱藏 -->
+    <button id="wrSigSeriesBtn" class="tb-icon-btn tb-icon-btn-txt" style="display:none">全</button>
     <button id="backtestBtn" class="tb-icon-btn" title="策略回測（CRT 訊號）">
       <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
         <path d="M1.5 12.5 C4 11.5 5 4.5 8.2 4.5 S12.5 2.5 14.5 1.6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>

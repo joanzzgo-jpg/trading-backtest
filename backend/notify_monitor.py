@@ -164,6 +164,8 @@ def _process_combo(market, exchange, symbol, tf, subs_here, now):
 
     res = _calc_crt_winrate(df, long_only=(market == "tw"))
     signals = res.get("signals") or []
+    # S1~S12 已退役（無 edge）→ 不推播、不觸發自動交易；只保留 SS 系列（ss1/ss2）。
+    signals = [s for s in signals if s.get("k") in ("ss1", "ss2")]
     if not signals:
         return
 
