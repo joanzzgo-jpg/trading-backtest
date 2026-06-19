@@ -401,8 +401,35 @@
     "人家說要走出舒適圈。我走出去了，外面不舒服。我回來了。舒適圈的意義，就是讓你知道外面有多難待。",
   ];
   /* Fisher-Yates shuffle, reshuffles when exhausted */
+  // 天氣預報台詞（說人話版：在地幽默 + 帶雨具/防午後雷雨建議）。資料來自 weather.js 的 _getForecast()
+  function _forecastLine() {
+    const f = (typeof window._getForecast === "function") ? window._getForecast() : null;
+    if (!f || !f.today) return null;
+    const t = f.today, m = f.tomorrow, a = t.afternoon || {};
+    const pool = [];
+    // 今日午後雷雨（逐小時 13–18 時真的偵測到才講）
+    if (a.thunder) pool.push(`今天午後${(a.pop != null && a.pop >= 30) ? `雷雨機率 ${a.pop}%` : "有雷雨機會"}。出門帶把傘、別在外面躲，雷雨來得快、走得也快——跟你的獲利一樣。`);
+    else if (a.shower) pool.push(`今天午後${a.pop != null ? `有 ${a.pop}% 機率` : "可能"}下陣雨，雨具塞包包當避險，成本很低。`);
+    // 今日整天降雨 / 帶雨具
+    if (t.pop != null && t.pop >= 60) pool.push(`今日降雨機率 ${t.pop}%。雨具帶著，淋濕的滋味跟被套牢一樣難受。`);
+    else if (t.pop != null && t.pop >= 30) pool.push(`今天有 ${t.pop}% 機率下雨，出門帶傘，淋雨事小、感冒事大。`);
+    // 溫度提醒
+    if (t.tmax != null && t.tmax >= 33) pool.push(`今天高溫 ${t.tmax}°，熱到融化。多喝水，別像我盯盤盯到脫水。`);
+    if (t.tmin != null && t.tmin <= 14) pool.push(`今晚最低 ${t.tmin}°，記得加件外套。保暖跟風控一樣，平常嫌煩、出事才後悔。`);
+    // 明日預報
+    if (m) {
+      if (m.cond && m.cond.includes("雷")) pool.push(`明天${m.tmin}~${m.tmax}°、有雷雨。雨具先備好，預防午後那場。`);
+      else if (m.pop != null && m.pop >= 50) pool.push(`明天降雨 ${m.pop}%、${m.tmin}~${m.tmax}°。出門記得帶傘，我負責預報、不負責幫你曬乾。`);
+    }
+    // 都沒特別狀況 → 給個普通今日預報
+    if (!pool.length) pool.push(`今天${t.cond}、${t.tmin}~${t.tmax}°，降雨機率 ${t.pop != null ? t.pop : 0}%。`);
+    return "🐻 " + pool[Math.floor(Math.random() * pool.length)];
+  }
+
   let _shuffled = [], _shufflePos = 0;
   function _nextLine() {
+    // 約 35% 機率改播天氣預報（有資料才播）
+    if (Math.random() < 0.35) { const w = _forecastLine(); if (w) return w; }
     if (_shufflePos >= _shuffled.length) {
       _shuffled = [...LINES];
       for (let i = _shuffled.length - 1; i > 0; i--) {

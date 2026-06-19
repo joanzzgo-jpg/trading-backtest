@@ -582,6 +582,72 @@ async def _fetch_omt_pop(lat: float, lon: float):
     return {"day": day, "now": now}
 
 
+def _wmo_zh(code) -> str:
+    """WMO weather_code → 簡短中文天氣狀況（給小熊預報用）。"""
+    try:
+        c = int(code)
+    except (TypeError, ValueError):
+        return "天氣"
+    if c == 0:                       return "晴"
+    if c in (1, 2):                  return "多雲"
+    if c == 3:                       return "陰"
+    if c in (45, 48):                return "起霧"
+    if c in (51, 53, 55, 56, 57):    return "毛毛雨"
+    if c in (61, 63, 65, 66, 67):    return "雨"
+    if c in (71, 73, 75, 77):        return "雪"
+    if c in (80, 81, 82):            return "陣雨"
+    if c in (85, 86):                return "陣雪"
+    if c in (95, 96, 99):            return "雷雨"
+    return "天氣"
+
+
+async def _fetch_omt_forecast(lat: float, lon: float):
+    """Open-Meteo 今明兩天預報（全球、免金鑰）：最高/最低溫、降雨機率、天氣狀況。
+    另用『逐小時』判斷今日「午後(13–18時)是否有雷雨/陣雨」→ 讓小熊能準確講午後雷雨而非亂報。
+    回 {"today": {...,afternoon}, "tomorrow": {...}}。"""
+    params = {"latitude": lat, "longitude": lon, "timezone": "auto", "forecast_days": 2,
+              "daily": "temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code",
+              "hourly": "weather_code,precipitation_probability"}
+    timeout = aiohttp.ClientTimeout(total=8)
+    async with aiohttp.ClientSession(timeout=timeout) as sess:
+        async with sess.get(OMT_URL, params=params) as r:
+            data = await r.json(content_type=None)
+    d = data.get("daily") or {}
+    tmax = d.get("temperature_2m_max") or []
+    tmin = d.get("temperature_2m_min") or []
+    pop  = d.get("precipitation_probability_max") or []
+    code = d.get("weather_code") or []
+    def _day(i):
+        if i >= len(tmax):
+            return None
+        def _r(arr):
+            try: return round(float(arr[i]))
+            except (TypeError, ValueError, IndexError): return None
+        return {"tmax": _r(tmax), "tmin": _r(tmin),
+                "pop": _r(pop), "cond": _wmo_zh(code[i] if i < len(code) else None)}
+    out = {}
+    t0 = _day(0); t1 = _day(1)
+    if t0: out["today"] = t0
+    if t1: out["tomorrow"] = t1
+    # 逐小時：今日午後(13–18時)雷雨/陣雨偵測（timezone=auto → hourly[0] 為今日 00:00 當地）
+    try:
+        h = data.get("hourly") or {}
+        hc = h.get("weather_code") or []
+        hp = h.get("precipitation_probability") or []
+        aft_codes = [int(hc[i]) for i in range(13, 19) if i < len(hc) and hc[i] is not None]
+        aft_pops  = [float(hp[i]) for i in range(13, 19) if i < len(hp) and hp[i] is not None]
+        thunder = any(c in (95, 96, 99) for c in aft_codes)
+        shower  = any(c in (80, 81, 82, 61, 63, 65) for c in aft_codes)
+        aftpop  = int(round(max(aft_pops))) if aft_pops else None
+        if "today" in out:
+            out["today"]["afternoon"] = {
+                "thunder": thunder, "shower": shower, "pop": aftpop,
+            }
+    except Exception:
+        pass
+    return out or None
+
+
 _SUN_CACHE: dict = {}   # (rlat, rlon, date) -> {"rise","set","tz_off"}（當天天文日出日落）
 
 async def _omt_sun(lat: float, lon: float) -> dict:
@@ -695,6 +761,12 @@ async def weather(
             res["pop"] = _p.get("day"); res["pop_now"] = _p.get("now")
         except Exception:
             res["pop"] = None
+    # 今明兩天預報（給小熊播報；全球免金鑰，best-effort）
+    try:
+        fc = await _fetch_omt_forecast(lat, lon)
+        if fc: res["forecast"] = fc
+    except Exception:
+        pass
     # 用 Open-Meteo 天文日出/日落（含真實時區/日光節約）校正各源；並回傳該地 UTC 偏移
     # 供前端用「當地真實時間」判斷日出日落（取代經度近似）。失敗則沿用 _sun_times_local。
     try:

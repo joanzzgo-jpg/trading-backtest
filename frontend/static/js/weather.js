@@ -2919,6 +2919,7 @@
         _wd.windDir     = (d.wind_dir == null) ? null : +d.wind_dir;  // 風向（度，來向）；缺則 null → 預設西南風
         _wd.pop         = (d.pop == null) ? null : Math.round(+d.pop);          // 今日整天降雨機率 %（各小時最大）
         _wd.popNow      = (d.pop_now == null) ? null : Math.round(+d.pop_now);  // 當前小時降雨機率 %
+        _wd.forecast    = d.forecast || null;                         // 今明兩天預報（給小熊播報）：{today,tomorrow}
         _wd.country     = d.country || null;                          // 英文國家名（首頁大門上草寫）
         _wd.visibility  = d.visibility;
         _wd.desc        = d.description || null;
@@ -2959,6 +2960,9 @@
     document.getElementById("noFxToggleBtn")    ?.classList.remove("nofx-active");
   }
   window._getWeatherType = () => type;
+  // 給小熊播報天氣預報用：今明兩天 {tmax,tmin,pop,cond} + 當前溫度/降雨機率
+  window._getForecast = () => _wd.forecast
+    ? { ..._wd.forecast, curTemp: _wd.temp, curPop: _wd.pop } : null;
 
   // 記住使用者上次手動選的天氣特效（leaves/rain/snow/spring/thunder/mahjong）
   // 若沒選則回到 _autoType（依 API 自動切）
