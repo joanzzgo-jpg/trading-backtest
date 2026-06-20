@@ -1296,9 +1296,17 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
     # ── FVG（失衡缺口，主圖視覺標記用）────────────────────────────
     # 三根K [g-1],[g],[g+1]：多頭FVG(支撐) low[g+1]>high[g-1]；空頭FVG(壓力) high[g+1]<low[g-1]。
     # 缺口寬度 > 門檻(0.3%)才算。回 {t(=g+1棒時間), top, bot, d('l'/'s'), t2(被填補時間或None)}。
+    #
+    # _fvg_sigs：FVG「收盤確認版」進場訊號（給自動交易；定版規格見 docs/fvg-strategy.md v2.3）。
+    #   進場＝缺口確認後、168 根(1h=一週)新鮮度內，第一根『收盤回到缺口區 [bot,top]』的 K（市價進場、成交確定）。
+    #   止損/止盈固定 3W/6W（W=top−bot；非前端視覺盒的 2W，實盤定版用鎖定 3/6）。r/ot=自進場後模擬先碰
+    #   止損(l)/止盈(w)，皆未碰→None(live)。獨立於 signals，不污染勝率 HUD；只在 1h 由 notify_monitor 觸發。
     _fvg = []
+    _fvg_sigs = []
     try:
         _N = len(times_iso); _MS = 0.003
+        _FRESH = 168          # 缺口新鮮度：確認後 168 根(1h=一週)內未回補 → 作廢、不產進場訊號
+        _MAXHOLD = 200        # 最長持有：進場後 200 根仍未觸發止盈/止損 → 視為仍 live(不在此處強平)
         for _g in range(1, _N - 1):
             _h0 = float(highs[_g-1]); _l0 = float(lows[_g-1])
             _h2 = float(highs[_g+1]); _l2 = float(lows[_g+1])
@@ -1310,14 +1318,60 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                 _dir, _top, _bot = "s", _l0, _h2
             else:
                 continue
+            # g+2 觸框過濾：缺口後下一根(g+2)觸及上框(多)/下框(空) → 缺口立刻被回碰=假突破，作廢。
+            # 回測驗證(1h 規格8幣 + 19幣):DD 腰斬(−10%→−6%)、報酬/DD 升 30~56%、保留缺口 avgR 更高。
+            if _g + 2 < _N:
+                if _dir == "l" and float(lows[_g+2])  <= _top: continue
+                if _dir == "s" and float(highs[_g+2]) >= _bot: continue
             _t2 = None                                          # 找回補點（價格重回缺口區）
             for _j in range(_g + 2, _N):
                 if _dir == "l" and float(lows[_j])  <= _top: _t2 = times_iso[_j]; break
                 if _dir == "s" and float(highs[_j]) >= _bot: _t2 = times_iso[_j]; break
             _fvg.append({"t": times_iso[_g+1], "top": _top, "bot": _bot, "d": _dir, "t2": _t2})
-        _fvg = _fvg[-300:]   # 限量，避免 payload 過大 / 畫面過雜
+
+            # ── 收盤確認進場訊號（3W/6W 固定 SL/TP）──────────────────
+            _W = _top - _bot
+            if _W <= 0:
+                continue
+            _stop = (_bot - 3 * _W) if _dir == "l" else (_top + 3 * _W)
+            _tp   = (_top + 6 * _W) if _dir == "l" else (_bot - 6 * _W)
+            # 進場棒：拒絕型收盤確認（對齊已驗證 sim_confirm，逐年全正/抗滑價的定版）——
+            # 多：插進缺口(low≤top) 但收盤站回 bot 上方(沒插穿) → 市價收盤進場；
+            #     進場前若有 K 收破止損區(close<stop) → 放棄此缺口(不追)。空為鏡像。
+            _ei = None
+            _jend = min(_N, _g + 2 + _FRESH)
+            for _j in range(_g + 2, _jend):
+                _cj = float(closes[_j]); _lj = float(lows[_j]); _hj = float(highs[_j])
+                if _cj != _cj or _lj != _lj or _hj != _hj:      # NaN
+                    continue
+                if _dir == "l":
+                    if _lj <= _top and _cj > _bot: _ei = _j; break   # 插進缺口、收盤站回
+                    if _cj < _stop: break                            # 進場前收破止損 → 放棄
+                else:
+                    if _hj >= _bot and _cj < _top: _ei = _j; break
+                    if _cj > _stop: break
+            if _ei is None:                                     # 未回補 / 進場前已破止損 → 不產訊號
+                continue
+            _r = None; _ot = None                               # 自進場次根模擬：先碰止損(l)/止盈(w)
+            _hend = min(_N, _g + 2 + _MAXHOLD)                  # 持有上限自確認棒(g+1)起算，對齊 sim_confirm
+            for _k in range(_ei + 1, _hend):
+                _hk = float(highs[_k]); _lk = float(lows[_k])
+                if _hk != _hk or _lk != _lk:
+                    continue
+                if _dir == "l":
+                    if _lk <= _stop: _r = "l"; _ot = times_iso[_k]; break   # 先看止損（保守：同棒兩中先認賠）
+                    if _hk >= _tp:   _r = "w"; _ot = times_iso[_k]; break
+                else:
+                    if _hk >= _stop: _r = "l"; _ot = times_iso[_k]; break
+                    if _lk <= _tp:   _r = "w"; _ot = times_iso[_k]; break
+            _fvg_sigs.append({"k": "fvg", "d": _dir, "t": times_iso[_ei],
+                              "entry": float(closes[_ei]), "stop": _stop, "tp": _tp,
+                              "r": _r, "ot": _ot})
+        _fvg = _fvg[-300:]          # 限量，避免 payload 過大 / 畫面過雜
+        _fvg_sigs = _fvg_sigs[-200:]
     except Exception:
         _fvg = []
+        _fvg_sigs = []
 
     return {
         **mid_out,                # backward compat：mid 統計放在頂層
@@ -1329,4 +1383,5 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         "recent":   recent[-30:],
         "signals":  signals,
         "fvg":      _fvg,         # 失衡缺口（主圖色塊）
+        "fvg_sigs": _fvg_sigs,    # FVG 收盤確認進場訊號（自動交易用，獨立於 signals）
     }
