@@ -9,13 +9,13 @@
    ══════════════════════════════════════════════════════════════ */
 const _TRD = { st: null, ov: null, pollTimer: null, busy: false };
 
-const _TRD_SIG_ORDER = ["ab", "3", "4", "5", "6", "7", "8", "9", "10", "11", "abc", "12", "ss1", "ss2"];
+const _TRD_SIG_ORDER = ["ab", "3", "4", "5", "6", "7", "8", "9", "10", "11", "abc", "12", "ss1", "ss2", "fvg"];
 const _TRD_ALL_TFS = ["5m", "15m", "30m", "1h", "2h", "4h", "8h", "1d", "1w"];
 
 const _TRD_ICO = `<svg class="trd-ico" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4.5 13.5H11L9.5 22 19 9.5h-6.5L13 2Z"/></svg>`;
 
 function _trdKey() { try { return localStorage.getItem("tradeKey") || ""; } catch (e) { return ""; } }
-function _trdSigLabel(k) { return k === "abc" ? "S1" : k === "ab" ? "S2" : k === "ss1" ? "SS1" : k === "ss2" ? "SS2" : "S" + k; }
+function _trdSigLabel(k) { return k === "abc" ? "S1" : k === "ab" ? "S2" : k === "ss1" ? "SS1" : k === "ss2" ? "SS2" : k === "fvg" ? "FVG" : "S" + k; }
 
 async function _trdApi(path, body) {
   // 一律帶上 key（口令）+ name（登入帳號，供後端 owner 白名單檢查）；body 同名欄位可覆寫
@@ -162,6 +162,10 @@ function _trdRenderOverview() {
   if (sal) { sal.classList.toggle("sel", !!a.stopAfterLoss); sal.textContent = a.stopAfterLoss ? "開" : "關"; }
   const rev = $("#trdAutoRev");
   if (rev) { rev.classList.toggle("sel", !!a.reverse); rev.textContent = a.reverse ? "開" : "關"; }
+  const fge = $("#trdAutoFvgEntry");
+  if (fge) { const _lim = a.fvgEntry === "limit"; fge.classList.toggle("sel", _lim); fge.textContent = _lim ? "限價階梯" : "市價"; }
+  const hg = $("#trdAutoHedge");
+  if (hg) { const _h = !!(_TRD.st && _TRD.st.hedge); hg.classList.toggle("sel", _h); hg.textContent = _h ? "雙向" : "單向"; }
   _trdRenderPerSym();
 }
 
@@ -230,6 +234,7 @@ function _trdSaveAuto() {
   a.slPct = Math.max(0, +pop.querySelector("#trdAutoSl").value || 0);
   a.stopAfterLoss = pop.querySelector("#trdAutoSal").classList.contains("sel");
   a.reverse = !!pop.querySelector("#trdAutoRev")?.classList.contains("sel");
+  a.fvgEntry = pop.querySelector("#trdAutoFvgEntry")?.classList.contains("sel") ? "limit" : "market";
   a.owner = window._acctName || "";   // 綁定擁有者帳號 → 只自動交易此帳號的自選（防別人自選下你的單）
   clearTimeout(_trdAutoSaveTimer);
   _trdAutoSaveTimer = setTimeout(async () => {
@@ -538,6 +543,8 @@ function _trdBuildPopup() {
         <div><label>止損緩衝 %<small>策略停損外推；0＝用策略</small></label><input id="trdAutoSl" type="number" min="0" max="50" step="0.1" placeholder="0"></div>
         <div class="trd-sal-cell"><label>敗後停手<small>當日虧損後暫停</small></label><button id="trdAutoSal" class="trd-chip trd-sal-btn">關</button></div>
         <div class="trd-sal-cell"><label>反向模式<small>⚠止損↔止盈互換、反方向；回測顯示會虧更多，僅供測試</small></label><button id="trdAutoRev" class="trd-chip trd-sal-btn">關</button></div>
+        <div class="trd-sal-cell"><label>FVG 進場<small>市價＝收盤確認保證成交；限價＝缺口三檔掛單(影線版、帳面更高但成交率未實證)</small></label><button id="trdAutoFvgEntry" class="trd-chip trd-sal-btn">市價</button></div>
+        <div class="trd-sal-cell"><label>持倉模式<small>⚠帳號級！雙向＝同幣可多空各一倉(FVG雙槽、追月均20%需要)；建議專用帳號、勿與 ss 混用</small></label><button id="trdAutoHedge" class="trd-chip trd-sal-btn">單向</button></div>
       </div>
       <div class="trd-sub trd-grp-hd">各標的×時框 止損緩衝 %<small>留空＝用上方預設；選時框才分時框</small></div>
       <div class="trd-persym" id="trdPerSym"></div>
@@ -667,6 +674,29 @@ function _trdBuildPopup() {
         !confirm("⚠ 開啟『反向模式』？\n止損↔止盈互換、實際下反方向單。回測顯示這會『虧更多』(方向毛利為正、反過來等於丟掉正確方向又付兩次手續費)。\n僅建議在測試網、用最小金額試。確定開啟？")) return;
     b.classList.toggle("sel"); b.textContent = b.classList.contains("sel") ? "開" : "關";
     _trdSaveAuto();
+  });
+  pop.querySelector("#trdAutoFvgEntry")?.addEventListener("click", e => {
+    e.stopPropagation();
+    const b = e.currentTarget;
+    if (!b.classList.contains("sel") &&
+        !confirm("⚠ FVG 進場改『限價階梯』？\n缺口 top/中/bot 各掛 ⅓ 限價單(maker)。回測帳面更高，但『真實成交率/逆選擇』未實證——backtest 與測試網都會灌水(假設碰到必成交)，只有真錢小額能量。建議測試網先跑通流程。確定改限價？")) return;
+    b.classList.toggle("sel"); b.textContent = b.classList.contains("sel") ? "限價階梯" : "市價";
+    _trdSaveAuto();
+  });
+  pop.querySelector("#trdAutoHedge")?.addEventListener("click", async e => {
+    e.stopPropagation();
+    const b = e.currentTarget;
+    const toHedge = !b.classList.contains("sel");
+    if (toHedge && !confirm("⚠ 切『雙向持倉(Hedge)』？\n這是【帳號級】Binance 設定，會影響此帳號『所有』交易(含 ss1/ss2、手動)，不只 FVG。\n好處：同幣可同時做多+做空各一倉(FVG 雙槽，追月均 20% 需要)。\n強烈建議：用一個『專用帳號』跑 FVG 雙向，別把跑 ss 的帳號切過去。\n有未平倉/掛單時 Binance 會拒切。確定切雙向？")) return;
+    if (!toHedge && !confirm("切回『單向持倉』？此帳號將回到一般單向模式。")) return;
+    try {
+      const j = await _trdApi("posmode", { hedge: toHedge });
+      if (_TRD.st) _TRD.st.hedge = !!j.hedge;
+      b.classList.toggle("sel", !!j.hedge); b.textContent = j.hedge ? "雙向" : "單向";
+      _trdMsg(j.msg || (j.hedge ? "已切雙向持倉" : "已切單向持倉"), false);
+    } catch (er) {
+      _trdMsg(er.message || "切換失敗", true);
+    }
   });
   pop.addEventListener("click", e => e.stopPropagation());
   document.addEventListener("click", e => {

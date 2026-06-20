@@ -166,10 +166,95 @@ def _process_combo(market, exchange, symbol, tf, subs_here, now):
     signals = res.get("signals") or []
     # S1~S12 已退役（無 edge）→ 不推播、不觸發自動交易；只保留 SS 系列（ss1/ss2）。
     signals = [s for s in signals if s.get("k") in ("ss1", "ss2")]
-    if not signals:
-        return
 
     fresh_cut = last_closed_open - (FRESH_BARS - 1) * iv
+
+    # ── FVG 收盤確認進場（只 1h；獨立於 ss 訊號，故放在 ss 早退之前）─────────────
+    # 進場訊號由 crt 的 fvg_sigs 產（收盤回補棒 + 固定 3W/6W；docs/fvg-strategy.md v2.3）。
+    # 只下單、不推播訂閱者（execute_signal_trade 內建 owner 推播 + 逐帳號去重）。出場由交易所託管觸發單
+    # 盤中即時觸發，下方 reconcile 只事後補記錄。
+    if tf == "1h":
+        try:
+            _fsigs = sorted((s for s in (res.get("fvg_sigs") or []) if s.get("t")),
+                            key=lambda s: _epoch(s["t"]))
+            for _fs in _fsigs:
+                if _epoch(_fs["t"]) < fresh_cut:        # 非最近數根收盤棒 → 不追舊缺口
+                    continue
+                if _fs.get("r") in ("w", "l"):          # 已結算 → 不追進場（避免開單即平倉）
+                    continue
+                _fd = _fs.get("d")
+                _fscope = f"{market}:{exchange}:{symbol}:{tf}:fvg:{_fd}"
+                _fprev = notify.last_notified(_fscope)
+                if _fprev and _epoch(_fs["t"]) <= _epoch(_fprev):   # 已處理過（或更舊）→ 略過
+                    continue
+                try:
+                    from routes.trade import execute_signal_trade
+                    execute_signal_trade(market, exchange, symbol, tf, "fvg", _fd, _fs)
+                except Exception as e:
+                    print(f"  ⚠ FVG 自動交易 hook 失敗：{e}")
+                notify.mark_notified(_fscope, _fs["t"])
+        except Exception as e:
+            print(f"  ⚠ FVG 進場處理失敗：{e}")
+
+        # ── FVG 限價階梯版（影線版）：對 fvgEntry=='limit' 的帳號，『價格逼近缺口時』才掛三檔限價 ──
+        # ⚠ 不在缺口一確認就掛(那會留一週殭屍掛單、卡保證金)：改成每根 1h 檢查「未過期(168根)+g+2已收盤+
+        #    現價已逼近缺口(離最近檔 ≤ _NEAR_W 個 W)」才掛。限價單『提早一週掛』與『接近才掛』成交價相同，
+        #    只要在價格觸及前掛上即可 → 省殭屍掛單/保證金，成交結果不變。place_fvg_limit_ladder 自帶去重。
+        _NEAR_W = 1.5                                    # 現價進到離缺口 ≤1.5W 內算「逼近」
+        try:
+            from routes.trade import get_all_auto_cfgs, place_fvg_limit_ladder
+            _limit_accts = [(nm, cfg) for nm, cfg in get_all_auto_cfgs()
+                            if cfg.get("fvgEntry") == "limit"
+                            and "fvg" in (cfg.get("sigs") or []) and "1h" in (cfg.get("tfs") or [])]
+            if _limit_accts:
+                try:
+                    _px = float(df["close"].iloc[-2 if forming else -1])   # 現價＝最後已收盤棒收盤
+                except Exception:
+                    _px = None
+                _alive_cut = last_closed_open - 167 * iv                    # 缺口確認後 168 根內仍有效
+                for _g in (res.get("fvg") or []):
+                    _gt = _g.get("t")
+                    if not _gt or _px is None:
+                        continue
+                    _ge = _epoch(_gt)
+                    if _ge < _alive_cut or _ge > last_closed_open - iv:     # 過期 / g+2 未收盤 → 略過
+                        continue
+                    _top = float(_g["top"]); _bot = float(_g["bot"]); _W = _top - _bot
+                    if _W <= 0:
+                        continue
+                    # 逼近判定：多缺口價格由上往下跌近 top；空缺口由下往上漲近 bot。太遠 → 先不掛。
+                    if _g.get("d") == "l":
+                        if _px > _top + _NEAR_W * _W:
+                            continue
+                    else:
+                        if _px < _bot - _NEAR_W * _W:
+                            continue
+                    for _nm, _cfg in _limit_accts:
+                        try:
+                            place_fvg_limit_ladder(_nm, _cfg, market, exchange, symbol, tf, _g)
+                        except Exception as e:
+                            print(f"  ⚠ FVG限價掛單 hook 失敗 {_nm}：{e}")
+        except Exception as e:
+            print(f"  ⚠ FVG限價處理失敗：{e}")
+
+    # ── 自動交易出場對帳（所有 tf 都跑，含無 ss 訊號時的 FVG 倉）──────────────────
+    # 出場全交給交易所掛的觸發單『盤中即時』觸發；此處只『對帳』：未平自動倉若交易所已無持倉
+    # (觸發單已平) → 補記錄+通知。冪等且無持倉時只查一次 DB（無開倉列即略過、不打交易所 API）。
+    # ⚠ 放在 ss 早退之前 → 修「該標的×時框無新 ss 訊號就早退、害既有自動倉平倉記錄/通知延宕」。
+    try:
+        from routes.trade import reconcile_auto_position
+        reconcile_auto_position(market, exchange, symbol, tf)
+    except Exception as e:
+        print(f"  ⚠ 自動倉對帳 hook 失敗：{e}")
+    # FVG 限價階梯版：pending 限價單成交偵測 → 掛 SL/TP / 過期撤單（只 1h，函式內已 gate）
+    try:
+        from routes.trade import reconcile_fvg_pending
+        reconcile_fvg_pending(market, exchange, symbol, tf)
+    except Exception as e:
+        print(f"  ⚠ FVG限價對帳 hook 失敗：{e}")
+
+    if not signals:
+        return
     # 由舊到新處理，每個 scope 只推「比已推過的最新時間更新」的訊號 → 不重發、不漏發
     sigs = sorted((s for s in signals if s.get("k") and s.get("t")), key=lambda s: _epoch(s["t"]))
     new_max = {}   # scope -> 本輪推到的最新訊號時間
@@ -207,15 +292,7 @@ def _process_combo(market, exchange, symbol, tf, subs_here, now):
     for scope, t in new_max.items():
         notify.mark_notified(scope, t)
 
-    # ── 自動交易出場：全交給交易所掛的觸發單『盤中即時』觸發（碰到止盈/止損位就出，不再整點才決定）──
-    # 這裡只『對帳』：未平自動倉若交易所已無持倉(觸發單已平) → 補記錄+通知。
-    # 不再用收盤(整點)訊號結算平倉 —— 那會把止損提早平在『訊號自身較近的止損』、架空止損緩衝，
-    # 也使止盈/止損變成整點才決定（非碰到即出）。retarget_auto_tp 仍負責每根把 TP 單移到最新上下軌。
-    try:
-        from routes.trade import reconcile_auto_position
-        reconcile_auto_position(market, exchange, symbol, tf)
-    except Exception as e:
-        print(f"  ⚠ 自動倉對帳 hook 失敗：{e}")
+    # （自動交易出場對帳已上移到 ss 早退之前，所有 tf 都跑 → 不在此重複呼叫）
 
     # ── 止盈/止損通知：訊號剛在最近數根收盤棒「結算」→ 各推一次 ──
     # 重用勝率計算結果：r=='w' 表示在停損前先碰到中軌(止盈)、r=='l' 表示先打到止損，

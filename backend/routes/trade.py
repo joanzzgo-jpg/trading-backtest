@@ -44,7 +44,7 @@ _ALLOW = {_acct._norm_name(s) for s in (os.getenv("TRADE_ALLOW") or _OWNER).spli
 def _allowed(name: str) -> bool:
     return _acct._norm_name(name or "") in _ALLOW if _ALLOW else False
 
-_ALL_SIGS = {"abc", "ab", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "ss1", "ss2", "ss3"}
+_ALL_SIGS = {"abc", "ab", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "ss1", "ss2", "ss3", "fvg"}
 _ALL_TFS = {"5m", "15m", "30m", "1h", "2h", "4h", "8h", "1d", "1w", "1M"}
 # 自動交易止盈目標＝「下軌→上軌」的此比例位（多單靠上軌、空單鏡像靠下軌），取代滿格外軌(=1.0)。
 # 0.98＝離上軌 2% 處先止盈 → 不等價格剛好碰到外軌(常常差一點點沒成交又反轉吐回)。進場初始 TP 與
@@ -68,7 +68,11 @@ _AUTO_DEFAULT = {"on": False, "owner": "", "sigs": [], "tfs": [], "usdt": 50.0,
                  # reverse=反向模式(止損↔止盈互換)：訊號照舊判定，但實際下「反方向」單——
                  # 止損掛在原止盈軌位、止盈掛在原止損位。反向倉 SL/TP 固定不追蹤(retarget 跳過)、且不加倉。
                  # ⚠ 回測顯示這在 SS/CRT 上會虧更多(方向毛利為正、反過來等於丟掉正確方向又付兩次手續費)。
-                 "reverse": False}
+                 "reverse": False,
+                 # fvgEntry=FVG 進場模式："market"=收盤確認市價進場(保證成交、現行基準)；
+                 # "limit"=缺口 top/mid/bot 各掛 ⅓ 限價單(影線版，maker、帳面更高但成交率/逆選擇未實證，
+                 # 只真錢小額能量)。只影響 sig=="fvg"；其他訊號永遠市價。
+                 "fvgEntry": "market"}
 
 
 # ── 金鑰加密（Fernet）：Secret 加密後才入庫 ───────────────────
@@ -313,6 +317,16 @@ def _ensure_db():
                 conn.rollback()
             except Exception:
                 pass
+        # extra = JSON 雜項：FVG 限價階梯版用來存三檔限價單 [{oid,level,px}] + 缺口 top/bot，
+        # 供 reconcile_fvg_pending 偵測成交/撤殘單/過期。其他交易留空。
+        try:
+            conn.execute("ALTER TABLE trade_log ADD COLUMN extra TEXT")
+            conn.commit()
+        except Exception:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
         # 每帳號自動交易設定（取代舊的單列 trade_auto id=1）：每個帳號一列、各自獨立、互不覆蓋。
         conn.execute("""
             CREATE TABLE IF NOT EXISTS trade_auto_acct (
@@ -397,6 +411,7 @@ def _clean_auto(p: Optional[dict]) -> dict:
     out["perSym"] = ps
     out["stopAfterLoss"] = bool(p.get("stopAfterLoss"))
     out["reverse"] = bool(p.get("reverse"))     # 反向模式(止損↔止盈互換、反方向下單)
+    out["fvgEntry"] = p.get("fvgEntry") if p.get("fvgEntry") in ("market", "limit") else "market"
     try:
         out["maxAdds"] = max(1, min(int(p.get("maxAdds", 1)), 20))   # 加倉上限(含首筆)，1=不加倉；上限 20
     except (TypeError, ValueError):
@@ -488,14 +503,15 @@ def _log_trade(**kw) -> Optional[int]:
         conn, ph = _acct._db()
         try:
             cols = ("ts", "mode", "source", "status", "symbol", "bsym", "side", "qty",
-                    "entry", "sl", "tp", "sig", "dir", "tf", "sigt", "msg", "tp_oid", "sl_oid", "acct", "rev")
+                    "entry", "sl", "tp", "sig", "dir", "tf", "sigt", "msg", "tp_oid", "sl_oid", "acct", "rev", "extra")
             vals = (time.time(), kw.get("mode") or bt.env_name(), kw.get("source"), kw.get("status"),
                     kw.get("symbol"), kw.get("bsym"), kw.get("side"), kw.get("qty"),
                     kw.get("entry"), kw.get("sl"), kw.get("tp"), kw.get("sig"),
                     kw.get("d"), kw.get("tf"), kw.get("sigt"), kw.get("msg"),
                     str(kw["tp_oid"]) if kw.get("tp_oid") is not None else None,
                     str(kw["sl_oid"]) if kw.get("sl_oid") is not None else None,
-                    kw.get("acct"), 1 if kw.get("rev") else 0)
+                    kw.get("acct"), 1 if kw.get("rev") else 0,
+                    kw.get("extra"))
             cur = conn.execute(
                 f"INSERT INTO trade_log ({','.join(cols)}) VALUES ({','.join([ph]*len(cols))})",
                 vals)
@@ -628,6 +644,20 @@ def _stop_after_loss_ok(d, sig, all_signals) -> bool:
     return active.get(d, True)
 
 
+# ── 持倉模式（單向 / 雙向 hedge）小工具 ───────────────────────
+def _is_hedge(client) -> bool:
+    """此 client 帳號是否雙向持倉(hedge)。失敗保守回 False(單向) → 行為與現狀一致。"""
+    try:
+        return bool(client.get_position_mode())
+    except Exception:
+        return False
+
+
+def _posside(want, hedge):
+    """hedge→positionSide(LONG/SHORT)；單向→None（下單不帶 positionSide、行為不變）。"""
+    return (("LONG" if want == "long" else "SHORT") if hedge else None)
+
+
 # ── 自動交易執行器（notify_monitor 呼叫；絕不向外拋例外）───────
 def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=None):
     """新進場訊號 → 逐個『已開啟自動交易』的帳號各自獨立評估下單
@@ -647,6 +677,9 @@ def _exec_signal_for_account(name, cfg, market, exchange, symbol, tf, k, d, sig,
     try:
         # 訊號/時框未勾 → 靜默 return（量大：每根掃描所有未勾的訊號×時框，留紀錄會洗版）。
         if not (k in cfg["sigs"] and tf in cfg["tfs"]):
+            return
+        # FVG 限價階梯帳號：市價路徑(fvg_sigs)不下單 → 改由 place_fvg_limit_ladder 在缺口確認時掛限價。
+        if k == "fvg" and cfg.get("fvgEntry") == "limit":
             return
         want = "short" if d == "s" else "long"
         import routes.notify as notify
@@ -694,8 +727,9 @@ def _exec_signal_for_account(name, cfg, market, exchange, symbol, tf, k, d, sig,
         if entry is None or stop is None:
             return
         bsym, scale = client.resolve_symbol(symbol)
+        _hedge = _is_hedge(client)              # 雙向持倉帳號 → 下單帶 positionSide、同幣多空分倉
         pos = client.positions()
-        existing = next((p for p in pos if p["symbol"] == bsym), None)
+        existing = None                          # 反向模式可能翻轉 want → existing 於反向區塊後依最終 side 判定
         max_adds = int(cfg.get("maxAdds", 1) or 1)
         is_add = False; add_row_id = None; cur_adds = 1
         add_old_sl = None; add_old_sl_oid = None     # 既有自動倉的止損(圖表價)與其交易所單 id → 加倉時用來收緊重掛
@@ -720,6 +754,11 @@ def _exec_signal_for_account(name, cfg, market, exchange, symbol, tf, k, d, sig,
             d = "l" if d == "s" else "s"           # 方向反轉
             want = "long" if d == "l" else "short"
             max_adds = 1                           # 反向倉不加倉
+
+        _psd = _posside(want, _hedge)              # hedge: LONG/SHORT；單向: None
+        # 同合約持倉判定：hedge 下只認『同 side』為既有倉（多/空各一槽、互不擋）
+        existing = next((p for p in pos if p["symbol"] == bsym
+                         and (not _hedge or p.get("posSide") == _psd)), None)
 
         if existing:
             # 已有同合約持倉：加倉開啟(maxAdds>1) + 同向 + 未達上限 → 加倉；否則略過。
@@ -833,7 +872,7 @@ def _exec_signal_for_account(name, cfg, market, exchange, symbol, tf, k, d, sig,
             pass   # 槓桿設定失敗就用現值（有倉位/掛單時交易所會拒改）
 
         side = "BUY" if want == "long" else "SELL"
-        o = client.place_order(bsym, side, qty, "MARKET")   # 市價：開倉 or 加倉(同向加進淨倉)
+        o = client.place_order(bsym, side, qty, "MARKET", position_side=_psd)   # 市價：開倉 or 加倉(同向加進淨倉)
         # 止盈到「下軌→上軌的 _AUTO_TP_BAND_RATIO 位」（空→鏡像靠下軌、多→靠上軌；用原始策略風險算→
         # 不受停損緩衝影響）。因標準布林上下軌對稱於中軌 → 該比例位 = 中軌 + (2r−1)(外軌−中軌)，
         # 換算 RR：tp_rr = rr + (2r−1)(rr_b − rr)（rr＝中軌預估RR、rr_b＝外軌預估RR）。缺 rr_b/rr →
@@ -841,6 +880,11 @@ def _exec_signal_for_account(name, cfg, market, exchange, symbol, tf, k, d, sig,
         tp_px = None; tgt = None     # tgt=止盈圖表價(顯示/紀錄用)；tp_px=合約價(掛單用，=tgt×scale)
         if _reverse:
             tgt = _rev_tp                          # 反向:止盈=原止損價(固定,不追蹤軌)
+            tp_px = client.quantize_price(bsym, tgt * scale)
+        elif sig.get("tp") is not None:
+            # 固定止盈訊號（FVG：tp=top+6W/bot−6W 圖表價）→ 直接用，繞過上下軌 rr/rr_b 計算。
+            # retarget_auto_tp 會依 sig 種類跳過此倉 → TP 固定不追蹤軌（見該函式）。
+            tgt = float(sig["tp"])
             tp_px = client.quantize_price(bsym, tgt * scale)
         else:
             if rr_b is not None and rr is not None:
@@ -859,7 +903,8 @@ def _exec_signal_for_account(name, cfg, market, exchange, symbol, tf, k, d, sig,
         # 不一致。改成加倉完全不動 SL → 沿用首筆止損單，只更新數量/均價/筆數。止盈仍由 retarget 跟軌。
         if is_add:
             try:
-                _np = next((p for p in client.positions() if p["symbol"] == bsym), None)
+                _np = next((p for p in client.positions() if p["symbol"] == bsym
+                            and (not _hedge or p.get("posSide") == _psd)), None)
             except bt.TradeError:
                 _np = None
             new_qty = _np.get("qty") if _np else None
@@ -908,23 +953,25 @@ def _exec_signal_for_account(name, cfg, market, exchange, symbol, tf, k, d, sig,
         # 的自動倉位（曾發生：冷門合約不支援條件單 -4120，倉位開了卻沒 SL）。
         sl_oid = None                       # 交易所 SL(algo) 單 id → 加倉時用它精準取消重掛
         try:
-            _osl = client.place_close_trigger(bsym, close_side, sl_px, "sl")
+            _osl = client.place_close_trigger(bsym, close_side, sl_px, "sl", position_side=_psd)
             sl_oid = _osl.get("orderId")
         except bt.TradeError as e:
             # 自癒：止損掛不上最常見＝該合約殘留條件單塞滿 algo 上限(每合約~20)→ -4509。走到這代表
             # 進場前無持倉（is_add 早已 return）→ 該合約所有 algo 條件單必為孤兒 → 清掉後重試一次。
+            # ⚠ hedge 帳號不可 cancel_all_algo（會誤撤對向倉的 SL/TP）→ 直接重試一次、不清。
             _sl_ok = False
             try:
-                client.cancel_all_algo(bsym)                               # 清孤兒條件單(端點已修正為 algoOrderList)
-                _osl = client.place_close_trigger(bsym, close_side, sl_px, "sl")
+                if not _hedge:
+                    client.cancel_all_algo(bsym)                           # 清孤兒條件單(端點已修正為 algoOrderList)
+                _osl = client.place_close_trigger(bsym, close_side, sl_px, "sl", position_side=_psd)
                 sl_oid = _osl.get("orderId")
                 _sl_ok = True
-                print(f"  ♻ 自動下單 {bsym} 止損 {e} → 清殘單後重掛成功")
+                print(f"  ♻ 自動下單 {bsym} 止損 {e} → 重掛成功")
             except bt.TradeError:
                 _sl_ok = False
             if not _sl_ok:
                 try:
-                    client.close_position(bsym)
+                    client.close_position(bsym, position_side=_psd)
                 except bt.TradeError:
                     pass
                 _log_trade(source="auto", acct=name, mode=client.env, status="failed", symbol=symbol, bsym=bsym, side=want,
@@ -942,7 +989,7 @@ def _exec_signal_for_account(name, cfg, market, exchange, symbol, tf, k, d, sig,
         tp_oid = None
         if tp_px:
             try:
-                _otp = client.place_close_trigger(bsym, close_side, tp_px, "tp")
+                _otp = client.place_close_trigger(bsym, close_side, tp_px, "tp", position_side=_psd)
                 tp_oid = _otp.get("orderId")    # 存 TP(algo) 單 id → 之後「跟著中軌移動」用 id 精準取消重掛
             except bt.TradeError as e:
                 warn.append(f"TP 掛單失敗（不影響停損保護）：{e}")
@@ -973,10 +1020,11 @@ def _exec_signal_for_account(name, cfg, market, exchange, symbol, tf, k, d, sig,
 
 
 def _close_auto_position(owner, client, row_id, bsym, symbol, tf, event, reason,
-                         sig=None, d=None, sigt=None):
+                         sig=None, d=None, sigt=None, position_side=None):
     """市價平掉一筆自動倉 + 更新紀錄 + 通知 owner（含已實現盈虧）。settle 與 retarget 共用。
-    sig/d/sigt：對應的進場訊號鍵/方向/訊號棒時間 → 讓平倉通知能串接到自動進場通知。"""
-    r = client.close_position(bsym)               # 內部會取消該合約所有 algo（SL/TP）
+    sig/d/sigt：對應的進場訊號鍵/方向/訊號棒時間 → 讓平倉通知能串接到自動進場通知。
+    position_side：hedge 帳號傳 LONG/SHORT → 只清/平該側（不碰對向倉）；單向傳 None。"""
+    r = client.close_position(bsym, position_side=position_side)   # hedge:分側；單向:取消該合約所有 algo
     msg = reason if r.get("ok") else reason + "（交易所端已先出場）"
     _update_trade(row_id, "closed", msg)
     pnl = None                                    # 實際已實現盈虧：從 income 取最近一筆該合約 REALIZED_PNL
@@ -1060,13 +1108,17 @@ def reconcile_auto_position(market, exchange, symbol, tf):
                     conn.close()
                 if not rows:
                     continue
+                _hedge = _is_hedge(client)
                 try:
-                    pos_syms = {p["symbol"] for p in client.positions()}
+                    _poss = client.positions()
                 except bt.TradeError:
                     continue
+                pos_set = ({(p["symbol"], p.get("posSide")) for p in _poss} if _hedge
+                           else {p["symbol"] for p in _poss})
                 for row_id, bsym, rsig, rd, rsigt, sl_oid, tp_oid in rows:
-                    if bsym in pos_syms:
-                        continue                       # 仍有持倉 → 未平，跳過
+                    _rpsd = ("LONG" if rd == "l" else "SHORT") if _hedge else None   # 該倉對應的 positionSide
+                    if (((bsym, _rpsd) in pos_set) if _hedge else (bsym in pos_set)):
+                        continue                       # 該側仍有持倉 → 未平，跳過
                     # 持倉已不在 → 交易所觸發單已盤中平倉。判止盈/止損：該合約最近一筆已實現盈虧正負。
                     pnl = None
                     try:
@@ -1082,7 +1134,8 @@ def reconcile_auto_position(market, exchange, symbol, tf):
                     # 查不到掛單（端點失敗/兩張都沒了）→ 退回用盈虧正負判定。
                     ev = None
                     if sl_oid or tp_oid:
-                        open_ids = {str(o.get("algoId")) for o in client.algo_orders(bsym) if o.get("algoId")}
+                        open_ids = {str(o.get("algoId")) for o in client.algo_orders(bsym)
+                                    if o.get("algoId") and (not _hedge or o.get("posSide") == _rpsd)}
                         if open_ids:
                             sl_open = sl_oid and str(sl_oid) in open_ids
                             tp_open = tp_oid and str(tp_oid) in open_ids
@@ -1099,16 +1152,233 @@ def reconcile_auto_position(market, exchange, symbol, tf):
                         else:
                             ev = "tp" if pnl >= 0 else "sl"
                     try:
-                        client.cancel_all_algo(bsym)   # 清殘留的另一張觸發單，避免孤兒
+                        if not _hedge:                 # 單向：清殘留的另一張觸發單；hedge 由 _close 分側清(不碰對向)
+                            client.cancel_all_algo(bsym)
                     except bt.TradeError:
                         pass
                     _close_auto_position(name, client, row_id, bsym, symbol, tf, ev,
                                          "交易所止盈平倉（盤中觸及上下軌）" if ev == "tp" else "交易所止損平倉（盤中觸及停損）",
-                                         sig=rsig, d=rd, sigt=rsigt)
+                                         sig=rsig, d=rd, sigt=rsigt, position_side=_rpsd)
             except Exception as e:
                 print(f"  ⚠ 自動倉對帳失敗 {name} {symbol} {tf}：{e}")
     except Exception as e:
         print(f"  ⚠ 自動倉對帳失敗 {symbol} {tf}：{e}")
+
+
+def place_fvg_limit_ladder(name, cfg, market, exchange, symbol, tf, gap):
+    """FVG 限價階梯版（影線版）進場：缺口 top/mid/bot 各掛 ⅓ 限價單(maker, GTC)。
+    gap={"t","top","bot","d"}(圖表價)。只 1h、用此帳號自己金鑰/自選/方向過濾。SL/TP 不在此掛——
+    成交後由 reconcile_fvg_pending 掛 closePosition 觸發單；殘單/過期/平倉撤殘單亦由其管理。絕不拋例外。"""
+    if market != "crypto":
+        return
+    try:
+        import routes.notify as notify
+        d = gap.get("d"); top = float(gap["top"]); bot = float(gap["bot"])
+        if top <= bot:
+            return
+        want = "short" if d == "s" else "long"
+        if cfg["dirs"] != "both" and cfg["dirs"] != want:
+            return
+        evt = f"fvglimit:{name}:{symbol}:{tf}:{d}:{gap.get('t')}"
+        if notify.seen_event(evt):
+            return
+        notify.mark_event(evt)
+        client, _ = _client_for(name)
+        if client is None:
+            return
+        if symbol not in {(w.get("symbol") or "") for w in notify.account_watchlist(name)}:
+            return
+        bsym, scale = client.resolve_symbol(symbol)
+        _hedge = _is_hedge(client)               # 雙向持倉 → 同幣多空各一槽；單向 → 同幣只一組
+        _psd = _posside(want, _hedge)
+        # 去重：單向 per-symbol（同幣多空互沖、cancel_all 會誤撤對向 → 只一組）；
+        #       hedge per-(symbol×方向)（多空分倉、各自 SL/TP → 同幣可多空兩組）。並守 maxPos。
+        _c, _ph = _acct._db()
+        try:
+            if _hedge:
+                _dup = _c.execute(
+                    f"SELECT 1 FROM trade_log WHERE source='auto' AND sig='fvg' AND status IN ('pending','open') "
+                    f"AND acct={_ph} AND symbol={_ph} AND tf={_ph} AND dir={_ph} LIMIT 1",
+                    (name, symbol, tf, d)).fetchone()
+            else:
+                _dup = _c.execute(
+                    f"SELECT 1 FROM trade_log WHERE source='auto' AND sig='fvg' AND status IN ('pending','open') "
+                    f"AND acct={_ph} AND symbol={_ph} AND tf={_ph} LIMIT 1", (name, symbol, tf)).fetchone()
+            _open_n = _c.execute(
+                f"SELECT COUNT(*) FROM trade_log WHERE source='auto' AND status IN ('pending','open') AND acct={_ph}",
+                (name,)).fetchone()
+        finally:
+            _c.close()
+        if _dup:
+            return
+        if _open_n and _open_n[0] >= int(cfg.get("maxPos", 3) or 3):
+            return
+        W = top - bot
+        stop = (bot - 3 * W) if want == "long" else (top + 3 * W)
+        tp   = (top + 6 * W) if want == "long" else (bot - 6 * W)
+        levels = [top, (top + bot) / 2.0, bot]
+        risk_usd = cfg.get("riskUsd") or 0
+        lev_cap = max(1, min(int(cfg["lev"]), 50))
+        mid = levels[1]
+        stop_pct = abs(mid - stop) / mid if mid else 0.05
+        try:
+            max_lev, mmr = client.lev_bracket(bsym)
+        except Exception:
+            max_lev, mmr = 50, 0.0
+        safe_lev = int(1.0 / (stop_pct * 1.25 + mmr)) if (stop_pct * 1.25 + mmr) > 0 else max_lev
+        lev = max(1, min(lev_cap, safe_lev, max_lev, 50))
+        try:
+            client.set_leverage(bsym, lev)
+        except bt.TradeError:
+            pass
+        fee = 0.0005
+        side = "BUY" if want == "long" else "SELL"
+        orders = []
+        for lv in levels:
+            lv_c = lv * scale; s_c = stop * scale
+            if risk_usd > 0:
+                per = abs(lv_c - s_c) + fee * lv_c + fee * s_c          # 每單位虧損(含來回手續費)
+                qb = (risk_usd / 3.0) / per if per > 0 else 0
+            else:
+                qb = ((cfg["usdt"] / 3.0) * lev) / lv_c if lv_c else 0   # 保證金模式：每檔 usdt/3 × lev
+            qty = client.quantize_qty(bsym, qb)
+            try:
+                px = client.quantize_price(bsym, lv_c)
+                o = client.place_order(bsym, side, qty, "LIMIT", price=px, position_side=_psd)
+                orders.append({"oid": o.get("orderId"), "level": lv, "px": px, "qty": qty})
+            except bt.TradeError as e:
+                orders.append({"oid": None, "level": lv, "qty": qty, "err": str(e)[:80]})
+        placed = [o for o in orders if o.get("oid")]
+        extra = json.dumps({"top": top, "bot": bot, "orders": orders, "gap_t": gap.get("t")})
+        _log_trade(source="auto", acct=name, mode=client.env,
+                   status="pending" if placed else "failed",
+                   symbol=symbol, bsym=bsym, side=want, sig="fvg", d=d, tf=tf,
+                   sigt=str(gap.get("t")), sl=str(round(stop, 8)), tp=str(round(tp, 8)),
+                   entry=str(round(mid, 8)), extra=extra,
+                   msg=(f"FVG限價階梯 掛 {len(placed)}/3 檔" if placed else "FVG限價階梯 全部掛單失敗"))
+        if placed:
+            envtag = "實盤" if client.env == "live" else "測試網"
+            dir_emoji = "📉" if want == "short" else "📈"
+            _push_owner(name, f"⏳ FVG限價掛單{dir_emoji} · {symbol}（{envtag}）",
+                        f"{'做空' if want == 'short' else '做多'} · 缺口 {_fmt_px(bot)}~{_fmt_px(top)}\n"
+                        f"掛 {len(placed)}/3 檔限價 · 止損 {_fmt_px(stop)} · 止盈 {_fmt_px(tp)}",
+                        symbol, tf=tf, event="atrade_open", sig="fvg", d=d, sigt=str(gap.get("t")))
+        print(f"  ⏳ FVG限價階梯 {client.env}: {bsym} {side} 掛{len(placed)}/3（{symbol} {tf} {d}）")
+    except Exception as e:
+        print(f"  ⚠ FVG限價掛單失敗 {name} {symbol}：{e}")
+
+
+def reconcile_fvg_pending(market, exchange, symbol, tf):
+    """FVG 限價階梯版生命週期對帳（逐帳號、每根 1h 收盤）：
+    ① pending 且已有持倉(≥1 檔成交) → 掛 SL/TP closePosition + status→open（之後平倉交給 reconcile_auto_position；
+       其 close_position 會 cancel_all 一併撤殘單＝止盈/止損撤殘單）。SL 掛不上 → 自癒重試→仍失敗就市價平倉，
+       絕不留無保護持倉。② 過期(168 根=一週)未成交 → 撤殘單 + status expired。絕不拋例外。"""
+    try:
+        if market != "crypto" or tf != "1h":
+            return
+        import calendar
+        for name, cfg in get_all_auto_cfgs():
+            try:
+                _ensure_db()
+                conn, ph = _acct._db()
+                try:
+                    rows = conn.execute(
+                        f"SELECT id, bsym, dir, sl, tp, extra FROM trade_log WHERE source='auto' AND sig='fvg' "
+                        f"AND status='pending' AND acct={ph} AND symbol={ph} AND tf={ph}",
+                        (name, symbol, tf)).fetchall()
+                finally:
+                    conn.close()
+                if not rows:
+                    continue
+                client, _ = _client_for(name)
+                if client is None:
+                    continue
+                bs0, scale = client.resolve_symbol(symbol)
+                _hedge = _is_hedge(client)
+                for row_id, bsym, d, sl_s, tp_s, extra_s in rows:
+                    _psd = _posside("short" if d == "s" else "long", _hedge)
+                    try:
+                        ex = json.loads(extra_s) if extra_s else {}
+                    except Exception:
+                        ex = {}
+                    oids = [str(o.get("oid")) for o in (ex.get("orders") or []) if o.get("oid")]
+                    try:
+                        resting = {str(o["orderId"]) for o in client.open_orders(bsym)}
+                        has_pos = any(p["symbol"] == bsym and (not _hedge or p.get("posSide") == _psd)
+                                      for p in client.positions())
+                    except bt.TradeError:
+                        continue
+                    gt = ex.get("gap_t")
+                    try:
+                        gep = calendar.timegm(time.strptime(str(gt)[:19], "%Y-%m-%dT%H:%M:%S")) if gt else None
+                    except Exception:
+                        gep = None
+                    expired = (gep is not None) and (time.time() - gep > 168 * 3600)
+
+                    if has_pos:
+                        # ≥1 檔成交 → 掛 SL/TP closePosition、狀態轉 open
+                        want = "short" if d == "s" else "long"
+                        close_side = "SELL" if want == "long" else "BUY"
+                        sl_px = client.quantize_price(bsym, float(sl_s) * scale)
+                        tp_px = client.quantize_price(bsym, float(tp_s) * scale)
+                        sl_oid = tp_oid = None
+                        try:
+                            sl_oid = client.place_close_trigger(bsym, close_side, sl_px, "sl", position_side=_psd).get("orderId")
+                        except bt.TradeError:
+                            try:
+                                if not _hedge: client.cancel_all_algo(bsym)   # hedge 不可清(誤撤對向)
+                                sl_oid = client.place_close_trigger(bsym, close_side, sl_px, "sl", position_side=_psd).get("orderId")
+                            except bt.TradeError:
+                                sl_oid = None
+                        if not sl_oid:
+                            # 止損掛不上 → 絕不留無保護持倉：撤殘單 + 市價平倉 + 標 failed
+                            for oid in oids:
+                                if oid in resting:
+                                    try: client.cancel_order(bsym, oid)
+                                    except bt.TradeError: pass
+                            try: client.close_position(bsym, position_side=_psd)
+                            except bt.TradeError: pass
+                            _update_trade(row_id, "failed", "FVG限價成交但止損掛不上→已市價平倉(不留無保護倉)")
+                            _push_owner(name, f"⚠ FVG限價平倉 · {symbol}", "成交後止損掛不上、已即時平倉", symbol,
+                                        tf=tf, event="atrade", sig="fvg", d=d, sigt=str(gt))
+                            continue
+                        try:
+                            tp_oid = client.place_close_trigger(bsym, close_side, tp_px, "tp", position_side=_psd).get("orderId")
+                        except bt.TradeError:
+                            tp_oid = None
+                        if expired:                                  # 過期 → 撤掉仍未成交的階梯殘單(不再補成交同缺口)
+                            for oid in oids:
+                                if oid in resting:
+                                    try: client.cancel_order(bsym, oid)
+                                    except bt.TradeError: pass
+                        c2, ph2 = _acct._db()
+                        try:
+                            c2.execute(
+                                f"UPDATE trade_log SET status='open', sl_oid={ph2}, tp_oid={ph2}, msg={ph2} WHERE id={ph2}",
+                                (str(sl_oid), str(tp_oid) if tp_oid else None,
+                                 "FVG限價成交→已掛SL/TP" + ("（TP掛單失敗）" if not tp_oid else ""), row_id))
+                            c2.commit()
+                        finally:
+                            c2.close()
+                        envtag = "實盤" if client.env == "live" else "測試網"
+                        _push_owner(name, f"✅ FVG限價成交 · {symbol}（{envtag}）",
+                                    f"已成交、掛上止損 {_fmt_px(float(sl_s))} / 止盈 {_fmt_px(float(tp_s))}"
+                                    + ("\n⚠ 止盈單掛單失敗" if not tp_oid else ""),
+                                    symbol, tf=tf, event="atrade_open", sig="fvg", d=d, sigt=str(gt))
+                        print(f"  ✅ FVG限價成交 {client.env}: {bsym} → 掛SL/TP，轉 open")
+                    elif expired:
+                        # 從未成交且過期 → 撤所有殘單、標 expired
+                        for oid in oids:
+                            if oid in resting:
+                                try: client.cancel_order(bsym, oid)
+                                except bt.TradeError: pass
+                        _update_trade(row_id, "expired", "FVG限價 168 根未成交→撤單作廢")
+                        _push_owner(name, f"⌛ FVG限價過期 · {symbol}", "缺口掛單一週未成交、已撤單作廢",
+                                    symbol, tf=tf, event="atrade", sig="fvg", d=d, sigt=str(gt))
+            except Exception as e:
+                print(f"  ⚠ FVG限價對帳失敗 {name} {symbol}：{e}")
+    except Exception as e:
+        print(f"  ⚠ FVG限價對帳失敗 {symbol}：{e}")
 
 
 def retarget_auto_tp(market, exchange, symbol, tf, upper_chart, lower_chart):
@@ -1150,8 +1420,8 @@ def retarget_auto_tp(market, exchange, symbol, tf, upper_chart, lower_chart):
                     continue
                 _bwidth = upper_chart - lower_chart
                 for row_id, bsym, d, old_tp, tp_oid, rsig, rsigt, _rev in rows:
-                    if _rev:
-                        continue                        # 反向倉：SL/TP 固定不追蹤軌，retarget 不碰
+                    if _rev or rsig == "fvg":
+                        continue                        # 反向倉 / FVG 倉：SL/TP 固定不追蹤軌，retarget 不碰
                     try:
                         want = "short" if d == "s" else "long"
                         # 98% 位：多＝下軌+ratio×寬、空＝下軌+(1−ratio)×寬（鏡像，靠下軌）
@@ -1233,6 +1503,12 @@ class CancelReq(BaseModel):
     orderId: int
 
 
+class PosModeReq(BaseModel):
+    key: Optional[str] = None
+    name: Optional[str] = None
+    hedge: bool = False
+
+
 class AutoReq(BaseModel):
     key: Optional[str] = None
     name: Optional[str] = None
@@ -1267,6 +1543,7 @@ def status(name: str = ""):
         "hasOwnKeys": own is not None,
         "usingEnv": is_env_owner,                 # 此帳號用的是共用 env 金鑰（擁有者）
         "env": (own[2] if own else (bt.env_name() if is_env_owner else "testnet")),
+        "hedge": (_is_hedge(client) if client else False),   # 目前持倉模式（雙向=FVG 雙槽）
     }
 
 
@@ -1469,17 +1746,18 @@ def order(req: OrderReq):
         except bt.TradeError:
             pass
         side = "BUY" if want == "long" else "SELL"
+        _psd = _posside(want, _is_hedge(client))   # hedge 帳號手動單也帶 positionSide
         otype = "LIMIT" if req.type == "LIMIT" else "MARKET"
         ref_px = float(req.price) * scale if (otype == "LIMIT" and req.price) else client.last_price(bsym)
         qty = client.quantize_qty(bsym, notional / ref_px)
         price = client.quantize_price(bsym, float(req.price) * scale) if (otype == "LIMIT" and req.price) else None
-        o = client.place_order(bsym, side, qty, otype, price=price)
+        o = client.place_order(bsym, side, qty, otype, price=price, position_side=_psd)
         close_side = "SELL" if want == "long" else "BUY"
         warn = []
         for v, kind in ((req.sl, "sl"), (req.tp, "tp")):
             if v:
                 try:
-                    client.place_close_trigger(bsym, close_side, client.quantize_price(bsym, float(v) * scale), kind)
+                    client.place_close_trigger(bsym, close_side, client.quantize_price(bsym, float(v) * scale), kind, position_side=_psd)
                 except bt.TradeError as e:
                     warn.append(f"{'停損' if kind == 'sl' else '止盈'}掛單失敗：{e}")
         _log_trade(source="manual", acct=_acct._norm_name(req.name or ""), mode=client.env,
@@ -1497,10 +1775,16 @@ def order(req: OrderReq):
 def close(req: CloseReq):
     client = _guard(req.key, req.name)
     try:
-        r = client.close_position(req.bsym.upper())
+        _bs = req.bsym.upper()
+        if _is_hedge(client):                  # hedge：把該合約多、空兩側都平
+            r1 = client.close_position(_bs, position_side="LONG")
+            r2 = client.close_position(_bs, position_side="SHORT")
+            r = {"ok": bool(r1.get("ok") or r2.get("ok")), "long": r1, "short": r2}
+        else:
+            r = client.close_position(_bs)
         if r.get("ok"):
             _log_trade(source="manual", acct=_acct._norm_name(req.name or ""), mode=client.env,
-                       status="closed", symbol=req.bsym, bsym=req.bsym.upper(), msg="手動平倉")
+                       status="closed", symbol=req.bsym, bsym=_bs, msg="手動平倉")
         return r
     except bt.TradeError as e:
         raise HTTPException(400, str(e))
@@ -1514,6 +1798,27 @@ def cancel(req: CancelReq):
         return {"ok": True}
     except bt.TradeError as e:
         raise HTTPException(400, str(e))
+
+
+@router.post("/posmode")
+def posmode(req: PosModeReq):
+    """切換此帳號 Binance 持倉模式：單向 / 雙向(hedge)。雙向＝同幣可同時多空各一倉(FVG 雙槽需要)。
+    ⚠ 帳號級設定、影響該帳號所有交易；有持倉/掛單時 Binance 拒切 → 回友善訊息。
+    GET 對應在 /status 回傳目前模式（前端顯示用）。"""
+    client = _guard(req.key, req.name)
+    try:
+        cur = client.get_position_mode()
+        if cur == bool(req.hedge):
+            return {"ok": True, "hedge": cur, "msg": "已是此模式"}
+        client.set_position_mode(bool(req.hedge))
+        return {"ok": True, "hedge": bool(req.hedge)}
+    except bt.TradeError as e:
+        msg = str(e)
+        if "-4059" in msg or "No need to change" in msg:
+            return {"ok": True, "hedge": bool(req.hedge), "msg": "已是此模式"}
+        if "-4068" in msg or "position" in msg.lower() or "open order" in msg.lower():
+            raise HTTPException(400, "有未平倉位或掛單，無法切換持倉模式 → 請先全部平倉/撤單再切")
+        raise HTTPException(400, msg)
 
 
 def _sweep_orphan_algo(client) -> dict:

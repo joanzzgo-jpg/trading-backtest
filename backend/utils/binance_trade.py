@@ -217,6 +217,26 @@ class Client:
                         "unrealized": float(b.get("crossUnPnl", 0))}
         return {"total": 0.0, "available": 0.0, "unrealized": 0.0}
 
+    # ── 持倉模式（單向 / 雙向 Hedge）──────────────────────────────
+    # Binance USDⓈ-M 帳號級設定 dualSidePosition：False=單向(每幣一個淨倉)、True=雙向(同幣可同時持
+    # 多倉+空倉、各自獨立 SL/TP)。FVG 雙槽（同幣多空並存）需 hedge。依 client 實例快取，避免每單一次 API。
+    def get_position_mode(self) -> bool:
+        """回 True=雙向(hedge) / False=單向。失敗保守回 False(單向)。"""
+        if getattr(self, "_pos_mode", None) is not None:
+            return self._pos_mode
+        try:
+            r = self._request("GET", "/fapi/v1/positionSide/dual")
+            self._pos_mode = bool(r.get("dualSidePosition"))
+        except TradeError:
+            self._pos_mode = False
+        return self._pos_mode
+
+    def set_position_mode(self, hedge: bool):
+        """切帳號持倉模式。有持倉/掛單時 Binance 會拒切(-4059/-4068 等) → 拋 TradeError 給上層提示。"""
+        self._request("POST", "/fapi/v1/positionSide/dual",
+                      {"dualSidePosition": "true" if hedge else "false"})
+        self._pos_mode = bool(hedge)
+
     def positions(self) -> list:
         rows = self._request("GET", "/fapi/v2/positionRisk")
         out = []
@@ -227,6 +247,7 @@ class Client:
             mark = float(p.get("markPrice", 0) or 0)
             out.append({
                 "symbol": p["symbol"], "side": "long" if amt > 0 else "short",
+                "posSide": p.get("positionSide", "BOTH"),   # hedge 下 LONG/SHORT，單向為 BOTH
                 "qty": abs(amt), "entry": float(p.get("entryPrice", 0) or 0),
                 "mark": mark, "upnl": float(p.get("unRealizedProfit", 0) or 0),
                 "lev": int(float(p.get("leverage", 0) or 0)),
@@ -243,6 +264,7 @@ class Client:
             "price": float(o.get("price", 0) or 0),
             "stopPrice": float(o.get("stopPrice", 0) or 0),
             "reduceOnly": bool(o.get("reduceOnly")), "closePosition": bool(o.get("closePosition")),
+            "posSide": o.get("positionSide", "BOTH"),     # hedge 下 LONG/SHORT，供分側撤單
             "time": o.get("time"),
         } for o in rows]
 
@@ -275,6 +297,7 @@ class Client:
                         "side": o.get("side"),
                         "triggerPrice": float(o.get("triggerPrice", 0) or o.get("stopPrice", 0) or 0),
                         "closePosition": bool(o.get("closePosition")),
+                        "posSide": o.get("positionSide", "BOTH"),       # hedge 分側撤 SL/TP 用
                     })
                 except (TypeError, ValueError):
                     continue
@@ -304,29 +327,36 @@ class Client:
         lev = max(1, min(int(lev), 125))
         self._request("POST", "/fapi/v1/leverage", {"symbol": sym, "leverage": lev})
 
-    def place_order(self, sym, side, qty, order_type="MARKET", price=None, reduce_only=False) -> dict:
+    def place_order(self, sym, side, qty, order_type="MARKET", price=None, reduce_only=False,
+                    position_side=None) -> dict:
         p = {"symbol": sym, "side": side, "type": order_type, "quantity": qty}
         if order_type == "LIMIT":
             if not price:
                 raise TradeError("限價單需要價格")
             p["price"] = price
             p["timeInForce"] = "GTC"
-        if reduce_only:
+        # hedge：帶 positionSide(LONG/SHORT)，且 reduceOnly 互斥（hedge 下由 positionSide+反向 side 平倉）。
+        if position_side in ("LONG", "SHORT"):
+            p["positionSide"] = position_side
+        elif reduce_only:
             p["reduceOnly"] = "true"
         o = self._request("POST", "/fapi/v1/order", p)
         return {"orderId": o.get("orderId"), "status": o.get("status"),
                 "avgPrice": float(o.get("avgPrice", 0) or 0)}
 
-    def place_close_trigger(self, sym, side, stop_price, kind) -> dict:
+    def place_close_trigger(self, sym, side, stop_price, kind, position_side=None) -> dict:
         # ⚠ 2025-12-09 起 Binance USDⓈ-M 把所有條件單(STOP_MARKET/TAKE_PROFIT_MARKET/STOP/
         # TAKE_PROFIT/TRAILING_STOP_MARKET)遷到 Algo Order API：舊的 POST /fapi/v1/order 掛這些
         # 一律回 -4120(STOP_ORDER_SWITCH_ALGO，與幣種無關，BTC 也擋)。改用 POST /fapi/v1/algoOrder：
         # 必帶 algoType=CONDITIONAL，且價格參數名由 stopPrice 改為 triggerPrice。
         t = "STOP_MARKET" if kind == "sl" else "TAKE_PROFIT_MARKET"
-        o = self._request("POST", "/fapi/v1/algoOrder", {
+        p = {
             "algoType": "CONDITIONAL", "symbol": sym, "side": side, "type": t,
             "triggerPrice": stop_price, "closePosition": "true", "workingType": "CONTRACT_PRICE",
-        })
+        }
+        if position_side in ("LONG", "SHORT"):   # hedge：觸發單綁定該側持倉
+            p["positionSide"] = position_side
+        o = self._request("POST", "/fapi/v1/algoOrder", p)
         return {"orderId": o.get("orderId") or o.get("algoId") or o.get("strategyId"),
                 "status": o.get("status")}
 
@@ -359,7 +389,36 @@ class Client:
         # （疑似害止盈一直移不動＝retarget 取消舊 TP 失敗）。sym 僅保留簽名相容、不送出。
         self._request("DELETE", "/fapi/v1/algoOrder", {"algoId": algo_id})
 
-    def close_position(self, sym) -> dict:
+    def close_position(self, sym, position_side=None) -> dict:
+        """平倉 + 清該合約掛單/觸發單。
+        position_side=None（單向）：清整個合約所有單、平淨倉。
+        position_side=LONG/SHORT（hedge）：只清『該側』的限價/觸發單、只平該側持倉（不碰對向倉）。"""
+        ps = position_side if position_side in ("LONG", "SHORT") else None
+        if ps:
+            # ── hedge 分側清理：只撤該 side 的殘單/SL/TP，平該 side 的倉 ──
+            try:
+                for o in self.open_orders(sym):
+                    if o.get("posSide") == ps:
+                        try: self.cancel_order(sym, o["orderId"])
+                        except TradeError: pass
+            except TradeError:
+                pass
+            try:
+                for o in self.algo_orders(sym):
+                    if o.get("posSide") == ps and o.get("algoId"):
+                        try: self.cancel_algo(sym, o["algoId"])
+                        except TradeError: pass
+            except TradeError:
+                pass
+            pos = [p for p in self.positions() if p["symbol"] == sym and p.get("posSide") == ps]
+            if not pos:
+                return {"ok": False, "msg": "已無持倉"}
+            p = pos[0]
+            close_side = "SELL" if ps == "LONG" else "BUY"   # 平該側 = 反向 + positionSide(不可 reduceOnly)
+            qty = self.quantize_qty(sym, p["qty"])
+            o = self.place_order(sym, close_side, qty, "MARKET", position_side=ps)
+            return {"ok": True, "order": o}
+        # ── 單向：維持原行為 ──
         pos = [p for p in self.positions() if p["symbol"] == sym]
         try:
             self.cancel_all(sym)
