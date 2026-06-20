@@ -329,11 +329,74 @@ function _computeAutoRRBox(sig) {
   return box;
 }
 
+/* ── FVG 盈虧比盒（hover 到缺口確認棒才浮現，正常隱藏）──────────────────
+   止盈止損位（W = top−bot）：定版 SL=2W、TP=6W。
+   依據：1h + g+2過濾 全盈虧比掃描，2/6 報酬/DD 最佳(規格8幣5.66、19幣11.2)，DD 僅 −6.4%。 */
+let _FVG_SL_W = 2;          // 止損寬（單位 W）
+let _FVG_TP_W = 6;          // 止盈寬（單位 W）
+let _fvgList = [];          // 後端原始 fvg 陣列 [{t, top, bot, d, t2}]
+let _fvgTimeIdx = null, _fvgTimeIdxSrc = null;   // Map<圖表秒, fvg[]>（memo）
+let _hoverFVGZones = [];    // 已通過 dwell、要在圖上畫盒的 fvg
+
+// 由 fetchWinRate 在拿到勝率資料時呼叫，存一份 fvg 供 hover 用
+function _setFVGData(list) {
+  _fvgList = Array.isArray(list) ? list : [];
+  _fvgTimeIdx = null;       // 失效 → 下次 hover 重建
+}
+function _buildFVGTimeIndex() {
+  if (_fvgTimeIdx && _fvgTimeIdxSrc === _fvgList) return _fvgTimeIdx;
+  const m = new Map();
+  for (const z of _fvgList) {
+    const t = toTime(z.t);                         // ISO → 圖表秒，與 crosshair time 一致
+    if (t == null) continue;
+    if (!m.has(t)) m.set(t, []);
+    m.get(t).push(z);
+  }
+  _fvgTimeIdx = m; _fvgTimeIdxSrc = _fvgList;
+  return m;
+}
+// 一個 fvg 缺口 → longpos/shortpos 盒（進場參考＝缺口中點）
+function _computeFVGBox(z) {
+  if (!z || z.top == null || z.bot == null) return null;
+  const W = z.top - z.bot;
+  if (!(W > 0)) return null;
+  const isShort = z.d === "s";
+  const mid = (z.top + z.bot) / 2;                 // 進場參考 = 缺口中點
+  const tp = isShort ? z.bot - _FVG_TP_W * W : z.top + _FVG_TP_W * W;
+  const sl = isShort ? z.top + _FVG_SL_W * W : z.bot - _FVG_SL_W * W;
+  // 盒寬：確認棒 → 回補棒（=部位了結）；未回補預設 12 根
+  const t1s = toTime(z.t), t2s = (z.t2 != null) ? toTime(z.t2) : null;
+  let barWidth = 12;
+  if (t2s != null && typeof _secToIdx !== "undefined" && _secToIdx.has(t1s) && _secToIdx.has(t2s))
+    barWidth = Math.max(3, _secToIdx.get(t2s) - _secToIdx.get(t1s));
+  return {
+    id: "_fvg_" + z.t,
+    type: isShort ? "shortpos" : "longpos",
+    color: isShort ? "#ef5350" : "#26a69a",
+    barWidth,
+    p1: { time: t1s, price: mid },
+    tp, sl, tpAct: null,
+    _isFVG: true,
+  };
+}
+// 測試期可在 console 直接調參看效果：window.setFVGTPSL(slW, tpW)
+window.setFVGTPSL = function (slW, tpW) {
+  if (slW > 0) _FVG_SL_W = slW;
+  if (tpW > 0) _FVG_TP_W = tpW;
+  if (typeof renderDrawings === "function") requestAnimationFrame(renderDrawings);
+  return { sl: _FVG_SL_W, tp: _FVG_TP_W };
+};
+
 // 渲染所有展開中的自動盈虧比盒（由 draw.js 的 renderDrawings 末端呼叫）
 //  - _autoRRSet：點擊釘選的盒（常駐）
 //  - _hoverRRSigs：十字線目前所在 K 棒的訊號盒（hover，未釘選才畫，避免重複）
 function _renderAutoRRBoxes(W, H) {
   if (typeof drawOne !== "function") return;
+  // FVG 盈虧比盒（hover 觸發；獨立於 S1~S12 訊號隱藏，因為它不是 S 訊號）
+  for (const z of (_hoverFVGZones || [])) {
+    const box = _computeFVGBox(z);
+    if (box) drawOne(box, W, H, false, false);
+  }
   // S1~S12 訊號一鍵隱藏時：釘選/hover 的盈虧比盒都不畫（與主圖 marker 一致）
   if ((typeof _wrSignalsHidden !== "undefined") && _wrSignalsHidden) return;
   for (const t of _autoRRSet) {
@@ -353,6 +416,8 @@ function _renderAutoRRBoxes(W, H) {
 function _clearAutoRR() {
   _autoRRBoxCache.clear();  // 清 memo cache
   _hoverRRSigs = [];
+  _hoverFVGZones = [];
+  _fvgTimeIdx = null;       // FVG 索引隨標的/時框失效
   _hoverCurSigs = [];
   _lastHoverBarTime = undefined;
   clearTimeout(_hoverRRTimer);
@@ -388,6 +453,7 @@ async function _fetchWinRateNow() {
     _renderWinRate(_wrCache[cacheKey]);
     _renderWRSignals(_wrCache[cacheKey].signals);
     if (typeof setFVGZones === "function") setFVGZones(_wrCache[cacheKey].fvg);
+    _setFVGData(_wrCache[cacheKey].fvg);
     // 快取命中也要刷新左抽屜（含敗後停手求解），否則切回已載入過的標的時抽屜不更新
     if (typeof window._refreshSignalDrawer === "function") window._refreshSignalDrawer();
     return;
@@ -419,6 +485,7 @@ async function _fetchWinRateNow() {
     _renderWinRate(d);
     _renderWRSignals(d.signals);
     if (typeof setFVGZones === "function") setFVGZones(d.fvg);
+    _setFVGData(d.fvg);
     if (typeof window._refreshSignalDrawer === "function") window._refreshSignalDrawer();
   } catch(e) {
     console.error("[fetchWinRate] error:", e.name, e.message);
@@ -773,15 +840,19 @@ function _updateHoverWR(time) {
   // 手機 3+ 訊號（卡片模式）→ 啟動自動輪播；否則停止
   const isCardMode = isMobileUI() && sigs.length >= 3;
   if (isCardMode) _startHoverAutoCycle(); else _stopHoverAutoCycle();
-  // 圖上 RR 盒：停留 0.5s 才顯示（換棒先清掉前一根的盒，避免掃動時盒子狂閃）
+  // FVG 盈虧比盒：hover 到「缺口確認棒」才顯示（正常隱藏）
+  const fvgIdx = _buildFVGTimeIndex();
+  const fvgs = (time != null && fvgIdx.has(time)) ? fvgIdx.get(time) : [];
+  // 圖上 RR 盒 / FVG 盒：停留 0.5s 才顯示（換棒先清掉前一根，避免掃動時狂閃）
   clearTimeout(_hoverRRTimer);
-  if (_hoverRRSigs.length) {
-    _hoverRRSigs = [];
+  if (_hoverRRSigs.length || _hoverFVGZones.length) {
+    _hoverRRSigs = []; _hoverFVGZones = [];
     if (typeof renderDrawings === "function") requestAnimationFrame(renderDrawings);
   }
-  if (sigs.length) {
+  if (sigs.length || fvgs.length) {
     _hoverRRTimer = setTimeout(() => {
       _hoverRRSigs = sigs;
+      _hoverFVGZones = fvgs;
       if (typeof renderDrawings === "function") requestAnimationFrame(renderDrawings);
     }, _HOVER_RR_DWELL);
   }

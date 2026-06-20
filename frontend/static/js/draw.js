@@ -808,7 +808,8 @@ function _getSessionRuns() {
 }
 // K 棒後方：①各交易時段淡色直條 ②各盤當盤高/低點虛線 ③星期標籤。只在日內時框、且開關開啟。
 function _drawSessionOverlay(W, H) {
-  if (!_sessionOn) return;
+  // 星期標籤(③)永遠顯示——不受右上「交易時段」開關(_sessionOn)控制；
+  // 僅色塊/高低線/開盤標記(①②④)受開關控制。兩者皆只在日內時框出現。
   if (!_SESSION_INTRADAY.includes(typeof currentTF !== "undefined" ? currentTF : "")) return;
   if (typeof ohlcvData === "undefined" || !ohlcvData.length || typeof mainChart === "undefined") return;
   const ts = mainChart.timeScale();
@@ -839,6 +840,8 @@ function _drawSessionOverlay(W, H) {
   try { const th = ts.height(); if (th > 0) plotBottom = H - th; } catch (e) {}
   drawCtx.save();
   drawCtx.beginPath(); drawCtx.rect(0, 0, plotW, H); drawCtx.clip();
+  // ①②④ 色塊/高低線/開盤標記：受 _sessionOn 開關控制（星期標籤③在其後、不受控）。
+  if (_sessionOn) {
   // 用預先算好的時段區段（含當盤高低）逐段畫 → 每幀只做座標換算，不再每根 K 重算高低。
   const runs = _getSessionRuns();
   for (const r of runs) {
@@ -883,6 +886,7 @@ function _drawSessionOverlay(W, H) {
     drawCtx.fillText(_SESSION_NAME[sess], xL + 3, 30);                                      // 盤名（星期列下方）
   }
   drawCtx.restore();
+  }   // end if (_sessionOn) — 以下星期標籤永遠畫
 
   // ③ 星期標籤：日期變動的那根 K 棒上方標「週X」
   drawCtx.save();
