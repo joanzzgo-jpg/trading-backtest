@@ -44,35 +44,29 @@ _ALLOW = {_acct._norm_name(s) for s in (os.getenv("TRADE_ALLOW") or _OWNER).spli
 def _allowed(name: str) -> bool:
     return _acct._norm_name(name or "") in _ALLOW if _ALLOW else False
 
-_ALL_SIGS = {"abc", "ab", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "ss1", "ss2", "ss3", "fvg"}
+_ALL_SIGS = {"ss1", "ss2", "ss3", "fvg"}   # S1~S12 已退役(無 edge)，自動交易只收 SS 系列 + FVG
 _ALL_TFS = {"5m", "15m", "30m", "1h", "2h", "4h", "8h", "1d", "1w", "1M"}
 # 自動交易止盈目標＝「下軌→上軌」的此比例位（多單靠上軌、空單鏡像靠下軌），取代滿格外軌(=1.0)。
 # 0.98＝離上軌 2% 處先止盈 → 不等價格剛好碰到外軌(常常差一點點沒成交又反轉吐回)。進場初始 TP 與
 # retarget 跟軌共用此比例。改這一個值即可調整。
 _AUTO_TP_BAND_RATIO = 0.98
-_AUTO_DEFAULT = {"on": False, "owner": "", "sigs": [], "tfs": [], "usdt": 50.0,
-                 "lev": 3, "maxPos": 3, "dirs": "both",
-                 # riskUsd=每筆風險金額（打到停損約虧這麼多 USDT，含來回手續費）；>0 時改用「固定風險倉位」
-                 # 模式：數量由停損距離自動算、槓桿自動挑（強平在停損外），lev 當槓桿上限。0=用保證金×槓桿。
-                 "riskUsd": 0.0,
-                 # slPct=全域止損緩衝 %（0=用訊號原停損）。perSym={標的:止損緩衝%} 個別覆寫（每標的不同）。
-                 "slPct": 0.0,
-                 "perSym": {},
-                 # stopAfterLoss=敗後停手（同圖表）：某方向落敗後停手、跳過後續同向訊號，
-                 # 直到同向「紙上會贏」或反向訊號出現才解除（非時間冷卻）
-                 "stopAfterLoss": False,
-                 # maxAdds=加倉上限筆數（含首筆）。1=不加倉(同合約只一倉，同向訊號略過)；>1=持倉中同向訊號
-                 # 再現就加一筆(到上限)，合併均價、淨倉止損重設到「打到就總虧 N×R」的價位(R=riskUsd)→
-                 # 每多加一筆最大虧損只多 1R。只在固定風險模式(riskUsd>0)生效；先掛新止損後取消舊、永不平倉。
-                 "maxAdds": 1,
-                 # reverse=反向模式(止損↔止盈互換)：訊號照舊判定，但實際下「反方向」單——
-                 # 止損掛在原止盈軌位、止盈掛在原止損位。反向倉 SL/TP 固定不追蹤(retarget 跳過)、且不加倉。
-                 # ⚠ 回測顯示這在 SS/CRT 上會虧更多(方向毛利為正、反過來等於丟掉正確方向又付兩次手續費)。
-                 "reverse": False,
-                 # fvgEntry=FVG 進場模式："market"=收盤確認市價進場(保證成交、現行基準)；
-                 # "limit"=缺口 top/mid/bot 各掛 ⅓ 限價單(影線版，maker、帳面更高但成交率/逆選擇未實證，
-                 # 只真錢小額能量)。只影響 sig=="fvg"；其他訊號永遠市價。
-                 "fvgEntry": "market"}
+# 自動交易設定＝SS 與 FVG 兩份『完全獨立』的子設定（風險控制本就不同：slPct/加倉/多時框 是 SS 專屬；
+# 進場模式 是 FVG 專屬；FVG 固定 1h、3W/6W、無加倉/無緩衝；連 maxPos/每筆風險的理想值都不同）。
+# 共用的只有 on(主開關)/owner。hedge 不進 cfg(是 Binance 帳號級、由 _is_hedge 讀)。
+# riskUsd=每筆風險金額(打到停損約虧這麼多 USDT,含來回手續費)；>0 改「固定風險倉位」(數量由停損距離算、
+#   槓桿自動挑、lev 當上限)；0=保證金×槓桿。dirs=方向過濾。
+_SS_DEFAULT = {"on": False, "sigs": [], "tfs": [], "dirs": "both",
+               "usdt": 50.0, "lev": 3, "riskUsd": 0.0, "maxPos": 3,
+               # maxAdds=加倉上限(含首筆)。1=不加倉；>1=同向持倉中再現加一筆(到上限)。只 riskUsd>0 生效。
+               "maxAdds": 1,
+               # slPct=全域止損緩衝%(0=用訊號原停損)。perSym={標的:%} 或 {"標的|時框":%} 個別覆寫。
+               "slPct": 0.0, "perSym": {}}
+# FVG 子設定：進場模式 market(收盤確認市價,保證成交)/limit(缺口⅓階梯,影線版,成交率未實證)。固定 1h、
+# 止損3W/止盈6W → 無 slPct/無 maxAdds/無 tfs；maxPos 預設 15(回測組合上限)。
+_FVG_DEFAULT = {"on": False, "entry": "market", "dirs": "both",
+                "usdt": 50.0, "lev": 3, "riskUsd": 0.0, "maxPos": 15}
+_AUTO_DEFAULT = {"on": False, "owner": "",
+                 "ss": dict(_SS_DEFAULT), "fvg": dict(_FVG_DEFAULT)}
 
 
 # ── 金鑰加密（Fernet）：Secret 加密後才入庫 ───────────────────
@@ -368,38 +362,29 @@ def _ensure_db():
     _inited = True
 
 
-def _clean_auto(p: Optional[dict]) -> dict:
+def _num(v, dflt, lo, hi, integer=False):
+    try:
+        x = (int if integer else float)(v if v is not None else dflt)
+        return max(lo, min(x, hi))
+    except (TypeError, ValueError):
+        return dflt
+
+
+def _clean_ss(p: dict) -> dict:
+    """SS 子設定 sanitize。"""
     p = p or {}
-    out = dict(_AUTO_DEFAULT)
-    out["on"] = bool(p.get("on"))
-    # owner = 綁定的擁有者帳號名稱：自動交易只下「這個帳號自選清單裡」的標的，
-    # 避免掃到別的帳號（種子帳號/其他用戶）的自選就用你的 Binance 帳戶下單。
-    out["owner"] = (p.get("owner") or "").strip()[:40]
-    out["sigs"] = [s for s in (p.get("sigs") or []) if s in _ALL_SIGS]
-    out["tfs"] = [t for t in (p.get("tfs") or []) if t in _ALL_TFS]
-    try:
-        out["usdt"] = max(1.0, min(float(p.get("usdt", 50)), 100000.0))
-    except (TypeError, ValueError):
-        pass
-    try:
-        out["lev"] = max(1, min(int(p.get("lev", 3)), 50))
-    except (TypeError, ValueError):
-        pass
-    try:
-        out["maxPos"] = max(1, min(int(p.get("maxPos", 3)), 50))
-    except (TypeError, ValueError):
-        pass
+    o = dict(_SS_DEFAULT)
+    o["on"] = bool(p.get("on"))
+    o["sigs"] = [s for s in (p.get("sigs") or []) if s in ("ss1", "ss2", "ss3")]
+    o["tfs"] = [t for t in (p.get("tfs") or []) if t in _ALL_TFS]
     if p.get("dirs") in ("both", "long", "short"):
-        out["dirs"] = p["dirs"]
-    try:
-        out["slPct"] = max(0.0, min(float(p.get("slPct", 0) or 0), 50.0))
-    except (TypeError, ValueError):
-        pass
-    try:
-        out["riskUsd"] = max(0.0, min(float(p.get("riskUsd", 0) or 0), 100000.0))
-    except (TypeError, ValueError):
-        pass
-    # 各標的止損緩衝%覆寫：{標的: 緩衝%}（0~50；空值/非法略過 → 該標的用全域 slPct）
+        o["dirs"] = p["dirs"]
+    o["usdt"] = _num(p.get("usdt"), 50.0, 1.0, 100000.0)
+    o["lev"] = _num(p.get("lev"), 3, 1, 50, True)
+    o["riskUsd"] = _num(p.get("riskUsd") or 0, 0.0, 0.0, 100000.0)
+    o["maxPos"] = _num(p.get("maxPos"), 3, 1, 50, True)
+    o["maxAdds"] = _num(p.get("maxAdds"), 1, 1, 20, True)
+    o["slPct"] = _num(p.get("slPct") or 0, 0.0, 0.0, 50.0)
     ps = {}
     for sym, v in (p.get("perSym") or {}).items():
         try:
@@ -408,15 +393,49 @@ def _clean_auto(p: Optional[dict]) -> dict:
             continue
         if fv > 0:
             ps[str(sym)] = max(0.0, min(fv, 50.0))
-    out["perSym"] = ps
-    out["stopAfterLoss"] = bool(p.get("stopAfterLoss"))
-    out["reverse"] = bool(p.get("reverse"))     # 反向模式(止損↔止盈互換、反方向下單)
-    out["fvgEntry"] = p.get("fvgEntry") if p.get("fvgEntry") in ("market", "limit") else "market"
-    try:
-        out["maxAdds"] = max(1, min(int(p.get("maxAdds", 1)), 20))   # 加倉上限(含首筆)，1=不加倉；上限 20
-    except (TypeError, ValueError):
-        pass
+    o["perSym"] = ps
+    return o
+
+
+def _clean_fvg(p: dict) -> dict:
+    """FVG 子設定 sanitize（固定 1h/3W/6W → 無 tfs/slPct/maxAdds）。"""
+    p = p or {}
+    o = dict(_FVG_DEFAULT)
+    o["on"] = bool(p.get("on"))
+    o["entry"] = p.get("entry") if p.get("entry") in ("market", "limit") else "market"
+    if p.get("dirs") in ("both", "long", "short"):
+        o["dirs"] = p["dirs"]
+    o["usdt"] = _num(p.get("usdt"), 50.0, 1.0, 100000.0)
+    o["lev"] = _num(p.get("lev"), 3, 1, 50, True)
+    o["riskUsd"] = _num(p.get("riskUsd") or 0, 0.0, 0.0, 100000.0)
+    o["maxPos"] = _num(p.get("maxPos"), 15, 1, 50, True)
+    return o
+
+
+def _clean_auto(p: Optional[dict]) -> dict:
+    """回巢狀 {on, owner, ss:{…}, fvg:{…}}。相容『舊扁平 cfg』→ 平滑遷移到 ss/fvg 兩份。
+    owner=綁定擁有者帳號：自動交易只下此帳號自選清單裡的標的（避免掃到別人自選就用你的 Binance 下單）。"""
+    p = p or {}
+    out = {"on": bool(p.get("on")), "owner": (p.get("owner") or "").strip()[:40]}
+    if "ss" in p or "fvg" in p:
+        out["ss"] = _clean_ss(p.get("ss") or {})
+        out["fvg"] = _clean_fvg(p.get("fvg") or {})
+    else:
+        # ── 舊扁平格式遷移：sizing/sigs/tfs/緩衝/加倉 全給 SS；FVG 取舊 fvgEntry+sizing、maxPos 預設15 ──
+        ss = _clean_ss(p)
+        ss["sigs"] = [s for s in (p.get("sigs") or []) if s in ("ss1", "ss2", "ss3")]
+        ss["on"] = bool(ss["sigs"])                    # 舊有勾 ss → SS 開
+        out["ss"] = ss
+        fvg = _clean_fvg({"entry": p.get("fvgEntry"), "dirs": p.get("dirs"),
+                          "usdt": p.get("usdt"), "lev": p.get("lev"), "riskUsd": p.get("riskUsd")})
+        fvg["on"] = "fvg" in (p.get("sigs") or [])     # 舊有勾 fvg → FVG 開
+        out["fvg"] = fvg
     return out
+
+
+def _auto_active(cfg: dict) -> bool:
+    """此帳號自動交易是否有效＝主開關 on 且至少一個策略開。"""
+    return bool(cfg.get("on") and (cfg.get("ss", {}).get("on") or cfg.get("fvg", {}).get("on")))
 
 
 def get_auto_cfg(name: str = None, fresh: bool = False) -> dict:
@@ -465,7 +484,7 @@ def get_all_auto_cfgs(fresh: bool = False):
                 cfg = _clean_auto(json.loads(cfgs))
             except Exception:
                 continue
-            if not cfg.get("on"):
+            if not _auto_active(cfg):           # 主開關關、或 SS/FVG 兩策略都關 → 不收錄
                 continue
             cfg["owner"] = nm
             out.append((nm, cfg))
@@ -588,62 +607,6 @@ def _push_owner(owner, title, body, symbol, tf="", event="atrade", sig=None, d=N
         print(f"  ⚠ 自動交易通知失敗：{e}")
 
 
-def _sig_epoch(t) -> float:
-    """訊號時間 → epoch 秒（naive 以 UTC 解讀，對齊 Binance）。"""
-    try:
-        import pandas as pd
-        return pd.Timestamp(t).value / 1e9
-    except Exception:
-        return 0.0
-
-
-def _stop_after_loss_ok(d, sig, all_signals) -> bool:
-    """重現圖表「敗後停手」：用「此訊號之前、已結算(w/l)」的訊號序列（按時間排序、(t,d) 去重）
-    跑逐方向狀態機，回此方向當下是否「可進場」(active)。無資料 → 預設可進場。
-    已內含「一次一筆」（同策略回測 _filter_stop_after_loss）：重建狀態時，前筆未結算(持倉中)
-    期間出現的訊號『不算進場、也不計輸贏』——比照實盤同標的同時只持一倉（執行層 trade.py:504
-    本就擋同合約重複開倉，這裡讓敗後停手的歷史狀態跟它一致）。"""
-    if not all_signals:
-        return True
-    cur_t = _sig_epoch(sig.get("t"))
-    is_ss = sig.get("k") in ("ss1", "ss2")    # SS 系列獨立敗後停手（與圖表 _ss_stop_strategy 一致）
-    prior = {}
-    for s in all_signals:
-        t = s.get("t"); r = s.get("r")
-        if not t or r not in ("w", "l"):
-            continue
-        if _sig_epoch(t) >= cur_t:        # 只看「此訊號之前」已結算的
-            continue
-        if is_ss and s.get("k") not in ("ss1", "ss2"):
-            continue                      # SS 只看 SS 自己的歷史，不混入 S 系列
-        prior[(str(t), s.get("d"))] = s   # (t,d) 去重（同圖表合併時間軸）
-    seq = sorted(prior.values(), key=lambda s: _sig_epoch(s.get("t")))
-    active = {"s": True, "l": True}
-    stop_ot = {"s": None, "l": None}                # 讓該方向停手的那筆敗單「止損出場棒」
-    busy_until = 0.0                                # 一次一筆：目前持倉的結算時間(epoch)；0＝無持倉
-    for s in seq:
-        sd = s.get("d"); r = s.get("r")
-        if busy_until and _sig_epoch(s.get("t")) < busy_until:
-            continue                                # 持倉中 → 完全略過（開不了倉，不進場/不回穩/不解除反向）
-        # 新規則（僅 SS）：被停損出場的那根 K，同時又冒出同向 SS 訊號（出場棒==訊號棒）→ 視同回場
-        if is_ss and not active.get(sd, True) and stop_ot.get(sd) is not None \
-           and str(s.get("t")) == str(stop_ot[sd]):
-            active[sd] = True
-        if active.get(sd, True):
-            busy_until = _sig_epoch(s.get("ot")) or 0.0   # 開倉 → 鎖到此筆結算為止
-            if r != "w":
-                active[sd] = False                  # 進場中遇敗 → 該方向停手
-                stop_ot[sd] = s.get("ot")           # 記下此敗單的止損出場棒（供新規則比對）
-        elif r == "w":
-            active[sd] = True                       # 停手中、同向紙上會贏 → 解除
-        active["l" if sd == "s" else "s"] = True    # 反向訊號出現 → 解除其停手
-    # 新規則同樣作用在「當前這筆 SS 訊號」本身：此方向停手中，但訊號棒 == 該方向止損出場棒 → 放行
-    if is_ss and not active.get(d, True) and stop_ot.get(d) is not None \
-       and str(sig.get("t")) == str(stop_ot[d]):
-        return True
-    return active.get(d, True)
-
-
 # ── 持倉模式（單向 / 雙向 hedge）小工具 ───────────────────────
 def _is_hedge(client) -> bool:
     """此 client 帳號是否雙向持倉(hedge)。失敗保守回 False(單向) → 行為與現狀一致。"""
@@ -666,21 +629,46 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
     if market != "crypto":
         return
     for _name, _cfg in get_all_auto_cfgs():
+        scfg = _cfg["fvg"] if k == "fvg" else _cfg["ss"]   # 各策略獨立子設定（sizing/maxPos/方向…）
+        if not scfg.get("on"):
+            continue
         try:
-            _exec_signal_for_account(_name, _cfg, market, exchange, symbol, tf, k, d, sig, all_signals)
+            _exec_signal_for_account(_name, scfg, market, exchange, symbol, tf, k, d, sig, all_signals)
         except Exception as e:
             print(f"  ⚠ 自動下單失敗 {_name} {symbol} {tf} {k}/{d}：{e}")
 
 
-def _exec_signal_for_account(name, cfg, market, exchange, symbol, tf, k, d, sig, all_signals=None):
-    """單一帳號(name)的進場評估：用該帳號自己的金鑰下單、自選過濾、acct 隔離紀錄。cfg.on 必為 True。"""
+def _open_pos_count(name, fvg_only) -> int:
+    """此帳號目前未了結的自動倉數（供各策略獨立 maxPos）。fvg_only=True 只算 FVG(含 pending 限價)；
+    False 只算 SS。"""
     try:
-        # 訊號/時框未勾 → 靜默 return（量大：每根掃描所有未勾的訊號×時框，留紀錄會洗版）。
-        if not (k in cfg["sigs"] and tf in cfg["tfs"]):
-            return
-        # FVG 限價階梯帳號：市價路徑(fvg_sigs)不下單 → 改由 place_fvg_limit_ladder 在缺口確認時掛限價。
-        if k == "fvg" and cfg.get("fvgEntry") == "limit":
-            return
+        c, ph = _acct._db()
+        try:
+            if fvg_only:
+                r = c.execute(f"SELECT COUNT(*) FROM trade_log WHERE source='auto' AND acct={ph} "
+                              f"AND sig='fvg' AND status IN ('open','pending')", (name,)).fetchone()
+            else:
+                r = c.execute(f"SELECT COUNT(*) FROM trade_log WHERE source='auto' AND acct={ph} "
+                              f"AND sig IN ('ss1','ss2','ss3') AND status='open'", (name,)).fetchone()
+            return r[0] if r else 0
+        finally:
+            c.close()
+    except Exception:
+        return 0
+
+
+def _exec_signal_for_account(name, cfg, market, exchange, symbol, tf, k, d, sig, all_signals=None):
+    """單一帳號(name)的進場評估：用該帳號自己的金鑰下單、自選過濾、acct 隔離紀錄。
+    ⚠ cfg = 該策略的『子設定』(ss 或 fvg)，已在 execute_signal_trade gate 過 on。"""
+    try:
+        if k == "fvg":
+            # FVG 限價版由 place_fvg_limit_ladder 在缺口確認時掛限價 → 市價路徑(fvg_sigs)不下單。
+            if cfg.get("entry") == "limit":
+                return
+        else:
+            # SS：訊號/時框未勾 → 靜默 return（量大，留紀錄會洗版）。
+            if not (k in cfg.get("sigs", []) and tf in cfg.get("tfs", [])):
+                return
         want = "short" if d == "s" else "long"
         import routes.notify as notify
         # 逐事件去重（鍵含帳號名 → 每帳號各自獨立評估一次）：之後每個「跳過原因」都只記一次 log。
@@ -714,12 +702,6 @@ def _exec_signal_for_account(name, cfg, market, exchange, symbol, tf, k, d, sig,
             _skip(f"{symbol} 不在帳號「{owner}」的合約自選清單，跳過")
             return
 
-        # 敗後停手（同圖表 crt._calc_stop_strategy 的逐方向狀態機）：用「此訊號之前、已結算」的
-        # 同/反向訊號序列重跑模擬，若此方向當下「停手中」→ 跳過進場。
-        if cfg.get("stopAfterLoss") and not _stop_after_loss_ok(d, sig, all_signals):
-            _skip("敗後停手：此方向上次落敗、停手中，跳過此進場")
-            return
-
         entry = sig.get("entry")
         stop = sig.get("stop")
         rr = sig.get("rr")          # 中軌預估盈虧比
@@ -729,31 +711,9 @@ def _exec_signal_for_account(name, cfg, market, exchange, symbol, tf, k, d, sig,
         bsym, scale = client.resolve_symbol(symbol)
         _hedge = _is_hedge(client)              # 雙向持倉帳號 → 下單帶 positionSide、同幣多空分倉
         pos = client.positions()
-        existing = None                          # 反向模式可能翻轉 want → existing 於反向區塊後依最終 side 判定
         max_adds = int(cfg.get("maxAdds", 1) or 1)
         is_add = False; add_row_id = None; cur_adds = 1
         add_old_sl = None; add_old_sl_oid = None     # 既有自動倉的止損(圖表價)與其交易所單 id → 加倉時用來收緊重掛
-
-        # ── 反向模式(止損↔止盈互換、反方向下單)─────────────────────────
-        # 訊號照舊判定(含方向過濾/敗後停手用『訊號方向』)，但實際下「反方向」單:
-        #   新止損 = 原止盈軌位(中軌→上下軌 ratio 位)、新止盈 = 原止損價。方向反轉。
-        # 反向倉 SL/TP 固定不追蹤(rev=1 → retarget 跳過)、且不加倉(max_adds=1)。
-        _reverse = bool(cfg.get("reverse")); _rev_tp = None
-        if _reverse:
-            risk0 = abs(float(entry) - float(stop))
-            if rr_b is not None and rr is not None:
-                tp_rr0 = rr + (2.0 * _AUTO_TP_BAND_RATIO - 1.0) * (rr_b - rr)
-            else:
-                tp_rr0 = rr_b if rr_b else rr
-            if not tp_rr0 or risk0 <= 0:
-                _skip("反向模式:缺 rr/rr_b 無法算原止盈軌位,跳過")
-                return
-            orig_target = float(entry) - tp_rr0 * risk0 if d == "s" else float(entry) + tp_rr0 * risk0
-            _rev_tp = float(stop)                  # 原止損 → 新止盈
-            stop = orig_target                     # 原止盈軌位 → 新止損(基準)
-            d = "l" if d == "s" else "s"           # 方向反轉
-            want = "long" if d == "l" else "short"
-            max_adds = 1                           # 反向倉不加倉
 
         _psd = _posside(want, _hedge)              # hedge: LONG/SHORT；單向: None
         # 同合約持倉判定：hedge 下只認『同 side』為既有倉（多/空各一槽、互不擋）
@@ -787,7 +747,7 @@ def _exec_signal_for_account(name, cfg, market, exchange, symbol, tf, k, d, sig,
             is_add = True; add_row_id = _r[0]; add_old_sl = _r[2]; add_old_sl_oid = _r[3]
             # 原進場訊號鍵/方向/訊號棒時間 → 讓加倉通知「回覆」串接回原自動進場訊息（同一串）
             add_entry_sig = _r[4]; add_entry_d = _r[5]; add_entry_sigt = _r[6]
-        elif len(pos) >= cfg["maxPos"]:
+        elif _open_pos_count(name, k == "fvg") >= cfg["maxPos"]:   # 各策略獨立計數(只算同策略倉)
             _log_trade(source="auto", acct=name, mode=client.env, status="skipped", symbol=symbol, bsym=bsym,
                        side=want, sig=k, d=d, tf=tf, sigt=str(sig.get("t")),
                        msg=f"持倉數已達上限 {cfg['maxPos']}")
@@ -878,10 +838,7 @@ def _exec_signal_for_account(name, cfg, market, exchange, symbol, tf, k, d, sig,
         # 換算 RR：tp_rr = rr + (2r−1)(rr_b − rr)（rr＝中軌預估RR、rr_b＝外軌預估RR）。缺 rr_b/rr →
         # 退回外軌/中軌。之後 retarget_auto_tp 每根 K 跟著同一比例位移動。
         tp_px = None; tgt = None     # tgt=止盈圖表價(顯示/紀錄用)；tp_px=合約價(掛單用，=tgt×scale)
-        if _reverse:
-            tgt = _rev_tp                          # 反向:止盈=原止損價(固定,不追蹤軌)
-            tp_px = client.quantize_price(bsym, tgt * scale)
-        elif sig.get("tp") is not None:
+        if sig.get("tp") is not None:
             # 固定止盈訊號（FVG：tp=top+6W/bot−6W 圖表價）→ 直接用，繞過上下軌 rr/rr_b 計算。
             # retarget_auto_tp 會依 sig 種類跳過此倉 → TP 固定不追蹤軌（見該函式）。
             tgt = float(sig["tp"])
@@ -996,17 +953,16 @@ def _exec_signal_for_account(name, cfg, market, exchange, symbol, tf, k, d, sig,
         _log_trade(source="auto", acct=name, mode=client.env, status="open", symbol=symbol, bsym=bsym, side=want,
                    qty=qty, entry=str(entry), sl=str(round(stop_chart, 8)),
                    tp=(str(round(tgt, 8)) if (tp_px and tgt is not None) else None), tp_oid=tp_oid, sl_oid=sl_oid,
-                   sig=k, d=d, tf=tf, sigt=str(sig.get("t")), msg="；".join(warn) or None, rev=_reverse)
+                   sig=k, d=d, tf=tf, sigt=str(sig.get("t")), msg="；".join(warn) or None)
         # 通知擁有者：自動進場（方向用 📈做多 / 📉做空 一眼看出）
         envtag = "實盤" if client.env == "live" else "測試網"
-        rev_tag = "🔄反向 " if _reverse else ""
         dir_emoji = "📉" if want == "short" else "📈"
         dir_txt = f"{dir_emoji} {'做空' if want == 'short' else '做多'}"
-        l1 = f"{rev_tag}{dir_txt} · {lev}x · 數量 {qty} · {envtag}"
+        l1 = f"{dir_txt} · {lev}x · 數量 {qty} · {envtag}"
         l2 = f"進場 {_fmt_px(entry)}" + (f" → 止盈 {_fmt_px(tgt)}" if (tp_px and tgt is not None) else "")
-        l3 = f"停損 {_fmt_px(stop_chart)}" + ("（反向：止損=原止盈軌、止盈=原止損）" if _reverse else "")
+        l3 = f"停損 {_fmt_px(stop_chart)}"
         body = "\n".join([l1, l2, l3]) + (f"\n⚠ {_size_warn}" if _size_warn else "")
-        _push_owner(owner, f"{rev_tag}{dir_emoji} 自動進場{'做空' if want == 'short' else '做多'} · {symbol}（{envtag}）",
+        _push_owner(owner, f"{dir_emoji} 自動進場{'做空' if want == 'short' else '做多'} · {symbol}（{envtag}）",
                     body, symbol, tf=tf, event="atrade_open", sig=k, d=d, sigt=str(sig.get("t")))
         print(f"  🤖 自動下單 {client.env}: {bsym} {side} {qty}（{symbol} {tf} "
               f"{k}/{d}）" + (f" ⚠{warn}" if warn else ""))
@@ -1146,7 +1102,9 @@ def reconcile_auto_position(market, exchange, symbol, tf):
                     if ev is None:
                         # 退回判定：固定風險模式下「真止損」≈ 虧掉 riskUsd（有感金額）。若 |pnl| 遠小於它
                         # （<40%），代表是「平盤/止盈附近」出場，不是真止損 → 標止盈，避免賠 0.01 被誤標成止損。
-                        _rk = cfg.get("riskUsd") or 0
+                        # cfg 為巢狀 → 依該列 sig 取對應子設定的 riskUsd（fvg列→fvg、ss列→ss）。
+                        _sub = cfg.get("fvg", {}) if rsig == "fvg" else cfg.get("ss", {})
+                        _rk = _sub.get("riskUsd") or 0
                         if _rk > 0 and abs(pnl) < _rk * 0.4:
                             ev = "tp"
                         else:
@@ -1205,13 +1163,13 @@ def place_fvg_limit_ladder(name, cfg, market, exchange, symbol, tf, gap):
                     f"SELECT 1 FROM trade_log WHERE source='auto' AND sig='fvg' AND status IN ('pending','open') "
                     f"AND acct={_ph} AND symbol={_ph} AND tf={_ph} LIMIT 1", (name, symbol, tf)).fetchone()
             _open_n = _c.execute(
-                f"SELECT COUNT(*) FROM trade_log WHERE source='auto' AND status IN ('pending','open') AND acct={_ph}",
-                (name,)).fetchone()
+                f"SELECT COUNT(*) FROM trade_log WHERE source='auto' AND sig='fvg' "
+                f"AND status IN ('pending','open') AND acct={_ph}", (name,)).fetchone()   # 只算 FVG 自己的倉
         finally:
             _c.close()
         if _dup:
             return
-        if _open_n and _open_n[0] >= int(cfg.get("maxPos", 3) or 3):
+        if _open_n and _open_n[0] >= int(cfg.get("maxPos", 15) or 15):
             return
         W = top - bot
         stop = (bot - 3 * W) if want == "long" else (top + 3 * W)

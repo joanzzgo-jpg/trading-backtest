@@ -9,7 +9,7 @@
    ══════════════════════════════════════════════════════════════ */
 const _TRD = { st: null, ov: null, pollTimer: null, busy: false };
 
-const _TRD_SIG_ORDER = ["ab", "3", "4", "5", "6", "7", "8", "9", "10", "11", "abc", "12", "ss1", "ss2", "fvg"];
+const _TRD_SIG_ORDER = ["ss1", "ss2", "ss3"];   // S1~S12 已退役；FVG 改放獨立分頁，不在此 chip 列
 const _TRD_ALL_TFS = ["5m", "15m", "30m", "1h", "2h", "4h", "8h", "1d", "1w"];
 
 const _TRD_ICO = `<svg class="trd-ico" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4.5 13.5H11L9.5 22 19 9.5h-6.5L13 2Z"/></svg>`;
@@ -131,41 +131,45 @@ function _trdRenderOverview() {
     }).join("");
   }
 
-  // 自動交易設定
+  // 自動交易設定（巢狀：{on, owner, ss:{…}, fvg:{…}}）
   const a = ov.auto || {};
+  const ss = a.ss || {}, fv = a.fvg || {};
   const tog = pop.querySelector(".trd-auto-toggle");
   tog.classList.toggle("trd-on", !!a.on);
   const stEl = tog.querySelector(".trd-auto-state");
   if (stEl) stEl.textContent = a.on ? "運行中" : "關閉";
   pop.querySelector(".trd-auto-card")?.classList.toggle("trd-active", !!a.on);
-  pop.querySelector('.trd-tab[data-page="auto"]')?.classList.toggle("trd-running", !!a.on);   // 切到手動頁也看得到自動在跑
-  pop.querySelectorAll(".trd-a-sig").forEach(x => x.classList.toggle("sel", (a.sigs || []).includes(x.dataset.sig)));
-  pop.querySelectorAll(".trd-a-tf").forEach(x => x.classList.toggle("sel", (a.tfs || []).includes(x.dataset.tf)));
+  pop.querySelector('.trd-tab[data-page="auto"]')?.classList.toggle("trd-running", !!a.on);
   const $ = id => pop.querySelector(id);
-  if (document.activeElement !== $("#trdAutoUsdt")) $("#trdAutoUsdt").value = a.usdt ?? 50;
-  if (document.activeElement !== $("#trdAutoRisk")) $("#trdAutoRisk").value = a.riskUsd ?? 0;
-  if (document.activeElement !== $("#trdAutoLev")) $("#trdAutoLev").value = a.lev ?? 3;
-  if (document.activeElement !== $("#trdAutoMax")) $("#trdAutoMax").value = a.maxPos ?? 3;
-  if ($("#trdAutoAdds") && document.activeElement !== $("#trdAutoAdds")) $("#trdAutoAdds").value = a.maxAdds ?? 1;
-  if ($("#trdAutoDirs").value !== a.dirs) $("#trdAutoDirs").value = a.dirs || "both";
-  if (document.activeElement !== $("#trdAutoSl")) $("#trdAutoSl").value = a.slPct ?? 0;
-  // 倉位模式：riskUsd>0=止損算槓桿、否則自訂槓桿。輸入中(focus)不切，免刷新打斷操作。
-  const _isRisk = (a.riskUsd || 0) > 0, _af = document.activeElement;
-  const _editing = _af === $("#trdAutoRisk") || _af === $("#trdAutoUsdt") || _af === $("#trdAutoLev");
-  if (!_editing && pop.querySelector(".trd-amode-btn")) {
-    pop.querySelectorAll(".trd-amode-btn").forEach(x => x.classList.toggle("sel", x.dataset.mode === (_isRisk ? "risk" : "margin")));
-    $("#trdCellLev").hidden = _isRisk; $("#trdCellRisk").hidden = !_isRisk;
-    const _la = $("#trdLevAuto"); if (_la) _la.hidden = !_isRisk;
-    const _eg = $("#trdLevEg"); if (_eg) _eg.textContent = _isRisk ? _trdLevExample(a.usdt, a.riskUsd) : "";
-  }
-  const sal = $("#trdAutoSal");
-  if (sal) { sal.classList.toggle("sel", !!a.stopAfterLoss); sal.textContent = a.stopAfterLoss ? "開" : "關"; }
-  const rev = $("#trdAutoRev");
-  if (rev) { rev.classList.toggle("sel", !!a.reverse); rev.textContent = a.reverse ? "開" : "關"; }
-  const fge = $("#trdAutoFvgEntry");
-  if (fge) { const _lim = a.fvgEntry === "limit"; fge.classList.toggle("sel", _lim); fge.textContent = _lim ? "限價階梯" : "市價"; }
-  const hg = $("#trdAutoHedge");
-  if (hg) { const _h = !!(_TRD.st && _TRD.st.hedge); hg.classList.toggle("sel", _h); hg.textContent = _h ? "雙向" : "單向"; }
+  const _set = (id, v) => { const el = $(id); if (el && document.activeElement !== el) el.value = v; };
+  const _btn = (id, on, t) => { const el = $(id); if (el) { el.classList.toggle("sel", !!on); el.textContent = t; } };
+  // 啟用開關
+  _btn("#ssOn", ss.on, ss.on ? "開" : "關");
+  _btn("#fvgOn", fv.on, fv.on ? "開" : "關");
+  // SS 子頁
+  pop.querySelectorAll(".trd-a-sig").forEach(x => x.classList.toggle("sel", (ss.sigs || []).includes(x.dataset.sig)));
+  pop.querySelectorAll(".trd-a-tf").forEach(x => x.classList.toggle("sel", (ss.tfs || []).includes(x.dataset.tf)));
+  _set("#ssUsdt", ss.usdt ?? 50); _set("#ssLev", ss.lev ?? 3); _set("#ssRisk", ss.riskUsd ?? 0);
+  _set("#ssMax", ss.maxPos ?? 3); _set("#ssAdds", ss.maxAdds ?? 1); _set("#ssSl", ss.slPct ?? 0);
+  if ($("#ssDirs")) $("#ssDirs").value = ss.dirs || "both";
+  // FVG 子頁
+  _set("#fvgUsdt", fv.usdt ?? 50); _set("#fvgLev", fv.lev ?? 3); _set("#fvgRisk", fv.riskUsd ?? 0);
+  _set("#fvgMax", fv.maxPos ?? 15);
+  if ($("#fvgDirs")) $("#fvgDirs").value = fv.dirs || "both";
+  _btn("#fvgEntryBtn", fv.entry === "limit", fv.entry === "limit" ? "限價階梯" : "市價");
+  _btn("#fvgHedge", _TRD.st && _TRD.st.hedge, (_TRD.st && _TRD.st.hedge) ? "雙向" : "單向");
+  // 倉位模式（兩頁各自）：riskUsd>0 → 止損算槓桿
+  const _af = document.activeElement;
+  [["ss", ss], ["fvg", fv]].forEach(([pfx, c]) => {
+    const isRisk = (c.riskUsd || 0) > 0;
+    const editing = _af === $(`#${pfx}Risk`) || _af === $(`#${pfx}Usdt`) || _af === $(`#${pfx}Lev`);
+    const seg = $(`#${pfx}Mode`);
+    if (seg && !editing) {
+      seg.querySelectorAll(".trd-amode-btn").forEach(x => x.classList.toggle("sel", x.dataset.mode === (isRisk ? "risk" : "margin")));
+      if ($(`#${pfx}CellLev`)) $(`#${pfx}CellLev`).hidden = isRisk;
+      if ($(`#${pfx}CellRisk`)) $(`#${pfx}CellRisk`).hidden = !isRisk;
+    }
+  });
   _trdRenderPerSym();
 }
 
@@ -178,8 +182,9 @@ function _trdRenderPerSym() {
   const wl = (typeof _watchlist !== "undefined" ? _watchlist : []);
   const syms = [...new Set(wl.filter(w => w.market === "crypto").map(w => w.symbol))];
   const a = (_TRD.ov && _TRD.ov.auto) || {};
-  const ps = a.perSym || {};
-  const tfs = (a.tfs || []).slice();
+  const sscfg = a.ss || {};                 // perSym/時框 是 SS 子設定的
+  const ps = sscfg.perSym || {};
+  const tfs = (sscfg.tfs || []).slice();
   const sig = syms.join(",") + "#" + tfs.join(",");
   if (sig === _trdPerSymSig) {   // 標的/時框集合沒變 → 只更新非聚焦輸入的值（不重建、不打斷輸入）
     box.querySelectorAll(".trd-ps-in").forEach(inp => {
@@ -202,9 +207,9 @@ function _trdRenderPerSym() {
   box.querySelectorAll(".trd-ps-in").forEach(inp => inp.addEventListener("change", e => {
     e.stopPropagation();
     const a2 = _TRD.ov.auto = _TRD.ov.auto || {};
-    a2.perSym = a2.perSym || {};
+    a2.ss = a2.ss || {}; a2.ss.perSym = a2.ss.perSym || {};
     const v = +inp.value;
-    if (v > 0) a2.perSym[inp.dataset.key] = v; else delete a2.perSym[inp.dataset.key];
+    if (v > 0) a2.ss.perSym[inp.dataset.key] = v; else delete a2.ss.perSym[inp.dataset.key];
     _trdSaveAuto();
   }));
 }
@@ -221,21 +226,36 @@ function _trdSaveAuto() {
   const pop = document.getElementById("tradePopup");
   if (!pop || !_TRD.ov) return;
   const a = _TRD.ov.auto = _TRD.ov.auto || {};
-  a.sigs = [...pop.querySelectorAll(".trd-a-sig.sel")].map(x => x.dataset.sig);
-  a.tfs = [...pop.querySelectorAll(".trd-a-tf.sel")].map(x => x.dataset.tf);
-  const _mode = pop.querySelector(".trd-amode-btn.sel")?.dataset.mode || "margin";
-  a.usdt = +pop.querySelector("#trdAutoUsdt").value || 50;
-  // 固定風險模式才送 riskUsd(>0)；固定保證金模式 riskUsd=0（後端據此走保證金×槓桿）
-  a.riskUsd = (_mode === "risk") ? Math.max(0, +pop.querySelector("#trdAutoRisk").value || 0) : 0;
-  a.lev = +pop.querySelector("#trdAutoLev").value || 3;
-  a.maxPos = +pop.querySelector("#trdAutoMax").value || 3;
-  a.maxAdds = Math.max(1, Math.min(+pop.querySelector("#trdAutoAdds")?.value || 1, 20));
-  a.dirs = pop.querySelector("#trdAutoDirs").value;
-  a.slPct = Math.max(0, +pop.querySelector("#trdAutoSl").value || 0);
-  a.stopAfterLoss = pop.querySelector("#trdAutoSal").classList.contains("sel");
-  a.reverse = !!pop.querySelector("#trdAutoRev")?.classList.contains("sel");
-  a.fvgEntry = pop.querySelector("#trdAutoFvgEntry")?.classList.contains("sel") ? "limit" : "market";
-  a.owner = window._acctName || "";   // 綁定擁有者帳號 → 只自動交易此帳號的自選（防別人自選下你的單）
+  const $ = id => pop.querySelector(id);
+  const num = (id, d) => (+($(id)?.value) || d);
+  a.on = !!a.on;                       // 主開關由 toggle handler 設
+  a.owner = window._acctName || "";    // 綁定擁有者帳號 → 只自動交易此帳號的自選
+  // SS 子設定（完整獨立）
+  const ssRisk = $("#ssMode .trd-amode-btn.sel")?.dataset.mode === "risk";
+  a.ss = {
+    on: !!$("#ssOn")?.classList.contains("sel"),
+    sigs: [...pop.querySelectorAll(".trd-a-sig.sel")].map(x => x.dataset.sig),
+    tfs: [...pop.querySelectorAll(".trd-a-tf.sel")].map(x => x.dataset.tf),
+    dirs: $("#ssDirs")?.value || "both",
+    usdt: num("#ssUsdt", 50), lev: num("#ssLev", 3),
+    riskUsd: ssRisk ? Math.max(0, num("#ssRisk", 0)) : 0,
+    maxPos: num("#ssMax", 3),
+    maxAdds: Math.max(1, Math.min(num("#ssAdds", 1), 20)),
+    slPct: Math.max(0, num("#ssSl", 0)),
+    perSym: (a.ss && a.ss.perSym) || {},
+  };
+  // FVG 子設定（完整獨立；固定 1h/3W/6W → 無 tfs/加倉/緩衝）
+  const fvRisk = $("#fvgMode .trd-amode-btn.sel")?.dataset.mode === "risk";
+  a.fvg = {
+    on: !!$("#fvgOn")?.classList.contains("sel"),
+    entry: $("#fvgEntryBtn")?.classList.contains("sel") ? "limit" : "market",
+    dirs: $("#fvgDirs")?.value || "both",
+    usdt: num("#fvgUsdt", 50), lev: num("#fvgLev", 3),
+    riskUsd: fvRisk ? Math.max(0, num("#fvgRisk", 0)) : 0,
+    maxPos: num("#fvgMax", 15),
+  };
+  delete a.sigs; delete a.tfs; delete a.usdt; delete a.lev; delete a.riskUsd;   // 清掉舊扁平殘留
+  delete a.maxPos; delete a.maxAdds; delete a.slPct; delete a.perSym; delete a.fvgEntry; delete a.dirs;
   clearTimeout(_trdAutoSaveTimer);
   _trdAutoSaveTimer = setTimeout(async () => {
     try { await _trdApi("auto", { cfg: a }); _trdMsg("自動交易設定已儲存"); }
@@ -322,6 +342,17 @@ function _trdBuildPopup() {
     #tradePopup .trd-amode .trd-amode-btn:hover { color:var(--text,#cde); }
     #tradePopup .trd-amode .trd-amode-btn.sel { background:linear-gradient(180deg,#5aa0e6,#4a90d9); color:#fff;
       box-shadow:0 2px 10px -3px rgba(74,144,217,.7); }
+    /* SS／FVG 策略子分頁 */
+    #tradePopup .trd-substrat { display:flex; gap:3px; padding:3px; margin:6px 0; border-radius:10px;
+      background:rgba(0,0,0,.2); border:1px solid var(--border,#3a3a50); }
+    #tradePopup .trd-strat-btn { flex:1; padding:9px 0; border:none; border-radius:7px; background:transparent;
+      color:var(--muted,#99a); cursor:pointer; font-size:12.5px; font-weight:700; transition:all .18s ease;
+      -webkit-tap-highlight-color:transparent; }
+    #tradePopup .trd-strat-btn:hover { color:var(--text,#cde); }
+    #tradePopup .trd-strat-btn.sel { background:linear-gradient(180deg,#7d6ad9,#6a57c9); color:#fff;
+      box-shadow:0 2px 10px -3px rgba(106,87,201,.7); }
+    #tradePopup .trd-strat-page { display:none; }
+    #tradePopup .trd-strat-page.show { display:block; }
     /* 止損算槓桿的說明框 */
     #tradePopup .trd-lev-auto { font-size:10px; line-height:1.5; color:#86b4e4; margin:1px 0 4px;
       padding:5px 8px; border-radius:8px; background:rgba(74,144,217,.09); border:1px solid rgba(74,144,217,.26); }
@@ -518,36 +549,59 @@ function _trdBuildPopup() {
         <span class="trd-auto-state">關閉</span>
         <span class="trd-switch"><span class="trd-switch-knob"></span></span>
       </button>
-      <div class="trd-sub">進場訊號</div>
-      <div class="trd-chips">${sigChips}</div>
-      <div class="trd-sub">時間框</div>
-      <div class="trd-chips">${tfChips}</div>
-      <div class="trd-sub trd-grp-hd">倉位<small>下單金額怎麼決定</small></div>
-      <div class="trd-seg trd-amode" id="trdAutoMode">
-        <button class="trd-amode-btn sel" data-mode="margin">自訂槓桿</button>
-        <button class="trd-amode-btn" data-mode="risk">止損算槓桿</button>
+      <div class="trd-seg trd-substrat" id="trdAutoStrat">
+        <button class="trd-strat-btn sel" data-strat="ss">SS 訊號</button>
+        <button class="trd-strat-btn" data-strat="fvg">FVG 缺口</button>
       </div>
-      <div class="trd-grid">
-        <div><label>方向</label><select id="trdAutoDirs">
-          <option value="both">多空都做</option><option value="long">只做多</option><option value="short">只做空</option>
-        </select></div>
-        <div><label>進場金額 USDT<small>保證金</small></label><input id="trdAutoUsdt" type="number" min="1"></div>
-        <div id="trdCellLev"><label>槓桿</label><input id="trdAutoLev" type="number" min="1" max="50"></div>
-        <div id="trdCellRisk" hidden><label>止損額 USDT<small>打到停損虧這麼多</small></label><input id="trdAutoRisk" type="number" min="0" step="1" placeholder="0"></div>
+      <!-- ===== SS 子頁（完整獨立設定）===== -->
+      <div class="trd-strat-page trd-sp-ss show">
+        <div class="trd-sal-cell"><label>啟用 SS<small>群聚訊號策略</small></label><button id="ssOn" class="trd-chip trd-sal-btn">關</button></div>
+        <div class="trd-sub">進場訊號</div>
+        <div class="trd-chips">${sigChips}</div>
+        <div class="trd-sub">時間框</div>
+        <div class="trd-chips">${tfChips}</div>
+        <div class="trd-sub trd-grp-hd">倉位</div>
+        <div class="trd-seg trd-amode" id="ssMode">
+          <button class="trd-amode-btn sel" data-mode="margin">自訂槓桿</button>
+          <button class="trd-amode-btn" data-mode="risk">止損算槓桿</button>
+        </div>
+        <div class="trd-grid">
+          <div><label>方向</label><select id="ssDirs"><option value="both">多空都做</option><option value="long">只做多</option><option value="short">只做空</option></select></div>
+          <div><label>進場金額 USDT<small>保證金</small></label><input id="ssUsdt" type="number" min="1"></div>
+          <div id="ssCellLev"><label>槓桿</label><input id="ssLev" type="number" min="1" max="50"></div>
+          <div id="ssCellRisk" hidden><label>止損額 USDT<small>打到停損虧這麼多</small></label><input id="ssRisk" type="number" min="0" step="1" placeholder="0"></div>
+        </div>
+        <div class="trd-sub trd-grp-hd">風險控制</div>
+        <div class="trd-grid">
+          <div><label>最大同時持倉<small>筆</small></label><input id="ssMax" type="number" min="1" max="50"></div>
+          <div><label>加倉上限<small>1＝不加倉；同向持倉中再現加一筆</small></label><input id="ssAdds" type="number" min="1" max="20" placeholder="1"></div>
+          <div><label>止損緩衝 %<small>策略停損外推；0＝用策略</small></label><input id="ssSl" type="number" min="0" max="50" step="0.1" placeholder="0"></div>
+        </div>
+        <div class="trd-sub trd-grp-hd">各標的×時框 止損緩衝 %<small>留空＝用上方預設</small></div>
+        <div class="trd-persym" id="trdPerSym"></div>
       </div>
-      <div class="trd-lev-auto" id="trdLevAuto" hidden>📐 槓桿自動算 ＝ 止損額 ÷（金額 × 停損距離）<b id="trdLevEg"></b></div>
-      <div class="trd-sub trd-grp-hd">風險控制</div>
-      <div class="trd-grid">
-        <div><label>最大同時持倉<small>筆</small></label><input id="trdAutoMax" type="number" min="1" max="50"></div>
-        <div><label>加倉上限<small>1＝不加倉；同向持倉中再現加一筆</small></label><input id="trdAutoAdds" type="number" min="1" max="20" placeholder="1"></div>
-        <div><label>止損緩衝 %<small>策略停損外推；0＝用策略</small></label><input id="trdAutoSl" type="number" min="0" max="50" step="0.1" placeholder="0"></div>
-        <div class="trd-sal-cell"><label>敗後停手<small>當日虧損後暫停</small></label><button id="trdAutoSal" class="trd-chip trd-sal-btn">關</button></div>
-        <div class="trd-sal-cell"><label>反向模式<small>⚠止損↔止盈互換、反方向；回測顯示會虧更多，僅供測試</small></label><button id="trdAutoRev" class="trd-chip trd-sal-btn">關</button></div>
-        <div class="trd-sal-cell"><label>FVG 進場<small>市價＝收盤確認保證成交；限價＝缺口三檔掛單(影線版、帳面更高但成交率未實證)</small></label><button id="trdAutoFvgEntry" class="trd-chip trd-sal-btn">市價</button></div>
-        <div class="trd-sal-cell"><label>持倉模式<small>⚠帳號級！雙向＝同幣可多空各一倉(FVG雙槽、追月均20%需要)；建議專用帳號、勿與 ss 混用</small></label><button id="trdAutoHedge" class="trd-chip trd-sal-btn">單向</button></div>
+      <!-- ===== FVG 子頁（完整獨立設定）===== -->
+      <div class="trd-strat-page trd-sp-fvg">
+        <div class="trd-sal-cell"><label>啟用 FVG<small>失衡缺口（固定 1h、止損3W/止盈6W）</small></label><button id="fvgOn" class="trd-chip trd-sal-btn">關</button></div>
+        <div class="trd-sal-cell"><label>進場模式<small>市價＝收盤確認保證成交；限價＝缺口三檔掛單(影線版、帳面更高但成交率未實證)</small></label><button id="fvgEntryBtn" class="trd-chip trd-sal-btn">市價</button></div>
+        <div class="trd-sal-cell"><label>持倉模式<small>⚠帳號級！雙向＝同幣可多空各一倉(FVG雙槽、追月均20%需要)；建議專用帳號、勿與 ss 混用</small></label><button id="fvgHedge" class="trd-chip trd-sal-btn">單向</button></div>
+        <div class="trd-sub trd-grp-hd">倉位</div>
+        <div class="trd-seg trd-amode" id="fvgMode">
+          <button class="trd-amode-btn sel" data-mode="margin">自訂槓桿</button>
+          <button class="trd-amode-btn" data-mode="risk">止損算槓桿</button>
+        </div>
+        <div class="trd-grid">
+          <div><label>方向</label><select id="fvgDirs"><option value="both">多空都做</option><option value="long">只做多</option><option value="short">只做空</option></select></div>
+          <div><label>進場金額 USDT<small>保證金</small></label><input id="fvgUsdt" type="number" min="1"></div>
+          <div id="fvgCellLev"><label>槓桿</label><input id="fvgLev" type="number" min="1" max="50"></div>
+          <div id="fvgCellRisk" hidden><label>止損額 USDT<small>打到停損虧這麼多</small></label><input id="fvgRisk" type="number" min="0" step="1" placeholder="0"></div>
+        </div>
+        <div class="trd-sub trd-grp-hd">風險控制</div>
+        <div class="trd-grid">
+          <div><label>最大同時持倉<small>筆（回測組合上限 15）</small></label><input id="fvgMax" type="number" min="1" max="50"></div>
+        </div>
+        <div class="trd-note">FVG 固定 1h、止損 3W／止盈 6W（缺口寬倍數）；無加倉、無止損緩衝。</div>
       </div>
-      <div class="trd-sub trd-grp-hd">各標的×時框 止損緩衝 %<small>留空＝用上方預設；選時框才分時框</small></div>
-      <div class="trd-persym" id="trdPerSym"></div>
       <div class="trd-note">⚠ 自動交易掃描的標的＝帳號自選清單（僅合約）。不需開訊號通知也會自動進場。進場後停損/止盈由交易所託管，策略提前止盈止損時會同步平倉。</div>
     </div>
     </div>
@@ -636,46 +690,39 @@ function _trdBuildPopup() {
   pop.querySelectorAll(".trd-a-sig, .trd-a-tf").forEach(b => b.addEventListener("click", e => {
     e.stopPropagation(); b.classList.toggle("sel"); _trdSaveAuto();
   }));
-  // 倉位模式二選一：自訂槓桿 / 止損算槓桿
-  const _trdLevEgUpd = () => {
-    const eg = pop.querySelector("#trdLevEg");
-    if (eg) eg.textContent = _trdLevExample(+pop.querySelector("#trdAutoUsdt").value,
-                                            +pop.querySelector("#trdAutoRisk").value);
-  };
-  pop.querySelectorAll(".trd-amode-btn").forEach(b => b.addEventListener("click", e => {
+  // 倉位模式二選一（SS／FVG 各自一份）：自訂槓桿 / 止損算槓桿
+  pop.querySelectorAll("#ssMode .trd-amode-btn, #fvgMode .trd-amode-btn").forEach(b => b.addEventListener("click", e => {
     e.stopPropagation();
-    pop.querySelectorAll(".trd-amode-btn").forEach(x => x.classList.toggle("sel", x === b));
+    const seg = b.closest(".trd-amode"); const pfx = seg.id === "fvgMode" ? "fvg" : "ss";
+    seg.querySelectorAll(".trd-amode-btn").forEach(x => x.classList.toggle("sel", x === b));
     const risk = b.dataset.mode === "risk";
-    pop.querySelector("#trdCellLev").hidden = risk;          // 自訂槓桿模式才有槓桿欄
-    pop.querySelector("#trdCellRisk").hidden = !risk;        // 止損算槓桿模式才有止損額欄
-    pop.querySelector("#trdLevAuto").hidden = !risk;
-    if (risk) {   // 切到止損模式但還沒填 → 給預設 10，免存成 0 又被切回
-      const rf = pop.querySelector("#trdAutoRisk");
-      if (!(+rf.value > 0)) rf.value = 10;
-      _trdLevEgUpd();
-    }
+    const cl = pop.querySelector(`#${pfx}CellLev`), cr = pop.querySelector(`#${pfx}CellRisk`);
+    if (cl) cl.hidden = risk;
+    if (cr) cr.hidden = !risk;
+    if (risk) { const rf = pop.querySelector(`#${pfx}Risk`); if (rf && !(+rf.value > 0)) rf.value = 10; }
     _trdSaveAuto();
   }));
-  // 止損額/金額改動 → 即時更新槓桿例子
-  pop.querySelector("#trdAutoRisk").addEventListener("input", _trdLevEgUpd);
-  pop.querySelector("#trdAutoUsdt").addEventListener("input", _trdLevEgUpd);
-  ["#trdAutoUsdt", "#trdAutoRisk", "#trdAutoLev", "#trdAutoMax", "#trdAutoAdds", "#trdAutoDirs", "#trdAutoSl"].forEach(id =>
+  // 各輸入改動 → 存檔
+  ["#ssUsdt", "#ssLev", "#ssRisk", "#ssMax", "#ssAdds", "#ssSl", "#ssDirs",
+   "#fvgUsdt", "#fvgLev", "#fvgRisk", "#fvgMax", "#fvgDirs"].forEach(id =>
     pop.querySelector(id)?.addEventListener("change", _trdSaveAuto));
-  pop.querySelector("#trdAutoSal").addEventListener("click", e => {
+  // SS／FVG 子分頁切換
+  pop.querySelectorAll(".trd-strat-btn").forEach(b => b.addEventListener("click", e => {
+    e.stopPropagation();
+    pop.querySelectorAll(".trd-strat-btn").forEach(x => x.classList.toggle("sel", x === b));
+    const st = b.dataset.strat;
+    pop.querySelector(".trd-sp-ss")?.classList.toggle("show", st === "ss");
+    pop.querySelector(".trd-sp-fvg")?.classList.toggle("show", st === "fvg");
+  }));
+  // 啟用 SS / FVG 開關（各自獨立）
+  ["#ssOn", "#fvgOn"].forEach(id => pop.querySelector(id)?.addEventListener("click", e => {
     e.stopPropagation();
     const b = e.currentTarget;
     b.classList.toggle("sel"); b.textContent = b.classList.contains("sel") ? "開" : "關";
     _trdSaveAuto();
-  });
-  pop.querySelector("#trdAutoRev")?.addEventListener("click", e => {
-    e.stopPropagation();
-    const b = e.currentTarget;
-    if (!b.classList.contains("sel") &&
-        !confirm("⚠ 開啟『反向模式』？\n止損↔止盈互換、實際下反方向單。回測顯示這會『虧更多』(方向毛利為正、反過來等於丟掉正確方向又付兩次手續費)。\n僅建議在測試網、用最小金額試。確定開啟？")) return;
-    b.classList.toggle("sel"); b.textContent = b.classList.contains("sel") ? "開" : "關";
-    _trdSaveAuto();
-  });
-  pop.querySelector("#trdAutoFvgEntry")?.addEventListener("click", e => {
+  }));
+  // FVG 進場模式（市價/限價階梯）
+  pop.querySelector("#fvgEntryBtn")?.addEventListener("click", e => {
     e.stopPropagation();
     const b = e.currentTarget;
     if (!b.classList.contains("sel") &&
@@ -683,7 +730,7 @@ function _trdBuildPopup() {
     b.classList.toggle("sel"); b.textContent = b.classList.contains("sel") ? "限價階梯" : "市價";
     _trdSaveAuto();
   });
-  pop.querySelector("#trdAutoHedge")?.addEventListener("click", async e => {
+  pop.querySelector("#fvgHedge")?.addEventListener("click", async e => {
     e.stopPropagation();
     const b = e.currentTarget;
     const toHedge = !b.classList.contains("sel");

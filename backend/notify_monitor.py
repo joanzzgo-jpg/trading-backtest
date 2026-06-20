@@ -203,9 +203,9 @@ def _process_combo(market, exchange, symbol, tf, subs_here, now):
         _NEAR_W = 1.5                                    # 現價進到離缺口 ≤1.5W 內算「逼近」
         try:
             from routes.trade import get_all_auto_cfgs, place_fvg_limit_ladder
-            _limit_accts = [(nm, cfg) for nm, cfg in get_all_auto_cfgs()
-                            if cfg.get("fvgEntry") == "limit"
-                            and "fvg" in (cfg.get("sigs") or []) and "1h" in (cfg.get("tfs") or [])]
+            # FVG 子設定開、且進場模式=limit 的帳號 → 各傳『fvg 子設定』給 place_fvg_limit_ladder
+            _limit_accts = [(nm, cfg["fvg"]) for nm, cfg in get_all_auto_cfgs()
+                            if cfg.get("fvg", {}).get("on") and cfg["fvg"].get("entry") == "limit"]
             if _limit_accts:
                 try:
                     _px = float(df["close"].iloc[-2 if forming else -1])   # 現價＝最後已收盤棒收盤
