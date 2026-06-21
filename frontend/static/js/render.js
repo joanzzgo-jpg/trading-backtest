@@ -157,6 +157,9 @@ function renderAll(data) {
   if (typeof _renderWRSignals === "function" && _lastWRSignals && _lastWRSignals.length) {
     _renderWRSignals();
   }
+  if (typeof _renderFVGTrades === "function" && _lastFVGTrades && _lastFVGTrades.length) {
+    _renderFVGTrades();
+  }
 
   // fit 讓各子圖時間範圍對齊
   [mainChart, kdjChart, rsiChart, macdChart].forEach(c => c.timeScale().fitContent());
@@ -243,7 +246,7 @@ function renderAll(data) {
 
 function renderCandles(data) {
   applyOhlcvToSeries(data);
-  lastCRTMarkers = []; lastKDJCrossMarkers = []; lastResonanceMarkers = []; lastWRSignalMarkers = []; lastBacktestMarkers = [];
+  lastCRTMarkers = []; lastKDJCrossMarkers = []; lastResonanceMarkers = []; lastWRSignalMarkers = []; lastBacktestMarkers = []; lastFVGTradeMarkers = [];
   _sortedMarkerCache = null;   // 標記陣列已清空 → 失效快取，避免平移重切視窗時殘留舊標記
   candleSeries.setMarkers([]);
 }
@@ -302,6 +305,7 @@ function _applyMainMarkers(windowOnly) {
       ...(kdjCrossHidden  ? [] : lastKDJCrossMarkers),
       ...(resonanceHidden ? [] : lastResonanceMarkers),
       ...(_wrSignalsHidden ? [] : lastWRSignalMarkers),
+      ...(window._fvgTradesHidden ? [] : lastFVGTradeMarkers),
       ...lastBacktestMarkers,
     ].sort((a, b) => a.time - b.time);
   }

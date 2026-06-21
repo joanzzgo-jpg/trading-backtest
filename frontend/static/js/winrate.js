@@ -186,7 +186,7 @@ async function _ensureBand80(d, cb) {
   try {
     const p = new URLSearchParams({ market, symbol, exchange, timeframe,
       stop_buffer_pct: bufDec.toFixed(4), band_ratio: "0.8" });
-    const res = await fetch("/api/crt_winrate?" + p, { signal: myCtrl.signal });
+    const res = await fetch("/api/crt_winrate?" + p, { signal: myCtrl.signal, cache: "no-store" });
     const v80 = await res.json();
     if (!res.ok) throw new Error(v80.detail || "failed");
     if (myCtrl !== _band80Ctrl) return;          // 已被新請求/切標的取代 → 丟棄
@@ -475,7 +475,7 @@ async function _fetchWinRateNow() {
   if (statusEl) statusEl.textContent = "";
   try {
     const p   = new URLSearchParams({ market, symbol, exchange, timeframe, stop_buffer_pct: bufDec.toFixed(4) });
-    const res = await fetch("/api/crt_winrate?" + p, { signal: myCtrl.signal });
+    const res = await fetch("/api/crt_winrate?" + p, { signal: myCtrl.signal, cache: "no-store" });
     const d   = await res.json();
     if (!res.ok) throw new Error(d.detail || "failed");
     _wrCacheSet(cacheKey, d);   // 結果照常進快取，下次切回直接命中
@@ -484,6 +484,7 @@ async function _fetchWinRateNow() {
     if (myCtrl !== _wrFetchCtrl) return;
     _renderWinRate(d);
     _renderWRSignals(d.signals);
+    _renderFVGTrades(d.fvg_trades);   // FVG「接1次」進出場標記（主圖）
     if (typeof setFVGZones === "function") setFVGZones(d.fvg);
     _setFVGData(d.fvg);
     if (typeof window._refreshSignalDrawer === "function") window._refreshSignalDrawer();
@@ -611,6 +612,58 @@ function _renderWRSignals(signals) {
   // wrStatus 顯示由 _renderWinRate 管理（後端總筆數），這裡不覆寫
   _applyMainMarkers();
 }
+
+// FVG「接1次」cascade 進出場標記（後端 fvg_trades）：進場箭頭 + 出場 ✓勝/✗敗/⟳早平接刀/…未結。
+// 與 S/SS 訊號用不同色系（多F=霓虹青、空F=霓虹粉）以資區別；獨立圖層，可隨 window._fvgTradesHidden 開關。
+function _renderFVGTrades(trades) {
+  if (trades !== undefined) _lastFVGTrades = trades || [];
+  const list = _lastFVGTrades || [];
+  const hasIdx = (typeof _secToIdx !== "undefined" && _secToIdx.size > 0);
+  const chartTimeSet = hasIdx ? null : new Set(ohlcvData.map(d => toTime(d.time)));
+  const _has = t => hasIdx ? _secToIdx.has(t) : chartTimeSet.has(t);
+  const _rpCut = (typeof replayActive !== "undefined" && replayActive
+    && typeof replayData !== "undefined" && replayData[replayIdx])
+    ? toTime(replayData[replayIdx].time) : null;
+
+  const out = [];
+  for (const t of list) {
+    const isShort = t.d === "s";
+    // ── 進場（⅓ 階梯：標出每檔成交點；第一檔帶文字、其餘小箭頭）──
+    const fills = (t.fills && t.fills.length) ? t.fills : [t.et];
+    fills.forEach((ft, idx) => {
+      const ftime = toTime(ft);
+      if (_has(ftime) && (_rpCut == null || ftime <= _rpCut)) {
+        out.push({
+          time: ftime, position: isShort ? "aboveBar" : "belowBar",
+          color: isShort ? "#ff4081" : "#00e5ff",
+          shape: isShort ? "arrowDown" : "arrowUp",
+          size: idx === 0 ? 0.8 : 0.5, text: idx === 0 ? (isShort ? "空F" : "多F") : "",
+        });
+      }
+    });
+    // ── 出場（勝/敗/早平接刀/未結）──
+    if (t.xt) {
+      const xt = toTime(t.xt);
+      if (_has(xt) && (_rpCut == null || xt <= _rpCut)) {
+        const m = t.r === "win"  ? { c: "#26a69a", txt: "✓" }
+                : t.r === "loss" ? { c: "#ef5350", txt: "✗" }
+                : t.r === "roll" ? { c: "#ffb300", txt: "⟳" }
+                :                  { c: "#9e9e9e", txt: "…" };
+        const isWin = t.r === "win";
+        out.push({
+          time: xt,
+          position: isWin ? (isShort ? "belowBar" : "aboveBar")
+                          : (isShort ? "aboveBar" : "belowBar"),
+          color: m.c, shape: "circle", size: 0.8, text: m.txt,
+        });
+      }
+    }
+  }
+  out.sort((a, b) => a.time - b.time);
+  lastFVGTradeMarkers = out;
+  _applyMainMarkers();
+}
+window._renderFVGTrades = _renderFVGTrades;
 
 function _renderWinRate(d) {
   _wrCacheLast = d;

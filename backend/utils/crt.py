@@ -1303,6 +1303,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
     #   止損(l)/止盈(w)，皆未碰→None(live)。獨立於 signals，不污染勝率 HUD；只在 1h 由 notify_monitor 觸發。
     _fvg = []
     _fvg_sigs = []
+    _gaplist = []          # (cf_bar, top, bot, dir) 給「接1次」cascade 進出場標記用
     try:
         _N = len(times_iso); _MS = 0.003
         _FRESH = 168          # 缺口新鮮度：確認後 168 根(1h=一週)內未回補 → 作廢、不產進場訊號
@@ -1328,6 +1329,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                 if _dir == "l" and float(lows[_j])  <= _top: _t2 = times_iso[_j]; break
                 if _dir == "s" and float(highs[_j]) >= _bot: _t2 = times_iso[_j]; break
             _fvg.append({"t": times_iso[_g+1], "top": _top, "bot": _bot, "d": _dir, "t2": _t2})
+            _gaplist.append((_g + 1, _top, _bot, _dir))
 
             # ── 收盤確認進場訊號（3W/6W 固定 SL/TP）──────────────────
             _W = _top - _bot
@@ -1373,6 +1375,60 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         _fvg = []
         _fvg_sigs = []
 
+    # ── FVG 進出場點（給主圖標記）──────────────────────────────────────────
+    #   ⅓ 階梯版：三檔限價掛在缺口頂/中/底，影線觸及即成交；2W 止損 / 6W 止盈、抱到止損/止盈/超時。
+    #   只為「視覺標記」，獨立於 _fvg_sigs（自動交易），出錯退空、不影響其他輸出。
+    _fvg_trades = []
+    try:
+        _SMt, _TMt = 2.0, 6.0
+        _Hn = [float(h) for h in highs]; _Ln = [float(l) for l in lows]
+        _Nn = len(_Ln)
+        for _wd in ("l", "s"):
+            _gp = [g for g in _gaplist if g[3] == _wd]
+            # 1) 每個缺口：三檔階梯成交 + 出場（不做 busy 判斷）
+            _cands = []
+            for (_cf, _tp0, _bt0, _d) in _gp:
+                if _tp0 - _bt0 <= 0:
+                    continue
+                _W = _tp0 - _bt0; _mid = (_tp0 + _bt0) / 2.0
+                _stp = (_bt0 - _SMt * _W) if _d == "l" else (_tp0 + _SMt * _W)
+                _tpx = (_tp0 + _TMt * _W) if _d == "l" else (_bt0 - _TMt * _W)
+                _lv = [_tp0, _mid, _bt0]                          # 三檔限價
+                _fills = []; _res = None
+                _fe = _cf + 1 + _FRESH; _hi = min(_Nn, _cf + 1 + _FRESH + _MAXHOLD)
+                for _j in range(_cf + 1, _hi):
+                    _lj = _Ln[_j]; _hj = _Hn[_j]
+                    if _lj != _lj or _hj != _hj:
+                        continue
+                    if _j <= _fe and _lv:                         # 新鮮度內 → 三檔影線觸及即成交
+                        _hit = [x for x in _lv if (_lj <= x if _d == "l" else _hj >= x)]
+                        if _hit:
+                            _fills.append(_j)
+                            _lv = [x for x in _lv if x not in _hit]
+                    if _fills and _j > _fills[0]:                 # 首檔成交後檢查止損/止盈
+                        if (_lj <= _stp) if _d == "l" else (_hj >= _stp): _res = ("loss", _j); break
+                        if (_hj >= _tpx) if _d == "l" else (_lj <= _tpx): _res = ("win", _j); break
+                    if _fills and _j >= _fills[0] + _MAXHOLD:     # 自首檔成交起算最長持有
+                        break
+                if not _fills:
+                    continue
+                _kind, _xb = _res if _res else ("live", min(_hi, _Nn) - 1)
+                _cands.append((_fills[0], _xb, _d, _kind, list(_fills)))
+            # 2) 依「進場時間」排序，貪婪選不重疊（一次一單）——修正原本用「形成時間」誤殺晚進場缺口的 bug
+            _cands.sort(key=lambda x: x[0])
+            _busy = -1
+            for _ef, _xb, _d, _kind, _fb in _cands:
+                if _ef <= _busy:
+                    continue
+                _fvg_trades.append({"d": _d, "et": times_iso[_ef], "xt": times_iso[_xb],
+                                    "r": _kind, "fills": [times_iso[b] for b in _fb]})
+                _busy = _xb
+        # 先依進場時間排序再截尾——否則「先全多單、後全空單」會被 [-N:] 截成只剩空單。
+        _fvg_trades.sort(key=lambda x: x["et"])
+        _fvg_trades = _fvg_trades[-200:]
+    except Exception:
+        _fvg_trades = []
+
     return {
         **mid_out,                # backward compat：mid 統計放在頂層
         "ss":   ss_out,           # SS 系列（獨立合計 + 敗後停手，不與 S 混）
@@ -1384,4 +1440,5 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         "signals":  signals,
         "fvg":      _fvg,         # 失衡缺口（主圖色塊）
         "fvg_sigs": _fvg_sigs,    # FVG 收盤確認進場訊號（自動交易用，獨立於 signals）
+        "fvg_trades": _fvg_trades,  # FVG「接1次」cascade 進出場點（主圖標記用）
     }
