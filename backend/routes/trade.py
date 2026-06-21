@@ -1172,7 +1172,10 @@ def place_fvg_limit_ladder(name, cfg, market, exchange, symbol, tf, gap):
         if _open_n and _open_n[0] >= int(cfg.get("maxPos", 15) or 15):
             return
         W = top - bot
-        stop = (bot - 3 * W) if want == "long" else (top + 3 * W)
+        # 2% 寬度上限：缺口寬 > 價格 2% → 止盈(6×大缺口)打不到、抱久擋倉位，跳過不掛。
+        if W / (top if want == "long" else bot) > 0.02:
+            return
+        stop = (bot - 2 * W) if want == "long" else (top + 2 * W)   # 止損 2W（定版 2/6）
         tp   = (top + 6 * W) if want == "long" else (bot - 6 * W)
         levels = [top, (top + bot) / 2.0, bot]
         risk_usd = cfg.get("riskUsd") or 0
@@ -1337,6 +1340,87 @@ def reconcile_fvg_pending(market, exchange, symbol, tf):
                 print(f"  ⚠ FVG限價對帳失敗 {name} {symbol}：{e}")
     except Exception as e:
         print(f"  ⚠ FVG限價對帳失敗 {symbol}：{e}")
+
+
+def reconcile_fvg_deepfill(market, exchange, symbol, tf):
+    """FVG 深檔拉近（定版 6/6/2）：監控 open 的 FVG 限價倉，若『底檔(最深那張)已成交』
+    (=三檔全中、價格插到底、近止損)且止盈還在 6W → 撤舊 TP、改掛 2W 近止盈快跑。
+    1-2 檔成交維持 6W(讓淺觸反彈跑滿)；3 檔全成交才收緊。每根 1h 收盤呼叫一次。絕不拋例外。"""
+    try:
+        if market != "crypto" or tf != "1h":
+            return
+        for name, cfg in get_all_auto_cfgs():
+            try:
+                _ensure_db()
+                conn, ph = _acct._db()
+                try:
+                    rows = conn.execute(
+                        f"SELECT id, bsym, dir, tp_oid, extra FROM trade_log WHERE source='auto' AND sig='fvg' "
+                        f"AND status='open' AND acct={ph} AND symbol={ph} AND tf={ph}",
+                        (name, symbol, tf)).fetchall()
+                finally:
+                    conn.close()
+                if not rows:
+                    continue
+                client, _ = _client_for(name)
+                if client is None:
+                    continue
+                _hedge = _is_hedge(client)
+                _, scale = client.resolve_symbol(symbol)
+                for row_id, bsym, d, tp_oid, extra_s in rows:
+                    try:
+                        ex = json.loads(extra_s) if extra_s else {}
+                    except Exception:
+                        ex = {}
+                    if ex.get("tp2w"):
+                        continue                                  # 已收緊過 → 不重做
+                    top = ex.get("top"); bot = ex.get("bot")
+                    if not top or not bot or top <= bot:
+                        continue
+                    W = top - bot
+                    want = "short" if d == "s" else "long"
+                    deep_lv = bot if want == "long" else top       # 最深檔：多=缺口底、空=缺口頂
+                    deep_oid = next((str(o.get("oid")) for o in (ex.get("orders") or [])
+                                     if o.get("oid") and abs(float(o.get("level", 0)) - deep_lv) <= W * 0.02), None)
+                    if not deep_oid:
+                        continue                                  # 底檔當初沒掛上 → 無法追蹤、不動
+                    try:
+                        resting = {str(o["orderId"]) for o in client.open_orders(bsym)}
+                    except bt.TradeError:
+                        continue
+                    if deep_oid in resting:
+                        continue                                  # 底檔還掛著(未成交) → 不是三檔全中、不收緊
+                    # 底檔已成交(三檔全中) → 止盈收到 2W
+                    psd = _posside(want, _hedge)
+                    close_side = "SELL" if want == "long" else "BUY"
+                    new_tp = (top + 2 * W) if want == "long" else (bot - 2 * W)
+                    new_tp_px = client.quantize_price(bsym, new_tp * scale)
+                    try:
+                        if tp_oid: client.cancel_algo(bsym, tp_oid)
+                    except bt.TradeError:
+                        pass
+                    try:
+                        new_oid = client.place_close_trigger(bsym, close_side, new_tp_px, "tp", position_side=psd).get("orderId")
+                    except bt.TradeError:
+                        new_oid = None
+                    ex["tp2w"] = True
+                    c2, ph2 = _acct._db()
+                    try:
+                        c2.execute(
+                            f"UPDATE trade_log SET tp_oid={ph2}, tp={ph2}, extra={ph2}, msg={ph2} WHERE id={ph2}",
+                            (str(new_oid) if new_oid else tp_oid, str(round(new_tp, 8)),
+                             json.dumps(ex), "FVG三檔全成交→止盈收緊2W", row_id))
+                        c2.commit()
+                    finally:
+                        c2.close()
+                    _push_owner(name, f"🎯 FVG深檔拉近 · {symbol}",
+                                f"三檔全成交、止盈收緊到 {_fmt_px(new_tp)}（2W 快跑）",
+                                symbol, tf=tf, event="atrade", sig="fvg", d=d, sigt=str(ex.get("gap_t")))
+                    print(f"  🎯 FVG深檔拉近 {client.env}: {bsym} TP→2W {_fmt_px(new_tp)}")
+            except Exception as e:
+                print(f"  ⚠ FVG深檔拉近失敗 {name} {symbol}：{e}")
+    except Exception as e:
+        print(f"  ⚠ FVG深檔拉近失敗 {symbol}：{e}")
 
 
 def retarget_auto_tp(market, exchange, symbol, tf, upper_chart, lower_chart):

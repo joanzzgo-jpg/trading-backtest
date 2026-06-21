@@ -252,6 +252,12 @@ def _process_combo(market, exchange, symbol, tf, subs_here, now):
         reconcile_fvg_pending(market, exchange, symbol, tf)
     except Exception as e:
         print(f"  ⚠ FVG限價對帳 hook 失敗：{e}")
+    # FVG 深檔拉近：三檔全成交(插到底)→止盈收緊 6W→2W（只 1h，函式內已 gate）
+    try:
+        from routes.trade import reconcile_fvg_deepfill
+        reconcile_fvg_deepfill(market, exchange, symbol, tf)
+    except Exception as e:
+        print(f"  ⚠ FVG深檔拉近 hook 失敗：{e}")
 
     if not signals:
         return
