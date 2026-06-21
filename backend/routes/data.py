@@ -133,6 +133,42 @@ def diag():
     }
 
 
+@router.get("/_diag_trade")
+def diag_trade():
+    """自動交易／訊號通知診斷（瀏覽器直接開）：定位『完全沒推播/沒進場』斷在哪。
+    notify_enabled=False→VAPID沒設(訂閱推播發不出)；subs=0→無訂閱；auto_accounts空→cfg沒讀到active；
+    某帳號 scan_tfs 空或 crypto_watchlist=0→該帳號不會被掃。**不洩漏任何金鑰。**"""
+    out = {"notify_enabled": False, "subs": 0, "auto_accounts": []}
+    try:
+        import routes.notify as notify
+        out["notify_enabled"] = bool(notify.notify_enabled())
+        out["subs"] = len(notify.all_active_subs()) if notify.notify_enabled() else 0
+    except Exception as e:
+        out["notify_err"] = str(e)[:120]
+    try:
+        from routes.trade import get_all_auto_cfgs
+        import notify_monitor as nm
+        import routes.notify as notify
+        for name, cfg in get_all_auto_cfgs(fresh=True):
+            try:
+                wl = notify.account_watchlist(name)
+                wln = len([w for w in wl if (w.get("market") or "crypto") == "crypto" and w.get("symbol")])
+            except Exception:
+                wln = -1
+            out["auto_accounts"].append({
+                "name": name,
+                "main_on": cfg.get("on"),
+                "ss_on": (cfg.get("ss") or {}).get("on"),
+                "fvg_on": (cfg.get("fvg") or {}).get("on"),
+                "fvg_entry": (cfg.get("fvg") or {}).get("entry"),
+                "scan_tfs": sorted(nm._auto_tfs(cfg)),
+                "crypto_watchlist": wln,
+            })
+    except Exception as e:
+        out["auto_err"] = str(e)[:120]
+    return out
+
+
 @router.post("/reset_pionex_cooldown")
 def reset_pionex_cooldown():
     """手動清除 Pionex 5 分鐘限流冷卻（給卡死時應急用）"""
