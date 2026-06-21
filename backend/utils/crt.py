@@ -1392,14 +1392,22 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                 if _tp0 - _bt0 <= 0:
                     continue
                 _W = _tp0 - _bt0; _mid = (_tp0 + _bt0) / 2.0
-                if _W / (_tp0 if _d == "l" else _bt0) > 0.02:     # 寬度上限 2%：濾掉抱久擋路的寬缺口
+                _wr = _W / (_tp0 if _d == "l" else _bt0)          # 缺口寬度占價格比
+                if _wr > 0.02:                                    # 寬度上限 2%：濾掉抱久擋路的超寬缺口
                     continue
-                _stp = (_bt0 - _SMt * _W) if _d == "l" else (_tp0 + _SMt * _W)
-                _tp_far  = (_tp0 + _TMt * _W) if _d == "l" else (_bt0 - _TMt * _W)
-                _tp_near = (_tp0 + 2.0 * _W) if _d == "l" else (_bt0 - 2.0 * _W)
+                if _wr > 0.008:                                   # 過寬(0.8%~2%)：上框+中間兩檔、止損下框−0.5W、止盈3W
+                    _lv = [_tp0, _mid] if _d == "l" else [_mid, _bt0]   # 不掛最深檔(多:bot/空:top＝跑太兇那側)
+                    _stp = _bt0 if _d == "l" else _tp0            # 止損=下框bot(多)／上框top(空)；回測比−0.5W更優
+                    _tp_far  = (_tp0 + 3.0 * _W) if _d == "l" else (_bt0 - 3.0 * _W)  # 3W：容量受限下幾乎=6W但命中率高、出場快、不堵小單
+                    _tp_near = _tp_far                            # 過寬不做深檔拉近
+                else:                                             # 正常窄缺口：三檔階梯 + 6W 止盈 + 深檔拉近 2W
+                    _lv = [_tp0, _mid, _bt0]
+                    _stp = (_bt0 - _SMt * _W) if _d == "l" else (_tp0 + _SMt * _W)
+                    _tp_far  = (_tp0 + _TMt * _W) if _d == "l" else (_bt0 - _TMt * _W)
+                    _tp_near = (_tp0 + 2.0 * _W) if _d == "l" else (_bt0 - 2.0 * _W)
                 _tpx = _tp_far
-                _lv = [_tp0, _mid, _bt0]                          # 三檔限價
-                _fills = []; _res = None
+                _deepbar = None                                   # 全成交(深檔拉近生效)的那根，給止盈價位線階梯用
+                _fills = []; _filledlv = []; _res = None           # _fills=成交的K棒；_filledlv=實際成交的每一檔價(可一根多檔)
                 _fe = _cf + 1 + _FRESH; _hi = min(_Nn, _cf + 1 + _FRESH + _MAXHOLD)
                 for _j in range(_cf + 1, _hi):
                     _lj = _Ln[_j]; _hj = _Hn[_j]
@@ -1409,8 +1417,11 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                         _hit = [x for x in _lv if (_lj <= x if _d == "l" else _hj >= x)]
                         if _hit:
                             _fills.append(_j)
+                            _filledlv.extend(_hit)                # 一根同時穿多檔 → 全部記入(均價才正確)
                             _lv = [x for x in _lv if x not in _hit]
-                            if not _lv: _tpx = _tp_near           # 三檔全成交(插到底) → 止盈拉到 2W 快跑
+                            if not _lv:                           # 全檔成交(插到底) → 止盈拉近 2W 快跑
+                                _tpx = _tp_near
+                                if _deepbar is None: _deepbar = _j
                     if _fills and _j > _fills[0]:                 # 首檔成交後檢查止損/止盈
                         if (_lj <= _stp) if _d == "l" else (_hj >= _stp): _res = ("loss", _j); break
                         if (_hj >= _tpx) if _d == "l" else (_lj <= _tpx): _res = ("win", _j); break
@@ -1419,19 +1430,36 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                 if not _fills:
                     continue
                 _kind, _xb = _res if _res else ("live", min(_hi, _Nn) - 1)
-                _cands.append((_fills[0], _xb, _d, _kind, list(_fills)))
+                _cands.append({"ef": _fills[0], "xb": _xb, "d": _d, "kind": _kind, "fb": list(_fills),
+                               "top": _tp0, "bot": _bt0, "sl": _stp, "tpf": _tp_far, "tpn": _tp_near,
+                               "deep": _deepbar, "flv": list(_filledlv)})
             # 2) 依「進場時間」排序，貪婪選不重疊（一次一單）——修正原本用「形成時間」誤殺晚進場缺口的 bug
-            _cands.sort(key=lambda x: x[0])
-            _busy = -1
-            for _ef, _xb, _d, _kind, _fb in _cands:
-                if _ef <= _busy:
-                    continue
-                _fvg_trades.append({"d": _d, "et": times_iso[_ef], "xt": times_iso[_xb],
-                                    "r": _kind, "fills": [times_iso[b] for b in _fb]})
-                _busy = _xb
+            #    + roll(⟳早平接刀)：持倉中價格往下碰到「下方的同向 FVG」(多:bot更低/空:top更高) →
+            #      前一筆早平在新缺口進場棒、接刀進更深的同向缺口；同層/上方的新缺口仍「擋著不進」。
+            #      （roll 只在深缺口落在原止損之上、價格還沒到止損就先碰到時才觸發，故天生稀少。）
+            _cands.sort(key=lambda x: x["ef"])
+            _busy = -1; _act = None; _act_ef = -1; _act_tp = None; _act_bt = None
+            for _c in _cands:
+                _ef = _c["ef"]; _xb = _c["xb"]; _d = _c["d"]
+                if _act is not None and _ef < _busy:                 # 與持倉重疊
+                    _below = (_c["bot"] < _act_bt) if _d == "l" else (_c["top"] > _act_tp)
+                    if _ef > _act_ef and _below:                     # 價格碰到「下方(多)/上方(空)」同向缺口 → roll
+                        _act["xt"] = times_iso[_ef]; _act["r"] = "roll"
+                    else:                                            # 同層/上方 → 維持「擋著不進」
+                        continue
+                _flv = _c["flv"]
+                _new = {"d": _d, "et": times_iso[_ef], "xt": times_iso[_xb],
+                        "r": _c["kind"], "fills": [times_iso[b] for b in _c["fb"]],
+                        "nfill": len(_flv),                                          # 實際成交檔數(可>len(fills))
+                        "aentry": round(sum(_flv) / len(_flv), 8) if _flv else None, # 各檔均價(正確均價，給R/畫線用)
+                        "top": round(_c["top"], 8), "bot": round(_c["bot"], 8),
+                        "sl": round(_c["sl"], 8), "tpf": round(_c["tpf"], 8), "tpn": round(_c["tpn"], 8),
+                        "tp2t": (times_iso[_c["deep"]] if _c["deep"] is not None else None)}
+                _fvg_trades.append(_new)
+                _act = _new; _act_ef = _ef; _act_tp = _c["top"]; _act_bt = _c["bot"]; _busy = _xb
         # 先依進場時間排序再截尾——否則「先全多單、後全空單」會被 [-N:] 截成只剩空單。
         _fvg_trades.sort(key=lambda x: x["et"])
-        _fvg_trades = _fvg_trades[-200:]
+        _fvg_trades = _fvg_trades[-600:]      # 上限 600：1h 約可回溯到去年底（200 只到 3 個月前）
     except Exception:
         _fvg_trades = []
 

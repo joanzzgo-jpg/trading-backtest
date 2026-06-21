@@ -49,6 +49,8 @@ function createCandleSeries() {
   try {
     _fvgPrimitive = _makeFVGPrimitive();
     candleSeries.attachPrimitive(_fvgPrimitive);
+    _fvgTLPrim = _makeFVGTradeLinePrimitive();       // FVG 逐筆止損/止盈價位線
+    candleSeries.attachPrimitive(_fvgTLPrim);
   } catch (e) { /* 舊版 LWC 無 attachPrimitive 時靜默略過 */ }
 }
 
@@ -113,6 +115,81 @@ function toggleFVG(on) {
 }
 window.setFVGZones = setFVGZones;
 window.toggleFVG = toggleFVG;
+
+/* ── FVG 逐筆止損/止盈價位線：每筆從進場(et)→出場(xt)畫水平線段（紅虛=止損、綠虛=止盈；
+      深檔拉近會在 tp2t 階梯下移到近靶）。隨 window._fvgTradesHidden 與 FVG 標記同步開關。── */
+let _fvgTradeLines = [];   // [{et, xt, sl, tpf, tpn, tp2t}]（時間已轉圖表時間）
+let _fvgTLPrim = null;
+function _makeFVGTradeLinePrimitive() {
+  let _chart = null, _series = null, _req = null;
+  const renderer = {
+    draw(target) {
+      if (window._fvgTradesHidden || !_fvgTradeLines.length || !_chart || !_series) return;
+      const ts = _chart.timeScale();
+      target.useBitmapCoordinateSpace(scope => {
+        const ctx = scope.context;
+        const hr = scope.horizontalPixelRatio, vr = scope.verticalPixelRatio;
+        for (const t of _fvgTradeLines) {
+          const x1 = ts.timeToCoordinate(t.et);
+          if (x1 == null) continue;
+          let x2 = (t.xt != null) ? ts.timeToCoordinate(t.xt) : null;
+          if (x2 == null) x2 = x1 + 6;                  // 出場在畫面外 → 短殘段
+          if (x2 <= x1) x2 = x1 + 1;
+          ctx.lineWidth = Math.max(1, hr);
+          ctx.setLineDash([4 * hr, 3 * hr]);
+          // 止損線（紅）
+          const ySL = _series.priceToCoordinate(t.sl);
+          if (ySL != null) {
+            ctx.strokeStyle = "rgba(239,83,80,0.85)";
+            ctx.beginPath(); ctx.moveTo(x1 * hr, ySL * vr); ctx.lineTo(x2 * hr, ySL * vr); ctx.stroke();
+          }
+          // 止盈線（綠）：tp2t(深檔拉近)之前用 tpf、之後階梯到 tpn
+          ctx.strokeStyle = "rgba(38,198,166,0.85)";
+          const yF = _series.priceToCoordinate(t.tpf);
+          const hasStep = (t.tp2t != null && t.tpn != null && t.tpn !== t.tpf);
+          const xStep = hasStep ? ts.timeToCoordinate(t.tp2t) : null;
+          if (xStep != null) {
+            const yN = _series.priceToCoordinate(t.tpn);
+            const xs = Math.max(x1, Math.min(xStep, x2));
+            if (yF != null) { ctx.beginPath(); ctx.moveTo(x1 * hr, yF * vr); ctx.lineTo(xs * hr, yF * vr); ctx.stroke(); }
+            if (yN != null) {
+              if (yF != null) { ctx.beginPath(); ctx.moveTo(xs * hr, yF * vr); ctx.lineTo(xs * hr, yN * vr); ctx.stroke(); }
+              ctx.beginPath(); ctx.moveTo(xs * hr, yN * vr); ctx.lineTo(x2 * hr, yN * vr); ctx.stroke();
+            }
+          } else if (yF != null) {
+            ctx.beginPath(); ctx.moveTo(x1 * hr, yF * vr); ctx.lineTo(x2 * hr, yF * vr); ctx.stroke();
+          }
+          ctx.setLineDash([]);
+        }
+      });
+    },
+  };
+  const paneView = { renderer() { return renderer; } };
+  return {
+    attached(p) { _chart = p.chart; _series = p.series; _req = p.requestUpdate; },
+    detached() { _chart = _series = _req = null; },
+    updateAllViews() {},
+    paneViews() { return [paneView]; },
+    requestUpdate() { if (_req) _req(); },
+  };
+}
+// 餵入後端 fvg_trades；rpCut（replay 當下圖表時間）→ 只畫已發生的、出場裁切到當下
+function setFVGTradeLines(list, rpCut) {
+  let arr = (Array.isArray(list) ? list : []).map(t => ({
+    et: toTime(t.et), xt: (t.xt != null ? toTime(t.xt) : null),
+    sl: t.sl, tpf: t.tpf, tpn: t.tpn, tp2t: (t.tp2t != null ? toTime(t.tp2t) : null),
+  })).filter(t => t.et != null && t.sl != null && t.tpf != null);
+  if (rpCut != null) {
+    arr = arr.filter(t => t.et <= rpCut).map(t => ({
+      ...t,
+      xt: (t.xt == null || t.xt > rpCut) ? rpCut : t.xt,
+      tp2t: (t.tp2t != null && t.tp2t > rpCut) ? null : t.tp2t,
+    }));
+  }
+  _fvgTradeLines = arr;
+  if (_fvgTLPrim) _fvgTLPrim.requestUpdate();
+}
+window.setFVGTradeLines = setFVGTradeLines;
 
 /* ── 將 ohlcv 資料套用到目前 series ── */
 function applyOhlcvToSeries(data) {

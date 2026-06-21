@@ -661,6 +661,7 @@ function _renderFVGTrades(trades) {
   }
   out.sort((a, b) => a.time - b.time);
   lastFVGTradeMarkers = out;
+  if (typeof setFVGTradeLines === "function") setFVGTradeLines(_lastFVGTrades, _rpCut);   // 逐筆止損/止盈價位線
   _applyMainMarkers();
 }
 window._renderFVGTrades = _renderFVGTrades;

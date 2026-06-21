@@ -1172,16 +1172,25 @@ def place_fvg_limit_ladder(name, cfg, market, exchange, symbol, tf, gap):
         if _open_n and _open_n[0] >= int(cfg.get("maxPos", 15) or 15):
             return
         W = top - bot
-        # 2% 寬度上限：缺口寬 > 價格 2% → 止盈(6×大缺口)打不到、抱久擋倉位，跳過不掛。
-        if W / (top if want == "long" else bot) > 0.02:
+        wr = W / (top if want == "long" else bot)
+        # 2% 寬度上限：缺口寬 > 價格 2% → 止盈打不到、抱久擋倉位，跳過不掛。
+        if wr > 0.02:
             return
-        stop = (bot - 2 * W) if want == "long" else (top + 2 * W)   # 止損 2W（定版 2/6）
-        tp   = (top + 6 * W) if want == "long" else (bot - 6 * W)
-        levels = [top, (top + bot) / 2.0, bot]
+        _mid = (top + bot) / 2.0
+        if wr > 0.008:                                             # 過寬(0.8%~2%)：上框+中間、止損=框、止盈3W、不深檔拉近
+            levels = [top, _mid] if want == "long" else [_mid, bot]
+            stop = bot if want == "long" else top
+            tp   = (top + 3 * W) if want == "long" else (bot - 3 * W)
+        else:                                                     # 窄缺口：三檔、止損2W、止盈6W、可深檔拉近
+            levels = [top, _mid, bot]
+            stop = (bot - 2 * W) if want == "long" else (top + 2 * W)
+            tp   = (top + 6 * W) if want == "long" else (bot - 6 * W)
+        _wide = wr > 0.008
         risk_usd = cfg.get("riskUsd") or 0
         lev_cap = max(1, min(int(cfg["lev"]), 50))
-        mid = levels[1]
+        mid = _mid
         stop_pct = abs(mid - stop) / mid if mid else 0.05
+        _ntr = len(levels)                                         # 檔數(窄=3、過寬=2)：每檔風險均分
         try:
             max_lev, mmr = client.lev_bracket(bsym)
         except Exception:
@@ -1199,9 +1208,9 @@ def place_fvg_limit_ladder(name, cfg, market, exchange, symbol, tf, gap):
             lv_c = lv * scale; s_c = stop * scale
             if risk_usd > 0:
                 per = abs(lv_c - s_c) + fee * lv_c + fee * s_c          # 每單位虧損(含來回手續費)
-                qb = (risk_usd / 3.0) / per if per > 0 else 0
+                qb = (risk_usd / _ntr) / per if per > 0 else 0
             else:
-                qb = ((cfg["usdt"] / 3.0) * lev) / lv_c if lv_c else 0   # 保證金模式：每檔 usdt/3 × lev
+                qb = ((cfg["usdt"] / _ntr) * lev) / lv_c if lv_c else 0  # 保證金模式：每檔 usdt/檔數 × lev
             qty = client.quantize_qty(bsym, qb)
             try:
                 px = client.quantize_price(bsym, lv_c)
@@ -1210,21 +1219,21 @@ def place_fvg_limit_ladder(name, cfg, market, exchange, symbol, tf, gap):
             except bt.TradeError as e:
                 orders.append({"oid": None, "level": lv, "qty": qty, "err": str(e)[:80]})
         placed = [o for o in orders if o.get("oid")]
-        extra = json.dumps({"top": top, "bot": bot, "orders": orders, "gap_t": gap.get("t")})
+        extra = json.dumps({"top": top, "bot": bot, "orders": orders, "gap_t": gap.get("t"), "wide": _wide})
         _log_trade(source="auto", acct=name, mode=client.env,
                    status="pending" if placed else "failed",
                    symbol=symbol, bsym=bsym, side=want, sig="fvg", d=d, tf=tf,
                    sigt=str(gap.get("t")), sl=str(round(stop, 8)), tp=str(round(tp, 8)),
                    entry=str(round(mid, 8)), extra=extra,
-                   msg=(f"FVG限價階梯 掛 {len(placed)}/3 檔" if placed else "FVG限價階梯 全部掛單失敗"))
+                   msg=(f"FVG限價階梯 掛 {len(placed)}/{_ntr} 檔" if placed else "FVG限價階梯 全部掛單失敗"))
         if placed:
             envtag = "實盤" if client.env == "live" else "測試網"
             dir_emoji = "📉" if want == "short" else "📈"
             _push_owner(name, f"⏳ FVG限價掛單{dir_emoji} · {symbol}（{envtag}）",
                         f"{'做空' if want == 'short' else '做多'} · 缺口 {_fmt_px(bot)}~{_fmt_px(top)}\n"
-                        f"掛 {len(placed)}/3 檔限價 · 止損 {_fmt_px(stop)} · 止盈 {_fmt_px(tp)}",
+                        f"掛 {len(placed)}/{_ntr} 檔限價 · 止損 {_fmt_px(stop)} · 止盈 {_fmt_px(tp)}",
                         symbol, tf=tf, event="atrade_open", sig="fvg", d=d, sigt=str(gap.get("t")))
-        print(f"  ⏳ FVG限價階梯 {client.env}: {bsym} {side} 掛{len(placed)}/3（{symbol} {tf} {d}）")
+        print(f"  ⏳ FVG限價階梯 {client.env}: {bsym} {side} 掛{len(placed)}/{_ntr}（{symbol} {tf} {d}）")
     except Exception as e:
         print(f"  ⚠ FVG限價掛單失敗 {name} {symbol}：{e}")
 
@@ -1372,8 +1381,8 @@ def reconcile_fvg_deepfill(market, exchange, symbol, tf):
                         ex = json.loads(extra_s) if extra_s else {}
                     except Exception:
                         ex = {}
-                    if ex.get("tp2w"):
-                        continue                                  # 已收緊過 → 不重做
+                    if ex.get("tp2w") or ex.get("wide"):
+                        continue                                  # 已收緊過、或過寬缺口(止盈固定3W、本就不拉近) → 不動
                     top = ex.get("top"); bot = ex.get("bot")
                     if not top or not bot or top <= bot:
                         continue

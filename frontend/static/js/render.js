@@ -247,6 +247,7 @@ function renderAll(data) {
 function renderCandles(data) {
   applyOhlcvToSeries(data);
   lastCRTMarkers = []; lastKDJCrossMarkers = []; lastResonanceMarkers = []; lastWRSignalMarkers = []; lastBacktestMarkers = []; lastFVGTradeMarkers = [];
+  if (typeof setFVGTradeLines === "function") setFVGTradeLines([]);   // 換標的/重載 → 清舊止損止盈線，避免殘留
   _sortedMarkerCache = null;   // 標記陣列已清空 → 失效快取，避免平移重切視窗時殘留舊標記
   candleSeries.setMarkers([]);
 }
