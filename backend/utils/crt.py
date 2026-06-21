@@ -1377,6 +1377,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
 
     # ── FVG 進出場點（給主圖標記）──────────────────────────────────────────
     #   ⅓ 階梯版：三檔限價掛在缺口頂/中/底，影線觸及即成交；2W 止損 / 6W 止盈、抱到止損/止盈/超時。
+    #   + 寬度上限 2%（濾掉抱久擋路的寬缺口）；+ 深檔拉近：三檔全成交(插到底)就把止盈改 2W 快跑。
     #   只為「視覺標記」，獨立於 _fvg_sigs（自動交易），出錯退空、不影響其他輸出。
     _fvg_trades = []
     try:
@@ -1391,8 +1392,12 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                 if _tp0 - _bt0 <= 0:
                     continue
                 _W = _tp0 - _bt0; _mid = (_tp0 + _bt0) / 2.0
+                if _W / (_tp0 if _d == "l" else _bt0) > 0.02:     # 寬度上限 2%：濾掉抱久擋路的寬缺口
+                    continue
                 _stp = (_bt0 - _SMt * _W) if _d == "l" else (_tp0 + _SMt * _W)
-                _tpx = (_tp0 + _TMt * _W) if _d == "l" else (_bt0 - _TMt * _W)
+                _tp_far  = (_tp0 + _TMt * _W) if _d == "l" else (_bt0 - _TMt * _W)
+                _tp_near = (_tp0 + 2.0 * _W) if _d == "l" else (_bt0 - 2.0 * _W)
+                _tpx = _tp_far
                 _lv = [_tp0, _mid, _bt0]                          # 三檔限價
                 _fills = []; _res = None
                 _fe = _cf + 1 + _FRESH; _hi = min(_Nn, _cf + 1 + _FRESH + _MAXHOLD)
@@ -1405,6 +1410,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                         if _hit:
                             _fills.append(_j)
                             _lv = [x for x in _lv if x not in _hit]
+                            if not _lv: _tpx = _tp_near           # 三檔全成交(插到底) → 止盈拉到 2W 快跑
                     if _fills and _j > _fills[0]:                 # 首檔成交後檢查止損/止盈
                         if (_lj <= _stp) if _d == "l" else (_hj >= _stp): _res = ("loss", _j); break
                         if (_hj >= _tpx) if _d == "l" else (_lj <= _tpx): _res = ("win", _j); break
