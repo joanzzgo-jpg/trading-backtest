@@ -2884,6 +2884,8 @@
 
   // 手動是否選了天氣特效（button 高亮中）→ 自動天氣不可覆蓋
   function _isManualOn() {
+    // 「無」(nofx-active) 也是手動覆寫——漏了它 → 按無後 _applyAutoType 60s 又把天氣畫回來。
+    if (document.getElementById('noFxToggleBtn')?.classList.contains('nofx-active')) return true;
     return ['leaf','rain','snow','spring','thunder','mahjong','hail','tornado','quake','aurora','meteor'].some(
       w => document.getElementById(w+'ToggleBtn')?.classList.contains(w+'-active'));
   }

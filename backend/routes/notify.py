@@ -304,14 +304,26 @@ def account_prefs(name: str) -> dict:
 
 
 def account_watchlist(name: str) -> List[dict]:
-    """讀某帳號同步上來的 watchlist（存在 accounts.data 的 JSON blob 內）。"""
+    """讀某帳號的 watchlist。真相在 account_watchlist 專屬表（/api/account/savewatch 寫穿，
+    多裝置一致）；該表無此帳號才退回舊整包快照的 watchlist 欄位（相容未遷移帳號）。
+    ⚠ 自選改走專屬表後，舊版只讀 data.get('watchlist') → 永遠空 → 監控器沒標的可掃
+       → 自動交易/訊號通知全斷。此處改先讀專屬表修正之。"""
     if not name:
         return []
     try:
         conn, ph = _acct._db()
         try:
-            cur = conn.execute(f"SELECT data FROM accounts WHERE name={ph}", (name,))
-            row = cur.fetchone()
+            # ① 專屬表（唯一真相）
+            try:
+                wrow = conn.execute(f"SELECT wl FROM account_watchlist WHERE name={ph}", (name,)).fetchone()
+            except Exception:
+                wrow = None
+            if wrow and wrow[0]:
+                wl = _coerce(wrow[0]) or []
+                if isinstance(wl, list):
+                    return [w for w in wl if isinstance(w, dict) and w.get("symbol")]
+            # ② 退回舊整包快照
+            row = conn.execute(f"SELECT data FROM accounts WHERE name={ph}", (name,)).fetchone()
         finally:
             conn.close()
         if not row or not row[0]:
