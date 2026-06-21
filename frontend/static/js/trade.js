@@ -582,8 +582,8 @@ function _trdBuildPopup() {
       </div>
       <!-- ===== FVG 子頁（完整獨立設定）===== -->
       <div class="trd-strat-page trd-sp-fvg">
-        <div class="trd-sal-cell"><label>啟用 FVG<small>失衡缺口（固定 1h、止損3W/止盈6W）</small></label><button id="fvgOn" class="trd-chip trd-sal-btn">關</button></div>
-        <div class="trd-sal-cell"><label>進場模式<small>市價＝收盤確認保證成交；限價＝缺口三檔掛單(影線版、帳面更高但成交率未實證)</small></label><button id="fvgEntryBtn" class="trd-chip trd-sal-btn">市價</button></div>
+        <div class="trd-sal-cell"><label>啟用 FVG<small>失衡缺口（固定 1h、限價階梯 止損2W/止盈6W）</small></label><button id="fvgOn" class="trd-chip trd-sal-btn">關</button></div>
+        <div class="trd-sal-cell"><label>進場模式<small>市價＝收盤確認保證成交(3W/6W)；限價＝缺口三檔⅓掛單(2W/6W、影線版，帳面更高但成交率未實證)</small></label><button id="fvgEntryBtn" class="trd-chip trd-sal-btn">市價</button></div>
         <div class="trd-sal-cell"><label>持倉模式<small>⚠帳號級！雙向＝同幣可多空各一倉(FVG雙槽、追月均20%需要)；建議專用帳號、勿與 ss 混用</small></label><button id="fvgHedge" class="trd-chip trd-sal-btn">單向</button></div>
         <div class="trd-sub trd-grp-hd">倉位</div>
         <div class="trd-seg trd-amode" id="fvgMode">
@@ -600,7 +600,7 @@ function _trdBuildPopup() {
         <div class="trd-grid">
           <div><label>最大同時持倉<small>筆（回測組合上限 15）</small></label><input id="fvgMax" type="number" min="1" max="50"></div>
         </div>
-        <div class="trd-note">FVG 固定 1h、止損 3W／止盈 6W（缺口寬倍數）；無加倉、無止損緩衝。</div>
+        <div class="trd-note">FVG 固定 1h（缺口寬倍數）；無加倉、無止損緩衝。<br>限價階梯：止損 2W／止盈 6W、缺口寬 >2% 不做、三檔全成交(插到底)→止盈收緊 2W 快跑。<br>市價：收盤確認、止損 3W／止盈 6W。</div>
       </div>
       <div class="trd-note">⚠ 自動交易掃描的標的＝帳號自選清單（僅合約）。不需開訊號通知也會自動進場。進場後停損/止盈由交易所託管，策略提前止盈止損時會同步平倉。</div>
     </div>
