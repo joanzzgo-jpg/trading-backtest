@@ -13,6 +13,7 @@ import math
 import threading
 
 CHECK_INTERVAL = 60          # 每 60s 醒來一次
+_LAST_DIAG = 0.0             # 早期診斷節流
 MONITOR_BARS   = 320         # 短窗抓多少根（足夠指標 lookback + 最近棒）
 FRESH_BARS     = 2           # 只推最近 2 根收盤棒上的訊號
 
@@ -356,8 +357,18 @@ def _tick(last_seen: dict):
     try:
         from routes.trade import get_all_auto_cfgs
         auto_cfgs = get_all_auto_cfgs()
-    except Exception:
+    except Exception as _e:
         auto_cfgs = []
+        print(f"  ⚠ get_all_auto_cfgs 失敗：{_e}")
+    # 早期診斷（節流 120s）：連「沒訂閱+沒自動帳號→提早return」也看得到，定位斷點。
+    try:
+        global _LAST_DIAG
+        if time.time() - _LAST_DIAG > 120:
+            _LAST_DIAG = time.time()
+            print(f"  📡 monitor早診: notify啟用={notify.notify_enabled()} 訂閱={len(subs)} "
+                  f"自動帳號={len(auto_cfgs)} {[n for n,_ in auto_cfgs]}")
+    except Exception:
+        pass
     if not subs and not auto_cfgs:
         return
     now = time.time()
