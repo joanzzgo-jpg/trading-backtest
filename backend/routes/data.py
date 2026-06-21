@@ -150,11 +150,13 @@ def diag_trade():
         import notify_monitor as nm
         import routes.notify as notify
         for name, cfg in get_all_auto_cfgs(fresh=True):
+            wl = []; wln = -1; sample = []
             try:
                 wl = notify.account_watchlist(name)
                 wln = len([w for w in wl if (w.get("market") or "crypto") == "crypto" and w.get("symbol")])
-            except Exception:
-                wln = -1
+                sample = [f"{w.get('symbol')}|{w.get('market') or '?'}" for w in wl[:8] if isinstance(w, dict)]
+            except Exception as we:
+                sample = [f"ERR:{str(we)[:60]}"]
             out["auto_accounts"].append({
                 "name": name,
                 "main_on": cfg.get("on"),
@@ -163,6 +165,8 @@ def diag_trade():
                 "fvg_entry": (cfg.get("fvg") or {}).get("entry"),
                 "scan_tfs": sorted(nm._auto_tfs(cfg)),
                 "crypto_watchlist": wln,
+                "watchlist_total": len(wl),
+                "watchlist_sample": sample,
             })
     except Exception as e:
         out["auto_err"] = str(e)[:120]
