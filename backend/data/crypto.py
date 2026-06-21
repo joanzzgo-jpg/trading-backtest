@@ -494,6 +494,49 @@ def _fetch_futures_tickers_fapi() -> list:
         return []
 
 
+# ── Binance 永續 universe（標的清單改用 Binance，不再交集 Pionex）──────────────────
+# 為何：自動交易下的是 Binance USDⓈ-M 永續 → universe 該跟下單交易所一致；Pionex 限流(10/s)、
+# 又只有現貨不能交易永續。納入『全部』Binance 永續＝加密 + 代幣化股票/指數(XAU/SOXL/INTC…使用者要看/交易)。
+_FAPI_PERP_CACHE = {"ts": 0.0, "syms": None}
+
+
+def _fetch_fapi_perp_set() -> set:
+    """Binance USDⓈ-M『全部』永續的 base 幣集合（大寫，含代幣化股票/指數）。
+    24hr 記憶體快取；失敗退回 Pionex 永續集合當保險（永不回空、不破標的清單）。
+    註：加密＝contractType 'PERPETUAL'(underlyingType COIN)；代幣化股票/商品(XAU/TSLA/NVDA…)
+    ＝'TRADIFI_PERPETUAL'(underlyingType EQUITY/COMMODITY) → 兩種都收，使用者要看/交易。"""
+    global _FAPI_PERP_CACHE
+    now = time.time()
+    c = _FAPI_PERP_CACHE
+    if c["syms"] is not None and now - c["ts"] < 86400:
+        return c["syms"]
+    syms: set = set()
+    try:
+        info = _get(f"{BINANCE_FAPI_BASE}/fapi/v1/exchangeInfo", timeout=10)
+        for s in info.get("symbols", []):
+            if (s.get("status") == "TRADING"
+                    and s.get("contractType") in ("PERPETUAL", "TRADIFI_PERPETUAL")
+                    and s.get("quoteAsset") == "USDT"):
+                base = (s.get("baseAsset") or s.get("symbol", "")[:-4]).upper()
+                if base:
+                    syms.add(base)
+    except Exception:
+        pass
+    if len(syms) >= 50:
+        _FAPI_PERP_CACHE = {"ts": now, "syms": syms}
+        return syms
+    # 失敗 → stale-serve 上次成功；再不行退 Pionex 集合（保險，不破標的清單）
+    if c["syms"]:
+        return c["syms"]
+    return _fetch_pionex_perp_symbols()
+
+
+def _apply_perp_filter(tickers: list) -> list:
+    """過濾成『Binance USDⓈ-M 永續』（含代幣化股票/指數）— 排掉任何非永續雜項。"""
+    ps = _fetch_fapi_perp_set()
+    return [t for t in tickers if t["symbol"][:-4].upper() in ps]
+
+
 # ══════════════════════════════════════════════════════════════
 #  Bybit
 # ══════════════════════════════════════════════════════════════
@@ -803,9 +846,9 @@ def fetch_crypto_markets(exchange_id: str = "pionex"):
     ex = exchange_id.lower()
     try:
         if ex == "pionex":
-            # Pionex 主用途是永續合約 → 直接返回 perp 清單（含 .P 後綴）
-            # 包含 Pionex 永續清單上所有標的（含 Binance 沒有的 Pionex 獨有）
-            perp = _fetch_pionex_perp_symbols()
+            # 標的清單改用 Binance 全部 USDⓈ-M 永續(加密+代幣化股票/指數)，universe 跟下單交易所一致。
+            # （保留 ex=="pionex" 這個 key 給前端相容；實際內容已是 Binance 永續清單。）
+            perp = _fetch_fapi_perp_set()
             results = [{"symbol": f"{s}/USDT.P", "base": s, "quote": "USDT"} for s in sorted(perp)]
         elif ex == "binance":
             data = _get(f"{BINANCE_BASE}/api/v3/exchangeInfo")
@@ -950,7 +993,8 @@ def fetch_tickers(market: str = "futures") -> list:
     連帶讓 Pionex klines 失效 → Pionex 獨有標的「找不到」。改走 Binance 後 Pionex
     幾乎不被呼叫（只剩 1hr 快取的標的清單），429 解除、klines 恢復。"""
     if market == "futures":
-        tickers = _apply_pionex_perp_filter(_fetch_futures_tickers_fapi())
+        # 標的清單＝Binance 全部 USDⓈ-M 永續(加密+代幣化股票/指數)，不再交集 Pionex（universe 跟下單交易所一致）。
+        tickers = _apply_perp_filter(_fetch_futures_tickers_fapi())
         if tickers:
             tickers.sort(key=lambda x: x["change_pct"], reverse=True)
             return tickers
