@@ -424,6 +424,13 @@ def _tick(last_seen: dict):
                 if tf in fresh_tfs:
                     combos.setdefault((mkt, exch, sym, tf), [])   # 確保此 combo 會被處理（無推播訂閱者）
 
+    # 診斷：每次有新棒收盤印一次掃描概況（看訊號通知/自動交易斷在哪）。combos=0 表示沒東西掃。
+    try:
+        print(f"  📡 monitor: 訂閱{len(subs)} 自動帳號{len(auto_cfgs)} active_tfs{sorted(active_tfs)} "
+              f"fresh{sorted(fresh_tfs)} combos{len(combos)}")
+    except Exception:
+        pass
+
     for (mkt, exch, sym, tf), subs_here in combos.items():
         try:
             _process_combo(mkt, exch, sym, tf, subs_here, now)
