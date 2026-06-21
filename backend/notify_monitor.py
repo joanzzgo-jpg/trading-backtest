@@ -328,6 +328,20 @@ def _process_combo(market, exchange, symbol, tf, subs_here, now):
         notify.mark_event(evt_key)
 
 
+def _auto_tfs(cfg):
+    """從(巢狀)自動交易 cfg 取要掃描的時框：SS 開→ss.tfs；FVG 開→固定 1h。相容舊扁平 cfg。
+    ⚠ SS/FVG 拆分後 cfg 變巢狀(tfs 在 cfg['ss'])，頂層已無 'tfs'——直接讀 cfg.get('tfs') 會是
+      None → 自動交易標的全沒掃 → 不進場也不推播。此函式修正之。"""
+    if "ss" in cfg or "fvg" in cfg:
+        tfs = set()
+        if (cfg.get("ss") or {}).get("on"):
+            tfs |= {t for t in ((cfg.get("ss") or {}).get("tfs") or [])}
+        if (cfg.get("fvg") or {}).get("on"):
+            tfs.add("1h")                       # FVG 固定 1h
+        return tfs
+    return {t for t in (cfg.get("tfs") or [])}  # 舊扁平 cfg
+
+
 def _tick(last_seen: dict):
     import routes.notify as notify
     # 推播訂閱（推播未設 VAPID → 視為無訂閱，但自動交易仍要照跑）
@@ -357,7 +371,7 @@ def _tick(last_seen: dict):
             if tf in _TF_SEC:
                 active_tfs.add(tf)
     for _nm, _cfg in auto_cfgs:
-        for tf in (_cfg.get("tfs") or []):
+        for tf in _auto_tfs(_cfg):              # 巢狀 cfg：SS→ss.tfs、FVG→1h（頂層已無 tfs）
             if tf in _TF_SEC:
                 active_tfs.add(tf)
     fresh_tfs = set()
@@ -400,7 +414,7 @@ def _tick(last_seen: dict):
                 continue
             mkt = w.get("market") or "crypto"
             exch = w.get("exchange") or "pionex"
-            for tf in (cfg.get("tfs") or []):
+            for tf in _auto_tfs(cfg):           # 巢狀 cfg：SS→ss.tfs、FVG→1h（頂層已無 tfs）
                 if tf in fresh_tfs:
                     combos.setdefault((mkt, exch, sym, tf), [])   # 確保此 combo 會被處理（無推播訂閱者）
 
