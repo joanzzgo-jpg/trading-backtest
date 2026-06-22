@@ -540,13 +540,29 @@ async function _bgLoadOlderBars(scrollTriggered = false) {
           [kdjChart, rsiChart, macdChart].forEach(c => c.timeScale().setVisibleLogicalRange(shifted));
         }
         _bgApplyChunk(ohlcvData, nPrepended);
-        if (shifted) {
-          mainChart.timeScale().setVisibleLogicalRange(shifted);
-          [kdjChart, rsiChart, macdChart].forEach(c => c.timeScale().setVisibleLogicalRange(shifted));
-        }
+        const _setShifted = () => {
+          try {
+            mainChart.timeScale().setVisibleLogicalRange(shifted);
+            [kdjChart, rsiChart, macdChart].forEach(c => c.timeScale().setVisibleLogicalRange(shifted));
+          } catch (e) {}
+        };
+        if (shifted) _setShifted();   // 立即補償 prepend 位移
         // 看最新：重套縮放+右緣留白錨點 → 即使 setData/fitContent 把 barSpacing 壓回最小(0.5)，
         // 也立刻還原使用者的縮放與水平位置（修「切第三個標的最新棒黏回右緣」）。子圖已由 shifted 對齊。
         if (_bgPosAnchor) { try { mainChart.timeScale().applyOptions(_bgPosAnchor); } catch (e) {} }
+        // 看歷史（無錨點）：setData 後 LWC 的 fitContent/內部 reset 是「延遲」操作，晚幾幀可能把
+        // 視野壓回最新（=「往回看時自己跳到現在」的根因）。後續數幀偵測『確實被壓回最新』才搶回
+        // shifted（用條件判斷，不無腦覆寫 → 不干擾使用者自己的捲動）。
+        else if (shifted) {
+          const _reassert = () => {
+            if (myGen !== _bgLoadGen) return;
+            const cur = mainChart.timeScale().getVisibleLogicalRange();
+            if (cur && shifted.to < ohlcvData.length - 3 && cur.to >= ohlcvData.length - 3) _setShifted();
+          };
+          requestAnimationFrame(_reassert);
+          setTimeout(_reassert, 120);
+          setTimeout(_reassert, 350);
+        }
         _bgScheduleIndicators();
       }
 
