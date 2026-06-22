@@ -1422,9 +1422,12 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                             if not _lv:                           # 全檔成交(插到底) → 止盈拉近 2W 快跑
                                 _tpx = _tp_near
                                 if _deepbar is None: _deepbar = _j
-                    if _fills and _j > _fills[0]:                 # 首檔成交後檢查止損/止盈
+                    if _fills:                                    # 已成交 → 檢查止損/止盈
+                        # 止損：連『進場棒本身』一起算——同一根插進缺口又掃穿止損(一根突破fvg)＝當棒即止損，
+                        #       不可漏算(原本 _j>_fills[0] 會把同棒止損藏掉→那筆變成拖到後面好點出場→回測虛高)。
                         if (_lj <= _stp) if _d == "l" else (_hj >= _stp): _res = ("loss", _j); break
-                        if (_hj >= _tpx) if _d == "l" else (_lj <= _tpx): _res = ("win", _j); break
+                        # 止盈：保守起見須撐過進場棒之後才認列(同棒不認獲利，避免反向高估)。
+                        if _j > _fills[0] and ((_hj >= _tpx) if _d == "l" else (_lj <= _tpx)): _res = ("win", _j); break
                     if _fills and _j >= _fills[0] + _MAXHOLD:     # 自首檔成交起算最長持有
                         break
                 if not _fills:
