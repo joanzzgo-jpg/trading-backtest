@@ -312,6 +312,18 @@ class Client:
         return [{"symbol": r.get("symbol"), "pnl": float(r.get("income", 0) or 0),
                  "ts": (r.get("time") or 0) / 1000} for r in rows]
 
+    def income_daily(self, start_ms: int, end_ms: int = None) -> list:
+        """區間內『交易損益明細』給每日盈虧月曆用：已實現損益 + 手續費 + 資金費，按來源時間。
+        排除 TRANSFER（出入金）等非交易項，避免污染每日盈虧。單次最多 1000 筆（小帳號足夠，
+        超過則只取最近 1000）。失敗由呼叫方處理。"""
+        params = {"startTime": int(start_ms), "limit": 1000}
+        if end_ms:
+            params["endTime"] = int(end_ms)
+        rows = self._request("GET", "/fapi/v1/income", params)
+        keep = {"REALIZED_PNL", "COMMISSION", "FUNDING_FEE"}
+        return [{"pnl": float(r.get("income", 0) or 0), "ts": (r.get("time") or 0) / 1000,
+                 "type": r.get("incomeType")} for r in rows if r.get("incomeType") in keep]
+
     def last_fill_price(self, sym: str):
         """最近一筆成交價（平倉通知顯示『出場 @ X』用）。純顯示、失敗回 None、絕不拋例外。"""
         try:

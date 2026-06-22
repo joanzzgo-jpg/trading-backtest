@@ -2034,3 +2034,23 @@ def history(req: KeyReq):
     except bt.TradeError:
         pass
     return {"log": log, "pnl": pnl}
+
+
+@router.post("/pnl_daily")
+def pnl_daily(req: KeyReq):
+    """每日已實現盈虧（交易損益月曆用）：近 ~75 天的 已實現損益+手續費+資金費，按台北日期加總。
+    回 {days: {'YYYY-MM-DD': pnl, ...}}（已是台北日期）。"""
+    client = _guard(req.key, req.name)
+    import time as _t
+    from datetime import datetime as _dt, timedelta as _td
+    end = int(_t.time() * 1000)
+    start = end - 75 * 86400 * 1000        # 近 ~75 天（涵蓋當月＋上月月曆）
+    try:
+        rows = client.income_daily(start, end)
+    except bt.TradeError as e:
+        raise HTTPException(400, str(e))
+    days = {}
+    for r in rows:
+        d = (_dt.utcfromtimestamp(r["ts"]) + _td(hours=8)).strftime("%Y-%m-%d")   # 台北日期
+        days[d] = round(days.get(d, 0.0) + r["pnl"], 4)
+    return {"days": days}
