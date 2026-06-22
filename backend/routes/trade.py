@@ -1166,10 +1166,20 @@ def place_fvg_limit_ladder(name, cfg, market, exchange, symbol, tf, gap):
         want = "short" if d == "s" else "long"
         if cfg["dirs"] != "both" and cfg["dirs"] != want:
             return
-        # 爆量風控：高波動洗盤 regime 暫停掛新單(在 mark_event 之前→regime 解除後缺口仍可重掛)
+        # 爆量風控(只停逆勢)：高波動洗盤 regime 時，依該幣近24h趨勢只擋『逆勢/盤整』單、放行順勢單。
+        # 回測(2020-26/32幣 CAP15):趨勢窗24h、門檻3% → 最大回撤 151→150R、報酬反升(+7856>全停+7789)，
+        # 因為盤整(|24h|≤3%)兩邊照停護 DD，但真‧單向暴漲只停逆勢那邊、順勢單照上車。
+        # gap['chg24'] 由 notify_monitor 在 1h 收盤算好(approach 掃描路徑亦帶)；在 mark_event 之前→可重掛。
         if _fvg_surge_active():
-            print(f"  ⏸ FVG爆量風控跳過 {symbol}（{name}）：近24h新進場>近月日均2x，暫停新單")
-            return
+            _chg = gap.get("chg24")
+            if _chg is None:
+                _pause = True                                  # 無趨勢資料 → 保守全停
+            else:
+                _up = _chg > 0.03; _dn = _chg < -0.03          # 近24h漲>3%=多頭趨勢、跌>3%=空頭趨勢、其間=盤整
+                _pause = (_up and want == "short") or (_dn and want == "long") or (not _up and not _dn)
+            if _pause:
+                print(f"  ⏸ FVG爆量風控跳過 {symbol} {want}（{name}）：洗盤暫停逆勢/盤整單")
+                return
         evt = f"fvglimit:{name}:{symbol}:{tf}:{d}:{gap.get('t')}"
         if notify.seen_event(evt):
             return
