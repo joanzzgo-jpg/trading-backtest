@@ -1196,7 +1196,10 @@ def place_fvg_limit_ladder(name, cfg, market, exchange, symbol, tf, gap):
         except Exception:
             max_lev, mmr = 50, 0.0
         safe_lev = int(1.0 / (stop_pct * 1.25 + mmr)) if (stop_pct * 1.25 + mmr) > 0 else max_lev
-        lev = max(1, min(lev_cap, safe_lev, max_lev, 50))
+        if risk_usd > 0:
+            lev = max(1, min(safe_lev, max_lev, 50))           # 止損額模式：槓桿由「止損距離」自動算(不受設定槓桿上限)
+        else:
+            lev = max(1, min(lev_cap, safe_lev, max_lev, 50))  # 保證金模式：用你設的槓桿(仍受安全上限)
         try:
             client.set_leverage(bsym, lev)
         except bt.TradeError:
