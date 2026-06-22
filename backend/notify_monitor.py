@@ -226,6 +226,28 @@ def _process_combo(market, exchange, symbol, tf, subs_here, now):
                     _top = float(_g["top"]); _bot = float(_g["bot"]); _W = _top - _bot
                     if _W <= 0:
                         continue
+                    # 已了結過濾：此缺口的止盈/止損若在確認棒之後已被觸及 → 該設定已走完，不再掛限價。
+                    # 修「進場前面已止盈的單」：價格回補拿過利潤(或已破止損)後又晃回缺口附近時，原本會重掛。
+                    # 止盈/止損位與 place_fvg_limit_ladder 一致(過寬 0.8-2%：止損=框、止盈3W；窄：止損2W、止盈6W)。
+                    _d = _g.get("d")
+                    _wr = _W / (_top if _d == "l" else _bot)
+                    if _wr > 0.008:
+                        _gtp = (_top + 3 * _W) if _d == "l" else (_bot - 3 * _W)
+                        _gsl = _bot if _d == "l" else _top
+                    else:
+                        _gtp = (_top + 6 * _W) if _d == "l" else (_bot - 6 * _W)
+                        _gsl = (_bot - 2 * _W) if _d == "l" else (_top + 2 * _W)
+                    try:
+                        import pandas as _pd
+                        _aft = df[df["time"] > _pd.Timestamp(_gt)]                # 確認棒之後的 K
+                        if not _aft.empty:
+                            _hh = _aft["high"]; _ll = _aft["low"]
+                            _done = (bool((_hh >= _gtp).any() or (_ll <= _gsl).any()) if _d == "l"
+                                     else bool((_ll <= _gtp).any() or (_hh >= _gsl).any()))
+                            if _done:
+                                continue                                          # 止盈或止損已觸及 → 設定走完，跳過
+                    except Exception:
+                        pass
                     _fresh_gaps.append(_g)                                  # 快取給每60s「逼近掃描」用→整個小時不漏單
                     if _px is None:
                         continue
