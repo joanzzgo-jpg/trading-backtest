@@ -452,6 +452,7 @@ def _tick(last_seen: dict):
 def run_monitor_loop():
     """背景執行緒入口（daemon）。"""
     last_seen = {}
+    last_status = 0.0
     # 啟動後稍等，讓 app 完成預熱
     time.sleep(20)
     while True:
@@ -459,6 +460,21 @@ def run_monitor_loop():
             _tick(last_seen)
         except Exception as e:
             print(f"  ⚠ 訊號監控 tick 失敗：{e}")
+        # 每 ~60s：FVG 成交就「即時掛止損」（不等 1h 收盤）→ 縮短裸窗、降低止損掛不上
+        try:
+            from routes.trade import reconcile_fvg_pending_all
+            reconcile_fvg_pending_all()
+        except Exception as e:
+            print(f"  ⚠ FVG即時止損失敗：{e}")
+        # 每 10 分鐘：推播自動交易狀況給 owner
+        now = time.time()
+        if now - last_status >= 600:
+            last_status = now
+            try:
+                from routes.trade import push_auto_status
+                push_auto_status()
+            except Exception as e:
+                print(f"  ⚠ 狀況推播失敗：{e}")
         time.sleep(CHECK_INTERVAL)
 
 

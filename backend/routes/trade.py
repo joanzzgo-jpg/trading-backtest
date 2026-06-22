@@ -1354,6 +1354,59 @@ def reconcile_fvg_pending(market, exchange, symbol, tf):
         print(f"  ⚠ FVG限價對帳失敗 {symbol}：{e}")
 
 
+def reconcile_fvg_pending_all():
+    """每次監控 tick（~60s）都跑、不等 1h 收盤：找出所有『pending 的 FVG 列』、對已成交的
+    立刻掛 SL/TP，把『成交→止損』的裸窗從最多 1 小時縮到 ~60 秒（降低成交後止損掛不上/裸奔）。
+    只對『真的有 pending FVG』的標的打交易所 API → 成本受限。idempotent：已轉 open 的列不再處理。"""
+    try:
+        _ensure_db()
+        conn, ph = _acct._db()
+        try:
+            rows = conn.execute(
+                "SELECT DISTINCT symbol, tf FROM trade_log "
+                "WHERE source='auto' AND sig='fvg' AND status='pending'").fetchall()
+        finally:
+            conn.close()
+        for symbol, tf in rows:
+            try:
+                reconcile_fvg_pending("crypto", "binance", symbol, tf or "1h")
+            except Exception:
+                pass
+    except Exception as e:
+        print(f"  ⚠ FVG即時止損對帳失敗：{e}")
+
+
+def push_auto_status():
+    """每 ~10 分鐘推播自動交易狀況給各 owner：餘額、持倉數/未實現盈虧、FVG 掛單數。絕不拋例外。"""
+    try:
+        for name, cfg in get_all_auto_cfgs():
+            try:
+                client, _ = _client_for(name)
+                if client is None:
+                    continue
+                bal = client.balance()
+                poss = client.positions()
+                upnl = sum(p["upnl"] for p in poss)
+                _ensure_db()
+                conn, ph = _acct._db()
+                try:
+                    pend = conn.execute(
+                        f"SELECT COUNT(*) FROM trade_log WHERE source='auto' AND sig='fvg' "
+                        f"AND status='pending' AND acct={ph}", (name,)).fetchone()[0]
+                finally:
+                    conn.close()
+                envtag = "實盤" if client.env == "live" else "測試網"
+                syms = "、".join(sorted({p["symbol"].replace("USDT", "") for p in poss}))[:80] or "無持倉"
+                body = (f"餘額 {bal['total']:.2f}U（可用 {bal['available']:.2f}）\n"
+                        f"持倉 {len(poss)} 筆 · 未實現 {upnl:+.2f}U\n"
+                        f"FVG 掛單 {pend} 筆\n{syms}")
+                _push_owner(name, f"📊 自動交易狀況（{envtag}）", body, "", event="atrade_status")
+            except Exception:
+                pass
+    except Exception as e:
+        print(f"  ⚠ 狀況推播失敗：{e}")
+
+
 def reconcile_fvg_deepfill(market, exchange, symbol, tf):
     """FVG 深檔拉近（定版 6/6/2）：監控 open 的 FVG 限價倉，若『底檔(最深那張)已成交』
     (=三檔全中、價格插到底、近止損)且止盈還在 6W → 撤舊 TP、改掛 2W 近止盈快跑。
