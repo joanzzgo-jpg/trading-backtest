@@ -1210,7 +1210,7 @@ def place_fvg_limit_ladder(name, cfg, market, exchange, symbol, tf, gap):
         if wr > 0.02:
             return
         _mid = (top + bot) / 2.0
-        if wr > 0.008:                                             # 過寬(0.8%~2%)：上框+中間、止損=框、止盈3W、不深檔拉近
+        if wr > 0.012:                                             # 過寬(1.2%~2%)：上框+中間、止損=框、止盈3W、不深檔拉近
             levels = [top, _mid] if want == "long" else [_mid, bot]
             stop = bot if want == "long" else top
             tp   = (top + 3 * W) if want == "long" else (bot - 3 * W)
@@ -1218,7 +1218,7 @@ def place_fvg_limit_ladder(name, cfg, market, exchange, symbol, tf, gap):
             levels = [top, _mid, bot]
             stop = (bot - 2 * W) if want == "long" else (top + 2 * W)
             tp   = (top + 6 * W) if want == "long" else (bot - 6 * W)
-        _wide = wr > 0.008
+        _wide = wr > 0.012
         risk_usd = cfg.get("riskUsd") or 0
         lev_cap = max(1, min(int(cfg["lev"]), 50))
         mid = _mid

@@ -231,7 +231,7 @@ def _process_combo(market, exchange, symbol, tf, subs_here, now):
                     # 止盈/止損位與 place_fvg_limit_ladder 一致(過寬 0.8-2%：止損=框、止盈3W；窄：止損2W、止盈6W)。
                     _d = _g.get("d")
                     _wr = _W / (_top if _d == "l" else _bot)
-                    if _wr > 0.008:
+                    if _wr > 0.012:                                        # 過寬門檻(與 place_fvg_limit_ladder 一致)
                         _gtp = (_top + 3 * _W) if _d == "l" else (_bot - 3 * _W)
                         _gsl = _bot if _d == "l" else _top
                     else:
