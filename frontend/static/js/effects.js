@@ -526,6 +526,10 @@
     }, _msToNext10min());
   }
   scheduleVisit();
+
+  // 暴露給手機版「設定頁小啊」(xiaoa.js)共用同一批笑話與天氣預報 → 手機/桌面一致
+  window._bearNextLine = _nextLine;
+  window._bearForecastLine = _forecastLine;
 })();
 
 /* ── 合約行情鍵盤快捷鍵（↓/↑ 切換標的） ── */

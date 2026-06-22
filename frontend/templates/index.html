@@ -1020,8 +1020,6 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 9.5a5.5 5.5 0 0 1 11 0c0 4.2 1.8 5.3 2.3 5.7H4.2c.5-.4 2.3-1.5 2.3-5.7Z"/><path d="M10 19a2 2 0 0 0 4 0"/></svg>
       <span id="mSignalsBadge" class="m-sig-badge" style="display:none"></span>
     </span>訊號</button>
-  <button class="m-tab" data-mtab="backtest">
-    <span class="m-tab-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 20.5h18"/><rect x="5" y="11" width="3.3" height="6.5" rx="0.7"/><rect x="10.4" y="6.5" width="3.3" height="11" rx="0.7"/><rect x="15.8" y="13.5" width="3.3" height="4" rx="0.7"/></svg></span>回測</button>
   <button class="m-tab" data-mtab="settings">
     <span class="m-tab-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg></span>設定</button>
 </nav>
@@ -1057,6 +1055,15 @@
   <div class="m-set-scroll">
     <!-- 天氣資訊（依定位即時更新；由 weather.js _renderWeatherCard 填值）→ 放最上方、帳號之前 -->
     <div id="mSetWeather" class="m-set-weather" aria-label="目前天氣"></div>
+
+    <!-- 小啊（橘子熊吉祥物）對話卡：天氣下方。點泡泡換一句（依時間/天氣/訊號的情境語錄；純前端、無 AI 後端）-->
+    <div id="mXiaoa" class="m-xiaoa" role="button" tabindex="0" aria-label="跟小啊說說話">
+      <img class="m-xiaoa-avatar" src="/static/img/bear.png" alt="小啊">
+      <div class="m-xiaoa-col">
+        <div class="m-xiaoa-name">小啊</div>
+        <div class="m-xiaoa-bubble"><span id="mXiaoaText">嗨～點我跟我聊兩句 🐻</span></div>
+      </div>
+    </div>
 
     <div class="m-set-sec">帳號</div>
     <div class="m-set-row m-set-acct">

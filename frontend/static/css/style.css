@@ -6479,6 +6479,34 @@ html.landing-active .landing { background: transparent; }
   .m-set-weather .wx-pop b { color: var(--accent); font-weight: 700; }
   .m-set-weather .wx-foot { margin-top: 8px; font-size: 10.5px; color: var(--muted); opacity: .7; }
 
+  /* 小啊對話卡：天氣下方。頭像 + 名稱 + 聊天泡泡（像他在跟你說話），點泡泡換一句 */
+  .m-xiaoa {
+    display: flex; align-items: flex-start; gap: 10px;
+    margin: 10px 12px 4px; padding: 12px 14px;
+    background: linear-gradient(135deg, rgba(255,160,90,.12), var(--bg3));
+    border: 1px solid var(--border); border-radius: 14px;
+    cursor: pointer; -webkit-tap-highlight-color: transparent;
+  }
+  .m-xiaoa:active { background: linear-gradient(135deg, rgba(255,160,90,.2), var(--bg3)); }
+  .m-xiaoa-avatar {
+    width: 40px; height: 40px; border-radius: 50%; flex: 0 0 auto; margin-top: 14px;
+    object-fit: cover; background: var(--bg3);
+    border: 1.5px solid var(--accent); padding: 1px;
+  }
+  .m-xiaoa-col { display: flex; flex-direction: column; min-width: 0; flex: 1 1 auto; }
+  .m-xiaoa-name { font-size: 11px; color: var(--muted); margin: 0 0 3px 2px; font-weight: 700; }
+  .m-xiaoa-bubble {
+    align-self: flex-start; max-width: 100%;
+    background: rgba(60,41,32,.5); border: 1px solid var(--border);
+    border-left: 3px solid var(--accent, #ff9147);
+    border-radius: 5px 16px 16px 16px; padding: 9px 13px;
+    font-size: 14px; line-height: 1.5; color: var(--text);
+    white-space: pre-line;   /* 天氣預報是多行（\n）→ 換行正常顯示 */
+    box-shadow: 0 1px 6px rgba(0,0,0,.18);
+    transition: opacity .18s ease;
+  }
+  .m-xiaoa.swapping .m-xiaoa-bubble { opacity: 0; }
+
   /* 帳號列：顯示帳號名 + 登出鈕（不可整列點，只有登出鈕可點）*/
   .m-set-acct { cursor: default; }
   .m-set-acct:active { background: var(--bg2); }

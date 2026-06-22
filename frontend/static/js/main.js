@@ -146,21 +146,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (!bar) return;
     const setTab = (t) => {
       if (t === "chart") t = "wr";   // 「圖表」分頁已併入「勝率」（勝率頁本就含圖表）→ 舊呼叫一律導向 wr
-      // 回測分頁：開啟現成回測 modal（浮在最上層，不切換底層頁面）。標記回測 active，modal 關閉時還原。
-      if (t === "backtest") {
-        bar.querySelectorAll(".m-tab").forEach(b => b.classList.toggle("active", b.dataset.mtab === "backtest"));
-        window._btOnClose = () => {     // modal 關閉 → active 還原到目前底層頁面對應的分頁
-          const cur = [...document.body.classList].find(c => c.startsWith("m-tab-"));
-          const curTab = cur ? cur.slice(6) : "wr";
-          bar.querySelectorAll(".m-tab").forEach(b => b.classList.toggle("active", b.dataset.mtab === curTab));
-          window._btOnClose = null;
-        };
-        if (window._btOpen) window._btOpen();
-        return;
-      }
-      if (window._btClose && document.getElementById("btOverlay")?.classList.contains("open")) {
-        window._btOnClose = null; window._btClose();   // 切到其他分頁 → 關掉回測 modal（僅開著時）
-      }
       document.body.classList.remove("m-tab-chart", "m-tab-wr", "m-tab-watch", "m-tab-signals", "m-tab-settings", "m-tab-trade");
       document.body.classList.add("m-tab-" + t);
       bar.querySelectorAll(".m-tab").forEach(b => b.classList.toggle("active", b.dataset.mtab === t));
@@ -188,7 +173,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     window._mSetTab = setTab;
     // 初始分頁：?mtab= 可指定（方便測試），預設勝率（圖表已併入勝率）
     const _mt = new URLSearchParams(location.search).get("mtab");
-    setTab(["chart", "wr", "watch", "signals", "settings", "trade", "backtest"].includes(_mt) ? _mt : "wr");
+    setTab(["chart", "wr", "watch", "signals", "settings", "trade"].includes(_mt) ? _mt : "wr");
   })();
 
   // 手機字體大小（標準 / 大 / 特大）：body class 控制，存 localStorage（隨帳號同步）
