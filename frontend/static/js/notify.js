@@ -429,7 +429,7 @@ function _ntfType(ev) {
     default:            return { label: "🤖 自動",  cls: "t-auto",    bub: "evt-auto" };  // atrade(取消/其他)
   }
 }
-let _ntfFilter = (() => { try { return localStorage.getItem("notifyFeedFilter") || "all"; } catch (e) { return "all"; } })();
+let _ntfFilter = (() => { try { const f = localStorage.getItem("notifyFeedFilter") || "all"; return f === "signal" ? "all" : f; } catch (e) { return "all"; } })();   // 「訊號」分類已移除 → 舊存值遷移成 all
 let _ntfRenderSig = "";   // 上次渲染內容簽章（篩選+筆數+末筆ts）→ 沒變就不重畫（消除每 20 秒閃爍/捲動跳）
 
 // 事件 ts → 日期分隔標籤：今天 / 昨天 / M/D
