@@ -1299,7 +1299,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
     #
     # _fvg_sigs：FVG「收盤確認版」進場訊號（給自動交易；定版規格見 docs/fvg-strategy.md v2.3）。
     #   進場＝缺口確認後、168 根(1h=一週)新鮮度內，第一根『收盤回到缺口區 [bot,top]』的 K（市價進場、成交確定）。
-    #   止損/止盈固定 3W/6W（W=top−bot；非前端視覺盒的 2W，實盤定版用鎖定 3/6）。r/ot=自進場後模擬先碰
+    #   止損/止盈固定 2W/6W（W=top−bot；與前端視覺盒一致，實盤定版鎖定 2/6）。r/ot=自進場後模擬先碰
     #   止損(l)/止盈(w)，皆未碰→None(live)。獨立於 signals，不污染勝率 HUD；只在 1h 由 notify_monitor 觸發。
     _fvg = []
     _fvg_sigs = []
@@ -1331,11 +1331,11 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             _fvg.append({"t": times_iso[_g+1], "top": _top, "bot": _bot, "d": _dir, "t2": _t2})
             _gaplist.append((_g + 1, _top, _bot, _dir))
 
-            # ── 收盤確認進場訊號（3W/6W 固定 SL/TP）──────────────────
+            # ── 收盤確認進場訊號（2W/6W 固定 SL/TP；與視覺盒一致）──────────────────
             _W = _top - _bot
             if _W <= 0:
                 continue
-            _stop = (_bot - 3 * _W) if _dir == "l" else (_top + 3 * _W)
+            _stop = (_bot - 2 * _W) if _dir == "l" else (_top + 2 * _W)
             _tp   = (_top + 6 * _W) if _dir == "l" else (_bot - 6 * _W)
             # 進場棒：拒絕型收盤確認（對齊已驗證 sim_confirm，逐年全正/抗滑價的定版）——
             # 多：插進缺口(low≤top) 但收盤站回 bot 上方(沒插穿) → 市價收盤進場；
