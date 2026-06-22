@@ -16,6 +16,8 @@ CHECK_INTERVAL = 60          # 每 60s 醒來一次
 _LAST_DIAG = 0.0             # 早期診斷節流
 MONITOR_BARS   = 320         # 短窗抓多少根（足夠指標 lookback + 最近棒）
 FRESH_BARS     = 2           # 只推最近 2 根收盤棒上的訊號
+_FVG_NEAR_W = 1.5            # 現價進到離缺口 ≤1.5W 內算「逼近」→ 掛 FVG 限價
+_fvg_gap_cache = {}          # symbol → {"gaps":[...], "ts":時間}：每根1h收盤刷新，給每60s逼近掃描用
 
 _TF_SEC = {
     "5m": 300, "15m": 900, "30m": 1800, "1h": 3600, "2h": 7200,
@@ -213,9 +215,10 @@ def _process_combo(market, exchange, symbol, tf, subs_here, now):
                 except Exception:
                     _px = None
                 _alive_cut = last_closed_open - 167 * iv                    # 缺口確認後 168 根內仍有效
+                _fresh_gaps = []
                 for _g in (res.get("fvg") or []):
                     _gt = _g.get("t")
-                    if not _gt or _px is None:
+                    if not _gt:
                         continue
                     _ge = _epoch(_gt)
                     if _ge < _alive_cut or _ge > last_closed_open - iv:     # 過期 / g+2 未收盤 → 略過
@@ -223,7 +226,10 @@ def _process_combo(market, exchange, symbol, tf, subs_here, now):
                     _top = float(_g["top"]); _bot = float(_g["bot"]); _W = _top - _bot
                     if _W <= 0:
                         continue
-                    # 逼近判定：多缺口價格由上往下跌近 top；空缺口由下往上漲近 bot。太遠 → 先不掛。
+                    _fresh_gaps.append(_g)                                  # 快取給每60s「逼近掃描」用→整個小時不漏單
+                    if _px is None:
+                        continue
+                    # 逼近判定：多缺口價格由上往下跌近 top；空缺口由下往上漲近 bot。太遠 → 先不掛(逼近掃描會補)。
                     if _g.get("d") == "l":
                         if _px > _top + _NEAR_W * _W:
                             continue
@@ -235,6 +241,9 @@ def _process_combo(market, exchange, symbol, tf, subs_here, now):
                             place_fvg_limit_ladder(_nm, _cfg, market, exchange, symbol, tf, _g)
                         except Exception as e:
                             print(f"  ⚠ FVG限價掛單 hook 失敗 {_nm}：{e}")
+                # 快取此幣的新鮮缺口（每根收盤刷新）→ 給 _fvg_approach_scan 每60s用現價比對逼近補掛
+                if market == "crypto":
+                    _fvg_gap_cache[symbol] = {"gaps": _fresh_gaps, "ts": time.time()}
         except Exception as e:
             print(f"  ⚠ FVG限價處理失敗：{e}")
 
@@ -449,6 +458,49 @@ def _tick(last_seen: dict):
             print(f"  ⚠ 訊號監控 {mkt}:{exch}:{sym}:{tf} 失敗：{e}")
 
 
+def _fvg_approach_scan():
+    """每 ~60s：用『收盤時快取的缺口』+ 一次抓全幣現價，價格逼近缺口(≤1.5W)就補掛 FVG 限價單。
+    解決原本『逼近判定只在 1h 收盤跑一次→小時內快速逼近會漏單』。place_fvg_limit_ladder 自帶去重，
+    重複掃不會重掛。成本：每 60s 一支 ticker/price API(weight 2)。絕不拋例外。"""
+    try:
+        if not _fvg_gap_cache:
+            return
+        from routes.trade import get_all_auto_cfgs, place_fvg_limit_ladder
+        accts = [(nm, cfg["fvg"]) for nm, cfg in get_all_auto_cfgs()
+                 if cfg.get("fvg", {}).get("on") and cfg["fvg"].get("entry") == "limit"]
+        if not accts:
+            return
+        from data.crypto import _fetch_fapi_prices
+        prices = _fetch_fapi_prices()
+        if not prices:
+            return
+        now = time.time()
+        for sym, ent in list(_fvg_gap_cache.items()):
+            if now - ent.get("ts", 0) > 4200:          # 快取 >70 分鐘未刷新 → 過時，丟棄等下次收盤
+                _fvg_gap_cache.pop(sym, None); continue
+            px = prices.get(sym)
+            if px is None:
+                continue
+            for g in ent.get("gaps") or []:
+                try:
+                    top = float(g["top"]); bot = float(g["bot"]); W = top - bot
+                except Exception:
+                    continue
+                if W <= 0:
+                    continue
+                if g.get("d") == "l":
+                    if px > top + _FVG_NEAR_W * W: continue
+                else:
+                    if px < bot - _FVG_NEAR_W * W: continue
+                for nm, fcfg in accts:
+                    try:
+                        place_fvg_limit_ladder(nm, fcfg, "crypto", "binance", sym, "1h", g)
+                    except Exception:
+                        pass
+    except Exception as e:
+        print(f"  ⚠ FVG逼近掃描失敗：{e}")
+
+
 def run_monitor_loop():
     """背景執行緒入口（daemon）。"""
     last_seen = {}
@@ -460,6 +512,11 @@ def run_monitor_loop():
             _tick(last_seen)
         except Exception as e:
             print(f"  ⚠ 訊號監控 tick 失敗：{e}")
+        # 每 ~60s：價格逼近缺口就「即時補掛」FVG 限價單（整個小時不漏單，不只收盤那一刻）
+        try:
+            _fvg_approach_scan()
+        except Exception as e:
+            print(f"  ⚠ FVG逼近掃描失敗：{e}")
         # 每 ~60s：FVG 成交就「即時掛止損」（不等 1h 收盤）→ 縮短裸窗、降低止損掛不上
         try:
             from routes.trade import reconcile_fvg_pending_all
