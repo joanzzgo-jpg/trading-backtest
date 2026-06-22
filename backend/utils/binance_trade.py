@@ -314,16 +314,35 @@ class Client:
 
     def income_daily(self, start_ms: int, end_ms: int = None) -> list:
         """區間內『交易損益明細』給每日盈虧月曆用：已實現損益 + 手續費 + 資金費，按來源時間。
-        排除 TRANSFER（出入金）等非交易項，避免污染每日盈虧。單次最多 1000 筆（小帳號足夠，
-        超過則只取最近 1000）。失敗由呼叫方處理。"""
-        params = {"startTime": int(start_ms), "limit": 1000}
-        if end_ms:
-            params["endTime"] = int(end_ms)
-        rows = self._request("GET", "/fapi/v1/income", params)
+        排除 TRANSFER（出入金）等非交易項，避免污染每日盈虧。
+        ⚠ Binance /fapi/v1/income 是『從 startTime 往後、時間升序』回傳，單次上限 1000 筆。
+        自動交易 75 天內常超過 1000（每筆平倉有 已實現+手續費 多列＋每8h資金費）→ 單次抓只會拿到
+        最舊的 1000，最近幾天(含今天/跨日)被截掉、月曆不結算。故改『往後分頁』把全區間抓齊。
+        失敗由呼叫方處理。"""
+        end = int(end_ms) if end_ms else None
+        cur = int(start_ms)
+        out = []
         keep = {"REALIZED_PNL", "COMMISSION", "FUNDING_FEE"}
-        return [{"symbol": r.get("symbol"), "pnl": float(r.get("income", 0) or 0),
-                 "ts": (r.get("time") or 0) / 1000, "type": r.get("incomeType")}
-                for r in rows if r.get("incomeType") in keep]
+        for _ in range(40):                                  # 安全上限：最多 40 頁(4 萬筆)
+            params = {"startTime": cur, "limit": 1000}
+            if end:
+                params["endTime"] = end
+            rows = self._request("GET", "/fapi/v1/income", params)
+            if not rows:
+                break
+            for r in rows:
+                if r.get("incomeType") in keep:
+                    out.append({"symbol": r.get("symbol"),
+                                "pnl": float(r.get("income", 0) or 0),
+                                "ts": (r.get("time") or 0) / 1000,
+                                "type": r.get("incomeType")})
+            if len(rows) < 1000:                             # 不足一頁 → 已到區間尾
+                break
+            last = max((r.get("time") or 0) for r in rows)
+            if last <= cur:                                  # 時間沒前進 → 防無限迴圈
+                break
+            cur = last + 1                                   # 下一頁從最後一筆之後接著抓
+        return out
 
     def last_fill_price(self, sym: str):
         """最近一筆成交價（平倉通知顯示『出場 @ X』用）。純顯示、失敗回 None、絕不拋例外。"""
