@@ -68,62 +68,6 @@ async function _trdRefresh() {
   } finally { _TRD.busy = false; }
 }
 
-// ── 每日盈虧月曆（持倉頁；資料來自 /api/trade/pnl_daily＝Binance 已實現損益+手續費+資金費）──
-function _trdMonthStart(d) { return new Date(d.getFullYear(), d.getMonth(), 1); }
-
-async function _trdLoadCal() {
-  const pop = document.getElementById("tradePopup");
-  if (!pop) return;
-  const cal = pop.querySelector(".trd-cal");
-  if (!_TRD.calMonth) _TRD.calMonth = _trdMonthStart(new Date());
-  if (_TRD.calData) { _trdRenderCal(); return; }      // 已抓過 → 直接用快取重畫（切月也走這）
-  if (cal) cal.innerHTML = `<div class="trd-empty">載入中…</div>`;
-  try {
-    const r = await _trdApi("pnl_daily");
-    _TRD.calData = r.days || {};
-    _trdRenderCal();
-  } catch (e) {
-    if (cal) cal.innerHTML = `<div class="trd-empty">盈虧載入失敗：${e.message}</div>`;
-  }
-}
-
-function _trdRenderCal() {
-  const pop = document.getElementById("tradePopup");
-  if (!pop) return;
-  const cal = pop.querySelector(".trd-cal");
-  const titleEl = pop.querySelector(".trd-cal-title");
-  const totalEl = pop.querySelector(".trd-cal-total");
-  if (!cal) return;
-  const days = _TRD.calData || {};
-  const m = _TRD.calMonth || _trdMonthStart(new Date());
-  const y = m.getFullYear(), mo = m.getMonth();
-  const pad = (n) => String(n).padStart(2, "0");
-  if (titleEl) titleEl.textContent = `${y} / ${pad(mo + 1)} 盈虧`;
-  const daysInMonth = new Date(y, mo + 1, 0).getDate();
-  const lead = new Date(y, mo, 1).getDay();            // 該月一號是星期幾（日=0）
-  const t = new Date();
-  const todayKey = `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}`;
-  let monthSum = 0, tradeDays = 0;
-  const cells = ["日", "一", "二", "三", "四", "五", "六"].map(w => `<div class="trd-cal-wd">${w}</div>`);
-  for (let i = 0; i < lead; i++) cells.push(`<div class="trd-cal-cell trd-cal-empty"></div>`);
-  for (let d = 1; d <= daysInMonth; d++) {
-    const key = `${y}-${pad(mo + 1)}-${pad(d)}`;
-    const v = days[key];
-    let cls = "trd-cal-cell", pnl = "";
-    if (v != null && Math.abs(v) > 1e-9) {
-      monthSum += v; tradeDays++;
-      cls += v >= 0 ? " trd-cal-up" : " trd-cal-dn";
-      const big = v >= 100 || v <= -100;
-      pnl = `<span class="trd-cal-pnl">${v >= 0 ? "+" : ""}${_trdFmt(v, big ? 0 : 1)}</span>`;
-    }
-    if (key === todayKey) cls += " trd-cal-today";
-    cells.push(`<div class="${cls}"><span class="trd-cal-d">${d}</span>${pnl}</div>`);
-  }
-  cal.innerHTML = cells.join("");
-  if (totalEl) totalEl.innerHTML =
-    `本月 <b class="${monthSum >= 0 ? "trd-up" : "trd-dn"}">${monthSum >= 0 ? "+" : ""}${_trdFmt(monthSum, 2)}</b> USDT · ${tradeDays} 交易日`;
-}
-
 function _trdRenderOverview() {
   const ov = _TRD.ov;
   if (!ov) return;
@@ -148,8 +92,7 @@ function _trdRenderOverview() {
   posEl.querySelectorAll(".trd-x").forEach(btn => btn.addEventListener("click", async e => {
     e.stopPropagation();
     if (!confirm(`確定市價平倉 ${btn.dataset.bsym}？`)) return;
-    try { await _trdApi("close", { bsym: btn.dataset.bsym }); _trdMsg("已平倉");
-      _TRD.calData = null; _trdRefresh(); _trdLoadCal(); }   // 平倉後已實現盈虧變動 → 重抓月曆
+    try { await _trdApi("close", { bsym: btn.dataset.bsym }); _trdMsg("已平倉"); _trdRefresh(); }
     catch (err) { _trdMsg(err.message, true); }
   }));
   // 點持倉標的 → 跳到圖表該標的（交易所符號 BTCUSDT → 圖表 BTC/USDT.P）
@@ -485,25 +428,6 @@ function _trdBuildPopup() {
     #tradePopup hr { border:none; border-top:1px solid var(--border,#3a3a50); margin:8px 0; }
     .trd-ico { vertical-align:-2px; }
     .trd-entry .trd-ico { margin-right:4px; }
-    /* ── 每日盈虧月曆（持倉頁） ── */
-    #tradePopup .trd-cal-hd { display:flex; align-items:center; justify-content:space-between; margin:12px 0 4px; }
-    #tradePopup .trd-cal-title { font-size:12px; font-weight:600; color:var(--text,#ddd); }
-    #tradePopup .trd-cal-nav { width:22px; height:22px; padding:0; line-height:1; border-radius:6px; cursor:pointer;
-      background:var(--bg3,#222236); color:var(--muted,#99a); border:1px solid var(--border,#3a3a50); font-size:14px; }
-    #tradePopup .trd-cal-nav:hover { color:var(--text,#fff); border-color:var(--blue,#4a90d9); }
-    #tradePopup .trd-cal-total { font-size:11px; color:var(--muted,#889); margin-bottom:5px; }
-    #tradePopup .trd-cal { display:grid; grid-template-columns:repeat(7,1fr); gap:2px; }
-    #tradePopup .trd-cal-wd { text-align:center; font-size:9px; color:var(--muted,#778); padding:1px 0; }
-    #tradePopup .trd-cal-cell { position:relative; min-height:30px; border-radius:4px; padding:2px 1px 1px;
-      background:var(--bg3,#1e1e2e); border:1px solid transparent; overflow:hidden; }
-    #tradePopup .trd-cal-empty { background:transparent; }
-    #tradePopup .trd-cal-d { font-size:8.5px; color:var(--muted,#778); line-height:1; }
-    #tradePopup .trd-cal-pnl { display:block; font-size:9px; font-weight:700; line-height:1.1; margin-top:2px; text-align:center; }
-    #tradePopup .trd-cal-up { background:rgba(76,195,138,.16); border-color:rgba(76,195,138,.4); }
-    #tradePopup .trd-cal-up .trd-cal-pnl { color:#5ccb9d; }
-    #tradePopup .trd-cal-dn { background:rgba(239,83,80,.16); border-color:rgba(239,83,80,.4); }
-    #tradePopup .trd-cal-dn .trd-cal-pnl { color:#ef7470; }
-    #tradePopup .trd-cal-today { outline:1.5px solid var(--accent,#ff9147); outline-offset:-1px; }
     /* 桌面：交易面板與合約行情『並排』成最右欄（body-layout 的獨立 flex 欄），可往右收成細條 */
     #trdDock { flex:0 0 230px; position:relative; display:flex; flex-direction:column; min-height:0; height:100%;
       background:var(--bg2,#1a1a28); overflow:hidden; transition:flex-basis .18s ease; }
@@ -616,13 +540,6 @@ function _trdBuildPopup() {
     <div class="trd-sub">持倉</div>
     <div class="trd-pos"></div>
     <div class="trd-ord"></div>
-    <div class="trd-cal-hd">
-      <button class="trd-cal-nav" data-cal="-1" title="上個月">‹</button>
-      <span class="trd-cal-title">盈虧月曆</span>
-      <button class="trd-cal-nav" data-cal="1" title="下個月">›</button>
-    </div>
-    <div class="trd-cal-total"></div>
-    <div class="trd-cal"></div>
     </div>
     <div class="trd-page trd-page-auto">
     <div class="trd-auto-card">
@@ -698,15 +615,6 @@ function _trdBuildPopup() {
     pop.querySelectorAll(".trd-tab").forEach(x => x.classList.toggle("sel", x === b));
     pop.querySelectorAll(".trd-page").forEach(p =>
       p.classList.toggle("show", p.classList.contains("trd-page-" + page)));
-    if (page === "pos") _trdLoadCal();   // 切到持倉頁 → 載入/重畫每日盈虧月曆
-  }));
-
-  // 盈虧月曆：上/下月切換（用已抓的資料重畫，不再打交易所）
-  pop.querySelectorAll(".trd-cal-nav").forEach(b => b.addEventListener("click", () => {
-    _TRD.calMonth = (_TRD.calMonth || _trdMonthStart(new Date()));
-    _TRD.calMonth = _trdMonthStart(new Date(_TRD.calMonth.getFullYear(),
-      _TRD.calMonth.getMonth() + Number(b.dataset.cal), 1));
-    _trdRenderCal();
   }));
 
   pop.querySelectorAll(".trd-side-btn").forEach(b => b.addEventListener("click", () => {

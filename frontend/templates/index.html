@@ -1030,6 +1030,16 @@
     <span class="m-sig-title">訊號通知</span>
     <button id="mSigSettingsBtn" class="m-sig-set" title="通知設定">設定</button>
   </div>
+  <!-- 每日盈虧月曆（資料來自 /api/trade/pnl_daily＝Binance 已實現損益+手續費+資金費）-->
+  <div id="mSigCalWrap" class="m-sig-cal-wrap">
+    <div class="m-sig-cal-hd">
+      <button class="m-sig-cal-nav" data-cal="-1" title="上個月">‹</button>
+      <span class="m-sig-cal-title">盈虧月曆</span>
+      <button class="m-sig-cal-nav" data-cal="1" title="下個月">›</button>
+    </div>
+    <div class="m-sig-cal-total" id="mSigCalTotal"></div>
+    <div class="m-sig-cal" id="mSigCal"></div>
+  </div>
   <div class="m-sig-filter" id="mSigFilter">
     <button class="m-sig-fchip on" data-f="all">全部</button>
     <button class="m-sig-fchip" data-f="signal">訊號</button>

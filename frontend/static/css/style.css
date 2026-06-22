@@ -6275,6 +6275,34 @@ html.landing-active .landing { background: transparent; }
     background: linear-gradient(135deg, #FFA85C, #FF9147); border-color: transparent;
     color: #2A1606; box-shadow: 0 2px 10px rgba(255,145,71,.28);
   }
+  /* ── 每日盈虧月曆（訊號頁頂部） ── */
+  .m-sig-cal-wrap { flex: 0 0 auto; padding: 4px 14px 10px; }
+  .m-sig-cal-hd { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+  .m-sig-cal-title { font-size: 13px; font-weight: 700; color: var(--text); }
+  .m-sig-cal-nav {
+    width: 28px; height: 28px; padding: 0; line-height: 1; border-radius: 8px; cursor: pointer;
+    background: rgba(255,145,71,.06); color: var(--muted); border: 1px solid var(--border); font-size: 16px;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .m-sig-cal-nav:active { transform: scale(.92); }
+  .m-sig-cal-total { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .m-sig-cal-total .m-sig-up { color: #5ccb9d; font-weight: 800; }
+  .m-sig-cal-total .m-sig-dn { color: #ef7470; font-weight: 800; }
+  .m-sig-cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+  .m-sig-cal-empty { grid-column: 1 / -1; font-size: 12px; color: var(--muted); padding: 14px 0; text-align: center; }
+  .m-sig-cal-wd { text-align: center; font-size: 10px; color: var(--muted); opacity: .7; padding: 2px 0; }
+  .m-sig-cal-cell {
+    position: relative; min-height: 42px; border-radius: 7px; padding: 3px 2px 2px;
+    background: rgba(255,255,255,.03); border: 1px solid transparent;
+  }
+  .m-sig-cal-x { background: transparent; }
+  .m-sig-cal-d { font-size: 10px; color: var(--muted); opacity: .8; line-height: 1; }
+  .m-sig-cal-pnl { display: block; font-size: 10.5px; font-weight: 800; line-height: 1.15; margin-top: 3px; text-align: center; }
+  .m-sig-cal-up { background: rgba(76,195,138,.16); border-color: rgba(76,195,138,.4); }
+  .m-sig-cal-up .m-sig-cal-pnl { color: #5ccb9d; }
+  .m-sig-cal-dn { background: rgba(239,83,80,.16); border-color: rgba(239,83,80,.4); }
+  .m-sig-cal-dn .m-sig-cal-pnl { color: #ef7470; }
+  .m-sig-cal-today { outline: 2px solid var(--accent, #ff9147); outline-offset: -1px; }
   /* 今日摘要卡：訊號數 / 自動勝敗 / 今日盈虧（暖色漸層卡）*/
   .m-sig-summary-wrap { flex: 0 0 auto; padding: 0 14px; }
   .m-sig-summary-wrap:empty { display: none; }

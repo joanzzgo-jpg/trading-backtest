@@ -326,6 +326,12 @@ async function initNotify() {
       _ntfRenderFeed({ force: true, toBottom: true });   // 切換後重畫並回到最新
     });
   });
+  // 盈虧月曆：上/下月切換（用已抓資料重畫，不再打交易所）
+  document.querySelectorAll("#mSigCalWrap .m-sig-cal-nav").forEach(b => b.addEventListener("click", () => {
+    _ntfCalMonth = _ntfMonthStart(new Date((_ntfCalMonth || _ntfMonthStart(new Date())).getFullYear(),
+      (_ntfCalMonth || _ntfMonthStart(new Date())).getMonth() + Number(b.dataset.cal), 1));
+    _ntfRenderCal();
+  }));
   // 「↓ 新訊息」提示：點了捲到底並隱藏
   document.getElementById("mSigNewPill")?.addEventListener("click", () => {
     const list = document.getElementById("mSigList");
@@ -622,7 +628,69 @@ async function _ntfBgPoll() {
 }
 
 // 切到訊號分頁時呼叫（main.js）：載入清單 + 標記已讀 + 開快輪詢
+// ── 每日盈虧月曆（訊號頁頂部）──────────────────────────────────────────
+//   資料＝/api/trade/pnl_daily（Binance 已實現損益+手續費+資金費，按台北日加總）。
+//   需綁定交易帳號(有交易口令)才有資料；沒綁定→顯示提示、不報錯。
+let _ntfCalMonth = null, _ntfCalData = null;
+function _ntfMonthStart(d) { return new Date(d.getFullYear(), d.getMonth(), 1); }
+function _ntfCalFmt(v, dp) { return (Number(v) || 0).toFixed(dp == null ? 2 : dp); }
+
+async function _ntfLoadCal(force) {
+  const cal = document.getElementById("mSigCal");
+  if (!cal) return;
+  if (!_ntfCalMonth) _ntfCalMonth = _ntfMonthStart(new Date());
+  if (_ntfCalData && !force) { _ntfRenderCal(); return; }   // 有快取→直接重畫（切月也走這）
+  cal.innerHTML = `<div class="m-sig-cal-empty">載入中…</div>`;
+  try {
+    const r = await _trdApi("pnl_daily");                    // 與交易面板共用同一交易口令
+    _ntfCalData = r.days || {};
+    _ntfRenderCal();
+  } catch (e) {
+    _ntfCalData = null;
+    const need = /口令|403|登入|綁定|金鑰|key/i.test(e.message || "");
+    cal.innerHTML = `<div class="m-sig-cal-empty">${need ? "綁定交易帳號後顯示每日盈虧" : "盈虧載入失敗"}</div>`;
+    const totalEl = document.getElementById("mSigCalTotal");
+    if (totalEl) totalEl.textContent = "";
+  }
+}
+
+function _ntfRenderCal() {
+  const cal = document.getElementById("mSigCal");
+  const titleEl = document.querySelector("#mSigCalWrap .m-sig-cal-title");
+  const totalEl = document.getElementById("mSigCalTotal");
+  if (!cal) return;
+  const days = _ntfCalData || {};
+  const m = _ntfCalMonth || _ntfMonthStart(new Date());
+  const y = m.getFullYear(), mo = m.getMonth();
+  const pad = (n) => String(n).padStart(2, "0");
+  if (titleEl) titleEl.textContent = `${y} / ${pad(mo + 1)} 盈虧月曆`;
+  const dim = new Date(y, mo + 1, 0).getDate();
+  const lead = new Date(y, mo, 1).getDay();                  // 該月一號星期幾（日=0）
+  const t = new Date();
+  const todayKey = `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}`;
+  let sum = 0, td = 0;
+  const cells = ["日", "一", "二", "三", "四", "五", "六"].map(w => `<div class="m-sig-cal-wd">${w}</div>`);
+  for (let i = 0; i < lead; i++) cells.push(`<div class="m-sig-cal-cell m-sig-cal-x"></div>`);
+  for (let d = 1; d <= dim; d++) {
+    const key = `${y}-${pad(mo + 1)}-${pad(d)}`;
+    const v = days[key];
+    let cls = "m-sig-cal-cell", pnl = "";
+    if (v != null && Math.abs(v) > 1e-9) {
+      sum += v; td++;
+      cls += v >= 0 ? " m-sig-cal-up" : " m-sig-cal-dn";
+      pnl = `<span class="m-sig-cal-pnl">${v >= 0 ? "+" : ""}${_ntfCalFmt(v, Math.abs(v) >= 100 ? 0 : 1)}</span>`;
+    }
+    if (key === todayKey) cls += " m-sig-cal-today";
+    cells.push(`<div class="${cls}"><span class="m-sig-cal-d">${d}</span>${pnl}</div>`);
+  }
+  cal.innerHTML = cells.join("");
+  if (totalEl) totalEl.innerHTML =
+    `本月 <b class="${sum >= 0 ? "m-sig-up" : "m-sig-dn"}">${sum >= 0 ? "+" : ""}${_ntfCalFmt(sum, 2)}</b> USDT · ${td} 交易日`;
+}
+window._ntfLoadCal = _ntfLoadCal;
+
 window._ntfLoadFeed = async function () {
+  _ntfLoadCal();                                     // 進訊號頁 → 載入/重畫每日盈虧月曆
   _ntfNoMoreOlder = false;                           // 重新進頁 → 重置「已到底」，可再往前載入
   _ntfFeed.items = await _ntfFetchFeed();            // 初次進頁：重置成最新一批
   _ntfRefreshToday();                                // 今日摘要：抓自當地午夜起的全部（不被 80 筆截斷）
