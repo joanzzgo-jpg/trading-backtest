@@ -6278,7 +6278,16 @@ html.landing-active .landing { background: transparent; }
   /* ── 每日盈虧月曆（訊號頁頂部） ── */
   .m-sig-cal-wrap { flex: 0 0 auto; padding: 4px 14px 10px; }
   .m-sig-cal-hd { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+  .m-sig-cal-toggle {
+    flex: 1; display: flex; align-items: center; justify-content: center; gap: 5px;
+    background: none; border: none; cursor: pointer; padding: 4px; -webkit-tap-highlight-color: transparent;
+  }
   .m-sig-cal-title { font-size: 13px; font-weight: 700; color: var(--text); }
+  .m-sig-cal-chev { font-size: 11px; color: var(--muted); transition: transform .18s ease; }
+  /* 收起：藏日曆格(保留本月總計)、箭頭轉向 */
+  #mSigCalWrap.collapsed .m-sig-cal { display: none; }
+  #mSigCalWrap.collapsed .m-sig-cal-chev { transform: rotate(-90deg); }
+  #mSigCalWrap.collapsed .m-sig-cal-total { margin-bottom: 0; }
   .m-sig-cal-nav {
     width: 28px; height: 28px; padding: 0; line-height: 1; border-radius: 8px; cursor: pointer;
     background: rgba(255,145,71,.06); color: var(--muted); border: 1px solid var(--border); font-size: 16px;

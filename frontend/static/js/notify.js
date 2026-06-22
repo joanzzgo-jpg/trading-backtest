@@ -326,6 +326,20 @@ async function initNotify() {
       _ntfRenderFeed({ force: true, toBottom: true });   // 切換後重畫並回到最新
     });
   });
+  // 盈虧月曆：一鍵收起/展開（收起只藏日曆格、保留本月總計；狀態記 localStorage）
+  (function () {
+    const wrap = document.getElementById("mSigCalWrap");
+    const toggle = document.getElementById("mSigCalToggle");
+    if (!wrap || !toggle) return;
+    let collapsed = false;
+    try { collapsed = localStorage.getItem("sigCalCollapsed") === "1"; } catch (e) {}
+    wrap.classList.toggle("collapsed", collapsed);            // 還原上次狀態
+    toggle.addEventListener("click", () => {
+      const now = !wrap.classList.contains("collapsed");
+      wrap.classList.toggle("collapsed", now);
+      try { localStorage.setItem("sigCalCollapsed", now ? "1" : "0"); } catch (e) {}
+    });
+  })();
   // 盈虧月曆：上/下月切換（用已抓資料重畫，不再打交易所）
   document.querySelectorAll("#mSigCalWrap .m-sig-cal-nav").forEach(b => b.addEventListener("click", () => {
     _ntfCalMonth = _ntfMonthStart(new Date((_ntfCalMonth || _ntfMonthStart(new Date())).getFullYear(),
