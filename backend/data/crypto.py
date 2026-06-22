@@ -772,18 +772,23 @@ def fetch_crypto_ohlcv(
     mc = _calc_max_candles(start, end, timeframe)
     if ex in ("pionex", "binance"):
         last_err = None
-        # `.P` 明示使用者要的是 **Pionex 永續**——直接打 Pionex，**跳過 Binance**。
-        # 為什麼：Binance fapi 同名標的（如 LYNUSDT）可能跟 Pionex LYN_USDT_PERP **不是同一個市場**，
-        # vol 規模差 ~200x；若有時 Binance 回應有時失敗，realtime poll 會在兩種規模間隨機跳，
-        # 圖表成交量看起來像「亂跳」。`.P` 後綴是使用者明示意圖，必須尊重它。
+        # `.P` 永續：**優先用 Binance 合約 K 線**（與下單交易所一致）。
+        # 為什麼改：Binance/Pionex 同幣的插針(wick)與高低不完全一樣（小幣尤甚）→ 若圖表走 Pionex、
+        # 自動交易卻在 Binance 成交，會出現「圖上沒有的針→照樣觸發進場/止損」的幽靈單。圖＝偵測＝
+        # 成交都統一在 Binance，才一致。Binance fapi 沒有(Pionex 獨有幣)才退回 Pionex。
         if ex == "pionex" and is_perp:
+            try:
+                df = _fetch_binance_fapi(symbol, timeframe, start, end, limit, max_candles=mc)
+                if not df.empty:
+                    return df
+            except Exception as e:
+                last_err = e
             try:
                 df = _fetch_pionex_klines(symbol, timeframe, start, end, limit, max_candles=mc, is_perp=True)
                 if not df.empty:
                     return df
             except Exception as e:
                 last_err = e
-            # `.P` 走完 Pionex 還空 → 直接走錯誤分支（不要 fallback 到 Binance 避免 vol 跳變）
             if time.time() < _PIONEX_COOLDOWN_UNTIL:
                 raise ValueError(f"{symbol} 暫時無法取得：Pionex 限流冷卻中（剩 {int(_PIONEX_COOLDOWN_UNTIL - time.time())} 秒，請等待後再試）")
             raise ValueError(f"找不到 {symbol} 的行情資料，請確認標的代號是否正確")
