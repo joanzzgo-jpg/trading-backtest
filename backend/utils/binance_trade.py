@@ -321,8 +321,9 @@ class Client:
             params["endTime"] = int(end_ms)
         rows = self._request("GET", "/fapi/v1/income", params)
         keep = {"REALIZED_PNL", "COMMISSION", "FUNDING_FEE"}
-        return [{"pnl": float(r.get("income", 0) or 0), "ts": (r.get("time") or 0) / 1000,
-                 "type": r.get("incomeType")} for r in rows if r.get("incomeType") in keep]
+        return [{"symbol": r.get("symbol"), "pnl": float(r.get("income", 0) or 0),
+                 "ts": (r.get("time") or 0) / 1000, "type": r.get("incomeType")}
+                for r in rows if r.get("incomeType") in keep]
 
     def last_fill_price(self, sym: str):
         """最近一筆成交價（平倉通知顯示『出場 @ X』用）。純顯示、失敗回 None、絕不拋例外。"""

@@ -6312,6 +6312,38 @@ html.landing-active .landing { background: transparent; }
   .m-sig-cal-dn { background: rgba(239,83,80,.16); border-color: rgba(239,83,80,.4); }
   .m-sig-cal-dn .m-sig-cal-pnl { color: #ef7470; }
   .m-sig-cal-today { outline: 2px solid var(--accent, #ff9147); outline-offset: -1px; }
+  .m-sig-cal-has { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  .m-sig-cal-has:active { filter: brightness(1.25); }
+  /* 點某天 → 當天進出場詳情卡（覆蓋在訊號頁上的置中卡）*/
+  .m-sig-caldt {
+    position: absolute; inset: 0; z-index: 30; display: flex; align-items: center; justify-content: center;
+    background: rgba(0,0,0,.5); padding: 18px; -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
+  }
+  .m-sig-caldt[hidden] { display: none; }
+  .m-sig-caldt-card {
+    width: 100%; max-width: 360px; max-height: 70%; display: flex; flex-direction: column;
+    background: var(--bg2, #1a1a28); border: 1px solid var(--border); border-radius: 16px; overflow: hidden;
+    box-shadow: 0 12px 40px rgba(0,0,0,.5);
+  }
+  .m-sig-caldt-hd {
+    display: flex; align-items: center; gap: 10px; padding: 12px 14px; flex: 0 0 auto;
+    border-bottom: 1px solid var(--border); background: linear-gradient(135deg, rgba(255,160,90,.1), transparent);
+  }
+  .m-sig-caldt-date { font-size: 14px; font-weight: 800; color: var(--text); }
+  .m-sig-caldt-sum { font-size: 14px; font-weight: 800; flex: 1; }
+  .m-sig-caldt-x {
+    width: 28px; height: 28px; border-radius: 8px; border: 1px solid var(--border); cursor: pointer;
+    background: rgba(255,255,255,.05); color: var(--muted); font-size: 13px; -webkit-tap-highlight-color: transparent;
+  }
+  .m-sig-caldt-list { overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 6px 0; }
+  .m-sig-caldt-row {
+    display: flex; align-items: center; gap: 8px; padding: 8px 14px; font-size: 13px;
+    border-bottom: 1px solid rgba(255,255,255,.04);
+  }
+  .m-sig-caldt-t { color: var(--muted); font-variant-numeric: tabular-nums; width: 42px; flex: 0 0 auto; }
+  .m-sig-caldt-sym { font-weight: 700; color: var(--text); flex: 1; min-width: 0; }
+  .m-sig-caldt-ty { color: var(--muted); font-size: 11px; flex: 0 0 auto; }
+  .m-sig-caldt-pnl { font-weight: 800; flex: 0 0 auto; font-variant-numeric: tabular-nums; }
   /* 今日摘要卡：訊號數 / 自動勝敗 / 今日盈虧（暖色漸層卡）*/
   .m-sig-summary-wrap { flex: 0 0 auto; padding: 0 14px; }
   .m-sig-summary-wrap:empty { display: none; }

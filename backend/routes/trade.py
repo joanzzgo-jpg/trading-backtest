@@ -2049,8 +2049,14 @@ def pnl_daily(req: KeyReq):
         rows = client.income_daily(start, end)
     except bt.TradeError as e:
         raise HTTPException(400, str(e))
-    days = {}
+    days = {}      # 日期 → 當日總盈虧
+    byday = {}     # 日期 → 當日明細列 [{sym, pnl, type, ts}]（給點擊那天看進出場詳情）
     for r in rows:
         d = (_dt.utcfromtimestamp(r["ts"]) + _td(hours=8)).strftime("%Y-%m-%d")   # 台北日期
         days[d] = round(days.get(d, 0.0) + r["pnl"], 4)
-    return {"days": days}
+        sym = (r.get("symbol") or "").replace("USDT", "")        # 顯示用：去 USDT 後綴
+        byday.setdefault(d, []).append({"sym": sym, "pnl": round(r["pnl"], 4),
+                                        "type": r.get("type"), "ts": r["ts"]})
+    for d in byday:                                              # 各日明細按時間排序
+        byday[d].sort(key=lambda x: x["ts"])
+    return {"days": days, "byday": byday}

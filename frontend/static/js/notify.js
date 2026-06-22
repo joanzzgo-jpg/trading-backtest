@@ -340,6 +340,15 @@ async function initNotify() {
       try { localStorage.setItem("sigCalCollapsed", now ? "1" : "0"); } catch (e) {}
     });
   })();
+  // 盈虧月曆：點「有交易的那天」→ 跳出當天進出場詳情
+  document.getElementById("mSigCal")?.addEventListener("click", (e) => {
+    const cell = e.target.closest(".m-sig-cal-has[data-d]");
+    if (cell) _ntfShowCalDetail(cell.dataset.d);
+  });
+  document.getElementById("mSigCalDetail")?.addEventListener("click", (e) => {
+    if (e.target.id === "mSigCalDetail" || e.target.closest(".m-sig-caldt-x"))
+      document.getElementById("mSigCalDetail").hidden = true;   // 點背景或✕ 關閉
+  });
   // 盈虧月曆：上/下月切換（用已抓資料重畫，不再打交易所）
   document.querySelectorAll("#mSigCalWrap .m-sig-cal-nav").forEach(b => b.addEventListener("click", () => {
     _ntfCalMonth = _ntfMonthStart(new Date((_ntfCalMonth || _ntfMonthStart(new Date())).getFullYear(),
@@ -645,7 +654,7 @@ async function _ntfBgPoll() {
 // ── 每日盈虧月曆（訊號頁頂部）──────────────────────────────────────────
 //   資料＝/api/trade/pnl_daily（Binance 已實現損益+手續費+資金費，按台北日加總）。
 //   需綁定交易帳號(有交易口令)才有資料；沒綁定→顯示提示、不報錯。
-let _ntfCalMonth = null, _ntfCalData = null;
+let _ntfCalMonth = null, _ntfCalData = null, _ntfCalByday = null;
 function _ntfMonthStart(d) { return new Date(d.getFullYear(), d.getMonth(), 1); }
 function _ntfCalFmt(v, dp) { return (Number(v) || 0).toFixed(dp == null ? 2 : dp); }
 
@@ -658,6 +667,7 @@ async function _ntfLoadCal(force) {
   try {
     const r = await _trdApi("pnl_daily");                    // 與交易面板共用同一交易口令
     _ntfCalData = r.days || {};
+    _ntfCalByday = r.byday || {};                            // 每日明細（點那天看進出場詳情）
     _ntfRenderCal();
   } catch (e) {
     _ntfCalData = null;
@@ -688,20 +698,48 @@ function _ntfRenderCal() {
   for (let d = 1; d <= dim; d++) {
     const key = `${y}-${pad(mo + 1)}-${pad(d)}`;
     const v = days[key];
-    let cls = "m-sig-cal-cell", pnl = "";
+    let cls = "m-sig-cal-cell", pnl = "", attr = "";
     if (v != null && Math.abs(v) > 1e-9) {
       sum += v; td++;
       cls += v >= 0 ? " m-sig-cal-up" : " m-sig-cal-dn";
+      cls += " m-sig-cal-has";                               // 有交易 → 可點看詳情
+      attr = ` data-d="${key}"`;
       pnl = `<span class="m-sig-cal-pnl">${v >= 0 ? "+" : ""}${_ntfCalFmt(v, Math.abs(v) >= 100 ? 0 : 1)}</span>`;
     }
     if (key === todayKey) cls += " m-sig-cal-today";
-    cells.push(`<div class="${cls}"><span class="m-sig-cal-d">${d}</span>${pnl}</div>`);
+    cells.push(`<div class="${cls}"${attr}><span class="m-sig-cal-d">${d}</span>${pnl}</div>`);
   }
   cal.innerHTML = cells.join("");
   if (totalEl) totalEl.innerHTML =
     `本月 <b class="${sum >= 0 ? "m-sig-up" : "m-sig-dn"}">${sum >= 0 ? "+" : ""}${_ntfCalFmt(sum, 2)}</b> USDT · ${td} 交易日`;
 }
 window._ntfLoadCal = _ntfLoadCal;
+
+// 點某天 → 跳出當天進出場詳情（平倉已實現/手續費/資金費，逐筆）
+function _ntfShowCalDetail(dateKey) {
+  const ov = document.getElementById("mSigCalDetail");
+  if (!ov) return;
+  const rows = (_ntfCalByday && _ntfCalByday[dateKey]) || [];
+  const sum = (_ntfCalData && _ntfCalData[dateKey]) || 0;
+  const TY = { REALIZED_PNL: "平倉", COMMISSION: "手續費", FUNDING_FEE: "資金費" };
+  const hhmm = (ts) => {
+    const d = new Date(ts * 1000 + 8 * 3600 * 1000);          // 台北
+    return `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
+  };
+  ov.querySelector(".m-sig-caldt-date").textContent = dateKey.replace(/-/g, "/");
+  const sEl = ov.querySelector(".m-sig-caldt-sum");
+  sEl.textContent = `${sum >= 0 ? "+" : ""}${_ntfCalFmt(sum, 2)} USDT`;
+  sEl.className = "m-sig-caldt-sum " + (sum >= 0 ? "m-sig-up" : "m-sig-dn");
+  const list = ov.querySelector(".m-sig-caldt-list");
+  list.innerHTML = rows.length ? rows.map(r => `
+    <div class="m-sig-caldt-row">
+      <span class="m-sig-caldt-t">${hhmm(r.ts)}</span>
+      <span class="m-sig-caldt-sym">${r.sym || "—"}</span>
+      <span class="m-sig-caldt-ty">${TY[r.type] || r.type || ""}</span>
+      <span class="m-sig-caldt-pnl ${r.pnl >= 0 ? "m-sig-up" : "m-sig-dn"}">${r.pnl >= 0 ? "+" : ""}${_ntfCalFmt(r.pnl, 4)}</span>
+    </div>`).join("") : `<div class="m-sig-cal-empty">當天無明細</div>`;
+  ov.hidden = false;
+}
 
 window._ntfLoadFeed = async function () {
   _ntfLoadCal();                                     // 進訊號頁 → 載入/重畫每日盈虧月曆

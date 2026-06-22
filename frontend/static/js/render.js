@@ -133,6 +133,13 @@ function _applyPriceFormat(data) {
 }
 
 function renderAll(data) {
+  // 重繪期間標記「圖表忙碌」→ 背景天氣動畫降到 ~15fps，不跟切標的/時框的重繪搶幀(省卡頓)。
+  // 設兩次(現在+160ms)以覆蓋 setData/fitContent/還原視野的整段(>220ms 移動視窗)。
+  try {
+    const _n = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+    window._chartMoveTs = _n;
+    setTimeout(() => { window._chartMoveTs = (performance.now ? performance.now() : Date.now()); }, 160);
+  } catch (e) {}
   // 動態調整右側價格軸精度
   _applyPriceFormat(data);
 
