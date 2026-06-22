@@ -1277,8 +1277,9 @@ def reconcile_fvg_pending(market, exchange, symbol, tf):
                     oids = [str(o.get("oid")) for o in (ex.get("orders") or []) if o.get("oid")]
                     try:
                         resting = {str(o["orderId"]) for o in client.open_orders(bsym)}
-                        has_pos = any(p["symbol"] == bsym and (not _hedge or p.get("posSide") == _psd)
-                                      for p in client.positions())
+                        _pos = next((p for p in client.positions()
+                                     if p["symbol"] == bsym and (not _hedge or p.get("posSide") == _psd)), None)
+                        has_pos = _pos is not None
                     except bt.TradeError:
                         continue
                     gt = ex.get("gap_t")
@@ -1304,15 +1305,32 @@ def reconcile_fvg_pending(market, exchange, symbol, tf):
                             except bt.TradeError:
                                 sl_oid = None
                         if not sl_oid:
-                            # 止損掛不上 → 絕不留無保護持倉：撤殘單 + 市價平倉 + 標 failed
+                            # 止損掛不上：分辨「真的到/穿止損(本就該平)」vs「暫時性(插針已回/API抽搐/帶寬)→該重試別亂平」
+                            mark = float((_pos or {}).get("mark") or 0)
+                            stopf = float(sl_s)
+                            past_stop = (mark <= stopf) if want == "long" else (mark >= stopf)
+                            nfail = int(ex.get("slfail", 0)) + 1
+                            if (not past_stop) and mark > 0 and nfail < 5:
+                                # 價格還沒到止損 + 失敗<5次 → 不平倉、保留 pending、下個 tick(~60s)重試掛止損
+                                ex["slfail"] = nfail
+                                c3, ph3 = _acct._db()
+                                try:
+                                    c3.execute(f"UPDATE trade_log SET extra={ph3} WHERE id={ph3}",
+                                               (json.dumps(ex), row_id)); c3.commit()
+                                finally:
+                                    c3.close()
+                                print(f"  ⟳ FVG止損暫掛不上(現價未到止損)、保留重試 {nfail}/5：{bsym}")
+                                continue
+                            # 真的到/穿止損，或連 5 次仍掛不上(無法保護) → 撤殘單 + 市價平倉
                             for oid in oids:
                                 if oid in resting:
                                     try: client.cancel_order(bsym, oid)
                                     except bt.TradeError: pass
                             try: client.close_position(bsym, position_side=_psd)
                             except bt.TradeError: pass
-                            _update_trade(row_id, "failed", "FVG限價成交但止損掛不上→已市價平倉(不留無保護倉)")
-                            _push_owner(name, f"⚠ FVG限價平倉 · {symbol}", "成交後止損掛不上、已即時平倉", symbol,
+                            _rsn = "已到止損價" if past_stop else "止損連5次掛不上、無法保護"
+                            _update_trade(row_id, "failed", f"FVG限價成交但{_rsn}→已市價平倉")
+                            _push_owner(name, f"⚠ FVG限價平倉 · {symbol}", f"成交後{_rsn}、已即時平倉", symbol,
                                         tf=tf, event="atrade", sig="fvg", d=d, sigt=str(gt))
                             continue
                         try:
