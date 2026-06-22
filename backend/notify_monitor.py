@@ -289,59 +289,14 @@ def _process_combo(market, exchange, symbol, tf, subs_here, now):
             execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=signals)
         except Exception as e:
             print(f"  ⚠ 自動交易 hook 失敗：{e}")
-        targets = [s for s in subs_here if s["prefs"].get("sigNotify", True) and k in (s["prefs"].get("sigs") or [])]
-        if not targets:
-            continue
-        payload = _build_payload(symbol, market, exchange, tf, k, d, sig, event="entry")
-        ok = False
-        for s in targets:
-            ok = notify.send_push(s, payload) or ok
-        # 全部裝置都發送失敗（推播服務暫時故障）→ 不標記已推、不記歷史，
-        # 下一根收盤棒（FRESH_BARS 窗內）自動重試 → 修「有訊號卻沒收到」。
-        if not ok:
-            continue
-        for nm_ in {s["name"] for s in targets}:
-            notify.log_signal(nm_, now, "entry", payload["title"], payload["body"],
-                              symbol, market, exchange, tf,
-                              sig=k, d=d, sigt=str(t))
+        # 策略訊號通知已停用（使用者只要『自動交易』通知）：此處只做自動交易，不再推播/記錄 SS 訊號。
+        # 進場/止盈/止損的通知改由 execute_signal_trade(owner 推播) 與 reconcile_auto_position(出場對帳) 發出。
         new_max[scope] = t
     for scope, t in new_max.items():
         notify.mark_notified(scope, t)
 
     # （自動交易出場對帳已上移到 ss 早退之前，所有 tf 都跑 → 不在此重複呼叫）
-
-    # ── 止盈/止損通知：訊號剛在最近數根收盤棒「結算」→ 各推一次 ──
-    # 重用勝率計算結果：r=='w' 表示在停損前先碰到中軌(止盈)、r=='l' 表示先打到止損，
-    # ot 為結算時間（中軌逐根漂移，掃描本就逐根比當下中軌＝會動的止盈）。
-    # 結算順序未必同進場順序 → 用逐事件精確去重（seen_event/mark_event）。
-    for sig in sigs:
-        r = sig.get("r")
-        if r not in ("w", "l"):          # 未結算不推
-            continue
-        ot = sig.get("ot")
-        # 結算棒須「在最近數根」且「已收盤」：保留形成棒後，止盈/止損可能由形成棒的盤中
-        # 高低點觸發 → 那是 intrabar、會 repaint，不可推（與「收盤確認」一致，故 ot 限收盤棒）。
-        if not ot or _epoch(ot) < fresh_cut or _epoch(ot) > last_closed_open:
-            continue
-        k = sig["k"]; d = sig.get("d")
-        targets = [s for s in subs_here if s["prefs"].get("sigNotify", True) and k in (s["prefs"].get("sigs") or [])]
-        if not targets:
-            continue
-        event = "tp" if r == "w" else "sl"
-        evt_key = f"{event}:{market}:{exchange}:{symbol}:{tf}:{k}:{d}:{sig['t']}"
-        if notify.seen_event(evt_key):
-            continue
-        payload = _build_payload(symbol, market, exchange, tf, k, d, sig, event=event)
-        ok = False
-        for s in targets:
-            ok = notify.send_push(s, payload) or ok
-        if not ok:                       # 全失敗 → 不標記，下一輪重試
-            continue
-        for nm_ in {s["name"] for s in targets}:
-            notify.log_signal(nm_, now, event, payload["title"], payload["body"],
-                              symbol, market, exchange, tf,
-                              sig=k, d=d, sigt=str(sig["t"]))
-        notify.mark_event(evt_key)
+    # （SS 策略訊號的止盈/止損通知已移除；自動倉的出場通知由 reconcile_auto_position 發。）
 
 
 def _auto_tfs(cfg):
