@@ -184,6 +184,7 @@ def _guard(key: Optional[str], name: Optional[str] = None):
 _inited = False
 _auto_cache = {}                              # name -> {"ts":, "cfg":}（每帳號設定 10s 快取）
 _auto_all_cache = {"ts": 0.0, "rows": None}   # 所有「已開啟」帳號設定 [(name,cfg),...] 的 10s 快取
+_surge_cache = {"ts": 0.0, "v": False}        # FVG 爆量風控判定 60s 快取（見 _fvg_surge_active）
 
 
 def _ensure_db():
@@ -1123,6 +1124,34 @@ def reconcile_auto_position(market, exchange, symbol, tf):
         print(f"  ⚠ 自動倉對帳失敗 {symbol} {tf}：{e}")
 
 
+def _fvg_surge_active(now_ts=None):
+    """FVG 爆量風控：全市場(所有自動帳號) 近24h FVG 新掛單數 > 近30日日均 × 2.0 →
+    判定為『高波動洗盤 regime』，暫停掛新單。依據 2020-2026 32幣 CAP15 回測：回撤前
+    新進場筆數先爆到日均~2~2.5倍(雙向被洗、敗率衝68-72%)；此規則把最大回撤 177→151R(−15%)、
+    報酬僅 −1.6%。base<1(資料太少/watchlist太小)→不啟用，避免冷啟誤判。60s 快取，絕不拋例外。"""
+    global _surge_cache
+    now = now_ts or time.time()
+    if _surge_cache and now - _surge_cache["ts"] < 60:
+        return _surge_cache["v"]
+    active = False
+    try:
+        _c, _ph = _acct._db()
+        try:
+            q = (f"SELECT COUNT(*) FROM trade_log WHERE source='auto' AND sig='fvg' "
+                 f"AND status NOT IN ('skipped','failed') AND ts > {_ph}")
+            r24 = _c.execute(q, (now - 86400,)).fetchone()[0]
+            n30 = _c.execute(q, (now - 30 * 86400,)).fetchone()[0]
+        finally:
+            _c.close()
+        base = n30 / 30.0
+        if base >= 1.0 and r24 > 2.0 * base:
+            active = True
+    except Exception:
+        active = False
+    _surge_cache = {"ts": now, "v": active}
+    return active
+
+
 def place_fvg_limit_ladder(name, cfg, market, exchange, symbol, tf, gap):
     """FVG 限價階梯版（影線版）進場：缺口 top/mid/bot 各掛 ⅓ 限價單(maker, GTC)。
     gap={"t","top","bot","d"}(圖表價)。只 1h、用此帳號自己金鑰/自選/方向過濾。SL/TP 不在此掛——
@@ -1136,6 +1165,10 @@ def place_fvg_limit_ladder(name, cfg, market, exchange, symbol, tf, gap):
             return
         want = "short" if d == "s" else "long"
         if cfg["dirs"] != "both" and cfg["dirs"] != want:
+            return
+        # 爆量風控：高波動洗盤 regime 暫停掛新單(在 mark_event 之前→regime 解除後缺口仍可重掛)
+        if _fvg_surge_active():
+            print(f"  ⏸ FVG爆量風控跳過 {symbol}（{name}）：近24h新進場>近月日均2x，暫停新單")
             return
         evt = f"fvglimit:{name}:{symbol}:{tf}:{d}:{gap.get('t')}"
         if notify.seen_event(evt):
