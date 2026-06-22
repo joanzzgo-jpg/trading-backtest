@@ -214,11 +214,6 @@ def _process_combo(market, exchange, symbol, tf, subs_here, now):
                     _px = float(df["close"].iloc[-2 if forming else -1])   # 現價＝最後已收盤棒收盤
                 except Exception:
                     _px = None
-                try:                                                        # 近24h漲跌→爆量風控『只停逆勢』判趨勢用
-                    _li = -2 if forming else -1
-                    _chg24 = float(df["close"].iloc[_li] / df["close"].iloc[_li - 24] - 1.0)
-                except Exception:
-                    _chg24 = None
                 _alive_cut = last_closed_open - 167 * iv                    # 缺口確認後 168 根內仍有效
                 _fresh_gaps = []
                 for _g in (res.get("fvg") or []):
@@ -253,7 +248,6 @@ def _process_combo(market, exchange, symbol, tf, subs_here, now):
                                 continue                                          # 止盈或止損已觸及 → 設定走完，跳過
                     except Exception:
                         pass
-                    _g["chg24"] = _chg24                                    # 帶上近24h漲跌→approach掃描路徑也能判趨勢
                     _fresh_gaps.append(_g)                                  # 快取給每60s「逼近掃描」用→整個小時不漏單
                     if _px is None:
                         continue
