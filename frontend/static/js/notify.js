@@ -719,7 +719,7 @@ window._ntfLoadCal = _ntfLoadCal;
 function _ntfShowCalDetail(dateKey) {
   const ov = document.getElementById("mSigCalDetail");
   if (!ov) return;
-  const rows = (_ntfCalByday && _ntfCalByday[dateKey]) || [];
+  const rows = ((_ntfCalByday && _ntfCalByday[dateKey]) || []).filter(r => r.type !== "COMMISSION");  // 不顯示手續費列
   const sum = (_ntfCalData && _ntfCalData[dateKey]) || 0;
   const TY = { REALIZED_PNL: "平倉", COMMISSION: "手續費", FUNDING_FEE: "資金費" };
   const hhmm = (ts) => {
