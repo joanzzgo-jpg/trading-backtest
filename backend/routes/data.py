@@ -197,10 +197,13 @@ def diag_fvg():
         out["gap_cache"] = sorted(gc, key=lambda x: -x["gaps"])[:30]
     except Exception as e:
         out["gap_cache_err"] = str(e)[:120]
-    # 各 limit 帳號：宇宙標的數 + 此刻逼近且通過過濾的缺口數
+    # 各 limit 帳號：逐缺口跑「place_fvg_limit_ladder 全部閘門」，回報每個逼近缺口卡在哪格。
     try:
         import notify_monitor as nm
-        from routes.trade import get_all_auto_cfgs, fvg_account_symbols
+        import routes.notify as notify
+        import routes.account as _acct
+        from routes.trade import (get_all_auto_cfgs, fvg_account_symbols, _client_for,
+                                  _is_hedge, _fvg_gap_already_settled)
         from data.crypto import _fetch_fapi_prices
         prices = _fetch_fapi_prices() or {}
         NEAR_W = 1.5
@@ -211,9 +214,32 @@ def diag_fvg():
                 continue
             try:
                 uni_syms = {(w.get("symbol") or "") for w in fvg_account_symbols(name, fvg)}
-            except Exception as ue:
-                uni_syms = set(); name_err = str(ue)[:80]
-            near = 0; near_list = []
+            except Exception:
+                uni_syms = set()
+            try:
+                client, _ = _client_for(name)
+            except Exception:
+                client = None
+            hedge = False
+            try:
+                hedge = _is_hedge(client) if client else False
+            except Exception:
+                pass
+            # 此帳號目前 pending/open FVG 倉數（maxPos 閘門用）
+            pend_n = open_n = 0; pend_syms = []
+            try:
+                _c, _ph = _acct._db()
+                try:
+                    pend_n = _c.execute(f"SELECT COUNT(*) FROM trade_log WHERE source='auto' AND sig='fvg' AND status='pending' AND acct={_ph}", (name,)).fetchone()[0]
+                    open_n = _c.execute(f"SELECT COUNT(*) FROM trade_log WHERE source='auto' AND sig='fvg' AND status='open' AND acct={_ph}", (name,)).fetchone()[0]
+                    pend_syms = [r[0] for r in _c.execute(f"SELECT DISTINCT symbol FROM trade_log WHERE source='auto' AND sig='fvg' AND status IN ('pending','open') AND acct={_ph}", (name,)).fetchall()]
+                finally:
+                    _c.close()
+            except Exception:
+                pass
+            maxpos = int(fvg.get("maxPos", 15) or 15)
+            held = pend_n + open_n
+            reasons = {}; near = 0; would = []
             for sym, ent in list(nm._fvg_gap_cache.items()):
                 if sym not in uni_syms:
                     continue
@@ -222,22 +248,48 @@ def diag_fvg():
                     continue
                 for g in ent.get("gaps") or []:
                     try:
-                        top = float(g["top"]); bot = float(g["bot"]); W = top - bot
+                        top = float(g["top"]); bot = float(g["bot"]); W = top - bot; d = g.get("d")
                     except Exception:
                         continue
                     if W <= 0:
                         continue
-                    if g.get("d") == "l":
-                        if px <= top + NEAR_W * W: near += 1; near_list.append(f"{sym}多")
+                    # 逼近判定
+                    if d == "l":
+                        if not (px <= top + NEAR_W * W): continue
                     else:
-                        if px >= bot - NEAR_W * W: near += 1; near_list.append(f"{sym}空")
+                        if not (px >= bot - NEAR_W * W): continue
+                    near += 1
+                    want = "short" if d == "s" else "long"
+                    # 逐閘門（順序同 place_fvg_limit_ladder）
+                    if cfg.get("fvg", {}).get("dirs", "both") != "both" and fvg.get("dirs") != want:
+                        r = "dirs方向過濾"
+                    elif notify.seen_event(f"fvglimit:{name}:{sym}:1h:{d}:{g.get('t')}"):
+                        r = "dedup已掛過此缺口"
+                    elif client is None:
+                        r = "no_client無金鑰"
+                    elif (not hedge and sym in pend_syms):
+                        r = "dup同標的已有倉(單向)"
+                    elif held >= maxpos:
+                        r = "maxPos已滿"
+                    elif (W / (top if want == "long" else bot)) > 0.02:
+                        r = "too_wide>2%"
+                    elif _fvg_gap_already_settled(sym, g.get("t"),
+                                                  (bot - 2 * W) if want == "long" else (top + 2 * W),
+                                                  (top + 6 * W) if want == "long" else (bot - 6 * W), want):
+                        r = "settled已了結"
+                    else:
+                        r = "WOULD_PLACE應該要掛!"; would.append(f"{sym}{'多' if want=='long' else '空'}")
+                    reasons[r] = reasons.get(r, 0) + 1
             accts.append({"name": name, "universe": fvg.get("universe"),
-                          "universe_syms": len(uni_syms), "approaching_in_cache": near,
-                          "approaching": near_list[:10]})
+                          "universe_syms": len(uni_syms), "pending": pend_n, "open": open_n,
+                          "maxPos": maxpos, "held_vs_max": f"{held}/{maxpos}",
+                          "approaching": near, "block_reasons": reasons,
+                          "would_place": would[:10]})
         out["per_account"] = accts
         out["prices_n"] = len(prices)
     except Exception as e:
-        out["per_account_err"] = str(e)[:120]
+        import traceback
+        out["per_account_err"] = str(e)[:120]; out["per_account_tb"] = traceback.format_exc()[-400:]
     # 近期 FVG 掛單記錄（status + msg 直接說明嘗試/失敗原因）
     try:
         import routes.account as _acct
