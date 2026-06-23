@@ -1319,6 +1319,13 @@ def place_fvg_limit_ladder(name, cfg, market, exchange, symbol, tf, gap):
             pass
         fee = 0.0005
         side = "BUY" if want == "long" else "SELL"
+        # 追價防呆：FVG 限價本意是「掛著等價格回踩進缺口」(maker)。若現價已到/穿過該檔，
+        # 掛上去會立刻被當吃單成交(taker)→變成追價、一進場就虧(非回踩)。故會立即成交的檔跳過。
+        # 多單買限價：現價 ≤ 該檔價 即可成交 → 跳過；空單賣限價：現價 ≥ 該檔價 即可成交 → 跳過。
+        try:
+            cur_c = client.last_price(bsym)
+        except Exception:
+            cur_c = None
         orders = []
         for lv in levels:
             lv_c = lv * scale; s_c = stop * scale
@@ -1330,6 +1337,10 @@ def place_fvg_limit_ladder(name, cfg, market, exchange, symbol, tf, gap):
             qty = client.quantize_qty(bsym, qb)
             try:
                 px = client.quantize_price(bsym, lv_c)
+                if cur_c and ((want == "long" and cur_c <= float(px)) or
+                              (want == "short" and cur_c >= float(px))):
+                    orders.append({"oid": None, "level": lv, "qty": qty, "err": "skip:會立即吃單(追價)"})
+                    continue
                 o = client.place_order(bsym, side, qty, "LIMIT", price=px, position_side=_psd)
                 orders.append({"oid": o.get("orderId"), "level": lv, "px": px, "qty": qty})
             except bt.TradeError as e:
