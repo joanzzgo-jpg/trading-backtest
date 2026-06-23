@@ -173,6 +173,90 @@ def diag_trade():
     return out
 
 
+@router.get("/_diag_fvg")
+def diag_fvg():
+    """FVG 限價掛單診斷（瀏覽器直接開）：定位『限價模式卻都沒掛單』斷在哪。
+    surge=爆量封控是否擋單；gap_cache=每整點刷新的新鮮缺口快取(空→收盤掃描沒跑/沒缺口)；
+    per_account=各 limit 帳號的宇宙標的數＋此刻快取中『逼近且通過該宇宙過濾』的缺口數(>0 卻沒掛=掛單函式內閘門擋住)；
+    recent_fvg_log=近期 FVG 掛單記錄(status/msg→有沒有嘗試、為何失敗)。**不洩漏任何金鑰。**"""
+    out = {}
+    try:
+        from routes.trade import _fvg_surge_active
+        out["surge_active"] = bool(_fvg_surge_active())
+    except Exception as e:
+        out["surge_err"] = str(e)[:120]
+    # 缺口快取概況
+    try:
+        import notify_monitor as nm
+        now = time.time()
+        gc = []
+        for sym, ent in list(nm._fvg_gap_cache.items()):
+            gc.append({"sym": sym, "gaps": len(ent.get("gaps") or []),
+                       "age_s": int(now - ent.get("ts", 0))})
+        out["gap_cache_n"] = len(gc)
+        out["gap_cache"] = sorted(gc, key=lambda x: -x["gaps"])[:30]
+    except Exception as e:
+        out["gap_cache_err"] = str(e)[:120]
+    # 各 limit 帳號：宇宙標的數 + 此刻逼近且通過過濾的缺口數
+    try:
+        import notify_monitor as nm
+        from routes.trade import get_all_auto_cfgs, fvg_account_symbols
+        from data.crypto import _fetch_fapi_prices
+        prices = _fetch_fapi_prices() or {}
+        NEAR_W = 1.5
+        accts = []
+        for name, cfg in get_all_auto_cfgs():
+            fvg = cfg.get("fvg") or {}
+            if not (fvg.get("on") and fvg.get("entry") == "limit"):
+                continue
+            try:
+                uni_syms = {(w.get("symbol") or "") for w in fvg_account_symbols(name, fvg)}
+            except Exception as ue:
+                uni_syms = set(); name_err = str(ue)[:80]
+            near = 0; near_list = []
+            for sym, ent in list(nm._fvg_gap_cache.items()):
+                if sym not in uni_syms:
+                    continue
+                px = prices.get(sym.replace(".P", "").replace("/", "").upper())
+                if px is None:
+                    continue
+                for g in ent.get("gaps") or []:
+                    try:
+                        top = float(g["top"]); bot = float(g["bot"]); W = top - bot
+                    except Exception:
+                        continue
+                    if W <= 0:
+                        continue
+                    if g.get("d") == "l":
+                        if px <= top + NEAR_W * W: near += 1; near_list.append(f"{sym}多")
+                    else:
+                        if px >= bot - NEAR_W * W: near += 1; near_list.append(f"{sym}空")
+            accts.append({"name": name, "universe": fvg.get("universe"),
+                          "universe_syms": len(uni_syms), "approaching_in_cache": near,
+                          "approaching": near_list[:10]})
+        out["per_account"] = accts
+        out["prices_n"] = len(prices)
+    except Exception as e:
+        out["per_account_err"] = str(e)[:120]
+    # 近期 FVG 掛單記錄（status + msg 直接說明嘗試/失敗原因）
+    try:
+        import routes.account as _acct
+        conn, ph = _acct._db()
+        try:
+            cur = conn.execute(
+                "SELECT ts,acct,status,symbol,side,sig,tf,msg FROM trade_log "
+                "WHERE sig='fvg' ORDER BY id DESC LIMIT 20")
+            rows = cur.fetchall()
+        finally:
+            conn.close()
+        out["recent_fvg_log"] = [{"ts": r[0], "acct": r[1], "status": r[2], "symbol": r[3],
+                                  "side": r[4], "sig": r[5], "tf": r[6], "msg": r[7]} for r in rows]
+        out["recent_fvg_n"] = len(rows)
+    except Exception as e:
+        out["recent_fvg_err"] = str(e)[:120]
+    return out
+
+
 @router.post("/reset_pionex_cooldown")
 def reset_pionex_cooldown():
     """手動清除 Pionex 5 分鐘限流冷卻（給卡死時應急用）"""
