@@ -63,7 +63,7 @@ _SS_DEFAULT = {"on": False, "sigs": [], "tfs": [], "dirs": "both",
                "slPct": 0.0, "perSym": {}}
 # FVG 子設定：進場模式 market(收盤確認市價,保證成交)/limit(缺口⅓階梯,影線版,成交率未實證)。固定 1h、
 # 止損3W/止盈6W → 無 slPct/無 maxAdds/無 tfs；maxPos 預設 15(回測組合上限)。
-# universe=標的來源：watchlist(自選,預設)/top60(成交量前60加密永續,排除RWA如PAXG黃金,每日重抓)。
+# universe=標的來源：watchlist(自選,預設)/top20(成交量前20加密永續,排除RWA如PAXG黃金,每日重抓)。
 _FVG_DEFAULT = {"on": False, "entry": "market", "dirs": "both",
                 "usdt": 50.0, "lev": 3, "riskUsd": 0.0, "maxPos": 15, "universe": "watchlist"}
 _AUTO_DEFAULT = {"on": False, "owner": "",
@@ -411,7 +411,7 @@ def _clean_fvg(p: dict) -> dict:
     o["lev"] = _num(p.get("lev"), 3, 1, 50, True)
     o["riskUsd"] = _num(p.get("riskUsd") or 0, 0.0, 0.0, 100000.0)
     o["maxPos"] = _num(p.get("maxPos"), 15, 1, 50, True)
-    o["universe"] = p.get("universe") if p.get("universe") in ("watchlist", "top60") else "watchlist"
+    o["universe"] = "top20" if p.get("universe") in ("top20", "top60") else "watchlist"   # 舊top60→top20相容
     return o
 
 
@@ -701,7 +701,7 @@ def _exec_signal_for_account(name, cfg, market, exchange, symbol, tf, k, d, sig,
             _skip(f"帳號「{owner}」沒有交易所金鑰，無法下單")
             return
         owner_syms = {(w.get("symbol") or "") for w in fvg_account_symbols(owner, cfg)}
-        if symbol not in owner_syms:                 # universe=top60(FVG) → 比對成交量前60;否則自選
+        if symbol not in owner_syms:                 # universe=top20(FVG) → 比對成交量前20;否則自選
             _skip(f"{symbol} 不在帳號「{owner}」的標的清單，跳過")
             return
 
@@ -1154,7 +1154,7 @@ def _fvg_surge_active(now_ts=None):
     return active
 
 
-_universe_cache = {"ts": 0.0, "syms": []}   # 成交量前60加密永續宇宙，24h 快取
+_universe_cache = {"ts": 0.0, "syms": []}   # 成交量前N(預設20)加密永續宇宙，24h 快取
 
 
 def top_crypto_universe(n=60):
@@ -1191,9 +1191,9 @@ def top_crypto_universe(n=60):
 
 
 def fvg_account_symbols(name, fvg_cfg):
-    """此帳號 FVG 要掃/掛的標的(watchlist 格式)：universe=top60 → 成交量前60;否則該帳號自選。"""
-    if (fvg_cfg or {}).get("universe") == "top60":
-        return top_crypto_universe(60)
+    """此帳號 FVG 要掃/掛的標的(watchlist 格式)：universe=top20 → 成交量前20;否則該帳號自選。"""
+    if (fvg_cfg or {}).get("universe") in ("top20", "top60"):
+        return top_crypto_universe(20)
     import routes.notify as notify
     return notify.account_watchlist(name)
 
@@ -1248,7 +1248,7 @@ def place_fvg_limit_ladder(name, cfg, market, exchange, symbol, tf, gap):
         if client is None:
             return
         if symbol not in {(w.get("symbol") or "") for w in fvg_account_symbols(name, cfg)}:
-            return                                   # universe=top60 → 比對成交量前60;否則自選
+            return                                   # universe=top20 → 比對成交量前20;否則自選
         bsym, scale = client.resolve_symbol(symbol)
         _hedge = _is_hedge(client)               # 雙向持倉 → 同幣多空各一槽；單向 → 同幣只一組
         _psd = _posside(want, _hedge)

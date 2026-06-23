@@ -157,7 +157,7 @@ function _trdRenderOverview() {
   _set("#fvgMax", fv.maxPos ?? 15);
   if ($("#fvgDirs")) $("#fvgDirs").value = fv.dirs || "both";
   _btn("#fvgEntryBtn", fv.entry === "limit", fv.entry === "limit" ? "限價階梯" : "市價");
-  _btn("#fvgUniverse", fv.universe === "top60", fv.universe === "top60" ? "成交量前60" : "自選");
+  _btn("#fvgUniverse", fv.universe === "top20" || fv.universe === "top60", (fv.universe === "top20" || fv.universe === "top60") ? "成交量前20" : "自選");
   _btn("#fvgHedge", _TRD.st && _TRD.st.hedge, (_TRD.st && _TRD.st.hedge) ? "雙向" : "單向");
   // 倉位模式（兩頁各自）：riskUsd>0 → 止損算槓桿
   const _af = document.activeElement;
@@ -254,7 +254,7 @@ function _trdSaveAuto() {
     usdt: num("#fvgUsdt", 50), lev: num("#fvgLev", 3),
     riskUsd: fvRisk ? Math.max(0, num("#fvgRisk", 0)) : 0,
     maxPos: num("#fvgMax", 15),
-    universe: $("#fvgUniverse")?.classList.contains("sel") ? "top60" : "watchlist",
+    universe: $("#fvgUniverse")?.classList.contains("sel") ? "top20" : "watchlist",
   };
   delete a.sigs; delete a.tfs; delete a.usdt; delete a.lev; delete a.riskUsd;   // 清掉舊扁平殘留
   delete a.maxPos; delete a.maxAdds; delete a.slPct; delete a.perSym; delete a.fvgEntry; delete a.dirs;
@@ -586,7 +586,7 @@ function _trdBuildPopup() {
       <div class="trd-strat-page trd-sp-fvg">
         <div class="trd-sal-cell"><label>啟用 FVG<small>失衡缺口（固定 1h、限價階梯 止損2W/止盈6W）</small></label><button id="fvgOn" class="trd-chip trd-sal-btn">關</button></div>
         <div class="trd-sal-cell"><label>進場模式<small>市價＝收盤確認保證成交(3W/6W)；限價＝缺口三檔⅓掛單(2W/6W、影線版，帳面更高但成交率未實證)</small></label><button id="fvgEntryBtn" class="trd-chip trd-sal-btn">市價</button></div>
-        <div class="trd-sal-cell"><label>標的來源<small>自選＝你的合約自選清單；成交量前60＝自動取前60大加密永續(排除黃金/RWA，每日更新，不必自選)</small></label><button id="fvgUniverse" class="trd-chip trd-sal-btn">自選</button></div>
+        <div class="trd-sal-cell"><label>標的來源<small>自選＝你的合約自選清單；成交量前20＝自動取前20大加密永續(排除黃金/RWA，每日更新，不必自選)</small></label><button id="fvgUniverse" class="trd-chip trd-sal-btn">自選</button></div>
         <div class="trd-sal-cell"><label>持倉模式<small>⚠帳號級！雙向＝同幣可多空各一倉(FVG雙槽、追月均20%需要)；建議專用帳號、勿與 ss 混用</small></label><button id="fvgHedge" class="trd-chip trd-sal-btn">單向</button></div>
         <div class="trd-sub trd-grp-hd">倉位</div>
         <div class="trd-seg trd-amode" id="fvgMode">
@@ -733,13 +733,13 @@ function _trdBuildPopup() {
     b.classList.toggle("sel"); b.textContent = b.classList.contains("sel") ? "限價階梯" : "市價";
     _trdSaveAuto();
   });
-  // FVG 標的來源（自選／成交量前60）
+  // FVG 標的來源（自選／成交量前20）
   pop.querySelector("#fvgUniverse")?.addEventListener("click", e => {
     e.stopPropagation();
     const b = e.currentTarget;
     if (!b.classList.contains("sel") &&
-        !confirm("⚠ FVG 標的改『成交量前60』？\n自動取成交量前60大加密永續(COIN、排除黃金/RWA)，每日更新，不再用你的自選清單。回測顯示 edge 對宇宙不敏感、分散夠。確定改？")) return;
-    b.classList.toggle("sel"); b.textContent = b.classList.contains("sel") ? "成交量前60" : "自選";
+        !confirm("⚠ FVG 標的改『成交量前20』？\n自動取成交量前20大加密永續(COIN、排除黃金/RWA)，每日更新，不再用你的自選清單。回測:前20大幣 edge 最扎實、成交率最可靠。確定改？")) return;
+    b.classList.toggle("sel"); b.textContent = b.classList.contains("sel") ? "成交量前20" : "自選";
     _trdSaveAuto();
   });
   pop.querySelector("#fvgHedge")?.addEventListener("click", async e => {

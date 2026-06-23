@@ -421,14 +421,14 @@ def _tick(last_seen: dict):
                 if tf in fresh_tfs:
                     combos.setdefault((mkt, exch, sym, tf), [])   # 確保此 combo 會被處理（無推播訂閱者）
 
-    # FVG universe=top60 帳號：把『成交量前60加密永續 × 1h』也納入掃描（不靠自選，標的由成交量自動決定）。
+    # FVG universe=top20 帳號：把『成交量前20加密永續 × 1h』也納入掃描（不靠自選，標的由成交量自動決定）。
     # 帳號層級的標的過濾在 place_fvg_limit_ladder / _exec_signal_for_account 的 gate（各帳號各自比對宇宙）。
     try:
         from routes.trade import top_crypto_universe
         if "1h" in fresh_tfs and any((c.get("fvg") or {}).get("on")
-                                     and (c.get("fvg") or {}).get("universe") == "top60"
+                                     and (c.get("fvg") or {}).get("universe") in ("top20", "top60")
                                      for _, c in auto_cfgs):
-            for w in top_crypto_universe(60):
+            for w in top_crypto_universe(20):
                 sym = w.get("symbol")
                 if sym:
                     combos.setdefault(("crypto", w.get("exchange") or "pionex", sym, "1h"), [])
