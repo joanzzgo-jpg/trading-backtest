@@ -186,6 +186,9 @@ _inited = False
 _auto_cache = {}                              # name -> {"ts":, "cfg":}（每帳號設定 10s 快取）
 _auto_all_cache = {"ts": 0.0, "rows": None}   # 所有「已開啟」帳號設定 [(name,cfg),...] 的 10s 快取
 _surge_cache = {"ts": 0.0, "v": False}        # FVG 爆量風控判定 60s 快取（見 _fvg_surge_active）
+# 爆量風控總開關（2026-06-23 使用者要求先關）：預設關閉=不暫停新單。
+# 要恢復：把預設改回 "0"，或在 Railway 設環境變數 FVG_SURGE_OFF=0。
+_SURGE_OFF = os.getenv("FVG_SURGE_OFF", "1").strip().lower() not in ("0", "", "false", "off", "no")
 
 
 def _ensure_db():
@@ -1132,6 +1135,8 @@ def _fvg_surge_active(now_ts=None):
     新進場筆數先爆到日均~2~2.5倍(雙向被洗、敗率衝68-72%)；此規則把最大回撤 177→151R(−15%)、
     報酬僅 −1.6%。base<1(資料太少/watchlist太小)→不啟用，避免冷啟誤判。60s 快取，絕不拋例外。"""
     global _surge_cache
+    if _SURGE_OFF:                              # 總開關關閉 → 永不暫停(使用者要求先關)
+        return False
     now = now_ts or time.time()
     if _surge_cache and now - _surge_cache["ts"] < 60:
         return _surge_cache["v"]
