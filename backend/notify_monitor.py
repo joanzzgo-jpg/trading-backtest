@@ -469,7 +469,9 @@ def _fvg_approach_scan():
         for sym, ent in list(_fvg_gap_cache.items()):
             if now - ent.get("ts", 0) > 4200:          # 快取 >70 分鐘未刷新 → 過時，丟棄等下次收盤
                 _fvg_gap_cache.pop(sym, None); continue
-            px = prices.get(sym)
+            # ⚠ 快取 key 是 app 格式(BTC/USDT.P)，prices 是 Binance 格式(BTCUSDT) → 必須轉換才查得到。
+            #   原本直接 prices.get(sym) 永遠回 None → 逼近掃描每筆被跳過、從不掛單(小時內逼近全漏)。
+            px = prices.get(sym.replace(".P", "").replace("/", "").upper())
             if px is None:
                 continue
             for g in ent.get("gaps") or []:
