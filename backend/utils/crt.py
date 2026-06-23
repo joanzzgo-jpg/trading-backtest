@@ -1395,9 +1395,9 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                 _wr = _W / (_tp0 if _d == "l" else _bt0)          # 缺口寬度占價格比
                 if _wr > 0.02:                                    # 寬度上限 2%：濾掉抱久擋路的超寬缺口
                     continue
-                if _wr > 0.012:                                   # 過寬(1.2%~2%)：上框+中間兩檔、止損下框−0.5W、止盈3W
+                if _wr > 0.012:                                   # 過寬(1.2%~2%)：上框+中間兩檔、止損框−0.5W、止盈3W
                     _lv = [_tp0, _mid] if _d == "l" else [_mid, _bt0]   # 不掛最深檔(多:bot/空:top＝跑太兇那側)
-                    _stp = _bt0 if _d == "l" else _tp0            # 止損=下框bot(多)／上框top(空)；回測比−0.5W更優
+                    _stp = (_bt0 - 0.5 * _W) if _d == "l" else (_tp0 + 0.5 * _W)  # 框−0.5W：同avgR但勝率26→34%、少被影線洗(2026-06-23同棒止損修正後重測)
                     _tp_far  = (_tp0 + 3.0 * _W) if _d == "l" else (_bt0 - 3.0 * _W)  # 3W：容量受限下幾乎=6W但命中率高、出場快、不堵小單
                     _tp_near = _tp_far                            # 過寬不做深檔拉近
                 else:                                             # 正常窄缺口：三檔階梯 + 6W 止盈 + 深檔拉近 2W

@@ -233,7 +233,7 @@ def _process_combo(market, exchange, symbol, tf, subs_here, now):
                     _wr = _W / (_top if _d == "l" else _bot)
                     if _wr > 0.012:                                        # 過寬門檻(與 place_fvg_limit_ladder 一致)
                         _gtp = (_top + 3 * _W) if _d == "l" else (_bot - 3 * _W)
-                        _gsl = _bot if _d == "l" else _top
+                        _gsl = (_bot - 0.5 * _W) if _d == "l" else (_top + 0.5 * _W)   # 框−0.5W(與掛單一致)
                     else:
                         _gtp = (_top + 6 * _W) if _d == "l" else (_bot - 6 * _W)
                         _gsl = (_bot - 2 * _W) if _d == "l" else (_top + 2 * _W)

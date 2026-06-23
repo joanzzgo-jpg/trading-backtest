@@ -1280,9 +1280,9 @@ def place_fvg_limit_ladder(name, cfg, market, exchange, symbol, tf, gap):
         if wr > 0.02:
             return
         _mid = (top + bot) / 2.0
-        if wr > 0.012:                                             # 過寬(1.2%~2%)：上框+中間、止損=框、止盈3W、不深檔拉近
+        if wr > 0.012:                                             # 過寬(1.2%~2%)：上框+中間、止損框−0.5W、止盈3W、不深檔拉近
             levels = [top, _mid] if want == "long" else [_mid, bot]
-            stop = bot if want == "long" else top
+            stop = (bot - 0.5 * W) if want == "long" else (top + 0.5 * W)   # 框−0.5W：同avgR但勝率↑、少被影線洗
             tp   = (top + 3 * W) if want == "long" else (bot - 3 * W)
         else:                                                     # 窄缺口：三檔、止損2W、止盈6W、可深檔拉近
             levels = [top, _mid, bot]
