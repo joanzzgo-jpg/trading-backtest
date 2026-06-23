@@ -1198,6 +1198,30 @@ def fvg_account_symbols(name, fvg_cfg):
     return notify.account_watchlist(name)
 
 
+def _fvg_gap_already_settled(symbol, gap_t, stop, tp, want) -> bool:
+    """掛單前二次防呆：抓最新 1h K線，確認此缺口的『止盈或止損』在缺口確認後是否已被觸及。
+    已觸及 → 此缺口設定已走完，不該再進場（修『吃到以前已止盈/止損的缺口』）。
+    用呼叫方算好的 stop/tp（與實際掛單同一組價位）；抓不到K線/無 gap_t → 回 False（放行，交給 1h 過濾）。
+    絕不拋例外。"""
+    try:
+        if not gap_t:
+            return False
+        from data.crypto import _fetch_binance_fapi
+        import pandas as _pd
+        df = _fetch_binance_fapi(symbol.replace(".P", ""), "1h", None, None, 300)   # 去 .P 永續後綴
+        if df is None or df.empty:
+            return False
+        _aft = df[df["time"] > _pd.Timestamp(gap_t)]            # 確認棒之後的 K
+        if _aft.empty:
+            return False
+        hh = _aft["high"]; ll = _aft["low"]
+        if want == "long":
+            return bool((hh >= tp).any() or (ll <= stop).any())
+        return bool((ll <= tp).any() or (hh >= stop).any())
+    except Exception:
+        return False
+
+
 def place_fvg_limit_ladder(name, cfg, market, exchange, symbol, tf, gap):
     """FVG 限價階梯版（影線版）進場：缺口 top/mid/bot 各掛 ⅓ 限價單(maker, GTC)。
     gap={"t","top","bot","d"}(圖表價)。只 1h、用此帳號自己金鑰/自選/方向過濾。SL/TP 不在此掛——
@@ -1265,6 +1289,11 @@ def place_fvg_limit_ladder(name, cfg, market, exchange, symbol, tf, gap):
             stop = (bot - 2 * W) if want == "long" else (top + 2 * W)
             tp   = (top + 6 * W) if want == "long" else (bot - 6 * W)
         _wide = wr > 0.012
+        # 已了結二次防呆：掛單前用最新K線確認此缺口的止盈/止損是否已觸及（修『吃到以前已止盈/止損的缺口』）。
+        # 覆蓋逼近掃描快取過時、1h 過濾漏網等所有路徑；用上面算好的 stop/tp（與實際掛單同一組）。抓不到→放行。
+        if _fvg_gap_already_settled(symbol, gap.get("t"), stop, tp, want):
+            print(f"  ⏭ FVG已了結跳過 {symbol}（{name}）：缺口止盈/止損已觸及，不再進場")
+            return
         risk_usd = cfg.get("riskUsd") or 0
         lev_cap = max(1, min(int(cfg["lev"]), 50))
         mid = _mid
