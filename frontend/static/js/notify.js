@@ -507,8 +507,16 @@ function _ntfRenderSummary() {
   if (!wrap) return;
   const s = _ntfTodayStats();
   if (!window._acctName || (!s.sigN && !s.autoN)) { wrap.innerHTML = ""; return; }
-  const pnlTxt = s.hasPnl
-    ? `<span class="${s.pnl >= 0 ? "sc-pos" : "sc-neg"}">${s.pnl >= 0 ? "+" : ""}${s.pnl.toFixed(2)}</span>`
+  // 盈虧優先取月曆今天那格（Binance 帳務淨額＝已實現+手續費+資金費，與月曆一致）；
+  // 月曆未載入才退回通知文字湊的估值（只 REALIZED_PNL、漏手續費/資金費 → 會跟月曆對不上）。
+  const _p = (n) => String(n).padStart(2, "0");
+  const _t = new Date();
+  const _todayKey = `${_t.getFullYear()}-${_p(_t.getMonth() + 1)}-${_p(_t.getDate())}`;
+  const _calToday = (_ntfCalData && (_todayKey in _ntfCalData)) ? _ntfCalData[_todayKey] : null;
+  const _pnl = _calToday != null ? _calToday : s.pnl;
+  const _hasPnl = _calToday != null || s.hasPnl;
+  const pnlTxt = _hasPnl
+    ? `<span class="${_pnl >= 0 ? "sc-pos" : "sc-neg"}">${_pnl >= 0 ? "+" : ""}${_pnl.toFixed(2)}</span>`
     : "—";
   wrap.innerHTML = `<div class="m-sig-summary">
     <span class="sc-day">今日</span>
@@ -712,6 +720,7 @@ function _ntfRenderCal() {
   cal.innerHTML = cells.join("");
   if (totalEl) totalEl.innerHTML =
     `本月 <b class="${sum >= 0 ? "m-sig-up" : "m-sig-dn"}">${sum >= 0 ? "+" : ""}${_ntfCalFmt(sum, 2)}</b> USDT · ${td} 交易日`;
+  try { _ntfRenderSummary(); } catch (e) {}     // 月曆載入後同步今日摘要盈虧（取月曆今天淨額→與月曆一致）
 }
 window._ntfLoadCal = _ntfLoadCal;
 
