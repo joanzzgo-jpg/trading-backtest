@@ -1369,7 +1369,7 @@ def reconcile_fvg_pending(market, exchange, symbol, tf):
                 conn, ph = _acct._db()
                 try:
                     rows = conn.execute(
-                        f"SELECT id, bsym, dir, sl, tp, extra FROM trade_log WHERE source='auto' AND sig='fvg' "
+                        f"SELECT id, bsym, dir, sl, tp, extra, ts FROM trade_log WHERE source='auto' AND sig='fvg' "
                         f"AND status='pending' AND acct={ph} AND symbol={ph} AND tf={ph}",
                         (name, symbol, tf)).fetchall()
                 finally:
@@ -1381,7 +1381,7 @@ def reconcile_fvg_pending(market, exchange, symbol, tf):
                     continue
                 bs0, scale = client.resolve_symbol(symbol)
                 _hedge = _is_hedge(client)
-                for row_id, bsym, d, sl_s, tp_s, extra_s in rows:
+                for row_id, bsym, d, sl_s, tp_s, extra_s, row_ts in rows:
                     _psd = _posside("short" if d == "s" else "long", _hedge)
                     try:
                         ex = json.loads(extra_s) if extra_s else {}
@@ -1479,6 +1479,14 @@ def reconcile_fvg_pending(market, exchange, symbol, tf):
                         _update_trade(row_id, "expired", "FVG限價 168 根未成交→撤單作廢")
                         _push_owner(name, f"⌛ FVG限價過期 · {symbol}", "缺口掛單一週未成交、已撤單作廢",
                                     symbol, tf=tf, event="atrade", sig="fvg", d=d, sigt=str(gt))
+                    elif oids and not (set(oids) & resting):
+                        # ③ 幽靈殘單：原本掛上的階梯限價單已不在交易所(手動撤單／測試網重置／交易所端取消)，
+                        #    又無持倉、未過期。若不清除 → place_fvg_limit_ladder 的 dedup 會永遠把此缺口判為
+                        #    「已掛過此缺口」而拒絕重掛，且持續佔用 maxPos → 整體「開了卻沒掛單」。
+                        #    防 race：剛掛的單交易所可能尚未回報 resting，故要求此列建立超過 180s 才判定為幽靈。
+                        if time.time() - (row_ts or 0) > 180:
+                            _update_trade(row_id, "failed", "FVG限價殘單已不在交易所(撤單/重置)→清除以利重掛")
+                            print(f"  🧹 FVG幽靈pending清除 {client.env}: {bsym}（交易所無此單/無持倉、釋放dedup與maxPos）")
             except Exception as e:
                 print(f"  ⚠ FVG限價對帳失敗 {name} {symbol}：{e}")
     except Exception as e:

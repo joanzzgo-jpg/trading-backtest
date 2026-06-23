@@ -29,8 +29,10 @@
   推導 applicationServerKey 給前端 subscribe。詳見「Web Push 訊號通知」節。
 - `BINANCE_TRADE_API_KEY`/`BINANCE_TRADE_API_SECRET`：Binance USDⓈ-M 永續**下單**金鑰
   （`utils/binance_trade.py`）。未設定 → 交易功能整組停用、前端入口自動隱藏。
-- `BINANCE_TRADE_ENV`：`testnet`（預設，https://testnet.binancefuture.com，金鑰到
-  https://testnet.binancefuture.com 登入後 API Key 頁產生）或 `live`（實盤真錢）。
+- `BINANCE_TRADE_ENV`：`testnet`（預設，新版測試網 https://demo-fapi.binance.com，金鑰到
+  後台 https://demo.binance.com → API 管理頁產生）或 `live`（實盤真錢）。
+  ※ 2026-06 起 Binance 把合約測試網由舊 testnet.binancefuture.com 遷到新 demo 平台；
+  舊域名屬「舊版」會被淘汰，新版測試網**需另建一組金鑰**。
 - `TRADE_ACCESS_KEY`：交易口令。站是公開多人用 → 除 `/api/trade/status` 外所有交易端點都要求
   此口令（前端輸入一次存 localStorage["tradeKey"]）。**Railway 上沒設此值 → 交易端點一律 403**
   （避免任何訪客動到下單）；本機開發無此值可直用。

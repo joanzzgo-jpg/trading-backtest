@@ -21,7 +21,10 @@ from urllib.parse import urlencode
 import requests
 
 LIVE_BASE    = "https://fapi.binance.com"
-TESTNET_BASE = "https://testnet.binancefuture.com"
+# 2026-06：Binance 把合約測試網由舊 testnet.binancefuture.com 遷到新版 demo 平台
+# （後台 demo.binance.com / API 域名 demo-fapi.binance.com）。兩者目前同帳號同資料，
+# 但舊域名屬「舊版」會被淘汰 → 改用新域名。新版測試網需在 demo.binance.com 另建金鑰。
+TESTNET_BASE = "https://demo-fapi.binance.com"
 
 # env 金鑰（給擁有者帳號 qwer 用；其他帳號各自綁自己的）
 _ENV_API_KEY    = (os.getenv("BINANCE_TRADE_API_KEY") or "").strip()
