@@ -421,6 +421,20 @@ def _tick(last_seen: dict):
                 if tf in fresh_tfs:
                     combos.setdefault((mkt, exch, sym, tf), [])   # 確保此 combo 會被處理（無推播訂閱者）
 
+    # FVG universe=top60 帳號：把『成交量前60加密永續 × 1h』也納入掃描（不靠自選，標的由成交量自動決定）。
+    # 帳號層級的標的過濾在 place_fvg_limit_ladder / _exec_signal_for_account 的 gate（各帳號各自比對宇宙）。
+    try:
+        from routes.trade import top_crypto_universe
+        if "1h" in fresh_tfs and any((c.get("fvg") or {}).get("on")
+                                     and (c.get("fvg") or {}).get("universe") == "top60"
+                                     for _, c in auto_cfgs):
+            for w in top_crypto_universe(60):
+                sym = w.get("symbol")
+                if sym:
+                    combos.setdefault(("crypto", w.get("exchange") or "pionex", sym, "1h"), [])
+    except Exception as e:
+        print(f"  ⚠ 取成交量宇宙(掃描)失敗：{e}")
+
     # 診斷：每次有新棒收盤印一次掃描概況（看訊號通知/自動交易斷在哪）。combos=0 表示沒東西掃。
     try:
         print(f"  📡 monitor: 訂閱{len(subs)} 自動帳號{len(auto_cfgs)} active_tfs{sorted(active_tfs)} "
