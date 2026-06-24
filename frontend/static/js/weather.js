@@ -2764,7 +2764,7 @@
     const cols = Math.ceil(W / ts), rows = Math.ceil(H / ts);
     if (!_bearFlashNext) _bearFlashNext = t + 0.4;
     if (t >= _bearFlashNext) {
-      const n = 6 + Math.floor(Math.random() * 6);                                // 每波 6~11 隻(亮的數量加多)
+      const n = 6 + Math.floor(Math.random() * 25);                               // 每波 6~30 隻
       for (let i = 0; i < n; i++) {
         _bearFlashes.push({
           cx: Math.floor(Math.random() * cols), cy: Math.floor(Math.random() * rows),
