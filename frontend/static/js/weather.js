@@ -2728,7 +2728,7 @@
   const _GRID = 6;
   let _bearRot = [];                                   // 6×6 各格旋轉(0~3)→ 亮起時方向與牆紙一致
   let _bearFlashes = [], _bearFlashNext = 0;           // 進行中的脈衝 / 下次生成時間
-  let _bearWallOn = (localStorage.getItem("bearWallOff") !== "1");  // 牆紙開關(預設開)；關→「無」呈現全空
+  let _bearFlashOn = (localStorage.getItem("bearFlashOff") !== "1");  // 閃爍開關(預設開)；關→靜止牆紙保留、只是不亮
   let _bearGold = null;                                 // 金色版熊(亮起時用)：熊形狀填金色
   function _buildGoldBear() {
     const gc = document.createElement("canvas"); gc.width = _bearImg.width; gc.height = _bearImg.height;
@@ -2742,7 +2742,7 @@
   }
   (function () { _bearImg = new Image(); _bearImg.onload = () => { _bearReady = true; _buildGoldBear(); }; _bearImg.src = "/static/img/bear-bg.png"; })();
   function _drawBearTiles(t) {
-    if (!_bearReady || !_bearWallOn) return;
+    if (!_bearReady) return;
     const g = _layers.mid.ctx;
     const ts = Math.round(Math.max(22, Math.min(38, Math.min(W, H) * 0.04)));    // 單格邊長(再縮半→數量再×4)
     if (_bearTileSize !== ts || !_bearPat) {
@@ -2771,7 +2771,8 @@
     g.fillRect(0, 0, W, H);
     g.restore();
 
-    // ── 動態：每秒挑幾隻熊亮一下（脈衝發光，淡入淡出）──
+    // ── 動態：每秒挑幾隻熊亮一下（脈衝發光，淡入淡出）；開關關閉→只保留靜止牆紙 ──
+    if (!_bearFlashOn) { _bearFlashes.length = 0; return; }
     const cols = Math.ceil(W / ts), rows = Math.ceil(H / ts);
     if (!_bearFlashNext) _bearFlashNext = t + 0.4;
     if (t >= _bearFlashNext) {
@@ -3139,14 +3140,14 @@
   window._tornadoToggle = () => _toggleWx("tornado");
   window._quakeToggle   = () => _toggleWx("quake");
   window._auroraToggle  = () => _toggleWx("aurora");
-  // 熊牆紙開關（topbar「1M」左側按鈕）：關掉「無」天氣時的橘子熊磁磚＋亮起動畫
+  // 熊閃爍開關（topbar「1M」左側按鈕）：只關「無」天氣時熊磁磚的金色亮起，靜止牆紙保留
   function _syncBearWallBtn() {
     const b = document.getElementById("bearWallToggleBtn");
-    if (b) b.classList.toggle("bearwall-off", !_bearWallOn);
+    if (b) b.classList.toggle("bearwall-off", !_bearFlashOn);
   }
   window._bearWallToggle = function () {
-    _bearWallOn = !_bearWallOn;
-    try { localStorage.setItem("bearWallOff", _bearWallOn ? "0" : "1"); } catch (e) {}
+    _bearFlashOn = !_bearFlashOn;
+    try { localStorage.setItem("bearFlashOff", _bearFlashOn ? "0" : "1"); } catch (e) {}
     _bearFlashes = [];                                   // 關閉立即清掉殘餘脈衝
     _syncBearWallBtn();
   };
