@@ -2729,7 +2729,18 @@
   let _bearRot = [];                                   // 6×6 各格旋轉(0~3)→ 亮起時方向與牆紙一致
   let _bearFlashes = [], _bearFlashNext = 0;           // 進行中的脈衝 / 下次生成時間
   let _bearWallOn = (localStorage.getItem("bearWallOff") !== "1");  // 牆紙開關(預設開)；關→「無」呈現全空
-  (function () { _bearImg = new Image(); _bearImg.onload = () => { _bearReady = true; }; _bearImg.src = "/static/img/bear-bg.png"; })();
+  let _bearGold = null;                                 // 金色版熊(亮起時用)：熊形狀填金色
+  function _buildGoldBear() {
+    const gc = document.createElement("canvas"); gc.width = _bearImg.width; gc.height = _bearImg.height;
+    const x = gc.getContext("2d");
+    x.drawImage(_bearImg, 0, 0);                        // 先畫熊
+    x.globalCompositeOperation = "source-in";          // 只在熊的不透明像素上著色
+    const lg = x.createLinearGradient(0, 0, 0, gc.height);
+    lg.addColorStop(0, "#FFE79A"); lg.addColorStop(0.5, "#FFD24A"); lg.addColorStop(1, "#F2A93B");  // 亮金漸層
+    x.fillStyle = lg; x.fillRect(0, 0, gc.width, gc.height);
+    _bearGold = gc;
+  }
+  (function () { _bearImg = new Image(); _bearImg.onload = () => { _bearReady = true; _buildGoldBear(); }; _bearImg.src = "/static/img/bear-bg.png"; })();
   function _drawBearTiles(t) {
     if (!_bearReady || !_bearWallOn) return;
     const g = _layers.mid.ctx;
@@ -2787,7 +2798,7 @@
       g.translate(f.cx * ts + ts / 2, f.cy * ts + ts / 2);
       g.rotate(r * Math.PI / 2);
       const s = 1 + 0.18 * glow;                                                  // 略放大增強亮感
-      g.drawImage(_bearImg, -bw2 * s / 2, -bh2 * s / 2, bw2 * s, bh2 * s);
+      g.drawImage(_bearGold || _bearImg, -bw2 * s / 2, -bh2 * s / 2, bw2 * s, bh2 * s);  // 亮起=金色熊
       g.restore();
     }
     g.restore();
