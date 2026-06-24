@@ -6818,17 +6818,25 @@ html.perf-mode .sys-acct-logout { background: #F5F5F5; color: #1F1F1F; border-co
 .lunar-overlay {
   position: fixed; inset: 0; z-index: 12000;
   display: flex; align-items: center; justify-content: center;
-  background: rgba(8, 5, 3, 0.6); backdrop-filter: blur(3px);
+  background: rgba(8, 5, 3, 0.55);
+  backdrop-filter: blur(8px) saturate(1.05); -webkit-backdrop-filter: blur(8px) saturate(1.05);
   opacity: 0; pointer-events: none; transition: opacity .28s ease;
 }
 .lunar-overlay.on { opacity: 1; pointer-events: auto; }
 .lunar-card {
-  width: min(92vw, 360px); box-sizing: border-box;
+  width: min(92vw, 360px); box-sizing: border-box; overflow: hidden;
   background: linear-gradient(165deg, #6E5240 0%, #4A3528 50%, #2C1E17 100%);  /* 暖棕漸層：上亮下深、色差拉開才看得出層次 */
-  border: 1px solid rgba(255, 145, 71, 0.28); border-radius: 14px;
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255,145,71,.10) inset;
+  border: 1px solid rgba(255, 145, 71, 0.30); border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6), 0 0 40px rgba(255, 145, 71, 0.12),
+              0 1px 0 rgba(255, 220, 180, 0.15) inset;
   padding: 18px 18px 16px; position: relative; color: var(--text);
-  transform: translateY(10px) scale(.97); transition: transform .28s cubic-bezier(.2,.9,.3,1.2);
+  transform: translateY(10px) scale(.97); transition: transform .3s cubic-bezier(.2,.9,.3,1.2);
+}
+/* 頂部暖橘柔光 → 卡片更立體有質感 */
+.lunar-card::before {
+  content: ""; position: absolute; left: 0; right: 0; top: 0; height: 120px;
+  background: radial-gradient(120% 90px at 50% 0%, rgba(255,145,71,.22), transparent 70%);
+  pointer-events: none;
 }
 .lunar-overlay.on .lunar-card { transform: translateY(0) scale(1); }
 .lunar-close {
@@ -6837,7 +6845,12 @@ html.perf-mode .sys-acct-logout { background: #F5F5F5; color: #1F1F1F; border-co
   line-height: 1; cursor: pointer; border-radius: 50%;
 }
 .lunar-close:hover { background: var(--bg4); color: var(--text); }
-.lunar-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.lunar-head {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
+  padding-bottom: 9px; position: relative;
+  border-bottom: 1px solid transparent;
+  border-image: linear-gradient(90deg, transparent, rgba(255,145,71,.45), transparent) 1;
+}
 .lunar-bear { width: 38px; height: 38px; object-fit: contain; }
 .lunar-title { font-size: 18px; font-weight: 800; letter-spacing: .08em; color: var(--accent); }
 .lunar-solar { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
