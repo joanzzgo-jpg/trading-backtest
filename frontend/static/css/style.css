@@ -6824,7 +6824,7 @@ html.perf-mode .sys-acct-logout { background: #F5F5F5; color: #1F1F1F; border-co
 .lunar-overlay.on { opacity: 1; pointer-events: auto; }
 .lunar-card {
   width: min(92vw, 360px); box-sizing: border-box;
-  background: linear-gradient(170deg, #5A4234 0%, #4A3528 55%, #3B2920 100%);  /* 比 --bg4 再亮一階的暖棕，卡片底淡些 */
+  background: linear-gradient(165deg, #6E5240 0%, #4A3528 50%, #2C1E17 100%);  /* 暖棕漸層：上亮下深、色差拉開才看得出層次 */
   border: 1px solid rgba(255, 145, 71, 0.28); border-radius: 14px;
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255,145,71,.10) inset;
   padding: 18px 18px 16px; position: relative; color: var(--text);
