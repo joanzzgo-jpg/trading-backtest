@@ -6824,8 +6824,8 @@ html.perf-mode .sys-acct-logout { background: #F5F5F5; color: #1F1F1F; border-co
 .lunar-overlay.on { opacity: 1; pointer-events: auto; }
 .lunar-card {
   width: min(92vw, 360px); box-sizing: border-box;
-  background: linear-gradient(170deg, #EBDAB8 0%, #DEC9A2 100%);
-  border: 1px solid #CBAB73; border-radius: 16px;
+  background: linear-gradient(170deg, #D8C5A0 0%, #C9B488 100%);
+  border: 1px solid #B89A63; border-radius: 16px;
   box-shadow: 0 18px 50px rgba(120, 70, 20, 0.35), 0 2px 0 #fff inset;
   padding: 18px 18px 16px; position: relative; color: #5A3E1B;
   font-family: "Noto Serif TC", "Songti TC", serif;
