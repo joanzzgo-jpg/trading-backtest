@@ -2756,8 +2756,45 @@
     draw(_animClock * 0.001);
   }
   let _inited = false;
+
+  // ── 換場交叉溶解 ───────────────────────────────────────────────
+  // 兩個天氣型態之間原本是硬切（_init() 把所有粒子瞬間重隨機 → 畫面跳動）。
+  // 改法：切換前把「舊場景」當前畫面合成快照到一張覆蓋層(疊在最上、繼承 stage 透明度)，
+  // 新場景在底下照常重建，覆蓋層用 CSS opacity 淡出 → 兩態平滑交融。
+  let _xfCv = null, _xfHideTimer = null;
+  function _crossfade() {
+    if (!W || !H) return;
+    if (!_xfCv) {
+      _xfCv = document.createElement("canvas");
+      _xfCv.className = "wx-xfade";
+      _xfCv.style.cssText = "position:absolute;inset:0;width:100%;height:100%;" +
+        "transform:translateZ(0);pointer-events:none;z-index:20;opacity:0;";
+      stage.appendChild(_xfCv);
+    }
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    _xfCv.width = Math.round(W * dpr); _xfCv.height = Math.round(H * dpr);
+    const xc = _xfCv.getContext("2d");
+    xc.setTransform(dpr, 0, 0, dpr, 0, 0);
+    xc.clearRect(0, 0, W, H);
+    // 依 DOM 疊放順序把每層 canvas 合成上來（手機層共用也沒問題，用實際 DOM 節點去重）
+    stage.querySelectorAll("canvas.wx-layer").forEach(cv => {
+      try { xc.drawImage(cv, 0, 0, W, H); } catch (e) {}
+    });
+    // 先即時顯示舊畫面（關掉 transition 直接到 1），下一幀起才淡出（此時新場景已在底下重建）
+    if (_xfHideTimer) { clearTimeout(_xfHideTimer); _xfHideTimer = null; }
+    _xfCv.style.display = "block";
+    _xfCv.style.transition = "none";
+    _xfCv.style.opacity = "1";
+    void _xfCv.offsetWidth;                 // 強制 reflow 套用 opacity:1
+    _xfCv.style.transition = "opacity .55s ease";
+    _xfCv.style.opacity = "0";
+    _xfHideTimer = setTimeout(() => { if (_xfCv) _xfCv.style.display = "none"; }, 620);
+  }
+
   function start(wt) {
     const changed = wt !== type || !_inited;
+    // 真正換型態(非首次、非進出「無」)→ 先快照舊場景做交叉溶解，遮住粒子瞬間重建的跳動
+    if (changed && _inited && wt !== "off" && type !== "off") _crossfade();
     // 進入下雨類型時把雨勢 ramp 歸零 → 之後在 dRain 緩升（雨水漸起感）
     const rainy = w => w==='rain'||w==='storm'||w==='drizzle';
     if (rainy(wt) && !rainy(type)) _rainRamp = 0;
