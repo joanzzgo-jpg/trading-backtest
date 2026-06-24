@@ -274,7 +274,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   };
   "requestIdleCallback" in window
-    ? requestIdleCallback(_loadFx, { timeout: 3000 })
-    : setTimeout(_loadFx, 1500);
+    ? requestIdleCallback(_loadFx, { timeout: 1200 })   // 縮短:天氣背景早點出現(刷新後別空白5秒);仍讓出首屏給圖表
+    : setTimeout(_loadFx, 500);
 });
 

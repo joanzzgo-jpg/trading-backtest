@@ -3026,8 +3026,14 @@
   resize();
   _initParallax();
   setInterval(_applyAutoType, 60000);   // 每分鐘重評自動天氣（讓晚霞在日落時段自動出現/退場）
-  // 不在這裡 start()——等 fetchWeather 回來再用真實 _wd 啟動，
-  // 避免「先用預設值畫一次→拿到 API 又重畫」造成的閃爍/位移
+  // 立刻先畫一個背景，別等 fetchWeather（定位+API 冷啟動可達 5 秒）才 start()——
+  // 否則「刷新後天氣背景空白好幾秒」。優先恢復上次手動選擇，否則用時段自動預設(晴/夜)。
+  // 拿到真實天氣後 fetchWeather 會再 start() 一次平滑切換（start 同型即 no-op，型別不同才重建，不位移）。
+  if (!_isManualOn() && !window._restoreManualWxIfAny?.()) {
+    const _m0 = _locNowMin();   // 本地時段(經度近似)：夜間先起 night 而非亮晴空，避免亮閃
+    _wd.isDay = (_m0 >= _wd.sunRiseMin && _m0 < _wd.sunSetMin);
+    start(_wd.isDay ? _resolveAutoType() : 'night');
+  }
 
   // ── 天氣定位 ────────────────────────────────────────────────
   // 修：舊版第一次成功就把座標永久快取、之後每次都只讀快取「不再更新」→ 使用者移到
