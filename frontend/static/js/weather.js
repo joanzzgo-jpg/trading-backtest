@@ -2729,13 +2729,21 @@
   function _drawBearTiles(t) {
     if (!_bearReady) return;
     const g = _layers.mid.ctx;
-    const ts = Math.round(Math.max(86, Math.min(150, Math.min(W, H) * 0.16)));   // 磁磚邊長
-    if (_bearTileSize !== ts || !_bearPat) {                                      // 熊置中+四周留白 → 磁磚化
+    const ts = Math.round(Math.max(86, Math.min(150, Math.min(W, H) * 0.16)));   // 單格邊長
+    if (_bearTileSize !== ts || !_bearPat) {
       _bearTileSize = ts;
-      const tc = document.createElement("canvas"); tc.width = ts; tc.height = ts;
+      // 拼 4×4 區塊：每格一隻熊、隨機朝 東/南/西/北(0/90/180/270°)→ repeat 此區塊(重複週期大、不易看出)
+      const GRID = 4, bs = ts * GRID;
+      const tc = document.createElement("canvas"); tc.width = bs; tc.height = bs;
       const tcx = tc.getContext("2d");
       const bw2 = ts * 0.72, bh2 = bw2 * (_bearImg.height / _bearImg.width);
-      tcx.drawImage(_bearImg, (ts - bw2) / 2, (ts - bh2) / 2, bw2, bh2);
+      for (let gy = 0; gy < GRID; gy++) for (let gx = 0; gx < GRID; gx++) {
+        tcx.save();
+        tcx.translate(gx * ts + ts / 2, gy * ts + ts / 2);                        // 格中心
+        tcx.rotate((Math.floor(Math.random() * 4)) * Math.PI / 2);                // 隨機面向
+        tcx.drawImage(_bearImg, -bw2 / 2, -bh2 / 2, bw2, bh2);
+        tcx.restore();
+      }
       _bearPat = g.createPattern(tc, "repeat");
     }
     g.save();
