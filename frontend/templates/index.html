@@ -15,6 +15,9 @@
   <link rel="icon" type="image/png" href="/static/img/bear.png?v={{ ver }}"/>
   <link rel="preload" href="/static/img/bear.png?v={{ ver }}" as="image">
   <link rel="preload" href="/static/img/bear-full.png?v={{ ver }}" as="image">
+  <!-- 封面城堡圖：高優先預載 gate(初始顯示)、低優先預載 open(進場開門時切換用) → 載入更快、開門不卡 -->
+  <link rel="preload" href="/static/img/landing-castle-gate.webp?v={{ ver }}&c=4" as="image" fetchpriority="high">
+  <link rel="preload" href="/static/img/landing-castle-open.webp?v={{ ver }}&c=4" as="image" fetchpriority="low">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;500;700;800;900&family=Caveat:wght@700&display=swap" rel="stylesheet">
@@ -54,9 +57,9 @@
   <div class="landing-loc" id="landingLoc"></div>
   <div class="landing-logo"><span class="ll-main">AHH</span><span class="ll-sub">TRADING</span></div>
   <div class="landing-stage">
-    <img class="landing-art" src="/static/img/landing-castle-gate.png?v={{ ver }}&c=3"
-         data-closed="/static/img/landing-castle-gate.png?v={{ ver }}&c=3"
-         data-open="/static/img/landing-castle-open.png?v={{ ver }}&c=3"
+    <img class="landing-art" src="/static/img/landing-castle-gate.webp?v={{ ver }}&c=4"
+         data-closed="/static/img/landing-castle-gate.webp?v={{ ver }}&c=4"
+         data-open="/static/img/landing-castle-open.webp?v={{ ver }}&c=4"
          alt="橘子熊城堡" draggable="false" />
     <!-- 指向大門的手繪墨線箭頭（城堡風、略帶筆觸抖動） -->
     <div class="landing-arrow" aria-hidden="true">

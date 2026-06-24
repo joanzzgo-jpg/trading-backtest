@@ -2870,11 +2870,13 @@
     // 開場首頁上方：依天氣 API 顯示所在地（城市 + 溫度 + 天氣）
     const _lloc = document.getElementById('landingLoc');
     if (_lloc && _wd.city) {                                       // 兩層：城市+天氣 / 溫度+降雨機率（雨滴符號）
-      const _pop = (_wd.pop != null) ? '　<span class="lloc-pop">' + _wd.pop + '%</span>' : '';
-      const _popN = (_wd.popNow != null) ? '<span class="lloc-pop-now" title="此刻降雨機率">' + _wd.popNow + '%</span>' : '';
+      // 封面只顯示「此刻」當前小時降雨機率(沒有則退今日最大)：今日整天最大值常是午後尖峰，
+      // 此刻其實 0% → 封面若標一個大「今日100%」會被誤會成現在正在下雨(完整今日/此刻兩值留在天氣卡，已標籤)。
+      const _popVal = (_wd.popNow != null) ? _wd.popNow : _wd.pop;
+      const _pop = (_popVal != null) ? '　<span class="lloc-pop" title="此刻降雨機率">' + _popVal + '%</span>' : '';
       _lloc.innerHTML =
         '<span class="lloc-1">' + _wd.city + ' <span class="lloc-wx">' + desc + '</span></span>' +
-        '<span class="lloc-2">' + _wd.temp + '°C' + _pop + _popN + '</span>';
+        '<span class="lloc-2">' + _wd.temp + '°C' + _pop + '</span>';
     }
     // 大門上：國旗 + 草寫國名（在 .landing-stage 內 → 點門放大時隨門一起放大、鎖定畫面也保持顯示）
     const _lcountry = document.getElementById('landingCountry');
