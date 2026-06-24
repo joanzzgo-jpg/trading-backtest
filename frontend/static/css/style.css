@@ -6818,65 +6818,63 @@ html.perf-mode .sys-acct-logout { background: #F5F5F5; color: #1F1F1F; border-co
 .lunar-overlay {
   position: fixed; inset: 0; z-index: 12000;
   display: flex; align-items: center; justify-content: center;
-  background: rgba(20, 14, 8, 0.42); backdrop-filter: blur(3px);
+  background: rgba(8, 5, 3, 0.6); backdrop-filter: blur(3px);
   opacity: 0; pointer-events: none; transition: opacity .28s ease;
 }
 .lunar-overlay.on { opacity: 1; pointer-events: auto; }
 .lunar-card {
   width: min(92vw, 360px); box-sizing: border-box;
-  background: linear-gradient(170deg, #FFF7E6 0%, #FDEFD0 100%);
-  border: 1px solid #E6C98C; border-radius: 16px;
-  box-shadow: 0 18px 50px rgba(120, 70, 20, 0.35), 0 2px 0 #fff inset;
-  padding: 18px 18px 16px; position: relative; color: #5A3E1B;
-  font-family: "Noto Serif TC", "Songti TC", serif;
+  background: linear-gradient(170deg, var(--bg2) 0%, var(--bg) 100%);
+  border: 1px solid var(--border); border-radius: 14px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255,145,71,.08) inset;
+  padding: 18px 18px 16px; position: relative; color: var(--text);
   transform: translateY(10px) scale(.97); transition: transform .28s cubic-bezier(.2,.9,.3,1.2);
 }
 .lunar-overlay.on .lunar-card { transform: translateY(0) scale(1); }
 .lunar-close {
   position: absolute; top: 8px; right: 10px; width: 28px; height: 28px;
-  border: none; background: transparent; color: #9A744080; font-size: 22px;
+  border: none; background: transparent; color: var(--muted); font-size: 22px;
   line-height: 1; cursor: pointer; border-radius: 50%;
 }
-.lunar-close:hover { background: #00000010; color: #9A7440; }
+.lunar-close:hover { background: var(--bg4); color: var(--text); }
 .lunar-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
 .lunar-bear { width: 38px; height: 38px; object-fit: contain; }
-.lunar-title { font-size: 18px; font-weight: 800; letter-spacing: .08em; color: #B5481E; }
-.lunar-solar { font-size: 12.5px; color: #8A6A3A; margin-top: 2px; }
+.lunar-title { font-size: 18px; font-weight: 800; letter-spacing: .08em; color: var(--accent); }
+.lunar-solar { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
 .lunar-lunar {
   font-size: 22px; font-weight: 800; text-align: center; letter-spacing: .04em;
-  color: #6B4416; margin: 6px 0 10px;
+  color: var(--text); margin: 6px 0 10px;
 }
 .lunar-meta { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-bottom: 12px; }
 .lunar-chip {
-  font-size: 12px; background: #fff8; border: 1px solid #E6C98C;
-  border-radius: 999px; padding: 3px 9px; color: #6B4416;
+  font-size: 12px; background: var(--bg3); border: 1px solid var(--border);
+  border-radius: 999px; padding: 3px 9px; color: var(--text);
 }
 .lunar-yiji {
   display: flex; flex-direction: column; gap: 8px;
-  background: #FFFDF7; border: 1px dashed #E6C98C; border-radius: 12px; padding: 10px 12px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px;
 }
 .lunar-yi, .lunar-ji { display: flex; align-items: flex-start; gap: 8px; font-size: 14px; line-height: 1.5; }
 .lunar-tag {
   flex: 0 0 auto; width: 22px; height: 22px; border-radius: 6px; color: #fff;
   font-size: 13px; font-weight: 800; display: flex; align-items: center; justify-content: center;
 }
-.lunar-tag-yi { background: #2E9E5B; }
-.lunar-tag-ji { background: #C84B3A; }
-.lunar-yi-txt, .lunar-ji-txt { color: #5A3E1B; }
-.lunar-foot { margin-top: 10px; font-size: 11.5px; color: #97744Acc; text-align: center; line-height: 1.5; }
-html.perf-mode .lunar-card { font-family: inherit; }
+.lunar-tag-yi { background: var(--green); }
+.lunar-tag-ji { background: var(--red); }
+.lunar-yi-txt, .lunar-ji-txt { color: var(--text); }
+.lunar-foot { margin-top: 10px; font-size: 11.5px; color: var(--muted); text-align: center; line-height: 1.5; }
 /* 十二時辰吉凶格 */
 .lunar-hours-wrap { margin-top: 12px; }
-.lunar-hours-title { font-size: 12.5px; font-weight: 700; color: #8A6A3A; text-align: center; margin-bottom: 6px; letter-spacing: .06em; }
+.lunar-hours-title { font-size: 12.5px; font-weight: 700; color: var(--muted); text-align: center; margin-bottom: 6px; letter-spacing: .06em; }
 .lunar-hours { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; }
 .lunar-h {
   display: flex; flex-direction: column; align-items: center; gap: 1px;
   border-radius: 7px; padding: 4px 0 3px; border: 1px solid transparent;
 }
-.lunar-h.lh-ji   { background: #E9F6EE; color: #2E7D49; }
-.lunar-h.lh-xiong{ background: #F7E9E6; color: #B0463A; }
+.lunar-h.lh-ji   { background: rgba(38,166,154,.16); color: #5fd0c4; }
+.lunar-h.lh-xiong{ background: rgba(239,83,80,.15); color: #f08a88; }
 .lunar-h-name { font-size: 13px; font-weight: 800; }
-.lunar-h-luck { font-size: 10px; font-weight: 700; opacity: .8; }
-.lunar-h-time { font-size: 9px; opacity: .6; letter-spacing: -.02em; }
-.lunar-h.lh-now { border-color: #B5481E; box-shadow: 0 0 0 1px #B5481E inset; }
-.lunar-gods { margin-top: 10px; font-size: 11.5px; color: #8A6A3A; text-align: center; letter-spacing: .03em; }
+.lunar-h-luck { font-size: 10px; font-weight: 700; opacity: .85; }
+.lunar-h-time { font-size: 9px; opacity: .55; letter-spacing: -.02em; }
+.lunar-h.lh-now { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.lunar-gods { margin-top: 10px; font-size: 11.5px; color: var(--muted); text-align: center; letter-spacing: .03em; }
