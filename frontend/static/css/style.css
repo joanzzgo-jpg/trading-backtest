@@ -507,8 +507,14 @@ html.perf-mode .tb-icon-btn:hover svg { animation: none; transform: scale(1.1); 
 .tf-btn:hover  { background: var(--bg3); color: var(--text); }
 .tf-btn.active { background: var(--blue); color: #fff; font-weight: 600; }
 .tf-btn:disabled { opacity: 0.3; cursor: not-allowed; }
-/* 熊牆紙開關：emoji 按鈕；關閉時去飽和+變淡表示 OFF */
-.bearwall-btn { font-size: 14px; padding: 4px 6px; filter: none; opacity: 1; transition: opacity .12s, filter .12s; }
+/* 熊牆紙開關：emoji 按鈕(獨立樣式，不掛 .tf-btn 以免被時框點擊處理器攔截) */
+.bearwall-btn {
+  background: transparent; border: none; cursor: pointer;
+  padding: 4px 6px; border-radius: 4px; height: 26px; line-height: 1;
+  font-size: 14px; filter: none; opacity: 1;
+  transition: background .12s, opacity .12s, filter .12s;
+}
+.bearwall-btn:hover { background: var(--bg3); }
 .bearwall-btn.bearwall-off { filter: grayscale(1); opacity: .35; }
 
 /* Chart type buttons */
