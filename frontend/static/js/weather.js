@@ -2738,12 +2738,10 @@
       tcx.drawImage(_bearImg, (ts - bw2) / 2, (ts - bh2) / 2, bw2, bh2);
       _bearPat = g.createPattern(tc, "repeat");
     }
-    const ox = (t * 6) % ts, oy = (t * 4) % ts;                                   // 極緩斜向漂移
     g.save();
-    g.globalAlpha = 0.5;                                                          // 疊 stage 基礎透明度(0.28) → 很淡的牆紙
-    g.translate(-ox, -oy);
+    g.globalAlpha = 0.28;                                                         // 再低一些；疊 stage 基礎透明度(0.28) → 極淡牆紙
     g.fillStyle = _bearPat;
-    g.fillRect(0, 0, W + ts, H + ts);
+    g.fillRect(0, 0, W, H);                                                        // 靜止鋪滿（不漂移）
     g.restore();
   }
 
@@ -2781,47 +2779,17 @@
   }
   let _inited = false;
 
-  // ── 換場：火焰溶解（burn dissolve）───────────────────────────────
+  // ── 換場：淡化（cross-fade）─────────────────────────────────────
   // 兩個天氣型態之間原本是硬切（_init() 把所有粒子瞬間重隨機 → 畫面跳動）。
-  // 改法：切換前把「舊場景」當前畫面合成快照到覆蓋層，新場景在底下照常重建；
-  // 覆蓋層沿一條不規則「火線」逐漸燒掉（前緣熾熱橙黃、燒過即透空露出新場景）→ 像燃燒一樣消失。
-  let _xfCv = null, _xfRaf = null;
-  // 平滑 value noise（多八度 + 方向點火偏置）→ 火焰般不規則的燒蝕前緣（非電視雪花）。
-  function _burnNoise(w, h) {
-    const out = new Float32Array(w * h);
-    const oct = [[5, 0.6], [13, 0.28], [29, 0.12]];
-    for (let o = 0; o < oct.length; o++) {
-      const cells = oct[o][0], amp = oct[o][1], gw = cells + 1;
-      const g = new Float32Array(gw * gw);
-      for (let i = 0; i < g.length; i++) g[i] = Math.random();
-      for (let y = 0; y < h; y++) {
-        const fy = y / h * cells, iy = fy | 0, ty = fy - iy, sy = ty * ty * (3 - 2 * ty);
-        for (let x = 0; x < w; x++) {
-          const fx = x / w * cells, ix = fx | 0, tx = fx - ix, sx = tx * tx * (3 - 2 * tx);
-          const a = g[iy * gw + ix], b = g[iy * gw + ix + 1], c = g[(iy + 1) * gw + ix], d = g[(iy + 1) * gw + ix + 1];
-          const top = a + (b - a) * sx, bot = c + (d - c) * sx;
-          out[y * w + x] += (top + (bot - top) * sy) * amp;
-        }
-      }
-    }
-    // 方向點火偏置：火從隨機一側掃過去（不是整片同時起火）
-    const ang = Math.random() * 6.283, dx = Math.cos(ang), dy = Math.sin(ang);
-    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-      const r = ((x / w) * dx + (y / h) * dy + 1.5) / 3;
-      out[y * w + x] = out[y * w + x] * 0.68 + r * 0.42;
-    }
-    let mn = 1e9, mx = -1e9;
-    for (let i = 0; i < out.length; i++) { const v = out[i]; if (v < mn) mn = v; if (v > mx) mx = v; }
-    const rr = (mx - mn) || 1;
-    for (let i = 0; i < out.length; i++) out[i] = (out[i] - mn) / rr;
-    return out;
-  }
+  // 改法：切換前把「舊場景」當前畫面同步合成快照到覆蓋層(疊最上、繼承 stage 透明度)，
+  // 新場景在底下照常重建；覆蓋層純用 CSS opacity 淡出 → 舊景平滑溶入新景。
+  // 關鍵：快照「同步」畫好且立即 opacity:1，只靠 CSS 動透明度、不依賴 rAF 時序 →
+  //       不會出現「新場景先閃一幀、特效才接上」的問題。
+  let _xfCv = null, _xfHideTimer = null;
   function _crossfade() {
     if (!W || !H) return;
-    // 低解析緩衝：火線本就有機散邊，縮圖再由瀏覽器平滑放大 → 邊緣更柔、又省每幀像素運算
-    const LONG = _lowFx ? 240 : 360;
-    const sc = Math.min(1, LONG / Math.max(W, H));
-    const bw = Math.max(2, Math.round(W * sc)), bh = Math.max(2, Math.round(H * sc));
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const bw = Math.round(W * dpr), bh = Math.round(H * dpr);
     if (!_xfCv) {
       _xfCv = document.createElement("canvas");
       _xfCv.className = "wx-xfade";
@@ -2829,41 +2797,23 @@
         "transform:translateZ(0);pointer-events:none;z-index:20;";
       stage.appendChild(_xfCv);
     }
-    _xfCv.style.display = "block";
     _xfCv.width = bw; _xfCv.height = bh;
     const xc = _xfCv.getContext("2d");
-    xc.clearRect(0, 0, bw, bh);
-    // 依 DOM 疊放順序把每層 canvas 合成成「舊場景」快照（縮到緩衝大小）
+    xc.setTransform(dpr, 0, 0, dpr, 0, 0);
+    xc.clearRect(0, 0, W, H);
+    // 依 DOM 疊放順序把每層 canvas 同步合成成「舊場景」快照
     stage.querySelectorAll("canvas.wx-layer").forEach(cv => {
-      try { xc.drawImage(cv, 0, 0, bw, bh); } catch (e) {}
+      try { xc.drawImage(cv, 0, 0, W, H); } catch (e) {}
     });
-    const scene = xc.getImageData(0, 0, bw, bh), sd = scene.data;
-    const out = xc.createImageData(bw, bh), od = out.data;
-    const noise = _burnNoise(bw, bh);
-    const band = 0.16, dur = 1500;          // band=火線厚度；dur=燒完時間(放慢)
-    if (_xfRaf) cancelAnimationFrame(_xfRaf);
-    const t0 = (performance.now ? performance.now() : Date.now());
-    const step = (now) => {
-      const p = Math.min(1, (now - t0) / dur);
-      const T = -band + p * (1 + band);     // 火線門檻 -band→1：noise<T 已燒空、其上 band 內為熾熱前緣
-      for (let i = 0, q = 0; i < noise.length; i++, q += 4) {
-        const diff = noise[i] - T;
-        if (diff <= 0) { od[q + 3] = 0; }    // 已燒掉 → 透空（露出底下新場景）
-        else if (diff < band) {              // 熾熱前緣：越接近燒線越白熱(255,255,180)，外側回到原色
-          const m = 1 - diff / band, k = m * m;
-          od[q]     = sd[q]     + (255           - sd[q])     * k;
-          od[q + 1] = sd[q + 1] + ((70 + 185 * k) - sd[q + 1]) * k;
-          od[q + 2] = sd[q + 2] + ((30 + 150 * k * k) - sd[q + 2]) * k;
-          od[q + 3] = sd[q + 3];
-        } else {                             // 尚未燒到 → 原樣
-          od[q] = sd[q]; od[q + 1] = sd[q + 1]; od[q + 2] = sd[q + 2]; od[q + 3] = sd[q + 3];
-        }
-      }
-      xc.putImageData(out, 0, 0);
-      if (p < 1) { _xfRaf = requestAnimationFrame(step); }
-      else { _xfCv.style.display = "none"; _xfRaf = null; }
-    };
-    _xfRaf = requestAnimationFrame(step);
+    // 立即顯示舊畫面(關 transition 直接 opacity:1)，下一幀起才淡出(此時新場景已在底下重建)
+    if (_xfHideTimer) { clearTimeout(_xfHideTimer); _xfHideTimer = null; }
+    _xfCv.style.display = "block";
+    _xfCv.style.transition = "none";
+    _xfCv.style.opacity = "1";
+    void _xfCv.offsetWidth;                 // 強制 reflow 套用 opacity:1
+    _xfCv.style.transition = "opacity .9s ease";
+    _xfCv.style.opacity = "0";
+    _xfHideTimer = setTimeout(() => { if (_xfCv) _xfCv.style.display = "none"; }, 1000);
   }
 
   function start(wt) {
