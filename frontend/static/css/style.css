@@ -6826,7 +6826,7 @@ html.perf-mode .sys-acct-logout { background: #F5F5F5; color: #1F1F1F; border-co
 .lunar-card {
   width: min(92vw, 360px); box-sizing: border-box; overflow: hidden;
   /* 毛玻璃：半透明暖棕漸層 + 卡片自身模糊 → 背後內容朦朧透出 */
-  background: linear-gradient(165deg, rgba(110,82,64,.62) 0%, rgba(74,53,40,.60) 50%, rgba(44,30,23,.64) 100%);
+  background: linear-gradient(165deg, rgba(110,82,64,.20) 0%, rgba(74,53,40,.20) 50%, rgba(44,30,23,.22) 100%);
   backdrop-filter: blur(16px) saturate(1.15); -webkit-backdrop-filter: blur(16px) saturate(1.15);
   border: 1px solid rgba(255, 145, 71, 0.30); border-radius: 16px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6), 0 0 40px rgba(255, 145, 71, 0.12),
