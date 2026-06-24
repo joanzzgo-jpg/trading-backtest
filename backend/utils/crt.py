@@ -1304,8 +1304,9 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
     _fvg = []
     _fvg_sigs = []
     _gaplist = []          # (cf_bar, top, bot, dir) 給「接1次」cascade 進出場標記用
+    _bbgaps  = []          # (cf_bar, top, bot, dir) 給「布林外+FVG」均值回歸研究標記（不套 g+2 過濾，對齊 fvg_bb.py 回測）
     try:
-        _N = len(times_iso); _MS = 0.003
+        _N = len(times_iso); _MS = 0.001   # 視覺最小缺口 0.1%（自動交易訊號另設 0.3% 門檻，見下）
         _FRESH = 168          # 缺口新鮮度：確認後 168 根(1h=一週)內未回補 → 作廢、不產進場訊號
         _MAXHOLD = 200        # 最長持有：進場後 200 根仍未觸發止盈/止損 → 視為仍 live(不在此處強平)
         for _g in range(1, _N - 1):
@@ -1314,21 +1315,30 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             if any(_v != _v for _v in (_h0, _l0, _h2, _l2)):   # NaN
                 continue
             if _l2 > _h0 and (_l2 - _h0) / _h0 > _MS:          # 多頭缺口（支撐）
-                _dir, _top, _bot = "l", _l2, _h0
+                _dir, _top, _bot, _gw = "l", _l2, _h0, (_l2 - _h0) / _h0
             elif _h2 < _l0 and (_l0 - _h2) / _l0 > _MS:        # 空頭缺口（壓力）
-                _dir, _top, _bot = "s", _l0, _h2
+                _dir, _top, _bot, _gw = "s", _l0, _h2, (_l0 - _h2) / _l0
             else:
                 continue
-            # g+2 觸框過濾：缺口後下一根(g+2)觸及上框(多)/下框(空) → 缺口立刻被回碰=假突破，作廢。
-            # 回測驗證(1h 規格8幣 + 19幣):DD 腰斬(−10%→−6%)、報酬/DD 升 30~56%、保留缺口 avgR 更高。
-            if _g + 2 < _N:
-                if _dir == "l" and float(lows[_g+2])  <= _top: continue
-                if _dir == "s" and float(highs[_g+2]) >= _bot: continue
             _t2 = None                                          # 找回補點（價格重回缺口區）
             for _j in range(_g + 2, _N):
                 if _dir == "l" and float(lows[_j])  <= _top: _t2 = times_iso[_j]; break
                 if _dir == "s" and float(highs[_j]) >= _bot: _t2 = times_iso[_j]; break
-            _fvg.append({"t": times_iso[_g+1], "top": _top, "bot": _bot, "d": _dir, "t2": _t2})
+            _sweep = (_l0 < float(lows[_g]) and _l0 < _l2) if _dir == "l" else (_h0 > float(highs[_g]) and _h0 > _h2)
+            # 純 FVG 視覺色塊：每個失衡缺口(≥0.1%)都畫，不套 g+2 觸框過濾（使用者要求純 FVG）。
+            _fvg.append({"t": times_iso[_g+1], "top": _top, "bot": _bot, "d": _dir, "t2": _t2, "sweep": _sweep})
+
+            # 以下自動交易訊號 + cascade 標記維持 0.3% 最小寬度（行為不變；視覺色塊不受此限）。
+            if _gw < 0.003:
+                continue
+            _bbgaps.append((_g + 1, _top, _bot, _dir))   # 0.3%+ 缺口全收（不套 g+2），給布林外+FVG 研究標記
+
+            # g+2 觸框過濾：缺口後下一根(g+2)觸及上框(多)/下框(空) → 假突破，作廢。
+            #   ⚠ 只用於下方自動交易訊號(_fvg_sigs)＋cascade 標記，不影響上面的純 FVG 視覺色塊。
+            # 回測驗證(1h 規格8幣 + 19幣):DD 腰斬(−10%→−6%)、報酬/DD 升 30~56%、保留缺口 avgR 更高。
+            if _g + 2 < _N:
+                if _dir == "l" and float(lows[_g+2])  <= _top: continue
+                if _dir == "s" and float(highs[_g+2]) >= _bot: continue
             _gaplist.append((_g + 1, _top, _bot, _dir))
 
             # ── 收盤確認進場訊號（2W/6W 固定 SL/TP；與視覺盒一致）──────────────────
@@ -1369,11 +1379,146 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             _fvg_sigs.append({"k": "fvg", "d": _dir, "t": times_iso[_ei],
                               "entry": float(closes[_ei]), "stop": _stop, "tp": _tp,
                               "r": _r, "ot": _ot})
-        _fvg = _fvg[-300:]          # 限量，避免 payload 過大 / 畫面過雜
+        _fvg = _fvg[-12000:]        # 畫滿整窗（gzip 後約 ~200KB）；高保險值防病態 payload，實質不限量
         _fvg_sigs = _fvg_sigs[-200:]
     except Exception:
         _fvg = []
         _fvg_sigs = []
+
+    # ── 布林通道外 + FVG 進場點（均值回歸·研究用主圖標記，讓使用者目視驗證）──────────
+    #   對齊 /tmp/fvg_bb.py 回測：進場=缺口頂(top)、firsttouch 真過濾。
+    #   首次觸及進場價的那根 K，若同時在布林通道外同側(多:跌破下軌 low≤bb_lower／空:突破上軌 high≥bb_upper)
+    #   → 標進場；否則整筆放棄(不延後、不追)。止損 2W / 止盈 6W(W=top−bot)，模擬出勝/敗供色彩。
+    #   ⚠ 純研究視覺，獨立於自動交易；bb 缺(NaN)整段退空。
+    _fvg_bb = []; _fvg_bb_a = []; _fvg_bb_m = []
+    try:
+        _BUFb = 0.0005; _FRb = 168; _MHb = 200; _SSWIN = 3
+        # SS1（布林軌道反轉2棒·靠軌深半）旗標，index=B棒；進場「那附近」要有同向 SS1 才算確認。對齊 crt SS1 與 fvg_bb.py。
+        _ss1L = [False] * _N; _ss1S = [False] * _N
+        for _b in range(1, _N):
+            _a = _b - 1
+            _ub = bb_up[_b]; _mb = bb_mid[_b]; _lb = bb_lo[_b]
+            if _ub != _ub or _mb != _mb or _lb != _lb:   # NaN
+                continue
+            _ca = float(closes[_a]); _oa = float(opens[_a]); _la = float(lows[_a]); _ha = float(highs[_a])
+            _cb = float(closes[_b]); _ob = float(opens[_b]); _lkb = float(lows[_b]); _hb = float(highs[_b])
+            _lba = bb_lo[_a]; _uba = bb_up[_a]
+            # 多（下軌反轉）：A綠跌 B紅漲、B收>下軌、A/B任一觸下軌、B未碰中軌、SS1深(B收<(下+中)/2)
+            if (_ca < _oa) and (_cb > _ob) and (_cb > _lb) \
+               and ((_lba == _lba and _la <= _lba) or _lkb <= _lb) \
+               and (_hb < _mb) and (_cb < (_lb + _mb) / 2.0):
+                _ss1L[_b] = True
+            # 空（上軌反轉）：A紅漲 B綠跌、B收<上軌、A/B任一觸上軌、B未碰中軌、SS1(B收>(上+中)/2)
+            if (_ca > _oa) and (_cb < _ob) and (_cb < _ub) \
+               and ((_uba == _uba and _ha >= _uba) or _hb >= _ub) \
+               and (_lkb > _mb) and (_cb > (_ub + _mb) / 2.0):
+                _ss1S[_b] = True
+        # 出場模擬：抱到止損/止盈/超時；回 (出場棒, 勝敗, 出場價)。同棒先認止損(保守)。
+        def _simx(_fb, _d, _stp, _tgt):
+            _win = None; _xb = min(_N, _fb + _MHb) - 1
+            for _k in range(_fb + 1, min(_N, _fb + _MHb)):
+                _hk = float(highs[_k]); _lk = float(lows[_k])
+                if _hk != _hk or _lk != _lk:
+                    continue
+                if _d == "l":
+                    if _lk <= _stp: _win = False; _xb = _k; break
+                    if _hk >= _tgt: _win = True;  _xb = _k; break
+                else:
+                    if _hk >= _stp: _win = False; _xb = _k; break
+                    if _lk <= _tgt: _win = True;  _xb = _k; break
+            _xp = _stp if _win is False else (_tgt if _win is True else float(closes[_xb]))
+            return _xb, _win, _xp
+
+        _cands = []      # D版(三根止損+1.5R)
+        _cands_a = []    # A版(g-1止損+布林軌外1W)
+        for (_cf, _tp0, _bt0, _d) in _bbgaps:
+            _Wb = _tp0 - _bt0
+            if _Wb <= 0 or _cf < 2:
+                continue
+            _ep = _tp0
+            # 進場棒(首次觸框 + 那附近有同向SS1)，A/D 共用；D版無布林外閘
+            _fb = None
+            for _j in range(_cf + 1, min(_N, _cf + 1 + _FRb)):
+                _lj = float(lows[_j]); _hj = float(highs[_j])
+                if _lj != _lj or _hj != _hj:
+                    continue
+                _touch = (_lj <= _ep * (1 - _BUFb)) if _d == "l" else (_hj >= _ep * (1 + _BUFb))
+                if _touch:
+                    _ssf = _ss1L if _d == "l" else _ss1S
+                    if not any(_ssf[_k] for _k in range(max(0, _j - _SSWIN), _j + 1)):
+                        break
+                    _fb = _j
+                    break
+            if _fb is None:
+                continue
+            # ── D版：止損＝g-1/g-2/g-3 最低(多)/最高(空)、止盈＝1.5R（需 g-3=cf-4≥0）──
+            if _cf >= 4:
+                _stpD = min(float(lows[_cf-2]), float(lows[_cf-3]), float(lows[_cf-4])) if _d == "l" \
+                        else max(float(highs[_cf-2]), float(highs[_cf-3]), float(highs[_cf-4]))
+                if not ((_d == "l" and _stpD >= _ep) or (_d == "s" and _stpD <= _ep)):
+                    _tgtD = (_ep + 1.5*(_ep-_stpD)) if _d == "l" else (_ep - 1.5*(_stpD-_ep))
+                    _xb, _win, _xp = _simx(_fb, _d, _stpD, _tgtD)
+                    _cands.append((_fb, _xb, {"t": times_iso[_fb], "d": _d, "entry": _ep,
+                                              "stop": _stpD, "tp": _tgtD, "win": _win,
+                                              "xt": times_iso[_xb], "xp": _xp}))
+            # ── A版：止損＝g-1、止盈＝布林軌外1W(1W=進場棒布林軌到g-1距離)──
+            _g1 = float(lows[_cf-2]) if _d == "l" else float(highs[_cf-2])
+            _bandA = bb_lo[_fb] if _d == "l" else bb_up[_fb]
+            if _bandA == _bandA:                                   # 非 NaN
+                _oneW = (_bandA - _g1) if _d == "l" else (_g1 - _bandA)
+                _okstop = (_g1 < _ep) if _d == "l" else (_g1 > _ep)
+                if _oneW > 0 and _okstop:
+                    _tgtA = (_bandA + _oneW) if _d == "l" else (_bandA - _oneW)
+                    if (_d == "l" and _tgtA > _ep) or (_d == "s" and _tgtA < _ep):
+                        _xb, _win, _xp = _simx(_fb, _d, _g1, _tgtA)
+                        _cands_a.append((_fb, _xb, {"t": times_iso[_fb], "d": _d, "entry": _ep,
+                                                    "stop": _g1, "tp": _tgtA, "win": _win,
+                                                    "xt": times_iso[_xb], "xp": _xp}))
+        # busy 去重(逐方向、逐版本):一筆未出場前不開同向新單
+        def _dedup(_cl):
+            _cl.sort(key=lambda x: x[0])
+            _out = []; _lastx = {"l": -1, "s": -1}
+            for _fb, _xb, _rec in _cl:
+                if _fb <= _lastx[_rec["d"]]:
+                    continue
+                _out.append(_rec); _lastx[_rec["d"]] = _xb
+            return _out[-400:]
+        # ── 中軌分側順勢版(M)：多=形成時整個FVG在中軌上、空=在中軌下；首觸即進(無SS1/布林閘)；
+        #     止損=g與g-1兩根極值(多最低/空最高)；止盈=3W。分側只看FVG形成當下，之後價格跑到對側來填也算。
+        _cands_m = []
+        for (_cf, _tp0, _bt0, _d) in _bbgaps:
+            _Wb = _tp0 - _bt0
+            if _Wb <= 0 or _cf < 2:
+                continue
+            _m = bb_mid[_cf - 1]                                # 形成時(g棒)中軌
+            if _m != _m:
+                continue
+            if (_d == "l" and _bt0 < _m) or (_d == "s" and _tp0 > _m):
+                continue
+            _ep = _tp0
+            _fbm = None
+            for _j in range(_cf + 1, min(_N, _cf + 1 + _FRb)):  # 首次觸框即進
+                _lj = float(lows[_j]); _hj = float(highs[_j])
+                if _lj != _lj or _hj != _hj:
+                    continue
+                if (_lj <= _ep) if _d == "l" else (_hj >= _ep):  # 影線碰邊即算(取消BUF),碰過作廢→只認首次
+                    _fbm = _j; break
+            if _fbm is None:
+                continue
+            _stpm = min(float(lows[_cf-1]), float(lows[_cf-2])) if _d == "l" \
+                    else max(float(highs[_cf-1]), float(highs[_cf-2]))
+            if (_d == "l" and _stpm >= _ep) or (_d == "s" and _stpm <= _ep):
+                continue
+            _tgtm = (_ep + 4.0 * _Wb) if _d == "l" else (_ep - 4.0 * _Wb)  # 止盈4W(使用者要求看4W)
+            _xb, _win, _xp = _simx(_fbm, _d, _stpm, _tgtm)
+            _cands_m.append((_fbm, _xb, {"t": times_iso[_fbm], "d": _d, "entry": _ep,
+                                         "stop": _stpm, "tp": _tgtm, "win": _win,
+                                         "xt": times_iso[_xb], "xp": _xp}))
+        _fvg_bb = _dedup(_cands)
+        _fvg_bb_a = _dedup(_cands_a)
+        _fvg_bb_m = _dedup(_cands_m)
+    except Exception:
+        _fvg_bb = []; _fvg_bb_a = []; _fvg_bb_m = []
 
     # ── FVG 進出場點（給主圖標記）──────────────────────────────────────────
     #   ⅓ 階梯版：三檔限價掛在缺口頂/中/底，影線觸及即成交；2W 止損 / 6W 止盈、抱到止損/止盈/超時。
@@ -1478,4 +1623,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         "fvg":      _fvg,         # 失衡缺口（主圖色塊）
         "fvg_sigs": _fvg_sigs,    # FVG 收盤確認進場訊號（自動交易用，獨立於 signals）
         "fvg_trades": _fvg_trades,  # FVG「接1次」cascade 進出場點（主圖標記用）
+        "fvg_bb":   _fvg_bb,        # D版(三根止損+1.5R)進出場點（研究用主圖標記）
+        "fvg_bb_a": _fvg_bb_a,      # A版(g-1止損+布林軌外1W)進出場點（同場對比）
+        "fvg_bb_m": _fvg_bb_m,      # M版(中軌分側順勢+止損g/g-1+止盈3W)進出場點
     }

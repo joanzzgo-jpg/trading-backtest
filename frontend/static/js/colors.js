@@ -132,6 +132,7 @@ function applyAllColors() {
     });
   }
   bbU.applyOptions({ color:C.bbU }); bbM.applyOptions({ color:C.bbM }); bbL.applyOptions({ color:C.bbL });
+  bbU1?.applyOptions({ color:C.bb1 }); bbL1?.applyOptions({ color:C.bb1 });
   kdjK.applyOptions({ color:C.kdjK }); kdjD.applyOptions({ color:C.kdjD }); kdjJ.applyOptions({ color:C.kdjJ });
   kdjH20.applyOptions({ color:C.kdjH20, lineWidth:S.kdjHLWidth });
   kdjH50.applyOptions({ color:C.kdjH50, lineWidth:S.kdjHLWidth });

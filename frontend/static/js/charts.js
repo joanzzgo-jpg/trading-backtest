@@ -86,6 +86,21 @@ function _makeFVGPrimitive() {
           ctx.setLineDash([4 * hr, 3 * hr]);
           ctx.strokeRect(bx, byTop, bw, bh);
           ctx.setLineDash([]);
+          // 寬度% 標籤：多=（top−bot)/bot、空=(top−bot)/top（對齊後端 _gw 定義）；畫在盒左緣、垂直置中
+          const _pct = z.d === "l" ? (z.top - z.bot) / z.bot : (z.top - z.bot) / z.top;
+          if (_pct > 0) {
+            const _lbl = (_pct * 100).toFixed(2) + "%";
+            ctx.font = `${Math.round(10 * vr)}px sans-serif`;
+            ctx.textBaseline = "middle"; ctx.textAlign = "left";
+            const _ty = byTop + bh / 2;
+            // 細盒(高度<字高)→ 標到盒上方，避免疊在邊框上看不清
+            const _yy = bh >= 12 * vr ? _ty : byTop - 7 * vr;
+            ctx.fillStyle = "rgba(0,0,0,0.55)";                 // 描黑底邊，淺色背景也看得見
+            ctx.lineWidth = Math.max(2, 2 * hr); ctx.strokeStyle = "rgba(0,0,0,0.55)";
+            ctx.strokeText(_lbl, bx + 3 * hr, _yy);
+            ctx.fillStyle = z.d === "l" ? "rgba(120,255,225,0.98)" : "rgba(255,150,150,0.98)";
+            ctx.fillText(_lbl, bx + 3 * hr, _yy);
+          }
         }
       });
     },
@@ -261,9 +276,9 @@ function buildCharts() {
   bbU = mainChart.addLineSeries({ color:C.bbU, lineWidth:S.bbWidth??1,  priceLineVisible:false, lastValueVisible:false });
   bbM = mainChart.addLineSeries({ color:C.bbM, lineWidth:S.bbMWidth??1, lineStyle:S.bbMStyle??2, priceLineVisible:false, lastValueVisible:false });
   bbL = mainChart.addLineSeries({ color:C.bbL, lineWidth:S.bbWidth??1,  priceLineVisible:false, lastValueVisible:false });
-  // 自動交易止盈 95% 位線（虛線）：tpHi=多單止盈(下軌→上軌95%,靠上軌)、tpLo=空單止盈(靠下軌,鏡像)
-  tpHi = mainChart.addLineSeries({ color:C.tp95, lineWidth:1, lineStyle:2, priceLineVisible:false, lastValueVisible:false });
-  tpLo = mainChart.addLineSeries({ color:C.tp95, lineWidth:1, lineStyle:2, priceLineVisible:false, lastValueVisible:false });
+  // 布林 1σ 內帶（虛線，較淺）：bbU1=上 1σ、bbL1=下 1σ；隨 BB 圖例開關一起顯示/隱藏
+  bbU1 = mainChart.addLineSeries({ color:C.bb1, lineWidth:S.bbWidth??1, lineStyle:2, priceLineVisible:false, lastValueVisible:false });
+  bbL1 = mainChart.addLineSeries({ color:C.bb1, lineWidth:S.bbWidth??1, lineStyle:2, priceLineVisible:false, lastValueVisible:false });
 
   // 成交量疊在主圖下方（獨立 priceScaleId，不影響 K 棒價格軸）
   volSeries   = mainChart.addHistogramSeries({ priceScaleId:"volume", priceLineVisible:false, lastValueVisible:false });

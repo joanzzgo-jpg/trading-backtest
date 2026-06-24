@@ -78,7 +78,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       borderUp: "#ef5350", borderDown: "#26a69a",
       wickUp: "#ef5350", wickDown: "#26a69a",
       volUp: "#ef5350", volDown: "#26a69a",
-      bbU: "#1976d2", bbM: "#f57c00", bbL: "#1976d2",      // 黃色換成深橘
+      bbU: "#1976d2", bbM: "#f57c00", bbL: "#1976d2", bb1: "#64b5f6",   // 黃色換成深橘；1σ 淺藍
       kdjK: "#d32f2f", kdjD: "#1565c0", kdjJ: "#ef6c00",
       kdjH20: "#9e9e9e", kdjH50: "#bdbdbd", kdjH80: "#9e9e9e",
       kdjCrossBull: "#16a34a", kdjCrossBear: "#dc2626",

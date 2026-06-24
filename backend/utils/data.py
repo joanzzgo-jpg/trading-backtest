@@ -18,6 +18,10 @@ def enrich_df(df: pd.DataFrame) -> pd.DataFrame:
         missing["macd"] = {"fast": 12, "slow": 26, "signal": 9}
     if missing:
         df = add_indicators(df, missing)
+    if "bb_upper_1" not in df.columns and "bb_middle" in df.columns:   # 1σ 內帶（快取舊資料補算）
+        _sd1 = df["close"].rolling(20).std()
+        df["bb_upper_1"] = df["bb_middle"] + _sd1
+        df["bb_lower_1"] = df["bb_middle"] - _sd1
     if "rsi_7" not in df.columns:
         df["rsi_7"] = calc_rsi(df["close"], 7)
     if "crt" not in df.columns:

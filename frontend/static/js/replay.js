@@ -287,6 +287,7 @@ function _replayStep(bar) {
     bbU.update({ time:t, value:bar.bb_upper });
     bbM.update({ time:t, value:bar.bb_middle });
     bbL.update({ time:t, value:bar.bb_lower });
+    if (bar.bb_upper_1 != null) { bbU1?.update({ time:t, value:bar.bb_upper_1 }); bbL1?.update({ time:t, value:bar.bb_lower_1 }); }
   }
 
   kdjAnchor.update({ time:t, value:50 });

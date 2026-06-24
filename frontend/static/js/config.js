@@ -10,7 +10,7 @@ const DEFAULT_COLORS = {
   wickUp:  "#ef5350", wickDown:  "#26a69a",
   volUp:   "#ef5350", volDown:   "#26a69a", volMa: "#ffcc02",
   bbU:     "#42a5f5", bbM:     "#ffcc02", bbL: "#42a5f5",
-  tp95:    "#ab47bc",   // 自動交易止盈 95% 位線（下軌↔上軌 95%；多靠上軌、空靠下軌）
+  bb1:     "#90caf9",   // 布林 1σ 內帶（上下，較淺藍、虛線）
   kdjK:    "#f23645", kdjD:    "#1e88e5", kdjJ: "#ff9800",
   kdjH20:  "#4a4a6a", kdjH50:  "#666688", kdjH80:  "#4a4a6a",
   kdjCrossBull: "#26a69a", kdjCrossBear: "#ef5350",
@@ -57,7 +57,7 @@ const INPUT_SERIES_MAP = {
 };
 
 /* ── 圖表物件 ── */
-let mainChart,   candleSeries, bbU, bbM, bbL, tpHi, tpLo;
+let mainChart,   candleSeries, bbU, bbM, bbL, bbU1, bbL1;
 let latestPriceLine = null;
 let volSeries, volMaSeries;          // 成交量放在 mainChart 的獨立價格軸
 let kdjChart,    kdjK, kdjD, kdjJ, kdjH20, kdjH50, kdjH80;
@@ -76,6 +76,13 @@ let lastResonanceMarkers = [];
 let lastWRSignalMarkers  = [];
 let lastBacktestMarkers  = [];   // 回測結果的進出場標記（多/空 + 勝/負）
 let lastFVGTradeMarkers  = [];   // FVG「接1次」cascade 進出場標記（主圖）
+let lastFVGBBMarkers     = [];   // D版(三根止損+1.5R)進出場標記（研究用·主圖）
+let lastFVGBBMarkersA    = [];   // A版(g-1止損+布林軌外1W)進出場標記（同場對比·主圖）
+let lastFVGBBMarkersM    = [];   // M版(中軌分側順勢+止損g/g-1+止盈3W)進出場標記（主圖）
+window._fvgTradesHidden = true;  // 預設隱藏舊「多F/空F」cascade 標記+止損止盈線（使用者要求移掉，只留布多/布空）
+window._fvgBBHideD = true;       // 預設隱藏 D版(三根止損+1.5R)標記；切換:toggleFVGBB('D')
+window._fvgBBHideA = true;       // 預設隱藏 A版(g-1止損+布林軌外1W)標記；切換:toggleFVGBB('A')
+window._fvgBBHideM = false;      // 預設顯示 M版(中軌分側順勢)標記（使用者要求畫這個）；切換:toggleFVGBB('M')
 let _lastWRSignals       = [];   // 完整訊號列表（背景載入後重新過濾用）
 let _lastFVGTrades       = [];   // FVG「接1次」cascade 進出場（背景重畫用）
 let paneCollapseFlex = {};  // 面板收合前的 flex 值（module-level，供 loadVisibilityPrefs 使用）

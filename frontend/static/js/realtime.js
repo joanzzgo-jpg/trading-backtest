@@ -30,16 +30,13 @@ function _updateBBTail() {
   for (let i = n - period; i < n; i++) { const d = ohlcvData[i].close - mean; sq += d * d; }
   const std = Math.sqrt(sq / (period - 1));
   const up = mean + 2 * std, lo = mean - 2 * std;
+  const up1 = mean + std, lo1 = mean - std;                    // 1σ 內帶
   const bar = ohlcvData[n - 1];
   bar.bb_upper = up; bar.bb_middle = mean; bar.bb_lower = lo;   // 寫回 ohlcvData，後續 renderBB/重算才一致
+  bar.bb_upper_1 = up1; bar.bb_lower_1 = lo1;
   const t = toTime(bar.time);
   try { bbU.update({ time: t, value: up }); bbM.update({ time: t, value: mean }); bbL.update({ time: t, value: lo }); } catch (e) {}
-  // 形成中那根同步更新 98% 止盈線（否則新棒的止盈線要等刷新才出現）
-  try {
-    const w = up - lo;
-    tpHi?.update({ time: t, value: lo + TP_BAND_RATIO * w });
-    tpLo?.update({ time: t, value: lo + (1 - TP_BAND_RATIO) * w });
-  } catch (e) {}
+  try { bbU1?.update({ time: t, value: up1 }); bbL1?.update({ time: t, value: lo1 }); } catch (e) {}
 }
 
 async function fetchLatest() {

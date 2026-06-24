@@ -655,7 +655,7 @@ function _syncLegDot(legId, color) {
 function bindLegendToggles() {
   // 線條切換：點擊 leg-item 顯示/隱藏對應系列
   const lineMap = [
-    { id: "legBB",       series: () => [bbU, bbM, bbL] },
+    { id: "legBB",       series: () => [bbU, bbM, bbL, bbU1, bbL1] },
     { id: "legCRT",      series: null,  action: () => _applyMainMarkers() },
     { id: "legKDJCross", series: null,  action: () => _applyMainMarkers() },
     { id: "legResonance",series: null,  action: () => _applyMainMarkers() },

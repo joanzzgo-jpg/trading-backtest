@@ -485,6 +485,7 @@ async function _fetchWinRateNow() {
     _renderWinRate(d);
     _renderWRSignals(d.signals);
     _renderFVGTrades(d.fvg_trades);   // FVG「接1次」進出場標記（主圖）
+    _renderFVGBB(d.fvg_bb, d.fvg_bb_a, d.fvg_bb_m);   // FVG 進出場標記:D(青/粉)+A(橘/紫)+M中軌分側順勢(黃/藍)（研究·主圖）
     if (typeof setFVGZones === "function") setFVGZones(d.fvg);
     _setFVGData(d.fvg);
     if (typeof window._refreshSignalDrawer === "function") window._refreshSignalDrawer();
@@ -665,6 +666,64 @@ function _renderFVGTrades(trades) {
   _applyMainMarkers();
 }
 window._renderFVGTrades = _renderFVGTrades;
+
+// FVG 均值回歸進出場標記（後端 fvg_bb=D版 / fvg_bb_a=A版）：研究用，目視驗證進出場點。
+//   進場箭頭(多朝上/空朝下) + 出場圓點(勝綠敗紅逾期灰)。D版=青/粉「布」、A版=橘/紫「A」以利對比。
+let _lastFVGBB = [];
+let _lastFVGBBA = [];
+function _buildFVGBBMarkers(list, lbl, colL, colS) {
+  const hasIdx = (typeof _secToIdx !== "undefined" && _secToIdx.size > 0);
+  const chartTimeSet = hasIdx ? null : new Set(ohlcvData.map(d => toTime(d.time)));
+  const _has = t => hasIdx ? _secToIdx.has(t) : chartTimeSet.has(t);
+  const _rpCut = (typeof replayActive !== "undefined" && replayActive
+    && typeof replayData !== "undefined" && replayData[replayIdx])
+    ? toTime(replayData[replayIdx].time) : null;
+  const out = [];
+  for (const t of (list || [])) {
+    const isShort = t.d === "s";
+    const tm = toTime(t.t);
+    if (!_has(tm) || (_rpCut != null && tm > _rpCut)) continue;
+    const tag = t.win === true ? "✓" : t.win === false ? "✗" : "·";
+    out.push({
+      time: tm, position: isShort ? "aboveBar" : "belowBar",
+      color: isShort ? colS : colL,
+      shape: isShort ? "arrowDown" : "arrowUp",
+      size: 1.4, text: lbl + (isShort ? "空" : "多") + tag,
+    });
+    // 出場標記:出場棒位畫圓點，勝綠敗紅(逾期=灰)，位置與進場相反側
+    if (t.xt) {
+      const xm = toTime(t.xt);
+      if (_has(xm) && !(_rpCut != null && xm > _rpCut)) {
+        const xc = t.win === true ? "#26a69a" : t.win === false ? "#ef5350" : "#9e9e9e";
+        out.push({
+          time: xm, position: isShort ? "belowBar" : "aboveBar",
+          color: xc, shape: "circle", size: 1.1,
+          text: lbl + (t.win === true ? "平✓" : t.win === false ? "平✗" : "平·"),
+        });
+      }
+    }
+  }
+  out.sort((a, b) => a.time - b.time);
+  return out;
+}
+let _lastFVGBBM = [];
+function _renderFVGBB(items, itemsA, itemsM) {
+  if (items  !== undefined) _lastFVGBB  = items  || [];
+  if (itemsA !== undefined) _lastFVGBBA = itemsA || [];
+  if (itemsM !== undefined) _lastFVGBBM = itemsM || [];
+  lastFVGBBMarkers  = _buildFVGBBMarkers(_lastFVGBB,  "布", "#18ffff", "#ff80ab");  // D版:青/粉
+  lastFVGBBMarkersA = _buildFVGBBMarkers(_lastFVGBBA, "A",  "#ffb74d", "#ce93d8");  // A版:橘/紫
+  lastFVGBBMarkersM = _buildFVGBBMarkers(_lastFVGBBM, "順", "#ffd54f", "#4fc3f7");  // M版:黃/藍(順勢)
+  _applyMainMarkers();
+}
+window._renderFVGBB = _renderFVGBB;
+// 個別開關 D/A 版標記：toggleFVGBB('D') 或 ('A')，可帶布林值強制 on/off
+window.toggleFVGBB = function (ver, on) {
+  const key = ver === "A" ? "_fvgBBHideA" : ver === "M" ? "_fvgBBHideM" : "_fvgBBHideD";
+  window[key] = (on === undefined) ? !window[key] : !on;
+  _applyMainMarkers();
+  return !window[key];   // 回傳「是否顯示」
+};
 
 function _renderWinRate(d) {
   _wrCacheLast = d;
