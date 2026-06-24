@@ -2729,11 +2729,11 @@
   function _drawBearTiles(t) {
     if (!_bearReady) return;
     const g = _layers.mid.ctx;
-    const ts = Math.round(Math.max(86, Math.min(150, Math.min(W, H) * 0.16)));   // 單格邊長
+    const ts = Math.round(Math.max(43, Math.min(75, Math.min(W, H) * 0.08)));    // 單格邊長(縮半→數量×4)
     if (_bearTileSize !== ts || !_bearPat) {
       _bearTileSize = ts;
-      // 拼 4×4 區塊：每格一隻熊、隨機朝 東/南/西/北(0/90/180/270°)→ repeat 此區塊(重複週期大、不易看出)
-      const GRID = 4, bs = ts * GRID;
+      // 拼 6×6 區塊：每格一隻熊、隨機朝 東/南/西/北(0/90/180/270°)→ repeat 此區塊(重複週期大、不易看出)
+      const GRID = 6, bs = ts * GRID;
       const tc = document.createElement("canvas"); tc.width = bs; tc.height = bs;
       const tcx = tc.getContext("2d");
       const bw2 = ts * 0.72, bh2 = bw2 * (_bearImg.height / _bearImg.width);
