@@ -2729,7 +2729,7 @@
   function _drawBearTiles(t) {
     if (!_bearReady) return;
     const g = _layers.mid.ctx;
-    const ts = Math.round(Math.max(43, Math.min(75, Math.min(W, H) * 0.08)));    // 單格邊長(縮半→數量×4)
+    const ts = Math.round(Math.max(22, Math.min(38, Math.min(W, H) * 0.04)));    // 單格邊長(再縮半→數量再×4)
     if (_bearTileSize !== ts || !_bearPat) {
       _bearTileSize = ts;
       // 拼 6×6 區塊：每格一隻熊、隨機朝 東/南/西/北(0/90/180/270°)→ repeat 此區塊(重複週期大、不易看出)
