@@ -2723,33 +2723,73 @@
     else if (tmp <= 6)  { gf.fillStyle = `rgba(120,170,255,${Math.min(.14,(6-tmp)*.012).toFixed(3)})`; gf.fillRect(0,0,W,H); }
   }
 
-  // ── 「無」天氣牆紙：橘子熊縮成小磁磚 repeat 鋪滿(緩慢斜向漂移) → 比全空有趣 ──
+  // ── 「無」天氣牆紙：橘子熊縮成小磁磚 repeat 鋪滿(靜止) + 每秒隨機幾隻亮一下 ──
   let _bearImg = null, _bearReady = false, _bearPat = null, _bearTileSize = 0;
+  const _GRID = 6;
+  let _bearRot = [];                                   // 6×6 各格旋轉(0~3)→ 亮起時方向與牆紙一致
+  let _bearFlashes = [], _bearFlashNext = 0;           // 進行中的脈衝 / 下次生成時間
+  let _bearWallOn = (localStorage.getItem("bearWallOff") !== "1");  // 牆紙開關(預設開)；關→「無」呈現全空
   (function () { _bearImg = new Image(); _bearImg.onload = () => { _bearReady = true; }; _bearImg.src = "/static/img/bear-bg.png"; })();
   function _drawBearTiles(t) {
-    if (!_bearReady) return;
+    if (!_bearReady || !_bearWallOn) return;
     const g = _layers.mid.ctx;
     const ts = Math.round(Math.max(22, Math.min(38, Math.min(W, H) * 0.04)));    // 單格邊長(再縮半→數量再×4)
     if (_bearTileSize !== ts || !_bearPat) {
       _bearTileSize = ts;
       // 拼 6×6 區塊：每格一隻熊、隨機朝 東/南/西/北(0/90/180/270°)→ repeat 此區塊(重複週期大、不易看出)
-      const GRID = 6, bs = ts * GRID;
+      const bs = ts * _GRID;
       const tc = document.createElement("canvas"); tc.width = bs; tc.height = bs;
       const tcx = tc.getContext("2d");
       const bw2 = ts * 0.72, bh2 = bw2 * (_bearImg.height / _bearImg.width);
-      for (let gy = 0; gy < GRID; gy++) for (let gx = 0; gx < GRID; gx++) {
+      _bearRot = [];
+      for (let gy = 0; gy < _GRID; gy++) for (let gx = 0; gx < _GRID; gx++) {
+        const r = Math.floor(Math.random() * 4);                                  // 隨機面向
+        _bearRot[gy * _GRID + gx] = r;
         tcx.save();
         tcx.translate(gx * ts + ts / 2, gy * ts + ts / 2);                        // 格中心
-        tcx.rotate((Math.floor(Math.random() * 4)) * Math.PI / 2);                // 隨機面向
+        tcx.rotate(r * Math.PI / 2);
         tcx.drawImage(_bearImg, -bw2 / 2, -bh2 / 2, bw2, bh2);
         tcx.restore();
       }
       _bearPat = g.createPattern(tc, "repeat");
     }
+    // 底牆紙（靜止鋪滿）
     g.save();
-    g.globalAlpha = 0.28;                                                         // 再低一些；疊 stage 基礎透明度(0.28) → 極淡牆紙
+    g.globalAlpha = 0.28;                                                         // 疊 stage 基礎透明度(0.28) → 極淡牆紙
     g.fillStyle = _bearPat;
-    g.fillRect(0, 0, W, H);                                                        // 靜止鋪滿（不漂移）
+    g.fillRect(0, 0, W, H);
+    g.restore();
+
+    // ── 動態：每秒挑幾隻熊亮一下（脈衝發光，淡入淡出）──
+    const cols = Math.ceil(W / ts), rows = Math.ceil(H / ts);
+    if (!_bearFlashNext) _bearFlashNext = t + 0.4;
+    if (t >= _bearFlashNext) {
+      const n = 2 + Math.floor(Math.random() * 3);                                // 每波 2~4 隻
+      for (let i = 0; i < n; i++) {
+        _bearFlashes.push({
+          cx: Math.floor(Math.random() * cols), cy: Math.floor(Math.random() * rows),
+          born: t, dur: 0.7 + Math.random() * 0.6                                 // 0.7~1.3s 各自衰減
+        });
+      }
+      _bearFlashNext = t + 0.6 + Math.random() * 0.5;                             // 約每 0.6~1.1s 一波
+    }
+    const bw2 = ts * 0.72, bh2 = bw2 * (_bearImg.height / _bearImg.width);
+    g.save();
+    g.globalCompositeOperation = "lighter";                                       // 加亮疊加 → 真的「亮一下」
+    for (let i = _bearFlashes.length - 1; i >= 0; i--) {
+      const f = _bearFlashes[i];
+      const k = (t - f.born) / f.dur;
+      if (k >= 1) { _bearFlashes.splice(i, 1); continue; }
+      const glow = Math.sin(k * Math.PI);                                         // 0→1→0 鐘形脈衝
+      const r = _bearRot[(f.cy % _GRID) * _GRID + (f.cx % _GRID)] || 0;
+      g.save();
+      g.globalAlpha = 0.85 * glow;
+      g.translate(f.cx * ts + ts / 2, f.cy * ts + ts / 2);
+      g.rotate(r * Math.PI / 2);
+      const s = 1 + 0.18 * glow;                                                  // 略放大增強亮感
+      g.drawImage(_bearImg, -bw2 * s / 2, -bh2 * s / 2, bw2 * s, bh2 * s);
+      g.restore();
+    }
     g.restore();
   }
 
@@ -3088,6 +3128,18 @@
   window._tornadoToggle = () => _toggleWx("tornado");
   window._quakeToggle   = () => _toggleWx("quake");
   window._auroraToggle  = () => _toggleWx("aurora");
+  // 熊牆紙開關（topbar「1M」左側按鈕）：關掉「無」天氣時的橘子熊磁磚＋亮起動畫
+  function _syncBearWallBtn() {
+    const b = document.getElementById("bearWallToggleBtn");
+    if (b) b.classList.toggle("bearwall-off", !_bearWallOn);
+  }
+  window._bearWallToggle = function () {
+    _bearWallOn = !_bearWallOn;
+    try { localStorage.setItem("bearWallOff", _bearWallOn ? "0" : "1"); } catch (e) {}
+    _bearFlashes = [];                                   // 關閉立即清掉殘餘脈衝
+    _syncBearWallBtn();
+  };
+  _syncBearWallBtn();
   window._sunsetToggle  = () => _toggleWx("sunset");
   window._sunriseToggle = () => _toggleWx("sunrise");
   window._meteorToggle  = () => _toggleWx("meteor");
