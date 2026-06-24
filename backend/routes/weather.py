@@ -5,12 +5,18 @@
 需設定環境變數 CWA_API_KEY（申請：https://opendata.cwa.gov.tw/）。
 CWA 無 key 或失敗時，一律回退 Open-Meteo。
 """
-import os, math, time, ipaddress
+import os, math, time, ipaddress, asyncio
 from datetime import date, datetime
 import aiohttp
 from fastapi import APIRouter, Query, Request
+from utils.cache import SimpleCache
 
 router = APIRouter(prefix="/api", tags=["weather"])
+
+# 天氣快取：按 ~1km 網格(lat/lon 取 2 位小數)+ 5 分鐘 TTL。天氣不會秒變，重複定位/刷新直接秒回，
+# 也省下對 CWA/Open-Meteo 的重複多請求。獨立實例，不與 ohlcv 共用快取(免互相淘汰)。
+_WX_CACHE = SimpleCache(max_size=64)
+_WX_TTL = 300
 
 CWA_KEY  = os.getenv("CWA_API_KEY", "")
 CWA_URL  = "https://opendata.cwa.gov.tw/api/v1/rest/datastore/O-A0001-001"
@@ -791,6 +797,10 @@ async def weather(
     各在地源失敗時一律回退 Open-Meteo，全部失敗才回 503。
     降雨機率（pop）一律以 Open-Meteo 當前小時補上（觀測源無此欄）。"""
     from fastapi import HTTPException
+    _ck = f"wx:{round(lat, 2)}:{round(lon, 2)}"        # ~1km 網格快取鍵
+    _cached = _WX_CACHE.get(_ck, _WX_TTL)
+    if _cached is not None:
+        return _cached
     res = None
     if CWA_KEY and _in_taiwan(lat, lon):           # 台灣 → CWA（精準到鄉/區）
         try: res = await _from_cwa(lat, lon)
@@ -805,35 +815,43 @@ async def weather(
         try: res = await _from_omt(lat, lon)
         except Exception as e:
             raise HTTPException(status_code=503, detail=f"天氣取得失敗：{e}")
+
+    # 補充資料(pop/forecast/aqi/sun)彼此獨立 → 並行抓取，總延遲由「串行加總」降為「取最大」。
+    async def _safe(coro):
+        try: return await coro
+        except Exception: return None
+    _need_pop = res.get("pop") is None
+    _tasks = [
+        _safe(_fetch_omt_pop(lat, lon)) if _need_pop else _safe(_noop_none()),
+        _safe(_fetch_omt_forecast(lat, lon)),
+        _safe(_fetch_omt_aqi(lat, lon)),
+        _safe(_omt_sun(lat, lon)),
+    ]
+    _pop, fc, aq, s = await asyncio.gather(*_tasks)
+
     # 補降雨機率（各源未提供時）：今日整天最大(pop) + 當前小時(pop_now)
-    if res.get("pop") is None:
-        try:
-            _p = await _fetch_omt_pop(lat, lon)
-            res["pop"] = _p.get("day"); res["pop_now"] = _p.get("now")
-        except Exception:
+    if _need_pop:
+        if _pop:
+            res["pop"] = _pop.get("day"); res["pop_now"] = _pop.get("now")
+        else:
             res["pop"] = None
     # 今明兩天預報（給小熊播報；全球免金鑰，best-effort）
-    try:
-        fc = await _fetch_omt_forecast(lat, lon)
-        if fc: res["forecast"] = fc
-    except Exception:
-        pass
+    if fc: res["forecast"] = fc
     # 空氣品質（best-effort）
-    try:
-        aq = await _fetch_omt_aqi(lat, lon)
-        if aq:
-            res.setdefault("forecast", {})["aqi"] = aq
-    except Exception:
-        pass
+    if aq: res.setdefault("forecast", {})["aqi"] = aq
     # 用 Open-Meteo 天文日出/日落（含真實時區/日光節約）校正各源；並回傳該地 UTC 偏移
     # 供前端用「當地真實時間」判斷日出日落（取代經度近似）。失敗則沿用 _sun_times_local。
-    try:
-        s = await _omt_sun(lat, lon)
+    if s:
         if s.get("rise") is not None: res["sun_rise_min"] = s["rise"]
         if s.get("set")  is not None: res["sun_set_min"]  = s["set"]
         if s.get("rise") is not None and s.get("set") is not None:
             res["sun_src"] = "open-meteo"
         res["tz_offset_min"] = s.get("tz_off")
-    except Exception:
+    else:
         res["tz_offset_min"] = None
+    _WX_CACHE.set(_ck, res)
     return res
+
+
+async def _noop_none():
+    return None

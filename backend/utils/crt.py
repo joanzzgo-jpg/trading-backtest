@@ -1393,16 +1393,20 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
     _fvg_bb = []; _fvg_bb_a = []; _fvg_bb_m = []
     try:
         _BUFb = 0.0005; _FRb = 168; _MHb = 200; _SSWIN = 3
+        # numpy→list 一次轉換：純 Python 迴圈逐元素存取 list(float) 遠快於 numpy 標量+float()
+        # （與下方 _fvg_trades 區塊的 _Hn/_Ln 同一手法）。NaN 轉 list 後仍為 float('nan')，x!=x 判定不變。
+        _Hb = highs.tolist(); _Lb = lows.tolist(); _Cb = closes.tolist(); _Ob = opens.tolist()
+        _BUb = bb_up.tolist(); _BLb = bb_lo.tolist(); _BMb = bb_mid.tolist()
         # SS1（布林軌道反轉2棒·靠軌深半）旗標，index=B棒；進場「那附近」要有同向 SS1 才算確認。對齊 crt SS1 與 fvg_bb.py。
         _ss1L = [False] * _N; _ss1S = [False] * _N
         for _b in range(1, _N):
             _a = _b - 1
-            _ub = bb_up[_b]; _mb = bb_mid[_b]; _lb = bb_lo[_b]
+            _ub = _BUb[_b]; _mb = _BMb[_b]; _lb = _BLb[_b]
             if _ub != _ub or _mb != _mb or _lb != _lb:   # NaN
                 continue
-            _ca = float(closes[_a]); _oa = float(opens[_a]); _la = float(lows[_a]); _ha = float(highs[_a])
-            _cb = float(closes[_b]); _ob = float(opens[_b]); _lkb = float(lows[_b]); _hb = float(highs[_b])
-            _lba = bb_lo[_a]; _uba = bb_up[_a]
+            _ca = _Cb[_a]; _oa = _Ob[_a]; _la = _Lb[_a]; _ha = _Hb[_a]
+            _cb = _Cb[_b]; _ob = _Ob[_b]; _lkb = _Lb[_b]; _hb = _Hb[_b]
+            _lba = _BLb[_a]; _uba = _BUb[_a]
             # 多（下軌反轉）：A綠跌 B紅漲、B收>下軌、A/B任一觸下軌、B未碰中軌、SS1深(B收<(下+中)/2)
             if (_ca < _oa) and (_cb > _ob) and (_cb > _lb) \
                and ((_lba == _lba and _la <= _lba) or _lkb <= _lb) \
@@ -1417,7 +1421,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         def _simx(_fb, _d, _stp, _tgt):
             _win = None; _xb = min(_N, _fb + _MHb) - 1
             for _k in range(_fb + 1, min(_N, _fb + _MHb)):
-                _hk = float(highs[_k]); _lk = float(lows[_k])
+                _hk = _Hb[_k]; _lk = _Lb[_k]
                 if _hk != _hk or _lk != _lk:
                     continue
                 if _d == "l":
@@ -1426,7 +1430,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                 else:
                     if _hk >= _stp: _win = False; _xb = _k; break
                     if _lk <= _tgt: _win = True;  _xb = _k; break
-            _xp = _stp if _win is False else (_tgt if _win is True else float(closes[_xb]))
+            _xp = _stp if _win is False else (_tgt if _win is True else _Cb[_xb])
             return _xb, _win, _xp
 
         _cands = []      # D版(三根止損+1.5R)
@@ -1439,7 +1443,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             # 進場棒(首次觸框 + 那附近有同向SS1)，A/D 共用；D版無布林外閘
             _fb = None
             for _j in range(_cf + 1, min(_N, _cf + 1 + _FRb)):
-                _lj = float(lows[_j]); _hj = float(highs[_j])
+                _lj = _Lb[_j]; _hj = _Hb[_j]
                 if _lj != _lj or _hj != _hj:
                     continue
                 _touch = (_lj <= _ep * (1 - _BUFb)) if _d == "l" else (_hj >= _ep * (1 + _BUFb))
@@ -1453,8 +1457,8 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                 continue
             # ── D版：止損＝g-1/g-2/g-3 最低(多)/最高(空)、止盈＝1.5R（需 g-3=cf-4≥0）──
             if _cf >= 4:
-                _stpD = min(float(lows[_cf-2]), float(lows[_cf-3]), float(lows[_cf-4])) if _d == "l" \
-                        else max(float(highs[_cf-2]), float(highs[_cf-3]), float(highs[_cf-4]))
+                _stpD = min(_Lb[_cf-2], _Lb[_cf-3], _Lb[_cf-4]) if _d == "l" \
+                        else max(_Hb[_cf-2], _Hb[_cf-3], _Hb[_cf-4])
                 if not ((_d == "l" and _stpD >= _ep) or (_d == "s" and _stpD <= _ep)):
                     _tgtD = (_ep + 1.5*(_ep-_stpD)) if _d == "l" else (_ep - 1.5*(_stpD-_ep))
                     _xb, _win, _xp = _simx(_fb, _d, _stpD, _tgtD)
@@ -1462,8 +1466,8 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                                               "stop": _stpD, "tp": _tgtD, "win": _win,
                                               "xt": times_iso[_xb], "xp": _xp}))
             # ── A版：止損＝g-1、止盈＝布林軌外1W(1W=進場棒布林軌到g-1距離)──
-            _g1 = float(lows[_cf-2]) if _d == "l" else float(highs[_cf-2])
-            _bandA = bb_lo[_fb] if _d == "l" else bb_up[_fb]
+            _g1 = _Lb[_cf-2] if _d == "l" else _Hb[_cf-2]
+            _bandA = _BLb[_fb] if _d == "l" else _BUb[_fb]
             if _bandA == _bandA:                                   # 非 NaN
                 _oneW = (_bandA - _g1) if _d == "l" else (_g1 - _bandA)
                 _okstop = (_g1 < _ep) if _d == "l" else (_g1 > _ep)
@@ -1490,7 +1494,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             _Wb = _tp0 - _bt0
             if _Wb <= 0 or _cf < 2:
                 continue
-            _m = bb_mid[_cf - 1]                                # 形成時(g棒)中軌
+            _m = _BMb[_cf - 1]                                  # 形成時(g棒)中軌
             if _m != _m:
                 continue
             if (_d == "l" and _bt0 < _m) or (_d == "s" and _tp0 > _m):
@@ -1498,15 +1502,15 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             _ep = _tp0
             _fbm = None
             for _j in range(_cf + 1, min(_N, _cf + 1 + _FRb)):  # 首次觸框即進
-                _lj = float(lows[_j]); _hj = float(highs[_j])
+                _lj = _Lb[_j]; _hj = _Hb[_j]
                 if _lj != _lj or _hj != _hj:
                     continue
                 if (_lj <= _ep) if _d == "l" else (_hj >= _ep):  # 影線碰邊即算(取消BUF),碰過作廢→只認首次
                     _fbm = _j; break
             if _fbm is None:
                 continue
-            _stpm = min(float(lows[_cf-1]), float(lows[_cf-2])) if _d == "l" \
-                    else max(float(highs[_cf-1]), float(highs[_cf-2]))
+            _stpm = min(_Lb[_cf-1], _Lb[_cf-2]) if _d == "l" \
+                    else max(_Hb[_cf-1], _Hb[_cf-2])
             if (_d == "l" and _stpm >= _ep) or (_d == "s" and _stpm <= _ep):
                 continue
             _tgtm = (_ep + 4.0 * _Wb) if _d == "l" else (_ep - 4.0 * _Wb)  # 止盈4W(使用者要求看4W)
@@ -1527,7 +1531,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
     _fvg_trades = []
     try:
         _SMt, _TMt = 2.0, 6.0
-        _Hn = [float(h) for h in highs]; _Ln = [float(l) for l in lows]
+        _Hn = highs.tolist(); _Ln = lows.tolist()   # .tolist() 比 [float(x) for x in ...] 快數倍
         _Nn = len(_Ln)
         for _wd in ("l", "s"):
             _gp = [g for g in _gaplist if g[3] == _wd]
