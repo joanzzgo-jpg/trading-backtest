@@ -1343,8 +1343,11 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                         if float(closes[_k]) > _top: _inv_t = times_iso[_k]; _invi = _k; break  # 收盤破上緣 → 反轉
             # 原缺口色塊：反轉則盒子延伸到反轉點(之後換色由 IFVG 接續)；否則止於中線/右緣。
             _box_t2 = _inv_t if _inv_t is not None else _t2
+            # 進場點(視覺)：吃到中間位(中線50%)那根＝進場；沒到中線→無進場(et=None)、也不會變 IFVG。
+            _et = times_iso[_midi] if _midi is not None else None
+            _ep = _mid if _midi is not None else None
             _fvg.append({"t": times_iso[_g+1], "top": _top, "bot": _bot, "d": _dir, "t2": _box_t2,
-                         "sweep": _sweep, "sl": _gsl, "tp": _gtp})
+                         "sweep": _sweep, "sl": _gsl, "tp": _gtp, "et": _et, "ep": _ep})
             # IFVG：反方向換色，從反轉點續延，到自己回中線被填補(或右緣)為止；位階用反向(止盈反向1W、止損=被破對側邊)。
             if _inv_t is not None:
                 _idir = "s" if _dir == "l" else "l"
@@ -1355,7 +1358,8 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                     if _idir == "l" and float(lows[_m])  <= _mid: _it2 = times_iso[_m]; break
                     if _idir == "s" and float(highs[_m]) >= _mid: _it2 = times_iso[_m]; break
                 _fvg.append({"t": _inv_t, "top": _top, "bot": _bot, "d": _idir, "t2": _it2,
-                             "sweep": False, "sl": _isl, "tp": _itp, "inv": True})
+                             "sweep": False, "sl": _isl, "tp": _itp, "inv": True,
+                             "et": _it2, "ep": (_mid if _it2 is not None else None)})   # IFVG 進場＝反向回中線那根
 
             # 以下自動交易訊號 + cascade 標記維持 0.3% 最小寬度（行為不變；視覺色塊不受此限）。
             if _gw < 0.003:
