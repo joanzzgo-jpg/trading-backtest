@@ -123,23 +123,28 @@ function _makeFVGPrimitive() {
               }
             }
             ctx.setLineDash([]);
-            // 進場標記：吃到中線(中間位)那根 → 畫黃色菱形 + 「進場」字（多空同記法）
-            if (z.et != null && z.ep != null) {
-              const ex = ts.timeToCoordinate(z.et), eyP = _series.priceToCoordinate(z.ep);
-              if (ex != null && eyP != null) {
-                const px = ex * hr, py = eyP * vr, r = 5 * vr;
-                ctx.beginPath();
-                ctx.moveTo(px, py - r); ctx.lineTo(px + r, py); ctx.lineTo(px, py + r); ctx.lineTo(px - r, py); ctx.closePath();
-                ctx.fillStyle = "rgba(255,213,79,0.95)";
-                ctx.strokeStyle = "rgba(0,0,0,0.6)"; ctx.lineWidth = Math.max(1, hr);
-                ctx.fill(); ctx.stroke();
-                ctx.font = `${Math.round(10 * vr)}px sans-serif`;
-                ctx.textBaseline = "bottom"; ctx.textAlign = "center";
-                ctx.lineWidth = Math.max(2, 2 * hr); ctx.strokeStyle = "rgba(0,0,0,0.6)";
-                ctx.strokeText("進場", px, py - r - 1 * vr);
-                ctx.fillStyle = "rgba(255,213,79,0.98)";
-                ctx.fillText("進場", px, py - r - 1 * vr);
-              }
+            // 進場標記分上/中/下：缺口框上緣/中線/下緣各自觸及點 → 黃色菱形 + 上/中/下字
+            const _ents = [
+              { t: z.ett, p: z.top,                lab: "上" },
+              { t: z.etm, p: (z.top + z.bot) / 2,  lab: "中" },
+              { t: z.etb, p: z.bot,                lab: "下" },
+            ];
+            for (const _e of _ents) {
+              if (_e.t == null) continue;
+              const ex = ts.timeToCoordinate(_e.t), eyP = _series.priceToCoordinate(_e.p);
+              if (ex == null || eyP == null) continue;
+              const px = ex * hr, py = eyP * vr, r = 5 * vr;
+              ctx.beginPath();
+              ctx.moveTo(px, py - r); ctx.lineTo(px + r, py); ctx.lineTo(px, py + r); ctx.lineTo(px - r, py); ctx.closePath();
+              ctx.fillStyle = "rgba(255,213,79,0.95)";
+              ctx.strokeStyle = "rgba(0,0,0,0.6)"; ctx.lineWidth = Math.max(1, hr);
+              ctx.fill(); ctx.stroke();
+              ctx.font = `${Math.round(10 * vr)}px sans-serif`;
+              ctx.textBaseline = "middle"; ctx.textAlign = "left";
+              ctx.lineWidth = Math.max(2, 2 * hr); ctx.strokeStyle = "rgba(0,0,0,0.6)";
+              ctx.strokeText(_e.lab, px + r + 2 * vr, py);
+              ctx.fillStyle = "rgba(255,213,79,0.98)";
+              ctx.fillText(_e.lab, px + r + 2 * vr, py);
             }
           }
         }
@@ -184,7 +189,9 @@ function setFVGZones(list) {
     t1: toTime(z.t), t2: (z.t2 != null ? toTime(z.t2) : null),
     top: z.top, bot: z.bot, d: z.d, inv: !!z.inv,   // inv=IFVG(反轉缺口,反方向換色)
     sl: (z.sl != null ? z.sl : null), tp: (z.tp != null ? z.tp : null),  // 止損(g-1頂端)/止盈(1W)
-    et: (z.et != null ? toTime(z.et) : null), ep: (z.ep != null ? z.ep : null),  // 進場(吃到中線那根)時間/價
+    ett: (z.ett != null ? toTime(z.ett) : null),   // 進場-上緣觸及
+    etm: (z.etm != null ? toTime(z.etm) : null),   // 進場-中線觸及
+    etb: (z.etb != null ? toTime(z.etb) : null),   // 進場-下緣觸及
   })).filter(z => z.t1 != null && z.top != null && z.bot != null);
   _fvgSelected = null;                       // 資料重載→清除點選(舊物件已不在新陣列裡)
   if (_fvgPrimitive) _fvgPrimitive.requestUpdate();

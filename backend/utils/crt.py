@@ -1343,23 +1343,46 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                         if float(closes[_k]) > _top: _inv_t = times_iso[_k]; _invi = _k; break  # 收盤破上緣 → 反轉
             # 原缺口色塊：反轉則盒子延伸到反轉點(之後換色由 IFVG 接續)；否則止於中線/右緣。
             _box_t2 = _inv_t if _inv_t is not None else _t2
-            # 進場點(視覺)：吃到中間位(中線50%)那根＝進場；沒到中線→無進場(et=None)、也不會變 IFVG。
-            _et = times_iso[_midi] if _midi is not None else None
-            _ep = _mid if _midi is not None else None
+            # 進場點(視覺)分上/中/下：缺口框「上緣top／中線mid／下緣bot」各自首次被觸及那根。
+            #   多頭由上往下觸(low≤線)、空頭由下往上觸(high≥線)；沒觸及→該點 None。
+            _ett = _etm = _etb = None
+            for _j in range(_g + 2, _N):
+                if _dir == "l":
+                    _lj = float(lows[_j])
+                    if _ett is None and _lj <= _top: _ett = times_iso[_j]
+                    if _etm is None and _lj <= _mid: _etm = times_iso[_j]
+                    if _etb is None and _lj <= _bot: _etb = times_iso[_j]
+                else:
+                    _hj = float(highs[_j])
+                    if _ett is None and _hj >= _top: _ett = times_iso[_j]
+                    if _etm is None and _hj >= _mid: _etm = times_iso[_j]
+                    if _etb is None and _hj >= _bot: _etb = times_iso[_j]
+                if _ett and _etm and _etb: break
             _fvg.append({"t": times_iso[_g+1], "top": _top, "bot": _bot, "d": _dir, "t2": _box_t2,
-                         "sweep": _sweep, "sl": _gsl, "tp": _gtp, "et": _et, "ep": _ep})
+                         "sweep": _sweep, "sl": _gsl, "tp": _gtp,
+                         "ett": _ett, "etm": _etm, "etb": _etb})    # 進場：上/中/下緣觸及時間
             # IFVG：反方向換色，從反轉點續延，到自己回中線被填補(或右緣)為止；位階用反向(止盈反向1W、止損=被破對側邊)。
             if _inv_t is not None:
                 _idir = "s" if _dir == "l" else "l"
                 _isl = _top if _dir == "l" else _bot                       # 反向止損＝被破的對側邊
                 _itp = (_bot - _W) if _dir == "l" else (_top + _W)         # 反向止盈 1W
-                _it2 = None
+                _iett = _ietm = _ietb = None       # IFVG 進場分上中下：反向後框上/中/下緣各自首次觸及
                 for _m in range(_invi + 1, _N):
-                    if _idir == "l" and float(lows[_m])  <= _mid: _it2 = times_iso[_m]; break
-                    if _idir == "s" and float(highs[_m]) >= _mid: _it2 = times_iso[_m]; break
+                    if _idir == "l":
+                        _lm = float(lows[_m])
+                        if _iett is None and _lm <= _top: _iett = times_iso[_m]
+                        if _ietm is None and _lm <= _mid: _ietm = times_iso[_m]
+                        if _ietb is None and _lm <= _bot: _ietb = times_iso[_m]
+                    else:
+                        _hm = float(highs[_m])
+                        if _iett is None and _hm >= _top: _iett = times_iso[_m]
+                        if _ietm is None and _hm >= _mid: _ietm = times_iso[_m]
+                        if _ietb is None and _hm >= _bot: _ietb = times_iso[_m]
+                    if _iett and _ietm and _ietb: break
+                _it2 = _ietm                       # 盒子右端＝反向回中線
                 _fvg.append({"t": _inv_t, "top": _top, "bot": _bot, "d": _idir, "t2": _it2,
                              "sweep": False, "sl": _isl, "tp": _itp, "inv": True,
-                             "et": _it2, "ep": (_mid if _it2 is not None else None)})   # IFVG 進場＝反向回中線那根
+                             "ett": _iett, "etm": _ietm, "etb": _ietb})
 
             # 以下自動交易訊號 + cascade 標記維持 0.3% 最小寬度（行為不變；視覺色塊不受此限）。
             if _gw < 0.003:
