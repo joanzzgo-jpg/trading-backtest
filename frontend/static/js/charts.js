@@ -58,6 +58,7 @@ function createCandleSeries() {
 let _fvgZones = [];        // [{t1, t2|null, top, bot, d}]（已轉成圖表時間）
 let _fvgPrimitive = null;
 let _fvgShow = true;
+let _fvgLevelsShow = true;   // FVG 交易位階線（止盈1W綠／止損g-1頂端紅）開關
 function _makeFVGPrimitive() {
   let _chart = null, _series = null, _req = null;
   const renderer = {
@@ -101,6 +102,26 @@ function _makeFVGPrimitive() {
             ctx.fillStyle = z.d === "l" ? "rgba(120,255,225,0.98)" : "rgba(255,150,150,0.98)";
             ctx.fillText(_lbl, bx + 3 * hr, _yy);
           }
+          // 交易位階線：止盈(綠=1W)、止損(紅=g-1頂端)，沿盒寬 x1→x2 畫水平虛線
+          if (_fvgLevelsShow) {
+            ctx.lineWidth = Math.max(1, hr);
+            ctx.setLineDash([5 * hr, 4 * hr]);
+            if (z.tp != null) {
+              const yTP = _series.priceToCoordinate(z.tp);
+              if (yTP != null) {
+                ctx.strokeStyle = "rgba(38,198,166,0.8)";
+                ctx.beginPath(); ctx.moveTo(bx, yTP * vr); ctx.lineTo(bx + bw, yTP * vr); ctx.stroke();
+              }
+            }
+            if (z.sl != null) {
+              const ySL = _series.priceToCoordinate(z.sl);
+              if (ySL != null) {
+                ctx.strokeStyle = "rgba(239,83,80,0.8)";
+                ctx.beginPath(); ctx.moveTo(bx, ySL * vr); ctx.lineTo(bx + bw, ySL * vr); ctx.stroke();
+              }
+            }
+            ctx.setLineDash([]);
+          }
         }
       });
     },
@@ -119,6 +140,7 @@ function setFVGZones(list) {
   _fvgZones = (Array.isArray(list) ? list : []).map(z => ({
     t1: toTime(z.t), t2: (z.t2 != null ? toTime(z.t2) : null),
     top: z.top, bot: z.bot, d: z.d,
+    sl: (z.sl != null ? z.sl : null), tp: (z.tp != null ? z.tp : null),  // 止損(g-1頂端)/止盈(1W)
   })).filter(z => z.t1 != null && z.top != null && z.bot != null);
   if (_fvgPrimitive) _fvgPrimitive.requestUpdate();
 }
@@ -128,8 +150,15 @@ function toggleFVG(on) {
   if (_fvgPrimitive) _fvgPrimitive.requestUpdate();
   return _fvgShow;
 }
+// 交易位階線開關：window.toggleFVGLevels() 切換（止盈1W／止損g-1頂端）
+function toggleFVGLevels(on) {
+  _fvgLevelsShow = (on === undefined) ? !_fvgLevelsShow : !!on;
+  if (_fvgPrimitive) _fvgPrimitive.requestUpdate();
+  return _fvgLevelsShow;
+}
 window.setFVGZones = setFVGZones;
 window.toggleFVG = toggleFVG;
+window.toggleFVGLevels = toggleFVGLevels;
 
 /* ── FVG 逐筆止損/止盈價位線：每筆從進場(et)→出場(xt)畫水平線段（紅虛=止損、綠虛=止盈；
       深檔拉近會在 tp2t 階梯下移到近靶）。隨 window._fvgTradesHidden 與 FVG 標記同步開關。── */

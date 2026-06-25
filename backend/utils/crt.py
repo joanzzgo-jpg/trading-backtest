@@ -1327,8 +1327,13 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                 if _dir == "l" and float(lows[_j])  <= _mid: _t2 = times_iso[_j]; break
                 if _dir == "s" and float(highs[_j]) >= _mid: _t2 = times_iso[_j]; break
             _sweep = (_l0 < float(lows[_g]) and _l0 < _l2) if _dir == "l" else (_h0 > float(highs[_g]) and _h0 > _h2)
+            # 交易位階(視覺)：止盈=1W(W=top−bot,多 top+1W／空 bot−1W)、止損=g-1 頂端(high[g-1]=_h0)。
+            _W = _top - _bot
+            _gsl = _h0                                               # g-1 的頂端(高點)
+            _gtp = (_top + _W) if _dir == "l" else (_bot - _W)       # 止盈 1W
             # 純 FVG 視覺色塊：每個失衡缺口(≥0.1%)都畫，不套 g+2 觸框過濾（使用者要求純 FVG）。
-            _fvg.append({"t": times_iso[_g+1], "top": _top, "bot": _bot, "d": _dir, "t2": _t2, "sweep": _sweep})
+            _fvg.append({"t": times_iso[_g+1], "top": _top, "bot": _bot, "d": _dir, "t2": _t2, "sweep": _sweep,
+                         "sl": _gsl, "tp": _gtp})
 
             # 以下自動交易訊號 + cascade 標記維持 0.3% 最小寬度（行為不變；視覺色塊不受此限）。
             if _gw < 0.003:
