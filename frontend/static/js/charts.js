@@ -103,6 +103,29 @@ function _makeFVGPrimitive() {
             ctx.fillStyle = z.d === "l" ? "rgba(120,255,225,0.98)" : "rgba(255,150,150,0.98)";
             ctx.fillText(_lbl, bx + 3 * hr, _yy);
           }
+          // 進場標記分上/中/下（常駐：每個缺口都畫，不需點選）：框上緣/中線/下緣各自觸及點 → 黃色菱形 + 上/中/下字
+          const _ents = [
+            { t: z.ett, p: z.top,                lab: "上" },
+            { t: z.etm, p: (z.top + z.bot) / 2,  lab: "中" },
+            { t: z.etb, p: z.bot,                lab: "下" },
+          ];
+          for (const _e of _ents) {
+            if (_e.t == null) continue;
+            const ex = ts.timeToCoordinate(_e.t), eyP = _series.priceToCoordinate(_e.p);
+            if (ex == null || eyP == null) continue;
+            const px = ex * hr, py = eyP * vr, r = 4 * vr;
+            ctx.beginPath();
+            ctx.moveTo(px, py - r); ctx.lineTo(px + r, py); ctx.lineTo(px, py + r); ctx.lineTo(px - r, py); ctx.closePath();
+            ctx.fillStyle = "rgba(255,213,79,0.95)";
+            ctx.strokeStyle = "rgba(0,0,0,0.6)"; ctx.lineWidth = Math.max(1, hr);
+            ctx.fill(); ctx.stroke();
+            ctx.font = `${Math.round(9 * vr)}px sans-serif`;
+            ctx.textBaseline = "middle"; ctx.textAlign = "left";
+            ctx.lineWidth = Math.max(2, 2 * hr); ctx.strokeStyle = "rgba(0,0,0,0.6)";
+            ctx.strokeText(_e.lab, px + r + 2 * vr, py);
+            ctx.fillStyle = "rgba(255,213,79,0.98)";
+            ctx.fillText(_e.lab, px + r + 2 * vr, py);
+          }
           // 交易位階線：止盈(綠=1W)、止損(紅=g-1頂端)，沿盒寬 x1→x2 畫水平虛線。
           //   預設隱藏（缺口太多會洗版）→ 只有「被點選」的缺口才畫，避免主圖滿屏線。
           if (_fvgLevelsShow && z === _fvgSelected) {
@@ -123,29 +146,6 @@ function _makeFVGPrimitive() {
               }
             }
             ctx.setLineDash([]);
-            // 進場標記分上/中/下：缺口框上緣/中線/下緣各自觸及點 → 黃色菱形 + 上/中/下字
-            const _ents = [
-              { t: z.ett, p: z.top,                lab: "上" },
-              { t: z.etm, p: (z.top + z.bot) / 2,  lab: "中" },
-              { t: z.etb, p: z.bot,                lab: "下" },
-            ];
-            for (const _e of _ents) {
-              if (_e.t == null) continue;
-              const ex = ts.timeToCoordinate(_e.t), eyP = _series.priceToCoordinate(_e.p);
-              if (ex == null || eyP == null) continue;
-              const px = ex * hr, py = eyP * vr, r = 5 * vr;
-              ctx.beginPath();
-              ctx.moveTo(px, py - r); ctx.lineTo(px + r, py); ctx.lineTo(px, py + r); ctx.lineTo(px - r, py); ctx.closePath();
-              ctx.fillStyle = "rgba(255,213,79,0.95)";
-              ctx.strokeStyle = "rgba(0,0,0,0.6)"; ctx.lineWidth = Math.max(1, hr);
-              ctx.fill(); ctx.stroke();
-              ctx.font = `${Math.round(10 * vr)}px sans-serif`;
-              ctx.textBaseline = "middle"; ctx.textAlign = "left";
-              ctx.lineWidth = Math.max(2, 2 * hr); ctx.strokeStyle = "rgba(0,0,0,0.6)";
-              ctx.strokeText(_e.lab, px + r + 2 * vr, py);
-              ctx.fillStyle = "rgba(255,213,79,0.98)";
-              ctx.fillText(_e.lab, px + r + 2 * vr, py);
-            }
           }
         }
       });
