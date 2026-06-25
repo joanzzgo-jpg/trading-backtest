@@ -1,7 +1,7 @@
 // 今日農民曆卡 — 觸發：①系統閒置一段時間自動跳 ②連點小啊三次。畫面正中間黃曆卡。
 //   資料來自後端 /api/lunar（cnlunar 算干支/節氣/宜忌/沖煞，zhconv 轉繁體），同一天只抓一次。
 (function () {
-  const IDLE_MS = 90 * 1000;        // 閒置多久沒操作 → 自動跳（90 秒）
+  const IDLE_MS = 10 * 60 * 1000;   // 閒置多久沒操作 → 自動跳（10 分鐘）
   const TRIPLE_MS = 800;            // 連點三次的間隔上限
   let _data = null, _dataDate = "", _idleTimer = null, _open = false;
   let _clicks = [];

@@ -516,6 +516,12 @@ def run_monitor_loop():
             reconcile_fvg_pending_all()
         except Exception as e:
             print(f"  ⚠ FVG即時止損失敗：{e}")
+        # 每 ~60s：手動圖表限價單成交就「即時補掛止損止盈」（限價未成交不能預掛 closePosition）
+        try:
+            from routes.trade import reconcile_manual_pending_all
+            reconcile_manual_pending_all()
+        except Exception as e:
+            print(f"  ⚠ 手動限價補掛失敗：{e}")
         # 每 10 分鐘：推播自動交易狀況給 owner
         now = time.time()
         if now - last_status >= 600:

@@ -31,7 +31,7 @@ def _build_js_bundle():
         from pathlib import Path
         js = Path(os.path.dirname(__file__)) / ".." / "frontend" / "static" / "js"
         js = js.resolve()
-        names = ["config","utils","charts","draw","colors","ticker","winrate","render","realtime","replay","ui","ai_research","signal_info","account","notify","trade","backtest","xiaoa","lunar","main"]
+        names = ["config","utils","charts","draw","colors","ticker","winrate","render","realtime","replay","ui","ai_research","signal_info","account","notify","trade","chartorder","backtest","xiaoa","lunar","main"]
         srcs = [js / f"{n}.js" for n in names]
         bundle = js / "app.bundle.js"
         srcs_exist = [p for p in srcs if p.exists()]

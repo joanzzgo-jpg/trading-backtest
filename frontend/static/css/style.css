@@ -6880,3 +6880,122 @@ html.perf-mode .lunar-card { font-family: inherit; }
 .lunar-h-time { font-size: 9px; opacity: .6; letter-spacing: -.02em; }
 .lunar-h.lh-now { border-color: #B5481E; box-shadow: 0 0 0 1px #B5481E inset; }
 .lunar-gods { margin-top: 10px; font-size: 11.5px; color: #8A6A3A; text-align: center; letter-spacing: .03em; }
+
+/* ══ 主圖快速限價單（chartorder.js）══════════════════════════════ */
+/* 右上角「限價單」按鈕 */
+.chart-order-btn {
+  position: absolute; top: 8px; right: 86px; z-index: 28;
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 4px 9px; border-radius: 8px; cursor: pointer;
+  background: rgba(31, 20, 16, 0.62); color: var(--text, #EDD4A8);
+  border: 1px solid var(--border, #3B2920);
+  font: 600 11px/1 -apple-system, system-ui, "PingFang TC", sans-serif;
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  transition: all .15s ease;
+}
+.chart-order-btn:hover { border-color: var(--accent, #FF9147); color: var(--accent, #FF9147); }
+.chart-order-btn.on {
+  background: var(--accent, #FF9147); color: #2C1607; border-color: transparent;
+  box-shadow: 0 2px 10px -3px rgba(255, 145, 71, .8);
+}
+.chart-order-btn .co-ico { font-size: 12px; }
+
+/* 跟著滑鼠的水平導引線 + 價格/方向標籤 */
+.co-guide-line {
+  position: absolute; left: 0; right: 0; height: 0; z-index: 24;
+  border-top: 1px dashed rgba(255, 145, 71, .85); pointer-events: none; display: none;
+}
+.co-guide-line.co-long  { border-top-color: rgba(38, 166, 154, .9); }
+.co-guide-line.co-short { border-top-color: rgba(239, 83, 80, .9); }
+.co-guide-tag {
+  position: absolute; left: 8px; z-index: 25; transform: translateY(-50%);
+  padding: 2px 7px; border-radius: 4px; pointer-events: none; white-space: nowrap;
+  font: 700 11px/1.3 -apple-system, system-ui, "PingFang TC", sans-serif;
+  font-variant-numeric: tabular-nums; color: #fff; display: none;
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+}
+.co-guide-tag.co-long  { background: rgba(38, 166, 154, .82); border: 1px solid rgba(38, 166, 154, 1); }
+.co-guide-tag.co-short { background: rgba(239, 83, 80, .82); border: 1px solid rgba(239, 83, 80, 1); }
+
+/* 損益區塊（進場↔止盈綠、進場↔止損紅，半透明）+ 可拖曳線/把手 — TradingView 風 */
+.co-zone { position: absolute; left: 0; right: 0; z-index: 22; pointer-events: none; }
+.co-zone-tp { background: rgba(38, 166, 154, .12); }
+.co-zone-sl { background: rgba(239, 83, 80, .12); }
+.co-line {
+  position: absolute; left: 0; right: 0; height: 0; z-index: 24; pointer-events: none; display: none;
+  border-top: 1px solid #888;
+}
+.co-line-entry { border-top: 1px dashed rgba(255, 145, 71, .95); }
+.co-line-sl    { border-top: 1px solid rgba(239, 83, 80, .95); }
+.co-line-tp    { border-top: 1px solid rgba(38, 166, 154, .95); }
+.co-handle {
+  position: absolute; right: 8px; top: 0; transform: translateY(-50%);
+  padding: 2px 8px; border-radius: 5px; cursor: ns-resize; pointer-events: auto;
+  white-space: nowrap; color: #fff; font: 700 11px/1.3 -apple-system, system-ui, "PingFang TC", sans-serif;
+  font-variant-numeric: tabular-nums; user-select: none; touch-action: none;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, .35);
+}
+.co-line-entry .co-handle { background: #FF9147; color: #2C1607; }
+.co-line-sl    .co-handle { background: #ef5350; }
+.co-line-tp    .co-handle { background: #26a69a; }
+.co-handle:hover { filter: brightness(1.08); }
+
+/* 確認卡 */
+.co-card {
+  position: absolute; z-index: 30; width: 220px; box-sizing: border-box;
+  background: rgba(23, 15, 12, 0.92); border: 1px solid var(--border, #3B2920);
+  border-radius: 12px; padding: 10px 11px 11px; color: var(--text, #EDD4A8);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, .5);
+  backdrop-filter: blur(12px) saturate(1.1); -webkit-backdrop-filter: blur(12px) saturate(1.1);
+  font: 12px/1.4 -apple-system, system-ui, "PingFang TC", sans-serif;
+}
+.co-card-head { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+.co-env { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 9px; }
+.co-env-test { background: #2a6f4e33; color: #4cc38a; border: 1px solid #4cc38a66; }
+.co-env-live { background: #7f1d1d44; color: #f87171; border: 1px solid #f8717188; }
+.co-card-sym { font-weight: 700; font-size: 12.5px; flex: 1; }
+.co-card-x {
+  border: none; background: transparent; color: var(--muted, #9A7A58);
+  font-size: 18px; line-height: 1; cursor: pointer; padding: 0 2px;
+}
+.co-card-x:hover { color: var(--text, #EDD4A8); }
+.co-seg { display: flex; gap: 4px; margin-bottom: 7px; }
+.co-seg button {
+  flex: 1; padding: 7px 0; border-radius: 7px; cursor: pointer; font-weight: 700; font-size: 12px;
+  background: rgba(255, 255, 255, .03); color: var(--muted, #9A7A58); border: 1px solid var(--border, #3B2920);
+  transition: all .12s ease;
+}
+.co-side button[data-side="long"].sel  { background: #1f6b4e; color: #fff; border-color: transparent; }
+.co-side button[data-side="short"].sel { background: #9f3a3a; color: #fff; border-color: transparent; }
+.co-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.co-row > span { width: 38px; flex: none; color: var(--muted, #9A7A58); font-size: 11px; }
+.co-row input {
+  flex: 1; width: 100%; min-width: 0; box-sizing: border-box; padding: 6px 8px; border-radius: 7px;
+  border: 1px solid var(--border, #3B2920); background: rgba(255, 255, 255, .02);
+  color: var(--text, #EDD4A8); font-size: 12px; font-variant-numeric: tabular-nums;
+}
+.co-row input:focus { outline: none; border-color: var(--accent, #FF9147); }
+.co-row2 { display: flex; gap: 6px; }
+.co-row2 .co-row { flex: 1; }
+.co-row2 .co-row > span { width: auto; }
+.co-notional { font-size: 11px; color: var(--muted, #9A7A58); text-align: right; margin: 2px 0 7px; min-height: 13px; }
+.co-submit {
+  width: 100%; padding: 9px; border: none; border-radius: 9px; cursor: pointer;
+  background: var(--accent, #FF9147); color: #2C1607; font-weight: 800; font-size: 13px;
+  transition: filter .12s ease;
+}
+.co-submit:hover { filter: brightness(1.06); }
+.co-submit:disabled { opacity: .6; cursor: default; }
+
+/* 浮動提示 */
+.co-toast {
+  position: absolute; left: 50%; top: 10px;
+  transform: translateX(-50%) translateY(-6px);
+  z-index: 31; max-width: 80%; padding: 6px 12px; border-radius: 9px;
+  background: rgba(23, 15, 12, 0.92); border: 1px solid var(--border, #3B2920);
+  color: var(--text, #EDD4A8); font-size: 11.5px; text-align: center;
+  pointer-events: none; opacity: 0; transition: opacity .2s ease, transform .2s ease;
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+}
+.co-toast.on { opacity: 1; transform: translateX(-50%) translateY(0); }
+.co-toast.co-err { border-color: #f8717188; color: #f8a; }
