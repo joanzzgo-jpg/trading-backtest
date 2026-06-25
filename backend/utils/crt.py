@@ -1336,11 +1336,11 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             if _midi is not None:
                 for _k in range(_midi, _N):
                     if _dir == "l":
-                        if float(highs[_k]) >= _gtp: break                                   # 先到止盈 → 不反轉
-                        if float(closes[_k]) < _bot: _inv_t = times_iso[_k]; _invi = _k; break  # 收盤破下緣 → 反轉
+                        if float(highs[_k]) >= _gtp: break                                     # 先到止盈 → 不反轉
+                        if float(closes[_k]) < _gsl: _inv_t = times_iso[_k]; _invi = _k; break  # 收盤破止損(g-1頂端) → 反轉
                     else:
                         if float(lows[_k])  <= _gtp: break
-                        if float(closes[_k]) > _top: _inv_t = times_iso[_k]; _invi = _k; break  # 收盤破上緣 → 反轉
+                        if float(closes[_k]) > _gsl: _inv_t = times_iso[_k]; _invi = _k; break  # 收盤破止損(g-1頂端) → 反轉
             # 原缺口色塊：反轉則盒子延伸到反轉點(之後換色由 IFVG 接續)；否則止於中線/右緣。
             _box_t2 = _inv_t if _inv_t is not None else _t2
             # 進場點(視覺)分上/中/下：缺口框「上緣top／中線mid／下緣bot」各自首次被觸及那根。

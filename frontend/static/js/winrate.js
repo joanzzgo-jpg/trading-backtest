@@ -362,8 +362,9 @@ function _computeFVGBox(z) {
   if (!(W > 0)) return null;
   const isShort = z.d === "s";
   const mid = (z.top + z.bot) / 2;                 // 進場參考 = 缺口中點
-  const tp = isShort ? z.bot - _FVG_TP_W * W : z.top + _FVG_TP_W * W;
-  const sl = isShort ? z.top + _FVG_SL_W * W : z.bot - _FVG_SL_W * W;
+  // 止盈/止損優先用後端視覺位階(止損=g-1頂端 z.sl、止盈=1W z.tp)，與框上線/IFVG 一致；缺漏才退回舊倍數
+  const tp = (z.tp != null) ? z.tp : (isShort ? z.bot - _FVG_TP_W * W : z.top + _FVG_TP_W * W);
+  const sl = (z.sl != null) ? z.sl : (isShort ? z.top + _FVG_SL_W * W : z.bot - _FVG_SL_W * W);
   // 盒寬：確認棒 → 回補棒（=部位了結）；未回補預設 12 根
   const t1s = toTime(z.t), t2s = (z.t2 != null) ? toTime(z.t2) : null;
   let barWidth = 12;
