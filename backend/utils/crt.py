@@ -1309,6 +1309,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         _N = len(times_iso); _MS = 0.001   # 視覺最小缺口 0.1%（自動交易訊號另設 0.3% 門檻，見下）
         _FRESH = 168          # 缺口新鮮度：確認後 168 根(1h=一週)內未回補 → 作廢、不產進場訊號
         _MAXHOLD = 200        # 最長持有：進場後 200 根仍未觸發止盈/止損 → 視為仍 live(不在此處強平)
+        _last_main_pos = None  # 連續四根內第二個FVG→以最先為主(第二個淺色、不採用交易)
         for _g in range(1, _N - 1):
             _h0 = float(highs[_g-1]); _l0 = float(lows[_g-1])
             _h2 = float(highs[_g+1]); _l2 = float(lows[_g+1])
@@ -1358,8 +1359,12 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                     if _etm is None and _hj >= _mid: _etm = times_iso[_j]
                     if _etb is None and _hj >= _bot: _etb = times_iso[_j]
                 if _ett and _etm and _etb: break
+            # 連續四根內第二個 FVG：以最先出現的為主，第二個標 dim(前端淺色、且不產生交易訊號)
+            _pos = _g + 1
+            _dim = (_last_main_pos is not None and (_pos - _last_main_pos) < 4)
+            if not _dim: _last_main_pos = _pos
             _fvg.append({"t": times_iso[_g+1], "top": _top, "bot": _bot, "d": _dir, "t2": _box_t2,
-                         "sweep": _sweep, "sl": _gsl, "tp": _gtp,
+                         "sweep": _sweep, "sl": _gsl, "tp": _gtp, "dim": _dim,
                          "ett": _ett, "etm": _etm, "etb": _etb})    # 進場：上/中/下緣觸及時間
             # IFVG：反方向換色，從反轉點續延，到自己回中線被填補(或右緣)為止；位階用反向(止盈反向1W、止損=被破對側邊)。
             if _inv_t is not None:
@@ -1381,9 +1386,12 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                     if _iett and _ietm and _ietb: break
                 _it2 = _ietm                       # 盒子右端＝反向回中線
                 _fvg.append({"t": _inv_t, "top": _top, "bot": _bot, "d": _idir, "t2": _it2,
-                             "sweep": False, "sl": _isl, "tp": _itp, "inv": True,
+                             "sweep": False, "sl": _isl, "tp": _itp, "inv": True, "dim": _dim,
                              "ett": _iett, "etm": _ietm, "etb": _ietb})
 
+            # 連續四根內第二個 FVG：不採用 → 不產生任何交易訊號/cascade 標記（僅前端淺色顯示）。
+            if _dim:
+                continue
             # 以下自動交易訊號 + cascade 標記維持 0.3% 最小寬度（行為不變；視覺色塊不受此限）。
             if _gw < 0.003:
                 continue
