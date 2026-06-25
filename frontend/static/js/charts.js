@@ -127,7 +127,7 @@ function _makeFVGPrimitive() {
             ctx.fillStyle = "rgba(255,213,79,0.98)";
             ctx.fillText(_e.lab, px + r + 2 * vr, py);
           }
-          // 交易位階線：止盈(綠=1W)、止損(紅=g-1頂端)，沿盒寬 x1→x2 畫水平虛線。
+          // 交易位階線：止盈(綠=2W)、止損(紅=g-1頂端)，沿盒寬 x1→x2 畫水平虛線。
           //   預設隱藏（缺口太多會洗版）→ 只有「被點選」的缺口才畫，避免主圖滿屏線。
           if (_fvgLevelsShow && z === _fvgSelected) {
             ctx.lineWidth = Math.max(1, hr);
@@ -191,7 +191,7 @@ function setFVGZones(list) {
     t1: toTime(z.t), t2: (z.t2 != null ? toTime(z.t2) : null),
     top: z.top, bot: z.bot, d: z.d, inv: !!z.inv,   // inv=IFVG(反轉缺口,反方向換色)
     dim: !!z.dim,                                   // dim=連續四根內第二個(淺色、不採用交易)
-    sl: (z.sl != null ? z.sl : null), tp: (z.tp != null ? z.tp : null),  // 止損(g-1頂端)/止盈(1W)
+    sl: (z.sl != null ? z.sl : null), tp: (z.tp != null ? z.tp : null),  // 止損(g-1頂端)/止盈(2W)
     ett: (z.ett != null ? toTime(z.ett) : null),   // 進場-上緣觸及
     etm: (z.etm != null ? toTime(z.etm) : null),   // 進場-中線觸及
     etb: (z.etb != null ? toTime(z.etb) : null),   // 進場-下緣觸及
@@ -205,7 +205,7 @@ function toggleFVG(on) {
   if (_fvgPrimitive) _fvgPrimitive.requestUpdate();
   return _fvgShow;
 }
-// 交易位階線開關：window.toggleFVGLevels() 切換（止盈1W／止損g-1頂端）
+// 交易位階線開關：window.toggleFVGLevels() 切換（止盈2W／止損g-1頂端）
 function toggleFVGLevels(on) {
   _fvgLevelsShow = (on === undefined) ? !_fvgLevelsShow : !!on;
   if (_fvgPrimitive) _fvgPrimitive.requestUpdate();

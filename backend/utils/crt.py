@@ -1309,7 +1309,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         _N = len(times_iso); _MS = 0.001   # 視覺最小缺口 0.1%（自動交易訊號另設 0.3% 門檻，見下）
         _FRESH = 168          # 缺口新鮮度：確認後 168 根(1h=一週)內未回補 → 作廢、不產進場訊號
         _MAXHOLD = 200        # 最長持有：進場後 200 根仍未觸發止盈/止損 → 視為仍 live(不在此處強平)
-        _last_main_pos = None  # 連續四根內第二個FVG→以最先為主(第二個淺色、不採用交易)
+        _last_main_pos = {"l": None, "s": None}  # 連續四根內第二個FVG→以最先為主(淺色不採用)；只限同方向各自計算
         for _g in range(1, _N - 1):
             _h0 = float(highs[_g-1]); _l0 = float(lows[_g-1])
             _h2 = float(highs[_g+1]); _l2 = float(lows[_g+1])
@@ -1328,10 +1328,10 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                 if _dir == "l" and float(lows[_j])  <= _mid: _t2 = times_iso[_j]; _midi = _j; break
                 if _dir == "s" and float(highs[_j]) >= _mid: _t2 = times_iso[_j]; _midi = _j; break
             _sweep = (_l0 < float(lows[_g]) and _l0 < _l2) if _dir == "l" else (_h0 > float(highs[_g]) and _h0 > _h2)
-            # 交易位階(視覺)：止盈=1W(W=top−bot,多 top+1W／空 bot−1W)、止損=g-1 頂端(high[g-1]=_h0)。
+            # 交易位階(視覺)：止盈=2W(W=top−bot,多 top+2W／空 bot−2W)、止損=g-1 頂端(high[g-1]=_h0)。
             _W = _top - _bot
             _gsl = _h0                                               # g-1 的頂端(高點)
-            _gtp = (_top + _W) if _dir == "l" else (_bot - _W)       # 止盈 1W
+            _gtp = (_top + 2 * _W) if _dir == "l" else (_bot - 2 * _W)   # 止盈 2W
             # IFVG 反轉偵測：進場(到中線)後，先收盤穿破止損側(沒到止盈) → 反轉成反向 IFVG。
             _inv_t = None; _invi = None
             if _midi is not None:
@@ -1359,10 +1359,12 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                     if _etm is None and _hj >= _mid: _etm = times_iso[_j]
                     if _etb is None and _hj >= _bot: _etb = times_iso[_j]
                 if _ett and _etm and _etb: break
-            # 連續四根內第二個 FVG：以最先出現的為主，第二個標 dim(前端淺色、且不產生交易訊號)
+            # 連續四根內第二個 FVG：以最先出現的為主，第二個標 dim(前端淺色、且不產生交易訊號)。
+            # 只限「同方向」各自計算 → 多/空互不影響(反方向缺口不算第二個)。
             _pos = _g + 1
-            _dim = (_last_main_pos is not None and (_pos - _last_main_pos) < 4)
-            if not _dim: _last_main_pos = _pos
+            _lmp = _last_main_pos[_dir]
+            _dim = (_lmp is not None and (_pos - _lmp) < 4)
+            if not _dim: _last_main_pos[_dir] = _pos
             _fvg.append({"t": times_iso[_g+1], "top": _top, "bot": _bot, "d": _dir, "t2": _box_t2,
                          "sweep": _sweep, "sl": _gsl, "tp": _gtp, "dim": _dim,
                          "ett": _ett, "etm": _etm, "etb": _etb})    # 進場：上/中/下緣觸及時間
@@ -1370,7 +1372,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             if _inv_t is not None:
                 _idir = "s" if _dir == "l" else "l"
                 _isl = _top if _dir == "l" else _bot                       # 反向止損＝被破的對側邊
-                _itp = (_bot - _W) if _dir == "l" else (_top + _W)         # 反向止盈 1W
+                _itp = (_bot - 2 * _W) if _dir == "l" else (_top + 2 * _W)   # 反向止盈 2W
                 _iett = _ietm = _ietb = None       # IFVG 進場分上中下：反向後框上/中/下緣各自首次觸及
                 for _m in range(_invi + 1, _N):
                     if _idir == "l":
