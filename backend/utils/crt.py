@@ -1320,11 +1320,12 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                 _dir, _top, _bot, _gw = "s", _l0, _h2, (_l0 - _h2) / _l0
             else:
                 continue
-            _t2 = None                                          # 盒子右端＝缺口「完全填滿」點（碰到近邊不算，要穿到遠邊）
+            _t2 = None                                          # 盒子右端＝缺口「到中線(50%)」點（碰近邊不算、到中點才算填補）
+            _mid = (_top + _bot) / 2.0
             for _j in range(_g + 2, _N):
-                # 多頭(支撐)：價格跌到下緣 bot 才算填滿；空頭(壓力)：價格漲到上緣 top 才算填滿。
-                if _dir == "l" and float(lows[_j])  <= _bot: _t2 = times_iso[_j]; break
-                if _dir == "s" and float(highs[_j]) >= _top: _t2 = times_iso[_j]; break
+                # 多頭(支撐)：價格跌到中線；空頭(壓力)：價格漲到中線 → 視為已填補、停止延伸。
+                if _dir == "l" and float(lows[_j])  <= _mid: _t2 = times_iso[_j]; break
+                if _dir == "s" and float(highs[_j]) >= _mid: _t2 = times_iso[_j]; break
             _sweep = (_l0 < float(lows[_g]) and _l0 < _l2) if _dir == "l" else (_h0 > float(highs[_g]) and _h0 > _h2)
             # 純 FVG 視覺色塊：每個失衡缺口(≥0.1%)都畫，不套 g+2 觸框過濾（使用者要求純 FVG）。
             _fvg.append({"t": times_iso[_g+1], "top": _top, "bot": _bot, "d": _dir, "t2": _t2, "sweep": _sweep})
