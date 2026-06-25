@@ -58,7 +58,8 @@ function createCandleSeries() {
 let _fvgZones = [];        // [{t1, t2|null, top, bot, d}]（已轉成圖表時間）
 let _fvgPrimitive = null;
 let _fvgShow = true;
-let _fvgLevelsShow = true;   // FVG 交易位階線（止盈1W綠／止損g-1頂端紅）開關
+let _fvgLevelsShow = true;   // FVG 交易位階線主開關（預設開＝允許顯示，但只畫「被點選」那個缺口）
+let _fvgSelected = null;     // 目前點選的缺口（只有它畫止損/止盈線；null＝全部隱藏）
 function _makeFVGPrimitive() {
   let _chart = null, _series = null, _req = null;
   const renderer = {
@@ -90,7 +91,7 @@ function _makeFVGPrimitive() {
           // 寬度% 標籤：多=（top−bot)/bot、空=(top−bot)/top（對齊後端 _gw 定義）；畫在盒左緣、垂直置中
           const _pct = z.d === "l" ? (z.top - z.bot) / z.bot : (z.top - z.bot) / z.top;
           if (_pct > 0) {
-            const _lbl = (_pct * 100).toFixed(2) + "%";
+            const _lbl = (z.inv ? "i " : "") + (_pct * 100).toFixed(2) + "%";   // IFVG 前綴 i
             ctx.font = `${Math.round(10 * vr)}px sans-serif`;
             ctx.textBaseline = "middle"; ctx.textAlign = "left";
             const _ty = byTop + bh / 2;
@@ -102,8 +103,9 @@ function _makeFVGPrimitive() {
             ctx.fillStyle = z.d === "l" ? "rgba(120,255,225,0.98)" : "rgba(255,150,150,0.98)";
             ctx.fillText(_lbl, bx + 3 * hr, _yy);
           }
-          // 交易位階線：止盈(綠=1W)、止損(紅=g-1頂端)，沿盒寬 x1→x2 畫水平虛線
-          if (_fvgLevelsShow) {
+          // 交易位階線：止盈(綠=1W)、止損(紅=g-1頂端)，沿盒寬 x1→x2 畫水平虛線。
+          //   預設隱藏（缺口太多會洗版）→ 只有「被點選」的缺口才畫，避免主圖滿屏線。
+          if (_fvgLevelsShow && z === _fvgSelected) {
             ctx.lineWidth = Math.max(1, hr);
             ctx.setLineDash([5 * hr, 4 * hr]);
             if (z.tp != null) {
@@ -128,7 +130,30 @@ function _makeFVGPrimitive() {
   };
   const paneView = { renderer() { return renderer; } };
   return {
-    attached(p) { _chart = p.chart; _series = p.series; _req = p.requestUpdate; },
+    attached(p) {
+      _chart = p.chart; _series = p.series; _req = p.requestUpdate;
+      // 點選缺口 → 只顯示它的止損/止盈線；再點同一個或點空白 → 取消。
+      try {
+        _chart.subscribeClick(param => {
+          if (!param || !param.point || param.time == null) { _fvgSelected = null; if (_req) _req(); return; }
+          const price = _series.coordinateToPrice(param.point.y);
+          if (price == null) { _fvgSelected = null; if (_req) _req(); return; }
+          const cands = _fvgZones.filter(z => {
+            const lo = Math.min(z.bot, z.top), hi = Math.max(z.bot, z.top);
+            if (price < lo || price > hi) return false;
+            const t2 = (z.t2 != null) ? z.t2 : Infinity;       // 未填補→延伸到右緣
+            return param.time >= z.t1 && param.time <= t2;
+          });
+          // 多個缺口重疊時，挑「盒高最小」那個（最貼近你點的那條缺口）
+          let hit = null;
+          for (const z of cands) {
+            if (!hit || Math.abs(z.top - z.bot) < Math.abs(hit.top - hit.bot)) hit = z;
+          }
+          _fvgSelected = (hit && hit === _fvgSelected) ? null : hit;   // 再點同一個→取消
+          if (_req) _req();
+        });
+      } catch (e) { /* 舊版 LWC 無 subscribeClick 時略過 */ }
+    },
     detached() { _chart = _series = _req = null; },
     updateAllViews() {},
     paneViews() { return [paneView]; },
@@ -139,9 +164,10 @@ function _makeFVGPrimitive() {
 function setFVGZones(list) {
   _fvgZones = (Array.isArray(list) ? list : []).map(z => ({
     t1: toTime(z.t), t2: (z.t2 != null ? toTime(z.t2) : null),
-    top: z.top, bot: z.bot, d: z.d,
+    top: z.top, bot: z.bot, d: z.d, inv: !!z.inv,   // inv=IFVG(反轉缺口,反方向換色)
     sl: (z.sl != null ? z.sl : null), tp: (z.tp != null ? z.tp : null),  // 止損(g-1頂端)/止盈(1W)
   })).filter(z => z.t1 != null && z.top != null && z.bot != null);
+  _fvgSelected = null;                       // 資料重載→清除點選(舊物件已不在新陣列裡)
   if (_fvgPrimitive) _fvgPrimitive.requestUpdate();
 }
 // 開關（預設開）：window.toggleFVG() 切換

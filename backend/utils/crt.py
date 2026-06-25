@@ -1320,20 +1320,42 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                 _dir, _top, _bot, _gw = "s", _l0, _h2, (_l0 - _h2) / _l0
             else:
                 continue
-            _t2 = None                                          # 盒子右端＝缺口「到中線(50%)」點（碰近邊不算、到中點才算填補）
+            _t2 = None; _midi = None                            # 到中線(50%)的時間/索引（盒子右端＝填補點）
             _mid = (_top + _bot) / 2.0
             for _j in range(_g + 2, _N):
                 # 多頭(支撐)：價格跌到中線；空頭(壓力)：價格漲到中線 → 視為已填補、停止延伸。
-                if _dir == "l" and float(lows[_j])  <= _mid: _t2 = times_iso[_j]; break
-                if _dir == "s" and float(highs[_j]) >= _mid: _t2 = times_iso[_j]; break
+                if _dir == "l" and float(lows[_j])  <= _mid: _t2 = times_iso[_j]; _midi = _j; break
+                if _dir == "s" and float(highs[_j]) >= _mid: _t2 = times_iso[_j]; _midi = _j; break
             _sweep = (_l0 < float(lows[_g]) and _l0 < _l2) if _dir == "l" else (_h0 > float(highs[_g]) and _h0 > _h2)
             # 交易位階(視覺)：止盈=1W(W=top−bot,多 top+1W／空 bot−1W)、止損=g-1 頂端(high[g-1]=_h0)。
             _W = _top - _bot
             _gsl = _h0                                               # g-1 的頂端(高點)
             _gtp = (_top + _W) if _dir == "l" else (_bot - _W)       # 止盈 1W
-            # 純 FVG 視覺色塊：每個失衡缺口(≥0.1%)都畫，不套 g+2 觸框過濾（使用者要求純 FVG）。
-            _fvg.append({"t": times_iso[_g+1], "top": _top, "bot": _bot, "d": _dir, "t2": _t2, "sweep": _sweep,
-                         "sl": _gsl, "tp": _gtp})
+            # IFVG 反轉偵測：進場(到中線)後，先收盤穿破止損側(沒到止盈) → 反轉成反向 IFVG。
+            _inv_t = None; _invi = None
+            if _midi is not None:
+                for _k in range(_midi, _N):
+                    if _dir == "l":
+                        if float(highs[_k]) >= _gtp: break                                   # 先到止盈 → 不反轉
+                        if float(closes[_k]) < _bot: _inv_t = times_iso[_k]; _invi = _k; break  # 收盤破下緣 → 反轉
+                    else:
+                        if float(lows[_k])  <= _gtp: break
+                        if float(closes[_k]) > _top: _inv_t = times_iso[_k]; _invi = _k; break  # 收盤破上緣 → 反轉
+            # 原缺口色塊：反轉則盒子延伸到反轉點(之後換色由 IFVG 接續)；否則止於中線/右緣。
+            _box_t2 = _inv_t if _inv_t is not None else _t2
+            _fvg.append({"t": times_iso[_g+1], "top": _top, "bot": _bot, "d": _dir, "t2": _box_t2,
+                         "sweep": _sweep, "sl": _gsl, "tp": _gtp})
+            # IFVG：反方向換色，從反轉點續延，到自己回中線被填補(或右緣)為止；位階用反向(止盈反向1W、止損=被破對側邊)。
+            if _inv_t is not None:
+                _idir = "s" if _dir == "l" else "l"
+                _isl = _top if _dir == "l" else _bot                       # 反向止損＝被破的對側邊
+                _itp = (_bot - _W) if _dir == "l" else (_top + _W)         # 反向止盈 1W
+                _it2 = None
+                for _m in range(_invi + 1, _N):
+                    if _idir == "l" and float(lows[_m])  <= _mid: _it2 = times_iso[_m]; break
+                    if _idir == "s" and float(highs[_m]) >= _mid: _it2 = times_iso[_m]; break
+                _fvg.append({"t": _inv_t, "top": _top, "bot": _bot, "d": _idir, "t2": _it2,
+                             "sweep": False, "sl": _isl, "tp": _itp, "inv": True})
 
             # 以下自動交易訊號 + cascade 標記維持 0.3% 最小寬度（行為不變；視覺色塊不受此限）。
             if _gw < 0.003:
