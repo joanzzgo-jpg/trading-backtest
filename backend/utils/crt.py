@@ -1309,7 +1309,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         _N = len(times_iso); _MS = 0.001   # 視覺最小缺口 0.1%（自動交易訊號另設 0.3% 門檻，見下）
         _FRESH = 168          # 缺口新鮮度：確認後 168 根(1h=一週)內未回補 → 作廢、不產進場訊號
         _MAXHOLD = 200        # 最長持有：進場後 200 根仍未觸發止盈/止損 → 視為仍 live(不在此處強平)
-        _last_main_pos = {"l": None, "s": None}  # 連續五根內同向第二個起FVG→只用第一個(其餘淺色不採用)；多空各自計算
+        _last_gap = {"l": None, "s": None}  # 每方向「上一個同向缺口」(bot, W)；下方0.5W帶內的同向缺口→無效(淺色不採用)；無效缺口也連鎖往下傳
         for _g in range(1, _N - 1):
             _h0 = float(highs[_g-1]); _l0 = float(lows[_g-1])
             _h2 = float(highs[_g+1]); _l2 = float(lows[_g+1])
@@ -1359,12 +1359,12 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                     if _etm is None and _hj >= _mid: _etm = times_iso[_j]
                     if _etb is None and _hj >= _bot: _etb = times_iso[_j]
                 if _ett and _etm and _etb: break
-            # 連續五根內同向缺口：只用第一個，第二個起標 dim(前端淺色、且不產生交易訊號)。
-            # 只限「同方向」各自計算 → 多/空互不影響(反方向缺口不算第二個)。
-            _pos = _g + 1
-            _lmp = _last_main_pos[_dir]
-            _dim = (_lmp is not None and (_pos - _lmp) < 5)
-            if not _dim: _last_main_pos[_dir] = _pos
+            # 同向缺口堆疊去重：若本缺口頂端(top)落在「上一個同向缺口下緣往下 0.5W」帶內
+            #   [botA-0.5*W_A, botA] → 視為太貼近上方缺口 → 無效(dim：前端淺色、不產生交易訊號)。
+            #   連鎖：基準用「上一個同向缺口」不論其有效/無效，無效缺口也讓下方0.5W內的同向缺口跟著無效。
+            _A = _last_gap[_dir]            # (botA, W_A)
+            _dim = (_A is not None and (_A[0] - 0.5 * _A[1]) <= _top <= _A[0])
+            _last_gap[_dir] = (_bot, _W)    # 不論 dim，更新為本缺口 → 連鎖向下傳遞
             _fvg.append({"t": times_iso[_g+1], "top": _top, "bot": _bot, "d": _dir, "t2": _box_t2,
                          "sweep": _sweep, "sl": _gsl, "tp": _gtp, "dim": _dim,
                          "ett": _ett, "etm": _etm, "etb": _etb})    # 進場：上/中/下緣觸及時間
@@ -1391,7 +1391,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                              "sweep": False, "sl": _isl, "tp": _itp, "inv": True, "dim": _dim,
                              "ett": _iett, "etm": _ietm, "etb": _ietb})
 
-            # 連續五根內同向第二個起：不採用 → 不產生任何交易訊號/cascade 標記（僅前端淺色顯示）。
+            # 無效缺口(下方0.5W帶內堆疊)：不採用 → 不產生任何交易訊號/cascade 標記（僅前端淺色顯示）。
             if _dim:
                 continue
             # 以下自動交易訊號 + cascade 標記維持 0.3% 最小寬度（行為不變；視覺色塊不受此限）。
