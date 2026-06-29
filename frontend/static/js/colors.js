@@ -61,7 +61,7 @@ function _applyChartBgGradient(color) {
   //   天氣從後方透出『且』保留色帶濾鏡。色帶是暗色，降不透明度＝讓後方天氣透更多。
   const night = document.documentElement.classList.contains("sky-night");
   const show  = document.documentElement.classList.contains("sky-show");
-  const mixPct = night ? 45 : show ? 40 : 100;
+  const mixPct = night ? 58 : show ? 65 : 100;
   const base = mixPct < 100 ? `color-mix(in srgb, ${dark} ${mixPct}%, transparent)` : dark;
   // 天氣聯動色：中央色帶混入當前天氣 accent（上/下兩色 → 雙色斜向漸層），
   // 雨天透藍灰、晴天透暖金、夜透靛紫…看盤瞄一眼底色就知道外面天氣
