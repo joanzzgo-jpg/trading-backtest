@@ -219,7 +219,7 @@ html.perf-mode #fxPanel { transition: none !important; }
   --accent:  #FF9147;
   --legend-h: 22px;
   --topbar-h: 38px;
-  --symbar-h: 26px;
+  --symbar-h: 30px;
 }
 
 html, body {
@@ -623,13 +623,13 @@ html.perf-mode .tb-icon-btn:hover svg { animation: none; transform: scale(1.1); 
   flex-shrink: 0;
   overflow: hidden;
 }
-.sym-name    { font-size: 12px; font-weight: 700; color: var(--text); white-space: nowrap; }
-.sym-tag     { background: var(--bg3); color: var(--muted); padding: 1px 5px; border-radius: 3px; font-size: 10px; white-space: nowrap; }
+.sym-name    { font-size: 14px; font-weight: 700; color: var(--text); white-space: nowrap; }
+.sym-tag     { background: var(--bg3); color: var(--muted); padding: 1px 5px; border-radius: 3px; font-size: 12px; white-space: nowrap; }
 .sym-divider { color: var(--border); margin: 0 2px; }
-.sym-label         { color: var(--muted); font-size: 11px; }
+.sym-label         { color: var(--muted); font-size: 13px; }
 .sym-label-v       { margin-left: 4px; }
-.sym-val           { font-weight: 600; margin-right: 2px; white-space: nowrap; font-size: 11px; color: var(--text); }
-.sym-chg           { font-weight: 700; margin-left: 4px; white-space: nowrap; font-size: 11px; }
+.sym-val           { font-weight: 600; margin-right: 2px; white-space: nowrap; font-size: 13px; color: var(--text); }
+.sym-chg           { font-weight: 700; margin-left: 4px; white-space: nowrap; font-size: 13px; }
 .sym-chg.up        { color: var(--red); }
 .sym-chg.dn        { color: var(--green); }
 
