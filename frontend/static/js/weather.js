@@ -1793,6 +1793,61 @@
     /* 月亮改由 _drawAstro 畫（比例制升落弧線：會隨時間移動、跨裝置一致），這裡不再畫 */
   }
 
+  /* 🛸 淡淡的幽浮：天氣不好時(雨/暴風/雷/冰雹/龍捲/陰/霧)偶爾飄過一隻飛碟，底部青綠微光+
+     脈動燈、玻璃圓頂內有外星人剪影。整體低透明度(淡)；飄出畫面後隔一陣子再從另一側重生。 */
+  const _UFO_WX = new Set(["rain", "drizzle", "storm", "thunder", "hail", "tornado", "overcast", "fog"]);
+  let _ufo = null, _ufoNext = 0;
+  function _drawUFO(t) {
+    if (!_ufo) {
+      if (!_ufoNext) _ufoNext = t + 4 + Math.random() * 10;       // 首次/重生延遲(壞天氣後幾秒現身)
+      if (t < _ufoNext) return;
+      const ltr = Math.random() < 0.5;
+      _ufo = { x: ltr ? -90 : W + 90, dir: ltr ? 1 : -1,
+               y: H * (0.10 + Math.random() * 0.22), sp: 0.5 + Math.random() * 0.4,
+               ph: Math.random() * 6.28 };
+      _ufoNext = 0;
+    }
+    _ufo.x += _ufo.sp * _ufo.dir;
+    if (_ufo.dir > 0 ? _ufo.x > W + 100 : _ufo.x < -100) {        // 飄出 → 隔 14~44s 再來
+      _ufo = null; _ufoNext = t + 14 + Math.random() * 30; return;
+    }
+    const ga = _layers.fore.ctx;   // 畫在最前天氣層 → 微光不被雲雨擋住（仍在 z:2 的 K 棒之後）
+    const x = _ufo.x, y = _ufo.y + Math.sin(t * 0.6 + _ufo.ph) * 6;   // 緩慢上下浮
+    const R = _lowFx ? 20 : 26;                                       // 碟身半徑（手機略小）
+    const pulse = 0.6 + 0.4 * Math.sin(t * 2.2 + _ufo.ph);            // 燈光/微光脈動
+    const dR = R * 0.5;                                               // 圓頂半徑
+    ga.save();
+    ga.globalAlpha = 0.62;                                            // 整體「淡淡」
+    // 底部青綠微光（光暈，雙層：大而柔 + 內聚亮核 → 微光更明顯）
+    const gl = ga.createRadialGradient(x, y + 5, 2, x, y + 5, R * 2.0);
+    gl.addColorStop(0, `rgba(140,255,215,${(0.5 * pulse).toFixed(3)})`);
+    gl.addColorStop(0.5, `rgba(120,255,210,${(0.18 * pulse).toFixed(3)})`);
+    gl.addColorStop(1, "rgba(120,255,210,0)");
+    ga.fillStyle = gl; ga.beginPath(); ga.arc(x, y + 5, R * 2.0, 0, 6.283); ga.fill();
+    // 玻璃圓頂
+    const dome = ga.createLinearGradient(x, y - dR, x, y);
+    dome.addColorStop(0, "rgba(150,230,255,0.55)"); dome.addColorStop(1, "rgba(110,170,210,0.30)");
+    ga.fillStyle = dome;
+    ga.beginPath(); ga.ellipse(x, y - R * 0.12, dR, dR * 0.9, 0, Math.PI, 2 * Math.PI); ga.fill();
+    // 淡淡外星人剪影（大頭）
+    ga.fillStyle = "rgba(70,95,85,0.55)";
+    ga.beginPath(); ga.ellipse(x, y - R * 0.24, dR * 0.42, dR * 0.52, 0, 0, 6.283); ga.fill();
+    // 外星人眼睛（微光）
+    ga.fillStyle = `rgba(190,255,235,${(0.7 * pulse).toFixed(3)})`;
+    ga.beginPath(); ga.ellipse(x - dR * 0.22, y - R * 0.25, 1.4, 2.3, 0.5, 0, 6.283); ga.fill();
+    ga.beginPath(); ga.ellipse(x + dR * 0.22, y - R * 0.25, 1.4, 2.3, -0.5, 0, 6.283); ga.fill();
+    // 碟身（扁橢圓）+ 暗邊
+    ga.fillStyle = "rgba(158,176,200,0.92)";
+    ga.beginPath(); ga.ellipse(x, y, R, R * 0.34, 0, 0, 6.283); ga.fill();
+    ga.strokeStyle = "rgba(92,112,142,0.9)"; ga.lineWidth = 1; ga.stroke();
+    // 碟底脈動燈（3 顆）
+    for (let i = -1; i <= 1; i++) {
+      ga.fillStyle = `rgba(120,255,210,${(0.45 + 0.55 * Math.abs(Math.sin(t * 3 + i + _ufo.ph))).toFixed(3)})`;
+      ga.beginPath(); ga.arc(x + i * R * 0.5, y + R * 0.17, 1.7, 0, 6.283); ga.fill();
+    }
+    ga.restore();
+  }
+
   function dCloudy(t) {
     const cdir = _windVecX() >= 0 ? 1 : -1;       // 雲飄移方向跟著風（+右 -左）
     const margin = W*0.6;
@@ -2840,6 +2895,7 @@
     _drawBirds(t);               // 飛鳥群（far/near 層）
     _drawBalloon(t);             // 熱氣球（mid 層）
     _drawAstro(t);               // 太陽/月亮/行星 → astro 天體深景層（大視差+全解析）；雲/雨各層從前方掠過（真遮擋）
+    if (_UFO_WX.has(type)) _drawUFO(t);   // 天氣不好時偶爾飄過淡淡的幽浮（發青綠微光）
     _drawOrrery();               // 太陽系即時儀：八大行星真實位置/軌道（fore 層右中 HUD，斜俯視）
     _tempTint();
   }
