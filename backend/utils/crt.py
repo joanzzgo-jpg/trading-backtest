@@ -1310,9 +1310,12 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         _FRESH = 168          # 缺口新鮮度：確認後 168 根(1h=一週)內未回補 → 作廢、不產進場訊號
         _MAXHOLD = 200        # 最長持有：進場後 200 根仍未觸發止盈/止損 → 視為仍 live(不在此處強平)
         _last_gap = {"l": None, "s": None}  # 每方向「上一個同向缺口」(bot, W)；下方0.5W帶內的同向缺口→無效(淺色不採用)；無效缺口也連鎖往下傳
+        # numpy→list 一次轉換：FVG 主迴圈逐元素存取，list(float) 遠快於 numpy 標量+float()
+        #（與 _fvg_bb / _fvg_trades 區塊同一手法；NaN 轉 list 後仍 float('nan')，x!=x 判定不變）。
+        _H = highs.tolist(); _L = lows.tolist(); _C = closes.tolist()
         for _g in range(1, _N - 1):
-            _h0 = float(highs[_g-1]); _l0 = float(lows[_g-1])
-            _h2 = float(highs[_g+1]); _l2 = float(lows[_g+1])
+            _h0 = _H[_g-1]; _l0 = _L[_g-1]
+            _h2 = _H[_g+1]; _l2 = _L[_g+1]
             if any(_v != _v for _v in (_h0, _l0, _h2, _l2)):   # NaN
                 continue
             if _l2 > _h0 and (_l2 - _h0) / _h0 > _MS:          # 多頭缺口（支撐）
@@ -1325,9 +1328,9 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             _mid = (_top + _bot) / 2.0
             for _j in range(_g + 2, _N):
                 # 多頭(支撐)：價格跌到中線；空頭(壓力)：價格漲到中線 → 視為已填補、停止延伸。
-                if _dir == "l" and float(lows[_j])  <= _mid: _t2 = times_iso[_j]; _midi = _j; break
-                if _dir == "s" and float(highs[_j]) >= _mid: _t2 = times_iso[_j]; _midi = _j; break
-            _sweep = (_l0 < float(lows[_g]) and _l0 < _l2) if _dir == "l" else (_h0 > float(highs[_g]) and _h0 > _h2)
+                if _dir == "l" and _L[_j]  <= _mid: _t2 = times_iso[_j]; _midi = _j; break
+                if _dir == "s" and _H[_j] >= _mid: _t2 = times_iso[_j]; _midi = _j; break
+            _sweep = (_l0 < _L[_g] and _l0 < _l2) if _dir == "l" else (_h0 > _H[_g] and _h0 > _h2)
             # 交易位階(視覺)：止盈=2W(W=top−bot,多 top+2W／空 bot−2W)、止損=g-1 頂端(high[g-1]=_h0)。
             _W = _top - _bot
             _gsl = _h0                                               # g-1 的頂端(高點)
@@ -1337,11 +1340,11 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             if _midi is not None:
                 for _k in range(_midi, _N):
                     if _dir == "l":
-                        if float(highs[_k]) >= _gtp: break                                     # 先到止盈 → 不反轉
-                        if float(closes[_k]) < _gsl: _inv_t = times_iso[_k]; _invi = _k; break  # 收盤破止損(g-1頂端) → 反轉
+                        if _H[_k] >= _gtp: break                                     # 先到止盈 → 不反轉
+                        if _C[_k] < _gsl: _inv_t = times_iso[_k]; _invi = _k; break  # 收盤破止損(g-1頂端) → 反轉
                     else:
-                        if float(lows[_k])  <= _gtp: break
-                        if float(closes[_k]) > _gsl: _inv_t = times_iso[_k]; _invi = _k; break  # 收盤破止損(g-1頂端) → 反轉
+                        if _L[_k]  <= _gtp: break
+                        if _C[_k] > _gsl: _inv_t = times_iso[_k]; _invi = _k; break  # 收盤破止損(g-1頂端) → 反轉
             # 原缺口色塊：反轉則盒子延伸到反轉點(之後換色由 IFVG 接續)；否則止於中線/右緣。
             _box_t2 = _inv_t if _inv_t is not None else _t2
             # 進場點(視覺)分上/中/下：缺口框「上緣top／中線mid／下緣bot」各自首次被觸及那根。
@@ -1349,12 +1352,12 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             _ett = _etm = _etb = None
             for _j in range(_g + 2, _N):
                 if _dir == "l":
-                    _lj = float(lows[_j])
+                    _lj = _L[_j]
                     if _ett is None and _lj <= _top: _ett = times_iso[_j]
                     if _etm is None and _lj <= _mid: _etm = times_iso[_j]
                     if _etb is None and _lj <= _bot: _etb = times_iso[_j]
                 else:
-                    _hj = float(highs[_j])
+                    _hj = _H[_j]
                     if _ett is None and _hj >= _top: _ett = times_iso[_j]
                     if _etm is None and _hj >= _mid: _etm = times_iso[_j]
                     if _etb is None and _hj >= _bot: _etb = times_iso[_j]
@@ -1376,12 +1379,12 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                 _iett = _ietm = _ietb = None       # IFVG 進場分上中下：反向後框上/中/下緣各自首次觸及
                 for _m in range(_invi + 1, _N):
                     if _idir == "l":
-                        _lm = float(lows[_m])
+                        _lm = _L[_m]
                         if _iett is None and _lm <= _top: _iett = times_iso[_m]
                         if _ietm is None and _lm <= _mid: _ietm = times_iso[_m]
                         if _ietb is None and _lm <= _bot: _ietb = times_iso[_m]
                     else:
-                        _hm = float(highs[_m])
+                        _hm = _H[_m]
                         if _iett is None and _hm >= _top: _iett = times_iso[_m]
                         if _ietm is None and _hm >= _mid: _ietm = times_iso[_m]
                         if _ietb is None and _hm >= _bot: _ietb = times_iso[_m]
@@ -1403,8 +1406,8 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             #   ⚠ 只用於下方自動交易訊號(_fvg_sigs)＋cascade 標記，不影響上面的純 FVG 視覺色塊。
             # 回測驗證(1h 規格8幣 + 19幣):DD 腰斬(−10%→−6%)、報酬/DD 升 30~56%、保留缺口 avgR 更高。
             if _g + 2 < _N:
-                if _dir == "l" and float(lows[_g+2])  <= _top: continue
-                if _dir == "s" and float(highs[_g+2]) >= _bot: continue
+                if _dir == "l" and _L[_g+2]  <= _top: continue
+                if _dir == "s" and _H[_g+2] >= _bot: continue
             _gaplist.append((_g + 1, _top, _bot, _dir))
 
             # ── 收盤確認進場訊號（2W/6W 固定 SL/TP；與視覺盒一致）──────────────────
@@ -1419,7 +1422,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             _ei = None
             _jend = min(_N, _g + 2 + _FRESH)
             for _j in range(_g + 2, _jend):
-                _cj = float(closes[_j]); _lj = float(lows[_j]); _hj = float(highs[_j])
+                _cj = _C[_j]; _lj = _L[_j]; _hj = _H[_j]
                 if _cj != _cj or _lj != _lj or _hj != _hj:      # NaN
                     continue
                 if _dir == "l":
@@ -1433,7 +1436,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             _r = None; _ot = None                               # 自進場次根模擬：先碰止損(l)/止盈(w)
             _hend = min(_N, _g + 2 + _MAXHOLD)                  # 持有上限自確認棒(g+1)起算，對齊 sim_confirm
             for _k in range(_ei + 1, _hend):
-                _hk = float(highs[_k]); _lk = float(lows[_k])
+                _hk = _H[_k]; _lk = _L[_k]
                 if _hk != _hk or _lk != _lk:
                     continue
                 if _dir == "l":
@@ -1443,7 +1446,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                     if _hk >= _stop: _r = "l"; _ot = times_iso[_k]; break
                     if _lk <= _tp:   _r = "w"; _ot = times_iso[_k]; break
             _fvg_sigs.append({"k": "fvg", "d": _dir, "t": times_iso[_ei],
-                              "entry": float(closes[_ei]), "stop": _stop, "tp": _tp,
+                              "entry": _C[_ei], "stop": _stop, "tp": _tp,
                               "r": _r, "ot": _ot})
         _fvg = _fvg[-12000:]        # 畫滿整窗（gzip 後約 ~200KB）；高保險值防病態 payload，實質不限量
         _fvg_sigs = _fvg_sigs[-200:]
