@@ -167,6 +167,9 @@ function renderAll(data) {
   if (typeof _renderFVGTrades === "function" && _lastFVGTrades && _lastFVGTrades.length) {
     _renderFVGTrades();
   }
+  if (typeof _renderFVGBreak === "function" && _lastFVGBreak && _lastFVGBreak.length) {
+    _renderFVGBreak();
+  }
 
   // fit 讓各子圖時間範圍對齊
   [mainChart, kdjChart, rsiChart, macdChart].forEach(c => c.timeScale().fitContent());
@@ -253,7 +256,7 @@ function renderAll(data) {
 
 function renderCandles(data) {
   applyOhlcvToSeries(data);
-  lastCRTMarkers = []; lastKDJCrossMarkers = []; lastResonanceMarkers = []; lastWRSignalMarkers = []; lastBacktestMarkers = []; lastFVGTradeMarkers = []; lastFVGBBMarkers = []; lastFVGBBMarkersA = []; lastFVGBBMarkersM = [];
+  lastCRTMarkers = []; lastKDJCrossMarkers = []; lastResonanceMarkers = []; lastWRSignalMarkers = []; lastBacktestMarkers = []; lastFVGTradeMarkers = []; lastFVGBBMarkers = []; lastFVGBBMarkersA = []; lastFVGBBMarkersM = []; lastFVGBreakMarkers = [];
   if (typeof setFVGTradeLines === "function") setFVGTradeLines([]);   // 換標的/重載 → 清舊止損止盈線，避免殘留
   _sortedMarkerCache = null;   // 標記陣列已清空 → 失效快取，避免平移重切視窗時殘留舊標記
   candleSeries.setMarkers([]);
@@ -310,6 +313,7 @@ function _applyMainMarkers(windowOnly) {
       ...((window._fvgBBHidden || window._fvgBBHideD) ? [] : lastFVGBBMarkers),
       ...((window._fvgBBHidden || window._fvgBBHideA) ? [] : lastFVGBBMarkersA),
       // M版(順多/順空/順平)已從主圖移除——不再合併進標記，console 也叫不出來
+      ...(window._fvgBreakHidden ? [] : lastFVGBreakMarkers),   // 結構轉破:多FVG→空FVG→收破多FVG
       ...lastBacktestMarkers,
     ].sort((a, b) => a.time - b.time);
   }

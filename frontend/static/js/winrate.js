@@ -492,6 +492,7 @@ async function _fetchWinRateNow() {
     _renderWRSignals(d.signals);
     _renderFVGTrades(d.fvg_trades);   // FVG「接1次」進出場標記（主圖）
     _renderFVGBB(d.fvg_bb, d.fvg_bb_a, d.fvg_bb_m);   // FVG 進出場標記:D(青/粉)+A(橘/紫)+M中軌分側順勢(黃/藍)（研究·主圖）
+    _renderFVGBreak(d.fvg_break);     // 結構轉破:多FVG→空FVG→收破前一個多FVG 的那根K（主圖）
     if (typeof setFVGZones === "function") setFVGZones(d.fvg);
     _setFVGData(d.fvg);
     if (typeof window._refreshSignalDrawer === "function") window._refreshSignalDrawer();
@@ -729,6 +730,36 @@ window.toggleFVGBB = function (ver, on) {
   window[key] = (on === undefined) ? !window[key] : !on;
   _applyMainMarkers();
   return !window[key];   // 回傳「是否顯示」
+};
+
+// 結構轉破標記：多FVG→空FVG→收破前一個多FVG下緣 的那根 K（橘色箭頭+「破多」標在棒上方）
+function _renderFVGBreak(items) {
+  if (items !== undefined) _lastFVGBreak = items || [];
+  const hasIdx = (typeof _secToIdx !== "undefined" && _secToIdx.size > 0);
+  const chartTimeSet = hasIdx ? null : new Set(ohlcvData.map(d => toTime(d.time)));
+  const _has = t => hasIdx ? _secToIdx.has(t) : chartTimeSet.has(t);
+  const _rpCut = (typeof replayActive !== "undefined" && replayActive
+    && typeof replayData !== "undefined" && replayData[replayIdx])
+    ? toTime(replayData[replayIdx].time) : null;
+  const out = [];
+  for (const it of (_lastFVGBreak || [])) {
+    const tm = toTime(it.t);
+    if (!_has(tm) || (_rpCut != null && tm > _rpCut)) continue;
+    out.push({
+      time: tm, position: "aboveBar", color: "#ff7043",
+      shape: "arrowDown", size: 1.6, text: "破多",
+    });
+  }
+  out.sort((a, b) => a.time - b.time);
+  lastFVGBreakMarkers = out;
+  _applyMainMarkers();
+}
+window._renderFVGBreak = _renderFVGBreak;
+// 開關：window.toggleFVGBreak() 切換結構轉破標記顯示
+window.toggleFVGBreak = function (on) {
+  window._fvgBreakHidden = (on === undefined) ? !window._fvgBreakHidden : !on;
+  _applyMainMarkers();
+  return !window._fvgBreakHidden;
 };
 
 function _renderWinRate(d) {
