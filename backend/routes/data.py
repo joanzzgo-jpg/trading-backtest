@@ -36,7 +36,7 @@ _inflight_guard = threading.Lock()
 _WR_CACHE_TTL = 1800
 
 # 各時框秒數（bar-aware 新鮮度用；與 notify_monitor._TF_SEC 同義）
-_CRT_IV = {"5m": 300, "15m": 900, "30m": 1800, "1h": 3600, "2h": 7200,
+_CRT_IV = {"1m": 60, "5m": 300, "15m": 900, "30m": 1800, "1h": 3600, "2h": 7200,
            "4h": 14400, "8h": 28800, "1d": 86400, "1w": 604800, "1M": 2592000}
 
 
@@ -50,7 +50,7 @@ def fetch_crt_df(market: str, symbol: str, timeframe: str, days: int,
     """
     end = date.today().isoformat()
     if market == "tw":
-        if timeframe in ("5m", "15m", "1h"):
+        if timeframe in ("1m", "5m", "15m", "1h"):
             max_d = TW_YF_MAX_DAYS.get(timeframe, 60)
             start = (date.today() - timedelta(days=min(days, max_d))).isoformat()
             try:
@@ -513,12 +513,12 @@ def get_ohlcv(req: OHLCVRequest):
         if req.market == "tw":
             if "/" in req.symbol:
                 raise ValueError(f"{req.symbol} 不是台股代號，請確認市場選擇")
-            if req.timeframe in ("5m", "15m", "1h", "4h"):
+            if req.timeframe in ("1m", "5m", "15m", "1h", "4h"):
                 # 4h 走 1h 來源再重採樣（避免 yfinance 1h bug）
                 src_tf = "1h" if req.timeframe == "4h" else req.timeframe
                 max_d = TW_YF_MAX_DAYS.get(src_tf, 60)
                 if use_limit:
-                    bars_per_day = {"5m": 78, "15m": 26, "1h": 5, "4h": 2}.get(req.timeframe, 26)
+                    bars_per_day = {"1m": 270, "5m": 78, "15m": 26, "1h": 5, "4h": 2}.get(req.timeframe, 26)
                     days = min(max_d, req.limit // bars_per_day)
                     days = max(days, 5)
                     end   = date.today().isoformat()
@@ -539,7 +539,7 @@ def get_ohlcv(req: OHLCVRequest):
                         raise
                 # ⭐ 今日改用 Fugle 富果即時分鐘K（歷史仍 yfinance）→ 一載入就即時、無 20 分延遲、
                 #    無空隙。只在「查詢範圍含今日」時併入（歷史/重播查詢 end 為過去日，跳過不影響）。
-                if (fugle_enabled() and src_tf in ("5m", "15m", "1h")
+                if (fugle_enabled() and src_tf in ("1m", "5m", "15m", "1h")
                         and end >= date.today().isoformat() and not df.empty):
                     fdf = fetch_fugle_intraday(req.symbol, src_tf)
                     if fdf is not None and not fdf.empty:
@@ -582,7 +582,7 @@ def get_ohlcv(req: OHLCVRequest):
             max_d = US_MAX_DAYS.get(req.timeframe, 3650)
             # 美股各 TF 每日 bar 數（用於 limit→days 反推，避免過量請求觸 yfinance 邊界）
             # 6.5h 交易：4h≈2、1h≈7、15m≈26、5m≈78
-            _bpd = {"1M": 1/30, "1w": 1/7, "1d": 1, "4h": 2, "2h": 3.25, "1h": 7, "15m": 26, "5m": 78}
+            _bpd = {"1M": 1/30, "1w": 1/7, "1d": 1, "4h": 2, "2h": 3.25, "1h": 7, "15m": 26, "5m": 78, "1m": 390}
             if use_limit:
                 bars_per_day = _bpd.get(req.timeframe, 1)
                 # 1.6 倍 buffer 容納週末/假日
@@ -656,10 +656,10 @@ def get_latest(req: LatestRequest):
                     "volume": rt["volume"],
                 }]}
             # 分鐘/小時時框：
-            if tf in ("5m", "15m", "1h", "4h"):
+            if tf in ("1m", "5m", "15m", "1h", "4h"):
                 # ⭐ Fugle 富果即時分鐘K 優先（無 20 分延遲、無空隙、任何標的秒出、不需 MIS 累積）。
                 #    快取 8 秒；失敗或未設 FUGLE_TOKEN → fallback 回下方 yfinance + MIS。
-                if tf in ("5m", "15m", "1h") and fugle_enabled():
+                if tf in ("1m", "5m", "15m", "1h") and fugle_enabled():
                     fkey = f"tw_fugle_{req.symbol}_{tf}"
                     fdf = cache.get(fkey, ttl=8)
                     if fdf is None:
@@ -683,8 +683,8 @@ def get_latest(req: LatestRequest):
                     df_out = df_intra.tail(6).copy()           # 多送幾根，讓 yfinance 之後補的真實棒能覆蓋暫時的 MIS 棒
                     recs = df_to_records(df_out)
                     is_live = False
-                    if rt and tf in ("5m", "15m", "1h"):
-                        minutes = {"5m": 5, "15m": 15, "1h": 60}[tf]
+                    if rt and tf in ("1m", "5m", "15m", "1h"):
+                        minutes = {"1m": 1, "5m": 5, "15m": 15, "1h": 60}[tf]
                         # MIS 即時累積真實分鐘棒：把 yfinance 最後一根之後的(含當下這根)接上 → 當下就有最新棒、無 20 分 gap
                         yf_last = pd.Timestamp(df_out.iloc[-1]["time"]).floor(f"{minutes}min")
                         for b in _mis_accumulate(req.symbol, minutes, rt):
@@ -747,7 +747,7 @@ def get_latest(req: LatestRequest):
             if os.getenv("FINNHUB_TOKEN"):
                 try:
                     quote = fetch_us_quote(req.symbol)
-                    _mins = {"5m": 5, "15m": 15, "1h": 60, "4h": 240}.get(req.timeframe)
+                    _mins = {"1m": 1, "5m": 5, "15m": 15, "1h": 60, "4h": 240}.get(req.timeframe)
                     acc = _finnhub_accumulate(req.symbol, _mins, quote) if (_mins and quote) else []
                     if acc:
                         recs = df_to_records(df.tail(6))
@@ -917,10 +917,10 @@ def get_crt_winrate(
     MIN_CASES = 40   # 每個訊號（S1~S7 × 空/多）最少採樣數；不足會自動往前加倍天數
     # 各時間框架：初始天數 / 最大天數
     # 上限拉到資料源實際可能的歷史深度（Binance fapi BTC 2019/9~、spot 2017/8~、Bybit/OKX 類似）
-    TF_INIT = {"1M": 3650, "1w": 1825, "1d": 730,  "8h": 730,  "4h": 365,  "2h": 365,  "1h": 365,   "30m": 90,  "15m": 60,  "5m": 30}
+    TF_INIT = {"1M": 3650, "1w": 1825, "1d": 730,  "8h": 730,  "4h": 365,  "2h": 365,  "1h": 365,   "30m": 90,  "15m": 60,  "5m": 30,  "1m": 7}
     # 注意：TF_MAX 是「勝率計算」用的歷史深度，不是圖表顯示深度
     # 5/15/30m 圖上不必看到太久以前，但統計需要足夠案例數（MIN_CASES=40 × 11 訊號 × 空/多）
-    TF_MAX  = {"1M": 7300, "1w": 7300, "1d": 7300, "8h": 5475, "4h": 5475, "2h": 4380, "1h": 2920,  "30m": 730, "15m": 720, "5m": 180}
+    TF_MAX  = {"1M": 7300, "1w": 7300, "1d": 7300, "8h": 5475, "4h": 5475, "2h": 4380, "1h": 2920,  "30m": 730, "15m": 720, "5m": 180, "1m": 20}
 
     def _sufficient(r: dict) -> bool:
         """每個訊號的空/多案例數都達到 MIN_CASES"""

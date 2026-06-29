@@ -216,6 +216,7 @@ function initDrawTools() {
   chartEl.addEventListener("touchmove", e => {
     const touch = e.touches[0]; if (!touch) return;
     const fake = { clientX: touch.clientX, clientY: touch.clientY };
+    if (_vpDrag)   { e.preventDefault(); _onChartMouseMove(fake); return; }
     if (dragState) { e.preventDefault(); _onChartMouseMove(fake); return; }
     if (drawTool === "crosshair") return;
     if (drawTool !== "pointer") e.preventDefault();
@@ -225,6 +226,7 @@ function initDrawTools() {
   chartEl.addEventListener("touchend", e => {
     const touch = e.changedTouches[0]; if (!touch) return;
     const fake = { clientX: touch.clientX, clientY: touch.clientY, stopPropagation: () => {} };
+    if (_vpDrag)   { _onChartMouseUp(); return; }
     if (dragState) { _onChartMouseUp(); return; }
     if (drawTool === "pointer") {
       // 點擊選取繪圖，帶出顏色選擇器
@@ -318,9 +320,30 @@ function _onChartMouseMove(e) {
   const { x, y } = _canvasXY(e);
   _mx = x; _my = y;
 
+  // VP 截止線拖動中：x → 最近 K 棒時間，更新統計範圍
+  if (_vpDrag) {
+    e.stopPropagation?.();
+    const lg = mainChart.timeScale().coordinateToLogical(x);
+    if (lg != null && ohlcvData.length) {
+      let idx = Math.round(lg);
+      idx = Math.max(0, Math.min(ohlcvData.length - 1, idx));
+      _vpCutTime = toTime(ohlcvData[idx].time);
+      _scheduleRenderDrawings();
+    }
+    return;
+  }
+
   if (dragState) {
     e.stopPropagation();   // 拖移時不讓 LWC 處理 pan
     _updateDrag(x, y);
+    return;
+  }
+
+  // 靠近 VP 截止線（pointer 模式）→ 游標提示可左右拖
+  if (drawTool === "pointer" && _vpOn && _vpLineLastX != null && Math.abs(x - _vpLineLastX) <= 6) {
+    const chartEl = document.getElementById("mainChart");
+    if (chartEl) chartEl.style.cursor = "ew-resize";
+    if (hoveredId !== null) { hoveredId = null; _scheduleRenderDrawings(); }
     return;
   }
 
@@ -337,6 +360,16 @@ function _onChartMouseMove(e) {
 function _onChartMouseDown(e) {
   if (e.button !== 0) return;
   const { x, y } = _canvasXY(e);
+
+  // VP 截止線拖動：pointer/crosshair 模式、滑鼠靠近線 → 優先於繪圖拖移與 LWC pan
+  if (_vpOn && _vpLineLastX != null && (drawTool === "pointer" || drawTool === "crosshair")
+      && Math.abs(x - _vpLineLastX) <= 6) {
+    e.stopPropagation?.();
+    _vpDrag = true;
+    _updateCursor();
+    _scheduleRenderDrawings();
+    return;
+  }
 
   // 只有 pointer 模式且滑鼠在線上才啟動拖移
   if (drawTool === "pointer") {
@@ -355,6 +388,7 @@ function _onChartMouseDown(e) {
 }
 
 function _onChartMouseUp() {
+  if (_vpDrag) { _vpDrag = false; _updateCursor(); _scheduleRenderDrawings(); return; }
   if (!dragState) return;
   if (dragState.moved) {
     saveDrawings();
@@ -756,7 +790,7 @@ function drawingDist(d, x, y) {
 
 // 交易時段（用 K 棒的台灣時間 = toTime 已 +8h，UTC getter 即台北時）：
 //   週一~五 8:00-12:00=台股、14:00-17:00=歐洲、20:00-23:00=美盤
-const _SESSION_INTRADAY = ["5m", "15m", "30m", "1h", "2h"];
+const _SESSION_INTRADAY = ["1m", "5m", "15m", "30m", "1h", "2h"];
 const _SESSION_COLOR = { asia: "rgba(66,133,244,0.10)", europe: "rgba(124,104,228,0.10)", us: "rgba(255,159,40,0.09)" };
 const _SESSION_LINE  = { asia: "rgba(66,133,244,0.9)",  europe: "rgba(150,130,245,0.85)", us: "rgba(255,159,40,0.9)" };
 const _SESSION_NAME  = { asia: "台股", europe: "歐洲", us: "美盤" };
@@ -912,6 +946,129 @@ function _drawSessionOverlay(W, H) {
   drawCtx.restore();   // 星期標籤
   drawCtx.restore();   // 外層繪圖區裁切
 }
+
+// 成交量分佈圖（Volume Profile）：把成交量依價格分箱，畫出三條水平線——
+//   上＝VAH(價值區高)、中＝POC(控制點/量最大價位)、下＝VAL(價值區低)。價值區＝累積 70% 量。
+// 另有一條「可拖動的垂直截止線」：只統計線『左邊』的 K 棒（_vpCutTime；null＝統計到可見右緣）。
+// 受 legVP 圖例開關控制（_vpOn）；只在 overlay 層畫、隨可見範圍/價軸由 renderDrawings 重算。
+let _vpOn = (() => { try { return localStorage.getItem("vpProfile") !== "0"; } catch (e) { return true; } })();
+let _vpCutTime  = null;   // 截止垂直線的圖表時間；null＝可見右緣(統計全部可見)。只統計此線左邊
+let _vpDrag     = false;  // 是否正在拖動截止線
+let _vpLineLastX = null;  // 上次畫線的 x（給滑鼠 hit-test 用；VP 關閉時為 null）
+function _drawVolumeProfile(W, H) {
+  _vpLineLastX = null;
+  if (!_vpOn) return;
+  if (typeof ohlcvData === "undefined" || !ohlcvData.length || typeof mainChart === "undefined") return;
+  const ts = mainChart.timeScale();
+  const vr = ts.getVisibleLogicalRange();
+  if (!vr) return;
+  const _len = ohlcvData.length;
+  const from = Math.max(0, Math.floor(vr.from));
+  let to     = Math.min(_len - 1, Math.ceil(vr.to));
+  // 重播：只算到「已揭曉」那根，不用未來資料
+  if (typeof replayActive !== "undefined" && replayActive && typeof replayIdx === "number")
+    to = Math.min(to, replayIdx);
+  if (to < from) return;
+  // 截止時間超出已載入資料(換標的/時框後殘留)→ 自動歸位到右緣
+  if (_vpCutTime != null) {
+    const t0 = toTime(ohlcvData[0].time), tN = toTime(ohlcvData[_len - 1].time);
+    if (_vpCutTime < t0 || _vpCutTime > tN) _vpCutTime = null;
+  }
+  // 統計右界＝截止線那根（只算它左邊）；null＝可見右緣
+  let hiIdx = to;
+  if (_vpCutTime != null) {
+    let c = to;
+    while (c > from && toTime(ohlcvData[c].time) > _vpCutTime) c--;
+    hiIdx = c;
+  }
+  // 截止線本身畫線用的時間：自定→該時間；否則可見右緣那根
+  const lineTime = (_vpCutTime != null) ? _vpCutTime : toTime(ohlcvData[to].time);
+  let plotW = W;
+  try { const tw = ts.width(); if (tw > 0) plotW = tw; } catch (e) {}
+  const xCut  = _timeToX(lineTime);
+  const xEnd  = (xCut != null && xCut < plotW && xCut > 0) ? xCut : plotW;   // 三線右端止於截止線
+
+  // ── 價量分佈三線：只統計 [from, hiIdx]（截止線左邊的可見 K）──
+  if (hiIdx >= from) {
+    let pHi = -Infinity, pLo = Infinity;
+    for (let i = from; i <= hiIdx; i++) {
+      const b = ohlcvData[i];
+      if (b.high > pHi) pHi = b.high;
+      if (b.low  < pLo) pLo = b.low;
+    }
+    if (isFinite(pHi) && isFinite(pLo) && pHi > pLo) {
+      const BINS = 48;
+      const binH = (pHi - pLo) / BINS;
+      const vol  = new Float64Array(BINS);
+      // 每根 K 的量平均分攤到它 low~high 覆蓋的價格箱（近似價量分佈）
+      for (let i = from; i <= hiIdx; i++) {
+        const b = ohlcvData[i];
+        const v = +b.volume || 0;
+        if (v <= 0) continue;
+        let lo = Math.floor((b.low  - pLo) / binH);
+        let hi = Math.floor((b.high - pLo) / binH);
+        if (lo < 0) lo = 0;
+        if (hi > BINS - 1) hi = BINS - 1;
+        const share = v / (hi - lo + 1);
+        for (let k = lo; k <= hi; k++) vol[k] += share;
+      }
+      let maxV = 0, pocIdx = 0, total = 0;
+      for (let k = 0; k < BINS; k++) { total += vol[k]; if (vol[k] > maxV) { maxV = vol[k]; pocIdx = k; } }
+      if (maxV > 0 && total > 0) {
+        // 價值區（70% 量）：自 POC 往上下擴張，每次併入相鄰「量較大」的一側，直到 ≥70%
+        let loK = pocIdx, hiK = pocIdx, acc = vol[pocIdx];
+        const VA_TARGET = total * 0.7;
+        while (acc < VA_TARGET && (loK > 0 || hiK < BINS - 1)) {
+          const below = loK > 0        ? vol[loK - 1] : -1;
+          const above = hiK < BINS - 1 ? vol[hiK + 1] : -1;
+          if (above >= below) { hiK++; acc += Math.max(0, above); }
+          else                { loK--; acc += Math.max(0, below); }
+        }
+        const pPOC = pLo + (pocIdx + 0.5) * binH;   // 中：POC
+        const pVAH = pLo + (hiK + 1) * binH;         // 上：VAH
+        const pVAL = pLo + loK * binH;               // 下：VAL
+        drawCtx.save();
+        drawCtx.beginPath(); drawCtx.rect(0, 0, plotW, H); drawCtx.clip();
+        drawCtx.font = "11px sans-serif"; drawCtx.textBaseline = "bottom"; drawCtx.textAlign = "right";
+        const _vpLine = (price, color, label) => {
+          const y = candleSeries?.priceToCoordinate(price);
+          if (y == null) return;
+          drawCtx.strokeStyle = color; drawCtx.lineWidth = 1; drawCtx.setLineDash([6, 4]);
+          drawCtx.beginPath(); drawCtx.moveTo(0, y); drawCtx.lineTo(xEnd, y); drawCtx.stroke();
+          drawCtx.setLineDash([]);
+          const tx = xEnd - 4;
+          drawCtx.fillStyle = "rgba(0,0,0,0.55)"; drawCtx.lineWidth = 3; drawCtx.strokeStyle = "rgba(0,0,0,0.55)";
+          drawCtx.strokeText(label, tx, y - 1);
+          drawCtx.fillStyle = color; drawCtx.fillText(label, tx, y - 1);
+        };
+        _vpLine(pVAH, "rgba(120,170,255,0.9)",  "VAH 上");
+        _vpLine(pPOC, "rgba(255,193,7,0.98)",   "POC 中");
+        _vpLine(pVAL, "rgba(120,170,255,0.9)",  "VAL 下");
+        drawCtx.restore();
+      }
+    }
+  }
+
+  // ── 截止垂直線（可拖動）：滑鼠靠近可左右拖 → 改變統計範圍 ──
+  if (xCut != null && xCut >= 0 && xCut <= plotW) {
+    let plotBottom = H;
+    try { const th = ts.height(); if (th > 0) plotBottom = H - th; } catch (e) {}
+    drawCtx.save();
+    drawCtx.strokeStyle = _vpDrag ? "rgba(255,213,79,0.95)" : "rgba(255,213,79,0.65)";
+    drawCtx.lineWidth = _vpDrag ? 2 : 1.5;
+    drawCtx.beginPath(); drawCtx.moveTo(xCut, 0); drawCtx.lineTo(xCut, plotBottom); drawCtx.stroke();
+    drawCtx.fillStyle = "rgba(255,213,79,0.9)";
+    drawCtx.fillRect(xCut - 3, 0, 6, 10);                  // 頂端握把
+    drawCtx.font = "10px sans-serif"; drawCtx.textBaseline = "top"; drawCtx.textAlign = "left";
+    drawCtx.lineWidth = 3; drawCtx.strokeStyle = "rgba(0,0,0,0.55)";
+    drawCtx.strokeText("量分佈←", xCut + 5, 2);
+    drawCtx.fillStyle = "rgba(255,213,79,0.95)";
+    drawCtx.fillText("量分佈←", xCut + 5, 2);
+    drawCtx.restore();
+    _vpLineLastX = xCut;
+  }
+}
+
 // 頂部「交易時段」開關按鈕
 function initSessionToggle() {
   const btn = document.getElementById("sessionToggleBtn");
@@ -928,6 +1085,26 @@ function initSessionToggle() {
   btn.addEventListener("click", () => {
     _sessionOn = !_sessionOn;
     try { localStorage.setItem("sessionOverlay", _sessionOn ? "1" : "0"); } catch (e) {}
+    _sync();
+    _scheduleRenderDrawings();
+  });
+}
+
+// 右上「成交量分佈圖」開關按鈕（VAH/POC/VAL 三線 + 可拖動截止線）
+function initVPToggle() {
+  const btn = document.getElementById("vpToggleBtn");
+  if (!btn) return;
+  const _sync = () => {
+    btn.classList.toggle("active", _vpOn);
+    const st = document.getElementById("mSetVPState");
+    if (st) st.textContent = _vpOn ? "開啟" : "關閉";
+    const row = document.getElementById("mSetVP");
+    if (row) row.classList.toggle("m-set-on", _vpOn);
+  };
+  _sync();
+  btn.addEventListener("click", () => {
+    _vpOn = !_vpOn;
+    try { localStorage.setItem("vpProfile", _vpOn ? "1" : "0"); } catch (e) {}
     _sync();
     _scheduleRenderDrawings();
   });
@@ -955,6 +1132,9 @@ function renderDrawings() {
 
   // 現價標籤位置跟著價格軸縮放/平移/即時更新（renderDrawings 是 overlay 重畫的共同入口）
   if (typeof updateCurrentPriceLabel === "function") updateCurrentPriceLabel();
+
+  // 成交量分佈圖（VPVR）：最底層先畫（避免蓋住時段高低線/繪圖/標記）；可開關
+  _drawVolumeProfile(W, H);
 
   // 交易時段 overlay（背景帶=當盤高低範圍 + 上下緣高低線 + 星期標籤；可開關）
   _drawSessionOverlay(W, H);

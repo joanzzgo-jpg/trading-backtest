@@ -129,7 +129,7 @@ function _openReplayPicker() {
     const d = new Date(ts * 1000);
     return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,"0")}-${String(d.getUTCDate()).padStart(2,"0")}`;
   };
-  const _TF_HIST = { "5m":365,"15m":365,"1h":730,"4h":1825,"1d":3650,"1w":3650,"1M":3650 };
+  const _TF_HIST = { "1m":20,"5m":365,"15m":365,"1h":730,"4h":1825,"1d":3650,"1w":3650,"1M":3650 };
   const minYmd = _toYmd(Math.floor(Date.now()/1000) - (_TF_HIST[currentTF] || 365) * 86400);
   const maxYmd = _toYmd(toTime(ohlcvData[ohlcvData.length - 1].time));
   dateInp.min = minYmd; dateInp.max = maxYmd;
@@ -148,7 +148,7 @@ async function _replayPreload(targetTs) {
   const snapSymbol   = document.getElementById("symbolInput").value.trim();
   const snapTf       = currentTF;
   const snapExchange = document.getElementById("exchangeSelect").value;
-  const CHUNK_DAYS   = { "5m":25,"15m":80,"1h":240,"4h":950 };
+  const CHUNK_DAYS   = { "1m":5,"5m":25,"15m":80,"1h":240,"4h":950 };
   const chunkDays    = CHUNK_DAYS[snapTf] || 60;
   const toIso        = ts => new Date(ts * 1000).toISOString().slice(0, 10);
 
@@ -259,7 +259,7 @@ function _replayRenderDate(bar) {
   const pad = n => String(n).padStart(2, "0");
   const ymd = `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())}`;
   document.getElementById("replayDatePicker").value = ymd;
-  const intraday = ["4h","1h","15m","5m"].includes(currentTF);
+  const intraday = ["4h","1h","15m","5m","1m"].includes(currentTF);
   document.getElementById("replayTime").textContent = intraday
     ? `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}` : "";
 }

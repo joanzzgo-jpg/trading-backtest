@@ -467,7 +467,7 @@ function _bgScheduleIndicators() {
 }
 
 async function _bgLoadOlderBars(scrollTriggered = false) {
-  const BG_TF = new Set(["5m", "15m", "1h", "4h"]);
+  const BG_TF = new Set(["1m", "5m", "15m", "1h", "4h"]);
   if (!BG_TF.has(currentTF) || _bgLoadInProgress || !ohlcvData.length) return;
 
   const snapMarket   = document.getElementById("marketSelect").value;
@@ -478,12 +478,12 @@ async function _bgLoadOlderBars(scrollTriggered = false) {
   // 初始自動載入目標：只預載適量緩衝（約數千根），其餘可視範圍外的舊資料延後 → 滑動時再分頁抓
   // （scrollTriggered 走 SCROLL_DAYS）。常駐根數大降 → 縮放/平移順（5m 原 180d≈5.2萬根 → 14d≈4千根）。
   // 代價：較舊的訊號標記要滑到才顯示；勝率 HUD 統計走後端、不受影響。
-  const INIT_DAYS   = { "5m": 14, "15m": 45, "1h": 120, "4h": 730 };
-  const SCROLL_DAYS = { "5m": 730, "15m": 730, "1h": 1825, "4h": 3650 };
+  const INIT_DAYS   = { "1m": 3, "5m": 14, "15m": 45, "1h": 120, "4h": 730 };
+  const SCROLL_DAYS = { "1m": 20, "5m": 730, "15m": 730, "1h": 1825, "4h": 3650 };
   const totalDays   = scrollTriggered ? (SCROLL_DAYS[snapTf] || 365) : (INIT_DAYS[snapTf] || 30);
   const targetStartTs = Math.floor(Date.now() / 1000) - totalDays * 86400;
 
-  const CHUNK_DAYS = { "5m": 25, "15m": 80, "1h": 240, "4h": 950 };
+  const CHUNK_DAYS = { "1m": 5, "5m": 25, "15m": 80, "1h": 240, "4h": 950 };
   const chunkDays  = CHUNK_DAYS[snapTf] || 30;
 
   const toIso = ts => new Date(ts * 1000).toISOString().slice(0, 10);

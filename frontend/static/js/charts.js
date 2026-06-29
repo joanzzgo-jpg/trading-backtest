@@ -60,6 +60,7 @@ let _fvgPrimitive = null;
 let _fvgShow = true;
 let _fvgLevelsShow = true;   // FVG 交易位階線主開關（預設開＝允許顯示，但只畫「被點選」那個缺口）
 let _fvgSelected = null;     // 目前點選的缺口（只有它畫止損/止盈線；null＝全部隱藏）
+let _fvgMinW = 0;            // FVG 最小寬度%（使用者自定）：寬度 < 此值的缺口不畫（純顯示過濾，不影響策略）
 function _makeFVGPrimitive() {
   let _chart = null, _series = null, _req = null;
   const renderer = {
@@ -71,6 +72,11 @@ function _makeFVGPrimitive() {
         const hr = scope.horizontalPixelRatio, vr = scope.verticalPixelRatio;
         const wpx = scope.mediaSize.width;
         for (const z of _fvgZones) {
+          // 使用者自定最小寬度過濾：寬度% = 多(top−bot)/bot、空(top−bot)/top（對齊標籤定義）
+          if (_fvgMinW > 0) {
+            const _zw = (z.d === "l" ? (z.top - z.bot) / z.bot : (z.top - z.bot) / z.top) * 100;
+            if (_zw < _fvgMinW) continue;
+          }
           const x1 = ts.timeToCoordinate(z.t1);
           if (x1 == null) continue;
           let x2 = (z.t2 != null) ? ts.timeToCoordinate(z.t2) : null;
@@ -211,7 +217,14 @@ function toggleFVGLevels(on) {
   if (_fvgPrimitive) _fvgPrimitive.requestUpdate();
   return _fvgLevelsShow;
 }
+// FVG 最小寬度%（使用者自定）：寬度小於 pct 的缺口不顯示。0＝全顯示。即時重繪。
+function setFVGMinWidth(pct) {
+  _fvgMinW = Math.max(0, +pct || 0);
+  if (_fvgPrimitive) _fvgPrimitive.requestUpdate();
+  return _fvgMinW;
+}
 window.setFVGZones = setFVGZones;
+window.setFVGMinWidth = setFVGMinWidth;
 window.toggleFVG = toggleFVG;
 window.toggleFVGLevels = toggleFVGLevels;
 

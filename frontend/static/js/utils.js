@@ -221,7 +221,7 @@ function buildPayload() {
     symbol:    sym,
     start:     "",
     end:       "",
-    limit:     { "1M":120,"1w":520,"1d":1095,"4h":2190,"1h":2160,"15m":2000,"5m":2000 }[currentTF] ?? 500,
+    limit:     { "1M":120,"1w":520,"1d":1095,"4h":2190,"1h":2160,"15m":2000,"5m":2000,"1m":2000 }[currentTF] ?? 500,
     timeframe: currentTF,
     exchange:  document.getElementById("exchangeSelect").value,
   };

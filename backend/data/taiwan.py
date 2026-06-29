@@ -118,13 +118,13 @@ def fetch_tw_intraday(symbol: str, timeframe: str, start: str, end: str, api_tok
     return df
 
 
-YF_TF_MAP = {"5m": "5m", "15m": "15m", "1h": "1h", "4h": "1h"}  # yfinance 不支援 4h，用 1h 替代
+YF_TF_MAP = {"1m": "1m", "5m": "5m", "15m": "15m", "1h": "1h", "4h": "1h"}  # yfinance 不支援 4h，用 1h 替代
 
 # yfinance 各 interval 最多可回溯天數
 # 注意：1h 改用 15m 內部重採樣（避開 yfinance 1h 對台股的成交量缺漏 bug），
 # 所以實際 1h 上限受 15m 60 天限制
 # 留 2 天 buffer：yfinance 邊界嚴格小於、fetch_tw_intraday_yf 又會 end+1 → 一共佔 2 天
-YF_MAX_DAYS = {"5m": 58, "15m": 58, "1h": 58}
+YF_MAX_DAYS = {"1m": 7, "5m": 58, "15m": 58, "1h": 58}   # 1m yfinance 僅近 7 天
 
 
 def _yf_history(ticker, interval: str, start: str, end: str):
@@ -205,7 +205,7 @@ def fetch_tw_intraday_yf(symbol: str, timeframe: str, start: str, end: str) -> p
         df = df.reset_index()
         # Floor to bar boundary so partial/in-progress bars (e.g. stamped 11:40
         # by yfinance instead of 11:00) align to clean period starts.
-        src_freq = {"5m": "5min", "15m": "15min"}.get(src_tf, "60min")
+        src_freq = {"1m": "1min", "5m": "5min", "15m": "15min"}.get(src_tf, "60min")
         df["time"] = pd.to_datetime(df["time"]).dt.floor(src_freq)
         df = df.drop_duplicates(subset=["time"], keep="last").reset_index(drop=True)
         df = df.dropna(subset=["close"])

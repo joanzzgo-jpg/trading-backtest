@@ -134,6 +134,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   if (typeof initAccount === "function") initAccount();   // 帳號 + 跨裝置同步（後端未啟用會自動隱藏入口）
   if (typeof initBacktest === "function") initBacktest();  // 策略回測面板（📊 鈕）
   if (typeof initSessionToggle === "function") initSessionToggle();  // 交易時段標記開關
+  if (typeof initVPToggle === "function") initVPToggle();  // 成交量分佈圖開關（右上）
   if (typeof initWRSignalsToggle === "function") initWRSignalsToggle();  // S1~S12 訊號標記 一鍵開關
   if (typeof initMobileTF === "function") initMobileTF();            // 手機 TF 選擇器（自選最多4個顯示）
   if (typeof initNotify === "function") initNotify();                // CRT 訊號 Web Push 通知（後端未設 VAPID 會自動隱藏入口）

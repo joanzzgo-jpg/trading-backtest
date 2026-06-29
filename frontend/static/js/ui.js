@@ -660,6 +660,7 @@ function bindLegendToggles() {
     { id: "legKDJCross", series: null,  action: () => _applyMainMarkers() },
     { id: "legResonance",series: null,  action: () => _applyMainMarkers() },
     { id: "legVol",      series: () => [volSeries, volMaSeries] },
+    { id: "legFVG",      series: null,  action: (hidden) => { if (typeof toggleFVG === "function") toggleFVG(!hidden); } },
     { id: "legK",        series: () => [kdjK] },
     { id: "legD",        series: () => [kdjD] },
     { id: "legJ",        series: () => [kdjJ] },
@@ -679,6 +680,21 @@ function bindLegendToggles() {
       saveVisibilityPrefs();
     });
   });
+
+  // FVG 最小寬度% 輸入（使用者自定；localStorage 持久化）→ setFVGMinWidth 即時過濾主圖缺口
+  const _fvgWInp = document.getElementById("fvgMinW");
+  if (_fvgWInp) {
+    try { const saved = localStorage.getItem("fvgMinW"); if (saved != null && saved !== "") _fvgWInp.value = saved; } catch (e) {}
+    const _applyFvgW = () => {
+      if (typeof setFVGMinWidth === "function") setFVGMinWidth(_fvgWInp.value);
+      try { localStorage.setItem("fvgMinW", _fvgWInp.value); } catch (e) {}
+    };
+    _applyFvgW();   // 套用載入時的值
+    _fvgWInp.addEventListener("input",  _applyFvgW);
+    _fvgWInp.addEventListener("change", _applyFvgW);
+    // 點輸入框不要觸發圖例切換/其他父層行為
+    _fvgWInp.addEventListener("click", e => e.stopPropagation());
+  }
 
   // 面板收合：點擊「−」縮至只剩圖例列；點「+」展開
   document.querySelectorAll(".pane-collapse-btn").forEach(btn => {
