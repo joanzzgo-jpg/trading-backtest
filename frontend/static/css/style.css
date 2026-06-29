@@ -1693,6 +1693,9 @@ html.perf-mode .tk-seg {
   flex-direction: column;
   overflow: hidden;
   position: relative;
+  /* 墊到 #weatherStage(z:1) 之上 → 天氣全幕濾鏡/灰膜(暴風vignette、雨幕、霧等)不再染到 K 棒，
+     看盤清晰；天氣仍在 topbar/symbol-bar(未墊高)上方飄。sky-show 時本容器透明，天氣從後方透出。 */
+  z-index: 2;
   background: var(--bg);
 }
 
