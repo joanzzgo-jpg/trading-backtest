@@ -2729,6 +2729,7 @@
   let _bearRot = [];                                   // 6×6 各格旋轉(0~3)→ 亮起時方向與牆紙一致
   let _bearFlashes = [], _bearFlashNext = 0;           // 進行中的脈衝 / 下次生成時間
   let _bearFlashOn = (localStorage.getItem("bearFlashOff") !== "1");  // 閃爍開關(預設開)；關→靜止牆紙保留、只是不亮
+  let _bearTilesOn = (localStorage.getItem("bearTiles") === "1");     // 背景磁磚總開關(預設關→「無」天氣=全黑)
   let _bearGold = null;                                 // 金色版熊(亮起時用)：熊形狀填金色
   function _buildGoldBear() {
     const gc = document.createElement("canvas"); gc.width = _bearImg.width; gc.height = _bearImg.height;
@@ -2805,10 +2806,27 @@
     g.restore();
   }
 
+  // 「無」天氣背景：磁磚關 → 背景元素設純黑＝全黑（不可動 stage 不透明度，否則蓋住圖表）；
+  //                  磁磚開或其他天氣 → 還原。stage 維持透明、由 draw() 決定是否鋪磁磚。
+  // ⚠ charts-container/html 的背景在 style.css 是 var(--bg) !important → 必須用 inline
+  //   setProperty(..., "important") 才壓得過(一般 inline 輸給 stylesheet 的 !important)。
+  function _applyOffBlack() {
+    const black = (type === "off" && !_bearTilesOn);
+    const setBg = (el) => {
+      if (!el) return;
+      if (black) el.style.setProperty("background", "#000", "important");
+      else       el.style.removeProperty("background");
+    };
+    setBg(document.querySelector(".charts-container"));
+    setBg(document.documentElement);
+    setBg(document.body);
+  }
+
   /* ── main loop ── */
   function draw(t) {
     _LAYER_DEFS.forEach(([name]) => _layers[name].ctx.clearRect(0,0,W,H));
-    if (type === "off") { _drawBearTiles(t); return; }  // 「無」模式：改鋪橘子熊磁磚牆紙(不再全空)
+    // 「無」模式：磁磚開→鋪橘子熊牆紙；磁磚關→全黑（由 stage 黑底處理，畫布留空）
+    if (type === "off") { if (_bearTilesOn) _drawBearTiles(t); return; }
     _applyCamera();              // 3D 相機：平滑移動 perspective-origin（純 GPU 合成、不觸發重繪）
     _drawBackdrop(t);            // 亮麗天色底 + 雙色流動光暈（sky 最深層，最先畫）
     ({sunny:dSunny,night:dNight,cloudy:dCloudy,fog:dFog,rain:dRain,snow:dSnow,storm:dStorm,thunder:dThunder,mahjong:dMahjong,leaves:dLeaves,spring:dSpring,partly:dPartly,overcast:dOvercast,drizzle:dDrizzle,windy:dWindy,hail:dHail,tornado:dTornado,quake:dQuake,aurora:dAurora,sunset:dSunset,sunrise:dSunrise,meteor:dMeteor})[type]?.(t);
@@ -2898,6 +2916,7 @@
     const wasShow = document.documentElement.classList.contains('sky-show');
     const isShow = wt !== 'off';
     document.documentElement.classList.toggle('sky-show', isShow);
+    _applyOffBlack();   // 「無」模式且磁磚關 → 全黑背景；其餘還原
     // 透景/天氣變化時重套主圖漸層（中央色帶透明度隨 night/show、accent 雙色隨天氣型態）
     if (wasNight !== isNight || wasShow !== isShow || changed) window._applyChartBgGradient?.();
     if (changed) { _init(); _inited = true; }
@@ -3140,15 +3159,16 @@
   window._tornadoToggle = () => _toggleWx("tornado");
   window._quakeToggle   = () => _toggleWx("quake");
   window._auroraToggle  = () => _toggleWx("aurora");
-  // 熊閃爍開關（topbar「1M」左側按鈕）：只關「無」天氣時熊磁磚的金色亮起，靜止牆紙保留
+  // 背景磁磚開關（topbar「1M」左側 🐻 按鈕）：開→「無」天氣鋪橘子熊磁磚牆紙(含金色閃爍)；關→全黑
   function _syncBearWallBtn() {
     const b = document.getElementById("bearWallToggleBtn");
-    if (b) b.classList.toggle("bearwall-off", !_bearFlashOn);
+    if (b) b.classList.toggle("bearwall-off", !_bearTilesOn);
   }
   window._bearWallToggle = function () {
-    _bearFlashOn = !_bearFlashOn;
-    try { localStorage.setItem("bearFlashOff", _bearFlashOn ? "0" : "1"); } catch (e) {}
+    _bearTilesOn = !_bearTilesOn;
+    try { localStorage.setItem("bearTiles", _bearTilesOn ? "1" : "0"); } catch (e) {}
     _bearFlashes = [];                                   // 關閉立即清掉殘餘脈衝
+    _applyOffBlack();                                    // 立即套用全黑/牆紙背景
     _syncBearWallBtn();
   };
   _syncBearWallBtn();
