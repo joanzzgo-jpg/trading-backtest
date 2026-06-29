@@ -82,7 +82,7 @@ let lastFVGBBMarkersM    = [];   // M版(中軌分側順勢+止損g/g-1+止盈3W
 window._fvgTradesHidden = true;  // 預設隱藏舊「多F/空F」cascade 標記+止損止盈線（使用者要求移掉，只留布多/布空）
 window._fvgBBHideD = true;       // 預設隱藏 D版(三根止損+1.5R)標記；切換:toggleFVGBB('D')
 window._fvgBBHideA = true;       // 預設隱藏 A版(g-1止損+布林軌外1W)標記；切換:toggleFVGBB('A')
-window._fvgBBHideM = false;      // 預設顯示 M版(中軌分側順勢)標記（使用者要求畫這個）；切換:toggleFVGBB('M')
+window._fvgBBHideM = true;       // 預設隱藏 M版(中軌分側順勢=順多/順空)標記（使用者要求從主圖移除）；切換:toggleFVGBB('M')
 let _lastWRSignals       = [];   // 完整訊號列表（背景載入後重新過濾用）
 let _lastFVGTrades       = [];   // FVG「接1次」cascade 進出場（背景重畫用）
 let paneCollapseFlex = {};  // 面板收合前的 flex 值（module-level，供 loadVisibilityPrefs 使用）
