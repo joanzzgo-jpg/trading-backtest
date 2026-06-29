@@ -69,28 +69,25 @@ function _applyChartBgGradient(color) {
   };
   const wxt = (typeof window._getWeatherType === "function" && window._getWeatherType()) || null;
   const AC = _WX_ACCENT[wxt] || null;
-  // 主圖濾鏡移除：主圖/面板不套天氣 accent → 純色背景（漸層僅保留系統背景↔主圖的上下/邊緣混接）
-  const c1 = base;
-  const c2 = base;
-  const glows = "";
-  const sheen    = "";                                                                               // 白色光澤層移除（泛白主因之一）
-  const vignette = `radial-gradient(125% 95% at 50% 42%, transparent 62%, rgba(0,0,6,.08) 100%), `;  // 極輕暗角
-  // 上下淡接改「獨立垂直層」：斜向漸層在寬面板會讓頂/底緣兩端落在不同漸層位置 →
-  // 「主背景↔主圖」的上下淡入曾因此消失。垂直層專管淡接、斜向層專管配色，各司其職。
-  const botFade = `color-mix(in srgb, var(--bg) 38%, transparent)`;
-  pane.style.background =
-    `radial-gradient(circle 200px at 100% 0%, var(--bg) 0%, transparent 70%), ` +
-    sheen + vignette + glows +
-    `linear-gradient(to right, transparent 0%, transparent 96%, var(--bg) 100%), ` +
-    `linear-gradient(to bottom, var(--bg) 0%, transparent 8%), ` +                 // 頂部：主背景 → 主圖 淡入
-    `linear-gradient(to top, ${botFade} 0%, transparent 10%), ` +                  // 底部：時間軸區半透淡出
-    `linear-gradient(168deg, ${c1} 0%, ${c2} 100%)`;                               // 斜向：天氣 accent 配色
+  // 天氣模式(sky-show)：主圖背景『完全透明』→ 天氣全透出，無邊緣混接/無暗角/無色帶調色(主圖濾鏡全拿掉)；
+  // 非天氣→純色不透明漸層(正常主圖、與系統背景上下/邊緣混接)。
+  const show = document.documentElement.classList.contains("sky-show");
+  const vignette = `radial-gradient(125% 95% at 50% 42%, transparent 62%, rgba(0,0,6,.08) 100%), `;  // 極輕暗角(僅非天氣)
+  const botFade  = `color-mix(in srgb, var(--bg) 38%, transparent)`;
+  pane.style.background = show
+    ? "transparent"
+    : `radial-gradient(circle 200px at 100% 0%, var(--bg) 0%, transparent 70%), ` +
+      vignette +
+      `linear-gradient(to right, transparent 0%, transparent 96%, var(--bg) 100%), ` +
+      `linear-gradient(to bottom, var(--bg) 0%, transparent 8%), ` +
+      `linear-gradient(to top, ${botFade} 0%, transparent 10%), ` +
+      `linear-gradient(168deg, ${base} 0%, ${base} 100%)`;
   // 天氣 accent 仍寫進 CSS 變數（側欄等元件用）；指標區(KDJ/RSI/MACD)不再隨天氣染色(濾鏡已移除)。
   document.documentElement.style.setProperty("--wxA", AC ? AC[0] : "transparent");
   document.documentElement.style.setProperty("--wxB", AC ? AC[1] : "transparent");
   ["kdjPane", "rsiPane", "macdPane"].forEach(id => {
     const el = document.getElementById(id); if (!el) return;
-    el.style.background = "";
+    el.style.background = show ? "transparent" : "";   // 天氣模式：子面板也透明 → 下方天氣全透出
   });
 }
 
