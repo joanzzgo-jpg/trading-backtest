@@ -56,11 +56,12 @@ function _applyChartBgGradient(color) {
   const dark = _darkenForChart(color);
   // 透景：中央色帶轉半透明 → 天氣/天文 3D 場景從 K 線後方透出，
   // 但「系統背景 ↔ 主圖色」上下漸層的形狀保留（不再整片 transparent 把漸層蓋掉）。
-  // sky-night（晴朗夜空）透最多 52%；sky-show（其餘所有天氣，weather.js 掛）84% ——
-  // 白天亮灰天空（陰天尤甚）透 26% 曾讓主圖整片「白白的」（使用者回報），收到 16%。
+  // ⚠ K 棒區改墊到天氣之上(charts-container z:2)後：色帶若太不透明會把天氣擋黑(使用者回報「後面
+  //   整個變黑」)；若全透明又失去天氣色帶濾鏡(回報「濾鏡無效」)。取中間低不透明度 →
+  //   天氣從後方透出『且』保留色帶濾鏡。色帶是暗色，降不透明度＝讓後方天氣透更多。
   const night = document.documentElement.classList.contains("sky-night");
   const show  = document.documentElement.classList.contains("sky-show");
-  const mixPct = night ? 52 : show ? 84 : 100;
+  const mixPct = night ? 45 : show ? 40 : 100;
   const base = mixPct < 100 ? `color-mix(in srgb, ${dark} ${mixPct}%, transparent)` : dark;
   // 天氣聯動色：中央色帶混入當前天氣 accent（上/下兩色 → 雙色斜向漸層），
   // 雨天透藍灰、晴天透暖金、夜透靛紫…看盤瞄一眼底色就知道外面天氣

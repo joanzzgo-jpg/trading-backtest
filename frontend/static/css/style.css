@@ -1698,12 +1698,9 @@ html.perf-mode .tk-seg {
   z-index: 2;
   background: var(--bg);
 }
-/* 天氣模式(sky-show)：圖表面板中央色帶轉透明 → 上方 z:2 的 K 棒不被擋黑，天氣從後方透出。
-   (非天氣/off 模式 sky-show 不在 → 面板維持原本不透明色帶) */
-html:not(.perf-mode).sky-show #mainPane,
-html:not(.perf-mode).sky-show #kdjPane,
-html:not(.perf-mode).sky-show #rsiPane,
-html:not(.perf-mode).sky-show #macdPane,
+/* 「無」+磁磚開：圖表面板全透明 → 後方 weatherStage 磁磚牆紙透出（off 模式無天氣色帶）。
+   天氣模式(sky-show/night)不在此列：改由 _applyChartBgGradient 用低不透明度色帶 →
+   天氣從後方透出『且』保留天氣色帶濾鏡（兩者兼得）。 */
 html:not(.perf-mode).bear-tiles-show #mainPane,
 html:not(.perf-mode).bear-tiles-show #kdjPane,
 html:not(.perf-mode).bear-tiles-show #rsiPane,
