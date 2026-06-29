@@ -184,7 +184,12 @@ function initDrawTools() {
   new ResizeObserver(resize).observe(chartEl);
 
   mainChart.timeScale().subscribeVisibleTimeRangeChange(() => _scheduleRenderDrawings());
-  mainChart.subscribeCrosshairMove(() => _scheduleRenderDrawings());
+  // 游標移動時的 overlay 重畫：hover 高亮/拖移由 _onChartMouseMove(DOM capture) 自行排程，
+  // 故此處只在「正在繪製中／有手繪工具啟用」時補畫預覽線。預設十字線/指標模式下游標移動
+  // 不需重畫整個 overlay（現價標籤/交易時段帶只隨價軸與可見範圍變化）→ 省電、減少拖動卡頓。
+  mainChart.subscribeCrosshairMove(() => {
+    if (drawingWIP || (drawTool !== "pointer" && drawTool !== "crosshair")) _scheduleRenderDrawings();
+  });
 
   // 事件監聽全部掛在父容器（capture 優先），不攔截時讓 LWC 正常處理
   chartEl.addEventListener("mousemove",   _onChartMouseMove,   { capture: true });

@@ -46,7 +46,7 @@ cd /Users/noah/trading/backend && uvicorn main:app --reload
 - Pionex API：10 次/秒/IP，超過封鎖 60s 且重試會 +10s 永遠清不掉。行情/價格走 Binance，Pionex 僅用於標的清單（硬碟快取 24hr）與獨有標的 klines。詳見 [docs/backend.md](docs/backend.md)。
 
 ### 不可更改的設定
-- `startTickerRefresh()` 的 `setInterval(fetchTickers, 2000)` 固定 **2 秒**（行情即時性需求），**禁止以「減輕伺服器負擔」為由更改**。
+- `startTickerRefresh()`（`ticker.js`）的 `setInterval(fetchTickers, …)` 間隔依市場固定：**crypto 1 秒、台股 10 秒**（行情即時性需求），**禁止以「減輕伺服器負擔」為由更改**。
 
 ## 圖片資源
 所有原始圖片存放於 **桌面 `Claude-分類/虛擬貨幣/`**，已複製至 `frontend/static/img/`。對應表與前端使用位置見 [docs/frontend.md](docs/frontend.md)。
