@@ -2811,15 +2811,20 @@
   // ⚠ charts-container/html 的背景在 style.css 是 var(--bg) !important → 必須用 inline
   //   setProperty(..., "important") 才壓得過(一般 inline 輸給 stylesheet 的 !important)。
   function _applyOffBlack() {
-    const black = (type === "off" && !_bearTilesOn);
-    const setBg = (el) => {
+    const off   = (type === "off");
+    const black = off && !_bearTilesOn;   // 無+磁磚關 → 全黑
+    const tiles = off &&  _bearTilesOn;    // 無+磁磚開 → 圖表區透明，讓 weatherStage 磁磚牆紙透出
+    const setBg = (el, val) => {
       if (!el) return;
-      if (black) el.style.setProperty("background", "#000", "important");
-      else       el.style.removeProperty("background");
+      if (val) el.style.setProperty("background", val, "important");
+      else     el.style.removeProperty("background");
     };
-    setBg(document.querySelector(".charts-container"));
-    setBg(document.documentElement);
-    setBg(document.body);
+    const cc = black ? "#000" : tiles ? "transparent" : "";
+    setBg(document.querySelector(".charts-container"), cc);
+    setBg(document.documentElement, black ? "#000" : "");
+    setBg(document.body,            black ? "#000" : "");
+    // 磁磚顯示時 → 圖表面板也透明（同 sky-show 機制），否則不透明色帶會把磁磚蓋住
+    document.documentElement.classList.toggle("bear-tiles-show", tiles);
   }
 
   /* ── main loop ── */

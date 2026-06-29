@@ -1703,7 +1703,11 @@ html.perf-mode .tk-seg {
 html:not(.perf-mode).sky-show #mainPane,
 html:not(.perf-mode).sky-show #kdjPane,
 html:not(.perf-mode).sky-show #rsiPane,
-html:not(.perf-mode).sky-show #macdPane { background: transparent !important; }
+html:not(.perf-mode).sky-show #macdPane,
+html:not(.perf-mode).bear-tiles-show #mainPane,
+html:not(.perf-mode).bear-tiles-show #kdjPane,
+html:not(.perf-mode).bear-tiles-show #rsiPane,
+html:not(.perf-mode).bear-tiles-show #macdPane { background: transparent !important; }
 
 .chart-pane {
   display: flex;
