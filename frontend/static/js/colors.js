@@ -54,15 +54,9 @@ function _applyChartBgGradient(color) {
   }
   if (color == null) color = (typeof C !== "undefined" && (C.chartBg || C.bg)) || "#131722";  // 無參數→用目前主圖色（給 effects.js 夜空切換重套用）
   const dark = _darkenForChart(color);
-  // 透景：中央色帶轉半透明 → 天氣/天文 3D 場景從 K 線後方透出，
-  // 但「系統背景 ↔ 主圖色」上下漸層的形狀保留（不再整片 transparent 把漸層蓋掉）。
-  // ⚠ K 棒區改墊到天氣之上(charts-container z:2)後：色帶若太不透明會把天氣擋黑(使用者回報「後面
-  //   整個變黑」)；若全透明又失去天氣色帶濾鏡(回報「濾鏡無效」)。取中間低不透明度 →
-  //   天氣從後方透出『且』保留色帶濾鏡。色帶是暗色，降不透明度＝讓後方天氣透更多。
-  const night = document.documentElement.classList.contains("sky-night");
-  const show  = document.documentElement.classList.contains("sky-show");
-  const mixPct = night ? 58 : show ? 65 : 100;
-  const base = mixPct < 100 ? `color-mix(in srgb, ${dark} ${mixPct}%, transparent)` : dark;
+  // ⚠ 主圖天氣色帶濾鏡依使用者要求「移除」：主圖背景一律純色不透明漸層、不隨天氣染色 →
+  //   漸層/「系統背景↔主圖色」混接保留、K 棒清晰不被天氣染。天氣 accent 仍寫進 CSS 變數供側欄用。
+  const base = dark;   // 不透明純色（不再 color-mix 透明 → 不被後方天氣透染）
   // 天氣聯動色：中央色帶混入當前天氣 accent（上/下兩色 → 雙色斜向漸層），
   // 雨天透藍灰、晴天透暖金、夜透靛紫…看盤瞄一眼底色就知道外面天氣
   const _WX_ACCENT = {
@@ -75,13 +69,10 @@ function _applyChartBgGradient(color) {
   };
   const wxt = (typeof window._getWeatherType === "function" && window._getWeatherType()) || null;
   const AC = _WX_ACCENT[wxt] || null;
-  // 質感拋光（再調淡：accent 多為淺色，混多了主圖會「白白的」——使用者連續要求調淡後又回報泛白）
-  const c1 = AC ? `color-mix(in srgb, ${base} 97.5%, ${AC[0]})` : base;   // 上：accent 2.5%
-  const c2 = AC ? `color-mix(in srgb, ${base} 95%, ${AC[1]})` : base;     // 下：accent 5%
-  const glows = AC
-    ? `radial-gradient(480px at 8% 96%, color-mix(in srgb, ${AC[1]} 3%, transparent) 0%, transparent 70%), ` +
-      `radial-gradient(380px at 94% 6%, color-mix(in srgb, ${AC[0]} 2%, transparent) 0%, transparent 70%), `
-    : "";
+  // 主圖濾鏡移除：主圖/面板不套天氣 accent → 純色背景（漸層僅保留系統背景↔主圖的上下/邊緣混接）
+  const c1 = base;
+  const c2 = base;
+  const glows = "";
   const sheen    = "";                                                                               // 白色光澤層移除（泛白主因之一）
   const vignette = `radial-gradient(125% 95% at 50% 42%, transparent 62%, rgba(0,0,6,.08) 100%), `;  // 極輕暗角
   // 上下淡接改「獨立垂直層」：斜向漸層在寬面板會讓頂/底緣兩端落在不同漸層位置 →
@@ -94,14 +85,12 @@ function _applyChartBgGradient(color) {
     `linear-gradient(to bottom, var(--bg) 0%, transparent 8%), ` +                 // 頂部：主背景 → 主圖 淡入
     `linear-gradient(to top, ${botFade} 0%, transparent 10%), ` +                  // 底部：時間軸區半透淡出
     `linear-gradient(168deg, ${c1} 0%, ${c2} 100%)`;                               // 斜向：天氣 accent 配色
-  // 整體 UI 同調：天氣 accent 寫進 CSS 變數（側欄等元件用）+ 指標區（KDJ/RSI/MACD）同步微染
+  // 天氣 accent 仍寫進 CSS 變數（側欄等元件用）；指標區(KDJ/RSI/MACD)不再隨天氣染色(濾鏡已移除)。
   document.documentElement.style.setProperty("--wxA", AC ? AC[0] : "transparent");
   document.documentElement.style.setProperty("--wxB", AC ? AC[1] : "transparent");
   ["kdjPane", "rsiPane", "macdPane"].forEach(id => {
     const el = document.getElementById(id); if (!el) return;
-    el.style.background = AC
-      ? `linear-gradient(168deg, color-mix(in srgb, ${base} 98%, ${AC[0]}) 0%, color-mix(in srgb, ${base} 96%, ${AC[1]}) 100%)`
-      : "";
+    el.style.background = "";
   });
 }
 
