@@ -1693,11 +1693,17 @@ html.perf-mode .tk-seg {
   flex-direction: column;
   overflow: hidden;
   position: relative;
-  /* 墊到 #weatherStage(z:1) 之上 → 天氣全幕濾鏡/灰膜(暴風vignette、雨幕、霧等)不再染到 K 棒，
-     看盤清晰；天氣仍在 topbar/symbol-bar(未墊高)上方飄。sky-show 時本容器透明，天氣從後方透出。 */
+  /* K 棒區墊到 #weatherStage(z:1) 之上 → 天氣全幕濾鏡/灰膜不再染到 K 棒(看盤清晰)。
+     搭配下方 sky-show 時面板背景透明 → 天氣從 K 棒「後方」透出仍看得到。 */
   z-index: 2;
   background: var(--bg);
 }
+/* 天氣模式(sky-show)：圖表面板中央色帶轉透明 → 上方 z:2 的 K 棒不被擋黑，天氣從後方透出。
+   (非天氣/off 模式 sky-show 不在 → 面板維持原本不透明色帶) */
+html:not(.perf-mode).sky-show #mainPane,
+html:not(.perf-mode).sky-show #kdjPane,
+html:not(.perf-mode).sky-show #rsiPane,
+html:not(.perf-mode).sky-show #macdPane { background: transparent !important; }
 
 .chart-pane {
   display: flex;
