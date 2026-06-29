@@ -2917,6 +2917,7 @@
     const isShow = wt !== 'off';
     document.documentElement.classList.toggle('sky-show', isShow);
     _applyOffBlack();   // 「無」模式且磁磚關 → 全黑背景；其餘還原
+    _syncBearWallBtn(); // 🐻 磁磚鈕只在「無」天氣顯示 → 隨型態切換更新
     // 透景/天氣變化時重套主圖漸層（中央色帶透明度隨 night/show、accent 雙色隨天氣型態）
     if (wasNight !== isNight || wasShow !== isShow || changed) window._applyChartBgGradient?.();
     if (changed) { _init(); _inited = true; }
@@ -3159,10 +3160,13 @@
   window._tornadoToggle = () => _toggleWx("tornado");
   window._quakeToggle   = () => _toggleWx("quake");
   window._auroraToggle  = () => _toggleWx("aurora");
-  // 背景磁磚開關（topbar「1M」左側 🐻 按鈕）：開→「無」天氣鋪橘子熊磁磚牆紙(含金色閃爍)；關→全黑
+  // 背景磁磚開關（topbar「1M」左側 🐻 按鈕）：開→「無」天氣鋪橘子熊磁磚牆紙(含金色閃爍)；關→全黑。
+  // 只在「無」天氣時顯示此鈕（其他天氣型態時磁磚用不到 → 隱藏）。
   function _syncBearWallBtn() {
     const b = document.getElementById("bearWallToggleBtn");
-    if (b) b.classList.toggle("bearwall-off", !_bearTilesOn);
+    if (!b) return;
+    b.classList.toggle("bearwall-off", !_bearTilesOn);
+    b.style.display = (type === "off") ? "" : "none";
   }
   window._bearWallToggle = function () {
     _bearTilesOn = !_bearTilesOn;
