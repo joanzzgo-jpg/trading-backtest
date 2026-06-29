@@ -1454,37 +1454,48 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         _fvg = _fvg[-12000:]        # 畫滿整窗（gzip 後約 ~200KB）；高保險值防病態 payload，實質不限量
         _fvg_sigs = _fvg_sigs[-200:]
 
-        # ── 結構轉破標記：多FVG → 空FVG → 收破「前一個多FVG下緣」的那根 K ──────────
-        # 規則：價格先造一個多FVG(支撐)；其後出現一個空FVG(壓力)；之後第一根『收盤跌破
-        #       該多FVG下緣(bot)』的 K → 標記。前提：該多FVG在空FVG出現前尚未被收破
-        #       （嚴格 多→空→破 的順序）。每個多FVG只觸發一次。
+        # ── 結構轉破標記（雙向）────────────────────────────────────────────────
+        # 破多(d="l")：多FVG(支撐) → 其後出現空FVG(壓力) → 第一根『收盤跌破該多FVG下緣(bot)』的 K。
+        # 破空(d="s")：空FVG(壓力) → 其後出現多FVG(支撐) → 第一根『收盤漲破該空FVG上緣(top)』的 K。
+        # 前提：被破的那個 FVG 在「反向 FVG 出現前」尚未被收破（嚴格 A→反向→破 的順序）。每個 FVG 只觸發一次。
         _gaps_at = {}                                  # cf_bar → (top, bot, dir)；每根 K 至多一個缺口
         for (_ci, _tp, _bt, _dr) in _gaps_seq:
             _gaps_at[_ci] = (_tp, _bt, _dr)
-        _recent_bull = []    # 尚未被收破、依時間序的多FVG：{"bot","top","idx"}
-        _armed = []          # 已被後續空FVG「武裝」、等待被收破的多FVG
+        _recent_bull = []; _recent_bear = []           # 尚未被收破、依時間序的多/空FVG：{"bot","top","idx"}
+        _armed_bull = []; _armed_bear = []             # 已被反向FVG武裝、等待被收破的多/空FVG
         for _k in range(_N):
             _ck = _C[_k]
             if _ck == _ck:                             # 非 NaN
-                if _armed:                             # 武裝中的多FVG被本根收盤跌破下緣 → 觸發
+                if _armed_bull:                        # 武裝多FVG被本根收盤跌破下緣 → 破多
                     _keep = []
-                    for _a in _armed:
-                        if _ck < _a["bot"]:
-                            _fvg_break.append({"t": times_iso[_k], "p": _a["bot"]})
-                        else:
-                            _keep.append(_a)
-                    _armed = _keep
-                if _recent_bull:                       # 未武裝就被收破的多FVG → 移出候選(破在空FVG前不算)
+                    for _a in _armed_bull:
+                        if _ck < _a["bot"]: _fvg_break.append({"t": times_iso[_k], "p": _a["bot"], "d": "l"})
+                        else: _keep.append(_a)
+                    _armed_bull = _keep
+                if _armed_bear:                        # 武裝空FVG被本根收盤漲破上緣 → 破空
+                    _keep = []
+                    for _a in _armed_bear:
+                        if _ck > _a["top"]: _fvg_break.append({"t": times_iso[_k], "p": _a["top"], "d": "s"})
+                        else: _keep.append(_a)
+                    _armed_bear = _keep
+                if _recent_bull:                       # 未武裝就被收破的多FVG → 移出候選(破在反向FVG前不算)
                     _recent_bull = [_b for _b in _recent_bull if _ck >= _b["bot"]]
+                if _recent_bear:
+                    _recent_bear = [_b for _b in _recent_bear if _ck <= _b["top"]]
             _gp = _gaps_at.get(_k)
             if _gp is not None:
                 _tp, _bt, _dr = _gp
-                if _dr == "l":                         # 多FVG → 列入候選
+                if _dr == "l":                         # 多FVG → 列入多候選；同時武裝「前一個未破空FVG」
                     _recent_bull.append({"top": _tp, "bot": _bt, "idx": _k})
-                elif _recent_bull:                     # 空FVG → 武裝「前一個(最近未破)多FVG」
-                    _cand = _recent_bull[-1]
-                    if _cand not in _armed:
-                        _armed.append(_cand)
+                    if _recent_bear:
+                        _cand = _recent_bear[-1]
+                        if _cand not in _armed_bear: _armed_bear.append(_cand)
+                else:                                  # 空FVG → 列入空候選；同時武裝「前一個未破多FVG」
+                    _recent_bear.append({"top": _tp, "bot": _bt, "idx": _k})
+                    if _recent_bull:
+                        _cand = _recent_bull[-1]
+                        if _cand not in _armed_bull: _armed_bull.append(_cand)
+        _fvg_break.sort(key=lambda x: x["t"])
         _fvg_break = _fvg_break[-2000:]
     except Exception:
         _fvg = []

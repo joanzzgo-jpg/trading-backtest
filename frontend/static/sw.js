@@ -6,7 +6,7 @@
  *  - /static/*、CDN → cache-first。靜態 URL 都帶 ?v=版號，改版即換 URL → 不會吃到舊檔。
  * 換快取策略時把 CACHE 版號 +1 即可讓舊快取在 activate 時清掉。
  */
-const CACHE = "ahh-static-v11";  // v11:清舊快取(新增「多FVG→空FVG→收破前一個多FVG」結構轉破標記)
+const CACHE = "ahh-static-v12";  // v12:清舊快取(結構轉破標記加做多鏡像「破空」=空FVG→多FVG→漲破前一個空FVG)
 
 self.addEventListener("install", (e) => {
   self.skipWaiting();
