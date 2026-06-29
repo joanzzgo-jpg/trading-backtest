@@ -4264,6 +4264,9 @@ html.perf-mode .sig-stat-streak { color: #E85A1A; }
 }
 .wr-streak-btn:hover { background: rgba(255,180,120,.20); }
 .wr-streak-btn.on { color: #FFB178; border-color: rgba(255,180,120,.6); background: rgba(255,160,90,.18); }
+/* 勝率列收合：整條 #winrateBar 隱藏（由 wrTop3 的「勝率 ▾/▸」按鈕切換 .wr-collapsed；
+   wrTop3 在 winrateBar 上方、為獨立兄弟元素 → 收起後切換鈕仍在，可再展開） */
+#winrateBar.wr-collapsed { display: none !important; }
 .wr-stop-detail { cursor: pointer; display: inline-flex; align-items: center; gap: 5px; border-radius: 4px; padding: 0 2px; }
 .wr-stop-detail:hover { background: rgba(255,180,120,.14); box-shadow: 0 0 0 1px rgba(255,180,120,.3) inset; }
 .wr-cond-i { color: #c9cdd6; font-family: 'SF Mono','Courier New',monospace; }

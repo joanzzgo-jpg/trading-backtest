@@ -35,6 +35,8 @@ function _wrViewLabel(v) {
   return v === "band" ? "上/下軌" : v === "band80" ? "8成軌" : v === "rr" ? "1:1" : "中軌";
 }
 function _initWrTargetBtn() {
+  _applySSCollapse();   // 載入時即套用收合狀態（避免閃一下才隱藏）
+  _renderWrTop3();      // 即時渲染收合切換鈕（不需資料）→ 收起狀態下也能立刻展開
   const btn = document.getElementById("wrTargetToggle");
   if (!btn) return;
   // 四種目標：中軌（BB middle）／上下軌（方向相關極端）／8成軌（下↔上 80%）／1:1
@@ -72,17 +74,20 @@ function _wrOtKey() {
   return (_wrTargetView === "band" || _wrTargetView === "band80") ? "ot_b" : _wrTargetView === "rr" ? "ot_rr" : "ot";
 }
 
-// 連敗風險顯示 N：0=關、2=2連(敗後再敗)、3=三連敗、4=四連敗。預設關（避免擠到 TOP3 列）
-// 按鈕本身就畫在 TOP3 上列（_renderWrTop3 內），用 inline onclick 不需另外綁事件
-let _wrStreakN = 0;
-try { _wrStreakN = parseInt(localStorage.getItem("wrStreakN")) || 0; if (_wrStreakN >= 5) _wrStreakN = 0; } catch (e) {}
-
-function _cycleStreakN() {
-  // 敗後停手已退役：關 → 2連 → 3連 → 4連 → 關（不再進到 5=敗後停手）
-  _wrStreakN = _wrStreakN === 0 ? 2 : _wrStreakN >= 4 ? 0 : _wrStreakN + 1;
-  try { localStorage.setItem("wrStreakN", String(_wrStreakN)); } catch (e) {}
-  _renderWrTop3();
+// 上方勝率列收合開關（取代原「連敗機率」按鈕）：收起時整條 #winrateBar 隱藏、騰出空間給圖表；
+// 切換鈕畫在 wrTop3（在 winrateBar 上方、整列收起後它仍在，可再展開）。
+let _ssCollapsed = false;
+try { _ssCollapsed = localStorage.getItem("wrSSCollapsed") === "1"; } catch (e) {}
+function _applySSCollapse() {
+  const bar = document.getElementById("winrateBar");
+  if (bar) bar.classList.toggle("wr-collapsed", _ssCollapsed);
 }
+window._toggleSSCollapse = function () {
+  _ssCollapsed = !_ssCollapsed;
+  try { localStorage.setItem("wrSSCollapsed", _ssCollapsed ? "1" : "0"); } catch (e) {}
+  _applySSCollapse();
+  _renderWrTop3();
+};
 
 // 設定止損緩衝%（給左抽屜的「套用建議」鈕與止損輸入框共用）→ 同步上方 SL 框 + 重算
 window._setStopBuffer = function (pct) {
@@ -1045,56 +1050,10 @@ window._hoverCardCycle = function (delta) {
 function _renderWrTop3() {
   const root = document.getElementById("wrTop3");
   if (!root) return;
-  const d = _wrCacheLast;
-  if (!d) { root.innerHTML = ""; return; }
-
-  // 取當前 view：SS 系列 → SS 獨立統計（含上下軌 ss.band、連敗/敗後停手含 SS 新規則）；S 系列 → S2~S11 綜合（mid/band）
-  const view = (_wrSeries === "ss") ? (_wrSsView(d) || {}) : _wrPickView(d);
-  const _scopeLbl = (_wrSeries === "ss") ? "SS 系列獨立" : "S2~S11 去重綜合";
-
-  // 連敗按鈕（畫在 TOP3 上列）：關 → 2連 → 3連 → 4連 → 敗後停手策略 → 關
-  //   2/3/4 連 = 同方向連敗 N-1 根後再敗機率（合併時間軸，中間夾反方向不算連續）
-  //   敗後停手 = 輸了停手、旁觀同方向直到會贏才回場，顯示套用後的總/空/多勝率
-  const _streakLabel = _wrStreakN === 0 ? "連敗 關"
-                     : _wrStreakN === 5 ? "敗後停手"
-                     : `連敗 ${_wrStreakN}`;
-  const streakBtn = `<button class="wr-streak-btn${_wrStreakN ? " on" : ""}" onclick="_cycleStreakN()" title="連敗風險 / 再進場策略（${_scopeLbl}）：關 → 2連 → 3連 → 4連 → 敗後停手。&#10;2/3/4連=同方向連敗 N-1 根後、下一筆也敗的機率（合併時間軸，兩敗中間夾反方向不算連續）。&#10;敗後停手=輸了就停手、旁觀同方向直到會贏才回場，顯示套用後的總勝率。">${_streakLabel}</button>`;
-  let condNums = "";
-  if (_wrStreakN >= 2 && _wrStreakN <= 4) {
-    const _pick = (st) => (st?.loss_streak || []).find(x => x.after === _wrStreakN - 1) || null;
-    const _condItem = (lbl, st) => {
-      const e = _pick(st);
-      if (!e || e.p == null) return `<span class="wr-cond-i">${lbl}<b>—</b></span>`;
-      const c = e.p >= 60 ? " bad" : e.p <= 40 ? " good" : "";
-      return `<span class="wr-cond-i${c}">${lbl}<b>${e.p}%</b><small>(${e.n})</small></span>`;
-    };
-    condNums = _condItem("空", view?.short) + _condItem("多", view?.long);
-  } else if (_wrStreakN === 5) {
-    const ss = view?.stop_strategy;
-    const _si = (lbl, o) => {
-      if (!o || o.win_rate == null) return `<span class="wr-cond-i">${lbl}<b>—</b></span>`;
-      const c = o.win_rate >= 60 ? " good" : o.win_rate < 45 ? " bad" : "";
-      return `<span class="wr-cond-i${c}">${lbl}<b>${o.win_rate}%</b><small>(${o.total})</small></span>`;
-    };
-    let inner;
-    if (ss && ss.win_rate != null) {
-      const tc = ss.win_rate >= 60 ? " good" : ss.win_rate < 45 ? " bad" : "";
-      const est = ss.est;
-      const estHtml = (est && est.win_rate != null)
-        ? `<span class="wr-cond-i${est.win_rate >= 60 ? " good" : est.win_rate < 45 ? " bad" : ""}">預估<b>${est.win_rate}%</b><small>(${est.total})</small></span>`
-        : "";
-      inner = `<span class="wr-cond-i${tc}">總<b>${ss.win_rate}%</b><small>(${ss.total})</small></span>`
-            + estHtml + _si("空", ss.short) + _si("多", ss.long);
-    } else {
-      inner = `<span class="wr-cond-i">總<b>—</b></span>`;
-    }
-    // 點數字 → 開敗後停手細節抽屜
-    condNums = `<span class="wr-stop-detail" title="點擊看敗後停手策略細節" onclick="window._showStopStrategyDrawer&&window._showStopStrategyDrawer()">${inner}</span>`;
-  }
-  // TOP3 元件已移除，只保留敗後停手按鈕（+條件數字）。
-  // （原本還會蒐集 top3、跑遍所有訊號算合計勝率、組 itemsHtml，但輸出只用 streakHtml
-  //   → 全是死碼，每次 _renderWinRate 白跑一遍含 O(n) 掃訊號，已於 2026-06 移除）
-  root.innerHTML = `<span class="wr-streak-wrap">${streakBtn}${condNums}</span>`;
+  _applySSCollapse();   // 同步收合狀態到 winrateBar
+  // 「連敗機率」按鈕已移除；改為「上方勝率列」收合按鈕（▾=展開中可點收起；▸=已收起可點展開）
+  const label = _ssCollapsed ? "勝率 ▸" : "勝率 ▾";
+  root.innerHTML = `<span class="wr-streak-wrap"><button class="wr-streak-btn${_ssCollapsed ? "" : " on"}" onclick="_toggleSSCollapse()" title="收起／展開上方整條勝率列">${label}</button></span>`;
 }
 
 /* ══════════════════════════════════════════
