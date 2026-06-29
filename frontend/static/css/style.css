@@ -615,7 +615,7 @@ html.perf-mode .tb-icon-btn:hover svg { animation: none; transform: scale(1.1); 
   display: flex;
   align-items: center;
   gap: 5px;
-  padding: 3px 12px 3px 60px;
+  padding: 3px 12px;   /* 整行靠左（原左側 60px 縮排移除；繪圖欄為 top:50% 浮層、不在此列） */
   height: var(--symbar-h);
   min-height: var(--symbar-h);
   background: var(--bg2);
