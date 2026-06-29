@@ -123,14 +123,14 @@ function _makeFVGPrimitive() {
             const px = ex * hr, py = eyP * vr, r = 4 * vr;
             ctx.beginPath();
             ctx.moveTo(px, py - r); ctx.lineTo(px + r, py); ctx.lineTo(px, py + r); ctx.lineTo(px - r, py); ctx.closePath();
-            ctx.fillStyle = "rgba(255,213,79,0.95)";
+            ctx.fillStyle = "rgba(255,245,160,0.95)";       // 淡黃菱形
             ctx.strokeStyle = "rgba(0,0,0,0.6)"; ctx.lineWidth = Math.max(1, hr);
             ctx.fill(); ctx.stroke();
             ctx.font = `${Math.round(9 * vr)}px sans-serif`;
             ctx.textBaseline = "middle"; ctx.textAlign = "left";
             ctx.lineWidth = Math.max(2, 2 * hr); ctx.strokeStyle = "rgba(0,0,0,0.6)";
             ctx.strokeText(_e.lab, px + r + 2 * vr, py);
-            ctx.fillStyle = "rgba(255,213,79,0.98)";
+            ctx.fillStyle = "rgba(255,245,160,0.98)";       // 淡黃「上/中/下」字
             ctx.fillText(_e.lab, px + r + 2 * vr, py);
           }
           // 交易位階線：止盈(綠=2W)、止損(紅=g-1頂端)，沿盒寬 x1→x2 畫水平虛線。

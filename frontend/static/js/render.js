@@ -309,7 +309,7 @@ function _applyMainMarkers(windowOnly) {
       ...(window._fvgTradesHidden ? [] : lastFVGTradeMarkers),
       ...((window._fvgBBHidden || window._fvgBBHideD) ? [] : lastFVGBBMarkers),
       ...((window._fvgBBHidden || window._fvgBBHideA) ? [] : lastFVGBBMarkersA),
-      ...((window._fvgBBHidden || window._fvgBBHideM) ? [] : lastFVGBBMarkersM),
+      // M版(順多/順空/順平)已從主圖移除——不再合併進標記，console 也叫不出來
       ...lastBacktestMarkers,
     ].sort((a, b) => a.time - b.time);
   }
