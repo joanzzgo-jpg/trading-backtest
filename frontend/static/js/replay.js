@@ -279,7 +279,7 @@ function _findIdxByDate(ymd) {
 /* 重播：僅更新新增的一根 K 棒（增量 update，避免全量 setData 造成閃爍） */
 function _replayStep(bar) {
   const t  = toTime(bar.time);
-  const _va = Math.round((S.volAlpha ?? 0.67) * 255).toString(16).padStart(2, "0");
+  const _va = (typeof _volAlphaHex === "function") ? _volAlphaHex() : Math.round((S.volAlpha ?? 0.67) * 255).toString(16).padStart(2, "0");
 
   candleSeries.update({ time:t, open:bar.open, high:bar.high, low:bar.low, close:bar.close });
 

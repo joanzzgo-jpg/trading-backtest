@@ -382,8 +382,16 @@ function renderResonance(data) {
   _applyMainMarkers();
 }
 
+// 成交量棒透明度(hex)：天氣模式(sky-show)強制不透明，否則用使用者 volAlpha。
+//   原因：主圖背景透明讓天氣透出後，半透明量條會被後面持續動的天氣動畫透出→「最新棒一閃一閃/跳」。
+//   不透明就擋住後面的天氣，量條穩定(天氣仍在量條間空隙與上方透出)。
+function _volAlphaHex() {
+  if (document.documentElement.classList.contains("sky-show")) return "ff";
+  return Math.round((S.volAlpha ?? 0.67) * 255).toString(16).padStart(2, "0");
+}
+
 function renderVolume(data) {
-  const _va = Math.round((S.volAlpha ?? 0.67) * 255).toString(16).padStart(2, "0");
+  const _va = _volAlphaHex();
   volSeries.setData(data.map(d => ({
     time:toTime(d.time), value:d.volume||0,
     color: d.close >= d.open ? C.volUp + _va : C.volDown + _va,
@@ -452,7 +460,7 @@ function _bgApplyChunk(data, nPrepended) {
   // applyOhlcvToSeries：直接更新 candleSeries，不呼叫 setMarkers（避免 marker 清空閃爍）
   applyOhlcvToSeries(data);
   // 輕量 volume 更新（跳過 priceScale.applyOptions 避免 layout thrashing）
-  const _va = Math.round((S.volAlpha ?? 0.67) * 255).toString(16).padStart(2, "0");
+  const _va = _volAlphaHex();
   volSeries.setData(data.map(d => ({
     time: toTime(d.time), value: d.volume || 0,
     color: d.close >= d.open ? C.volUp + _va : C.volDown + _va,

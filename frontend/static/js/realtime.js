@@ -84,7 +84,7 @@ async function fetchLatest() {
       else return;
       candleSeries.update({ time:t, open:bar.open, high:bar.high, low:bar.low, close:bar.close });
       _dirty = true;
-      const _va2 = Math.round((S.volAlpha ?? 0.67) * 255).toString(16).padStart(2, "0");
+      const _va2 = (typeof _volAlphaHex === "function") ? _volAlphaHex() : Math.round((S.volAlpha ?? 0.67) * 255).toString(16).padStart(2, "0");
       volSeries.update({ time:t, value:bar.volume||0, color: bar.close>=bar.open ? C.volUp+_va2 : C.volDown+_va2 });
       const _maPeriod = S.volMaPeriod || 5;
       const _maIdx = ohlcvData.length - 1;

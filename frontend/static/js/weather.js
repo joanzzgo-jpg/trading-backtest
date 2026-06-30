@@ -2981,6 +2981,9 @@
     _syncBearWallBtn(); // 🐻 磁磚鈕只在「無」天氣顯示 → 隨型態切換更新
     // 透景/天氣變化時重套主圖漸層（中央色帶透明度隨 night/show、accent 雙色隨天氣型態）
     if (wasNight !== isNight || wasShow !== isShow || changed) window._applyChartBgGradient?.();
+    // sky-show 切換 → 量條透明度跟著變(天氣下不透明防閃)，重畫全部量條
+    if (wasShow !== isShow && typeof renderVolume === "function" && typeof volSeries !== "undefined" && volSeries
+        && typeof ohlcvData !== "undefined" && ohlcvData.length) renderVolume(ohlcvData);
     if (changed) { _init(); _inited = true; }
     _lastFrameTs = 0;
     if (!rafId) requestAnimationFrame(loop);
