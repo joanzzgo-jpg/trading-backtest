@@ -1467,6 +1467,32 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         _gaps_at = {}                                  # cf_bar → (top, bot, dir)；每根 K 至多一個缺口
         for (_ci, _tp, _bt, _dr) in _gaps_seq:
             _gaps_at[_ci] = (_tp, _bt, _dr)
+        # 每個缺口的「填補棒」(碰中線那根)索引，給下方「影線拒絕」排除判斷用。
+        _sgaps = []; _lgaps = []                       # 空/多FVG：(form_idx, bot, top, fill_idx)
+        for (_ci, _tp, _bt, _dr) in _gaps_seq:
+            _mid = (_tp + _bt) / 2.0; _fl = None
+            for _j in range(_ci + 1, _N):
+                if _dr == "s":
+                    if _H[_j] >= _mid: _fl = _j; break
+                else:
+                    if _L[_j] <= _mid: _fl = _j; break
+            (_sgaps if _dr == "s" else _lgaps).append((_ci, _bt, _tp, _fl))
+
+        def _wick_reject(_brk, _bd):
+            # 破多/破空「影線拒絕」排除：破棒影線插進「前方未填補的反向FVG」、但收盤沒站上(穿過)它 → 只是影線拒絕、非直接灌破 → 不算。
+            #   破空('s')：往上漲穿空FVG，前方反向=更上方空FVG → 高點插進(high≥bot)某未填補空FVG但收盤未進其區(close<bot) → 排除。
+            #   破多('l')：往下跌穿多FVG，前方反向=下方多FVG → 低點插進(low≤top)某未填補多FVG但收盤未進其區(close>top) → 排除。
+            _hk = _H[_brk]; _lk = _L[_brk]; _ck = _C[_brk]
+            if _ck != _ck: return False
+            if _bd == "s":
+                for (_ci, _bt, _tp, _fl) in _sgaps:
+                    if _ci < _brk and (_fl is None or _fl >= _brk) and _hk >= _bt and _ck < _bt:
+                        return True
+            else:
+                for (_ci, _bt, _tp, _fl) in _lgaps:
+                    if _ci < _brk and (_fl is None or _fl >= _brk) and _lk <= _tp and _ck > _tp:
+                        return True
+            return False
         _armed_bull = []; _armed_bear = []             # 已成立(相鄰反向缺口)但尚未收破，等未來收破：{"bot"/"top","gi","ri"}
         _prev = None                                   # 上一個主缺口 {dir,bot,top,idx}
         for _k in range(_N):
@@ -1476,14 +1502,17 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                     _keep = []
                     for _a in _armed_bull:
                         if _ck < _a["bot"]:
-                            _fvg_break.append({"t": times_iso[_k], "p": _a["bot"], "d": "l", "gi": _a["gi"], "ri": _a["ri"]})
+                            if not _wick_reject(_k, "l"):
+                                _fvg_break.append({"t": times_iso[_k], "p": _a["bot"], "d": "l", "gi": _a["gi"], "ri": _a["ri"]})
+                            # else: 破棒影線插進下方未填補多FVG卻收在其上 → 影線拒絕、缺口已破不再等待
                         else: _keep.append(_a)
                     _armed_bull = _keep
                 if _armed_bear:
                     _keep = []
                     for _a in _armed_bear:
                         if _ck > _a["top"]:
-                            _fvg_break.append({"t": times_iso[_k], "p": _a["top"], "d": "s", "gi": _a["gi"], "ri": _a["ri"]})
+                            if not _wick_reject(_k, "s"):
+                                _fvg_break.append({"t": times_iso[_k], "p": _a["top"], "d": "s", "gi": _a["gi"], "ri": _a["ri"]})
                         else: _keep.append(_a)
                     _armed_bear = _keep
             _gp = _gaps_at.get(_k)
@@ -1496,7 +1525,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                         if _C[_j] == _C[_j] and _C[_j] < _mb: _fb = _j; break
                     if _fb is None:
                         _armed_bull.append({"bot": _mb, "gi": _prev["idx"], "ri": _k})  # 尚未收破 → 等未來
-                    elif _fb >= _k - _REC:
+                    elif _fb >= _k - _REC and not _wick_reject(_fb, "l"):
                         _fvg_break.append({"t": times_iso[_fb], "p": _mb, "d": "l", "gi": _prev["idx"], "ri": _k})  # 同段收破
                     # else: 收破太早(多FVG早已死) → 不算
                 elif _dr == "l" and _prev is not None and _prev["dir"] == "s":
@@ -1505,7 +1534,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                         if _C[_j] == _C[_j] and _C[_j] > _mt: _fb = _j; break
                     if _fb is None:
                         _armed_bear.append({"top": _mt, "gi": _prev["idx"], "ri": _k})
-                    elif _fb >= _k - _REC:
+                    elif _fb >= _k - _REC and not _wick_reject(_fb, "s"):
                         _fvg_break.append({"t": times_iso[_fb], "p": _mt, "d": "s", "gi": _prev["idx"], "ri": _k})
                 _prev = {"dir": _dr, "bot": _bt, "top": _tp, "idx": _k}
         _fvg_break.sort(key=lambda x: x["t"])
