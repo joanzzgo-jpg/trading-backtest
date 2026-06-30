@@ -1496,47 +1496,39 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         _armed_bull = []; _armed_bear = []             # 已成立(相鄰反向缺口)但尚未收破，等未來收破：{"bot"/"top","gi","ri"}
         _prev = None                                   # 上一個主缺口 {dir,bot,top,idx}
         for _k in range(_N):
-            _ck = _C[_k]
-            if _ck == _ck:                             # 非 NaN：武裝中 → 未來收破即標
+            _ck = _C[_k]; _lk = _L[_k]; _hk = _H[_k]
+            if _ck == _ck:                             # 非 NaN：武裝中 → 「首根影線穿邊」即標(2個FVG確認後)
                 if _armed_bull:
                     _keep = []
                     for _a in _armed_bull:
-                        if _ck < _a["bot"]:
-                            if not _wick_reject(_k, "l"):
-                                _fvg_break.append({"t": times_iso[_k], "p": _a["bot"], "d": "l", "gi": _a["gi"], "ri": _a["ri"]})
-                            # else: 破棒影線插進下方未填補多FVG卻收在其上 → 影線拒絕、缺口已破不再等待
+                        if _lk < _a["bot"]:            # 影線跌破多FVG下緣 → 破多
+                            _fvg_break.append({"t": times_iso[_k], "p": _a["bot"], "d": "l", "gi": _a["gi"], "ri": _a["ri"]})
                         else: _keep.append(_a)
                     _armed_bull = _keep
                 if _armed_bear:
                     _keep = []
                     for _a in _armed_bear:
-                        if _ck > _a["top"]:
-                            if not _wick_reject(_k, "s"):
-                                _fvg_break.append({"t": times_iso[_k], "p": _a["top"], "d": "s", "gi": _a["gi"], "ri": _a["ri"]})
+                        if _hk > _a["top"]:            # 影線突破空FVG上緣 → 破空
+                            _fvg_break.append({"t": times_iso[_k], "p": _a["top"], "d": "s", "gi": _a["gi"], "ri": _a["ri"]})
                         else: _keep.append(_a)
                     _armed_bear = _keep
             _gp = _gaps_at.get(_k)
             if _gp is not None:
                 _tp, _bt, _dr = _gp
+                # 破多：多FVG(_prev) 緊接 空FVG(本缺口_k=第2個FVG)→ 兩FVG確認後，首根影線跌破多FVG下緣即標。
+                #   確認棒(_k)自己就影線穿→當根標；否則武裝、等未來首根影線穿(不回溯到確認前)。
                 if _dr == "s" and _prev is not None and _prev["dir"] == "l":
-                    # 多FVG(_prev) 緊接 空FVG(本缺口) → 破多候選；找多FVG形成後第一根收破
-                    _mb = _prev["bot"]; _fb = None
-                    for _j in range(_prev["idx"] + 1, _k + 1):
-                        if _C[_j] == _C[_j] and _C[_j] < _mb: _fb = _j; break
-                    if _fb is None:
-                        _armed_bull.append({"bot": _mb, "gi": _prev["idx"], "ri": _k})  # 尚未收破 → 等未來
-                    elif _fb >= _k - _REC and not _wick_reject(_fb, "l"):
-                        # 收破發生在空FVG確認(_k)之前 → 標在「空FVG確認那根」(_k)，不回標到尚無空FVG的收破棒
+                    _mb = _prev["bot"]
+                    if _lk < _mb:
                         _fvg_break.append({"t": times_iso[_k], "p": _mb, "d": "l", "gi": _prev["idx"], "ri": _k})
-                    # else: 收破太早(多FVG早已死) → 不算
+                    else:
+                        _armed_bull.append({"bot": _mb, "gi": _prev["idx"], "ri": _k})
                 elif _dr == "l" and _prev is not None and _prev["dir"] == "s":
-                    _mt = _prev["top"]; _fb = None
-                    for _j in range(_prev["idx"] + 1, _k + 1):
-                        if _C[_j] == _C[_j] and _C[_j] > _mt: _fb = _j; break
-                    if _fb is None:
-                        _armed_bear.append({"top": _mt, "gi": _prev["idx"], "ri": _k})
-                    elif _fb >= _k - _REC and not _wick_reject(_fb, "s"):
+                    _mt = _prev["top"]
+                    if _hk > _mt:
                         _fvg_break.append({"t": times_iso[_k], "p": _mt, "d": "s", "gi": _prev["idx"], "ri": _k})
+                    else:
+                        _armed_bear.append({"top": _mt, "gi": _prev["idx"], "ri": _k})
                 _prev = {"dir": _dr, "bot": _bt, "top": _tp, "idx": _k}
         _fvg_break.sort(key=lambda x: x["t"])
         # 交替過濾：一個破多出現後，要等到下一個破空才會再出現破多(反之亦然)。
