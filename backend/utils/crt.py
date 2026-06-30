@@ -1455,22 +1455,22 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         _fvg = _fvg[-12000:]        # 畫滿整窗（gzip 後約 ~200KB）；高保險值防病態 payload，實質不限量
         _fvg_sigs = _fvg_sigs[-200:]
 
-        # ── 結構轉破標記（雙向，含「同一段下殺/上衝」放寬）──────────────────────
-        # 破多(d=l)：多FVG → 空FVG → 收盤跌破多FVG下緣(bot)。破空(d=s)鏡像(漲破top)。
-        # 放寬：收破若發生在反向FVG確認的「前 _REC 根內」(同一段衝量造成、缺口要三根才確認而晚
-        #       一兩根，例如收破棒正是反向FVG的中間棒) → 也算；標在「實際收破的那根 K」。
-        #       破在反向FVG出現後(原行為)亦算。每個 FVG 只觸發一次。
-        _REC = 2                                       # 收破與反向FVG「同段」容許根距:只涵蓋收破棒=反向FVG中間/首根的缺口確認延遲(2根);不讓晚數根才形成的反向FVG回頭追認(1d曾誤認晚3天的多FVG→破空)
+        # ── 結構轉破標記（雙向）──────────────────────────────────────────────────
+        # 破多(d=l)：多FVG 之後「緊接的下一個缺口」必須是空FVG(中間不能夾任何其他主缺口；
+        #            IFVG 不在 _gaps_seq 中→自動忽略) → 該多FVG下緣被收盤跌破(close<bot) → 標破多。
+        #            破空(d=s)鏡像(空FVG→下一個缺口是多FVG→收盤漲破top)。
+        # 收破時機：多FVG形成後「第一根收破」若落在反向FVG確認的前 _REC 根內(同段衝量、缺口晚一兩根確認)
+        #           → 標在該收破棒；太早收破(多FVG早已死)→不算；收破在反向FVG之後→等到收破才標。
+        # 之後交替過濾(破多後到下個破空前不再破多，反之亦然)。
+        _REC = 2
         _gaps_at = {}                                  # cf_bar → (top, bot, dir)；每根 K 至多一個缺口
         for (_ci, _tp, _bt, _dr) in _gaps_seq:
             _gaps_at[_ci] = (_tp, _bt, _dr)
-        _recent_bull = []; _recent_bear = []           # 未被收破的多/空FVG：{"bot","top","idx"}
-        _armed_bull = []; _armed_bear = []             # 反向FVG已先到、等未來收破
-        _broke_bull = []; _broke_bear = []             # 剛被收破、等反向FVG來認領：{"bot/top","idx","bbar"}
+        _armed_bull = []; _armed_bear = []             # 已成立(相鄰反向缺口)但尚未收破，等未來收破：{"bot"/"top"}
+        _prev = None                                   # 上一個主缺口 {dir,bot,top,idx}
         for _k in range(_N):
             _ck = _C[_k]
-            if _ck == _ck:                             # 非 NaN
-                # 1) 武裝中(反向FVG已先到)被收破 → 直接標
+            if _ck == _ck:                             # 非 NaN：武裝中 → 未來收破即標
                 if _armed_bull:
                     _keep = []
                     for _a in _armed_bull:
@@ -1483,46 +1483,30 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                         if _ck > _a["top"]: _fvg_break.append({"t": times_iso[_k], "p": _a["top"], "d": "s"})
                         else: _keep.append(_a)
                     _armed_bear = _keep
-                # 2) 尚未武裝的候選被收破 → 移入「剛破待認領」池(記收破棒)，不直接丟棄
-                if _recent_bull:
-                    _still = []
-                    for _b in _recent_bull:
-                        if _ck < _b["bot"]: _broke_bull.append({"bot": _b["bot"], "idx": _b["idx"], "bbar": _k})
-                        else: _still.append(_b)
-                    _recent_bull = _still
-                if _recent_bear:
-                    _still = []
-                    for _b in _recent_bear:
-                        if _ck > _b["top"]: _broke_bear.append({"top": _b["top"], "idx": _b["idx"], "bbar": _k})
-                        else: _still.append(_b)
-                    _recent_bear = _still
-                # 3) 過期清理：剛破後超過 _REC 根仍沒等到反向FVG → 丟棄(破在反向FVG前太久不算)
-                if _broke_bull: _broke_bull = [_x for _x in _broke_bull if _k - _x["bbar"] <= _REC]
-                if _broke_bear: _broke_bear = [_x for _x in _broke_bear if _k - _x["bbar"] <= _REC]
             _gp = _gaps_at.get(_k)
             if _gp is not None:
                 _tp, _bt, _dr = _gp
-                if _dr == "l":                         # 多FVG出現
-                    _recent_bull.append({"top": _tp, "bot": _bt, "idx": _k})
-                    _cb = _broke_bear[-1] if _broke_bear else None   # 最近「剛破空FVG」
-                    _cr = _recent_bear[-1] if _recent_bear else None # 最近未破空FVG
-                    if _cb is not None and (_cr is None or _cb["idx"] >= _cr["idx"]):
-                        _fvg_break.append({"t": times_iso[_cb["bbar"]], "p": _cb["top"], "d": "s"})
-                        _broke_bear = []               # 認領後清空，避免重複
-                    elif _cr is not None and _cr not in _armed_bear:
-                        _armed_bear.append(_cr)        # 否則武裝，等未來收破(原行為)
-                else:                                  # 空FVG出現
-                    _recent_bear.append({"top": _tp, "bot": _bt, "idx": _k})
-                    _cb = _broke_bull[-1] if _broke_bull else None
-                    _cr = _recent_bull[-1] if _recent_bull else None
-                    if _cb is not None and (_cr is None or _cb["idx"] >= _cr["idx"]):
-                        _fvg_break.append({"t": times_iso[_cb["bbar"]], "p": _cb["bot"], "d": "l"})
-                        _broke_bull = []
-                    elif _cr is not None and _cr not in _armed_bull:
-                        _armed_bull.append(_cr)
+                if _dr == "s" and _prev is not None and _prev["dir"] == "l":
+                    # 多FVG(_prev) 緊接 空FVG(本缺口) → 破多候選；找多FVG形成後第一根收破
+                    _mb = _prev["bot"]; _fb = None
+                    for _j in range(_prev["idx"] + 1, _k + 1):
+                        if _C[_j] == _C[_j] and _C[_j] < _mb: _fb = _j; break
+                    if _fb is None:
+                        _armed_bull.append({"bot": _mb})              # 尚未收破 → 等未來
+                    elif _fb >= _k - _REC:
+                        _fvg_break.append({"t": times_iso[_fb], "p": _mb, "d": "l"})   # 同段收破
+                    # else: 收破太早(多FVG早已死) → 不算
+                elif _dr == "l" and _prev is not None and _prev["dir"] == "s":
+                    _mt = _prev["top"]; _fb = None
+                    for _j in range(_prev["idx"] + 1, _k + 1):
+                        if _C[_j] == _C[_j] and _C[_j] > _mt: _fb = _j; break
+                    if _fb is None:
+                        _armed_bear.append({"top": _mt})
+                    elif _fb >= _k - _REC:
+                        _fvg_break.append({"t": times_iso[_fb], "p": _mt, "d": "s"})
+                _prev = {"dir": _dr, "bot": _bt, "top": _tp, "idx": _k}
         _fvg_break.sort(key=lambda x: x["t"])
         # 交替過濾：一個破多出現後，要等到下一個破空才會再出現破多(反之亦然)。
-        #   連續同向的破收掉、只留「結構真正翻轉」那一筆(每段同向取第一筆)。
         _alt = []; _last_d = None
         for _x in _fvg_break:
             if _x["d"] != _last_d:
