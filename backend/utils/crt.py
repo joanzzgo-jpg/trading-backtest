@@ -1531,25 +1531,24 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
 
         # ── 「多/空」方向標記（獨立）─────────────────────────────────────────────
         # 多/空＝吃到「前方留下的未填補FVG」後、收破反向FVG：
-        #   空：漲上去吃到上方未填補空FVG(影線進區間、收盤未突破其頂=拒絕) → 之後收盤跌破下方
-        #       「尚未被收破」的多FVG下緣 → 標「空」。多為鏡像。
-        # 兩個池分工：
-        #   吃到池(_tap_*)＝未填補(中線未被碰)——前方留下的有效FVG，被吃到才武裝；中線被碰即移出。
-        #   收破目標池(_liv_*)＝尚未被收破(close 未穿過)——可被殺掉的反向FVG；被插到中線但未收破仍有效。
-        #   吃到→收破容許窗 60 根；漲/跌穿被吃FVG另一端或超窗則作廢。
+        #   空：漲上去吃到上方未填補空FVG(影線進區間、收盤未突破其頂=拒絕) → 之後收盤跌破下方多FVG下緣 → 標「空」。多鏡像。
+        # 每個FVG記 mit=首次中線被碰棒(None=尚未填補)。一個池/方向(未被收破前都留)：
+        #   吃到(setup)：須「該FVG尚未填補」(mit None)——前方留下的有效FVG。
+        #   收破目標：須在「吃到那一刻尚未填補」(mit None 或 mit>吃到棒)——避免殺一個 setup 前就已被用過(填補)的舊FVG
+        #     (例:ETH 1d 5/22 殺到4/6多FVG,但它5/18就先被填補過了→不算;而6/18的6/16多FVG是吃到後6/17才填補→算)。
+        #   尚未被收破(close未穿)且非自身=有效目標；吃到→收破容許窗 60 根。
         _MSWIN = 60
-        _tap_bear = []; _tap_bull = []                 # 吃到池(未填補:中線未碰)
-        _liv_bull = []; _liv_bear = []                 # 收破目標池(尚未被收破)
+        _gap_bear = []; _gap_bull = []                 # 未被收破的空/多FVG：{"bot","top","mid","idx","mit"}
         _arm_s = None; _arm_l = None
         for _k in range(_N):
             _hk = _H[_k]; _lk = _L[_k]; _ck = _C[_k]
             if not (_hk != _hk or _lk != _lk or _ck != _ck):   # 非 NaN
-                # 1) 收破檢查(用 live 池；放在任何移除之前；目標每根即時取被吃FVG另側、最近、尚未被收破的反向FVG)
+                # 1) 收破檢查(目標:被吃FVG另側、最近、未收破、且「吃到當下尚未填補」的反向FVG)
                 if _arm_s is not None:
                     if _ck > _arm_s["btop"] or _k - _arm_s["tap"] > _MSWIN:
                         _arm_s = None
                     else:
-                        _cs = [_x for _x in _liv_bull if _x["top"] < _arm_s["bbot"]]
+                        _cs = [_x for _x in _gap_bull if _x["top"] < _arm_s["bbot"] and (_x["mit"] is None or _x["mit"] > _arm_s["tap"])]
                         _tg = max(_cs, key=lambda _x: _x["idx"]) if _cs else None
                         if _tg is not None and _ck < _tg["bot"]:
                             _fvg_ms.append({"t": times_iso[_k], "d": "s"}); _arm_s = None
@@ -1557,36 +1556,36 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                     if _ck < _arm_l["lbot"] or _k - _arm_l["tap"] > _MSWIN:
                         _arm_l = None
                     else:
-                        _cs = [_x for _x in _liv_bear if _x["bot"] > _arm_l["ltop"]]
+                        _cs = [_x for _x in _gap_bear if _x["bot"] > _arm_l["ltop"] and (_x["mit"] is None or _x["mit"] > _arm_l["tap"])]
                         _tg = max(_cs, key=lambda _x: _x["idx"]) if _cs else None
                         if _tg is not None and _ck > _tg["top"]:
                             _fvg_ms.append({"t": times_iso[_k], "d": "l"}); _arm_l = None
-                # 2) 吃到偵測 → 武裝(用 tap 池；放在中線填補移除之前→影線插穿但收盤拉回的拒絕仍算)
+                # 2) 吃到偵測 → 武裝(setup FVG 須尚未填補 mit None；影線進區間、收盤拒絕)
                 if _arm_s is None:
-                    for _b in _tap_bear:
-                        if _hk >= _b["bot"] and _ck <= _b["top"]:  # 吃到上方空FVG(影線進區間、收盤未突破其頂)
+                    for _b in _gap_bear:
+                        if _b["mit"] is None and _hk >= _b["bot"] and _ck <= _b["top"]:
                             _arm_s = {"bbot": _b["bot"], "btop": _b["top"], "tap": _k}; break
                 if _arm_l is None:
-                    for _b in _tap_bull:
-                        if _lk <= _b["top"] and _ck >= _b["bot"]:  # 吃到下方多FVG(影線進區間、收盤未跌破其底)
+                    for _b in _gap_bull:
+                        if _b["mit"] is None and _lk <= _b["top"] and _ck >= _b["bot"]:
                             _arm_l = {"lbot": _b["bot"], "ltop": _b["top"], "tap": _k}; break
-                # 3) 中線填補 → 移出吃到池
-                if _tap_bear: _tap_bear = [_b for _b in _tap_bear if _hk < _b["mid"]]
-                if _tap_bull: _tap_bull = [_b for _b in _tap_bull if _lk > _b["mid"]]
-                # 4) 收破 → 移出 live 池(已被殺掉，之後不再當目標)
-                if _liv_bull: _liv_bull = [_b for _b in _liv_bull if _ck >= _b["bot"]]
-                if _liv_bear: _liv_bear = [_b for _b in _liv_bear if _ck <= _b["top"]]
-            # 5) 本根新缺口同時入兩池（cap 200 防爆）
+                # 3) 更新填補(中線首次被碰)：在吃到之後→當根吃到的拒絕仍算未填補
+                for _b in _gap_bear:
+                    if _b["mit"] is None and _hk >= _b["mid"]: _b["mit"] = _k
+                for _b in _gap_bull:
+                    if _b["mit"] is None and _lk <= _b["mid"]: _b["mit"] = _k
+                # 4) 收破移除(已被殺，之後不再當目標)
+                if _gap_bull: _gap_bull = [_b for _b in _gap_bull if _ck >= _b["bot"]]
+                if _gap_bear: _gap_bear = [_b for _b in _gap_bear if _ck <= _b["top"]]
+            # 5) 本根新缺口入池（cap 200 防爆）
             _gp = _gaps_at.get(_k)
             if _gp is not None:
                 _tp, _bt, _dr = _gp
-                _rec = {"bot": _bt, "top": _tp, "mid": (_tp + _bt) / 2.0, "idx": _k}
+                _rec = {"bot": _bt, "top": _tp, "mid": (_tp + _bt) / 2.0, "idx": _k, "mit": None}
                 if _dr == "s":
-                    _tap_bear.append(_rec); _tap_bear = _tap_bear[-200:]
-                    _liv_bear.append(_rec); _liv_bear = _liv_bear[-200:]
+                    _gap_bear.append(_rec); _gap_bear = _gap_bear[-200:]
                 else:
-                    _tap_bull.append(_rec); _tap_bull = _tap_bull[-200:]
-                    _liv_bull.append(_rec); _liv_bull = _liv_bull[-200:]
+                    _gap_bull.append(_rec); _gap_bull = _gap_bull[-200:]
         _fvg_ms = _fvg_ms[-2000:]
     except Exception:
         _fvg = []
