@@ -1526,7 +1526,8 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                     if _fb is None:
                         _armed_bull.append({"bot": _mb, "gi": _prev["idx"], "ri": _k})  # 尚未收破 → 等未來
                     elif _fb >= _k - _REC and not _wick_reject(_fb, "l"):
-                        _fvg_break.append({"t": times_iso[_fb], "p": _mb, "d": "l", "gi": _prev["idx"], "ri": _k})  # 同段收破
+                        # 收破發生在空FVG確認(_k)之前 → 標在「空FVG確認那根」(_k)，不回標到尚無空FVG的收破棒
+                        _fvg_break.append({"t": times_iso[_k], "p": _mb, "d": "l", "gi": _prev["idx"], "ri": _k})
                     # else: 收破太早(多FVG早已死) → 不算
                 elif _dr == "l" and _prev is not None and _prev["dir"] == "s":
                     _mt = _prev["top"]; _fb = None
@@ -1535,7 +1536,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                     if _fb is None:
                         _armed_bear.append({"top": _mt, "gi": _prev["idx"], "ri": _k})
                     elif _fb >= _k - _REC and not _wick_reject(_fb, "s"):
-                        _fvg_break.append({"t": times_iso[_fb], "p": _mt, "d": "s", "gi": _prev["idx"], "ri": _k})
+                        _fvg_break.append({"t": times_iso[_k], "p": _mt, "d": "s", "gi": _prev["idx"], "ri": _k})
                 _prev = {"dir": _dr, "bot": _bt, "top": _tp, "idx": _k}
         _fvg_break.sort(key=lambda x: x["t"])
         # 交替過濾：一個破多出現後，要等到下一個破空才會再出現破多(反之亦然)。
