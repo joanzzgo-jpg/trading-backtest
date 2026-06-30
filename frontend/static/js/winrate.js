@@ -493,6 +493,7 @@ async function _fetchWinRateNow() {
     _renderFVGTrades(d.fvg_trades);   // FVG「接1次」進出場標記（主圖）
     _renderFVGBB(d.fvg_bb, d.fvg_bb_a, d.fvg_bb_m);   // FVG 進出場標記:D(青/粉)+A(橘/紫)+M中軌分側順勢(黃/藍)（研究·主圖）
     _renderFVGBreak(d.fvg_break);     // 結構轉破:多FVG→空FVG→收破前一個多FVG 的那根K（主圖）
+    _renderFVGMS(d.fvg_ms);           // 多/空方向標記:吃到未填補反向FVG→收破同向FVG（主圖）
     if (typeof setFVGZones === "function") setFVGZones(d.fvg);
     _setFVGData(d.fvg);
     if (typeof window._refreshSignalDrawer === "function") window._refreshSignalDrawer();
@@ -765,6 +766,39 @@ window.toggleFVGBreak = function (on) {
   window._fvgBreakHidden = (on === undefined) ? !window._fvgBreakHidden : !on;
   _applyMainMarkers();
   return !window._fvgBreakHidden;
+};
+
+// 多/空方向標記：吃到未填補反向FVG → 收破同向FVG（空=棒上紅↓「空」、多=棒下綠↑「多」）
+function _renderFVGMS(items) {
+  if (items !== undefined) _lastFVGMS = items || [];
+  const hasIdx = (typeof _secToIdx !== "undefined" && _secToIdx.size > 0);
+  const chartTimeSet = hasIdx ? null : new Set(ohlcvData.map(d => toTime(d.time)));
+  const _has = t => hasIdx ? _secToIdx.has(t) : chartTimeSet.has(t);
+  const _rpCut = (typeof replayActive !== "undefined" && replayActive
+    && typeof replayData !== "undefined" && replayData[replayIdx])
+    ? toTime(replayData[replayIdx].time) : null;
+  const out = [];
+  for (const it of (_lastFVGMS || [])) {
+    const tm = toTime(it.t);
+    if (!_has(tm) || (_rpCut != null && tm > _rpCut)) continue;
+    if (it.d === "l") {
+      out.push({ time: tm, position: "belowBar", color: "#43a047",
+                 shape: "arrowUp", size: 2, text: "多" });
+    } else {
+      out.push({ time: tm, position: "aboveBar", color: "#e53935",
+                 shape: "arrowDown", size: 2, text: "空" });
+    }
+  }
+  out.sort((a, b) => a.time - b.time);
+  lastFVGMSMarkers = out;
+  _applyMainMarkers();
+}
+window._renderFVGMS = _renderFVGMS;
+// 開關：window.toggleFVGMS() 切換多/空方向標記顯示
+window.toggleFVGMS = function (on) {
+  window._fvgMSHidden = (on === undefined) ? !window._fvgMSHidden : !on;
+  _applyMainMarkers();
+  return !window._fvgMSHidden;
 };
 
 function _renderWinRate(d) {

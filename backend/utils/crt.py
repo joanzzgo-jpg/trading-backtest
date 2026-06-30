@@ -1306,6 +1306,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
     _gaplist = []          # (cf_bar, top, bot, dir) 給「接1次」cascade 進出場標記用
     _bbgaps  = []          # (cf_bar, top, bot, dir) 給「布林外+FVG」均值回歸研究標記（不套 g+2 過濾，對齊 fvg_bb.py 回測）
     _fvg_break = []        # 「多FVG→空FVG→收破前一個多FVG」結構轉破標記 [{t}]
+    _fvg_ms    = []        # 「吃到未填補反向FVG→收破同向FVG」方向標記 [{t,d}]（多/空，獨立於破多/破空）
     _gaps_seq  = []        # (cf_bar, top, bot, dir) 依時間序的所有視覺缺口（給上面結構模式偵測用）
     try:
         _N = len(times_iso); _MS = 0.001   # 視覺最小缺口 0.1%（自動交易訊號另設 0.3% 門檻，見下）
@@ -1527,10 +1528,63 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             if _x["d"] != _last_d:
                 _alt.append(_x); _last_d = _x["d"]
         _fvg_break = _alt[-2000:]
+
+        # ── 「多/空」方向標記（獨立）─────────────────────────────────────────────
+        # 空：上方有未填補空FVG(中線未被碰)→價格漲上去吃到它→之後收盤跌破下方未填補多FVG下緣 → 標「空」。
+        # 多：下方有未填補多FVG(中線未被碰)→價格跌下去吃到它→之後收盤漲破上方未填補空FVG上緣 → 標「多」。
+        #   「吃到」＝影線進入該反向FVG區間(碰到近端邊緣即算，不必到中線)。每次武裝到收破/作廢為一筆。
+        _MSWIN = 60                                    # 吃到→收破 容許窗(15m≈15hr)
+        _act_bear = []; _act_bull = []                 # 未填補空/多FVG：{"bot","top","mid","idx"}
+        _arm_s = None; _arm_l = None                   # 空/多訊號武裝態
+        for _k in range(_N):
+            _hk = _H[_k]; _lk = _L[_k]; _ck = _C[_k]
+            if not (_hk != _hk or _lk != _lk or _ck != _ck):   # 非 NaN
+                # 1) 武裝中 → 收破同向FVG即標；漲/跌穿被吃FVG另一端 或 超窗 → 作廢
+                if _arm_s is not None:
+                    if _ck < _arm_s["tbot"]:
+                        _fvg_ms.append({"t": times_iso[_k], "d": "s"}); _arm_s = None
+                    elif _ck > _arm_s["btop"] or _k - _arm_s["tap"] > _MSWIN:
+                        _arm_s = None
+                if _arm_l is not None:
+                    if _ck > _arm_l["ttop"]:
+                        _fvg_ms.append({"t": times_iso[_k], "d": "l"}); _arm_l = None
+                    elif _ck < _arm_l["bbot"] or _k - _arm_l["tap"] > _MSWIN:
+                        _arm_l = None
+                # 2) 填補狀態更新：中線被碰 → 移出未填補池
+                if _act_bear: _act_bear = [_b for _b in _act_bear if _hk < _b["mid"]]
+                if _act_bull: _act_bull = [_b for _b in _act_bull if _lk > _b["mid"]]
+                # 3) 吃到偵測 → 武裝（鎖定要收破的同向FVG）
+                if _arm_s is None:
+                    for _b in _act_bear:
+                        if _hk >= _b["bot"]:                       # 吃到上方未填補空FVG
+                            _cs = [_x for _x in _act_bull if _x["top"] < _b["bot"]]   # 其下方未填補多FVG
+                            if _cs:
+                                _tg = max(_cs, key=lambda _x: _x["idx"])
+                                _arm_s = {"tbot": _tg["bot"], "btop": _b["top"], "tap": _k}
+                            break
+                if _arm_l is None:
+                    for _b in _act_bull:
+                        if _lk <= _b["top"]:                       # 吃到下方未填補多FVG
+                            _cs = [_x for _x in _act_bear if _x["bot"] > _b["top"]]
+                            if _cs:
+                                _tg = max(_cs, key=lambda _x: _x["idx"])
+                                _arm_l = {"ttop": _tg["top"], "bbot": _b["bot"], "tap": _k}
+                            break
+            # 4) 本根新缺口入未填補池（cap 200 防爆）
+            _gp = _gaps_at.get(_k)
+            if _gp is not None:
+                _tp, _bt, _dr = _gp
+                _rec = {"bot": _bt, "top": _tp, "mid": (_tp + _bt) / 2.0, "idx": _k}
+                if _dr == "s":
+                    _act_bear.append(_rec); _act_bear = _act_bear[-200:]
+                else:
+                    _act_bull.append(_rec); _act_bull = _act_bull[-200:]
+        _fvg_ms = _fvg_ms[-2000:]
     except Exception:
         _fvg = []
         _fvg_sigs = []
         _fvg_break = []
+        _fvg_ms = []
 
     # ── 布林通道外 + FVG 進場點（均值回歸·研究用主圖標記，讓使用者目視驗證）──────────
     #   對齊 /tmp/fvg_bb.py 回測：進場=缺口頂(top)、firsttouch 真過濾。
@@ -1773,6 +1827,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         "signals":  signals,
         "fvg":      _fvg,         # 失衡缺口（主圖色塊）
         "fvg_break": _fvg_break,  # 「多FVG→空FVG→收破前一個多FVG」結構轉破標記
+        "fvg_ms":   _fvg_ms,      # 「吃到未填補反向FVG→收破同向FVG」方向標記(多/空)
         "fvg_sigs": _fvg_sigs,    # FVG 收盤確認進場訊號（自動交易用，獨立於 signals）
         "fvg_trades": _fvg_trades,  # FVG「接1次」cascade 進出場點（主圖標記用）
         "fvg_bb":   _fvg_bb,        # D版(三根止損+1.5R)進出場點（研究用主圖標記）
