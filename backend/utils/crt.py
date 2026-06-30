@@ -1520,7 +1520,13 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                     elif _cr is not None and _cr not in _armed_bull:
                         _armed_bull.append(_cr)
         _fvg_break.sort(key=lambda x: x["t"])
-        _fvg_break = _fvg_break[-2000:]
+        # 交替過濾：一個破多出現後，要等到下一個破空才會再出現破多(反之亦然)。
+        #   連續同向的破收掉、只留「結構真正翻轉」那一筆(每段同向取第一筆)。
+        _alt = []; _last_d = None
+        for _x in _fvg_break:
+            if _x["d"] != _last_d:
+                _alt.append(_x); _last_d = _x["d"]
+        _fvg_break = _alt[-2000:]
     except Exception:
         _fvg = []
         _fvg_sigs = []
