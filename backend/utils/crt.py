@@ -1566,16 +1566,16 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                 # 1) 收破檢查(目標＝被吃FVG另側「上個(最近)形成、尚未被收破」的反向FVG；只取這一個，
                 #    不回頭找更舊的。它須在吃到當下尚未填補(mit None 或 mit>吃到棒)且被收破才標)
                 if _arm_s is not None:
-                    if _ck > _arm_s["btop"] or _k - _arm_s["tap"] > _MSWIN:
+                    if _k - _arm_s["tap"] > _MSWIN:        # setup 只在 MSWIN 到期作廢；不因收盤站上空FVG(上方無限制)而取消，只破盤觸發
                         _arm_s = None
                     else:
-                        _cs = [_x for _x in _gap_bull if _x["top"] < _arm_s["btop"] and _x["idx"] >= _k - _MSWIN]
+                        _cs = [_x for _x in _gap_bull if _x["top"] < _arm_s["btop"] and _x["idx"] >= _k - _MSWIN]   # 被殺目標＝上個形成多FVG(須在 setup 空FVG頂以下)
                         _tg = max(_cs, key=lambda _x: _x["idx"]) if _cs else None
                         if _tg is not None and (_tg["mit"] is None or _tg["mit"] > _arm_s["tap"]) and _ck < _tg["bot"] and not _wick_reject(_k, "l"):
                             _fvg_ms.append({"t": times_iso[_k], "d": "s"})
                             _used.add(_arm_s["gi"]); _used.add(_tg["idx"]); _arm_s = None
                 if _arm_l is not None:
-                    if _ck < _arm_l["lbot"] or _k - _arm_l["tap"] > _MSWIN:
+                    if _k - _arm_l["tap"] > _MSWIN:
                         _arm_l = None
                     else:
                         _cs = [_x for _x in _gap_bear if _x["bot"] > _arm_l["lbot"] and _x["idx"] >= _k - _MSWIN]
@@ -1583,15 +1583,18 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                         if _tg is not None and (_tg["mit"] is None or _tg["mit"] > _arm_l["tap"]) and _ck > _tg["top"] and not _wick_reject(_k, "s"):
                             _fvg_ms.append({"t": times_iso[_k], "d": "l"})
                             _used.add(_arm_l["gi"]); _used.add(_tg["idx"]); _arm_l = None
-                # 2) 吃到偵測 → 武裝(setup FVG 須尚未填補 mit None；影線進區間、收盤拒絕)
-                if _arm_s is None:
-                    for _b in _gap_bear:
-                        if _b["mit"] is None and _hk >= _b["bot"] and _ck <= _b["top"]:
-                            _arm_s = {"bbot": _b["bot"], "btop": _b["top"], "tap": _k, "gi": _b["idx"]}; break
-                if _arm_l is None:
-                    for _b in _gap_bull:
-                        if _b["mit"] is None and _lk <= _b["top"] and _ck >= _b["bot"]:
-                            _arm_l = {"lbot": _b["bot"], "ltop": _b["top"], "tap": _k, "gi": _b["idx"]}; break
+                # 2) 吃到偵測 → 武裝(setup FVG 須尚未填補 mit None；影線進區間)
+                #    取「最近形成」可吃反向缺口；吃到不同缺口就覆蓋舊 setup(最新 tap 才有效)，同一缺口再吃不重置 tap。
+                _cand = None
+                for _b in _gap_bear:
+                    if _b["mit"] is None and _hk >= _b["bot"] and _ck <= _b["top"]: _cand = _b
+                if _cand is not None and (_arm_s is None or _arm_s["gi"] != _cand["idx"]):
+                    _arm_s = {"bbot": _cand["bot"], "btop": _cand["top"], "tap": _k, "gi": _cand["idx"]}
+                _cand = None
+                for _b in _gap_bull:
+                    if _b["mit"] is None and _lk <= _b["top"] and _ck >= _b["bot"]: _cand = _b
+                if _cand is not None and (_arm_l is None or _arm_l["gi"] != _cand["idx"]):
+                    _arm_l = {"lbot": _cand["bot"], "ltop": _cand["top"], "tap": _k, "gi": _cand["idx"]}
                 # 3) 更新填補(中線首次被碰)：在吃到之後→當根吃到的拒絕仍算未填補
                 for _b in _gap_bear:
                     if _b["mit"] is None and _hk >= _b["mid"]: _b["mit"] = _k
