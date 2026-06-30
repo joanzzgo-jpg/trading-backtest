@@ -1527,22 +1527,23 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         for _k in range(_N):
             _hk = _H[_k]; _lk = _L[_k]; _ck = _C[_k]
             if not (_hk != _hk or _lk != _lk or _ck != _ck):   # 非 NaN
-                # 1) 收破檢查(目標:被吃FVG另側、最近、未收破、且「吃到當下尚未填補」的反向FVG)
+                # 1) 收破檢查(目標＝被吃FVG另側「上個(最近)形成、尚未被收破」的反向FVG；只取這一個，
+                #    不回頭找更舊的。它須在吃到當下尚未填補(mit None 或 mit>吃到棒)且被收破才標)
                 if _arm_s is not None:
                     if _ck > _arm_s["btop"] or _k - _arm_s["tap"] > _MSWIN:
                         _arm_s = None
                     else:
-                        _cs = [_x for _x in _gap_bull if _x["top"] < _arm_s["bbot"] and (_x["mit"] is None or _x["mit"] > _arm_s["tap"])]
+                        _cs = [_x for _x in _gap_bull if _x["top"] < _arm_s["bbot"]]
                         _tg = max(_cs, key=lambda _x: _x["idx"]) if _cs else None
-                        if _tg is not None and _ck < _tg["bot"]:
+                        if _tg is not None and (_tg["mit"] is None or _tg["mit"] > _arm_s["tap"]) and _ck < _tg["bot"]:
                             _fvg_ms.append({"t": times_iso[_k], "d": "s"}); _arm_s = None
                 if _arm_l is not None:
                     if _ck < _arm_l["lbot"] or _k - _arm_l["tap"] > _MSWIN:
                         _arm_l = None
                     else:
-                        _cs = [_x for _x in _gap_bear if _x["bot"] > _arm_l["ltop"] and (_x["mit"] is None or _x["mit"] > _arm_l["tap"])]
+                        _cs = [_x for _x in _gap_bear if _x["bot"] > _arm_l["ltop"]]
                         _tg = max(_cs, key=lambda _x: _x["idx"]) if _cs else None
-                        if _tg is not None and _ck > _tg["top"]:
+                        if _tg is not None and (_tg["mit"] is None or _tg["mit"] > _arm_l["tap"]) and _ck > _tg["top"]:
                             _fvg_ms.append({"t": times_iso[_k], "d": "l"}); _arm_l = None
                 # 2) 吃到偵測 → 武裝(setup FVG 須尚未填補 mit None；影線進區間、收盤拒絕)
                 if _arm_s is None:
