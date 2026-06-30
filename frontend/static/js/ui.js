@@ -400,7 +400,8 @@ function bindIndicatorPanel() {
           onColor: ()=>{ if (ohlcvData.length) renderVolume(ohlcvData); },
           onAlpha: ()=>{ if (ohlcvData.length) renderVolume(ohlcvData); }
         },
-        { label:"量均線", colorKey:"volMa", onColor: c=>{ volMaSeries?.applyOptions({color:c}); } },
+        { label:"量均線", colorKey:"volMa", onColor: c=>{ volMaSeries?.applyOptions({color:c}); },
+          numKey:"volMaPeriod", numMin:1, numMax:200, onNum: ()=>{ if (ohlcvData.length) renderVolume(ohlcvData); } },
       ]
     },
     kdj: {
@@ -596,13 +597,17 @@ function bindIndicatorPanel() {
     if (row.numKey) {
       const nInput = document.createElement("input");
       nInput.type = "number"; nInput.className = "ind-sp-num";
-      nInput.min = 1; nInput.max = 99; nInput.value = S[row.numKey] ?? 50;
+      nInput.min = row.numMin ?? 1; nInput.max = row.numMax ?? 99; nInput.value = S[row.numKey] ?? 50;
       nInput.addEventListener("change", e => {
-        const val = parseFloat(e.target.value); if (isNaN(val)) return;
+        let val = parseFloat(e.target.value); if (isNaN(val)) return;
+        const _lo = row.numMin ?? 1, _hi = row.numMax ?? 99;
+        val = Math.min(_hi, Math.max(_lo, val)); e.target.value = val;
         S[row.numKey] = val;
-        if (ohlcvData.length) {
+        if (row.onNum) {
+          row.onNum(val);                                    // 自訂回呼（如量均線週期 → 重畫量均線）
+        } else if (ohlcvData.length) {
           const f = toTime(ohlcvData[0].time), l = toTime(ohlcvData[ohlcvData.length-1].time);
-          row.numSeries()?.setData([{time:f,value:val},{time:l,value:val}]);
+          row.numSeries()?.setData([{time:f,value:val},{time:l,value:val}]);   // 水平門檻線（KDJ/RSI）
         }
         savePrefs();
       });
