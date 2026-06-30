@@ -1572,7 +1572,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                     else:
                         _cs = [_x for _x in _gap_bull if _x["top"] < _arm_s["btop"] and _x["idx"] >= _k - _MSWIN]   # 被殺目標＝上個形成多FVG(須在 setup 空FVG頂以下)
                         _tg = max(_cs, key=lambda _x: _x["idx"]) if _cs else None
-                        if _tg is not None and (_tg["mit"] is None or _tg["mit"] > _arm_s["tap"]) and _ck < _tg["bot"] and not _wick_reject(_k, "l"):
+                        if _tg is not None and (_tg["mit"] is None or _tg["mit"] > _arm_s["tap"]) and _lk < _tg["bot"]:   # 空：影線跌破多FVG下緣即算(原為收盤破)
                             _fvg_ms.append({"t": times_iso[_k], "d": "s"})
                             _used.add(_arm_s["gi"]); _used.add(_tg["idx"]); _arm_s = None
                 if _arm_l is not None:
@@ -1581,7 +1581,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                     else:
                         _cs = [_x for _x in _gap_bear if _x["bot"] > _arm_l["lbot"] and _x["idx"] >= _k - _MSWIN]
                         _tg = max(_cs, key=lambda _x: _x["idx"]) if _cs else None
-                        if _tg is not None and (_tg["mit"] is None or _tg["mit"] > _arm_l["tap"]) and _ck > _tg["top"] and not _wick_reject(_k, "s"):
+                        if _tg is not None and (_tg["mit"] is None or _tg["mit"] > _arm_l["tap"]) and _hk > _tg["top"]:   # 多：影線突破空FVG上緣即算(原為收盤破)
                             _fvg_ms.append({"t": times_iso[_k], "d": "l"})
                             _used.add(_arm_l["gi"]); _used.add(_tg["idx"]); _arm_l = None
                 # 2) 吃到偵測 → 武裝(setup FVG 須尚未填補 mit None；影線進區間)
