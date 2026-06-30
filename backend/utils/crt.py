@@ -1315,7 +1315,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         _last_gap = {"l": None, "s": None}  # 每方向「上一個同向缺口」(bot, W)；下方0.5W帶內的同向缺口→無效(淺色不採用)；無效缺口也連鎖往下傳
         # numpy→list 一次轉換：FVG 主迴圈逐元素存取，list(float) 遠快於 numpy 標量+float()
         #（與 _fvg_bb / _fvg_trades 區塊同一手法；NaN 轉 list 後仍 float('nan')，x!=x 判定不變）。
-        _H = highs.tolist(); _L = lows.tolist(); _C = closes.tolist()
+        _H = highs.tolist(); _L = lows.tolist(); _C = closes.tolist(); _O = opens.tolist()
         for _g in range(1, _N - 1):
             _h0 = _H[_g-1]; _l0 = _L[_g-1]
             _h2 = _H[_g+1]; _l2 = _L[_g+1]
@@ -1569,18 +1569,18 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                     if _ck > _arm_s["btop"] or _k - _arm_s["tap"] > _MSWIN:
                         _arm_s = None
                     else:
-                        _cs = [_x for _x in _gap_bull if _x["top"] < _arm_s["bbot"] and _x["idx"] >= _k - _MSWIN]
+                        _cs = [_x for _x in _gap_bull if _x["top"] < _arm_s["btop"] and _x["idx"] >= _k - _MSWIN]
                         _tg = max(_cs, key=lambda _x: _x["idx"]) if _cs else None
-                        if _tg is not None and (_tg["mit"] is None or _tg["mit"] > _arm_s["tap"]) and _ck < _tg["bot"]:
+                        if _tg is not None and (_tg["mit"] is None or _tg["mit"] > _arm_s["tap"]) and _ck < _tg["bot"] and not _wick_reject(_k, "l"):
                             _fvg_ms.append({"t": times_iso[_k], "d": "s"})
                             _used.add(_arm_s["gi"]); _used.add(_tg["idx"]); _arm_s = None
                 if _arm_l is not None:
                     if _ck < _arm_l["lbot"] or _k - _arm_l["tap"] > _MSWIN:
                         _arm_l = None
                     else:
-                        _cs = [_x for _x in _gap_bear if _x["bot"] > _arm_l["ltop"] and _x["idx"] >= _k - _MSWIN]
+                        _cs = [_x for _x in _gap_bear if _x["bot"] > _arm_l["lbot"] and _x["idx"] >= _k - _MSWIN]
                         _tg = max(_cs, key=lambda _x: _x["idx"]) if _cs else None
-                        if _tg is not None and (_tg["mit"] is None or _tg["mit"] > _arm_l["tap"]) and _ck > _tg["top"]:
+                        if _tg is not None and (_tg["mit"] is None or _tg["mit"] > _arm_l["tap"]) and _ck > _tg["top"] and not _wick_reject(_k, "s"):
                             _fvg_ms.append({"t": times_iso[_k], "d": "l"})
                             _used.add(_arm_l["gi"]); _used.add(_tg["idx"]); _arm_l = None
                 # 2) 吃到偵測 → 武裝(setup FVG 須尚未填補 mit None；影線進區間、收盤拒絕)
