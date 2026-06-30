@@ -1540,7 +1540,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                     if _ck > _arm_s["btop"] or _k - _arm_s["tap"] > _MSWIN:
                         _arm_s = None
                     else:
-                        _cs = [_x for _x in _gap_bull if _x["top"] < _arm_s["bbot"]]
+                        _cs = [_x for _x in _gap_bull if _x["top"] < _arm_s["bbot"] and _x["idx"] >= _k - _MSWIN]
                         _tg = max(_cs, key=lambda _x: _x["idx"]) if _cs else None
                         if _tg is not None and (_tg["mit"] is None or _tg["mit"] > _arm_s["tap"]) and _ck < _tg["bot"]:
                             _fvg_ms.append({"t": times_iso[_k], "d": "s"})
@@ -1549,7 +1549,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                     if _ck < _arm_l["lbot"] or _k - _arm_l["tap"] > _MSWIN:
                         _arm_l = None
                     else:
-                        _cs = [_x for _x in _gap_bear if _x["bot"] > _arm_l["ltop"]]
+                        _cs = [_x for _x in _gap_bear if _x["bot"] > _arm_l["ltop"] and _x["idx"] >= _k - _MSWIN]
                         _tg = max(_cs, key=lambda _x: _x["idx"]) if _cs else None
                         if _tg is not None and (_tg["mit"] is None or _tg["mit"] > _arm_l["tap"]) and _ck > _tg["top"]:
                             _fvg_ms.append({"t": times_iso[_k], "d": "l"})
