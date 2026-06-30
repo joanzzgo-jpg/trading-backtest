@@ -203,7 +203,7 @@ function setFVGZones(list) {
     ett: (z.ett != null ? toTime(z.ett) : null),   // 進場-上緣觸及
     etm: (z.etm != null ? toTime(z.etm) : null),   // 進場-中線觸及
     etb: (z.etb != null ? toTime(z.etb) : null),   // 進場-下緣觸及
-  })).filter(z => z.t1 != null && z.top != null && z.bot != null);
+  })).filter(z => z.t1 != null && z.top != null && z.bot != null && !z.inv);   // IFVG(inv) 先關閉：不顯示反轉缺口色塊
   _fvgSelected = null;                       // 資料重載→清除點選(舊物件已不在新陣列裡)
   if (_fvgPrimitive) _fvgPrimitive.requestUpdate();
 }

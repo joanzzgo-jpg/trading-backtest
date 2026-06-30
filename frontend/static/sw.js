@@ -6,7 +6,7 @@
  *  - /static/*、CDN → cache-first。靜態 URL 都帶 ?v=版號，改版即換 URL → 不會吃到舊檔。
  * 換快取策略時把 CACHE 版號 +1 即可讓舊快取在 activate 時清掉。
  */
-const CACHE = "ahh-static-v16";  // v16:成交量均線週期可在主圖設定自行調整
+const CACHE = "ahh-static-v17";  // v17:IFVG反轉缺口色塊先關閉
 
 self.addEventListener("install", (e) => {
   self.skipWaiting();
