@@ -1460,7 +1460,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         # 放寬：收破若發生在反向FVG確認的「前 _REC 根內」(同一段衝量造成、缺口要三根才確認而晚
         #       一兩根，例如收破棒正是反向FVG的中間棒) → 也算；標在「實際收破的那根 K」。
         #       破在反向FVG出現後(原行為)亦算。每個 FVG 只觸發一次。
-        _REC = 4                                       # 收破與反向FVG「同段」容許根距(15m≈1hr)
+        _REC = 2                                       # 收破與反向FVG「同段」容許根距:只涵蓋收破棒=反向FVG中間/首根的缺口確認延遲(2根);不讓晚數根才形成的反向FVG回頭追認(1d曾誤認晚3天的多FVG→破空)
         _gaps_at = {}                                  # cf_bar → (top, bot, dir)；每根 K 至多一個缺口
         for (_ci, _tp, _bt, _dr) in _gaps_seq:
             _gaps_at[_ci] = (_tp, _bt, _dr)
