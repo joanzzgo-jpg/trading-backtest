@@ -1372,8 +1372,8 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             _dim = (_A is not None and (_A[0] - 0.5 * _A[1]) <= _top <= _A[0])
             _last_gap[_dir] = (_bot, _W)    # 不論 dim，更新為本缺口 → 連鎖向下傳遞
             _fvg.append({"t": times_iso[_g+1], "top": _top, "bot": _bot, "d": _dir, "t2": _box_t2,
-                         "sweep": _sweep, "sl": _gsl, "tp": _gtp, "dim": _dim,
-                         "ett": _ett, "etm": _etm, "etb": _etb})    # 進場：上/中/下緣觸及時間
+                         "sweep": _sweep, "sl": _gsl, "tp": _gtp, "dim": _dim, "gi": _g + 1,
+                         "ett": _ett, "etm": _etm, "etb": _etb})    # gi=缺口索引(給「有無被用到」標記)
             _gaps_seq.append((_g + 1, _top, _bot, _dir))   # 依序記錄每個視覺缺口（結構模式偵測用，含 dim）
             # IFVG：反方向換色，從反轉點續延，到自己回中線被填補(或右緣)為止；位階用反向(止盈反向1W、止損=被破對側邊)。
             if _inv_t is not None:
@@ -1463,10 +1463,11 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         #           → 標在該收破棒；太早收破(多FVG早已死)→不算；收破在反向FVG之後→等到收破才標。
         # 之後交替過濾(破多後到下個破空前不再破多，反之亦然)。
         _REC = 2
+        _used = set()                                  # 有被任一標記用到的缺口索引(gi)；其餘前端淡化
         _gaps_at = {}                                  # cf_bar → (top, bot, dir)；每根 K 至多一個缺口
         for (_ci, _tp, _bt, _dr) in _gaps_seq:
             _gaps_at[_ci] = (_tp, _bt, _dr)
-        _armed_bull = []; _armed_bear = []             # 已成立(相鄰反向缺口)但尚未收破，等未來收破：{"bot"/"top"}
+        _armed_bull = []; _armed_bear = []             # 已成立(相鄰反向缺口)但尚未收破，等未來收破：{"bot"/"top","gi","ri"}
         _prev = None                                   # 上一個主缺口 {dir,bot,top,idx}
         for _k in range(_N):
             _ck = _C[_k]
@@ -1474,13 +1475,17 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                 if _armed_bull:
                     _keep = []
                     for _a in _armed_bull:
-                        if _ck < _a["bot"]: _fvg_break.append({"t": times_iso[_k], "p": _a["bot"], "d": "l"})
+                        if _ck < _a["bot"]:
+                            _fvg_break.append({"t": times_iso[_k], "p": _a["bot"], "d": "l"})
+                            _used.add(_a["gi"]); _used.add(_a["ri"])
                         else: _keep.append(_a)
                     _armed_bull = _keep
                 if _armed_bear:
                     _keep = []
                     for _a in _armed_bear:
-                        if _ck > _a["top"]: _fvg_break.append({"t": times_iso[_k], "p": _a["top"], "d": "s"})
+                        if _ck > _a["top"]:
+                            _fvg_break.append({"t": times_iso[_k], "p": _a["top"], "d": "s"})
+                            _used.add(_a["gi"]); _used.add(_a["ri"])
                         else: _keep.append(_a)
                     _armed_bear = _keep
             _gp = _gaps_at.get(_k)
@@ -1492,18 +1497,20 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                     for _j in range(_prev["idx"] + 1, _k + 1):
                         if _C[_j] == _C[_j] and _C[_j] < _mb: _fb = _j; break
                     if _fb is None:
-                        _armed_bull.append({"bot": _mb})              # 尚未收破 → 等未來
+                        _armed_bull.append({"bot": _mb, "gi": _prev["idx"], "ri": _k})  # 尚未收破 → 等未來
                     elif _fb >= _k - _REC:
                         _fvg_break.append({"t": times_iso[_fb], "p": _mb, "d": "l"})   # 同段收破
+                        _used.add(_prev["idx"]); _used.add(_k)
                     # else: 收破太早(多FVG早已死) → 不算
                 elif _dr == "l" and _prev is not None and _prev["dir"] == "s":
                     _mt = _prev["top"]; _fb = None
                     for _j in range(_prev["idx"] + 1, _k + 1):
                         if _C[_j] == _C[_j] and _C[_j] > _mt: _fb = _j; break
                     if _fb is None:
-                        _armed_bear.append({"top": _mt})
+                        _armed_bear.append({"top": _mt, "gi": _prev["idx"], "ri": _k})
                     elif _fb >= _k - _REC:
                         _fvg_break.append({"t": times_iso[_fb], "p": _mt, "d": "s"})
+                        _used.add(_prev["idx"]); _used.add(_k)
                 _prev = {"dir": _dr, "bot": _bt, "top": _tp, "idx": _k}
         _fvg_break.sort(key=lambda x: x["t"])
         # 交替過濾：一個破多出現後，要等到下一個破空才會再出現破多(反之亦然)。
@@ -1536,7 +1543,8 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                         _cs = [_x for _x in _gap_bull if _x["top"] < _arm_s["bbot"]]
                         _tg = max(_cs, key=lambda _x: _x["idx"]) if _cs else None
                         if _tg is not None and (_tg["mit"] is None or _tg["mit"] > _arm_s["tap"]) and _ck < _tg["bot"]:
-                            _fvg_ms.append({"t": times_iso[_k], "d": "s"}); _arm_s = None
+                            _fvg_ms.append({"t": times_iso[_k], "d": "s"})
+                            _used.add(_arm_s["gi"]); _used.add(_tg["idx"]); _arm_s = None
                 if _arm_l is not None:
                     if _ck < _arm_l["lbot"] or _k - _arm_l["tap"] > _MSWIN:
                         _arm_l = None
@@ -1544,16 +1552,17 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                         _cs = [_x for _x in _gap_bear if _x["bot"] > _arm_l["ltop"]]
                         _tg = max(_cs, key=lambda _x: _x["idx"]) if _cs else None
                         if _tg is not None and (_tg["mit"] is None or _tg["mit"] > _arm_l["tap"]) and _ck > _tg["top"]:
-                            _fvg_ms.append({"t": times_iso[_k], "d": "l"}); _arm_l = None
+                            _fvg_ms.append({"t": times_iso[_k], "d": "l"})
+                            _used.add(_arm_l["gi"]); _used.add(_tg["idx"]); _arm_l = None
                 # 2) 吃到偵測 → 武裝(setup FVG 須尚未填補 mit None；影線進區間、收盤拒絕)
                 if _arm_s is None:
                     for _b in _gap_bear:
                         if _b["mit"] is None and _hk >= _b["bot"] and _ck <= _b["top"]:
-                            _arm_s = {"bbot": _b["bot"], "btop": _b["top"], "tap": _k}; break
+                            _arm_s = {"bbot": _b["bot"], "btop": _b["top"], "tap": _k, "gi": _b["idx"]}; break
                 if _arm_l is None:
                     for _b in _gap_bull:
                         if _b["mit"] is None and _lk <= _b["top"] and _ck >= _b["bot"]:
-                            _arm_l = {"lbot": _b["bot"], "ltop": _b["top"], "tap": _k}; break
+                            _arm_l = {"lbot": _b["bot"], "ltop": _b["top"], "tap": _k, "gi": _b["idx"]}; break
                 # 3) 更新填補(中線首次被碰)：在吃到之後→當根吃到的拒絕仍算未填補
                 for _b in _gap_bear:
                     if _b["mit"] is None and _hk >= _b["mid"]: _b["mit"] = _k
@@ -1572,6 +1581,10 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                 else:
                     _gap_bull.append(_rec); _gap_bull = _gap_bull[-200:]
         _fvg_ms = _fvg_ms[-2000:]
+        # ── 標記「有無被用到」：未被任何標記(破多/破空/多/空)用到的主缺口 → used=False(前端淡化)。
+        #     IFVG(inv)非主缺口、不在偵測序列 → 視為 used(不淡化)。
+        for _z in _fvg:
+            _z["used"] = True if _z.get("inv") else (_z.get("gi") in _used)
     except Exception:
         _fvg = []
         _fvg_sigs = []

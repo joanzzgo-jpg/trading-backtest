@@ -87,7 +87,8 @@ function _makeFVGPrimitive() {
           if (yT == null || yB == null) continue;
           const bx = x1 * hr, bw = (x2 - x1) * hr;
           const byTop = Math.min(yT, yB) * vr, bh = Math.abs(yB - yT) * vr;
-          if (z.dim) ctx.globalAlpha = 0.38;             // 同向缺口堆疊在下方0.5W帶內→無效,整體淡化(淺色、不採用)
+          const _faint = z.dim || z.used === false;      // dim=同向堆疊去重；used===false=未被任何標記用到 → 皆淡化
+          if (_faint) ctx.globalAlpha = 0.38;
           ctx.fillStyle   = z.d === "l" ? "rgba(38,198,166,0.14)" : "rgba(255,82,82,0.14)";
           ctx.strokeStyle = z.d === "l" ? "rgba(38,198,166,0.55)" : "rgba(255,82,82,0.55)";
           ctx.fillRect(bx, byTop, bw, bh);
@@ -154,7 +155,7 @@ function _makeFVGPrimitive() {
             }
             ctx.setLineDash([]);
           }
-          if (z.dim) ctx.globalAlpha = 1;                // 復原 alpha，不影響下一個缺口
+          if (_faint) ctx.globalAlpha = 1;               // 復原 alpha，不影響下一個缺口
         }
       });
     },
@@ -197,6 +198,7 @@ function setFVGZones(list) {
     t1: toTime(z.t), t2: (z.t2 != null ? toTime(z.t2) : null),
     top: z.top, bot: z.bot, d: z.d, inv: !!z.inv,   // inv=IFVG(反轉缺口,反方向換色)
     dim: !!z.dim,                                   // dim=同向缺口堆疊(下方0.5W帶內)→無效(淺色、不採用)
+    used: z.used !== false,                          // used=false→沒被任何標記用到→淡化(舊資料無此欄→預設true不淡化)
     sl: (z.sl != null ? z.sl : null), tp: (z.tp != null ? z.tp : null),  // 止損(g-1頂端)/止盈(2W)
     ett: (z.ett != null ? toTime(z.ett) : null),   // 進場-上緣觸及
     etm: (z.etm != null ? toTime(z.etm) : null),   // 進場-中線觸及
