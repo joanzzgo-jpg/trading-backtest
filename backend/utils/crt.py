@@ -1309,7 +1309,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
     _fvg_ms    = []        # 「吃到未填補反向FVG→收破同向FVG」方向標記 [{t,d}]（多/空，獨立於破多/破空）
     _gaps_seq  = []        # (cf_bar, top, bot, dir) 依時間序的所有視覺缺口（給上面結構模式偵測用）
     try:
-        _N = len(times_iso); _MS = 0.001   # 視覺最小缺口 0.1%（自動交易訊號另設 0.3% 門檻，見下）
+        _N = len(times_iso); _MS = 0.0005   # 視覺最小缺口 0.05%（自動交易訊號另設 0.3% 門檻，見下）
         _FRESH = 168          # 缺口新鮮度：確認後 168 根(1h=一週)內未回補 → 作廢、不產進場訊號
         _MAXHOLD = 200        # 最長持有：進場後 200 根仍未觸發止盈/止損 → 視為仍 live(不在此處強平)
         _last_gap = {"l": None, "s": None}  # 每方向「上一個同向缺口」(bot, W)；下方0.5W帶內的同向缺口→無效(淺色不採用)；無效缺口也連鎖往下傳
