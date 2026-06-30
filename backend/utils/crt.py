@@ -1518,14 +1518,16 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                 # 破多：多FVG(_prev) 緊接 空FVG(本缺口_k=第2個FVG)→ 兩FVG確認後，首根影線跌破多FVG下緣即標。
                 #   確認棒(_k)自己就影線穿→當根標；否則武裝、等未來首根影線穿(不回溯到確認前)。
                 if _dr == "s" and _prev is not None and _prev["dir"] == "l":
+                    # 破多：多FVG(_prev)→空FVG(本缺口_k)。若多FVG下緣在「空FVG確認(_k)之前」就已被影線跌破→兩條件已備齊，
+                    #   標在空FVG確認棒(_k)；否則武裝、等未來首根影線跌破。
                     _mb = _prev["bot"]
-                    if _lk < _mb:
+                    if any(_L[_j] < _mb for _j in range(_prev["idx"] + 1, _k + 1)):
                         _fvg_break.append({"t": times_iso[_k], "p": _mb, "d": "l", "gi": _prev["idx"], "ri": _k})
                     else:
                         _armed_bull.append({"bot": _mb, "gi": _prev["idx"], "ri": _k})
                 elif _dr == "l" and _prev is not None and _prev["dir"] == "s":
                     _mt = _prev["top"]
-                    if _hk > _mt:
+                    if any(_H[_j] > _mt for _j in range(_prev["idx"] + 1, _k + 1)):
                         _fvg_break.append({"t": times_iso[_k], "p": _mt, "d": "s", "gi": _prev["idx"], "ri": _k})
                     else:
                         _armed_bear.append({"top": _mt, "gi": _prev["idx"], "ri": _k})
