@@ -947,24 +947,16 @@ def smc_coach_api(
     td = s1d["trend"] if s1d else 0
     direction = 1 if t4 == 1 else (-1 if t4 == -1 else 0)   # 預設規則：4H 主方向
     price = (s15 or s4h or {}).get("price")
-    # 各時框方向側「有名稱」的區：訂單區(OB) / 缺口(FVG) / 支撐阻力(SR)。給步驟2 與市場位置用。
-    def _named_zones(snap, tfname, direction):
-        if not snap:
-            return []
-        out = []
-        side = "l" if direction == 1 else "s"
-        for z in (snap.get("ob") or {}).get(side, []):
-            out.append((z["top"], z["bot"], f"{tfname} {'多' if direction==1 else '空'}方訂單區"))
-        for z in (snap.get("fvg") or {}).get(side, []):
-            out.append((z["top"], z["bot"], f"{tfname} {'多' if direction==1 else '空'}方缺口"))
-        srkey = "sup" if direction == 1 else "res"
-        for z in (snap.get("sr") or {}).get(srkey, []):
-            out.append((z["top"], z["bot"], f"{tfname} {'支撐' if direction==1 else '阻力'}區"))
-        return out
-    # 步驟2 HTF 區（4H 優先、其次 1H）——含 OB/FVG/SR，帶名稱
-    bull_zones = _named_zones(s4h, "4H", 1) + _named_zones(s1h, "1H", 1)
-    bear_zones = _named_zones(s4h, "4H", -1) + _named_zones(s1h, "1H", -1)
-    coach = smc.run_coach(dfs.get("15m"), bull_zones, bear_zones, direction) if direction != 0 else {"stage": 0}
+    # 忠實狀態機：把 1H/4H 算成逐棒 HTF series → 對齊每根 15M(request.security 復刻)+失效退階。
+    if direction != 0 and dfs.get("15m") is not None:
+        try:
+            _ser4 = smc.htf_series(dfs.get("4h"))
+            _ser1 = smc.htf_series(dfs.get("1h"))
+            coach = smc.run_coach2(dfs.get("15m"), _ser4, _ser1, direction)
+        except Exception:
+            coach = {"stage": 0}
+    else:
+        coach = {"stage": 0}
     # 市場位置：目前價格所在的區（任一時框任一類型，取最貼近者）
     zone = _coach_current_zone(s4h, s1h, price)
     st = coach.get("stage", 0)
@@ -974,22 +966,6 @@ def smc_coach_api(
     # 掃蕩目標：空單掃前高、多單掃前低（尚未被破的最近擺點）
     _tg = (s15.get("targets") if s15 else None) or {}
     _swt = _tg.get("sh") if direction == -1 else _tg.get("sl")
-    # 步驟2 區域「OB 優先＋反應側最近OB」：避免狀態機隨價下走一路換到更低缺口（對齊 TV，短單鎖上方最近OB）。
-    if direction != 0 and st >= 2 and price is not None:
-        _obs = []
-        for _snap, _tfn in ((s1h, "1H"), (s4h, "4H")):
-            if not _snap:
-                continue
-            for _z in (_snap.get("ob") or {}).get("l" if direction == 1 else "s", []):
-                _obs.append((_z["top"], _z["bot"], f"{_tfn} {'多' if direction == 1 else '空'}方訂單區"))
-        if _obs:
-            if direction == -1:
-                _cand = [o for o in _obs if min(o[0], o[1]) >= price]      # 上方的 OB（反應側）
-                _pick = min(_cand, key=lambda o: min(o[0], o[1]) - price) if _cand else min(_obs, key=lambda o: abs((o[0] + o[1]) / 2 - price))
-            else:
-                _cand = [o for o in _obs if max(o[0], o[1]) <= price]      # 下方的 OB
-                _pick = min(_cand, key=lambda o: price - max(o[0], o[1])) if _cand else min(_obs, key=lambda o: abs((o[0] + o[1]) / 2 - price))
-            coach["zone_top"], coach["zone_bot"], coach["zone_name"] = _pick[0], _pick[1], _pick[2]
     steps = [
         {"n": 1, "title": "方向", "done": st >= 1,
          "text": (f"方向通過｜4H 主{_dn}" if direction != 0 else "等待 4H 確認主方向")},

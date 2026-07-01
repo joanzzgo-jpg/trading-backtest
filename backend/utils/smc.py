@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 
 
+
 def _to_lists(df):
     H = df["high"].astype(float).tolist()
     L = df["low"].astype(float).tolist()
@@ -264,6 +265,121 @@ def _recent_sweep(H, L, C, T, PL=5):
     return last
 
 
+def htf_series(df, sr_pl=8, ob_pl=5, ZW=0.20, MRG=1.25, BUF=0.15, MAXZ=3,
+               LB=20, ATRN=14, MS=0.0001):
+    """忠實移植 f_htfVisibleZones + f_htfStructureSnapshot 為「逐棒時間序列」。
+    每根 HTF 棒回傳當時的：趨勢、以及每型別「離收盤最近」的單一區(sup/res/bull_ob/bear_ob/bull_fvg/bear_fvg)。
+    供 run_coach 對齊到每根 15M（取用『收盤時間 ≤ 該15M時間』的最後一根HTF）→ 復刻 request.security 逐棒對齊。
+    每個 zone = (top, bot) 或 None。回傳 [{t, trend, sup, res, bull_ob, bear_ob, bull_fvg, bear_fvg}]。"""
+    if df is None or len(df) < sr_pl * 2 + 3:
+        return []
+    H, L, C, O, T = _to_lists(df)
+    N = len(C)
+    atr = _atr(H, L, C, ATRN)
+
+    def _near(pool, price, below):
+        best = None; bd = 1e30
+        for (zt, zb) in pool:
+            zu = max(zt, zb); zl = min(zt, zb)
+            side = (zl < price) if below else (zu > price)
+            if not side:
+                continue
+            d = max(price - zu, 0.0) if below else max(zl - price, 0.0)
+            if d < bd: bd = d; best = (zu, zl)
+        return best
+
+    # 趨勢狀態(f_htfStructureSnapshot)
+    tSH = tSL = pSH = pSL = None; tHb = tLb = False; highType = lowType = 0; trend = 0
+    # SR 池(merge/flip)、OB 池、FVG 池
+    res_pool = []; sup_pool = []           # dict {top,bot}
+    bull_ob = []; bear_ob = []             # (top,bot)
+    bull_fvg = []; bear_fvg = []           # (top,bot)
+    # OB 結構破用的擺點
+    oSH = oSL = None; oHb = oLb = False
+    out = []
+    _mid = lambda z: (z["top"] + z["bot"]) / 2.0
+
+    def _push_sr(pool, top, bot, md):
+        nz = next((z for z in pool if abs(_mid(z) - (top + bot) / 2.0) <= md), None)
+        if nz: nz["top"] = max(nz["top"], top); nz["bot"] = min(nz["bot"], bot)
+        else:
+            pool.append({"top": top, "bot": bot})
+            if len(pool) > MAXZ: pool.pop(0)
+    for i in range(N):
+        ci = C[i]; cp = C[i - 1] if i > 0 else float("nan")
+        # ── 趨勢(pivot=ob_pl，對齊 coachPivotLen=5) ──
+        p = i - ob_pl
+        if p - ob_pl >= 0:
+            if _is_ph(H, p, ob_pl):
+                pSH = tSH; tSH = H[p]; tHb = False
+                highType = 0 if pSH is None else (1 if tSH > pSH else -1)
+            if _is_pl(L, p, ob_pl):
+                pSL = tSL; tSL = L[p]; tLb = False
+                lowType = 0 if pSL is None else (1 if tSL > pSL else -1)
+        if ci == ci:
+            if tSH is not None and not tHb and ci > tSH and (cp != cp or cp <= tSH):
+                trend = 1; tHb = True
+            elif tSL is not None and not tLb and ci < tSL and (cp != cp or cp >= tSL):
+                trend = -1; tLb = True
+            if trend == 0:
+                if highType == 1 and lowType == 1: trend = 1
+                elif highType == -1 and lowType == -1: trend = -1
+        # ── SR(pivot=sr_pl=8) ──
+        ps = i - sr_pl
+        if ps - sr_pl >= 0 and atr[ps] == atr[ps]:
+            hw = max(atr[ps] * ZW, 1e-9); md = atr[ps] * MRG
+            if _is_ph(H, ps, sr_pl): _push_sr(res_pool, H[ps] + hw, H[ps] - hw, md)
+            if _is_pl(L, ps, sr_pl): _push_sr(sup_pool, L[ps] + hw, L[ps] - hw, md)
+        if ci == ci and atr[i] == atr[i]:
+            buf = atr[i] * BUF; bufP = (atr[i - 1] if i > 0 and atr[i - 1] == atr[i - 1] else atr[i]) * BUF
+            for z in list(res_pool):
+                if ci > z["top"] + buf and cp == cp and cp > z["top"] + bufP:
+                    res_pool.remove(z); _push_sr(sup_pool, z["top"], z["bot"], buf)
+            for z in list(sup_pool):
+                if ci < z["bot"] - buf and cp == cp and cp < z["bot"] - bufP:
+                    sup_pool.remove(z); _push_sr(res_pool, z["top"], z["bot"], buf)
+        # ── OB(結構破 pivot=ob_pl=5、往回 LB) ──
+        if p - ob_pl >= 0:
+            if _is_ph(H, p, ob_pl): oSH = H[p]; oHb = False
+            if _is_pl(L, p, ob_pl): oSL = L[p]; oLb = False
+        if ci == ci:
+            bull_ob[:] = [z for z in bull_ob if ci >= min(z)]
+            bear_ob[:] = [z for z in bear_ob if ci <= max(z)]
+            if oSH is not None and not oHb and ci > oSH and (cp != cp or cp <= oSH):
+                oHb = True
+                off = next((j for j in range(1, LB + 1) if i - j >= 0 and C[i - j] < O[i - j]), None)
+                if off is not None:
+                    b = i - off; bull_ob.append((max(O[b], C[b]), min(O[b], C[b])))
+                    if len(bull_ob) > MAXZ: bull_ob.pop(0)
+            if oSL is not None and not oLb and ci < oSL and (cp != cp or cp >= oSL):
+                oLb = True
+                off = next((j for j in range(1, LB + 1) if i - j >= 0 and C[i - j] > O[i - j]), None)
+                if off is not None:
+                    b = i - off; bear_ob.append((max(O[b], C[b]), min(O[b], C[b])))
+                    if len(bear_ob) > MAXZ: bear_ob.pop(0)
+        # ── FVG(3根) ──
+        if i >= 2:
+            if L[i] > H[i - 2] and (L[i] - H[i - 2]) >= 0.0 and (H[i - 2] > 0 and (L[i] - H[i - 2]) / H[i - 2] > MS):
+                bull_fvg.append((L[i], H[i - 2]))
+                if len(bull_fvg) > MAXZ: bull_fvg.pop(0)
+            if H[i] < L[i - 2] and (L[i - 2] > 0 and (L[i - 2] - H[i]) / L[i - 2] > MS):
+                bear_fvg.append((L[i - 2], H[i]))
+                if len(bear_fvg) > MAXZ: bear_fvg.pop(0)
+        # 部分/完全回補
+        bull_fvg[:] = [(min(zt, L[i]) if L[i] < zt else zt, zb) for (zt, zb) in bull_fvg if L[i] > zb]
+        bear_fvg[:] = [(zt, max(zb, H[i]) if H[i] > zb else zb) for (zt, zb) in bear_fvg if H[i] < zt]
+        # ── 記錄本棒最近區 ──
+        px = ci
+        out.append({
+            "t": T[i], "trend": trend,
+            "sup": _near([(z["top"], z["bot"]) for z in sup_pool], px, True),
+            "res": _near([(z["top"], z["bot"]) for z in res_pool], px, False),
+            "bull_ob": _near(bull_ob, px, True), "bear_ob": _near(bear_ob, px, False),
+            "bull_fvg": _near(bull_fvg, px, True), "bear_fvg": _near(bear_fvg, px, False),
+        })
+    return out
+
+
 def run_coach(df15, htf_bull_zones, htf_bear_zones, direction, touch_mode=True,
               PL=5, LB=20, MAXWAIT=120):
     """15M 逐棒步驟狀態機（移植 Pine coachLong/ShortStage）。direction:1多/-1空。
@@ -375,6 +491,159 @@ def run_coach(df15, htf_bull_zones, htf_bear_zones, direction, touch_mode=True,
                 stage = 7
 
     return {"stage": stage, "zone_top": zoneTop, "zone_bot": zoneBot, "zone_name": zoneName,
+            "sweep_px": sweepPx, "mss_px": turnTrig, "bos_px": bosTrig,
+            "entry_top": entTop, "entry_bot": entBot, "entry_name": entName}
+
+
+def run_coach2(df15, series_4h, series_1h, target_dir, touch_mode=True,
+               PL=5, LB=20, MAXWAIT=120):
+    """忠實版狀態機：逐 15M 棒對齊 1H/4H HTF series(request.security 復刻)+完整失效退階。
+    target_dir：目前主方向(1多/-1空)。回傳當前 setup 狀態(同 run_coach 欄位)。"""
+    if df15 is None or len(df15) < PL * 2 + 3 or target_dir == 0 or not series_4h:
+        return {"stage": 0}
+    H, L, C, O, T = _to_lists(df15)
+    N = len(C)
+    d = target_dir
+
+    # HTF 對齊：每根 15M → 取「上一根『已收盤』HTF」（復刻 Pine f_htfVisibleZones/StructureSnapshot 回傳的 [1]）。
+    #   關鍵：不能用「正在形成」的 HTF 棒（會用到它收盤後才知道的趨勢/區）——那正是 IN 鎖到暴跌棒的 bug。
+    def _align(series):
+        idx = [None] * N; j = 0; prev = None; cur = None
+        for i in range(N):
+            while j < len(series) and series[j]["t"] <= T[i]:
+                prev = cur; cur = series[j]; j += 1
+            idx[i] = prev
+        return idx
+    a4 = _align(series_4h); a1 = _align(series_1h)
+
+    # 步驟2 候選槽（固定 6 槽、優先序）：(series, key, name)。空單/多單各一組。
+    if d == -1:
+        SLOTS = [("1h", "bear_ob", "1H 空方訂單區"), ("4h", "bear_ob", "4H 空方訂單區"),
+                 ("1h", "bear_fvg", "1H 空方缺口"), ("4h", "bear_fvg", "4H 空方缺口"),
+                 ("1h", "res", "1H 阻力區"), ("4h", "res", "4H 阻力區")]
+    else:
+        SLOTS = [("1h", "bull_ob", "1H 多方訂單區"), ("4h", "bull_ob", "4H 多方訂單區"),
+                 ("1h", "bull_fvg", "1H 多方缺口"), ("4h", "bull_fvg", "4H 多方缺口"),
+                 ("1h", "sup", "1H 支撐區"), ("4h", "sup", "4H 支撐區")]
+    # precision zone life：每槽追蹤 center/tests/wasInside（f_updatePrecisionZoneLife）
+    _pcC = [None] * 6; _pcT = [0] * 6; _pcW = [False] * 6
+
+    # 15M 逐棒狀態
+    stage = 0; startBar = None
+    zTop = zBot = None; zName = ""
+    sweepPx = None; sweepBar = None; turnTrig = None; turnBar = None
+    bosTrig = None; bosSetBar = None; bosBar = None
+    entTop = entBot = None; entName = ""
+    lastSH = lastSL = None; shBroken = slBroken = False; shSwept = slSwept = False
+
+    def reset(to):
+        nonlocal stage, startBar, zTop, zBot, zName, sweepPx, sweepBar, turnTrig, turnBar
+        nonlocal bosTrig, bosSetBar, bosBar, entTop, entBot, entName
+        stage = to; startBar = None if to == 0 else _i
+        if to <= 1: zTop = zBot = None; zName = ""
+        if to <= 2:
+            sweepPx = sweepBar = turnTrig = turnBar = None
+            bosTrig = bosSetBar = bosBar = None
+        if to <= 5:
+            entTop = entBot = None; entName = ""
+
+    for _i in range(N):
+        i = _i
+        e4 = a4[i]; e1 = a1[i]
+        t4 = e4["trend"] if e4 else 0
+        ci = C[i]; cp = C[i - 1] if i > 0 else float("nan")
+        # 15M 擺點/破/掃
+        p = i - PL
+        if p - PL >= 0:
+            if _is_ph(H, p, PL): lastSH = H[p]; shBroken = False
+            if _is_pl(L, p, PL): lastSL = L[p]; slBroken = False
+        if ci != ci:
+            continue
+        bullBreak = lastSH is not None and not shBroken and ci > lastSH and (cp != cp or cp <= lastSH)
+        bearBreak = lastSL is not None and not slBroken and ci < lastSL and (cp != cp or cp >= lastSL)
+        if bullBreak: shBroken = True
+        if bearBreak: slBroken = True
+        bullSweep = lastSL is not None and not slSwept and L[i] < lastSL and ci > lastSL
+        bearSweep = lastSH is not None and not shSwept and H[i] > lastSH and ci < lastSH
+        if bullSweep: slSwept = True
+        if bearSweep: shSwept = True
+        if lastSL is not None and L[i] >= lastSL: slSwept = False
+        if lastSH is not None and H[i] <= lastSH: shSwept = False
+
+        biasPass = (t4 == d)
+        # ── 失效退階(f_pathInvalidCode + 全域) ──
+        if stage > 0:
+            inv = 0
+            if not biasPass or (bearBreak and d == 1) or (bullBreak and d == -1):
+                inv = 1                                    # 方向規則不過/反向結構 → 重置
+            elif startBar is not None and stage < 7 and i - startBar > MAXWAIT:
+                inv = 2                                    # 超時 → 重置
+            else:
+                htfEdge = (zBot if d == 1 else zTop)
+                if stage >= 2 and htfEdge is not None and (ci < htfEdge if d == 1 else ci > htfEdge):
+                    inv = 3
+                elif stage >= 3 and sweepPx is not None and (ci < sweepPx if d == 1 else ci > sweepPx):
+                    inv = 4
+                elif stage >= 6 and entTop is not None and (ci < entBot if d == 1 else ci > entTop):
+                    inv = 5
+            if inv:
+                reset(0 if inv <= 2 else 1 if inv == 3 else 2 if inv == 4 else 5)
+
+        # ── precision zone 生命週期（每根都更新；f_updatePrecisionZoneLife）：
+        #   同一區被進入(inside 由外變內) tests+1；區被換掉(center 大位移)→ tests 歸零；tests≥3 該區用盡不再是有效進入。
+        entryValid = [False] * 6
+        for k in range(6):
+            se, key, _nm = SLOTS[k]
+            ent = e1 if se == "1h" else e4
+            z = ent.get(key) if ent else None
+            if not z:
+                _pcC[k] = None; _pcT[k] = 0; _pcW[k] = False
+                continue
+            zu = max(z); zl = min(z); center = (zu + zl) / 2.0
+            changed = (_pcC[k] is None) or abs(center - _pcC[k]) > max(zu - zl, 1e-12)
+            tests = 0 if changed else _pcT[k]
+            wasIn = False if changed else _pcW[k]
+            inside = (H[i] >= zl and L[i] <= zu)
+            if inside and not wasIn:
+                tests += 1
+            _pcC[k] = center; _pcT[k] = min(tests, 3); _pcW[k] = inside
+            entryValid[k] = inside and tests < 3
+
+        # ── 步驟推進 ──
+        if stage == 0 and biasPass:
+            stage = 1; startBar = i
+        if stage <= 1 and biasPass:
+            for k in range(6):                              # 依優先序取第一個「有效進入」的區
+                if entryValid[k]:
+                    se, key, nm = SLOTS[k]
+                    ent = e1 if se == "1h" else e4
+                    z = ent.get(key)
+                    stage = 2; startBar = i; zTop, zBot, zName = max(z), min(z), nm
+                    break
+        if stage == 2 and ((d == 1 and bullSweep) or (d == -1 and bearSweep)):
+            stage = 3; startBar = i; sweepBar = i
+            sweepPx = (L[i] if d == 1 else H[i]); turnTrig = (lastSH if d == 1 else lastSL)
+        if stage == 3 and turnTrig is None:
+            turnTrig = (lastSH if d == 1 else lastSL)
+        if stage == 3 and sweepBar is not None and i > sweepBar and turnTrig is not None and \
+           ((d == 1 and ci > turnTrig) or (d == -1 and ci < turnTrig)):
+            stage = 4; startBar = i; turnBar = i; bosTrig = None; bosSetBar = None
+        if stage == 4 and bosTrig is None and turnBar is not None and p - PL >= 0 and p >= turnBar:
+            if d == 1 and _is_ph(H, p, PL): bosTrig = H[p]; bosSetBar = i
+            if d == -1 and _is_pl(L, p, PL): bosTrig = L[p]; bosSetBar = i
+        if stage == 4 and bosTrig is not None and bosSetBar is not None and i > bosSetBar and \
+           ((d == 1 and ci > bosTrig) or (d == -1 and ci < bosTrig)):
+            stage = 5; startBar = i; bosBar = i
+        if stage == 5 and bosBar is not None and i > bosBar:
+            zone = _last_dir_zone_15m(H, L, C, O, T, i, bosBar, d, LB)
+            if zone is not None and H[i] >= zone[1] and L[i] <= zone[0]:
+                stage = 6; startBar = i; entTop, entBot, entName = zone[0], zone[1], zone[2]
+                if touch_mode: stage = 7
+        if stage == 6 and not touch_mode and entTop is not None:
+            mid = (entTop + entBot) / 2.0
+            if (d == 1 and ci > O[i] and ci > mid) or (d == -1 and ci < O[i] and ci < mid):
+                stage = 7
+    return {"stage": stage, "zone_top": zTop, "zone_bot": zBot, "zone_name": zName,
             "sweep_px": sweepPx, "mss_px": turnTrig, "bos_px": bosTrig,
             "entry_top": entTop, "entry_bot": entBot, "entry_name": entName}
 
