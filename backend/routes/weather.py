@@ -416,6 +416,32 @@ JMA_MAP_URL    = "https://www.jma.go.jp/bosai/amedas/data/map/{ts}.json"
 _JMA_TABLE_CACHE = {"data": None, "ts": 0.0}              # 站點座標表（快取 24h）
 _JMA_MAP_CACHE   = {"key": "", "data": None}              # 觀測資料（依時間戳）
 
+JMA_FC_URL = "https://www.jma.go.jp/bosai/forecast/data/forecast/{code}.json"  # 府縣預報(含降水確率pops)
+# 47 都道府縣預報區代碼 + 代表座標(縣廳所在地)：用經緯度就近選預報區，免外部地名對應。
+_JMA_OFFICES = [
+    ("016000",43.06,141.35),("020000",40.82,140.74),("030000",39.70,141.15),("040000",38.27,140.87),
+    ("050000",39.72,140.10),("060000",38.24,140.36),("070000",37.75,140.47),("080000",36.34,140.45),
+    ("090000",36.57,139.88),("100000",36.39,139.06),("110000",35.86,139.65),("120000",35.61,140.12),
+    ("130000",35.69,139.69),("140000",35.45,139.64),("150000",37.90,139.02),("160000",36.70,137.21),
+    ("170000",36.59,136.63),("180000",36.07,136.22),("190000",35.66,138.57),("200000",36.65,138.18),
+    ("210000",35.39,136.72),("220000",34.98,138.38),("230000",35.18,136.91),("240000",34.73,136.51),
+    ("250000",35.00,135.87),("260000",35.02,135.76),("270000",34.69,135.52),("280000",34.69,135.18),
+    ("290000",34.69,135.83),("300000",34.23,135.17),("310000",35.50,134.24),("320000",35.47,133.05),
+    ("330000",34.66,133.93),("340000",34.40,132.46),("350000",34.19,131.47),("360000",34.07,134.56),
+    ("370000",34.34,134.04),("380000",33.84,132.77),("390000",33.56,133.53),("400000",33.61,130.42),
+    ("410000",33.25,130.30),("420000",32.74,129.87),("430000",32.79,130.74),("440000",33.24,131.61),
+    ("450000",31.91,131.42),("460100",31.56,130.56),("471000",26.21,127.68),
+]
+
+def _nearest_jma_office(lat: float, lon: float) -> str:
+    """經緯度 → 最近的 JMA 府縣預報區代碼(平面近似距離即可，預報區夠大)。"""
+    best, bd = None, float("inf")
+    for code, olat, olon in _JMA_OFFICES:
+        d = (lat - olat) ** 2 + (lon - olon) ** 2
+        if d < bd:
+            bd, best = d, code
+    return best
+
 _JMA_DESC  = {"sunny":"晴","night":"晴朗","partly":"晴時多雲","cloudy":"多雲",
               "overcast":"陰","drizzle":"毛毛雨","rain":"雨","storm":"大雨","windy":"大風"}
 _JMA_CLOUD = {"sunny":10,"night":10,"partly":35,"cloudy":65,"overcast":85,
@@ -631,15 +657,82 @@ async def _fetch_cwa_pop(county: str):
     return {"day": day, "now": now}
 
 
-async def _fetch_pop(lat: float, lon: float, county=None):
-    """降雨機率取值：台灣優先用 CWA 官方 PoP(貼近氣象署 App)，失敗/非台灣回退 Open-Meteo。"""
-    if county:
+async def _fetch_jma_pop(lat: float, lon: float):
+    """日本氣象廳(JMA)降水確率：府縣預報 pops(6小時分段, %)，回 {"day":今日, "now":當前時段}。"""
+    code = _nearest_jma_office(lat, lon)
+    if not code:
+        return None
+    timeout = aiohttp.ClientTimeout(total=8)
+    async with aiohttp.ClientSession(timeout=timeout) as sess:
+        async with sess.get(JMA_FC_URL.format(code=code)) as r:
+            data = await r.json(content_type=None)
+    if not data:
+        return None
+    ts_list = (data[0].get("timeSeries") if isinstance(data, list) else None) or []
+    series = next((s for s in ts_list if (s.get("areas") or [{}])[0].get("pops")), None)
+    if not series:
+        return None
+    tds = series.get("timeDefines", []); pops = series["areas"][0]["pops"]
+    from datetime import datetime, timedelta
+    jst = datetime.utcnow() + timedelta(hours=9)            # JMA 時間為日本當地(Railway 跑 UTC)
+    d0 = jst.date()
+    parsed = []
+    for i, td in enumerate(tds):
         try:
+            t = datetime.fromisoformat(td).replace(tzinfo=None)   # td 帶 +09:00 → 轉 naive
+            v = int(pops[i])
+        except (ValueError, IndexError, TypeError):
+            continue
+        parsed.append((t, v))
+    day = now = None
+    for i, (t, v) in enumerate(parsed):
+        if t.date() == d0:
+            day = v if day is None else max(day, v)
+        nt = parsed[i + 1][0] if i + 1 < len(parsed) else t + timedelta(hours=6)
+        if t <= jst < nt:
+            now = v
+    if now is None and parsed:                              # 落在資料起訖外 → 取最近端
+        now = parsed[0][1] if jst < parsed[0][0] else parsed[-1][1]
+    if day is None:
+        return None
+    return {"day": day, "now": now}
+
+
+_HKO_PSR = {"極高": 95, "高": 80, "中高": 65, "中": 50, "中低": 35, "低": 20, "極低": 5}
+
+async def _fetch_hko_pop():
+    """香港天文台(HKO)九天預報 PSR(顯著降雨機率分類)→ %，回 {"day":今日, "now":今日}。
+    HKO 只給每日分類(極高/高/中高/中/中低/低/極低)，無逐時 → 今日/此刻同值。"""
+    timeout = aiohttp.ClientTimeout(total=8)
+    async with aiohttp.ClientSession(timeout=timeout) as sess:
+        async with sess.get(HKO_URL, params={"dataType": "fnd", "lang": "tc"}) as r:
+            data = await r.json(content_type=None)
+    fc = data.get("weatherForecast", []) or []
+    if not fc:
+        return None
+    from datetime import datetime, timedelta
+    d0 = (datetime.utcnow() + timedelta(hours=8)).strftime("%Y%m%d")   # 香港當地日期
+    today = next((f for f in fc if str(f.get("forecastDate")) == d0), fc[0])
+    v = _HKO_PSR.get((today.get("PSR") or "").strip())
+    if v is None:
+        return None
+    return {"day": v, "now": v}
+
+
+async def _fetch_pop(lat: float, lon: float, src=None, county=None):
+    """降雨機率取值：儘量用當地氣象署官方 PoP(台灣CWA/日本JMA/香港HKO)，失敗或其他地區回退 Open-Meteo。"""
+    try:
+        if src == "cwa" and county:
             r = await _fetch_cwa_pop(county)
-            if r:
-                return r
-        except Exception:
-            pass
+            if r: return r
+        elif src == "jma":
+            r = await _fetch_jma_pop(lat, lon)
+            if r: return r
+        elif src == "hko":
+            r = await _fetch_hko_pop()
+            if r: return r
+    except Exception:
+        pass
     return await _fetch_omt_pop(lat, lon)
 
 
@@ -878,7 +971,7 @@ async def weather(
     _need_pop = res.get("pop") is None
     _county = res.pop("_county", None)                  # 內部欄位：查 CWA 官方 PoP 後移除
     _tasks = [
-        _safe(_fetch_pop(lat, lon, _county)) if _need_pop else _safe(_noop_none()),
+        _safe(_fetch_pop(lat, lon, res.get("source"), _county)) if _need_pop else _safe(_noop_none()),
         _safe(_fetch_omt_forecast(lat, lon)),
         _safe(_fetch_omt_aqi(lat, lon)),
         _safe(_omt_sun(lat, lon)),
