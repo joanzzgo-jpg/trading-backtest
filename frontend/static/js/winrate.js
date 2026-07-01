@@ -873,7 +873,7 @@ window._renderCoachChannel = _renderCoachChannel;
 // SR+SMC 多空教練面板（多時框步驟狀態機）：抓 /api/smc_coach → 畫完整步驟表。由 _coachOn 控制。
 let _coachData = null, _coachFetching = false;
 function _fetchCoachData(force) {
-  if (!window._coachOn) return;
+  if (!window._coachOn) { _renderCoachPanel(); return; }   // 關閉→隱藏面板（_renderCoachPanel 內會 display:none）
   const market = document.getElementById("marketSelect")?.value || "crypto";
   const symbol = document.getElementById("symbolInput")?.value?.trim() || "";
   const exchange = document.getElementById("exchangeSelect")?.value || "pionex";
@@ -932,24 +932,30 @@ function _renderCoachPanel() {
   const fmt = v => v == null ? "—" : (Math.abs(v) >= 1000 ? Number(v).toFixed(0) : Number(v).toFixed(4));
   const mp = d.market_pos;
   const mpTxt = mp ? `${mp.inside ? "目前位於" : "最近"}：${mp.kind} ${fmt(mp.bot)} ~ ${fmt(mp.top)}` : "—";
+  // 交易計畫（進場/止損/止盈）——收合、展開都要顯示的重要資訊
+  const pl = d.plan;
+  const planParts = pl ? [
+    pl.entry ? ["進場", fmt(pl.entry[0]) + "~" + fmt(pl.entry[1]), "#4fc3f7"] : null,
+    pl.sl != null ? ["止損", fmt(pl.sl), "#ef5350"] : null,
+    pl.tp != null ? ["止盈", fmt(pl.tp), "#26a69a"] : null,
+  ].filter(Boolean) : [];
+  const planTxt = planParts.length
+    ? planParts.map(p => `<span style="color:${p[2]}">${p[0]} ${p[1]}</span>`).join(`<span style="color:#667">｜</span>`)
+    : "—";
   const collapsed = window._coachCollapsed !== false;   // 預設精簡
   // 標題列（含收合鈕，唯一可點：pointer-events:auto）
-  const head = `<div style="display:flex;align-items:center;gap:8px;border-bottom:1px solid rgba(255,255,255,0.12);padding-bottom:3px;margin-bottom:${collapsed ? 0 : 4}px">`
+  const head = `<div style="display:flex;align-items:center;gap:8px;border-bottom:1px solid rgba(255,255,255,0.12);padding-bottom:3px;margin-bottom:${collapsed ? 4 : 4}px">`
     + `<span style="font-weight:700;color:#ffca28;flex:1">教練 · ${d.symbol}｜<b style="color:${dc}">${dirTxt}</b>｜步驟 ${d.stage}/7</span>`
     + `<button onclick="window._coachToggleCollapse&&window._coachToggleCollapse()" style="pointer-events:auto;cursor:pointer;background:rgba(255,255,255,0.1);border:0;border-radius:4px;color:#cfd;font-size:11px;padding:1px 6px">${collapsed ? "展開 ▾" : "收合 ▴"}</button></div>`;
-  if (collapsed) {   // 精簡：只顯示目前進度一行
-    el.innerHTML = head + `<div style="color:#e6e6e6;max-width:380px">${d.progress}</div>`;
+  if (collapsed) {   // 精簡：進度一行 + 進場/止損/止盈重要資訊
+    el.innerHTML = head
+      + `<div style="color:#cdd;max-width:390px;margin-bottom:3px">${d.progress}</div>`
+      + `<div style="font-weight:600;background:rgba(255,255,255,0.05);border-radius:5px;padding:3px 6px">${planTxt}</div>`;
     return;
   }
   // 完整
   const row = (k, v, c) => `<div style="display:flex;gap:8px;padding:1px 0"><span style="color:#9aa;min-width:76px">${k}</span><span style="color:${c || '#e6e6e6'};flex:1">${v}</span></div>`;
   const stepRow = s => `<div style="display:flex;gap:6px;padding:2px 0;border-top:1px solid rgba(255,255,255,0.07)"><span style="color:${s.done ? dc : '#8a95a5'};min-width:104px;font-weight:600">${s.done ? '✓' : '○'} 步驟${s.n}｜${s.title}</span><span style="color:${s.done ? '#e6e6e6' : '#9aa'};flex:1">${s.text}</span></div>`;
-  const pl = d.plan;
-  const planTxt = pl ? [
-    pl.entry ? "進場 " + fmt(pl.entry[0]) + "~" + fmt(pl.entry[1]) : null,
-    pl.sl != null ? "停損 " + fmt(pl.sl) : null,
-    pl.tp != null ? "止盈 " + fmt(pl.tp) : null,
-  ].filter(Boolean).join("｜") : "—";
   el.innerHTML = head +
     row("持倉狀態", d.position_status || "無持倉") +
     row("市場位置", mpTxt) +
