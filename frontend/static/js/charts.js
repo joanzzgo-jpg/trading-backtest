@@ -111,14 +111,10 @@ function _makeFVGPrimitive() {
             ctx.fillStyle = z.d === "l" ? "rgba(120,255,225,0.98)" : "rgba(255,150,150,0.98)";
             ctx.fillText(_lbl, bx + 3 * hr, _yy);
           }
-          // 進場標記分上/中/下（常駐：每個缺口都畫，不需點選）：框上緣/中線/下緣各自觸及點 → 黃色菱形 + 上/中/下字
-          const _ents = [
-            { t: z.ett, p: z.top,                lab: "上" },
-            { t: z.etm, p: (z.top + z.bot) / 2,  lab: "中" },
-            { t: z.etb, p: z.bot,                lab: "下" },
-          ];
-          for (const _e of _ents) {
-            if (_e.t == null) continue;
+          // 進場標記（常駐）：改為「每被突破一次就標一點」——pens=每次往區間更深處突破點(封頂/封底於邊緣)。
+          //   每個突破點畫一個淡黃菱形；不再標上/中/下字。
+          for (const _e of (z.pens || [])) {
+            if (_e == null || _e.t == null || _e.p == null) continue;
             const ex = ts.timeToCoordinate(_e.t), eyP = _series.priceToCoordinate(_e.p);
             if (ex == null || eyP == null) continue;
             const px = ex * hr, py = eyP * vr, r = 4 * vr;
@@ -127,12 +123,6 @@ function _makeFVGPrimitive() {
             ctx.fillStyle = "rgba(255,245,160,0.95)";       // 淡黃菱形
             ctx.strokeStyle = "rgba(0,0,0,0.6)"; ctx.lineWidth = Math.max(1, hr);
             ctx.fill(); ctx.stroke();
-            ctx.font = `${Math.round(9 * vr)}px sans-serif`;
-            ctx.textBaseline = "middle"; ctx.textAlign = "left";
-            ctx.lineWidth = Math.max(2, 2 * hr); ctx.strokeStyle = "rgba(0,0,0,0.6)";
-            ctx.strokeText(_e.lab, px + r + 2 * vr, py);
-            ctx.fillStyle = "rgba(255,245,160,0.98)";       // 淡黃「上/中/下」字
-            ctx.fillText(_e.lab, px + r + 2 * vr, py);
           }
           // 交易位階線：止盈(綠=2W)、止損(紅=g-1頂端)，沿盒寬 x1→x2 畫水平虛線。
           //   預設隱藏（缺口太多會洗版）→ 只有「被點選」的缺口才畫，避免主圖滿屏線。
@@ -203,6 +193,8 @@ function setFVGZones(list) {
     ett: (z.ett != null ? toTime(z.ett) : null),   // 進場-上緣觸及
     etm: (z.etm != null ? toTime(z.etm) : null),   // 進場-中線觸及
     etb: (z.etb != null ? toTime(z.etb) : null),   // 進場-下緣觸及
+    pens: (Array.isArray(z.pens)                    // 每被突破一次的點 {t,p}：轉圖表時間、濾掉壞值
+      ? z.pens.map(e => ({ t: toTime(e.t), p: e.p })).filter(e => e.t != null && e.p != null) : []),
   })).filter(z => z.t1 != null && z.top != null && z.bot != null && !z.inv);   // IFVG(inv) 先關閉：不顯示反轉缺口色塊
   _fvgSelected = null;                       // 資料重載→清除點選(舊物件已不在新陣列裡)
   if (_fvgPrimitive) _fvgPrimitive.requestUpdate();
