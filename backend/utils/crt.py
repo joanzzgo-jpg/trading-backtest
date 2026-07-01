@@ -1457,88 +1457,42 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
 
         # ── 結構轉破標記（雙向）──────────────────────────────────────────────────
         # 破多(d=l)：多FVG 之後「緊接的下一個缺口」必須是空FVG(中間不能夾任何其他主缺口；
-        #            IFVG 不在 _gaps_seq 中→自動忽略) → 該多FVG下緣被收盤跌破(close<bot) → 標破多。
-        #            破空(d=s)鏡像(空FVG→下一個缺口是多FVG→收盤漲破top)。
-        # 收破時機：多FVG形成後「第一根收破」若落在反向FVG確認的前 _REC 根內(同段衝量、缺口晚一兩根確認)
-        #           → 標在該收破棒；太早收破(多FVG早已死)→不算；收破在反向FVG之後→等到收破才標。
-        # 之後交替過濾(破多後到下個破空前不再破多，反之亦然)。
-        _REC = 2
+        #            IFVG 不在 _gaps_seq 中→自動忽略) → 空FVG 的「g(=_k-1) 或 g+1(=_k)」只要有一根
+        #            「下影線碰進上一個多FVG」(該棒 low ≤ 多FVG 上緣 _prev.top) → 標破多。標在空FVG確認棒。
+        #            破空(d=s)鏡像(空FVG→下一個缺口是多FVG→多FVG的 g/g+1 上影線碰進空FVG：該棒 high ≥ 空FVG 下緣)。
+        # 缺口/影線在確認棒(g+1)即固定→當根就能判定，不需武裝/等未來影線。之後交替過濾(破多後到下個破空前不再破多，反之亦然)。
         _used = set()                                  # 有被任一標記用到的缺口索引(gi)；其餘前端淡化
         _gaps_at = {}                                  # cf_bar → (top, bot, dir)；每根 K 至多一個缺口
         for (_ci, _tp, _bt, _dr) in _gaps_seq:
             _gaps_at[_ci] = (_tp, _bt, _dr)
-        # 每個缺口的「填補棒」(碰中線那根)索引，給下方「影線拒絕」排除判斷用。
-        _sgaps = []; _lgaps = []                       # 空/多FVG：(form_idx, bot, top, fill_idx)
-        for (_ci, _tp, _bt, _dr) in _gaps_seq:
-            _mid = (_tp + _bt) / 2.0; _fl = None
-            for _j in range(_ci + 1, _N):
-                if _dr == "s":
-                    if _H[_j] >= _mid: _fl = _j; break
-                else:
-                    if _L[_j] <= _mid: _fl = _j; break
-            (_sgaps if _dr == "s" else _lgaps).append((_ci, _bt, _tp, _fl))
-
-        def _wick_reject(_brk, _bd):
-            # 破多/破空「影線拒絕」排除：破棒影線插進「前方未填補的反向FVG」、但收盤沒站上(穿過)它 → 只是影線拒絕、非直接灌破 → 不算。
-            #   破空('s')：往上漲穿空FVG，前方反向=更上方空FVG → 高點插進(high≥bot)某未填補空FVG但收盤未進其區(close<bot) → 排除。
-            #   破多('l')：往下跌穿多FVG，前方反向=下方多FVG → 低點插進(low≤top)某未填補多FVG但收盤未進其區(close>top) → 排除。
-            _hk = _H[_brk]; _lk = _L[_brk]; _ck = _C[_brk]
-            if _ck != _ck: return False
-            if _bd == "s":
-                for (_ci, _bt, _tp, _fl) in _sgaps:
-                    if _ci < _brk and (_fl is None or _fl >= _brk) and _hk >= _bt and _ck < _bt:
-                        return True
-            else:
-                for (_ci, _bt, _tp, _fl) in _lgaps:
-                    if _ci < _brk and (_fl is None or _fl >= _brk) and _lk <= _tp and _ck > _tp:
-                        return True
-            return False
-        _armed_bull = []; _armed_bear = []             # 已成立(相鄰反向缺口)但尚未收破，等未來收破：{"bot"/"top","gi","ri"}
         _prev = None                                   # 上一個主缺口 {dir,bot,top,idx}
         for _k in range(_N):
-            _ck = _C[_k]; _lk = _L[_k]; _hk = _H[_k]
-            if _ck == _ck:                             # 非 NaN：武裝中 → 「首根影線穿邊」即標(2個FVG確認後)
-                if _armed_bull:
-                    _keep = []
-                    for _a in _armed_bull:
-                        if _lk < _a["bot"]:            # 影線跌破多FVG下緣 → 破多
-                            _fvg_break.append({"t": times_iso[_k], "p": _a["bot"], "d": "l", "gi": _a["gi"], "ri": _a["ri"]})
-                        else: _keep.append(_a)
-                    _armed_bull = _keep
-                if _armed_bear:
-                    _keep = []
-                    for _a in _armed_bear:
-                        if _hk > _a["top"]:            # 影線突破空FVG上緣 → 破空
-                            _fvg_break.append({"t": times_iso[_k], "p": _a["top"], "d": "s", "gi": _a["gi"], "ri": _a["ri"]})
-                        else: _keep.append(_a)
-                    _armed_bear = _keep
             _gp = _gaps_at.get(_k)
             if _gp is not None:
                 _tp, _bt, _dr = _gp
-                # 破多：多FVG(_prev) 緊接 空FVG(本缺口_k=第2個FVG)→ 兩FVG確認後，首根影線跌破多FVG下緣即標。
-                #   確認棒(_k)自己就影線穿→當根標；否則武裝、等未來首根影線穿(不回溯到確認前)。
+                # 破多：多FVG(_prev) 緊接 空FVG(本缺口_k=g+1確認棒)→ 空FVG 的 g(_k-1)/g+1(_k)
+                #   觸發：g(_k-1) 或 g+1(_k) 的下影線須破到多FVG「中線以下」(low ≤ 中線；即中跟下,非只碰上緣)→ 破多。
+                #   排除① 已收破在前(_broke)：破前(不含g)已有一棒「收盤跌破多FVG下緣」→ 破老早發生、本空FVG只是遲來確認→不標。
+                #   排除② mitigate二次造訪(_mit)：破前先有一棒 low 填到中線、之後又有一棒「收盤折返回上方(close>上緣)」→ 已失效再回頭→不標。
+                #   (例:1d ETH 4/6=①/②→不標；11/14=①(11/11已收破下緣)→不標；6/19/1/20/12/12/5/8=皆不符→標。)
                 if _dr == "s" and _prev is not None and _prev["dir"] == "l":
-                    # 破多：多FVG(_prev)→空FVG(本缺口_k)。若多FVG下緣在「空FVG確認(_k)之前」就已被影線跌破→兩條件已備齊，
-                    #   標在空FVG確認棒(_k)；否則武裝、等未來首根影線跌破。
-                    _mb = _prev["bot"]
-                    if any(_L[_j] < _mb for _j in range(_prev["idx"] + 1, _k + 1)):
-                        _fvg_break.append({"t": times_iso[_k], "p": _mb, "d": "l", "gi": _prev["idx"], "ri": _k})
-                    else:
-                        _armed_bull.append({"bot": _mb, "gi": _prev["idx"], "ri": _k})
+                    _mid = (_prev["top"] + _prev["bot"]) / 2.0
+                    _fj = next((_j for _j in range(_prev["idx"] + 1, _k - 1) if _L[_j] <= _mid), None)
+                    _mit = _fj is not None and any(_C[_m] > _prev["top"] for _m in range(_fj + 1, _k))
+                    _broke = any(_C[_j] < _prev["bot"] for _j in range(_prev["idx"] + 1, _k - 1))
+                    if not _mit and not _broke and (_L[_k] <= _mid or _L[_k - 1] <= _mid):   # g/g+1 破到多FVG中線以下 → 破多
+                        _fvg_break.append({"t": times_iso[_k], "p": _prev["top"], "d": "l", "gi": _prev["idx"], "ri": _k})
                 elif _dr == "l" and _prev is not None and _prev["dir"] == "s":
-                    _mt = _prev["top"]
-                    if any(_H[_j] > _mt for _j in range(_prev["idx"] + 1, _k + 1)):
-                        _fvg_break.append({"t": times_iso[_k], "p": _mt, "d": "s", "gi": _prev["idx"], "ri": _k})
-                    else:
-                        _armed_bear.append({"top": _mt, "gi": _prev["idx"], "ri": _k})
+                    _mid = (_prev["top"] + _prev["bot"]) / 2.0
+                    _fj = next((_j for _j in range(_prev["idx"] + 1, _k - 1) if _H[_j] >= _mid), None)
+                    _mit = _fj is not None and any(_C[_m] < _prev["bot"] for _m in range(_fj + 1, _k))
+                    _broke = any(_C[_j] > _prev["top"] for _j in range(_prev["idx"] + 1, _k - 1))
+                    if not _mit and not _broke and (_H[_k] >= _mid or _H[_k - 1] >= _mid):   # g/g+1 破到空FVG中線以上 → 破空(鏡像)
+                        _fvg_break.append({"t": times_iso[_k], "p": _prev["bot"], "d": "s", "gi": _prev["idx"], "ri": _k})
                 _prev = {"dir": _dr, "bot": _bt, "top": _tp, "idx": _k}
         _fvg_break.sort(key=lambda x: x["t"])
-        # 交替過濾：一個破多出現後，要等到下一個破空才會再出現破多(反之亦然)。
-        _alt = []; _last_d = None
-        for _x in _fvg_break:
-            if _x["d"] != _last_d:
-                _alt.append(_x); _last_d = _x["d"]
-        _fvg_break = _alt[-2000:]
+        # 全部顯示：每個通過觸發＋mitigate排除的破都保留(不再做交替/最新取代 collapse)。
+        _fvg_break = _fvg_break[-2000:]
         # used 只算「最終(交替後)留下的破」所涉及的缺口(被破的+確認的反向)，交替丟掉的不算→會被淡化
         for _x in _fvg_break:
             if "gi" in _x: _used.add(_x["gi"])
@@ -1564,18 +1518,26 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                     if _k - _arm_s["tap"] > _MSWIN:        # setup 只在 MSWIN 到期作廢；不因收盤站上空FVG(上方無限制)而取消，只破盤觸發
                         _arm_s = None
                     else:
-                        _cs = [_x for _x in _gap_bull if _x["top"] < _arm_s["btop"] and _x["idx"] >= _k - _MSWIN]   # 被殺目標＝上個形成多FVG(須在 setup 空FVG頂以下)
+                        # 被收破目標＝做多FVG：須「比被吃的更前方做空FVG(_arm_s.gi)更晚形成、且在吃到之前已生成」(gi<idx<tap)、位於其頂以下
+                        _cs = [_x for _x in _gap_bull if _x["top"] < _arm_s["btop"] and _arm_s["gi"] < _x["idx"] < _arm_s["tap"]]
                         _tg = max(_cs, key=lambda _x: _x["idx"]) if _cs else None
-                        if _tg is not None and (_tg["mit"] is None or _tg["mit"] > _arm_s["tap"]) and _lk < _tg["bot"]:   # 空：影線跌破多FVG下緣即算(原為收盤破)
+                        _gpk = _gaps_at.get(_k)                                   # 本根須為「確認做空FVG」(cf_bar=g+1)
+                        _tgm = (_tg["top"] + _tg["bot"]) / 2.0 if _tg is not None else None
+                        if _tg is not None and (_tg["mit"] is None or _tg["mit"] > _arm_s["tap"]) \
+                           and _gpk is not None and _gpk[2] == "s" and (_L[_k] <= _tgm or _L[_k - 1] <= _tgm):   # 確認做空FVG g/g+1 收破做多FVG中線以下 → 標「空」於g+1
                             _fvg_ms.append({"t": times_iso[_k], "d": "s"})
                             _used.add(_arm_s["gi"]); _used.add(_tg["idx"]); _arm_s = None
                 if _arm_l is not None:
                     if _k - _arm_l["tap"] > _MSWIN:
                         _arm_l = None
                     else:
-                        _cs = [_x for _x in _gap_bear if _x["bot"] > _arm_l["lbot"] and _x["idx"] >= _k - _MSWIN]
+                        # 被收破目標＝做空FVG：須「比被吃的更前方做多FVG(_arm_l.gi)更晚形成、且在吃到之前已生成」(gi<idx<tap)、位於其底以上
+                        _cs = [_x for _x in _gap_bear if _x["bot"] > _arm_l["lbot"] and _arm_l["gi"] < _x["idx"] < _arm_l["tap"]]
                         _tg = max(_cs, key=lambda _x: _x["idx"]) if _cs else None
-                        if _tg is not None and (_tg["mit"] is None or _tg["mit"] > _arm_l["tap"]) and _hk > _tg["top"]:   # 多：影線突破空FVG上緣即算(原為收盤破)
+                        _gpk = _gaps_at.get(_k)                                   # 本根須為「確認做多FVG」(cf_bar=g+1)
+                        _tgm = (_tg["top"] + _tg["bot"]) / 2.0 if _tg is not None else None
+                        if _tg is not None and (_tg["mit"] is None or _tg["mit"] > _arm_l["tap"]) \
+                           and _gpk is not None and _gpk[2] == "l" and (_H[_k] >= _tgm or _H[_k - 1] >= _tgm):   # 確認做多FVG g/g+1 收破做空FVG中線以上 → 標「多」於g+1
                             _fvg_ms.append({"t": times_iso[_k], "d": "l"})
                             _used.add(_arm_l["gi"]); _used.add(_tg["idx"]); _arm_l = None
                 # 2) 吃到偵測 → 武裝(setup FVG 須尚未填補 mit None；影線進區間)
