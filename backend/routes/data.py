@@ -853,6 +853,204 @@ def crt_winrate_api(
     return {**wr, "signals": slim}
 
 
+# ── SR+SMC 多空教練（多時框步驟狀態機）────────────────────────────────────────
+#   Round1：抓 4H/1H/15M/日 → 各時框 SMC 快照 → 方向/主方向/市場位置/1H通道（面板頂部）。
+#   步驟 1～8 狀態機於後續 round 疊加。
+_COACH_TF_DAYS = {"1d": 320, "4h": 60, "1h": 20, "15m": 7}
+
+
+def _coach_pos_in_channel(ch, price):
+    if not ch or price is None:
+        return "—"
+    trend = "上升通道" if ch["dir"] == 1 else "下降通道"
+    if price > ch["upper"]:
+        return trend + "·上軌外"
+    if price < ch["lower"]:
+        return trend + "·下軌外"
+    return trend + "·通道內"
+
+
+def _coach_nearest_htf_zone(snap, direction, price):
+    """市場位置：方向為空取上方最近未填補空缺口；為多取下方最近未填補多缺口。"""
+    if not snap or price is None:
+        return None
+    fvg = snap.get("fvg") or {"l": [], "s": []}
+    if direction == -1:
+        cands = [z for z in fvg["s"] if max(z["top"], z["bot"]) > price]
+        if cands:
+            z = min(cands, key=lambda z: min(z["top"], z["bot"]) - price)
+            return {"side": "上方", "kind": "空方缺口", "top": z["top"], "bot": z["bot"]}
+    elif direction == 1:
+        cands = [z for z in fvg["l"] if min(z["top"], z["bot"]) < price]
+        if cands:
+            z = max(cands, key=lambda z: max(z["top"], z["bot"]) - price)
+            return {"side": "下方", "kind": "多方缺口", "top": z["top"], "bot": z["bot"]}
+    return None
+
+
+def _coach_all_named(snap, tfname):
+    """某時框全部有效區（雙向 OB/FVG + SR），帶名稱。給「市場位置」用。"""
+    if not snap:
+        return []
+    out = []
+    for side, dl in (("l", "多"), ("s", "空")):
+        for z in (snap.get("ob") or {}).get(side, []):
+            out.append((z["top"], z["bot"], f"{tfname} {dl}方訂單區"))
+        for z in (snap.get("fvg") or {}).get(side, []):
+            out.append((z["top"], z["bot"], f"{tfname} {dl}方缺口"))
+    for k, kl in (("res", "阻力"), ("sup", "支撐")):
+        for z in (snap.get("sr") or {}).get(k, []):
+            out.append((z["top"], z["bot"], f"{tfname} {kl}區"))
+    return out
+
+
+def _coach_current_zone(s4h, s1h, price):
+    """市場位置：目前價格所在的區（1H 優先），否則最近的區。"""
+    if price is None:
+        return None
+    zs = _coach_all_named(s1h, "1H") + _coach_all_named(s4h, "4H")
+    inside = [z for z in zs if min(z[0], z[1]) <= price <= max(z[0], z[1])]
+    if inside:
+        z = min(inside, key=lambda z: abs((z[0] + z[1]) / 2 - price))
+        return {"inside": True, "kind": z[2], "top": z[0], "bot": z[1]}
+    if zs:
+        z = min(zs, key=lambda z: min(abs(price - z[0]), abs(price - z[1])))
+        return {"inside": False, "kind": z[2], "top": z[0], "bot": z[1]}
+    return None
+
+
+@router.get("/smc_coach")
+def smc_coach_api(
+    market: str,
+    symbol: str,
+    exchange: str = "pionex",
+    api_key: str = "",
+    api_secret: str = "",
+    finmind_token: str = "",
+):
+    """SR+SMC 多空教練面板資料（多時框）。Round1：頂部方向/主方向/市場位置/1H通道。"""
+    from utils import smc
+    ck = f"smc_coach:{market}:{symbol}:{exchange}"
+    cached = data_cache.get(ck, ttl=25)
+    if cached:
+        return cached
+    dfs = {}; snaps = {}
+    for tf, days in _COACH_TF_DAYS.items():
+        try:
+            dfs[tf] = fetch_crt_df(market, symbol, tf, days, exchange, api_key, api_secret, finmind_token)
+            snaps[tf] = smc.snapshot(dfs[tf])
+        except Exception:
+            dfs[tf] = None; snaps[tf] = None
+    s1d, s4h, s1h, s15 = snaps.get("1d"), snaps.get("4h"), snaps.get("1h"), snaps.get("15m")
+    t4 = s4h["trend"] if s4h else 0
+    t1 = s1h["trend"] if s1h else 0
+    td = s1d["trend"] if s1d else 0
+    direction = 1 if t4 == 1 else (-1 if t4 == -1 else 0)   # 預設規則：4H 主方向
+    price = (s15 or s4h or {}).get("price")
+    # 各時框方向側「有名稱」的區：訂單區(OB) / 缺口(FVG) / 支撐阻力(SR)。給步驟2 與市場位置用。
+    def _named_zones(snap, tfname, direction):
+        if not snap:
+            return []
+        out = []
+        side = "l" if direction == 1 else "s"
+        for z in (snap.get("ob") or {}).get(side, []):
+            out.append((z["top"], z["bot"], f"{tfname} {'多' if direction==1 else '空'}方訂單區"))
+        for z in (snap.get("fvg") or {}).get(side, []):
+            out.append((z["top"], z["bot"], f"{tfname} {'多' if direction==1 else '空'}方缺口"))
+        srkey = "sup" if direction == 1 else "res"
+        for z in (snap.get("sr") or {}).get(srkey, []):
+            out.append((z["top"], z["bot"], f"{tfname} {'支撐' if direction==1 else '阻力'}區"))
+        return out
+    # 步驟2 HTF 區（4H 優先、其次 1H）——含 OB/FVG/SR，帶名稱
+    bull_zones = _named_zones(s4h, "4H", 1) + _named_zones(s1h, "1H", 1)
+    bear_zones = _named_zones(s4h, "4H", -1) + _named_zones(s1h, "1H", -1)
+    coach = smc.run_coach(dfs.get("15m"), bull_zones, bear_zones, direction) if direction != 0 else {"stage": 0}
+    # 市場位置：目前價格所在的區（任一時框任一類型，取最貼近者）
+    zone = _coach_current_zone(s4h, s1h, price)
+    st = coach.get("stage", 0)
+    _dn = "多" if direction == 1 else ("空" if direction == -1 else "")
+    _fmt = lambda v: "—" if v is None else (f"{v:.0f}" if abs(v) >= 1000 else f"{v:.4f}")
+    _rng = lambda a, b: "—" if a is None or b is None else f"{_fmt(min(a,b))} ~ {_fmt(max(a,b))}"
+    # 掃蕩目標：空單掃前高、多單掃前低（尚未被破的最近擺點）
+    _tg = (s15.get("targets") if s15 else None) or {}
+    _swt = _tg.get("sh") if direction == -1 else _tg.get("sl")
+    steps = [
+        {"n": 1, "title": "方向", "done": st >= 1,
+         "text": (f"方向通過｜4H 主{_dn}" if direction != 0 else "等待 4H 確認主方向")},
+        {"n": 2, "title": "區域", "done": st >= 2,
+         "text": (f"已進入{_dn}方區｜{coach.get('zone_name') or ('4H/1H '+_dn+'方區')} {_rng(coach.get('zone_top'), coach.get('zone_bot'))}" if st >= 2
+                  else f"等待價格進入 4H/1H {_dn}方訂單區／缺口／區")},
+        {"n": 3, "title": "掃蕩", "done": st >= 3,
+         "text": (f"已掃過前{'低' if direction==1 else '高'}｜{_fmt(coach.get('sweep_px'))}" if st >= 3
+                  else f"等待掃過前{'低' if direction==1 else '高'}｜目標 {_fmt(_swt)}")},
+        {"n": 4, "title": "轉向", "done": st >= 4,
+         "text": (f"MSS 完成｜確認價 {_fmt(coach.get('mss_px'))}" if st >= 4
+                  else (f"等待 15M 收盤{'站上' if direction==1 else '跌破'} MSS 確認價 {_fmt(coach.get('mss_px'))}" if st == 3
+                        else "等待掃蕩後轉向 (MSS)"))},
+        {"n": 5, "title": "延續", "done": st >= 5,
+         "text": (f"{_dn}方 BOS 完成｜{_fmt(coach.get('bos_px'))}" if st >= 5
+                  else f"等待形成{_dn}方延續{'高' if direction==1 else '低'}點")},
+        {"n": 6, "title": "掛單＋反應K", "done": st >= 6,
+         "text": (f"{_dn}單掛單區 {_rng(coach.get('entry_top'), coach.get('entry_bot'))}｜來源：{coach.get('entry_name') or '15M '+_dn+'方缺口'}｜等待盤中觸碰" if st >= 6
+                  else f"等待新的 15M {_dn}方訂單區／缺口形成")},
+        {"n": 7, "title": "進場條件完成", "done": st >= 7,
+         "text": ("步驟 7 完成｜已觸碰掛單區，請設定持倉" if st >= 7 else "步驟 7 尚未完成｜等待盤中觸碰掛單區")},
+    ]
+    # HTF 投影區（1H/4H 的 OB/FVG/SR）：給前端在低時框圖上畫，對齊 Pine f_htfVisibleZones。
+    htf_zones = []
+    for snap, tfn in ((s4h, "4H"), (s1h, "1H")):
+        if not snap:
+            continue
+        for side, dl, dv in (("l", "多", "l"), ("s", "空", "s")):
+            for z in (snap.get("ob") or {}).get(side, []):
+                htf_zones.append({"top": z["top"], "bot": z["bot"], "name": f"{tfn} {dl}OB", "kind": "ob", "dir": dv})
+            for z in (snap.get("fvg") or {}).get(side, []):
+                htf_zones.append({"top": z["top"], "bot": z["bot"], "name": f"{tfn} {dl}缺口", "kind": "fvg", "dir": dv})
+        for k, kl, dv in (("res", "阻力", "s"), ("sup", "支撐", "l")):
+            for z in (snap.get("sr") or {}).get(k, []):
+                htf_zones.append({"top": z["top"], "bot": z["bot"], "name": f"{tfn} {kl}", "kind": "sr", "dir": dv})
+    # 進度：最後完成步驟 + 下一個等待項（對齊 TV「已進入…｜等待…」）
+    _done = [s for s in steps if s["done"]]
+    _wait = [s for s in steps if not s["done"]]
+    prog = (_done[-1]["text"] if _done else steps[0]["text"])
+    if _wait:
+        prog += "｜" + _wait[0]["text"].split("｜")[0]
+    # 交易計畫預覽（步驟8：非互動；進場區=掛單區或HTF區、停損=掃蕩極值外、止盈=反向最近HTF區）
+    plan = None
+    if direction != 0 and price is not None:
+        if st >= 6 and coach.get("entry_top") is not None:
+            e_top, e_bot = coach["entry_top"], coach["entry_bot"]
+        elif st >= 2 and coach.get("zone_top") is not None:
+            e_top, e_bot = coach["zone_top"], coach["zone_bot"]
+        else:
+            e_top = e_bot = None
+        swp = coach.get("sweep_px")
+        sl = swp if swp is not None else (e_bot if direction == 1 else e_top)
+        tpz = _coach_nearest_htf_zone(s4h, -direction, price)
+        tp = ((tpz["top"] + tpz["bot"]) / 2.0) if tpz else None
+        if e_top is not None or sl is not None or tp is not None:
+            plan = {"entry": ([e_bot, e_top] if e_top is not None else None), "sl": sl, "tp": tp}
+    out = {
+        "ok": True, "symbol": symbol, "price": price,
+        "direction": direction, "stage": st,
+        "dir_text": ((f"{_dn}單主軸｜同向{_dn}方推進" if t4 == t1 else f"{_dn}單主軸｜4H {smc_trend_txt(t4)}｜1H {smc_trend_txt(t1)}") if direction != 0 else "等待 4H 主方向"),
+        "progress": prog,
+        "trend": {"1d": td, "4h": t4, "1h": t1},
+        "market_pos": zone,
+        "channel_1h": _coach_pos_in_channel(s1h["channel"] if s1h else None, price),
+        "position_status": "無持倉",
+        "plan": plan,
+        "htf_zones": htf_zones,
+        "steps": steps,
+    }
+    data_cache.set(ck, out)
+    return out
+
+
+def smc_trend_txt(t):
+    return "多" if t == 1 else ("空" if t == -1 else "待定")
+
+
 def _export_bars(_df) -> dict:
     """把已 enrich 的 df 轉成純陣列（給回測加倉模擬重走 K 棒用；只在後端內部流通，不序列化給前端）。
     time 用與 crt._calc_crt_winrate 完全相同的 datetime64[s]→str，確保訊號 t 可精確對到棒索引。"""

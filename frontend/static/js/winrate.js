@@ -870,61 +870,95 @@ function _renderCoachChannel(ch) {
 }
 window._renderCoachChannel = _renderCoachChannel;
 
-// SR+SMC 教練面板（階段6）：純前端摘要，讀已存的 SMC 資料 + 現價。由 _coachOn 決定顯示。
-function _updateCoachPanel() {
+// SR+SMC 多空教練面板（多時框步驟狀態機）：抓 /api/smc_coach → 畫完整步驟表。由 _coachOn 控制。
+let _coachData = null, _coachFetching = false;
+function _fetchCoachData(force) {
+  if (!window._coachOn) return;
+  const market = document.getElementById("marketSelect")?.value || "crypto";
+  const symbol = document.getElementById("symbolInput")?.value?.trim() || "";
+  const exchange = document.getElementById("exchangeSelect")?.value || "pionex";
+  if (!symbol) return;
+  const key = market + "|" + symbol + "|" + exchange;
+  if (!force && _coachData && _coachData._key === key && (Date.now() - _coachData._ts < 20000)) {
+    _renderCoachPanel(); return;
+  }
+  if (_coachFetching) return;
+  _coachFetching = true;
+  _renderCoachPanel();   // 先顯示載入中
+  const p = new URLSearchParams({ market, symbol, exchange });
+  fetch("/api/smc_coach?" + p, { cache: "no-store" })
+    .then(r => r.json())
+    .then(d => {
+      d._key = key; d._ts = Date.now();
+      if (d.ok) _coachAlertOnAdvance(key, d);   // 步驟前進鬧鐘
+      _coachData = d; _renderCoachPanel();
+      window._coachHTF = (d.ok && d.htf_zones) ? d.htf_zones : [];   // HTF 投影區(1H/4H)
+      if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();
+    })
+    .catch(() => {})
+    .finally(() => { _coachFetching = false; });
+}
+window._fetchCoachData = _fetchCoachData;
+
+// 步驟前進鬧鐘（Pine「步驟 1～7 響鈴」）：同標的步驟數變大 → toast + 瀏覽器通知。
+const _coachLastStage = {};
+function _coachAlertOnAdvance(key, d) {
+  const prev = _coachLastStage[key];
+  _coachLastStage[key] = d.stage;
+  if (prev === undefined || d.stage <= prev) return;   // 首次載入或未前進 → 不叫
+  const st = (d.steps || []).find(x => x.n === d.stage);
+  const dirTxt = d.direction === 1 ? "多單" : d.direction === -1 ? "空單" : "";
+  const msg = `🎯 ${d.symbol}｜${dirTxt}｜步驟 ${d.stage}${st ? "｜" + st.title : ""} 完成`;
+  if (typeof showToast === "function") showToast(msg + (st ? "：" + st.text : ""), 7000);
+  try {
+    if (window.Notification && Notification.permission === "granted")
+      new Notification("SR+SMC 教練", { body: msg, tag: "coach-" + key });
+  } catch (e) {}
+}
+
+function _renderCoachPanel() {
   const el = document.getElementById("coachPanel");
   if (!el) return;
   if (!window._coachOn) { el.style.display = "none"; return; }
-  const sym = (typeof currentSymbol !== "undefined" ? currentSymbol : "");
-  const tf = (typeof currentTF !== "undefined" ? currentTF : "");
-  let px = null, li = -1;
-  if (typeof ohlcvData !== "undefined" && ohlcvData.length) {
-    li = (typeof replayActive !== "undefined" && replayActive && typeof replayIdx === "number")
-      ? Math.min(replayIdx, ohlcvData.length - 1) : ohlcvData.length - 1;
-    px = ohlcvData[Math.max(0, li)].close;
-  }
-  // 趨勢 / 最新結構：取最後一筆結構事件（replay 時只到揭曉點）
-  const _cut = (li >= 0 && typeof ohlcvData !== "undefined") ? toTime(ohlcvData[li].time) : null;
-  const struct = (window._coachStructure || []).filter(s => _cut == null || toTime(s.t1) <= _cut);
-  const last = struct.length ? struct[struct.length - 1] : null;
-  const up = last ? (last.k === "bos_up" || last.k === "choch_up") : null;
-  const STXT = { bos_up: "BOS↑ 多方延續", choch_up: "CHoCH↑ 轉多", bos_dn: "BOS↓ 空方延續", choch_dn: "CHoCH↓ 轉空" };
-  // 市場階段：近 60 根高低區間定位
-  let phase = "—";
-  if (px != null && li >= 0) {
-    let hi = -Infinity, lo = Infinity;
-    for (let i = Math.max(0, li - 59); i <= li; i++) { const b = ohlcvData[i]; if (b.high > hi) hi = b.high; if (b.low < lo) lo = b.low; }
-    const mid = (hi + lo) / 2, band = (hi - lo) * 0.05;
-    phase = px > mid + band ? "溢價（上半）" : px < mid - band ? "折價（下半）" : "均衡（近中線）";
-  }
-  // 最近存活的上方阻力 / 下方支撐（SR + OB 合併）
-  const zones = [...(window._coachSR || []), ...(window._coachOB || [])].filter(z => z.t1 == null);
-  let above = null, below = null;
-  if (px != null) for (const z of zones) {
-    const zt = Math.max(z.top, z.bot), zb = Math.min(z.top, z.bot);
-    if (zb > px && (above == null || zb < above.zb)) above = { zt, zb };
-    if (zt < px && (below == null || zt > below.zt)) below = { zt, zb };
-  }
-  const fmt = v => v == null ? "—" : (Math.abs(v) >= 1000 ? v.toFixed(0) : v.toFixed(2));
-  const ch = window._coachChannel;
-  const chTxt = ch ? (ch.dir === 1 ? "上升通道" : "下降通道") : "—";
-  const vw = window._coachVWAP || [];
-  const lastV = vw.length ? vw[vw.length - 1].v : null;
-  const vwTxt = (px != null && lastV != null) ? (px >= lastV ? "價在 VWAP 之上" : "價在 VWAP 之下") : "—";
-  const tc = up == null ? "#9aa" : (up ? "#26a69a" : "#ef5350");
-  const row = (k, v) => `<div style="display:flex;justify-content:space-between;gap:10px"><span style="color:#9aa">${k}</span><span>${v}</span></div>`;
-  el.innerHTML =
-    `<div style="font-weight:700;margin-bottom:5px;color:#ffca28">SR+SMC 教練 · ${sym} ${tf}</div>` +
-    row("趨勢", `<b style="color:${tc}">${up == null ? "待定" : (up ? "偏多" : "偏空")}</b>`) +
-    row("最新結構", last ? STXT[last.k] : "—") +
-    row("市場階段", phase) +
-    row("上方阻力", above ? fmt(above.zb) + "~" + fmt(above.zt) : "—") +
-    row("下方支撐", below ? fmt(below.zb) + "~" + fmt(below.zt) : "—") +
-    row("通道", chTxt) +
-    row("VWAP", vwTxt);
+  const d = _coachData;
   el.style.display = "block";
+  if (!d || !d.ok) {
+    el.innerHTML = `<div style="font-weight:700;color:#ffca28">SR+SMC 教練</div><div style="color:#9aa">${_coachFetching ? "載入中…" : "無資料"}</div>`;
+    return;
+  }
+  const dirTxt = d.direction === 1 ? "多單" : d.direction === -1 ? "空單" : "待定";
+  const dc = d.direction === 1 ? "#26a69a" : d.direction === -1 ? "#ef5350" : "#9aa";
+  const fmt = v => v == null ? "—" : (Math.abs(v) >= 1000 ? Number(v).toFixed(0) : Number(v).toFixed(4));
+  const mp = d.market_pos;
+  const mpTxt = mp ? `${mp.inside ? "目前位於" : "最近"}：${mp.kind} ${fmt(mp.bot)} ~ ${fmt(mp.top)}` : "—";
+  const row = (k, v, c) => `<div style="display:flex;gap:8px;padding:1px 0"><span style="color:#9aa;min-width:76px">${k}</span><span style="color:${c || '#e6e6e6'};flex:1">${v}</span></div>`;
+  const stepRow = s => `<div style="display:flex;gap:6px;padding:2px 0;border-top:1px solid rgba(255,255,255,0.07)"><span style="color:${s.done ? dc : '#8a95a5'};min-width:104px;font-weight:600">${s.done ? '✓' : '○'} 步驟${s.n}｜${s.title}</span><span style="color:${s.done ? '#e6e6e6' : '#9aa'};flex:1">${s.text}</span></div>`;
+  const pl = d.plan;
+  const planTxt = pl ? [
+    pl.entry ? "進場 " + fmt(pl.entry[0]) + "~" + fmt(pl.entry[1]) : null,
+    pl.sl != null ? "停損 " + fmt(pl.sl) : null,
+    pl.tp != null ? "止盈 " + fmt(pl.tp) : null,
+  ].filter(Boolean).join("｜") : "—";
+  el.innerHTML =
+    `<div style="font-weight:700;margin-bottom:4px;color:#ffca28;border-bottom:1px solid rgba(255,255,255,0.12);padding-bottom:3px">SR+SMC 教練 · ${d.symbol}｜<b style="color:${dc}">${dirTxt}</b></div>` +
+    row("持倉狀態", d.position_status || "無持倉") +
+    row("方向", d.dir_text, dc) +
+    row("進度", d.progress) +
+    row("市場位置", mpTxt) +
+    row("1H通道", d.channel_1h) +
+    row("交易計畫", planTxt, "#ffd54f") +
+    `<div style="margin-top:3px">` + (d.steps || []).map(stepRow).join("") + `</div>`;
 }
+window._renderCoachPanel = _renderCoachPanel;
+
+function _updateCoachPanel() { _fetchCoachData(false); }
 window._updateCoachPanel = _updateCoachPanel;
+
+// 教練面板定時刷新（15M 新棒收盤後狀態會變）：開啟時每 20s 抓一次。
+if (typeof window !== "undefined" && !window._coachPollStarted) {
+  window._coachPollStarted = true;
+  setInterval(() => { if (window._coachOn) _fetchCoachData(false); }, 20000);
+}
 
 function _renderWinRate(d) {
   _wrCacheLast = d;

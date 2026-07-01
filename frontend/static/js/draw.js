@@ -1126,6 +1126,8 @@ function initCoachToggle() {
   btn.addEventListener("click", () => {
     window._coachOn = !window._coachOn;
     try { localStorage.setItem("coachOverlay", window._coachOn ? "1" : "0"); } catch (e) {}
+    // 開啟時請求瀏覽器通知權限（步驟前進鬧鐘用；此為使用者手勢，允許請求）
+    try { if (window._coachOn && window.Notification && Notification.permission === "default") Notification.requestPermission(); } catch (e) {}
     _sync();
     if (typeof _applyMainMarkers === "function") _applyMainMarkers();  // 立即顯示/隱藏教練標記(掃頂掃底)
     _scheduleRenderDrawings();                                          // 立即顯示/隱藏教練畫布層(BOS/CHoCH線)
@@ -1179,6 +1181,26 @@ function _drawCoachOverlay(W, H) {
     drawCtx.fillStyle = `rgba(${rgb},1)`;
     drawCtx.fillText(label, L + 3, tp + 7);
   };
+  // ⓪a HTF 投影區（1H/4H 的 OB/FVG/SR，像 TV 畫在低時框圖上）：全寬水平帶、虛線邊、左側標籤。
+  const htf = window._coachHTF;
+  if (htf && htf.length) {
+    drawCtx.setLineDash([5, 4]);
+    for (const z of htf) {
+      const yT = candleSeries.priceToCoordinate(z.top), yB = candleSeries.priceToCoordinate(z.bot);
+      if (yT == null || yB == null) continue;
+      const tp = Math.min(yT, yB), hgt = Math.max(1, Math.abs(yB - yT));
+      const rgb = z.kind === "ob" ? (z.dir === "l" ? "33,150,243" : "255,152,0")
+        : z.kind === "fvg" ? (z.dir === "l" ? "0,188,212" : "156,39,176")
+        : (z.dir === "l" ? "38,166,154" : "239,83,80");   // sr
+      drawCtx.fillStyle = `rgba(${rgb},0.07)`;
+      drawCtx.fillRect(0, tp, plotW, hgt);
+      drawCtx.strokeStyle = `rgba(${rgb},0.7)`; drawCtx.lineWidth = 1;
+      drawCtx.strokeRect(0, tp, plotW, hgt);
+      drawCtx.fillStyle = `rgba(${rgb},0.95)`;
+      drawCtx.fillText(z.name, 4, tp + 7);
+    }
+    drawCtx.setLineDash([]);
+  }
   // ⓪ SR 支撐/阻力區（最底層）：阻力紅/支撐綠
   for (const z of (window._coachSR || [])) _zoneBox(z, z.d === "res" ? "239,83,80" : "38,166,154", z.d === "res" ? "阻力" : "支撐");
   // ① OB 訂單區框：多OB藍/空OB橘
