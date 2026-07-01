@@ -974,6 +974,22 @@ def smc_coach_api(
     # 掃蕩目標：空單掃前高、多單掃前低（尚未被破的最近擺點）
     _tg = (s15.get("targets") if s15 else None) or {}
     _swt = _tg.get("sh") if direction == -1 else _tg.get("sl")
+    # 步驟2 區域「OB 優先＋反應側最近OB」：避免狀態機隨價下走一路換到更低缺口（對齊 TV，短單鎖上方最近OB）。
+    if direction != 0 and st >= 2 and price is not None:
+        _obs = []
+        for _snap, _tfn in ((s1h, "1H"), (s4h, "4H")):
+            if not _snap:
+                continue
+            for _z in (_snap.get("ob") or {}).get("l" if direction == 1 else "s", []):
+                _obs.append((_z["top"], _z["bot"], f"{_tfn} {'多' if direction == 1 else '空'}方訂單區"))
+        if _obs:
+            if direction == -1:
+                _cand = [o for o in _obs if min(o[0], o[1]) >= price]      # 上方的 OB（反應側）
+                _pick = min(_cand, key=lambda o: min(o[0], o[1]) - price) if _cand else min(_obs, key=lambda o: abs((o[0] + o[1]) / 2 - price))
+            else:
+                _cand = [o for o in _obs if max(o[0], o[1]) <= price]      # 下方的 OB
+                _pick = min(_cand, key=lambda o: price - max(o[0], o[1])) if _cand else min(_obs, key=lambda o: abs((o[0] + o[1]) / 2 - price))
+            coach["zone_top"], coach["zone_bot"], coach["zone_name"] = _pick[0], _pick[1], _pick[2]
     steps = [
         {"n": 1, "title": "方向", "done": st >= 1,
          "text": (f"方向通過｜4H 主{_dn}" if direction != 0 else "等待 4H 確認主方向")},
@@ -1003,12 +1019,19 @@ def smc_coach_api(
             continue
         for side, dl, dv in (("l", "多", "l"), ("s", "空", "s")):
             for z in (snap.get("ob") or {}).get(side, []):
-                htf_zones.append({"top": z["top"], "bot": z["bot"], "name": f"{tfn} {dl}OB", "kind": "ob", "dir": dv})
+                htf_zones.append({"top": z["top"], "bot": z["bot"], "t0": z.get("t0"), "name": f"{tfn} {dl}OB", "kind": "ob", "dir": dv})
             for z in (snap.get("fvg") or {}).get(side, []):
-                htf_zones.append({"top": z["top"], "bot": z["bot"], "name": f"{tfn} {dl}缺口", "kind": "fvg", "dir": dv})
+                htf_zones.append({"top": z["top"], "bot": z["bot"], "t0": z.get("t0"), "name": f"{tfn} {dl}缺口", "kind": "fvg", "dir": dv})
         for k, kl, dv in (("res", "阻力", "s"), ("sup", "支撐", "l")):
             for z in (snap.get("sr") or {}).get(k, []):
-                htf_zones.append({"top": z["top"], "bot": z["bot"], "name": f"{tfn} {kl}", "kind": "sr", "dir": dv})
+                htf_zones.append({"top": z["top"], "bot": z["bot"], "t0": z.get("t0"), "name": f"{tfn} {kl}", "kind": "sr", "dir": dv})
+    # HTF 投影通道（4H 靛/1H 青，各自 anchor→右，涵蓋範圍對齊 TV）
+    htf_channels = []
+    for snap, tfn in ((s4h, "4H"), (s1h, "1H")):
+        ch = (snap or {}).get("channel")
+        if ch and ch.get("t1"):
+            htf_channels.append({"tf": tfn, "dir": ch["dir"], "t1": ch["t1"], "t2": ch["t2"],
+                                 "lo1": ch["lo1"], "lo2": ch["lo2"], "up1": ch["up1"], "up2": ch["up2"]})
     # 進度：最後完成步驟 + 下一個等待項（對齊 TV「已進入…｜等待…」）
     _done = [s for s in steps if s["done"]]
     _wait = [s for s in steps if not s["done"]]
@@ -1041,6 +1064,7 @@ def smc_coach_api(
         "position_status": "無持倉",
         "plan": plan,
         "htf_zones": htf_zones,
+        "htf_channels": htf_channels,
         "steps": steps,
     }
     data_cache.set(ck, out)

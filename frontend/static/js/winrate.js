@@ -893,6 +893,7 @@ function _fetchCoachData(force) {
       if (d.ok) _coachAlertOnAdvance(key, d);   // 步驟前進鬧鐘
       _coachData = d; _renderCoachPanel();
       window._coachHTF = (d.ok && d.htf_zones) ? d.htf_zones : [];   // HTF 投影區(1H/4H)
+      window._coachHTFCh = (d.ok && d.htf_channels) ? d.htf_channels : [];   // HTF 投影通道(1H/4H)
       if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();
     })
     .catch(() => {})

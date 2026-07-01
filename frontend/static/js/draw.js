@@ -1181,23 +1181,26 @@ function _drawCoachOverlay(W, H) {
     drawCtx.fillStyle = `rgba(${rgb},1)`;
     drawCtx.fillText(label, L + 3, tp + 7);
   };
-  // ⓪a HTF 投影區（1H/4H 的 OB/FVG/SR，像 TV 畫在低時框圖上）：全寬水平帶、虛線邊、左側標籤。
+  // ⓪a HTF 投影區（1H/4H 的 OB/FVG/SR，像 TV 畫在低時框圖上）：從形成K往右延伸的盒子、虛線邊、左側標籤。
   const htf = window._coachHTF;
   if (htf && htf.length) {
     drawCtx.setLineDash([5, 4]);
     for (const z of htf) {
       const yT = candleSeries.priceToCoordinate(z.top), yB = candleSeries.priceToCoordinate(z.bot);
       if (yT == null || yB == null) continue;
+      let x0 = z.t0 ? _timeToX(toTime(z.t0)) : 0;
+      if (x0 == null) x0 = 0;                       // 形成K在畫面外→從左緣起
+      x0 = Math.max(0, Math.min(x0, plotW));
       const tp = Math.min(yT, yB), hgt = Math.max(1, Math.abs(yB - yT));
       const rgb = z.kind === "ob" ? (z.dir === "l" ? "33,150,243" : "255,152,0")
         : z.kind === "fvg" ? (z.dir === "l" ? "0,188,212" : "156,39,176")
         : (z.dir === "l" ? "38,166,154" : "239,83,80");   // sr
       drawCtx.fillStyle = `rgba(${rgb},0.07)`;
-      drawCtx.fillRect(0, tp, plotW, hgt);
+      drawCtx.fillRect(x0, tp, plotW - x0, hgt);
       drawCtx.strokeStyle = `rgba(${rgb},0.7)`; drawCtx.lineWidth = 1;
-      drawCtx.strokeRect(0, tp, plotW, hgt);
+      drawCtx.strokeRect(x0, tp, plotW - x0, hgt);
       drawCtx.fillStyle = `rgba(${rgb},0.95)`;
-      drawCtx.fillText(z.name, 4, tp + 7);
+      drawCtx.fillText(z.name, x0 + 3, tp + 7);
     }
     drawCtx.setLineDash([]);
   }
@@ -1205,24 +1208,25 @@ function _drawCoachOverlay(W, H) {
   for (const z of (window._coachSR || [])) _zoneBox(z, z.d === "res" ? "239,83,80" : "38,166,154", z.d === "res" ? "阻力" : "支撐");
   // ① OB 訂單區框：多OB藍/空OB橘
   for (const z of (window._coachOB || [])) _zoneBox(z, z.d === "l" ? "33,150,243" : "255,152,0", z.d === "l" ? "多OB" : "空OB");
-  // ② 自動平行通道：上下軌+填色，右延到繪圖區右緣（上升綠/下降紅）
-  const ch = window._coachChannel;
-  if (ch) {
-    const cx1 = _timeToX(toTime(ch.t1)), cx2 = _timeToX(toTime(ch.t2));
-    const yU1 = candleSeries.priceToCoordinate(ch.up1), yU2 = candleSeries.priceToCoordinate(ch.up2);
-    const yL1 = candleSeries.priceToCoordinate(ch.lo1), yL2 = candleSeries.priceToCoordinate(ch.lo2);
-    if (cx1 != null && cx2 != null && cx2 !== cx1 && yU1 != null && yU2 != null && yL1 != null && yL2 != null) {
-      const xr = plotW;
-      const _ext = (xa, ya, xb, yb, xt) => ya + (yb - ya) * (xt - xa) / (xb - xa);
-      const yUr = _ext(cx1, yU1, cx2, yU2, xr), yLr = _ext(cx1, yL1, cx2, yL2, xr);
-      const col = ch.dir === 1 ? "38,166,154" : "239,83,80";
-      drawCtx.fillStyle = `rgba(${col},0.06)`;
-      drawCtx.beginPath(); drawCtx.moveTo(cx1, yU1); drawCtx.lineTo(xr, yUr); drawCtx.lineTo(xr, yLr); drawCtx.lineTo(cx1, yL1); drawCtx.closePath(); drawCtx.fill();
-      drawCtx.strokeStyle = `rgba(${col},0.8)`; drawCtx.lineWidth = 1.4;
-      drawCtx.beginPath(); drawCtx.moveTo(cx1, yU1); drawCtx.lineTo(xr, yUr); drawCtx.stroke();
-      drawCtx.beginPath(); drawCtx.moveTo(cx1, yL1); drawCtx.lineTo(xr, yLr); drawCtx.stroke();
-    }
-  }
+  // ② 平行通道：從「錨點K(t1)」沿斜率延伸到右緣（涵蓋範圍對齊 TV）。畫 當前TF通道 + 4H靛 + 1H青。
+  const _drawChan = (c, rgb) => {
+    if (!c || !c.t1) return;
+    const cx1 = _timeToX(toTime(c.t1)), cx2 = _timeToX(toTime(c.t2));
+    const yU1 = candleSeries.priceToCoordinate(c.up1), yU2 = candleSeries.priceToCoordinate(c.up2);
+    const yL1 = candleSeries.priceToCoordinate(c.lo1), yL2 = candleSeries.priceToCoordinate(c.lo2);
+    if (cx1 == null || cx2 == null || cx2 === cx1 || yU1 == null || yU2 == null || yL1 == null || yL2 == null) return;
+    const _ext = (xa, ya, xb, yb, xt) => ya + (yb - ya) * (xt - xa) / (xb - xa);
+    const xL = Math.max(0, cx1), xR = plotW;                 // 起點=錨點K（不再拉到最左）
+    const yUL = _ext(cx1, yU1, cx2, yU2, xL), yUR = _ext(cx1, yU1, cx2, yU2, xR);
+    const yLL = _ext(cx1, yL1, cx2, yL2, xL), yLR = _ext(cx1, yL1, cx2, yL2, xR);
+    drawCtx.fillStyle = `rgba(${rgb},0.05)`;
+    drawCtx.beginPath(); drawCtx.moveTo(xL, yUL); drawCtx.lineTo(xR, yUR); drawCtx.lineTo(xR, yLR); drawCtx.lineTo(xL, yLL); drawCtx.closePath(); drawCtx.fill();
+    drawCtx.strokeStyle = `rgba(${rgb},0.85)`; drawCtx.lineWidth = 1.4;
+    drawCtx.beginPath(); drawCtx.moveTo(xL, yUL); drawCtx.lineTo(xR, yUR); drawCtx.stroke();
+    drawCtx.beginPath(); drawCtx.moveTo(xL, yLL); drawCtx.lineTo(xR, yLR); drawCtx.stroke();
+  };
+  for (const c of (window._coachHTFCh || [])) _drawChan(c, c.tf === "4H" ? "63,81,181" : "0,150,136");  // 4H靛 / 1H青
+  _drawChan(window._coachChannel, window._coachChannel && window._coachChannel.dir === 1 ? "38,166,154" : "239,83,80");
   // ③ VWAP 折線（黃）
   const vw = window._coachVWAP;
   if (vw && vw.length) {

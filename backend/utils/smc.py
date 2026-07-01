@@ -108,7 +108,8 @@ def _alive_fvg(H, L, C, T, PL=5):
             if dr == "l" and L[j] <= mid: filled = True; break
             if dr == "s" and H[j] >= mid: filled = True; break
         if not filled:
-            out[dr].append({"top": tp, "bot": bt, "mid": mid, "t": T[ci]})
+            out[dr].append({"top": tp, "bot": bt, "mid": mid, "t0": T[max(0, ci - 2)]})
+    out["l"] = out["l"][-3:]; out["s"] = out["s"][-3:]    # 每側最多 3（對齊 TV maxFVGZones）
     return out
 
 
@@ -131,13 +132,13 @@ def _alive_ob(H, L, C, O, T, PL=5, LB=20):
             shB = True
             off = next((j for j in range(1, LB + 1) if i - j >= 0 and C[i - j] < O[i - j]), None)
             if off is not None:
-                b = i - off; bull.append({"top": max(O[b], C[b]), "bot": min(O[b], C[b])})
+                b = i - off; bull.append({"top": max(O[b], C[b]), "bot": min(O[b], C[b]), "t0": T[b]})
         if lastSL is not None and not slB and ci < lastSL and (cp != cp or cp >= lastSL):
             slB = True
             off = next((j for j in range(1, LB + 1) if i - j >= 0 and C[i - j] > O[i - j]), None)
             if off is not None:
-                b = i - off; bear.append({"top": max(O[b], C[b]), "bot": min(O[b], C[b])})
-    return {"l": bull, "s": bear}
+                b = i - off; bear.append({"top": max(O[b], C[b]), "bot": min(O[b], C[b]), "t0": T[b]})
+    return {"l": bull[-3:], "s": bear[-3:]}
 
 
 def _alive_sr(H, L, C, T, PL=8, ZW=0.20, MRG=1.25, BUF=0.15, MAXZ=3, ATRN=14):
@@ -157,21 +158,21 @@ def _alive_sr(H, L, C, T, PL=8, ZW=0.20, MRG=1.25, BUF=0.15, MAXZ=3, ATRN=14):
             if _is_ph(H, p, PL):
                 ph = H[p]; nz = next((z for z in res if abs(mid(z) - ph) <= md), None)
                 if nz: nz["top"] = max(nz["top"], ph + hw); nz["bot"] = min(nz["bot"], ph - hw)
-                else: push(res, {"top": ph + hw, "bot": ph - hw})
+                else: push(res, {"top": ph + hw, "bot": ph - hw, "t0": T[p]})
             if _is_pl(L, p, PL):
                 pl = L[p]; nz = next((z for z in sup if abs(mid(z) - pl) <= md), None)
                 if nz: nz["top"] = max(nz["top"], pl + hw); nz["bot"] = min(nz["bot"], pl - hw)
-                else: push(sup, {"top": pl + hw, "bot": pl - hw})
+                else: push(sup, {"top": pl + hw, "bot": pl - hw, "t0": T[p]})
         ci = C[i]; an = atr[i]
         if ci == ci and an == an:
             buf = an * BUF; cp = C[i - 1] if i > 0 else float("nan")
             bufP = (atr[i - 1] if i > 0 and atr[i - 1] == atr[i - 1] else an) * BUF
             for z in list(res):
                 if ci > z["top"] + buf and cp == cp and cp > z["top"] + bufP:
-                    res.remove(z); push(sup, {"top": z["top"], "bot": z["bot"]})   # 角色互換
+                    res.remove(z); push(sup, {"top": z["top"], "bot": z["bot"], "t0": z.get("t0", T[i])})   # 角色互換
             for z in list(sup):
                 if ci < z["bot"] - buf and cp == cp and cp < z["bot"] - bufP:
-                    sup.remove(z); push(res, {"top": z["top"], "bot": z["bot"]})
+                    sup.remove(z); push(res, {"top": z["top"], "bot": z["bot"], "t0": z.get("t0", T[i])})
     return {"res": res, "sup": sup}
 
 
@@ -225,11 +226,17 @@ def _channel(H, L, C, T, PL=5, ATRN=14, MINW=1.20):
     if d == -1 and lL is not None and lLt >= a1t:
         cw = lv(a1t, a1p, a2t, a2p, lLt) - lL
         if cw == cw and cw > 0: w = max(w, cw)
-    # 當前(最後一根)上下軌值：把基準線外推到最後一根
+    # 當前(最後一根)上下軌值：給面板判定通道內/外
     base_last = lv(a1t, a1p, a2t, a2p, N - 1)
     lower = base_last if d == 1 else base_last - w
     upper = base_last + w if d == 1 else base_last
-    return {"dir": d, "lower": lower, "upper": upper, "mid": (lower + upper) / 2.0}
+    # 斜率錨點：上/下軌在兩個錨點K的價（給前端從錨點畫斜線、涵蓋範圍對齊 TV）
+    if d == 1:
+        lo1, lo2, up1, up2 = a1p, a2p, a1p + w, a2p + w
+    else:
+        up1, up2, lo1, lo2 = a1p, a2p, a1p - w, a2p - w
+    return {"dir": d, "lower": lower, "upper": upper, "mid": (lower + upper) / 2.0,
+            "t1": T[a1t], "t2": T[a2t], "lo1": lo1, "lo2": lo2, "up1": up1, "up2": up2}
 
 
 def _recent_sweep(H, L, C, T, PL=5):
