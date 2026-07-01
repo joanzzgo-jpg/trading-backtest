@@ -5,6 +5,7 @@
 - _scan_outcome 用 array 直接取值，省下 pandas Series 介面成本（~10-50x faster）
 - 每個訊號同時計算「中軌目標」與「帶軌目標」的勝負結果，前端可切換顯示
 """
+import bisect
 import math
 import numpy as np
 import pandas as pd
@@ -1498,77 +1499,60 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             if "gi" in _x: _used.add(_x["gi"])
             if "ri" in _x: _used.add(_x["ri"])
 
-        # ── 「多/空」方向標記（獨立）─────────────────────────────────────────────
-        # 多/空＝吃到「前方留下的未填補FVG」後、收破反向FVG：
-        #   空：漲上去吃到上方未填補空FVG(影線進區間、收盤未突破其頂=拒絕) → 之後收盤跌破下方多FVG下緣 → 標「空」。多鏡像。
-        # 每個FVG記 mit=首次中線被碰棒(None=尚未填補)。一個池/方向(未被收破前都留)：
-        #   吃到(setup)：須「該FVG尚未填補」(mit None)——前方留下的有效FVG。
-        #   收破目標：須在「吃到那一刻尚未填補」(mit None 或 mit>吃到棒)——避免殺一個 setup 前就已被用過(填補)的舊FVG
-        #     (例:ETH 1d 5/22 殺到4/6多FVG,但它5/18就先被填補過了→不算;而6/18的6/16多FVG是吃到後6/17才填補→算)。
-        #   尚未被收破(close未穿)且非自身=有效目標；吃到→收破容許窗 60 根。
+        # ── 「多/空」方向標記（新定義 2026-07-01）──────────────────────────────────
+        # 空：前方一個「從未被任何K的影線/實體碰過」的做空FVG，被某根K「首次」碰到(high≥其下緣bot、
+        #     進入區間)後，於 _MSWIN 根內「首次新產生做空FVG」→ 標「空」於該新做空FVG的 g+1(確認棒)。
+        # 多：鏡像——從未碰過的做多FVG被首次碰到(low≤其上緣top)後，窗內首次新做多FVG → 標「多」於其 g+1。
+        #   「首次碰到」＝確認棒(g+1)之後第一根碰進區間的K；即滿足「尚未被其他K碰過」。用 _gaps_seq(含視覺全缺口)。
+        # 約束：觸碰後、在「新產生同向FVG」之前，中間不能夾任何反向FVG →
+        #       等價於「觸碰後生成的第一個新缺口必須就是同向FVG」。用生成序 _seq_cf(升序)＋bisect 取之。
         _MSWIN = 60
-        _gap_bear = []; _gap_bull = []                 # 未被收破的空/多FVG：{"bot","top","mid","idx","mit"}
-        _arm_s = None; _arm_l = None
-        for _k in range(_N):
-            _hk = _H[_k]; _lk = _L[_k]; _ck = _C[_k]
-            if not (_hk != _hk or _lk != _lk or _ck != _ck):   # 非 NaN
-                # 1) 收破檢查(目標＝被吃FVG另側「上個(最近)形成、尚未被收破」的反向FVG；只取這一個，
-                #    不回頭找更舊的。它須在吃到當下尚未填補(mit None 或 mit>吃到棒)且被收破才標)
-                if _arm_s is not None:
-                    if _k - _arm_s["tap"] > _MSWIN:        # setup 只在 MSWIN 到期作廢；不因收盤站上空FVG(上方無限制)而取消，只破盤觸發
-                        _arm_s = None
-                    else:
-                        # 被收破目標＝做多FVG：須「比被吃的更前方做空FVG(_arm_s.gi)更晚形成、且在吃到之前已生成」(gi<idx<tap)、位於其頂以下
-                        _cs = [_x for _x in _gap_bull if _x["top"] < _arm_s["btop"] and _arm_s["gi"] < _x["idx"] < _arm_s["tap"]]
-                        _tg = max(_cs, key=lambda _x: _x["idx"]) if _cs else None
-                        _gpk = _gaps_at.get(_k)                                   # 本根須為「確認做空FVG」(cf_bar=g+1)
-                        _tgm = (_tg["top"] + _tg["bot"]) / 2.0 if _tg is not None else None
-                        if _tg is not None and (_tg["mit"] is None or _tg["mit"] > _arm_s["tap"]) \
-                           and _gpk is not None and _gpk[2] == "s" and (_L[_k] <= _tgm or _L[_k - 1] <= _tgm):   # 確認做空FVG g/g+1 收破做多FVG中線以下 → 標「空」於g+1
-                            _fvg_ms.append({"t": times_iso[_k], "d": "s"})
-                            _used.add(_arm_s["gi"]); _used.add(_tg["idx"]); _arm_s = None
-                if _arm_l is not None:
-                    if _k - _arm_l["tap"] > _MSWIN:
-                        _arm_l = None
-                    else:
-                        # 被收破目標＝做空FVG：須「比被吃的更前方做多FVG(_arm_l.gi)更晚形成、且在吃到之前已生成」(gi<idx<tap)、位於其底以上
-                        _cs = [_x for _x in _gap_bear if _x["bot"] > _arm_l["lbot"] and _arm_l["gi"] < _x["idx"] < _arm_l["tap"]]
-                        _tg = max(_cs, key=lambda _x: _x["idx"]) if _cs else None
-                        _gpk = _gaps_at.get(_k)                                   # 本根須為「確認做多FVG」(cf_bar=g+1)
-                        _tgm = (_tg["top"] + _tg["bot"]) / 2.0 if _tg is not None else None
-                        if _tg is not None and (_tg["mit"] is None or _tg["mit"] > _arm_l["tap"]) \
-                           and _gpk is not None and _gpk[2] == "l" and (_H[_k] >= _tgm or _H[_k - 1] >= _tgm):   # 確認做多FVG g/g+1 收破做空FVG中線以上 → 標「多」於g+1
-                            _fvg_ms.append({"t": times_iso[_k], "d": "l"})
-                            _used.add(_arm_l["gi"]); _used.add(_tg["idx"]); _arm_l = None
-                # 2) 吃到偵測 → 武裝(setup FVG 須尚未填補 mit None；影線進區間)
-                #    取「最近形成」可吃反向缺口；吃到不同缺口就覆蓋舊 setup(最新 tap 才有效)，同一缺口再吃不重置 tap。
-                _cand = None
-                for _b in _gap_bear:
-                    if _b["mit"] is None and _hk >= _b["bot"] and _ck <= _b["top"]: _cand = _b
-                if _cand is not None and (_arm_s is None or _arm_s["gi"] != _cand["idx"]):
-                    _arm_s = {"bbot": _cand["bot"], "btop": _cand["top"], "tap": _k, "gi": _cand["idx"]}
-                _cand = None
-                for _b in _gap_bull:
-                    if _b["mit"] is None and _lk <= _b["top"] and _ck >= _b["bot"]: _cand = _b
-                if _cand is not None and (_arm_l is None or _arm_l["gi"] != _cand["idx"]):
-                    _arm_l = {"lbot": _cand["bot"], "ltop": _cand["top"], "tap": _k, "gi": _cand["idx"]}
-                # 3) 更新填補(中線首次被碰)：在吃到之後→當根吃到的拒絕仍算未填補
-                for _b in _gap_bear:
-                    if _b["mit"] is None and _hk >= _b["mid"]: _b["mit"] = _k
-                for _b in _gap_bull:
-                    if _b["mit"] is None and _lk <= _b["mid"]: _b["mit"] = _k
-                # 4) 收破移除(已被殺，之後不再當目標)
-                if _gap_bull: _gap_bull = [_b for _b in _gap_bull if _ck >= _b["bot"]]
-                if _gap_bear: _gap_bear = [_b for _b in _gap_bear if _ck <= _b["top"]]
-            # 5) 本根新缺口入池（cap 200 防爆）
-            _gp = _gaps_at.get(_k)
-            if _gp is not None:
-                _tp, _bt, _dr = _gp
-                _rec = {"bot": _bt, "top": _tp, "mid": (_tp + _bt) / 2.0, "idx": _k, "mit": None}
-                if _dr == "s":
-                    _gap_bear.append(_rec); _gap_bear = _gap_bear[-200:]
-                else:
-                    _gap_bull.append(_rec); _gap_bull = _gap_bull[-200:]
+        _MSMIN = 0.0005    # 多空偵測門檻：FVG 寬度 <0.05% 不算(視覺缺口仍保留 0.01%，不受此限)
+        # 寬度%：多用下緣為分母(top-bot)/bot、空用上緣(top-bot)/top(對齊視覺 _gw 定義)
+        _gseq = [(_ci, _tp, _bt, _dr) for (_ci, _tp, _bt, _dr) in _gaps_seq
+                 if (_tp - _bt) / (_bt if _dr == "l" else _tp) >= _MSMIN]
+        _seq_cf  = [_ci for (_ci, _tp, _bt, _dr) in _gseq]      # 缺口確認棒 cf，升序(生成序)
+        _seq_dr  = [_dr for (_ci, _tp, _bt, _dr) in _gseq]      # 對應方向
+        _seq_top = [_tp for (_ci, _tp, _bt, _dr) in _gseq]      # 對應上緣
+        _seq_bot = [_bt for (_ci, _tp, _bt, _dr) in _gseq]      # 對應下緣
+        _bear = [(_ci, _tp, _bt) for (_ci, _tp, _bt, _dr) in _gseq if _dr == "s"]
+        _bull = [(_ci, _tp, _bt) for (_ci, _tp, _bt, _dr) in _gseq if _dr == "l"]
+        _ms_seen = set()                                   # 去重：同一確認棒(_cf2)只標一次
+        # 定義：做空FVG(A) → K棒影線碰進其區間(上/中/下任一) → 中間無其他FVG → 生成做空FVG(B)
+        #       → B 低於 A 的上緣(B上緣<A上緣)。取最後一次觸碰為錨；無失效判定。多為鏡像。
+        for (_cf, _top, _bot) in _bear:                    # 空
+            _touch = None; _mx = None                      # 觸碰位子＝碰進區間的高點、封頂於上緣(最高到上)；到比先前更高的位子才算新觸碰
+            for _j in range(_cf + 1, _N):
+                if _H[_j] < _bot: continue                 # 沒碰進區間
+                _r = _top if _H[_j] > _top else _H[_j]     # 位子封頂於上緣
+                if _mx is None or _r > _mx:                # 到更高的位子 → 有效新觸碰(一樣位子不算)
+                    _mx = _r; _touch = _j
+            if _touch is None:
+                continue
+            _p = bisect.bisect_right(_seq_cf, _touch)      # 觸碰後「第一個新缺口」(中間無其他FVG)
+            if _p < len(_seq_cf) and _seq_dr[_p] == "s":   # 須為做空FVG
+                _cf2 = _seq_cf[_p]
+                # B 低於 A 的上緣：B 上緣 < A 上緣
+                if _cf2 - _touch <= _MSWIN and _seq_top[_p] < _top and _cf2 not in _ms_seen:
+                    _fvg_ms.append({"t": times_iso[_cf2], "d": "s"})
+                    _ms_seen.add(_cf2); _used.add(_cf); _used.add(_cf2)
+        for (_cf, _top, _bot) in _bull:                    # 多（鏡像）
+            _touch = None; _mn = None                      # 觸碰位子＝碰進區間的低點、封底於下緣(最低到下)；到比先前更低的位子才算新觸碰
+            for _j in range(_cf + 1, _N):
+                if _L[_j] > _top: continue                 # 沒碰進區間
+                _r = _bot if _L[_j] < _bot else _L[_j]     # 位子封底於下緣
+                if _mn is None or _r < _mn:                # 到更低的位子 → 有效新觸碰(一樣位子不算)
+                    _mn = _r; _touch = _j
+            if _touch is None:
+                continue
+            _p = bisect.bisect_right(_seq_cf, _touch)
+            if _p < len(_seq_cf) and _seq_dr[_p] == "l":   # 須為做多FVG
+                _cf2 = _seq_cf[_p]
+                # B 高於 A 的下緣：B 下緣 > A 下緣
+                if _cf2 - _touch <= _MSWIN and _seq_bot[_p] > _bot and _cf2 not in _ms_seen:
+                    _fvg_ms.append({"t": times_iso[_cf2], "d": "l"})
+                    _ms_seen.add(_cf2); _used.add(_cf); _used.add(_cf2)
+        _fvg_ms.sort(key=lambda x: x["t"])
         _fvg_ms = _fvg_ms[-2000:]
         # ── 標記「有無被用到」：未被任何標記(破多/破空/多/空)用到的主缺口 → used=False(前端淡化)。
         #     IFVG(inv)非主缺口、不在偵測序列 → 視為 used(不淡化)。
