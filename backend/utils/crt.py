@@ -1580,6 +1580,254 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         _fvg_break = []
         _fvg_ms = []
 
+    # ── SMC Sweep(掃頂/掃底)偵測【階段1：移植 Pine「SR+SMC 教練」】──────────────
+    #   掃頂(d=s)：high 突破最近擺高、但 close 收回其下=假突破/抓流動性；掃底(d=l)鏡像。
+    #   對齊 Pine f_processStructureModule 的 bearishSweep/bullishSweep；擺動 pivot 半窗 _PL=5。
+    #   pivot 於 _i-_PL 確認(需 ±_PL 兩側)，故用「已確認」擺高/低比對，不預知未來。
+    _smc_sweep = []
+    try:
+        _sN = len(times_iso); _PL = 5
+        _sH = highs.tolist(); _sL = lows.tolist(); _sC = closes.tolist()
+        _lastSH = None; _lastSL = None; _shSwept = False; _slSwept = False
+        for _i in range(_sN):
+            _p = _i - _PL                                          # 本根能確認的 pivot 落點
+            if _p - _PL >= 0:
+                _ph = _sH[_p]; _pl = _sL[_p]
+                if _ph == _ph and all(_ph >= _sH[_p + _d] for _d in range(-_PL, _PL + 1)):
+                    if _lastSH is None or _ph != _lastSH: _shSwept = False   # 新擺高→重置可再掃
+                    _lastSH = _ph
+                if _pl == _pl and all(_pl <= _sL[_p + _d] for _d in range(-_PL, _PL + 1)):
+                    if _lastSL is None or _pl != _lastSL: _slSwept = False
+                    _lastSL = _pl
+            _hi = _sH[_i]; _lo = _sL[_i]; _ci = _sC[_i]
+            if _ci != _ci:
+                continue
+            if _lastSH is not None and not _shSwept and _hi > _lastSH and _ci < _lastSH:
+                _smc_sweep.append({"t": times_iso[_i], "d": "s"}); _shSwept = True   # 掃頂
+            if _lastSL is not None and not _slSwept and _lo < _lastSL and _ci > _lastSL:
+                _smc_sweep.append({"t": times_iso[_i], "d": "l"}); _slSwept = True   # 掃底
+        _smc_sweep = _smc_sweep[-2000:]
+    except Exception:
+        _smc_sweep = []
+
+    # ── SMC 結構事件 BOS/CHoCH【階段2：移植 Pine f_processStructureModule】───────────
+    #   收盤上穿最近擺高→多方破(趨勢原空=CHoCH↑轉多／否則BOS↑延續)；收盤下破最近擺低鏡像。
+    #   每筆回傳線段端點：t0=擺點K、t1=收破K、p=擺點價、k=事件型別(給前端畫水平線+標籤)。
+    _smc_struct = []
+    try:
+        _sN = len(times_iso); _PL = 5
+        _sH = highs.tolist(); _sL = lows.tolist(); _sC = closes.tolist()
+        _lastSH = None; _lastSHb = None; _lastSL = None; _lastSLb = None
+        _shBroken = False; _slBroken = False; _trend = 0
+        for _i in range(_sN):
+            _p = _i - _PL
+            if _p - _PL >= 0:
+                _ph = _sH[_p]; _pl = _sL[_p]
+                if _ph == _ph and all(_ph >= _sH[_p + _d] for _d in range(-_PL, _PL + 1)):
+                    _lastSH = _ph; _lastSHb = _p; _shBroken = False
+                if _pl == _pl and all(_pl <= _sL[_p + _d] for _d in range(-_PL, _PL + 1)):
+                    _lastSL = _pl; _lastSLb = _p; _slBroken = False
+            _ci = _sC[_i]; _cp = _sC[_i - 1] if _i > 0 else float("nan")
+            if _ci != _ci:
+                continue
+            if _lastSH is not None and not _shBroken and _ci > _lastSH and (_cp != _cp or _cp <= _lastSH):
+                _smc_struct.append({"t0": times_iso[_lastSHb], "t1": times_iso[_i], "p": _lastSH,
+                                    "k": "choch_up" if _trend == -1 else "bos_up"})
+                _trend = 1; _shBroken = True
+            if _lastSL is not None and not _slBroken and _ci < _lastSL and (_cp != _cp or _cp >= _lastSL):
+                _smc_struct.append({"t0": times_iso[_lastSLb], "t1": times_iso[_i], "p": _lastSL,
+                                    "k": "choch_dn" if _trend == 1 else "bos_dn"})
+                _trend = -1; _slBroken = True
+        _smc_struct = _smc_struct[-1000:]
+    except Exception:
+        _smc_struct = []
+
+    # ── SMC 訂單區 OB【階段3：移植 Pine f_processOrderBlockModule】────────────────
+    #   結構破時往回找最近一根反向「實體」K 當 OB：多破→最後空K=多方OB(支撐)；空破→最後多K=空方OB(阻力)。
+    #   OB 於「收盤穿越另側」(多OB:close<下緣／空OB:close>上緣)時失效。
+    #   回傳每個 OB {t0 建立來源K, t1 失效K或None(仍存活), top, bot, d}；前端畫框(存活者延伸到右緣)。
+    _smc_ob = []
+    try:
+        _sN = len(times_iso); _PL = 5; _LB = 20
+        _sH = highs.tolist(); _sL = lows.tolist(); _sC = closes.tolist(); _sO = opens.tolist()
+        _lastSH = None; _lastSL = None; _shBroken = False; _slBroken = False
+        _aliveBull = []; _aliveBear = []                    # 存活OB在 _smc_ob 的索引
+        for _i in range(_sN):
+            _p = _i - _PL
+            if _p - _PL >= 0:
+                _ph = _sH[_p]; _pl = _sL[_p]
+                if _ph == _ph and all(_ph >= _sH[_p + _d] for _d in range(-_PL, _PL + 1)):
+                    _lastSH = _ph; _shBroken = False
+                if _pl == _pl and all(_pl <= _sL[_p + _d] for _d in range(-_PL, _PL + 1)):
+                    _lastSL = _pl; _slBroken = False
+            _ci = _sC[_i]; _cp = _sC[_i - 1] if _i > 0 else float("nan")
+            if _ci != _ci:
+                continue
+            for _oi in list(_aliveBull):                    # 多方OB：收盤跌破下緣→失效
+                if _ci < _smc_ob[_oi]["bot"]:
+                    _smc_ob[_oi]["t1"] = times_iso[_i]; _aliveBull.remove(_oi)
+            for _oi in list(_aliveBear):                    # 空方OB：收盤突破上緣→失效
+                if _ci > _smc_ob[_oi]["top"]:
+                    _smc_ob[_oi]["t1"] = times_iso[_i]; _aliveBear.remove(_oi)
+            if _lastSH is not None and not _shBroken and _ci > _lastSH and (_cp != _cp or _cp <= _lastSH):
+                _shBroken = True
+                _off = next((_j for _j in range(1, _LB + 1) if _i - _j >= 0 and _sC[_i - _j] < _sO[_i - _j]), None)
+                if _off is not None:
+                    _b = _i - _off
+                    _smc_ob.append({"t0": times_iso[_b], "t1": None, "d": "l",
+                                    "top": max(_sO[_b], _sC[_b]), "bot": min(_sO[_b], _sC[_b])})
+                    _aliveBull.append(len(_smc_ob) - 1)
+            if _lastSL is not None and not _slBroken and _ci < _lastSL and (_cp != _cp or _cp >= _lastSL):
+                _slBroken = True
+                _off = next((_j for _j in range(1, _LB + 1) if _i - _j >= 0 and _sC[_i - _j] > _sO[_i - _j]), None)
+                if _off is not None:
+                    _b = _i - _off
+                    _smc_ob.append({"t0": times_iso[_b], "t1": None, "d": "s",
+                                    "top": max(_sO[_b], _sC[_b]), "bot": min(_sO[_b], _sC[_b])})
+                    _aliveBear.append(len(_smc_ob) - 1)
+        _smc_ob = _smc_ob[-500:]
+    except Exception:
+        _smc_ob = []
+
+    # ── SMC 支撐/阻力 SR【階段4：移植 Pine f_processSrModule】──────────────────────
+    #   pivot(半窗8)高→阻力、低→支撐；區寬=ATR×0.20；就近(ATR×1.25)則併入既有區、否則新建(每側最多3)。
+    #   收盤突破區緣+緩衝(ATR×0.15，需連2根確認)→該區失效；若開角色互換→翻成反向區續存。
+    #   回傳 {t0 來源K, t1 失效K或None, top, bot, d('res'/'sup')}；前端畫框(存活延伸到右緣)。
+    _smc_sr = []
+    try:
+        _sN = len(times_iso); _PL = 8; _ZW = 0.20; _MRG = 1.25; _BUF = 0.15; _MAXZ = 3; _ATRN = 14
+        _sH = highs.tolist(); _sL = lows.tolist(); _sC = closes.tolist()
+        _tr = [float("nan")] * _sN                          # True Range → RMA(14)=ATR，對齊 Pine ta.atr
+        for _i in range(_sN):
+            if _i == 0:
+                _tr[_i] = _sH[_i] - _sL[_i]
+            else:
+                _pc = _sC[_i - 1]
+                _tr[_i] = max(_sH[_i] - _sL[_i], abs(_sH[_i] - _pc), abs(_sL[_i] - _pc))
+        _atr = [float("nan")] * _sN; _a = float("nan")
+        for _i in range(_sN):
+            _t = _tr[_i]
+            if _t != _t:
+                continue
+            if _a != _a:
+                if _i >= _ATRN - 1:
+                    _a = sum(_tr[_i - _ATRN + 1:_i + 1]) / _ATRN
+            else:
+                _a = (_a * (_ATRN - 1) + _t) / _ATRN
+            _atr[_i] = _a
+        _res = []; _sup = []                                # 存活區 dict：{t0,t1,top,bot,d,...}
+        def _mid(_z): return (_z["top"] + _z["bot"]) / 2.0
+        def _push(_lst, _z, _i):
+            _lst.append(_z); _smc_sr.append(_z)
+            if len(_lst) > _MAXZ:
+                _old = _lst.pop(0)
+                if _old["t1"] is None: _old["t1"] = times_iso[_i]
+        for _i in range(_sN):
+            _atrNow = _atr[_i]
+            _p = _i - _PL
+            if _p - _PL >= 0 and _atr[_p] == _atr[_p]:
+                _atrP = _atr[_p]; _hw = _atrP * _ZW; _md = _atrP * _MRG
+                _ph = _sH[_p]
+                if _ph == _ph and all(_ph >= _sH[_p + _d] for _d in range(-_PL, _PL + 1)):
+                    _nz = next((_z for _z in _res if abs(_mid(_z) - _ph) <= _md), None)
+                    if _nz is not None:
+                        _nz["top"] = max(_nz["top"], _ph + _hw); _nz["bot"] = min(_nz["bot"], _ph - _hw)
+                    else:
+                        _push(_res, {"t0": times_iso[_p], "t1": None, "top": _ph + _hw, "bot": _ph - _hw, "d": "res"}, _i)
+                _pl = _sL[_p]
+                if _pl == _pl and all(_pl <= _sL[_p + _d] for _d in range(-_PL, _PL + 1)):
+                    _nz = next((_z for _z in _sup if abs(_mid(_z) - _pl) <= _md), None)
+                    if _nz is not None:
+                        _nz["top"] = max(_nz["top"], _pl + _hw); _nz["bot"] = min(_nz["bot"], _pl - _hw)
+                    else:
+                        _push(_sup, {"t0": times_iso[_p], "t1": None, "top": _pl + _hw, "bot": _pl - _hw, "d": "sup"}, _i)
+            _ci = _sC[_i]
+            if _ci == _ci and _atrNow == _atrNow:
+                _buf = _atrNow * _BUF
+                _cp = _sC[_i - 1] if _i > 0 else float("nan")
+                _bufP = (_atr[_i - 1] if _i > 0 and _atr[_i - 1] == _atr[_i - 1] else _atrNow) * _BUF
+                for _z in list(_res):                       # 阻力破：收盤>上緣+緩衝(連2根)→失效，角色翻成支撐
+                    if _ci > _z["top"] + _buf and _cp == _cp and _cp > _z["top"] + _bufP:
+                        _z["t1"] = times_iso[_i]; _res.remove(_z)
+                        _push(_sup, {"t0": times_iso[_i], "t1": None, "top": _z["top"], "bot": _z["bot"], "d": "sup"}, _i)
+                for _z in list(_sup):                       # 支撐破：收盤<下緣-緩衝(連2根)→失效，角色翻成阻力
+                    if _ci < _z["bot"] - _buf and _cp == _cp and _cp < _z["bot"] - _bufP:
+                        _z["t1"] = times_iso[_i]; _sup.remove(_z)
+                        _push(_res, {"t0": times_iso[_i], "t1": None, "top": _z["top"], "bot": _z["bot"], "d": "res"}, _i)
+        _smc_sr = _smc_sr[-500:]
+    except Exception:
+        _smc_sr = []
+
+    # ── VWAP【階段5：移植 Pine，每日錨定；當前時框計算】────────────────────────────
+    #   每根 hlc3×量 累積，遇「日期變更」重置。回傳 [{t, v}]，v=尚無量時 None。
+    _vwap = []
+    try:
+        _vol = df["volume"].to_numpy(dtype=float) if "volume" in df.columns else None
+        if _vol is not None:
+            _cumPV = 0.0; _cumV = 0.0; _curday = None
+            for _i in range(len(times_iso)):
+                _day = times_iso[_i][:10]
+                if _day != _curday:
+                    _cumPV = 0.0; _cumV = 0.0; _curday = _day
+                _v = _vol[_i]
+                if _v == _v and _v > 0:
+                    _cumPV += (highs[_i] + lows[_i] + closes[_i]) / 3.0 * _v; _cumV += _v
+                _vwap.append({"t": times_iso[_i], "v": (_cumPV / _cumV if _cumV > 0 else None)})
+        _vwap = _vwap[-3000:]
+    except Exception:
+        _vwap = []
+
+    # ── 自動平行通道【階段5：移植 Pine f_swingChannel；當前時框(取代原4H/1H/15M多時框)】───
+    #   由最近兩個同向擺點定基準線(上升=兩低點/下降=兩高點)、平行線寬=max(ATR×1.2, 對側極值到基準距離)。
+    #   回傳當前通道 {dir, t1,t2(錨點K), lo1,lo2,up1,up2(上下軌在兩錨點的價)}；前端畫上下軌+填色並右延。
+    _channel = None
+    try:
+        _sN = len(times_iso); _CPL = 5; _ATRN = 14; _MINW = 1.20
+        _sH = highs.tolist(); _sL = lows.tolist(); _sC = closes.tolist()
+        _tr = [float("nan")] * _sN
+        for _i in range(_sN):
+            _tr[_i] = (_sH[_i] - _sL[_i]) if _i == 0 else max(_sH[_i] - _sL[_i], abs(_sH[_i] - _sC[_i - 1]), abs(_sL[_i] - _sC[_i - 1]))
+        _atr = [float("nan")] * _sN; _a = float("nan")
+        for _i in range(_sN):
+            if _a != _a:
+                if _i >= _ATRN - 1: _a = sum(_tr[_i - _ATRN + 1:_i + 1]) / _ATRN
+            else:
+                _a = (_a * (_ATRN - 1) + _tr[_i]) / _ATRN
+            _atr[_i] = _a
+        _pH = _lH = _pL = _lL = None; _pHt = _lHt = _pLt = _lLt = None
+        for _i in range(_sN):
+            _p = _i - _CPL
+            if _p - _CPL >= 0:
+                _ph = _sH[_p]
+                if _ph == _ph and all(_ph >= _sH[_p + _d] for _d in range(-_CPL, _CPL + 1)):
+                    _pH, _pHt, _lH, _lHt = _lH, _lHt, _ph, _p
+                _pl = _sL[_p]
+                if _pl == _pl and all(_pl <= _sL[_p + _d] for _d in range(-_CPL, _CPL + 1)):
+                    _pL, _pLt, _lL, _lLt = _lL, _lLt, _pl, _p
+        _up = _pL is not None and _lL is not None and _lL > _pL and _pLt is not None and _lLt is not None and _lLt > _pLt
+        _dn = _pH is not None and _lH is not None and _lH < _pH and _pHt is not None and _lHt is not None and _lHt > _pHt
+        _dir = (1 if _lLt >= _lHt else -1) if (_up and _dn) else (1 if _up else (-1 if _dn else 0))
+        if _dir != 0:
+            _a1t, _a1p, _a2t, _a2p = (_pLt, _pL, _lLt, _lL) if _dir == 1 else (_pHt, _pH, _lHt, _lH)
+            _aref = _atr[_sN - 1 - _CPL] if _sN - 1 - _CPL >= 0 and _atr[_sN - 1 - _CPL] == _atr[_sN - 1 - _CPL] else _atr[_sN - 1]
+            _w = max((_aref if _aref == _aref else 0.0) * _MINW, 1e-9)
+            def _lv(_t1, _q1, _t2, _q2, _tt):
+                return _q1 if _t2 == _t1 else _q1 + (_q2 - _q1) * (_tt - _t1) / (_t2 - _t1)
+            if _dir == 1 and _lH is not None and _lHt >= _a1t:
+                _cw = _lH - _lv(_a1t, _a1p, _a2t, _a2p, _lHt)
+                if _cw == _cw and _cw > 0: _w = max(_w, _cw)
+            if _dir == -1 and _lL is not None and _lLt >= _a1t:
+                _cw = _lv(_a1t, _a1p, _a2t, _a2p, _lLt) - _lL
+                if _cw == _cw and _cw > 0: _w = max(_w, _cw)
+            if _dir == 1:
+                _lo1, _lo2, _up1, _up2 = _a1p, _a2p, _a1p + _w, _a2p + _w
+            else:
+                _up1, _up2, _lo1, _lo2 = _a1p, _a2p, _a1p - _w, _a2p - _w
+            _channel = {"dir": _dir, "t1": times_iso[_a1t], "t2": times_iso[_a2t],
+                        "lo1": _lo1, "lo2": _lo2, "up1": _up1, "up2": _up2}
+    except Exception:
+        _channel = None
+
     # ── 布林通道外 + FVG 進場點（均值回歸·研究用主圖標記，讓使用者目視驗證）──────────
     #   對齊 /tmp/fvg_bb.py 回測：進場=缺口頂(top)、firsttouch 真過濾。
     #   首次觸及進場價的那根 K，若同時在布林通道外同側(多:跌破下軌 low≤bb_lower／空:突破上軌 high≥bb_upper)
@@ -1822,6 +2070,12 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         "fvg":      _fvg,         # 失衡缺口（主圖色塊）
         "fvg_break": _fvg_break,  # 「多FVG→空FVG→收破前一個多FVG」結構轉破標記
         "fvg_ms":   _fvg_ms,      # 「吃到未填補反向FVG→收破同向FVG」方向標記(多/空)
+        "smc_sweep": _smc_sweep,  # SMC 掃頂/掃底(階段1：SR+SMC 教練移植)
+        "smc_struct": _smc_struct, # SMC 結構事件 BOS/CHoCH 線段(階段2)
+        "smc_ob":   _smc_ob,      # SMC 訂單區 OB 框(階段3)
+        "smc_sr":   _smc_sr,      # SMC 支撐/阻力區(階段4)
+        "vwap":     _vwap,        # VWAP 成交量加權均價(階段5)
+        "channel":  _channel,     # 自動平行通道(階段5)
         "fvg_sigs": _fvg_sigs,    # FVG 收盤確認進場訊號（自動交易用，獨立於 signals）
         "fvg_trades": _fvg_trades,  # FVG「接1次」cascade 進出場點（主圖標記用）
         "fvg_bb":   _fvg_bb,        # D版(三根止損+1.5R)進出場點（研究用主圖標記）

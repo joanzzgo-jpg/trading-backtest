@@ -1110,6 +1110,139 @@ function initVPToggle() {
   });
 }
 
+// 右上「SR+SMC 教練」疊加層總開關（階段1：掃頂/掃底；後續階段：BOS/CHoCH/OB/SR/通道/教練面板）
+function initCoachToggle() {
+  const btn = document.getElementById("coachToggleBtn");
+  if (!btn) return;
+  try { window._coachOn = localStorage.getItem("coachOverlay") === "1"; } catch (e) {}
+  const _sync = () => {
+    btn.classList.toggle("active", window._coachOn);
+    const st = document.getElementById("mSetCoachState");
+    if (st) st.textContent = window._coachOn ? "開啟" : "關閉";
+    const row = document.getElementById("mSetCoach");
+    if (row) row.classList.toggle("m-set-on", window._coachOn);
+  };
+  _sync();
+  btn.addEventListener("click", () => {
+    window._coachOn = !window._coachOn;
+    try { localStorage.setItem("coachOverlay", window._coachOn ? "1" : "0"); } catch (e) {}
+    _sync();
+    if (typeof _applyMainMarkers === "function") _applyMainMarkers();  // 立即顯示/隱藏教練標記(掃頂掃底)
+    _scheduleRenderDrawings();                                          // 立即顯示/隱藏教練畫布層(BOS/CHoCH線)
+    if (typeof _updateCoachPanel === "function") _updateCoachPanel();   // 立即顯示/隱藏教練面板
+  });
+}
+
+// SR+SMC 教練疊加層繪製（階段2：BOS/CHoCH 結構破線段）。畫布在 K 棒之上、不限時框。
+// 由後端 smc_struct 提供線段端點：t0=擺點K、t1=收破K、p=擺點價、k=事件型別。
+const _COACH_STRUCT_STYLE = {
+  bos_up:   { c: "#26a69a", dash: false, t: "BOS↑" },   // 多方延續
+  choch_up: { c: "#26a69a", dash: true,  t: "CHoCH↑" }, // 轉多（虛線）
+  bos_dn:   { c: "#ef5350", dash: false, t: "BOS↓" },   // 空方延續
+  choch_dn: { c: "#ef5350", dash: true,  t: "CHoCH↓" }, // 轉空（虛線）
+};
+function _drawCoachOverlay(W, H) {
+  if (!window._coachOn) return;
+  const items = window._coachStructure;
+  if (!items || !items.length) return;
+  if (typeof mainChart === "undefined" || typeof candleSeries === "undefined" || !candleSeries) return;
+  const ts = mainChart.timeScale();
+  let plotW = W;
+  try { const tw = ts.width(); if (tw > 0) plotW = tw; } catch (e) {}   // 裁掉右側價格軸
+  const _rpCut = (typeof replayActive !== "undefined" && replayActive
+    && typeof replayData !== "undefined" && replayData[replayIdx])
+    ? toTime(replayData[replayIdx].time) : null;
+  drawCtx.save();
+  drawCtx.beginPath(); drawCtx.rect(0, 0, plotW, H); drawCtx.clip();
+  drawCtx.font = "bold 10px sans-serif"; drawCtx.textBaseline = "middle";
+  // 共用：畫一個區框(SR/OB)。z={t0,t1,top,bot}；存活(t1=null)延伸到右緣，replay 裁切。
+  const _zoneBox = (z, rgb, label) => {
+    const t0 = toTime(z.t0);
+    if (_rpCut != null && t0 > _rpCut) return;
+    const x0 = _timeToX(t0);
+    if (x0 == null) return;
+    const t1eff = z.t1 ? toTime(z.t1) : null;          // 右端：失效→失效K；存活→右緣(replay到揭曉點)
+    let xr;
+    if (_rpCut != null && (t1eff == null || t1eff > _rpCut)) xr = _timeToX(_rpCut);
+    else if (t1eff != null) xr = _timeToX(t1eff);
+    else xr = plotW;
+    if (xr == null) xr = plotW;
+    if (xr < 0 || x0 > plotW) return;
+    const yT = candleSeries.priceToCoordinate(z.top), yB = candleSeries.priceToCoordinate(z.bot);
+    if (yT == null || yB == null) return;
+    const L = Math.max(x0, 0), R = Math.min(xr, plotW), tp = Math.min(yT, yB), hgt = Math.abs(yB - yT);
+    if (R <= L) return;
+    drawCtx.fillStyle = `rgba(${rgb},0.10)`;
+    drawCtx.fillRect(L, tp, R - L, hgt);
+    drawCtx.strokeStyle = `rgba(${rgb},0.85)`; drawCtx.lineWidth = 1;
+    drawCtx.strokeRect(L, tp, R - L, hgt);
+    drawCtx.fillStyle = `rgba(${rgb},1)`;
+    drawCtx.fillText(label, L + 3, tp + 7);
+  };
+  // ⓪ SR 支撐/阻力區（最底層）：阻力紅/支撐綠
+  for (const z of (window._coachSR || [])) _zoneBox(z, z.d === "res" ? "239,83,80" : "38,166,154", z.d === "res" ? "阻力" : "支撐");
+  // ① OB 訂單區框：多OB藍/空OB橘
+  for (const z of (window._coachOB || [])) _zoneBox(z, z.d === "l" ? "33,150,243" : "255,152,0", z.d === "l" ? "多OB" : "空OB");
+  // ② 自動平行通道：上下軌+填色，右延到繪圖區右緣（上升綠/下降紅）
+  const ch = window._coachChannel;
+  if (ch) {
+    const cx1 = _timeToX(toTime(ch.t1)), cx2 = _timeToX(toTime(ch.t2));
+    const yU1 = candleSeries.priceToCoordinate(ch.up1), yU2 = candleSeries.priceToCoordinate(ch.up2);
+    const yL1 = candleSeries.priceToCoordinate(ch.lo1), yL2 = candleSeries.priceToCoordinate(ch.lo2);
+    if (cx1 != null && cx2 != null && cx2 !== cx1 && yU1 != null && yU2 != null && yL1 != null && yL2 != null) {
+      const xr = plotW;
+      const _ext = (xa, ya, xb, yb, xt) => ya + (yb - ya) * (xt - xa) / (xb - xa);
+      const yUr = _ext(cx1, yU1, cx2, yU2, xr), yLr = _ext(cx1, yL1, cx2, yL2, xr);
+      const col = ch.dir === 1 ? "38,166,154" : "239,83,80";
+      drawCtx.fillStyle = `rgba(${col},0.06)`;
+      drawCtx.beginPath(); drawCtx.moveTo(cx1, yU1); drawCtx.lineTo(xr, yUr); drawCtx.lineTo(xr, yLr); drawCtx.lineTo(cx1, yL1); drawCtx.closePath(); drawCtx.fill();
+      drawCtx.strokeStyle = `rgba(${col},0.8)`; drawCtx.lineWidth = 1.4;
+      drawCtx.beginPath(); drawCtx.moveTo(cx1, yU1); drawCtx.lineTo(xr, yUr); drawCtx.stroke();
+      drawCtx.beginPath(); drawCtx.moveTo(cx1, yL1); drawCtx.lineTo(xr, yLr); drawCtx.stroke();
+    }
+  }
+  // ③ VWAP 折線（黃）
+  const vw = window._coachVWAP;
+  if (vw && vw.length) {
+    drawCtx.strokeStyle = "#ffc107"; drawCtx.lineWidth = 1.4; drawCtx.beginPath();
+    let started = false;
+    for (const pt of vw) {
+      if (pt.v == null) { started = false; continue; }
+      const t = toTime(pt.t);
+      if (_rpCut != null && t > _rpCut) break;
+      const x = _timeToX(t);
+      if (x == null || x < -50 || x > plotW + 50) { started = false; continue; }
+      const y = candleSeries.priceToCoordinate(pt.v);
+      if (y == null) { started = false; continue; }
+      if (!started) { drawCtx.moveTo(x, y); started = true; } else drawCtx.lineTo(x, y);
+    }
+    drawCtx.stroke();
+  }
+  // ④ BOS/CHoCH 結構破線段
+  for (const it of items) {
+    const st = _COACH_STRUCT_STYLE[it.k];
+    if (!st) continue;
+    const t1 = toTime(it.t1);
+    if (_rpCut != null && t1 > _rpCut) continue;          // replay：未揭曉的不畫
+    const x0 = _timeToX(toTime(it.t0)), x1 = _timeToX(t1);
+    if (x0 == null || x1 == null) continue;
+    if (x1 < 0 || x0 > plotW) continue;                   // 完全在畫面外→略過
+    const y = candleSeries.priceToCoordinate(it.p);
+    if (y == null) continue;
+    drawCtx.strokeStyle = st.c; drawCtx.lineWidth = 1.4;
+    drawCtx.setLineDash(st.dash ? [4, 3] : []);
+    drawCtx.beginPath(); drawCtx.moveTo(x0, y); drawCtx.lineTo(x1, y); drawCtx.stroke();
+    drawCtx.setLineDash([]);
+    const tw = drawCtx.measureText(st.t).width;           // 標籤放右端（收破K），去背小字
+    const lx = Math.min(x1 + 4, plotW - tw - 3);
+    drawCtx.fillStyle = "rgba(0,0,0,0.55)";
+    drawCtx.fillRect(lx - 2, y - 7, tw + 4, 14);
+    drawCtx.fillStyle = st.c;
+    drawCtx.fillText(st.t, lx, y + 0.5);
+  }
+  drawCtx.restore();
+}
+
 // renderDrawings 合併排程：滑動時 subscribeVisibleTimeRangeChange / crosshairMove 一幀會觸發多次，
 // 若每次都 _scheduleRenderDrawings() → 同一幀把疊加層(交易時段 overlay 等)重畫好幾遍。
 // 用 pending 旗標收斂成「每幀最多畫一次」，盤中時框滑動大幅減負。
@@ -1138,6 +1271,9 @@ function renderDrawings() {
 
   // 交易時段 overlay（背景帶=當盤高低範圍 + 上下緣高低線 + 星期標籤；可開關）
   _drawSessionOverlay(W, H);
+
+  // SR+SMC 教練疊加層（階段2：BOS/CHoCH 結構破線段+標籤；全時框；右上開關 _coachOn）
+  _drawCoachOverlay(W, H);
 
   // Draw non-selected first, then hovered, then selected on top
   drawings.filter(d => d.id !== selectedId && d.id !== hoveredId).forEach(d => drawOne(d, W, H, false, false));

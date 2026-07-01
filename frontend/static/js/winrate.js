@@ -494,6 +494,13 @@ async function _fetchWinRateNow() {
     _renderFVGBB(d.fvg_bb, d.fvg_bb_a, d.fvg_bb_m);   // FVG 進出場標記:D(青/粉)+A(橘/紫)+M中軌分側順勢(黃/藍)（研究·主圖）
     _renderFVGBreak(d.fvg_break);     // 結構轉破:多FVG→空FVG→收破前一個多FVG 的那根K（主圖）
     _renderFVGMS(d.fvg_ms);           // 多/空方向標記:吃到未填補反向FVG→收破同向FVG（主圖）
+    _renderSMCSweep(d.smc_sweep);     // SMC 掃頂/掃底（階段1：SR+SMC 教練疊加層，右上開關 coachToggleBtn）
+    _renderSMCStruct(d.smc_struct);   // SMC BOS/CHoCH 結構破線段（階段2，畫布層，右上開關）
+    _renderSMCOB(d.smc_ob);           // SMC 訂單區 OB 框（階段3，畫布層，右上開關）
+    _renderSMCSR(d.smc_sr);           // SMC 支撐/阻力區（階段4，畫布層，右上開關）
+    _renderCoachVWAP(d.vwap);         // VWAP 成交量加權均價（階段5，畫布層，右上開關）
+    _renderCoachChannel(d.channel);   // 自動平行通道（階段5，畫布層，右上開關）
+    _updateCoachPanel();              // SR+SMC 教練面板（階段6，左下摘要）
     if (typeof setFVGZones === "function") setFVGZones(d.fvg);
     _setFVGData(d.fvg);
     if (typeof window._refreshSignalDrawer === "function") window._refreshSignalDrawer();
@@ -800,6 +807,124 @@ window.toggleFVGMS = function (on) {
   _applyMainMarkers();
   return !window._fvgMSHidden;
 };
+
+// SMC 掃頂/掃底標記（階段1：SR+SMC 教練疊加層）：掃頂=棒上紫「掃頂」、掃底=棒下青「掃底」。
+// 由右上 coachToggleBtn（window._coachOn）決定是否顯示；此處永遠備好標記，實際顯示在 _applyMainMarkers 依 _coachOn 過濾。
+let _lastSMCSweep = [];
+function _renderSMCSweep(items) {
+  if (items !== undefined) _lastSMCSweep = items || [];
+  const hasIdx = (typeof _secToIdx !== "undefined" && _secToIdx.size > 0);
+  const chartTimeSet = hasIdx ? null : new Set(ohlcvData.map(d => toTime(d.time)));
+  const _has = t => hasIdx ? _secToIdx.has(t) : chartTimeSet.has(t);
+  const _rpCut = (typeof replayActive !== "undefined" && replayActive
+    && typeof replayData !== "undefined" && replayData[replayIdx])
+    ? toTime(replayData[replayIdx].time) : null;
+  const out = [];
+  for (const it of (_lastSMCSweep || [])) {
+    const tm = toTime(it.t);
+    if (!_has(tm) || (_rpCut != null && tm > _rpCut)) continue;
+    if (it.d === "s") {
+      out.push({ time: tm, position: "aboveBar", color: "#ab47bc",
+                 shape: "circle", size: 1, text: "掃頂" });
+    } else {
+      out.push({ time: tm, position: "belowBar", color: "#26c6da",
+                 shape: "circle", size: 1, text: "掃底" });
+    }
+  }
+  out.sort((a, b) => a.time - b.time);
+  lastSMCSweepMarkers = out;
+  _applyMainMarkers();
+}
+window._renderSMCSweep = _renderSMCSweep;
+
+// SMC BOS/CHoCH 結構破線段（階段2）：存資料給畫布層(draw.js _drawCoachOverlay)，由 _coachOn 決定是否畫。
+function _renderSMCStruct(items) {
+  window._coachStructure = items || [];
+  if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();
+}
+window._renderSMCStruct = _renderSMCStruct;
+
+// SMC 訂單區 OB（階段3）：存資料給畫布層(draw.js _drawCoachOverlay)，由 _coachOn 決定是否畫。
+function _renderSMCOB(items) {
+  window._coachOB = items || [];
+  if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();
+}
+window._renderSMCOB = _renderSMCOB;
+
+// SMC 支撐/阻力區（階段4）：存資料給畫布層(draw.js _drawCoachOverlay)，由 _coachOn 決定是否畫。
+function _renderSMCSR(items) {
+  window._coachSR = items || [];
+  if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();
+}
+window._renderSMCSR = _renderSMCSR;
+
+// VWAP / 自動平行通道（階段5）：存資料給畫布層，由 _coachOn 決定是否畫。
+function _renderCoachVWAP(items) {
+  window._coachVWAP = items || [];
+  if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();
+}
+window._renderCoachVWAP = _renderCoachVWAP;
+function _renderCoachChannel(ch) {
+  window._coachChannel = ch || null;
+  if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();
+}
+window._renderCoachChannel = _renderCoachChannel;
+
+// SR+SMC 教練面板（階段6）：純前端摘要，讀已存的 SMC 資料 + 現價。由 _coachOn 決定顯示。
+function _updateCoachPanel() {
+  const el = document.getElementById("coachPanel");
+  if (!el) return;
+  if (!window._coachOn) { el.style.display = "none"; return; }
+  const sym = (typeof currentSymbol !== "undefined" ? currentSymbol : "");
+  const tf = (typeof currentTF !== "undefined" ? currentTF : "");
+  let px = null, li = -1;
+  if (typeof ohlcvData !== "undefined" && ohlcvData.length) {
+    li = (typeof replayActive !== "undefined" && replayActive && typeof replayIdx === "number")
+      ? Math.min(replayIdx, ohlcvData.length - 1) : ohlcvData.length - 1;
+    px = ohlcvData[Math.max(0, li)].close;
+  }
+  // 趨勢 / 最新結構：取最後一筆結構事件（replay 時只到揭曉點）
+  const _cut = (li >= 0 && typeof ohlcvData !== "undefined") ? toTime(ohlcvData[li].time) : null;
+  const struct = (window._coachStructure || []).filter(s => _cut == null || toTime(s.t1) <= _cut);
+  const last = struct.length ? struct[struct.length - 1] : null;
+  const up = last ? (last.k === "bos_up" || last.k === "choch_up") : null;
+  const STXT = { bos_up: "BOS↑ 多方延續", choch_up: "CHoCH↑ 轉多", bos_dn: "BOS↓ 空方延續", choch_dn: "CHoCH↓ 轉空" };
+  // 市場階段：近 60 根高低區間定位
+  let phase = "—";
+  if (px != null && li >= 0) {
+    let hi = -Infinity, lo = Infinity;
+    for (let i = Math.max(0, li - 59); i <= li; i++) { const b = ohlcvData[i]; if (b.high > hi) hi = b.high; if (b.low < lo) lo = b.low; }
+    const mid = (hi + lo) / 2, band = (hi - lo) * 0.05;
+    phase = px > mid + band ? "溢價（上半）" : px < mid - band ? "折價（下半）" : "均衡（近中線）";
+  }
+  // 最近存活的上方阻力 / 下方支撐（SR + OB 合併）
+  const zones = [...(window._coachSR || []), ...(window._coachOB || [])].filter(z => z.t1 == null);
+  let above = null, below = null;
+  if (px != null) for (const z of zones) {
+    const zt = Math.max(z.top, z.bot), zb = Math.min(z.top, z.bot);
+    if (zb > px && (above == null || zb < above.zb)) above = { zt, zb };
+    if (zt < px && (below == null || zt > below.zt)) below = { zt, zb };
+  }
+  const fmt = v => v == null ? "—" : (Math.abs(v) >= 1000 ? v.toFixed(0) : v.toFixed(2));
+  const ch = window._coachChannel;
+  const chTxt = ch ? (ch.dir === 1 ? "上升通道" : "下降通道") : "—";
+  const vw = window._coachVWAP || [];
+  const lastV = vw.length ? vw[vw.length - 1].v : null;
+  const vwTxt = (px != null && lastV != null) ? (px >= lastV ? "價在 VWAP 之上" : "價在 VWAP 之下") : "—";
+  const tc = up == null ? "#9aa" : (up ? "#26a69a" : "#ef5350");
+  const row = (k, v) => `<div style="display:flex;justify-content:space-between;gap:10px"><span style="color:#9aa">${k}</span><span>${v}</span></div>`;
+  el.innerHTML =
+    `<div style="font-weight:700;margin-bottom:5px;color:#ffca28">SR+SMC 教練 · ${sym} ${tf}</div>` +
+    row("趨勢", `<b style="color:${tc}">${up == null ? "待定" : (up ? "偏多" : "偏空")}</b>`) +
+    row("最新結構", last ? STXT[last.k] : "—") +
+    row("市場階段", phase) +
+    row("上方阻力", above ? fmt(above.zb) + "~" + fmt(above.zt) : "—") +
+    row("下方支撐", below ? fmt(below.zb) + "~" + fmt(below.zt) : "—") +
+    row("通道", chTxt) +
+    row("VWAP", vwTxt);
+  el.style.display = "block";
+}
+window._updateCoachPanel = _updateCoachPanel;
 
 function _renderWinRate(d) {
   _wrCacheLast = d;
