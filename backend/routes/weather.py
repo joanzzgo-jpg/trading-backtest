@@ -20,6 +20,7 @@ _WX_TTL = 300
 
 CWA_KEY  = os.getenv("CWA_API_KEY", "")
 CWA_URL  = "https://opendata.cwa.gov.tw/api/v1/rest/datastore/O-A0001-001"
+CWA_FC_URL = "https://opendata.cwa.gov.tw/api/v1/rest/datastore/F-C0032-001"  # 縣市今明36小時預報(含PoP降雨機率)
 OMT_URL  = "https://api.open-meteo.com/v1/forecast"
 NOM_URL  = "https://nominatim.openstreetmap.org/reverse"
 
@@ -233,6 +234,7 @@ async def _from_cwa(lat: float, lon: float) -> dict:
         "moon_phase":    round(mp, 3),
         "moon_rise_min": mr,
         "moon_set_min":  ms,
+        "_county":       county,   # 內部用：查 CWA 官方 PoP 降雨機率（回前端前會移除）
     }
 
 # ─── Open-Meteo fallback ─────────────────────────────────────
@@ -588,6 +590,59 @@ async def _fetch_omt_pop(lat: float, lon: float):
     return {"day": day, "now": now}
 
 
+async def _fetch_cwa_pop(county: str):
+    """中央氣象署官方降雨機率(PoP)：F-C0032-001 今明36小時預報，12 小時分段。
+    回 {"day": 今日, "now": 當前時段}。CWA App 的「今日降雨機率」即此值(如臺北 20%)，
+    比 Open-Meteo 全天最大值(常灌到 80%+)貼近使用者實際看到的官方數字。"""
+    if not (CWA_KEY and county):
+        return None
+    params = {"Authorization": CWA_KEY, "format": "JSON", "locationName": county}
+    timeout = aiohttp.ClientTimeout(total=8)
+    async with aiohttp.ClientSession(timeout=timeout) as sess:
+        async with sess.get(CWA_FC_URL, params=params) as r:
+            data = await r.json(content_type=None)
+    locs = ((data.get("records", {}) or {}).get("location", []) or [])
+    if not locs:
+        return None
+    pop_el = next((e for e in locs[0].get("weatherElement", []) if e.get("elementName") == "PoP"), None)
+    if not pop_el:
+        return None
+    from datetime import datetime, timedelta
+    tw_now = datetime.utcnow() + timedelta(hours=8)     # CWA 時間為台灣當地(Railway 跑 UTC)
+    d0 = tw_now.date()
+    day = now = None
+    for t in pop_el.get("time", []):
+        try:
+            st = datetime.fromisoformat(t["startTime"])
+            et = datetime.fromisoformat(t["endTime"])
+            v = int(round(float(t["parameter"]["parameterName"])))
+        except (ValueError, KeyError, TypeError):
+            continue
+        # 今日：與今天日期重疊的所有時段取最大
+        if st.date() == d0 or (st.date() < d0 < et.date()) or et.date() == d0:
+            day = v if day is None else max(day, v)
+        # 此刻：涵蓋當前時間的時段
+        if st <= tw_now < et:
+            now = v
+    if now is None and day is not None:                 # 當前時間落在資料起點前 → 退今日
+        now = day
+    if day is None:
+        return None
+    return {"day": day, "now": now}
+
+
+async def _fetch_pop(lat: float, lon: float, county=None):
+    """降雨機率取值：台灣優先用 CWA 官方 PoP(貼近氣象署 App)，失敗/非台灣回退 Open-Meteo。"""
+    if county:
+        try:
+            r = await _fetch_cwa_pop(county)
+            if r:
+                return r
+        except Exception:
+            pass
+    return await _fetch_omt_pop(lat, lon)
+
+
 def _wmo_zh(code) -> str:
     """WMO weather_code → 簡短中文天氣狀況（給小熊預報用）。"""
     try:
@@ -821,8 +876,9 @@ async def weather(
         try: return await coro
         except Exception: return None
     _need_pop = res.get("pop") is None
+    _county = res.pop("_county", None)                  # 內部欄位：查 CWA 官方 PoP 後移除
     _tasks = [
-        _safe(_fetch_omt_pop(lat, lon)) if _need_pop else _safe(_noop_none()),
+        _safe(_fetch_pop(lat, lon, _county)) if _need_pop else _safe(_noop_none()),
         _safe(_fetch_omt_forecast(lat, lon)),
         _safe(_fetch_omt_aqi(lat, lon)),
         _safe(_omt_sun(lat, lon)),
