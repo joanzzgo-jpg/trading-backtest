@@ -171,7 +171,7 @@ async function fetchTickers() {
     const panelOpen = !isMobile || document.getElementById("tickerPanel").classList.contains("ticker-open");
     if (!panelOpen) { updatePageTitle(); return; }
 
-    if (_tickerSort !== "wl") {
+    if (_tickerSort !== "wl" && _tickerSort !== "coach") {
       const search  = (document.getElementById("tickerSearch")?.value || "").toLowerCase();
       const srcList = _tickerMkt === "tw" ? _twTickerData : _tickerData;
       let list = srcList.filter(t =>
@@ -407,6 +407,51 @@ function _removeWatchlistByKey(key) {
   if (idx >= 0) { _watchlist.splice(idx, 1); _saveWatchlist(); renderTickers(); }
 }
 
+// 🎯 教練可進場 tab：抓 /api/coach_scan（前60、stage≥7），列出可進場標的（點擊載入）。60s 自刷。
+let _coachScan = { ts: 0, loading: false, data: [] };
+async function _fetchCoachScan(force) {
+  const cs = _coachScan;
+  if (cs.loading) return;
+  if (!force && cs.data.length && Date.now() - cs.ts < 120000) return;
+  cs.loading = true;
+  if (_tickerSort === "coach") renderTickers();     // 顯示「掃描中…」
+  try {
+    const r = await fetch("/api/coach_scan?n=60&min_stage=7", { cache: "no-store" });
+    const j = await r.json();
+    cs.data = (j && j.results) || [];
+    cs.ts = Date.now();
+  } catch (e) {} finally {
+    cs.loading = false;
+    if (_tickerSort === "coach") renderTickers();
+  }
+}
+function _renderCoachList(container, currentSym) {
+  const cs = _coachScan;
+  if (!cs.loading && (!cs.data.length || Date.now() - cs.ts > 120000)) _fetchCoachScan();   // 陳舊→背景刷新
+  if (cs.loading && !cs.data.length) { container.innerHTML = '<div class="tk-loading">教練掃描中…</div>'; return; }
+  if (!cs.data.length) {
+    container.innerHTML = '<div class="tk-loading">目前無可進場標的<br><span style="font-size:11px;color:#889">每分鐘自動掃前60檔</span></div>';
+    return;
+  }
+  const html = cs.data.map(r => {
+    const sym = r.symbol;                            // 'BTC/USDT.P'
+    const disp = sym.replace(".P", "");
+    const active = sym.toUpperCase() === (currentSym || "").toUpperCase();
+    const vers = Object.entries(r.hits || {}).map(([ver, h]) => {
+      const dl = h.direction === 1 ? "多" : "空";
+      const dc = h.direction === 1 ? "#26a69a" : "#ef5350";
+      const tf = ver === "fast" ? "5m" : "15m";
+      return `<span style="color:${dc};font-weight:700">${tf}${dl}</span>`;
+    }).join('<span style="color:#556">·</span>');
+    return `<div class="ticker-item coach-item${active ? " tk-active" : ""}" data-mkt="crypto" data-exch="pionex" data-sym="${sym}" data-symbol="${sym.replace("/", "").replace(".P", "")}" data-display="${disp}" style="cursor:pointer">
+      <div style="display:flex;justify-content:space-between;align-items:center;width:100%;padding:3px 2px">
+        <span style="font-weight:700">🎯 ${disp}</span><span style="font-size:12px;display:flex;gap:4px;align-items:center">${vers}</span>
+      </div></div>`;
+  }).join("");
+  container.innerHTML = html;
+  container.querySelectorAll(".coach-item").forEach(el => el.addEventListener("click", () => _selectTickerRow(el)));
+}
+
 function renderTickers() {
   const container = document.getElementById("tickerList");
   if (!container) return;
@@ -446,6 +491,9 @@ function renderTickers() {
     _reconcileTicker(container, items, _buildWlRow, _updateWlRow);
     return;
   }
+
+  // ── 🎯 教練可進場 tab ─────────────────────────────────
+  if (_tickerSort === "coach") { _renderCoachList(container, currentSym); return; }
 
   const search = (document.getElementById("tickerSearch")?.value || "").toLowerCase();
 
@@ -651,6 +699,7 @@ function bindTickerPanel() {
       _lastTickerKey = "";
       renderTickers();
       if (btn.dataset.sort === "wl") _refreshWlPrices();
+      if (btn.dataset.sort === "coach") _fetchCoachScan(true);
     });
   });
 

@@ -433,6 +433,7 @@ function _ntfCat(ev) {
 // 篩選比對：all=全部、signal=策略訊號、auto=自動交易(進+出)、entry=自動進場、exit=自動出場(止盈/止損)
 function _ntfMatch(ev, f) {
   switch (f) {
+    case "coach":  return ev === "coach";     // 教練可進場
     case "signal": return ev === "entry" || ev === "tp" || ev === "sl";
     case "auto":   return ev === "atrade_open" || ev === "atrade_tp" || ev === "atrade_sl";
     case "entry":  return ev === "atrade_open";
@@ -443,6 +444,7 @@ function _ntfMatch(ev, f) {
 // 事件 → 種類標籤（顯示用）：label=標籤字 / cls=標籤色 / bub=泡泡邊色
 function _ntfType(ev) {
   switch (ev) {
+    case "coach":       return { label: "🎯 可進場", cls: "t-tp",      bub: "evt-entry" };
     case "entry":       return { label: "進場",     cls: "t-entry",   bub: "evt-entry" };
     case "tp":          return { label: "止盈",     cls: "t-tp",      bub: "evt-tp" };
     case "sl":          return { label: "止損",     cls: "t-sl",      bub: "evt-sl" };

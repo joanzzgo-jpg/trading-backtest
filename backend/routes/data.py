@@ -906,13 +906,14 @@ def _coach_tp_list(snaps, direction, price, n=4):
         if not snap:
             continue
         sr = snap.get("sr") or {"res": [], "sup": []}
-        if direction == 1:                                   # 多：上方阻力區，近邊＝下緣
-            for z in sr.get("res", []):
+        fvg = snap.get("fvg") or {"l": [], "s": []}
+        if direction == 1:                                   # 多：上方阻力區/空缺口，近邊＝下緣
+            for z in sr.get("res", []) + fvg.get("s", []):   # SR 阻力 + 空FVG(反向缺口)當離場目標
                 edge = min(z["top"], z["bot"])
                 if edge > price:
                     cands.append((edge, edge - price))
-        elif direction == -1:                                # 空：下方支撐區，近邊＝上緣
-            for z in sr.get("sup", []):
+        elif direction == -1:                                # 空：下方支撐區/多缺口，近邊＝上緣
+            for z in sr.get("sup", []) + fvg.get("l", []):
                 edge = max(z["top"], z["bot"])
                 if edge < price:
                     cands.append((edge, price - edge))
@@ -1101,6 +1102,53 @@ def smc_coach_api(
         "htf_channels": htf_channels,
         "steps": steps,
     }
+    data_cache.set(ck, out)
+    return out
+
+
+@router.get("/coach_scan")
+def coach_scan_api(
+    market: str = "crypto",
+    exchange: str = "binance",
+    n: int = 60,
+    tfset: str = "both",
+    min_stage: int = 7,
+):
+    """教練掃描器：對成交量前 n 名加密永續跑教練(default+fast兩版)，篩出 stage≥min_stage(可進場)的標的。
+    回 results=[{symbol, hits:{default/fast:{stage,direction,plan,price}}}]，依最高 stage 排序。"""
+    from concurrent.futures import ThreadPoolExecutor as _TPE
+    from routes.trade import top_crypto_universe
+    ck = f"coach_scan:{market}:{exchange}:{n}:{tfset}:{min_stage}"
+    cached = data_cache.get(ck, ttl=120)
+    if cached:
+        return cached
+    if market == "crypto":
+        syms = [s["symbol"] for s in (top_crypto_universe(n) or [])]
+    else:
+        syms = []
+    _sets = ["default", "fast"] if tfset == "both" else [tfset if tfset in _COACH_ROLES else "default"]
+
+    def _scan_one(sym):
+        hits = {}
+        for _ts in _sets:
+            try:
+                d = smc_coach_api(market, sym, exchange, tfset=_ts)
+                if d.get("ok") and d.get("stage", 0) >= min_stage:
+                    hits[_ts] = {"stage": d["stage"], "direction": d["direction"],
+                                 "plan": d.get("plan"), "price": d.get("price")}
+            except Exception:
+                pass
+        return sym, hits
+
+    results = []
+    if syms:
+        with _TPE(max_workers=4) as _pool:                # 每標的內部已並行4時框；此處再並行4標的(降突發避免418)
+            for sym, hits in _pool.map(_scan_one, syms):
+                if hits:
+                    results.append({"symbol": sym, "hits": hits,
+                                    "top_stage": max(h["stage"] for h in hits.values())})
+    results.sort(key=lambda r: -r["top_stage"])
+    out = {"ok": True, "scanned": len(syms), "min_stage": min_stage, "results": results}
     data_cache.set(ck, out)
     return out
 

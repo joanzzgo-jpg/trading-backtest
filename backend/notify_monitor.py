@@ -494,10 +494,62 @@ def _fvg_approach_scan():
         print(f"  ⚠ FVG逼近掃描失敗：{e}")
 
 
+def _coach_scan_push():
+    """背景：掃前60加密永續的教練，發現新『可進場』(stage≥7)→ Web Push + 寫訊號中心(event=coach)。
+    同標的同方向同版每小時最多推一次(seen_event 去重)。純資訊、不下單。"""
+    import routes.notify as notify
+    if not notify.notify_enabled():
+        return
+    subs = notify.all_active_subs()
+    if not subs:
+        return
+    try:
+        from routes.data import coach_scan_api
+        res = coach_scan_api(market="crypto", exchange="binance", n=60, tfset="both", min_stage=7)
+    except Exception as e:
+        print(f"  ⚠ 教練掃描失敗：{e}")
+        return
+    hits = res.get("results") or []
+    if not hits:
+        return
+    from collections import defaultdict
+    by_name = defaultdict(list)
+    for s in subs:
+        by_name[s["name"]].append(s)
+    _hr = int(time.time() // 3600)
+    def _f(v):
+        return "—" if v is None else (f"{v:.0f}" if abs(v) >= 1000 else f"{v:.4f}")
+    for r in hits:
+        sym = r["symbol"]
+        for ver, h in (r.get("hits") or {}).items():
+            d = h.get("direction"); dl = "多" if d == 1 else "空"
+            tf_lbl = "5m" if ver == "fast" else "15m"
+            evt_key = f"coach:{sym}:{ver}:{dl}:{_hr}"
+            if notify.seen_event(evt_key):
+                continue
+            notify.mark_event(evt_key)
+            plan = h.get("plan") or {}
+            tps = plan.get("tps") or ([plan.get("tp")] if plan.get("tp") is not None else [])
+            ent = plan.get("entry")
+            ent_s = f"{_f(ent[0])}~{_f(ent[1])}" if ent else "—"
+            tp_s = "、".join(_f(t) for t in tps) if tps else "—"
+            title = f"{sym} · {tf_lbl}教練｜可進場（{dl}）"
+            body = f"進場 {ent_s}\n止損 {_f(plan.get('sl'))}｜止盈 {tp_s}"
+            payload = {"title": title, "body": body, "tag": f"coach-{sym}-{ver}",
+                       "data": {"symbol": sym, "market": "crypto", "exchange": "pionex", "tf": tf_lbl, "kind": "coach"}}
+            for name, slist in by_name.items():
+                for s in slist:
+                    try: notify.send_push(s, payload)
+                    except Exception: pass
+                try: notify.log_signal(name, time.time(), "coach", title, body, sym, "crypto", "pionex", tf_lbl)
+                except Exception: pass
+
+
 def run_monitor_loop():
     """背景執行緒入口（daemon）。"""
     last_seen = {}
     last_status = 0.0
+    last_coach = 0.0
     # 啟動後稍等，讓 app 完成預熱
     time.sleep(20)
     while True:
@@ -531,6 +583,13 @@ def run_monitor_loop():
                 push_auto_status()
             except Exception as e:
                 print(f"  ⚠ 狀況推播失敗：{e}")
+        # 每 ~10 分鐘：教練掃描前60 → 新『可進場』推播 + 訊號中心（頻率放寬避免 Binance 418 封 IP）
+        if now - last_coach >= 600:
+            last_coach = now
+            try:
+                _coach_scan_push()
+            except Exception as e:
+                print(f"  ⚠ 教練掃描推播失敗：{e}")
         time.sleep(CHECK_INTERVAL)
 
 
