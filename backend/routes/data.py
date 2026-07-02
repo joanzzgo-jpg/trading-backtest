@@ -895,6 +895,38 @@ def _coach_nearest_htf_zone(snap, direction, price):
     return None
 
 
+def _coach_tp_list(snaps, direction, price, n=4):
+    """多段止盈 TP1～TP4（對齊 Pine POSITION_MAX_TP=4）：用 1H/4H 支撐/阻力區，
+    依離進場價由近到遠取前 n 個「近邊」出場價。多→上方阻力區(近邊=下緣)；空→下方支撐區(近邊=上緣)。
+    跨時框匯總、過近(<0.1%)去重。"""
+    if price is None:
+        return []
+    cands = []
+    for snap in snaps:
+        if not snap:
+            continue
+        sr = snap.get("sr") or {"res": [], "sup": []}
+        if direction == 1:                                   # 多：上方阻力區，近邊＝下緣
+            for z in sr.get("res", []):
+                edge = min(z["top"], z["bot"])
+                if edge > price:
+                    cands.append((edge, edge - price))
+        elif direction == -1:                                # 空：下方支撐區，近邊＝上緣
+            for z in sr.get("sup", []):
+                edge = max(z["top"], z["bot"])
+                if edge < price:
+                    cands.append((edge, price - edge))
+    cands.sort(key=lambda x: x[1])                           # 依距離近→遠
+    out = []
+    for edge, _d in cands:
+        if any(abs(edge - m) <= abs(price) * 0.001 for m in out):   # 過近去重
+            continue
+        out.append(edge)
+        if len(out) >= n:
+            break
+    return out
+
+
 def _coach_all_named(snap, tfname):
     """某時框全部有效區（雙向 OB/FVG + SR），帶名稱。給「市場位置」用。"""
     if not snap:
@@ -987,6 +1019,7 @@ def smc_coach_api(
     # 掃蕩目標：空單掃前高、多單掃前低（尚未被破的最近擺點）
     _tg = (s15.get("targets") if s15 else None) or {}
     _swt = _tg.get("sh") if direction == -1 else _tg.get("sl")
+    _tps_all = _coach_tp_list([s1h, s4h], direction, price, n=4) if (direction != 0 and price is not None) else []
     steps = [
         {"n": 1, "title": "方向", "done": st >= 1,
          "text": (f"方向通過｜{_hh_lbl} 主{_dn}" if direction != 0 else f"等待 {_hh_lbl} 確認主方向")},
@@ -1008,6 +1041,9 @@ def smc_coach_api(
                   else f"等待新的 {_ex_lbl} {_dn}方訂單區／缺口形成")},
         {"n": 7, "title": "進場條件完成", "done": st >= 7,
          "text": ("步驟 7 完成｜已觸碰掛單區，請設定持倉" if st >= 7 else "步驟 7 尚未完成｜等待盤中觸碰掛單區")},
+        {"n": 8, "title": "持倉離場管理", "done": st >= 7,
+         "text": (f"可進場｜依 TP1~TP{len(_tps_all)}／SL 離場（{_ex_lbl} 圖已畫計畫線）" if (st >= 7 and _tps_all)
+                  else ("可進場｜請設定持倉、依 TP/SL 離場" if st >= 7 else "等待步驟7完成後進入持倉離場管理（TP1~TP4/SL）"))},
     ]
     # HTF 投影區（1H/4H 的 OB/FVG/SR）：給前端在低時框圖上畫，對齊 Pine f_htfVisibleZones。
     htf_zones = []
@@ -1046,10 +1082,10 @@ def smc_coach_api(
             e_top = e_bot = None
         swp = coach.get("sweep_px")
         sl = swp if swp is not None else (e_bot if direction == 1 else e_top)
-        tpz = _coach_nearest_htf_zone(s4h, -direction, price)
-        tp = ((tpz["top"] + tpz["bot"]) / 2.0) if tpz else None
-        if e_top is not None or sl is not None or tp is not None:
-            plan = {"entry": ([e_bot, e_top] if e_top is not None else None), "sl": sl, "tp": tp}
+        tps = _tps_all                                           # TP1～TP4：1H/4H 支撐阻力近→遠(上方已算)
+        tp = tps[0] if tps else None                              # tp 保留(最近的)＝相容舊前端
+        if e_top is not None or sl is not None or tps:
+            plan = {"entry": ([e_bot, e_top] if e_top is not None else None), "sl": sl, "tp": tp, "tps": tps}
     out = {
         "ok": True, "symbol": symbol, "price": price,
         "direction": direction, "stage": st,

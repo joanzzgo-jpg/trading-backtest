@@ -902,6 +902,11 @@ function _fetchCoachData(force) {
       const sel = _coachSel();   // HTF 投影只畫選中那版(避免兩版疊圖)
       window._coachHTF = (sel && sel.ok && sel.htf_zones) ? sel.htf_zones : [];
       window._coachHTFCh = (sel && sel.ok && sel.htf_channels) ? sel.htf_channels : [];
+      // 交易計畫線畫主圖：15m 圖用 default(執行15m)、5m 圖用 fast(執行5m)，且僅「可進場」(stage≥7)才給
+      window._coachPlanByTf = {
+        "15m": (dd && dd.ok && dd.stage >= 7) ? dd.plan : null,
+        "5m": (df && df.ok && df.stage >= 7) ? df.plan : null,
+      };
       if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();
     })
     .catch(() => {})
@@ -946,10 +951,11 @@ function _renderCoachPanel() {
     const mp = d.market_pos;
     const mpTxt = mp ? `${mp.inside ? "目前位於" : "最近"}：${mp.kind} ${fmt(mp.bot)} ~ ${fmt(mp.top)}` : "—";
     const pl = d.plan;
+    const tps = (pl && Array.isArray(pl.tps) && pl.tps.length) ? pl.tps : (pl && pl.tp != null ? [pl.tp] : []);
     const planParts = pl ? [
       pl.entry ? ["進場", fmt(pl.entry[0]) + "~" + fmt(pl.entry[1]), "#4fc3f7"] : null,
       pl.sl != null ? ["止損", fmt(pl.sl), "#ef5350"] : null,
-      pl.tp != null ? ["止盈", fmt(pl.tp), "#26a69a"] : null,
+      ...tps.map((v, i) => ["止盈" + (i + 1), fmt(v), "#26a69a"]),   // TP1～TP4
     ].filter(Boolean) : [];
     const planTxt = planParts.length
       ? planParts.map(p => `<span style="color:${p[2]}">${p[0]} ${p[1]}</span>`).join(`<span style="color:#667">｜</span>`)
@@ -972,7 +978,7 @@ function _renderCoachPanel() {
   const entryBadge = d => (!d || !d.ok) ? "" :
     (d.stage >= 7 ? `<span style="background:#1b5e20;color:#b6ffbf;border-radius:3px;padding:0 5px;margin-left:5px;font-weight:700">🎯可進場</span>`
       : d.stage >= 6 ? `<span style="background:#4a3b00;color:#ffd54f;border-radius:3px;padding:0 5px;margin-left:5px">掛單中</span>` : "");
-  const subhead = d => `<div style="color:#ffca28;font-weight:600;margin:3px 0 1px;font-size:10.5px">〔${tflabel(d)}〕<b style="color:${dcOf(d)}">${dtOf(d)}</b>｜步驟 ${d ? d.stage : 0}/7${entryBadge(d)}</div>`;
+  const subhead = d => `<div style="color:#ffca28;font-weight:600;margin:3px 0 1px;font-size:10.5px">〔${tflabel(d)}〕<b style="color:${dcOf(d)}">${dtOf(d)}</b>｜步驟 ${d ? d.stage : 0}/8${entryBadge(d)}</div>`;
   if (collapsed) {   // 收合：兩版「同時顯示」(精簡：各自進度+進場/止損/止盈)
     const head = `<div style="display:flex;align-items:center;gap:8px;border-bottom:1px solid rgba(255,255,255,0.12);padding-bottom:3px;margin-bottom:3px">`
       + `<span style="font-weight:700;color:#ffca28;flex:1">教練 · ${sym}</span>`
@@ -986,7 +992,7 @@ function _renderCoachPanel() {
   // 展開：只顯示選中那版全表 + 按鈕切換
   const sel = _coachSel() || dd || df;
   const head = `<div style="display:flex;align-items:center;gap:6px;border-bottom:1px solid rgba(255,255,255,0.12);padding-bottom:3px;margin-bottom:4px">`
-    + `<span style="font-weight:700;color:#ffca28;flex:1">教練 · ${sym}｜〔${tflabel(sel)}〕｜<b style="color:${dcOf(sel)}">${dtOf(sel)}</b>｜步驟 ${sel ? sel.stage : 0}/7${entryBadge(sel)}</span>`
+    + `<span style="font-weight:700;color:#ffca28;flex:1">教練 · ${sym}｜〔${tflabel(sel)}〕｜<b style="color:${dcOf(sel)}">${dtOf(sel)}</b>｜步驟 ${sel ? sel.stage : 0}/8${entryBadge(sel)}</span>`
     + `<button onclick="window._coachToggleWhich&&window._coachToggleWhich()" style="pointer-events:auto;cursor:pointer;background:rgba(79,195,247,0.18);border:0;border-radius:4px;color:#8fd3ff;font-size:11px;padding:1px 6px" title="切換時框組">切 ⇄</button>`
     + `<button onclick="window._coachToggleCollapse&&window._coachToggleCollapse()" style="pointer-events:auto;cursor:pointer;background:rgba(255,255,255,0.1);border:0;border-radius:4px;color:#cfd;font-size:11px;padding:1px 6px">收合 ▴</button></div>`;
   el.innerHTML = head + bodyFor(sel, false);

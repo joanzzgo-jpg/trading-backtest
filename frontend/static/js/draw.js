@@ -1156,7 +1156,25 @@ function _drawCoachOverlay(W, H) {
     ? toTime(replayData[replayIdx].time) : null;
   drawCtx.save();
   drawCtx.beginPath(); drawCtx.rect(0, 0, plotW, H); drawCtx.clip();
-  drawCtx.font = "bold 10px sans-serif"; drawCtx.textBaseline = "middle";
+  drawCtx.font = "10px sans-serif"; drawCtx.textBaseline = "middle";   // 精簡：非粗體
+  // 視覺精簡：去重疊。_boxes 記已畫框價格範圍；新框與任一舊框重疊>80%→視為重複、不再畫(降雜亂)。
+  const _boxes = [];
+  const _overlapDup = (top, bot) => {
+    const t = Math.max(top, bot), b = Math.min(top, bot), h = (t - b) || 1e-9;
+    for (const q of _boxes) {
+      const ov = Math.min(t, q.t) - Math.max(b, q.b);
+      if (ov > 0 && ov / Math.min(h, (q.t - q.b) || 1e-9) > 0.8) return true;
+    }
+    _boxes.push({ t, b }); return false;
+  };
+  const _labels = [];   // 已放標籤 (x,y)：太近就不重複畫(避免疊字)
+  const _labelDup = (x, y) => { for (const l of _labels) if (Math.abs(l.y - y) < 10 && Math.abs(l.x - x) < 60) return true; _labels.push({ x, y }); return false; };
+  // 每類只畫離現價最近的 N 個區(遠方用不到→不畫，大幅減少全寬橫條)
+  const _px = (typeof ohlcvData !== "undefined" && ohlcvData && ohlcvData.length) ? ohlcvData[ohlcvData.length - 1].close : null;
+  const _nearest = (arr, n = 3) => {
+    if (_px == null || !arr || arr.length <= n) return arr || [];
+    return arr.map(z => [z, Math.abs((z.top + z.bot) / 2 - _px)]).sort((a, b) => a[1] - b[1]).slice(0, n).map(x => x[0]);
+  };
   // 共用：畫一個區框(SR/OB)。z={t0,t1,top,bot}；存活(t1=null)延伸到右緣，replay 裁切。
   const _zoneBox = (z, rgb, label) => {
     const t0 = toTime(z.t0);
@@ -1170,22 +1188,26 @@ function _drawCoachOverlay(W, H) {
     else xr = plotW;
     if (xr == null) xr = plotW;
     if (xr < 0 || x0 > plotW) return;
+    if (_overlapDup(z.top, z.bot)) return;             // 去重疊：與已畫框幾乎重合→略過
     const yT = candleSeries.priceToCoordinate(z.top), yB = candleSeries.priceToCoordinate(z.bot);
     if (yT == null || yB == null) return;
     const L = Math.max(x0, 0), R = Math.min(xr, plotW), tp = Math.min(yT, yB), hgt = Math.abs(yB - yT);
     if (R <= L) return;
-    drawCtx.fillStyle = `rgba(${rgb},0.10)`;
+    drawCtx.fillStyle = `rgba(${rgb},0.05)`;           // 精簡：降透明度
     drawCtx.fillRect(L, tp, R - L, hgt);
-    drawCtx.strokeStyle = `rgba(${rgb},0.85)`; drawCtx.lineWidth = 1;
+    drawCtx.strokeStyle = `rgba(${rgb},0.5)`; drawCtx.lineWidth = 0.8;   // 精簡：細線+降透明
     drawCtx.strokeRect(L, tp, R - L, hgt);
-    drawCtx.fillStyle = `rgba(${rgb},1)`;
-    drawCtx.fillText(label, L + 3, tp + 7);
+    if (!_labelDup(L, tp + 7)) {                        // 去重疊：標籤太近不重畫
+      drawCtx.fillStyle = `rgba(${rgb},0.85)`;
+      drawCtx.fillText(label, L + 3, tp + 7);
+    }
   };
   // ⓪a HTF 投影區（1H/4H 的 OB/FVG/SR，像 TV 畫在低時框圖上）：從形成K往右延伸的盒子、虛線邊、左側標籤。
   const htf = window._coachHTF;
   if (htf && htf.length) {
     drawCtx.setLineDash([5, 4]);
-    for (const z of htf) {
+    for (const z of _nearest(htf)) {                // 只畫離現價最近的幾個
+      if (_overlapDup(z.top, z.bot)) continue;      // 去重疊：與已畫框幾乎重合→略過
       const yT = candleSeries.priceToCoordinate(z.top), yB = candleSeries.priceToCoordinate(z.bot);
       if (yT == null || yB == null) continue;
       let x0 = z.t0 ? _timeToX(toTime(z.t0)) : 0;
@@ -1195,19 +1217,21 @@ function _drawCoachOverlay(W, H) {
       const rgb = z.kind === "ob" ? (z.dir === "l" ? "33,150,243" : "255,152,0")
         : z.kind === "fvg" ? (z.dir === "l" ? "0,188,212" : "156,39,176")
         : (z.dir === "l" ? "38,166,154" : "239,83,80");   // sr
-      drawCtx.fillStyle = `rgba(${rgb},0.07)`;
+      drawCtx.fillStyle = `rgba(${rgb},0.045)`;     // 精簡：降透明度
       drawCtx.fillRect(x0, tp, plotW - x0, hgt);
-      drawCtx.strokeStyle = `rgba(${rgb},0.7)`; drawCtx.lineWidth = 1;
+      drawCtx.strokeStyle = `rgba(${rgb},0.5)`; drawCtx.lineWidth = 0.8;   // 精簡：細線+降透明
       drawCtx.strokeRect(x0, tp, plotW - x0, hgt);
-      drawCtx.fillStyle = `rgba(${rgb},0.95)`;
-      drawCtx.fillText(z.name, x0 + 3, tp + 7);
+      if (!_labelDup(x0, tp + 7)) {                 // 去重疊：標籤太近不重畫
+        drawCtx.fillStyle = `rgba(${rgb},0.8)`;
+        drawCtx.fillText(z.name, x0 + 3, tp + 7);
+      }
     }
     drawCtx.setLineDash([]);
   }
   // ⓪ SR 支撐/阻力區（最底層）：阻力紅/支撐綠
-  for (const z of (window._coachSR || [])) _zoneBox(z, z.d === "res" ? "239,83,80" : "38,166,154", z.d === "res" ? "阻力" : "支撐");
+  for (const z of _nearest(window._coachSR || [])) _zoneBox(z, z.d === "res" ? "239,83,80" : "38,166,154", z.d === "res" ? "阻力" : "支撐");
   // ① OB 訂單區框：多OB藍/空OB橘
-  for (const z of (window._coachOB || [])) _zoneBox(z, z.d === "l" ? "33,150,243" : "255,152,0", z.d === "l" ? "多OB" : "空OB");
+  for (const z of _nearest(window._coachOB || [])) _zoneBox(z, z.d === "l" ? "33,150,243" : "255,152,0", z.d === "l" ? "多OB" : "空OB");
   // ② 平行通道：從「錨點K(t1)」沿斜率延伸到右緣（涵蓋範圍對齊 TV）。畫 當前TF通道 + 4H靛 + 1H青。
   const _drawChan = (c, rgb) => {
     if (!c || !c.t1) return;
@@ -1219,9 +1243,9 @@ function _drawCoachOverlay(W, H) {
     const xL = Math.max(0, cx1), xR = plotW;                 // 起點=錨點K（不再拉到最左）
     const yUL = _ext(cx1, yU1, cx2, yU2, xL), yUR = _ext(cx1, yU1, cx2, yU2, xR);
     const yLL = _ext(cx1, yL1, cx2, yL2, xL), yLR = _ext(cx1, yL1, cx2, yL2, xR);
-    drawCtx.fillStyle = `rgba(${rgb},0.05)`;
+    drawCtx.fillStyle = `rgba(${rgb},0.03)`;                              // 精簡：降透明度
     drawCtx.beginPath(); drawCtx.moveTo(xL, yUL); drawCtx.lineTo(xR, yUR); drawCtx.lineTo(xR, yLR); drawCtx.lineTo(xL, yLL); drawCtx.closePath(); drawCtx.fill();
-    drawCtx.strokeStyle = `rgba(${rgb},0.85)`; drawCtx.lineWidth = 1.4;
+    drawCtx.strokeStyle = `rgba(${rgb},0.6)`; drawCtx.lineWidth = 1;      // 精簡：細線+降透明
     drawCtx.beginPath(); drawCtx.moveTo(xL, yUL); drawCtx.lineTo(xR, yUR); drawCtx.stroke();
     drawCtx.beginPath(); drawCtx.moveTo(xL, yLL); drawCtx.lineTo(xR, yLR); drawCtx.stroke();
   };
@@ -1230,7 +1254,7 @@ function _drawCoachOverlay(W, H) {
   // ③ VWAP 折線（黃）
   const vw = window._coachVWAP;
   if (vw && vw.length) {
-    drawCtx.strokeStyle = "#ffc107"; drawCtx.lineWidth = 1.4; drawCtx.beginPath();
+    drawCtx.strokeStyle = "rgba(255,193,7,0.45)"; drawCtx.lineWidth = 1; drawCtx.beginPath();   // 精簡：更淡
     let started = false;
     for (const pt of vw) {
       if (pt.v == null) { started = false; continue; }
@@ -1244,7 +1268,8 @@ function _drawCoachOverlay(W, H) {
     }
     drawCtx.stroke();
   }
-  // ④ BOS/CHoCH 結構破線段
+  // ④ BOS/CHoCH 結構破線段（精簡：整段調更淡）
+  drawCtx.globalAlpha = 0.5;
   for (const it of items) {
     const st = _COACH_STRUCT_STYLE[it.k];
     if (!st) continue;
@@ -1255,16 +1280,50 @@ function _drawCoachOverlay(W, H) {
     if (x1 < 0 || x0 > plotW) continue;                   // 完全在畫面外→略過
     const y = candleSeries.priceToCoordinate(it.p);
     if (y == null) continue;
-    drawCtx.strokeStyle = st.c; drawCtx.lineWidth = 1.4;
+    drawCtx.strokeStyle = st.c; drawCtx.lineWidth = 1;    // 精簡：細線
     drawCtx.setLineDash(st.dash ? [4, 3] : []);
     drawCtx.beginPath(); drawCtx.moveTo(x0, y); drawCtx.lineTo(x1, y); drawCtx.stroke();
     drawCtx.setLineDash([]);
-    const tw = drawCtx.measureText(st.t).width;           // 標籤放右端（收破K），去背小字
-    const lx = Math.min(x1 + 4, plotW - tw - 3);
-    drawCtx.fillStyle = "rgba(0,0,0,0.55)";
-    drawCtx.fillRect(lx - 2, y - 7, tw + 4, 14);
-    drawCtx.fillStyle = st.c;
-    drawCtx.fillText(st.t, lx, y + 0.5);
+    if (!_labelDup(Math.min(x1 + 4, plotW), y)) {         // 去重疊：太近的結構標籤不重畫
+      const tw = drawCtx.measureText(st.t).width;
+      const lx = Math.min(x1 + 4, plotW - tw - 3);
+      drawCtx.fillStyle = "rgba(0,0,0,0.4)";
+      drawCtx.fillRect(lx - 2, y - 7, tw + 4, 14);
+      drawCtx.fillStyle = st.c;
+      drawCtx.fillText(st.t, lx, y + 0.5);
+    }
+  }
+  drawCtx.globalAlpha = 1;
+  // ⑤ 步驟8 交易計畫線：僅 15m/5m 圖 + 可進場(stage≥7)。進場區/止損/止盈1~4 畫成主圖水平價位線(最上層清楚)
+  const _tf = (typeof currentTF !== "undefined") ? currentTF : "";
+  const plan = ((_tf === "15m" || _tf === "5m") && window._coachPlanByTf) ? window._coachPlanByTf[_tf] : null;
+  if (plan) {
+    drawCtx.font = "bold 10px sans-serif";
+    const _hline = (price, rgb, label, dash) => {
+      if (price == null) return;
+      const y = candleSeries.priceToCoordinate(price);
+      if (y == null) return;
+      drawCtx.strokeStyle = `rgba(${rgb},0.95)`; drawCtx.lineWidth = 1.2;
+      drawCtx.setLineDash(dash ? [6, 4] : []);
+      drawCtx.beginPath(); drawCtx.moveTo(0, y); drawCtx.lineTo(plotW, y); drawCtx.stroke();
+      drawCtx.setLineDash([]);
+      if (label) {
+        const tw = drawCtx.measureText(label).width;
+        const lx = plotW - tw - 7;
+        drawCtx.fillStyle = "rgba(0,0,0,0.65)"; drawCtx.fillRect(lx - 3, y - 7, tw + 6, 14);
+        drawCtx.fillStyle = `rgba(${rgb},1)`; drawCtx.fillText(label, lx, y + 0.5);
+      }
+    };
+    if (plan.entry && plan.entry[0] != null) {          // 進場區(淡藍band + 上下虛線)
+      const y0 = candleSeries.priceToCoordinate(plan.entry[0]), y1 = candleSeries.priceToCoordinate(plan.entry[1]);
+      if (y0 != null && y1 != null) { drawCtx.fillStyle = "rgba(79,195,247,0.12)"; drawCtx.fillRect(0, Math.min(y0, y1), plotW, Math.abs(y1 - y0)); }
+      _hline(plan.entry[0], "79,195,247", "進場", true);
+      _hline(plan.entry[1], "79,195,247", "", true);
+    }
+    _hline(plan.sl, "239,83,80", "SL 止損");            // 止損(紅)
+    const tps = plan.tps || (plan.tp != null ? [plan.tp] : []);
+    tps.forEach((v, i) => _hline(v, "38,166,154", "TP" + (i + 1)));   // 止盈1~4(綠)
+    drawCtx.font = "10px sans-serif";
   }
   drawCtx.restore();
 }
