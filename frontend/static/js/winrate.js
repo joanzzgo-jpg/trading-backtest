@@ -809,13 +809,13 @@ function _renderFVGMS(items) {
   for (const it of (_lastFVGMS || [])) {
     const tm = toTime(it.t);
     if (!_has(tm) || (_rpCut != null && tm > _rpCut)) continue;
-    // 逆 HTF 趨勢=弱信號(weak)→淡化(灰、字加·)；順勢=原色
+    // 一律全亮不淡化(使用者要求)——原「weak」淡化依折價/溢價位置,該區已關閉、依據不再可見
     if (it.d === "l") {
-      out.push({ time: tm, position: "belowBar", color: it.weak ? "#7d8a7d" : "#43a047",
-                 shape: "arrowUp", size: it.weak ? 1 : 2, text: it.weak ? "多·" : "多" });
+      out.push({ time: tm, position: "belowBar", color: "#43a047",
+                 shape: "arrowUp", size: 2, text: "多" });
     } else {
-      out.push({ time: tm, position: "aboveBar", color: it.weak ? "#8a7d7d" : "#e53935",
-                 shape: "arrowDown", size: it.weak ? 1 : 2, text: it.weak ? "空·" : "空" });
+      out.push({ time: tm, position: "aboveBar", color: "#e53935",
+                 shape: "arrowDown", size: 2, text: "空" });
     }
   }
   out.sort((a, b) => a.time - b.time);
