@@ -588,9 +588,10 @@ def run_monitor_loop():
                 push_auto_status()
             except Exception as e:
                 print(f"  ⚠ 狀況推播失敗：{e}")
-        # 每 ~2 分鐘：常駐暖掃教練前60（與前端同 cache key）→ 前端「可進場」欄永遠拿熱快取,
-        # 不會看到「掃描中」卡住（權重感知節流已防限流,基載約每2分鐘300個輕量klines）
-        if now - last_coach_warm >= 120:
+        # 每 ~60 秒：常駐暖掃教練前60（與前端同 cache key）→ 清單 1 分鐘級即時。
+        # K棒快取按時框分層(高時框吃快取),每輪實際只重抓 5m/15m ≈ 450~600 權重/分,
+        # 加 ticker 基載共 ~37% 上限;權重感知節流(>75%減速/>92%跳過)+418熔斷雙保險。
+        if now - last_coach_warm >= 60:
             last_coach_warm = now
             try:
                 from routes.data import coach_scan_api

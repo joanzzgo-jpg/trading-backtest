@@ -995,7 +995,8 @@ def smc_coach_api(
             # K 棒共用短快取：常駐暖掃(每2分)已把前60檔全部時框抓好 → 面板點進去直接命中(毫秒級,
             # 原本要重抓4~5個時框 ~5秒)。代價=執行時框最舊 ~100s,教練看的是結構、現價另走每秒 ticker,可接受。
             dk = f"coach_df:{market}:{symbol}:{exchange}:{tf}:{days}"
-            _dttl = 30 if tf == "5m" else (60 if tf == "15m" else 100)   # 執行時框設定壽命短→快取短
+            # TTL 按時框分層:高時框結構一根棒才變一次,不必每輪重抓 → 暖掃每輪只真抓 5m/15m,權重大降
+            _dttl = {"5m": 30, "15m": 60, "1h": 300, "4h": 600, "1d": 900}.get(tf, 100)
             d = data_cache.get(dk, ttl=_dttl)
             if d is None:
                 d = fetch_crt_df(market, symbol, tf, days, exchange, api_key, api_secret, finmind_token)
