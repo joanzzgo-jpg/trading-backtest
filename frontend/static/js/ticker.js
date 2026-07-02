@@ -412,12 +412,13 @@ let _coachScan = { ts: 0, loading: false, data: [] };
 async function _fetchCoachScan(force) {
   const cs = _coachScan;
   if (cs.loading) return;
-  if (!force && cs.data.length && Date.now() - cs.ts < 55000) return;   // 55s:伺服器SWR即回+複驗,常刷不卡
+  if (!force && cs.data.length && Date.now() - cs.ts < 30000) return;   // 30s:伺服器即回+每次複驗,常刷不卡
   cs.loading = true;
   if (_tickerSort === "coach") renderTickers();     // 顯示「掃描中…」
   try {
-    // min_stage=7+at_entry=1：第7步完成(與教練面板同基準)＋現價在掛單區內/接近 → 點進去看到的就是第7步
-    const r = await fetch("/api/coach_scan?n=60&min_stage=7&at_entry=1", { cache: "no-store" });
+    // min_stage=7+at_entry=1+tfset=default：只列 15m(default)版——5m版第7步壽命僅幾分鐘,
+    // 點開常已失效退階(SUI/TLM 實測);15m版壽命長、點進去穩定在第7步。fast 版仍在面板兩版並列顯示。
+    const r = await fetch("/api/coach_scan?n=60&min_stage=7&at_entry=1&tfset=default", { cache: "no-store" });
     const j = await r.json();
     if (j && j.warming) {
       // 伺服器冷啟動暖機中(背景掃描跑著) → 8 秒後自動重試,期間顯示「掃描中」
@@ -435,7 +436,7 @@ async function _fetchCoachScan(force) {
 }
 function _renderCoachList(container, currentSym) {
   const cs = _coachScan;
-  if (!cs.loading && (!cs.data.length || Date.now() - cs.ts > 55000)) _fetchCoachScan();   // 陳舊→背景刷新
+  if (!cs.loading && (!cs.data.length || Date.now() - cs.ts > 30000)) _fetchCoachScan();   // 陳舊→背景刷新
   if ((cs.loading || cs.warming) && !cs.data.length) { container.innerHTML = '<div class="tk-loading">教練掃描中…</div>'; return; }
   if (!cs.data.length) {
     container.innerHTML = '<div class="tk-loading">目前無標的正在進場價位<br><span style="font-size:11px;color:#889">自動掃前60檔·現價進掛單區才列出</span></div>';
@@ -471,6 +472,7 @@ function _renderCoachList(container, currentSym) {
     // 教練面板關著就自動打開（點「可進場」就是要看教練步驟）
     if (!window._coachOn) { try { document.getElementById("coachToggleBtn")?.click(); } catch (e) {} }
     _selectTickerRow(el);
+    setTimeout(() => _fetchCoachScan(true), 5000);   // 點擊後強制刷新清單:剛失效的標的快速掉出
   }));
 }
 

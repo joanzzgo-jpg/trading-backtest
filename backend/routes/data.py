@@ -982,7 +982,7 @@ def smc_coach_api(
     _top_tf, _hh_tf, _hl_tf, _ex_tf, _hh_lbl, _hl_lbl = _COACH_ROLES[_tfset]
     _ex_lbl = _ex_tf.upper()   # 執行時框標籤(default:15M／fast:5M)
     ck = f"smc_coach:{market}:{symbol}:{exchange}:{_tfset}:{1 if closed else 0}"
-    cached = data_cache.get(ck, ttl=25)
+    cached = data_cache.get(ck, ttl=10)
     if cached:
         return cached
     # 4 個時框平行抓取（各僅 1 window/1 請求 → 並行安全、不觸限流）：序列 ~520ms → 並行 ~150ms。
@@ -995,7 +995,8 @@ def smc_coach_api(
             # K 棒共用短快取：常駐暖掃(每2分)已把前60檔全部時框抓好 → 面板點進去直接命中(毫秒級,
             # 原本要重抓4~5個時框 ~5秒)。代價=執行時框最舊 ~100s,教練看的是結構、現價另走每秒 ticker,可接受。
             dk = f"coach_df:{market}:{symbol}:{exchange}:{tf}:{days}"
-            d = data_cache.get(dk, ttl=100)
+            _dttl = 30 if tf == "5m" else (60 if tf == "15m" else 100)   # 執行時框設定壽命短→快取短
+            d = data_cache.get(dk, ttl=_dttl)
             if d is None:
                 d = fetch_crt_df(market, symbol, tf, days, exchange, api_key, api_secret, finmind_token)
                 data_cache.set(dk, d)
@@ -1241,12 +1242,47 @@ def coach_scan_api(
     """教練掃描器：對成交量前 n 名加密永續跑教練(default+fast兩版)，篩出 stage≥min_stage 的標的。
     回 results=[{symbol, hits:{default/fast:{stage,direction,plan,price}}}]，依最高 stage 排序。
 
-    at_entry=1：回應當下再用「每秒 ticker 現價」過濾——只留現價正好在掛單區內(±0.1%)的命中
-    （搭配 min_stage=6＝掛單區已形成＋觸碰正在發生＝「剛好在可進場的價格」，非幾根K前碰過）。
+    at_entry=1：回應當下①逐檔「複驗」清單標的(與面板同基準、吃 10s/30s 短快取,只有幾檔很便宜)——
+    已退階的當場剔除,清單 stage=點進面板看到的 stage;②再用「每秒 ticker 現價」過濾:區內(●進場中)
+    或距區≤3%(近x%)。5m 執行時框的第7步壽命只有幾分鐘 → 每次回應都複驗,不讓死單掛在清單上。
     stale-while-revalidate：快取過期但 30 分內有舊結果 → 立即回舊的(帶 stale:true)＋背景重掃；
     完全沒結果(冷啟動)也不同步掃 → 回 warming:true＋背景掃，端點永遠即回。wait=1＝等新結果。"""
     ck = f"coach_scan:{market}:{exchange}:{n}:{tfset}:{min_stage}"
-    _view = (lambda o: {**o, "results": _filter_at_entry(o.get("results"))}) if at_entry else (lambda o: o)
+
+    def _reverify_hits(results):
+        """逐檔重算教練(與面板同基準)，已退階(<min_stage)的剔除。只跑清單上的少數幾檔。"""
+        from concurrent.futures import ThreadPoolExecutor as _TPE
+        def _one(r):
+            hits = {}
+            for ver in (r.get("hits") or {}):
+                try:
+                    d = smc_coach_api(market, r["symbol"], exchange, tfset=ver)   # 與面板同基準
+                    if d.get("ok") and d.get("stage", 0) >= min_stage:
+                        hits[ver] = {"stage": d["stage"], "direction": d["direction"],
+                                     "plan": d.get("plan"), "price": d.get("price")}
+                except Exception:
+                    pass
+            return {"symbol": r["symbol"], "hits": hits,
+                    "top_stage": max(h["stage"] for h in hits.values())} if hits else None
+        rs = (results or [])[:24]   # 上限24檔，防極端長清單拖慢
+        if not rs:
+            return []
+        with _TPE(max_workers=4) as _pool:
+            fresh = [r for r in _pool.map(_one, rs) if r]
+        fresh.sort(key=lambda r: -r["top_stage"])
+        return fresh
+
+    def _view(o, reverified=False):
+        if not at_entry:
+            return o
+        rs = o.get("results")
+        if not reverified:
+            try:
+                rs = _reverify_hits(rs)
+            except Exception:
+                pass
+        return {**o, "results": _filter_at_entry(rs), "verified": True}
+
     cached = data_cache.get(ck, ttl=120)
     if cached:
         return _view(cached)
@@ -1254,29 +1290,9 @@ def coach_scan_api(
         _coach_scan_spawn_bg(market, exchange, n, tfset, min_stage, ck)
         stale = data_cache.get(ck, ttl=1800)
         if stale:
-            # 舊結果先「複驗」再回：hits 通常只有幾檔，逐檔重算教練(有 25s/100s 快取，便宜)，
-            # 「當下」已退階(<min_stage)的當場剔除 → 清單不再掛著退階的標的。
             try:
-                from concurrent.futures import ThreadPoolExecutor as _TPE
-                def _reverify(r):
-                    hits = {}
-                    for ver in (r.get("hits") or {}):
-                        try:
-                            d = smc_coach_api(market, r["symbol"], exchange, tfset=ver)   # 與面板同基準
-                            if d.get("ok") and d.get("stage", 0) >= min_stage:
-                                hits[ver] = {"stage": d["stage"], "direction": d["direction"],
-                                             "plan": d.get("plan"), "price": d.get("price")}
-                        except Exception:
-                            pass
-                    return {"symbol": r["symbol"], "hits": hits,
-                            "top_stage": max(h["stage"] for h in hits.values())} if hits else None
-                _olds = (stale.get("results") or [])[:24]   # 上限24檔，防極端長清單拖慢
-                fresh = []
-                if _olds:
-                    with _TPE(max_workers=4) as _pool:
-                        fresh = [r for r in _pool.map(_reverify, _olds) if r]
-                fresh.sort(key=lambda r: -r["top_stage"])
-                return _view({**stale, "results": fresh, "stale": True, "verified": True})
+                fresh = _reverify_hits(stale.get("results"))
+                return _view({**stale, "results": fresh, "stale": True}, reverified=True)
             except Exception:
                 return _view({**stale, "stale": True})
         # 冷啟動：連舊結果都沒有 → 不同步掃(會卡 15~20s)，回暖機狀態、背景掃完下次請求就有
