@@ -1534,26 +1534,17 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         _bear = [(_ci, _tp, _bt) for (_ci, _tp, _bt, _dr) in _gseq if _dr == "s"]
         _bull = [(_ci, _tp, _bt) for (_ci, _tp, _bt, _dr) in _gseq if _dr == "l"]
         _ms_seen = set()                                   # 去重：同一確認棒(_cf2)只標一次
-        # 每個缺口的「填補棒」index：做多被 low<下緣、做空被 high>上緣 首次穿破 → 該根填補(用掉)
-        _seq_fill = []
-        for _q in range(len(_gseq)):
-            _fi = None; _qcf = _seq_cf[_q]
-            if _seq_dr[_q] == "l":
-                _qb = _seq_bot[_q]
-                for _j in range(_qcf + 1, _N):
-                    if _L[_j] < _qb: _fi = _j; break
-            else:
-                _qt = _seq_top[_q]
-                for _j in range(_qcf + 1, _N):
-                    if _H[_j] > _qt: _fi = _j; break
-            _seq_fill.append(_fi)
         # 定義：做空FVG(A) → K棒每次「更深突破」碰進其區間(封頂於上緣、同深度不重算)＝一次觸碰錨 →
-        #       該觸碰後「第一個做空FVG」為B(中間夾的做多FVG若B形成時已填補→放行、仍未填補才擋) → B上緣<A上緣 → 標空。
+        #       該觸碰後「第一個做空FVG」為B → B下緣<A上緣(不整個浮在A上、重疊可) → 標空。
         #       A 不限「前一個」，任何更早、未填補的做空FVG都可當 setup(例:ETH 12/12 吃 11/14)；
-        #       每次更深突破各自成錨(例:ETH 6/9 首次碰入→6/15)，故逐錨嘗試而非只取全域最深。多為鏡像。
+        #       每次更深突破各自成錨(例:ETH 6/9 首次碰入→6/15)，故逐錨嘗試而非只取全域最深。
+        #       中間夾的反向FVG：除非「觸碰棒本身就是它的形成棒(g-1/g/g+1，即 cf−touch≤2)＝觸碰那一下順手做出來的」
+        #       否則不論填補都擋(例:ETH 12/12 的 12/10做多是 12/9 觸碰棒做的→放行；1w 10/07 的 9/23做多是8月觸碰後另形成→擋)。多為鏡像。
+        _MSOVR = 0.10      # 衝過緣 10% → 該做空/多FVG被決定性突破、作廢(之後不算有效觸碰)
         for (_cf, _top, _bot) in _bear:                    # 空
             _mx = None
             for _touch in range(_cf + 1, _N):
+                if _H[_touch] > _top * (1 + _MSOVR): break # 上影線衝過上緣10% → 做空FVG作廢
                 if _H[_touch] < _bot: continue             # 沒碰進區間
                 _r = _top if _H[_touch] > _top else _H[_touch]   # 封頂於上緣
                 if _mx is not None and _r <= _mx: continue # 沒更深 → 非新觸碰
@@ -1564,10 +1555,10 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                     if _seq_dr[_q] == "s": _B = _q; break
                 if _B is None: continue
                 _cf2 = _seq_cf[_B]
-                if _cf2 in _ms_seen or _cf2 - _touch > _MSWIN or not _seq_top[_B] < _top: continue
-                _blk = False                                # 中間夾的做多FVG「B形成時仍未填補」→擋
+                if _cf2 in _ms_seen or _cf2 - _touch > _MSWIN or not _seq_bot[_B] < _top: continue  # B下緣<A上緣(重疊可)
+                _blk = False                                # 中間夾的做多FVG(非觸碰棒順手做的)→擋
                 for _q in range(_p, _B):
-                    if _seq_dr[_q] == "l" and (_seq_fill[_q] is None or _seq_fill[_q] >= _cf2):
+                    if _seq_dr[_q] == "l" and _seq_cf[_q] - _touch > 2:
                         _blk = True; break
                 if _blk: continue
                 _fvg_ms.append({"t": times_iso[_cf2], "d": "s"})
@@ -1575,6 +1566,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         for (_cf, _top, _bot) in _bull:                    # 多（鏡像）
             _mn = None
             for _touch in range(_cf + 1, _N):
+                if _L[_touch] < _bot * (1 - _MSOVR): break # 下影線衝過下緣10% → 做多FVG作廢
                 if _L[_touch] > _top: continue
                 _r = _bot if _L[_touch] < _bot else _L[_touch]   # 封底於下緣
                 if _mn is not None and _r >= _mn: continue
@@ -1585,10 +1577,10 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                     if _seq_dr[_q] == "l": _B = _q; break
                 if _B is None: continue
                 _cf2 = _seq_cf[_B]
-                if _cf2 in _ms_seen or _cf2 - _touch > _MSWIN or not _seq_bot[_B] > _bot: continue
+                if _cf2 in _ms_seen or _cf2 - _touch > _MSWIN or not _seq_top[_B] > _bot: continue  # B上緣>A下緣(重疊可)
                 _blk = False
                 for _q in range(_p, _B):
-                    if _seq_dr[_q] == "s" and (_seq_fill[_q] is None or _seq_fill[_q] >= _cf2):
+                    if _seq_dr[_q] == "s" and _seq_cf[_q] - _touch > 2:
                         _blk = True; break
                 if _blk: continue
                 _fvg_ms.append({"t": times_iso[_cf2], "d": "l"})
