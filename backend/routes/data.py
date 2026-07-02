@@ -1185,7 +1185,7 @@ def _tag_htf_bias(df, timeframe, result):
     try:
         import numpy as np
         _H = df["high"].to_numpy(float); _L = df["low"].to_numpy(float); _C = df["close"].to_numpy(float)
-        _n = len(df); _PL = 5                                # 當前時框：半窗 5 根定擺動 pivot
+        _n = len(df); _PL = 8                                # 半窗 8 根定「較主要」擺動(對齊 ICT:用有意義擺動、避免 micro range)
         zn = [0] * _n; _sh = None; _sl = None; _cur = 0; _legStart = 0
         _lHi = None; _lLo = None; _legs = []                 # 每段結構腿：(startIdx, endIdx, top, bot)
         for _i in range(_n):
