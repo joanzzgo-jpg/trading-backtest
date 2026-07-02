@@ -1174,14 +1174,15 @@ def _export_bars(_df) -> dict:
     }
 
 
-# 更高時框偏見（弱信號過濾）：當前時框 → 重採樣的 HTF pandas rule。就地重採樣、免另抓資料。
-_HTF_RULE = {"1m": "15min", "5m": "1h", "15m": "1h", "1h": "4h", "4h": "1D", "1d": "1W"}
+# 更高時框偏見（弱信號過濾）：當前時框 → 重採樣的 HTF pandas rule。對齊教練 HTF(15m→4h、5m→1h、1h→4h…)。
+# 就地重採樣、免另抓資料(避免 Binance 限流)。
+_HTF_RULE = {"1m": "1h", "5m": "1h", "15m": "4h", "1h": "4h", "4h": "1D", "1d": "1W"}
 
 
 def _tag_htf_bias(df, timeframe, result):
     """把 fvg_ms(方向多空)/fvg_break(破多破空) 依『更高時框趨勢』標 weak(逆勢=弱信號→前端淡化)。
-    就地把當前 df 重採樣成 HTF(免另抓)、算逐棒 EMA 趨勢，對齊每個標記的『上一根已收盤 HTF』。
-    對齊「折扣區上影線=弱信號」：牛市 HTF 裡的看空(空/破多) 淡化、熊市 HTF 裡的看多(多/破空) 淡化。"""
+    就地把當前 df 重採樣成 HTF(免另抓)、算逐棒『擺動結構 BOS 趨勢』(非 EMA，與 SMC/教練同源)，
+    對齊每個標記的『上一根已收盤 HTF』。牛市 HTF 裡的看空(空/破多) 淡化、熊市 HTF 裡的看多(多/破空) 淡化。"""
     ms = result.get("fvg_ms") or []
     bk = result.get("fvg_break") or []
     if (not ms and not bk):
@@ -1198,24 +1199,34 @@ def _tag_htf_bias(df, timeframe, result):
             {"open": "first", "high": "max", "low": "min", "close": "last"}).dropna()
         if len(h) < 25:
             return
-        ema = h["close"].ewm(span=20, adjust=False).mean()
-        _slope = ema.diff()
-        trend = pd.Series(0, index=h.index, dtype=int)
-        trend[(h["close"] > ema) & (_slope > 0)] = 1     # 偏多
-        trend[(h["close"] < ema) & (_slope < 0)] = -1    # 偏空
+        # 逐 HTF 棒：①趨勢＝擺動結構 BOS(收盤破擺動高→偏多、破擺動低→偏空)；②折價/溢價＝close 在
+        #   [擺動低,擺動高] 區間的位置(50%中線±5%均衡帶)：上半=溢價(+1)、下半=折價(-1)。皆用結構 swing，不用 EMA。
+        _H = h["high"].values; _L = h["low"].values; _C = h["close"].values; _n = len(h); _PL = 3
+        tr = [0] * _n; zn = [0] * _n; _sh = None; _sl = None; _cur = 0
+        for _i in range(_n):
+            _j = _i - _PL                                    # 於 _j 確認 pivot(需兩側各 _PL 根)
+            if _j >= _PL:
+                if _H[_j] >= _H[_j - _PL:_j + _PL + 1].max(): _sh = _H[_j]   # 擺動高
+                if _L[_j] <= _L[_j - _PL:_j + _PL + 1].min(): _sl = _L[_j]   # 擺動低
+            if _sh is not None and _C[_i] > _sh: _cur = 1    # 收盤破擺動高 → BOS 偏多
+            elif _sl is not None and _C[_i] < _sl: _cur = -1 # 收盤破擺動低 → BOS 偏空
+            tr[_i] = _cur
+            if _sh is not None and _sl is not None and _sh > _sl:   # 折價/溢價(dealing range 50%±5%)
+                _mid = (_sh + _sl) / 2.0; _band = (_sh - _sl) * 0.05
+                zn[_i] = 1 if _C[_i] > _mid + _band else (-1 if _C[_i] < _mid - _band else 0)
         starts = h.index.values
-        tr = trend.values
 
         def _bias_at(tstr):
             t = np.datetime64(pd.to_datetime(tstr))
             i = np.searchsorted(starts, t, side="right") - 2   # 上一根『已收盤』HTF(避免用到當下未收的那根)
-            return int(tr[i]) if i >= 0 else 0
-        for m in ms:                                     # fvg_ms：d=s 空(bear)、d=l 多(bull)
-            b = _bias_at(m["t"]); bear = (m.get("d") == "s")
-            m["weak"] = bool((bear and b == 1) or ((not bear) and b == -1))
-        for m in bk:                                     # fvg_break：d=l 破多(bear)、d=s 破空(bull)
-            b = _bias_at(m["t"]); bear = (m.get("d") == "l")
-            m["weak"] = bool((bear and b == 1) or ((not bear) and b == -1))
+            return (int(tr[i]), int(zn[i])) if i >= 0 else (0, 0)
+        # 弱信號＝逆 HTF 趨勢『且』位置不對(空在折價/多在溢價 才算)。fvg_ms:d=s空/d=l多；fvg_break:d=l破多(bear)/d=s破空(bull)
+        for m in ms:
+            _t, _z = _bias_at(m["t"]); bear = (m.get("d") == "s")
+            m["weak"] = bool((bear and _t == 1 and _z == -1) or ((not bear) and _t == -1 and _z == 1))
+        for m in bk:
+            _t, _z = _bias_at(m["t"]); bear = (m.get("d") == "l")
+            m["weak"] = bool((bear and _t == 1 and _z == -1) or ((not bear) and _t == -1 and _z == 1))
     except Exception:
         pass
 
