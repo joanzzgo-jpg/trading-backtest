@@ -753,14 +753,15 @@ function _renderFVGBreak(items) {
   for (const it of (_lastFVGBreak || [])) {
     const tm = toTime(it.t);
     if (!_has(tm) || (_rpCut != null && tm > _rpCut)) continue;
+    // 逆 HTF 趨勢=弱信號(weak)→淡化(灰、字加·)
     if (it.d === "s") {
       // 破空：收盤漲破前一個空FVG上緣（看多轉破）→ 棒下方綠色↑
-      out.push({ time: tm, position: "belowBar", color: "#26c6a6",
-                 shape: "arrowUp", size: 1.6, text: "破空" });
+      out.push({ time: tm, position: "belowBar", color: it.weak ? "#6f8a83" : "#26c6a6",
+                 shape: "arrowUp", size: 1.6, text: it.weak ? "破空·" : "破空" });
     } else {
       // 破多：收盤跌破前一個多FVG下緣（看空轉破）→ 棒上方橘色↓
-      out.push({ time: tm, position: "aboveBar", color: "#ff7043",
-                 shape: "arrowDown", size: 1.6, text: "破多" });
+      out.push({ time: tm, position: "aboveBar", color: it.weak ? "#8a7a6f" : "#ff7043",
+                 shape: "arrowDown", size: 1.6, text: it.weak ? "破多·" : "破多" });
     }
   }
   out.sort((a, b) => a.time - b.time);
@@ -788,12 +789,13 @@ function _renderFVGMS(items) {
   for (const it of (_lastFVGMS || [])) {
     const tm = toTime(it.t);
     if (!_has(tm) || (_rpCut != null && tm > _rpCut)) continue;
+    // 逆 HTF 趨勢=弱信號(weak)→淡化(灰、字加·)；順勢=原色
     if (it.d === "l") {
-      out.push({ time: tm, position: "belowBar", color: "#43a047",
-                 shape: "arrowUp", size: 2, text: "多" });
+      out.push({ time: tm, position: "belowBar", color: it.weak ? "#7d8a7d" : "#43a047",
+                 shape: "arrowUp", size: it.weak ? 1 : 2, text: it.weak ? "多·" : "多" });
     } else {
-      out.push({ time: tm, position: "aboveBar", color: "#e53935",
-                 shape: "arrowDown", size: 2, text: "空" });
+      out.push({ time: tm, position: "aboveBar", color: it.weak ? "#8a7d7d" : "#e53935",
+                 shape: "arrowDown", size: it.weak ? 1 : 2, text: it.weak ? "空·" : "空" });
     }
   }
   out.sort((a, b) => a.time - b.time);

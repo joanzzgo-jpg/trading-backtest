@@ -1174,6 +1174,52 @@ def _export_bars(_df) -> dict:
     }
 
 
+# 更高時框偏見（弱信號過濾）：當前時框 → 重採樣的 HTF pandas rule。就地重採樣、免另抓資料。
+_HTF_RULE = {"1m": "15min", "5m": "1h", "15m": "1h", "1h": "4h", "4h": "1D", "1d": "1W"}
+
+
+def _tag_htf_bias(df, timeframe, result):
+    """把 fvg_ms(方向多空)/fvg_break(破多破空) 依『更高時框趨勢』標 weak(逆勢=弱信號→前端淡化)。
+    就地把當前 df 重採樣成 HTF(免另抓)、算逐棒 EMA 趨勢，對齊每個標記的『上一根已收盤 HTF』。
+    對齊「折扣區上影線=弱信號」：牛市 HTF 裡的看空(空/破多) 淡化、熊市 HTF 裡的看多(多/破空) 淡化。"""
+    ms = result.get("fvg_ms") or []
+    bk = result.get("fvg_break") or []
+    if (not ms and not bk):
+        return
+    rule = _HTF_RULE.get(timeframe)
+    if rule is None or df is None or len(df) < 40:
+        return
+    try:
+        import numpy as np
+        d = df[["time", "open", "high", "low", "close"]].copy()
+        d["time"] = pd.to_datetime(d["time"])
+        d = d.set_index("time")
+        h = d.resample(rule, label="left", closed="left").agg(
+            {"open": "first", "high": "max", "low": "min", "close": "last"}).dropna()
+        if len(h) < 25:
+            return
+        ema = h["close"].ewm(span=20, adjust=False).mean()
+        _slope = ema.diff()
+        trend = pd.Series(0, index=h.index, dtype=int)
+        trend[(h["close"] > ema) & (_slope > 0)] = 1     # 偏多
+        trend[(h["close"] < ema) & (_slope < 0)] = -1    # 偏空
+        starts = h.index.values
+        tr = trend.values
+
+        def _bias_at(tstr):
+            t = np.datetime64(pd.to_datetime(tstr))
+            i = np.searchsorted(starts, t, side="right") - 2   # 上一根『已收盤』HTF(避免用到當下未收的那根)
+            return int(tr[i]) if i >= 0 else 0
+        for m in ms:                                     # fvg_ms：d=s 空(bear)、d=l 多(bull)
+            b = _bias_at(m["t"]); bear = (m.get("d") == "s")
+            m["weak"] = bool((bear and b == 1) or ((not bear) and b == -1))
+        for m in bk:                                     # fvg_break：d=l 破多(bear)、d=s 破空(bull)
+            b = _bias_at(m["t"]); bear = (m.get("d") == "l")
+            m["weak"] = bool((bear and b == 1) or ((not bear) and b == -1))
+    except Exception:
+        pass
+
+
 def get_crt_winrate(
     market: str,
     symbol: str,
@@ -1302,6 +1348,10 @@ def get_crt_winrate(
         result = _wr_cached
     else:
         result = _calc_crt_winrate(df, stop_buffer_pct=_buf, long_only=_long_only, band_ratio=_br)
+        try:
+            _tag_htf_bias(df, timeframe, result)   # 標 weak(逆 HTF 趨勢=弱信號)→前端淡化
+        except Exception:
+            pass
         data_cache.set(cache_key, result)
         if _bar_now is not None:
             data_cache.set(bar_key, _bar_now)   # 標記此結果對應的最新棒 → bar-aware 新鮮度判定用
