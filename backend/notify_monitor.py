@@ -507,7 +507,7 @@ def _coach_scan_push():
         from routes.data import coach_scan_api
         # min_stage=7+at_entry=1：第7步完成(與面板同基準)＋「現價此刻正好在掛單區內」才推
         # → 收到推播時就是可進場價(接近層 near_pct>0 在下方迴圈跳過不推)
-        res = coach_scan_api(market="crypto", exchange="binance", n=60, tfset="default", min_stage=7, wait=1, at_entry=1)
+        res = coach_scan_api(market="crypto", exchange="binance", n=60, tfset="both", min_stage=7, wait=1, at_entry=1)
     except Exception as e:
         print(f"  ⚠ 教練掃描失敗：{e}")
         return
@@ -594,7 +594,7 @@ def run_monitor_loop():
             last_coach_warm = now
             try:
                 from routes.data import coach_scan_api
-                coach_scan_api(market="crypto", exchange="binance", n=60, tfset="default", min_stage=7, wait=1)
+                coach_scan_api(market="crypto", exchange="binance", n=60, tfset="both", min_stage=7, wait=1)
             except Exception as e:
                 print(f"  ⚠ 教練暖掃失敗：{e}")
         # 每 ~10 分鐘：教練掃描前60 → 新『可進場』推播 + 訊號中心（讀暖掃快取,幾乎零成本）

@@ -416,9 +416,9 @@ async function _fetchCoachScan(force) {
   cs.loading = true;
   if (_tickerSort === "coach") renderTickers();     // 顯示「掃描中…」
   try {
-    // min_stage=7+at_entry=1+tfset=default：只列 15m(default)版——5m版第7步壽命僅幾分鐘,
-    // 點開常已失效退階(SUI/TLM 實測);15m版壽命長、點進去穩定在第7步。fast 版仍在面板兩版並列顯示。
-    const r = await fetch("/api/coach_scan?n=60&min_stage=7&at_entry=1&tfset=default", { cache: "no-store" });
+    // min_stage=7+at_entry=1：兩版都列(使用者要 5m)。5m版標⚡短效——第7步壽命僅幾分鐘,
+    // 點開時可能剛失效退階(每次回應已複驗+點擊後5s刷新,把落差壓到最小)。
+    const r = await fetch("/api/coach_scan?n=60&min_stage=7&at_entry=1", { cache: "no-store" });
     const j = await r.json();
     if (j && j.warming) {
       // 伺服器冷啟動暖機中(背景掃描跑著) → 8 秒後自動重試,期間顯示「掃描中」
@@ -451,7 +451,7 @@ function _renderCoachList(container, currentSym) {
       if ((h.stage || 0) > bestStage) { bestStage = h.stage || 0; bestVer = ver; }
       const dl = h.direction === 1 ? "多" : "空";
       const dc = h.direction === 1 ? "#26a69a" : "#ef5350";
-      const tf = ver === "fast" ? "5m" : "15m";
+      const tf = ver === "fast" ? "⚡5m" : "15m";   // ⚡=短效提示:5m 第7步壽命僅幾分鐘,點開可能剛失效
       // near_pct=0＝現價正在掛單區內(亮綠「進場中」)；>0＝距區緣 x%(灰,給限價提前掛單)
       const np = h.near_pct;
       const tag = (np === 0) ? '<span style="color:#ffd54f;font-size:10px">●進場中</span>'
