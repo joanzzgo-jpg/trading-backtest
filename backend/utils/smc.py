@@ -496,14 +496,35 @@ def run_coach(df15, htf_bull_zones, htf_bear_zones, direction, touch_mode=True,
 
 
 def run_coach2(df15, series_4h, series_1h, target_dir, touch_mode=True,
-               PL=5, LB=20, MAXWAIT=120):
+               PL=5, LB=20, MAXWAIT=120, forming_last=False):
     """忠實版狀態機：逐 15M 棒對齊 1H/4H HTF series(request.security 復刻)+完整失效退階。
-    target_dir：目前主方向(1多/-1空)。回傳當前 setup 狀態(同 run_coach 欄位)。"""
+    target_dir：目前主方向(1多/-1空)。回傳當前 setup 狀態(同 run_coach 欄位)。
+
+    對齊 TV 原版(SR+SMC 教練 v7.0.0)的關鍵語意：
+    - 步驟3(掃蕩)/4(MSS)/5(BOS)與所有失效判定只在「已收盤」棒成立(barstate.isconfirmed)；
+      步驟2(進區)與步驟6→7(觸碰掛單區)為盤中即時(high/low 觸碰)。forming_last=True 時
+      最後一根視為未收盤 → 只允許觸碰類判定。
+    - swept 狀態只在「新擺點形成」時重置(同一擺點只能被掃一次)。
+    - 掃蕩排除「同棒同時收破結構」的棒。
+    - 步驟6 掛單區＝BOS 後最新的 15M 本方向「訂單區(優先)或缺口」：
+      OB=結構破棒往前 20 棒內最後一根反向 K 的實體(obUseBody)；FVG 最小寬度 0.05×ATR(14)。"""
     if df15 is None or len(df15) < PL * 2 + 3 or target_dir == 0 or not series_4h:
         return {"stage": 0}
     H, L, C, O, T = _to_lists(df15)
     N = len(C)
     d = target_dir
+    # ATR(14)（RMA，對齊 Pine ta.atr）：給 FVG 最小寬度門檻用
+    ATR = [float("nan")] * N
+    _a = None
+    for i in range(N):
+        if i == 0 or C[i-1] != C[i-1]:
+            _tr = H[i] - L[i]
+        else:
+            _tr = max(H[i] - L[i], abs(H[i] - C[i-1]), abs(L[i] - C[i-1]))
+        if _tr != _tr:
+            continue
+        _a = _tr if _a is None else (_a * 13.0 + _tr) / 14.0
+        ATR[i] = _a
 
     # HTF 對齊：每根 15M → 取「上一根『已收盤』HTF」（復刻 Pine f_htfVisibleZones/StructureSnapshot 回傳的 [1]）。
     #   關鍵：不能用「正在形成」的 HTF 棒（會用到它收盤後才知道的趨勢/區）——那正是 IN 鎖到暴跌棒的 bug。
@@ -535,6 +556,10 @@ def run_coach2(df15, series_4h, series_1h, target_dir, touch_mode=True,
     bosTrig = None; bosSetBar = None; bosBar = None
     entTop = entBot = None; entName = ""
     lastSH = lastSL = None; shBroken = slBroken = False; shSwept = slSwept = False
+    # 15M 本地 OB/FVG 模組（本方向的「最新一個」；對齊 f_processOrderBlockModule/f_processFvgModule）
+    obTop = obBot = None; obCreated = None
+    fvTop = fvBot = None; fvCreated = None
+    OB_LOOKBACK = 20; FVG_MIN_ATR = 0.05
 
     def reset(to):
         nonlocal stage, startBar, zTop, zBot, zName, sweepPx, sweepBar, turnTrig, turnBar
@@ -549,36 +574,54 @@ def run_coach2(df15, series_4h, series_1h, target_dir, touch_mode=True,
 
     for _i in range(N):
         i = _i
+        conf = not (forming_last and i == N - 1)   # 最後一根未收盤 → 只允許「觸碰類」判定
         e4 = a4[i]; e1 = a1[i]
         t4 = e4["trend"] if e4 else 0
         ci = C[i]; cp = C[i - 1] if i > 0 else float("nan")
-        # 15M 擺點/破/掃
+        # 15M 擺點/破/掃（擺點確認需要右側 PL 根完整 → 只在已收盤資料上更新）
         p = i - PL
-        if p - PL >= 0:
-            if _is_ph(H, p, PL): lastSH = H[p]; shBroken = False
-            if _is_pl(L, p, PL): lastSL = L[p]; slBroken = False
+        if conf and p - PL >= 0:
+            if _is_ph(H, p, PL): lastSH = H[p]; shBroken = False; shSwept = False   # 新擺點才重置 swept(對齊TV)
+            if _is_pl(L, p, PL): lastSL = L[p]; slBroken = False; slSwept = False
         if ci != ci:
             continue
-        bullBreak = lastSH is not None and not shBroken and ci > lastSH and (cp != cp or cp <= lastSH)
-        bearBreak = lastSL is not None and not slBroken and ci < lastSL and (cp != cp or cp >= lastSL)
+        bullBreak = conf and lastSH is not None and not shBroken and ci > lastSH and (cp != cp or cp <= lastSH)
+        bearBreak = conf and lastSL is not None and not slBroken and ci < lastSL and (cp != cp or cp >= lastSL)
         if bullBreak: shBroken = True
         if bearBreak: slBroken = True
-        bullSweep = lastSL is not None and not slSwept and L[i] < lastSL and ci > lastSL
-        bearSweep = lastSH is not None and not shSwept and H[i] > lastSH and ci < lastSH
+        # 掃蕩＝收盤確認＋排除同棒收破結構（對齊TV bullishSweep 的 not bearishBreak）
+        bullSweep = conf and lastSL is not None and not slSwept and not bearBreak and L[i] < lastSL and ci > lastSL
+        bearSweep = conf and lastSH is not None and not shSwept and not bullBreak and H[i] > lastSH and ci < lastSH
         if bullSweep: slSwept = True
         if bearSweep: shSwept = True
-        if lastSL is not None and L[i] >= lastSL: slSwept = False
-        if lastSH is not None and H[i] <= lastSH: shSwept = False
+
+        # 15M 本地 OB/FVG 模組（只在已收盤棒生成；步驟6用「最新一個」）
+        if conf:
+            if d == 1 and bullBreak:
+                for j in range(i - 1, max(i - 1 - OB_LOOKBACK, -1), -1):   # 突破前最後一根空方K(實體)
+                    if C[j] == C[j] and O[j] == O[j] and C[j] < O[j]:
+                        obTop = max(O[j], C[j]); obBot = min(O[j], C[j]); obCreated = i
+                        break
+            if d == -1 and bearBreak:
+                for j in range(i - 1, max(i - 1 - OB_LOOKBACK, -1), -1):   # 突破前最後一根多方K(實體)
+                    if C[j] == C[j] and O[j] == O[j] and C[j] > O[j]:
+                        obTop = max(O[j], C[j]); obBot = min(O[j], C[j]); obCreated = i
+                        break
+            if i >= 2 and ATR[i] == ATR[i]:
+                if d == 1 and L[i] == L[i] and H[i-2] == H[i-2] and L[i] > H[i-2] and (L[i] - H[i-2]) >= FVG_MIN_ATR * ATR[i]:
+                    fvTop = L[i]; fvBot = H[i-2]; fvCreated = i
+                if d == -1 and H[i] == H[i] and L[i-2] == L[i-2] and H[i] < L[i-2] and (L[i-2] - H[i]) >= FVG_MIN_ATR * ATR[i]:
+                    fvTop = L[i-2]; fvBot = H[i]; fvCreated = i
 
         biasPass = (t4 == d)
-        # ── 失效退階(f_pathInvalidCode + 全域) ──
+        # ── 失效退階(f_pathInvalidCode + 全域；路徑失效只在已收盤棒判定,對齊TV) ──
         if stage > 0:
             inv = 0
             if not biasPass or (bearBreak and d == 1) or (bullBreak and d == -1):
                 inv = 1                                    # 方向規則不過/反向結構 → 重置
             elif startBar is not None and stage < 7 and i - startBar > MAXWAIT:
                 inv = 2                                    # 超時 → 重置
-            else:
+            elif conf:
                 htfEdge = (zBot if d == 1 else zTop)
                 if stage >= 2 and htfEdge is not None and (ci < htfEdge if d == 1 else ci > htfEdge):
                     inv = 3
@@ -625,21 +668,31 @@ def run_coach2(df15, series_4h, series_1h, target_dir, touch_mode=True,
             sweepPx = (L[i] if d == 1 else H[i]); turnTrig = (lastSH if d == 1 else lastSL)
         if stage == 3 and turnTrig is None:
             turnTrig = (lastSH if d == 1 else lastSL)
-        if stage == 3 and sweepBar is not None and i > sweepBar and turnTrig is not None and \
+        if stage == 3 and conf and sweepBar is not None and i > sweepBar and turnTrig is not None and \
            ((d == 1 and ci > turnTrig) or (d == -1 and ci < turnTrig)):
             stage = 4; startBar = i; turnBar = i; bosTrig = None; bosSetBar = None
         if stage == 4 and bosTrig is None and turnBar is not None and p - PL >= 0 and p >= turnBar:
             if d == 1 and _is_ph(H, p, PL): bosTrig = H[p]; bosSetBar = i
             if d == -1 and _is_pl(L, p, PL): bosTrig = L[p]; bosSetBar = i
-        if stage == 4 and bosTrig is not None and bosSetBar is not None and i > bosSetBar and \
+        if stage == 4 and conf and bosTrig is not None and bosSetBar is not None and i > bosSetBar and \
            ((d == 1 and ci > bosTrig) or (d == -1 and ci < bosTrig)):
             stage = 5; startBar = i; bosBar = i
         if stage == 5 and bosBar is not None and i > bosBar:
-            zone = _last_dir_zone_15m(H, L, C, O, T, i, bosBar, d, LB)
-            if zone is not None and H[i] >= zone[1] and L[i] <= zone[0]:
-                stage = 6; startBar = i; entTop, entBot, entName = zone[0], zone[1], zone[2]
+            # 掛單區＝BOS 後生成的最新 OB(優先) 或 FVG，盤中觸碰即完成(對齊TV coachLong*PullbackNow)
+            obTouch = (obCreated is not None and obCreated >= bosBar and obTop is not None
+                       and H[i] >= obBot and L[i] <= obTop)
+            fvTouch = (fvCreated is not None and fvCreated >= bosBar and fvTop is not None
+                       and H[i] >= fvBot and L[i] <= fvTop)
+            if obTouch or fvTouch:
+                stage = 6; startBar = i
+                if obTouch:
+                    entTop, entBot = obTop, obBot
+                    entName = "多方訂單區" if d == 1 else "空方訂單區"
+                else:
+                    entTop, entBot = fvTop, fvBot
+                    entName = "多方缺口" if d == 1 else "空方缺口"
                 if touch_mode: stage = 7
-        if stage == 6 and not touch_mode and entTop is not None:
+        if stage == 6 and not touch_mode and conf and entTop is not None:
             mid = (entTop + entBot) / 2.0
             if (d == 1 and ci > O[i] and ci > mid) or (d == -1 and ci < O[i] and ci < mid):
                 stage = 7

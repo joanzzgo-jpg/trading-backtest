@@ -1027,7 +1027,13 @@ def smc_coach_api(
         try:
             _ser4 = smc.htf_series(_df_hh)
             _ser1 = smc.htf_series(_df_hl)
-            coach = smc.run_coach2(_df_ex, _ser4, _ser1, direction)
+            # 對齊 TV：最後一根「未收盤」棒只允許觸碰類判定(closed=1 已丟掉未收盤棒 → 恆為 False)
+            _forming = False
+            if not closed and len(_df_ex):
+                _ivx = _CRT_IV.get(_ex_tf)
+                if _ivx:
+                    _forming = pd.Timestamp(_df_ex["time"].iloc[-1]).timestamp() + _ivx > time.time()
+            coach = smc.run_coach2(_df_ex, _ser4, _ser1, direction, forming_last=_forming)
         except Exception:
             coach = {"stage": 0}
     else:
