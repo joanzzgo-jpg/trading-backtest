@@ -1030,10 +1030,23 @@ function _renderCoachPanel() {
   };
   const sym = (dd && dd.symbol) || (df && df.symbol) || "";
   const collapsed = window._coachCollapsed !== false;
-  // 進場狀態徽章：stage≥7=已觸碰掛單區可進場(綠)、stage 6=掛單等觸碰(黃) → 一眼看出哪版可進場
-  const entryBadge = d => (!d || !d.ok) ? "" :
-    (d.stage >= 7 ? `<span style="background:#1b5e20;color:#b6ffbf;border-radius:3px;padding:0 5px;margin-left:5px;font-weight:700">🎯可進場</span>`
-      : d.stage >= 6 ? `<span style="background:#4a3b00;color:#ffd54f;border-radius:3px;padding:0 5px;margin-left:5px">掛單中</span>` : "");
+  // 進場狀態徽章：與「可進場」清單同一套定義——stage≥7 還要看「現價距掛單區」:
+  //   區內=🎯可進場(綠)、≤3%=🎯可進場·距x%(綠)、>3%=已觸碰·價已離區(黃灰,所以不在清單);stage6=掛單中
+  const entryBadge = d => {
+    if (!d || !d.ok) return "";
+    if (d.stage >= 7) {
+      const ent = d.plan && d.plan.entry; let dist = null;
+      if (ent && ent.length >= 2 && ent[0] != null && d.price != null) {
+        const lo = Math.min(ent[0], ent[1]), hi = Math.max(ent[0], ent[1]);
+        dist = (d.price >= lo && d.price <= hi) ? 0 : Math.min(Math.abs(d.price - lo), Math.abs(d.price - hi)) / d.price * 100;
+      }
+      if (dist != null && dist > 3)
+        return `<span style="background:#4a3b00;color:#d8c07a;border-radius:3px;padding:0 5px;margin-left:5px">已觸碰·價已離區${dist.toFixed(1)}%</span>`;
+      const t = (dist != null && dist > 0) ? `·距${dist.toFixed(1)}%` : "";
+      return `<span style="background:#1b5e20;color:#b6ffbf;border-radius:3px;padding:0 5px;margin-left:5px;font-weight:700">🎯可進場${t}</span>`;
+    }
+    return d.stage >= 6 ? `<span style="background:#4a3b00;color:#ffd54f;border-radius:3px;padding:0 5px;margin-left:5px">掛單中</span>` : "";
+  };
   const subhead = d => `<div style="color:#ffca28;font-weight:600;margin:3px 0 1px;font-size:10.5px">〔${tflabel(d)}〕<b style="color:${dcOf(d)}">${dtOf(d)}</b>｜步驟 ${d ? d.stage : 0}/8${entryBadge(d)}</div>`;
   // 從「可進場」清單點進來的期望檢查:命中版本若已失效退階(<7)→紅色提示+立即刷新清單
   // (5m/15m 執行時框設定壽命短,點開瞬間剛失效是週期本質——明講,而不是讓使用者以為清單亂給)
