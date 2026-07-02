@@ -1161,7 +1161,8 @@ def _coach_scan_compute(market, exchange, n, tfset, min_stage, ck):
     results.sort(key=lambda r: -r["top_stage"])
     out = {"ok": True, "scanned": len(syms), "min_stage": min_stage,
            "results": results, "asof": time.time()}
-    data_cache.set(ck, out)
+    if syms:                       # universe 抓不到(418封禁/暖機)＝掃了個空 → 不寫快取,下次請求直接重試
+        data_cache.set(ck, out)
     return out
 
 

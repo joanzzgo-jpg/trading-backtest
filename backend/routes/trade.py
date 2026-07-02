@@ -1171,10 +1171,12 @@ def top_crypto_universe(n=60):
     if _universe_cache["syms"] and now - _universe_cache["ts"] < 86400:
         return _universe_cache["syms"][:n]
     try:
-        import urllib.request
-        info = json.load(urllib.request.urlopen("https://fapi.binance.com/fapi/v1/exchangeInfo", timeout=20))
+        # 走 _binance_get 吃 418/429 全域熔斷——否則封禁期間掃描器每 ~2 分鐘的背景重掃都會經此
+        # 直打被封的 Binance（universe 快取失敗時不回填），持續延長封禁
+        from data.crypto import _binance_get
+        info = _binance_get("https://fapi.binance.com/fapi/v1/exchangeInfo", timeout=20, retries=0)
         meta = {s.get("symbol"): s for s in info.get("symbols", [])}
-        tk = json.load(urllib.request.urlopen("https://fapi.binance.com/fapi/v1/ticker/24hr", timeout=20))
+        tk = _binance_get("https://fapi.binance.com/fapi/v1/ticker/24hr", timeout=20, retries=0)
         rows = []
         for t in tk:
             sym = t.get("symbol"); d = meta.get(sym) or {}

@@ -1601,16 +1601,25 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         # 中間規則與「多」相同：觸碰→突破之間不能夾雜任何其他FVG(cf−touch≤2 觸碰棒順手做的除外)。
         # 順空：鏡像——做空FVG(A)被碰到後，影線跌破既存做多FVG(R)下緣(low<R.bot) → 標「順空」。
         # 效能：預算每個FVG的「首次被影線突破」事件 (brk_idx, cf) 依 brk 升序 → 錨點查詢用 bisect。
-        _brk_s = []                                    # 做空FVG：首次 high>top 的棒
-        for (_c2, _t2, _b2) in _bear:
-            for _j in range(_c2 + 1, _N):
-                if _H[_j] > _t2: _brk_s.append((_j, _c2)); break
-        _brk_s.sort()
-        _brk_l = []                                    # 做多FVG：首次 low<bot 的棒
-        for (_c2, _t2, _b2) in _bull:
-            for _j in range(_c2 + 1, _N):
-                if _L[_j] < _b2: _brk_l.append((_j, _c2)); break
-        _brk_l.sort()
+        # 用 heap 單趟掃描 O(N log G)——逐棒把 cf<j 的缺口入堆(邊緣最先被碰的在頂)、被突破的彈出。
+        # (逐缺口向後掃是 O(缺口數×N)：從未被突破的缺口各自掃到序列尾端，1h 7萬根×數千缺口=數千萬次迭代)
+        import heapq as _hq
+        _brk_s = []                                    # 做空FVG：首次 high>top 的棒（單趟天然依 brk 升序）
+        _hp = []; _bi = 0
+        for _j in range(_N):
+            while _bi < len(_bear) and _bear[_bi][0] < _j:   # cf<j 的缺口自 cf+1 起可被突破 → 入堆
+                _hq.heappush(_hp, (_bear[_bi][1], _bear[_bi][0])); _bi += 1
+            _hj = _H[_j]
+            while _hp and _hp[0][0] < _hj:             # 上緣最低者先被突破（NaN 比較恆 False → 自動跳過）
+                _tp0, _cf0 = _hq.heappop(_hp); _brk_s.append((_j, _cf0))
+        _brk_l = []                                    # 做多FVG：首次 low<bot 的棒（鏡像，堆存 -bot）
+        _hp = []; _bi = 0
+        for _j in range(_N):
+            while _bi < len(_bull) and _bull[_bi][0] < _j:
+                _hq.heappush(_hp, (-_bull[_bi][2], _bull[_bi][0])); _bi += 1
+            _lj = _L[_j]
+            while _hp and -_hp[0][0] > _lj:            # 下緣最高者先被跌破
+                _bt0, _cf0 = _hq.heappop(_hp); _brk_l.append((_j, _cf0))
         _shun_seen = set()                             # 去重：同一(突破棒,方向)只標一次
 
         def _shun_scan(_gaps, _events, _d):
