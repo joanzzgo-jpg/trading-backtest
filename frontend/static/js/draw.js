@@ -1143,52 +1143,53 @@ const _COACH_STRUCT_STYLE = {
   bos_dn:   { c: "#ef5350", dash: false, t: "BOS↓" },   // 空方延續
   choch_dn: { c: "#ef5350", dash: true,  t: "CHoCH↓" }, // 轉空（虛線）
 };
-// 折價/溢價區（ICT/SMC dealing range）：window._pdRange={top,bot,eq,t0,dir}。
-//   溢價=EQ→top(紅上半)、折價=bot→EQ(綠下半)、EQ=50%(黃虛線)。從結構腿起點 t0 延伸右緣。開關 _pdOn(預設開)。
+// 折價/溢價區（ICT/SMC dealing range）：以「畫面右緣那根」為當下，只用到它為止的 K 棒現算(非重繪、不看未來)。
+//   捲到哪、右緣就是那個歷史時點→看到的是「當時」的折價/溢價。溢價=EQ→top(紅上)、折價=bot→EQ(綠下)、EQ=50%(黃虛)。
 function _drawPDZones(W, H) {
   if (window._pdOn === false) return;
-  const rngs = window._pdRanges;
-  if (!rngs || !rngs.length) return;
   if (typeof mainChart === "undefined" || typeof candleSeries === "undefined" || !candleSeries) return;
+  if (typeof ohlcvData === "undefined" || !ohlcvData || ohlcvData.length < 30) return;
   const ts = mainChart.timeScale();
-  let plotW = W;
-  try { const tw = ts.width(); if (tw > 0) plotW = tw; } catch (e) {}
-  const fmt = v => Math.abs(v) >= 1000 ? v.toFixed(0) : v.toFixed(4);
-  // 只畫「目前畫面可見」的交易區間(t0→t1 與可視窗重疊)→捲到哪看哪、驗歷史準不準，永遠只有少數幾段不會亂。
-  //   (畫布層在視窗變動時會重畫，故捲動/縮放會自動更新。)
-  const vis = [];
-  for (const pd of rngs) {
-    if (!pd || pd.top == null || pd.bot == null) continue;
-    let x0 = pd.t0 ? _timeToX(toTime(pd.t0)) : 0; if (x0 == null) x0 = 0;
-    let x1 = pd.t1 ? _timeToX(toTime(pd.t1)) : plotW; if (x1 == null) x1 = plotW;
-    if (x1 > 0 && x0 < plotW) vis.push({ pd, x0: Math.max(x0, 0), x1: Math.min(x1, plotW) });
-  }
-  if (!vis.length) return;
-  drawCtx.save();
-  drawCtx.beginPath(); drawCtx.rect(0, 0, plotW, H); drawCtx.clip();   // 裁切到畫面內，畫面外填色不外溢
-  drawCtx.font = "10px sans-serif"; drawCtx.textBaseline = "middle";
-  for (let i = 0; i < vis.length; i++) {
-    const { pd, x0, x1 } = vis[i]; if (x1 <= x0) continue;
-    const yTop = candleSeries.priceToCoordinate(pd.top);
-    const yEq = candleSeries.priceToCoordinate(pd.eq);
-    const yBot = candleSeries.priceToCoordinate(pd.bot);
-    if (yTop == null || yEq == null || yBot == null) continue;
-    if (yEq < 0 || yEq > H) continue;   // EQ 在畫面外→此區間對當前視野無意義(如跨崩盤的巨大區間)，不畫、避免填滿螢幕/堆在下緣
-    const w = x1 - x0;
-    if (w < 28) continue;               // 太窄(縮很小看全圖時擠一團)→不畫；放大到正常視窗才顯示
-    drawCtx.fillStyle = "rgba(239,83,80,0.07)"; drawCtx.fillRect(x0, yTop, w, yEq - yTop);   // 溢價(上半紅)
-    drawCtx.fillStyle = "rgba(38,166,154,0.07)"; drawCtx.fillRect(x0, yEq, w, yBot - yEq);    // 折價(下半綠)
-    drawCtx.lineWidth = 1;
-    drawCtx.strokeStyle = "rgba(239,83,80,0.5)"; drawCtx.beginPath(); drawCtx.moveTo(x0, yTop); drawCtx.lineTo(x1, yTop); drawCtx.stroke();
-    drawCtx.strokeStyle = "rgba(38,166,154,0.5)"; drawCtx.beginPath(); drawCtx.moveTo(x0, yBot); drawCtx.lineTo(x1, yBot); drawCtx.stroke();
-    drawCtx.setLineDash([5, 4]); drawCtx.strokeStyle = "rgba(255,214,79,0.65)";
-    drawCtx.beginPath(); drawCtx.moveTo(x0, yEq); drawCtx.lineTo(x1, yEq); drawCtx.stroke(); drawCtx.setLineDash([]);
-    if (i === vis.length - 1 || w > 130) {   // 最右段(或夠寬)才標價，避免疊字
-      drawCtx.fillStyle = "rgba(239,83,80,0.95)"; drawCtx.fillText("溢價 " + fmt(pd.top), x0 + 4, yTop + 7);
-      drawCtx.fillStyle = "rgba(255,214,79,0.98)"; drawCtx.fillText("EQ 50%", x0 + 4, yEq - 7);
-      drawCtx.fillStyle = "rgba(38,166,154,0.95)"; drawCtx.fillText("折價 " + fmt(pd.bot), x0 + 4, yBot - 7);
+  let plotW = W; try { const tw = ts.width(); if (tw > 0) plotW = tw; } catch (e) {}
+  // 右緣可視時點＝「當下」。找到 ≤ 它的最後一根 → 只用 [0..E] 算(不看未來)
+  let endT = null; try { const vr = ts.getVisibleRange(); if (vr && vr.to != null) endT = vr.to; } catch (e) {}
+  const bars = ohlcvData; let E = bars.length - 1;
+  if (endT != null) { for (let i = bars.length - 1; i >= 0; i--) { if (toTime(bars[i].time) <= endT) { E = i; break; } } }
+  if (E < 20) return;
+  const PL = 8;                                   // 半窗定擺動 pivot(j 於 i=j+PL 確認，只用 ≤i 資料)
+  let sh = null, sl = null, cur = 0, rHi = null, rLo = null, legStart = 0;
+  for (let i = 0; i <= E; i++) {
+    const j = i - PL;
+    if (j >= PL) {
+      const hj = bars[j].high, lj = bars[j].low; let mh = true, ml = true;
+      for (let k = j - PL; k <= j + PL; k++) { if (bars[k].high > hj) mh = false; if (bars[k].low < lj) ml = false; }
+      if (mh) sh = hj; if (ml) sl = lj;
     }
+    const c = bars[i].close;
+    if (sh != null && c > sh) { if (cur !== 1) { rLo = sl; legStart = i; } cur = 1; }
+    else if (sl != null && c < sl) { if (cur !== -1) { rHi = sh; legStart = i; } cur = -1; }
+    if (cur === 1) rHi = (rHi == null) ? bars[i].high : Math.max(rHi, bars[i].high);
+    else if (cur === -1) rLo = (rLo == null) ? bars[i].low : Math.min(rLo, bars[i].low);
   }
+  if (rHi == null || rLo == null || rHi <= rLo) return;
+  const eq = (rHi + rLo) / 2;
+  const yTop = candleSeries.priceToCoordinate(rHi), yEq = candleSeries.priceToCoordinate(eq), yBot = candleSeries.priceToCoordinate(rLo);
+  if (yTop == null || yEq == null || yBot == null) return;
+  let x0 = _timeToX(toTime(bars[legStart].time)); if (x0 == null) x0 = 0; x0 = Math.max(0, Math.min(x0, plotW));
+  const fmt = v => Math.abs(v) >= 1000 ? v.toFixed(0) : v.toFixed(4);
+  drawCtx.save();
+  drawCtx.beginPath(); drawCtx.rect(0, 0, plotW, H); drawCtx.clip();
+  drawCtx.font = "10px sans-serif"; drawCtx.textBaseline = "middle";
+  drawCtx.fillStyle = "rgba(239,83,80,0.07)"; drawCtx.fillRect(x0, yTop, plotW - x0, yEq - yTop);   // 溢價
+  drawCtx.fillStyle = "rgba(38,166,154,0.07)"; drawCtx.fillRect(x0, yEq, plotW - x0, yBot - yEq);    // 折價
+  drawCtx.lineWidth = 1;
+  drawCtx.strokeStyle = "rgba(239,83,80,0.55)"; drawCtx.beginPath(); drawCtx.moveTo(x0, yTop); drawCtx.lineTo(plotW, yTop); drawCtx.stroke();
+  drawCtx.strokeStyle = "rgba(38,166,154,0.55)"; drawCtx.beginPath(); drawCtx.moveTo(x0, yBot); drawCtx.lineTo(plotW, yBot); drawCtx.stroke();
+  drawCtx.setLineDash([5, 4]); drawCtx.strokeStyle = "rgba(255,214,79,0.7)";
+  drawCtx.beginPath(); drawCtx.moveTo(x0, yEq); drawCtx.lineTo(plotW, yEq); drawCtx.stroke(); drawCtx.setLineDash([]);
+  drawCtx.fillStyle = "rgba(239,83,80,0.95)"; drawCtx.fillText("溢價 " + fmt(rHi), x0 + 4, yTop + 7);
+  drawCtx.fillStyle = "rgba(255,214,79,0.98)"; drawCtx.fillText("EQ 50%", x0 + 4, yEq - 7);
+  drawCtx.fillStyle = "rgba(38,166,154,0.95)"; drawCtx.fillText("折價 " + fmt(rLo), x0 + 4, yBot - 7);
   drawCtx.restore();
 }
 // 開關：window.togglePDZones() 切換折價/溢價區顯示（預設開）
