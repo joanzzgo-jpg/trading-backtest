@@ -968,24 +968,28 @@ function _renderCoachPanel() {
   };
   const sym = (dd && dd.symbol) || (df && df.symbol) || "";
   const collapsed = window._coachCollapsed !== false;
-  if (collapsed) {   // 收合：只顯示選中那版 + 切換鈕
-    const sel = _coachSel() || dd || df;
-    const head = `<div style="display:flex;align-items:center;gap:6px;border-bottom:1px solid rgba(255,255,255,0.12);padding-bottom:3px;margin-bottom:4px">`
-      + `<span style="font-weight:700;color:#ffca28;flex:1">教練 · ${sym}｜<b style="color:${dcOf(sel)}">${dtOf(sel)}</b>｜步驟 ${sel ? sel.stage : 0}/7</span>`
-      + `<button onclick="window._coachToggleWhich&&window._coachToggleWhich()" style="pointer-events:auto;cursor:pointer;background:rgba(79,195,247,0.18);border:0;border-radius:4px;color:#8fd3ff;font-size:11px;padding:1px 6px" title="切換時框組">${tflabel(sel)} ⇄</button>`
+  // 進場狀態徽章：stage≥7=已觸碰掛單區可進場(綠)、stage 6=掛單等觸碰(黃) → 一眼看出哪版可進場
+  const entryBadge = d => (!d || !d.ok) ? "" :
+    (d.stage >= 7 ? `<span style="background:#1b5e20;color:#b6ffbf;border-radius:3px;padding:0 5px;margin-left:5px;font-weight:700">🎯可進場</span>`
+      : d.stage >= 6 ? `<span style="background:#4a3b00;color:#ffd54f;border-radius:3px;padding:0 5px;margin-left:5px">掛單中</span>` : "");
+  const subhead = d => `<div style="color:#ffca28;font-weight:600;margin:3px 0 1px;font-size:10.5px">〔${tflabel(d)}〕<b style="color:${dcOf(d)}">${dtOf(d)}</b>｜步驟 ${d ? d.stage : 0}/7${entryBadge(d)}</div>`;
+  if (collapsed) {   // 收合：兩版「同時顯示」(精簡：各自進度+進場/止損/止盈)
+    const head = `<div style="display:flex;align-items:center;gap:8px;border-bottom:1px solid rgba(255,255,255,0.12);padding-bottom:3px;margin-bottom:3px">`
+      + `<span style="font-weight:700;color:#ffca28;flex:1">教練 · ${sym}</span>`
       + `<button onclick="window._coachToggleCollapse&&window._coachToggleCollapse()" style="pointer-events:auto;cursor:pointer;background:rgba(255,255,255,0.1);border:0;border-radius:4px;color:#cfd;font-size:11px;padding:1px 6px">展開 ▾</button></div>`;
-    el.innerHTML = head + bodyFor(sel, true);
+    el.innerHTML = head
+      + subhead(dd) + bodyFor(dd, true)
+      + `<div style="height:6px;border-top:1px dashed rgba(255,255,255,0.14);margin-top:4px"></div>`
+      + subhead(df) + bodyFor(df, true);
     return;
   }
-  // 展開：兩版並列全表
-  const subhead = d => `<div style="color:#ffca28;font-weight:600;margin:4px 0 2px;font-size:11px">〔${tflabel(d)}〕<b style="color:${dcOf(d)}">${dtOf(d)}</b>｜步驟 ${d ? d.stage : 0}/7</div>`;
-  const head = `<div style="display:flex;align-items:center;gap:8px;border-bottom:1px solid rgba(255,255,255,0.12);padding-bottom:3px;margin-bottom:4px">`
-    + `<span style="font-weight:700;color:#ffca28;flex:1">教練 · ${sym}</span>`
+  // 展開：只顯示選中那版全表 + 按鈕切換
+  const sel = _coachSel() || dd || df;
+  const head = `<div style="display:flex;align-items:center;gap:6px;border-bottom:1px solid rgba(255,255,255,0.12);padding-bottom:3px;margin-bottom:4px">`
+    + `<span style="font-weight:700;color:#ffca28;flex:1">教練 · ${sym}｜〔${tflabel(sel)}〕｜<b style="color:${dcOf(sel)}">${dtOf(sel)}</b>｜步驟 ${sel ? sel.stage : 0}/7${entryBadge(sel)}</span>`
+    + `<button onclick="window._coachToggleWhich&&window._coachToggleWhich()" style="pointer-events:auto;cursor:pointer;background:rgba(79,195,247,0.18);border:0;border-radius:4px;color:#8fd3ff;font-size:11px;padding:1px 6px" title="切換時框組">切 ⇄</button>`
     + `<button onclick="window._coachToggleCollapse&&window._coachToggleCollapse()" style="pointer-events:auto;cursor:pointer;background:rgba(255,255,255,0.1);border:0;border-radius:4px;color:#cfd;font-size:11px;padding:1px 6px">收合 ▴</button></div>`;
-  el.innerHTML = head
-    + subhead(dd) + bodyFor(dd, false)
-    + `<div style="height:7px;border-top:1px dashed rgba(255,255,255,0.14);margin-top:5px"></div>`
-    + subhead(df) + bodyFor(df, false);
+  el.innerHTML = head + bodyFor(sel, false);
 }
 window._renderCoachPanel = _renderCoachPanel;
 // 收合/展開（唯一可互動處，因面板整體 pointer-events:none）
