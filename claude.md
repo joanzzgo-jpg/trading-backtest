@@ -6,7 +6,8 @@
 ## 專案概覽
 - `trading` 是回測系統：FastAPI 後端（`backend/`）+ 靜態前端（`frontend/`）+ 資料模組 + 策略引擎。
 - 部署於 Railway，推送 `main` branch 自動觸發部署（GitHub repo: `joanzzgo-jpg/trading-backtest`）。
-- Railway 用 `Procfile`／`railway.toml` 直接跑 `cd backend && uvicorn main:app`，**沒有跑 `start.sh`**。前端 JS 打包改由 `backend/main.py` 的 `_build_js_bundle()` 在 import 時自動執行（偵測來源 JS 比 bundle 新就重建）→ **修改前端 JS 後不需手動跑 `start.sh`**。
+- Railway 用 `Procfile`／`railway.toml` 直接跑 `cd backend && uvicorn main:app`，**沒有跑 `start.sh`**。前端 JS 打包由 `backend/main.py` 的 `_build_js_bundle()` 在 **import 時**自動執行（偵測來源 JS 比 bundle 新就重建）→ Railway 部署開機時自動重建，不需 `start.sh`。
+- ⚠ **本機**改前端 JS 後：執行中的 uvicorn **不會**重建 bundle（`--reload` 只看 .py）→ 重啟服務，或 `cd backend && python3 -c "import main"` 手動重建（執行中的服務每次請求直接讀磁碟 bundle＋即時算 `?v=` mtime 版號，重建完重新整理即可，不必重啟）。
 
 ### 快速啟動
 ```bash
@@ -20,6 +21,8 @@ cd /Users/noah/trading/backend && uvicorn main:app --reload
 - **後端**：環境變數、資料夾結構、資料源、即時行情疊加（台股分鐘K）、天氣資料源、背景載入策略、Pionex 限流、已知問題 → [docs/backend.md](docs/backend.md)
 - **前端**：JS 模組表、視覺特效、音效、極簡模式（perf-mode）完整說明、版面配置、圖片資源、星號按鈕、標記視窗化 → [docs/frontend.md](docs/frontend.md)
 - **CRT 勝率/回測**：S1~S12 訊號邏輯、新增訊號 checklist、勝率 HUD、各時框回測天數、後端 `crt.py` 結構與效能 → [docs/crt-winrate.md](docs/crt-winrate.md)
+- **FVG 策略定版規格（v2.3，參數已鎖定）**：止損/止盈檔位、雙槽多空、多幣組合、止盈先到撤殘單 → [docs/fvg-strategy.md](docs/fvg-strategy.md)
+- **3D 天氣背景實作規格**：Canvas 2D 粒子＋CSS 3D 分層、Phase 進度與實作差異 → [docs/weather-3d-spec.md](docs/weather-3d-spec.md)
 
 ## ⚠️ 關鍵鐵則（違反會造成 bug，務必遵守）
 
@@ -36,6 +39,13 @@ cd /Users/noah/trading/backend && uvicorn main:app --reload
 ### 非同步競態
 - `_bgLoadGen`：每次新背景載入前 `++`，所有 async loop 每輪比對 `myGen === _bgLoadGen`，不符即退出。
 - `replayActive`：replay 中任何改圖表的操作（含 `_bgScheduleIndicators`／`_bgLoadOlderBars`）必須先檢查此旗標。
+
+### 主圖標記（FVG/SMC 等）重繪要完整
+- 標記經 `_has()` 過濾＝**只顯示時間存在於當下 `ohlcvData` 的棒** → 任何「資料變多／換內容」的時點都必須用暫存重繪，否則整段沒標記。已因漏重繪出過兩次 bug：
+  1. `_bgLoadOlderBars` 補載歷史完成後（02b429a）；
+  2. `_fetchWinRateNow` **快取命中分支**——必須與網路成功路徑重繪**同一組層**（fvg_ms/fvg_break/fvg_trades/fvg_bb/SMC 掃蕩·結構·OB·SR/VWAP/通道/pd_ranges），少一個就是切標的回來沿用舊標的標記（ca8ec0f）。
+- 之後在勝率回應新增圖層時，**兩條路徑都要加**。
+- 各時框可看深度：背景補載僅 1m/5m/15m/1h/4h；**8h/2h/30m/1d 一次載入**（如 8h 僅 ~500 根）→ 舊區段「沒 K 棒也沒標記」是設計、不是 bug。
 
 ### 極簡模式（perf-mode）不可污染正常模式
 - `savePrefs()`（utils.js）在 perf-mode 直接 `return` — 否則 in-memory perf palette 會被寫回 `localStorage.chartColors`。
