@@ -412,7 +412,7 @@ let _coachScan = { ts: 0, loading: false, data: [] };
 async function _fetchCoachScan(force) {
   const cs = _coachScan;
   if (cs.loading) return;
-  if (!force && cs.data.length && Date.now() - cs.ts < 30000) return;   // 30s:伺服器即回+每次複驗,常刷不卡
+  if (!force && cs.data.length && Date.now() - cs.ts < 15000) return;   // 15s:伺服器即回+每次複驗,常刷不卡
   cs.loading = true;
   if (_tickerSort === "coach") renderTickers();     // 顯示「掃描中…」
   try {
@@ -426,8 +426,16 @@ async function _fetchCoachScan(force) {
       setTimeout(() => { _coachScan.ts = 0; _fetchCoachScan(true); }, 8000);
     } else {
       cs.warming = false;
-      cs.data = (j && j.results) || [];
-      cs.ts = Date.now();
+      // 優雅退場:上一輪還在、這輪消失的(退階/離區)不直接不見 → 變灰標「已失效」停留2分鐘再移除
+      const fresh = (j && j.results) || [];
+      const freshSyms = new Set(fresh.map(r => r.symbol));
+      const now = Date.now();
+      const ghosts = (cs.data || [])
+        .filter(r => !freshSyms.has(r.symbol))
+        .map(r => ({ ...r, _gone: r._gone || now }))
+        .filter(r => now - r._gone < 120000);
+      cs.data = fresh.concat(ghosts);
+      cs.ts = now;
     }
   } catch (e) {} finally {
     cs.loading = false;
@@ -436,7 +444,7 @@ async function _fetchCoachScan(force) {
 }
 function _renderCoachList(container, currentSym) {
   const cs = _coachScan;
-  if (!cs.loading && (!cs.data.length || Date.now() - cs.ts > 30000)) _fetchCoachScan();   // 陳舊→背景刷新
+  if (!cs.loading && (!cs.data.length || Date.now() - cs.ts > 15000)) _fetchCoachScan();   // 陳舊→背景刷新
   if ((cs.loading || cs.warming) && !cs.data.length) { container.innerHTML = '<div class="tk-loading">教練掃描中…</div>'; return; }
   if (!cs.data.length) {
     container.innerHTML = '<div class="tk-loading">目前無標的正在進場價位<br><span style="font-size:11px;color:#889">自動掃前60檔·現價進掛單區才列出</span></div>';
@@ -458,9 +466,10 @@ function _renderCoachList(container, currentSym) {
                 : (np > 0 ? `<span style="color:#889;font-size:10px">近${np}%</span>` : "");
       return `<span style="color:${dc};font-weight:700">${tf}${dl}</span>${tag}`;
     }).join('<span style="color:#556">·</span>');
-    return `<div class="ticker-item coach-item${active ? " tk-active" : ""}" data-mkt="crypto" data-exch="pionex" data-sym="${sym}" data-symbol="${sym.replace("/", "").replace(".P", "")}" data-display="${disp}" data-ver="${bestVer}" style="cursor:pointer">
+    const gone = !!r._gone;   // 已失效(退階/離區):灰化停留2分鐘,標「已失效」
+    return `<div class="ticker-item coach-item${active ? " tk-active" : ""}" data-mkt="crypto" data-exch="pionex" data-sym="${sym}" data-symbol="${sym.replace("/", "").replace(".P", "")}" data-display="${disp}" data-ver="${bestVer}" style="cursor:pointer${gone ? ";opacity:.42" : ""}">
       <div style="display:flex;justify-content:space-between;align-items:center;width:100%;padding:3px 2px">
-        <span style="font-weight:700">🎯 ${disp}</span><span style="font-size:12px;display:flex;gap:4px;align-items:center">${vers}</span>
+        <span style="font-weight:700">${gone ? "💤" : "🎯"} ${disp}${gone ? '<span style="color:#98a;font-size:10px;margin-left:4px">已失效</span>' : ""}</span><span style="font-size:12px;display:flex;gap:4px;align-items:center">${vers}</span>
       </div></div>`;
   }).join("");
   container.innerHTML = html;
@@ -468,6 +477,7 @@ function _renderCoachList(container, currentSym) {
     // 面板切到「命中的那一版」再載標的——否則清單是 fast(5m) 到第7步、面板卻顯示 default(15m) 第4步 → 看似「沒到第7步就放上來」
     const ver = el.dataset.ver === "fast" ? "fast" : "default";
     window._coachWhich = ver;
+    window._coachClickExpect = { sym: el.dataset.sym, ver, ts: Date.now() };   // 面板載入後驗證仍在第7步,失效即提示
     try { localStorage.setItem("coachWhich", ver); } catch (e) {}
     // 教練面板關著就自動打開（點「可進場」就是要看教練步驟）
     if (!window._coachOn) { try { document.getElementById("coachToggleBtn")?.click(); } catch (e) {} }

@@ -1035,14 +1035,32 @@ function _renderCoachPanel() {
     (d.stage >= 7 ? `<span style="background:#1b5e20;color:#b6ffbf;border-radius:3px;padding:0 5px;margin-left:5px;font-weight:700">🎯可進場</span>`
       : d.stage >= 6 ? `<span style="background:#4a3b00;color:#ffd54f;border-radius:3px;padding:0 5px;margin-left:5px">掛單中</span>` : "");
   const subhead = d => `<div style="color:#ffca28;font-weight:600;margin:3px 0 1px;font-size:10.5px">〔${tflabel(d)}〕<b style="color:${dcOf(d)}">${dtOf(d)}</b>｜步驟 ${d ? d.stage : 0}/8${entryBadge(d)}</div>`;
-  if (collapsed) {   // 收合：兩版「同時顯示」(精簡：各自進度+進場/止損/止盈)
+  // 從「可進場」清單點進來的期望檢查:命中版本若已失效退階(<7)→紅色提示+立即刷新清單
+  // (5m/15m 執行時框設定壽命短,點開瞬間剛失效是週期本質——明講,而不是讓使用者以為清單亂給)
+  let expectWarn = "";
+  try {
+    const ex = window._coachClickExpect;
+    if (ex && sym === ex.sym && Date.now() - ex.ts < 30000) {
+      const dv = ex.ver === "fast" ? df : dd;
+      if (dv && dv.ok) {
+        if ((dv.stage || 0) < 7) {
+          expectWarn = `<div style="background:#4a1414;color:#ffb3ab;border-radius:4px;padding:2px 6px;margin-bottom:3px;font-size:11px">⚠ 此設定剛失效退階（${ex.ver === "fast" ? "⚡5m" : "15m"} 週期變化快）— 清單已同步更新</div>`;
+          if (typeof _fetchCoachScan === "function") setTimeout(() => _fetchCoachScan(true), 300);
+        }
+        window._coachClickExpect = null;   // 評過一次就清掉
+      }
+    }
+  } catch (e) {}
+  if (collapsed) {   // 收合：兩版「同時顯示」(選中/命中的那版排前面)
+    const first  = window._coachWhich === "fast" ? df : dd;
+    const second = window._coachWhich === "fast" ? dd : df;
     const head = `<div style="display:flex;align-items:center;gap:8px;border-bottom:1px solid rgba(255,255,255,0.12);padding-bottom:3px;margin-bottom:3px">`
       + `<span style="font-weight:700;color:#ffca28;flex:1">教練 · ${sym}</span>`
       + `<button onclick="window._coachToggleCollapse&&window._coachToggleCollapse()" style="pointer-events:auto;cursor:pointer;background:rgba(255,255,255,0.1);border:0;border-radius:4px;color:#cfd;font-size:11px;padding:1px 6px">展開 ▾</button></div>`;
-    el.innerHTML = head
-      + subhead(dd) + bodyFor(dd, true)
+    el.innerHTML = head + expectWarn
+      + subhead(first) + bodyFor(first, true)
       + `<div style="height:6px;border-top:1px dashed rgba(255,255,255,0.14);margin-top:4px"></div>`
-      + subhead(df) + bodyFor(df, true);
+      + subhead(second) + bodyFor(second, true);
     return;
   }
   // 展開：只顯示選中那版全表 + 按鈕切換
@@ -1051,7 +1069,7 @@ function _renderCoachPanel() {
     + `<span style="font-weight:700;color:#ffca28;flex:1">教練 · ${sym}｜〔${tflabel(sel)}〕｜<b style="color:${dcOf(sel)}">${dtOf(sel)}</b>｜步驟 ${sel ? sel.stage : 0}/8${entryBadge(sel)}</span>`
     + `<button onclick="window._coachToggleWhich&&window._coachToggleWhich()" style="pointer-events:auto;cursor:pointer;background:rgba(79,195,247,0.18);border:0;border-radius:4px;color:#8fd3ff;font-size:11px;padding:1px 6px" title="切換時框組">切 ⇄</button>`
     + `<button onclick="window._coachToggleCollapse&&window._coachToggleCollapse()" style="pointer-events:auto;cursor:pointer;background:rgba(255,255,255,0.1);border:0;border-radius:4px;color:#cfd;font-size:11px;padding:1px 6px">收合 ▴</button></div>`;
-  el.innerHTML = head + bodyFor(sel, false);
+  el.innerHTML = head + expectWarn + bodyFor(sel, false);
 }
 window._renderCoachPanel = _renderCoachPanel;
 // 收合/展開（唯一可互動處，因面板整體 pointer-events:none）
