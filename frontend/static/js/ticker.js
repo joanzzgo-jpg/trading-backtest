@@ -416,10 +416,18 @@ async function _fetchCoachScan(force) {
   cs.loading = true;
   if (_tickerSort === "coach") renderTickers();     // 顯示「掃描中…」
   try {
-    const r = await fetch("/api/coach_scan?n=60&min_stage=7", { cache: "no-store" });
+    // min_stage=6+at_entry=1：掛單區已形成＋「現價此刻在掛單區內」→ 清單＝剛好在可進場價的標的
+    const r = await fetch("/api/coach_scan?n=60&min_stage=6&at_entry=1", { cache: "no-store" });
     const j = await r.json();
-    cs.data = (j && j.results) || [];
-    cs.ts = Date.now();
+    if (j && j.warming) {
+      // 伺服器冷啟動暖機中(背景掃描跑著) → 8 秒後自動重試,期間顯示「掃描中」
+      cs.warming = true;
+      setTimeout(() => { _coachScan.ts = 0; _fetchCoachScan(true); }, 8000);
+    } else {
+      cs.warming = false;
+      cs.data = (j && j.results) || [];
+      cs.ts = Date.now();
+    }
   } catch (e) {} finally {
     cs.loading = false;
     if (_tickerSort === "coach") renderTickers();
@@ -428,9 +436,9 @@ async function _fetchCoachScan(force) {
 function _renderCoachList(container, currentSym) {
   const cs = _coachScan;
   if (!cs.loading && (!cs.data.length || Date.now() - cs.ts > 55000)) _fetchCoachScan();   // 陳舊→背景刷新
-  if (cs.loading && !cs.data.length) { container.innerHTML = '<div class="tk-loading">教練掃描中…</div>'; return; }
+  if ((cs.loading || cs.warming) && !cs.data.length) { container.innerHTML = '<div class="tk-loading">教練掃描中…</div>'; return; }
   if (!cs.data.length) {
-    container.innerHTML = '<div class="tk-loading">目前無可進場標的<br><span style="font-size:11px;color:#889">每分鐘自動掃前60檔</span></div>';
+    container.innerHTML = '<div class="tk-loading">目前無標的正在進場價位<br><span style="font-size:11px;color:#889">自動掃前60檔·現價進掛單區才列出</span></div>';
     return;
   }
   const html = cs.data.map(r => {
@@ -443,7 +451,11 @@ function _renderCoachList(container, currentSym) {
       const dl = h.direction === 1 ? "多" : "空";
       const dc = h.direction === 1 ? "#26a69a" : "#ef5350";
       const tf = ver === "fast" ? "5m" : "15m";
-      return `<span style="color:${dc};font-weight:700">${tf}${dl}</span>`;
+      // near_pct=0＝現價正在掛單區內(亮綠「進場中」)；>0＝距區緣 x%(灰,給限價提前掛單)
+      const np = h.near_pct;
+      const tag = (np === 0) ? '<span style="color:#ffd54f;font-size:10px">●進場中</span>'
+                : (np > 0 ? `<span style="color:#889;font-size:10px">近${np}%</span>` : "");
+      return `<span style="color:${dc};font-weight:700">${tf}${dl}</span>${tag}`;
     }).join('<span style="color:#556">·</span>');
     return `<div class="ticker-item coach-item${active ? " tk-active" : ""}" data-mkt="crypto" data-exch="pionex" data-sym="${sym}" data-symbol="${sym.replace("/", "").replace(".P", "")}" data-display="${disp}" data-ver="${bestVer}" style="cursor:pointer">
       <div style="display:flex;justify-content:space-between;align-items:center;width:100%;padding:3px 2px">

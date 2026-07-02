@@ -1166,6 +1166,66 @@ def _coach_scan_compute(market, exchange, n, tfset, min_stage, ck):
     return out
 
 
+def _live_fut_price(sym: str):
+    """'BTC/USDT.P' → ticker worker 記憶體現價（每秒更新，零請求成本）；找不到回 None。
+    用 display 匹配——Binance 源 symbol='BTCUSDT'、Pionex fallback 源 symbol='BTC_USDT_PERP'，
+    但兩種源的 display 都是 'BTC/USDT.P'（掃描器的 symbol 格式），穩定一致。"""
+    try:
+        from utils import live_data
+        key = sym.upper()
+        norm = sym.replace(".P", "").replace("/", "").upper()   # 'BTCUSDT'（Binance 源備援）
+        for t in live_data.get("futures"):
+            if (t.get("display") or "").upper() == key or t.get("symbol") == norm:
+                return t.get("price")
+    except Exception:
+        pass
+    return None
+
+
+def _filter_at_entry(results, tol=0.001, near=0.01):
+    """留「現價此刻在掛單區內(±tol，near_pct=0)」或「距區緣 ≤near(標 near_pct%)」的命中。
+    掛單區(結構)變化慢、現價變化快 → 快取存未過濾命中(結構)，回應當下用每秒 ticker 現價過濾＝真正即時。
+    「接近」層是給限價掛單提前準備用——嚴格區內大部分時間是空清單，等進區才知道常來不及掛。"""
+    out = []
+    for r in results or []:
+        px = _live_fut_price(r["symbol"])
+        if px is None:
+            continue
+        hits = {}
+        for ver, h in (r.get("hits") or {}).items():
+            ent = (h.get("plan") or {}).get("entry")
+            if not ent or len(ent) < 2 or ent[0] is None or ent[1] is None:
+                continue
+            lo, hi = min(ent), max(ent)
+            if lo * (1 - tol) <= px <= hi * (1 + tol):
+                hits[ver] = {**h, "px": px, "near_pct": 0}          # 區內＝進場中
+            else:
+                _d = min(abs(px - lo), abs(px - hi)) / px
+                if _d <= near:
+                    hits[ver] = {**h, "px": px, "near_pct": round(_d * 100, 2)}   # 接近(給提前掛單)
+        if hits:
+            out.append({"symbol": r["symbol"], "hits": hits,
+                        "top_stage": max(h["stage"] for h in hits.values()),
+                        "min_near": min(h["near_pct"] for h in hits.values())})
+    out.sort(key=lambda r: (r["min_near"], -r["top_stage"]))   # 區內在前、越接近越前
+    return out
+
+
+def _coach_scan_spawn_bg(market, exchange, n, tfset, min_stage, ck):
+    """背景重掃（inflight 防重複）。"""
+    with _coach_scan_bg_lock:
+        if ck in _coach_scan_inflight:
+            return
+        _coach_scan_inflight.add(ck)
+    def _bg():
+        try:
+            _coach_scan_compute(market, exchange, n, tfset, min_stage, ck)
+        finally:
+            with _coach_scan_bg_lock:
+                _coach_scan_inflight.discard(ck)
+    threading.Thread(target=_bg, daemon=True).start()
+
+
 @router.get("/coach_scan")
 def coach_scan_api(
     market: str = "crypto",
@@ -1174,33 +1234,26 @@ def coach_scan_api(
     tfset: str = "both",
     min_stage: int = 7,
     wait: int = 0,
+    at_entry: int = 0,
 ):
-    """教練掃描器：對成交量前 n 名加密永續跑教練(default+fast兩版)，篩出 stage≥min_stage(可進場)的標的。
+    """教練掃描器：對成交量前 n 名加密永續跑教練(default+fast兩版)，篩出 stage≥min_stage 的標的。
     回 results=[{symbol, hits:{default/fast:{stage,direction,plan,price}}}]，依最高 stage 排序。
 
-    stale-while-revalidate：快取過期但 30 分內有舊結果 → 立即回舊的(帶 stale:true)＋背景重掃，
-    前端 ticker 分頁不再卡整趟掃描(~20s)。wait=1（推播等背景用）＝一定等到新結果才回。"""
+    at_entry=1：回應當下再用「每秒 ticker 現價」過濾——只留現價正好在掛單區內(±0.1%)的命中
+    （搭配 min_stage=6＝掛單區已形成＋觸碰正在發生＝「剛好在可進場的價格」，非幾根K前碰過）。
+    stale-while-revalidate：快取過期但 30 分內有舊結果 → 立即回舊的(帶 stale:true)＋背景重掃；
+    完全沒結果(冷啟動)也不同步掃 → 回 warming:true＋背景掃，端點永遠即回。wait=1＝等新結果。"""
     ck = f"coach_scan:{market}:{exchange}:{n}:{tfset}:{min_stage}"
+    _view = (lambda o: {**o, "results": _filter_at_entry(o.get("results"))}) if at_entry else (lambda o: o)
     cached = data_cache.get(ck, ttl=120)
     if cached:
-        return cached
+        return _view(cached)
     if not wait:
+        _coach_scan_spawn_bg(market, exchange, n, tfset, min_stage, ck)
         stale = data_cache.get(ck, ttl=1800)
         if stale:
-            with _coach_scan_bg_lock:
-                _spawn = ck not in _coach_scan_inflight
-                if _spawn:
-                    _coach_scan_inflight.add(ck)
-            if _spawn:
-                def _bg():
-                    try:
-                        _coach_scan_compute(market, exchange, n, tfset, min_stage, ck)
-                    finally:
-                        with _coach_scan_bg_lock:
-                            _coach_scan_inflight.discard(ck)
-                threading.Thread(target=_bg, daemon=True).start()
             # 舊結果先「複驗」再回：hits 通常只有幾檔，逐檔重算教練(有 25s/100s 快取，便宜)，
-            # 「當下」已退階(<min_stage)的當場剔除 → 清單不再掛著沒到第7步的標的。
+            # 「當下」已退階(<min_stage)的當場剔除 → 清單不再掛著退階的標的。
             try:
                 from concurrent.futures import ThreadPoolExecutor as _TPE
                 def _reverify(r):
@@ -1215,16 +1268,19 @@ def coach_scan_api(
                             pass
                     return {"symbol": r["symbol"], "hits": hits,
                             "top_stage": max(h["stage"] for h in hits.values())} if hits else None
-                _olds = (stale.get("results") or [])[:16]   # 上限16檔，防極端長清單拖慢
+                _olds = (stale.get("results") or [])[:24]   # 上限24檔，防極端長清單拖慢
                 fresh = []
                 if _olds:
                     with _TPE(max_workers=4) as _pool:
                         fresh = [r for r in _pool.map(_reverify, _olds) if r]
                 fresh.sort(key=lambda r: -r["top_stage"])
-                return {**stale, "results": fresh, "stale": True, "verified": True}
+                return _view({**stale, "results": fresh, "stale": True, "verified": True})
             except Exception:
-                return {**stale, "stale": True}
-    return _coach_scan_compute(market, exchange, n, tfset, min_stage, ck)
+                return _view({**stale, "stale": True})
+        # 冷啟動：連舊結果都沒有 → 不同步掃(會卡 15~20s)，回暖機狀態、背景掃完下次請求就有
+        return {"ok": True, "scanned": 0, "min_stage": min_stage, "results": [],
+                "warming": True, "asof": time.time()}
+    return _view(_coach_scan_compute(market, exchange, n, tfset, min_stage, ck))
 
 
 def smc_trend_txt(t):

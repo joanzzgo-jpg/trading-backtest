@@ -505,7 +505,9 @@ def _coach_scan_push():
         return
     try:
         from routes.data import coach_scan_api
-        res = coach_scan_api(market="crypto", exchange="binance", n=60, tfset="both", min_stage=7, wait=1)
+        # min_stage=6+at_entry=1：掛單區已形成＋「現價此刻正好在掛單區內」才推 → 收到推播時就是可進場價,
+        # 而非幾根K前碰過(stage 7 收盤確認時價格常已離開區間)
+        res = coach_scan_api(market="crypto", exchange="binance", n=60, tfset="both", min_stage=6, wait=1, at_entry=1)
     except Exception as e:
         print(f"  ⚠ 教練掃描失敗：{e}")
         return
@@ -522,6 +524,8 @@ def _coach_scan_push():
     for r in hits:
         sym = r["symbol"]
         for ver, h in (r.get("hits") or {}).items():
+            if h.get("near_pct", 0) > 0:
+                continue   # 「接近」不推,只推「現價正在掛單區內」→ 收到推播=當下就是可進場價
             d = h.get("direction"); dl = "多" if d == 1 else "空"
             tf_lbl = "5m" if ver == "fast" else "15m"
             evt_key = f"coach:{sym}:{ver}:{dl}:{_hr}"

@@ -51,19 +51,42 @@ def _get(url: str, timeout: int = 30) -> Union[dict, list]:
 # 否則 429=60s/418=120s），期間所有 Binance 呼叫直接拋錯不碰網路 → 讓封禁真正過完。
 # 呼叫端本來就有快取/fallback/stale-serve，熔斷期間自動降級；教練掃描 SWR 會回舊結果不會整片空白。
 _BINANCE_COOLDOWN_UNTIL = 0.0
+# 權重感知軟節流：幣安每個回應都帶 X-MBX-USED-WEIGHT-1M（本分鐘已用權重，fapi 上限 2400/api 上限 6000）。
+# 記下最近回報值 → 用量 >75% 先微睡讓分鐘窗滑走、>92% 直接跳過本次請求（呼叫端有快取/fallback 自然降級）
+# → 在撞到 429 之前就自我降速，429→418 的升級鏈從源頭斷掉。
+_BINANCE_USED_W  = {"fapi": 0, "api": 0}
+_BINANCE_W_TS    = {"fapi": 0.0, "api": 0.0}
+_BINANCE_W_LIMIT = {"fapi": 2400, "api": 6000}
 
 def _binance_get(url: str, timeout: int = 30, retries: int = 1) -> Union[dict, list]:
-    """Binance 專用 GET：暫時性失敗（逾時／連線中斷／5xx）重試 retries 次＋418/429 全域熔斷。
+    """Binance 專用 GET：暫時性失敗（逾時／連線中斷／5xx）重試 retries 次＋418/429 全域熔斷＋權重軟節流。
     切標的瞬間 Binance 偶發 timeout 會被誤報成「無此標的」，一次重試即可大幅減少。
     ⚠️ 只給 Binance 用——絕不可套到 Pionex（429 期間每多打一次 +10s，重試會讓封鎖永遠清不掉）。
     400/404（真的無此標的）不重試，直接拋讓呼叫端 fallback。"""
     global _BINANCE_COOLDOWN_UNTIL
     if time.time() < _BINANCE_COOLDOWN_UNTIL:
         raise RuntimeError("Binance 熔斷中（418/429 冷卻），暫不請求")
+    _host = "fapi" if "fapi.binance" in url else "api"
+    _u = _BINANCE_USED_W[_host] if time.time() - _BINANCE_W_TS[_host] < 70 else 0
+    _lim = _BINANCE_W_LIMIT[_host]
+    if _u > _lim * 0.92:
+        raise RuntimeError(f"Binance {_host} 權重 {_u}/{_lim} 接近上限，跳過本次請求")
+    if _u > _lim * 0.75:
+        time.sleep(0.3)   # 微睡讓分鐘窗滑走，平滑突發
+    def _bget():
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            try:
+                _w = r.headers.get("X-MBX-USED-WEIGHT-1M")
+                if _w is not None:
+                    _BINANCE_USED_W[_host] = int(_w); _BINANCE_W_TS[_host] = time.time()
+            except Exception:
+                pass
+            return json.loads(r.read())
     last = None
     for attempt in range(retries + 1):
         try:
-            return _get(url, timeout=timeout)
+            return _bget()
         except urllib.error.HTTPError as e:
             code = getattr(e, "code", None)
             if code in (418, 429):

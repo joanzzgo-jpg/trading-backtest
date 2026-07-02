@@ -113,8 +113,9 @@ def _ticker_worker():
     cnt = 0
     while True:
         try:
-            if cnt % 6 == 0 or not (futures or spot):
-                # 每 6 秒（或首次）重抓完整 24h（含漲跌幅、量）
+            if cnt % 15 == 0 or not (futures or spot):
+                # 每 15 秒（或首次）重抓完整 24h（含漲跌幅、量）——全市場 24h ticker 權重重(fapi 40/spot 80)，
+                # 6s→15s 省 6 成基載權重；現價仍每秒抓＋重算漲跌幅，前端無感
                 futures = fetch_tickers("futures")
                 spot    = fetch_tickers("spot")
             else:
