@@ -416,8 +416,8 @@ async function _fetchCoachScan(force) {
   cs.loading = true;
   if (_tickerSort === "coach") renderTickers();     // 顯示「掃描中…」
   try {
-    // min_stage=6+at_entry=1：掛單區已形成＋「現價此刻在掛單區內」→ 清單＝剛好在可進場價的標的
-    const r = await fetch("/api/coach_scan?n=60&min_stage=6&at_entry=1", { cache: "no-store" });
+    // min_stage=7+at_entry=1：第7步完成(與教練面板同基準)＋現價在掛單區內/接近 → 點進去看到的就是第7步
+    const r = await fetch("/api/coach_scan?n=60&min_stage=7&at_entry=1", { cache: "no-store" });
     const j = await r.json();
     if (j && j.warming) {
       // 伺服器冷啟動暖機中(背景掃描跑著) → 8 秒後自動重試,期間顯示「掃描中」

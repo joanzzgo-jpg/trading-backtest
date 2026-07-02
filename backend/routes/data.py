@@ -1130,7 +1130,8 @@ _coach_scan_inflight: set = set()
 
 
 def _coach_scan_compute(market, exchange, n, tfset, min_stage, ck):
-    """教練掃描本體：跑完寫入 ck 快取並回傳。closed=1＝只用已收盤棒（不重繪、推了不消失）＋K棒短快取去重。"""
+    """教練掃描本體：跑完寫入 ck 快取並回傳。closed=0＝與教練面板完全同基準(含未收盤棒)＋共用同一份
+    K棒快取與 smc_coach 結果快取 → 清單上的 stage 就是點進面板會看到的 stage(不再「點進去連第7步都沒到」)。"""
     from concurrent.futures import ThreadPoolExecutor as _TPE
     from routes.trade import top_crypto_universe
     if market == "crypto":
@@ -1143,7 +1144,7 @@ def _coach_scan_compute(market, exchange, n, tfset, min_stage, ck):
         hits = {}
         for _ts in _sets:
             try:
-                d = smc_coach_api(market, sym, exchange, tfset=_ts, closed=1)
+                d = smc_coach_api(market, sym, exchange, tfset=_ts)   # closed=0=與面板同基準
                 if d.get("ok") and d.get("stage", 0) >= min_stage:
                     hits[_ts] = {"stage": d["stage"], "direction": d["direction"],
                                  "plan": d.get("plan"), "price": d.get("price")}
@@ -1261,7 +1262,7 @@ def coach_scan_api(
                     hits = {}
                     for ver in (r.get("hits") or {}):
                         try:
-                            d = smc_coach_api(market, r["symbol"], exchange, tfset=ver, closed=1)
+                            d = smc_coach_api(market, r["symbol"], exchange, tfset=ver)   # 與面板同基準
                             if d.get("ok") and d.get("stage", 0) >= min_stage:
                                 hits[ver] = {"stage": d["stage"], "direction": d["direction"],
                                              "plan": d.get("plan"), "price": d.get("price")}
