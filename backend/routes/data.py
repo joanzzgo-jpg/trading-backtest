@@ -1203,16 +1203,26 @@ def _tag_htf_bias(df, timeframe, result):
         #   [擺動低,擺動高] 區間的位置(50%中線±5%均衡帶)：上半=溢價(+1)、下半=折價(-1)。皆用結構 swing，不用 EMA。
         _H = h["high"].values; _L = h["low"].values; _C = h["close"].values; _n = len(h); _PL = 3
         tr = [0] * _n; zn = [0] * _n; _sh = None; _sl = None; _cur = 0
+        _rHi = None; _rLo = None                             # 當前結構腿的成對區間(dealing range)
         for _i in range(_n):
             _j = _i - _PL                                    # 於 _j 確認 pivot(需兩側各 _PL 根)
             if _j >= _PL:
                 if _H[_j] >= _H[_j - _PL:_j + _PL + 1].max(): _sh = _H[_j]   # 擺動高
                 if _L[_j] <= _L[_j - _PL:_j + _PL + 1].min(): _sl = _L[_j]   # 擺動低
-            if _sh is not None and _C[_i] > _sh: _cur = 1    # 收盤破擺動高 → BOS 偏多
-            elif _sl is not None and _C[_i] < _sl: _cur = -1 # 收盤破擺動低 → BOS 偏空
+            # BOS + 腿區間錨定：轉多→區間低鎖在保護低(腿起點)、區間高隨新高走；轉空鏡像
+            if _sh is not None and _C[_i] > _sh:
+                if _cur != 1: _rLo = _sl                     # 上升腿起點＝保護低(成對)
+                _cur = 1
+            elif _sl is not None and _C[_i] < _sl:
+                if _cur != -1: _rHi = _sh                    # 下降腿起點＝保護高(成對)
+                _cur = -1
             tr[_i] = _cur
-            if _sh is not None and _sl is not None and _sh > _sl:   # 折價/溢價(dealing range 50%±5%)
-                _mid = (_sh + _sl) / 2.0; _band = (_sh - _sl) * 0.05
+            if _cur == 1:
+                _rHi = _H[_i] if _rHi is None else max(_rHi, _H[_i])   # 腿另一端跟極值
+            elif _cur == -1:
+                _rLo = _L[_i] if _rLo is None else min(_rLo, _L[_i])
+            if _rHi is not None and _rLo is not None and _rHi > _rLo:   # 折價/溢價(dealing range 50%±5%)
+                _mid = (_rHi + _rLo) / 2.0; _band = (_rHi - _rLo) * 0.05
                 zn[_i] = 1 if _C[_i] > _mid + _band else (-1 if _C[_i] < _mid - _band else 0)
         starts = h.index.values
 
@@ -1220,13 +1230,13 @@ def _tag_htf_bias(df, timeframe, result):
             t = np.datetime64(pd.to_datetime(tstr))
             i = np.searchsorted(starts, t, side="right") - 2   # 上一根『已收盤』HTF(避免用到當下未收的那根)
             return (int(tr[i]), int(zn[i])) if i >= 0 else (0, 0)
-        # 弱信號＝逆 HTF 趨勢『且』位置不對(空在折價/多在溢價 才算)。fvg_ms:d=s空/d=l多；fvg_break:d=l破多(bear)/d=s破空(bull)
+        # 弱信號＝逆 HTF 趨勢『或』位置不對(空在折價 或 多在溢價)。fvg_ms:d=s空/d=l多；fvg_break:d=l破多(bear)/d=s破空(bull)
         for m in ms:
             _t, _z = _bias_at(m["t"]); bear = (m.get("d") == "s")
-            m["weak"] = bool((bear and _t == 1 and _z == -1) or ((not bear) and _t == -1 and _z == 1))
+            m["weak"] = bool((bear and (_t == 1 or _z == -1)) or ((not bear) and (_t == -1 or _z == 1)))
         for m in bk:
             _t, _z = _bias_at(m["t"]); bear = (m.get("d") == "l")
-            m["weak"] = bool((bear and _t == 1 and _z == -1) or ((not bear) and _t == -1 and _z == 1))
+            m["weak"] = bool((bear and (_t == 1 or _z == -1)) or ((not bear) and (_t == -1 or _z == 1)))
     except Exception:
         pass
 
