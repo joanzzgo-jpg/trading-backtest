@@ -604,6 +604,10 @@ async function _bgLoadOlderBars(scrollTriggered = false) {
           renderBB(ohlcvData); renderCRT(ohlcvData); renderKDJCross(ohlcvData); renderResonance(ohlcvData);
           setTimeout(() => { renderKDJ(ohlcvData); renderRSI(ohlcvData); renderMACD(ohlcvData); }, 0);
           if (_lastWRSignals.length) _renderWRSignals();
+          // 補載歷史後也要重繪 FVG 標記(多/空/破多/破空)＋方向多空——否則新載進來那段的標記被 _has() 過濾掉不顯示
+          if (typeof _renderFVGMS === "function") _renderFVGMS();
+          if (typeof _renderFVGBreak === "function") _renderFVGBreak();
+          if (typeof _renderFVGTrades === "function") _renderFVGTrades();
         }
       }
     }
