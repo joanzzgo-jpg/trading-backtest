@@ -412,7 +412,7 @@ let _coachScan = { ts: 0, loading: false, data: [] };
 async function _fetchCoachScan(force) {
   const cs = _coachScan;
   if (cs.loading) return;
-  if (!force && cs.data.length && Date.now() - cs.ts < 120000) return;
+  if (!force && cs.data.length && Date.now() - cs.ts < 55000) return;   // 55s:伺服器SWR即回+複驗,常刷不卡
   cs.loading = true;
   if (_tickerSort === "coach") renderTickers();     // 顯示「掃描中…」
   try {
@@ -427,7 +427,7 @@ async function _fetchCoachScan(force) {
 }
 function _renderCoachList(container, currentSym) {
   const cs = _coachScan;
-  if (!cs.loading && (!cs.data.length || Date.now() - cs.ts > 120000)) _fetchCoachScan();   // 陳舊→背景刷新
+  if (!cs.loading && (!cs.data.length || Date.now() - cs.ts > 55000)) _fetchCoachScan();   // 陳舊→背景刷新
   if (cs.loading && !cs.data.length) { container.innerHTML = '<div class="tk-loading">教練掃描中…</div>'; return; }
   if (!cs.data.length) {
     container.innerHTML = '<div class="tk-loading">目前無可進場標的<br><span style="font-size:11px;color:#889">每分鐘自動掃前60檔</span></div>';
@@ -437,19 +437,29 @@ function _renderCoachList(container, currentSym) {
     const sym = r.symbol;                            // 'BTC/USDT.P'
     const disp = sym.replace(".P", "");
     const active = sym.toUpperCase() === (currentSym || "").toUpperCase();
+    let bestVer = "default", bestStage = -1;         // 命中版本(取最高stage那版)→點擊時教練面板切到這版
     const vers = Object.entries(r.hits || {}).map(([ver, h]) => {
+      if ((h.stage || 0) > bestStage) { bestStage = h.stage || 0; bestVer = ver; }
       const dl = h.direction === 1 ? "多" : "空";
       const dc = h.direction === 1 ? "#26a69a" : "#ef5350";
       const tf = ver === "fast" ? "5m" : "15m";
       return `<span style="color:${dc};font-weight:700">${tf}${dl}</span>`;
     }).join('<span style="color:#556">·</span>');
-    return `<div class="ticker-item coach-item${active ? " tk-active" : ""}" data-mkt="crypto" data-exch="pionex" data-sym="${sym}" data-symbol="${sym.replace("/", "").replace(".P", "")}" data-display="${disp}" style="cursor:pointer">
+    return `<div class="ticker-item coach-item${active ? " tk-active" : ""}" data-mkt="crypto" data-exch="pionex" data-sym="${sym}" data-symbol="${sym.replace("/", "").replace(".P", "")}" data-display="${disp}" data-ver="${bestVer}" style="cursor:pointer">
       <div style="display:flex;justify-content:space-between;align-items:center;width:100%;padding:3px 2px">
         <span style="font-weight:700">🎯 ${disp}</span><span style="font-size:12px;display:flex;gap:4px;align-items:center">${vers}</span>
       </div></div>`;
   }).join("");
   container.innerHTML = html;
-  container.querySelectorAll(".coach-item").forEach(el => el.addEventListener("click", () => _selectTickerRow(el)));
+  container.querySelectorAll(".coach-item").forEach(el => el.addEventListener("click", () => {
+    // 面板切到「命中的那一版」再載標的——否則清單是 fast(5m) 到第7步、面板卻顯示 default(15m) 第4步 → 看似「沒到第7步就放上來」
+    const ver = el.dataset.ver === "fast" ? "fast" : "default";
+    window._coachWhich = ver;
+    try { localStorage.setItem("coachWhich", ver); } catch (e) {}
+    // 教練面板關著就自動打開（點「可進場」就是要看教練步驟）
+    if (!window._coachOn) { try { document.getElementById("coachToggleBtn")?.click(); } catch (e) {} }
+    _selectTickerRow(el);
+  }));
 }
 
 function renderTickers() {

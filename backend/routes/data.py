@@ -1198,7 +1198,31 @@ def coach_scan_api(
                         with _coach_scan_bg_lock:
                             _coach_scan_inflight.discard(ck)
                 threading.Thread(target=_bg, daemon=True).start()
-            return {**stale, "stale": True}
+            # 舊結果先「複驗」再回：hits 通常只有幾檔，逐檔重算教練(有 25s/100s 快取，便宜)，
+            # 「當下」已退階(<min_stage)的當場剔除 → 清單不再掛著沒到第7步的標的。
+            try:
+                from concurrent.futures import ThreadPoolExecutor as _TPE
+                def _reverify(r):
+                    hits = {}
+                    for ver in (r.get("hits") or {}):
+                        try:
+                            d = smc_coach_api(market, r["symbol"], exchange, tfset=ver, closed=1)
+                            if d.get("ok") and d.get("stage", 0) >= min_stage:
+                                hits[ver] = {"stage": d["stage"], "direction": d["direction"],
+                                             "plan": d.get("plan"), "price": d.get("price")}
+                        except Exception:
+                            pass
+                    return {"symbol": r["symbol"], "hits": hits,
+                            "top_stage": max(h["stage"] for h in hits.values())} if hits else None
+                _olds = (stale.get("results") or [])[:16]   # 上限16檔，防極端長清單拖慢
+                fresh = []
+                if _olds:
+                    with _TPE(max_workers=4) as _pool:
+                        fresh = [r for r in _pool.map(_reverify, _olds) if r]
+                fresh.sort(key=lambda r: -r["top_stage"])
+                return {**stale, "results": fresh, "stale": True, "verified": True}
+            except Exception:
+                return {**stale, "stale": True}
     return _coach_scan_compute(market, exchange, n, tfset, min_stage, ck)
 
 
