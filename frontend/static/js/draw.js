@@ -1154,35 +1154,41 @@ function _drawPDZones(W, H) {
   let plotW = W;
   try { const tw = ts.width(); if (tw > 0) plotW = tw; } catch (e) {}
   const fmt = v => Math.abs(v) >= 1000 ? v.toFixed(0) : v.toFixed(4);
+  // 只畫「當前正在走」那個交易區間(最後一段)：一條乾淨的折價/溢價帶，從區間起點延伸到右緣。
+  //   歷史段鋪格子本質上會亂(每段高低不同、邊界跳動)，故只畫當前(標準 SMC 指標做法)。歷史 window._pdHist=true 才畫淡 EQ。
+  const cur = rngs[rngs.length - 1];
+  if (window._pdHist) {   // 選配：歷史只畫淡 EQ 線(不鋪填色)
+    drawCtx.save(); drawCtx.setLineDash([4, 4]); drawCtx.lineWidth = 0.7; drawCtx.strokeStyle = "rgba(255,214,79,0.22)";
+    for (let k = 0; k < rngs.length - 1; k++) {
+      const pd = rngs[k]; if (!pd || pd.eq == null) continue;
+      const yEq = candleSeries.priceToCoordinate(pd.eq); if (yEq == null) continue;
+      let x0 = pd.t0 ? _timeToX(toTime(pd.t0)) : 0; if (x0 == null) x0 = 0;
+      let x1 = pd.t1 ? _timeToX(toTime(pd.t1)) : plotW; if (x1 == null) x1 = plotW;
+      x0 = Math.max(0, Math.min(x0, plotW)); x1 = Math.max(0, Math.min(x1, plotW));
+      if (x1 > x0) { drawCtx.beginPath(); drawCtx.moveTo(x0, yEq); drawCtx.lineTo(x1, yEq); drawCtx.stroke(); }
+    }
+    drawCtx.setLineDash([]); drawCtx.restore();
+  }
+  if (!cur || cur.top == null || cur.bot == null) return;
+  const yTop = candleSeries.priceToCoordinate(cur.top);
+  const yEq = candleSeries.priceToCoordinate(cur.eq);
+  const yBot = candleSeries.priceToCoordinate(cur.bot);
+  if (yTop == null || yEq == null || yBot == null) return;
+  let x0 = cur.t0 ? _timeToX(toTime(cur.t0)) : 0; if (x0 == null) x0 = 0;
+  x0 = Math.max(0, Math.min(x0, plotW));
+  const w = plotW - x0;
   drawCtx.save();
   drawCtx.font = "10px sans-serif"; drawCtx.textBaseline = "middle";
-  for (let k = 0; k < rngs.length; k++) {
-    const pd = rngs[k];
-    if (!pd || pd.top == null || pd.bot == null) continue;
-    const yTop = candleSeries.priceToCoordinate(pd.top);
-    const yEq = candleSeries.priceToCoordinate(pd.eq);
-    const yBot = candleSeries.priceToCoordinate(pd.bot);
-    if (yTop == null || yEq == null || yBot == null) continue;
-    let x0 = pd.t0 ? _timeToX(toTime(pd.t0)) : 0; if (x0 == null) x0 = 0;
-    let x1 = pd.t1 ? _timeToX(toTime(pd.t1)) : plotW; if (x1 == null) x1 = plotW;   // t1=null → 進行中延伸右緣
-    x0 = Math.max(0, Math.min(x0, plotW)); x1 = Math.max(0, Math.min(x1, plotW));
-    if (x1 <= x0) continue;
-    const last = (k === rngs.length - 1), w = x1 - x0;
-    const fa = last ? 0.07 : 0.03;   // 溢價/折價填色：歷史更淡
-    drawCtx.fillStyle = `rgba(239,83,80,${fa})`; drawCtx.fillRect(x0, yTop, w, yEq - yTop);   // 溢價(上半紅)
-    drawCtx.fillStyle = `rgba(38,166,154,${fa})`; drawCtx.fillRect(x0, yEq, w, yBot - yEq);    // 折價(下半綠)
-    drawCtx.setLineDash([5, 4]); drawCtx.lineWidth = last ? 1 : 0.6;
-    drawCtx.strokeStyle = `rgba(255,214,79,${last ? 0.7 : 0.3})`;                             // EQ 50%
-    drawCtx.beginPath(); drawCtx.moveTo(x0, yEq); drawCtx.lineTo(x1, yEq); drawCtx.stroke(); drawCtx.setLineDash([]);
-    if (last) {   // 最新段：上下邊 + 標價
-      drawCtx.lineWidth = 1;
-      drawCtx.strokeStyle = "rgba(239,83,80,0.5)"; drawCtx.beginPath(); drawCtx.moveTo(x0, yTop); drawCtx.lineTo(x1, yTop); drawCtx.stroke();
-      drawCtx.strokeStyle = "rgba(38,166,154,0.5)"; drawCtx.beginPath(); drawCtx.moveTo(x0, yBot); drawCtx.lineTo(x1, yBot); drawCtx.stroke();
-      drawCtx.fillStyle = "rgba(239,83,80,0.95)"; drawCtx.fillText("溢價 " + fmt(pd.top), x0 + 4, yTop + 7);
-      drawCtx.fillStyle = "rgba(255,214,79,0.98)"; drawCtx.fillText("EQ 50%", x0 + 4, yEq - 7);
-      drawCtx.fillStyle = "rgba(38,166,154,0.95)"; drawCtx.fillText("折價 " + fmt(pd.bot), x0 + 4, yBot - 7);
-    }
-  }
+  drawCtx.fillStyle = "rgba(239,83,80,0.07)"; drawCtx.fillRect(x0, yTop, w, yEq - yTop);   // 溢價(上半紅)
+  drawCtx.fillStyle = "rgba(38,166,154,0.07)"; drawCtx.fillRect(x0, yEq, w, yBot - yEq);    // 折價(下半綠)
+  drawCtx.lineWidth = 1;
+  drawCtx.strokeStyle = "rgba(239,83,80,0.55)"; drawCtx.beginPath(); drawCtx.moveTo(x0, yTop); drawCtx.lineTo(plotW, yTop); drawCtx.stroke();
+  drawCtx.strokeStyle = "rgba(38,166,154,0.55)"; drawCtx.beginPath(); drawCtx.moveTo(x0, yBot); drawCtx.lineTo(plotW, yBot); drawCtx.stroke();
+  drawCtx.setLineDash([5, 4]); drawCtx.strokeStyle = "rgba(255,214,79,0.7)";
+  drawCtx.beginPath(); drawCtx.moveTo(x0, yEq); drawCtx.lineTo(plotW, yEq); drawCtx.stroke(); drawCtx.setLineDash([]);
+  drawCtx.fillStyle = "rgba(239,83,80,0.95)"; drawCtx.fillText("溢價 " + fmt(cur.top), x0 + 4, yTop + 7);
+  drawCtx.fillStyle = "rgba(255,214,79,0.98)"; drawCtx.fillText("EQ 50%", x0 + 4, yEq - 7);
+  drawCtx.fillStyle = "rgba(38,166,154,0.95)"; drawCtx.fillText("折價 " + fmt(cur.bot), x0 + 4, yBot - 7);
   drawCtx.restore();
 }
 // 開關：window.togglePDZones() 切換折價/溢價區顯示（預設開）
