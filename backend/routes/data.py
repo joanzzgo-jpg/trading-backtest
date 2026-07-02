@@ -968,14 +968,20 @@ def smc_coach_api(
     api_secret: str = "",
     finmind_token: str = "",
     tfset: str = "default",
+    closed: int = 0,
 ):
-    """SR+SMC 多空教練面板資料（多時框）。tfset=default(1d/4h/1h/15m) 或 fast(4h/1h/15m/5m)；判斷邏輯相同。"""
+    """SR+SMC 多空教練面板資料（多時框）。tfset=default(1d/4h/1h/15m) 或 fast(4h/1h/15m/5m)；判斷邏輯相同。
+
+    closed=1（掃描器/推播用）：①只用「已收盤」K 棒判斷——丟掉最後一根未收盤棒，避免盤中影線掃蕩/MSS
+    成立又消失 → 推了「可進場」點進去卻沒了（與訊號通知的收盤確認原則一致）；②K 棒走 coach 專用短 TTL
+    快取——default/fast 共用的 4h/1h/15m 只抓一次、連續掃描也重用（60 檔×兩版 480 請求 → ~300）。
+    面板（closed=0）行為完全不變：即時抓、含未收盤棒＝「當下狀態」。"""
     from utils import smc
     _tfset = tfset if tfset in _COACH_ROLES else "default"
     _TFS = _COACH_TF_DAYS_FAST if _tfset == "fast" else _COACH_TF_DAYS
     _top_tf, _hh_tf, _hl_tf, _ex_tf, _hh_lbl, _hl_lbl = _COACH_ROLES[_tfset]
     _ex_lbl = _ex_tf.upper()   # 執行時框標籤(default:15M／fast:5M)
-    ck = f"smc_coach:{market}:{symbol}:{exchange}:{_tfset}"
+    ck = f"smc_coach:{market}:{symbol}:{exchange}:{_tfset}:{1 if closed else 0}"
     cached = data_cache.get(ck, ttl=25)
     if cached:
         return cached
@@ -986,7 +992,20 @@ def smc_coach_api(
     def _coach_load(item):
         tf, days = item
         try:
-            d = fetch_crt_df(market, symbol, tf, days, exchange, api_key, api_secret, finmind_token)
+            if closed:
+                dk = f"coach_df:{market}:{symbol}:{exchange}:{tf}:{days}"
+                d = data_cache.get(dk, ttl=100)
+                if d is None:
+                    d = fetch_crt_df(market, symbol, tf, days, exchange, api_key, api_secret, finmind_token)
+                    data_cache.set(dk, d)
+                _iv = _CRT_IV.get(tf)
+                if _iv and len(d) >= 30:
+                    # 資料源時間為 UTC naive；最後一根「開盤+週期 > 現在」＝未收盤 → 丟掉（只用已收盤棒）
+                    _last = pd.Timestamp(d["time"].iloc[-1]).timestamp()
+                    if _last + _iv > time.time():
+                        d = d.iloc[:-1]
+            else:
+                d = fetch_crt_df(market, symbol, tf, days, exchange, api_key, api_secret, finmind_token)
             return tf, d, smc.snapshot(d)
         except Exception:
             return tf, None, None
@@ -1106,22 +1125,14 @@ def smc_coach_api(
     return out
 
 
-@router.get("/coach_scan")
-def coach_scan_api(
-    market: str = "crypto",
-    exchange: str = "binance",
-    n: int = 60,
-    tfset: str = "both",
-    min_stage: int = 7,
-):
-    """教練掃描器：對成交量前 n 名加密永續跑教練(default+fast兩版)，篩出 stage≥min_stage(可進場)的標的。
-    回 results=[{symbol, hits:{default/fast:{stage,direction,plan,price}}}]，依最高 stage 排序。"""
+_coach_scan_bg_lock = threading.Lock()
+_coach_scan_inflight: set = set()
+
+
+def _coach_scan_compute(market, exchange, n, tfset, min_stage, ck):
+    """教練掃描本體：跑完寫入 ck 快取並回傳。closed=1＝只用已收盤棒（不重繪、推了不消失）＋K棒短快取去重。"""
     from concurrent.futures import ThreadPoolExecutor as _TPE
     from routes.trade import top_crypto_universe
-    ck = f"coach_scan:{market}:{exchange}:{n}:{tfset}:{min_stage}"
-    cached = data_cache.get(ck, ttl=120)
-    if cached:
-        return cached
     if market == "crypto":
         syms = [s["symbol"] for s in (top_crypto_universe(n) or [])]
     else:
@@ -1132,7 +1143,7 @@ def coach_scan_api(
         hits = {}
         for _ts in _sets:
             try:
-                d = smc_coach_api(market, sym, exchange, tfset=_ts)
+                d = smc_coach_api(market, sym, exchange, tfset=_ts, closed=1)
                 if d.get("ok") and d.get("stage", 0) >= min_stage:
                     hits[_ts] = {"stage": d["stage"], "direction": d["direction"],
                                  "plan": d.get("plan"), "price": d.get("price")}
@@ -1148,9 +1159,47 @@ def coach_scan_api(
                     results.append({"symbol": sym, "hits": hits,
                                     "top_stage": max(h["stage"] for h in hits.values())})
     results.sort(key=lambda r: -r["top_stage"])
-    out = {"ok": True, "scanned": len(syms), "min_stage": min_stage, "results": results}
+    out = {"ok": True, "scanned": len(syms), "min_stage": min_stage,
+           "results": results, "asof": time.time()}
     data_cache.set(ck, out)
     return out
+
+
+@router.get("/coach_scan")
+def coach_scan_api(
+    market: str = "crypto",
+    exchange: str = "binance",
+    n: int = 60,
+    tfset: str = "both",
+    min_stage: int = 7,
+    wait: int = 0,
+):
+    """教練掃描器：對成交量前 n 名加密永續跑教練(default+fast兩版)，篩出 stage≥min_stage(可進場)的標的。
+    回 results=[{symbol, hits:{default/fast:{stage,direction,plan,price}}}]，依最高 stage 排序。
+
+    stale-while-revalidate：快取過期但 30 分內有舊結果 → 立即回舊的(帶 stale:true)＋背景重掃，
+    前端 ticker 分頁不再卡整趟掃描(~20s)。wait=1（推播等背景用）＝一定等到新結果才回。"""
+    ck = f"coach_scan:{market}:{exchange}:{n}:{tfset}:{min_stage}"
+    cached = data_cache.get(ck, ttl=120)
+    if cached:
+        return cached
+    if not wait:
+        stale = data_cache.get(ck, ttl=1800)
+        if stale:
+            with _coach_scan_bg_lock:
+                _spawn = ck not in _coach_scan_inflight
+                if _spawn:
+                    _coach_scan_inflight.add(ck)
+            if _spawn:
+                def _bg():
+                    try:
+                        _coach_scan_compute(market, exchange, n, tfset, min_stage, ck)
+                    finally:
+                        with _coach_scan_bg_lock:
+                            _coach_scan_inflight.discard(ck)
+                threading.Thread(target=_bg, daemon=True).start()
+            return {**stale, "stale": True}
+    return _coach_scan_compute(market, exchange, n, tfset, min_stage, ck)
 
 
 def smc_trend_txt(t):

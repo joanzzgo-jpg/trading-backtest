@@ -505,7 +505,7 @@ def _coach_scan_push():
         return
     try:
         from routes.data import coach_scan_api
-        res = coach_scan_api(market="crypto", exchange="binance", n=60, tfset="both", min_stage=7)
+        res = coach_scan_api(market="crypto", exchange="binance", n=60, tfset="both", min_stage=7, wait=1)
     except Exception as e:
         print(f"  ⚠ 教練掃描失敗：{e}")
         return

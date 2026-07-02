@@ -45,17 +45,35 @@ def _get(url: str, timeout: int = 30) -> Union[dict, list]:
         return json.loads(r.read())
 
 
+# ── Binance 全域熔斷（418/429）─────────────────────────────────
+# Binance 超量會回 429，繼續打會升級成 418（IP ban，帶 Retry-After）；**封禁期間每多打一發都在延長封禁**
+# （重犯會從幾分鐘升級到幾天）。對策同 Pionex 熔斷：任一呼叫吃到 418/429 → 全域冷卻（有 Retry-After 用它，
+# 否則 429=60s/418=120s），期間所有 Binance 呼叫直接拋錯不碰網路 → 讓封禁真正過完。
+# 呼叫端本來就有快取/fallback/stale-serve，熔斷期間自動降級；教練掃描 SWR 會回舊結果不會整片空白。
+_BINANCE_COOLDOWN_UNTIL = 0.0
+
 def _binance_get(url: str, timeout: int = 30, retries: int = 1) -> Union[dict, list]:
-    """Binance 專用 GET：暫時性失敗（逾時／連線中斷／5xx）重試 retries 次。
+    """Binance 專用 GET：暫時性失敗（逾時／連線中斷／5xx）重試 retries 次＋418/429 全域熔斷。
     切標的瞬間 Binance 偶發 timeout 會被誤報成「無此標的」，一次重試即可大幅減少。
     ⚠️ 只給 Binance 用——絕不可套到 Pionex（429 期間每多打一次 +10s，重試會讓封鎖永遠清不掉）。
     400/404（真的無此標的）不重試，直接拋讓呼叫端 fallback。"""
+    global _BINANCE_COOLDOWN_UNTIL
+    if time.time() < _BINANCE_COOLDOWN_UNTIL:
+        raise RuntimeError("Binance 熔斷中（418/429 冷卻），暫不請求")
     last = None
     for attempt in range(retries + 1):
         try:
             return _get(url, timeout=timeout)
         except urllib.error.HTTPError as e:
             code = getattr(e, "code", None)
+            if code in (418, 429):
+                try:
+                    _ra = int((e.headers or {}).get("Retry-After") or 0)
+                except Exception:
+                    _ra = 0
+                _BINANCE_COOLDOWN_UNTIL = time.time() + max(_ra, 120 if code == 418 else 60)
+                print(f"  ⚠ Binance {code} 限流 → 全域熔斷 {max(_ra, 120 if code == 418 else 60)}s")
+                raise
             # 4xx（標的不存在/參數錯）非暫時性 → 不重試
             if code is not None and 400 <= code < 500:
                 raise
@@ -470,7 +488,7 @@ def _fetch_binance_klines_parallel(base_url, sym, tf, since_ms, end_ms, timefram
 def _fetch_futures_tickers_fapi() -> list:
     """從 fapi.binance.com 取得永續合約 24h 行情，失敗回傳空串列"""
     try:
-        data = _get(f"{BINANCE_FAPI_BASE}/fapi/v1/ticker/24hr", timeout=10)
+        data = _binance_get(f"{BINANCE_FAPI_BASE}/fapi/v1/ticker/24hr", timeout=10, retries=0)
         tickers = []
         for t in data:
             sym = t.get("symbol", "")
@@ -513,7 +531,7 @@ def _fetch_fapi_perp_set() -> set:
         return c["syms"]
     syms: set = set()
     try:
-        info = _get(f"{BINANCE_FAPI_BASE}/fapi/v1/exchangeInfo", timeout=10)
+        info = _binance_get(f"{BINANCE_FAPI_BASE}/fapi/v1/exchangeInfo", timeout=10, retries=0)
         for s in info.get("symbols", []):
             if (s.get("status") == "TRADING"
                     and s.get("contractType") in ("PERPETUAL", "TRADIFI_PERPETUAL")
@@ -907,7 +925,7 @@ def _apply_pionex_filter(tickers: list) -> list:
 def _fetch_fapi_prices() -> dict:
     """Binance 永續全合約最新價 {SYMBOL: price}（weight 2，給每秒高頻更新用）。"""
     try:
-        data = _get(f"{BINANCE_FAPI_BASE}/fapi/v1/ticker/price", timeout=8)
+        data = _binance_get(f"{BINANCE_FAPI_BASE}/fapi/v1/ticker/price", timeout=8, retries=0)
         return {d["symbol"]: float(d["price"]) for d in data
                 if isinstance(d, dict) and d.get("symbol") and d.get("price")}
     except Exception:
@@ -917,7 +935,7 @@ def _fetch_fapi_prices() -> dict:
 def _fetch_spot_prices() -> dict:
     """Binance 現貨全標的最新價 {SYMBOL: price}（weight 4，給每秒高頻更新用）。"""
     try:
-        data = _get(f"{BINANCE_BASE}/api/v3/ticker/price", timeout=8)
+        data = _binance_get(f"{BINANCE_BASE}/api/v3/ticker/price", timeout=8, retries=0)
         return {d["symbol"]: float(d["price"]) for d in data
                 if isinstance(d, dict) and d.get("symbol") and d.get("price")}
     except Exception:
@@ -927,7 +945,7 @@ def _fetch_spot_prices() -> dict:
 def _fetch_spot_tickers_binance() -> list:
     """Binance 現貨 24h ticker（USDT 對），格式與 Pionex 一致；失敗回 []。"""
     try:
-        data = _get(f"{BINANCE_BASE}/api/v3/ticker/24hr", timeout=10)
+        data = _binance_get(f"{BINANCE_BASE}/api/v3/ticker/24hr", timeout=10, retries=0)
         tickers = []
         for t in data:
             sym = t.get("symbol", "")
