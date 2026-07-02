@@ -1229,7 +1229,8 @@ def _tag_htf_bias(df, timeframe, result):
     空/破多 在折價區(便宜還想空)、多/破空 在溢價區(貴還想多) → weak。就地算、免另抓。"""
     ms = result.get("fvg_ms") or []
     bk = result.get("fvg_break") or []
-    if (not ms and not bk) or df is None or len(df) < 40:
+    sh = result.get("fvg_shun") or []
+    if (not ms and not bk and not sh) or df is None or len(df) < 40:
         return
     try:
         import numpy as np
@@ -1271,6 +1272,9 @@ def _tag_htf_bias(df, timeframe, result):
             m["weak"] = bool((bear and _z == -1) or ((not bear) and _z == 1))
         for m in bk:
             _z = _zone_at(m["t"]); bear = (m.get("d") == "l")
+            m["weak"] = bool((bear and _z == -1) or ((not bear) and _z == 1))
+        for m in sh:                                     # 順多/順空 與 多/空 同規則：順空在折價、順多在溢價 → weak
+            _z = _zone_at(m["t"]); bear = (m.get("d") == "s")
             m["weak"] = bool((bear and _z == -1) or ((not bear) and _z == 1))
         # 每段歷史交易區間(給前端畫折價/溢價/EQ)：t0→t1(None=進行中)、top/bot/eq。近 300 段。
         _tl = df["time"].tolist()
@@ -1315,7 +1319,7 @@ def get_crt_winrate(
     _br = round(max(0.1, min(1.0, float(band_ratio or 1.0))), 3)
     _long_only = (market == "tw")  # 台股不能放空
     _br_tag = "" if _br >= 0.999 else f":br{_br}"   # 預設 1.0 不改 key（沿用既有快取）；8成軌等另分流
-    cache_key = f"crt_wr75:{market}:{symbol}:{exchange}:{timeframe}:{_buf}:{int(_long_only)}{_br_tag}"
+    cache_key = f"crt_wr76:{market}:{symbol}:{exchange}:{timeframe}:{_buf}:{int(_long_only)}{_br_tag}"   # v76:+fvg_shun(順多空)
     bar_key = cache_key + ":bar"
     # bar-aware 新鮮度：記下「算這份結果時最新那根棒的開盤時刻」。crypto 在「同一根棒內」吃快取，
     # 一旦有新棒收盤就讓快取失效 → 走下方短窗補抓重算 → 最新訊號最多慢到「收盤後第一次請求」，

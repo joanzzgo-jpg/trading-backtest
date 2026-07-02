@@ -465,6 +465,7 @@ async function _fetchWinRateNow() {
     _renderFVGBB(c.fvg_bb, c.fvg_bb_a, c.fvg_bb_m);
     _renderFVGBreak(c.fvg_break);
     _renderFVGMS(c.fvg_ms);
+    _renderFVGShun(c.fvg_shun);
     _renderSMCSweep(c.smc_sweep);
     _renderSMCStruct(c.smc_struct);
     _renderSMCOB(c.smc_ob);
@@ -510,6 +511,7 @@ async function _fetchWinRateNow() {
     _renderFVGBB(d.fvg_bb, d.fvg_bb_a, d.fvg_bb_m);   // FVG 進出場標記:D(青/粉)+A(橘/紫)+M中軌分側順勢(黃/藍)（研究·主圖）
     _renderFVGBreak(d.fvg_break);     // 結構轉破:多FVG→空FVG→收破前一個多FVG 的那根K（主圖）
     _renderFVGMS(d.fvg_ms);           // 多/空方向標記:吃到未填補反向FVG→收破同向FVG（主圖）
+    _renderFVGShun(d.fvg_shun);       // 順多/順空:吃同向FVG後影線突破既存反向FVG（主圖）
     _renderSMCSweep(d.smc_sweep);     // SMC 掃頂/掃底（階段1：SR+SMC 教練疊加層，右上開關 coachToggleBtn）
     _renderSMCStruct(d.smc_struct);   // SMC BOS/CHoCH 結構破線段（階段2，畫布層，右上開關）
     _renderSMCOB(d.smc_ob);           // SMC 訂單區 OB 框（階段3，畫布層，右上開關）
@@ -826,6 +828,40 @@ window.toggleFVGMS = function (on) {
   window._fvgMSHidden = (on === undefined) ? !window._fvgMSHidden : !on;
   _applyMainMarkers();
   return !window._fvgMSHidden;
+};
+
+// 順多/順空方向標記：第一步同多/空(吃到未觸碰同向FVG)，第二步=影線突破既存反向FVG(順勢延續)
+// （順多=棒下藍↑「順多」、順空=棒上桃紅↓「順空」；weak=位置不對→淡化）
+function _renderFVGShun(items) {
+  if (items !== undefined) _lastFVGShun = items || [];
+  const hasIdx = (typeof _secToIdx !== "undefined" && _secToIdx.size > 0);
+  const chartTimeSet = hasIdx ? null : new Set(ohlcvData.map(d => toTime(d.time)));
+  const _has = t => hasIdx ? _secToIdx.has(t) : chartTimeSet.has(t);
+  const _rpCut = (typeof replayActive !== "undefined" && replayActive
+    && typeof replayData !== "undefined" && replayData[replayIdx])
+    ? toTime(replayData[replayIdx].time) : null;
+  const out = [];
+  for (const it of (_lastFVGShun || [])) {
+    const tm = toTime(it.t);
+    if (!_has(tm) || (_rpCut != null && tm > _rpCut)) continue;
+    if (it.d === "l") {
+      out.push({ time: tm, position: "belowBar", color: it.weak ? "#7d848a" : "#1e88e5",
+                 shape: "arrowUp", size: it.weak ? 1 : 2, text: it.weak ? "順多·" : "順多" });
+    } else {
+      out.push({ time: tm, position: "aboveBar", color: it.weak ? "#8a7d84" : "#ec407a",
+                 shape: "arrowDown", size: it.weak ? 1 : 2, text: it.weak ? "順空·" : "順空" });
+    }
+  }
+  out.sort((a, b) => a.time - b.time);
+  lastFVGShunMarkers = out;
+  _applyMainMarkers();
+}
+window._renderFVGShun = _renderFVGShun;
+// 開關：window.toggleFVGShun() 切換順多/順空標記顯示
+window.toggleFVGShun = function (on) {
+  window._fvgShunHidden = (on === undefined) ? !window._fvgShunHidden : !on;
+  _applyMainMarkers();
+  return !window._fvgShunHidden;
 };
 
 // SMC 掃頂/掃底標記（階段1：SR+SMC 教練疊加層）：掃頂=棒上紫「掃頂」、掃底=棒下青「掃底」。

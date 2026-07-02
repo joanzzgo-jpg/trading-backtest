@@ -259,7 +259,7 @@ function renderAll(data) {
 
 function renderCandles(data) {
   applyOhlcvToSeries(data);
-  lastCRTMarkers = []; lastKDJCrossMarkers = []; lastResonanceMarkers = []; lastWRSignalMarkers = []; lastBacktestMarkers = []; lastFVGTradeMarkers = []; lastFVGBBMarkers = []; lastFVGBBMarkersA = []; lastFVGBBMarkersM = []; lastFVGBreakMarkers = []; lastFVGMSMarkers = []; lastSMCSweepMarkers = [];
+  lastCRTMarkers = []; lastKDJCrossMarkers = []; lastResonanceMarkers = []; lastWRSignalMarkers = []; lastBacktestMarkers = []; lastFVGTradeMarkers = []; lastFVGBBMarkers = []; lastFVGBBMarkersA = []; lastFVGBBMarkersM = []; lastFVGBreakMarkers = []; lastFVGMSMarkers = []; lastFVGShunMarkers = []; lastSMCSweepMarkers = [];
   if (typeof setFVGTradeLines === "function") setFVGTradeLines([]);   // 換標的/重載 → 清舊止損止盈線，避免殘留
   _sortedMarkerCache = null;   // 標記陣列已清空 → 失效快取，避免平移重切視窗時殘留舊標記
   candleSeries.setMarkers([]);
@@ -318,6 +318,7 @@ function _applyMainMarkers(windowOnly) {
       // M版(順多/順空/順平)已從主圖移除——不再合併進標記，console 也叫不出來
       ...(window._fvgBreakHidden ? [] : lastFVGBreakMarkers),   // 結構轉破:多FVG→空FVG→收破多FVG
       ...(window._fvgMSHidden ? [] : lastFVGMSMarkers),          // 多/空:吃到未填補反向FVG→收破同向FVG
+      ...(window._fvgShunHidden ? [] : lastFVGShunMarkers),      // 順多/順空:吃同向FVG後影線突破既存反向FVG
       ...(window._coachOn ? lastSMCSweepMarkers : []),           // SMC 掃頂/掃底(階段1:SR+SMC 教練疊加層,右上開關)
       ...lastBacktestMarkers,
     ].sort((a, b) => a.time - b.time);
@@ -604,8 +605,9 @@ async function _bgLoadOlderBars(scrollTriggered = false) {
           renderBB(ohlcvData); renderCRT(ohlcvData); renderKDJCross(ohlcvData); renderResonance(ohlcvData);
           setTimeout(() => { renderKDJ(ohlcvData); renderRSI(ohlcvData); renderMACD(ohlcvData); }, 0);
           if (_lastWRSignals.length) _renderWRSignals();
-          // 補載歷史後也要重繪 FVG 標記(多/空/破多/破空)＋方向多空——否則新載進來那段的標記被 _has() 過濾掉不顯示
+          // 補載歷史後也要重繪 FVG 標記(多/空/破多/破空/順多/順空)——否則新載進來那段的標記被 _has() 過濾掉不顯示
           if (typeof _renderFVGMS === "function") _renderFVGMS();
+          if (typeof _renderFVGShun === "function") _renderFVGShun();
           if (typeof _renderFVGBreak === "function") _renderFVGBreak();
           if (typeof _renderFVGTrades === "function") _renderFVGTrades();
         }
