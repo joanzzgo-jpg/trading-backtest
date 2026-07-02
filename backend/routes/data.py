@@ -1186,7 +1186,7 @@ def _tag_htf_bias(df, timeframe, result):
         import numpy as np
         _H = df["high"].to_numpy(float); _L = df["low"].to_numpy(float); _C = df["close"].to_numpy(float)
         _n = len(df); _PL = 5                                # 當前時框：半窗 5 根定擺動 pivot
-        zn = [0] * _n; _sh = None; _sl = None; _cur = 0; _rHi = None; _rLo = None
+        zn = [0] * _n; _sh = None; _sl = None; _cur = 0; _rHi = None; _rLo = None; _legStart = 0
         for _i in range(_n):
             _j = _i - _PL                                    # 於 _j 確認 pivot(需兩側各 _PL 根)
             if _j >= _PL:
@@ -1194,10 +1194,10 @@ def _tag_htf_bias(df, timeframe, result):
                 if _L[_j] <= _L[_j - _PL:_j + _PL + 1].min(): _sl = _L[_j]   # 擺動低
             # BOS 定當前結構腿起點：轉多→區間低鎖保護低、區間高隨新高；轉空鏡像
             if _sh is not None and _C[_i] > _sh:
-                if _cur != 1: _rLo = _sl
+                if _cur != 1: _rLo = _sl; _legStart = _i
                 _cur = 1
             elif _sl is not None and _C[_i] < _sl:
-                if _cur != -1: _rHi = _sh
+                if _cur != -1: _rHi = _sh; _legStart = _i
                 _cur = -1
             if _cur == 1:
                 _rHi = _H[_i] if _rHi is None else max(_rHi, _H[_i])
@@ -1219,6 +1219,14 @@ def _tag_htf_bias(df, timeframe, result):
         for m in bk:
             _z = _zone_at(m["t"]); bear = (m.get("d") == "l")
             m["weak"] = bool((bear and _z == -1) or ((not bear) and _z == 1))
+        # 當前交易區間(給前端畫折價/溢價/EQ)：top=區間高、bot=區間低、eq=50%、t0=當前結構腿起點時間
+        if _rHi is not None and _rLo is not None and _rHi > _rLo:
+            try:
+                _t0 = pd.Timestamp(df["time"].iloc[_legStart]).isoformat()
+            except Exception:
+                _t0 = None
+            result["pd_range"] = {"top": float(_rHi), "bot": float(_rLo),
+                                  "eq": float((_rHi + _rLo) / 2.0), "t0": _t0, "dir": int(_cur)}
     except Exception:
         pass
 

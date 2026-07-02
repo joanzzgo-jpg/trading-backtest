@@ -503,6 +503,8 @@ async function _fetchWinRateNow() {
     _updateCoachPanel();              // SR+SMC 教練面板（階段6，左下摘要）
     if (typeof setFVGZones === "function") setFVGZones(d.fvg);
     _setFVGData(d.fvg);
+    window._pdRange = d.pd_range || null;   // 折價/溢價區間(主圖畫 EQ/溢價/折價)
+    if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();
     if (typeof window._refreshSignalDrawer === "function") window._refreshSignalDrawer();
   } catch(e) {
     console.error("[fetchWinRate] error:", e.name, e.message);

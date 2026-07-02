@@ -1143,6 +1143,45 @@ const _COACH_STRUCT_STYLE = {
   bos_dn:   { c: "#ef5350", dash: false, t: "BOS↓" },   // 空方延續
   choch_dn: { c: "#ef5350", dash: true,  t: "CHoCH↓" }, // 轉空（虛線）
 };
+// 折價/溢價區（ICT/SMC dealing range）：window._pdRange={top,bot,eq,t0,dir}。
+//   溢價=EQ→top(紅上半)、折價=bot→EQ(綠下半)、EQ=50%(黃虛線)。從結構腿起點 t0 延伸右緣。開關 _pdOn(預設開)。
+function _drawPDZones(W, H) {
+  if (window._pdOn === false) return;
+  const pd = window._pdRange;
+  if (!pd || pd.top == null || pd.bot == null) return;
+  if (typeof mainChart === "undefined" || typeof candleSeries === "undefined" || !candleSeries) return;
+  const ts = mainChart.timeScale();
+  let plotW = W;
+  try { const tw = ts.width(); if (tw > 0) plotW = tw; } catch (e) {}
+  const yTop = candleSeries.priceToCoordinate(pd.top);
+  const yEq = candleSeries.priceToCoordinate(pd.eq);
+  const yBot = candleSeries.priceToCoordinate(pd.bot);
+  if (yTop == null || yEq == null || yBot == null) return;
+  let x0 = pd.t0 ? _timeToX(toTime(pd.t0)) : 0;
+  if (x0 == null) x0 = 0;
+  x0 = Math.max(0, Math.min(x0, plotW));
+  const fmt = v => Math.abs(v) >= 1000 ? v.toFixed(0) : v.toFixed(4);
+  drawCtx.save();
+  drawCtx.fillStyle = "rgba(239,83,80,0.06)"; drawCtx.fillRect(x0, yTop, plotW - x0, yEq - yTop);   // 溢價(上半紅)
+  drawCtx.fillStyle = "rgba(38,166,154,0.06)"; drawCtx.fillRect(x0, yEq, plotW - x0, yBot - yEq);    // 折價(下半綠)
+  drawCtx.lineWidth = 1;
+  drawCtx.strokeStyle = "rgba(239,83,80,0.5)"; drawCtx.beginPath(); drawCtx.moveTo(x0, yTop); drawCtx.lineTo(plotW, yTop); drawCtx.stroke();
+  drawCtx.strokeStyle = "rgba(38,166,154,0.5)"; drawCtx.beginPath(); drawCtx.moveTo(x0, yBot); drawCtx.lineTo(plotW, yBot); drawCtx.stroke();
+  drawCtx.setLineDash([5, 4]); drawCtx.strokeStyle = "rgba(255,214,79,0.7)";
+  drawCtx.beginPath(); drawCtx.moveTo(x0, yEq); drawCtx.lineTo(plotW, yEq); drawCtx.stroke(); drawCtx.setLineDash([]);
+  drawCtx.font = "10px sans-serif"; drawCtx.textBaseline = "middle";
+  drawCtx.fillStyle = "rgba(239,83,80,0.95)"; drawCtx.fillText("溢價 " + fmt(pd.top), x0 + 4, yTop + 7);
+  drawCtx.fillStyle = "rgba(255,214,79,0.98)"; drawCtx.fillText("EQ 50%", x0 + 4, yEq - 7);
+  drawCtx.fillStyle = "rgba(38,166,154,0.95)"; drawCtx.fillText("折價 " + fmt(pd.bot), x0 + 4, yBot - 7);
+  drawCtx.restore();
+}
+// 開關：window.togglePDZones() 切換折價/溢價區顯示（預設開）
+window.togglePDZones = function (on) {
+  window._pdOn = (on === undefined) ? (window._pdOn === false) : !!on;
+  if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();
+  return window._pdOn;
+};
+
 function _drawCoachOverlay(W, H) {
   if (!window._coachOn) return;
   const items = window._coachStructure;
@@ -1356,6 +1395,9 @@ function renderDrawings() {
 
   // 交易時段 overlay（背景帶=當盤高低範圍 + 上下緣高低線 + 星期標籤；可開關）
   _drawSessionOverlay(W, H);
+
+  // 折價/溢價區（ICT/SMC dealing range：溢價紅上半、折價綠下半、EQ 50%線；開關 _pdOn 預設開）
+  _drawPDZones(W, H);
 
   // SR+SMC 教練疊加層（階段2：BOS/CHoCH 結構破線段+標籤；全時框；右上開關 _coachOn）
   _drawCoachOverlay(W, H);
