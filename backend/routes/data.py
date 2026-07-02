@@ -992,20 +992,20 @@ def smc_coach_api(
     def _coach_load(item):
         tf, days = item
         try:
+            # K 棒共用短快取：常駐暖掃(每2分)已把前60檔全部時框抓好 → 面板點進去直接命中(毫秒級,
+            # 原本要重抓4~5個時框 ~5秒)。代價=執行時框最舊 ~100s,教練看的是結構、現價另走每秒 ticker,可接受。
+            dk = f"coach_df:{market}:{symbol}:{exchange}:{tf}:{days}"
+            d = data_cache.get(dk, ttl=100)
+            if d is None:
+                d = fetch_crt_df(market, symbol, tf, days, exchange, api_key, api_secret, finmind_token)
+                data_cache.set(dk, d)
             if closed:
-                dk = f"coach_df:{market}:{symbol}:{exchange}:{tf}:{days}"
-                d = data_cache.get(dk, ttl=100)
-                if d is None:
-                    d = fetch_crt_df(market, symbol, tf, days, exchange, api_key, api_secret, finmind_token)
-                    data_cache.set(dk, d)
                 _iv = _CRT_IV.get(tf)
                 if _iv and len(d) >= 30:
                     # 資料源時間為 UTC naive；最後一根「開盤+週期 > 現在」＝未收盤 → 丟掉（只用已收盤棒）
                     _last = pd.Timestamp(d["time"].iloc[-1]).timestamp()
                     if _last + _iv > time.time():
                         d = d.iloc[:-1]
-            else:
-                d = fetch_crt_df(market, symbol, tf, days, exchange, api_key, api_secret, finmind_token)
             return tf, d, smc.snapshot(d)
         except Exception:
             return tf, None, None
@@ -1153,7 +1153,7 @@ def _coach_scan_compute(market, exchange, n, tfset, min_stage, ck):
 
     results = []
     if syms:
-        with _TPE(max_workers=4) as _pool:                # 每標的內部已並行4時框；此處再並行4標的(降突發避免418)
+        with _TPE(max_workers=6) as _pool:                # 每標的內部已並行4時框；併發6標的(權重感知節流已防429/418)
             for sym, hits in _pool.map(_scan_one, syms):
                 if hits:
                     results.append({"symbol": sym, "hits": hits,
@@ -1182,10 +1182,11 @@ def _live_fut_price(sym: str):
     return None
 
 
-def _filter_at_entry(results, tol=0.001, near=0.01):
+def _filter_at_entry(results, tol=0.001, near=0.03):
     """留「現價此刻在掛單區內(±tol，near_pct=0)」或「距區緣 ≤near(標 near_pct%)」的命中。
     掛單區(結構)變化慢、現價變化快 → 快取存未過濾命中(結構)，回應當下用每秒 ticker 現價過濾＝真正即時。
-    「接近」層是給限價掛單提前準備用——嚴格區內大部分時間是空清單，等進區才知道常來不及掛。"""
+    「接近」層是給限價掛單提前準備用——near 太嚴(1%)實測大部分時間整欄空白、看起來像壞掉，
+    放 3% 讓清單常有幾檔可看，靠「近x%」距離標示+排序分辨遠近；推播仍只推區內(near_pct=0)。"""
     out = []
     for r in results or []:
         px = _live_fut_price(r["symbol"])

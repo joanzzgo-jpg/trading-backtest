@@ -554,6 +554,7 @@ def run_monitor_loop():
     last_seen = {}
     last_status = 0.0
     last_coach = 0.0
+    last_coach_warm = 0.0   # 常駐暖掃(教練前60)節拍
     # 啟動後稍等，讓 app 完成預熱
     time.sleep(20)
     while True:
@@ -587,7 +588,16 @@ def run_monitor_loop():
                 push_auto_status()
             except Exception as e:
                 print(f"  ⚠ 狀況推播失敗：{e}")
-        # 每 ~10 分鐘：教練掃描前60 → 新『可進場』推播 + 訊號中心（頻率放寬避免 Binance 418 封 IP）
+        # 每 ~2 分鐘：常駐暖掃教練前60（與前端同 cache key）→ 前端「可進場」欄永遠拿熱快取,
+        # 不會看到「掃描中」卡住（權重感知節流已防限流,基載約每2分鐘300個輕量klines）
+        if now - last_coach_warm >= 120:
+            last_coach_warm = now
+            try:
+                from routes.data import coach_scan_api
+                coach_scan_api(market="crypto", exchange="binance", n=60, tfset="both", min_stage=6, wait=1)
+            except Exception as e:
+                print(f"  ⚠ 教練暖掃失敗：{e}")
+        # 每 ~10 分鐘：教練掃描前60 → 新『可進場』推播 + 訊號中心（讀暖掃快取,幾乎零成本）
         if now - last_coach >= 600:
             last_coach = now
             try:
