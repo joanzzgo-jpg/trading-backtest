@@ -456,10 +456,26 @@ async function _fetchWinRateNow() {
     // 快取命中也要取消上一個還在飛的勝率請求，否則它稍後成功回來會用「舊標的」的
     // 訊號覆寫 _lastWRSignals → 訊號時間不存在於新標的 ohlcv → markers 全被過濾 → 策略不顯示。
     if (_wrFetchCtrl) { _wrFetchCtrl.abort(); _wrFetchCtrl = null; }
-    _renderWinRate(_wrCache[cacheKey]);
-    _renderWRSignals(_wrCache[cacheKey].signals);
-    if (typeof setFVGZones === "function") setFVGZones(_wrCache[cacheKey].fvg);
-    _setFVGData(_wrCache[cacheKey].fvg);
+    const c = _wrCache[cacheKey];
+    _renderWinRate(c);
+    _renderWRSignals(c.signals);
+    // 快取命中也要把「這個標的」的 FVG/SMC 各層重繪回來——否則沿用上一個標的的舊標記
+    // （例：BTC→SOL→BTC 切回來，主圖 FVG 多/空、破多/破空還是 SOL 的 → 大段沒有標記/位置亂掉）
+    _renderFVGTrades(c.fvg_trades);
+    _renderFVGBB(c.fvg_bb, c.fvg_bb_a, c.fvg_bb_m);
+    _renderFVGBreak(c.fvg_break);
+    _renderFVGMS(c.fvg_ms);
+    _renderSMCSweep(c.smc_sweep);
+    _renderSMCStruct(c.smc_struct);
+    _renderSMCOB(c.smc_ob);
+    _renderSMCSR(c.smc_sr);
+    _renderCoachVWAP(c.vwap);
+    _renderCoachChannel(c.channel);
+    _updateCoachPanel();
+    if (typeof setFVGZones === "function") setFVGZones(c.fvg);
+    _setFVGData(c.fvg);
+    window._pdRanges = c.pd_ranges || (c.pd_range ? [c.pd_range] : []);
+    if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();
     // 快取命中也要刷新左抽屜（含敗後停手求解），否則切回已載入過的標的時抽屜不更新
     if (typeof window._refreshSignalDrawer === "function") window._refreshSignalDrawer();
     return;
