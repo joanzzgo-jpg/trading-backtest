@@ -1174,69 +1174,51 @@ def _export_bars(_df) -> dict:
     }
 
 
-# 更高時框偏見（弱信號過濾）：當前時框 → 重採樣的 HTF pandas rule。對齊教練 HTF(15m→4h、5m→1h、1h→4h…)。
-# 就地重採樣、免另抓資料(避免 Binance 限流)。
-_HTF_RULE = {"1m": "1h", "5m": "1h", "15m": "4h", "1h": "4h", "4h": "1D", "1d": "1W"}
-
-
 def _tag_htf_bias(df, timeframe, result):
-    """把 fvg_ms(方向多空)/fvg_break(破多破空) 依『更高時框趨勢』標 weak(逆勢=弱信號→前端淡化)。
-    就地把當前 df 重採樣成 HTF(免另抓)、算逐棒『擺動結構 BOS 趨勢』(非 EMA，與 SMC/教練同源)，
-    對齊每個標記的『上一根已收盤 HTF』。牛市 HTF 裡的看空(空/破多) 淡化、熊市 HTF 裡的看多(多/破空) 淡化。"""
+    """把 fvg_ms(方向多空)/fvg_break(破多破空) 依『折價/溢價位置』標 weak(位置不對=弱→前端淡化)。
+    **不用 HTF**：直接在『當前時框』自己的結構腿 dealing range 上算折價/溢價(50%±5%帶)。
+    空/破多 在折價區(便宜還想空)、多/破空 在溢價區(貴還想多) → weak。就地算、免另抓。"""
     ms = result.get("fvg_ms") or []
     bk = result.get("fvg_break") or []
-    if (not ms and not bk):
-        return
-    rule = _HTF_RULE.get(timeframe)
-    if rule is None or df is None or len(df) < 40:
+    if (not ms and not bk) or df is None or len(df) < 40:
         return
     try:
         import numpy as np
-        d = df[["time", "open", "high", "low", "close"]].copy()
-        d["time"] = pd.to_datetime(d["time"])
-        d = d.set_index("time")
-        h = d.resample(rule, label="left", closed="left").agg(
-            {"open": "first", "high": "max", "low": "min", "close": "last"}).dropna()
-        if len(h) < 25:
-            return
-        # 逐 HTF 棒：①趨勢＝擺動結構 BOS(收盤破擺動高→偏多、破擺動低→偏空)；②折價/溢價＝close 在
-        #   [擺動低,擺動高] 區間的位置(50%中線±5%均衡帶)：上半=溢價(+1)、下半=折價(-1)。皆用結構 swing，不用 EMA。
-        _H = h["high"].values; _L = h["low"].values; _C = h["close"].values; _n = len(h); _PL = 3
-        tr = [0] * _n; zn = [0] * _n; _sh = None; _sl = None; _cur = 0
-        _rHi = None; _rLo = None                             # 當前結構腿的成對區間(dealing range)
+        _H = df["high"].to_numpy(float); _L = df["low"].to_numpy(float); _C = df["close"].to_numpy(float)
+        _n = len(df); _PL = 5                                # 當前時框：半窗 5 根定擺動 pivot
+        zn = [0] * _n; _sh = None; _sl = None; _cur = 0; _rHi = None; _rLo = None
         for _i in range(_n):
             _j = _i - _PL                                    # 於 _j 確認 pivot(需兩側各 _PL 根)
             if _j >= _PL:
                 if _H[_j] >= _H[_j - _PL:_j + _PL + 1].max(): _sh = _H[_j]   # 擺動高
                 if _L[_j] <= _L[_j - _PL:_j + _PL + 1].min(): _sl = _L[_j]   # 擺動低
-            # BOS + 腿區間錨定：轉多→區間低鎖在保護低(腿起點)、區間高隨新高走；轉空鏡像
+            # BOS 定當前結構腿起點：轉多→區間低鎖保護低、區間高隨新高；轉空鏡像
             if _sh is not None and _C[_i] > _sh:
-                if _cur != 1: _rLo = _sl                     # 上升腿起點＝保護低(成對)
+                if _cur != 1: _rLo = _sl
                 _cur = 1
             elif _sl is not None and _C[_i] < _sl:
-                if _cur != -1: _rHi = _sh                    # 下降腿起點＝保護高(成對)
+                if _cur != -1: _rHi = _sh
                 _cur = -1
-            tr[_i] = _cur
             if _cur == 1:
-                _rHi = _H[_i] if _rHi is None else max(_rHi, _H[_i])   # 腿另一端跟極值
+                _rHi = _H[_i] if _rHi is None else max(_rHi, _H[_i])
             elif _cur == -1:
                 _rLo = _L[_i] if _rLo is None else min(_rLo, _L[_i])
             if _rHi is not None and _rLo is not None and _rHi > _rLo:   # 折價/溢價(dealing range 50%±5%)
                 _mid = (_rHi + _rLo) / 2.0; _band = (_rHi - _rLo) * 0.05
                 zn[_i] = 1 if _C[_i] > _mid + _band else (-1 if _C[_i] < _mid - _band else 0)
-        starts = h.index.values
+        _bt = pd.to_datetime(df["time"]).values
 
-        def _bias_at(tstr):
+        def _zone_at(tstr):
             t = np.datetime64(pd.to_datetime(tstr))
-            i = np.searchsorted(starts, t, side="right") - 2   # 上一根『已收盤』HTF(避免用到當下未收的那根)
-            return (int(tr[i]), int(zn[i])) if i >= 0 else (0, 0)
-        # 弱信號＝逆 HTF 趨勢『或』位置不對(空在折價 或 多在溢價)。fvg_ms:d=s空/d=l多；fvg_break:d=l破多(bear)/d=s破空(bull)
+            i = np.searchsorted(_bt, t, side="right") - 1    # 標記所在(或之前)那根棒(自身資料已知，非未來)
+            return int(zn[i]) if 0 <= i < _n else 0
+        # 弱信號＝位置不對：空/破多在折價區(-1)、多/破空在溢價區(+1)。fvg_ms:d=s空/d=l多；fvg_break:d=l破多(bear)/d=s破空(bull)
         for m in ms:
-            _t, _z = _bias_at(m["t"]); bear = (m.get("d") == "s")
-            m["weak"] = bool((bear and (_t == 1 or _z == -1)) or ((not bear) and (_t == -1 or _z == 1)))
+            _z = _zone_at(m["t"]); bear = (m.get("d") == "s")
+            m["weak"] = bool((bear and _z == -1) or ((not bear) and _z == 1))
         for m in bk:
-            _t, _z = _bias_at(m["t"]); bear = (m.get("d") == "l")
-            m["weak"] = bool((bear and (_t == 1 or _z == -1)) or ((not bear) and (_t == -1 or _z == 1)))
+            _z = _zone_at(m["t"]); bear = (m.get("d") == "l")
+            m["weak"] = bool((bear and _z == -1) or ((not bear) and _z == 1))
     except Exception:
         pass
 
