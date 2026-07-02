@@ -1165,6 +1165,7 @@ function _drawPDZones(W, H) {
   }
   if (!vis.length) return;
   drawCtx.save();
+  drawCtx.beginPath(); drawCtx.rect(0, 0, plotW, H); drawCtx.clip();   // 裁切到畫面內，畫面外填色不外溢
   drawCtx.font = "10px sans-serif"; drawCtx.textBaseline = "middle";
   for (let i = 0; i < vis.length; i++) {
     const { pd, x0, x1 } = vis[i]; if (x1 <= x0) continue;
@@ -1172,7 +1173,9 @@ function _drawPDZones(W, H) {
     const yEq = candleSeries.priceToCoordinate(pd.eq);
     const yBot = candleSeries.priceToCoordinate(pd.bot);
     if (yTop == null || yEq == null || yBot == null) continue;
+    if (yEq < 0 || yEq > H) continue;   // EQ 在畫面外→此區間對當前視野無意義(如跨崩盤的巨大區間)，不畫、避免填滿螢幕/堆在下緣
     const w = x1 - x0;
+    if (w < 28) continue;               // 太窄(縮很小看全圖時擠一團)→不畫；放大到正常視窗才顯示
     drawCtx.fillStyle = "rgba(239,83,80,0.07)"; drawCtx.fillRect(x0, yTop, w, yEq - yTop);   // 溢價(上半紅)
     drawCtx.fillStyle = "rgba(38,166,154,0.07)"; drawCtx.fillRect(x0, yEq, w, yBot - yEq);    // 折價(下半綠)
     drawCtx.lineWidth = 1;
