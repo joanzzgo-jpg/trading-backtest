@@ -1146,7 +1146,7 @@ const _COACH_STRUCT_STYLE = {
 // 折價/溢價區（ICT/SMC dealing range）：以「畫面右緣那根」為當下，只用到它為止的 K 棒現算(非重繪、不看未來)。
 //   捲到哪、右緣就是那個歷史時點→看到的是「當時」的折價/溢價。溢價=EQ→top(紅上)、折價=bot→EQ(綠下)、EQ=50%(黃虛)。
 function _drawPDZones(W, H) {
-  if (window._pdOn === false) return;
+  if (window._pdOn !== true) return;   // 預設關（使用者要求）；window.togglePDZones(true) 可重新開啟
   if (typeof mainChart === "undefined" || typeof candleSeries === "undefined" || !candleSeries) return;
   if (typeof ohlcvData === "undefined" || !ohlcvData || ohlcvData.length < 30) return;
   const ts = mainChart.timeScale();
@@ -1192,9 +1192,9 @@ function _drawPDZones(W, H) {
   drawCtx.fillStyle = "rgba(38,166,154,0.95)"; drawCtx.fillText("折價 " + fmt(rLo), x0 + 4, yBot - 7);
   drawCtx.restore();
 }
-// 開關：window.togglePDZones() 切換折價/溢價區顯示（預設開）
+// 開關：window.togglePDZones() 切換折價/溢價區顯示（預設關）
 window.togglePDZones = function (on) {
-  window._pdOn = (on === undefined) ? (window._pdOn === false) : !!on;
+  window._pdOn = (on === undefined) ? (window._pdOn !== true) : !!on;
   if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();
   return window._pdOn;
 };
