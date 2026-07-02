@@ -870,8 +870,14 @@ function _renderCoachChannel(ch) {
 }
 window._renderCoachChannel = _renderCoachChannel;
 
-// SR+SMC 多空教練面板（多時框步驟狀態機）：抓 /api/smc_coach → 畫完整步驟表。由 _coachOn 控制。
-let _coachData = null, _coachFetching = false;
+// SR+SMC 多空教練面板（多時框步驟狀態機）：抓 /api/smc_coach 兩版(default 1d/4h/1h/15m + fast 4h/1h/15m/5m)。
+//   展開＝兩版並列全表；收合＝只顯示選中那版＋按鈕切換。由 _coachOn 控制。
+let _coachData = null, _coachFetching = false;   // _coachData = { def, fast, _key, _ts }
+try { window._coachWhich = localStorage.getItem("coachWhich") === "fast" ? "fast" : "default"; } catch (e) { window._coachWhich = "default"; }
+function _coachSel() {   // 目前選中(收合顯示/HTF投影用)那版資料
+  if (!_coachData) return null;
+  return window._coachWhich === "fast" ? _coachData.fast : _coachData.def;
+}
 function _fetchCoachData(force) {
   if (!window._coachOn) { _renderCoachPanel(); return; }   // 關閉→隱藏面板（_renderCoachPanel 內會 display:none）
   const market = document.getElementById("marketSelect")?.value || "crypto";
@@ -885,15 +891,17 @@ function _fetchCoachData(force) {
   if (_coachFetching) return;
   _coachFetching = true;
   _renderCoachPanel();   // 先顯示載入中
-  const p = new URLSearchParams({ market, symbol, exchange });
-  fetch("/api/smc_coach?" + p, { cache: "no-store" })
-    .then(r => r.json())
-    .then(d => {
-      d._key = key; d._ts = Date.now();
-      if (d.ok) _coachAlertOnAdvance(key, d);   // 步驟前進鬧鐘
-      _coachData = d; _renderCoachPanel();
-      window._coachHTF = (d.ok && d.htf_zones) ? d.htf_zones : [];   // HTF 投影區(1H/4H)
-      window._coachHTFCh = (d.ok && d.htf_channels) ? d.htf_channels : [];   // HTF 投影通道(1H/4H)
+  const _one = tfset => fetch("/api/smc_coach?" + new URLSearchParams({ market, symbol, exchange, tfset }), { cache: "no-store" })
+    .then(r => r.json()).catch(() => null);
+  Promise.all([_one("default"), _one("fast")])
+    .then(([dd, df]) => {
+      if (dd && dd.ok) _coachAlertOnAdvance(key + "|d", dd);   // 兩版各自的步驟前進鬧鐘
+      if (df && df.ok) _coachAlertOnAdvance(key + "|f", df);
+      _coachData = { def: dd, fast: df, _key: key, _ts: Date.now() };
+      _renderCoachPanel();
+      const sel = _coachSel();   // HTF 投影只畫選中那版(避免兩版疊圖)
+      window._coachHTF = (sel && sel.ok && sel.htf_zones) ? sel.htf_zones : [];
+      window._coachHTFCh = (sel && sel.ok && sel.htf_channels) ? sel.htf_channels : [];
       if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();
     })
     .catch(() => {})
@@ -921,53 +929,79 @@ function _renderCoachPanel() {
   const el = document.getElementById("coachPanel");
   if (!el) return;
   if (!window._coachOn) { el.style.display = "none"; return; }
-  const d = _coachData;
   el.style.display = "block";
-  if (!d || !d.ok) {
+  const dd = _coachData && _coachData.def, df = _coachData && _coachData.fast;
+  if ((!dd || !dd.ok) && (!df || !df.ok)) {
     el.innerHTML = `<div style="font-weight:700;color:#ffca28">SR+SMC 教練</div><div style="color:#9aa">${_coachFetching ? "載入中…" : "無資料"}</div>`;
     return;
   }
-  const dirTxt = d.direction === 1 ? "多單" : d.direction === -1 ? "空單" : "待定";
-  const dc = d.direction === 1 ? "#26a69a" : d.direction === -1 ? "#ef5350" : "#9aa";
   const fmt = v => v == null ? "—" : (Math.abs(v) >= 1000 ? Number(v).toFixed(0) : Number(v).toFixed(4));
-  const mp = d.market_pos;
-  const mpTxt = mp ? `${mp.inside ? "目前位於" : "最近"}：${mp.kind} ${fmt(mp.bot)} ~ ${fmt(mp.top)}` : "—";
-  // 交易計畫（進場/止損/止盈）——收合、展開都要顯示的重要資訊
-  const pl = d.plan;
-  const planParts = pl ? [
-    pl.entry ? ["進場", fmt(pl.entry[0]) + "~" + fmt(pl.entry[1]), "#4fc3f7"] : null,
-    pl.sl != null ? ["止損", fmt(pl.sl), "#ef5350"] : null,
-    pl.tp != null ? ["止盈", fmt(pl.tp), "#26a69a"] : null,
-  ].filter(Boolean) : [];
-  const planTxt = planParts.length
-    ? planParts.map(p => `<span style="color:${p[2]}">${p[0]} ${p[1]}</span>`).join(`<span style="color:#667">｜</span>`)
-    : "—";
-  const collapsed = window._coachCollapsed !== false;   // 預設精簡
-  // 標題列（含收合鈕，唯一可點：pointer-events:auto）
-  const head = `<div style="display:flex;align-items:center;gap:8px;border-bottom:1px solid rgba(255,255,255,0.12);padding-bottom:3px;margin-bottom:${collapsed ? 4 : 4}px">`
-    + `<span style="font-weight:700;color:#ffca28;flex:1">教練 · ${d.symbol}｜<b style="color:${dc}">${dirTxt}</b>｜步驟 ${d.stage}/7</span>`
-    + `<button onclick="window._coachToggleCollapse&&window._coachToggleCollapse()" style="pointer-events:auto;cursor:pointer;background:rgba(255,255,255,0.1);border:0;border-radius:4px;color:#cfd;font-size:11px;padding:1px 6px">${collapsed ? "展開 ▾" : "收合 ▴"}</button></div>`;
-  if (collapsed) {   // 精簡：進度一行 + 進場/止損/止盈重要資訊
-    el.innerHTML = head
-      + `<div style="color:#cdd;max-width:390px;margin-bottom:3px">${d.progress}</div>`
-      + `<div style="font-weight:600;background:rgba(255,255,255,0.05);border-radius:5px;padding:3px 6px">${planTxt}</div>`;
+  const tflabel = d => (d && d.tfset === "fast") ? "4h/1h/15m/5m" : "1d/4h/1h/15m";
+  const dcOf = d => (d && d.direction === 1) ? "#26a69a" : (d && d.direction === -1) ? "#ef5350" : "#9aa";
+  const dtOf = d => (d && d.direction === 1) ? "多單" : (d && d.direction === -1) ? "空單" : "待定";
+  // 單一版本的內容（不含最外層標題列）
+  const bodyFor = (d, collapsed) => {
+    if (!d || !d.ok) return `<div style="color:#9aa">（此版無資料）</div>`;
+    const dc = dcOf(d);
+    const mp = d.market_pos;
+    const mpTxt = mp ? `${mp.inside ? "目前位於" : "最近"}：${mp.kind} ${fmt(mp.bot)} ~ ${fmt(mp.top)}` : "—";
+    const pl = d.plan;
+    const planParts = pl ? [
+      pl.entry ? ["進場", fmt(pl.entry[0]) + "~" + fmt(pl.entry[1]), "#4fc3f7"] : null,
+      pl.sl != null ? ["止損", fmt(pl.sl), "#ef5350"] : null,
+      pl.tp != null ? ["止盈", fmt(pl.tp), "#26a69a"] : null,
+    ].filter(Boolean) : [];
+    const planTxt = planParts.length
+      ? planParts.map(p => `<span style="color:${p[2]}">${p[0]} ${p[1]}</span>`).join(`<span style="color:#667">｜</span>`)
+      : "—";
+    if (collapsed) {
+      return `<div style="color:#cdd;max-width:390px;margin-bottom:3px">${d.progress}</div>`
+        + `<div style="font-weight:600;background:rgba(255,255,255,0.05);border-radius:5px;padding:3px 6px">${planTxt}</div>`;
+    }
+    const row = (k, v, c) => `<div style="display:flex;gap:8px;padding:1px 0"><span style="color:#9aa;min-width:76px">${k}</span><span style="color:${c || '#e6e6e6'};flex:1">${v}</span></div>`;
+    const stepRow = s => `<div style="display:flex;gap:6px;padding:2px 0;border-top:1px solid rgba(255,255,255,0.07)"><span style="color:${s.done ? dc : '#8a95a5'};min-width:104px;font-weight:600">${s.done ? '✓' : '○'} 步驟${s.n}｜${s.title}</span><span style="color:${s.done ? '#e6e6e6' : '#9aa'};flex:1">${s.text}</span></div>`;
+    return row("持倉狀態", d.position_status || "無持倉")
+      + row("市場位置", mpTxt)
+      + row("通道", d.channel_1h)
+      + row("交易計畫", planTxt, "#ffd54f")
+      + `<div style="margin-top:3px">` + (d.steps || []).map(stepRow).join("") + `</div>`;
+  };
+  const sym = (dd && dd.symbol) || (df && df.symbol) || "";
+  const collapsed = window._coachCollapsed !== false;
+  if (collapsed) {   // 收合：只顯示選中那版 + 切換鈕
+    const sel = _coachSel() || dd || df;
+    const head = `<div style="display:flex;align-items:center;gap:6px;border-bottom:1px solid rgba(255,255,255,0.12);padding-bottom:3px;margin-bottom:4px">`
+      + `<span style="font-weight:700;color:#ffca28;flex:1">教練 · ${sym}｜<b style="color:${dcOf(sel)}">${dtOf(sel)}</b>｜步驟 ${sel ? sel.stage : 0}/7</span>`
+      + `<button onclick="window._coachToggleWhich&&window._coachToggleWhich()" style="pointer-events:auto;cursor:pointer;background:rgba(79,195,247,0.18);border:0;border-radius:4px;color:#8fd3ff;font-size:11px;padding:1px 6px" title="切換時框組">${tflabel(sel)} ⇄</button>`
+      + `<button onclick="window._coachToggleCollapse&&window._coachToggleCollapse()" style="pointer-events:auto;cursor:pointer;background:rgba(255,255,255,0.1);border:0;border-radius:4px;color:#cfd;font-size:11px;padding:1px 6px">展開 ▾</button></div>`;
+    el.innerHTML = head + bodyFor(sel, true);
     return;
   }
-  // 完整
-  const row = (k, v, c) => `<div style="display:flex;gap:8px;padding:1px 0"><span style="color:#9aa;min-width:76px">${k}</span><span style="color:${c || '#e6e6e6'};flex:1">${v}</span></div>`;
-  const stepRow = s => `<div style="display:flex;gap:6px;padding:2px 0;border-top:1px solid rgba(255,255,255,0.07)"><span style="color:${s.done ? dc : '#8a95a5'};min-width:104px;font-weight:600">${s.done ? '✓' : '○'} 步驟${s.n}｜${s.title}</span><span style="color:${s.done ? '#e6e6e6' : '#9aa'};flex:1">${s.text}</span></div>`;
-  el.innerHTML = head +
-    row("持倉狀態", d.position_status || "無持倉") +
-    row("市場位置", mpTxt) +
-    row("1H通道", d.channel_1h) +
-    row("交易計畫", planTxt, "#ffd54f") +
-    `<div style="margin-top:3px">` + (d.steps || []).map(stepRow).join("") + `</div>`;
+  // 展開：兩版並列全表
+  const subhead = d => `<div style="color:#ffca28;font-weight:600;margin:4px 0 2px;font-size:11px">〔${tflabel(d)}〕<b style="color:${dcOf(d)}">${dtOf(d)}</b>｜步驟 ${d ? d.stage : 0}/7</div>`;
+  const head = `<div style="display:flex;align-items:center;gap:8px;border-bottom:1px solid rgba(255,255,255,0.12);padding-bottom:3px;margin-bottom:4px">`
+    + `<span style="font-weight:700;color:#ffca28;flex:1">教練 · ${sym}</span>`
+    + `<button onclick="window._coachToggleCollapse&&window._coachToggleCollapse()" style="pointer-events:auto;cursor:pointer;background:rgba(255,255,255,0.1);border:0;border-radius:4px;color:#cfd;font-size:11px;padding:1px 6px">收合 ▴</button></div>`;
+  el.innerHTML = head
+    + subhead(dd) + bodyFor(dd, false)
+    + `<div style="height:7px;border-top:1px dashed rgba(255,255,255,0.14);margin-top:5px"></div>`
+    + subhead(df) + bodyFor(df, false);
 }
 window._renderCoachPanel = _renderCoachPanel;
 // 收合/展開（唯一可互動處，因面板整體 pointer-events:none）
 window._coachToggleCollapse = function () {
   window._coachCollapsed = !(window._coachCollapsed !== false);
   try { localStorage.setItem("coachCollapsed", window._coachCollapsed ? "1" : "0"); } catch (e) {}
+  _renderCoachPanel();
+};
+// 收合時切換顯示哪一版（default⇄fast）；HTF 投影跟著換
+window._coachToggleWhich = function () {
+  window._coachWhich = window._coachWhich === "fast" ? "default" : "fast";
+  try { localStorage.setItem("coachWhich", window._coachWhich); } catch (e) {}
+  const sel = _coachSel();
+  window._coachHTF = (sel && sel.ok && sel.htf_zones) ? sel.htf_zones : [];
+  window._coachHTFCh = (sel && sel.ok && sel.htf_channels) ? sel.htf_channels : [];
+  if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();
   _renderCoachPanel();
 };
 try { window._coachCollapsed = localStorage.getItem("coachCollapsed") !== "0"; } catch (e) {}

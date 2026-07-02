@@ -857,6 +857,13 @@ def crt_winrate_api(
 #   Round1：抓 4H/1H/15M/日 → 各時框 SMC 快照 → 方向/主方向/市場位置/1H通道（面板頂部）。
 #   步驟 1～8 狀態機於後續 round 疊加。
 _COACH_TF_DAYS = {"1d": 320, "4h": 60, "1h": 20, "15m": 7}
+# 低時框版（tfset=fast）：整組往下移一級＝4h(頂/方向)→1h(高HTF)→15m(低HTF)→5m(執行)。判斷邏輯完全沿用。
+_COACH_TF_DAYS_FAST = {"4h": 60, "1h": 20, "15m": 7, "5m": 3}
+# 角色→(頂顯示, 高HTF=方向+區, 低HTF=區, 執行, 高HTF標籤, 低HTF標籤)
+_COACH_ROLES = {
+    "default": ("1d", "4h", "1h", "15m", "4H", "1H"),
+    "fast":    ("4h", "1h", "15m", "5m", "1H", "15M"),
+}
 
 
 def _coach_pos_in_channel(ch, price):
@@ -927,32 +934,46 @@ def smc_coach_api(
     api_key: str = "",
     api_secret: str = "",
     finmind_token: str = "",
+    tfset: str = "default",
 ):
-    """SR+SMC 多空教練面板資料（多時框）。Round1：頂部方向/主方向/市場位置/1H通道。"""
+    """SR+SMC 多空教練面板資料（多時框）。tfset=default(1d/4h/1h/15m) 或 fast(4h/1h/15m/5m)；判斷邏輯相同。"""
     from utils import smc
-    ck = f"smc_coach:{market}:{symbol}:{exchange}"
+    _tfset = tfset if tfset in _COACH_ROLES else "default"
+    _TFS = _COACH_TF_DAYS_FAST if _tfset == "fast" else _COACH_TF_DAYS
+    _top_tf, _hh_tf, _hl_tf, _ex_tf, _hh_lbl, _hl_lbl = _COACH_ROLES[_tfset]
+    _ex_lbl = _ex_tf.upper()   # 執行時框標籤(default:15M／fast:5M)
+    ck = f"smc_coach:{market}:{symbol}:{exchange}:{_tfset}"
     cached = data_cache.get(ck, ttl=25)
     if cached:
         return cached
+    # 4 個時框平行抓取（各僅 1 window/1 請求 → 並行安全、不觸限流）：序列 ~520ms → 並行 ~150ms。
+    #   狀態機純計算僅 ~23ms，瓶頸全在網路抓取，故並行是主要加速手段。fetch 內走 I/O 會放開 GIL。
+    from concurrent.futures import ThreadPoolExecutor as _TPE
     dfs = {}; snaps = {}
-    for tf, days in _COACH_TF_DAYS.items():
+    def _coach_load(item):
+        tf, days = item
         try:
-            dfs[tf] = fetch_crt_df(market, symbol, tf, days, exchange, api_key, api_secret, finmind_token)
-            snaps[tf] = smc.snapshot(dfs[tf])
+            d = fetch_crt_df(market, symbol, tf, days, exchange, api_key, api_secret, finmind_token)
+            return tf, d, smc.snapshot(d)
         except Exception:
-            dfs[tf] = None; snaps[tf] = None
-    s1d, s4h, s1h, s15 = snaps.get("1d"), snaps.get("4h"), snaps.get("1h"), snaps.get("15m")
+            return tf, None, None
+    with _TPE(max_workers=len(_TFS)) as _pool:
+        for tf, d, sn in _pool.map(_coach_load, list(_TFS.items())):
+            dfs[tf] = d; snaps[tf] = sn
+    # 角色別名：頂(顯示)/高HTF(方向+區)/低HTF(區)/執行 → 沿用原 s1d/s4h/s1h/s15 變數名，其餘判斷不改。
+    s1d, s4h, s1h, s15 = snaps.get(_top_tf), snaps.get(_hh_tf), snaps.get(_hl_tf), snaps.get(_ex_tf)
+    _df_hh, _df_hl, _df_ex = dfs.get(_hh_tf), dfs.get(_hl_tf), dfs.get(_ex_tf)
     t4 = s4h["trend"] if s4h else 0
     t1 = s1h["trend"] if s1h else 0
     td = s1d["trend"] if s1d else 0
-    direction = 1 if t4 == 1 else (-1 if t4 == -1 else 0)   # 預設規則：4H 主方向
+    direction = 1 if t4 == 1 else (-1 if t4 == -1 else 0)   # 主方向＝高HTF(default:4H／fast:1H)趨勢
     price = (s15 or s4h or {}).get("price")
-    # 忠實狀態機：把 1H/4H 算成逐棒 HTF series → 對齊每根 15M(request.security 復刻)+失效退階。
-    if direction != 0 and dfs.get("15m") is not None:
+    # 忠實狀態機：把 高/低HTF 算成逐棒 series → 對齊每根執行時框(request.security 復刻)+失效退階。
+    if direction != 0 and _df_ex is not None:
         try:
-            _ser4 = smc.htf_series(dfs.get("4h"))
-            _ser1 = smc.htf_series(dfs.get("1h"))
-            coach = smc.run_coach2(dfs.get("15m"), _ser4, _ser1, direction)
+            _ser4 = smc.htf_series(_df_hh)
+            _ser1 = smc.htf_series(_df_hl)
+            coach = smc.run_coach2(_df_ex, _ser4, _ser1, direction)
         except Exception:
             coach = {"stage": 0}
     else:
@@ -968,10 +989,10 @@ def smc_coach_api(
     _swt = _tg.get("sh") if direction == -1 else _tg.get("sl")
     steps = [
         {"n": 1, "title": "方向", "done": st >= 1,
-         "text": (f"方向通過｜4H 主{_dn}" if direction != 0 else "等待 4H 確認主方向")},
+         "text": (f"方向通過｜{_hh_lbl} 主{_dn}" if direction != 0 else f"等待 {_hh_lbl} 確認主方向")},
         {"n": 2, "title": "區域", "done": st >= 2,
-         "text": (f"已進入{_dn}方區｜{coach.get('zone_name') or ('4H/1H '+_dn+'方區')} {_rng(coach.get('zone_top'), coach.get('zone_bot'))}" if st >= 2
-                  else f"等待價格進入 4H/1H {_dn}方訂單區／缺口／區")},
+         "text": (f"已進入{_dn}方區｜{coach.get('zone_name') or (_hh_lbl+'/'+_hl_lbl+' '+_dn+'方區')} {_rng(coach.get('zone_top'), coach.get('zone_bot'))}" if st >= 2
+                  else f"等待價格進入 {_hh_lbl}/{_hl_lbl} {_dn}方訂單區／缺口／區")},
         {"n": 3, "title": "掃蕩", "done": st >= 3,
          "text": (f"已掃過前{'低' if direction==1 else '高'}｜{_fmt(coach.get('sweep_px'))}" if st >= 3
                   else f"等待掃過前{'低' if direction==1 else '高'}｜目標 {_fmt(_swt)}")},
@@ -983,14 +1004,14 @@ def smc_coach_api(
          "text": (f"{_dn}方 BOS 完成｜{_fmt(coach.get('bos_px'))}" if st >= 5
                   else f"等待形成{_dn}方延續{'高' if direction==1 else '低'}點")},
         {"n": 6, "title": "掛單＋反應K", "done": st >= 6,
-         "text": (f"{_dn}單掛單區 {_rng(coach.get('entry_top'), coach.get('entry_bot'))}｜來源：{coach.get('entry_name') or '15M '+_dn+'方缺口'}｜等待盤中觸碰" if st >= 6
-                  else f"等待新的 15M {_dn}方訂單區／缺口形成")},
+         "text": (f"{_dn}單掛單區 {_rng(coach.get('entry_top'), coach.get('entry_bot'))}｜來源：{coach.get('entry_name') or _ex_lbl+' '+_dn+'方缺口'}｜等待盤中觸碰" if st >= 6
+                  else f"等待新的 {_ex_lbl} {_dn}方訂單區／缺口形成")},
         {"n": 7, "title": "進場條件完成", "done": st >= 7,
          "text": ("步驟 7 完成｜已觸碰掛單區，請設定持倉" if st >= 7 else "步驟 7 尚未完成｜等待盤中觸碰掛單區")},
     ]
     # HTF 投影區（1H/4H 的 OB/FVG/SR）：給前端在低時框圖上畫，對齊 Pine f_htfVisibleZones。
     htf_zones = []
-    for snap, tfn in ((s4h, "4H"), (s1h, "1H")):
+    for snap, tfn in ((s4h, _hh_lbl), (s1h, _hl_lbl)):
         if not snap:
             continue
         for side, dl, dv in (("l", "多", "l"), ("s", "空", "s")):
@@ -1003,7 +1024,7 @@ def smc_coach_api(
                 htf_zones.append({"top": z["top"], "bot": z["bot"], "t0": z.get("t0"), "name": f"{tfn} {kl}", "kind": "sr", "dir": dv})
     # HTF 投影通道（4H 靛/1H 青，各自 anchor→右，涵蓋範圍對齊 TV）
     htf_channels = []
-    for snap, tfn in ((s4h, "4H"), (s1h, "1H")):
+    for snap, tfn in ((s4h, _hh_lbl), (s1h, _hl_lbl)):
         ch = (snap or {}).get("channel")
         if ch and ch.get("t1"):
             htf_channels.append({"tf": tfn, "dir": ch["dir"], "t1": ch["t1"], "t2": ch["t2"],
@@ -1032,9 +1053,10 @@ def smc_coach_api(
     out = {
         "ok": True, "symbol": symbol, "price": price,
         "direction": direction, "stage": st,
-        "dir_text": ((f"{_dn}單主軸｜同向{_dn}方推進" if t4 == t1 else f"{_dn}單主軸｜4H {smc_trend_txt(t4)}｜1H {smc_trend_txt(t1)}") if direction != 0 else "等待 4H 主方向"),
+        "dir_text": ((f"{_dn}單主軸｜同向{_dn}方推進" if t4 == t1 else f"{_dn}單主軸｜{_hh_lbl} {smc_trend_txt(t4)}｜{_hl_lbl} {smc_trend_txt(t1)}") if direction != 0 else f"等待 {_hh_lbl} 主方向"),
         "progress": prog,
-        "trend": {"1d": td, "4h": t4, "1h": t1},
+        "trend": {_top_tf: td, _hh_tf: t4, _hl_tf: t1},
+        "tfset": _tfset,
         "market_pos": zone,
         "channel_1h": _coach_pos_in_channel(s1h["channel"] if s1h else None, price),
         "position_status": "無持倉",

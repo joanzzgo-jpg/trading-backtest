@@ -1555,7 +1555,9 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                     if _seq_dr[_q] == "s": _B = _q; break
                 if _B is None: continue
                 _cf2 = _seq_cf[_B]
-                if _cf2 in _ms_seen or _cf2 - _touch > _MSWIN or not _seq_bot[_B] < _top: continue  # B下緣<A上緣(重疊可)
+                _aw = (_top - _bot) / _top                            # A/B 寬度%(做空以上緣為分母)
+                _bw = (_seq_top[_B] - _seq_bot[_B]) / _seq_top[_B]
+                if _cf2 in _ms_seen or _cf2 - _touch > _MSWIN or not _seq_bot[_B] < _top or _bw >= _aw: continue  # B下緣<A上緣(重疊可)+B寬度<A寬度
                 _blk = False                                # 中間夾的做多FVG(非觸碰棒順手做的)→擋
                 for _q in range(_p, _B):
                     if _seq_dr[_q] == "l" and _seq_cf[_q] - _touch > 2:
@@ -1577,7 +1579,9 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                     if _seq_dr[_q] == "l": _B = _q; break
                 if _B is None: continue
                 _cf2 = _seq_cf[_B]
-                if _cf2 in _ms_seen or _cf2 - _touch > _MSWIN or not _seq_top[_B] > _bot: continue  # B上緣>A下緣(重疊可)
+                _aw = (_top - _bot) / _bot                            # A/B 寬度%(做多以下緣為分母)
+                _bw = (_seq_top[_B] - _seq_bot[_B]) / _seq_bot[_B]
+                if _cf2 in _ms_seen or _cf2 - _touch > _MSWIN or not _seq_top[_B] > _bot or _bw >= _aw: continue  # B上緣>A下緣(重疊可)+B寬度<A寬度
                 _blk = False
                 for _q in range(_p, _B):
                     if _seq_dr[_q] == "s" and _seq_cf[_q] - _touch > 2:
