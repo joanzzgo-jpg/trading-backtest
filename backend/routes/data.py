@@ -1186,26 +1186,30 @@ def _tag_htf_bias(df, timeframe, result):
         import numpy as np
         _H = df["high"].to_numpy(float); _L = df["low"].to_numpy(float); _C = df["close"].to_numpy(float)
         _n = len(df); _PL = 5                                # 當前時框：半窗 5 根定擺動 pivot
-        zn = [0] * _n; _sh = None; _sl = None; _cur = 0; _rHi = None; _rLo = None; _legStart = 0
+        zn = [0] * _n; _sh = None; _sl = None; _cur = 0; _legStart = 0
+        _lHi = None; _lLo = None; _legs = []                 # 每段結構腿：(startIdx, endIdx, top, bot)
         for _i in range(_n):
             _j = _i - _PL                                    # 於 _j 確認 pivot(需兩側各 _PL 根)
             if _j >= _PL:
                 if _H[_j] >= _H[_j - _PL:_j + _PL + 1].max(): _sh = _H[_j]   # 擺動高
                 if _L[_j] <= _L[_j - _PL:_j + _PL + 1].min(): _sl = _L[_j]   # 擺動低
-            # BOS 定當前結構腿起點：轉多→區間低鎖保護低、區間高隨新高；轉空鏡像
-            if _sh is not None and _C[_i] > _sh:
-                if _cur != 1: _rLo = _sl; _legStart = _i
-                _cur = 1
-            elif _sl is not None and _C[_i] < _sl:
-                if _cur != -1: _rHi = _sh; _legStart = _i
-                _cur = -1
-            if _cur == 1:
-                _rHi = _H[_i] if _rHi is None else max(_rHi, _H[_i])
-            elif _cur == -1:
-                _rLo = _L[_i] if _rLo is None else min(_rLo, _L[_i])
-            if _rHi is not None and _rLo is not None and _rHi > _rLo:   # 折價/溢價(dealing range 50%±5%)
-                _mid = (_rHi + _rLo) / 2.0; _band = (_rHi - _rLo) * 0.05
+            _flip = 0                                        # BOS 轉向 → 開新腿
+            if _sh is not None and _C[_i] > _sh and _cur != 1: _flip = 1
+            elif _sl is not None and _C[_i] < _sl and _cur != -1: _flip = -1
+            if _flip != 0:
+                if _lHi is not None and _lLo is not None and _lHi > _lLo:   # 收掉上一腿(存入歷史)
+                    _legs.append((_legStart, _i, _lHi, _lLo))
+                _legStart = _i; _cur = _flip
+                if _flip == 1: _lLo = _sl; _lHi = _H[_i]     # 上升腿：低鎖保護低、高從當根起
+                else: _lHi = _sh; _lLo = _L[_i]              # 下降腿鏡像
+            else:
+                if _cur == 1: _lHi = _H[_i] if _lHi is None else max(_lHi, _H[_i])
+                elif _cur == -1: _lLo = _L[_i] if _lLo is None else min(_lLo, _L[_i])
+            if _lHi is not None and _lLo is not None and _lHi > _lLo:   # 折價/溢價(dealing range 50%±5%)
+                _mid = (_lHi + _lLo) / 2.0; _band = (_lHi - _lLo) * 0.05
                 zn[_i] = 1 if _C[_i] > _mid + _band else (-1 if _C[_i] < _mid - _band else 0)
+        if _lHi is not None and _lLo is not None and _lHi > _lLo:   # 最後(進行中)那腿 endIdx=None
+            _legs.append((_legStart, None, _lHi, _lLo))
         _bt = pd.to_datetime(df["time"]).values
 
         def _zone_at(tstr):
@@ -1219,14 +1223,20 @@ def _tag_htf_bias(df, timeframe, result):
         for m in bk:
             _z = _zone_at(m["t"]); bear = (m.get("d") == "l")
             m["weak"] = bool((bear and _z == -1) or ((not bear) and _z == 1))
-        # 當前交易區間(給前端畫折價/溢價/EQ)：top=區間高、bot=區間低、eq=50%、t0=當前結構腿起點時間
-        if _rHi is not None and _rLo is not None and _rHi > _rLo:
+        # 每段歷史交易區間(給前端畫折價/溢價/EQ)：t0→t1(None=進行中)、top/bot/eq。近 300 段。
+        _tl = df["time"].tolist()
+        _rngs = []
+        for (_s, _e, _hi, _lo) in _legs[-300:]:
             try:
-                _t0 = pd.Timestamp(df["time"].iloc[_legStart]).isoformat()
+                _t0 = pd.Timestamp(_tl[_s]).isoformat()
+                _t1 = pd.Timestamp(_tl[_e]).isoformat() if _e is not None else None
             except Exception:
-                _t0 = None
-            result["pd_range"] = {"top": float(_rHi), "bot": float(_rLo),
-                                  "eq": float((_rHi + _rLo) / 2.0), "t0": _t0, "dir": int(_cur)}
+                continue
+            _rngs.append({"top": float(_hi), "bot": float(_lo),
+                          "eq": float((_hi + _lo) / 2.0), "t0": _t0, "t1": _t1})
+        if _rngs:
+            result["pd_ranges"] = _rngs
+            result["pd_range"] = _rngs[-1]   # 相容：最新那段
     except Exception:
         pass
 
