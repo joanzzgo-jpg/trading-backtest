@@ -1307,7 +1307,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
     _gaplist = []          # (cf_bar, top, bot, dir) 給「接1次」cascade 進出場標記用
     _bbgaps  = []          # (cf_bar, top, bot, dir) 給「布林外+FVG」均值回歸研究標記（不套 g+2 過濾，對齊 fvg_bb.py 回測）
     _fvg_break = []        # 「多FVG→空FVG→收破前一個多FVG」結構轉破標記 [{t}]
-    _fvg_ms    = []        # 「吃到未填補反向FVG→收破同向FVG」方向標記 [{t,d}]（多/空，獨立於破多/破空）
+    _fvg_ms    = []        # 「多/空」方向標記 [{t,d}]（吃到 setup FVG 後、窗內首次同向 proto 缺口 B，標在 B 的 g）
     _fvg_shun  = []        # 「順多/順空」：第一步同多/空(吃到未觸碰同向FVG)，第二步=影線穿透既存反向FVG [{t,d}]
     _gaps_seq  = []        # (cf_bar, top, bot, dir) 依時間序的所有視覺缺口（給上面結構模式偵測用）
     try:
@@ -1506,15 +1506,16 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             if "gi" in _x: _used.add(_x["gi"])
             if "ri" in _x: _used.add(_x["ri"])
 
-        # ── 「多/空」方向標記（新定義 2026-07-01）──────────────────────────────────
-        # 空：前方一個「從未被任何K的影線/實體碰過」的做空FVG，被某根K「首次」碰到(high≥其下緣bot、
-        #     進入區間)後，於 _MSWIN 根內「首次新產生做空FVG」→ 標「空」於該新做空FVG的 g+1(確認棒)。
-        # 多：鏡像——從未碰過的做多FVG被首次碰到(low≤其上緣top)後，窗內首次新做多FVG → 標「多」於其 g+1。
-        #   「首次碰到」＝確認棒(g+1)之後第一根碰進區間的K；即滿足「尚未被其他K碰過」。用 _gaps_seq(含視覺全缺口)。
-        # 約束：觸碰後、在「新產生同向FVG」之前，中間不能夾任何反向FVG →
-        #       等價於「觸碰後生成的第一個新缺口必須就是同向FVG」。用生成序 _seq_cf(升序)＋bisect 取之。
+        # ── 「多/空」方向標記（2026-07-01 定義；07-03 B 改 proto 缺口·g 收盤定緣、不等 g+1）──────────
+        # 空/多：setup A＝一個做空/做多 3 根 FVG，被 K 棒「逐錨更深觸碰」(封頂/封底、上/下影衝過緣 _MSOVR 作廢)後，
+        #       窗(_MSWIN)內「首次新產生同向 proto 缺口」(B) → 標於 B 的 g 那根(不等 g+1)。
+        #   B＝proto 缺口(下方偵測)：把原本被 g+1 限制的那條緣改用 g 自己的收盤 C[g]、g 那根即成立，
+        #     右邊 g+1 只檢查沒把缺口收盤填回(干擾)。⚠ 加密 24/7 連續盤不用「g.low>g-1.high」字面 2 根缺口(必 0 個)。
+        # 約束：觸碰→B 之間不能夾任何反向缺口(除非觸碰棒 cf−touch≤2 順手做的)；
+        #       多：B下緣>A下緣 且 B上緣>A上緣(不得完全被A包住、可部分重疊)；空：B下緣<A上緣(重疊可)。不套「B寬<A寬」。
         _MSWIN = 60
-        _MSMIN = 0.0005    # 多空偵測門檻：FVG 寬度 <0.05% 不算(視覺缺口仍保留 0.01%，不受此限)
+        _MSMIN = 0.0005    # 缺口寬度門檻：<0.05% 不算(視覺缺口仍保留 0.01%，不受此限)
+        _MSOVR = 0.10      # 觸碰時 K 影線衝過 setup FVG 緣 10% → 該 FVG 作廢(之後不算有效觸碰)
         # 寬度%：多用下緣為分母(top-bot)/bot、空用上緣(top-bot)/top(對齊視覺 _gw 定義)
         _gseq = [(_ci, _tp, _bt, _dr) for (_ci, _tp, _bt, _dr) in _gaps_seq
                  if (_tp - _bt) / (_bt if _dr == "l" else _tp) >= _MSMIN]
@@ -1524,64 +1525,73 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         _seq_bot = [_bt for (_ci, _tp, _bt, _dr) in _gseq]      # 對應下緣
         _bear = [(_ci, _tp, _bt) for (_ci, _tp, _bt, _dr) in _gseq if _dr == "s"]
         _bull = [(_ci, _tp, _bt) for (_ci, _tp, _bt, _dr) in _gseq if _dr == "l"]
-        _ms_seen = set()                                   # 去重：同一確認棒(_cf2)只標一次
-        # 定義：做空FVG(A) → K棒每次「更深突破」碰進其區間(封頂於上緣、同深度不重算)＝一次觸碰錨 →
-        #       該觸碰後「第一個做空FVG」為B → B下緣<A上緣(不整個浮在A上、重疊可) → 標空。
-        #       A 不限「前一個」，任何更早、未填補的做空FVG都可當 setup(例:ETH 12/12 吃 11/14)；
-        #       每次更深突破各自成錨(例:ETH 6/9 首次碰入→6/15)，故逐錨嘗試而非只取全域最深。
-        #       中間夾的反向FVG：除非「觸碰棒本身就是它的形成棒(g-1/g/g+1，即 cf−touch≤2)＝觸碰那一下順手做出來的」
-        #       否則不論填補都擋(例:ETH 12/12 的 12/10做多是 12/9 觸碰棒做的→放行；1w 10/07 的 9/23做多是8月觸碰後另形成→擋)。多為鏡像。
-        _MSOVR = 0.10      # 衝過緣 10% → 該做空/多FVG被決定性突破、作廢(之後不算有效觸碰)
-        for (_cf, _top, _bot) in _bear:                    # 空
+        # B＝「proto 缺口」偵測：bull＝g 收盤站上前根高點(C[g]>H[g-1])→缺口[H[g-1], C[g]]，右邊 g+1 收盤沒跌回
+        #   缺口底(C[g+1]>H[g-1]＝沒干擾) → 標在 g。bear 鏡像(C[g]<L[g-1]→缺口[C[g], L[g-1]]、C[g+1]<L[g-1] 沒干擾)。
+        _pseq = []             # (g, top, bot, dir) proto 缺口，依 g 升序(生成序)
+        for _g2 in range(1, _N - 1):
+            _hm1 = _H[_g2 - 1]; _lm1 = _L[_g2 - 1]; _cg = _C[_g2]; _cn = _C[_g2 + 1]
+            if any(_v != _v for _v in (_hm1, _lm1, _cg, _cn)):        # NaN
+                continue
+            if _cg > _hm1 and _cn > _hm1:                             # bull proto：g 收盤站上前根高點 + g+1 收盤沒跌回缺口底
+                _pt, _pb, _pd = _cg, _hm1, "l"                       # 缺口區 [H[g-1], C[g]]
+                if (_pt - _pb) / _pb < _MSMIN: continue
+            elif _cg < _lm1 and _cn < _lm1:                          # bear proto：g 收盤破前根低點 + g+1 收盤沒漲回缺口頂
+                _pt, _pb, _pd = _lm1, _cg, "s"                       # 缺口區 [C[g], L[g-1]]
+                if (_pt - _pb) / _pt < _MSMIN: continue
+            else:
+                continue
+            _pseq.append((_g2, _pt, _pb, _pd))
+        _pcf  = [_p[0] for _p in _pseq]; _pdr = [_p[3] for _p in _pseq]
+        _ptop = [_p[1] for _p in _pseq]; _pbot = [_p[2] for _p in _pseq]
+        _ms_seen = set()                                   # 去重：同一 B(_cf2)只標一次
+        for (_cf, _top, _bot) in _bear:                    # 空：setup A 為 3 根 bear FVG、B 為 proto 缺口
             _mx = None
             for _touch in range(_cf + 1, _N):
-                if _mx is not None and _mx >= _top: break  # 錨已達上緣→不可能更深觸碰(無損提前止掃)
-                if _H[_touch] > _top * (1 + _MSOVR): break # 上影線衝過上緣10% → 做空FVG作廢
-                if _H[_touch] < _bot: continue             # 沒碰進區間
-                _r = _top if _H[_touch] > _top else _H[_touch]   # 封頂於上緣
-                if _mx is not None and _r <= _mx: continue # 沒更深 → 非新觸碰
+                if _mx is not None and _mx >= _top: break
+                if _H[_touch] > _top * (1 + _MSOVR): break
+                if _H[_touch] < _bot: continue
+                _r = _top if _H[_touch] > _top else _H[_touch]
+                if _mx is not None and _r <= _mx: continue
                 _mx = _r
-                _p = bisect.bisect_right(_seq_cf, _touch)   # 此觸碰後第一個做空FVG＝B
+                _p = bisect.bisect_right(_pcf, _touch)     # 觸碰後第一個 bear proto 缺口＝B
                 _B = None
-                for _q in range(_p, len(_seq_cf)):
-                    if _seq_dr[_q] == "s": _B = _q; break
+                for _q in range(_p, len(_pcf)):
+                    if _pdr[_q] == "s": _B = _q; break
                 if _B is None: continue
-                _cf2 = _seq_cf[_B]
-                _aw = (_top - _bot) / _top                            # A/B 寬度%(做空以上緣為分母)
-                _bw = (_seq_top[_B] - _seq_bot[_B]) / _seq_top[_B]
-                if _cf2 in _ms_seen or _cf2 - _touch > _MSWIN or not _seq_bot[_B] < _top or _bw >= _aw: continue  # B下緣<A上緣(重疊可)+B寬度<A寬度
-                _blk = False                                # 中間夾的做多FVG(非觸碰棒順手做的)→擋
+                _cf2 = _pcf[_B]
+                # 空：B下緣<A上緣(重疊可)；不套「B寬<A寬」。
+                if _cf2 in _ms_seen or _cf2 - _touch > _MSWIN or not _pbot[_B] < _top: continue
+                _blk = False
                 for _q in range(_p, _B):
-                    if _seq_dr[_q] == "l" and _seq_cf[_q] - _touch > 2:
+                    if _pdr[_q] == "l" and _pcf[_q] - _touch > 2:
                         _blk = True; break
                 if _blk: continue
-                _fvg_ms.append({"t": times_iso[_cf2], "d": "s"})
-                _ms_seen.add(_cf2); _used.add(_cf); _used.add(_cf2)
+                _fvg_ms.append({"t": times_iso[_cf2], "d": "s"}); _ms_seen.add(_cf2); _used.add(_cf)
         for (_cf, _top, _bot) in _bull:                    # 多（鏡像）
             _mn = None
             for _touch in range(_cf + 1, _N):
-                if _mn is not None and _mn <= _bot: break  # 錨已達下緣→不可能更深觸碰(無損提前止掃)
-                if _L[_touch] < _bot * (1 - _MSOVR): break # 下影線衝過下緣10% → 做多FVG作廢
+                if _mn is not None and _mn <= _bot: break
+                if _L[_touch] < _bot * (1 - _MSOVR): break
                 if _L[_touch] > _top: continue
-                _r = _bot if _L[_touch] < _bot else _L[_touch]   # 封底於下緣
+                _r = _bot if _L[_touch] < _bot else _L[_touch]
                 if _mn is not None and _r >= _mn: continue
                 _mn = _r
-                _p = bisect.bisect_right(_seq_cf, _touch)
+                _p = bisect.bisect_right(_pcf, _touch)
                 _B = None
-                for _q in range(_p, len(_seq_cf)):
-                    if _seq_dr[_q] == "l": _B = _q; break
+                for _q in range(_p, len(_pcf)):
+                    if _pdr[_q] == "l": _B = _q; break
                 if _B is None: continue
-                _cf2 = _seq_cf[_B]
-                _aw = (_top - _bot) / _bot                            # A/B 寬度%(做多以下緣為分母)
-                _bw = (_seq_top[_B] - _seq_bot[_B]) / _seq_bot[_B]
-                if _cf2 in _ms_seen or _cf2 - _touch > _MSWIN or not _seq_top[_B] > _bot or _bw >= _aw: continue  # B上緣>A下緣(重疊可)+B寬度<A寬度
+                _cf2 = _pcf[_B]
+                # 多：B 下緣要高於 A 下緣(_pbot>_bot)＋ B 不能完全被 A 包住→上緣要突出 A 上緣(_ptop>_top)。
+                #   (可部分重疊：B 下緣容許 <A 上緣；只是不得整個縮在 A 內、也不得低於 A 下緣。)不套「B寬<A寬」。
+                if (_cf2 in _ms_seen or _cf2 - _touch > _MSWIN
+                        or not (_pbot[_B] > _bot) or not (_ptop[_B] > _top)): continue
                 _blk = False
                 for _q in range(_p, _B):
-                    if _seq_dr[_q] == "s" and _seq_cf[_q] - _touch > 2:
+                    if _pdr[_q] == "s" and _pcf[_q] - _touch > 2:
                         _blk = True; break
                 if _blk: continue
-                _fvg_ms.append({"t": times_iso[_cf2], "d": "l"})
-                _ms_seen.add(_cf2); _used.add(_cf); _used.add(_cf2)
+                _fvg_ms.append({"t": times_iso[_cf2], "d": "l"}); _ms_seen.add(_cf2); _used.add(_cf)
         _fvg_ms.sort(key=lambda x: x["t"])
         _fvg_ms = _fvg_ms[-2000:]
 
@@ -2185,7 +2195,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         "signals":  signals,
         "fvg":      _fvg,         # 失衡缺口（主圖色塊）
         "fvg_break": _fvg_break,  # 「多FVG→空FVG→收破前一個多FVG」結構轉破標記
-        "fvg_ms":   _fvg_ms,      # 「吃到未填補反向FVG→收破同向FVG」方向標記(多/空)
+        "fvg_ms":   _fvg_ms,      # 「多/空」方向標記(B 用 proto 缺口·g 收盤定緣、標在 g)
         "fvg_shun": _fvg_shun,    # 「順多/順空」：吃同向FVG後影線穿透既存反向FVG(順勢延續)
         "smc_sweep": _smc_sweep,  # SMC 掃頂/掃底(階段1：SR+SMC 教練移植)
         "smc_struct": _smc_struct, # SMC 結構事件 BOS/CHoCH 線段(階段2)
