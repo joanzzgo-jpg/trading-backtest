@@ -344,6 +344,33 @@ _HKO_ICON = {
     93: ("嚴寒", "cloudy"),
 }
 
+# HKO rhrread 雨量分 18 區報告 → 各區近似中心座標。就近選『使用者所在區』的雨量，
+# 取代原本「全港最大值」：香港陣雨很局部，別區在下不代表你這在下（避免誤報「正在下雨」）。
+_HKO_RAIN_DISTRICTS = {
+    "中西區": (22.287, 114.155), "東區": (22.284, 114.224), "南區": (22.246, 114.160),
+    "灣仔":   (22.278, 114.173), "油尖旺": (22.312, 114.170), "深水埗": (22.330, 114.162),
+    "九龍城": (22.328, 114.191), "黃大仙": (22.342, 114.194), "觀塘":   (22.310, 114.226),
+    "葵青":   (22.357, 114.130), "荃灣":   (22.371, 114.114), "屯門":   (22.391, 113.973),
+    "元朗":   (22.444, 114.022), "北區":   (22.494, 114.138), "大埔":   (22.451, 114.164),
+    "沙田":   (22.383, 114.190), "西貢":   (22.381, 114.271), "離島區": (22.259, 113.945),
+}
+
+def _hko_local_rain(rains, lat, lon) -> float:
+    """從 rhrread 各區雨量取『離使用者最近的區』的雨量(mm)。找不到對應座標才退回全港最大值。"""
+    best_v, best_d = None, float("inf")
+    for rr in rains:
+        c = _HKO_RAIN_DISTRICTS.get((rr.get("place") or "").strip())
+        if not c:
+            continue
+        d = math.hypot(c[0] - lat, c[1] - lon)
+        if d < best_d:
+            try: v = float(rr.get("max") or 0)
+            except (TypeError, ValueError): v = 0.0
+            best_v, best_d = v, d
+    if best_v is not None:
+        return best_v
+    return max((float(rr.get("max") or 0) for rr in rains), default=0.0)   # 無對應區 → 退回全港最大
+
 async def _from_hko(lat: float, lon: float) -> dict:
     timeout = aiohttp.ClientTimeout(total=12)
     async with aiohttp.ClientSession(timeout=timeout) as sess:
@@ -362,9 +389,9 @@ async def _from_hko(lat: float, lon: float) -> dict:
 
     hums = data.get("humidity", {}).get("data", []) or []
     humidity = float(hums[0].get("value", 0)) if hums else 0.0
-    # 降雨：取各區最大值（mm）
+    # 降雨：就近取『使用者所在區』的雨量（mm），非全港最大 → 避免別區下雨誤報你在下雨
     rains = data.get("rainfall", {}).get("data", []) or []
-    precip = max((float(rr.get("max") or 0) for rr in rains), default=0.0)
+    precip = _hko_local_rain(rains, lat, lon)
 
     icons = data.get("icon", []) or []
     code  = int(icons[0]) if icons else 50
