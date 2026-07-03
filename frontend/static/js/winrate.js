@@ -894,6 +894,38 @@ function _renderSMCSweep(items) {
 }
 window._renderSMCSweep = _renderSMCSweep;
 
+// 教練步驟5(BOS 延續)達成點：主圖箭頭標記(多↑綠棒下／空↓紅棒上，text「步驟5 BOS」)。
+// 與計畫線同源：15m 圖用 default、5m 圖用 fast（其他時框 bos_time 不對齊棒、自然不顯示）。
+// 由 _coachOn 控制（併入 _applyMainMarkers 的 lastCoachBOSMarkers）。資料來自 _coachData(按標的鍵)+bos_time。
+function _renderCoachBOS() {
+  lastCoachBOSMarkers = [];
+  const _tf = (typeof currentTF !== "undefined") ? currentTF : "";
+  const d = _tf === "15m" ? (_coachData && _coachData.def)
+          : _tf === "5m"  ? (_coachData && _coachData.fast) : null;
+  if (d && d.ok && d.bos_time && (d.stage || 0) >= 5 && typeof ohlcvData !== "undefined" && ohlcvData) {
+    const hasIdx = (typeof _secToIdx !== "undefined" && _secToIdx.size > 0);
+    const chartTimeSet = hasIdx ? null : new Set(ohlcvData.map(x => toTime(x.time)));
+    const _has = t => hasIdx ? _secToIdx.has(t) : chartTimeSet.has(t);
+    const _rpCut = (typeof replayActive !== "undefined" && replayActive
+      && typeof replayData !== "undefined" && replayData[replayIdx])
+      ? toTime(replayData[replayIdx].time) : null;
+    const tm = toTime(d.bos_time);
+    if (_has(tm) && (_rpCut == null || tm <= _rpCut)) {
+      const up = d.direction === 1;
+      lastCoachBOSMarkers.push({
+        time: tm,
+        position: up ? "belowBar" : "aboveBar",
+        color: up ? "#26a69a" : "#ef5350",
+        shape: up ? "arrowUp" : "arrowDown",
+        size: 2,
+        text: "步驟5 BOS",
+      });
+    }
+  }
+  _applyMainMarkers();
+}
+window._renderCoachBOS = _renderCoachBOS;
+
 // SMC BOS/CHoCH 結構破線段（階段2）：存資料給畫布層(draw.js _drawCoachOverlay)，由 _coachOn 決定是否畫。
 function _renderSMCStruct(items) {
   window._coachStructure = items || [];
@@ -943,7 +975,7 @@ function _fetchCoachData(force) {
   if (!symbol) return;
   const key = market + "|" + symbol + "|" + exchange;
   if (!force && _coachData && _coachData._key === key && (Date.now() - _coachData._ts < 20000)) {
-    _renderCoachPanel(); return;
+    _renderCoachPanel(); _renderCoachBOS(); return;   // 快取命中(含切時框reload)：同標的資料→重建步驟5標記
   }
   if (_coachFetching) return;
   _coachFetching = true;
@@ -959,11 +991,13 @@ function _fetchCoachData(force) {
       const sel = _coachSel();   // HTF 投影只畫選中那版(避免兩版疊圖)
       window._coachHTF = (sel && sel.ok && sel.htf_zones) ? sel.htf_zones : [];
       window._coachHTFCh = (sel && sel.ok && sel.htf_channels) ? sel.htf_channels : [];
-      // 交易計畫線畫主圖：15m 圖用 default(執行15m)、5m 圖用 fast(執行5m)，且僅「可進場」(stage≥7)才給
+      // 交易計畫線畫主圖：15m 圖用 default(執行15m)、5m 圖用 fast(執行5m)，BOS(stage≥5)確認起就給
+      // (stage5 進場區=HTF區、6=掛單區、≥7=已觸碰；提前畫讓使用者 BOS 一到就看得到計畫)
       window._coachPlanByTf = {
-        "15m": (dd && dd.ok && dd.stage >= 7) ? dd.plan : null,
-        "5m": (df && df.ok && df.stage >= 7) ? df.plan : null,
+        "15m": (dd && dd.ok && dd.stage >= 5) ? dd.plan : null,
+        "5m": (df && df.ok && df.stage >= 5) ? df.plan : null,
       };
+      _renderCoachBOS();   // 步驟5(BOS)達成點主圖標記
       if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();
     })
     .catch(() => {})
@@ -1031,8 +1065,8 @@ function _renderCoachPanel() {
   };
   const sym = (dd && dd.symbol) || (df && df.symbol) || "";
   const collapsed = window._coachCollapsed !== false;
-  // 進場狀態徽章：與「可進場」清單同一套定義——stage≥7 還要看「現價距掛單區」:
-  //   區內=🎯可進場(綠)、≤3%=🎯可進場·距x%(綠)、>3%=已觸碰·價已離區(黃灰,所以不在清單);stage6=掛單中
+  // 進場狀態徽章：與「可進場」清單同一套定義(stage≥5 起顯示)——階梯 stage5=BOS完成·準備掛單 →
+  //   stage6=掛單中 → stage≥7 還要看「現價距掛單區」:區內=🎯可進場(綠)、≤3%=🎯可進場·距x%(綠)、>3%=已觸碰·價已離區(黃灰)
   const entryBadge = d => {
     if (!d || !d.ok) return "";
     if (d.stage >= 7) {
@@ -1046,10 +1080,13 @@ function _renderCoachPanel() {
       const t = (dist != null && dist > 0) ? `·距${dist.toFixed(1)}%` : "";
       return `<span style="background:#1b5e20;color:#b6ffbf;border-radius:3px;padding:0 5px;margin-left:5px;font-weight:700">🎯可進場${t}</span>`;
     }
-    return d.stage >= 6 ? `<span style="background:#4a3b00;color:#ffd54f;border-radius:3px;padding:0 5px;margin-left:5px">掛單中</span>` : "";
+    if (d.stage >= 6) return `<span style="background:#4a3b00;color:#ffd54f;border-radius:3px;padding:0 5px;margin-left:5px">掛單中</span>`;
+    // stage5：BOS 延續完成，setup 成立、下一步就是去掛單 → 提前顯示的核心狀態
+    if (d.stage >= 5) return `<span style="background:#0d3b52;color:#8fd3ff;border-radius:3px;padding:0 5px;margin-left:5px;font-weight:700">✅BOS完成·準備掛單</span>`;
+    return "";
   };
   const subhead = d => `<div style="color:#ffca28;font-weight:600;margin:3px 0 1px;font-size:10.5px">〔${tflabel(d)}〕<b style="color:${dcOf(d)}">${dtOf(d)}</b>｜步驟 ${d ? d.stage : 0}/8${entryBadge(d)}</div>`;
-  // 從「可進場」清單點進來的期望檢查:命中版本若已失效退階(<7)→紅色提示+立即刷新清單
+  // 從「可進場」清單點進來的期望檢查:命中版本若已失效退階(<5)→紅色提示+立即刷新清單
   // (5m/15m 執行時框設定壽命短,點開瞬間剛失效是週期本質——明講,而不是讓使用者以為清單亂給)
   let expectWarn = "";
   try {
@@ -1057,7 +1094,7 @@ function _renderCoachPanel() {
     if (ex && sym === ex.sym && Date.now() - ex.ts < 30000) {
       const dv = ex.ver === "fast" ? df : dd;
       if (dv && dv.ok) {
-        if ((dv.stage || 0) < 7) {
+        if ((dv.stage || 0) < 5) {
           expectWarn = `<div style="background:#4a1414;color:#ffb3ab;border-radius:4px;padding:2px 6px;margin-bottom:3px;font-size:11px">⚠ 此設定剛失效退階（${ex.ver === "fast" ? "⚡5m" : "15m"} 週期變化快）— 清單已同步更新</div>`;
           if (typeof _fetchCoachScan === "function") setTimeout(() => _fetchCoachScan(true), 300);
         }

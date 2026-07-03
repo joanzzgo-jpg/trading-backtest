@@ -407,7 +407,7 @@ function _removeWatchlistByKey(key) {
   if (idx >= 0) { _watchlist.splice(idx, 1); _saveWatchlist(); renderTickers(); }
 }
 
-// 🎯 教練可進場 tab：抓 /api/coach_scan（前60、stage≥7），列出可進場標的（點擊載入）。60s 自刷。
+// 🎯 教練可進場 tab：抓 /api/coach_scan（前60、stage≥5），列出可進場標的（點擊載入）。60s 自刷。
 let _coachScan = { ts: 0, loading: false, data: [] };
 async function _fetchCoachScan(force) {
   const cs = _coachScan;
@@ -416,9 +416,10 @@ async function _fetchCoachScan(force) {
   cs.loading = true;
   if (_tickerSort === "coach") renderTickers();     // 顯示「掃描中…」
   try {
-    // min_stage=7+at_entry=1：兩版都列(使用者要 5m)。5m版標⚡短效——第7步壽命僅幾分鐘,
-    // 點開時可能剛失效退階(每次回應已複驗+點擊後5s刷新,把落差壓到最小)。
-    const r = await fetch("/api/coach_scan?n=60&min_stage=7&at_entry=1", { cache: "no-store" });
+    // min_stage=5+at_entry=1：BOS(步驟5)一確認就列——步驟5=setup成立、步驟6=去掛限價單、步驟7=觸碰成交,
+    // 對限價單交易者提前到「還來得及掛單」的時點(第7步壽命僅幾分鐘,等到7就晚了)。
+    // 兩版都列(使用者要 5m)。每次回應已複驗+點擊後5s刷新,把退階落差壓到最小。
+    const r = await fetch("/api/coach_scan?n=60&min_stage=5&at_entry=1", { cache: "no-store" });
     const j = await r.json();
     if (j && j.warming) {
       // 伺服器冷啟動暖機中(背景掃描跑著) → 8 秒後自動重試,期間顯示「掃描中」

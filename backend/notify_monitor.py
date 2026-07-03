@@ -495,8 +495,9 @@ def _fvg_approach_scan():
 
 
 def _coach_scan_push():
-    """背景：掃前60加密永續的教練，發現新『可進場』(stage≥7)→ Web Push + 寫訊號中心(event=coach)。
-    同標的同方向同版每小時最多推一次(seen_event 去重)。純資訊、不下單。"""
+    """背景：掃前60加密永續的教練，發現新 setup(stage≥5=BOS 延續完成)→ Web Push + 寫訊號中心(event=coach)。
+    步驟5=setup成立、步驟6=去掛限價單、步驟7=觸碰成交 → 提前到 BOS 一確認就推,對限價單交易者留掛單前置時間。
+    同標的同方向同版每小時最多推一次(seen_event 去重,先到的早階段先推、後面同小時同標的不重推)。純資訊、不下單。"""
     import routes.notify as notify
     if not notify.notify_enabled():
         return
@@ -505,9 +506,9 @@ def _coach_scan_push():
         return
     try:
         from routes.data import coach_scan_api
-        # min_stage=7+at_entry=1：第7步完成(與面板同基準)＋「現價此刻正好在掛單區內」才推
-        # → 收到推播時就是可進場價(接近層 near_pct>0 在下方迴圈跳過不推)
-        res = coach_scan_api(market="crypto", exchange="binance", n=60, tfset="both", min_stage=7, wait=1, at_entry=1)
+        # min_stage=5+at_entry=1：BOS(步驟5)完成(與面板同基準)＋「現價此刻正好在區內」才推
+        # → 收到推播時價格就在掛單/區位置(接近層 near_pct>0 在下方迴圈跳過不推)
+        res = coach_scan_api(market="crypto", exchange="binance", n=60, tfset="both", min_stage=5, wait=1, at_entry=1)
     except Exception as e:
         print(f"  ⚠ 教練掃描失敗：{e}")
         return
@@ -537,8 +538,12 @@ def _coach_scan_push():
             ent = plan.get("entry")
             ent_s = f"{_f(ent[0])}~{_f(ent[1])}" if ent else "—"
             tp_s = "、".join(_f(t) for t in tps) if tps else "—"
-            title = f"{sym} · {tf_lbl}教練｜可進場（{dl}）"
-            body = f"進場 {ent_s}\n止損 {_f(plan.get('sl'))}｜止盈 {tp_s}"
+            # 標題依步驟語意分級：5=BOS確認(去掛單)、6=掛單區已成、≥7=已觸碰可進場
+            _stg = h.get("stage", 0)
+            _verb = "可進場" if _stg >= 7 else ("掛單中" if _stg == 6 else "BOS確認·準備掛單")
+            _lbl = "進場" if _stg >= 6 else "區域"
+            title = f"{sym} · {tf_lbl}教練｜{_verb}（{dl}）"
+            body = f"{_lbl} {ent_s}\n止損 {_f(plan.get('sl'))}｜止盈 {tp_s}"
             payload = {"title": title, "body": body, "tag": f"coach-{sym}-{ver}",
                        "data": {"symbol": sym, "market": "crypto", "exchange": "pionex", "tf": tf_lbl, "kind": "coach"}}
             for name, slist in by_name.items():
@@ -595,7 +600,7 @@ def run_monitor_loop():
             last_coach_warm = now
             try:
                 from routes.data import coach_scan_api
-                coach_scan_api(market="crypto", exchange="binance", n=60, tfset="both", min_stage=7, wait=1)
+                coach_scan_api(market="crypto", exchange="binance", n=60, tfset="both", min_stage=5, wait=1)
             except Exception as e:
                 print(f"  ⚠ 教練暖掃失敗：{e}")
         # 每 ~10 分鐘：教練掃描前60 → 新『可進場』推播 + 訊號中心（讀暖掃快取,幾乎零成本）

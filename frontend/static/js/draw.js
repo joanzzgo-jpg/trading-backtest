@@ -1350,7 +1350,7 @@ function _drawCoachOverlay(W, H) {
     }
   }
   drawCtx.globalAlpha = 1;
-  // ⑤ 步驟8 交易計畫線：僅 15m/5m 圖 + 可進場(stage≥7)。進場區/止損/止盈1~4 畫成主圖水平價位線(最上層清楚)
+  // ⑤ 交易計畫線：僅 15m/5m 圖 + BOS 確認(stage≥5,由 _coachPlanByTf 篩)。進場區/止損/止盈1~4 畫成主圖水平價位線(最上層清楚)
   const _tf = (typeof currentTF !== "undefined") ? currentTF : "";
   const plan = ((_tf === "15m" || _tf === "5m") && window._coachPlanByTf) ? window._coachPlanByTf[_tf] : null;
   if (plan) {

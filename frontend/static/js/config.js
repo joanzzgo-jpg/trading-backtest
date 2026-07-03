@@ -86,6 +86,7 @@ window._fvgMSHidden = false;     // 預設顯示多/空方向標記；切換:tog
 let lastFVGShunMarkers   = [];   // 「順多/順空」：吃同向FVG後影線突破既存反向FVG（主圖）
 window._fvgShunHidden = false;   // 預設顯示順多/順空標記；切換:toggleFVGShun()
 let lastSMCSweepMarkers  = [];   // SMC 掃頂/掃底標記（階段1：SR+SMC 教練疊加層）
+let lastCoachBOSMarkers  = [];   // 教練步驟5(BOS 延續)達成點：主圖箭頭標記（15m用default/5m用fast）
 window._coachOn = false;         // SR+SMC 教練疊加層總開關（右上 coachToggleBtn）；預設關，開才顯示
 window._fvgTradesHidden = true;  // 預設隱藏舊「多F/空F」cascade 標記+止損止盈線（使用者要求移掉，只留布多/布空）
 window._fvgBBHideD = true;       // 預設隱藏 D版(三根止損+1.5R)標記；切換:toggleFVGBB('D')

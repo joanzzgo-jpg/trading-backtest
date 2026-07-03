@@ -1125,6 +1125,7 @@ def smc_coach_api(
         "channel_1h": _coach_pos_in_channel(s1h["channel"] if s1h else None, price),
         "position_status": "無持倉",
         "plan": plan,
+        "bos_time": coach.get("bos_time"),   # 步驟5(BOS)達成時間 → 前端主圖標記
         "htf_zones": htf_zones,
         "htf_channels": htf_channels,
         "steps": steps,
@@ -1242,11 +1243,13 @@ def coach_scan_api(
     exchange: str = "binance",
     n: int = 60,
     tfset: str = "both",
-    min_stage: int = 7,
+    min_stage: int = 5,
     wait: int = 0,
     at_entry: int = 0,
 ):
     """教練掃描器：對成交量前 n 名加密永續跑教練(default+fast兩版)，篩出 stage≥min_stage 的標的。
+    門檻預設 stage≥5(BOS 延續完成)：步驟5=setup成立、步驟6=去掛限價單、步驟7=觸碰成交,
+    提前到 BOS 一確認就列,對限價單交易者留下掛單前置時間(等步驟7才列會來不及)。
     回 results=[{symbol, hits:{default/fast:{stage,direction,plan,price}}}]，依最高 stage 排序。
 
     at_entry=1：回應當下①逐檔「複驗」清單標的(與面板同基準、吃 10s/30s 短快取,只有幾檔很便宜)——

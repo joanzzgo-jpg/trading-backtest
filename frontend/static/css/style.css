@@ -366,6 +366,10 @@ html.perf-mode .tb-icon-btn:hover svg { animation: none; transform: scale(1.1); 
 @media (max-width: 1180px) and (pointer: fine), (hover: none) and (pointer: coarse) and (orientation: portrait), (hover: none) and (pointer: coarse) and (orientation: landscape) and (max-height: 599px) { #sessionToggleBtn { display: none !important; } }
 /* S1–S12 訊號標記開關：手機改放「設定」分頁（#mSetWrSig 代按 topbar 鈕） */
 @media (max-width: 1180px) and (pointer: fine), (hover: none) and (pointer: coarse) and (orientation: portrait), (hover: none) and (pointer: coarse) and (orientation: landscape) and (max-height: 599px) { #wrSignalsToggleBtn { display: none !important; } }
+/* 成交量分佈圖開關：手機改放「設定」分頁（#mSetVP 代按 topbar 鈕） */
+@media (max-width: 1180px) and (pointer: fine), (hover: none) and (pointer: coarse) and (orientation: portrait), (hover: none) and (pointer: coarse) and (orientation: landscape) and (max-height: 599px) { #vpToggleBtn { display: none !important; } }
+/* SR+SMC 教練開關：手機改放「設定」分頁（#mSetCoach 代按 topbar 鈕） */
+@media (max-width: 1180px) and (pointer: fine), (hover: none) and (pointer: coarse) and (orientation: portrait), (hover: none) and (pointer: coarse) and (orientation: landscape) and (max-height: 599px) { #coachToggleBtn { display: none !important; } }
 #leafToggleBtn, #rainToggleBtn, #snowToggleBtn, #springToggleBtn { font-size: 14px; }
 #leafToggleBtn.leaf-active   { background: rgba(230,126,34,.18);  color: #E67E22; }
 #rainToggleBtn.rain-active   { background: rgba(100,160,255,.18); color: #6EB5FF; }

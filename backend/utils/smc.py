@@ -698,7 +698,10 @@ def run_coach2(df15, series_4h, series_1h, target_dir, touch_mode=True,
                 stage = 7
     return {"stage": stage, "zone_top": zTop, "zone_bot": zBot, "zone_name": zName,
             "sweep_px": sweepPx, "mss_px": turnTrig, "bos_px": bosTrig,
-            "entry_top": entTop, "entry_bot": entBot, "entry_name": entName}
+            "entry_top": entTop, "entry_bot": entBot, "entry_name": entName,
+            # 步驟5(BOS 延續)達成的那根 15M/5M K 棒時間 → 前端在主圖標記；stage<5 或已退階則 None。
+            # T 已是 isoformat 字串(_to_lists)；bosBar 在退階到 ≤2 會清、回到5會重設 → gate stage>=5 即當下有效值。
+            "bos_time": (T[bosBar] if (stage >= 5 and bosBar is not None and bosBar < len(T)) else None)}
 
 
 def _last_dir_zone_15m(H, L, C, O, T, i, since_bar, direction, LB=20):
