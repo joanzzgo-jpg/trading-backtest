@@ -161,6 +161,13 @@ def diag_fugle(symbol: str = "2330", timeframe: str = "1m"):
                 if rows:
                     p["last_candle"] = rows[-1].get("date")   # 最新一根時間（判斷有無延遲）
                     p["last_close"] = rows[-1].get("close")
+                    # 盤中一眼判：最新一根距「現在」幾分鐘。0~2＝富果即時OK(延遲在前端)；~15-20＝富果REST本身延遲。
+                    try:
+                        _lc = pd.Timestamp(rows[-1]["date"])                      # 含 +08:00
+                        _now = pd.Timestamp.now(tz=_lc.tz)
+                        p["delay_min"] = round((_now - _lc).total_seconds() / 60, 1)
+                    except Exception:
+                        pass
                 elif isinstance(j, dict):
                     p["msg"] = str(j.get("message") or j.get("error") or "")[:120]
             except Exception as je:
