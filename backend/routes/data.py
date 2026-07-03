@@ -83,7 +83,8 @@ def fetch_crt_df(market: str, symbol: str, timeframe: str, days: int,
             if timeframe != "1d":
                 _df = resample_tw(_df, timeframe)
             return _df
-    elif market == "us":
+    elif market in ("us", "hk"):
+        # 港股(hk)＝美股同一條 yfinance 路：代號用 xxxx.HK(如 0700.HK)，時框/時區/盤別全沿用。
         max_d = US_MAX_DAYS.get(timeframe, 3650)
         start = (date.today() - timedelta(days=min(days, max_d))).isoformat()
         return fetch_us_stock(symbol, start, end, timeframe)
@@ -131,6 +132,42 @@ def diag():
         "finnhub": bool(os.getenv("FINNHUB_TOKEN")),
         "cwa": bool(os.getenv("CWA_API_KEY")),
     }
+
+
+@router.get("/_diag_fugle")
+def diag_fugle(symbol: str = "2330", timeframe: str = "1m"):
+    """富果即時抓取探針（瀏覽器直接開）：定位『台股還是延遲 20 分』斷在哪。
+    直接打 Fugle intraday candles，回報 HTTP 狀態＋最新一根 K 時間，**絕不洩漏金鑰**。
+    判讀：status=200 且 last_candle 接近現在→富果正常(延遲另有他因)；429→額度爆(該把冷卻)；
+         401/403→金鑰權限；data 空→休市或該檔無資料。多把金鑰逐把測，看是否某把壞。"""
+    import time as _t
+    from data.fugle import _keys as _fugle_keys, _BASE, _TF
+    tfp = _TF.get(timeframe, "1")
+    out = {"symbol": symbol, "timeframe": timeframe, "keys": len(_fugle_keys()), "probes": []}
+    for i, tok in enumerate(_fugle_keys()):
+        p = {"key_idx": i}
+        try:
+            t0 = _t.time()
+            r = requests.get(f"{_BASE}/intraday/candles/{symbol}",
+                             params={"timeframe": tfp},
+                             headers={"X-API-KEY": tok}, timeout=8)
+            p["status"] = r.status_code
+            p["ms"] = int((_t.time() - t0) * 1000)
+            try:
+                j = r.json()
+                rows = j.get("data") or []
+                p["candles"] = len(rows)
+                if rows:
+                    p["last_candle"] = rows[-1].get("date")   # 最新一根時間（判斷有無延遲）
+                    p["last_close"] = rows[-1].get("close")
+                elif isinstance(j, dict):
+                    p["msg"] = str(j.get("message") or j.get("error") or "")[:120]
+            except Exception as je:
+                p["parse_err"] = str(je)[:80]; p["body"] = r.text[:160]
+        except Exception as e:
+            p["err"] = str(e)[:120]
+        out["probes"].append(p)
+    return out
 
 
 @router.get("/_diag_trade")
@@ -578,10 +615,11 @@ def get_ohlcv(req: OHLCVRequest):
                     req.symbol, req.timeframe, req.start, req.end,
                     req.exchange, api_key=req.api_key, api_secret=req.api_secret,
                 )
-        elif req.market == "us":
+        elif req.market in ("us", "hk"):
+            # 港股(hk)＝美股同一條 yfinance 路（代號 xxxx.HK）。即時報價疊加僅美股(Finnhub)，港股純用 yfinance。
             max_d = US_MAX_DAYS.get(req.timeframe, 3650)
             # 美股各 TF 每日 bar 數（用於 limit→days 反推，避免過量請求觸 yfinance 邊界）
-            # 6.5h 交易：4h≈2、1h≈7、15m≈26、5m≈78
+            # 6.5h 交易：4h≈2、1h≈7、15m≈26、5m≈78（港股交易時段較短，buffer 已足夠涵蓋）
             _bpd = {"1M": 1/30, "1w": 1/7, "1d": 1, "4h": 2, "2h": 3.25, "1h": 7, "15m": 26, "5m": 78, "1m": 390}
             if use_limit:
                 bars_per_day = _bpd.get(req.timeframe, 1)
@@ -596,8 +634,8 @@ def get_ohlcv(req: OHLCVRequest):
                 min_start = (date.fromisoformat(end) - timedelta(days=max_d)).isoformat()
                 start = max(start_raw, min_start)
             df = fetch_us_stock(req.symbol, start, end, req.timeframe)
-            # Finnhub 即時報價疊加到最後一根 K 棒（失敗不影響主流程）
-            if os.getenv("FINNHUB_TOKEN"):
+            # Finnhub 即時報價疊加到最後一根 K 棒（失敗不影響主流程）；港股無 Finnhub 覆蓋，純用 yfinance。
+            if req.market == "us" and os.getenv("FINNHUB_TOKEN"):
                 try:
                     quote = fetch_us_quote(req.symbol)
                     df, _ = _finnhub_overlay(df, quote)
@@ -760,6 +798,11 @@ def get_latest(req: LatestRequest):
                     df, _ = _finnhub_overlay(df, quote)   # 報價過期/日線 → 退回疊加最後一根
                 except Exception:
                     pass  # Finnhub 出錯就純用 yfinance 資料
+        elif req.market == "hk":
+            # 港股(hk)：目前僅 yfinance（HKEX 延遲約 15 分）。之後若接到港股即時源(見下)，比照美股疊加最後一根。
+            end   = date.today().isoformat()
+            start = (date.today() - timedelta(days=10)).isoformat()
+            df = fetch_us_stock(req.symbol, start, end, req.timeframe)
         else:
             df = fetch_crypto_ohlcv(
                 req.symbol, req.timeframe, limit=3,
@@ -1444,7 +1487,7 @@ def get_crt_winrate(
     #   前端送固定階梯值(見 winrate.js _wrVwLadder)→ 快取條目有限；0/預設→空 tag(沿用主快取,窗=_VISUAL_WINDOW)。
     _vw = int(vw) if vw and vw > 0 else 0
     _vw_tag = "" if _vw <= 0 else f":vw{_vw}"
-    cache_key = f"crt_wr95:{market}:{symbol}:{exchange}:{timeframe}:{_buf}:{int(_long_only)}{_br_tag}{_vw_tag}"   # v95:+vw(視覺標記近段窗,往歷史滑加大重取);破多空proto序列版
+    cache_key = f"crt_wr96:{market}:{symbol}:{exchange}:{timeframe}:{_buf}:{int(_long_only)}{_br_tag}{_vw_tag}"   # v96:股票隔盤跳空(影線對影線)缺口盒;v95:+vw(視覺標記近段窗)
     bar_key = cache_key + ":bar"
     # bar-aware 新鮮度：記下「算這份結果時最新那根棒的開盤時刻」。crypto 在「同一根棒內」吃快取，
     # 一旦有新棒收盤就讓快取失效 → 走下方短窗補抓重算 → 最新訊號最多慢到「收盤後第一次請求」，
@@ -1547,7 +1590,7 @@ def get_crt_winrate(
         result = _wr_cached
     else:
         result = _calc_crt_winrate(df, stop_buffer_pct=_buf, long_only=_long_only, band_ratio=_br,
-                                   visual_window=_vw)
+                                   visual_window=_vw, stock_gap=(market != "crypto"))
         try:
             _tag_htf_bias(df, timeframe, result)   # 標 weak(逆 HTF 趨勢=弱信號)→前端淡化
         except Exception:

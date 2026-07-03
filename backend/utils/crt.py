@@ -123,7 +123,8 @@ def _scan_outcome_np(highs, lows, closes, target_arr, times_iso, entry_i, n, sto
 
 
 def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only: bool = False,
-                      _solve=None, band_ratio: float = 1.0, visual_window: int = 0) -> dict:
+                      _solve=None, band_ratio: float = 1.0, visual_window: int = 0,
+                      stock_gap: bool = False) -> dict:
     """
     六種訊號合併計算勝率（中軌目標 + 帶軌目標雙統計）。
 
@@ -1470,6 +1471,81 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             _fvg_sigs.append({"k": "fvg", "d": _dir, "t": times_iso[_ei],
                               "entry": _C[_ei], "stop": _stop, "tp": _tp,
                               "r": _r, "ot": _ot})
+        # ── 股票隔盤跳空缺口（2 根相鄰、影線對影線）───────────────────────────────
+        #   加密 24/7 無跳空 → stock_gap=False 時整段跳過，加密行為 100% 不變（此區完全獨立於上方 3 根 FVG）。
+        #   跳空本身即 FVG：向上跳空 low[g] > high[g-1](支撐)、向下跳空 high[g] < low[g-1](壓力)；
+        #   缺口上下緣一律用影線(high/low) 定，不用實體。只產生「視覺缺口盒」(含首觸上/中/下緣、逐深突破、
+        #   中線填補、IFVG 反轉換色)，標 gap=True；不動 多空/破/順 策略序列(要不要讓跳空驅動策略是下一步)。
+        if stock_gap:
+            for _g in range(_vw0, _N - 1):
+                _h0 = _H[_g-1]; _l0 = _L[_g-1]; _hg = _H[_g]; _lg = _L[_g]
+                if any(_v != _v for _v in (_h0, _l0, _hg, _lg)):   # NaN
+                    continue
+                if _lg > _h0 and (_lg - _h0) / _h0 > _MS:          # 向上跳空（支撐）
+                    _dir, _top, _bot, _gsl = "l", _lg, _h0, _h0
+                elif _hg < _l0 and (_l0 - _hg) / _l0 > _MS:        # 向下跳空（壓力）
+                    _dir, _top, _bot, _gsl = "s", _l0, _hg, _h0
+                else:
+                    continue
+                _mid = (_top + _bot) / 2.0; _W = _top - _bot
+                # 融合單趟掃描：首觸上/中/下緣(_ett/_etm/_etb)、中線填補(_t2/_midi)、逐深突破(_pens)。掃描自 g+1 起。
+                _t2 = None; _midi = None; _ett = _etm = _etb = None; _pens = []; _pm = None
+                for _j in range(_g + 1, _N):
+                    if _dir == "l":
+                        _lj = _L[_j]
+                        if _lj > _top: continue
+                        if _ett is None: _ett = times_iso[_j]
+                        if _etm is None and _lj <= _mid: _etm = times_iso[_j]; _t2 = _etm; _midi = _j
+                        if _etb is None and _lj <= _bot: _etb = times_iso[_j]
+                        _pv = _bot if _lj < _bot else _lj
+                        if _pm is None or _pv < _pm:
+                            _pm = _pv; _pens.append({"t": times_iso[_j], "p": _pv})
+                            if _pv <= _bot: break
+                    else:
+                        _hj = _H[_j]
+                        if _hj < _bot: continue
+                        if _etb is None: _etb = times_iso[_j]
+                        if _etm is None and _hj >= _mid: _etm = times_iso[_j]; _t2 = _etm; _midi = _j
+                        if _ett is None and _hj >= _top: _ett = times_iso[_j]
+                        _pv = _top if _hj > _top else _hj
+                        if _pm is None or _pv > _pm:
+                            _pm = _pv; _pens.append({"t": times_iso[_j], "p": _pv})
+                            if _pv >= _top: break
+                _gtp = (_top + 2 * _W) if _dir == "l" else (_bot - 2 * _W)   # 止盈 2W（與 3 根版同位階）
+                # IFVG 反轉：到中線後先收盤穿破止損側(g-1 影線緣，這裡＝缺口對側 _gsl) → 反轉換色
+                _inv_t = None; _invi = None
+                if _midi is not None:
+                    for _k in range(_midi, _N):
+                        if _dir == "l":
+                            if _H[_k] >= _gtp: break
+                            if _C[_k] < _gsl: _inv_t = times_iso[_k]; _invi = _k; break
+                        else:
+                            if _L[_k] <= _gtp: break
+                            if _C[_k] > _gsl: _inv_t = times_iso[_k]; _invi = _k; break
+                _box_t2 = _inv_t if _inv_t is not None else _t2
+                _fvg.append({"t": times_iso[_g], "top": _top, "bot": _bot, "d": _dir, "t2": _box_t2,
+                             "sweep": False, "sl": _gsl, "tp": _gtp, "dim": False, "gi": _g,
+                             "ett": _ett, "etm": _etm, "etb": _etb, "pens": _pens, "gap": True})
+                if _inv_t is not None:
+                    _idir = "s" if _dir == "l" else "l"
+                    _isl = _top if _dir == "l" else _bot
+                    _itp = (_bot - 2 * _W) if _dir == "l" else (_top + 2 * _W)
+                    _iett = _ietm = _ietb = None
+                    for _m in range(_invi + 1, _N):
+                        if _idir == "l":
+                            _lm = _L[_m]
+                            if _iett is None and _lm <= _top: _iett = times_iso[_m]
+                            if _ietm is None and _lm <= _mid: _ietm = times_iso[_m]
+                            if _ietb is None and _lm <= _bot: _ietb = times_iso[_m]
+                        else:
+                            _hm = _H[_m]
+                            if _iett is None and _hm >= _top: _iett = times_iso[_m]
+                            if _ietm is None and _hm >= _mid: _ietm = times_iso[_m]
+                            if _ietb is None and _hm >= _bot: _ietb = times_iso[_m]
+                        if _iett and _ietm and _ietb: break
+                    _fvg.append({"t": _inv_t, "top": _top, "bot": _bot, "d": _idir, "t2": _ietm,
+                                 "sweep": False, "sl": _isl, "tp": _itp, "inv": True, "dim": False,
+                                 "ett": _iett, "etm": _ietm, "etb": _ietb, "gap": True})
         _fvg = _fvg[-12000:]        # 畫滿整窗（gzip 後約 ~200KB）；高保險值防病態 payload，實質不限量
         _fvg_sigs = _fvg_sigs[-200:]
 
