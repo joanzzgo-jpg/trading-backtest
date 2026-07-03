@@ -302,6 +302,28 @@ let _wrSignalsHidden = (() => { try { return localStorage.getItem("wrSignalsHidd
 // 合併+排序後的全部標記快取：只在「資料/圖層開關變動」時重建；平移只重切視窗時沿用，
 // 省掉每次平移都 concat 五陣列 + 整列 sort（上千筆時很貴）。
 let _sortedMarkerCache = null;
+// 「大棒淡化」開關(window._dimBigBarOn)：標記所在 K 棒全長(high-low) > 前 10 根平均全長的 2 倍 → 淡化該棒策略標記。
+// 只套三組策略標記(多/空、破多空、順多空)。淡化＝把 hex 顏色轉成低透明度 rgba。
+function _dimHex(color, a = 0.26) {
+  if (typeof color !== "string" || color[0] !== "#") return color;
+  let h = color;
+  if (h.length === 4) h = "#" + h[1] + h[1] + h[2] + h[2] + h[3] + h[3];
+  const r = parseInt(h.slice(1, 3), 16), g = parseInt(h.slice(3, 5), 16), b = parseInt(h.slice(5, 7), 16);
+  return `rgba(${r},${g},${b},${a})`;
+}
+function _dimBigRange(markers) {
+  if (!window._dimBigBarOn || !markers || !markers.length) return markers;
+  const n = ohlcvData.length;
+  return markers.map(m => {
+    const idx = _secToIdx.get(m.time);
+    if (idx == null || idx < 10 || idx >= n) return m;      // 前 10 根不足 → 不判斷
+    const range = ohlcvData[idx].high - ohlcvData[idx].low;
+    let sum = 0;
+    for (let i = idx - 10; i < idx; i++) sum += (ohlcvData[i].high - ohlcvData[i].low);
+    return (range > (sum / 10) * 2) ? { ...m, color: _dimHex(m.color) } : m;   // >前10根平均的2倍
+
+  });
+}
 function _applyMainMarkers(windowOnly) {
   if (!windowOnly || !_sortedMarkerCache) {
     const crtHidden       = document.getElementById("legCRT")?.classList.contains("line-off");
@@ -316,9 +338,9 @@ function _applyMainMarkers(windowOnly) {
       ...((window._fvgBBHidden || window._fvgBBHideD) ? [] : lastFVGBBMarkers),
       ...((window._fvgBBHidden || window._fvgBBHideA) ? [] : lastFVGBBMarkersA),
       // M版(順多/順空/順平)已從主圖移除——不再合併進標記，console 也叫不出來
-      ...(window._fvgBreakHidden ? [] : lastFVGBreakMarkers),   // 結構轉破:多FVG→空FVG→收破多FVG
-      ...(window._fvgMSHidden ? [] : lastFVGMSMarkers),          // 多/空:吃到未填補反向FVG→收破同向FVG
-      ...(window._fvgShunHidden ? [] : lastFVGShunMarkers),      // 順多/順空:吃同向FVG後影線穿透既存反向FVG
+      ...(window._fvgBreakHidden ? [] : _dimBigRange(lastFVGBreakMarkers)),   // 結構轉破:破多/破空
+      ...(window._fvgMSHidden ? [] : _dimBigRange(lastFVGMSMarkers)),          // 多/空
+      ...(window._fvgShunHidden ? [] : _dimBigRange(lastFVGShunMarkers)),      // 順多/順空
       ...(window._coachOn ? lastSMCSweepMarkers : []),           // SMC 掃頂/掃底(階段1:SR+SMC 教練疊加層,右上開關)
       ...(window._coachOn ? lastCoachBOSMarkers : []),           // 教練步驟5(BOS)達成點箭頭(右上開關)
       ...lastBacktestMarkers,
@@ -326,6 +348,12 @@ function _applyMainMarkers(windowOnly) {
   }
   candleSeries.setMarkers(_windowMarkers(_sortedMarkerCache));
 }
+// 開關：window.toggleDimBigBar() 切換「大棒淡化」→ 重建標記快取(淡化在建快取時套用)
+window.toggleDimBigBar = function (on) {
+  window._dimBigBarOn = (on === undefined) ? !window._dimBigBarOn : !!on;
+  _applyMainMarkers();   // 全量重建(windowOnly undefined) → 重新套淡化
+  return window._dimBigBarOn;
+};
 
 // 頂部「S1~S12 訊號標記」一鍵開關按鈕
 function initWRSignalsToggle() {

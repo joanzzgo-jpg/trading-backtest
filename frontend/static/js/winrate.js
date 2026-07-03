@@ -776,12 +776,12 @@ function _renderFVGBreak(items) {
     if (!_has(tm) || (_rpCut != null && tm > _rpCut)) continue;
     // 一律全亮不淡化(使用者要求)——原「weak」依折價/溢價位置,該區已關閉、依據不再可見
     if (it.d === "s") {
-      // 破空：收盤漲破前一個空FVG上緣（看多轉破）→ 棒下方綠色↑
-      out.push({ time: tm, position: "belowBar", color: "#26c6a6",
+      // 破空（看多轉破）→ 棒下方 賽博霓虹青↑
+      out.push({ time: tm, position: "belowBar", color: "#05d9e8",
                  shape: "arrowUp", size: 1.6, text: "破空" });
     } else {
-      // 破多：收盤跌破前一個多FVG下緣（看空轉破）→ 棒上方橘色↓
-      out.push({ time: tm, position: "aboveBar", color: "#ff7043",
+      // 破多（看空轉破）→ 棒上方 賽博霓虹橘↓
+      out.push({ time: tm, position: "aboveBar", color: "#ff901f",
                  shape: "arrowDown", size: 1.6, text: "破多" });
     }
   }
@@ -814,10 +814,10 @@ function _renderFVGMS(items) {
     if (!_has(tm) || (_rpCut != null && tm > _rpCut)) continue;
     // 一律全亮不淡化(使用者要求)——原「weak」淡化依折價/溢價位置,該區已關閉、依據不再可見
     if (it.d === "l") {
-      out.push({ time: tm, position: "belowBar", color: "#43a047",
+      out.push({ time: tm, position: "belowBar", color: "#39ff14",
                  shape: "arrowUp", size: 2, text: "多" });
     } else {
-      out.push({ time: tm, position: "aboveBar", color: "#e53935",
+      out.push({ time: tm, position: "aboveBar", color: "#ff2a6d",
                  shape: "arrowDown", size: 2, text: "空" });
     }
   }
@@ -849,10 +849,10 @@ function _renderFVGShun(items) {
     if (!_has(tm) || (_rpCut != null && tm > _rpCut)) continue;
     // 一律全亮不淡化(使用者要求)——原「weak」依折價/溢價位置,該區已關閉、依據不再可見
     if (it.d === "l") {
-      out.push({ time: tm, position: "belowBar", color: "#1e88e5",
+      out.push({ time: tm, position: "belowBar", color: "#00b8ff",
                  shape: "arrowUp", size: 2, text: "順多" });
     } else {
-      out.push({ time: tm, position: "aboveBar", color: "#ec407a",
+      out.push({ time: tm, position: "aboveBar", color: "#d400ff",
                  shape: "arrowDown", size: 2, text: "順空" });
     }
   }
