@@ -461,10 +461,19 @@ function _renderCoachList(container, currentSym) {
       const dl = h.direction === 1 ? "多" : "空";
       const dc = h.direction === 1 ? "#26a69a" : "#ef5350";
       const tf = ver === "fast" ? "⚡5m" : "15m";   // ⚡=短效提示:5m 第7步壽命僅幾分鐘,點開可能剛失效
-      // near_pct=0＝現價正在掛單區內(亮綠「進場中」)；>0＝距區緣 x%(灰,給限價提前掛單)
+      // 依步驟分級標示(門檻已下修到 stage≥5)——避免把「還沒到進場」的步驟5/6 誤標成「進場中」:
+      //   步驟5=BOS·待掛單(藍) / 步驟6=掛單中(黃) / 步驟≥7=依 near_pct:區內●進場中(亮黃)、距區近x%(灰)
+      const st = h.stage || 0;
       const np = h.near_pct;
-      const tag = (np === 0) ? '<span style="color:#ffd54f;font-size:10px">●進場中</span>'
-                : (np > 0 ? `<span style="color:#889;font-size:10px">近${np}%</span>` : "");
+      let tag;
+      if (st >= 7) {
+        tag = (np === 0) ? '<span style="color:#ffd54f;font-size:10px">●進場中</span>'
+            : (np > 0 ? `<span style="color:#889;font-size:10px">近${np}%</span>` : "");
+      } else if (st === 6) {
+        tag = `<span style="color:#ffd54f;font-size:10px">掛單中${np > 0 ? `·近${np}%` : ""}</span>`;
+      } else {   // st === 5
+        tag = `<span style="color:#8fd3ff;font-size:10px">BOS·待掛單${np > 0 ? `·近${np}%` : ""}</span>`;
+      }
       return `<span style="color:${dc};font-weight:700">${tf}${dl}</span>${tag}`;
     }).join('<span style="color:#556">·</span>');
     const gone = !!r._gone;   // 已失效(退階/離區):灰化停留2分鐘,標「已失效」
