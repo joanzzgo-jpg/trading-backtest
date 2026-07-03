@@ -525,6 +525,7 @@ async def _from_jma(lat: float, lon: float) -> dict:
 
     temp = _v("temp"); humidity = _v("humidity"); wind_ms = _v("wind")
     precip = _v("precipitation1h"); sun1h = _v("sun1h")
+    precip10m = _v("precipitation10m")   # 過去10分鐘雨量：判「正在下雨」用(比1h窗即時,停雨約10分內歸零)
 
     is_day = True
     try:
@@ -555,6 +556,7 @@ async def _from_jma(lat: float, lon: float) -> dict:
         "temperature":  round(temp) if temp is not None else 20,
         "description":  _JMA_DESC.get(wtype, ""),
         "precipitation": round(precip, 1) if precip is not None else 0.0,
+        "precip10m":    round(precip10m, 1) if precip10m is not None else None,  # 判「正在下雨」用
         "cloud_cover":  _JMA_CLOUD.get(wtype, 50),
         "wind_speed":   round(wind_ms * 3.6, 1) if wind_ms is not None else 0.0,  # m/s→km/h
         "visibility":   10000.0,
@@ -1034,7 +1036,10 @@ async def weather(
     #   覆蓋 Open-Meteo 的 forecast.now / forecast.rain / forecast.today.pop；
     #   Open-Meteo 只在其他地區、或補「幾點開始下雨」的時段細節時當備用。
     _osrc = res.get("source")
-    if fc and _osrc in ("cwa", "hko", "jma"):
+    if _osrc in ("cwa", "hko", "jma"):
+        # 官方源:即使 Open-Meteo 預報失敗(fc=None)也用官方資料建最小預報,別讓小啊沒天氣可講
+        #（官方為主、Open-Meteo 只是備用 → 備用掛了官方仍要能播報）。
+        fc = res.setdefault("forecast", {})
         _now = fc.setdefault("now", {})
         # 官方觀測沒有「體感溫度」→ 用官方實測氣溫當播報主值，清掉 Open-Meteo 模式體感避免蓋過官方
         if res.get("temperature") is not None:
@@ -1043,12 +1048,15 @@ async def weather(
         if res.get("wind_speed"): _now["wind"] = res["wind_speed"]
         _pn = res.get("pop_now")            # 官方此刻降雨機率
         _pd = res.get("pop")                # 官方今日降雨機率
+        _today = fc.setdefault("today", {}) # 確保 today 存在(前端 !f.today 會整段放棄→連溫度都不講)
         if _pd is not None:                 # 今日降雨機率改用官方值（Open-Meteo 常灌到 80%+ 對不上官方）
-            fc.setdefault("today", {})["pop"] = _pd
+            _today["pop"] = _pd
         _rain = fc.setdefault("rain", {})
-        # 「正在下雨」是當下事實 → 三國一律只信官方『實測降水』，不用預報機率(pop 是預報非 nowcast,
-        # 拿 pop_now≥60 會在「只是機率高、其實沒下」時誤報正在下雨)。
-        _rain["raining_now"] = bool(res.get("precipitation"))
+        # 「正在下雨」是當下事實 → 只信官方『實測降水』(不用 pop 預報機率,避免只是機率高就誤報)。
+        # 用各源手上「最短的量測窗」最即時：JMA 有 10 分鐘雨量(precip10m)→停雨約10分內歸零,
+        # 比 1 小時窗少拖近一小時;CWA(現在時雨量)/HKO(就近區1h)/OMT(current)則用 precipitation。
+        _pnow = res.get("precip10m")
+        _rain["raining_now"] = bool(_pnow) if _pnow is not None else bool(res.get("precipitation"))
         # 幾點開始下雨 — 三國一致，完全信官方、不摻 Open-Meteo：
         #   • CWA(12h)/JMA(6h) 有官方 ≥50% 時段 → 用官方時段起點。
         #   • 官方當天沒有 ≥50% 時段(含 HKO 每日制) → 清掉，不編時間；
