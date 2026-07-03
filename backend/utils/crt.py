@@ -1308,7 +1308,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
     _bbgaps  = []          # (cf_bar, top, bot, dir) 給「布林外+FVG」均值回歸研究標記（不套 g+2 過濾，對齊 fvg_bb.py 回測）
     _fvg_break = []        # 「多FVG→空FVG→收破前一個多FVG」結構轉破標記 [{t}]
     _fvg_ms    = []        # 「吃到未填補反向FVG→收破同向FVG」方向標記 [{t,d}]（多/空，獨立於破多/破空）
-    _fvg_shun  = []        # 「順多/順空」：第一步同多/空(吃到未觸碰同向FVG)，第二步=影線突破既存反向FVG [{t,d}]
+    _fvg_shun  = []        # 「順多/順空」：第一步同多/空(吃到未觸碰同向FVG)，第二步=影線穿透既存反向FVG [{t,d}]
     _gaps_seq  = []        # (cf_bar, top, bot, dir) 依時間序的所有視覺缺口（給上面結構模式偵測用）
     try:
         _N = len(times_iso); _MS = 0.0001   # 視覺最小缺口 0.01%（自動交易訊號另設 0.3% 門檻，見下）
@@ -1585,16 +1585,16 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         _fvg_ms.sort(key=lambda x: x["t"])
         _fvg_ms = _fvg_ms[-2000:]
 
-        # ── 「順多/順空」方向標記（2026-07-02）──────────────────────────────
+        # ── 「順多/順空」方向標記（2026-07-02；07-03 影線穿透＋近期兩個；07-03b 近期以「穿透點」衡量、R可晚於觸碰）──
         # 順多：第一步與「多」完全相同——未觸碰的做多FVG(A)被首次碰到(逐錨更深觸碰、下影衝過下緣10%作廢)；
-        #       第二步不同——觸碰後 _MSWIN 根內，K 棒「影線突破」一個既存(cf≤觸碰棒、且此前從未被突破)
-        #       做空FVG(R)的上緣(high>R.top，影線有過就行、不必收盤) → 標「順多」於突破那根。
-        #       （「多」的第二步是新產生做多FVG；順多是突破做空FVG＝順勢延續。）
-        # 中間規則與「多」相同：觸碰→突破之間不能夾雜任何其他FVG(cf−touch≤2 觸碰棒順手做的除外)。
-        # 順空：鏡像——做空FVG(A)被碰到後，影線跌破既存做多FVG(R)下緣(low<R.bot) → 標「順空」。
-        # 效能：預算每個FVG的「首次被影線突破」事件 (brk_idx, cf) 依 brk 升序 → 錨點查詢用 bisect。
-        # 用 heap 單趟掃描 O(N log G)——逐棒把 cf<j 的缺口入堆(邊緣最先被碰的在頂)、被突破的彈出。
-        # (逐缺口向後掃是 O(缺口數×N)：從未被突破的缺口各自掃到序列尾端，1h 7萬根×數千缺口=數千萬次迭代)
+        #       第二步——觸碰後(含同棒)最早、且「R比A晚生成 + R是穿透當下最近兩個做空FVG之一」的
+        #       「做空FVG(R)上緣被影線穿透(high>R.top)」事件 → 標「順多」於穿透那根。
+        #       （「近期兩個」以『穿透點』衡量、非觸碰點：觸碰後才形成、隨即被穿透的新做空FVG才是真正的順勢延續，
+        #       例:BTC 1d 2025-01-19 觸碰後才生成的多/空FVG；不往更早回溯找「還沒破的」→ 避免抓到陳年舊缺口。）
+        # 中間規則：觸碰→穿透之間不能夾雜任何其他FVG(R 本身、及觸碰棒 cf−touch≤2 順手做的除外)。
+        # 順空：鏡像——做空FVG(A)被碰到後，穿透當下最近兩個做多FVG之一被影線穿透下緣(low<R.bot) → 標「順空」。
+        # 效能：預算每個FVG的「首次被影線穿透」事件 (brk_idx, cf) 依 brk 升序 → 錨點/近期查詢用 bisect。
+        # 用 heap 單趟掃描 O(N log G) 建事件序列（上緣/下緣最先被碰者先被穿透）。
         import heapq as _hq
         _brk_s = []                                    # 做空FVG：首次 high>top 的棒（單趟天然依 brk 升序）
         _hp = []; _bi = 0
@@ -1602,7 +1602,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             while _bi < len(_bear) and _bear[_bi][0] < _j:   # cf<j 的缺口自 cf+1 起可被突破 → 入堆
                 _hq.heappush(_hp, (_bear[_bi][1], _bear[_bi][0])); _bi += 1
             _hj = _H[_j]
-            while _hp and _hp[0][0] < _hj:             # 上緣最低者先被突破（NaN 比較恆 False → 自動跳過）
+            while _hp and _hp[0][0] < _hj:             # 上緣最低者先被影線穿透（NaN 比較恆 False → 自動跳過）
                 _tp0, _cf0 = _hq.heappop(_hp); _brk_s.append((_j, _cf0))
         _brk_l = []                                    # 做多FVG：首次 low<bot 的棒（鏡像，堆存 -bot）
         _hp = []; _bi = 0
@@ -1610,12 +1610,14 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             while _bi < len(_bull) and _bull[_bi][0] < _j:
                 _hq.heappush(_hp, (-_bull[_bi][2], _bull[_bi][0])); _bi += 1
             _lj = _L[_j]
-            while _hp and -_hp[0][0] > _lj:            # 下緣最高者先被跌破
+            while _hp and -_hp[0][0] > _lj:            # 下緣最高者先被影線穿透
                 _bt0, _cf0 = _hq.heappop(_hp); _brk_l.append((_j, _cf0))
+        _bear_cfs = [_c[0] for _c in _bear]            # 升序(生成序)，供 bisect 找「突破當下近期的做空FVG」
+        _bull_cfs = [_c[0] for _c in _bull]
         _shun_seen = set()                             # 去重：同一(突破棒,方向)只標一次
 
-        def _shun_scan(_gaps, _events, _d):
-            """_gaps=A候選(同向)、_events=反向FVG突破事件、_d='l'順多/'s'順空。"""
+        def _shun_scan(_gaps, _rcand_cfs, _events, _d):
+            """_gaps=A候選(同向)、_rcand_cfs=反向FVG的cf清單(升序)、_events=反向FVG突破事件(bj,rcf)依bj升序、_d='l'順多/'s'順空。"""
             for (_cf, _top, _bot) in _gaps:
                 _anchor = None                         # 逐錨更深觸碰(與多/空同)
                 for _touch in range(_cf + 1, _N):
@@ -1632,26 +1634,36 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                         _r = _top if _H[_touch] > _top else _H[_touch]
                         if _anchor is not None and _r <= _anchor: continue
                     _anchor = _r
-                    # 觸碰後第一個「既存反向FVG被影線突破」事件(R 於觸碰前已確認、此前未被突破)
-                    _p2 = bisect.bisect_right(_events, (_touch, _N))
+                    # 觸碰後(含同棒)最早、且符合條件的「反向FVG被影線穿透」事件 → 標於穿透那根(_bk)。
+                    #   條件① R 比 A 晚生成(cf(R)>cf(A))——A是「第一個」、R是「第二個」，時序不能反過來。
+                    #   條件② R 是「穿透當下(_bj 那根)」字面最近兩個反向FVG之一──『近期』以穿透點衡量、非觸碰點：
+                    #         觸碰後才形成、隨即被穿透的新反向FVG才是真正的順勢延續(例:BTC 1d 2025-01-19：
+                    #         1/17 觸 12/19 空FVG→1/18 才生成多FVG→1/19 破其下緣；R(1/18)晚於觸碰(1/17)。)
+                    #         不往更早回溯找「還沒破的」→ 避免抓到與當下結構無關的陳年舊缺口(例:BCH 2023 舊缺口)。
+                    #   同棒(_bj==_touch)允許：單根大反轉棒 high 觸上方反向FVG＋low 破下方R(例:BTC 1d 2025-11-11)。
+                    _p2 = bisect.bisect_left(_events, (_touch, -1))    # 第一個 bj≥touch 的事件
                     _bk = None; _rcf = None
                     for _e in range(_p2, len(_events)):
                         _bj, _c2 = _events[_e]
-                        if _bj - _touch > _MSWIN: break
-                        if _c2 <= _touch: _bk = _bj; _rcf = _c2; break
+                        if _bj - _touch > _MSWIN: break                # 超窗(events 依 bj 升序 → 之後皆超窗)
+                        if _c2 <= _cf: continue                        # 條件①：R 須晚於 A
+                        _ri = bisect.bisect_right(_rcand_cfs, _bj)     # 條件②：R 為穿透當下最近兩個反向FVG之一
+                        if _c2 not in _rcand_cfs[max(0, _ri - 2):_ri]: continue
+                        _bk = _bj; _rcf = _c2; break
                     if _bk is None or (_bk, _d) in _shun_seen: continue
-                    # 觸碰→突破之間夾其他FVG(非觸碰棒順手做的)→擋
+                    # 觸碰→穿透之間夾其他FVG(R 本身、及觸碰棒 cf−touch≤2 順手做的除外)→擋
                     _p = bisect.bisect_right(_seq_cf, _touch)
                     _blk = False
                     for _q in range(_p, len(_seq_cf)):
                         if _seq_cf[_q] >= _bk: break
+                        if _seq_cf[_q] == _rcf: continue               # R 本身是目標、不算「夾雜」
                         if _seq_cf[_q] - _touch > 2: _blk = True; break
                     if _blk: continue
                     _fvg_shun.append({"t": times_iso[_bk], "d": _d})
                     _shun_seen.add((_bk, _d)); _used.add(_cf); _used.add(_rcf)
 
-        _shun_scan(_bull, _brk_s, "l")                 # 順多：吃做多FVG → 影線突破做空FVG上緣
-        _shun_scan(_bear, _brk_l, "s")                 # 順空：吃做空FVG → 影線跌破做多FVG下緣
+        _shun_scan(_bull, _bear_cfs, _brk_s, "l")      # 順多：吃做多FVG → 近期兩個做空FVG其中一個影線穿透上緣
+        _shun_scan(_bear, _bull_cfs, _brk_l, "s")      # 順空：吃做空FVG → 近期兩個做多FVG其中一個影線穿透下緣
         _fvg_shun.sort(key=lambda x: x["t"])
         _fvg_shun = _fvg_shun[-2000:]
         # ── 標記「有無被用到」：未被任何標記(破多/破空/多/空)用到的主缺口 → used=False(前端淡化)。
@@ -2174,7 +2186,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         "fvg":      _fvg,         # 失衡缺口（主圖色塊）
         "fvg_break": _fvg_break,  # 「多FVG→空FVG→收破前一個多FVG」結構轉破標記
         "fvg_ms":   _fvg_ms,      # 「吃到未填補反向FVG→收破同向FVG」方向標記(多/空)
-        "fvg_shun": _fvg_shun,    # 「順多/順空」：吃同向FVG後影線突破既存反向FVG(順勢延續)
+        "fvg_shun": _fvg_shun,    # 「順多/順空」：吃同向FVG後影線穿透既存反向FVG(順勢延續)
         "smc_sweep": _smc_sweep,  # SMC 掃頂/掃底(階段1：SR+SMC 教練移植)
         "smc_struct": _smc_struct, # SMC 結構事件 BOS/CHoCH 線段(階段2)
         "smc_ob":   _smc_ob,      # SMC 訂單區 OB 框(階段3)

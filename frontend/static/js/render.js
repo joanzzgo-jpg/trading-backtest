@@ -318,7 +318,7 @@ function _applyMainMarkers(windowOnly) {
       // M版(順多/順空/順平)已從主圖移除——不再合併進標記，console 也叫不出來
       ...(window._fvgBreakHidden ? [] : lastFVGBreakMarkers),   // 結構轉破:多FVG→空FVG→收破多FVG
       ...(window._fvgMSHidden ? [] : lastFVGMSMarkers),          // 多/空:吃到未填補反向FVG→收破同向FVG
-      ...(window._fvgShunHidden ? [] : lastFVGShunMarkers),      // 順多/順空:吃同向FVG後影線突破既存反向FVG
+      ...(window._fvgShunHidden ? [] : lastFVGShunMarkers),      // 順多/順空:吃同向FVG後影線穿透既存反向FVG
       ...(window._coachOn ? lastSMCSweepMarkers : []),           // SMC 掃頂/掃底(階段1:SR+SMC 教練疊加層,右上開關)
       ...(window._coachOn ? lastCoachBOSMarkers : []),           // 教練步驟5(BOS)達成點箭頭(右上開關)
       ...lastBacktestMarkers,

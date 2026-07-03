@@ -511,7 +511,7 @@ async function _fetchWinRateNow() {
     _renderFVGBB(d.fvg_bb, d.fvg_bb_a, d.fvg_bb_m);   // FVG 進出場標記:D(青/粉)+A(橘/紫)+M中軌分側順勢(黃/藍)（研究·主圖）
     _renderFVGBreak(d.fvg_break);     // 結構轉破:多FVG→空FVG→收破前一個多FVG 的那根K（主圖）
     _renderFVGMS(d.fvg_ms);           // 多/空方向標記:吃到未填補反向FVG→收破同向FVG（主圖）
-    _renderFVGShun(d.fvg_shun);       // 順多/順空:吃同向FVG後影線突破既存反向FVG（主圖）
+    _renderFVGShun(d.fvg_shun);       // 順多/順空:吃同向FVG後影線穿透既存反向FVG（主圖）
     _renderSMCSweep(d.smc_sweep);     // SMC 掃頂/掃底（階段1：SR+SMC 教練疊加層，右上開關 coachToggleBtn）
     _renderSMCStruct(d.smc_struct);   // SMC BOS/CHoCH 結構破線段（階段2，畫布層，右上開關）
     _renderSMCOB(d.smc_ob);           // SMC 訂單區 OB 框（階段3，畫布層，右上開關）
@@ -830,7 +830,7 @@ window.toggleFVGMS = function (on) {
   return !window._fvgMSHidden;
 };
 
-// 順多/順空方向標記：第一步同多/空(吃到未觸碰同向FVG)，第二步=影線突破既存反向FVG(順勢延續)
+// 順多/順空方向標記：第一步同多/空(吃到未觸碰同向FVG)，第二步=影線穿透既存反向FVG(順勢延續)
 // （順多=棒下藍↑「順多」、順空=棒上桃紅↓「順空」；weak=位置不對→淡化）
 function _renderFVGShun(items) {
   if (items !== undefined) _lastFVGShun = items || [];
