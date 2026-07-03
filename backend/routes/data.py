@@ -141,6 +141,7 @@ def diag_fugle(symbol: str = "2330", timeframe: str = "1m"):
     判讀：status=200 且 last_candle 接近現在→富果正常(延遲另有他因)；429→額度爆(該把冷卻)；
          401/403→金鑰權限；data 空→休市或該檔無資料。多把金鑰逐把測，看是否某把壞。"""
     import time as _t
+    import requests
     from data.fugle import _keys as _fugle_keys, _BASE, _TF
     tfp = _TF.get(timeframe, "1")
     out = {"symbol": symbol, "timeframe": timeframe, "keys": len(_fugle_keys()), "probes": []}
