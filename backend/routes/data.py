@@ -833,14 +833,16 @@ def crt_winrate_api(
     api_secret: str = "",
     finmind_token: str = "",
     band_ratio: float = 1.0,
+    vw: int = 0,
 ):
     """/api/crt_winrate 路由：呼叫 get_crt_winrate(含快取) → 回前端時把 signals『瘦身』
     （拿掉只後端用的 est/rr 欄位 + 省略 None 值），省 ~40% 傳輸量、加快手機端載入。
     band_ratio：上下軌目標比例（1.0=上下軌；0.8=8成軌，HUD 切到 8成軌時前端帶此參數另抓一份）。
+    vw：FVG/策略標記的近段窗根數（前端往歷史滑時加大→補算舊區標記；勝率統計不受影響）。
     ⚠ 回測/自動交易是 Python 直接呼叫 get_crt_winrate → 拿『完整』signals，不受此瘦身影響。"""
     wr = get_crt_winrate(market, symbol, timeframe, exchange, stop_buffer_pct,
                          solve, solve_target, api_key, api_secret, finmind_token,
-                         band_ratio=band_ratio)
+                         band_ratio=band_ratio, vw=vw)
     if solve or not isinstance(wr, dict):        # solve 模式非勝率結構 → 原樣回
         return wr
     sigs = wr.get("signals")
@@ -1425,6 +1427,7 @@ def get_crt_winrate(
     finmind_token: str = "",
     with_bars: bool = False,
     band_ratio: float = 1.0,
+    vw: int = 0,
 ):
     """CRT 策略各時間級別勝率（每個子統計至少 10 個案例，不足則往前翻倍）。
 
@@ -1437,7 +1440,11 @@ def get_crt_winrate(
     _br = round(max(0.1, min(1.0, float(band_ratio or 1.0))), 3)
     _long_only = (market == "tw")  # 台股不能放空
     _br_tag = "" if _br >= 0.999 else f":br{_br}"   # 預設 1.0 不改 key（沿用既有快取）；8成軌等另分流
-    cache_key = f"crt_wr94:{market}:{symbol}:{exchange}:{timeframe}:{_buf}:{int(_long_only)}{_br_tag}"   # v94:移除破假設變體(fvg_break_hypo)+按鈕;破多空維持 proto 缺口序列版
+    # vw＝FVG/策略標記的「近段窗」根數(勝率統計不受此影響)。前端往歷史滑時加大 vw 重取→補算舊區標記。
+    #   前端送固定階梯值(見 winrate.js _wrVwLadder)→ 快取條目有限；0/預設→空 tag(沿用主快取,窗=_VISUAL_WINDOW)。
+    _vw = int(vw) if vw and vw > 0 else 0
+    _vw_tag = "" if _vw <= 0 else f":vw{_vw}"
+    cache_key = f"crt_wr95:{market}:{symbol}:{exchange}:{timeframe}:{_buf}:{int(_long_only)}{_br_tag}{_vw_tag}"   # v95:+vw(視覺標記近段窗,往歷史滑加大重取);破多空proto序列版
     bar_key = cache_key + ":bar"
     # bar-aware 新鮮度：記下「算這份結果時最新那根棒的開盤時刻」。crypto 在「同一根棒內」吃快取，
     # 一旦有新棒收盤就讓快取失效 → 走下方短窗補抓重算 → 最新訊號最多慢到「收盤後第一次請求」，
@@ -1539,7 +1546,8 @@ def get_crt_winrate(
     if _wr_cached is not None:
         result = _wr_cached
     else:
-        result = _calc_crt_winrate(df, stop_buffer_pct=_buf, long_only=_long_only, band_ratio=_br)
+        result = _calc_crt_winrate(df, stop_buffer_pct=_buf, long_only=_long_only, band_ratio=_br,
+                                   visual_window=_vw)
         try:
             _tag_htf_bias(df, timeframe, result)   # 標 weak(逆 HTF 趨勢=弱信號)→前端淡化
         except Exception:

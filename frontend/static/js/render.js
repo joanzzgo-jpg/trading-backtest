@@ -616,6 +616,12 @@ async function _bgLoadOlderBars(scrollTriggered = false) {
         _bgScheduleIndicators();
       }
 
+      // 往歷史載入更多 K 棒後，若已超過目前「標記近段窗(vw)」→ 觸發勝率重取(debounced)：
+      //   後端用更大的 vw 補算舊區的 FVG/多空·破多空·順多空 標記，讓往回滑也看得到策略。(勝率統計不變)
+      if (!replayActive && typeof fetchWinRate === "function" && typeof _wrVwFor === "function"
+          && _wrVwFor(ohlcvData.length) > (window._wrCurVw || 0)) {
+        fetchWinRate();
+      }
       // 滑動觸發：累計載到 SCROLL_BUDGET 根就停（夠深、感覺連續），滑到左緣再載下一批；不一口氣
       // cascade 到 SCROLL_DAYS 把常駐撐爆。自動預載(非 scroll)仍照舊把 INIT_DAYS 緩衝補滿。
       loadedThisRun += nPrepended;

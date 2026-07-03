@@ -10,6 +10,11 @@ import math
 import numpy as np
 import pandas as pd
 
+# FVG 視覺缺口/策略標記(多空·破·順)只在「最後 _VISUAL_WINDOW 根」上計算(勝率統計不受此限)。
+# 深時框(1h~60k根)把 O(缺口×觸碰掃描) 從 N 縮到此值 → 大幅提速；標記本就截尾([-2000:]/[-12000:])，
+# 取足夠大即與全量一致。可調（越大越慢越完整）。
+_VISUAL_WINDOW = 20000
+
 
 def _ts_val(t) -> str:
     return t.isoformat() if hasattr(t, "isoformat") else str(t)
@@ -118,7 +123,7 @@ def _scan_outcome_np(highs, lows, closes, target_arr, times_iso, entry_i, n, sto
 
 
 def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only: bool = False,
-                      _solve=None, band_ratio: float = 1.0) -> dict:
+                      _solve=None, band_ratio: float = 1.0, visual_window: int = 0) -> dict:
     """
     六種訊號合併計算勝率（中軌目標 + 帶軌目標雙統計）。
 
@@ -1318,7 +1323,12 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         # numpy→list 一次轉換：FVG 主迴圈逐元素存取，list(float) 遠快於 numpy 標量+float()
         #（與 _fvg_bb / _fvg_trades 區塊同一手法；NaN 轉 list 後仍 float('nan')，x!=x 判定不變）。
         _H = highs.tolist(); _L = lows.tolist(); _C = closes.tolist(); _O = opens.tolist()
-        for _g in range(1, _N - 1):
+        # 視覺標記只需近段窗（圖上不會回看數年）：FVG 缺口/策略(多空·破·順)只在最後 _VW 根上算，
+        #   把整段 O(缺口×觸碰掃描) 從 N 縮到 _VW → 深時框(1h~60k根)大幅提速。勝率統計(S1~SS)仍走全歷史、不受此限。
+        #   _VW 取足夠大(遠超可視+合理回捲)，且各標記本就截尾([-2000:]/[-12000:])，近段結果與全量一致。
+        _VW = int(visual_window) if visual_window and visual_window > 0 else _VISUAL_WINDOW
+        _vw0 = max(1, _N - _VW)
+        for _g in range(_vw0, _N - 1):
             _h0 = _H[_g-1]; _l0 = _L[_g-1]
             _h2 = _H[_g+1]; _l2 = _L[_g+1]
             if any(_v != _v for _v in (_h0, _l0, _h2, _l2)):   # NaN
@@ -1489,8 +1499,8 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         _bull = [(_ci, _tp, _bt) for (_ci, _tp, _bt, _dr) in _gseq if _dr == "l"]
         # B＝「proto 缺口」偵測：bull＝g 收盤站上前根高點(C[g]>H[g-1])→缺口[H[g-1], C[g]]，右邊 g+1 收盤沒跌回
         #   缺口底(C[g+1]>H[g-1]＝沒干擾) → 標在 g。bear 鏡像(C[g]<L[g-1]→缺口[C[g], L[g-1]]、C[g+1]<L[g-1] 沒干擾)。
-        _pseq = []             # (g, top, bot, dir) proto 缺口，依 g 升序(生成序)
-        for _g2 in range(1, _N - 1):
+        _pseq = []             # (g, top, bot, dir) proto 缺口，依 g 升序(生成序)；同視覺窗(_vw0)
+        for _g2 in range(_vw0, _N - 1):
             _hm1 = _H[_g2 - 1]; _lm1 = _L[_g2 - 1]; _cg = _C[_g2]; _cn = _C[_g2 + 1]
             if any(_v != _v for _v in (_hm1, _lm1, _cg, _cn)):        # NaN
                 continue
@@ -1592,7 +1602,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         import heapq as _hq
         _brk_s = []                                    # 做空FVG：首次 high>top 的棒（單趟天然依 brk 升序）
         _hp = []; _bi = 0
-        for _j in range(_N):
+        for _j in range(_vw0, _N):                     # 缺口皆在窗內(cf≥_vw0)→ 窗前無事可做，從 _vw0 起掃
             while _bi < len(_bear) and _bear[_bi][0] < _j:   # cf<j 的缺口自 cf+1 起可被突破 → 入堆
                 _hq.heappush(_hp, (_bear[_bi][1], _bear[_bi][0])); _bi += 1
             _hj = _H[_j]
@@ -1600,7 +1610,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                 _tp0, _cf0 = _hq.heappop(_hp); _brk_s.append((_j, _cf0))
         _brk_l = []                                    # 做多FVG：首次 low<bot 的棒（鏡像，堆存 -bot）
         _hp = []; _bi = 0
-        for _j in range(_N):
+        for _j in range(_vw0, _N):
             while _bi < len(_bull) and _bull[_bi][0] < _j:
                 _hq.heappush(_hp, (-_bull[_bi][2], _bull[_bi][0])); _bi += 1
             _lj = _L[_j]

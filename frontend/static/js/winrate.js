@@ -443,6 +443,16 @@ function fetchWinRate() {
   _wrFetchTimer = setTimeout(_fetchWinRateNow, 250);
 }
 
+// FVG/策略標記「近段窗」階梯：初始用小窗(快)，往歷史滑載入更多 K 棒後升級到更大窗 → 補算舊區標記。
+// 回傳能覆蓋目前已載入 K 棒數(+緩衝)的最小階梯值。勝率統計不受 vw 影響。
+const _WR_VW_LADDER = [8000, 20000, 45000, 100000, 250000];
+function _wrVwFor(loaded) {
+  const need = (loaded || 0) + 2000;
+  for (const v of _WR_VW_LADDER) if (v >= need) return v;
+  return _WR_VW_LADDER[_WR_VW_LADDER.length - 1];
+}
+window._wrCurVw = 0;   // 目前這份勝率結果算標記用的 vw；背景載入更深時比對是否要升級重取
+
 let _wrFetchCtrl = null;   // 切標的時取消舊勝率請求
 async function _fetchWinRateNow() {
   const market    = document.getElementById("marketSelect")?.value || "crypto";
@@ -451,7 +461,9 @@ async function _fetchWinRateNow() {
   const timeframe = currentTF || "1d";
   if (!symbol) return;
   const bufDec = (_wrStopBuffer || 0) / 100;
-  const cacheKey = `${market}:${symbol}:${exchange}:${timeframe}:${bufDec.toFixed(4)}`;
+  const _vw = _wrVwFor(typeof ohlcvData !== "undefined" ? ohlcvData.length : 0);
+  window._wrCurVw = _vw;
+  const cacheKey = `${market}:${symbol}:${exchange}:${timeframe}:${bufDec.toFixed(4)}:vw${_vw}`;
   if (_wrCache[cacheKey]) {
     // 快取命中也要取消上一個還在飛的勝率請求，否則它稍後成功回來會用「舊標的」的
     // 訊號覆寫 _lastWRSignals → 訊號時間不存在於新標的 ohlcv → markers 全被過濾 → 策略不顯示。
@@ -497,7 +509,7 @@ async function _fetchWinRateNow() {
   // 不寫 "計算中…" 到 wrStatus，由中央 .tb-wr-loading（小熊 + 文字）顯示
   if (statusEl) statusEl.textContent = "";
   try {
-    const p   = new URLSearchParams({ market, symbol, exchange, timeframe, stop_buffer_pct: bufDec.toFixed(4) });
+    const p   = new URLSearchParams({ market, symbol, exchange, timeframe, stop_buffer_pct: bufDec.toFixed(4), vw: String(_vw) });
     const res = await fetch("/api/crt_winrate?" + p, { signal: myCtrl.signal, cache: "no-store" });
     const d   = await res.json();
     if (!res.ok) throw new Error(d.detail || "failed");
