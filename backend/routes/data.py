@@ -1196,7 +1196,9 @@ def _filter_at_entry(results, tol=0.001, near=0.03):
     """留「現價此刻在掛單區內(±tol，near_pct=0)」或「距區緣 ≤near(標 near_pct%)」的命中。
     掛單區(結構)變化慢、現價變化快 → 快取存未過濾命中(結構)，回應當下用每秒 ticker 現價過濾＝真正即時。
     「接近」層是給限價掛單提前準備用——near 太嚴(1%)實測大部分時間整欄空白、看起來像壞掉，
-    放 3% 讓清單常有幾檔可看，靠「近x%」距離標示+排序分辨遠近；推播仍只推區內(near_pct=0)。"""
+    放 3% 讓清單常有幾檔可看，靠「近x%」距離標示+排序分辨遠近；推播仍只推區內(near_pct=0)。
+    ★「還沒到 TP1」關卡：使用者只要「現在還掛得上單、進得了場」的——現價已達第一止盈(多單 px≥TP1、
+    空單 px≤TP1)＝行情已走掉、進場是追高殺低，直接剔除；沒 TP1 資料則不擋。"""
     out = []
     for r in results or []:
         px = _live_fut_price(r["symbol"])
@@ -1204,8 +1206,15 @@ def _filter_at_entry(results, tol=0.001, near=0.03):
             continue
         hits = {}
         for ver, h in (r.get("hits") or {}).items():
-            ent = (h.get("plan") or {}).get("entry")
+            plan = h.get("plan") or {}
+            ent = plan.get("entry")
             if not ent or len(ent) < 2 or ent[0] is None or ent[1] is None:
+                continue
+            # 還沒到 TP1 才算「可進場掛單」（多單現價未達TP1、空單未跌破TP1）
+            _tps = plan.get("tps") or ([plan.get("tp")] if plan.get("tp") is not None else [])
+            _tp1 = _tps[0] if _tps else None
+            _dir = h.get("direction")
+            if _tp1 is not None and ((_dir == 1 and px >= _tp1) or (_dir == -1 and px <= _tp1)):
                 continue
             lo, hi = min(ent), max(ent)
             if lo * (1 - tol) <= px <= hi * (1 + tol):
