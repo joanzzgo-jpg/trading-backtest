@@ -98,6 +98,8 @@
     _open = false;
     _resetIdle();           // 關閉後重新計時
   }
+  // 給封面頁(landing)重新顯示時呼叫：關掉已開著的農民曆卡，避免封面圖跳出來跟它重疊。
+  window._lunarHide = hide;
 
   // ── 閒置偵測 ──
   function _resetIdle() {

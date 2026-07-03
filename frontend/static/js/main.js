@@ -27,6 +27,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       armReshow();
     };
     const show = () => {
+      if (typeof window._lunarHide === "function") window._lunarHide();  // 先關掉已開著的農民曆卡，避免封面圖跳出來重疊
       document.documentElement.classList.remove("landing-skip");
       document.documentElement.classList.add("landing-active");       // 重新露出天氣背景、隱藏圖表 UI
       scr.classList.remove("landing-entering", "landing-hide", "landing-locking");
