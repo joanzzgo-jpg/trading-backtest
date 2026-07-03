@@ -415,8 +415,8 @@
     // ① 什麼時候下雨
     if (r.raining_now) lines.push("☔ 現在正在下雨，記得帶傘");
     else if (r.from_hour != null) lines.push(`☔ ${_hrZh(r.from_hour)}左右會下雨${r.from_pop != null ? `（${r.from_pop}%）` : ""}，記得帶傘`);
-    // 香港天文台(HKO)只有每日機率、無逐時 → 講不出幾點，機率高就只講「今天可能下雨」，不摻 Open-Meteo
-    else if (f.wx_src === "hko" && t.pop != null && t.pop >= 50) lines.push(`☔ 今天可能會下雨（${t.pop}%），帶把傘`);
+    // 官方源(f.wx_src=cwa/jma/hko)當天沒有 ≥50% 降雨時段但今日機率高 → 講不出幾點，只講「今天可能下雨」，不摻 Open-Meteo
+    else if (f.wx_src && t.pop != null && t.pop >= 50) lines.push(`☔ 今天可能會下雨（${t.pop}%），帶把傘`);
     else lines.push("☀️ 今天大致不會下雨");
     // ② 外面熱/冷（體感優先，退回實際溫度/今日高溫）。官方氣象署源無體感 → 用實測氣溫，標「氣溫」不標「體感」
     const useFeels = (now.feels != null);

@@ -1019,21 +1019,16 @@ async def weather(
         if _pd is not None:                 # 今日降雨機率改用官方值（Open-Meteo 常灌到 80%+ 對不上官方）
             fc.setdefault("today", {})["pop"] = _pd
         _rain = fc.setdefault("rain", {})
-        if _osrc == "hko":                  # HKO 的 pop_now=每日機率(非此刻nowcast)→「正在下雨」只信官方實測降水
-            _rain["raining_now"] = bool(res.get("precipitation"))
-        elif res.get("precipitation"):      # 官方觀測到降水 → 正在下雨（實測最準）
-            _rain["raining_now"] = True
-        elif _pn is not None:               # 否則以官方此刻時段機率判定（CWA 12h／JMA 6h 當前段）
-            _rain["raining_now"] = bool(_pn >= 60)
-        # 幾點開始下雨：
-        #   • CWA(12h)/JMA(6h) 有官方時段起點 → 官方優先覆蓋 Open-Meteo 逐時。
-        #   • HKO 只有「每日」機率、無逐時 → 完全信 HKO，不摻 Open-Meteo：一律清掉逐時；
-        #     是否下雨改由前端看 HKO 今日 PoP(today.pop)判定，講不出幾點就只講「今天可能下雨」。
-        #   • CWA/JMA 今日無強時段(day<30%) → 以官方為準：今天大致不下雨，別讓 Open-Meteo 高值嚇人。
-        #   • CWA/JMA 中等機率(30~49%)又無官方時段 → 才保留 Open-Meteo 逐時當備用。
+        # 「正在下雨」是當下事實 → 三國一律只信官方『實測降水』，不用預報機率(pop 是預報非 nowcast,
+        # 拿 pop_now≥60 會在「只是機率高、其實沒下」時誤報正在下雨)。
+        _rain["raining_now"] = bool(res.get("precipitation"))
+        # 幾點開始下雨 — 三國一致，完全信官方、不摻 Open-Meteo：
+        #   • CWA(12h)/JMA(6h) 有官方 ≥50% 時段 → 用官方時段起點。
+        #   • 官方當天沒有 ≥50% 時段(含 HKO 每日制) → 清掉，不編時間；
+        #     是否下雨改由前端看官方 today.pop(≥50% 才說「今天可能會下雨」)判定。
         if _off_frh is not None:
             _rain["from_hour"] = _off_frh; _rain["from_pop"] = _off_frp
-        elif _osrc == "hko" or (_pd is not None and _pd < 30):
+        else:
             _rain["from_hour"] = None; _rain["from_pop"] = None
         fc["wx_src"] = _osrc
     # 空氣品質（best-effort）
