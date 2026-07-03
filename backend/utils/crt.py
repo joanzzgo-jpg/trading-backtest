@@ -1665,6 +1665,25 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         _fvg_ms = []
         _fvg_shun = []
 
+    # ── SMC 擺動 pivot 遮罩（向量化，一次算好給下面 掃蕩/結構/OB/SR/通道 共用）─────────
+    #   pivot high(半窗 w)＝H[p] ≥ 窗[p-w, p+w] 內全部 H(含 NaN → 該窗判 False，與原逐點 all() 完全一致：
+    #   窗內任一 NaN 使 max=NaN、中心≥NaN=False)。原本 6 個區塊各自對每根做 all() 迴圈(數十萬次)→改單次向量。
+    def _pivot_mask(_arr, _w, _hi):
+        import numpy as _np
+        _n = len(_arr); _win = 2 * _w + 1
+        _m = _np.zeros(_n, dtype=bool)
+        if _n >= _win:
+            _sw = _np.lib.stride_tricks.sliding_window_view(_arr, _win)   # 列 i → 窗[i, i+win-1]，中心 i+w
+            _ctr = _sw[:, _w]
+            _ext = _sw.max(axis=1) if _hi else _sw.min(axis=1)           # NaN 傳播 → 中心比較為 False
+            _m[_w:_n - _w] = (_ctr >= _ext) if _hi else (_ctr <= _ext)
+        return _m
+    try:
+        _phM5 = _pivot_mask(highs, 5, True); _plM5 = _pivot_mask(lows, 5, False)
+        _phM8 = _pivot_mask(highs, 8, True); _plM8 = _pivot_mask(lows, 8, False)
+    except Exception:
+        _phM5 = _plM5 = _phM8 = _plM8 = None
+
     # ── SMC Sweep(掃頂/掃底)偵測【階段1：移植 Pine「SR+SMC 教練」】──────────────
     #   掃頂(d=s)：high 突破最近擺高、但 close 收回其下=假突破/抓流動性；掃底(d=l)鏡像。
     #   對齊 Pine f_processStructureModule 的 bearishSweep/bullishSweep；擺動 pivot 半窗 _PL=5。
@@ -1678,10 +1697,10 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             _p = _i - _PL                                          # 本根能確認的 pivot 落點
             if _p - _PL >= 0:
                 _ph = _sH[_p]; _pl = _sL[_p]
-                if _ph == _ph and all(_ph >= _sH[_p + _d] for _d in range(-_PL, _PL + 1)):
+                if _phM5[_p]:
                     if _lastSH is None or _ph != _lastSH: _shSwept = False   # 新擺高→重置可再掃
                     _lastSH = _ph
-                if _pl == _pl and all(_pl <= _sL[_p + _d] for _d in range(-_PL, _PL + 1)):
+                if _plM5[_p]:
                     if _lastSL is None or _pl != _lastSL: _slSwept = False
                     _lastSL = _pl
             _hi = _sH[_i]; _lo = _sL[_i]; _ci = _sC[_i]
@@ -1708,9 +1727,9 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             _p = _i - _PL
             if _p - _PL >= 0:
                 _ph = _sH[_p]; _pl = _sL[_p]
-                if _ph == _ph and all(_ph >= _sH[_p + _d] for _d in range(-_PL, _PL + 1)):
+                if _phM5[_p]:
                     _lastSH = _ph; _lastSHb = _p; _shBroken = False
-                if _pl == _pl and all(_pl <= _sL[_p + _d] for _d in range(-_PL, _PL + 1)):
+                if _plM5[_p]:
                     _lastSL = _pl; _lastSLb = _p; _slBroken = False
             _ci = _sC[_i]; _cp = _sC[_i - 1] if _i > 0 else float("nan")
             if _ci != _ci:
@@ -1741,9 +1760,9 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             _p = _i - _PL
             if _p - _PL >= 0:
                 _ph = _sH[_p]; _pl = _sL[_p]
-                if _ph == _ph and all(_ph >= _sH[_p + _d] for _d in range(-_PL, _PL + 1)):
+                if _phM5[_p]:
                     _lastSH = _ph; _shBroken = False
-                if _pl == _pl and all(_pl <= _sL[_p + _d] for _d in range(-_PL, _PL + 1)):
+                if _plM5[_p]:
                     _lastSL = _pl; _slBroken = False
             _ci = _sC[_i]; _cp = _sC[_i - 1] if _i > 0 else float("nan")
             if _ci != _ci:
@@ -1813,14 +1832,14 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             if _p - _PL >= 0 and _atr[_p] == _atr[_p]:
                 _atrP = _atr[_p]; _hw = _atrP * _ZW; _md = _atrP * _MRG
                 _ph = _sH[_p]
-                if _ph == _ph and all(_ph >= _sH[_p + _d] for _d in range(-_PL, _PL + 1)):
+                if _phM8[_p]:
                     _nz = next((_z for _z in _res if abs(_mid(_z) - _ph) <= _md), None)
                     if _nz is not None:
                         _nz["top"] = max(_nz["top"], _ph + _hw); _nz["bot"] = min(_nz["bot"], _ph - _hw)
                     else:
                         _push(_res, {"t0": times_iso[_p], "t1": None, "top": _ph + _hw, "bot": _ph - _hw, "d": "res"}, _i)
                 _pl = _sL[_p]
-                if _pl == _pl and all(_pl <= _sL[_p + _d] for _d in range(-_PL, _PL + 1)):
+                if _plM8[_p]:
                     _nz = next((_z for _z in _sup if abs(_mid(_z) - _pl) <= _md), None)
                     if _nz is not None:
                         _nz["top"] = max(_nz["top"], _pl + _hw); _nz["bot"] = min(_nz["bot"], _pl - _hw)
@@ -1884,10 +1903,10 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             _p = _i - _CPL
             if _p - _CPL >= 0:
                 _ph = _sH[_p]
-                if _ph == _ph and all(_ph >= _sH[_p + _d] for _d in range(-_CPL, _CPL + 1)):
+                if _phM5[_p]:
                     _pH, _pHt, _lH, _lHt = _lH, _lHt, _ph, _p
                 _pl = _sL[_p]
-                if _pl == _pl and all(_pl <= _sL[_p + _d] for _d in range(-_CPL, _CPL + 1)):
+                if _plM5[_p]:
                     _pL, _pLt, _lL, _lLt = _lL, _lLt, _pl, _p
         _up = _pL is not None and _lL is not None and _lL > _pL and _pLt is not None and _lLt is not None and _lLt > _pLt
         _dn = _pH is not None and _lH is not None and _lH < _pH and _pHt is not None and _lHt is not None and _lHt > _pHt
