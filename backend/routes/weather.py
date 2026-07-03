@@ -637,6 +637,7 @@ async def _fetch_cwa_pop(county: str):
     tw_now = datetime.utcnow() + timedelta(hours=8)     # CWA 時間為台灣當地(Railway 跑 UTC)
     d0 = tw_now.date()
     day = now = None
+    _fr = None                                          # 今日第一個「未來」降雨時段(官方粗粒度時段起點)
     for t in pop_el.get("time", []):
         try:
             st = datetime.fromisoformat(t["startTime"])
@@ -650,11 +651,17 @@ async def _fetch_cwa_pop(county: str):
         # 此刻：涵蓋當前時間的時段
         if st <= tw_now < et:
             now = v
+        # 幾點開始下雨：今日、尚未開始、機率≥50% 的最早時段（官方 12h 粒度）
+        if st > tw_now and st.date() == d0 and v >= 50 and (_fr is None or st < _fr[0]):
+            _fr = (st, v)
     if now is None and day is not None:                 # 當前時間落在資料起點前 → 退今日
         now = day
     if day is None:
         return None
-    return {"day": day, "now": now}
+    out = {"day": day, "now": now}
+    if _fr is not None:
+        out["from_hour"] = _fr[0].hour; out["from_pop"] = _fr[1]
+    return out
 
 
 async def _fetch_jma_pop(lat: float, lon: float):
@@ -685,17 +692,24 @@ async def _fetch_jma_pop(lat: float, lon: float):
             continue
         parsed.append((t, v))
     day = now = None
+    _fr = None                                             # 今日第一個「未來」降雨時段(6h 粒度時段起點)
     for i, (t, v) in enumerate(parsed):
         if t.date() == d0:
             day = v if day is None else max(day, v)
         nt = parsed[i + 1][0] if i + 1 < len(parsed) else t + timedelta(hours=6)
         if t <= jst < nt:
             now = v
+        # 幾點開始下雨：今日、尚未開始、降水確率≥50% 的最早時段（官方 6h 粒度）
+        if t > jst and t.date() == d0 and v >= 50 and (_fr is None or t < _fr[0]):
+            _fr = (t, v)
     if now is None and parsed:                              # 落在資料起訖外 → 取最近端
         now = parsed[0][1] if jst < parsed[0][0] else parsed[-1][1]
     if day is None:
         return None
-    return {"day": day, "now": now}
+    out = {"day": day, "now": now}
+    if _fr is not None:
+        out["from_hour"] = _fr[0].hour; out["from_pop"] = _fr[1]
+    return out
 
 
 _HKO_PSR = {"極高": 95, "高": 80, "中高": 65, "中": 50, "中低": 35, "低": 20, "極低": 5}
@@ -979,13 +993,44 @@ async def weather(
     _pop, fc, aq, s = await asyncio.gather(*_tasks)
 
     # 補降雨機率（各源未提供時）：今日整天最大(pop) + 當前小時(pop_now)
+    _off_frh = _off_frp = None                           # 官方「幾點開始下雨」時段起點(CWA 12h / JMA 6h)
     if _need_pop:
         if _pop:
             res["pop"] = _pop.get("day"); res["pop_now"] = _pop.get("now")
+            _off_frh = _pop.get("from_hour"); _off_frp = _pop.get("from_pop")
         else:
             res["pop"] = None
     # 今明兩天預報（給小熊播報；全球免金鑰，best-effort）
     if fc: res["forecast"] = fc
+    # 小啊播報改用「各國當地氣象署」為主、Open-Meteo 為備用：
+    #   在官方觀測源地區（台 CWA／港 HKO／日 JMA）用官方實測『現在溫度』+ 官方『降雨機率』
+    #   覆蓋 Open-Meteo 的 forecast.now / forecast.rain / forecast.today.pop；
+    #   Open-Meteo 只在其他地區、或補「幾點開始下雨」的時段細節時當備用。
+    _osrc = res.get("source")
+    if fc and _osrc in ("cwa", "hko", "jma"):
+        _now = fc.setdefault("now", {})
+        # 官方觀測沒有「體感溫度」→ 用官方實測氣溫當播報主值，清掉 Open-Meteo 模式體感避免蓋過官方
+        if res.get("temperature") is not None:
+            _now["temp"] = round(res["temperature"]); _now["feels"] = None
+        if res.get("humidity"):   _now["humidity"] = res["humidity"]
+        if res.get("wind_speed"): _now["wind"] = res["wind_speed"]
+        _pn = res.get("pop_now")            # 官方此刻降雨機率
+        _pd = res.get("pop")                # 官方今日降雨機率
+        if _pd is not None:                 # 今日降雨機率改用官方值（Open-Meteo 常灌到 80%+ 對不上官方）
+            fc.setdefault("today", {})["pop"] = _pd
+        _rain = fc.setdefault("rain", {})
+        if res.get("precipitation"):        # 官方觀測到降水 → 正在下雨（實測最準）
+            _rain["raining_now"] = True
+        elif _pn is not None:               # 否則以官方此刻機率判定
+            _rain["raining_now"] = bool(_pn >= 60)
+        # 幾點開始下雨：CWA(12h)/JMA(6h) 有官方時段起點 → 官方優先覆蓋 Open-Meteo 逐時；
+        # 官方無時段(HKO 每日制／今日無降雨段)時，才保留 Open-Meteo 逐時當備用；
+        # 但官方今日機率偏低(<30%)又無官方時段 → 以官方為準：今天大致不下雨，別讓 Open-Meteo 高值嚇人
+        if _off_frh is not None:
+            _rain["from_hour"] = _off_frh; _rain["from_pop"] = _off_frp
+        elif _pd is not None and _pd < 30:
+            _rain["from_hour"] = None; _rain["from_pop"] = None
+        fc["wx_src"] = _osrc
     # 空氣品質（best-effort）
     if aq: res.setdefault("forecast", {})["aqi"] = aq
     # 用 Open-Meteo 天文日出/日落（含真實時區/日光節約）校正各源；並回傳該地 UTC 偏移

@@ -416,11 +416,13 @@
     if (r.raining_now) lines.push("☔ 現在正在下雨，記得帶傘");
     else if (r.from_hour != null) lines.push(`☔ ${_hrZh(r.from_hour)}左右會下雨${r.from_pop != null ? `（${r.from_pop}%）` : ""}，記得帶傘`);
     else lines.push("☀️ 今天大致不會下雨");
-    // ② 外面熱/冷（體感優先，退回實際溫度/今日高溫）
-    const ft = (now.feels != null) ? now.feels : (now.temp != null ? now.temp : t.tmax);
+    // ② 外面熱/冷（體感優先，退回實際溫度/今日高溫）。官方氣象署源無體感 → 用實測氣溫，標「氣溫」不標「體感」
+    const useFeels = (now.feels != null);
+    const ft = useFeels ? now.feels : (now.temp != null ? now.temp : t.tmax);
+    const tw = useFeels ? "體感 " : "";        // 有體感才標「體感」，否則直接講溫度（實測氣溫）
     if (ft != null) {
-      if (ft >= 35)      lines.push(`🥵 外面超熱（體感 ${ft}°），多喝水`);
-      else if (ft >= 31) lines.push(`🥵 外面很熱（體感 ${ft}°）`);
+      if (ft >= 35)      lines.push(`🥵 外面超熱（${tw}${ft}°），多喝水`);
+      else if (ft >= 31) lines.push(`🥵 外面很熱（${tw}${ft}°）`);
       else if (ft <= 10) lines.push(`🥶 外面很冷（${ft}°），多穿點`);
       else if (ft <= 16) lines.push(`🧥 外面有點涼（${ft}°）`);
       else               lines.push(`😊 外面溫度舒適（${ft}°）`);
