@@ -1437,7 +1437,7 @@ def get_crt_winrate(
     _br = round(max(0.1, min(1.0, float(band_ratio or 1.0))), 3)
     _long_only = (market == "tw")  # 台股不能放空
     _br_tag = "" if _br >= 0.999 else f":br{_br}"   # 預設 1.0 不改 key（沿用既有快取）；8成軌等另分流
-    cache_key = f"crt_wr88:{market}:{symbol}:{exchange}:{timeframe}:{_buf}:{int(_long_only)}{_br_tag}"   # v88:多/空正式改用 proto 缺口(g收盤定緣·標g·多加B高於A且不被包住·無B寬<A寬);移除假設變體fvg_ms_hypo
+    cache_key = f"crt_wr94:{market}:{symbol}:{exchange}:{timeframe}:{_buf}:{int(_long_only)}{_br_tag}"   # v94:移除破假設變體(fvg_break_hypo)+按鈕;破多空維持 proto 缺口序列版
     bar_key = cache_key + ":bar"
     # bar-aware 新鮮度：記下「算這份結果時最新那根棒的開盤時刻」。crypto 在「同一根棒內」吃快取，
     # 一旦有新棒收盤就讓快取失效 → 走下方短窗補抓重算 → 最新訊號最多慢到「收盤後第一次請求」，

@@ -1306,7 +1306,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
     _fvg_sigs = []
     _gaplist = []          # (cf_bar, top, bot, dir) 給「接1次」cascade 進出場標記用
     _bbgaps  = []          # (cf_bar, top, bot, dir) 給「布林外+FVG」均值回歸研究標記（不套 g+2 過濾，對齊 fvg_bb.py 回測）
-    _fvg_break = []        # 「多FVG→空FVG→收破前一個多FVG」結構轉破標記 [{t}]
+    _fvg_break = []        # 「破多/破空」結構轉破標記(跑 proto 缺口序列、標在 g) [{t,p,d}]
     _fvg_ms    = []        # 「多/空」方向標記 [{t,d}]（吃到 setup FVG 後、窗內首次同向 proto 缺口 B，標在 B 的 g）
     _fvg_shun  = []        # 「順多/順空」：第一步同多/空(吃到未觸碰同向FVG)，第二步=影線穿透既存反向FVG [{t,d}]
     _gaps_seq  = []        # (cf_bar, top, bot, dir) 依時間序的所有視覺缺口（給上面結構模式偵測用）
@@ -1463,48 +1463,10 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         _fvg = _fvg[-12000:]        # 畫滿整窗（gzip 後約 ~200KB）；高保險值防病態 payload，實質不限量
         _fvg_sigs = _fvg_sigs[-200:]
 
-        # ── 結構轉破標記（雙向）──────────────────────────────────────────────────
-        # 破多(d=l)：多FVG 之後「緊接的下一個缺口」必須是空FVG(中間不能夾任何其他主缺口；
-        #            IFVG 不在 _gaps_seq 中→自動忽略) → 空FVG 的「g(=_k-1) 或 g+1(=_k)」只要有一根
-        #            「下影線碰進上一個多FVG」(該棒 low ≤ 多FVG 上緣 _prev.top) → 標破多。標在空FVG確認棒。
-        #            破空(d=s)鏡像(空FVG→下一個缺口是多FVG→多FVG的 g/g+1 上影線碰進空FVG：該棒 high ≥ 空FVG 下緣)。
-        # 缺口/影線在確認棒(g+1)即固定→當根就能判定，不需武裝/等未來影線。之後交替過濾(破多後到下個破空前不再破多，反之亦然)。
-        _used = set()                                  # 有被任一標記用到的缺口索引(gi)；其餘前端淡化
-        _gaps_at = {}                                  # cf_bar → (top, bot, dir)；每根 K 至多一個缺口
-        for (_ci, _tp, _bt, _dr) in _gaps_seq:
-            _gaps_at[_ci] = (_tp, _bt, _dr)
-        _prev = None                                   # 上一個主缺口 {dir,bot,top,idx}
-        for _k in range(_N):
-            _gp = _gaps_at.get(_k)
-            if _gp is not None:
-                _tp, _bt, _dr = _gp
-                # 破多：多FVG(_prev) 緊接 空FVG(本缺口_k=g+1確認棒)→ 空FVG 的 g(_k-1)/g+1(_k)
-                #   觸發：g(_k-1) 或 g+1(_k) 的下影線須破到多FVG「中線以下」(low ≤ 中線；即中跟下,非只碰上緣)→ 破多。
-                #   排除① 已收破在前(_broke)：破前(不含g)已有一棒「收盤跌破多FVG下緣」→ 破老早發生、本空FVG只是遲來確認→不標。
-                #   排除② mitigate二次造訪(_mit)：破前先有一棒 low 填到中線、之後又有一棒「收盤折返回上方(close>上緣)」→ 已失效再回頭→不標。
-                #   (例:1d ETH 4/6=①/②→不標；11/14=①(11/11已收破下緣)→不標；6/19/1/20/12/12/5/8=皆不符→標。)
-                if _dr == "s" and _prev is not None and _prev["dir"] == "l":
-                    _mid = (_prev["top"] + _prev["bot"]) / 2.0
-                    _fj = next((_j for _j in range(_prev["idx"] + 1, _k - 1) if _L[_j] <= _mid), None)
-                    _mit = _fj is not None and any(_C[_m] > _prev["top"] for _m in range(_fj + 1, _k))
-                    _broke = any(_C[_j] < _prev["bot"] for _j in range(_prev["idx"] + 1, _k - 1))
-                    if not _mit and not _broke and (_L[_k] <= _mid or _L[_k - 1] <= _mid):   # g/g+1 破到多FVG中線以下 → 破多
-                        _fvg_break.append({"t": times_iso[_k], "p": _prev["top"], "d": "l", "gi": _prev["idx"], "ri": _k})
-                elif _dr == "l" and _prev is not None and _prev["dir"] == "s":
-                    _mid = (_prev["top"] + _prev["bot"]) / 2.0
-                    _fj = next((_j for _j in range(_prev["idx"] + 1, _k - 1) if _H[_j] >= _mid), None)
-                    _mit = _fj is not None and any(_C[_m] < _prev["bot"] for _m in range(_fj + 1, _k))
-                    _broke = any(_C[_j] > _prev["top"] for _j in range(_prev["idx"] + 1, _k - 1))
-                    if not _mit and not _broke and (_H[_k] >= _mid or _H[_k - 1] >= _mid):   # g/g+1 破到空FVG中線以上 → 破空(鏡像)
-                        _fvg_break.append({"t": times_iso[_k], "p": _prev["bot"], "d": "s", "gi": _prev["idx"], "ri": _k})
-                _prev = {"dir": _dr, "bot": _bt, "top": _tp, "idx": _k}
-        _fvg_break.sort(key=lambda x: x["t"])
-        # 全部顯示：每個通過觸發＋mitigate排除的破都保留(不再做交替/最新取代 collapse)。
-        _fvg_break = _fvg_break[-2000:]
-        # used 只算「最終(交替後)留下的破」所涉及的缺口(被破的+確認的反向)，交替丟掉的不算→會被淡化
-        for _x in _fvg_break:
-            if "gi" in _x: _used.add(_x["gi"])
-            if "ri" in _x: _used.add(_x["ri"])
+        # ── 結構轉破（破多/破空）：實際計算改跑在 proto 缺口序列上（見下方 多/空 之後的區塊）──────
+        # _used：被任一標記用到的 3 根缺口索引 gi；其餘前端淡化。破多/破空改跑 proto 缺口後不再貢獻 gi，
+        #        由 多/空(setup A)＋順 標記決定 used。這裡只先初始化(多/空與順會 add)。
+        _used = set()
 
         # ── 「多/空」方向標記（2026-07-01 定義；07-03 B 改 proto 缺口·g 收盤定緣、不等 g+1）──────────
         # 空/多：setup A＝一個做空/做多 3 根 FVG，被 K 棒「逐錨更深觸碰」(封頂/封底、上/下影衝過緣 _MSOVR 作廢)後，
@@ -1594,6 +1556,28 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                 _fvg_ms.append({"t": times_iso[_cf2], "d": "l"}); _ms_seen.add(_cf2); _used.add(_cf)
         _fvg_ms.sort(key=lambda x: x["t"])
         _fvg_ms = _fvg_ms[-2000:]
+
+        # ── 結構轉破（破多/破空）：跑在 proto 缺口序列上 ────────────────────────────────────
+        # 前一 proto 缺口→緊接反向 proto 缺口→反向缺口 g/g-1 影線破到前缺口中線 → 破多/破空。缺口全用 proto
+        #   缺口(g 收盤定緣、標在 g)＝比舊 3 根 FVG 版早一根。排除(已收破在前 _broke、mitigate 二次造訪 _mit)照舊。標在觸發那根 g。
+        _pprev = None
+        for (_kp, _ptp, _pbt, _pdd) in _pseq:              # 依 g 升序(生成序)
+            if _pprev is not None:
+                _mid = (_pprev["top"] + _pprev["bot"]) / 2.0
+                if _pdd == "s" and _pprev["dir"] == "l":   # 破多：前 bull proto、現 bear proto
+                    _fj = next((_j for _j in range(_pprev["idx"] + 1, _kp - 1) if _L[_j] <= _mid), None)
+                    _mit = _fj is not None and any(_C[_m] > _pprev["top"] for _m in range(_fj + 1, _kp))
+                    _broke = any(_C[_j] < _pprev["bot"] for _j in range(_pprev["idx"] + 1, _kp - 1))
+                    if not _mit and not _broke and (_L[_kp] <= _mid or _L[_kp - 1] <= _mid):
+                        _fvg_break.append({"t": times_iso[_kp], "p": _pprev["top"], "d": "l"})
+                elif _pdd == "l" and _pprev["dir"] == "s":  # 破空（鏡像）：前 bear proto、現 bull proto
+                    _fj = next((_j for _j in range(_pprev["idx"] + 1, _kp - 1) if _H[_j] >= _mid), None)
+                    _mit = _fj is not None and any(_C[_m] < _pprev["bot"] for _m in range(_fj + 1, _kp))
+                    _broke = any(_C[_j] > _pprev["top"] for _j in range(_pprev["idx"] + 1, _kp - 1))
+                    if not _mit and not _broke and (_H[_kp] >= _mid or _H[_kp - 1] >= _mid):
+                        _fvg_break.append({"t": times_iso[_kp], "p": _pprev["bot"], "d": "s"})
+            _pprev = {"dir": _pdd, "bot": _pbt, "top": _ptp, "idx": _kp}
+        _fvg_break.sort(key=lambda x: x["t"]);      _fvg_break = _fvg_break[-2000:]
 
         # ── 「順多/順空」方向標記（2026-07-02；07-03 影線穿透＋近期兩個；07-03b 近期以「穿透點」衡量、R可晚於觸碰）──
         # 順多：第一步與「多」完全相同——未觸碰的做多FVG(A)被首次碰到(逐錨更深觸碰、下影衝過下緣10%作廢)；
@@ -2194,7 +2178,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         "recent":   recent[-30:],
         "signals":  signals,
         "fvg":      _fvg,         # 失衡缺口（主圖色塊）
-        "fvg_break": _fvg_break,  # 「多FVG→空FVG→收破前一個多FVG」結構轉破標記
+        "fvg_break": _fvg_break,  # 「破多/破空」結構轉破標記(跑 proto 缺口序列、標在 g)
         "fvg_ms":   _fvg_ms,      # 「多/空」方向標記(B 用 proto 缺口·g 收盤定緣、標在 g)
         "fvg_shun": _fvg_shun,    # 「順多/順空」：吃同向FVG後影線穿透既存反向FVG(順勢延續)
         "smc_sweep": _smc_sweep,  # SMC 掃頂/掃底(階段1：SR+SMC 教練移植)

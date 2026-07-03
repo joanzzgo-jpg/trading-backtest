@@ -509,7 +509,7 @@ async function _fetchWinRateNow() {
     _renderWRSignals(d.signals);
     _renderFVGTrades(d.fvg_trades);   // FVG「接1次」進出場標記（主圖）
     _renderFVGBB(d.fvg_bb, d.fvg_bb_a, d.fvg_bb_m);   // FVG 進出場標記:D(青/粉)+A(橘/紫)+M中軌分側順勢(黃/藍)（研究·主圖）
-    _renderFVGBreak(d.fvg_break);     // 結構轉破:多FVG→空FVG→收破前一個多FVG 的那根K（主圖）
+    _renderFVGBreak(d.fvg_break);     // 破多/破空 結構轉破（proto 缺口序列、標在 g）（主圖）
     _renderFVGMS(d.fvg_ms);           // 多/空方向標記:吃 setup FVG 後窗內首次同向 proto 缺口 B（標在 g）（主圖）
     _renderFVGShun(d.fvg_shun);       // 順多/順空:吃同向FVG後影線穿透既存反向FVG（主圖）
     _renderSMCSweep(d.smc_sweep);     // SMC 掃頂/掃底（階段1：SR+SMC 教練疊加層，右上開關 coachToggleBtn）
@@ -760,7 +760,7 @@ window.toggleFVGBB = function (ver, on) {
   return !window[key];   // 回傳「是否顯示」
 };
 
-// 結構轉破標記：多FVG→空FVG→收破前一個多FVG下緣 的那根 K（橘色箭頭+「破多」標在棒上方）
+// 結構轉破標記：破多/破空（proto 缺口序列、標在 g）（橘色箭頭+「破多」標在棒上方）
 function _renderFVGBreak(items) {
   if (items !== undefined) _lastFVGBreak = items || [];
   const hasIdx = (typeof _secToIdx !== "undefined" && _secToIdx.size > 0);
@@ -769,8 +769,9 @@ function _renderFVGBreak(items) {
   const _rpCut = (typeof replayActive !== "undefined" && replayActive
     && typeof replayData !== "undefined" && replayData[replayIdx])
     ? toTime(replayData[replayIdx].time) : null;
+  const src = _lastFVGBreak || [];
   const out = [];
-  for (const it of (_lastFVGBreak || [])) {
+  for (const it of src) {
     const tm = toTime(it.t);
     if (!_has(tm) || (_rpCut != null && tm > _rpCut)) continue;
     // 一律全亮不淡化(使用者要求)——原「weak」依折價/溢價位置,該區已關閉、依據不再可見
