@@ -1329,12 +1329,32 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                 _dir, _top, _bot, _gw = "s", _l0, _h2, (_l0 - _h2) / _l0
             else:
                 continue
-            _t2 = None; _midi = None                            # 到中線(50%)的時間/索引（盒子右端＝填補點）
+            # ── 融合單趟掃描：一次算出 _t2/_midi(中線填補)、_ett/_etm/_etb(上/中/下緣首觸)、_pens(逐深突破)。
+            #   原本是三個各自 range(_g+2,_N) 的掃描(其中 _t2 與 _etm 條件完全相同、重複掃)；三合一省 ~2/3 迭代。
+            #   終止：觸及最遠緣(多=下緣/空=上緣)那一刻，三者本來就同時完成(_etb/_ett 定、pens 到底) → 同點 break。
+            _t2 = None; _midi = None; _ett = _etm = _etb = None; _pens = []; _pm = None
             _mid = (_top + _bot) / 2.0
             for _j in range(_g + 2, _N):
-                # 多頭(支撐)：價格跌到中線；空頭(壓力)：價格漲到中線 → 視為已填補、停止延伸。
-                if _dir == "l" and _L[_j]  <= _mid: _t2 = times_iso[_j]; _midi = _j; break
-                if _dir == "s" and _H[_j] >= _mid: _t2 = times_iso[_j]; _midi = _j; break
+                if _dir == "l":
+                    _lj = _L[_j]
+                    if _lj > _top: continue                          # 沒碰進區間
+                    if _ett is None: _ett = times_iso[_j]            # 首觸上緣
+                    if _etm is None and _lj <= _mid: _etm = times_iso[_j]; _t2 = _etm; _midi = _j   # 中線(=填補點)
+                    if _etb is None and _lj <= _bot: _etb = times_iso[_j]
+                    _pv = _bot if _lj < _bot else _lj                # 封底於下緣
+                    if _pm is None or _pv < _pm:
+                        _pm = _pv; _pens.append({"t": times_iso[_j], "p": _pv})
+                        if _pv <= _bot: break                        # 到下緣→上中下緣皆定、pens 完成
+                else:
+                    _hj = _H[_j]
+                    if _hj < _bot: continue
+                    if _etb is None: _etb = times_iso[_j]            # 首觸下緣(近端)
+                    if _etm is None and _hj >= _mid: _etm = times_iso[_j]; _t2 = _etm; _midi = _j
+                    if _ett is None and _hj >= _top: _ett = times_iso[_j]
+                    _pv = _top if _hj > _top else _hj                # 封頂於上緣
+                    if _pm is None or _pv > _pm:
+                        _pm = _pv; _pens.append({"t": times_iso[_j], "p": _pv})
+                        if _pv >= _top: break
             _sweep = (_l0 < _L[_g] and _l0 < _l2) if _dir == "l" else (_h0 > _H[_g] and _h0 > _h2)
             # 交易位階(視覺)：止盈=2W(W=top−bot,多 top+2W／空 bot−2W)、止損=g-1 頂端(high[g-1]=_h0)。
             _W = _top - _bot
@@ -1352,37 +1372,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                         if _C[_k] > _gsl: _inv_t = times_iso[_k]; _invi = _k; break  # 收盤破止損(g-1頂端) → 反轉
             # 原缺口色塊：反轉則盒子延伸到反轉點(之後換色由 IFVG 接續)；否則止於中線/右緣。
             _box_t2 = _inv_t if _inv_t is not None else _t2
-            # 進場點(視覺)分上/中/下：缺口框「上緣top／中線mid／下緣bot」各自首次被觸及那根。
-            #   多頭由上往下觸(low≤線)、空頭由下往上觸(high≥線)；沒觸及→該點 None。
-            _ett = _etm = _etb = None
-            for _j in range(_g + 2, _N):
-                if _dir == "l":
-                    _lj = _L[_j]
-                    if _ett is None and _lj <= _top: _ett = times_iso[_j]
-                    if _etm is None and _lj <= _mid: _etm = times_iso[_j]
-                    if _etb is None and _lj <= _bot: _etb = times_iso[_j]
-                else:
-                    _hj = _H[_j]
-                    if _ett is None and _hj >= _top: _ett = times_iso[_j]
-                    if _etm is None and _hj >= _mid: _etm = times_iso[_j]
-                    if _etb is None and _hj >= _bot: _etb = times_iso[_j]
-                if _ett and _etm and _etb: break
-            # 進場「每被突破一次」標記：每次往區間更深處突破(創新深度、封頂/封底於邊緣)標一點；
-            #   同深度/更淺的回踩不重複。多頭封底於下緣、空頭封頂於上緣；到邊緣即止(不會更深)。
-            _pens = []; _pm = None
-            for _j in range(_g + 2, _N):
-                if _dir == "l":
-                    if _L[_j] > _top: continue                  # 沒碰進區間
-                    _pv = _bot if _L[_j] < _bot else _L[_j]     # 封底於下緣
-                    if _pm is None or _pv < _pm:
-                        _pm = _pv; _pens.append({"t": times_iso[_j], "p": _pv})
-                        if _pv <= _bot: break
-                else:
-                    if _H[_j] < _bot: continue
-                    _pv = _top if _H[_j] > _top else _H[_j]      # 封頂於上緣
-                    if _pm is None or _pv > _pm:
-                        _pm = _pv; _pens.append({"t": times_iso[_j], "p": _pv})
-                        if _pv >= _top: break
+            # (_ett/_etm/_etb 上中下緣首觸 與 _pens 逐深突破 已於上方融合掃描算好)
             # 同向缺口堆疊去重：若本缺口頂端(top)落在「上一個同向缺口下緣往下 0.5W」帶內
             #   [botA-0.5*W_A, botA] → 視為太貼近上方缺口 → 無效(dim：前端淺色、不產生交易訊號)。
             #   連鎖：基準用「上一個同向缺口」不論其有效/無效，無效缺口也讓下方0.5W內的同向缺口跟著無效。
@@ -1545,6 +1535,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         for (_cf, _top, _bot) in _bear:                    # 空
             _mx = None
             for _touch in range(_cf + 1, _N):
+                if _mx is not None and _mx >= _top: break  # 錨已達上緣→不可能更深觸碰(無損提前止掃)
                 if _H[_touch] > _top * (1 + _MSOVR): break # 上影線衝過上緣10% → 做空FVG作廢
                 if _H[_touch] < _bot: continue             # 沒碰進區間
                 _r = _top if _H[_touch] > _top else _H[_touch]   # 封頂於上緣
@@ -1569,6 +1560,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         for (_cf, _top, _bot) in _bull:                    # 多（鏡像）
             _mn = None
             for _touch in range(_cf + 1, _N):
+                if _mn is not None and _mn <= _bot: break  # 錨已達下緣→不可能更深觸碰(無損提前止掃)
                 if _L[_touch] < _bot * (1 - _MSOVR): break # 下影線衝過下緣10% → 做多FVG作廢
                 if _L[_touch] > _top: continue
                 _r = _bot if _L[_touch] < _bot else _L[_touch]   # 封底於下緣
@@ -1628,11 +1620,13 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                 _anchor = None                         # 逐錨更深觸碰(與多/空同)
                 for _touch in range(_cf + 1, _N):
                     if _d == "l":
+                        if _anchor is not None and _anchor <= _bot: break  # 錨達下緣→無更深觸碰(無損止掃)
                         if _L[_touch] < _bot * (1 - _MSOVR): break     # 衝過下緣10% → A作廢
                         if _L[_touch] > _top: continue                 # 沒碰進區間
                         _r = _bot if _L[_touch] < _bot else _L[_touch]
                         if _anchor is not None and _r >= _anchor: continue
                     else:
+                        if _anchor is not None and _anchor >= _top: break  # 錨達上緣→無更深觸碰(無損止掃)
                         if _H[_touch] > _top * (1 + _MSOVR): break
                         if _H[_touch] < _bot: continue
                         _r = _top if _H[_touch] > _top else _H[_touch]
