@@ -82,6 +82,8 @@
 
   async function show() {
     if (_open) return;
+    // 封面頁(landing/城門頁)顯示中 → 不跳農民曆卡(會與封面圖重疊、不好看)；稍後再排程，等進到圖表才跳。
+    if (document.documentElement.classList.contains("landing-active")) { _resetIdle(); return; }
     const d = await _fetch();
     if (!d) return;
     const ov = _ensureDom();
