@@ -178,6 +178,89 @@ document.addEventListener("DOMContentLoaded", async () => {
     setTab(["chart", "wr", "watch", "signals", "settings", "trade"].includes(_mt) ? _mt : "wr");
   })();
 
+  // 手機版：整體頁面下拉刷新（pull-to-refresh）。body overflow:hidden、各分頁滿版內層捲動 →
+  // 原生下拉刷新不會觸發，故自訂：捲動容器在頂端時往下拉超過門檻即 location.reload()。
+  (function initPullRefresh() {
+    if (typeof isMobileUI === "function" && !isMobileUI()) return;   // 桌面版不裝
+    const ind = document.createElement("div");
+    ind.id = "mPullRefresh";
+    ind.innerHTML = '<div class="mpr-spinner"></div>';
+    document.body.appendChild(ind);
+
+    const THRESH = 68;    // 觸發刷新的下拉距離(px)
+    const MAX = 96;       // 指示器最大下移
+    let startY = 0, startX = 0, scroller = null, pulling = false, decided = false, dist = 0;
+
+    // 找觸控點所在、真正可「垂直」捲動的祖先；沒有就用根捲動元素
+    function _vscrollerOf(el) {
+      while (el && el !== document.body && el.nodeType === 1) {
+        if (el.scrollHeight > el.clientHeight) {
+          const oy = getComputedStyle(el).overflowY;
+          if (oy === "auto" || oy === "scroll") return el;
+        }
+        el = el.parentElement;
+      }
+      return document.scrollingElement || document.documentElement;
+    }
+    function _reset() {
+      pulling = false; decided = false; dist = 0;
+      ind.classList.remove("visible", "ready", "loading");
+      ind.style.transform = "";
+    }
+
+    // 觸控點是否落在圖表區矩形內（用幾何範圍判，因城門頁/標記層等會蓋在圖表上，
+    // 用 closest("#chartsContainer") 選擇器判不到 → 改用 getBoundingClientRect）。
+    function _inChart(x, y) {
+      const cc = document.getElementById("chartsContainer");
+      if (!cc) return false;
+      const r = cc.getBoundingClientRect();
+      return r.height > 0 && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+    }
+    window.addEventListener("touchstart", (e) => {
+      if (e.touches.length !== 1) { _reset(); return; }
+      const t = e.touches[0];
+      startY = t.clientY; startX = t.clientX;
+      // 圖表（拖曳/縮放）與畫布、標記 data-no-ptr 的區塊不攔截 → 只從圖表以外(頂欄/清單/設定)下拉
+      if (_inChart(startX, startY) || (e.target.closest && e.target.closest("canvas, [data-no-ptr]"))) {
+        pulling = false; scroller = null; return;
+      }
+      scroller = _vscrollerOf(e.target);
+      pulling = (scroller.scrollTop <= 0);   // 只有已捲到頂才可能是下拉刷新
+      decided = false; dist = 0;
+    }, { passive: true });
+
+    window.addEventListener("touchmove", (e) => {
+      if (!pulling || !scroller) return;
+      const t = e.touches[0];
+      const dy = t.clientY - startY, dx = t.clientX - startX;
+      if (!decided) {                        // first move 決定方向：主要是水平 or 往上 → 交還原生
+        if (dy <= 0 || Math.abs(dx) > Math.abs(dy)) { pulling = false; return; }
+        decided = true;
+      }
+      if (scroller.scrollTop > 0) { _reset(); return; }   // 中途捲離頂端 → 取消
+      dist = Math.min(MAX, dy * 0.5);        // 阻尼
+      if (dist > 2) {
+        e.preventDefault();                  // 接手：擋掉原生 overscroll
+        ind.classList.add("visible");
+        ind.classList.toggle("ready", dist >= THRESH);
+        ind.style.transform = `translateX(-50%) translateY(${dist}px)`;
+      }
+    }, { passive: false });
+
+    function _end() {
+      if (!pulling || !decided) { _reset(); return; }
+      if (dist >= THRESH) {                  // 過門檻 → 刷新
+        ind.classList.remove("ready"); ind.classList.add("loading");
+        ind.style.transform = `translateX(-50%) translateY(${THRESH}px)`;
+        setTimeout(() => location.reload(), 240);
+      } else {
+        _reset();
+      }
+    }
+    window.addEventListener("touchend", _end, { passive: true });
+    window.addEventListener("touchcancel", () => _reset(), { passive: true });
+  })();
+
   // 手機字體大小（標準 / 大 / 特大）：body class 控制，存 localStorage（隨帳號同步）
   (function initMFontScale() {
     const apply = (v) => {

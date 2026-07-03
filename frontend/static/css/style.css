@@ -7012,3 +7012,35 @@ html.perf-mode .lunar-card { font-family: inherit; }
 }
 .co-toast.on { opacity: 1; transform: translateX(-50%) translateY(0); }
 .co-toast.co-err { border-color: #f8717188; color: #f8a; }
+
+/* ── 手機版：整體頁面下拉刷新指示器（pull-to-refresh，見 main.js initPullRefresh） ── */
+#mPullRefresh {
+  position: fixed; top: -44px; left: 50%; transform: translateX(-50%);
+  width: 34px; height: 34px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(23, 15, 12, 0.94);
+  border: 1px solid var(--border, #3B2920);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .45);
+  z-index: 3000; opacity: 0; pointer-events: none;
+  transition: opacity .18s ease;
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+}
+#mPullRefresh.visible { opacity: 1; }
+/* 箭頭：往下拉時朝下，達門檻翻轉朝上（提示放手即刷新） */
+#mPullRefresh .mpr-spinner {
+  width: 12px; height: 12px;
+  border: 2px solid transparent;
+  border-top-color: var(--accent, #FF9147);
+  border-right-color: var(--accent, #FF9147);
+  border-radius: 50%;
+  transition: transform .18s ease;
+}
+#mPullRefresh.ready .mpr-spinner { transform: rotate(180deg); }
+#mPullRefresh.loading .mpr-spinner {
+  border-top-color: var(--accent, #FF9147);
+  border-right-color: var(--accent, #FF9147);
+  border-bottom-color: rgba(255, 145, 71, .25);
+  border-left-color: rgba(255, 145, 71, .25);
+  animation: mpr-spin .7s linear infinite;
+}
+@keyframes mpr-spin { to { transform: rotate(360deg); } }
