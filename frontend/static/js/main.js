@@ -261,6 +261,28 @@ document.addEventListener("DOMContentLoaded", async () => {
     window.addEventListener("touchcancel", () => _reset(), { passive: true });
   })();
 
+  // 手機版：勝率欄（頂部整塊）顯示/隱藏 —— 設定頁開關，關閉可把上方勝率 HUD 收起、圖表變大。
+  // body.m-hide-wr 由 CSS 隱藏 #winrateBar+#wrTop3；狀態存 localStorage。只在手機款套用（桌面有自己版面）。
+  (function initWrBarToggle() {
+    const KEY = "mHideWr";
+    const _read = () => { try { return localStorage.getItem(KEY) === "1"; } catch (e) { return false; } };
+    const apply = (hide, resize) => {
+      const mob = (typeof isMobileUI !== "function") || isMobileUI();
+      document.body.classList.toggle("m-hide-wr", hide && mob);   // 桌面款不套用,避免 localStorage 帶到桌面隱藏勝率
+      const st = document.getElementById("mSetWrBarState");
+      if (st) st.textContent = hide ? "隱藏" : "顯示";
+      const row = document.getElementById("mSetWrBar");
+      if (row) row.classList.toggle("m-set-on", !hide);          // 顯示中=亮橘條
+      if (resize && typeof resizeAll === "function") setTimeout(resizeAll, 80);   // 版面變動→圖表重算尺寸
+    };
+    apply(_read(), false);
+    window._toggleWrBar = () => {
+      const hide = !_read();
+      try { localStorage.setItem(KEY, hide ? "1" : "0"); } catch (e) {}
+      apply(hide, true);
+    };
+  })();
+
   // 手機字體大小（標準 / 大 / 特大）：body class 控制，存 localStorage（隨帳號同步）
   (function initMFontScale() {
     const apply = (v) => {

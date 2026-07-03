@@ -7013,6 +7013,11 @@ html.perf-mode .lunar-card { font-family: inherit; }
 .co-toast.on { opacity: 1; transform: translateX(-50%) translateY(0); }
 .co-toast.co-err { border-color: #f8717188; color: #f8a; }
 
+/* 手機版：設定頁關閉「勝率欄（頂部）」→ 隱藏整塊勝率 HUD（總勝率+訊號勝率列+Top3），
+   頂欄變矮、圖表容器變大（class 只在手機款由 JS 加上，見 main.js initWrBarToggle）。 */
+body.m-hide-wr #winrateBar,
+body.m-hide-wr #wrTop3 { display: none !important; }
+
 /* ── 手機版：整體頁面下拉刷新指示器（pull-to-refresh，見 main.js initPullRefresh） ── */
 #mPullRefresh {
   position: fixed; top: -44px; left: 50%; transform: translateX(-50%);
