@@ -502,6 +502,33 @@ def _fetch_binance_klines_parallel(base_url, sym, tf, since_ms, end_ms, timefram
             continue
         seen.add(r[0])
         uniq.append(r)
+    # ── 缺口自癒：某個 window 兩輪都失敗(None)會被整段丟掉 → 圖上 K 棒「銜接不起來/中間斷開」。
+    #    這裡偵測相鄰棒的時間缺口、補抓那些 range。最多 2 輪；某輪補不到任何資料就停
+    #    （避免對「真的無資料」的缺口——如上市前——無限重打）。crypto 連續盤正常不該有中段缺口。
+    for _round in range(2):
+        _gwins = []
+        for _i in range(1, len(uniq)):
+            if uniq[_i][0] - uniq[_i - 1][0] > bar_ms * 1.5:      # 相鄰棒差 >1 根間距 → 缺口
+                _gs = uniq[_i - 1][0] + bar_ms
+                _ge = uniq[_i][0] - bar_ms
+                _s2 = _gs
+                while _s2 <= _ge:                                  # 缺口可能跨多頁 → 切窗
+                    _e2 = min(_s2 + page_ms - bar_ms, _ge)
+                    _gwins.append((_s2, _e2))
+                    _s2 = _e2 + bar_ms
+        if not _gwins:
+            break
+        _gres = _run(_gwins)
+        _added = False
+        for w in _gwins:
+            r = _gres.get(w)
+            if r:
+                for row in r:
+                    if row[0] not in seen:
+                        seen.add(row[0]); uniq.append(row); _added = True
+        if not _added:
+            break
+        uniq.sort(key=lambda x: x[0])
     # 超過上限時保留「最近」max_candles 根（不是最舊的）→ 避免最近幾根 K 被砍掉沒訊號
     if len(uniq) > max_candles:
         uniq = uniq[-max_candles:]
