@@ -32,17 +32,32 @@ function hexAlpha(hex, opacity) {
 /* ── localStorage ── */
 // 顏色/樣式設定「手機端與電腦端各自獨立」：手機用 _m 後綴的 key。
 // 兩套 key 都在帳戶快照內 → 都隨帳戶同步，但各平台讀寫自己那份、互不影響。
-/* 手機版 UI 判斷（全站唯一準則）：寬 ≤1180（涵蓋手機 + 所有 iPad 尺寸 + 桌機縮窄視窗）
-   或「觸控為主、無 hover」裝置（補 12.9" iPad 橫向 1366px）。介面只分兩種：手機款 / 桌面款。
-   觸控筆電不受影響（主指標為 fine pointer）。CSS 端對應：style.css 各斷點同步用
-   `(max-width: 1180px), (hover: none) and (pointer: coarse)`，兩邊判斷必須保持一致。 */
+/* 手機版 UI 判斷（全站唯一準則）。介面只分兩種：手機款 / 桌面款。三種情形走手機款：
+   ① 桌機(fine pointer)窄視窗 ≤1180（沿用；使用者縮窗測手機版）；
+   ② 觸控裝置「直屏」＝iPad 直放 + 手機直放 → 手機款；
+   ③ 觸控裝置「橫屏但矮」＝手機橫放(視窗高 ≤599) → 手機款。
+   其餘 = 桌面款：iPad「橫放」(觸控橫屏且高 ≥600) → 桌面款；桌機寬視窗 → 桌面款。
+   → iPad：直屏手機版、橫屏電腦版。CSS 端(style.css 各斷點)用完全相同的三段條件，兩邊必須一致。 */
 function isMobileUI() {
   try {
+    const _q = s => window.matchMedia(s).matches;
     return !!(window.matchMedia && (
-      window.matchMedia("(max-width: 1180px)").matches ||
-      window.matchMedia("(hover: none) and (pointer: coarse)").matches));
+      _q("(max-width: 1180px) and (pointer: fine)") ||
+      _q("(hover: none) and (pointer: coarse) and (orientation: portrait)") ||
+      _q("(hover: none) and (pointer: coarse) and (orientation: landscape) and (max-height: 599px)")));
   } catch (e) { return window.innerWidth <= 1180; }
 }
+/* iPad 直↔橫旋轉會跨越手機款/桌面款門檻 → 旋轉且模式翻轉時重載一次，讓整站佈局(手機/桌面面板)套對。
+   只聽 orientationchange（真實裝置旋轉才觸發；桌機拖窗只發 resize，仍走 CSS 即時切換、不重載）。
+   手機旋轉不跨門檻(兩向都手機款)→模式不變→不重載。 */
+(function _watchUIModeFlip() {
+  try {
+    let _built = isMobileUI();
+    window.addEventListener("orientationchange", () => {
+      setTimeout(() => { if (isMobileUI() !== _built) location.reload(); }, 300);
+    });
+  } catch (e) {}
+})();
 function _isMobilePrefs() {
   return isMobileUI();
 }
