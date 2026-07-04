@@ -43,9 +43,38 @@ function _darkenForChart(hex) {
   return `#${toHex(R)}${toHex(G)}${toHex(B)}`;
 }
 
+// 相對亮度（0~255）：格線自動配色用
+function _lum(hex) {
+  const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex || "");
+  if (!m) return 128;
+  return 0.299 * parseInt(m[1], 16) + 0.587 * parseInt(m[2], 16) + 0.114 * parseInt(m[3], 16);
+}
+
+// 格線自動配色：判斷「圖表實際襯的背景」明暗 → 亮底給深暖棕格線、暗底給亮奶油格線，永遠有對比、不被吃掉。
+//   背景三態：極簡=白底(亮)／天氣開(sky-show)=天氣層透出(夜暗·日被 stage 調暗成中暗)／天氣關=使用者暗色主圖底。
+function _gridColorForBg() {
+  const el = document.documentElement;
+  let lum;
+  if (el.classList.contains("perf-mode")) lum = 245;                       // 極簡白底
+  else if (el.classList.contains("sky-show"))
+    lum = el.classList.contains("sky-night") ? 22 : 90;                    // 天氣透出：夜暗／日(被 stage 半透調暗)偏中暗
+  else lum = _lum(_darkenForChart((typeof C !== "undefined" && (C.chartBg || C.bg)) || "#131722"));
+  return lum < 128 ? "rgba(255,216,176,0.15)"                              // 暗底 → 亮暖奶油格線(淡、不搶戲)
+                   : "rgba(64,42,24,0.24)";                               // 亮底 → 深暖棕格線
+}
+
+// 把自動格線色套到四張圖（主圖＋KDJ/RSI/MACD）。背景變(天氣/主題/日夜)時呼叫。
+function _applyAutoGrid() {
+  const gc = _gridColorForBg();
+  [typeof mainChart !== "undefined" && mainChart, typeof kdjChart !== "undefined" && kdjChart,
+   typeof rsiChart !== "undefined" && rsiChart, typeof macdChart !== "undefined" && macdChart]
+    .forEach(c => { try { c && c.applyOptions({ grid: { vertLines: { color: gc }, horzLines: { color: gc } } }); } catch (e) {} });
+}
+
 function _applyChartBgGradient(color) {
   const pane = document.getElementById("mainPane");
   if (!pane) return;
+  _applyAutoGrid();   // 格線依當前背景明暗自動反轉（天氣/主題/日夜切換都會經過這裡）
   const _perf = document.documentElement.classList.contains("perf-mode");
   if (_perf) {
     pane.style.background = "";   // 極簡模式不上色，浮水印才看得到

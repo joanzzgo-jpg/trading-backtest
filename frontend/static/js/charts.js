@@ -3,9 +3,10 @@ function makeBaseOpts(scaleMargins = null, showTime = false) {
   const _perf = document.documentElement.classList.contains("perf-mode");
   // 軸刻度數字（右側價格軸／底部時間軸）調淡一些，降低存在感
   const _txt  = _perf ? "rgba(42,38,32,0.55)" : "rgba(209,212,220,0.55)";
-  // 格子線：配合橘子熊暖色主題（body #170F0C 暖黑）→ 用暖棕格線，不用 TradingView 冷藍板岩(#2a2e39 與暖底打架)。
-  //   亮度要明顯高於面板暖底(--bg3 #2C1E17 / --border #3B2920)否則會被吃掉→取更亮的暖棕。
-  const _grd  = _perf ? "#DCCEC1" : "#5B4632";
+  // 格子線初始預設：暗底(暗色主題)→亮暖奶油格線、亮底(極簡)→深暖棕格線。
+  //   ⚠ 圖表背後是 #weatherStage 天氣層(日亮夜暗、多變)，故實際格線色由 colors.js 的
+  //   _applyChartBgGradient()「依有效背景明暗自動反轉」動態覆寫(天氣切換自動更新)，這裡只給首幀預設。
+  const _grd  = _perf ? "rgba(64,42,24,0.24)" : "rgba(255,216,176,0.15)";
   const _cx   = _perf ? "#9C9C9C" : "#758696";
   const _brd  = _perf ? "#D9D9D9" : "#2a2e39";
   const _lbg  = _perf ? "#F5F5F5" : "#2a2e39";
