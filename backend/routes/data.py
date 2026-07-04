@@ -1566,7 +1566,7 @@ def get_crt_winrate(
     #   前端送固定階梯值(見 winrate.js _wrVwLadder)→ 快取條目有限；0/預設→空 tag(沿用主快取,窗=_VISUAL_WINDOW)。
     _vw = int(vw) if vw and vw > 0 else 0
     _vw_tag = "" if _vw <= 0 else f":vw{_vw}"
-    cache_key = f"crt_wr98:{market}:{symbol}:{exchange}:{timeframe}:{_buf}:{int(_long_only)}{_br_tag}{_vw_tag}"   # v96:股票隔盤跳空(影線對影線)缺口盒;v95:+vw(視覺標記近段窗)
+    cache_key = f"crt_wr99:{market}:{symbol}:{exchange}:{timeframe}:{_buf}:{int(_long_only)}{_br_tag}{_vw_tag}"   # v96:股票隔盤跳空(影線對影線)缺口盒;v95:+vw(視覺標記近段窗)
     bar_key = cache_key + ":bar"
     # bar-aware 新鮮度：記下「算這份結果時最新那根棒的開盤時刻」。crypto 在「同一根棒內」吃快取，
     # 一旦有新棒收盤就讓快取失效 → 走下方短窗補抓重算 → 最新訊號最多慢到「收盤後第一次請求」，

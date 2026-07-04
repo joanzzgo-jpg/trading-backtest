@@ -1340,6 +1340,12 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                 _dir, _top, _bot, _gw = "s", _l0, _h2, (_l0 - _h2) / _l0
             else:
                 continue
+            # 股票：三根影線都要考慮。上/下緣用 g-1/g+1 影線(即 _top/_bot)；再看中間棒 g 的影線——
+            #   若 g 用影線「整根吞掉」缺口(low[g]<=缺口底 且 high[g]>=缺口頂)＝這段價位 g 早就走過、
+            #   非真跳空(例 TW 1313 1/28·6/4：g 影線橫跨整個缺口)→不畫。部分吞的(3/11·3/25)留著、由「觸碰即消失」處理。
+            #   加密(24/7 連續)不做此濾除(維持原標準三根定義完全不動)。
+            if stock_gap and _L[_g] <= _bot and _H[_g] >= _top:
+                continue
             # ── 融合單趟掃描：一次算出 _t2/_midi(中線填補)、_ett/_etm/_etb(上/中/下緣首觸)、_pens(逐深突破)。
             #   原本是三個各自 range(_g+2,_N) 的掃描(其中 _t2 與 _etm 條件完全相同、重複掃)；三合一省 ~2/3 迭代。
             #   終止：觸及最遠緣(多=下緣/空=上緣)那一刻，三者本來就同時完成(_etb/_ett 定、pens 到底) → 同點 break。
