@@ -231,10 +231,12 @@ function updateMarketUI() {
   const tabSpot    = document.querySelector(".sym-tab[data-market='spot']");
   const tabUS      = document.querySelector(".sym-tab[data-market='us']");
   const tabTW      = document.querySelector(".sym-tab[data-market='tw']");
+  const tabHK      = document.querySelector(".sym-tab[data-market='hk']");
   if (tabFutures) tabFutures.style.display = isCrypto ? "" : "none";
   if (tabSpot)    tabSpot.style.display    = isCrypto ? "" : "none";
   if (tabUS)      tabUS.style.display      = isUS ? "" : "none";
   if (tabTW)      tabTW.style.display      = isTW ? "" : "none";
+  if (tabHK)      tabHK.style.display      = isHK ? "" : "none";
 }
 
 /* ── 面板拖曳分隔 ── */

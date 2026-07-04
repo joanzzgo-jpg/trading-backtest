@@ -829,7 +829,7 @@ function renderSymSearch() {
   // 週期性刷新只對「本地即時資料」（合約/現貨）有意義——能順帶更新清單裡的即時漲跌。
   // API 模式（全部/美股/台股）每 2s 重抓重繪會清空 innerHTML → 列表跳動、loading 閃爍、
   // scroll 位置重置（手機無 hover 旗標擋不住）。這些模式只在使用者輸入時才渲染。
-  if (_symSearchMarket === "all" || _symSearchMarket === "us" || _symSearchMarket === "tw") return;
+  if (_symSearchMarket === "all" || _symSearchMarket === "us" || _symSearchMarket === "tw" || _symSearchMarket === "hk") return;
   _renderSymSearchList();
 }
 
@@ -892,6 +892,20 @@ function _usItemHTML(r, idx) {
   </div>`;
 }
 
+// 港股搜尋結果項（data-market="hk"；symbol 形如 0700.HK）
+function _hkItemHTML(r, idx) {
+  const sym = String(r.symbol || "");
+  return `<div class="sym-result-item" data-idx="${idx}" data-market="hk"
+    data-symbol="${sym}" data-display="${sym}" tabindex="${idx}">
+    <div class="sym-icon" style="background:${symIconColor(sym)}">${sym.replace(".HK","").slice(0,2)}</div>
+    <div class="sym-result-info">
+      <span class="sym-result-name">${sym}</span>
+      <span class="sym-result-desc">${r.name || ""}</span>
+    </div>
+    <span class="sym-result-tag">港股</span>
+  </div>`;
+}
+
 function _bindSymItems(list) {
   list.querySelectorAll(".sym-result-item").forEach(el => {
     el.addEventListener("click", () => _selectSymbol(el));
@@ -929,7 +943,7 @@ function _renderAllSearchList(query) {
                  (t.symbol  || "").toLowerCase().includes(query))
     .slice(0, 8);
 
-  const renderMerged = (twResults, usResults, loading) => {
+  const renderMerged = (twResults, usResults, hkResults, loading) => {
     // query 已變則丟棄
     if (((document.getElementById("symModalInput")?.value) || "").toLowerCase().trim() !== _thisQuery) return;
     let html = "";
@@ -945,21 +959,27 @@ function _renderAllSearchList(query) {
       html += `<div class="sym-section-hd">美股</div>`;
       html += usResults.slice(0, 8).map((r, i) => _usItemHTML(r, "u" + i)).join("");
     }
-    if (loading) html += `<div class="sym-loading">搜尋台股 / 美股中…</div>`;
+    if (hkResults && hkResults.length) {
+      html += `<div class="sym-section-hd">港股</div>`;
+      html += hkResults.slice(0, 8).map((r, i) => _hkItemHTML(r, "hk" + i)).join("");
+    }
+    if (loading) html += `<div class="sym-loading">搜尋台股 / 美股 / 港股中…</div>`;
     if (!html) html = `<div class="sym-empty">查無結果</div>`;
     list.innerHTML = html;
     _bindSymItems(list);
   };
 
-  // 先把合約結果秒顯，台股/美股 API 回來後再補
-  renderMerged(null, null, true);
+  // 先把合約結果秒顯，台股/美股/港股 API 回來後再補
+  renderMerged(null, null, null, true);
 
   Promise.all([
     fetch(`/api/search?market=tw&keyword=${encodeURIComponent(query)}`)
       .then(r => r.ok ? r.json() : { results: [] }).catch(() => ({ results: [] })),
     fetch(`/api/us/search?q=${encodeURIComponent(query)}`)
       .then(r => r.ok ? r.json() : { results: [] }).catch(() => ({ results: [] })),
-  ]).then(([tw, us]) => renderMerged(tw?.results || [], us?.results || [], false));
+    fetch(`/api/hk/search?q=${encodeURIComponent(query)}`)
+      .then(r => r.ok ? r.json() : { results: [] }).catch(() => ({ results: [] })),
+  ]).then(([tw, us, hk]) => renderMerged(tw?.results || [], us?.results || [], hk?.results || [], false));
 }
 
 function _renderSymSearchList() {
@@ -996,6 +1016,35 @@ function _renderSymSearchList() {
       })
       .catch(() => {
         list.innerHTML = `<div class="sym-empty">查無結果，請直接輸入代號（如 AAPL）</div>`;
+      });
+    return;
+  }
+
+  // 港股：用 /api/hk/search（Yahoo 過濾 .HK）搜尋
+  if (_symSearchMarket === "hk") {
+    if (!query) {
+      list.innerHTML = `<div class="sym-empty">輸入代號或名稱搜尋（如 0700、tencent）</div>`;
+      return;
+    }
+    if (!list.querySelector(".sym-result-item")) {
+      list.innerHTML = `<div class="sym-loading">搜尋中…</div>`;
+    }
+    const _thisQuery = query;
+    fetch(`/api/hk/search?q=${encodeURIComponent(query)}`)
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(data => {
+        const cur = (document.getElementById("symModalInput")?.value || "").toLowerCase().trim();
+        if (cur !== _thisQuery) return;
+        const results = data?.results;
+        if (!results?.length) {
+          list.innerHTML = `<div class="sym-empty">查無結果，請直接輸入代號（如 0700.HK）</div>`;
+          return;
+        }
+        list.innerHTML = results.map((r, i) => _hkItemHTML(r, i)).join("");
+        _bindSymItems(list);
+      })
+      .catch(() => {
+        list.innerHTML = `<div class="sym-empty">查無結果，請直接輸入代號（如 0700.HK）</div>`;
       });
     return;
   }
@@ -1071,13 +1120,17 @@ function _selectSymbol(el) {
   const display = el.dataset.display || el.dataset.spot || el.dataset.symbol;
   // 市場以「該項目自身」為準（全部搜尋模式各項各自帶市場），回退當前 tab
   const mkt = el.dataset.market ||
-              (_symSearchMarket === "tw" ? "tw" : _symSearchMarket === "us" ? "us" : "crypto");
+              (_symSearchMarket === "tw" ? "tw" : _symSearchMarket === "us" ? "us"
+               : _symSearchMarket === "hk" ? "hk" : "crypto");
   // 選擇後切換到對應市場
   if (mkt === "tw") {
     document.getElementById("marketSelect").value = "tw";
     updateMarketUI();
   } else if (mkt === "us") {
     document.getElementById("marketSelect").value = "us";
+    updateMarketUI();
+  } else if (mkt === "hk") {
+    document.getElementById("marketSelect").value = "hk";
     updateMarketUI();
   } else {
     // crypto（futures / spot）→ 確保切到 crypto market
@@ -1110,6 +1163,7 @@ const _SYM_PLACEHOLDER = {
   spot: "搜尋現貨…",
   tw: "搜尋台股（如 2330、台積電）…",
   us: "搜尋美股（如 AAPL、Tesla）…",
+  hk: "搜尋港股（如 0700、tencent）…",
 };
 function _applySymPlaceholder() {
   const inp = document.getElementById("symModalInput");
@@ -1163,7 +1217,7 @@ function initSymSearch() {
     _symSearchFocusIdx = -1;
     clearTimeout(_searchTimer);
     // 會打 API 的模式（美股/台股/全部）加 debounce，純本地（合約/現貨）即時渲染
-    if (_symSearchMarket === "us" || _symSearchMarket === "tw" || _symSearchMarket === "all") {
+    if (_symSearchMarket === "us" || _symSearchMarket === "tw" || _symSearchMarket === "hk" || _symSearchMarket === "all") {
       _searchTimer = setTimeout(_renderSymSearchList, 300);
     } else {
       _renderSymSearchList();

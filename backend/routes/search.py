@@ -43,6 +43,21 @@ def us_search(q: str = ""):
     return result
 
 
+@router.get("/hk/search")
+def hk_search(q: str = ""):
+    """搜尋港股標的：沿用 Yahoo 搜尋(非中資)、只留 .HK 結果(可用名稱或代號搜，如 tencent / 0700)。"""
+    if not q or len(q) < 1:
+        return {"results": []}
+    cache_key = f"hk_search:{q.upper()}"
+    cached = cache.get(cache_key, ttl=3600)
+    if cached:
+        return cached
+    results = [r for r in search_us_stocks(q) if str(r.get("symbol", "")).upper().endswith(".HK")]
+    result = {"results": results}
+    cache.set(cache_key, result)
+    return result
+
+
 @router.get("/tickers")
 def get_tickers(response: Response, market: str = "futures"):
     """取得標的列表：優先從記憶體即時快取讀取，啟動初期才 fallback 至直接 API。"""
