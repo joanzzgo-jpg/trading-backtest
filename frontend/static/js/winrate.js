@@ -880,6 +880,18 @@ window.toggleFVGShun = function (on) {
   return !window._fvgShunHidden;
 };
 
+// 策略止損線資料：time → {sl,d}。sl＝該策略「生成的第一個 FVG 的 g-1 頂端」(後端帶入)。
+//   hover 到策略訊號棒(多/空·破·順)時，由 draw.js 的 _renderStratSLLine 畫一條止損線。取代原「自動盈虧比盒」。
+window._stratSlByTime = new Map();
+window._rebuildStratSL = function () {
+  const m = new Map();
+  const add = (arr) => { for (const it of (arr || [])) { if (it && it.sl != null) m.set(toTime(it.t), { sl: it.sl, d: it.d }); } };
+  add(typeof _lastFVGMS !== "undefined" ? _lastFVGMS : null);
+  add(typeof _lastFVGBreak !== "undefined" ? _lastFVGBreak : null);
+  add(typeof _lastFVGShun !== "undefined" ? _lastFVGShun : null);
+  window._stratSlByTime = m;
+};
+
 // SMC 掃頂/掃底標記（階段1：SR+SMC 教練疊加層）：掃頂=棒上紫「掃頂」、掃底=棒下青「掃底」。
 // 由右上 coachToggleBtn（window._coachOn）決定是否顯示；此處永遠備好標記，實際顯示在 _applyMainMarkers 依 _coachOn 過濾。
 let _lastSMCSweep = [];

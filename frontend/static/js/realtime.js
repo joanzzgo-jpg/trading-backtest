@@ -220,6 +220,13 @@ function _bindChartHoverTracking() {
 }
 function onMainCrosshair(param) {
   _hoveredTime = param.time || null;
+  // 策略止損線：hover 進入/離開「策略訊號棒(有 sl)」時重畫 overlay 顯示/清除止損線。
+  //   只在 hover 狀態改變時觸發重畫(非每次 crosshair 60Hz)，避免浪費。
+  const _slT = (param.time != null && window._stratSlByTime && window._stratSlByTime.has(param.time)) ? param.time : null;
+  if (_slT !== window._lastStratHoverT) {
+    window._lastStratHoverT = _slT;
+    if (typeof renderDrawings === "function") requestAnimationFrame(renderDrawings);
+  }
   if (!param.time) return;
   const c = param.seriesData.get(candleSeries);
   if (c) {

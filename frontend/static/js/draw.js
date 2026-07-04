@@ -413,12 +413,7 @@ function _onChartClick(e) {
       e.stopPropagation();
       document.getElementById("cpPopup")?.classList.remove("open");
     } else {
-      // 沒命中既有繪圖 → 試試點到訊號 K 棒 toggle 自動盈虧比
-      const pt = screenToChart(x, y);
-      if (pt && typeof _toggleAutoRR === "function" && _toggleAutoRR(pt.time)) {
-        e.stopPropagation();
-        return;
-      }
+      // 沒命中既有繪圖 → 取消選取（點擊訊號棒的自動盈虧比已移除，改為 hover 策略棒顯示止損線）
       selectedId = null;
       document.getElementById("cpPopup")?.classList.remove("open");
     }
@@ -1397,6 +1392,33 @@ function _scheduleRenderDrawings() {
   });
 }
 
+// hover 到策略訊號棒(多/空·破·順) → 畫「該策略生成的第一個 FVG 的 g-1 頂端」止損線(取代原自動盈虧比盒)。
+//   資料來源 window._stratSlByTime(winrate.js 依 sl 建)；只在 _hoveredTime 落在策略棒時畫，離開即消失。
+function _renderStratSLLine(W, H) {
+  const t = (typeof _hoveredTime !== "undefined") ? _hoveredTime : null;
+  if (t == null || !window._stratSlByTime) return;
+  const info = window._stratSlByTime.get(t);
+  if (!info || info.sl == null || !candleSeries) return;
+  const y = candleSeries.priceToCoordinate(info.sl);
+  if (y == null) return;
+  drawCtx.save();
+  drawCtx.strokeStyle = "#ff3b6b";                 // 止損紅
+  drawCtx.lineWidth = 1.5;
+  drawCtx.setLineDash([7, 4]);
+  drawCtx.beginPath(); drawCtx.moveTo(0, y); drawCtx.lineTo(W, y); drawCtx.stroke();
+  drawCtx.setLineDash([]);
+  const label = "止損 " + (typeof _fmtPx === "function" ? _fmtPx(info.sl) : info.sl);
+  drawCtx.font = "600 11px -apple-system,'PingFang TC',sans-serif";
+  const tw = drawCtx.measureText(label).width;
+  drawCtx.fillStyle = "rgba(255,59,107,0.92)";
+  drawCtx.fillRect(6, y - 9, tw + 12, 18);
+  drawCtx.fillStyle = "#fff";
+  drawCtx.textBaseline = "middle"; drawCtx.textAlign = "left";
+  drawCtx.fillText(label, 12, y + 0.5);
+  drawCtx.restore();
+}
+window._renderStratSLLine = _renderStratSLLine;
+
 function renderDrawings() {
   if (!drawCtx || !drawCanvas) return;
   // W/H 用 CSS 邏輯尺寸（backing store 是 device px，已由 setTransform(dpr) 縮放）
@@ -1424,8 +1446,8 @@ function renderDrawings() {
   drawings.filter(d => d.id === hoveredId && d.id !== selectedId).forEach(d => drawOne(d, W, H, true, false));
   drawings.filter(d => d.id === selectedId).forEach(d => drawOne(d, W, H, false, true));
 
-  // 點擊訊號 K 棒展開的自動盈虧比盒（由 winrate.js 提供）
-  if (typeof _renderAutoRRBoxes === "function") _renderAutoRRBoxes(W, H);
+  // hover 到策略訊號棒（多/空·破·順）時，畫第一個 FVG 的 g-1 頂端止損線（取代原自動盈虧比盒）
+  if (typeof _renderStratSLLine === "function") _renderStratSLLine(W, H);
 
   // Compute snapped cursor position when magnet is active
   let _cmx = _mx, _cmy = _my;

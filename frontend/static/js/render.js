@@ -347,6 +347,7 @@ function _applyMainMarkers(windowOnly) {
     ].sort((a, b) => a.time - b.time);
   }
   candleSeries.setMarkers(_windowMarkers(_sortedMarkerCache));
+  if (typeof window._rebuildStratSL === "function") window._rebuildStratSL();   // 策略棒→止損線映射(hover 用)
 }
 // 開關：window.toggleDimBigBar() 切換「大棒淡化」→ 重建標記快取(淡化在建快取時套用)
 window.toggleDimBigBar = function (on) {

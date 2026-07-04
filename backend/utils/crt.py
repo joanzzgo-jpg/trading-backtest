@@ -1630,7 +1630,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                     if _pdr[_q] == "l" and _pcf[_q] - _touch > 2:
                         _blk = True; break
                 if _blk: continue
-                _fvg_ms.append({"t": times_iso[_cf2], "d": "s"}); _ms_seen.add(_cf2); _used.add(_cf)
+                _fvg_ms.append({"t": times_iso[_cf2], "d": "s", "sl": _H[_cf-2]}); _ms_seen.add(_cf2); _used.add(_cf)
         for (_cf, _top, _bot) in _bull:                    # 多（鏡像）
             _mn = None
             for _touch in range(_cf + 1, _N):
@@ -1655,7 +1655,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                     if _pdr[_q] == "s" and _pcf[_q] - _touch > 2:
                         _blk = True; break
                 if _blk: continue
-                _fvg_ms.append({"t": times_iso[_cf2], "d": "l"}); _ms_seen.add(_cf2); _used.add(_cf)
+                _fvg_ms.append({"t": times_iso[_cf2], "d": "l", "sl": _H[_cf-2]}); _ms_seen.add(_cf2); _used.add(_cf)
         _fvg_ms.sort(key=lambda x: x["t"])
         _fvg_ms = _fvg_ms[-2000:]
 
@@ -1671,13 +1671,13 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                     _mit = _fj is not None and any(_C[_m] > _pprev["top"] for _m in range(_fj + 1, _kp))
                     _broke = any(_C[_j] < _pprev["bot"] for _j in range(_pprev["idx"] + 1, _kp - 1))
                     if not _mit and not _broke and (_L[_kp] <= _mid or _L[_kp - 1] <= _mid):
-                        _fvg_break.append({"t": times_iso[_kp], "p": _pprev["top"], "d": "l"})
+                        _fvg_break.append({"t": times_iso[_kp], "p": _pprev["top"], "d": "l", "sl": _H[_pprev["idx"]-1]})
                 elif _pdd == "l" and _pprev["dir"] == "s":  # 破空（鏡像）：前 bear proto、現 bull proto
                     _fj = next((_j for _j in range(_pprev["idx"] + 1, _kp - 1) if _H[_j] >= _mid), None)
                     _mit = _fj is not None and any(_C[_m] < _pprev["bot"] for _m in range(_fj + 1, _kp))
                     _broke = any(_C[_j] > _pprev["top"] for _j in range(_pprev["idx"] + 1, _kp - 1))
                     if not _mit and not _broke and (_H[_kp] >= _mid or _H[_kp - 1] >= _mid):
-                        _fvg_break.append({"t": times_iso[_kp], "p": _pprev["bot"], "d": "s"})
+                        _fvg_break.append({"t": times_iso[_kp], "p": _pprev["bot"], "d": "s", "sl": _H[_pprev["idx"]-1]})
             _pprev = {"dir": _pdd, "bot": _pbt, "top": _ptp, "idx": _kp}
         _fvg_break.sort(key=lambda x: x["t"]);      _fvg_break = _fvg_break[-2000:]
 
@@ -1755,7 +1755,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                         if _seq_cf[_q] == _rcf: continue               # R 本身是目標、不算「夾雜」
                         if _seq_cf[_q] - _touch > 2: _blk = True; break
                     if _blk: continue
-                    _fvg_shun.append({"t": times_iso[_bk], "d": _d})
+                    _fvg_shun.append({"t": times_iso[_bk], "d": _d, "sl": _H[_cf-2]})
                     _shun_seen.add((_bk, _d)); _used.add(_cf); _used.add(_rcf)
 
         _shun_scan(_bull, _bear_cfs, _brk_s, "l")      # 順多：吃做多FVG → 近期兩個做空FVG其中一個影線穿透上緣
