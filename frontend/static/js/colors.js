@@ -59,7 +59,7 @@ function _gridColorForBg() {
   else if (el.classList.contains("sky-show"))
     lum = el.classList.contains("sky-night") ? 22 : 90;                    // 天氣透出：夜暗／日(被 stage 半透調暗)偏中暗
   else lum = _lum(_darkenForChart((typeof C !== "undefined" && (C.chartBg || C.bg)) || "#131722"));
-  return lum < 128 ? "rgba(255,216,176,0.15)"                              // 暗底 → 亮暖奶油格線(淡、不搶戲)
+  return lum < 128 ? "rgba(255,216,176,0.13)"                              // 暗底 → 亮暖奶油格線(淡、不搶戲)
                    : "rgba(64,42,24,0.24)";                               // 亮底 → 深暖棕格線
 }
 

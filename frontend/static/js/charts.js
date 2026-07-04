@@ -6,7 +6,7 @@ function makeBaseOpts(scaleMargins = null, showTime = false) {
   // 格子線初始預設：暗底(暗色主題)→亮暖奶油格線、亮底(極簡)→深暖棕格線。
   //   ⚠ 圖表背後是 #weatherStage 天氣層(日亮夜暗、多變)，故實際格線色由 colors.js 的
   //   _applyChartBgGradient()「依有效背景明暗自動反轉」動態覆寫(天氣切換自動更新)，這裡只給首幀預設。
-  const _grd  = _perf ? "rgba(64,42,24,0.24)" : "rgba(255,216,176,0.15)";
+  const _grd  = _perf ? "rgba(64,42,24,0.24)" : "rgba(255,216,176,0.13)";
   const _cx   = _perf ? "#9C9C9C" : "#758696";
   const _brd  = _perf ? "#D9D9D9" : "#2a2e39";
   const _lbg  = _perf ? "#F5F5F5" : "#2a2e39";
