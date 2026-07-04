@@ -2013,6 +2013,23 @@ html.perf-mode .time-axis-year {
 .ticker-item:hover { background: var(--bg3); }
 .ticker-item.tk-active { background: var(--bg3); border-left: 2px solid var(--blue); padding-left: 6px; }
 
+/* 自選：市場分組標題列（加密貨幣 / 台股 / 美股 / 港股） */
+.tk-wl-hdr {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 10px 4px; margin-top: 2px;
+  font-size: 11px; font-weight: 700; letter-spacing: .6px;
+  color: #b79a86;                                   /* 暖色主題的柔和標題色 */
+  background: linear-gradient(to bottom, rgba(255,138,61,.06), transparent);
+  border-top: 1px solid rgba(255,138,61,.12);
+  position: sticky; top: 0; z-index: 3;             /* 捲動時該組標題吸頂 */
+  backdrop-filter: blur(3px);
+}
+.tk-wl-hdr:first-child { border-top: none; margin-top: 0; }
+.tk-wl-hdr-n {                                      /* 數量徽章 */
+  font-size: 10px; font-weight: 700; color: #d8b79c; background: rgba(255,138,61,.14);
+  border-radius: 10px; padding: 1px 8px; min-width: 18px; text-align: center;
+}
+
 /* logo 手繪塗鴉（台股 / 加密貨幣共用 blob 風格） */
 .tk-logo {
   width: 30px; height: 30px;

@@ -353,6 +353,7 @@ function _reconcileTicker(container, items, build, update) {
 
 // 每個 row 建立時綁一次 click（讀 dataset，重排/重用都有效）
 function _bindTickerRow(el) {
+  if (el.classList.contains("tk-wl-hdr")) return;   // 市場分組標題：不綁點擊
   el.addEventListener("click", e => {
     if (e.target.closest(".tk-star")) {           // 星號 → 加入/移除自選
       e.stopPropagation();
@@ -509,7 +510,7 @@ function renderTickers() {
       container.innerHTML = '<div class="tk-loading">尚無自選，點 ♡ 加入</div>';
       return;
     }
-    const items = _watchlist.map(item => {
+    const rows = _watchlist.map(item => {
       const mktLabel = item.market === "crypto" ? (item.exchange || "crypto").toUpperCase() : item.market.toUpperCase();
       let price = null, change_pct = null;
       if (item.market === "crypto") {
@@ -532,6 +533,19 @@ function renderTickers() {
           ? (change_pct >= 0 ? "+" : "") + _fmtAmt(price * change_pct / 100 / (1 + change_pct / 100), price) : "",
       };
     });
+    // 依市場分組（固定順序），每組前插一個市場標題列（保留組內原自選順序）
+    const _WL_ORDER = ["crypto", "tw", "us", "hk"];
+    const _WL_LABEL = { crypto: "加密貨幣", tw: "台股", us: "美股", hk: "港股" };
+    const items = [];
+    const _pushGroup = (mkt, label) => {
+      const grp = rows.filter(r => r.item.market === mkt);
+      if (!grp.length) return;
+      items.push({ _k: `__wlhdr:${mkt}`, _hdr: true, label, count: grp.length });
+      items.push(...grp);
+    };
+    _WL_ORDER.forEach(mkt => _pushGroup(mkt, _WL_LABEL[mkt]));
+    rows.filter(r => !_WL_ORDER.includes(r.item.market))   // 未知市場（理論上無）→ 收尾「其他」
+        .forEach((r, i, arr) => { if (i === 0) items.push({ _k: "__wlhdr:other", _hdr: true, label: "其他", count: arr.length }); items.push(r); });
     _reconcileTicker(container, items, _buildWlRow, _updateWlRow);
     return;
   }
@@ -599,6 +613,8 @@ function renderTickers() {
 
 /* ── 三種 row 的 build（建立）/ update（重用時只改變動值）── */
 function _buildWlRow(it) {
+  if (it._hdr)   // 市場分組標題列（不可點選，_bindTickerRow 會略過）
+    return `<div class="tk-wl-hdr"><span class="tk-wl-hdr-t">${it.label}</span><span class="tk-wl-hdr-n">${it.count}</span></div>`;
   const m = it.item;
   return `<div class="ticker-item${it.active ? " tk-active" : ""}" data-mkt="${m.market}" data-exch="${m.exchange || ""}" data-sym="${m.symbol}">
     ${_coinLogoHtml(m.symbol)}
@@ -611,6 +627,7 @@ function _buildWlRow(it) {
   </div>`;
 }
 function _updateWlRow(el, it) {
+  if (it._hdr) { _setTxt(el, ".tk-wl-hdr-n", String(it.count)); return; }
   el.classList.toggle("tk-active", it.active);
   _setTxt(el, ".tk-price-val", it.priceStr);
   _setTxtCls(el, ".tk-chg-amt", it.amtStr, "tk-chg-amt " + it.chgCls);
