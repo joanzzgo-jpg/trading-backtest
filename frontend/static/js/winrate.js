@@ -1405,21 +1405,25 @@ function _updateHoverWR(time) {
   // 手機 3+ 訊號（卡片模式）→ 啟動自動輪播；否則停止
   const isCardMode = isMobileUI() && sigs.length >= 3;
   if (isCardMode) _startHoverAutoCycle(); else _stopHoverAutoCycle();
-  // FVG 盈虧比盒：hover 到「缺口確認棒」才顯示（正常隱藏）
-  const fvgIdx = _buildFVGTimeIndex();
-  const fvgs = (time != null && fvgIdx.has(time)) ? fvgIdx.get(time) : [];
-  // 圖上 RR 盒 / FVG 盒：停留 0.5s 才顯示（換棒先清掉前一根，避免掃動時狂閃）
+  // 自動盈虧比盒已移除（使用者要求）：hover 不再畫 RR 盒／FVG 盒。若殘留先清掉。
   clearTimeout(_hoverRRTimer);
   if (_hoverRRSigs.length || _hoverFVGZones.length) {
     _hoverRRSigs = []; _hoverFVGZones = [];
     if (typeof renderDrawings === "function") requestAnimationFrame(renderDrawings);
   }
-  if (sigs.length || fvgs.length) {
-    _hoverRRTimer = setTimeout(() => {
-      _hoverRRSigs = sigs;
-      _hoverFVGZones = fvgs;
-      if (typeof renderDrawings === "function") requestAnimationFrame(renderDrawings);
-    }, _HOVER_RR_DWELL);
+  // ── 改成：hover 到策略訊號棒（多/空·破·順，帶 sl）→ 在「第一個 FVG 的 g-1 頂端」畫止損線；換棒/離開即移除 ──
+  const _slInfo = (time != null && window._stratSlByTime) ? window._stratSlByTime.get(time) : null;
+  const _slVal = _slInfo ? _slInfo.sl : null;
+  if (_slVal !== window._curSlLineVal) {
+    window._curSlLineVal = _slVal;
+    if (window._slPriceLine) { try { candleSeries.removePriceLine(window._slPriceLine); } catch (e) {} window._slPriceLine = null; }
+    if (_slVal != null && typeof candleSeries !== "undefined" && candleSeries) {
+      try {
+        window._slPriceLine = candleSeries.createPriceLine({
+          price: _slVal, color: "#ff3b6b", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "止損",
+        });
+      } catch (e) {}
+    }
   }
 }
 
