@@ -1334,17 +1334,24 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             _h2 = _H[_g+1]; _l2 = _L[_g+1]
             if any(_v != _v for _v in (_h0, _l0, _h2, _l2)):   # NaN
                 continue
-            if _l2 > _h0 and (_l2 - _h0) / _h0 > _MS:          # 多頭缺口（支撐）
-                _dir, _top, _bot, _gw = "l", _l2, _h0, (_l2 - _h0) / _h0
-            elif _h2 < _l0 and (_l0 - _h2) / _l0 > _MS:        # 空頭缺口（壓力）
-                _dir, _top, _bot, _gw = "s", _l0, _h2, (_l0 - _h2) / _l0
+            if _l2 > _h0 and (_l2 - _h0) / _h0 > _MS:          # 多頭缺口（支撐）候選
+                _dir, _top, _bot = "l", _l2, _h0
+            elif _h2 < _l0 and (_l0 - _h2) / _l0 > _MS:        # 空頭缺口（壓力）候選
+                _dir, _top, _bot = "s", _l0, _h2
             else:
                 continue
-            # 股票：三根影線都要考慮。上/下緣用 g-1/g+1 影線(即 _top/_bot)；再看中間棒 g 的影線——
-            #   若 g 用影線「整根吞掉」缺口(low[g]<=缺口底 且 high[g]>=缺口頂)＝這段價位 g 早就走過、
-            #   非真跳空(例 TW 1313 1/28·6/4：g 影線橫跨整個缺口)→不畫。部分吞的(3/11·3/25)留著、由「觸碰即消失」處理。
-            #   加密(24/7 連續)不做此濾除(維持原標準三根定義完全不動)。
-            if stock_gap and _L[_g] <= _bot and _H[_g] >= _top:
+            # 股票：缺口＝「g 實體處沒被 g-1/g+1 影線刷到」的部分。上/下緣(g-1/g+1 影線=_top/_bot)再夾進 g 的實體範圍——
+            #   g-1/g+1 影線刷到的、以及 g 實體以外的都扣掉；夾完沒剩(top<=bot)＝g 實體被刷滿/實體在缺口外→非真跳空→不畫。
+            #   1313 1/28：g 是十字、實體(11.25)在缺口[11.05,11.15]外→不畫；6/4：g 實體被 g+1 下影刷滿→不畫。加密不做、維持原定義。
+            if stock_gap:
+                _bl = _O[_g] if _O[_g] < _C[_g] else _C[_g]   # g 實體下緣
+                _bh = _C[_g] if _O[_g] < _C[_g] else _O[_g]   # g 實體上緣
+                if _bl > _bot: _bot = _bl
+                if _bh < _top: _top = _bh
+                if _top <= _bot:
+                    continue
+            _gw = (_top - _bot) / (_bot if _dir == "l" else _top)
+            if _gw <= _MS:
                 continue
             # ── 融合單趟掃描：一次算出 _t2/_midi(中線填補)、_ett/_etm/_etb(上/中/下緣首觸)、_pens(逐深突破)。
             #   原本是三個各自 range(_g+2,_N) 的掃描(其中 _t2 與 _etm 條件完全相同、重複掃)；三合一省 ~2/3 迭代。
