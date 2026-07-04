@@ -1334,17 +1334,10 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             _h2 = _H[_g+1]; _l2 = _L[_g+1]
             if any(_v != _v for _v in (_h0, _l0, _h2, _l2)):   # NaN
                 continue
-            # 股票(stock_gap)：三根缺口要「考慮中間棒 g 的影線」——標準三根規則只看 g-1/g+1、跳過中間棒，
-            #   若中間棒的影線早已走過缺口區間就是假缺口(例 TW 1313 1/28：g 下影 11.00 已跌破缺口底 11.05)。
-            #   故上緣改取 min(low[g],low[g+1])、下緣取 max(high[g],high[g+1]) 把中間棒走過的部分裁掉；
-            #   裁完 top<=bot 即無未成交缺口→不畫。加密(24/7 連續、無跳空)維持原定義完全不動。
-            _lg = _L[_g]; _hg = _H[_g]
-            _ltop = min(_lg, _l2) if (stock_gap and _lg == _lg) else _l2   # 多頭缺口上緣（股票用中間棒下影裁切）
-            _sbot = max(_hg, _h2) if (stock_gap and _hg == _hg) else _h2   # 空頭缺口下緣（股票用中間棒上影裁切）
-            if _ltop > _h0 and (_ltop - _h0) / _h0 > _MS:      # 多頭缺口（支撐）
-                _dir, _top, _bot, _gw = "l", _ltop, _h0, (_ltop - _h0) / _h0
-            elif _sbot < _l0 and (_l0 - _sbot) / _l0 > _MS:    # 空頭缺口（壓力）
-                _dir, _top, _bot, _gw = "s", _l0, _sbot, (_l0 - _sbot) / _l0
+            if _l2 > _h0 and (_l2 - _h0) / _h0 > _MS:          # 多頭缺口（支撐）
+                _dir, _top, _bot, _gw = "l", _l2, _h0, (_l2 - _h0) / _h0
+            elif _h2 < _l0 and (_l0 - _h2) / _l0 > _MS:        # 空頭缺口（壓力）
+                _dir, _top, _bot, _gw = "s", _l0, _h2, (_l0 - _h2) / _l0
             else:
                 continue
             # ── 融合單趟掃描：一次算出 _t2/_midi(中線填補)、_ett/_etm/_etb(上/中/下緣首觸)、_pens(逐深突破)。
