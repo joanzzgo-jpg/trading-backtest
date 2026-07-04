@@ -7,7 +7,7 @@ function startRealtime() {
   // - crypto: 1s（24/7 高波動，要每秒）
   // - tw    : 5s（MIS 即時報價，盤中夠快）
   // - us    : 5s（Finnhub overlay；無 token 時走 yfinance 15min 延遲，5s 已過剩）
-  const interval = { tw: 5000, us: 5000, crypto: 1000 }[market] || 1000;
+  const interval = { tw: 5000, us: 5000, hk: 5000, crypto: 1000 }[market] || 1000;
   realtimeTimer = setInterval(fetchLatest, interval);
 }
 
@@ -291,10 +291,11 @@ function updateSymbolBar(data) {
   const exch    = document.getElementById("exchangeSelect").value;
   const tfLabel = TF_LABELS[currentTF] || currentTF;
   document.getElementById("symbolName").textContent =
-    market === "tw" ? symbol : market === "us" ? symbol : symbol.replace("/", " / ");
+    (market === "tw" || market === "us" || market === "hk") ? symbol : symbol.replace("/", " / ");
   document.getElementById("symExchange").textContent =
     market === "tw" ? `台股 · ${tfLabel}` :
     market === "us" ? `美股 · ${tfLabel}` :
+    market === "hk" ? `港股 · ${tfLabel}` :
     `${exch} · ${tfLabel}`;
   if (!data.length) return;
   // 滑鼠在任一圖表內時，不要覆寫上方 OHLCV——避免 realtime poll 每秒

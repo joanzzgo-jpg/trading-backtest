@@ -201,15 +201,19 @@ function updateMarketUI() {
 
   document.getElementById("exchangeSelect").style.display = isCrypto ? "" : "none";
 
+  const isHK     = market === "hk";
   const _inp = document.getElementById("symbolInput");
   const _cur = _inp.value.trim();
-  const _defaults = ["BTC/USDT", "AAPL", "2330"];
+  const _defaults = ["BTC/USDT", "AAPL", "2330", "0700.HK"];
   if (isCrypto) {
     _inp.placeholder = "BTC/USDT";
     if (!_cur || _defaults.includes(_cur)) _inp.value = "BTC/USDT";
   } else if (isUS) {
     _inp.placeholder = "AAPL";
     if (!_cur || _defaults.includes(_cur)) _inp.value = "AAPL";
+  } else if (isHK) {
+    _inp.placeholder = "0700.HK";
+    if (!_cur || _defaults.includes(_cur)) _inp.value = "0700.HK";
   } else {
     _inp.placeholder = "2330";
     if (!_cur || _defaults.includes(_cur)) _inp.value = "2330";
@@ -770,8 +774,8 @@ function _initMarketPill() {
   const sel   = document.getElementById("marketSelect");
   if (!pill || !sel) return;
   const label = pill.querySelector(".mkt-cycle-label");
-  const MKTS  = ["crypto", "tw", "us"];
-  const LBL   = { crypto: "Crypto", tw: "TW", us: "US" };
+  const MKTS  = ["crypto", "tw", "us", "hk"];
+  const LBL   = { crypto: "Crypto", tw: "TW", us: "US", hk: "HK" };
 
   const setMarket = (mkt) => {
     if (!LBL[mkt]) return;

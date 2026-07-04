@@ -203,7 +203,7 @@ async function fetchTickers() {
 }
 
 async function _refreshWlPrices() {
-  const items = _watchlist.filter(w => w.market === "us" || w.market === "tw");
+  const items = _watchlist.filter(w => w.market === "us" || w.market === "tw" || w.market === "hk");
   await Promise.all(items.map(async item => {
     const key = `${item.market}:${item.exchange || ""}:${item.symbol}`;
     const cached = _wlPriceCache[key];

@@ -14,6 +14,7 @@ from data.fugle import fetch_fugle_intraday, fugle_enabled
 from data.alpaca import fetch_alpaca_bars, alpaca_enabled
 from data.twelvedata import fetch_twelvedata_intraday, twelvedata_enabled
 from data.us_stock import fetch_us_stock, MAX_DAYS as US_MAX_DAYS
+from data.hk_stock import fetch_hk_realtime
 from data.us_finnhub import fetch_us_quote
 from data.crypto import fetch_crypto_ohlcv
 from utils.cache import cache, data_cache
@@ -531,6 +532,52 @@ def _finnhub_accumulate(symbol: str, minutes: int, quote: dict):
     return _fh_acc_list(symbol, minutes)
 
 
+# ───────── 騰訊即時累積港股分鐘 K（免費、免 KYC；同 MIS 思路，有當日累積量）─────────
+# 港股歷史走 yfinance(延遲~15分)，即時尖端用騰訊即時報價自己堆分鐘棒 → 當下就有最新棒。
+# 騰訊報價只送出「查股價」、不外洩任何資料。HK 交易時段 09:30-12:00、13:00-16:00 HKT(=GMT+8)。
+_hk_acc: dict = {}
+
+def _hk_acc_list(symbol: str, minutes: int):
+    st = _hk_acc.get(f"{symbol}:{minutes}")
+    if not st:
+        return []
+    keys = set(st["done"].keys())
+    if st["cur"]:
+        keys.add(st["cur"]["ts"])
+    out = []
+    for ts in sorted(keys):
+        b = st["cur"] if (st["cur"] and ts == st["cur"]["ts"]) else st["done"][ts]
+        out.append({"time": ts, "open": b["o"], "high": b["h"], "low": b["l"],
+                    "close": b["c"], "volume": b["vol"]})
+    return out
+
+def _hk_accumulate(symbol: str, minutes: int, rt: dict):
+    """用騰訊即時報價即時堆出港股當前/近期分鐘 K。回傳今日已累積 bar list(升冪)。"""
+    price = rt.get("close")
+    hk_utc = rt["time"] - timedelta(hours=8)               # HKT naive → UTC naive
+    bar_min = (hk_utc.hour * 60 + hk_utc.minute) // minutes * minutes
+    bar_ts  = hk_utc.replace(hour=bar_min // 60, minute=bar_min % 60, second=0, microsecond=0)
+    bar_hkt = ((bar_ts.hour + 8) % 24) * 60 + bar_ts.minute
+    # 僅交易時段(09:30-16:00 HKT)累積；午休(12:00-13:00)自然無新棒；其餘時間回傳已累積不動
+    if price is None or bar_hkt < 9 * 60 + 30 or bar_hkt >= 16 * 60:
+        return _hk_acc_list(symbol, minutes)
+    key = f"{symbol}:{minutes}"
+    st = _hk_acc.get(key)
+    if st is None or st["day"] != hk_utc.date():           # 換日重置
+        st = {"day": hk_utc.date(), "cur": None, "done": {}}
+        _hk_acc[key] = st
+    cumvol = rt.get("volume") or 0
+    cur = st["cur"]
+    if cur is None or cur["ts"] != bar_ts:                 # 新分鐘 → 收掉舊棒、開新棒
+        if cur is not None:
+            st["done"][cur["ts"]] = cur
+        st["cur"] = {"ts": bar_ts, "o": price, "h": price, "l": price, "c": price, "vol0": cumvol, "vol": 0}
+    else:                                                  # 同分鐘 → 更新高/低/收 + 量(當日累積量差)
+        cur["h"] = max(cur["h"], price); cur["l"] = min(cur["l"], price); cur["c"] = price
+        cur["vol"] = max(0, cumvol - cur["vol0"])
+    return _hk_acc_list(symbol, minutes)
+
+
 class OHLCVRequest(BaseModel):
     market: str
     symbol: str
@@ -807,10 +854,34 @@ def get_latest(req: LatestRequest):
                 except Exception:
                     pass  # Finnhub 出錯就純用 yfinance 資料
         elif req.market == "hk":
-            # 港股(hk)：目前僅 yfinance（HKEX 延遲約 15 分）。之後若接到港股即時源(見下)，比照美股疊加最後一根。
-            end   = date.today().isoformat()
-            start = (date.today() - timedelta(days=10)).isoformat()
-            df = fetch_us_stock(req.symbol, start, end, req.timeframe)
+            # 港股(hk)：歷史 yfinance(延遲~15分)，即時尖端用騰訊即時報價自己堆分鐘棒 → 當下就有最新棒、無延遲。
+            _mins = {"1m": 1, "5m": 5, "15m": 15, "1h": 60}.get(req.timeframe)
+            df = pd.DataFrame()
+            try:                                              # yfinance 尾(補真實量)；1m 僅近 7 天，取 6 天內
+                end   = date.today().isoformat()
+                start = (date.today() - timedelta(days=6 if _mins else 10)).isoformat()
+                df = fetch_us_stock(req.symbol, start, end, req.timeframe)
+            except Exception:
+                pass                                          # 休市/無盤中資料 → 純靠騰訊累積器
+            if _mins:
+                hk_key = f"hk_rt_{req.symbol}"
+                rt = cache.get(hk_key, ttl=8)                 # 騰訊報價快取 8 秒(禮貌、夠即時)
+                if rt is None:
+                    rt = fetch_hk_realtime(req.symbol)
+                    if rt:
+                        cache.set(hk_key, rt)
+                acc = _hk_accumulate(req.symbol, _mins, rt) if rt else []
+                if acc:
+                    recs = df_to_records(df.tail(6)) if not df.empty else []
+                    yf_last = pd.Timestamp(df.iloc[-1]["time"]).floor(f"{_mins}min") if not df.empty else None
+                    for b in acc:
+                        if yf_last is None or pd.Timestamp(b["time"]) > yf_last:
+                            recs.append({"time": b["time"].isoformat(), "open": b["open"],
+                                         "high": b["high"], "low": b["low"], "close": b["close"], "volume": b["volume"]})
+                    if recs:
+                        return {"live": True, "data": recs}
+            if df.empty:                                      # 休市且無累積 → 優雅回空(不報 400)
+                return {"live": False, "data": []}
         else:
             df = fetch_crypto_ohlcv(
                 req.symbol, req.timeframe, limit=3,
@@ -824,7 +895,7 @@ def get_latest(req: LatestRequest):
         raise HTTPException(400, "無資料")
 
     records = df_to_records(df.tail(2))
-    # 若有 FINNHUB_TOKEN，美股也算即時
+    # 若有 FINNHUB_TOKEN，美股也算即時；港股(騰訊即時)在上面 hk 分支已 return，這裡只是純 yfinance 尾
     live = (req.market == "crypto") or (req.market == "us" and bool(os.getenv("FINNHUB_TOKEN")))
     return {"live": live, "data": records}
 
