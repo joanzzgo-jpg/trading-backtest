@@ -1381,8 +1381,10 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                     else:
                         if _L[_k]  <= _gtp: break
                         if _C[_k] > _gsl: _inv_t = times_iso[_k]; _invi = _k; break  # 收盤破止損(g-1頂端) → 反轉
-            # 原缺口色塊：反轉則盒子延伸到反轉點(之後換色由 IFVG 接續)；否則止於中線/右緣。
-            _box_t2 = _inv_t if _inv_t is not None else _t2
+            # 原缺口色塊右緣：股票(stock_gap)＝「被後面 K 棒影線一碰到缺口(首觸緣 _ett)就結束/消失」
+            #   (使用者定義：缺口被影線碰到即失效，不等碰中線)；未被碰過(_ett None)則延伸到右緣。
+            #   加密維持原本：反轉延伸到反轉點、否則止於中線填補。
+            _box_t2 = _ett if stock_gap else (_inv_t if _inv_t is not None else _t2)
             # (_ett/_etm/_etb 上中下緣首觸 與 _pens 逐深突破 已於上方融合掃描算好)
             # 同向缺口堆疊去重：若本缺口頂端(top)落在「上一個同向缺口下緣往下 0.5W」帶內
             #   [botA-0.5*W_A, botA] → 視為太貼近上方缺口 → 無效(dim：前端淺色、不產生交易訊號)。
@@ -1395,7 +1397,8 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                          "ett": _ett, "etm": _etm, "etb": _etb, "pens": _pens})    # gi=缺口索引；pens=每次更深突破點
             _gaps_seq.append((_g + 1, _top, _bot, _dir))   # 依序記錄每個視覺缺口（結構模式偵測用，含 dim）
             # IFVG：反方向換色，從反轉點續延，到自己回中線被填補(或右緣)為止；位階用反向(止盈反向1W、止損=被破對側邊)。
-            if _inv_t is not None:
+            #   股票：缺口一被影線碰到就消失(見上)，不做 IFVG 反轉延續 → 略過。
+            if _inv_t is not None and not stock_gap:
                 _idir = "s" if _dir == "l" else "l"
                 _isl = _top if _dir == "l" else _bot                       # 反向止損＝被破的對側邊
                 _itp = (_bot - 2 * _W) if _dir == "l" else (_top + 2 * _W)   # 反向止盈 2W
@@ -1522,11 +1525,11 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                         else:
                             if _L[_k] <= _gtp: break
                             if _C[_k] > _gsl: _inv_t = times_iso[_k]; _invi = _k; break
-                _box_t2 = _inv_t if _inv_t is not None else _t2
+                _box_t2 = _ett   # 股票跳空缺口：被後面 K 棒影線首觸即結束/消失(不等中線、不做反轉)
                 _fvg.append({"t": times_iso[_g], "top": _top, "bot": _bot, "d": _dir, "t2": _box_t2,
                              "sweep": False, "sl": _gsl, "tp": _gtp, "dim": False, "gi": _g,
                              "ett": _ett, "etm": _etm, "etb": _etb, "pens": _pens, "gap": True})
-                if _inv_t is not None:
+                if False:   # 股票缺口碰到即消失 → 不畫 IFVG 反轉延續
                     _idir = "s" if _dir == "l" else "l"
                     _isl = _top if _dir == "l" else _bot
                     _itp = (_bot - 2 * _W) if _dir == "l" else (_top + 2 * _W)
