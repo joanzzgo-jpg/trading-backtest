@@ -6086,11 +6086,15 @@ html.landing-active .ticker-panel,
 html.landing-active .m-tabbar,
 html.landing-active .peek-bear,
 html.landing-active #_wxCard,
-/* 封面（active/透明）重現時，這些浮層會從透明封面透出來重疊 → 一併隱藏 */
+/* 封面（active/透明）重現時，這些浮層會從透明封面透出來重疊 → 一併隱藏。封面只露天氣。 */
 html.landing-active #tradePopup,
 html.landing-active #trdDock,
 html.landing-active .bt-overlay,
-html.landing-active #sysSettingsPopup { visibility: hidden !important; }
+html.landing-active #sysSettingsPopup,
+html.landing-active .lunar-overlay,        /* 農民曆卡（z低於封面但半透明封面會透出） */
+html.landing-active #notifyPopup,          /* 通知設定/中心彈窗 */
+html.landing-active .sig-drawer,           /* 訊號通知抽屜 */
+html.landing-active #announceOverlay { visibility: hidden !important; }
 /* 底層漸層放在 body（天氣 canvas 之下）：主背景色（上）→ 米白（下） */
 html.landing-active body {
   background: linear-gradient(180deg, var(--bg) 0%, var(--bg) 36%, #E5DDD9 84%, #EFEAE4 100%) !important;
