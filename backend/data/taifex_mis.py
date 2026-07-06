@@ -144,110 +144,65 @@ def fetch_taifex_tickers():
     return out
 
 
-# ── 前向累積分鐘K（同台股 _mis_accumulate 思路）─────────────────────
-_acc: dict = {}   # key f"{prod}:{minutes}" → {"day":date, "cur":{...}|None, "done":{ts:bar}}
+# ── 盤中分鐘K：TAIFEX MIS getChartData1M 直接回『今日完整 1 分鐘K』，再 resample ──
+#    （非前向累積：一次就拿到整個交易時段的分時，休市時回最後一個交易日的完整當日。）
+_CHART_URL = "https://mis.taifex.com.tw/futures/api/getChartData1M"
+_kcache: dict = {}   # prod → (fetch_ts, df_1m)
 
 
-def _acc_list(key: str):
-    st = _acc.get(key)
-    if not st:
-        return []
-    keys = set(st["done"].keys())
-    if st["cur"]:
-        keys.add(st["cur"]["ts"])
-    out = []
-    for ts in sorted(keys):
-        b = st["cur"] if (st["cur"] and ts == st["cur"]["ts"]) else st["done"][ts]
-        out.append({"time": ts, "open": b["o"], "high": b["h"], "low": b["l"],
-                    "close": b["c"], "volume": b["vol"]})
-    return out
-
-
-def _parse_dt(cdate: str, ctime: str):
-    """CDate '20260706' + CTime 'HHMMSS' → 台北時間 → UTC naive（前端 toTime() 會 +8 還原）。"""
+def _fetch_1m(product: str):
+    """今日完整 1 分鐘K DataFrame（time UTC naive）。快取 4 秒；失敗沿用上次。無資料回 None。"""
+    prod = (product or "").upper()
+    now = time.time()
+    c = _kcache.get(prod)
+    if c and now - c[0] < 4:
+        return c[1]
+    sid = resolve_front_month(prod)
+    if not sid:
+        return c[1] if c else None
     try:
-        ct = (ctime or "").rjust(6, "0")
-        dt = datetime(int(cdate[:4]), int(cdate[4:6]), int(cdate[6:8]),
-                      int(ct[:2]), int(ct[2:4]), int(ct[4:6]))
-        return dt - timedelta(hours=8)
+        r = requests.post(_CHART_URL, json={"SymbolID": sid}, headers=_HDRS, timeout=8)
+        r.raise_for_status()
+        rd = (r.json() or {}).get("RtData") or {}
     except Exception:
-        return None
-
-
-def _accumulate_1m(product: str) -> bool:
-    """用最新報價把當前 1 分鐘 K 累積進 _acc[prod:1]。有更新回 True。"""
-    prod = (product or "").upper()
-    q = fetch_taifex_quote(prod)
-    if not q:
-        return False
-    price = q.get("price")
-    dt = _parse_dt(q.get("cdate"), q.get("ctime"))
-    if price is None or dt is None:
-        return False
-    bar_ts = dt.replace(second=0, microsecond=0)      # 1 分鐘邊界（UTC naive）
-    key = f"{prod}:1"
-    st = _acc.get(key)
-    if st is None or st["day"] != dt.date():           # 換日重置
-        st = {"day": dt.date(), "cur": None, "done": {}}
-        _acc[key] = st
-    cumvol = q.get("volume") or 0
-    cur = st["cur"]
-    if cur is None or cur["ts"] != bar_ts:             # 新分鐘 → 收舊棒、開新棒
-        if cur is not None:
-            st["done"][cur["ts"]] = cur
-        st["cur"] = {"ts": bar_ts, "o": price, "h": price, "l": price, "c": price,
-                     "vol0": cumvol, "vol": 0}
-    else:                                              # 同分鐘 → 更新高/低/收 + 量(累積量差)
-        cur["h"] = max(cur["h"], price); cur["l"] = min(cur["l"], price); cur["c"] = price
-        cur["vol"] = max(0, cumvol - cur["vol0"])
-    return True
-
-
-def fetch_taifex_candles(product: str, timeframe: str):
-    """盤中 K DataFrame（time UTC naive）。只累積 1m，其餘時框由 1m resample。
-    無資料回 None（前向累積：僅『開始輪詢後』的當日棒）。"""
-    m = _INTRADAY_MIN.get(timeframe)
-    if m is None:
-        return None
-    prod = (product or "").upper()
-    _accumulate_1m(prod)                               # 每次呼叫都吃最新報價
-    rows = _acc_list(f"{prod}:1")
-    if not rows:
-        return None
-    df = pd.DataFrame(rows)
-    if m == 1:
-        return df
-    df = df.set_index("time").resample(f"{m}min").agg({
-        "open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum",
-    }).dropna(subset=["open"]).reset_index()
+        return c[1] if c else None
+    ticks = rd.get("Ticks") or []
+    cdate = ((rd.get("Quote") or {}).get("CDate")) or ""
+    if not ticks or len(cdate) < 8:
+        return c[1] if c else None
+    base = datetime(int(cdate[:4]), int(cdate[4:6]), int(cdate[6:8]))
+    out = []
+    for t in ticks:
+        try:
+            hhmmss = str(t[0]).rjust(6, "0")
+            hh, mm, ss = int(hhmmss[:2]), int(hhmmss[2:4]), int(hhmmss[4:6])
+            # 夜盤傍晚(15:00+)在前一日曆日；日盤與夜盤凌晨(<15:00)為 CDate 當日
+            dd = base - timedelta(days=1) if hh >= 15 else base
+            ts = dd.replace(hour=hh, minute=mm, second=ss) - timedelta(hours=8)   # TPE→UTC naive
+            out.append({"time": ts, "open": _f(t[1]), "high": _f(t[2]),
+                        "low": _f(t[3]), "close": _f(t[4]), "volume": _f(t[5]) or 0})
+        except Exception:
+            continue
+    if not out:
+        return c[1] if c else None
+    df = pd.DataFrame(out).sort_values("time").reset_index(drop=True)
+    _kcache[prod] = (now, df)
     return df
 
 
-# ── 背景輪詢：盤中每隔數秒累積 1m，使「每一分鐘 K」都被記到（不必等有人開圖表）──
-
-
-def in_session() -> bool:
-    """現在是否為台指期交易時段(台北時間)。日盤 08:45–13:45(一~五)、
-    夜盤 15:00–翌日 05:00(一~五夜，延續到六晨)。週日無盤。"""
-    tpe = datetime.utcnow() + timedelta(hours=8)
-    wd = tpe.weekday()                       # Mon=0 … Sun=6
-    hm = tpe.hour * 60 + tpe.minute
-    day  = wd <= 4 and (8 * 60 + 45) <= hm < (13 * 60 + 45)   # 日盤 一~五
-    eve  = wd <= 4 and hm >= 15 * 60                          # 夜盤前半 一~五 15:00+
-    morn = 1 <= wd <= 5 and hm < 5 * 60                       # 夜盤後半 二~六 00:00–05:00
-    return day or eve or morn
-
-
-def poll_all() -> int:
-    """把三兄弟的 1m 各累積一次（其餘時框由 1m resample，不必個別累積）。回傳有更新的產品數。"""
-    n = 0
-    for prod in PRODUCTS:
-        try:
-            if _accumulate_1m(prod):
-                n += 1
-        except Exception:
-            pass
-    return n
+def fetch_taifex_candles(product: str, timeframe: str):
+    """盤中 K DataFrame（time UTC naive）。今日完整 1 分鐘K → resample 成各盤中時框。無資料回 None。"""
+    m = _INTRADAY_MIN.get(timeframe)
+    if m is None:
+        return None
+    df = _fetch_1m(product)
+    if df is None or df.empty:
+        return None
+    if m == 1:
+        return df.copy()
+    return df.set_index("time").resample(f"{m}min").agg({
+        "open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum",
+    }).dropna(subset=["open"]).reset_index()
 
 
 # ── 日線歷史（FinMind 期貨日資料，免費）→ 供 1d/1w/1M 時框（跨日歷史 MIS 沒有）──
