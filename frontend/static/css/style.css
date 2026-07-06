@@ -370,6 +370,21 @@ html.perf-mode .tb-icon-btn:hover svg { animation: none; transform: scale(1.1); 
 @media (max-width: 1180px) and (pointer: fine), (hover: none) and (pointer: coarse) and (orientation: portrait), (hover: none) and (pointer: coarse) and (orientation: landscape) and (max-height: 599px) { #vpToggleBtn { display: none !important; } }
 /* SR+SMC 教練開關：手機改放「設定」分頁（#mSetCoach 代按 topbar 鈕） */
 @media (max-width: 1180px) and (pointer: fine), (hover: none) and (pointer: coarse) and (orientation: portrait), (hover: none) and (pointer: coarse) and (orientation: landscape) and (max-height: 599px) { #coachToggleBtn { display: none !important; } }
+/* 手機端教練面板：展開後 8 步驟內容原本往上長→超出螢幕頂端(標題列/收合鈕跑到畫面外無法關)，且 pointer-events:none 無法捲動看步驟。
+   → 改：橫向鋪滿(降低高度)、封頂 max-height 內部捲動、pointer-events 開放(可捲)、底部避開 tabbar；標題列 sticky 讓「收合 ▴」永遠點得到。 */
+@media (max-width: 1180px) and (pointer: fine), (hover: none) and (pointer: coarse) and (orientation: portrait), (hover: none) and (pointer: coarse) and (orientation: landscape) and (max-height: 599px) {
+  #coachPanel {
+    left: 6px !important; right: 6px !important; max-width: none !important; width: auto !important;
+    top: auto !important; bottom: calc(52px + env(safe-area-inset-bottom, 0px)) !important;
+    max-height: 58vh !important; overflow-y: auto !important; -webkit-overflow-scrolling: touch;
+    pointer-events: auto !important; padding-top: 0 !important;
+  }
+  /* 標題列(第一個子 div，含收合/切換鈕)黏頂，捲動步驟時也永遠可關；padding-top 移進來讓內容不從頂縫露出 */
+  #coachPanel > div:first-child {
+    position: sticky; top: 0; z-index: 3;
+    background: rgba(18,20,26,0.98); padding-top: 7px !important; margin-bottom: 4px !important;
+  }
+}
 #leafToggleBtn, #rainToggleBtn, #snowToggleBtn, #springToggleBtn { font-size: 14px; }
 #leafToggleBtn.leaf-active   { background: rgba(230,126,34,.18);  color: #E67E22; }
 #rainToggleBtn.rain-active   { background: rgba(100,160,255,.18); color: #6EB5FF; }
