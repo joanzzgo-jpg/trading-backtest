@@ -203,3 +203,33 @@ def fetch_taifex_candles(product: str, timeframe: str):
         cur["vol"] = max(0, cumvol - cur["vol0"])
     rows = _acc_list(key)
     return pd.DataFrame(rows) if rows else None
+
+
+# ── 背景輪詢：盤中每隔數秒自動累積，使「每一分鐘 K」都被記到（不必等有人開圖表）──
+TF_LIST = ("1m", "5m", "15m", "1h")
+
+
+def in_session() -> bool:
+    """現在是否為台指期交易時段(台北時間)。日盤 08:45–13:45(一~五)、
+    夜盤 15:00–翌日 05:00(一~五夜，延續到六晨)。週日無盤。"""
+    tpe = datetime.utcnow() + timedelta(hours=8)
+    wd = tpe.weekday()                       # Mon=0 … Sun=6
+    hm = tpe.hour * 60 + tpe.minute
+    day  = wd <= 4 and (8 * 60 + 45) <= hm < (13 * 60 + 45)   # 日盤 一~五
+    eve  = wd <= 4 and hm >= 15 * 60                          # 夜盤前半 一~五 15:00+
+    morn = 1 <= wd <= 5 and hm < 5 * 60                       # 夜盤後半 二~六 00:00–05:00
+    return day or eve or morn
+
+
+def poll_all() -> int:
+    """把三兄弟 × 各時框都累積一次（供背景 worker 每隔數秒呼叫）。回傳有資料的組數。"""
+    n = 0
+    for prod in PRODUCTS:
+        for tf in TF_LIST:
+            try:
+                df = fetch_taifex_candles(prod, tf)
+                if df is not None and not df.empty:
+                    n += 1
+            except Exception:
+                pass
+    return n

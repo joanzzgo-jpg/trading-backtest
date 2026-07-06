@@ -159,6 +159,21 @@ def _tw_ticker_worker():
         time.sleep(30)
 
 
+def _taifex_worker():
+    """背景執行緒：台指期盤中每 8 秒抓一次 TAIFEX MIS 餵累積器，
+    讓『每一分鐘 K』都被記到（不必等有人開圖表）；非盤中每 60 秒輕量待命。"""
+    import data.taifex_mis as tx
+    while True:
+        try:
+            if tx.in_session():
+                tx.poll_all()
+                time.sleep(8)
+            else:
+                time.sleep(60)
+        except Exception:
+            time.sleep(30)
+
+
 @app.on_event("startup")
 async def _warmup():
     """啟動時立即預熱並啟動背景 ticker 更新。"""
@@ -168,6 +183,7 @@ async def _warmup():
     loop.run_in_executor(None, _fetch_pionex_perp_symbols)
     threading.Thread(target=_ticker_worker,    daemon=True).start()
     threading.Thread(target=_tw_ticker_worker, daemon=True).start()
+    threading.Thread(target=_taifex_worker,    daemon=True).start()   # 台指期每分鐘K持續累積
     try:
         import notify_monitor
         notify_monitor.start()   # CRT 訊號 Web Push 背景監控（無訂閱時自動空轉、極低成本）
