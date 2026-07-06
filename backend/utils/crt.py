@@ -124,7 +124,7 @@ def _scan_outcome_np(highs, lows, closes, target_arr, times_iso, entry_i, n, sto
 
 def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only: bool = False,
                       _solve=None, band_ratio: float = 1.0, visual_window: int = 0,
-                      stock_gap: bool = False) -> dict:
+                      stock_gap: bool = False, proto_min: float = 0.0005) -> dict:
     """
     六種訊號合併計算勝率（中軌目標 + 帶軌目標雙統計）。
 
@@ -1329,7 +1329,26 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         #   _VW 取足夠大(遠超可視+合理回捲)，且各標記本就截尾([-2000:]/[-12000:])，近段結果與全量一致。
         _VW = int(visual_window) if visual_window and visual_window > 0 else _VISUAL_WINDOW
         _vw0 = max(1, _N - _VW)
+        # ── 資料時間洞防護（連續市場 crypto 專用）──────────────────────────────────
+        #   crypto 24/7 本不該缺根；但 df 若有大洞（曾見 BTC 1h 缺 2023→2026 整段），陣列上
+        #   相鄰的兩列其實跨了數月/數年 → 3 根 FVG／proto 缺口會把它們當連續 K，製造 100%+
+        #   的假缺口（bot 取到多年前舊棒高點）。這裡預算秒級時間戳與名目間隔，迴圈中跳過
+        #   「三根外側跨距(g-1→g+1)遠超名目 2 根」的偽缺口。股票的隔盤跳空是合法特徵→不套用。
+        try:
+            _secs = df["time"].to_numpy("datetime64[s]").astype("int64")
+        except Exception:
+            _secs = None
+        _bar_sec = 0
+        if _secs is not None and len(_secs) > 10:
+            _dd = np.diff(_secs); _dd = _dd[_dd > 0]
+            if len(_dd):
+                _bar_sec = int(np.median(_dd))
+        # 外側跨距名目=2 根；放寬到 5 根（容忍偶發缺一兩根），超過＝資料斷層→該三根不成立缺口。
+        _gap_span_max = 5 * _bar_sec if _bar_sec > 0 else 0
+        _gap_guard = (not stock_gap) and _secs is not None and _gap_span_max > 0
         for _g in range(_vw0, _N - 1):
+            if _gap_guard and (_secs[_g+1] - _secs[_g-1]) > _gap_span_max:
+                continue   # 跨資料斷層：g-1/g+1 陣列相鄰但時間差極大→非真連續 K，不造缺口
             _h0 = _H[_g-1]; _l0 = _L[_g-1]
             _h2 = _H[_g+1]; _l2 = _L[_g+1]
             if any(_v != _v for _v in (_h0, _l0, _h2, _l2)):   # NaN
@@ -1578,7 +1597,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         # 約束：觸碰→B 之間不能夾任何反向缺口(除非觸碰棒 cf−touch≤2 順手做的)；
         #       多：B下緣>A下緣 且 B上緣>A上緣(不得完全被A包住、可部分重疊)；空：B下緣<A上緣(重疊可)。不套「B寬<A寬」。
         _MSWIN = 60
-        _MSMIN = 0.0005    # 缺口寬度門檻：<0.05% 不算(視覺缺口仍保留 0.01%，不受此限)
+        _MSMIN = proto_min if proto_min and proto_min > 0 else 0.0005  # proto 缺口(B)寬度門檻(前端可切換比較)；預設 0.05%(視覺缺口仍 0.01%，不受此限)
         _MSOVR = 0.10      # 觸碰時 K 影線衝過 setup FVG 緣 10% → 該 FVG 作廢(之後不算有效觸碰)
         # 寬度%：多用下緣為分母(top-bot)/bot、空用上緣(top-bot)/top(對齊視覺 _gw 定義)
         _gseq = [(_ci, _tp, _bt, _dr) for (_ci, _tp, _bt, _dr) in _gaps_seq
@@ -1593,6 +1612,8 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         #   缺口底(C[g+1]>H[g-1]＝沒干擾) → 標在 g。bear 鏡像(C[g]<L[g-1]→缺口[C[g], L[g-1]]、C[g+1]<L[g-1] 沒干擾)。
         _pseq = []             # (g, top, bot, dir) proto 缺口，依 g 升序(生成序)；同視覺窗(_vw0)
         for _g2 in range(_vw0, _N - 1):
+            if _gap_guard and (_secs[_g2+1] - _secs[_g2-1]) > _gap_span_max:
+                continue   # 同上：跨資料斷層不成立 proto 缺口（否則破多/破空/多空標記會被假缺口污染）
             _hm1 = _H[_g2 - 1]; _lm1 = _L[_g2 - 1]; _cg = _C[_g2]; _cn = _C[_g2 + 1]
             if any(_v != _v for _v in (_hm1, _lm1, _cg, _cn)):        # NaN
                 continue

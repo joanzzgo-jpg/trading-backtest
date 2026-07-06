@@ -507,6 +507,9 @@
     <button class="dt-btn" data-tool="fib" title="費波那契">
       <svg width="15" height="15" viewBox="0 0 15 15"><line x1="1" y1="4" x2="14" y2="4" stroke="currentColor" stroke-width="1"/><line x1="1" y1="7.5" x2="14" y2="7.5" stroke="currentColor" stroke-width="1.3"/><line x1="1" y1="11" x2="14" y2="11" stroke="currentColor" stroke-width="1"/><text x="1.5" y="3.2" font-size="3.5" fill="currentColor" font-family="monospace">0.618</text></svg>
     </button>
+    <button class="dt-btn" data-tool="avwap" title="錨定 VWAP（點一根 K 棒起算成交量加權均價；可放多條）">
+      <svg width="15" height="15" viewBox="0 0 15 15"><circle cx="3" cy="12" r="1.8" fill="currentColor"/><path d="M3 12 C6 12 6 4.5 9 4.5 C11.5 4.5 12 8 14 7" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+    </button>
     <button class="dt-btn" data-tool="longpos" title="做多盈虧比">
       <svg width="15" height="15" viewBox="0 0 15 15">
         <rect x="1" y="4" width="13" height="4" fill="rgba(38,166,154,0.4)" stroke="#26a69a" stroke-width="0.8"/>
@@ -566,6 +569,7 @@
         <span class="leg-item leg-toggle" id="legFVGShun"><span class="leg-dot" style="background:#00b8ff;border-color:#00b8ff"></span><span class="leg-val">順多空</span></span>
         <span class="leg-item leg-toggle line-off" id="legDimBigBar" title="大棒淡化：標記所在 K 棒的全長(最高-最低) > 前 10 根平均全長的 2 倍 → 淡化該棒上的策略標記(多/空、破多空、順多空)（亮=啟用）"><span class="leg-dot" style="background:#9e9e9e;border-color:#9e9e9e"></span><span class="leg-val">大棒淡化</span></span>
         <span class="leg-item" id="legFvgW" title="FVG 最小寬度%：寬度小於此值的缺口不顯示（純顯示過濾，不影響自動交易）" style="pointer-events:auto">寬≥<input id="fvgMinW" type="number" min="0" step="0.1" value="0" style="width:38px;margin:0 2px;background:transparent;border:1px solid rgba(255,255,255,.2);border-radius:3px;color:inherit;font:inherit;text-align:right;pointer-events:auto">%</span>
+        <span class="leg-item" id="legProtoB" onclick="event.stopPropagation();window._cycleProtoMin&&window._cycleProtoMin()" title="多/空 · 破多空 的 proto 缺口(B)最小寬度%：點擊循環切換 0.05→0.1→0.2→0.3%，比較不同門檻的標記密度（越大越保守、標記越少；會重算勝率）" style="pointer-events:auto;cursor:pointer">B≥<span id="legProtoBVal">0.05</span>%</span>
         <div class="pane-btns">
           <button class="ind-gear-btn" data-ind="main" title="主圖設定">⚙</button>
         </div>

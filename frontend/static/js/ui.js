@@ -712,6 +712,9 @@ function bindLegendToggles() {
     _fvgWInp.addEventListener("click", e => e.stopPropagation());
   }
 
+  // proto 缺口(B)門檻切換 chip：初始標籤同步（值存在 winrate.js 的 _wrProtoMin，點擊走 _cycleProtoMin）
+  if (typeof window._syncProtoMinLabel === "function") window._syncProtoMinLabel();
+
   // 面板收合：點擊「−」縮至只剩圖例列；點「+」展開
   document.querySelectorAll(".pane-collapse-btn").forEach(btn => {
     btn.dataset.collapsed = "false";  // 初始化屬性

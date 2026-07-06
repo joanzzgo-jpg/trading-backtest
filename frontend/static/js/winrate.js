@@ -11,6 +11,25 @@ function _wrCacheSet(key, value) {
 let _wrCacheLast = null;  // 保留最近一次資料，給 toggle target 重渲用
 let _wrFetchTimer = null; // 切換標的時 debounce，避免連續觸發後端重算
 
+// proto 缺口(B)最小寬度門檻(decimal)：控制「多/空」「破多空」標記寬鬆度，可切換比較(越大越保守、標記越少)。
+// 後端預設 0.0005(0.05%)；改值→cacheKey 帶 pm tag → 後端另分流重算。
+let _wrProtoMin = 0.0005;
+try { const _pm = parseFloat(localStorage.getItem("wrProtoMin")); if (_pm > 0) _wrProtoMin = _pm; } catch (e) {}
+window._PROTO_MIN_STEPS = [0.0005, 0.001, 0.002, 0.003];   // 循環切換值：0.05 / 0.1 / 0.2 / 0.3 %
+function _syncProtoMinLabel() {
+  const el = document.getElementById("legProtoBVal");
+  if (el) el.textContent = +(_wrProtoMin * 100).toFixed(2);   // 0.0005→0.05、0.001→0.1
+}
+window._syncProtoMinLabel = _syncProtoMinLabel;
+window._cycleProtoMin = function () {
+  const steps = window._PROTO_MIN_STEPS;
+  let i = steps.findIndex(v => Math.abs(v - _wrProtoMin) < 1e-9);
+  _wrProtoMin = steps[(i + 1) % steps.length];
+  try { localStorage.setItem("wrProtoMin", String(_wrProtoMin)); } catch (e) {}
+  _syncProtoMinLabel();
+  fetchWinRate();   // 重抓→後端用新門檻重算 多空/破多空（首次該值會重算，之後走快取）
+};
+
 // 目標切換（中軌 ↔ 上/下軌）狀態。1:1（rr）已移除 → 舊設定正規化回中軌
 const _WR_VIEW_KEY = "wrTargetView";
 let _wrSeries = "ss";  // S1~S12 已退役，固定只顯示 SS 系列（軌道反轉）。切換鈕已鎖定。
@@ -463,7 +482,7 @@ async function _fetchWinRateNow() {
   const bufDec = (_wrStopBuffer || 0) / 100;
   const _vw = _wrVwFor(typeof ohlcvData !== "undefined" ? ohlcvData.length : 0);
   window._wrCurVw = _vw;
-  const cacheKey = `${market}:${symbol}:${exchange}:${timeframe}:${bufDec.toFixed(4)}:vw${_vw}`;
+  const cacheKey = `${market}:${symbol}:${exchange}:${timeframe}:${bufDec.toFixed(4)}:vw${_vw}:pm${_wrProtoMin}`;
   if (_wrCache[cacheKey]) {
     // 快取命中也要取消上一個還在飛的勝率請求，否則它稍後成功回來會用「舊標的」的
     // 訊號覆寫 _lastWRSignals → 訊號時間不存在於新標的 ohlcv → markers 全被過濾 → 策略不顯示。
@@ -509,7 +528,7 @@ async function _fetchWinRateNow() {
   // 不寫 "計算中…" 到 wrStatus，由中央 .tb-wr-loading（小熊 + 文字）顯示
   if (statusEl) statusEl.textContent = "";
   try {
-    const p   = new URLSearchParams({ market, symbol, exchange, timeframe, stop_buffer_pct: bufDec.toFixed(4), vw: String(_vw) });
+    const p   = new URLSearchParams({ market, symbol, exchange, timeframe, stop_buffer_pct: bufDec.toFixed(4), vw: String(_vw), proto_min: String(_wrProtoMin) });
     const res = await fetch("/api/crt_winrate?" + p, { signal: myCtrl.signal, cache: "no-store" });
     const d   = await res.json();
     if (!res.ok) throw new Error(d.detail || "failed");

@@ -439,6 +439,11 @@ function _onChartClick(e) {
     drawings.push({ id:_did(), type:"vline", time:pt.time, color:_drawColor });
     saveDrawings(); _returnToPointer(); return;
   }
+  if (drawTool === "avwap") {
+    // 錨定 VWAP：點一根 K 棒起算(往後累積);曲線在 drawOne 依 ohlcvData 現算
+    drawings.push({ id:_did(), type:"avwap", time:pt.time, color:_drawColor });
+    saveDrawings(); _returnToPointer(); return;
+  }
   if (drawTool === "text") {
     _showTextInput(e.clientX, e.clientY, txt => {
       if (txt?.trim()) {
@@ -591,7 +596,7 @@ function _updateDrag(x, y) {
       const ox = _timeToX(orig.p1.time);
       if (ox != null) { const nt = _xToTime(ox + dx); if (nt != null) d.p1 = { ...d.p1, time: nt }; }
     }
-  } else if (d.type === "vline") {
+  } else if (d.type === "vline" || d.type === "avwap") {
     const ox = _timeToX(orig.time);
     if (ox != null) { const nt = _xToTime(ox + dx); if (nt != null) d.time = nt; }
   } else if (d.type === "text") {
@@ -732,6 +737,20 @@ function drawingDist(d, x, y) {
   if (d.type === "vline") {
     const px = _timeToX(d.time);
     return px != null ? Math.abs(px - x) : Infinity;
+  }
+  if (d.type === "avwap") {
+    // 命中判定：游標 x→時間→二分找曲線最近點,比 y 距離(O(log n),不掃全序列)
+    const curve = _avwapCurve(d);
+    if (!curve || !curve.length) return Infinity;
+    const ct = _xToTime(x);
+    if (ct == null || ct < curve[0].t) return Infinity;   // 錨點左側不命中
+    let lo = 0, hi = curve.length - 1;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (curve[mid].t < ct) lo = mid + 1; else hi = mid; }
+    let pt = curve[lo];
+    if (lo > 0 && Math.abs(curve[lo - 1].t - ct) < Math.abs(pt.t - ct)) pt = curve[lo - 1];
+    if (pt.v == null) return Infinity;
+    const py = candleSeries?.priceToCoordinate(pt.v);
+    return py != null ? Math.abs(py - y) : Infinity;
   }
   if (d.type === "text") {
     const p = chartToScreen(d.time, d.price);
@@ -1193,6 +1212,37 @@ function _drawVWAP(W, H) {
   drawCtx.restore();
 }
 
+// 錨定 VWAP（AVWAP）：從錨點 d.time 那根起、往後逐根累積 (H+L+C)/3 × 量 / Σ量。
+// 結果依 d.id 快取；資料筆數／最後一根／錨點任一變動才重算（避免每次 hover／重繪都掃全序列）。
+// 整段皆無量的市場（少數指數）→退化為典型價累積平均，仍可畫出線。
+const _avwapCache = new Map();
+function _avwapCurve(d) {
+  if (typeof ohlcvData === "undefined" || !ohlcvData || !ohlcvData.length) return null;
+  const lastT = toTime(ohlcvData[ohlcvData.length - 1].time);
+  const key = ohlcvData.length + ":" + lastT + ":" + d.time;
+  const hit = _avwapCache.get(d.id);
+  if (hit && hit.key === key) return hit.curve;
+  let start = -1;
+  for (let i = 0; i < ohlcvData.length; i++) {
+    if (toTime(ohlcvData[i].time) >= d.time) { start = i; break; }   // 第一根 ≥ 錨點的 K 棒
+  }
+  let curve = null;
+  if (start >= 0) {
+    curve = [];
+    let cumPV = 0, cumV = 0, cumTP = 0, n = 0;
+    for (let i = start; i < ohlcvData.length; i++) {
+      const b = ohlcvData[i];
+      const tp = (b.high + b.low + b.close) / 3;    // 典型價
+      const v = +b.volume || 0;
+      cumTP += tp; n++;
+      if (v > 0) { cumPV += tp * v; cumV += v; }
+      curve.push({ t: toTime(b.time), v: cumV > 0 ? cumPV / cumV : (n > 0 ? cumTP / n : null) });
+    }
+  }
+  _avwapCache.set(d.id, { key, curve });
+  return curve;
+}
+
 // SR+SMC 教練疊加層繪製（階段2：BOS/CHoCH 結構破線段）。畫布在 K 棒之上、不限時框。
 // 由後端 smc_struct 提供線段端點：t0=擺點K、t1=收破K、p=擺點價、k=事件型別。
 const _COACH_STRUCT_STYLE = {
@@ -1579,6 +1629,37 @@ function drawOne(d, W, H, isHovered, isSelected) {
       [H * 0.25, H * 0.5, H * 0.75].forEach(hy => {
         drawCtx.beginPath(); drawCtx.arc(x, hy, 4, 0, Math.PI*2); drawCtx.fill();
       });
+    }
+  }
+  else if (d.type === "avwap") {
+    const curve = _avwapCurve(d);
+    if (!curve || curve.length < 2) { drawCtx.restore(); return; }
+    drawCtx.beginPath();
+    let started = false, lastX = null, lastY = null;
+    for (const pt of curve) {
+      if (pt.v == null) { started = false; continue; }
+      const px = _timeToX(pt.t);
+      if (px == null || px < -50 || px > W + 50) { started = false; continue; }
+      const py = candleSeries?.priceToCoordinate(pt.v);
+      if (py == null) { started = false; continue; }
+      if (!started) { drawCtx.moveTo(px, py); started = true; } else drawCtx.lineTo(px, py);
+      lastX = px; lastY = py;
+    }
+    drawCtx.stroke();
+    drawCtx.shadowBlur = 0;
+    // 錨點標記：倒三角落在起算那根上方
+    const ax = _timeToX(curve[0].t), ay = candleSeries?.priceToCoordinate(curve[0].v);
+    if (ax != null && ay != null) {
+      drawCtx.beginPath();
+      drawCtx.moveTo(ax, ay - 6); drawCtx.lineTo(ax - 4, ay - 12); drawCtx.lineTo(ax + 4, ay - 12);
+      drawCtx.closePath(); drawCtx.fill();
+      if (isSelected) {   // 選中→錨點加大控制點(可拖移改起算點)
+        drawCtx.beginPath(); drawCtx.arc(ax, ay, 5, 0, Math.PI * 2); drawCtx.fill();
+      }
+    }
+    if (lastX != null && lastY != null) {   // 末端標籤
+      drawCtx.font = "10px monospace";
+      drawCtx.fillText("AVWAP", Math.min(lastX + 5, W - 46), lastY - 4);
     }
   }
   else if (d.type === "trendline" && d.p1 && d.p2) {
