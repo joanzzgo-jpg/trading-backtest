@@ -4,6 +4,36 @@
 import pandas as pd
 import yfinance as yf
 
+# ── yfinance 反封/防卡：Railway 等雲端 IP 常被 Yahoo tarpit（連上不回應）→ 無 timeout 會無限卡。
+#   ① 一律加 timeout（止血，不再卡死）②用 curl_cffi 瀏覽器指紋 session 假冒（避開 Yahoo bot 偵測，雲端標準解法）。
+_YF_TIMEOUT = 15
+_YF_SESSION = None
+def _yf_session():
+    global _YF_SESSION
+    if _YF_SESSION is not None:
+        return _YF_SESSION
+    try:
+        from curl_cffi import requests as _cr
+        _YF_SESSION = _cr.Session(impersonate="chrome")
+    except Exception:
+        try:
+            import requests as _rq
+            _YF_SESSION = _rq.Session()
+            _YF_SESSION.headers.update({"User-Agent":
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36"})
+        except Exception:
+            _YF_SESSION = False
+    return _YF_SESSION
+
+def _yf_ticker(symbol):
+    sess = _yf_session()
+    if sess:
+        try:
+            return yf.Ticker(symbol, session=sess)
+        except Exception:
+            pass
+    return yf.Ticker(symbol)
+
 TF_MAP = {
     "1M": "1mo",
     "1w": "1wk",
@@ -24,8 +54,11 @@ MAX_DAYS = {
 
 def fetch_us_stock(symbol: str, start: str, end: str, timeframe: str = "1d") -> pd.DataFrame:
     interval = TF_MAP.get(timeframe, "1d")
-    ticker   = yf.Ticker(symbol)
-    raw      = ticker.history(start=start, end=end, interval=interval, auto_adjust=True)
+    ticker   = _yf_ticker(symbol)
+    try:
+        raw = ticker.history(start=start, end=end, interval=interval, auto_adjust=True, timeout=_YF_TIMEOUT)
+    except TypeError:   # 舊版 yfinance history 不吃 timeout
+        raw = ticker.history(start=start, end=end, interval=interval, auto_adjust=True)
 
     if raw.empty:
         raise ValueError(f"無資料: {symbol}，請確認代號正確（如 AAPL、TSLA）")

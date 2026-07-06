@@ -128,9 +128,13 @@ YF_MAX_DAYS = {"1m": 7, "5m": 58, "15m": 58, "1h": 58}   # 1m yfinance 僅近 7 
 
 
 def _yf_history(ticker, interval: str, start: str, end: str):
-    """呼叫 yfinance history，回傳 DataFrame；空或失敗回 None。"""
+    """呼叫 yfinance history，回傳 DataFrame；空或失敗回 None。
+    ⚠ 一律加 timeout：雲端(Railway)常被 Yahoo tarpit(連上不回應)，無 timeout 會無限卡死→備援永不觸發。"""
     try:
-        raw = ticker.history(start=start, end=end, interval=interval, auto_adjust=True)
+        try:
+            raw = ticker.history(start=start, end=end, interval=interval, auto_adjust=True, timeout=12)
+        except TypeError:   # 舊版 history 不吃 timeout
+            raw = ticker.history(start=start, end=end, interval=interval, auto_adjust=True)
         return raw if not raw.empty else None
     except Exception as e:
         _log.warning(f"[yf_history] {ticker.ticker} {interval} {start}~{end}: {e}")
@@ -393,9 +397,12 @@ def fetch_tw_latest_bar_yf(symbol: str):
     try:
         import yfinance as yf
         for suffix in (".TW", ".TWO"):
-            raw = yf.Ticker(f"{symbol}{suffix}").history(
-                period="5d", interval="1d", auto_adjust=True
-            )
+            try:
+                raw = yf.Ticker(f"{symbol}{suffix}").history(
+                    period="5d", interval="1d", auto_adjust=True, timeout=12)
+            except TypeError:
+                raw = yf.Ticker(f"{symbol}{suffix}").history(
+                    period="5d", interval="1d", auto_adjust=True)
             if raw.empty:
                 continue
             last = raw.iloc[-1]
