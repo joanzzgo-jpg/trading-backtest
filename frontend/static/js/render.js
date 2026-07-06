@@ -173,6 +173,11 @@ function renderAll(data) {
   if (typeof _renderFVGMS === "function" && _lastFVGMS && _lastFVGMS.length) {
     _renderFVGMS();
   }
+  // ⚠ 順多空(_renderFVGShun)過去漏在此重繪 → renderCandles 清空 lastFVGShunMarkers 後沒還原，
+  //   每次 renderAll(切標的/背景補載/realtime 重建)後順多空就消失，要刷新重抓才回來(與多空/破多空不同步)。
+  if (typeof _renderFVGShun === "function" && _lastFVGShun && _lastFVGShun.length) {
+    _renderFVGShun();
+  }
 
   // fit 讓各子圖時間範圍對齊
   [mainChart, kdjChart, rsiChart, macdChart].forEach(c => c.timeScale().fitContent());
