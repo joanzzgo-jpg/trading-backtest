@@ -375,7 +375,7 @@ html.perf-mode .tb-icon-btn:hover svg { animation: none; transform: scale(1.1); 
 @media (max-width: 1180px) and (pointer: fine), (hover: none) and (pointer: coarse) and (orientation: portrait), (hover: none) and (pointer: coarse) and (orientation: landscape) and (max-height: 599px) {
   #coachPanel {
     left: 6px !important; right: 6px !important; max-width: none !important; width: auto !important;
-    top: auto !important; bottom: calc(52px + env(safe-area-inset-bottom, 0px)) !important;
+    top: auto !important; bottom: calc(84px + env(safe-area-inset-bottom, 0px)) !important;  /* 抬到時間軸(距底~46px tabbar+~28px軸)之上,不擋日期列 */
     max-height: 58vh !important; overflow-y: auto !important; -webkit-overflow-scrolling: touch;
     pointer-events: auto !important; padding-top: 0 !important;
   }
