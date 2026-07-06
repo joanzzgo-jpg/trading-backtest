@@ -1307,7 +1307,8 @@ function _drawVWAP(W, H) {
   // 顏色可調（C.vwap，主圖指標設定裡設）：hex→套 0.45 透明度；已是 rgba/rgb 則原樣用
   const _vwCol = (typeof C !== "undefined" && C.vwap) ? C.vwap : "#ffc107";
   drawCtx.strokeStyle = /^#/.test(_vwCol) ? (typeof hexAlpha === "function" ? hexAlpha(_vwCol, 45) : _vwCol) : _vwCol;
-  drawCtx.lineWidth = 1; drawCtx.beginPath();
+  drawCtx.lineWidth = (typeof S !== "undefined" && S.vwapWidth) ? S.vwapWidth : 1;   // 可調粗細
+  drawCtx.beginPath();
   let started = false;
   for (const pt of vw) {
     if (pt.v == null) { started = false; continue; }

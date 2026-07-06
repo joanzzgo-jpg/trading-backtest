@@ -39,6 +39,7 @@ const DEFAULT_STYLES = {
   macdStyle: 0, macdSigStyle: 0,
   macdWidth: 1, macdSigWidth: 1,
   bbWidth: 1, bbMWidth: 1,
+  vwapWidth: 1,   // VWAP 折線粗細（畫布層，可調）
 };
 
 let C = { ...DEFAULT_COLORS };
