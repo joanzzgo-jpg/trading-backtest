@@ -23,7 +23,9 @@ _HDRS = {
 }
 # 產品碼 → 顯示名（台指三兄弟；微台 TMF 在 MIS 主 feed 未必有，抓不到就自動略過）
 PRODUCTS = {"TXF": "台指期(大台)", "MXF": "小台指", "TMF": "微台指"}
-_TF_MIN = {"1m": 1, "5m": 5, "15m": 15, "1h": 60}
+# 盤中時框（分/時）：只累積 1m，其餘由 1m resample 而來
+_INTRADAY_MIN = {"1m": 1, "5m": 5, "15m": 15, "30m": 30,
+                 "1h": 60, "2h": 120, "4h": 240, "8h": 480}
 
 _qcache = {"ts": 0.0, "data": None}   # getQuoteList 全量快取（一次抓全部期貨）
 
@@ -172,41 +174,56 @@ def _parse_dt(cdate: str, ctime: str):
         return None
 
 
-def fetch_taifex_candles(product: str, timeframe: str):
-    """前向累積分鐘K DataFrame（time UTC naive）。無新報價→回已累積；都沒有→None。"""
-    minutes = _TF_MIN.get(timeframe)
-    if minutes is None:
-        return None
+def _accumulate_1m(product: str) -> bool:
+    """用最新報價把當前 1 分鐘 K 累積進 _acc[prod:1]。有更新回 True。"""
     prod = (product or "").upper()
-    key = f"{prod}:{minutes}"
     q = fetch_taifex_quote(prod)
-    price = q.get("price") if q else None
-    dt = _parse_dt(q.get("cdate"), q.get("ctime")) if q else None
-    if q is None or price is None or dt is None:
-        rows = _acc_list(key)
-        return pd.DataFrame(rows) if rows else None
-    bar_min = (dt.hour * 60 + dt.minute) // minutes * minutes
-    bar_ts = dt.replace(hour=bar_min // 60, minute=bar_min % 60, second=0, microsecond=0)
+    if not q:
+        return False
+    price = q.get("price")
+    dt = _parse_dt(q.get("cdate"), q.get("ctime"))
+    if price is None or dt is None:
+        return False
+    bar_ts = dt.replace(second=0, microsecond=0)      # 1 分鐘邊界（UTC naive）
+    key = f"{prod}:1"
     st = _acc.get(key)
-    if st is None or st["day"] != dt.date():          # 換日重置
+    if st is None or st["day"] != dt.date():           # 換日重置
         st = {"day": dt.date(), "cur": None, "done": {}}
         _acc[key] = st
     cumvol = q.get("volume") or 0
     cur = st["cur"]
-    if cur is None or cur["ts"] != bar_ts:            # 新分鐘 → 收舊棒、開新棒
+    if cur is None or cur["ts"] != bar_ts:             # 新分鐘 → 收舊棒、開新棒
         if cur is not None:
             st["done"][cur["ts"]] = cur
         st["cur"] = {"ts": bar_ts, "o": price, "h": price, "l": price, "c": price,
                      "vol0": cumvol, "vol": 0}
-    else:                                             # 同分鐘 → 更新高/低/收 + 量(累積量差)
+    else:                                              # 同分鐘 → 更新高/低/收 + 量(累積量差)
         cur["h"] = max(cur["h"], price); cur["l"] = min(cur["l"], price); cur["c"] = price
         cur["vol"] = max(0, cumvol - cur["vol0"])
-    rows = _acc_list(key)
-    return pd.DataFrame(rows) if rows else None
+    return True
 
 
-# ── 背景輪詢：盤中每隔數秒自動累積，使「每一分鐘 K」都被記到（不必等有人開圖表）──
-TF_LIST = ("1m", "5m", "15m", "1h")
+def fetch_taifex_candles(product: str, timeframe: str):
+    """盤中 K DataFrame（time UTC naive）。只累積 1m，其餘時框由 1m resample。
+    無資料回 None（前向累積：僅『開始輪詢後』的當日棒）。"""
+    m = _INTRADAY_MIN.get(timeframe)
+    if m is None:
+        return None
+    prod = (product or "").upper()
+    _accumulate_1m(prod)                               # 每次呼叫都吃最新報價
+    rows = _acc_list(f"{prod}:1")
+    if not rows:
+        return None
+    df = pd.DataFrame(rows)
+    if m == 1:
+        return df
+    df = df.set_index("time").resample(f"{m}min").agg({
+        "open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum",
+    }).dropna(subset=["open"]).reset_index()
+    return df
+
+
+# ── 背景輪詢：盤中每隔數秒累積 1m，使「每一分鐘 K」都被記到（不必等有人開圖表）──
 
 
 def in_session() -> bool:
@@ -222,14 +239,67 @@ def in_session() -> bool:
 
 
 def poll_all() -> int:
-    """把三兄弟 × 各時框都累積一次（供背景 worker 每隔數秒呼叫）。回傳有資料的組數。"""
+    """把三兄弟的 1m 各累積一次（其餘時框由 1m resample，不必個別累積）。回傳有更新的產品數。"""
     n = 0
     for prod in PRODUCTS:
-        for tf in TF_LIST:
-            try:
-                df = fetch_taifex_candles(prod, tf)
-                if df is not None and not df.empty:
-                    n += 1
-            except Exception:
-                pass
+        try:
+            if _accumulate_1m(prod):
+                n += 1
+        except Exception:
+            pass
     return n
+
+
+# ── 日線歷史（FinMind 期貨日資料，免費）→ 供 1d/1w/1M 時框（跨日歷史 MIS 沒有）──
+_FINMIND_ID = {"TXF": "TX", "MXF": "MTX", "TMF": "TMF"}   # 大台/小台/微台 FinMind 代碼
+
+
+def fetch_taifex_daily(product: str, start: str = "", end: str = "", token: str = ""):
+    """台指期日線 DataFrame（time=台北日期 naive）。合併日盤(position)+夜盤(after_market)
+    為『全日一根』、取近月合約。失敗/無資料回 None。"""
+    fid = _FINMIND_ID.get((product or "").upper())
+    if not fid:
+        return None
+    params = {"dataset": "TaiwanFuturesDaily", "data_id": fid}
+    if start:
+        params["start_date"] = start
+    if end:
+        params["end_date"] = end
+    if token:
+        params["token"] = token
+    try:
+        r = requests.get("https://api.finmindtrade.com/api/v4/data", params=params, timeout=15)
+        r.raise_for_status()
+        rows = r.json().get("data") or []
+    except Exception:
+        return None
+    if not rows:
+        return None
+    from collections import defaultdict
+    by_date = defaultdict(list)
+    for row in rows:
+        by_date[row.get("date")].append(row)
+    out = []
+    for dstr, rs in by_date.items():
+        try:
+            near = min(str(r.get("contract_date")) for r in rs)   # 近月＝最小到期
+            nr = [r for r in rs if str(r.get("contract_date")) == near]
+            am = next((r for r in nr if r.get("trading_session") == "after_market"), None)
+            po = next((r for r in nr if r.get("trading_session") == "position"), None)
+            first = am or po      # 夜盤先於日盤（夜盤屬該交易日、時序在前）
+            last = po or am
+            if not first or not last:
+                continue
+            o = _f(first.get("open")); c = _f(last.get("close"))
+            hi = max(_f(r.get("max")) or 0 for r in nr)
+            lo = min((_f(r.get("min")) or 0) for r in nr if _f(r.get("min")))
+            vol = sum(_f(r.get("volume")) or 0 for r in nr)
+            if o is None or c is None:
+                continue
+            out.append({"time": pd.Timestamp(dstr), "open": o, "high": hi,
+                        "low": lo, "close": c, "volume": vol})
+        except Exception:
+            continue
+    if not out:
+        return None
+    return pd.DataFrame(out).sort_values("time").reset_index(drop=True)

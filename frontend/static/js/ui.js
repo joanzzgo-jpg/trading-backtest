@@ -204,8 +204,6 @@ function updateMarketUI() {
   const isHK     = market === "hk";
   const _inp = document.getElementById("symbolInput");
   const _cur = _inp.value.trim();
-  // 台指期歸在台股底下（market=tw 但 symbol 為 TXF/MXF/TMF）
-  const isTXF    = isTW && isTxfSym(_cur);
   const _defaults = ["BTC/USDT", "AAPL", "2330", "0700.HK"];
   if (isCrypto) {
     _inp.placeholder = "BTC/USDT";
@@ -224,15 +222,10 @@ function updateMarketUI() {
   // 全部 TF 都啟用：
   // - 台股 4h 後端已支援（15m → 1h → 4h 重採樣，對齊台北 09:00 開盤）
   // - 美股 1h/4h/15m/5m 後端 yfinance 都支援（5m/15m 最多 60 天、1h 最多 730 天）
-  // 台指期例外：Fugle futopt 只有盤中分鐘K → 僅 1m/5m/15m/1h 可用，其餘停用
+  // - 台指期：盤中(分/時)走 TAIFEX MIS 累積+resample、日/週/月走 FinMind → 全時框皆支援
   document.querySelectorAll(".tf-btn").forEach(btn => {
-    btn.disabled = isTXF ? !TXF_TFS.includes(btn.dataset.tf) : false;
+    btn.disabled = false;
   });
-  // 若目前選台指期但 TF 不支援 → 自動切到 15m
-  if (isTXF && typeof currentTF !== "undefined" && !TXF_TFS.includes(currentTF)) {
-    const _b15 = document.querySelector(".tf-btn[data-tf='15m']");
-    if (_b15) _b15.click();
-  }
 
   // 符號搜尋 modal tabs
   const tabFutures = document.querySelector(".sym-tab[data-market='futures']");
@@ -247,8 +240,7 @@ function updateMarketUI() {
   if (tabHK)      tabHK.style.display      = isHK ? "" : "none";
 }
 
-// 台指期三兄弟（歸在台股市場底下，由 symbol 判定走 futopt 資料）
-const TXF_TFS = ["1m", "5m", "15m", "1h"];
+// 台指期三兄弟（歸在台股市場底下，由 symbol 判定走 TAIFEX 資料；全時框皆支援）
 function isTxfSym(s) { return /^(TXF|MXF|TMF)$/i.test((s || "").trim()); }
 
 /* ── 面板拖曳分隔 ── */

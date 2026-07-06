@@ -11,7 +11,8 @@ import pandas as pd
 
 from data.taiwan import fetch_tw_stock, resample_tw, fetch_tw_intraday, fetch_tw_realtime, fetch_tw_intraday_yf, fetch_tw_latest_bar_yf, fetch_tw_daily_yf, YF_MAX_DAYS as TW_YF_MAX_DAYS
 from data.fugle import fetch_fugle_intraday, fugle_enabled
-from data.taifex_mis import fetch_taifex_candles, fetch_taifex_quote, resolve_front_month, PRODUCTS as FUTOPT_PRODUCTS
+from data.taifex_mis import (fetch_taifex_candles, fetch_taifex_daily, fetch_taifex_quote,
+                             resolve_front_month, PRODUCTS as FUTOPT_PRODUCTS, _INTRADAY_MIN as TXF_INTRADAY)
 from data.alpaca import fetch_alpaca_bars, alpaca_enabled
 from data.twelvedata import fetch_twelvedata_intraday, twelvedata_enabled
 from data.us_stock import fetch_us_stock, MAX_DAYS as US_MAX_DAYS
@@ -623,11 +624,26 @@ def get_ohlcv(req: OHLCVRequest):
 
     try:
         if req.market == "tw" and req.symbol.upper() in FUTOPT_PRODUCTS:
-            # 台指期（歸在台股市場底下）：TAIFEX MIS 即時報價前向累積分鐘K（無跨日歷史）
-            if req.timeframe not in ("1m", "5m", "15m", "1h"):
-                raise HTTPException(400, "台指期僅支援 1m/5m/15m/1h 盤中分鐘K")
-            fdf = fetch_taifex_candles(req.symbol, req.timeframe)
-            df = fdf if fdf is not None else pd.DataFrame()
+            tf = req.timeframe
+            if tf in TXF_INTRADAY:
+                # 盤中(分/時)：TAIFEX MIS 即時報價累積 1m → resample（前向、無跨日歷史）
+                fdf = fetch_taifex_candles(req.symbol, tf)
+                df = fdf if fdf is not None else pd.DataFrame()
+            elif tf in ("1d", "1w", "1M"):
+                # 日/週/月：FinMind 期貨日線 + resample_tw（有跨日歷史）
+                end = req.end or date.today().isoformat()
+                if use_limit:
+                    per = {"1d": 2, "1w": 9, "1M": 40}.get(tf, 2)
+                    start = (date.today() - timedelta(days=max(180, req.limit * per))).isoformat()
+                else:
+                    start = req.start or (date.fromisoformat(end) - timedelta(days=1460)).isoformat()
+                ddf = fetch_taifex_daily(req.symbol, start, end, req.finmind_token)
+                ddf = ddf if ddf is not None else pd.DataFrame()
+                if not ddf.empty and tf != "1d":
+                    ddf = resample_tw(ddf, tf)
+                df = ddf.tail(req.limit) if (use_limit and not ddf.empty) else ddf
+            else:
+                raise HTTPException(400, "台指期不支援此時框")
         elif req.market == "tw":
             if "/" in req.symbol:
                 raise ValueError(f"{req.symbol} 不是台股代號，請確認市場選擇")
@@ -754,8 +770,8 @@ def get_latest(req: LatestRequest):
     """取得最新 K 棒"""
     try:
         if req.market == "tw" and req.symbol.upper() in FUTOPT_PRODUCTS:
-            # 台指期（歸台股底下）：TAIFEX MIS 即時報價累積分鐘K tail（快取 3 秒）；休市回空、不報錯
-            if req.timeframe not in ("1m", "5m", "15m", "1h"):
+            # 台指期（歸台股底下）：盤中時框回累積K tail（快取 3 秒）；日/週/月線無即時 tick 回空
+            if req.timeframe not in TXF_INTRADAY:
                 return {"live": False, "data": []}
             fkey = f"txf_taifex_{req.symbol}_{req.timeframe}"
             fdf = cache.get(fkey, ttl=3)
