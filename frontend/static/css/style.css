@@ -6109,6 +6109,7 @@ html.landing-active #sysSettingsPopup,
 html.landing-active .lunar-overlay,        /* 農民曆卡（z低於封面但半透明封面會透出） */
 html.landing-active #notifyPopup,          /* 通知設定/中心彈窗 */
 html.landing-active .sig-drawer,           /* 訊號通知抽屜 */
+html.landing-active #coachPanel,           /* SR+SMC 教練面板（z低於封面但半透明封面會透出） */
 html.landing-active #announceOverlay { visibility: hidden !important; }
 /* 底層漸層放在 body（天氣 canvas 之下）：主背景色（上）→ 米白（下） */
 html.landing-active body {
