@@ -10,7 +10,8 @@ const DEFAULT_COLORS = {
   wickUp:  "#ef5350", wickDown:  "#26a69a",
   volUp:   "#ef5350", volDown:   "#26a69a", volMa: "#ffcc02",
   bbU:     "#42a5f5", bbM:     "#ffcc02", bbL: "#42a5f5",
-  bb1:     "#90caf9",   // 布林 1σ 內帶（上下，較淺藍、虛線）
+  bb1:     "#90caf9",   // 布林 1σ 內帶（已移除，保留鍵不影響）
+  vwap:    "#ffc107",   // VWAP 折線顏色（畫布層，可調色；繪製時套 0.45 透明度）
   kdjK:    "#f23645", kdjD:    "#1e88e5", kdjJ: "#ff9800",
   kdjH20:  "#4a4a6a", kdjH50:  "#666688", kdjH80:  "#4a4a6a",
   kdjCrossBull: "#26a69a", kdjCrossBear: "#ef5350",

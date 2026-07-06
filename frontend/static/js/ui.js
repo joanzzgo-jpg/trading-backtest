@@ -385,6 +385,7 @@ function bindIndicatorPanel() {
         { divider: true },
         { label:"BB 上/下", colorKey:"bbU", onColor: c=>{ C.bbL=c; bbU?.applyOptions({color:c}); bbL?.applyOptions({color:c}); _syncLegDot("legBB",c); }, widKey:"bbWidth", onWidth: w=>{ bbU?.applyOptions({lineWidth:w}); bbL?.applyOptions({lineWidth:w}); } },
         { label:"BB 中",    colorKey:"bbM", onColor: c=>{ bbM?.applyOptions({color:c}); }, widKey:"bbMWidth", serW:()=>bbM },
+        { label:"VWAP",     colorKey:"vwap", onColor: ()=>{ if (typeof _scheduleRenderDrawings==="function") _scheduleRenderDrawings(); } },
         { divider: true },
         { label:"CRT 看多", colorKey:"crtBull", onColor: ()=>{ if(ohlcvData.length) renderCRT(ohlcvData); } },
         { label:"CRT 看空", colorKey:"crtBear", onColor: ()=>{ if(ohlcvData.length) renderCRT(ohlcvData); } },
@@ -666,7 +667,7 @@ function _syncLegDot(legId, color) {
 function bindLegendToggles() {
   // 線條切換：點擊 leg-item 顯示/隱藏對應系列
   const lineMap = [
-    { id: "legBB",       series: () => [bbU, bbM, bbL, bbU1, bbL1] },
+    { id: "legBB",       series: () => [bbU, bbM, bbL] },
     { id: "legCRT",      series: null,  action: () => _applyMainMarkers() },
     { id: "legKDJCross", series: null,  action: () => _applyMainMarkers() },
     { id: "legResonance",series: null,  action: () => _applyMainMarkers() },

@@ -370,9 +370,7 @@ function buildCharts() {
   bbU = mainChart.addLineSeries({ color:C.bbU, lineWidth:S.bbWidth??1,  priceLineVisible:false, lastValueVisible:false });
   bbM = mainChart.addLineSeries({ color:C.bbM, lineWidth:S.bbMWidth??1, lineStyle:S.bbMStyle??2, priceLineVisible:false, lastValueVisible:false });
   bbL = mainChart.addLineSeries({ color:C.bbL, lineWidth:S.bbWidth??1,  priceLineVisible:false, lastValueVisible:false });
-  // 布林 1σ 內帶（虛線，較淺）：bbU1=上 1σ、bbL1=下 1σ；隨 BB 圖例開關一起顯示/隱藏
-  bbU1 = mainChart.addLineSeries({ color:C.bb1, lineWidth:S.bbWidth??1, lineStyle:2, priceLineVisible:false, lastValueVisible:false });
-  bbL1 = mainChart.addLineSeries({ color:C.bb1, lineWidth:S.bbWidth??1, lineStyle:2, priceLineVisible:false, lastValueVisible:false });
+  // 布林 1σ 內帶已移除（使用者要求）：bbU1/bbL1 不再建立，維持 undefined；其餘引用皆 ?. 保護→無動作
 
   // 成交量疊在主圖下方（獨立 priceScaleId，不影響 K 棒價格軸）
   volSeries   = mainChart.addHistogramSeries({ priceScaleId:"volume", priceLineVisible:false, lastValueVisible:false });

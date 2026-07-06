@@ -1995,20 +1995,25 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
 
     # ── VWAP【階段5：移植 Pine，每日錨定；當前時框計算】────────────────────────────
     #   每根 hlc3×量 累積，遇「日期變更」重置。回傳 [{t, v}]，v=尚無量時 None。
+    # 向量化(原純 Python 迴圈掃整條 ~3.4萬根 + 建 3.4萬個 dict 只留 3000 → ~5x 慢)：
+    #   numpy 算 hlc3×量，pandas groupby(日).cumsum() 逐日獨立累加(不跨日→無浮點抵消)，只建最後 3000 個 dict。
+    #   與舊版逐日重置結果一致(誤差 <1e-9)。分組鍵用 times_iso→datetime64[D]，日界定義同原 times_iso[:10]。
     _vwap = []
     try:
-        _vol = df["volume"].to_numpy(dtype=float) if "volume" in df.columns else None
-        if _vol is not None:
-            _cumPV = 0.0; _cumV = 0.0; _curday = None
-            for _i in range(len(times_iso)):
-                _day = times_iso[_i][:10]
-                if _day != _curday:
-                    _cumPV = 0.0; _cumV = 0.0; _curday = _day
-                _v = _vol[_i]
-                if _v == _v and _v > 0:
-                    _cumPV += (highs[_i] + lows[_i] + closes[_i]) / 3.0 * _v; _cumV += _v
-                _vwap.append({"t": times_iso[_i], "v": (_cumPV / _cumV if _cumV > 0 else None)})
-        _vwap = _vwap[-3000:]
+        if "volume" in df.columns:
+            _n = len(times_iso)
+            _vol = df["volume"].to_numpy(dtype=float)
+            _vpos = np.where((_vol == _vol) & (_vol > 0), _vol, 0.0)   # NaN/非正量→0(不計入)
+            _tp = (highs + lows + closes) / 3.0                        # 典型價 hlc3
+            _pv = np.where(_vpos > 0, _tp * _vpos, 0.0)                # 只在有效量處累 PV
+            _dayk = np.array(times_iso, dtype="datetime64[D]")         # 每日錨定分組鍵
+            _dpv = pd.Series(_pv).groupby(_dayk).cumsum().to_numpy()   # 逐日 ΣPV
+            _dv  = pd.Series(_vpos).groupby(_dayk).cumsum().to_numpy() # 逐日 ΣV
+            with np.errstate(divide="ignore", invalid="ignore"):
+                _vw = np.where(_dv > 0, _dpv / _dv, np.nan)            # 尚無量→NaN(前端轉 None 不畫)
+            _s = max(0, _n - 3000)                                     # 只留最後 3000 根(圖上用量)
+            _vwap = [{"t": times_iso[_i], "v": (None if _vw[_i] != _vw[_i] else float(_vw[_i]))}
+                     for _i in range(_s, _n)]
     except Exception:
         _vwap = []
 

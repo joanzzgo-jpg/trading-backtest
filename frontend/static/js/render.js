@@ -273,7 +273,7 @@ function renderCandles(data) {
 function renderBB(data) {
   const line = k => data.filter(d => d[k] != null).map(d => ({ time:toTime(d.time), value:d[k] }));
   bbU.setData(line("bb_upper")); bbM.setData(line("bb_middle")); bbL.setData(line("bb_lower"));
-  bbU1?.setData(line("bb_upper_1")); bbL1?.setData(line("bb_lower_1"));   // 1σ 內帶
+  // 1σ 內帶(bbU1/bbL1)已移除，不再繪製
 }
 
 // 標記視窗化：長範圍（小時/4H 背景載入上千根）時，CRT+KDJ+共振+多空訊號會產生數千個標記，
