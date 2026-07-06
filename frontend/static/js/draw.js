@@ -1130,6 +1130,69 @@ function initCoachToggle() {
   });
 }
 
+// 右上「VWAP」獨立開關：與教練層解耦，資料仍來自勝率回應的 window._coachVWAP
+function initVwapToggle() {
+  const btn = document.getElementById("vwapToggleBtn");
+  if (!btn) return;
+  try { window._vwapOn = localStorage.getItem("vwapOverlay") === "1"; } catch (e) {}
+  const _sync = () => {
+    btn.classList.toggle("active", window._vwapOn);
+    const st = document.getElementById("mSetVWAPState");
+    if (st) st.textContent = window._vwapOn ? "開啟" : "關閉";
+    const row = document.getElementById("mSetVWAP");
+    if (row) row.classList.toggle("m-set-on", window._vwapOn);
+  };
+  _sync();
+  btn.addEventListener("click", () => {
+    window._vwapOn = !window._vwapOn;
+    try { localStorage.setItem("vwapOverlay", window._vwapOn ? "1" : "0"); } catch (e) {}
+    _sync();
+    _scheduleRenderDrawings();   // 立即顯示/隱藏 VWAP 折線
+  });
+}
+// 開關：window.toggleVWAP() 切換 VWAP 顯示（可帶布林值強制 on/off）
+window.toggleVWAP = function (on) {
+  window._vwapOn = (on === undefined) ? (window._vwapOn !== true) : !!on;
+  try { localStorage.setItem("vwapOverlay", window._vwapOn ? "1" : "0"); } catch (e) {}
+  const btn = document.getElementById("vwapToggleBtn");
+  if (btn) btn.classList.toggle("active", window._vwapOn);
+  const st = document.getElementById("mSetVWAPState");
+  if (st) st.textContent = window._vwapOn ? "開啟" : "關閉";
+  const row = document.getElementById("mSetVWAP");
+  if (row) row.classList.toggle("m-set-on", window._vwapOn);
+  if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();
+  return window._vwapOn;
+};
+
+// VWAP 成交量加權均價（黃折線）：獨立開關 _vwapOn；資料 window._coachVWAP（勝率回應每次刷新）。
+function _drawVWAP(W, H) {
+  if (window._vwapOn !== true) return;
+  const vw = window._coachVWAP;
+  if (!vw || !vw.length) return;
+  if (typeof mainChart === "undefined" || typeof candleSeries === "undefined" || !candleSeries) return;
+  const ts = mainChart.timeScale();
+  let plotW = W; try { const tw = ts.width(); if (tw > 0) plotW = tw; } catch (e) {}   // 裁掉右側價格軸
+  const _rpCut = (typeof replayActive !== "undefined" && replayActive
+    && typeof replayData !== "undefined" && replayData[replayIdx])
+    ? toTime(replayData[replayIdx].time) : null;
+  drawCtx.save();
+  drawCtx.beginPath(); drawCtx.rect(0, 0, plotW, H); drawCtx.clip();
+  drawCtx.strokeStyle = "rgba(255,193,7,0.45)"; drawCtx.lineWidth = 1; drawCtx.beginPath();
+  let started = false;
+  for (const pt of vw) {
+    if (pt.v == null) { started = false; continue; }
+    const t = toTime(pt.t);
+    if (_rpCut != null && t > _rpCut) break;
+    const x = _timeToX(t);
+    if (x == null || x < -50 || x > plotW + 50) { started = false; continue; }
+    const y = candleSeries.priceToCoordinate(pt.v);
+    if (y == null) { started = false; continue; }
+    if (!started) { drawCtx.moveTo(x, y); started = true; } else drawCtx.lineTo(x, y);
+  }
+  drawCtx.stroke();
+  drawCtx.restore();
+}
+
 // SR+SMC 教練疊加層繪製（階段2：BOS/CHoCH 結構破線段）。畫布在 K 棒之上、不限時框。
 // 由後端 smc_struct 提供線段端點：t0=擺點K、t1=收破K、p=擺點價、k=事件型別。
 const _COACH_STRUCT_STYLE = {
@@ -1302,23 +1365,7 @@ function _drawCoachOverlay(W, H) {
   };
   for (const c of (window._coachHTFCh || [])) _drawChan(c, c.tf === "4H" ? "63,81,181" : "0,150,136");  // 4H靛 / 1H青
   _drawChan(window._coachChannel, window._coachChannel && window._coachChannel.dir === 1 ? "38,166,154" : "239,83,80");
-  // ③ VWAP 折線（黃）
-  const vw = window._coachVWAP;
-  if (vw && vw.length) {
-    drawCtx.strokeStyle = "rgba(255,193,7,0.45)"; drawCtx.lineWidth = 1; drawCtx.beginPath();   // 精簡：更淡
-    let started = false;
-    for (const pt of vw) {
-      if (pt.v == null) { started = false; continue; }
-      const t = toTime(pt.t);
-      if (_rpCut != null && t > _rpCut) break;
-      const x = _timeToX(t);
-      if (x == null || x < -50 || x > plotW + 50) { started = false; continue; }
-      const y = candleSeries.priceToCoordinate(pt.v);
-      if (y == null) { started = false; continue; }
-      if (!started) { drawCtx.moveTo(x, y); started = true; } else drawCtx.lineTo(x, y);
-    }
-    drawCtx.stroke();
-  }
+  // ③ VWAP：改由獨立開關 _vwapOn 控制（_drawVWAP，不再綁教練層）
   // ④ BOS/CHoCH 結構破線段（精簡：整段調更淡）
   drawCtx.globalAlpha = 0.5;
   for (const it of items) {
@@ -1413,6 +1460,9 @@ function renderDrawings() {
 
   // SR+SMC 教練疊加層（階段2：BOS/CHoCH 結構破線段+標籤；全時框；右上開關 _coachOn）
   _drawCoachOverlay(W, H);
+
+  // VWAP 成交量加權均價（黃折線；獨立開關 _vwapOn）
+  _drawVWAP(W, H);
 
   // Draw non-selected first, then hovered, then selected on top
   drawings.filter(d => d.id !== selectedId && d.id !== hoveredId).forEach(d => drawOne(d, W, H, false, false));
