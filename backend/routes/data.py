@@ -11,7 +11,7 @@ import pandas as pd
 
 from data.taiwan import fetch_tw_stock, resample_tw, fetch_tw_intraday, fetch_tw_realtime, fetch_tw_intraday_yf, fetch_tw_latest_bar_yf, fetch_tw_daily_yf, YF_MAX_DAYS as TW_YF_MAX_DAYS
 from data.fugle import fetch_fugle_intraday, fugle_enabled
-from data.fugle_futopt import fetch_futopt_candles, fetch_futopt_quote, resolve_front_month, PRODUCTS as FUTOPT_PRODUCTS
+from data.taifex_mis import fetch_taifex_candles, fetch_taifex_quote, resolve_front_month, PRODUCTS as FUTOPT_PRODUCTS
 from data.alpaca import fetch_alpaca_bars, alpaca_enabled
 from data.twelvedata import fetch_twelvedata_intraday, twelvedata_enabled
 from data.us_stock import fetch_us_stock, MAX_DAYS as US_MAX_DAYS
@@ -181,53 +181,22 @@ def diag_fugle(symbol: str = "2330", timeframe: str = "1m"):
 
 
 @router.get("/_diag_futopt")
-def diag_futopt(product: str = "TXF", timeframe: str = "1m"):
-    """台指期（futopt）抓取探針：確認 Railway 的 FUGLE_TOKEN 方案是否『涵蓋期貨行情』。
-    逐把金鑰探測 tickers（解析近月）＋ candles，回 HTTP 狀態。**絕不洩漏金鑰**。
-    判讀：status=200→方案含期貨；401/403→金鑰無期貨權限(需升級 Fugle 方案)；429→額度爆；
-         data 空→休市或該產品無資料。"""
-    import time as _t
-    import requests
-    from data.fugle import _keys as _fugle_keys
+def diag_futopt(product: str = "TXF"):
+    """台指期（TAIFEX MIS）抓取探針：確認免費官方源是否正常回即時報價。免金鑰。
+    判讀：front_month 有值且 quote.price 有值→正常（休市則為最後收盤）；
+         都是 None→MIS 連線失敗或該產品不在 feed（如微台 TMF）。"""
     product = (product or "TXF").upper()
-    tfp = _TF_FUTOPT = {"1m": "1", "5m": "5", "15m": "15", "1h": "60"}.get(timeframe, "1")
-    front = resolve_front_month(product)
-    out = {"product": product, "timeframe": timeframe, "front_month": front,
-           "keys": len(_fugle_keys()), "probes": []}
-    for i, tok in enumerate(_fugle_keys()):
-        p = {"key_idx": i}
-        try:
-            t0 = _t.time()
-            # 先探 tickers（列合約，判權限），再探近月 candles
-            rt = requests.get(f"https://api.fugle.tw/marketdata/v1.0/futopt/intraday/tickers",
-                              params={"type": "FUTURE", "exchange": "TAIFEX",
-                                      "session": "REGULAR", "product": product},
-                              headers={"X-API-KEY": tok}, timeout=8)
-            p["tickers_status"] = rt.status_code
-            try:
-                p["tickers_count"] = len(rt.json().get("data") or []) if rt.status_code == 200 else 0
-                if rt.status_code != 200:
-                    p["msg"] = str(rt.json().get("message") or "")[:120]
-            except Exception:
-                p["body"] = rt.text[:160]
-            if front:
-                rc = requests.get(f"https://api.fugle.tw/marketdata/v1.0/futopt/intraday/candles/{front}",
-                                  params={"timeframe": tfp},
-                                  headers={"X-API-KEY": tok}, timeout=8)
-                p["candles_status"] = rc.status_code
-                try:
-                    rows = rc.json().get("data") or []
-                    p["candles"] = len(rows)
-                    if rows:
-                        p["last_candle"] = rows[-1].get("date")
-                        p["last_close"] = rows[-1].get("close")
-                except Exception:
-                    pass
-            p["ms"] = int((_t.time() - t0) * 1000)
-        except Exception as e:
-            p["err"] = str(e)[:120]
-        out["probes"].append(p)
-    return out
+    from data.taifex_mis import resolve_front_month as _rf, fetch_taifex_quote, _get_quote_list
+    front = _rf(product)
+    q = fetch_taifex_quote(product)
+    return {
+        "source": "TAIFEX MIS (mis.taifex.com.tw)",
+        "product": product,
+        "front_month": front,
+        "quote_ok": bool(q and q.get("price") is not None),
+        "quote": q,
+        "feed_count": len(_get_quote_list()),
+    }
 
 
 @router.get("/_diag_trade")
@@ -654,10 +623,10 @@ def get_ohlcv(req: OHLCVRequest):
 
     try:
         if req.market == "tw" and req.symbol.upper() in FUTOPT_PRODUCTS:
-            # 台指期（歸在台股市場底下）：Fugle futopt 只有今日盤中分鐘K（無跨日歷史）
+            # 台指期（歸在台股市場底下）：TAIFEX MIS 即時報價前向累積分鐘K（無跨日歷史）
             if req.timeframe not in ("1m", "5m", "15m", "1h"):
                 raise HTTPException(400, "台指期僅支援 1m/5m/15m/1h 盤中分鐘K")
-            fdf = fetch_futopt_candles(req.symbol, req.timeframe)
+            fdf = fetch_taifex_candles(req.symbol, req.timeframe)
             df = fdf if fdf is not None else pd.DataFrame()
         elif req.market == "tw":
             if "/" in req.symbol:
@@ -785,13 +754,13 @@ def get_latest(req: LatestRequest):
     """取得最新 K 棒"""
     try:
         if req.market == "tw" and req.symbol.upper() in FUTOPT_PRODUCTS:
-            # 台指期（歸台股底下）：futopt 今日盤中分鐘K tail（快取 5 秒）；休市回空、不報錯
+            # 台指期（歸台股底下）：TAIFEX MIS 即時報價累積分鐘K tail（快取 3 秒）；休市回空、不報錯
             if req.timeframe not in ("1m", "5m", "15m", "1h"):
                 return {"live": False, "data": []}
-            fkey = f"txf_futopt_{req.symbol}_{req.timeframe}"
-            fdf = cache.get(fkey, ttl=5)
+            fkey = f"txf_taifex_{req.symbol}_{req.timeframe}"
+            fdf = cache.get(fkey, ttl=3)
             if fdf is None:
-                fdf = fetch_futopt_candles(req.symbol, req.timeframe)
+                fdf = fetch_taifex_candles(req.symbol, req.timeframe)
                 if fdf is not None and not fdf.empty:
                     cache.set(fkey, fdf)
             if fdf is not None and not fdf.empty:
