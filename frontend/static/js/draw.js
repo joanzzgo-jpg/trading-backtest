@@ -883,14 +883,13 @@ function _computeFVGConfluenceRuns() {
     };
     for (const dir of ["s", "l"]) {
       const ms = idxSet(_lastFVGMS, dir), sh = idxSet(_lastFVGShun, dir), bk = idxSet(_lastFVGBreak, dir);
-      // 每根 K「同向策略訊號數」＝多空(ms)+順多空(shun)+破多空(break) 各算一個(一根最多3)
-      const cnt = (i) => (ms.has(i) ? 1 : 0) + (sh.has(i) ? 1 : 0) + (bk.has(i) ? 1 : 0);
+      if (!ms.size || !sh.size || !bk.size) continue;    // 三種各要有才可能各一匯流
+      const near = (set, i) => set.has(i) || set.has(i + 1);   // 落在連續兩根 [i, i+1]
       const bars = new Set();
-      // 視窗 [i, i+1]：同向訊號『合計 ≥3』(可同型、可分散兩根、也可三個同一根) → 匯流
+      // 視窗 [i, i+1]：多空(ms)+順多空(shun)+破多空(break) 三種『各至少一個』同向落在此兩根 → 匯流
       for (const i of new Set([...ms, ...sh, ...bk])) {
-        if (cnt(i) + cnt(i + 1) >= 3) {
-          if (cnt(i) > 0) bars.add(i);
-          if (cnt(i + 1) > 0) bars.add(i + 1);
+        if (near(ms, i) && near(sh, i) && near(bk, i)) {
+          for (const set of [ms, sh, bk]) { if (set.has(i)) bars.add(i); if (set.has(i + 1)) bars.add(i + 1); }
         }
       }
       if (!bars.size) continue;
@@ -915,26 +914,29 @@ function _drawConfluenceOverlay(W, H) {
   const ts = mainChart.timeScale();
   const vr = ts.getVisibleLogicalRange();
   if (!vr) return;
-  const half = (W / Math.max(1, vr.to - vr.from)) / 2;   // 半根 K 寬，覆蓋到 K 邊緣
-  let plotW = W;
-  try { const tw = ts.width(); if (tw > 0) plotW = tw;
-        else { const pw = mainChart.priceScale("right").width(); if (pw > 0) plotW = W - pw; } } catch (e) {}
-  let plotBottom = H;   // 止於時間軸上緣，不延伸進時間軸
-  try { const th = ts.height(); if (th > 0) plotBottom = H - th; } catch (e) {}
+  const half = (W / Math.max(1, vr.to - vr.from)) / 2;   // 半根 K 寬
   drawCtx.save();
-  drawCtx.beginPath(); drawCtx.rect(0, 0, plotW, H); drawCtx.clip();
   for (const r of runs) {
     const a = ohlcvData[r.s], b = ohlcvData[r.e];
     if (!a || !b) continue;
     const x1 = ts.timeToCoordinate(toTime(a.time)), x2 = ts.timeToCoordinate(toTime(b.time));
     if (x1 == null || x2 == null) continue;
-    const L = x1 - half, R = x2 + half;
+    // 框住這幾根 K 的高低範圍（不做背景高亮，改畫方框）
+    let hi = -Infinity, lo = Infinity;
+    for (let i = r.s; i <= r.e; i++) {
+      const d = ohlcvData[i]; if (!d) continue;
+      if (d.high > hi) hi = d.high; if (d.low < lo) lo = d.low;
+    }
+    const yH = candleSeries && candleSeries.priceToCoordinate(hi);
+    const yL = candleSeries && candleSeries.priceToCoordinate(lo);
+    if (yH == null || yL == null) continue;
+    const padX = Math.max(2, half * 0.4), padY = 9;
+    const L = x1 - half - padX, R = x2 + half + padX, T = yH - padY, B = yL + padY;
     // 空=桃紅、多=霓虹綠（對齊 fvg_ms 方向色）
-    drawCtx.fillStyle   = r.dir === "s" ? "rgba(255,42,109,0.15)" : "rgba(57,255,20,0.13)";
-    drawCtx.fillRect(L, 0, R - L, plotBottom);
-    drawCtx.strokeStyle = r.dir === "s" ? "rgba(255,42,109,0.55)" : "rgba(57,255,20,0.5)";
-    drawCtx.lineWidth = 1.5;
-    drawCtx.strokeRect(L, 0.75, R - L, plotBottom - 1.5);
+    drawCtx.strokeStyle = r.dir === "s" ? "#ff2a6d" : "#39ff14";
+    drawCtx.lineWidth = 2;
+    drawCtx.setLineDash([]);
+    drawCtx.strokeRect(L, T, R - L, B - T);
   }
   drawCtx.restore();
 }
