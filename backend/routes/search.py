@@ -12,7 +12,12 @@ router = APIRouter(prefix="/api", tags=["search"])
 def search(market: str, keyword: str, exchange: str = "pionex", token: str = ""):
     """搜索標的"""
     if market == "tw":
-        return {"results": search_tw_stock(keyword, token)}
+        # 台指期歸在台股底下 → 三兄弟置頂於搜尋結果（可用 TXF/台指 等關鍵字搜）
+        from data.fugle_futopt import PRODUCTS as _FP
+        kw = (keyword or "").strip().upper()
+        futs = [{"symbol": s, "display": s, "name": n} for s, n in _FP.items()
+                if not kw or kw in s or kw in n or "台指" in (keyword or "") or "期" in (keyword or "")]
+        return {"results": futs + search_tw_stock(keyword, token)}
     elif market == "crypto":
         # keyword 為交易所名稱時當交易所過濾用（舊行為兼容）；否則當搜尋關鍵字
         if keyword in ["pionex", "binance", "bybit", "okx"]:
@@ -67,9 +72,15 @@ def get_tickers(response: Response, market: str = "futures"):
     # 避免多分頁/多用戶同步 polling 造成的重複請求
     response.headers["Cache-Control"] = f"public, max-age={10 if market == 'tw' else 1}"
     if market == "tw":
-        if has_tw_data():
-            return {"tickers": live_get("tw"), "source": "live"}
-        return {"tickers": fetch_tw_tickers(), "source": "direct"}
+        # 台指期（三兄弟近月）置頂於台股清單。futopt 報價快取 3 秒（每 3 秒抓一次，禮貌）。
+        from data.fugle_futopt import fetch_futopt_tickers
+        futs = cache.get("txf_tickers", ttl=3)
+        if futs is None:
+            futs = fetch_futopt_tickers()
+            cache.set("txf_tickers", futs)
+        base = live_get("tw") if has_tw_data() else fetch_tw_tickers()
+        src = "live" if has_tw_data() else "direct"
+        return {"tickers": (futs or []) + base, "source": src}
     if has_data():
         return {"tickers": live_get(market), "source": "live"}
     # 冷啟動 fallback：直接呼叫 API

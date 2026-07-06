@@ -41,7 +41,7 @@ function _addToWatchlist() {
 
 let _tickerData     = [];
 let _spotTickerData = [];
-let _twTickerData   = [];
+let _twTickerData   = [];   // 含台指期三兄弟（後端 /api/tickers?market=tw 已置頂 is_future 列）
 // 記住使用者選的市場分頁與排序（重刷新/下次回來還原）
 let _tickerMkt      = (() => { try { return localStorage.getItem("tkMkt") || "crypto"; } catch (e) { return "crypto"; } })();   // "crypto" | "tw"
 let _tickerSort     = (() => { try { return localStorage.getItem("tkSort") || "desc"; } catch (e) { return "desc"; } })();      // desc=漲幅 asc=跌幅 vol=量 wl=自選
@@ -377,8 +377,9 @@ function _selectTickerRow(el) {
     const x = document.getElementById("exchangeSelect");
     if (x) x.value = el.dataset.exch || "pionex";
   }
-  updateMarketUI();
+  // 先設 symbol 再 updateMarketUI：台指期(TXF/MXF/TMF)的時框限制依 symbol 判定，需先就位
   document.getElementById("symbolInput").value = el.dataset.sym;
+  updateMarketUI();
   loadData(false);
   // 立即用該列已知現價填上方價格 → 切換時上方價格不會閃「—」再回來（資料載入後會精修為同值）
   const _q = _quoteForRow(el);
@@ -562,7 +563,10 @@ function renderTickers() {
       t.symbol.includes(search) ||
       (t.name || "").toLowerCase().includes(search)
     );
-    list = _sortTickerList(list);
+    // 台指期三兄弟（is_future）永遠置頂、不參與漲跌/量排序；其餘台股照常排序
+    const futs   = list.filter(t => t.is_future);
+    const stocks = _sortTickerList(list.filter(t => !t.is_future));
+    list = [...futs, ...stocks];
 
     const items = list.map(t => {
       const sign = t.change_pct >= 0 ? "+" : "";
@@ -1168,6 +1172,7 @@ function _selectSymbol(el) {
     });
   }
   document.getElementById("symbolInput").value = display;
+  updateMarketUI();   // symbol 就位後再跑一次：台指期(TXF/MXF/TMF)時框限制依 symbol 判定
   closeSymSearch();
   loadData(false);
   window._mSetTab && window._mSetTab("chart");   // 手機：搜尋選標的後直接跳圖表分頁

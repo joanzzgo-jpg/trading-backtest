@@ -476,6 +476,7 @@
     const exchange = document.getElementById("exchangeSelect")?.value || "pionex";
     const tf       = (typeof currentTF !== "undefined" && currentTF) ? currentTF : "1d";
     if (!symbol) { _set("—"); return; }
+    if (market === "tw" && isTxfSym(symbol)) { _set("台指期為盤中即時，不支援勝率求解"); return; }
     _set("求解中…");
     const tgt = (typeof _wrTargetView !== "undefined" && (_wrTargetView === "band" || _wrTargetView === "band80")) ? "band" : "mid";
     const p = new URLSearchParams({ market, symbol, exchange, timeframe: tf,

@@ -199,6 +199,8 @@ let _band80Ctrl = null;
 async function _ensureBand80(d, cb) {
   if (!d || d.band80) { cb && cb(); return; }
   const market    = document.getElementById("marketSelect")?.value || "crypto";
+  const _sym0     = document.getElementById("symbolInput")?.value?.trim() || "";
+  if (market === "tw" && isTxfSym(_sym0)) { cb && cb(); return; }   // 台指期無勝率
   const symbol    = document.getElementById("symbolInput")?.value?.trim() || "";
   const exchange  = document.getElementById("exchangeSelect")?.value || "pionex";
   const timeframe = currentTF || "1d";
@@ -479,6 +481,18 @@ async function _fetchWinRateNow() {
   const exchange  = document.getElementById("exchangeSelect")?.value || "pionex";
   const timeframe = currentTF || "1d";
   if (!symbol) return;
+  // 台指期（台股底下的 TXF/MXF/TMF）：Fugle futopt 只有今日盤中 → CRT 勝率需多根歷史，
+  // 無意義且後端不支援。清空 HUD 與所有 FVG/SMC 圖層（避免沿用前一標的舊標記），不打 /api/crt_winrate。
+  if (market === "tw" && isTxfSym(symbol)) {
+    if (_wrFetchCtrl) { _wrFetchCtrl.abort(); _wrFetchCtrl = null; }
+    _renderWinRate({});
+    _renderWRSignals([]);
+    _renderFVGTrades([]); _renderFVGBB([], [], []); _renderFVGBreak([]);
+    _renderFVGMS([]); _renderFVGShun([]);
+    _renderSMCSweep([]); _renderSMCStruct([]); _renderSMCOB([]); _renderSMCSR([]);
+    _renderCoachVWAP([]); _renderCoachChannel([]);
+    return;
+  }
   const bufDec = (_wrStopBuffer || 0) / 100;
   const _vw = _wrVwFor(typeof ohlcvData !== "undefined" ? ohlcvData.length : 0);
   window._wrCurVw = _vw;
@@ -819,12 +833,14 @@ function _renderFVGBreak(items) {
   out.sort((a, b) => a.time - b.time);
   lastFVGBreakMarkers = out;
   _applyMainMarkers();
+  if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();   // 更新三策略匯流背景
 }
 window._renderFVGBreak = _renderFVGBreak;
 // 開關：window.toggleFVGBreak() 切換結構轉破標記顯示
 window.toggleFVGBreak = function (on) {
   window._fvgBreakHidden = (on === undefined) ? !window._fvgBreakHidden : !on;
   _applyMainMarkers();
+  if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();   // 匯流背景跟著開關更新
   return !window._fvgBreakHidden;
 };
 
@@ -855,12 +871,14 @@ function _renderFVGMS(items) {
   out.sort((a, b) => a.time - b.time);
   lastFVGMSMarkers = out;
   _applyMainMarkers();
+  if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();   // 更新三策略匯流背景
 }
 window._renderFVGMS = _renderFVGMS;
 // 開關：window.toggleFVGMS() 切換多/空方向標記顯示
 window.toggleFVGMS = function (on) {
   window._fvgMSHidden = (on === undefined) ? !window._fvgMSHidden : !on;
   _applyMainMarkers();
+  if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();   // 匯流背景跟著開關更新
   return !window._fvgMSHidden;
 };
 
@@ -890,12 +908,14 @@ function _renderFVGShun(items) {
   out.sort((a, b) => a.time - b.time);
   lastFVGShunMarkers = out;
   _applyMainMarkers();
+  if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();   // 更新三策略匯流背景
 }
 window._renderFVGShun = _renderFVGShun;
 // 開關：window.toggleFVGShun() 切換順多/順空標記顯示
 window.toggleFVGShun = function (on) {
   window._fvgShunHidden = (on === undefined) ? !window._fvgShunHidden : !on;
   _applyMainMarkers();
+  if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();   // 匯流背景跟著開關更新
   return !window._fvgShunHidden;
 };
 

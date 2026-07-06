@@ -860,6 +860,83 @@ function _getSessionRuns() {
   return runs;
 }
 // K 棒後方：①各交易時段淡色直條 ②各盤當盤高/低點虛線 ③星期標籤。只在日內時框、且開關開啟。
+// ── 三策略匯流高亮 ────────────────────────────────────────────────
+// 「多空(方向 fvg_ms)＋順多空(fvg_shun)＋破多空(fvg_break)」三種同方向策略，
+// 若同時落在「連續兩根 K」內(跨距 ≤1 根) → 視為強匯流，高亮那兩根 K 棒背景
+// （空=紅、多=綠）。回傳連續區段 [{s,e,dir}]（s/e 為 ohlcvData 索引）。
+function _computeFVGConfluenceRuns() {
+  const out = [];
+  try {
+    if (typeof _secToIdx === "undefined" || !_secToIdx.size) return out;
+    const _rpIdx = (typeof replayActive !== "undefined" && replayActive
+                    && typeof replayIdx === "number") ? replayIdx : null;
+    const idxSet = (arr, dir) => {
+      const s = new Set();
+      for (const it of (arr || [])) {
+        if (it.d !== dir) continue;
+        const bi = _secToIdx.get(toTime(it.t));
+        if (bi == null) continue;
+        if (_rpIdx != null && bi > _rpIdx) continue;   // 重播：未揭曉的不算
+        s.add(bi);
+      }
+      return s;
+    };
+    for (const dir of ["s", "l"]) {
+      const ms = idxSet(_lastFVGMS, dir), sh = idxSet(_lastFVGShun, dir), bk = idxSet(_lastFVGBreak, dir);
+      if (!ms.size || !sh.size || !bk.size) continue;    // 三種都要有才可能匯流
+      const near = (set, i) => set.has(i) || set.has(i + 1);   // 落在連續兩根 [i, i+1]
+      const bars = new Set();
+      for (const i of new Set([...ms, ...sh, ...bk])) {   // 以任一策略棒為左錨、看窗 [i,i+1]
+        if (near(ms, i) && near(sh, i) && near(bk, i)) {
+          for (const set of [ms, sh, bk]) { if (set.has(i)) bars.add(i); if (set.has(i + 1)) bars.add(i + 1); }
+        }
+      }
+      if (!bars.size) continue;
+      const sorted = [...bars].sort((a, b) => a - b);     // 併成連續區段
+      let s = sorted[0], e = sorted[0];
+      for (let k = 1; k < sorted.length; k++) {
+        if (sorted[k] === e + 1) e = sorted[k];
+        else { out.push({ s, e, dir }); s = e = sorted[k]; }
+      }
+      out.push({ s, e, dir });
+    }
+  } catch (_) {}
+  return out;
+}
+
+function _drawConfluenceOverlay(W, H) {
+  if (typeof ohlcvData === "undefined" || !ohlcvData.length || typeof mainChart === "undefined") return;
+  // 任一組件層被隱藏 → 不顯示匯流（缺少可見依據）
+  if (window._fvgMSHidden || window._fvgShunHidden || window._fvgBreakHidden) return;
+  const runs = _computeFVGConfluenceRuns();
+  if (!runs.length) return;
+  const ts = mainChart.timeScale();
+  const vr = ts.getVisibleLogicalRange();
+  if (!vr) return;
+  const half = (W / Math.max(1, vr.to - vr.from)) / 2;   // 半根 K 寬，覆蓋到 K 邊緣
+  let plotW = W;
+  try { const tw = ts.width(); if (tw > 0) plotW = tw;
+        else { const pw = mainChart.priceScale("right").width(); if (pw > 0) plotW = W - pw; } } catch (e) {}
+  let plotBottom = H;   // 止於時間軸上緣，不延伸進時間軸
+  try { const th = ts.height(); if (th > 0) plotBottom = H - th; } catch (e) {}
+  drawCtx.save();
+  drawCtx.beginPath(); drawCtx.rect(0, 0, plotW, H); drawCtx.clip();
+  for (const r of runs) {
+    const a = ohlcvData[r.s], b = ohlcvData[r.e];
+    if (!a || !b) continue;
+    const x1 = ts.timeToCoordinate(toTime(a.time)), x2 = ts.timeToCoordinate(toTime(b.time));
+    if (x1 == null || x2 == null) continue;
+    const L = x1 - half, R = x2 + half;
+    // 空=桃紅、多=霓虹綠（對齊 fvg_ms 方向色）
+    drawCtx.fillStyle   = r.dir === "s" ? "rgba(255,42,109,0.15)" : "rgba(57,255,20,0.13)";
+    drawCtx.fillRect(L, 0, R - L, plotBottom);
+    drawCtx.strokeStyle = r.dir === "s" ? "rgba(255,42,109,0.55)" : "rgba(57,255,20,0.5)";
+    drawCtx.lineWidth = 1.5;
+    drawCtx.strokeRect(L, 0.75, R - L, plotBottom - 1.5);
+  }
+  drawCtx.restore();
+}
+
 function _drawSessionOverlay(W, H) {
   // 星期標籤(③)永遠顯示——不受右上「交易時段」開關(_sessionOn)控制；
   // 僅色塊/高低線/開盤標記(①②④)受開關控制。兩者皆只在日內時框出現。
@@ -1613,6 +1690,9 @@ function renderDrawings() {
 
   // 成交量分佈圖（VPVR）：最底層先畫（避免蓋住時段高低線/繪圖/標記）；可開關
   _drawVolumeProfile(W, H);
+
+  // 三策略匯流高亮（多空+順多空+破多空 同向落在連續兩根 → 背景高亮那兩根）：背景層，先畫
+  _drawConfluenceOverlay(W, H);
 
   // 交易時段 overlay（背景帶=當盤高低範圍 + 上下緣高低線 + 星期標籤；可開關）
   _drawSessionOverlay(W, H);
