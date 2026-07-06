@@ -1183,6 +1183,114 @@ window.toggleVWAP = function (on) {
   return window._vwapOn;
 };
 
+// 右上「ATR 停損帶」獨立開關：主圖疊 close ± 2×ATR(14) 上下停損帶（前端由 ohlcvData 現算）
+function initAtrToggle() {
+  const btn = document.getElementById("atrToggleBtn");
+  if (!btn) return;
+  try { window._atrOn = localStorage.getItem("atrBands") === "1"; } catch (e) {}
+  const _sync = () => {
+    btn.classList.toggle("active", window._atrOn);
+    const st = document.getElementById("mSetATRState");
+    if (st) st.textContent = window._atrOn ? "開啟" : "關閉";
+    const row = document.getElementById("mSetATR");
+    if (row) row.classList.toggle("m-set-on", window._atrOn);
+  };
+  _sync();
+  btn.addEventListener("click", () => {
+    window._atrOn = !window._atrOn;
+    try { localStorage.setItem("atrBands", window._atrOn ? "1" : "0"); } catch (e) {}
+    _sync();
+    _scheduleRenderDrawings();   // 立即顯示/隱藏 ATR 停損帶
+  });
+}
+// 開關：window.toggleATR() 切換 ATR 停損帶顯示（可帶布林值強制 on/off）
+window.toggleATR = function (on) {
+  window._atrOn = (on === undefined) ? (window._atrOn !== true) : !!on;
+  try { localStorage.setItem("atrBands", window._atrOn ? "1" : "0"); } catch (e) {}
+  const btn = document.getElementById("atrToggleBtn");
+  if (btn) btn.classList.toggle("active", window._atrOn);
+  const st = document.getElementById("mSetATRState");
+  if (st) st.textContent = window._atrOn ? "開啟" : "關閉";
+  const row = document.getElementById("mSetATR");
+  if (row) row.classList.toggle("m-set-on", window._atrOn);
+  if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();
+  return window._atrOn;
+};
+
+// ATR 停損帶（close ± mult×ATR(period)）：Wilder RMA 平滑；前端從 ohlcvData 現算並依資料快取。
+const _ATR_PERIOD = 14, _ATR_MULT = 2;
+let _atrCache = null;   // { key, bands:[{t, up, lo}] }
+function _atrBands() {
+  if (typeof ohlcvData === "undefined" || !ohlcvData || ohlcvData.length < _ATR_PERIOD + 1) return null;
+  const n = ohlcvData.length;
+  const key = n + ":" + toTime(ohlcvData[n - 1].time);
+  if (_atrCache && _atrCache.key === key) return _atrCache.bands;
+  // True Range → Wilder 平滑(首值取前 period 根 TR 均值，其後 RMA)
+  let atr = null, sumTR = 0;
+  const bands = new Array(n).fill(null);
+  for (let i = 0; i < n; i++) {
+    const b = ohlcvData[i];
+    const tr = (i === 0) ? (b.high - b.low)
+      : Math.max(b.high - b.low, Math.abs(b.high - ohlcvData[i - 1].close), Math.abs(b.low - ohlcvData[i - 1].close));
+    if (i < _ATR_PERIOD) { sumTR += tr; if (i === _ATR_PERIOD - 1) atr = sumTR / _ATR_PERIOD; }
+    else { atr = (atr * (_ATR_PERIOD - 1) + tr) / _ATR_PERIOD; }
+    if (atr != null) bands[i] = { t: toTime(b.time), up: b.close + _ATR_MULT * atr, lo: b.close - _ATR_MULT * atr };
+  }
+  _atrCache = { key, bands };
+  return bands;
+}
+// 主圖 ATR 停損帶繪製：上帶(空單停損·紅)、下帶(多單停損·綠)，帶間淡填。
+function _drawATRBands(W, H) {
+  if (window._atrOn !== true) return;
+  if (typeof mainChart === "undefined" || typeof candleSeries === "undefined" || !candleSeries) return;
+  const bands = _atrBands();
+  if (!bands) return;
+  const ts = mainChart.timeScale();
+  let plotW = W; try { const tw = ts.width(); if (tw > 0) plotW = tw; } catch (e) {}
+  const _rpCut = (typeof replayActive !== "undefined" && replayActive
+    && typeof replayData !== "undefined" && replayData[replayIdx])
+    ? toTime(replayData[replayIdx].time) : null;
+  drawCtx.save();
+  drawCtx.beginPath(); drawCtx.rect(0, 0, plotW, H); drawCtx.clip();
+  // 先收集可視螢幕點（順掃上帶、逆掃下帶）給淡填多邊形用
+  const up = [], lo = [];
+  for (const pt of bands) {
+    if (pt == null) continue;
+    if (_rpCut != null && pt.t > _rpCut) break;
+    const x = _timeToX(pt.t);
+    if (x == null || x < -50 || x > plotW + 50) continue;
+    const yu = candleSeries.priceToCoordinate(pt.up), yl = candleSeries.priceToCoordinate(pt.lo);
+    if (yu == null || yl == null) continue;
+    up.push([x, yu]); lo.push([x, yl]);
+  }
+  if (up.length < 2) { drawCtx.restore(); return; }
+  // 帶間淡填
+  drawCtx.beginPath();
+  drawCtx.moveTo(up[0][0], up[0][1]);
+  for (let i = 1; i < up.length; i++) drawCtx.lineTo(up[i][0], up[i][1]);
+  for (let i = lo.length - 1; i >= 0; i--) drawCtx.lineTo(lo[i][0], lo[i][1]);
+  drawCtx.closePath();
+  drawCtx.fillStyle = "rgba(120,144,156,0.05)"; drawCtx.fill();
+  // 上帶（紅·空單停損）
+  drawCtx.setLineDash([5, 4]); drawCtx.lineWidth = 1;
+  drawCtx.strokeStyle = "rgba(239,83,80,0.55)"; drawCtx.beginPath();
+  drawCtx.moveTo(up[0][0], up[0][1]);
+  for (let i = 1; i < up.length; i++) drawCtx.lineTo(up[i][0], up[i][1]);
+  drawCtx.stroke();
+  // 下帶（綠·多單停損）
+  drawCtx.strokeStyle = "rgba(38,166,154,0.55)"; drawCtx.beginPath();
+  drawCtx.moveTo(lo[0][0], lo[0][1]);
+  for (let i = 1; i < lo.length; i++) drawCtx.lineTo(lo[i][0], lo[i][1]);
+  drawCtx.stroke();
+  drawCtx.setLineDash([]);
+  // 末端標籤
+  drawCtx.font = "10px sans-serif"; drawCtx.textBaseline = "middle";
+  const _lu = up[up.length - 1], _ll = lo[lo.length - 1];
+  drawCtx.fillStyle = "rgba(239,83,80,0.85)"; drawCtx.fillText("ATR停損", Math.min(_lu[0] + 4, plotW - 44), _lu[1]);
+  drawCtx.fillStyle = "rgba(38,166,154,0.85)"; drawCtx.fillText("ATR停損", Math.min(_ll[0] + 4, plotW - 44), _ll[1]);
+  drawCtx.restore();
+}
+
 // VWAP 成交量加權均價（黃折線）：獨立開關 _vwapOn；資料 window._coachVWAP（勝率回應每次刷新）。
 function _drawVWAP(W, H) {
   if (window._vwapOn !== true) return;
@@ -1513,6 +1621,9 @@ function renderDrawings() {
 
   // VWAP 成交量加權均價（黃折線；獨立開關 _vwapOn）
   _drawVWAP(W, H);
+
+  // ATR 停損帶（close ± 2×ATR(14)；獨立開關 _atrOn）
+  _drawATRBands(W, H);
 
   // Draw non-selected first, then hovered, then selected on top
   drawings.filter(d => d.id !== selectedId && d.id !== hoveredId).forEach(d => drawOne(d, W, H, false, false));

@@ -1597,11 +1597,13 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         # 約束：觸碰→B 之間不能夾任何反向缺口(除非觸碰棒 cf−touch≤2 順手做的)；
         #       多：B下緣>A下緣 且 B上緣>A上緣(不得完全被A包住、可部分重疊)；空：B下緣<A上緣(重疊可)。不套「B寬<A寬」。
         _MSWIN = 60
-        _MSMIN = proto_min if proto_min and proto_min > 0 else 0.0005  # proto 缺口(B)寬度門檻(前端可切換比較)；預設 0.05%(視覺缺口仍 0.01%，不受此限)
+        _MSMIN = proto_min if proto_min and proto_min > 0 else 0.0005  # proto 缺口(B)寬度門檻(前端 B≥ 開關可切換比較)；預設 0.05%
+        _SETUP_MIN = 0.0005  # setup A(視覺缺口序列 _gseq)過濾門檻：固定 0.05%，不隨 proto_min 變。
+        #   ⚠ 只讓「proto B」跟著前端開關動；setup A 共用給 多空/破多空/順多空，若也跟著變會連動改到順多空(非本意)。
         _MSOVR = 0.10      # 觸碰時 K 影線衝過 setup FVG 緣 10% → 該 FVG 作廢(之後不算有效觸碰)
         # 寬度%：多用下緣為分母(top-bot)/bot、空用上緣(top-bot)/top(對齊視覺 _gw 定義)
         _gseq = [(_ci, _tp, _bt, _dr) for (_ci, _tp, _bt, _dr) in _gaps_seq
-                 if (_tp - _bt) / (_bt if _dr == "l" else _tp) >= _MSMIN]
+                 if (_tp - _bt) / (_bt if _dr == "l" else _tp) >= _SETUP_MIN]
         _seq_cf  = [_ci for (_ci, _tp, _bt, _dr) in _gseq]      # 缺口確認棒 cf，升序(生成序)
         _seq_dr  = [_dr for (_ci, _tp, _bt, _dr) in _gseq]      # 對應方向
         _seq_top = [_tp for (_ci, _tp, _bt, _dr) in _gseq]      # 對應上緣
