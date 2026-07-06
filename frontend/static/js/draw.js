@@ -883,12 +883,14 @@ function _computeFVGConfluenceRuns() {
     };
     for (const dir of ["s", "l"]) {
       const ms = idxSet(_lastFVGMS, dir), sh = idxSet(_lastFVGShun, dir), bk = idxSet(_lastFVGBreak, dir);
-      if (!ms.size || !sh.size || !bk.size) continue;    // 三種都要有才可能匯流
-      const near = (set, i) => set.has(i) || set.has(i + 1);   // 落在連續兩根 [i, i+1]
+      // 每根 K「同向策略訊號數」＝多空(ms)+順多空(shun)+破多空(break) 各算一個(一根最多3)
+      const cnt = (i) => (ms.has(i) ? 1 : 0) + (sh.has(i) ? 1 : 0) + (bk.has(i) ? 1 : 0);
       const bars = new Set();
-      for (const i of new Set([...ms, ...sh, ...bk])) {   // 以任一策略棒為左錨、看窗 [i,i+1]
-        if (near(ms, i) && near(sh, i) && near(bk, i)) {
-          for (const set of [ms, sh, bk]) { if (set.has(i)) bars.add(i); if (set.has(i + 1)) bars.add(i + 1); }
+      // 視窗 [i, i+1]：同向訊號『合計 ≥3』(可同型、可分散兩根、也可三個同一根) → 匯流
+      for (const i of new Set([...ms, ...sh, ...bk])) {
+        if (cnt(i) + cnt(i + 1) >= 3) {
+          if (cnt(i) > 0) bars.add(i);
+          if (cnt(i + 1) > 0) bars.add(i + 1);
         }
       }
       if (!bars.size) continue;
