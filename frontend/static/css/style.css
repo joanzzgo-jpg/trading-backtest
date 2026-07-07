@@ -3119,7 +3119,8 @@ html.perf-mode .time-axis-year {
 }
 
 /* 「天氣如何？」按鈕（桌機）：放小啊右側(頭部右上角)，在對話泡泡下方 → 不被泡泡擋。
-   只在小啊「跳出來」(peeking/visit/full) 後才顯示，躲回去(hidden)時隱藏、不單獨漂浮。 */
+   只在小啊『整隻跳出來』(滑過 peek-full／每10分自動 peek-visit) 時才顯示；
+   平時只露頭(peeking)、躲回去(hidden)、城門、極簡模式 → 一律隱藏，不單獨漂浮在右下角。 */
 .bear-wx-btn {
   position: absolute;
   top: 8px;
@@ -3139,16 +3140,13 @@ html.perf-mode .time-axis-year {
   pointer-events: none;
   transition: opacity 0.3s ease;
 }
-.peek-bear.peeking .bear-wx-btn,
 .peek-bear.peek-visit .bear-wx-btn,
 .peek-bear.peek-full .bear-wx-btn {
   opacity: 1;
   visibility: visible;
   pointer-events: auto;
-  animation: bearWxPulse 2.6s ease-in-out infinite;   /* 冒出後輕微上下浮動，提示可按 */
 }
 .bear-wx-btn:active { transform: scale(.94); }
-@keyframes bearWxPulse { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
 
 /* 熊對話泡泡 */
 .bear-bubble {
