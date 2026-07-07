@@ -1494,6 +1494,21 @@ function _scheduleRenderDrawings() {
   });
 }
 
+// 切標的/時框後的「落定重繪」：新資料 setData 後,價格軸 autoScale 到新範圍 + 還原視野
+// 需 ~220ms 才穩定(見 render.js 註解)。overlay 只訂閱可見時間範圍、不訂閱價格軸縮放
+// → 若只在切換當下重繪一次,線會停在「價軸縮放前」的舊 y 座標＝所有線偏離原價位,
+//   要等使用者動一下圖表(觸發時間範圍事件)才修正。這裡跨 settle 視窗補幾次重繪,
+//   讓線在價軸落定後回到正確 (time, price) 位置。
+let _rdSettleTimers = [];
+function _renderDrawingsAfterSettle() {
+  _rdSettleTimers.forEach(clearTimeout);
+  _rdSettleTimers = [];
+  _scheduleRenderDrawings();                                   // 立即(舊行為)
+  for (const ms of [160, 380, 650]) {                          // 覆蓋 setData/autoScale/還原視野的落定窗
+    _rdSettleTimers.push(setTimeout(_scheduleRenderDrawings, ms));
+  }
+}
+
 function renderDrawings() {
   if (!drawCtx || !drawCanvas) return;
   // W/H 用 CSS 邏輯尺寸（backing store 是 device px，已由 setTransform(dpr) 縮放）

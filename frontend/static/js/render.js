@@ -74,7 +74,10 @@ async function loadData(autoLoad = false) {
     saveLastSymbol();   // 載入成功後記憶此次標的
     if (typeof loadDrawings === "function") {   // 切換標的：載入該標的專屬繪圖並重繪
       loadDrawings();
-      if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();
+      // 用「落定重繪」(跨 settle 視窗補幾次)：價軸 autoScale 需 ~220ms 才穩定,只重繪一次會
+      // 讓線停在舊 y 座標＝偏離原價位(切標的/時框都會)。見 draw.js _renderDrawingsAfterSettle。
+      if (typeof _renderDrawingsAfterSettle === "function") _renderDrawingsAfterSettle();
+      else if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();
     }
     _updateStarBtn();
     if (!_isPerpSym) fetchWinRate();   // Binance 標的：照舊在 ohlcv 後跑
