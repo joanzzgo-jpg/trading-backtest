@@ -1784,13 +1784,14 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
 
         _shun_scan(_bull, _bear_cfs, _brk_s, "l")      # 順多：吃做多FVG → 近期兩個做空FVG其中一個影線穿透上緣
         _shun_scan(_bear, _bull_cfs, _brk_l, "s")      # 順空：吃做空FVG → 近期兩個做多FVG其中一個影線穿透下緣
-        # ── 「假設順空」開關（shun_proto）：做空假設下，順空('s')標記那根本身必須是「bear proto 缺口」
-        #     （g 收盤破前根低點的 proto 缺口 _pseq dir=='s'）才算 → 否則剔除。順多('l')不受影響。
+        # ── 「假設順空」開關（shun_proto）：做空假設下，順空('s')標記那根本身必須有 proto 缺口
+        #     （_pseq 的 g 棒，空 dir=='s' 或 多 dir=='l' 皆可）才算 → 沒有任何 proto 的那根剔除。
+        #     順多('l')不受影響。
         if shun_proto:
-            _bear_pg = {_p[0] for _p in _pseq if _p[3] == "s"}      # bear proto 的 g 棒集合
+            _any_pg = {_p[0] for _p in _pseq}                       # 任一方向 proto 缺口的 g 棒(空/多皆可)
             _rev = {times_iso[_i]: _i for _i in range(_N)}          # 時間戳→索引(K 棒時間唯一)
             _fvg_shun = [_m for _m in _fvg_shun
-                         if _m["d"] != "s" or _rev.get(_m["t"]) in _bear_pg]
+                         if _m["d"] != "s" or _rev.get(_m["t"]) in _any_pg]
         _fvg_shun.sort(key=lambda x: x["t"])
         _fvg_shun = _fvg_shun[-2000:]
         # ── 標記「有無被用到」：未被任何標記(破多/破空/多/空)用到的主缺口 → used=False(前端淡化)。
