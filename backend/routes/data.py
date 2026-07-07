@@ -467,6 +467,10 @@ def _mis_overlay(df: pd.DataFrame, rt: dict, minutes: int):
 # 尚未公布的最近 ~20 分鐘，讓圖表連續且即時。狀態存於模組層（隨伺服器存活；重啟後
 # 需重新累積，約一個交易時段內收斂）。
 _mis_acc: dict = {}   # key f"{symbol}:{minutes}" → {"day":date, "cur":{...}|None, "done":{ts:bar}}
+_mis_lock = threading.Lock()   # 背景 worker 與請求執行緒都會累積同一 key → 保護讀改寫
+# 最近經 /api/latest 請求過的台股 (symbol, minutes) → 上次存取 epoch。背景 worker 據此
+# 持續累積這些標的的即時分鐘K，不必等前端 poll → 無 Fugle 的本機切走再切回也不留斷層。
+_tw_hot: dict = {}
 
 def _mis_acc_list(symbol: str, minutes: int):
     st = _mis_acc.get(f"{symbol}:{minutes}")
@@ -483,30 +487,66 @@ def _mis_acc_list(symbol: str, minutes: int):
     return out
 
 def _mis_accumulate(symbol: str, minutes: int, rt: dict):
-    """用 TWSE MIS 即時報價即時堆出當前/近期『真實』分鐘 K 棒。回傳今日已累積 bar list(升冪)。"""
-    price = rt.get("close")
-    mis_utc = rt["time"] - timedelta(hours=8)              # TST naive → UTC naive
-    bar_min = (mis_utc.hour * 60 + mis_utc.minute) // minutes * minutes
-    bar_ts  = mis_utc.replace(hour=bar_min // 60, minute=bar_min % 60, second=0, microsecond=0)
-    bar_tpe = ((bar_ts.hour + 8) % 24) * 60 + bar_ts.minute
-    # 僅交易時段(09:00-13:30 TPE)累積；其餘時間回傳已累積結果不動
-    if price is None or bar_tpe < 9 * 60 or bar_tpe >= 13 * 60 + 30:
+    """用 TWSE MIS 即時報價即時堆出當前/近期『真實』分鐘 K 棒。回傳今日已累積 bar list(升冪)。
+    背景 worker 與請求執行緒都可能同時呼叫同一 key → 全程持鎖，避免讀改寫競態。"""
+    with _mis_lock:
+        price = rt.get("close")
+        mis_utc = rt["time"] - timedelta(hours=8)              # TST naive → UTC naive
+        bar_min = (mis_utc.hour * 60 + mis_utc.minute) // minutes * minutes
+        bar_ts  = mis_utc.replace(hour=bar_min // 60, minute=bar_min % 60, second=0, microsecond=0)
+        bar_tpe = ((bar_ts.hour + 8) % 24) * 60 + bar_ts.minute
+        # 僅交易時段(09:00-13:30 TPE)累積；其餘時間回傳已累積結果不動
+        if price is None or bar_tpe < 9 * 60 or bar_tpe >= 13 * 60 + 30:
+            return _mis_acc_list(symbol, minutes)
+        key = f"{symbol}:{minutes}"
+        st = _mis_acc.get(key)
+        if st is None or st["day"] != mis_utc.date():          # 換日重置
+            st = {"day": mis_utc.date(), "cur": None, "done": {}}
+            _mis_acc[key] = st
+        cumvol = rt.get("volume") or 0
+        cur = st["cur"]
+        if cur is None or cur["ts"] != bar_ts:                 # 新分鐘 → 收掉舊棒、開新棒
+            if cur is not None:
+                st["done"][cur["ts"]] = cur
+            st["cur"] = {"ts": bar_ts, "o": price, "h": price, "l": price, "c": price, "vol0": cumvol, "vol": 0}
+        else:                                                  # 同分鐘 → 更新高/低/收 + 量(累積量差)
+            cur["h"] = max(cur["h"], price); cur["l"] = min(cur["l"], price); cur["c"] = price
+            cur["vol"] = max(0, cumvol - cur["vol0"])
         return _mis_acc_list(symbol, minutes)
-    key = f"{symbol}:{minutes}"
-    st = _mis_acc.get(key)
-    if st is None or st["day"] != mis_utc.date():          # 換日重置
-        st = {"day": mis_utc.date(), "cur": None, "done": {}}
-        _mis_acc[key] = st
-    cumvol = rt.get("volume") or 0
-    cur = st["cur"]
-    if cur is None or cur["ts"] != bar_ts:                 # 新分鐘 → 收掉舊棒、開新棒
-        if cur is not None:
-            st["done"][cur["ts"]] = cur
-        st["cur"] = {"ts": bar_ts, "o": price, "h": price, "l": price, "c": price, "vol0": cumvol, "vol": 0}
-    else:                                                  # 同分鐘 → 更新高/低/收 + 量(累積量差)
-        cur["h"] = max(cur["h"], price); cur["l"] = min(cur["l"], price); cur["c"] = price
-        cur["vol"] = max(0, cumvol - cur["vol0"])
-    return _mis_acc_list(symbol, minutes)
+
+
+def _tw_realtime_worker():
+    """背景執行緒：交易時段(09:00-13:30 TPE)持續替最近看過的台股標的用 TWSE MIS 累積即時分鐘K。
+    不依賴前端 poll → 使用者切走再切回、或前端沒在 poll 時，累積器仍不斷前進 → 無 Fugle 的本機
+    也不再有『切標的回來中間一段沒棒』的斷層(那 20 分鐘窗口只剩開機初期，yfinance 延遲追上即補平)。
+    每 15 秒一輪；每個 symbol 只抓一次即時報價、供其所有已請求時框累積；共用 tw_mis_ 快取不重複打 TWSE。"""
+    while True:
+        try:
+            now_tpe = dt.utcnow() + timedelta(hours=8)
+            mod = now_tpe.hour * 60 + now_tpe.minute
+            in_session = now_tpe.weekday() < 5 and 9 * 60 <= mod < 13 * 60 + 30
+            if in_session and _tw_hot:
+                cutoff = time.time() - 1200                    # 只維護近 20 分內被請求過的標的
+                # 順手清掉太舊(>1hr)的紀錄，避免無限增長
+                for k, ts in [(k, v) for k, v in list(_tw_hot.items()) if v < time.time() - 3600]:
+                    _tw_hot.pop(k, None)
+                pairs = [(s, m) for (s, m), ts in list(_tw_hot.items()) if ts >= cutoff]
+                rt_by_sym: dict = {}
+                for sym, minutes in pairs:
+                    if sym not in rt_by_sym:
+                        mk = f"tw_mis_{sym}"
+                        rt = cache.get(mk, ttl=10)
+                        if rt is None:
+                            rt = fetch_tw_realtime(sym)
+                            if rt:
+                                cache.set(mk, rt)
+                        rt_by_sym[sym] = rt
+                    rt = rt_by_sym.get(sym)
+                    if rt:
+                        _mis_accumulate(sym, minutes, rt)
+        except Exception:
+            pass
+        time.sleep(15)
 
 
 # ───────── Finnhub 即時累積美股分鐘 K（免費、免 KYC，用既有 FINNHUB_TOKEN）─────────
@@ -837,6 +877,7 @@ def get_latest(req: LatestRequest):
                     is_live = False
                     if rt and tf in ("1m", "5m", "15m", "1h"):
                         minutes = {"1m": 1, "5m": 5, "15m": 15, "1h": 60}[tf]
+                        _tw_hot[(req.symbol, minutes)] = time.time()   # 背景 worker 據此持續累積此標的
                         # MIS 即時累積真實分鐘棒：把 yfinance 最後一根之後的(含當下這根)接上 → 當下就有最新棒、無 20 分 gap
                         yf_last = pd.Timestamp(df_out.iloc[-1]["time"]).floor(f"{minutes}min")
                         for b in _mis_accumulate(req.symbol, minutes, rt):
@@ -1016,6 +1057,7 @@ def crt_winrate_api(
     band_ratio: float = 1.0,
     vw: int = 0,
     proto_min: float = 0.0005,
+    shun_proto: int = 0,
 ):
     """/api/crt_winrate 路由：呼叫 get_crt_winrate(含快取) → 回前端時把 signals『瘦身』
     （拿掉只後端用的 est/rr 欄位 + 省略 None 值），省 ~40% 傳輸量、加快手機端載入。
@@ -1024,7 +1066,8 @@ def crt_winrate_api(
     ⚠ 回測/自動交易是 Python 直接呼叫 get_crt_winrate → 拿『完整』signals，不受此瘦身影響。"""
     wr = get_crt_winrate(market, symbol, timeframe, exchange, stop_buffer_pct,
                          solve, solve_target, api_key, api_secret, finmind_token,
-                         band_ratio=band_ratio, vw=vw, proto_min=proto_min)
+                         band_ratio=band_ratio, vw=vw, proto_min=proto_min,
+                         shun_proto=bool(shun_proto))
     if solve or not isinstance(wr, dict):        # solve 模式非勝率結構 → 原樣回
         return wr
     sigs = wr.get("signals")
@@ -1611,6 +1654,7 @@ def get_crt_winrate(
     band_ratio: float = 1.0,
     vw: int = 0,
     proto_min: float = 0.0005,
+    shun_proto: bool = False,
 ):
     """CRT 策略各時間級別勝率（每個子統計至少 10 個案例，不足則往前翻倍）。
 
@@ -1630,7 +1674,10 @@ def get_crt_winrate(
     # proto 缺口(B)寬度門檻（多空/破多空）：前端可切換比較。預設 0.05% 不改 key（沿用既有快取），其餘另分流。
     _pm = round(float(proto_min), 5) if proto_min and proto_min > 0 else 0.0005
     _pm_tag = "" if abs(_pm - 0.0005) < 1e-9 else f":pm{_pm}"
-    cache_key = f"crt_wr102:{market}:{symbol}:{exchange}:{timeframe}:{_buf}:{int(_long_only)}{_br_tag}{_vw_tag}{_pm_tag}"   # v96:股票隔盤跳空(影線對影線)缺口盒;v95:+vw(視覺標記近段窗)
+    # 假設順空(順空標記需 bear proto)：開啟時另分流快取，不污染主結果。
+    _sp = bool(shun_proto)
+    _sp_tag = ":sp1" if _sp else ""
+    cache_key = f"crt_wr102:{market}:{symbol}:{exchange}:{timeframe}:{_buf}:{int(_long_only)}{_br_tag}{_vw_tag}{_pm_tag}{_sp_tag}"   # v96:股票隔盤跳空(影線對影線)缺口盒;v95:+vw(視覺標記近段窗)
     bar_key = cache_key + ":bar"
     # bar-aware 新鮮度：記下「算這份結果時最新那根棒的開盤時刻」。crypto 在「同一根棒內」吃快取，
     # 一旦有新棒收盤就讓快取失效 → 走下方短窗補抓重算 → 最新訊號最多慢到「收盤後第一次請求」，
@@ -1733,7 +1780,8 @@ def get_crt_winrate(
         result = _wr_cached
     else:
         result = _calc_crt_winrate(df, stop_buffer_pct=_buf, long_only=_long_only, band_ratio=_br,
-                                   visual_window=_vw, stock_gap=(market != "crypto"), proto_min=_pm)
+                                   visual_window=_vw, stock_gap=(market != "crypto"), proto_min=_pm,
+                                   shun_proto=_sp)
         try:
             _tag_htf_bias(df, timeframe, result)   # 標 weak(逆 HTF 趨勢=弱信號)→前端淡化
         except Exception:

@@ -182,6 +182,11 @@ async def _warmup():
     threading.Thread(target=_tw_ticker_worker, daemon=True).start()
     threading.Thread(target=_txf_collect_worker, daemon=True).start()   # 台指期歷史分鐘累積
     try:
+        from routes.data import _tw_realtime_worker
+        threading.Thread(target=_tw_realtime_worker, daemon=True).start()   # 台股即時分鐘K持續累積(無Fugle不留斷層)
+    except Exception as e:
+        print(f"  ⚠ 台股即時累積 worker 啟動失敗：{e}")
+    try:
         import notify_monitor
         notify_monitor.start()   # CRT 訊號 Web Push 背景監控（無訂閱時自動空轉、極低成本）
     except Exception as e:
