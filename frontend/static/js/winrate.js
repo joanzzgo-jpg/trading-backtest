@@ -215,8 +215,6 @@ let _band80Ctrl = null;
 async function _ensureBand80(d, cb) {
   if (!d || d.band80) { cb && cb(); return; }
   const market    = document.getElementById("marketSelect")?.value || "crypto";
-  const _sym0     = document.getElementById("symbolInput")?.value?.trim() || "";
-  if (market === "tw" && isTxfSym(_sym0)) { cb && cb(); return; }   // 台指期無勝率
   const symbol    = document.getElementById("symbolInput")?.value?.trim() || "";
   const exchange  = document.getElementById("exchangeSelect")?.value || "pionex";
   const timeframe = currentTF || "1d";
@@ -497,18 +495,8 @@ async function _fetchWinRateNow() {
   const exchange  = document.getElementById("exchangeSelect")?.value || "pionex";
   const timeframe = currentTF || "1d";
   if (!symbol) return;
-  // 台指期（台股底下的 TXF/MXF/TMF）：Fugle futopt 只有今日盤中 → CRT 勝率需多根歷史，
-  // 無意義且後端不支援。清空 HUD 與所有 FVG/SMC 圖層（避免沿用前一標的舊標記），不打 /api/crt_winrate。
-  if (market === "tw" && isTxfSym(symbol)) {
-    if (_wrFetchCtrl) { _wrFetchCtrl.abort(); _wrFetchCtrl = null; }
-    _renderWinRate({});
-    _renderWRSignals([]);
-    _renderFVGTrades([]); _renderFVGBB([], [], []); _renderFVGBreak([]);
-    _renderFVGMS([]); _renderFVGShun([]);
-    _renderSMCSweep([]); _renderSMCStruct([]); _renderSMCOB([]); _renderSMCSR([]);
-    _renderCoachVWAP([]); _renderCoachChannel([]);
-    return;
-  }
+  // 台指期（TXF/MXF/TMF）現在後端 fetch_crt_df 已接 futopt 資料（cnyes即時+自建DB歷史/期貨日線）
+  //  → 照常打 /api/crt_winrate 算 FVG/策略（勝率統計視資料深度而定，標記照畫；期貨可做空）。
   const bufDec = (_wrStopBuffer || 0) / 100;
   const _vw = _wrVwFor(typeof ohlcvData !== "undefined" ? ohlcvData.length : 0);
   window._wrCurVw = _vw;

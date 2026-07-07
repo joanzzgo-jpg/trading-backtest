@@ -54,6 +54,18 @@ def fetch_crt_df(market: str, symbol: str, timeframe: str, days: int,
     """
     end = date.today().isoformat()
     if market == "tw":
+        if symbol.upper() in FUTOPT_PRODUCTS:
+            # 台指期(TXF/MXF/TMF)：盤中走 get_txf_intraday(cnyes即時+自建DB歷史)、
+            # 日/週/月走 fetch_taifex_daily(FinMind期貨日線)——與 /api/ohlcv 同源，
+            # 讓 CRT 勝率/FVG/策略也能算(先前因 yfinance 抓不到期貨代號而缺標記)。
+            if timeframe in TXF_INTRADAY:
+                fdf = get_txf_intraday(symbol, timeframe)
+                return fdf if (fdf is not None and not fdf.empty) else pd.DataFrame()
+            start = (date.today() - timedelta(days=days)).isoformat()
+            ddf = fetch_taifex_daily(symbol, start, end, finmind_token)
+            if ddf is None or ddf.empty:
+                return pd.DataFrame()
+            return ddf if timeframe == "1d" else resample_tw(ddf, timeframe)
         if timeframe in ("1m", "5m", "15m", "1h"):
             max_d = TW_YF_MAX_DAYS.get(timeframe, 60)
             start = (date.today() - timedelta(days=min(days, max_d))).isoformat()
@@ -1665,7 +1677,7 @@ def get_crt_winrate(
     from datetime import date, timedelta
     _buf = round(max(0.0, float(stop_buffer_pct or 0.0)), 4)
     _br = round(max(0.1, min(1.0, float(band_ratio or 1.0))), 3)
-    _long_only = (market == "tw")  # 台股不能放空
+    _long_only = (market == "tw" and symbol.upper() not in FUTOPT_PRODUCTS)  # 台股不能放空；台指期是期貨可做空
     _br_tag = "" if _br >= 0.999 else f":br{_br}"   # 預設 1.0 不改 key（沿用既有快取）；8成軌等另分流
     # vw＝FVG/策略標記的「近段窗」根數(勝率統計不受此影響)。前端往歷史滑時加大 vw 重取→補算舊區標記。
     #   前端送固定階梯值(見 winrate.js _wrVwLadder)→ 快取條目有限；0/預設→空 tag(沿用主快取,窗=_VISUAL_WINDOW)。
