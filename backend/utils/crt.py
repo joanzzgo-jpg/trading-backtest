@@ -1997,7 +1997,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
     #   每根 hlc3×量 累積，遇「日期變更」重置。回傳 [{t, v}]，v=尚無量時 None。
     # 向量化(原純 Python 迴圈掃整條 ~3.4萬根 + 建 3.4萬個 dict 只留 3000 → ~5x 慢)：
     #   numpy 算 hlc3×量，pandas groupby(日).cumsum() 逐日獨立累加(不跨日→無浮點抵消)，只建最後 3000 個 dict。
-    #   與舊版逐日重置結果一致(誤差 <1e-9)。分組鍵用 times_iso→datetime64[D]，日界定義同原 times_iso[:10]。
+    #   與舊版逐日重置結果一致(誤差 <1e-9)。分組鍵依棒間距自適應：盤中→datetime64[D](每日)、日線以上→[Y](年度)。
     _vwap = []
     try:
         if "volume" in df.columns:
@@ -2006,7 +2006,12 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             _vpos = np.where((_vol == _vol) & (_vol > 0), _vol, 0.0)   # NaN/非正量→0(不計入)
             _tp = (highs + lows + closes) / 3.0                        # 典型價 hlc3
             _pv = np.where(_vpos > 0, _tp * _vpos, 0.0)                # 只在有效量處累 PV
-            _dayk = np.array(times_iso, dtype="datetime64[D]")         # 每日錨定分組鍵
+            # 錨定粒度依「棒間距」自適應：盤中(每根<20h)每日錨定；日線以上(1d/1w/1M)每日錨定會退化
+            #（每根 K 各自成一天→groupby 每根獨立→cumsum 每根重置→VWAP=該根 hlc3、貼著 K 棒跳＝錯）
+            # → 改年度錨定(YTD Anchored VWAP，每年初重置)，日/周/月線才是有意義的量加權均價。
+            _tarr = np.array(times_iso, dtype="datetime64[s]")
+            _med = float(np.median(np.diff(_tarr).astype("timedelta64[s]").astype(float))) if _n >= 2 else 0.0
+            _dayk = _tarr.astype("datetime64[Y]") if _med >= 20 * 3600 else _tarr.astype("datetime64[D]")
             _dpv = pd.Series(_pv).groupby(_dayk).cumsum().to_numpy()   # 逐日 ΣPV
             _dv  = pd.Series(_vpos).groupby(_dayk).cumsum().to_numpy() # 逐日 ΣV
             with np.errstate(divide="ignore", invalid="ignore"):
