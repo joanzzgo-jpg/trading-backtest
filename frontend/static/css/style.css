@@ -6610,6 +6610,7 @@ html.landing-active .landing { background: transparent; }
   .m-set-weather .wx-grid b { color: var(--text); font-weight: 600; }
   .m-set-weather .wx-pop { margin-top: 7px; font-size: 12.5px; color: var(--muted); }
   .m-set-weather .wx-pop b { color: var(--accent); font-weight: 700; }
+  .m-set-weather .wx-near { margin-top: 6px; font-size: 12.5px; color: var(--muted); }
   .m-set-weather .wx-foot { margin-top: 8px; font-size: 10.5px; color: var(--muted); opacity: .7; }
 
   /* 小啊對話卡：天氣下方。頭像 + 名稱 + 聊天泡泡（像他在跟你說話），點泡泡換一句 */

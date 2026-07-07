@@ -481,7 +481,9 @@ def _jma_decimal(coord):
     except (TypeError, ValueError, IndexError):
         return None
 
-async def _from_jma(lat: float, lon: float) -> dict:
+async def _jma_fetch_obs():
+    """抓 JMA AMeDAS 站點座標表 + 最新觀測 map + 最新時間字串（共用快取）。
+    回 (table, obs, latest)。天氣與『附近雨區』共用，避免重複抓取邏輯。"""
     now = time.time()
     timeout = aiohttp.ClientTimeout(total=12)
     async with aiohttp.ClientSession(timeout=timeout) as sess:
@@ -502,6 +504,11 @@ async def _from_jma(lat: float, lon: float) -> dict:
             async with sess.get(JMA_MAP_URL.format(ts=ts)) as r:
                 obs = await r.json(content_type=None)
             _JMA_MAP_CACHE.update({"key": ts, "data": obs})
+    return table, obs, latest
+
+
+async def _from_jma(lat: float, lon: float) -> dict:
+    table, obs, latest = await _jma_fetch_obs()
 
     # 找最近且有溫度觀測的站（AMeDAS 部分站只測雨量/風，無溫度）
     best, bd = None, float("inf")
@@ -1079,6 +1086,497 @@ async def weather(
     else:
         res["tz_offset_min"] = None
     _WX_CACHE.set(_ck, res)
+    return res
+
+
+# ─── 附近雨區偵測（Nearby Rain）────────────────────────────────
+# 把使用者周圍正在下雨的測站，換算成「方位/距離/雨勢」，讓人出門前一眼看出附近哪裡有雨、
+# 會不會往我這移動。地理分流同天氣，一律用『在地氣象局的測站網』(真實觀測、密度高)：
+#   台灣 → CWA O-A0002-001 自動雨量站(1310 站，Past10Min/Past1hr)
+#   香港 → HKO rhrread 18 區即時雨量
+#   日本 → JMA AMeDAS 觀測網(precipitation10m/1h)
+#   其他 → Open-Meteo 網格 + 所在點 minutely_15 臨近預報
+CWA_RAIN_URL = "https://opendata.cwa.gov.tw/api/v1/rest/datastore/O-A0002-001"
+NEARBY_RADIUS_KM = 30.0
+# ETA 可信視野：雨胞(尤其台灣午後對流)壽命約 30-60 分就生消/變形、風場也會變 →
+# 投射超過此值的 ETA 是假精準。使用者只想知道「半小時內會到」的雨 → 設 30 分，
+# 更久的只在 nearest 行淡標「往你移動」不掛時間。
+ETA_HORIZON_MIN = 30
+_8DIR = ["北", "東北", "東", "東南", "南", "西南", "西", "西北"]
+_RAIN_STATION_CACHE: dict = {"data": None, "ts": 0.0}   # CWA 雨量站(5 分鐘快取)
+_RAIN_HIST: dict = {}   # source → 最近兩份「不同觀測時間」的雨量快照(估雨帶移動)
+_NR_CACHE = SimpleCache(max_size=64)
+_NR_TTL = 120
+
+
+def _bearing_zh(brg: float) -> str:
+    """羅盤方位角(度) → 八方位中文。"""
+    return _8DIR[int(((brg % 360) + 22.5) % 360 // 45)]
+
+
+def _haversine_km(a_lat: float, a_lon: float, b_lat: float, b_lon: float) -> float:
+    R = 6371.0
+    p1, p2 = math.radians(a_lat), math.radians(b_lat)
+    dp = math.radians(b_lat - a_lat); dl = math.radians(b_lon - a_lon)
+    h = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * R * math.asin(min(1.0, math.sqrt(h)))
+
+
+def _bearing_deg(a_lat: float, a_lon: float, b_lat: float, b_lon: float) -> float:
+    """從 A 到 B 的羅盤方位角(0=正北，順時針)。"""
+    p1, p2 = math.radians(a_lat), math.radians(b_lat)
+    dl = math.radians(b_lon - a_lon)
+    y = math.sin(dl) * math.cos(p2)
+    x = math.cos(p1) * math.sin(p2) - math.sin(p1) * math.cos(p2) * math.cos(dl)
+    return (math.degrees(math.atan2(y, x)) + 360) % 360
+
+
+def _rain_level(mmph: float):
+    """時雨量(mm/h) → 雨勢分級中文；< 0.5 視為無雨回 None。"""
+    if mmph < 0.5:  return None
+    if mmph < 4:    return "小雨"
+    if mmph < 15:   return "中雨"
+    if mmph < 40:   return "大雨"
+    return "豪雨"
+
+
+def _rain_trend(p10: float, p1h: float):
+    """用『近10分鐘雨率(p10×6, mm/h)』vs『過去1小時雨量(p1h, 時段均值)』推雨勢趨勢——
+    單次抓取即可、不必等第二份快照。近10分鐘低於整小時均值＝已過高峰正減弱；反之增強。
+    回 (趨勢中文 或 None, 粗估轉小分鐘 或 None)。精準消散時間無解(對流非線性/會再生)，
+    故只在『明顯減弱且已很小』時給粗略 fade。"""
+    rate = p10 * 6
+    if p1h < 0.5 and rate < 0.5:
+        return None, None
+    if p1h <= 0.3:                       # 前一小時幾乎沒有、現在才下 → 發展中
+        return "增強中", None
+    r = rate / p1h
+    if r >= 1.3:
+        return "增強中", None
+    if r <= 0.6:                         # 近10分明顯低於小時均值 → 減弱
+        return ("減弱中", 15 if rate < 1.0 else 30)   # 已很小→約15分內轉小；否則約30分
+    return "持平", None
+
+
+def _station_coord(s: dict):
+    """測站 GeoInfo.Coordinates 取 WGS84 經緯度。回 (lat, lon) 或 None。"""
+    for c in s.get("GeoInfo", {}).get("Coordinates", []):
+        if c.get("CoordinateName") == "WGS84":
+            try:
+                return float(c["StationLatitude"]), float(c["StationLongitude"])
+            except (KeyError, ValueError):
+                return None
+    return None
+
+
+def _estimate_motion(src: str, lat: float, lon: float, cur_rain: dict, obs_time: str):
+    """用某來源最近兩份『不同觀測時間』的雨量快照，估使用者附近(≤80km)雨帶移動向量。
+    cur_rain: {station_id: (lat, lon, mmph)}。回 {"speed_kmh", "bearing"(移動去向)} 或 None
+    （資料不足/太慢(生消非移動)/太快(雜訊) 一律回 None，寧可不報 ETA 也不亂報）。"""
+    hist = _RAIN_HIST.setdefault(src, [])
+    now = time.time()
+    if not hist or hist[-1]["obs"] != obs_time:     # 只在觀測時間改變時存新快照
+        hist.append({"obs": obs_time, "ts": now, "rain": cur_rain})
+        del hist[:-2]                               # 只留最近兩份
+    if len(hist) < 2:
+        return None
+    prev, cur = hist[0], hist[1]
+    dt_h = (cur["ts"] - prev["ts"]) / 3600.0
+    if dt_h <= 0 or dt_h > 0.75:                    # 間隔<0 或 >45 分 → 不可靠
+        return None
+
+    def _centroid(snap):                            # 使用者附近(≤80km) 雨量加權質心
+        sw = sx = sy = 0.0
+        for _sid, (slat, slon, mm) in snap["rain"].items():
+            if _haversine_km(lat, lon, slat, slon) > 80:
+                continue
+            sw += mm; sx += mm * slon; sy += mm * slat
+        return (sx / sw, sy / sw) if sw > 0 else None
+
+    cp, cc = _centroid(prev), _centroid(cur)
+    if not cp or not cc:
+        return None
+    kx = (cc[0] - cp[0]) * 111.32 * math.cos(math.radians(lat))   # 東西向位移 km
+    ky = (cc[1] - cp[1]) * 110.57                                 # 南北向位移 km
+    speed = math.hypot(kx, ky) / dt_h
+    if speed < 3 or speed > 120:
+        return None
+    return {"speed_kmh": round(speed, 1),
+            "bearing": (math.degrees(math.atan2(kx, ky)) + 360) % 360}
+
+
+def _cluster_span(cells, seed):
+    """從 seed 雨區出發，把相鄰(≤15km)的有雨測站串成同一片雨區，回 (跨距km, 站數)。
+    估『那片雲雨多大』：孤站=點狀雷陣雨、連成一大片=鋒面型大範圍雨。"""
+    n = len(cells)
+    pts = [(c["_lat"], c["_lon"]) for c in cells]
+    try:
+        seedi = cells.index(seed)
+    except ValueError:
+        return 0.0, 1
+    visited = {seedi}; stack = [seedi]
+    while stack:                                    # BFS 串接相鄰雨區
+        i = stack.pop()
+        for j in range(n):
+            if j in visited:
+                continue
+            if _haversine_km(pts[i][0], pts[i][1], pts[j][0], pts[j][1]) <= 15:
+                visited.add(j); stack.append(j)
+    members = [pts[i] for i in visited]
+    span = 0.0                                      # 這片雨區的最大跨距(近似直徑)
+    for a in range(len(members)):
+        for b in range(a + 1, len(members)):
+            span = max(span, _haversine_km(members[a][0], members[a][1],
+                                           members[b][0], members[b][1]))
+    return span, len(members)
+
+
+def _size_label(span, count):
+    """雨區跨距(km)/站數 → 範圍大小中文。"""
+    if count <= 1 or span < 8:  return "局部"       # 點狀/雷陣雨(小於站距)
+    if span < 20:               return "小範圍"
+    if span < 40:               return "中範圍"
+    return "大範圍"
+
+
+def _attach_scale(cells, cell):
+    """幫某雨區算並掛上『範圍大小』(scale/size_km)。座標不足(如 Open-Meteo)則跳過。"""
+    if not cell or "_lat" not in cell:
+        return
+    span, cnt = _cluster_span(cells, cell)
+    cell["scale"] = _size_label(span, cnt)
+    cell["size_km"] = round(span, 1)
+
+
+def _finalize_nearby(lat, lon, cells, here_rate, motion, src, obs_time,
+                     radius=NEARBY_RADIUS_KM, wind=None, coverage=None):
+    """把雨區清單 + 移動向量彙整成回應：標記各雨區是否正接近、算最近接近雨區的 ETA。
+    移動向量雙軌：優先用兩份快照的雷達式質心位移(motion, by='radar')；沒有時退回
+    風向推估(wind=(來向度, km/h)，雨隨風走 → 去向=來向+180°，by='wind'，馬上可用)。"""
+    cells.sort(key=lambda c: c["dist_km"])
+    by = None
+    if motion:
+        by = "radar"
+    elif wind and wind[0] is not None and wind[1] and wind[1] >= 3:
+        motion = {"bearing": (wind[0] + 180) % 360, "speed_kmh": round(wind[1], 1)}
+        by = "wind"
+    approaching = None
+    if motion:
+        mb, spd = motion["bearing"], motion["speed_kmh"]
+        for c in cells:
+            c2u = _bearing_deg(c["_lat"], c["_lon"], lat, lon)   # 雨區→你 的方位
+            diff = abs(((c2u - mb + 180) % 360) - 180)           # 與移動去向的夾角
+            if diff <= 70:
+                c["approaching"] = True
+                v = spd * math.cos(math.radians(diff))           # 朝你的有效速度分量
+                if v >= 3:
+                    c["eta_min"] = int(round(c["dist_km"] / v * 60))
+            else:
+                c["approaching"] = False
+        # 只在可信視野內(≤60分)才報「約X分後到」；更久 → 雨胞可能已生消,只留 approaching 旗標
+        # (前端 nearest 行會顯示「往你移動」但不掛假時間)。
+        appr = [c for c in cells if c.get("approaching") and 0 <= c.get("eta_min", 1e9) <= ETA_HORIZON_MIN]
+        if appr:
+            c0 = min(appr, key=lambda c: c["eta_min"])
+            _attach_scale(cells, c0)                             # 這片雨區多大
+            approaching = {"dir": c0["dir"], "dist_km": c0["dist_km"], "level": c0["level"],
+                           "eta_min": c0["eta_min"], "name": c0.get("name", ""),
+                           "area": c0.get("area", ""), "by": by,
+                           "scale": c0.get("scale"), "size_km": c0.get("size_km"),
+                           "trend": c0.get("trend"), "fade_min": c0.get("fade_min")}
+    if cells:
+        _attach_scale(cells, cells[0])                           # 最近雨區也標範圍大小
+    for c in cells:                                              # 前端不需精確座標
+        c.pop("_lat", None); c.pop("_lon", None)
+    # 覆蓋率：半徑內『有雨站數 / 總站數』；≥50% 且樣本足(≥6站) → 大範圍降雨(widespread)
+    cov = None; widespread = False
+    if coverage and coverage[1] >= 6:
+        cov = round(coverage[0] / coverage[1], 2)
+        widespread = cov >= 0.5
+    return {
+        "source": src, "radius_km": radius,
+        "raining_here": here_rate >= 0.5, "here_mmph": round(here_rate, 1),
+        "cells": cells[:12], "nearest": cells[0] if cells else None,
+        "approaching": approaching,
+        "coverage": cov, "widespread": widespread,
+        "motion": (None if not motion else {"speed_kmh": motion["speed_kmh"],
+                   "to_dir": _bearing_zh(motion["bearing"]), "by": by}),
+        "obs_time": obs_time,
+    }
+
+
+async def _nearest_weather_wind(lat, lon):
+    """取最近 O-A0001 氣象站的風向(來向,度)/風速(km/h)——雨量站無風速，用氣象站補，
+    給附近雨區推『雨會不會順風往你吹來』。回 (wind_from_deg, speed_kmh) 或 None。"""
+    try:
+        stations = await _fetch_stations()
+    except Exception:
+        return None
+    s = _nearest_station(stations, lat, lon)
+    if not s:
+        return None
+    we = s.get("WeatherElement", {})
+    wd = _safe_float(we.get("WindDirection"), -1.0)      # 來向(度)；-99/缺值 → 無法推
+    ws = _safe_float(we.get("WindSpeed"), 0.0)           # m/s
+    if wd < 0:
+        return None
+    return (wd, ws * 3.6)
+
+
+# ── CWA（台灣，1310 自動雨量站）──
+async def _fetch_rain_stations() -> list:
+    now = time.time()
+    if _RAIN_STATION_CACHE["data"] and now - _RAIN_STATION_CACHE["ts"] < 300:
+        return _RAIN_STATION_CACHE["data"]
+    timeout = aiohttp.ClientTimeout(total=15)
+    async with aiohttp.ClientSession(timeout=timeout) as sess:
+        async with sess.get(CWA_RAIN_URL, params={"Authorization": CWA_KEY, "format": "JSON"}) as r:
+            data = await r.json(content_type=None)
+    stations = data.get("records", {}).get("Station", [])
+    _RAIN_STATION_CACHE.update({"data": stations, "ts": now})
+    return stations
+
+
+def _rain_el(re: dict, key: str) -> float:
+    """RainfallElement[key].Precipitation → float(缺值/負值當 0)。"""
+    try:
+        v = float((re.get(key) or {}).get("Precipitation"))
+        return max(0.0, v)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+async def _nearby_rain_cwa(lat, lon, radius=NEARBY_RADIUS_KM) -> dict:
+    stations = await _fetch_rain_stations()
+    all_rain: dict = {}
+    cells: list = []
+    here_rate, here_d, obs_time = 0.0, float("inf"), ""
+    tot_in = rain_in = 0                               # 半徑內 總站數 / 有雨站數（算覆蓋率）
+    for s in stations:
+        co = _station_coord(s)
+        if not co:
+            continue
+        slat, slon = co
+        re = s.get("RainfallElement", {})
+        p10 = _rain_el(re, "Past10Min"); p1h = _rain_el(re, "Past1hr")
+        rate = p10 * 6 if p10 > 0 else p1h            # 近 10 分鐘雨量換算 mm/h（停雨即歸零，最即時）
+        active = p10 > 0 or p1h >= 0.5                # 現在正在下雨(非早上下過的殘留)
+        d = _haversine_km(lat, lon, slat, slon)
+        if d <= radius:
+            tot_in += 1
+            if active:
+                rain_in += 1
+        if d < here_d:
+            here_d, here_rate = d, (rate if active else 0.0)
+        if not obs_time:
+            obs_time = s.get("ObsTime", {}).get("DateTime", "")
+        if active and rate > 0:
+            sid = s.get("StationId") or s.get("StationName") or f"{slat},{slon}"
+            all_rain[sid] = (slat, slon, rate)
+            lvl = _rain_level(rate)
+            if d <= radius and lvl:
+                gi = s.get("GeoInfo", {})
+                area = (gi.get("CountyName") or "") + (gi.get("TownName") or "")   # 行政區:雨從『哪一區』
+                tl, fm = _rain_trend(p10, p1h)                                     # 增強/減弱趨勢
+                cells.append({"dir": _bearing_zh(_bearing_deg(lat, lon, slat, slon)),
+                              "dist_km": round(d, 1), "mmph": round(rate, 1), "level": lvl,
+                              "name": s.get("StationName") or "", "area": area,
+                              "trend": tl, "fade_min": fm, "_lat": slat, "_lon": slon})
+    motion = _estimate_motion("cwa", lat, lon, all_rain, obs_time)
+    wind = None if motion else await _nearest_weather_wind(lat, lon)   # 無快照移動時用風向推
+    return _finalize_nearby(lat, lon, cells, here_rate, motion, "cwa", obs_time, radius,
+                            wind=wind, coverage=(rain_in, tot_in))
+
+
+# ── HKO（香港，18 區即時雨量；區塊粗、不估移動）──
+async def _nearby_rain_hko(lat, lon, radius=NEARBY_RADIUS_KM) -> dict:
+    timeout = aiohttp.ClientTimeout(total=12)
+    async with aiohttp.ClientSession(timeout=timeout) as sess:
+        async with sess.get(HKO_URL, params={"dataType": "rhrread", "lang": "tc"}) as r:
+            data = await r.json(content_type=None)
+    rains = (data.get("rainfall", {}) or {}).get("data", []) or []
+    obs_time = (data.get("rainfall", {}) or {}).get("startTime") or data.get("updateTime") or ""
+    cells: list = []
+    here_rate, here_d = 0.0, float("inf")
+    tot_in = rain_in = 0                               # 半徑內 區數 / 有雨區數（覆蓋率）
+    for rr in rains:
+        c = _HKO_RAIN_DISTRICTS.get((rr.get("place") or "").strip())
+        if not c:
+            continue
+        slat, slon = c
+        try:
+            mm = float(rr.get("max") or 0)            # 該區過去一小時最大雨量 ≈ mm/h
+        except (TypeError, ValueError):
+            mm = 0.0
+        d = _haversine_km(lat, lon, slat, slon)
+        if d <= radius:
+            tot_in += 1
+            if mm >= 0.5:
+                rain_in += 1
+        if d < here_d:
+            here_d, here_rate = d, mm
+        lvl = _rain_level(mm)
+        if mm >= 0.5 and d <= radius and lvl:
+            place = (rr.get("place") or "").strip()
+            cells.append({"dir": _bearing_zh(_bearing_deg(lat, lon, slat, slon)),
+                          "dist_km": round(d, 1), "mmph": round(mm, 1), "level": lvl,
+                          "name": place, "area": place, "_lat": slat, "_lon": slon})
+    return _finalize_nearby(lat, lon, cells, here_rate, None, "hko", obs_time, radius,
+                            coverage=(rain_in, tot_in))
+
+
+# ── JMA（日本，AMeDAS 觀測網）──
+async def _nearby_rain_jma(lat, lon, radius=NEARBY_RADIUS_KM) -> dict:
+    table, obs, latest = await _jma_fetch_obs()
+
+    def _pv(rec, key):
+        x = rec.get(key)
+        return float(x[0]) if isinstance(x, list) and x and x[0] is not None else None
+
+    all_rain: dict = {}
+    cells: list = []
+    here_rate, here_d, here_wind = 0.0, float("inf"), None
+    tot_in = rain_in = 0                               # 半徑內 有雨量觀測站數 / 有雨站數（覆蓋率）
+    for sid, info in table.items():
+        slat = _jma_decimal(info.get("lat")); slon = _jma_decimal(info.get("lon"))
+        if slat is None or slon is None:
+            continue
+        rec = obs.get(sid)
+        if not rec:
+            continue
+        v10 = _pv(rec, "precipitation10m"); v1h = _pv(rec, "precipitation1h")
+        rate = (v10 * 6) if (v10 and v10 > 0) else (v1h or 0.0)
+        active = bool(v10 and v10 > 0) or bool(v1h and v1h >= 0.5)
+        d = _haversine_km(lat, lon, slat, slon)
+        if d <= radius and (v10 is not None or v1h is not None):   # 只算有雨量感測的站
+            tot_in += 1
+            if active:
+                rain_in += 1
+        if d < here_d:
+            here_d, here_rate = d, (rate if active else 0.0)
+            # 最近站風向：JMA windDirection 為 16 方位(1-16=NNE..N，×22.5°)、來向；wind 為 m/s
+            wdr = _pv(rec, "windDirection"); wsp = _pv(rec, "wind")
+            here_wind = (((wdr % 16) * 22.5), wsp * 3.6) if (wdr and wdr > 0 and wsp) else None
+        if active and rate > 0:
+            all_rain[sid] = (slat, slon, rate)
+            lvl = _rain_level(rate)
+            if d <= radius and lvl:
+                nm = info.get("kjName") or ""
+                tl, fm = _rain_trend(v10 or 0.0, v1h or 0.0)                       # 增強/減弱趨勢
+                cells.append({"dir": _bearing_zh(_bearing_deg(lat, lon, slat, slon)),
+                              "dist_km": round(d, 1), "mmph": round(rate, 1), "level": lvl,
+                              "name": nm, "area": nm, "trend": tl, "fade_min": fm,
+                              "_lat": slat, "_lon": slon})
+    motion = _estimate_motion("jma", lat, lon, all_rain, latest)
+    wind = None if motion else here_wind                              # 無快照移動時用風向推
+    return _finalize_nearby(lat, lon, cells, here_rate, motion, "jma", latest, radius,
+                            wind=wind, coverage=(rain_in, tot_in))
+
+
+# ── Open-Meteo（其他地區，網格 + 所在點臨近預報 ETA）──
+async def _nearby_rain_omt(lat, lon, radius=NEARBY_RADIUS_KM) -> dict:
+    # 使用者周圍撒兩圈(12km/25km × 八方位)＋中心點，一次請求(逗號分隔多座標)取當前降雨
+    pts = [(lat, lon, 0.0, "")]
+    for ring in (12.0, 25.0):
+        for b in range(0, 360, 45):
+            dlat = ring / 110.57 * math.cos(math.radians(b))
+            dlon = ring / (111.32 * math.cos(math.radians(lat))) * math.sin(math.radians(b))
+            pts.append((lat + dlat, lon + dlon, ring, _bearing_zh(b)))
+    lats = ",".join(f"{p[0]:.4f}" for p in pts)
+    lons = ",".join(f"{p[1]:.4f}" for p in pts)
+    timeout = aiohttp.ClientTimeout(total=10)
+    async with aiohttp.ClientSession(timeout=timeout) as sess:
+        async def _grid():
+            async with sess.get(OMT_URL, params={"latitude": lats, "longitude": lons,
+                                                  "timezone": "auto", "current": "precipitation"}) as r:
+                return await r.json(content_type=None)
+        async def _eta():   # 所在點 15 分鐘臨近預報 → 幾分鐘後開始下雨
+            async with sess.get(OMT_URL, params={"latitude": lat, "longitude": lon, "timezone": "auto",
+                                                 "minutely_15": "precipitation", "forecast_days": 1}) as r:
+                return await r.json(content_type=None)
+        grid, eta_d = await asyncio.gather(_grid(), _eta())
+
+    arr = grid if isinstance(grid, list) else [grid]
+    def _prec(o):
+        try: return float((o.get("current") or {}).get("precipitation") or 0)
+        except (TypeError, ValueError): return 0.0
+    here_rate = _prec(arr[0]) if arr else 0.0
+    cells: list = []
+    tot_in = rain_in = 0                               # 網格點 總數 / 有雨數（覆蓋率）
+    for i in range(min(len(arr), len(pts))):
+        rate = _prec(arr[i])
+        if pts[i][2] <= radius:
+            tot_in += 1
+            if rate >= 0.5:
+                rain_in += 1
+        if i == 0:
+            continue                                  # 中心點=所在地，不當周圍雨區 cell
+        lvl = _rain_level(rate)
+        if rate >= 0.5 and lvl:
+            ring = pts[i][2]; dname = pts[i][3]
+            cells.append({"dir": dname, "dist_km": round(ring, 1), "mmph": round(rate, 1),
+                          "level": lvl, "name": "", "_lat": pts[i][0], "_lon": pts[i][1]})
+    res = _finalize_nearby(lat, lon, cells, here_rate, None, "openmeteo",
+                           datetime.utcnow().isoformat(), radius, coverage=(rain_in, tot_in))
+    # ETA：所在點臨近預報第一個降雨時段(≥0.3mm/15min)；所在地已在下雨則不需要
+    if not res["raining_here"]:
+        mm = eta_d.get("minutely_15", {}) or {}
+        times = mm.get("time", []) or []; vals = mm.get("precipitation", []) or []
+        from datetime import timedelta
+        off = int(eta_d.get("utc_offset_seconds", 0) or 0)
+        now_local = datetime.utcnow() + timedelta(seconds=off)
+        for t, v in zip(times, vals):
+            try:
+                tt = datetime.fromisoformat(t)
+            except (ValueError, TypeError):
+                continue
+            if tt < now_local or v is None:
+                continue
+            if (tt - now_local).total_seconds() > ETA_HORIZON_MIN * 60:
+                break                                  # 超過可信視野 → 不報(免假精準)
+            if float(v) >= 0.3:
+                nearest = res.get("nearest")
+                res["approaching"] = {
+                    "dir": nearest["dir"] if nearest else None,
+                    "dist_km": nearest["dist_km"] if nearest else None,
+                    "level": nearest["level"] if nearest else "雨",
+                    "eta_min": max(0, int((tt - now_local).total_seconds() // 60)),
+                    "area": (nearest.get("area", "") if nearest else ""),
+                    "by": "nowcast",   # 所在點 15 分鐘臨近預報(非風向推估) → 不標「順風」
+                }
+                break
+    return res
+
+
+@router.get("/nearby_rain")
+async def nearby_rain(
+    lat: float = Query(25.04, description="緯度"),
+    lon: float = Query(121.51, description="經度"),
+):
+    """附近雨區偵測 — 用在地氣象局測站網找出周圍正在下雨的位置(方位/距離/雨勢)，
+    並估雨帶是否正往使用者移動、約幾分鐘後到。地理分流：台灣 CWA／香港 HKO／
+    日本 JMA／其他 Open-Meteo，在地源失敗一律回退 Open-Meteo。"""
+    ck = f"nr:{round(lat, 2)}:{round(lon, 2)}"
+    cached = _NR_CACHE.get(ck, _NR_TTL)
+    if cached is not None:
+        return cached
+    res = None
+    try:
+        if CWA_KEY and _in_taiwan(lat, lon):
+            res = await _nearby_rain_cwa(lat, lon)
+        elif _in_hong_kong(lat, lon):
+            res = await _nearby_rain_hko(lat, lon)
+        elif _in_japan(lat, lon):
+            res = await _nearby_rain_jma(lat, lon)
+    except Exception:
+        res = None
+    if res is None:                                    # 其他地區/在地源失敗 → Open-Meteo 網格
+        try:
+            res = await _nearby_rain_omt(lat, lon)
+        except Exception as e:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=503, detail=f"附近雨區取得失敗：{e}")
+    _NR_CACHE.set(ck, res)
     return res
 
 

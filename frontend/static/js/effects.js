@@ -412,11 +412,29 @@
     if (!f || !f.today) return null;
     const t = f.today, now = f.now || {}, r = f.rain || {};
     const lines = [];
-    // ① 什麼時候下雨
-    if (r.raining_now) lines.push("☔ 現在正在下雨，記得帶傘");
+    // 附近雨區（weather.js 的 _getNearbyRain）：所在地沒下但雨正往這來 → 最即時、最該提醒(騎車)
+    const nb = (typeof window._getNearbyRain === "function") ? window._getNearbyRain() : null;
+    const na = (nb && !nb.raining_here) ? nb.approaching : null;
+    const _trend = o => !o || !o.trend ? "" :
+      o.trend === "減弱中" ? (o.fade_min ? `，正在減弱（約${o.fade_min}分內轉小）` : "，正在減弱") :
+      o.trend === "增強中" ? "，還在增強" : "";
+    // ① 什麼時候下雨 — 附近「即將到」優先(半小時內、可行動)，其次今日預報
+    if (r.raining_now || (nb && nb.raining_here))
+      lines.push("☔ 現在正在下雨，記得帶傘" + _trend(nb && nb.nearest));
+    else if (na && na.eta_min != null) {
+      const from = na.area || (na.dir + "方");
+      lines.push(`🛵 ${na.scale || ""}${na.level || "雨"}正從 ${from} 往這來，約 ${na.eta_min} 分後到，出門帶把傘` + _trend(na));
+    }
+    // 大範圍降雨：半徑內一半以上都在下 → 往哪騎都可能淋到
+    else if (nb && nb.widespread) {
+      const pct = nb.coverage != null ? `約${Math.round(nb.coverage * 10)}成` : "一大片";
+      lines.push(`🌧️ 附近${pct}範圍都在下雨，不管往哪騎都可能淋到，帶好雨具`);
+    }
     else if (r.from_hour != null) lines.push(`☔ ${_hrZh(r.from_hour)}左右會下雨${r.from_pop != null ? `（${r.from_pop}%）` : ""}，記得帶傘`);
     // 官方源(f.wx_src=cwa/jma/hko)當天沒有 ≥50% 降雨時段但今日機率高 → 講不出幾點，只講「今天可能下雨」，不摻 Open-Meteo
     else if (f.wx_src && t.pop != null && t.pop >= 50) lines.push(`☔ 今天可能會下雨（${t.pop}%），帶把傘`);
+    // 今天大致不下雨；但附近若有雨 → 提醒「別往那方向騎」(騎車避雨用)
+    else if (nb && nb.nearest) lines.push(`🌧️ ${nb.nearest.area || (nb.nearest.dir + "方")}（${nb.nearest.dir}方${nb.nearest.dist_km}km）有雨，往那邊騎會淋到`);
     else lines.push("☀️ 今天大致不會下雨");
     // ② 外面熱/冷（體感優先，退回實際溫度/今日高溫）。官方氣象署源無體感 → 用實測氣溫，標「氣溫」不標「體感」
     const useFeels = (now.feels != null);
