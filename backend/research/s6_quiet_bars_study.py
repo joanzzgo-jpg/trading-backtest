@@ -110,7 +110,7 @@ def main():
                 end = date.today().isoformat()
                 start = (date.today() - timedelta(days=days)).isoformat()
                 df = fetch_crypto_ohlcv(sym, tf, start, end, "pionex")
-                df = enrich_df(df)
+                df = enrich_df(df, signals=True)   # 研究用:需 crt/kdj_cross/resonance 訊號欄
                 row = {}
                 for q in QUIET_OPTIONS:
                     rows = scan_s6(df, q)

@@ -381,7 +381,7 @@ def fetch_history_df(
 
     if df is None or df.empty:
         raise ValueError(f"查無 {symbol} 資料")
-    return enrich_df(df)
+    return enrich_df(df, signals=True)   # 研究用:需 crt/kdj_cross/resonance 訊號欄
 
 
 # ── 主入口 ──────────────────────────────────────────────────────

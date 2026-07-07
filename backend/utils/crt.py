@@ -177,23 +177,9 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         band_lo_t = bb_lo + (1.0 - band_ratio) * _bw   # 做空：上軌往下 ratio 處（＝下軌+剩餘%）
         band_up_t = bb_lo + band_ratio * _bw            # 做多：下軌往上 ratio 處
 
-    def _col_i(name):
-        if name not in df.columns:
-            return np.zeros(n, dtype=np.int8)
-        return df[name].fillna(0).astype(np.int8).to_numpy()
-
-    crt   = _col_i("crt")
-    cross = _col_i("kdj_cross")
-    res   = _col_i("resonance")
-    # ── 給 S9 用的 BB 觸軌 + MACD 叉判定 ─────────────────────
-    # 觸軌用 0.3% 緩衝（與共振一致）
-    bb_up_touch = (~np.isnan(bb_up)) & (highs >= bb_up * 0.997)
-    bb_lo_touch = (~np.isnan(bb_lo)) & (lows  <= bb_lo * 1.003)
-    # MACD hist 過零
-    hist = _col_f("macd_hist")
-    prev_hist = np.concatenate([[np.nan], hist[:-1]])
-    macd_dead = (prev_hist > 0) & (hist <= 0) & ~np.isnan(prev_hist) & ~np.isnan(hist)
-    macd_gold = (prev_hist < 0) & (hist >= 0) & ~np.isnan(prev_hist) & ~np.isnan(hist)
+    # 註：crt / kdj_cross / resonance / bb 觸軌 / MACD 叉 等訊號陣列原供 S1~S12 用，
+    #     S1~S12 移除後已無人讀取 → 一併刪除（enrich_df 預設也不再算這三欄，見 utils/data.py）。
+    #     SS 系列只吃價格＋布林，不需要它們。
 
     # ── 計數器：mid_cnt[k] = [ws, ls, wl, ll]；band_cnt 同結構 ──
     # SS 系列：獨立於 S1~S12 的新訊號群，自成一套合計與「敗後停手」（不與 S 的合併時間軸混搭）。
