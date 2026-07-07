@@ -130,11 +130,15 @@ YF_MAX_DAYS = {"1m": 7, "5m": 58, "15m": 58, "1h": 58}   # 1m yfinance 僅近 7 
 def _yf_history(ticker, interval: str, start: str, end: str):
     """呼叫 yfinance history，回傳 DataFrame；空或失敗回 None。
     ⚠ 一律加 timeout：雲端(Railway)常被 Yahoo tarpit(連上不回應)，無 timeout 會無限卡死→備援永不觸發。"""
+    # auto_adjust=False：要「實際成交價」而非還原股價。台股最小跳動 0.01（≤2 位小數），
+    # 還原股價會除以除權息/分割調整係數 → 產生 97.345 這種不符檔位的第 3 位小數怪值，
+    # 且與日線主源 FinMind（未還原原始價）對不起來。關掉調整 → 價格真實、符合檔位、跨時框一致
+    # （代價：除權息日會有真實除息跳空，反而更忠實）。
     try:
         try:
-            raw = ticker.history(start=start, end=end, interval=interval, auto_adjust=True, timeout=12)
+            raw = ticker.history(start=start, end=end, interval=interval, auto_adjust=False, timeout=12)
         except TypeError:   # 舊版 history 不吃 timeout
-            raw = ticker.history(start=start, end=end, interval=interval, auto_adjust=True)
+            raw = ticker.history(start=start, end=end, interval=interval, auto_adjust=False)
         return raw if not raw.empty else None
     except Exception as e:
         _log.warning(f"[yf_history] {ticker.ticker} {interval} {start}~{end}: {e}")
@@ -168,6 +172,8 @@ def fetch_tw_daily_yf(symbol: str, start: str, end: str) -> pd.DataFrame:
         df["time"] = pd.to_datetime(df["time"])
         for col in ["open", "high", "low", "close", "volume"]:
             df[col] = pd.to_numeric(df[col], errors="coerce")
+        for col in ["open", "high", "low", "close"]:   # 台股≤2位小數→消 yfinance float32 精度雜訊
+            df[col] = df[col].round(2)
         return df.dropna(subset=["close"])
     raise ValueError(f"找不到 {symbol} 的日線資料（yfinance .TW/.TWO 均失敗）")
 
@@ -232,6 +238,10 @@ def fetch_tw_intraday_yf(symbol: str, timeframe: str, start: str, end: str) -> p
                 "open": "first", "high": "max", "low": "min",
                 "close": "last", "volume": "sum",
             }).dropna(subset=["open"]).reset_index()
+        # 台股價格最多 2 位小數（下單也只到 2 位）→ 四捨五入消 yfinance float32 精度雜訊
+        # （如 96.4 存成 float32 = 96.4000015；0.05/0.1 跳動的中低價股才會冒出假小數）。
+        for _c in ("open", "high", "low", "close"):
+            df[_c] = df[_c].round(2)
         return df
     raise ValueError(f"找不到 {symbol} 的分鐘資料（請確認代號正確，例如 2330）")
 
