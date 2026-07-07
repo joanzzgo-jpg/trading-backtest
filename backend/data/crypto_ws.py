@@ -42,8 +42,10 @@ async def run_ticker_ws():
                              _fetch_pionex_symbols, _fetch_pionex_perp_symbols)
     from utils.live_data import update as live_update
 
+    loop = asyncio.get_event_loop()
     fut_map, spot_map = {}, {}     # symbol -> ticker dict（持續累積，保清單完整）
     _last_emit = [0.0]
+    _last_ws   = [0.0]             # 最後一次「WS 真的推進更新」的時間；看門狗判斷是否要 REST 補
 
     def _perp_set():
         try:
@@ -67,16 +69,30 @@ async def run_ticker_ws():
         except Exception:
             pass
 
-    # ── 種子：一次 REST 拿完整清單（WS 只推有變動的，先鋪底才不會前幾秒空） ──
-    try:
-        for t in fetch_tickers("futures"):
-            fut_map[t["symbol"]] = t
-        for t in fetch_tickers("spot"):
-            spot_map[t["symbol"]] = t
+    def _rest_refresh():
+        """同步 REST 重抓完整清單（用於種子與看門狗；由 executor 呼叫，不擋事件迴圈）。"""
+        try:
+            for t in fetch_tickers("futures"):
+                fut_map[t["symbol"]] = t
+            for t in fetch_tickers("spot"):
+                spot_map[t["symbol"]] = t
+            return True
+        except Exception as e:
+            print(f"  ⚠ REST 補抓失敗：{str(e)[:100]}")
+            return False
+
+    # ── 種子：一次 REST 拿完整清單（放 executor，不擋迴圈） ──
+    if await loop.run_in_executor(None, _rest_refresh):
         _emit(force=True)
         print(f"  ✓ WS 報價種子完成 futures={len(fut_map)} spot={len(spot_map)}")
-    except Exception as e:
-        print(f"  ⚠ WS 種子失敗（仍會靠 WS 累積）：{str(e)[:100]}")
+
+    async def _watchdog():
+        """WS 沒在推進更新（>12s）就用 REST 補一次 → 永不凍結（WS 掛了也自動退化成 ~10s REST）。"""
+        while True:
+            await asyncio.sleep(10)
+            if time.time() - _last_ws[0] > 12:
+                if await loop.run_in_executor(None, _rest_refresh):
+                    _emit(force=True)
 
     async def _stream(url, is_fut):
         backoff = 1
@@ -105,10 +121,11 @@ async def run_ticker_ws():
                                 d = _mini_to_ticker(m, is_fut)
                                 if d and d["symbol"][:-4].upper() in allow:
                                     mp[d["symbol"]] = d
+                            _last_ws[0] = time.time()   # WS 有推進 → 看門狗不介入
                             _emit()
             except Exception as e:
                 await asyncio.sleep(min(backoff, 30))
                 backoff = min(backoff * 2, 30)
                 print(f"  ⚠ WS 重連（{'fut' if is_fut else 'spot'}）：{str(e)[:80]}")
 
-    await asyncio.gather(_stream(FUT_WS, True), _stream(SPOT_WS, False))
+    await asyncio.gather(_stream(FUT_WS, True), _stream(SPOT_WS, False), _watchdog())
