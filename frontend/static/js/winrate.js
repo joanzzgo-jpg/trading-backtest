@@ -849,14 +849,12 @@ function _renderFVGBreak(items) {
   out.sort((a, b) => a.time - b.time);
   lastFVGBreakMarkers = out;
   _applyMainMarkers();
-  if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();   // 更新三策略匯流背景
 }
 window._renderFVGBreak = _renderFVGBreak;
 // 開關：window.toggleFVGBreak() 切換結構轉破標記顯示
 window.toggleFVGBreak = function (on) {
   window._fvgBreakHidden = (on === undefined) ? !window._fvgBreakHidden : !on;
   _applyMainMarkers();
-  if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();   // 匯流背景跟著開關更新
   return !window._fvgBreakHidden;
 };
 
@@ -887,14 +885,12 @@ function _renderFVGMS(items) {
   out.sort((a, b) => a.time - b.time);
   lastFVGMSMarkers = out;
   _applyMainMarkers();
-  if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();   // 更新三策略匯流背景
 }
 window._renderFVGMS = _renderFVGMS;
 // 開關：window.toggleFVGMS() 切換多/空方向標記顯示
 window.toggleFVGMS = function (on) {
   window._fvgMSHidden = (on === undefined) ? !window._fvgMSHidden : !on;
   _applyMainMarkers();
-  if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();   // 匯流背景跟著開關更新
   return !window._fvgMSHidden;
 };
 
@@ -924,14 +920,12 @@ function _renderFVGShun(items) {
   out.sort((a, b) => a.time - b.time);
   lastFVGShunMarkers = out;
   _applyMainMarkers();
-  if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();   // 更新三策略匯流背景
 }
 window._renderFVGShun = _renderFVGShun;
 // 開關：window.toggleFVGShun() 切換順多/順空標記顯示
 window.toggleFVGShun = function (on) {
   window._fvgShunHidden = (on === undefined) ? !window._fvgShunHidden : !on;
   _applyMainMarkers();
-  if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();   // 匯流背景跟著開關更新
   return !window._fvgShunHidden;
 };
 

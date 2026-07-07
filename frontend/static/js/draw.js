@@ -860,97 +860,6 @@ function _getSessionRuns() {
   return runs;
 }
 // K 棒後方：①各交易時段淡色直條 ②各盤當盤高/低點虛線 ③星期標籤。只在日內時框、且開關開啟。
-// ── 三策略匯流高亮 ────────────────────────────────────────────────
-// 「多空(方向 fvg_ms)＋順多空(fvg_shun)＋破多空(fvg_break)」三種同方向策略，
-// 若同時落在「連續兩根 K」內(跨距 ≤1 根) → 視為強匯流，高亮那兩根 K 棒背景
-// （空=紅、多=綠）。回傳連續區段 [{s,e,dir}]（s/e 為 ohlcvData 索引）。
-function _computeFVGConfluenceRuns() {
-  const out = [];
-  try {
-    if (typeof _secToIdx === "undefined" || !_secToIdx.size) return out;
-    const _rpIdx = (typeof replayActive !== "undefined" && replayActive
-                    && typeof replayIdx === "number") ? replayIdx : null;
-    const idxSet = (arr, wantD) => {
-      const s = new Set();
-      for (const it of (arr || [])) {
-        if (it.d !== wantD) continue;
-        const bi = _secToIdx.get(toTime(it.t));
-        if (bi == null) continue;
-        if (_rpIdx != null && bi > _rpIdx) continue;   // 重播：未揭曉的不算
-        s.add(bi);
-      }
-      return s;
-    };
-    const near = (set, i) => set.has(i) || set.has(i + 1);   // 落在連續兩根 [i, i+1]
-    // 同向匯流。⚠ fvg_break 的 .d 是「被破壞結構」方向、與訊號相反：
-    //   破多(.d='l')＝看空、破空(.d='s')＝看多 → 空方匯流取 break 的 'l'、多方取 's'。
-    for (const dir of ["s", "l"]) {
-      const ms = idxSet(_lastFVGMS, dir);
-      const sh = idxSet(_lastFVGShun, dir);
-      const bk = idxSet(_lastFVGBreak, dir === "s" ? "l" : "s");
-      if (!ms.size || !sh.size || !bk.size) continue;
-      const bars = new Set();
-      // 視窗 [i, i+1]：多空+順多空+破多空 三種各至少一個、同(訊號)方向落在此兩根 → 匯流
-      for (const i of new Set([...ms, ...sh, ...bk])) {
-        if (near(ms, i) && near(sh, i) && near(bk, i)) {
-          for (const set of [ms, sh, bk]) { if (set.has(i)) bars.add(i); if (set.has(i + 1)) bars.add(i + 1); }
-        }
-      }
-      if (!bars.size) continue;
-      const sorted = [...bars].sort((a, b) => a - b);     // 併成連續區段
-      let s = sorted[0], e = sorted[0];
-      for (let k = 1; k < sorted.length; k++) {
-        if (sorted[k] === e + 1) e = sorted[k];
-        else { out.push({ s, e, dir }); s = e = sorted[k]; }
-      }
-      out.push({ s, e, dir });
-    }
-  } catch (_) {}
-  return out;
-}
-
-function _drawConfluenceOverlay(W, H) {
-  if (typeof ohlcvData === "undefined" || !ohlcvData.length || typeof mainChart === "undefined") return;
-  // 任一組件層被隱藏 → 不顯示匯流（缺少可見依據）
-  if (window._fvgMSHidden || window._fvgShunHidden || window._fvgBreakHidden) return;
-  const runs = _computeFVGConfluenceRuns();
-  if (!runs.length) return;
-  const ts = mainChart.timeScale();
-  const vr = ts.getVisibleLogicalRange();
-  if (!vr) return;
-  const half = (W / Math.max(1, vr.to - vr.from)) / 2;   // 半根 K 寬
-  let plotW = W;
-  try { const tw = ts.width(); if (tw > 0) plotW = tw;
-        else { const pw = mainChart.priceScale("right").width(); if (pw > 0) plotW = W - pw; } } catch (e) {}
-  drawCtx.save();
-  drawCtx.beginPath(); drawCtx.rect(0, 0, plotW, H); drawCtx.clip();
-  const bw = Math.max(2, half * 1.5);   // 實體寬 ≈ 0.75 根
-  for (const r of runs) {
-    const color = r.dir === "s" ? "#ff2a6d" : "#39ff14";   // 空=桃紅、多=霓虹綠
-    // 把匯流那幾根 K 棒『發亮』：實體+影線描霓虹光暈外框
-    for (let i = r.s; i <= r.e; i++) {
-      const d = ohlcvData[i]; if (!d) continue;
-      const x = ts.timeToCoordinate(toTime(d.time)); if (x == null) continue;
-      const yO = candleSeries && candleSeries.priceToCoordinate(d.open);
-      const yC = candleSeries && candleSeries.priceToCoordinate(d.close);
-      const yH = candleSeries && candleSeries.priceToCoordinate(d.high);
-      const yL = candleSeries && candleSeries.priceToCoordinate(d.low);
-      if (yO == null || yC == null || yH == null || yL == null) continue;
-      const bt = Math.min(yO, yC), bb = Math.max(yO, yC);
-      drawCtx.shadowColor = color;
-      drawCtx.strokeStyle = color;
-      drawCtx.lineWidth = 1.6;
-      for (const blur of [18, 9]) {           // 兩層光暈：外散＋內亮
-        drawCtx.shadowBlur = blur;
-        drawCtx.beginPath(); drawCtx.moveTo(x, yH); drawCtx.lineTo(x, yL); drawCtx.stroke();  // 影線
-        drawCtx.strokeRect(x - bw / 2, bt, bw, Math.max(1, bb - bt));                          // 實體外框
-      }
-    }
-  }
-  drawCtx.shadowBlur = 0;
-  drawCtx.restore();
-}
-
 function _drawSessionOverlay(W, H) {
   // 星期標籤(③)永遠顯示——不受右上「交易時段」開關(_sessionOn)控制；
   // 僅色塊/高低線/開盤標記(①②④)受開關控制。兩者皆只在日內時框出現。
@@ -1704,9 +1613,6 @@ function renderDrawings() {
 
   // 成交量分佈圖（VPVR）：最底層先畫（避免蓋住時段高低線/繪圖/標記）；可開關
   _drawVolumeProfile(W, H);
-
-  // 三策略匯流高亮（多空+順多空+破多空 同向落在連續兩根 → 背景高亮那兩根）：背景層，先畫
-  _drawConfluenceOverlay(W, H);
 
   // 交易時段 overlay（背景帶=當盤高低範圍 + 上下緣高低線 + 星期標籤；可開關）
   _drawSessionOverlay(W, H);
