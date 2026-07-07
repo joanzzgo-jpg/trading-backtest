@@ -15,6 +15,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 
 _URL = "https://mis.taifex.com.tw/futures/api/getQuoteList"
+_DETAIL_URL = "https://mis.taifex.com.tw/futures/api/getQuoteDetail"  # 指定合約(熱門清單沒有的微台 TMF 用此)
 _HDRS = {
     "Content-Type": "application/json",
     "Origin": "https://mis.taifex.com.tw",
@@ -28,6 +29,28 @@ _INTRADAY_MIN = {"1m": 1, "5m": 5, "15m": 15, "30m": 30,
                  "1h": 60, "2h": 120, "4h": 240, "8h": 480}
 
 _qcache = {"ts": 0.0, "data": None}   # getQuoteList 全量快取（一次抓全部期貨）
+_detail_cache: dict = {}              # SymbolID → (ts, quote)：指定合約查詢快取（微台）
+
+
+def _get_quote_detail(sid: str):
+    """指定合約即時報價（熱門清單 getQuoteList 沒有的產品，如微台 TMF 用此）。快取 2s、失敗沿用上次。"""
+    now = time.time()
+    c = _detail_cache.get(sid)
+    if c and now - c[0] < 2:
+        return c[1]
+    try:
+        r = requests.post(_DETAIL_URL, json={"SymbolID": [sid]}, headers=_HDRS, timeout=8)
+        r.raise_for_status()
+        j = r.json()
+        if j.get("RtCode") != "0":
+            return c[1] if c else None
+        lst = (j.get("RtData") or {}).get("QuoteList") or []
+        q = next((x for x in lst if x.get("SymbolID") == sid), None)
+        if q:
+            _detail_cache[sid] = (now, q)
+        return q or (c[1] if c else None)
+    except Exception:
+        return c[1] if c else None
 
 
 def _get_quote_list():
@@ -71,28 +94,42 @@ def _month_key(disp: str) -> int:
     return 999999
 
 
-def resolve_front_month(product: str):
-    """把產品碼(TXF/MXF/TMF)解析成當前近月合約碼(如 TXFG6-F)。抓不到回 None。"""
-    product = (product or "").upper()
-    if product not in PRODUCTS:
-        return None
+def _resolve_hot(product: str):
+    """從熱門清單(getQuoteList)解析近月合約碼；清單內才有(TXF/MXF)。抓不到回 None。"""
     pat = re.compile(rf"^{product}[A-Z]\d-F$")   # 單一月份合約（排除價差/組合）
-    cands = []
-    for q in _get_quote_list():
-        sid = q.get("SymbolID", "")
-        if pat.match(sid):
-            cands.append((_month_key(q.get("DispCName", "")), sid))
+    cands = [(_month_key(q.get("DispCName", "")), q.get("SymbolID", ""))
+             for q in _get_quote_list() if pat.match(q.get("SymbolID", ""))]
     if not cands:
         return None
     cands.sort()                          # 依到期月升冪 → 第一個即近月
     return cands[0][1]
 
 
+def resolve_front_month(product: str):
+    """把產品碼(TXF/MXF/TMF)解析成當前近月合約碼(如 TXFG6-F)。抓不到回 None。
+    微台 TMF 不在熱門清單 → 借同月 TXF/MXF 近月的月份碼推導、以 getQuoteDetail 驗證存在。"""
+    product = (product or "").upper()
+    if product not in PRODUCTS:
+        return None
+    sid = _resolve_hot(product)
+    if sid:
+        return sid
+    for sib in ("TXF", "MXF"):            # 三兄弟到期月相同 → 換前綴即得微台近月碼
+        ssid = _resolve_hot(sib)
+        if not ssid:
+            continue
+        cand = product + ssid[len(sib):]  # 'TXFG6-F' → 'TMFG6-F'（保留月份碼 'G6-F'）
+        q = _get_quote_detail(cand)
+        if q and q.get("SymbolID") == cand:
+            return cand
+    return None
+
+
 def _find_quote(symbol_id: str):
     for q in _get_quote_list():
         if q.get("SymbolID") == symbol_id:
             return q
-    return None
+    return _get_quote_detail(symbol_id)   # 熱門清單沒有(微台)→ 指定合約查詢
 
 
 def fetch_taifex_quote(product: str):
