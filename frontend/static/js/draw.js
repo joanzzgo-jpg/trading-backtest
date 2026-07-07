@@ -76,32 +76,34 @@ function _barRef() {
   return { lastLogical: n - 1, lastTime, interval };
 }
 
-// time → x。原生 timeToCoordinate 只在「時間剛好落在某根 K 棒」時回座標，否則回 null：
-//   ① 未來（右側空白）② 過去早於第一根 ③ **落在兩根 K 棒之間**（在小時框畫的端點時間，
-//   切到大時框後往往不對齊任何一根 → 這就是「切大時框繪圖線消失」的根因）。
-// 這裡對三種情況都用 logical index 內插/外推，讓端點永遠有座標、線不再消失。
+// time → x。原生 timeToCoordinate 只在「時間剛好落在某根 K 棒」時回座標，否則回 null。
+//   ① 未來(右側空白)→ 有界外推 ② 早於資料起點 → 回 null(不外推,否則爆長線) ③ 落在兩棒之間
+//   (小時框畫的端點切到大時框常不對齊任一棒)→ 相鄰棒內插(修「大時框線消失」)。
+//   一律做「非有限值→null」保險,杜絕無限長線;整段 try 包住,永不因換算丟例外而弄壞整個 overlay。
 function _timeToX(time) {
-  const ts = mainChart.timeScale();
-  const x = ts.timeToCoordinate(time);
-  if (x != null) return x;
-  const r = _barRef();
-  if (r && time > r.lastTime) return ts.logicalToCoordinate(r.lastLogical + (time - r.lastTime) / r.interval);   // 未來外推
-  const n = (typeof ohlcvData !== "undefined") ? ohlcvData.length : 0;
-  if (!n) return null;
-  const t0 = toTime(ohlcvData[0].time);
-  if (time <= t0) {   // 早於第一根 → 往左外推（用平均間隔）
-    const iv = r ? r.interval : 60;
-    return ts.logicalToCoordinate(0 - (t0 - time) / iv);
-  }
-  // 落在資料範圍內、但不對齊任一棒 → 二分找相鄰兩棒,內插出分數 logical index → 轉座標
-  let lo = 0, hi = n - 1;
-  while (lo + 1 < hi) {
-    const mid = (lo + hi) >> 1;
-    if (toTime(ohlcvData[mid].time) <= time) lo = mid; else hi = mid;
-  }
-  const tLo = toTime(ohlcvData[lo].time), tHi = toTime(ohlcvData[hi].time);
-  const frac = tHi > tLo ? (time - tLo) / (tHi - tLo) : 0;
-  return ts.logicalToCoordinate(lo + frac * (hi - lo));
+  try {
+    const ts = mainChart.timeScale();
+    const x = ts.timeToCoordinate(time);
+    if (x != null) return x;
+    const r = _barRef();
+    if (r && time > r.lastTime) {
+      const c = ts.logicalToCoordinate(r.lastLogical + (time - r.lastTime) / r.interval);   // 未來空白外推
+      return (c != null && isFinite(c)) ? c : null;
+    }
+    const n = (typeof ohlcvData !== "undefined") ? ohlcvData.length : 0;
+    if (!n) return null;
+    const t0 = toTime(ohlcvData[0].time);
+    if (time < t0) return null;   // 早於資料起點 → 不外推(避免端點被推到極遠→線無限長)
+    let lo = 0, hi = n - 1;        // 二分找相鄰兩棒,內插分數 logical index
+    while (lo + 1 < hi) {
+      const mid = (lo + hi) >> 1;
+      if (toTime(ohlcvData[mid].time) <= time) lo = mid; else hi = mid;
+    }
+    const tLo = toTime(ohlcvData[lo].time), tHi = toTime(ohlcvData[hi].time);
+    const frac = tHi > tLo ? (time - tLo) / (tHi - tLo) : 0;
+    const c = ts.logicalToCoordinate(lo + frac * (hi - lo));
+    return (c != null && isFinite(c)) ? c : null;
+  } catch (e) { return null; }
 }
 
 // x → time：落在右側未來空白區時，回推一個外推時間戳（以平均 bar 間隔換算）。
@@ -319,32 +321,91 @@ function _showTextInput(clientX, clientY, onConfirm) {
   inp.addEventListener("blur", () => setTimeout(() => { if (document.body.contains(wrap)) cancel(); }, 200));
 }
 
-// emoji 貼圖選擇器：點一個 emoji 即確認；點外面/Esc 取消。
-const _EMOJI_SET = ["🎯","⭐","🔥","🚀","💰","📈","📉","🐂","🐻","✅","❌","⚠️","❗","❓","👀","💡","📌","⬆️","⬇️","🔴","🟢","🔵","💎","🤔"];
+// ── emoji 貼圖選擇器（分類版，仿系統：底部分類頁籤 + 各系列大量 emoji + 最近使用）──
+const _EMOJI_CATS = [
+  { icon: "🕐", name: "最近使用", key: "recent", list: [] },
+  { icon: "😀", name: "笑臉和人物", list: ["😀","😃","😄","😁","😆","😅","🤣","😂","🙂","🙃","😉","😊","😇","🥰","😍","🤩","😘","😗","😚","😙","😋","😛","😜","🤪","😝","🤑","🤗","🤭","🤫","🤔","🤐","🤨","😐","😑","😶","😏","😒","🙄","😬","🤥","😌","😔","😪","🤤","😴","😷","🤒","🤕","🤢","🤮","🤧","🥵","🥶","🥴","😵","🤯","🤠","🥳","😎","🤓","🧐","😕","😟","🙁","☹️","😮","😯","😲","😳","🥺","😦","😧","😨","😰","😥","😢","😭","😱","😖","😣","😞","😓","😩","😫","🥱","😤","😡","😠","🤬","😈","👿","💀","💩","🤡","👻","👽","🤖","👍","👎","👏","🙌","🙏","💪","🤝","👊","✊","🤞","✌️","🤟","🤘","👌","🤏","👈","👉","👆","👇","☝️","✋","👋","🤙","🫶","👀","🧠","👑"] },
+  { icon: "🐻", name: "動物與自然", list: ["🐶","🐱","🐭","🐹","🐰","🦊","🐻","🐼","🐨","🐯","🦁","🐮","🐷","🐸","🐵","🙈","🙉","🙊","🐔","🐧","🐦","🐤","🦆","🦅","🦉","🦇","🐺","🐗","🐴","🦄","🐝","🐛","🦋","🐌","🐞","🐜","🕷️","🐢","🐍","🦎","🦖","🐙","🦑","🦐","🦀","🐡","🐠","🐟","🐬","🐳","🐋","🦈","🐊","🐅","🐆","🦓","🦍","🐘","🦏","🐪","🦒","🐐","🦌","🐕","🐈","🐓","🦃","🦚","🦜","🕊️","🐇","🌵","🎄","🌲","🌳","🌴","🌱","🌿","☘️","🍀","🎍","🍃","🍂","🍁","🌾","🌺","🌻","🌹","🌷","🌼","🌸","💐","🍄","🌰","🌍","🌕","🌙","⭐","🌟","✨","⚡","☄️","💥","🔥","🌪️","🌈","☀️","⛅","☁️","🌧️","⛈️","🌨️","❄️","☃️","⛄","💨","💧","💦","🌊"] },
+  { icon: "🍔", name: "食物與飲料", list: ["🍏","🍎","🍐","🍊","🍋","🍌","🍉","🍇","🍓","🍒","🍑","🥭","🍍","🥥","🥝","🍅","🥑","🥦","🥒","🌽","🥕","🧄","🧅","🥔","🍠","🥐","🍞","🥖","🧀","🥚","🍳","🥞","🥓","🥩","🍗","🍖","🌭","🍔","🍟","🍕","🥪","🌮","🌯","🥗","🍝","🍜","🍲","🍛","🍣","🍱","🥟","🍤","🍙","🍚","🍘","🍥","🍡","🍧","🍨","🍦","🥧","🧁","🍰","🎂","🍮","🍭","🍬","🍫","🍿","🍩","🍪","🥜","🍯","🥛","🍼","☕","🍵","🧃","🥤","🍶","🍺","🍻","🥂","🍷","🥃","🍸","🍹","🍾","🧊","🥄","🍴","🍽️"] },
+  { icon: "⚽", name: "活動", list: ["⚽","🏀","🏈","⚾","🥎","🎾","🏐","🏉","🥏","🎱","🏓","🏸","🏒","🏑","🏏","⛳","🏹","🎣","🥊","🥋","🎽","🛹","⛸️","🎿","⛷️","🏂","🏋️","🤼","🤸","⛹️","🤺","🤾","🏌️","🏇","🧘","🏄","🏊","🚣","🧗","🚵","🚴","🏆","🥇","🥈","🥉","🏅","🎖️","🏵️","🎫","🎪","🤹","🎭","🎨","🎬","🎤","🎧","🎼","🎹","🥁","🎷","🎺","🎸","🎻","🎲","♟️","🎯","🎳","🎮","🎰","🧩"] },
+  { icon: "🚗", name: "旅行與地點", list: ["🚗","🚕","🚙","🚌","🚎","🏎️","🚓","🚑","🚒","🚐","🚚","🚛","🚜","🛴","🚲","🛵","🏍️","🚨","🚔","🚍","🚘","🚖","🚡","🚠","🚟","🚃","🚋","🚝","🚄","🚅","🚈","🚂","🚆","🚇","🚊","🚉","✈️","🛫","🛬","🛩️","💺","🛰️","🚀","🛸","🚁","🛶","⛵","🚤","🛥️","🛳️","⛴️","🚢","⚓","⛽","🚧","🚦","🚥","🗺️","🗿","🗽","🗼","🏰","🏯","🏟️","🎡","🎢","🎠","⛲","🏖️","🏝️","🏜️","🌋","⛰️","🏔️","🗻","🏕️","⛺","🏠","🏡","🏘️","🏭","🏢","🏬","🏥","🏦","🏨","🏪","🏫","⛪","🕌","🌁","🌃","🏙️","🌄","🌅","🌆","🌇","🌉","🌌","🎆","🎇","🌈"] },
+  { icon: "💡", name: "物品", list: ["⌚","📱","💻","⌨️","🖥️","🖨️","🖱️","🕹️","💽","💾","💿","📀","📷","📸","📹","🎥","📽️","🎞️","📞","☎️","📟","📠","📺","📻","🎙️","⏱️","⏰","🕰️","⌛","⏳","📡","🔋","🔌","💡","🔦","🕯️","🧯","💸","💵","💴","💶","💷","💰","💳","💎","⚖️","🧰","🔧","🔨","🛠️","⛏️","🔩","⚙️","⛓️","🧲","🔫","💣","🧨","🔪","🗡️","⚔️","🛡️","🚬","⚰️","🏺","🔮","📿","💊","💉","🩸","🧬","🦠","🧪","🌡️","🧹","🧻","🚽","🚿","🛁","🧼","🧴","🔑","🗝️","🚪","🛋️","🛏️","🧸","🖼️","🛍️","🛒","🎁","🎈","🎏","🎀","🎊","🎉","🏮","🧧","✉️","📩","📨","📧","💌","📦","🏷️","📪","📮","📜","📃","📄","📑","📊","📈","📉","🗒️","📆","📅","🗃️","📋","📁","📂","🗞️","📰","📓","📔","📒","📕","📗","📘","📙","📚","📖","🔖","🔗","📎","📐","📏","🧮","📌","📍","✂️","🖊️","🖋️","✒️","🖌️","🖍️","📝","✏️","🔍","🔎","🔒","🔓","🔑"] },
+  { icon: "❤️", name: "符號", list: ["❤️","🧡","💛","💚","💙","💜","🖤","🤍","🤎","💔","❣️","💕","💞","💓","💗","💖","💘","💝","☮️","✝️","☪️","🕉️","☸️","✡️","🔯","🕎","☯️","⛎","♈","♉","♊","♋","♌","♍","♎","♏","♐","♑","♒","♓","🆔","⚛️","☢️","☣️","✴️","🆚","❌","⭕","🛑","⛔","🚫","💯","💢","🚭","❗","❕","❓","❔","‼️","⁉️","⚠️","🚸","🔱","⚜️","🔰","♻️","✅","❇️","✳️","❎","💠","♾️","🌀","💤","🏧","🚾","♿","🅿️","🚹","🚺","🚻","🚮","📶","🔣","ℹ️","🔤","🔡","🔠","🆖","🆗","🆙","🆒","🆕","🆓","🔟","🔢","▶️","⏸️","⏹️","⏺️","⏭️","⏮️","⏩","⏪","🔀","🔁","🔂","🔄","➡️","⬅️","⬆️","⬇️","↗️","↘️","↙️","↖️","↕️","↔️","↪️","↩️","🔼","🔽","➕","➖","➗","✖️","💲","™️","©️","®️","🔚","🔙","🔛","🔝","✔️","☑️","🔘","🔴","🟠","🟡","🟢","🔵","🟣","⚫","⚪","🟤","🔺","🔻","🔸","🔹","🔶","🔷","🔳","🔲","⬛","⬜","🟥","🟧","🟨","🟩","🟦","🟪","🟫","🔔","🔕","📣","📢","💬","💭","🗯️","♠️","♣️","♥️","♦️"] },
+  { icon: "🚩", name: "旗幟", list: ["🚩","🏁","🏴","🏳️","🏳️‍🌈","🏴‍☠️","🇹🇼","🇺🇸","🇯🇵","🇰🇷","🇨🇳","🇭🇰","🇬🇧","🇫🇷","🇩🇪","🇮🇹","🇪🇸","🇨🇦","🇦🇺","🇷🇺","🇧🇷","🇮🇳","🇸🇬","🇹🇭","🇻🇳","🇵🇭","🇲🇾","🇮🇩","🇳🇱","🇨🇭","🇸🇪","🇦🇪"] },
+];
+const _EMOJI_RECENT_KEY = "drawEmojiRecent";
+function _emojiRecent() { try { return JSON.parse(localStorage.getItem(_EMOJI_RECENT_KEY) || "[]") || []; } catch (e) { return []; } }
+function _emojiPushRecent(em) {
+  try {
+    let r = _emojiRecent().filter(x => x !== em);
+    r.unshift(em);
+    localStorage.setItem(_EMOJI_RECENT_KEY, JSON.stringify(r.slice(0, 32)));
+  } catch (e) {}
+}
 function _showEmojiPicker(clientX, clientY, onPick) {
+  const PW = 300, PH = 306, vw = window.innerWidth || 400, vh = window.innerHeight || 600;
+  const left = Math.min(Math.max(6, clientX - PW / 2), vw - PW - 6);
+  const top  = Math.min(Math.max(6, clientY - PH - 12), vh - PH - 6);
   const wrap = document.createElement("div");
-  wrap.style.cssText = `position:fixed;left:${Math.min(clientX, (window.innerWidth||400) - 250)}px;top:${clientY - 10}px;` +
-    `z-index:9999;display:grid;grid-template-columns:repeat(6,1fr);gap:2px;background:#1e222d;border:1px solid #758696;` +
-    `border-radius:10px;padding:6px;box-shadow:0 10px 30px rgba(0,0,0,.55);`;
+  wrap.style.cssText = `position:fixed;left:${left}px;top:${top}px;width:${PW}px;height:${PH}px;z-index:9999;` +
+    `display:flex;flex-direction:column;background:#1e222d;border:1px solid #758696;border-radius:12px;` +
+    `box-shadow:0 14px 40px rgba(0,0,0,.6);overflow:hidden;font-family:sans-serif;`;
   let done = false;
   const close = (val) => {
     if (done) return; done = true;
     document.removeEventListener("pointerdown", off, true);
+    document.removeEventListener("keydown", esc, true);
     if (document.body.contains(wrap)) document.body.removeChild(wrap);
     onPick(val);
   };
   const off = (e) => { if (!wrap.contains(e.target)) close(null); };
-  _EMOJI_SET.forEach(em => {
-    const b = document.createElement("button");
-    b.textContent = em;
-    b.style.cssText = "background:transparent;border:none;font-size:21px;cursor:pointer;padding:4px;border-radius:7px;line-height:1;transition:background .12s;";
-    b.addEventListener("mouseenter", () => b.style.background = "rgba(255,255,255,.13)");
-    b.addEventListener("mouseleave", () => b.style.background = "transparent");
-    b.addEventListener("click", () => close(em));
-    wrap.appendChild(b);
+  const esc = (e) => { if (e.key === "Escape") close(null); };
+  // 標題（目前分類名）
+  const head = document.createElement("div");
+  head.style.cssText = "padding:7px 10px 4px;font-size:11px;color:#8b93a3;flex-shrink:0;";
+  // emoji 格
+  const grid = document.createElement("div");
+  grid.style.cssText = "flex:1;overflow-y:auto;padding:2px 6px 6px;display:grid;grid-template-columns:repeat(8,1fr);gap:1px;align-content:start;";
+  const renderCat = (cat) => {
+    head.textContent = cat.name;
+    grid.innerHTML = "";
+    const list = cat.key === "recent" ? _emojiRecent() : cat.list;
+    if (!list.length) {
+      const e = document.createElement("div");
+      e.textContent = "（尚無最近使用）";
+      e.style.cssText = "grid-column:1/-1;color:#6b7280;font-size:12px;padding:20px;text-align:center;";
+      grid.appendChild(e); return;
+    }
+    list.forEach(em => {
+      const b = document.createElement("button");
+      b.textContent = em;
+      b.style.cssText = "background:transparent;border:none;font-size:22px;cursor:pointer;padding:2px;border-radius:6px;line-height:1.2;";
+      b.addEventListener("mouseenter", () => b.style.background = "rgba(255,255,255,.13)");
+      b.addEventListener("mouseleave", () => b.style.background = "transparent");
+      b.addEventListener("click", () => { _emojiPushRecent(em); close(em); });
+      grid.appendChild(b);
+    });
+    grid.scrollTop = 0;
+  };
+  // 底部分類頁籤
+  const tabs = document.createElement("div");
+  tabs.style.cssText = "display:flex;border-top:1px solid rgba(255,255,255,.08);background:#171a23;flex-shrink:0;";
+  _EMOJI_CATS.forEach(cat => {
+    const t = document.createElement("button");
+    t.textContent = cat.icon; t.title = cat.name;
+    t.style.cssText = "flex:1;background:transparent;border:none;font-size:17px;cursor:pointer;padding:6px 0;opacity:.55;border-top:2px solid transparent;";
+    t.addEventListener("click", () => {
+      tabs.querySelectorAll("button").forEach(b => { b.style.opacity = ".55"; b.style.borderTopColor = "transparent"; });
+      t.style.opacity = "1"; t.style.borderTopColor = "#2962ff";
+      renderCat(cat);
+    });
+    tabs.appendChild(t);
   });
+  wrap.append(head, grid, tabs);
   document.body.appendChild(wrap);
-  document.addEventListener("keydown", function esc(e){ if (e.key === "Escape") { document.removeEventListener("keydown", esc); close(null); } });
+  const startIdx = _emojiRecent().length ? 0 : 1;   // 有最近→最近分頁,否則笑臉
+  tabs.children[startIdx].click();
+  document.addEventListener("keydown", esc, true);
   setTimeout(() => document.addEventListener("pointerdown", off, true), 0);   // 延一拍避開這次點擊
 }
 
@@ -1620,9 +1681,11 @@ function renderDrawings() {
   _drawVWAP(W, H);
 
   // Draw non-selected first, then hovered, then selected on top
-  drawings.filter(d => d.id !== selectedId && d.id !== hoveredId).forEach(d => drawOne(d, W, H, false, false));
-  drawings.filter(d => d.id === hoveredId && d.id !== selectedId).forEach(d => drawOne(d, W, H, true, false));
-  drawings.filter(d => d.id === selectedId).forEach(d => drawOne(d, W, H, false, true));
+  // 單一繪圖 render 丟例外時只跳過它、不拖垮整塊 overlay(catch 內補 restore 平衡 save 堆疊)。
+  const _safeDraw = (d, hov, sel) => { try { drawOne(d, W, H, hov, sel); } catch (e) { try { drawCtx.restore(); } catch (_) {} } };
+  drawings.filter(d => d.id !== selectedId && d.id !== hoveredId).forEach(d => _safeDraw(d, false, false));
+  drawings.filter(d => d.id === hoveredId && d.id !== selectedId).forEach(d => _safeDraw(d, true, false));
+  drawings.filter(d => d.id === selectedId).forEach(d => _safeDraw(d, false, true));
 
   // （策略棒止損線改由 realtime.js onMainCrosshair 用 LWC 原生 price line 畫，不再走 overlay）
 
@@ -1811,11 +1874,13 @@ function drawOne(d, W, H, isHovered, isSelected) {
     drawCtx.lineTo(b.x - hl * Math.cos(ang + ha), b.y - hl * Math.sin(ang + ha));
     drawCtx.closePath(); drawCtx.fill();            // 實心箭頭
     drawCtx.shadowBlur = 0;
-    const hoverPartArr = (isHovered || isSelected) ? _endpointHit(d, _mx, _my) : null;
-    [[a, "p1"], [b, "p2"]].forEach(([p, ep]) => {
-      const r = isSelected ? (hoverPartArr === ep ? 7 : 5) : 3;
-      drawCtx.beginPath(); drawCtx.arc(p.x, p.y, r, 0, Math.PI*2); drawCtx.fill();
-    });
+    // 端點小圓點只在「選取時」當拖移把手顯示；平時箭頭乾淨、兩端不出現圓點。
+    if (isSelected) {
+      const hoverPartArr = _endpointHit(d, _mx, _my);
+      [[a, "p1"], [b, "p2"]].forEach(([p, ep]) => {
+        drawCtx.beginPath(); drawCtx.arc(p.x, p.y, hoverPartArr === ep ? 7 : 5, 0, Math.PI*2); drawCtx.fill();
+      });
+    }
   }
   else if (d.type === "fib" && d.p1 && d.p2) {
     const a = chartToScreen(d.p1.time, d.p1.price);
