@@ -1642,13 +1642,15 @@ let _axisSig = "";
 let _axisWatchUntil = 0;
 let _axisWatchRAF = 0;
 function _axisSignature() {
+  // 只看「價格軸」（畫布頂/底對應的價格）。時間軸的平移/縮放已由 subscribeVisibleTimeRangeChange
+  // 處理 → 這裡不含時間，平移時簽章不變、看門狗不介入、零額外重繪（滑動保持順）。
+  // 看門狗的唯一職責：抓「價格軸變動但時間沒變」的時點（切標的/時框的 autoScale 落定、拖價格軸）。
   try {
-    if (!candleSeries || !mainChart) return "";
+    if (!candleSeries) return "";
     const H = _cssH();
     const pTop = candleSeries.coordinateToPrice(0);
     const pBot = candleSeries.coordinateToPrice(H);
-    const lr = mainChart.timeScale().getVisibleLogicalRange();
-    return `${pTop}|${pBot}|${lr ? lr.from.toFixed(2) + "," + lr.to.toFixed(2) : ""}`;
+    return `${pTop}|${pBot}`;
   } catch (e) { return ""; }
 }
 function _axisWatchTick() {
@@ -1656,7 +1658,9 @@ function _axisWatchTick() {
   if (now > _axisWatchUntil) { _axisWatchRAF = 0; return; }   // 窗結束 → 停 rAF（省電）
   _axisWatchRAF = requestAnimationFrame(_axisWatchTick);
   const sig = _axisSignature();
-  if (sig && sig !== _axisSig) { _axisSig = sig; renderDrawings(); }   // 已在 rAF 內 → 直接重繪
+  // 用 rAF 去重的排程重繪（非直接 renderDrawings）→ 與 LWC 可見範圍變化那條合併,每幀最多一次,
+  // 避免平移/縮放時「每幀重繪兩次」拖慢滑動。
+  if (sig && sig !== _axisSig) { _axisSig = sig; _scheduleRenderDrawings(); }
 }
 // 啟動/延長一段軸追蹤窗（ms）；期間任何價/時軸座標變化即重繪。會動軸的操作都呼叫它。
 function _watchAxis(ms = 1500) {
