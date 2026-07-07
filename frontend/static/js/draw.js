@@ -870,10 +870,10 @@ function _computeFVGConfluenceRuns() {
     if (typeof _secToIdx === "undefined" || !_secToIdx.size) return out;
     const _rpIdx = (typeof replayActive !== "undefined" && replayActive
                     && typeof replayIdx === "number") ? replayIdx : null;
-    const idxSet = (arr, dir) => {
+    const idxSet = (arr, wantD) => {
       const s = new Set();
       for (const it of (arr || [])) {
-        if (it.d !== dir) continue;
+        if (it.d !== wantD) continue;
         const bi = _secToIdx.get(toTime(it.t));
         if (bi == null) continue;
         if (_rpIdx != null && bi > _rpIdx) continue;   // 重播：未揭曉的不算
@@ -881,12 +881,16 @@ function _computeFVGConfluenceRuns() {
       }
       return s;
     };
+    const near = (set, i) => set.has(i) || set.has(i + 1);   // 落在連續兩根 [i, i+1]
+    // 同向匯流。⚠ fvg_break 的 .d 是「被破壞結構」方向、與訊號相反：
+    //   破多(.d='l')＝看空、破空(.d='s')＝看多 → 空方匯流取 break 的 'l'、多方取 's'。
     for (const dir of ["s", "l"]) {
-      const ms = idxSet(_lastFVGMS, dir), sh = idxSet(_lastFVGShun, dir), bk = idxSet(_lastFVGBreak, dir);
-      if (!ms.size || !sh.size || !bk.size) continue;    // 三種各要有才可能各一匯流
-      const near = (set, i) => set.has(i) || set.has(i + 1);   // 落在連續兩根 [i, i+1]
+      const ms = idxSet(_lastFVGMS, dir);
+      const sh = idxSet(_lastFVGShun, dir);
+      const bk = idxSet(_lastFVGBreak, dir === "s" ? "l" : "s");
+      if (!ms.size || !sh.size || !bk.size) continue;
       const bars = new Set();
-      // 視窗 [i, i+1]：多空(ms)+順多空(shun)+破多空(break) 三種『各至少一個』同向落在此兩根 → 匯流
+      // 視窗 [i, i+1]：多空+順多空+破多空 三種各至少一個、同(訊號)方向落在此兩根 → 匯流
       for (const i of new Set([...ms, ...sh, ...bk])) {
         if (near(ms, i) && near(sh, i) && near(bk, i)) {
           for (const set of [ms, sh, bk]) { if (set.has(i)) bars.add(i); if (set.has(i + 1)) bars.add(i + 1); }
@@ -932,7 +936,7 @@ function _drawConfluenceOverlay(W, H) {
     if (yH == null || yL == null) continue;
     const padX = Math.max(2, half * 0.4), padY = 9;
     const L = x1 - half - padX, R = x2 + half + padX, T = yH - padY, B = yL + padY;
-    // 空=桃紅、多=霓虹綠（對齊 fvg_ms 方向色）
+    // 空方匯流=桃紅框、多方=霓虹綠框
     drawCtx.strokeStyle = r.dir === "s" ? "#ff2a6d" : "#39ff14";
     drawCtx.lineWidth = 2;
     drawCtx.setLineDash([]);
