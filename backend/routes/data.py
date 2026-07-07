@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from datetime import date, timedelta, datetime as dt
 from typing import Optional
 import os
+import sys
 import time
 import math
 import threading
@@ -147,6 +148,55 @@ def diag():
         "alpaca": bool(os.getenv("ALPACA_KEY") and os.getenv("ALPACA_SECRET")),
         "finnhub": bool(os.getenv("FINNHUB_TOKEN")),
         "cwa": bool(os.getenv("CWA_API_KEY")),
+    }
+
+
+@router.get("/_diag_mem")
+def diag_mem():
+    """記憶體診斷：process RSS + 兩個快取池的佔用（本機、Railway 皆可用）。
+    看 process_rss_mb（整個服務吃多少 RAM）與 data_cache.df_total_mb（深歷史 df 快取佔多少）。"""
+    import subprocess
+    def _rss_mb():
+        try:   # Linux(Railway)：/proc/self/status VmRSS（當前 RSS，kB）
+            with open("/proc/self/status") as f:
+                for line in f:
+                    if line.startswith("VmRSS:"):
+                        return round(int(line.split()[1]) / 1024, 1)
+        except Exception:
+            pass
+        try:   # macOS 本機：ps -o rss（當前 RSS，kB）
+            out = subprocess.check_output(["ps", "-o", "rss=", "-p", str(os.getpid())]).decode().strip()
+            return round(int(out) / 1024, 1)
+        except Exception:
+            pass
+        try:   # 退回 peak（resource；macOS=bytes、Linux=kB）
+            import resource
+            r = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+            return round(r / (1024 * 1024 if sys.platform == "darwin" else 1024), 1)
+        except Exception:
+            return None
+
+    def _report(c):
+        try:
+            with c._lock:
+                items = list(c._cache.items())
+        except Exception:
+            items = []
+        total = 0.0; ents = []
+        for k, (data, ts) in items:
+            mb = None
+            if isinstance(data, pd.DataFrame):
+                mb = round(data.memory_usage(deep=True).sum() / 1024 / 1024, 2)
+                total += mb
+            ents.append({"key": (k[:64] if isinstance(k, str) else str(k)[:64]), "df_mb": mb})
+        return {"count": len(items), "max_size": c._max_size,
+                "df_total_mb": round(total, 1), "entries": ents}
+
+    return {
+        "process_rss_mb": _rss_mb(),      # 整個服務目前吃多少 RAM
+        "platform": sys.platform,
+        "data_cache": _report(data_cache),   # 深歷史 df + 勝率結果（32 條硬上限）
+        "volatile_cache": _report(cache),    # ohlcv/報價/搜尋等（48 條）
     }
 
 
