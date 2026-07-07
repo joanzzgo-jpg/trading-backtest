@@ -922,23 +922,32 @@ function _drawConfluenceOverlay(W, H) {
   let plotW = W;
   try { const tw = ts.width(); if (tw > 0) plotW = tw;
         else { const pw = mainChart.priceScale("right").width(); if (pw > 0) plotW = W - pw; } } catch (e) {}
-  let plotBottom = H;   // 止於時間軸上緣
-  try { const th = ts.height(); if (th > 0) plotBottom = H - th; } catch (e) {}
   drawCtx.save();
   drawCtx.beginPath(); drawCtx.rect(0, 0, plotW, H); drawCtx.clip();
+  const bw = Math.max(2, half * 1.5);   // 實體寬 ≈ 0.75 根
   for (const r of runs) {
-    const a = ohlcvData[r.s], b = ohlcvData[r.e];
-    if (!a || !b) continue;
-    const x1 = ts.timeToCoordinate(toTime(a.time)), x2 = ts.timeToCoordinate(toTime(b.time));
-    if (x1 == null || x2 == null) continue;
-    const L = x1 - half, R = x2 + half;
-    // 高亮那幾根 K 棒（背景整條）：空方=桃紅、多方=霓虹綠
-    drawCtx.fillStyle   = r.dir === "s" ? "rgba(255,42,109,0.18)" : "rgba(57,255,20,0.16)";
-    drawCtx.fillRect(L, 0, R - L, plotBottom);
-    drawCtx.strokeStyle = r.dir === "s" ? "rgba(255,42,109,0.6)" : "rgba(57,255,20,0.55)";
-    drawCtx.lineWidth = 1.5;
-    drawCtx.strokeRect(L, 0.75, R - L, plotBottom - 1.5);
+    const color = r.dir === "s" ? "#ff2a6d" : "#39ff14";   // 空=桃紅、多=霓虹綠
+    // 把匯流那幾根 K 棒『發亮』：實體+影線描霓虹光暈外框
+    for (let i = r.s; i <= r.e; i++) {
+      const d = ohlcvData[i]; if (!d) continue;
+      const x = ts.timeToCoordinate(toTime(d.time)); if (x == null) continue;
+      const yO = candleSeries && candleSeries.priceToCoordinate(d.open);
+      const yC = candleSeries && candleSeries.priceToCoordinate(d.close);
+      const yH = candleSeries && candleSeries.priceToCoordinate(d.high);
+      const yL = candleSeries && candleSeries.priceToCoordinate(d.low);
+      if (yO == null || yC == null || yH == null || yL == null) continue;
+      const bt = Math.min(yO, yC), bb = Math.max(yO, yC);
+      drawCtx.shadowColor = color;
+      drawCtx.strokeStyle = color;
+      drawCtx.lineWidth = 1.6;
+      for (const blur of [18, 9]) {           // 兩層光暈：外散＋內亮
+        drawCtx.shadowBlur = blur;
+        drawCtx.beginPath(); drawCtx.moveTo(x, yH); drawCtx.lineTo(x, yL); drawCtx.stroke();  // 影線
+        drawCtx.strokeRect(x - bw / 2, bt, bw, Math.max(1, bb - bt));                          // 實體外框
+      }
+    }
   }
+  drawCtx.shadowBlur = 0;
   drawCtx.restore();
 }
 
