@@ -232,9 +232,37 @@ def _txf_collect_worker():
         time.sleep(25)
 
 
+_leader_lock_fh = None   # 持有＝持有 leader 鎖（保持開啟至 process 結束）
+
+def _acquire_leader() -> bool:
+    """搶「背景工作 leader」。多 worker 下只讓一個 process 跑背景抓取/推播/自動交易，
+    避免 N 個 worker 各自輪詢 → N 倍撞 Binance/Pionex 限流、N 份推播/下單。
+    用檔案鎖（flock）：搶到＝leader（回 True，持鎖至結束）。workers=1 時唯一 worker 必為 leader，
+    行為與單 worker 完全一致。follower 只服務請求、讀 leader 寫到磁碟的共享報價快照。"""
+    global _leader_lock_fh
+    try:
+        import fcntl
+    except Exception:
+        return True   # 非 unix（無 fcntl）→ 視為單一 worker，當 leader
+    try:
+        d = os.path.join(os.path.dirname(__file__), ".df_cache")
+        os.makedirs(d, exist_ok=True)
+        fh = open(os.path.join(d, "leader.lock"), "w")
+        fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)   # 非阻塞獨佔鎖
+        _leader_lock_fh = fh                              # 保持開啟＝持有鎖
+        return True
+    except (OSError, IOError):
+        return False   # 已被別的 worker 鎖住 → 本 worker 當 follower
+    except Exception:
+        return True    # 其他異常 → 保守當 leader（至少要有一個在跑背景工作）
+
+
 @app.on_event("startup")
 async def _warmup():
-    """啟動時立即預熱並啟動背景 ticker 更新。"""
+    """啟動時立即預熱並啟動背景 ticker 更新（僅 leader worker）。"""
+    if not _acquire_leader():
+        print("  ⓘ follower worker：背景抓取/推播/交易由 leader 負責；本 worker 只服務請求（讀共享報價快照）")
+        return
     import asyncio
     loop = asyncio.get_event_loop()
     loop.run_in_executor(None, _fetch_pionex_symbols)
