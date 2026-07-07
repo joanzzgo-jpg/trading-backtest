@@ -919,28 +919,25 @@ function _drawConfluenceOverlay(W, H) {
   const vr = ts.getVisibleLogicalRange();
   if (!vr) return;
   const half = (W / Math.max(1, vr.to - vr.from)) / 2;   // 半根 K 寬
+  let plotW = W;
+  try { const tw = ts.width(); if (tw > 0) plotW = tw;
+        else { const pw = mainChart.priceScale("right").width(); if (pw > 0) plotW = W - pw; } } catch (e) {}
+  let plotBottom = H;   // 止於時間軸上緣
+  try { const th = ts.height(); if (th > 0) plotBottom = H - th; } catch (e) {}
   drawCtx.save();
+  drawCtx.beginPath(); drawCtx.rect(0, 0, plotW, H); drawCtx.clip();
   for (const r of runs) {
     const a = ohlcvData[r.s], b = ohlcvData[r.e];
     if (!a || !b) continue;
     const x1 = ts.timeToCoordinate(toTime(a.time)), x2 = ts.timeToCoordinate(toTime(b.time));
     if (x1 == null || x2 == null) continue;
-    // 框住這幾根 K 的高低範圍（不做背景高亮，改畫方框）
-    let hi = -Infinity, lo = Infinity;
-    for (let i = r.s; i <= r.e; i++) {
-      const d = ohlcvData[i]; if (!d) continue;
-      if (d.high > hi) hi = d.high; if (d.low < lo) lo = d.low;
-    }
-    const yH = candleSeries && candleSeries.priceToCoordinate(hi);
-    const yL = candleSeries && candleSeries.priceToCoordinate(lo);
-    if (yH == null || yL == null) continue;
-    const padX = Math.max(2, half * 0.4), padY = 9;
-    const L = x1 - half - padX, R = x2 + half + padX, T = yH - padY, B = yL + padY;
-    // 空方匯流=桃紅框、多方=霓虹綠框
-    drawCtx.strokeStyle = r.dir === "s" ? "#ff2a6d" : "#39ff14";
-    drawCtx.lineWidth = 2;
-    drawCtx.setLineDash([]);
-    drawCtx.strokeRect(L, T, R - L, B - T);
+    const L = x1 - half, R = x2 + half;
+    // 高亮那幾根 K 棒（背景整條）：空方=桃紅、多方=霓虹綠
+    drawCtx.fillStyle   = r.dir === "s" ? "rgba(255,42,109,0.18)" : "rgba(57,255,20,0.16)";
+    drawCtx.fillRect(L, 0, R - L, plotBottom);
+    drawCtx.strokeStyle = r.dir === "s" ? "rgba(255,42,109,0.6)" : "rgba(57,255,20,0.55)";
+    drawCtx.lineWidth = 1.5;
+    drawCtx.strokeRect(L, 0.75, R - L, plotBottom - 1.5);
   }
   drawCtx.restore();
 }
