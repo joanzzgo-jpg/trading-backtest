@@ -3201,23 +3201,24 @@
   }
   function _nearbyText(n) {
     if (!n) return '';
+    // 一律先講所在地有沒有下雨，再帶附近
     if (n.raining_here) return '☔ 你所在地正在下雨' + _trendZh(n.nearest);
     const a = n.approaching;
     if (a && a.eta_min != null) {
       const from = a.area ? a.area + '的雨' : '雨';
       const est  = a.by === 'wind' ? '（順風推估）' : '';   // 風向推標不確定；雷達位移/臨近預報則不標
-      return '🌧️ ' + from + '正往你這來，約 ' + a.eta_min + ' 分後到' + est + _trendZh(a);
+      return '🌂 你這沒下，' + from + '正往你這來，約 ' + a.eta_min + ' 分後到' + est + _trendZh(a);
     }
     if (n.widespread) {   // 半徑內一半以上都在下雨 → 大範圍降雨(往哪走都可能遇到)
       const pct = n.coverage != null ? '約' + Math.round(n.coverage * 10) + '成' : '大片';
-      return '🌧️ 附近' + pct + '範圍都在下雨，出門很可能遇到';
+      return '🌂 你這沒下，但附近' + pct + '範圍都在下雨';
     }
     const c = n.nearest;
     if (c) {
       const where = c.area || (c.dist_km + 'km外');
-      return '🌧️ ' + where + '有' + (c.scale || '') + c.level + (c.approaching ? '，往你來' : '') + _trendZh(c);
+      return '🌂 你這沒下，' + where + '有' + (c.scale || '') + c.level + _trendZh(c);
     }
-    return '☀️ 附近 ' + (n.radius_km || 30) + 'km 內無降雨';
+    return '☀️ 你這和附近都沒下雨';
   }
   function _clearWeatherBtns() {
     document.getElementById("leafToggleBtn")    ?.classList.remove("leaf-active");
@@ -3244,7 +3245,9 @@
     const n = _wd.nearby;
     if (!n) return null;
     const L = [];
+    // ① 先講所在地有沒有下雨
     if (n.raining_here) L.push('☔ 你所在地正在下雨' + _trendZh(n.nearest));
+    else L.push('🌂 你所在地目前沒下雨');
     const a = n.approaching;
     if (a && a.eta_min != null) {
       const from = a.area ? a.area + '的雨' : '雨';
@@ -3255,7 +3258,7 @@
       const pct = n.coverage != null ? '約' + Math.round(n.coverage * 10) + '成' : '一大片';
       L.push('🌧️ 附近' + pct + '範圍都在下雨，出門很可能遇到');
     }
-    // 附近有雨的「區」：只列行政區名（去重、最多 6 個），方向不重要
+    // ② 附近有雨的「區」：只列行政區名（去重、最多 6 個），方向不重要
     const seen = new Set();
     if (n.raining_here && n.nearest && n.nearest.area) seen.add(n.nearest.area);
     if (a && a.area) seen.add(a.area);
@@ -3268,7 +3271,7 @@
       if (areas.length >= 6) break;
     }
     if (areas.length) L.push('🌧️ 附近下雨的區：' + areas.join('、'));
-    if (!L.length) L.push('☀️ 附近 ' + (n.radius_km || 30) + 'km 內沒有下雨');
+    else if (!n.raining_here && !a && !n.widespread) L.push('☀️ 附近 ' + (n.radius_km || 30) + 'km 內也沒有下雨');
     return L.join('\n');
   };
 
