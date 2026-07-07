@@ -1112,7 +1112,7 @@ function _renderCoachPanel() {
   const dcOf = d => (d && d.direction === 1) ? "#26a69a" : (d && d.direction === -1) ? "#ef5350" : "#9aa";
   const dtOf = d => (d && d.direction === 1) ? "多單" : (d && d.direction === -1) ? "空單" : "待定";
   // 單一版本的內容（不含最外層標題列）
-  const bodyFor = (d, collapsed) => {
+  const bodyFor = (d, collapsed, compact) => {
     if (!d || !d.ok) return `<div style="color:#9aa">（此版無資料）</div>`;
     const dc = dcOf(d);
     const mp = d.market_pos;
@@ -1128,8 +1128,9 @@ function _renderCoachPanel() {
       ? planParts.map(p => `<span style="color:${p[2]}">${p[0]} ${p[1]}</span>`).join(`<span style="color:#667">｜</span>`)
       : "—";
     if (collapsed) {
-      return `<div style="color:#cdd;max-width:390px;margin-bottom:3px">${d.progress}</div>`
-        + `<div style="font-weight:600;background:rgba(255,255,255,0.05);border-radius:5px;padding:3px 6px">${planTxt}</div>`;
+      const planLine = `<div style="font-weight:600;background:rgba(255,255,255,0.05);border-radius:5px;padding:3px 6px">${planTxt}</div>`;
+      if (compact) return planLine;   // 手機收合：只留交易計畫一行（省掉 progress 敘述那行）
+      return `<div style="color:#cdd;max-width:390px;margin-bottom:3px">${d.progress}</div>` + planLine;
     }
     const row = (k, v, c) => `<div style="display:flex;gap:8px;padding:1px 0"><span style="color:#9aa;min-width:76px">${k}</span><span style="color:${c || '#e6e6e6'};flex:1">${v}</span></div>`;
     const stepRow = s => `<div style="display:flex;gap:6px;padding:2px 0;border-top:1px solid rgba(255,255,255,0.07)"><span style="color:${s.done ? dc : '#8a95a5'};min-width:104px;font-weight:600">${s.done ? '✓' : '○'} 步驟${s.n}｜${s.title}</span><span style="color:${s.done ? '#e6e6e6' : '#9aa'};flex:1">${s.text}</span></div>`;
@@ -1178,16 +1179,20 @@ function _renderCoachPanel() {
       }
     }
   } catch (e) {}
-  if (collapsed) {   // 收合：兩版「同時顯示」(選中/命中的那版排前面)
+  if (collapsed) {   // 收合：桌機兩版同時顯示；手機只顯示選中那版＋精簡（收得更小）
     const first  = window._coachWhich === "fast" ? df : dd;
     const second = window._coachWhich === "fast" ? dd : df;
+    const _mob = (typeof isMobileUI === "function" && isMobileUI());
     const head = `<div style="display:flex;align-items:center;gap:8px;border-bottom:1px solid rgba(255,255,255,0.12);padding-bottom:3px;margin-bottom:3px">`
       + `<span style="font-weight:700;color:#ffca28;flex:1">教練 · ${sym}</span>`
+      + (_mob ? `<button onclick="window._coachToggleWhich&&window._coachToggleWhich()" style="pointer-events:auto;cursor:pointer;background:rgba(79,195,247,0.18);border:0;border-radius:4px;color:#8fd3ff;font-size:11px;padding:1px 6px" title="切換時框組">切 ⇄</button>` : ``)
       + `<button onclick="window._coachToggleCollapse&&window._coachToggleCollapse()" style="pointer-events:auto;cursor:pointer;background:rgba(255,255,255,0.1);border:0;border-radius:4px;color:#cfd;font-size:11px;padding:1px 6px">展開 ▾</button></div>`;
-    el.innerHTML = head + expectWarn
-      + subhead(first) + bodyFor(first, true)
-      + `<div style="height:6px;border-top:1px dashed rgba(255,255,255,0.14);margin-top:4px"></div>`
-      + subhead(second) + bodyFor(second, true);
+    el.innerHTML = _mob
+      ? head + expectWarn + subhead(first) + bodyFor(first, true, true)   // 手機：單版＋compact（只留計畫一行）
+      : head + expectWarn
+        + subhead(first) + bodyFor(first, true)
+        + `<div style="height:6px;border-top:1px dashed rgba(255,255,255,0.14);margin-top:4px"></div>`
+        + subhead(second) + bodyFor(second, true);
     return;
   }
   // 展開：只顯示選中那版全表 + 按鈕切換

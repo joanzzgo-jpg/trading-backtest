@@ -377,7 +377,8 @@ html.perf-mode .tb-icon-btn:hover svg { animation: none; transform: scale(1.1); 
     left: 6px !important; right: 6px !important; max-width: none !important; width: auto !important;
     top: auto !important; bottom: calc(84px + env(safe-area-inset-bottom, 0px)) !important;  /* 抬到時間軸(距底~46px tabbar+~28px軸)之上,不擋日期列 */
     max-height: 58vh !important; overflow-y: auto !important; -webkit-overflow-scrolling: touch;
-    pointer-events: auto !important; padding-top: 0 !important;
+    pointer-events: auto !important; padding: 0 7px 6px !important;
+    font-size: 11px !important; line-height: 1.4 !important;   /* 手機收得更小：字級/行高縮 */
   }
   /* 標題列(第一個子 div，含收合/切換鈕)黏頂，捲動步驟時也永遠可關；padding-top 移進來讓內容不從頂縫露出 */
   #coachPanel > div:first-child {
