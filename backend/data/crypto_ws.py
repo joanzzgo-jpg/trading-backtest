@@ -96,7 +96,10 @@ async def run_ticker_ws():
 
     async def _stream(url, is_fut):
         backoff = 1
-        allow = _perp_set() if is_fut else _spot_set()
+        try:
+            allow = _perp_set() if is_fut else _spot_set()
+        except Exception:
+            allow = set()
         mp = fut_map if is_fut else spot_map
         _refresh = [time.time()]
         while True:
@@ -128,4 +131,6 @@ async def run_ticker_ws():
                 backoff = min(backoff * 2, 30)
                 print(f"  ⚠ WS 重連（{'fut' if is_fut else 'spot'}）：{str(e)[:80]}")
 
-    await asyncio.gather(_stream(FUT_WS, True), _stream(SPOT_WS, False), _watchdog())
+    # return_exceptions=True：任一條(串流/看門狗)掛掉不會取消其他 → 看門狗永遠活著、報價不凍結。
+    await asyncio.gather(_stream(FUT_WS, True), _stream(SPOT_WS, False), _watchdog(),
+                         return_exceptions=True)
