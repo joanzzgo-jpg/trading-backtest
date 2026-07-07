@@ -14,7 +14,6 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from routes.data import router as data_router
 from routes.search import router as search_router
-from routes.backtest import router as backtest_router
 from routes.bear import router as bear_router
 from routes.weather import router as weather_router
 from routes.ai_research import router as ai_research_router
@@ -31,7 +30,7 @@ def _build_js_bundle():
         from pathlib import Path
         js = Path(os.path.dirname(__file__)) / ".." / "frontend" / "static" / "js"
         js = js.resolve()
-        names = ["config","utils","charts","draw","colors","ticker","winrate","render","realtime","replay","ui","ai_research","signal_info","account","notify","trade","chartorder","backtest","xiaoa","lunar","announce","main"]
+        names = ["config","utils","charts","draw","colors","ticker","winrate","render","realtime","replay","ui","ai_research","signal_info","account","notify","trade","chartorder","xiaoa","lunar","announce","main"]
         srcs = [js / f"{n}.js" for n in names]
         bundle = js / "app.bundle.js"
         srcs_exist = [p for p in srcs if p.exists()]
@@ -215,7 +214,6 @@ def service_worker():
 
 app.include_router(data_router)
 app.include_router(search_router)
-app.include_router(backtest_router)
 app.include_router(bear_router)
 app.include_router(weather_router)
 app.include_router(ai_research_router)

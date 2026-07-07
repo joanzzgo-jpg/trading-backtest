@@ -262,7 +262,7 @@ function renderAll(data) {
 
 function renderCandles(data) {
   applyOhlcvToSeries(data);
-  lastCRTMarkers = []; lastWRSignalMarkers = []; lastBacktestMarkers = []; lastFVGTradeMarkers = []; lastFVGBBMarkers = []; lastFVGBBMarkersA = []; lastFVGBBMarkersM = []; lastFVGBreakMarkers = []; lastFVGMSMarkers = []; lastFVGShunMarkers = []; lastSMCSweepMarkers = []; lastCoachBOSMarkers = [];
+  lastCRTMarkers = []; lastWRSignalMarkers = []; lastFVGTradeMarkers = []; lastFVGBBMarkers = []; lastFVGBBMarkersA = []; lastFVGBBMarkersM = []; lastFVGBreakMarkers = []; lastFVGMSMarkers = []; lastFVGShunMarkers = []; lastSMCSweepMarkers = []; lastCoachBOSMarkers = [];
   if (typeof setFVGTradeLines === "function") setFVGTradeLines([]);   // 換標的/重載 → 清舊止損止盈線，避免殘留
   _sortedMarkerCache = null;   // 標記陣列已清空 → 失效快取，避免平移重切視窗時殘留舊標記
   candleSeries.setMarkers([]);
@@ -342,7 +342,6 @@ function _applyMainMarkers(windowOnly) {
       ...(window._fvgShunHidden ? [] : _dimBigRange(lastFVGShunMarkers)),      // 順多/順空
       ...(window._coachOn ? lastSMCSweepMarkers : []),           // SMC 掃頂/掃底(階段1:SR+SMC 教練疊加層,右上開關)
       ...(window._coachOn ? lastCoachBOSMarkers : []),           // 教練步驟5(BOS)達成點箭頭(右上開關)
-      ...lastBacktestMarkers,
     ].sort((a, b) => a.time - b.time);
   }
   candleSeries.setMarkers(_windowMarkers(_sortedMarkerCache));

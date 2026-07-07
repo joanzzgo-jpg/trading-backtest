@@ -51,16 +51,6 @@ def stochastic(high: pd.Series, low: pd.Series, close: pd.Series, k_period: int 
     return k, d
 
 
-def atr(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) -> pd.Series:
-    prev_close = close.shift(1)
-    tr = pd.concat([
-        high - low,
-        (high - prev_close).abs(),
-        (low - prev_close).abs(),
-    ], axis=1).max(axis=1)
-    return tr.ewm(com=period - 1, adjust=False).mean()
-
-
 def crt_markers(high: pd.Series, low: pd.Series, open_: pd.Series, close: pd.Series) -> pd.Series:
     """
     CRT (Candle Range Theory) 標記偵測
@@ -173,7 +163,6 @@ def add_indicators(df: pd.DataFrame, config: dict) -> pd.DataFrame:
         "macd": {"fast": 12, "slow": 26, "signal": 9},
         "bb": {"period": 20, "std": 2.0},
         "stoch": {"k": 14, "d": 3},
-        "atr": {"period": 14},
         "vwap": true
     }
     """
@@ -216,10 +205,6 @@ def add_indicators(df: pd.DataFrame, config: dict) -> pd.DataFrame:
         cfg = config["kdj"]
         k_val, d_val, j_val = kdj(high, low, close, cfg.get("k_period", 9), cfg.get("d_period", 3))
         df["kdj_k"], df["kdj_d"], df["kdj_j"] = k_val, d_val, j_val
-
-    if "atr" in config:
-        period = config["atr"].get("period", 14)
-        df[f"atr_{period}"] = atr(high, low, close, period)
 
     if config.get("vwap") and not volume.empty:
         df["vwap"] = vwap(high, low, close, volume)
