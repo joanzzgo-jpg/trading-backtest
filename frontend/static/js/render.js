@@ -152,8 +152,6 @@ function renderAll(data) {
   renderCandles(data);
   renderBB(data);
   renderCRT(data);
-  renderKDJCross(data);
-  renderResonance(data);
   renderVolume(data);
   renderKDJ(data);
   renderRSI(data);
@@ -264,7 +262,7 @@ function renderAll(data) {
 
 function renderCandles(data) {
   applyOhlcvToSeries(data);
-  lastCRTMarkers = []; lastKDJCrossMarkers = []; lastResonanceMarkers = []; lastWRSignalMarkers = []; lastBacktestMarkers = []; lastFVGTradeMarkers = []; lastFVGBBMarkers = []; lastFVGBBMarkersA = []; lastFVGBBMarkersM = []; lastFVGBreakMarkers = []; lastFVGMSMarkers = []; lastFVGShunMarkers = []; lastSMCSweepMarkers = []; lastCoachBOSMarkers = [];
+  lastCRTMarkers = []; lastWRSignalMarkers = []; lastBacktestMarkers = []; lastFVGTradeMarkers = []; lastFVGBBMarkers = []; lastFVGBBMarkersA = []; lastFVGBBMarkersM = []; lastFVGBreakMarkers = []; lastFVGMSMarkers = []; lastFVGShunMarkers = []; lastSMCSweepMarkers = []; lastCoachBOSMarkers = [];
   if (typeof setFVGTradeLines === "function") setFVGTradeLines([]);   // 換標的/重載 → 清舊止損止盈線，避免殘留
   _sortedMarkerCache = null;   // 標記陣列已清空 → 失效快取，避免平移重切視窗時殘留舊標記
   candleSeries.setMarkers([]);
@@ -332,12 +330,8 @@ function _dimBigRange(markers) {
 function _applyMainMarkers(windowOnly) {
   if (!windowOnly || !_sortedMarkerCache) {
     const crtHidden       = document.getElementById("legCRT")?.classList.contains("line-off");
-    const kdjCrossHidden  = document.getElementById("legKDJCross")?.classList.contains("line-off");
-    const resonanceHidden = document.getElementById("legResonance")?.classList.contains("line-off");
     _sortedMarkerCache = [
       ...(crtHidden       ? [] : lastCRTMarkers),
-      ...(kdjCrossHidden  ? [] : lastKDJCrossMarkers),
-      ...(resonanceHidden ? [] : lastResonanceMarkers),
       ...(_wrSignalsHidden ? [] : lastWRSignalMarkers),
       ...(window._fvgTradesHidden ? [] : lastFVGTradeMarkers),
       ...((window._fvgBBHidden || window._fvgBBHideD) ? [] : lastFVGBBMarkers),
@@ -394,28 +388,6 @@ function renderCRT(data) {
   });
   markers.sort((a,b) => a.time - b.time);
   lastCRTMarkers = markers;
-  _applyMainMarkers();
-}
-
-function renderKDJCross(data) {
-  const markers = [];
-  data.forEach(d => {
-    if (d.kdj_cross === 1)  markers.push({ time:toTime(d.time), position:"belowBar", color:C.kdjCrossBull, shape:"arrowUp",   size:1.5, text:"金叉" });
-    if (d.kdj_cross === -1) markers.push({ time:toTime(d.time), position:"aboveBar", color:C.kdjCrossBear, shape:"arrowDown", size:1.5, text:"死叉" });
-  });
-  markers.sort((a,b) => a.time - b.time);
-  lastKDJCrossMarkers = markers;
-  _applyMainMarkers();
-}
-
-function renderResonance(data) {
-  const markers = [];
-  data.forEach(d => {
-    if (d.resonance === 1)  markers.push({ time:toTime(d.time), position:"belowBar", color:C.resonanceBull, shape:"arrowUp",   size:1.5, text:"超賣" });
-    if (d.resonance === -1) markers.push({ time:toTime(d.time), position:"aboveBar", color:C.resonanceBear, shape:"arrowDown", size:1.5, text:"超買" });
-  });
-  markers.sort((a,b) => a.time - b.time);
-  lastResonanceMarkers = markers;
   _applyMainMarkers();
 }
 
@@ -512,8 +484,6 @@ function _bgScheduleIndicators() {
     if (!ohlcvData.length) return;
     renderBB(ohlcvData);
     renderCRT(ohlcvData);
-    renderKDJCross(ohlcvData);
-    renderResonance(ohlcvData);
     setTimeout(() => { renderKDJ(ohlcvData); renderRSI(ohlcvData); renderMACD(ohlcvData); }, 0);
     if (_lastWRSignals.length) _renderWRSignals();
   }, 800);
@@ -643,7 +613,7 @@ async function _bgLoadOlderBars(scrollTriggered = false) {
       if (!replayActive) {
         clearTimeout(_bgIndicatorTimer);
         if (guard() && ohlcvData.length) {
-          renderBB(ohlcvData); renderCRT(ohlcvData); renderKDJCross(ohlcvData); renderResonance(ohlcvData);
+          renderBB(ohlcvData); renderCRT(ohlcvData);
           setTimeout(() => { renderKDJ(ohlcvData); renderRSI(ohlcvData); renderMACD(ohlcvData); }, 0);
           if (_lastWRSignals.length) _renderWRSignals();
           // 補載歷史後也要重繪 FVG 標記(多/空/破多/破空/順多/順空)——否則新載進來那段的標記被 _has() 過濾掉不顯示

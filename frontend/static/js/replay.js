@@ -321,10 +321,6 @@ function _replayStep(bar) {
   // 累積標記（增量加入，不重建）
   if (bar.crt === 1)  lastCRTMarkers.push({ time:t, position:"belowBar", color:C.crtBull, shape:"arrowUp",   size:1.5, text:"" });
   if (bar.crt === -1) lastCRTMarkers.push({ time:t, position:"aboveBar", color:C.crtBear, shape:"arrowDown", size:1.5, text:"" });
-  if (bar.kdj_cross === 1)  lastKDJCrossMarkers.push({ time:t, position:"belowBar", color:C.kdjCrossBull, shape:"arrowUp",   size:1.5, text:"金叉" });
-  if (bar.kdj_cross === -1) lastKDJCrossMarkers.push({ time:t, position:"aboveBar", color:C.kdjCrossBear, shape:"arrowDown", size:1.5, text:"死叉" });
-  if (bar.resonance === 1)  lastResonanceMarkers.push({ time:t, position:"belowBar", color:C.resonanceBull, shape:"arrowUp",   size:1.5, text:"超賣" });
-  if (bar.resonance === -1) lastResonanceMarkers.push({ time:t, position:"aboveBar", color:C.resonanceBear, shape:"arrowDown", size:1.5, text:"超買" });
   _applyMainMarkers();
 
   const _prevBar = replayIdx > 0 ? replayData[replayIdx - 1] : bar;
@@ -353,8 +349,6 @@ function _replayRender() {
     renderCandles(slice);
     renderBB(slice);
     renderCRT(slice);
-    renderKDJCross(slice);
-    renderResonance(slice);
     renderVolume(slice);
     renderKDJ(slice);
     renderRSI(slice);

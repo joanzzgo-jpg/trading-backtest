@@ -394,12 +394,6 @@ function bindIndicatorPanel() {
         { label:"CRT 看多", colorKey:"crtBull", onColor: ()=>{ if(ohlcvData.length) renderCRT(ohlcvData); } },
         { label:"CRT 看空", colorKey:"crtBear", onColor: ()=>{ if(ohlcvData.length) renderCRT(ohlcvData); } },
         { divider: true },
-        { label:"共振 看多", colorKey:"resonanceBull", onColor: ()=>{ if(ohlcvData.length) renderResonance(ohlcvData); } },
-        { label:"共振 看空", colorKey:"resonanceBear", onColor: ()=>{ if(ohlcvData.length) renderResonance(ohlcvData); } },
-        { divider: true },
-        { label:"KDJ金叉",  colorKey:"kdjCrossBull", onColor: ()=>{ if(ohlcvData.length) renderKDJCross(ohlcvData); } },
-        { label:"KDJ死叉",  colorKey:"kdjCrossBear", onColor: ()=>{ if(ohlcvData.length) renderKDJCross(ohlcvData); } },
-        { divider: true },
         { label:"主圖背景", colorKey:"chartBg", bgPresets: true, onColor: c=>{
             C.chartBg = c;
             _applyChartBgGradient(c);   // mainPane 上下漸層至系統 var(--bg)
@@ -673,8 +667,6 @@ function bindLegendToggles() {
   const lineMap = [
     { id: "legBB",       series: () => [bbU, bbM, bbL] },
     { id: "legCRT",      series: null,  action: () => _applyMainMarkers() },
-    { id: "legKDJCross", series: null,  action: () => _applyMainMarkers() },
-    { id: "legResonance",series: null,  action: () => _applyMainMarkers() },
     { id: "legVol",      series: () => [volSeries, volMaSeries] },
     { id: "legFVG",      series: null,  action: (hidden) => { if (typeof toggleFVG === "function") toggleFVG(!hidden); } },
     { id: "legFVGMS",    series: null,  action: (hidden) => { if (typeof toggleFVGMS === "function") toggleFVGMS(!hidden); } },
