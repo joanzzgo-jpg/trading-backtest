@@ -2,6 +2,13 @@
 
 > 從 CLAUDE.md 拆出的 CRT 勝率與回測詳細參考。
 
+> ⚠ **2026-07 已移除 S1~S12（CRT 訊號）**：使用者要求主圖只留 SS 系列（軌道反轉）與 FVG。
+> `crt.py` 已刪除 S1~S12（abc/ab/3~12）整段偵測迴圈＝**不再逐訊號掃描勝負**。`SIG_KEYS` 仍含 S 鍵
+> 但恆為空，下方統計機器對空 S 資料算出全零（頂層 `win_rate/total/recent100/abc/s3…` 皆空），
+> 不影響 **SS 系列**（`_SS_KEYS` 自成一套合計/敗後停手/近期）與 **FVG/SMC/VWAP**。前端 HUD 早已鎖 SS、
+> 主圖標記過濾鈕早已退役（render.js/index.html），notify_monitor 也早已只推 SS。
+> 下方 S1~S12 各訊號邏輯保留為**歷史紀錄**（迴圈已不存在，若要復活照 checklist 重建）。
+
 ## 回測功能（只有 CRT 訊號回測，2026-06）
 - **CRT 訊號(S1~S12)**：`/api/crt_backtest`（routes/backtest.py `run_crt_backtest`）→ **重用 `/api/crt_winrate` 已算好的 `signals`**
   （深歷史+1hr快取，不另抓），把選定訊號(或 all=S2~S11 合計，去重)的勝負序列 × 每筆預估盈虧比(`rr`)
