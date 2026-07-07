@@ -21,8 +21,11 @@
     return _FB[(_fbPos++) % _FB.length];
   }
 
-  // 天氣預報句：跟桌面橘子熊同一支 _forecastLine（需 weather.js 有定位資料）
+  // 天氣句：優先「完整報告」(附近雨區多情況+溫度，同桌面小啊)，退回精簡預報。需 weather.js 有定位資料。
   function _forecast() {
+    if (typeof window._bearWeatherReport === "function") {
+      try { const s = window._bearWeatherReport(); if (s) return s; } catch (e) {}
+    }
     if (typeof window._bearForecastLine === "function") {
       try { return window._bearForecastLine(); } catch (e) {}
     }

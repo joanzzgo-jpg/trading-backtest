@@ -3117,6 +3117,9 @@
   // 解析自動天氣：好天氣(晴/少雲) + 真實日落時段(±45min) → 自動晚霞；否則照後端 _autoType
   function _resolveAutoType() {
     const base = _autoType || 'sunny';
+    // 附近雨量站測到「所在地正在下雨」→ 背景就下雨（雨量站比最近氣象站的天氣文字更靈敏，
+    // 免「小啊說在下雨、背景卻晴天」的落差）。base 已是雨/雪類則維持不覆蓋。
+    if (_wd.nearbyRaining && !['rain','drizzle','storm','thunder','snow'].includes(base)) return 'rain';
     const clearish = (base==='sunny'||base==='partly'||base==='night') && ((_wd.cloudCover==null) || _wd.cloudCover < 45);
     if (clearish) {
       const nowMin = _locNowMin();
@@ -3178,11 +3181,17 @@
   function fetchNearbyRain(lat, lon) {
     fetch('/api/nearby_rain?lat=' + lat + '&lon=' + lon)
       .then(r => r.json())
-      .then(d => { _wd.nearby = d; _renderWeatherCard(); _emitWxUpdated(); })   // 通知小啊「天氣如何」按鈕更新
+      .then(d => {
+        _wd.nearby = d;
+        _wd.nearbyRaining = !!(d && d.raining_here);   // 附近雨量站測到所在地正在下雨 → 背景跟著下雨
+        _renderWeatherCard();
+        if (!_isManualOn() && !window._restoreManualWxIfAny?.()) _applyAutoType();  // 背景動畫同步(非手動時)
+        _emitWxUpdated();                              // 通知小啊「天氣如何」按鈕更新
+      })
       .catch(() => { _emitWxUpdated(); });
   }
-  // 附近雨區 → 一行文字：優先「所在地正在下雨」＞「雨從X區往你這移動(含ETA)」＞「附近X區有雨」＞「無雨」
-  // 用行政區地名講「雲雨從什麼區到什麼區」；缺地名(如 Open-Meteo)才退回方位距離。
+  // 附近雨區 → 一行文字（只講「哪個區在下雨」，方向不重要）：
+  //   所在地正在下雨 ＞ 某區的雨正往你這來(含ETA) ＞ 大範圍 ＞ 最近有雨的區 ＞ 無雨
   // 雨勢趨勢後綴：增強中／減弱中(明顯減弱且已很小時附粗略轉小時間)；持平/無則空
   function _trendZh(o) {
     if (!o || !o.trend) return '';
@@ -3192,23 +3201,21 @@
   }
   function _nearbyText(n) {
     if (!n) return '';
-    const here = _wd.city || '你這';                    // 目的地=使用者所在區(天氣卡地名)
     if (n.raining_here) return '☔ 你所在地正在下雨' + _trendZh(n.nearest);
     const a = n.approaching;
     if (a && a.eta_min != null) {
-      const from = a.area || (a.dir + '方' + (a.dist_km != null ? ' ' + a.dist_km + 'km' : ''));
+      const from = a.area ? a.area + '的雨' : '雨';
       const est  = a.by === 'wind' ? '（順風推估）' : '';   // 風向推標不確定；雷達位移/臨近預報則不標
-      return '🌧️ ' + (a.scale || '') + (a.level || '雨') + '從 ' + from + ' 往 ' + here +
-             ' 移動，約 ' + a.eta_min + ' 分後到' + est + _trendZh(a);
+      return '🌧️ ' + from + '正往你這來，約 ' + a.eta_min + ' 分後到' + est + _trendZh(a);
     }
     if (n.widespread) {   // 半徑內一半以上都在下雨 → 大範圍降雨(往哪走都可能遇到)
       const pct = n.coverage != null ? '約' + Math.round(n.coverage * 10) + '成' : '大片';
-      return '🌧️ 附近一大片都在下雨（' + pct + '範圍），出門很可能遇到';
+      return '🌧️ 附近' + pct + '範圍都在下雨，出門很可能遇到';
     }
     const c = n.nearest;
     if (c) {
-      const where = c.area ? c.area + '（' + c.dir + '方 ' + c.dist_km + 'km）' : c.dir + '方 ' + c.dist_km + 'km';
-      return '🌧️ ' + where + '有' + (c.scale || '') + c.level + (c.approaching ? '，往你移動' : '') + _trendZh(c);
+      const where = c.area || (c.dist_km + 'km外');
+      return '🌧️ ' + where + '有' + (c.scale || '') + c.level + (c.approaching ? '，往你來' : '') + _trendZh(c);
     }
     return '☀️ 附近 ' + (n.radius_km || 30) + 'km 內無降雨';
   }
@@ -3231,8 +3238,39 @@
   // 給小熊播報天氣預報用：今明兩天 {tmax,tmin,pop,cond} + 當前溫度/降雨機率
   window._getForecast = () => _wd.forecast
     ? { ..._wd.forecast, curTemp: _wd.temp, curPop: _wd.pop } : null;
-  // 給小啊播報「附近雨區」用：{raining_here, approaching, nearest, ...}（含使用者所在區 here）
-  window._getNearbyRain = () => (_wd.nearby ? { ..._wd.nearby, here: _wd.city || null } : null);
+  // 給小啊「天氣如何？」按鈕 + 每 10 分自動播報用：附近雨區「多情況」詳細（多行）。
+  // 只講「哪些區在下雨」(行政區名)，方向不重要；卡片只挑一種摘要，這裡把幾種狀況全列。
+  window._getNearbyDetail = function () {
+    const n = _wd.nearby;
+    if (!n) return null;
+    const L = [];
+    if (n.raining_here) L.push('☔ 你所在地正在下雨' + _trendZh(n.nearest));
+    const a = n.approaching;
+    if (a && a.eta_min != null) {
+      const from = a.area ? a.area + '的雨' : '雨';
+      const est = a.by === 'wind' ? '（順風推估）' : '';
+      L.push('🛵 ' + from + '正往你這來，約 ' + a.eta_min + ' 分後到' + est + _trendZh(a));
+    }
+    if (n.widespread) {
+      const pct = n.coverage != null ? '約' + Math.round(n.coverage * 10) + '成' : '一大片';
+      L.push('🌧️ 附近' + pct + '範圍都在下雨，出門很可能遇到');
+    }
+    // 附近有雨的「區」：只列行政區名（去重、最多 6 個），方向不重要
+    const seen = new Set();
+    if (n.raining_here && n.nearest && n.nearest.area) seen.add(n.nearest.area);
+    if (a && a.area) seen.add(a.area);
+    const areas = [];
+    for (const c of (n.cells || [])) {
+      const nm = c.area || (c.dist_km + 'km外');
+      if (seen.has(nm)) continue;
+      seen.add(nm);
+      areas.push(nm);
+      if (areas.length >= 6) break;
+    }
+    if (areas.length) L.push('🌧️ 附近下雨的區：' + areas.join('、'));
+    if (!L.length) L.push('☀️ 附近 ' + (n.radius_km || 30) + 'km 內沒有下雨');
+    return L.join('\n');
+  };
 
   // 記住使用者上次手動選的天氣特效（leaves/rain/snow/spring/thunder/mahjong）
   // 若沒選則回到 _autoType（依 API 自動切）

@@ -406,48 +406,42 @@
     const h12 = (h % 12 === 0) ? 12 : h % 12;
     return `${ap} ${h12} 點`;
   }
-  // 天氣預報（精簡版：只講「何時下雨」+「外面熱/冷」）。資料來自 weather.js 的 _getForecast()
+  // 外面熱/冷一句（體感優先，退回實際溫度/今日高溫）。給天氣報告收尾用。
+  function _tempLine() {
+    const f = (typeof window._getForecast === "function") ? window._getForecast() : null;
+    if (!f) return null;
+    const t = f.today || {}, now = f.now || {};
+    const useFeels = (now.feels != null);
+    const ft = useFeels ? now.feels : (now.temp != null ? now.temp : t.tmax);
+    const tw = useFeels ? "體感 " : "";
+    if (ft == null) return null;
+    if (ft >= 35) return `🥵 外面超熱（${tw}${ft}°），多喝水`;
+    if (ft >= 31) return `🥵 外面很熱（${tw}${ft}°）`;
+    if (ft <= 10) return `🥶 外面很冷（${ft}°），多穿點`;
+    if (ft <= 16) return `🧥 外面有點涼（${ft}°）`;
+    return `😊 外面溫度舒適（${ft}°）`;
+  }
+  // 天氣預報（精簡版：只講「何時下雨」+「外面熱/冷」）。無附近雨區資料時的退路。
   function _forecastLine() {
     const f = (typeof window._getForecast === "function") ? window._getForecast() : null;
     if (!f || !f.today) return null;
-    const t = f.today, now = f.now || {}, r = f.rain || {};
+    const t = f.today, r = f.rain || {};
     const lines = [];
-    // 附近雨區（weather.js 的 _getNearbyRain）：所在地沒下但雨正往這來 → 最即時、最該提醒(騎車)
-    const nb = (typeof window._getNearbyRain === "function") ? window._getNearbyRain() : null;
-    const na = (nb && !nb.raining_here) ? nb.approaching : null;
-    const _trend = o => !o || !o.trend ? "" :
-      o.trend === "減弱中" ? (o.fade_min ? `，正在減弱（約${o.fade_min}分內轉小）` : "，正在減弱") :
-      o.trend === "增強中" ? "，還在增強" : "";
-    // ① 什麼時候下雨 — 附近「即將到」優先(半小時內、可行動)，其次今日預報
-    if (r.raining_now || (nb && nb.raining_here))
-      lines.push("☔ 現在正在下雨，記得帶傘" + _trend(nb && nb.nearest));
-    else if (na && na.eta_min != null) {
-      const from = na.area || (na.dir + "方");
-      lines.push(`🛵 ${na.scale || ""}${na.level || "雨"}正從 ${from} 往這來，約 ${na.eta_min} 分後到，出門帶把傘` + _trend(na));
-    }
-    // 大範圍降雨：半徑內一半以上都在下 → 往哪騎都可能淋到
-    else if (nb && nb.widespread) {
-      const pct = nb.coverage != null ? `約${Math.round(nb.coverage * 10)}成` : "一大片";
-      lines.push(`🌧️ 附近${pct}範圍都在下雨，不管往哪騎都可能淋到，帶好雨具`);
-    }
+    if (r.raining_now) lines.push("☔ 現在正在下雨，記得帶傘");
     else if (r.from_hour != null) lines.push(`☔ ${_hrZh(r.from_hour)}左右會下雨${r.from_pop != null ? `（${r.from_pop}%）` : ""}，記得帶傘`);
-    // 官方源(f.wx_src=cwa/jma/hko)當天沒有 ≥50% 降雨時段但今日機率高 → 講不出幾點，只講「今天可能下雨」，不摻 Open-Meteo
     else if (f.wx_src && t.pop != null && t.pop >= 50) lines.push(`☔ 今天可能會下雨（${t.pop}%），帶把傘`);
-    // 今天大致不下雨；但附近若有雨 → 提醒「別往那方向騎」(騎車避雨用)
-    else if (nb && nb.nearest) lines.push(`🌧️ ${nb.nearest.area || (nb.nearest.dir + "方")}（${nb.nearest.dir}方${nb.nearest.dist_km}km）有雨，往那邊騎會淋到`);
     else lines.push("☀️ 今天大致不會下雨");
-    // ② 外面熱/冷（體感優先，退回實際溫度/今日高溫）。官方氣象署源無體感 → 用實測氣溫，標「氣溫」不標「體感」
-    const useFeels = (now.feels != null);
-    const ft = useFeels ? now.feels : (now.temp != null ? now.temp : t.tmax);
-    const tw = useFeels ? "體感 " : "";        // 有體感才標「體感」，否則直接講溫度（實測氣溫）
-    if (ft != null) {
-      if (ft >= 35)      lines.push(`🥵 外面超熱（${tw}${ft}°），多喝水`);
-      else if (ft >= 31) lines.push(`🥵 外面很熱（${tw}${ft}°）`);
-      else if (ft <= 10) lines.push(`🥶 外面很冷（${ft}°），多穿點`);
-      else if (ft <= 16) lines.push(`🧥 外面有點涼（${ft}°）`);
-      else               lines.push(`😊 外面溫度舒適（${ft}°）`);
-    }
+    const tl = _tempLine();
+    if (tl) lines.push(tl);
     return lines.join("\n");
+  }
+  // 完整天氣報告（小啊每 10 分鐘自動播 + 「天氣如何？」按鈕）：附近雨區「多情況」詳細 + 外面熱冷。
+  function _weatherReport() {
+    let nb = null;
+    try { nb = (typeof window._getNearbyDetail === "function") ? window._getNearbyDetail() : null; } catch (e) {}
+    if (!nb) return _forecastLine();                 // 還沒定位/附近資料 → 退回精簡預報
+    const tl = _tempLine();
+    return tl ? (nb + "\n" + tl) : nb;
   }
 
   let _shuffled = [], _shufflePos = 0;
@@ -519,11 +513,12 @@
   /* 顯示天氣預報氣泡（沒預報資料時退回笑話，避免空白） */
   function showForecastBubble() {
     if (!bubble) return;
-    bubble.textContent = _forecastLine() || _nextLine();
+    bubble.textContent = _weatherReport() || _nextLine();   // 附近雨區多情況詳細 + 外面熱冷
     bubble.classList.add("visible");
     clearTimeout(_bubbleTimer);
-    _bubbleTimer = setTimeout(() => { if (!_bearHover) bubble.classList.remove("visible"); }, 6500);
+    _bubbleTimer = setTimeout(() => { if (!_bearHover) bubble.classList.remove("visible"); }, 8500);
   }
+  window._bearWeatherReport = _weatherReport;   // 手機版小啊(xiaoa.js)共用同一份完整報告
 
   /* 小啊頭上「天氣如何？」按鈕：先講現有(至多5分前)、再抓最新回來更新一次 */
   let _bearWxPending = false;
@@ -543,7 +538,7 @@
     bear.classList.add("peek-visit");
     window._syncWeatherCard('full');
     showForecastBubble();
-    const stay = 5000;   // 精簡預報，停留 5 秒
+    const stay = 8000;   // 完整報告(多行)→ 停留 8 秒
     setTimeout(() => {
       bear.classList.remove("peek-visit");
       window._syncWeatherCard('peeking');
