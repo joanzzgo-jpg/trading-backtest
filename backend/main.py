@@ -6,7 +6,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.gzip import GZipMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response, PlainTextResponse
 import os, sys, time, subprocess, threading
+from collections import deque
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
@@ -82,6 +84,56 @@ class StaticCacheMiddleware(BaseHTTPMiddleware):
         return response
 
 app.add_middleware(StaticCacheMiddleware)
+
+# ── 限流 + 請求大小上限（防 DoS / 灌流 / 交易口令暴力猜）──────────────────────
+#   ⚠ Railway 在反向代理後 → 真實用戶 IP 在 X-Forwarded-For 第一個;直接用 request.client
+#     會把所有人看成同一個代理 IP → 誤鎖。故優先取 XFF。
+#   兩層桶:一般 /api/ 寬鬆(擋灌流,不動正常使用);/api/trade/ 嚴格(擋口令暴力猜)。
+_RL_WIN      = 10.0                       # 視窗秒數
+_RL_MAX_API  = 300                        # 一般 /api/：每 IP 每 10 秒 300 次(=30/s,遠高於正常:每秒 ticker 1 次)
+_RL_MAX_TRADE = 20                        # /api/trade/：每 IP 每 10 秒 20 次(口令猜測極慢化)
+_RL_BUCKETS   = {}                        # ip -> deque[timestamps]（一般）
+_RL_BUCKETS_T = {}                        # ip -> deque[timestamps]（交易）
+_MAX_BODY = 8 * 1024 * 1024               # 8MB 請求上限(帳號快照含繪圖可能較大,設寬;超過=惡意)
+
+def _client_ip(request: Request) -> str:
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.client.host if request.client else "?"
+
+def _rl_hit(buckets: dict, ip: str, limit: float, now: float) -> bool:
+    """回 True＝超限。順便清窗外舊時戳;桶太多時清空清理(防記憶體長胖)。"""
+    dq = buckets.get(ip)
+    if dq is None:
+        if len(buckets) > 20000:          # IP 桶上限:超過就整批清掉(粗暴但有界,防記憶體無限長)
+            buckets.clear()
+        dq = deque(); buckets[ip] = dq
+    while dq and now - dq[0] > _RL_WIN:
+        dq.popleft()
+    if len(dq) >= limit:
+        return True
+    dq.append(now)
+    return False
+
+class RateLimitMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        # 請求大小上限（有 Content-Length 才擋）
+        cl = request.headers.get("content-length")
+        if cl and cl.isdigit() and int(cl) > _MAX_BODY:
+            return PlainTextResponse("payload too large", status_code=413)
+        path = request.url.path
+        if path.startswith("/api/"):
+            ip = _client_ip(request)
+            now = time.time()
+            is_trade = path.startswith("/api/trade/")
+            if is_trade and _rl_hit(_RL_BUCKETS_T, ip, _RL_MAX_TRADE, now):
+                return PlainTextResponse("too many trade requests", status_code=429, headers={"Retry-After": "10"})
+            if _rl_hit(_RL_BUCKETS, ip, _RL_MAX_API, now):
+                return PlainTextResponse("rate limit", status_code=429, headers={"Retry-After": "5"})
+        return await call_next(request)
+
+app.add_middleware(RateLimitMiddleware)
 
 FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "..", "frontend")
 app.mount("/static", StaticFiles(directory=os.path.join(FRONTEND_DIR, "static")), name="static")
