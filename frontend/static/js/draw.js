@@ -149,6 +149,14 @@ function _endpointHit(d, x, y, thresh = 10) {
 
 /* 對 longpos/shortpos 判斷拖移的是哪一條線 */
 function _drawingHitPart(d, x, y) {
+  if (d.type === "emoji") {   // 右下角縮放把手優先
+    const p = chartToScreen(d.time, d.price);
+    if (p) {
+      const sz = d.size || 24;
+      if (Math.hypot((p.x + sz / 2 + 3) - x, (p.y + sz / 2 + 3) - y) <= 10) return "size";
+    }
+    return "move";
+  }
   if (d.type !== "longpos" && d.type !== "shortpos") {
     const ep = _endpointHit(d, x, y);
     return ep || "move";
@@ -284,7 +292,7 @@ function _updateCursor() {
       const hd = drawings.find(d => d.id === hoveredId);
       if (hd) {
         const part = _drawingHitPart(hd, _mx, _my);
-        if (part === "p1" || part === "p2") chartEl.style.cursor = "nwse-resize";
+        if (part === "p1" || part === "p2" || part === "size") chartEl.style.cursor = "nwse-resize";
         else if (part === "tp" || part === "sl") chartEl.style.cursor = "ns-resize";
         else if (part === "width") chartEl.style.cursor = "ew-resize";
         else chartEl.style.cursor = "grab";
@@ -567,7 +575,7 @@ function _onChartClick(e) {
   if (drawTool === "emoji") {
     _showEmojiPicker(e.clientX, e.clientY, em => {
       if (em) {
-        drawings.push({ id:_did(), type:"emoji", time:pt.time, price:pt.price, text:em });
+        drawings.push({ id:_did(), type:"emoji", time:pt.time, price:pt.price, text:em, size:28 });
         saveDrawings();
       }
       _returnToPointer();
@@ -719,6 +727,10 @@ function _updateDrag(x, y) {
   } else if (d.type === "vline" || d.type === "avwap") {
     const ox = _timeToX(orig.time);
     if (ox != null) { const nt = _xToTime(ox + dx); if (nt != null) d.time = nt; }
+  } else if (d.type === "emoji" && dragState.part === "size") {
+    // 拖右下角把手縮放：中心到游標的最大軸距 ×2 ＝ emoji 邊長（12~300）
+    const p = chartToScreen(d.time, d.price);
+    if (p) { const s = Math.max(Math.abs(x - p.x), Math.abs(y - p.y)) * 2; d.size = Math.max(12, Math.min(300, Math.round(s))); }
   } else if (d.type === "text" || d.type === "emoji") {
     const op = chartToScreen(orig.time, orig.price);
     if (op) { const np = screenToChart(op.x + dx, op.y + dy); if (np) { d.time = np.time; d.price = np.price; } }
@@ -874,7 +886,12 @@ function drawingDist(d, x, y) {
   }
   if (d.type === "text" || d.type === "emoji") {
     const p = chartToScreen(d.time, d.price);
-    return p ? Math.hypot(p.x - x, p.y - y) : Infinity;
+    if (!p) return Infinity;
+    if (d.type === "emoji") {   // 依 emoji 方框判定,放大後整塊都點得到
+      const h = (d.size || 24) / 2;
+      return Math.hypot(Math.max(Math.abs(x - p.x) - h, 0), Math.max(Math.abs(y - p.y) - h, 0));
+    }
+    return Math.hypot(p.x - x, p.y - y);
   }
   if ((d.type === "longpos" || d.type === "shortpos") && d.p1) {
     const W2 = _cssW();
@@ -1955,15 +1972,17 @@ function drawOne(d, W, H, isHovered, isSelected) {
     const p = chartToScreen(d.time, d.price);
     if (!p) { drawCtx.restore(); return; }
     drawCtx.shadowBlur = 0;
-    const sz = isSelected ? 27 : 24;
+    const sz = d.size || 24;
     drawCtx.font = `${sz}px sans-serif`;
     drawCtx.textAlign = "center"; drawCtx.textBaseline = "middle";
     drawCtx.fillText(d.text || "❓", p.x, p.y);
     drawCtx.textAlign = "start"; drawCtx.textBaseline = "alphabetic";
-    if (isSelected) {   // 選中框
+    if (isSelected) {   // 選中框 + 右下角縮放把手
       drawCtx.strokeStyle = "#2962ff"; drawCtx.lineWidth = 1; drawCtx.setLineDash([3,2]);
       drawCtx.strokeRect(p.x - sz/2 - 3, p.y - sz/2 - 3, sz + 6, sz + 6);
       drawCtx.setLineDash([]);
+      drawCtx.fillStyle = "#2962ff";
+      drawCtx.beginPath(); drawCtx.arc(p.x + sz/2 + 3, p.y + sz/2 + 3, 5, 0, Math.PI*2); drawCtx.fill();
     }
   }
   else if (d.type === "longpos" && d.p1) {
