@@ -57,7 +57,7 @@ app = FastAPI(title="回測系統")
 # ── GZip 壓縮（JS 166KB→35KB，CSS 38KB→8KB）──────────────────
 app.add_middleware(GZipMiddleware, minimum_size=500)
 
-# ── 靜態檔案長期快取（?v=hash 已保證更新時 URL 改變）───────────
+# ── 靜態檔案長期快取（?v=hash 已保證更新時 URL 改變）＋ 安全標頭 ───────────
 class StaticCacheMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
@@ -69,6 +69,16 @@ class StaticCacheMiddleware(BaseHTTPMiddleware):
                 response.headers["Cache-Control"] = "no-cache"
             else:
                 response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        # ── 安全標頭（全站，零風險：不影響同源自身載入的資源）──────────────
+        #   X-Content-Type-Options：禁 MIME 嗅探（防把上傳/回應當可執行類型）
+        #   X-Frame-Options：禁被他站 iframe 嵌入 → 防點擊劫持（本站直接開，不需被嵌）
+        #   Referrer-Policy：跨站只送來源、不送完整路徑（少洩漏）
+        #   HSTS：強制 HTTPS（Railway 已 HTTPS）；max-age 保守 180 天，不含 preload/子網域避免誤傷
+        h = response.headers
+        h.setdefault("X-Content-Type-Options", "nosniff")
+        h.setdefault("X-Frame-Options", "SAMEORIGIN")
+        h.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        h.setdefault("Strict-Transport-Security", "max-age=15552000")
         return response
 
 app.add_middleware(StaticCacheMiddleware)
