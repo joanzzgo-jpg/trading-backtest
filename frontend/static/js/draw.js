@@ -76,15 +76,32 @@ function _barRef() {
   return { lastLogical: n - 1, lastTime, interval };
 }
 
-// time → x：超出最後一根 K 棒（右側未來空白區）時，用 logical index 線性外推。
-// 原生 timeToCoordinate 在空白區回 null → 繪圖會被擋在最後一根；外推後可延伸到空白處。
+// time → x。原生 timeToCoordinate 只在「時間剛好落在某根 K 棒」時回座標，否則回 null：
+//   ① 未來（右側空白）② 過去早於第一根 ③ **落在兩根 K 棒之間**（在小時框畫的端點時間，
+//   切到大時框後往往不對齊任何一根 → 這就是「切大時框繪圖線消失」的根因）。
+// 這裡對三種情況都用 logical index 內插/外推，讓端點永遠有座標、線不再消失。
 function _timeToX(time) {
   const ts = mainChart.timeScale();
   const x = ts.timeToCoordinate(time);
   if (x != null) return x;
   const r = _barRef();
-  if (r && time > r.lastTime) return ts.logicalToCoordinate(r.lastLogical + (time - r.lastTime) / r.interval);
-  return null;
+  if (r && time > r.lastTime) return ts.logicalToCoordinate(r.lastLogical + (time - r.lastTime) / r.interval);   // 未來外推
+  const n = (typeof ohlcvData !== "undefined") ? ohlcvData.length : 0;
+  if (!n) return null;
+  const t0 = toTime(ohlcvData[0].time);
+  if (time <= t0) {   // 早於第一根 → 往左外推（用平均間隔）
+    const iv = r ? r.interval : 60;
+    return ts.logicalToCoordinate(0 - (t0 - time) / iv);
+  }
+  // 落在資料範圍內、但不對齊任一棒 → 二分找相鄰兩棒,內插出分數 logical index → 轉座標
+  let lo = 0, hi = n - 1;
+  while (lo + 1 < hi) {
+    const mid = (lo + hi) >> 1;
+    if (toTime(ohlcvData[mid].time) <= time) lo = mid; else hi = mid;
+  }
+  const tLo = toTime(ohlcvData[lo].time), tHi = toTime(ohlcvData[hi].time);
+  const frac = tHi > tLo ? (time - tLo) / (tHi - tLo) : 0;
+  return ts.logicalToCoordinate(lo + frac * (hi - lo));
 }
 
 // x → time：落在右側未來空白區時，回推一個外推時間戳（以平均 bar 間隔換算）。
@@ -184,6 +201,8 @@ function initDrawTools() {
   new ResizeObserver(resize).observe(chartEl);
 
   mainChart.timeScale().subscribeVisibleTimeRangeChange(() => _scheduleRenderDrawings());
+  // 滾輪縮放（可能縮放價格軸或時間軸）→ 開短追蹤窗,確保繪圖精準跟隨,不偏離原價位。
+  chartEl.addEventListener("wheel", () => _watchAxis(700), { capture: true, passive: true });
   // 游標移動時的 overlay 重畫：hover 高亮/拖移由 _onChartMouseMove(DOM capture) 自行排程，
   // 故此處只在「正在繪製中／有手繪工具啟用」時補畫預覽線。預設十字線/指標模式下游標移動
   // 不需重畫整個 overlay（現價標籤/交易時段帶只隨價軸與可見範圍變化）→ 省電、減少拖動卡頓。
@@ -300,6 +319,35 @@ function _showTextInput(clientX, clientY, onConfirm) {
   inp.addEventListener("blur", () => setTimeout(() => { if (document.body.contains(wrap)) cancel(); }, 200));
 }
 
+// emoji 貼圖選擇器：點一個 emoji 即確認；點外面/Esc 取消。
+const _EMOJI_SET = ["🎯","⭐","🔥","🚀","💰","📈","📉","🐂","🐻","✅","❌","⚠️","❗","❓","👀","💡","📌","⬆️","⬇️","🔴","🟢","🔵","💎","🤔"];
+function _showEmojiPicker(clientX, clientY, onPick) {
+  const wrap = document.createElement("div");
+  wrap.style.cssText = `position:fixed;left:${Math.min(clientX, (window.innerWidth||400) - 250)}px;top:${clientY - 10}px;` +
+    `z-index:9999;display:grid;grid-template-columns:repeat(6,1fr);gap:2px;background:#1e222d;border:1px solid #758696;` +
+    `border-radius:10px;padding:6px;box-shadow:0 10px 30px rgba(0,0,0,.55);`;
+  let done = false;
+  const close = (val) => {
+    if (done) return; done = true;
+    document.removeEventListener("pointerdown", off, true);
+    if (document.body.contains(wrap)) document.body.removeChild(wrap);
+    onPick(val);
+  };
+  const off = (e) => { if (!wrap.contains(e.target)) close(null); };
+  _EMOJI_SET.forEach(em => {
+    const b = document.createElement("button");
+    b.textContent = em;
+    b.style.cssText = "background:transparent;border:none;font-size:21px;cursor:pointer;padding:4px;border-radius:7px;line-height:1;transition:background .12s;";
+    b.addEventListener("mouseenter", () => b.style.background = "rgba(255,255,255,.13)");
+    b.addEventListener("mouseleave", () => b.style.background = "transparent");
+    b.addEventListener("click", () => close(em));
+    wrap.appendChild(b);
+  });
+  document.body.appendChild(wrap);
+  document.addEventListener("keydown", function esc(e){ if (e.key === "Escape") { document.removeEventListener("keydown", esc); close(null); } });
+  setTimeout(() => document.addEventListener("pointerdown", off, true), 0);   // 延一拍避開這次點擊
+}
+
 function setDrawTool(tool) {
   drawTool = tool;
   selectedId = null;
@@ -359,6 +407,7 @@ function _onChartMouseMove(e) {
 
 function _onChartMouseDown(e) {
   if (e.button !== 0) return;
+  _watchAxis(1200);   // 按下可能拖動價格軸/平移 → 開追蹤窗,期間軸一動繪圖即跟隨(不偏離原價位)
   const { x, y } = _canvasXY(e);
 
   // VP 截止線拖動：pointer/crosshair 模式、滑鼠靠近線 → 優先於繪圖拖移與 LWC pan
@@ -448,6 +497,16 @@ function _onChartClick(e) {
     _showTextInput(e.clientX, e.clientY, txt => {
       if (txt?.trim()) {
         drawings.push({ id:_did(), type:"text", time:pt.time, price:pt.price, text:txt.trim(), color:_drawColor });
+        saveDrawings();
+      }
+      _returnToPointer();
+    });
+    return;
+  }
+  if (drawTool === "emoji") {
+    _showEmojiPicker(e.clientX, e.clientY, em => {
+      if (em) {
+        drawings.push({ id:_did(), type:"emoji", time:pt.time, price:pt.price, text:em });
         saveDrawings();
       }
       _returnToPointer();
@@ -599,7 +658,7 @@ function _updateDrag(x, y) {
   } else if (d.type === "vline" || d.type === "avwap") {
     const ox = _timeToX(orig.time);
     if (ox != null) { const nt = _xToTime(ox + dx); if (nt != null) d.time = nt; }
-  } else if (d.type === "text") {
+  } else if (d.type === "text" || d.type === "emoji") {
     const op = chartToScreen(orig.time, orig.price);
     if (op) { const np = screenToChart(op.x + dx, op.y + dy); if (np) { d.time = np.time; d.price = np.price; } }
   } else if (d.p1 && d.p2) {
@@ -627,7 +686,7 @@ function _updateDrag(x, y) {
 /* ── 顏色 Popup ── */
 function showDrawColorPicker(drawing, clientX, clientY) {
   if (!_cpShowDirect) return;
-  const noStyle = drawing.type === "note";
+  const noStyle = drawing.type === "note" || drawing.type === "emoji";   // emoji 無顏色/樣式,色盤只留刪除
   _cpShowDirect(clientX, clientY, {
     sections: [{
       label: null,
@@ -752,7 +811,7 @@ function drawingDist(d, x, y) {
     const py = candleSeries?.priceToCoordinate(pt.v);
     return py != null ? Math.abs(py - y) : Infinity;
   }
-  if (d.type === "text") {
+  if (d.type === "text" || d.type === "emoji") {
     const p = chartToScreen(d.time, d.price);
     return p ? Math.hypot(p.x - x, p.y - y) : Infinity;
   }
@@ -1494,19 +1553,45 @@ function _scheduleRenderDrawings() {
   });
 }
 
-// 切標的/時框後的「落定重繪」：新資料 setData 後,價格軸 autoScale 到新範圍 + 還原視野
-// 需 ~220ms 才穩定(見 render.js 註解)。overlay 只訂閱可見時間範圍、不訂閱價格軸縮放
-// → 若只在切換當下重繪一次,線會停在「價軸縮放前」的舊 y 座標＝所有線偏離原價位,
-//   要等使用者動一下圖表(觸發時間範圍事件)才修正。這裡跨 settle 視窗補幾次重繪,
-//   讓線在價軸落定後回到正確 (time, price) 位置。
-let _rdSettleTimers = [];
+// ── 軸變化追蹤（讓所有繪圖/overlay 精準跟隨價格軸縮放，不再「切時框後偏離原價位」）──
+//   問題根源：overlay 只訂閱「可見時間範圍變化」，未訂閱「價格軸縮放」。切標的/時框後價軸
+//     autoScale 到新範圍 + 還原視野需 ~220ms 才穩定；拖價格軸/滾輪縮放也會動價軸 → 這些
+//     都不觸發時間範圍事件 → 線停在舊 y 座標＝偏離原價位。
+//   解法：用「軸簽章」= 畫布頂/底對應的價格 + 可見邏輯範圍。在一段追蹤窗內每幀比對，一旦
+//     簽章變(價/時軸任一被縮放/平移)就立即重繪 → 精準跟到落定的那一刻，非靠固定計時器猜。
+//   省電：追蹤窗有時限、自動停（不常駐 rAF）；由「切換/拖軸/滾輪」等會動軸的事件觸發或延長。
+let _axisSig = "";
+let _axisWatchUntil = 0;
+let _axisWatchRAF = 0;
+function _axisSignature() {
+  try {
+    if (!candleSeries || !mainChart) return "";
+    const H = _cssH();
+    const pTop = candleSeries.coordinateToPrice(0);
+    const pBot = candleSeries.coordinateToPrice(H);
+    const lr = mainChart.timeScale().getVisibleLogicalRange();
+    return `${pTop}|${pBot}|${lr ? lr.from.toFixed(2) + "," + lr.to.toFixed(2) : ""}`;
+  } catch (e) { return ""; }
+}
+function _axisWatchTick() {
+  const now = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+  if (now > _axisWatchUntil) { _axisWatchRAF = 0; return; }   // 窗結束 → 停 rAF（省電）
+  _axisWatchRAF = requestAnimationFrame(_axisWatchTick);
+  const sig = _axisSignature();
+  if (sig && sig !== _axisSig) { _axisSig = sig; renderDrawings(); }   // 已在 rAF 內 → 直接重繪
+}
+// 啟動/延長一段軸追蹤窗（ms）；期間任何價/時軸座標變化即重繪。會動軸的操作都呼叫它。
+function _watchAxis(ms = 1500) {
+  const now = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+  _axisWatchUntil = Math.max(_axisWatchUntil, now + ms);
+  _axisSig = _axisSignature();
+  if (!_axisWatchRAF) _axisWatchRAF = requestAnimationFrame(_axisWatchTick);
+}
+
+// 切標的/時框後：立即重繪一次(即時回饋) + 開一段較長追蹤窗涵蓋 autoScale/還原視野落定。
 function _renderDrawingsAfterSettle() {
-  _rdSettleTimers.forEach(clearTimeout);
-  _rdSettleTimers = [];
-  _scheduleRenderDrawings();                                   // 立即(舊行為)
-  for (const ms of [160, 380, 650]) {                          // 覆蓋 setData/autoScale/還原視野的落定窗
-    _rdSettleTimers.push(setTimeout(_scheduleRenderDrawings, ms));
-  }
+  _scheduleRenderDrawings();
+  _watchAxis(1800);
 }
 
 function renderDrawings() {
@@ -1709,6 +1794,29 @@ function drawOne(d, W, H, isHovered, isSelected) {
       drawCtx.beginPath(); drawCtx.arc(p.x, p.y, r, 0, Math.PI*2); drawCtx.fill();
     });
   }
+  else if (d.type === "arrow" && d.p1 && d.p2) {
+    const a = chartToScreen(d.p1.time, d.p1.price);
+    const b = chartToScreen(d.p2.time, d.p2.price);
+    if (!a || !b) { drawCtx.restore(); return; }
+    // 主線 p1→p2
+    drawCtx.lineCap = "round";
+    drawCtx.beginPath(); drawCtx.moveTo(a.x, a.y); drawCtx.lineTo(b.x, b.y); drawCtx.stroke();
+    // 箭頭（尖端在 p2、朝 p1→p2 方向）
+    const ang = Math.atan2(b.y - a.y, b.x - a.x);
+    const hl  = 12 + (d.width || DRAW_WIDTH) * 2;   // 箭頭邊長隨線寬
+    const ha  = Math.PI / 7;                        // 箭頭張角
+    drawCtx.beginPath();
+    drawCtx.moveTo(b.x, b.y);
+    drawCtx.lineTo(b.x - hl * Math.cos(ang - ha), b.y - hl * Math.sin(ang - ha));
+    drawCtx.lineTo(b.x - hl * Math.cos(ang + ha), b.y - hl * Math.sin(ang + ha));
+    drawCtx.closePath(); drawCtx.fill();            // 實心箭頭
+    drawCtx.shadowBlur = 0;
+    const hoverPartArr = (isHovered || isSelected) ? _endpointHit(d, _mx, _my) : null;
+    [[a, "p1"], [b, "p2"]].forEach(([p, ep]) => {
+      const r = isSelected ? (hoverPartArr === ep ? 7 : 5) : 3;
+      drawCtx.beginPath(); drawCtx.arc(p.x, p.y, r, 0, Math.PI*2); drawCtx.fill();
+    });
+  }
   else if (d.type === "fib" && d.p1 && d.p2) {
     const a = chartToScreen(d.p1.time, d.p1.price);
     const b = chartToScreen(d.p2.time, d.p2.price);
@@ -1775,6 +1883,21 @@ function drawOne(d, W, H, isHovered, isSelected) {
       const m = drawCtx.measureText(d.text);
       drawCtx.strokeStyle = col; drawCtx.lineWidth = 1; drawCtx.setLineDash([3,2]);
       drawCtx.strokeRect(p.x + 3, p.y - 18, m.width + 6, 16);
+      drawCtx.setLineDash([]);
+    }
+  }
+  else if (d.type === "emoji") {
+    const p = chartToScreen(d.time, d.price);
+    if (!p) { drawCtx.restore(); return; }
+    drawCtx.shadowBlur = 0;
+    const sz = isSelected ? 27 : 24;
+    drawCtx.font = `${sz}px sans-serif`;
+    drawCtx.textAlign = "center"; drawCtx.textBaseline = "middle";
+    drawCtx.fillText(d.text || "❓", p.x, p.y);
+    drawCtx.textAlign = "start"; drawCtx.textBaseline = "alphabetic";
+    if (isSelected) {   // 選中框
+      drawCtx.strokeStyle = "#2962ff"; drawCtx.lineWidth = 1; drawCtx.setLineDash([3,2]);
+      drawCtx.strokeRect(p.x - sz/2 - 3, p.y - sz/2 - 3, sz + 6, sz + 6);
       drawCtx.setLineDash([]);
     }
   }
