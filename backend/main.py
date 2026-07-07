@@ -159,6 +159,18 @@ def _tw_ticker_worker():
         time.sleep(30)
 
 
+def _txf_collect_worker():
+    """背景執行緒：每 25 秒抓 cnyes 台指期當前時段(含夜盤)分鐘K → 存 DB，
+    讓歷史分鐘從開始收集起往後累積(免費、免開戶)。cnyes 休市回上個時段→重覆 upsert 無害。"""
+    import data.cnyes_futures as cx
+    while True:
+        try:
+            cx.collect_all()
+        except Exception:
+            pass
+        time.sleep(25)
+
+
 @app.on_event("startup")
 async def _warmup():
     """啟動時立即預熱並啟動背景 ticker 更新。"""
@@ -168,6 +180,7 @@ async def _warmup():
     loop.run_in_executor(None, _fetch_pionex_perp_symbols)
     threading.Thread(target=_ticker_worker,    daemon=True).start()
     threading.Thread(target=_tw_ticker_worker, daemon=True).start()
+    threading.Thread(target=_txf_collect_worker, daemon=True).start()   # 台指期歷史分鐘累積
     try:
         import notify_monitor
         notify_monitor.start()   # CRT 訊號 Web Push 背景監控（無訂閱時自動空轉、極低成本）
