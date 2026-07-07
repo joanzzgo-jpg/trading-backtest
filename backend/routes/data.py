@@ -1727,10 +1727,15 @@ def get_crt_winrate(
     days_max  = TF_MAX.get(timeframe, 3650)
     # 已抓+enrich 的 df 另外快取（不含 buffer）→ 換 SL 緩衝等重算時免重抓（抓資料佔總時間 90%+）
     df_key = f"crt_df3:{market}:{symbol}:{exchange}:{timeframe}"
+    # base 深歷史 TTL：老 K 不可變 → crypto 有下方「尾巴補抓」逐請求保鮮尖端，深歷史可長存 7 天，
+    #   不必每 30 分整包重抓 ~70k 根（抓資料佔總時間 90%+，這是切回舊標的卡頓的主因）。
+    #   記憶體上限由 data_cache max_size(32 條) 硬卡、與 TTL 無關 → 拉長不影響 RAM 峰值。
+    #   台股/美股此路徑無尾巴補抓、盤中新棒靠重抓 → 維持原 30 分，避免供應期內尖端不更新。
+    _df_ttl = 604800 if market == "crypto" else _WR_CACHE_TTL   # crypto 7天、其餘 30 分
     def _load_df():
-        d = data_cache.get(df_key, ttl=_WR_CACHE_TTL)   # 記憶體
+        d = data_cache.get(df_key, ttl=_df_ttl)   # 記憶體
         if d is None:
-            d = disk_cache.get(df_key, ttl=_WR_CACHE_TTL)   # 磁碟（跨重啟/部署存活）
+            d = disk_cache.get(df_key, ttl=_df_ttl)   # 磁碟（跨重啟/部署存活）
             if d is not None:
                 data_cache.set(df_key, d)           # 回填記憶體
         return d
