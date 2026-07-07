@@ -203,9 +203,28 @@ def diag_mem():
         return {"count": len(items), "max_size": c._max_size,
                 "df_total_mb": round(total, 1), "entries": ents}
 
+    # Redis 共享層狀態（多 worker 報價共享用）：configured=有無設 REDIS_URL；ok=實際能否讀寫
+    def _redis_status():
+        st = {"configured": False, "ok": False, "roundtrip_ms": None}
+        try:
+            from utils import shared_store
+            st["configured"] = bool(shared_store._REDIS_URL)
+            if shared_store.enabled():
+                t0 = time.time()
+                shared_store.set_blob("diag:ping", {"t": t0}, ttl=10)
+                v = shared_store.get_blob("diag:ping")
+                st["ok"] = bool(v and abs(v.get("t", 0) - t0) < 1e-6)
+                st["roundtrip_ms"] = round((time.time() - t0) * 1000, 1)
+        except Exception as e:
+            st["err"] = str(e)[:120]
+        return st
+
     return {
         "process_rss_mb": _rss_mb(),      # 整個服務目前吃多少 RAM
         "platform": sys.platform,
+        "workers_env": os.getenv("WEB_CONCURRENCY", "1"),   # 設定的 worker 數
+        "ticker_ws": (os.getenv("TICKER_WS") or "0"),        # WS 報價開關
+        "redis": _redis_status(),         # Redis 共享層（configured/ok/roundtrip）
         "data_cache": _report(data_cache),   # 深歷史 df + 勝率結果（32 條硬上限）
         "volatile_cache": _report(cache),    # ohlcv/報價/搜尋等（48 條）
     }
