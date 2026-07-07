@@ -30,21 +30,6 @@ window._cycleProtoMin = function () {
   fetchWinRate();   // 重抓→後端用新門檻重算 多空/破多空（首次該值會重算，之後走快取）
 };
 
-// 假設順勢：開啟後『順多／順空』標記那根本身必須有 proto 缺口(空或多皆可)才顯示，否則剔除。
-// 開關→cacheKey 帶 sp tag、送後端 shun_proto=1 → 另分流重算。兩個方向都套用。
-let _shunProto = false;
-try { _shunProto = localStorage.getItem("wrShunProto") === "1"; } catch (e) {}
-function _syncShunProtoLabel() {
-  const el = document.getElementById("legShunProto");
-  if (el) el.style.opacity = _shunProto ? "1" : ".45";
-}
-window._syncShunProtoLabel = _syncShunProtoLabel;
-window.toggleShunProto = function () {
-  _shunProto = !_shunProto;
-  try { localStorage.setItem("wrShunProto", _shunProto ? "1" : "0"); } catch (e) {}
-  _syncShunProtoLabel();
-  fetchWinRate();   // 重抓→後端依 shun_proto 重算順空(首次該值重算，之後走快取)
-};
 
 // 目標切換（中軌 ↔ 上/下軌）狀態。1:1（rr）已移除 → 舊設定正規化回中軌
 const _WR_VIEW_KEY = "wrTargetView";
@@ -500,7 +485,7 @@ async function _fetchWinRateNow() {
   const bufDec = (_wrStopBuffer || 0) / 100;
   const _vw = _wrVwFor(typeof ohlcvData !== "undefined" ? ohlcvData.length : 0);
   window._wrCurVw = _vw;
-  const cacheKey = `${market}:${symbol}:${exchange}:${timeframe}:${bufDec.toFixed(4)}:vw${_vw}:pm${_wrProtoMin}:sp${_shunProto ? 1 : 0}`;
+  const cacheKey = `${market}:${symbol}:${exchange}:${timeframe}:${bufDec.toFixed(4)}:vw${_vw}:pm${_wrProtoMin}`;
   if (_wrCache[cacheKey]) {
     // 快取命中也要取消上一個還在飛的勝率請求，否則它稍後成功回來會用「舊標的」的
     // 訊號覆寫 _lastWRSignals → 訊號時間不存在於新標的 ohlcv → markers 全被過濾 → 策略不顯示。
@@ -546,7 +531,7 @@ async function _fetchWinRateNow() {
   // 不寫 "計算中…" 到 wrStatus，由中央 .tb-wr-loading（小熊 + 文字）顯示
   if (statusEl) statusEl.textContent = "";
   try {
-    const p   = new URLSearchParams({ market, symbol, exchange, timeframe, stop_buffer_pct: bufDec.toFixed(4), vw: String(_vw), proto_min: String(_wrProtoMin), shun_proto: _shunProto ? "1" : "0" });
+    const p   = new URLSearchParams({ market, symbol, exchange, timeframe, stop_buffer_pct: bufDec.toFixed(4), vw: String(_vw), proto_min: String(_wrProtoMin) });
     const res = await fetch("/api/crt_winrate?" + p, { signal: myCtrl.signal, cache: "no-store" });
     const d   = await res.json();
     if (!res.ok) throw new Error(d.detail || "failed");

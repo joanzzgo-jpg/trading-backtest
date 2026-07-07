@@ -124,8 +124,7 @@ def _scan_outcome_np(highs, lows, closes, target_arr, times_iso, entry_i, n, sto
 
 def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only: bool = False,
                       _solve=None, band_ratio: float = 1.0, visual_window: int = 0,
-                      stock_gap: bool = False, proto_min: float = 0.0005,
-                      shun_proto: bool = False) -> dict:
+                      stock_gap: bool = False, proto_min: float = 0.0005) -> dict:
     """
     六種訊號合併計算勝率（中軌目標 + 帶軌目標雙統計）。
 
@@ -1784,14 +1783,6 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
 
         _shun_scan(_bull, _bear_cfs, _brk_s, "l")      # 順多：吃做多FVG → 近期兩個做空FVG其中一個影線穿透上緣
         _shun_scan(_bear, _bull_cfs, _brk_l, "s")      # 順空：吃做空FVG → 近期兩個做多FVG其中一個影線穿透下緣
-        # ── 「假設順勢」開關（shun_proto）：順多／順空標記那根本身必須有 proto 缺口
-        #     （_pseq 的 g 棒，空 dir=='s' 或 多 dir=='l' 皆可）才算 → 那根完全無 proto 的剔除。
-        #     兩個方向都套用。
-        if shun_proto:
-            _any_pg = {_p[0] for _p in _pseq}                       # 任一方向 proto 缺口的 g 棒(空/多皆可)
-            _rev = {times_iso[_i]: _i for _i in range(_N)}          # 時間戳→索引(K 棒時間唯一)
-            _fvg_shun = [_m for _m in _fvg_shun
-                         if _rev.get(_m["t"]) in _any_pg]
         _fvg_shun.sort(key=lambda x: x["t"])
         _fvg_shun = _fvg_shun[-2000:]
         # ── 標記「有無被用到」：未被任何標記(破多/破空/多/空)用到的主缺口 → used=False(前端淡化)。
