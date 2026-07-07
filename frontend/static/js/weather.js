@@ -11,8 +11,8 @@
       return small || (coarse && lowMem);
     } catch(e) { return false; }
   })();
-  const _fxN = _lowFx ? 0.55 : 1;          // 粒子數倍率
-  const _frameMin = _lowFx ? 50 : 33;      // 幀間隔下限：手機 ~20fps（省 GPU/主執行緒）、桌面 ~30fps
+  const _fxN = _lowFx ? 0.5 : 1;           // 粒子數倍率
+  const _frameMin = _lowFx ? 60 : 33;      // 幀間隔下限：手機 ~16fps（省 GPU/主執行緒）、桌面 ~30fps
 
   /* ── 3D 舞台與景深層（規格：docs/weather-3d-spec.md）──
      #weatherStage 套 CSS perspective(=_P)，內含多張 canvas 依 translateZ 排不同景深；
@@ -2899,6 +2899,7 @@
     _drawOrrery();               // 太陽系即時儀：八大行星真實位置/軌道（fore 層右中 HUD，斜俯視）
     _tempTint();
   }
+  let _fxPenalty = 0;   // 自適應降幀補償(ms)：手機畫不動時拉大幀間隔 → 自動降溫/減卡
   function loop(ts) {
     rafId = requestAnimationFrame(loop);
     if (document.hidden) { _lastClockTs = 0; return; }
@@ -2907,14 +2908,22 @@
     // 所以看得出在動、不會像凍結），把大部分幀預算讓給圖表 → 主圖滑動順、背景又不停。
     const _moving = (window._chartMoveTs && _now - window._chartMoveTs < 220) ||
                     (_lowFx && _touchT && _now - _touchT < 350);
-    const _frameGap = _moving ? 66 : _frameMin;       // 移動中 ~15fps；平時 桌面~30 / 手機~20
+    const _frameGap = (_moving ? 66 : _frameMin) + _fxPenalty;   // 移動中 ~15fps；平時 桌面~30 / 手機~16(−自適應)
     if (ts - _lastFrameTs < _frameGap) return;
     // 動畫時鐘恆定 1x（正常速度）；只調幀率、不調速度 → 移動時是「低幀率正常動」而非慢動作。
     if (!_lastClockTs) _lastClockTs = ts;
     _animClock += (ts - _lastClockTs);
     _lastClockTs = ts;
     _lastFrameTs = ts;
+    const _t0 = performance.now ? performance.now() : Date.now();
     draw(_animClock * 0.001);
+    // 自適應降幀（僅手機）：量本幀 draw 耗時；主執行緒吃緊(畫太慢)→漸進拉大幀間隔(最低~8fps)、
+    // 恢復則漸收。struggling 的手機會自動降到低幀率 → 總繪製量下降 → 不再卡/燙；順的手機幾乎不觸發。
+    if (_lowFx) {
+      const _cost = (performance.now ? performance.now() : Date.now()) - _t0;
+      if (_cost > 20) _fxPenalty = Math.min(90, _fxPenalty + (_cost > 36 ? 9 : 3));
+      else if (_fxPenalty > 0) _fxPenalty = Math.max(0, _fxPenalty - 2);
+    }
   }
   let _inited = false;
 
