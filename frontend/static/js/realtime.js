@@ -39,6 +39,7 @@ function _updateBBTail() {
   try { bbU1?.update({ time: t, value: up1 }); bbL1?.update({ time: t, value: lo1 }); } catch (e) {}
 }
 
+let _lastTickDraw = 0;   // 手機：上次「tick 觸發整層重畫」時刻(節流用)
 async function fetchLatest() {
   if (replayActive) return;
   // 捕捉本次輪詢的標的脈絡；await 回來後若已切換標的/市場/時框 → 整筆丟棄，
@@ -98,7 +99,17 @@ async function fetchLatest() {
     updateSymbolBar(ohlcvData);
     // 同一根 K 即時更新時時間軸不變 → 不會自動觸發 renderDrawings；這裡手動重畫疊加層，
     // 讓三盤色塊隨「當前 K 的高低」即時長大（否則要等換新棒或平移才更新）。
-    if (_dirty && typeof renderDrawings === "function") requestAnimationFrame(renderDrawings);
+    // 手機：crypto 每秒 tick 都整層重畫(VWAP/通道/量能分佈/教練…)很吃 CPU → 節流到 ~2.5s 一次
+    //   (背景疊加層不需每秒；十字線/互動觸發的重畫不受此限)；桌面維持每 tick。
+    if (_dirty && typeof renderDrawings === "function") {
+      const _mob = (typeof isMobileUI === "function" && isMobileUI());
+      if (!_mob) {
+        requestAnimationFrame(renderDrawings);
+      } else {
+        const _now = Date.now();
+        if (_now - _lastTickDraw > 2500) { _lastTickDraw = _now; requestAnimationFrame(renderDrawings); }
+      }
+    }
   } catch {}
 }
 

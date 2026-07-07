@@ -377,16 +377,16 @@ function _selectTickerRow(el) {
     const x = document.getElementById("exchangeSelect");
     if (x) x.value = el.dataset.exch || "pionex";
   }
-  // 先設 symbol 再 updateMarketUI：台指期(TXF/MXF/TMF)的時框限制依 symbol 判定，需先就位
+  // 先設 symbol：台指期(TXF/MXF/TMF)的時框限制依 symbol 判定，需先就位
   document.getElementById("symbolInput").value = el.dataset.sym;
-  updateMarketUI();
-  loadData(false);
   // 立即用該列已知現價填上方價格 → 切換時上方價格不會閃「—」再回來（資料載入後會精修為同值）
   const _q = _quoteForRow(el);
   if (_q && typeof _paintSymbolQuote === "function") _paintSymbolQuote(_q.price);
-  window._mSetTab && window._mSetTab("chart");    // 手機：選標的後跳圖表分頁
   el.parentNode?.querySelector(".ticker-item.tk-active")?.classList.remove("tk-active");
   el.classList.add("tk-active");
+  window._mSetTab && window._mSetTab("chart");    // 手機：先跳圖表分頁(立即切換，不等資料)
+  // 重的 updateMarketUI + loadData 延到下一幀 → 分頁切換先 paint、消除「卡一下才切」
+  requestAnimationFrame(() => { updateMarketUI(); loadData(false); });
 }
 
 // 取該列的已知現價（給切換瞬間先填上方價格、避免閃「—」）。
@@ -1174,9 +1174,9 @@ function _selectSymbol(el) {
   document.getElementById("symbolInput").value = display;
   updateMarketUI();   // symbol 就位後再跑一次：台指期(TXF/MXF/TMF)時框限制依 symbol 判定
   closeSymSearch();
-  loadData(false);
-  window._mSetTab && window._mSetTab("chart");   // 手機：搜尋選標的後直接跳圖表分頁
-  renderTickers();
+  window._mSetTab && window._mSetTab("chart");   // 手機：先跳圖表分頁(立即切換)
+  // 重的 loadData + renderTickers 延一幀 → 分頁切換先 paint、不「卡一下才切」
+  requestAnimationFrame(() => { loadData(false); renderTickers(); });
 }
 
 const _SYM_PLACEHOLDER = {
