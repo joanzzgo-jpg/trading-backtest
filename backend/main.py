@@ -59,6 +59,21 @@ app = FastAPI(title="回測系統")
 # ── GZip 壓縮（JS 166KB→35KB，CSS 38KB→8KB）──────────────────
 app.add_middleware(GZipMiddleware, minimum_size=500)
 
+# ── CSP 內容安全政策字串（CSP_OFF=1 → 停用；緊急關閉用）──────────────────
+_CSP = "" if (os.getenv("CSP_OFF") or "").strip().lower() in ("1", "true", "on", "yes") else (
+    "default-src 'self'; "
+    "script-src 'self' 'unsafe-inline' https://unpkg.com; "
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+    "font-src 'self' https://fonts.gstatic.com data:; "
+    "img-src 'self' data: blob:; "
+    "connect-src 'self'; "
+    "worker-src 'self'; "
+    "manifest-src 'self'; "
+    "frame-ancestors 'none'; "
+    "base-uri 'self'; "
+    "object-src 'none'"
+)
+
 # ── 靜態檔案長期快取（?v=hash 已保證更新時 URL 改變）＋ 安全標頭 ───────────
 class StaticCacheMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
@@ -81,6 +96,13 @@ class StaticCacheMiddleware(BaseHTTPMiddleware):
         h.setdefault("X-Frame-Options", "SAMEORIGIN")
         h.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
         h.setdefault("Strict-Transport-Security", "max-age=15552000")
+        # ── CSP：內容安全政策（縱深防禦，主要擋「載入未白名單的外部腳本/連線」＝XSS 注入面）──
+        #   白名單＝本站實際用到的外部資源：unpkg(圖表庫CDN)、Google 字型。inline 腳本/事件多
+        #   → script/style 需 'unsafe-inline'（仍能擋外部惡意腳本，這是主要注入途徑）。
+        #   img/font 放行 data:/blob:（canvas/字型）。frame-ancestors none＝比 X-Frame 更強的禁嵌。
+        #   緊急開關：設環境變數 CSP_OFF=1 即停用（萬一擋到某功能可即時關）。
+        if _CSP:
+            h.setdefault("Content-Security-Policy", _CSP)
         return response
 
 app.add_middleware(StaticCacheMiddleware)
