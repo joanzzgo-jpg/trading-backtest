@@ -267,7 +267,18 @@ async def _warmup():
     loop = asyncio.get_event_loop()
     loop.run_in_executor(None, _fetch_pionex_symbols)
     loop.run_in_executor(None, _fetch_pionex_perp_symbols)
-    threading.Thread(target=_ticker_worker,    daemon=True).start()
+    # crypto 即時報價：TICKER_WS=1 → Binance WebSocket（權重近乎0，取代每秒REST輪詢）；否則沿用 REST。
+    _use_ws = (os.getenv("TICKER_WS") or "").strip().lower() in ("1", "true", "on", "yes")
+    if _use_ws:
+        try:
+            from data.crypto_ws import run_ticker_ws
+            loop.create_task(run_ticker_ws())
+            print("  ✓ crypto 報價走 Binance WebSocket（TICKER_WS 開）")
+        except Exception as e:
+            print(f"  ⚠ WS 啟動失敗，退回 REST 輪詢：{e}")
+            threading.Thread(target=_ticker_worker, daemon=True).start()
+    else:
+        threading.Thread(target=_ticker_worker, daemon=True).start()
     threading.Thread(target=_tw_ticker_worker, daemon=True).start()
     threading.Thread(target=_txf_collect_worker, daemon=True).start()   # 台指期歷史分鐘累積
     try:
