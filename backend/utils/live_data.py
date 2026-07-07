@@ -20,7 +20,17 @@ _FRESH_SEC  = 5.0           # 本地記憶體視為「新鮮」的秒數（leade
 _shared_memo = {"ts": 0.0, "data": None}   # follower 讀磁碟的 0.5s memo
 
 
+_REDIS_KEY = "live:ticker"
+
 def _write_shared(snapshot: dict):
+    # Redis 優先（跨 worker 快、TTL 自動過期）；沒設 Redis → 原子寫磁碟 fallback。
+    try:
+        from utils import shared_store
+        if shared_store.enabled():
+            shared_store.set_blob(_REDIS_KEY, snapshot, ttl=30)
+            return
+    except Exception:
+        pass
     try:
         os.makedirs(_SHARE_DIR, exist_ok=True)
         tmp = f"{_SHARE_PATH}.{os.getpid()}.tmp"
@@ -32,16 +42,24 @@ def _write_shared(snapshot: dict):
 
 
 def _read_shared() -> dict:
-    """讀共享磁碟快照（0.5s memo，免磁碟 thrash）。失敗回空。"""
+    """讀共享快照（Redis 優先，否則磁碟；一律 0.5s memo 免頻繁 IO）。失敗回空。"""
     now = time.time()
     if _shared_memo["data"] is not None and now - _shared_memo["ts"] < 0.5:
         return _shared_memo["data"]
-    data = {"futures": [], "spot": [], "tw": [], "ts": 0.0}
+    data = None
     try:
-        with open(_SHARE_PATH, "rb") as f:
-            data = pickle.load(f)
+        from utils import shared_store
+        if shared_store.enabled():
+            data = shared_store.get_blob(_REDIS_KEY)
     except Exception:
-        pass
+        data = None
+    if data is None:
+        data = {"futures": [], "spot": [], "tw": [], "ts": 0.0}
+        try:
+            with open(_SHARE_PATH, "rb") as f:
+                data = pickle.load(f)
+        except Exception:
+            pass
     _shared_memo["ts"] = now
     _shared_memo["data"] = data
     return data
