@@ -134,9 +134,20 @@ def _keyed_lock(key: str) -> threading.Lock:
         return lk
 
 
+import secrets as _secrets
+_ADMIN_KEY = os.getenv("ACCOUNT_ADMIN_KEY")
+
+def _require_admin(key: str):
+    """診斷端點守門：設了 ACCOUNT_ADMIN_KEY 就要求 ?key= 相符（constant-time）；沒設→開放(開發)。
+    防止陌生人讀 env 變數名／帳號名等資訊揭露。"""
+    if _ADMIN_KEY and not _secrets.compare_digest(key or "", _ADMIN_KEY):
+        raise HTTPException(403, "需要管理金鑰（?key=ACCOUNT_ADMIN_KEY）")
+
+
 @router.get("/_diag")
-def diag():
+def diag(key: str = ""):
     """環境變數診斷（只回名稱/長度/數量，**絕不洩漏金鑰值**），用來確認 Railway 設定是否生效。"""
+    _require_admin(key)
     from data.fugle import _keys as _fugle_keys
     from data.twelvedata import _keys as _td_keys
     names = sorted(os.environ.keys())
@@ -264,10 +275,11 @@ def diag_futopt(product: str = "TXF"):
 
 
 @router.get("/_diag_trade")
-def diag_trade():
+def diag_trade(key: str = ""):
     """自動交易／訊號通知診斷（瀏覽器直接開）：定位『完全沒推播/沒進場』斷在哪。
     notify_enabled=False→VAPID沒設(訂閱推播發不出)；subs=0→無訂閱；auto_accounts空→cfg沒讀到active；
     某帳號 scan_tfs 空或 crypto_watchlist=0→該帳號不會被掃。**不洩漏任何金鑰。**"""
+    _require_admin(key)   # 會列出帳號名等 → 需管理金鑰(設了才擋)
     out = {"notify_enabled": False, "subs": 0, "auto_accounts": []}
     try:
         import routes.notify as notify
