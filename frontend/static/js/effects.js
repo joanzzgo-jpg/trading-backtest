@@ -524,6 +524,19 @@
     clearTimeout(_bubbleTimer);
     _bubbleTimer = setTimeout(() => { if (!_bearHover) bubble.classList.remove("visible"); }, 6500);
   }
+
+  /* 小啊頭上「天氣如何？」按鈕：先講現有(至多5分前)、再抓最新回來更新一次 */
+  let _bearWxPending = false;
+  document.getElementById("bearWxBtn")?.addEventListener("click", e => {
+    e.stopPropagation();
+    bear.classList.remove("wave"); void bear.offsetWidth; bear.classList.add("wave");
+    showForecastBubble();
+    _bearWxPending = true;
+    if (typeof window._wxRefreshNow === "function") window._wxRefreshNow();
+  });
+  window.addEventListener("wx:updated", () => {
+    if (_bearWxPending) { _bearWxPending = false; showForecastBubble(); }   // 最新資料到 → 重講
+  });
   /* 對齊時鐘整 10 分刻度（9:00 / 9:10 / 9:20…）冒出全身播天氣預報 */
   function _doForecastVisit() {
     if (!bear.classList.contains("peeking")) return;   // 使用者正在互動(full)→ 這次跳過、不打斷

@@ -3174,11 +3174,12 @@
   }
 
   // 附近雨區：抓在地測站網算出的「附近哪裡有雨/會不會往我移動」，存 _wd.nearby 後重繪天氣卡
+  function _emitWxUpdated() { try { window.dispatchEvent(new CustomEvent('wx:updated')); } catch (e) {} }
   function fetchNearbyRain(lat, lon) {
     fetch('/api/nearby_rain?lat=' + lat + '&lon=' + lon)
       .then(r => r.json())
-      .then(d => { _wd.nearby = d; _renderWeatherCard(); })
-      .catch(() => {});
+      .then(d => { _wd.nearby = d; _renderWeatherCard(); _emitWxUpdated(); })   // 通知小啊「天氣如何」按鈕更新
+      .catch(() => { _emitWxUpdated(); });
   }
   // 附近雨區 → 一行文字：優先「所在地正在下雨」＞「雨從X區往你這移動(含ETA)」＞「附近X區有雨」＞「無雨」
   // 用行政區地名講「雲雨從什麼區到什麼區」；缺地名(如 Open-Meteo)才退回方位距離。

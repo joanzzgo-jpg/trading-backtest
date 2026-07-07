@@ -61,6 +61,17 @@
     card.addEventListener("keydown", (e) => {          // 鍵盤可用（Enter/Space）
       if (e.key === "Enter" || e.key === " ") { e.preventDefault(); _swap(); }
     });
+    // 「天氣如何？」按鈕：先講現有天氣+附近雨區，再抓最新回來更新一次（不觸發整卡換笑話）
+    let _wxPending = false;
+    document.getElementById("mXiaoaWxBtn")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      el.textContent = _forecast() || _pick(true);
+      _wxPending = true;
+      if (typeof window._wxRefreshNow === "function") window._wxRefreshNow();
+    });
+    window.addEventListener("wx:updated", () => {
+      if (_wxPending) { _wxPending = false; el.textContent = _forecast() || _joke(); }
+    });
     // 每次切到「設定」分頁時刷新一句（情境可能已變：時間/天氣）→ 優先帶天氣
     document.querySelectorAll('.m-tab[data-mtab="settings"]').forEach(b => {
       b.addEventListener("click", () => setTimeout(() => { el.textContent = _pick(true); }, 50));

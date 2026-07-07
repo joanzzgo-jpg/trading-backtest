@@ -3118,11 +3118,44 @@ html.perf-mode .time-axis-year {
   100% { transform: translateY(0) rotate(0deg); }
 }
 
+/* 小啊頭上「天氣如何？」按鈕（桌機）：跟泡泡同位置，泡泡冒出時蓋在其上、收回後再現。
+   只在小啊「跳出來」(peeking/visit/full) 後才顯示，躲回去(hidden)時隱藏、不單獨漂浮。 */
+.bear-wx-btn {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  background: var(--accent, #ff9147);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 14px 14px 14px 4px;
+  box-shadow: 0 3px 10px rgba(0,0,0,.25);
+  cursor: pointer;
+  white-space: nowrap;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+.peek-bear.peeking .bear-wx-btn,
+.peek-bear.peek-visit .bear-wx-btn,
+.peek-bear.peek-full .bear-wx-btn {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  animation: bearWxPulse 2.6s ease-in-out infinite;   /* 冒出後輕微上下浮動，提示可按 */
+}
+.bear-wx-btn:active { transform: scale(.94); }
+@keyframes bearWxPulse { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+
 /* 熊對話泡泡 */
 .bear-bubble {
   position: absolute;
   bottom: calc(100% + 8px);
   right: 0;
+  pointer-events: none;   /* 隱藏時不擋住下方「天氣如何？」按鈕的點擊 */
   background: #fff;
   color: #333;
   font-size: 13px;
@@ -3149,6 +3182,7 @@ html.perf-mode .time-axis-year {
 .bear-bubble.visible {
   opacity: 1;
   transform: translateY(0) scale(1);
+  pointer-events: auto;   /* 顯示時可 hover 保持開啟（見 effects.js _onEnter） */
 }
 
 /* ══════════════════════════════════════════
@@ -6628,7 +6662,15 @@ html.landing-active .landing { background: transparent; }
     border: 1.5px solid var(--accent); padding: 1px;
   }
   .m-xiaoa-col { display: flex; flex-direction: column; min-width: 0; flex: 1 1 auto; }
-  .m-xiaoa-name { font-size: 11px; color: var(--muted); margin: 0 0 3px 2px; font-weight: 700; }
+  .m-xiaoa-name { font-size: 11px; color: var(--muted); margin: 0 0 3px 2px; font-weight: 700;
+    display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  /* 小啊「天氣如何？」按鈕（手機，名字列右側）：按了講最新天氣+附近雨區 */
+  .m-xiaoa-wx {
+    flex: 0 0 auto; background: var(--accent, #ff9147); color: #fff;
+    font-size: 12px; font-weight: 700; border: none; padding: 5px 12px;
+    border-radius: 12px; cursor: pointer; -webkit-tap-highlight-color: transparent;
+  }
+  .m-xiaoa-wx:active { transform: scale(.94); }
   .m-xiaoa-bubble {
     align-self: flex-start; max-width: 100%;
     background: rgba(60,41,32,.5); border: 1px solid var(--border);
