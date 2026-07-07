@@ -30,8 +30,8 @@ window._cycleProtoMin = function () {
   fetchWinRate();   // 重抓→後端用新門檻重算 多空/破多空（首次該值會重算，之後走快取）
 };
 
-// 假設順空：開啟後『順空』標記那根本身必須是 bear proto 缺口(收盤破前根低點)才顯示——做空假設下較嚴格的順空。
-// 開關→cacheKey 帶 sp tag、送後端 shun_proto=1 → 另分流重算。順多不受影響。
+// 假設順勢：開啟後『順多／順空』標記那根本身必須有 proto 缺口(空或多皆可)才顯示，否則剔除。
+// 開關→cacheKey 帶 sp tag、送後端 shun_proto=1 → 另分流重算。兩個方向都套用。
 let _shunProto = false;
 try { _shunProto = localStorage.getItem("wrShunProto") === "1"; } catch (e) {}
 function _syncShunProtoLabel() {
