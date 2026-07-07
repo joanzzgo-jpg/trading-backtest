@@ -134,6 +134,40 @@ def load_1m(product: str, limit_bars: int = 20000):
     return df.sort_values("ts").reset_index(drop=True)
 
 
+def fetch_wall_tickers():
+    """報價牆用：三兄弟 cnyes 即時價(含夜盤) + TAIFEX MIS 參考價(前結算)算漲跌。
+    欄位對齊台股 ticker + is_future 置頂旗標。cnyes 無的(微台)退回純 MIS。"""
+    from data.taifex_mis import fetch_taifex_quote, PRODUCTS as _NAMES
+    out = []
+    for prod in PRODUCTS:
+        df = fetch_cnyes_1m(prod)
+        mq = fetch_taifex_quote(prod)   # 取參考價(前結算)＝price-change_amt
+        ref = None
+        if mq and mq.get("price") is not None and mq.get("change_amt") is not None:
+            ref = mq["price"] - mq["change_amt"]
+        if df is not None and not df.empty:
+            price = float(df.iloc[-1]["c"])
+            vol = float(df["v"].sum())
+            if ref:
+                camt = price - ref
+                cpct = camt / ref * 100
+            else:   # 無參考價 → 退回 cnyes 當前時段首根當基準
+                base = float(df.iloc[0]["c"]) or price
+                camt = price - base
+                cpct = (camt / base * 100) if base else 0.0
+        elif mq and mq.get("price") is not None:   # cnyes 無(微台) → 純 MIS
+            price = mq["price"]; vol = mq.get("volume") or 0
+            camt = mq.get("change_amt") or 0.0; cpct = mq.get("change_pct") or 0.0
+        else:
+            continue
+        out.append({
+            "symbol": prod, "display": prod, "name": _NAMES.get(prod, prod),
+            "price": price, "change_pct": round(cpct, 2),
+            "change_amt": round(camt, 1), "volume": vol, "is_future": True,
+        })
+    return out
+
+
 def collect_all() -> int:
     """抓三兄弟當前時段 → 存 DB（背景 worker 用）。回傳有存的產品數。"""
     n = 0

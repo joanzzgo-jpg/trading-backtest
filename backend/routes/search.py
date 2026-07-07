@@ -72,11 +72,11 @@ def get_tickers(response: Response, market: str = "futures"):
     # 避免多分頁/多用戶同步 polling 造成的重複請求
     response.headers["Cache-Control"] = f"public, max-age={10 if market == 'tw' else 1}"
     if market == "tw":
-        # 台指期（三兄弟近月）置頂於台股清單。TAIFEX MIS 報價快取 3 秒。
-        from data.taifex_mis import fetch_taifex_tickers
+        # 台指期（三兄弟近月）置頂於台股清單。cnyes 即時價(含夜盤)+MIS 參考價，快取 3 秒。
+        from data.cnyes_futures import fetch_wall_tickers
         futs = cache.get("txf_tickers", ttl=3)
         if futs is None:
-            futs = fetch_taifex_tickers()
+            futs = fetch_wall_tickers()
             cache.set("txf_tickers", futs)
         base = live_get("tw") if has_tw_data() else fetch_tw_tickers()
         src = "live" if has_tw_data() else "direct"
