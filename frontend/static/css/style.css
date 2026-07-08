@@ -6884,7 +6884,6 @@ html.perf-mode .acct-btn-ghost { background: #F5F5F5; color: #1F1F1F; border-col
   box-shadow: inset 0 1px 1px rgba(255,240,210,.18);
   transition: background .16s, border-color .16s, transform .08s;
 }
-.landing-acct-guest small { font-size: 10px; font-weight: 700; opacity: .8; letter-spacing: 0; }
 .landing-acct-guest:hover {
   background: linear-gradient(135deg, rgba(243,233,208,.34), rgba(214,182,127,.22));
   border-color: rgba(94,67,38,.95); color: #FFF6E6;
