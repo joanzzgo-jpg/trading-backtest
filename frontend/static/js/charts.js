@@ -57,9 +57,6 @@ function createCandleSeries() {
     // 策略方向標記(多/空·破多空·順多空)：改用 primitive → 與 K 棒同一次繪製、縮放時不游移(不抖)、又能隨 barSpacing 縮放
     _stratMarkersPrim = _makeStratMarkersPrimitive();
     candleSeries.attachPrimitive(_stratMarkersPrim);
-    // emoji 貼圖字形：同樣改 primitive → 縮放時與 K 棒同步、不再相對 K 棒游移
-    _emojiPrim = _makeEmojiPrimitive();
-    candleSeries.attachPrimitive(_emojiPrim);
   } catch (e) { /* 舊版 LWC 無 attachPrimitive 時靜默略過 */ }
 }
 
@@ -320,46 +317,6 @@ function _makeStratMarkersPrimitive() {
 // 策略標記資料/開關/淡化變動時觸發重畫（由 render.js 的 _applyMainMarkers 呼叫）
 function _stratMarkersUpdate() { if (_stratMarkersPrim) _stratMarkersPrim.requestUpdate(); }
 
-// ── emoji 貼圖 primitive（字形）──────────────────────────────────
-//   原本畫在繪圖疊加層 → 縮放時比 K 棒慢一幀「游移」。改用 primitive 在圖表自身繪製流程畫字形，
-//   縮放與 K 棒完全同步、不漂。疊加層只留選取框/縮放把手/拖曳(即時回饋)；正在拖曳的那個由疊加層畫、
-//   primitive 略過(避免拖曳時 primitive 慢一幀)。資料源＝全域 drawings；尺寸沿用 _emojiSize(隨 barSpacing)。
-let _emojiPrim = null;
-function _makeEmojiPrimitive() {
-  let _chart = null, _series = null, _req = null;
-  const renderer = {
-    draw(target) {
-      if (!_chart || !_series || typeof drawings === "undefined" || !drawings.length) return;
-      const ts = _chart.timeScale();
-      const dragId = (typeof dragState !== "undefined" && dragState) ? dragState.id : null;   // 拖曳/縮放中的那個由疊加層即時畫
-      target.useBitmapCoordinateSpace(scope => {
-        const ctx = scope.context;
-        const hr = scope.horizontalPixelRatio, vr = scope.verticalPixelRatio;
-        ctx.textAlign = "center"; ctx.textBaseline = "middle";
-        for (const d of drawings) {
-          if (!d || d.type !== "emoji") continue;
-          if (dragId != null && d.id === dragId) continue;   // 拖曳中的由疊加層即時畫
-          const xc = ts.timeToCoordinate(d.time);
-          const yc = _series.priceToCoordinate(d.price);
-          if (xc == null || yc == null) continue;
-          const sz = (typeof _emojiSize === "function") ? _emojiSize(d) : (d.size || 24);
-          ctx.font = `${sz * vr}px sans-serif`;
-          ctx.fillText(d.text || "❓", xc * hr, yc * vr);
-        }
-      });
-    },
-  };
-  const paneView = { renderer() { return renderer; }, zOrder() { return "top"; } };
-  return {
-    attached(p) { _chart = p.chart; _series = p.series; _req = p.requestUpdate; },
-    detached() { _chart = _series = _req = null; },
-    updateAllViews() {},
-    paneViews() { return [paneView]; },
-    requestUpdate() { if (_req) _req(); },
-  };
-}
-// drawings 變動(建立/刪除/拖曳/縮放)時觸發 emoji primitive 重畫（由 draw.js 的 renderDrawings 呼叫）
-function _emojiPrimUpdate() { if (_emojiPrim) _emojiPrim.requestUpdate(); }
 // 交易位階線開關：window.toggleFVGLevels() 切換（止盈2W／止損g-1頂端）
 function toggleFVGLevels(on) {
   _fvgLevelsShow = (on === undefined) ? !_fvgLevelsShow : !!on;
