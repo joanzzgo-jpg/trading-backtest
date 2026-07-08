@@ -152,13 +152,17 @@ function _emojiBarSp() {
   try { const b = mainChart.timeScale().options().barSpacing; return (b && isFinite(b) && b > 0) ? b : null; }
   catch (e) { return null; }
 }
-/* emoji 貼圖的實際顯示邊長：儲存尺寸 × (目前縮放 / 建立時縮放) → 隨 K 棒大小變 */
+/* emoji 貼圖的實際顯示邊長：儲存尺寸 × (目前縮放 / 建立時縮放)，但比例限幅 → 隨 K 棒變、
+   但放大主圖時到上限就不再變大(避免蓋住 K 棒)、縮小也有下限。 */
+const _EMOJI_MAX_ZOOM = 2.0;   // 放大上限：最多長到放置時的 2 倍(放大主圖也不再更大→不蓋住 K 棒)
+const _EMOJI_MIN_ZOOM = 0.5;   // 縮小下限：最小為放置時的 0.5 倍
 function _emojiSize(d) {
   const base = d.size || 24;
   const cur = _emojiBarSp();
   if (cur == null) return base;
   if (!d.barRef || !isFinite(d.barRef) || d.barRef <= 0) { d.barRef = cur; return base; }   // 首次錨定當下縮放
-  return Math.max(4, base * (cur / d.barRef));
+  const ratio = Math.max(_EMOJI_MIN_ZOOM, Math.min(_EMOJI_MAX_ZOOM, cur / d.barRef));
+  return Math.max(4, base * ratio);
 }
 
 /* 對 longpos/shortpos 判斷拖移的是哪一條線 */
