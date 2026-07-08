@@ -54,6 +54,22 @@ let _kbNavLockUntil = 0;         // 鍵盤導航凍結期：使用者用 ↑↓ 
 function _markKbNav() { _kbNavLockUntil = Date.now() + 3000; }
 window._markKbNav = _markKbNav;
 
+// ── 行情列漸進渲染（不卡）─────────────────────────────────────
+// 合約/台股清單常有 500~1000+ 檔，全塞進 DOM → 上萬節點 → style/layout 重算爆量、
+// 主圖平移與切分頁全被拖慢。改為只渲染前 N 列（依現有排序＝最相關），捲到底再加載一批。
+// 每秒價格更新只需更新這 N 列 → 每秒重繪成本同步下降。
+const _TK_CAP_STEP = 120;
+let _tkCap    = _TK_CAP_STEP;   // 目前渲染上限（捲到底 +STEP）
+let _tkCapKey = "";             // 市場|排序|搜尋 變了就重置上限（回到頂端）
+// 依目前上限切片 items；記錄是否還有更多（供捲動加載判斷）。標題/分組列不吃上限。
+function _tkSlice(items) {
+  const search = (document.getElementById("tickerSearch")?.value || "").toLowerCase();
+  const key = `${_tickerMkt}|${_tickerSort}|${search}`;
+  if (key !== _tkCapKey) { _tkCapKey = key; _tkCap = _TK_CAP_STEP; }
+  window._tkHasMore = items.length > _tkCap;
+  return items.length > _tkCap ? items.slice(0, _tkCap) : items;
+}
+
 // ── 搜尋欄鍵盤導航（↑↓ 選列、Enter 載入該標的）──────────────
 let _tkSearchFocusIdx = -1;
 function _tkRows() { return document.querySelectorAll("#tickerList .ticker-item"); }
@@ -582,7 +598,7 @@ function renderTickers() {
         pctStr:   sign + t.change_pct.toFixed(2) + "%",
       };
     });
-    _reconcileTicker(container, items, _buildTwRow, _updateTwRow);
+    _reconcileTicker(container, _tkSlice(items), _buildTwRow, _updateTwRow);
     updatePageTitle();
     return;
   }
@@ -611,7 +627,7 @@ function renderTickers() {
       pctStr:   sign + t.change_pct.toFixed(2) + "%",
     };
   });
-  _reconcileTicker(container, items, _buildCryptoRow, _updateCryptoRow);
+  _reconcileTicker(container, _tkSlice(items), _buildCryptoRow, _updateCryptoRow);
   updatePageTitle();
 }
 
@@ -737,6 +753,24 @@ function bindTickerPanel() {
     };
     document.addEventListener("touchstart", _freeze, { passive: true, capture: true });
     document.addEventListener("mousedown",  _freeze, { passive: true, capture: true });
+  }
+
+  // 捲到接近底部 → 加載下一批（提高上限後強制重渲一次）。只在還有更多時作動。
+  if (!window._tkScrollBound) {
+    window._tkScrollBound = true;
+    const _list = document.getElementById("tickerList");
+    if (_list) _list.addEventListener("scroll", () => {
+      if (!window._tkHasMore) return;
+      // 提早補：捲過整批一半(或剩不到一個半螢幕)就先生成下一批 → 生成成本藏在中途、捲到底早已就緒。
+      // 補完 scrollHeight 變大 → 這條件自動變 false，不會連續重觸發。
+      const passedHalf = (_list.scrollTop + _list.clientHeight) > _list.scrollHeight * 0.5;
+      const nearBottom = _list.scrollHeight - _list.scrollTop - _list.clientHeight < _list.clientHeight * 1.5;
+      if (passedHalf || nearBottom) {
+        _tkCap += _TK_CAP_STEP;
+        _lastTickerKey = "";          // 下次 fetch 也會走完整重渲
+        if (typeof renderTickers === "function") renderTickers();
+      }
+    }, { passive: true });
   }
 
   // 市場切換 tab（合約 / 台股）
