@@ -220,6 +220,26 @@ class TestReq(BaseModel):
     name: str
 
 
+# ── 推播給某帳號的所有裝置（交易核准碼、管理員通知等共用）────────
+def push_to_account(name: str, payload: dict) -> int:
+    """推播給某帳號名下所有裝置訂閱。回成功送達數。用於交易核准 6 位碼推給管理員(qwer)。"""
+    if not notify_enabled():
+        return 0
+    _ensure_db()
+    conn, ph = _acct._db()
+    try:
+        cur = conn.execute(f"SELECT endpoint, p256dh, auth FROM push_subs WHERE name={ph}",
+                           (_acct._norm_name(name or ""),))
+        rows = cur.fetchall()
+    finally:
+        conn.close()
+    ok = 0
+    for ep, p, a in rows:
+        if send_push({"endpoint": ep, "p256dh": p, "auth": a}, payload):
+            ok += 1
+    return ok
+
+
 # ── 推播發送（給 /test 與背景監控器共用）──────────────────────
 def send_push(sub: Dict[str, Any], payload: dict) -> bool:
     """對單一訂閱發送 Web Push。回傳是否成功；遇 404/410 自動刪除失效訂閱。"""

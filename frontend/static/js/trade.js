@@ -15,6 +15,10 @@ const _TRD_ALL_TFS = ["5m", "15m", "30m", "1h", "2h", "4h", "8h", "1d", "1w"];
 const _TRD_ICO = `<svg class="trd-ico" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4.5 13.5H11L9.5 22 19 9.5h-6.5L13 2Z"/></svg>`;
 
 function _trdKey() { try { return localStorage.getItem("tradeKey") || ""; } catch (e) { return ""; } }
+// 交易 session token：qwer 核准 6 位碼後發、記住此裝置（14天）。依帳號分開存，切帳號各用各的。
+function _trdTokKey() { return "tradeTok:" + (window._acctName || ""); }
+function _trdToken() { try { return localStorage.getItem(_trdTokKey()) || ""; } catch (e) { return ""; } }
+function _trdSetToken(t) { try { t ? localStorage.setItem(_trdTokKey(), t) : localStorage.removeItem(_trdTokKey()); } catch (e) {} }
 function _trdSigLabel(k) { return k === "abc" ? "S1" : k === "ab" ? "S2" : k === "ss1" ? "SS1" : k === "ss2" ? "SS2" : k === "fvg" ? "FVG" : "S" + k; }
 
 async function _trdApi(path, body) {
@@ -27,7 +31,7 @@ async function _trdApi(path, body) {
   try {
     r = await fetch("/api/trade/" + path, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(Object.assign({ key: _trdKey(), name: window._acctName || "" }, body || {})),
+      body: JSON.stringify(Object.assign({ key: _trdKey(), name: window._acctName || "", token: _trdToken() }, body || {})),
       signal: ctl.signal,
     });
   } catch (e) {
@@ -65,6 +69,8 @@ async function _trdRefresh() {
   } catch (e) {
     _trdMsg(e.message, true);
     if (/口令/.test(e.message)) _trdShowKeyRow(true);
+    // 交易核准過期/未核准（每 14 天）→ 清 token、跳核准流程；停止輪詢避免一直 403
+    if (/核准/.test(e.message)) { _trdSetToken(""); _trdShowApproval(true); _trdStopPoll(); }
   } finally { _TRD.busy = false; }
 }
 
@@ -295,6 +301,70 @@ function _trdShowKeyRow(show) {
   if (row) row.style.display = show ? "flex" : "none";
 }
 
+// ── 交易核准（qwer 6 位碼）流程 ────────────────────────────────
+let _trdApvCid = "";
+function _trdApvMsg(t, isErr) {
+  const m = document.querySelector("#tradePopup #trdApvMsg");
+  if (m) { m.textContent = t; m.style.color = isErr ? "#ff6b6b" : ""; }
+}
+// 顯示/隱藏核准區；顯示時以 .trd-gated 隱藏綁定表單與主面板，強制先核准
+function _trdShowApproval(show) {
+  const pop = document.getElementById("tradePopup");
+  if (!pop) return;
+  pop.classList.toggle("trd-gated", !!show);
+  const box = pop.querySelector(".trd-approve");
+  if (box) box.classList.toggle("show", !!show);
+  if (show) {
+    const ap = (_TRD.st && _TRD.st.approver) || "管理員";
+    _trdApvMsg(`此裝置需 ${ap} 核准才能交易（每 14 天一次）`);
+    const row = pop.querySelector("#trdApvCodeRow"); if (row) row.hidden = true;
+    const ci = pop.querySelector("#trdApvCode"); if (ci) ci.value = "";
+  }
+}
+// 重抓 status（帶 token，供 approved 判定）
+async function _trdReloadStatus() {
+  try {
+    const q = `name=${encodeURIComponent(window._acctName || "")}&token=${encodeURIComponent(_trdToken())}`;
+    _TRD.st = await (await fetch("/api/trade/status?" + q)).json();
+  } catch (e) {}
+}
+// 開面板把關：已核准→true；需核准→顯示核准 UI 並回 false
+async function _trdGate() {
+  await _trdReloadStatus();
+  if (_TRD.st && _TRD.st.allowed && !_TRD.st.approved) { _trdShowApproval(true); return false; }
+  _trdShowApproval(false);
+  return true;
+}
+async function _trdRequestApproval() {
+  if (!window._acctName) { _trdApvMsg("請先登入帳號", true); return; }
+  _trdApvMsg("通知管理員中…");
+  try {
+    const j = await _trdApi("approve_request", { name: window._acctName });
+    _trdApvCid = j.cid;
+    const row = document.querySelector("#tradePopup #trdApvCodeRow"); if (row) row.hidden = false;
+    _trdApvMsg(j.pushed > 0
+      ? `已通知管理員（${j.pushed} 台裝置）→ 請向 ta 索取並輸入 6 位驗證碼`
+      : "已建立請求，但管理員手機尚未開啟通知；請提醒 ta 開通知後再試，或由管理員直接給碼");
+    const ci = document.querySelector("#tradePopup #trdApvCode"); if (ci) ci.focus();
+  } catch (e) { _trdApvMsg(e.message, true); }
+}
+async function _trdVerifyApproval() {
+  const ci = document.querySelector("#tradePopup #trdApvCode");
+  const code = ((ci && ci.value) || "").trim();
+  if (!code) { _trdApvMsg("請輸入驗證碼", true); return; }
+  _trdApvMsg("驗證中…");
+  try {
+    const j = await _trdApi("approve_verify", { name: window._acctName, cid: _trdApvCid, code });
+    _trdSetToken(j.token);
+    _trdShowApproval(false);
+    await _trdReloadStatus();
+    _trdApplyMode();
+    _trdApi("mykey", { name: window._acctName })
+      .then(k => { if (k && k.tkey) { try { localStorage.setItem("tradeKey", k.tkey); } catch (_) {} } })
+      .catch(() => {}).finally(() => { _trdRefresh(); _trdStopPoll(); _TRD.pollTimer = setInterval(_trdRefresh, 5000); });
+  } catch (e) { _trdApvMsg(e.message, true); }
+}
+
 function _trdBuildPopup() {
   if (document.getElementById("tradePopup")) return;
   const css = document.createElement("style");
@@ -430,6 +500,19 @@ function _trdBuildPopup() {
     #tradePopup hr { border:none; border-top:1px solid var(--border,#3a3a50); margin:8px 0; }
     .trd-ico { vertical-align:-2px; }
     .trd-entry .trd-ico { margin-right:4px; }
+    /* 交易核准區（qwer 6 位碼）：需核准時顯示、並隱藏綁定表單與主面板 */
+    #tradePopup .trd-approve { display:none; flex-direction:column; gap:6px; margin:6px 0; padding:10px;
+      border:1px solid rgba(255,180,60,.42); border-radius:8px; background:rgba(255,180,60,.07); }
+    #tradePopup .trd-approve.show { display:flex; }
+    #tradePopup.trd-gated .trd-main, #tradePopup.trd-gated .trd-bind { display:none !important; }
+    #tradePopup .trd-asub { font-size:12px; color:var(--text,#ddd); opacity:.9; line-height:1.55; }
+    #tradePopup .trd-apv-row { display:flex; gap:5px; }
+    #tradePopup .trd-apv-row input { flex:1; letter-spacing:3px; text-align:center; font-size:16px;
+      padding:6px 8px; border-radius:6px; border:1px solid var(--border,#3a3a50); background:var(--bg,#12121c); color:var(--text,#eee); }
+    #tradePopup .trd-apv-go { width:100%; padding:9px; border-radius:9px; border:none; cursor:pointer; font-weight:600;
+      background:linear-gradient(135deg,#f0a020,#e07818); color:#1a1200; }
+    #tradePopup .trd-apv-go:hover { filter:brightness(1.06); }
+    #tradePopup .trd-apv-go:active { transform:translateY(1px); }
     /* 桌面：交易面板與合約行情『並排』成最右欄（body-layout 的獨立 flex 欄），可往右收成細條 */
     #trdDock { flex:0 0 230px; position:relative; display:flex; flex-direction:column; min-height:0; height:100%;
       background:var(--bg2,#1a1a28); overflow:hidden; transition:flex-basis .18s ease; }
@@ -495,6 +578,14 @@ function _trdBuildPopup() {
     <div class="trd-key-row">
       <input id="trdKeyInput" type="password" placeholder="交易口令（TRADE_ACCESS_KEY）">
       <button class="trd-x trd-key-save" style="color:var(--text,#ddd)">確定</button>
+    </div>
+    <div class="trd-approve">
+      <div class="trd-asub" id="trdApvMsg">此裝置需管理員核准才能交易（每 14 天一次）</div>
+      <button class="trd-apv-go" id="trdApvReqBtn">向管理員請求核准</button>
+      <div class="trd-apv-row" id="trdApvCodeRow" hidden>
+        <input id="trdApvCode" type="text" inputmode="numeric" maxlength="6" placeholder="輸入 6 位驗證碼" autocomplete="off">
+        <button class="trd-x" id="trdApvVerifyBtn" style="color:var(--text,#ddd)">確定</button>
+      </div>
     </div>
     <div class="trd-bind">
       <div class="trd-bsub">綁定你自己的 Binance 永續金鑰（只存伺服器、加密保存；交易進你自己的帳戶）</div>
@@ -655,6 +746,10 @@ function _trdBuildPopup() {
     }
     _trdShowKeyRow(false); _trdRefresh();
   });
+  // 交易核准（qwer 6 位碼）
+  pop.querySelector("#trdApvReqBtn").addEventListener("click", e => { e.stopPropagation(); _trdRequestApproval(); });
+  pop.querySelector("#trdApvVerifyBtn").addEventListener("click", e => { e.stopPropagation(); _trdVerifyApproval(); });
+  pop.querySelector("#trdApvCode").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); _trdVerifyApproval(); } });
   // 綁定自己的 Binance 金鑰
   pop.querySelector("#trdBindBtn").addEventListener("click", async e => {
     e.stopPropagation();
@@ -670,7 +765,7 @@ function _trdBuildPopup() {
       _trdMsg(`綁定成功（${env === "live" ? "實盤" : "測試網"}）餘額 ${(+j.balance.total).toFixed(2)} USDT`);
       pop.querySelector("#trdBindSec").value = "";
       // 重抓 status → 切到交易介面
-      try { _TRD.st = await (await fetch("/api/trade/status?name=" + encodeURIComponent(window._acctName))).json(); } catch (er) {}
+      await _trdReloadStatus();
       _trdApplyMode(); _trdRefresh();
     } catch (er) { _trdMsg(er.message, true); }
   });
@@ -784,18 +879,21 @@ function _trdOpenPopup(anchorBtn) {
     const sym = document.getElementById("symbolInput")?.value?.trim();
     if (mkt === "crypto" && sym && !pop.querySelector("#trdSym").value) pop.querySelector("#trdSym").value = sym;
   } catch (e) {}
-  // 口令跟著帳戶：已登入 → 先從伺服器取回此帳號綁定的口令（換裝置免再輸），取到才刷新。
-  if (window._acctName) {
-    _trdApi("mykey", { name: window._acctName })
-      .then(j => { if (j && j.tkey) { try { localStorage.setItem("tradeKey", j.tkey); } catch (e) {} } })
-      .catch(() => {})
-      .finally(() => { if (_TRD.st.locked && !_trdKey()) _trdShowKeyRow(true); _trdRefresh(); });
-  } else {
-    if (_TRD.st.locked && !_trdKey()) _trdShowKeyRow(true);
-    _trdRefresh();
-  }
-  _trdStopPoll();
-  _TRD.pollTimer = setInterval(_trdRefresh, 5000);   // 開著時每 5s 刷新持倉/盈虧
+  // 先做交易核准把關：未核准（或過期）→ 顯示核准 UI、不進面板；已核准才取口令+刷新
+  _trdGate().then(ok => {
+    if (!ok) return;
+    if (window._acctName) {
+      _trdApi("mykey", { name: window._acctName })
+        .then(j => { if (j && j.tkey) { try { localStorage.setItem("tradeKey", j.tkey); } catch (e) {} } })
+        .catch(() => {})
+        .finally(() => { if (_TRD.st.locked && !_trdKey()) _trdShowKeyRow(true); _trdRefresh(); });
+    } else {
+      if (_TRD.st.locked && !_trdKey()) _trdShowKeyRow(true);
+      _trdRefresh();
+    }
+    _trdStopPoll();
+    _TRD.pollTimer = setInterval(_trdRefresh, 5000);   // 開著時每 5s 刷新持倉/盈虧
+  });
   if (anchorBtn && !isMobileUI()) {
     requestAnimationFrame(() => {
       const r = anchorBtn.getBoundingClientRect();
@@ -861,30 +959,31 @@ function _trdLoadPanel() {
   const pop = document.getElementById("tradePopup");
   if (!pop) return;
   _trdApplyMode();
-  if (!(_TRD.st && _TRD.st.canTrade)) return;   // 未綁金鑰 → 只顯示綁定表單，不查倉位
-  try {
-    const mkt = document.getElementById("marketSelect")?.value;
-    const sym = document.getElementById("symbolInput")?.value?.trim();
-    if (mkt === "crypto" && sym && !pop.querySelector("#trdSym").value) pop.querySelector("#trdSym").value = sym;
-  } catch (e) {}
-  if (window._acctName) {
-    _trdApi("mykey", { name: window._acctName })
-      .then(j => { if (j && j.tkey) { try { localStorage.setItem("tradeKey", j.tkey); } catch (e) {} } })
-      .catch(() => {})
-      .finally(() => { if (_TRD.st.usingEnv && _TRD.st.locked && !_trdKey()) _trdShowKeyRow(true); _trdRefresh(); });
-  } else {
-    _trdRefresh();
-  }
-  _trdStopPoll();
-  _TRD.pollTimer = setInterval(_trdRefresh, 5000);
+  // 先做交易核准把關：未核准（或過期）→ 顯示核准 UI、不進面板/不顯示綁定表單
+  _trdGate().then(ok => {
+    if (!ok) return;
+    if (!(_TRD.st && _TRD.st.canTrade)) return;   // 已核准但未綁金鑰 → 只顯示綁定表單，不查倉位
+    try {
+      const mkt = document.getElementById("marketSelect")?.value;
+      const sym = document.getElementById("symbolInput")?.value?.trim();
+      if (mkt === "crypto" && sym && !pop.querySelector("#trdSym").value) pop.querySelector("#trdSym").value = sym;
+    } catch (e) {}
+    if (window._acctName) {
+      _trdApi("mykey", { name: window._acctName })
+        .then(j => { if (j && j.tkey) { try { localStorage.setItem("tradeKey", j.tkey); } catch (e) {} } })
+        .catch(() => {})
+        .finally(() => { if (_TRD.st.usingEnv && _TRD.st.locked && !_trdKey()) _trdShowKeyRow(true); _trdRefresh(); });
+    } else {
+      _trdRefresh();
+    }
+    _trdStopPoll();
+    _TRD.pollTimer = setInterval(_trdRefresh, 5000);
+  });
 }
 
 async function initTrade() {
   if (!window._acctName) return;   // 未登入 → 不顯示交易（交易須綁帳號）
-  try {
-    const r = await fetch("/api/trade/status?name=" + encodeURIComponent(window._acctName));
-    _TRD.st = await r.json();
-  } catch (e) { return; }
+  await _trdReloadStatus();
   // 只有「白名單帳號」才顯示交易入口（其他帳號完全看不到，避免誤入共用戶頭）
   if (!_TRD.st || !_TRD.st.allowed) return;
   _trdBuildPopup();

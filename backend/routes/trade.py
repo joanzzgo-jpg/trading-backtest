@@ -24,7 +24,7 @@ import time
 import secrets
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from routes import account as _acct
@@ -162,13 +162,15 @@ def _locked() -> bool:
     return bool(_ACCESS_KEY) or _ON_RAILWAY
 
 
-def _guard(key: Optional[str], name: Optional[str] = None):
+def _guard(key: Optional[str], name: Optional[str] = None, token: Optional[str] = None):
     """驗證並回傳此帳號的交易 Client。無金鑰 → 403。
-    使用 env 金鑰的擁有者帳號 → 另需 TRADE_ACCESS_KEY 口令（保護共用 env 帳戶）。
-    自綁金鑰的帳號 → 不需口令（自己的金鑰、登入該帳號即可）。"""
+    ① 交易 session token：此裝置須先由管理員(qwer)核准 6 位碼取得 token，否則 403（擋「跳過登入直接打交易 API」）。
+    ② 使用 env 金鑰的擁有者帳號 → 另需 TRADE_ACCESS_KEY 口令（保護共用 env 帳戶）。
+    ③ 自綁金鑰的帳號 → 不需口令（自己的金鑰）。"""
     nm = _acct._norm_name(name or "")
     if not nm:
         raise HTTPException(403, "請先登入帳號")
+    _require_trade_session(nm, token)          # ← 交易核准把關（所有交易端點共用此道）
     client, is_env_owner = _client_for(nm)
     if client is None:
         raise HTTPException(403, "此帳號尚未綁定 Binance 金鑰")
@@ -179,6 +181,92 @@ def _guard(key: Optional[str], name: Optional[str] = None):
         elif _ON_RAILWAY:
             raise HTTPException(403, "伺服器未設定 TRADE_ACCESS_KEY，公網環境停用 env 帳戶交易")
     return client
+
+
+# ══ 交易核准（管理員 qwer 發 6 位碼）+ 交易 session token（記住裝置）══════════════
+#   目的：擋「跳過登入、直接帶帳號名稱打 /api/trade/order」的攻擊。
+#   流程：白名單帳號 → /approve_request（推 6 位碼給 qwer）→ /approve_verify（輸碼）→ 發 token
+#        → 所有交易端點(_guard)驗此 token；token 存 DB、記住裝置(30天)。
+import threading
+
+_APPROVER    = _acct._norm_name(os.getenv("TRADE_APPROVER") or _OWNER or "qwer")   # 收核准碼的管理員帳號
+_OTP_TTL     = 300           # 6 位碼有效秒數（5 分鐘）
+_OTP_MAX_TRY = 5             # 單一請求猜錯上限
+_SESS_TTL    = 14 * 86400    # 交易 token 有效秒數（14 天／兩週；記住裝置，過期須向 qwer 重新核准）
+_otp_lock    = threading.Lock()
+_otp_store   = {}            # cid -> {"name","code","ip","ts","tries"}（記憶體、短效）
+_sess_inited = False
+
+
+def _req_ip(request: Request) -> str:
+    """取請求來源 IP（顯示用）：可信代理把真實 IP 附在 XFF 最右側。"""
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        parts = [p.strip() for p in xff.split(",") if p.strip()]
+        if parts:
+            return parts[-1]
+    return request.client.host if request.client else "?"
+
+
+def _ensure_sess_db():
+    global _sess_inited
+    if _sess_inited:
+        return
+    _acct._ensure_db()
+    conn, ph = _acct._db()
+    try:
+        conn.execute("""CREATE TABLE IF NOT EXISTS trade_session (
+            token TEXT PRIMARY KEY, name TEXT, created_at DOUBLE PRECISION, last_seen DOUBLE PRECISION
+        )""" if _acct._use_pg() else """CREATE TABLE IF NOT EXISTS trade_session (
+            token TEXT PRIMARY KEY, name TEXT, created_at REAL, last_seen REAL
+        )""")
+        conn.commit()
+    finally:
+        conn.close()
+    _sess_inited = True
+
+
+def _new_trade_session(name: str) -> str:
+    _ensure_sess_db()
+    tok = secrets.token_urlsafe(32)
+    now = time.time()
+    conn, ph = _acct._db()
+    try:
+        conn.execute(f"INSERT INTO trade_session (token, name, created_at, last_seen) "
+                     f"VALUES ({ph},{ph},{ph},{ph})",
+                     (tok, _acct._norm_name(name), now, now))
+        conn.commit()
+    finally:
+        conn.close()
+    return tok
+
+
+def _valid_trade_session(token: Optional[str], name: str) -> bool:
+    if not token:
+        return False
+    _ensure_sess_db()
+    conn, ph = _acct._db()
+    try:
+        cur = conn.execute(f"SELECT name, created_at FROM trade_session WHERE token={ph}", (token,))
+        row = cur.fetchone()
+        if not row:
+            return False
+        if _acct._norm_name(row[0]) != _acct._norm_name(name or ""):
+            return False           # token 綁定另一帳號 → 不放行
+        if time.time() - (row[1] or 0) > _SESS_TTL:
+            conn.execute(f"DELETE FROM trade_session WHERE token={ph}", (token,))
+            conn.commit()
+            return False           # 過期 → 清除、重新核准
+        conn.execute(f"UPDATE trade_session SET last_seen={ph} WHERE token={ph}", (time.time(), token))
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def _require_trade_session(name: str, token: Optional[str]):
+    if not _valid_trade_session(token, name):
+        raise HTTPException(403, f"此裝置尚未取得交易核准（請向管理員 {_APPROVER} 索取 6 位驗證碼）")
 
 
 # ── 自動交易設定（DB 單列，重啟不丟）──────────────────────────
@@ -1872,11 +1960,13 @@ def retarget_auto_tp(market, exchange, symbol, tf, upper_chart, lower_chart):
 class KeyReq(BaseModel):
     key: Optional[str] = None
     name: Optional[str] = None       # 登入帳號（owner 白名單檢查用）
+    token: Optional[str] = None      # 交易 session token（qwer 核准後發、記住裝置）
 
 
 class OrderReq(BaseModel):
     key: Optional[str] = None
     name: Optional[str] = None
+    token: Optional[str] = None
     symbol: str                      # 圖表符號，如 BTC/USDT.P
     side: str                        # long / short
     type: str = "MARKET"             # MARKET / LIMIT
@@ -1890,12 +1980,14 @@ class OrderReq(BaseModel):
 class CloseReq(BaseModel):
     key: Optional[str] = None
     name: Optional[str] = None
+    token: Optional[str] = None
     bsym: str                        # Binance 合約符號（持倉列回傳的）
 
 
 class CancelReq(BaseModel):
     key: Optional[str] = None
     name: Optional[str] = None
+    token: Optional[str] = None
     bsym: str
     orderId: int
 
@@ -1903,30 +1995,35 @@ class CancelReq(BaseModel):
 class PosModeReq(BaseModel):
     key: Optional[str] = None
     name: Optional[str] = None
+    token: Optional[str] = None
     hedge: bool = False
 
 
 class AutoReq(BaseModel):
     key: Optional[str] = None
     name: Optional[str] = None
+    token: Optional[str] = None
     cfg: dict
 
 
 class SaveKeyReq(BaseModel):
     name: str
+    token: Optional[str] = None
     tkey: str
 
 
 class MyKeyReq(BaseModel):
     name: str
+    token: Optional[str] = None
 
 
 # ── endpoints ─────────────────────────────────────────────────
 @router.get("/status")
-def status(name: str = ""):
+def status(name: str = "", token: str = ""):
     """全域 + 此帳號的交易可用性。
     canTrade=此帳號能否交易（自綁金鑰 或 擁有者帳號有 env 金鑰）→ 前端據此決定是否顯示入口。
-    hasOwnKeys=此帳號是否自綁了金鑰；env=此帳號將使用的環境（testnet/live）。"""
+    hasOwnKeys=此帳號是否自綁了金鑰；env=此帳號將使用的環境（testnet/live）。
+    approved=此裝置的交易 token 是否仍有效（前端據此決定要不要跳 qwer 核准）。"""
     nm = _acct._norm_name(name or "")
     own = _own_creds(nm) if nm else None
     client, is_env_owner = _client_for(nm) if nm else (None, False)
@@ -1941,12 +2038,85 @@ def status(name: str = ""):
         "usingEnv": is_env_owner,                 # 此帳號用的是共用 env 金鑰（擁有者）
         "env": (own[2] if own else (bt.env_name() if is_env_owner else "testnet")),
         "hedge": (_is_hedge(client) if client else False),   # 目前持倉模式（雙向=FVG 雙槽）
+        # 此裝置是否已有有效交易核准 token（前端據此決定是否要跳核准流程）
+        "approved": (_valid_trade_session(token, nm) if (nm and token) else False),
+        "approver": _APPROVER,                    # 核准管理員帳號（前端顯示「向 X 索取驗證碼」）
     }
+
+
+# ── 交易核准：白名單帳號請求 → 推 6 位碼給管理員(qwer) → 輸碼換 token ──────────
+class ApproveReq(BaseModel):
+    name: str
+
+
+class ApproveVerifyReq(BaseModel):
+    name: str
+    cid: str
+    code: str
+
+
+@router.post("/approve_request")
+def approve_request(req: ApproveReq, request: Request):
+    """白名單帳號請求交易核准：伺服器產 6 位碼、Web Push 推給管理員(qwer)。回 cid（不回碼）。"""
+    name = _acct._norm_name(req.name)
+    if not name:
+        raise HTTPException(400, "請先登入帳號")
+    if not _allowed(name):
+        raise HTTPException(403, "此帳號未獲准使用交易功能（請管理員加入白名單）")
+    code = f"{secrets.randbelow(1000000):06d}"
+    cid = secrets.token_urlsafe(16)
+    ip = _req_ip(request)
+    now = time.time()
+    with _otp_lock:
+        for k in [k for k, v in _otp_store.items() if now - v["ts"] > _OTP_TTL]:   # 清過期
+            _otp_store.pop(k, None)
+        _otp_store[cid] = {"name": name, "code": code, "ip": ip, "ts": now, "tries": 0}
+    pushed = 0
+    try:
+        from routes import notify as _notify
+        pushed = _notify.push_to_account(_APPROVER, {
+            "title": "🔐 交易核准請求",
+            "body": f"「{name}」要在新裝置使用交易（IP {ip}）\n驗證碼：{code}（{_OTP_TTL // 60} 分鐘內有效）",
+            "tag": "trade-approve",
+        })
+    except Exception as e:
+        print(f"  ⚠ 交易核准推播失敗：{e}")
+    return {"ok": True, "cid": cid, "expires_in": _OTP_TTL, "pushed": pushed}
+
+
+@router.post("/approve_verify")
+def approve_verify(req: ApproveVerifyReq):
+    """輸入管理員給的 6 位碼 → 驗證通過發交易 token（記住此裝置 14 天）。
+    管理員 bootstrap：owner 帳號可用 TRADE_ACCESS_KEY 當碼直接換 token（首台裝置尚無推播時）。"""
+    name = _acct._norm_name(req.name)
+    code = (req.code or "").strip()
+    if not name:
+        raise HTTPException(400, "請先登入帳號")
+    # owner 用 TRADE_ACCESS_KEY 直接換（避免管理員自己還沒訂閱推播時被鎖在外）
+    if _ACCESS_KEY and _OWNER and name == _acct._norm_name(_OWNER) \
+            and secrets.compare_digest(code, _ACCESS_KEY):
+        return {"ok": True, "token": _new_trade_session(name)}
+    with _otp_lock:
+        ch = _otp_store.get(req.cid)
+        if not ch or ch["name"] != name:
+            raise HTTPException(400, "核准請求無效，請重新請求")
+        if time.time() - ch["ts"] > _OTP_TTL:
+            _otp_store.pop(req.cid, None)
+            raise HTTPException(400, "驗證碼已過期，請重新請求")
+        if ch["tries"] >= _OTP_MAX_TRY:
+            _otp_store.pop(req.cid, None)
+            raise HTTPException(429, "嘗試次數過多，請重新請求")
+        if not secrets.compare_digest(code, ch["code"]):
+            ch["tries"] += 1
+            raise HTTPException(403, "驗證碼錯誤")
+        _otp_store.pop(req.cid, None)          # 一次性：用過即失效
+    return {"ok": True, "token": _new_trade_session(name)}
 
 
 # ── 綁定 Binance 金鑰（每帳號各自）──────────────────────────────
 class BindReq(BaseModel):
     name: str
+    token: Optional[str] = None
     api_key: str
     api_secret: str
     env: str = "testnet"
@@ -1954,6 +2124,7 @@ class BindReq(BaseModel):
 
 class CredReq(BaseModel):
     name: str
+    token: Optional[str] = None
 
 
 @router.post("/bind")
@@ -1962,6 +2133,7 @@ def bind_keys(req: BindReq):
     name = _acct._norm_name(req.name)
     if not name:
         raise HTTPException(400, "請先登入帳號")
+    _require_trade_session(name, req.token)
     if not _allowed(name):
         raise HTTPException(403, "此帳號未獲准使用交易功能（請管理員加入白名單）")
     ak = (req.api_key or "").strip()
@@ -1997,6 +2169,7 @@ def unbind_keys(req: CredReq):
     name = _acct._norm_name(req.name)
     if not name:
         raise HTTPException(400, "缺少帳號")
+    _require_trade_session(name, req.token)
     _ensure_db()
     conn, ph = _acct._db()
     try:
@@ -2014,6 +2187,7 @@ def save_key(req: SaveKeyReq):
     name = _acct._norm_name(req.name)
     if not name:
         raise HTTPException(400, "缺少帳號")
+    _require_trade_session(name, req.token)
     _ensure_db()
     conn, ph = _acct._db()
     try:
@@ -2033,6 +2207,7 @@ def my_key(req: MyKeyReq):
     name = _acct._norm_name(req.name)
     if not name:
         return {"tkey": ""}
+    _require_trade_session(name, req.token)
     _ensure_db()
     conn, ph = _acct._db()
     try:
@@ -2045,7 +2220,7 @@ def my_key(req: MyKeyReq):
 
 @router.post("/overview")
 def overview(req: KeyReq):
-    client = _guard(req.key, req.name)
+    client = _guard(req.key, req.name, req.token)
     try:
         # ⚠ 不在此放 algo_orders()：/overview 每 2 秒刷新持倉，是看倉的命脈；algo GET 端點未確定，
         # 一旦變慢/出錯會拖垮整個持倉頁(曾卡死)。核對止損止盈改走手動的 /verify_sltp。
@@ -2080,7 +2255,7 @@ def overview(req: KeyReq):
 def verify_sltp(req: KeyReq):
     """核對未平自動倉：紀錄(通知)的止損/止盈 vs 交易所『實際掛單觸發價』（皆換算圖表價比較）。
     sl_diff_pct/tp_diff_pct >0.15 → 通知與實際掛單不一致；has_algo=false → 交易所查不到該倉止損/止盈單(危險)。"""
-    client = _guard(req.key, req.name)
+    client = _guard(req.key, req.name, req.token)
     name = _acct._norm_name(req.name or "")
     try:
         algos = client.algo_orders()
@@ -2128,7 +2303,7 @@ def verify_sltp(req: KeyReq):
 
 @router.post("/order")
 def order(req: OrderReq):
-    client = _guard(req.key, req.name)
+    client = _guard(req.key, req.name, req.token)
     want = "long" if req.side == "long" else "short"
     try:
         bsym, scale = client.resolve_symbol(req.symbol)
@@ -2207,7 +2382,7 @@ def order(req: OrderReq):
 
 @router.post("/close")
 def close(req: CloseReq):
-    client = _guard(req.key, req.name)
+    client = _guard(req.key, req.name, req.token)
     try:
         _bs = req.bsym.upper()
         if _is_hedge(client):                  # hedge：把該合約多、空兩側都平
@@ -2226,7 +2401,7 @@ def close(req: CloseReq):
 
 @router.post("/cancel")
 def cancel(req: CancelReq):
-    client = _guard(req.key, req.name)
+    client = _guard(req.key, req.name, req.token)
     try:
         client.cancel_order(req.bsym.upper(), req.orderId)
         return {"ok": True}
@@ -2239,7 +2414,7 @@ def posmode(req: PosModeReq):
     """切換此帳號 Binance 持倉模式：單向 / 雙向(hedge)。雙向＝同幣可同時多空各一倉(FVG 雙槽需要)。
     ⚠ 帳號級設定、影響該帳號所有交易；有持倉/掛單時 Binance 拒切 → 回友善訊息。
     GET 對應在 /status 回傳目前模式（前端顯示用）。"""
-    client = _guard(req.key, req.name)
+    client = _guard(req.key, req.name, req.token)
     try:
         cur = client.get_position_mode()
         if cur == bool(req.hedge):
@@ -2294,7 +2469,7 @@ def _sweep_orphan_algo(client) -> dict:
 
 @router.post("/auto")
 def set_auto(req: AutoReq):
-    client = _guard(req.key, req.name)
+    client = _guard(req.key, req.name, req.token)
     name = _acct._norm_name(req.name or "")
     prev = get_auto_cfg(name, fresh=True)             # 此帳號存檔前的設定 → 判斷是否『剛從關→開』
     cfg = _clean_auto(req.cfg)
@@ -2321,7 +2496,7 @@ def set_auto(req: AutoReq):
 
 @router.post("/history")
 def history(req: KeyReq):
-    client = _guard(req.key, req.name)
+    client = _guard(req.key, req.name, req.token)
     name = _acct._norm_name(req.name or "")
     _ensure_db()
     conn, ph = _acct._db()
@@ -2349,7 +2524,7 @@ def history(req: KeyReq):
 def pnl_daily(req: KeyReq):
     """每日已實現盈虧（交易損益月曆用）：近 ~75 天的 已實現損益+手續費+資金費，按台北日期加總。
     回 {days: {'YYYY-MM-DD': pnl, ...}}（已是台北日期）。"""
-    client = _guard(req.key, req.name)
+    client = _guard(req.key, req.name, req.token)
     import time as _t
     from datetime import datetime as _dt, timedelta as _td
     end = int(_t.time() * 1000)
