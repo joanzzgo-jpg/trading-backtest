@@ -1998,9 +1998,15 @@ function drawOne(d, W, H, isHovered, isSelected) {
     drawCtx.shadowBlur = 0;
     const sz = _emojiSize(d);   // 隨 K 棒縮放,已限幅(放大上限 _EMOJI_MAX_ZOOM)
     drawCtx.font = `${sz}px sans-serif`;
-    drawCtx.textAlign = "center"; drawCtx.textBaseline = "middle";
-    drawCtx.fillText(d.text || "❓", p.x, p.y);
-    drawCtx.textAlign = "start"; drawCtx.textBaseline = "alphabetic";
+    drawCtx.textAlign = "center";
+    // ⚠ textBaseline="middle" 對 emoji 字形不是真的置中,偏差還會隨字級放大而變大 → 放大時 emoji 往上位移
+    //   ＝「位置跑掉」。改用實際字形邊界(measureText)把「視覺中心」對準錨點,與字級無關、放大縮小都不位移。
+    drawCtx.textBaseline = "alphabetic";
+    const _em = drawCtx.measureText(d.text || "❓");
+    const _asc = _em.actualBoundingBoxAscent || sz * 0.75;
+    const _desc = _em.actualBoundingBoxDescent || sz * 0.1;
+    drawCtx.fillText(d.text || "❓", p.x, p.y + (_asc - _desc) / 2);   // 邊界中心 = 錨點 p.y
+    drawCtx.textAlign = "start";
     if (isSelected) {   // 選中框 + 右下角縮放把手
       drawCtx.strokeStyle = "#2962ff"; drawCtx.lineWidth = 1; drawCtx.setLineDash([3,2]);
       drawCtx.strokeRect(p.x - sz/2 - 3, p.y - sz/2 - 3, sz + 6, sz + 6);
