@@ -1,5 +1,5 @@
-// 桌面版「更新公告」彈窗：進到圖表後彈一次，條列近期更新；按「不再顯示」→ 該裝置永久關閉。
-//   - 手機版不顯示（isMobileUI）：公告是給電腦板看的。
+// 「更新公告」彈窗：進到圖表後彈一次，條列近期更新；按「不再顯示」→ 該裝置永久關閉。
+//   - 桌面與手機都會顯示（卡片 width:min(470px,93vw) 響應式、清單可捲動，手機不爆版）。
 //   - 封面/城門頁顯示中先不跳（避免與封面重疊）。
 //
 // ── 發布流程（重要）──────────────────────────────────────────────
@@ -9,7 +9,7 @@
 //         ③ 把 PUB_ID 換成新值 → 所有裝置版本不符 → 全部重跳，且只看到「今天」這批更新。
 //   （PUB_ID 是內部版本鍵、只管「要不要重跳」；PUB_DATE 同時是卡片顯示日期＋「當日」過濾鍵。）
 (function () {
-  const PUB_ID   = "2026-07-09-1";     // ⚠ 只有「發公告」時才 bump（換任意新字串即可）→ 觸發全裝置重跳
+  const PUB_ID   = "2026-07-09-2";     // ⚠ 只有「發公告」時才 bump（換任意新字串即可）→ 觸發全裝置重跳
   const PUB_DATE = "2026-07-09";       // 卡片右上顯示的日期
   const KEY = "announceSeenVer";
   // 累積更新（依日期）：[日期 YYYY-MM-DD, emoji, 標題, 說明]
@@ -137,7 +137,6 @@
 
   function _maybeShow(tries) {
     if (_seen()) return;
-    if (typeof isMobileUI === "function" && isMobileUI()) return;                         // 手機版不顯示
     if (document.documentElement.classList.contains("landing-active")) {                 // 封面中 → 等進圖表再跳
       if (tries > 0) setTimeout(() => _maybeShow(tries - 1), 1000);
       return;
