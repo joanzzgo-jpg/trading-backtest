@@ -224,6 +224,16 @@ function _initLandingLock() {
   btn.addEventListener("click", e => { e.stopPropagation(); doUnlock(); });
   inp.addEventListener("click", e => e.stopPropagation());
   inp.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); doUnlock(); } });
+
+  // 訪客登入：不綁帳號、純本機模式進場（不同步雲端、通知/自動交易仍需登入帳號）。
+  // landingDismissedAt 存 sessionStorage → 本次瀏覽略過封面，重開瀏覽器仍會回封面可再選登入。
+  const guest = document.getElementById("landingGuestBtn");
+  if (guest) guest.addEventListener("click", e => {
+    e.stopPropagation();
+    _acctSaveSession(null);           // 確保非帳號態（清掉任何殘留 session）
+    _acctRenderSys();
+    if (typeof window._landingEnter === "function") window._landingEnter();
+  });
 }
 
 async function initAccount() {
