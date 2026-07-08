@@ -692,9 +692,11 @@ def _push_owner(owner, title, body, symbol, tf="", event="atrade", sig=None, d=N
             "data": {"symbol": symbol, "market": "crypto", "exchange": "pionex", "tf": tf},
         }
         on = _acct._norm_name(owner)
-        for s in notify.all_active_subs():
-            if _acct._norm_name(s.get("name")) == on:
-                notify.send_push(s, payload)
+        push_ok = notify.account_prefs(on).get("atNotify", True)   # 「自動交易通知」獨立開關（關→只停推播，仍寫訊號中心）
+        if push_ok:
+            for s in notify.all_active_subs():
+                if _acct._norm_name(s.get("name")) == on:
+                    notify.send_push(s, payload)
         notify.log_signal(owner, time.time(), event, title, body, symbol, "crypto", "pionex", tf,
                           sig=sig, d=d, sigt=sigt)
     except Exception as e:

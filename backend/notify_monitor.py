@@ -547,9 +547,13 @@ def _coach_scan_push():
             payload = {"title": title, "body": body, "tag": f"coach-{sym}-{ver}",
                        "data": {"symbol": sym, "market": "crypto", "exchange": "pionex", "tf": tf_lbl, "kind": "coach"}}
             for name, slist in by_name.items():
-                for s in slist:
-                    try: notify.send_push(s, payload)
-                    except Exception: pass
+                # 「教練通知」獨立開關（關→只停該帳號推播，仍寫訊號中心）
+                try: coach_ok = notify.account_prefs(name).get("coachNotify", True)
+                except Exception: coach_ok = True
+                if coach_ok:
+                    for s in slist:
+                        try: notify.send_push(s, payload)
+                        except Exception: pass
                 try: notify.log_signal(name, time.time(), "coach", title, body, sym, "crypto", "pionex", tf_lbl)
                 except Exception: pass
 

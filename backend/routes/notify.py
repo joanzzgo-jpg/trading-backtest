@@ -195,9 +195,13 @@ def _clean_prefs(p: Optional[dict]) -> dict:
     raw_tfs  = p.get("tfs")
     sigs = list(DEFAULT_SIGS) if raw_sigs is None else [s for s in raw_sigs if s in _ALL_SIGS]
     tfs  = list(DEFAULT_TFS)  if raw_tfs  is None else [t for t in raw_tfs  if t in _ALL_TFS]
-    # sigNotify：訊號通知總開關（預設開）。關掉只停『訊號』推播，不影響『自動交易』結果通知(走 _push_owner)。
+    # 各類別通知獨立開關（預設皆開）：
+    #   sigNotify=訊號(CRT/SS entry)、atNotify=自動交易(開/平/狀態)、coachNotify=教練(前60 setup)。
+    #   關某一類只停該類推播，不影響其他類；交易核准碼(推給管理員)不受這些開關限制。
     return {"enabled": bool(p.get("enabled", True)), "sigs": sigs, "tfs": tfs,
-            "sigNotify": bool(p.get("sigNotify", True))}
+            "sigNotify":   bool(p.get("sigNotify", True)),
+            "atNotify":    bool(p.get("atNotify", True)),
+            "coachNotify": bool(p.get("coachNotify", True))}
 
 
 # ── request models ────────────────────────────────────────────

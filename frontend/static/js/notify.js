@@ -105,7 +105,10 @@ async function _ntfDisable() {
 // （以前純靠快照同步 → 後端讀到舊偏好 → 收到沒設定的策略）。
 let _ntfPrefsPushTimer = null;
 function _ntfSavePrefs() {
-  const _p = { tfs: _NTF.prefs.tfs, sigs: _NTF.prefs.sigs, sigNotify: _NTF.prefs.sigNotify !== false };
+  const _p = { tfs: _NTF.prefs.tfs, sigs: _NTF.prefs.sigs,
+               sigNotify: _NTF.prefs.sigNotify !== false,
+               atNotify: _NTF.prefs.atNotify !== false,        // 自動交易通知
+               coachNotify: _NTF.prefs.coachNotify !== false }; // 教練通知
   try { localStorage.setItem("notifyPrefs", JSON.stringify(_p)); } catch (e) {}
   if (!window._acctName) return;
   clearTimeout(_ntfPrefsPushTimer);
@@ -150,6 +153,13 @@ function _ntfRender() {
   if (sigBtn) { sigBtn.textContent = sigOn ? "🔔 訊號通知：開" : "🔕 訊號通知：關"; sigBtn.classList.toggle("off", !sigOn); }
   const sigWrap = pop.querySelector(".ntf-sigwrap");
   if (sigWrap) sigWrap.classList.toggle("dim", !sigOn);
+  // 自動交易 / 教練 通知獨立開關
+  const atOn = p.atNotify !== false;
+  const atBtn = pop.querySelector(".ntf-atnotify");
+  if (atBtn) { atBtn.textContent = atOn ? "🔔 自動交易通知：開" : "🔕 自動交易通知：關"; atBtn.classList.toggle("off", !atOn); }
+  const coachOn = p.coachNotify !== false;
+  const coachBtn = pop.querySelector(".ntf-coachnotify");
+  if (coachBtn) { coachBtn.textContent = coachOn ? "🔔 教練通知：開" : "🔕 教練通知：關"; coachBtn.classList.toggle("off", !coachOn); }
 }
 
 function _ntfBuildPopup() {
@@ -160,9 +170,11 @@ function _ntfBuildPopup() {
     #notifyPopup .ntf-toggle { width:100%; padding:8px; margin:4px 0 8px; border-radius:8px; border:1px solid var(--border,#445);
       background:transparent; color:var(--text,#ddd); cursor:pointer; font-size:13px; }
     #notifyPopup .ntf-toggle.ntf-on { background:var(--blue,#4a90d9); color:#fff; border-color:transparent; }
-    #notifyPopup .ntf-signotify { width:100%; padding:8px; margin:2px 0 3px; border-radius:8px; border:1px solid transparent;
+    #notifyPopup .ntf-signotify, #notifyPopup .ntf-atnotify, #notifyPopup .ntf-coachnotify {
+      width:100%; padding:8px; margin:2px 0 3px; border-radius:8px; border:1px solid transparent;
       background:var(--blue,#4a90d9); color:#fff; cursor:pointer; font-size:13px; font-weight:700; }
-    #notifyPopup .ntf-signotify.off { background:transparent; color:var(--muted,#99a); border-color:var(--border,#445); }
+    #notifyPopup .ntf-signotify.off, #notifyPopup .ntf-atnotify.off, #notifyPopup .ntf-coachnotify.off {
+      background:transparent; color:var(--muted,#99a); border-color:var(--border,#445); }
     #notifyPopup .ntf-signotify-hint { font-size:10.5px; color:var(--muted,#889); margin:0 0 9px; line-height:1.45; }
     #notifyPopup .ntf-sigwrap.dim { opacity:.4; pointer-events:none; }
     #notifyPopup .ntf-sub { font-size:11px; color:var(--muted,#889); margin:6px 0 3px; }
@@ -195,13 +207,15 @@ function _ntfBuildPopup() {
     <button class="ntf-toggle">啟用通知</button>
     <div class="ntf-body">
       <button class="ntf-signotify">🔔 訊號通知：開</button>
-      <div class="ntf-signotify-hint">關掉只停「訊號」推播；「自動交易」平倉結果通知不受影響</div>
+      <div class="ntf-signotify-hint">各類通知獨立開關；關掉只停該類推播，不影響其他類</div>
       <div class="ntf-sigwrap">
         <div class="ntf-sub">監控時框</div>
         <div class="ntf-chips ntf-tf-grid">${tfChips}</div>
         <div class="ntf-sub">通知訊號</div>
         <div class="ntf-chips ntf-sig-grid">${sigChips}</div>
       </div>
+      <button class="ntf-atnotify">🔔 自動交易通知：開</button>
+      <button class="ntf-coachnotify">🔔 教練通知：開</button>
       <button class="ntf-test">發送測試通知</button>
     </div>
     <div class="ntf-msg"></div>`;
@@ -216,6 +230,20 @@ function _ntfBuildPopup() {
     e.stopPropagation();
     _NTF.prefs = _NTF.prefs || _ntfLoadPrefs();
     _NTF.prefs.sigNotify = (_NTF.prefs.sigNotify === false);   // 切換：off→on / on→off
+    _ntfSavePrefs();
+    _ntfRender();
+  });
+  pop.querySelector(".ntf-atnotify").addEventListener("click", e => {
+    e.stopPropagation();
+    _NTF.prefs = _NTF.prefs || _ntfLoadPrefs();
+    _NTF.prefs.atNotify = (_NTF.prefs.atNotify === false);     // 自動交易通知切換
+    _ntfSavePrefs();
+    _ntfRender();
+  });
+  pop.querySelector(".ntf-coachnotify").addEventListener("click", e => {
+    e.stopPropagation();
+    _NTF.prefs = _NTF.prefs || _ntfLoadPrefs();
+    _NTF.prefs.coachNotify = (_NTF.prefs.coachNotify === false); // 教練通知切換
     _ntfSavePrefs();
     _ntfRender();
   });
