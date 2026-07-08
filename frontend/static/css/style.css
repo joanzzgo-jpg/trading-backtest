@@ -6869,18 +6869,28 @@ html.perf-mode .acct-btn-ghost { background: #F5F5F5; color: #1F1F1F; border-col
   min-height: 13px; text-shadow: 0 1px 2px rgba(255,255,255,.6);
 }
 .landing-acct-msg.acct-err { color: #d84315; }
-/* 訪客登入：鎖身下方低調文字連結（不搶解鎖主鈕；進場走本機模式、不同步雲端）*/
+/* 訪客登入：城堡木門調性的「副按鈕」——半透明羊皮紙木牌 + 虛線描邊（呼應輸入框、
+   刻意比實心的『解鎖』主鈕低一階），小側門圖示暗示「先進去逛逛」。進場走本機模式、不同步雲端。*/
 .landing-acct-guest {
-  align-self: center; margin-top: 1px; padding: 2px 8px; cursor: pointer;
-  background: transparent; border: none; border-radius: 6px;
+  align-self: center; margin-top: 3px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 4px 12px; border-radius: 8px;
+  /* 淡羊皮紙填色 + 褐色虛線描邊（與 .landing-acct-input 的 dashed 同語彙 → 讀作「次要選項」）*/
+  background: linear-gradient(135deg, rgba(243,233,208,.20), rgba(214,182,127,.12));
+  border: 1.6px dashed rgba(94,67,38,.72);
   font-family: "M PLUS Rounded 1c", system-ui, sans-serif;
-  font-size: 11px; font-weight: 700; letter-spacing: .04em;
-  color: #F3E9D0; text-shadow: 0 1px 2px rgba(70,45,15,.7);
-  text-decoration: underline; text-decoration-color: rgba(243,233,208,.5);
-  text-underline-offset: 2px; opacity: .9;
+  font-size: 12px; font-weight: 800; letter-spacing: .06em;
+  color: #F5ECD6; text-shadow: 0 1px 2px rgba(70,45,15,.75);
+  box-shadow: inset 0 1px 1px rgba(255,240,210,.18);
+  transition: background .16s, border-color .16s, transform .08s;
 }
-.landing-acct-guest:hover { opacity: 1; color: #FFF6E6; }
-.landing-acct-guest:active { transform: translateY(1px); }
+.landing-acct-guest .guest-ico { width: 15px; height: 15px; flex: 0 0 auto; opacity: .95; }
+.landing-acct-guest small { font-size: 10px; font-weight: 700; opacity: .8; letter-spacing: 0; }
+.landing-acct-guest:hover {
+  background: linear-gradient(135deg, rgba(243,233,208,.34), rgba(214,182,127,.22));
+  border-color: rgba(94,67,38,.95); color: #FFF6E6;
+}
+.landing-acct-guest:active { transform: translateY(1px); box-shadow: inset 0 1px 2px rgba(70,40,15,.3); }
 
 /* 點門後：大門放大並上移到畫面中央（鎖疊在放大的門上、明顯比門小）*/
 .landing.landing-locking .landing-stage {

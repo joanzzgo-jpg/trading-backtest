@@ -114,7 +114,18 @@
         <span>解鎖</span>
       </button>
       <div class="landing-acct-msg" id="landingAcctMsg"></div>
-      <button id="landingGuestBtn" class="landing-acct-guest" type="button">訪客登入 · 先逛逛</button>
+      <button id="landingGuestBtn" class="landing-acct-guest" type="button">
+        <svg class="guest-ico" viewBox="0 0 24 24" aria-hidden="true">
+          <g fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+            <!-- 半掩的側門 + 往內走的箭頭：「先進去逛逛」 -->
+            <path d="M6.5 3.5 H14.5 a1 1 0 0 1 1 1 V20.5 H6.5 Z"/>
+            <path d="M10 12 h6.5 M13.6 9.2 L16.8 12 L13.6 14.8"/>
+            <circle cx="8.4" cy="12" r=".9" fill="currentColor" stroke="none"/>
+          </g>
+        </svg>
+        <span>訪客登入</span>
+        <small>先逛逛</small>
+      </button>
     </div>
   </div>
   <div class="landing-flash" aria-hidden="true"></div>
