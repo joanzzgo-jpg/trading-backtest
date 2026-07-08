@@ -1724,6 +1724,9 @@ function renderDrawings() {
   drawings.filter(d => d.id === hoveredId && d.id !== selectedId).forEach(d => _safeDraw(d, true, false));
   drawings.filter(d => d.id === selectedId).forEach(d => _safeDraw(d, false, true));
 
+  // emoji 字形由 primitive 畫 → drawings 變動(建立/刪除/拖曳/縮放/選取)後通知它同步重畫
+  if (typeof _emojiPrimUpdate === "function") _emojiPrimUpdate();
+
   // （策略棒止損線改由 realtime.js onMainCrosshair 用 LWC 原生 price line 畫，不再走 overlay）
 
   // Compute snapped cursor position when magnet is active
@@ -1993,10 +1996,15 @@ function drawOne(d, W, H, isHovered, isSelected) {
     if (!p) { drawCtx.restore(); return; }
     drawCtx.shadowBlur = 0;
     const sz = _emojiSize(d);
-    drawCtx.font = `${sz}px sans-serif`;
-    drawCtx.textAlign = "center"; drawCtx.textBaseline = "middle";
-    drawCtx.fillText(d.text || "❓", p.x, p.y);
-    drawCtx.textAlign = "start"; drawCtx.textBaseline = "alphabetic";
+    // 字形平時由 charts.js 的 emoji primitive 畫(與 K 棒同步不游移)；只有「正在拖曳/縮放此 emoji」時
+    // 由疊加層即時畫(primitive 會略過它)，避免拖曳慢一幀。
+    const _dragging = (typeof dragState !== "undefined" && dragState && dragState.id === d.id);
+    if (_dragging) {
+      drawCtx.font = `${sz}px sans-serif`;
+      drawCtx.textAlign = "center"; drawCtx.textBaseline = "middle";
+      drawCtx.fillText(d.text || "❓", p.x, p.y);
+      drawCtx.textAlign = "start"; drawCtx.textBaseline = "alphabetic";
+    }
     if (isSelected) {   // 選中框 + 右下角縮放把手
       drawCtx.strokeStyle = "#2962ff"; drawCtx.lineWidth = 1; drawCtx.setLineDash([3,2]);
       drawCtx.strokeRect(p.x - sz/2 - 3, p.y - sz/2 - 3, sz + 6, sz + 6);
