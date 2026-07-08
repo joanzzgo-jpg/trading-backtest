@@ -147,12 +147,26 @@ function _endpointHit(d, x, y, thresh = 10) {
   return null;
 }
 
+/* 目前主圖每根 K 棒的像素寬（barSpacing）；縮放時會變 */
+function _emojiBarSp() {
+  try { const b = mainChart.timeScale().options().barSpacing; return (b && isFinite(b) && b > 0) ? b : null; }
+  catch (e) { return null; }
+}
+/* emoji 貼圖的實際顯示邊長：儲存尺寸 × (目前縮放 / 建立時縮放) → 隨 K 棒大小變 */
+function _emojiSize(d) {
+  const base = d.size || 24;
+  const cur = _emojiBarSp();
+  if (cur == null) return base;
+  if (!d.barRef || !isFinite(d.barRef) || d.barRef <= 0) { d.barRef = cur; return base; }   // 首次錨定當下縮放
+  return Math.max(4, base * (cur / d.barRef));
+}
+
 /* 對 longpos/shortpos 判斷拖移的是哪一條線 */
 function _drawingHitPart(d, x, y) {
   if (d.type === "emoji") {   // 右下角縮放把手優先
     const p = chartToScreen(d.time, d.price);
     if (p) {
-      const sz = d.size || 24;
+      const sz = _emojiSize(d);
       if (Math.hypot((p.x + sz / 2 + 3) - x, (p.y + sz / 2 + 3) - y) <= 10) return "size";
     }
     return "move";
@@ -575,7 +589,7 @@ function _onChartClick(e) {
   if (drawTool === "emoji") {
     _showEmojiPicker(e.clientX, e.clientY, em => {
       if (em) {
-        drawings.push({ id:_did(), type:"emoji", time:pt.time, price:pt.price, text:em, size:28 });
+        drawings.push({ id:_did(), type:"emoji", time:pt.time, price:pt.price, text:em, size:28, barRef:_emojiBarSp() });
         saveDrawings();
       }
       _returnToPointer();
@@ -730,7 +744,7 @@ function _updateDrag(x, y) {
   } else if (d.type === "emoji" && dragState.part === "size") {
     // 拖右下角把手縮放：中心到游標的最大軸距 ×2 ＝ emoji 邊長（12~300）
     const p = chartToScreen(d.time, d.price);
-    if (p) { const s = Math.max(Math.abs(x - p.x), Math.abs(y - p.y)) * 2; d.size = Math.max(12, Math.min(300, Math.round(s))); }
+    if (p) { const s = Math.max(Math.abs(x - p.x), Math.abs(y - p.y)) * 2; d.size = Math.max(12, Math.min(300, Math.round(s))); d.barRef = _emojiBarSp() || d.barRef; }   // 縮放把手拖動後重新錨定當下縮放
   } else if (d.type === "text" || d.type === "emoji") {
     const op = chartToScreen(orig.time, orig.price);
     if (op) { const np = screenToChart(op.x + dx, op.y + dy); if (np) { d.time = np.time; d.price = np.price; } }
@@ -888,7 +902,7 @@ function drawingDist(d, x, y) {
     const p = chartToScreen(d.time, d.price);
     if (!p) return Infinity;
     if (d.type === "emoji") {   // 依 emoji 方框判定,放大後整塊都點得到
-      const h = (d.size || 24) / 2;
+      const h = _emojiSize(d) / 2;
       return Math.hypot(Math.max(Math.abs(x - p.x) - h, 0), Math.max(Math.abs(y - p.y) - h, 0));
     }
     return Math.hypot(p.x - x, p.y - y);
@@ -1701,6 +1715,8 @@ function renderDrawings() {
   // VWAP 成交量加權均價（黃折線；獨立開關 _vwapOn）
   _drawVWAP(W, H);
 
+  // （策略方向標記 多/空·破多空·順多空 已改為 charts.js 的 series primitive，與 K 棒同步繪製、不再走 overlay → 縮放不游移）
+
   // Draw non-selected first, then hovered, then selected on top
   // 單一繪圖 render 丟例外時只跳過它、不拖垮整塊 overlay(catch 內補 restore 平衡 save 堆疊)。
   const _safeDraw = (d, hov, sel) => { try { drawOne(d, W, H, hov, sel); } catch (e) { try { drawCtx.restore(); } catch (_) {} } };
@@ -1976,7 +1992,7 @@ function drawOne(d, W, H, isHovered, isSelected) {
     const p = chartToScreen(d.time, d.price);
     if (!p) { drawCtx.restore(); return; }
     drawCtx.shadowBlur = 0;
-    const sz = d.size || 24;
+    const sz = _emojiSize(d);
     drawCtx.font = `${sz}px sans-serif`;
     drawCtx.textAlign = "center"; drawCtx.textBaseline = "middle";
     drawCtx.fillText(d.text || "❓", p.x, p.y);

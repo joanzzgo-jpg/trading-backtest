@@ -54,12 +54,16 @@ function createCandleSeries() {
     candleSeries.attachPrimitive(_fvgPrimitive);
     _fvgTLPrim = _makeFVGTradeLinePrimitive();       // FVG 逐筆止損/止盈價位線
     candleSeries.attachPrimitive(_fvgTLPrim);
+    // 策略方向標記(多/空·破多空·順多空)：改用 primitive → 與 K 棒同一次繪製、縮放時不游移(不抖)、又能隨 barSpacing 縮放
+    _stratMarkersPrim = _makeStratMarkersPrimitive();
+    candleSeries.attachPrimitive(_stratMarkersPrim);
   } catch (e) { /* 舊版 LWC 無 attachPrimitive 時靜默略過 */ }
 }
 
 /* ── FVG 失衡缺口：在主圖蠟燭上畫半透明色塊（青=多頭/支撐、紅=空頭/壓力）── */
 let _fvgZones = [];        // [{t1, t2|null, top, bot, d}]（已轉成圖表時間）
 let _fvgPrimitive = null;
+let _stratMarkersPrim = null;   // 策略方向標記 primitive（多/空·破多空·順多空，隨 K 棒縮放、同步不抖）
 let _fvgShow = true;
 let _fvgLevelsShow = true;   // FVG 交易位階線主開關（預設開＝允許顯示，但只畫「被點選」那個缺口）
 let _fvgSelected = null;     // 目前點選的缺口（只有它畫止損/止盈線；null＝全部隱藏）
@@ -208,6 +212,108 @@ function toggleFVG(on) {
   if (_fvgPrimitive) _fvgPrimitive.requestUpdate();
   return _fvgShow;
 }
+
+// ── 策略方向標記 primitive（多/空·破多空·順多空）──
+//   資料源＝全域 lastFVGBreakMarkers/lastFVGMSMarkers/lastFVGShunMarkers（{time,position,color,text}）。
+//   在圖表自身繪製流程畫箭頭+文字，縮放時與 K 棒同步(不像 overlay 慢一幀游移)，尺寸依 barSpacing 連續縮放。
+//   開關(_fvgBreakHidden/_fvgMSHidden/_fvgShunHidden)、大棒淡化(_dimBigBarOn/_dimHex)、上下定位(該棒 high/low)、同棒同側堆疊。
+function _makeStratMarkersPrimitive() {
+  let _chart = null, _series = null, _req = null;
+  const _visSlice = (arr, lo, hi) => {   // arr 依 time 升序 → 二分找可見區段
+    let a = 0, b = arr.length;
+    while (a < b) { const m = (a + b) >> 1; arr[m].time < lo ? a = m + 1 : b = m; }
+    const start = a; b = arr.length;
+    while (a < b) { const m = (a + b) >> 1; arr[m].time <= hi ? a = m + 1 : b = m; }
+    return [start, a];
+  };
+  const renderer = {
+    draw(target) {
+      if (!_chart || !_series || typeof ohlcvData === "undefined" || !ohlcvData.length) return;
+      if (typeof _secToIdx === "undefined" || _secToIdx.size === 0) return;
+      const groups = [];   // 依原生合併順序(破→多空→順)決定同棒堆疊先後
+      if (!window._fvgBreakHidden && typeof lastFVGBreakMarkers !== "undefined") groups.push(lastFVGBreakMarkers);
+      if (!window._fvgMSHidden    && typeof lastFVGMSMarkers    !== "undefined") groups.push(lastFVGMSMarkers);
+      if (!window._fvgShunHidden  && typeof lastFVGShunMarkers  !== "undefined") groups.push(lastFVGShunMarkers);
+      if (!groups.length) return;
+      const ts = _chart.timeScale();
+      const bs = ts.options().barSpacing;
+      if (!bs || !isFinite(bs) || bs <= 0) return;
+      const scale = Math.max(0.7, Math.min(6, bs / 8));   // 以 barSpacing≈8(常態)為 1x,限幅
+      let vrng = null; try { vrng = ts.getVisibleRange(); } catch (e) {}
+      const lo = vrng ? vrng.from : -Infinity, hi = vrng ? vrng.to : Infinity;
+      const dimOn = !!window._dimBigBarOn;
+      const n = ohlcvData.length;
+      target.useBitmapCoordinateSpace(scope => {
+        const ctx = scope.context;
+        const hr = scope.horizontalPixelRatio, vr = scope.verticalPixelRatio;
+        const arrowH = 9 * scale * vr, arrowW = 8 * scale * hr;
+        const fontPx = Math.max(8, 11 * scale) * vr;
+        const gap = 3 * scale * vr, pad = 2 * scale * vr;
+        const glyphH = arrowH + fontPx + gap + pad + 2 * vr;   // 單一標記縱向佔用(堆疊用)
+        const stepAbove = new Map(), stepBelow = new Map();
+        ctx.font = `bold ${Math.round(fontPx)}px sans-serif`;
+        ctx.textAlign = "center";
+        for (const arr of groups) {
+          if (!arr.length) continue;
+          const [s, e] = _visSlice(arr, lo, hi);
+          for (let i = s; i < e; i++) {
+            const m = arr[i];
+            const idx = _secToIdx.get(m.time);
+            if (idx == null || idx >= n) continue;
+            const bar = ohlcvData[idx];
+            if (!bar) continue;
+            const xc = ts.timeToCoordinate(m.time);
+            if (xc == null) continue;
+            const above = m.position === "aboveBar";
+            const yc = _series.priceToCoordinate(above ? bar.high : bar.low);
+            if (yc == null) continue;
+            let color = m.color;   // 大棒淡化(同原生 _dimBigRange 判定)
+            if (dimOn && idx >= 10) {
+              const range = bar.high - bar.low; let sum = 0;
+              for (let k = idx - 10; k < idx; k++) sum += (ohlcvData[k].high - ohlcvData[k].low);
+              if (range > (sum / 10) * 2 && typeof _dimHex === "function") color = _dimHex(color);
+            }
+            ctx.fillStyle = color;
+            const x = xc * hr, yBar = yc * vr;
+            if (above) {
+              const off = stepAbove.get(idx) || 0;
+              const tipY = yBar - gap - off;                 // 尖端朝下、貼近 high 上方
+              ctx.beginPath();
+              ctx.moveTo(x, tipY);
+              ctx.lineTo(x - arrowW / 2, tipY - arrowH);
+              ctx.lineTo(x + arrowW / 2, tipY - arrowH);
+              ctx.closePath(); ctx.fill();
+              ctx.textBaseline = "bottom";
+              ctx.fillText(m.text, Math.round(x), Math.round(tipY - arrowH - pad));
+              stepAbove.set(idx, off + glyphH);
+            } else {
+              const off = stepBelow.get(idx) || 0;
+              const tipY = yBar + gap + off;                 // 尖端朝上、貼近 low 下方
+              ctx.beginPath();
+              ctx.moveTo(x, tipY);
+              ctx.lineTo(x - arrowW / 2, tipY + arrowH);
+              ctx.lineTo(x + arrowW / 2, tipY + arrowH);
+              ctx.closePath(); ctx.fill();
+              ctx.textBaseline = "top";
+              ctx.fillText(m.text, Math.round(x), Math.round(tipY + arrowH + pad));
+              stepBelow.set(idx, off + glyphH);
+            }
+          }
+        }
+      });
+    },
+  };
+  const paneView = { renderer() { return renderer; }, zOrder() { return "top"; } };
+  return {
+    attached(p) { _chart = p.chart; _series = p.series; _req = p.requestUpdate; },
+    detached() { _chart = _series = _req = null; },
+    updateAllViews() {},
+    paneViews() { return [paneView]; },
+    requestUpdate() { if (_req) _req(); },
+  };
+}
+// 策略標記資料/開關/淡化變動時觸發重畫（由 render.js 的 _applyMainMarkers 呼叫）
+function _stratMarkersUpdate() { if (_stratMarkersPrim) _stratMarkersPrim.requestUpdate(); }
 // 交易位階線開關：window.toggleFVGLevels() 切換（止盈2W／止損g-1頂端）
 function toggleFVGLevels(on) {
   _fvgLevelsShow = (on === undefined) ? !_fvgLevelsShow : !!on;

@@ -310,6 +310,7 @@ let _wrSignalsHidden = (() => { try { return localStorage.getItem("wrSignalsHidd
 let _sortedMarkerCache = null;
 // 「大棒淡化」開關(window._dimBigBarOn)：標記所在 K 棒全長(high-low) > 前 10 根平均全長的 2 倍 → 淡化該棒策略標記。
 // 只套三組策略標記(多/空、破多空、順多空)。淡化＝把 hex 顏色轉成低透明度 rgba。
+// ⚠ 三組策略標記已改由 charts.js 的 _makeStratMarkersPrimitive 自畫，淡化判定也搬過去(共用 _dimHex)；下方 _dimBigRange 目前已無呼叫者(保留備參)。
 function _dimHex(color, a = 0.26) {
   if (typeof color !== "string" || color[0] !== "#") return color;
   let h = color;
@@ -340,15 +341,15 @@ function _applyMainMarkers(windowOnly) {
       ...((window._fvgBBHidden || window._fvgBBHideD) ? [] : lastFVGBBMarkers),
       ...((window._fvgBBHidden || window._fvgBBHideA) ? [] : lastFVGBBMarkersA),
       // M版(順多/順空/順平)已從主圖移除——不再合併進標記，console 也叫不出來
-      ...(window._fvgBreakHidden ? [] : _dimBigRange(lastFVGBreakMarkers)),   // 結構轉破:破多/破空
-      ...(window._fvgMSHidden ? [] : _dimBigRange(lastFVGMSMarkers)),          // 多/空
-      ...(window._fvgShunHidden ? [] : _dimBigRange(lastFVGShunMarkers)),      // 順多/順空
+      // 破多/破空·多/空·順多/順空 三組已改由 charts.js 的 _makeStratMarkersPrimitive 自畫(隨 K 棒縮放、與棒同步)→ 不再走原生 setMarkers
       ...(window._coachOn ? lastSMCSweepMarkers : []),           // SMC 掃頂/掃底(階段1:SR+SMC 教練疊加層,右上開關)
       ...(window._coachOn ? lastCoachBOSMarkers : []),           // 教練步驟5(BOS)達成點箭頭(右上開關)
     ].sort((a, b) => a.time - b.time);
   }
   candleSeries.setMarkers(_windowMarkers(_sortedMarkerCache));
   if (typeof window._rebuildStratSL === "function") window._rebuildStratSL();   // 策略棒→止損線映射(hover 用)
+  // 策略方向標記(多/空·破多空·順多空)改由 charts.js 的 series primitive 自畫 → 資料/開關/淡化任一變動都通知它重畫
+  if (typeof _stratMarkersUpdate === "function") _stratMarkersUpdate();
 }
 // 開關：window.toggleDimBigBar() 切換「大棒淡化」→ 重建標記快取(淡化在建快取時套用)
 window.toggleDimBigBar = function (on) {
