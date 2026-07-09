@@ -257,7 +257,9 @@ def _tw_rt_overlay_worker():
     from data.taiwan import fetch_tw_realtime_bulk
     from utils.live_data import overlay_tw, has_tw_data, get as live_get
     _rot = 0
+    _miss = 0                                             # 連續空回(疑似被 MIS 封)計數
     while True:
+        _nap = 3
         try:
             now_tpe = _dt.utcnow() + _td(hours=8)
             mod = now_tpe.hour * 60 + now_tpe.minute
@@ -278,9 +280,14 @@ def _tw_rt_overlay_worker():
                 pm = fetch_tw_realtime_bulk(batch)
                 if pm:
                     overlay_tw(pm)
+                    _miss = 0
+                elif batch:                               # 有打但全空 → 疑似被 MIS 限流封鎖
+                    _miss += 1
+                    if _miss >= 2:
+                        _nap = 60                         # 退避 60s 讓 MIS 解封(否則一直打→封鎖永不解，同 Pionex 教訓)
         except Exception:
             pass
-        time.sleep(3)
+        time.sleep(_nap)
 
 
 def _txf_collect_worker():
