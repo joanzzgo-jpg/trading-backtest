@@ -250,12 +250,13 @@ def _tw_ticker_worker():
 
 
 def _tw_rt_overlay_worker():
-    """背景執行緒：交易時段每 3 秒用 MIS bulk 疊『量最大前 120 檔』台股即時價 →
-    報價列熱門/高量股即時跳動(接近 crypto 體感)。只打 MIS(輕)、不重抓 opendata 全量
-    (全量清單仍由 _tw_ticker_worker 每 30 秒維護)。"""
+    """背景執行緒：交易時段每 3 秒用 MIS bulk 疊台股【今日即時價】(opendata 盤中是昨收)。
+    分頁輪掃(不一次狂打全部→避免 MIS 速率限制回 z=-)：每輪＝前 100 高量股(永遠打→即時跳動)
+    ＋輪流補一批其餘 100(rot 遞移)→ 約 30-40 秒內全部台股都更新成今日價。"""
     from datetime import datetime as _dt, timedelta as _td
     from data.taiwan import fetch_tw_realtime_bulk
     from utils.live_data import overlay_tw, has_tw_data, get as live_get
+    _rot = 0
     while True:
         try:
             now_tpe = _dt.utcnow() + _td(hours=8)
@@ -263,9 +264,18 @@ def _tw_rt_overlay_worker():
             # 盤中(09:00-13:35 TPE，尾端多留 5 分收尾)且已有基底清單才疊
             if now_tpe.weekday() < 5 and 9 * 60 <= mod < 13 * 60 + 35 and has_tw_data():
                 lst = live_get("tw")
-                cand = sorted([t for t in lst if not t.get("is_future")],
-                              key=lambda t: t.get("volume") or 0, reverse=True)[:120]
-                pm = fetch_tw_realtime_bulk([t["symbol"] for t in cand])
+                syms = [t["symbol"] for t in
+                        sorted([t for t in lst if not t.get("is_future")],
+                               key=lambda t: t.get("volume") or 0, reverse=True)]
+                top = syms[:50]                           # 前 50 高量：每輪都打→即時跳動
+                rest = syms[50:]
+                batch = list(top)
+                if rest:
+                    n = len(rest)
+                    off = (_rot * 100) % n
+                    batch += rest[off:off + 100]          # 輪流補一批(100)其餘→全部約 30-40s 更新成今日價
+                    _rot += 1
+                pm = fetch_tw_realtime_bulk(batch)
                 if pm:
                     overlay_tw(pm)
         except Exception:

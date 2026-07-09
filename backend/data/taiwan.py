@@ -359,41 +359,20 @@ def fetch_tw_tickers() -> list:
     except Exception as e:
         _log.warning(f"[tw_tickers] TPEX opendata error: {e}")
 
-    # ── 3. MIS 即時補強（盤中），或 opendata 失敗時的備援 ────────
-    ex_ch = "|".join(f"{ex}_{sym}.tw" for sym, ex in TW_POPULAR)
+    # ── 3. MIS 即時補強（盤中）：⚠ opendata(STOCK_DAY_ALL) 盤中給的是【昨日收盤】，用 MIS(delay:0)
+    #      把今日即時價疊到熱門 50 支(單一請求、輕)。全部台股的今日價由 _tw_rt_overlay_worker 分頁輪掃補齊
+    #      (MIS 有速率限制、不能一次狂打全部；分頁節流)。opendata 失敗時此段也當備援清單。
     try:
-        resp = requests.get(
-            TWSE_MIS_URL,
-            params={"ex_ch": ex_ch, "json": "1", "delay": "0"},
-            headers=TWSE_MIS_HEADERS,
-            timeout=10,
-        )
-        resp.raise_for_status()
-        for d in resp.json().get("msgArray", []):
-            sym = d.get("c", "")
-            if not sym:
-                continue
-            z = d.get("z", "-")
-            y = d.get("y", "-")
-            if not z or z == "-":
-                z = y
-            if not y or y == "-":
-                continue
-            try:
-                price      = float(z)
-                prev       = float(y)
-                change_amt = round(price - prev, 2)
-                change_pct = round((change_amt / prev * 100) if prev else 0.0, 2)
-                raw_vol    = d.get("v", "0") or "0"
-                volume     = float(raw_vol.replace(",", "")) * 1000
-                name       = d.get("n", "") or TW_NAME_MAP.get(sym, sym)
-                tickers[sym] = {
-                    "symbol": sym, "display": sym, "name": name,
-                    "price": price, "change_pct": change_pct,
-                    "change_amt": change_amt, "volume": volume,
-                }
-            except (ValueError, TypeError):
-                continue
+        rt = fetch_tw_realtime_bulk([s for s, _ in TW_POPULAR])
+        for sym, u in rt.items():
+            t = tickers.get(sym)
+            if t:
+                t["price"] = u["price"]; t["change_pct"] = u["change_pct"]
+                t["change_amt"] = u["change_amt"]; t["volume"] = u["volume"]
+            else:
+                tickers[sym] = {"symbol": sym, "display": sym, "name": TW_NAME_MAP.get(sym, sym),
+                                "price": u["price"], "change_pct": u["change_pct"],
+                                "change_amt": u["change_amt"], "volume": u["volume"]}
     except Exception as e:
         _log.warning(f"[tw_tickers] MIS error: {e}")
 
@@ -475,10 +454,15 @@ def fetch_tw_realtime_bulk(symbols):
         except Exception as e:
             _log.warning(f"[tw_rt_bulk] {prefix} error: {e}")
 
+    # ⚠ MIS 有速率限制(超速→封 IP 回 z=-/空)：每個請求之間留 0.35s 間隔，避免密集連打被封。
+    _first = True
     for i in range(0, len(syms), 100):                     # MIS 保守每批 100
+        if not _first: _time.sleep(0.35)
+        _first = False
         _q("tse", syms[i:i + 100])
     unresolved = [s for s in syms if s not in out]          # 上市沒有的再試上櫃
     for i in range(0, len(unresolved), 100):
+        _time.sleep(0.35)
         _q("otc", unresolved[i:i + 100])
     return out
 
