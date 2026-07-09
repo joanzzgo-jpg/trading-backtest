@@ -599,9 +599,15 @@ def _mis_accumulate(symbol: str, minutes: int, rt: dict):
         cumvol = rt.get("volume") or 0
         cur = st["cur"]
         if cur is None or cur["ts"] != bar_ts:                 # 新分鐘 → 收掉舊棒、開新棒
+            prev_c = cur["c"] if cur is not None else None
             if cur is not None:
                 st["done"][cur["ts"]] = cur
-            st["cur"] = {"ts": bar_ts, "o": price, "h": price, "l": price, "c": price, "vol0": cumvol, "vol": 0}
+            # 開盤價沿用上一根收盤(價格連續)：MIS 只有 10 秒取樣，若開盤就設成現價，這根一開始
+            # 會是 o=h=l=c 的扁線；改用上一根收盤當 open、高低同時納入 open ⇒ 價格一離開上一根
+            # 收盤，即時那根當下就有實體+上下影線，不再「只剩現價一條線」。當日首棒無前值 → 用現價。
+            o = prev_c if prev_c is not None else price
+            st["cur"] = {"ts": bar_ts, "o": o, "h": max(o, price), "l": min(o, price),
+                         "c": price, "vol0": cumvol, "vol": 0}
         else:                                                  # 同分鐘 → 更新高/低/收 + 量(累積量差)
             cur["h"] = max(cur["h"], price); cur["l"] = min(cur["l"], price); cur["c"] = price
             cur["vol"] = max(0, cumvol - cur["vol0"])
