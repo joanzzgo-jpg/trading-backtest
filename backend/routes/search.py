@@ -68,9 +68,9 @@ def get_tickers(response: Response, market: str = "futures"):
     """取得標的列表：優先從記憶體即時快取讀取，啟動初期才 fallback 至直接 API。"""
     from utils.live_data import get as live_get, has_data, has_tw_data
     from data.taiwan import fetch_tw_tickers
-    # HTTP 快取：crypto 1s（每秒輪詢）、tw 10s。瀏覽器與中介層可用此短快取
-    # 避免多分頁/多用戶同步 polling 造成的重複請求
-    response.headers["Cache-Control"] = f"public, max-age={10 if market == 'tw' else 1}"
+    # HTTP 快取：crypto 1s、tw 2s（台股高量股由 MIS 疊價 worker 每 3s 更新記憶體→短快取讓報價列即時跳）。
+    # 避免多分頁/多用戶同步 polling 造成的重複請求。
+    response.headers["Cache-Control"] = f"public, max-age={2 if market == 'tw' else 1}"
     if market == "tw":
         # 台指期（三兄弟近月）置頂於台股清單。cnyes 即時價(含夜盤)+MIS 參考價，快取 3 秒。
         from data.cnyes_futures import fetch_wall_tickers

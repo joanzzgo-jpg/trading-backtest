@@ -249,6 +249,30 @@ def _tw_ticker_worker():
         time.sleep(30)
 
 
+def _tw_rt_overlay_worker():
+    """背景執行緒：交易時段每 3 秒用 MIS bulk 疊『量最大前 120 檔』台股即時價 →
+    報價列熱門/高量股即時跳動(接近 crypto 體感)。只打 MIS(輕)、不重抓 opendata 全量
+    (全量清單仍由 _tw_ticker_worker 每 30 秒維護)。"""
+    from datetime import datetime as _dt, timedelta as _td
+    from data.taiwan import fetch_tw_realtime_bulk
+    from utils.live_data import overlay_tw, has_tw_data, get as live_get
+    while True:
+        try:
+            now_tpe = _dt.utcnow() + _td(hours=8)
+            mod = now_tpe.hour * 60 + now_tpe.minute
+            # 盤中(09:00-13:35 TPE，尾端多留 5 分收尾)且已有基底清單才疊
+            if now_tpe.weekday() < 5 and 9 * 60 <= mod < 13 * 60 + 35 and has_tw_data():
+                lst = live_get("tw")
+                cand = sorted([t for t in lst if not t.get("is_future")],
+                              key=lambda t: t.get("volume") or 0, reverse=True)[:120]
+                pm = fetch_tw_realtime_bulk([t["symbol"] for t in cand])
+                if pm:
+                    overlay_tw(pm)
+        except Exception:
+            pass
+        time.sleep(3)
+
+
 def _txf_collect_worker():
     """背景執行緒：每 25 秒抓 cnyes 台指期當前時段(含夜盤)分鐘K → 存 DB，
     讓歷史分鐘從開始收集起往後累積(免費、免開戶)。cnyes 休市回上個時段→重覆 upsert 無害。"""
@@ -309,6 +333,7 @@ async def _warmup():
     else:
         threading.Thread(target=_ticker_worker, daemon=True).start()
     threading.Thread(target=_tw_ticker_worker, daemon=True).start()
+    threading.Thread(target=_tw_rt_overlay_worker, daemon=True).start()  # 台股高量股 MIS 即時疊價(3s)
     threading.Thread(target=_txf_collect_worker, daemon=True).start()   # 台指期歷史分鐘累積
     try:
         from routes.data import _tw_realtime_worker

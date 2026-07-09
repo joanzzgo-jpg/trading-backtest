@@ -727,8 +727,8 @@ function startTickerRefresh() {
   if (_tickerTimer) clearInterval(_tickerTimer);
   _loadTickerCache();
   fetchTickers();
-  // crypto 1秒；台股 10秒（setInterval 動態切換）
-  _tickerTimer = setInterval(fetchTickers, _tickerMkt === "tw" ? 10000 : 1000);
+  // crypto 1秒；台股 3秒（後端 MIS 疊價 worker 每 3s 更新高量股即時價→報價列即時跳；setInterval 動態切換）
+  _tickerTimer = setInterval(fetchTickers, _tickerMkt === "tw" ? 3000 : 1000);
 }
 
 function stopTickerRefresh() {
@@ -785,7 +785,7 @@ function bindTickerPanel() {
       // 重設更新頻率
       if (_tickerTimer) clearInterval(_tickerTimer);
       fetchTickers();
-      _tickerTimer = setInterval(fetchTickers, _tickerMkt === "tw" ? 10000 : 1000);
+      _tickerTimer = setInterval(fetchTickers, _tickerMkt === "tw" ? 3000 : 1000);
     });
   });
 

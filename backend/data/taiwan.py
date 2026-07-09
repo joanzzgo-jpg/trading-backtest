@@ -436,6 +436,53 @@ def fetch_tw_latest_bar_yf(symbol: str):
     return None
 
 
+def fetch_tw_realtime_bulk(symbols):
+    """MIS 即時報價 bulk（一次多檔、盤中 delay:0）：symbols=代號 list。
+    先全試上市(tse)、未解析的再試上櫃(otc)。回 {sym: {price,change_pct,change_amt,volume}}。
+    供『台股報價列即時疊價』快 worker 用——只打 MIS(輕)、不重抓 opendata 全量。"""
+    out: dict = {}
+    syms = [s for s in dict.fromkeys(symbols) if s]        # 去重保序
+    if not syms:
+        return out
+
+    def _q(prefix, batch):
+        if not batch:
+            return
+        ex_ch = "|".join(f"{prefix}_{s}.tw" for s in batch)
+        try:
+            resp = requests.get(TWSE_MIS_URL,
+                                params={"ex_ch": ex_ch, "json": "1", "delay": "0"},
+                                headers=TWSE_MIS_HEADERS, timeout=10)
+            resp.raise_for_status()
+            for d in resp.json().get("msgArray", []):
+                sym = d.get("c", "")
+                if not sym:
+                    continue
+                z = d.get("z", "-"); y = d.get("y", "-")
+                if not z or z == "-":
+                    z = y
+                if not y or y == "-":
+                    continue
+                try:
+                    price = float(z); prev = float(y)
+                    camt = round(price - prev, 2)
+                    cpct = round((camt / prev * 100) if prev else 0.0, 2)
+                    vol = float((d.get("v", "0") or "0").replace(",", "")) * 1000
+                    out[sym] = {"price": price, "change_pct": cpct,
+                                "change_amt": camt, "volume": vol}
+                except (ValueError, TypeError):
+                    continue
+        except Exception as e:
+            _log.warning(f"[tw_rt_bulk] {prefix} error: {e}")
+
+    for i in range(0, len(syms), 100):                     # MIS 保守每批 100
+        _q("tse", syms[i:i + 100])
+    unresolved = [s for s in syms if s not in out]          # 上市沒有的再試上櫃
+    for i in range(0, len(unresolved), 100):
+        _q("otc", unresolved[i:i + 100])
+    return out
+
+
 def fetch_tw_realtime(symbol: str):
     """
     TWSE MIS 即時報價（盤中）。

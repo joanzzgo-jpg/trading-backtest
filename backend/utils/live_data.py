@@ -105,3 +105,22 @@ def update_tw(tw: list):
         _cache["ts"] = time.time()
         snap = dict(_cache)
     _write_shared(snap)
+
+
+def overlay_tw(price_map: dict):
+    """把 MIS 即時價(sym→{price,change_pct,change_amt,volume})就地疊到快取台股清單 →
+    熱門/高量股即時跳動，不必每次重抓 opendata 全量。只改變動值、不動清單結構(排序前端做)。"""
+    if not price_map:
+        return
+    with _lock:
+        lst = _cache.get("tw") or []
+        if not lst:
+            return
+        for t in lst:
+            u = price_map.get(t.get("symbol"))
+            if u:
+                t["price"] = u["price"]; t["change_pct"] = u["change_pct"]
+                t["change_amt"] = u["change_amt"]; t["volume"] = u["volume"]
+        _cache["ts"] = time.time()
+        snap = dict(_cache)
+    _write_shared(snap)
