@@ -979,11 +979,32 @@ def get_latest(req: LatestRequest):
                         _tw_hot[(req.symbol, minutes)] = time.time()   # 背景 worker 據此持續累積此標的
                         # MIS 即時累積真實分鐘棒：把 yfinance 最後一根之後的(含當下這根)接上 → 當下就有最新棒、無 20 分 gap
                         yf_last = pd.Timestamp(df_out.iloc[-1]["time"]).floor(f"{minutes}min")
-                        for b in _mis_accumulate(req.symbol, minutes, rt):
-                            if pd.Timestamp(b["time"]) > yf_last:
-                                recs.append({"time": b["time"].isoformat(), "open": b["open"],
-                                             "high": b["high"], "low": b["low"], "close": b["close"], "volume": b["volume"]})
-                                is_live = True
+                        # MIS 即時累積真實分鐘棒(yf_last 之後)；缺的分鐘用「前一根收盤」平盤補齊(o=h=l=c、量0)：
+                        #   避免「1010 直接跳 1030」斷層——yfinance 台股盤中延遲 15-20 分、MIS 只從打開那刻起補，
+                        #   中間那段兩邊沒蓋 → 缺號。補平盤棒讓圖連續；yfinance 追上後真實棒會覆蓋這些暫時棒。
+                        mis_by_ts = {pd.Timestamp(b["time"]): b for b in _mis_accumulate(req.symbol, minutes, rt)
+                                     if pd.Timestamp(b["time"]) > yf_last}
+                        if mis_by_ts:
+                            step = pd.Timedelta(minutes=minutes)
+                            end_t = max(mis_by_ts)
+                            start_t = yf_last + step
+                            _min_start = end_t - 59 * step      # 上限60根:只補最新窗,更舊交 yfinance(確保當下這根一定含)
+                            if start_t < _min_start: start_t = _min_start
+                            last_c = float(df_out.iloc[-1]["close"])
+                            t = start_t; _guard = 0
+                            while t <= end_t and _guard < 80:
+                                _tp = ((t.hour + 8) % 24) * 60 + t.minute
+                                if 9 * 60 <= _tp < 13 * 60 + 30:   # 只補交易時段
+                                    b = mis_by_ts.get(t)
+                                    if b:
+                                        recs.append({"time": t.isoformat(), "open": b["open"], "high": b["high"],
+                                                     "low": b["low"], "close": b["close"], "volume": b["volume"]})
+                                        last_c = b["close"]
+                                    else:                          # 缺號 → 前一根收盤平盤填
+                                        recs.append({"time": t.isoformat(), "open": last_c, "high": last_c,
+                                                     "low": last_c, "close": last_c, "volume": 0})
+                                t += step; _guard += 1
+                            is_live = True
                     return {"live": is_live, "data": recs}
                 # 分鐘/小時不可 fall-through 到日線來源（時間戳不相容）
                 return {"live": False, "data": []}
