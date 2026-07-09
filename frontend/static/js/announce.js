@@ -4,12 +4,12 @@
 //
 // ── 發布流程（重要）──────────────────────────────────────────────
 //   平時：有新更新就「累積」寫進 UPDATES（每條**帶當天日期**），但 **不要動 PUB_ID**
-//         → 已看過的人不會被重複打擾。彈窗**只顯示日期＝PUB_DATE 的當日項目**（舊項目留作歷史、不顯示）。
+//         → 已看過的人不會被重複打擾。彈窗**顯示近 48 小時（PUB_DATE 前 48h＝今天＋昨天）**的項目（更舊留作歷史、不顯示）。
 //   發布：使用者說「發公告」時，才：① 把當天新增項目標上今天日期 ② 設 PUB_DATE＝今天
-//         ③ 把 PUB_ID 換成新值 → 所有裝置版本不符 → 全部重跳，且只看到「今天」這批更新。
-//   （PUB_ID 是內部版本鍵、只管「要不要重跳」；PUB_DATE 同時是卡片顯示日期＋「當日」過濾鍵。）
+//         ③ 把 PUB_ID 換成新值 → 所有裝置版本不符 → 全部重跳，且只看到「近兩天」這批更新。
+//   （PUB_ID 是內部版本鍵、只管「要不要重跳」；PUB_DATE 同時是卡片顯示日期＋「近 48h」過濾錨點。）
 (function () {
-  const PUB_ID   = "2026-07-09-3";     // ⚠ 只有「發公告」時才 bump（換任意新字串即可）→ 觸發全裝置重跳
+  const PUB_ID   = "2026-07-09-4";     // ⚠ 只有「發公告」時才 bump（換任意新字串即可）→ 觸發全裝置重跳
   const PUB_DATE = "2026-07-09";       // 卡片右上顯示的日期
   const KEY = "announceSeenVer";
   // 累積更新（依日期）：[日期 YYYY-MM-DD, emoji, 標題, 說明]
@@ -111,10 +111,16 @@
     document.head.appendChild(st);
   }
 
-  // 只取「當日」項目＝日期等於 PUB_DATE；若當日沒有任何項目（例如忘了標日期），
-  // 退回顯示「最新一天」的項目，避免彈出空白公告。
-  function _todayUpdates() {
-    let list = UPDATES.filter(u => u[0] === PUB_DATE);
+  // 取「近 48 小時」項目＝日期在 PUB_DATE 前 48 小時內（＝今天＋昨天）。
+  //   以 PUB_DATE 為錨（發布快照，之後幾天再開仍顯示同一批，不會隨真實時間縮成空白）。
+  //   若都沒有（例如忘了標日期）→ 退回顯示「最新一天」，避免彈出空白公告。
+  const _WINDOW_H = 48;
+  function _recentUpdates() {
+    const pub = Date.parse(PUB_DATE + "T00:00:00");
+    let list = UPDATES.filter(u => {
+      const d = Date.parse(u[0] + "T00:00:00");
+      return !isNaN(d) && d <= pub && (pub - d) < _WINDOW_H * 3600 * 1000;   // 0h(今)、24h(昨)保留；48h(前天)起排除
+    });
     if (!list.length && UPDATES.length) {
       const latest = UPDATES.reduce((m, u) => (u[0] > m ? u[0] : m), UPDATES[0][0]);
       list = UPDATES.filter(u => u[0] === latest);
@@ -126,7 +132,7 @@
     _injectStyle();
     const ov = document.createElement("div");
     ov.id = "announceOverlay";
-    const items = _todayUpdates().map(([date, emo, name, desc], i) =>
+    const items = _recentUpdates().map(([date, emo, name, desc], i) =>
       `<li class="ann-item" style="animation-delay:${0.12 + i * 0.06}s">` +
       `<span class="ann-emoji">${emo}</span>` +
       `<div class="ann-item-body"><div class="ann-name">${name}</div><div class="ann-desc">${desc}</div></div></li>`
@@ -138,7 +144,7 @@
       `<div class="ann-head">` +
       `<img class="ann-bear" src="/static/img/bear.png" alt="">` +
       `<div class="ann-head-txt"><div class="ann-title">熊報 · 最新消息</div>` +
-      `<div class="ann-sub">小熊幫你整理了今天的更新 🍊</div></div></div>` +
+      `<div class="ann-sub">小熊幫你整理了近兩天的更新 🍊</div></div></div>` +
       `<ul class="ann-list">${items}</ul>` +
       `<div class="ann-foot">` +
       `<button class="ann-btn ann-btn-ghost" id="_annNever">不再提醒</button>` +
