@@ -21,7 +21,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;500;700;800;900&family=Caveat:wght@700&display=swap" rel="stylesheet">
-  <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+  <!-- LightweightCharts 自架(同源)：原走 unpkg CDN，部分裝置/網路(iPad、某些Windows/公司網)連不到 CDN
+       → LightweightCharts undefined → 整個 app「進不去」。改自架後跟 app 同源、必達，不再依賴外部 CDN。 -->
+  <script src="/static/vendor/lightweight-charts.standalone.production.js?v={{ ver }}"></script>
   <link rel="stylesheet" href="/static/css/style.css?v={{ ver }}" />
   <script>
     // 極簡模式（perf mode）：在 body 渲染前先掛上 class，避免特效資源被瀏覽器排程
