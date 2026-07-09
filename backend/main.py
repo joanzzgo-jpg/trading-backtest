@@ -259,7 +259,7 @@ def _tw_rt_overlay_worker():
     _rot = 0
     _miss = 0                                             # 連續空回(疑似被 MIS 封)計數
     while True:
-        _nap = 3
+        _nap = 5                                          # 5s/輪：~150檔(前50+輪100)、每請求0.35s間隔→~0.6req/s、避免封
         try:
             now_tpe = _dt.utcnow() + _td(hours=8)
             mod = now_tpe.hour * 60 + now_tpe.minute
