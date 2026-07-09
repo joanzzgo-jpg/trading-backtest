@@ -14,7 +14,7 @@ from data.taiwan import fetch_tw_stock, resample_tw, fetch_tw_intraday, fetch_tw
 from data.fugle import fetch_fugle_intraday, fugle_enabled
 from data.taifex_mis import (fetch_taifex_daily, fetch_taifex_quote,
                              resolve_front_month, PRODUCTS as FUTOPT_PRODUCTS, _INTRADAY_MIN as TXF_INTRADAY)
-from data.cnyes_futures import get_txf_intraday
+from data.cnyes_futures import get_txf_intraday, fetch_cnyes_stock_intraday
 from data.alpaca import fetch_alpaca_bars, alpaca_enabled
 from data.twelvedata import fetch_twelvedata_intraday, twelvedata_enabled
 from data.us_stock import fetch_us_stock, MAX_DAYS as US_MAX_DAYS
@@ -71,11 +71,23 @@ def fetch_crt_df(market: str, symbol: str, timeframe: str, days: int,
             max_d = TW_YF_MAX_DAYS.get(timeframe, 60)
             start = (date.today() - timedelta(days=min(days, max_d))).isoformat()
             try:
-                return fetch_tw_intraday_yf(symbol, timeframe, start, end)
+                df = fetch_tw_intraday_yf(symbol, timeframe, start, end)
             except Exception:
                 if finmind_token:
-                    return fetch_tw_intraday(symbol, timeframe, start, end, finmind_token)
-                raise
+                    df = fetch_tw_intraday(symbol, timeframe, start, end, finmind_token)
+                else:
+                    raise
+            # 今日改用 cnyes 個股即時分鐘K（連續無跳號）→ 策略/勝率標記在今日棒上也對齊即時；歷史仍 yfinance。
+            if df is not None and not df.empty:
+                try:
+                    cdf = fetch_cnyes_stock_intraday(symbol, timeframe)
+                    if cdf is not None and not cdf.empty:
+                        cutoff = cdf["time"].min()
+                        df = pd.concat([df[df["time"] < cutoff], cdf],
+                                       ignore_index=True).sort_values("time").reset_index(drop=True)
+                except Exception:
+                    pass
+            return df
         elif timeframe == "4h":
             max_d = TW_YF_MAX_DAYS.get("1h", 60)
             start = (date.today() - timedelta(days=min(days, max_d))).isoformat()
@@ -811,9 +823,19 @@ def get_ohlcv(req: OHLCVRequest):
                         df = fetch_tw_intraday(req.symbol, src_tf, fm_start, end, req.finmind_token)
                     else:
                         raise
-                # ⭐ 今日改用 Fugle 富果即時分鐘K（歷史仍 yfinance）→ 一載入就即時、無 20 分延遲、
-                #    無空隙。只在「查詢範圍含今日」時併入（歷史/重播查詢 end 為過去日，跳過不影響）。
-                if (fugle_enabled() and src_tf in ("1m", "5m", "15m", "1h")
+                # ⭐ 今日改用 cnyes 個股即時分鐘K（歷史仍 yfinance）→ 一載入就即時、連續無跳號、無延遲、
+                #    免金鑰（同台指期資料源）。只在「查詢範圍含今日」時併入（歷史/重播查詢 end 為過去日，跳過不影響）。
+                _today_live = False
+                if (src_tf in ("1m", "5m", "15m", "1h")
+                        and end >= date.today().isoformat() and not df.empty):
+                    cdf = fetch_cnyes_stock_intraday(req.symbol, src_tf)
+                    if cdf is not None and not cdf.empty:
+                        cutoff = cdf["time"].min()           # cnyes 當日最早一根(09:00) → 之後全用 cnyes
+                        df = pd.concat([df[df["time"] < cutoff], cdf],
+                                       ignore_index=True).sort_values("time").reset_index(drop=True)
+                        _today_live = True
+                # cnyes 失敗（收盤/查無）時退回 Fugle（若設 token）→ 再退回純 yfinance。
+                if (not _today_live and fugle_enabled() and src_tf in ("1m", "5m", "15m", "1h")
                         and end >= date.today().isoformat() and not df.empty):
                     fdf = fetch_fugle_intraday(req.symbol, src_tf)
                     if fdf is not None and not fdf.empty:
@@ -948,8 +970,19 @@ def get_latest(req: LatestRequest):
                 }]}
             # 分鐘/小時時框：
             if tf in ("1m", "5m", "15m", "1h", "4h"):
-                # ⭐ Fugle 富果即時分鐘K 優先（無 20 分延遲、無空隙、任何標的秒出、不需 MIS 累積）。
-                #    快取 8 秒；失敗或未設 FUGLE_TOKEN → fallback 回下方 yfinance + MIS。
+                # ⭐ cnyes 個股即時分鐘K 最優先（同台指期資料源：09:00 起連續無跳號、無延遲、含即時那根、
+                #    免金鑰）。徹底解決 yfinance 台股盤中延遲15-20分 + MIS 只補打開後那段 → 「1010跳1030」
+                #    斷層。快取 8 秒；失敗/收盤/查無 → fallback 回 Fugle→yfinance+MIS。
+                if tf in ("1m", "5m", "15m", "1h"):
+                    cnkey = f"tw_cnyes_{req.symbol}_{tf}"
+                    cndf = cache.get(cnkey, ttl=8)
+                    if cndf is None:
+                        cndf = fetch_cnyes_stock_intraday(req.symbol, tf)
+                        if cndf is not None and not cndf.empty:
+                            cache.set(cnkey, cndf)
+                    if cndf is not None and not cndf.empty:
+                        return {"live": True, "data": df_to_records(cndf.tail(40))}
+                # Fugle 富果即時分鐘K 次之（無 20 分延遲、無空隙）。快取 8 秒；失敗或未設 FUGLE_TOKEN → yfinance+MIS。
                 if tf in ("1m", "5m", "15m", "1h") and fugle_enabled():
                     fkey = f"tw_fugle_{req.symbol}_{tf}"
                     fdf = cache.get(fkey, ttl=8)

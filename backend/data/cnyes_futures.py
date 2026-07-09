@@ -60,6 +60,54 @@ def fetch_cnyes_1m(product: str):
     return df
 
 
+# ── 台股個股：cnyes charting 同一支 API（TWS:<代號>:STOCK）連續分鐘K、無延遲、免金鑰 ──
+_STOCK_TF_MIN = {"1m": 1, "5m": 5, "15m": 15, "30m": 30, "1h": 60}
+_stock_cache: dict = {}   # (symbol,tf) → (fetch_ts, df)；8 秒快取，避免多路徑重複打 cnyes
+
+
+def fetch_cnyes_stock_intraday(symbol: str, timeframe: str):
+    """cnyes 台股個股當前時段分鐘K(連續·09:00起無跳號·無延遲·含即時那根)→
+    DataFrame[time(UTC naive),open,high,low,close,volume]。抓 1 分鐘再 resample(邊界對齊 yfinance 歷史)。
+    失敗/無資料/收盤回 None。symbol=純代號(如 '2330')；ETF 也走 :STOCK(cnyes 接受)。快取 8 秒。"""
+    m = _STOCK_TF_MIN.get(timeframe)
+    if not m or not symbol:
+        return None
+    now = int(time.time())
+    _ck = (symbol, timeframe)
+    _c = _stock_cache.get(_ck)
+    if _c and now - _c[0] < 8:
+        return _c[1]
+    try:
+        r = requests.get(_BASE, params={"symbol": f"TWS:{symbol}:STOCK", "resolution": "1", "to": now},
+                         headers=_HDRS, timeout=8)
+        r.raise_for_status()
+        d = (r.json() or {}).get("data") or {}
+    except Exception:
+        return None
+    t = d.get("t") or []
+    if d.get("s") != "ok" or not t:
+        return None
+    o, h, l, cl, v = (d.get("o") or [], d.get("h") or [], d.get("l") or [],
+                      d.get("c") or [], d.get("v") or [])
+    rows = []
+    for i in range(len(t)):
+        try:
+            rows.append({"time": datetime.utcfromtimestamp(int(t[i])), "open": float(o[i]),
+                         "high": float(h[i]), "low": float(l[i]), "close": float(cl[i]),
+                         "volume": float(v[i] or 0)})
+        except Exception:
+            continue
+    if not rows:
+        return None
+    df = pd.DataFrame(rows).drop_duplicates("time").sort_values("time").reset_index(drop=True)
+    if m != 1:
+        df = df.set_index("time").resample(f"{m}min").agg({
+            "open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"
+        }).dropna().reset_index()
+    _stock_cache[_ck] = (now, df)
+    return df
+
+
 # ── DB 儲存（沿用 routes.account 的 Postgres/SQLite 連線層）─────────────
 _table_ready = False
 
