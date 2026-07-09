@@ -847,12 +847,14 @@ function _renderFVGMS(items) {
     const tm = toTime(it.t);
     if (!_has(tm) || (_rpCut != null && tm > _rpCut)) continue;
     // 一律全亮不淡化(使用者要求)——原「weak」淡化依折價/溢價位置,該區已關閉、依據不再可見
+    // prov=未收盤那根的暫定訊號(收盤才確認)→ 文字加「?」、primitive 以半透明+空心箭頭畫,明顯區隔已確認
+    const _pv = !!it.prov;
     if (it.d === "l") {
       out.push({ time: tm, position: "belowBar", color: "#39ff14",
-                 shape: "arrowUp", size: 2, text: "多" });
+                 shape: "arrowUp", size: 2, text: _pv ? "多?" : "多", prov: _pv });
     } else {
       out.push({ time: tm, position: "aboveBar", color: "#ff2a6d",
-                 shape: "arrowDown", size: 2, text: "空" });
+                 shape: "arrowDown", size: 2, text: _pv ? "空?" : "空", prov: _pv });
     }
   }
   out.sort((a, b) => a.time - b.time);

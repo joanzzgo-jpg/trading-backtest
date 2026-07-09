@@ -1288,8 +1288,21 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             else:
                 continue
             _pseq.append((_g2, _pt, _pb, _pd))
-        _pcf  = [_p[0] for _p in _pseq]; _pdr = [_p[3] for _p in _pseq]
-        _ptop = [_p[1] for _p in _pseq]; _pbot = [_p[2] for _p in _pseq]
+        # ── 暫定(未收盤)proto：最後一根正在形成同型缺口(無 g+1 確認)→「未收盤就顯示策略」的暫定標記來源。
+        #   只加進『多/空比對用』的 _pcf/_pdr/_ptop/_pbot(不進 _pseq → 破多空/順完全不受影響)；
+        #   emit 帶 prov=True，前端以「未確認」樣式(半透明+?)呈現，收盤重算後才轉正式。⚠會 repaint(使用者已同意)。
+        _pseq_ms = list(_pseq)
+        _pprov   = [False] * len(_pseq)
+        _li = _N - 1
+        if _li >= _vw0 + 1 and not (_gap_guard and (_secs[_li] - _secs[_li-1]) > _gap_span_max):
+            _hm1 = _H[_li - 1]; _lm1 = _L[_li - 1]; _cg = _C[_li]
+            if not any(_v != _v for _v in (_hm1, _lm1, _cg)):
+                if _cg > _hm1 and (_cg - _hm1) / _hm1 >= _MSMIN:        # bull proto(未收盤)：收盤站上前根高
+                    _pseq_ms.append((_li, _cg, _hm1, "l")); _pprov.append(True)
+                elif _cg < _lm1 and (_lm1 - _cg) / _lm1 >= _MSMIN:      # bear proto(未收盤)：收盤破前根低
+                    _pseq_ms.append((_li, _lm1, _cg, "s")); _pprov.append(True)
+        _pcf  = [_p[0] for _p in _pseq_ms]; _pdr = [_p[3] for _p in _pseq_ms]
+        _ptop = [_p[1] for _p in _pseq_ms]; _pbot = [_p[2] for _p in _pseq_ms]
         _ms_seen = set()                                   # 去重：同一 B(_cf2)只標一次
         for (_cf, _top, _bot) in _bear:                    # 空：setup A 為 3 根 bear FVG、B 為 proto 缺口
             _mx = None
@@ -1313,7 +1326,9 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                     if _pdr[_q] == "l" and _pcf[_q] - _touch > 2:
                         _blk = True; break
                 if _blk: continue
-                _fvg_ms.append({"t": times_iso[_cf2], "d": "s", "sl": _H[_cf2-1]}); _ms_seen.add(_cf2); _used.add(_cf)
+                _e = {"t": times_iso[_cf2], "d": "s", "sl": _H[_cf2-1]}
+                if _pprov[_B]: _e["prov"] = 1
+                _fvg_ms.append(_e); _ms_seen.add(_cf2); _used.add(_cf)
         for (_cf, _top, _bot) in _bull:                    # 多（鏡像）
             _mn = None
             for _touch in range(_cf + 1, _N):
@@ -1338,7 +1353,9 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                     if _pdr[_q] == "s" and _pcf[_q] - _touch > 2:
                         _blk = True; break
                 if _blk: continue
-                _fvg_ms.append({"t": times_iso[_cf2], "d": "l", "sl": _H[_cf2-1]}); _ms_seen.add(_cf2); _used.add(_cf)
+                _e = {"t": times_iso[_cf2], "d": "l", "sl": _H[_cf2-1]}
+                if _pprov[_B]: _e["prov"] = 1
+                _fvg_ms.append(_e); _ms_seen.add(_cf2); _used.add(_cf)
         _fvg_ms.sort(key=lambda x: x["t"])
         _fvg_ms = _fvg_ms[-2000:]
 

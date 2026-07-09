@@ -276,6 +276,9 @@ function _makeStratMarkersPrimitive() {
               if (range > (sum / 10) * 2 && typeof _dimHex === "function") color = _dimHex(color);
             }
             ctx.fillStyle = color;
+            // 暫定(未收盤)訊號：半透明+空心箭頭(描邊不填滿)→ 一眼看出「未確認、收盤才算」
+            const prov = !!m.prov;
+            if (prov) { ctx.globalAlpha = 0.5; ctx.strokeStyle = color; ctx.lineWidth = Math.max(1, 1.4 * scale) * hr; }
             const x = xc * hr, yBar = yc * vr;
             if (above) {
               const off = stepAbove.get(idx) || 0;
@@ -284,7 +287,7 @@ function _makeStratMarkersPrimitive() {
               ctx.moveTo(x, tipY);
               ctx.lineTo(x - arrowW / 2, tipY - arrowH);
               ctx.lineTo(x + arrowW / 2, tipY - arrowH);
-              ctx.closePath(); ctx.fill();
+              ctx.closePath(); if (prov) ctx.stroke(); else ctx.fill();
               ctx.textBaseline = "bottom";
               ctx.fillText(m.text, Math.round(x), Math.round(tipY - arrowH - pad));
               stepAbove.set(idx, off + glyphH);
@@ -295,11 +298,12 @@ function _makeStratMarkersPrimitive() {
               ctx.moveTo(x, tipY);
               ctx.lineTo(x - arrowW / 2, tipY + arrowH);
               ctx.lineTo(x + arrowW / 2, tipY + arrowH);
-              ctx.closePath(); ctx.fill();
+              ctx.closePath(); if (prov) ctx.stroke(); else ctx.fill();
               ctx.textBaseline = "top";
               ctx.fillText(m.text, Math.round(x), Math.round(tipY + arrowH + pad));
               stepBelow.set(idx, off + glyphH);
             }
+            if (prov) ctx.globalAlpha = 1;                   // 復原,不影響下一個標記
           }
         }
       });
