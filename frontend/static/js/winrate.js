@@ -809,14 +809,15 @@ function _renderFVGBreak(items) {
     const tm = toTime(it.t);
     if (!_has(tm) || (_rpCut != null && tm > _rpCut)) continue;
     // 一律全亮不淡化(使用者要求)——原「weak」依折價/溢價位置,該區已關閉、依據不再可見
+    const _pv = !!it.prov;   // 未收盤那根的暫定破(收盤才確認)→ 文字加「?」、primitive 半透明+空心
     if (it.d === "s") {
       // 破空（看多轉破）→ 棒下方 賽博霓虹青↑
       out.push({ time: tm, position: "belowBar", color: "#05d9e8",
-                 shape: "arrowUp", size: 1.6, text: "破空" });
+                 shape: "arrowUp", size: 1.6, text: _pv ? "破空?" : "破空", prov: _pv });
     } else {
       // 破多（看空轉破）→ 棒上方 賽博霓虹橘↓
       out.push({ time: tm, position: "aboveBar", color: "#ff901f",
-                 shape: "arrowDown", size: 1.6, text: "破多" });
+                 shape: "arrowDown", size: 1.6, text: _pv ? "破多?" : "破多", prov: _pv });
     }
   }
   out.sort((a, b) => a.time - b.time);
@@ -884,12 +885,13 @@ function _renderFVGShun(items) {
     const tm = toTime(it.t);
     if (!_has(tm) || (_rpCut != null && tm > _rpCut)) continue;
     // 一律全亮不淡化(使用者要求)——原「weak」依折價/溢價位置,該區已關閉、依據不再可見
+    const _pv = !!it.prov;   // 未收盤那根的暫定順(收盤才確認)→ 文字加「?」、primitive 半透明+空心
     if (it.d === "l") {
       out.push({ time: tm, position: "belowBar", color: "#00b8ff",
-                 shape: "arrowUp", size: 2, text: "順多" });
+                 shape: "arrowUp", size: 2, text: _pv ? "順多?" : "順多", prov: _pv });
     } else {
       out.push({ time: tm, position: "aboveBar", color: "#d400ff",
-                 shape: "arrowDown", size: 2, text: "順空" });
+                 shape: "arrowDown", size: 2, text: _pv ? "順空?" : "順空", prov: _pv });
     }
   }
   out.sort((a, b) => a.time - b.time);

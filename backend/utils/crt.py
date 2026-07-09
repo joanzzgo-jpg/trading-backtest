@@ -1289,18 +1289,20 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                 continue
             _pseq.append((_g2, _pt, _pb, _pd))
         # ── 暫定(未收盤)proto：最後一根正在形成同型缺口(無 g+1 確認)→「未收盤就顯示策略」的暫定標記來源。
-        #   只加進『多/空比對用』的 _pcf/_pdr/_ptop/_pbot(不進 _pseq → 破多空/順完全不受影響)；
-        #   emit 帶 prov=True，前端以「未確認」樣式(半透明+?)呈現，收盤重算後才轉正式。⚠會 repaint(使用者已同意)。
-        _pseq_ms = list(_pseq)
-        _pprov   = [False] * len(_pseq)
+        #   三類標記(多空/破多空/順)的暫定版共用此 _prov_proto；emit 帶 prov=1，前端以「未確認」樣式
+        #   (半透明+空心+?)呈現，收盤重算後才轉正式。⚠會 repaint(使用者已同意)。
+        _prov_proto = None                                 # (g, top, bot, dir) 或 None
         _li = _N - 1
         if _li >= _vw0 + 1 and not (_gap_guard and (_secs[_li] - _secs[_li-1]) > _gap_span_max):
             _hm1 = _H[_li - 1]; _lm1 = _L[_li - 1]; _cg = _C[_li]
             if not any(_v != _v for _v in (_hm1, _lm1, _cg)):
                 if _cg > _hm1 and (_cg - _hm1) / _hm1 >= _MSMIN:        # bull proto(未收盤)：收盤站上前根高
-                    _pseq_ms.append((_li, _cg, _hm1, "l")); _pprov.append(True)
+                    _prov_proto = (_li, _cg, _hm1, "l")
                 elif _cg < _lm1 and (_lm1 - _cg) / _lm1 >= _MSMIN:      # bear proto(未收盤)：收盤破前根低
-                    _pseq_ms.append((_li, _lm1, _cg, "s")); _pprov.append(True)
+                    _prov_proto = (_li, _lm1, _cg, "s")
+        # 多/空比對用陣列：把暫定 proto 附加在末(不進 _pseq → 破多空迴圈的序列不受污染)
+        _pseq_ms = list(_pseq) + ([_prov_proto] if _prov_proto else [])
+        _pprov   = [False] * len(_pseq) + ([True] if _prov_proto else [])
         _pcf  = [_p[0] for _p in _pseq_ms]; _pdr = [_p[3] for _p in _pseq_ms]
         _ptop = [_p[1] for _p in _pseq_ms]; _pbot = [_p[2] for _p in _pseq_ms]
         _ms_seen = set()                                   # 去重：同一 B(_cf2)只標一次
@@ -1379,6 +1381,23 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                     if not _mit and not _broke and (_H[_kp] >= _mid or _H[_kp - 1] >= _mid):
                         _fvg_break.append({"t": times_iso[_kp], "p": _pprev["bot"], "d": "s", "sl": _H[_kp-1]})
             _pprev = {"dir": _pdd, "bot": _pbt, "top": _ptp, "idx": _kp}
+        # 暫定破多/破空：最後一根若形成 proto、與前一個(真實)proto 反向並刺破其中線 → 暫定破(prov=1)。
+        #   邏輯與上迴圈同，只是「現 proto」換成未收盤那根 _prov_proto、前 proto＝序列最後一個(_pprev)。
+        if _prov_proto is not None and _pprev is not None:
+            _kp, _ptp, _pbt, _pdd = _prov_proto            # _kp = _li(最後一根)
+            _mid = (_pprev["top"] + _pprev["bot"]) / 2.0
+            if _pdd == "s" and _pprev["dir"] == "l":       # 破多
+                _fj = next((_j for _j in range(_pprev["idx"] + 1, _kp - 1) if _L[_j] <= _mid), None)
+                _mit = _fj is not None and any(_C[_m] > _pprev["top"] for _m in range(_fj + 1, _kp))
+                _broke = any(_C[_j] < _pprev["bot"] for _j in range(_pprev["idx"] + 1, _kp - 1))
+                if not _mit and not _broke and (_L[_kp] <= _mid or _L[_kp - 1] <= _mid):
+                    _fvg_break.append({"t": times_iso[_kp], "p": _pprev["top"], "d": "l", "sl": _H[_kp-1], "prov": 1})
+            elif _pdd == "l" and _pprev["dir"] == "s":     # 破空
+                _fj = next((_j for _j in range(_pprev["idx"] + 1, _kp - 1) if _H[_j] >= _mid), None)
+                _mit = _fj is not None and any(_C[_m] < _pprev["bot"] for _m in range(_fj + 1, _kp))
+                _broke = any(_C[_j] > _pprev["top"] for _j in range(_pprev["idx"] + 1, _kp - 1))
+                if not _mit and not _broke and (_H[_kp] >= _mid or _H[_kp - 1] >= _mid):
+                    _fvg_break.append({"t": times_iso[_kp], "p": _pprev["bot"], "d": "s", "sl": _H[_kp-1], "prov": 1})
         _fvg_break.sort(key=lambda x: x["t"]);      _fvg_break = _fvg_break[-2000:]
 
         # ── 「順多/順空」方向標記（2026-07-02；07-03 影線穿透＋近期兩個；07-03b 近期以「穿透點」衡量、R可晚於觸碰）──
@@ -1455,7 +1474,9 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                         if _seq_cf[_q] == _rcf: continue               # R 本身是目標、不算「夾雜」
                         if _seq_cf[_q] - _touch > 2: _blk = True; break
                     if _blk: continue
-                    _fvg_shun.append({"t": times_iso[_bk], "d": _d, "sl": _H[_bk-1]})
+                    _se = {"t": times_iso[_bk], "d": _d, "sl": _H[_bk-1]}
+                    if _bk == _N - 1: _se["prov"] = 1      # 穿透事件落在最後一根(未收盤)→暫定順(收盤才確認)
+                    _fvg_shun.append(_se)
                     _shun_seen.add((_bk, _d)); _used.add(_cf); _used.add(_rcf)
 
         _shun_scan(_bull, _bear_cfs, _brk_s, "l")      # 順多：吃做多FVG → 近期兩個做空FVG其中一個影線穿透上緣
