@@ -329,6 +329,35 @@ def _acquire_leader() -> bool:
 
 
 @app.on_event("startup")
+def _winrate_warm_worker():
+    """背景預熱勝率/深歷史 → 使用者切標的多半直接命中快取(近即時)、不再等 ~2s 冷啟。
+    ⚠ 先前版本疑似參與 Railway healthcheck 逾時 → 這版**啟動後延遲 120s 才開工**，徹底避開 healthcheck 窗
+    與啟動期；其餘保守設計不變：① 只 Railway 跑；② leader-only(由 _warmup gate)；③ 只暖前 N 幣的
+    1h/15m；④ 逐檔間隔 4s；⑤ Binance 冷卻中整輪跳過；⑥ get_crt_winrate 內建快取(已熱秒回、df 7天磁碟快取)；
+    ⑦ 每 ~15 分刷一輪。"""
+    import time as _t
+    _t.sleep(120)                                          # ★ 延遲開工：先讓 app 過 healthcheck、穩定
+    _TFS = ["1h", "15m"]; _N = 15
+    while True:
+        try:
+            import data.crypto as _c
+            if _t.time() < getattr(_c, "_BINANCE_COOLDOWN_UNTIL", 0):
+                _t.sleep(90); continue
+            from routes.data import get_crt_winrate
+            from routes.trade import top_crypto_universe
+            syms = [s.get("symbol") for s in (top_crypto_universe(_N) or []) if s.get("symbol")]
+            for sym in syms:
+                for tf in _TFS:
+                    try:
+                        get_crt_winrate("crypto", sym, tf, "binance")
+                    except Exception:
+                        pass
+                    _t.sleep(4)
+        except Exception as e:
+            print(f"  ⚠ 勝率預熱失敗：{e}")
+        _t.sleep(900)
+
+
 async def _warmup():
     """啟動時立即預熱並啟動背景 ticker 更新（僅 leader worker）。"""
     if not _acquire_leader():
@@ -363,6 +392,10 @@ async def _warmup():
         notify_monitor.start()   # CRT 訊號 Web Push 背景監控（無訂閱時自動空轉、極低成本）
     except Exception as e:
         print(f"  ⚠ 訊號監控啟動失敗：{e}")
+    # 勝率預熱：只 Railway、延遲 120s 開工(避開 healthcheck) → 線上使用者切主流幣近即時。
+    if bool(os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("RAILWAY_PROJECT_ID") or os.getenv("RAILWAY_SERVICE_ID")):
+        threading.Thread(target=_winrate_warm_worker, daemon=True).start()
+        print("  ✓ 勝率預熱 worker 已排程（Railway、延遲120s、前15、1h/15m）")
 
 
 @app.get("/")
