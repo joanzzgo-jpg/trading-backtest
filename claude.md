@@ -22,6 +22,7 @@ cd /Users/noah/trading/backend && uvicorn main:app --reload
 - **前端**：JS 模組表、視覺特效、音效、極簡模式（perf-mode）完整說明、版面配置、圖片資源、星號按鈕、標記視窗化 → [docs/frontend.md](docs/frontend.md)
 - **CRT 勝率/回測**：S1~S12 訊號邏輯、新增訊號 checklist、勝率 HUD、各時框回測天數、後端 `crt.py` 結構與效能 → [docs/crt-winrate.md](docs/crt-winrate.md)
 - **FVG 策略定版規格（v2.3，參數已鎖定）**：止損/止盈檔位、雙槽多空、多幣組合、止盈先到撤殘單 → [docs/fvg-strategy.md](docs/fvg-strategy.md)
+  - ⚠ 主圖方向多空/破多空標記（`crt.py` `_calc_crt_winrate` 的 `_pseq` proto 缺口）**2026-07-10 拿掉 g+1「沒填回」檢查** → proto 純「g 收盤站上前根高/破前根低」即定案、**不再被下一根收盤回頭撤掉（非 repaint）**；代價破多空標記約 2x。**未收盤最後一根**另出「暫定」標記（半透明+空心+?，`_prov_proto`，收盤才轉正式、會 repaint、使用者已同意）。auto-trade 進場 `_fvg_sigs` 是另一套、不受這些影響。
 - **3D 天氣背景實作規格**：Canvas 2D 粒子＋CSS 3D 分層、Phase 進度與實作差異 → [docs/weather-3d-spec.md](docs/weather-3d-spec.md)
 
 ## ⚠️ 關鍵鐵則（違反會造成 bug，務必遵守）
@@ -35,6 +36,12 @@ cd /Users/noah/trading/backend && uvicorn main:app --reload
 - bundle 串接順序＝ `main.py` `_build_js_bundle()` 的 `names` 串列。**新增 bundle 檔務必同步加入 `names`**，否則不會被打包。
 - 拆 bundle 檔：依行邊界切、在 `names` 同位置插入 → minify 後位元組相同（零行為風險），拆檔走這條路。
 - 動態載入檔（`effects.js`/`weather.js`，不在 bundle）：拆/改後要更新 `main.js` 的 `_loadFx` 與 `main.py` 的 `_asset_ver`（mtime 版號，否則 `/static` 長快取吃到舊檔）。
+
+### 前端關鍵庫一律自架、勿用外部 CDN（2026-07-10 重大教訓）
+- **圖表庫 LightweightCharts、字型（M PLUS Rounded 1c／Caveat）已自架於 `frontend/static/vendor/`**，`index.html` 從同源載入（`/static/vendor/...?v={{ ver }}`）。**不要改回 unpkg / Google Fonts CDN**。
+- 為什麼：CDN 對某些使用者網路不可達（iPad、部分 Windows／公司網／ISP）→ `LightweightCharts` undefined → bundle 早期 `makeBaseOpts` 拋錯 → 整包後續（建圖表/城門/登入）全不執行 → 整個 app「進不去」。開發者本機因 CDN 已快取而永遠正常、極難自測發現。
+- 診斷「某裝置進不去但我這正常」→ 首疑「未快取的外部資源載入失敗」：CDP 開**清空 localStorage/快取的全新 profile** 抓 `Runtime.exceptionThrown`，一抓就中。
+- 殘留的 `unpkg`／`gstatic` 只在 `sw.js` 快取白名單與 `main.py` CSP `script-src`，無害；如再引入其他庫，同樣放 `/static/vendor/`。
 
 ### 非同步競態
 - `_bgLoadGen`：每次新背景載入前 `++`，所有 async loop 每輪比對 `myGen === _bgLoadGen`，不符即退出。
@@ -52,11 +59,13 @@ cd /Users/noah/trading/backend && uvicorn main:app --reload
 - `showLegColorPopup()`（draw.js）在 perf-mode 直接 `return`。
 - topbar 相關覆寫必須用 `!important`（壓過 style.css 末段「橘子熊可愛風格」的 `!important`）。完整機制見 [docs/frontend.md](docs/frontend.md)。
 
-### Pionex 限流
-- Pionex API：10 次/秒/IP，超過封鎖 60s 且重試會 +10s 永遠清不掉。行情/價格走 Binance，Pionex 僅用於標的清單（硬碟快取 24hr）與獨有標的 klines。詳見 [docs/backend.md](docs/backend.md)。
+### Pionex 限流 / 行情資料源
+- Pionex API：10 次/秒/IP，超過封鎖 60s 且重試會 +10s 永遠清不掉。**Binance fapi 同理**（418/429 全域熔斷，`_BINANCE_COOLDOWN_UNTIL`）。行情/價格走 Binance，Pionex 僅用於標的清單（硬碟快取 24hr）與獨有標的 klines。
+- **crypto perp K 線 fallback 鏈**：Binance fapi → Pionex →（2026-07-10 新增）**Bybit（`category=linear`）**。修「Binance 冷卻時、Binance 獨有幣（如 KORU）在 Pionex 又沒有 → 找不到」。⚠ fallback 來源插針/毛刺與 Binance 不同 → **本機 Binance 被限流時，策略會抓到髒 fallback 資料、生出乾淨 Binance 上沒有的假 FVG（刷新時有時有）；線上 Binance 正常則不受影響**。診斷「本機策略標記怪」先看是不是 Binance 冷卻掉了 fallback。
+- **台股即時個股分鐘 K = cnyes**（`data/cnyes_futures.py` `fetch_cnyes_stock_intraday`，同台指期源、連續無跳號、無延遲、免金鑰）；get_latest / ohlcv 初次載入 / fetch_crt_df 三處當日主源，歷史仍 yfinance，Fugle 退為備援。詳見 [docs/backend.md](docs/backend.md)。
 
 ### 不可更改的設定
-- `startTickerRefresh()`（`ticker.js`）的 `setInterval(fetchTickers, …)` 間隔依市場固定：**crypto 1 秒、台股 10 秒**（行情即時性需求），**禁止以「減輕伺服器負擔」為由更改**。
+- `startTickerRefresh()`（`ticker.js`）的 `setInterval(fetchTickers, …)` 間隔依市場固定：**crypto 1 秒、台股 3 秒**（行情即時性需求；2026-07-09 台股 10 秒→3 秒，配合後端 `_tw_rt_overlay_worker` 每 3 秒 MIS bulk 疊「量最大前 120 檔」即時價 → 報價列即時跳動），**禁止以「減輕伺服器負擔」為由改慢**。台股全量清單仍由 `_tw_ticker_worker` 每 30 秒抓 TWSE/TPEX opendata 維護。
 
 ## 圖片資源
 所有原始圖片存放於 **桌面 `Claude-分類/虛擬貨幣/`**，已複製至 `frontend/static/img/`。對應表與前端使用位置見 [docs/frontend.md](docs/frontend.md)。
