@@ -1276,13 +1276,15 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         for _g2 in range(_vw0, _N - 1):
             if _gap_guard and (_secs[_g2+1] - _secs[_g2-1]) > _gap_span_max:
                 continue   # 同上：跨資料斷層不成立 proto 缺口（否則破多/破空/多空標記會被假缺口污染）
-            _hm1 = _H[_g2 - 1]; _lm1 = _L[_g2 - 1]; _cg = _C[_g2]; _cn = _C[_g2 + 1]
-            if any(_v != _v for _v in (_hm1, _lm1, _cg, _cn)):        # NaN
+            # proto 純粹「g 收盤定案」：不再綁 g+1「沒填回」檢查(那會讓已成立的標記被下一根收盤回頭撤掉＝repaint，
+            #   使用者要當根即定案、之後不因下一根而消失)。g 收盤站上前根高/破前根低即成立缺口。
+            _hm1 = _H[_g2 - 1]; _lm1 = _L[_g2 - 1]; _cg = _C[_g2]
+            if any(_v != _v for _v in (_hm1, _lm1, _cg)):            # NaN
                 continue
-            if _cg > _hm1 and _cn > _hm1:                             # bull proto：g 收盤站上前根高點 + g+1 收盤沒跌回缺口底
+            if _cg > _hm1:                                            # bull proto：g 收盤站上前根高點即成立
                 _pt, _pb, _pd = _cg, _hm1, "l"                       # 缺口區 [H[g-1], C[g]]
                 if (_pt - _pb) / _pb < _MSMIN: continue
-            elif _cg < _lm1 and _cn < _lm1:                          # bear proto：g 收盤破前根低點 + g+1 收盤沒漲回缺口頂
+            elif _cg < _lm1:                                          # bear proto：g 收盤破前根低點即成立
                 _pt, _pb, _pd = _lm1, _cg, "s"                       # 缺口區 [C[g], L[g-1]]
                 if (_pt - _pb) / _pt < _MSMIN: continue
             else:
