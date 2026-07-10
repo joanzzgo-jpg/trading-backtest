@@ -1,6 +1,16 @@
 document.addEventListener("DOMContentLoaded", async () => {
   loadPrefs();
 
+  // ── 全域互動讓路：任何捲動/觸控拖曳/滾輪 → 標記 _chartMoveTs → 背景天氣動畫降到 ~15fps 讓出主執行緒。
+  //    原本只有「圖表平移/縮放」會觸發降幀；滑行情列、切分頁、頁面捲動時天氣仍全速跑而搶主執行緒＝卡。
+  //    這裡補上全域覆蓋(snoop 現成 _chartMoveTs 機制，零新系統)。scroll 用 capture 才抓得到內層容器捲動。
+  {
+    const _mark = () => { window._chartMoveTs = (performance.now ? performance.now() : Date.now()); };
+    document.addEventListener("scroll", _mark, { capture: true, passive: true });
+    window.addEventListener("touchmove", _mark, { passive: true });
+    window.addEventListener("wheel", _mark, { passive: true });
+  }
+
   // 開場首頁：按「開始」淡出進入圖表（圖表已在背景照常載入，按下時已就緒）
   (function initLanding() {
     const scr = document.getElementById("landingScreen");
