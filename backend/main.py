@@ -392,10 +392,13 @@ async def _warmup():
         notify_monitor.start()   # CRT 訊號 Web Push 背景監控（無訂閱時自動空轉、極低成本）
     except Exception as e:
         print(f"  ⚠ 訊號監控啟動失敗：{e}")
-    # 勝率預熱：只 Railway、延遲 120s 開工(避開 healthcheck) → 線上使用者切主流幣近即時。
-    if bool(os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("RAILWAY_PROJECT_ID") or os.getenv("RAILWAY_SERVICE_ID")):
+    # 勝率預熱：⚠ 預設**關**。實測它每 4s 跑 _calc_crt_winrate(0.8s 純Python、佔 GIL)→ 在 leader worker
+    #   上會擋住請求處理、線上感覺卡 → CP 值不划算(幫切標的、卻害全體卡)。需要時設 WARM_WR=1 才開
+    #   (且建議先把 worker 內間隔拉大成溫和版)。
+    if (os.getenv("WARM_WR") == "1" and
+            bool(os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("RAILWAY_PROJECT_ID") or os.getenv("RAILWAY_SERVICE_ID"))):
         threading.Thread(target=_winrate_warm_worker, daemon=True).start()
-        print("  ✓ 勝率預熱 worker 已排程（Railway、延遲120s、前15、1h/15m）")
+        print("  ✓ 勝率預熱 worker 已排程（WARM_WR=1、延遲120s）")
 
 
 @app.get("/")
