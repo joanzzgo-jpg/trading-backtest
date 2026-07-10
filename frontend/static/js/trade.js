@@ -171,6 +171,7 @@ function _trdRenderOverview() {
   _set("#coachMax", co.maxPos ?? 5); _set("#coachSl", co.slPct ?? 0);
   if ($("#coachDirs")) $("#coachDirs").value = co.dirs || "both";
   if ($("#coachTp")) $("#coachTp").value = co.tp || "tp2";
+  _btn("#coachEntryBtn", co.entry === "market", co.entry === "market" ? "市價" : "限價");
   _btn("#coachUniverse", co.universe === "top60" || co.universe === "top20", (co.universe === "top60" || co.universe === "top20") ? "成交量前60" : "自選");
   // 倉位模式（各頁各自）：riskUsd>0 → 止損算槓桿
   const _af = document.activeElement;
@@ -273,6 +274,7 @@ function _trdSaveAuto() {
   const coRisk = $("#coachMode .trd-amode-btn.sel")?.dataset.mode === "risk";
   a.coach = {
     on: !!$("#coachOn")?.classList.contains("sel"),
+    entry: $("#coachEntryBtn")?.classList.contains("sel") ? "market" : "limit",
     dirs: $("#coachDirs")?.value || "both",
     tp: $("#coachTp")?.value || "tp2",
     usdt: num("#coachUsdt", 50), lev: num("#coachLev", 3),
@@ -719,7 +721,8 @@ function _trdBuildPopup() {
       </div>
       <!-- ===== 教練子頁（SR+SMC 多空，市價進場+訊號止損+單一固定TP）===== -->
       <div class="trd-strat-page trd-sp-coach">
-        <div class="trd-sal-cell"><label>啟用 教練<small>SR+SMC 多空（固定 4h 方向／15m 進場；可進場那刻市價進場）</small></label><button id="coachOn" class="trd-chip trd-sal-btn">關</button></div>
+        <div class="trd-sal-cell"><label>啟用 教練<small>SR+SMC 多空（固定 4h 方向／15m 進場）</small></label><button id="coachOn" class="trd-chip trd-sal-btn">關</button></div>
+        <div class="trd-sal-cell"><label>進場模式<small>限價＝BOS 確認就在進場區掛限價單，價來了自動成交(教練原生設計、不錯過)；市價＝現價已在區內那刻市價進場(只在掃到的瞬間，較易錯過)</small></label><button id="coachEntryBtn" class="trd-chip trd-sal-btn">限價</button></div>
         <div class="trd-note" style="border-color:#c88;background:rgba(200,120,90,.08)">⚠ 此方向策略的獲利力<b>尚未回測驗證</b>（你的筆記：方向性 edge 多半是假象）。強烈建議先用<b>測試網/紙上</b>跑一陣子、確認勝率與盈虧曲線再考慮實盤。</div>
         <div class="trd-sal-cell"><label>標的來源<small>自選＝你的合約自選清單；成交量前60＝自動取前60大加密永續(教練掃描範圍)</small></label><button id="coachUniverse" class="trd-chip trd-sal-btn">自選</button></div>
         <div class="trd-sub trd-grp-hd">出場止盈</div>
@@ -885,6 +888,13 @@ function _trdBuildPopup() {
     if (!b.classList.contains("sel") &&
         !confirm("⚠ FVG 標的改『成交量前20』？\n自動取成交量前20大加密永續(COIN、排除黃金/RWA)，每日更新，不再用你的自選清單。回測:前20大幣 edge 最扎實、成交率最可靠。確定改？")) return;
     b.classList.toggle("sel"); b.textContent = b.classList.contains("sel") ? "成交量前20" : "自選";
+    _trdSaveAuto();
+  });
+  // 教練 進場模式（限價／市價）
+  pop.querySelector("#coachEntryBtn")?.addEventListener("click", e => {
+    e.stopPropagation();
+    const b = e.currentTarget;
+    b.classList.toggle("sel"); b.textContent = b.classList.contains("sel") ? "市價" : "限價";
     _trdSaveAuto();
   });
   // 教練 標的來源（自選／成交量前60）

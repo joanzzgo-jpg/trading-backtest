@@ -494,10 +494,9 @@ def _fvg_approach_scan():
         print(f"  ⚠ FVG逼近掃描失敗：{e}")
 
 
-def _coach_autotrade(sym, h):
-    """教練 setup 命中(可進場) → 走既有自動交易引擎：市價進場 + 訊號止損 + 單一固定 TP(帳號選 TP1-4 一檔)。
-    逐帳號 gate/下單、TP 檔位選取、去重、持倉上限全在 execute_signal_trade / _exec_signal_for_account 內。
-    ⚠ env 沿用各帳號設定(預設 testnet 紙上)；此策略方向 edge 未回測驗證，屬實驗性。"""
+def _coach_autotrade_market(sym, h):
+    """教練『市價』帳號進場(only near_pct==0=現價在區內)：走既有引擎市價路徑。
+    限價帳號在 execute_signal_trade→_exec_signal_for_account 內會因 entry=='limit' 自動 skip、改由 place_coach_limit 掛單。"""
     plan = h.get("plan") or {}
     ent = plan.get("entry"); sl = plan.get("sl")
     tps = plan.get("tps") or ([plan.get("tp")] if plan.get("tp") is not None else [])
@@ -512,7 +511,24 @@ def _coach_autotrade(sym, h):
         from routes.trade import execute_signal_trade
         execute_signal_trade("crypto", "binance", sym, "15m", "coach", d, sig)
     except Exception as e:
-        print(f"  ⚠ 教練自動下單失敗 {sym}: {e}")
+        print(f"  ⚠ 教練市價下單失敗 {sym}: {e}")
+
+
+def _coach_dispatch(sym, h, coach_accts):
+    """教練命中(default時框、stage≥5) → 分派下單：
+    - 市價帳號：只有現價已在進場區內(near_pct==0)才市價進場。
+    - 限價帳號：near_pct 0~3(at_entry 都算)→ 在進場區掛限價單、價來了自動成交(不會錯過)。"""
+    npc = h.get("near_pct", 0)
+    if npc == 0:
+        _coach_autotrade_market(sym, h)
+    for name, cfg in coach_accts:
+        co = cfg.get("coach") or {}
+        if co.get("entry", "limit") == "limit":
+            try:
+                from routes.trade import place_coach_limit
+                place_coach_limit(name, co, "crypto", "binance", sym, "15m", h)
+            except Exception as e:
+                print(f"  ⚠ 教練限價掛單失敗 {sym}: {e}")
 
 
 def _coach_scan_push():
@@ -554,8 +570,8 @@ def _coach_scan_push():
             # ── 教練自動交易：只 default(4h方向/15m進場)、現價已在進場區內(near_pct==0)、stage≥5(BOS確認,
             #    與面板顯示/推播同門檻)才市價下單。市價進場故仍要求 near_pct==0(價在區內)→ 成交價≈計畫進場；
             #    「接近中(near_pct>0)」不下(避免離計畫進場太遠)。逐帳號 gate 在 execute_signal_trade 內。 ──
-            if coach_accts and ver == "default" and h.get("near_pct", 0) == 0 and h.get("stage", 0) >= 5:
-                _coach_autotrade(sym, h)
+            if coach_accts and ver == "default" and h.get("stage", 0) >= 5:
+                _coach_dispatch(sym, h, coach_accts)
             if not subs:
                 continue   # 沒推播訂閱者 → 只跑自動交易、不推播
             if h.get("near_pct", 0) > 0:
@@ -621,6 +637,12 @@ def run_monitor_loop():
             reconcile_manual_pending_all()
         except Exception as e:
             print(f"  ⚠ 手動限價補掛失敗：{e}")
+        # 每 ~60s：教練限價單成交就「即時補掛止損止盈」、過期/幽靈殘單清理
+        try:
+            from routes.trade import reconcile_coach_pending_all
+            reconcile_coach_pending_all()
+        except Exception as e:
+            print(f"  ⚠ 教練限價補掛失敗：{e}")
         # 每 10 分鐘：推播自動交易狀況給 owner
         now = time.time()
         if now - last_status >= 600:
