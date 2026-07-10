@@ -1886,28 +1886,42 @@
 
     _layers.far.ctx.lineCap = _layers.mid.ctx.lineCap = gn.lineCap = "round";
     const wDrift = _windDriftPx();                 // 風向水平位移（+右 -左），隨風速
-    const lean   = _windVecX() * (0.10 + _wd.windSpeed*0.012);  // 雨絲傾斜度（隨風向/風速）
+    const lean   = _windVecX() * (0.10 + Math.min(1.3, _wd.windSpeed*0.024));  // 雨絲傾斜度：隨風速加大更明顯（10km/h~19°、25~35°、50+~52°封頂）
+    // ★ 批次繪製(2026-07-11)：先更新位置、把每滴線段依「層×色×粗細桶×透明桶」分組，再每組一次 stroke
+    //   → 原本每滴各自 beginPath+stroke(~300次/幀) 降到 ~數十次；雨滴數/樣子不變(透明度量化 1/40、粗細4桶、肉眼無差)。
+    const _rbins = new Map();
+    const _wq = w => (w < 0.8 ? 0.6 : w < 1.6 ? 1.2 : w < 2.4 ? 2.0 : 3.0);
     rainP.forEach(p => {
-      const g2 = _ctxFor(p.z);                      // 依景深落層：相機移動時近雨快掠、遠雨幾乎不動（真透視）
-      const n = p.z>0.55;                           // 近景
-      const pa = p.a * intensity;                   // 透明度隨雨勢漸起
-      // (2026-07-10 移除近景雨滴 shadowBlur：對線條做陰影模糊是 canvas 最貴操作、桌面吃重；視覺幾乎無差、省很多)
-      g2.strokeStyle = n?`rgba(200,232,255,${pa})`:`rgba(130,176,224,${pa})`;
-      g2.lineWidth = p.w;                           // 線寬隨景深（近粗遠細）
-      g2.beginPath(); g2.moveTo(p.x,p.y); g2.lineTo(p.x + lean*p.len, p.y+p.len); g2.stroke();
-      p.y += p.spd; p.x += wDrift*(0.4+p.z);        // 近景水平位移大；方向跟著風（鏡頭視差交給 3D 層）
-      if (p.y>H+p.len) {
-        if (n && ripples.length<45 && Math.random()<intensity)   // 雨勢越大、漣漪/水花越多
-          ripples.push({x:p.x, y:H*.968, r:0, maxR:6+Math.random()*13*p.z, a:.30*p.z+.14});
-        if (p.z>0.7 && splashes.length<70 && Math.random()<intensity) {  // 近景大雨滴落地 → 向上濺起小水花
-          const cnt = 2+Math.floor(Math.random()*2);
-          for (let k=0;k<cnt;k++){
-            const ang=-Math.PI/2 + (Math.random()-0.5)*1.15, sp=1.4+Math.random()*2.6*p.z;
-            splashes.push({ x:p.x, y:H*.963, vx:Math.cos(ang)*sp, vy:Math.sin(ang)*sp, life:0, max:9+Math.random()*8, a:.55*p.z });
+      const n = p.z > 0.55;                          // 近景
+      const pa = Math.round(p.a * intensity * 40) / 40;   // 透明度量化(1/40步)
+      if (pa > 0.002) {                              // 幾乎全透明就不畫
+        const sw = _wq(p.w);
+        const lyr = p.z < 0.33 ? 0 : p.z < 0.66 ? 1 : 2;
+        const key = lyr + '|' + (n ? 1 : 0) + '|' + sw + '|' + pa;
+        let b = _rbins.get(key);
+        if (!b) { b = { ctx: _ctxFor(p.z), sw, col: n ? `rgba(200,232,255,${pa})` : `rgba(130,176,224,${pa})`, s: [] }; _rbins.set(key, b); }
+        b.s.push(p.x, p.y, p.x + lean * p.len, p.y + p.len);
+      }
+      p.y += p.spd; p.x += wDrift * (0.4 + p.z);      // 近景水平位移大；方向跟著風（鏡頭視差交給 3D 層）
+      if (p.y > H + p.len) {
+        if (n && ripples.length < 45 && Math.random() < intensity)   // 雨勢越大、漣漪/水花越多
+          ripples.push({ x: p.x, y: H * .968, r: 0, maxR: 6 + Math.random() * 13 * p.z, a: .30 * p.z + .14 });
+        if (p.z > 0.7 && splashes.length < 70 && Math.random() < intensity) {  // 近景大雨滴落地 → 向上濺起小水花
+          const cnt = 2 + Math.floor(Math.random() * 2);
+          for (let k = 0; k < cnt; k++) {
+            const ang = -Math.PI / 2 + (Math.random() - 0.5) * 1.15, sp = 1.4 + Math.random() * 2.6 * p.z;
+            splashes.push({ x: p.x, y: H * .963, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp, life: 0, max: 9 + Math.random() * 8, a: .55 * p.z });
           }
         }
-        p.y=-p.len; p.x=Math.random()*(W+60)-30;
+        p.y = -p.len; p.x = Math.random() * (W + 60) - 30;
       }
+    });
+    _rbins.forEach(b => {                             // 每組(同色同粗細)合成一條 path、一次 stroke
+      b.ctx.strokeStyle = b.col; b.ctx.lineWidth = b.sw;
+      b.ctx.beginPath();
+      const s = b.s;
+      for (let i = 0; i < s.length; i += 4) { b.ctx.moveTo(s[i], s[i + 1]); b.ctx.lineTo(s[i + 2], s[i + 3]); }
+      b.ctx.stroke();
     });
 
     /* puddle ripple rings → 近景層（地面在觀者腳前） */
