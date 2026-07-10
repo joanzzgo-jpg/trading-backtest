@@ -23,7 +23,7 @@
   <link rel="stylesheet" href="/static/vendor/fonts.css?v={{ ver }}">
   <!-- LightweightCharts 自架(同源)：原走 unpkg CDN，部分裝置/網路(iPad、某些Windows/公司網)連不到 CDN
        → LightweightCharts undefined → 整個 app「進不去」。改自架後跟 app 同源、必達，不再依賴外部 CDN。 -->
-  <script src="/static/vendor/lightweight-charts.standalone.production.js?v={{ ver }}"></script>
+  <script defer src="/static/vendor/lightweight-charts.standalone.production.js?v={{ ver }}"></script>
   <link rel="stylesheet" href="/static/css/style.css?v={{ ver }}" />
   <script>
     // 極簡模式（perf mode）：在 body 渲染前先掛上 class，避免特效資源被瀏覽器排程
@@ -1215,6 +1215,6 @@
   background:rgba(18,20,26,0.9);border:1px solid rgba(255,255,255,0.14);border-radius:8px;
   padding:7px 9px;font:12px/1.5 -apple-system,'PingFang TC',sans-serif;color:#e6e6e6;
   pointer-events:none;backdrop-filter:blur(3px);box-shadow:0 2px 12px rgba(0,0,0,0.45)"></div>
-<script src="/static/js/app.bundle.js?v={{ ver }}"></script>
+<script defer src="/static/js/app.bundle.js?v={{ ver }}"></script>
 </body>
 </html>
