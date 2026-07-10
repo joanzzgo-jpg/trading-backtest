@@ -611,12 +611,13 @@ def _apply_perp_filter(tickers: list) -> list:
 # ══════════════════════════════════════════════════════════════
 def _fetch_bybit(symbol: str, timeframe: str,
                  start: Optional[str], end: Optional[str], limit: int,
-                 max_candles: int = 3000) -> pd.DataFrame:
+                 max_candles: int = 3000, category: str = "spot") -> pd.DataFrame:
+    """category='spot'(現貨) 或 'linear'(USDT 永續)。linear 供 perp K 線備援(Binance/Pionex 都掛時)。"""
     sym = _sym_bybit(symbol)
     tf  = BYBIT_TF.get(timeframe, "D")
 
     if start is None and end is None:
-        url = f"{BYBIT_BASE}/v5/market/kline?category=spot&symbol={sym}&interval={tf}&limit={limit}"
+        url = f"{BYBIT_BASE}/v5/market/kline?category={category}&symbol={sym}&interval={tf}&limit={limit}"
         data = _get(url)
         rows = data.get("result", {}).get("list", [])
         # Bybit 回傳順序為倒序
@@ -629,7 +630,7 @@ def _fetch_bybit(symbol: str, timeframe: str,
     cursor = end_ms
 
     while True:
-        params = {"category": "spot", "symbol": sym, "interval": tf, "limit": 1000}
+        params = {"category": category, "symbol": sym, "interval": tf, "limit": 1000}
         if cursor: params["end"]   = cursor
         if since:  params["start"] = since
         url   = f"{BYBIT_BASE}/v5/market/kline?{urllib.parse.urlencode(params)}"
@@ -858,6 +859,14 @@ def fetch_crypto_ohlcv(
                     return df
             except Exception as e:
                 last_err = e
+            # Bybit USDT 永續備援：Binance 撞 418 冷卻時、且 Pionex 沒有此幣(如 KORU)→ 兩邊都掛。
+            #   Bybit(linear) 涵蓋多數 Binance 獨有 perp、對機房 IP 較不兇 → 補上這條，避免整個「找不到」。
+            try:
+                df = _fetch_bybit(symbol, timeframe, start, end, limit, max_candles=mc, category="linear")
+                if not df.empty:
+                    return df
+            except Exception as e:
+                last_err = e
             if time.time() < _PIONEX_COOLDOWN_UNTIL:
                 raise ValueError(f"{symbol} 暫時無法取得：Pionex 限流冷卻中（剩 {int(_PIONEX_COOLDOWN_UNTIL - time.time())} 秒，請等待後再試）")
             raise ValueError(f"找不到 {symbol} 的行情資料，請確認標的代號是否正確")
@@ -890,6 +899,14 @@ def fetch_crypto_ohlcv(
                     return df
             except Exception as e:
                 last_err = e
+        # Bybit 備援(Binance/Pionex 都掛時)：perp→linear、其餘→spot。避免 Binance 418 冷卻時整個「找不到」。
+        try:
+            df = _fetch_bybit(symbol, timeframe, start, end, limit, max_candles=mc,
+                              category=("linear" if is_perp else "spot"))
+            if not df.empty:
+                return df
+        except Exception as e:
+            last_err = e
         # 區分限流（429）與真的找不到：限流時別誤導使用者「代號錯誤」
         es = str(last_err).lower() if last_err is not None else ""
         es_zh = str(last_err) if last_err is not None else ""
