@@ -66,8 +66,15 @@ _SS_DEFAULT = {"on": False, "sigs": [], "tfs": [], "dirs": "both",
 # universe=標的來源：watchlist(自選,預設)/top20(成交量前20加密永續,排除RWA如PAXG黃金,每日重抓)。
 _FVG_DEFAULT = {"on": False, "entry": "market", "dirs": "both",
                 "usdt": 50.0, "lev": 3, "riskUsd": 0.0, "maxPos": 15, "universe": "watchlist"}
+# 教練(SR+SMC 多空)子設定：市價進場+訊號止損+單一固定 TP(用 TP1-4 其中一檔)。時框固定 default(4h方向/
+# 15m進場)、stage≥7(可進場)才下 → 無 tfs/sigs；universe=watchlist(自選)/top60(教練掃描前60)。
+# ⚠ 此策略方向性 edge 尚未回測驗證 → 預設 off、且交易 env 沿用帳號設定(預設 testnet 紙上)。
+_COACH_DEFAULT = {"on": False, "dirs": "both",
+                  "usdt": 50.0, "lev": 3, "riskUsd": 0.0, "maxPos": 5,
+                  "universe": "watchlist", "tp": "tp2",
+                  "slPct": 0.0, "perSym": {}}
 _AUTO_DEFAULT = {"on": False, "owner": "",
-                 "ss": dict(_SS_DEFAULT), "fvg": dict(_FVG_DEFAULT)}
+                 "ss": dict(_SS_DEFAULT), "fvg": dict(_FVG_DEFAULT), "coach": dict(_COACH_DEFAULT)}
 
 
 # ── 金鑰加密（Fernet）：Secret 加密後才入庫 ───────────────────
@@ -506,14 +513,33 @@ def _clean_fvg(p: dict) -> dict:
     return o
 
 
+def _clean_coach(p: dict) -> dict:
+    """教練子設定 sanitize（時框固定 default → 無 tfs；sigs 由掃描階段 stage 決定）。"""
+    p = p or {}
+    o = dict(_COACH_DEFAULT)
+    o["on"] = bool(p.get("on"))
+    if p.get("dirs") in ("both", "long", "short"):
+        o["dirs"] = p["dirs"]
+    o["usdt"] = _num(p.get("usdt"), 50.0, 1.0, 100000.0)
+    o["lev"] = _num(p.get("lev"), 3, 1, 50, True)
+    o["riskUsd"] = _num(p.get("riskUsd") or 0, 0.0, 0.0, 100000.0)
+    o["maxPos"] = _num(p.get("maxPos"), 5, 1, 50, True)
+    o["universe"] = "top60" if p.get("universe") in ("top20", "top60") else "watchlist"
+    o["tp"] = p.get("tp") if p.get("tp") in ("tp1", "tp2", "tp3", "tp4") else "tp2"
+    o["slPct"] = _num(p.get("slPct") or 0, 0.0, 0.0, 50.0)
+    o["perSym"] = p.get("perSym") if isinstance(p.get("perSym"), dict) else {}
+    return o
+
+
 def _clean_auto(p: Optional[dict]) -> dict:
     """回巢狀 {on, owner, ss:{…}, fvg:{…}}。相容『舊扁平 cfg』→ 平滑遷移到 ss/fvg 兩份。
     owner=綁定擁有者帳號：自動交易只下此帳號自選清單裡的標的（避免掃到別人自選就用你的 Binance 下單）。"""
     p = p or {}
     out = {"on": bool(p.get("on")), "owner": (p.get("owner") or "").strip()[:40]}
-    if "ss" in p or "fvg" in p:
+    if "ss" in p or "fvg" in p or "coach" in p:
         out["ss"] = _clean_ss(p.get("ss") or {})
         out["fvg"] = _clean_fvg(p.get("fvg") or {})
+        out["coach"] = _clean_coach(p.get("coach") or {})
     else:
         # ── 舊扁平格式遷移：sizing/sigs/tfs/緩衝/加倉 全給 SS；FVG 取舊 fvgEntry+sizing、maxPos 預設15 ──
         ss = _clean_ss(p)
@@ -524,12 +550,14 @@ def _clean_auto(p: Optional[dict]) -> dict:
                           "usdt": p.get("usdt"), "lev": p.get("lev"), "riskUsd": p.get("riskUsd")})
         fvg["on"] = "fvg" in (p.get("sigs") or [])     # 舊有勾 fvg → FVG 開
         out["fvg"] = fvg
+        out["coach"] = _clean_coach({})                # 舊格式無教練 → 預設關
     return out
 
 
 def _auto_active(cfg: dict) -> bool:
     """此帳號自動交易是否有效＝主開關 on 且至少一個策略開。"""
-    return bool(cfg.get("on") and (cfg.get("ss", {}).get("on") or cfg.get("fvg", {}).get("on")))
+    return bool(cfg.get("on") and (cfg.get("ss", {}).get("on") or cfg.get("fvg", {}).get("on")
+                                   or cfg.get("coach", {}).get("on")))
 
 
 def get_auto_cfg(name: str = None, fresh: bool = False) -> dict:
@@ -725,7 +753,8 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
     if market != "crypto":
         return
     for _name, _cfg in get_all_auto_cfgs():
-        scfg = _cfg["fvg"] if k == "fvg" else _cfg["ss"]   # 各策略獨立子設定（sizing/maxPos/方向…）
+        scfg = (_cfg["fvg"] if k == "fvg" else
+                _cfg["coach"] if k == "coach" else _cfg["ss"])   # 各策略獨立子設定（sizing/maxPos/方向…）
         if not scfg.get("on"):
             continue
         try:
@@ -734,15 +763,18 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
             print(f"  ⚠ 自動下單失敗 {_name} {symbol} {tf} {k}/{d}：{e}")
 
 
-def _open_pos_count(name, fvg_only) -> int:
-    """此帳號目前未了結的自動倉數（供各策略獨立 maxPos）。fvg_only=True 只算 FVG(含 pending 限價)；
-    False 只算 SS。"""
+def _open_pos_count(name, strat) -> int:
+    """此帳號目前未了結的自動倉數（供各策略獨立 maxPos）。
+    strat="fvg" 只算 FVG(含 pending 限價)；"coach" 只算教練；其餘(ss1/2/3) 只算 SS。"""
     try:
         c, ph = _acct._db()
         try:
-            if fvg_only:
+            if strat == "fvg":
                 r = c.execute(f"SELECT COUNT(*) FROM trade_log WHERE source='auto' AND acct={ph} "
                               f"AND sig='fvg' AND status IN ('open','pending')", (name,)).fetchone()
+            elif strat == "coach":
+                r = c.execute(f"SELECT COUNT(*) FROM trade_log WHERE source='auto' AND acct={ph} "
+                              f"AND sig='coach' AND status='open'", (name,)).fetchone()
             else:
                 r = c.execute(f"SELECT COUNT(*) FROM trade_log WHERE source='auto' AND acct={ph} "
                               f"AND sig IN ('ss1','ss2','ss3') AND status='open'", (name,)).fetchone()
@@ -761,6 +793,14 @@ def _exec_signal_for_account(name, cfg, market, exchange, symbol, tf, k, d, sig,
             # FVG 限價版由 place_fvg_limit_ladder 在缺口確認時掛限價 → 市價路徑(fvg_sigs)不下單。
             if cfg.get("entry") == "limit":
                 return
+        elif k == "coach":
+            # 教練：已在掃描階段過濾(default時框/stage≥7可進場/現價在區內) → 此處無 sigs/tfs 閘門。
+            # 依此帳號選定的 TP 檔位(cfg.tp)從 sig.tps 取單一固定止盈價（複製 sig，勿改到共用 dict）。
+            if sig.get("tp") is None:
+                _tps = sig.get("tps") or []
+                if _tps:
+                    _idx = {"tp1": 0, "tp2": 1, "tp3": 2, "tp4": 3}.get(cfg.get("tp", "tp2"), 1)
+                    sig = {**sig, "tp": float(_tps[min(_idx, len(_tps) - 1)])}
         else:
             # SS：訊號/時框未勾 → 靜默 return（量大，留紀錄會洗版）。
             if not (k in cfg.get("sigs", []) and tf in cfg.get("tfs", [])):
@@ -843,7 +883,7 @@ def _exec_signal_for_account(name, cfg, market, exchange, symbol, tf, k, d, sig,
             is_add = True; add_row_id = _r[0]; add_old_sl = _r[2]; add_old_sl_oid = _r[3]
             # 原進場訊號鍵/方向/訊號棒時間 → 讓加倉通知「回覆」串接回原自動進場訊息（同一串）
             add_entry_sig = _r[4]; add_entry_d = _r[5]; add_entry_sigt = _r[6]
-        elif _open_pos_count(name, k == "fvg") >= cfg["maxPos"]:   # 各策略獨立計數(只算同策略倉)
+        elif _open_pos_count(name, k) >= cfg["maxPos"]:   # 各策略獨立計數(只算同策略倉)
             _log_trade(source="auto", acct=name, mode=client.env, status="skipped", symbol=symbol, bsym=bsym,
                        side=want, sig=k, d=d, tf=tf, sigt=str(sig.get("t")),
                        msg=f"持倉數已達上限 {cfg['maxPos']}")
@@ -1288,8 +1328,11 @@ def top_crypto_universe(n=60):
 
 
 def fvg_account_symbols(name, fvg_cfg):
-    """此帳號 FVG 要掃/掛的標的(watchlist 格式)：universe=top20 → 成交量前20;否則該帳號自選。"""
-    if (fvg_cfg or {}).get("universe") in ("top20", "top60"):
+    """此帳號要掃/掛的標的(watchlist 格式)：universe=top60→成交量前60(教練)、top20→前20(FVG)；否則該帳號自選。"""
+    _u = (fvg_cfg or {}).get("universe")
+    if _u == "top60":
+        return top_crypto_universe(60)
+    if _u == "top20":
         return top_crypto_universe(20)
     import routes.notify as notify
     return notify.account_watchlist(name)

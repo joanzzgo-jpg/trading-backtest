@@ -494,15 +494,41 @@ def _fvg_approach_scan():
         print(f"  ⚠ FVG逼近掃描失敗：{e}")
 
 
+def _coach_autotrade(sym, h):
+    """教練 setup 命中(可進場) → 走既有自動交易引擎：市價進場 + 訊號止損 + 單一固定 TP(帳號選 TP1-4 一檔)。
+    逐帳號 gate/下單、TP 檔位選取、去重、持倉上限全在 execute_signal_trade / _exec_signal_for_account 內。
+    ⚠ env 沿用各帳號設定(預設 testnet 紙上)；此策略方向 edge 未回測驗證，屬實驗性。"""
+    plan = h.get("plan") or {}
+    ent = plan.get("entry"); sl = plan.get("sl")
+    tps = plan.get("tps") or ([plan.get("tp")] if plan.get("tp") is not None else [])
+    if not ent or sl is None or not tps:
+        return
+    d = "l" if h.get("direction") == 1 else "s"
+    try:
+        entry_mid = (float(ent[0]) + float(ent[1])) / 2.0
+        # sig.t=去重指紋(方向+止損位)：同一 setup 跨掃描只下一次；換 setup(止損位變)才再下。
+        sig = {"entry": entry_mid, "stop": float(sl),
+               "tps": [float(t) for t in tps], "t": f"{d}:{round(float(sl), 4)}", "r": None}
+        from routes.trade import execute_signal_trade
+        execute_signal_trade("crypto", "binance", sym, "15m", "coach", d, sig)
+    except Exception as e:
+        print(f"  ⚠ 教練自動下單失敗 {sym}: {e}")
+
+
 def _coach_scan_push():
     """背景：掃前60加密永續的教練，發現新 setup(stage≥5=BOS 延續完成)→ Web Push + 寫訊號中心(event=coach)。
     步驟5=setup成立、步驟6=去掛限價單、步驟7=觸碰成交 → 提前到 BOS 一確認就推,對限價單交易者留掛單前置時間。
     同標的同方向同版每小時最多推一次(seen_event 去重,先到的早階段先推、後面同小時同標的不重推)。純資訊、不下單。"""
     import routes.notify as notify
-    if not notify.notify_enabled():
-        return
-    subs = notify.all_active_subs()
-    if not subs:
+    # 教練自動交易帳號(獨立於推播訂閱：可能只開自動交易、沒訂閱推播)
+    try:
+        from routes.trade import get_all_auto_cfgs
+        coach_accts = [(n, c) for n, c in get_all_auto_cfgs() if (c.get("coach") or {}).get("on")]
+    except Exception:
+        coach_accts = []
+    push_on = notify.notify_enabled()
+    subs = notify.all_active_subs() if push_on else []
+    if not subs and not coach_accts:
         return
     try:
         from routes.data import coach_scan_api
@@ -525,6 +551,12 @@ def _coach_scan_push():
     for r in hits:
         sym = r["symbol"]
         for ver, h in (r.get("hits") or {}).items():
+            # ── 教練自動交易：只 default(4h方向/15m進場)、現價在區內(near_pct==0)、stage≥7(可進場)才市價下單 ──
+            #    逐帳號 gate/下單在 execute_signal_trade 內；獨立於推播(沒訂閱推播也會下)。
+            if coach_accts and ver == "default" and h.get("near_pct", 0) == 0 and h.get("stage", 0) >= 7:
+                _coach_autotrade(sym, h)
+            if not subs:
+                continue   # 沒推播訂閱者 → 只跑自動交易、不推播
             if h.get("near_pct", 0) > 0:
                 continue   # 「接近」不推,只推「現價正在掛單區內」→ 收到推播=當下就是可進場價
             d = h.get("direction"); dl = "多" if d == 1 else "空"

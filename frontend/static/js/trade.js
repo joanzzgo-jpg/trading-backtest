@@ -139,7 +139,7 @@ function _trdRenderOverview() {
 
   // 自動交易設定（巢狀：{on, owner, ss:{…}, fvg:{…}}）
   const a = ov.auto || {};
-  const ss = a.ss || {}, fv = a.fvg || {};
+  const ss = a.ss || {}, fv = a.fvg || {}, co = a.coach || {};
   const tog = pop.querySelector(".trd-auto-toggle");
   tog.classList.toggle("trd-on", !!a.on);
   const stEl = tog.querySelector(".trd-auto-state");
@@ -152,6 +152,7 @@ function _trdRenderOverview() {
   // 啟用開關
   _btn("#ssOn", ss.on, ss.on ? "開" : "關");
   _btn("#fvgOn", fv.on, fv.on ? "開" : "關");
+  _btn("#coachOn", co.on, co.on ? "開" : "關");
   // SS 子頁
   pop.querySelectorAll(".trd-a-sig").forEach(x => x.classList.toggle("sel", (ss.sigs || []).includes(x.dataset.sig)));
   pop.querySelectorAll(".trd-a-tf").forEach(x => x.classList.toggle("sel", (ss.tfs || []).includes(x.dataset.tf)));
@@ -165,9 +166,15 @@ function _trdRenderOverview() {
   _btn("#fvgEntryBtn", fv.entry === "limit", fv.entry === "limit" ? "限價階梯" : "市價");
   _btn("#fvgUniverse", fv.universe === "top20" || fv.universe === "top60", (fv.universe === "top20" || fv.universe === "top60") ? "成交量前20" : "自選");
   _btn("#fvgHedge", _TRD.st && _TRD.st.hedge, (_TRD.st && _TRD.st.hedge) ? "雙向" : "單向");
-  // 倉位模式（兩頁各自）：riskUsd>0 → 止損算槓桿
+  // 教練 子頁
+  _set("#coachUsdt", co.usdt ?? 50); _set("#coachLev", co.lev ?? 3); _set("#coachRisk", co.riskUsd ?? 0);
+  _set("#coachMax", co.maxPos ?? 5); _set("#coachSl", co.slPct ?? 0);
+  if ($("#coachDirs")) $("#coachDirs").value = co.dirs || "both";
+  if ($("#coachTp")) $("#coachTp").value = co.tp || "tp2";
+  _btn("#coachUniverse", co.universe === "top60" || co.universe === "top20", (co.universe === "top60" || co.universe === "top20") ? "成交量前60" : "自選");
+  // 倉位模式（各頁各自）：riskUsd>0 → 止損算槓桿
   const _af = document.activeElement;
-  [["ss", ss], ["fvg", fv]].forEach(([pfx, c]) => {
+  [["ss", ss], ["fvg", fv], ["coach", co]].forEach(([pfx, c]) => {
     const isRisk = (c.riskUsd || 0) > 0;
     const editing = _af === $(`#${pfx}Risk`) || _af === $(`#${pfx}Usdt`) || _af === $(`#${pfx}Lev`);
     const seg = $(`#${pfx}Mode`);
@@ -261,6 +268,19 @@ function _trdSaveAuto() {
     riskUsd: fvRisk ? Math.max(0, num("#fvgRisk", 0)) : 0,
     maxPos: num("#fvgMax", 15),
     universe: $("#fvgUniverse")?.classList.contains("sel") ? "top20" : "watchlist",
+  };
+  // 教練 子設定（固定 default 時框 → 無 tfs；出場單一固定 TP）
+  const coRisk = $("#coachMode .trd-amode-btn.sel")?.dataset.mode === "risk";
+  a.coach = {
+    on: !!$("#coachOn")?.classList.contains("sel"),
+    dirs: $("#coachDirs")?.value || "both",
+    tp: $("#coachTp")?.value || "tp2",
+    usdt: num("#coachUsdt", 50), lev: num("#coachLev", 3),
+    riskUsd: coRisk ? Math.max(0, num("#coachRisk", 0)) : 0,
+    maxPos: num("#coachMax", 5),
+    slPct: Math.max(0, num("#coachSl", 0)),
+    universe: $("#coachUniverse")?.classList.contains("sel") ? "top60" : "watchlist",
+    perSym: (a.coach && a.coach.perSym) || {},
   };
   delete a.sigs; delete a.tfs; delete a.usdt; delete a.lev; delete a.riskUsd;   // 清掉舊扁平殘留
   delete a.maxPos; delete a.maxAdds; delete a.slPct; delete a.perSym; delete a.fvgEntry; delete a.dirs;
@@ -645,6 +665,7 @@ function _trdBuildPopup() {
       <div class="trd-seg trd-substrat" id="trdAutoStrat">
         <button class="trd-strat-btn sel" data-strat="ss">SS 訊號</button>
         <button class="trd-strat-btn" data-strat="fvg">FVG 缺口</button>
+        <button class="trd-strat-btn" data-strat="coach">教練</button>
       </div>
       <!-- ===== SS 子頁（完整獨立設定）===== -->
       <div class="trd-strat-page trd-sp-ss show">
@@ -695,6 +716,33 @@ function _trdBuildPopup() {
           <div><label>最大同時持倉<small>筆（回測組合上限 15）</small></label><input id="fvgMax" type="number" min="1" max="50"></div>
         </div>
         <div class="trd-note">FVG 固定 1h（缺口寬倍數）；無加倉、無止損緩衝。<br>限價階梯：止損 2W／止盈 6W、缺口寬 >2% 不做、三檔全成交(插到底)→止盈收緊 2W 快跑。<br>市價：收盤確認、止損 3W／止盈 6W。</div>
+      </div>
+      <!-- ===== 教練子頁（SR+SMC 多空，市價進場+訊號止損+單一固定TP）===== -->
+      <div class="trd-strat-page trd-sp-coach">
+        <div class="trd-sal-cell"><label>啟用 教練<small>SR+SMC 多空（固定 4h 方向／15m 進場；可進場那刻市價進場）</small></label><button id="coachOn" class="trd-chip trd-sal-btn">關</button></div>
+        <div class="trd-note" style="border-color:#c88;background:rgba(200,120,90,.08)">⚠ 此方向策略的獲利力<b>尚未回測驗證</b>（你的筆記：方向性 edge 多半是假象）。強烈建議先用<b>測試網/紙上</b>跑一陣子、確認勝率與盈虧曲線再考慮實盤。</div>
+        <div class="trd-sal-cell"><label>標的來源<small>自選＝你的合約自選清單；成交量前60＝自動取前60大加密永續(教練掃描範圍)</small></label><button id="coachUniverse" class="trd-chip trd-sal-btn">自選</button></div>
+        <div class="trd-sub trd-grp-hd">出場止盈</div>
+        <div class="trd-grid">
+          <div><label>止盈檔位<small>教練 TP1–4 擇一固定掛單</small></label><select id="coachTp"><option value="tp1">TP1（最近）</option><option value="tp2">TP2</option><option value="tp3">TP3</option><option value="tp4">TP4（最遠）</option></select></div>
+        </div>
+        <div class="trd-sub trd-grp-hd">倉位</div>
+        <div class="trd-seg trd-amode" id="coachMode">
+          <button class="trd-amode-btn sel" data-mode="margin">自訂槓桿</button>
+          <button class="trd-amode-btn" data-mode="risk">止損算槓桿</button>
+        </div>
+        <div class="trd-grid">
+          <div><label>方向</label><select id="coachDirs"><option value="both">多空都做</option><option value="long">只做多</option><option value="short">只做空</option></select></div>
+          <div><label>進場金額 USDT<small>保證金</small></label><input id="coachUsdt" type="number" min="1"></div>
+          <div id="coachCellLev"><label>槓桿</label><input id="coachLev" type="number" min="1" max="50"></div>
+          <div id="coachCellRisk" hidden><label>止損額 USDT<small>打到停損虧這麼多</small></label><input id="coachRisk" type="number" min="0" step="1" placeholder="0"></div>
+        </div>
+        <div class="trd-sub trd-grp-hd">風險控制</div>
+        <div class="trd-grid">
+          <div><label>最大同時持倉<small>筆</small></label><input id="coachMax" type="number" min="1" max="50"></div>
+          <div><label>止損緩衝 %<small>訊號停損外推；0＝用訊號</small></label><input id="coachSl" type="number" min="0" max="50" step="0.1" placeholder="0"></div>
+        </div>
+        <div class="trd-note">教練固定 default 時框（4h 定方向、15m 找進場）；每 10 分鐘掃前 60 大永續，<b>BOS 確認且現價觸及進場區(可進場)</b>那刻市價進場，掛訊號止損＋你選的單一 TP。<br>換 setup（止損位變）才會再進；同一 setup 只進一次。</div>
       </div>
       <div class="trd-note">⚠ 自動交易掃描的標的＝帳號自選清單（僅合約）。不需開訊號通知也會自動進場。進場後停損/止盈由交易所託管，策略提前止盈止損時會同步平倉。</div>
     </div>
@@ -789,9 +837,9 @@ function _trdBuildPopup() {
     e.stopPropagation(); b.classList.toggle("sel"); _trdSaveAuto();
   }));
   // 倉位模式二選一（SS／FVG 各自一份）：自訂槓桿 / 止損算槓桿
-  pop.querySelectorAll("#ssMode .trd-amode-btn, #fvgMode .trd-amode-btn").forEach(b => b.addEventListener("click", e => {
+  pop.querySelectorAll("#ssMode .trd-amode-btn, #fvgMode .trd-amode-btn, #coachMode .trd-amode-btn").forEach(b => b.addEventListener("click", e => {
     e.stopPropagation();
-    const seg = b.closest(".trd-amode"); const pfx = seg.id === "fvgMode" ? "fvg" : "ss";
+    const seg = b.closest(".trd-amode"); const pfx = seg.id.replace("Mode", "");
     seg.querySelectorAll(".trd-amode-btn").forEach(x => x.classList.toggle("sel", x === b));
     const risk = b.dataset.mode === "risk";
     const cl = pop.querySelector(`#${pfx}CellLev`), cr = pop.querySelector(`#${pfx}CellRisk`);
@@ -802,18 +850,20 @@ function _trdBuildPopup() {
   }));
   // 各輸入改動 → 存檔
   ["#ssUsdt", "#ssLev", "#ssRisk", "#ssMax", "#ssAdds", "#ssSl", "#ssDirs",
-   "#fvgUsdt", "#fvgLev", "#fvgRisk", "#fvgMax", "#fvgDirs"].forEach(id =>
+   "#fvgUsdt", "#fvgLev", "#fvgRisk", "#fvgMax", "#fvgDirs",
+   "#coachUsdt", "#coachLev", "#coachRisk", "#coachMax", "#coachSl", "#coachDirs", "#coachTp"].forEach(id =>
     pop.querySelector(id)?.addEventListener("change", _trdSaveAuto));
-  // SS／FVG 子分頁切換
+  // SS／FVG／教練 子分頁切換
   pop.querySelectorAll(".trd-strat-btn").forEach(b => b.addEventListener("click", e => {
     e.stopPropagation();
     pop.querySelectorAll(".trd-strat-btn").forEach(x => x.classList.toggle("sel", x === b));
     const st = b.dataset.strat;
     pop.querySelector(".trd-sp-ss")?.classList.toggle("show", st === "ss");
     pop.querySelector(".trd-sp-fvg")?.classList.toggle("show", st === "fvg");
+    pop.querySelector(".trd-sp-coach")?.classList.toggle("show", st === "coach");
   }));
-  // 啟用 SS / FVG 開關（各自獨立）
-  ["#ssOn", "#fvgOn"].forEach(id => pop.querySelector(id)?.addEventListener("click", e => {
+  // 啟用 SS / FVG / 教練 開關（各自獨立）
+  ["#ssOn", "#fvgOn", "#coachOn"].forEach(id => pop.querySelector(id)?.addEventListener("click", e => {
     e.stopPropagation();
     const b = e.currentTarget;
     b.classList.toggle("sel"); b.textContent = b.classList.contains("sel") ? "開" : "關";
@@ -835,6 +885,15 @@ function _trdBuildPopup() {
     if (!b.classList.contains("sel") &&
         !confirm("⚠ FVG 標的改『成交量前20』？\n自動取成交量前20大加密永續(COIN、排除黃金/RWA)，每日更新，不再用你的自選清單。回測:前20大幣 edge 最扎實、成交率最可靠。確定改？")) return;
     b.classList.toggle("sel"); b.textContent = b.classList.contains("sel") ? "成交量前20" : "自選";
+    _trdSaveAuto();
+  });
+  // 教練 標的來源（自選／成交量前60）
+  pop.querySelector("#coachUniverse")?.addEventListener("click", e => {
+    e.stopPropagation();
+    const b = e.currentTarget;
+    if (!b.classList.contains("sel") &&
+        !confirm("⚠ 教練標的改『成交量前60』？\n自動取成交量前60大加密永續(教練掃描範圍)，不再用你的自選清單。確定改？")) return;
+    b.classList.toggle("sel"); b.textContent = b.classList.contains("sel") ? "成交量前60" : "自選";
     _trdSaveAuto();
   });
   pop.querySelector("#fvgHedge")?.addEventListener("click", async e => {
