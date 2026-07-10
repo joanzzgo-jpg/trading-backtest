@@ -20,6 +20,7 @@ import json
 import time
 import re
 import secrets
+import threading
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
@@ -46,9 +47,82 @@ def _enabled() -> bool:
     return True
 
 
+# ── Postgres 連線池（只 PG；SQLite 本地連線本就便宜、不池化）──────────────────────
+# 為何：舊 _db() 每次 psycopg.connect() 都要 TCP+認證握手(~10-30ms)。背景對帳每 ~60s 開數十條、
+# 每個 API 也各開一條 → Railway 累積延遲。連線池：getconn 便宜、close() 還池不真斷 → 省握手。
+# ⚠ 安全設計（trad-critical、本機 SQLite 測不到 PG 路徑，故層層保底）：
+#   ① 只 PG 走池、SQLite 完全不變；② 代理 close() 前先 rollback 清未提交狀態(不把開放交易/鎖還進池)，
+#      並保留呼叫端 conn.close() 契約(還池)；③ 池初始化/取用任一失敗 → 回退『直連』(＝現行行為)，
+#      最壞情況只是沒優化、不會壞；④ 環境變數 DB_POOL=0 可『秒關』回退直連(免改碼、免 redeploy 邏輯)。
+_pg_pool = None
+_pg_pool_lock = threading.Lock()
+
+
+def _get_pg_pool():
+    """回連線池物件；停用/失敗 → None（呼叫端回退直連）。只嘗試初始化一次。"""
+    global _pg_pool
+    if os.getenv("DB_POOL", "1") == "0":          # 秒關開關
+        return None
+    if _pg_pool is not None:
+        return _pg_pool or None                   # False→None（初始化失敗過，不再重試）
+    with _pg_pool_lock:
+        if _pg_pool is None:
+            try:
+                from psycopg_pool import ConnectionPool
+                url = _DB_URL.replace("postgres://", "postgresql://", 1)
+                _pg_pool = ConnectionPool(url, min_size=1, max_size=6, timeout=8,
+                                          max_lifetime=600, kwargs={"connect_timeout": 8})
+                print("  ✓ PG 連線池已啟用（min1/max6）")
+            except Exception as e:
+                print(f"  ⚠ PG 連線池初始化失敗、回退直連：{e}")
+                _pg_pool = False                  # 標記失敗、之後一律回退直連
+    return _pg_pool or None
+
+
+class _PooledConn:
+    """psycopg 連線代理：close() 還池(先 rollback 清狀態)不真斷；其餘屬性/方法轉發真連線。"""
+    def __init__(self, conn, pool):
+        object.__setattr__(self, "_c", conn)
+        object.__setattr__(self, "_p", pool)
+        object.__setattr__(self, "_done", False)
+
+    def __getattr__(self, k):
+        return getattr(object.__getattribute__(self, "_c"), k)
+
+    def close(self):
+        if object.__getattribute__(self, "_done"):
+            return
+        object.__setattr__(self, "_done", True)
+        c = object.__getattribute__(self, "_c")
+        p = object.__getattribute__(self, "_p")
+        try:
+            c.rollback()                          # 清未提交狀態→不把開放交易/鎖還進池
+        except Exception:
+            pass
+        try:
+            p.putconn(c)                          # 還池（下次 getconn 直接拿、省握手）
+        except Exception:
+            try:
+                c.close()
+            except Exception:
+                pass
+
+    def __enter__(self):
+        return object.__getattribute__(self, "_c").__enter__()
+
+    def __exit__(self, *a):
+        return object.__getattribute__(self, "_c").__exit__(*a)
+
+
 def _db():
-    """回 (conn, placeholder)。Postgres 用 %s、SQLite 用 ?。"""
+    """回 (conn, placeholder)。Postgres 用 %s（優先連線池、失敗回退直連）、SQLite 用 ?。"""
     if _use_pg():
+        pool = _get_pg_pool()
+        if pool is not None:
+            try:
+                return _PooledConn(pool.getconn(), pool), "%s"
+            except Exception as e:
+                print(f"  ⚠ 連線池取用失敗、本次回退直連：{e}")
         import psycopg
         url = _DB_URL.replace("postgres://", "postgresql://", 1)
         return psycopg.connect(url, connect_timeout=8), "%s"
