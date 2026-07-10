@@ -1886,12 +1886,11 @@
     _layers.far.ctx.lineCap = _layers.mid.ctx.lineCap = gn.lineCap = "round";
     const wDrift = _windDriftPx();                 // 風向水平位移（+右 -左），隨風速
     const lean   = _windVecX() * (0.10 + _wd.windSpeed*0.012);  // 雨絲傾斜度（隨風向/風速）
-    let blurOn = false;                             // 已排序：近景在最後 → 只需切一次 shadowBlur
     rainP.forEach(p => {
       const g2 = _ctxFor(p.z);                      // 依景深落層：相機移動時近雨快掠、遠雨幾乎不動（真透視）
       const n = p.z>0.55;                           // 近景
       const pa = p.a * intensity;                   // 透明度隨雨勢漸起
-      if (p.z>0.92 && !blurOn && !_lowFx) { gn.shadowBlur=3; gn.shadowColor="rgba(200,228,255,.55)"; blurOn=true; }  // 最近景柔焦（z>0.92 必在 near 層）
+      // (2026-07-10 移除近景雨滴 shadowBlur：對線條做陰影模糊是 canvas 最貴操作、桌面吃重；視覺幾乎無差、省很多)
       g2.strokeStyle = n?`rgba(200,232,255,${pa})`:`rgba(130,176,224,${pa})`;
       g2.lineWidth = p.w;                           // 線寬隨景深（近粗遠細）
       g2.beginPath(); g2.moveTo(p.x,p.y); g2.lineTo(p.x + lean*p.len, p.y+p.len); g2.stroke();
@@ -1909,7 +1908,6 @@
         p.y=-p.len; p.x=Math.random()*(W+60)-30;
       }
     });
-    if (blurOn) gn.shadowBlur=0;
 
     /* puddle ripple rings → 近景層（地面在觀者腳前） */
     for (let i=ripples.length-1;i>=0;i--) {
