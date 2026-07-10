@@ -551,9 +551,10 @@ def _coach_scan_push():
     for r in hits:
         sym = r["symbol"]
         for ver, h in (r.get("hits") or {}).items():
-            # ── 教練自動交易：只 default(4h方向/15m進場)、現價在區內(near_pct==0)、stage≥7(可進場)才市價下單 ──
-            #    逐帳號 gate/下單在 execute_signal_trade 內；獨立於推播(沒訂閱推播也會下)。
-            if coach_accts and ver == "default" and h.get("near_pct", 0) == 0 and h.get("stage", 0) >= 7:
+            # ── 教練自動交易：只 default(4h方向/15m進場)、現價已在進場區內(near_pct==0)、stage≥5(BOS確認,
+            #    與面板顯示/推播同門檻)才市價下單。市價進場故仍要求 near_pct==0(價在區內)→ 成交價≈計畫進場；
+            #    「接近中(near_pct>0)」不下(避免離計畫進場太遠)。逐帳號 gate 在 execute_signal_trade 內。 ──
+            if coach_accts and ver == "default" and h.get("near_pct", 0) == 0 and h.get("stage", 0) >= 5:
                 _coach_autotrade(sym, h)
             if not subs:
                 continue   # 沒推播訂閱者 → 只跑自動交易、不推播
