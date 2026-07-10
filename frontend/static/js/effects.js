@@ -572,7 +572,7 @@
 
     const container = document.getElementById("tickerList");
     if (!container) return;
-    const items = [...container.querySelectorAll(".ticker-item")];
+    let items = [...container.querySelectorAll(".ticker-item")];
     if (!items.length) return;
 
     e.preventDefault();
@@ -597,10 +597,20 @@
     }
 
     const activeIdx = items.findIndex(el => el.classList.contains("tk-active"));
+    // ⚠ 不繞回：原本 (activeIdx+1) % items.length 到底就跳回第 0 個；配合報價列漸進渲染(只渲染前 N 列)，
+    //   會在第 N 列就「突然跳回第一個」。改為：到底時若還有更多(cap 未載完)→ 載一批再往下；否則停住不繞。
+    if (e.key === "ArrowDown" && activeIdx >= 0 && activeIdx >= items.length - 1) {
+      if (window._tkGrowMore && window._tkGrowMore()) {
+        items = [...container.querySelectorAll(".ticker-item")];   // 載入後重取
+      } else {
+        return;   // 已到全清單底 → 停住，不繞回第一個
+      }
+    }
     const nextIdx = e.key === "ArrowDown"
-      ? (activeIdx < 0 ? 0 : (activeIdx + 1) % items.length)
-      : (activeIdx <= 0 ? items.length - 1 : activeIdx - 1);
+      ? (activeIdx < 0 ? 0 : Math.min(activeIdx + 1, items.length - 1))
+      : (activeIdx <= 0 ? 0 : activeIdx - 1);   // 到頂停在第一個，不繞到最後
     const next = items[nextIdx];
+    if (!next) return;
 
     items.forEach(x => x.classList.remove("tk-active"));
     next.classList.add("tk-active");

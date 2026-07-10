@@ -69,6 +69,14 @@ function _tkSlice(items) {
   window._tkHasMore = items.length > _tkCap;
   return items.length > _tkCap ? items.slice(0, _tkCap) : items;
 }
+// 鍵盤 ↑↓ 導航到清單底(cap 邊界)時：載入下一批再繼續 → 不會因 cap 讓 ↑↓ 卡在第 120 列或繞回第一個。
+window._tkGrowMore = function () {
+  if (!window._tkHasMore) return false;
+  _tkCap += _TK_CAP_STEP;
+  _lastTickerKey = "";
+  if (typeof renderTickers === "function") renderTickers();
+  return true;
+};
 
 // ── 搜尋欄鍵盤導航（↑↓ 選列、Enter 載入該標的）──────────────
 let _tkSearchFocusIdx = -1;
