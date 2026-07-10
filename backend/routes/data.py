@@ -1778,11 +1778,24 @@ def get_crt_winrate(
         return fetch_crt_df(market, symbol, timeframe, days, exchange,
                             api_key=api_key, api_secret=api_secret, finmind_token=finmind_token)
 
-    # 直接一次抓 TF_MAX 天的資料（不再做 doubling loop —— 過去 S1/S5/S7 等稀有訊號
-    # 永遠達不到 MIN_CASES=40，doubling 會跑滿 4 次浪費 80% 時間）
-    days_max  = TF_MAX.get(timeframe, 3650)
+    # 深度按需(2026-07-11)：深時框(5m~4h)初始只抓「統計 floor 深度」→ 標記快出(fetch 佔冷啟 ~90%)；
+    #   往歷史滑時前端 vw 變大 → 這裡自動加深、補算舊區標記，最深仍到 TF_MAX。floor 已給 ~1.5萬根K
+    #   (遠超 MIN_CASES=40)、勝率統計幾乎不受影響。8h/1d/1w/1M/1m 資料本就少、不縮(維持 TF_MAX)。
+    _tf_max = TF_MAX.get(timeframe, 3650)
+    _FLOOR = {"5m": 60, "15m": 180, "30m": 365, "1h": 730, "2h": 730}   # 4h/8h/1d/1w/1M 維持全深度(都畫、使用者要求)
+    if market == "crypto" and timeframe in _FLOOR:
+        _bsec = _CRT_IV.get(timeframe, 3600)
+        _need = (_vw * _bsec / 86400.0 * 1.15) if _vw > 0 else 0   # vw(往歷史滑)覆蓋天數 + 15% 邊際
+        # 量化成幾級(floor, ×2, ×4, TF_MAX)→ df 快取條目有限、不爆
+        days_max = _tf_max
+        for _lvl in (_FLOOR[timeframe], _FLOOR[timeframe] * 2, _FLOOR[timeframe] * 4, _tf_max):
+            if _lvl >= _need:
+                days_max = min(_lvl, _tf_max); break
+    else:
+        days_max = _tf_max
     # 已抓+enrich 的 df 另外快取（不含 buffer）→ 換 SL 緩衝等重算時免重抓（抓資料佔總時間 90%+）
-    df_key = f"crt_df3:{market}:{symbol}:{exchange}:{timeframe}"
+    # 深度進 key → 不同深度各自快取（滑回加深不覆蓋淺快取、淺請求也不誤用深快取的舊尖端）
+    df_key = f"crt_df3:{market}:{symbol}:{exchange}:{timeframe}:d{days_max}"
     # base 深歷史 TTL：老 K 不可變 → crypto 有下方「尾巴補抓」逐請求保鮮尖端，深歷史可長存 7 天，
     #   不必每 30 分整包重抓 ~70k 根（抓資料佔總時間 90%+，這是切回舊標的卡頓的主因）。
     #   記憶體上限由 data_cache max_size(32 條) 硬卡、與 TTL 無關 → 拉長不影響 RAM 峰值。
