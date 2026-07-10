@@ -328,7 +328,6 @@ def _acquire_leader() -> bool:
         return True    # 其他異常 → 保守當 leader（至少要有一個在跑背景工作）
 
 
-@app.on_event("startup")
 def _winrate_warm_worker():
     """背景預熱勝率/深歷史 → 使用者切標的多半直接命中快取(近即時)、不再等 ~2s 冷啟。
     ⚠ 先前版本疑似參與 Railway healthcheck 逾時 → 這版**啟動後延遲 120s 才開工**，徹底避開 healthcheck 窗
@@ -358,6 +357,7 @@ def _winrate_warm_worker():
         _t.sleep(900)
 
 
+@app.on_event("startup")
 async def _warmup():
     """啟動時立即預熱並啟動背景 ticker 更新（僅 leader worker）。"""
     if not _acquire_leader():
