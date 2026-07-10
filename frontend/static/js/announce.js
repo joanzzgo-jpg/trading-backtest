@@ -155,7 +155,7 @@
       `<div class="ann-head">` +
       `<img class="ann-bear" src="/static/img/bear.png" alt="">` +
       `<div class="ann-head-txt"><div class="ann-title">熊報 · 最新消息</div>` +
-      `<div class="ann-sub">小熊幫你整理了近兩天的更新 🍊</div></div></div>` +
+      `<div class="ann-sub">小啊幫你整理了近兩天的更新 🍊</div></div></div>` +
       `<ul class="ann-list">${items}</ul>` +
       `<div class="ann-foot">` +
       `<button class="ann-btn ann-btn-ghost" id="_annNever">不再提醒</button>` +

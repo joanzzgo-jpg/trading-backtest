@@ -1885,8 +1885,10 @@
     gs.save(); gs.globalAlpha = 0.35 + 0.65*intensity; gs.fillStyle=_gc.rainSky; gs.fillRect(0,0,W,H); gs.restore();
 
     _layers.far.ctx.lineCap = _layers.mid.ctx.lineCap = gn.lineCap = "round";
-    const wDrift = _windDriftPx();                 // 風向水平位移（+右 -左），隨風速
-    const lean   = _windVecX() * (0.10 + Math.min(1.3, _wd.windSpeed*0.024));  // 雨絲傾斜度：隨風速加大更明顯（10km/h~19°、25~35°、50+~52°封頂）
+    // 雨斜度＝直接跟「風速」走（有風就明顯斜、不管風偏東西南北）＋無風也保底斜；方向跟風的東西分量（≈0→預設右、與雲飄一致）
+    const _wsgn = _windVecX() >= 0 ? 1 : -1;
+    const lean = _wsgn * (0.28 + Math.min(1.1, _wd.windSpeed * 0.026));   // 無風~16°、20km/h~39°、45km/h+~54°封頂
+    const wDrift = _wsgn * (0.20 + _wd.windSpeed * 0.02);                 // 水平飄移同向、隨風速（雨看起來斜著飄）
     // ★ 批次繪製(2026-07-11)：先更新位置、把每滴線段依「層×色×粗細桶×透明桶」分組，再每組一次 stroke
     //   → 原本每滴各自 beginPath+stroke(~300次/幀) 降到 ~數十次；雨滴數/樣子不變(透明度量化 1/40、粗細4桶、肉眼無差)。
     const _rbins = new Map();
