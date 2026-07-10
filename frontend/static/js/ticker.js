@@ -50,8 +50,10 @@ let _lastTickerKey  = "";        // 追蹤目前渲染的 ticker 結構，避免
 let _lastPageTitle  = "";        // 快取上次 title，避免重複寫 DOM
 let _kbNavLockUntil = 0;         // 鍵盤導航凍結期：使用者用 ↑↓ 切標的時不重排清單，避免每 2 秒重排讓位置在腳下變動
 
-// 鍵盤導航時呼叫：凍結清單順序 3 秒，避免使用者按↓時清單在腳下重排
-function _markKbNav() { _kbNavLockUntil = Date.now() + 3000; }
+// 鍵盤導航時呼叫：凍結清單順序 15 秒，避免使用者「按一下→停頓看盤→再按」時清單在腳下依漲跌幅重排
+//   →剛選的標的位置大洗牌→再按↓跳到很遠的標的、scrollIntoView 把清單捲回最上面。每次按鍵重新計時。
+//   (原本 3 秒太短，停頓看盤幾秒就失效。凍結期間價格仍就地更新、只是不重排。)
+function _markKbNav() { _kbNavLockUntil = Date.now() + 15000; }
 window._markKbNav = _markKbNav;
 
 // ── 行情列漸進渲染（不卡）─────────────────────────────────────
