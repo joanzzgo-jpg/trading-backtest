@@ -24,6 +24,7 @@ cd /Users/noah/trading/backend && uvicorn main:app --reload
 - **FVG 策略定版規格（v2.3，參數已鎖定）**：止損/止盈檔位、雙槽多空、多幣組合、止盈先到撤殘單 → [docs/fvg-strategy.md](docs/fvg-strategy.md)
   - ⚠ 主圖方向多空/破多空標記（`crt.py` `_calc_crt_winrate` 的 `_pseq` proto 缺口）**2026-07-10 拿掉 g+1「沒填回」檢查** → proto 純「g 收盤站上前根高/破前根低」即定案、**不再被下一根收盤回頭撤掉（非 repaint）**；代價破多空標記約 2x。**未收盤最後一根**另出「暫定」標記（半透明+空心+?，`_prov_proto`，收盤才轉正式、會 repaint、使用者已同意）。auto-trade 進場 `_fvg_sigs` 是另一套、不受這些影響。
 - **3D 天氣背景實作規格**：Canvas 2D 粒子＋CSS 3D 分層、Phase 進度與實作差異 → [docs/weather-3d-spec.md](docs/weather-3d-spec.md)
+- **自動交易引擎**（Binance USDⓈ-M 永續，testnet 預設、逐帳號自有金鑰）：`routes/trade.py`＝下單/對帳/生命週期，`notify_monitor.py`＝背景偵測訊號→下單。三個訊號源子設定 `{ss, fvg, coach}`：ss=SR/SMC 反轉、fvg=失衡缺口、**coach=SR+SMC 多空教練（2026-07-10 接入，限價/市價進場+訊號止損+單一固定TP，方向 edge 未回測、testnet 先跑）**。核心 `execute_signal_trade`／`_exec_signal_for_account`（市價）、`place_coach_limit`／`place_fvg_limit_ladder`（限價）＋各自 `reconcile_*`。詳見 memory `project_coach-system`。
 
 ## ⚠️ 關鍵鐵則（違反會造成 bug，務必遵守）
 
@@ -61,7 +62,8 @@ cd /Users/noah/trading/backend && uvicorn main:app --reload
 
 ### Pionex 限流 / 行情資料源
 - Pionex API：10 次/秒/IP，超過封鎖 60s 且重試會 +10s 永遠清不掉。**Binance fapi 同理**（418/429 全域熔斷，`_BINANCE_COOLDOWN_UNTIL`）。行情/價格走 Binance，Pionex 僅用於標的清單（硬碟快取 24hr）與獨有標的 klines。
-- **crypto perp K 線 fallback 鏈**：Binance fapi → Pionex →（2026-07-10 新增）**Bybit（`category=linear`）**。修「Binance 冷卻時、Binance 獨有幣（如 KORU）在 Pionex 又沒有 → 找不到」。⚠ fallback 來源插針/毛刺與 Binance 不同 → **本機 Binance 被限流時，策略會抓到髒 fallback 資料、生出乾淨 Binance 上沒有的假 FVG（刷新時有時有）；線上 Binance 正常則不受影響**。診斷「本機策略標記怪」先看是不是 Binance 冷卻掉了 fallback。
+- **crypto perp K 線 fallback 鏈（2026-07-10 定版）**：**Binance fapi → Bybit（`category=linear`）→ Pionex**。⚠ 順序重要：**Pionex 日線偶有損毀殘棒**（如 BTC 2025-08-14 收盤 121583 vs Binance 118242 → 生假 2.86% FVG、錯收盤），Bybit 則貼合 Binance → 故 Bybit 優先、Pionex 墊底（只給 Bybit 沒有的獨有幣）。Bybit v5 無原生 8h/30m → `_fetch_bybit` 由 4h/15m 重採樣（origin=epoch 對齊 UTC）。
+- **降級來源防污染**：`fetch_crypto_ohlcv` 每次回傳標記實際來源（`last_fetch_source()`）；`get_crt_winrate` 只有『來源＝Binance』才寫 7 天磁碟長效快取，降級來源（Bybit/Pionex）只放記憶體＋標 `:deg`、Binance 冷卻一結束就丟棄重抓、冷卻中不做尾巴 concat → 避免髒資料被烤進長效快取而持久化（**Railway 亦會撞冷卻，非只本機**）。診斷「策略標記怪」先看 Binance 是否冷卻（`_BINANCE_COOLDOWN_UNTIL`）掉了 fallback。詳見 memory `project_fallback-source-tagging-antipoison`。
 - **台股即時個股分鐘 K = cnyes**（`data/cnyes_futures.py` `fetch_cnyes_stock_intraday`，同台指期源、連續無跳號、無延遲、免金鑰）；get_latest / ohlcv 初次載入 / fetch_crt_df 三處當日主源，歷史仍 yfinance，Fugle 退為備援。詳見 [docs/backend.md](docs/backend.md)。
 
 ### 不可更改的設定
