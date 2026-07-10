@@ -1850,9 +1850,10 @@
 
   function dCloudy(t) {
     const cdir = _windVecX() >= 0 ? 1 : -1;       // 雲飄移方向跟著風（+右 -左）
+    const cwf = 1 + Math.min(3, _wd.windSpeed / 15);   // ★ 雲速也隨風速：無風1×、15km/h 2×、45km/h+封頂4× → 與雨一致、強風不再「雨急雲慢」
     const margin = W*0.6;
     cloudP.forEach((c, i) => {
-      c.x += c.sp * cdir;
+      c.x += c.sp * cdir * cwf;
       if (cdir > 0 && c.x - W*c.sc > W) c.x = -margin;       // 往右飄出 → 從左回來
       else if (cdir < 0 && c.x + W*c.sc < 0) c.x = W+margin; // 往左飄出 → 從右回來
       _cloud(c.x, c.y + Math.sin(t*.18 + i*1.3)*3.5, W*c.sc, c.al, c.shape, c.flip, c.z, c.puffs);
@@ -2365,8 +2366,9 @@
     gsky.fillStyle = "rgba(150,160,176,.16)"; gsky.fillRect(0,0,W,H);
     gsky.fillStyle = "rgba(118,128,144,.09)"; gsky.fillRect(0,0,W,H);
     const cdir = _windVecX() >= 0 ? 1 : -1, margin = W*0.6;
+    const cwf = 1 + Math.min(3, _wd.windSpeed / 15);   // 雲速隨風速（同 dCloudy）
     cloudP.forEach((c, i) => {
-      c.x += c.sp * cdir;
+      c.x += c.sp * cdir * cwf;
       if (cdir > 0 && c.x - W*c.sc > W) c.x = -margin;
       else if (cdir < 0 && c.x + W*c.sc < 0) c.x = W+margin;
       // 雲更大、更不透明 → 密雲感（漸層用近景版 depth=1，但 3D 層仍按 c.z 分 → 保有視差）
