@@ -1887,8 +1887,7 @@
     _layers.far.ctx.lineCap = _layers.mid.ctx.lineCap = gn.lineCap = "round";
     // 雨斜度＝直接跟「風速」走（有風就明顯斜、不管風偏東西南北）＋無風也保底斜；方向跟風的東西分量（≈0→預設右、與雲飄一致）
     const _wsgn = _windVecX() >= 0 ? 1 : -1;
-    const lean = _wsgn * (0.28 + Math.min(1.1, _wd.windSpeed * 0.026));   // 無風~16°、20km/h~39°、45km/h+~54°封頂
-    const wDrift = _wsgn * (0.20 + _wd.windSpeed * 0.02);                 // 水平飄移同向、隨風速（雨看起來斜著飄）
+    const lean = _wsgn * (0.28 + Math.min(1.1, _wd.windSpeed * 0.026));   // 斜率(無風~16°、20km/h~39°、45km/h+~54°封頂)；雨滴沿此斜率移動(見下)
     // ★ 批次繪製(2026-07-11)：先更新位置、把每滴線段依「層×色×粗細桶×透明桶」分組，再每組一次 stroke
     //   → 原本每滴各自 beginPath+stroke(~300次/幀) 降到 ~數十次；雨滴數/樣子不變(透明度量化 1/40、粗細4桶、肉眼無差)。
     const _rbins = new Map();
@@ -1904,7 +1903,7 @@
         if (!b) { b = { ctx: _ctxFor(p.z), sw, col: n ? `rgba(200,232,255,${pa})` : `rgba(130,176,224,${pa})`, s: [] }; _rbins.set(key, b); }
         b.s.push(p.x, p.y, p.x + lean * p.len, p.y + p.len);
       }
-      p.y += p.spd; p.x += wDrift * (0.4 + p.z);      // 近景水平位移大；方向跟著風（鏡頭視差交給 3D 層）
+      p.y += p.spd; p.x += lean * p.spd;              // ★ 沿斜率移動：水平位移=斜率×落速 → 與斜線同向、真的斜著落(不再斜線卻直落)
       if (p.y > H + p.len) {
         if (n && ripples.length < 45 && Math.random() < intensity)   // 雨勢越大、漣漪/水花越多
           ripples.push({ x: p.x, y: H * .968, r: 0, maxR: 6 + Math.random() * 13 * p.z, a: .30 * p.z + .14 });
