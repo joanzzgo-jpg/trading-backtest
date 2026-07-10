@@ -329,32 +329,31 @@ def _acquire_leader() -> bool:
 
 
 def _winrate_warm_worker():
-    """背景預熱勝率/深歷史 → 使用者切標的多半直接命中快取(近即時)、不再等 ~2s 冷啟。
-    ⚠ 先前版本疑似參與 Railway healthcheck 逾時 → 這版**啟動後延遲 120s 才開工**，徹底避開 healthcheck 窗
-    與啟動期；其餘保守設計不變：① 只 Railway 跑；② leader-only(由 _warmup gate)；③ 只暖前 N 幣的
-    1h/15m；④ 逐檔間隔 4s；⑤ Binance 冷卻中整輪跳過；⑥ get_crt_winrate 內建快取(已熱秒回、df 7天磁碟快取)；
-    ⑦ 每 ~15 分刷一輪。"""
+    """背景預熱勝率/深歷史 → 使用者切熱門幣多半直接命中快取(近即時)、不再等 ~2s 冷啟。
+    ★ 溫和版(2026-07-10)：每 90s 才暖『一個』(symbol×tf) → _calc_crt_winrate 的 0.8s GIL 佔用
+      ≈ 0.8/90 ≈ 1%、線上幾乎無感。設計：① 啟動延遲 120s(避 healthcheck)；② 只 Railway、leader-only；
+      ③ 只暖前 N 幣的 1h/15m；④ Binance 冷卻中該次跳過；⑤ get_crt_winrate 內建快取(已熱秒回、df 7天磁碟)。"""
     import time as _t
-    _t.sleep(120)                                          # ★ 延遲開工：先讓 app 過 healthcheck、穩定
-    _TFS = ["1h", "15m"]; _N = 15
+    _t.sleep(120)                                          # 延遲開工：先讓 app 過 healthcheck、穩定
+    _TFS = ["1h", "15m"]; _N = 10; _GAP = 90               # ★ 每 90s 才暖一個 → GIL 佔用 ~1%、不卡
     while True:
         try:
             import data.crypto as _c
-            if _t.time() < getattr(_c, "_BINANCE_COOLDOWN_UNTIL", 0):
-                _t.sleep(90); continue
             from routes.data import get_crt_winrate
             from routes.trade import top_crypto_universe
             syms = [s.get("symbol") for s in (top_crypto_universe(_N) or []) if s.get("symbol")]
             for sym in syms:
                 for tf in _TFS:
+                    if _t.time() < getattr(_c, "_BINANCE_COOLDOWN_UNTIL", 0):
+                        _t.sleep(_GAP); continue           # Binance 冷卻中 → 這次跳過、仍慢慢等
                     try:
-                        get_crt_winrate("crypto", sym, tf, "binance")
+                        get_crt_winrate("crypto", sym, tf, "binance")   # 冷則暖、熱則秒回
                     except Exception:
                         pass
-                    _t.sleep(4)
+                    _t.sleep(_GAP)                          # 慢慢來、讓路給請求(每 90s 才一次)
         except Exception as e:
             print(f"  ⚠ 勝率預熱失敗：{e}")
-        _t.sleep(900)
+            _t.sleep(300)
 
 
 @app.on_event("startup")
@@ -392,13 +391,12 @@ async def _warmup():
         notify_monitor.start()   # CRT 訊號 Web Push 背景監控（無訂閱時自動空轉、極低成本）
     except Exception as e:
         print(f"  ⚠ 訊號監控啟動失敗：{e}")
-    # 勝率預熱：⚠ 預設**關**。實測它每 4s 跑 _calc_crt_winrate(0.8s 純Python、佔 GIL)→ 在 leader worker
-    #   上會擋住請求處理、線上感覺卡 → CP 值不划算(幫切標的、卻害全體卡)。需要時設 WARM_WR=1 才開
-    #   (且建議先把 worker 內間隔拉大成溫和版)。
-    if (os.getenv("WARM_WR") == "1" and
+    # 勝率預熱(溫和版)：只 Railway、延遲 120s 開工、每 90s 才暖一個(GIL佔用~1%、不卡) → 切熱門幣近即時。
+    #   若仍覺卡：設 WARM_WR=0 秒關(免改碼、免 redeploy 邏輯)。
+    if (os.getenv("WARM_WR", "1") != "0" and
             bool(os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("RAILWAY_PROJECT_ID") or os.getenv("RAILWAY_SERVICE_ID"))):
         threading.Thread(target=_winrate_warm_worker, daemon=True).start()
-        print("  ✓ 勝率預熱 worker 已排程（WARM_WR=1、延遲120s）")
+        print("  ✓ 勝率預熱 worker(溫和版) 已排程（Railway、延遲120s、每90s一個、前10、1h/15m）")
 
 
 @app.get("/")
