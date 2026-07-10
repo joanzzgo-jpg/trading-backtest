@@ -606,15 +606,44 @@ def _apply_perp_filter(tickers: list) -> list:
     return [t for t in tickers if t["symbol"][:-4].upper() in ps]
 
 
+# ── 最近一次 fetch_crypto_ohlcv 的「實際資料來源」（binance / pionex / bybit / okx）──────────
+# 用 thread-local 記錄：呼叫端（get_crt_winrate）抓完 df 後可查 last_fetch_source() 得知這份是不是
+# 從 Binance 來。降級來源（Pionex/Bybit 的 8h 邊界/wick 與 Binance 不同 → 可能生假 FVG）→ 呼叫端據此
+# 「不寫 7 天磁碟長效快取、冷卻結束即重抓乾淨 Binance」，避免髒資料在 Railway 被烤進長效快取而持久化。
+_LAST_SRC = _threading.local()
+
+def _set_src(name: str) -> None:
+    _LAST_SRC.v = name
+
+def last_fetch_source() -> Optional[str]:
+    """最近一次 fetch_crypto_ohlcv 成功回傳時的資料來源；未知→None。"""
+    return getattr(_LAST_SRC, "v", None)
+
+
 # ══════════════════════════════════════════════════════════════
 #  Bybit
 # ══════════════════════════════════════════════════════════════
+_BYBIT_RESAMPLE = {"8h": ("4h", "8h"), "30m": ("15m", "30min")}   # Bybit v5 無原生 8h/30m → 抓下層重採樣
+
 def _fetch_bybit(symbol: str, timeframe: str,
                  start: Optional[str], end: Optional[str], limit: int,
                  max_candles: int = 3000, category: str = "spot") -> pd.DataFrame:
     """category='spot'(現貨) 或 'linear'(USDT 永續)。linear 供 perp K 線備援(Binance/Pionex 都掛時)。"""
+    # ⚠ Bybit v5 kline 沒有原生 8h/30m：以前 BYBIT_TF.get(tf,"D") 會**誤抓成日線**（嚴重錯棒）。
+    #   → 8h 由 4h、30m 由 15m 重採樣(origin=epoch 對齊 00:00 UTC，與 Binance 邊界一致)；其餘不支援的回空。
+    if timeframe in _BYBIT_RESAMPLE:
+        _base_tf, _rule = _BYBIT_RESAMPLE[timeframe]
+        _b = _fetch_bybit(symbol, _base_tf, start, end, limit * 3, max_candles * 3, category)
+        if _b is None or _b.empty:
+            return _make_df([])
+        _r = (_b.set_index("time").resample(_rule, origin="epoch")
+                .agg({"open":"first","high":"max","low":"min","close":"last","volume":"sum"})
+                .dropna(subset=["open"]).reset_index())
+        return _r
     sym = _sym_bybit(symbol)
-    tf  = BYBIT_TF.get(timeframe, "D")
+    tf  = BYBIT_TF.get(timeframe)
+    if tf is None:                       # 不支援又不能重採樣 → 回空讓呼叫端 fallback（別誤抓日線）
+        return _make_df([])
 
     if start is None and end is None:
         url = f"{BYBIT_BASE}/v5/market/kline?category={category}&symbol={sym}&interval={tf}&limit={limit}"
@@ -813,6 +842,7 @@ def fetch_crypto_ohlcv(
     api_key: str = "",
     api_secret: str = "",
 ) -> pd.DataFrame:
+    _set_src(None)   # 重置來源標記；成功回傳前各分支會標成 binance/pionex/bybit/okx
     # 去除永續合約後綴 .P（前端顯示用），並記錄是否為永續合約
     is_perp = symbol.upper().endswith(".P")
     if is_perp:
@@ -850,21 +880,26 @@ def fetch_crypto_ohlcv(
             try:
                 df = _fetch_binance_fapi(symbol, timeframe, start, end, limit, max_candles=mc)
                 if not df.empty:
-                    return df
+                    _set_src("binance"); return df
+            except Exception as e:
+                last_err = e
+            # ⚠ Binance 熔斷/失敗才會走到這裡。降級來源的邊界、wick 與 Binance 不完全一樣 → 可能生出
+            #   Binance 上不存在的假 FVG／錯收盤。所以仍回傳（本機 Binance 偶發限流，不給就整片查不到），
+            #   但 **標記來源為降級** → 呼叫端(get_crt_winrate)「不寫 7 天磁碟長效快取、冷卻結束即重抓乾淨
+            #   Binance」，避免髒資料持久化。
+            # ★ 順序 Bybit(linear) 優先於 Pionex：實測 Bybit 日/4h/… OHLC 貼合 Binance，而 **Pionex 日線
+            #   偶有損毀殘棒**（2025-08-14 收盤 121583 vs Binance 118242、8-26 亦然 → 就是先前 2.86% 假 FVG
+            #   與「收盤價有問題」的元兇）。故降級時優先 Bybit、Pionex 墊底（只給 Bybit 沒有的 Pionex 獨有幣）。
+            try:
+                df = _fetch_bybit(symbol, timeframe, start, end, limit, max_candles=mc, category="linear")
+                if not df.empty:
+                    _set_src("bybit"); return df
             except Exception as e:
                 last_err = e
             try:
                 df = _fetch_pionex_klines(symbol, timeframe, start, end, limit, max_candles=mc, is_perp=True)
                 if not df.empty:
-                    return df
-            except Exception as e:
-                last_err = e
-            # Bybit USDT 永續備援：Binance 撞 418 冷卻時、且 Pionex 沒有此幣(如 KORU)→ 兩邊都掛。
-            #   Bybit(linear) 涵蓋多數 Binance 獨有 perp、對機房 IP 較不兇 → 補上這條，避免整個「找不到」。
-            try:
-                df = _fetch_bybit(symbol, timeframe, start, end, limit, max_candles=mc, category="linear")
-                if not df.empty:
-                    return df
+                    _set_src("pionex"); return df
             except Exception as e:
                 last_err = e
             if time.time() < _PIONEX_COOLDOWN_UNTIL:
@@ -874,13 +909,13 @@ def fetch_crypto_ohlcv(
         try:
             df = _fetch_binance_fapi(symbol, timeframe, start, end, limit, max_candles=mc)
             if not df.empty:
-                return df
+                _set_src("binance"); return df
         except Exception as e:
             last_err = e
         try:
             df = _fetch_binance(symbol, timeframe, start, end, limit, max_candles=mc)
             if not df.empty:
-                return df
+                _set_src("binance"); return df
         except Exception as e:
             last_err = e
         # 若使用者沒加 .P 後綴，但標的只在 Pionex 永續存在 → 自動視為 perp
@@ -896,7 +931,7 @@ def fetch_crypto_ohlcv(
             try:
                 df = _fetch_pionex_klines(symbol, timeframe, start, end, limit, max_candles=mc, is_perp=is_perp)
                 if not df.empty:
-                    return df
+                    _set_src("pionex"); return df
             except Exception as e:
                 last_err = e
         # Bybit 備援(Binance/Pionex 都掛時)：perp→linear、其餘→spot。避免 Binance 418 冷卻時整個「找不到」。
@@ -904,7 +939,7 @@ def fetch_crypto_ohlcv(
             df = _fetch_bybit(symbol, timeframe, start, end, limit, max_candles=mc,
                               category=("linear" if is_perp else "spot"))
             if not df.empty:
-                return df
+                _set_src("bybit"); return df
         except Exception as e:
             last_err = e
         # 區分限流（429）與真的找不到：限流時別誤導使用者「代號錯誤」
@@ -925,8 +960,10 @@ def fetch_crypto_ohlcv(
             raise ValueError(f"{symbol} 暫時無法取得：行情來源連線不穩，請稍後再試")
         raise ValueError(f"找不到 {symbol} 的行情資料，請確認標的代號是否正確")
     elif ex == "bybit":
+        _set_src("bybit")
         return _fetch_bybit(symbol, timeframe, start, end, limit, max_candles=mc)
     elif ex == "okx":
+        _set_src("okx")
         return _fetch_okx(symbol, timeframe, start, end, limit, max_candles=mc)
     else:
         raise ValueError(f"不支援的交易所: {exchange_id}")

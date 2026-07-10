@@ -20,7 +20,8 @@ from data.twelvedata import fetch_twelvedata_intraday, twelvedata_enabled
 from data.us_stock import fetch_us_stock, MAX_DAYS as US_MAX_DAYS
 from data.hk_stock import fetch_hk_realtime
 from data.us_finnhub import fetch_us_quote
-from data.crypto import fetch_crypto_ohlcv
+from data.crypto import fetch_crypto_ohlcv, last_fetch_source
+import data.crypto as _crypto
 from utils.cache import cache, data_cache
 from utils import disk_cache
 from utils.data import enrich_df, df_to_records
@@ -119,7 +120,8 @@ def fetch_crt_df(market: str, symbol: str, timeframe: str, days: int,
         return fetch_us_stock(symbol, start, end, timeframe)
     elif market == "crypto":
         start = (date.today() - timedelta(days=days)).isoformat()
-        from data.crypto import _fetch_binance_fapi, _calc_max_candles
+        from data.crypto import _fetch_binance_fapi, _calc_max_candles, _set_src
+        _set_src(None)   # 重置來源；此路徑直呼 _fetch_binance_fapi（不經 fetch_crypto_ohlcv）→ 需自行標記
         _base = symbol[:-2] if symbol.upper().endswith(".P") else symbol
         _bb = _base.split("/")[0].upper()
         _mc = _calc_max_candles(start, end, timeframe)
@@ -130,9 +132,10 @@ def fetch_crt_df(market: str, symbol: str, timeframe: str, days: int,
                     if _div != 1.0:
                         for _c in ("open", "high", "low", "close"):
                             _dfb[_c] = _dfb[_c] / _div
-                    return _dfb
+                    _set_src("binance"); return _dfb
             except Exception:
                 pass
+        # Binance 直取失敗 → fetch_crypto_ohlcv 內含 Pionex/Bybit 降級並會自行標記來源
         return fetch_crypto_ohlcv(symbol, timeframe, start, end, exchange,
                                   api_key=api_key, api_secret=api_secret)
     raise HTTPException(400, f"不支援的市場: {market}")
@@ -1873,10 +1876,14 @@ def get_crt_winrate(
     #   記憶體上限由 data_cache max_size(32 條) 硬卡、與 TTL 無關 → 拉長不影響 RAM 峰值。
     #   台股/美股此路徑無尾巴補抓、盤中新棒靠重抓 → 維持原 30 分，避免供應期內尖端不更新。
     _df_ttl = 604800 if market == "crypto" else _WR_CACHE_TTL   # crypto 7天、其餘 30 分
+    _deg_key = df_key + ":deg"   # 降級來源(Pionex/Bybit)標記 → 冷卻結束就作廢重抓乾淨 Binance
     def _load_df():
         d = data_cache.get(df_key, ttl=_df_ttl)   # 記憶體
+        # 降級來源快取：Binance 冷卻一結束就丟棄 → 逼重抓乾淨 Binance（避免髒 fallback 資料持久化生假 FVG）
+        if d is not None and data_cache.get(_deg_key, ttl=_df_ttl) and time.time() >= _crypto._BINANCE_COOLDOWN_UNTIL:
+            return None
         if d is None:
-            d = disk_cache.get(df_key, ttl=_df_ttl)   # 磁碟（跨重啟/部署存活）
+            d = disk_cache.get(df_key, ttl=_df_ttl)   # 磁碟（跨重啟/部署存活；只存 Binance 乾淨資料）
             if d is not None:
                 data_cache.set(df_key, d)           # 回填記憶體
         return d
@@ -1895,18 +1902,30 @@ def get_crt_winrate(
                     raise HTTPException(400, f"資料不足 50 根K棒（{timeframe}）")
                 df = enrich_df(df)
                 data_cache.set(df_key, df)
-                disk_cache.set(df_key, df)       # 寫磁碟（下次重啟/部署免重抓）
+                # ⚠ 只有『來源＝Binance』才寫 7 天磁碟長效快取。Binance 冷卻時降級到 Pionex/Bybit 的資料
+                #   wick/邊界不同→可能生 Binance 上沒有的假 FVG（2025-08 BTC 8h 2.86% 假空缺口即此）；
+                #   標記為降級 → 冷卻一結束 _load_df 會丟棄重抓，不讓髒資料在磁碟持久化（Railway 尤甚）。
+                if market == "crypto" and last_fetch_source() not in (None, "binance"):
+                    data_cache.set(_deg_key, True)
+                else:
+                    data_cache.set(_deg_key, False)
+                    disk_cache.set(df_key, df)       # 寫磁碟（下次重啟/部署免重抓）
 
     # ── bar-aware 尾巴補抓（crypto）──────────────────────────────
     # 深歷史沿用快取，只在「已有新棒收盤」時補抓一段短窗、接到尾巴後重算 → 便宜又即時。
     # 短窗夠長（~400 根）涵蓋指標 lookback，且 df 受 30 分 TTL 護著，尾巴最多差 30 分→必然重疊不留 gap。
-    if market == "crypto" and not solve and _bar_now is not None and df is not None:
+    # ⚠ Binance 冷卻中不補抓：此時 _fetch_df 會降級到 Pionex/Bybit，接到 Binance 尾巴上 → 接縫兩側
+    #   wick 不同會生假 FVG（且被 concat 進快取）。冷卻中直接用既有乾淨 df，冷卻結束再補即可。
+    if (market == "crypto" and not solve and _bar_now is not None and df is not None
+            and time.time() >= _crypto._BINANCE_COOLDOWN_UNTIL):
         try:
             _last = pd.Timestamp(df["time"].iloc[-1]).value / 1e9
             if _last < _bar_now:                      # 快取尾巴比現在最新棒舊 → 補抓
                 _rd = max(2, math.ceil(400 * _iv / 86400) + 2)
                 _recent = _fetch_df(_rd)              # 短窗 raw OHLCV（抓量小、便宜）
-                if _recent is not None and len(_recent):
+                # 只把『Binance 來源』的尾巴接上去；萬一還是降級來源就別 concat（避免接縫假 FVG）
+                if (last_fetch_source() in (None, "binance")
+                        and _recent is not None and len(_recent)):
                     _cols = ["time", "open", "high", "low", "close", "volume"]
                     _cut = _recent["time"].iloc[0]
                     _merged = pd.concat(
