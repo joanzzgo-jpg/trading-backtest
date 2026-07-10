@@ -11,7 +11,6 @@ python-dotenv==1.0.1
 aiohttp==3.10.5
 anthropic>=0.40.0
 psycopg[binary]>=3.1.0
-psycopg_pool>=3.2.0
 pywebpush>=2.0.0
 cnlunar>=0.2.0
 zhconv>=1.4.3
