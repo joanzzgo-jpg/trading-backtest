@@ -2958,11 +2958,11 @@
     const _now = (performance.now ? performance.now() : Date.now());
     // 圖表移動中（平移/縮放/慣性，或手機剛觸控）→ 背景降幀，把幀預算讓給圖表。只降幀率、不放慢時鐘
     //   （仍 1x 正常速度）→ 看得出在動、不會像凍結。
-    //   桌機背景移動中維持滿幀(不降)——實測降速對主圖順度「沒明顯感覺」(瓶頸在 LWC K 線渲染+硬體，
-    //   非背景搶預算)→ 不犧牲背景。手機/弱機(_lowFx)仍降 ~15fps(弱機主執行緒吃緊、需讓路)。
+    //   移動中背景一律 ~22fps(45ms)：手機桌機都是(使用者指定)。停手立即回滿幀(_frameMin 桌30/手16)。
+    //   手機若畫不動，_fxPenalty 會自動再往上加(見下)→ struggling 裝置仍會降更多。
     const _moving = (window._chartMoveTs && _now - window._chartMoveTs < 220) ||
                     (_lowFx && _touchT && _now - _touchT < 350);
-    const _frameGap = ((_moving && _lowFx) ? 66 : _frameMin) + _fxPenalty;   // 手機移動中~15fps；桌機不降(~30)；平時 桌30/手16(−自適應)
+    const _frameGap = (_moving ? 45 : _frameMin) + _fxPenalty;   // 移動中 ~22fps(手機桌機同)；平時 桌30/手16(−自適應)
     if (ts - _lastFrameTs < _frameGap) return;
     // 動畫時鐘恆定 1x（正常速度）；只調幀率、不調速度 → 移動時是「低幀率正常動」而非慢動作。
     if (!_lastClockTs) _lastClockTs = ts;
