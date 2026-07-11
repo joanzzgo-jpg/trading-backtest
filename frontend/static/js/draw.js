@@ -1650,12 +1650,17 @@ function _drawCoachOverlay(W, H) {
 // renderDrawings 合併排程：滑動時 subscribeVisibleTimeRangeChange / crosshairMove 一幀會觸發多次，
 // 若每次都 _scheduleRenderDrawings() → 同一幀把疊加層(交易時段 overlay 等)重畫好幾遍。
 // 用 pending 旗標收斂成「每幀最多畫一次」，盤中時框滑動大幅減負。
-let _rdRafPending = false;
+let _rdRafPending = false, _rdLastTs = 0;
 function _scheduleRenderDrawings() {
   if (_rdRafPending) return;
   _rdRafPending = true;
   requestAnimationFrame(() => {
     _rdRafPending = false;
+    // 平移/縮放進行中：整張 overlay(VWAP/教練/折價溢價/繪圖) 降到 ~30fps，把每幀預算讓給主圖 K 線 → 縮放更順。
+    //   保留最後一次(下一幀再試)→ 停手時以最新狀態畫、不會殘影；非移動時照常每幀。
+    const _n = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+    if (window._chartMoveTs && _n - window._chartMoveTs < 220 && _n - _rdLastTs < 32) { _scheduleRenderDrawings(); return; }
+    _rdLastTs = _n;
     renderDrawings();
   });
 }

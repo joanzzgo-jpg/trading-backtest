@@ -111,12 +111,14 @@ function _makeFVGPrimitive() {
           const _faint = z.dim || z.used === false;      // dim=同向堆疊去重；used===false=未被任何標記用到 → 皆淡化
           if (_faint) ctx.globalAlpha = 0.38;
           ctx.fillStyle   = z.d === "l" ? "rgba(38,198,166,0.14)" : "rgba(255,82,82,0.14)";
-          ctx.strokeStyle = z.d === "l" ? "rgba(38,198,166,0.55)" : "rgba(255,82,82,0.55)";
           ctx.fillRect(bx, byTop, bw, bh);
-          ctx.lineWidth = Math.max(1, hr);
-          ctx.setLineDash([4 * hr, 3 * hr]);
-          ctx.strokeRect(bx, byTop, bw, bh);
-          ctx.setLineDash([]);
+          if (!_mv) {   // 移動中省略虛線邊框（setLineDash+strokeRect 較貴）→ 停手補回；填色保留、缺口仍可見
+            ctx.strokeStyle = z.d === "l" ? "rgba(38,198,166,0.55)" : "rgba(255,82,82,0.55)";
+            ctx.lineWidth = Math.max(1, hr);
+            ctx.setLineDash([4 * hr, 3 * hr]);
+            ctx.strokeRect(bx, byTop, bw, bh);
+            ctx.setLineDash([]);
+          }
           // 寬度% 標籤：多=（top−bot)/bot、空=(top−bot)/top（對齊後端 _gw 定義）；畫在盒左緣、垂直置中
           const _pct = z.d === "l" ? (z.top - z.bot) / z.bot : (z.top - z.bot) / z.top;
           if (!_mv && _pct > 0) {                          // 平移中跳過文字（font/textBaseline/align 已在迴圈外設一次）
@@ -230,9 +232,31 @@ function toggleFVG(on) {
 //   資料源＝全域 lastFVGBreakMarkers/lastFVGMSMarkers/lastFVGShunMarkers（{time,position,color,text}）。
 //   在圖表自身繪製流程畫箭頭+文字，縮放時與 K 棒同步(不像 overlay 慢一幀游移)，尺寸依 barSpacing 連續縮放。
 //   開關(_fvgBreakHidden/_fvgMSHidden/_fvgShunHidden)、大棒淡化(_dimBigBarOn/_dimHex)、上下定位(該棒 high/low)、同棒同側堆疊。
+// 策略標記文字「貼圖快取」：fillText 每幀每標記很貴 → 每個(文字+顏色+字級)烤一次小 sprite，
+//   之後改 drawImage 貼上(便宜很多)。字級量化到 2px 桶 → 縮放時多半命中快取、不必每幀重烤。文字全程顯示。
+const _stratGlyphCache = new Map();
+let _stratGlyphMeas = null;
+function _stratGlyph(text, color, fpx) {
+  const key = text + "|" + color + "|" + fpx;
+  let e = _stratGlyphCache.get(key);
+  if (e) return e;
+  if (!_stratGlyphMeas) _stratGlyphMeas = document.createElement("canvas").getContext("2d");
+  const font = `bold ${fpx}px sans-serif`;
+  _stratGlyphMeas.font = font;
+  const padg = Math.ceil(fpx * 0.35);
+  const w = Math.ceil(_stratGlyphMeas.measureText(text).width) + padg * 2;
+  const h = fpx + padg * 2;
+  const cv = document.createElement("canvas");
+  cv.width = w; cv.height = h;
+  const g = cv.getContext("2d");
+  g.font = font; g.textAlign = "center"; g.textBaseline = "middle"; g.fillStyle = color;
+  g.fillText(text, w / 2, h / 2);
+  e = { cv, w, h };
+  _stratGlyphCache.set(key, e);
+  return e;
+}
 function _makeStratMarkersPrimitive() {
   let _chart = null, _series = null, _req = null;
-  let _stratSettleT = null;   // 平移/縮放中跳過文字後，停手補畫一次
   const _visSlice = (arr, lo, hi) => {   // arr 依 time 升序 → 二分找可見區段
     let a = 0, b = arr.length;
     while (a < b) { const m = (a + b) >> 1; arr[m].time < lo ? a = m + 1 : b = m; }
@@ -258,11 +282,6 @@ function _makeStratMarkersPrimitive() {
       const lo = vrng ? vrng.from : -Infinity, hi = vrng ? vrng.to : Infinity;
       const dimOn = !!window._dimBigBarOn;
       const n = ohlcvData.length;
-      // 平移/縮放進行中 → 只畫箭頭，跳過文字（canvas 文字最貴、縮放時可見標記多）→ 縮放更順；
-      //   停手後沒有重繪事件會讓文字不回來 → 用 debounce timer 在停手補畫一次（那時 _mv=false→含文字）。
-      const _nowP = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
-      const _mv = !!(window._chartMoveTs && _nowP - window._chartMoveTs < 220);
-      if (_mv) { clearTimeout(_stratSettleT); _stratSettleT = setTimeout(() => { if (_req) _req(); }, 240); }
       target.useBitmapCoordinateSpace(scope => {
         const ctx = scope.context;
         const hr = scope.horizontalPixelRatio, vr = scope.verticalPixelRatio;
@@ -271,8 +290,7 @@ function _makeStratMarkersPrimitive() {
         const gap = 3 * scale * vr, pad = 2 * scale * vr;
         const glyphH = arrowH + fontPx + gap + pad + 2 * vr;   // 單一標記縱向佔用(堆疊用)
         const stepAbove = new Map(), stepBelow = new Map();
-        ctx.font = `bold ${Math.round(fontPx)}px sans-serif`;
-        ctx.textAlign = "center";
+        const fpx = Math.max(8, Math.round(fontPx / 2) * 2);   // 字級量化到 2px 桶（貼圖快取命中率高）
         for (const arr of groups) {
           if (!arr.length) continue;
           const [s, e] = _visSlice(arr, lo, hi);
@@ -306,7 +324,8 @@ function _makeStratMarkersPrimitive() {
               ctx.lineTo(x - arrowW / 2, tipY - arrowH);
               ctx.lineTo(x + arrowW / 2, tipY - arrowH);
               ctx.closePath(); if (prov) ctx.stroke(); else ctx.fill();
-              if (!_mv) { ctx.textBaseline = "bottom"; ctx.fillText(m.text, Math.round(x), Math.round(tipY - arrowH - pad)); }
+              const glA = _stratGlyph(m.text, color, fpx);   // 貼圖文字（取代 fillText）
+              ctx.drawImage(glA.cv, Math.round(x - glA.w / 2), Math.round(tipY - arrowH - pad - glA.h));
               stepAbove.set(idx, off + glyphH);
             } else {
               const off = stepBelow.get(idx) || 0;
@@ -316,7 +335,8 @@ function _makeStratMarkersPrimitive() {
               ctx.lineTo(x - arrowW / 2, tipY + arrowH);
               ctx.lineTo(x + arrowW / 2, tipY + arrowH);
               ctx.closePath(); if (prov) ctx.stroke(); else ctx.fill();
-              if (!_mv) { ctx.textBaseline = "top"; ctx.fillText(m.text, Math.round(x), Math.round(tipY + arrowH + pad)); }
+              const glB = _stratGlyph(m.text, color, fpx);   // 貼圖文字（取代 fillText）
+              ctx.drawImage(glB.cv, Math.round(x - glB.w / 2), Math.round(tipY + arrowH + pad));
               stepBelow.set(idx, off + glyphH);
             }
             if (prov) ctx.globalAlpha = 1;                   // 復原,不影響下一個標記
