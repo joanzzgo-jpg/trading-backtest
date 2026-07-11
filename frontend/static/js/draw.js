@@ -1413,6 +1413,7 @@ const _COACH_STRUCT_STYLE = {
 };
 // 折價/溢價區（ICT/SMC dealing range）：以「畫面右緣那根」為當下，只用到它為止的 K 棒現算(非重繪、不看未來)。
 //   捲到哪、右緣就是那個歷史時點→看到的是「當時」的折價/溢價。溢價=EQ→top(紅上)、折價=bot→EQ(綠下)、EQ=50%(黃虛)。
+let _pdCache = null;   // 折價/溢價區全棒掃描結果快取 { len, E, rHi, rLo, legStart, ts }（平移時節流重算）
 function _drawPDZones(W, H) {
   if (window._pdOn !== true) return;   // 預設關（使用者要求）；window.togglePDZones(true) 可重新開啟
   if (typeof mainChart === "undefined" || typeof candleSeries === "undefined" || !candleSeries) return;
@@ -1424,22 +1425,32 @@ function _drawPDZones(W, H) {
   const bars = ohlcvData; let E = bars.length - 1;
   if (endT != null) { for (let i = bars.length - 1; i >= 0; i--) { if (toTime(bars[i].time) <= endT) { E = i; break; } } }
   if (E < 20) return;
-  const PL = 8;                                   // 半窗定擺動 pivot(j 於 i=j+PL 確認，只用 ≤i 資料)
-  let sh = null, sl = null, cur = 0, rHi = null, rLo = null, legStart = 0;
-  for (let i = 0; i <= E; i++) {
-    const j = i - PL;
-    if (j >= PL) {
-      const hj = bars[j].high, lj = bars[j].low; let mh = true, ml = true;
-      for (let k = j - PL; k <= j + PL; k++) { if (bars[k].high > hj) mh = false; if (bars[k].low < lj) ml = false; }
-      if (mh) sh = hj; if (ml) sl = lj;
+  // ── 全棒掃描節流：O(E×17) 每幀跑很貴 → 結果快取，平移時最多每 120ms 重算一次(慢移的 dealing
+  //    range 差幾根肉眼無感)；其餘幀沿用快取的 rHi/rLo/legStart。線條每幀仍用當前座標重畫→不脫離K棒、不閃爍。 ──
+  const _pc = _pdCache;
+  const _nowMs = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+  let rHi, rLo, legStart;
+  if (_pc && _pc.len === bars.length && Math.abs(_pc.E - E) <= 2 && (_nowMs - _pc.ts) < 120) {
+    rHi = _pc.rHi; rLo = _pc.rLo; legStart = _pc.legStart;   // 命中快取：跳過掃描
+  } else {
+    const PL = 8;                                   // 半窗定擺動 pivot(j 於 i=j+PL 確認，只用 ≤i 資料)
+    let sh = null, sl = null, cur = 0; rHi = null; rLo = null; legStart = 0;
+    for (let i = 0; i <= E; i++) {
+      const j = i - PL;
+      if (j >= PL) {
+        const hj = bars[j].high, lj = bars[j].low; let mh = true, ml = true;
+        for (let k = j - PL; k <= j + PL; k++) { if (bars[k].high > hj) mh = false; if (bars[k].low < lj) ml = false; }
+        if (mh) sh = hj; if (ml) sl = lj;
+      }
+      const c = bars[i].close;
+      if (sh != null && c > sh) { if (cur !== 1) { rLo = sl; legStart = i; } cur = 1; }
+      else if (sl != null && c < sl) { if (cur !== -1) { rHi = sh; legStart = i; } cur = -1; }
+      if (cur === 1) rHi = (rHi == null) ? bars[i].high : Math.max(rHi, bars[i].high);
+      else if (cur === -1) rLo = (rLo == null) ? bars[i].low : Math.min(rLo, bars[i].low);
     }
-    const c = bars[i].close;
-    if (sh != null && c > sh) { if (cur !== 1) { rLo = sl; legStart = i; } cur = 1; }
-    else if (sl != null && c < sl) { if (cur !== -1) { rHi = sh; legStart = i; } cur = -1; }
-    if (cur === 1) rHi = (rHi == null) ? bars[i].high : Math.max(rHi, bars[i].high);
-    else if (cur === -1) rLo = (rLo == null) ? bars[i].low : Math.min(rLo, bars[i].low);
+    _pdCache = { len: bars.length, E, rHi, rLo, legStart, ts: _nowMs };
   }
-  if (rHi == null || rLo == null || rHi <= rLo) return;
+  if (rHi == null || rLo == null || rHi <= rLo || legStart >= bars.length) return;
   const eq = (rHi + rLo) / 2;
   const yTop = candleSeries.priceToCoordinate(rHi), yEq = candleSeries.priceToCoordinate(eq), yBot = candleSeries.priceToCoordinate(rLo);
   if (yTop == null || yEq == null || yBot == null) return;

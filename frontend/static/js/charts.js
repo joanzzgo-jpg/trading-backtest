@@ -647,47 +647,48 @@ function syncTimeScales() {
       return;
     }
 
-    // 底部時間標籤
-    const d = new Date(time * 1000);
-    const pad = n => String(n).padStart(2, "0");
-    // 年份不放在游標標籤裡（改固定顯示在價格軸下方右下角）→ 這裡只留 月-日 (時:分)
-    let timeStr;
-    if (["8h","4h","2h","1h","30m","15m","5m"].includes(currentTF)) {
-      timeStr = `${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
-    } else {
-      timeStr = `${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())}`;
-    }
-    timeLabel.textContent = timeStr;
-    timeLabel.style.display = "block";
-    timeLabel.style.left   = Math.round(mainX) + "px";
-
+    // ── 先「集中讀取」全部版面座標（getBoundingClientRect），再「集中寫入」style ──
+    //    原本讀 rect 與寫 .pane-vline style 交錯 → 每次 mousemove 觸發多次強制重排(reflow)。
+    //    分成兩段後，一次 mousemove 只重排一次。數值完全相同、無視覺變化。
     const cRect = container.getBoundingClientRect();
     let maxPaneBottom = cRect.top;        // 最底可見 pane 的底緣＝時間軸所在位置
-    panesConf.forEach(({ elId, chart }, i) => {
+    const plans = panesConf.map(({ elId, chart }, i) => {
       const pane = document.getElementById(elId);
       const ln   = lineEls[i];
-      if (!pane || pane.classList.contains("hidden")) { ln.style.display = "none"; return; }
-      if (pane.querySelector(".pane-body")?.style.display === "none") { ln.style.display = "none"; return; }
-
-      const paneX = chart.timeScale().timeToCoordinate(time) ?? mainX;
-      if (paneX == null) { ln.style.display = "none"; return; }
-
+      if (!pane || pane.classList.contains("hidden")) return { ln, hide: true };
+      if (pane.querySelector(".pane-body")?.style.display === "none") return { ln, hide: true };
+      const paneX = chart.timeScale().timeToCoordinate(time) ?? mainX;   // canvas 座標，非版面讀取
+      if (paneX == null) return { ln, hide: true };
       const pRect = pane.getBoundingClientRect();
       let height  = pRect.height;
       if (pRect.bottom > maxPaneBottom) maxPaneBottom = pRect.bottom;
-
       // 往下延伸，覆蓋緊接的 pane-divider（若可見）
       const nextSib = pane.nextElementSibling;
       if (nextSib?.classList.contains("pane-divider") && !nextSib.classList.contains("hidden")) {
         height += nextSib.getBoundingClientRect().height;
       }
-
-      ln.style.display = "block";
-      ln.style.left    = Math.round(paneX) + "px";
-      ln.style.top     = Math.round(pRect.top - cRect.top) + "px";
-      ln.style.height  = Math.round(height) + "px";
+      return { ln, hide: false, left: Math.round(paneX),
+               top: Math.round(pRect.top - cRect.top), height: Math.round(height) };
     });
 
+    // 底部時間標籤文字（月-日 (時:分)；年份改固定顯示在價格軸下方右下角）
+    const d = new Date(time * 1000);
+    const pad = n => String(n).padStart(2, "0");
+    const timeStr = ["8h","4h","2h","1h","30m","15m","5m"].includes(currentTF)
+      ? `${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`
+      : `${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())}`;
+
+    // ── 集中寫入 ──
+    timeLabel.textContent = timeStr;
+    timeLabel.style.display = "block";
+    timeLabel.style.left    = Math.round(mainX) + "px";
+    for (const p of plans) {
+      if (p.hide) { p.ln.style.display = "none"; continue; }
+      p.ln.style.display = "block";
+      p.ln.style.left    = p.left + "px";
+      p.ln.style.top     = p.top + "px";
+      p.ln.style.height  = p.height + "px";
+    }
     // 時間標籤錨定到時間軸（最底可見 pane 底緣），而非容器底。
     // 桌面容器底＝圖表底 → offset≈0；手機容器延伸到底部分頁列後方 → offset≈分頁列高，
     // 否則標籤會被推到時間軸下方、藏進 m-tabbar 後面而看不到。

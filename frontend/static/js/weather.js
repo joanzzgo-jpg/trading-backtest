@@ -2748,6 +2748,23 @@
     mahjong:[[90,210,140],[60,170,200]], hail:[[120,170,230],[160,180,240]],
   };
   let _bdGrad = null, _bdKey = '';
+  // 流動光暈 sprite 快取：徑向對稱柔光 → 烤成 256px sprite(base alpha 0.12)，換色才重烤。
+  //   每幀 drawImage 縮放到目標半徑(柔光放大不失真)＋globalAlpha 帶入當幀 kk → 免除每幀全螢幕漸層。
+  const _glowSprCache = new Map();
+  function _glowSprite(r, g, b) {
+    const key = r + ',' + g + ',' + b;
+    let cv = _glowSprCache.get(key);
+    if (cv) return cv;
+    const S = 256;
+    cv = document.createElement('canvas'); cv.width = cv.height = S;
+    const gg = cv.getContext('2d');
+    const gr = gg.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
+    gr.addColorStop(0, `rgba(${r},${g},${b},0.12)`);
+    gr.addColorStop(1, `rgba(${r},${g},${b},0)`);
+    gg.fillStyle = gr; gg.fillRect(0, 0, S, S);
+    _glowSprCache.set(key, cv);
+    return cv;
+  }
   function _drawBackdrop(t) {
     const bd = _SKY_BD[type]; if (!bd) return;
     const gs = _layers.sky.ctx;
@@ -2770,21 +2787,22 @@
     gs.save(); gs.globalAlpha = sceneA;
     gs.fillStyle = _bdGrad; gs.fillRect(0, 0, W, H);
     gs.restore();
-    // 雙色流動光暈：互補色兩團緩慢繞行 → 背景色彩持續微妙變化
+    // 雙色流動光暈：互補色兩團緩慢繞行 → 背景色彩持續微妙變化。
+    //   光暈徑向對稱 → 烤成小 sprite(256px)一次、每幀改 drawImage 縮放繪製(放大柔光不失真)，
+    //   省掉原本每幀 createRadialGradient + 全螢幕 arc/fill 的每像素漸層運算。base alpha 0.12 烤進 sprite，
+    //   每幀變動的 kk 用 globalAlpha 帶入 → 效果與原本逐幀漸層完全相同。
     const ac = _SKY_AC[type];
     if (ac) {
       gs.save(); gs.globalCompositeOperation = 'lighter';
       const kk = (1 - _dayK() * 0.45) * sceneA;           // 白天收斂一點；主圖模式再減半（清晰）
+      gs.globalAlpha = kk;
+      const rad = Math.max(W, H) * 0.5;
       for (let i = 0; i < 2; i++) {
         const [r, g2, b] = ac[i];
         const ang = t * (i ? -0.018 : 0.023) + i * 2.6;
         const x = W * 0.5 + Math.cos(ang) * W * 0.33;
         const y = H * (0.32 + 0.30 * i) + Math.sin(ang * 1.3) * H * 0.18;
-        const rad = Math.max(W, H) * 0.5;
-        const gr = gs.createRadialGradient(x, y, 0, x, y, rad);
-        gr.addColorStop(0, `rgba(${r},${g2},${b},${(0.12 * kk).toFixed(3)})`);
-        gr.addColorStop(1, 'rgba(0,0,0,0)');
-        gs.fillStyle = gr; gs.beginPath(); gs.arc(x, y, rad, 0, 6.283); gs.fill();
+        gs.drawImage(_glowSprite(r, g2, b), x - rad, y - rad, rad * 2, rad * 2);
       }
       gs.restore();
     }
@@ -2935,8 +2953,10 @@
     rafId = requestAnimationFrame(loop);
     if (document.hidden) { _lastClockTs = 0; return; }
     const _now = (performance.now ? performance.now() : Date.now());
-    // 圖表移動中（平移/縮放/慣性，或手機剛觸控）→ 背景降到 ~15fps（仍正常速度、不放慢時鐘，
-    // 所以看得出在動、不會像凍結），把大部分幀預算讓給圖表 → 主圖滑動順、背景又不停。
+    // 圖表移動中（平移/縮放/慣性，或手機剛觸控）→ 背景降到 ~15fps，把大部分幀預算讓給圖表 → 主圖滑動順。
+    //   只降幀率、不放慢時鐘（仍 1x 正常速度）→ 看得出在動、不會像凍結。
+    //   ★桌機/手機都降：實測桌機平移時若讓背景維持滿幀，會反過來把主圖平移預算搶走→主圖卡。
+    //     主圖平移順滑優先，背景在平移那零點幾秒降幀讓路（停手立即回滿幀）。
     const _moving = (window._chartMoveTs && _now - window._chartMoveTs < 220) ||
                     (_lowFx && _touchT && _now - _touchT < 350);
     const _frameGap = (_moving ? 66 : _frameMin) + _fxPenalty;   // 移動中 ~15fps；平時 桌面~30 / 手機~16(−自適應)
