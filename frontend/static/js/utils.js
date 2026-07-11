@@ -231,12 +231,15 @@ function loadVisibilityPrefs() {
 
 function buildPayload() {
   const sym = document.getElementById("symbolInput").value.trim();
+  // 初次只抓「填滿螢幕＋少量緩衝」的量 → 圖表秒出；更深歷史由 _bgLoadOlderBars() 於載入後背景補到 INIT_DAYS。
+  //   ⚠ 只有會背景補載的時框(1m/5m/15m/1h/4h)才縮；8h/2h/30m/1d/1w/1M 一次載入、不補 → 維持原量不可縮。
+  //   最終可見深度與標記完全不變(背景一塊就補到位)，只是首次繪製從抓 2000 根降到 ~700 根、每次切標的/時框都更快。
   return {
     market:    document.getElementById("marketSelect").value,
     symbol:    sym,
     start:     "",
     end:       "",
-    limit:     { "1M":120,"1w":520,"1d":1095,"4h":2190,"1h":2160,"15m":2000,"5m":2000,"1m":2000 }[currentTF] ?? 500,
+    limit:     { "1M":120,"1w":520,"1d":1095,"4h":800,"1h":700,"15m":700,"5m":700,"1m":700 }[currentTF] ?? 500,
     timeframe: currentTF,
     exchange:  document.getElementById("exchangeSelect").value,
   };
