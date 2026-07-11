@@ -765,13 +765,14 @@ class OHLCVRequest(BaseModel):
     api_key: str = ""
     api_secret: str = ""
     finmind_token: str = ""
+    indicators: bool = True   # False=前端副圖隱藏→不算 KDJ/RSI/MACD、payload 少 8 欄（見 enrich_df）
 
 
 @router.post("/ohlcv")
 def get_ohlcv(req: OHLCVRequest):
     """取得 OHLCV 數據"""
     use_limit = req.limit > 0
-    cache_key = f"ohlcv:{req.market}:{req.symbol}:{req.timeframe}:{req.exchange}:{req.start}:{req.end}:{req.limit}"
+    cache_key = f"ohlcv:{req.market}:{req.symbol}:{req.timeframe}:{req.exchange}:{req.start}:{req.end}:{req.limit}:i{int(req.indicators)}"
     ttl = 30 if use_limit else 300
     cached = cache.get(cache_key, ttl)
     if cached:
@@ -914,7 +915,7 @@ def get_ohlcv(req: OHLCVRequest):
             return {"data": []}
         raise HTTPException(400, f"查無 {req.symbol} 的資料，該標的可能不支援此交易所")
 
-    df = enrich_df(df)
+    df = enrich_df(df, indicators=req.indicators)
     result = {"data": df_to_records(df)}
     cache.set(cache_key, result)
     return result
@@ -1826,7 +1827,7 @@ def get_crt_winrate(
                     raise HTTPException(400, str(e))
                 if len(df) < 50:
                     raise HTTPException(400, f"資料不足 50 根K棒（{timeframe}）")
-                df = enrich_df(df)
+                df = enrich_df(df, indicators=False)   # 勝率/FVG/SS 只讀 BB+OHLCV，不讀 kdj/rsi/macd
                 data_cache.set(df_key, df)
                 # ⚠ 只有『來源＝Binance』才寫 7 天磁碟長效快取。Binance 冷卻時降級到 Pionex/Bybit 的資料
                 #   wick/邊界不同→可能生 Binance 上沒有的假 FVG（2025-08 BTC 8h 2.86% 假空缺口即此）；
@@ -1856,7 +1857,7 @@ def get_crt_winrate(
                     _cut = _recent["time"].iloc[0]
                     _merged = pd.concat(
                         [df[df["time"] < _cut][_cols], _recent[_cols]], ignore_index=True)
-                    df = enrich_df(_merged)
+                    df = enrich_df(_merged, indicators=False)   # 同上：勝率路徑不讀 kdj/rsi/macd
                     data_cache.set(df_key, df)
                     disk_cache.set(df_key, df)
         except Exception:

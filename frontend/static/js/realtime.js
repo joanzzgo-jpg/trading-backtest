@@ -30,13 +30,10 @@ function _updateBBTail() {
   for (let i = n - period; i < n; i++) { const d = ohlcvData[i].close - mean; sq += d * d; }
   const std = Math.sqrt(sq / (period - 1));
   const up = mean + 2 * std, lo = mean - 2 * std;
-  const up1 = mean + std, lo1 = mean - std;                    // 1σ 內帶
   const bar = ohlcvData[n - 1];
   bar.bb_upper = up; bar.bb_middle = mean; bar.bb_lower = lo;   // 寫回 ohlcvData，後續 renderBB/重算才一致
-  bar.bb_upper_1 = up1; bar.bb_lower_1 = lo1;
   const t = toTime(bar.time);
   try { bbU.update({ time: t, value: up }); bbM.update({ time: t, value: mean }); bbL.update({ time: t, value: lo }); } catch (e) {}
-  try { bbU1?.update({ time: t, value: up1 }); bbL1?.update({ time: t, value: lo1 }); } catch (e) {}
 }
 
 let _lastTickDraw = 0;   // 手機：上次「tick 觸發整層重畫」時刻(節流用)
@@ -250,39 +247,6 @@ function onMainCrosshair(param) {
   const bl = param.seriesData.get(bbL)?.value;
   if (bu != null) _setLegText("legBB", `BB  U:${fmt(bu)}  M:${fmt(bm)}  L:${fmt(bl)}`);
 }
-function onVolCrosshair(param) {
-  const v = param.seriesData.get(volSeries)?.value;
-  if (v != null) _setLegText("legVol", `VOL  ${fmtVol(v)}`);
-}
-function onKdjCrosshair(param) {
-  const k = param.seriesData.get(kdjK)?.value;
-  const d = param.seriesData.get(kdjD)?.value;
-  const j = param.seriesData.get(kdjJ)?.value;
-  if (k != null) {
-    _setLegText("legK", `K ${n2(k)}`);
-    _setLegText("legD", `D ${n2(d)}`);
-    _setLegText("legJ", `J ${n2(j)}`);
-  }
-}
-function onRsiCrosshair(param) {
-  const r14 = param.seriesData.get(rsiLine14)?.value;
-  const r7  = param.seriesData.get(rsiLine7)?.value;
-  if (r14 != null) {
-    _setLegText("legRsi14", `RSI 14  ${n2(r14)}`);
-    _setLegText("legRsi7",  `RSI 7  ${n2(r7)}`);
-  }
-}
-function onMacdCrosshair(param) {
-  const m  = param.seriesData.get(macdLine)?.value;
-  const sg = param.seriesData.get(macdSignal)?.value;
-  const h  = param.seriesData.get(macdHist)?.value;
-  if (m != null) {
-    _setLegText("legMacd",    `MACD ${n2(m)}`);
-    _setLegText("legMacdSig", `Signal ${n2(sg)}`);
-    _setLegText("legMacdHist",`Hist ${n2(h)}`);
-  }
-}
-
 function _updateSymChg(close, prevClose) {
   const el   = _symEl("symChg");
   if (!el) return;

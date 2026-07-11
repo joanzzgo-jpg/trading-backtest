@@ -132,7 +132,7 @@ function _applyPriceFormat(data) {
   else if (p >= 0.001)  { precision = 7; minMove = 0.0000001; }
   else                  { precision = 8; minMove = 0.00000001; }
   const fmt = { type: "price", precision, minMove };
-  [candleSeries, bbU, bbM, bbL, bbU1, bbL1].forEach(s => s?.applyOptions({ priceFormat: fmt }));
+  [candleSeries, bbU, bbM, bbL].forEach(s => s?.applyOptions({ priceFormat: fmt }));
 }
 
 function renderAll(data) {
@@ -146,18 +146,10 @@ function renderAll(data) {
   // 動態調整右側價格軸精度
   _applyPriceFormat(data);
 
-  // 先把錨定系列設到完整時間範圍，確保各子圖時間軸對齊
-  const anchorTimes = data.map(d => ({ time: toTime(d.time), value: 50 }));
-  kdjAnchor.setData(anchorTimes);
-  rsiAnchor.setData(anchorTimes);
-  macdAnchor.setData(anchorTimes.map(d => ({ ...d, value: 0 })));
-
   renderCandles(data);
   renderBB(data);
   renderVolume(data);
-  renderKDJ(data);
-  renderRSI(data);
-  renderMACD(data);
+  _renderSubcharts(data);   // 副圖(KDJ/RSI/MACD)隱藏時(預設)內部直接跳過，省 8 條 series 的 setData
   updateSymbolBar(data);
   // renderCandles 會清空 lastWRSignalMarkers + setMarkers([])，必須在這裡重填
   // 否則切標的/TF 時即使 _lastWRSignals 已有資料，主圖也看不到進出場標記
@@ -406,6 +398,24 @@ function renderVolume(data) {
   volMaSeries.setData(maData);
 }
 
+// 副圖指標(KDJ/RSI/MACD)是否隱藏——預設隱藏(localStorage.subChartsHidden 預設"1")。
+// 隱藏時 renderAll/背景補載/replay 都跳過對這 8 條 series 的 setData(display:none 不繪製、純白工)。
+function _subchartsHidden() {
+  return !!document.getElementById("chartsContainer")?.classList.contains("subcharts-hidden");
+}
+// 一次繪製三個副圖(含時間軸對齊用的 3 條 anchor)。副圖隱藏時直接 return。
+// 副圖 toggle 打開時，ui.js 會呼叫此函式補算一次。
+function _renderSubcharts(data) {
+  if (_subchartsHidden()) return;
+  const anchorTimes = data.map(d => ({ time: toTime(d.time), value: 50 }));
+  kdjAnchor.setData(anchorTimes);
+  rsiAnchor.setData(anchorTimes);
+  macdAnchor.setData(anchorTimes.map(d => ({ ...d, value: 0 })));
+  renderKDJ(data);
+  renderRSI(data);
+  renderMACD(data);
+}
+
 function renderKDJ(data) {
   const line = k => data.filter(d => d[k] != null).map(d => ({ time:toTime(d.time), value:d[k] }));
   kdjK.setData(line("kdj_k")); kdjD.setData(line("kdj_d")); kdjJ.setData(line("kdj_j"));
@@ -472,7 +482,7 @@ function _bgScheduleIndicators() {
   _bgIndicatorTimer = setTimeout(() => {
     if (!ohlcvData.length) return;
     renderBB(ohlcvData);
-    setTimeout(() => { renderKDJ(ohlcvData); renderRSI(ohlcvData); renderMACD(ohlcvData); }, 0);
+    if (!_subchartsHidden()) setTimeout(() => { renderKDJ(ohlcvData); renderRSI(ohlcvData); renderMACD(ohlcvData); }, 0);
     if (_lastWRSignals.length) _renderWRSignals();
   }, 800);
 }
@@ -527,6 +537,7 @@ async function _bgLoadOlderBars(scrollTriggered = false) {
           market: snapMarket, symbol: snapSymbol,
           timeframe: snapTf,  exchange: snapExchange,
           start: toIso(startTs), end: toIso(endTs), limit: 0,
+          indicators: !(typeof _subchartsHidden === "function" && _subchartsHidden()),
         }),
       });
       if (myGen !== _bgLoadGen || !res.ok) break;
@@ -602,7 +613,7 @@ async function _bgLoadOlderBars(scrollTriggered = false) {
         clearTimeout(_bgIndicatorTimer);
         if (guard() && ohlcvData.length) {
           renderBB(ohlcvData);
-          setTimeout(() => { renderKDJ(ohlcvData); renderRSI(ohlcvData); renderMACD(ohlcvData); }, 0);
+          if (!_subchartsHidden()) setTimeout(() => { renderKDJ(ohlcvData); renderRSI(ohlcvData); renderMACD(ohlcvData); }, 0);
           if (_lastWRSignals.length) _renderWRSignals();
           // 補載歷史後也要重繪 FVG 標記(多/空/破多/破空/順多/順空)——否則新載進來那段的標記被 _has() 過濾掉不顯示
           if (typeof _renderFVGMS === "function") _renderFVGMS();

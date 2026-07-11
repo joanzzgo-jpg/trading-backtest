@@ -833,6 +833,13 @@ function _initSubChartsToggle() {
     const nowHidden = container.classList.contains("subcharts-hidden");
     try { localStorage.setItem("subChartsHidden", nowHidden ? "1" : "0"); } catch (e) {}
     _syncBtn();
+    // 由隱藏→顯示：資料在隱藏期間以 indicators=false 抓入(無 KDJ/RSI/MACD 欄) → 需重抓；
+    // 若已有指標欄(之前開過)則直接補算。(replay 中交由 replay 迴圈補)
+    if (!nowHidden && !replayActive && ohlcvData.length) {
+      const hasInd = ohlcvData.some(d => d.kdj_k != null);
+      if (hasInd) { if (typeof _renderSubcharts === "function") _renderSubcharts(ohlcvData); }
+      else if (typeof loadData === "function") loadData(false);   // 此時副圖已顯示→buildPayload 帶 indicators=true
+    }
     // 觸發 LWC 重新計算大小（主圖會撐滿/縮回）+ 手機把時間軸移到目前最下方可見面板（桌面不受影響）
     setTimeout(() => {
       if (typeof resizeAll === "function") resizeAll();

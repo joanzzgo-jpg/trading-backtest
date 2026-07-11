@@ -287,7 +287,6 @@ function _replayStep(bar) {
     bbU.update({ time:t, value:bar.bb_upper });
     bbM.update({ time:t, value:bar.bb_middle });
     bbL.update({ time:t, value:bar.bb_lower });
-    if (bar.bb_upper_1 != null) { bbU1?.update({ time:t, value:bar.bb_upper_1 }); bbL1?.update({ time:t, value:bar.bb_lower_1 }); }
   }
 
   kdjAnchor.update({ time:t, value:50 });
@@ -304,18 +303,20 @@ function _replayStep(bar) {
     volMaSeries.update({ time:t, value: volSum / period });
   }
 
-  if (bar.kdj_k != null) {
-    kdjK.update({ time:t, value:bar.kdj_k });
-    kdjD.update({ time:t, value:bar.kdj_d });
-    kdjJ.update({ time:t, value:bar.kdj_j });
-  }
-  if (bar.rsi_14 != null) rsiLine14.update({ time:t, value:bar.rsi_14 });
-  if (bar.rsi_7  != null) rsiLine7.update({ time:t, value:bar.rsi_7 });
-  if (bar.macd   != null) {
-    macdLine.update({ time:t, value:bar.macd });
-    macdSignal.update({ time:t, value:bar.macd_signal });
-    macdHist.update({ time:t, value:bar.macd_hist,
-      color: bar.macd_hist >= 0 ? C.up + "cc" : C.down + "cc" });
+  if (!(typeof _subchartsHidden === "function" && _subchartsHidden())) {
+    if (bar.kdj_k != null) {
+      kdjK.update({ time:t, value:bar.kdj_k });
+      kdjD.update({ time:t, value:bar.kdj_d });
+      kdjJ.update({ time:t, value:bar.kdj_j });
+    }
+    if (bar.rsi_14 != null) rsiLine14.update({ time:t, value:bar.rsi_14 });
+    if (bar.rsi_7  != null) rsiLine7.update({ time:t, value:bar.rsi_7 });
+    if (bar.macd   != null) {
+      macdLine.update({ time:t, value:bar.macd });
+      macdSignal.update({ time:t, value:bar.macd_signal });
+      macdHist.update({ time:t, value:bar.macd_hist,
+        color: bar.macd_hist >= 0 ? C.up + "cc" : C.down + "cc" });
+    }
   }
 
   // 累積標記（增量加入，不重建）
@@ -340,16 +341,10 @@ function _replayRender() {
   } else {
     // 跳躍或倒退：只在這裡建一次 slice
     const slice = replayData.slice(0, n);
-    const anchorTimes = slice.map(d => ({ time:toTime(d.time), value:50 }));
-    kdjAnchor.setData(anchorTimes);
-    rsiAnchor.setData(anchorTimes);
-    macdAnchor.setData(anchorTimes.map(d => ({ ...d, value:0 })));
     renderCandles(slice);
     renderBB(slice);
     renderVolume(slice);
-    renderKDJ(slice);
-    renderRSI(slice);
-    renderMACD(slice);
+    if (typeof _renderSubcharts === "function") _renderSubcharts(slice);   // 副圖隱藏(預設)時內部跳過
     updateSymbolBar(slice);
   }
 

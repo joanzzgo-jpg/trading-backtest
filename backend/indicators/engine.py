@@ -191,10 +191,7 @@ def add_indicators(df: pd.DataFrame, config: dict) -> pd.DataFrame:
         cfg = config["bb"]
         period, std = cfg.get("period", 20), cfg.get("std", 2.0)
         df["bb_upper"], df["bb_middle"], df["bb_lower"] = bollinger_bands(close, period, std)
-        # 1σ 內帶（同均線/週期，只差 1 個標準差）— 與 2σ 並存，前端疊畫
-        _bb_sd1 = close.rolling(period).std()
-        df["bb_upper_1"] = df["bb_middle"] + _bb_sd1
-        df["bb_lower_1"] = df["bb_middle"] - _bb_sd1
+        # 1σ 內帶已移除（前端 bbU1/bbL1 不再建立、後端無人讀）→ 不再計算/輸出
 
     if "stoch" in config:
         cfg = config["stoch"]

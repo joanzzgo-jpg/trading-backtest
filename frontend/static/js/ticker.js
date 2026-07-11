@@ -26,19 +26,6 @@ function _toggleWatchlist(symbol, market, exchange) {
   _saveWatchlist();
   _renderWatchlist();  // calls renderTickers() internally
 }
-function _addToWatchlist() {
-  const symbol   = document.getElementById("symbolInput")?.value?.trim();
-  const market   = document.getElementById("marketSelect")?.value || "crypto";
-  const exchange = document.getElementById("exchangeSelect")?.value || "pionex";
-  if (!symbol) return;
-  const key = `${market}:${exchange}:${symbol}`;
-  if (_watchlist.some(w => `${w.market}:${w.exchange || ""}:${w.symbol}` === key)) return;
-  _watchlist.unshift({ market, symbol, exchange });
-  _saveWatchlist();
-  _renderWatchlist();
-}
-
-
 let _tickerData     = [];
 let _spotTickerData = [];
 let _twTickerData   = [];   // 含台指期三兄弟（後端 /api/tickers?market=tw 已置頂 is_future 列）
@@ -106,24 +93,6 @@ function _sortTickerList(list) {
   return [...list].sort((a, b) => b.change_pct - a.change_pct);
 }
 
-/* 只更新價格文字，不重建 DOM */
-function _syncTickerToChart() {
-  if (!ohlcvData.length) return;
-  const lastBar = ohlcvData[ohlcvData.length - 1];
-  if (!lastBar?.close) return;
-  const sym = document.getElementById("symbolInput")?.value.trim().toUpperCase();
-  if (!sym) return;
-  // 在 futures / spot 資料中找到對應標的，同步最新 close 價格
-  const allSrc = [..._tickerData, ..._spotTickerData, ..._twTickerData];
-  const target = allSrc.find(t =>
-    (t.display || t.symbol || "").toUpperCase() === sym ||
-    (t.symbol || "").toUpperCase() === sym
-  );
-  if (target) {
-    target.price = lastBar.close;
-    _updateTickerPrices();
-  }
-}
 
 // 子元素 ref 快取（key: ticker-item el）— DOM 被移除時 WeakMap 會自動釋放
 const _tickerChildCache = new WeakMap();

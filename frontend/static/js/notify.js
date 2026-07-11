@@ -455,9 +455,6 @@ function _ntfFmtTime(ts) {
 }
 
 // 事件 → 分類（篩選用）：signal=訊號通知 / auto=自動交易
-function _ntfCat(ev) {
-  return (ev === "entry" || ev === "tp" || ev === "sl") ? "signal" : "auto";
-}
 // 篩選比對：all=全部、signal=策略訊號、auto=自動交易(進+出)、entry=自動進場、exit=自動出場(止盈/止損)
 function _ntfMatch(ev, f) {
   switch (f) {

@@ -242,6 +242,8 @@ function buildPayload() {
     limit:     { "1M":120,"1w":520,"1d":1095,"4h":800,"1h":700,"15m":700,"5m":700,"1m":700 }[currentTF] ?? 500,
     timeframe: currentTF,
     exchange:  document.getElementById("exchangeSelect").value,
+    // 副圖(KDJ/RSI/MACD)隱藏時(預設)不要後端算指標→省計算+payload 少 8 欄；打開副圖時帶 true 重抓
+    indicators: !(typeof _subchartsHidden === "function" && _subchartsHidden()),
   };
 }
 
@@ -271,7 +273,6 @@ function fmtVol(v) {
   if (v>=1e3) return (v/1e3).toFixed(1)+"K";
   return Number(v).toLocaleString();
 }
-function fmtT(s)   { return s ? s.replace("T"," ").substring(0,16) : "—"; }
 
 function showToast(msg, ms = 4000) {
   const el = document.createElement("div");

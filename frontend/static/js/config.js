@@ -59,7 +59,7 @@ const INPUT_SERIES_MAP = {
 };
 
 /* ── 圖表物件 ── */
-let mainChart,   candleSeries, bbU, bbM, bbL, bbU1, bbL1;
+let mainChart,   candleSeries, bbU, bbM, bbL;
 let latestPriceLine = null;
 let volSeries, volMaSeries;          // 成交量放在 mainChart 的獨立價格軸
 let kdjChart,    kdjK, kdjD, kdjJ, kdjH20, kdjH50, kdjH80;

@@ -523,7 +523,7 @@ function buildCharts() {
   bbU = mainChart.addLineSeries({ color:C.bbU, lineWidth:S.bbWidth??1,  priceLineVisible:false, lastValueVisible:false });
   bbM = mainChart.addLineSeries({ color:C.bbM, lineWidth:S.bbMWidth??1, lineStyle:S.bbMStyle??2, priceLineVisible:false, lastValueVisible:false });
   bbL = mainChart.addLineSeries({ color:C.bbL, lineWidth:S.bbWidth??1,  priceLineVisible:false, lastValueVisible:false });
-  // 布林 1σ 內帶已移除（使用者要求）：bbU1/bbL1 不再建立，維持 undefined；其餘引用皆 ?. 保護→無動作
+  // 布林 1σ 內帶已移除（使用者要求）：bbU1/bbL1 series 與相關引用皆已刪除（前後端皆不再計算/輸出）
 
   // 成交量疊在主圖下方（獨立 priceScaleId，不影響 K 棒價格軸）
   volSeries   = mainChart.addHistogramSeries({ priceScaleId:"volume", priceLineVisible:false, lastValueVisible:false });

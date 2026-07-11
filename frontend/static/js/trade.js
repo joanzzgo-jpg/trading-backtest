@@ -231,11 +231,6 @@ function _trdRenderPerSym() {
 
 // 止損算槓桿模式的「例子」：以停損 2% 估個槓桿讓使用者有概念（實際依各訊號停損距離自動算）。
 // 公式 = 止損額 ÷（金額 × 停損距離）。
-function _trdLevExample(margin, risk) {
-  if (!(margin > 0) || !(risk > 0)) return "";
-  return `　（例：停損 2% → 約 ${Math.max(1, Math.round(risk / (margin * 0.02)))}x）`;
-}
-
 let _trdAutoSaveTimer = null;
 function _trdSaveAuto() {
   const pop = document.getElementById("tradePopup");
@@ -934,45 +929,6 @@ function _trdBuildPopup() {
 }
 
 function _trdStopPoll() { clearInterval(_TRD.pollTimer); _TRD.pollTimer = null; }
-
-function _trdOpenPopup(anchorBtn) {
-  const pop = document.getElementById("tradePopup");
-  if (!pop) return;
-  if (typeof window._closeAllFloatPanels === "function") window._closeAllFloatPanels("");
-  const opening = !pop.classList.contains("open");
-  pop.classList.toggle("open");
-  if (!opening) { _trdStopPoll(); return; }
-  // 標的預填目前圖表（僅 crypto）
-  try {
-    const mkt = document.getElementById("marketSelect")?.value;
-    const sym = document.getElementById("symbolInput")?.value?.trim();
-    if (mkt === "crypto" && sym && !pop.querySelector("#trdSym").value) pop.querySelector("#trdSym").value = sym;
-  } catch (e) {}
-  // 先做交易核准把關：未核准（或過期）→ 顯示核准 UI、不進面板；已核准才取口令+刷新
-  _trdGate().then(ok => {
-    if (!ok) return;
-    if (window._acctName) {
-      _trdApi("mykey", { name: window._acctName })
-        .then(j => { if (j && j.tkey) { try { localStorage.setItem("tradeKey", j.tkey); } catch (e) {} } })
-        .catch(() => {})
-        .finally(() => { if (_TRD.st.locked && !_trdKey()) _trdShowKeyRow(true); _trdRefresh(); });
-    } else {
-      if (_TRD.st.locked && !_trdKey()) _trdShowKeyRow(true);
-      _trdRefresh();
-    }
-    _trdStopPoll();
-    _TRD.pollTimer = setInterval(_trdRefresh, 5000);   // 開著時每 5s 刷新持倉/盈虧
-  });
-  if (anchorBtn && !isMobileUI()) {
-    requestAnimationFrame(() => {
-      const r = anchorBtn.getBoundingClientRect();
-      let left = r.right - pop.offsetWidth; if (left < 4) left = 4;
-      let top = r.bottom + 4;
-      if (top + pop.offsetHeight > window.innerHeight - 8) top = Math.max(4, r.top - pop.offsetHeight - 4);
-      pop.style.left = left + "px"; pop.style.top = top + "px";
-    });
-  }
-}
 
 // 桌面：交易面板與「合約行情」面板『並排』在最右欄（不再上下堆疊），可往右收合（點標題列）
 function _trdInjectDesktopDock() {
