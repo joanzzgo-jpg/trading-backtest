@@ -674,6 +674,7 @@ async def _fetch_cwa_pop(county: str):
     d0 = tw_now.date()
     day = now = None
     _fr = None                                          # 今日第一個「未來」降雨時段(官方粗粒度時段起點)
+    _earliest = None                                    # 整份資料最早的時段(深夜時 CWA 已無「今日」時段→用它墊底)
     for t in pop_el.get("time", []):
         try:
             st = datetime.fromisoformat(t["startTime"])
@@ -681,6 +682,8 @@ async def _fetch_cwa_pop(county: str):
             v = int(round(float(t["parameter"]["parameterName"])))
         except (ValueError, KeyError, TypeError):
             continue
+        if _earliest is None or st < _earliest[0]:
+            _earliest = (st, v)
         # 今日：與今天日期重疊的所有時段取最大
         if st.date() == d0 or (st.date() < d0 < et.date()) or et.date() == d0:
             day = v if day is None else max(day, v)
@@ -690,6 +693,10 @@ async def _fetch_cwa_pop(county: str):
         # 幾點開始下雨：今日、尚未開始、機率≥50% 的最早時段（官方 12h 粒度）
         if st > tw_now and st.date() == d0 and v >= 50 and (_fr is None or st < _fr[0]):
             _fr = (st, v)
+    # 深夜(近午夜)時 CWA 的 36h 預報可能已無「今日」時段(全部從明天 00:00 起)→ day/now 皆 None。
+    # 此時別回傳 None 讓上層退回 Open-Meteo(會給 47% 這種非整十值),改用「最近的下一個時段」續留 CWA。
+    if day is None and _earliest is not None:
+        day = _earliest[1]
     if now is None and day is not None:                 # 當前時間落在資料起點前 → 退今日
         now = day
     if day is None:
