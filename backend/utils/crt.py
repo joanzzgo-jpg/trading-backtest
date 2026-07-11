@@ -82,6 +82,25 @@ def _scan_outcome_fixed_t(highs, lows, closes, times_iso, entry_i, n, stop_px, t
 
 _SCAN_MAX_HOLD = 500   # 單個訊號最長掃描 K 棒數（避免最近的未結算訊號掃到資料底）
 
+def _first_le_idx(arr, start, thr):
+    """arr[start:] 中第一個 <= thr 的索引（回傳全域索引；無則 -1）。
+    NaN <= thr → False，與逐根 Python 比較完全一致（NaN 比較恆 False）。"""
+    if start >= arr.shape[0]:
+        return -1
+    m = arr[start:] <= thr
+    if not m.any():
+        return -1
+    return start + int(m.argmax())
+
+def _first_ge_idx(arr, start, thr):
+    """arr[start:] 中第一個 >= thr 的索引（回傳全域索引；無則 -1）。NaN >= thr → False。"""
+    if start >= arr.shape[0]:
+        return -1
+    m = arr[start:] >= thr
+    if not m.any():
+        return -1
+    return start + int(m.argmax())
+
 def _scan_outcome_np(highs, lows, closes, target_arr, times_iso, entry_i, n, stop_px, direction):
     """向量化版本：從 entry_i 掃描動態目標，比 Python for-loop 快 ~30x。
 
@@ -1094,19 +1113,16 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                 _idir = "s" if _dir == "l" else "l"
                 _isl = _top if _dir == "l" else _bot                       # 反向止損＝被破的對側邊
                 _itp = (_bot - 2 * _W) if _dir == "l" else (_top + 2 * _W)   # 反向止盈 2W
-                _iett = _ietm = _ietb = None       # IFVG 進場分上中下：反向後框上/中/下緣各自首次觸及
-                for _m in range(_invi + 1, _N):
-                    if _idir == "l":
-                        _lm = _L[_m]
-                        if _iett is None and _lm <= _top: _iett = times_iso[_m]
-                        if _ietm is None and _lm <= _mid: _ietm = times_iso[_m]
-                        if _ietb is None and _lm <= _bot: _ietb = times_iso[_m]
-                    else:
-                        _hm = _H[_m]
-                        if _iett is None and _hm >= _top: _iett = times_iso[_m]
-                        if _ietm is None and _hm >= _mid: _ietm = times_iso[_m]
-                        if _ietb is None and _hm >= _bot: _ietb = times_iso[_m]
-                    if _iett and _ietm and _ietb: break
+                # IFVG 進場分上中下：反向後框上/中/下緣各自首次觸及（向量化：三緣各取首觸索引）。
+                #   與原逐根迴圈等價——原迴圈用 `is None` 守衛=各緣「首次」，break 只在三者皆得後停掃、不改值。
+                _s = _invi + 1
+                if _idir == "l":   # 用 numpy 版 lows/highs（_L/_H 是 .tolist()）；值與 NaN 行為一致 → 索引相同
+                    _ia = _first_le_idx(lows, _s, _top); _ib = _first_le_idx(lows, _s, _mid); _ic = _first_le_idx(lows, _s, _bot)
+                else:
+                    _ia = _first_ge_idx(highs, _s, _top); _ib = _first_ge_idx(highs, _s, _mid); _ic = _first_ge_idx(highs, _s, _bot)
+                _iett = times_iso[_ia] if _ia >= 0 else None
+                _ietm = times_iso[_ib] if _ib >= 0 else None
+                _ietb = times_iso[_ic] if _ic >= 0 else None
                 _it2 = _ietm                       # 盒子右端＝反向回中線
                 _fvg.append({"t": _inv_t, "top": _top, "bot": _bot, "d": _idir, "t2": _it2,
                              "sweep": False, "sl": _isl, "tp": _itp, "inv": True, "dim": _dim,
