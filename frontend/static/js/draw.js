@@ -2319,3 +2319,15 @@ function drawPreview(type, a, b, W, H) {
   drawCtx.restore();
 }
 
+
+// ── 自我初始化：draw.js 已移出首屏 bundle，由 main.js 於首屏後閒置時動態載入。──
+//   core(main.js) 對 initDrawTools 及各 toggle 皆以 typeof guard 呼叫；延遲載入時那些呼叫被跳過
+//   (當下函式尚未定義)，故在此檔載入完成後自我啟動一次。旗標防重複(萬一又被併回 bundle)。
+//   延遲載入必在 main.init() 之後(=_loadFx 於 init 末段排程)，故 mainChart 等 core 全域此時已就緒。
+if (!window._drawBooted) {
+  window._drawBooted = true;
+  try {
+    initDrawTools();
+    initSessionToggle(); initVPToggle(); initCoachToggle(); initVwapToggle();
+  } catch (e) { console.warn("draw self-init failed", e); }
+}

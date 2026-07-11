@@ -32,7 +32,9 @@ def _build_js_bundle():
         from pathlib import Path
         js = Path(os.path.dirname(__file__)) / ".." / "frontend" / "static" / "js"
         js = js.resolve()
-        names = ["config","utils","charts","draw","colors","ticker","winrate","render","realtime","replay","ui","ai_research","signal_info","account","notify","trade","chartorder","xiaoa","lunar","announce","main"]
+        # ⚠ draw / trade 已移出 bundle → 改由 main.js 於首屏後閒置時動態載入（首屏 JS 省 ~42%）。
+        #   兩者對 core 的耦合皆經 typeof/window guard，且各自在載入時自我初始化（見 draw.js/trade.js 末段）。
+        names = ["config","utils","charts","colors","ticker","winrate","render","realtime","replay","ui","ai_research","signal_info","account","notify","chartorder","xiaoa","lunar","announce","main"]
         srcs = [js / f"{n}.js" for n in names]
         bundle = js / "app.bundle.js"
         srcs_exist = [p for p in srcs if p.exists()]
@@ -181,14 +183,17 @@ _CSS_PATH     = os.path.join(FRONTEND_DIR, "static", "css", "style.css")
 # 否則只改這兩支時 /static 的 immutable 長快取會讓瀏覽器吃到舊檔。
 _EFFECTS_PATH = os.path.join(FRONTEND_DIR, "static", "js", "effects.js")
 _WEATHER_PATH = os.path.join(FRONTEND_DIR, "static", "js", "weather.js")
+_DRAW_PATH    = os.path.join(FRONTEND_DIR, "static", "js", "draw.js")    # 動態載入（不在 bundle），版號須含它
+_TRADE_PATH   = os.path.join(FRONTEND_DIR, "static", "js", "trade.js")   # 同上
 _FONTS_PATH   = os.path.join(FRONTEND_DIR, "static", "vendor", "fonts.css")
 
 
 def _asset_ver() -> str:
-    """資產版號 = git hash + 前端資產最新 mtime（bundle / css / effects / weather 取最新者）。
+    """資產版號 = git hash + 前端資產最新 mtime（bundle / css / effects / weather / draw / trade 取最新者）。
     每次請求即時算，本地改前端（即使沒重啟服務、沒 commit）也會改版號、破瀏覽器快取。"""
     try:
-        m = max(os.path.getmtime(p) for p in (_BUNDLE_PATH, _CSS_PATH, _EFFECTS_PATH, _WEATHER_PATH, _FONTS_PATH) if os.path.exists(p))
+        m = max(os.path.getmtime(p) for p in (_BUNDLE_PATH, _CSS_PATH, _EFFECTS_PATH, _WEATHER_PATH,
+                                              _DRAW_PATH, _TRADE_PATH, _FONTS_PATH) if os.path.exists(p))
         return f"{_GIT_VER}-{int(m)}"
     except Exception:
         return _GIT_VER

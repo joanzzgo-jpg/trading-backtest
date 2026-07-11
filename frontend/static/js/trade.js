@@ -1078,3 +1078,10 @@ async function initTrade() {
     _trdInjectDesktopDock();
   }
 }
+
+// ── 自我初始化：trade.js 已移出首屏 bundle，由 main.js 於首屏後閒置時動態載入。──
+//   main.js 的 initTrade 呼叫本就 typeof guard；延遲載入時被跳過，故此檔載入後自我啟動一次。
+if (!window._trdBooted) {
+  window._trdBooted = true;
+  try { initTrade(); } catch (e) { console.warn("trade self-init failed", e); }
+}

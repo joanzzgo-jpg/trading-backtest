@@ -134,7 +134,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   bindSystemColors();
   initSymSearch();
   syncTimeScales();
-  initDrawTools();
+  if (typeof initDrawTools === "function") initDrawTools();   // draw.js 已延遲載入時→由 draw.js 末段自我初始化
   updateMarketUI();
   applyAllColors();
   startTickerRefresh();
@@ -384,7 +384,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   // 兩支皆獨立 IIFE，async=false 保留插入順序（互不依賴，順序僅為穩妥）
   const _loadFx = () => {
     const ver = window._APP_VER || "1";
-    ["effects.js", "weather.js"].forEach(name => {
+    // draw / trade 也在此延遲載入（已移出首屏 bundle，省 ~42% 首屏 JS）；async=false 保留插入順序。
+    // 兩者末段各自 initDrawTools()/initTrade() 自我初始化 → 載入完成即接手繪圖工具/交易面板。
+    ["effects.js", "weather.js", "draw.js", "trade.js"].forEach(name => {
       const s = document.createElement("script");
       s.src = "/static/js/" + name + "?v=" + ver;
       s.async = false;
