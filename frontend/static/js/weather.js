@@ -2047,13 +2047,15 @@
   }
 
   function dStorm() {
-    /* heavy angled rain — 傾斜方向跟著風（風強傾斜大） */
-    const sdx = _windVecX()*(3 + _wd.windSpeed*0.06);
+    /* heavy angled rain — 斜率用 _rainLean()（同 dRain：隨風速變、風強斜大，不再幾乎直落）；
+       重生走 _rainSpawnX 讓上風側角落也有雨 */
+    const lean = _rainLean();
     rainP.forEach(p => {
       ctx.strokeStyle=`rgba(130,180,255,${p.a*.75})`; ctx.lineWidth=1;
-      ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(p.x+sdx*0.8,p.y+p.len*1.3); ctx.stroke();
-      p.y+=p.spd*1.6; p.x+=sdx*0.5;
-      if (p.y>H+p.len) { p.y=-p.len; p.x=Math.random()*W; }
+      const seg = p.len*1.3;
+      ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(p.x+lean*seg,p.y+seg); ctx.stroke();
+      p.y+=p.spd*1.6; p.x+=lean*p.spd*1.6;
+      if (p.y>H+p.len) { p.y=-p.len; p.x=_rainSpawnX(lean); }
     });
     /* lightning */
     lightningTimer--;
@@ -2085,13 +2087,14 @@
 
   /* ── 超強雷暴：傾盆大雨 + 頻繁多叉閃電 + 雷聲 ── */
   function dThunder() {
-    /* very heavy angled rain — 傾斜方向跟著風 */
-    const wvx = _windVecX();
+    /* very heavy angled rain — 斜率用 _rainLean()（隨風速變，不再只吃方向、風大也直落）；重生補上風側角落 */
+    const lean = _rainLean();
     rainP.forEach(p => {
       ctx.strokeStyle=`rgba(160,215,255,${p.a*.85})`; ctx.lineWidth=p.a>.38?1.8:1.1;
-      ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(p.x+wvx*p.len*.6,p.y+p.len*2.0); ctx.stroke();
-      p.y+=p.spd*2.4; p.x+=wvx*p.len*.32;
-      if (p.y>H+p.len){p.y=-p.len; p.x=Math.random()*W;}
+      const seg = p.len*2.0;
+      ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(p.x+lean*seg,p.y+seg); ctx.stroke();
+      p.y+=p.spd*2.4; p.x+=lean*p.spd*2.4;
+      if (p.y>H+p.len){p.y=-p.len; p.x=_rainSpawnX(lean);}
     });
     /* spawn new bolt(s) — slower cadence, softer flash */
     thunderTimer--;
@@ -3551,7 +3554,9 @@
     const t = _ty.typhoons[0], near = _ty.nearest_km;
     // 只在區域相關時顯示/播報（附近有颱風，避免歐美使用者被西太平洋颱風洗版）
     _ty._relevant = (near != null && near < 4000) || (_ty.tw_warning && _ty.tw_warning.active);
-    window._tyStormBias = (near != null && near < 600);
+    // 背景轉暴風只在「真的有陸上颱風警報」或「颱風極近 <150km」才觸發 → 否則背景照真實天氣走
+    // （避免颱風還在數百km外、往外海走、根本沒發警報時，就把真實的多雲/小雨蓋成雷雨）。
+    window._tyStormBias = !!((_ty.tw_warning && _ty.tw_warning.active) || (near != null && near < 150));
     if (_ty._relevant && t.current) {   // 組小啊播報句
       const cur = t.current, fc = t.forecast || [], tw = _ty.tw_warning;
       let s = '🌀 颱風 ' + (t.nameEn || '') + (t.number ? '（' + t.number + '號）' : '');
