@@ -26,6 +26,11 @@ def _yf_session():
     return _YF_SESSION
 
 def _yf_ticker(symbol):
+    # 港股：全站用 HKEX 標準 5 碼(00020.HK)，但 Yahoo/yfinance 只認去前導零的 4 碼(0020.HK) → 抓價前轉換。
+    if isinstance(symbol, str) and symbol.upper().endswith(".HK"):
+        digits = "".join(ch for ch in symbol[:-3] if ch.isdigit())
+        if digits and 1 <= int(digits) <= 9999:
+            symbol = f"{str(int(digits)).zfill(4)}.HK"   # 00020.HK → 0020.HK（Yahoo 用 4 碼）
     sess = _yf_session()
     if sess:
         try:

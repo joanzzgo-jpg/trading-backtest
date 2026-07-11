@@ -58,17 +58,17 @@ def hk_search(q: str = ""):
     cached = cache.get(cache_key, ttl=3600)
     if cached:
         return cached
-    from data.hk_stock import search_hk_stocks, hk_yahoo_code
+    from data.hk_stock import search_hk_stocks, hk_canon_code
     results = search_hk_stocks(q)                      # 主源：騰訊建議（中文優先）
     seen = {r["symbol"].upper() for r in results}
     for r in search_us_stocks(q):                      # 補：Yahoo .HK（英文/騰訊漏收）
         s = str(r.get("symbol", "")).upper()
         if not s.endswith(".HK"):
             continue
-        c4 = hk_yahoo_code(s[:-3])                      # 正規化＋濾掉 80700 等雙櫃檯，與主源去重
-        if not c4:
+        c5 = hk_canon_code(s[:-3])                      # 正規化為標準 5 碼＋濾掉 80700 等雙櫃檯，與主源去重
+        if not c5:
             continue
-        s = f"{c4}.HK"
+        s = f"{c5}.HK"
         if s not in seen:
             r["symbol"] = s
             results.append(r); seen.add(s)

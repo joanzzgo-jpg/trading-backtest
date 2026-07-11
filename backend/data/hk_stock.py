@@ -26,6 +26,18 @@ def _norm_code(symbol: str) -> str:
     return s.zfill(5)
 
 
+def hk_canon_code(code: str):
+    """港股代號 → 全站標準 HKEX 5 碼(補足前導零)：700→00700、20→00020、9988→09988。
+    只認普通股/ETF 區間(1~9999)；結構性商品/RMB 雙櫃檯(≥10000，如 80700)回 None。非數字回 None。"""
+    s = "".join(ch for ch in str(code) if ch.isdigit())
+    if not s:
+        return None
+    n = int(s)
+    if n < 1 or n > 9999:
+        return None
+    return str(n).zfill(5)
+
+
 def hk_yahoo_code(code: str):
     """港股代號 → Yahoo/yfinance 用的 4 碼格式(去前導零、補足 4 碼)：00700→0700、09988→9988。
     只認普通股/ETF 區間(1~9999)；結構性商品/RMB 雙櫃檯(≥10000，如 80700)回 None。非數字回 None。"""
@@ -79,10 +91,10 @@ def search_hk_stocks(query: str):
         typ = f[4].split("-")[0]                      # 尾端可能帶 -NX 結束記號
         if mk != "hk" or typ != "GP":                # 只要正股/ETF，濾掉窩輪牛熊證(QZ)等
             continue
-        c4 = hk_yahoo_code(code)                      # 5 碼→Yahoo 4 碼；RMB 櫃檯/衍生→None 濾掉
-        if not c4:
+        c5 = hk_canon_code(code)                      # 標準 5 碼；RMB 櫃檯/衍生(≥10000)→None 濾掉
+        if not c5:
             continue
-        sym = f"{c4}.HK"
+        sym = f"{c5}.HK"
         if sym in seen:
             continue
         seen.add(sym)
