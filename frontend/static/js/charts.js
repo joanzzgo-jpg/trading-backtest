@@ -232,6 +232,7 @@ function toggleFVG(on) {
 //   開關(_fvgBreakHidden/_fvgMSHidden/_fvgShunHidden)、大棒淡化(_dimBigBarOn/_dimHex)、上下定位(該棒 high/low)、同棒同側堆疊。
 function _makeStratMarkersPrimitive() {
   let _chart = null, _series = null, _req = null;
+  let _stratSettleT = null;   // 平移/縮放中跳過文字後，停手補畫一次
   const _visSlice = (arr, lo, hi) => {   // arr 依 time 升序 → 二分找可見區段
     let a = 0, b = arr.length;
     while (a < b) { const m = (a + b) >> 1; arr[m].time < lo ? a = m + 1 : b = m; }
@@ -257,6 +258,11 @@ function _makeStratMarkersPrimitive() {
       const lo = vrng ? vrng.from : -Infinity, hi = vrng ? vrng.to : Infinity;
       const dimOn = !!window._dimBigBarOn;
       const n = ohlcvData.length;
+      // 平移/縮放進行中 → 只畫箭頭，跳過文字（canvas 文字最貴、縮放時可見標記多）→ 縮放更順；
+      //   停手後沒有重繪事件會讓文字不回來 → 用 debounce timer 在停手補畫一次（那時 _mv=false→含文字）。
+      const _nowP = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+      const _mv = !!(window._chartMoveTs && _nowP - window._chartMoveTs < 220);
+      if (_mv) { clearTimeout(_stratSettleT); _stratSettleT = setTimeout(() => { if (_req) _req(); }, 240); }
       target.useBitmapCoordinateSpace(scope => {
         const ctx = scope.context;
         const hr = scope.horizontalPixelRatio, vr = scope.verticalPixelRatio;
@@ -300,8 +306,7 @@ function _makeStratMarkersPrimitive() {
               ctx.lineTo(x - arrowW / 2, tipY - arrowH);
               ctx.lineTo(x + arrowW / 2, tipY - arrowH);
               ctx.closePath(); if (prov) ctx.stroke(); else ctx.fill();
-              ctx.textBaseline = "bottom";
-              ctx.fillText(m.text, Math.round(x), Math.round(tipY - arrowH - pad));
+              if (!_mv) { ctx.textBaseline = "bottom"; ctx.fillText(m.text, Math.round(x), Math.round(tipY - arrowH - pad)); }
               stepAbove.set(idx, off + glyphH);
             } else {
               const off = stepBelow.get(idx) || 0;
@@ -311,8 +316,7 @@ function _makeStratMarkersPrimitive() {
               ctx.lineTo(x - arrowW / 2, tipY + arrowH);
               ctx.lineTo(x + arrowW / 2, tipY + arrowH);
               ctx.closePath(); if (prov) ctx.stroke(); else ctx.fill();
-              ctx.textBaseline = "top";
-              ctx.fillText(m.text, Math.round(x), Math.round(tipY + arrowH + pad));
+              if (!_mv) { ctx.textBaseline = "top"; ctx.fillText(m.text, Math.round(x), Math.round(tipY + arrowH + pad)); }
               stepBelow.set(idx, off + glyphH);
             }
             if (prov) ctx.globalAlpha = 1;                   // 復原,不影響下一個標記
