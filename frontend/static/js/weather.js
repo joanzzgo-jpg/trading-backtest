@@ -3546,8 +3546,8 @@
     if (_wxLat != null && t.dist_km != null) seg.push(_bearing8(_wxLat, _wxLon, cur[0], cur[1]) + '方 ' + t.dist_km + 'km');
     if (fc.length) seg.push('往' + _bearing8(cur[0], cur[1], fc[0].lat, fc[0].lon));
     if (t.wind_ms != null) seg.push('風 ' + t.wind_ms + 'm/s');
-    const warn = (tw && tw.active && tw.areas && tw.areas.length)
-      ? '　⚠ ' + tw.areas.map(a => a.area).filter(Boolean).slice(0, 4).join('、') + ' 颱風警報'
+    const warn = (tw && tw.active)
+      ? '　⚠ ' + (tw.headline || '颱風警報')
       : '　台灣暫無陸上警報';
     return '<div style="' + (style || '') + 'color:#ff9a76;font-weight:600">' + seg.join(' · ') + warn + '</div>';
   }
@@ -3571,8 +3571,8 @@
       const near = _ty.nearest_km;
       // 只在區域相關時顯示（附近有颱風，避免歐美使用者被西太平洋颱風洗版）
       _ty._relevant = (near != null && near < 4000) || (_ty.tw_warning && _ty.tw_warning.active);
-      // 背景轉暴風只在「真的有陸上颱風警報」或「颱風極近 <150km」才觸發 → 否則背景照真實天氣走。
-      window._tyStormBias = !!((_ty.tw_warning && _ty.tw_warning.active) || (near != null && near < 150));
+      // 背景轉暴風只在「真的有陸上颱風警報(tw.land)」或「颱風極近 <150km」才觸發 → 否則背景照真實天氣走。
+      window._tyStormBias = !!((_ty.tw_warning && _ty.tw_warning.land) || (near != null && near < 150));
     }
     if (typeof _renderWeatherCard === 'function') _renderWeatherCard();   // 颱風資訊即時插進天氣卡
     if (typeof _applyAutoType === 'function') _applyAutoType();           // 颱風警報→背景可能改暴風（非手動時）

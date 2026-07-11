@@ -1679,7 +1679,10 @@ async def _fetch_jma_typhoons(sess) -> list:
 
 
 async def _fetch_cwa_typhoon_warning(sess):
-    """CWA 天氣特報(W-C0033-002)：篩出含『颱風』的警特報縣市。無金鑰/失敗/結構不符 → 回 None(前端只是不顯示台灣警報，JMA 颱風仍在)。"""
+    """CWA 天氣特報(W-C0033-002)：找出「颱風警報」那筆特報。實際結構為 records.record[]，每筆帶
+    datasetInfo.datasetDescription(如『海上陸上颱風警報』/『海上颱風警報』) 與 hazardConditions.hazards.hazard[].info
+    (phenomena『颱風』+ affectedAreas.location[].locationName)。回 {active, land(是否含陸上), headline, areas}。
+    無金鑰/失敗/結構不符 → 回 None(前端只是不顯示台灣警報，JMA 颱風仍在)。"""
     if not CWA_KEY:
         return None
     try:
@@ -1687,18 +1690,28 @@ async def _fetch_cwa_typhoon_warning(sess):
             if r.status != 200:
                 return None
             d = await r.json()
-        locs = (((d.get("records") or {}).get("location")) or [])
-        areas = []
-        for loc in locs:
-            name = loc.get("locationName")
-            hazards = (((loc.get("hazardConditions") or {}).get("hazards")) or [])
-            for hz in hazards:
-                info = (hz.get("info") or {})
-                phen = info.get("phenomena") or hz.get("phenomena") or ""
-                if "颱風" in str(phen):
-                    areas.append({"area": name, "phenomena": str(phen)})
-                    break
-        return {"active": bool(areas), "areas": areas}
+        recs = (((d.get("records") or {}).get("record")) or [])
+        if isinstance(recs, dict):
+            recs = [recs]
+        for rec in recs:
+            desc = str(((rec.get("datasetInfo") or {}).get("datasetDescription")) or "")
+            hazards = ((((rec.get("hazardConditions") or {}).get("hazards")) or {}).get("hazard")) or []
+            if isinstance(hazards, dict):
+                hazards = [hazards]
+            is_ty = ("颱風" in desc) or any(
+                "颱風" in str(((h.get("info") or {}).get("phenomena")) or "") for h in hazards)
+            if not is_ty:
+                continue
+            areas = []
+            for h in hazards:
+                info = h.get("info") or {}
+                if "颱風" in str(info.get("phenomena") or ""):
+                    for lo in (((info.get("affectedAreas") or {}).get("location")) or []):
+                        nm = lo.get("locationName")
+                        if nm:
+                            areas.append(nm)
+            return {"active": True, "land": ("陸上" in desc), "headline": desc.strip(), "areas": areas}
+        return {"active": False, "land": False, "headline": "", "areas": []}
     except Exception:
         return None
 
