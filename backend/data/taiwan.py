@@ -519,17 +519,34 @@ def fetch_tw_realtime(symbol: str):
     return None
 
 
-def search_tw_stock(keyword: str, api_token: str = "") -> list[dict]:
-    """搜尋台股代號"""
-    params = {
-        "dataset": "TaiwanStockInfo",
-        "token": api_token,
-    }
-    resp = requests.get(FINMIND_API_URL, params=params, timeout=30)
-    resp.raise_for_status()
-    data = resp.json()
-    records = data.get("data", [])
+_TW_INFO_CACHE = {"ts": 0.0, "records": None}   # 全台股清單記憶體快取（近乎靜態，一天變動一次）
 
+
+def _tw_stock_info(api_token: str = "") -> list:
+    """全台股清單(TaiwanStockInfo) — 記憶體快取 12hr。
+    清單近乎靜態(僅新上市/下市才變) → 不必每次搜尋都重抓整包(原本每次 ~380ms + FinMind 限額風險)。
+    抓取失敗且有舊快取 → stale-serve(不因暫時失敗讓搜尋整個掛掉)。"""
+    now = _time.time()
+    c = _TW_INFO_CACHE
+    if c["records"] is not None and now - c["ts"] < 43200:
+        return c["records"]
+    try:
+        resp = requests.get(FINMIND_API_URL,
+                            params={"dataset": "TaiwanStockInfo", "token": api_token}, timeout=30)
+        resp.raise_for_status()
+        records = resp.json().get("data", [])
+    except Exception:
+        return c["records"] or []
+    if records:
+        _TW_INFO_CACHE["ts"] = now
+        _TW_INFO_CACHE["records"] = records
+        return records
+    return c["records"] or []
+
+
+def search_tw_stock(keyword: str, api_token: str = "") -> list[dict]:
+    """搜尋台股代號（清單走 12hr 記憶體快取，過濾在本機、毫秒級）"""
+    records = _tw_stock_info(api_token)
     keyword = keyword.lower()
     results = [
         {"symbol": r["stock_id"], "name": r.get("stock_name", "")}
