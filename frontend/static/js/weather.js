@@ -3174,8 +3174,7 @@
   // 解析自動天氣：好天氣(晴/少雲) + 真實日落時段(±45min) → 自動晚霞；否則照後端 _autoType
   function _resolveAutoType() {
     const base = _autoType || 'sunny';
-    // 颱風接近(中心 <600km，_tyApply 設 window._tyStormBias)→ 背景自動偏暴風（非手動時）。base 已是更劇烈型態則不覆蓋。
-    if (window._tyStormBias && !['storm','thunder','tornado'].includes(base)) return 'storm';
+    // （颱風不覆蓋背景：使用者要求背景永遠照真實天氣走，颱風資訊只顯示在天氣卡文字，不轉暴風。）
     // 附近雨量站測到「所在地正在下雨」→ 背景就下雨（雨量站比最近氣象站的天氣文字更靈敏，
     // 免「小啊說在下雨、背景卻晴天」的落差）。base 已是雨/雪類則維持不覆蓋。
     if (_wd.nearbyRaining && !['rain','drizzle','storm','thunder','snow'].includes(base)) return 'rain';
@@ -3523,11 +3522,10 @@
     _wxRefresh();                                  // 重新定位 + 重抓天氣 → 完成後 _renderWeatherCard 會再更新一次
   };
 
-  /* ── 颱風：資訊顯示在「天氣資訊卡」（不畫地圖、不進小啊）—— /api/typhoon(JMA 全球颱風＋CWA 台灣警報)
+  /* ── 颱風：資訊只顯示在「天氣資訊卡」（不畫地圖、不進小啊、不動背景）—— /api/typhoon(JMA 全球颱風＋CWA 台灣警報)
      名稱/方向距離/移動/警報/風速 → _tyCardHtml() 插進浮動天氣卡 #_wxCard 與手機設定天氣卡 #mSetWeather。
-     颱風有陸上警報或極近(<150km)且非手動 → 背景自動偏暴風(_resolveAutoType 讀 window._tyStormBias)。 */
+     ★背景永遠照真實天氣走，颱風不轉暴風（使用者要求：有警報時也不要背景變雷雨）。 */
   let _ty = null, _tyFetchTs = 0;
-  window._tyStormBias = false;
 
   // from→to 的 8 方位中文（0=正北，順時針）
   function _bearing8(fLat, fLon, tLat, tLon) {
@@ -3565,17 +3563,14 @@
   }
 
   function _tyApply() {
-    if (!_ty || !_ty.active || !(_ty.typhoons || []).length) {
-      _ty = null; window._tyStormBias = false;
-    } else {
+    if (_ty && _ty.active && (_ty.typhoons || []).length) {
       const near = _ty.nearest_km;
       // 只在區域相關時顯示（附近有颱風，避免歐美使用者被西太平洋颱風洗版）
       _ty._relevant = (near != null && near < 4000) || (_ty.tw_warning && _ty.tw_warning.active);
-      // 背景轉暴風只在「真的有陸上颱風警報(tw.land)」或「颱風極近 <150km」才觸發 → 否則背景照真實天氣走。
-      window._tyStormBias = !!((_ty.tw_warning && _ty.tw_warning.land) || (near != null && near < 150));
+    } else {
+      _ty = null;
     }
-    if (typeof _renderWeatherCard === 'function') _renderWeatherCard();   // 颱風資訊即時插進天氣卡
-    if (typeof _applyAutoType === 'function') _applyAutoType();           // 颱風警報→背景可能改暴風（非手動時）
+    if (typeof _renderWeatherCard === 'function') _renderWeatherCard();   // 颱風資訊只更新天氣卡（不動背景）
   }
 
 })();
