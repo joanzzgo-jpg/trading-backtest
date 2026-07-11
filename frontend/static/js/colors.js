@@ -160,14 +160,13 @@ function applyAllColors() {
   macdLine.applyOptions({ color:C.macd }); macdSignal.applyOptions({ color:C.macdSig }); macdHist?.applyOptions({ color:C.macdHist });
   volMaSeries?.applyOptions({ color:C.volMa });
 
-  if (ohlcvData.length > 0) { renderCRT(ohlcvData); renderVolume(ohlcvData); }
+  if (ohlcvData.length > 0) { renderVolume(ohlcvData); }
 
   document.getElementById("legK").style.color      = C.kdjK;
   document.getElementById("legD").style.color      = C.kdjD;
   document.getElementById("legJ").style.color      = C.kdjJ;
   document.getElementById("legRsi14").style.color  = C.rsi14;
   document.getElementById("legRsi7").style.color   = C.rsi7;
-  document.getElementById("legCRT").style.color    = C.crtBull;
   document.getElementById("legMacd").style.color   = C.macd;
   document.getElementById("legMacdSig").style.color = C.macdSig;
 

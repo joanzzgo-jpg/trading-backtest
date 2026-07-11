@@ -319,8 +319,6 @@ function _replayStep(bar) {
   }
 
   // 累積標記（增量加入，不重建）
-  if (bar.crt === 1)  lastCRTMarkers.push({ time:t, position:"belowBar", color:C.crtBull, shape:"arrowUp",   size:1.5, text:"" });
-  if (bar.crt === -1) lastCRTMarkers.push({ time:t, position:"aboveBar", color:C.crtBear, shape:"arrowDown", size:1.5, text:"" });
   _applyMainMarkers();
 
   const _prevBar = replayIdx > 0 ? replayData[replayIdx - 1] : bar;
@@ -348,7 +346,6 @@ function _replayRender() {
     macdAnchor.setData(anchorTimes.map(d => ({ ...d, value:0 })));
     renderCandles(slice);
     renderBB(slice);
-    renderCRT(slice);
     renderVolume(slice);
     renderKDJ(slice);
     renderRSI(slice);

@@ -72,7 +72,6 @@ const currentChartType = "candlestick";
 let ohlcvData       = [];
 let currentTF       = "1d";
 let realtimeTimer   = null;
-let lastCRTMarkers       = [];
 let lastWRSignalMarkers  = [];
 let lastFVGTradeMarkers  = [];   // FVG「接1次」cascade 進出場標記（主圖）
 let lastFVGBBMarkers     = [];   // D版(三根止損+1.5R)進出場標記（研究用·主圖）

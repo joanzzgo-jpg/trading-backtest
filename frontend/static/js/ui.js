@@ -327,7 +327,7 @@ function _mobileTimeAxis() { updateBottomTimeAxis(); }
 /* ── 圖例顏色點（點色點即可改色）── */
 function bindLegendColors() {
   const map = [
-    // legBB / legVol / legCRT 不掛色盤：點圖例只切顯隱（由 leg-toggle 處理）；
+    // legBB / legVol 不掛色盤：點圖例只切顯隱（由 leg-toggle 處理）；
     // 顏色改用齒輪「主圖設定」面板（BB 上/下·中、量柱漲跌）設定，避免點到就跳色盤。
     { id:"legK",       key:"kdjK",    apply: c => { C.kdjK = c; kdjK?.applyOptions({color:c}); const el=document.getElementById("legK");       if(el) el.style.color=c; savePrefs(); } },
     { id:"legD",       key:"kdjD",    apply: c => { C.kdjD = c; kdjD?.applyOptions({color:c}); const el=document.getElementById("legD");       if(el) el.style.color=c; savePrefs(); } },
@@ -390,9 +390,6 @@ function bindIndicatorPanel() {
         { label:"BB 上/下", colorKey:"bbU", onColor: c=>{ C.bbL=c; bbU?.applyOptions({color:c}); bbL?.applyOptions({color:c}); _syncLegDot("legBB",c); }, widKey:"bbWidth", onWidth: w=>{ bbU?.applyOptions({lineWidth:w}); bbL?.applyOptions({lineWidth:w}); } },
         { label:"BB 中",    colorKey:"bbM", onColor: c=>{ bbM?.applyOptions({color:c}); }, widKey:"bbMWidth", serW:()=>bbM },
         { label:"VWAP",     colorKey:"vwap", onColor: ()=>{ if (typeof _scheduleRenderDrawings==="function") _scheduleRenderDrawings(); }, widKey:"vwapWidth", onWidth: ()=>{ if (typeof _scheduleRenderDrawings==="function") _scheduleRenderDrawings(); } },
-        { divider: true },
-        { label:"CRT 看多", colorKey:"crtBull", onColor: ()=>{ if(ohlcvData.length) renderCRT(ohlcvData); } },
-        { label:"CRT 看空", colorKey:"crtBear", onColor: ()=>{ if(ohlcvData.length) renderCRT(ohlcvData); } },
         { divider: true },
         { label:"主圖背景", colorKey:"chartBg", bgPresets: true, onColor: c=>{
             C.chartBg = c;
@@ -666,7 +663,6 @@ function bindLegendToggles() {
   // 線條切換：點擊 leg-item 顯示/隱藏對應系列
   const lineMap = [
     { id: "legBB",       series: () => [bbU, bbM, bbL] },
-    { id: "legCRT",      series: null,  action: () => _applyMainMarkers() },
     { id: "legVol",      series: () => [volSeries, volMaSeries] },
     { id: "legFVG",      series: null,  action: (hidden) => { if (typeof toggleFVG === "function") toggleFVG(!hidden); } },
     { id: "legFVGMS",    series: null,  action: (hidden) => { if (typeof toggleFVGMS === "function") toggleFVGMS(!hidden); } },
