@@ -437,11 +437,17 @@
   }
   // 完整天氣報告（小啊每 10 分鐘自動播 + 「天氣如何？」按鈕）：附近雨區「多情況」詳細 + 外面熱冷。
   function _weatherReport() {
+    let ty = null;
+    try { ty = (typeof window._typhoonReport === "string") ? window._typhoonReport : null; } catch (e) {}   // 颱風接近時前置一句
     let nb = null;
     try { nb = (typeof window._getNearbyDetail === "function") ? window._getNearbyDetail() : null; } catch (e) {}
-    if (!nb) return _forecastLine();                 // 還沒定位/附近資料 → 退回精簡預報
+    if (!nb) {
+      const fl = _forecastLine();                    // 還沒定位/附近資料 → 精簡預報（有颱風仍前置颱風句）
+      return ty ? (fl ? ty + "\n" + fl : ty) : fl;
+    }
     const tl = _tempLine();
-    return tl ? (nb + "\n" + tl) : nb;
+    const body = tl ? (nb + "\n" + tl) : nb;
+    return ty ? (ty + "\n" + body) : body;
   }
 
   let _shuffled = [], _shufflePos = 0;

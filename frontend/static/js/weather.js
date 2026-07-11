@@ -3169,6 +3169,8 @@
   // 解析自動天氣：好天氣(晴/少雲) + 真實日落時段(±45min) → 自動晚霞；否則照後端 _autoType
   function _resolveAutoType() {
     const base = _autoType || 'sunny';
+    // 颱風接近(中心 <600km，_tyApply 設 window._tyStormBias)→ 背景自動偏暴風（非手動時）。base 已是更劇烈型態則不覆蓋。
+    if (window._tyStormBias && !['storm','thunder','tornado'].includes(base)) return 'storm';
     // 附近雨量站測到「所在地正在下雨」→ 背景就下雨（雨量站比最近氣象站的天氣文字更靈敏，
     // 免「小啊說在下雨、背景卻晴天」的落差）。base 已是雨/雪類則維持不覆蓋。
     if (_wd.nearbyRaining && !['rain','drizzle','storm','thunder','snow'].includes(base)) return 'rain';
@@ -3226,6 +3228,7 @@
         if (!_isManualOn() && !window._restoreManualWxIfAny?.()) start(_resolveAutoType());
       });
     fetchNearbyRain(lat, lon);   // 附近雨區偵測（獨立請求，晚到就重繪天氣卡）
+    _fetchTyphoon(lat, lon);     // 颱風資訊（獨立請求，見檔末颱風迷你地圖模組）
   }
 
   // 附近雨區：抓在地測站網算出的「附近哪裡有雨/會不會往我移動」，存 _wd.nearby 後重繪天氣卡
@@ -3514,4 +3517,54 @@
     _wxManualTs = now;
     _wxRefresh();                                  // 重新定位 + 重抓天氣 → 完成後 _renderWeatherCard 會再更新一次
   };
+
+  /* ── 颱風：資訊交給小啊播報（不畫地圖，使用者要求只留資訊）—— /api/typhoon(JMA 全球颱風＋CWA 台灣警報)
+     名稱/距離/移動/警報/風速組成一句餵給小啊(window._typhoonReport，effects.js _weatherReport 會前置它)。
+     颱風接近(中心 <600km)且非手動 → 背景自動偏暴風(_resolveAutoType 讀 window._tyStormBias)。 */
+  let _ty = null, _tyFetchTs = 0;
+  window._tyStormBias = false;
+  window._typhoonReport = null;    // 小啊播報用的颱風句（effects.js _weatherReport 會前置這句）
+
+  // from→to 的 8 方位中文（0=正北，順時針）
+  function _bearing8(fLat, fLon, tLat, tLon) {
+    const dLon = (tLon - fLon) * Math.cos(((fLat + tLat) / 2) * Math.PI / 180), dLat = (tLat - fLat);
+    const ang = (Math.atan2(dLon, dLat) * 180 / Math.PI + 360) % 360;
+    return ['正北', '東北', '正東', '東南', '正南', '西南', '正西', '西北'][Math.round(ang / 45) % 8];
+  }
+
+  async function _fetchTyphoon(lat, lon) {
+    const now = Date.now();
+    if (now - _tyFetchTs < 60000) return;   // 60s 節流（後端本身 10 分快取）
+    _tyFetchTs = now;
+    try {
+      const q = (lat != null && lon != null) ? ('?lat=' + lat + '&lon=' + lon) : '';
+      const r = await fetch('/api/typhoon' + q, { cache: 'no-store' });
+      _ty = await r.json();
+    } catch (e) { return; }
+    _tyApply();
+  }
+
+  function _tyApply() {
+    if (!_ty || !_ty.active || !(_ty.typhoons || []).length) {
+      _ty = null; window._tyStormBias = false; window._typhoonReport = null; return;
+    }
+    const t = _ty.typhoons[0], near = _ty.nearest_km;
+    // 只在區域相關時顯示/播報（附近有颱風，避免歐美使用者被西太平洋颱風洗版）
+    _ty._relevant = (near != null && near < 4000) || (_ty.tw_warning && _ty.tw_warning.active);
+    window._tyStormBias = (near != null && near < 600);
+    if (_ty._relevant && t.current) {   // 組小啊播報句
+      const cur = t.current, fc = t.forecast || [], tw = _ty.tw_warning;
+      let s = '🌀 颱風 ' + (t.nameEn || '') + (t.number ? '（' + t.number + '號）' : '');
+      if (_wxLat != null && t.dist_km != null) s += '在你' + _bearing8(_wxLat, _wxLon, cur[0], cur[1]) + '方約 ' + t.dist_km + ' 公里';
+      if (fc.length) s += '，往' + _bearing8(cur[0], cur[1], fc[0].lat, fc[0].lon) + '移動';
+      if (tw && tw.active && tw.areas && tw.areas.length) s += '。⚠ ' + tw.areas.map(a => a.area).filter(Boolean).slice(0, 4).join('、') + ' 已發布颱風警報';
+      else s += '，台灣目前無陸上颱風警報';
+      if (t.wind_ms != null) s += '。近中心風 ' + t.wind_ms + ' m/s';
+      window._typhoonReport = s + '。';
+    } else {
+      window._typhoonReport = null;
+    }
+    if (typeof _applyAutoType === 'function') _applyAutoType();   // 颱風接近→背景可能改暴風（非手動時）
+  }
+
 })();

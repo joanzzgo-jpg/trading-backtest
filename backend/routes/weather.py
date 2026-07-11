@@ -1582,3 +1582,155 @@ async def nearby_rain(
 
 async def _noop_none():
     return None
+
+
+# ─── 颱風資訊（JMA 全球颱風，免金鑰；CWA 補台灣颱風警特報）──────────────────
+JMA_TC_LIST  = "https://www.jma.go.jp/bosai/typhoon/data/targetTc.json"
+JMA_TC_FC    = "https://www.jma.go.jp/bosai/typhoon/data/{tc}/forecast.json"
+JMA_TC_SPEC  = "https://www.jma.go.jp/bosai/typhoon/data/{tc}/specifications.json"
+CWA_WARN_URL = "https://opendata.cwa.gov.tw/api/v1/rest/datastore/W-C0033-002"  # 天氣特報(含颱風警報)
+_TC_CACHE: dict = {"data": None, "ts": 0.0}
+_TC_TTL = 600   # 颱風報約每小時更新 → 10 分鐘快取足夠、也大降外部請求
+
+
+def _tc_part_name(part) -> str:
+    """JMA part 欄位有時是字串、有時是 {jp,en} dict → 統一取英文段名。"""
+    p = part.get("part")
+    if isinstance(p, str):
+        return p
+    if isinstance(p, dict):
+        return p.get("en") or p.get("jp") or ""
+    return ""
+
+
+async def _fetch_jma_typhoons(sess) -> list:
+    """JMA 現行颱風(全球、免金鑰)：回每顆的名稱/編號/強度/現在中心/歷史軌跡/預測路徑(含誤差圈)。"""
+    out = []
+    try:
+        async with sess.get(JMA_TC_LIST) as r:
+            if r.status != 200:
+                return out
+            lst = await r.json()
+    except Exception:
+        return out
+    for tc in (lst or []):
+        tcid = tc.get("tropicalCyclone")
+        if not tcid:
+            continue
+        try:
+            e = {"id": tcid, "number": tc.get("typhoonNumber"), "category": tc.get("category"),
+                 "nameEn": None, "nameJp": None, "current": None, "past": [], "forecast": [],
+                 "wind_ms": None, "gust_ms": None, "gale_km": None}
+            # forecast.json：title(名稱) + Analysis(現況 track/center) + 各時預測 center/probabilityCircle
+            async with sess.get(JMA_TC_FC.format(tc=tcid)) as r2:
+                fc = await r2.json() if r2.status == 200 else []
+            for part in (fc or []):
+                nm = _tc_part_name(part)
+                if nm == "title":
+                    n = part.get("name", {}) or {}
+                    e["nameEn"] = n.get("en"); e["nameJp"] = n.get("jp")
+                    continue
+                ah = part.get("advancedHours")
+                ctr = part.get("center")
+                tr = part.get("track")
+                if tr:   # Analysis 段的歷史軌跡（preTyphoon + typhoon）
+                    seq = (tr.get("preTyphoon") or []) + (tr.get("typhoon") or [])
+                    e["past"] = [[float(a[0]), float(a[1])] for a in seq
+                                 if isinstance(a, (list, tuple)) and len(a) >= 2]
+                if ctr and isinstance(ctr, (list, tuple)) and len(ctr) >= 2:
+                    if ah == 0:
+                        e["current"] = [float(ctr[0]), float(ctr[1])]
+                    elif isinstance(ah, int) and ah > 0:
+                        pc = part.get("probabilityCircle") or {}
+                        rad = pc.get("radius")
+                        vt = part.get("validtime", {})
+                        e["forecast"].append({
+                            "h": ah, "lat": float(ctr[0]), "lon": float(ctr[1]),
+                            "r_km": (round(float(rad) / 1000) if rad else None),
+                            "vt": (vt.get("UTC") if isinstance(vt, dict) else vt),
+                        })
+            # specifications.json：強度(最大持續風/陣風) + 暴風警戒半徑
+            async with sess.get(JMA_TC_SPEC.format(tc=tcid)) as r3:
+                spec = await r3.json() if r3.status == 200 else []
+            for part in (spec or []):
+                nm = _tc_part_name(part)
+                if nm == "title":
+                    if not e["category"]:
+                        e["category"] = (part.get("category") or {}).get("en")
+                    if not e["nameEn"]:
+                        n = part.get("name", {}) or {}
+                        e["nameEn"] = n.get("en"); e["nameJp"] = n.get("jp")
+                    continue
+                if nm == "Analysis":
+                    mw = part.get("maximumWind", {}) or {}
+                    sus = (mw.get("sustained") or {}).get("m/s")
+                    gst = (mw.get("gust") or {}).get("m/s")
+                    if sus not in (None, ""): e["wind_ms"] = _safe_float(sus)
+                    if gst not in (None, ""): e["gust_ms"] = _safe_float(gst)
+                    gw = part.get("galeWarning") or []
+                    if gw:
+                        rng = (gw[0].get("range") or {})
+                        if rng.get("km"): e["gale_km"] = rng["km"]
+            if e["current"]:
+                out.append(e)
+        except Exception:
+            continue
+    return out
+
+
+async def _fetch_cwa_typhoon_warning(sess):
+    """CWA 天氣特報(W-C0033-002)：篩出含『颱風』的警特報縣市。無金鑰/失敗/結構不符 → 回 None(前端只是不顯示台灣警報，JMA 颱風仍在)。"""
+    if not CWA_KEY:
+        return None
+    try:
+        async with sess.get(CWA_WARN_URL, params={"Authorization": CWA_KEY, "format": "JSON"}) as r:
+            if r.status != 200:
+                return None
+            d = await r.json()
+        locs = (((d.get("records") or {}).get("location")) or [])
+        areas = []
+        for loc in locs:
+            name = loc.get("locationName")
+            hazards = (((loc.get("hazardConditions") or {}).get("hazards")) or [])
+            for hz in hazards:
+                info = (hz.get("info") or {})
+                phen = info.get("phenomena") or hz.get("phenomena") or ""
+                if "颱風" in str(phen):
+                    areas.append({"area": name, "phenomena": str(phen)})
+                    break
+        return {"active": bool(areas), "areas": areas}
+    except Exception:
+        return None
+
+
+@router.get("/typhoon")
+async def typhoon(lat: float = Query(None), lon: float = Query(None)):
+    """現行颱風資訊：JMA 全球颱風(名稱/強度/現在位置/歷史+預測路徑，免金鑰) + CWA 台灣颱風警特報(有金鑰時)。
+    帶 lat/lon → 另算每顆颱風中心距使用者多遠(dist_km / nearest_km)，供前端判斷是否切颱風背景。10 分鐘快取。"""
+    now = time.time()
+    c = _TC_CACHE
+    if c["data"] is not None and now - c["ts"] < _TC_TTL:
+        base = c["data"]
+    else:
+        timeout = aiohttp.ClientTimeout(total=12)
+        async with aiohttp.ClientSession(timeout=timeout) as sess:
+            tys = await _fetch_jma_typhoons(sess)
+            tw = await _fetch_cwa_typhoon_warning(sess)
+        base = {"typhoons": tys, "tw_warning": tw, "asof": now}
+        c["data"] = base
+        c["ts"] = now
+    # 距離依 lat/lon 即時算（不進快取）
+    tys = base["typhoons"]
+    nearest = None
+    if lat is not None and lon is not None:
+        tys2 = []
+        for e in tys:
+            cur = e.get("current")
+            if cur:
+                dk = round(_haversine_km(lat, lon, cur[0], cur[1]))
+                e = {**e, "dist_km": dk}
+                nearest = dk if nearest is None else min(nearest, dk)
+            tys2.append(e)
+        tys = tys2
+    return {"ok": True, "active": bool(tys), "typhoons": tys,
+            "tw_warning": base.get("tw_warning"), "nearest_km": nearest, "asof": base["asof"]}
