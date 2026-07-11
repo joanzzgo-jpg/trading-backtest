@@ -386,7 +386,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     const ver = window._APP_VER || "1";
     // draw / trade 也在此延遲載入（已移出首屏 bundle，省 ~42% 首屏 JS）；async=false 保留插入順序。
     // 兩者末段各自 initDrawTools()/initTrade() 自我初始化 → 載入完成即接手繪圖工具/交易面板。
-    ["effects.js", "weather.js", "draw.js", "trade.js"].forEach(name => {
+    // 載入 *.min.js（後端 _build_fx_min 壓縮版；來源改動後版號 ?v= 會破快取重抓）。
+    ["effects.min.js", "weather.min.js", "draw.min.js", "trade.min.js"].forEach(name => {
       const s = document.createElement("script");
       s.src = "/static/js/" + name + "?v=" + ver;
       s.async = false;

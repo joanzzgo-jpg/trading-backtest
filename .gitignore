@@ -35,3 +35,7 @@ backend/.df_cache/
 # 帳號 SQLite（本機開發用）
 backend/.accounts.db
 frontend/static/css/style.min.css
+frontend/static/js/effects.min.js
+frontend/static/js/weather.min.js
+frontend/static/js/draw.min.js
+frontend/static/js/trade.min.js

@@ -81,6 +81,32 @@ def _build_css_bundle():
 
 _build_css_bundle()
 
+
+def _build_fx_min():
+    """把動態載入(非首屏 bundle)的 4 支 JS 壓縮成 *.min.js：effects/weather/draw/trade。
+    這些原本原始碼直送(只靠 gzip)；minify 後閒置載入更輕(weather.js ~207KB 最有感)。
+    來源比產物新才重建；缺 rjsmin 退回原樣複製 → 產物恆存在(不會讓 _loadFx 404 而繪圖/天氣/交易失效)。"""
+    try:
+        from pathlib import Path
+        js = (Path(os.path.dirname(__file__)) / ".." / "frontend" / "static" / "js").resolve()
+        try:
+            import rjsmin
+            _min = rjsmin.jsmin
+        except Exception:
+            _min = lambda s: s   # 沒 rjsmin → 原樣複製，仍正確、只是沒壓縮
+        for name in ("effects", "weather", "draw", "trade"):
+            src = js / f"{name}.js"; out = js / f"{name}.min.js"
+            if not src.exists():
+                continue
+            if out.exists() and out.stat().st_mtime >= src.stat().st_mtime:
+                continue
+            out.write_text(_min(src.read_text(encoding="utf-8")), encoding="utf-8")
+        print("  ✓ fx *.min.js rebuilt (effects/weather/draw/trade)")
+    except Exception as e:
+        print(f"  ⚠ fx min build failed: {e}")
+
+_build_fx_min()
+
 app = FastAPI(title="回測系統")
 
 # ── GZip 壓縮（JS 166KB→35KB，CSS 38KB→8KB）──────────────────
