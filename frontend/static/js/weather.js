@@ -2953,13 +2953,14 @@
     rafId = requestAnimationFrame(loop);
     if (document.hidden) { _lastClockTs = 0; return; }
     const _now = (performance.now ? performance.now() : Date.now());
-    // 圖表移動中（平移/縮放/慣性，或手機剛觸控）→ 背景降到 ~15fps，把大部分幀預算讓給圖表 → 主圖滑動順。
-    //   只降幀率、不放慢時鐘（仍 1x 正常速度）→ 看得出在動、不會像凍結。
-    //   ★桌機/手機都降：實測桌機平移時若讓背景維持滿幀，會反過來把主圖平移預算搶走→主圖卡。
-    //     主圖平移順滑優先，背景在平移那零點幾秒降幀讓路（停手立即回滿幀）。
+    // 圖表移動中（平移/縮放/慣性，或手機剛觸控）→ 背景降幀，把幀預算讓給圖表。只降幀率、不放慢時鐘
+    //   （仍 1x 正常速度）→ 看得出在動、不會像凍結。
+    //   ★使用者要求「桌機背景平移時不要變慢」→ 只在手機/弱機(_lowFx)降到 ~15fps（弱機主執行緒吃緊，
+    //     不讓路則背景與主圖一起卡）；桌機維持滿幀(_frameMin~30)不降。桌機平移已因 PD 掃描快取／十字線
+    //     批次而每幀變輕，背景全速也不再搶垮主圖。若日後桌機又卡，回頭在此加桌機節流。
     const _moving = (window._chartMoveTs && _now - window._chartMoveTs < 220) ||
                     (_lowFx && _touchT && _now - _touchT < 350);
-    const _frameGap = (_moving ? 66 : _frameMin) + _fxPenalty;   // 移動中 ~15fps；平時 桌面~30 / 手機~16(−自適應)
+    const _frameGap = ((_moving && _lowFx) ? 66 : _frameMin) + _fxPenalty;   // 手機移動中 ~15fps；桌機不降(~30)；平時 桌面~30 / 手機~16(−自適應)
     if (ts - _lastFrameTs < _frameGap) return;
     // 動畫時鐘恆定 1x（正常速度）；只調幀率、不調速度 → 移動時是「低幀率正常動」而非慢動作。
     if (!_lastClockTs) _lastClockTs = ts;
