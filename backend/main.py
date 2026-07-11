@@ -259,6 +259,7 @@ def _ticker_worker():
     futures, spot = [], []
     cnt = 0
     while True:
+        _t0 = time.perf_counter()
         try:
             if cnt % 15 == 0 or not (futures or spot):
                 # 每 15 秒（或首次）重抓完整 24h（含漲跌幅、量）——全市場 24h ticker 權重重(fapi 40/spot 80)，
@@ -289,7 +290,9 @@ def _ticker_worker():
         except Exception:
             pass
         cnt += 1
-        time.sleep(1)
+        # 週期固定 1 秒：原本「抓價完再 sleep(1)」→ 實際 ~1.3s/輪；扣掉本輪抓價耗時，
+        # 讓合約報價真正每秒更新（前端也是每秒 poll，兩端對齊 → 報價列跳動更即時）。
+        time.sleep(max(0.0, 1.0 - (time.perf_counter() - _t0)))
 
 
 def _tw_ticker_worker():
