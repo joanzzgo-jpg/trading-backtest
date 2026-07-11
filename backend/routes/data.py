@@ -1432,8 +1432,9 @@ _coach_scan_inflight: set = set()
 
 
 def _coach_scan_compute(market, exchange, n, tfset, min_stage, ck):
-    """教練掃描本體：跑完寫入 ck 快取並回傳。closed=0＝與教練面板完全同基準(含未收盤棒)＋共用同一份
-    K棒快取與 smc_coach 結果快取 → 清單上的 stage 就是點進面板會看到的 stage(不再「點進去連第7步都沒到」)。"""
+    """教練掃描本體：跑完寫入 ck 快取並回傳。closed=1＝只認「已收盤棒」判斷(丟掉最後一根未收盤棒)：
+    未收盤那根影線掃出的 BOS 不算數，要收盤確認 stage 才列出 → 點進去不會「剛才有 5、現在退回 3」。
+    代價：最多晚半根棒(執行時框 15m/5m)才列，且清單 stage 會比 closed=0 面板保守。使用者要「確認有5」故選此。"""
     from concurrent.futures import ThreadPoolExecutor as _TPE
     from routes.trade import top_crypto_universe
     if market == "crypto":
@@ -1446,7 +1447,7 @@ def _coach_scan_compute(market, exchange, n, tfset, min_stage, ck):
         hits = {}
         for _ts in _sets:
             try:
-                d = smc_coach_api(market, sym, exchange, tfset=_ts)   # closed=0=與面板同基準
+                d = smc_coach_api(market, sym, exchange, tfset=_ts, closed=1)   # closed=1=只認已收盤棒(收盤確認,不 repaint)
                 if d.get("ok") and d.get("stage", 0) >= min_stage:
                     hits[_ts] = {"stage": d["stage"], "direction": d["direction"],
                                  "plan": d.get("plan"), "price": d.get("price")}
@@ -1562,13 +1563,13 @@ def coach_scan_api(
     ck = f"coach_scan:{market}:{exchange}:{n}:{tfset}:{min_stage}"
 
     def _reverify_hits(results):
-        """逐檔重算教練(與面板同基準)，已退階(<min_stage)的剔除。只跑清單上的少數幾檔。"""
+        """逐檔重算教練(收盤確認基準 closed=1)，已退階(<min_stage)的剔除。只跑清單上的少數幾檔。"""
         from concurrent.futures import ThreadPoolExecutor as _TPE
         def _one(r):
             hits = {}
             for ver in (r.get("hits") or {}):
                 try:
-                    d = smc_coach_api(market, r["symbol"], exchange, tfset=ver)   # 與面板同基準
+                    d = smc_coach_api(market, r["symbol"], exchange, tfset=ver, closed=1)   # closed=1=收盤確認(不 repaint)
                     if d.get("ok") and d.get("stage", 0) >= min_stage:
                         hits[ver] = {"stage": d["stage"], "direction": d["direction"],
                                      "plan": d.get("plan"), "price": d.get("price")}
