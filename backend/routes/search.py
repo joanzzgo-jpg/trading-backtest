@@ -50,14 +50,28 @@ def us_search(q: str = ""):
 
 @router.get("/hk/search")
 def hk_search(q: str = ""):
-    """搜尋港股標的：沿用 Yahoo 搜尋(非中資)、只留 .HK 結果(可用名稱或代號搜，如 tencent / 0700)。"""
+    """搜尋港股標的：主源騰訊建議(支援中文名/代號、繁簡橋接)，再併 Yahoo .HK 補英文邊角，去重。
+    修：舊版只用 Yahoo → 繁體中文名(騰訊/美團/匯豐…)全查無，港股使用者搜不到自家股票。"""
     if not q or len(q) < 1:
         return {"results": []}
     cache_key = f"hk_search:{q.upper()}"
     cached = cache.get(cache_key, ttl=3600)
     if cached:
         return cached
-    results = [r for r in search_us_stocks(q) if str(r.get("symbol", "")).upper().endswith(".HK")]
+    from data.hk_stock import search_hk_stocks, hk_yahoo_code
+    results = search_hk_stocks(q)                      # 主源：騰訊建議（中文優先）
+    seen = {r["symbol"].upper() for r in results}
+    for r in search_us_stocks(q):                      # 補：Yahoo .HK（英文/騰訊漏收）
+        s = str(r.get("symbol", "")).upper()
+        if not s.endswith(".HK"):
+            continue
+        c4 = hk_yahoo_code(s[:-3])                      # 正規化＋濾掉 80700 等雙櫃檯，與主源去重
+        if not c4:
+            continue
+        s = f"{c4}.HK"
+        if s not in seen:
+            r["symbol"] = s
+            results.append(r); seen.add(s)
     result = {"results": results}
     cache.set(cache_key, result)
     return result
