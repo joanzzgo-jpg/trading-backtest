@@ -76,6 +76,7 @@
   let glassDrops = [], splashes = [];   // 雨：前景玻璃水珠 / 地面濺起水花
   let snowAccum = 0, fogBlobs = [];     // 雪：底部積雪厚度 / 霧：體積霧團
   let _rainRamp = 0;                     // 雨勢漸起：0→1 緩升（下雨開始時歸零）
+  let _rainBase = 0;                     // 基準雨滴數（無風時）；斜雨時依風速動態擴充維持密度
   let auroraBands = [], meteors = [], meteorTimer = 0;   // 極光帶 / 流星雨
   let thunderBolts = [], thunderFlashes = [], thunderTimer = 15;
   // 天然災害（手動特效）：冰雹 / 龍卷風 / 地震
@@ -304,6 +305,20 @@
   }
   /* 每幀水平風位移（px/幀，z=1 基準）：方向×(底噪+風速) */
   function _windDriftPx() { return _windVecX() * (0.18 + _wd.windSpeed * 0.02); }
+  /* 雨的斜率(dx/dy)：跟風速走、無風也保底斜；正=往右。無風~16°、20km/h~39°、45km/h+~54°封頂 */
+  function _rainLean() { return (_windVecX() >= 0 ? 1 : -1) * (0.28 + Math.min(1.1, _wd.windSpeed * 0.026)); }
+  /* 斜雨的 spawn X：雨滴下落全程橫移 ~lean*H → spawn 需向「上風側」延伸這麼多，否則斜向那側的角落
+     (往右吹時的左下角)永遠沒雨。回傳涵蓋「螢幕寬＋漂移量」平行四邊形的隨機 x。 */
+  function _rainSpawnX(lean) {
+    const drift = lean * H;                              // 整段下落的水平位移(帶正負)
+    const x0 = Math.min(-30, -drift - 30);               // 起點向上風側延伸
+    return x0 + Math.random() * (Math.abs(drift) + W + 60);
+  }
+  function _mkRainDrop(atTop) {
+    const z = Math.random();
+    return { x: _rainSpawnX(_rainLean()), y: atTop ? -(5 + z*z*40) : Math.random() * H, z,
+             spd: 3.0 + z*z*z*24, len: 5 + z*z*40, a: .07 + z*z*.66, w: .3 + z*z*3.0 };
+  }
   /* 風向（度，來向）→ 8 方位中文名 */
   const _DIR8 = ['北','東北','東','東南','南','西南','西','西北'];
   function _dirName(deg) { return _DIR8[Math.round((deg % 360) / 45) % 8]; }
@@ -1398,15 +1413,9 @@
     });
     sparks = Array.from({length:14}, _newSpark);
     // 雨：連續景深 z（0=遠、1=近）；用 z² / z³ 大幅拉開前後差距 → 立體視差明顯
-    const nRain = Math.round((110+200*ri)*_fxN);   // 加密雨量（手機降載）
-    rainP = Array.from({length:nRain}, () => {
-      const z = Math.random();
-      return { x:Math.random()*W, y:Math.random()*H, z,
-        spd: 3.0 + z*z*z*24,    // 更快（近景雨勢更急）
-        len: 5 + z*z*40,        // 近的雨絲更長
-        a:   .07 + z*z*.66,
-        w:   .3 + z*z*3.0 };    // 近的更粗
-    }).sort((p,q)=>p.z-q.z);    // 遠先畫、近後畫（正確前後遮擋）
+    _rainBase = Math.round((110+200*ri)*_fxN);   // 加密雨量（手機降載）；斜雨時 dRain 動態擴充
+    rainP = Array.from({length:_rainBase}, () => _mkRainDrop(false))
+      .sort((p,q)=>p.z-q.z);    // 遠先畫、近後畫（正確前後遮擋）
     ripples = []; splashes = [];
     // 前景玻璃水珠（像隔著窗看雨）：少量大水珠，偶爾滑落留痕
     glassDrops = Array.from({length: Math.round((9 + 11*ri)*_fxN)}, () => ({
@@ -1886,8 +1895,15 @@
 
     _layers.far.ctx.lineCap = _layers.mid.ctx.lineCap = gn.lineCap = "round";
     // 雨斜度＝直接跟「風速」走（有風就明顯斜、不管風偏東西南北）＋無風也保底斜；方向跟風的東西分量（≈0→預設右、與雲飄一致）
-    const _wsgn = _windVecX() >= 0 ? 1 : -1;
-    const lean = _wsgn * (0.28 + Math.min(1.1, _wd.windSpeed * 0.026));   // 斜率(無風~16°、20km/h~39°、45km/h+~54°封頂)；雨滴沿此斜率移動(見下)
+    const lean = _rainLean();   // 斜率(無風~16°、20km/h~39°、45km/h+~54°封頂)；雨滴沿此斜率移動(見下)
+    // 斜雨密度補償：spawn 範圍向上風側擴大 ~|lean*H| → 若雨滴數不變，畫面上密度會被稀釋。
+    //   依「(螢幕寬+漂移量)/螢幕寬」動態擴充雨滴數(封頂 2.2×，手機/效能可控)，漸進 ±24/幀避免配置尖峰。
+    const _target = Math.min(Math.round(_rainBase * 2.2),
+                             Math.round(_rainBase * (W + Math.abs(lean * H)) / W));
+    if (rainP.length < _target)
+      for (let k = 0, m = Math.min(24, _target - rainP.length); k < m; k++) rainP.push(_mkRainDrop(Math.random() < 0.5));
+    else if (rainP.length > _target + 24)
+      rainP.length = Math.max(_target, rainP.length - 24);
     // ★ 批次繪製(2026-07-11)：先更新位置、把每滴線段依「層×色×粗細桶×透明桶」分組，再每組一次 stroke
     //   → 原本每滴各自 beginPath+stroke(~300次/幀) 降到 ~數十次；雨滴數/樣子不變(透明度量化 1/40、粗細4桶、肉眼無差)。
     const _rbins = new Map();
@@ -1914,7 +1930,7 @@
             splashes.push({ x: p.x, y: H * .963, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp, life: 0, max: 9 + Math.random() * 8, a: .55 * p.z });
           }
         }
-        p.y = -p.len; p.x = Math.random() * (W + 60) - 30;
+        p.y = -p.len; p.x = _rainSpawnX(lean);   // 依當前斜率在延伸範圍重生 → 上風側角落也有雨
       }
     });
     _rbins.forEach(b => {                             // 每組(同色同粗細)合成一條 path、一次 stroke
