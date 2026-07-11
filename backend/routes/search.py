@@ -59,19 +59,21 @@ def hk_search(q: str = ""):
     if cached:
         return cached
     from data.hk_stock import search_hk_stocks, hk_canon_code
-    results = search_hk_stocks(q)                      # 主源：騰訊建議（中文優先）
-    seen = {r["symbol"].upper() for r in results}
-    for r in search_us_stocks(q):                      # 補：Yahoo .HK（英文/騰訊漏收）
-        s = str(r.get("symbol", "")).upper()
-        if not s.endswith(".HK"):
-            continue
-        c5 = hk_canon_code(s[:-3])                      # 正規化為標準 5 碼＋濾掉 80700 等雙櫃檯，與主源去重
-        if not c5:
-            continue
-        s = f"{c5}.HK"
-        if s not in seen:
-            r["symbol"] = s
-            results.append(r); seen.add(s)
+    results = search_hk_stocks(q)                      # 主源：騰訊建議（中文/代號/常見英文，~100-500ms）
+    # 只有騰訊「查無」時才補打 Yahoo（Yahoo 每次 +0.5~8s 卻對中文回 0 筆 → 平時是純拖慢，故僅當後備）
+    if not results:
+        seen = set()
+        for r in search_us_stocks(q):
+            s = str(r.get("symbol", "")).upper()
+            if not s.endswith(".HK"):
+                continue
+            c5 = hk_canon_code(s[:-3])                  # 正規化為標準 5 碼＋濾掉 80700 等雙櫃檯
+            if not c5:
+                continue
+            s = f"{c5}.HK"
+            if s not in seen:
+                r["symbol"] = s
+                results.append(r); seen.add(s)
     result = {"results": results}
     cache.set(cache_key, result)
     return result
