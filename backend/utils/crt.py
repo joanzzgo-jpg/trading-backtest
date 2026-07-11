@@ -1363,43 +1363,45 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         _fvg_ms.sort(key=lambda x: x["t"])
         _fvg_ms = _fvg_ms[-2000:]
 
-        # ── 結構轉破（破多/破空）：跑在 proto 缺口序列上 ────────────────────────────────────
-        # 前一 proto 缺口→緊接反向 proto 缺口→反向缺口 g/g-1 影線破到前缺口中線 → 破多/破空。缺口全用 proto
-        #   缺口(g 收盤定緣、標在 g)＝比舊 3 根 FVG 版早一根。排除(已收破在前 _broke、mitigate 二次造訪 _mit)照舊。標在觸發那根 g。
-        _pprev = None
-        for (_kp, _ptp, _pbt, _pdd) in _pseq:              # 依 g 升序(生成序)
-            if _pprev is not None:
-                _mid = (_pprev["top"] + _pprev["bot"]) / 2.0
-                if _pdd == "s" and _pprev["dir"] == "l":   # 破多：前 bull proto、現 bear proto
-                    _fj = next((_j for _j in range(_pprev["idx"] + 1, _kp - 1) if _L[_j] <= _mid), None)
-                    _mit = _fj is not None and any(_C[_m] > _pprev["top"] for _m in range(_fj + 1, _kp))
-                    _broke = any(_C[_j] < _pprev["bot"] for _j in range(_pprev["idx"] + 1, _kp - 1))
-                    if not _mit and not _broke and (_L[_kp] <= _mid or _L[_kp - 1] <= _mid):
-                        _fvg_break.append({"t": times_iso[_kp], "p": _pprev["top"], "d": "l", "sl": _H[_kp-1]})
-                elif _pdd == "l" and _pprev["dir"] == "s":  # 破空（鏡像）：前 bear proto、現 bull proto
-                    _fj = next((_j for _j in range(_pprev["idx"] + 1, _kp - 1) if _H[_j] >= _mid), None)
-                    _mit = _fj is not None and any(_C[_m] < _pprev["bot"] for _m in range(_fj + 1, _kp))
-                    _broke = any(_C[_j] > _pprev["top"] for _j in range(_pprev["idx"] + 1, _kp - 1))
-                    if not _mit and not _broke and (_H[_kp] >= _mid or _H[_kp - 1] >= _mid):
-                        _fvg_break.append({"t": times_iso[_kp], "p": _pprev["bot"], "d": "s", "sl": _H[_kp-1]})
-            _pprev = {"dir": _pdd, "bot": _pbt, "top": _ptp, "idx": _kp}
-        # 暫定破多/破空：最後一根若形成 proto、與前一個(真實)proto 反向並刺破其中線 → 暫定破(prov=1)。
-        #   邏輯與上迴圈同，只是「現 proto」換成未收盤那根 _prov_proto、前 proto＝序列最後一個(_pprev)。
-        if _prov_proto is not None and _pprev is not None:
-            _kp, _ptp, _pbt, _pdd = _prov_proto            # _kp = _li(最後一根)
-            _mid = (_pprev["top"] + _pprev["bot"]) / 2.0
-            if _pdd == "s" and _pprev["dir"] == "l":       # 破多
-                _fj = next((_j for _j in range(_pprev["idx"] + 1, _kp - 1) if _L[_j] <= _mid), None)
-                _mit = _fj is not None and any(_C[_m] > _pprev["top"] for _m in range(_fj + 1, _kp))
-                _broke = any(_C[_j] < _pprev["bot"] for _j in range(_pprev["idx"] + 1, _kp - 1))
-                if not _mit and not _broke and (_L[_kp] <= _mid or _L[_kp - 1] <= _mid):
-                    _fvg_break.append({"t": times_iso[_kp], "p": _pprev["top"], "d": "l", "sl": _H[_kp-1], "prov": 1})
-            elif _pdd == "l" and _pprev["dir"] == "s":     # 破空
-                _fj = next((_j for _j in range(_pprev["idx"] + 1, _kp - 1) if _H[_j] >= _mid), None)
-                _mit = _fj is not None and any(_C[_m] < _pprev["bot"] for _m in range(_fj + 1, _kp))
-                _broke = any(_C[_j] > _pprev["top"] for _j in range(_pprev["idx"] + 1, _kp - 1))
-                if not _mit and not _broke and (_H[_kp] >= _mid or _H[_kp - 1] >= _mid):
-                    _fvg_break.append({"t": times_iso[_kp], "p": _pprev["bot"], "d": "s", "sl": _H[_kp-1], "prov": 1})
+        # ── 結構轉破（破多/破空）2026-07 改版：牆＝「最近一道確認 FVG」，被 K 棒影線穿破牆頂/底
+        #   ＋「該根或 g+1/g+2」出現 proto → 標在那根 proto。破空(空方牆被向上破→轉多，d="s"↑青)、
+        #   破多(多方牆被向下破→轉空，d="l"↓橘)。只追「前一道」FVG(新 FVG 形成即取代)＝天然新鮮度、
+        #   不會去破數月前老牆。proto 沿用 _pseq(g 收盤定案、非 repaint)；未收盤最後一根暫定 proto→prov=1。
+        #   _bear/_bull 來自 _gseq(3 根確認 FVG，已含 _SETUP_MIN 過濾＋資料斷層防護)，與圖上牆一致。
+        _pl_bars = set(); _ps_bars = set()
+        for (_pg, _pt2, _pb2, _pd2) in _pseq:
+            (_pl_bars if _pd2 == "l" else _ps_bars).add(_pg)
+        _prov_l = _prov_proto is not None and _prov_proto[3] == "l"   # 未收盤最後一根＝暫定多/空 proto
+        _prov_s = _prov_proto is not None and _prov_proto[3] == "s"
+        _cur_bw = None; _cur_lw = None          # 最近的 空方牆 / 多方牆 (cf=g+1, top, bot)
+        _bwi = 0; _lwi = 0
+        for _i2 in range(_vw0, _N):
+            while _bwi < len(_bear) and _bear[_bwi][0] <= _i2:   # 取代成最近的空方牆
+                _cur_bw = _bear[_bwi]; _bwi += 1
+            while _lwi < len(_bull) and _bull[_lwi][0] <= _i2:   # 取代成最近的多方牆
+                _cur_lw = _bull[_lwi]; _lwi += 1
+            # 破空：最近空方牆頂被影線(高)穿破 → 該根/g+1/g+2 首見 proto多 → 標(做多)
+            if _cur_bw is not None and _i2 > _cur_bw[0] and _H[_i2] >= _cur_bw[1]:
+                for _k in (_i2, _i2 + 1, _i2 + 2):
+                    if _k >= _N:
+                        break
+                    if (_k in _pl_bars) or (_k == _li and _prov_l):
+                        _e = {"t": times_iso[_k], "p": _cur_bw[2], "d": "s", "sl": _L[_k - 1]}
+                        if _k == _li and _k not in _pl_bars and _prov_l:
+                            _e["prov"] = 1
+                        _fvg_break.append(_e); break
+                _cur_bw = None                   # 牆被破即消耗，等下一道
+            # 破多：最近多方牆底被影線(低)穿破 → 該根/g+1/g+2 首見 proto空 → 標(做空)
+            if _cur_lw is not None and _i2 > _cur_lw[0] and _L[_i2] <= _cur_lw[2]:
+                for _k in (_i2, _i2 + 1, _i2 + 2):
+                    if _k >= _N:
+                        break
+                    if (_k in _ps_bars) or (_k == _li and _prov_s):
+                        _e = {"t": times_iso[_k], "p": _cur_lw[1], "d": "l", "sl": _H[_k - 1]}
+                        if _k == _li and _k not in _ps_bars and _prov_s:
+                            _e["prov"] = 1
+                        _fvg_break.append(_e); break
+                _cur_lw = None
         _fvg_break.sort(key=lambda x: x["t"]);      _fvg_break = _fvg_break[-2000:]
 
         # ── 「順多/順空」方向標記（2026-07-02；07-03 影線穿透＋近期兩個；07-03b 近期以「穿透點」衡量、R可晚於觸碰）──
