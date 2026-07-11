@@ -75,11 +75,17 @@ function _makeFVGPrimitive() {
     draw(target) {
       if (!_fvgShow || !_fvgZones.length || !_chart || !_series) return;
       const ts = _chart.timeScale();
+      // 可視時間範圍：整盒在視窗外就略過（廉價數值判斷、在任何 timeToCoordinate 之前）→
+      // 平移時不再對「全部缺口」逐個算座標/跑 pens/畫標籤，只處理螢幕上看得到的那幾個（大幅去卡）。
+      let _vrng = null; try { _vrng = ts.getVisibleRange(); } catch (e) {}
+      const _lo = _vrng ? _vrng.from : -Infinity, _hi = _vrng ? _vrng.to : Infinity;
       target.useBitmapCoordinateSpace(scope => {
         const ctx = scope.context;
         const hr = scope.horizontalPixelRatio, vr = scope.verticalPixelRatio;
         const wpx = scope.mediaSize.width;
         for (const z of _fvgZones) {
+          if (z.t1 > _hi) continue;                       // 整盒在視窗右側外
+          if (z.t2 != null && z.t2 < _lo) continue;       // 整盒在視窗左側外（t2=null＝延伸到右緣，永不判為左外）
           // 使用者自定最小寬度過濾：寬度% = 多(top−bot)/bot、空(top−bot)/top（對齊標籤定義）
           if (_fvgMinW > 0) {
             const _zw = (z.d === "l" ? (z.top - z.bot) / z.bot : (z.top - z.bot) / z.top) * 100;
@@ -348,10 +354,14 @@ function _makeFVGTradeLinePrimitive() {
     draw(target) {
       if (window._fvgTradesHidden || !_fvgTradeLines.length || !_chart || !_series) return;
       const ts = _chart.timeScale();
+      let _vrng = null; try { _vrng = ts.getVisibleRange(); } catch (e) {}
+      const _lo = _vrng ? _vrng.from : -Infinity, _hi = _vrng ? _vrng.to : Infinity;
       target.useBitmapCoordinateSpace(scope => {
         const ctx = scope.context;
         const hr = scope.horizontalPixelRatio, vr = scope.verticalPixelRatio;
         for (const t of _fvgTradeLines) {
+          if (t.et > _hi) continue;                       // 整段在視窗右側外
+          if (t.xt != null && t.xt < _lo) continue;       // 整段在視窗左側外
           const x1 = ts.timeToCoordinate(t.et);
           if (x1 == null) continue;
           let x2 = (t.xt != null) ? ts.timeToCoordinate(t.xt) : null;
