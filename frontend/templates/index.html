@@ -24,7 +24,7 @@
   <!-- LightweightCharts 自架(同源)：原走 unpkg CDN，部分裝置/網路(iPad、某些Windows/公司網)連不到 CDN
        → LightweightCharts undefined → 整個 app「進不去」。改自架後跟 app 同源、必達，不再依賴外部 CDN。 -->
   <script defer src="/static/vendor/lightweight-charts.standalone.production.js?v={{ ver }}"></script>
-  <link rel="stylesheet" href="/static/css/style.css?v={{ ver }}" />
+  <link rel="stylesheet" href="/static/css/style.min.css?v={{ ver }}" />
   <script>
     // 極簡模式（perf mode）：在 body 渲染前先掛上 class，避免特效資源被瀏覽器排程
     try {

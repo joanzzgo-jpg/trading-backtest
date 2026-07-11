@@ -56,6 +56,31 @@ def _build_js_bundle():
 
 _build_js_bundle()
 
+
+def _build_css_bundle():
+    """啟動時把 style.css 壓縮成 style.min.css（render-blocking CSS：gzip 69KB→34KB、少一半解析量）。
+    來源比產物新才重建；rcssmin 缺席時退回原樣複製 → style.min.css 恆存在（不會漏 CSS 讓頁面裸奔）。"""
+    try:
+        from pathlib import Path
+        css = (Path(os.path.dirname(__file__)) / ".." / "frontend" / "static" / "css").resolve()
+        src = css / "style.css"; out = css / "style.min.css"
+        if not src.exists():
+            return
+        if out.exists() and out.stat().st_mtime >= src.stat().st_mtime:
+            return
+        content = src.read_text(encoding="utf-8")
+        try:
+            import rcssmin
+            content = rcssmin.cssmin(content)
+        except Exception:
+            pass   # 沒有 rcssmin（如本機未裝）→ 服務原樣，仍正確、只是沒壓縮
+        out.write_text(content, encoding="utf-8")
+        print(f"  ✓ style.min.css rebuilt ({len(content)//1024} KB)")
+    except Exception as e:
+        print(f"  ⚠ css build failed: {e}")
+
+_build_css_bundle()
+
 app = FastAPI(title="回測系統")
 
 # ── GZip 壓縮（JS 166KB→35KB，CSS 38KB→8KB）──────────────────

@@ -34,3 +34,4 @@ backend/.df_cache/
 
 # 帳號 SQLite（本機開發用）
 backend/.accounts.db
+frontend/static/css/style.min.css
