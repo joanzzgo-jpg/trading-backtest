@@ -968,6 +968,7 @@ const _SESSION_HL_SEC   = { asia: 3600, europe: 3600, us: 3600 };   // 開盤加
 const _WEEKDAY = ["週日", "週一", "週二", "週三", "週四", "週五", "週六"];
 // 開關（頂部按鈕；預設開）
 let _sessionOn = (() => { try { return localStorage.getItem("sessionOverlay") !== "0"; } catch (e) { return true; } })();
+let _weekBoxOn = (() => { try { return localStorage.getItem("weekBox") !== "0"; } catch (e) { return true; } })();   // 週框(週一~五框)獨立開關；預設開
 // 時段/星期只取決於時間戳 → 記憶化（同一根 K 每幀被查多遍，避免每次都 new Date）。
 // key 用原始 time 值；跨標的/重載皆有效（同時刻必同時段/星期），無需失效。
 const _sessCache = new Map();
@@ -1123,6 +1124,7 @@ function _drawSessionOverlay(W, H) {
 
   // ③b 週框：把每週的「週一~週五」K 棒用細框框起來（全高矩形）。
   //   crypto(24/7)週末有棒→落在框外；股票無週末棒→以「出現週一」為界起新框。只框、不填。
+  if (_weekBoxOn) {
   drawCtx.save();
   drawCtx.strokeStyle = "rgba(255,255,255,0.6)"; drawCtx.lineWidth = 1.5;
   drawCtx.fillStyle = "rgba(255,255,255,0.055)";        // 很淡底色→整週像一個區塊、更明顯
@@ -1150,6 +1152,7 @@ function _drawSessionOverlay(W, H) {
   }
   _flushWk();
   drawCtx.restore();
+  }   // end if (_weekBoxOn)
 
   // ③ 星期標籤：日期變動的那根 K 棒上方標「週X」
   drawCtx.save();
@@ -1309,6 +1312,26 @@ function initSessionToggle() {
   btn.addEventListener("click", () => {
     _sessionOn = !_sessionOn;
     try { localStorage.setItem("sessionOverlay", _sessionOn ? "1" : "0"); } catch (e) {}
+    _sync();
+    _scheduleRenderDrawings();
+  });
+}
+
+// 頂部「週框」開關按鈕（週一~週五框；獨立於交易時段開關）
+function initWeekBoxToggle() {
+  const btn = document.getElementById("weekBoxToggleBtn");
+  if (!btn) return;
+  const _sync = () => {
+    btn.classList.toggle("active", _weekBoxOn);
+    const st = document.getElementById("mSetWeekBoxState");
+    if (st) st.textContent = _weekBoxOn ? "開啟" : "關閉";
+    const row = document.getElementById("mSetWeekBox");
+    if (row) row.classList.toggle("m-set-on", _weekBoxOn);
+  };
+  _sync();
+  btn.addEventListener("click", () => {
+    _weekBoxOn = !_weekBoxOn;
+    try { localStorage.setItem("weekBox", _weekBoxOn ? "1" : "0"); } catch (e) {}
     _sync();
     _scheduleRenderDrawings();
   });
@@ -2409,6 +2432,6 @@ if (!window._drawBooted) {
   window._drawBooted = true;
   try {
     initDrawTools();
-    initSessionToggle(); initVPToggle(); initCoachToggle(); initVwapToggle();
+    initSessionToggle(); initWeekBoxToggle(); initVPToggle(); initCoachToggle(); initVwapToggle();
   } catch (e) { console.warn("draw self-init failed", e); }
 }

@@ -144,6 +144,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   _initMarketPill();       // 市場切換動畫 pill（Crypto / TW / US）
   if (typeof initAccount === "function") initAccount();   // 帳號 + 跨裝置同步（後端未啟用會自動隱藏入口）
   if (typeof initSessionToggle === "function") initSessionToggle();  // 交易時段標記開關
+  if (typeof initWeekBoxToggle === "function") initWeekBoxToggle();  // 週框開關
   if (typeof initVPToggle === "function") initVPToggle();  // 成交量分佈圖開關（右上）
   if (typeof initCoachToggle === "function") initCoachToggle();  // SR+SMC 教練疊加層開關（右上·階段1:掃頂掃底）
   if (typeof initVwapToggle === "function") initVwapToggle();  // VWAP 成交量加權均價 獨立開關（右上）
