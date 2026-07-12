@@ -45,7 +45,11 @@ async def run_ticker_ws():
     loop = asyncio.get_event_loop()
     fut_map, spot_map = {}, {}     # symbol -> ticker dict（持續累積，保清單完整）
     _last_emit = [0.0]
-    _last_ws   = [0.0]             # 最後一次「WS 真的推進更新」的時間；看門狗判斷是否要 REST 補
+    # 逐市場記「最後一次該市場 WS 真的推進」的時間 → 逐市場判斷是否要 REST 補。
+    # （重要：期貨 fstream WS 在部分地區/Railway 連得上卻不推任何資料；若與 spot 共用一個時間戳，
+    #   spot 一直在推會讓看門狗誤判「WS 健康」→ 期貨永遠凍在種子值＝「合約數字不跳」的根因。）
+    _last_ws_fut  = [0.0]
+    _last_ws_spot = [0.0]
 
     def _perp_set():
         try:
@@ -86,13 +90,45 @@ async def run_ticker_ws():
         _emit(force=True)
         print(f"  ✓ WS 報價種子完成 futures={len(fut_map)} spot={len(spot_map)}")
 
-    async def _watchdog():
-        """WS 沒在推進更新（>12s）就用 REST 補一次 → 永不凍結（WS 掛了也自動退化成 ~10s REST）。"""
+    def _apply_prices(mp, prices):
+        """把輕量 REST 現價 {SYMBOL: price} 套到既有 map（保留種子的 24h open → 重算漲跌幅）。"""
+        if not prices:
+            return False
+        for sym, t in mp.items():
+            p = prices.get(sym)
+            if p is None:
+                continue
+            t["price"] = p
+            o = t.get("open") or 0
+            if o:
+                t["change_amt"] = round(p - o, 8)
+                t["change_pct"] = round((p - o) / o * 100, 2)
+        return True
+
+    async def _rest_fallback():
+        """逐市場看門狗（每秒）：哪個市場的 WS >4s 沒推進 → 用『輕量 REST 現價』每秒補該市場。
+        期貨 fstream WS 被 Binance 靜默封鎖（連得上不推）時，合約報價就靠這條 1s REST 保持跳動；
+        spot WS 正常時 spot 不會觸發。另每 ~15s 做一次完整 24h 重抓（補新標的、刷新量/open）。"""
+        from data.crypto import _fetch_fapi_prices, _fetch_spot_prices
+        cnt = 0
         while True:
-            await asyncio.sleep(10)
-            if time.time() - _last_ws[0] > 12:
-                if await loop.run_in_executor(None, _rest_refresh):
-                    _emit(force=True)
+            await asyncio.sleep(1)
+            now = time.time()
+            changed = False
+            if now - _last_ws_fut[0] > 4:
+                fp = await loop.run_in_executor(None, _fetch_fapi_prices)
+                if _apply_prices(fut_map, fp):
+                    changed = True
+            if now - _last_ws_spot[0] > 4:
+                sp = await loop.run_in_executor(None, _fetch_spot_prices)
+                if _apply_prices(spot_map, sp):
+                    changed = True
+            cnt += 1
+            if cnt % 15 == 0:   # 完整重抓：補新上市標的 + 刷新 24h 量/open（漲跌幅基準）
+                await loop.run_in_executor(None, _rest_refresh)
+                changed = True
+            if changed:
+                _emit(force=True)
 
     async def _stream(url, is_fut):
         backoff = 1
@@ -124,13 +160,13 @@ async def run_ticker_ws():
                                 d = _mini_to_ticker(m, is_fut)
                                 if d and d["symbol"][:-4].upper() in allow:
                                     mp[d["symbol"]] = d
-                            _last_ws[0] = time.time()   # WS 有推進 → 看門狗不介入
+                            (_last_ws_fut if is_fut else _last_ws_spot)[0] = time.time()   # 該市場 WS 有推進
                             _emit()
             except Exception as e:
                 await asyncio.sleep(min(backoff, 30))
                 backoff = min(backoff * 2, 30)
                 print(f"  ⚠ WS 重連（{'fut' if is_fut else 'spot'}）：{str(e)[:80]}")
 
-    # return_exceptions=True：任一條(串流/看門狗)掛掉不會取消其他 → 看門狗永遠活著、報價不凍結。
-    await asyncio.gather(_stream(FUT_WS, True), _stream(SPOT_WS, False), _watchdog(),
+    # return_exceptions=True：任一條(串流/REST補)掛掉不會取消其他 → 補救永遠活著、報價不凍結。
+    await asyncio.gather(_stream(FUT_WS, True), _stream(SPOT_WS, False), _rest_fallback(),
                          return_exceptions=True)
