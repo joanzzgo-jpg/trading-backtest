@@ -112,8 +112,8 @@ async def run_ticker_ws():
         from data.crypto import _fetch_fapi_prices, _fetch_spot_prices
         cnt = 0
         while True:
-            await asyncio.sleep(1)
-            now = time.time()
+            _t0 = time.time()
+            now = _t0
             changed = False
             if now - _last_ws_fut[0] > 4:
                 fp = await loop.run_in_executor(None, _fetch_fapi_prices)
@@ -129,6 +129,8 @@ async def run_ticker_ws():
                 changed = True
             if changed:
                 _emit(force=True)
+            # 週期固定 1s：扣掉本輪抓價/emit 耗時再睡（原本 sleep(1) 疊加 → 實際 ~1.15s/輪）
+            await asyncio.sleep(max(0.0, 1.0 - (time.time() - _t0)))
 
     async def _stream(url, is_fut):
         backoff = 1
