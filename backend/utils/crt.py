@@ -1003,6 +1003,30 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         # numpy→list 一次轉換：FVG 主迴圈逐元素存取，list(float) 遠快於 numpy 標量+float()
         #（與 _fvg_bb / _fvg_trades 區塊同一手法；NaN 轉 list 後仍 float('nan')，x!=x 判定不變）。
         _H = highs.tolist(); _L = lows.tolist(); _C = closes.tolist(); _O = opens.tolist()
+        # 成交量 list（fvg_ms 止盈用：往後找「量>標記棒且同色確認棒」）；無欄位→全 NaN(比較恆 False→不觸發止盈)
+        _Vms = (df["volume"].to_numpy(dtype=float).tolist() if "volume" in df.columns else [float("nan")] * _N)
+        # 策略止損 = 標記棒往左跳過同向棒、找到「連續反色 K run」，取那段的極值：
+        #   做空(空/破多)→ 往回跳過綠K找到紅K，收整段連續紅K，取最高 High(_swing_hi)。
+        #   做多(多/破空)→ 往回跳過紅K找到綠K，收整段連續綠K，取最低 Low(_swing_lo)。
+        #   紅K=收>開(up)、綠K=收<開(down)。回推上限 120 根；找不到反色 run → 退回標記前一根極值。
+        def _swing_hi(_m):
+            _lim = _m - 120; _j = _m - 1
+            while _j >= 0 and _j >= _lim and not (_C[_j] > _O[_j]): _j -= 1   # 跳過非紅K(綠/doji)
+            if _j < 0 or _j < _lim: return _H[_m - 1] if _m > 0 else _H[_m]
+            _hi = _H[_j]
+            while _j >= 0 and _j >= _lim and (_C[_j] > _O[_j]):               # 連續紅K run
+                if _H[_j] > _hi: _hi = _H[_j]
+                _j -= 1
+            return _hi
+        def _swing_lo(_m):
+            _lim = _m - 120; _j = _m - 1
+            while _j >= 0 and _j >= _lim and not (_C[_j] < _O[_j]): _j -= 1   # 跳過非綠K(紅/doji)
+            if _j < 0 or _j < _lim: return _L[_m - 1] if _m > 0 else _L[_m]
+            _lo = _L[_j]
+            while _j >= 0 and _j >= _lim and (_C[_j] < _O[_j]):               # 連續綠K run
+                if _L[_j] < _lo: _lo = _L[_j]
+                _j -= 1
+            return _lo
         # 視覺標記只需近段窗（圖上不會回看數年）：FVG 缺口/策略(多空·破·順)只在最後 _VW 根上算，
         #   把整段 O(缺口×觸碰掃描) 從 N 縮到 _VW → 深時框(1h~60k根)大幅提速。勝率統計(S1~SS)仍走全歷史、不受此限。
         #   _VW 取足夠大(遠超可視+合理回捲)，且各標記本就截尾([-2000:]/[-12000:])，近段結果與全量一致。
@@ -1346,7 +1370,12 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                     if _pdr[_q] == "l" and _pcf[_q] - _touch > 2:
                         _blk = True; break
                 if _blk: continue
-                _e = {"t": times_iso[_cf2], "d": "s", "sl": _H[_cf2-1]}
+                _e = {"t": times_iso[_cf2], "d": "s", "sl": _swing_hi(_cf2)}   # 做空止損=回推到第一根紅K的波段最高
+                # 止盈：往後找第一根「量>標記棒(g) 且 綠色(收<開=做空K)」→ 收盤價；紅色不算(續找)。上限 200 根
+                _mvm = _Vms[_cf2]
+                for _z in range(_cf2 + 1, min(_N, _cf2 + 201)):
+                    if _Vms[_z] > _mvm and _C[_z] < _O[_z]:
+                        _e["tp"] = _C[_z]; break
                 if _pprov[_B]: _e["prov"] = 1
                 _fvg_ms.append(_e); _ms_seen.add(_cf2); _used.add(_cf)
         for (_cf, _top, _bot) in _bull:                    # 多（鏡像）
@@ -1373,7 +1402,12 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                     if _pdr[_q] == "s" and _pcf[_q] - _touch > 2:
                         _blk = True; break
                 if _blk: continue
-                _e = {"t": times_iso[_cf2], "d": "l", "sl": _H[_cf2-1]}
+                _e = {"t": times_iso[_cf2], "d": "l", "sl": _swing_lo(_cf2)}   # 做多止損=回推到第一根綠K的波段最低
+                # 止盈：往後找第一根「量>標記棒(g) 且 紅色(收>開=做多K)」→ 收盤價；綠色不算(續找)。上限 200 根
+                _mvm = _Vms[_cf2]
+                for _z in range(_cf2 + 1, min(_N, _cf2 + 201)):
+                    if _Vms[_z] > _mvm and _C[_z] > _O[_z]:
+                        _e["tp"] = _C[_z]; break
                 if _pprov[_B]: _e["prov"] = 1
                 _fvg_ms.append(_e); _ms_seen.add(_cf2); _used.add(_cf)
         _fvg_ms.sort(key=lambda x: x["t"])
@@ -1402,7 +1436,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                     if _k >= _N:
                         break
                     if (_k in _pl_bars) or (_k == _li and _prov_l):
-                        _e = {"t": times_iso[_k], "p": _cur_bw[2], "d": "s", "sl": _L[_k - 1]}
+                        _e = {"t": times_iso[_k], "p": _cur_bw[2], "d": "s", "sl": _swing_lo(_k)}   # 破空=做多↑→回推第一根綠K的波段最低
                         if _k == _li and _k not in _pl_bars and _prov_l:
                             _e["prov"] = 1
                         _fvg_break.append(_e); break
@@ -1413,7 +1447,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                     if _k >= _N:
                         break
                     if (_k in _ps_bars) or (_k == _li and _prov_s):
-                        _e = {"t": times_iso[_k], "p": _cur_lw[1], "d": "l", "sl": _H[_k - 1]}
+                        _e = {"t": times_iso[_k], "p": _cur_lw[1], "d": "l", "sl": _swing_hi(_k)}   # 破多=做空↓→回推第一根紅K的波段最高
                         if _k == _li and _k not in _ps_bars and _prov_s:
                             _e["prov"] = 1
                         _fvg_break.append(_e); break

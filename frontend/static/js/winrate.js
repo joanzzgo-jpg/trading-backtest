@@ -911,7 +911,7 @@ window.toggleFVGShun = function (on) {
 window._stratSlByTime = new Map();
 window._rebuildStratSL = function () {
   const m = new Map();
-  const add = (arr) => { for (const it of (arr || [])) { if (it && it.sl != null) m.set(toTime(it.t), { sl: it.sl, d: it.d }); } };
+  const add = (arr) => { for (const it of (arr || [])) { if (it && it.sl != null) m.set(toTime(it.t), { sl: it.sl, tp: (it.tp != null ? it.tp : null), d: it.d }); } };
   add(typeof _lastFVGMS !== "undefined" ? _lastFVGMS : null);
   add(typeof _lastFVGBreak !== "undefined" ? _lastFVGBreak : null);
   add(typeof _lastFVGShun !== "undefined" ? _lastFVGShun : null);
@@ -1452,6 +1452,19 @@ function _updateHoverWR(time) {
       try {
         window._slPriceLine = candleSeries.createPriceLine({
           price: _slVal, color: "#ff3b6b", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "止損",
+        });
+      } catch (e) {}
+    }
+  }
+  // 止盈線（量>標記棒且同色確認棒的收盤價；僅 fvg_ms 帶 tp，破/順無 tp→不顯示）
+  const _tpVal = _slInfo ? _slInfo.tp : null;
+  if (_tpVal !== window._curTpLineVal) {
+    window._curTpLineVal = _tpVal;
+    if (window._tpPriceLine) { try { candleSeries.removePriceLine(window._tpPriceLine); } catch (e) {} window._tpPriceLine = null; }
+    if (_tpVal != null && typeof candleSeries !== "undefined" && candleSeries) {
+      try {
+        window._tpPriceLine = candleSeries.createPriceLine({
+          price: _tpVal, color: "#26c6da", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "止盈",
         });
       } catch (e) {}
     }

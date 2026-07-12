@@ -1741,7 +1741,7 @@ def get_crt_winrate(
     # proto 缺口(B)寬度門檻（多空/破多空）：前端可切換比較。預設 0.05% 不改 key（沿用既有快取），其餘另分流。
     _pm = round(float(proto_min), 5) if proto_min and proto_min > 0 else 0.0005
     _pm_tag = "" if abs(_pm - 0.0005) < 1e-9 else f":pm{_pm}"
-    cache_key = f"crt_wr102:{market}:{symbol}:{exchange}:{timeframe}:{_buf}:{int(_long_only)}{_br_tag}{_vw_tag}{_pm_tag}"   # v96:股票隔盤跳空(影線對影線)缺口盒;v95:+vw(視覺標記近段窗)
+    cache_key = f"crt_wr105:{market}:{symbol}:{exchange}:{timeframe}:{_buf}:{int(_long_only)}{_br_tag}{_vw_tag}{_pm_tag}"   # v99:止損改「連續反色K run」極值(跳過同向棒);v98:反色K波段極值;v97:+fvg_ms止盈
     bar_key = cache_key + ":bar"
     # bar-aware 新鮮度：記下「算這份結果時最新那根棒的開盤時刻」。crypto 在「同一根棒內」吃快取，
     # 一旦有新棒收盤就讓快取失效 → 走下方短窗補抓重算 → 最新訊號最多慢到「收盤後第一次請求」，
