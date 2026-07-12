@@ -271,20 +271,21 @@ function renderBB(data) {
 // 標記視窗化：長範圍（小時/4H 背景載入上千根）時，CRT+KDJ+共振+多空訊號會產生數千個標記，
 // 一次全丟 setMarkers 會讓 LWC 每次平移/縮放/十字線都重繪全部 → 卡。只渲染「可見範圍 ±一屏」的
 // 標記（通常幾百個），平移時由 _scheduleMarkerRewindow 重算 → 大幅降低 setMarkers 負擔。
+// 回傳視窗邊界 [start, end)（不直接 slice → 呼叫端可先比對邊界沒變就整段跳過）。
 function _windowMarkers(all) {
-  if (!mainChart || all.length <= 400) return all;   // 少量不必視窗化
+  if (!mainChart || all.length <= 400) return [0, all.length];   // 少量不必視窗化
   let vr = null;
   try { vr = mainChart.timeScale().getVisibleRange(); } catch (e) {}
-  if (!vr) return all;
+  if (!vr) return [0, all.length];
   const span = (vr.to - vr.from) || 0;
   const lo = vr.from - span, hi = vr.to + span;       // 左右各加一屏緩衝
-  // all 已依 time 升序 → 二分找 [lo, hi] 邊界再 slice，避免整列 filter（平移時上千筆每次掃描很貴）
+  // all 已依 time 升序 → 二分找 [lo, hi] 邊界，避免整列 filter（平移時上千筆每次掃描很貴）
   let a = 0, b = all.length;
   while (a < b) { const m = (a + b) >> 1; all[m].time < lo ? a = m + 1 : b = m; }   // 第一個 >= lo
   const start = a;
   b = all.length;
   while (a < b) { const m = (a + b) >> 1; all[m].time <= hi ? a = m + 1 : b = m; }  // 第一個 > hi
-  return all.slice(start, a);
+  return [start, a];
 }
 
 let _markerWinTimer = null;
@@ -322,6 +323,7 @@ function _dimBigRange(markers) {
 
   });
 }
+let _lastMarkerWin = { cache: null, start: -1, end: -1 };   // 上次套用的視窗（同快取＋同邊界 → 整段跳過）
 function _applyMainMarkers(windowOnly) {
   if (!windowOnly || !_sortedMarkerCache) {
     _sortedMarkerCache = [
@@ -335,7 +337,13 @@ function _applyMainMarkers(windowOnly) {
       ...(window._coachOn ? lastCoachBOSMarkers : []),           // 教練步驟5(BOS)達成點箭頭(右上開關)
     ].sort((a, b) => a.time - b.time);
   }
-  candleSeries.setMarkers(_windowMarkers(_sortedMarkerCache));
+  const all = _sortedMarkerCache;
+  const [ws, we] = _windowMarkers(all);
+  // 平移/縮放的視窗重切：同一份快取＋邊界沒變(預設標記為空/少量時幾乎每次) → setMarkers、
+  // 止損線映射重掃、primitive 重繪通知全是白工 → 整段跳過（省掉平移中每 100ms 的多餘 LWC 重排）。
+  if (windowOnly && _lastMarkerWin.cache === all && _lastMarkerWin.start === ws && _lastMarkerWin.end === we) return;
+  _lastMarkerWin.cache = all; _lastMarkerWin.start = ws; _lastMarkerWin.end = we;
+  candleSeries.setMarkers((ws === 0 && we === all.length) ? all : all.slice(ws, we));
   if (typeof window._rebuildStratSL === "function") window._rebuildStratSL();   // 策略棒→止損線映射(hover 用)
   // 策略方向標記(多/空·破多空·順多空)改由 charts.js 的 series primitive 自畫 → 資料/開關/淡化任一變動都通知它重畫
   if (typeof _stratMarkersUpdate === "function") _stratMarkersUpdate();

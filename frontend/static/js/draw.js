@@ -1067,8 +1067,12 @@ function _drawSessionOverlay(W, H) {
     const yH = candleSeries?.priceToCoordinate(rHi), yL = candleSeries?.priceToCoordinate(rLo);
     if (yH == null || yL == null) continue;
     // 色塊只填「當盤高點~低點」之間（上下緣＝高/低點，不上下無限延伸）
-    drawCtx.fillStyle = _SESSION_COLOR[r.sess];
-    drawCtx.fillRect(L, yH, R - L, yL - yH);
+    // 平移/縮放中跳過大面積半透明填色（日內時框整片日色塊是 overlay 最貴的像素工作,2x 畫布上
+    // 一次重繪可近半張圖）→ 只留上下緣線勾輪廓,停手 240ms 由 renderDrawings settle 補回(同 FVG 模式)
+    if (!window._ovMoving) {
+      drawCtx.fillStyle = _SESSION_COLOR[r.sess];
+      drawCtx.fillRect(L, yH, R - L, yL - yH);
+    }
     // 上下緣畫線強調高/低點
     drawCtx.save();
     drawCtx.strokeStyle = _SESSION_LINE[r.sess]; drawCtx.lineWidth = 1;
@@ -1459,8 +1463,10 @@ function _drawPDZones(W, H) {
   drawCtx.save();
   drawCtx.beginPath(); drawCtx.rect(0, 0, plotW, H); drawCtx.clip();
   drawCtx.font = "10px sans-serif"; drawCtx.textBaseline = "middle";
-  drawCtx.fillStyle = "rgba(239,83,80,0.07)"; drawCtx.fillRect(x0, yTop, plotW - x0, yEq - yTop);   // 溢價
-  drawCtx.fillStyle = "rgba(38,166,154,0.07)"; drawCtx.fillRect(x0, yEq, plotW - x0, yBot - yEq);    // 折價
+  if (!window._ovMoving) {   // 平移/縮放中跳過大面積半透明填色（邊界線/EQ/標籤保留）→ 停手 settle 補回
+    drawCtx.fillStyle = "rgba(239,83,80,0.07)"; drawCtx.fillRect(x0, yTop, plotW - x0, yEq - yTop);   // 溢價
+    drawCtx.fillStyle = "rgba(38,166,154,0.07)"; drawCtx.fillRect(x0, yEq, plotW - x0, yBot - yEq);    // 折價
+  }
   drawCtx.lineWidth = 1;
   drawCtx.strokeStyle = "rgba(239,83,80,0.55)"; drawCtx.beginPath(); drawCtx.moveTo(x0, yTop); drawCtx.lineTo(plotW, yTop); drawCtx.stroke();
   drawCtx.strokeStyle = "rgba(38,166,154,0.55)"; drawCtx.beginPath(); drawCtx.moveTo(x0, yBot); drawCtx.lineTo(plotW, yBot); drawCtx.stroke();
@@ -1710,8 +1716,16 @@ function _renderDrawingsAfterSettle() {
   _watchAxis(1800);
 }
 
+let _ovSettleT = null;   // 平移/縮放中省略的大面積填色 → 停手 240ms 補回（同 charts.js FVG settle 模式）
 function renderDrawings() {
   if (!drawCtx || !drawCanvas) return;
+  // 圖表移動中旗標：給 _drawSessionOverlay 等跳過大面積半透明填色（overlay 2x 畫布最貴的像素工作）
+  {
+    const _n = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+    window._ovMoving = !!(window._chartMoveTs && _n - window._chartMoveTs < 220);
+    clearTimeout(_ovSettleT);
+    if (window._ovMoving) _ovSettleT = setTimeout(renderDrawings, 240);   // 停手補畫（那時旗標=false→全細節）
+  }
   // W/H 用 CSS 邏輯尺寸（backing store 是 device px，已由 setTransform(dpr) 縮放）
   const dpr = window.devicePixelRatio || 1;
   const W = drawCanvas.width / dpr, H = drawCanvas.height / dpr;

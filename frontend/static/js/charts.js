@@ -299,7 +299,11 @@ function _makeStratMarkersPrimitive() {
         const gap = 3 * scale * vr, pad = 2 * scale * vr;
         const glyphH = arrowH + fontPx + gap + pad + 2 * vr;   // 單一標記縱向佔用(堆疊用)
         const stepAbove = new Map(), stepBelow = new Map();
-        const fpx = Math.max(8, Math.round(fontPx / 2) * 2);   // 字級量化到 2px 桶（貼圖快取命中率高）
+        // 貼圖烤在「8px 粗桶(向上取)」、繪製時 drawImage 縮放到即時 fontPx →
+        //   文字跟縮放平滑連續變大小(比 2px 跳桶更順)、且縮放全程幾乎不會重烤貼圖(重烤=縮放小卡頓源)。
+        //   向上取桶=永遠縮小繪製(不放大) → 不會糊。
+        const fpx = Math.max(8, Math.ceil(fontPx / 8) * 8);
+        const _gk = fontPx / fpx;   // 每幀連續縮放比(≤1)
         for (const arr of groups) {
           if (!arr.length) continue;
           const [s, e] = _visSlice(arr, lo, hi);
@@ -333,8 +337,9 @@ function _makeStratMarkersPrimitive() {
               ctx.lineTo(x - arrowW / 2, tipY - arrowH);
               ctx.lineTo(x + arrowW / 2, tipY - arrowH);
               ctx.closePath(); if (prov) ctx.stroke(); else ctx.fill();
-              const glA = _stratGlyph(m.text, color, fpx);   // 貼圖文字（取代 fillText）
-              ctx.drawImage(glA.cv, Math.round(x - glA.w / 2), Math.round(tipY - arrowH - pad - glA.h));
+              const glA = _stratGlyph(m.text, color, fpx);   // 貼圖文字（取代 fillText）；縮放比 _gk 隨縮放連續縮
+              const _wA = glA.w * _gk, _hA = glA.h * _gk;
+              ctx.drawImage(glA.cv, Math.round(x - _wA / 2), Math.round(tipY - arrowH - pad - _hA), Math.round(_wA), Math.round(_hA));
               stepAbove.set(idx, off + glyphH);
             } else {
               const off = stepBelow.get(idx) || 0;
@@ -344,8 +349,9 @@ function _makeStratMarkersPrimitive() {
               ctx.lineTo(x - arrowW / 2, tipY + arrowH);
               ctx.lineTo(x + arrowW / 2, tipY + arrowH);
               ctx.closePath(); if (prov) ctx.stroke(); else ctx.fill();
-              const glB = _stratGlyph(m.text, color, fpx);   // 貼圖文字（取代 fillText）
-              ctx.drawImage(glB.cv, Math.round(x - glB.w / 2), Math.round(tipY + arrowH + pad));
+              const glB = _stratGlyph(m.text, color, fpx);   // 貼圖文字（取代 fillText）；縮放比 _gk 隨縮放連續縮
+              const _wB = glB.w * _gk, _hB = glB.h * _gk;
+              ctx.drawImage(glB.cv, Math.round(x - _wB / 2), Math.round(tipY + arrowH + pad), Math.round(_wB), Math.round(_hB));
               stepBelow.set(idx, off + glyphH);
             }
             if (prov) ctx.globalAlpha = 1;                   // 復原,不影響下一個標記
