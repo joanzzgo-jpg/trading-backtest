@@ -459,7 +459,7 @@ function initColorPicker() {
     popup.classList.add("open");
   }
 
-  _cpShowDirect = showDirect;
+  window._cpShowDirect = showDirect;   // 掛 window：draw.js 為延遲載入(晚於此)，用 let 會被其 `let _cpShowDirect=null` 蓋掉→色盤開不了
 
   document.addEventListener("mousedown", e => {
     if (!popup.classList.contains("open")) return;

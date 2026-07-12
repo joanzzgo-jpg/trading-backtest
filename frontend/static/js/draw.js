@@ -13,7 +13,8 @@ let _magnetMode = false;
 
 const DCP_COLORS = ["#f5c518","#ef5350","#26a69a","#2962ff","#ff9800","#7e57c2","#ec407a","#26c6da","#ffffff","#787b86"];
 const DRAW_WIDTH  = 1.5;
-let _cpShowDirect = null; // set by initColorPicker()
+// _cpShowDirect 由 colors.js 的 initColorPicker() 設在 window 上（draw.js 為延遲載入、晚於 initColorPicker，
+// 若在此用 `let _cpShowDirect=null` 會於載入時把已設好的值蓋回 null → 色盤永遠開不了）。一律走 window._cpShowDirect。
 
 function _did() { return "d" + Date.now().toString(36) + Math.random().toString(36).slice(2,5); }
 
@@ -776,9 +777,9 @@ function _updateDrag(x, y) {
 
 /* ── 顏色 Popup ── */
 function showDrawColorPicker(drawing, clientX, clientY) {
-  if (!_cpShowDirect) return;
+  if (!window._cpShowDirect) return;
   const noStyle = drawing.type === "note" || drawing.type === "emoji";   // emoji 無顏色/樣式,色盤只留刪除
-  _cpShowDirect(clientX, clientY, {
+  window._cpShowDirect(clientX, clientY, {
     sections: [{
       label: null,
       currentColor: (drawing.color || "#2962ff").substring(0, 7),
@@ -810,8 +811,8 @@ function showDrawColorPicker(drawing, clientX, clientY) {
 function showLegColorPopup(clientX, clientY, sections) {
   // 極簡模式：完全鎖住所有色票調整，使用固定的系統配色
   if (document.documentElement.classList.contains("perf-mode")) return;
-  if (!_cpShowDirect) return;
-  _cpShowDirect(clientX, clientY, { sections, onDelete: null });
+  if (!window._cpShowDirect) return;
+  window._cpShowDirect(clientX, clientY, { sections, onDelete: null });
 }
 
 function _magnetSnap(x, y) {
