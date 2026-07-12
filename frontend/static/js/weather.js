@@ -3304,13 +3304,9 @@
     else L.push('🌂 你所在地目前沒下雨');
     const a = n.approaching;
     if (a && a.eta_min != null) {
-      const from = a.area ? a.area + '的雨' : '雨';
+      const from = a.area ? a.area + '的雨' : '附近的雨';
       const est = a.by === 'wind' ? '（順風推估）' : '';
-      L.push('🛵 ' + from + '正往你這來，約 ' + a.eta_min + ' 分後到' + est + _trendZh(a));
-    }
-    if (n.widespread) {
-      const pct = n.coverage != null ? '約' + Math.round(n.coverage * 10) + '成' : '一大片';
-      L.push('🌧️ 附近' + pct + '範圍都在下雨，出門很可能遇到');
+      L.push('🛵 ' + from + '約 ' + a.eta_min + ' 分後到' + est + _trendZh(a));
     }
     // ② 附近有雨的「區」：只列行政區名（去重、最多 6 個），方向不重要
     const seen = new Set();
@@ -3324,8 +3320,15 @@
       areas.push(nm);
       if (areas.length >= 6) break;
     }
-    if (areas.length) L.push('🌧️ 附近下雨的區：' + areas.join('、'));
-    else if (!n.raining_here && !a && !n.widespread) L.push('☀️ 附近 ' + (n.radius_km || 30) + 'km 內也沒有下雨');
+    // 覆蓋率 + 下雨區併成同一行 🌧️（避免連兩行 🌧️ 重複 emoji）
+    if (n.widespread) {
+      const pct = n.coverage != null ? '約' + Math.round(n.coverage * 10) + '成' : '一大片';
+      L.push('🌧️ 附近' + pct + '範圍都在下雨' + (areas.length ? '：' + areas.join('、') : '，出門很可能遇到'));
+    } else if (areas.length) {
+      L.push('🌧️ 附近下雨的區：' + areas.join('、'));
+    } else if (!n.raining_here && !a) {
+      L.push('☀️ 附近 ' + (n.radius_km || 30) + 'km 內也沒有下雨');
+    }
     return L.join('\n');
   };
 
