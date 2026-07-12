@@ -84,6 +84,7 @@ window._fvgMSHidden = false;     // 預設顯示多/空方向標記；切換:tog
 let lastFVGShunMarkers   = [];   // 「順多/順空」：吃同向FVG後影線穿透既存反向FVG（主圖）
 window._fvgShunHidden = true;    // 預設隱藏順多/順空標記（使用者要求關掉）；切換:toggleFVGShun()
 window._dimBigBarOn = false;     // 「大棒淡化」：標記棒全長>前10根平均→淡化該棒三組策略標記；切換:toggleDimBigBar()
+window._dimVolOn = false;        // 「量淡化」(測驗)：標記棒成交量小於前三根其中一根→保留,否則(≥前三根全部)淡化；切換:toggleDimVol()
 let lastSMCSweepMarkers  = [];   // SMC 掃頂/掃底標記（階段1：SR+SMC 教練疊加層）
 let lastCoachBOSMarkers  = [];   // 教練步驟5(BOS 延續)達成點：主圖箭頭標記（15m用default/5m用fast）
 window._coachOn = false;         // SR+SMC 教練疊加層總開關（右上 coachToggleBtn）；預設關，開才顯示

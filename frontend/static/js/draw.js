@@ -963,6 +963,8 @@ const _SESSION_INTRADAY = ["1m", "5m", "15m", "30m", "1h", "2h"];
 const _SESSION_COLOR = { asia: "rgba(66,133,244,0.10)", europe: "rgba(124,104,228,0.10)", us: "rgba(255,159,40,0.09)" };
 const _SESSION_LINE  = { asia: "rgba(66,133,244,0.9)",  europe: "rgba(150,130,245,0.85)", us: "rgba(255,159,40,0.9)" };
 const _SESSION_NAME  = { asia: "台股", europe: "歐洲", us: "美盤" };
+const _SESSION_COLOR_HR = { asia: "rgba(66,133,244,0.30)", europe: "rgba(124,104,228,0.30)", us: "rgba(255,159,40,0.28)" };  // 開盤首段深底色
+const _SESSION_HL_SEC   = { asia: 3600, europe: 3600, us: 3600 };   // 開盤加深時長：三盤皆前 1 小時
 const _WEEKDAY = ["週日", "週一", "週二", "週三", "週四", "週五", "週六"];
 // 開關（頂部按鈕；預設開）
 let _sessionOn = (() => { try { return localStorage.getItem("sessionOverlay") !== "0"; } catch (e) { return true; } })();
@@ -1017,8 +1019,13 @@ function _getSessionRuns() {
 // K 棒後方：①各交易時段淡色直條 ②各盤當盤高/低點虛線 ③星期標籤。只在日內時框、且開關開啟。
 function _drawSessionOverlay(W, H) {
   // 星期標籤(③)永遠顯示——不受右上「交易時段」開關(_sessionOn)控制；
-  // 僅色塊/高低線/開盤標記(①②④)受開關控制。兩者皆只在日內時框出現。
-  if (!_SESSION_INTRADAY.includes(typeof currentTF !== "undefined" ? currentTF : "")) return;
+  // 交易時段色塊/高低線/開盤標記(①②④)只在『細日內時框』(_SESSION_INTRADAY)；
+  // 星期標籤放寬到『日內時框 + 4h』(4h 每天 6 根、換日標「週X」有意義；日/週/月線不標)。
+  const _tf = (typeof currentTF !== "undefined") ? currentTF : "";
+  const _boxTF = _SESSION_INTRADAY.includes(_tf);
+  const _sessTF = _boxTF || _tf === "4h";                // 交易時段色塊：日內細時框 + 4h(每天三根對上亞/歐/美盤)；1d 不算
+  const _fhTF = ["1m", "5m", "15m", "30m", "1h"].includes(_tf);   // 開盤首段深底色：僅 ≤1h 能對齊時間窗(2h/4h 一根太粗切不出)
+  if (!_boxTF && _tf !== "4h" && _tf !== "1d") return;   // 星期標籤/週框：日內時框 + 4h + 日K
   if (typeof ohlcvData === "undefined" || !ohlcvData.length || typeof mainChart === "undefined") return;
   const ts = mainChart.timeScale();
   const vr = ts.getVisibleLogicalRange();
@@ -1048,8 +1055,8 @@ function _drawSessionOverlay(W, H) {
   try { const th = ts.height(); if (th > 0) plotBottom = H - th; } catch (e) {}
   drawCtx.save();
   drawCtx.beginPath(); drawCtx.rect(0, 0, plotW, H); drawCtx.clip();
-  // ①②④ 色塊/高低線/開盤標記：受 _sessionOn 開關控制（星期標籤③在其後、不受控）。
-  if (_sessionOn) {
+  // ①②④ 色塊/高低線/開盤標記：受 _sessionOn 開關控制 + 日內細時框或 4h(1d 不算)。
+  if (_sessionOn && _sessTF) {
   // 用預先算好的時段區段（含當盤高低）逐段畫 → 每幀只做座標換算，不再每根 K 重算高低。
   const runs = _getSessionRuns();
   for (const r of runs) {
@@ -1072,6 +1079,20 @@ function _drawSessionOverlay(W, H) {
     if (!window._ovMoving) {
       drawCtx.fillStyle = _SESSION_COLOR[r.sess];
       drawCtx.fillRect(L, yH, R - L, yL - yH);
+      // 開盤首段深底色：亞/歐 前 1 小時、美 前 1.5 小時（時間窗；僅 ≤1h 時框對得齊）
+      if (_fhTF) {
+        const enT = toTime(ohlcvData[r.s].time) + (_SESSION_HL_SEC[r.sess] || 3600);
+        let hL = null, hR = null;
+        for (let i = r.s; i <= endIdx; i++) {
+          if (toTime(ohlcvData[i].time) >= enT) break;
+          const cx = ts.timeToCoordinate(toTime(ohlcvData[i].time));
+          if (cx != null) { if (hL == null) hL = cx - half; hR = cx + half; }
+        }
+        if (hL != null && hR > hL) {
+          drawCtx.fillStyle = _SESSION_COLOR_HR[r.sess];
+          drawCtx.fillRect(hL, yH, hR - hL, yL - yH);
+        }
+      }
     }
     // 上下緣畫線強調高/低點
     drawCtx.save();
@@ -1100,6 +1121,36 @@ function _drawSessionOverlay(W, H) {
   drawCtx.restore();
   }   // end if (_sessionOn) — 以下星期標籤永遠畫
 
+  // ③b 週框：把每週的「週一~週五」K 棒用細框框起來（全高矩形）。
+  //   crypto(24/7)週末有棒→落在框外；股票無週末棒→以「出現週一」為界起新框。只框、不填。
+  drawCtx.save();
+  drawCtx.strokeStyle = "rgba(255,255,255,0.6)"; drawCtx.lineWidth = 1.5;
+  drawCtx.fillStyle = "rgba(255,255,255,0.055)";        // 很淡底色→整週像一個區塊、更明顯
+  let _wkL = null, _wkR = null;                          // 目前週框左右 x
+  const _flushWk = () => {
+    if (_wkL != null && _wkR != null && _wkR > _wkL) {
+      drawCtx.fillRect(_wkL, 1, _wkR - _wkL, plotBottom - 2);
+      drawCtx.strokeRect(_wkL, 1, _wkR - _wkL, plotBottom - 2);
+    }
+    _wkL = _wkR = null;
+  };
+  let _wkPrevD = (from > 0) ? _dayOf(ohlcvData[from - 1].time) : -1;
+  for (let i = from; i <= to; i++) {
+    const d = _dayOf(ohlcvData[i].time);
+    const x = ts.timeToCoordinate(toTime(ohlcvData[i].time));
+    if (x == null) { _wkPrevD = d; continue; }
+    if (d >= 1 && d <= 5) {                              // 週一~週五
+      if (d === 1 && _wkL != null && _wkPrevD !== 1) _flushWk();   // 新的一週(股票 Fri→Mon 無週末棒)→收前框
+      if (_wkL == null) _wkL = x - half;
+      _wkR = x + half;
+    } else {
+      _flushWk();                                        // 週末(六/日)→收框
+    }
+    _wkPrevD = d;
+  }
+  _flushWk();
+  drawCtx.restore();
+
   // ③ 星期標籤：日期變動的那根 K 棒上方標「週X」
   drawCtx.save();
   drawCtx.font = "bold 13px sans-serif"; drawCtx.fillStyle = "rgba(255,255,255,0.55)"; drawCtx.textAlign = "left";
@@ -1111,7 +1162,7 @@ function _drawSessionOverlay(W, H) {
       prevDay = day;
       const x = ts.timeToCoordinate(toTime(ohlcvData[i].time));
       if (x != null && x >= 0 && x <= W) {
-        if (i > from) { drawCtx.strokeStyle = "rgba(255,255,255,0.10)"; drawCtx.lineWidth = 1; drawCtx.setLineDash([2, 3]); drawCtx.beginPath(); drawCtx.moveTo(x - half, 0); drawCtx.lineTo(x - half, plotBottom); drawCtx.stroke(); drawCtx.setLineDash([]); }
+        if (i > from && _tf !== "1d") { drawCtx.strokeStyle = "rgba(255,255,255,0.10)"; drawCtx.lineWidth = 1; drawCtx.setLineDash([2, 3]); drawCtx.beginPath(); drawCtx.moveTo(x - half, 0); drawCtx.lineTo(x - half, plotBottom); drawCtx.stroke(); drawCtx.setLineDash([]); }   // 1d 每根換日→省逐日分隔線(太密)，留標籤+週框
         drawCtx.fillText(_WEEKDAY[day] || "", x - half + 4, 16);
       }
     }

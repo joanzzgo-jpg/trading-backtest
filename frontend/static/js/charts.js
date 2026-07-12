@@ -290,6 +290,7 @@ function _makeStratMarkersPrimitive() {
       let vrng = null; try { vrng = ts.getVisibleRange(); } catch (e) {}
       const lo = vrng ? vrng.from : -Infinity, hi = vrng ? vrng.to : Infinity;
       const dimOn = !!window._dimBigBarOn;
+      const dimVolOn = !!window._dimVolOn;
       const n = ohlcvData.length;
       target.useBitmapCoordinateSpace(scope => {
         const ctx = scope.context;
@@ -318,12 +319,21 @@ function _makeStratMarkersPrimitive() {
             const above = m.position === "aboveBar";
             const yc = _series.priceToCoordinate(above ? bar.high : bar.low);
             if (yc == null) continue;
-            let color = m.color;   // 大棒淡化(同原生 _dimBigRange 判定)
+            let color = m.color;
+            let _dim = false;
+            // 大棒淡化：標記棒全長(high-low) > 前 10 根平均全長的 2 倍 → 淡化
             if (dimOn && idx >= 10) {
               const range = bar.high - bar.low; let sum = 0;
               for (let k = idx - 10; k < idx; k++) sum += (ohlcvData[k].high - ohlcvData[k].low);
-              if (range > (sum / 10) * 2 && typeof _dimHex === "function") color = _dimHex(color);
+              if (range > (sum / 10) * 2) _dim = true;
             }
+            // 量淡化(測驗)：標記棒成交量「小於前三根其中一根」→ 保留；否則(≥前三根全部＝量能高點)→ 淡化
+            if (!_dim && dimVolOn && idx >= 3) {
+              const v = bar.volume || 0;
+              const v1 = ohlcvData[idx-1].volume || 0, v2 = ohlcvData[idx-2].volume || 0, v3 = ohlcvData[idx-3].volume || 0;
+              if (!(v < v1 || v < v2 || v < v3)) _dim = true;   // 沒有一根比它大 → 它≥前三根全部 → 淡化
+            }
+            if (_dim && typeof _dimHex === "function") color = _dimHex(color);
             ctx.fillStyle = color;
             // 暫定(未收盤)訊號：半透明+空心箭頭(描邊不填滿)→ 一眼看出「未確認、收盤才算」
             const prov = !!m.prov;
