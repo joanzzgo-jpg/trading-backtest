@@ -141,7 +141,8 @@ function applyAllColors() {
     const bodyDown = S.bodyVisible   !== false ? C.down : "rgba(0,0,0,0)";
     candleSeries.applyOptions({
       upColor: bodyUp, downColor: bodyDown,
-      borderVisible: S.borderVisible !== false,
+      // 同色邊框跳過(白畫兩次)；不同色/空心K照畫 — 見 charts.js _candleBorderVisible
+      borderVisible: (typeof _candleBorderVisible === "function") ? _candleBorderVisible() : (S.borderVisible !== false),
       borderUpColor: C.borderUp, borderDownColor: C.borderDown,
       wickVisible: S.wickVisible !== false,
       wickUpColor: C.wickUp, wickDownColor: C.wickDown,

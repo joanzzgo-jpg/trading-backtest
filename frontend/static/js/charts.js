@@ -36,13 +36,22 @@ function makeBaseOpts(scaleMargins = null, showTime = false) {
 ══════════════════════════════════════════ */
 
 /* ── 建立 / 重建主圖 series ── */
+/* K 棒邊框實際要不要畫：LWC 畫邊框=先填邊框矩形、再填內縮實體 → 實體像素畫兩次。
+   邊框色與實體色完全相同(本專案預設)時兩次填色像素一模一樣 → 跳過邊框省近半 K 棒填充
+   (Retina 填充率是平移/縮放瓶頸,最有感)。使用者把邊框調成不同色、或隱藏實體(空心K)時照常畫。 */
+function _candleBorderVisible() {
+  if (S.borderVisible === false) return false;               // 使用者關閉邊框
+  if (S.bodyVisible === false) return true;                  // 實體隱藏(空心K)→ 邊框是主角、必畫
+  return !(C.borderUp === C.up && C.borderDown === C.down);  // 同色=白畫兩次 → 跳過(像素零差異)
+}
+
 function createCandleSeries() {
   if (candleSeries) { try { mainChart.removeSeries(candleSeries); } catch {} candleSeries = null; }
   latestPriceLine = null;
   candleSeries = mainChart.addCandlestickSeries({
     upColor:   S.bodyVisible   !== false ? C.up   : "rgba(0,0,0,0)",
     downColor: S.bodyVisible   !== false ? C.down : "rgba(0,0,0,0)",
-    borderVisible:   S.borderVisible !== false,
+    borderVisible:   _candleBorderVisible(),
     borderUpColor:   C.borderUp,   borderDownColor: C.borderDown,
     wickVisible:     S.wickVisible  !== false,
     wickUpColor:     C.wickUp,      wickDownColor:   C.wickDown,
