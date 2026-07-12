@@ -747,6 +747,8 @@ async def _fetch_jma_pop(lat: float, lon: float):
             _fr = (t, v)
     if now is None and parsed:                              # 落在資料起訖外 → 取最近端
         now = parsed[0][1] if jst < parsed[0][0] else parsed[-1][1]
+    if day is None and parsed:                              # 深夜/資料無今日時段 → 用最近時段當今日
+        day = parsed[0][1]                                  # （與 CWA 同修正：別退回 Open-Meteo 給非整十值）
     if day is None:
         return None
     out = {"day": day, "now": now}
@@ -1700,16 +1702,26 @@ async def _fetch_cwa_typhoon_warning(sess):
         recs = (((d.get("records") or {}).get("record")) or [])
         if isinstance(recs, dict):
             recs = [recs]
+        found = False
+        land = False
+        heads = []
+        areas = []
         for rec in recs:
             desc = str(((rec.get("datasetInfo") or {}).get("datasetDescription")) or "")
             hazards = ((((rec.get("hazardConditions") or {}).get("hazards")) or {}).get("hazard")) or []
             if isinstance(hazards, dict):
                 hazards = [hazards]
+            if "解除" in desc:      # 「解除颱風警報」＝警報已取消，非現行警報 → 不算 active
+                continue
             is_ty = ("颱風" in desc) or any(
                 "颱風" in str(((h.get("info") or {}).get("phenomena")) or "") for h in hazards)
             if not is_ty:
                 continue
-            areas = []
+            found = True
+            if "陸上" in desc:
+                land = True
+            if desc.strip():
+                heads.append(desc.strip())
             for h in hazards:
                 info = h.get("info") or {}
                 if "颱風" in str(info.get("phenomena") or ""):
@@ -1717,7 +1729,11 @@ async def _fetch_cwa_typhoon_warning(sess):
                         nm = lo.get("locationName")
                         if nm:
                             areas.append(nm)
-            return {"active": True, "land": ("陸上" in desc), "headline": desc.strip(), "areas": areas}
+        if found:
+            # headline/areas 去重保序（多筆颱風記錄彙總，如海上＋海上陸上）
+            heads = list(dict.fromkeys(heads))
+            areas = list(dict.fromkeys(areas))
+            return {"active": True, "land": land, "headline": " / ".join(heads), "areas": areas}
         return {"active": False, "land": False, "headline": "", "areas": []}
     except Exception:
         return None
