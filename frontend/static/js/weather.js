@@ -3539,9 +3539,10 @@
     if (_wxLat != null && t.dist_km != null) seg.push(_bearing8(_wxLat, _wxLon, cur[0], cur[1]) + '方 ' + t.dist_km + 'km');
     if (fc.length) seg.push('往' + _bearing8(cur[0], cur[1], fc[0].lat, fc[0].lon));
     if (t.wind_ms != null) seg.push('風 ' + t.wind_ms + 'm/s');
-    const warn = (tw && tw.active)
-      ? '　⚠ ' + (tw.headline || '颱風警報')
-      : '　台灣暫無陸上警報';
+    // 台灣警報行只對台灣範圍內的使用者顯示（非台灣使用者看西太平洋颱風時，「台灣暫無陸上警報」無意義）
+    const inTW = _wxLat != null && _wxLat >= 21.5 && _wxLat <= 26.5 && _wxLon >= 118 && _wxLon <= 122.5;
+    const warn = (tw && tw.active) ? '　⚠ ' + (tw.headline || '颱風警報')
+               : (inTW ? '　台灣暫無陸上警報' : '');
     return '<div style="' + (style || '') + 'color:#ff9a76;font-weight:600">' + seg.join(' · ') + warn + '</div>';
   }
 
