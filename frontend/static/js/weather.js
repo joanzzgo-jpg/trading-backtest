@@ -2965,9 +2965,12 @@
     rafId = requestAnimationFrame(loop);
     if (document.hidden) { _lastClockTs = 0; return; }
     const _now = (performance.now ? performance.now() : Date.now());
-    // 背景一律 ~22fps(45ms)：不分有沒有移動、手機桌機都一樣(使用者指定)。只調幀率、不放慢時鐘(仍 1x 正常速度)。
+    // 背景幀率：停手 ~22fps(45ms)；主圖移動中(平移/縮放/捲動後 300ms 內) → ~15fps(66ms) 讓出主執行緒。
+    //   2026-07-14 使用者回報「主圖滑起來卡了一點」→ 依既定折衷原則「喊主圖卡往 66 靠」調整;
+    //   只調幀率、不放慢時鐘(仍 1x 正常速度;雲飄移已 dt 正規化,低幀不變慢)。
     //   struggling 手機仍靠 _fxPenalty(見下)自動再往上加幀間隔 → 畫不動的裝置會降更多。
-    const _frameGap = 45 + _fxPenalty;   // 一律 ~22fps（原本移動中才降，現改常駐）
+    const _mvGap = (window._chartMoveTs && (ts - window._chartMoveTs < 300)) ? 66 : 45;
+    const _frameGap = _mvGap + _fxPenalty;
     if (ts - _lastFrameTs < _frameGap) return;
     // 動畫時鐘恆定 1x（正常速度）；只調幀率、不調速度 → 移動時是「低幀率正常動」而非慢動作。
     if (!_lastClockTs) _lastClockTs = ts;

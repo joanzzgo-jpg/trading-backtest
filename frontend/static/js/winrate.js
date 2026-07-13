@@ -1618,6 +1618,10 @@ async function _accelTick() {
   if (typeof replayActive !== "undefined" && replayActive) return;
   if (_wrInFlight) return;                                             // 使用者請求優先
   if (typeof _bgLoadInProgress !== "undefined" && _bgLoadInProgress) return;
+  // 互動讓路：平移/縮放/捲動中(或剛結束 3s 內)不預熱 —— 預熱會踢後端重算,
+  // 本機開發(前後端同一台)會跟瀏覽器搶 CPU、線上也搶使用者頻寬 → 等真的閒下來再暖。
+  const _n = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+  if (window._chartMoveTs && _n - window._chartMoveTs < 3000) return;
   const timeframe = (typeof currentTF !== "undefined" && currentTF) || "1d";
   const bufDec = ((_wrStopBuffer || 0) / 100).toFixed(4);
   for (const w of _accelCandidates()) {
