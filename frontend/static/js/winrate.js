@@ -243,7 +243,7 @@ async function _ensureBand80(d, cb) {
   try {
     const p = new URLSearchParams({ market, symbol, exchange, timeframe,
       stop_buffer_pct: bufDec.toFixed(4), band_ratio: "0.8" });
-    const res = await fetch("/api/crt_winrate?" + p, { signal: myCtrl.signal, cache: "no-store" });
+    const res = await fetch("/api/crt_winrate?" + p, { signal: myCtrl.signal, cache: "no-cache" });
     const v80 = await res.json();
     if (!res.ok) throw new Error(v80.detail || "failed");
     if (myCtrl !== _band80Ctrl) return;          // 已被新請求/切標的取代 → 丟棄
@@ -566,7 +566,7 @@ async function _fetchWinRateNow() {
   if (statusEl) statusEl.textContent = "";
   try {
     const p   = new URLSearchParams({ market, symbol, exchange, timeframe, stop_buffer_pct: bufDec.toFixed(4), vw: String(_vw), proto_min: String(_wrProtoMin), no_proto_ms: _wrNoProtoMs ? "1" : "0", no_proto_break: _wrNoProtoBreak ? "1" : "0" });
-    const res = await fetch("/api/crt_winrate?" + p, { signal: myCtrl.signal, cache: "no-store" });
+    const res = await fetch("/api/crt_winrate?" + p, { signal: myCtrl.signal, cache: "no-cache" });
     const d   = await res.json();
     if (!res.ok) throw new Error(d.detail || "failed");
     _wrCacheSet(cacheKey, d);   // 結果照常進快取，下次切回直接命中
@@ -1633,7 +1633,7 @@ async function _accelTick() {
       const p = new URLSearchParams({ market: mkt, symbol: w.symbol, exchange: exch, timeframe,
         stop_buffer_pct: bufDec, vw: "8000", proto_min: String(_wrProtoMin),
         no_proto_ms: _wrNoProtoMs ? "1" : "0", no_proto_break: _wrNoProtoBreak ? "1" : "0" });
-      const res = await fetch("/api/crt_winrate?" + p, { cache: "no-store" });
+      const res = await fetch("/api/crt_winrate?" + p, { cache: "no-cache" });
       try { if (res.body) res.body.cancel(); } catch (e) {}              // 只要後端算完，body 不用下載
     } catch (e) { /* 預熱失敗靜默（下輪 25 分後再試） */ }
     break;                                                               // 每輪只預熱 1 檔（溫和）

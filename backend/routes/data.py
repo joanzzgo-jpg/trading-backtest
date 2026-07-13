@@ -1,5 +1,5 @@
 """數據獲取 API 路由"""
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request, Response
 try:                                                    # 勝率大回應直送 orjson（見 _wr_resp）
     from fastapi.responses import ORJSONResponse as _ORJSONResp
     import orjson as _orjson_check                       # noqa: F401  確認套件真的在
@@ -1229,8 +1229,22 @@ _WR_SLIM_DROP = frozenset({"est_r", "est_r_b", "rr", "rr_b", "rr_real", "rr_b_re
 _SS_KEEP_KEYS = frozenset({"ss1", "ss2"})
 
 
+_GIT_REV = None
+def _git_rev():
+    """ETag 摻 git 版號：部署後(瘦身/序列化邏輯可能變)舊 ETag 全數失效，永不 304 到跨版本殘影。"""
+    global _GIT_REV
+    if _GIT_REV is None:
+        try:
+            import main as _m
+            _GIT_REV = str(getattr(_m, "_GIT_VER", "0"))
+        except Exception:
+            _GIT_REV = "0"
+    return _GIT_REV
+
+
 @router.get("/crt_winrate")
 def crt_winrate_api(
+    request: Request,
     market: str,
     symbol: str,
     timeframe: str = "1d",
@@ -1251,6 +1265,8 @@ def crt_winrate_api(
     （拿掉只後端用的 est/rr 欄位 + 省略 None 值），省 ~40% 傳輸量、加快手機端載入。
     band_ratio：上下軌目標比例（1.0=上下軌；0.8=8成軌，HUD 切到 8成軌時前端帶此參數另抓一份）。
     vw：FVG/策略標記的近段窗根數（前端往歷史滑時加大→補算舊區標記；勝率統計不受影響）。
+    ETag/304：結果帶內容指紋 _h(重算時算一次) → 同內容重看(同一根棒內切回標的、刷新)回 304
+    幾乎零傳輸；前端 fetch 需用 cache:"no-cache"(存快取+每次驗證)。無 _h(舊快取/降級)則照常整包回。
     ⚠ 回測/自動交易是 Python 直接呼叫 get_crt_winrate → 拿『完整』signals，不受此瘦身影響。"""
     wr = get_crt_winrate(market, symbol, timeframe, exchange, stop_buffer_pct,
                          solve, solve_target, api_key, api_secret, finmind_token,
@@ -1258,22 +1274,30 @@ def crt_winrate_api(
                          no_proto_ms=bool(no_proto_ms), no_proto_break=bool(no_proto_break))
     if solve or not isinstance(wr, dict):        # solve 模式非勝率結構 → 原樣回
         return wr
+    _h = wr.get("_h")
+    etag = f'W/"{_h}-{_git_rev()}"' if _h else None
+    if etag and request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers={"ETag": etag, "Cache-Control": "private, no-cache"})
     sigs = wr.get("signals")
     if not sigs:
-        return _wr_resp(wr)
+        return _wr_resp({k: v for k, v in wr.items() if k != "_h"}, etag)
     # S1~S12 已退役（全驗無 edge）→ 只回 SS 系列訊號（ss1/ss2）給前端；S1~S12 標記/HUD 不再出現。
     # fvg 為獨立 key，原樣保留。⚠ 回測走 Python 直呼 get_crt_winrate 拿完整 signals，不受此處影響。
     slim = [{k: v for k, v in s.items() if v is not None and k not in _WR_SLIM_DROP}
             for s in sigs if s.get("k") in _SS_KEEP_KEYS]
-    return _wr_resp({**wr, "signals": slim})
+    out = {k: v for k, v in wr.items() if k != "_h"}
+    out["signals"] = slim
+    return _wr_resp(out, etag)
 
 
-def _wr_resp(payload):
+def _wr_resp(payload, etag=None):
     """勝率大回應（1MB+）直接回 ORJSONResponse：跳過 FastAPI 的 jsonable_encoder 整棵樹走訪
     （這一步在快取命中路徑占大頭），序列化交給 orjson。缺 orjson 時原樣回 dict（走預設路徑）。
-    內容已在 get_crt_winrate 快取前經 _round_wr_floats 轉純原生型別 → orjson 可直接序列化。"""
+    內容已在 get_crt_winrate 快取前經 _round_wr_floats 轉純原生型別 → orjson 可直接序列化。
+    etag 有值時附 ETag + no-cache(=可存但每次驗證) → 讓瀏覽器下次帶 If-None-Match。"""
+    hdrs = {"ETag": etag, "Cache-Control": "private, no-cache"} if etag else None
     if _ORJSONResp is not None:
-        return _ORJSONResp(payload)
+        return _ORJSONResp(payload, headers=hdrs)
     return payload
 
 
@@ -1943,6 +1967,13 @@ def get_crt_winrate(
         except Exception:
             pass
         result = _round_wr_floats(result)          # 浮點 8 位有效數字瘦身(raw JSON 約省 2~3 成)，快取存瘦身版
+        # 內容指紋（ETag/304 用）：只在「重算寫入快取」時算一次(~數ms)，之後每次命中零成本。
+        # 存進快取/Redis 一起帶走；路由端(crt_winrate_api)用它比對 If-None-Match 回 304 省 200KB 傳輸。
+        try:
+            import orjson as _oj, hashlib as _hl
+            result["_h"] = _hl.md5(_oj.dumps(result)).hexdigest()[:16]
+        except Exception:
+            pass
         data_cache.set(cache_key, result)
         # Redis 共享快取寫入(多實例)：⚠ 降級來源(Bybit/Pionex,df 標 :deg)不寫 → 髒資料不跨實例傳播
         try:
