@@ -723,12 +723,48 @@ async def _fetch_cwa_pop(county: str):
         day = _earliest[1]
     if now is None and day is not None:                 # 當前時間落在資料起點前 → 退今日
         now = day
+    # 「今日」＝整天最高(2026-07-14 修)：CWA 36h 預報只含**未來**時段——早上的高 PoP 時段一過就
+    # 從回應消失 → 越晚 day 的取值範圍越縮，傍晚常變成 day==now(使用者回報「今日跟此刻一樣」)。
+    # 用「當日運行最大值」記住今天看過的最高 PoP(記憶體＋可選 Redis 跨實例/跨部署)，今日=歷史最高。
+    day = _pop_running_max(county, d0.isoformat(), day)
     if day is None:
         return None
     out = {"day": day, "now": now}
     if _fr is not None:
         out["from_hour"] = _fr[0].hour; out["from_pop"] = _fr[1]
     return out
+
+
+_POP_DAYMAX: dict = {}   # county → (date_iso, max_v)：今日 PoP 運行最大值(記憶體層)
+
+
+def _pop_running_max(county: str, d0_iso: str, day_v):
+    """回報「今日整天最高 PoP」：max(今天已見過的最高, 本次計算值)。跨日自動歸零(鍵含日期)。
+    Redis 有設就同步(跨實例/跨部署重啟不丟早上的高值)；沒 Redis 退記憶體(重啟前有效)。"""
+    try:
+        prev = None
+        m = _POP_DAYMAX.get(county)
+        if m and m[0] == d0_iso:
+            prev = m[1]
+        rkey = f"wx:popmax:{county}:{d0_iso}"
+        if prev is None:
+            from utils import redis_cache as _rc
+            r = _rc.get_json(rkey)
+            if isinstance(r, (int, float)):
+                prev = int(r)
+        best = day_v if prev is None else (prev if day_v is None else max(prev, day_v))
+        if best is not None and best != prev:
+            _POP_DAYMAX[county] = (d0_iso, best)
+            try:
+                from utils import redis_cache as _rc
+                _rc.set_json(rkey, best, 36 * 3600)
+            except Exception:
+                pass
+        elif best is not None:
+            _POP_DAYMAX[county] = (d0_iso, best)
+        return best
+    except Exception:
+        return day_v
 
 
 async def _fetch_jma_pop(lat: float, lon: float):
@@ -773,6 +809,8 @@ async def _fetch_jma_pop(lat: float, lon: float):
         now = parsed[0][1] if jst < parsed[0][0] else parsed[-1][1]
     if day is None and parsed:                              # 深夜/資料無今日時段 → 用最近時段當今日
         day = parsed[0][1]                                  # （與 CWA 同修正：別退回 Open-Meteo 給非整十值）
+    # 「今日」=整天最高：JMA pops 同樣只含未來時段(6h 粒度) → 套與 CWA 相同的當日運行最大值
+    day = _pop_running_max(f"jma:{code}", d0.isoformat(), day)
     if day is None:
         return None
     out = {"day": day, "now": now}
