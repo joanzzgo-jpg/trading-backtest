@@ -3531,11 +3531,21 @@
     const ang = (Math.atan2(dLon, dLat) * 180 / Math.PI + 360) % 360;
     return ['正北', '東北', '正東', '東南', '正南', '西南', '正西', '西北'][Math.round(ang / 45) % 8];
   }
+  // 兩點大圓距離(km)
+  function _kmBetween(aLat, aLon, bLat, bLon) {
+    const R = 6371, p = Math.PI / 180;
+    const dLat = (bLat - aLat) * p, dLon = (bLon - aLon) * p;
+    const s = Math.sin(dLat / 2) ** 2 + Math.cos(aLat * p) * Math.cos(bLat * p) * Math.sin(dLon / 2) ** 2;
+    return 2 * R * Math.asin(Math.min(1, Math.sqrt(s)));
+  }
+  const _TW_CENTER = [23.6, 121.0];          // 台灣中心(判「颱風離台灣多遠」)
+  const _TY_TW_MAX_KM = 1500;                // 離台灣 >此距離 → 太遠、不顯示(除非有台灣警報)
+  const _TY_TW_CLOSE_KM = 600;               // 離台灣 <此距離 → 一律顯示(即使在遠離)
 
   // 天氣卡用的颱風資訊 HTML（無颱風/不相關回空字串）。style=行內樣式（兩張卡各自帶）。
   function _tyCardHtml(style) {
     if (!_ty || !_ty._relevant) return '';
-    const t = (_ty.typhoons || [])[0];
+    const t = _ty._show || (_ty.typhoons || [])[0];   // 只顯示相關那顆(最近且接近)，非固定第0顆
     if (!t || !t.current) return '';
     const cur = t.current, fc = t.forecast || [], tw = _ty.tw_warning;
     const seg = ['🌀 颱風 ' + (t.nameEn || '') + (t.number ? ' ' + t.number + '號' : '')];
@@ -3563,9 +3573,22 @@
 
   function _tyApply() {
     if (_ty && _ty.active && (_ty.typhoons || []).length) {
-      const near = _ty.nearest_km;
-      // 只在區域相關時顯示（附近有颱風，避免歐美使用者被西太平洋颱風洗版）
-      _ty._relevant = (near != null && near < 4000) || (_ty.tw_warning && _ty.tw_warning.active);
+      const twWarn = !!(_ty.tw_warning && _ty.tw_warning.active);
+      // 逐顆算「離台灣多遠 + 是否接近」→ 只顯示相關那顆(最近的)：
+      //   相關＝ 有台灣警報 ‖ 離台灣<600km(很近一律顯示) ‖ (離台灣<1500km 且『正在接近』台灣)。
+      //   遠離中(預報點比現在更遠) 或 超過1500km → 視為遠離/無關，不顯示(避免西太平洋遠處颱風洗版)。
+      let best = null, bestKm = Infinity;
+      for (const t of (_ty.typhoons || [])) {
+        const c = t && t.current;
+        if (!c) continue;
+        const twKm = _kmBetween(_TW_CENTER[0], _TW_CENTER[1], c[0], c[1]);
+        const fc = (t.forecast || [])[0];
+        const approaching = fc ? (_kmBetween(_TW_CENTER[0], _TW_CENTER[1], fc.lat, fc.lon) < twKm) : true;  // 無預報→保守當接近
+        const relevant = twWarn || twKm < _TY_TW_CLOSE_KM || (twKm < _TY_TW_MAX_KM && approaching);
+        if (relevant && twKm < bestKm) { best = t; bestKm = twKm; }
+      }
+      _ty._show = best;
+      _ty._relevant = !!best;
     } else {
       _ty = null;
     }

@@ -1106,7 +1106,7 @@ async def weather(
 #   日本 → JMA AMeDAS 觀測網(precipitation10m/1h)
 #   其他 → Open-Meteo 網格 + 所在點 minutely_15 臨近預報
 CWA_RAIN_URL = "https://opendata.cwa.gov.tw/api/v1/rest/datastore/O-A0002-001"
-NEARBY_RADIUS_KM = 30.0
+NEARBY_RADIUS_KM = 20.0
 # ETA 可信視野：雨胞(尤其台灣午後對流)壽命約 30-60 分就生消/變形、風場也會變 →
 # 投射超過此值的 ETA 是假精準。使用者只想知道「半小時內會到」的雨 → 設 30 分，
 # 更久的只在 nearest 行淡標「往你移動」不掛時間。
