@@ -324,7 +324,21 @@ function _dimBigRange(markers) {
   });
 }
 let _lastMarkerWin = { cache: null, start: -1, end: -1 };   // 上次套用的視窗（同快取＋同邊界 → 整段跳過）
+// 全量重建合併：一次勝率回應會讓 ~13 個圖層 render 各呼叫一次 _applyMainMarkers() →
+//   同一輪 task 的多次全量重建塌成一次 microtask（concat+sort+setMarkers+止損映射+成交量重繪只跑 1 次）。
+//   平移的 windowOnly 路徑維持同步；快取先同步失效，期間若平移搶先會自己走全量、排程那次再覆蓋（等冪）。
+let _fullMarkerScheduled = false;
 function _applyMainMarkers(windowOnly) {
+  if (!windowOnly) {
+    _sortedMarkerCache = null;
+    if (_fullMarkerScheduled) return;
+    _fullMarkerScheduled = true;
+    queueMicrotask(() => { _fullMarkerScheduled = false; _applyMainMarkersNow(); });
+    return;
+  }
+  _applyMainMarkersNow(true);
+}
+function _applyMainMarkersNow(windowOnly) {
   if (!windowOnly || !_sortedMarkerCache) {
     _sortedMarkerCache = [
       ...(_wrSignalsHidden ? [] : lastWRSignalMarkers),
@@ -337,7 +351,9 @@ function _applyMainMarkers(windowOnly) {
       ...(window._coachOn ? lastCoachBOSMarkers : []),           // 教練步驟5(BOS)達成點箭頭(右上開關)
     ].sort((a, b) => a.time - b.time);
     // 標記(多空/破多空)變動 → 重畫成交量，讓有標記的棒顯化、其餘淡化（僅全量重建時，平移不觸發）
-    if (typeof renderVolume === "function" && typeof ohlcvData !== "undefined" && ohlcvData.length) renderVolume(ohlcvData);
+    // ⚠ 重播中不重畫：重播的成交量由 replay.js 管 slice/逐根 update，整列 ohlcvData 會把未來棒洩漏進圖
+    if (!(typeof replayActive !== "undefined" && replayActive)
+        && typeof renderVolume === "function" && typeof ohlcvData !== "undefined" && ohlcvData.length) renderVolume(ohlcvData);
   }
   const all = _sortedMarkerCache;
   const [ws, we] = _windowMarkers(all);
@@ -419,11 +435,14 @@ function renderVolume(data) {
   // 每次重新套用 scale 設定，避免切換標的或市場後比例跑掉
   mainChart.priceScale("volume").applyOptions({ scaleMargins:{ top:0.80, bottom:0 }, visible:false });
   mainChart.priceScale("right").applyOptions({ scaleMargins:{ top:0.05, bottom:0.22 } });
+  // 均量：rolling sum O(n)（原本每根 slice+reduce 是 O(n×period)＋n 個臨時陣列）
   const period = Math.max(1, S.volMaPeriod);
   const maData = [];
-  for (let i = period - 1; i < data.length; i++) {
-    const avg = data.slice(i - period + 1, i + 1).reduce((s,d) => s + (d.volume||0), 0) / period;
-    maData.push({ time:toTime(data[i].time), value:avg });
+  let _sum = 0;
+  for (let i = 0; i < data.length; i++) {
+    _sum += (data[i].volume || 0);
+    if (i >= period) _sum -= (data[i - period].volume || 0);
+    if (i >= period - 1) maData.push({ time: toTime(data[i].time), value: _sum / period });
   }
   volMaSeries.setData(maData);
 }
@@ -498,11 +517,15 @@ function _bgApplyChunk(data, nPrepended) {
   // applyOhlcvToSeries：直接更新 candleSeries，不呼叫 setMarkers（避免 marker 清空閃爍）
   applyOhlcvToSeries(data);
   // 輕量 volume 更新（跳過 priceScale.applyOptions 避免 layout thrashing）
+  // 淡化邏輯與 renderVolume 一致：否則補載每段 chunk 都把「標記棒顯化」洗回全亮、載完才被救回（閃爍）
   const _va = _volAlphaHex();
-  volSeries.setData(data.map(d => ({
-    time: toTime(d.time), value: d.volume || 0,
-    color: d.close >= d.open ? C.volUp + _va : C.volDown + _va,
-  })));
+  const _mkSet = _stratVolTimes();
+  const _dimOn = _mkSet.size > 0;
+  volSeries.setData(data.map(d => {
+    const t = toTime(d.time);
+    const base = d.close >= d.open ? C.volUp : C.volDown;
+    return { time: t, value: d.volume || 0, color: base + (_dimOn ? (_mkSet.has(t) ? "ff" : "1f") : _va) };
+  }));
 }
 
 // 指標 debounce：每段 chunk 後重設計時器，最後一段完成 800ms 後才計算
