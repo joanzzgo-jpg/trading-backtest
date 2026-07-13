@@ -107,13 +107,10 @@ def _build_fx_min():
 
 _build_fx_min()
 
-# orjson 序列化（比 stdlib json 快 5~10x；勝率 1MB+ 大回應最有感）。缺套件時退回預設 JSONResponse。
-try:
-    from fastapi.responses import ORJSONResponse as _DefaultResp
-    import orjson as _orjson_check  # noqa: F401  確認套件真的在（ORJSONResponse import 本身不驗）
-except Exception:
-    _DefaultResp = None
-app = FastAPI(title="回測系統", **({"default_response_class": _DefaultResp} if _DefaultResp else {}))
+# 序列化：FastAPI 0.139+ 內建 Pydantic 直出 JSON bytes(快)，不再需要 default_response_class=ORJSON
+# (會觸發 FastAPIDeprecationWarning)。勝率 1MB+ 大回應仍走 routes/data.py `_wr_resp` 直接回
+# ORJSONResponse「實例」跳過整棵編碼樹 —— 那條路不在棄用範圍、保留。
+app = FastAPI(title="回測系統")
 
 # ── GZip 壓縮（JS 166KB→35KB，CSS 38KB→8KB）──────────────────
 app.add_middleware(GZipMiddleware, minimum_size=500)
@@ -466,9 +463,11 @@ async def _warmup():
 
 @app.get("/")
 def index(request: Request):
+    # starlette 1.x 新簽名 (request, name, context)；舊 (name, {request,...}) 已移除
     return templates.TemplateResponse(
+        request,
         "index.html",
-        {"request": request, "ver": _asset_ver()},
+        {"ver": _asset_ver()},
         headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
     )
 
