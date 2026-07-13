@@ -38,13 +38,16 @@ function hexAlpha(hex, opacity) {
    ③ 觸控裝置「橫屏但矮」＝手機橫放(視窗高 ≤599) → 手機款。
    其餘 = 桌面款：iPad「橫放」(觸控橫屏且高 ≥600) → 桌面款；桌機寬視窗 → 桌面款。
    → iPad：直屏手機版、橫屏電腦版。CSS 端(style.css 各斷點)用完全相同的三段條件，兩邊必須一致。 */
+let _mqMobile = null;   // MediaQueryList 快取：matches 是即時值，建一次即可（isMobileUI 在滑鼠移動路徑被高頻呼叫）
 function isMobileUI() {
   try {
-    const _q = s => window.matchMedia(s).matches;
-    return !!(window.matchMedia && (
-      _q("(max-width: 1180px) and (pointer: fine)") ||
-      _q("(hover: none) and (pointer: coarse) and (orientation: portrait)") ||
-      _q("(hover: none) and (pointer: coarse) and (orientation: landscape) and (max-height: 599px)")));
+    if (!window.matchMedia) return window.innerWidth <= 1180;
+    if (!_mqMobile) _mqMobile = [
+      window.matchMedia("(max-width: 1180px) and (pointer: fine)"),
+      window.matchMedia("(hover: none) and (pointer: coarse) and (orientation: portrait)"),
+      window.matchMedia("(hover: none) and (pointer: coarse) and (orientation: landscape) and (max-height: 599px)"),
+    ];
+    return _mqMobile[0].matches || _mqMobile[1].matches || _mqMobile[2].matches;
   } catch (e) { return window.innerWidth <= 1180; }
 }
 /* iPad 直↔橫旋轉會跨越手機款/桌面款門檻 → 旋轉且模式翻轉時重載一次，讓整站佈局(手機/桌面面板)套對。
@@ -256,12 +259,23 @@ function _setLegText(id, text) {
   if (val && val.textContent !== text) val.textContent = text;   // 值未變不寫，免 repaint
 }
 
-function fmt(v)    { return v!=null ? Number(v).toLocaleString(undefined,{maximumFractionDigits:4}) : "—"; }
+/* 手寫千分位（取代 toLocaleString）：十字線/圖例每次滑鼠移動都在格式化，
+   toLocaleString 每次呼叫貴 ~10 倍（要查 locale 表）；輸出與原本相同（含負號/小數）。 */
+function _thousands(s) {
+  const i = s.indexOf(".");
+  let head = i < 0 ? s : s.slice(0, i);
+  const tail = i < 0 ? "" : s.slice(i);
+  let sign = "";
+  if (head.charCodeAt(0) === 45) { sign = "-"; head = head.slice(1); }
+  if (head.length > 3) head = head.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return sign + head + tail;
+}
+function fmt(v)    { const n = Number(v); return (v != null && isFinite(n)) ? _thousands(String(+n.toFixed(4))) : "—"; }
 function n2(v)     { return v!=null ? Number(v).toFixed(2) : "—"; }
 function _fmtPx(p) {
   if (!isFinite(p)) return "—";
   const a = Math.abs(p);
-  if (a >= 10000) return p.toLocaleString(undefined, { maximumFractionDigits: 1 });
+  if (a >= 10000) return _thousands(String(+p.toFixed(1)));
   if (a >= 100)   return p.toFixed(2);
   if (a >= 1)     return p.toFixed(4);
   return p.toFixed(6);
