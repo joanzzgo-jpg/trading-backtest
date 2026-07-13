@@ -87,4 +87,6 @@ def get_lunar(date: str = ""):
             _cache[key] = _build(d)
         except Exception as e:
             return {"ok": False, "error": str(e)}
+        while len(_cache) > 8:                     # 只留最近幾天(長駐服務下不無限累積)
+            _cache.pop(next(iter(_cache)))
     return {"ok": True, **_cache[key]}

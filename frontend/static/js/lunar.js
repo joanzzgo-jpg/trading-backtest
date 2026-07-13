@@ -64,8 +64,20 @@
     meta.push("沖煞：" + d.clash);
     meta.push("星座：" + d.constellation);
     q(".lunar-meta").innerHTML = meta.map(x => '<span class="lunar-chip">' + x + "</span>").join("");
-    q(".lunar-yi-txt").textContent = (d.good || []).join("、") || "—";
-    q(".lunar-ji-txt").textContent = (d.bad || []).join("、") || "—";
+    // 宜/忌收斂：凶日「忌」可達 50 項,全列變文字牆 → 先列 12 項+「…等N項(點開)」,點一下展開全文
+    const _clamp = (el, items) => {
+      const arr = items || [];
+      if (!arr.length) { el.textContent = "—"; return; }
+      if (arr.length <= 12) { el.textContent = arr.join("、"); return; }
+      const short = arr.slice(0, 12).join("、") + "…等 " + arr.length + " 項";
+      let full = false;
+      el.textContent = short;
+      el.style.cursor = "pointer";
+      el.title = "點一下展開全部";
+      el.onclick = () => { full = !full; el.textContent = full ? arr.join("、") : short; };
+    };
+    _clamp(q(".lunar-yi-txt"), d.good);
+    _clamp(q(".lunar-ji-txt"), d.bad);
     // 十二時辰吉凶 + 標出當前時辰
     const hrs = d.hours || [];
     const h = new Date(Date.now() + 8 * 3600 * 1000).getUTCHours();   // 台灣小時
