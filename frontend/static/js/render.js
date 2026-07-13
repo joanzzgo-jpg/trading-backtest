@@ -336,6 +336,8 @@ function _applyMainMarkers(windowOnly) {
       ...(window._coachOn ? lastSMCSweepMarkers : []),           // SMC 掃頂/掃底(階段1:SR+SMC 教練疊加層,右上開關)
       ...(window._coachOn ? lastCoachBOSMarkers : []),           // 教練步驟5(BOS)達成點箭頭(右上開關)
     ].sort((a, b) => a.time - b.time);
+    // 標記(多空/破多空)變動 → 重畫成交量，讓有標記的棒顯化、其餘淡化（僅全量重建時，平移不觸發）
+    if (typeof renderVolume === "function" && typeof ohlcvData !== "undefined" && ohlcvData.length) renderVolume(ohlcvData);
   }
   const all = _sortedMarkerCache;
   const [ws, we] = _windowMarkers(all);
@@ -394,12 +396,26 @@ function _volAlphaHex() {
   return Math.round((S.volAlpha ?? 0.67) * 255).toString(16).padStart(2, "0");
 }
 
+// 有策略標記(多/空・破多/破空)的那些棒時間集合 → 成交量顯化用
+function _stratVolTimes() {
+  const s = new Set();
+  const add = (arr) => { if (arr) for (const m of arr) s.add(m.time); };
+  if (typeof lastFVGMSMarkers    !== "undefined") add(lastFVGMSMarkers);
+  if (typeof lastFVGBreakMarkers !== "undefined") add(lastFVGBreakMarkers);
+  return s;
+}
+
 function renderVolume(data) {
   const _va = _volAlphaHex();
-  volSeries.setData(data.map(d => ({
-    time:toTime(d.time), value:d.volume||0,
-    color: d.close >= d.open ? C.volUp + _va : C.volDown + _va,
-  })));
+  // 有多空／破多空標記的棒 → 全亮(顯化)；其餘淡化。無任何標記時(集合空)照常顯示。
+  const markSet = _stratVolTimes();
+  const dimOn = markSet.size > 0;
+  volSeries.setData(data.map(d => {
+    const t = toTime(d.time);
+    const base = d.close >= d.open ? C.volUp : C.volDown;
+    const a = dimOn ? (markSet.has(t) ? "ff" : "1f") : _va;
+    return { time:t, value:d.volume||0, color: base + a };
+  }));
   // 每次重新套用 scale 設定，避免切換標的或市場後比例跑掉
   mainChart.priceScale("volume").applyOptions({ scaleMargins:{ top:0.80, bottom:0 }, visible:false });
   mainChart.priceScale("right").applyOptions({ scaleMargins:{ top:0.05, bottom:0.22 } });
