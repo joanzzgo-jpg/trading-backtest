@@ -12,7 +12,9 @@ function makeBaseOpts(scaleMargins = null, showTime = false) {
   const _lbg  = _perf ? "#F5F5F5" : "#2a2e39";
   // 圖表背景維持透明，由 body 的純白底襯出（讓浮水印也能透過 -1 z-index 顯現）
   const opts = {
-    layout:    { background:{ color: "rgba(0,0,0,0)" }, textColor: _txt },
+    // attributionLogo:false = 關掉 LWC 4.2 起預設顯示的左下角 TradingView logo；
+    // 授權要求的出處署名改放封面頁角落（index.html .landing-credit），合規且不擋圖
+    layout:    { background:{ color: "rgba(0,0,0,0)" }, textColor: _txt, attributionLogo: false },
     grid:      { vertLines:{ color: _grd }, horzLines:{ color: _grd } },
     crosshair: {
       mode: LightweightCharts.CrosshairMode.Normal,
