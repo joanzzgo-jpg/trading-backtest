@@ -3096,10 +3096,13 @@
     if (!el) {
       el = document.createElement('div'); el.id = '_wxCard';
       const bs = window._bearCurrentState || 'hidden';
-      const initB = bs==='full'?'5px':'-300px';
+      // 滑進滑出動 transform 不動 bottom：這卡有 backdrop-filter 毛玻璃，動 bottom 每幀重排+重算模糊會頓；
+      // translateY(305px)＝原 bottom:-300px 的等價位置(卡底邊在視窗外 300px)。
+      const initT = bs==='full'?'translateY(0)':'translateY(305px)';
       el.style.cssText =
-        'position:fixed;bottom:'+initB+';right:175px;z-index:9989;'+
-        'transition:bottom 0.45s cubic-bezier(0.34,1.56,0.64,1);'+
+        'position:fixed;bottom:5px;right:175px;z-index:9989;'+
+        'transform:'+initT+';will-change:transform;'+
+        'transition:transform 0.45s cubic-bezier(0.34,1.56,0.64,1);'+
         'background:rgba(10,12,20,.72);backdrop-filter:blur(10px);'+
         'border:1px solid rgba(255,255,255,.12);border-radius:10px;'+
         'padding:7px 12px;color:#dde2ee;font-size:11.5px;line-height:1.72;'+

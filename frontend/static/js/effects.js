@@ -375,7 +375,8 @@
     window._bearCurrentState = state;
     const el = document.getElementById('_wxCard');
     if (!el) return;
-    el.style.bottom = state==='full'?'5px':'-300px';
+    // 動 transform 不動 bottom(毛玻璃卡每幀重排+重算模糊會頓)；與 weather.js 建卡時的檔位一致
+    el.style.transform = state==='full'?'translateY(0)':'translateY(305px)';
   };
 
   const LINES = [

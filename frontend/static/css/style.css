@@ -3093,22 +3093,27 @@ html.perf-mode .time-axis-year {
   width: 140px;
   z-index: 9990;
   cursor: pointer;
-  transition: bottom 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
+  /* 跳出/縮回動 transform 不動 bottom：動 bottom 每幀重排+重繪整隻熊(含 drop-shadow)，
+     頁面忙碌時跳出來一頓一頓；translateY 走 GPU 合成。位移量與原 bottom 檔位等價。 */
+  transform: translateY(0);
+  transition: transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
+  will-change: transform;
   filter: drop-shadow(0 6px 14px rgba(0,0,0,0.4));
   user-select: none;
 }
 .peek-bear.peeking {
-  bottom: -80px;
+  transform: translateY(-120px);   /* = bottom:-80px */
 }
 .peek-bear.peek-visit,
 .peek-bear.peek-full {
-  bottom: 5px;
+  transform: translateY(-205px);   /* = bottom:5px */
 }
 .peek-bear img {
   width: 100%;
   display: block;
 }
-.peek-bear.peeking.wave {
+/* wave 套在 img 上：外層 transform 已用於定位，動畫放外層會蓋掉位移讓熊掉回去 */
+.peek-bear.peeking.wave img {
   animation: bear-wave 0.5s ease;
 }
 @keyframes bear-wave {
