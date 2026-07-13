@@ -506,6 +506,7 @@ function _wrVwFor(loaded) {
 window._wrCurVw = 0;   // 目前這份勝率結果算標記用的 vw；背景載入更深時比對是否要升級重取
 
 let _wrFetchCtrl = null;   // 切標的時取消舊勝率請求
+let _wrInFlight = false;   // 勝率請求飛行中(加速器預熱讓路用;完成/失敗於 finally 清除)
 async function _fetchWinRateNow() {
   const market    = document.getElementById("marketSelect")?.value || "crypto";
   const symbol    = document.getElementById("symbolInput")?.value?.trim() || "";
@@ -550,6 +551,7 @@ async function _fetchWinRateNow() {
   // 取消上次未完成的勝率請求
   if (_wrFetchCtrl) _wrFetchCtrl.abort();
   _wrFetchCtrl = new AbortController();
+  _wrInFlight = true;                    // 加速器讓路用(fetch 完成/失敗都會在 finally 清)
   const myCtrl = _wrFetchCtrl;
   const timeoutId = setTimeout(() => myCtrl.abort(), 45000);   // 勝率計算較重，45s 上限
   // 進入「計算中」狀態：舊數據變暗、進度條動畫 0→95%，避免使用者誤判前一個 symbol 的數據
@@ -604,6 +606,7 @@ async function _fetchWinRateNow() {
     }
   } finally {
     clearTimeout(timeoutId);
+    if (myCtrl === _wrFetchCtrl) _wrInFlight = false;   // 只有最新請求結束才視為「沒請求在飛」
     if (myCtrl === _wrFetchCtrl && bar) bar.classList.remove("calculating");
   }
 }
@@ -1585,3 +1588,63 @@ function _renderWrTop3() {
 /* ══════════════════════════════════════════
    資料載入
 ══════════════════════════════════════════ */
+
+/* ══════════════════════════════════════════
+   加速器：閒置預載（伺服器快取預熱）
+   切到「沒算過」的標的最慢要等後端抓K線+算勝率 5~8s → 瀏覽器閒置時把
+   自選清單的標的先悄悄打一次 /api/crt_winrate 讓後端算好+快取。
+   ・純預熱：收到回應頭就取消 body（省手機流量），不塞前端 _wrCache（勝率物件大，
+     _WR_CACHE_MAX=5 會被擠爆）→ 切過去時走網路但秒回（伺服器快取命中 ~0.1s）。
+   ・溫和節流：每 8s 最多預熱 1 檔、同(標的×時框×參數) 25 分內不重打、
+     使用者自己的勝率請求在飛/背景補載中/重播中/分頁在背景 → 本輪跳過。
+   ・參數對齊：新標的初載必為 vw=8000（_wrVwFor(初始棒數)），預熱用同值 → 後端快取鍵一致。
+══════════════════════════════════════════ */
+let _accelOn = (() => { try { return localStorage.getItem("accelOn") !== "0"; } catch (e) { return true; } })();
+const _accelDone = {};                 // 預熱鍵 → ts
+function _accelCandidates() {
+  let wl = [];
+  try { wl = JSON.parse(localStorage.getItem("watchlist") || "[]"); } catch (e) {}
+  const curMkt = document.getElementById("marketSelect")?.value || "crypto";
+  const curSym = (document.getElementById("symbolInput")?.value || "").trim();
+  const same = [], other = [];
+  for (const w of wl) {
+    if (!w || !w.symbol || w.symbol === curSym) continue;
+    ((w.market || "crypto") === curMkt ? same : other).push(w);
+  }
+  return same.concat(other).slice(0, 8);   // 同市場優先、最多 8 檔
+}
+async function _accelTick() {
+  if (!_accelOn || document.hidden) return;
+  if (typeof replayActive !== "undefined" && replayActive) return;
+  if (_wrInFlight) return;                                             // 使用者請求優先
+  if (typeof _bgLoadInProgress !== "undefined" && _bgLoadInProgress) return;
+  const timeframe = (typeof currentTF !== "undefined" && currentTF) || "1d";
+  const bufDec = ((_wrStopBuffer || 0) / 100).toFixed(4);
+  for (const w of _accelCandidates()) {
+    const mkt = w.market || "crypto", exch = w.exchange || "pionex";
+    const key = `${mkt}:${w.symbol}:${exch}:${timeframe}:${bufDec}:${_wrProtoMin}:${_wrNoProtoMs ? 1 : 0}:${_wrNoProtoBreak ? 1 : 0}`;
+    if (Date.now() - (_accelDone[key] || 0) < 25 * 60 * 1000) continue;   // 後端快取~30分 → 25分內不重打
+    _accelDone[key] = Date.now();
+    try {
+      const p = new URLSearchParams({ market: mkt, symbol: w.symbol, exchange: exch, timeframe,
+        stop_buffer_pct: bufDec, vw: "8000", proto_min: String(_wrProtoMin),
+        no_proto_ms: _wrNoProtoMs ? "1" : "0", no_proto_break: _wrNoProtoBreak ? "1" : "0" });
+      const res = await fetch("/api/crt_winrate?" + p, { cache: "no-store" });
+      try { if (res.body) res.body.cancel(); } catch (e) {}              // 只要後端算完，body 不用下載
+    } catch (e) { /* 預熱失敗靜默（下輪 25 分後再試） */ }
+    break;                                                               // 每輪只預熱 1 檔（溫和）
+  }
+}
+window.toggleAccel = function (on) {
+  _accelOn = (on === undefined) ? !_accelOn : !!on;
+  try { localStorage.setItem("accelOn", _accelOn ? "1" : "0"); } catch (e) {}
+  const st = document.getElementById("mSetAccelState");
+  if (st) st.textContent = _accelOn ? "開啟" : "關閉";
+  const row = document.getElementById("mSetAccel");
+  if (row) row.classList.toggle("m-set-on", _accelOn);
+  return _accelOn;
+};
+setTimeout(() => {
+  window.toggleAccel(_accelOn);                    // 同步設定列初始標示
+  setInterval(_accelTick, 8000);                   // 進場穩定後才開始，避免搶首屏
+}, 15000);
