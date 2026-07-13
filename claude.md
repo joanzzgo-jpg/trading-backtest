@@ -16,6 +16,12 @@ cd /Users/noah/trading && ./start.sh
 cd /Users/noah/trading/backend && uvicorn main:app --reload
 ```
 
+### 推送前冒煙測試（守門員）
+```bash
+node scripts/smoke_e2e.js   # 需本機服務跑著；於裝過 puppeteer-core 的目錄執行
+```
+進場→K棒/標記→真拖曳平移(驗範圍有變)→縮放→切4H→零JS錯誤。**改前端/圖表相關程式後、推送前必跑**。⚠ headless 進場唯一正解=`window._landingEnter()`（點城門按鈕會被登入鎖擋、互動全打在城門頁上＝假測試）。
+
 ## 📚 詳細文件（做相關工作時再讀，避免每輪載入吃 context）
 > 架構細節已從本檔拆到 `docs/`，需要時用下方路徑讀取對應檔案即可。
 - **後端**：環境變數、資料夾結構、資料源、即時行情疊加（台股分鐘K）、天氣資料源、背景載入策略、Pionex 限流、已知問題 → [docs/backend.md](docs/backend.md)

@@ -411,7 +411,10 @@ def _winrate_warm_worker():
                     if _t.time() < getattr(_c, "_BINANCE_COOLDOWN_UNTIL", 0):
                         _t.sleep(_GAP); continue           # Binance 冷卻中 → 這次跳過、仍慢慢等
                     try:
-                        get_crt_winrate("crypto", sym, tf, "binance")   # 冷則暖、熱則秒回
+                        # ⚠ 參數必須與前端首次請求完全一致才會命中同一 cache key：
+                        #   exchange="pionex"(exchangeSelect 唯一選項)、vw=8000(_wrVwFor 初載階梯)。
+                        #   2026-07-14 修正：先前用 "binance"+無 vw → key 對不上、白暖一場。
+                        get_crt_winrate("crypto", sym, tf, "pionex", vw=8000)   # 冷則暖、熱則秒回
                     except Exception:
                         pass
                     _t.sleep(_GAP)                          # 慢慢來、讓路給請求(每 90s 才一次)
