@@ -176,6 +176,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (t === "signals" && window._ntfLoadFeed) window._ntfLoadFeed();
       if (t !== "signals" && window._ntfStopFeedPoll) window._ntfStopFeedPoll();
       if (typeof resizeAll === "function") setTimeout(resizeAll, 80);
+      try { localStorage.setItem("mLastTab", t); } catch (e) {}   // 記住目前分頁 → 刷新/重開留在原地
     };
     bar.querySelectorAll(".m-tab").forEach(b => b.addEventListener("click", () => {
       setTab(b.dataset.mtab);
@@ -185,9 +186,12 @@ document.addEventListener("DOMContentLoaded", async () => {
     }));
     // 暴露給其他模組：在自選分頁點標的後切回圖表分頁（ticker.js 用）
     window._mSetTab = setTab;
-    // 初始分頁：?mtab= 可指定（方便測試），預設勝率（圖表已併入勝率）
+    // 初始分頁：?mtab= 可指定（方便測試）＞ 上次停留的分頁(mLastTab，刷新/重開留在原地) ＞ 預設勝率
+    const _VALID_TABS = ["chart", "wr", "watch", "signals", "settings", "trade"];
     const _mt = new URLSearchParams(location.search).get("mtab");
-    setTab(["chart", "wr", "watch", "signals", "settings", "trade"].includes(_mt) ? _mt : "wr");
+    let _init = _VALID_TABS.includes(_mt) ? _mt : null;
+    if (!_init) { try { _init = localStorage.getItem("mLastTab"); } catch (e) {} }
+    setTab(_VALID_TABS.includes(_init) ? _init : "wr");
   })();
 
   // 手機版：整體頁面下拉刷新（pull-to-refresh）。body overflow:hidden、各分頁滿版內層捲動 →
