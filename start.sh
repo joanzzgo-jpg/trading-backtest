@@ -1,11 +1,20 @@
 #!/bin/bash
 cd "$(dirname "$0")"
 
+# 優先用 3.12 venv（與 Railway .python-version 鎖同版）；沒有就退回系統 python3
+PY="python3"
+UVICORN="uvicorn"
+if [ -x ".venv312/bin/python" ]; then
+  PY="$PWD/.venv312/bin/python"
+  UVICORN="$PWD/.venv312/bin/uvicorn"
+  echo "🐍 使用 .venv312 (Python 3.12)"
+fi
+
 echo "📦 安裝依賴..."
-pip install -r requirements.txt -q
+"$PY" -m pip install -r requirements.txt -q
 
 echo "🔧 打包 JS..."
-python3 - <<'PYEOF'
+"$PY" - <<'PYEOF'
 import sys
 from pathlib import Path
 
@@ -33,4 +42,4 @@ print("  ✓ app.bundle.js 完成")
 PYEOF
 
 echo "🚀 啟動回測系統..."
-cd backend && uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+cd backend && "$UVICORN" main:app --host 0.0.0.0 --port 8000 --reload
