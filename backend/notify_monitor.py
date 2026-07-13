@@ -12,7 +12,7 @@ import time
 import math
 import threading
 
-CHECK_INTERVAL = 60          # 每 60s 醒來一次
+CHECK_INTERVAL = 60          # 名目節奏 60s(實際喚醒對齊「整分+3s」,見 run_monitor_loop 迴圈尾)
 _LAST_DIAG = 0.0             # 早期診斷節流
 MONITOR_BARS   = 320         # 短窗抓多少根（足夠指標 lookback + 最近棒）
 FRESH_BARS     = 2           # 只推最近 2 根收盤棒上的訊號
@@ -124,7 +124,7 @@ def _build_payload(symbol, market, exchange, tf, k, d, sig, event="entry"):
     }
 
 
-def _process_combo(market, exchange, symbol, tf, subs_here, now):
+def _process_combo(market, exchange, symbol, tf, subs_here, now, df=None):
     from routes.data import fetch_crt_df
     from utils.data import enrich_df
     from utils.crt import _calc_crt_winrate
@@ -133,7 +133,8 @@ def _process_combo(market, exchange, symbol, tf, subs_here, now):
     iv = _interval_sec(tf)
     if not iv:
         return
-    df = fetch_crt_df(market, symbol, tf, _monitor_days(tf), exchange)
+    if df is None:                       # _tick 已平行預抓時直接帶入；單獨呼叫則自抓
+        df = fetch_crt_df(market, symbol, tf, _monitor_days(tf), exchange)
     if df is None or len(df) < 50:
         return
     df = enrich_df(df)
@@ -442,9 +443,26 @@ def _tick(last_seen: dict):
     except Exception:
         pass
 
+    # 資料預抓平行化(2026-07-13)：K 棒抓取(每 combo 一次網路請求 0.3~1s)是掃描耗時大頭,
+    # 序列抓 20~40 個標的會讓排後面的推播/自動進場晚幾十秒。改小池(4)平行預抓 →
+    # 總抓取時間 ≈ 最慢一支;下單/推播的 _process_combo 仍嚴格序列(順序/去重/風控行為不變)。
+    # 4 workers × klines(權重~1-5/支) 遠低於教練暖掃基載,不動 418 熔斷風險。
+    _dfs = {}
+    if len(combos) > 1:
+        from concurrent.futures import ThreadPoolExecutor
+        from routes.data import fetch_crt_df
+
+        def _prefetch(key):
+            _m, _e, _s, _t = key
+            try:
+                _dfs[key] = fetch_crt_df(_m, _s, _t, _monitor_days(_t), _e)
+            except Exception:
+                _dfs[key] = None            # 預抓失敗 → _process_combo 內自抓再試一次
+        with ThreadPoolExecutor(max_workers=4) as _ex:
+            list(_ex.map(_prefetch, list(combos.keys())))
     for (mkt, exch, sym, tf), subs_here in combos.items():
         try:
-            _process_combo(mkt, exch, sym, tf, subs_here, now)
+            _process_combo(mkt, exch, sym, tf, subs_here, now, df=_dfs.get((mkt, exch, sym, tf)))
         except Exception as e:
             print(f"  ⚠ 訊號監控 {mkt}:{exch}:{sym}:{tf} 失敗：{e}")
 
@@ -669,7 +687,11 @@ def run_monitor_loop():
                 _coach_scan_push()
             except Exception as e:
                 print(f"  ⚠ 教練掃描推播失敗：{e}")
-        time.sleep(CHECK_INTERVAL)
+        # 喚醒對齊「整分 +3s」(2026-07-13)：K 棒都在整分收盤,原本固定 sleep 60s 相位隨機 →
+        # 最壞要等 ~59s 才開掃,推播/自動進場整整晚一分鐘。對齊後每輪都在收盤後 ~3-8s 開掃。
+        # 迴圈本體若吃超過一分鐘則落到下一個 :03,行為不變只是慢一輪(與原本相同)。
+        _d = 60.0 - (time.time() % 60.0) + 3.0
+        time.sleep(_d if _d <= 63.0 else _d - 60.0)
 
 
 def start():
