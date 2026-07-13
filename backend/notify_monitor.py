@@ -13,6 +13,7 @@ import math
 import threading
 
 CHECK_INTERVAL = 60          # 名目節奏 60s(實際喚醒對齊「整分+3s」,見 run_monitor_loop 迴圈尾)
+_lease = None                # 單跑者租約(run_monitor_loop 內初始化;/_diag 讀 held 顯示角色)
 _LAST_DIAG = 0.0             # 早期診斷節流
 MONITOR_BARS   = 320         # 短窗抓多少根（足夠指標 lookback + 最近棒）
 FRESH_BARS     = 2           # 只推最近 2 根收盤棒上的訊號
@@ -627,13 +628,26 @@ def _coach_scan_push():
 
 def run_monitor_loop():
     """背景執行緒入口（daemon）。"""
+    from utils.singleton_lease import SingletonLease
+    global _lease
+    _lease = SingletonLease("notify_monitor")   # 多 worker/多實例下全局只有一個跑者(自動下單/推播不可重複)
     last_seen = {}
     last_status = 0.0
     last_coach = 0.0
     last_coach_warm = 0.0   # 常駐暖掃(教練前60)節拍
+    _was_leader = None
     # 啟動後稍等，讓 app 完成預熱
     time.sleep(20)
     while True:
+        # 單跑者租約：沒搶到＝standby(空轉等下一輪,跑者掛掉會自動接手)。本機無 DATABASE_URL 恆為跑者。
+        _is_leader = _lease.ensure()
+        if _is_leader is not _was_leader:
+            print(f"  📡 monitor 角色: {'跑者(leader)' if _is_leader else 'standby'}")
+            _was_leader = _is_leader
+        if not _is_leader:
+            _d = 60.0 - (time.time() % 60.0) + 3.0
+            time.sleep(_d if _d <= 63.0 else _d - 60.0)
+            continue
         try:
             _tick(last_seen)
         except Exception as e:

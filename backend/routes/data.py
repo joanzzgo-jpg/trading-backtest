@@ -172,9 +172,17 @@ def diag(key: str = ""):
     from data.twelvedata import _keys as _td_keys
     names = sorted(os.environ.keys())
     import sys as _sys
+    from utils import redis_cache as _rcache
+    try:
+        import notify_monitor as _nm
+        _leader = bool(_nm._lease and _nm._lease.held) if _nm._lease else None
+    except Exception:
+        _leader = None
     return {
         "python": _sys.version.split()[0],                 # 執行中 Python 版本（本機/Railway 一致性檢查）
         "orjson": _ORJSONResp is not None,                 # orjson 序列化是否生效
+        "redis": _rcache.enabled(),                        # Redis 共享快取(REDIS_URL)是否啟用
+        "monitor_leader": _leader,                         # 本 worker 是否為 monitor 單跑者(多實例診斷)
         "fugle_keys": len(_fugle_keys()),                  # 台股：Fugle 金鑰把數（0 = 沒設對）
         "twelvedata_keys": len(_td_keys()),                # 美股：Twelve Data 金鑰把數
         "fugle_like_var_names": [k for k in names if "fug" in k.lower()],
@@ -1797,6 +1805,18 @@ def get_crt_winrate(
                 if not with_bars:
                     return cached
                 _wr_cached = cached   # with_bars：沿用快取結果，但仍往下載 df 取 K 棒陣列
+        if _wr_cached is None and not with_bars:
+            # Redis 共享快取(多實例,REDIS_URL 未設=no-op)：別的實例算過就直接拿(~10-20ms vs 重算 5-8s)。
+            # 與記憶體路徑同 bar-aware 語義：crypto 存入時的最新棒 != 當前棒 → 視為過期不採用。
+            from utils import redis_cache as _rcache
+            _rhit = _rcache.get_json("wr:" + cache_key)
+            if _rhit and isinstance(_rhit, dict) and "result" in _rhit:
+                if market != "crypto" or _bar_now is None or _rhit.get("bar") == _bar_now:
+                    _res = _rhit["result"]
+                    data_cache.set(cache_key, _res)          # 回填本實例記憶體
+                    if _bar_now is not None:
+                        data_cache.set(bar_key, _bar_now)
+                    return _res
 
     MIN_CASES = 40   # 每個訊號（S1~S7 × 空/多）最少採樣數；不足會自動往前加倍天數
     # 各時間框架：初始天數 / 最大天數
@@ -1924,6 +1944,13 @@ def get_crt_winrate(
             pass
         result = _round_wr_floats(result)          # 浮點 8 位有效數字瘦身(raw JSON 約省 2~3 成)，快取存瘦身版
         data_cache.set(cache_key, result)
+        # Redis 共享快取寫入(多實例)：⚠ 降級來源(Bybit/Pionex,df 標 :deg)不寫 → 髒資料不跨實例傳播
+        try:
+            from utils import redis_cache as _rcache
+            if _rcache.enabled() and (market != "crypto" or not data_cache.get(_deg_key, ttl=_df_ttl)):
+                _rcache.set_json("wr:" + cache_key, {"bar": _bar_now, "result": result}, ttl=_WR_CACHE_TTL)
+        except Exception:
+            pass
         if _bar_now is not None:
             data_cache.set(bar_key, _bar_now)   # 標記此結果對應的最新棒 → bar-aware 新鮮度判定用
     if with_bars:
