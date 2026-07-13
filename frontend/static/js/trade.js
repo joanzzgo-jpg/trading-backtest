@@ -60,6 +60,7 @@ function _trdFmt(n, dp) {
 
 // ── 資料載入 ──────────────────────────────────────────────────
 async function _trdRefresh() {
+  if (document.hidden) return;   // 背景分頁/鎖屏不輪詢(省電+省API);回前景下一輪自動恢復
   if (_TRD.busy) return;
   _TRD.busy = true;
   try {

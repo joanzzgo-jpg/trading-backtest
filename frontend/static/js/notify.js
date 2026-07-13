@@ -677,6 +677,7 @@ function _ntfMergeFeed(latest) {
 }
 
 async function _ntfBgPoll() {
+  if (document.hidden) return;   // 背景分頁不輪詢(回前景下一輪補上;重要訊號另有 Web Push 不受影響)
   _ntfFeed.items = _ntfMergeFeed(await _ntfFetchFeed());
   if (document.body.classList.contains("m-tab-signals")) {
     _ntfRenderFeed();
@@ -787,6 +788,7 @@ window._ntfLoadFeed = async function () {
   _ntfUpdateBadge();
   clearInterval(_ntfFeed.pollTimer);
   _ntfFeed.pollTimer = setInterval(async () => {
+    if (document.hidden) return;   // 背景分頁不輪詢(省電)
     _ntfFeed.items = _ntfMergeFeed(await _ntfFetchFeed());   // 輪詢：合併新訊息、保留往前載入的更早筆
     _ntfRefreshToday();
     _ntfRenderFeed();

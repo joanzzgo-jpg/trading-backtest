@@ -1240,7 +1240,7 @@ window._updateCoachPanel = _updateCoachPanel;
 // 教練面板定時刷新（15M 新棒收盤後狀態會變）：開啟時每 20s 抓一次。
 if (typeof window !== "undefined" && !window._coachPollStarted) {
   window._coachPollStarted = true;
-  setInterval(() => { if (window._coachOn) _fetchCoachData(false); }, 20000);
+  setInterval(() => { if (window._coachOn && !document.hidden) _fetchCoachData(false); }, 20000);
 }
 
 function _renderWinRate(d) {

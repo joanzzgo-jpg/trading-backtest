@@ -534,6 +534,7 @@
   });
   /* 對齊時鐘整 10 分刻度（9:00 / 9:10 / 9:20…）冒出全身播天氣預報 */
   function _doForecastVisit() {
+    if (document.hidden) return;                       // 背景分頁不拜訪(沒人在看,省電)
     if (!bear.classList.contains("peeking")) return;   // 使用者正在互動(full)→ 這次跳過、不打斷
     bear.classList.add("peek-visit");
     window._syncWeatherCard('full');
