@@ -118,9 +118,11 @@ app.add_middleware(GZipMiddleware, minimum_size=500)
 # ── CSP 內容安全政策字串（CSP_OFF=1 → 停用；緊急關閉用）──────────────────
 _CSP = "" if (os.getenv("CSP_OFF") or "").strip().lower() in ("1", "true", "on", "yes") else (
     "default-src 'self'; "
-    "script-src 'self' 'unsafe-inline' https://unpkg.com; "
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-    "font-src 'self' https://fonts.gstatic.com data:; "
+    # 2026-07-13 CDN 白名單全移除(unpkg/googleapis/gstatic)：庫與字型早已全部自架同源,
+    # 留著=供應鏈風險(若有XSS可從unpkg載任意腳本)。如再引入外部庫,一律放 /static/vendor/。
+    "script-src 'self' 'unsafe-inline'; "
+    "style-src 'self' 'unsafe-inline'; "
+    "font-src 'self' data:; "
     "img-src 'self' data: blob:; "
     "connect-src 'self'; "
     "worker-src 'self'; "

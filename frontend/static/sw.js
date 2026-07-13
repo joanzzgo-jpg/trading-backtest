@@ -6,7 +6,7 @@
  *  - /static/*、CDN → cache-first。靜態 URL 都帶 ?v=版號，改版即換 URL → 不會吃到舊檔。
  * 換快取策略時把 CACHE 版號 +1 即可讓舊快取在 activate 時清掉。
  */
-const CACHE = "ahh-static-v18";  // v18:多/空 與 破多空 圖例開關按鈕
+const CACHE = "ahh-static-v19";  // v19:移除 unpkg CDN 快取(庫已全自架,同步 CSP 收緊)
 
 self.addEventListener("install", (e) => {
   self.skipWaiting();
@@ -70,10 +70,10 @@ self.addEventListener("fetch", (e) => {
   // 與圖示更新不到（Chrome 讀到 SW 回的舊 manifest → 一直維持舊安裝模式）。
   if (url.pathname === "/static/manifest.json") return;
 
-  // 只處理靜態資源（同源 /static/ 或 unpkg CDN）；其餘（HTML、/api/）交給瀏覽器預設走網路。
+  // 只處理同源 /static/ 靜態資源；其餘（HTML、/api/）交給瀏覽器預設走網路。
+  // （unpkg CDN 已移出快取白名單：庫全數自架同源，CSP 亦已封鎖外部腳本域。）
   const isStatic =
-    (url.origin === self.location.origin && url.pathname.startsWith("/static/")) ||
-    url.hostname.endsWith("unpkg.com");
+    url.origin === self.location.origin && url.pathname.startsWith("/static/");
   if (!isStatic) return;
 
   e.respondWith(
