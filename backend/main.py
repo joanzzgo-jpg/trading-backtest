@@ -107,7 +107,13 @@ def _build_fx_min():
 
 _build_fx_min()
 
-app = FastAPI(title="回測系統")
+# orjson 序列化（比 stdlib json 快 5~10x；勝率 1MB+ 大回應最有感）。缺套件時退回預設 JSONResponse。
+try:
+    from fastapi.responses import ORJSONResponse as _DefaultResp
+    import orjson as _orjson_check  # noqa: F401  確認套件真的在（ORJSONResponse import 本身不驗）
+except Exception:
+    _DefaultResp = None
+app = FastAPI(title="回測系統", **({"default_response_class": _DefaultResp} if _DefaultResp else {}))
 
 # ── GZip 壓縮（JS 166KB→35KB，CSS 38KB→8KB）──────────────────
 app.add_middleware(GZipMiddleware, minimum_size=500)

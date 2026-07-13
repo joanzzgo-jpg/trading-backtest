@@ -1,5 +1,10 @@
 """數據獲取 API 路由"""
 from fastapi import APIRouter, HTTPException
+try:                                                    # 勝率大回應直送 orjson（見 _wr_resp）
+    from fastapi.responses import ORJSONResponse as _ORJSONResp
+    import orjson as _orjson_check                       # noqa: F401  確認套件真的在
+except Exception:
+    _ORJSONResp = None
 from pydantic import BaseModel
 from datetime import date, timedelta, datetime as dt
 from typing import Optional
@@ -166,7 +171,10 @@ def diag(key: str = ""):
     from data.fugle import _keys as _fugle_keys
     from data.twelvedata import _keys as _td_keys
     names = sorted(os.environ.keys())
+    import sys as _sys
     return {
+        "python": _sys.version.split()[0],                 # 執行中 Python 版本（本機/Railway 一致性檢查）
+        "orjson": _ORJSONResp is not None,                 # orjson 序列化是否生效
         "fugle_keys": len(_fugle_keys()),                  # 台股：Fugle 金鑰把數（0 = 沒設對）
         "twelvedata_keys": len(_td_keys()),                # 美股：Twelve Data 金鑰把數
         "fugle_like_var_names": [k for k in names if "fug" in k.lower()],
@@ -1193,6 +1201,20 @@ def _solve_stop_pct(df, target: str, long_only: bool):
             "target": 80, "achieved": False, "sweep": sweep}
 
 
+def _round_wr_floats(o):
+    """勝率回應浮點瘦身：全部 round 到 8 位有效數字（相對誤差 <5e-9，顯示/下單/回測皆無感）。
+    vwap 等全精度浮點（如 2030.54431503598→2030.5443）是回應體積的主要水分；
+    在 get_crt_winrate 快取寫入前跑一次 → 快取即存瘦身版、之後命中零成本。
+    順便把 np.float64 轉成原生 float（isinstance 涵蓋子類），對 orjson 序列化更穩。"""
+    if isinstance(o, float):
+        return float(f"{o:.8g}")
+    if isinstance(o, dict):
+        return {k: _round_wr_floats(v) for k, v in o.items()}
+    if isinstance(o, list):
+        return [_round_wr_floats(v) for v in o]
+    return o
+
+
 # 只後端(回測/自動交易)用、前端不讀的 per-signal 欄位 → 回前端 JSON 時砍掉
 _WR_SLIM_DROP = frozenset({"est_r", "est_r_b", "rr", "rr_b", "rr_real", "rr_b_real"})
 # S1~S12 已退役，前端只保留 SS 系列訊號（ss1/ss2）。S1~S12 的 key＝abc/ab/3~12。
@@ -1230,12 +1252,21 @@ def crt_winrate_api(
         return wr
     sigs = wr.get("signals")
     if not sigs:
-        return wr
+        return _wr_resp(wr)
     # S1~S12 已退役（全驗無 edge）→ 只回 SS 系列訊號（ss1/ss2）給前端；S1~S12 標記/HUD 不再出現。
     # fvg 為獨立 key，原樣保留。⚠ 回測走 Python 直呼 get_crt_winrate 拿完整 signals，不受此處影響。
     slim = [{k: v for k, v in s.items() if v is not None and k not in _WR_SLIM_DROP}
             for s in sigs if s.get("k") in _SS_KEEP_KEYS]
-    return {**wr, "signals": slim}
+    return _wr_resp({**wr, "signals": slim})
+
+
+def _wr_resp(payload):
+    """勝率大回應（1MB+）直接回 ORJSONResponse：跳過 FastAPI 的 jsonable_encoder 整棵樹走訪
+    （這一步在快取命中路徑占大頭），序列化交給 orjson。缺 orjson 時原樣回 dict（走預設路徑）。
+    內容已在 get_crt_winrate 快取前經 _round_wr_floats 轉純原生型別 → orjson 可直接序列化。"""
+    if _ORJSONResp is not None:
+        return _ORJSONResp(payload)
+    return payload
 
 
 # ── SR+SMC 多空教練（多時框步驟狀態機）────────────────────────────────────────
@@ -1891,6 +1922,7 @@ def get_crt_winrate(
             _tag_htf_bias(df, timeframe, result)   # 標 weak(逆 HTF 趨勢=弱信號)→前端淡化
         except Exception:
             pass
+        result = _round_wr_floats(result)          # 浮點 8 位有效數字瘦身(raw JSON 約省 2~3 成)，快取存瘦身版
         data_cache.set(cache_key, result)
         if _bar_now is not None:
             data_cache.set(bar_key, _bar_now)   # 標記此結果對應的最新棒 → bar-aware 新鮮度判定用
