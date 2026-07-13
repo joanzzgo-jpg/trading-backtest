@@ -42,7 +42,7 @@ cd /Users/noah/trading/backend && uvicorn main:app --reload
 - **圖表庫 LightweightCharts、字型（M PLUS Rounded 1c／Caveat）已自架於 `frontend/static/vendor/`**，`index.html` 從同源載入（`/static/vendor/...?v={{ ver }}`）。**不要改回 unpkg / Google Fonts CDN**。
 - 為什麼：CDN 對某些使用者網路不可達（iPad、部分 Windows／公司網／ISP）→ `LightweightCharts` undefined → bundle 早期 `makeBaseOpts` 拋錯 → 整包後續（建圖表/城門/登入）全不執行 → 整個 app「進不去」。開發者本機因 CDN 已快取而永遠正常、極難自測發現。
 - 診斷「某裝置進不去但我這正常」→ 首疑「未快取的外部資源載入失敗」：CDP 開**清空 localStorage/快取的全新 profile** 抓 `Runtime.exceptionThrown`，一抓就中。
-- 殘留的 `unpkg`／`gstatic` 只在 `sw.js` 快取白名單與 `main.py` CSP `script-src`，無害；如再引入其他庫，同樣放 `/static/vendor/`。
+- 2026-07-13 起 CSP 已**完全移除** `unpkg`／`googleapis`／`gstatic` 白名單、`sw.js` 快取只留同源 `/static/`；如再引入其他庫，放 `/static/vendor/` 並確認 CSP 不需回加外部域。
 
 ### 非同步競態
 - `_bgLoadGen`：每次新背景載入前 `++`，所有 async loop 每輪比對 `myGen === _bgLoadGen`，不符即退出。
