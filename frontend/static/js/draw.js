@@ -946,6 +946,19 @@ function drawingDist(d, x, y) {
     });
     return Math.min(...dists);
   }
+  if (d.type === "rect" && d.p1 && d.p2) {
+    const a = chartToScreen(d.p1.time, d.p1.price);
+    const b = chartToScreen(d.p2.time, d.p2.price);
+    if (!a || !b) return Infinity;
+    const rx = Math.min(a.x, b.x), ry = Math.min(a.y, b.y), rX = Math.max(a.x, b.x), rY = Math.max(a.y, b.y);
+    // 邊框附近或框內都可選：算到矩形的距離(框內=0)
+    const ddx = Math.max(rx - x, 0, x - rX), ddy = Math.max(ry - y, 0, y - rY);
+    const dEdge = Math.hypot(ddx, ddy);
+    if (dEdge > 0) return dEdge;                       // 框外→到框距離
+    // 框內：靠近邊框才算命中(避免整個大框都攔截點擊、擋住底下K棒/其他繪圖)
+    const nearEdge = Math.min(x - rx, rX - x, y - ry, rY - y);
+    return nearEdge <= 8 ? 2 : Infinity;
+  }
   if (d.p1 && d.p2) {
     const a = chartToScreen(d.p1.time, d.p1.price);
     const b = chartToScreen(d.p2.time, d.p2.price);
@@ -1988,6 +2001,23 @@ function drawOne(d, W, H, isHovered, isSelected) {
       drawCtx.beginPath(); drawCtx.arc(p.x, p.y, r, 0, Math.PI*2); drawCtx.fill();
     });
   }
+  else if (d.type === "rect" && d.p1 && d.p2) {
+    const a = chartToScreen(d.p1.time, d.p1.price);
+    const b = chartToScreen(d.p2.time, d.p2.price);
+    if (!a || !b) { drawCtx.restore(); return; }
+    const rx = Math.min(a.x, b.x), ry = Math.min(a.y, b.y), rw = Math.abs(b.x - a.x), rh = Math.abs(b.y - a.y);
+    drawCtx.save(); drawCtx.globalAlpha *= 0.12; drawCtx.fillStyle = d.color || _drawColor; drawCtx.fillRect(rx, ry, rw, rh); drawCtx.restore();   // 半透明底
+    drawCtx.strokeRect(rx, ry, rw, rh);                                       // 邊框(承 strokeStyle/lineWidth)
+    drawCtx.shadowBlur = 0;
+    // 四角把手：選取時可拖(p1/p2 對角＝拖任一角即改大小)；hover/選取才顯示
+    const hoverPartR = (isHovered || isSelected) ? _endpointHit(d, _mx, _my) : null;
+    if (isSelected || isHovered) {
+      [[a, "p1"], [b, "p2"]].forEach(([p, ep]) => {
+        const r = isSelected ? (hoverPartR === ep ? 7 : 5) : 3;
+        drawCtx.beginPath(); drawCtx.arc(p.x, p.y, r, 0, Math.PI*2); drawCtx.fill();
+      });
+    }
+  }
   else if (d.type === "ray" && d.p1 && d.p2) {
     const a = chartToScreen(d.p1.time, d.p1.price);
     const b = chartToScreen(d.p2.time, d.p2.price);
@@ -2404,6 +2434,13 @@ function drawPreview(type, a, b, W, H) {
       drawCtx.strokeStyle = lc; drawCtx.lineWidth = 1; drawCtx.setLineDash([4, 3]);
       drawCtx.beginPath(); drawCtx.moveTo(a.x, ly); drawCtx.lineTo(a.x + lineW, ly); drawCtx.stroke();
     });
+    drawCtx.restore();
+    return;
+  }
+
+  if (type === "rect") {
+    drawCtx.strokeStyle = "rgba(255,255,255,0.7)"; drawCtx.lineWidth = 1; drawCtx.setLineDash([5, 4]);
+    drawCtx.strokeRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y));
     drawCtx.restore();
     return;
   }
