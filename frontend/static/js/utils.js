@@ -294,3 +294,30 @@ function showLoading(show) {
   } else { el?.remove(); }
 }
 
+
+/* ── 互動偵測器(UX Governor)：偵測「使用者正在操作」與強度，供各模組漸進讓幀 ──
+   訊號源=現成 window._chartMoveTs(圖表平移/縮放/慣性+全域捲動/觸控/滾輪都會標記,
+   寫入端統一走 _uxMark 以追蹤「連續互動 session」:相鄰標記 ≤600ms 視為同一段)。
+   ・_uxBusy()      互動中(最後標記 400ms 內)
+   ・_uxSustained() 持續互動(同一段連續操作已 ≥800ms,如長距離拖曳/連續縮放)
+   原則(使用者定調):取得平衡、不全讓——背景動畫漸進降檔(45→66→90ms)、
+   報價列/行情照常更新不受影響。 */
+(function () {
+  let _sess = 0;
+  const _now = () => (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+  window._uxMark = function () {
+    const n = _now();
+    const prev = window._chartMoveTs || 0;
+    if (!prev || n - prev > 600) _sess = n;   // 距上次互動 >600ms → 新的一段
+    window._chartMoveTs = n;
+  };
+  window._uxBusy = function () {
+    const t = window._chartMoveTs || 0;
+    return !!t && (_now() - t) < 400;
+  };
+  window._uxSustained = function () {
+    const t = window._chartMoveTs || 0;
+    const n = _now();
+    return !!t && (n - t) < 400 && _sess > 0 && (n - _sess) >= 800;
+  };
+})();

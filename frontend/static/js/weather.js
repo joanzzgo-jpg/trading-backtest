@@ -2969,7 +2969,9 @@
     //   2026-07-14 使用者回報「主圖滑起來卡了一點」→ 依既定折衷原則「喊主圖卡往 66 靠」調整;
     //   只調幀率、不放慢時鐘(仍 1x 正常速度;雲飄移已 dt 正規化,低幀不變慢)。
     //   struggling 手機仍靠 _fxPenalty(見下)自動再往上加幀間隔 → 畫不動的裝置會降更多。
-    const _mvGap = (window._chartMoveTs && (ts - window._chartMoveTs < 300)) ? 66 : 45;
+    // 互動偵測器分級(取得平衡、不全讓)：持續拖曳/連續縮放(≥0.8s) → 90ms、互動中 → 66ms、停手 → 45ms。
+    const _mvGap = (window._uxSustained && window._uxSustained()) ? 90
+                 : (window._chartMoveTs && (ts - window._chartMoveTs < 300)) ? 66 : 45;
     const _frameGap = _mvGap + _fxPenalty;
     if (ts - _lastFrameTs < _frameGap) return;
     // 動畫時鐘恆定 1x（正常速度）；只調幀率、不調速度 → 移動時是「低幀率正常動」而非慢動作。

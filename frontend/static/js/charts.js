@@ -643,8 +643,9 @@ function syncTimeScales() {
   }
   allCharts.forEach((src, si) => {
     src.timeScale().subscribeVisibleLogicalRangeChange(range => {
-      // 標記「圖表正在移動」（平移/縮放/慣性）→ 供其它模組參考（背景天氣等）
-      window._chartMoveTs = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+      // 標記「圖表正在移動」（平移/縮放/慣性）→ 供其它模組參考（背景天氣等；_uxMark 另追蹤連續互動 session）
+      if (window._uxMark) window._uxMark();
+      else window._chartMoveTs = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
       if (syncing || !range || _blockSync) return;
       _pendingSync = { range, si };               // 只記最新，丟棄同幀內較舊的中間值
       if (!_syncRaf) _syncRaf = requestAnimationFrame(_flushSync);
