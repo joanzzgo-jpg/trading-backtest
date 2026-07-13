@@ -143,7 +143,11 @@ def _scan_outcome_np(highs, lows, closes, target_arr, times_iso, entry_i, n, sto
 
 def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only: bool = False,
                       _solve=None, band_ratio: float = 1.0, visual_window: int = 0,
-                      stock_gap: bool = False, proto_min: float = 0.0005) -> dict:
+                      stock_gap: bool = False, proto_min: float = 0.0005,
+                      no_proto_ms: bool = False, no_proto_break: bool = False) -> dict:
+    """no_proto_ms / no_proto_break=True：分別讓「多/空」與「破多/破空」的 B 觸發
+    從單根 proto(收盤站上前根高/破前根低、非repaint)換成正常 3 根 FVG(g+1 確認、
+    L[g+1]>H[g-1] / H[g+1]<L[g-1]，沿用 setup A 的 _gaps_seq 定義)。兩者獨立。"""
     """
     六種訊號合併計算勝率（中軌目標 + 帶軌目標雙統計）。
 
@@ -1312,39 +1316,44 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         _bull = [(_ci, _tp, _bt) for (_ci, _tp, _bt, _dr) in _gseq if _dr == "l"]
         # B＝「proto 缺口」偵測：bull＝g 收盤站上前根高點(C[g]>H[g-1])→缺口[H[g-1], C[g]]，右邊 g+1 收盤沒跌回
         #   缺口底(C[g+1]>H[g-1]＝沒干擾) → 標在 g。bear 鏡像(C[g]<L[g-1]→缺口[C[g], L[g-1]]、C[g+1]<L[g-1] 沒干擾)。
-        _pseq = []             # (g, top, bot, dir) proto 缺口，依 g 升序(生成序)；同視覺窗(_vw0)
+        # 兩種 B 來源都先算好，多/空 與 破多/破空 各自用 no_proto_ms / no_proto_break 挑源(獨立)。
+        # ① proto 版：單根「g 收盤站上前根高/破前根低」即成立(非repaint、即時)。含未收盤暫定 _prov_proto。
+        _pseq_proto = []       # (g, top, bot, dir) 依 g 升序(生成序)；同視覺窗(_vw0)
         for _g2 in range(_vw0, _N - 1):
             if _gap_guard and (_secs[_g2+1] - _secs[_g2-1]) > _gap_span_max:
-                continue   # 同上：跨資料斷層不成立 proto 缺口（否則破多/破空/多空標記會被假缺口污染）
-            # proto 純粹「g 收盤定案」：不再綁 g+1「沒填回」檢查(那會讓已成立的標記被下一根收盤回頭撤掉＝repaint，
-            #   使用者要當根即定案、之後不因下一根而消失)。g 收盤站上前根高/破前根低即成立缺口。
+                continue   # 跨資料斷層不成立 proto 缺口（否則破多/破空/多空標記會被假缺口污染）
             _hm1 = _H[_g2 - 1]; _lm1 = _L[_g2 - 1]; _cg = _C[_g2]
             if any(_v != _v for _v in (_hm1, _lm1, _cg)):            # NaN
                 continue
-            if _cg > _hm1:                                            # bull proto：g 收盤站上前根高點即成立
-                _pt, _pb, _pd = _cg, _hm1, "l"                       # 缺口區 [H[g-1], C[g]]
+            if _cg > _hm1:                                            # bull proto
+                _pt, _pb, _pd = _cg, _hm1, "l"
                 if (_pt - _pb) / _pb < _MSMIN: continue
-            elif _cg < _lm1:                                          # bear proto：g 收盤破前根低點即成立
-                _pt, _pb, _pd = _lm1, _cg, "s"                       # 缺口區 [C[g], L[g-1]]
+            elif _cg < _lm1:                                          # bear proto
+                _pt, _pb, _pd = _lm1, _cg, "s"
                 if (_pt - _pb) / _pt < _MSMIN: continue
             else:
                 continue
-            _pseq.append((_g2, _pt, _pb, _pd))
-        # ── 暫定(未收盤)proto：最後一根正在形成同型缺口(無 g+1 確認)→「未收盤就顯示策略」的暫定標記來源。
-        #   三類標記(多空/破多空/順)的暫定版共用此 _prov_proto；emit 帶 prov=1，前端以「未確認」樣式
-        #   (半透明+空心+?)呈現，收盤重算後才轉正式。⚠會 repaint(使用者已同意)。
-        _prov_proto = None                                 # (g, top, bot, dir) 或 None
+            _pseq_proto.append((_g2, _pt, _pb, _pd))
+        _prov_proto = None                                 # 未收盤暫定 proto (g, top, bot, dir) 或 None
         _li = _N - 1
         if _li >= _vw0 + 1 and not (_gap_guard and (_secs[_li] - _secs[_li-1]) > _gap_span_max):
             _hm1 = _H[_li - 1]; _lm1 = _L[_li - 1]; _cg = _C[_li]
             if not any(_v != _v for _v in (_hm1, _lm1, _cg)):
-                if _cg > _hm1 and (_cg - _hm1) / _hm1 >= _MSMIN:        # bull proto(未收盤)：收盤站上前根高
+                if _cg > _hm1 and (_cg - _hm1) / _hm1 >= _MSMIN:
                     _prov_proto = (_li, _cg, _hm1, "l")
-                elif _cg < _lm1 and (_lm1 - _cg) / _lm1 >= _MSMIN:      # bear proto(未收盤)：收盤破前根低
+                elif _cg < _lm1 and (_lm1 - _cg) / _lm1 >= _MSMIN:
                     _prov_proto = (_li, _lm1, _cg, "s")
-        # 多/空比對用陣列：把暫定 proto 附加在末(不進 _pseq → 破多空迴圈的序列不受污染)
-        _pseq_ms = list(_pseq) + ([_prov_proto] if _prov_proto else [])
-        _pprov   = [False] * len(_pseq) + ([True] if _prov_proto else [])
+        # ② 正常FVG 版：3 根 g+1 確認(沿用 setup A 的 _gaps_seq；cf=g+1、gap=真 FVG 區間)。g+1 已收盤→無 prov。
+        _pseq_fvg = [(_ci, _tp, _bt, _dr) for (_ci, _tp, _bt, _dr) in _gaps_seq
+                     if (_tp - _bt) / (_bt if _dr == "l" else _tp) >= _MSMIN]
+        # 各消費者選源(獨立)：多/空 → _pseq_ms_base；破多/破空 → _pseq_break_base
+        _pseq_ms_base    = _pseq_fvg if no_proto_ms    else _pseq_proto
+        _prov_ms         = None      if no_proto_ms    else _prov_proto   # 正常FVG 無未收盤暫定
+        _pseq_break_base = _pseq_fvg if no_proto_break else _pseq_proto
+        _prov_break      = None      if no_proto_break else _prov_proto
+        # 多/空比對用陣列：把暫定附加在末(不進 base → 破多空迴圈的序列不受污染)
+        _pseq_ms = list(_pseq_ms_base) + ([_prov_ms] if _prov_ms else [])
+        _pprov   = [False] * len(_pseq_ms_base) + ([True] if _prov_ms else [])
         _pcf  = [_p[0] for _p in _pseq_ms]; _pdr = [_p[3] for _p in _pseq_ms]
         _ptop = [_p[1] for _p in _pseq_ms]; _pbot = [_p[2] for _p in _pseq_ms]
         _ms_seen = set()                                   # 去重：同一 B(_cf2)只標一次
@@ -1419,10 +1428,10 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         #   不會去破數月前老牆。proto 沿用 _pseq(g 收盤定案、非 repaint)；未收盤最後一根暫定 proto→prov=1。
         #   _bear/_bull 來自 _gseq(3 根確認 FVG，已含 _SETUP_MIN 過濾＋資料斷層防護)，與圖上牆一致。
         _pl_bars = set(); _ps_bars = set()
-        for (_pg, _pt2, _pb2, _pd2) in _pseq:
+        for (_pg, _pt2, _pb2, _pd2) in _pseq_break_base:   # 破多/破空專用來源(no_proto_break 決定 proto/正常FVG)
             (_pl_bars if _pd2 == "l" else _ps_bars).add(_pg)
-        _prov_l = _prov_proto is not None and _prov_proto[3] == "l"   # 未收盤最後一根＝暫定多/空 proto
-        _prov_s = _prov_proto is not None and _prov_proto[3] == "s"
+        _prov_l = _prov_break is not None and _prov_break[3] == "l"   # 未收盤最後一根＝暫定破 proto(正常FVG 模式無)
+        _prov_s = _prov_break is not None and _prov_break[3] == "s"
         _cur_bw = None; _cur_lw = None          # 最近的 空方牆 / 多方牆 (cf=g+1, top, bot)
         _bwi = 0; _lwi = 0
         for _i2 in range(_vw0, _N):

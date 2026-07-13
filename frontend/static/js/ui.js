@@ -708,6 +708,8 @@ function bindLegendToggles() {
 
   // proto 缺口(B)門檻切換 chip：初始標籤同步（值存在 winrate.js 的 _wrProtoMin，點擊走 _cycleProtoMin）
   if (typeof window._syncProtoMinLabel === "function") window._syncProtoMinLabel();
+  // 「B=proto / 正常FVG」切換 chip：初始狀態同步（值存 winrate.js 的 _wrNoProto，點擊走 _toggleNoProto）
+  if (typeof window._syncNoProtoLabel === "function") window._syncNoProtoLabel();
 
   // 面板收合：點擊「−」縮至只剩圖例列；點「+」展開
   document.querySelectorAll(".pane-collapse-btn").forEach(btn => {

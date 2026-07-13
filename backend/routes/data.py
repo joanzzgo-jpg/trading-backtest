@@ -1214,6 +1214,8 @@ def crt_winrate_api(
     band_ratio: float = 1.0,
     vw: int = 0,
     proto_min: float = 0.0005,
+    no_proto_ms: int = 0,
+    no_proto_break: int = 0,
 ):
     """/api/crt_winrate 路由：呼叫 get_crt_winrate(含快取) → 回前端時把 signals『瘦身』
     （拿掉只後端用的 est/rr 欄位 + 省略 None 值），省 ~40% 傳輸量、加快手機端載入。
@@ -1222,7 +1224,8 @@ def crt_winrate_api(
     ⚠ 回測/自動交易是 Python 直接呼叫 get_crt_winrate → 拿『完整』signals，不受此瘦身影響。"""
     wr = get_crt_winrate(market, symbol, timeframe, exchange, stop_buffer_pct,
                          solve, solve_target, api_key, api_secret, finmind_token,
-                         band_ratio=band_ratio, vw=vw, proto_min=proto_min)
+                         band_ratio=band_ratio, vw=vw, proto_min=proto_min,
+                         no_proto_ms=bool(no_proto_ms), no_proto_break=bool(no_proto_break))
     if solve or not isinstance(wr, dict):        # solve 模式非勝率結構 → 原樣回
         return wr
     sigs = wr.get("signals")
@@ -1722,6 +1725,8 @@ def get_crt_winrate(
     band_ratio: float = 1.0,
     vw: int = 0,
     proto_min: float = 0.0005,
+    no_proto_ms: bool = False,
+    no_proto_break: bool = False,
 ):
     """CRT 策略各時間級別勝率（每個子統計至少 10 個案例，不足則往前翻倍）。
 
@@ -1741,7 +1746,9 @@ def get_crt_winrate(
     # proto 缺口(B)寬度門檻（多空/破多空）：前端可切換比較。預設 0.05% 不改 key（沿用既有快取），其餘另分流。
     _pm = round(float(proto_min), 5) if proto_min and proto_min > 0 else 0.0005
     _pm_tag = "" if abs(_pm - 0.0005) < 1e-9 else f":pm{_pm}"
-    cache_key = f"crt_wr105:{market}:{symbol}:{exchange}:{timeframe}:{_buf}:{int(_long_only)}{_br_tag}{_vw_tag}{_pm_tag}"   # v99:止損改「連續反色K run」極值(跳過同向棒);v98:反色K波段極值;v97:+fvg_ms止盈
+    # no_proto_ms/break：多空、破多空各自 B 改用正常3根FVG(g+1確認)取代單根proto；預設關(空tag、沿用proto快取)
+    _np_tag = ("" if not no_proto_ms else ":npm1") + ("" if not no_proto_break else ":npb1")
+    cache_key = f"crt_wr105:{market}:{symbol}:{exchange}:{timeframe}:{_buf}:{int(_long_only)}{_br_tag}{_vw_tag}{_pm_tag}{_np_tag}"   # v101:no_proto拆多空/破多空獨立;v99:止損連續反色K run極值;v97:+fvg_ms止盈
     bar_key = cache_key + ":bar"
     # bar-aware 新鮮度：記下「算這份結果時最新那根棒的開盤時刻」。crypto 在「同一根棒內」吃快取，
     # 一旦有新棒收盤就讓快取失效 → 走下方短窗補抓重算 → 最新訊號最多慢到「收盤後第一次請求」，
@@ -1878,7 +1885,8 @@ def get_crt_winrate(
         result = _wr_cached
     else:
         result = _calc_crt_winrate(df, stop_buffer_pct=_buf, long_only=_long_only, band_ratio=_br,
-                                   visual_window=_vw, stock_gap=(market != "crypto"), proto_min=_pm)
+                                   visual_window=_vw, stock_gap=(market != "crypto"), proto_min=_pm,
+                                   no_proto_ms=no_proto_ms, no_proto_break=no_proto_break)
         try:
             _tag_htf_bias(df, timeframe, result)   # 標 weak(逆 HTF 趨勢=弱信號)→前端淡化
         except Exception:

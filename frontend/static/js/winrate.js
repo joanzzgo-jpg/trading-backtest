@@ -30,6 +30,38 @@ window._cycleProtoMin = function () {
   fetchWinRate();   // 重抓→後端用新門檻重算 多空/破多空（首次該值會重算，之後走快取）
 };
 
+// 「不用proto」：多/空 與 破多/破空 的 B 觸發改用正常 3 根 FVG(g+1 確認)取代單根 proto。
+// 兩者獨立開關；開→cacheKey 帶 npm/npb tag → 後端各自分流重算。預設關(用 proto)。
+let _wrNoProtoMs = false;      // 多/空
+let _wrNoProtoBreak = false;   // 破多/破空
+try { _wrNoProtoMs = localStorage.getItem("wrNoProtoMs") === "1"; } catch (e) {}
+try { _wrNoProtoBreak = localStorage.getItem("wrNoProtoBreak") === "1"; } catch (e) {}
+function _syncNoProtoLabel() {
+  const bM = document.getElementById("noProtoMsBtn");
+  if (bM) bM.classList.toggle("active", _wrNoProtoMs);
+  const lM = document.getElementById("noProtoMsLbl");
+  if (lM) lM.textContent = _wrNoProtoMs ? "多空=正常FVG" : "多空=proto";
+  const bB = document.getElementById("noProtoBreakBtn");
+  if (bB) bB.classList.toggle("active", _wrNoProtoBreak);
+  const lB = document.getElementById("noProtoBreakLbl");
+  if (lB) lB.textContent = _wrNoProtoBreak ? "破=正常FVG" : "破=proto";
+}
+window._syncNoProtoLabel = _syncNoProtoLabel;
+window._toggleNoProtoMs = function (on) {
+  _wrNoProtoMs = (on === undefined) ? !_wrNoProtoMs : !!on;
+  try { localStorage.setItem("wrNoProtoMs", _wrNoProtoMs ? "1" : "0"); } catch (e) {}
+  _syncNoProtoLabel();
+  fetchWinRate();
+  return _wrNoProtoMs;
+};
+window._toggleNoProtoBreak = function (on) {
+  _wrNoProtoBreak = (on === undefined) ? !_wrNoProtoBreak : !!on;
+  try { localStorage.setItem("wrNoProtoBreak", _wrNoProtoBreak ? "1" : "0"); } catch (e) {}
+  _syncNoProtoLabel();
+  fetchWinRate();
+  return _wrNoProtoBreak;
+};
+
 
 // 目標切換（中軌 ↔ 上/下軌）狀態。1:1（rr）已移除 → 舊設定正規化回中軌
 const _WR_VIEW_KEY = "wrTargetView";
@@ -485,7 +517,7 @@ async function _fetchWinRateNow() {
   const bufDec = (_wrStopBuffer || 0) / 100;
   const _vw = _wrVwFor(typeof ohlcvData !== "undefined" ? ohlcvData.length : 0);
   window._wrCurVw = _vw;
-  const cacheKey = `${market}:${symbol}:${exchange}:${timeframe}:${bufDec.toFixed(4)}:vw${_vw}:pm${_wrProtoMin}`;
+  const cacheKey = `${market}:${symbol}:${exchange}:${timeframe}:${bufDec.toFixed(4)}:vw${_vw}:pm${_wrProtoMin}:npm${_wrNoProtoMs ? 1 : 0}:npb${_wrNoProtoBreak ? 1 : 0}`;
   if (_wrCache[cacheKey]) {
     // 快取命中也要取消上一個還在飛的勝率請求，否則它稍後成功回來會用「舊標的」的
     // 訊號覆寫 _lastWRSignals → 訊號時間不存在於新標的 ohlcv → markers 全被過濾 → 策略不顯示。
@@ -531,7 +563,7 @@ async function _fetchWinRateNow() {
   // 不寫 "計算中…" 到 wrStatus，由中央 .tb-wr-loading（小熊 + 文字）顯示
   if (statusEl) statusEl.textContent = "";
   try {
-    const p   = new URLSearchParams({ market, symbol, exchange, timeframe, stop_buffer_pct: bufDec.toFixed(4), vw: String(_vw), proto_min: String(_wrProtoMin) });
+    const p   = new URLSearchParams({ market, symbol, exchange, timeframe, stop_buffer_pct: bufDec.toFixed(4), vw: String(_vw), proto_min: String(_wrProtoMin), no_proto_ms: _wrNoProtoMs ? "1" : "0", no_proto_break: _wrNoProtoBreak ? "1" : "0" });
     const res = await fetch("/api/crt_winrate?" + p, { signal: myCtrl.signal, cache: "no-store" });
     const d   = await res.json();
     if (!res.ok) throw new Error(d.detail || "failed");
