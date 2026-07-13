@@ -1209,39 +1209,97 @@ def _station_coord(s: dict):
 
 
 def _estimate_motion(src: str, lat: float, lon: float, cur_rain: dict, obs_time: str):
-    """用某來源最近兩份『不同觀測時間』的雨量快照，估使用者附近(≤80km)雨帶移動向量。
+    """用某來源最近幾份『不同觀測時間』的雨量快照，估使用者附近(≤80km)雨帶移動向量。
     cur_rain: {station_id: (lat, lon, mmph)}。回 {"speed_kmh", "bearing"(移動去向)} 或 None
-    （資料不足/太慢(生消非移動)/太快(雜訊) 一律回 None，寧可不報 ETA 也不亂報）。"""
+    （資料不足/太慢(生消非移動)/太快(雜訊) 一律回 None，寧可不報 ETA 也不亂報）。
+
+    2026-07-13 預估強化（質心法的兩大假移動來源都加了防呆）：
+    ① 質量守恆檢查——兩快照間總雨量暴增/暴減(>2.5×)＝雨胞生消主導、質心位移是假象 → 不信；
+    ② 三快照方向一致性——連續兩段位移方向差 >60° ＝質心雜訊(如兩片獨立雨帶一生一消) → 不信、
+       退回 850hPa 引導氣流；一致則取圓形平均平滑。"""
     hist = _RAIN_HIST.setdefault(src, [])
     now = time.time()
     if not hist or hist[-1]["obs"] != obs_time:     # 只在觀測時間改變時存新快照
         hist.append({"obs": obs_time, "ts": now, "rain": cur_rain})
-        del hist[:-2]                               # 只留最近兩份
-    if len(hist) < 2:
-        return None
-    prev, cur = hist[0], hist[1]
-    dt_h = (cur["ts"] - prev["ts"]) / 3600.0
-    if dt_h <= 0 or dt_h > 0.75:                    # 間隔<0 或 >45 分 → 不可靠
-        return None
+        del hist[:-3]                               # 留最近三份 → 兩段位移做一致性驗證/平滑
 
-    def _centroid(snap):                            # 使用者附近(≤80km) 雨量加權質心
+    def _centroid(snap):                            # 使用者附近(≤80km) 雨量加權質心＋總雨量
         sw = sx = sy = 0.0
         for _sid, (slat, slon, mm) in snap["rain"].items():
             if _haversine_km(lat, lon, slat, slon) > 80:
                 continue
             sw += mm; sx += mm * slon; sy += mm * slat
-        return (sx / sw, sy / sw) if sw > 0 else None
+        return (sx / sw, sy / sw, sw) if sw > 0 else None
 
-    cp, cc = _centroid(prev), _centroid(cur)
-    if not cp or not cc:
+    def _vec(a, b):                                 # a→b 位移 → (speed_kmh, bearing) 或 None
+        dt_h = (b["ts"] - a["ts"]) / 3600.0
+        if dt_h <= 0 or dt_h > 0.75:                # 間隔<0 或 >45 分 → 不可靠
+            return None
+        ca, cb = _centroid(a), _centroid(b)
+        if not ca or not cb:
+            return None
+        if max(ca[2], cb[2]) > 2.5 * max(1e-6, min(ca[2], cb[2])):
+            return None                             # 質量守恆檢查：生消主導 → 質心位移是假移動
+        kx = (cb[0] - ca[0]) * 111.32 * math.cos(math.radians(lat))   # 東西向位移 km
+        ky = (cb[1] - ca[1]) * 110.57                                 # 南北向位移 km
+        speed = math.hypot(kx, ky) / dt_h
+        if speed < 3 or speed > 120:
+            return None
+        return speed, (math.degrees(math.atan2(kx, ky)) + 360) % 360
+
+    if len(hist) < 2:
         return None
-    kx = (cc[0] - cp[0]) * 111.32 * math.cos(math.radians(lat))   # 東西向位移 km
-    ky = (cc[1] - cp[1]) * 110.57                                 # 南北向位移 km
-    speed = math.hypot(kx, ky) / dt_h
-    if speed < 3 or speed > 120:
+    v2 = _vec(hist[-2], hist[-1])                   # 最新一段
+    if v2 is None:
         return None
-    return {"speed_kmh": round(speed, 1),
-            "bearing": (math.degrees(math.atan2(kx, ky)) + 360) % 360}
+    if len(hist) >= 3:
+        v1 = _vec(hist[-3], hist[-2])               # 前一段
+        if v1 is not None:
+            diff = abs(((v2[1] - v1[1] + 180) % 360) - 180)
+            if diff > 60:
+                return None                         # 兩段方向打架＝質心雜訊 → 退回引導氣流
+            bx = math.sin(math.radians(v1[1])) + math.sin(math.radians(v2[1]))
+            by = math.cos(math.radians(v1[1])) + math.cos(math.radians(v2[1]))
+            return {"speed_kmh": round((v1[0] + v2[0]) / 2, 1),
+                    "bearing": (math.degrees(math.atan2(bx, by)) + 360) % 360}
+    return {"speed_kmh": round(v2[0], 1), "bearing": v2[1]}
+
+
+_STEER_CACHE = SimpleCache(max_size=32)
+
+
+async def _steering_wind(lat, lon):
+    """850hPa 引導氣流(Open-Meteo,免金鑰)：雨帶移動跟的是「雲層高度的風」，地面風受摩擦/地形
+    影響常偏弱偏轉(2026-07-13 台北實測：地面 3.6km/h 來向240° vs 850hPa 9.6km/h 來向180°)。
+    無雷達式質心位移時的首選退回；回 (wind_from_deg, speed_kmh×0.85) 或 None。
+    ×0.85＝雨帶移速約 0.8~0.9× 引導氣流的經驗係數。快取 30 分(~10km 網格)。"""
+    ck = f"steer:{round(lat, 1)}:{round(lon, 1)}"
+    c = _STEER_CACHE.get(ck, 1800)
+    if c is not None:
+        return c or None                            # 失敗也快取(存 False)，避免反覆打
+    try:
+        timeout = aiohttp.ClientTimeout(total=8)
+        async with aiohttp.ClientSession(timeout=timeout) as sess:
+            async with sess.get("https://api.open-meteo.com/v1/forecast", params={
+                    "latitude": lat, "longitude": lon,
+                    "hourly": "wind_speed_850hPa,wind_direction_850hPa",
+                    "forecast_days": 1, "timezone": "UTC"}) as r:
+                d = await r.json(content_type=None)
+        hh = d.get("hourly") or {}
+        times = hh.get("time") or []
+        cur = datetime.utcnow().strftime("%Y-%m-%dT%H:00")
+        i = times.index(cur) if cur in times else 0
+        ws = (hh.get("wind_speed_850hPa") or [None])[i]
+        wd = (hh.get("wind_direction_850hPa") or [None])[i]
+        if ws is None or wd is None:
+            _STEER_CACHE.set(ck, False)
+            return None
+        res = (float(wd), round(float(ws) * 0.85, 1))
+        _STEER_CACHE.set(ck, res)
+        return res
+    except Exception:
+        _STEER_CACHE.set(ck, False)
+        return None
 
 
 def _cluster_span(cells, seed):
@@ -1429,7 +1487,9 @@ async def _nearby_rain_cwa(lat, lon, radius=NEARBY_RADIUS_KM) -> dict:
                 # 20km 內 → 顯示清單；20~50km 外圈 → 只給接近偵測/ETA(不顯示)
                 (cells if d <= radius else far_cells).append(_cell)
     motion = _estimate_motion("cwa", lat, lon, all_rain, obs_time)
-    wind = None if motion else await _nearest_weather_wind(lat, lon)   # 無快照移動時用風向推
+    wind = None
+    if motion is None:   # 無快照移動 → 首選 850hPa 引導氣流(雲層高度的風)，再退地面風
+        wind = await _steering_wind(lat, lon) or await _nearest_weather_wind(lat, lon)
     return _finalize_nearby(lat, lon, cells, here_rate, motion, "cwa", obs_time, radius,
                             wind=wind, coverage=(rain_in, tot_in), far_cells=far_cells)
 
@@ -1514,7 +1574,9 @@ async def _nearby_rain_jma(lat, lon, radius=NEARBY_RADIUS_KM) -> dict:
                               "name": nm, "area": nm, "trend": tl, "fade_min": fm,
                               "_lat": slat, "_lon": slon})
     motion = _estimate_motion("jma", lat, lon, all_rain, latest)
-    wind = None if motion else here_wind                              # 無快照移動時用風向推
+    wind = None
+    if motion is None:   # 首選 850hPa 引導氣流，再退最近站地面風
+        wind = await _steering_wind(lat, lon) or here_wind
     return _finalize_nearby(lat, lon, cells, here_rate, motion, "jma", latest, radius,
                             wind=wind, coverage=(rain_in, tot_in))
 
