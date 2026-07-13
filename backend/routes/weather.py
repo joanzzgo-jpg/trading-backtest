@@ -15,8 +15,32 @@ router = APIRouter(prefix="/api", tags=["weather"])
 
 # 天氣快取：按 ~1km 網格(lat/lon 取 2 位小數)+ 5 分鐘 TTL。天氣不會秒變，重複定位/刷新直接秒回，
 # 也省下對 CWA/Open-Meteo 的重複多請求。獨立實例，不與 ohlcv 共用快取(免互相淘汰)。
+# 雨系自適應 TTL(2026-07-13「下雨中顯示太慢」)：快取內容是雨系/降雨機率高/附近雨接近 → 縮到 90s，
+# 讓「開始下雨/雨停」約 1.5~3 分內反映(原本乾濕都 5 分,疊前端 5 分輪詢+觀測 10 分 → 最壞 20 分)。
+# 晴天維持 300s,對 CWA/Open-Meteo 的請求量不變。
 _WX_CACHE = SimpleCache(max_size=64)
 _WX_TTL = 300
+_WX_TTL_WET = 90
+_RAINY_TYPES = frozenset({"drizzle", "rain", "storm", "thunder"})
+
+
+def _wx_is_wet(res) -> bool:
+    """/api/weather 結果是否「雨系或快下雨」→ 用短 TTL。
+    ⚠ 不可用 precipitation>0 判斷：CWA 的 Now.Precipitation 是「當日累積」雨量，
+    早上下過午後放晴仍 >0 → 會整天誤開短 TTL。只信天氣現象與當前降雨機率。"""
+    try:
+        return ((res.get("weather_type") or "") in _RAINY_TYPES
+                or (res.get("pop_now") or 0) >= 60)
+    except Exception:
+        return False
+
+
+def _nr_is_wet(res) -> bool:
+    """/api/nearby_rain 結果是否「正在下/雨帶接近中」→ 用短 TTL(approaching=下雨前兆,提前轉快節奏)。"""
+    try:
+        return bool(res.get("raining_here") or res.get("approaching"))
+    except Exception:
+        return False
 
 CWA_KEY  = os.getenv("CWA_API_KEY", "")
 CWA_URL  = "https://opendata.cwa.gov.tw/api/v1/rest/datastore/O-A0001-001"
@@ -1006,6 +1030,8 @@ async def weather(
     from fastapi import HTTPException
     _ck = f"wx:{round(lat, 2)}:{round(lon, 2)}"        # ~1km 網格快取鍵
     _cached = _WX_CACHE.get(_ck, _WX_TTL)
+    if _cached is not None and (_wx_is_wet(_cached) or _nr_is_wet(_NR_CACHE.get(f"nr:{round(lat, 2)}:{round(lon, 2)}", _NR_TTL) or {})):
+        _cached = _WX_CACHE.get(_ck, _WX_TTL_WET)      # 雨系/雨接近 → 90s 新鮮度重驗
     if _cached is not None:
         return _cached
     res = None
@@ -1107,10 +1133,14 @@ async def weather(
 #   其他 → Open-Meteo 網格 + 所在點 minutely_15 臨近預報
 CWA_RAIN_URL = "https://opendata.cwa.gov.tw/api/v1/rest/datastore/O-A0002-001"
 NEARBY_RADIUS_KM = 20.0
+# 預估外圈(2026-07-13「下雨預估優化」)：顯示清單/覆蓋率維持 NEARBY_RADIUS_KM(20km)，
+# 但「接近偵測/ETA」多掃 radius~50km 的雨站 → 雨帶 30km/h 時預警提前量從 ~40 分拉到 ~100 分。
+# 外圈雨區不進 cells 顯示(離太遠、「附近哪裡在下雨」仍只講 20km 內)，只餵給 approaching 演算。
+APPROACH_SCAN_KM = 50.0
 # ETA 可信視野：雨胞(尤其台灣午後對流)壽命約 30-60 分就生消/變形、風場也會變 →
-# 投射超過此值的 ETA 是假精準。使用者只想知道「半小時內會到」的雨 → 設 30 分，
-# 更久的只在 nearest 行淡標「往你移動」不掛時間。
-ETA_HORIZON_MIN = 30
+# 投射超過此值的 ETA 是假精準。原 30 分；配合預估外圈放寬到 45 分(45 分外仍只留
+# approaching 旗標、nearest 行淡標「往你移動」不掛時間)。
+ETA_HORIZON_MIN = 45
 _8DIR = ["北", "東北", "東", "東南", "南", "西南", "西", "西北"]
 _RAIN_STATION_CACHE: dict = {"data": None, "ts": 0.0}   # CWA 雨量站(5 分鐘快取)
 _RAIN_HIST: dict = {}   # source → 最近兩份「不同觀測時間」的雨量快照(估雨帶移動)
@@ -1258,11 +1288,15 @@ def _attach_scale(cells, cell):
 
 
 def _finalize_nearby(lat, lon, cells, here_rate, motion, src, obs_time,
-                     radius=NEARBY_RADIUS_KM, wind=None, coverage=None):
+                     radius=NEARBY_RADIUS_KM, wind=None, coverage=None, far_cells=None):
     """把雨區清單 + 移動向量彙整成回應：標記各雨區是否正接近、算最近接近雨區的 ETA。
     移動向量雙軌：優先用兩份快照的雷達式質心位移(motion, by='radar')；沒有時退回
-    風向推估(wind=(來向度, km/h)，雨隨風走 → 去向=來向+180°，by='wind'，馬上可用)。"""
+    風向推估(wind=(來向度, km/h)，雨隨風走 → 去向=來向+180°，by='wind'，馬上可用)。
+    far_cells：radius~APPROACH_SCAN_KM 的「預估外圈」雨區——參與接近偵測/ETA/雨區範圍聚類，
+    但不進 cells 顯示清單/nearest/覆蓋率(「附近哪裡在下雨」仍只講 radius 內)。"""
     cells.sort(key=lambda c: c["dist_km"])
+    far_cells = far_cells or []
+    scan = cells + far_cells                                     # 接近偵測掃描集(近+外圈)
     by = None
     if motion:
         by = "radar"
@@ -1272,7 +1306,7 @@ def _finalize_nearby(lat, lon, cells, here_rate, motion, src, obs_time,
     approaching = None
     if motion:
         mb, spd = motion["bearing"], motion["speed_kmh"]
-        for c in cells:
+        for c in scan:
             c2u = _bearing_deg(c["_lat"], c["_lon"], lat, lon)   # 雨區→你 的方位
             diff = abs(((c2u - mb + 180) % 360) - 180)           # 與移動去向的夾角
             if diff <= 70:
@@ -1282,20 +1316,20 @@ def _finalize_nearby(lat, lon, cells, here_rate, motion, src, obs_time,
                     c["eta_min"] = int(round(c["dist_km"] / v * 60))
             else:
                 c["approaching"] = False
-        # 只在可信視野內(≤60分)才報「約X分後到」；更久 → 雨胞可能已生消,只留 approaching 旗標
+        # 只在可信視野內(≤ETA_HORIZON_MIN)才報「約X分後到」；更久 → 雨胞可能已生消,只留 approaching 旗標
         # (前端 nearest 行會顯示「往你移動」但不掛假時間)。
-        appr = [c for c in cells if c.get("approaching") and 0 <= c.get("eta_min", 1e9) <= ETA_HORIZON_MIN]
+        appr = [c for c in scan if c.get("approaching") and 0 <= c.get("eta_min", 1e9) <= ETA_HORIZON_MIN]
         if appr:
             c0 = min(appr, key=lambda c: c["eta_min"])
-            _attach_scale(cells, c0)                             # 這片雨區多大
+            _attach_scale(scan, c0)                              # 這片雨區多大(聚類含外圈,跨距更準)
             approaching = {"dir": c0["dir"], "dist_km": c0["dist_km"], "level": c0["level"],
                            "eta_min": c0["eta_min"], "name": c0.get("name", ""),
                            "area": c0.get("area", ""), "by": by,
                            "scale": c0.get("scale"), "size_km": c0.get("size_km"),
                            "trend": c0.get("trend"), "fade_min": c0.get("fade_min")}
     if cells:
-        _attach_scale(cells, cells[0])                           # 最近雨區也標範圍大小
-    for c in cells:                                              # 前端不需精確座標
+        _attach_scale(scan, cells[0])                            # 最近雨區也標範圍大小
+    for c in scan:                                               # 前端不需精確座標
         c.pop("_lat", None); c.pop("_lon", None)
     # 覆蓋率：半徑內『有雨站數 / 總站數』；≥50% 且樣本足(≥6站) → 大範圍降雨(widespread)
     cov = None; widespread = False
@@ -1359,6 +1393,7 @@ async def _nearby_rain_cwa(lat, lon, radius=NEARBY_RADIUS_KM) -> dict:
     stations = await _fetch_rain_stations()
     all_rain: dict = {}
     cells: list = []
+    far_cells: list = []                               # 20~50km 預估外圈(只給接近偵測，不顯示)
     here_rate, here_d, obs_time = 0.0, float("inf"), ""
     tot_in = rain_in = 0                               # 半徑內 總站數 / 有雨站數（算覆蓋率）
     for s in stations:
@@ -1383,18 +1418,20 @@ async def _nearby_rain_cwa(lat, lon, radius=NEARBY_RADIUS_KM) -> dict:
             sid = s.get("StationId") or s.get("StationName") or f"{slat},{slon}"
             all_rain[sid] = (slat, slon, rate)
             lvl = _rain_level(rate)
-            if d <= radius and lvl:
+            if d <= APPROACH_SCAN_KM and lvl:
                 gi = s.get("GeoInfo", {})
                 area = (gi.get("CountyName") or "") + (gi.get("TownName") or "")   # 行政區:雨從『哪一區』
                 tl, fm = _rain_trend(p10, p1h)                                     # 增強/減弱趨勢
-                cells.append({"dir": _bearing_zh(_bearing_deg(lat, lon, slat, slon)),
-                              "dist_km": round(d, 1), "mmph": round(rate, 1), "level": lvl,
-                              "name": s.get("StationName") or "", "area": area,
-                              "trend": tl, "fade_min": fm, "_lat": slat, "_lon": slon})
+                _cell = {"dir": _bearing_zh(_bearing_deg(lat, lon, slat, slon)),
+                         "dist_km": round(d, 1), "mmph": round(rate, 1), "level": lvl,
+                         "name": s.get("StationName") or "", "area": area,
+                         "trend": tl, "fade_min": fm, "_lat": slat, "_lon": slon}
+                # 20km 內 → 顯示清單；20~50km 外圈 → 只給接近偵測/ETA(不顯示)
+                (cells if d <= radius else far_cells).append(_cell)
     motion = _estimate_motion("cwa", lat, lon, all_rain, obs_time)
     wind = None if motion else await _nearest_weather_wind(lat, lon)   # 無快照移動時用風向推
     return _finalize_nearby(lat, lon, cells, here_rate, motion, "cwa", obs_time, radius,
-                            wind=wind, coverage=(rain_in, tot_in))
+                            wind=wind, coverage=(rain_in, tot_in), far_cells=far_cells)
 
 
 # ── HKO（香港，18 區即時雨量；區塊粗、不估移動）──
@@ -1567,6 +1604,8 @@ async def nearby_rain(
     日本 JMA／其他 Open-Meteo，在地源失敗一律回退 Open-Meteo。"""
     ck = f"nr:{round(lat, 2)}:{round(lon, 2)}"
     cached = _NR_CACHE.get(ck, _NR_TTL)
+    if cached is not None and _nr_is_wet(cached):
+        cached = _NR_CACHE.get(ck, _NR_TTL_WET)        # 下雨中/雨接近 → 60s 新鮮度重驗
     if cached is not None:
         return cached
     res = None

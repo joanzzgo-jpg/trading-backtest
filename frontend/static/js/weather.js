@@ -1857,14 +1857,23 @@
     ga.restore();
   }
 
+  let _cldLastT = 0;
   function dCloudy(t) {
     const cdir = _windVecX() >= 0 ? 1 : -1;       // 雲飄移方向跟著風（+右 -左）
     const cwf = 1 + Math.min(3, _wd.windSpeed / 15);   // ★ 雲速也隨風速：無風1×、15km/h 2×、45km/h+封頂4× → 與雨一致、強風不再「雨急雲慢」
+    // ★ 時間基準飄移(2026-07-13)：原本「每幀 +=」＝幀率依賴 → 手機 15fps/自適應降幀 ~8fps 時
+    //   雲比桌機 22fps 慢 1/3~2/3。改以 22fps(45ms) 為基準做 dt 正規化 → 視覺速度跨裝置一致、
+    //   降幀只降流暢度不再變慢動作。dt 夾 0.25s：換場/久未呼叫後回來不瞬移。
+    const dtn = _cldLastT ? Math.min(0.25, Math.max(0, t - _cldLastT)) / 0.045 : 1;
+    _cldLastT = t;
+    const step = cdir * cwf * dtn;
     const margin = W*0.6;
     cloudP.forEach((c, i) => {
-      c.x += c.sp * cdir * cwf;
+      c.x += c.sp * step;
       if (cdir > 0 && c.x - W*c.sc > W) c.x = -margin;       // 往右飄出 → 從左回來
       else if (cdir < 0 && c.x + W*c.sc < 0) c.x = W+margin; // 往左飄出 → 從右回來
+      const hw = W*c.sc*1.2;                                 // 烘焙位圖半寬(~1.15w)+緩衝
+      if (c.x + hw < 0 || c.x - hw > W) return;              // 完全在畫面外 → 只推進位置、跳過 drawImage 合成
       _cloud(c.x, c.y + Math.sin(t*.18 + i*1.3)*3.5, W*c.sc, c.al, c.shape, c.flip, c.z, c.puffs);
     });
   }
@@ -3188,7 +3197,8 @@
     if (t !== type) start(t);
   }
 
-  function fetchWeather(lat, lon) {
+  function fetchWeather(lat, lon, light) {
+    // light=true（雨系快速通道）：只刷天氣+附近雨、跳過颱風（颱風資訊沒有分鐘級變化）
     _wxLat = lat; _wxLon = lon;   // 自動刷新計時器移到定位流程末尾（改為「重新定位+天氣」，見 _wxRefresh）
     fetch('/api/weather?lat='+lat+'&lon='+lon)
       .then(r => r.json())
@@ -3227,7 +3237,7 @@
         if (!_isManualOn() && !window._restoreManualWxIfAny?.()) start(_resolveAutoType());
       });
     fetchNearbyRain(lat, lon);   // 附近雨區偵測（獨立請求，晚到就重繪天氣卡）
-    _fetchTyphoon(lat, lon);     // 颱風資訊（獨立請求，見檔末颱風迷你地圖模組）
+    if (!light) _fetchTyphoon(lat, lon);   // 颱風資訊（獨立請求，見檔末颱風迷你地圖模組）；快速通道跳過
   }
 
   // 附近雨區：抓在地測站網算出的「附近哪裡有雨/會不會往我移動」，存 _wd.nearby 後重繪天氣卡
@@ -3507,6 +3517,18 @@
     _locate(_onPos, () => { if (_wxLat != null) fetchWeather(_wxLat, _wxLon); }, 6000, 15000);
   }
   if (!_wxTimer) _wxTimer = setInterval(_wxRefresh, 5*60*1000);   // 預覽模式(?wxlat/?wxloc)已在上方 return，不會自動刷新
+  // 雨系快速通道（2026-07-13「下雨中顯示太慢」）：下雨中／雨帶接近／正在降雨／當前降雨機率高
+  //   → 每 90s 輕量刷新（沿用上次座標、只打天氣+附近雨、不重新定位省電、不抓颱風）。
+  //   搭配後端雨系短 TTL（wx 90s／nearby 60s）→「開始下雨/雨停」約 1.5~3 分內反映（原本疊到 10 分+）。
+  //   晴天條件不成立＝完全不打 API，零額外負擔；分頁在背景時跳過。
+  setInterval(() => {
+    if (_wxLat == null || document.visibilityState === 'hidden') return;
+    const n = _wd.nearby || {};
+    // ⚠ 不用 _wd.precip>0 判斷：CWA 的 precipitation 是「當日累積」，早上下過就整天 >0 → 會誤開快速通道
+    const wet = _wd.nearbyRaining || !!n.approaching
+             || (_wd.popNow != null && _wd.popNow >= 60) || /rain|storm|thunder|drizzle/.test(_autoType || '');
+    if (wet) fetchWeather(_wxLat, _wxLon, true);
+  }, 90 * 1000);
 
   // 手機「設定」分頁開啟時呼叫（main.js setTab）→ 天氣卡即時更新，不必等下一輪 5 分鐘刷新。
   //  · 先用現有資料即時重繪 #mSetWeather（秒顯、無空白）
