@@ -30,6 +30,11 @@ async function loadData(autoLoad = false) {
     }
   }
 
+  // 快照秒畫(_snapPaint→renderAll)會先消耗上面保存的視野變數(renderAll 結尾歸 null)→
+  // 真資料到貨的第二次 renderAll 拿到 null、跳回「最新50根」。先留副本，真資料 renderAll 前還原，
+  // 讓快照與真資料兩次都套用同一個視野（切標的記得縮放+平移位置）。
+  const _vSave = { bc: _savedBarCount, tr: _savedTimeRange, ro: _savedRightOffset, bs: _savedBarSpacing };
+
   stopRealtime();
 
   // 切標的瞬間：上方報價列立即換成新標的名稱、價格數字暫清成「—」，
@@ -73,6 +78,9 @@ async function loadData(autoLoad = false) {
     _rebuildTimeIndex();  // 效能：重建 time→idx Map（O(1) 取代 findIndex）
     // 切換標的/時框：清空已展開的自動盈虧比盒（舊訊號時間不存在於新資料）
     if (typeof _clearAutoRR === "function") _clearAutoRR();
+    // 還原視野副本（可能已被快照秒畫的 renderAll 消耗掉）→ 真資料照樣對齊使用者的縮放+平移位置
+    _savedBarCount = _vSave.bc; _savedTimeRange = _vSave.tr;
+    _savedRightOffset = _vSave.ro; _savedBarSpacing = _vSave.bs;
     renderAll(json.data);   // 內部 renderCandles 會清 marker，但 renderAll 結尾會重填 WR markers
     startRealtime();
     saveLastSymbol();   // 載入成功後記憶此次標的
@@ -222,10 +230,16 @@ function renderAll(data) {
   } else if (_savedTimeRange && data.length) {
     const _first = toTime(data[0].time), _last = toTime(data[data.length - 1].time);
     const { from, to } = _savedTimeRange;
-    // 新標的/時框需與原時間段有重疊才對齊（否則該標的根本沒這段資料 → 退回 bar 數避免空白）
-    if (to >= _first && from <= _last) {
+    const _bc = Math.max(5, _savedBarCount || 50);   // 原可見根數＝縮放
+    if (from >= _first && from <= _last) {
+      // 新標的有這段歷史 → 對齊同一時間段（每個標的看到同一段時間）
       try {
-        mainChart.timeScale().setVisibleRange({ from: Math.max(from, _first), to: Math.min(to, _last) });
+        mainChart.timeScale().setVisibleRange({ from, to: Math.min(to, _last) });
+      } catch (e) { _restoreByBarCount(); }
+    } else if (from < _first) {
+      // 原本平移到的時間比新標的最早資料還早 → 貼到最早處、維持相同縮放(可見根數)
+      try {
+        mainChart.timeScale().setVisibleLogicalRange({ from: 0, to: _bc });
       } catch (e) { _restoreByBarCount(); }
     } else {
       _restoreByBarCount();
