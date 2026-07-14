@@ -265,7 +265,10 @@ function initDrawTools() {
   resize();
   new ResizeObserver(resize).observe(chartEl);
 
-  mainChart.timeScale().subscribeVisibleTimeRangeChange(() => _scheduleRenderDrawings());
+  // ⚠ 用 LogicalRange 不用 TimeRange：TimeRange 只在「可見K棒集合」變了才發，
+  //   次棒級的像素平移不觸發（實測 18 步平移只發 10 次）→ 繪圖每隔幾步停一拍＝平移浮動。
+  //   LogicalRange 是小數、任何像素級平移/縮放都發 → 繪圖逐像素跟緊 K 棒。
+  mainChart.timeScale().subscribeVisibleLogicalRangeChange(() => _scheduleRenderDrawings());
   // 滾輪縮放（可能縮放價格軸或時間軸）→ 開短追蹤窗,確保繪圖精準跟隨,不偏離原價位。
   chartEl.addEventListener("wheel", () => _watchAxis(700), { capture: true, passive: true });
   // 游標移動時的 overlay 重畫：hover 高亮/拖移由 _onChartMouseMove(DOM capture) 自行排程，
@@ -1819,20 +1822,26 @@ function _drawCoachOverlay(W, H) {
   drawCtx.restore();
 }
 
-// renderDrawings 合併排程：滑動時 subscribeVisibleTimeRangeChange / crosshairMove 一幀會觸發多次，
-// 若每次都 _scheduleRenderDrawings() → 同一幀把疊加層(交易時段 overlay 等)重畫好幾遍。
-// 用 pending 旗標收斂成「每幀最多畫一次」，盤中時框滑動大幅減負。
+// renderDrawings 合併排程 —— 「領先同幀 + 尾隨合併」：
+//   平移時 LWC 在同一事件裡先更新內部座標才發 subscribeVisibleTimeRangeChange → 此刻「同步」重繪，
+//   繪圖與 K 棒同一幀移動＝零漂移。（先前走 rAF 排程慢一幀＋移動中 30fps 節流 → 畫的線/框
+//   平移時浮動追趕，使用者回報「畫上去的東西平移會漂」→ 2026-07-14 改回同幀，節流移除。）
+//   同一幀內多次觸發（range change + crosshair + 軸看門狗）用 12ms 門檻擋住，改掛一次尾隨 rAF
+//   補畫最新狀態 → 每幀最多 1 領先＋1 尾隨，正常平移一幀就一次。移動中大面積填色仍由
+//   renderDrawings 內的 _ovMoving 旗標跳過（停手 240ms 補回），保住平移效能。
 let _rdRafPending = false, _rdLastTs = 0;
 function _scheduleRenderDrawings() {
-  if (_rdRafPending) return;
+  const _n = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+  if (_n - _rdLastTs >= 12) {           // 領先：同幀立即畫（與 K 棒同步、零浮動）
+    _rdLastTs = _n;
+    renderDrawings();
+    return;
+  }
+  if (_rdRafPending) return;            // 尾隨：同幀重複觸發合併成下一幀一次
   _rdRafPending = true;
   requestAnimationFrame(() => {
     _rdRafPending = false;
-    // 平移/縮放進行中：整張 overlay(VWAP/教練/折價溢價/繪圖) 降到 ~30fps，把每幀預算讓給主圖 K 線 → 縮放更順。
-    //   保留最後一次(下一幀再試)→ 停手時以最新狀態畫、不會殘影；非移動時照常每幀。
-    const _n = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
-    if (window._chartMoveTs && _n - window._chartMoveTs < 220 && _n - _rdLastTs < 32) { _scheduleRenderDrawings(); return; }
-    _rdLastTs = _n;
+    _rdLastTs = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
     renderDrawings();
   });
 }
