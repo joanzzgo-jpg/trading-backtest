@@ -49,6 +49,9 @@ async function loadData(autoLoad = false) {
   }, 5000);
 
   showLoading(true);
+  // 本機快照：這個標的最近看過(IndexedDB 有存)→ 先秒畫上次的圖(K棒+策略層)，
+  // 真資料/勝率到貨自動覆蓋（世代守衛在下方 _snapInvalidate）。開機與切標的同一條路。
+  if (typeof window._snapPaint === "function") window._snapPaint();
   // 智慧並行：Pionex 獨有標的（.P）ohlcv 走 Pionex API 較慢，提前發 winrate 省 2-6s；
   // Binance 標的 ohlcv 已 <1s，提前發只會讓「計算中…」動畫多顯示 0.5s 反而看起來變慢
   const _isPerpSym = /\.P$/i.test(document.getElementById("symbolInput").value.trim());
@@ -62,6 +65,7 @@ async function loadData(autoLoad = false) {
     const json = await res.json();
     if (!res.ok) throw new Error(json.detail || "載入失敗");
     ohlcvData = json.data;
+    if (typeof window._snapInvalidate === "function") window._snapInvalidate();   // 真資料落地→作廢未完成的快照繪製
     ++_bgLoadGen; _bgLoadInProgress = false; // 取消舊的背景請求
     clearTimeout(_bgIndicatorTimer);
     _bgAnchorCache = null;

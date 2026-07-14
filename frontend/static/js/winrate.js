@@ -1655,15 +1655,17 @@ setTimeout(() => {
 }, 15000);
 
 /* ══════════════════════════════════════════
-   本機快照（開 app 秒出圖）— IndexedDB
+   本機快照（開 app／切標的 秒出圖）— IndexedDB，最近 5 個標的(LRU)
    存：勝率新鮮結果落地時(唯一寫入點在 _fetchWinRateNow 成功路徑呼叫 _snapSave)，
-       存「最後看的標的」一筆：近 1500 根 K 棒 + 整份勝率 payload。
-   還原：開機圖表就緒、真資料還沒到、且上次標的＝這次要載的 → 先畫快照，
+       每個標的一筆：近 1500 根 K 棒 + 整份勝率 payload；LRU 只留 5 筆。
+   畫：loadData 每次啟動呼叫 _snapPaint()（開機與切標的同一條路）→ 有該標的快照就先畫；
+       真資料落地時 loadData 呼叫 _snapInvalidate() 作廢未完成的快照繪製（世代守衛）。
        ⚠ 不寫進 _wrCache（快取命中會 return 跳過網路）→ 正常載入照跑、到貨自動覆蓋。
-   斷網開 app：載入失敗但快照仍在 → 至少看得到最後一份圖。
+   斷網開 app：SW 離線外殼進得來 + loadData 失敗不作廢 → 照樣畫出最後一份圖。
 ══════════════════════════════════════════ */
 (function () {
   const STORE = "kv";
+  const MAX_SNAPS = 5;   // 最近 5 個標的
   function _idb() {
     return new Promise((res, rej) => {
       const q = indexedDB.open("ahh_snapshot", 1);
@@ -1672,13 +1674,22 @@ setTimeout(() => {
       q.onerror = () => rej(q.error);
     });
   }
-  const _put = v => _idb().then(db => new Promise((res, rej) => {
+  const _put = (key, v) => _idb().then(db => new Promise((res, rej) => {
     const tx = db.transaction(STORE, "readwrite");
-    tx.objectStore(STORE).put(v, "last");
+    const os = tx.objectStore(STORE);
+    os.put(v, key);
+    os.delete("last");                        // 清掉舊版單筆遺留
+    const gk = os.get("__keys__");            // LRU 索引：最近用的在前，同一交易內修剪
+    gk.onsuccess = () => {
+      let ks = Array.isArray(gk.result) ? gk.result : [];
+      ks = [key].concat(ks.filter(k => k !== key));
+      for (const k of ks.slice(MAX_SNAPS)) os.delete(k);
+      os.put(ks.slice(0, MAX_SNAPS), "__keys__");
+    };
     tx.oncomplete = res; tx.onerror = () => rej(tx.error);
   }));
-  const _get = () => _idb().then(db => new Promise(res => {
-    const q = db.transaction(STORE, "readonly").objectStore(STORE).get("last");
+  const _get = key => _idb().then(db => new Promise(res => {
+    const q = db.transaction(STORE, "readonly").objectStore(STORE).get(key);
     q.onsuccess = () => res(q.result || null); q.onerror = () => res(null);
   })).catch(() => null);
   const _uiKey = () => [
@@ -1697,7 +1708,7 @@ setTimeout(() => {
         try {
           if (key !== _uiKey()) return;       // 使用者已切標的 → K棒與 payload 不再配對，放棄
           if (typeof ohlcvData === "undefined" || !ohlcvData.length || !wr) return;
-          _put({ key, bars: ohlcvData.slice(-1500), wr, at: Date.now() }).catch(() => {});
+          _put(key, { key, bars: ohlcvData.slice(-1500), wr, at: Date.now() }).catch(() => {});
         } catch (e) {}
       };
       // IDB 內部 clone 大 payload ~10-30ms → 等瀏覽器閒了再存,不搶標記重建
@@ -1705,46 +1716,43 @@ setTimeout(() => {
     }, 1200);
   };
 
-  let _tried = false;
-  async function _tryRestore() {
-    if (_tried) return;
-    _tried = true;
-    try {
-      const s = await _get();
-      if (!s || !s.bars || !s.bars.length || !s.wr) return;
-      if (Date.now() - (s.at || 0) > 7 * 86400000) return;               // 超過 7 天太舊，不畫
-      if (typeof ohlcvData !== "undefined" && ohlcvData.length) return;  // IDB 讀取期間真資料已到
-      if (typeof candleSeries === "undefined" || !candleSeries) return;
-      if (s.key !== _uiKey()) return;                                    // 上次標的 ≠ 這次要載的
-      ohlcvData = s.bars;
-      if (typeof _rebuildTimeIndex === "function") _rebuildTimeIndex();
-      renderAll(ohlcvData);
-      const c = s.wr;   // 與 _fetchWinRateNow 快取命中分支同一組層,少一層就是舊標記殘留
-      _renderWinRate(c);
-      _renderWRSignals(c.signals);
-      _renderFVGTrades(c.fvg_trades);
-      _renderFVGBB(c.fvg_bb, c.fvg_bb_a, c.fvg_bb_m);
-      _renderFVGBreak(c.fvg_break);
-      _renderFVGMS(c.fvg_ms);
-      _renderFVGShun(c.fvg_shun);
-      _renderSMCSweep(c.smc_sweep);
-      _renderSMCStruct(c.smc_struct);
-      _renderSMCOB(c.smc_ob);
-      _renderSMCSR(c.smc_sr);
-      _renderCoachVWAP(c.vwap);
-      _renderCoachChannel(c.channel);
-      if (typeof setFVGZones === "function") setFVGZones(c.fvg);
-      _setFVGData(c.fvg);
-      window._pdRanges = c.pd_ranges || (c.pd_range ? [c.pd_range] : []);
-      if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();
-    } catch (e) {}
-  }
-  // 開機輪詢（100ms×40）：圖表建好且真資料未到 → 還原；真資料先到 → 作罷
-  let _n = 0;
-  const _arm = setInterval(() => {
-    _n++;
-    const dataArrived = (typeof ohlcvData !== "undefined" && ohlcvData.length);
-    if (dataArrived || _n > 40) { clearInterval(_arm); return; }
-    if (typeof candleSeries !== "undefined" && candleSeries) { clearInterval(_arm); _tryRestore(); }
-  }, 100);
+  // 世代守衛：_snapPaint 每次 ++（新載入取代舊的）、真資料落地 _snapInvalidate() 也 ++
+  // → IDB 讀取比較慢時，晚到的快照絕不會蓋掉真資料或畫到別的標的上。
+  let _gen = 0;
+  window._snapInvalidate = function () { _gen++; };
+  window._snapPaint = function () {
+    const myGen = ++_gen;
+    const key = _uiKey();
+    _get(key).then(s => {
+      try {
+        if (myGen !== _gen) return;                                        // 已被真資料/新載入取代
+        if (!s || !s.bars || !s.bars.length || !s.wr) return;
+        if (Date.now() - (s.at || 0) > 7 * 86400000) return;               // 超過 7 天太舊，不畫
+        if (typeof candleSeries === "undefined" || !candleSeries) return;
+        if (key !== _uiKey()) return;                                      // 期間又切了標的
+        ohlcvData = s.bars;
+        if (typeof _rebuildTimeIndex === "function") _rebuildTimeIndex();
+        renderAll(ohlcvData);
+        const c = s.wr;   // 與 _fetchWinRateNow 快取命中分支同一組層,少一層就是舊標記殘留
+        _renderWinRate(c);
+        _renderWRSignals(c.signals);
+        _renderFVGTrades(c.fvg_trades);
+        _renderFVGBB(c.fvg_bb, c.fvg_bb_a, c.fvg_bb_m);
+        _renderFVGBreak(c.fvg_break);
+        _renderFVGMS(c.fvg_ms);
+        _renderFVGShun(c.fvg_shun);
+        _renderSMCSweep(c.smc_sweep);
+        _renderSMCStruct(c.smc_struct);
+        _renderSMCOB(c.smc_ob);
+        _renderSMCSR(c.smc_sr);
+        _renderCoachVWAP(c.vwap);
+        _renderCoachChannel(c.channel);
+        if (typeof setFVGZones === "function") setFVGZones(c.fvg);
+        _setFVGData(c.fvg);
+        window._pdRanges = c.pd_ranges || (c.pd_range ? [c.pd_range] : []);
+        if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();
+        if (typeof showLoading === "function") showLoading(false);   // 圖已可看,收掉載入遮罩(勝率列仍顯示計算中)
+      } catch (e) {}
+    });
+  };
 })();
