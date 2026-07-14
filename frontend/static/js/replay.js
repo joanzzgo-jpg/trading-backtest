@@ -376,6 +376,12 @@ function _replayRender() {
   if (typeof _renderWRSignals === "function" && typeof _lastWRSignals !== "undefined" && _lastWRSignals.length) {
     _renderWRSignals();
   }
+  // 策略標記(多/空・破多空・順多空)：renderCandles(跳躍/進場路徑)會清空標記陣列，
+  // 正常載入由 renderAll 結尾重建、但重播路徑沒有 → 重播全程無策略標記(2026-07-14 修)。
+  // 這三個 render 內建 _rpCut=重播當前棒 → 只標到重播點、逐根揭曉不劇透未來。
+  if (typeof _renderFVGBreak === "function") _renderFVGBreak();
+  if (typeof _renderFVGMS === "function") _renderFVGMS();
+  if (typeof _renderFVGShun === "function") _renderFVGShun();
 
   _replayRenderDate(replayData[replayIdx]);
   const pct = replayData.length > 1 ? Math.round((replayIdx / (replayData.length - 1)) * 100) : 100;
