@@ -1291,22 +1291,29 @@ function _drawVolumeProfile(W, H) {
   }
 
   // ── 截止垂直線（可拖動）：滑鼠靠近可左右拖 → 改變統計範圍 ──
-  if (xCut != null && xCut >= 0 && xCut <= plotW) {
+  // 位置：使用者拖過(_vpCutTime≠null)→跟著那個時間；預設→釘在繪圖區右緣。
+  // ⚠ 預設別錨在「最後一根K棒」：往右滑進未來空白區時,最後一根K在畫面左側,
+  //   這條黃線會孤零零立在螢幕左邊像雜訊(使用者回報過「左邊有一條黃色的線」)。
+  const xLine = (_vpCutTime == null) ? (plotW - 1) : xCut;
+  if (xLine != null && xLine >= 0 && xLine <= plotW) {
     let plotBottom = H;
     try { const th = ts.height(); if (th > 0) plotBottom = H - th; } catch (e) {}
     drawCtx.save();
     drawCtx.strokeStyle = _vpDrag ? "rgba(255,213,79,0.95)" : "rgba(255,213,79,0.65)";
     drawCtx.lineWidth = _vpDrag ? 2 : 1.5;
-    drawCtx.beginPath(); drawCtx.moveTo(xCut, 0); drawCtx.lineTo(xCut, plotBottom); drawCtx.stroke();
+    drawCtx.beginPath(); drawCtx.moveTo(xLine, 0); drawCtx.lineTo(xLine, plotBottom); drawCtx.stroke();
     drawCtx.fillStyle = "rgba(255,213,79,0.9)";
-    drawCtx.fillRect(xCut - 3, 0, 6, 10);                  // 頂端握把
-    drawCtx.font = "10px sans-serif"; drawCtx.textBaseline = "top"; drawCtx.textAlign = "left";
+    drawCtx.fillRect(xLine - 3, 0, 6, 10);                 // 頂端握把
+    drawCtx.font = "10px sans-serif"; drawCtx.textBaseline = "top";
+    const _lblLeft = xLine > plotW - 60;                   // 靠右緣 → 標籤畫在線左側,免出界
+    drawCtx.textAlign = _lblLeft ? "right" : "left";
+    const _lx = _lblLeft ? xLine - 5 : xLine + 5;
     drawCtx.lineWidth = 3; drawCtx.strokeStyle = "rgba(0,0,0,0.55)";
-    drawCtx.strokeText("量分佈←", xCut + 5, 2);
+    drawCtx.strokeText("量分佈←", _lx, 2);
     drawCtx.fillStyle = "rgba(255,213,79,0.95)";
-    drawCtx.fillText("量分佈←", xCut + 5, 2);
+    drawCtx.fillText("量分佈←", _lx, 2);
     drawCtx.restore();
-    _vpLineLastX = xCut;
+    _vpLineLastX = xLine;
   }
 }
 
