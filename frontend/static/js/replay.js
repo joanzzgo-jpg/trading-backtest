@@ -327,10 +327,29 @@ function _replayStep(bar) {
 }
 
 function _replayRender() {
-  const n     = replayIdx + 1;
-  const range = { from: Math.max(0, n - _replaySpan - 1), to: n - 1 };
-  const _setRange = () =>
+  const n = replayIdx + 1;
+  // 視圖規則(2026-07-14 修「按下一根會跳回原縮放」)：**保持使用者當下的縮放倍率與右緣間距**。
+  //   - 視圖右緣貼著「上一個重播點」(±2根) → 跟隨：窗寬(span)與右側留白(offset)原封不動、整窗平移到新棒；
+  //   - 使用者已往回平移看歷史 → 視圖完全不動(新棒在畫面外長，不打斷復盤)；
+  //   - 拿不到視圖(極早期) → 退回固定 _replaySpan 舊行為。
+  let range = null;
+  try {
+    const vr = mainChart.timeScale().getVisibleLogicalRange();
+    if (vr) {
+      const span = vr.to - vr.from;
+      const prevLast = (_replayLastIdx >= 0) ? _replayLastIdx : n - 1;
+      if (vr.to >= prevLast - 2) {
+        const offset = vr.to - prevLast;          // 右緣距最新棒幾根(使用者自留的右側空白)
+        range = { from: (n - 1) + offset - span, to: (n - 1) + offset };
+      }
+    } else {
+      range = { from: Math.max(0, n - _replaySpan - 1), to: n - 1 };
+    }
+  } catch (e) { range = { from: Math.max(0, n - _replaySpan - 1), to: n - 1 }; }
+  const _setRange = () => {
+    if (!range) return;                            // 看歷史中 → 不動視圖
     [mainChart, kdjChart, rsiChart, macdChart].forEach(c => c?.timeScale().setVisibleLogicalRange(range));
+  };
 
   _blockSync = true;
 
