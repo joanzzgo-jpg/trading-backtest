@@ -34,8 +34,10 @@ window._cycleProtoMin = function () {
 // 兩者獨立開關；開→cacheKey 帶 npm/npb tag → 後端各自分流重算。預設關(用 proto)。
 let _wrNoProtoMs = false;      // 多/空
 let _wrNoProtoBreak = false;   // 破多/破空
+let _wrMsBNarrow = false;      // 多/空 加「B寬<A寬」過濾(回測比較用;現行預設無此條件)
 try { _wrNoProtoMs = localStorage.getItem("wrNoProtoMs") === "1"; } catch (e) {}
 try { _wrNoProtoBreak = localStorage.getItem("wrNoProtoBreak") === "1"; } catch (e) {}
+try { _wrMsBNarrow = localStorage.getItem("wrMsBNarrow") === "1"; } catch (e) {}
 function _syncNoProtoLabel() {
   const bM = document.getElementById("noProtoMsBtn");
   if (bM) bM.classList.toggle("active", _wrNoProtoMs);
@@ -45,6 +47,10 @@ function _syncNoProtoLabel() {
   if (bB) bB.classList.toggle("active", _wrNoProtoBreak);
   const lB = document.getElementById("noProtoBreakLbl");
   if (lB) lB.textContent = _wrNoProtoBreak ? "破=正常FVG" : "破=proto";
+  const bN = document.getElementById("msBNarrowBtn");
+  if (bN) bN.classList.toggle("active", _wrMsBNarrow);
+  const lN = document.getElementById("msBNarrowLbl");
+  if (lN) lN.textContent = _wrMsBNarrow ? "B窄於A" : "B寬不限";
 }
 window._syncNoProtoLabel = _syncNoProtoLabel;
 window._toggleNoProtoMs = function (on) {
@@ -53,6 +59,13 @@ window._toggleNoProtoMs = function (on) {
   _syncNoProtoLabel();
   fetchWinRate();
   return _wrNoProtoMs;
+};
+window._toggleMsBNarrow = function (on) {
+  _wrMsBNarrow = (on === undefined) ? !_wrMsBNarrow : !!on;
+  try { localStorage.setItem("wrMsBNarrow", _wrMsBNarrow ? "1" : "0"); } catch (e) {}
+  _syncNoProtoLabel();
+  fetchWinRate();
+  return _wrMsBNarrow;
 };
 window._toggleNoProtoBreak = function (on) {
   _wrNoProtoBreak = (on === undefined) ? !_wrNoProtoBreak : !!on;
@@ -518,7 +531,7 @@ async function _fetchWinRateNow() {
   const bufDec = (_wrStopBuffer || 0) / 100;
   const _vw = _wrVwFor(typeof ohlcvData !== "undefined" ? ohlcvData.length : 0);
   window._wrCurVw = _vw;
-  const cacheKey = `${market}:${symbol}:${exchange}:${timeframe}:${bufDec.toFixed(4)}:vw${_vw}:pm${_wrProtoMin}:npm${_wrNoProtoMs ? 1 : 0}:npb${_wrNoProtoBreak ? 1 : 0}`;
+  const cacheKey = `${market}:${symbol}:${exchange}:${timeframe}:${bufDec.toFixed(4)}:vw${_vw}:pm${_wrProtoMin}:npm${_wrNoProtoMs ? 1 : 0}:npb${_wrNoProtoBreak ? 1 : 0}:bn${_wrMsBNarrow ? 1 : 0}`;
   if (_wrCache[cacheKey]) {
     // 快取命中也要取消上一個還在飛的勝率請求，否則它稍後成功回來會用「舊標的」的
     // 訊號覆寫 _lastWRSignals → 訊號時間不存在於新標的 ohlcv → markers 全被過濾 → 策略不顯示。
@@ -565,7 +578,7 @@ async function _fetchWinRateNow() {
   // 不寫 "計算中…" 到 wrStatus，由中央 .tb-wr-loading（小熊 + 文字）顯示
   if (statusEl) statusEl.textContent = "";
   try {
-    const p   = new URLSearchParams({ market, symbol, exchange, timeframe, stop_buffer_pct: bufDec.toFixed(4), vw: String(_vw), proto_min: String(_wrProtoMin), no_proto_ms: _wrNoProtoMs ? "1" : "0", no_proto_break: _wrNoProtoBreak ? "1" : "0" });
+    const p   = new URLSearchParams({ market, symbol, exchange, timeframe, stop_buffer_pct: bufDec.toFixed(4), vw: String(_vw), proto_min: String(_wrProtoMin), no_proto_ms: _wrNoProtoMs ? "1" : "0", no_proto_break: _wrNoProtoBreak ? "1" : "0", ms_bnarrow: _wrMsBNarrow ? "1" : "0" });
     const res = await fetch("/api/crt_winrate?" + p, { signal: myCtrl.signal, cache: "no-cache" });
     const d   = await res.json();
     if (!res.ok) throw new Error(d.detail || "failed");
@@ -1633,7 +1646,7 @@ async function _accelTick() {
     try {
       const p = new URLSearchParams({ market: mkt, symbol: w.symbol, exchange: exch, timeframe,
         stop_buffer_pct: bufDec, vw: "8000", proto_min: String(_wrProtoMin),
-        no_proto_ms: _wrNoProtoMs ? "1" : "0", no_proto_break: _wrNoProtoBreak ? "1" : "0" });
+        no_proto_ms: _wrNoProtoMs ? "1" : "0", no_proto_break: _wrNoProtoBreak ? "1" : "0", ms_bnarrow: _wrMsBNarrow ? "1" : "0" });
       const res = await fetch("/api/crt_winrate?" + p, { cache: "no-cache" });
       try { if (res.body) res.body.cancel(); } catch (e) {}              // 只要後端算完，body 不用下載
     } catch (e) { /* 預熱失敗靜默（下輪 25 分後再試） */ }

@@ -144,7 +144,8 @@ def _scan_outcome_np(highs, lows, closes, target_arr, times_iso, entry_i, n, sto
 def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only: bool = False,
                       _solve=None, band_ratio: float = 1.0, visual_window: int = 0,
                       stock_gap: bool = False, proto_min: float = 0.0005,
-                      no_proto_ms: bool = False, no_proto_break: bool = False) -> dict:
+                      no_proto_ms: bool = False, no_proto_break: bool = False,
+                      ms_bnarrow: bool = False) -> dict:
     """no_proto_ms / no_proto_break=True：分別讓「多/空」與「破多/破空」的 B 觸發
     從單根 proto(收盤站上前根高/破前根低、非repaint)換成正常 3 根 FVG(g+1 確認、
     L[g+1]>H[g-1] / H[g+1]<L[g-1]，沿用 setup A 的 _gaps_seq 定義)。兩者獨立。"""
@@ -1372,8 +1373,9 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                     if _pdr[_q] == "s": _B = _q; break
                 if _B is None: continue
                 _cf2 = _pcf[_B]
-                # 空：B下緣<A上緣(重疊可)；不套「B寬<A寬」。
+                # 空：B下緣<A上緣(重疊可)；預設不套「B寬<A寬」，ms_bnarrow 開關開啟才要求 B 比 A 窄(回測比較用)。
                 if _cf2 in _ms_seen or _cf2 - _touch > _MSWIN or not _pbot[_B] < _top: continue
+                if ms_bnarrow and (_ptop[_B] - _pbot[_B]) / _ptop[_B] >= (_top - _bot) / _top: continue
                 _blk = False
                 for _q in range(_p, _B):
                     if _pdr[_q] == "l" and _pcf[_q] - _touch > 2:
@@ -1403,9 +1405,11 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                 if _B is None: continue
                 _cf2 = _pcf[_B]
                 # 多：B 下緣要高於 A 下緣(_pbot>_bot)＋ B 不能完全被 A 包住→上緣要突出 A 上緣(_ptop>_top)。
-                #   (可部分重疊：B 下緣容許 <A 上緣；只是不得整個縮在 A 內、也不得低於 A 下緣。)不套「B寬<A寬」。
+                #   (可部分重疊：B 下緣容許 <A 上緣；只是不得整個縮在 A 內、也不得低於 A 下緣。)
+                #   預設不套「B寬<A寬」，ms_bnarrow 開啟才要求 B 比 A 窄(回測比較用)。
                 if (_cf2 in _ms_seen or _cf2 - _touch > _MSWIN
                         or not (_pbot[_B] > _bot) or not (_ptop[_B] > _top)): continue
+                if ms_bnarrow and (_ptop[_B] - _pbot[_B]) / _pbot[_B] >= (_top - _bot) / _bot: continue
                 _blk = False
                 for _q in range(_p, _B):
                     if _pdr[_q] == "s" and _pcf[_q] - _touch > 2:
