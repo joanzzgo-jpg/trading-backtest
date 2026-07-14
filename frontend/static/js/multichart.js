@@ -82,6 +82,7 @@
       if (gen !== cell.gen || !res.ok || !Array.isArray(j.data) || !j.data.length) return;
       cell.series.setData(j.data.map(b => ({ time: toTime(b.time), open: b.open, high: b.high, low: b.low, close: b.close })));
       const n = j.data.length;
+      cell.lastT = toTime(j.data[n - 1].time);   // 最後一根時間：_tickMini 只能 update ≥ 此時間的棒(LWC 限制)
       cell.lastC = j.data[n - 1].close; cell.prevC = n > 1 ? j.data[n - 2].close : null;
       cell.chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, n - 90), to: n + 3 });
       _updHeader(i);
@@ -137,10 +138,17 @@
       });
       const j = await res.json();
       if (gen !== cell.gen || !j || !Array.isArray(j.data) || !j.data.length) return;
+      // ⚠ series.update() 只接受「時間 ≥ 目前最後一根」的棒（LWC 限制）：先前把倒數第二根也丟進去
+      //   → 第一個 update 就拋錯被 catch 吞掉、最後一根永遠沒更新 → 迷你圖價格凍結。
       const tail = j.data.slice(-2);
-      for (const b of tail) cell.series.update({ time: toTime(b.time), open: b.open, high: b.high, low: b.low, close: b.close });
-      if (tail.length >= 2) cell.prevC = tail[tail.length - 2].close;
-      cell.lastC = tail[tail.length - 1].close;
+      for (const b of tail) {
+        const tm = toTime(b.time);
+        if (cell.lastT != null && tm < cell.lastT) continue;   // 比已知最後一根舊 → 跳過
+        cell.series.update({ time: tm, open: b.open, high: b.high, low: b.low, close: b.close });
+        if (cell.lastT != null && tm > cell.lastT) cell.prevC = cell.lastC;   // 換新棒 → 舊收盤變前收
+        cell.lastT = tm;
+        cell.lastC = b.close;
+      }
       _updHeader(i);
     } catch (e) {}
   }
