@@ -62,8 +62,8 @@ const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
   if (rng0 === rng1) fail("拖曳沒有平移到圖表（被浮層擋住？城門頁沒關？）");
   console.log("✓ 平移");
 
-  // 4) 滾輪縮放
-  for (let i = 0; i < 6; i++) { await page.mouse.wheel({ deltaY: i % 2 ? 120 : -120 }); await new Promise(r => setTimeout(r, 40)); }
+  // 4) 滾輪縮放（單方向：交替 +/- 會對稱抵銷、可能剛好回到原範圍 → 假陰性）
+  for (let i = 0; i < 6; i++) { await page.mouse.wheel({ deltaY: -120 }); await new Promise(r => setTimeout(r, 40)); }
   const rng2 = await page.evaluate(() => JSON.stringify(mainChart.timeScale().getVisibleLogicalRange()));
   if (rng1 === rng2) fail("滾輪沒有縮放到圖表");
   console.log("✓ 縮放");
