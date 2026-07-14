@@ -1136,9 +1136,26 @@ function _drawSessionOverlay(W, H) {
   drawCtx.restore();
   }   // end if (_sessionOn) — 以下星期標籤永遠畫
 
+  // 每日像素寬（可見範圍前兩次換日的間距）：③b 週框 / ③ 星期標籤的密度門檻共用。
+  // 縮得太小時：「週X」互相疊成一坨、週框變成密集柵欄 → 依門檻整組不畫。
+  let _dayPx = Infinity;   // 只有 0~1 次換日(看單日內)→ Infinity＝照常顯示
+  {
+    let pd = (from > 0) ? _dayOf(ohlcvData[from - 1].time) : -1;
+    let firstChg = -1;
+    for (let i = from; i <= to; i++) {
+      const dy = _dayOf(ohlcvData[i].time);
+      if (dy !== pd) {
+        pd = dy;
+        if (firstChg >= 0) { _dayPx = (i - firstChg) * half * 2; break; }
+        firstChg = i;
+      }
+    }
+  }
+
   // ③b 週框：把每週的「週一~週五」K 棒用細框框起來（全高矩形）。
   //   crypto(24/7)週末有棒→落在框外；股票無週末棒→以「出現週一」為界起新框。只框、不填。
-  if (_weekBoxOn) {
+  //   每天 <4px（一週框剩 ~20px）→ 框變密集柵欄 → 不畫。
+  if (_weekBoxOn && _dayPx >= 4) {
   drawCtx.save();
   drawCtx.strokeStyle = "rgba(255,255,255,0.6)"; drawCtx.lineWidth = 1.5;
   drawCtx.fillStyle = "rgba(255,255,255,0.055)";        // 很淡底色→整週像一個區塊、更明顯
@@ -1169,6 +1186,8 @@ function _drawSessionOverlay(W, H) {
   }   // end if (_weekBoxOn)
 
   // ③ 星期標籤：日期變動的那根 K 棒上方標「週X」
+  // 每天寬度不足一個標籤寬(≈34px)→「週X」會疊成一坨 → 整排不畫（逐日虛線分隔一併省略）。
+  if (_dayPx >= 34) {
   drawCtx.save();
   drawCtx.font = "bold 13px sans-serif"; drawCtx.fillStyle = "rgba(255,255,255,0.55)"; drawCtx.textAlign = "left";
   // prevDay 從可見範圍「前一根」起算 → 只在真正換日那根標籤（不會在最左根硬標、平移時閃）
@@ -1185,6 +1204,7 @@ function _drawSessionOverlay(W, H) {
     }
   }
   drawCtx.restore();   // 星期標籤
+  }   // end if (_dayPx >= 34) — 星期標籤密度門檻
   drawCtx.restore();   // 外層繪圖區裁切
 }
 
