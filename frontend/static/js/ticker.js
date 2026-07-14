@@ -147,18 +147,42 @@ function _updateTickerPrices() {
   updatePageTitle();
 }
 
+// ── 報價 delta 輪詢：帶上次 rev token → 後端只回「有變動的標的」,本地按 symbol 合併 ──
+//    頻寬大減但「報價照樣每秒報」(變動的每檔都在 delta 裡)。每 ~60 輪拿一次整包
+//    (新上架/下架/排序基準自癒);後端重啟/token 失效自動回整包,永不出錯。
+const _tkRev = { futures: null, spot: null, tw: null };
+let _tkPollN = 0;
+function _tkMerge(cur, j, key) {
+  if (j.rev) _tkRev[key] = j.rev;
+  if (!j.delta) return (j.tickers && j.tickers.length) ? j.tickers : cur;   // 整包(或舊後端/冷啟動空包→保留舊資料)
+  if (!j.tickers || !j.tickers.length) return cur;                          // delta 空=真的沒變動
+  const idx = new Map();
+  cur.forEach((t, i) => idx.set(t.symbol, i));
+  const out = cur.slice();
+  for (const t of j.tickers) {
+    const i = idx.get(t.symbol);
+    if (i == null) out.push(t); else out[i] = t;
+  }
+  return out;
+}
+function _tkUrl(m, key, useSince) {
+  return "/api/tickers?market=" + m + ((useSince && _tkRev[key]) ? "&since=" + encodeURIComponent(_tkRev[key]) : "");
+}
+
 async function fetchTickers() {
   try {
+    _tkPollN++;
+    const useSince = (_tkPollN % 60 !== 1);   // 每 60 輪第 1 次拿整包,其餘走 delta
     if (_tickerMkt === "tw") {
-      const res = await fetch("/api/tickers?market=tw");
-      if (res.ok) { const j = await res.json(); _twTickerData = j.tickers || []; }
+      const res = await fetch(_tkUrl("tw", "tw", useSince));
+      if (res.ok) { const j = await res.json(); _twTickerData = _tkMerge(_twTickerData, j, "tw"); }
     } else {
       const [futRes, spotRes] = await Promise.all([
-        fetch("/api/tickers?market=futures"),
-        fetch("/api/tickers?market=spot"),
+        fetch(_tkUrl("futures", "futures", useSince)),
+        fetch(_tkUrl("spot", "spot", useSince)),
       ]);
-      if (futRes.ok)  { const j = await futRes.json();  if (j.tickers?.length) _tickerData     = j.tickers; }
-      if (spotRes.ok) { const j = await spotRes.json(); if (j.tickers?.length) _spotTickerData = j.tickers; }
+      if (futRes.ok)  { const j = await futRes.json();  _tickerData     = _tkMerge(_tickerData, j, "futures"); }
+      if (spotRes.ok) { const j = await spotRes.json(); _spotTickerData = _tkMerge(_spotTickerData, j, "spot"); }
     }
 
     // 手機版面板未滑出時跳過 DOM 更新；桌面版面板永遠可見

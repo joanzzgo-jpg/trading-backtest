@@ -80,9 +80,11 @@ def hk_search(q: str = ""):
 
 
 @router.get("/tickers")
-def get_tickers(response: Response, market: str = "futures"):
-    """取得標的列表：優先從記憶體即時快取讀取，啟動初期才 fallback 至直接 API。"""
-    from utils.live_data import get as live_get, has_data, has_tw_data
+def get_tickers(response: Response, market: str = "futures", since: str = ""):
+    """取得標的列表：優先從記憶體即時快取讀取，啟動初期才 fallback 至直接 API。
+    since=上次回應的 rev token → 只回「有變動的標的」(delta:true)＋新 token；
+    token 失效(重啟/別的worker/太舊/無資料) → 自動回整包。crypto 1s/tw 3s 輪詢頻寬大減、行為不變。"""
+    from utils.live_data import get as live_get, has_data, has_tw_data, get_delta, delta_token
     from data.taiwan import fetch_tw_tickers
     # HTTP 快取：crypto 1s、tw 2s（台股高量股由 MIS 疊價 worker 每 3s 更新記憶體→短快取讓報價列即時跳）。
     # 避免多分頁/多用戶同步 polling 造成的重複請求。
@@ -94,11 +96,30 @@ def get_tickers(response: Response, market: str = "futures"):
         if futs is None:
             futs = fetch_wall_tickers()
             cache.set("txf_tickers", futs)
-        base = live_get("tw") if has_tw_data() else fetch_tw_tickers()
-        src = "live" if has_tw_data() else "direct"
-        return {"tickers": (futs or []) + base, "source": src}
+        if has_tw_data():
+            if since:
+                d = get_delta("tw", since)
+                if d is not None:   # delta＝台股變動檔＋台指期三兄弟一律附上（客戶端靠 symbol 合併）
+                    d["tickers"] = (futs or []) + d["tickers"]
+                    d["source"] = "live"
+                    return d
+            out = {"tickers": (futs or []) + live_get("tw"), "source": "live"}
+            tok = delta_token("tw")
+            if tok:
+                out["rev"] = tok
+            return out
+        return {"tickers": (futs or []) + fetch_tw_tickers(), "source": "direct"}
     if has_data():
-        return {"tickers": live_get(market), "source": "live"}
+        if since:
+            d = get_delta(market, since)
+            if d is not None:
+                d["source"] = "live"
+                return d
+        out = {"tickers": live_get(market), "source": "live"}
+        tok = delta_token(market)
+        if tok:
+            out["rev"] = tok
+        return out
     # 冷啟動 fallback：直接呼叫 API
     tickers = fetch_tickers(market)
     return {"tickers": tickers, "source": "direct"}

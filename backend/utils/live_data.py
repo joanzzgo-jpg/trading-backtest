@@ -13,6 +13,61 @@ import threading
 _cache = {"futures": [], "spot": [], "tw": [], "ts": 0.0}
 _lock  = threading.Lock()
 
+# ── delta 支援（/api/tickers?since=…）───────────────────────────────
+# leader 每次 update 時逐標的比對上一版快照 → 記「最後變動 rev」；
+# 路由帶舊 rev 來 → 只回有變動的標的（crypto 1s 輪詢頻寬大減、行為不變）。
+# token 摻 _BOOT（process 標識）：重啟/別的 worker 的 token 一律判失效 → 回整包，永不出錯資料。
+_BOOT  = f"{int(time.time()):x}-{os.getpid():x}"
+_delta = {}   # market → {"rev": int, "sym_rev": {sym: rev}, "prev": {sym: dict快照}}
+
+
+def _track(market: str, lst: list):
+    """在 _lock 內呼叫：比對每個標的 dict 是否與上一版不同 → 蓋最後變動 rev。
+    ⚠ prev 必須存「副本」：overlay_tw 是就地改同一批 dict，存原參照會永遠相等、測不到變動。"""
+    d = _delta.setdefault(market, {"rev": 0, "sym_rev": {}, "prev": {}})
+    d["rev"] += 1
+    rev, prev, srev = d["rev"], d["prev"], d["sym_rev"]
+    cur = {}
+    for t in lst:
+        s = t.get("symbol")
+        if not s:
+            continue
+        cur[s] = t
+        if prev.get(s) != t:
+            srev[s] = rev
+    for s in list(srev.keys()):          # 下架標的清掉（防 srev 無限長大）
+        if s not in cur:
+            srev.pop(s, None)
+    d["prev"] = {s: dict(t) for s, t in cur.items()}
+
+
+def delta_token(market: str):
+    """目前版本 token（整包回應附上 → 客戶端下次帶 since 用）。follower 無 _delta → None。"""
+    d = _delta.get(market)
+    return f"{_BOOT}:{d['rev']}" if d else None
+
+
+def get_delta(market: str, token: str):
+    """回「自 token 版以來有變動的標的」；token 失效/跨程序/太舊 → None（呼叫端回整包）。
+    先鎖內快照 rev/sym_rev 再取清單：期間若又有更新,新變動不在本次回應,但回的 token 也是舊 rev
+    → 下一輪必補到,不漏報。"""
+    d = _delta.get(market)
+    if not d or not token:
+        return None
+    try:
+        boot, r = token.rsplit(":", 1)
+        r = int(r)
+    except Exception:
+        return None
+    with _lock:
+        rev = d["rev"]
+        if boot != _BOOT or r > rev or rev - r > 900:   # 900版≈15分鐘沒跟上 → 整包重來
+            return None
+        srev = dict(d["sym_rev"])
+    lst = get(market)
+    changed = [] if r == rev else [t for t in lst if srev.get(t.get("symbol"), rev) > r]
+    return {"tickers": changed, "rev": f"{_BOOT}:{rev}", "delta": True}
+
 # 共享磁碟快照（與 disk_cache 同目錄，跨 process 存活）。原子寫（temp+rename）避免讀到半截。
 _SHARE_DIR  = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".df_cache")
 _SHARE_PATH = os.path.join(_SHARE_DIR, "live_ticker.pkl")
@@ -95,6 +150,8 @@ def update(futures: list, spot: list):
         _cache["futures"] = futures
         _cache["spot"]    = spot
         _cache["ts"]      = time.time()
+        _track("futures", futures)
+        _track("spot", spot)
         snap = dict(_cache)
     _write_shared(snap)                              # leader 寫共享磁碟供 follower 讀
 
@@ -103,6 +160,7 @@ def update_tw(tw: list):
     with _lock:
         _cache["tw"] = tw
         _cache["ts"] = time.time()
+        _track("tw", tw)
         snap = dict(_cache)
     _write_shared(snap)
 
@@ -122,5 +180,6 @@ def overlay_tw(price_map: dict):
                 t["price"] = u["price"]; t["change_pct"] = u["change_pct"]
                 t["change_amt"] = u["change_amt"]; t["volume"] = u["volume"]
         _cache["ts"] = time.time()
+        _track("tw", lst)     # 就地改也要追蹤變動（prev 存副本，比對可靠）
         snap = dict(_cache)
     _write_shared(snap)
