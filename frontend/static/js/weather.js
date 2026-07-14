@@ -70,7 +70,7 @@
 
   /* shared state */
   let sunAngle = 0, moonGlow = 0;
-  let flashAlpha = 0, lightningTimer = 80, lightningPath = [];
+  let flashAlpha = 0, lightningTimer = 80, lightningPath = [], lightningSpr = null;
   let shootTimer = 200, shootX = 0, shootY = 0, shootDX = 0, shootDY = 0, shootLen = 0;
   let stars = [], sparks = [], rainP = [], ripples = [], snowP = [], cloudP = [], leafP = [], petalP = [], mahjongP = [], windStreaks = [];
   let glassDrops = [], splashes = [];   // 雨：前景玻璃水珠 / 地面濺起水花
@@ -1669,6 +1669,31 @@
     ctx.restore();
   }
 
+  /* ── 閃電烤貼圖：形狀在整個生命週期不變、只有透明度衰減 → 生成當下把所有光暈層
+       一次烤進離屏畫布，之後每幀 1 次 drawImage(globalAlpha) 取代 7~11 次 shadowBlur 描邊
+       （shadowBlur 高斯模糊每幀重算＝雷暴/暴風閃電期間最大 CPU 熱點；同麻將牌發光的既有模式）。
+       貼圖解析度跟隨層基準縮放 → 與直接描邊同銳利度。 ── */
+  function _bakeBoltSprite(strokes, pad) {
+    let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
+    strokes.forEach(s=>s.path.forEach(([x,y])=>{ if(x<x0)x0=x; if(x>x1)x1=x; if(y<y0)y0=y; if(y>y1)y1=y; }));
+    x0-=pad; y0-=pad; x1+=pad; y1+=pad;
+    const w=x1-x0, h=y1-y0;
+    let sc=1; try { sc=ctx.getTransform().a||1; } catch(e){}
+    const cv=document.createElement("canvas");
+    cv.width=Math.max(1,Math.ceil(w*sc)); cv.height=Math.max(1,Math.ceil(h*sc));
+    const g=cv.getContext("2d");
+    g.setTransform(sc,0,0,sc,-x0*sc,-y0*sc);
+    g.lineCap="round"; g.lineJoin="round";
+    strokes.forEach(s=>{
+      g.shadowBlur=s.blur; g.shadowColor=s.bc;
+      g.strokeStyle=s.color; g.lineWidth=s.w;
+      g.beginPath(); g.moveTo(s.path[0][0],s.path[0][1]);
+      for(let i=1;i<s.path.length;i++) g.lineTo(s.path[i][0],s.path[i][1]);
+      g.stroke();
+    });
+    return {cv,x:x0,y:y0,w,h};
+  }
+
   /* ── recursive midpoint-displacement lightning ── */
   function _bolt(x1,y1,x2,y2,d) {
     if (d === 0) return [[x2,y2]];
@@ -2073,22 +2098,17 @@
       flashAlpha=.24;
       const lx=W*.1+Math.random()*W*.8;
       lightningPath=[[lx,0], ..._bolt(lx,0,lx+(Math.random()-.5)*W*.35,H*.82,5)];
+      /* 生成當下烤貼圖（外暈+內芯兩層,參數同舊版逐幀描邊）→ 之後每幀只 drawImage */
+      lightningSpr=_bakeBoltSprite([
+        { path: lightningPath, color:"rgba(255,255,235,.95)", w:3,   blur:24, bc:"rgba(255,255,200,1)" },
+        { path: lightningPath, color:"rgba(255,255,255,.7)",  w:1.2, blur:24, bc:"rgba(255,255,200,1)" },
+      ], 30);
     }
-    if (lightningPath.length>1) {
-      ctx.shadowBlur=24; ctx.shadowColor="rgba(255,255,200,1)";
-      ctx.strokeStyle="rgba(255,255,235,.95)"; ctx.lineWidth=3;
-      ctx.beginPath(); ctx.moveTo(lightningPath[0][0],lightningPath[0][1]);
-      lightningPath.slice(1).forEach(([x,y]) => ctx.lineTo(x,y)); ctx.stroke();
-      /* inner bright core */
-      ctx.strokeStyle="rgba(255,255,255,.7)"; ctx.lineWidth=1.2;
-      ctx.beginPath(); ctx.moveTo(lightningPath[0][0],lightningPath[0][1]);
-      lightningPath.slice(1).forEach(([x,y]) => ctx.lineTo(x,y)); ctx.stroke();
-      ctx.shadowBlur=0;
-    }
+    if (lightningSpr) ctx.drawImage(lightningSpr.cv, lightningSpr.x, lightningSpr.y, lightningSpr.w, lightningSpr.h);
     if (flashAlpha>0) {
       ctx.fillStyle=`rgba(210,225,255,${flashAlpha})`; ctx.fillRect(0,0,W,H);
       flashAlpha=Math.max(0,flashAlpha-.024);
-      if (flashAlpha<=0) lightningPath=[];
+      if (flashAlpha<=0) { lightningPath=[]; lightningSpr=null; }
     }
     /* dark storm vignette (cached) */
     ctx.fillStyle=_gc.stormVg; ctx.fillRect(0,0,W,H);
@@ -2114,43 +2134,29 @@
         const lx=W*.04+Math.random()*W*.92;
         const ex=lx+(Math.random()-.5)*W*.50;
         const {main,branches}=_boltWithBranches(lx,0,ex,H*(.60+Math.random()*.38),5);
-        thunderBolts.push({main,branches,alpha:1});
+        /* 生成當下把 3 層主幹光暈+每條分支 2 層一次烤進貼圖(參數同舊版逐幀描邊)，
+           衰減改調 drawImage 的 globalAlpha → 亮 1.5s 期間每幀省 7~11 次 shadowBlur */
+        const strokes=[
+          { path: main, color:"rgba(160,210,255,.30)", w:12, blur:60, bc:"rgba(140,190,255,1)" },
+          { path: main, color:"rgba(210,235,255,.60)", w:5,  blur:28, bc:"rgba(200,228,255,1)" },
+          { path: main, color:"rgba(255,255,255,.98)", w:2,  blur:8,  bc:"rgba(255,255,255,1)" },
+        ];
+        branches.forEach(br=>{
+          strokes.push({ path: br.path, color:`rgba(200,232,255,${(br.alpha*.60).toFixed(3)})`, w:3.5, blur:22, bc:"rgba(180,220,255,1)" });
+          strokes.push({ path: br.path, color:`rgba(255,255,255,${(br.alpha*.85).toFixed(3)})`, w:1,   blur:6,  bc:"rgba(255,255,255,1)" });
+        });
+        thunderBolts.push({spr:_bakeBoltSprite(strokes,70),alpha:1});
         thunderFlashes.push({alpha:.07+Math.random()*.06, decay:.010+Math.random()*.008}); /* much dimmer */
       }
       /* no thunder sound */
     }
-    /* draw bolts — 3-pass rendering for realism */
+    /* draw bolts — 貼圖版(烤好的 3 層光暈+分支)，衰減走 globalAlpha */
     for (let i=thunderBolts.length-1;i>=0;i--) {
       const b=thunderBolts[i];
       if (b.alpha<=0){thunderBolts.splice(i,1);continue;}
-      ctx.save(); ctx.lineCap="round"; ctx.lineJoin="round";
-      /* pass 1: wide diffuse corona */
-      ctx.shadowColor="rgba(140,190,255,1)"; ctx.shadowBlur=60;
-      ctx.strokeStyle=`rgba(160,210,255,${b.alpha*.30})`; ctx.lineWidth=12;
-      ctx.beginPath(); ctx.moveTo(b.main[0][0],b.main[0][1]);
-      b.main.slice(1).forEach(([x,y])=>ctx.lineTo(x,y)); ctx.stroke();
-      /* pass 2: mid glow */
-      ctx.shadowBlur=28; ctx.shadowColor="rgba(200,228,255,1)";
-      ctx.strokeStyle=`rgba(210,235,255,${b.alpha*.60})`; ctx.lineWidth=5;
-      ctx.beginPath(); ctx.moveTo(b.main[0][0],b.main[0][1]);
-      b.main.slice(1).forEach(([x,y])=>ctx.lineTo(x,y)); ctx.stroke();
-      /* pass 3: bright white core */
-      ctx.shadowBlur=8; ctx.shadowColor="rgba(255,255,255,1)";
-      ctx.strokeStyle=`rgba(255,255,255,${b.alpha*.98})`; ctx.lineWidth=2;
-      ctx.beginPath(); ctx.moveTo(b.main[0][0],b.main[0][1]);
-      b.main.slice(1).forEach(([x,y])=>ctx.lineTo(x,y)); ctx.stroke();
-      /* branches */
-      b.branches.forEach(br=>{
-        ctx.shadowBlur=22; ctx.shadowColor="rgba(180,220,255,1)";
-        ctx.strokeStyle=`rgba(200,232,255,${b.alpha*br.alpha*.60})`; ctx.lineWidth=3.5;
-        ctx.beginPath(); ctx.moveTo(br.path[0][0],br.path[0][1]);
-        br.path.slice(1).forEach(([x,y])=>ctx.lineTo(x,y)); ctx.stroke();
-        ctx.shadowBlur=6;
-        ctx.strokeStyle=`rgba(255,255,255,${b.alpha*br.alpha*.85})`; ctx.lineWidth=1;
-        ctx.beginPath(); ctx.moveTo(br.path[0][0],br.path[0][1]);
-        br.path.slice(1).forEach(([x,y])=>ctx.lineTo(x,y)); ctx.stroke();
-      });
-      ctx.restore();
+      ctx.globalAlpha=b.alpha;
+      ctx.drawImage(b.spr.cv,b.spr.x,b.spr.y,b.spr.w,b.spr.h);
+      ctx.globalAlpha=1;
       b.alpha-=.030;   /* slower fade = bolt lingers longer */
     }
     /* screen flash */
@@ -3541,6 +3547,9 @@
   // 手機「設定」分頁開啟時呼叫（main.js setTab）→ 天氣卡即時更新，不必等下一輪 5 分鐘刷新。
   //  · 先用現有資料即時重繪 #mSetWeather（秒顯、無空白）
   //  · 再背景重新定位+抓天氣；10s 節流→快速來回切分頁不會狂打定位/天氣 API
+  // 測試/預覽用：強制切換背景天氣型態（重建粒子）；下次真實天氣刷新會蓋回
+  window._wxForceType = function (t) { type = t; try { _init(); } catch (e) {} };
+
   let _wxManualTs = 0;
   window._wxRefreshNow = function () {
     _renderWeatherCard();                          // 先用現有資料即時重繪（有溫度才會顯示，見 _renderWeatherCard）
