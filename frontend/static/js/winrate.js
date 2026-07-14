@@ -533,6 +533,7 @@ async function _fetchWinRateNow() {
     _renderFVGBreak(c.fvg_break);
     _renderFVGMS(c.fvg_ms);
     _renderFVGShun(c.fvg_shun);
+    _renderFVGSpecial(c.fvg_special);
     _renderSMCSweep(c.smc_sweep);
     _renderSMCStruct(c.smc_struct);
     _renderSMCOB(c.smc_ob);
@@ -581,6 +582,7 @@ async function _fetchWinRateNow() {
     _renderFVGBreak(d.fvg_break);     // 破多/破空 結構轉破（proto 缺口序列、標在 g）（主圖）
     _renderFVGMS(d.fvg_ms);           // 多/空方向標記:吃 setup FVG 後窗內首次同向 proto 缺口 B（標在 g）（主圖）
     _renderFVGShun(d.fvg_shun);       // 順多/順空:吃同向FVG後影線穿透既存反向FVG（主圖）
+    _renderFVGSpecial(d.fvg_special); // 特多/特空:多空/破多空序列 A→B→C 三連市場結構（標在 C）（主圖）
     _renderSMCSweep(d.smc_sweep);     // SMC 掃頂/掃底（階段1：SR+SMC 教練疊加層，右上開關 coachToggleBtn）
     _renderSMCStruct(d.smc_struct);   // SMC BOS/CHoCH 結構破線段（階段2，畫布層，右上開關）
     _renderSMCOB(d.smc_ob);           // SMC 訂單區 OB 框（階段3，畫布層，右上開關）
@@ -942,6 +944,39 @@ window.toggleFVGShun = function (on) {
   return !window._fvgShunHidden;
 };
 
+// 特多/特空方向標記：多空/破多空序列 A→B→C 三連市場結構（標在 C；特多=棒下金↑、特空=棒上紫↓）
+function _renderFVGSpecial(items) {
+  if (items !== undefined) _lastFVGSpecial = items || [];
+  const hasIdx = (typeof _secToIdx !== "undefined" && _secToIdx.size > 0);
+  const chartTimeSet = hasIdx ? null : new Set(ohlcvData.map(d => toTime(d.time)));
+  const _has = t => hasIdx ? _secToIdx.has(t) : chartTimeSet.has(t);
+  const _rpCut = (typeof replayActive !== "undefined" && replayActive
+    && typeof replayData !== "undefined" && replayData[replayIdx])
+    ? toTime(replayData[replayIdx].time) : null;
+  const out = [];
+  for (const it of (_lastFVGSpecial || [])) {
+    const tm = toTime(it.t);
+    if (!_has(tm) || (_rpCut != null && tm > _rpCut)) continue;
+    if (it.d === "l") {
+      out.push({ time: tm, position: "belowBar", color: "#ffd11a",
+                 shape: "arrowUp", size: 2, text: "特多" });
+    } else {
+      out.push({ time: tm, position: "aboveBar", color: "#c04cff",
+                 shape: "arrowDown", size: 2, text: "特空" });
+    }
+  }
+  out.sort((a, b) => a.time - b.time);
+  lastFVGSpecialMarkers = out;
+  _applyMainMarkers();
+}
+window._renderFVGSpecial = _renderFVGSpecial;
+// 開關：window.toggleFVGSpecial() 切換特多/特空標記顯示
+window.toggleFVGSpecial = function (on) {
+  window._fvgSpecialHidden = (on === undefined) ? !window._fvgSpecialHidden : !on;
+  _applyMainMarkers();
+  return !window._fvgSpecialHidden;
+};
+
 // 策略止損線資料：time → {sl,d}。sl＝該策略「生成的第一個 FVG 的 g-1 頂端」(後端帶入)。
 //   hover 到策略訊號棒(多/空·破·順)時，由 draw.js 的 _renderStratSLLine 畫一條止損線。取代原「自動盈虧比盒」。
 window._stratSlByTime = new Map();
@@ -951,6 +986,7 @@ window._rebuildStratSL = function () {
   add(typeof _lastFVGMS !== "undefined" ? _lastFVGMS : null);
   add(typeof _lastFVGBreak !== "undefined" ? _lastFVGBreak : null);
   add(typeof _lastFVGShun !== "undefined" ? _lastFVGShun : null);
+  add(typeof _lastFVGSpecial !== "undefined" ? _lastFVGSpecial : null);
   window._stratSlByTime = m;
 };
 
@@ -1741,6 +1777,7 @@ setTimeout(() => {
         _renderFVGBreak(c.fvg_break);
         _renderFVGMS(c.fvg_ms);
         _renderFVGShun(c.fvg_shun);
+        _renderFVGSpecial(c.fvg_special);
         _renderSMCSweep(c.smc_sweep);
         _renderSMCStruct(c.smc_struct);
         _renderSMCOB(c.smc_ob);

@@ -182,6 +182,9 @@ function renderAll(data) {
   if (typeof _renderFVGShun === "function" && _lastFVGShun && _lastFVGShun.length) {
     _renderFVGShun();
   }
+  if (typeof _renderFVGSpecial === "function" && _lastFVGSpecial && _lastFVGSpecial.length) {
+    _renderFVGSpecial();
+  }
 
   // fit 讓各子圖時間範圍對齊
   [mainChart, kdjChart, rsiChart, macdChart].forEach(c => c.timeScale().fitContent());
@@ -274,7 +277,7 @@ function renderAll(data) {
 
 function renderCandles(data) {
   applyOhlcvToSeries(data);
-  lastWRSignalMarkers = []; lastFVGTradeMarkers = []; lastFVGBBMarkers = []; lastFVGBBMarkersA = []; lastFVGBBMarkersM = []; lastFVGBreakMarkers = []; lastFVGMSMarkers = []; lastFVGShunMarkers = []; lastSMCSweepMarkers = []; lastCoachBOSMarkers = [];
+  lastWRSignalMarkers = []; lastFVGTradeMarkers = []; lastFVGBBMarkers = []; lastFVGBBMarkersA = []; lastFVGBBMarkersM = []; lastFVGBreakMarkers = []; lastFVGMSMarkers = []; lastFVGShunMarkers = []; lastFVGSpecialMarkers = []; lastSMCSweepMarkers = []; lastCoachBOSMarkers = [];
   if (typeof setFVGTradeLines === "function") setFVGTradeLines([]);   // 換標的/重載 → 清舊止損止盈線，避免殘留
   _sortedMarkerCache = null;   // 標記陣列已清空 → 失效快取，避免平移重切視窗時殘留舊標記
   candleSeries.setMarkers([]);
@@ -689,6 +692,7 @@ async function _bgLoadOlderBars(scrollTriggered = false) {
           // 補載歷史後也要重繪 FVG 標記(多/空/破多/破空/順多/順空)——否則新載進來那段的標記被 _has() 過濾掉不顯示
           if (typeof _renderFVGMS === "function") _renderFVGMS();
           if (typeof _renderFVGShun === "function") _renderFVGShun();
+          if (typeof _renderFVGSpecial === "function") _renderFVGSpecial();
           if (typeof _renderFVGBreak === "function") _renderFVGBreak();
           if (typeof _renderFVGTrades === "function") _renderFVGTrades();
         }

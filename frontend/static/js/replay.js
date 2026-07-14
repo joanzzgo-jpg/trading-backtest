@@ -382,6 +382,7 @@ function _replayRender() {
   if (typeof _renderFVGBreak === "function") _renderFVGBreak();
   if (typeof _renderFVGMS === "function") _renderFVGMS();
   if (typeof _renderFVGShun === "function") _renderFVGShun();
+  if (typeof _renderFVGSpecial === "function") _renderFVGSpecial();
 
   _replayRenderDate(replayData[replayIdx]);
   const pct = replayData.length > 1 ? Math.round((replayIdx / (replayData.length - 1)) * 100) : 100;

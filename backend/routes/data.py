@@ -1761,6 +1761,9 @@ def _tag_htf_bias(df, timeframe, result):
         for m in sh:                                     # 順多/順空 與 多/空 同規則：順空在折價、順多在溢價 → weak
             _z = _zone_at(m["t"]); bear = (m.get("d") == "s")
             m["weak"] = bool((bear and _z == -1) or ((not bear) and _z == 1))
+        for m in (result.get("fvg_special") or []):      # 特多/特空 同規則：特空在折價、特多在溢價 → weak
+            _z = _zone_at(m["t"]); bear = (m.get("d") == "s")
+            m["weak"] = bool((bear and _z == -1) or ((not bear) and _z == 1))
         # 每段歷史交易區間(給前端畫折價/溢價/EQ)：t0→t1(None=進行中)、top/bot/eq。近 300 段。
         _tl = df["time"].tolist()
         _rngs = []

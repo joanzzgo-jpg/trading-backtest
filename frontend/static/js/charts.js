@@ -283,6 +283,7 @@ function _makeStratMarkersPrimitive() {
       if (!window._fvgBreakHidden && typeof lastFVGBreakMarkers !== "undefined") groups.push(lastFVGBreakMarkers);
       if (!window._fvgMSHidden    && typeof lastFVGMSMarkers    !== "undefined") groups.push(lastFVGMSMarkers);
       if (!window._fvgShunHidden  && typeof lastFVGShunMarkers  !== "undefined") groups.push(lastFVGShunMarkers);
+      if (!window._fvgSpecialHidden && typeof lastFVGSpecialMarkers !== "undefined") groups.push(lastFVGSpecialMarkers);
       if (!groups.length) return;
       const ts = _chart.timeScale();
       const bs = ts.options().barSpacing;

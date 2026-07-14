@@ -998,6 +998,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
     _fvg_break = []        # 「破多/破空」結構轉破標記(跑 proto 缺口序列、標在 g) [{t,p,d}]
     _fvg_ms    = []        # 「多/空」方向標記 [{t,d}]（吃到 setup FVG 後、窗內首次同向 proto 缺口 B，標在 B 的 g）
     _fvg_shun  = []        # 「順多/順空」：第一步同多/空(吃到未觸碰同向FVG)，第二步=影線穿透既存反向FVG [{t,d}]
+    _fvg_special = []      # 「特多/特空」：多空/破多空序列 A→B→C 三連市場結構(標在 C) [{t,d}]
     _gaps_seq  = []        # (cf_bar, top, bot, dir) 依時間序的所有視覺缺口（給上面結構模式偵測用）
     try:
         _N = len(times_iso); _MS = 0.0001   # 視覺最小缺口 0.01%（自動交易訊號另設 0.3% 門檻，見下）
@@ -1546,6 +1547,72 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         _shun_scan(_bear, _bull_cfs, _brk_l, "s")      # 順空：吃做空FVG → 近期兩個做多FVG其中一個影線穿透下緣
         _fvg_shun.sort(key=lambda x: x["t"])
         _fvg_shun = _fvg_shun[-2000:]
+
+        # ── 「特空/特多」：市場結構三連 A→B→C（使用者定義 2026-07-14）─────────────────────
+        #   在「多/空(_fvg_ms)＋破多/破空(_fvg_break)」合併成的時間序列上，掃描相鄰三連
+        #   （A、B、C 之間不夾其他此類標記，但三根 K 本身可不連續）：
+        #   看空群＝{破多, 空}、看多群＝{破空, 多}。
+        #   特空：A∈看空群、B∈看多群且 B 高點不過 A(高≤A高)、C∈看空群且「C 本身或 g+1 最低點 < B 低點」→ 標特空於 C。
+        #   特多：鏡像——A∈看多群、B∈看空群且 B 低點不破 A(低≥A低)、C∈看多群且「C 本身或 g+1 最高點 > B 高點」→ 標特多於 C。
+        #   方向對照：空=ms d="s"、多=ms d="l"、破空=break d="s"、破多=break d="l"。
+        _fvg_special = []
+        try:
+            _iso2i = {}
+            for _i in range(_N):
+                _iso2i[times_iso[_i]] = _i
+            # ⚠ 依「K 棒」分組成節點(非逐標記)：同一根可能同時有多個標記(如 5/9 同時「多」+「破空」)，
+            #   使用者定義中該根算「一個 B 節點」(有破空或多即可)。逐標記會把它拆成兩節點 → A→B→C 對不上。
+            #   每節點記 hasBear(有 破多 或 空) / hasBull(有 破空 或 多)；一根可兩者皆真。
+            _barflag = {}   # idx -> [hasBear, hasBull]
+            for _m in _fvg_ms:
+                _ii = _iso2i.get(_m["t"], -1)
+                if _ii < 0:
+                    continue
+                _e = _barflag.setdefault(_ii, [False, False])
+                if _m["d"] == "s":
+                    _e[0] = True    # 空 → 看空
+                else:
+                    _e[1] = True    # 多 → 看多
+            for _m in _fvg_break:
+                _ii = _iso2i.get(_m["t"], -1)
+                if _ii < 0:
+                    continue
+                _e = _barflag.setdefault(_ii, [False, False])
+                if _m["d"] == "l":
+                    _e[0] = True    # 破多 → 看空
+                else:
+                    _e[1] = True    # 破空 → 看多
+            # B 對 A 的「高不過/低不破」看**本體(開收)**，非影線 —— 使用者定調「本體沒破就行」
+            #   (影線戳過 A 不算破，只要 B 實體守在 A 實體內即可)。C 破 B 仍用「最低/最高影線點」(原規格)。
+            def _bodyHi(_x):
+                return _O[_x] if _O[_x] > _C[_x] else _C[_x]
+            def _bodyLo(_x):
+                return _O[_x] if _O[_x] < _C[_x] else _C[_x]
+            _nodes = sorted(_barflag.items())   # [(idx, [bear, bull]), ...] 依 K 棒時間
+            for _p in range(len(_nodes) - 2):
+                _ai, (_aBear, _aBull) = _nodes[_p]
+                _bi, (_bBear, _bBull) = _nodes[_p + 1]
+                _ci, (_cBear, _cBull) = _nodes[_p + 2]
+                # 特空：A 看空、B 看多且本體高不過 A 本體、C 看空且 C(或 g+1)最低影 < B 最低影 → 標特空於 C
+                if _aBear and _bBull and _cBear and _bodyHi(_bi) <= _bodyHi(_ai):
+                    _clow = _L[_ci]
+                    if _ci + 1 < _N and _L[_ci + 1] < _clow:
+                        _clow = _L[_ci + 1]
+                    if _clow < _L[_bi]:
+                        _fvg_special.append({"t": times_iso[_ci], "d": "s", "sl": _swing_hi(_ci)})
+                        continue
+                # 特多：A 看多、B 看空且本體低不破 A 本體、C 看多且 C(或 g+1)最高影 > B 最高影 → 標特多於 C
+                if _aBull and _bBear and _cBull and _bodyLo(_bi) >= _bodyLo(_ai):
+                    _chigh = _H[_ci]
+                    if _ci + 1 < _N and _H[_ci + 1] > _chigh:
+                        _chigh = _H[_ci + 1]
+                    if _chigh > _H[_bi]:
+                        _fvg_special.append({"t": times_iso[_ci], "d": "l", "sl": _swing_lo(_ci)})
+            _fvg_special.sort(key=lambda x: x["t"])
+            _fvg_special = _fvg_special[-2000:]
+        except Exception:
+            _fvg_special = []
+
         # ── 標記「有無被用到」：未被任何標記(破多/破空/多/空)用到的主缺口 → used=False(前端淡化)。
         #     IFVG(inv)非主缺口、不在偵測序列 → 視為 used(不淡化)。
         for _z in _fvg:
@@ -1556,6 +1623,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         _fvg_break = []
         _fvg_ms = []
         _fvg_shun = []
+        _fvg_special = []
 
     # ── SMC 擺動 pivot 遮罩（向量化，一次算好給下面 掃蕩/結構/OB/SR/通道 共用）─────────
     #   pivot high(半窗 w)＝H[p] ≥ 窗[p-w, p+w] 內全部 H(含 NaN → 該窗判 False，與原逐點 all() 完全一致：
@@ -2077,6 +2145,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         "fvg_break": _fvg_break,  # 「破多/破空」結構轉破標記(跑 proto 缺口序列、標在 g)
         "fvg_ms":   _fvg_ms,      # 「多/空」方向標記(B 用 proto 缺口·g 收盤定緣、標在 g)
         "fvg_shun": _fvg_shun,    # 「順多/順空」：吃同向FVG後影線穿透既存反向FVG(順勢延續)
+        "fvg_special": _fvg_special,  # 「特多/特空」：多空/破多空序列 A→B→C 三連市場結構(標在 C)
         "smc_sweep": _smc_sweep,  # SMC 掃頂/掃底(階段1：SR+SMC 教練移植)
         "smc_struct": _smc_struct, # SMC 結構事件 BOS/CHoCH 線段(階段2)
         "smc_ob":   _smc_ob,      # SMC 訂單區 OB 框(階段3)
