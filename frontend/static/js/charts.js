@@ -298,7 +298,9 @@ function _makeStratMarkersPrimitive() {
         const ctx = scope.context;
         const hr = scope.horizontalPixelRatio, vr = scope.verticalPixelRatio;
         const arrowH = 9 * scale * vr, arrowW = 8 * scale * hr;
-        const fontPx = Math.max(8, 11 * scale) * vr;
+        // 字級固定 11px(與繪圖工具標籤同級、不隨縮放)：繪圖文字全是固定字級,策略字若隨縮放
+        // 連續變大(舊版 7.7~27.5px)會與畫的線/框標籤失衡 → 只有箭頭隨縮放,文字恆定。
+        const fontPx = 11 * vr;
         const gap = 3 * scale * vr, pad = 2 * scale * vr;
         const glyphH = arrowH + fontPx + gap + pad + 2 * vr;   // 單一標記縱向佔用(堆疊用)
         const stepAbove = new Map(), stepBelow = new Map();
