@@ -404,3 +404,56 @@ document.addEventListener("DOMContentLoaded", async () => {
     : setTimeout(_loadFx, 500);
 });
 
+
+/* ── PWA 安裝入口（「在別人電腦/手機弄安裝包」的免安裝包做法）──
+   條件(manifest+SW+HTTPS)本來就齊 → 這裡只是把安裝入口做顯眼：
+   - 桌面：topbar 下載圖示(#tbInstallBtn)，可安裝時才出現、裝完自動消失
+   - 手機：設定分頁「安裝 App」列(#mSetInstall)
+   - iOS 沒有 beforeinstallprompt → 顯示「分享→加入主畫面」指引
+   已在獨立視窗(standalone)跑＝已安裝 → 兩個入口都不顯示。 */
+(function () {
+  let _deferred = null;
+  const _iOS = /iphone|ipad|ipod/i.test(navigator.userAgent) ||
+               (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const _installed = () =>
+    (window.matchMedia && matchMedia("(display-mode: standalone)").matches) || navigator.standalone === true;
+  function _show(stateTxt) {
+    if (_installed()) return;
+    const row = document.getElementById("mSetInstall");
+    if (row) {
+      row.style.display = "";
+      const s = document.getElementById("mSetInstallState");
+      if (s && stateTxt) s.textContent = stateTxt;
+    }
+    const tb = document.getElementById("tbInstallBtn");
+    if (tb) tb.style.display = "";
+  }
+  function _hide() {
+    const row = document.getElementById("mSetInstall"); if (row) row.style.display = "none";
+    const tb  = document.getElementById("tbInstallBtn"); if (tb) tb.style.display = "none";
+  }
+  window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();          // 攔下瀏覽器自動提示 → 由我們的按鈕觸發
+    _deferred = e;
+    _show("免下載安裝包");
+  });
+  window.addEventListener("appinstalled", () => { _deferred = null; _hide(); });
+  window._pwaInstall = async function () {
+    if (_deferred) {
+      _deferred.prompt();
+      try {
+        const r = await _deferred.userChoice;
+        if (r && r.outcome === "accepted") { _hide(); showToast("✅ 已安裝！之後從桌面／主畫面直接開啟", 6000); }
+      } catch (e) {}
+      _deferred = null;
+      return;
+    }
+    if (_iOS) { showToast("iPhone／iPad：用 Safari 開啟本站 → 點「分享」按鈕 → 「加入主畫面」", 9000); return; }
+    showToast("點瀏覽器網址列右側的「安裝」圖示；或瀏覽器選單 → 「安裝應用程式」", 8000);
+  };
+  // iOS 永遠不發 beforeinstallprompt → 未安裝時直接露出入口（點了給指引）
+  if (_iOS && !_installed()) {
+    const arm = () => _show("加入主畫面指引");
+    (document.readyState === "loading") ? document.addEventListener("DOMContentLoaded", arm) : arm();
+  }
+})();
