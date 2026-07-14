@@ -7164,3 +7164,31 @@ body.m-hide-wr #wrTop3 { display: none !important; }
   animation: mpr-spin .7s linear infinite;
 }
 @keyframes mpr-spin { to { transform: rotate(360deg); } }
+
+/* ══ 多圖分割佈局(桌面)：主圖右側迷你圖欄 ══ */
+#miniGrid { display: none; z-index: 2; background: var(--bg); }
+html.mc-2 #miniGrid, html.mc-4 #miniGrid {
+  display: flex; flex-direction: column;
+  width: 36%; min-width: 300px; max-width: 560px;
+  border-left: 1px solid rgba(255,255,255,.09);
+}
+html:not(.perf-mode).sky-show #miniGrid { background: transparent !important; }  /* 天氣透出,同主圖 */
+.mini-cell { flex: 1; display: flex; flex-direction: column; min-height: 0; border-bottom: 1px solid rgba(255,255,255,.09); position: relative; }
+.mini-cell:last-child { border-bottom: none; }
+.mini-head {
+  height: 26px; flex: 0 0 26px; display: flex; align-items: center; gap: 8px;
+  padding: 0 9px; font-size: 12px; color: #d1d4dc; user-select: none;
+  border-bottom: 1px solid rgba(255,255,255,.06);
+}
+.mini-sym { font-weight: 700; cursor: pointer; }
+.mini-sym:hover { color: var(--accent, #ff9147); }
+.mini-tf {
+  background: rgba(255,255,255,.08); border: none; color: inherit; font: inherit;
+  font-size: 11px; padding: 1px 7px; border-radius: 4px; cursor: pointer;
+}
+.mini-tf:hover { background: rgba(255,255,255,.16); }
+.mini-px { margin-left: auto; font-variant-numeric: tabular-nums; }
+.mini-px.up { color: #26a69a; } .mini-px.down { color: #ef5350; }
+.mini-body { flex: 1; min-height: 0; position: relative; }
+html.perf-mode .mini-head { color: #2a2620; border-bottom-color: rgba(0,0,0,.08); }
+@media (max-width: 1180px) { #miniGrid, #tbLayoutBtn { display: none !important; } }
