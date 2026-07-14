@@ -85,6 +85,44 @@
       cell.lastC = j.data[n - 1].close; cell.prevC = n > 1 ? j.data[n - 2].close : null;
       cell.chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, n - 90), to: n + 3 });
       _updHeader(i);
+      _loadMiniMarkers(i, gen, new Set(j.data.map(b => toTime(b.time))));   // 策略標記(輕量,async 補上)
+    } catch (e) {}
+  }
+
+  // 迷你圖策略標記：/api/crt_winrate?lite=ms 只回 fvg_ms/fvg_break 陣列(幾KB、吃後端勝率快取)。
+  // 鏡射主圖的顏色/形狀(多#39ff14↑/空#ff2a6d↓/破空#05d9e8↑/破多#ff901f↓)、尺寸縮小;
+  // 只畫「時間存在於迷你圖已載K棒」的標記(同主圖 _has 原則);冷門標的首算較久→到貨才補畫。
+  async function _loadMiniMarkers(i, gen, timeSet) {
+    const m = _minis[i], cell = _cells[i];
+    if (!cell) return;
+    try {
+      const p = new URLSearchParams({
+        market: m.market, symbol: m.symbol, exchange: m.exchange || "pionex", timeframe: m.tf,
+        vw: "8000", lite: "ms",
+        proto_min: String((typeof _wrProtoMin !== "undefined") ? _wrProtoMin : 0.0005),
+        no_proto_ms: (typeof _wrNoProtoMs !== "undefined" && _wrNoProtoMs) ? "1" : "0",
+        no_proto_break: (typeof _wrNoProtoBreak !== "undefined" && _wrNoProtoBreak) ? "1" : "0",
+      });
+      const res = await fetch("/api/crt_winrate?" + p, { cache: "no-cache" });
+      const d = await res.json();
+      if (gen !== cell.gen || !res.ok) return;
+      const out = [];
+      for (const it of (d.fvg_ms || [])) {
+        const tm = toTime(it.t);
+        if (!timeSet.has(tm)) continue;
+        out.push(it.d === "l"
+          ? { time: tm, position: "belowBar", color: "#39ff14", shape: "arrowUp", size: 1, text: it.prov ? "多?" : "多" }
+          : { time: tm, position: "aboveBar", color: "#ff2a6d", shape: "arrowDown", size: 1, text: it.prov ? "空?" : "空" });
+      }
+      for (const it of (d.fvg_break || [])) {
+        const tm = toTime(it.t);
+        if (!timeSet.has(tm)) continue;
+        out.push(it.d === "s"
+          ? { time: tm, position: "belowBar", color: "#05d9e8", shape: "arrowUp", size: 1, text: it.prov ? "破空?" : "破空" }
+          : { time: tm, position: "aboveBar", color: "#ff901f", shape: "arrowDown", size: 1, text: it.prov ? "破多?" : "破多" });
+      }
+      out.sort((a, b) => a.time - b.time);
+      cell.series.setMarkers(out);
     } catch (e) {}
   }
 

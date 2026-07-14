@@ -475,8 +475,9 @@ function _onChartMouseMove(e) {
     return;
   }
 
-  // 靠近 VP 截止線（pointer 模式）→ 游標提示可左右拖
-  if (drawTool === "pointer" && _vpOn && _vpLineLastX != null && Math.abs(x - _vpLineLastX) <= 6) {
+  // 靠近 VP 截止線「頂端把手」(pointer 模式)→ 游標提示可左右拖。
+  // ⚠ 限 y≤24(頂端把手區)：全高判定會劫持靠近線的「平移」(主圖拖不動+誤拖出黃線)。
+  if (drawTool === "pointer" && _vpOn && _vpLineLastX != null && Math.abs(x - _vpLineLastX) <= 8 && y <= 24) {
     const chartEl = document.getElementById("mainChart");
     if (chartEl) chartEl.style.cursor = "ew-resize";
     if (hoveredId !== null) { hoveredId = null; _scheduleRenderDrawings(); }
@@ -498,9 +499,9 @@ function _onChartMouseDown(e) {
   _watchAxis(1200);   // 按下可能拖動價格軸/平移 → 開追蹤窗,期間軸一動繪圖即跟隨(不偏離原價位)
   const { x, y } = _canvasXY(e);
 
-  // VP 截止線拖動：pointer/crosshair 模式、滑鼠靠近線 → 優先於繪圖拖移與 LWC pan
+  // VP 截止線拖動：只認「頂端把手」(y≤24)——全高判定會劫持平移(使用者回報主圖拖不動/黃線亂跑)
   if (_vpOn && _vpLineLastX != null && (drawTool === "pointer" || drawTool === "crosshair")
-      && Math.abs(x - _vpLineLastX) <= 6) {
+      && Math.abs(x - _vpLineLastX) <= 8 && y <= 24) {
     e.stopPropagation?.();
     _vpDrag = true;
     _updateCursor();
@@ -1310,22 +1311,26 @@ function _drawVolumeProfile(W, H) {
     }
   }
 
-  // ── 截止垂直線（可拖動）：滑鼠靠近可左右拖 → 改變統計範圍 ──
-  // 位置：使用者拖過(_vpCutTime≠null)→跟著那個時間；預設→釘在繪圖區右緣。
-  // ⚠ 預設別錨在「最後一根K棒」：往右滑進未來空白區時,最後一根K在畫面左側,
-  //   這條黃線會孤零零立在螢幕左邊像雜訊(使用者回報過「左邊有一條黃色的線」)。
+  // ── 截止線（從頂端小把手拖動）：改變統計範圍 ──
+  // 預設(_vpCutTime=null)＝統計可見全部 → 只畫「頂端小把手」釘在右緣、**不畫全高線**；
+  // 使用者拖過 → 在該時間畫全高線。⚠ 兩個教訓：
+  //   1) 預設錨在最後一根K → 滑進空白區時黃線孤零零立在畫面左側(像雜訊)；
+  //   2) 預設畫全高線在右緣 → 靠近價格軸的「平移」被拖線判定劫持(主圖拖不動、
+  //      誤拖還把黃線留在原平移處)。故預設只留頂端把手,抓取判定也限縮在頂端(見 _onChartMouse*)。
   const xLine = (_vpCutTime == null) ? (plotW - 1) : xCut;
   if (xLine != null && xLine >= 0 && xLine <= plotW) {
     let plotBottom = H;
     try { const th = ts.height(); if (th > 0) plotBottom = H - th; } catch (e) {}
     drawCtx.save();
-    drawCtx.strokeStyle = _vpDrag ? "rgba(255,213,79,0.95)" : "rgba(255,213,79,0.65)";
-    drawCtx.lineWidth = _vpDrag ? 2 : 1.5;
-    drawCtx.beginPath(); drawCtx.moveTo(xLine, 0); drawCtx.lineTo(xLine, plotBottom); drawCtx.stroke();
+    if (_vpCutTime != null || _vpDrag) {                   // 有自訂截止(或拖動中)才畫全高線
+      drawCtx.strokeStyle = _vpDrag ? "rgba(255,213,79,0.95)" : "rgba(255,213,79,0.65)";
+      drawCtx.lineWidth = _vpDrag ? 2 : 1.5;
+      drawCtx.beginPath(); drawCtx.moveTo(xLine, 0); drawCtx.lineTo(xLine, plotBottom); drawCtx.stroke();
+    }
     drawCtx.fillStyle = "rgba(255,213,79,0.9)";
-    drawCtx.fillRect(xLine - 3, 0, 6, 10);                 // 頂端握把
+    drawCtx.fillRect(xLine - 3, 0, 6, 12);                 // 頂端握把(拖動唯一入口)
     drawCtx.font = "10px sans-serif"; drawCtx.textBaseline = "top";
-    const _lblLeft = xLine > plotW - 60;                   // 靠右緣 → 標籤畫在線左側,免出界
+    const _lblLeft = xLine > plotW - 60;                   // 靠右緣 → 標籤畫在把手左側,免出界
     drawCtx.textAlign = _lblLeft ? "right" : "left";
     const _lx = _lblLeft ? xLine - 5 : xLine + 5;
     drawCtx.lineWidth = 3; drawCtx.strokeStyle = "rgba(0,0,0,0.55)";

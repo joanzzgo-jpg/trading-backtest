@@ -1260,6 +1260,7 @@ def crt_winrate_api(
     proto_min: float = 0.0005,
     no_proto_ms: int = 0,
     no_proto_break: int = 0,
+    lite: str = "",
 ):
     """/api/crt_winrate 路由：呼叫 get_crt_winrate(含快取) → 回前端時把 signals『瘦身』
     （拿掉只後端用的 est/rr 欄位 + 省略 None 值），省 ~40% 傳輸量、加快手機端載入。
@@ -1274,6 +1275,11 @@ def crt_winrate_api(
                          no_proto_ms=bool(no_proto_ms), no_proto_break=bool(no_proto_break))
     if solve or not isinstance(wr, dict):        # solve 模式非勝率結構 → 原樣回
         return wr
+    if lite == "ms":
+        # 輕量模式(多圖迷你圖用)：只回 多空/破多空 標記陣列(幾KB vs 整包~190KB)。
+        # 照樣吃 get_crt_winrate 快取(命中=毫秒級)；冷門標的首算仍要等(前端 async 補上)。
+        # 只回近段各 250 筆：迷你圖只載 ~320 根 K,整包標記(vw=8000 可達數千筆/98KB)是浪費
+        return _wr_resp({"fvg_ms": (wr.get("fvg_ms") or [])[-250:], "fvg_break": (wr.get("fvg_break") or [])[-250:]})
     _h = wr.get("_h")
     etag = f'W/"{_h}-{_git_rev()}"' if _h else None
     if etag and request.headers.get("if-none-match") == etag:
