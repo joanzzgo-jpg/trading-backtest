@@ -28,7 +28,39 @@ function _drawSymKey() {
 function _loadDrawStore() {
   try { return JSON.parse(localStorage.getItem("tv_drawings_v2") || "{}") || {}; } catch { return {}; }
 }
+// ── 繪圖復原（返回鍵）────────────────────────────────────────
+// 所有繪圖變動（新畫/拖移/改大小/改色/刪除）最後都會呼叫 saveDrawings() → 在此
+// 自動累積「變動前」快照，零漏網。堆疊上限 50、切標的重置（不跨標的復原）。
+let _undoStack = [];
+let _undoBase  = "[]";   // 最後一次已儲存狀態(JSON)＝下一次變動的「變動前」
+function _undoBtnSync() {
+  const b = document.getElementById("btnDrawUndo");
+  if (b) b.disabled = !_undoStack.length;
+}
+function _drawUndo() {
+  if (!_undoStack.length) return;
+  const prev = _undoStack.pop();
+  try { drawings = JSON.parse(prev); } catch (e) { _undoBtnSync(); return; }
+  _undoBase = prev;   // 還原後＝基準 → 下方 saveDrawings 比對相同、不會再推疊
+  if (selectedId && !drawings.some(d => d.id === selectedId)) selectedId = null;
+  if (hoveredId  && !drawings.some(d => d.id === hoveredId))  hoveredId  = null;
+  saveDrawings();
+  _undoBtnSync();
+  _scheduleRenderDrawings();
+  if (typeof showToast === "function") showToast("↩ 已復原繪圖");
+}
+window._drawUndo = _drawUndo;
+
 function saveDrawings() {
+  try {
+    const cur = JSON.stringify(drawings);
+    if (cur !== _undoBase) {
+      _undoStack.push(_undoBase);
+      if (_undoStack.length > 50) _undoStack.shift();
+      _undoBase = cur;
+      _undoBtnSync();
+    }
+  } catch (e) {}
   try {
     const store = _loadDrawStore();
     const key = _drawSymKey();
@@ -52,6 +84,10 @@ function loadDrawings() {
     const arr = store[key];
     drawings = Array.isArray(arr) ? arr.filter(d => d.id && d.type) : [];
   } catch { drawings = []; }
+  // 換標的載入 → 復原堆疊重置（復原不跨標的）
+  _undoStack.length = 0;
+  try { _undoBase = JSON.stringify(drawings); } catch (e) { _undoBase = "[]"; }
+  _undoBtnSync();
 }
 
 /* ── 自選標的 ── */
@@ -246,6 +282,16 @@ function initDrawTools() {
   chartEl.addEventListener("dblclick",    _onChartDblClick,    { capture: true });
   chartEl.addEventListener("contextmenu", _onChartContextMenu, { capture: true });
   window.addEventListener("mouseup", _onChartMouseUp);
+
+  // 繪圖復原：工具列返回鍵 + Ctrl/⌘+Z（打字中不攔；Shift+Z=redo 不支援、放行）
+  document.getElementById("btnDrawUndo")?.addEventListener("click", _drawUndo);
+  document.addEventListener("keydown", e => {
+    if ((e.metaKey || e.ctrlKey) && !e.shiftKey && (e.key === "z" || e.key === "Z")) {
+      const a = document.activeElement;
+      if (a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.isContentEditable)) return;
+      if (_undoStack.length) { e.preventDefault(); _drawUndo(); }
+    }
+  });
 
   // ── 觸控支援（手機繪圖）──
   chartEl.addEventListener("touchstart", e => {

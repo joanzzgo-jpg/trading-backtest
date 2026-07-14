@@ -1672,6 +1672,22 @@ html.perf-mode .tk-seg {
 }
 .dt-eraser:hover { color: var(--red); }
 
+/* 繪圖復原鍵（不掛 .dt-btn 避免被工具切換綁定吃掉）：外觀同 dt-btn，無可復原時淡化 */
+.dt-undo-btn {
+  width: 34px; height: 34px;
+  background: transparent; border: 1px solid transparent;
+  color: var(--muted); border-radius: 9px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .14s ease, color .14s ease, transform .14s cubic-bezier(.34,1.56,.64,1);
+  flex-shrink: 0;
+}
+.dt-undo-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--text); transform: scale(1.1);
+}
+.dt-undo-btn:active:not(:disabled) { transform: scale(.96); }
+.dt-undo-btn:disabled { opacity: .3; cursor: default; }
+
 .dt-magnet-btn {
   width: 34px;
   height: 34px;
