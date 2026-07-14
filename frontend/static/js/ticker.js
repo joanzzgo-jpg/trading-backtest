@@ -152,18 +152,26 @@ function _updateTickerPrices() {
 //    (新上架/下架/排序基準自癒);後端重啟/token 失效自動回整包,永不出錯。
 const _tkRev = { futures: null, spot: null, tw: null };
 let _tkPollN = 0;
+// ⚠ 合併鍵＝display(不是 symbol)：同一幣在 Binance(EVAAUSDT)與 Pionex(EVAA_USDT_PERP)
+//   symbol 格式不同、display 一致。Binance 冷卻降級 Pionex 時 symbol 一翻，若用 symbol 當鍵
+//   會把整包當「新標的」push 進去 → _tickerData 翻倍(660→1218)、display 全撞名 → 排序被幽靈
+//   重複污染、殘留不散(降級源舊格式再也不出現在後續 delta) → 「合約排列有時候怪怪的」根因。
+//   display 是 render(_k=c::display)/排序(display||symbol) 一致採用的穩定識別，故合併也用它。
+//   用 Map 重建：既有同鍵後者覆蓋前者＝順帶清掉既有重複(自癒已污染的清單)。
 function _tkMerge(cur, j, key) {
   if (j.rev) _tkRev[key] = j.rev;
-  if (!j.delta) return (j.tickers && j.tickers.length) ? j.tickers : cur;   // 整包(或舊後端/冷啟動空包→保留舊資料)
-  if (!j.tickers || !j.tickers.length) return cur;                          // delta 空=真的沒變動
-  const idx = new Map();
-  cur.forEach((t, i) => idx.set(t.symbol, i));
-  const out = cur.slice();
-  for (const t of j.tickers) {
-    const i = idx.get(t.symbol);
-    if (i == null) out.push(t); else out[i] = t;
+  const _id = t => t.display || t.symbol;
+  if (!j.delta) {                                                           // 整包(或舊後端/冷啟動空包→保留舊資料)
+    if (!j.tickers || !j.tickers.length) return cur;
+    const m = new Map();
+    for (const t of j.tickers) m.set(_id(t), t);                            // 去重(降級來源殘留/保險)
+    return [...m.values()];
   }
-  return out;
+  if (!j.tickers || !j.tickers.length) return cur;                          // delta 空=真的沒變動
+  const m = new Map();
+  for (const t of cur) m.set(_id(t), t);                                    // 既有(同鍵去重)
+  for (const t of j.tickers) m.set(_id(t), t);                              // 變動覆蓋(不新增重複)
+  return [...m.values()];
 }
 function _tkUrl(m, key, useSince) {
   return "/api/tickers?market=" + m + ((useSince && _tkRev[key]) ? "&since=" + encodeURIComponent(_tkRev[key]) : "");
