@@ -6041,8 +6041,12 @@ body, button, input, select, textarea,
   /* TF 時間框架列「10 顆等分塞滿、不橫滑」已整合進上方「下劃線分頁」區（單一來源，避免再被 11px 鎖死字級）*/
 
   /* K 棒資訊：把 開/高/低/收/量 標籤顯示回來（手機原本藏了標籤只剩裸數字），
-     並允許換行（固定不橫滑），讓資訊一眼可讀 */
-  .symbol-bar { flex-wrap: wrap !important; row-gap: 1px; overflow-x: hidden !important; }
+     並允許換行（固定不橫滑），讓資訊一眼可讀。
+     ⚠ 高度必須 auto：基礎 .symbol-bar 是固定 30px + overflow:hidden，換行的第二行(量+漲跌)
+     會被裁掉半截、又壓到下方 BB 圖例列 → 手機頂部糊成一團。height:auto 讓容器容納兩行、
+     把圖表往下推,不再裁切/重疊（min-height 保留單行時的高度）。 */
+  .symbol-bar { flex-wrap: wrap !important; row-gap: 1px; overflow: hidden !important;
+                height: auto !important; min-height: var(--symbar-h); }
   .symbol-bar .sym-label { display: inline !important; color: var(--muted) !important; }
 
   /* 布林通道數值：手機原本把所有圖例文字藏掉（只剩色點），
@@ -6163,6 +6167,8 @@ html.landing-active #sysSettingsPopup,
 html.landing-active .lunar-overlay,        /* 農民曆卡（z低於封面但半透明封面會透出） */
 html.landing-active #notifyPopup,          /* 通知設定/中心彈窗 */
 html.landing-active .sig-drawer,           /* 訊號通知抽屜 */
+html.landing-active .m-settings,           /* 手機「設定」分頁面板（z650，透明封面會透出→在設定頁登出時穿幫） */
+html.landing-active .m-signals,            /* 手機「訊號」分頁面板（同上，透明封面會透出） */
 html.landing-active #coachPanel,           /* SR+SMC 教練面板（z低於封面但半透明封面會透出） */
 html.landing-active #announceOverlay { visibility: hidden !important; }
 /* 底層漸層放在 body（天氣 canvas 之下）：主背景色（上）→ 米白（下） */
