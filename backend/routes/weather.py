@@ -1827,6 +1827,20 @@ async def nearby_rain(
                                               else "正上方有雨雲醞釀"),
                                    "overhead": True, "soft": grade != "strong", "dbz": dbz}
             _radar_log(lat, lon, dbz, rh, near, grade or "none")
+        # ── 雷達移動外推 ETA:質心法要雨落地才算得出移動、風向法只是推估 ——
+        # 沒有 ETA 或只有風向推估時,用兩幀雷達位移直接外推「X 分後壓到頭頂」(by='radar')。
+        if _in_taiwan(lat, lon) and not res.get("imminent"):
+            appr = res.get("approaching")
+            if not appr or appr.get("eta_min") is None or appr.get("by") == "wind":
+                m = await _cwa_motion_eta(lat, lon)
+                if m:
+                    rh2 = await _nearest_rh(lat, lon) if CWA_KEY else None
+                    if rh2 is None or rh2 >= 80:       # 近地太乾=雲下蒸發,外推也不報
+                        res["approaching"] = {"dir": m["dir"], "dist_km": m["dist_km"],
+                                              "level": m["level"], "eta_min": m["eta_min"],
+                                              "name": "", "area": "", "by": "radar",
+                                              "scale": None, "size_km": None,
+                                              "trend": None, "fade_min": None}
     _NR_CACHE.set(ck, res)
     return res
 
@@ -1946,6 +1960,127 @@ async def _cwa_radar_overhead(lat: float, lon: float):
         return best, age_min
     except Exception:
         return None, None
+
+
+# ── 雷達移動外推:兩幀官方雷達(相隔10分)算回波位移 → 「雨帶約X分後到你上空」──
+# 與雨量站質心法互補:質心法要雨已落地(站有讀數)才算得出移動;雷達外推在雨還在
+# 空中/山區無站處就能算,且解析度 0.55km/px 遠優於站網。ETA 精度受雨胞生消影響,
+# 只報 ≤45 分(同 ETA_HORIZON_MIN 哲學)。
+_CWA_FRAMES: dict = {}                              # "YYYYMMDDHHMM" → (img, pal);留最近 3 幀
+
+
+async def _fetch_cwa_frame(ts_str: str):
+    """抓指定 10 分整點的 CWA 雷達幀(含自取色盤)。回 (img, pal) 或 (None, None)。"""
+    if ts_str in _CWA_FRAMES:
+        return _CWA_FRAMES[ts_str]
+    from PIL import Image
+    import io as _io
+    url = f"https://www.cwa.gov.tw/Data/radar/CV1_3600_{ts_str}.png"
+    try:
+        timeout = aiohttp.ClientTimeout(total=15)
+        async with aiohttp.ClientSession(timeout=timeout) as sess:
+            async with sess.get(url) as r:
+                if r.status != 200:
+                    return None, None
+                raw = await r.read()
+        img = Image.open(_io.BytesIO(raw)).convert("RGB")
+        if img.size != (3600, 3600):
+            return None, None
+        pal = {}
+        for y in range(2507, 3572):
+            c = img.getpixel((3419, y))
+            if max(c) - min(c) < 80:
+                continue
+            pal.setdefault(c, 65.0 * (3571 - y) / 1064.0)
+        if len(pal) < 20:
+            return None, None
+        if len(_CWA_FRAMES) >= 3:
+            _CWA_FRAMES.pop(next(iter(_CWA_FRAMES)))
+        _CWA_FRAMES[ts_str] = (img, pal)
+        return img, pal
+    except Exception:
+        return None, None
+
+
+def _np_dbz_window(img, pal, cx, cy, half):
+    """以 (cx,cy) 為中心裁 (2*half)² 視窗 → numpy dBZ 矩陣(非回波=-1)。⚠ int32 防平方溢位。"""
+    import numpy as np
+    x0, y0 = max(0, cx - half), max(0, cy - half)
+    x1, y1 = min(3600, cx + half), min(3600, cy + half)
+    a = np.asarray(img.crop((x0, y0, x1, y1)), dtype=np.int32)
+    h, w, _ = a.shape
+    flat = a.reshape(-1, 3)
+    dbz = np.full(flat.shape[0], -1.0, dtype=np.float32)
+    bd = np.full(flat.shape[0], 200, dtype=np.int64)
+    for c, d in pal.items():
+        dist = ((flat - np.array(c, dtype=np.int32)) ** 2).sum(axis=1)
+        m = dist < bd
+        dbz[m] = d
+        bd[m] = dist[m]
+    return dbz.reshape(h, w), (x0, y0)
+
+
+async def _cwa_motion_eta(lat: float, lon: float):
+    """雷達外推 ETA:回 {"eta_min","dir","level","speed_kmh","dist_km"} 或 None。
+    流程:取最近兩幀(10 分差)→ 使用者周圍 ±70km 視窗 → 回波遮罩最佳平移匹配 →
+    速度向量 → 沿上游反推,找「幾分鐘後會壓到頭頂」的 ≥30dBZ 回波。"""
+    try:
+        import numpy as np
+        from datetime import datetime, timedelta, timezone
+        tz = timezone(timedelta(hours=8))
+        t1 = datetime.now(tz) - timedelta(minutes=6)         # 幀發布延遲 ~3-5 分
+        t1 = t1.replace(minute=t1.minute // 10 * 10, second=0, microsecond=0)
+        t0 = t1 - timedelta(minutes=10)
+        img1, pal1 = await _fetch_cwa_frame(t1.strftime("%Y%m%d%H%M"))
+        img0, pal0 = await _fetch_cwa_frame(t0.strftime("%Y%m%d%H%M"))
+        if img1 is None or img0 is None:
+            return None
+        lon0, lat1_, s = _CWA_GEO
+        ux, uy = int((lon - lon0) / s), int((lat1_ - lat) / s)
+        HALF = 128                                            # ±128px ≈ ±70km
+        d1, (ox, oy) = _np_dbz_window(img1, pal1, ux, uy, HALF)
+        d0, _ = _np_dbz_window(img0, pal0, ux, uy, HALF)
+        if d1.shape != d0.shape:
+            return None
+        # 降採樣 2x 後做遮罩平移匹配(±15km/10min ≈ 92km/h 搜索上限)
+        m1 = (d1[::2, ::2] >= 25)
+        m0 = (d0[::2, ::2] >= 25)
+        if m0.sum() < 40 or m1.sum() < 40:
+            return None                                       # 視窗內回波太少,位移不可信
+        best, bs = None, 0.0
+        H2, W2 = m1.shape
+        for sy in range(-14, 15):
+            for sx in range(-14, 15):
+                y0a, y1a = max(0, sy), min(H2, H2 + sy)
+                x0a, x1a = max(0, sx), min(W2, W2 + sx)
+                a = m0[y0a - sy:y1a - sy, x0a - sx:x1a - sx]
+                b = m1[y0a:y1a, x0a:x1a]
+                inter = np.logical_and(a, b).sum()
+                sc = inter / max(1.0, math.sqrt(float(a.sum()) * float(b.sum())))
+                if sc > bs:
+                    bs, best = sc, (sx, sy)
+        if best is None or bs < 0.35:
+            return None                                       # 匹配太弱=生消主導,不外推
+        vx, vy = best[0] * 2 / 10.0, best[1] * 2 / 10.0       # 原始 px/分
+        speed_kmh = math.hypot(vx, vy) * s * 111.0 * 60.0
+        if speed_kmh < 5:
+            return None                                       # 近乎滯留 → 外推無意義
+        # 沿上游反推:t 分鐘後壓到頭頂的回波,現在位於 user - v*t
+        for t in (6, 12, 18, 24, 30, 36, 42):
+            sx_ = int(round(ux - vx * t)) - ox
+            sy_ = int(round(uy - vy * t)) - oy
+            if not (4 <= sx_ < d1.shape[1] - 4 and 4 <= sy_ < d1.shape[0] - 4):
+                continue
+            win = d1[sy_ - 4:sy_ + 5, sx_ - 4:sx_ + 5]
+            mx = float(win.max())
+            if mx >= 30:
+                came_from = _bearing_zh(math.degrees(math.atan2(-vx, vy)) % 360)  # 來向
+                return {"eta_min": t, "dir": came_from, "level": _dbz_level(mx),
+                        "speed_kmh": round(speed_kmh, 1),
+                        "dist_km": round(speed_kmh / 60.0 * t, 1)}
+        return None
+    except Exception:
+        return None
 
 
 async def _nearest_rh(lat: float, lon: float):
