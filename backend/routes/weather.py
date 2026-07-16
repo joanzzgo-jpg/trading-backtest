@@ -235,6 +235,15 @@ async def _from_cwa(lat: float, lon: float) -> dict:
         elif cloud_cover < 80: desc = "多雲"
         else:                  desc = "陰"
 
+    # ── 腳下雨量站融合（修「出門淋雨、卡片顯示陰」）──
+    # 氣象站文字缺值(-99→雲量推斷推不出雨)或站遠沒淋到 → 若最近雨量站(≤5km)顯示
+    # 正在下雨，主天氣強制轉雨。文字已含雨/雷/雪者不動（官方描述更細，別蓋掉）。
+    rain_mmph, rain_gauge_km = await _rain_gauge_here(lat, lon)
+    if rain_mmph >= 0.5 and not any(k in desc for k in ("雨", "雷", "雪", "霰", "雹")):
+        lvl = ("毛毛雨" if rain_mmph < 1.0 else (_rain_level(rain_mmph) or "小雨"))
+        desc = lvl if lvl == "毛毛雨" else (("陰有" if cloud_cover >= 80 else "") + lvl)
+        cloud_cover = max(cloud_cover, 80)
+
     sr, ss = _sun_times_local(lat, lon)
     mp = _moon_phase()
     mr, ms = _moon_times(sr, ss, mp)
@@ -245,6 +254,8 @@ async def _from_cwa(lat: float, lon: float) -> dict:
         "temperature":  round(temp),
         "description":  desc,
         "precipitation": round(precip, 1),
+        "rain_now":      round(rain_mmph, 1),     # 最近雨量站現在雨勢 mm/h(0=沒在下)
+        "rain_gauge_km": rain_gauge_km,           # 該站距離；None=5km 內無站
         "cloud_cover":  cloud_cover,
         "wind_speed":   round(wind_ms * 3.6, 1),   # m/s → km/h
         "wind_dir":     (None if wind_deg < 0 else round(wind_deg)),
@@ -1070,6 +1081,12 @@ async def weather(
     _cached = _WX_CACHE.get(_ck, _WX_TTL)
     if _cached is not None and (_wx_is_wet(_cached) or _nr_is_wet(_NR_CACHE.get(f"nr:{round(lat, 2)}:{round(lon, 2)}", _NR_TTL) or {})):
         _cached = _WX_CACHE.get(_ck, _WX_TTL_WET)      # 雨系/雨接近 → 90s 新鮮度重驗
+    if _cached is not None and not _wx_is_wet(_cached) and CWA_KEY and _in_taiwan(lat, lon):
+        # 乾天快取命中 → 順看腳下雨量站(共用 5 分快取,幾乎零成本)：剛開始下雨就作廢乾快取
+        # 立刻重算，否則雨已落地、卡片還要多等乾 TTL(最壞 5 分)才轉雨（「出門淋雨卡片說沒雨」）。
+        _mmph, _gkm = await _rain_gauge_here(lat, lon)
+        if _mmph >= 0.5:
+            _cached = None
     if _cached is not None:
         return _cached
     res = None
@@ -1483,6 +1500,35 @@ def _rain_el(re: dict, key: str) -> float:
         return max(0.0, v)
     except (TypeError, ValueError):
         return 0.0
+
+
+async def _rain_gauge_here(lat: float, lon: float, max_km: float = 5.0):
+    """最近 O-A0002 雨量站的『現在雨勢』(mm/h, 停雨即歸零)。
+    為什麼需要：主天氣的 O-A0001 氣象站常無天氣文字(-99)、雲量推斷只會出晴/多雲/陰
+    （永遠推不出雨）、Now.Precipitation 又是當日累積 → 正在下雨時主天氣卡照樣顯示「陰」。
+    雨量站網 1310 站比氣象站密、Past10Min 是腳下「現在正在下」最準的訊號。
+    回 (mmph, dist_km)；沒有 max_km 內的站或失敗回 (0.0, None)——主天氣不能因雨量站掛掉而失敗。"""
+    try:
+        stations = await _fetch_rain_stations()
+    except Exception:
+        return 0.0, None
+    best_d, best_rate = float("inf"), 0.0
+    for s in stations:
+        co = _station_coord(s)
+        if not co:
+            continue
+        d = _haversine_km(lat, lon, co[0], co[1])
+        if d >= best_d:
+            continue
+        re = s.get("RainfallElement", {})
+        p10 = _rain_el(re, "Past10Min")
+        p1h = _rain_el(re, "Past1hr")
+        rate = p10 * 6 if p10 > 0 else p1h        # 同 nearby_rain 的換算
+        active = p10 > 0 or p1h >= 0.5            # 正在下(非早上殘留)
+        best_d, best_rate = d, (rate if active else 0.0)
+    if best_d > max_km:
+        return 0.0, None
+    return best_rate, round(best_d, 1)
 
 
 async def _nearby_rain_cwa(lat, lon, radius=NEARBY_RADIUS_KM) -> dict:
