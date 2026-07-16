@@ -24,7 +24,12 @@ async function loadData(autoLoad = false) {
       //   scrollPosition() 只反映「使用者手動捲動量」，程式用 rightOffset 設定的留白它回 0 →
       //   切到第二個標的後留白存進 rightOffset、scrollPosition 歸 0 → 第三個標的存到 0 → 黏回右緣。
       try {
-        _savedRightOffset = Math.max(0, _r.to - (ohlcvData.length - 1));
+        // 夾限右緣留白：拖進右側大片空白(或前一輪還原被 fitContent 踩爛)時 to 可遠超最後棒
+        // → 大 rightOffset 一旦存進錨點會被重申機制保護、每次切換複發「最右邊沒K棒」。
+        // 上限=可見根數一半(至少半屏是K棒)、絕對上限 60。
+        const _bcNow = Math.max(5, Math.round(_r.to - _r.from));
+        _savedRightOffset = Math.min(Math.max(0, _r.to - (ohlcvData.length - 1)),
+                                     Math.max(5, Math.floor(_bcNow / 2)), 60);
         _savedBarSpacing  = mainChart.timeScale().options().barSpacing;
       } catch (e) {}
     }
@@ -186,8 +191,15 @@ function renderAll(data) {
     _renderFVGSpecial();
   }
 
-  // fit 讓各子圖時間範圍對齊
-  [mainChart, kdjChart, rsiChart, macdChart].forEach(c => c.timeScale().fitContent());
+  // fit 讓各子圖時間範圍對齊。
+  // ⚠ 只在「沒有明確還原目標」時 fit：fitContent 是 LWC 延遲操作，會在下方 restore 之後
+  //   某一幀才執行 → 把縮放壓到最小(全部K擠進畫面)蓋掉還原。錨點路徑靠重申搶回，但
+  //   「捲到歷史→切換」的 setVisibleRange 路徑沒有重申 → span 爆炸、K 棒擠到最左＝
+  //   「切標的/時框後最右邊沒有K棒」的起源(2026-07-16 修)。有還原目標時 fit 純屬有害。
+  const _hasRestoreTarget = _pendingRestoreRange || _savedTimeRange || _savedBarSpacing != null;
+  if (!_hasRestoreTarget) {
+    [mainChart, kdjChart, rsiChart, macdChart].forEach(c => c.timeScale().fitContent());
+  }
 
   // 還原畫面位置：
   //  1. 重整後 → _pendingRestoreRange（bar 數 + 右緣偏移）
@@ -198,7 +210,10 @@ function renderAll(data) {
     // 有保存縮放(barSpacing) → 用持久選項還原縮放 + 最新棒水平位置(rightOffset)。
     // 持久選項跨 setData/fitContent/背景載入都不會被沖掉（解決「切幾次後黏回右邊」）。
     if (_savedBarSpacing != null) {
-      const opt = { barSpacing: _savedBarSpacing, rightOffset: _savedRightOffset || 0 };
+      // 還原端同樣夾限 rightOffset(治「已存進垃圾值」的舊狀態:半屏K棒下限+絕對60)
+      const _visN = Math.max(10, Math.round(ts.width() / Math.max(0.5, _savedBarSpacing)));
+      const _roCap = Math.min(Math.max(5, Math.floor(_visN / 2)), 60);
+      const opt = { barSpacing: _savedBarSpacing, rightOffset: Math.min(_savedRightOffset || 0, _roCap) };
       ts.applyOptions(opt);
       _bgPosAnchor = opt;   // 背景分頁載入每段後重套此錨點，防縮放被 fitContent 壓回 0.5
       return;
@@ -215,10 +230,14 @@ function renderAll(data) {
     const pr = _pendingRestoreRange;
     _pendingRestoreRange = null;
     if (pr.barSpacing != null) {
-      // 重整還原：持久選項（縮放 + 最新棒水平位置，含右側留白）
+      // 重整還原：持久選項（縮放 + 最新棒水平位置，含右側留白）。rightOffset 夾限同上
+      // （localStorage 可能已存有被 fitContent 競態污染的大值 → 載入即自癒）。
       try {
-        const opt = { barSpacing: pr.barSpacing, rightOffset: pr.rightOffset || 0 };
-        mainChart.timeScale().applyOptions(opt);
+        const _ts = mainChart.timeScale();
+        const _visN = Math.max(10, Math.round(_ts.width() / Math.max(0.5, pr.barSpacing)));
+        const _roCap = Math.min(Math.max(5, Math.floor(_visN / 2)), 60);
+        const opt = { barSpacing: pr.barSpacing, rightOffset: Math.min(pr.rightOffset || 0, _roCap) };
+        _ts.applyOptions(opt);
         _bgPosAnchor = opt;
       } catch (e) {}
     } else {
@@ -234,15 +253,35 @@ function renderAll(data) {
     const _first = toTime(data[0].time), _last = toTime(data[data.length - 1].time);
     const { from, to } = _savedTimeRange;
     const _bc = Math.max(5, _savedBarCount || 50);   // 原可見根數＝縮放
+    // 防踩重申：此路徑沒有錨點保護，延遲的 fitContent/resize 可能晚一幀把縮放壓爛
+    // （span 爆成整包 K → 畫面看似「最右邊沒K棒」）。span 偏離目標 >60% 才重申，
+    // 正常情況一次都不會觸發、不干擾使用者切完立即拖曳。
+    const _guardRestore = (applyFn) => {
+      applyFn();
+      let _target = null;
+      try { const r = mainChart.timeScale().getVisibleLogicalRange(); _target = r ? r.to - r.from : null; } catch (e) {}
+      if (!_target) return;
+      const _guard = () => {
+        try {
+          const r = mainChart.timeScale().getVisibleLogicalRange();
+          const s = r ? r.to - r.from : null;
+          if (s && (s > _target * 1.6 || s < _target * 0.4)) applyFn();
+        } catch (e) {}
+      };
+      requestAnimationFrame(() => { _guard(); requestAnimationFrame(_guard); });
+      setTimeout(_guard, 150);
+      setTimeout(_guard, 380);
+    };
     if (from >= _first && from <= _last) {
       // 新標的有這段歷史 → 對齊同一時間段（每個標的看到同一段時間）
       try {
-        mainChart.timeScale().setVisibleRange({ from, to: Math.min(to, _last) });
+        const _tr2 = { from, to: Math.min(to, _last) };
+        _guardRestore(() => { try { mainChart.timeScale().setVisibleRange(_tr2); } catch (e) {} });
       } catch (e) { _restoreByBarCount(); }
     } else if (from < _first) {
       // 原本平移到的時間比新標的最早資料還早 → 貼到最早處、維持相同縮放(可見根數)
       try {
-        mainChart.timeScale().setVisibleLogicalRange({ from: 0, to: _bc });
+        _guardRestore(() => { try { mainChart.timeScale().setVisibleLogicalRange({ from: 0, to: _bc }); } catch (e) {} });
       } catch (e) { _restoreByBarCount(); }
     } else {
       _restoreByBarCount();
