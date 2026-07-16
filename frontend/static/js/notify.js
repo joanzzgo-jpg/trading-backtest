@@ -699,6 +699,10 @@ async function _ntfLoadCal(force) {
   if (!cal) return;
   if (!_ntfCalMonth) _ntfCalMonth = _ntfMonthStart(new Date());
   if (_ntfCalData && !force) { _ntfRenderCal(); return; }   // 有快取→直接重畫（切月也走這）
+  if (!window._acctName) {                                   // 未登入:不打注定 403 的 API(省請求+console 雜訊)
+    cal.innerHTML = `<div class="m-sig-cal-empty">綁定交易帳號後顯示每日盈虧</div>`;
+    return;
+  }
   cal.innerHTML = `<div class="m-sig-cal-empty">載入中…</div>`;
   try {
     const r = await _trdApi("pnl_daily");                    // 與交易面板共用同一交易口令

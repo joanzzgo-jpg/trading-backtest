@@ -788,6 +788,10 @@ class OHLCVRequest(BaseModel):
 def get_ohlcv(req: OHLCVRequest):
     """取得 OHLCV 數據"""
     use_limit = req.limit > 0
+    # 守衛:limit<=0 且沒給日期範圍 → 強制 500。內部「無上限」約定(背景補載/重播預載)
+    # 一律附 start/end;外部亂傳 0/負值會拉整段歷史(BTC 1h 自 2017 起 ~8 萬根)=巨量回應。
+    if not use_limit and not req.start and not req.end:
+        req.limit, use_limit = 500, True
     cache_key = f"ohlcv:{req.market}:{req.symbol}:{req.timeframe}:{req.exchange}:{req.start}:{req.end}:{req.limit}:i{int(req.indicators)}"
     ttl = 30 if use_limit else 300
     cached = cache.get(cache_key, ttl)
