@@ -2987,11 +2987,15 @@
     _lastFrameTs = ts;
     const _t0 = performance.now ? performance.now() : Date.now();
     draw(_animClock * 0.001);
-    // 自適應降幀（僅手機）：量本幀 draw 耗時；主執行緒吃緊(畫太慢)→漸進拉大幀間隔(最低~8fps)、
-    // 恢復則漸收。struggling 的手機會自動降到低幀率 → 總繪製量下降 → 不再卡/燙；順的手機幾乎不觸發。
-    if (_lowFx) {
+    // 自適應降幀：量本幀 draw 耗時；主執行緒吃緊(畫太慢)→漸進拉大幀間隔、恢復則漸收。
+    //   手機:一直啟用(struggling 手機自動降到低幀率→不卡/不燙,順的手機幾乎不觸發)。
+    //   桌機(2026-07-15 擴入):正常功率 draw 極快(<20ms)→penalty 恆 0、對健康機器完全無感;
+    //     只有「低電量模式」把 CPU/GPU 降頻、draw 變慢時,才自動讓天氣退幀把主執行緒還給平移
+    //     →解「低電量下平移沒之前順」。桌機上限較保守(60ms,不像手機降到 90),避免天氣過度掉幀。
+    {
       const _cost = (performance.now ? performance.now() : Date.now()) - _t0;
-      if (_cost > 20) _fxPenalty = Math.min(90, _fxPenalty + (_cost > 36 ? 9 : 3));
+      const _pcap = _lowFx ? 90 : 60;
+      if (_cost > 20) _fxPenalty = Math.min(_pcap, _fxPenalty + (_cost > 36 ? 9 : 3));
       else if (_fxPenalty > 0) _fxPenalty = Math.max(0, _fxPenalty - 2);
     }
   }
