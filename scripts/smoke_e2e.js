@@ -52,6 +52,9 @@ const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
   console.log("✓ K棒", bars0, "根 + 策略標記");
 
   // 3) 真拖曳平移（必驗可視範圍有變，否則測試無效）
+  //    公告彈窗可能晚於進場後 1.8s 才渲染（fresh profile 必跳）→ 拖曳前再清一次，
+  //    否則互動打在彈窗上＝偶發假失敗（2026-07-16 兩次 flake 皆此因）。
+  await page.evaluate(() => { document.getElementById("announceOverlay")?.remove(); });
   const box = await page.evaluate(() => { const r = document.getElementById("mainChart").getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
   const rng0 = await page.evaluate(() => JSON.stringify(mainChart.timeScale().getVisibleLogicalRange()));
   await page.mouse.move(box.x + 200, box.y);

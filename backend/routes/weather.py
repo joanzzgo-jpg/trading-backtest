@@ -1800,8 +1800,106 @@ async def nearby_rain(
         except Exception as e:
             from fastapi import HTTPException
             raise HTTPException(status_code=503, detail=f"附近雨區取得失敗：{e}")
+    # ── 雷達頭頂偵測:對流在正上方初生時,雨量站全乾、移動法沒東西追,只有雷達看得到 ──
+    if not res.get("raining_here"):
+        dbz, age_min = await _radar_overhead(lat, lon)
+        if dbz is not None and dbz >= 25:              # ≥25dBZ≈1.3mm/h,空中已有會落地的雨
+            lvl = _dbz_level(dbz)
+            res["overhead"] = {"dbz": dbz, "level": lvl, "age_min": age_min}
+            # 頭頂回波=最急迫的 imminent(距離 0,蓋過其他理由);正在下雨時不需要
+            res["imminent"] = {"dir": "正上方", "dist_km": 0.0, "level": lvl,
+                               "area": "", "reason": "雷達回波已在你正上方",
+                               "overhead": True, "dbz": dbz}
     _NR_CACHE.set(ck, res)
     return res
+
+
+# ── 雷達回波「頭頂偵測」(RainViewer 全球合成回波,免金鑰) ─────────────────
+# 為什麼需要:對流「在使用者正上方初生」時,周圍雨量站全乾、移動法也沒東西可追,
+# 但雷達已看得到空中的雨(還沒落地/剛落地、雨量計要等累積+10分更新)。
+# 取最新過去幀(nowcast 幀已停供)在使用者座標的 3x3 像素(z7≈1.2km/px)最大 dBZ。
+# 色盤=Universal Blue(實測 color=0 實際回此盤),對照表由官方 CSV 生成、已用
+# 2026-07-16 新店豪雨現場校準(台北中心 51dBZ vs 雨量站豪雨一致)。
+RV_MAPS_URL = "https://api.rainviewer.com/public/weather-maps.json"
+_RV_MAPS: dict = {"data": None, "ts": 0.0}     # weather-maps.json(2 分快取)
+_RV_TILE: dict = {}                             # (path,x,y) → RGBA 像素存取器(幀換即失效)
+_RV_UB_DBZ={(99,97,89):-10,(102,99,90):-9,(206,255,255):-9,(105,102,92):-8,(205,255,255):-8,(108,104,93):-7,(204,255,255):-7,(111,107,95):-6,(203,255,255):-6,(114,110,97):-5,(117,112,98):-4,(202,255,255):-4,(120,115,100):-3,(201,255,255):-3,(124,117,101):-2,(200,255,255):-2,(127,120,103):-1,(199,255,255):-1,(130,123,105):0,(133,125,106):1,(198,255,255):1,(136,128,108):2,(197,255,255):2,(139,130,109):3,(196,255,255):3,(142,133,111):4,(195,255,255):4,(146,136,113):5,(158,147,117):6,(194,255,255):6,(170,158,121):7,(193,255,255):7,(182,169,126):8,(192,255,255):8,(194,180,130):9,(191,255,255):9,(206,192,135):10,(210,196,139):11,(184,248,255):11,(214,200,143):12,(178,242,255):12,(218,204,147):13,(171,235,255):13,(222,208,151):14,(165,229,255):14,(136,221,238):15,(159,223,255):15,(108,209,235):16,(152,216,255):16,(81,197,232):17,(146,210,255):17,(54,186,229):18,(139,203,255):18,(27,174,226):19,(133,197,255):19,(0,163,224):20,(127,191,255):20,(0,154,213):21,(120,184,255):21,(0,145,202):22,(114,178,255):22,(0,136,191):23,(107,171,255):23,(0,127,180):24,(101,165,255):24,(0,119,170):25,(95,159,255):25,(0,112,163):26,(91,155,255):26,(0,105,156):27,(88,152,255):27,(0,98,149):28,(85,149,255):28,(0,91,142):29,(82,146,255):29,(0,85,136):30,(79,143,255):30,(0,81,128):31,(75,139,255):31,(0,78,120):32,(72,136,255):32,(0,74,112):33,(69,133,255):33,(0,71,104):34,(66,130,255):34,(255,238,0):35,(63,127,255):35,(255,224,0):36,(59,123,255):36,(255,210,0):37,(56,120,255):37,(255,197,0):38,(53,117,255):38,(255,183,0):39,(50,114,255):39,(255,170,0):40,(47,111,255):40,(255,159,0):41,(43,107,255):41,(255,149,0):42,(40,104,255):42,(255,139,0):43,(37,101,255):43,(255,129,0):44,(34,98,255):44,(255,68,0):45,(31,95,255):45,(242,54,0):46,(27,91,255):46,(230,40,0):47,(24,88,255):47,(217,27,0):48,(21,85,255):48,(205,13,0):49,(18,82,255):49,(193,0,0):50,(15,79,255):50,(168,0,0):51,(12,75,255):51,(143,0,0):52,(9,72,255):52,(118,0,0):53,(6,69,255):53,(93,0,0):54,(2,66,255):54,(255,170,255):55,(0,63,255):55,(255,159,255):56,(0,59,255):56,(255,149,255):57,(0,56,255):57,(255,139,255):58,(0,53,255):58,(255,129,255):59,(0,50,255):59,(255,119,255):60,(0,47,255):60,(255,108,255):61,(0,43,255):61,(255,98,255):62,(0,40,255):62,(255,88,255):63,(0,37,255):63,(255,78,255):64,(0,34,255):64,(255,255,255):65,(0,31,255):65,(0,27,255):66,(0,24,255):67,(0,21,255):68,(0,18,255):69,(0,15,255):70,(0,12,255):71,(0,9,255):72,(0,6,255):73,(0,2,255):74,(0,255,0):75,(0,0,255):75}
+
+
+def _rv_dbz_at(img, px, py):
+    """圖磚 3x3 鄰域最大 dBZ;查不到的顏色找最近色(距離平方 ≤900),全透明=無回波。"""
+    best = None
+    for dy in (-1, 0, 1):
+        for dx in (-1, 0, 1):
+            r, g, b, a = img.getpixel((min(255, max(0, px + dx)), min(255, max(0, py + dy))))
+            if a == 0:
+                continue
+            d = _RV_UB_DBZ.get((r, g, b))
+            if d is None:                       # 平滑/壓縮誤差 → 最近色
+                nd, nv = 901, None
+                for (cr, cg, cb), v in _RV_UB_DBZ.items():
+                    dist = (cr - r) ** 2 + (cg - g) ** 2 + (cb - b) ** 2
+                    if dist < nd:
+                        nd, nv = dist, v
+                d = nv
+            if d is not None and (best is None or d > best):
+                best = d
+    return best
+
+
+def _dbz_level(dbz: float) -> str:
+    """dBZ → 雨勢分級(Marshall-Palmer 粗換算:30≈2.7 35≈5.6 45≈24 50≈49 mm/h)。"""
+    if dbz < 32:  return "小雨"
+    if dbz < 40:  return "中雨"
+    if dbz < 47:  return "大雨"
+    return "豪雨"
+
+
+async def _radar_overhead(lat: float, lon: float):
+    """使用者正上方的雷達回波 dBZ。回 (dbz, frame_age_min) 或 (None, None)。
+    任一環節失敗一律 (None, None)——附近雨區主功能不能因外部雷達源掛掉而受影響。"""
+    try:
+        from PIL import Image                   # 惰性載入:沒裝 pillow 只是少此功能
+    except ImportError:
+        return None, None
+    try:
+        now = time.time()
+        if not _RV_MAPS["data"] or now - _RV_MAPS["ts"] > 120:
+            timeout = aiohttp.ClientTimeout(total=10)
+            async with aiohttp.ClientSession(timeout=timeout) as sess:
+                async with sess.get(RV_MAPS_URL) as r:
+                    _RV_MAPS.update({"data": await r.json(content_type=None), "ts": now})
+        m = _RV_MAPS["data"]
+        frames = (m.get("radar") or {}).get("past") or []
+        if not frames:
+            return None, None
+        frame = frames[-1]
+        age_min = (now - frame["time"]) / 60.0
+        if age_min > 20:                        # 幀太舊=雷達源異常,寧可不報
+            return None, None
+        z = 7
+        n = 2 ** z
+        fx = (lon + 180.0) / 360.0 * n
+        fy = (1 - math.log(math.tan(math.radians(lat)) + 1 / math.cos(math.radians(lat))) / math.pi) / 2 * n
+        tx, ty = int(fx), int(fy)
+        px, py = int((fx - tx) * 256), int((fy - ty) * 256)
+        key = (frame["path"], tx, ty)
+        img = _RV_TILE.get(key)
+        if img is None:
+            url = f"{m['host']}{frame['path']}/256/{z}/{tx}/{ty}/0/0_0.png"
+            timeout = aiohttp.ClientTimeout(total=10)
+            async with aiohttp.ClientSession(timeout=timeout) as sess:
+                async with sess.get(url) as r:
+                    raw = await r.read()
+            import io
+            img = Image.open(io.BytesIO(raw)).convert("RGBA")
+            if len(_RV_TILE) > 6:               # 幀換代/多地點 → 舊圖磚全清
+                _RV_TILE.clear()
+            _RV_TILE[key] = img
+        dbz = _rv_dbz_at(img, px, py)
+        return dbz, round(age_min, 1)
+    except Exception:
+        return None, None
 
 
 async def _noop_none():

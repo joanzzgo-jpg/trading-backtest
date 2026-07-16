@@ -3285,6 +3285,9 @@
     if (!n) return '';
     // 一律先講所在地有沒有下雨，再帶附近
     if (n.raining_here) return '☔ 你所在地正在下雨' + _trendZh(n.nearest);
+    // 雷達頭頂回波＝最急迫（雨在正上方、隨時落下）→ 排在 ETA 之前
+    if (n.imminent && n.imminent.overhead)
+      return '📡 雷達顯示雨雲已在你正上方（' + n.imminent.level + '強度），雨可能隨時落下';
     const a = n.approaching;
     if (a && a.eta_min != null) {
       const from = a.area ? a.area + '的雨' : '雨';
@@ -3341,10 +3344,14 @@
       const est = a.by === 'wind' ? '（順風推估）' : '';
       L.push('🛵 ' + from + '約 ' + a.eta_min + ' 分後到' + est + _trendZh(a));
     }
-    if (n.imminent && !n.raining_here) {   // 即將降雨(對流就地長大型,無 ETA 可掛)
+    if (n.imminent && !n.raining_here) {   // 即將降雨(對流就地長大型/頭頂回波,無 ETA 可掛)
       const im = n.imminent;
-      const where = im.area || (im.dist_km + 'km外');
-      L.push('🌦️ ' + where + '(' + im.dist_km + 'km)' + im.reason + '，你這區可能快下了，出門帶傘');
+      if (im.overhead) {
+        L.push('📡 雷達顯示雨雲已在你正上方（' + im.level + '強度），雨可能隨時落下，出門帶傘');
+      } else {
+        const where = im.area || (im.dist_km + 'km外');
+        L.push('🌦️ ' + where + '(' + im.dist_km + 'km)' + im.reason + '，你這區可能快下了，出門帶傘');
+      }
     }
     // ② 附近有雨的「區」：只列行政區名（去重、最多 6 個），方向不重要
     const seen = new Set();
