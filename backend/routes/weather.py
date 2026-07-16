@@ -5,7 +5,7 @@
 需設定環境變數 CWA_API_KEY（申請：https://opendata.cwa.gov.tw/）。
 CWA 無 key 或失敗時，一律回退 Open-Meteo。
 """
-import os, math, time, ipaddress, asyncio
+import os, json, math, time, ipaddress, asyncio
 from datetime import date, datetime
 import aiohttp
 from fastapi import APIRouter, Query, Request
@@ -1801,15 +1801,32 @@ async def nearby_rain(
             from fastapi import HTTPException
             raise HTTPException(status_code=503, detail=f"附近雨區取得失敗：{e}")
     # ── 雷達頭頂偵測:對流在正上方初生時,雨量站全乾、移動法沒東西追,只有雷達看得到 ──
+    # 2026-07-16 準確率校準(1327 雨量站 × 未來 20 分真值):合成回波=柱狀最大值,含大量
+    # 下不到地面的高空雨 → 純回波單獨觸發精確率僅 ~12-40%。三重閘門後:
+    #   strong(≥35dBZ + 近地濕度≥85% + 8km 內已有站在下)→ 「你這區很快下雨」量測 ~85%;
+    #   watch (≥35dBZ + 濕度≥85%,周邊乾=對流初生型)   → 軟性「醞釀中」(~18-30%,寧可提醒);
+    #   其餘回波不觸發(高空虛回波為主)。每次判斷記 log 供離線比對真實結果、持續校準。
     if not res.get("raining_here"):
         dbz, age_min = await _radar_overhead(lat, lon)
-        if dbz is not None and dbz >= 25:              # ≥25dBZ≈1.3mm/h,空中已有會落地的雨
+        if dbz is not None and dbz >= 35:
+            rh = await _nearest_rh(lat, lon) if (CWA_KEY and _in_taiwan(lat, lon)) else None
+            near = (res.get("nearest") or {}).get("dist_km")
             lvl = _dbz_level(dbz)
-            res["overhead"] = {"dbz": dbz, "level": lvl, "age_min": age_min}
-            # 頭頂回波=最急迫的 imminent(距離 0,蓋過其他理由);正在下雨時不需要
-            res["imminent"] = {"dir": "正上方", "dist_km": 0.0, "level": lvl,
-                               "area": "", "reason": "雷達回波已在你正上方",
-                               "overhead": True, "dbz": dbz}
+            humid = rh is None or rh >= 85             # 海外無 RH 資料 → 不因缺資料而閉嘴
+            grade = None
+            if humid and near is not None and near <= 8:
+                grade = "strong"
+            elif humid:
+                grade = "watch"
+            if grade:
+                res["overhead"] = {"dbz": dbz, "level": lvl, "age_min": age_min,
+                                   "rh": rh, "grade": grade}
+                res["imminent"] = {"dir": "正上方", "dist_km": 0.0, "level": lvl,
+                                   "area": "",
+                                   "reason": ("雷達回波已在你正上方" if grade == "strong"
+                                              else "正上方有雨雲醞釀"),
+                                   "overhead": True, "soft": grade != "strong", "dbz": dbz}
+            _radar_log(lat, lon, dbz, rh, near, grade or "none")
     _NR_CACHE.set(ck, res)
     return res
 
@@ -1855,13 +1872,119 @@ def _dbz_level(dbz: float) -> str:
     return "豪雨"
 
 
+# ── CWA 官方雷達合成回波(台灣,免金鑰) ──
+# 2026-07-16 準確率驗證:RainViewer 在北台灣整片假回波(高空雲砧,地面乾)→ 台灣改用
+# 氣象署官方 CV1 合成圖。地理映射由 1327 雨量站控制點最佳化解出(分離度 22dBZ):
+# 左上 (111.8169E, 31.9600N)、0.0049245 度/px、3600x3600。
+# 色盤「執行期」從圖右側色標自取(x=3419, y 2507~3571 線性 65→0 dBZ)→ 官方改色自動跟上;
+# 版面若大改(取不到 ≥20 色)→ 整段放棄、落回 RainViewer。
+CWA_RADAR_IMG = "https://www.cwa.gov.tw/Data/radar/CV1_3600.png"
+_CWA_GEO = (111.816875, 31.96, 0.0049245)          # lon0, lat1, deg/px
+_CWA_RADAR: dict = {"img": None, "pal": None, "ts": 0.0, "age_min": None}
+
+
+async def _fetch_cwa_radar():
+    """抓 CWA 雷達圖(5 分快取)＋自取色盤。回 (PIL_img, palette{rgb:dbz}, age_min) 或 (None,None,None)。"""
+    from PIL import Image
+    import io as _io
+    now = time.time()
+    if _CWA_RADAR["img"] is not None and now - _CWA_RADAR["ts"] < 300:
+        return _CWA_RADAR["img"], _CWA_RADAR["pal"], _CWA_RADAR["age_min"]
+    timeout = aiohttp.ClientTimeout(total=15)
+    async with aiohttp.ClientSession(timeout=timeout) as sess:
+        async with sess.get(CWA_RADAR_IMG) as r:
+            raw = await r.read()
+            lm = r.headers.get("Last-Modified", "")
+    age_min = None
+    if lm:
+        try:
+            from email.utils import parsedate_to_datetime
+            age_min = round((now - parsedate_to_datetime(lm).timestamp()) / 60.0, 1)
+        except Exception:
+            pass
+    img = Image.open(_io.BytesIO(raw)).convert("RGB")
+    if img.size != (3600, 3600):
+        return None, None, None                     # 版面變了,座標映射不可信
+    pal = {}
+    for y in range(2507, 3572):                     # 色標:上 65dBZ → 下 0dBZ 線性
+        c = img.getpixel((3419, y))
+        if max(c) - min(c) < 80:
+            continue                                # 排除抗鋸齒淡色(曾害整圖誤判回波)
+        pal.setdefault(c, 65.0 * (3571 - y) / 1064.0)
+    if len(pal) < 20:
+        return None, None, None                     # 色標位置變了 → 放棄
+    _CWA_RADAR.update({"img": img, "pal": pal, "ts": now, "age_min": age_min})
+    return img, pal, age_min
+
+
+async def _cwa_radar_overhead(lat: float, lon: float):
+    """CWA 雷達圖上使用者座標 ±4px(≈±2.2km) 視窗最大 dBZ。失敗回 (None, None)。"""
+    try:
+        img, pal, age_min = await _fetch_cwa_radar()
+        if img is None or (age_min is not None and age_min > 25):
+            return None, None
+        lon0, lat1, s = _CWA_GEO
+        px = int((lon - lon0) / s)
+        py = int((lat1 - lat) / s)
+        best = None
+        for dy in range(-4, 5):
+            for dx in range(-4, 5):
+                x2, y2 = px + dx, py + dy
+                if not (0 <= x2 < 3600 and 0 <= y2 < 3600):
+                    continue
+                c = img.getpixel((x2, y2))
+                d = pal.get(c)
+                if d is None:
+                    nd, nv = 200, None
+                    for (cr, cg, cb), v in pal.items():
+                        dist = (cr - c[0]) ** 2 + (cg - c[1]) ** 2 + (cb - c[2]) ** 2
+                        if dist < nd:
+                            nd, nv = dist, v
+                    d = nv
+                if d is not None and (best is None or d > best):
+                    best = d
+        return best, age_min
+    except Exception:
+        return None, None
+
+
+async def _nearest_rh(lat: float, lon: float):
+    """最近 O-A0001 氣象站的相對濕度(%)。近地濕度低=雨在雲下蒸發(虛回波主因之一)。"""
+    try:
+        stations = await _fetch_stations()
+        s = _nearest_station(stations, lat, lon)
+        if not s:
+            return None
+        rh = _safe_float(s.get("WeatherElement", {}).get("RelativeHumidity"), -1.0)
+        return rh if 0 <= rh <= 100 else None
+    except Exception:
+        return None
+
+
+def _radar_log(lat, lon, dbz, rh, near_km, grade):
+    """每次頭頂判斷記 JSONL(backend/cache/),供離線比對雨量站真實結果、持續校準門檻。"""
+    try:
+        d = os.path.join(os.path.dirname(__file__), "..", "cache")
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "radar_overhead_log.jsonl"), "a") as f:
+            f.write(json.dumps({"ts": int(time.time()), "lat": round(lat, 3), "lon": round(lon, 3),
+                                "dbz": dbz, "rh": rh, "near_km": near_km, "grade": grade}) + "\n")
+    except Exception:
+        pass
+
+
 async def _radar_overhead(lat: float, lon: float):
     """使用者正上方的雷達回波 dBZ。回 (dbz, frame_age_min) 或 (None, None)。
+    台灣優先用 CWA 官方合成(RainViewer 在台灣有大片高空假回波)、其他地區/CWA 失敗用 RainViewer。
     任一環節失敗一律 (None, None)——附近雨區主功能不能因外部雷達源掛掉而受影響。"""
     try:
         from PIL import Image                   # 惰性載入:沒裝 pillow 只是少此功能
     except ImportError:
         return None, None
+    if _in_taiwan(lat, lon):                    # 台灣 → CWA 官方(品質遠優);失敗才落 RainViewer
+        dbz, age = await _cwa_radar_overhead(lat, lon)
+        if dbz is not None:
+            return dbz, age
     try:
         now = time.time()
         if not _RV_MAPS["data"] or now - _RV_MAPS["ts"] > 120:
