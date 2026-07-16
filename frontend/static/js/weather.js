@@ -3291,6 +3291,11 @@
       const est  = a.by === 'wind' ? '（順風推估）' : '';   // 風向推標不確定；雷達位移/臨近預報則不標
       return '🌂 你這沒下，' + from + '正往你這來，約 ' + a.eta_min + ' 分後到' + est + _trendZh(a);
     }
+    const im = n.imminent;   // 即將降雨：≤10km 對流正在長(增強/新冒出/多點)——就地擴散型,移動法抓不到
+    if (im) {
+      const where = im.area || (im.dist_km + 'km外');
+      return '🌦️ 你這沒下，但' + where + '(' + im.dist_km + 'km)' + im.reason + '，你這區可能快下了';
+    }
     if (n.widespread) {   // 半徑內一半以上都在下雨 → 大範圍降雨(往哪走都可能遇到)
       const pct = n.coverage != null ? '約' + Math.round(n.coverage * 10) + '成' : '大片';
       return '🌂 你這沒下，但附近' + pct + '範圍都在下雨';
@@ -3335,6 +3340,11 @@
       const from = a.area ? a.area + '的雨' : '附近的雨';
       const est = a.by === 'wind' ? '（順風推估）' : '';
       L.push('🛵 ' + from + '約 ' + a.eta_min + ' 分後到' + est + _trendZh(a));
+    }
+    if (n.imminent && !n.raining_here) {   // 即將降雨(對流就地長大型,無 ETA 可掛)
+      const im = n.imminent;
+      const where = im.area || (im.dist_km + 'km外');
+      L.push('🌦️ ' + where + '(' + im.dist_km + 'km)' + im.reason + '，你這區可能快下了，出門帶傘');
     }
     // ② 附近有雨的「區」：只列行政區名（去重、最多 6 個），方向不重要
     const seen = new Set();
@@ -3543,7 +3553,7 @@
     if (_wxLat == null || document.visibilityState === 'hidden') return;
     const n = _wd.nearby || {};
     // ⚠ 不用 _wd.precip>0 判斷：CWA 的 precipitation 是「當日累積」，早上下過就整天 >0 → 會誤開快速通道
-    const wet = _wd.nearbyRaining || !!n.approaching
+    const wet = _wd.nearbyRaining || !!n.approaching || !!n.imminent
              || (_wd.popNow != null && _wd.popNow >= 60) || /rain|storm|thunder|drizzle/.test(_autoType || '');
     if (wet) fetchWeather(_wxLat, _wxLon, true);
   }, 90 * 1000);

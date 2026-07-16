@@ -36,9 +36,9 @@ def _wx_is_wet(res) -> bool:
 
 
 def _nr_is_wet(res) -> bool:
-    """/api/nearby_rain 結果是否「正在下/雨帶接近中」→ 用短 TTL(approaching=下雨前兆,提前轉快節奏)。"""
+    """/api/nearby_rain 結果是否「正在下/雨帶接近中/即將降雨」→ 用短 TTL(下雨前兆,提前轉快節奏)。"""
     try:
-        return bool(res.get("raining_here") or res.get("approaching"))
+        return bool(res.get("raining_here") or res.get("approaching") or res.get("imminent"))
     except Exception:
         return False
 
@@ -1196,11 +1196,17 @@ APPROACH_SCAN_KM = 50.0
 # 投射超過此值的 ETA 是假精準。原 30 分；配合預估外圈放寬到 45 分(45 分外仍只留
 # approaching 旗標、nearest 行淡標「往你移動」不掛時間)。
 ETA_HORIZON_MIN = 45
+# 即將降雨(imminent)偵測半徑：≤此距離的雨胞「正在長」(增強/新冒出/多點)→ 就算移動向量
+# 不指向使用者也預警——台灣午後對流常「就地擴散」而非平移,質心/風向法抓不到,靠這個補。
+IMMINENT_KM = 10.0
 _8DIR = ["北", "東北", "東", "東南", "南", "西南", "西", "西北"]
 _RAIN_STATION_CACHE: dict = {"data": None, "ts": 0.0}   # CWA 雨量站(5 分鐘快取)
 _RAIN_HIST: dict = {}   # source → 最近兩份「不同觀測時間」的雨量快照(估雨帶移動)
 _NR_CACHE = SimpleCache(max_size=64)
 _NR_TTL = 120
+# ⚠ 07-13「雨系自適應TTL」漏定義此值 → 快取命中+雨系(正在下/接近)時 NameError 500、
+# 前端靜默吞掉 → 「每次真的下雨,附近雨區資訊反而整個消失」。07-16 補上。
+_NR_TTL_WET = 60
 
 
 def _bearing_zh(brg: float) -> str:
@@ -1442,8 +1448,31 @@ def _finalize_nearby(lat, lon, cells, here_rate, motion, src, obs_time,
                            "trend": c0.get("trend"), "fade_min": c0.get("fade_min")}
     if cells:
         _attach_scale(scan, cells[0])                            # 最近雨區也標範圍大小
-    for c in scan:                                               # 前端不需精確座標
-        c.pop("_lat", None); c.pop("_lon", None)
+    # ── 即將降雨(imminent)：雨還沒到、也沒可信 ETA，但 ≤IMMINENT_KM 的對流「正在長」──
+    # 訊號(強→弱)：①雨勢增強中(_rain_trend) ②新雨胞剛冒出(上一份快照該站還沒下=對流爆發期)
+    # ③多點(≥3站)同時在下(對流一片一片冒)。移動法(approaching)抓「移過來的雨」，
+    # 這裡補「就地長大的雨」——兩者互補；有 approaching ETA 時不重複報。
+    imminent = None
+    if here_rate < 0.5 and not approaching:
+        h = _RAIN_HIST.get(src) or []
+        prev = h[-2]["rain"] if len(h) >= 2 else None
+        # 門檻依雨勢放寬：大雨/豪雨胞擴散範圍大(實例:新店豪雨增強中 13.6km 被 10km 擋掉)→ 15km
+        near = [c for c in cells
+                if c["dist_km"] <= (15.0 if c.get("level") in ("大雨", "豪雨") else IMMINENT_KM)]
+        trig = []
+        for c in near:
+            if c.get("trend") == "增強中":
+                trig.append((c, "雨勢增強中"))
+            elif prev is not None and c.get("_sid") and c["_sid"] not in prev:
+                trig.append((c, "新雨胞剛冒出"))
+        if not trig and len(near) >= 3:
+            trig = [(near[0], "周邊多點降雨")]
+        if trig:
+            c0, why = min(trig, key=lambda t: t[0]["dist_km"])
+            imminent = {"dir": c0["dir"], "dist_km": c0["dist_km"], "level": c0["level"],
+                        "area": c0.get("area", ""), "reason": why}
+    for c in scan:                                               # 前端不需精確座標/站id
+        c.pop("_lat", None); c.pop("_lon", None); c.pop("_sid", None)
     # 覆蓋率：半徑內『有雨站數 / 總站數』；≥50% 且樣本足(≥6站) → 大範圍降雨(widespread)
     cov = None; widespread = False
     if coverage and coverage[1] >= 6:
@@ -1453,7 +1482,7 @@ def _finalize_nearby(lat, lon, cells, here_rate, motion, src, obs_time,
         "source": src, "radius_km": radius,
         "raining_here": here_rate >= 0.5, "here_mmph": round(here_rate, 1),
         "cells": cells[:12], "nearest": cells[0] if cells else None,
-        "approaching": approaching,
+        "approaching": approaching, "imminent": imminent,
         "coverage": cov, "widespread": widespread,
         "motion": (None if not motion else {"speed_kmh": motion["speed_kmh"],
                    "to_dir": _bearing_zh(motion["bearing"]), "by": by}),
@@ -1567,7 +1596,8 @@ async def _nearby_rain_cwa(lat, lon, radius=NEARBY_RADIUS_KM) -> dict:
                 _cell = {"dir": _bearing_zh(_bearing_deg(lat, lon, slat, slon)),
                          "dist_km": round(d, 1), "mmph": round(rate, 1), "level": lvl,
                          "name": s.get("StationName") or "", "area": area,
-                         "trend": tl, "fade_min": fm, "_lat": slat, "_lon": slon}
+                         "trend": tl, "fade_min": fm, "_lat": slat, "_lon": slon,
+                         "_sid": sid}    # 站 id：imminent 用「上一份快照沒下」判新雨胞
                 # 20km 內 → 顯示清單；20~50km 外圈 → 只給接近偵測/ETA(不顯示)
                 (cells if d <= radius else far_cells).append(_cell)
     motion = _estimate_motion("cwa", lat, lon, all_rain, obs_time)
