@@ -195,6 +195,20 @@ function _makeFootprintPrimitive() {
                 ctx.strokeRect(bx - halfW, top, halfW, h);
               }
             }
+            // 勝方脊柱：每個價位「買贏/賣贏」——中線畫一條，買贏綠·賣贏紅，越壓倒性越粗越亮。
+            //   一眼看出這根 K 棒裡「哪些價位買方贏、哪些賣方贏」（數字已分到左右半格、不擋脊柱）。
+            {
+              const tot = buy + sell;
+              if (tot >= 0.03 * rowMax) {
+                const net = buy - sell;
+                const dom = Math.abs(net) / tot;                 // 0~1 決定性
+                const wpx = Math.max(3 * hr, (2.5 + 4 * dom) * hr);
+                ctx.fillStyle = net >= 0
+                  ? `rgba(60,255,190,${(0.55 + 0.4 * dom).toFixed(2)})`
+                  : `rgba(255,80,74,${(0.55 + 0.4 * dom).toFixed(2)})`;
+                ctx.fillRect(bx - wpx / 2, top + 1, wpx, Math.max(1, h - 2));
+              }
+            }
             // POC：金色外框
             if (b.poc != null && p === b.poc) {
               ctx.strokeStyle = "rgba(255,209,26,0.9)";
@@ -202,10 +216,12 @@ function _makeFootprintPrimitive() {
               ctx.strokeRect(bx - halfW, top, halfW * 2, h);
             }
             if (textMode && h >= fpx + 2 * vr) {
-              ctx.fillStyle = "rgba(255,190,185,0.95)"; ctx.textAlign = "right";
-              ctx.fillText(_fpFmt(sell), bx - 3 * hr, top + h / 2);
-              ctx.fillStyle = "rgba(170,255,235,0.95)"; ctx.textAlign = "left";
-              ctx.fillText(_fpFmt(buy), bx + 3 * hr, top + h / 2);
+              // 數字置於各自半格中心（讓開中線的勝方脊柱）
+              ctx.textAlign = "center";
+              ctx.fillStyle = "rgba(255,190,185,0.95)";
+              ctx.fillText(_fpFmt(sell), bx - halfW / 2, top + h / 2);
+              ctx.fillStyle = "rgba(170,255,235,0.95)";
+              ctx.fillText(_fpFmt(buy), bx + halfW / 2, top + h / 2);
             }
           }
           // Δ(買-賣) 與總量：固定畫在圖表頂部一整列（週標籤下方），按每根棒 x 對齊，
