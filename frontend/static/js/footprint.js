@@ -101,26 +101,9 @@ window.toggleFootprint = function (on) {
   return _fpShow;
 };
 
-// ── 主圖右上「足跡」開關按鈕（與限價單同款、排在它左邊）─────────────
-function _fpEnsureBtn() {
-  let b = document.getElementById("footprintBtn");
-  if (b) return b;
-  const host = document.getElementById("mainChart");
-  if (!host) return null;
-  if (getComputedStyle(host).position === "static") host.style.position = "relative";
-  b = document.createElement("button");
-  b.id = "footprintBtn";
-  b.type = "button";
-  b.className = "chart-order-btn fp-btn";
-  b.title = "Footprint 足跡圖：每根K棒內各價位的主動買/賣量（左紅=主動賣、右綠=主動買、金框=POC最大量價位、棒底Δ=買賣差）。1m~1h=逐筆成交精確（首次開啟漸進補齊，右上角顯示進度）；4h/1d=1m聚合（買賣量精確）。K棒間距放大後才顯示";
-  b.innerHTML = '<span class="co-ico">👣</span><span class="co-txt">足跡</span>';
-  b.addEventListener("click", () => window.toggleFootprint());
-  host.appendChild(b);
-  return b;
-}
-
+// ── 「足跡」開關按鈕（靜態放在時框行 .tf-group，index.html）─────────────
 function _fpBtnRefresh() {
-  const b = _fpEnsureBtn();
+  const b = document.getElementById("footprintBtn");
   if (!b) return;
   const isCrypto = (document.getElementById("marketSelect")?.value || "crypto") === "crypto";
   b.style.display = isCrypto ? "" : "none";
@@ -129,6 +112,8 @@ function _fpBtnRefresh() {
 }
 
 function _fpBtnInit() {
+  const b = document.getElementById("footprintBtn");
+  if (b && !b._fpBound) { b._fpBound = true; b.addEventListener("click", () => window.toggleFootprint()); }
   _fpBtnRefresh();
   document.getElementById("marketSelect")?.addEventListener("change", () => setTimeout(_fpBtnRefresh, 0));
 }

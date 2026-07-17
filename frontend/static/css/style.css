@@ -536,6 +536,16 @@ html.perf-mode .tb-icon-btn:hover svg { animation: none; transform: scale(1.1); 
 }
 .bearwall-btn:hover { background: var(--bg3); }
 .bearwall-btn.bearwall-off { filter: grayscale(1); opacity: .35; }
+/* 時框行的指標開關（足跡／掛單牆）：比照 tf-btn，亮起=開啟 */
+.tf-sep { width: 1px; align-self: center; height: 16px; background: var(--border); margin: 0 3px; flex-shrink: 0; }
+.tf-toggle {
+  background: transparent; border: 1px solid var(--border); color: var(--muted);
+  padding: 4px 8px; border-radius: 4px; cursor: pointer; height: 26px;
+  font-size: 12px; font-weight: 500; white-space: nowrap; flex-shrink: 0;
+  transition: background .12s, color .12s, border-color .12s;
+}
+.tf-toggle:hover { background: var(--bg3); color: var(--text); }
+.tf-toggle.on { background: var(--accent, #FF9147); color: #2C1607; border-color: transparent; font-weight: 600; }
 
 /* Chart type buttons */
 .chart-type-group {
@@ -7050,10 +7060,6 @@ html.perf-mode .lunar-card { font-family: inherit; }
 }
 .chart-order-btn .co-ico { font-size: 12px; }
 
-/* 右上「足跡」開關（footprint.js）：與限價單同款、排在它左邊 */
-.fp-btn { right: 166px; }
-/* 右上「掛單牆」開關（orderbook.js）：排在足跡左邊 */
-.ob-btn { right: 246px; }
 
 /* 跟著滑鼠的水平導引線 + 價格/方向標籤 */
 .co-guide-line {

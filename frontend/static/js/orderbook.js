@@ -165,26 +165,9 @@ function _makeOrderbookPrimitive() {
   };
 }
 
-// ── 主圖右上「掛單牆」開關（與限價單/足跡同款、排在足跡左邊）───────
-function _obEnsureBtn() {
-  let b = document.getElementById("orderbookBtn");
-  if (b) return b;
-  const host = document.getElementById("mainChart");
-  if (!host) return null;
-  if (getComputedStyle(host).position === "static") host.style.position = "relative";
-  b = document.createElement("button");
-  b.id = "orderbookBtn";
-  b.type = "button";
-  b.className = "chart-order-btn ob-btn";
-  b.title = "掛單牆：即時盤口大掛單畫在右緣（綠=買方支撐牆、紅=賣方壓力牆，長度=掛單金額）。牆消失時判定「✓吃掉」（行情掃到才消失=真防守）或「⚠撤走」（沒碰到就不見=疑似假單）。左上顯示掛單買賣比。僅加密貨幣即時盤口";
-  b.innerHTML = '<span class="co-ico">🧱</span><span class="co-txt">掛單牆</span>';
-  b.addEventListener("click", () => window.toggleOrderbook());
-  host.appendChild(b);
-  return b;
-}
-
+// ── 「掛單牆」開關按鈕（靜態放在時框行 .tf-group，index.html）───────
 function _obBtnRefresh() {
-  const b = _obEnsureBtn();
+  const b = document.getElementById("orderbookBtn");
   if (!b) return;
   const isCrypto = (document.getElementById("marketSelect")?.value || "crypto") === "crypto";
   b.style.display = isCrypto ? "" : "none";
@@ -193,6 +176,8 @@ function _obBtnRefresh() {
 }
 
 function _obBtnInit() {
+  const b = document.getElementById("orderbookBtn");
+  if (b && !b._obBound) { b._obBound = true; b.addEventListener("click", () => window.toggleOrderbook()); }
   _obBtnRefresh();
   document.getElementById("marketSelect")?.addEventListener("change", () => setTimeout(_obBtnRefresh, 0));
 }
