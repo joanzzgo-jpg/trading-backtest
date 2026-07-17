@@ -596,13 +596,14 @@ async function _fetchWinRateNow() {
     if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();
     if (typeof window._refreshSignalDrawer === "function") window._refreshSignalDrawer();
   } catch(e) {
-    console.error("[fetchWinRate] error:", e.name, e.message);
-    // Abort / TypeError(Failed to fetch) / 被新請求取代 → 全部視為中斷，靜默
+    // Abort / TypeError(Failed to fetch) / 被新請求取代 → 全部視為中斷，靜默（不記 console.error，
+    //   否則快速連切標的/時框時會刷一排「AbortError」紅字雜訊——那是預期的取消，非錯誤）
     const isAbortLike = e.name === "AbortError"
                      || myCtrl.signal.aborted
                      || /failed to fetch/i.test(e.message || "")
                      || myCtrl !== _wrFetchCtrl;
     if (!isAbortLike) {
+      console.error("[fetchWinRate] error:", e.name, e.message);
       if (statusEl) statusEl.textContent = "—";
       lastWRSignalMarkers = [];
       _applyMainMarkers();
