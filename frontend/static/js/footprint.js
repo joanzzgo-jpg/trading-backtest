@@ -17,6 +17,7 @@ let _fpFetching = false;
 let _fpNextTryTs = 0;      // draw() 補抓的最早時間：成功後 +0.8s 防抖、失敗後 +5s 退避
 let _fpMsg = "";           // 沒資料時顯示的狀態訊息（載入中/忙碌重試/不支援）——「開了卻沒畫面」必有回饋
 const _FP_TFS = new Set(["1m", "5m", "15m", "30m", "1h", "4h", "1d"]);
+const _FP_IMB = 2;   // 失衡倍率：一側主動量 ≥ 另一側 ×此值 → 高亮該格（市價壓倒性打贏）
 
 function _fpLiveKey() {
   const sym = document.getElementById("symbolInput")?.value?.trim() || "";
@@ -195,6 +196,21 @@ function _makeFootprintPrimitive() {
             ctx.fillRect(bx - halfW, top, halfW, h);
             ctx.fillStyle = `rgba(38,198,166,${(0.10 + 0.42 * (buy / rowMax)).toFixed(3)})`;
             ctx.fillRect(bx, top, halfW, h);
+            // 失衡標示：某一側主動量 ≥ 另一側 _FP_IMB 倍（且該格夠大）＝市價單壓倒性打贏。
+            //   買失衡→右側亮綠實心＋外框；賣失衡→左側亮紅。這就是「市價吃穿對手」的價位。
+            if ((buy + sell) >= 0.28 * rowMax) {
+              if (buy >= _FP_IMB * Math.max(sell, rowMax * 0.02)) {
+                ctx.fillStyle = "rgba(38,255,200,0.55)";
+                ctx.fillRect(bx, top, halfW, h);
+                ctx.strokeStyle = "rgba(120,255,225,0.95)"; ctx.lineWidth = Math.max(1.5, 1.5 * hr);
+                ctx.strokeRect(bx, top, halfW, h);
+              } else if (sell >= _FP_IMB * Math.max(buy, rowMax * 0.02)) {
+                ctx.fillStyle = "rgba(255,60,55,0.5)";
+                ctx.fillRect(bx - halfW, top, halfW, h);
+                ctx.strokeStyle = "rgba(255,140,135,0.95)"; ctx.lineWidth = Math.max(1.5, 1.5 * hr);
+                ctx.strokeRect(bx - halfW, top, halfW, h);
+              }
+            }
             // POC：金色外框
             if (b.poc != null && p === b.poc) {
               ctx.strokeStyle = "rgba(255,209,26,0.9)";

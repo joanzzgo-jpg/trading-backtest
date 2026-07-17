@@ -73,6 +73,11 @@ function createCandleSeries() {
       _fpPrim = _makeFootprintPrimitive();
       candleSeries.attachPrimitive(_fpPrim);
     }
+    // 掛單牆（orderbook.js）：即時盤口大掛單畫在右緣
+    if (typeof _makeOrderbookPrimitive === "function") {
+      _obPrim = _makeOrderbookPrimitive();
+      candleSeries.attachPrimitive(_obPrim);
+    }
   } catch (e) { /* 舊版 LWC 無 attachPrimitive 時靜默略過 */ }
 }
 

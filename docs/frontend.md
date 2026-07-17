@@ -97,6 +97,7 @@
 | `ticker.js` | ~1069 | 自選清單、行情面板（fetchTickers/renderTickers + `_reconcileTicker` 鍵控重用）、標的搜尋（initSymSearch） |
 | `winrate.js` | ~848 | `_wrCache`、fetchWinRate、_renderWRSignals、_renderWinRate、hover 勝率（_updateHoverWR）、自動盈虧比盒、**系列切換 `_wrSeries`（S↔SS）+ 主圖「標記系列」過濾（全部/只S/只SS）** |
 | `footprint.js` | ~200 | **Footprint 足跡圖**（2026-07-17）：`toggleFootprint`/`_fpFetch`/`_makeFootprintPrimitive`。打 `/api/footprint`，primitive 畫每根棒各價位買賣量（左紅賣/右綠買、金框 POC、棒底 Δ+總量）。僅 crypto、tf∈1m~1h（逐筆精確、漸進補齊：`pending_min>0` 時 5s 快輪詢 `_fpFastT`＋右上角顯示「剩 N 分鐘」）＋4h/1d（`kagg` 1m聚合）；開關=主圖右上 #footprintBtn（chart-order-btn 同款、.fp-btn right:166，crypto 才顯示）預設關；barSpacing<14 只顯提示、≥52 才畫數字；抓失敗不記 `_fpKey`→draw() 5s 退避自癒（`_fpNextTryTs`）；primitive 於 `charts.js createCandleSeries()` 掛載 |
+| `orderbook.js` | ~200 | **掛單牆 Order Book Wall**（2026-07-17）：`toggleOrderbook`/`_obFetch`/`_makeOrderbookPrimitive`。打 `/api/orderbook`（僅 crypto 即時），primitive 畫右緣掛單牆橫條（綠買/紅賣、長∝金額）＋牆消失事件標「✓吃掉/⚠撤走」（假單判定）＋左上掛單買賣比；2.5s 輪詢；開關=右上 `#orderbookBtn`（.ob-btn right:246）。足跡另有失衡標示 `_FP_IMB=2`（買/賣 ≥2倍高亮該格）在 footprint.js |
 | `render.js` | ~582 | loadData、_applyPriceFormat、renderAll、renderCandles/BB/CRT/KDJCross/Resonance/Volume/KDJ/RSI/MACD、_bgApplyChunk、_bgScheduleIndicators、_bgLoadOlderBars |
 | `realtime.js` | ~317 | startRealtime、stopRealtime、fetchLatest（含切標的丟棄守衛）、_resetSymbolBarQuote、updateAllLegends、onXxxCrosshair、updateSymbolBar |
 | `replay.js` | ~459 | replayData 狀態、_rpCal 日曆 IIFE、enterReplay/exitReplay、replayPlay/Step、bindReplayBar |

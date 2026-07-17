@@ -7052,6 +7052,8 @@ html.perf-mode .lunar-card { font-family: inherit; }
 
 /* 右上「足跡」開關（footprint.js）：與限價單同款、排在它左邊 */
 .fp-btn { right: 166px; }
+/* 右上「掛單牆」開關（orderbook.js）：排在足跡左邊 */
+.ob-btn { right: 246px; }
 
 /* 跟著滑鼠的水平導引線 + 價格/方向標籤 */
 .co-guide-line {
