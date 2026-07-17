@@ -32,6 +32,9 @@ backend/data/.pionex_syms_cache.json
 # DataFrame 磁碟快取（執行期、勿進版控）
 backend/.df_cache/
 
+# 執行期快取（足跡每日成交 CSV 聚合、雷達 log 等，勿進版控）
+backend/cache/
+
 # 帳號 SQLite（本機開發用）
 backend/.accounts.db
 frontend/static/css/style.min.css

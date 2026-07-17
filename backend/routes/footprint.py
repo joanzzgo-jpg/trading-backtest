@@ -21,8 +21,12 @@ import time
 from datetime import datetime, timezone
 
 from data import crypto as _crypto
+from routes import footprint_csv as _csv
 
 router = APIRouter(tags=["footprint"])
+
+_CSV_DAYS = 3               # 近幾個「已收盤日」用每日成交 CSV 補逐筆精確（更早走細K聚合）
+_CSV_TFS = {"1m", "5m", "15m", "30m", "1h"}   # 4h/1d 天數太多、細K已足夠 → 不用 CSV
 
 _TF_MS = {"1m": 60_000, "5m": 300_000, "15m": 900_000, "30m": 1_800_000,
           "1h": 3_600_000, "4h": 14_400_000, "1d": 86_400_000}
@@ -358,10 +362,45 @@ def _rows_from_store_bar(sym, ts, tf_ms, now_ms, k_mult):
     return rows or None
 
 
-def _do_fill(sym, tf, starts, now_ms, bin_size):
-    """背景執行緒：用細 K 線聚合填 _hist_cache（已收盤棒精確），每次跑到預算用盡即退（下輪續補）"""
+def _csv_overlay(sym, tf, starts, now_ms, tf_ms, bin_size, fine):
+    """近 _CSV_DAYS 個已收盤日：用每日成交 CSV 算逐筆精確、覆蓋這幾天的細K近似棒。
+    CSV 分鐘格是 fine 桶 → 聚合成 tf 顯示桶（bin_size 必為 fine 整數倍）存入 _hist_cache。"""
+    if tf not in _CSV_TFS or fine <= 0:
+        return
+    k_mult = max(1, round(bin_size / fine))
+    day_ms = 86_400_000
+    today0 = now_ms // day_ms * day_ms
+    from datetime import datetime, timezone
+    for di in range(1, _CSV_DAYS + 1):                 # 昨天、前天…（今天檔案尚未產出）
+        d0 = today0 - di * day_ms
+        date = datetime.fromtimestamp(d0 / 1000, tz=timezone.utc).strftime("%Y-%m-%d")
+        # 這天有沒有落在要顯示的棒範圍內
+        day_bars = [ts for ts in starts if d0 <= ts < d0 + day_ms and ts + tf_ms <= now_ms]
+        if not day_bars:
+            continue
+        mins = _csv.day_minutes(sym, date, fine)       # 阻塞（背景執行緒）：下載+解析+快取
+        if not mins:
+            continue
+        for ts in day_bars:
+            rows: dict = {}
+            mts = ts
+            bar_end = ts + tf_ms
+            while mts < bar_end:
+                cell = mins.get(mts)
+                if cell:
+                    for fidx, (b, s) in cell.items():
+                        didx = fidx // k_mult if k_mult > 1 else fidx
+                        r = rows.setdefault(didx, [0.0, 0.0]); r[0] += b; r[1] += s
+                mts += _MIN_MS
+            if rows:
+                _hist_cache_put((sym, tf, ts, bin_size), _pack_bar(ts, rows, bin_size, True))
+
+
+def _do_fill(sym, tf, starts, now_ms, tf_ms, bin_size, fine):
+    """背景執行緒：細K聚合填 _hist_cache（已收盤棒），再用每日CSV把近幾天覆蓋成逐筆精確"""
     try:
         _bars_via_subklines(sym, tf, starts, now_ms, bin_size)
+        _csv_overlay(sym, tf, starts, now_ms, tf_ms, bin_size, fine)
     finally:
         with _fill_lock:
             _active_fills.pop((sym, tf), None)
@@ -393,7 +432,15 @@ def _build(sym: str, tf: str, n: int) -> dict:
     # 全時框統一走「細 K 線聚合」：≤1h←1m、4h←5m、1d←15m（`_SUB_TF`）。
     #   買賣量＝交易所實數(takerBuyVolume) 精確；價位到細K解析度（1m 已夠細）。
     #   klines 便宜快速、不易被權重擋 → 解決「太慢／常常連線失敗」；比 tf K 線粗略近似精確得多。
-    bin_size = _nice_step(max(avg_rng / 12, last_close * 1e-6))
+    #   1m~1h 另在背景用每日成交 CSV 把近幾天覆蓋成逐筆精確 → bin 須為細桶(fine)整數倍以便無縫聚合。
+    if tf in _CSV_TFS:
+        _fine_regime_check(sym, last_close)
+        fine = _fine_bin_for(sym)
+        k_mult = max(1, round((avg_rng / 12) / fine))
+        bin_size = fine * k_mult
+    else:
+        fine = 0.0
+        bin_size = _nice_step(max(avg_rng / 12, last_close * 1e-6))
 
     # 立即組裝：已收盤棒用細K快取（精確），未到位的先用該棒 tf K 線粗略近似（x=false）頂著 → 首屏 <1s。
     bars, pending = [], 0
@@ -409,8 +456,8 @@ def _build(sym: str, tf: str, n: int) -> dict:
             if closed:
                 pending += 1
 
-    if pending > 0:                                    # 還有棒不精確 → 背景細K填充、前端續輪詢
-        _kick_fill(sym, tf, starts, now_ms, bin_size)
+    if pending > 0:                                    # 還有棒不精確 → 背景細K填充(+CSV逐筆覆蓋)、前端續輪詢
+        _kick_fill(sym, tf, starts, now_ms, tf_ms, bin_size, fine)
 
     return {"ok": True, "symbol": sym, "tf": tf, "bin": bin_size, "approx": False,
             "kagg": True, "partial": pending > 0,
