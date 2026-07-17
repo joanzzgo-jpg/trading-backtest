@@ -15,6 +15,7 @@ let _fpTimer = null;
 let _fpPrim = null;
 let _fpFetching = false;
 let _fpNextTryTs = 0;      // draw() 補抓的最早時間：成功後 +0.8s 防抖、失敗後 +5s 退避
+let _fpLastAttempt = 0;    // 上次實際發出 fetch 的時間（切換後重抓用，與繁忙退避分開）
 let _fpMsg = "";           // 沒資料時顯示的狀態訊息（載入中/忙碌重試/不支援）——「開了卻沒畫面」必有回饋
 const _FP_TFS = new Set(["1m", "5m", "15m", "30m", "1h", "4h", "1d"]);
 const _FP_IMB = 2;   // 失衡倍率：一側主動量 ≥ 另一側 ×此值 → 高亮該格（市價壓倒性打贏）
@@ -46,6 +47,7 @@ async function _fpFetch() {
     return;
   }
   _fpFetching = true;
+  _fpLastAttempt = Date.now();
   const key = symbol + "|" + tf;
   try {
     const res = await fetch(`/api/footprint?symbol=${encodeURIComponent(symbol)}&tf=${encodeURIComponent(tf)}`, { cache: "no-cache" });
@@ -126,8 +128,10 @@ function _makeFootprintPrimitive() {
     draw(target) {
       if (!_fpShow || !_chart || !_series) return;
       // 標的/時框變了或上次抓失敗 → 舊資料不畫（畫了會貼錯棒），到時間就補抓（切換/失敗自癒，不等 20s 輪詢）
+      // key 不符＝使用者切了標的/時框：主動切換該盡快換上新資料，不受「同標的繁忙 5s 退避」拖累
+      //   → 只用 1.2s 短防抖（避免 spam），比 _fpNextTryTs 的繁忙退避更即時。
       const _mismatch = _fpKey !== _fpLiveKey();
-      if (_mismatch && !_fpFetching && Date.now() > _fpNextTryTs) setTimeout(_fpFetch, 0);
+      if (_mismatch && !_fpFetching && Date.now() - _fpLastAttempt > 1200) setTimeout(_fpFetch, 0);
       const _noData = _mismatch || !_fpBars.length || !_fpBin;
       const ts = _chart.timeScale();
       let bs = 10;
