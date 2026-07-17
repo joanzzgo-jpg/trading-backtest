@@ -15,6 +15,7 @@ let _fpTimer = null;
 let _fpPrim = null;
 let _fpFetching = false;
 let _fpNextTryTs = 0;      // draw() 補抓的最早時間：成功後 +0.8s 防抖、失敗後 +5s 退避
+let _fpMsg = "";           // 沒資料時顯示的狀態訊息（載入中/忙碌重試/不支援）——「開了卻沒畫面」必有回饋
 const _FP_TFS = new Set(["1m", "5m", "15m", "30m", "1h", "4h", "1d"]);
 
 function _fpLiveKey() {
@@ -38,6 +39,7 @@ async function _fpFetch() {
   const tf = (typeof currentTF !== "undefined" && currentTF) || "";
   if (market !== "crypto" || !symbol || !_FP_TFS.has(tf)) {
     _fpBars = []; _fpKey = _fpLiveKey();
+    _fpMsg = market !== "crypto" ? "足跡：僅支援加密貨幣" : "足跡：不支援此時框（限 1m~1d）";
     if (_fpPrim) _fpPrim.requestUpdate();
     return;
   }
@@ -56,15 +58,23 @@ async function _fpFetch() {
         .filter(b => b.t != null && !Number.isNaN(b.t));
       _fpKey = key;   // 成功才記 key；失敗留舊 key → draw() 會走「key 不符」路徑重試
       _fpNextTryTs = Date.now() + 800;
-      // 還有分鐘沒補完 → 5s 快速接續（後端每次請求有權重預算，多輪就補齊）
+      _fpMsg = "";
+      // 還有分鐘/歷史棒沒補完 → 5s 快速接續（後端有權重閘門，多輪自然補齊）
       clearTimeout(_fpFastT);
-      if (_fpPending > 0 && _fpShow) _fpFastT = setTimeout(_fpFetch, 5000);
+      if ((_fpPending > 0 || j.partial) && _fpShow) _fpFastT = setTimeout(_fpFetch, 5000);
     } else {
-      _fpBars = [];
-      _fpNextTryTs = Date.now() + 5000;   // 後端回 ok:false（多半是 Binance 暫時性失敗）→ 5s 退避
+      // ⚠ 不清 _fpBars：畫面上的舊足跡（同標的）仍正確——清了會「出現一下就消失」。
+      //   只有 key 相符時舊資料才會被畫；切標的中的舊資料由 draw() 的 key 檢查擋住。
+      _fpMsg = _fpBars.length && _fpKey === key ? "" : "足跡：行情源忙碌中，會自動重試…";
+      _fpNextTryTs = Date.now() + 5000;   // 後端回 ok:false（多半是 Binance 忙碌）→ 5s 退避
+      clearTimeout(_fpFastT);
+      if (_fpShow) _fpFastT = setTimeout(_fpFetch, 5200);   // 失敗也持續自動重試（不乾等 20s 輪詢）
     }
   } catch (e) {
+    _fpMsg = _fpBars.length ? "" : "足跡：連線失敗，會自動重試…";
     _fpNextTryTs = Date.now() + 5000;     // 網路失敗 → 保留舊資料，5s 後再試
+    clearTimeout(_fpFastT);
+    if (_fpShow) _fpFastT = setTimeout(_fpFetch, 5200);
   }
   finally {
     _fpFetching = false;
@@ -77,6 +87,7 @@ window.toggleFootprint = function (on) {
   clearInterval(_fpTimer); _fpTimer = null;
   clearTimeout(_fpFastT); _fpFastT = null;
   if (_fpShow) {
+    _fpMsg = "";
     _fpFetch();
     // 未收盤棒持續更新（後端已收盤棒有快取＋整包 10s 回應快取 → 便宜）
     _fpTimer = setInterval(_fpFetch, 20000);
@@ -92,17 +103,23 @@ function _makeFootprintPrimitive() {
     draw(target) {
       if (!_fpShow || !_chart || !_series) return;
       // 標的/時框變了或上次抓失敗 → 舊資料不畫（畫了會貼錯棒），到時間就補抓（切換/失敗自癒，不等 20s 輪詢）
-      if (_fpKey !== _fpLiveKey()) {
-        if (!_fpFetching && Date.now() > _fpNextTryTs) setTimeout(_fpFetch, 0);
-        return;
-      }
-      if (!_fpBars.length || !_fpBin) return;
+      const _mismatch = _fpKey !== _fpLiveKey();
+      if (_mismatch && !_fpFetching && Date.now() > _fpNextTryTs) setTimeout(_fpFetch, 0);
+      const _noData = _mismatch || !_fpBars.length || !_fpBin;
       const ts = _chart.timeScale();
       let bs = 10;
       try { bs = ts.options().barSpacing || 10; } catch (e) {}
       target.useBitmapCoordinateSpace(scope => {
         const ctx = scope.context;
         const hr = scope.horizontalPixelRatio, vr = scope.verticalPixelRatio;
+        // 開著但還沒有資料 → 一定給狀態回饋（否則看起來像「打不開」）
+        if (_noData) {
+          ctx.font = `${Math.round(11 * vr)}px sans-serif`;
+          ctx.textAlign = "left"; ctx.textBaseline = "top";
+          ctx.fillStyle = "rgba(255,255,255,0.35)";
+          ctx.fillText(_fpMsg || "足跡：載入中…", 8 * hr, 26 * vr);
+          return;
+        }
         // 間距太窄畫不下 → 只給一行提示（左上角）
         if (bs < 14) {
           ctx.font = `${Math.round(11 * vr)}px sans-serif`;

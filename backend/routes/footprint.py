@@ -36,6 +36,28 @@ _SUB_TF = {"1m": "1m", "5m": "1m", "15m": "1m", "30m": "1m", "1h": "1m", "4h": "
 _SUB_MS = {"1m": 60_000, "5m": 300_000, "15m": 900_000}
 _KLINE_TFS = {"4h", "1d"}          # 全程走細K聚合（近端逐筆窗口=0）
 _HIST_KLINE_BUDGET = 16            # 每次請求最多幾次「歷史細K」呼叫（1500 根/次、權重個位數）
+
+# ── 足跡專屬權重閘門（滑動 60s 窗）──────────────────────────────
+# Railway 全站共用一個出口 IP → fapi 權重 2400/分是「所有使用者+所有功能」共用。
+# 足跡冷啟動很吃 aggTrades（20/次）→ 不設上限的話，多人同開就會把報價/勝率/教練
+# 擠到被軟節流跳過。這裡把足跡整體限制在 800 權重/分（全站 1/3）：超過就本輪不抓、
+# 回 pending/partial 讓前端下輪輪詢續補（補齊變慢，但其他功能永遠有 2/3 額度）。
+_FP_W_CAP = 800
+_FP_W_LOG: list = []               # [(ts, cost), ...] 60s 滑動窗
+_W_AGG, _W_KL_BIG, _W_KL_SMALL = 20, 10, 2   # aggTrades / klines(1500) / klines(小)
+
+
+def _fp_gate(cost: int) -> bool:
+    """足跡權重閘門：60s 窗內累計 + cost 不超過 _FP_W_CAP 才放行（放行即記帳）"""
+    now = time.time()
+    with _lock:
+        while _FP_W_LOG and now - _FP_W_LOG[0][0] > 60:
+            _FP_W_LOG.pop(0)
+        used = sum(c for _, c in _FP_W_LOG)
+        if used + cost > _FP_W_CAP:
+            return False
+        _FP_W_LOG.append((now, cost))
+        return True
 _CALL_BUDGET = 40            # 每次請求最多幾次 aggTrades 呼叫（×20 權重）
 _MIN_MS = 60_000
 
@@ -132,8 +154,8 @@ def _fetch_span_minutes(sym: str, span_s: int, span_e: int, fine: float,
     covered_to = span_s     # 已確定完整覆蓋到（exclusive）
     t0 = span_s
     while t0 < span_e:
-        if not budget.take():
-            break
+        if not budget.take() or not _fp_gate(_W_AGG):
+            break           # 每請求預算或全站足跡權重閘門到頂 → 下輪續補
         url = (f"{_crypto.BINANCE_FAPI_BASE}/fapi/v1/aggTrades?symbol={sym}"
                f"&startTime={t0}&endTime={span_e - 1}&limit=1000")
         chunk = _crypto._binance_get(url, timeout=10, retries=0)
@@ -209,6 +231,8 @@ def _fetch_sub_paged(sym: str, sub_tf: str, start_ms: int, end_ms: int, budget: 
     out, t0 = [], start_ms
     sub_ms = _SUB_MS[sub_tf]
     while t0 < end_ms and budget[0] > 0:
+        if not _fp_gate(_W_KL_BIG):
+            break           # 足跡權重閘門到頂 → partial，下輪續補
         budget[0] -= 1
         url = (f"{_crypto.BINANCE_FAPI_BASE}/fapi/v1/klines?symbol={sym}&interval={sub_tf}"
                f"&startTime={t0}&endTime={end_ms - 1}&limit=1500")
@@ -277,6 +301,11 @@ def _bars_via_subklines(sym: str, tf: str, starts: list, now_ms: int, bin_size: 
                 _hist_cache_put((sym, tf, ts, bin_size),
                                 _pack_bar(ts, fetched[ts], bin_size, True))
         i = j + 1
+    # 只要還有「該收而未快取」的棒就標 partial（含被權重閘門擋下的情況）→ 前端下輪續補
+    for ts in need:
+        if ts + tf_ms <= now_ms and (sym, tf, ts, bin_size) not in _hist_cache:
+            partial = True
+            break
     bars = []
     for ts in starts:
         closed = ts + tf_ms <= now_ms
