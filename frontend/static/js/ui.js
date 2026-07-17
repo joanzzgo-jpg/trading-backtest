@@ -669,7 +669,6 @@ function bindLegendToggles() {
     { id: "legFVGBreak", series: null,  action: (hidden) => { if (typeof toggleFVGBreak === "function") toggleFVGBreak(!hidden); } },
     { id: "legFVGShun",  series: null,  action: (hidden) => { if (typeof toggleFVGShun === "function") toggleFVGShun(!hidden); } },
     { id: "legFVGSpecial", series: null, action: (hidden) => { if (typeof toggleFVGSpecial === "function") toggleFVGSpecial(!hidden); } },
-    { id: "legFootprint", series: null, action: (hidden) => { if (typeof toggleFootprint === "function") toggleFootprint(!hidden); } },
     // 大棒淡化：line-off(dim)=關閉、亮=啟用 → hidden 為 false 時啟用
     { id: "legDimBigBar",series: null,  action: (hidden) => { if (typeof toggleDimBigBar === "function") toggleDimBigBar(!hidden); } },
     { id: "legDimVol",   series: null,  action: (hidden) => { if (typeof toggleDimVol === "function") toggleDimVol(!hidden); } },

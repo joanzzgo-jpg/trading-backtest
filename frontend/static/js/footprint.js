@@ -92,9 +92,45 @@ window.toggleFootprint = function (on) {
     // 未收盤棒持續更新（後端已收盤棒有快取＋整包 10s 回應快取 → 便宜）
     _fpTimer = setInterval(_fpFetch, 20000);
   }
+  const _b = document.getElementById("footprintBtn");
+  if (_b) _b.classList.toggle("on", _fpShow);
   if (_fpPrim) _fpPrim.requestUpdate();
   return _fpShow;
 };
+
+// ── 主圖右上「足跡」開關按鈕（與限價單同款、排在它左邊）─────────────
+function _fpEnsureBtn() {
+  let b = document.getElementById("footprintBtn");
+  if (b) return b;
+  const host = document.getElementById("mainChart");
+  if (!host) return null;
+  if (getComputedStyle(host).position === "static") host.style.position = "relative";
+  b = document.createElement("button");
+  b.id = "footprintBtn";
+  b.type = "button";
+  b.className = "chart-order-btn fp-btn";
+  b.title = "Footprint 足跡圖：每根K棒內各價位的主動買/賣量（左紅=主動賣、右綠=主動買、金框=POC最大量價位、棒底Δ=買賣差）。1m~1h=逐筆成交精確（首次開啟漸進補齊，右上角顯示進度）；4h/1d=1m聚合（買賣量精確）。K棒間距放大後才顯示";
+  b.innerHTML = '<span class="co-ico">👣</span><span class="co-txt">足跡</span>';
+  b.addEventListener("click", () => window.toggleFootprint());
+  host.appendChild(b);
+  return b;
+}
+
+function _fpBtnRefresh() {
+  const b = _fpEnsureBtn();
+  if (!b) return;
+  const isCrypto = (document.getElementById("marketSelect")?.value || "crypto") === "crypto";
+  b.style.display = isCrypto ? "" : "none";
+  if (!isCrypto && _fpShow) window.toggleFootprint(false);   // 切去台股/美股 → 自動關
+  b.classList.toggle("on", _fpShow);
+}
+
+function _fpBtnInit() {
+  _fpBtnRefresh();
+  document.getElementById("marketSelect")?.addEventListener("change", () => setTimeout(_fpBtnRefresh, 0));
+}
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", _fpBtnInit);
+else _fpBtnInit();
 
 function _makeFootprintPrimitive() {
   let _chart = null, _series = null, _req = null;
