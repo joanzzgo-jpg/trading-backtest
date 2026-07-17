@@ -58,7 +58,7 @@ def _fp_gate(cost: int) -> bool:
             return False
         _FP_W_LOG.append((now, cost))
         return True
-_CALL_BUDGET = 40            # 每次請求最多幾次 aggTrades 呼叫（×20 權重）
+_CALL_BUDGET = 16            # 每次請求最多幾次 aggTrades 呼叫（×20 權重）；小批＝首屏快回、多輪續補
 _MIN_MS = 60_000
 
 _lock = threading.Lock()
@@ -350,6 +350,15 @@ def _build(sym: str, tf: str, n: int) -> dict:
     hist_bars, hpart = _bars_via_subklines(sym, tf, hist_starts, now_ms, bin_size)
     starts = recent_starts
 
+    # 近端秒出：先用 1m K 線把近端每分鐘算出「近似格」（1 通便宜呼叫），逐筆到位前先畫、
+    # 之後每輪把有 aggTrades 的分鐘換成精確 → 首屏立即有圖、不必等整批逐筆抓完。
+    approx_min: dict = {}
+    if recent_starts:
+        kl1 = _fetch_sub_paged(sym, "1m", recent_starts[0], now_ms, [2])
+        for k in kl1:
+            mts = int(k[0]) // _MIN_MS * _MIN_MS
+            _rows_add_subkline(approx_min.setdefault(mts, {}), k, bin_size)
+
     budget = _Budget(_CALL_BUDGET)
     overlay: dict = {}       # 本次抓到的分鐘（含未收盤分鐘）
     # 新的棒優先補（使用者看的是最近），棒內缺的分鐘取連續缺口逐段翻頁
@@ -373,7 +382,7 @@ def _build(sym: str, tf: str, n: int) -> dict:
         if budget.left <= 0:
             break
 
-    # 組棒：分鐘格聚合到顯示桶；缺分鐘的棒標 x=false（用已有的先畫）
+    # 組棒：分鐘格聚合到顯示桶；逐筆缺的分鐘先用 1m 近似格頂上（棒仍標 x=false → 前端顯示補齊中）
     bars, pending_min = [], 0
     for ts in starts:
         bar_end = min(ts + tf_ms, now_ms)
@@ -383,15 +392,21 @@ def _build(sym: str, tf: str, n: int) -> dict:
         while mts < bar_end:
             closed = mts + _MIN_MS <= now_ms
             cell = _store_get(sym, mts) if closed else overlay.get(mts)
-            if cell is None and closed:
-                missing += 1
-            elif cell:
-                # 細桶 idx → 顯示桶 idx（bin = fine × k_mult，整除無縫）
+            if cell:
+                # 精確：細桶 idx → 顯示桶 idx（bin = fine × k_mult，整除無縫）
                 for fidx, (b, s) in cell.items():
                     didx = fidx // k_mult if k_mult > 1 else fidx
                     bs = rows.setdefault(didx, [0.0, 0.0])
                     bs[0] += b
                     bs[1] += s
+            elif closed:
+                missing += 1
+                ap = approx_min.get(mts)     # 逐筆還沒到 → 1m 近似格頂上（顯示桶 idx）
+                if ap:
+                    for didx, (b, s) in ap.items():
+                        bs = rows.setdefault(didx, [0.0, 0.0])
+                        bs[0] += b
+                        bs[1] += s
             mts += _MIN_MS
         pending_min += missing
         if rows or missing == 0:

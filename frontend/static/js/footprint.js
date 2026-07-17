@@ -60,9 +60,9 @@ async function _fpFetch() {
       _fpKey = key;   // 成功才記 key；失敗留舊 key → draw() 會走「key 不符」路徑重試
       _fpNextTryTs = Date.now() + 800;
       _fpMsg = "";
-      // 還有分鐘/歷史棒沒補完 → 5s 快速接續（後端有權重閘門，多輪自然補齊）
+      // 還有分鐘/歷史棒沒補完 → 3.5s 快速接續（近似已先畫，逐筆逐輪覆蓋上去）
       clearTimeout(_fpFastT);
-      if ((_fpPending > 0 || j.partial) && _fpShow) _fpFastT = setTimeout(_fpFetch, 5000);
+      if ((_fpPending > 0 || j.partial) && _fpShow) _fpFastT = setTimeout(_fpFetch, 3500);
     } else {
       // ⚠ 不清 _fpBars：畫面上的舊足跡（同標的）仍正確——清了會「出現一下就消失」。
       //   只有 key 相符時舊資料才會被畫；切標的中的舊資料由 draw() 的 key 檢查擋住。
