@@ -34,12 +34,13 @@ _TF_MS = {"1m": 60_000, "5m": 300_000, "15m": 900_000, "30m": 1_800_000,
 _BARS_CAP = {"1m": 20, "5m": 12, "15m": 12, "30m": 10, "1h": 8, "4h": 0, "1d": 0}
 # 歷史總深度（近端之外用「細 K 線聚合」補：量=交易所實數 takerBuy、價位歸屬到細K的高低區；
 # 算一次就進快取，之後零成本）。全歷史逐筆物理上不可行（1d 一根數百萬筆 aggTrades）。
-_HIST_CAP = {"1m": 360, "5m": 360, "15m": 360, "30m": 240, "1h": 240, "4h": 240, "1d": 240}
+# 歷史深度（近端優先填、深段逐輪往回補）：1m 6h／5m 2天／15m 5天／30m 10天／1h 20天／4h 80天／1d 1.4年
+_HIST_CAP = {"1m": 360, "5m": 576, "15m": 480, "30m": 480, "1h": 480, "4h": 480, "1d": 500}
 # 歷史聚合用的細 K 線時框：≤1h 用 1m；4h 用 5m（48 子棒/根）；1d 用 15m（96 子棒/根）
 _SUB_TF = {"1m": "1m", "5m": "1m", "15m": "1m", "30m": "1m", "1h": "1m", "4h": "5m", "1d": "15m"}
 _SUB_MS = {"1m": 60_000, "5m": 300_000, "15m": 900_000}
 _KLINE_TFS = {"4h", "1d"}          # 全程走細K聚合（近端逐筆窗口=0）
-_HIST_KLINE_BUDGET = 16            # 每次請求最多幾次「歷史細K」呼叫（1500 根/次、權重個位數）
+_HIST_KLINE_BUDGET = 22            # 每次背景填充最多幾次「歷史細K」呼叫（1500 根/次、權重個位數）；深段跨多輪補
 
 # ── 足跡專屬權重閘門（滑動 60s 窗）──────────────────────────────
 # Railway 全站共用一個出口 IP → fapi 權重 2400/分是「所有使用者+所有功能」共用。
@@ -283,11 +284,16 @@ def _bars_via_subklines(sym: str, tf: str, starts: list, now_ms: int, bin_size: 
         if closed and (sym, tf, ts, bin_size) in _hist_cache:
             continue
         need.append(ts)
+    # 先把缺的棒切成連續區段，再「從最新區段先抓」→ 使用者看的近端先變精確、深歷史逐輪往回補
+    spans = []
     i = 0
     while i < len(need):
         j = i
         while j + 1 < len(need) and need[j + 1] == need[j] + tf_ms:
             j += 1
+        spans.append((i, j))
+        i = j + 1
+    for (i, j) in reversed(spans):
         span_s, span_e = need[i], min(need[j] + tf_ms, now_ms)
         if budget[0] <= 0:
             partial = True
@@ -304,7 +310,6 @@ def _bars_via_subklines(sym: str, tf: str, starts: list, now_ms: int, bin_size: 
             if ts in fetched and ts + tf_ms <= now_ms and ts + tf_ms <= cov:
                 _hist_cache_put((sym, tf, ts, bin_size),
                                 _pack_bar(ts, fetched[ts], bin_size, True))
-        i = j + 1
     # 只要還有「該收而未快取」的棒就標 partial（含被權重閘門擋下的情況）→ 前端下輪續補
     for ts in need:
         if ts + tf_ms <= now_ms and (sym, tf, ts, bin_size) not in _hist_cache:
