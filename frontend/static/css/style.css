@@ -6062,7 +6062,36 @@ body, button, input, select, textarea,
   /* 布林通道數值：手機原本把所有圖例文字藏掉（只剩色點），
      這裡把主圖 BB 的 U/M/L 數值顯示回來（ID 優先序蓋過 ≤520 的隱藏規則） */
   #legBB .leg-val { display: inline !important; }
-  .pane-legend { flex-wrap: wrap !important; overflow-x: hidden !important; }
+
+  /* ── 手機圖例：改成「可橫滑、有標籤、好按」的膠囊列 ──
+     原本把 多空/破多空/FVG… 壓成 8px 小點又藏字 → 又小又認不出。
+     這裡整排改單列橫向捲動、開關做成 30px 高膠囊、字顯示回來、點擊區放大。 */
+  .pane-legend {
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    -webkit-overflow-scrolling: touch;
+    pointer-events: auto !important;
+    gap: 6px !important;
+    padding: 3px 8px !important;
+    height: auto !important; min-height: 38px !important;
+    scrollbar-width: none;
+  }
+  .pane-legend::-webkit-scrollbar { display: none; }
+  .pane-legend .leg-toggle {
+    padding: 6px 11px !important;
+    min-height: 30px;
+    gap: 6px !important;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: var(--bg2, rgba(255,255,255,.04));
+    flex-shrink: 0;
+  }
+  /* 開關的文字標籤顯示回來（蓋過 ≤520 的隱藏規則），關閉態變淡但仍看得到 */
+  .pane-legend .leg-toggle .leg-val { display: inline !important; font-size: 12px; }
+  .pane-legend .leg-toggle.line-off { opacity: .55; }
+  .pane-legend .leg-toggle.line-off .leg-val { color: var(--muted); }
+  .pane-legend .leg-dot { width: 10px !important; height: 10px !important; }
 
   /* ── 📈 圖表分頁：隱藏勝率欄 → 圖表多拿回 ~54px、畫面乾淨像看盤 app ──
      （勝率資訊移到下方「勝率」分頁；iPad 769–1100px 無分頁 → 不受影響、仍顯示） */
