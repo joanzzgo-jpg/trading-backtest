@@ -317,104 +317,130 @@ def _bars_via_subklines(sym: str, tf: str, starts: list, now_ms: int, bin_size: 
     return bars, partial
 
 
+# ── 背景填充：端點只組裝快取＋粗略近似（不阻塞），細K/逐筆搬到背景執行緒 ──
+_active_fills: dict = {}     # (sym,tf) -> True（該標的正在背景填充，去重）
+_fill_lock = threading.Lock()
+_tfkl_cache: dict = {}       # (sym,tf) -> (ts, klines)：tf K 線 5s 快取（每輪輪詢省一通）
+
+
+def _get_tf_klines(sym: str, tf: str, n: int):
+    hit = _tfkl_cache.get((sym, tf))
+    if hit and time.time() - hit[0] < 5:
+        return hit[1]
+    kl = _fetch_tf_klines(sym, tf, n)
+    if kl:
+        _tfkl_cache[(sym, tf)] = (time.time(), kl)
+    return kl
+
+
+def _rows_from_store_bar(sym, ts, tf_ms, now_ms, k_mult):
+    """近端某棒：分鐘倉全部到位才回精確 rows，否則 None（缺就退回粗略近似）"""
+    rows = {}
+    mts = ts
+    bar_end = min(ts + tf_ms, now_ms)
+    while mts + _MIN_MS <= bar_end:          # 只算已收盤分鐘
+        cell = _store_get(sym, mts)
+        if cell is None:
+            return None                       # 尚有分鐘沒逐筆到位
+        for fidx, (b, s) in cell.items():
+            didx = fidx // k_mult if k_mult > 1 else fidx
+            r = rows.setdefault(didx, [0.0, 0.0]); r[0] += b; r[1] += s
+        mts += _MIN_MS
+    return rows or None
+
+
+def _do_fill(sym, tf, starts, hist_starts, recent_starts, now_ms, tf_ms, bin_size, fine, k_mult):
+    """背景執行緒：填 _hist_cache（歷史細K）＋ _minute_store（近端逐筆），每次跑到預算用盡即退"""
+    try:
+        if tf in _KLINE_TFS:
+            _bars_via_subklines(sym, tf, starts, now_ms, bin_size)      # 填 _hist_cache
+            return
+        _bars_via_subklines(sym, tf, hist_starts, now_ms, bin_size)     # 歷史先（便宜、整片變好）
+        budget = _Budget(_CALL_BUDGET)                                   # 近端逐筆（貴、慢慢填）
+        overlay = {}
+        for ts in reversed(recent_starts):
+            bar_end = min(ts + tf_ms, now_ms)
+            span_s = None
+            mts = ts
+            while mts + _MIN_MS <= bar_end:
+                have = _store_get(sym, mts) is not None
+                if not have and span_s is None:
+                    span_s = mts
+                elif have and span_s is not None:
+                    _fetch_span_minutes(sym, span_s, mts, fine, budget, now_ms, overlay); span_s = None
+                if budget.left <= 0:
+                    break
+                mts += _MIN_MS
+            if span_s is not None and budget.left > 0:
+                _fetch_span_minutes(sym, span_s, bar_end, fine, budget, now_ms, overlay)
+            if budget.left <= 0:
+                break
+    finally:
+        with _fill_lock:
+            _active_fills.pop((sym, tf), None)
+
+
+def _kick_fill(sym, tf, *args):
+    with _fill_lock:
+        if _active_fills.get((sym, tf)):
+            return
+        _active_fills[(sym, tf)] = True
+    threading.Thread(target=_do_fill, args=(sym, tf) + args, daemon=True).start()
+
+
 def _build(sym: str, tf: str, n: int) -> dict:
     tf_ms = _TF_MS[tf]
     now_ms = int(time.time() * 1000)
     cur_start = now_ms // tf_ms * tf_ms
     starts = [cur_start - i * tf_ms for i in range(n - 1, -1, -1)]
 
-    # 顯示桶：該時框近 n 根平均全長/12
-    kl = _fetch_tf_klines(sym, tf, n)
+    # 唯一同步網路呼叫：tf K 線（5s 快取）。同時給 bin 尺寸與「每棒粗略近似」的來源。
+    kl = _get_tf_klines(sym, tf, n)
     if not kl:
         return {"ok": False, "err": "無K線資料"}
     last_close = float(kl[-1][4])
     ranges = [float(k[2]) - float(k[3]) for k in kl if float(k[2]) > float(k[3])]
     avg_rng = (sum(ranges) / len(ranges)) if ranges else last_close * 0.002
+    kl_by_bar = {int(k[0]) // tf_ms * tf_ms: k for k in kl}   # 每棒 tf K 線（粗略近似用）
 
-    # 4h/1d：全程細 K 線聚合（4h←5m、1d←15m；量精確、已收盤棒快取）
     if tf in _KLINE_TFS:
         bin_size = _nice_step(max(avg_rng / 12, last_close * 1e-6))
-        bars, hpart = _bars_via_subklines(sym, tf, starts, now_ms, bin_size)
-        return {"ok": True, "symbol": sym, "tf": tf, "bin": bin_size,
-                "approx": False, "kagg": True, "partial": hpart, "pending_min": 0,
-                "bars": bars}
+        fine = bin_size; k_mult = 1
+        recent_starts, hist_starts = [], starts
+    else:
+        _fine_regime_check(sym, last_close)
+        fine = _fine_bin_for(sym)
+        k_mult = max(1, round((avg_rng / 12) / fine))
+        bin_size = fine * k_mult
+        recent_n = min(_BARS_CAP[tf], n)
+        recent_starts = starts[-recent_n:] if recent_n else []
+        hist_starts = starts[:-recent_n] if recent_n < n else []
 
-    # 1m~1h：近端 aggTrades 逐筆精確 + 更早歷史 1m K 線聚合
-    _fine_regime_check(sym, last_close)
-    fine = _fine_bin_for(sym)
-    k_mult = max(1, round((avg_rng / 12) / fine))
-    bin_size = fine * k_mult
-    recent_n = min(_BARS_CAP[tf], n)
-    recent_starts = starts[-recent_n:] if recent_n else []
-    hist_starts = starts[:-recent_n] if recent_n < n else []
-    hist_bars, hpart = _bars_via_subklines(sym, tf, hist_starts, now_ms, bin_size)
-    starts = recent_starts
-
-    # 近端秒出：先用 1m K 線把近端每分鐘算出「近似格」（1 通便宜呼叫），逐筆到位前先畫、
-    # 之後每輪把有 aggTrades 的分鐘換成精確 → 首屏立即有圖、不必等整批逐筆抓完。
-    approx_min: dict = {}
-    if recent_starts:
-        kl1 = _fetch_sub_paged(sym, "1m", recent_starts[0], now_ms, [2])
-        for k in kl1:
-            mts = int(k[0]) // _MIN_MS * _MIN_MS
-            _rows_add_subkline(approx_min.setdefault(mts, {}), k, bin_size)
-
-    budget = _Budget(_CALL_BUDGET)
-    overlay: dict = {}       # 本次抓到的分鐘（含未收盤分鐘）
-    # 新的棒優先補（使用者看的是最近），棒內缺的分鐘取連續缺口逐段翻頁
-    for ts in reversed(starts):
-        bar_end = min(ts + tf_ms, now_ms)
-        span_s = None
-        mts = ts
-        while mts < bar_end:
-            closed = mts + _MIN_MS <= now_ms
-            have = (_store_get(sym, mts) is not None) if closed else (mts in overlay)
-            if not have and span_s is None:
-                span_s = mts
-            elif have and span_s is not None:
-                _fetch_span_minutes(sym, span_s, mts, fine, budget, now_ms, overlay)
-                span_s = None
-            if budget.left <= 0:
-                break
-            mts += _MIN_MS
-        if span_s is not None and budget.left > 0:
-            _fetch_span_minutes(sym, span_s, bar_end, fine, budget, now_ms, overlay)
-        if budget.left <= 0:
-            break
-
-    # 組棒：分鐘格聚合到顯示桶；逐筆缺的分鐘先用 1m 近似格頂上（棒仍標 x=false → 前端顯示補齊中）
-    bars, pending_min = [], 0
+    # 立即組裝：歷史快取 > 近端逐筆(全到位) > 該棒 tf K 線粗略近似 → 首屏 <1s、缺的逐輪變精確
+    bars, pending = [], 0
     for ts in starts:
-        bar_end = min(ts + tf_ms, now_ms)
-        rows: dict = {}
-        missing = 0
-        mts = ts
-        while mts < bar_end:
-            closed = mts + _MIN_MS <= now_ms
-            cell = _store_get(sym, mts) if closed else overlay.get(mts)
-            if cell:
-                # 精確：細桶 idx → 顯示桶 idx（bin = fine × k_mult，整除無縫）
-                for fidx, (b, s) in cell.items():
-                    didx = fidx // k_mult if k_mult > 1 else fidx
-                    bs = rows.setdefault(didx, [0.0, 0.0])
-                    bs[0] += b
-                    bs[1] += s
-            elif closed:
-                missing += 1
-                ap = approx_min.get(mts)     # 逐筆還沒到 → 1m 近似格頂上（顯示桶 idx）
-                if ap:
-                    for didx, (b, s) in ap.items():
-                        bs = rows.setdefault(didx, [0.0, 0.0])
-                        bs[0] += b
-                        bs[1] += s
-            mts += _MIN_MS
-        pending_min += missing
-        if rows or missing == 0:
-            bars.append(_pack_bar(ts, rows, bin_size, missing == 0))
+        closed = ts + tf_ms <= now_ms
+        cached = _hist_cache.get((sym, tf, ts, bin_size)) if closed else None
+        if cached is not None:
+            bars.append(cached); continue
+        rows = None
+        if tf not in _KLINE_TFS and closed:
+            rows = _rows_from_store_bar(sym, ts, tf_ms, now_ms, k_mult)
+        if rows is not None:
+            bars.append(_pack_bar(ts, rows, bin_size, True)); continue
+        k = kl_by_bar.get(ts)                          # 退回粗略近似（棒標 x=false）
+        if k:
+            ap = {}; _rows_add_subkline(ap, k, bin_size)
+            bars.append(_pack_bar(ts, ap, bin_size, False))
+            if closed:
+                pending += 1
 
-    return {"ok": True, "symbol": sym, "tf": tf, "bin": bin_size,
-            "approx": False, "partial": pending_min > 0 or hpart,
-            "pending_min": pending_min, "bars": hist_bars + bars}
+    if pending > 0:                                    # 還有棒不精確 → 背景繼續填、前端續輪詢
+        _kick_fill(sym, tf, starts, hist_starts, recent_starts, now_ms, tf_ms, bin_size, fine, k_mult)
+
+    return {"ok": True, "symbol": sym, "tf": tf, "bin": bin_size, "approx": False,
+            "kagg": tf in _KLINE_TFS, "partial": pending > 0,
+            "pending_min": pending, "bars": bars}
 
 
 @router.get("/api/footprint")
