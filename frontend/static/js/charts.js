@@ -68,6 +68,11 @@ function createCandleSeries() {
     // 策略方向標記(多/空·破多空·順多空)：改用 primitive → 與 K 棒同一次繪製、縮放時不游移(不抖)、又能隨 barSpacing 縮放
     _stratMarkersPrim = _makeStratMarkersPrimitive();
     candleSeries.attachPrimitive(_stratMarkersPrim);
+    // Footprint 足跡圖（footprint.js；bundle 串接順序在 charts 之後，但本函式於整包載完才執行）
+    if (typeof _makeFootprintPrimitive === "function") {
+      _fpPrim = _makeFootprintPrimitive();
+      candleSeries.attachPrimitive(_fpPrim);
+    }
   } catch (e) { /* 舊版 LWC 無 attachPrimitive 時靜默略過 */ }
 }
 

@@ -23,6 +23,7 @@ from routes.account import router as account_router
 from routes.notify import router as notify_router
 from routes.trade import router as trade_router
 from routes.lunar import router as lunar_router
+from routes.footprint import router as footprint_router
 from data.crypto import _fetch_pionex_symbols, _fetch_pionex_perp_symbols
 
 def _build_js_bundle():
@@ -34,7 +35,7 @@ def _build_js_bundle():
         js = js.resolve()
         # ⚠ draw / trade 已移出 bundle → 改由 main.js 於首屏後閒置時動態載入（首屏 JS 省 ~42%）。
         #   兩者對 core 的耦合皆經 typeof/window guard，且各自在載入時自我初始化（見 draw.js/trade.js 末段）。
-        names = ["config","utils","charts","colors","ticker","winrate","render","realtime","replay","ui","ai_research","signal_info","account","notify","chartorder","xiaoa","lunar","announce","multichart","main"]
+        names = ["config","utils","charts","colors","ticker","winrate","footprint","render","realtime","replay","ui","ai_research","signal_info","account","notify","chartorder","xiaoa","lunar","announce","multichart","main"]
         srcs = [js / f"{n}.js" for n in names]
         bundle = js / "app.bundle.js"
         srcs_exist = [p for p in srcs if p.exists()]
@@ -499,3 +500,4 @@ app.include_router(account_router)
 app.include_router(notify_router)
 app.include_router(trade_router)
 app.include_router(lunar_router)
+app.include_router(footprint_router)
