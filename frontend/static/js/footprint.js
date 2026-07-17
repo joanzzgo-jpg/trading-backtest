@@ -18,8 +18,8 @@ let _fpNextTryTs = 0;      // draw() 補抓的最早時間：成功後 +0.8s 防
 let _fpMsg = "";           // 沒資料時顯示的狀態訊息（載入中/忙碌重試/不支援）——「開了卻沒畫面」必有回饋
 const _FP_TFS = new Set(["1m", "5m", "15m", "30m", "1h", "4h", "1d"]);
 const _FP_IMB = 2;   // 失衡倍率：一側主動量 ≥ 另一側 ×此值 → 高亮該格（市價壓倒性打贏）
-const _FP_DBOT = 6;       // 棒底 Δ/總量往下位移(px)：一般棒（棒下無箭頭）
-const _FP_DBOT_MARK = 40; // 該棒有下方策略箭頭（多/破空/順多…）時的位移，讓開箭頭+字
+const _FP_DTOP = 6;       // 棒頂 Δ/總量往上位移(px)：一般棒（棒上無箭頭）
+const _FP_DTOP_MARK = 40; // 該棒有上方策略箭頭（空/破多/順空…）時的位移，讓開箭頭+字
 
 function _fpLiveKey() {
   const sym = document.getElementById("symbolInput")?.value?.trim() || "";
@@ -158,12 +158,12 @@ function _makeFootprintPrimitive() {
         const _mv = !!(window._chartMoveTs && _nowP - window._chartMoveTs < 220);
         if (_mv) { clearTimeout(_settleT); _settleT = setTimeout(() => { if (_req) _req(); }, 240); }
         const textMode = bs >= 52 && !_mv;   // 夠寬且非平移中才畫數字
-        // 有「棒下方箭頭」（多/破空/順多 等 belowBar 策略標記）的棒 → Δ 多讓一段避免疊字
-        const _belowT = new Set();
+        // Δ 畫在棒上方 → 偵測「棒上方箭頭」（空/破多/順空/特空 等 aboveBar 標記）的棒，多讓一段避免疊字
+        const _aboveT = new Set();
         for (const arr of [window.lastFVGMSMarkers, window.lastFVGBreakMarkers,
                            window.lastFVGShunMarkers, window.lastFVGSpecialMarkers,
                            window.lastWRSignalMarkers]) {
-          if (Array.isArray(arr)) for (const m of arr) if (m && m.position === "belowBar") _belowT.add(m.time);
+          if (Array.isArray(arr)) for (const m of arr) if (m && m.position === "aboveBar") _aboveT.add(m.time);
         }
         const halfW = Math.max(4, bs * 0.46) * hr;
         const fpx = Math.round(10 * vr);
@@ -176,13 +176,14 @@ function _makeFootprintPrimitive() {
           let rowMax = 0;
           for (const r of b.rows) { const tot = r[1] + r[2]; if (tot > rowMax) rowMax = tot; }
           if (rowMax <= 0) continue;
-          let yBotMax = -Infinity;
+          let yBotMax = -Infinity, yTopMin = Infinity;
           for (const r of b.rows) {
             const p = r[0], buy = r[1], sell = r[2];
             const yT = _series.priceToCoordinate(p + _fpBin);
             const yB = _series.priceToCoordinate(p);
             if (yT == null || yB == null) continue;
             const top = Math.min(yT, yB) * vr;
+            if (top < yTopMin) yTopMin = top;
             const h = Math.max(1, Math.abs(yB - yT) * vr - Math.max(1, vr)); // 列間留 1px 縫
             if (yB * vr > yBotMax) yBotMax = yB * vr;
             // 左=賣(紅)、右=買(綠)，深淺依佔比
@@ -218,28 +219,26 @@ function _makeFootprintPrimitive() {
               ctx.fillText(_fpFmt(buy), bx + 3 * hr, top + h / 2);
             }
           }
-          // 棒底：Δ(買-賣，染色) 與總量。有下方箭頭的棒多讓一段避免疊字
-          if (!_mv && yBotMax > -Infinity && bs >= 26) {
-            const dy = yBotMax + (_belowT.has(b.t) ? _FP_DBOT_MARK : _FP_DBOT) * vr;
-            ctx.font = `${fpx}px sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "top";
+          // 棒頂：Δ(買-賣，染色) 與總量。畫在棒上方避開下方的多/破多空箭頭；
+          //   若該棒上方有 aboveBar 箭頭(空/破多/順空)則再往上讓一段。
+          if (!_mv && yTopMin < Infinity && bs >= 26) {
+            const dy = yTopMin - (_aboveT.has(b.t) ? _FP_DTOP_MARK : _FP_DTOP) * vr;
+            ctx.font = `${fpx}px sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "bottom";
             ctx.fillStyle = b.d >= 0 ? "rgba(38,198,166,0.95)" : "rgba(239,83,80,0.95)";
             ctx.fillText((b.d >= 0 ? "Δ+" : "Δ-") + _fpFmt(Math.abs(b.d)), bx, dy);
             if (textMode) {
               ctx.fillStyle = "rgba(255,255,255,0.55)";
-              ctx.fillText(_fpFmt(b.v), bx, dy + fpx + 2 * vr);
+              ctx.fillText(_fpFmt(b.v), bx, dy - fpx - 2 * vr);   // 總量在 Δ 上方
             }
             if (textMode) ctx.textBaseline = "middle";   // 還原給下一根的列文字
           }
         }
-        // 資料狀態註記（右上角小字）：漸進補齊進度 / 4h·1d 聚合說明
-        if (_fpPending > 0 || _fpKagg) {
+        // 資料狀態註記（右上角小字）：精確補齊進度
+        if (_fpPending > 0) {
           ctx.font = `${Math.round(10 * vr)}px sans-serif`;
           ctx.textAlign = "right"; ctx.textBaseline = "top";
           ctx.fillStyle = "rgba(255,255,255,0.35)";
-          ctx.fillText(
-            _fpPending > 0 ? `足跡逐筆補齊中…剩 ${_fpPending} 分鐘` : "足跡：1m聚合（量精確）",
-            scope.bitmapSize.width - 8 * hr, 26 * vr
-          );
+          ctx.fillText(`足跡精算中…剩 ${_fpPending} 根`, scope.bitmapSize.width - 8 * hr, 26 * vr);
         }
       });
     },

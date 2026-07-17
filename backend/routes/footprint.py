@@ -321,16 +321,25 @@ def _bars_via_subklines(sym: str, tf: str, starts: list, now_ms: int, bin_size: 
 _active_fills: dict = {}     # (sym,tf) -> True（該標的正在背景填充，去重）
 _fill_lock = threading.Lock()
 _tfkl_cache: dict = {}       # (sym,tf) -> (ts, klines)：tf K 線 5s 快取（每輪輪詢省一通）
+_tfkl_good: dict = {}        # (sym,tf) -> klines：最後一次成功（無期限）。stale-serve 用
 
 
 def _get_tf_klines(sym: str, tf: str, n: int):
     hit = _tfkl_cache.get((sym, tf))
     if hit and time.time() - hit[0] < 5:
         return hit[1]
-    kl = _fetch_tf_klines(sym, tf, n)
+    kl = None
+    try:
+        kl = _fetch_tf_klines(sym, tf, n)   # 權重上限/熔斷會拋 → 不讓它冒到端點變「連線失敗」
+    except Exception:
+        kl = None
     if kl:
         _tfkl_cache[(sym, tf)] = (time.time(), kl)
-    return kl
+        _tfkl_good[(sym, tf)] = kl
+        return kl
+    # 抓失敗（權重繁忙/熔斷）→ 回上次成功的 K 線：載入過一次後就不再「連線失敗」，
+    # 只是最新那根 K 稍舊；背景填充與下輪輪詢會在權重放行時補上。
+    return _tfkl_good.get((sym, tf))
 
 
 def _rows_from_store_bar(sym, ts, tf_ms, now_ms, k_mult):
@@ -349,32 +358,10 @@ def _rows_from_store_bar(sym, ts, tf_ms, now_ms, k_mult):
     return rows or None
 
 
-def _do_fill(sym, tf, starts, hist_starts, recent_starts, now_ms, tf_ms, bin_size, fine, k_mult):
-    """背景執行緒：填 _hist_cache（歷史細K）＋ _minute_store（近端逐筆），每次跑到預算用盡即退"""
+def _do_fill(sym, tf, starts, now_ms, bin_size):
+    """背景執行緒：用細 K 線聚合填 _hist_cache（已收盤棒精確），每次跑到預算用盡即退（下輪續補）"""
     try:
-        if tf in _KLINE_TFS:
-            _bars_via_subklines(sym, tf, starts, now_ms, bin_size)      # 填 _hist_cache
-            return
-        _bars_via_subklines(sym, tf, hist_starts, now_ms, bin_size)     # 歷史先（便宜、整片變好）
-        budget = _Budget(_CALL_BUDGET)                                   # 近端逐筆（貴、慢慢填）
-        overlay = {}
-        for ts in reversed(recent_starts):
-            bar_end = min(ts + tf_ms, now_ms)
-            span_s = None
-            mts = ts
-            while mts + _MIN_MS <= bar_end:
-                have = _store_get(sym, mts) is not None
-                if not have and span_s is None:
-                    span_s = mts
-                elif have and span_s is not None:
-                    _fetch_span_minutes(sym, span_s, mts, fine, budget, now_ms, overlay); span_s = None
-                if budget.left <= 0:
-                    break
-                mts += _MIN_MS
-            if span_s is not None and budget.left > 0:
-                _fetch_span_minutes(sym, span_s, bar_end, fine, budget, now_ms, overlay)
-            if budget.left <= 0:
-                break
+        _bars_via_subklines(sym, tf, starts, now_ms, bin_size)
     finally:
         with _fill_lock:
             _active_fills.pop((sym, tf), None)
@@ -403,43 +390,30 @@ def _build(sym: str, tf: str, n: int) -> dict:
     avg_rng = (sum(ranges) / len(ranges)) if ranges else last_close * 0.002
     kl_by_bar = {int(k[0]) // tf_ms * tf_ms: k for k in kl}   # 每棒 tf K 線（粗略近似用）
 
-    if tf in _KLINE_TFS:
-        bin_size = _nice_step(max(avg_rng / 12, last_close * 1e-6))
-        fine = bin_size; k_mult = 1
-        recent_starts, hist_starts = [], starts
-    else:
-        _fine_regime_check(sym, last_close)
-        fine = _fine_bin_for(sym)
-        k_mult = max(1, round((avg_rng / 12) / fine))
-        bin_size = fine * k_mult
-        recent_n = min(_BARS_CAP[tf], n)
-        recent_starts = starts[-recent_n:] if recent_n else []
-        hist_starts = starts[:-recent_n] if recent_n < n else []
+    # 全時框統一走「細 K 線聚合」：≤1h←1m、4h←5m、1d←15m（`_SUB_TF`）。
+    #   買賣量＝交易所實數(takerBuyVolume) 精確；價位到細K解析度（1m 已夠細）。
+    #   klines 便宜快速、不易被權重擋 → 解決「太慢／常常連線失敗」；比 tf K 線粗略近似精確得多。
+    bin_size = _nice_step(max(avg_rng / 12, last_close * 1e-6))
 
-    # 立即組裝：歷史快取 > 近端逐筆(全到位) > 該棒 tf K 線粗略近似 → 首屏 <1s、缺的逐輪變精確
+    # 立即組裝：已收盤棒用細K快取（精確），未到位的先用該棒 tf K 線粗略近似（x=false）頂著 → 首屏 <1s。
     bars, pending = [], 0
     for ts in starts:
         closed = ts + tf_ms <= now_ms
         cached = _hist_cache.get((sym, tf, ts, bin_size)) if closed else None
         if cached is not None:
             bars.append(cached); continue
-        rows = None
-        if tf not in _KLINE_TFS and closed:
-            rows = _rows_from_store_bar(sym, ts, tf_ms, now_ms, k_mult)
-        if rows is not None:
-            bars.append(_pack_bar(ts, rows, bin_size, True)); continue
-        k = kl_by_bar.get(ts)                          # 退回粗略近似（棒標 x=false）
+        k = kl_by_bar.get(ts)                          # 尚未細K到位 → tf K 線粗略近似
         if k:
             ap = {}; _rows_add_subkline(ap, k, bin_size)
             bars.append(_pack_bar(ts, ap, bin_size, False))
             if closed:
                 pending += 1
 
-    if pending > 0:                                    # 還有棒不精確 → 背景繼續填、前端續輪詢
-        _kick_fill(sym, tf, starts, hist_starts, recent_starts, now_ms, tf_ms, bin_size, fine, k_mult)
+    if pending > 0:                                    # 還有棒不精確 → 背景細K填充、前端續輪詢
+        _kick_fill(sym, tf, starts, now_ms, bin_size)
 
     return {"ok": True, "symbol": sym, "tf": tf, "bin": bin_size, "approx": False,
-            "kagg": tf in _KLINE_TFS, "partial": pending > 0,
+            "kagg": True, "partial": pending > 0,
             "pending_min": pending, "bars": bars}
 
 
