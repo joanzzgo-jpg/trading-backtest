@@ -1132,8 +1132,17 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             _A = _last_gap[_dir]            # (botA, W_A)
             _dim = (_A is not None and (_A[0] - 0.5 * _A[1]) <= _top <= _A[0])
             _last_gap[_dir] = (_bot, _W)    # 不論 dim，更新為本缺口 → 連鎖向下傳遞
+            # 前端可選過濾用旗標（read-only、不影響偵測/勝率）：
+            #   go=g 的方向(收-開)與 g-1、g+1 皆相反(中間那根逆兩側)；gv=g 成交量 < g+1 成交量。
+            _gd  = 1 if _C[_g]   > _O[_g]   else (-1 if _C[_g]   < _O[_g]   else 0)
+            _gd1 = 1 if _C[_g-1] > _O[_g-1] else (-1 if _C[_g-1] < _O[_g-1] else 0)
+            _gd2 = 1 if _C[_g+1] > _O[_g+1] else (-1 if _C[_g+1] < _O[_g+1] else 0)
+            _go = bool(_gd != 0 and _gd != _gd1 and _gd != _gd2)
+            _vg = _Vms[_g]; _vg2 = _Vms[_g+1]
+            _gv = bool(_vg == _vg and _vg2 == _vg2 and _vg < _vg2)   # NaN 安全
             _fvg.append({"t": times_iso[_g+1], "top": _top, "bot": _bot, "d": _dir, "t2": _box_t2,
                          "sweep": _sweep, "sl": _gsl, "tp": _gtp, "dim": _dim, "gi": _g + 1,
+                         "go": _go, "gv": _gv,
                          "ett": _ett, "etm": _etm, "etb": _etb, "pens": _pens})    # gi=缺口索引；pens=每次更深突破點
             _gaps_seq.append((_g + 1, _top, _bot, _dir))   # 依序記錄每個視覺缺口（結構模式偵測用，含 dim）
             # IFVG：反方向換色，從反轉點續延，到自己回中線被填補(或右緣)為止；位階用反向(止盈反向1W、止損=被破對側邊)。

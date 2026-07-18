@@ -111,9 +111,12 @@ function _makeFVGPrimitive() {
         const _mv = !!(window._chartMoveTs && _nowP - window._chartMoveTs < 220);
         if (_mv) { clearTimeout(_fvgSettleT); _fvgSettleT = setTimeout(() => { if (_req) _req(); }, 240); }
         else { ctx.font = `${Math.round(10 * vr)}px sans-serif`; ctx.textBaseline = "middle"; ctx.textAlign = "left"; }
+        const _fltGopp = !!window._fvgFilterGopp, _fltGvol = !!window._fvgFilterGvol;
         for (const z of _fvgZones) {
           if (z.t1 > _hi) continue;                       // 整盒在視窗右側外
           if (z.t2 != null && z.t2 < _lo) continue;       // 整盒在視窗左側外（t2=null＝延伸到右緣，永不判為左外）
+          if (_fltGopp && !z.go) continue;                // 只顯示 g 逆兩側方向的缺口
+          if (_fltGvol && !z.gv) continue;                // 只顯示 g 量 < g+1 量的缺口
           // 使用者自定最小寬度過濾：寬度% = 多(top−bot)/bot、空(top−bot)/top（對齊標籤定義）
           if (_fvgMinW > 0) {
             const _zw = (z.d === "l" ? (z.top - z.bot) / z.bot : (z.top - z.bot) / z.top) * 100;
@@ -230,6 +233,7 @@ function setFVGZones(list) {
   _fvgZones = (Array.isArray(list) ? list : []).map(z => ({
     t1: toTime(z.t), t2: (z.t2 != null ? toTime(z.t2) : null),
     top: z.top, bot: z.bot, d: z.d, inv: !!z.inv,   // inv=IFVG(反轉缺口,反方向換色)
+    go: z.go === true, gv: z.gv === true,           // go=g逆兩側方向、gv=g量<g+1量（前端可選過濾用）
     dim: !!z.dim,                                   // dim=同向缺口堆疊(下方0.5W帶內)→無效(淺色、不採用)
     used: z.used !== false,                          // used=false→沒被任何標記用到→淡化(舊資料無此欄→預設true不淡化)
     sl: (z.sl != null ? z.sl : null), tp: (z.tp != null ? z.tp : null),  // 止損(g-1頂端)/止盈(2W)
@@ -248,6 +252,17 @@ function toggleFVG(on) {
   if (_fvgPrimitive) _fvgPrimitive.requestUpdate();
   return _fvgShow;
 }
+// FVG 可選過濾開關：只顯示符合條件的缺口（純顯示、不影響偵測/勝率）。
+window.toggleFvgFilterGopp = function (on) {   // g 方向與 g-1、g+1 皆相反
+  window._fvgFilterGopp = (on === undefined) ? !window._fvgFilterGopp : !!on;
+  if (_fvgPrimitive) _fvgPrimitive.requestUpdate();
+  return window._fvgFilterGopp;
+};
+window.toggleFvgFilterGvol = function (on) {   // g 成交量 < g+1 成交量
+  window._fvgFilterGvol = (on === undefined) ? !window._fvgFilterGvol : !!on;
+  if (_fvgPrimitive) _fvgPrimitive.requestUpdate();
+  return window._fvgFilterGvol;
+};
 
 // ── 策略方向標記 primitive（多/空·破多空·順多空）──
 //   資料源＝全域 lastFVGBreakMarkers/lastFVGMSMarkers/lastFVGShunMarkers（{time,position,color,text}）。
