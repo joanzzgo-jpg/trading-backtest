@@ -277,8 +277,9 @@ function _stratGlyph(text, color, fpx) {
   return e;
 }
 
-// 大時框順勢過濾：用「當前時框的長 EMA」逼近『更高時框』趨勢（同一 wall-clock 時間跨度：
-//   HTF EMA(20) ≈ 當前 TF EMA(20×倍數)）。價在 EMA 之上=大時框多頭、之下=空頭。
+// 大時框順勢過濾：用「當前時框的滾動 VWAP」逼近『更高時框』的公平價/成本線（回看期 =
+//   20×時框倍數，同 wall-clock 跨度逼近高時框）。價在 VWAP 之上=大時框多頭偏、之下=空頭偏
+//   （VWAP=成交量加權,反映大家實際成交的平均價,比純均線更有機構成本線意義）。
 //   逆勢的策略標記(空/破多在多頭、多/破空在空頭)淡化。純視覺過濾、不改勝率計算。
 const _HTF_MULT = { "1m": 15, "5m": 6, "15m": 4, "30m": 4, "1h": 4, "2h": 4, "4h": 6, "8h": 3, "1d": 7, "1w": 4, "1M": 3 };
 let _ctTrendCache = { sig: "", arr: null };
@@ -289,15 +290,25 @@ function _getHtfTrend() {
   const mult = _HTF_MULT[tf] || 4;
   const period = Math.max(40, Math.min(300, mult * 20));
   const dv = (typeof _dataVersion !== "undefined") ? _dataVersion : 0;
-  const sig = `${dv}|${tf}|${n}|${period}`;
+  const sig = `${dv}|${tf}|${n}|${period}|vwap`;
   if (_ctTrendCache.sig === sig && _ctTrendCache.arr) return _ctTrendCache.arr;
   const arr = new Array(n).fill(0);
-  const k = 2 / (period + 1);
-  let ema = null;
+  // 前綴和 O(n)：滾動 VWAP = 窗內 Σ(典型價 HLC/3 × 量) / Σ(量)
+  const pv = new Float64Array(n + 1), vv = new Float64Array(n + 1);
   for (let i = 0; i < n; i++) {
+    const bar = ohlcvData[i];
+    const tp = (bar.high + bar.low + bar.close) / 3;
+    const vol = bar.volume || 0;
+    pv[i + 1] = pv[i] + tp * vol;
+    vv[i + 1] = vv[i] + vol;
+  }
+  for (let i = period; i < n; i++) {   // 暖機 period 根後才給方向
+    const j = i - period + 1;          // 窗 = [j, i] 共 period 根
+    const wv = vv[i + 1] - vv[j];
+    if (wv <= 0) continue;
+    const vwap = (pv[i + 1] - pv[j]) / wv;
     const c = ohlcvData[i].close;
-    ema = (ema == null) ? c : c * k + ema * (1 - k);
-    if (i >= period) arr[i] = c > ema ? 1 : (c < ema ? -1 : 0);   // 暖機後才給方向
+    arr[i] = c > vwap ? 1 : (c < vwap ? -1 : 0);
   }
   _ctTrendCache = { sig, arr };
   return arr;
