@@ -439,6 +439,12 @@ window.toggleDimVol = function (on) {
   _applyMainMarkers();
   return window._dimVolOn;
 };
+// 開關：window.toggleDimCounterTrend() 切換「大時框順勢過濾」→ 逆大時框趨勢標記淡化(primitive draw 內即時判定)
+window.toggleDimCounterTrend = function (on) {
+  window._dimCounterTrendOn = (on === undefined) ? !window._dimCounterTrendOn : !!on;
+  _applyMainMarkers();
+  return window._dimCounterTrendOn;
+};
 
 // 頂部「S1~S12 訊號標記」一鍵開關按鈕
 function initWRSignalsToggle() {

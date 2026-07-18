@@ -672,6 +672,7 @@ function bindLegendToggles() {
     // 大棒淡化：line-off(dim)=關閉、亮=啟用 → hidden 為 false 時啟用
     { id: "legDimBigBar",series: null,  action: (hidden) => { if (typeof toggleDimBigBar === "function") toggleDimBigBar(!hidden); } },
     { id: "legDimVol",   series: null,  action: (hidden) => { if (typeof toggleDimVol === "function") toggleDimVol(!hidden); } },
+    { id: "legDimTrend", series: null,  action: (hidden) => { if (typeof toggleDimCounterTrend === "function") toggleDimCounterTrend(!hidden); } },
     { id: "legK",        series: () => [kdjK] },
     { id: "legD",        series: () => [kdjD] },
     { id: "legJ",        series: () => [kdjJ] },

@@ -276,6 +276,33 @@ function _stratGlyph(text, color, fpx) {
   _stratGlyphCache.set(key, e);
   return e;
 }
+
+// 大時框順勢過濾：用「當前時框的長 EMA」逼近『更高時框』趨勢（同一 wall-clock 時間跨度：
+//   HTF EMA(20) ≈ 當前 TF EMA(20×倍數)）。價在 EMA 之上=大時框多頭、之下=空頭。
+//   逆勢的策略標記(空/破多在多頭、多/破空在空頭)淡化。純視覺過濾、不改勝率計算。
+const _HTF_MULT = { "1m": 15, "5m": 6, "15m": 4, "30m": 4, "1h": 4, "2h": 4, "4h": 6, "8h": 3, "1d": 7, "1w": 4, "1M": 3 };
+let _ctTrendCache = { sig: "", arr: null };
+function _getHtfTrend() {
+  const n = (typeof ohlcvData !== "undefined" && ohlcvData) ? ohlcvData.length : 0;
+  if (!n) return null;
+  const tf = (typeof currentTF !== "undefined" && currentTF) || "";
+  const mult = _HTF_MULT[tf] || 4;
+  const period = Math.max(40, Math.min(300, mult * 20));
+  const dv = (typeof _dataVersion !== "undefined") ? _dataVersion : 0;
+  const sig = `${dv}|${tf}|${n}|${period}`;
+  if (_ctTrendCache.sig === sig && _ctTrendCache.arr) return _ctTrendCache.arr;
+  const arr = new Array(n).fill(0);
+  const k = 2 / (period + 1);
+  let ema = null;
+  for (let i = 0; i < n; i++) {
+    const c = ohlcvData[i].close;
+    ema = (ema == null) ? c : c * k + ema * (1 - k);
+    if (i >= period) arr[i] = c > ema ? 1 : (c < ema ? -1 : 0);   // 暖機後才給方向
+  }
+  _ctTrendCache = { sig, arr };
+  return arr;
+}
+
 function _makeStratMarkersPrimitive() {
   let _chart = null, _series = null, _req = null;
   const _visSlice = (arr, lo, hi) => {   // arr 依 time 升序 → 二分找可見區段
@@ -304,6 +331,8 @@ function _makeStratMarkersPrimitive() {
       const lo = vrng ? vrng.from : -Infinity, hi = vrng ? vrng.to : Infinity;
       const dimOn = !!window._dimBigBarOn;
       const dimVolOn = !!window._dimVolOn;
+      const dimCTOn = !!window._dimCounterTrendOn;
+      const _htfTrend = dimCTOn ? _getHtfTrend() : null;
       const n = ohlcvData.length;
       target.useBitmapCoordinateSpace(scope => {
         const ctx = scope.context;
@@ -347,6 +376,13 @@ function _makeStratMarkersPrimitive() {
               const v = bar.volume || 0;
               const v1 = ohlcvData[idx-1].volume || 0, v2 = ohlcvData[idx-2].volume || 0, v3 = ohlcvData[idx-3].volume || 0;
               if (!(v < v1 || v < v2 || v < v3)) _dim = true;   // 沒有一根比它大 → 它≥前三根全部 → 淡化
+            }
+            // 大時框順勢過濾：逆大時框趨勢的標記淡化。方向看 position（aboveBar=空方(含破多)、
+            //   belowBar=多方(含破空)）——不能用文字「多/空」，因為「破多」是看空、「破空」是看多。
+            if (!_dim && dimCTOn && _htfTrend) {
+              const tr = _htfTrend[idx];
+              if (tr > 0 && above) _dim = true;         // 大時框多頭、卻是空方標記 → 淡化
+              else if (tr < 0 && !above) _dim = true;   // 大時框空頭、卻是多方標記 → 淡化
             }
             if (_dim && typeof _dimHex === "function") color = _dimHex(color);
             ctx.fillStyle = color;
