@@ -1,6 +1,6 @@
 /* ── Footprint 足跡圖 ─────────────────────────────────────────────
    每根 K 棒內各價位的主動買/賣量：左半格=主動賣(紅)、右半格=主動買(綠)，
-   顏色深淺=該列量佔比；金框=POC(最大量價位)；棒底下標 Δ(買-賣) 與總量。
+   顏色深淺=該列量佔比；金框=POC(最大量價位)；頂列下標 Δ%(買賣主導度)＋原始張數、量＋爆量倍數。
    資料源 /api/footprint：1m/5m=aggTrades 精確、15m/30m/1h=1m K 線近似(標 ≈)。
    僅 crypto；預設關閉，圖例「足跡」開啟。K 棒間距要夠寬才畫（<14px 顯示提示）。 */
 
@@ -164,6 +164,18 @@ function _makeFootprintPrimitive() {
         const halfW = Math.max(4, bs * 0.46) * hr;
         const fpx = Math.round(10 * vr);
         if (textMode) { ctx.font = `${fpx}px sans-serif`; ctx.textBaseline = "middle"; }
+        // 量倍數用：每根「近20根均量」（時間升序、不含自己）→ b.v / 均量 = 爆量倍數（跨幣可比）
+        let _volAvg = null;
+        if (bs >= 26) {
+          const srt = _fpBars.map(b => ({ t: b.t, v: b.v || 0 })).sort((a, z) => a.t - z.t);
+          _volAvg = new Map();
+          const N = 20;
+          for (let i = 0; i < srt.length; i++) {
+            let s = 0, c = 0;
+            for (let j = Math.max(0, i - N); j < i; j++) { s += srt[j].v; c++; }
+            _volAvg.set(srt[i].t, c ? s / c : 0);
+          }
+        }
         for (const b of _fpBars) {
           if (b.t < _lo || b.t > _hi || !b.rows.length) continue;
           const x = ts.timeToCoordinate(b.t);
@@ -228,17 +240,25 @@ function _makeFootprintPrimitive() {
               ctx.fillText(_fpFmt(buy), bx + halfW / 2, top + h / 2);
             }
           }
-          // Δ(買-賣) 與總量：固定畫在圖表頂部一整列（週標籤下方），按每根棒 x 對齊，
+          // Δ% + 原始張數、量 + 爆量倍數：固定畫在圖表頂部一整列（週標籤下方），按每根棒 x 對齊，
           //   不跟著各棒價格高低跑、也不會撞到價格區的多/空·破多空箭頭。
+          //   Δ%＝Δ÷總量(−100~+100，買賣主導度、跨幣可比)；倍數＝量÷近20根均量(爆量、跨幣可比)。
+          //   夠寬(textMode)才把原始張數併排；窄間距只留最好懂的 Δ%／倍數。
           if (!_mv && bs >= 26) {
             ctx.font = `${fpx}px sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "top";
             ctx.fillStyle = b.d >= 0 ? "rgba(38,198,166,0.95)" : "rgba(239,83,80,0.95)";
-            ctx.fillText((b.d >= 0 ? "Δ+" : "Δ-") + _fpFmt(Math.abs(b.d)), bx, _FP_DROW * vr);
+            const sign = b.d >= 0 ? "+" : "-";
+            const pct = b.v > 0 ? Math.round(Math.abs(b.d) / b.v * 100) : 0;
+            const dTxt = textMode ? `Δ${sign}${pct}% · ${_fpFmt(Math.abs(b.d))}` : `Δ${sign}${pct}%`;
+            ctx.fillText(dTxt, bx, _FP_DROW * vr);
             if (textMode) {
+              const avg = _volAvg ? (_volAvg.get(b.t) || 0) : 0;
+              const mult = avg > 0 ? b.v / avg : 0;
               ctx.fillStyle = "rgba(255,255,255,0.5)";
-              ctx.fillText(_fpFmt(b.v), bx, _FP_DROW * vr + fpx + 2 * vr);   // 總量在 Δ 下方
+              const vTxt = mult > 0 ? `${_fpFmt(b.v)} · ${mult.toFixed(1)}x` : _fpFmt(b.v);
+              ctx.fillText(vTxt, bx, _FP_DROW * vr + fpx + 2 * vr);   // 量 + 倍數在 Δ 下方
+              ctx.textBaseline = "middle";   // 還原給下一根的列文字
             }
-            if (textMode) ctx.textBaseline = "middle";   // 還原給下一根的列文字
           }
         }
         // 資料狀態註記（右上角小字）：精確補齊進度
