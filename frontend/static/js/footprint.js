@@ -212,7 +212,13 @@ function _makeFootprintPrimitive() {
           if (rowMax <= 0) continue;
           // 依價位索引，供對角線失衡比較（價位都是 _fpBin 整數倍 → 用四捨五入取整當 key）
           const _fpByIdx = new Map();
-          for (const r of b.rows) _fpByIdx.set(Math.round(r[0] / _fpBin), r);
+          let _fpMinIdx = Infinity, _fpMaxIdx = -Infinity;
+          for (const r of b.rows) {
+            const k = Math.round(r[0] / _fpBin);
+            _fpByIdx.set(k, r);
+            if (k < _fpMinIdx) _fpMinIdx = k;
+            if (k > _fpMaxIdx) _fpMaxIdx = k;
+          }
           for (const r of b.rows) {
             const p = r[0], buy = r[1], sell = r[2];
             const yT = _series.priceToCoordinate(p + _fpBin);
@@ -228,18 +234,19 @@ function _makeFootprintPrimitive() {
             // 失衡標示（對角線）：買 vs「下面一格的賣」、賣 vs「上面一格的買」，
             //   一側 ≥ 另一側 _FP_IMB 倍（且該格夠大）＝市價單壓倒性打贏。
             //   買失衡→右側亮綠實心＋外框；賣失衡→左側亮紅。這就是「市價吃穿對手」的價位。
+            //   ★最頂的賣、最底的買沒有對角對手（範圍邊緣）→ 不判失衡、留空（避免跟空氣比硬亮）。
             if ((buy + sell) >= 0.28 * rowMax) {
               const _idx = Math.round(p / _fpBin);
               const _below = _fpByIdx.get(_idx - 1); // 下面一格（價位較低）
               const _above = _fpByIdx.get(_idx + 1); // 上面一格（價位較高）
               const _sellBelow = _below ? _below[2] : 0;
               const _buyAbove = _above ? _above[1] : 0;
-              if (buy >= _FP_IMB * Math.max(_sellBelow, rowMax * 0.02)) {
+              if (_idx > _fpMinIdx && buy >= _FP_IMB * Math.max(_sellBelow, rowMax * 0.02)) {
                 ctx.fillStyle = "rgba(38,255,200,0.55)";
                 ctx.fillRect(bx, top, halfW, h);
                 ctx.strokeStyle = "rgba(120,255,225,0.95)"; ctx.lineWidth = Math.max(1.5, 1.5 * hr);
                 ctx.strokeRect(bx, top, halfW, h);
-              } else if (sell >= _FP_IMB * Math.max(_buyAbove, rowMax * 0.02)) {
+              } else if (_idx < _fpMaxIdx && sell >= _FP_IMB * Math.max(_buyAbove, rowMax * 0.02)) {
                 ctx.fillStyle = "rgba(255,60,55,0.5)";
                 ctx.fillRect(bx - halfW, top, halfW, h);
                 ctx.strokeStyle = "rgba(255,140,135,0.95)"; ctx.lineWidth = Math.max(1.5, 1.5 * hr);
