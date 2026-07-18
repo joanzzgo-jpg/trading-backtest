@@ -1,6 +1,6 @@
 /* ── Footprint 足跡圖 ─────────────────────────────────────────────
    每根 K 棒內各價位的主動買/賣量：左半格=主動賣(紅)、右半格=主動買(綠)，
-   顏色深淺=該列量佔比；金框=POC(最大量價位)；頂列下標 Δ(買賣差)、量＋爆量倍數、「吸」=量化吸收。
+   顏色深淺=該列量佔比；金框=POC(最大量價位)；頂列下標 Δ(買賣差)、多空綜合分數、量＋爆量倍數、「吸」=量化吸收。
    資料源 /api/footprint：1m/5m=aggTrades 精確、15m/30m/1h=1m K 線近似(標 ≈)。
    僅 crypto；預設關閉，圖例「足跡」開啟。K 棒間距要夠寬才畫（<14px 顯示提示）。 */
 
@@ -182,11 +182,11 @@ function _makeFootprintPrimitive() {
         let _lambda = 0, _effThr = Infinity, _fpOC = null;
         if (bs >= 26 && typeof ohlcvData !== "undefined" && ohlcvData.length) {
           _fpOC = new Map();
-          for (const d of ohlcvData) _fpOC.set(toTime(d.time), [d.open, d.close]);
+          for (const d of ohlcvData) _fpOC.set(toTime(d.time), [d.open, d.high, d.low, d.close]);
           let sxy = 0, sxx = 0; const eff = [];
           for (const bb of _fpBars.slice(-40)) {
             const o = _fpOC.get(bb.t); if (!o || !o[0]) continue;
-            sxy += ((o[1] - o[0]) / o[0]) * bb.d; sxx += bb.d * bb.d;
+            sxy += ((o[3] - o[0]) / o[0]) * bb.d; sxx += bb.d * bb.d;   // (收-開)/開 對 Δ
             eff.push(Math.abs(bb.d));
           }
           if (sxx > 0) _lambda = sxy / sxx;
@@ -256,17 +256,45 @@ function _makeFootprintPrimitive() {
               ctx.fillText(_fpFmt(buy), bx + halfW / 2, top + h / 2);
             }
           }
-          // Δ(買-賣) 原始張數、量 + 爆量倍數、量化吸收：固定畫在圖表頂部（週標籤下方），按每根棒 x 對齊，
-          //   不跟著各棒價格高低跑、也不會撞到價格區的多/空·破多空箭頭。
-          //   倍數＝量÷近20根均量(爆量偵測、跨幣可比)；夠寬(textMode)才把量與倍數併排。
+          // 頂列標記（週標籤下方、按每根棒 x 對齊，不跟價格高低跑、不撞多/空箭頭）：
+          //   ① Δ 原始張數 ② 多空綜合分數(−100~+100) ③ 量+爆量倍數(夠寬) ④「吸」量化吸收。
           if (!_mv && bs >= 26) {
             ctx.font = `${fpx}px sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "top";
             const rh = fpx + 2 * vr;
+            const o = _fpOC ? _fpOC.get(b.t) : null;   // [open, high, low, close]
+            // ── 吸收判定（供多空分數與「吸」標記共用）：高Δ卻推不出相稱位移(實際÷預期<0.4 或反向)。
+            //    贏家＝被動對面：Δ>0 買方被吸收→賣方贏(紅·偏空)；Δ<0→買方接光(綠·偏多)。
+            let absTilt = 0, absTxt = null, absG = false, absS = 0;
+            if (_lambda > 0 && o && o[0] && Math.abs(b.d) >= _effThr) {
+              const exp = _lambda * b.d;
+              if (Math.abs(exp) > 1e-9) {
+                const eff = ((o[3] - o[0]) / o[0]) / exp;
+                if (eff < 0.4) {
+                  absS = Math.max(0, Math.min(1, 1 - eff / 0.4));
+                  absG = b.d < 0;
+                  absTilt = absG ? absS : -absS;
+                  absTxt = textMode ? `吸 ${eff <= 0 ? "↓" : eff.toFixed(1)}` : "吸";
+                }
+              }
+            }
+            // ── 多空綜合分數 = 收盤位置(0.45) + Δ主導度×2.5(0.40) + 吸收傾斜(0.15)，clamp −100~+100。
+            //    綠=偏多、紅=偏空(比照足跡買綠賣紅；強度調亮度)。脊柱高低分佈刻意不納入(方向意義矛盾)。
+            let clv = 0;
+            if (o && o[1] > o[2]) clv = (2 * o[3] - o[1] - o[2]) / (o[1] - o[2]);   // 收高=+1 收低=−1
+            const dd = Math.max(-1, Math.min(1, (b.v > 0 ? b.d / b.v : 0) * 2.5));
+            const score = Math.max(-100, Math.min(100, Math.round(100 * (0.45 * clv + 0.40 * dd + 0.15 * absTilt))));
             // 第1列：Δ 原始張數
             ctx.fillStyle = b.d >= 0 ? "rgba(38,198,166,0.95)" : "rgba(239,83,80,0.95)";
             ctx.fillText((b.d >= 0 ? "Δ+" : "Δ-") + _fpFmt(Math.abs(b.d)), bx, _FP_DROW * vr);
             let line = 1;
-            // 第2列（夠寬）：量 + 爆量倍數
+            // 第2列：多空綜合分數
+            {
+              const a = (0.55 + 0.4 * Math.min(1, Math.abs(score) / 100)).toFixed(2);
+              ctx.fillStyle = score >= 0 ? `rgba(60,220,150,${a})` : `rgba(255,90,84,${a})`;
+              ctx.fillText(`多空 ${score >= 0 ? "+" : ""}${score}`, bx, _FP_DROW * vr + line * rh);
+              line++;
+            }
+            // 第3列（夠寬）：量 + 爆量倍數
             if (textMode) {
               const avg = _volAvg ? (_volAvg.get(b.t) || 0) : 0;
               const mult = avg > 0 ? b.v / avg : 0;
@@ -274,21 +302,11 @@ function _makeFootprintPrimitive() {
               ctx.fillText(mult > 0 ? `${_fpFmt(b.v)} · ${mult.toFixed(1)}x` : _fpFmt(b.v), bx, _FP_DROW * vr + line * rh);
               line++;
             }
-            // 末列：量化吸收——高Δ卻沒推出相稱位移（實際位移÷預期<0.4 或反向）＝吸收。
-            //   贏家是被動的對面：Δ>0 買方被吸收→賣方防守贏(紅·偏空)；Δ<0→買方接光(綠·偏多)。
-            if (_lambda > 0 && _fpOC && Math.abs(b.d) >= _effThr) {
-              const o = _fpOC.get(b.t);
-              const exp = o && o[0] ? _lambda * b.d : 0;
-              if (Math.abs(exp) > 1e-9) {
-                const eff = ((o[1] - o[0]) / o[0]) / exp;
-                if (eff < 0.4) {                         // 只推動不到四成（或反向）＝吸收
-                  const strg = Math.max(0, Math.min(1, 1 - eff / 0.4));
-                  ctx.fillStyle = b.d < 0
-                    ? `rgba(60,255,190,${(0.5 + 0.45 * strg).toFixed(2)})`
-                    : `rgba(255,80,74,${(0.5 + 0.45 * strg).toFixed(2)})`;
-                  ctx.fillText(textMode ? `吸 ${eff <= 0 ? "↓" : eff.toFixed(1)}` : "吸", bx, _FP_DROW * vr + line * rh);
-                }
-              }
+            // 末列：量化吸收
+            if (absTxt) {
+              ctx.fillStyle = absG ? `rgba(60,255,190,${(0.5 + 0.45 * absS).toFixed(2)})`
+                                   : `rgba(255,80,74,${(0.5 + 0.45 * absS).toFixed(2)})`;
+              ctx.fillText(absTxt, bx, _FP_DROW * vr + line * rh);
             }
             if (textMode) ctx.textBaseline = "middle";   // 還原給下一根的列文字
           }
