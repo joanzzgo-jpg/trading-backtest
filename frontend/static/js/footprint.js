@@ -1,7 +1,7 @@
 /* ── Footprint 足跡圖 ─────────────────────────────────────────────
    每根 K 棒內各價位的主動買/賣量：左半格=主動賣(紅)、右半格=主動買(綠)，
-   顏色深淺=該列量佔比；金框=POC(最大量價位)；主圖底部下標 Δ(買-賣) 與總量，Δ與K方向背離的棒標金色⚠；
-   底部紫線=CVD累積Δ(每根Δ累加、可視範圍自動縮放)。
+   顏色深淺=該列量佔比；金框=POC(最大量價位)；主圖底部下標 Δ(買-賣) 與總量；背離棒分兩型：
+   ⚠↑亮綠=K漲卻Δ負(偏多)、⚠↓亮紅=K跌卻Δ正(偏空)；底部紫線=CVD累積Δ(每根Δ累加、可視範圍自動縮放)。
    資料源 /api/footprint：1m/5m=aggTrades 精確、15m/30m/1h=1m K 線近似(標 ≈)。
    僅 crypto；預設關閉，圖例「足跡」開啟。K 棒間距要夠寬才畫（<14px 顯示提示）。 */
 
@@ -283,16 +283,19 @@ function _makeFootprintPrimitive() {
             }
           }
           // Δ(買-賣) 與總量：畫在主圖『底部』一整列，按每根棒 x 對齊、貼底不跟價格跑。
-          //   背離旗標：Δ 方向與 K 棒(收-開)相反 → 金色 ⚠ 標出（主動單和收盤打架＝虛漲/虛跌、常被吸收）。
+          //   背離旗標（Δ 方向與 K 棒(收-開)相反）分上漲/下跌兩型：
+          //     ⚠↑ 亮綠＝K漲卻Δ負(主動賣被買方吸收)＝偏多；⚠↓ 亮紅＝K跌卻Δ正(主動買被賣方吸收)＝偏空。
           if (!_mv && bs >= 18) {
             ctx.font = `${fpx}px sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
             const mv = _fpMove ? _fpMove.get(b.t) : undefined;
             const diverge = mv !== undefined && mv !== 0 && b.d !== 0 && (mv > 0) !== (b.d > 0);
+            const divUp = diverge && mv > 0;                   // K 上漲的背離(偏多) vs K 下跌的背離(偏空)
             const yD = H - 6 * vr;                              // Δ 貼主圖底部
-            const dTxt = (diverge ? "⚠Δ" : "Δ") + (b.d >= 0 ? "+" : "-") + _fpFmt(Math.abs(b.d));
+            const dTxt = (diverge ? (divUp ? "⚠↑Δ" : "⚠↓Δ") : "Δ") + (b.d >= 0 ? "+" : "-") + _fpFmt(Math.abs(b.d));
             ctx.lineWidth = Math.max(2, 2 * vr); ctx.strokeStyle = "rgba(0,0,0,0.6)";   // 深色描邊（畫在K棒/量上仍清楚）
             ctx.strokeText(dTxt, bx, yD);
-            ctx.fillStyle = diverge ? "rgba(255,209,26,0.98)"
+            ctx.fillStyle = diverge
+              ? (divUp ? "rgba(90,235,165,0.99)" : "rgba(255,120,90,0.99)")   // 漲背離亮綠·跌背離亮紅
               : (b.d >= 0 ? "rgba(38,198,166,0.98)" : "rgba(239,83,80,0.98)");
             ctx.fillText(dTxt, bx, yD);
             if (textMode) {
