@@ -604,6 +604,9 @@ function resizeAll() {
   window._invalidatePaneRects?.();   // 版面變動 → 作廢十字線 pane 座標快取
   const container = document.getElementById("chartsContainer");
   const w = container.clientWidth;
+  // 訂單簿 DOM 開啟時，主圖 canvas 讓出右側面板寬度（副圖不受影響）
+  const domP = document.getElementById("domPanel");
+  const domW = (domP && domP.classList.contains("on")) ? domP.offsetWidth : 0;
   const charts = [
     [mainChart,   "mainChart"],
     [kdjChart,    "kdjChart"],
@@ -614,7 +617,8 @@ function resizeAll() {
     const el = document.getElementById(id);
     if (!el || !chart) return;
     const h = el.clientHeight;
-    if (h > 10) chart.resize(w, h);
+    const cw = (id === "mainChart") ? Math.max(60, w - domW) : w;
+    if (h > 10) chart.resize(cw, h);
   });
 }
 

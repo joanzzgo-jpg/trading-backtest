@@ -8,6 +8,7 @@
 # 資料源：fapi /depth?limit=100（權重 5）。掛單簿只有即時、沒有歷史 → 僅 crypto 即時可用。
 # 多人共用：整包計算結果快取 1.5s（熱門幣一次抓服務所有觀看者）＋權重閘門（全站上限）。
 from fastapi import APIRouter, Query
+import math
 import threading
 import time
 
@@ -15,11 +16,13 @@ from data import crypto as _crypto
 
 router = APIRouter(tags=["orderbook"])
 
-_DEPTH_W = 5                 # /depth?limit=100 權重
-_OB_W_CAP = 400             # 掛單牆整體權重上限（60s 滑動窗）
+_DEPTH_W = 10               # /depth?limit=500 權重（掛單牆＋DOM 共用這份深度）
+_DEPTH_LIMIT = 500         # 一次抓 500 檔：DOM 階梯需要較深、掛單牆取其近價子集
+_OB_W_CAP = 600            # 盤口整體權重上限（60s 滑動窗）
 _OB_W_LOG: list = []
 _lock = threading.Lock()
 
+_depth_cache: dict = {}     # sym -> (ts, {bids, asks, mid})：原始深度 1.2s 共用快取（掛單牆＋DOM 同一份）
 _ob_cache: dict = {}        # sym -> (ts, payload)：整包結果 1.5s 快取（多觀看者共用一次抓取）
 _wall_store: dict = {}      # sym -> { (side, priceStr): {first, last, qty} } 追蹤牆生命週期
 _last_mid: dict = {}        # sym -> (mid, ts) 上次中價（判斷牆消失時行情有沒有掃到）
@@ -38,6 +41,28 @@ def _ob_gate(cost: int) -> bool:
             return False
         _OB_W_LOG.append((now, cost))
         return True
+
+
+def _get_depth(sym: str):
+    """抓/取快取一份原始深度（bids/asks/mid）。掛單牆與 DOM 共用 → 兩者同開只抓一次。
+    回 (payload_or_None, busy_bool)；busy=True 代表權重繁忙、快取也沒有。"""
+    now = time.time()
+    hit = _depth_cache.get(sym)
+    if hit and now - hit[0] < 1.2:
+        return hit[1], False
+    if not _ob_gate(_DEPTH_W):
+        return (hit[1] if hit else None), (hit is None)   # 繁忙時退回舊快取（可能過期但可用）
+    url = f"{_crypto.BINANCE_FAPI_BASE}/fapi/v1/depth?symbol={sym}&limit={_DEPTH_LIMIT}"
+    d = _crypto._binance_get(url, timeout=8, retries=0)
+    bids = [(float(p), float(q)) for p, q in d.get("bids", []) if float(q) > 0]
+    asks = [(float(p), float(q)) for p, q in d.get("asks", []) if float(q) > 0]
+    if not bids or not asks:
+        return (hit[1] if hit else None), (hit is None)
+    dep = {"bids": bids, "asks": asks, "mid": (bids[0][0] + asks[0][0]) / 2}
+    _depth_cache[sym] = (time.time(), dep)
+    if len(_depth_cache) > 200:
+        _depth_cache.pop(next(iter(_depth_cache)), None)
+    return dep, False
 
 
 def _find_walls(levels, mid, window=0.02):
@@ -101,15 +126,10 @@ def _track(sym: str, walls, mid: float, now: float):
 
 
 def _build(sym: str) -> dict:
-    if not _ob_gate(_DEPTH_W):
-        return {"ok": False, "busy": True, "err": "盤口權重繁忙，稍後重試"}
-    url = f"{_crypto.BINANCE_FAPI_BASE}/fapi/v1/depth?symbol={sym}&limit=100"
-    d = _crypto._binance_get(url, timeout=8, retries=0)
-    bids = [(float(p), float(q)) for p, q in d.get("bids", [])]
-    asks = [(float(p), float(q)) for p, q in d.get("asks", [])]
-    if not bids or not asks:
-        return {"ok": False, "err": "盤口為空"}
-    mid = (bids[0][0] + asks[0][0]) / 2
+    dep, busy = _get_depth(sym)
+    if dep is None:
+        return {"ok": False, "busy": busy, "err": "盤口權重繁忙，稍後重試" if busy else "盤口為空"}
+    bids, asks, mid = dep["bids"], dep["asks"], dep["mid"]
     now = time.time()
     bw = [("bid", p, q, n) for p, q, n in _find_walls(bids, mid)]
     aw = [("ask", p, q, n) for p, q, n in _find_walls(asks, mid)]
@@ -145,4 +165,80 @@ def get_orderbook(symbol: str = Query(...)):
         _ob_cache[sym] = (time.time(), payload)
         if len(_ob_cache) > 200:
             _ob_cache.pop(next(iter(_ob_cache)), None)
+    return payload
+
+
+# ── DOM（訂單簿階梯）：各價位等待成交的買/賣掛單，看大額資金防守位置 ─────────
+_DOM_ROWS = 46             # 目標階梯列數（bin 由『實際回傳深度的價幅 ÷ 此值』推出、再取整）
+_dom_cache: dict = {}      # sym -> (ts, payload)：1.2s 共用快取
+
+
+def _nice_bin(raw: float) -> float:
+    """把原始 bin 大小取成好看的刻度（1/2/2.5/5 × 10^n）→ 價位列對齊、跨刷新穩定不跳。"""
+    if raw <= 0:
+        return raw
+    mag = 10 ** math.floor(math.log10(raw))
+    for m in (1, 2, 2.5, 5, 10):
+        if m * mag >= raw:
+            return m * mag
+    return 10 * mag
+
+
+def _ladder(bids, asks, mid) -> dict:
+    """把原始深度聚合成以現價為中心的階梯。買量歸買方桶、賣量歸賣方桶。
+    ⚠ 價幅『自適應』實際回傳的深度範圍——Binance /depth 只給近價 N 檔（BTC ~±0.1%），
+    固定 % 視窗會讓大半列是空的。改用實際 bid/ask 價格範圍推 bin → 密集書自動變窄、
+    稀薄書變寬，列列有料。中央 3% 極端遠檔剔除，避免少數離群拉粗刻度。"""
+    prices = sorted(p for p, _ in bids + asks)
+    if len(prices) < 4:
+        return {"bin": 0, "rows": [], "maxq": 0}
+    k = max(1, int(len(prices) * 0.02))           # 各去頭尾 2% 離群
+    lo, hi = prices[k], prices[-1 - k]
+    lo = min(lo, mid); hi = max(hi, mid)          # 一定涵蓋現價
+    rng = hi - lo
+    if rng <= 0:
+        return {"bin": 0, "rows": [], "maxq": 0}
+    bin_sz = _nice_bin(rng / _DOM_ROWS)
+    if bin_sz <= 0:
+        return {"bin": 0, "rows": [], "maxq": 0}
+    agg: dict = {}   # bucket_index -> [bid_qty, ask_qty]
+    for p, q in bids:
+        agg.setdefault(int(round(p / bin_sz)), [0.0, 0.0])[0] += q
+    for p, q in asks:
+        agg.setdefault(int(round(p / bin_sz)), [0.0, 0.0])[1] += q
+    lo_i, hi_i = int(round(lo / bin_sz)), int(round(hi / bin_sz))
+    rows, maxq = [], 0.0
+    for i in range(hi_i, lo_i - 1, -1):           # 高價在上、低價在下
+        bq, aq = agg.get(i, [0.0, 0.0])
+        maxq = max(maxq, bq, aq)
+        rows.append({"p": round(i * bin_sz, 8), "bid": round(bq, 3), "ask": round(aq, 3)})
+    return {"bin": bin_sz, "rows": rows, "maxq": round(maxq, 3)}
+
+
+@router.get("/api/dom")
+def get_dom(symbol: str = Query(...)):
+    sym = symbol.replace(".P", "").replace("/", "").upper()
+    if not sym.isalnum():
+        return {"ok": False, "err": "標的格式不正確"}
+    now = time.time()
+    hit = _dom_cache.get(sym)
+    if hit and now - hit[0] < 1.2:
+        return hit[1]
+    try:
+        dep, busy = _get_depth(sym)
+        if dep is None:
+            return {"ok": False, "busy": busy, "err": "盤口權重繁忙，稍後重試" if busy else "盤口為空"}
+        bids, asks, mid = dep["bids"], dep["asks"], dep["mid"]
+        lad = _ladder(bids, asks, mid)
+        dec = 8
+        payload = {"ok": True, "symbol": sym, "mid": round(mid, dec),
+                   "best_bid": round(bids[0][0], dec), "best_ask": round(asks[0][0], dec),
+                   "bin": lad["bin"], "rows": lad["rows"], "maxq": lad["maxq"],
+                   "imbalance": round(sum(p * q for p, q in bids) / sum(p * q for p, q in asks), 2)
+                   if asks else None}
+    except Exception as e:
+        return {"ok": False, "err": f"{type(e).__name__}: {e}"}
+    _dom_cache[sym] = (time.time(), payload)
+    if len(_dom_cache) > 200:
+        _dom_cache.pop(next(iter(_dom_cache)), None)
     return payload

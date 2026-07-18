@@ -1775,6 +1775,40 @@ html:not(.perf-mode).bear-tiles-show #macdPane { background: transparent !import
 
 .pane-body { flex: 1; min-height: 0; overflow: hidden; position: relative; isolation: isolate; }
 
+/* ── 訂單簿 DOM 階梯面板（主圖右側，dom.js 繪製）─────────────────
+   絕對定位貼 #mainPane 右緣、位於 legend 之下；預設隱藏，.on 才顯示。
+   主圖 canvas 由 resizeAll() 減去本面板寬度 → 兩者並排不重疊。 */
+#domPanel {
+  display: none;
+  position: absolute;
+  top: var(--legend-h);
+  right: 0;
+  bottom: 0;
+  width: 158px;
+  z-index: 6;
+  flex-direction: column;
+  background: rgba(20, 22, 32, 0.72);
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(2px);
+  pointer-events: none;   /* 只作視覺展示，不吃圖表互動 */
+}
+#domPanel.on { display: flex; }
+#domHead {
+  flex-shrink: 0;
+  height: 32px;
+  padding: 3px 6px;
+  font-size: 10px;
+  line-height: 1.25;
+  color: rgba(230, 235, 245, 0.9);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  white-space: nowrap;
+  overflow: hidden;
+}
+#domCanvas { flex: 1; width: 100%; min-height: 0; display: block; }
+@media (max-width: 1180px) { #domPanel { width: 128px; } }
+html.perf-mode #domPanel { background: rgba(255, 255, 255, 0.82); border-left-color: rgba(0, 0, 0, 0.14); }
+html.perf-mode #domHead { color: #333; border-bottom-color: rgba(0, 0, 0, 0.1); }
+
 .leg-item { font-size: 11px; color: var(--muted); }
 
 .leg-toggle {
