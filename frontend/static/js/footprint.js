@@ -19,7 +19,7 @@ let _fpNextTryTs = 0;      // draw() 補抓的最早時間：成功後 +0.8s 防
 let _fpLastAttempt = 0;    // 上次實際發出 fetch 的時間（切換後重抓用，與繁忙退避分開）
 let _fpMsg = "";           // 沒資料時顯示的狀態訊息（載入中/忙碌重試/不支援）——「開了卻沒畫面」必有回饋
 const _FP_TFS = new Set(["1m", "5m", "15m", "30m", "1h", "4h", "1d"]);
-const _FP_IMB = 2;   // 失衡倍率：一側主動量 ≥ 另一側 ×此值 → 高亮該格（市價壓倒性打贏）
+const _FP_IMB = 3;   // 失衡倍率：對角線比較，一側主動量 ≥ 另一側 ×此值 → 高亮該格（市價壓倒性打贏）
 
 function _fpLiveKey() {
   const sym = document.getElementById("symbolInput")?.value?.trim() || "";
@@ -148,31 +148,16 @@ function _makeFootprintPrimitive() {
           ctx.fillText(_fpMsg || "足跡：載入中…", 8 * hr, 26 * vr);
           return;
         }
-        // 間距太窄畫不下 → 只給一行提示（左上角）
-        if (bs < 14) {
-          ctx.font = `${Math.round(11 * vr)}px sans-serif`;
-          ctx.textAlign = "left"; ctx.textBaseline = "top";
-          ctx.fillStyle = "rgba(255,255,255,0.35)";
-          ctx.fillText("足跡：放大 K 棒間距後顯示", 8 * hr, 26 * vr);
-          return;
-        }
+        // 可視範圍 / 移動偵測 / 字級（提前算好 → CVD 不受間距門檻、縮小主圖也看得到 delta 趨勢）
         let _vrng = null; try { _vrng = ts.getVisibleRange(); } catch (e) {}
         const _lo = _vrng ? _vrng.from : -Infinity, _hi = _vrng ? _vrng.to : Infinity;
         const _nowP = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
         const _mv = !!(window._chartMoveTs && _nowP - window._chartMoveTs < 220);
         if (_mv) { clearTimeout(_settleT); _settleT = setTimeout(() => { if (_req) _req(); }, 240); }
-        const textMode = bs >= 52 && !_mv;   // 夠寬且非平移中才畫數字
-        const halfW = Math.max(4, bs * 0.46) * hr;
+        const textMode = bs >= 52 && !_mv;   // 夠寬且非平移中才畫 cell 數字
         const fpx = Math.round(10 * vr);
-        if (textMode) { ctx.font = `${fpx}px sans-serif`; ctx.textBaseline = "middle"; }
-        // Δ 與價格方向背離偵測：每根 (收-開)。Δ 正卻收黑 / Δ 負卻收紅 ＝ 主動單方向和 K 收盤相反。
-        let _fpMove = null;
-        if (bs >= 26 && typeof ohlcvData !== "undefined" && ohlcvData.length) {
-          _fpMove = new Map();
-          for (const d of ohlcvData) _fpMove.set(toTime(d.time), d.close - d.open);
-        }
         // ── 累積 Δ(CVD)：每根 Δ 由時間序累加成一條線，抓「價格與累積主動量背離」（價創高但 CVD 沒創高）。
-        //    畫在主圖底部帶狀、依可視範圍自動縮放（看形狀比絕對值重要）；半透明紫線、左端標 CVD。
+        //    畫在主圖底部帶狀、依可視範圍自動縮放；★任何縮放都畫（線不怕擠、縮小主圖仍看得到 delta 趨勢）。
         {
           const srt = _fpBars.map(x => ({ t: x.t, d: x.d || 0 })).sort((a, z) => a.t - z.t);
           let run = 0; const vis = [];
@@ -200,7 +185,22 @@ function _makeFootprintPrimitive() {
               ctx.fillText("CVD累積Δ", 6 * hr, yTop - 1 * vr);
             }
           }
-          if (textMode) ctx.textBaseline = "middle";   // 還原給 cell 數字（line 166 設定）
+        }
+        // 間距太窄 → cell 色塊/Δ 數字畫不下，只給提示（CVD 已在上方畫好、不受此限）
+        if (bs < 14) {
+          ctx.font = `${Math.round(11 * vr)}px sans-serif`;
+          ctx.textAlign = "left"; ctx.textBaseline = "top";
+          ctx.fillStyle = "rgba(255,255,255,0.35)";
+          ctx.fillText("足跡色塊：再放大 K 棒間距顯示", 8 * hr, 26 * vr);
+          return;
+        }
+        const halfW = Math.max(4, bs * 0.46) * hr;
+        if (textMode) { ctx.font = `${fpx}px sans-serif`; ctx.textBaseline = "middle"; }
+        // Δ 與價格方向背離偵測：每根 (收-開)。Δ 正卻收黑 / Δ 負卻收紅 ＝ 主動單方向和 K 收盤相反。
+        let _fpMove = null;
+        if (bs >= 18 && typeof ohlcvData !== "undefined" && ohlcvData.length) {
+          _fpMove = new Map();
+          for (const d of ohlcvData) _fpMove.set(toTime(d.time), d.close - d.open);
         }
         for (const b of _fpBars) {
           if (b.t < _lo || b.t > _hi || !b.rows.length) continue;
@@ -210,6 +210,9 @@ function _makeFootprintPrimitive() {
           let rowMax = 0;
           for (const r of b.rows) { const tot = r[1] + r[2]; if (tot > rowMax) rowMax = tot; }
           if (rowMax <= 0) continue;
+          // 依價位索引，供對角線失衡比較（價位都是 _fpBin 整數倍 → 用四捨五入取整當 key）
+          const _fpByIdx = new Map();
+          for (const r of b.rows) _fpByIdx.set(Math.round(r[0] / _fpBin), r);
           for (const r of b.rows) {
             const p = r[0], buy = r[1], sell = r[2];
             const yT = _series.priceToCoordinate(p + _fpBin);
@@ -222,15 +225,21 @@ function _makeFootprintPrimitive() {
             ctx.fillRect(bx - halfW, top, halfW, h);
             ctx.fillStyle = `rgba(38,198,166,${(0.10 + 0.42 * (buy / rowMax)).toFixed(3)})`;
             ctx.fillRect(bx, top, halfW, h);
-            // 失衡標示：某一側主動量 ≥ 另一側 _FP_IMB 倍（且該格夠大）＝市價單壓倒性打贏。
+            // 失衡標示（對角線）：買 vs「下面一格的賣」、賣 vs「上面一格的買」，
+            //   一側 ≥ 另一側 _FP_IMB 倍（且該格夠大）＝市價單壓倒性打贏。
             //   買失衡→右側亮綠實心＋外框；賣失衡→左側亮紅。這就是「市價吃穿對手」的價位。
             if ((buy + sell) >= 0.28 * rowMax) {
-              if (buy >= _FP_IMB * Math.max(sell, rowMax * 0.02)) {
+              const _idx = Math.round(p / _fpBin);
+              const _below = _fpByIdx.get(_idx - 1); // 下面一格（價位較低）
+              const _above = _fpByIdx.get(_idx + 1); // 上面一格（價位較高）
+              const _sellBelow = _below ? _below[2] : 0;
+              const _buyAbove = _above ? _above[1] : 0;
+              if (buy >= _FP_IMB * Math.max(_sellBelow, rowMax * 0.02)) {
                 ctx.fillStyle = "rgba(38,255,200,0.55)";
                 ctx.fillRect(bx, top, halfW, h);
                 ctx.strokeStyle = "rgba(120,255,225,0.95)"; ctx.lineWidth = Math.max(1.5, 1.5 * hr);
                 ctx.strokeRect(bx, top, halfW, h);
-              } else if (sell >= _FP_IMB * Math.max(buy, rowMax * 0.02)) {
+              } else if (sell >= _FP_IMB * Math.max(_buyAbove, rowMax * 0.02)) {
                 ctx.fillStyle = "rgba(255,60,55,0.5)";
                 ctx.fillRect(bx - halfW, top, halfW, h);
                 ctx.strokeStyle = "rgba(255,140,135,0.95)"; ctx.lineWidth = Math.max(1.5, 1.5 * hr);
@@ -268,7 +277,7 @@ function _makeFootprintPrimitive() {
           }
           // Δ(買-賣) 與總量：畫在主圖『底部』一整列，按每根棒 x 對齊、貼底不跟價格跑。
           //   背離旗標：Δ 方向與 K 棒(收-開)相反 → 金色 ⚠ 標出（主動單和收盤打架＝虛漲/虛跌、常被吸收）。
-          if (!_mv && bs >= 26) {
+          if (!_mv && bs >= 18) {
             ctx.font = `${fpx}px sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
             const mv = _fpMove ? _fpMove.get(b.t) : undefined;
             const diverge = mv !== undefined && mv !== 0 && b.d !== 0 && (mv > 0) !== (b.d > 0);
