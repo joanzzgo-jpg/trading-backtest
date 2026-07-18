@@ -1514,8 +1514,9 @@ window.toggleVWAP = function (on) {
 
 // VWAP 成交量加權均價（黃折線）：獨立開關 _vwapOn；資料 window._coachVWAP（勝率回應每次刷新）。
 // 前端自算 VWAP 折線（覆蓋『所有已載入 ohlcvData』，含背景補載的歷史棒 → 往歷史捲不再斷）。
-//   錨定粒度比照後端：盤中(非 1d/1w/1M)每日重置、日線以上每年重置；量加權典型價 hlc3。
-//   依 (棒數:最後時間:時框) 快取，資料沒變不重算（平移/縮放不吃 CPU）。
+//   錨定：盤中(非 1d/1w/1M)每日重置、日線以上每年重置，皆錨 UTC（對齊 Binance 日K換日/資金費率/
+//   機構慣例——加密日 VWAP 幾乎都錨 UTC，讓大家看同一條）。toTime 已 +8h → 減回還原真實 UTC 再分桶。
+//   量加權典型價 hlc3。依 (棒數:最後時間:時框) 快取，資料沒變不重算（平移/縮放不吃 CPU）。
 let _vwapOverlayCache = { key: "", arr: null };
 function _vwapOverlay() {
   if (typeof ohlcvData === "undefined" || !ohlcvData || !ohlcvData.length) return null;
@@ -1528,8 +1529,8 @@ function _vwapOverlay() {
   let curKey = null, cumPV = 0, cumV = 0, cumTP = 0, cnt = 0;
   for (let i = 0; i < n; i++) {
     const b = ohlcvData[i];
-    const t = toTime(b.time);
-    const dkey = yearly ? new Date(t * 1000).getUTCFullYear() : Math.floor(t / 86400);
+    const utc = toTime(b.time) - 8 * 3600;   // toTime 已 +8h → 還原真實 UTC，讓換日錨在 UTC 00:00
+    const dkey = yearly ? new Date(utc * 1000).getUTCFullYear() : Math.floor(utc / 86400);
     if (dkey !== curKey) { curKey = dkey; cumPV = 0; cumV = 0; cumTP = 0; cnt = 0; }
     const tp = (b.high + b.low + b.close) / 3;
     const v = +b.volume || 0;
