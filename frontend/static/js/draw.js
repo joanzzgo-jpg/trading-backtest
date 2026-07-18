@@ -1513,9 +1513,37 @@ window.toggleVWAP = function (on) {
 
 
 // VWAP 成交量加權均價（黃折線）：獨立開關 _vwapOn；資料 window._coachVWAP（勝率回應每次刷新）。
+// 前端自算 VWAP 折線（覆蓋『所有已載入 ohlcvData』，含背景補載的歷史棒 → 往歷史捲不再斷）。
+//   錨定粒度比照後端：盤中(非 1d/1w/1M)每日重置、日線以上每年重置；量加權典型價 hlc3。
+//   依 (棒數:最後時間:時框) 快取，資料沒變不重算（平移/縮放不吃 CPU）。
+let _vwapOverlayCache = { key: "", arr: null };
+function _vwapOverlay() {
+  if (typeof ohlcvData === "undefined" || !ohlcvData || !ohlcvData.length) return null;
+  const n = ohlcvData.length;
+  const tf = (typeof currentTF !== "undefined" && currentTF) || "";
+  const yearly = (tf === "1d" || tf === "1w" || tf === "1M");
+  const key = n + ":" + ohlcvData[n - 1].time + ":" + tf;
+  if (_vwapOverlayCache.key === key && _vwapOverlayCache.arr) return _vwapOverlayCache.arr;
+  const arr = new Array(n);
+  let curKey = null, cumPV = 0, cumV = 0, cumTP = 0, cnt = 0;
+  for (let i = 0; i < n; i++) {
+    const b = ohlcvData[i];
+    const t = toTime(b.time);
+    const dkey = yearly ? new Date(t * 1000).getUTCFullYear() : Math.floor(t / 86400);
+    if (dkey !== curKey) { curKey = dkey; cumPV = 0; cumV = 0; cumTP = 0; cnt = 0; }
+    const tp = (b.high + b.low + b.close) / 3;
+    const v = +b.volume || 0;
+    cumTP += tp; cnt++;
+    if (v > 0) { cumPV += tp * v; cumV += v; }
+    arr[i] = { t: b.time, v: cumV > 0 ? cumPV / cumV : (cnt > 0 ? cumTP / cnt : null) };
+  }
+  _vwapOverlayCache = { key, arr };
+  return arr;
+}
+
 function _drawVWAP(W, H) {
   if (window._vwapOn !== true) return;
-  const vw = window._coachVWAP;
+  const vw = _vwapOverlay() || window._coachVWAP;   // 前端全量自算優先，覆蓋歷史棒（不斷）
   if (!vw || !vw.length) return;
   if (typeof mainChart === "undefined" || typeof candleSeries === "undefined" || !candleSeries) return;
   const ts = mainChart.timeScale();
