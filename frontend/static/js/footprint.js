@@ -1,6 +1,7 @@
 /* ── Footprint 足跡圖 ─────────────────────────────────────────────
    每根 K 棒內各價位的主動買/賣量：左半格=主動賣(紅)、右半格=主動買(綠)，
-   顏色深淺=該列量佔比；金框=POC(最大量價位)；主圖底部下標 Δ(買-賣) 與總量，Δ與K方向背離的棒標金色⚠。
+   顏色深淺=該列量佔比；金框=POC(最大量價位)；主圖底部下標 Δ(買-賣) 與總量，Δ與K方向背離的棒標金色⚠；
+   底部紫線=CVD累積Δ(每根Δ累加、可視範圍自動縮放)。
    資料源 /api/footprint：1m/5m=aggTrades 精確、15m/30m/1h=1m K 線近似(標 ≈)。
    僅 crypto；預設關閉，圖例「足跡」開啟。K 棒間距要夠寬才畫（<14px 顯示提示）。 */
 
@@ -169,6 +170,37 @@ function _makeFootprintPrimitive() {
         if (bs >= 26 && typeof ohlcvData !== "undefined" && ohlcvData.length) {
           _fpMove = new Map();
           for (const d of ohlcvData) _fpMove.set(toTime(d.time), d.close - d.open);
+        }
+        // ── 累積 Δ(CVD)：每根 Δ 由時間序累加成一條線，抓「價格與累積主動量背離」（價創高但 CVD 沒創高）。
+        //    畫在主圖底部帶狀、依可視範圍自動縮放（看形狀比絕對值重要）；半透明紫線、左端標 CVD。
+        {
+          const srt = _fpBars.map(x => ({ t: x.t, d: x.d || 0 })).sort((a, z) => a.t - z.t);
+          let run = 0; const vis = [];
+          for (const x of srt) { run += x.d; if (x.t >= _lo && x.t <= _hi) vis.push({ t: x.t, c: run }); }
+          if (vis.length >= 2) {
+            let mn = Infinity, mx = -Infinity;
+            for (const p of vis) { if (p.c < mn) mn = p.c; if (p.c > mx) mx = p.c; }
+            if (mx > mn) {
+              const W = scope.bitmapSize.width;
+              const yBot = H - 24 * vr, yTop = H - 66 * vr;   // 底部帶狀（Δ 文字在其下 H-6）
+              const yOf = c => yBot - (c - mn) / (mx - mn) * (yBot - yTop);
+              ctx.fillStyle = "rgba(0,0,0,0.20)";
+              ctx.fillRect(0, yTop - 2 * vr, W, (yBot - yTop) + 4 * vr);
+              ctx.beginPath(); let started = false;
+              for (const p of vis) {
+                const xx = ts.timeToCoordinate(p.t); if (xx == null) continue;
+                const px = xx * hr, py = yOf(p.c);
+                if (!started) { ctx.moveTo(px, py); started = true; } else ctx.lineTo(px, py);
+              }
+              ctx.strokeStyle = "rgba(190,150,255,0.95)";
+              ctx.lineWidth = Math.max(1.5, 1.6 * vr);
+              ctx.stroke();
+              ctx.font = `${fpx}px sans-serif`; ctx.textAlign = "left"; ctx.textBaseline = "top";
+              ctx.fillStyle = "rgba(205,170,255,0.98)";
+              ctx.fillText("CVD累積Δ", 6 * hr, yTop - 1 * vr);
+            }
+          }
+          if (textMode) ctx.textBaseline = "middle";   // 還原給 cell 數字（line 166 設定）
         }
         for (const b of _fpBars) {
           if (b.t < _lo || b.t > _hi || !b.rows.length) continue;
