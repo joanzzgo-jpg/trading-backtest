@@ -1,6 +1,6 @@
 /* ── Footprint 足跡圖 ─────────────────────────────────────────────
    每根 K 棒內各價位的主動買/賣量：左半格=主動賣(紅)、右半格=主動買(綠)，
-   顏色深淺=該列量佔比；金框=POC(最大量價位)；頂列下標 Δ%(買賣主導度)＋原始張數、量＋爆量倍數。
+   顏色深淺=該列量佔比；金框=POC(最大量價位)；頂列下標 Δ(買賣差)、量＋爆量倍數、「吸」=量化吸收。
    資料源 /api/footprint：1m/5m=aggTrades 精確、15m/30m/1h=1m K 線近似(標 ≈)。
    僅 crypto；預設關閉，圖例「足跡」開啟。K 棒間距要夠寬才畫（<14px 顯示提示）。 */
 
@@ -176,6 +176,22 @@ function _makeFootprintPrimitive() {
             _volAvg.set(srt[i].t, c ? s / c : 0);
           }
         }
+        // 量化吸收：λ=每單位淨Δ「應」推動的%位移（近窗最小二乘過原點：λ=Σ(位移·Δ)/ΣΔ²）。
+        //   某根「高Δ(高努力)卻推不出相稱位移」＝吸收(對面大掛單在吃)→常見反轉前兆。
+        //   _effThr=近窗 |Δ| 六成位數（只在高努力棒判定，避免小量棒噪音）。λ≤0 代表關係失真→不判。
+        let _lambda = 0, _effThr = Infinity, _fpOC = null;
+        if (bs >= 26 && typeof ohlcvData !== "undefined" && ohlcvData.length) {
+          _fpOC = new Map();
+          for (const d of ohlcvData) _fpOC.set(toTime(d.time), [d.open, d.close]);
+          let sxy = 0, sxx = 0; const eff = [];
+          for (const bb of _fpBars.slice(-40)) {
+            const o = _fpOC.get(bb.t); if (!o || !o[0]) continue;
+            sxy += ((o[1] - o[0]) / o[0]) * bb.d; sxx += bb.d * bb.d;
+            eff.push(Math.abs(bb.d));
+          }
+          if (sxx > 0) _lambda = sxy / sxx;
+          if (eff.length >= 12) { eff.sort((a, z) => a - z); _effThr = eff[Math.floor(eff.length * 0.6)]; }
+        }
         for (const b of _fpBars) {
           if (b.t < _lo || b.t > _hi || !b.rows.length) continue;
           const x = ts.timeToCoordinate(b.t);
@@ -240,25 +256,41 @@ function _makeFootprintPrimitive() {
               ctx.fillText(_fpFmt(buy), bx + halfW / 2, top + h / 2);
             }
           }
-          // Δ% + 原始張數、量 + 爆量倍數：固定畫在圖表頂部一整列（週標籤下方），按每根棒 x 對齊，
+          // Δ(買-賣) 原始張數、量 + 爆量倍數、量化吸收：固定畫在圖表頂部（週標籤下方），按每根棒 x 對齊，
           //   不跟著各棒價格高低跑、也不會撞到價格區的多/空·破多空箭頭。
-          //   Δ%＝Δ÷總量(−100~+100，買賣主導度、跨幣可比)；倍數＝量÷近20根均量(爆量、跨幣可比)。
-          //   夠寬(textMode)才把原始張數併排；窄間距只留最好懂的 Δ%／倍數。
+          //   倍數＝量÷近20根均量(爆量偵測、跨幣可比)；夠寬(textMode)才把量與倍數併排。
           if (!_mv && bs >= 26) {
             ctx.font = `${fpx}px sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "top";
+            const rh = fpx + 2 * vr;
+            // 第1列：Δ 原始張數
             ctx.fillStyle = b.d >= 0 ? "rgba(38,198,166,0.95)" : "rgba(239,83,80,0.95)";
-            const sign = b.d >= 0 ? "+" : "-";
-            const pct = b.v > 0 ? Math.round(Math.abs(b.d) / b.v * 100) : 0;
-            const dTxt = textMode ? `Δ${sign}${pct}% · ${_fpFmt(Math.abs(b.d))}` : `Δ${sign}${pct}%`;
-            ctx.fillText(dTxt, bx, _FP_DROW * vr);
+            ctx.fillText((b.d >= 0 ? "Δ+" : "Δ-") + _fpFmt(Math.abs(b.d)), bx, _FP_DROW * vr);
+            let line = 1;
+            // 第2列（夠寬）：量 + 爆量倍數
             if (textMode) {
               const avg = _volAvg ? (_volAvg.get(b.t) || 0) : 0;
               const mult = avg > 0 ? b.v / avg : 0;
               ctx.fillStyle = "rgba(255,255,255,0.5)";
-              const vTxt = mult > 0 ? `${_fpFmt(b.v)} · ${mult.toFixed(1)}x` : _fpFmt(b.v);
-              ctx.fillText(vTxt, bx, _FP_DROW * vr + fpx + 2 * vr);   // 量 + 倍數在 Δ 下方
-              ctx.textBaseline = "middle";   // 還原給下一根的列文字
+              ctx.fillText(mult > 0 ? `${_fpFmt(b.v)} · ${mult.toFixed(1)}x` : _fpFmt(b.v), bx, _FP_DROW * vr + line * rh);
+              line++;
             }
+            // 末列：量化吸收——高Δ卻沒推出相稱位移（實際位移÷預期<0.4 或反向）＝吸收。
+            //   贏家是被動的對面：Δ>0 買方被吸收→賣方防守贏(紅·偏空)；Δ<0→買方接光(綠·偏多)。
+            if (_lambda > 0 && _fpOC && Math.abs(b.d) >= _effThr) {
+              const o = _fpOC.get(b.t);
+              const exp = o && o[0] ? _lambda * b.d : 0;
+              if (Math.abs(exp) > 1e-9) {
+                const eff = ((o[1] - o[0]) / o[0]) / exp;
+                if (eff < 0.4) {                         // 只推動不到四成（或反向）＝吸收
+                  const strg = Math.max(0, Math.min(1, 1 - eff / 0.4));
+                  ctx.fillStyle = b.d < 0
+                    ? `rgba(60,255,190,${(0.5 + 0.45 * strg).toFixed(2)})`
+                    : `rgba(255,80,74,${(0.5 + 0.45 * strg).toFixed(2)})`;
+                  ctx.fillText(textMode ? `吸 ${eff <= 0 ? "↓" : eff.toFixed(1)}` : "吸", bx, _FP_DROW * vr + line * rh);
+                }
+              }
+            }
+            if (textMode) ctx.textBaseline = "middle";   // 還原給下一根的列文字
           }
         }
         // 資料狀態註記（右上角小字）：精確補齊進度
