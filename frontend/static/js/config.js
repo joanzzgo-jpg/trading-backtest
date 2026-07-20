@@ -90,6 +90,7 @@ window._dimVolOn = false;        // 「量淡化」(測驗)：標記棒成交量
 window._dimCounterTrendOn = false;  // 「大時框順勢」：逆大時框(滾動VWAP)偏向的策略標記淡化；切換:toggleDimCounterTrend()
 window._fvgFilterGopp = false;   // FVG 過濾：只顯示「g 方向與 g-1、g+1 皆相反」的缺口；切換:toggleFvgFilterGopp()
 window._fvgFilterGvol = false;   // FVG 過濾：只顯示「g 成交量 < g+1 成交量」的缺口；切換:toggleFvgFilterGvol()
+window._pdhlOn = false;          // 前一日高低(PDH/PDL)水平線；切換:togglePDHL()
 let lastSMCSweepMarkers  = [];   // SMC 掃頂/掃底標記（階段1：SR+SMC 教練疊加層）
 let lastCoachBOSMarkers  = [];   // 教練步驟5(BOS 延續)達成點：主圖箭頭標記（15m用default/5m用fast）
 window._coachOn = false;         // SR+SMC 教練疊加層總開關（右上 coachToggleBtn）；預設關，開才顯示

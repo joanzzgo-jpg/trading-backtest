@@ -83,6 +83,9 @@ function createCandleSeries() {
       _htfFvgPrim = _makeHtfFvgPrimitive();
       candleSeries.attachPrimitive(_htfFvgPrim);
     }
+    // 前一日高低(PDH/PDL)水平線
+    _pdhlPrim = _makePDHLPrimitive();
+    candleSeries.attachPrimitive(_pdhlPrim);
   } catch (e) { /* 舊版 LWC 無 attachPrimitive 時靜默略過 */ }
 }
 
@@ -137,7 +140,7 @@ function _makeFVGPrimitive() {
           if (yT == null || yB == null) continue;
           const bx = x1 * hr, bw = (x2 - x1) * hr;
           const byTop = Math.min(yT, yB) * vr, bh = Math.abs(yB - yT) * vr;
-          const _faint = z.dim;      // 只淡化「同向缺口堆疊去重(dim)」；「未被標記用到(used===false)」不再額外淡化(照常顯示)
+          const _faint = false;      // 不再淡化任何缺口(使用者要求全部照常顯示；dim/used 皆不影響顯示)
           if (_faint) ctx.globalAlpha = 0.38;
           ctx.fillStyle   = z.d === "l" ? "rgba(38,198,166,0.14)" : "rgba(255,82,82,0.14)";
           ctx.fillRect(bx, byTop, bw, bh);
@@ -269,6 +272,79 @@ window.toggleFvgFilterGvol = function (on) {   // g 成交量 < g+1 成交量
   window._fvgFilterGvol = (on === undefined) ? !window._fvgFilterGvol : !!on;
   if (_fvgPrimitive) _fvgPrimitive.requestUpdate();
   return window._fvgFilterGvol;
+};
+
+// ── 前一日高低(PDH/PDL)：小時框圖上，每個日段畫『前一交易日(UTC)日內最高/最低』水平線 ──
+//   紅虛線=前日高(壓力 PDH)、綠虛線=前日低(支撐 PDL)；隨捲動每天更新(當日看昨日、往回看各自前日)。
+let _pdhlPrim = null;
+let _pdhlCache = { sig: "", days: null };
+function _pdhlDays() {
+  const n = (typeof ohlcvData !== "undefined" && ohlcvData) ? ohlcvData.length : 0;
+  if (!n) return null;
+  const dv = (typeof _dataVersion !== "undefined") ? _dataVersion : 0;
+  const sig = dv + ":" + n + ":" + ohlcvData[n - 1].time;
+  if (_pdhlCache.sig === sig && _pdhlCache.days) return _pdhlCache.days;
+  const days = [];
+  let cur = null;
+  for (let i = 0; i < n; i++) {
+    const b = ohlcvData[i];
+    const ct = toTime(b.time);
+    const dk = Math.floor((ct - 8 * 3600) / 86400);   // UTC 日(對齊日K換日)
+    if (!cur || cur.dk !== dk) { cur = { dk, t0: ct, t1: ct, hi: b.high, lo: b.low }; days.push(cur); }
+    else { cur.t1 = ct; if (b.high > cur.hi) cur.hi = b.high; if (b.low < cur.lo) cur.lo = b.low; }
+  }
+  _pdhlCache = { sig, days };
+  return days;
+}
+function _makePDHLPrimitive() {
+  let _chart = null, _series = null, _req = null;
+  const renderer = {
+    draw(target) {
+      if (!window._pdhlOn || !_chart || !_series) return;
+      const days = _pdhlDays();
+      if (!days || days.length < 2) return;
+      const ts = _chart.timeScale();
+      let vr = null; try { vr = ts.getVisibleRange(); } catch (e) {}
+      const lo = vr ? vr.from : -Infinity, hi = vr ? vr.to : Infinity;
+      target.useBitmapCoordinateSpace(scope => {
+        const ctx = scope.context, hr = scope.horizontalPixelRatio, vrr = scope.verticalPixelRatio;
+        ctx.font = `${Math.round(10 * vrr)}px sans-serif`; ctx.textBaseline = "bottom"; ctx.textAlign = "left";
+        for (let i = 1; i < days.length; i++) {
+          const d = days[i], prev = days[i - 1];
+          if (d.t1 < lo || d.t0 > hi) continue;
+          const x0 = ts.timeToCoordinate(d.t0), x1 = ts.timeToCoordinate(d.t1);
+          if (x0 == null || x1 == null) continue;
+          const bx0 = x0 * hr, bx1 = Math.max(x1 * hr, bx0 + 2 * hr);
+          const lines = [[prev.hi, "255,82,82"], [prev.lo, "38,198,166"]];   // 紅=前日高、綠=前日低
+          for (const [price, rgb] of lines) {
+            const y = _series.priceToCoordinate(price);
+            if (y == null) continue;
+            const yy = y * vrr;
+            ctx.strokeStyle = `rgba(${rgb},0.85)`; ctx.lineWidth = Math.max(1, 1.3 * hr);
+            ctx.setLineDash([6 * hr, 4 * hr]);
+            ctx.beginPath(); ctx.moveTo(bx0, yy); ctx.lineTo(bx1, yy); ctx.stroke();
+            ctx.setLineDash([]);
+            const lbl = (price === prev.hi ? "前日高" : "前日低");
+            const lx = Math.max(bx0 + 3 * hr, 3 * hr);
+            ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.lineWidth = Math.max(2, 2 * hr); ctx.strokeStyle = "rgba(0,0,0,0.5)";
+            ctx.strokeText(lbl, lx, yy - 2 * vrr);
+            ctx.fillStyle = `rgba(${rgb},1)`; ctx.fillText(lbl, lx, yy - 2 * vrr);
+          }
+        }
+      });
+    },
+  };
+  const paneView = { renderer() { return renderer; } };
+  return {
+    attached(p) { _chart = p.chart; _series = p.series; _req = p.requestUpdate; },
+    detached() { _chart = _series = _req = null; },
+    updateAllViews() {}, paneViews() { return [paneView]; }, requestUpdate() { if (_req) _req(); },
+  };
+}
+window.togglePDHL = function (on) {
+  window._pdhlOn = (on === undefined) ? !window._pdhlOn : !!on;
+  if (_pdhlPrim) _pdhlPrim.requestUpdate();
+  return window._pdhlOn;
 };
 
 // ── 策略方向標記 primitive（多/空·破多空·順多空）──

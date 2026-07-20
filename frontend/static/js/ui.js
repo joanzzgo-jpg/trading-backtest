@@ -673,6 +673,7 @@ function bindLegendToggles() {
     { id: "legFvgGopp",  series: null,  action: (hidden) => { if (window.toggleFvgFilterGopp) window.toggleFvgFilterGopp(!hidden); } },
     { id: "legFvgGvol",  series: null,  action: (hidden) => { if (window.toggleFvgFilterGvol) window.toggleFvgFilterGvol(!hidden); } },
     { id: "legHtfFvg",   series: null,  action: (hidden) => { if (window.toggleHtfFvg) window.toggleHtfFvg(!hidden); } },
+    { id: "legPDHL",     series: null,  action: (hidden) => { if (window.togglePDHL) window.togglePDHL(!hidden); } },
     { id: "legK",        series: () => [kdjK] },
     { id: "legD",        series: () => [kdjD] },
     { id: "legJ",        series: () => [kdjJ] },
