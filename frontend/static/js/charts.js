@@ -86,6 +86,17 @@ function createCandleSeries() {
     // 前一日高低(PDH/PDL)水平線
     _pdhlPrim = _makePDHLPrimitive();
     candleSeries.attachPrimitive(_pdhlPrim);
+    // 外包吞噬掃蕩(第2根上下兩側都吃掉第1根+方向相反)
+    _engulfPrim = _makeEngulfPrimitive();
+    candleSeries.attachPrimitive(_engulfPrim);
+    // Swing point 擺動點(3根:中間根的高=三根最高、或低=三根最低)
+    _swingPrim = _makeSwingPrimitive();
+    candleSeries.attachPrimitive(_swingPrim);
+    // 經濟事件垂直線(NFP/CPI/FOMC)
+    if (typeof _makeEconPrimitive === "function") {
+      _econPrim = _makeEconPrimitive();
+      candleSeries.attachPrimitive(_econPrim);
+    }
   } catch (e) { /* 舊版 LWC 無 attachPrimitive 時靜默略過 */ }
 }
 
@@ -345,6 +356,153 @@ window.togglePDHL = function (on) {
   window._pdhlOn = (on === undefined) ? !window._pdhlOn : !!on;
   if (_pdhlPrim) _pdhlPrim.requestUpdate();
   return window._pdhlOn;
+};
+
+// ── 外包吞噬掃蕩(engulf sweep)──
+// 第2根同時吃掉第1根的上影高與下影低(high2>high1 且 low2<low1)、且兩根方向相反(異色)：
+// 第2根一根就掃掉前一根上下兩側流動性 → 反轉訊號。方向＝第2根(收多=吞多▲下、收空=吞空▼上)。
+let _engulfPrim = null;
+let _engulfCache = { sig: "", pts: null };
+function _engulfPts() {
+  const n = (typeof ohlcvData !== "undefined" && ohlcvData) ? ohlcvData.length : 0;
+  if (n < 2) return null;
+  const dv = (typeof _dataVersion !== "undefined") ? _dataVersion : 0;
+  const sig = dv + ":" + n + ":" + ohlcvData[n - 1].time;
+  if (_engulfCache.sig === sig && _engulfCache.pts) return _engulfCache.pts;
+  const pts = [];
+  for (let i = 1; i < n; i++) {
+    const a = ohlcvData[i - 1], b = ohlcvData[i];
+    if (!(b.high > a.high && b.low < a.low)) continue;          // 第2根上下兩側都超過第1根
+    const da = a.close > a.open ? 1 : (a.close < a.open ? -1 : 0);
+    const db = b.close > b.open ? 1 : (b.close < b.open ? -1 : 0);
+    if (da === 0 || db === 0 || da === db) continue;            // 兩根方向須相反(排除十字)
+    pts.push({ t: toTime(b.time), dir: db, hi: b.high, lo: b.low });   // dir: +1=吞多、-1=吞空
+  }
+  _engulfCache = { sig, pts };
+  return pts;
+}
+function _makeEngulfPrimitive() {
+  let _chart = null, _series = null, _req = null;
+  const renderer = {
+    draw(target) {
+      if (!window._engulfOn || !_chart || !_series) return;
+      const pts = _engulfPts();
+      if (!pts || !pts.length) return;
+      const ts = _chart.timeScale();
+      let vr = null; try { vr = ts.getVisibleRange(); } catch (e) {}
+      const lo = vr ? vr.from : -Infinity, hi = vr ? vr.to : Infinity;
+      target.useBitmapCoordinateSpace(scope => {
+        const ctx = scope.context, hr = scope.horizontalPixelRatio, vrr = scope.verticalPixelRatio;
+        ctx.font = `bold ${Math.round(10 * vrr)}px sans-serif`; ctx.textAlign = "center";
+        for (const p of pts) {
+          if (p.t < lo || p.t > hi) continue;
+          const x = ts.timeToCoordinate(p.t);
+          if (x == null) continue;
+          const bx = x * hr;
+          const bull = p.dir > 0;
+          const rgb = bull ? "38,198,166" : "239,83,80";
+          const y = _series.priceToCoordinate(bull ? p.lo : p.hi);
+          if (y == null) continue;
+          const yy = y * vrr;
+          const s = 6 * hr;                                     // 三角尺寸
+          const ty = yy + (bull ? 1 : -1) * 10 * vrr;           // 多在低點下方、空在高點上方
+          ctx.fillStyle = `rgba(${rgb},1)`;
+          ctx.beginPath();
+          if (bull) { ctx.moveTo(bx, ty); ctx.lineTo(bx - s, ty + s * 1.4); ctx.lineTo(bx + s, ty + s * 1.4); }   // ▲ 指上
+          else      { ctx.moveTo(bx, ty); ctx.lineTo(bx - s, ty - s * 1.4); ctx.lineTo(bx + s, ty - s * 1.4); }   // ▼ 指下
+          ctx.closePath(); ctx.fill();
+          const lbl = bull ? "吞多" : "吞空";
+          const lty = bull ? (ty + s * 1.4 + 11 * vrr) : (ty - s * 1.4 - 3 * vrr);
+          ctx.textBaseline = bull ? "top" : "bottom";
+          ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.strokeStyle = "rgba(0,0,0,0.5)"; ctx.lineWidth = Math.max(2, 2 * hr);
+          ctx.strokeText(lbl, bx, lty);
+          ctx.fillStyle = `rgba(${rgb},1)`; ctx.fillText(lbl, bx, lty);
+        }
+      });
+    },
+  };
+  const paneView = { renderer() { return renderer; } };
+  return {
+    attached(p) { _chart = p.chart; _series = p.series; _req = p.requestUpdate; },
+    detached() { _chart = _series = _req = null; },
+    updateAllViews() {}, paneViews() { return [paneView]; }, requestUpdate() { if (_req) _req(); },
+  };
+}
+window.toggleEngulf = function (on) {
+  window._engulfOn = (on === undefined) ? !window._engulfOn : !!on;
+  if (_engulfPrim) _engulfPrim.requestUpdate();
+  return window._engulfOn;
+};
+
+// ── Swing point 擺動點(3根分形)──
+// 連續三根,中間根的高是三根最高(high2>high1 且 high2>high3)＝擺動高(紅點在高點上方);
+// 中間根的低是三根最低(low2<low1 且 low2<low3)＝擺動低(綠點在低點下方)。可同時成立(外包棒)。
+// 最後一根不算(需右鄰確認,收盤才定;非 repaint)。
+let _swingPrim = null;
+let _swingCache = { sig: "", pts: null };
+function _swingPts() {
+  const n = (typeof ohlcvData !== "undefined" && ohlcvData) ? ohlcvData.length : 0;
+  if (n < 3) return null;
+  const dv = (typeof _dataVersion !== "undefined") ? _dataVersion : 0;
+  const sig = dv + ":" + n + ":" + ohlcvData[n - 1].time;
+  if (_swingCache.sig === sig && _swingCache.pts) return _swingCache.pts;
+  const pts = [];
+  for (let i = 1; i < n - 1; i++) {                     // 中間根 i；最後一根(n-1)無右鄰→不算
+    const a = ohlcvData[i - 1], b = ohlcvData[i], c = ohlcvData[i + 1];
+    const hiSw = b.high > a.high && b.high > c.high;    // 擺動高
+    const loSw = b.low  < a.low  && b.low  < c.low;     // 擺動低
+    if (!hiSw && !loSw) continue;
+    pts.push({ t: toTime(b.time), hiSw, loSw, hi: b.high, lo: b.low });
+  }
+  _swingCache = { sig, pts };
+  return pts;
+}
+function _makeSwingPrimitive() {
+  let _chart = null, _series = null, _req = null;
+  const renderer = {
+    draw(target) {
+      if (!window._swingOn || !_chart || !_series) return;
+      const pts = _swingPts();
+      if (!pts || !pts.length) return;
+      const ts = _chart.timeScale();
+      let vr = null; try { vr = ts.getVisibleRange(); } catch (e) {}
+      const lo = vr ? vr.from : -Infinity, hi = vr ? vr.to : Infinity;
+      target.useBitmapCoordinateSpace(scope => {
+        const ctx = scope.context, hr = scope.horizontalPixelRatio, vrr = scope.verticalPixelRatio;
+        const r = 2.6 * Math.max(hr, vrr);               // 圓點半徑
+        for (const p of pts) {
+          if (p.t < lo || p.t > hi) continue;
+          const x = ts.timeToCoordinate(p.t);
+          if (x == null) continue;
+          const bx = x * hr;
+          if (p.hiSw) {                                  // 擺動高:紅點在高點上方
+            const y = _series.priceToCoordinate(p.hi);
+            if (y != null) _dot(ctx, bx, y * vrr - 7 * vrr, r, "239,83,80");
+          }
+          if (p.loSw) {                                  // 擺動低:綠點在低點下方
+            const y = _series.priceToCoordinate(p.lo);
+            if (y != null) _dot(ctx, bx, y * vrr + 7 * vrr, r, "38,198,166");
+          }
+        }
+      });
+    },
+  };
+  const paneView = { renderer() { return renderer; } };
+  return {
+    attached(p) { _chart = p.chart; _series = p.series; _req = p.requestUpdate; },
+    detached() { _chart = _series = _req = null; },
+    updateAllViews() {}, paneViews() { return [paneView]; }, requestUpdate() { if (_req) _req(); },
+  };
+}
+function _dot(ctx, cx, cy, r, rgb) {
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fillStyle = `rgba(${rgb},1)`; ctx.fill();
+  ctx.lineWidth = Math.max(1, r * 0.5); ctx.strokeStyle = "rgba(0,0,0,0.55)"; ctx.stroke();
+}
+window.toggleSwing = function (on) {
+  window._swingOn = (on === undefined) ? !window._swingOn : !!on;
+  if (_swingPrim) _swingPrim.requestUpdate();
+  return window._swingOn;
 };
 
 // ── 策略方向標記 primitive（多/空·破多空·順多空）──

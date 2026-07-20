@@ -1021,20 +1021,45 @@ function drawingDist(d, x, y) {
   return Infinity;
 }
 
-// 交易時段（用 K 棒的台灣時間 = toTime 已 +8h，UTC getter 即台北時）：
-//   週一~五 8:00-12:00=台股、14:00-17:00=歐洲、20:00-23:00=美盤
+// 交易時段（依市場自動切換）：
+//   股票(台/美/港)：週一~五、台灣固定時間 8:00-12:00=台股、14:00-17:00=歐洲、20:00-23:00=美盤。
+//   加密(24/7)：ICT/JadeCap killzone、全週、且隨日光節約(夏/冬令)平移——
+//     亞洲=東京 09:00-15:00(JST 固定 UTC+9)、倫敦=倫敦當地 06:00-10:00(含法蘭克福盤前)、
+//     紐約·交界=紐約當地 07:00-10:00(此時倫敦未收＝歐美兩盤重疊)。
+//   三色 key(asia/europe/us)沿用，只有盤名(_SESSION_NAME/_CRYPTO)依市場不同。
 const _SESSION_INTRADAY = ["1m", "5m", "15m", "30m", "1h", "2h"];
-const _SESSION_COLOR = { asia: "rgba(66,133,244,0.10)", europe: "rgba(124,104,228,0.10)", us: "rgba(255,159,40,0.09)" };
-const _SESSION_LINE  = { asia: "rgba(66,133,244,0.9)",  europe: "rgba(150,130,245,0.85)", us: "rgba(255,159,40,0.9)" };
-const _SESSION_NAME  = { asia: "台股", europe: "歐洲", us: "美盤" };
-const _SESSION_COLOR_HR = { asia: "rgba(66,133,244,0.30)", europe: "rgba(124,104,228,0.30)", us: "rgba(255,159,40,0.28)" };  // 開盤首段深底色
-const _SESSION_HL_SEC   = { asia: 3600, europe: 3600, us: 3600 };   // 開盤加深時長：三盤皆前 1 小時
+// weekend＝加密週末(傳統外匯/期貨休市)：中性灰、很淡，不當 killzone、不強調高低。
+const _SESSION_COLOR = { asia: "rgba(66,133,244,0.10)", europe: "rgba(124,104,228,0.10)", us: "rgba(255,159,40,0.09)", weekend: "rgba(130,130,145,0.055)" };
+const _SESSION_LINE  = { asia: "rgba(66,133,244,0.9)",  europe: "rgba(150,130,245,0.85)", us: "rgba(255,159,40,0.9)", weekend: "rgba(150,150,162,0.6)" };
+const _SESSION_NAME  = { asia: "台股", europe: "歐洲", us: "美盤", weekend: "週末" };
+const _SESSION_NAME_CRYPTO = { asia: "亞洲", europe: "倫敦", us: "紐約·交界", weekend: "週末薄量" };
+const _SESSION_COLOR_HR = { asia: "rgba(66,133,244,0.30)", europe: "rgba(124,104,228,0.30)", us: "rgba(255,159,40,0.28)", weekend: "rgba(130,130,145,0.055)" };  // 開盤首段深底色
+const _SESSION_HL_SEC   = { asia: 3600, europe: 3600, us: 3600, weekend: 3600 };   // 開盤加深時長：三盤皆前 1 小時
 const _WEEKDAY = ["週日", "週一", "週二", "週三", "週四", "週五", "週六"];
 // 開關（頂部按鈕；預設開）
 let _sessionOn = (() => { try { return localStorage.getItem("sessionOverlay") !== "0"; } catch (e) { return true; } })();
 let _weekBoxOn = (() => { try { return localStorage.getItem("weekBox") !== "0"; } catch (e) { return true; } })();   // 週框(週一~五框)獨立開關；預設開
-// 時段/星期只取決於時間戳 → 記憶化（同一根 K 每幀被查多遍，避免每次都 new Date）。
-// key 用原始 time 值；跨標的/重載皆有效（同時刻必同時段/星期），無需失效。
+// 目前市場（每幀繪製前由 _drawSessionOverlay 更新；換市場即清時段快取）。加密與股票同一時刻分盤不同，快取 key 必含市場。
+let _curSessMkt = "crypto";
+const _SESSION_NAME_OF = (sess) => (_curSessMkt === "crypto" ? _SESSION_NAME_CRYPTO : _SESSION_NAME)[sess];
+// DST 感知：某時區在某 UTC 日的偏移小時（倫敦/紐約夏冬令自動跟著平移）。以「tz:UTC日」記憶化。
+const _tzOffCache = new Map();
+function _tzOff(u, tz) {
+  const dk = Math.floor(u / 86400), key = tz + ":" + dk;
+  const hit = _tzOffCache.get(key);
+  if (hit !== undefined) return hit;
+  let v = 0;
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", { timeZone: tz, timeZoneName: "shortOffset" })
+      .formatToParts(new Date(u * 1000));
+    const o = (parts.find(p => p.type === "timeZoneName") || {}).value || "GMT+0";   // 例 "GMT+1" / "GMT-4"
+    const m = o.match(/GMT([+-]?\d+)(?::(\d+))?/);
+    if (m) v = Number(m[1]) + (m[2] ? Math.sign(Number(m[1]) || 1) * Number(m[2]) / 60 : 0);
+  } catch (e) { v = 0; }
+  _tzOffCache.set(key, v);
+  return v;
+}
+// 時段/星期只取決於時間戳（+市場） → 記憶化（同一根 K 每幀被查多遍，避免每次都 new Date/Intl）。
 const _sessCache = new Map();
 const _dayCache = new Map();
 function _dayOf(t) {
@@ -1045,18 +1070,40 @@ function _dayOf(t) {
   return v;
 }
 function _sessionOf(t) {
-  let v = _sessCache.get(t);
+  const ck = _curSessMkt + ":" + t;
+  let v = _sessCache.get(ck);
   if (v !== undefined) return v;
-  const d = new Date(toTime(t) * 1000);
-  const day = d.getUTCDay();
-  if (day < 1 || day > 5) v = null;        // 只標週一~週五
-  else {
-    const h = d.getUTCHours();
-    v = (h >= 8 && h < 12) ? "asia"
-      : (h >= 14 && h < 17) ? "europe"
-      : (h >= 20 && h < 23) ? "us" : null;
+  if (_curSessMkt === "crypto") {
+    // 加密 24/7，但週末傳統機構休市(外匯/CME 期貨關) → 週六日不畫 killzone，改標「週末薄量」。
+    const u = toTime(t) - 8 * 3600;                          // 真實 UTC 秒（toTime 已 +8h）
+    const dow = new Date(u * 1000).getUTCDay();              // 0=週日、6=週六（以 UTC 曆日近似市場週末）
+    if (dow === 0 || dow === 6) { v = "weekend"; }
+    else {
+      const hUTC = (((u % 86400) + 86400) % 86400) / 3600;   // 0..24 UTC 小時
+      const hTok = (hUTC + 9) % 24;                          // 東京固定 UTC+9
+      if (hTok >= 9 && hTok < 15) v = "asia";
+      else {
+        const hLon = ((hUTC + _tzOff(u, "Europe/London")) % 24 + 24) % 24;
+        if (hLon >= 6 && hLon < 10) v = "europe";           // 倫敦(含盤前)
+        else {
+          const hNy = ((hUTC + _tzOff(u, "America/New_York")) % 24 + 24) % 24;
+          v = (hNy >= 7 && hNy < 10) ? "us" : null;         // 紐約·歐美交界
+        }
+      }
+    }
+  } else {
+    // 股票：台灣固定時間、僅週一~五。
+    const d = new Date(toTime(t) * 1000);
+    const day = d.getUTCDay();
+    if (day < 1 || day > 5) v = null;
+    else {
+      const h = d.getUTCHours();
+      v = (h >= 8 && h < 12) ? "asia"
+        : (h >= 14 && h < 17) ? "europe"
+        : (h >= 20 && h < 23) ? "us" : null;
+    }
   }
-  _sessCache.set(t, v);
+  _sessCache.set(ck, v);
   return v;
 }
 // 交易時段區段快取：把整份 ohlcvData 切成連續同盤的「區段」並預存當盤高/低點。
@@ -1065,7 +1112,7 @@ function _sessionOf(t) {
 let _sessRuns = null, _sessRunsKey = "";
 function _getSessionRuns() {
   const n = ohlcvData.length;
-  const key = n + "|" + (n ? ohlcvData[0].time + "_" + ohlcvData[n - 1].time : "") + "|" + (typeof currentTF !== "undefined" ? currentTF : "");
+  const key = n + "|" + (n ? ohlcvData[0].time + "_" + ohlcvData[n - 1].time : "") + "|" + (typeof currentTF !== "undefined" ? currentTF : "") + "|" + _curSessMkt;
   if (_sessRunsKey === key && _sessRuns) return _sessRuns;
   const runs = [];
   let s = -1, cur = null, hi = -Infinity, lo = Infinity;
@@ -1086,6 +1133,9 @@ function _drawSessionOverlay(W, H) {
   // 星期標籤(③)永遠顯示——不受右上「交易時段」開關(_sessionOn)控制；
   // 交易時段色塊/高低線/開盤標記(①②④)只在『細日內時框』(_SESSION_INTRADAY)；
   // 星期標籤放寬到『日內時框 + 4h』(4h 每天 6 根、換日標「週X」有意義；日/週/月線不標)。
+  // 市場感知：換市場時分盤定義不同 → 清時段快取並強制重算區段（在 _getSessionRuns 之前）。
+  const _mk = document.getElementById("marketSelect")?.value || "crypto";
+  if (_mk !== _curSessMkt) { _curSessMkt = _mk; _sessCache.clear(); _sessRuns = null; _sessRunsKey = ""; }
   const _tf = (typeof currentTF !== "undefined") ? currentTF : "";
   const _boxTF = _SESSION_INTRADAY.includes(_tf);
   const _sessTF = _boxTF || _tf === "4h";                // 交易時段色塊：日內細時框 + 4h(每天三根對上亞/歐/美盤)；1d 不算
@@ -1167,6 +1217,35 @@ function _drawSessionOverlay(W, H) {
     drawCtx.restore();
   }
 
+  // ⑤ 加密專屬：把「亞洲盤高/低」延伸過倫敦/紐約 = 等著被獵取的流動性池（虛線）。
+  //   從亞洲盤結束延到「隔天亞洲盤開始」，讓你一眼看出哪根影線是歐美盤來掃亞洲高低。
+  if (_curSessMkt === "crypto") {
+    const _lT = toTime(ohlcvData[from].time), _rT = toTime(ohlcvData[to].time);
+    drawCtx.save();
+    drawCtx.setLineDash([4, 4]); drawCtx.font = "10px sans-serif"; drawCtx.textAlign = "left";
+    for (let k = 0; k < runs.length; k++) {
+      const r = runs[k];
+      if (r.sess !== "asia" || r.e > to) continue;               // 非亞洲盤、或未完全揭曉(重播)→ 不延伸
+      const startT = toTime(ohlcvData[r.e].time);
+      let endT = null;   // 延到下一個亞洲盤；但遇到週末就停(週末機構休市、流動性不再有意義)
+      for (let j = k + 1; j < runs.length; j++) { if (runs[j].sess === "asia" || runs[j].sess === "weekend") { endT = toTime(ohlcvData[runs[j].s].time); break; } }
+      if (endT == null) endT = _rT;
+      if (endT < _lT || startT > _rT) continue;                  // 延伸段完全在畫面外 → 略過
+      const xS = ts.timeToCoordinate(startT), xE = ts.timeToCoordinate(endT);
+      const L = (xS == null ? 0 : xS + half), R = (xE == null ? plotW : xE - half);
+      if (R <= L) continue;
+      for (const [price, tag] of [[r.hi, "亞高"], [r.lo, "亞低"]]) {
+        const y = candleSeries?.priceToCoordinate(price);
+        if (y == null) continue;
+        drawCtx.strokeStyle = _SESSION_LINE.asia; drawCtx.globalAlpha = 0.5; drawCtx.lineWidth = 1;
+        drawCtx.beginPath(); drawCtx.moveTo(L, y); drawCtx.lineTo(R, y); drawCtx.stroke();
+        drawCtx.globalAlpha = 1; drawCtx.fillStyle = _SESSION_LINE.asia;
+        drawCtx.fillText(tag, Math.max(L + 2, 2), y - 2);
+      }
+    }
+    drawCtx.setLineDash([]); drawCtx.restore();
+  }
+
   // ④ 各盤「開盤」標記：該盤第一根 K（8:00台股 / 14:00歐洲 / 20:00美盤）一出現就標，
   //    不必等整盤收完。判定＝這根是某盤、且「真實前一根」不同盤（避免畫面左緣誤判開盤）。
   drawCtx.save();
@@ -1181,7 +1260,7 @@ function _drawSessionOverlay(W, H) {
     drawCtx.beginPath(); drawCtx.moveTo(xL, 0); drawCtx.lineTo(xL, plotBottom); drawCtx.stroke();   // 開盤直線（止於時間軸上緣）
     drawCtx.globalAlpha = 1;
     drawCtx.fillStyle = _SESSION_LINE[sess];
-    drawCtx.fillText(_SESSION_NAME[sess], xL + 3, 30);                                      // 盤名（星期列下方）
+    drawCtx.fillText(_SESSION_NAME_OF(sess), xL + 3, 30);                                   // 盤名（星期列下方）
   }
   drawCtx.restore();
   }   // end if (_sessionOn) — 以下星期標籤永遠畫
