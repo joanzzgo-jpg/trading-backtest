@@ -51,10 +51,14 @@ async function fetchLatest() {
     });
     if (!res.ok) return;
     const json = await res.json();
-    // 標的/市場/時框已切換 → 此結果屬於舊標的，丟棄不畫
+    // 標的/市場/時框已切換、或 await 期間進了重播 → 此結果作廢，丟棄不畫。
+    //   ★replayActive 必須在 await 之後再檢一次：入口(line 41)只擋「重播中才發起」的輪詢，
+    //   但「重播前發起、重播後才回來」的 in-flight 會續跑到 candleSeries.update() 補一根「當下」的棒
+    //   → series 最後一根變成現在時間 → 重播逐根 update 歷史棒時報「Cannot update oldest data」而卡死。
     if (document.getElementById("symbolInput")?.value.trim() !== _sym0
         || document.getElementById("marketSelect")?.value !== _mkt0
-        || currentTF !== _tf0) return;
+        || currentTF !== _tf0
+        || (typeof replayActive !== "undefined" && replayActive)) return;
     if (!json.data?.length) return;
     const dot = document.getElementById("realtimeDot");
     if (dot) dot.classList.toggle("hidden", json.live === false);

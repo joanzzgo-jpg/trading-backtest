@@ -289,10 +289,6 @@ function _replayStep(bar) {
     bbL.update({ time:t, value:bar.bb_lower });
   }
 
-  kdjAnchor.update({ time:t, value:50 });
-  rsiAnchor.update({ time:t, value:50 });
-  macdAnchor.update({ time:t, value:0 });
-
   volSeries.update({ time:t, value:bar.volume||0,
     color: bar.close >= bar.open ? C.volUp + _va : C.volDown + _va });
   const period = Math.max(1, S.volMaPeriod);
@@ -303,7 +299,13 @@ function _replayStep(bar) {
     volMaSeries.update({ time:t, value: volSum / period });
   }
 
+  // ★副圖(anchor/kdj/rsi/macd)只在「副圖顯示」時 update：副圖隱藏時 _renderSubcharts(跳躍)不重建它們，
+  //   若這裡仍 update 舊 anchor(其最後一根停在重播前的「現在」)→ 用較舊的重播時間 update → LWC 丟
+  //   「Cannot update oldest data」讓整個 _replayStep 中斷、後續標記/畫面不更新＝重播卡死。
   if (!(typeof _subchartsHidden === "function" && _subchartsHidden())) {
+    kdjAnchor.update({ time:t, value:50 });
+    rsiAnchor.update({ time:t, value:50 });
+    macdAnchor.update({ time:t, value:0 });
     if (bar.kdj_k != null) {
       kdjK.update({ time:t, value:bar.kdj_k });
       kdjD.update({ time:t, value:bar.kdj_d });
