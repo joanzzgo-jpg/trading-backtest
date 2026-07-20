@@ -1,5 +1,7 @@
 // 切標的時 abort 上一筆未完成請求；30s timeout 防止後端卡住前端
 let _loadDataCtrl = null;
+let _lastSymKey = null;   // 上次載入的 市場|標的（用來分辨「純切時框」vs「切標的」）
+let _savedTfSpanSec = null;   // 純切時框(看最新)時保存的「可見時長(秒)」→ 還原＝貼最新+同時長
 async function loadData(autoLoad = false) {
   if (replayActive) exitReplay();
   /* 記住切換前的可見 K 棒數量，載入後還原相同縮放比例 */
@@ -9,13 +11,27 @@ async function loadData(autoLoad = false) {
     // 若視窗已捲到歷史（右緣不貼最新棒）→ 另存可見「時間範圍」，切標的/時框後對齊同一時間段；
     // 仍在看最新（_atLatest）→ 不存，照舊貼齊最新 N 根（realtime 才會接續更新）
     const _atLatest = !_r || !ohlcvData.length || _r.to >= ohlcvData.length - 2;
+    // 「純切時框(同標的)」偵測：切『標的』(symbol 變) 維持原本看最新行為(縮放+右緣)。
+    const _symKeyNow = (document.getElementById("marketSelect") ? document.getElementById("marketSelect").value : "") + "|" +
+                       (document.getElementById("symbolInput") ? document.getElementById("symbolInput").value.trim() : "");
+    const _tfSwitch = (_lastSymKey !== null && _symKeyNow === _lastSymKey);
+    _lastSymKey = _symKeyNow;
     _savedTimeRange = null;
     _savedRightOffset = null;
     _savedBarSpacing = null;
+    _savedTfSpanSec = null;
     if (!_atLatest) {
       try {
         const _tr = mainChart.timeScale().getVisibleRange();
         if (_tr && _tr.from != null && _tr.to != null) _savedTimeRange = { from: _tr.from, to: _tr.to };
+      } catch (e) {}
+    } else if (_tfSwitch && _r && ohlcvData.length) {
+      // 看最新 + 純切時框 → 記住「可見時間長度(秒)」；還原時錨定最新棒、顯示同樣時長
+      //   (15m→5m 就從 12h → 仍看 12h、只是根數變多)→ 原本畫面上的繪圖不被擠出、視野不跳。
+      //   絕對時間範圍不適用(1d 的 60 天在 5m 上根本畫不下)→ 用「時長 + 貼最新」才穩。
+      try {
+        const _tr = mainChart.timeScale().getVisibleRange();
+        if (_tr && _tr.from != null && _tr.to != null) _savedTfSpanSec = Math.max(0, _tr.to - _tr.from);
       } catch (e) {}
     } else if (_r && ohlcvData.length) {
       // 看最新：記住「最新棒水平位置(rightOffset)」+「縮放(barSpacing)」，切標的後讓新標的
@@ -197,7 +213,7 @@ function renderAll(data) {
   //   某一幀才執行 → 把縮放壓到最小(全部K擠進畫面)蓋掉還原。錨點路徑靠重申搶回，但
   //   「捲到歷史→切換」的 setVisibleRange 路徑沒有重申 → span 爆炸、K 棒擠到最左＝
   //   「切標的/時框後最右邊沒有K棒」的起源(2026-07-16 修)。有還原目標時 fit 純屬有害。
-  const _hasRestoreTarget = _pendingRestoreRange || _savedTimeRange || _savedBarSpacing != null;
+  const _hasRestoreTarget = _pendingRestoreRange || _savedTimeRange || _savedBarSpacing != null || _savedTfSpanSec != null;
   if (!_hasRestoreTarget) {
     [mainChart, kdjChart, rsiChart, macdChart].forEach(c => c.timeScale().fitContent());
   }
@@ -287,11 +303,19 @@ function renderAll(data) {
     } else {
       _restoreByBarCount();
     }
+  } else if (_savedTfSpanSec != null && data.length >= 2) {
+    // 純切時框(看最新)：貼最新棒 + 顯示同樣時長(換算成新時框的根數,夾限在可用資料內)。
+    const ts = mainChart.timeScale();
+    const _int = Math.max(1, toTime(data[data.length - 1].time) - toTime(data[data.length - 2].time));
+    let _nb = Math.round(_savedTfSpanSec / _int);
+    _nb = Math.max(10, Math.min(_nb, data.length - 1));
+    ts.setVisibleLogicalRange({ from: data.length - 1 - _nb, to: data.length - 1 });
   } else {
     _restoreByBarCount();
   }
   _savedBarCount = null;
   _savedTimeRange = null;
+  _savedTfSpanSec = null;
   _savedRightOffset = null;
   _savedBarSpacing = null;
 
