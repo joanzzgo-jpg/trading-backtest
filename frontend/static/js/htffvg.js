@@ -126,12 +126,14 @@ function _makeHtfFvgPrimitive() {
               const lbl = grp.tf + (z.d === "l" ? " ↑" : " ↓");
               const _ty = byTop + bh / 2;
               const _yy = bh >= 13 * vrr ? _ty : byTop - 7 * vrr;
+              // 盒左緣被拉到視窗外時，標籤夾回視窗內(不超過盒右緣)→ 長缺口仍看得到是哪個時框
+              const _lx = Math.min(Math.max(bx + 3 * hr, 3 * hr), (bx + bw) - 30 * hr);
               ctx.font = `bold ${Math.round(10 * vrr)}px sans-serif`; ctx.textBaseline = "middle"; ctx.textAlign = "left";
               ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.strokeStyle = "rgba(0,0,0,0.6)";
               ctx.lineWidth = Math.max(2, 2 * hr);
-              ctx.strokeText(lbl, bx + 3 * hr, _yy);
+              ctx.strokeText(lbl, _lx, _yy);
               ctx.fillStyle = _htfHexA(col, 1);
-              ctx.fillText(lbl, bx + 3 * hr, _yy);
+              ctx.fillText(lbl, _lx, _yy);
             }
           }
         }

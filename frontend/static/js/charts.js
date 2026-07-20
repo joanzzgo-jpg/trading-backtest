@@ -155,11 +155,13 @@ function _makeFVGPrimitive() {
             const _ty = byTop + bh / 2;
             // 細盒(高度<字高)→ 標到盒上方，避免疊在邊框上看不清
             const _yy = bh >= 12 * vr ? _ty : byTop - 7 * vr;
+            // 盒左緣被拉到視窗外時，標籤夾回視窗內(但不超過盒右緣)→ 長缺口仍看得到寬度%描述
+            const _lx = Math.min(Math.max(bx + 3 * hr, 3 * hr), (bx + bw) - 34 * hr);
             ctx.fillStyle = "rgba(0,0,0,0.55)";                 // 描黑底邊，淺色背景也看得見
             ctx.lineWidth = Math.max(2, 2 * hr); ctx.strokeStyle = "rgba(0,0,0,0.55)";
-            ctx.strokeText(_lbl, bx + 3 * hr, _yy);
+            ctx.strokeText(_lbl, _lx, _yy);
             ctx.fillStyle = z.d === "l" ? "rgba(120,255,225,0.98)" : "rgba(255,150,150,0.98)";
-            ctx.fillText(_lbl, bx + 3 * hr, _yy);
+            ctx.fillText(_lbl, _lx, _yy);
           }
           // 進場標記（常駐）：改為「每被突破一次就標一點」——pens=每次往區間更深處突破點(封頂/封底於邊緣)。
           //   每個突破點畫一個淡黃菱形；不再標上/中/下字。

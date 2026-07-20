@@ -199,6 +199,12 @@ function saveVisibilityPrefs() {
     document.querySelectorAll(".leg-toggle.line-off").forEach(el => {
       if (el.id) hiddenLegs.push(el.id);
     });
+    // 預設關(data-defoff)但被開起來的圖例 → 也記下來，否則重開會忘記(hiddenLegs 只記「被關掉」的)
+    const shownDefOff = [];
+    document.querySelectorAll(".leg-toggle[data-defoff]:not(.line-off)").forEach(el => {
+      if (el.id) shownDefOff.push(el.id);
+    });
+    localStorage.setItem("shownDefOff", JSON.stringify(shownDefOff));
     const collapsedPanes = {};
     document.querySelectorAll(".pane-collapse-btn").forEach(btn => {
       if (btn.dataset.collapsed === "true")
@@ -217,6 +223,12 @@ function loadVisibilityPrefs() {
     hiddenLegs.forEach(id => {
       const el = document.getElementById(id);
       if (el && !el.classList.contains("line-off")) el.click();
+    });
+    // 預設關但上次開著的 → 點開(還原勾選)：如「大時框FVG」等
+    const shownDefOff = JSON.parse(localStorage.getItem("shownDefOff") || "[]");
+    shownDefOff.forEach(id => {
+      const el = document.getElementById(id);
+      if (el && el.classList.contains("line-off")) el.click();
     });
     // 恢復收合的面板
     const collapsedPanes = JSON.parse(localStorage.getItem("collapsedPanes") || "{}");
