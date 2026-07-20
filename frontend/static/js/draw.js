@@ -122,24 +122,31 @@ function _timeToX(time) {
     const ts = mainChart.timeScale();
     const x = ts.timeToCoordinate(time);
     if (x != null) return x;
+    // ⚠ LWC 的 logicalToCoordinate 只吃「整數」logical(給小數回 0/垃圾→線跳到 x=0)。
+    //   所以一律取相鄰「整數棒」的座標,再自己在「像素空間」內插/外推。
     const r = _barRef();
-    if (r && time > r.lastTime) {
-      const c = ts.logicalToCoordinate(r.lastLogical + (time - r.lastTime) / r.interval);   // 未來空白外推
-      return (c != null && isFinite(c)) ? c : null;
+    if (r && time > r.lastTime) {                          // 未來空白 → 用每根像素寬外推
+      const cLast = ts.logicalToCoordinate(r.lastLogical);
+      const cPrev = ts.logicalToCoordinate(r.lastLogical - 1);
+      if (cLast == null || cPrev == null || !isFinite(cLast) || !isFinite(cPrev)) return null;
+      const c = cLast + ((time - r.lastTime) / r.interval) * (cLast - cPrev);
+      return isFinite(c) ? c : null;
     }
     const n = (typeof ohlcvData !== "undefined") ? ohlcvData.length : 0;
     if (!n) return null;
     const t0 = toTime(ohlcvData[0].time);
     if (time < t0) return null;   // 早於資料起點 → 不外推(避免端點被推到極遠→線無限長)
-    let lo = 0, hi = n - 1;        // 二分找相鄰兩棒,內插分數 logical index
+    let lo = 0, hi = n - 1;        // 二分找相鄰兩棒
     while (lo + 1 < hi) {
       const mid = (lo + hi) >> 1;
       if (toTime(ohlcvData[mid].time) <= time) lo = mid; else hi = mid;
     }
     const tLo = toTime(ohlcvData[lo].time), tHi = toTime(ohlcvData[hi].time);
     const frac = tHi > tLo ? (time - tLo) / (tHi - tLo) : 0;
-    const c = ts.logicalToCoordinate(lo + frac * (hi - lo));
-    return (c != null && isFinite(c)) ? c : null;
+    const cLo = ts.logicalToCoordinate(lo), cHi = ts.logicalToCoordinate(hi);   // 整數 logical → 可靠(含離屏)
+    if (cLo == null || cHi == null || !isFinite(cLo) || !isFinite(cHi)) return null;
+    const c = cLo + frac * (cHi - cLo);   // 像素空間內插(不再餵小數 logical)
+    return isFinite(c) ? c : null;
   } catch (e) { return null; }
 }
 
@@ -865,40 +872,34 @@ function showLegColorPopup(clientX, clientY, sections) {
   window._cpShowDirect(clientX, clientY, { sections, onDelete: null });
 }
 
+// 磁吸(TV 風)：掃描游標附近 ±_MAG_SCAN 根,對每根的 O/H/L/C 逐點算「2D 像素距離」,
+// 吸最近的那個 OHLC 點(半徑 _MAG_R px 內才吸)→ 落在兩棒間也能吸到正確候選,不再只看正下方那根、不再只比 Y。
+const _MAG_SCAN = 2;    // 左右各掃幾根
+const _MAG_R = 24;      // 吸附半徑(px)
 function _magnetSnap(x, y) {
   if (!ohlcvData.length || !candleSeries) return null;
-  const curTime  = mainChart.timeScale().coordinateToTime(x);
-  const curPrice = candleSeries.coordinateToPrice(y);
-  if (curTime == null || curPrice == null) return null;
-  // Binary search for the bar with time closest to curTime
-  let lo = 0, hi = ohlcvData.length - 1;
+  const ts = mainChart.timeScale();
+  const curTime = ts.coordinateToTime(x);
+  if (curTime == null) return null;
+  let lo = 0, hi = ohlcvData.length - 1;      // 二分找時間最近的棒
   while (lo < hi) {
     const mid = (lo + hi) >> 1;
-    if (toTime(ohlcvData[mid].time) < curTime) lo = mid + 1;
-    else hi = mid;
+    if (toTime(ohlcvData[mid].time) < curTime) lo = mid + 1; else hi = mid;
   }
-  let bar = ohlcvData[lo];
-  if (lo > 0) {
-    const prev = ohlcvData[lo - 1];
-    if (Math.abs(toTime(prev.time) - curTime) < Math.abs(toTime(bar.time) - curTime)) bar = prev;
+  let best = null, bestD = _MAG_R * _MAG_R;
+  for (let i = Math.max(0, lo - _MAG_SCAN); i <= Math.min(ohlcvData.length - 1, lo + _MAG_SCAN); i++) {
+    const bar = ohlcvData[i];
+    const bx = ts.timeToCoordinate(toTime(bar.time));
+    if (bx == null) continue;
+    for (const price of [bar.open, bar.high, bar.low, bar.close]) {
+      if (price == null) continue;
+      const py = candleSeries.priceToCoordinate(price);
+      if (py == null) continue;
+      const d = (bx - x) * (bx - x) + (py - y) * (py - y);
+      if (d < bestD) { bestD = d; best = { x: bx, y: py, time: toTime(bar.time), price }; }
+    }
   }
-  const barX = mainChart.timeScale().timeToCoordinate(toTime(bar.time));
-  if (barX == null || Math.abs(barX - x) > 50) return null;
-  // Compare OHLC to cursor price numerically
-  const prices = [bar.open, bar.high, bar.low, bar.close].filter(p => p != null);
-  if (!prices.length) return null;
-  const snapPrice = prices.reduce((best, p) =>
-    Math.abs(p - curPrice) < Math.abs(best - curPrice) ? p : best, prices[0]);
-  // Derive snapY from price scale ratio — avoids priceToCoordinate null issue
-  const pRef = candleSeries.coordinateToPrice(y + 20);
-  let snapY = y;
-  if (pRef != null && pRef !== curPrice) {
-    // 20 pixels → (curPrice - pRef) price units; so px per price = 20/(curPrice-pRef)
-    snapY = y + (curPrice - snapPrice) * 20 / (curPrice - pRef);
-  }
-  // Only snap if close enough in Y (within 20px of nearest OHLC price)
-  if (Math.abs(snapY - y) > 20) return null;
-  return { x: barX, y: snapY, time: toTime(bar.time), price: snapPrice };
+  return best;
 }
 
 function screenToChart(x, y) {
@@ -2007,6 +2008,112 @@ function _renderDrawingsAfterSettle() {
 }
 
 let _ovSettleT = null;   // 平移/縮放中省略的大面積填色 → 停手 240ms 補回（同 charts.js FVG settle 模式）
+/* ── 畫線/拖曳時的即時輔助：軸標籤(價格軸/時間軸) + Δ 資訊盒(TV 風) ── */
+function _fmtP(v) {
+  const a = Math.abs(v);
+  const dp = a >= 1000 ? 2 : a >= 1 ? 3 : a >= 0.01 ? 5 : 8;
+  return v.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: dp });
+}
+function _fmtDT(t) {
+  const d = new Date(t * 1000);   // t=toTime(+8) → getUTC* 即台北時
+  const p = n => String(n).padStart(2, "0");
+  return `${p(d.getUTCMonth() + 1)}/${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`;
+}
+function _priceAxisTag(ctx, W, plotW, y, price, bg) {
+  if (y == null || !isFinite(y)) return;
+  const txt = _fmtP(price);
+  ctx.save(); ctx.font = "11px sans-serif";
+  const bw = Math.max(W - plotW, ctx.measureText(txt).width + 10), h = 15;
+  ctx.fillStyle = bg; ctx.fillRect(plotW, y - h / 2, bw, h);
+  ctx.fillStyle = "#fff"; ctx.textBaseline = "middle"; ctx.textAlign = "left";
+  ctx.fillText(txt, plotW + 5, y);
+  ctx.restore();
+}
+function _timeAxisTag(ctx, H, plotBottom, x, time, bg) {
+  if (x == null || !isFinite(x)) return;
+  const txt = _fmtDT(time);
+  ctx.save(); ctx.font = "11px sans-serif";
+  const bw = ctx.measureText(txt).width + 10, h = 15;
+  let bx = x - bw / 2;
+  ctx.fillStyle = bg; ctx.fillRect(bx, plotBottom, bw, h);
+  ctx.fillStyle = "#fff"; ctx.textBaseline = "middle"; ctx.textAlign = "left";
+  ctx.fillText(txt, bx + 5, plotBottom + h / 2);
+  ctx.restore();
+}
+function _deltaBox(ctx, x, y, lines, W, H) {
+  ctx.save(); ctx.font = "11px sans-serif";
+  let tw = 0; for (const l of lines) tw = Math.max(tw, ctx.measureText(l.t).width);
+  const pad = 6, lh = 15, bw = tw + pad * 2, bh = lines.length * lh + pad;
+  let bx = x + 16, by = y + 16;
+  if (bx + bw > W) bx = x - 16 - bw;
+  if (by + bh > H) by = y - 16 - bh;
+  ctx.fillStyle = "rgba(20,24,34,0.92)"; ctx.fillRect(bx, by, bw, bh);
+  ctx.strokeStyle = "rgba(255,255,255,0.16)"; ctx.lineWidth = 1; ctx.strokeRect(bx, by, bw, bh);
+  ctx.textBaseline = "top"; ctx.textAlign = "left";
+  lines.forEach((l, i) => { ctx.fillStyle = l.c || "#e6e6e6"; ctx.fillText(l.t, bx + pad, by + pad / 2 + i * lh); });
+  ctx.restore();
+}
+const _TWO_PT = ["trendline", "ray", "arrow", "rect", "fib", "longpos", "shortpos"];
+function _drawDrawTags(W, H) {
+  const wip = drawingWIP, dragging = dragState && dragState.moved;
+  if (!wip && !dragging) return;
+  let plotW = W, plotBottom = H;
+  try { const tw = mainChart.timeScale().width(); if (tw > 0) plotW = tw; } catch (e) {}
+  try { const th = mainChart.timeScale().height(); if (th > 0) plotBottom = H - th; } catch (e) {}
+  let anchor = null, active = null, twoPt = false, dtype = null;
+  if (wip) {
+    dtype = wip.type;
+    let cmx = _mx, cmy = _my;
+    if (_magnetMode) { const s = _magnetSnap(_mx, _my); if (s) { cmx = s.x; cmy = s.y; } }
+    const a = chartToScreen(wip.p1.time, wip.p1.price), cp = screenToChart(cmx, cmy);
+    if (a) anchor = { x: a.x, y: a.y, time: wip.p1.time, price: wip.p1.price };
+    if (cp) active = { x: cmx, y: cmy, time: cp.time, price: cp.price };
+    twoPt = _TWO_PT.includes(dtype);
+  } else {
+    const d = drawings.find(x => x.id === dragState.id);
+    if (!d) return;
+    dtype = d.type;
+    if (d.p1 && d.p2) {
+      const a = chartToScreen(d.p1.time, d.p1.price), b = chartToScreen(d.p2.time, d.p2.price);
+      if (a && b) {
+        const da = Math.hypot(a.x - _mx, a.y - _my), db = Math.hypot(b.x - _mx, b.y - _my);
+        active = da <= db ? { x: a.x, y: a.y, time: d.p1.time, price: d.p1.price } : { x: b.x, y: b.y, time: d.p2.time, price: d.p2.price };
+        anchor = da <= db ? { x: b.x, y: b.y, time: d.p2.time, price: d.p2.price } : { x: a.x, y: a.y, time: d.p1.time, price: d.p1.price };
+        twoPt = true;
+      }
+    } else if (d.type === "hline") {
+      const y = candleSeries?.priceToCoordinate(d.price);
+      active = { x: _mx, y, time: null, price: d.price };
+    } else if (d.p1) {
+      const a = chartToScreen(d.p1.time, d.p1.price); if (a) active = { x: a.x, y: a.y, time: d.p1.time, price: d.p1.price };
+    } else if (d.time != null) {
+      active = { x: _timeToX(d.time), y: _my, time: d.time, price: null };
+    }
+  }
+  const tag = (pt, activeTag) => {
+    if (!pt) return;
+    const bg = activeTag ? "rgba(41,98,255,0.95)" : "rgba(110,113,124,0.92)";
+    if (pt.price != null && dtype !== "vline") _priceAxisTag(drawCtx, W, plotW, pt.y, pt.price, bg);
+    if (pt.time != null && dtype !== "hline") _timeAxisTag(drawCtx, H, plotBottom, pt.x, pt.time, bg);
+  };
+  tag(anchor, false); tag(active, true);
+  if (twoPt && anchor && active) {
+    const dP = active.price - anchor.price;
+    const pct = anchor.price ? dP / anchor.price * 100 : 0;
+    const r = _barRef();
+    const bars = (r && anchor.time != null && active.time != null) ? Math.round((active.time - anchor.time) / r.interval) : null;
+    const sg = dP >= 0 ? "+" : "";
+    const col = dP >= 0 ? "#26a69a" : "#ef5350";
+    const lines = [{ t: `${sg}${_fmtP(dP)}  ${sg}${pct.toFixed(2)}%`, c: col }];
+    if (bars != null) lines.push({ t: `${Math.abs(bars)} 根`, c: "#c8c8c8" });
+    if (dtype === "trendline" || dtype === "ray") {
+      const ang = Math.atan2(-(active.y - anchor.y), (active.x - anchor.x)) * 180 / Math.PI;
+      lines.push({ t: `${ang.toFixed(1)}°`, c: "#c8c8c8" });
+    }
+    _deltaBox(drawCtx, active.x, active.y, lines, W, H);
+  }
+}
+
 function renderDrawings() {
   if (!drawCtx || !drawCanvas) return;
   // 圖表移動中旗標：給 _drawSessionOverlay 等跳過大面積半透明填色（overlay 2x 畫布最貴的像素工作）
@@ -2083,6 +2190,9 @@ function renderDrawings() {
       drawCtx.restore();
     }
   }
+
+  // 畫線/拖曳時的即時軸標籤 + Δ 資訊盒（TV 風；丟例外只跳過不拖垮 overlay）
+  try { _drawDrawTags(W, H); } catch (e) {}
 }
 
 // 自動盈虧比的 RR 數值：盒夠寬 → 置中盒內；縮小到盒太窄 → 移到盒旁並加深色底，
