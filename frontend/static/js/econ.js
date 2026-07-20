@@ -39,10 +39,13 @@ function _econSnapTime(ct) {
 }
 
 function _makeEconPrimitive() {
-  let _chart = null, _series = null, _req = null;
+  let _chart = null, _series = null, _req = null, _settleT = null;
   const renderer = {
     draw(target) {
       if (!window._econOn || !_chart || !_series || !_econEvents.length) return;
+      // 平移中略過(垂直全高虛線最貴)、停手補畫
+      const _nowP = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+      if (window._chartMoveTs && _nowP - window._chartMoveTs < 220) { clearTimeout(_settleT); _settleT = setTimeout(() => { if (_req) _req(); }, 240); return; }
       const ts = _chart.timeScale();
       let vr = null; try { vr = ts.getVisibleRange(); } catch (e) {}
       const lo = vr ? vr.from : -Infinity, hi = vr ? vr.to : Infinity;

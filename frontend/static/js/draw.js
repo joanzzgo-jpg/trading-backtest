@@ -135,7 +135,14 @@ function _timeToX(time) {
     const n = (typeof ohlcvData !== "undefined") ? ohlcvData.length : 0;
     if (!n) return null;
     const t0 = toTime(ohlcvData[0].time);
-    if (time < t0) return null;   // 早於資料起點 → 不外推(避免端點被推到極遠→線無限長)
+    if (time < t0) {              // 早於資料起點(大時框切小時框、小時框初載較短時常見)→ 往左像素外推
+      const c0 = ts.logicalToCoordinate(0), c1 = ts.logicalToCoordinate(1);   // 整數 logical → 可靠
+      if (c0 == null || c1 == null || !isFinite(c0) || !isFinite(c1)) return null;
+      const int0 = (n >= 2) ? (toTime(ohlcvData[1].time) - t0) : 60;   // 首兩棒間隔(秒)
+      if (!(int0 > 0)) return null;
+      const c = c0 - ((t0 - time) / int0) * (c1 - c0);   // 往左每根像素寬外推(端點在範圍外仍定位正確、不再整條消失)
+      return isFinite(c) ? c : null;
+    }
     let lo = 0, hi = n - 1;        // 二分找相鄰兩棒
     while (lo + 1 < hi) {
       const mid = (lo + hi) >> 1;

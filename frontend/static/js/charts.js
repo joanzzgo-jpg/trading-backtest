@@ -382,12 +382,14 @@ function _engulfPts() {
   return pts;
 }
 function _makeEngulfPrimitive() {
-  let _chart = null, _series = null, _req = null;
+  let _chart = null, _series = null, _req = null, _settleT = null;
   const renderer = {
     draw(target) {
       if (!window._engulfOn || !_chart || !_series) return;
       const pts = _engulfPts();
       if (!pts || !pts.length) return;
+      const _nowP = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+      if (window._chartMoveTs && _nowP - window._chartMoveTs < 220) { clearTimeout(_settleT); _settleT = setTimeout(() => { if (_req) _req(); }, 240); return; }
       const ts = _chart.timeScale();
       let vr = null; try { vr = ts.getVisibleRange(); } catch (e) {}
       const lo = vr ? vr.from : -Infinity, hi = vr ? vr.to : Infinity;
@@ -458,12 +460,15 @@ function _swingPts() {
   return pts;
 }
 function _makeSwingPrimitive() {
-  let _chart = null, _series = null, _req = null;
+  let _chart = null, _series = null, _req = null, _settleT = null;
   const renderer = {
     draw(target) {
       if (!window._swingOn || !_chart || !_series) return;
       const pts = _swingPts();
       if (!pts || !pts.length) return;
+      // 平移/縮放中：略過整層點,停手後補畫一次（與 FVG 同機制→開著也不拖慢平移）
+      const _nowP = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+      if (window._chartMoveTs && _nowP - window._chartMoveTs < 220) { clearTimeout(_settleT); _settleT = setTimeout(() => { if (_req) _req(); }, 240); return; }
       const ts = _chart.timeScale();
       let vr = null; try { vr = ts.getVisibleRange(); } catch (e) {}
       const lo = vr ? vr.from : -Infinity, hi = vr ? vr.to : Infinity;
