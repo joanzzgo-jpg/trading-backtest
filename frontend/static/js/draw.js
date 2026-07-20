@@ -1529,14 +1529,15 @@ function _vwapOverlay() {
   let curKey = null, cumPV = 0, cumV = 0, cumTP = 0, cnt = 0;
   for (let i = 0; i < n; i++) {
     const b = ohlcvData[i];
-    const utc = toTime(b.time) - 8 * 3600;   // toTime 已 +8h → 還原真實 UTC，讓換日錨在 UTC 00:00
+    const ct = toTime(b.time);               // 圖表時間(+8h)；tc 先算好 → 畫線時免逐點再 toTime
+    const utc = ct - 8 * 3600;               // 還原真實 UTC，讓換日錨在 UTC 00:00
     const dkey = yearly ? new Date(utc * 1000).getUTCFullYear() : Math.floor(utc / 86400);
     if (dkey !== curKey) { curKey = dkey; cumPV = 0; cumV = 0; cumTP = 0; cnt = 0; }
     const tp = (b.high + b.low + b.close) / 3;
     const v = +b.volume || 0;
     cumTP += tp; cnt++;
     if (v > 0) { cumPV += tp * v; cumV += v; }
-    arr[i] = { t: b.time, v: cumV > 0 ? cumPV / cumV : (cnt > 0 ? cumTP / cnt : null) };
+    arr[i] = { t: b.time, tc: ct, v: cumV > 0 ? cumPV / cumV : (cnt > 0 ? cumTP / cnt : null) };
   }
   _vwapOverlayCache = { key, arr };
   return arr;
@@ -1558,14 +1559,20 @@ function _drawVWAP(W, H) {
   const _vwCol = (typeof C !== "undefined" && C.vwap) ? C.vwap : "#ffc107";
   drawCtx.strokeStyle = /^#/.test(_vwCol) ? (typeof hexAlpha === "function" ? hexAlpha(_vwCol, 45) : _vwCol) : _vwCol;
   drawCtx.lineWidth = (typeof S !== "undefined" && S.vwapWidth) ? S.vwapWidth : 1;   // 可調粗細
+  // 只畫「可視時間範圍」內的點：陣列依時間升序 → 左外跳過、右外(或過重播點)直接 break，
+  //   避免對全歷史(15m 可達數千根)每幀逐點 timeToCoordinate（重播每步重畫 → 這是卡的主因）。
+  let _loT = -Infinity, _hiT = Infinity;
+  try { const _vr = ts.getVisibleRange(); if (_vr) { _loT = _vr.from; _hiT = _vr.to; } } catch (e) {}
   drawCtx.beginPath();
   let started = false;
   for (const pt of vw) {
     if (pt.v == null) { started = false; continue; }
-    const t = toTime(pt.t);
-    if (_rpCut != null && t > _rpCut) break;
+    const t = (pt.tc != null) ? pt.tc : toTime(pt.t);
+    if (t < _loT) { started = false; continue; }          // 視窗左外：不算座標
+    if (_rpCut != null && t > _rpCut) break;               // 重播：只畫到當前重播點
+    if (t > _hiT) break;                                    // 視窗右外(已排序)→ 結束
     const x = _timeToX(t);
-    if (x == null || x < -50 || x > plotW + 50) { started = false; continue; }
+    if (x == null) { started = false; continue; }
     const y = candleSeries.priceToCoordinate(pt.v);
     if (y == null) { started = false; continue; }
     if (!started) { drawCtx.moveTo(x, y); started = true; } else drawCtx.lineTo(x, y);
