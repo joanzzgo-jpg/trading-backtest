@@ -137,7 +137,7 @@ function _makeFVGPrimitive() {
           if (yT == null || yB == null) continue;
           const bx = x1 * hr, bw = (x2 - x1) * hr;
           const byTop = Math.min(yT, yB) * vr, bh = Math.abs(yB - yT) * vr;
-          const _faint = z.dim || z.used === false;      // dim=同向堆疊去重；used===false=未被任何標記用到 → 皆淡化
+          const _faint = z.dim;      // 只淡化「同向缺口堆疊去重(dim)」；「未被標記用到(used===false)」不再額外淡化(照常顯示)
           if (_faint) ctx.globalAlpha = 0.38;
           ctx.fillStyle   = z.d === "l" ? "rgba(38,198,166,0.14)" : "rgba(255,82,82,0.14)";
           ctx.fillRect(bx, byTop, bw, bh);
