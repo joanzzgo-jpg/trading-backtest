@@ -78,6 +78,11 @@ function createCandleSeries() {
       _obPrim = _makeOrderbookPrimitive();
       candleSeries.attachPrimitive(_obPrim);
     }
+    // 大時框 FVG 疊加（htffvg.js）：在小時框圖上畫 1h/4h/1d/1w 的 FVG 缺口
+    if (typeof _makeHtfFvgPrimitive === "function") {
+      _htfFvgPrim = _makeHtfFvgPrimitive();
+      candleSeries.attachPrimitive(_htfFvgPrim);
+    }
   } catch (e) { /* 舊版 LWC 無 attachPrimitive 時靜默略過 */ }
 }
 

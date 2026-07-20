@@ -36,7 +36,7 @@ def _build_js_bundle():
         js = js.resolve()
         # ⚠ draw / trade 已移出 bundle → 改由 main.js 於首屏後閒置時動態載入（首屏 JS 省 ~42%）。
         #   兩者對 core 的耦合皆經 typeof/window guard，且各自在載入時自我初始化（見 draw.js/trade.js 末段）。
-        names = ["config","utils","charts","colors","ticker","winrate","footprint","orderbook","dom","render","realtime","replay","ui","ai_research","signal_info","account","notify","chartorder","xiaoa","lunar","announce","multichart","main"]
+        names = ["config","utils","charts","colors","ticker","winrate","footprint","orderbook","dom","htffvg","render","realtime","replay","ui","ai_research","signal_info","account","notify","chartorder","xiaoa","lunar","announce","multichart","main"]
         srcs = [js / f"{n}.js" for n in names]
         bundle = js / "app.bundle.js"
         srcs_exist = [p for p in srcs if p.exists()]
