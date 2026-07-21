@@ -1037,11 +1037,11 @@ function drawingDist(d, x, y) {
 //   三色 key(asia/europe/us)沿用，只有盤名(_SESSION_NAME/_CRYPTO)依市場不同。
 const _SESSION_INTRADAY = ["1m", "5m", "15m", "30m", "1h", "2h"];
 // weekend＝加密週末(傳統外匯/期貨休市)：中性灰、很淡，不當 killzone、不強調高低。
-const _SESSION_COLOR = { asia: "rgba(66,133,244,0.10)", europe: "rgba(124,104,228,0.10)", us: "rgba(255,159,40,0.09)", weekend: "rgba(130,130,145,0.055)" };
+const _SESSION_COLOR = { asia: "rgba(66,133,244,0.055)", europe: "rgba(124,104,228,0.055)", us: "rgba(255,159,40,0.05)", weekend: "rgba(130,130,145,0.04)" };
 const _SESSION_LINE  = { asia: "rgba(66,133,244,0.9)",  europe: "rgba(150,130,245,0.85)", us: "rgba(255,159,40,0.9)", weekend: "rgba(150,150,162,0.6)" };
 const _SESSION_NAME  = { asia: "台股", europe: "歐洲", us: "美盤", weekend: "週末" };
 const _SESSION_NAME_CRYPTO = { asia: "亞洲", europe: "倫敦", us: "紐約·交界", weekend: "週末薄量" };
-const _SESSION_COLOR_HR = { asia: "rgba(66,133,244,0.30)", europe: "rgba(124,104,228,0.30)", us: "rgba(255,159,40,0.28)", weekend: "rgba(130,130,145,0.055)" };  // 開盤首段深底色
+const _SESSION_COLOR_HR = { asia: "rgba(66,133,244,0.15)", europe: "rgba(124,104,228,0.15)", us: "rgba(255,159,40,0.14)", weekend: "rgba(130,130,145,0.04)" };  // 開盤首段深底色
 const _SESSION_HL_SEC   = { asia: 3600, europe: 3600, us: 3600, weekend: 3600 };   // 開盤加深時長：三盤皆前 1 小時
 const _WEEKDAY = ["週日", "週一", "週二", "週三", "週四", "週五", "週六"];
 // 開關（頂部按鈕；預設開）
@@ -1225,34 +1225,8 @@ function _drawSessionOverlay(W, H) {
     drawCtx.restore();
   }
 
-  // ⑤ 加密專屬：把「亞洲盤高/低」延伸過倫敦/紐約 = 等著被獵取的流動性池（虛線）。
-  //   從亞洲盤結束延到「隔天亞洲盤開始」，讓你一眼看出哪根影線是歐美盤來掃亞洲高低。
-  if (_curSessMkt === "crypto") {
-    const _lT = toTime(ohlcvData[from].time), _rT = toTime(ohlcvData[to].time);
-    drawCtx.save();
-    drawCtx.setLineDash([4, 4]); drawCtx.font = "10px sans-serif"; drawCtx.textAlign = "left";
-    for (let k = 0; k < runs.length; k++) {
-      const r = runs[k];
-      if (r.sess !== "asia" || r.e > to) continue;               // 非亞洲盤、或未完全揭曉(重播)→ 不延伸
-      const startT = toTime(ohlcvData[r.e].time);
-      let endT = null;   // 延到下一個亞洲盤；但遇到週末就停(週末機構休市、流動性不再有意義)
-      for (let j = k + 1; j < runs.length; j++) { if (runs[j].sess === "asia" || runs[j].sess === "weekend") { endT = toTime(ohlcvData[runs[j].s].time); break; } }
-      if (endT == null) endT = _rT;
-      if (endT < _lT || startT > _rT) continue;                  // 延伸段完全在畫面外 → 略過
-      const xS = ts.timeToCoordinate(startT), xE = ts.timeToCoordinate(endT);
-      const L = (xS == null ? 0 : xS + half), R = (xE == null ? plotW : xE - half);
-      if (R <= L) continue;
-      for (const [price, tag] of [[r.hi, "亞高"], [r.lo, "亞低"]]) {
-        const y = candleSeries?.priceToCoordinate(price);
-        if (y == null) continue;
-        drawCtx.strokeStyle = _SESSION_LINE.asia; drawCtx.globalAlpha = 0.5; drawCtx.lineWidth = 1;
-        drawCtx.beginPath(); drawCtx.moveTo(L, y); drawCtx.lineTo(R, y); drawCtx.stroke();
-        drawCtx.globalAlpha = 1; drawCtx.fillStyle = _SESSION_LINE.asia;
-        drawCtx.fillText(tag, Math.max(L + 2, 2), y - 2);
-      }
-    }
-    drawCtx.setLineDash([]); drawCtx.restore();
-  }
+  // ⑤ 亞/歐盤高低延伸線已移到獨立「關鍵高低」開關（_drawKeyLevels，gated by _pdhlOn）→
+  //   不再綁在時段色塊開關，且時段疊加層更乾淨（配合「收斂色塊」需求）。
 
   // ④ 各盤「開盤」標記：該盤第一根 K（8:00台股 / 14:00歐洲 / 20:00美盤）一出現就標，
   //    不必等整盤收完。判定＝這根是某盤、且「真實前一根」不同盤（避免畫面左緣誤判開盤）。
@@ -1343,6 +1317,62 @@ function _drawSessionOverlay(W, H) {
   drawCtx.restore();   // 星期標籤
   }   // end if (_dayPx >= 34) — 星期標籤密度門檻
   drawCtx.restore();   // 外層繪圖區裁切
+}
+
+// 關鍵高低（獨立開關 window._pdhlOn，＝圖例「關鍵高低」）：把「亞洲盤 / 歐洲盤」當盤高低
+//   延伸成流動性線（等著被下一盤獵取），配「前日高低」(charts.js PDHL primitive 同一開關) 一起看。
+//   不綁時段色塊開關（_sessionOn）→ 想看關鍵價位不必忍受整片色塊；加密 24/7 killzone 才有意義。
+function _drawKeyLevels(W, H) {
+  if (!window._pdhlOn) return;
+  if (typeof ohlcvData === "undefined" || !ohlcvData.length || typeof mainChart === "undefined" || !candleSeries) return;
+  const _mk = document.getElementById("marketSelect")?.value || "crypto";
+  const _tf = (typeof currentTF !== "undefined") ? currentTF : "";
+  if (_mk !== "crypto" || !_SESSION_INTRADAY.includes(_tf)) return;   // 亞/歐延伸只在加密日內細時框
+  if (_mk !== _curSessMkt) { _curSessMkt = _mk; _sessCache.clear(); _sessRuns = null; _sessRunsKey = ""; }
+  const ts = mainChart.timeScale();
+  const vr = ts.getVisibleLogicalRange();
+  if (!vr) return;
+  const _len = ohlcvData.length;
+  const from = Math.max(0, Math.floor(vr.from) - 64);
+  let to = Math.min(_len - 1, Math.ceil(vr.to) + 64);
+  if (typeof replayActive !== "undefined" && replayActive && typeof replayIdx === "number") to = Math.min(to, replayIdx);
+  const half = (W / Math.max(1, vr.to - vr.from)) / 2;
+  let plotW = W;
+  try { const tw = ts.width(); if (tw > 0) plotW = tw; } catch (e) {}
+  const _lT = toTime(ohlcvData[from].time), _rT = toTime(ohlcvData[to].time);
+  const runs = _getSessionRuns();
+  const _TAG = { asia: ["亞高", "亞低"], europe: ["歐高", "歐低"] };
+  drawCtx.save();
+  drawCtx.beginPath(); drawCtx.rect(0, 0, plotW, H); drawCtx.clip();
+  drawCtx.font = "bold 10px sans-serif"; drawCtx.textAlign = "left";
+  for (let k = 0; k < runs.length; k++) {
+    const r = runs[k];
+    const tags = _TAG[r.sess];
+    if (!tags || r.e > to) continue;                                   // 只延亞/歐；未完全揭曉(重播)不延
+    const startT = toTime(ohlcvData[r.e].time);
+    let endT = null;                                                    // 延到「下一個同盤(或週末)開始」
+    for (let j = k + 1; j < runs.length; j++) { if (runs[j].sess === r.sess || runs[j].sess === "weekend") { endT = toTime(ohlcvData[runs[j].s].time); break; } }
+    if (endT == null) endT = _rT;
+    if (endT < _lT || startT > _rT) continue;                          // 延伸段完全在畫面外 → 略過
+    const xS = ts.timeToCoordinate(startT), xE = ts.timeToCoordinate(endT);
+    const L = (xS == null ? 0 : xS + half), R = (xE == null ? plotW : xE - half);
+    if (R <= L) continue;
+    const col = _SESSION_LINE[r.sess];
+    for (let s = 0; s < 2; s++) {
+      const price = s === 0 ? r.hi : r.lo;
+      const y = candleSeries.priceToCoordinate(price);
+      if (y == null) continue;
+      // 線：稍粗 + 虛線 → 比色塊上下緣明顯
+      drawCtx.setLineDash([5, 4]); drawCtx.globalAlpha = 0.8; drawCtx.strokeStyle = col; drawCtx.lineWidth = 1.4;
+      drawCtx.beginPath(); drawCtx.moveTo(L, y); drawCtx.lineTo(R, y); drawCtx.stroke();
+      drawCtx.setLineDash([]); drawCtx.globalAlpha = 1;
+      // 標籤：黑描邊 + 盤色 → 任何底色上都清楚
+      const lbl = tags[s], lx = Math.max(L + 3, 3), ly = y - 2;
+      drawCtx.lineWidth = 2.5; drawCtx.strokeStyle = "rgba(0,0,0,0.55)"; drawCtx.strokeText(lbl, lx, ly);
+      drawCtx.fillStyle = col; drawCtx.fillText(lbl, lx, ly);
+    }
+  }
+  drawCtx.restore();
 }
 
 // 成交量分佈圖（Volume Profile）：把成交量依價格分箱，畫出三條水平線——
@@ -2143,6 +2173,7 @@ function renderDrawings() {
 
   // 交易時段 overlay（背景帶=當盤高低範圍 + 上下緣高低線 + 星期標籤；可開關）
   _drawSessionOverlay(W, H);
+  _drawKeyLevels(W, H);
 
   // 折價/溢價區（ICT/SMC dealing range：溢價紅上半、折價綠下半、EQ 50%線；開關 _pdOn 預設開）
   _drawPDZones(W, H);

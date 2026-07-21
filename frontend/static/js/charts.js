@@ -153,10 +153,10 @@ function _makeFVGPrimitive() {
           const byTop = Math.min(yT, yB) * vr, bh = Math.abs(yB - yT) * vr;
           const _faint = false;      // 不再淡化任何缺口(使用者要求全部照常顯示；dim/used 皆不影響顯示)
           if (_faint) ctx.globalAlpha = 0.38;
-          ctx.fillStyle   = z.d === "l" ? "rgba(38,198,166,0.14)" : "rgba(255,82,82,0.14)";
+          ctx.fillStyle   = z.d === "l" ? "rgba(38,198,166,0.08)" : "rgba(255,82,82,0.08)";   // 收斂:太亮→降淡(0.14→0.08)
           ctx.fillRect(bx, byTop, bw, bh);
           if (!_mv) {   // 移動中省略虛線邊框（setLineDash+strokeRect 較貴）→ 停手補回；填色保留、缺口仍可見
-            ctx.strokeStyle = z.d === "l" ? "rgba(38,198,166,0.55)" : "rgba(255,82,82,0.55)";
+            ctx.strokeStyle = z.d === "l" ? "rgba(38,198,166,0.38)" : "rgba(255,82,82,0.38)";   // 收斂:0.55→0.38
             ctx.lineWidth = Math.max(1, hr);
             ctx.setLineDash([4 * hr, 3 * hr]);
             ctx.strokeRect(bx, byTop, bw, bh);
@@ -174,7 +174,7 @@ function _makeFVGPrimitive() {
             ctx.fillStyle = "rgba(0,0,0,0.55)";                 // 描黑底邊，淺色背景也看得見
             ctx.lineWidth = Math.max(2, 2 * hr); ctx.strokeStyle = "rgba(0,0,0,0.55)";
             ctx.strokeText(_lbl, _lx, _yy);
-            ctx.fillStyle = z.d === "l" ? "rgba(120,255,225,0.98)" : "rgba(255,150,150,0.98)";
+            ctx.fillStyle = z.d === "l" ? "rgba(120,255,225,0.82)" : "rgba(255,150,150,0.82)";   // 收斂:標籤 0.98→0.82
             ctx.fillText(_lbl, _lx, _yy);
           }
           // 進場標記（常駐）：改為「每被突破一次就標一點」——pens=每次往區間更深處突破點(封頂/封底於邊緣)。
