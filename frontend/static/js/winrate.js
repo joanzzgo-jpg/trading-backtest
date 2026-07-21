@@ -495,6 +495,27 @@ function fetchWinRate() {
   _wrFetchTimer = setTimeout(_fetchWinRateNow, 250);
 }
 
+// 新 K 棒收盤 → 清「當前標的」的勝率快取並重抓，讓 FVG/策略標記延伸到最新收盤棒。
+//   realtime(fetchLatest)每秒只更新 K 棒、不重算勝率 → FVG 盒凍結在上次抓勝率的時間，
+//   看久了最近一段就都沒 FVG(使用者回報)。且 _wrCache 的 key 無時間成分 → 直接 fetchWinRate()
+//   會命中舊快取不重算 → 必須先清掉當前 key 才會真的走網路重算(後端 fetch_crt_df crypto 無快取、即時)。
+//   debounce 1.5s：新棒事件本就分鐘級、不會頻繁；只是防同一秒多次觸發。
+let _wrRefreshTimer = null;
+window._wrRefreshCurrent = function () {
+  clearTimeout(_wrRefreshTimer);
+  _wrRefreshTimer = setTimeout(() => {
+    if (typeof replayActive !== "undefined" && replayActive) return;
+    const market    = document.getElementById("marketSelect")?.value || "crypto";
+    const symbol    = document.getElementById("symbolInput")?.value?.trim() || "";
+    const exchange  = document.getElementById("exchangeSelect")?.value || "pionex";
+    const timeframe = currentTF || "1d";
+    if (!symbol) return;
+    const prefix = `${market}:${symbol}:${exchange}:${timeframe}:`;
+    for (const k of Object.keys(_wrCache)) if (k.startsWith(prefix)) delete _wrCache[k];
+    fetchWinRate();
+  }, 1500);
+};
+
 // FVG/策略標記「近段窗」階梯：初始用小窗(快)，往歷史滑載入更多 K 棒後升級到更大窗 → 補算舊區標記。
 // 回傳能覆蓋目前已載入 K 棒數(+緩衝)的最小階梯值。勝率統計不受 vw 影響。
 const _WR_VW_LADDER = [8000, 20000, 45000, 100000, 250000];

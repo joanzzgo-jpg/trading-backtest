@@ -64,6 +64,7 @@ async function fetchLatest() {
     if (dot) dot.classList.toggle("hidden", json.live === false);
     const _tfSec = { "1M":2592000,"1w":604800,"1d":86400,"4h":14400,"1h":3600,"15m":900,"5m":300 };
     let _dirty = false;   // 本輪是否真的改了 K → 決定要不要重畫疊加層(三盤色塊)
+    let _newBar = false;  // 本輪是否有「新收盤棒」出現 → 觸發勝率重抓讓 FVG 延伸到最新棒
     json.data.forEach(bar => {
       const t     = toTime(bar.time);
       const last  = ohlcvData[ohlcvData.length - 1];
@@ -78,6 +79,7 @@ async function fetchLatest() {
       }
       else if (t > lastT) {
         ohlcvData.push(bar);
+        _newBar = true;   // 出現新棒＝前一根剛收盤 → 稍後重抓勝率補上它的 FVG
         if (typeof _timeToIdx !== "undefined") {
           _timeToIdx.set(bar.time, ohlcvData.length - 1);
           _secToIdx.set(t, ohlcvData.length - 1);
@@ -98,6 +100,9 @@ async function fetchLatest() {
       _updateBBTail();   // 即時補畫布林（否則新棒沒布林、刷新才出現）
     });
     updateSymbolBar(ohlcvData);
+    // 新收盤棒出現 → 重抓勝率，讓 FVG 缺口盒/策略標記延伸到最新棒(realtime 不會自己重算勝率，
+    //   否則最近一段永遠沒 FVG)。debounce 在 _wrRefreshCurrent 內；非當前標的不受影響。
+    if (_newBar && typeof window._wrRefreshCurrent === "function") window._wrRefreshCurrent();
     // 同一根 K 即時更新時時間軸不變 → 不會自動觸發 renderDrawings；這裡手動重畫疊加層，
     // 讓三盤色塊隨「當前 K 的高低」即時長大（否則要等換新棒或平移才更新）。
     // 手機：crypto 每秒 tick 都整層重畫(VWAP/通道/量能分佈/教練…)很吃 CPU → 節流到 ~2.5s 一次
