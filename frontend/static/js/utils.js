@@ -249,15 +249,12 @@ function buildPayload() {
   // 初次只抓「填滿螢幕＋少量緩衝」的量 → 圖表秒出；更深歷史由 _bgLoadOlderBars() 於載入後背景補到 INIT_DAYS。
   //   ⚠ 只有會背景補載的時框(1m/5m/15m/1h/4h)才縮；8h/2h/30m/1d/1w/1M 一次載入、不補 → 維持原量不可縮。
   //   最終可見深度與標記完全不變(背景一塊就補到位)，只是首次繪製從抓 2000 根降到 ~700 根、每次切標的/時框都更快。
-  // 看歷史切時框(TV式)：window._loadRangeStart(秒) 設定時,直接抓「該段~至今」→ 資料一次到位、切完瞬間對齊,免等背景補。
-  const _rs = window._loadRangeStart;
-  const _rangeMode = (typeof _rs === "number" && isFinite(_rs));
   return {
     market:    document.getElementById("marketSelect").value,
     symbol:    sym,
-    start:     _rangeMode ? new Date(_rs * 1000).toISOString().slice(0, 10) : "",
+    start:     "",
     end:       "",
-    limit:     _rangeMode ? 0 : ({ "1M":120,"1w":520,"1d":1095,"4h":800,"1h":700,"15m":700,"5m":700,"1m":700 }[currentTF] ?? 500),
+    limit:     { "1M":120,"1w":520,"1d":1095,"4h":800,"1h":700,"15m":700,"5m":700,"1m":700 }[currentTF] ?? 500,
     timeframe: currentTF,
     exchange:  document.getElementById("exchangeSelect").value,
     // 副圖(KDJ/RSI/MACD)隱藏時(預設)不要後端算指標→省計算+payload 少 8 欄；打開副圖時帶 true 重抓
