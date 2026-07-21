@@ -1295,7 +1295,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                     _fvg.append({"t": _inv_t, "top": _top, "bot": _bot, "d": _idir, "t2": _ietm,
                                  "sweep": False, "sl": _isl, "tp": _itp, "inv": True, "dim": False,
                                  "ett": _iett, "etm": _ietm, "etb": _ietb, "gap": True})
-        _fvg = _fvg[-12000:]        # 畫滿整窗（gzip 後約 ~200KB）；高保險值防病態 payload，實質不限量
+        _fvg = _fvg[-20000:]        # 平衡值:5m ~8個月缺口盒(一年 3.4萬=15MB payload 太重);方向標記 fvg_ms 另留一年(輕)
         _fvg_sigs = _fvg_sigs[-200:]
 
         # ── 結構轉破（破多/破空）：實際計算改跑在 proto 缺口序列上（見下方 多/空 之後的區塊）──────
@@ -1430,7 +1430,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                 if _pprov[_B]: _e["prov"] = 1
                 _fvg_ms.append(_e); _ms_seen.add(_cf2); _used.add(_cf)
         _fvg_ms.sort(key=lambda x: x["t"])
-        _fvg_ms = _fvg_ms[-2000:]
+        _fvg_ms = _fvg_ms[-8000:]
 
         # ── 結構轉破（破多/破空）2026-07 改版：牆＝「最近一道確認 FVG」，被 K 棒影線穿破牆頂/底
         #   ＋「該根或 g+1/g+2」出現 proto → 標在那根 proto。破空(空方牆被向上破→轉多，d="s"↑青)、
@@ -1471,7 +1471,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                             _e["prov"] = 1
                         _fvg_break.append(_e); break
                 _cur_lw = None
-        _fvg_break.sort(key=lambda x: x["t"]);      _fvg_break = _fvg_break[-2000:]
+        _fvg_break.sort(key=lambda x: x["t"]);      _fvg_break = _fvg_break[-8000:]
 
         # ── 「順多/順空」方向標記（2026-07-02；07-03 影線穿透＋近期兩個；07-03b 近期以「穿透點」衡量、R可晚於觸碰）──
         # 順多：第一步與「多」完全相同——未觸碰的做多FVG(A)被首次碰到(逐錨更深觸碰、下影衝過下緣10%作廢)；

@@ -126,6 +126,25 @@ def fetch_crt_df(market: str, symbol: str, timeframe: str, days: int,
     elif market == "crypto":
         start = (date.today() - timedelta(days=days)).isoformat()
         from data.crypto import _fetch_binance_fapi, _calc_max_candles, _set_src
+        # 本機/版控 5m 倉庫(BTC/ETH/SOL)：深歷史 FVG/勝率直接讀倉庫(算得到深、且免打 API 抓一年),
+        #   再接「倉庫最新~今天」的新尾巴(Binance)保鮮 → 深歷史+即時尾巴一份完整 df。
+        try:
+            from data.klines_store import is_target as _k_is, load_from as _k_from
+            if _k_is(symbol, timeframe):
+                _kd = _k_from(symbol, start)
+                if _kd is not None and not _kd.empty:
+                    _set_src("binance")
+                    _b0 = symbol[:-2] if symbol.upper().endswith(".P") else symbol
+                    _ts = _kd["time"].iloc[-1].strftime("%Y-%m-%d")
+                    try:
+                        _tail = _fetch_binance_fapi(_b0, timeframe, _ts, end, 0, max_candles=6000)
+                        if _tail is not None and not _tail.empty:
+                            _kd = pd.concat([_kd, _tail]).drop_duplicates("time").sort_values("time").reset_index(drop=True)
+                    except Exception:
+                        pass
+                    return _kd
+        except Exception:
+            pass
         _set_src(None)   # 重置來源；此路徑直呼 _fetch_binance_fapi（不經 fetch_crypto_ohlcv）→ 需自行標記
         _base = symbol[:-2] if symbol.upper().endswith(".P") else symbol
         _bb = _base.split("/")[0].upper()
@@ -1890,6 +1909,14 @@ def get_crt_winrate(
     #   往歷史滑時前端 vw 變大 → 這裡自動加深、補算舊區標記，最深仍到 TF_MAX。floor 已給 ~1.5萬根K
     #   (遠超 MIN_CASES=40)、勝率統計幾乎不受影響。8h/1d/1w/1M/1m 資料本就少、不縮(維持 TF_MAX)。
     _tf_max = TF_MAX.get(timeframe, 3650)
+    # BTC/ETH/SOL 有本機/版控 5m 倉庫 → 5m FVG/勝率深度上限拉到 1 年(倉庫供得起深歷史→老K也有FVG,免API抓一年)
+    if timeframe == "5m" and market == "crypto":
+        try:
+            from data.klines_store import is_target as _k_is5
+            if _k_is5(symbol, "5m"):
+                _tf_max = max(_tf_max, 365)
+        except Exception:
+            pass
     _FLOOR = {"5m": 60, "15m": 180, "30m": 365, "1h": 730, "2h": 730}   # 4h/8h/1d/1w/1M 維持全深度(都畫、使用者要求)
     if market == "crypto" and timeframe in _FLOOR:
         _bsec = _CRT_IV.get(timeframe, 3600)

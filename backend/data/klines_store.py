@@ -99,3 +99,21 @@ def load_range(symbol: str, start: str, end: str):
     t = df["time"]
     out = df[(t >= rstart - pd.Timedelta(days=1)) & (t <= rend + pd.Timedelta(days=1))].reset_index(drop=True)
     return out if not out.empty else None
+
+
+def load_from(symbol: str, start: str):
+    """回傳倉庫中 >= start 的所有資料(到倉庫最新)。給勝率深歷史用:倉庫夠深(涵蓋 start)才回,
+    否則 None → 交還 API;呼叫端會再接「倉庫最新~今天」的新尾巴保鮮。"""
+    if not start:
+        return None
+    df = load_all(symbol)
+    if df is None or df.empty:
+        return None
+    try:
+        rstart = pd.Timestamp(start)
+    except Exception:
+        return None
+    if df["time"].iloc[0] > rstart:      # 倉庫不夠深 → 交還 API
+        return None
+    out = df[df["time"] >= rstart - pd.Timedelta(days=1)].reset_index(drop=True)
+    return out if not out.empty else None
