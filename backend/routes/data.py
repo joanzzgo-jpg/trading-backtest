@@ -888,16 +888,27 @@ def get_ohlcv(req: OHLCVRequest):
                 if use_limit:
                     df = df.tail(req.limit)
         elif req.market == "crypto":
-            if use_limit:
-                df = fetch_crypto_ohlcv(
-                    req.symbol, req.timeframe, limit=req.limit,
-                    exchange_id=req.exchange, api_key=req.api_key, api_secret=req.api_secret,
-                )
-            else:
-                df = fetch_crypto_ohlcv(
-                    req.symbol, req.timeframe, req.start, req.end,
-                    req.exchange, api_key=req.api_key, api_secret=req.api_secret,
-                )
+            df = None
+            # 本機 5m 倉庫(BTC/ETH/SOL)：歷史回填(帶 start/end 的 range)優先讀磁碟 → 深度歷史/複盤秒開;
+            #   初次/最新(use_limit)走 API 保新鮮。倉庫沒涵蓋(回 None)自動退回 API。只本機有此檔、線上無感。
+            if not use_limit:
+                try:
+                    from data.klines_store import is_target as _k_is, load_range as _k_load
+                    if _k_is(req.symbol, req.timeframe):
+                        df = _k_load(req.symbol, req.start, req.end)
+                except Exception:
+                    df = None
+            if df is None:
+                if use_limit:
+                    df = fetch_crypto_ohlcv(
+                        req.symbol, req.timeframe, limit=req.limit,
+                        exchange_id=req.exchange, api_key=req.api_key, api_secret=req.api_secret,
+                    )
+                else:
+                    df = fetch_crypto_ohlcv(
+                        req.symbol, req.timeframe, req.start, req.end,
+                        req.exchange, api_key=req.api_key, api_secret=req.api_secret,
+                    )
         elif req.market in ("us", "hk"):
             # 港股(hk)＝美股同一條 yfinance 路（代號 xxxx.HK）。即時報價疊加僅美股(Finnhub)，港股純用 yfinance。
             max_d = US_MAX_DAYS.get(req.timeframe, 3650)

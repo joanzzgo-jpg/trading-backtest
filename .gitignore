@@ -43,3 +43,4 @@ frontend/static/js/weather.min.js
 frontend/static/js/draw.min.js
 frontend/static/js/trade.min.js
 .venv312/
+backend/.klines5m/
