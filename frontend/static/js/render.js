@@ -2,8 +2,10 @@
 let _loadDataCtrl = null;
 let _lastSymKey = null;   // 上次載入的 市場|標的（用來分辨「純切時框」vs「切標的」）
 let _savedTfSpanSec = null;   // 純切時框(看最新)時保存的「可見時長(秒)」→ 還原＝貼最新+同時長
+let _pendingAlignRange = null; // 看歷史切小時框:目標時間段初次還沒載到→先記著,背景補到涵蓋時再拉回視野
 async function loadData(autoLoad = false) {
   if (replayActive) exitReplay();
+  _pendingAlignRange = null;   // 新載入作廢上一次未完成的歷史對齊目標
   /* 記住切換前的可見 K 棒數量，載入後還原相同縮放比例 */
   if (mainChart) {
     const _r = mainChart.timeScale().getVisibleLogicalRange();
@@ -296,7 +298,9 @@ function renderAll(data) {
         _guardRestore(() => { try { mainChart.timeScale().setVisibleRange(_tr2); } catch (e) {} });
       } catch (e) { _restoreByBarCount(); }
     } else if (from < _first) {
-      // 原本平移到的時間比新標的最早資料還早 → 貼到最早處、維持相同縮放(可見根數)
+      // 目標時間段比目前已載入的最早資料還早(小時框初次只載近段、或切標的歷史不同)→
+      //   先貼到最早處;並記下目標,待背景補載到涵蓋此段時再把視野拉回去(_bgLoadOlderBars 內)。
+      _pendingAlignRange = { from, to: Math.min(to, _last) };
       try {
         _guardRestore(() => { try { mainChart.timeScale().setVisibleLogicalRange({ from: 0, to: _bc }); } catch (e) {} });
       } catch (e) { _restoreByBarCount(); }
@@ -696,8 +700,29 @@ async function _bgLoadOlderBars(scrollTriggered = false) {
       ohlcvData = newBars.concat(ohlcvData);
       _rebuildTimeIndex();  // 效能：背景載入舊 K 棒後重建 Map
 
+      // 看歷史切小時框:初次載入太短→對齊落空(先跳最舊);背景補到涵蓋目標時間段時,把視野拉回目標。
+      let _alignTr = null;
+      if (_pendingAlignRange && ohlcvData.length && toTime(ohlcvData[0].time) <= _pendingAlignRange.from + 1) {
+        _alignTr = _pendingAlignRange; _pendingAlignRange = null;
+      }
+
       if (replayActive) {
         // 重播中：靜默累積，不碰圖表
+      } else if (_alignTr) {
+        // 對齊到歷史目標時間段(絕對時間範圍),不做「維持位置」的 shift;多套幾次防延遲 fitContent 壓回。
+        _bgApplyChunk(ohlcvData, nPrepended);
+        const _applyAlign = () => {
+          try {
+            mainChart.timeScale().setVisibleRange({ from: _alignTr.from, to: _alignTr.to });
+            const lr = mainChart.timeScale().getVisibleLogicalRange();
+            if (lr) [kdjChart, rsiChart, macdChart].forEach(c => { try { c.timeScale().setVisibleLogicalRange(lr); } catch (e) {} });
+          } catch (e) {}
+        };
+        _applyAlign();
+        requestAnimationFrame(_applyAlign);
+        setTimeout(_applyAlign, 130);
+        setTimeout(_applyAlign, 380);
+        _bgScheduleIndicators();
       } else {
         // 先鎖定視圖位置，再更新資料，再確認一次（雙保險防 LWT 內部 reset）
         const visRange = mainChart.timeScale().getVisibleLogicalRange();
