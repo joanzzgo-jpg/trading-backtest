@@ -6,6 +6,7 @@ let _pendingAlignRange = null; // 看歷史切小時框:目標時間段初次還
 async function loadData(autoLoad = false) {
   if (replayActive) exitReplay();
   _pendingAlignRange = null;   // 新載入作廢上一次未完成的歷史對齊目標
+  window._loadRangeStart = null;   // 預設抓最近 N 根；看歷史切時框時下方會設成「該段起點」直接範圍抓取
   /* 記住切換前的可見 K 棒數量，載入後還原相同縮放比例 */
   if (mainChart) {
     const _r = mainChart.timeScale().getVisibleLogicalRange();
@@ -25,7 +26,12 @@ async function loadData(autoLoad = false) {
     if (!_atLatest) {
       try {
         const _tr = mainChart.timeScale().getVisibleRange();
-        if (_tr && _tr.from != null && _tr.to != null) _savedTimeRange = { from: _tr.from, to: _tr.to };
+        if (_tr && _tr.from != null && _tr.to != null) {
+          _savedTimeRange = { from: _tr.from, to: _tr.to };
+          // TV 式:直接抓「目前看的這段~至今」→ 切完資料已在、瞬間對齊(不必等背景補)。往前留一段緩衝供左捲。
+          const _span = Math.max(0, _tr.to - _tr.from);
+          window._loadRangeStart = _tr.from - _span - 2 * 86400;
+        }
       } catch (e) {}
     } else if (_tfSwitch && _r && ohlcvData.length) {
       // 看最新 + 純切時框 → 記住「可見時間長度(秒)」；還原時錨定最新棒、顯示同樣時長
