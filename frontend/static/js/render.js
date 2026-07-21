@@ -6,6 +6,7 @@ let _pendingAlignRange = null; // 看歷史切小時框:目標時間段初次還
 async function loadData(autoLoad = false) {
   if (replayActive) exitReplay();
   _pendingAlignRange = null;   // 新載入作廢上一次未完成的歷史對齊目標
+  window._loadRangeStart = null;   // 預設抓最近 N 根;下方僅 BTC/ETH/SOL 5m 看歷史切時設成「該段起點」直接範圍抓取
   /* 記住切換前的可見 K 棒數量，載入後還原相同縮放比例 */
   if (mainChart) {
     const _r = mainChart.timeScale().getVisibleLogicalRange();
@@ -25,7 +26,16 @@ async function loadData(autoLoad = false) {
     if (!_atLatest) {
       try {
         const _tr = mainChart.timeScale().getVisibleRange();
-        if (_tr && _tr.from != null && _tr.to != null) _savedTimeRange = { from: _tr.from, to: _tr.to };
+        if (_tr && _tr.from != null && _tr.to != null) {
+          _savedTimeRange = { from: _tr.from, to: _tr.to };
+          // BTC/ETH/SOL 的 5m 倉庫供得起「一次到位」→ 看歷史切過去時直接抓「該段~至今」,第一次畫就對齊、不必先載近段再滑過去。
+          //   限這三個 5m:後端用倉庫深歷史+Binance新尾巴一次給完整(不會往最新斷);其他標的/時框仍走串流對齊。
+          const _symU = document.getElementById("symbolInput") ? document.getElementById("symbolInput").value.trim().toUpperCase() : "";
+          if (currentTF === "5m" && (_symU === "BTC/USDT" || _symU === "ETH/USDT" || _symU === "SOL/USDT")) {
+            const _span = Math.max(0, _tr.to - _tr.from);
+            window._loadRangeStart = _tr.from - _span - 2 * 86400;
+          }
+        }
       } catch (e) {}
     } else if (_tfSwitch && _r && ohlcvData.length) {
       // 看最新 + 純切時框 → 記住「可見時間長度(秒)」；還原時錨定最新棒、顯示同樣時長

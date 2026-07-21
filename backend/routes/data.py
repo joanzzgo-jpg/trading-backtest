@@ -908,13 +908,27 @@ def get_ohlcv(req: OHLCVRequest):
                     df = df.tail(req.limit)
         elif req.market == "crypto":
             df = None
-            # 本機 5m 倉庫(BTC/ETH/SOL)：歷史回填(帶 start/end 的 range)優先讀磁碟 → 深度歷史/複盤秒開;
-            #   初次/最新(use_limit)走 API 保新鮮。倉庫沒涵蓋(回 None)自動退回 API。只本機有此檔、線上無感。
-            if not use_limit:
+            # 5m 倉庫(BTC/ETH/SOL)：帶 start 的 range 請求優先讀倉庫 → 深度歷史秒開。
+            #   ① end 空/到今天(看歷史切時框「一次到位」)：倉庫深歷史 + Binance 新尾巴 → [start,現在]一份完整
+            #      → 前端第一次畫就在正確位置、不必先載近段再滑過去。
+            #   ② end 在過去(背景回填分塊)：直接切倉庫該段。
+            #   初次/最新(use_limit)走 API 保新鮮。倉庫沒涵蓋→None 自動退 API。線上無此檔亦 graceful。
+            if not use_limit and req.start:
                 try:
-                    from data.klines_store import is_target as _k_is, load_range as _k_load
+                    from data.klines_store import is_target as _k_is, load_from as _k_from, load_range as _k_load
                     if _k_is(req.symbol, req.timeframe):
-                        df = _k_load(req.symbol, req.start, req.end)
+                        _today = date.today().isoformat()
+                        if (not req.end) or req.end >= _today:
+                            _st = _k_from(req.symbol, req.start)
+                            if _st is not None and not _st.empty:
+                                _ts = _st["time"].iloc[-1].strftime("%Y-%m-%d")
+                                _tail = fetch_crypto_ohlcv(req.symbol, req.timeframe, _ts, _today, req.exchange)
+                                if _tail is not None and not _tail.empty:
+                                    df = pd.concat([_st, _tail]).drop_duplicates("time").sort_values("time").reset_index(drop=True)
+                                else:
+                                    df = _st
+                        else:
+                            df = _k_load(req.symbol, req.start, req.end)
                 except Exception:
                     df = None
             if df is None:
