@@ -9,12 +9,15 @@
 - 由 scripts/warm_5m.py 建立/更新(手動跑)。
 """
 import os
+import gzip
 import pickle
 import threading
 
 import pandas as pd
 
-_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".klines5m")
+# 放版控目錄(backend/data/klines5m/)+ gzip 壓縮 → 隨 git 一起部署到 Railway(檔案系統每次部署清空,
+# 只有 git 裡的檔會過去)。歷史一年是靜態的,commit 一次即可;近段仍走 API(不進倉庫)。
+_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "klines5m")
 SYMBOLS = {"BTC/USDT", "ETH/USDT", "SOL/USDT"}   # 只存這三個(使用者指定)
 _KEEP_DAYS = 370
 _lock = threading.Lock()
@@ -33,7 +36,7 @@ def is_target(symbol: str, timeframe: str) -> bool:
 
 
 def _path(sym: str) -> str:
-    return os.path.join(_DIR, _norm(sym).replace("/", "_") + "_5m.pkl")
+    return os.path.join(_DIR, _norm(sym).replace("/", "_") + "_5m.pkl.gz")
 
 
 def load_all(sym: str):
@@ -46,7 +49,7 @@ def load_all(sym: str):
         c = _memo.get(key)
         if c and c[0] == mt:
             return c[1]
-        with open(p, "rb") as f:
+        with gzip.open(p, "rb") as f:
             df = pickle.load(f)
         _memo[key] = (mt, df)
         return df
@@ -68,7 +71,7 @@ def save(sym: str, df) -> int:
     p = _path(sym)
     tmp = p + ".tmp"
     with _lock:
-        with open(tmp, "wb") as f:
+        with gzip.open(tmp, "wb", compresslevel=6) as f:
             pickle.dump(df, f)
         os.replace(tmp, p)
         _memo.pop(_norm(sym), None)
