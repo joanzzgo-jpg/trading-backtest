@@ -650,7 +650,10 @@ async function _bgLoadOlderBars(scrollTriggered = false) {
   const INIT_DAYS   = { "1m": 3, "5m": 14, "15m": 45, "1h": 120, "4h": 730 };
   const SCROLL_DAYS = { "1m": 20, "5m": 730, "15m": 730, "1h": 1825, "4h": 3650 };
   const totalDays   = scrollTriggered ? (SCROLL_DAYS[snapTf] || 365) : (INIT_DAYS[snapTf] || 30);
-  const targetStartTs = Math.floor(Date.now() / 1000) - totalDays * 86400;
+  let   targetStartTs = Math.floor(Date.now() / 1000) - totalDays * 86400;
+  // 看歷史切時框:分頁串流必須補到「你正在看的那段」才停,否則對齊落空(切不到同一天)。
+  //   把目標深度延伸到待對齊起點前 1 天(近段仍先載、含現在→不會往最新斷)。
+  if (_pendingAlignRange) targetStartTs = Math.min(targetStartTs, _pendingAlignRange.from - 86400);
 
   const CHUNK_DAYS = { "1m": 5, "5m": 25, "15m": 80, "1h": 240, "4h": 950 };
   const chunkDays  = CHUNK_DAYS[snapTf] || 30;
