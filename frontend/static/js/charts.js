@@ -141,10 +141,12 @@ function _makeFVGPrimitive() {
             const _zw = (z.d === "l" ? (z.top - z.bot) / z.bot : (z.top - z.bot) / z.top) * 100;
             if (_zw < _fvgMinW) continue;
           }
-          const x1 = ts.timeToCoordinate(z.t1);
-          if (x1 == null) continue;
+          let x1 = ts.timeToCoordinate(z.t1);
+          // 形成點(t1)捲出左邊界外→timeToCoordinate 回 null。已排除「整盒右外(t1>_hi)」「整盒左外(t2<_lo)」，
+          //   此時 null＝t1 在畫面左側外但盒延伸進畫面 → 夾到左緣 0，讓「更早前的老缺口」仍往近期畫出帶狀(否則整盒消失)。
+          if (x1 == null) x1 = 0;
           let x2 = (z.t2 != null) ? ts.timeToCoordinate(z.t2) : null;
-          if (x2 == null) x2 = wpx;                      // 未填補 → 延伸到右緣
+          if (x2 == null) x2 = wpx;                      // 未填補(或 t2 落在右界外) → 延伸到右緣
           if (x2 <= x1) x2 = x1 + 1;
           const yT = _series.priceToCoordinate(z.top);
           const yB = _series.priceToCoordinate(z.bot);
