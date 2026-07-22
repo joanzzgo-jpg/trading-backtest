@@ -115,7 +115,6 @@ function _makeFVGPrimitive() {
   const renderer = {
     draw(target) {
       if (!_fvgShow || !_fvgZones.length || !_chart || !_series) return;
-      if (typeof currentTF !== "undefined" && currentTF === "1w") return;   // 1w 不顯示 FVG(使用者要求：週線缺口帶太大太雜)
       const ts = _chart.timeScale();
       // 可視時間範圍：整盒在視窗外就略過（廉價數值判斷、在任何 timeToCoordinate 之前）→
       // 平移時不再對「全部缺口」逐個算座標/跑 pens/畫標籤，只處理螢幕上看得到的那幾個（大幅去卡）。

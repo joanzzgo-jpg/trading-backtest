@@ -11,7 +11,7 @@ let _htfFvgKey = "";         // 目前資料對應 symbol|market|applicableTFs
 let _htfFvgFetching = false;
 let _htfFvgLastAttempt = 0;
 
-const _HTF_FVG_LADDER = ["1h", "4h", "1d", "1w"];
+const _HTF_FVG_LADDER = ["1h", "4h", "1d"];   // 1w 移除(使用者要求：大時區 FVG 不含週線)
 const _HTF_TF_RANK = { "1m": 1, "5m": 2, "15m": 3, "30m": 4, "1h": 5, "2h": 6, "4h": 7, "8h": 8, "1d": 9, "1w": 10, "1M": 11 };
 // 每時框「一種明顯不同的色相」+ 時框越大框越粗(越重要)：青→琥珀→紫→洋紅，色相分得開好辨識。
 const _HTF_FVG_COLOR = { "1h": "#00bcd4", "4h": "#ffb300", "1d": "#7e57c2", "1w": "#ec407a" };
