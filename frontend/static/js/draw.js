@@ -1004,7 +1004,7 @@ function drawingDist(d, x, y) {
     });
     return Math.min(...dists);
   }
-  if (d.type === "rect" && d.p1 && d.p2) {
+  if ((d.type === "rect" || d.type === "measure") && d.p1 && d.p2) {
     const a = chartToScreen(d.p1.time, d.p1.price);
     const b = chartToScreen(d.p2.time, d.p2.price);
     if (!a || !b) return Infinity;
@@ -2059,6 +2059,14 @@ function _fmtDT(t) {
   const p = n => String(n).padStart(2, "0");
   return `${p(d.getUTCMonth() + 1)}/${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`;
 }
+// 秒數→人類可讀時長(測量工具用)
+function _fmtDur(sec) {
+  sec = Math.abs(Math.round(sec));
+  const d = Math.floor(sec / 86400), h = Math.floor((sec % 86400) / 3600), m = Math.floor((sec % 3600) / 60);
+  if (d > 0) return h > 0 ? `${d}天${h}時` : `${d}天`;
+  if (h > 0) return m > 0 ? `${h}時${m}分` : `${h}時`;
+  return `${m}分`;
+}
 function _priceAxisTag(ctx, W, plotW, y, price, bg) {
   if (y == null || !isFinite(y)) return;
   const txt = _fmtP(price);
@@ -2093,7 +2101,7 @@ function _deltaBox(ctx, x, y, lines, W, H) {
   lines.forEach((l, i) => { ctx.fillStyle = l.c || "#e6e6e6"; ctx.fillText(l.t, bx + pad, by + pad / 2 + i * lh); });
   ctx.restore();
 }
-const _TWO_PT = ["trendline", "ray", "arrow", "rect", "fib", "longpos", "shortpos"];
+const _TWO_PT = ["trendline", "ray", "arrow", "rect", "fib", "longpos", "shortpos", "measure"];
 function _drawDrawTags(W, H) {
   const wip = drawingWIP, dragging = dragState && dragState.moved;
   if (!wip && !dragging) return;
@@ -2373,6 +2381,37 @@ function drawOne(d, W, H, isHovered, isSelected) {
     if (isSelected || isHovered) {
       [[a, "p1"], [b, "p2"]].forEach(([p, ep]) => {
         const r = isSelected ? (hoverPartR === ep ? 7 : 5) : 3;
+        drawCtx.beginPath(); drawCtx.arc(p.x, p.y, r, 0, Math.PI*2); drawCtx.fill();
+      });
+    }
+  }
+  else if (d.type === "measure" && d.p1 && d.p2) {
+    const a = chartToScreen(d.p1.time, d.p1.price);
+    const b = chartToScreen(d.p2.time, d.p2.price);
+    if (!a || !b) { drawCtx.restore(); return; }
+    const rx = Math.min(a.x, b.x), ry = Math.min(a.y, b.y), rw = Math.abs(b.x - a.x), rh = Math.abs(b.y - a.y);
+    const dpr = d.p2.price - d.p1.price, up = dpr >= 0, col = up ? "38,198,166" : "255,82,82";
+    drawCtx.save(); drawCtx.globalAlpha *= 0.12; drawCtx.fillStyle = `rgb(${col})`; drawCtx.fillRect(rx, ry, rw, rh); drawCtx.restore();  // 半透明底(綠漲/紅跌)
+    drawCtx.save();
+    drawCtx.strokeStyle = `rgba(${col},0.9)`; drawCtx.lineWidth = 1.4; drawCtx.setLineDash([]);
+    drawCtx.strokeRect(rx, ry, rw, rh);
+    drawCtx.beginPath(); drawCtx.moveTo(a.x, a.y); drawCtx.lineTo(b.x, b.y); drawCtx.stroke();   // 對角方向線
+    drawCtx.restore();
+    drawCtx.shadowBlur = 0;
+    // 標籤:漲跌%、點數、K棒數、時長
+    const pct = d.p1.price ? (dpr / d.p1.price * 100) : 0;
+    const _int = (ohlcvData.length >= 2) ? (toTime(ohlcvData[ohlcvData.length - 1].time) - toTime(ohlcvData[ohlcvData.length - 2].time)) : 0;
+    const bars = _int > 0 ? Math.round(Math.abs(d.p2.time - d.p1.time) / _int) : 0;
+    const _tc = up ? "#7effd9" : "#ff9a9a";
+    _deltaBox(drawCtx, b.x, b.y, [
+      { t: `${up ? "▲" : "▼"} ${(pct >= 0 ? "+" : "")}${pct.toFixed(2)}%`, c: _tc },
+      { t: `${(dpr >= 0 ? "+" : "")}${_fmtP(dpr)}`, c: "#e6e6e6" },
+      { t: `${bars} 根 · ${_fmtDur(Math.abs(d.p2.time - d.p1.time))}`, c: "#b8bcc8" },
+    ], W, H);
+    const hoverPartM = (isHovered || isSelected) ? _endpointHit(d, _mx, _my) : null;
+    if (isSelected || isHovered) {
+      [[a, "p1"], [b, "p2"]].forEach(([p, ep]) => {
+        const r = isSelected ? (hoverPartM === ep ? 7 : 5) : 3;
         drawCtx.beginPath(); drawCtx.arc(p.x, p.y, r, 0, Math.PI*2); drawCtx.fill();
       });
     }
@@ -2803,6 +2842,18 @@ function drawPreview(type, a, b, W, H) {
     drawCtx.strokeRect(rx, ry, rw, rh);
     const _midY = ry + rh / 2;                                    // 中線(0.5)虛線:畫的過程也顯示
     drawCtx.beginPath(); drawCtx.moveTo(rx, _midY); drawCtx.lineTo(rx + rw, _midY); drawCtx.stroke();
+    drawCtx.restore();
+    return;
+  }
+  if (type === "measure") {   // 測量拖曳預覽:綠漲/紅跌框(Δ資訊由 _drawDrawTags 顯示)
+    const cp = screenToChart(b.x, b.y), ap = screenToChart(a.x, a.y);
+    const up = (cp && ap) ? (cp.price >= ap.price) : true;
+    const col = up ? "38,198,166" : "255,82,82";
+    const rx = Math.min(a.x, b.x), ry = Math.min(a.y, b.y), rw = Math.abs(b.x - a.x), rh = Math.abs(b.y - a.y);
+    drawCtx.save(); drawCtx.globalAlpha *= 0.10; drawCtx.fillStyle = `rgb(${col})`; drawCtx.fillRect(rx, ry, rw, rh); drawCtx.restore();
+    drawCtx.strokeStyle = `rgba(${col},0.9)`; drawCtx.lineWidth = 1.3; drawCtx.setLineDash([5, 4]);
+    drawCtx.strokeRect(rx, ry, rw, rh);
+    drawCtx.beginPath(); drawCtx.moveTo(a.x, a.y); drawCtx.lineTo(b.x, b.y); drawCtx.stroke();
     drawCtx.restore();
     return;
   }
