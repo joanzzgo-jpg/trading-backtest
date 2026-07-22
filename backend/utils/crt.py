@@ -1123,8 +1123,12 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                         if _C[_k] > _gsl: _inv_t = times_iso[_k]; _invi = _k; break  # 收盤破止損(g-1頂端) → 反轉
             # 原缺口色塊右緣：股票(stock_gap)＝「被後面 K 棒影線一碰到缺口(首觸緣 _ett)就結束/消失」
             #   (使用者定義：缺口被影線碰到即失效，不等碰中線)；未被碰過(_ett None)則延伸到右緣。
-            #   加密維持原本：反轉延伸到反轉點、否則止於中線填補。
-            _box_t2 = _ett if stock_gap else (_inv_t if _inv_t is not None else _t2)
+            #   加密：反轉→延伸到反轉點；否則止於「完全填補點」(多=觸下緣 _etb／空=觸上緣 _ett)。
+            #   ⚠ 使用者要求：「沒完全填補的 FVG 要延續」→ 從『碰中線就停(_t2/_etm)』改為『碰最遠緣才停』；
+            #     從未完全填補(_full_fill=None)→ _box_t2=None → 前端延伸到現價。只動視覺盒右緣，
+            #     進場/勝率仍用 _midi/_etm/pens(不變)。
+            _full_fill = _etb if _dir == "l" else _ett
+            _box_t2 = _ett if stock_gap else (_inv_t if _inv_t is not None else _full_fill)
             # (_ett/_etm/_etb 上中下緣首觸 與 _pens 逐深突破 已於上方融合掃描算好)
             # 同向缺口堆疊去重：若本缺口頂端(top)落在「上一個同向缺口下緣往下 0.5W」帶內
             #   [botA-0.5*W_A, botA] → 視為太貼近上方缺口 → 無效(dim：前端淺色、不產生交易訊號)。
