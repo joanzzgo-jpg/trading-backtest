@@ -203,13 +203,7 @@ function _makeFVGPrimitive() {
           if (_faint) ctx.globalAlpha = 0.38;
           ctx.fillStyle   = z.d === "l" ? "rgba(38,198,166,0.08)" : "rgba(255,82,82,0.08)";   // 收斂:太亮→降淡(0.14→0.08)
           ctx.fillRect(bx, byTop, bw, bh);
-          if (!_mv) {   // 移動中省略虛線邊框（setLineDash+strokeRect 較貴）→ 停手補回；填色保留、缺口仍可見
-            ctx.strokeStyle = z.d === "l" ? "rgba(38,198,166,0.38)" : "rgba(255,82,82,0.38)";   // 收斂:0.55→0.38
-            ctx.lineWidth = Math.max(1, hr);
-            ctx.setLineDash([4 * hr, 3 * hr]);
-            ctx.strokeRect(bx, byTop, bw, bh);
-            ctx.setLineDash([]);
-          }
+          // 虛線邊框已移除(使用者:FVG 不要有虛線匡)→ 只留填色色塊。
           // 寬度% 數字：使用者要求不再顯示（缺口盒保留、只是不標寬度百分比文字）。
           // 「吃到 FVG 的點位」(pens 突破菱形) 使用者要求隱藏 → 不再畫。
           // 交易位階線：止盈(綠=2W)、止損(紅=g-1頂端)，沿盒寬 x1→x2 畫水平虛線。

@@ -1886,8 +1886,11 @@ def get_crt_winrate(
     if not solve:
         cached = data_cache.get(cache_key, ttl=_WR_CACHE_TTL)   # 保鮮期內直接回快取（即時價另走每秒路徑）
         if cached:
+            # 新鮮度：容許結果落後「1 根」(新棒剛形成的幾秒內 df 還沒補到→不必每次重算 storm；且最新一根
+            #   本來就不能有完整 FVG)。落後超過 1 根 → 判不新鮮 → 重算+重試尾巴補抓 → 自癒。
+            _bk = data_cache.get(bar_key, ttl=_WR_CACHE_TTL)
             _fresh = (market != "crypto" or _bar_now is None
-                      or data_cache.get(bar_key, ttl=_WR_CACHE_TTL) == _bar_now)
+                      or (_bk is not None and (_bar_now - _bk) <= (_iv or 0)))
             if _fresh:
                 if not with_bars:
                     return cached
@@ -1898,7 +1901,8 @@ def get_crt_winrate(
             from utils import redis_cache as _rcache
             _rhit = _rcache.get_json("wr:" + cache_key)
             if _rhit and isinstance(_rhit, dict) and "result" in _rhit:
-                if market != "crypto" or _bar_now is None or _rhit.get("bar") == _bar_now:
+                _rb = _rhit.get("bar")
+                if market != "crypto" or _bar_now is None or (_rb is not None and (_bar_now - _rb) <= (_iv or 0)):
                     _res = _rhit["result"]
                     data_cache.set(cache_key, _res)          # 回填本實例記憶體
                     if _bar_now is not None:
@@ -2046,15 +2050,22 @@ def get_crt_winrate(
         except Exception:
             pass
         data_cache.set(cache_key, result)
+        # ⚠ 新鮮鍵用「結果實際算到的最新棒」(_res_bar) 而非時鐘 _bar_now：
+        #   若這次尾巴補抓失敗/冷卻→df 沒跟上→_res_bar < _bar_now → 下次請求判不新鮮 → 重算重試補抓 → 自癒。
+        #   (原本一律蓋 _bar_now：補抓失敗算出的舊 FVG 被當「新鮮」一直回，卡住不自癒＝「最近FVG消失」根因。)
+        _res_bar = _bar_now
+        if _iv:
+            try: _res_bar = math.floor(pd.Timestamp(df["time"].iloc[-1]).value / 1e9 / _iv) * _iv
+            except Exception: _res_bar = _bar_now
         # Redis 共享快取寫入(多實例)：⚠ 降級來源(Bybit/Pionex,df 標 :deg)不寫 → 髒資料不跨實例傳播
         try:
             from utils import redis_cache as _rcache
             if _rcache.enabled() and (market != "crypto" or not data_cache.get(_deg_key, ttl=_df_ttl)):
-                _rcache.set_json("wr:" + cache_key, {"bar": _bar_now, "result": result}, ttl=_WR_CACHE_TTL)
+                _rcache.set_json("wr:" + cache_key, {"bar": _res_bar, "result": result}, ttl=_WR_CACHE_TTL)
         except Exception:
             pass
         if _bar_now is not None:
-            data_cache.set(bar_key, _bar_now)   # 標記此結果對應的最新棒 → bar-aware 新鮮度判定用
+            data_cache.set(bar_key, _res_bar)   # 標記此結果實際算到的最新棒 → bar-aware 新鮮度判定用（落後即自癒）
     if with_bars:
         return {**result, "_bars": _export_bars(df)}   # 加倉回測：附 K 棒陣列（後端內部用）
     return result
