@@ -114,6 +114,7 @@ function _candleColorOpts() {
     downColor: S.bodyVisible !== false ? C.down : "rgba(0,0,0,0)",
     borderVisible: _candleBorderVisible(),
     wickVisible:   S.wickVisible !== false,
+    wickUpColor:   C.wickUp,   wickDownColor: C.wickDown,   // 還原紅綠影線色(線型時被改成折線色)
   };
 }
 
@@ -121,9 +122,12 @@ function _candleColorOpts() {
 function applyChartType() {
   const line = !!window._chartTypeLine;
   try {
-    // 線型：只隱藏實體+邊框，影線(高低)保留＝仍看得到每根的高低範圍（使用者：影線也是線型一部分）。
+    // 線型：隱藏實體+邊框；影線(高低)保留但改成「折線同色」→ 高低成為折線本身的一部分(同色尖刺到高低)，
+    //   不再是紅綠的獨立 K 棒影線（使用者：要線本身畫到高低，不是保留 K 棒影線）。
+    const _lc = (C.lineChart || "#2196f3");
     if (candleSeries) candleSeries.applyOptions(line
-      ? { upColor: "rgba(0,0,0,0)", downColor: "rgba(0,0,0,0)", borderVisible: false, wickVisible: (S.wickVisible !== false) }
+      ? { upColor: "rgba(0,0,0,0)", downColor: "rgba(0,0,0,0)", borderVisible: false,
+          wickVisible: true, wickUpColor: _lc, wickDownColor: _lc }
       : _candleColorOpts());
     if (lineSeries) lineSeries.applyOptions({ visible: line });
   } catch (e) {}
