@@ -1723,7 +1723,7 @@ setTimeout(() => {
 ══════════════════════════════════════════ */
 (function () {
   const STORE = "kv";
-  const MAX_SNAPS = 5;   // 最近 5 個標的
+  const MAX_SNAPS = 12;   // 最近 12 個(標的×時框)快照——夠容納「當前標的的常用時框」預抓(BTC/ETH/XAUT 秒切)
   function _idb() {
     return new Promise((res, rej) => {
       const q = indexedDB.open("ahh_snapshot", 1);
@@ -1814,4 +1814,59 @@ setTimeout(() => {
       } catch (e) {}
     });
   };
+
+  // ══ 背景預抓「當前標的的常用時框」→ 存成快照 → 切時框接近 TV 的瞬間 ══
+  //   當你在看 BTC/ETH/XAUT,idle 時偷偷把它其他常用時框的 K棒+勝率抓好 _put 成快照;
+  //   之後切過去 _snapPaint 秒畫(再由真資料更新)。只對這三個高頻標的做,避免濫抓。
+  const _PREFETCH_SYMS = ["BTC/USDT", "ETH/USDT", "XAUT/USDT"];
+  const _PREFETCH_TFS = ["1d", "4h", "2h", "1h", "30m", "15m", "5m"];
+  const _preDone = {};   // key → 時戳,避免同一 key 反覆抓(5 分鐘內不重抓)
+  async function _prefetchTF(market, symbol, exchange, tf) {
+    const key = [market, symbol, exchange, tf].join("|");
+    if (Date.now() - (_preDone[key] || 0) < 5 * 60 * 1000) return;
+    _preDone[key] = Date.now();
+    try {
+      // K 棒(近段預設量,秒切夠用;真資料到貨會補深)
+      const oRes = await fetch("/api/ohlcv", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ market, symbol, timeframe: tf, exchange, limit: 500, indicators: false }),
+      });
+      if (!oRes.ok) return;
+      const oj = await oRes.json();
+      const bars = oj.data;
+      if (!bars || !bars.length) return;
+      // 勝率(vw=8000＝首屏視窗;切過去初次 fetchWinRate 同 vw → 快照與之對得上)
+      const bufDec = ((typeof _wrStopBuffer !== "undefined" ? _wrStopBuffer : 0) / 100).toFixed(4);
+      const p = new URLSearchParams({ market, symbol, exchange, timeframe: tf, stop_buffer_pct: bufDec,
+        vw: "8000", proto_min: String(typeof _wrProtoMin !== "undefined" ? _wrProtoMin : 0.0005),
+        no_proto_ms: (typeof _wrNoProtoMs !== "undefined" && _wrNoProtoMs) ? "1" : "0",
+        no_proto_break: (typeof _wrNoProtoBreak !== "undefined" && _wrNoProtoBreak) ? "1" : "0" });
+      const wRes = await fetch("/api/crt_winrate?" + p, { cache: "no-cache" });
+      if (!wRes.ok) return;
+      const wr = await wRes.json();
+      await _put(key, { key, bars: bars.slice(-1500), wr, at: Date.now() }).catch(() => {});
+    } catch (e) {}
+  }
+  async function _prefetchTick() {
+    if (document.hidden) return;
+    if (typeof replayActive !== "undefined" && replayActive) return;
+    if (typeof _wrInFlight !== "undefined" && _wrInFlight) return;       // 使用者的勝率請求優先,不搶
+    if (typeof _bgLoadInProgress !== "undefined" && _bgLoadInProgress) return;
+    const _n = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+    if (window._chartMoveTs && _n - window._chartMoveTs < 3000) return;  // 剛互動過→讓路
+    const market = document.getElementById("marketSelect")?.value || "crypto";
+    const symbol = document.getElementById("symbolInput")?.value?.trim() || "";
+    const exchange = document.getElementById("exchangeSelect")?.value || "pionex";
+    if (market !== "crypto" || !_PREFETCH_SYMS.includes(symbol)) return;  // 只對三個高頻標的
+    // 找第一個「非當前時框、且沒新鮮快照」的常用時框,抓一個就好(每 tick 抓一個,不轟後端)
+    for (const tf of _PREFETCH_TFS) {
+      if (tf === (typeof currentTF !== "undefined" ? currentTF : "")) continue;
+      const key = [market, symbol, exchange, tf].join("|");
+      if (Date.now() - (_preDone[key] || 0) < 5 * 60 * 1000) continue;
+      await _prefetchTF(market, symbol, exchange, tf);
+      break;
+    }
+  }
+  // 進場穩定後開始,每 6 秒抓一個(idle 才抓、一次一個);與加速器錯開
+  setTimeout(() => { setInterval(_prefetchTick, 6000); }, 18000);
 })();
