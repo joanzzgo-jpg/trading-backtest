@@ -114,14 +114,18 @@ async function loadData(autoLoad = false) {
     if (!_isPerpSym) fetchWinRate();   // Binance 標的：照舊在 ohlcv 後跑
     _bgLoadOlderBars(); // 背景靜默載入更早的 K 棒
   } catch(e) {
-    console.error("[loadData] error:", e.name, e.message, e);   // 給 user 看實際錯誤類型
-    if (myCtrl !== _loadDataCtrl) {
-      // 靜默 — 新請求接手
-    } else if (!autoLoad) {
-      const isAbortLike = e.name === "AbortError" || /failed to fetch/i.test(e.message || "") || myCtrl.signal.aborted;
-      if (typeof showToast === "function") {
-        showToast(isAbortLike ? "⏱ 載入中斷，請再試一次" : ("❌ " + (e.message || "載入失敗")));
-      }
+    // ⚠ 切時框/標的太快時,前一個請求會被 abort()＝正常行為,不是錯誤。
+    //   原本無條件 console.error 把「被接手/被中止」也印成錯誤 →「切時框有錯誤」的假象(net::ERR_ABORTED)。
+    const superseded = (myCtrl !== _loadDataCtrl);   // 已被更新的切換接手 → 完全靜默
+    const isAbortLike = e.name === "AbortError" || /failed to fetch/i.test(e.message || "") || myCtrl.signal.aborted;
+    if (superseded) {
+      // 靜默 — 新請求接手(切太快的正常中止,不記錯誤、不提示)
+    } else if (isAbortLike) {
+      // 本請求被中止但無人接手(多半是 30s 逾時)→ 僅提示可重試,不 console.error(非程式錯誤)
+      if (!autoLoad && typeof showToast === "function") showToast("⏱ 載入中斷，請再試一次");
+    } else {
+      console.error("[loadData] error:", e.name, e.message, e);   // 真正的錯誤才記
+      if (!autoLoad && typeof showToast === "function") showToast("❌ " + (e.message || "載入失敗"));
     }
     // 不再重拋:所有呼叫端都是 fire-and-forget(無 await/.catch),重拋只會變
     // unhandled rejection 雜訊(每次打錯標的/斷網都冒一顆 pageerror)。錯誤已 toast+console。
