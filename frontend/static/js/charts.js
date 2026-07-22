@@ -164,21 +164,7 @@ function _makeFVGPrimitive() {
             ctx.strokeRect(bx, byTop, bw, bh);
             ctx.setLineDash([]);
           }
-          // 寬度% 標籤：多=（top−bot)/bot、空=(top−bot)/top（對齊後端 _gw 定義）；畫在盒左緣、垂直置中
-          const _pct = z.d === "l" ? (z.top - z.bot) / z.bot : (z.top - z.bot) / z.top;
-          if (!_mv && _pct > 0) {                          // 平移中跳過文字（font/textBaseline/align 已在迴圈外設一次）
-            const _lbl = (z.inv ? "i " : "") + (_pct * 100).toFixed(2) + "%";   // IFVG 前綴 i
-            const _ty = byTop + bh / 2;
-            // 細盒(高度<字高)→ 標到盒上方，避免疊在邊框上看不清
-            const _yy = bh >= 12 * vr ? _ty : byTop - 7 * vr;
-            // 盒左緣被拉到視窗外時，標籤夾回視窗內(但不超過盒右緣)→ 長缺口仍看得到寬度%描述
-            const _lx = Math.min(Math.max(bx + 3 * hr, 3 * hr), (bx + bw) - 34 * hr);
-            ctx.fillStyle = "rgba(0,0,0,0.55)";                 // 描黑底邊，淺色背景也看得見
-            ctx.lineWidth = Math.max(2, 2 * hr); ctx.strokeStyle = "rgba(0,0,0,0.55)";
-            ctx.strokeText(_lbl, _lx, _yy);
-            ctx.fillStyle = z.d === "l" ? "rgba(120,255,225,0.82)" : "rgba(255,150,150,0.82)";   // 收斂:標籤 0.98→0.82
-            ctx.fillText(_lbl, _lx, _yy);
-          }
+          // 寬度% 數字：使用者要求不再顯示（缺口盒保留、只是不標寬度百分比文字）。
           // 進場標記（常駐）：改為「每被突破一次就標一點」——pens=每次往區間更深處突破點(封頂/封底於邊緣)。
           //   每個突破點畫一個淡黃菱形；不再標上/中/下字。
           if (!_mv) for (const _e of (z.pens || [])) {
