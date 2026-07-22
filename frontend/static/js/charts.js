@@ -530,7 +530,7 @@ function _stratGlyph(text, color, fpx) {
 //   20×時框倍數，同 wall-clock 跨度逼近高時框）。價在 VWAP 之上=大時框多頭偏、之下=空頭偏
 //   （VWAP=成交量加權,反映大家實際成交的平均價,比純均線更有機構成本線意義）。
 //   逆勢的策略標記(空/破多在多頭、多/破空在空頭)淡化。純視覺過濾、不改勝率計算。
-const _HTF_MULT = { "1m": 15, "5m": 6, "15m": 4, "30m": 4, "1h": 4, "2h": 4, "4h": 6, "8h": 3, "1d": 7, "1w": 4, "1M": 3 };
+const _HTF_MULT = { "1m": 15, "5m": 6, "15m": 4, "30m": 4, "1h": 4, "2h": 4, "4h": 6, "1d": 7, "1w": 4, "1M": 3 };
 let _ctTrendCache = { sig: "", arr: null };
 function _getHtfTrend() {
   const n = (typeof ohlcvData !== "undefined" && ohlcvData) ? ohlcvData.length : 0;
@@ -1063,7 +1063,7 @@ function syncTimeScales() {
     // 底部時間標籤文字（月-日 (時:分)；年份改固定顯示在價格軸下方右下角）
     const d = new Date(time * 1000);
     const pad = n => String(n).padStart(2, "0");
-    const timeStr = ["8h","4h","2h","1h","30m","15m","5m"].includes(currentTF)
+    const timeStr = ["4h","2h","1h","30m","15m","5m"].includes(currentTF)
       ? `${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`
       : `${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())}`;
 

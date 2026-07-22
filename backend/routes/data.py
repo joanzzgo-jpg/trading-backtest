@@ -1866,7 +1866,7 @@ def get_crt_winrate(
     #   ⚠ 30m/2h 排除:它們根數最多(~3.5萬)、全歷史 payload 暴增到 3.5~3.8MB → Railway/手機易逾時失敗
     #     (「切時框找不到/載入問題」根因)。30m/2h 維持近段窗、往回拖靠 bg-load 補深即可。
     #   1w 前端不顯示 FVG → 不 boost。1m/5m/15m(可達十萬根)靠 vw 省效能。
-    if timeframe in ("4h", "8h", "1d", "1M"):
+    if timeframe in ("4h", "1d", "1M"):   # 8h 已移除
         _vw = max(_vw, 30000)
     _vw_tag = "" if _vw <= 0 else f":vw{_vw}"
     # proto 缺口(B)寬度門檻（多空/破多空）：前端可切換比較。預設 0.05% 不改 key（沿用既有快取），其餘另分流。

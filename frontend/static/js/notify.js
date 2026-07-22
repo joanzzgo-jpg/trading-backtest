@@ -11,7 +11,7 @@ const _NTF = { enabled: false, vapidKey: null, endpoint: null, prefs: null, supp
 
 // 偏好預設與可選清單（前端固定；後端 _ALL_SIGS/_ALL_TFS 同義）
 const _NTF_DEFAULT  = { tfs: ["1h", "4h", "1d"], sigs: ["ab", "3", "4", "5", "6", "7", "8", "9", "10", "11"] };
-const _NTF_ALL_TFS  = ["5m", "15m", "30m", "1h", "2h", "4h", "8h", "1d", "1w"];
+const _NTF_ALL_TFS  = ["5m", "15m", "30m", "1h", "2h", "4h", "1d", "1w"];   // 8h 已移除
 const _NTF_SIG_ORDER = ["ab", "3", "4", "5", "6", "7", "8", "9", "10", "11", "abc", "12", "ss1", "ss2"];
 
 // 偏好讀寫：存 localStorage["notifyPrefs"]，帳號登入時會自動同步到雲端、跨裝置一致
@@ -31,7 +31,7 @@ function _ntfSigLabel(k) {
   if (k === "ss2") return "SS2";
   return "S" + k;
 }
-const _NTF_TF_ORDER = ["5m", "15m", "30m", "1h", "2h", "4h", "8h", "1d", "1w", "1M"];
+const _NTF_TF_ORDER = ["5m", "15m", "30m", "1h", "2h", "4h", "1d", "1w", "1M"];   // 8h 已移除
 
 // 手繪風鈴鐺（取代 emoji，配合站上 stroke SVG 風格）
 const _NTF_BELL = `<svg class="ntf-bell" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 9.5a5.5 5.5 0 0 1 11 0c0 4.2 1.8 5.3 2.3 5.7H4.2c.5-.4 2.3-1.5 2.3-5.7Z"/><path d="M10 19a2 2 0 0 0 4 0"/></svg>`;
