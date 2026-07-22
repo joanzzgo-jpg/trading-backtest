@@ -207,20 +207,7 @@ function _makeFVGPrimitive() {
             ctx.setLineDash([]);
           }
           // 寬度% 數字：使用者要求不再顯示（缺口盒保留、只是不標寬度百分比文字）。
-          // 進場標記（常駐）：改為「每被突破一次就標一點」——pens=每次往區間更深處突破點(封頂/封底於邊緣)。
-          //   每個突破點畫一個淡黃菱形；不再標上/中/下字。
-          if (!_mv) for (const _e of (z.pens || [])) {
-            if (_e == null || _e.t == null || _e.p == null) continue;
-            if (_e.t < _lo || _e.t > _hi) continue;         // 螢幕外的突破點不畫（省逐點座標運算）
-            const ex = ts.timeToCoordinate(_e.t), eyP = _series.priceToCoordinate(_e.p);
-            if (ex == null || eyP == null) continue;
-            const px = ex * hr, py = eyP * vr, r = 4 * vr;
-            ctx.beginPath();
-            ctx.moveTo(px, py - r); ctx.lineTo(px + r, py); ctx.lineTo(px, py + r); ctx.lineTo(px - r, py); ctx.closePath();
-            ctx.fillStyle = "rgba(255,245,160,0.95)";       // 淡黃菱形
-            ctx.strokeStyle = "rgba(0,0,0,0.6)"; ctx.lineWidth = Math.max(1, hr);
-            ctx.fill(); ctx.stroke();
-          }
+          // 「吃到 FVG 的點位」(pens 突破菱形) 使用者要求隱藏 → 不再畫。
           // 交易位階線：止盈(綠=2W)、止損(紅=g-1頂端)，沿盒寬 x1→x2 畫水平虛線。
           //   預設隱藏（缺口太多會洗版）→ 只有「被點選」的缺口才畫，避免主圖滿屏線。
           if (_fvgLevelsShow && z === _fvgSelected) {
