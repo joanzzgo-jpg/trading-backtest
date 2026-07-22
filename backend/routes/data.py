@@ -995,6 +995,32 @@ class LatestRequest(BaseModel):
     finmind_token: str = ""
 
 
+@router.get("/export_klines")
+def export_klines(symbol: str, timeframe: str = "1d", market: str = "crypto", exchange: str = "pionex"):
+    """把指定標的+時框的『完整可取歷史』K 線匯出成 CSV 下載(存到電腦)。
+    crypto 走 Binance/本機倉庫深歷史。用法:瀏覽器直接開
+      /api/export_klines?symbol=BTC/USDT&timeframe=1d  → 自動下載 BTCUSDT_1d.csv
+    """
+    _days = {"1m": 25, "5m": 370, "15m": 900, "30m": 1400, "1h": 2500,
+             "2h": 4000, "4h": 5000, "1d": 5000, "1w": 5000, "1M": 5000}.get(timeframe, 2500)
+    try:
+        df = fetch_crt_df(market, symbol, timeframe, _days, exchange)
+    except Exception as e:
+        raise HTTPException(400, str(e))
+    if df is None or df.empty:
+        raise HTTPException(404, "查無資料")
+    cols = [c for c in ["time", "open", "high", "low", "close", "volume"] if c in df.columns]
+    out = df[cols].copy()
+    try:  # 時間轉可讀字串(ISO),Excel/試算表友善
+        out["time"] = out["time"].astype(str)
+    except Exception:
+        pass
+    csv = out.to_csv(index=False)
+    fn = f"{symbol.replace('/', '').replace('.', '')}_{timeframe}.csv"
+    return Response(csv, media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="{fn}"'})
+
+
 @router.post("/latest")
 def get_latest(req: LatestRequest):
     """取得最新 K 棒"""
