@@ -131,7 +131,7 @@ def fetch_crt_df(market: str, symbol: str, timeframe: str, days: int,
         try:
             from data.klines_store import is_target as _k_is, load_from as _k_from
             if _k_is(symbol, timeframe):
-                _kd = _k_from(symbol, start)
+                _kd = _k_from(symbol, timeframe, start)
                 if _kd is not None and not _kd.empty:
                     _set_src("binance")
                     _b0 = symbol[:-2] if symbol.upper().endswith(".P") else symbol
@@ -919,7 +919,7 @@ def get_ohlcv(req: OHLCVRequest):
                     if _k_is(req.symbol, req.timeframe):
                         _today = date.today().isoformat()
                         if (not req.end) or req.end >= _today:
-                            _st = _k_from(req.symbol, req.start)
+                            _st = _k_from(req.symbol, req.timeframe, req.start)
                             if _st is not None and not _st.empty:
                                 _ts = _st["time"].iloc[-1].strftime("%Y-%m-%d")
                                 _tail = fetch_crypto_ohlcv(req.symbol, req.timeframe, _ts, _today, req.exchange)
@@ -928,7 +928,7 @@ def get_ohlcv(req: OHLCVRequest):
                                 else:
                                     df = _st
                         else:
-                            df = _k_load(req.symbol, req.start, req.end)
+                            df = _k_load(req.symbol, req.timeframe, req.start, req.end)
                 except Exception:
                     df = None
             if df is None:
