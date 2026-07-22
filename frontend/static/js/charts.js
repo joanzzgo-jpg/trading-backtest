@@ -49,6 +49,7 @@ function _candleBorderVisible() {
 
 function createCandleSeries() {
   if (candleSeries) { try { mainChart.removeSeries(candleSeries); } catch {} candleSeries = null; }
+  if (lineSeries)   { try { mainChart.removeSeries(lineSeries);   } catch {} lineSeries = null; }
   latestPriceLine = null;
   candleSeries = mainChart.addCandlestickSeries({
     upColor:   S.bodyVisible   !== false ? C.up   : "rgba(0,0,0,0)",
@@ -58,6 +59,11 @@ function createCandleSeries() {
     wickVisible:     S.wickVisible  !== false,
     wickUpColor:     C.wickUp,      wickDownColor:   C.wickDown,
     priceLineVisible: false, lastValueVisible: false,
+  });
+  // 線型圖：收盤價折線，與蠟燭並存（切換時只改可見性＋把蠟燭設透明）。標記/FVG 主圖仍依附 candleSeries 不動。
+  lineSeries = mainChart.addLineSeries({
+    color: (C.lineChart || "#2196f3"), lineWidth: 2,
+    priceLineVisible: false, lastValueVisible: false, visible: false,
   });
   // FVG 失衡缺口色塊（自訂 primitive）：蠟燭重建時一併重掛，沿用全域 _fvgZones
   try {
@@ -98,7 +104,42 @@ function createCandleSeries() {
       candleSeries.attachPrimitive(_econPrim);
     }
   } catch (e) { /* 舊版 LWC 無 attachPrimitive 時靜默略過 */ }
+  applyChartType();   // 建好後套用目前圖型（蠟燭/線型）
 }
+
+// 蠟燭正常顏色選項（切回蠟燭時還原用；與 createCandleSeries 定義一致）
+function _candleColorOpts() {
+  return {
+    upColor:   S.bodyVisible !== false ? C.up   : "rgba(0,0,0,0)",
+    downColor: S.bodyVisible !== false ? C.down : "rgba(0,0,0,0)",
+    borderVisible: _candleBorderVisible(),
+    wickVisible:   S.wickVisible !== false,
+  };
+}
+
+// 套用目前圖型：線型＝蠟燭全透明(標記仍在、依附 candleSeries 不變)＋顯示收盤折線；蠟燭＝還原顏色、隱藏折線。
+function applyChartType() {
+  const line = !!window._chartTypeLine;
+  try {
+    if (candleSeries) candleSeries.applyOptions(line
+      ? { upColor: "rgba(0,0,0,0)", downColor: "rgba(0,0,0,0)", borderVisible: false, wickVisible: false }
+      : _candleColorOpts());
+    if (lineSeries) lineSeries.applyOptions({ visible: line });
+  } catch (e) {}
+  const btn = document.getElementById("chartTypeBtn");
+  if (btn) {
+    btn.classList.toggle("active", line);
+    btn.textContent = line ? "🕯️ K線" : "📈 線型";
+  }
+}
+
+// 切換圖型（按鈕）：記住偏好；只改可見性，不重載資料。
+window.toggleChartType = function (on) {
+  window._chartTypeLine = (on === undefined) ? !window._chartTypeLine : !!on;
+  try { localStorage.setItem("chartTypeLine", window._chartTypeLine ? "1" : "0"); } catch (e) {}
+  applyChartType();
+  return window._chartTypeLine;
+};
 
 /* ── FVG 失衡缺口：在主圖蠟燭上畫半透明色塊（青=多頭/支撐、紅=空頭/壓力）── */
 let _fvgZones = [];        // [{t1, t2|null, top, bot, d}]（已轉成圖表時間）
@@ -797,6 +838,7 @@ function applyOhlcvToSeries(data) {
       time: d.time ? toTime(d.time) : d, open: d.open, high: d.high, low: d.low, close: d.close,
     })));
   }
+  if (lineSeries) lineSeries.setData(data.map(d => ({ time: d.time ? toTime(d.time) : d, value: d.close })));  // 線型圖收盤折線
   updateLatestPriceLine(data[data.length - 1].close);
 }
 

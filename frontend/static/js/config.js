@@ -60,6 +60,8 @@ const INPUT_SERIES_MAP = {
 
 /* ── 圖表物件 ── */
 let mainChart,   candleSeries, bbU, bbM, bbL;
+let lineSeries = null;   // 線型圖：收盤價折線（與蠟燭並存，切換時只換可見性/透明蠟燭）
+try { window._chartTypeLine = localStorage.getItem("chartTypeLine") === "1"; } catch (e) { window._chartTypeLine = false; }
 let latestPriceLine = null;
 let volSeries, volMaSeries;          // 成交量放在 mainChart 的獨立價格軸
 let kdjChart,    kdjK, kdjD, kdjJ, kdjH20, kdjH50, kdjH80;

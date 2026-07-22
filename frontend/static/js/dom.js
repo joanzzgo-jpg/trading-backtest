@@ -209,6 +209,13 @@ function _domBtnRefresh() {
 function _domBtnInit() {
   const b = document.getElementById("domBtn");
   if (b && !b._domBound) { b._domBound = true; b.addEventListener("click", () => window.toggleDom()); }
+  // 圖型切換（K線 / 線型）：常顯按鈕，記住偏好
+  const ct = document.getElementById("chartTypeBtn");
+  if (ct && !ct._bound) {
+    ct._bound = true;
+    ct.addEventListener("click", () => window.toggleChartType && window.toggleChartType());
+    if (typeof applyChartType === "function") applyChartType();   // 還原偏好時同步按鈕標籤
+  }
   _domBtnRefresh();
   document.getElementById("marketSelect")?.addEventListener("change", () => setTimeout(_domBtnRefresh, 0));
 }
