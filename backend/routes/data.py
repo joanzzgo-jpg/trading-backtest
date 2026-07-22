@@ -1001,7 +1001,9 @@ def export_klines(symbol: str, timeframe: str = "1d", market: str = "crypto", ex
     crypto 走 Binance/本機倉庫深歷史。用法:瀏覽器直接開
       /api/export_klines?symbol=BTC/USDT&timeframe=1d  → 自動下載 BTCUSDT_1d.csv
     """
-    _days = {"1m": 25, "5m": 370, "15m": 900, "30m": 1400, "1h": 2500,
+    # ⚠ 小時框 days 不能太大:資料源有列數上限,days 過大會回傳「最舊那段」而砍掉最近的(15m/30m/1m
+    #   曾停在數月~2年前)。調到「總根數在上限內」→ 結尾貼到現在。深度=該時框能取到的最近最深。
+    _days = {"1m": 20, "5m": 370, "15m": 720, "30m": 700, "1h": 2500,
              "2h": 4000, "4h": 5000, "1d": 5000, "1w": 5000, "1M": 5000}.get(timeframe, 2500)
     try:
         df = fetch_crt_df(market, symbol, timeframe, _days, exchange)
