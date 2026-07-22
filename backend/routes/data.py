@@ -1862,6 +1862,11 @@ def get_crt_winrate(
     # vw＝FVG/策略標記的「近段窗」根數(勝率統計不受此影響)。前端往歷史滑時加大 vw 重取→補算舊區標記。
     #   前端送固定階梯值(見 winrate.js _wrVwLadder)→ 快取條目有限；0/預設→空 tag(沿用主快取,窗=_VISUAL_WINDOW)。
     _vw = int(vw) if vw and vw > 0 else 0
+    # 大時框(30m~1M,總根數可控:1d~3千/4h~1.8萬/2h·30m~3.5萬)FVG 一律算「全歷史」→ 不必往回拖才補、
+    #   解「大時框 FVG 顯示不夠長」(4h 原 vw=8000 只算最近8000根=~3.7年)。只有 1m/5m/15m(可達十萬根)
+    #   才靠 vw 近段窗省效能。30000 窗涵蓋 4h/8h/1d/1w/1M 全歷史、30m/2h 絕大部分。
+    if timeframe in ("30m", "2h", "4h", "8h", "1d", "1w", "1M"):
+        _vw = max(_vw, 30000)
     _vw_tag = "" if _vw <= 0 else f":vw{_vw}"
     # proto 缺口(B)寬度門檻（多空/破多空）：前端可切換比較。預設 0.05% 不改 key（沿用既有快取），其餘另分流。
     _pm = round(float(proto_min), 5) if proto_min and proto_min > 0 else 0.0005

@@ -328,6 +328,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     } else {
       if (typeof startTickerRefresh === "function") startTickerRefresh();
       if (!replayActive && Array.isArray(ohlcvData) && ohlcvData.length) startRealtime();
+      // 分頁重新可見 → 強制重抓一次勝率：離開期間新收盤棒的 FVG 沒被即時補（realtime 停了、
+      //   或回來時跳超過 5 根被防跳躍守則略過）→ 回來補上，最近一段 FVG 不會凍結。
+      if (!replayActive && typeof window._wrRefreshCurrent === "function") window._wrRefreshCurrent();
     }
   });
 
