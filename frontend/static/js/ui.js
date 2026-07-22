@@ -714,31 +714,77 @@ function bindLegendToggles() {
   if (typeof window._syncNoProtoLabel === "function") window._syncNoProtoLabel();
 
   // 面板收合：點擊「−」縮至只剩圖例列；點「+」展開
+  // 面板收合：點「-」= 整個 pane（含圖例資訊列）+ 它下方分隔線一起隱藏 = 完全消失、不留痕跡；
+  //   還原改由下方「隱藏指標還原列」(_syncHiddenIndBar) 的小晶片點回來（因為「+」也跟著消失了）。
   document.querySelectorAll(".pane-collapse-btn").forEach(btn => {
-    btn.dataset.collapsed = "false";  // 初始化屬性
+    btn.dataset.collapsed = "false";
     const paneId = btn.dataset.pane;
     btn.addEventListener("click", () => {
-      const pane = document.getElementById(paneId);
-      const body = pane.querySelector(".pane-body");
-      const collapsed = btn.dataset.collapsed === "true";
-      if (collapsed) {
-        pane.style.flex = paneCollapseFlex[paneId] || "1";
-        body.style.display = "";
-        btn.dataset.collapsed = "false";
-        btn.textContent = "\u2212";  // −
-      } else {
-        paneCollapseFlex[paneId] = pane.style.flex || "1";
-        pane.style.flex = "0";
-        body.style.display = "none";
-        btn.dataset.collapsed = "true";
-        btn.textContent = "+";
-      }
-      updateBottomTimeAxis();
-      resizeAll();
-      saveVisibilityPrefs();
-      savePaneFlexes();
+      if (btn.dataset.collapsed === "true") _showPane(paneId); else _hidePane(paneId);
     });
   });
+  _syncHiddenIndBar();
+}
+
+const _PANE_LABEL = { kdjPane: "KDJ", rsiPane: "RSI", macdPane: "MACD" };
+function _paneDivider(paneId) { return document.querySelector('.pane-divider[data-target="' + paneId + '"]'); }
+
+function _hidePane(paneId) {
+  const pane = document.getElementById(paneId);
+  if (!pane) return;
+  if (pane.style.display !== "none") paneCollapseFlex[paneId] = pane.style.flex || "1";
+  pane.style.display = "none";
+  const dv = _paneDivider(paneId); if (dv) dv.style.display = "none";
+  const btn = document.querySelector('.pane-collapse-btn[data-pane="' + paneId + '"]');
+  if (btn) { btn.dataset.collapsed = "true"; btn.textContent = "+"; }
+  _afterPaneToggle();
+}
+
+function _showPane(paneId) {
+  const pane = document.getElementById(paneId);
+  if (!pane) return;
+  pane.style.display = "";
+  pane.style.flex = paneCollapseFlex[paneId] || "1";
+  const body = pane.querySelector(".pane-body"); if (body) body.style.display = "";
+  const dv = _paneDivider(paneId); if (dv) dv.style.display = "";
+  const btn = document.querySelector('.pane-collapse-btn[data-pane="' + paneId + '"]');
+  if (btn) { btn.dataset.collapsed = "false"; btn.textContent = "\u2212"; }
+  _afterPaneToggle();
+}
+
+function _afterPaneToggle() {
+  _syncHiddenIndBar();
+  updateBottomTimeAxis();
+  resizeAll();
+  saveVisibilityPrefs();
+  savePaneFlexes();
+}
+
+function _syncHiddenIndBar() {
+  const container = document.getElementById("chartsContainer");
+  if (!container) return;
+  let bar = document.getElementById("hiddenIndBar");
+  const hidden = Object.keys(_PANE_LABEL).filter(id => {
+    const p = document.getElementById(id); return p && p.style.display === "none";
+  });
+  if (!hidden.length) { if (bar) bar.remove(); return; }
+  if (!bar) {
+    bar = document.createElement("div");
+    bar.id = "hiddenIndBar";
+    bar.style.cssText = "display:flex;gap:6px;align-items:center;padding:3px 8px;flex-wrap:wrap;" +
+      "font-size:11px;color:var(--muted,#8b93a3);background:var(--panel,#1e222d);border-top:1px solid var(--border,#2a2e39);flex:0 0 auto;";
+    container.appendChild(bar);
+  }
+  bar.innerHTML = '<span style="opacity:.7">\u96b1\u85cf\u7684\u6307\u6a19\uff1a</span>';
+  for (const id of hidden) {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.textContent = "\uff0b " + _PANE_LABEL[id];
+    chip.style.cssText = "cursor:pointer;border:1px solid var(--border,#3a3f4b);background:transparent;color:inherit;" +
+      "border-radius:10px;padding:1px 9px;font-size:11px;line-height:1.5;";
+    chip.addEventListener("click", () => _showPane(id));
+    bar.appendChild(chip);
+  }
 }
 
 function nextVisiblePane(el) {
