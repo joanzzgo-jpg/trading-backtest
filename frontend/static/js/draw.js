@@ -2362,6 +2362,12 @@ function drawOne(d, W, H, isHovered, isSelected) {
     drawCtx.save(); drawCtx.globalAlpha *= 0.12; drawCtx.fillStyle = d.color || _drawColor; drawCtx.fillRect(rx, ry, rw, rh); drawCtx.restore();   // 半透明底
     drawCtx.strokeRect(rx, ry, rw, rh);                                       // 邊框(承 strokeStyle/lineWidth)
     drawCtx.shadowBlur = 0;
+    // 中線(0.5 高度)水平虛線：一眼看出方框的中間價位
+    drawCtx.save();
+    drawCtx.setLineDash([5, 4]); drawCtx.globalAlpha *= 0.65;
+    const _midY = ry + rh / 2;
+    drawCtx.beginPath(); drawCtx.moveTo(rx, _midY); drawCtx.lineTo(rx + rw, _midY); drawCtx.stroke();
+    drawCtx.restore();
     // 四角把手：選取時可拖(p1/p2 對角＝拖任一角即改大小)；hover/選取才顯示
     const hoverPartR = (isHovered || isSelected) ? _endpointHit(d, _mx, _my) : null;
     if (isSelected || isHovered) {
@@ -2792,8 +2798,11 @@ function drawPreview(type, a, b, W, H) {
   }
 
   if (type === "rect") {
+    const rx = Math.min(a.x, b.x), ry = Math.min(a.y, b.y), rw = Math.abs(b.x - a.x), rh = Math.abs(b.y - a.y);
     drawCtx.strokeStyle = "rgba(255,255,255,0.7)"; drawCtx.lineWidth = 1; drawCtx.setLineDash([5, 4]);
-    drawCtx.strokeRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y));
+    drawCtx.strokeRect(rx, ry, rw, rh);
+    const _midY = ry + rh / 2;                                    // 中線(0.5)虛線:畫的過程也顯示
+    drawCtx.beginPath(); drawCtx.moveTo(rx, _midY); drawCtx.lineTo(rx + rw, _midY); drawCtx.stroke();
     drawCtx.restore();
     return;
   }
