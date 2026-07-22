@@ -121,8 +121,9 @@ function _candleColorOpts() {
 function applyChartType() {
   const line = !!window._chartTypeLine;
   try {
+    // 線型：只隱藏實體+邊框，影線(高低)保留＝仍看得到每根的高低範圍（使用者：影線也是線型一部分）。
     if (candleSeries) candleSeries.applyOptions(line
-      ? { upColor: "rgba(0,0,0,0)", downColor: "rgba(0,0,0,0)", borderVisible: false, wickVisible: false }
+      ? { upColor: "rgba(0,0,0,0)", downColor: "rgba(0,0,0,0)", borderVisible: false, wickVisible: (S.wickVisible !== false) }
       : _candleColorOpts());
     if (lineSeries) lineSeries.applyOptions({ visible: line });
   } catch (e) {}
