@@ -122,12 +122,9 @@ function _candleColorOpts() {
 function applyChartType() {
   const line = !!window._chartTypeLine;
   try {
-    // 線型：隱藏實體+邊框；影線(高低)保留但改成「折線同色」→ 高低成為折線本身的一部分(同色尖刺到高低)，
-    //   不再是紅綠的獨立 K 棒影線（使用者：要線本身畫到高低，不是保留 K 棒影線）。
-    const _lc = (C.lineChart || "#2196f3");
+    // 線型:純收盤折線——蠟燭實體/邊框/影線全隱藏(使用者:修回一開始那樣、只有一條線)。
     if (candleSeries) candleSeries.applyOptions(line
-      ? { upColor: "rgba(0,0,0,0)", downColor: "rgba(0,0,0,0)", borderVisible: false,
-          wickVisible: true, wickUpColor: _lc, wickDownColor: _lc }
+      ? { upColor: "rgba(0,0,0,0)", downColor: "rgba(0,0,0,0)", borderVisible: false, wickVisible: false }
       : _candleColorOpts());
     if (lineSeries) lineSeries.applyOptions({ visible: line });
   } catch (e) {}

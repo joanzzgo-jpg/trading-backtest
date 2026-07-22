@@ -3,6 +3,19 @@
    面板：主圖 | 成交量 | KDJ | RSI | MACD | 資金曲線(回測)
 ═══════════════════════════════════════════════ */
 
+// ⚠ 極窄抑制器:LWC 內部在切時框/背景補載的瞬態偶爾於 paint 拋「Value is null」——非致命、
+//   圖表照常運作、下一幀自癒。來源在 LWC 內部 paint、難逐一堵。只吞「訊息=Value is null 且
+//   來自 lightweight-charts 檔」這一種良性警告(避免污染 console 紅字);其他任何錯誤/檔案照常紅字回報。
+try {
+  window.addEventListener("error", function (e) {
+    if (e && /Value is null/.test(e.message || "") && /lightweight-charts/.test(e.filename || "")) {
+      e.preventDefault();
+      if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+      return true;
+    }
+  }, true);
+} catch (e) {}
+
 /* ── 預設顏色 ── */
 const DEFAULT_COLORS = {
   up:      "#ef5350", down:    "#26a69a",
