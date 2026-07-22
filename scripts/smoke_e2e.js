@@ -42,7 +42,13 @@ const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
   await page.waitForFunction(() => typeof window._landingEnter === "function", { timeout: 30000 }).catch(() => fail("進場函式 _landingEnter 不存在（bundle 早期炸掉？）"));
   await page.evaluate(() => window._landingEnter());
   await new Promise(r => setTimeout(r, 1800));
-  await page.evaluate(() => { document.getElementById("announceOverlay")?.remove(); });
+  // 關公告：點「我知道了」會 markSeen → 不再被 _maybeShow 的重試迴圈(每秒、最多30s)重跳；
+  //   只 .remove() DOM 不會 markSeen → 1 秒後又冒出來蓋住互動(2026-07-22 滾輪假失敗即此因)。
+  const dismissAnn = () => page.evaluate(() => {
+    const b = document.getElementById("_annLater"); if (b) b.click();
+    document.getElementById("announceOverlay")?.remove();
+  });
+  await dismissAnn();
   console.log("✓ 進場");
 
   // 2) K 棒 + 勝率標記
@@ -54,7 +60,7 @@ const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
   // 3) 真拖曳平移（必驗可視範圍有變，否則測試無效）
   //    公告彈窗可能晚於進場後 1.8s 才渲染（fresh profile 必跳）→ 拖曳前再清一次，
   //    否則互動打在彈窗上＝偶發假失敗（2026-07-16 兩次 flake 皆此因）。
-  await page.evaluate(() => { document.getElementById("announceOverlay")?.remove(); });
+  await dismissAnn();
   const box = await page.evaluate(() => { const r = document.getElementById("mainChart").getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
   const rng0 = await page.evaluate(() => JSON.stringify(mainChart.timeScale().getVisibleLogicalRange()));
   await page.mouse.move(box.x + 200, box.y);
@@ -66,6 +72,7 @@ const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
   console.log("✓ 平移");
 
   // 4) 滾輪縮放（單方向：交替 +/- 會對稱抵銷、可能剛好回到原範圍 → 假陰性）
+  await dismissAnn();   // 公告重試迴圈可能在拖曳後又跳一次 → 滾輪前再關一次，避免滾輪打在彈窗上
   for (let i = 0; i < 6; i++) { await page.mouse.wheel({ deltaY: -120 }); await new Promise(r => setTimeout(r, 40)); }
   const rng2 = await page.evaluate(() => JSON.stringify(mainChart.timeScale().getVisibleLogicalRange()));
   if (rng1 === rng2) fail("滾輪沒有縮放到圖表");
