@@ -170,6 +170,7 @@ function _makeFVGPrimitive() {
         const ctx = scope.context;
         const hr = scope.horizontalPixelRatio, vr = scope.verticalPixelRatio;
         const wpx = scope.mediaSize.width;
+        const hpx = scope.mediaSize.height;   // 垂直 cull 用：整盒價格在可視區外就不畫
         // 平移/縮放進行中 → 只畫方框，跳過寬度%文字與進場菱形（canvas 文字與逐點路徑最貴）→ 平移更順。
         //   停手後沒有重繪事件會讓細節不回來 → 用 debounce timer 在停手補畫一次（那時 _mv=false→全細節）。
         const _nowP = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
@@ -197,6 +198,7 @@ function _makeFVGPrimitive() {
           const yT = _series.priceToCoordinate(z.top);
           const yB = _series.priceToCoordinate(z.bot);
           if (yT == null || yB == null) continue;
+          if (Math.max(yT, yB) < 0 || Math.min(yT, yB) > hpx) continue;   // 整盒價格在畫面上/下方外 → 不畫(省 fillRect)
           const bx = x1 * hr, bw = (x2 - x1) * hr;
           const byTop = Math.min(yT, yB) * vr, bh = Math.abs(yB - yT) * vr;
           const _faint = false;      // 不再淡化任何缺口(使用者要求全部照常顯示；dim/used 皆不影響顯示)
