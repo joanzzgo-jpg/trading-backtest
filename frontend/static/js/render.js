@@ -344,7 +344,7 @@ function renderCandles(data) {
 }
 
 function renderBB(data) {
-  const line = k => data.filter(d => d[k] != null).map(d => ({ time:toTime(d.time), value:d[k] }));
+  const line = k => data.filter(d => Number.isFinite(d[k])).map(d => ({ time:toTime(d.time), value:d[k] }));   // Number.isFinite 擋 null/undefined/NaN(否則 LWC paint 拋「Value is null」)
   bbU.setData(line("bb_upper")); bbM.setData(line("bb_middle")); bbL.setData(line("bb_lower"));
   // 1σ 內帶(bbU1/bbL1)已移除，不再繪製
 }
@@ -543,42 +543,50 @@ function _subchartsHidden() {
 // 副圖 toggle 打開時，ui.js 會呼叫此函式補算一次。
 function _renderSubcharts(data) {
   if (_subchartsHidden()) return;
-  const anchorTimes = data.map(d => ({ time: toTime(d.time), value: 50 }));
+  // 濾掉壞棒(缺 time/算出 NaN 時間)→ 否則 anchor/指標線的時間為 NaN,LWC paint 會拋「Value is null」(切時框報錯)
+  const _valid = data.filter(d => d && Number.isFinite(toTime(d.time)));
+  const anchorTimes = _valid.map(d => ({ time: toTime(d.time), value: 50 }));
   kdjAnchor.setData(anchorTimes);
   rsiAnchor.setData(anchorTimes);
   macdAnchor.setData(anchorTimes.map(d => ({ ...d, value: 0 })));
-  renderKDJ(data);
-  renderRSI(data);
-  renderMACD(data);
+  renderKDJ(_valid);
+  renderRSI(_valid);
+  renderMACD(_valid);
 }
 
 function renderKDJ(data) {
-  const line = k => data.filter(d => d[k] != null).map(d => ({ time:toTime(d.time), value:d[k] }));
+  data = data.filter(d => d && Number.isFinite(toTime(d.time)));   // 自我防禦:濾壞時間棒(NaN 時間→LWC paint「Value is null」);所有呼叫點(含背景排程用未濾 ohlcvData)都安全
+  const line = k => data.filter(d => Number.isFinite(d[k])).map(d => ({ time:toTime(d.time), value:d[k] }));   // Number.isFinite 擋 null/undefined/NaN(否則 LWC paint 拋「Value is null」)
   kdjK.setData(line("kdj_k")); kdjD.setData(line("kdj_d")); kdjJ.setData(line("kdj_j"));
   if (data.length) {
     const f = toTime(data[0].time), l = toTime(data[data.length-1].time);
-    kdjH20.setData([{time:f,value:S.kdjH20val},{time:l,value:S.kdjH20val}]);
+    const _k20 = Number.isFinite(S.kdjH20val) ? S.kdjH20val : 20, _k80 = Number.isFinite(S.kdjH80val) ? S.kdjH80val : 80;
+    kdjH20.setData([{time:f,value:_k20},{time:l,value:_k20}]);
     kdjH50.setData([{time:f,value:50},{time:l,value:50}]);
-    kdjH80.setData([{time:f,value:S.kdjH80val},{time:l,value:S.kdjH80val}]);
+    kdjH80.setData([{time:f,value:_k80},{time:l,value:_k80}]);
   }
 }
 
 function renderRSI(data) {
-  const line = k => data.filter(d => d[k] != null).map(d => ({ time:toTime(d.time), value:d[k] }));
+  data = data.filter(d => d && Number.isFinite(toTime(d.time)));   // 自我防禦:濾壞時間棒
+  const line = k => data.filter(d => Number.isFinite(d[k])).map(d => ({ time:toTime(d.time), value:d[k] }));   // Number.isFinite 擋 null/undefined/NaN(否則 LWC paint 拋「Value is null」)
   rsiLine14.setData(line("rsi_14")); rsiLine7.setData(line("rsi_7"));
   if (data.length) {
     const f = toTime(data[0].time), l = toTime(data[data.length-1].time);
-    rsiH30.setData([{time:f,value:S.rsiH30val},{time:l,value:S.rsiH30val}]);
+    const _r30 = Number.isFinite(S.rsiH30val) ? S.rsiH30val : 30, _r70 = Number.isFinite(S.rsiH70val) ? S.rsiH70val : 70;
+    rsiH30.setData([{time:f,value:_r30},{time:l,value:_r30}]);
     rsiH50.setData([{time:f,value:50},{time:l,value:50}]);
-    rsiH70.setData([{time:f,value:S.rsiH70val},{time:l,value:S.rsiH70val}]);
+    rsiH70.setData([{time:f,value:_r70},{time:l,value:_r70}]);
   }
 }
 
 function renderMACD(data) {
-  const valid = data.filter(d => d.macd != null);
-  macdLine.setData(valid.map(d => ({ time:toTime(d.time), value:d.macd })));
-  macdSignal.setData(valid.map(d => ({ time:toTime(d.time), value:d.macd_signal })));
-  macdHist.setData(valid.map(d => ({
+  data = data.filter(d => d && Number.isFinite(toTime(d.time)));   // 自我防禦:濾壞時間棒
+  // ⚠ macd/signal/hist 各自可能為 null(signal 是 macd 的 EMA、更晚才有值)→ 必須各欄位獨立過濾,
+  //   否則「有 macd 但 signal 還沒有」的棒會餵 {value:null} 給 LWC Line → 拋「Value is null」(切時框報錯)。
+  macdLine.setData(data.filter(d => Number.isFinite(d.macd)).map(d => ({ time:toTime(d.time), value:d.macd })));
+  macdSignal.setData(data.filter(d => Number.isFinite(d.macd_signal)).map(d => ({ time:toTime(d.time), value:d.macd_signal })));
+  macdHist.setData(data.filter(d => Number.isFinite(d.macd_hist)).map(d => ({
     time:toTime(d.time), value:d.macd_hist,
     color: d.macd_hist >= 0 ? C.up+"cc" : C.down+"cc",
   })));
@@ -590,13 +598,15 @@ function renderMACD(data) {
 
 function _bgApplyChunk(data, nPrepended) {
   // 增量建錨點（只 map 新的那段，不重建全量）
+  const _vf = arr => arr.filter(d => d && Number.isFinite(toTime(d.time)));   // 濾壞時間棒→anchor 不含 NaN 時間(否則 LWC paint「Value is null」)
   if (_bgAnchorCache && nPrepended > 0) {
-    const slice   = data.slice(0, nPrepended);
+    const slice   = _vf(data.slice(0, nPrepended));
     _bgAnchorCache = [...slice.map(d => ({ time: toTime(d.time), value: 50 })), ..._bgAnchorCache];
     _bgMacdCache   = [...slice.map(d => ({ time: toTime(d.time), value: 0  })), ..._bgMacdCache];
   } else {
-    _bgAnchorCache = data.map(d => ({ time: toTime(d.time), value: 50 }));
-    _bgMacdCache   = data.map(d => ({ time: toTime(d.time), value: 0  }));
+    const _v = _vf(data);
+    _bgAnchorCache = _v.map(d => ({ time: toTime(d.time), value: 50 }));
+    _bgMacdCache   = _v.map(d => ({ time: toTime(d.time), value: 0  }));
   }
   kdjAnchor.setData(_bgAnchorCache);
   rsiAnchor.setData(_bgAnchorCache);

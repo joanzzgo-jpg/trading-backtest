@@ -1333,9 +1333,12 @@ function _drawKeyLevels(W, H) {
   const vr = ts.getVisibleLogicalRange();
   if (!vr) return;
   const _len = ohlcvData.length;
-  const from = Math.max(0, Math.floor(vr.from) - 64);
-  let to = Math.min(_len - 1, Math.ceil(vr.to) + 64);
+  // ⚠ 切時框瞬間可視範圍可能還是「舊資料(較長)」的索引 → from/to 必須同時夾到 [0,_len-1]，
+  //   否則 ohlcvData[from] 為 undefined、讀 .time 就爆(「Cannot read ... 'time'」的切時框報錯根因)。
+  const from = Math.min(_len - 1, Math.max(0, Math.floor(vr.from) - 64));
+  let to = Math.min(_len - 1, Math.max(0, Math.ceil(vr.to) + 64));
   if (typeof replayActive !== "undefined" && replayActive && typeof replayIdx === "number") to = Math.min(to, replayIdx);
+  if (to < from || !ohlcvData[from] || !ohlcvData[to]) return;   // 索引無效(切換瞬間)→ 這幀先不畫
   const half = (W / Math.max(1, vr.to - vr.from)) / 2;
   let plotW = W;
   try { const tw = ts.width(); if (tw > 0) plotW = tw; } catch (e) {}

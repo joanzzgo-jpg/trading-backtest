@@ -826,7 +826,8 @@ function applyOhlcvToSeries(data) {
       time: d.time ? toTime(d.time) : d, open: d.open, high: d.high, low: d.low, close: d.close,
     })));
   }
-  if (lineSeries) lineSeries.setData(data.map(d => ({ time: d.time ? toTime(d.time) : d, value: d.close })));  // 線型圖收盤折線
+  if (lineSeries) lineSeries.setData(   // 線型圖收盤折線；濾掉 null close(否則 LWC Line 拋「Value is null」)
+    data.filter(d => d.close != null).map(d => ({ time: d.time ? toTime(d.time) : d, value: d.close })));
   updateLatestPriceLine(data[data.length - 1].close);
 }
 

@@ -87,7 +87,7 @@ async function fetchLatest() {
       }
       else return;
       candleSeries.update({ time:t, open:bar.open, high:bar.high, low:bar.low, close:bar.close });
-      if (typeof lineSeries !== "undefined" && lineSeries) lineSeries.update({ time:t, value:bar.close });   // 線型圖同步
+      if (typeof lineSeries !== "undefined" && lineSeries && bar.close != null) lineSeries.update({ time:t, value:bar.close });   // 線型圖同步
       _dirty = true;
       const _va2 = (typeof _volAlphaHex === "function") ? _volAlphaHex() : Math.round((S.volAlpha ?? 0.67) * 255).toString(16).padStart(2, "0");
       volSeries.update({ time:t, value:bar.volume||0, color: bar.close>=bar.open ? C.volUp+_va2 : C.volDown+_va2 });
