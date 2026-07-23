@@ -692,7 +692,9 @@ async function _bgLoadOlderBars(scrollTriggered = false) {
   // （scrollTriggered 走 SCROLL_DAYS）。常駐根數大降 → 縮放/平移順（5m 原 180d≈5.2萬根 → 14d≈4千根）。
   // 代價：較舊的訊號標記要滑到才顯示；勝率 HUD 統計走後端、不受影響。
   const INIT_DAYS   = { "1m": 3, "5m": 14, "15m": 45, "1h": 120, "4h": 730, "30m": 60, "2h": 180, "1d": 730 };
-  const SCROLL_DAYS = { "1m": 20, "5m": 730, "15m": 730, "1h": 1825, "4h": 3650, "30m": 730, "2h": 1825, "1d": 4000 };
+  // 連續往舊滑的深度上限:滾動修剪讓常駐根數有界後,可放深到資料源極限(Binance 5m 約 2020 起≈2200天;
+  //   抓到沒資料自然停)。小時框大幅放深→往舊滑看更久之前的回測(不再 2 年就停)。
+  const SCROLL_DAYS = { "1m": 60, "5m": 2400, "15m": 2400, "1h": 3000, "4h": 4000, "30m": 2400, "2h": 3000, "1d": 5000 };
   const totalDays   = scrollTriggered ? (SCROLL_DAYS[snapTf] || 365) : (INIT_DAYS[snapTf] || 30);
   let   targetStartTs = Math.floor(Date.now() / 1000) - totalDays * 86400;
   // 看歷史切時框:分頁串流必須補到「你正在看的那段」才停,否則對齊落空(切不到同一天)。
