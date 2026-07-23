@@ -801,9 +801,27 @@ async function _bgLoadOlderBars(scrollTriggered = false) {
         // ★看歷史滑動補舊:確定性 logical 位移——prepend nPrepended 根→視野同步 +nPrepended(數學上停在同幾根,
         //   不用時間軸捕捉→不會捕到瞬間退化視野而縮到1根/亂跳)。子圖同步。★不套「貼最新」錨點(那會貼回最新)。
         const vr = mainChart.timeScale().getVisibleLogicalRange();
+        // ★即時修剪右側:往左看時最新那批在畫面外→剪掉讓 n 有界(否則越深 n 越大、setData 越慢=「越深越停一下才出來」)。
+        //   右側修剪不動左側 index→shifted(+nPrepended) 仍正確;剪掉最新→標記往後缺口讓右滑可補回。
+        let _incAnchor = nPrepended;
+        if (vr && ohlcvData.length > 15000) {
+          const viewToNew = Math.ceil(vr.to) + nPrepended;      // 視野右緣在「已 prepend」的新 index 空間
+          const keepHi = Math.min(ohlcvData.length - 1, viewToNew + 4500);
+          if (keepHi > viewToNew + 50 && keepHi < ohlcvData.length - 1) {
+            ohlcvData = ohlcvData.slice(0, keepHi + 1);
+            _rebuildTimeIndex();
+            _incAnchor = 0;                                       // 已改動右側→全量重建 anchor
+            try {
+              const _lastT = toTime(ohlcvData[ohlcvData.length - 1].time);
+              const _nowSec = Math.floor(Date.now() / 1000) + 8 * 3600;
+              const _tfS = { "1m":60,"5m":300,"15m":900,"30m":1800,"1h":3600,"2h":7200,"4h":14400,"1d":86400 }[currentTF] || 3600;
+              window._hasFwdGap = _lastT < _nowSec - _tfS * 2;
+            } catch (e) {}
+          }
+        }
         const shifted = vr ? { from: vr.from + nPrepended, to: vr.to + nPrepended } : null;
         if (shifted) { mainChart.timeScale().setVisibleLogicalRange(shifted); [kdjChart, rsiChart, macdChart].forEach(c => { try { c.timeScale().setVisibleLogicalRange(shifted); } catch (e) {} }); }
-        _bgApplyChunk(ohlcvData, nPrepended);
+        _bgApplyChunk(ohlcvData, _incAnchor);
         const _setShifted = () => { try { if (shifted) { mainChart.timeScale().setVisibleLogicalRange(shifted); [kdjChart, rsiChart, macdChart].forEach(c => { try { c.timeScale().setVisibleLogicalRange(shifted); } catch (e) {} }); } } catch (e) {} };
         if (shifted) _setShifted();
         // 只在被延遲操作壓回最右緣時才搶回(條件式,不無腦覆寫、不干擾使用者續滑)
@@ -879,7 +897,7 @@ async function _bgLoadOlderBars(scrollTriggered = false) {
    往一邊一直補時另一邊自動丟棄,常駐根數維持有界(避免半年前往右補回現在又累積成幾萬根→卡)。
    回傳「左側被刪的根數」供呼叫端補償視野位移(刪左側→既有 index 下移)。重播中不修。 */
 function _trimRollingWindow() {
-  const MAX = 5000, BUF = 1200;
+  const MAX = 15000, BUF = 4500;   // 保留視窗放大→往右滑一段後回頭往左仍在已載範圍內、不用重抓(消除「停一下才出來」)
   if (ohlcvData.length <= MAX || replayActive) return 0;
   let vr;
   try { vr = mainChart.timeScale().getVisibleLogicalRange(); } catch (e) { return 0; }
@@ -912,13 +930,13 @@ let _idleTrimTimer = null;
 function _scheduleIdleTrim() {
   clearTimeout(_idleTrimTimer);
   _idleTrimTimer = setTimeout(() => {
-    if (replayActive || _bgLoadInProgress || !ohlcvData.length || ohlcvData.length <= 5000) return;
+    if (replayActive || _bgLoadInProgress || !ohlcvData.length || ohlcvData.length <= 15000) return;
     // ★確定性 logical:捕捉一次可見範圍 vr,同時用它算「保留區」+「位移補償」→數學上保證
     //   ①span 不變(vr.to-lo)-(vr.from-lo)=原span→不會縮到1根 ②視野一定在保留區內(vr.to≤hi)→右緣不空。
     let vr;
     try { vr = mainChart.timeScale().getVisibleLogicalRange(); } catch (e) { return; }
     if (!vr || !Number.isFinite(vr.from) || !Number.isFinite(vr.to) || (vr.to - vr.from) < 3) return;
-    const BUF = 1500;
+    const BUF = 4500;
     const lo = Math.max(0, Math.floor(vr.from) - BUF);
     const hi = Math.min(ohlcvData.length - 1, Math.ceil(vr.to) + BUF);
     if (hi - lo + 1 >= ohlcvData.length) return;   // 已涵蓋全部→不修

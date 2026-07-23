@@ -978,7 +978,7 @@ function syncTimeScales() {
     if (typeof _scheduleMarkerRewindow === "function") _scheduleMarkerRewindow();
     // 接近左側邊界就提前預抓下一塊歷史（門檻拉大 → 還沒滑到空白就先載好，補資料更快不卡頓）
     //   ⚠ 方向搶佔:若正在跑「補新」而使用者回頭往左→中止補新、立刻改補舊(否則共用旗標會擋掉→沒往舊補)
-    if (p.range.from < 600 && ohlcvData.length) {
+    if (p.range.from < 2000 && ohlcvData.length) {   // 提早預抓(離左緣還 2000 根就載)→ 滑到邊前資料已到,不再「停一下才出來」
       const now = Date.now();
       const busyNewer = _bgLoadInProgress && window._bgLoadDir === "newer";
       if ((!_bgLoadInProgress || busyNewer) && now - _scrollLoadTs > 250) {
@@ -990,7 +990,7 @@ function syncTimeScales() {
     // 接近右側邊界 + 有往後缺口(捲歷史抓的有界視窗未到現在)→ 往「新(現在方向)」補;補完滾動修剪左側→常駐有界
     //   ⚠ 門檻用「n−60」(視野右緣真的貼近最新載入棒)而非 n−600:小的有界視窗(切換初態)下 n−600 會恆成立
     //     → 一進場就誤觸補新、與補舊互相觸發成迴圈把視野搞垮(span→1)。只在使用者真的滑到右牆才補。
-    else if (window._hasFwdGap && p.range.to > ohlcvData.length - 60 && ohlcvData.length) {
+    else if (window._hasFwdGap && p.range.to > ohlcvData.length - 600 && ohlcvData.length) {   // 提早預抓右側
       const now = Date.now();
       const busyOlder = _bgLoadInProgress && window._bgLoadDir === "older";
       if ((!_bgLoadInProgress || busyOlder) && now - _scrollLoadTs > 250) {
