@@ -977,18 +977,25 @@ function syncTimeScales() {
     // 平移/縮放 → 重算可見範圍的標記視窗（debounced，避免長範圍時 setMarkers 拖慢）
     if (typeof _scheduleMarkerRewindow === "function") _scheduleMarkerRewindow();
     // 接近左側邊界就提前預抓下一塊歷史（門檻拉大 → 還沒滑到空白就先載好，補資料更快不卡頓）
-    if (p.range.from < 600 && !_bgLoadInProgress && ohlcvData.length) {
+    //   ⚠ 方向搶佔:若正在跑「補新」而使用者回頭往左→中止補新、立刻改補舊(否則共用旗標會擋掉→沒往舊補)
+    if (p.range.from < 600 && ohlcvData.length) {
       const now = Date.now();
-      if (now - _scrollLoadTs > 250) { // 節流縮短 → 連續往回滑時下一塊能更快接上
+      const busyNewer = _bgLoadInProgress && window._bgLoadDir === "newer";
+      if ((!_bgLoadInProgress || busyNewer) && now - _scrollLoadTs > 250) {
         _scrollLoadTs = now;
+        if (busyNewer) _bgLoadInProgress = false;  // 放行補舊;補舊啟動時 ++_bgLoadGen 會令補新迴圈自行中止
         _bgLoadOlderBars(true); // 滑動觸發，分頁載入更早的資料（一次一塊）
       }
     }
     // 接近右側邊界 + 有往後缺口(捲歷史抓的有界視窗未到現在)→ 往「新(現在方向)」補;補完滾動修剪左側→常駐有界
-    if (window._hasFwdGap && p.range.to > ohlcvData.length - 600 && !_bgLoadInProgress && ohlcvData.length) {
+    //   ⚠ 門檻用「n−60」(視野右緣真的貼近最新載入棒)而非 n−600:小的有界視窗(切換初態)下 n−600 會恆成立
+    //     → 一進場就誤觸補新、與補舊互相觸發成迴圈把視野搞垮(span→1)。只在使用者真的滑到右牆才補。
+    else if (window._hasFwdGap && p.range.to > ohlcvData.length - 60 && ohlcvData.length) {
       const now = Date.now();
-      if (now - _scrollLoadTs > 250) {
+      const busyOlder = _bgLoadInProgress && window._bgLoadDir === "older";
+      if ((!_bgLoadInProgress || busyOlder) && now - _scrollLoadTs > 250) {
         _scrollLoadTs = now;
+        if (busyOlder) _bgLoadInProgress = false;  // 搶佔:中止補舊改補新
         if (typeof _bgLoadNewerBars === "function") _bgLoadNewerBars(true);
       }
     }

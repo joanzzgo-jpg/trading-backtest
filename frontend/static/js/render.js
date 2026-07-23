@@ -718,6 +718,7 @@ async function _bgLoadOlderBars(scrollTriggered = false) {
 
   const myGen = ++_bgLoadGen;
   _bgLoadInProgress = true;
+  window._bgLoadDir = "older";            // 方向標記:供 scroll 觸發器判斷是否需搶佔(反向時中止本次改跑對向)
   let loadedThisRun = 0;                 // 本次滑動載入累計根數
   const SCROLL_BUDGET = 10000;           // 滑動每次約載這麼多根就停（5m≈35天），滑到左緣再載下一批
 
@@ -890,6 +891,7 @@ async function _bgLoadNewerBars(scrollTriggered = false) {
 
   const myGen = ++_bgLoadGen;
   _bgLoadInProgress = true;
+  window._bgLoadDir = "newer";
   let loadedThisRun = 0;
   const SCROLL_BUDGET = 10000;
 
@@ -918,27 +920,33 @@ async function _bgLoadNewerBars(scrollTriggered = false) {
       const newBars = json.data.filter(b => toTime(b.time) > existingLatest);
       if (!newBars.length) { window._hasFwdGap = false; break; }   // 沒有更新的→已到現在
 
-      const visRange = mainChart.timeScale().getVisibleLogicalRange();
-      ohlcvData = ohlcvData.concat(newBars);        // 往右 append,既有 index 不變
+      // ⚠ 用「時間軸範圍」還原,不用 logical index：append/修剪都會改 index、算 _cut 補償易跑掉;
+      //   時間值不受 index 位移影響 → setVisibleRange 保證停在「一模一樣的那幾根」上(定位不跑)。
+      const visT = mainChart.timeScale().getVisibleRange();
+      ohlcvData = ohlcvData.concat(newBars);        // 往右 append
       _rebuildTimeIndex();
-      const _cut = _trimRollingWindow();             // 滾動修剪左側(往右補→丟最舊),回傳左刪根數
+      _trimRollingWindow();                          // 滾動修剪(往右補→丟最舊,常駐有界)
 
       if (!replayActive) {
         _bgApplyChunk(ohlcvData, 0);
-        // append 不移動視野;但 setData 可能被 LWC 拉去貼最新、且修剪左側會使既有 index 下移 _cut →
-        //   還原到「視野 − _cut」讓使用者停在原處不跳。
-        const _restore = () => {
+        // 只補一次(當下同步)+ 下一幀「條件式」搶回:僅在 LWC 延遲把視野彈到最右緣時才再套,
+        //   不無腦延遲重套 → 不會蓋掉使用者拖曳中的當下位置(修「定位跑掉」)。
+        const _apply = () => {
           try {
-            if (!visRange) return;
-            const sh = { from: visRange.from - _cut, to: visRange.to - _cut };
-            mainChart.timeScale().setVisibleLogicalRange(sh);
-            [kdjChart, rsiChart, macdChart].forEach(c => c.timeScale().setVisibleLogicalRange(sh));
+            if (!visT) return;
+            mainChart.timeScale().setVisibleRange(visT);
+            const lr = mainChart.timeScale().getVisibleLogicalRange();
+            if (lr) [kdjChart, rsiChart, macdChart].forEach(c => { try { c.timeScale().setVisibleLogicalRange(lr); } catch (e) {} });
           } catch (e) {}
         };
-        _restore();
-        requestAnimationFrame(_restore);
-        setTimeout(_restore, 120);
-        setTimeout(_restore, 350);
+        _apply();
+        requestAnimationFrame(() => {
+          try {
+            const cur = mainChart.timeScale().getVisibleLogicalRange();
+            // 被彈到最右緣(cur.to 貼齊資料尾)但使用者原本不在尾 → 搶回;否則(使用者已自行拖動)不動
+            if (cur && cur.to >= ohlcvData.length - 3) _apply();
+          } catch (e) {}
+        });
         _bgScheduleIndicators();
       }
 
