@@ -575,7 +575,8 @@ function _onChartMouseDown(e) {
   // 只有 pointer 模式且滑鼠在線上才啟動拖移
   if (drawTool === "pointer") {
     const near = findNearest(x, y, _magnetMode ? 20 : 12);
-    if (near) {
+    // ⚠ 鎖定的繪圖:不攔截點擊(讓 LWC 正常平移穿過)、不啟動拖移 → 「鎖住」不會被誤拖。右鍵/雙擊仍可開選單解鎖。
+    if (near && !near.locked) {
       e.stopPropagation();   // 阻止 LWC pan
       selectedId = near.id;
       dragState  = { id: near.id, startX: x, startY: y, moved: false,
@@ -866,7 +867,23 @@ function showDrawColorPicker(drawing, clientX, clientY) {
     onStyleChange: (w, s) => {
       drawing.width = w; drawing.lineStyle = s;
       saveDrawings(); _scheduleRenderDrawings();
-    }
+    },
+    extraActions: [
+      { label: drawing.locked ? "🔓 解鎖" : "🔒 鎖定", active: !!drawing.locked,
+        onClick: () => {
+          drawing.locked = !drawing.locked;
+          if (drawing.locked && selectedId === drawing.id) selectedId = null;   // 鎖定即取消選取,避免殘留把手
+          saveDrawings(); _scheduleRenderDrawings();
+        } },
+      { label: (drawing.text ? "✎ 改文字" : "✎ 加文字"),
+        onClick: () => {
+          const cur = drawing.text || "";
+          const t = window.prompt("繪圖文字(顯示在上方;清空移除):", cur);
+          if (t === null) return;                 // 取消
+          drawing.text = t.trim() || undefined;   // 空字串→移除
+          saveDrawings(); _scheduleRenderDrawings();
+        } },
+    ],
   });
 }
 
@@ -2162,6 +2179,42 @@ function _drawDrawTags(W, H) {
   }
 }
 
+// 繪圖上方的文字標籤(非文字型;text/emoji/note 的 text 是本體不另畫)。錨點:hline=左緣該價、vline=該時間頂、其餘=p1。
+// (鎖定不在主圖畫圖示——狀態看右鍵選單按鈕變「🔓 解鎖」即可,避免污染主圖。)
+function _drawDrawingBadge(d, W, H) {
+  const TEXT_TYPES = { text: 1, emoji: 1, note: 1 };
+  if (!d.text || TEXT_TYPES[d.type]) return;
+  let x, y;
+  try {
+    if (d.type === "hline") { x = W / 2; y = candleSeries.priceToCoordinate(d.price); }   // 水平置中
+    else if (d.type === "vline") { x = _timeToX(d.time); y = H / 2; }
+    else {
+      // 錨在線的「正中間」(兩點中點)→ 文字置中顯示在線的中央
+      const s1 = (d.p1 && d.p1.time != null) ? chartToScreen(d.p1.time, d.p1.price) : null;
+      const s2 = (d.p2 && d.p2.time != null) ? chartToScreen(d.p2.time, d.p2.price) : null;
+      if (s1 && s2) { x = (s1.x + s2.x) / 2; y = (s1.y + s2.y) / 2; }
+      else if (s1 || s2) { const s = s1 || s2; x = s.x; y = s.y; }
+      else if (d.time != null && d.price != null) { const s0 = chartToScreen(d.time, d.price); if (s0) { x = s0.x; y = s0.y; } }
+    }
+  } catch (e) { return; }
+  if (x == null || y == null || !isFinite(x) || !isFinite(y) || y < -20 || y > H + 20) return;
+  const col = d.color || _drawColor;
+  drawCtx.save();
+  drawCtx.setLineDash([]);
+  drawCtx.shadowBlur = 0;
+  drawCtx.textBaseline = "alphabetic";
+  drawCtx.font = "12px sans-serif";
+  const tw = drawCtx.measureText(d.text).width;
+  // 垂直：對齊線的中點高度(上面算的 y);水平：靠右貼主圖右緣。
+  const lx = Math.max(3, W - tw - 8);
+  if (y < 8 || y > H - 2) { drawCtx.restore(); return; }   // 線中點在畫面外→不畫
+  drawCtx.fillStyle = "rgba(20,24,34,0.82)";
+  drawCtx.fillRect(lx - 4, y - 9, tw + 8, 17);
+  drawCtx.fillStyle = col;
+  drawCtx.fillText(d.text, lx, y + 4);
+  drawCtx.restore();
+}
+
 function renderDrawings() {
   if (!drawCtx || !drawCanvas) return;
   // 圖表移動中旗標：給 _drawSessionOverlay 等跳過大面積半透明填色（overlay 2x 畫布最貴的像素工作）
@@ -2203,6 +2256,9 @@ function renderDrawings() {
   drawings.filter(d => d.id !== selectedId && d.id !== hoveredId).forEach(d => _safeDraw(d, false, false));
   drawings.filter(d => d.id === hoveredId && d.id !== selectedId).forEach(d => _safeDraw(d, true, false));
   drawings.filter(d => d.id === selectedId).forEach(d => _safeDraw(d, false, true));
+
+  // 繪圖文字標籤(非文字型)+ 鎖定圖示:畫在繪圖錨點上方
+  drawings.forEach(d => { if (d.text) { try { _drawDrawingBadge(d, W, H); } catch (e) { try { drawCtx.restore(); } catch (_) {} } } });
 
   // （策略棒止損線改由 realtime.js onMainCrosshair 用 LWC 原生 price line 畫，不再走 overlay）
 

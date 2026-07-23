@@ -285,6 +285,11 @@ function initColorPicker() {
   styleWrap.append(styleLabel, styleRow);
   popup.appendChild(styleWrap);
 
+  // 額外動作列（繪圖用：鎖定/編輯文字等，由 extraActions 動態填按鈕）
+  const extraRow = document.createElement("div"); extraRow.className = "cp-extra-row";
+  extraRow.style.cssText = "display:none;gap:6px;padding:6px 8px 0;flex-wrap:wrap;";
+  popup.appendChild(extraRow);
+
   // 刪除按鈕列（繪圖直接模式用）
   const delRow = document.createElement("div"); delRow.className = "cp-del-row";
   delRow.style.display = "none";
@@ -398,8 +403,26 @@ function initColorPicker() {
     delRow.style.display = "none";
   }
 
-  function showDirect(clientX, clientY, { sections, onDelete, showStyle, currentWidth, currentLineStyle, onStyleChange }) {
+  function showDirect(clientX, clientY, { sections, onDelete, showStyle, currentWidth, currentLineStyle, onStyleChange, extraActions }) {
     closePicker();
+    // 額外動作按鈕(鎖定/編輯文字…):每次重建
+    extraRow.innerHTML = "";
+    if (extraActions && extraActions.length) {
+      extraActions.forEach(a => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.textContent = a.label;
+        b.style.cssText = "flex:1;min-width:64px;padding:5px 8px;border-radius:6px;border:1px solid " +
+          (a.active ? "#ffb300" : "#3a3f4d") + ";background:" + (a.active ? "#4a3b00" : "#262a36") +
+          ";color:" + (a.active ? "#ffd54f" : "#d1d4dc") + ";font-size:12px;cursor:pointer;";
+        b.addEventListener("mousedown", ev => { ev.stopPropagation(); });
+        b.addEventListener("click", ev => { ev.stopPropagation(); try { a.onClick(); } catch (e) {} closePicker(); });
+        extraRow.appendChild(b);
+      });
+      extraRow.style.display = "flex";
+    } else {
+      extraRow.style.display = "none";
+    }
     _directSecs = sections; _activeSecIdx = 0;
     _directOnDelete = onDelete || null;
     _directOnStyleChange = onStyleChange || null;
