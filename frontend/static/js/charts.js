@@ -999,6 +999,8 @@ function syncTimeScales() {
         if (typeof _bgLoadNewerBars === "function") _bgLoadNewerBars(true);
       }
     }
+    // 平移中不斷排程「閒置滾動修剪」(debounce 600ms)→ 停手後把累積的常駐根數壓回有界,setData 更快、記憶體有界
+    if (typeof _scheduleIdleTrim === "function") _scheduleIdleTrim();
   }
   allCharts.forEach((src, si) => {
     src.timeScale().subscribeVisibleLogicalRangeChange(range => {

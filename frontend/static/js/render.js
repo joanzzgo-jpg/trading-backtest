@@ -860,14 +860,50 @@ function _trimRollingWindow() {
   if (ohlcvData.length <= MAX || replayActive) return 0;
   let vr;
   try { vr = mainChart.timeScale().getVisibleLogicalRange(); } catch (e) { return 0; }
-  if (!vr) return 0;
+  // ⚠ 防呆:背景載入/切換途中視野可能是異常值(NaN 或 from>to 顛倒)→ 若不擋,slice(lo,hi) 在 hi<lo
+  //   時會切成空陣列、把 ohlcvData 清空(series 卻還在)＝資料憑空消失的 bug。異常一律不修。
+  if (!vr || !Number.isFinite(vr.from) || !Number.isFinite(vr.to) || vr.to <= vr.from) return 0;
   const lo = Math.max(0, Math.floor(vr.from) - BUF);
   const hi = Math.min(ohlcvData.length - 1, Math.ceil(vr.to) + BUF);
-  if (hi - lo + 1 >= ohlcvData.length) return 0;   // 視野±緩衝已涵蓋全部→不修
+  if (hi <= lo || (hi - lo + 1) < 200) return 0;                 // 範圍不合理/會留太少→不修
+  if (hi - lo + 1 >= ohlcvData.length) return 0;                 // 視野±緩衝已涵蓋全部→不修
   ohlcvData = ohlcvData.slice(lo, hi + 1);
   _rebuildTimeIndex();
   return lo;
 }
+
+/* 閒置滾動修剪:平移停手後,若常駐根數過多(往兩側補載累積)→ 只留可見±緩衝、其餘丟棄,
+   讓 setData 成本與記憶體維持有界(往右補新的整包 setData 更快、頓幀更少)。
+   ・debounce 600ms:只在真的停手才修,連續操作不打斷。
+   ・時間軸還原:修剪改 index 但畫面停在「一模一樣的那幾根」上→修的當下畫面不動、無感。
+   ・載入中/重播中不修。 */
+let _idleTrimTimer = null;
+function _scheduleIdleTrim() {
+  clearTimeout(_idleTrimTimer);
+  _idleTrimTimer = setTimeout(() => {
+    if (replayActive || _bgLoadInProgress || !ohlcvData.length || ohlcvData.length <= 5000) return;
+    let visT;
+    try { visT = mainChart.timeScale().getVisibleRange(); } catch (e) { return; }
+    const before = ohlcvData.length;
+    _trimRollingWindow();
+    if (ohlcvData.length === before) return;   // 沒修到→不重繪
+    _bgApplyChunk(ohlcvData, 0);
+    try {
+      if (visT) {
+        mainChart.timeScale().setVisibleRange(visT);
+        const lr = mainChart.timeScale().getVisibleLogicalRange();
+        if (lr) [kdjChart, rsiChart, macdChart].forEach(c => { try { c.timeScale().setVisibleLogicalRange(lr); } catch (e) {} });
+      }
+    } catch (e) {}
+    _bgScheduleIndicators();
+    if (typeof _renderFVGMS === "function") _renderFVGMS();
+    if (typeof _renderFVGShun === "function") _renderFVGShun();
+    if (typeof _renderFVGBreak === "function") _renderFVGBreak();
+    if (typeof _renderFVGSpecial === "function") _renderFVGSpecial();
+    if (typeof _renderFVGTrades === "function") _renderFVGTrades();
+  }, 600);
+}
+window._scheduleIdleTrim = _scheduleIdleTrim;
 
 /* 往「新(未來/現在)」方向背景補載(捲歷史抓的有界視窗未到現在時,往右拖到近右緣觸發)。
    與 _bgLoadOlderBars 對稱:往右 append、不改既有 index;補完順手滾動修剪左側 → 常駐根數有界。 */
