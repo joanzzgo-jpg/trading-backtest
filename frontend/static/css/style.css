@@ -2569,6 +2569,20 @@ html.perf-mode .time-axis-year {
 }
 .hidden { display: none !important; }
 
+/* 切時框/標的：TV 式「K棒短暫變暗→換新圖」過場遮罩(只蓋主圖 body，不動整頁/報價列)。
+   進場淡入快(.08s)、退場淡出稍慢(.22s) + 至少維持 ~0.24s(見 utils.js _chartDimOff)＝一次乾淨過場，
+   蓋掉快照→真資料→背景補載的內容抽換閃動。pointer-events:none 不擋互動。 */
+#chartDimVeil {
+  position: absolute;
+  inset: 0;
+  background: rgba(19, 23, 34, .58);
+  opacity: 0;
+  transition: opacity .22s ease;
+  pointer-events: none;
+  z-index: 6;
+}
+#chartDimVeil.on { opacity: 1; transition: opacity .08s ease; }
+
 /* ═══ DRAWING COLOR PICKER ═══ */
 .dcp-popup {
   position: fixed;

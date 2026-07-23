@@ -312,6 +312,26 @@ function showToast(msg, ms = 4000) {
   setTimeout(() => el.remove(), ms);
 }
 
+/* ── 切時框/標的：TV 式主圖過場暗場(只蓋 #mainChart 的 K 棒區，非整頁) ──
+   _chartDimOn 進場立刻淡暗;_chartDimOff 淡回，但保證整段至少維持 ~0.24s，
+   讓「快照秒畫→真資料 renderAll→背景補載」的內容抽換都藏在暗場下＝像 TV 一次乾淨換圖，不再看到舊圖先閃。 */
+let _chartDimT0 = 0;
+window._chartDimOn = function () {
+  const body = document.getElementById("mainChart");   // .pane-body(position:relative)
+  if (!body) return;
+  let el = document.getElementById("chartDimVeil");
+  if (!el) { el = document.createElement("div"); el.id = "chartDimVeil"; body.appendChild(el); void el.offsetWidth; }
+  el.classList.add("on");
+  _chartDimT0 = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+};
+window._chartDimOff = function () {
+  const el = document.getElementById("chartDimVeil");
+  if (!el) return;
+  const now = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+  const wait = Math.max(0, 160 - (now - _chartDimT0));   // 至少維持 ~0.16s(圖畫好即呼叫本函式;floor 只保證過場可辨識、不多壓死時間)
+  setTimeout(() => { const e = document.getElementById("chartDimVeil"); if (e) e.classList.remove("on"); }, wait);
+};
+
 function showLoading(show) {
   let el = document.getElementById("loadingOverlay");
   if (show) {

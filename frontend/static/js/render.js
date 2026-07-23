@@ -72,8 +72,21 @@ async function loadData(autoLoad = false) {
     if (el) el.textContent = "仍在載入中… 後端可能繁忙";
   }, 5000);
 
+  // TV 式過場：切時框/標的時先讓主圖 K 棒淡暗，真資料畫好再淡回(見 utils _chartDimOn/Off)。
+  //   僅在「已有圖」時(=切換,非首次載入)才暗場;首次載入走城門/全屏 loading。
+  //   ⚠ 必須在 _snapPaint 之前開暗場 → 連「快照秒畫→真資料→背景補載」的內容抽換都藏在暗場下，才不會先閃舊圖。
+  const _isSwitch = !!(mainChart && ohlcvData && ohlcvData.length);
+  if (_isSwitch && typeof window._chartDimOn === "function") window._chartDimOn();
+
   showLoading(true);
-  // 本機快照：這個標的最近看過(IndexedDB 有存)→ 先秒畫上次的圖(K棒+策略層)，
+  // ⚡ 速度：先「發射」ohlcv 網路請求(不 await)→ 讓 TCP/後端往返與下面的快照渲染「平行」跑，
+  //    不再讓快照渲染(~50-100ms 主執行緒)擋在網路請求前面(舊順序是先畫快照才發網路＝白等)。
+  const _ohlcvP = fetch("/api/ohlcv", {
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify(buildPayload()),
+    signal: myCtrl.signal,
+  });
+  // 本機快照：這個標的最近看過(IndexedDB 有存)→ 秒畫上次的圖(K棒+策略層)，趁網路飛行中畫、不阻塞請求。
   // 真資料/勝率到貨自動覆蓋（世代守衛在下方 _snapInvalidate）。開機與切標的同一條路。
   if (typeof window._snapPaint === "function") window._snapPaint();
   // 智慧並行：Pionex 獨有標的（.P）ohlcv 走 Pionex API 較慢，提前發 winrate 省 2-6s；
@@ -81,11 +94,7 @@ async function loadData(autoLoad = false) {
   const _isPerpSym = /\.P$/i.test(document.getElementById("symbolInput").value.trim());
   if (_isPerpSym) fetchWinRate();
   try {
-    const res  = await fetch("/api/ohlcv", {
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify(buildPayload()),
-      signal: myCtrl.signal,
-    });
+    const res  = await _ohlcvP;
     const json = await res.json();
     if (!res.ok) throw new Error(json.detail || "載入失敗");
     ohlcvData = json.data;
@@ -132,7 +141,11 @@ async function loadData(autoLoad = false) {
   } finally {
     clearTimeout(timeoutId);
     clearTimeout(slowHint);
-    if (myCtrl === _loadDataCtrl) showLoading(false);
+    if (myCtrl === _loadDataCtrl) {
+      showLoading(false);
+      // 收掉 TV 式過場暗場(僅本請求仍是最新時;被更新切換接手則交給那一筆收，避免提前露內容)
+      if (typeof window._chartDimOff === "function") window._chartDimOff();
+    }
   }
 }
 
