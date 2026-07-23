@@ -1019,12 +1019,17 @@ async function _bgLoadNewerBars(scrollTriggered = false) {
       const newBars = json.data.filter(b => toTime(b.time) > existingLatest);
       if (!newBars.length) { window._hasFwdGap = false; break; }   // 沒有更新的→已到現在
 
-      // ★確定性 logical:append 不改既有 index;修剪刪左 _cut 根→既有 index −_cut。合起來視野位移 = −_cut。
-      //   (不用時間軸捕捉→不會捕到瞬間退化視野而縮到1根/亂跳。)
+      // ★確定性 logical:append 不改既有 index;只修剪「左側」(往右看時最舊在畫面外)、用捕捉的 vr 算保留區
+      //   → 絕不剪到剛 append 的右側最新棒(舊版 _trimRollingWindow 讀瞬態 vr 會誤剪右側→資料右緣前進又倒退)。
+      //   刪左 _cut 根→既有 index −_cut。
       const vr = mainChart.timeScale().getVisibleLogicalRange();
       ohlcvData = ohlcvData.concat(newBars);        // 往右 append
       _rebuildTimeIndex();
-      const _cut = _trimRollingWindow();             // 滾動修剪(往右補→丟最舊),回傳左刪根數
+      let _cut = 0;
+      if (vr && Number.isFinite(vr.from) && ohlcvData.length > 15000) {
+        const keepLo = Math.max(0, Math.floor(vr.from) - 4500);   // 保留視野左側 4500 根,其餘(更舊)丟棄
+        if (keepLo > 50) { _cut = keepLo; ohlcvData = ohlcvData.slice(_cut); _rebuildTimeIndex(); }
+      }
 
       if (!replayActive) {
         _bgApplyChunk(ohlcvData, 0);
