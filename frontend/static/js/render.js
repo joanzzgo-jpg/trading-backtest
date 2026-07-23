@@ -4,7 +4,8 @@ let _pendingAlignRange = null; // 看歷史切小時框:目標時間段初次還
 async function loadData(autoLoad = false) {
   if (replayActive) exitReplay();
   _pendingAlignRange = null;   // 新載入作廢上一次未完成的歷史對齊目標
-  window._loadRangeStart = null;   // 預設抓最近 N 根;下方僅 BTC/ETH/SOL 5m 看歷史切時設成「該段起點」直接範圍抓取
+  window._loadRangeStart = null;   // 預設抓最近 N 根;下方「捲歷史切換」設成目標時間附近的有界視窗(start+end)直接範圍抓取
+  window._loadRangeEnd = null;
   /* 記住切換前的可見 K 棒數量，載入後還原相同縮放比例 */
   if (mainChart) {
     const _r = mainChart.timeScale().getVisibleLogicalRange();
@@ -20,13 +21,15 @@ async function loadData(autoLoad = false) {
         const _tr = mainChart.timeScale().getVisibleRange();
         if (_tr && _tr.from != null && _tr.to != null) {
           _savedTimeRange = { from: _tr.from, to: _tr.to };
-          // BTC/ETH/SOL 的 5m 倉庫供得起「一次到位」→ 看歷史切過去時直接抓「該段~至今」,第一次畫就對齊、不必先載近段再滑過去。
-          //   限這三個 5m:後端用倉庫深歷史+Binance新尾巴一次給完整(不會往最新斷);其他標的/時框仍走串流對齊。
-          const _symU = document.getElementById("symbolInput") ? document.getElementById("symbolInput").value.trim().toUpperCase() : "";
-          if (currentTF === "5m" && (_symU === "BTC/USDT" || _symU === "ETH/USDT" || _symU === "SOL/USDT" || _symU === "XAUT/USDT")) {
-            const _span = Math.max(0, _tr.to - _tr.from);
-            window._loadRangeStart = _tr.from - _span - 2 * 86400;
-          }
+          // ⚠ 捲歷史切換:抓「目標右緣時間(_tr.to)附近的有界視窗」——
+          //   ✗ 不抓「目標~至今」(半年前切5m會抓5萬根→超卡、且對齊常落到最新變7/21)
+          //   ✗ 不抓「最新再回填」(對齊落空、停在錯時間)
+          //   ✓ 抓目標左約300根、右約120根 → 目標時間落在視窗內、第一次畫就對齊(_placeAtAnchor 必中);
+          //     視窗僅數百根 → 任何時框都秒回、無 row-cap 風險;背景再往兩側補供拖曳。
+          //   後端:end 在過去→倉庫直接切片 _k_load(快)/API 範圍抓;end≥今天(錨點接近現在)→量本來就小。
+          const _ntfSec = { "1m":60,"5m":300,"15m":900,"30m":1800,"1h":3600,"2h":7200,"4h":14400,"1d":86400 }[currentTF] || 3600;
+          window._loadRangeStart = Math.floor(_tr.to - 300 * _ntfSec);
+          window._loadRangeEnd   = Math.floor(_tr.to + 120 * _ntfSec);
         }
       } catch (e) {}
     } else if (_r && ohlcvData.length) {

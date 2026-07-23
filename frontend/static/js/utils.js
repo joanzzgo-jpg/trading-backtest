@@ -252,12 +252,14 @@ function buildPayload() {
   // 看歷史切時框「一次到位」：window._loadRangeStart(秒) 設定時直接抓「該段~至今」→ 第一次畫就對齊、不滑動。
   //   只在後端能一次供完整(BTC/ETH/SOL 5m 倉庫+新尾巴)時才設(render.js 有把關),避免往最新斷。
   const _rs = window._loadRangeStart;
+  const _re = window._loadRangeEnd;
   const _rangeMode = (typeof _rs === "number" && isFinite(_rs));
   return {
     market:    document.getElementById("marketSelect").value,
     symbol:    sym,
     start:     _rangeMode ? new Date(_rs * 1000).toISOString().slice(0, 10) : "",
-    end:       "",
+    // 捲歷史切換：end 也帶(目標右緣+少量緩衝)→ 後端只切「目標附近有界視窗」數百根、秒回不卡;end 空=抓到現在(舊行為)
+    end:       (_rangeMode && typeof _re === "number" && isFinite(_re)) ? new Date(_re * 1000).toISOString().slice(0, 10) : "",
     limit:     _rangeMode ? 0 : ({ "1M":120,"1w":520,"1d":1095,"4h":800,"1h":700,"15m":700,"5m":700,"1m":700 }[currentTF] ?? 500),
     timeframe: currentTF,
     exchange:  document.getElementById("exchangeSelect").value,
