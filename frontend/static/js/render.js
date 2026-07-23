@@ -801,7 +801,9 @@ async function _bgLoadOlderBars(scrollTriggered = false) {
         if (shifted) _setShifted();   // 立即補償 prepend 位移
         // 看最新：重套縮放+右緣留白錨點 → 即使 setData/fitContent 把 barSpacing 壓回最小(0.5)，
         // 也立刻還原使用者的縮放與水平位置（修「切第三個標的最新棒黏回右緣」）。子圖已由 shifted 對齊。
-        if (_bgPosAnchor) { try { mainChart.timeScale().applyOptions(_bgPosAnchor); } catch (e) {} }
+        // ⚠ 但「滑動觸發」(scrollTriggered)＝使用者在左看歷史,絕不可套「貼最新」錨點——否則會把視野
+        //   重貼回最新+barSpacing 崩到最小(=「滑到一半自己回到最新Ｋ/圖縮到最小」的 bug)。此時走 shifted 還原。
+        if (_bgPosAnchor && !scrollTriggered) { try { mainChart.timeScale().applyOptions(_bgPosAnchor); } catch (e) {} }
         // 看歷史（無錨點）：setData 後 LWC 的 fitContent/內部 reset 是「延遲」操作，晚幾幀可能把
         // 視野壓回最新（=「往回看時自己跳到現在」的根因）。後續數幀偵測『確實被壓回最新』才搶回
         // shifted（用條件判斷，不無腦覆寫 → 不干擾使用者自己的捲動）。
@@ -871,6 +873,14 @@ function _trimRollingWindow() {
   if (hi - lo + 1 >= ohlcvData.length) return 0;                 // 視野±緩衝已涵蓋全部→不修
   ohlcvData = ohlcvData.slice(lo, hi + 1);
   _rebuildTimeIndex();
+  // 修剪後動態更新往後缺口旗標:若最新棒不到現在(右側被剪掉,如從看最新往左滑很多後)→標記有缺口,
+  //   讓使用者往右滑時 _bgLoadNewerBars 能重新補回現在(否則回不去最新)。反之補到現在則清除。
+  try {
+    const _lastT = toTime(ohlcvData[ohlcvData.length - 1].time);
+    const _nowSec = Math.floor(Date.now() / 1000) + 8 * 3600;
+    const _tfS = { "1m":60,"5m":300,"15m":900,"30m":1800,"1h":3600,"2h":7200,"4h":14400,"1d":86400 }[currentTF] || 3600;
+    window._hasFwdGap = _lastT < _nowSec - _tfS * 2;
+  } catch (e) {}
   return lo;
 }
 
@@ -897,6 +907,9 @@ function _scheduleIdleTrim() {
         if (lr) [kdjChart, rsiChart, macdChart].forEach(c => { try { c.timeScale().setVisibleLogicalRange(lr); } catch (e) {} });
       }
     } catch (e) {}
+    // ★同步重算指標:BB 用 debounce 會被載入殘留的大 n renderBB 蓋掉→BB series 停在 6 萬根+破洞(與修剪後 K 線對不上=「銜接斷掉」)。
+    //   修剪後直接 renderBB(當前 ohlcvData) 保證同步;副圖仍走 debounce。
+    if (typeof renderBB === "function") renderBB(ohlcvData);
     _bgScheduleIndicators();
     if (typeof _renderFVGMS === "function") _renderFVGMS();
     if (typeof _renderFVGShun === "function") _renderFVGShun();
