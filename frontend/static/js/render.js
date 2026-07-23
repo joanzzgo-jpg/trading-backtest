@@ -655,20 +655,24 @@ function renderMACD(data) {
 ══════════════════════════════════════════ */
 
 function _bgApplyChunk(data, nPrepended) {
-  // 增量建錨點（只 map 新的那段，不重建全量）
-  const _vf = arr => arr.filter(d => d && Number.isFinite(toTime(d.time)));   // 濾壞時間棒→anchor 不含 NaN 時間(否則 LWC paint「Value is null」)
-  if (_bgAnchorCache && nPrepended > 0) {
-    const slice   = _vf(data.slice(0, nPrepended));
-    _bgAnchorCache = [...slice.map(d => ({ time: toTime(d.time), value: 50 })), ..._bgAnchorCache];
-    _bgMacdCache   = [...slice.map(d => ({ time: toTime(d.time), value: 0  })), ..._bgMacdCache];
-  } else {
-    const _v = _vf(data);
-    _bgAnchorCache = _v.map(d => ({ time: toTime(d.time), value: 50 }));
-    _bgMacdCache   = _v.map(d => ({ time: toTime(d.time), value: 0  }));
+  // ⚡ 副圖隱藏(預設)時:3 條錨點 series 在 display:none 的圖上、setData 純白工 → 跳過(每塊補載省 3 條全量
+  //    setData + 2 次全量 map,把切 chunk 的 ~100ms 頓砍掉大半)。副圖打開時由 renderAll 重建錨點,不影響。
+  if (!(typeof _subchartsHidden === "function" && _subchartsHidden())) {
+    // 增量建錨點（只 map 新的那段，不重建全量）
+    const _vf = arr => arr.filter(d => d && Number.isFinite(toTime(d.time)));   // 濾壞時間棒→anchor 不含 NaN 時間(否則 LWC paint「Value is null」)
+    if (_bgAnchorCache && nPrepended > 0) {
+      const slice   = _vf(data.slice(0, nPrepended));
+      _bgAnchorCache = [...slice.map(d => ({ time: toTime(d.time), value: 50 })), ..._bgAnchorCache];
+      _bgMacdCache   = [...slice.map(d => ({ time: toTime(d.time), value: 0  })), ..._bgMacdCache];
+    } else {
+      const _v = _vf(data);
+      _bgAnchorCache = _v.map(d => ({ time: toTime(d.time), value: 50 }));
+      _bgMacdCache   = _v.map(d => ({ time: toTime(d.time), value: 0  }));
+    }
+    kdjAnchor.setData(_bgAnchorCache);
+    rsiAnchor.setData(_bgAnchorCache);
+    macdAnchor.setData(_bgMacdCache);
   }
-  kdjAnchor.setData(_bgAnchorCache);
-  rsiAnchor.setData(_bgAnchorCache);
-  macdAnchor.setData(_bgMacdCache);
   // applyOhlcvToSeries：直接更新 candleSeries，不呼叫 setMarkers（避免 marker 清空閃爍）
   applyOhlcvToSeries(data);
   // 輕量 volume 更新（跳過 priceScale.applyOptions 避免 layout thrashing）
