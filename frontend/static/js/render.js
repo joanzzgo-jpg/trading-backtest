@@ -23,7 +23,7 @@ async function loadData(autoLoad = false) {
           // BTC/ETH/SOL 的 5m 倉庫供得起「一次到位」→ 看歷史切過去時直接抓「該段~至今」,第一次畫就對齊、不必先載近段再滑過去。
           //   限這三個 5m:後端用倉庫深歷史+Binance新尾巴一次給完整(不會往最新斷);其他標的/時框仍走串流對齊。
           const _symU = document.getElementById("symbolInput") ? document.getElementById("symbolInput").value.trim().toUpperCase() : "";
-          if (currentTF === "5m" && (_symU === "BTC/USDT" || _symU === "ETH/USDT" || _symU === "SOL/USDT")) {
+          if (currentTF === "5m" && (_symU === "BTC/USDT" || _symU === "ETH/USDT" || _symU === "SOL/USDT" || _symU === "XAUT/USDT")) {
             const _span = Math.max(0, _tr.to - _tr.from);
             window._loadRangeStart = _tr.from - _span - 2 * 86400;
           }
@@ -143,8 +143,11 @@ async function loadData(autoLoad = false) {
     clearTimeout(slowHint);
     if (myCtrl === _loadDataCtrl) {
       showLoading(false);
-      // 收掉 TV 式過場暗場(僅本請求仍是最新時;被更新切換接手則交給那一筆收，避免提前露內容)
-      if (typeof window._chartDimOff === "function") window._chartDimOff();
+      // 收掉 TV 式過場暗場(僅本請求仍是最新時;被更新切換接手則交給那一筆收，避免提前露內容)。
+      // ⚠ 若捲在歷史切小時框、目標段比初次載入更早(_pendingAlignRange 已設)→ 暫不收：
+      //   真正把視野「拉回目標段」是在背景補到涵蓋時(_bgLoadOlderBars 的 align 分支)才發生，
+      //   暗場撐到那時才淡出＝那段「滑動到目標」藏在暗場下(2.5s 失效保險兜底)。
+      if (typeof window._chartDimOff === "function" && !_pendingAlignRange) window._chartDimOff();
     }
   }
 }
@@ -740,6 +743,8 @@ async function _bgLoadOlderBars(scrollTriggered = false) {
         requestAnimationFrame(_applyAlign);
         setTimeout(_applyAlign, 130);
         setTimeout(_applyAlign, 380);
+        // 視野已拉回目標段 → 收掉一路撐著的過場暗場(那段「滑動到」就藏在暗場下、使用者看不到)
+        setTimeout(() => { if (typeof window._chartDimOff === "function") window._chartDimOff(); }, 400);
         _bgScheduleIndicators();
       } else {
         // 先鎖定視圖位置，再更新資料，再確認一次（雙保險防 LWT 內部 reset）
