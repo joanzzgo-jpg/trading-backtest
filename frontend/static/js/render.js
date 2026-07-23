@@ -88,7 +88,9 @@ async function loadData(autoLoad = false) {
   });
   // 本機快照：這個標的最近看過(IndexedDB 有存)→ 秒畫上次的圖(K棒+策略層)，趁網路飛行中畫、不阻塞請求。
   // 真資料/勝率到貨自動覆蓋（世代守衛在下方 _snapInvalidate）。開機與切標的同一條路。
-  if (typeof window._snapPaint === "function") window._snapPaint();
+  // ⚠ 捲在歷史切換(_savedTimeRange 有值)時「不畫快照」：快照是上次的視野(多半在最新/別處)，
+  //   畫出來就是使用者說的「先跳一張(最新)才到目標」的中間畫面；歷史切換直接讓真資料一次畫在目標段。
+  if (typeof window._snapPaint === "function" && !_savedTimeRange) window._snapPaint();
   // 智慧並行：Pionex 獨有標的（.P）ohlcv 走 Pionex API 較慢，提前發 winrate 省 2-6s；
   // Binance 標的 ohlcv 已 <1s，提前發只會讓「計算中…」動畫多顯示 0.5s 反而看起來變慢
   const _isPerpSym = /\.P$/i.test(document.getElementById("symbolInput").value.trim());
@@ -167,6 +169,26 @@ function _rebuildTimeIndex() {
     _secToIdx.set(toTime(t), i);
   }
   ++_dataVersion;
+}
+
+// 時間(秒)→ ohlcvData 中最接近的 bar index(二分查找;資料依時間升冪)。
+// 歷史切換「保持縮放定位在目標時間」用:右緣放這根、往左顯示同樣根數。
+function _nearestIdxByTime(sec) {
+  const n = ohlcvData.length;
+  if (!n || sec == null) return null;
+  if (sec <= toTime(ohlcvData[0].time)) return 0;
+  if (sec >= toTime(ohlcvData[n - 1].time)) return n - 1;
+  let lo = 0, hi = n - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const t = toTime(ohlcvData[mid].time);
+    if (t === sec) return mid;
+    if (t < sec) lo = mid + 1; else hi = mid - 1;
+  }
+  // lo=首個>sec、hi=末個<sec → 取較近者
+  const dLo = Math.abs(toTime(ohlcvData[lo].time) - sec);
+  const dHi = Math.abs(toTime(ohlcvData[hi].time) - sec);
+  return dLo < dHi ? lo : hi;
 }
 
 /* ══════════════════════════════════════════
@@ -286,11 +308,11 @@ function renderAll(data) {
     }
   } else if (_savedTimeRange && data.length) {
     const _first = toTime(data[0].time), _last = toTime(data[data.length - 1].time);
-    const { from, to } = _savedTimeRange;
+    const _anchorT = _savedTimeRange.to;             // 使用者切換前「右緣」所在的時間(要對齊的點)
     const _bc = Math.max(5, _savedBarCount || 50);   // 原可見根數＝縮放
-    // 防踩重申：此路徑沒有錨點保護，延遲的 fitContent/resize 可能晚一幀把縮放壓爛
-    // （span 爆成整包 K → 畫面看似「最右邊沒K棒」）。span 偏離目標 >60% 才重申，
-    // 正常情況一次都不會觸發、不干擾使用者切完立即拖曳。
+    // ⚠ 保持縮放(TradingView式)：右緣放在目標時間、往左顯示「同樣根數」→ 大切小不再塞整段日曆時間
+    //   (舊「保持時長」setVisibleRange 會把幾千根小K擠成一片＝使用者說的「塞滿/滑動/跳好幾張才到」的根因)。
+    // 防踩重申：延遲的 fitContent/resize 可能晚一幀把縮放壓爛(span 爆掉)→ span 偏離目標 >60% 才重申。
     const _guardRestore = (applyFn) => {
       applyFn();
       let _target = null;
@@ -307,19 +329,18 @@ function renderAll(data) {
       setTimeout(_guard, 150);
       setTimeout(_guard, 380);
     };
-    if (from >= _first && from <= _last) {
-      // 新標的有這段歷史 → 對齊同一時間段（每個標的看到同一段時間）
-      try {
-        const _tr2 = { from, to: Math.min(to, _last) };
-        _guardRestore(() => { try { mainChart.timeScale().setVisibleRange(_tr2); } catch (e) {} });
-      } catch (e) { _restoreByBarCount(); }
-    } else if (from < _first) {
-      // 目標時間段比目前已載入的最早資料還早(小時框初次只載近段、或切標的歷史不同)→
-      //   先貼到最早處;並記下目標,待背景補載到涵蓋此段時再把視野拉回去(_bgLoadOlderBars 內)。
-      _pendingAlignRange = { from, to: Math.min(to, _last) };
-      try {
-        _guardRestore(() => { try { mainChart.timeScale().setVisibleLogicalRange({ from: 0, to: _bc }); } catch (e) {} });
-      } catch (e) { _restoreByBarCount(); }
+    const _placeAtAnchor = () => {
+      const idx = _nearestIdxByTime(_anchorT);
+      if (idx == null) { _restoreByBarCount(); return; }
+      _guardRestore(() => { try { mainChart.timeScale().setVisibleLogicalRange({ from: idx - _bc, to: idx }); } catch (e) {} });
+    };
+    if (_anchorT >= _first && _anchorT <= _last + 1) {
+      // 目標時間已在載入資料內 → 一次定位到目標段、保持原縮放(單張畫面直達,不跳不滑)
+      _placeAtAnchor();
+    } else if (_anchorT < _first) {
+      // 目標比已載最早還早(小時框初次只載近段)→ 先貼最舊;記下目標,背景補到涵蓋時再定位到目標(仍保持縮放)。
+      _pendingAlignRange = { anchorT: _anchorT, bc: _bc };
+      _guardRestore(() => { try { mainChart.timeScale().setVisibleLogicalRange({ from: 0, to: _bc }); } catch (e) {} });
     } else {
       _restoreByBarCount();
     }
@@ -671,7 +692,11 @@ async function _bgLoadOlderBars(scrollTriggered = false) {
   let   targetStartTs = Math.floor(Date.now() / 1000) - totalDays * 86400;
   // 看歷史切時框:分頁串流必須補到「你正在看的那段」才停,否則對齊落空(切不到同一天)。
   //   把目標深度延伸到待對齊起點前 1 天(近段仍先載、含現在→不會往最新斷)。
-  if (_pendingAlignRange) targetStartTs = Math.min(targetStartTs, _pendingAlignRange.from - 86400);
+  if (_pendingAlignRange) {
+    // 補到「目標時間 − 可見根數×時框」再前 1 天 → 確保目標右緣左側有足夠根數(保持縮放)
+    const _tfSec = { "1m":60,"5m":300,"15m":900,"30m":1800,"1h":3600,"2h":7200,"4h":14400,"1d":86400 }[snapTf] || 3600;
+    targetStartTs = Math.min(targetStartTs, _pendingAlignRange.anchorT - _pendingAlignRange.bc * _tfSec - 86400);
+  }
 
   const CHUNK_DAYS = { "1m": 5, "5m": 25, "15m": 80, "1h": 240, "4h": 950, "30m": 240, "2h": 730, "1d": 4000 };
   const chunkDays  = CHUNK_DAYS[snapTf] || 30;
@@ -721,20 +746,22 @@ async function _bgLoadOlderBars(scrollTriggered = false) {
       ohlcvData = newBars.concat(ohlcvData);
       _rebuildTimeIndex();  // 效能：背景載入舊 K 棒後重建 Map
 
-      // 看歷史切小時框:初次載入太短→對齊落空(先跳最舊);背景補到涵蓋目標時間段時,把視野拉回目標。
-      let _alignTr = null;
-      if (_pendingAlignRange && ohlcvData.length && toTime(ohlcvData[0].time) <= _pendingAlignRange.from + 1) {
-        _alignTr = _pendingAlignRange; _pendingAlignRange = null;
+      // 看歷史切小時框:初次載入太短→對齊落空(先貼最舊);背景補到涵蓋目標時間時,把視野拉回目標(保持縮放)。
+      let _alignPa = null;
+      if (_pendingAlignRange && ohlcvData.length && toTime(ohlcvData[0].time) <= _pendingAlignRange.anchorT + 1) {
+        _alignPa = _pendingAlignRange; _pendingAlignRange = null;
       }
 
       if (replayActive) {
         // 重播中：靜默累積，不碰圖表
-      } else if (_alignTr) {
-        // 對齊到歷史目標時間段(絕對時間範圍),不做「維持位置」的 shift;多套幾次防延遲 fitContent 壓回。
+      } else if (_alignPa) {
+        // 對齊到歷史目標:右緣放目標時間、往左顯示同樣根數(保持縮放,與初次還原一致);多套幾次防延遲 fitContent 壓回。
         _bgApplyChunk(ohlcvData, nPrepended);
         const _applyAlign = () => {
           try {
-            mainChart.timeScale().setVisibleRange({ from: _alignTr.from, to: _alignTr.to });
+            const idx = _nearestIdxByTime(_alignPa.anchorT);
+            if (idx == null) return;
+            mainChart.timeScale().setVisibleLogicalRange({ from: idx - _alignPa.bc, to: idx });
             const lr = mainChart.timeScale().getVisibleLogicalRange();
             if (lr) [kdjChart, rsiChart, macdChart].forEach(c => { try { c.timeScale().setVisibleLogicalRange(lr); } catch (e) {} });
           } catch (e) {}
