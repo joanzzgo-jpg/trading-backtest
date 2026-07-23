@@ -6,6 +6,7 @@ async function loadData(autoLoad = false) {
   _pendingAlignRange = null;   // 新載入作廢上一次未完成的歷史對齊目標
   window._loadRangeStart = null;   // 預設抓最近 N 根;下方「捲歷史切換」設成目標時間附近的有界視窗(start+end)直接範圍抓取
   window._loadRangeEnd = null;
+  window._hasFwdGap = false;   // 捲歷史抓有界視窗時=true(資料未到現在)→ 近右緣往右拖時 _bgLoadNewerBars 往「新」方向補
   /* 記住切換前的可見 K 棒數量，載入後還原相同縮放比例 */
   if (mainChart) {
     const _r = mainChart.timeScale().getVisibleLogicalRange();
@@ -30,6 +31,7 @@ async function loadData(autoLoad = false) {
           const _ntfSec = { "1m":60,"5m":300,"15m":900,"30m":1800,"1h":3600,"2h":7200,"4h":14400,"1d":86400 }[currentTF] || 3600;
           window._loadRangeStart = Math.floor(_tr.to - 300 * _ntfSec);
           window._loadRangeEnd   = Math.floor(_tr.to + 120 * _ntfSec);
+          window._hasFwdGap = true;   // 有界視窗未到現在 → 往右拖到近右緣時 _bgLoadNewerBars 往「新」方向補
         }
       } catch (e) {}
     } else if (_r && ohlcvData.length) {
@@ -838,6 +840,123 @@ async function _bgLoadOlderBars(scrollTriggered = false) {
           if (!_subchartsHidden()) setTimeout(() => { renderKDJ(ohlcvData); renderRSI(ohlcvData); renderMACD(ohlcvData); }, 0);
           if (_lastWRSignals.length) _renderWRSignals();
           // 補載歷史後也要重繪 FVG 標記(多/空/破多/破空/順多/順空)——否則新載進來那段的標記被 _has() 過濾掉不顯示
+          if (typeof _renderFVGMS === "function") _renderFVGMS();
+          if (typeof _renderFVGShun === "function") _renderFVGShun();
+          if (typeof _renderFVGSpecial === "function") _renderFVGSpecial();
+          if (typeof _renderFVGBreak === "function") _renderFVGBreak();
+          if (typeof _renderFVGTrades === "function") _renderFVGTrades();
+        }
+      }
+    }
+  }
+}
+
+/* 滾動視窗修剪:總根數超過上限時,只保留「可見範圍 ± 緩衝」、刪掉離開視野太遠的兩側資料 →
+   往一邊一直補時另一邊自動丟棄,常駐根數維持有界(避免半年前往右補回現在又累積成幾萬根→卡)。
+   回傳「左側被刪的根數」供呼叫端補償視野位移(刪左側→既有 index 下移)。重播中不修。 */
+function _trimRollingWindow() {
+  const MAX = 5000, BUF = 1200;
+  if (ohlcvData.length <= MAX || replayActive) return 0;
+  let vr;
+  try { vr = mainChart.timeScale().getVisibleLogicalRange(); } catch (e) { return 0; }
+  if (!vr) return 0;
+  const lo = Math.max(0, Math.floor(vr.from) - BUF);
+  const hi = Math.min(ohlcvData.length - 1, Math.ceil(vr.to) + BUF);
+  if (hi - lo + 1 >= ohlcvData.length) return 0;   // 視野±緩衝已涵蓋全部→不修
+  ohlcvData = ohlcvData.slice(lo, hi + 1);
+  _rebuildTimeIndex();
+  return lo;
+}
+
+/* 往「新(未來/現在)」方向背景補載(捲歷史抓的有界視窗未到現在時,往右拖到近右緣觸發)。
+   與 _bgLoadOlderBars 對稱:往右 append、不改既有 index;補完順手滾動修剪左側 → 常駐根數有界。 */
+async function _bgLoadNewerBars(scrollTriggered = false) {
+  const BG_TF = new Set(["1m", "5m", "15m", "1h", "4h", "2h", "30m", "1d"]);
+  if (!BG_TF.has(currentTF) || _bgLoadInProgress || !ohlcvData.length || !window._hasFwdGap) return;
+
+  const snapMarket   = document.getElementById("marketSelect").value;
+  const snapSymbol   = document.getElementById("symbolInput").value.trim();
+  const snapTf       = currentTF;
+  const snapExchange = document.getElementById("exchangeSelect").value;
+  const _tfSec   = { "1m":60,"5m":300,"15m":900,"30m":1800,"1h":3600,"2h":7200,"4h":14400,"1d":86400 }[snapTf] || 3600;
+  const CHUNK_DAYS = { "1m": 5, "5m": 25, "15m": 80, "1h": 240, "4h": 950, "30m": 240, "2h": 730, "1d": 4000 };
+  const chunkDays  = CHUNK_DAYS[snapTf] || 30;
+  const nowSec = Math.floor(Date.now() / 1000) + 8 * 3600;   // chart-time(+8h)的「現在」
+  const toIso  = ts => new Date(ts * 1000).toISOString().slice(0, 10);
+  const guard  = () =>
+    document.getElementById("marketSelect").value === snapMarket &&
+    document.getElementById("symbolInput").value.trim() === snapSymbol &&
+    currentTF === snapTf;
+
+  const myGen = ++_bgLoadGen;
+  _bgLoadInProgress = true;
+  let loadedThisRun = 0;
+  const SCROLL_BUDGET = 10000;
+
+  try {
+    while (myGen === _bgLoadGen && _bgLoadInProgress && guard()) {
+      const latestTs = toTime(ohlcvData[ohlcvData.length - 1].time);
+      if (latestTs >= nowSec - _tfSec) { window._hasFwdGap = false; break; }   // 已補到現在
+
+      const startTs = latestTs + 1;
+      const endTs   = Math.min(startTs + chunkDays * 86400, nowSec + 86400);
+
+      const res = await fetch("/api/ohlcv", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          market: snapMarket, symbol: snapSymbol,
+          timeframe: snapTf,  exchange: snapExchange,
+          start: toIso(startTs), end: toIso(endTs), limit: 0,
+          indicators: !(typeof _subchartsHidden === "function" && _subchartsHidden()),
+        }),
+      });
+      if (myGen !== _bgLoadGen || !res.ok) break;
+      const json = await res.json();
+      if (!json.data?.length || !guard() || myGen !== _bgLoadGen) break;
+
+      const existingLatest = toTime(ohlcvData[ohlcvData.length - 1].time);
+      const newBars = json.data.filter(b => toTime(b.time) > existingLatest);
+      if (!newBars.length) { window._hasFwdGap = false; break; }   // 沒有更新的→已到現在
+
+      const visRange = mainChart.timeScale().getVisibleLogicalRange();
+      ohlcvData = ohlcvData.concat(newBars);        // 往右 append,既有 index 不變
+      _rebuildTimeIndex();
+      const _cut = _trimRollingWindow();             // 滾動修剪左側(往右補→丟最舊),回傳左刪根數
+
+      if (!replayActive) {
+        _bgApplyChunk(ohlcvData, 0);
+        // append 不移動視野;但 setData 可能被 LWC 拉去貼最新、且修剪左側會使既有 index 下移 _cut →
+        //   還原到「視野 − _cut」讓使用者停在原處不跳。
+        const _restore = () => {
+          try {
+            if (!visRange) return;
+            const sh = { from: visRange.from - _cut, to: visRange.to - _cut };
+            mainChart.timeScale().setVisibleLogicalRange(sh);
+            [kdjChart, rsiChart, macdChart].forEach(c => c.timeScale().setVisibleLogicalRange(sh));
+          } catch (e) {}
+        };
+        _restore();
+        requestAnimationFrame(_restore);
+        setTimeout(_restore, 120);
+        setTimeout(_restore, 350);
+        _bgScheduleIndicators();
+      }
+
+      loadedThisRun += newBars.length;
+      if (scrollTriggered && loadedThisRun >= SCROLL_BUDGET) break;
+      await new Promise(r => setTimeout(r, 100));
+    }
+  } catch { /* 背景失敗靜默 */ } finally {
+    if (myGen === _bgLoadGen) {
+      _bgLoadInProgress = false;
+      _bgAnchorCache = null;
+      _bgMacdCache   = null;
+      if (!replayActive) {
+        clearTimeout(_bgIndicatorTimer);
+        if (guard() && ohlcvData.length) {
+          renderBB(ohlcvData);
+          if (!_subchartsHidden()) setTimeout(() => { renderKDJ(ohlcvData); renderRSI(ohlcvData); renderMACD(ohlcvData); }, 0);
+          if (_lastWRSignals.length) _renderWRSignals();
           if (typeof _renderFVGMS === "function") _renderFVGMS();
           if (typeof _renderFVGShun === "function") _renderFVGShun();
           if (typeof _renderFVGSpecial === "function") _renderFVGSpecial();

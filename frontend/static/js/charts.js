@@ -984,6 +984,14 @@ function syncTimeScales() {
         _bgLoadOlderBars(true); // 滑動觸發，分頁載入更早的資料（一次一塊）
       }
     }
+    // 接近右側邊界 + 有往後缺口(捲歷史抓的有界視窗未到現在)→ 往「新(現在方向)」補;補完滾動修剪左側→常駐有界
+    if (window._hasFwdGap && p.range.to > ohlcvData.length - 600 && !_bgLoadInProgress && ohlcvData.length) {
+      const now = Date.now();
+      if (now - _scrollLoadTs > 250) {
+        _scrollLoadTs = now;
+        if (typeof _bgLoadNewerBars === "function") _bgLoadNewerBars(true);
+      }
+    }
   }
   allCharts.forEach((src, si) => {
     src.timeScale().subscribeVisibleLogicalRangeChange(range => {
