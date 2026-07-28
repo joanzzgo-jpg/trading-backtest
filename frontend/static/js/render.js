@@ -793,7 +793,7 @@ async function _bgLoadOlderBars(scrollTriggered = false) {
             if (lr) [kdjChart, rsiChart, macdChart].forEach(c => { try { c.timeScale().setVisibleLogicalRange(lr); } catch (e) {} });
           } catch (e) {}
         };
-        _syncSuspend(() => { _bgApplyChunk(ohlcvData, nPrepended); _applyAlign(); });   // 換資料+對齊原子化
+        _syncSuspend(() => { _bgApplyChunk(ohlcvData, nPrepended); _applyAlign(); });   // 換資料+對齊原子化(對齊目標依新資料算 index,無法前置)
         requestAnimationFrame(_applyAlign);
         setTimeout(_applyAlign, 130);
         setTimeout(_applyAlign, 380);
@@ -807,7 +807,11 @@ async function _bgLoadOlderBars(scrollTriggered = false) {
         // ★即時修剪右側:往左看時最新那批在畫面外→剪掉讓 n 有界(否則越深 n 越大、setData 越慢=「越深越停一下才出來」)。
         //   右側修剪不動左側 index→shifted(+nPrepended) 仍正確;剪掉最新→標記往後缺口讓右滑可補回。
         let _incAnchor = nPrepended;
-        if (vr && ohlcvData.length > 15000) {
+        // ★手還在拖的當下不修剪(2026-07-28):修剪那一幀 LWC 會先用「新資料 × 舊視野」畫一幀才吃到我們的
+        //   補償 → 使用者看到閃跳(逐幀量到 −317/−458 根往返)。停手 250ms 後由 _scheduleIdleTrim 做同樣的事
+        //   (實測放手後零飄移)→ 記憶體一樣有界、但拖曳過程不再跳。
+        const _dragging = window._chartMoveTs && (performance.now() - window._chartMoveTs < 250);
+        if (vr && !_dragging && ohlcvData.length > 15000) {
           const viewToNew = Math.ceil(vr.to) + nPrepended;      // 視野右緣在「已 prepend」的新 index 空間
           const keepHi = Math.min(ohlcvData.length - 1, viewToNew + 4500);
           if (keepHi > viewToNew + 50 && keepHi < ohlcvData.length - 1) {
@@ -958,13 +962,20 @@ function _scheduleIdleTrim() {
     } catch (e) {}
     // ★換資料+補償原子化:修剪 setData 期間各圖發出的舊 index range 若被延遲同步推回主圖,
     //   會出現「畫在未補償位置一幀、下一幀彈回」的閃跳(實測 ±317 根,見 _bgLoadOlderBars 註)。
+    const sh = { from: vr.from - lo, to: vr.to - lo };       // 確定性位移補償(刪左 lo 根)
+    // ⚠ 別改用 timeScale().scrollToPosition() 同步 rightOffset(2026-07-28 試過、已退):
+    //   換資料那一幀 LWC 確實是拿「舊 rightOffset」重算(實測 9510−4822−508=4180=畫錯的那幀),
+    //   直接寫 rightOffset 能把閃跳壓到 0,但會偶發「整個被拉到最新 K」的暴走(比閃一下嚴重得多,
+    //   同 90729cc 修過的老問題)。維持只設 logical range。
+    const _applyTrim = () => { try { mainChart.timeScale().setVisibleLogicalRange(sh); [kdjChart, rsiChart, macdChart].forEach(c => { try { c.timeScale().setVisibleLogicalRange(sh); } catch (e) {} }); } catch (e) {} };
     _syncSuspend(() => {
+      // ★★ setData 之「前」也要先設一次(2026-07-28 逐幀追出來的關鍵):只在 setData 後補償的話,
+      //   LWC 會在處理完資料更新後自己冒出一個瞬態 range(實測差 317 根、無任何 set 呼叫)、**那一幀就被畫出來**,
+      //   下一幀才回到我們設的值 → 使用者看到閃跳。先設好、再 setData：LWC 沿用既有 logical range,
+      //   換完資料就已經在正確位置,不產生瞬態。(補舊那條路本來就前後各設一次,故無此問題)
+      _applyTrim();
       _bgApplyChunk(ohlcvData, 0);
-      try {
-        const sh = { from: vr.from - lo, to: vr.to - lo };   // 確定性位移補償(刪左 lo 根)
-        mainChart.timeScale().setVisibleLogicalRange(sh);
-        [kdjChart, rsiChart, macdChart].forEach(c => { try { c.timeScale().setVisibleLogicalRange(sh); } catch (e) {} });
-      } catch (e) {}
+      _applyTrim();
     });
     // ★同步重算指標:BB 用 debounce 會被載入殘留的大 n renderBB 蓋掉→BB series 停在 6 萬根+破洞(與修剪後 K 線對不上=「銜接斷掉」)。
     //   修剪後直接 renderBB(當前 ohlcvData) 保證同步;副圖仍走 debounce。
@@ -975,6 +986,10 @@ function _scheduleIdleTrim() {
     if (typeof _renderFVGBreak === "function") _renderFVGBreak();
     if (typeof _renderFVGSpecial === "function") _renderFVGSpecial();
     if (typeof _renderFVGTrades === "function") _renderFVGTrades();
+    // ★所有 series setData / setMarkers 做完後「再補一次視野」:每次資料更新 LWC 都會依自己保留的
+    //   捲動位置重推可見範圍,補償之後才做的那些 setData(BB/指標/標記)會把視野推歪一幀(逐幀量到的
+    //   瞬態就落在這個空檔)。最後補這一次 → 換資料整段結束時位置一定是對的。
+    _syncSuspend(_applyTrim);
   }, 600);
 }
 window._scheduleIdleTrim = _scheduleIdleTrim;
@@ -1045,7 +1060,7 @@ async function _bgLoadNewerBars(scrollTriggered = false) {
       if (!replayActive) {
         const shifted = vr ? { from: vr.from - _cut, to: vr.to - _cut } : null;
         const _apply = () => { try { if (shifted) { mainChart.timeScale().setVisibleLogicalRange(shifted); [kdjChart, rsiChart, macdChart].forEach(c => { try { c.timeScale().setVisibleLogicalRange(shifted); } catch (e) {} }); } } catch (e) {} };
-        _syncSuspend(() => { _bgApplyChunk(ohlcvData, 0); _apply(); });   // 換資料+補償原子化(同補舊)
+        _syncSuspend(() => { _apply(); _bgApplyChunk(ohlcvData, 0); _apply(); });   // 前後各設一次(同補舊,防 LWC 瞬態閃跳)
         requestAnimationFrame(() => {
           try {
             const cur = mainChart.timeScale().getVisibleLogicalRange();
