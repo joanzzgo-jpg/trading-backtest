@@ -784,7 +784,6 @@ async function _bgLoadOlderBars(scrollTriggered = false) {
         // 重播中：靜默累積，不碰圖表
       } else if (_alignPa) {
         // 對齊到歷史目標:右緣放目標時間、往左顯示同樣根數(保持縮放,與初次還原一致);多套幾次防延遲 fitContent 壓回。
-        _bgApplyChunk(ohlcvData, nPrepended);
         const _applyAlign = () => {
           try {
             const idx = _nearestIdxByTime(_alignPa.anchorT);
@@ -794,7 +793,7 @@ async function _bgLoadOlderBars(scrollTriggered = false) {
             if (lr) [kdjChart, rsiChart, macdChart].forEach(c => { try { c.timeScale().setVisibleLogicalRange(lr); } catch (e) {} });
           } catch (e) {}
         };
-        _applyAlign();
+        _syncSuspend(() => { _bgApplyChunk(ohlcvData, nPrepended); _applyAlign(); });   // 換資料+對齊原子化
         requestAnimationFrame(_applyAlign);
         setTimeout(_applyAlign, 130);
         setTimeout(_applyAlign, 380);
@@ -824,10 +823,15 @@ async function _bgLoadOlderBars(scrollTriggered = false) {
           }
         }
         const shifted = vr ? { from: vr.from + nPrepended, to: vr.to + nPrepended } : null;
-        if (shifted) { mainChart.timeScale().setVisibleLogicalRange(shifted); [kdjChart, rsiChart, macdChart].forEach(c => { try { c.timeScale().setVisibleLogicalRange(shifted); } catch (e) {} }); }
-        _bgApplyChunk(ohlcvData, _incAnchor);
         const _setShifted = () => { try { if (shifted) { mainChart.timeScale().setVisibleLogicalRange(shifted); [kdjChart, rsiChart, macdChart].forEach(c => { try { c.timeScale().setVisibleLogicalRange(shifted); } catch (e) {} }); } } catch (e) {} };
-        if (shifted) _setShifted();
+        // ★換資料+補償視野必須原子化(_syncSuspend):否則 setData 期間各圖發出的「舊 index 空間」range
+        //   會被 rAF 延遲的跨圖同步(_flushSync)在補償之後推回主圖 → 該幀畫在未補償位置、下一幀才彈回
+        //   ＝ 往舊滑「被帶到銜接點」的閃跳(2026-07-28 逐幀量到 −194/−317 根)。
+        _syncSuspend(() => {
+          if (shifted) _setShifted();          // 先把視野擺到補償後的位置(setData 前後各一次,兩邊都在同步暫停內)
+          _bgApplyChunk(ohlcvData, _incAnchor);
+          if (shifted) _setShifted();
+        });
         // 只在被延遲操作壓回最右緣時才搶回(條件式,不無腦覆寫、不干擾使用者續滑)
         if (shifted) {
           const _reassert = () => {
@@ -845,18 +849,17 @@ async function _bgLoadOlderBars(scrollTriggered = false) {
         const shifted  = visRange
           ? { from: visRange.from + nPrepended, to: visRange.to + nPrepended }
           : null;
-        if (shifted) {
-          mainChart.timeScale().setVisibleLogicalRange(shifted);
-          [kdjChart, rsiChart, macdChart].forEach(c => c.timeScale().setVisibleLogicalRange(shifted));
-        }
-        _bgApplyChunk(ohlcvData, nPrepended);
         const _setShifted = () => {
           try {
             mainChart.timeScale().setVisibleLogicalRange(shifted);
             [kdjChart, rsiChart, macdChart].forEach(c => c.timeScale().setVisibleLogicalRange(shifted));
           } catch (e) {}
         };
-        if (shifted) _setShifted();
+        _syncSuspend(() => {                    // 同上:換資料+補償原子化,不讓延遲同步推回舊 range
+          if (shifted) _setShifted();
+          _bgApplyChunk(ohlcvData, nPrepended);
+          if (shifted) _setShifted();
+        });
         if (_bgPosAnchor) { try { mainChart.timeScale().applyOptions(_bgPosAnchor); } catch (e) {} }
         _bgScheduleIndicators();
       }
@@ -953,12 +956,16 @@ function _scheduleIdleTrim() {
       const _tfS = { "1m":60,"5m":300,"15m":900,"30m":1800,"1h":3600,"2h":7200,"4h":14400,"1d":86400 }[currentTF] || 3600;
       window._hasFwdGap = _lastT < _nowSec - _tfS * 2;
     } catch (e) {}
-    _bgApplyChunk(ohlcvData, 0);
-    try {
-      const sh = { from: vr.from - lo, to: vr.to - lo };   // 確定性位移補償(刪左 lo 根)
-      mainChart.timeScale().setVisibleLogicalRange(sh);
-      [kdjChart, rsiChart, macdChart].forEach(c => { try { c.timeScale().setVisibleLogicalRange(sh); } catch (e) {} });
-    } catch (e) {}
+    // ★換資料+補償原子化:修剪 setData 期間各圖發出的舊 index range 若被延遲同步推回主圖,
+    //   會出現「畫在未補償位置一幀、下一幀彈回」的閃跳(實測 ±317 根,見 _bgLoadOlderBars 註)。
+    _syncSuspend(() => {
+      _bgApplyChunk(ohlcvData, 0);
+      try {
+        const sh = { from: vr.from - lo, to: vr.to - lo };   // 確定性位移補償(刪左 lo 根)
+        mainChart.timeScale().setVisibleLogicalRange(sh);
+        [kdjChart, rsiChart, macdChart].forEach(c => { try { c.timeScale().setVisibleLogicalRange(sh); } catch (e) {} });
+      } catch (e) {}
+    });
     // ★同步重算指標:BB 用 debounce 會被載入殘留的大 n renderBB 蓋掉→BB series 停在 6 萬根+破洞(與修剪後 K 線對不上=「銜接斷掉」)。
     //   修剪後直接 renderBB(當前 ohlcvData) 保證同步;副圖仍走 debounce。
     if (typeof renderBB === "function") renderBB(ohlcvData);
@@ -1036,10 +1043,9 @@ async function _bgLoadNewerBars(scrollTriggered = false) {
       }
 
       if (!replayActive) {
-        _bgApplyChunk(ohlcvData, 0);
         const shifted = vr ? { from: vr.from - _cut, to: vr.to - _cut } : null;
         const _apply = () => { try { if (shifted) { mainChart.timeScale().setVisibleLogicalRange(shifted); [kdjChart, rsiChart, macdChart].forEach(c => { try { c.timeScale().setVisibleLogicalRange(shifted); } catch (e) {} }); } } catch (e) {} };
-        _apply();
+        _syncSuspend(() => { _bgApplyChunk(ohlcvData, 0); _apply(); });   // 換資料+補償原子化(同補舊)
         requestAnimationFrame(() => {
           try {
             const cur = mainChart.timeScale().getVisibleLogicalRange();

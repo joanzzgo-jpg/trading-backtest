@@ -949,6 +949,20 @@ function resizeAll() {
 /* ── 時間軸 & 鉛直線同步 ── */
 let _blockSync = false; // 重播渲染期間暫停雙向同步，防止 setData 觸發 range 抖動
 
+/* 「換資料 + 補償視野」原子化：期間暫停跨圖同步。
+   ★為什麼需要（2026-07-28 定位「往舊滑被帶到銜接點」的閃跳）：補舊/補新/滾動修剪會 setData，
+   各圖因此各自發出 range-change，那些值是**換資料前的舊 index 空間**瞬態；跨圖同步是 rAF 延遲
+   的（_flushSync），會在我們把正確 range 補償完之後才把那個舊值推回主圖 → 該幀被畫在未補償的
+   位置、下一幀才彈回 ＝ 使用者看到的「被往銜接點帶一下」。
+   期間 _blockSync=true：訂閱端直接不收集(不留 _pendingSync)、已排隊的 _flushSync 也會丟棄，
+   正確位置由 fn 內自己設定的 range 決定（fn 必須把 4 張圖都設好）。try/finally 保證不會卡住同步。*/
+function _syncSuspend(fn) {
+  const prev = _blockSync;
+  _blockSync = true;
+  try { fn(); } finally { _blockSync = prev; }
+}
+window._syncSuspend = _syncSuspend;
+
 function syncTimeScales() {
   // 捲動 / 縮放：以 logical range 同步（anchor series 確保各圖索引一致）
   const allCharts = [mainChart, kdjChart, rsiChart, macdChart];
@@ -1010,6 +1024,12 @@ function syncTimeScales() {
       if (window._uxMark) window._uxMark();
       else window._chartMoveTs = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
       if (syncing || !range || _blockSync) return;
+      // ★副圖隱藏時「副圖不得驅動主圖」(2026-07-28 修「往舊滑一直被往前帶」):
+      //   副圖隱藏是預設值,此時 _bgApplyChunk 會跳過 3 條錨點 setData(省效能)→ 副圖的資料仍停在
+      //   補載前的舊根數;但補舊/修剪仍會把「新 index 空間」的 range 設給副圖 → LWC 依副圖自己較短的
+      //   資料把它夾住(clamp)成別的值,那個值再經 rAF 延遲同步推回主圖 → 主圖被往舊拉一段;主圖一動
+      //   又觸發下一輪 → 「一直往前帶」的失控滾動。隱藏時只允許主圖→副圖單向同步。
+      if (si !== 0 && typeof _subchartsHidden === "function" && _subchartsHidden()) return;
       _pendingSync = { range, si };               // 只記最新，丟棄同幀內較舊的中間值
       if (!_syncRaf) _syncRaf = requestAnimationFrame(_flushSync);
     });
