@@ -181,6 +181,7 @@ function findNearest(x, y, maxDist = 12) {
   }
   let best = maxDist, found = null;
   drawings.forEach(d => {
+    if (d.pane && d.pane !== "main") return;   // 副圖繪圖由副圖自己的命中處理
     const dist = drawingDist(d, x, y);
     if (dist < best) { best = dist; found = d; }
   });
@@ -252,6 +253,185 @@ function _drawingHitPart(d, x, y) {
   });
   return bestPart;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   副圖繪圖(KDJ / RSI / MACD)——step1:水平線 / 趨勢線 / 文字,可拖曳。
+   ★X 與主圖共用時間軸(同步同寬)→ 沿用 _timeToX/_xToTime;Y 用各副圖 anchor series。
+   自成一套、完全不動主圖那條路;drawings 共用(帶 pane 欄位)、工具狀態(drawTool/_drawColor)共用。
+   ═══════════════════════════════════════════════════════════════════════════ */
+const _SUB_DEFS = [
+  { id:"kdj",  elId:"kdjChart",  getChart:()=>(typeof kdjChart !=="undefined")?kdjChart :null, getSeries:()=>(typeof kdjAnchor !=="undefined")?kdjAnchor :null },
+  { id:"rsi",  elId:"rsiChart",  getChart:()=>(typeof rsiChart !=="undefined")?rsiChart :null, getSeries:()=>(typeof rsiAnchor !=="undefined")?rsiAnchor :null },
+  { id:"macd", elId:"macdChart", getChart:()=>(typeof macdChart!=="undefined")?macdChart:null, getSeries:()=>(typeof macdAnchor!=="undefined")?macdAnchor:null },
+];
+const _subReg = {};          // id -> { el, canvas, ctx, def }
+let _subDrag = null;         // 副圖拖曳中
+const _SUB_TWO = { trendline:1 };   // step1 副圖支援的兩點型別
+
+function _subXY(e, id)     { const r=_subReg[id].canvas.getBoundingClientRect(); return { x:e.clientX-r.left, y:e.clientY-r.top }; }
+function _subV2Y(id, v)    { const s=_subReg[id].def.getSeries(); const y=s?s.priceToCoordinate(v):null; return (y!=null&&isFinite(y))?y:null; }
+function _subY2V(id, y)    { const s=_subReg[id].def.getSeries(); const v=s?s.coordinateToPrice(y):null; return (v!=null&&isFinite(v))?v:null; }
+
+// 螢幕點到繪圖的距離(副圖;X 用 _timeToX、Y 用該副圖)
+function _subDist(d, x, y, id) {
+  if (d.type==="hline") { const ly=_subV2Y(id,d.price); return ly==null?1e9:Math.abs(y-ly); }
+  if (d.type==="text")  { const tx=_timeToX(d.time), ty=_subV2Y(id,d.price); return (tx==null||ty==null)?1e9:Math.hypot(x-tx,y-ty); }
+  if (d.type==="trendline") {
+    const x1=_timeToX(d.p1.time), y1=_subV2Y(id,d.p1.price), x2=_timeToX(d.p2.time), y2=_subV2Y(id,d.p2.price);
+    if(x1==null||y1==null||x2==null||y2==null) return 1e9;
+    const dx=x2-x1, dy=y2-y1, L2=dx*dx+dy*dy;
+    let t = L2? ((x-x1)*dx+(y-y1)*dy)/L2 : 0; t=Math.max(0,Math.min(1,t));
+    return Math.hypot(x-(x1+t*dx), y-(y1+t*dy));
+  }
+  return 1e9;
+}
+function _subFindNearest(id, x, y, tol) {
+  let best=null, bd=tol;
+  drawings.filter(d=>d.pane===id).forEach(d=>{ const dd=_subDist(d,x,y,id); if(dd<bd){bd=dd;best=d;} });
+  return best;
+}
+function _subHitPart(d, x, y, id) {
+  if (d.type==="trendline") {
+    const x1=_timeToX(d.p1.time), y1=_subV2Y(id,d.p1.price), x2=_timeToX(d.p2.time), y2=_subV2Y(id,d.p2.price);
+    if(x1!=null&&y1!=null&&Math.hypot(x-x1,y-y1)<10) return "p1";
+    if(x2!=null&&y2!=null&&Math.hypot(x-x2,y-y2)<10) return "p2";
+  }
+  return "body";
+}
+
+function _renderSub(id) {
+  const reg=_subReg[id]; if(!reg) return;
+  const ctx=reg.ctx, dpr=window.devicePixelRatio||1;
+  const W=reg.canvas.width/dpr, H=reg.canvas.height/dpr;
+  ctx.clearRect(0,0,W,H);
+  const s=reg.def.getSeries(); if(!s) return;
+  drawings.filter(d=>d.pane===id).forEach(d=>{
+    const col=d.color||_drawColor, sel=(d.id===selectedId);
+    ctx.save(); ctx.strokeStyle=col; ctx.fillStyle=col; ctx.lineWidth=d.width||1.5;
+    ctx.setLineDash(d.lineStyle===2?[6,4]:d.lineStyle===1?[2,3]:[]);
+    try {
+      if (d.type==="hline") {
+        const y=_subV2Y(id,d.price); if(y==null){ctx.restore();return;}
+        ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke();
+        ctx.setLineDash([]); ctx.font="10px monospace"; ctx.fillText((+d.price).toFixed(2), 4, y-3);
+        if(sel){ ctx.fillStyle="rgba(255,255,255,.13)"; ctx.fillRect(0,y-5,W,10); ctx.fillStyle=col; ctx.beginPath(); ctx.arc(W*0.5,y,4,0,7); ctx.fill(); }
+      } else if (d.type==="trendline") {
+        const x1=_timeToX(d.p1.time), y1=_subV2Y(id,d.p1.price), x2=_timeToX(d.p2.time), y2=_subV2Y(id,d.p2.price);
+        if(x1==null||y1==null||x2==null||y2==null){ctx.restore();return;}
+        ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+        if(sel){ ctx.fillStyle=col; [[x1,y1],[x2,y2]].forEach(pt=>{ctx.beginPath();ctx.arc(pt[0],pt[1],4,0,7);ctx.fill();}); }
+      } else if (d.type==="text") {
+        const x=_timeToX(d.time), y=_subV2Y(id,d.price); if(x==null||y==null){ctx.restore();return;}
+        ctx.setLineDash([]); ctx.font="12px sans-serif"; ctx.fillText(d.text||"", x, y);
+      }
+    } catch(e){}
+    ctx.restore();
+  });
+  // 繪製中預覽(第一點已下、跟游標)
+  if (drawingWIP && drawingWIP.pane===id && drawingWIP._mx!=null) {
+    const x1=_timeToX(drawingWIP.p1.time), y1=_subV2Y(id,drawingWIP.p1.price);
+    if(x1!=null&&y1!=null){ ctx.save(); ctx.strokeStyle=_drawColor; ctx.setLineDash([4,3]); ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(drawingWIP._mx,drawingWIP._my); ctx.stroke(); ctx.restore(); }
+  }
+}
+function _renderAllSub(){ for(const id in _subReg) _renderSub(id); }
+window._renderAllSub = _renderAllSub;
+
+function _subDown(e, id) {
+  if (e.button!==0 || !_subReg[id]) return;
+  const {x,y}=_subXY(e,id);
+  if (drawTool==="pointer") {
+    const near=_subFindNearest(id, x, y, 12);
+    if (near && !near.locked) {
+      e.stopPropagation();
+      selectedId=near.id;
+      _subDrag={ id:near.id, pane:id, sx:x, sy:y, moved:false, snap:JSON.parse(JSON.stringify(near)), part:_subHitPart(near,x,y,id) };
+      _renderSub(id);
+    }
+  }
+}
+function _subMove(e, id) {
+  if (drawingWIP && drawingWIP.pane===id) { const {x,y}=_subXY(e,id); drawingWIP._mx=x; drawingWIP._my=y; _renderSub(id); return; }
+  if (!_subDrag || _subDrag.pane!==id) return;
+  const d=drawings.find(z=>z.id===_subDrag.id); if(!d){_subDrag=null;return;}
+  e.stopPropagation();
+  const {x,y}=_subXY(e,id);
+  const dx=x-_subDrag.sx, dy=y-_subDrag.sy;
+  if(Math.abs(dx)>2||Math.abs(dy)>2) _subDrag.moved=true;
+  const snap=_subDrag.snap, part=_subDrag.part;
+  const shiftPt=(op)=>{ const ox=_timeToX(op.time), oy=_subV2Y(id,op.price); if(ox==null||oy==null)return{time:op.time,price:op.price}; return { time:_xToTime(ox+dx)??op.time, price:_subY2V(id,oy+dy)??op.price }; };
+  if (d.type==="hline") { const oy=_subV2Y(id,snap.price); if(oy!=null){ const nv=_subY2V(id,oy+dy); if(nv!=null)d.price=nv; } }
+  else if (d.type==="text") { const p=shiftPt(snap); d.time=p.time; d.price=p.price; }
+  else if (d.type==="trendline") {
+    if (part==="p1") { const p=shiftPt(snap.p1); d.p1={time:p.time,price:p.price}; }
+    else if (part==="p2") { const p=shiftPt(snap.p2); d.p2={time:p.time,price:p.price}; }
+    else { const a=shiftPt(snap.p1), b=shiftPt(snap.p2); d.p1={time:a.time,price:a.price}; d.p2={time:b.time,price:b.price}; }
+  }
+  _renderSub(id);
+}
+function _subClick(e, id) {
+  if (!_subReg[id]) return;
+  const {x,y}=_subXY(e,id);
+  if (drawTool==="pointer") {
+    if (_subDrag && _subDrag.moved) return;
+    const near=_subFindNearest(id,x,y,12);
+    selectedId = near?near.id:selectedId;
+    if (near) e.stopPropagation();
+    _renderSub(id); return;
+  }
+  if (drawTool==="crosshair") return;
+  const time=_xToTime(x), price=_subY2V(id,y);
+  if (time==null||price==null) return;
+  e.stopPropagation();
+  if (drawTool==="eraser") { const n=_subFindNearest(id,x,y,14); if(n){ drawings=drawings.filter(z=>z.id!==n.id); saveDrawings(); _renderSub(id);} return; }
+  if (drawTool==="hline") { drawings.push({id:_did(),type:"hline",pane:id,price,color:_drawColor}); saveDrawings(); _returnToPointer(); _renderSub(id); return; }
+  if (drawTool==="text") {
+    _showTextInput(e.clientX, e.clientY, txt=>{ if(txt&&txt.trim()){ drawings.push({id:_did(),type:"text",pane:id,time,price,text:txt.trim(),color:_drawColor}); saveDrawings(); } _returnToPointer(); _renderSub(id); });
+    return;
+  }
+  if (_SUB_TWO[drawTool]) {
+    if (!drawingWIP || drawingWIP.pane!==id) { drawingWIP={ type:drawTool, pane:id, p1:{time,price} }; }
+    else { drawings.push({id:_did(),type:drawTool,pane:id,p1:drawingWIP.p1,p2:{time,price},color:_drawColor}); drawingWIP=null; saveDrawings(); _returnToPointer(); _renderSub(id); }
+    return;
+  }
+  // 其他工具(框/測量/部位…)step1 副圖尚未支援:給提示、不建立
+  if (typeof showToast==="function") showToast("副圖目前支援:水平線 / 趨勢線 / 文字");
+}
+function _subDbl(e, id) {
+  const {x,y}=_subXY(e,id); const near=_subFindNearest(id,x,y,16);
+  if (near) { e.stopPropagation(); selectedId=near.id; showDrawColorPicker(near, e.clientX, e.clientY); _renderSub(id); }
+}
+function _subCtx(e, id) {
+  const {x,y}=_subXY(e,id); const near=_subFindNearest(id,x,y,16);
+  if (near) { e.preventDefault(); e.stopPropagation(); selectedId=near.id; showDrawColorPicker(near, e.clientX, e.clientY); _renderSub(id); }
+}
+
+function _initSubDraw() {
+  _SUB_DEFS.forEach(def=>{
+    const el=document.getElementById(def.elId);
+    if(!el || _subReg[def.id]) return;
+    el.style.position="relative";
+    const canvas=document.createElement("canvas");
+    canvas.style.cssText="position:absolute;top:0;left:0;z-index:20;pointer-events:none;";
+    el.appendChild(canvas);
+    const ctx=canvas.getContext("2d");
+    _subReg[def.id]={ el, canvas, ctx, def };
+    const resize=()=>{ const dpr=window.devicePixelRatio||1, w=el.clientWidth, h=el.clientHeight;
+      canvas.width=Math.round(w*dpr); canvas.height=Math.round(h*dpr); canvas.style.width=w+"px"; canvas.style.height=h+"px";
+      ctx.setTransform(dpr,0,0,dpr,0,0); _renderSub(def.id); };
+    resize();
+    try{ new ResizeObserver(resize).observe(el); }catch(e){}
+    const ch=def.getChart();
+    if(ch){ try{ ch.timeScale().subscribeVisibleLogicalRangeChange(()=>_renderSub(def.id)); }catch(e){}
+            try{ ch.subscribeCrosshairMove(()=>{ if((drawingWIP&&drawingWIP.pane===def.id)||(drawTool!=="pointer"&&drawTool!=="crosshair")) _renderSub(def.id); }); }catch(e){} }
+    el.addEventListener("mousedown",  e=>_subDown(e,def.id),  {capture:true});
+    el.addEventListener("mousemove",  e=>_subMove(e,def.id),  {capture:true});
+    el.addEventListener("click",      e=>_subClick(e,def.id), {capture:true});
+    el.addEventListener("dblclick",   e=>_subDbl(e,def.id),   {capture:true});
+    el.addEventListener("contextmenu",e=>_subCtx(e,def.id),   {capture:true});
+  });
+  window.addEventListener("mouseup", ()=>{ if(_subDrag){ if(_subDrag.moved) saveDrawings(); _subDrag=null; } });
+}
+window._initSubDraw = _initSubDraw;
 
 function initDrawTools() {
   loadDrawings();
@@ -358,6 +538,9 @@ function initDrawTools() {
   }, { capture: true });
 
   // cpPopup close is handled by initColorPicker()'s own mousedown listener
+
+  // 副圖繪圖層(KDJ/RSI/MACD)——各自 canvas + 事件 + 座標(Y 用該副圖、X 沿用主圖)
+  try { _initSubDraw(); } catch (e) {}
 }
 
 function _canvasXY(e) {
@@ -2253,12 +2436,13 @@ function renderDrawings() {
   // Draw non-selected first, then hovered, then selected on top
   // 單一繪圖 render 丟例外時只跳過它、不拖垮整塊 overlay(catch 內補 restore 平衡 save 堆疊)。
   const _safeDraw = (d, hov, sel) => { try { drawOne(d, W, H, hov, sel); } catch (e) { try { drawCtx.restore(); } catch (_) {} } };
-  drawings.filter(d => d.id !== selectedId && d.id !== hoveredId).forEach(d => _safeDraw(d, false, false));
-  drawings.filter(d => d.id === hoveredId && d.id !== selectedId).forEach(d => _safeDraw(d, true, false));
-  drawings.filter(d => d.id === selectedId).forEach(d => _safeDraw(d, false, true));
+  const _isMain = d => !d.pane || d.pane === "main";   // 副圖繪圖不在主圖畫(交給 _renderSub)
+  drawings.filter(d => _isMain(d) && d.id !== selectedId && d.id !== hoveredId).forEach(d => _safeDraw(d, false, false));
+  drawings.filter(d => _isMain(d) && d.id === hoveredId && d.id !== selectedId).forEach(d => _safeDraw(d, true, false));
+  drawings.filter(d => _isMain(d) && d.id === selectedId).forEach(d => _safeDraw(d, false, true));
 
   // 繪圖文字標籤(非文字型)+ 鎖定圖示:畫在繪圖錨點上方
-  drawings.forEach(d => { if (d.text) { try { _drawDrawingBadge(d, W, H); } catch (e) { try { drawCtx.restore(); } catch (_) {} } } });
+  drawings.forEach(d => { if (d.text && _isMain(d)) { try { _drawDrawingBadge(d, W, H); } catch (e) { try { drawCtx.restore(); } catch (_) {} } } });
 
   // （策略棒止損線改由 realtime.js onMainCrosshair 用 LWC 原生 price line 畫，不再走 overlay）
 
@@ -2298,6 +2482,9 @@ function renderDrawings() {
 
   // 畫線/拖曳時的即時軸標籤 + Δ 資訊盒（TV 風；丟例外只跳過不拖垮 overlay）
   try { _drawDrawTags(W, H); } catch (e) {}
+
+  // 副圖繪圖層同步重畫(涵蓋載入/undo/切標的等 drawings 變動)
+  if (typeof _renderAllSub === "function") { try { _renderAllSub(); } catch (e) {} }
 }
 
 // 自動盈虧比的 RR 數值：盒夠寬 → 置中盒內；縮小到盒太窄 → 移到盒旁並加深色底，
