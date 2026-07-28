@@ -1338,6 +1338,7 @@ def crt_winrate_api(
     no_proto_ms: int = 0,
     no_proto_break: int = 0,
     lite: str = "",
+    warm: int = 0,
 ):
     """/api/crt_winrate 路由：呼叫 get_crt_winrate(含快取) → 回前端時把 signals『瘦身』
     （拿掉只後端用的 est/rr 欄位 + 省略 None 值），省 ~40% 傳輸量、加快手機端載入。
@@ -1352,6 +1353,12 @@ def crt_winrate_api(
                          no_proto_ms=bool(no_proto_ms), no_proto_break=bool(no_proto_break))
     if solve or not isinstance(wr, dict):        # solve 模式非勝率結構 → 原樣回
         return wr
+    # warm=1：只為了「把這個 vw 階梯算進快取」，不要整包回（前端往舊滑時預熱下一階用）。
+    #   量測(2026-07-28)：同一 vw 冷算 ~2.5s、之後命中僅 16ms(gzip 82ms) → 使用者感受到的
+    #   「越滑越久才出標記」幾乎全是「換 vw 階梯那一次冷算」。預先在背景付掉這 2.5s，
+    #   使用者真的滑到時就是命中快取。回幾十 bytes → 預熱本身不吃頻寬（手機也安全）。
+    if warm:
+        return {"ok": True, "vw": vw, "n": len(wr.get("fvg") or [])}
     if lite == "ms":
         # 輕量模式(多圖迷你圖用)：只回 多空/破多空 標記陣列(幾KB vs 整包~190KB)。
         # 照樣吃 get_crt_winrate 快取(命中=毫秒級)；冷門標的首算仍要等(前端 async 補上)。

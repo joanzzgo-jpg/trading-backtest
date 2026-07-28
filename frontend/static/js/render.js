@@ -874,6 +874,9 @@ async function _bgLoadOlderBars(scrollTriggered = false) {
           && _wrVwFor(ohlcvData.length) > (window._wrCurVw || 0)) {
         fetchWinRate();
       }
+      // 快接近下一階 vw 時,先在背景把它算進後端快取(warm=1,只回幾十 bytes)
+      //   → 真的升階時是命中快取(16ms)而不是冷算(~2.5s),消掉「越滑越久才出標記」
+      if (!replayActive && typeof _wrWarmNextTier === "function") _wrWarmNextTier();
       // 滑動觸發：累計載到 SCROLL_BUDGET 根就停（夠深、感覺連續），滑到左緣再載下一批；不一口氣
       // cascade 到 SCROLL_DAYS 把常駐撐爆。自動預載(非 scroll)仍照舊把 INIT_DAYS 緩衝補滿。
       loadedThisRun += nPrepended;

@@ -526,6 +526,49 @@ function _wrVwFor(loaded) {
 }
 window._wrCurVw = 0;   // 目前這份勝率結果算標記用的 vw；背景載入更深時比對是否要升級重取
 
+/* ── 下一階 vw 背景預熱 ────────────────────────────────────────────────────────
+   往舊滑時 n 變大 → vw 升階 → 那一次是「冷算」：實測 ~2.5s(之後同 vw 命中僅 16ms)，
+   使用者感受到的「越滑越久才出標記」幾乎全來自這一下。→ 在還沒升階前先在背景把下一階算進
+   後端快取，真的滑到時就是命中。用 warm=1：後端只回 {ok:true} 幾十 bytes，不吃前端頻寬。
+   ・每個 標的|時框|階梯 只預熱一次(_wrWarmed)；切標的/時框自然換 key。
+   ・只在「已載根數接近下一階門檻」時觸發(離門檻 <3000 根),避免一進場就亂打。
+   ・prio=low + 失敗完全忽略：純粹是加速器，壞掉不影響任何功能。 */
+const _wrWarmed = new Set();
+function _wrWarmNextTier() {
+  try {
+    if (typeof ohlcvData === "undefined" || !ohlcvData.length) return;
+    const cur = _wrVwFor(ohlcvData.length);
+    const idx = _WR_VW_LADDER.indexOf(cur);
+    const next = (idx >= 0 && idx + 1 < _WR_VW_LADDER.length) ? _WR_VW_LADDER[idx + 1] : 0;
+    if (!next) return;
+    // ⚠ 別改成「一進新階就暖下一階」(2026-07-28 試過、更慢):後端沒有同鍵請求合併,預熱會與使用者
+    //   自己那次同時算同一份 → 互相搶 CPU,實測使用者那次 2485ms→4381ms,還白算了 7s 的 100000 階。
+    //   保守版(接近門檻才暖)實測:暖到的那階 142ms vs 沒暖到的 2485ms。
+    if (ohlcvData.length + 2000 < cur - 3000) return;      // 離下一階還遠 → 先不預熱
+    // 常駐根數被 TRIM_MAX(=40000,見 render.js) 壓住 → 實務上頂到 45000 階;更上面的階暖了也用不到,
+    // 卻要付好幾秒後端 CPU(100000 階實測 7s) → 不暖。
+    if (next > 45000) return;
+    const market = document.getElementById("marketSelect")?.value || "crypto";
+    const symbol = document.getElementById("symbolInput")?.value?.trim() || "";
+    const exchange = document.getElementById("exchangeSelect")?.value || "binance";
+    const timeframe = currentTF || "1d";
+    if (!symbol) return;
+    const key = `${market}:${symbol}:${exchange}:${timeframe}:vw${next}`;
+    if (_wrWarmed.has(key)) return;
+    _wrWarmed.add(key);
+    // ★參數必須與 _fetchWinRateNow 完全一致,否則暖到別的快取鍵＝白暖(2026-07 預熱 worker 踩過同一坑)
+    const bufDec = (_wrStopBuffer || 0) / 100;
+    const p = new URLSearchParams({
+      market, symbol, exchange, timeframe,
+      stop_buffer_pct: bufDec.toFixed(4), vw: String(next),
+      proto_min: String(_wrProtoMin), no_proto_ms: _wrNoProtoMs ? "1" : "0",
+      no_proto_break: _wrNoProtoBreak ? "1" : "0", warm: "1",
+    });
+    fetch("/api/crt_winrate?" + p, { priority: "low" }).catch(() => {});
+  } catch (e) {}
+}
+window._wrWarmNextTier = _wrWarmNextTier;
+
 let _wrFetchCtrl = null;   // 切標的時取消舊勝率請求
 let _wrInFlight = false;   // 勝率請求飛行中(加速器預熱讓路用;完成/失敗於 finally 清除)
 async function _fetchWinRateNow() {
