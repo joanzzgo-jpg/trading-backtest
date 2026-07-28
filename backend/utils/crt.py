@@ -2145,6 +2145,36 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
     except Exception:
         _fvg_trades = []
 
+    # ── 回應瘦身（只動「送出去的形狀」，不動任何計算）───────────────────────
+    # 實測(2026-07-28, BTC 15m vw=45000)：整包 5.46MB、快取命中也要 1.9s，其中 fvg 佔 63.7%
+    # (10976 筆 × 332B)。往舊滑越深 vw 越大 → 這包是「越滑越久才出現」的主成本。
+    # 三招純機械式瘦身 → fvg 單筆 332B→218B（-34%）、整包 -22%：
+    #   ① 砍前端完全沒用到的欄位（gi/sweep：grep 全前端 0 次引用；後端內部仍照算不受影響）
+    #   ② False 布林省略（前端是 `z.go === true` / `!!z.dim` 判斷 → 缺鍵=false，語意相同）
+    #      ⚠ used 相反：前端 `z.used !== false`（預設 true）→ 只在 True 時省略、False 必須保留
+    #   ③ ett/etm/etb 與 t2 相同時省略（實測 44% 的缺口三者全等於 t2）→ 前端用 `"ett" in z` 還原；
+    #      ⚠ 只省略「等於 t2」的，明確的 null（沒觸及）必須原樣保留，否則會被誤還原成 t2
+    def _slim_fvg(rows):
+        out = []
+        for z in rows:
+            y = {k: v for k, v in z.items() if k not in ("gi", "sweep")}
+            for k in ("go", "gv", "dim", "inv", "gap"):
+                if y.get(k) is False:
+                    y.pop(k, None)
+            if y.get("used") is True:
+                y.pop("used", None)
+            _t2 = y.get("t2")
+            for k in ("ett", "etm", "etb"):
+                if k in y and y[k] == _t2:
+                    del y[k]
+            out.append(y)
+        return out
+
+    try:
+        _fvg = _slim_fvg(_fvg)
+    except Exception:
+        pass   # 瘦身失敗就照原樣送(功能優先)
+
     return {
         **mid_out,                # backward compat：mid 統計放在頂層
         "ss":   ss_out,           # SS 系列（獨立合計 + 敗後停手，不與 S 混）

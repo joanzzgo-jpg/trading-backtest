@@ -265,6 +265,11 @@ function _makeFVGPrimitive() {
 }
 // 餵入後端 fvg 陣列 [{t, top, bot, d, t2}] → 轉圖表時間並重繪
 function setFVGZones(list) {
+  // 缺口進場觸及時間還原：鍵存在→用它(可能是 null=沒觸及)；鍵不存在→後端省略,代表與 t2 相同
+  const _fvgEt = (z, k) => {
+    const v = (k in z) ? z[k] : z.t2;
+    return (v != null ? toTime(v) : null);
+  };
   _fvgZones = (Array.isArray(list) ? list : []).map(z => ({
     t1: toTime(z.t), t2: (z.t2 != null ? toTime(z.t2) : null),
     top: z.top, bot: z.bot, d: z.d, inv: !!z.inv,   // inv=IFVG(反轉缺口,反方向換色)
@@ -272,9 +277,11 @@ function setFVGZones(list) {
     dim: !!z.dim,                                   // dim=同向缺口堆疊(下方0.5W帶內)→無效(淺色、不採用)
     used: z.used !== false,                          // used=false→沒被任何標記用到→淡化(舊資料無此欄→預設true不淡化)
     sl: (z.sl != null ? z.sl : null), tp: (z.tp != null ? z.tp : null),  // 止損(g-1頂端)/止盈(2W)
-    ett: (z.ett != null ? toTime(z.ett) : null),   // 進場-上緣觸及
-    etm: (z.etm != null ? toTime(z.etm) : null),   // 進場-中線觸及
-    etb: (z.etb != null ? toTime(z.etb) : null),   // 進場-下緣觸及
+    // 進場觸及時間(上緣/中線/下緣)：後端在「與 t2 相同」時省略該鍵以瘦身(實測 44% 缺口三者全等 t2)
+    //   → 缺鍵=沿用 t2；明確的 null(沒觸及)仍會照送、不會被誤還原成 t2，故用 `in` 判斷不可改成 ??
+    ett: _fvgEt(z, "ett"),
+    etm: _fvgEt(z, "etm"),
+    etb: _fvgEt(z, "etb"),
     pens: (Array.isArray(z.pens)                    // 每被突破一次的點 {t,p}：轉圖表時間、濾掉壞值
       ? z.pens.map(e => ({ t: toTime(e.t), p: e.p })).filter(e => e.t != null && e.p != null) : []),
   })).filter(z => z.t1 != null && z.top != null && z.bot != null && !z.inv);   // IFVG(inv) 先關閉：不顯示反轉缺口色塊
