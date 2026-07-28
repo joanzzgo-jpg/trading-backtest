@@ -211,6 +211,7 @@ def diag(key: str = ""):
         "alpaca": bool(os.getenv("ALPACA_KEY") and os.getenv("ALPACA_SECRET")),
         "finnhub": bool(os.getenv("FINNHUB_TOKEN")),
         "cwa": bool(os.getenv("CWA_API_KEY")),
+        "anthropic": bool(os.getenv("ANTHROPIC_API_KEY")),   # Claude API 金鑰(小熊台詞/交易截圖辨識用)
     }
 
 
