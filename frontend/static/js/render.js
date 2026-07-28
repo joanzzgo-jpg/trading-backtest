@@ -811,7 +811,7 @@ async function _bgLoadOlderBars(scrollTriggered = false) {
         //   補償 → 使用者看到閃跳(逐幀量到 −317/−458 根往返)。停手 250ms 後由 _scheduleIdleTrim 做同樣的事
         //   (實測放手後零飄移)→ 記憶體一樣有界、但拖曳過程不再跳。
         const _dragging = window._chartMoveTs && (performance.now() - window._chartMoveTs < 250);
-        if (vr && !_dragging && ohlcvData.length > 15000) {
+        if (vr && !_dragging && ohlcvData.length > TRIM_MAX) {
           const viewToNew = Math.ceil(vr.to) + nPrepended;      // 視野右緣在「已 prepend」的新 index 空間
           const keepHi = Math.min(ohlcvData.length - 1, viewToNew + 4500);
           if (keepHi > viewToNew + 50 && keepHi < ohlcvData.length - 1) {
@@ -907,8 +907,18 @@ async function _bgLoadOlderBars(scrollTriggered = false) {
 /* 滾動視窗修剪:總根數超過上限時,只保留「可見範圍 ± 緩衝」、刪掉離開視野太遠的兩側資料 →
    往一邊一直補時另一邊自動丟棄,常駐根數維持有界(避免半年前往右補回現在又累積成幾萬根→卡)。
    回傳「左側被刪的根數」供呼叫端補償視野位移(刪左側→既有 index 下移)。重播中不修。 */
+/* 修剪門檻(2026-07-28 調高 15000→40000)。
+   ★為什麼:LWC 內部的捲動定位點是 **rightOffset(距離最後一根幾根)**。往左補舊只是往左加棒子、
+   右緣不動 → 定位點語意不變、安全(往右滑補新只剪左側,實測從頭到尾 0 跳動);但「剪掉右側最新棒」
+   會把右緣往左移 → 同一個 rightOffset 指到更舊的位置 → 視野被往舊帶(=使用者回報的『一直往舊跳』)。
+   實測:關掉修剪 → 往舊/往右滑跳動全 0;開著 → 每次修剪那幀就跳一次。
+   我們雖然有 logical range 補償,但 LWC 那一幀的重算仍用舊 rightOffset(見 _scheduleIdleTrim 註)。
+   → 策略:門檻大幅拉高讓修剪變罕見,且只在真的停手(_scheduleIdleTrim debounce 1.5s)時做。
+   代價:常駐根數上限 15k→40k(約 4MB、setData 略慢),換掉滑動中被亂帶。*/
+const TRIM_MAX = 40000;
+
 function _trimRollingWindow() {
-  const MAX = 15000, BUF = 4500;   // 保留視窗放大→往右滑一段後回頭往左仍在已載範圍內、不用重抓(消除「停一下才出來」)
+  const MAX = TRIM_MAX, BUF = 4500;   // 保留視窗放大→往右滑一段後回頭往左仍在已載範圍內、不用重抓(消除「停一下才出來」)
   if (ohlcvData.length <= MAX || replayActive) return 0;
   let vr;
   try { vr = mainChart.timeScale().getVisibleLogicalRange(); } catch (e) { return 0; }
@@ -941,7 +951,9 @@ let _idleTrimTimer = null;
 function _scheduleIdleTrim() {
   clearTimeout(_idleTrimTimer);
   _idleTrimTimer = setTimeout(() => {
-    if (replayActive || _bgLoadInProgress || !ohlcvData.length || ohlcvData.length <= 15000) return;
+    if (replayActive || _bgLoadInProgress || !ohlcvData.length || ohlcvData.length <= TRIM_MAX) return;
+    // 真的停手才修(見 TRIM_MAX 註):互動中修剪會動到右緣=LWC 定位點 → 視野被往舊帶
+    if (window._chartMoveTs && performance.now() - window._chartMoveTs < 900) { _scheduleIdleTrim(); return; }
     // ★確定性 logical:捕捉一次可見範圍 vr,同時用它算「保留區」+「位移補償」→數學上保證
     //   ①span 不變(vr.to-lo)-(vr.from-lo)=原span→不會縮到1根 ②視野一定在保留區內(vr.to≤hi)→右緣不空。
     let vr;
@@ -990,7 +1002,7 @@ function _scheduleIdleTrim() {
     //   捲動位置重推可見範圍,補償之後才做的那些 setData(BB/指標/標記)會把視野推歪一幀(逐幀量到的
     //   瞬態就落在這個空檔)。最後補這一次 → 換資料整段結束時位置一定是對的。
     _syncSuspend(_applyTrim);
-  }, 600);
+  }, 1500);
 }
 window._scheduleIdleTrim = _scheduleIdleTrim;
 
@@ -1052,7 +1064,7 @@ async function _bgLoadNewerBars(scrollTriggered = false) {
       ohlcvData = ohlcvData.concat(newBars);        // 往右 append
       _rebuildTimeIndex();
       let _cut = 0;
-      if (vr && Number.isFinite(vr.from) && ohlcvData.length > 15000) {
+      if (vr && Number.isFinite(vr.from) && ohlcvData.length > TRIM_MAX) {
         const keepLo = Math.max(0, Math.floor(vr.from) - 4500);   // 保留視野左側 4500 根,其餘(更舊)丟棄
         if (keepLo > 50) { _cut = keepLo; ohlcvData = ohlcvData.slice(_cut); _rebuildTimeIndex(); }
       }
