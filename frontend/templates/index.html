@@ -367,7 +367,6 @@
       <button id="chartTypeBtn" type="button" class="tf-toggle" title="切換 K 線圖 / 線型圖（收盤價折線）">📈 線型</button>
       <button id="orderbookBtn" type="button" class="tf-toggle" style="display:none" title="掛單牆：即時盤口大掛單畫在主圖右緣（綠=買方支撐牆、紅=賣方壓力牆，長度=掛單金額）。牆消失時判定「✓吃掉」（行情掃到才消失=真防守）或「⚠撤走」（沒碰到就不見=疑似假單）。左上顯示掛單買賣比。僅加密貨幣即時盤口">🧱 掛單</button>
       <button id="footprintBtn" type="button" class="tf-toggle" style="display:none" title="Footprint 足跡圖：每根K棒內各價位的主動買/賣量（左紅=主動賣、右綠=主動買、金框=POC、亮框=失衡、主圖底部Δ=買賣差、背離分兩型⚠↑亮綠=K漲卻Δ負(賣被吸收·偏多)/⚠↓亮紅=K跌卻Δ正(買被吸收·偏空)、底部紫線=CVD累積Δ：每根Δ累加成線、對比價格創高但CVD沒創高的背離）。1m~1h逐筆精確、4h/1d聚合。僅加密貨幣；K棒間距放大後才顯示">👣 足跡</button>
-      <button id="btnMyTrades" type="button" class="tf-toggle" title="我的交易：把自己在交易所的實際進出場標在主圖上。手機長按交易所截圖→「選取文字」→拷貝→貼進來即可（辨識由手機完成，圖片不會上傳）">📌 我的交易</button>
       <button id="domBtn" type="button" class="tf-toggle" style="display:none" title="訂單簿 DOM：主圖右側階梯，即時顯示各價位『等待成交』的買/賣掛單（綠=買方掛單、紅=賣方掛單，橫條長度=掛量），藉此看出大額資金的防守位置。現價置中、上方賣單下方買單。僅加密貨幣即時盤口">📊 訂單簿</button>
     </div>
   </div>
@@ -453,6 +452,12 @@
         <circle cx="13.5" cy="2.5" r="0.55" fill="currentColor" opacity="0.55"/>
         <!-- 左下塵點 -->
         <circle cx="2.5" cy="13.5" r="0.5" fill="currentColor" opacity="0.45"/>
+      </svg>
+    </button>
+    <!-- 我的實際交易：貼上交易所的倉位詳情文字 → 把自己的進出場標在主圖 -->
+    <button id="btnMyTrades" class="tb-icon-btn" title="我的交易：把自己在交易所的實際進出場標在主圖上。手機長按交易所截圖→「選取文字」→拷貝→貼進來即可（辨識在你的手機/電腦完成，圖片不會上傳）">
+      <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M1.8 12 L5.6 7.4 L8.2 10 L14 3.6"/><path d="M10.6 3.6 H14 V7"/>
       </svg>
     </button>
     <button id="sysSettingsBtn" class="tb-icon-btn" title="系統外觀">

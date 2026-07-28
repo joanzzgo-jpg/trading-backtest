@@ -67,8 +67,10 @@ function _drawMyTrades(W, H) {
     const xy = (t.xp != null) ? candleSeries.priceToCoordinate(+t.xp) : null;
     const long = (t.dir === "long");
     const win = (t.pnl != null) ? (+t.pnl >= 0) : (xy != null ? (long ? (+t.xp >= +t.ep) : (+t.xp <= +t.ep)) : true);
-    // 顏色照專案慣例:綠漲紅跌(Pionex 手機版是紅賺綠賠、相反,解析時已依正負號正規化)
-    const col = win ? "#26a69a" : "#ef5350";
+    // ★顏色依「買/賣」分,且直接取 K 棒的調色盤(C.up/C.down)→ 與使用者自訂的漲跌顏色永遠同色系;
+    //   盈虧則靠標籤的正負號表示(不再用顏色表示賺賠,否則會跟買賣色打架)。
+    const _C = (typeof C !== "undefined" && C) ? C : {};
+    const col = long ? (_C.up || "#26a69a") : (_C.down || "#ef5350");
 
     ctx.save();
     // 進場→出場連線(虛線;未平倉則不畫)
