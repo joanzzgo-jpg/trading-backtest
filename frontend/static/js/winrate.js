@@ -544,7 +544,7 @@ function _wrWarmNextTier() {
     // ⚠ 別改成「一進新階就暖下一階」(2026-07-28 試過、更慢):後端沒有同鍵請求合併,預熱會與使用者
     //   自己那次同時算同一份 → 互相搶 CPU,實測使用者那次 2485ms→4381ms,還白算了 7s 的 100000 階。
     //   保守版(接近門檻才暖)實測:暖到的那階 142ms vs 沒暖到的 2485ms。
-    if (ohlcvData.length + 2000 < cur - 3000) return;      // 離下一階還遠 → 先不預熱
+    if (ohlcvData.length + 2000 < cur * 0.5) return;        // 剛進這階就暖下一階(後端已有 single-flight)
     // 常駐根數被 TRIM_MAX(=40000,見 render.js) 壓住 → 實務上頂到 45000 階;更上面的階暖了也用不到,
     // 卻要付好幾秒後端 CPU(100000 階實測 7s) → 不暖。
     if (next > 45000) return;

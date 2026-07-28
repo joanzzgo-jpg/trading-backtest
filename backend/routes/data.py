@@ -15,6 +15,7 @@ import math
 import threading
 import pandas as pd
 import datetime as _dt
+import threading as _threading
 
 from data.taiwan import fetch_tw_stock, resample_tw, fetch_tw_intraday, fetch_tw_realtime, fetch_tw_intraday_yf, fetch_tw_latest_bar_yf, fetch_tw_daily_yf, YF_MAX_DAYS as TW_YF_MAX_DAYS
 from data.fugle import fetch_fugle_intraday, fugle_enabled
@@ -1319,6 +1320,37 @@ def _git_rev():
     return _GIT_REV
 
 
+# ── 同鍵請求合併 single-flight ────────────────────────────────────────────────
+#   同一份勝率同時被要求多次(背景預熱撞上使用者自己那次、兩個分頁、手機+桌機)時,原本會各算一遍
+#   互搶 CPU：實測積極預熱時使用者那次 2485ms→4381ms。→ 第一個進來的當 leader 實際計算,
+#   其餘 follower 等它算完(結果進快取)再走正常路徑 → 命中快取(~16ms)。
+#   ・key 用「路由參數」組:它完整決定內部 cache_key(long_only 由 market 推導),不必複製內部鍵邏輯。
+#   ・follower 等待有上限(_WR_SF_WAIT);逾時就自己算 → 最壞退化成現狀,不會卡住。
+#   ・leader 一律在 finally 釋放(含例外)→ 不會有鎖漏掉導致後續全部等到逾時。
+#   ・solve 模式不參與(語義不同、不共用快取)。
+_WR_SF_LOCK = _threading.Lock()
+_WR_SF: dict = {}
+_WR_SF_WAIT = 25.0
+
+
+def _wr_sf_acquire(key):
+    """回傳 (is_leader, event)。leader 負責算完後 _wr_sf_release。"""
+    with _WR_SF_LOCK:
+        ev = _WR_SF.get(key)
+        if ev is not None:
+            return False, ev
+        ev = _threading.Event()
+        _WR_SF[key] = ev
+        return True, ev
+
+
+def _wr_sf_release(key):
+    with _WR_SF_LOCK:
+        ev = _WR_SF.pop(key, None)
+    if ev is not None:
+        ev.set()
+
+
 @router.get("/crt_winrate")
 def crt_winrate_api(
     request: Request,
@@ -1347,10 +1379,26 @@ def crt_winrate_api(
     ETag/304：結果帶內容指紋 _h(重算時算一次) → 同內容重看(同一根棒內切回標的、刷新)回 304
     幾乎零傳輸；前端 fetch 需用 cache:"no-cache"(存快取+每次驗證)。無 _h(舊快取/降級)則照常整包回。
     ⚠ 回測/自動交易是 Python 直接呼叫 get_crt_winrate → 拿『完整』signals，不受此瘦身影響。"""
-    wr = get_crt_winrate(market, symbol, timeframe, exchange, stop_buffer_pct,
-                         solve, solve_target, api_key, api_secret, finmind_token,
-                         band_ratio=band_ratio, vw=vw, proto_min=proto_min,
-                         no_proto_ms=bool(no_proto_ms), no_proto_break=bool(no_proto_break))
+    def _run():
+        return get_crt_winrate(market, symbol, timeframe, exchange, stop_buffer_pct,
+                               solve, solve_target, api_key, api_secret, finmind_token,
+                               band_ratio=band_ratio, vw=vw, proto_min=proto_min,
+                               no_proto_ms=bool(no_proto_ms), no_proto_break=bool(no_proto_break))
+
+    if solve:
+        wr = _run()                       # solve 語義不同、不共用快取 → 不參與合併
+    else:
+        _sf_key = (f"{market}|{symbol}|{exchange}|{timeframe}|{stop_buffer_pct}|{band_ratio}"
+                   f"|{vw}|{proto_min}|{int(bool(no_proto_ms))}|{int(bool(no_proto_break))}")
+        _leader, _ev = _wr_sf_acquire(_sf_key)
+        if _leader:
+            try:
+                wr = _run()
+            finally:
+                _wr_sf_release(_sf_key)   # ★含例外一定釋放,否則後續 follower 全等到逾時
+        else:
+            _ev.wait(_WR_SF_WAIT)         # 等 leader 算完(結果已進快取)→ 自己再走一次=命中快取
+            wr = _run()                   # 逾時也走這裡:最壞退化成「各自算」,不會卡住
     if solve or not isinstance(wr, dict):        # solve 模式非勝率結構 → 原樣回
         return wr
     # warm=1：只為了「把這個 vw 階梯算進快取」，不要整包回（前端往舊滑時預熱下一階用）。
