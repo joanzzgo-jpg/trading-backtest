@@ -1,5 +1,9 @@
 function toTime(s) {
   if (!s) return 0;
+  // 後端大列表(勝率標記/缺口/VWAP…)的時間戳改送 **epoch 秒整數** 以瘦身(一個 ISO 字串 21B → 整數 10B,
+  // 實測時間戳佔勝率回應 4 成)。ISO 字串仍全面支援(舊快取/其他端點/K棒 time 欄位) → 兩種都吃。
+  // ⚠ 仍禁止 `str(pd.Timestamp)` 的空格格式(會 NaN → 餵 setMarkers 弄壞十字線),後端一律 isoformat 或 epoch。
+  if (typeof s === "number") return Number.isFinite(s) ? Math.floor(s) + 8 * 3600 : 0;
   const iso = s.includes("T") ? (s.endsWith("Z") ? s : s + "Z") : s + "T00:00:00Z";
   return Math.floor(new Date(iso).getTime() / 1000) + 8 * 3600;
 }

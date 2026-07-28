@@ -14,6 +14,7 @@ import time
 import math
 import threading
 import pandas as pd
+import datetime as _dt
 
 from data.taiwan import fetch_tw_stock, resample_tw, fetch_tw_intraday, fetch_tw_realtime, fetch_tw_intraday_yf, fetch_tw_latest_bar_yf, fetch_tw_daily_yf, YF_MAX_DAYS as TW_YF_MAX_DAYS
 from data.fugle import fetch_fugle_intraday, fugle_enabled
@@ -1372,12 +1373,85 @@ def crt_winrate_api(
     return _wr_resp(out, etag)
 
 
+# ── 勝率回應「線材瘦身」（只在 HTTP 邊界做，核心 _calc_crt_winrate 的回傳一律不動）──────
+#   ★為什麼一定要在這層做（2026-07-28 差點踩到）：`notify_monitor` 是直接呼叫 _calc_crt_winrate 拿
+#   結果餵自動交易/推播的（notify_monitor.py:221 拿 res["fvg"] → place_fvg_limit_ladder 讀
+#   gap.get("sweep") 做 sweepBoost、gap.get("t") 做已了結防呆）。若在 crt.py 就把欄位砍掉/把時間戳
+#   換成整數，會**靜默弄壞下單邏輯**。故：核心回傳保持完整，只有送瀏覽器的這一份瘦身。
+#   ⚠ 同理不可就地改動（payload 內的 list/dict 可能是被快取、且被伺服器端共用的物件）→ 一律建新物件。
+#
+#   量測（BTC 15m vw=45000，整包 5.46MB、快取命中仍要 1.9s）：
+#     ① fvg 佔 63.7%（10976 筆 × 332B）→ 砍前端 0 引用欄位(gi/sweep)、省略 False 布林、
+#        ett/etm/etb 等於 t2 時省略（實測 44% 全等）→ 單筆 332→224B
+#     ② 時間戳 ISO 字串是各鍵最大單項（vwap 60%、smc_sweep 69%、signals 三個合計 52%）
+#        → 轉 epoch 秒整數（21B→10B）。前端 toTime() 已同時吃字串與數字（utils.js）。
+_WR_EPOCH_KEYS = ("t", "t2", "t0", "t1", "ot", "ot_b", "et", "xt", "ett", "etm", "etb",
+                  "tp1t", "tp2t", "tp3t", "tp4t", "slt")
+_WR_LIST_KEYS = ("fvg", "signals", "fvg_ms", "fvg_break", "fvg_shun", "fvg_special",
+                 "fvg_trades", "smc_sweep", "smc_struct", "smc_ob", "smc_sr", "vwap")
+
+
+def _wr_ep(v):
+    """ISO 字串 → epoch 秒整數；非字串/解析失敗 → 原樣（冪等，重複套用安全）。"""
+    if not isinstance(v, str) or len(v) < 10:
+        return v
+    try:
+        return int(_dt.datetime.fromisoformat(v).replace(tzinfo=_dt.timezone.utc).timestamp())
+    except Exception:
+        return v
+
+
+def _wr_slim_row(k, z):
+    """單筆瘦身（回傳新 dict，不動原物件）。"""
+    if not isinstance(z, dict):
+        return z
+    y = dict(z)
+    if k == "fvg":
+        y.pop("gi", None); y.pop("sweep", None)        # 前端 grep 0 引用（伺服器端仍拿得到完整版）
+        for b in ("go", "gv", "dim", "inv", "gap"):
+            if y.get(b) is False:                       # 前端是 `z.go === true` / `!!z.dim` → 缺鍵=false
+                y.pop(b, None)
+        if y.get("used") is True:                       # ⚠ 前端 `z.used !== false`（預設 true）→ 只省 True
+            y.pop("used", None)
+        _t2 = y.get("t2")
+        for e in ("ett", "etm", "etb"):
+            if e in y and y[e] == _t2:                  # ⚠ 只省「等於 t2」；明確 null(沒觸及)必須照送
+                del y[e]
+    for tk in _WR_EPOCH_KEYS:
+        if tk in y:
+            y[tk] = _wr_ep(y[tk])
+    _p = y.get("pens")
+    if isinstance(_p, list):
+        y["pens"] = [({**e, "t": _wr_ep(e.get("t"))} if isinstance(e, dict) else e) for e in _p]
+    _f = y.get("fills")
+    if isinstance(_f, list):
+        y["fills"] = [([_wr_ep(e[0]), *e[1:]] if isinstance(e, (list, tuple)) and e else
+                       (_wr_ep(e) if isinstance(e, str) else e)) for e in _f]
+    return y
+
+
+def _wr_slim(payload):
+    """整包瘦身：只重建需要動的那幾個 list，其餘鍵沿用原物件（零複製）。"""
+    if not isinstance(payload, dict):
+        return payload
+    try:
+        out = dict(payload)
+        for k in _WR_LIST_KEYS:
+            v = out.get(k)
+            if isinstance(v, list) and v:
+                out[k] = [_wr_slim_row(k, z) for z in v]
+        return out
+    except Exception:
+        return payload   # 瘦身失敗照原樣送（功能優先）
+
+
 def _wr_resp(payload, etag=None):
     """勝率大回應（1MB+）直接回 ORJSONResponse：跳過 FastAPI 的 jsonable_encoder 整棵樹走訪
     （這一步在快取命中路徑占大頭），序列化交給 orjson。缺 orjson 時原樣回 dict（走預設路徑）。
     內容已在 get_crt_winrate 快取前經 _round_wr_floats 轉純原生型別 → orjson 可直接序列化。
     etag 有值時附 ETag + no-cache(=可存但每次驗證) → 讓瀏覽器下次帶 If-None-Match。"""
     hdrs = {"ETag": etag, "Cache-Control": "private, no-cache"} if etag else None
+    payload = _wr_slim(payload)          # 線材瘦身（只影響送出去的這份，見上方註解）
     if _ORJSONResp is not None:
         return _ORJSONResp(payload, headers=hdrs)
     return payload
