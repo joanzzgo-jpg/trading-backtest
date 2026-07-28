@@ -18,6 +18,108 @@ const DRAW_WIDTH  = 1.5;
 
 function _did() { return "d" + Date.now().toString(36) + Math.random().toString(36).slice(2,5); }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   我的實際交易（進場/出場標在主圖上）
+   資料來源不限：交易所匯出 CSV、手動輸入、或截圖經 macOS 內建 OCR(scripts/ocr_table.swift)
+   解析而來——這層只吃「結構化紀錄」，跟來源解耦。
+   一筆紀錄：{ sym, dir:"long"|"short", et, ep, xt, xp, qty, lev, pnl, reason, note }
+     ・et/xt = 進場/出場時間，**照抄交易所畫面上顯示的當地時間**（如 "2026-07-24T15:23:19"）
+     ・xt/xp 可省略 → 未平倉，只畫進場點
+   ★時間換算(踩過)：圖表軸顯示的就是台北時間（`toTime()` 已對 UTC 資料 +8h）。交易所 App 顯示的
+     也是手機當地(台北)時間 → 若再套一次 toTime() 會**整整多加 8 小時**（實測進場點被畫到 23:23
+     而不是 15:23）。故這裡用 `_myTradeT()`＝toTime(s)−8h，把「畫面上的當地時間」直接對到軸上，
+     使用者匯入時照抄畫面數字即可、不必自己換時區。
+   ★只畫「當下這個標的」的紀錄；時間用 _timeToX（已處理 LWC 只吃整數 logical 的雷 + 內插/外推），
+     價格用 candleSeries.priceToCoordinate → 縮放/平移都跟著走。
+   ═══════════════════════════════════════════════════════════════════════════ */
+let _myTrades = [];
+let _myTradesOn = true;
+try { _myTrades = JSON.parse(localStorage.getItem("myTrades_v1") || "[]") || []; } catch (e) { _myTrades = []; }
+try { _myTradesOn = localStorage.getItem("myTradesOn") !== "0"; } catch (e) {}
+
+function _myTradesSave() {
+  try { localStorage.setItem("myTrades_v1", JSON.stringify(_myTrades)); } catch (e) {}
+}
+// 標的正規化:交易所寫法百百種(ETH/USDT、ETH_USDT_PERP、ETHUSDT)→ 去掉分隔與 PERP 尾綴再比
+function _myTradeSymKey(s) {
+  return String(s || "").toUpperCase().replace(/[\/\-_\s]/g, "").replace(/PERP$/, "");
+}
+// 畫面上的當地時間字串 → 圖表軸時間（見上方「時間換算」註解：不能直接用 toTime，會多加 8h）
+function _myTradeT(s) { const t = toTime(s); return t ? t - 8 * 3600 : 0; }
+
+function _myTradesForCurrentSymbol() {
+  const cur = _myTradeSymKey(document.getElementById("symbolInput")?.value || "");
+  if (!cur) return [];
+  return _myTrades.filter(t => _myTradeSymKey(t.sym) === cur);
+}
+
+function _drawMyTrades(W, H) {
+  if (!_myTradesOn || !_myTrades.length || typeof candleSeries === "undefined" || !candleSeries) return;
+  const rows = _myTradesForCurrentSymbol();
+  if (!rows.length) return;
+  const ctx = drawCtx;
+
+  for (const t of rows) {
+    const et = _myTradeT(t.et), xt = t.xt ? _myTradeT(t.xt) : null;
+    const ex = _timeToX(et), ey = candleSeries.priceToCoordinate(+t.ep);
+    if (ex == null || ey == null || !isFinite(ex) || !isFinite(ey)) continue;
+    const xx = (xt != null) ? _timeToX(xt) : null;
+    const xy = (t.xp != null) ? candleSeries.priceToCoordinate(+t.xp) : null;
+    const long = (t.dir === "long");
+    const win = (t.pnl != null) ? (+t.pnl >= 0) : (xy != null ? (long ? (+t.xp >= +t.ep) : (+t.xp <= +t.ep)) : true);
+    // 顏色照專案慣例:綠漲紅跌(Pionex 手機版是紅賺綠賠、相反,解析時已依正負號正規化)
+    const col = win ? "#26a69a" : "#ef5350";
+
+    ctx.save();
+    // 進場→出場連線(虛線;未平倉則不畫)
+    if (xx != null && xy != null && isFinite(xx) && isFinite(xy)) {
+      ctx.strokeStyle = col; ctx.lineWidth = 1.5; ctx.setLineDash([5, 4]); ctx.globalAlpha = 0.85;
+      ctx.beginPath(); ctx.moveTo(ex, ey); ctx.lineTo(xx, xy); ctx.stroke();
+      ctx.setLineDash([]); ctx.globalAlpha = 1;
+    }
+    // 進場三角(多=上、空=下)，出場方塊
+    ctx.fillStyle = col; ctx.strokeStyle = "rgba(0,0,0,.55)"; ctx.lineWidth = 1;
+    const s = 7;
+    ctx.beginPath();
+    if (long) { ctx.moveTo(ex, ey - s); ctx.lineTo(ex - s, ey + s * 0.8); ctx.lineTo(ex + s, ey + s * 0.8); }
+    else      { ctx.moveTo(ex, ey + s); ctx.lineTo(ex - s, ey - s * 0.8); ctx.lineTo(ex + s, ey - s * 0.8); }
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    if (xx != null && xy != null && isFinite(xx) && isFinite(xy)) {
+      ctx.beginPath(); ctx.rect(xx - 5, xy - 5, 10, 10); ctx.fill(); ctx.stroke();
+    }
+    // 標籤:方向×槓桿 + 盈虧(放在進場點旁,避免蓋住 K 棒)
+    const lev = t.lev ? `${t.lev}x` : "";
+    const head = `${long ? "多" : "空"}${lev}`;
+    const pnl = (t.pnl != null) ? `${+t.pnl >= 0 ? "+" : ""}${(+t.pnl).toFixed(2)}` : "";
+    const txt = pnl ? `${head} ${pnl}` : head;
+    ctx.font = "bold 11px sans-serif";
+    const tw = ctx.measureText(txt).width;
+    const bx = Math.min(Math.max(ex + 10, 2), W - tw - 8), by = long ? ey - 14 : ey + 6;
+    ctx.fillStyle = "rgba(0,0,0,.62)";
+    ctx.fillRect(bx - 3, by - 10, tw + 6, 14);
+    ctx.fillStyle = col;
+    ctx.fillText(txt, bx, by);
+    ctx.restore();
+  }
+}
+
+/* ── 對外 API（匯入/清除/開關；資料來源不限，見上方註解）── */
+window._myTradesAdd = (recs) => {
+  const arr = Array.isArray(recs) ? recs : [recs];
+  _myTrades = _myTrades.concat(arr.filter(r => r && r.sym && r.et && r.ep != null));
+  _myTradesSave();
+  if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();
+  return _myTrades.length;
+};
+window._myTradesClear = () => { _myTrades = []; _myTradesSave(); if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings(); };
+window._myTradesList = () => _myTrades.slice();
+window._myTradesToggle = (on) => {
+  _myTradesOn = (on == null) ? !_myTradesOn : !!on;
+  try { localStorage.setItem("myTradesOn", _myTradesOn ? "1" : "0"); } catch (e) {}
+  if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();
+  return _myTradesOn;
+};
+
 // 繪圖按「標的」分桶儲存（market:exchange:symbol）→ 各標的繪圖互不干擾。
 function _drawSymKey() {
   const sym = document.getElementById("symbolInput")?.value || "";
@@ -2479,6 +2581,9 @@ function renderDrawings() {
       drawCtx.restore();
     }
   }
+
+  // 我的實際交易（進場/出場）——畫在最上層，丟例外只跳過不拖垮 overlay
+  try { _drawMyTrades(W, H); } catch (e) {}
 
   // 畫線/拖曳時的即時軸標籤 + Δ 資訊盒（TV 風；丟例外只跳過不拖垮 overlay）
   try { _drawDrawTags(W, H); } catch (e) {}
