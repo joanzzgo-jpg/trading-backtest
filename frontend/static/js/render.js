@@ -810,8 +810,11 @@ async function _bgLoadOlderBars(scrollTriggered = false) {
         // ★手還在拖的當下不修剪(2026-07-28):修剪那一幀 LWC 會先用「新資料 × 舊視野」畫一幀才吃到我們的
         //   補償 → 使用者看到閃跳(逐幀量到 −317/−458 根往返)。停手 250ms 後由 _scheduleIdleTrim 做同樣的事
         //   (實測放手後零飄移)→ 記憶體一樣有界、但拖曳過程不再跳。
+        // ★停用「補舊時順手剪右側」(2026-07-30):它剪的正是右緣 = LWC 捲動定位的基準 → 必跳。
+        //   記憶體改由 _scheduleIdleTrim 在「使用者滑回最新附近」時回收(那時剪左側、右緣不動、不跳)。
+        //   代價:一路往舊滑的過程中常駐根數會長到 TRIM_MAX 以上,滑回來時才收掉。
         const _dragging = window._chartMoveTs && (performance.now() - window._chartMoveTs < 250);
-        if (vr && !_dragging && ohlcvData.length > TRIM_MAX) {
+        if (false && vr && !_dragging && ohlcvData.length > TRIM_MAX) {
           const viewToNew = Math.ceil(vr.to) + nPrepended;      // 視野右緣在「已 prepend」的新 index 空間
           const keepHi = Math.min(ohlcvData.length - 1, viewToNew + 4500);
           if (keepHi > viewToNew + 50 && keepHi < ohlcvData.length - 1) {
@@ -827,20 +830,36 @@ async function _bgLoadOlderBars(scrollTriggered = false) {
           }
         }
         const shifted = vr ? { from: vr.from + nPrepended, to: vr.to + nPrepended } : null;
-        const _setShifted = () => { try { if (shifted) { mainChart.timeScale().setVisibleLogicalRange(shifted); [kdjChart, rsiChart, macdChart].forEach(c => { try { c.timeScale().setVisibleLogicalRange(shifted); } catch (e) {} }); } } catch (e) {} };
+        // ★這裡若剛剪過右側,也要把 LWC 真正用來捲動的位置一起設對(同 _scheduleIdleTrim 的說明):
+        //   只設 logical range 的話,換資料那一幀 LWC 會拿舊 rightOffset 重算 → 畫面整整偏掉一個
+        //   緩衝區(實測 −4500 根,正好等於保留緩衝 BUF)。⚠ 一樣要夾上界,否則會被拉到最新 K。
+        // ⚠ withScroll 只能在 setData **之後**傳 true:ro 是用 ohlcvData.length(新長度)算的,
+        //   但 setData 前圖表裡還是舊資料 → 把「新空間的偏移」套到舊資料上會整整偏掉一個緩衝區
+        //   (實測 −4500 根,正好等於 BUF;這是 2026-07-30 追出來的真正原因)。
+        const _setShifted = (withScroll) => {
+          try {
+            if (!shifted) return;
+            mainChart.timeScale().setVisibleLogicalRange(shifted);
+            [kdjChart, rsiChart, macdChart].forEach(c => { try { c.timeScale().setVisibleLogicalRange(shifted); } catch (e) {} });
+            if (withScroll) {
+              const ro = Math.min(0, shifted.to - (ohlcvData.length - 1));   // 夾上界:正值會被拉到最新K
+              [mainChart, kdjChart, rsiChart, macdChart].forEach(c => { try { c.timeScale().scrollToPosition(ro, false); } catch (e) {} });
+            }
+          } catch (e) {}
+        };
         // ★換資料+補償視野必須原子化(_syncSuspend):否則 setData 期間各圖發出的「舊 index 空間」range
         //   會被 rAF 延遲的跨圖同步(_flushSync)在補償之後推回主圖 → 該幀畫在未補償位置、下一幀才彈回
         //   ＝ 往舊滑「被帶到銜接點」的閃跳(2026-07-28 逐幀量到 −194/−317 根)。
         _syncSuspend(() => {
-          if (shifted) _setShifted();          // 先把視野擺到補償後的位置(setData 前後各一次,兩邊都在同步暫停內)
+          if (shifted) _setShifted(false);     // setData 前:只設 logical range(此時圖表仍是舊資料)
           _bgApplyChunk(ohlcvData, _incAnchor);
-          if (shifted) _setShifted();
+          if (shifted) _setShifted(true);      // setData 後:連 LWC 的捲動位置一起設對
         });
         // 只在被延遲操作壓回最右緣時才搶回(條件式,不無腦覆寫、不干擾使用者續滑)
         if (shifted) {
           const _reassert = () => {
             if (myGen !== _bgLoadGen) return;
-            try { const cur = mainChart.timeScale().getVisibleLogicalRange(); if (cur && shifted.to < ohlcvData.length - 3 && cur.to >= ohlcvData.length - 3) _setShifted(); } catch (e) {}
+            try { const cur = mainChart.timeScale().getVisibleLogicalRange(); if (cur && shifted.to < ohlcvData.length - 3 && cur.to >= ohlcvData.length - 3) _setShifted(true); } catch (e) {}
           };
           requestAnimationFrame(_reassert);
           setTimeout(_reassert, 120);
@@ -966,6 +985,13 @@ function _scheduleIdleTrim() {
     const lo = Math.max(0, Math.floor(vr.from) - BUF);
     const hi = Math.min(ohlcvData.length - 1, Math.ceil(vr.to) + BUF);
     if (hi - lo + 1 >= ohlcvData.length) return;   // 已涵蓋全部→不修
+    // ★★ 看歷史時一律不修剪(2026-07-30 定案)。修剪會動到「右緣」,而 LWC 的捲動定位是以
+    //   「離最後一根多遠」為基準 + setData 延後到繪製才生效 → 不論用索引或時間補償,都會有一幀
+    //   畫在錯位置(實測 −4500 根＝正好一個保留緩衝,來回彈)。試過的補償全部失敗:先設/後設/
+    //   兩者都設/同步 scrollToPosition/改用時間 → 最好的情況仍留 2 幀、最差 8 幀。
+    //   → 改成只在「視野已回到最新附近」時才修:此時要剪的是**左側**(舊資料)、右緣不動,
+    //     實測往右滑補新那條路(同樣只剪左側)從頭到尾 0 跳動。記憶體則在使用者滑回現在時回收。
+    if (vr.to < ohlcvData.length - 800) return;
     ohlcvData = ohlcvData.slice(lo, hi + 1);
     _rebuildTimeIndex();
     // 修剪後動態更新往後缺口(右側被剪→標記,右滑可補回)
@@ -978,19 +1004,32 @@ function _scheduleIdleTrim() {
     // ★換資料+補償原子化:修剪 setData 期間各圖發出的舊 index range 若被延遲同步推回主圖,
     //   會出現「畫在未補償位置一幀、下一幀彈回」的閃跳(實測 ±317 根,見 _bgLoadOlderBars 註)。
     const sh = { from: vr.from - lo, to: vr.to - lo };       // 確定性位移補償(刪左 lo 根)
-    // ⚠ 別改用 timeScale().scrollToPosition() 同步 rightOffset(2026-07-28 試過、已退):
-    //   換資料那一幀 LWC 確實是拿「舊 rightOffset」重算(實測 9510−4822−508=4180=畫錯的那幀),
-    //   直接寫 rightOffset 能把閃跳壓到 0,但會偶發「整個被拉到最新 K」的暴走(比閃一下嚴重得多,
-    //   同 90729cc 修過的老問題)。維持只設 logical range。
-    const _applyTrim = () => { try { mainChart.timeScale().setVisibleLogicalRange(sh); [kdjChart, rsiChart, macdChart].forEach(c => { try { c.timeScale().setVisibleLogicalRange(sh); } catch (e) {} }); } catch (e) {} };
+
+    // 修剪那一幀,LWC 會拿「舊 rightOffset」配新資料重算一次(實測 9510−4822−508=4180=畫錯的那幀),
+    //   所以除了 logical range,也要把它真正用來捲動的位置一起設對 → 那一幀就不會錯位。
+    //   ⚠ **必須夾住上界 Math.min(0, …)**:2026-07-28 第一次試沒夾,視野若已捲過資料右緣(vr.to > n−1)
+    //     算出來會是正值＝往「未來」捲 → 整個被拉到最新 K(比閃一下嚴重得多)。夾住後才安全。
+    const _applyTrim = (withScroll) => {
+      try {
+        mainChart.timeScale().setVisibleLogicalRange(sh);
+        [kdjChart, rsiChart, macdChart].forEach(c => { try { c.timeScale().setVisibleLogicalRange(sh); } catch (e) {} });
+        if (withScroll) {
+          const ro = Math.min(0, sh.to - (ohlcvData.length - 1));
+          [mainChart, kdjChart, rsiChart, macdChart].forEach(c => { try { c.timeScale().scrollToPosition(ro, false); } catch (e) {} });
+        }
+      } catch (e) {}
+    };
     _syncSuspend(() => {
       // ★★ setData 之「前」也要先設一次(2026-07-28 逐幀追出來的關鍵):只在 setData 後補償的話,
       //   LWC 會在處理完資料更新後自己冒出一個瞬態 range(實測差 317 根、無任何 set 呼叫)、**那一幀就被畫出來**,
       //   下一幀才回到我們設的值 → 使用者看到閃跳。先設好、再 setData：LWC 沿用既有 logical range,
       //   換完資料就已經在正確位置,不產生瞬態。(補舊那條路本來就前後各設一次,故無此問題)
-      _applyTrim();
+      // ★修剪**不能**像補舊那樣「setData 前先設一次」:資料已 slice 但圖表還是舊資料,
+      //   把新座標(如 [4500,5009])設上去會指到**舊陣列**的第 4500 根＝更早很多的內容
+      //   → 那一幀就整整偏掉一個緩衝區(實測 −4500 根,2026-07-30 追出來的真正原因)。
+      //   補舊(prepend)可以先設是因為位移是 +nPrepended、方向相反且會被 setData 立刻蓋掉。
       _bgApplyChunk(ohlcvData, 0);
-      _applyTrim();
+      _applyTrim(true);
     });
     // ★同步重算指標:BB 用 debounce 會被載入殘留的大 n renderBB 蓋掉→BB series 停在 6 萬根+破洞(與修剪後 K 線對不上=「銜接斷掉」)。
     //   修剪後直接 renderBB(當前 ohlcvData) 保證同步;副圖仍走 debounce。
@@ -1004,7 +1043,7 @@ function _scheduleIdleTrim() {
     // ★所有 series setData / setMarkers 做完後「再補一次視野」:每次資料更新 LWC 都會依自己保留的
     //   捲動位置重推可見範圍,補償之後才做的那些 setData(BB/指標/標記)會把視野推歪一幀(逐幀量到的
     //   瞬態就落在這個空檔)。最後補這一次 → 換資料整段結束時位置一定是對的。
-    _syncSuspend(_applyTrim);
+    _syncSuspend(() => _applyTrim(true));
   }, 1500);
 }
 window._scheduleIdleTrim = _scheduleIdleTrim;
@@ -1075,7 +1114,8 @@ async function _bgLoadNewerBars(scrollTriggered = false) {
       if (!replayActive) {
         const shifted = vr ? { from: vr.from - _cut, to: vr.to - _cut } : null;
         const _apply = () => { try { if (shifted) { mainChart.timeScale().setVisibleLogicalRange(shifted); [kdjChart, rsiChart, macdChart].forEach(c => { try { c.timeScale().setVisibleLogicalRange(shifted); } catch (e) {} }); } } catch (e) {} };
-        _syncSuspend(() => { _apply(); _bgApplyChunk(ohlcvData, 0); _apply(); });   // 前後各設一次(同補舊,防 LWC 瞬態閃跳)
+        // 同上:剪掉左側後不可先設(會指到舊陣列的別處),只在 setData 後設
+        _syncSuspend(() => { _bgApplyChunk(ohlcvData, 0); _apply(); });
         requestAnimationFrame(() => {
           try {
             const cur = mainChart.timeScale().getVisibleLogicalRange();
