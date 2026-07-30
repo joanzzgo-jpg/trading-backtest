@@ -135,6 +135,7 @@ function _loadDrawStore() {
 // ── 繪圖復原（返回鍵）────────────────────────────────────────
 // 所有繪圖變動（新畫/拖移/改大小/改色/刪除）最後都會呼叫 saveDrawings() → 在此
 // 自動累積「變動前」快照，零漏網。堆疊上限 50、切標的重置（不跨標的復原）。
+let _drawSaveWarned = false;   // 儲存失敗提示去重（見 saveDrawings）
 let _undoStack = [];
 let _undoBase  = "[]";   // 最後一次已儲存狀態(JSON)＝下一次變動的「變動前」
 function _undoBtnSync() {
@@ -170,7 +171,19 @@ function saveDrawings() {
     const key = _drawSymKey();
     if (drawings.length) store[key] = drawings; else delete store[key];
     localStorage.setItem("tv_drawings_v2", JSON.stringify(store));
-  } catch {}
+    _drawSaveWarned = false;
+  } catch (e) {
+    // ★別再靜默吞掉(2026-07-31):原本 `catch {}` → 瀏覽器儲存空間滿時繪圖**存不進去卻毫無提示**,
+    //   使用者以為畫好了,重新整理就全沒了。這是資料遺失,一定要講。
+    //   實測:localStorage 上限約 10MB;繪圖即使 30 標的 × 300 個也才 1MB,正常用不會撞到 →
+    //   真的撞到多半是別的資料(帳號快照等)吃滿,所以提示要引導使用者去清。
+    console.warn("[繪圖] 儲存失敗:", e && e.name, e && e.message);
+    if (!_drawSaveWarned) {
+      _drawSaveWarned = true;   // 同一次連續失敗只提示一次,不洗版
+      if (typeof showToast === "function")
+        showToast("⚠ 繪圖沒能存起來（瀏覽器儲存空間已滿）— 重新整理後會消失，請先清掉一些標的的繪圖");
+    }
+  }
 }
 function loadDrawings() {
   try {
