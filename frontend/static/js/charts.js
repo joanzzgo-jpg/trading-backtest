@@ -830,12 +830,16 @@ window.setFVGTradeLines = setFVGTradeLines;
 function applyOhlcvToSeries(data) {
   if (!candleSeries || !data.length) return;
   {
+    // _bt(d) 用 _rebuildTimeIndex 已算好的秒數（見 render.js 該函式註）；重播傳進來的可能是純秒數 → 走原路
+    const _tm = (typeof _bt === "function")
+      ? (d => (d.time ? _bt(d) : d))
+      : (d => (d.time ? toTime(d.time) : d));
     candleSeries.setData(data.map(d => ({
-      time: d.time ? toTime(d.time) : d, open: d.open, high: d.high, low: d.low, close: d.close,
+      time: _tm(d), open: d.open, high: d.high, low: d.low, close: d.close,
     })));
+    if (lineSeries) lineSeries.setData(   // 線型圖收盤折線；濾掉 null close(否則 LWC Line 拋「Value is null」)
+      data.filter(d => d.close != null).map(d => ({ time: _tm(d), value: d.close })));
   }
-  if (lineSeries) lineSeries.setData(   // 線型圖收盤折線；濾掉 null close(否則 LWC Line 拋「Value is null」)
-    data.filter(d => d.close != null).map(d => ({ time: d.time ? toTime(d.time) : d, value: d.close })));
   updateLatestPriceLine(data[data.length - 1].close);
 }
 

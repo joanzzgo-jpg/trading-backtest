@@ -78,6 +78,7 @@ async function fetchLatest() {
         // 同時間不需重建 Map（key 不變）
       }
       else if (t > lastT) {
+        bar._t = t;       // 圖表秒數快取（同 _rebuildTimeIndex 的 _t；這裡 t 已經算好了，順手存）
         ohlcvData.push(bar);
         _newBar = true;   // 出現新棒＝前一根剛收盤 → 稍後重抓勝率補上它的 FVG
         if (typeof _timeToIdx !== "undefined") {

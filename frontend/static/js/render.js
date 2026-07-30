@@ -171,12 +171,21 @@ function _rebuildTimeIndex() {
   _timeToIdx = new Map();
   _secToIdx  = new Map();
   for (let i = 0; i < ohlcvData.length; i++) {
-    const t = ohlcvData[i].time;
+    const b = ohlcvData[i];
+    const t = b.time;
+    const s = toTime(t);
+    // ★把算好的圖表秒數存回棒上(_t)：這裡本來就要為每一根算一次 toTime()(建 _secToIdx)，
+    //   算完就丟掉太浪費——toTime() 對字串是 new Date() 解析 ISO，是熱路徑的主要成本。
+    //   存下來後 renderBB(×3 條線)/renderVolume/applyOhlcvToSeries 都直接讀，同一份資料
+    //   34k 根時原本要重複解析 ~17 萬次。⚠ 只是快取欄位，來源資料不變；資料一換就重建。
+    b._t = s;
     _timeToIdx.set(t, i);
-    _secToIdx.set(toTime(t), i);
+    _secToIdx.set(s, i);
   }
   ++_dataVersion;
 }
+// 取棒的圖表秒數：優先用 _rebuildTimeIndex 算好的 _t，沒有(例如剛 fetch 還沒建索引)才現算。
+function _bt(d) { return d._t !== undefined ? d._t : toTime(d.time); }
 
 /* 夾住可見時間範圍在資料內:右緣超過最後一根→整段往左夾(保持span)、左緣超過第一根→夾住。
    還原視野前套用→杜絕「右緣跑到資料外=右邊空白斷掉的Ｋ棒/閃」。回 null 表不合理不還原。 */
@@ -404,7 +413,8 @@ function renderCandles(data) {
 }
 
 function renderBB(data) {
-  const line = k => data.filter(d => Number.isFinite(d[k])).map(d => ({ time:toTime(d.time), value:d[k] }));   // Number.isFinite 擋 null/undefined/NaN(否則 LWC paint 拋「Value is null」)
+  // _bt(d)：用 _rebuildTimeIndex 已算好的秒數（見該函式註）；3 條線 × 34k 根原本是 10 萬次 ISO 解析
+  const line = k => data.filter(d => Number.isFinite(d[k])).map(d => ({ time:_bt(d), value:d[k] }));   // Number.isFinite 擋 null/undefined/NaN(否則 LWC paint 拋「Value is null」)
   bbU.setData(line("bb_upper")); bbM.setData(line("bb_middle")); bbL.setData(line("bb_lower"));
   // 1σ 內帶(bbU1/bbL1)已移除，不再繪製
 }
@@ -574,7 +584,7 @@ function renderVolume(data) {
   const markSet = _stratVolTimes();
   const dimOn = markSet.size > 0;
   volSeries.setData(data.map(d => {
-    const t = toTime(d.time);
+    const t = _bt(d);
     const base = d.close >= d.open ? C.volUp : C.volDown;
     const a = dimOn ? (markSet.has(t) ? "ff" : "1f") : _va;
     return { time:t, value:d.volume||0, color: base + a };
@@ -616,7 +626,8 @@ function _renderSubcharts(data) {
 
 function renderKDJ(data) {
   data = data.filter(d => d && Number.isFinite(toTime(d.time)));   // 自我防禦:濾壞時間棒(NaN 時間→LWC paint「Value is null」);所有呼叫點(含背景排程用未濾 ohlcvData)都安全
-  const line = k => data.filter(d => Number.isFinite(d[k])).map(d => ({ time:toTime(d.time), value:d[k] }));   // Number.isFinite 擋 null/undefined/NaN(否則 LWC paint 拋「Value is null」)
+  // _bt(d)：用 _rebuildTimeIndex 已算好的秒數（見該函式註）；3 條線 × 34k 根原本是 10 萬次 ISO 解析
+  const line = k => data.filter(d => Number.isFinite(d[k])).map(d => ({ time:_bt(d), value:d[k] }));   // Number.isFinite 擋 null/undefined/NaN(否則 LWC paint 拋「Value is null」)
   kdjK.setData(line("kdj_k")); kdjD.setData(line("kdj_d")); kdjJ.setData(line("kdj_j"));
   if (data.length) {
     const f = toTime(data[0].time), l = toTime(data[data.length-1].time);
@@ -629,7 +640,8 @@ function renderKDJ(data) {
 
 function renderRSI(data) {
   data = data.filter(d => d && Number.isFinite(toTime(d.time)));   // 自我防禦:濾壞時間棒
-  const line = k => data.filter(d => Number.isFinite(d[k])).map(d => ({ time:toTime(d.time), value:d[k] }));   // Number.isFinite 擋 null/undefined/NaN(否則 LWC paint 拋「Value is null」)
+  // _bt(d)：用 _rebuildTimeIndex 已算好的秒數（見該函式註）；3 條線 × 34k 根原本是 10 萬次 ISO 解析
+  const line = k => data.filter(d => Number.isFinite(d[k])).map(d => ({ time:_bt(d), value:d[k] }));   // Number.isFinite 擋 null/undefined/NaN(否則 LWC paint 拋「Value is null」)
   rsiLine14.setData(line("rsi_14")); rsiLine7.setData(line("rsi_7"));
   if (data.length) {
     const f = toTime(data[0].time), l = toTime(data[data.length-1].time);
@@ -683,7 +695,7 @@ function _bgApplyChunk(data, nPrepended) {
   const _mkSet = _stratVolTimes();
   const _dimOn = _mkSet.size > 0;
   volSeries.setData(data.map(d => {
-    const t = toTime(d.time);
+    const t = _bt(d);
     const base = d.close >= d.open ? C.volUp : C.volDown;
     return { time: t, value: d.volume || 0, color: base + (_dimOn ? (_mkSet.has(t) ? "ff" : "1f") : _va) };
   }));
