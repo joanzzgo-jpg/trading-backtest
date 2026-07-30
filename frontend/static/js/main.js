@@ -141,6 +141,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   _initWrTargetBtn();   // 勝率欄目標切換按鈕初始狀態
   _initWrStopBuffer();  // 勝率欄停損緩衝輸入
   _initSubChartsToggle();  // 副圖指標 顯示/隱藏 toggle（左下浮按鈕）
+  _initGoLatestBtn();      // 回到最新 ⏭（主圖右下，看歷史時才出現）
   _initMarketPill();       // 市場切換動畫 pill（Crypto / TW / US）
   if (typeof initAccount === "function") initAccount();   // 帳號 + 跨裝置同步（後端未啟用會自動隱藏入口）
   if (typeof initSessionToggle === "function") initSessionToggle();  // 交易時段標記開關

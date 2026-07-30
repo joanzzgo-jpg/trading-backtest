@@ -86,7 +86,26 @@ const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
   const cacheBuilt = await page.evaluate(() => typeof _sortedMarkerCache !== "undefined");
   console.log("✓ 切時框 4H（標記快取存在:", cacheBuilt, "）");
 
-  // 6) 錯誤總結（favicon / 網路類噪音排除）
+  // 6) 資料完整性：K 棒不可有重複 / 亂序 / 破洞
+  //    ★為什麼進冒煙(2026-07-30)：版控的 K 線倉庫曾缺 434 根上線,K 棒只是「少一段」不報錯,
+  //      一路到深滑 E2E 才被抓到。這裡用「當前已載入的資料」做最低成本的把關。
+  //      倉庫檔本身另有 backend/scripts/repair_klines5m.py 全量掃描（動到倉庫後必跑）。
+  const integ = await page.evaluate(() => {
+    const tfS = { "1m": 60, "5m": 300, "15m": 900, "30m": 1800, "1h": 3600, "2h": 7200, "4h": 14400, "1d": 86400 }[currentTF] || 3600;
+    let dup = 0, ooo = 0, holes = 0, maxHole = 0;
+    for (let i = 1; i < ohlcvData.length; i++) {
+      const a = toTime(ohlcvData[i - 1].time), c = toTime(ohlcvData[i].time);
+      if (c === a) dup++;
+      else if (c < a) ooo++;
+      else { const g = Math.round((c - a) / tfS); if (g > 1) { holes++; if (g > maxHole) maxHole = g; } }
+    }
+    return { n: ohlcvData.length, dup, ooo, holes, maxHole, tf: currentTF };
+  });
+  if (integ.dup || integ.ooo || integ.holes)
+    fail(`K棒資料不完整（${integ.tf}）：重複 ${integ.dup} / 亂序 ${integ.ooo} / 破洞 ${integ.holes}（最大缺 ${integ.maxHole - 1} 根）`);
+  console.log(`✓ 資料完整性（${integ.n} 根：無重複/亂序/破洞）`);
+
+  // 7) 錯誤總結（favicon / 網路類噪音排除）
   const real = errors.filter(e => !e.includes("favicon") && !e.includes("net::") && !e.includes("ERR_"));
   if (real.length) fail("有 JS 錯誤 " + real.length + " 筆");
   console.log("✓ 零 JS 錯誤 — 冒煙通過");

@@ -1,7 +1,7 @@
 // 切標的時 abort 上一筆未完成請求；30s timeout 防止後端卡住前端
 let _loadDataCtrl = null;
 let _pendingAlignRange = null; // 看歷史切小時框:目標時間段初次還沒載到→先記著,背景補到涵蓋時再拉回視野
-async function loadData(autoLoad = false) {
+async function loadData(autoLoad = false, forceLatest = false) {
   if (replayActive) exitReplay();
   _pendingAlignRange = null;   // 新載入作廢上一次未完成的歷史對齊目標
   window._loadRangeStart = null;   // 預設抓最近 N 根;下方「捲歷史切換」設成目標時間附近的有界視窗(start+end)直接範圍抓取
@@ -13,7 +13,9 @@ async function loadData(autoLoad = false) {
     if (_r) _savedBarCount = Math.round(_r.to - _r.from);
     // 若視窗已捲到歷史（右緣不貼最新棒）→ 另存可見「時間範圍」，切標的/時框後對齊同一時間段；
     // 仍在看最新（_atLatest）→ 不存，照舊貼齊最新 N 根（realtime 才會接續更新）
-    const _atLatest = !_r || !ohlcvData.length || _r.to >= ohlcvData.length - 2;
+    // forceLatest＝「回到最新」按鈕：即使現在在看歷史，也走 at-latest 這條（保留縮放、貼齊最新），
+    //   而不是把當前歷史視窗記下來再對齊回去（那是切標的/切時框要的行為，剛好相反）。
+    const _atLatest = forceLatest || !_r || !ohlcvData.length || _r.to >= ohlcvData.length - 2;
     _savedTimeRange = null;
     _savedRightOffset = null;
     _savedBarSpacing = null;
@@ -719,9 +721,9 @@ async function _bgLoadOlderBars(scrollTriggered = false) {
   let   targetStartTs = Math.floor(Date.now() / 1000) - totalDays * 86400;
   // 看歷史切時框:分頁串流必須補到「你正在看的那段」才停,否則對齊落空(切不到同一天)。
   //   把目標深度延伸到待對齊起點前 1 天(近段仍先載、含現在→不會往最新斷)。
+  const _tfSec = { "1m":60,"5m":300,"15m":900,"30m":1800,"1h":3600,"2h":7200,"4h":14400,"1d":86400 }[snapTf] || 3600;
   if (_pendingAlignRange) {
     // 補到「目標時間 − 可見根數×時框」再前 1 天 → 確保目標右緣左側有足夠根數(保持縮放)
-    const _tfSec = { "1m":60,"5m":300,"15m":900,"30m":1800,"1h":3600,"2h":7200,"4h":14400,"1d":86400 }[snapTf] || 3600;
     targetStartTs = Math.min(targetStartTs, _pendingAlignRange.anchorT - _pendingAlignRange.bc * _tfSec - 86400);
   }
 
@@ -767,8 +769,41 @@ async function _bgLoadOlderBars(scrollTriggered = false) {
       if (!json.data?.length || !guard() || myGen !== _bgLoadGen) break;
 
       const existingEarliest = toTime(ohlcvData[0].time);
-      const newBars = json.data.filter(b => toTime(b.time) < existingEarliest);
+      let newBars = json.data.filter(b => toTime(b.time) < existingEarliest);
       if (!newBars.length) break;
+
+      // ★接合檢查(與 _bgLoadNewerBars 對稱):原本只判斷「比開頭舊」就 prepend,只要抓回來的區塊
+      //   結尾比我們的開頭早一截,就會**靜默接出一個洞**——K 棒只是少一段、不報錯,極難察覺。
+      //   接不上先補中間那段一次;補不到才照接(資料源真的沒有),並記入 window._dataHoles 供診斷。
+      const _lastNew = toTime(newBars[newBars.length - 1].time);
+      if (_lastNew < existingEarliest - _tfSec * 1.5) {
+        try {
+          const gRes = await fetch("/api/ohlcv", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              market: snapMarket, symbol: snapSymbol, timeframe: snapTf, exchange: snapExchange,
+              start: toIso(_lastNew), end: toIso(existingEarliest + 86400), limit: 0, indicators: false,
+            }),
+          });
+          if (gRes.ok && guard() && myGen === _bgLoadGen) {
+            const gj = await gRes.json();
+            const patch = (gj.data || []).filter(b => toTime(b.time) < existingEarliest);
+            if (patch.length) {
+              const seen = new Set();
+              newBars = newBars.concat(patch)
+                .filter(b => { const t = toTime(b.time); if (seen.has(t)) return false; seen.add(t); return true; })
+                .sort((a, b) => toTime(a.time) - toTime(b.time));
+            }
+          }
+        } catch (e) { /* 補洞失敗就照原樣接,可用性優先 */ }
+        const _l2 = toTime(newBars[newBars.length - 1].time);
+        if (_l2 < existingEarliest - _tfSec * 1.5) {
+          const miss = Math.round((existingEarliest - _l2) / _tfSec) - 1;
+          (window._dataHoles = window._dataHoles || []).push(
+            { sym: snapSymbol, tf: snapTf, from: newBars[newBars.length - 1].time, to: ohlcvData[0].time, miss });
+          console.warn(`[補舊] 資料源缺 ${miss} 根(${snapSymbol} ${snapTf}) → 照接,已記入 window._dataHoles`);
+        }
+      }
 
       const nPrepended = newBars.length;
       ohlcvData = newBars.concat(ohlcvData);
@@ -1018,6 +1053,41 @@ function _trimMaskHide(masks) {
   try { for (const m of (masks || [])) m.remove(); } catch (e) {}
   window._trimMaskOn = false;
 }
+
+/* ── 回到最新（⏭）───────────────────────────────────────────────────────────
+   修剪為了壓住記憶體會把「現在」那一段丟掉 → 從深歷史滑回來只能靠背景補新，實測要拖 13~14 次
+   （每補一塊又多出好幾千根要拖過去）。這顆是唯一的捷徑。
+   ・資料仍到現在（只是視野捲走了）→ scrollToRealTime()，零成本、瞬間。
+   ・資料被修剪掉了（_hasFwdGap）→ 走 loadData(forceLatest) 重載近段（保留縮放）。 */
+function _goLatest() {
+  try {
+    if (typeof replayActive !== "undefined" && replayActive) return;
+    if (window._hasFwdGap) { loadData(false, true); return; }
+    [mainChart, kdjChart, rsiChart, macdChart].forEach(c => {
+      try { c.timeScale().scrollToRealTime(); } catch (e) {}
+    });
+  } catch (e) {}
+}
+window._goLatest = _goLatest;
+
+/* 按鈕顯示條件：有往後缺口(資料被修剪掉、回不到現在) 或 視野右緣離最新棒 > 一屏。
+   由 charts.js 的 _flushSync 每次視野變動時呼叫（已節流），零額外訂閱。 */
+function _updateGoLatestBtn() {
+  const btn = document.getElementById("btnGoLatest");
+  if (!btn) return;
+  let show = false;
+  try {
+    if (!(typeof replayActive !== "undefined" && replayActive) && ohlcvData.length) {
+      const r = mainChart.timeScale().getVisibleLogicalRange();
+      if (r) {
+        const span = Math.max(1, r.to - r.from);
+        show = !!window._hasFwdGap || (r.to < ohlcvData.length - 1 - span);
+      }
+    }
+  } catch (e) {}
+  if (btn.hidden === show) btn.hidden = !show;
+}
+window._updateGoLatestBtn = _updateGoLatestBtn;
 
 let _idleTrimTimer = null;
 function _scheduleIdleTrim() {

@@ -857,6 +857,19 @@ function _initMarketPill() {
   sel.addEventListener("change", () => setMarket(sel.value || "crypto"));
 }
 
+// 「回到最新」⏭：看歷史時浮在主圖右下。修剪會把「現在」那段丟掉壓記憶體 → 從深歷史滑回來
+// 實測要拖 13~14 次才回得到最新，這顆是唯一捷徑。顯示條件由 render.js `_updateGoLatestBtn` 管。
+function _initGoLatestBtn() {
+  const btn = document.getElementById("btnGoLatest");
+  if (!btn) return;
+  btn.addEventListener("click", e => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (typeof window._goLatest === "function") window._goLatest();
+    if (typeof SFX !== "undefined" && SFX.switch_) { try { SFX.switch_(); } catch (err) {} }
+  });
+}
+
 // 副圖指標 顯示/隱藏 toggle — draw-toolbar 最底部按鈕
 // 預設隱藏，state 存 localStorage.subChartsHidden（"1"=隱藏、"0"=顯示）
 function _initSubChartsToggle() {

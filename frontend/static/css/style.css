@@ -7302,3 +7302,27 @@ html:not(.perf-mode).sky-show #miniGrid { background: transparent !important; } 
 .mini-body { flex: 1; min-height: 0; position: relative; }
 html.perf-mode .mini-head { color: #2a2620; border-bottom-color: rgba(0,0,0,.08); }
 @media (max-width: 1180px) { #miniGrid, #tbLayoutBtn { display: none !important; } }
+
+/* ── 回到最新（⏭）：看歷史時浮在主圖右下，點一下跳回現在 ─────────────────────
+   為什麼要有：修剪會把「現在」那一段丟掉以壓住記憶體，所以從深歷史滑回來得靠背景補新，
+   實測要拖 13~14 次才回得到最新（每補一塊又多出好幾千根要拖過去）。這顆是唯一的捷徑。
+   ⚠ DOM 上刻意放在 #mainChart 外面（見 index.html 註）：draw.js 在 #mainChart 掛了 capture
+   階段的滑鼠處理，放裡面按鈕會點不動。 */
+.go-latest {
+  position: absolute; right: 62px; bottom: 34px; z-index: 30;
+  width: 30px; height: 30px; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; line-height: 1; cursor: pointer;
+  color: #d1d4dc; background: rgba(30,34,45,.88);
+  border: 1px solid rgba(120,134,150,.55); border-radius: 50%;
+  box-shadow: 0 2px 10px rgba(0,0,0,.45);
+  transition: background .15s, color .15s, transform .15s;
+}
+.go-latest:hover { background: #2962ff; color: #fff; transform: scale(1.08); }
+.go-latest:active { transform: scale(.96); }
+.go-latest[hidden] { display: none; }
+html.perf-mode .go-latest {
+  color: #2a2620 !important; background: rgba(255,255,255,.9) !important;
+  border-color: rgba(0,0,0,.22) !important; box-shadow: 0 2px 8px rgba(0,0,0,.18) !important;
+}
+@media (max-width: 1180px) { .go-latest { right: 54px; bottom: 44px; } }

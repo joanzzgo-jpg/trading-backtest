@@ -616,6 +616,11 @@
       <div class="pane-body" id="mainChart">
         <img src="/static/img/bear-bg.png?v={{ ver }}" class="chart-bear-bg perf-only" alt="" />
       </div>
+      <!-- 回到最新：看歷史時才出現。★放在 #mainChart「外面」——draw.js 在 #mainChart 上掛了
+           capture 階段的滑鼠處理，放裡面會被它先吃掉、按鈕點不動。 -->
+      <button id="btnGoLatest" class="go-latest" type="button" hidden
+              title="回到最新（跳回現在，不用一路拖回來）" aria-label="回到最新">⏭</button>
+
       <!-- 訂單簿 DOM 階梯（主圖右側獨立面板，dom.js 繪製；預設隱藏） -->
       <div id="domPanel" aria-hidden="true">
         <div id="domHead"></div>

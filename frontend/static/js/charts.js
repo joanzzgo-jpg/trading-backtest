@@ -1024,6 +1024,8 @@ function syncTimeScales() {
     }
     // 平移中不斷排程「閒置滾動修剪」(debounce 600ms)→ 停手後把累積的常駐根數壓回有界,setData 更快、記憶體有界
     if (typeof _scheduleIdleTrim === "function") _scheduleIdleTrim();
+    // 「回到最新」按鈕的顯示/隱藏(視野捲離最新才出現)。此處已節流,不必另開訂閱。
+    if (typeof _updateGoLatestBtn === "function") _updateGoLatestBtn();
   }
   allCharts.forEach((src, si) => {
     src.timeScale().subscribeVisibleLogicalRangeChange(range => {

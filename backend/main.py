@@ -116,9 +116,13 @@ _build_fx_min()
 app = FastAPI(title="回測系統")
 
 # ── GZip 壓縮（JS 166KB→35KB，CSS 38KB→8KB）──────────────────
-# compresslevel=6（預設 9）：勝率 1.2MB 回應實測 78ms→23ms、體積僅 +3%(182→188KB)
-# → 每個未快取大回應省 ~55ms CPU；小回應差異不可量測。
-app.add_middleware(GZipMiddleware, minimum_size=500, compresslevel=6)
+# 9→6：勝率 1.2MB 回應實測 78ms→23ms、體積僅 +3%(182→188KB)。
+# 6→4（2026-07-30）：/api/ohlcv 改 orjson 後，壓縮變成回應時間的大頭（26497 根：總 98ms 中 87ms 是壓縮）。
+#   實測 4.9MB 原始 payload：L4 43ms/1353KB vs L6 86ms/1296KB → 時間減半、體積僅 +4.4%。
+#   算上傳輸時間的總耗時：20Mbps 598 vs 617ms、50Mbps 266 vs 298ms、200Mbps 100 vs 139ms(L4 全勝)；
+#   只有 5Mbps 以下 L6 略優(2210 vs 2260ms、差 2%)。→ 取 L4。
+#   ★這是全站中介層：每個回應的壓縮 CPU 減半 → Railway 共用 CPU 下同時也少一半 GIL 佔用。
+app.add_middleware(GZipMiddleware, minimum_size=500, compresslevel=4)
 
 # ── CSP 內容安全政策字串（CSP_OFF=1 → 停用；緊急關閉用）──────────────────
 _CSP = "" if (os.getenv("CSP_OFF") or "").strip().lower() in ("1", "true", "on", "yes") else (
