@@ -131,7 +131,11 @@ function applyChartType() {
   const btn = document.getElementById("chartTypeBtn");
   if (btn) {
     btn.classList.toggle("active", line);
-    btn.textContent = line ? "🕯️ K線" : "📈 線型";
+    // 圖示按鈕（移到愛心右邊、純 SVG 無 emoji）：只切 class，圖示由 CSS 決定顯示哪一個。
+    //   顯示的是「按下去會變成的樣子」＝沿用原本文字標籤的語意（K線模式時顯示折線圖示）。
+    btn.classList.toggle("is-line", line);
+    btn.title = line ? "目前：線型圖（收盤價折線）· 點擊切回 K 線圖"
+                     : "目前：K 線圖 · 點擊切換為線型圖（收盤價折線）";
   }
 }
 

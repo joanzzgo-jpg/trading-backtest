@@ -860,6 +860,22 @@ def get_ohlcv(req: OHLCVRequest):
     if cached:
         return _ohlcv_resp(cached)
 
+    # ── BB 暖身期補償（2026-07-30）────────────────────────────────────────────
+    #   BB(20) 需要 20 根才有值 → 每一塊的**開頭 19 根 bb_upper/middle/lower 都是 null**。
+    #   前端往舊滑是「一塊一塊 prepend」，前一塊的那 19 根 null 會被下一塊推到陣列中段
+    #   → **BB 帶在每個補載接縫處斷一截**（5m 約 1.5 小時）。深滑 40 輪實測 BB 資料點比 K 棒
+    #   少 190 根 = 19 × 10 塊，比例與塊數完全吻合。
+    #   → 範圍請求時把起點往前多抓一段暖身，算完指標再切回使用者要的範圍：接縫處就有值了。
+    #   ⚠ 只動 range 模式（use_limit 的初次載入本來就從最新往回抓、開頭在最舊端、看不到）。
+    _warm_start = None
+    if not use_limit and req.start:
+        try:
+            _wsec = _CRT_IV.get(req.timeframe, 3600) * 30      # 30 根餘裕（BB 只要 20）
+            _warm_start = req.start
+            req.start = (dt.fromisoformat(req.start) - timedelta(seconds=_wsec)).date().isoformat()
+        except Exception:
+            _warm_start = None
+
     try:
         if req.market == "tw" and req.symbol.upper() in FUTOPT_PRODUCTS:
             tf = req.timeframe
@@ -1023,6 +1039,16 @@ def get_ohlcv(req: OHLCVRequest):
         raise HTTPException(400, f"查無 {req.symbol} 的資料，該標的可能不支援此交易所")
 
     df = enrich_df(df, indicators=req.indicators)
+    # 切掉上面多抓的暖身段（指標已算完 → 使用者拿到的第一根就有 BB 值，接縫不再斷）。
+    #   保留 1 天邊際：與倉庫 load_range 既有行為一致，前端靠它重疊去重、判斷接得上。
+    if _warm_start:
+        try:
+            _cut = pd.Timestamp(_warm_start) - pd.Timedelta(days=1)
+            _kept = df[df["time"] >= _cut]
+            if len(_kept) >= 2:
+                df = _kept.reset_index(drop=True)
+        except Exception:
+            pass
     result = {"data": _ohlcv_records(df)}
     cache.set(cache_key, result)
     return _ohlcv_resp(result)

@@ -13,6 +13,7 @@ import os
 import gzip
 import pickle
 import threading
+import time
 
 import pandas as pd
 
@@ -124,8 +125,11 @@ def find_holes(df, tf):
     return out
 
 
+MAX_REPAIR_CHUNKS = 400   # 單一缺口最多打幾次 API（防失控：一年份 5m 缺口在 1 天/塊下是 365 次）
+
+
 def repair_holes(sym: str, tf: str, exchange: str = "binance",
-                 pad_days: int = 1, log=print):
+                 pad_days: int = 1, log=print, pause: float = 0.35):
     """補洞：找出破洞 → 分段重抓 → 存回。回傳 (修補前破洞數, 修補後仍存在的破洞數)。
 
     ★分段抓是必要的、不能圖方便一次要整段(2026-07-30 追出來的第二層根因)：
@@ -133,8 +137,20 @@ def repair_holes(sym: str, tf: str, exchange: str = "binance",
       **非空、但只有上線後那一小截**(實測 2018-11-21~2019-09-09 只回 8 根、全在 09-08 之後)，
       而 fetch_crypto_ohlcv 的 fallback **只在完全空時才觸發** → 前面 10 個月被靜默丟掉。
       同一區間切短了問(2019-01-01~2019-01-05)就正常回 30 根。
-      → 每段約 500 根：落在上線日之前的每一段 fapi 都回空 → 正常退到其他來源，才抓得到。"""
+      → 每段約 500 根：落在上線日之前的每一段 fapi 都回空 → 正常退到其他來源，才抓得到。
+
+    ★限流保護（三道，缺一不可）：分段抓的代價就是「請求變多」——
+      ① 每段之間 sleep(pause)：Binance fapi 是 10 次/秒/IP，撞到 418/429 會**全域熔斷 60 秒，
+         而且重試會 +10 秒永遠清不掉**（見 CLAUDE.md）。0.35s/次 ≈ 3 次/秒，留足餘裕。
+      ② 開跑前檢查 _BINANCE_COOLDOWN_UNTIL：已在冷卻就直接放棄這輪（硬打只會把冷卻拉更長）。
+      ③ MAX_REPAIR_CHUNKS 上限：缺口異常大時停手並回報，不讓它無限打下去。"""
     from data.crypto import fetch_crypto_ohlcv   # 延遲匯入避免循環相依
+    import data.crypto as _c
+
+    _cd = getattr(_c, "_BINANCE_COOLDOWN_UNTIL", 0) or 0
+    if time.time() < _cd:
+        log(f"     ⚠ Binance 冷卻中（剩 {_cd - time.time():.0f}s）→ 這輪不補，稍後再跑")
+        return 0, len(find_holes(load_all(sym, tf), tf))
 
     df = load_all(sym, tf)
     holes = find_holes(df, tf)
@@ -146,7 +162,14 @@ def repair_holes(sym: str, tf: str, exchange: str = "binance",
         got_all = []
         cur = a - pd.Timedelta(days=pad_days)      # 兩側留邊際 → 必與既有資料重疊，dedup 會處理
         stop = b + pd.Timedelta(days=pad_days)
+        hit = 0
         while cur < stop:
+            if hit >= MAX_REPAIR_CHUNKS:
+                log(f"     ⚠ 已打滿 {MAX_REPAIR_CHUNKS} 次仍未補完，停手（缺口過大，分次跑）")
+                break
+            if time.time() < (getattr(_c, "_BINANCE_COOLDOWN_UNTIL", 0) or 0):
+                log("     ⚠ 中途撞上 Binance 冷卻 → 停手，已抓到的照存")
+                break
             nxt = min(cur + pd.Timedelta(days=chunk_days), stop)
             try:
                 g = fetch_crypto_ohlcv(sym, tf, cur.strftime("%Y-%m-%d"),
@@ -155,7 +178,10 @@ def repair_holes(sym: str, tf: str, exchange: str = "binance",
                     got_all.append(g)
             except Exception:
                 pass                               # 單段失敗不影響其他段
+            hit += 1
             cur = nxt
+            if pause and cur < stop:
+                time.sleep(pause)                  # ★節流：見上方「限流保護」
         if not got_all:
             log(f"     {a} → {b}（缺 {n} 根）：資料源沒有這段")
             continue

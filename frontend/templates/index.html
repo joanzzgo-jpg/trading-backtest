@@ -166,6 +166,23 @@
             fill="currentColor" opacity="0"/>
         </svg>
       </button>
+      <!-- 圖型切換：移到愛心右邊（原本在時間框列的 線型/掛單/足跡/訂單簿 那一組）。
+           純 SVG 不用 emoji；顯示的是「按下去會變成的樣子」（同原本文字標籤的語意）。
+           狀態由 charts.js applyChartType() 切 .is-line。 -->
+      <button id="chartTypeBtn" type="button" class="tb-ct-btn"
+              title="切換 K 線圖 / 線型圖（收盤價折線）" aria-label="切換圖型">
+        <svg class="ct-ico ct-ico-line" width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+          <path d="M2.5 12.4 L6.3 8.2 L9.4 10.4 L15.5 4.3" stroke="currentColor" stroke-width="1.6"
+                stroke-linecap="round" stroke-linejoin="round"/>
+          <circle class="ct-dot" cx="15.5" cy="4.3" r="1.5" fill="currentColor"/>
+        </svg>
+        <svg class="ct-ico ct-ico-candle" width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+          <path d="M5 2.6 V15.4 M13 2.6 V15.4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+          <rect class="ct-body-up" x="3.1" y="5.4" width="3.8" height="7.2" rx="1"
+                stroke="currentColor" stroke-width="1.4"/>
+          <rect class="ct-body-dn" x="11.1" y="4.2" width="3.8" height="6" rx="1" fill="currentColor"/>
+        </svg>
+      </button>
     </div>
 
 
@@ -364,7 +381,7 @@
       <button class="tf-btn" data-tf="5m">5m</button>
       <button class="tf-btn" data-tf="1m">1m</button>
       <span class="tf-sep"></span>
-      <button id="chartTypeBtn" type="button" class="tf-toggle" title="切換 K 線圖 / 線型圖（收盤價折線）">📈 線型</button>
+      <!-- 線型鈕已移到「愛心收藏」右邊（見 tb-symbol-group） -->
       <button id="orderbookBtn" type="button" class="tf-toggle" style="display:none" title="掛單牆：即時盤口大掛單畫在主圖右緣（綠=買方支撐牆、紅=賣方壓力牆，長度=掛單金額）。牆消失時判定「✓吃掉」（行情掃到才消失=真防守）或「⚠撤走」（沒碰到就不見=疑似假單）。左上顯示掛單買賣比。僅加密貨幣即時盤口">🧱 掛單</button>
       <button id="footprintBtn" type="button" class="tf-toggle" style="display:none" title="Footprint 足跡圖：每根K棒內各價位的主動買/賣量（左紅=主動賣、右綠=主動買、金框=POC、亮框=失衡、主圖底部Δ=買賣差、背離分兩型⚠↑亮綠=K漲卻Δ負(賣被吸收·偏多)/⚠↓亮紅=K跌卻Δ正(買被吸收·偏空)、底部紫線=CVD累積Δ：每根Δ累加成線、對比價格創高但CVD沒創高的背離）。1m~1h逐筆精確、4h/1d聚合。僅加密貨幣；K棒間距放大後才顯示">👣 足跡</button>
       <button id="domBtn" type="button" class="tf-toggle" style="display:none" title="訂單簿 DOM：主圖右側階梯，即時顯示各價位『等待成交』的買/賣掛單（綠=買方掛單、紅=賣方掛單，橫條長度=掛量），藉此看出大額資金的防守位置。現價置中、上方賣單下方買單。僅加密貨幣即時盤口">📊 訂單簿</button>

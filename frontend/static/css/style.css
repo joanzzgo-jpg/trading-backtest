@@ -7326,3 +7326,29 @@ html.perf-mode .go-latest {
   border-color: rgba(0,0,0,.22) !important; box-shadow: 0 2px 8px rgba(0,0,0,.18) !important;
 }
 @media (max-width: 1180px) { .go-latest { right: 54px; bottom: 44px; } }
+
+/* ── 圖型切換（K線 / 線型）：移到「愛心收藏」右邊，與愛心成套的圖示鈕 ─────────────
+   ・純 SVG、不用 emoji（emoji 在各平台字型不一、會跟旁邊的線條圖示不搭）。
+   ・顯示「按下去會變成的樣子」＝沿用原本文字標籤語意（K線模式顯示折線圖示）。
+     狀態 class .is-line 由 charts.js applyChartType() 切。
+   ・尺寸/hover 動線刻意對齊 .tb-star-btn，兩顆並排看起來是同一組。 */
+.tb-ct-btn {
+  background: transparent; border: none; color: var(--muted);
+  width: 26px; height: 26px; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 4px; cursor: pointer; flex-shrink: 0;
+  transition: color .15s, transform .15s, background .15s;
+}
+.tb-ct-btn:hover { color: var(--blue); background: var(--bg3); transform: scale(1.12); }
+.tb-ct-btn:active { transform: scale(.94); }
+.tb-ct-btn .ct-ico { display: none; }
+.tb-ct-btn .ct-ico-line { display: block; }              /* 預設＝K線模式 → 顯示「切到線型」 */
+.tb-ct-btn.is-line .ct-ico-line { display: none; }
+.tb-ct-btn.is-line .ct-ico-candle { display: block; }
+.tb-ct-btn.is-line { color: var(--blue); }               /* 已在線型模式 → 點亮,一眼看出目前狀態 */
+.tb-ct-btn .ct-dot { opacity: .55; transition: opacity .15s; }
+.tb-ct-btn:hover .ct-dot { opacity: 1; }
+/* 極簡模式（perf-mode）：壓過 style.css 末段「橘子熊可愛風格」的 !important */
+html.perf-mode .tb-ct-btn { color: #6b6560 !important; }
+html.perf-mode .tb-ct-btn:hover,
+html.perf-mode .tb-ct-btn.is-line { color: #2C1607 !important; }
