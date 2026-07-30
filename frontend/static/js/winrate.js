@@ -526,6 +526,54 @@ function _wrVwFor(loaded) {
 }
 window._wrCurVw = 0;   // 目前這份勝率結果算標記用的 vw；背景載入更深時比對是否要升級重取
 
+/* ── 升階「範圍化補抓」：只收差量 ─────────────────────────────────────────────
+   往舊滑升 vw 階時，新舊兩份的**近段標記大部分一模一樣**，整包重傳是浪費（BTC 5m 8000→20000
+   實測 gzip 470KB，其中一大半前端手上就有）。→ 請求帶 base_h＝手上那份的內容指紋，後端逐筆
+   比對後只回「不一樣的筆數 ＋ 一串沿用指令」，實測省 57~67%（470→156KB / 823→355KB）。
+   ・內容正確性由後端保證（它算完 ops 會先自我重建驗證，不符就整包回）→ 前端只做拼接。
+   ・任何一步不成立（沒 base、指紋對不上、拼接拋錯）→ 丟掉這次回應、改整包重抓一次，
+     絕不半套渲染（半套＝「某段沒標記」那類最難察覺的 bug）。 */
+// 找一份可當 base 的舊結果：同標的/時框/參數、只有 vw 不同的任一階都行（diff 兩個方向都成立）。
+//   ⚠ 不能只認「前一階」：滑得快時 _wrVwFor 會直接跳階（實測 8000→45000），認死前一階就永遠沒 base。
+//   偏好「比目前小、且最大的那階」＝重疊最多；沒有就退而取比目前大的最小那階。
+function _wrPickBase(cacheKey, vw) {
+  const [pre, post] = cacheKey.split(`:vw${vw}:`);
+  if (post === undefined) return null;
+  let best = null, bestScore = -Infinity;
+  for (const k of Object.keys(_wrCache)) {
+    if (k === cacheKey || !k.startsWith(pre + ":vw") || !k.endsWith(":" + post)) continue;
+    const m = /:vw(\d+):/.exec(k);
+    if (!m) continue;
+    const v = +m[1];
+    const e = _wrCache[k];
+    if (!e || !e._h) continue;
+    const score = (v < vw) ? v : -v;   // 小的取最大、大的取最小（負值排序自然成立）
+    if (score > bestScore) { bestScore = score; best = e; }
+  }
+  return best;
+}
+function _wrApplyDelta(base, d) {
+  if (!base || !d || !d._ops) return null;
+  if (d._base !== base._h) return null;      // 指紋對不上＝手上不是後端 diff 的那份
+  const out = {};
+  for (const k in d) if (k !== "_d" && k !== "_ops" && k !== "_base") out[k] = d[k];
+  for (const k in d._ops) {
+    const src = base[k];
+    if (!Array.isArray(src)) return null;
+    const arr = [];
+    for (const op of d._ops[k]) {
+      if (op[0] === 0) {
+        if (op[1] < 0 || op[1] + op[2] > src.length) return null;   // 索引越界＝base 不對，放棄
+        for (let i = op[1]; i < op[1] + op[2]; i++) arr.push(src[i]);
+      } else {
+        for (const z of op[1]) arr.push(z);
+      }
+    }
+    out[k] = arr;
+  }
+  return out;
+}
+
 /* ── 下一階 vw 背景預熱 ────────────────────────────────────────────────────────
    往舊滑時 n 變大 → vw 升階 → 那一次是「冷算」：實測 ~2.5s(之後同 vw 命中僅 16ms)，
    使用者感受到的「越滑越久才出標記」幾乎全來自這一下。→ 在還沒升階前先在背景把下一階算進
@@ -630,10 +678,28 @@ async function _fetchWinRateNow() {
   // 不寫 "計算中…" 到 wrStatus，由中央 .tb-wr-loading（小熊 + 文字）顯示
   if (statusEl) statusEl.textContent = "";
   try {
-    const p   = new URLSearchParams({ market, symbol, exchange, timeframe, stop_buffer_pct: bufDec.toFixed(4), vw: String(_vw), proto_min: String(_wrProtoMin), no_proto_ms: _wrNoProtoMs ? "1" : "0", no_proto_break: _wrNoProtoBreak ? "1" : "0" });
+    // 升階差量：手上有「前一階」且帶指紋 → 請後端只回差量（見上方 _wrApplyDelta 註解）
+    const _prev = _wrPickBase(cacheKey, _vw);
+    const _baseH = (_prev && _prev._h) ? _prev._h : "";
+    const _q = { market, symbol, exchange, timeframe, stop_buffer_pct: bufDec.toFixed(4), vw: String(_vw), proto_min: String(_wrProtoMin), no_proto_ms: _wrNoProtoMs ? "1" : "0", no_proto_break: _wrNoProtoBreak ? "1" : "0" };
+    if (_baseH) _q.base_h = _baseH;
+    const p   = new URLSearchParams(_q);
     const res = await fetch("/api/crt_winrate?" + p, { signal: myCtrl.signal, cache: "no-cache" });
-    const d   = await res.json();
+    let d     = await res.json();
     if (!res.ok) throw new Error(d.detail || "failed");
+    if (d && d._d) {
+      const merged = _wrApplyDelta(_prev, d);
+      if (!merged) {
+        // 拼不起來（base 被淘汰/指紋不符）→ 整包重抓一次，絕不半套渲染
+        if (myCtrl !== _wrFetchCtrl) return;
+        const _q2 = { ..._q }; delete _q2.base_h;
+        const r2 = await fetch("/api/crt_winrate?" + new URLSearchParams(_q2), { signal: myCtrl.signal, cache: "no-cache" });
+        d = await r2.json();
+        if (!r2.ok) throw new Error(d.detail || "failed");
+      } else {
+        d = merged;
+      }
+    }
     _wrCacheSet(cacheKey, d);   // 結果照常進快取，下次切回直接命中
     // 世代守衛：成功回來時若已被更新的請求 / 快取命中取代，丟棄此陳舊結果，
     // 否則舊標的的訊號會覆寫當前標的 → markers 全被過濾 → 切標的後策略消失。

@@ -16,6 +16,7 @@ import threading
 import pandas as pd
 import datetime as _dt
 import threading as _threading
+import collections as _collections
 
 from data.taiwan import fetch_tw_stock, resample_tw, fetch_tw_intraday, fetch_tw_realtime, fetch_tw_intraday_yf, fetch_tw_latest_bar_yf, fetch_tw_daily_yf, YF_MAX_DAYS as TW_YF_MAX_DAYS
 from data.fugle import fetch_fugle_intraday, fugle_enabled
@@ -1372,6 +1373,7 @@ def crt_winrate_api(
     no_proto_break: int = 0,
     lite: str = "",
     warm: int = 0,
+    base_h: str = "",
 ):
     """/api/crt_winrate 路由：呼叫 get_crt_winrate(含快取) → 回前端時把 signals『瘦身』
     （拿掉只後端用的 est/rr 欄位 + 省略 None 值），省 ~40% 傳輸量、加快手機端載入。
@@ -1415,18 +1417,26 @@ def crt_winrate_api(
         return _wr_resp({"fvg_ms": (wr.get("fvg_ms") or [])[-250:], "fvg_break": (wr.get("fvg_break") or [])[-250:]})
     _h = wr.get("_h")
     etag = f'W/"{_h}-{_git_rev()}"' if _h else None
-    if etag and request.headers.get("if-none-match") == etag:
+    # ⚠ 帶 base_h（要差量）時不走 304：差量請求的 URL 與整包不同 → 瀏覽器沒有對應的快取 body，
+    #   回 304 會讓 fetch 拿到空回應。差量本來就便宜，直接算。
+    if etag and not base_h and request.headers.get("if-none-match") == etag:
         return Response(status_code=304, headers={"ETag": etag, "Cache-Control": "private, no-cache"})
-    sigs = wr.get("signals")
-    if not sigs:
-        return _wr_resp({k: v for k, v in wr.items() if k != "_h"}, etag)
-    # S1~S12 已退役（全驗無 edge）→ 只回 SS 系列訊號（ss1/ss2）給前端；S1~S12 標記/HUD 不再出現。
-    # fvg 為獨立 key，原樣保留。⚠ 回測走 Python 直呼 get_crt_winrate 拿完整 signals，不受此處影響。
-    slim = [{k: v for k, v in s.items() if v is not None and k not in _WR_SLIM_DROP}
-            for s in sigs if s.get("k") in _SS_KEEP_KEYS]
     out = {k: v for k, v in wr.items() if k != "_h"}
-    out["signals"] = slim
-    return _wr_resp(out, etag)
+    sigs = wr.get("signals")
+    if sigs:
+        # S1~S12 已退役（全驗無 edge）→ 只回 SS 系列訊號（ss1/ss2）給前端；S1~S12 標記/HUD 不再出現。
+        # fvg 為獨立 key，原樣保留。⚠ 回測走 Python 直呼 get_crt_winrate 拿完整 signals，不受此處影響。
+        out["signals"] = [{k: v for k, v in s.items() if v is not None and k not in _WR_SLIM_DROP}
+                          for s in sigs if s.get("k") in _SS_KEEP_KEYS]
+    out = _wr_slim(out)                       # 先瘦身成「送出形態」，差量才是對前端手上那份做的
+    if _h:
+        out["_h"] = _h                        # 前端存起來，下次升階當 base_h 用
+        _wr_hidx_put(_h, out)                 # 登記雜湊索引（下一階要拿它算差量）
+    if base_h and base_h != _h:
+        d = _wr_build_delta(base_h, out, _h)
+        if d is not None:
+            return _wr_resp(d, slim=False, no_store=True)
+    return _wr_resp(out, etag, slim=False)
 
 
 # ── 勝率回應「線材瘦身」（只在 HTTP 邊界做，核心 _calc_crt_winrate 的回傳一律不動）──────
@@ -1501,16 +1511,173 @@ def _wr_slim(payload):
         return payload   # 瘦身失敗照原樣送（功能優先）
 
 
-def _wr_resp(payload, etag=None):
+def _wr_resp(payload, etag=None, slim=True, no_store=False):
     """勝率大回應（1MB+）直接回 ORJSONResponse：跳過 FastAPI 的 jsonable_encoder 整棵樹走訪
     （這一步在快取命中路徑占大頭），序列化交給 orjson。缺 orjson 時原樣回 dict（走預設路徑）。
     內容已在 get_crt_winrate 快取前經 _round_wr_floats 轉純原生型別 → orjson 可直接序列化。
-    etag 有值時附 ETag + no-cache(=可存但每次驗證) → 讓瀏覽器下次帶 If-None-Match。"""
-    hdrs = {"ETag": etag, "Cache-Control": "private, no-cache"} if etag else None
-    payload = _wr_slim(payload)          # 線材瘦身（只影響送出去的這份，見上方註解）
+    etag 有值時附 ETag + no-cache(=可存但每次驗證) → 讓瀏覽器下次帶 If-None-Match。
+    slim=False：payload 已瘦身過（差量路徑先瘦身才能算 ops）→ 不重複跑。
+    no_store：差量回應是「相對某個 base」的，絕不可被瀏覽器/中介快取當成完整結果重用。"""
+    hdrs = None
+    if no_store:
+        hdrs = {"Cache-Control": "private, no-store"}
+    elif etag:
+        hdrs = {"ETag": etag, "Cache-Control": "private, no-cache"}
+    if slim:
+        payload = _wr_slim(payload)      # 線材瘦身（只影響送出去的這份，見上方註解）
     if _ORJSONResp is not None:
         return _ORJSONResp(payload, headers=hdrs)
     return payload
+
+
+# ── 升階「範圍化補抓」：vw 換階時只回差量 ────────────────────────────────────────
+#   往歷史滑 → vw 8000→20000→45000。每一階都把「同一批近段標記」整包重傳一次：實測 BTC 5m
+#   8000→20000 整包 gzip 470KB，其中近段那 8000 根的標記前端**早就有了**。
+#   → 前端帶 base_h（它手上那份的內容指紋），後端把新舊兩份逐筆比對，只送「真正不一樣的筆數」
+#     ＋一串「沿用舊的第 i~j 筆」指令。實測省 57~67% 傳輸（470→156KB / 823→355KB），
+#     算差量 19~36ms。
+#   ★為什麼可以「逐筆沿用」而不是「只接新露出的那段」：實測窗變大時，重疊區的標記**不是**原封不動
+#     （fvg_ms 這種要吃更早的 setup FVG，差異散到 5800 根深）。純接尾巴會少 0.7% 標記且無從察覺 →
+#     一律走「後端拿新舊兩份逐筆 diff」，內容由後端保證正確，前端只做拼接。
+#   ★安全網：後端算完 ops 後，先用 ops 把舊的雜湊序列重建一次，比對必須逐筆等於新的雜湊序列；
+#     不符就整包回。→ diff 有 bug 只會退化成「沒省到頻寬」，永遠不會送出錯的標記。
+#   ・只存「每筆的雜湊」不存內容（copy 指令用索引、literal 取自新的那份）→ 一份索引約 100~200KB，
+#     上限 16 份；換實例/被淘汰 → 找不到 base_h → 整包回（前端本來就吃兩種回應）。
+_WR_DELTA_KEYS = ("fvg", "signals", "fvg_ms", "fvg_break", "fvg_shun", "fvg_special",
+                  "fvg_trades", "smc_sweep", "smc_struct", "smc_ob", "smc_sr", "vwap",
+                  "fvg_bb", "fvg_bb_a", "fvg_bb_m", "fvg_sigs")
+_WR_HIDX: "collections.OrderedDict" = _collections.OrderedDict()   # _h → {key: [每筆雜湊]}
+_WR_HIDX_MAX = 16
+_WR_HIDX_LOCK = _threading.Lock()
+
+
+_WR_HW = 16   # 每筆摘要位元組數（128-bit）
+
+
+def _wr_hash_index(payload: dict) -> dict:
+    """把回應中的各 list 轉成「所有筆的 128-bit 摘要接成一條 bytes」。
+    ⚠ 兩個都不能省：
+      ① 別存原始 JSON bytes——BTC 5m vw45000 的 fvg 13000+ 筆 × ~220B ≈ 3MB／份 × 24 份 = 70MB。
+      ② 別存 list[bytes]——每個 bytes 物件光 Python 開銷就 ~49B，比 16B 的內容還大（總量 4x）。
+      接成一條 blob 後：最大一份實測 537KB(BTC 5m vw45000)、16 份最壞 ~8.6MB，Railway 吃得下。
+    128-bit 對一萬多筆的碰撞機率 ~1e-30；碰撞是「沿用到不同內容」的唯一失效路徑，這個量級可忽略。"""
+    import orjson as _oj
+    from hashlib import blake2b as _bb
+    idx = {}
+    for k in _WR_DELTA_KEYS:
+        v = payload.get(k)
+        if isinstance(v, list):
+            idx[k] = b"".join(_bb(_oj.dumps(z, option=_oj.OPT_SORT_KEYS, default=str),
+                                  digest_size=_WR_HW).digest() for z in v)
+    return idx
+
+
+def _wr_hidx_put(h: str, payload: dict):
+    if not h:
+        return
+    with _WR_HIDX_LOCK:
+        if h in _WR_HIDX:
+            _WR_HIDX.move_to_end(h)
+            return
+    try:
+        idx = _wr_hash_index(payload)
+    except Exception:
+        return
+    with _WR_HIDX_LOCK:
+        _WR_HIDX[h] = idx
+        _WR_HIDX.move_to_end(h)
+        while len(_WR_HIDX) > _WR_HIDX_MAX:
+            _WR_HIDX.popitem(last=False)
+
+
+def _wr_hidx_get(h: str):
+    if not h:
+        return None
+    with _WR_HIDX_LOCK:
+        idx = _WR_HIDX.get(h)
+        if idx is not None:
+            _WR_HIDX.move_to_end(h)
+        return idx
+
+
+def _wr_list_ops(old_blob: bytes, new_l: list, new_blob: bytes):
+    """新清單相對舊清單的重建指令：[0, start, len]=沿用舊的這段、[1, [筆…]]=直接送內容。
+    貪婪延長連續段（標記本就時間排序、大段是原封不動的）→ ops 數量極少（實測 1~24 條）。
+    old_blob/new_blob 是 _wr_hash_index 打包的摘要條，第 i 筆 = blob[i*W:(i+1)*W]。"""
+    W = _WR_HW
+    n_old = len(old_blob) // W
+    pos = {}
+    for i in range(n_old):
+        h = old_blob[i * W:(i + 1) * W]
+        if h not in pos:
+            pos[h] = i          # 只記第一次出現：連續延長會自然吃掉後續
+    ops = []
+    lit = []
+    cs = -1
+    cl = 0
+    cur = -1
+
+    def _flush_copy():
+        nonlocal cs, cl
+        if cl:
+            ops.append([0, cs, cl]); cs = -1; cl = 0
+
+    def _flush_lit():
+        nonlocal lit
+        if lit:
+            ops.append([1, lit]); lit = []
+
+    for j in range(len(new_blob) // W):
+        h = new_blob[j * W:(j + 1) * W]
+        if cl and cur + 1 < n_old and old_blob[(cur + 1) * W:(cur + 2) * W] == h:
+            cur += 1; cl += 1; continue        # 延長目前的沿用段
+        i = pos.get(h)
+        if i is not None:
+            _flush_copy(); _flush_lit()
+            cs = i; cl = 1; cur = i
+        else:
+            _flush_copy(); lit.append(new_l[j])
+    _flush_copy(); _flush_lit()
+    return ops
+
+
+def _wr_build_delta(base_h: str, payload: dict, new_h: str):
+    """成功回差量 dict、無法/不划算回 None（呼叫端整包回）。payload 必須是『已瘦身』的送出形態。"""
+    old_idx = _wr_hidx_get(base_h)
+    if not old_idx:
+        return None
+    try:
+        import orjson as _oj
+        from hashlib import blake2b as _bb
+        new_idx = _wr_hash_index(payload)
+    except Exception:
+        return None
+    out = {"_d": 1, "_base": base_h}
+    if new_h:
+        out["_h"] = new_h
+    ops_map = {}
+    saved = 0
+    for k, v in payload.items():
+        if k in _WR_DELTA_KEYS and isinstance(v, list) and k in old_idx and k in new_idx:
+            ops = _wr_list_ops(old_idx[k], v, new_idx[k])
+            # ★安全網：用 ops 重建摘要條，必須逐位元等於新的那條 → 不符就這個 key 整包送
+            W = _WR_HW
+            rec = []
+            for op in ops:
+                rec.append(old_idx[k][op[1] * W:(op[1] + op[2]) * W] if op[0] == 0 else
+                           b"".join(_bb(_oj.dumps(z, option=_oj.OPT_SORT_KEYS, default=str),
+                                        digest_size=W).digest() for z in op[1]))
+            if b"".join(rec) == new_idx[k]:
+                nb = len(_oj.dumps(v, default=str))
+                db = len(_oj.dumps(ops, default=str))
+                if db < nb * 0.75:            # 省不到 25% 就別繞這一圈（省下前端拼接）
+                    ops_map[k] = ops; saved += nb - db
+                    continue
+        out[k] = v
+    if not ops_map or saved < 50000:          # 整體省不到 ~50KB → 直接整包，維持路徑單純
+        return None
+    out["_ops"] = ops_map
+    return out
 
 
 # ── SR+SMC 多空教練（多時框步驟狀態機）────────────────────────────────────────
