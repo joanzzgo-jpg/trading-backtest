@@ -382,3 +382,69 @@ function showLoading(show) {
     return !!t && (n - t) < 400 && _sess > 0 && (n - _sess) >= 800;
   };
 })();
+
+/* ── 效能探針 window._perfProbe(秒) ────────────────────────────────────────────
+   為什麼要有：headless 測試永遠只反映「測試環境的設定」。2026-07-30 使用者回報「放大就卡」，
+   我用 12 個縮放等級 × DPR 1/2 × 足跡開關全測不出來——因為卡的原因是某個**預設關閉、
+   但使用者開著**的疊加層。與其猜，不如讓使用者在自己的機器、自己的設定下按一下就給出數據。
+   用法：在瀏覽器 console 打 `_perfProbe(8)` → 邊拖曳邊量 8 秒 → 印出逐幀統計 + 各圖層成本
+   + 目前開了哪些疊加層 + DPR/根數。把輸出貼回來就能直接定位。
+   ⚠ 純診斷：不呼叫就完全沒有成本（只是掛一個函式）。 */
+window._perfProbe = function (sec) {
+  sec = Math.max(2, Math.min(30, sec || 8));
+  const P = {}, orig = {};
+  const wrap = (nm) => {
+    const f = window[nm];
+    if (typeof f !== "function") return;
+    orig[nm] = f;
+    P[nm] = { n: 0, ms: 0, max: 0 };
+    window[nm] = function (...a) {
+      const t = performance.now();
+      try { return f.apply(this, a); }
+      finally { const d = performance.now() - t, s = P[nm]; s.n++; s.ms += d; if (d > s.max) s.max = d; }
+    };
+  };
+  ["renderDrawings", "_drawSessionOverlay", "_drawVolumeProfile", "_drawKeyLevels", "_drawPDZones",
+   "_drawCoachOverlay", "_drawVWAP", "_drawMyTrades", "_applyMainMarkersNow", "renderVolume",
+   "renderBB", "_bgApplyChunk", "_rebuildTimeIndex"].forEach(wrap);
+
+  const frames = [];
+  let last = performance.now(), stop = false;
+  const tick = () => { const n = performance.now(); frames.push(n - last); last = n; if (!stop) requestAnimationFrame(tick); };
+  requestAnimationFrame(tick);
+  console.log(`%c[效能探針] 開始量測 ${sec} 秒 — 現在請重現你覺得卡的操作（拖曳/縮放）`,
+              "color:#2962ff;font-weight:bold");
+
+  setTimeout(() => {
+    stop = true;
+    for (const nm in orig) window[nm] = orig[nm];
+    const f = frames.filter(x => x > 4).sort((a, b) => a - b);
+    const q = p => f.length ? +f[Math.min(f.length - 1, Math.floor(f.length * p))].toFixed(1) : 0;
+    let bs = 0; try { bs = +mainChart.timeScale().options().barSpacing.toFixed(1); } catch (e) {}
+    let vis = 0; try { const r = mainChart.timeScale().getVisibleLogicalRange(); vis = r ? Math.round(r.to - r.from) : 0; } catch (e) {}
+    const on = [];
+    const flag = (v, name) => { try { if (v) on.push(name); } catch (e) {} };
+    flag(typeof _fpShow !== "undefined" && _fpShow, "足跡");
+    flag(window._coachOn, "教練"); flag(window._vwapOn, "VWAP");
+    flag(typeof _htfFvgOn !== "undefined" && _htfFvgOn, "大時框FVG");
+    flag(typeof _domShow !== "undefined" && _domShow, "訂單簿");
+    flag(typeof _obShow !== "undefined" && _obShow, "掛單");
+    flag(window._pdhlOn, "關鍵高低"); flag(window._econOn, "經濟事件");
+    flag(window._engulfOn, "吞噬"); flag(window._swingOn, "轉折");
+    flag(window._dimBigBarOn, "大棒淡化"); flag(window._dimVolOn, "量淡化");
+    flag(document.documentElement.classList.contains("sky-show"), "天氣背景");
+    flag(document.documentElement.classList.contains("perf-mode"), "極簡模式");
+    flag(!(typeof _subchartsHidden === "function" && _subchartsHidden()), "副圖指標");
+
+    console.log("%c[效能探針] 結果", "color:#2962ff;font-weight:bold");
+    console.log(`  幀：中位 ${q(0.5)}ms · p95 ${q(0.95)}ms · 最長 ${q(1)}ms · >50ms ${frames.filter(x => x > 50).length} 個 · >100ms ${frames.filter(x => x > 100).length} 個`);
+    console.log(`  環境：DPR ${window.devicePixelRatio} · ${(typeof ohlcvData !== "undefined" ? ohlcvData.length : 0)} 根 · barSpacing ${bs} · 可見 ${vis} 根 · ${(typeof currentTF !== "undefined" ? currentTF : "?")}`);
+    console.log(`  開著的疊加層：${on.length ? on.join("、") : "（都沒開）"}`);
+    const rows = Object.entries(P).filter(([, v]) => v.n).sort((a, b) => b[1].ms - a[1].ms);
+    console.log("  各圖層（總 ms／次數／每次／最長）：");
+    for (const [k, v] of rows)
+      console.log(`     ${k.padEnd(22)} ${v.ms.toFixed(0).padStart(6)}ms  ${String(v.n).padStart(5)}次  ${(v.ms / v.n).toFixed(2).padStart(6)}ms  最長 ${v.max.toFixed(1)}ms`);
+    console.log("%c  ↑ 把以上整段貼回對話即可定位", "color:#888");
+  }, sec * 1000);
+  return `量測中… ${sec} 秒後在 console 印出結果`;
+};
