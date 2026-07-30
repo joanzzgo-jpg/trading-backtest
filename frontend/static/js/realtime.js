@@ -81,6 +81,9 @@ async function fetchLatest() {
         bar._t = t;       // 圖表秒數快取（同 _rebuildTimeIndex 的 _t；這裡 t 已經算好了，順手存）
         ohlcvData.push(bar);
         _newBar = true;   // 出現新棒＝前一根剛收盤 → 稍後重抓勝率補上它的 FVG
+        // 副圖指標窗化(render.js _renderSubcharts)：窗是依「當下的視野+資料長度」算的，新棒不會
+        //   產生視野變動事件 → 不通知的話副圖會少最後一根（實測正好差 1 根）。這裡主動叫它重評估。
+        if (typeof window._scheduleSubRewindow === "function") window._scheduleSubRewindow();
         if (typeof _timeToIdx !== "undefined") {
           _timeToIdx.set(bar.time, ohlcvData.length - 1);
           _secToIdx.set(t, ohlcvData.length - 1);

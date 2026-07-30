@@ -1034,7 +1034,23 @@ function syncTimeScales() {
     if (typeof _scheduleIdleTrim === "function") _scheduleIdleTrim();
     // 「回到最新」按鈕的顯示/隱藏(視野捲離最新才出現)。此處已節流,不必另開訂閱。
     if (typeof _updateGoLatestBtn === "function") _updateGoLatestBtn();
+    // 副圖指標「可見範圍窗化」:視野快移出目前窗才重建(見 render.js _scheduleSubRewindow)。
+    if (typeof _scheduleSubRewindow === "function") _scheduleSubRewindow();
   }
+  // 目前由誰驅動跨圖同步：0=主圖（預設）。使用者按/滾到哪個 pane，那個 pane 就成為驅動者。
+  //   ⚠ 只在真的收到指標/滾輪事件時才改，程式化設定 range 不會改 → 補載/修剪的補償一律由主圖出發。
+  let _syncDriver = 0;
+  function _bindSyncDriver() {
+    ["mainPane", "kdjPane", "rsiPane", "macdPane"].forEach((id, i) => {
+      const el = document.getElementById(id);
+      if (!el || el._syncDrvBound) return;
+      el._syncDrvBound = true;
+      ["pointerdown", "wheel", "touchstart"].forEach(ev =>
+        el.addEventListener(ev, () => { _syncDriver = i; }, { passive: true, capture: true }));
+    });
+  }
+  _bindSyncDriver();
+
   allCharts.forEach((src, si) => {
     src.timeScale().subscribeVisibleLogicalRangeChange(range => {
       // 標記「圖表正在移動」（平移/縮放/慣性）→ 供其它模組參考（背景天氣等；_uxMark 另追蹤連續互動 session）
@@ -1047,6 +1063,17 @@ function syncTimeScales() {
       //   資料把它夾住(clamp)成別的值,那個值再經 rAF 延遲同步推回主圖 → 主圖被往舊拉一段;主圖一動
       //   又觸發下一輪 → 「一直往前帶」的失控滾動。隱藏時只允許主圖→副圖單向同步。
       if (si !== 0 && typeof _subchartsHidden === "function" && _subchartsHidden()) return;
+      // ★★ 只有「使用者實際在操作的那張圖」能驅動同步（2026-07-31 修「開副圖就卡成 5fps」）。
+      //   原本副圖一顯示,4 張圖表**互相**都能驅動:任一張的 range-change → 設給其他 3 張 →
+      //   它們各自重繪並在下一幀再發出 range-change → 又一輪 → **自我維持的同步風暴**。
+      //   syncing 旗標只擋得住同步呼叫內的重入,擋不住 LWC 延後一幀才發的事件。
+      //   實測(BTC/USDT.P 5m、19502 根、barSpacing 90、其餘條件完全相同):
+      //     副圖關 中位 16.7ms / 0 個長幀   ←→   副圖開 中位 188.5ms / 157 個長幀
+      //   且與 DPR 無關(DPR1 189.6ms、DPR2 188.5ms)、JS 只佔 0.1% → 時間全在 LWC 反覆重繪。
+      //   → 改成單向:只收 _syncDriver 那張的事件,其餘一律忽略 → 迴圈斷開。
+      //   _syncDriver 由「最後被指標/滾輪碰到的那個 pane」決定(見下方 _bindSyncDriver),
+      //   所以在副圖上拖曳照樣能帶動主圖,不會退化成「只有主圖能拖」。
+      if (si !== _syncDriver) return;
       _pendingSync = { range, si };               // 只記最新，丟棄同幀內較舊的中間值
       if (!_syncRaf) _syncRaf = requestAnimationFrame(_flushSync);
     });

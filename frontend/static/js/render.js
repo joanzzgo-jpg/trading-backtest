@@ -630,21 +630,64 @@ function _subchartsHidden() {
 }
 // 一次繪製三個副圖(含時間軸對齊用的 3 條 anchor)。副圖隱藏時直接 return。
 // 副圖 toggle 打開時，ui.js 會呼叫此函式補算一次。
+/* ── 副圖指標「可見範圍窗化」(2026-07-31) ───────────────────────────────────────
+   ★為什麼:使用者回報「放大後滑動卡」,真機+重現實測(BTC/USDT.P 5m、19,500 根、bs 90):
+       副圖關 中位 16.7ms / 0 個長幀   ←→   副圖開 中位 188.5ms / 157 個長幀（11 倍）
+     且與 DPR 無關(DPR1 189.6 / DPR2 188.5)、與 backdrop-filter 無關(關掉沒改善)、
+     **JS 只佔 0.1%** → 時間全在 LWC 內部重繪。
+     主圖自己同樣 19,500 根卻只要 16.7ms:主圖拖曳走 LWC 內部捲動快速路徑,副圖是每幀被
+     setVisibleLogicalRange 強制**重新佈局**,成本隨該圖 series 的總點數走。
+     決定性實驗(同 session 背對背):副圖 series 19,495 點 → 216.9ms;砍到 2,000 點 → 90.1ms(2.4x)。
+   → 指標線只餵「可見範圍 ± 緩衝」。⚠ 錨點(kdjAnchor 等)必須維持全長:副圖的 logical index
+     空間靠它與主圖對齊,截斷錨點會讓跨圖同步的 range 對不上(這是 07-28「一直往前帶」的成因)。
+   ・視野移出目前窗(留 25% 邊際)才重算 → 一般拖曳不會每幀重建。 */
+let _subWin = null;          // {lo, hi} 目前指標線涵蓋的 ohlcvData 索引範圍
+let _subWinTimer = null;
+
+function _subWindowFor(n) {
+  let vr = null;
+  try { vr = mainChart.timeScale().getVisibleLogicalRange(); } catch (e) {}
+  if (!vr || !Number.isFinite(vr.from) || !Number.isFinite(vr.to)) return { lo: Math.max(0, n - 4000), hi: n };
+  const span = Math.max(50, vr.to - vr.from);
+  const pad = Math.max(1500, Math.round(span * 2));      // 左右各留兩屏
+  return { lo: Math.max(0, Math.floor(vr.from) - pad), hi: Math.min(n, Math.ceil(vr.to) + pad) };
+}
+
 function _renderSubcharts(data) {
   if (_subchartsHidden()) return;
   // 濾掉壞棒(缺 time/算出 NaN 時間)→ 否則 anchor/指標線的時間為 NaN,LWC paint 會拋「Value is null」(切時框報錯)
-  const _valid = data.filter(d => d && Number.isFinite(toTime(d.time)));
-  const anchorTimes = _valid.map(d => ({ time: toTime(d.time), value: 50 }));
-  kdjAnchor.setData(anchorTimes);
+  const _valid = data.filter(d => d && Number.isFinite(_bt(d)));
+  const anchorTimes = _valid.map(d => ({ time: _bt(d), value: 50 }));
+  kdjAnchor.setData(anchorTimes);          // ★錨點維持全長(對齊用,見上方註)
   rsiAnchor.setData(anchorTimes);
   macdAnchor.setData(anchorTimes.map(d => ({ ...d, value: 0 })));
-  renderKDJ(_valid);
-  renderRSI(_valid);
-  renderMACD(_valid);
+  _subWin = _subWindowFor(_valid.length);
+  const _slice = _valid.slice(_subWin.lo, _subWin.hi);
+  renderKDJ(_slice);
+  renderRSI(_slice);
+  renderMACD(_slice);
 }
 
+/* 視野移動 → 需要時重建指標線的窗（debounce；在窗內就完全不做事）。由 charts.js 同步流程呼叫。 */
+function _scheduleSubRewindow() {
+  if (_subchartsHidden() || replayActive || !ohlcvData.length) return;
+  if (!_subWin) return;
+  let vr = null;
+  try { vr = mainChart.timeScale().getVisibleLogicalRange(); } catch (e) {}
+  if (!vr || !Number.isFinite(vr.from)) return;
+  const span = Math.max(50, vr.to - vr.from);
+  const margin = Math.max(300, span * 0.5);              // 距窗緣 25% 內就提前重建 → 不會滑出空白
+  if (vr.from > _subWin.lo + margin && vr.to < _subWin.hi - margin) return;
+  clearTimeout(_subWinTimer);
+  _subWinTimer = setTimeout(() => {
+    if (_subchartsHidden() || replayActive || !ohlcvData.length) return;
+    try { _renderSubcharts(ohlcvData); } catch (e) {}
+  }, 90);
+}
+window._scheduleSubRewindow = _scheduleSubRewindow;
+
 function renderKDJ(data) {
-  data = data.filter(d => d && Number.isFinite(toTime(d.time)));   // 自我防禦:濾壞時間棒(NaN 時間→LWC paint「Value is null」);所有呼叫點(含背景排程用未濾 ohlcvData)都安全
+  data = data.filter(d => d && Number.isFinite(_bt(d)));   // 自我防禦:濾壞時間棒(NaN 時間→LWC paint「Value is null」);所有呼叫點(含背景排程用未濾 ohlcvData)都安全
   // _bt(d)：用 _rebuildTimeIndex 已算好的秒數（見該函式註）；3 條線 × 34k 根原本是 10 萬次 ISO 解析
   const line = k => data.filter(d => Number.isFinite(d[k])).map(d => ({ time:_bt(d), value:d[k] }));   // Number.isFinite 擋 null/undefined/NaN(否則 LWC paint 拋「Value is null」)
   kdjK.setData(line("kdj_k")); kdjD.setData(line("kdj_d")); kdjJ.setData(line("kdj_j"));
@@ -658,7 +701,7 @@ function renderKDJ(data) {
 }
 
 function renderRSI(data) {
-  data = data.filter(d => d && Number.isFinite(toTime(d.time)));   // 自我防禦:濾壞時間棒
+  data = data.filter(d => d && Number.isFinite(_bt(d)));   // 自我防禦:濾壞時間棒
   // _bt(d)：用 _rebuildTimeIndex 已算好的秒數（見該函式註）；3 條線 × 34k 根原本是 10 萬次 ISO 解析
   const line = k => data.filter(d => Number.isFinite(d[k])).map(d => ({ time:_bt(d), value:d[k] }));   // Number.isFinite 擋 null/undefined/NaN(否則 LWC paint 拋「Value is null」)
   rsiLine14.setData(line("rsi_14")); rsiLine7.setData(line("rsi_7"));
@@ -672,7 +715,7 @@ function renderRSI(data) {
 }
 
 function renderMACD(data) {
-  data = data.filter(d => d && Number.isFinite(toTime(d.time)));   // 自我防禦:濾壞時間棒
+  data = data.filter(d => d && Number.isFinite(_bt(d)));   // 自我防禦:濾壞時間棒
   // ⚠ macd/signal/hist 各自可能為 null(signal 是 macd 的 EMA、更晚才有值)→ 必須各欄位獨立過濾,
   //   否則「有 macd 但 signal 還沒有」的棒會餵 {value:null} 給 LWC Line → 拋「Value is null」(切時框報錯)。
   macdLine.setData(data.filter(d => Number.isFinite(d.macd)).map(d => ({ time:toTime(d.time), value:d.macd })));
@@ -692,7 +735,7 @@ function _bgApplyChunk(data, nPrepended) {
   //    setData + 2 次全量 map,把切 chunk 的 ~100ms 頓砍掉大半)。副圖打開時由 renderAll 重建錨點,不影響。
   if (!(typeof _subchartsHidden === "function" && _subchartsHidden())) {
     // 增量建錨點（只 map 新的那段，不重建全量）
-    const _vf = arr => arr.filter(d => d && Number.isFinite(toTime(d.time)));   // 濾壞時間棒→anchor 不含 NaN 時間(否則 LWC paint「Value is null」)
+    const _vf = arr => arr.filter(d => d && Number.isFinite(_bt(d)));   // 濾壞時間棒→anchor 不含 NaN 時間(否則 LWC paint「Value is null」)
     if (_bgAnchorCache && nPrepended > 0) {
       const slice   = _vf(data.slice(0, nPrepended));
       _bgAnchorCache = [...slice.map(d => ({ time: toTime(d.time), value: 50 })), ..._bgAnchorCache];
@@ -727,7 +770,7 @@ function _bgScheduleIndicators() {
   _bgIndicatorTimer = setTimeout(() => {
     if (!ohlcvData.length) return;
     renderBB(ohlcvData);
-    if (!_subchartsHidden()) setTimeout(() => { renderKDJ(ohlcvData); renderRSI(ohlcvData); renderMACD(ohlcvData); }, 0);
+    if (!_subchartsHidden()) setTimeout(() => { _renderSubcharts(ohlcvData); }, 0);   // 走 _renderSubcharts 才有窗化(見該函式註)
     if (_lastWRSignals.length) _renderWRSignals();
   }, 800);
 }
@@ -978,7 +1021,7 @@ async function _bgLoadOlderBars(scrollTriggered = false) {
         clearTimeout(_bgIndicatorTimer);
         if (guard() && ohlcvData.length) {
           renderBB(ohlcvData);
-          if (!_subchartsHidden()) setTimeout(() => { renderKDJ(ohlcvData); renderRSI(ohlcvData); renderMACD(ohlcvData); }, 0);
+          if (!_subchartsHidden()) setTimeout(() => { _renderSubcharts(ohlcvData); }, 0);   // 走 _renderSubcharts 才有窗化(見該函式註)
           if (_lastWRSignals.length) _renderWRSignals();
           // 補載歷史後也要重繪 FVG 標記(多/空/破多/破空/順多/順空)——否則新載進來那段的標記被 _has() 過濾掉不顯示
           if (typeof _renderFVGMS === "function") _renderFVGMS();
@@ -1337,7 +1380,7 @@ async function _bgLoadNewerBars(scrollTriggered = false) {
         clearTimeout(_bgIndicatorTimer);
         if (guard() && ohlcvData.length) {
           renderBB(ohlcvData);
-          if (!_subchartsHidden()) setTimeout(() => { renderKDJ(ohlcvData); renderRSI(ohlcvData); renderMACD(ohlcvData); }, 0);
+          if (!_subchartsHidden()) setTimeout(() => { _renderSubcharts(ohlcvData); }, 0);   // 走 _renderSubcharts 才有窗化(見該函式註)
           if (_lastWRSignals.length) _renderWRSignals();
           if (typeof _renderFVGMS === "function") _renderFVGMS();
           if (typeof _renderFVGShun === "function") _renderFVGShun();
