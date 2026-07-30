@@ -103,8 +103,27 @@ async function loadData(autoLoad = false, forceLatest = false) {
   const _isPerpSym = /\.P$/i.test(document.getElementById("symbolInput").value.trim());
   if (_isPerpSym) fetchWinRate();
   try {
-    const res  = await _ohlcvP;
-    const json = await res.json();
+    let res  = await _ohlcvP;
+    let json = await res.json();
+    // ★「看歷史時切到較晚上市的標的」救援(2026-07-30)：
+    //   捲在歷史時切標的,會拿「你正在看的那個時間窗」去抓新標的(見上方 _loadRangeStart 註)。
+    //   若該標的當時還沒上市(XAUT 2026-03、SOL 2020-09 才有永續),後端回 400,而訊息是
+    //   「找不到 XXX 的行情資料,請確認標的代號是否正確」→ 標的明明沒錯,使用者只看到載入失敗。
+    //   → 偵測到「這次是帶時間窗的請求」且失敗,就退成「抓最近 N 根」重試一次(對齊自然放棄)。
+    if (!res.ok && window._loadRangeStart && !myCtrl.signal.aborted) {
+      window._loadRangeStart = null;
+      window._loadRangeEnd = null;
+      window._hasFwdGap = false;
+      _savedTimeRange = null; _vSave.tr = null;   // 別再嘗試對齊到那個不存在的時間
+      _pendingAlignRange = null;
+      res  = await fetch("/api/ohlcv", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(buildPayload()), signal: myCtrl.signal,
+      });
+      json = await res.json();
+      if (res.ok && typeof showToast === "function")
+        showToast("此標的沒有你正在看的那段歷史，已跳到最近的資料");
+    }
     if (!res.ok) throw new Error(json.detail || "載入失敗");
     ohlcvData = json.data;
     if (typeof window._snapInvalidate === "function") window._snapInvalidate();   // 真資料落地→作廢未完成的快照繪製
