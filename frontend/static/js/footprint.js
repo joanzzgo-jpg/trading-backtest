@@ -18,6 +18,7 @@ let _fpFetching = false;
 let _fpNextTryTs = 0;      // draw() 補抓的最早時間：成功後 +0.8s 防抖、失敗後 +5s 退避
 let _fpLastAttempt = 0;    // 上次實際發出 fetch 的時間（切換後重抓用，與繁忙退避分開）
 let _fpMsg = "";           // 沒資料時顯示的狀態訊息（載入中/忙碌重試/不支援）——「開了卻沒畫面」必有回饋
+let _fpCvd = [], _fpCvdKey = "";   // CVD 累積曲線快取（只在 _fpBars 換過才重算，見 draw() 內註）
 const _FP_TFS = new Set(["1m", "5m", "15m", "30m", "1h", "4h", "1d"]);
 const _FP_IMB = 3;   // 失衡倍率：對角線比較，一側主動量 ≥ 另一側 ×此值 → 高亮該格（市價壓倒性打贏）
 
@@ -159,9 +160,17 @@ function _makeFootprintPrimitive() {
         // ── 累積 Δ(CVD)：每根 Δ 由時間序累加成一條線，抓「價格與累積主動量背離」（價創高但 CVD 沒創高）。
         //    畫在主圖底部帶狀、依可視範圍自動縮放；★任何縮放都畫（線不怕擠、縮小主圖仍看得到 delta 趨勢）。
         {
-          const srt = _fpBars.map(x => ({ t: x.t, d: x.d || 0 })).sort((a, z) => a.t - z.t);
-          let run = 0; const vis = [];
-          for (const x of srt) { run += x.d; if (x.t >= _lo && x.t <= _hi) vis.push({ t: x.t, c: run }); }
+          // ★累積值只跟 _fpBars 有關（20s 才抓一次），別每幀 map+sort+累加一遍：
+          //   實測 999 根足跡棒＝每幀 999 次物件配置 + 一次排序。改成抓回來才算一次、之後只做可見過濾。
+          const _ck = _fpBars.length + ":" + (_fpBars.length ? _fpBars[0].t + "_" + _fpBars[_fpBars.length - 1].t : "");
+          if (_fpCvdKey !== _ck) {
+            const srt = _fpBars.map(x => ({ t: x.t, d: x.d || 0 })).sort((a, z) => a.t - z.t);
+            let run = 0;
+            _fpCvd = srt.map(x => { run += x.d; return { t: x.t, c: run }; });
+            _fpCvdKey = _ck;
+          }
+          const vis = [];
+          for (const x of _fpCvd) { if (x.t >= _lo && x.t <= _hi) vis.push(x); }
           if (vis.length >= 2) {
             let mn = Infinity, mx = -Infinity;
             for (const p of vis) { if (p.c < mn) mn = p.c; if (p.c > mx) mx = p.c; }
@@ -197,11 +206,21 @@ function _makeFootprintPrimitive() {
         const halfW = Math.max(4, bs * 0.46) * hr;
         if (textMode) { ctx.font = `${fpx}px sans-serif`; ctx.textBaseline = "middle"; }
         // Δ 與價格方向背離偵測：每根 (收-開)。Δ 正卻收黑 / Δ 負卻收紅 ＝ 主動單方向和 K 收盤相反。
-        let _fpMove = null;
-        if (bs >= 18 && typeof ohlcvData !== "undefined" && ohlcvData.length) {
-          _fpMove = new Map();
-          for (const d of ohlcvData) _fpMove.set(toTime(d.time), d.close - d.open);
-        }
+        // ★★ 這裡原本是「每一幀重建整個 ohlcvData 的 Map」(2026-07-30 修)：
+        //    深滑後 ohlcvData 可達 2~3 萬根 → 每幀 2.6 萬次 toTime()(每次 new Date() 解析 ISO
+        //    字串)＋2.6 萬次 Map.set，實測整段迴圈 20~50ms/幀 → 這正是使用者回報的
+        //    「放大到一定程度滑動有點卡」(門檻就是下面的 bs >= 18)。
+        //    → 改用 render.js `_rebuildTimeIndex()` 已經建好的 _secToIdx(時間秒→索引)：
+        //      它只在資料真的變動時重建一次，這裡零配置、O(1) 查表。
+        const _fpMoveOf = (bs >= 18 && typeof _secToIdx !== "undefined"
+                           && typeof ohlcvData !== "undefined" && ohlcvData.length)
+          ? (t) => {
+              const i = _secToIdx.get(t);
+              if (i === undefined) return undefined;
+              const d = ohlcvData[i];
+              return d ? d.close - d.open : undefined;
+            }
+          : null;
         for (const b of _fpBars) {
           if (b.t < _lo || b.t > _hi || !b.rows.length) continue;
           const x = ts.timeToCoordinate(b.t);
@@ -287,7 +306,7 @@ function _makeFootprintPrimitive() {
           //     ⚠↑ 亮綠＝K漲卻Δ負(主動賣被買方吸收)＝偏多；⚠↓ 亮紅＝K跌卻Δ正(主動買被賣方吸收)＝偏空。
           if (!_mv && bs >= 18) {
             ctx.font = `${fpx}px sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
-            const mv = _fpMove ? _fpMove.get(b.t) : undefined;
+            const mv = _fpMoveOf ? _fpMoveOf(b.t) : undefined;
             const diverge = mv !== undefined && mv !== 0 && b.d !== 0 && (mv > 0) !== (b.d > 0);
             const divUp = diverge && mv > 0;                   // K 上漲的背離(偏多) vs K 下跌的背離(偏空)
             const yD = H - 6 * vr;                              // Δ 貼主圖底部
