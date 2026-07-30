@@ -716,39 +716,131 @@ function bindLegendToggles() {
   // 面板收合：點擊「−」縮至只剩圖例列；點「+」展開
   // 面板收合：點「-」= 整個 pane（含圖例資訊列）+ 它下方分隔線一起隱藏 = 完全消失、不留痕跡；
   //   還原改由下方「隱藏指標還原列」(_syncHiddenIndBar) 的小晶片點回來（因為「+」也跟著消失了）。
-  document.querySelectorAll(".pane-collapse-btn").forEach(btn => {
-    btn.dataset.collapsed = "false";
-    const paneId = btn.dataset.pane;
-    btn.addEventListener("click", () => {
-      if (btn.dataset.collapsed === "true") _showPane(paneId); else _hidePane(paneId);
-    });
-  });
+  _initIndPopup();   // 左側工具列「指標」hover 勾選選單（取代每個 pane 上的「−」鈕）
   _syncHiddenIndBar();
 }
 
 const _PANE_LABEL = { kdjPane: "KDJ", rsiPane: "RSI", macdPane: "MACD" };
+
+/* ── 左側工具列「指標」勾選選單（2026-07-31 依使用者要求）────────────────────
+   取代原本每個副圖上的「−」收合鈕、以及圖表下方的「隱藏的指標」還原列。
+   ・滑鼠移到工具列的副圖按鈕上 → 展開清單,勾選要顯示哪些指標(KDJ / RSI / MACD)。
+   ・勾/取消 = 展開/收合該指標(沿用 _showPane/_hidePane,狀態一樣寫進 collapsedPanes)。
+   ・按鈕本身「點擊」維持原本的「整組顯示/隱藏」→ 舊習慣與手機設定列都不受影響。
+   ・離開按鈕與選單 220ms 後才收起 → 手可以從按鈕滑到選單上,不會半路消失。 */
+let _indPop = null, _indPopTimer = null, _indPopOpenTimer = null;
+const _IND_POP_DELAY = 1000;   // 滑鼠停留多久才跳出（使用者要求 1 秒，避免經過就閃出來）
+
+function _syncIndPopup() {
+  if (!_indPop) return;
+  for (const id of Object.keys(_PANE_LABEL)) {
+    const row = _indPop.querySelector('[data-pane="' + id + '"]');
+    if (!row) continue;
+    const p = document.getElementById(id);
+    const on = !!p && !p.classList.contains("pane-collapsed");
+    row.dataset.on = on ? "true" : "false";
+    const box = row.querySelector(".ind-pop-box");
+    if (box) box.textContent = on ? "\u2713" : "";
+  }
+}
+
+function _indPopShow() {
+  clearTimeout(_indPopTimer);
+  const btn = document.getElementById("subChartsToggle");
+  if (!btn || !_indPop) return;
+  // 整組隱藏時勾選沒有意義 → 提示先打開
+  const hiddenAll = document.getElementById("chartsContainer")?.classList.contains("subcharts-hidden");
+  _indPop.querySelector(".ind-pop-hint").style.display = hiddenAll ? "" : "none";
+  _syncIndPopup();
+  _indPop.style.visibility = "hidden";
+  _indPop.style.display = "block";
+  const r = btn.getBoundingClientRect();
+  const ph = _indPop.offsetHeight, pw = _indPop.offsetWidth;
+  let top = r.top + r.height / 2 - ph / 2;
+  top = Math.max(6, Math.min(top, window.innerHeight - ph - 6));
+  let left = r.right + 8;
+  if (left + pw > window.innerWidth - 6) left = Math.max(6, r.left - pw - 8);
+  _indPop.style.top = top + "px";
+  _indPop.style.left = left + "px";
+  _indPop.style.visibility = "";
+  // 選單開著時固定住工具島：它平常是「滑到左緣才滑出」，滑鼠移進選單就會失去 hover 而縮回去，
+  // 看起來像選單浮在半空中。加 dt-pinned 讓它維持展開，選單收起再放開。
+  document.getElementById("drawToolbar")?.classList.add("dt-pinned");
+}
+
+function _indPopHideSoon() {
+  clearTimeout(_indPopTimer);
+  clearTimeout(_indPopOpenTimer);
+  _indPopTimer = setTimeout(() => {
+    if (_indPop) _indPop.style.display = "none";
+    document.getElementById("drawToolbar")?.classList.remove("dt-pinned");
+  }, 220);
+}
+
+function _initIndPopup() {
+  const btn = document.getElementById("subChartsToggle");
+  if (!btn || _indPop) return;
+  _indPop = document.createElement("div");
+  _indPop.id = "indPickPopup";
+  _indPop.className = "ind-pop";
+  _indPop.innerHTML =
+    '<div class="ind-pop-title">顯示哪些指標</div>' +
+    Object.keys(_PANE_LABEL).map(id =>
+      '<button type="button" class="ind-pop-row" data-pane="' + id + '">' +
+      '<span class="ind-pop-box"></span><span>' + _PANE_LABEL[id] + '</span></button>').join("") +
+    '<div class="ind-pop-hint">副圖目前整組隱藏 — 點左側按鈕先打開</div>';
+  document.body.appendChild(_indPop);
+
+  _indPop.querySelectorAll(".ind-pop-row").forEach(row => {
+    row.addEventListener("click", e => {
+      e.preventDefault(); e.stopPropagation();
+      const id = row.dataset.pane;
+      const p = document.getElementById(id);
+      if (!p) return;
+      if (p.classList.contains("pane-collapsed")) _showPane(id); else _hidePane(id);
+      _syncIndPopup();
+    });
+  });
+  // ★停留 1 秒才跳出（使用者要求）：滑鼠只是「經過」按鈕不該閃出選單。
+  //   離開就取消倒數；已經開著時再進來則不重複倒數（直接留著）。
+  btn.addEventListener("mouseenter", () => {
+    clearTimeout(_indPopTimer);
+    if (_indPop && _indPop.style.display === "block") return;   // 已開著 → 不必重數
+    clearTimeout(_indPopOpenTimer);
+    _indPopOpenTimer = setTimeout(_indPopShow, _IND_POP_DELAY);
+  });
+  btn.addEventListener("mouseleave", () => { clearTimeout(_indPopOpenTimer); _indPopHideSoon(); });
+  _indPop.addEventListener("mouseenter", () => { clearTimeout(_indPopTimer); clearTimeout(_indPopOpenTimer); });
+  _indPop.addEventListener("mouseleave", _indPopHideSoon);
+  _syncIndPopup();
+}
 function _paneDivider(paneId) { return document.querySelector('.pane-divider[data-target="' + paneId + '"]'); }
 
+/* 收合＝「原地收起來」，不是整個消失（2026-07-31 依使用者要求改）。
+   舊行為：display:none 讓整個 pane 不見，還原要靠 chartsContainer 底部另外長出來的
+   「隱藏的指標：＋KDJ」還原列——使用者反映不要顯示在下方。
+   新行為：只把圖表區(.pane-body)收起來，保留那一行圖例當標題列(上面就有 ＋ 可以點回來)，
+   使用者一眼看得到「這個指標還在、只是收著」，也不需要額外的還原列。 */
 function _hidePane(paneId) {
   const pane = document.getElementById(paneId);
   if (!pane) return;
-  if (pane.style.display !== "none") paneCollapseFlex[paneId] = pane.style.flex || "1";
-  pane.style.display = "none";
+  if (!pane.classList.contains("pane-collapsed")) paneCollapseFlex[paneId] = pane.style.flex || "1";
+  pane.classList.add("pane-collapsed");
+  pane.style.flex = "0 0 auto";
   const dv = _paneDivider(paneId); if (dv) dv.style.display = "none";
-  const btn = document.querySelector('.pane-collapse-btn[data-pane="' + paneId + '"]');
-  if (btn) { btn.dataset.collapsed = "true"; btn.textContent = "+"; }
+  _syncIndPopup();
   _afterPaneToggle();
 }
 
 function _showPane(paneId) {
   const pane = document.getElementById(paneId);
   if (!pane) return;
+  pane.classList.remove("pane-collapsed");
   pane.style.display = "";
   pane.style.flex = paneCollapseFlex[paneId] || "1";
   const body = pane.querySelector(".pane-body"); if (body) body.style.display = "";
   const dv = _paneDivider(paneId); if (dv) dv.style.display = "";
-  const btn = document.querySelector('.pane-collapse-btn[data-pane="' + paneId + '"]');
-  if (btn) { btn.dataset.collapsed = "false"; btn.textContent = "\u2212"; }
+  _syncIndPopup();
   _afterPaneToggle();
 }
 
@@ -761,30 +853,9 @@ function _afterPaneToggle() {
 }
 
 function _syncHiddenIndBar() {
-  const container = document.getElementById("chartsContainer");
-  if (!container) return;
-  let bar = document.getElementById("hiddenIndBar");
-  const hidden = Object.keys(_PANE_LABEL).filter(id => {
-    const p = document.getElementById(id); return p && p.style.display === "none";
-  });
-  if (!hidden.length) { if (bar) bar.remove(); return; }
-  if (!bar) {
-    bar = document.createElement("div");
-    bar.id = "hiddenIndBar";
-    bar.style.cssText = "display:flex;gap:6px;align-items:center;padding:3px 8px;flex-wrap:wrap;" +
-      "font-size:11px;color:var(--muted,#8b93a3);background:var(--panel,#1e222d);border-top:1px solid var(--border,#2a2e39);flex:0 0 auto;";
-    container.appendChild(bar);
-  }
-  bar.innerHTML = '<span style="opacity:.7">\u96b1\u85cf\u7684\u6307\u6a19\uff1a</span>';
-  for (const id of hidden) {
-    const chip = document.createElement("button");
-    chip.type = "button";
-    chip.textContent = "\uff0b " + _PANE_LABEL[id];
-    chip.style.cssText = "cursor:pointer;border:1px solid var(--border,#3a3f4b);background:transparent;color:inherit;" +
-      "border-radius:10px;padding:1px 9px;font-size:11px;line-height:1.5;";
-    chip.addEventListener("click", () => _showPane(id));
-    bar.appendChild(chip);
-  }
+  // 底部「隱藏的指標」還原列已移除（使用者要求不要顯示在下方）：收合改成原地保留圖例列，
+  // 上面的 ＋ 就能點回來。這裡只負責把舊版可能殘留的那條列清掉。
+  document.getElementById("hiddenIndBar")?.remove();
 }
 
 function nextVisiblePane(el) {

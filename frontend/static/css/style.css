@@ -115,8 +115,9 @@ html.perf-mode .tb-winrate {
   box-shadow: none !important;
 }
 html.perf-mode .tb-wr-tag { color: #FF6A1A; }
-/* 圖表面板下分隔線顏色淡化 */
-html.perf-mode .pane-divider { background: #E5E5E5; }
+/* 圖表面板下分隔線顏色淡化（線本身畫在 ::before，見 .pane-divider） */
+html.perf-mode .pane-divider { background: transparent; }
+html.perf-mode .pane-divider::before { background: #E5E5E5; }
 /* 主圖右上「⚙」齒輪本來就已隱藏；指標面板若還是開著時，文字色 fallback */
 html.perf-mode .ind-sp-row,
 html.perf-mode .ind-sp-lbl,
@@ -1642,8 +1643,11 @@ html.perf-mode .tk-seg {
   opacity: 0;
   transition: transform 0.42s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.25s ease, box-shadow 0.3s ease;
 }
-/* 滑到左緣觸發區、或滑鼠在工具島上 → 彈出懸浮（帶暖橘外發光）*/
+/* 滑到左緣觸發區、或滑鼠在工具島上 → 彈出懸浮（帶暖橘外發光）
+   .dt-pinned：「顯示哪些指標」選單開著時固定住（滑鼠移進選單會讓工具島失去 hover 而縮回，
+   選單就會浮在半空中）→ 由 ui.js 的 _indPopShow/_indPopHideSoon 加解。 */
 .dt-edge-trigger:hover ~ .draw-toolbar,
+.draw-toolbar.dt-pinned,
 .draw-toolbar:hover {
   transform: translateY(-50%) translateX(0);
   opacity: 1;
@@ -2155,17 +2159,31 @@ html.perf-mode .time-axis-year {
 .dn { color: var(--green); }
 
 /* ═══ PANE DIVIDERS ═══ */
+/* 主圖／副圖之間的分隔線：使用者反映「太粗太明顯」(2026-07-31)。
+   ★做法：外框高度維持 3px 不變（＝拖曳抓取區不縮水、版面也不位移），
+   只把「看得到的線」用 ::before 畫成 1px 且淡化 → 視覺上細很多、手感不變。
+   hover / 拖曳中才變藍加粗，讓使用者知道這裡可以拉。 */
 .pane-divider {
   height: 3px;
-  background: var(--border);
+  background: transparent;
   cursor: row-resize;
   flex-shrink: 0;
-  transition: background .15s;
   position: relative;
   z-index: 10;
 }
-.pane-divider:hover,
-.pane-divider.dragging { background: var(--blue); }
+.pane-divider::before {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; top: 50%;
+  height: 1px;
+  transform: translateY(-50%);
+  background: var(--border);
+  opacity: .4;
+  transition: background .15s, opacity .15s, height .15s;
+  pointer-events: none;
+}
+.pane-divider:hover::before,
+.pane-divider.dragging::before { background: var(--blue); opacity: 1; height: 2px; }
 
 /* ═══ SYMBOL SEARCH MODAL ═══ */
 .sym-overlay {
@@ -7352,3 +7370,53 @@ html.perf-mode .go-latest {
 html.perf-mode .tb-ct-btn { color: #6b6560 !important; }
 html.perf-mode .tb-ct-btn:hover,
 html.perf-mode .tb-ct-btn.is-line { color: #2C1607 !important; }
+
+/* ── 副圖「原地收合」（2026-07-31）─────────────────────────────────────────
+   收合＝只把圖表區收起來，保留那一行圖例當標題列（上面的 ＋ 可以點回來）。
+   舊版是整個 pane display:none，還原要靠 chartsContainer 底部另外長出來的還原列
+   ——使用者要求不要顯示在下方，故改成原地收起、不需要額外的列。 */
+/* 沒勾選＝整個收起來（連圖例數值一起，使用者要求「隱藏要連數值都收起來」）。
+   要叫回來是從左側工具列的 hover 勾選選單，所以不需要在原地留標題列。 */
+.chart-pane.pane-collapsed { display: none !important; }
+
+/* ── 左側工具列「顯示哪些指標」hover 選單（2026-07-31）──────────────────────
+   取代原本每個副圖上的「−」收合鈕、以及圖表下方的「隱藏的指標」還原列。 */
+.ind-pop {
+  position: fixed; display: none; z-index: 9000;
+  min-width: 132px; padding: 6px;
+  background: var(--panel, #1e222d);
+  border: 1px solid var(--border, #2a2e39);
+  border-radius: 10px;
+  box-shadow: 0 10px 28px rgba(0,0,0,.45);
+  font-family: inherit;
+}
+.ind-pop-title {
+  font-size: 10.5px; color: var(--muted, #8b93a3);
+  padding: 2px 8px 5px; letter-spacing: .4px;
+}
+.ind-pop-row {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 5px 8px; border: none; border-radius: 6px;
+  background: transparent; color: var(--text, #d1d4dc);
+  font-size: 12px; cursor: pointer; text-align: left;
+  transition: background .12s;
+}
+.ind-pop-row:hover { background: var(--bg3, #2a2e39); }
+.ind-pop-box {
+  width: 14px; height: 14px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border, #3a3f4b); border-radius: 4px;
+  font-size: 10px; line-height: 1; color: #fff;
+  transition: background .12s, border-color .12s;
+}
+.ind-pop-row[data-on="true"] .ind-pop-box { background: var(--blue, #2962ff); border-color: var(--blue, #2962ff); }
+.ind-pop-row[data-on="false"] { color: var(--muted, #8b93a3); }
+.ind-pop-hint {
+  font-size: 10px; color: var(--muted, #8b93a3);
+  padding: 5px 8px 2px; margin-top: 3px;
+  border-top: 1px solid var(--border, #2a2e39); line-height: 1.4;
+}
+html.perf-mode .ind-pop { background: #FFF !important; border-color: rgba(0,0,0,.16) !important; }
+html.perf-mode .ind-pop-row { color: #2A2620 !important; }
+html.perf-mode .ind-pop-row:hover { background: rgba(0,0,0,.06) !important; }
+@media (max-width: 1180px) { .ind-pop { display: none !important; } }

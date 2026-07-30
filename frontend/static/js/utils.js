@@ -173,8 +173,8 @@ function savePaneFlexes() {
   Object.keys(PANE_FLEX_DEFAULTS).forEach(id => {
     const el  = document.getElementById(id);
     if (!el) return;
-    const btn = document.querySelector(`.pane-collapse-btn[data-pane="${id}"]`);
-    const isCollapsed = btn?.dataset.collapsed === "true";
+    // 收合狀態改看 pane 自己的 class（每個 pane 上的「−」鈕已移除，改用左側工具列的勾選選單）
+    const isCollapsed = el.classList.contains("pane-collapsed");
     // 收合時儲存收合前的 flex；否則儲存目前 flex
     flexes[id] = isCollapsed
       ? (parseFloat(paneCollapseFlex[id]) || PANE_FLEX_DEFAULTS[id])
@@ -210,9 +210,10 @@ function saveVisibilityPrefs() {
     });
     localStorage.setItem("shownDefOff", JSON.stringify(shownDefOff));
     const collapsedPanes = {};
-    document.querySelectorAll(".pane-collapse-btn").forEach(btn => {
-      if (btn.dataset.collapsed === "true")
-        collapsedPanes[btn.dataset.pane] = paneCollapseFlex[btn.dataset.pane] || "1";
+    ["kdjPane", "rsiPane", "macdPane"].forEach(id => {
+      const p = document.getElementById(id);
+      if (p && p.classList.contains("pane-collapsed"))
+        collapsedPanes[id] = paneCollapseFlex[id] || "1";
     });
     localStorage.setItem("hiddenLegs",     JSON.stringify(hiddenLegs));
     localStorage.setItem("collapsedPanes", JSON.stringify(collapsedPanes));
@@ -238,8 +239,8 @@ function loadVisibilityPrefs() {
     const collapsedPanes = JSON.parse(localStorage.getItem("collapsedPanes") || "{}");
     for (const [paneId, flex] of Object.entries(collapsedPanes)) {
       paneCollapseFlex[paneId] = flex;
-      const btn = document.querySelector(`.pane-collapse-btn[data-pane="${paneId}"]`);
-      if (btn && btn.dataset.collapsed !== "true") btn.click();  // 未收合則點擊收合
+      // 每個 pane 上的「−」鈕已移除(改成左側工具列的 hover 勾選選單) → 直接呼叫收合
+      if (typeof _hidePane === "function") _hidePane(paneId);
     }
   } catch {}
   _restoringPrefs = false;
