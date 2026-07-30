@@ -969,6 +969,56 @@ function _trimRollingWindow() {
    ・debounce 600ms:只在真的停手才修,連續操作不打斷。
    ・時間軸還原:修剪改 index 但畫面停在「一模一樣的那幾根」上→修的當下畫面不動、無感。
    ・載入中/重播中不修。 */
+/* ── 修剪遮罩 ────────────────────────────────────────────────────────────────
+   修剪那一瞬 LWC 會用「舊 rightOffset × 新資料」畫錯一幀(逐幀實測 ±4500 根＝正好一個保留
+   緩衝,下一幀才彈回;70 輪深滑抓到 5 次修剪 × 2 幀 = 10 次位移)。補償先設/後設/兩者都設/
+   scrollToPosition/改用時間全部試過都擋不掉——根因是 LWC 的 setData 延後到繪製才生效、
+   而補償是立刻生效,兩者天生不同步。
+   → 不再跟它的幀序纏鬥:修剪前把每個 pane 的畫布內容拷成一張靜態圖蓋在原位,修完等三幀
+     (補償確定生效)、驗位置對了才撤掉。使用者全程看到「完全靜止且正確」的畫面。
+   ・只蓋 .pane-body(圖表畫布區),不蓋圖例/HUD → 那些 DOM 不受影響、不會閃。
+   ・只在停手 1.5s 後的閒置修剪走這條;一場深滑最多幾次 → 拷貝成本(數 ms)無感。
+   ・★保險絲:1 秒後無論如何強制撤掉。任何例外都不可能把圖表永久凍住。 */
+function _trimMaskShow() {
+  const out = [];
+  try {
+    const bodies = document.querySelectorAll("#chartsContainer .pane-body");
+    for (const host of bodies) {
+      const r = host.getBoundingClientRect();
+      if (!r.width || !r.height) continue;                 // 收合/隱藏的 pane 跳過
+      const dpr = window.devicePixelRatio || 1;
+      const cv = document.createElement("canvas");
+      cv.width = Math.max(1, Math.round(r.width * dpr));
+      cv.height = Math.max(1, Math.round(r.height * dpr));
+      cv.style.cssText = `position:absolute;left:0;top:0;width:${r.width}px;height:${r.height}px;z-index:40;pointer-events:none`;
+      const ctx = cv.getContext("2d");
+      ctx.scale(dpr, dpr);
+      let n = 0;
+      for (const c of host.querySelectorAll("canvas")) {
+        const cr = c.getBoundingClientRect();
+        if (!cr.width || !cr.height) continue;
+        try { ctx.drawImage(c, cr.left - r.left, cr.top - r.top, cr.width, cr.height); n++; } catch (e) {}
+      }
+      if (!n) continue;
+      if (getComputedStyle(host).position === "static") host.style.position = "relative";
+      host.appendChild(cv);
+      out.push(cv);
+    }
+  } catch (e) {}
+  if (out.length) {
+    window._trimMaskOn = true;
+    clearTimeout(_trimMaskFuse);
+    _trimMaskFuse = setTimeout(() => _trimMaskHide(out), 1000);   // ★保險絲
+  }
+  return out;
+}
+let _trimMaskFuse = null;
+function _trimMaskHide(masks) {
+  clearTimeout(_trimMaskFuse);
+  try { for (const m of (masks || [])) m.remove(); } catch (e) {}
+  window._trimMaskOn = false;
+}
+
 let _idleTrimTimer = null;
 function _scheduleIdleTrim() {
   clearTimeout(_idleTrimTimer);
@@ -985,13 +1035,12 @@ function _scheduleIdleTrim() {
     const lo = Math.max(0, Math.floor(vr.from) - BUF);
     const hi = Math.min(ohlcvData.length - 1, Math.ceil(vr.to) + BUF);
     if (hi - lo + 1 >= ohlcvData.length) return;   // 已涵蓋全部→不修
-    // ★★ 看歷史時一律不修剪(2026-07-30 定案)。修剪會動到「右緣」,而 LWC 的捲動定位是以
-    //   「離最後一根多遠」為基準 + setData 延後到繪製才生效 → 不論用索引或時間補償,都會有一幀
-    //   畫在錯位置(實測 −4500 根＝正好一個保留緩衝,來回彈)。試過的補償全部失敗:先設/後設/
-    //   兩者都設/同步 scrollToPosition/改用時間 → 最好的情況仍留 2 幀、最差 8 幀。
-    //   → 改成只在「視野已回到最新附近」時才修:此時要剪的是**左側**(舊資料)、右緣不動,
-    //     實測往右滑補新那條路(同樣只剪左側)從頭到尾 0 跳動。記憶體則在使用者滑回現在時回收。
-    if (vr.to < ohlcvData.length - 800) return;
+    // ★看歷史時也要修剪(2026-07-30 復原,靠上方 _trimMaskShow 遮罩擋掉那一幀)。
+    //   為什麼一定要修:不修剪＝常駐根數無界。5m 深滑實測 90 輪長到 18 萬根、JS heap 破 1GB、
+    //   單幀最長 1127ms(中位 224ms);開修剪後穩在 2.6~4 萬根、heap 95~353MB、最長 228ms。
+    //   為什麼要遮罩:往歷史滑時能省的只有「右端」,而右端正是 LWC 的捲動基準(rightOffset) →
+    //   動它必錯一幀。遮罩把那一幀蓋住,是唯一不必跟 LWC 幀序纏鬥的解。
+    const _mask = _trimMaskShow();
     ohlcvData = ohlcvData.slice(lo, hi + 1);
     _rebuildTimeIndex();
     // 修剪後動態更新往後缺口(右側被剪→標記,右滑可補回)
@@ -1044,6 +1093,21 @@ function _scheduleIdleTrim() {
     //   捲動位置重推可見範圍,補償之後才做的那些 setData(BB/指標/標記)會把視野推歪一幀(逐幀量到的
     //   瞬態就落在這個空檔)。最後補這一次 → 換資料整段結束時位置一定是對的。
     _syncSuspend(() => _applyTrim(true));
+    // ★等三幀讓補償真的落地,驗位置對了才撤遮罩;沒到位就再補一次(而不是把錯位露出來)。
+    let _f = 0;
+    const _settle = () => {
+      if (++_f < 3) { requestAnimationFrame(_settle); return; }
+      try {
+        const cur = mainChart.timeScale().getVisibleLogicalRange();
+        if (cur && (Math.abs(cur.from - sh.from) > 1 || Math.abs(cur.to - sh.to) > 1)) {
+          _syncSuspend(() => _applyTrim(true));
+          requestAnimationFrame(() => _trimMaskHide(_mask));
+          return;
+        }
+      } catch (e) {}
+      _trimMaskHide(_mask);
+    };
+    requestAnimationFrame(_settle);
   }, 1500);
 }
 window._scheduleIdleTrim = _scheduleIdleTrim;
