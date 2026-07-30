@@ -50,21 +50,34 @@ def repair(sym, tf, exchange="binance", pad_days=1):
         print(f"  {sym} {tf}: {len(df)} 根，無破洞 ✓")
         return 0, 0
     print(f"  {sym} {tf}: {len(df)} 根，破洞 {len(holes)} 個")
+    sec = _TF_SEC[tf]
+    # ★一定要分段抓，不能一次要整個缺口（2026-07-30 踩到）：
+    #   跨過「Binance 永續上線日」(BTC 2019-09-08 / ETH 2019-11-27) 的長區間，fapi 會回
+    #   **非空但只有上線後那一小截**（實測要 2018-11-21~2019-09-09 只回 8 根、全在 09-08 之後），
+    #   而 fetch_crypto_ohlcv 的 fallback 只在「完全空」時才觸發 → 前面 10 個月被靜默丟掉。
+    #   切成小段後，落在上線日之前的每一段 fapi 都回空 → 正常退到其他來源，才抓得到。
+    chunk_days = max(1, int(500 * sec / 86400))      # 每段約 500 根
     fixed = 0
     for a, b, n in holes:
-        # 兩側各留 pad_days 天邊際 → 一定與既有資料重疊，drop_duplicates 會處理掉
-        s = (a - pd.Timedelta(days=pad_days)).strftime("%Y-%m-%d")
-        e = (b + pd.Timedelta(days=pad_days)).strftime("%Y-%m-%d")
-        print(f"     補 {a} → {b}（缺 {n} 根）以 {s}~{e} 重抓 …", end=" ", flush=True)
-        try:
-            got = fetch_crypto_ohlcv(sym, tf, s, e, exchange)
-        except Exception as ex:
-            print(f"失敗（{ex}）")
-            continue
-        if got is None or got.empty:
+        print(f"     補 {a} → {b}（缺 {n} 根）分段重抓 …", end=" ", flush=True)
+        got_all = []
+        cur = a - pd.Timedelta(days=pad_days)        # 兩側留邊際 → 必與既有資料重疊，dedup 會處理
+        stop = b + pd.Timedelta(days=pad_days)
+        while cur < stop:
+            nxt = min(cur + pd.Timedelta(days=chunk_days), stop)
+            try:
+                g = fetch_crypto_ohlcv(sym, tf, cur.strftime("%Y-%m-%d"),
+                                       nxt.strftime("%Y-%m-%d"), exchange)
+                if g is not None and not g.empty:
+                    got_all.append(g)
+            except Exception:
+                pass                                  # 單段失敗不影響其他段
+            cur = nxt
+        if not got_all:
             print("資料源沒有這段")
             continue
-        # 只留真正落在缺口內的，避免把邊際資料當成「補到了」
+        got = pd.concat(got_all, ignore_index=True).drop_duplicates("time").sort_values("time")
+        # 只算真正落在缺口內的，避免把邊際資料當成「補到了」
         inside = got[(got["time"] > a) & (got["time"] < b)]
         print(f"抓到 {len(got)} 根，其中缺口內 {len(inside)} 根")
         if len(inside):
