@@ -390,7 +390,7 @@ function showLoading(show) {
    用法：在瀏覽器 console 打 `_perfProbe(8)` → 邊拖曳邊量 8 秒 → 印出逐幀統計 + 各圖層成本
    + 目前開了哪些疊加層 + DPR/根數。把輸出貼回來就能直接定位。
    ⚠ 純診斷：不呼叫就完全沒有成本（只是掛一個函式）。 */
-window._perfProbe = function (sec) {
+window._perfProbe = function (sec, silent) {
   sec = Math.max(2, Math.min(30, sec || 8));
   const P = {}, orig = {};
   const wrap = (nm) => {
@@ -412,8 +412,8 @@ window._perfProbe = function (sec) {
   let last = performance.now(), stop = false;
   const tick = () => { const n = performance.now(); frames.push(n - last); last = n; if (!stop) requestAnimationFrame(tick); };
   requestAnimationFrame(tick);
-  console.log(`%c[效能探針] 開始量測 ${sec} 秒 — 現在請重現你覺得卡的操作（拖曳/縮放）`,
-              "color:#2962ff;font-weight:bold");
+  if (!silent) console.log(`%c[效能探針] 開始量測 ${sec} 秒 — 現在請重現你覺得卡的操作（拖曳/縮放）`,
+                           "color:#2962ff;font-weight:bold");
 
   setTimeout(() => {
     stop = true;
@@ -436,19 +436,24 @@ window._perfProbe = function (sec) {
     flag(document.documentElement.classList.contains("perf-mode"), "極簡模式");
     flag(!(typeof _subchartsHidden === "function" && _subchartsHidden()), "副圖指標");
 
-    console.log("%c[效能探針] 結果", "color:#2962ff;font-weight:bold");
-    console.log(`  幀：中位 ${q(0.5)}ms · p95 ${q(0.95)}ms · 最長 ${q(1)}ms · >50ms ${frames.filter(x => x > 50).length} 個 · >100ms ${frames.filter(x => x > 100).length} 個`);
-    console.log(`  環境：DPR ${window.devicePixelRatio} · ${(typeof ohlcvData !== "undefined" ? ohlcvData.length : 0)} 根 · barSpacing ${bs} · 可見 ${vis} 根 · ${(typeof currentTF !== "undefined" ? currentTF : "?")}`);
-    console.log(`  開著的疊加層：${on.length ? on.join("、") : "（都沒開）"}`);
+    // ⚠ rows 必須宣告在 if 外面:下方組回報也要用(第一版誤包進 if 內 → silent 模式拋
+    //   「rows is not defined」,自動回報整條掛掉、後端收不到任何東西)。
     const rows = Object.entries(P).filter(([, v]) => v.n).sort((a, b) => b[1].ms - a[1].ms);
-    console.log("  各圖層（總 ms／次數／每次／最長）：");
-    for (const [k, v] of rows)
-      console.log(`     ${k.padEnd(22)} ${v.ms.toFixed(0).padStart(6)}ms  ${String(v.n).padStart(5)}次  ${(v.ms / v.n).toFixed(2).padStart(6)}ms  最長 ${v.max.toFixed(1)}ms`);
+    if (!silent) {
+      console.log("%c[效能探針] 結果", "color:#2962ff;font-weight:bold");
+      console.log(`  幀：中位 ${q(0.5)}ms · p95 ${q(0.95)}ms · 最長 ${q(1)}ms · >50ms ${frames.filter(x => x > 50).length} 個 · >100ms ${frames.filter(x => x > 100).length} 個`);
+      console.log(`  環境：DPR ${window.devicePixelRatio} · ${(typeof ohlcvData !== "undefined" ? ohlcvData.length : 0)} 根 · barSpacing ${bs} · 可見 ${vis} 根 · ${(typeof currentTF !== "undefined" ? currentTF : "?")}`);
+      console.log(`  開著的疊加層：${on.length ? on.join("、") : "（都沒開）"}`);
+      console.log("  各圖層（總 ms／次數／每次／最長）：");
+      for (const [k, v] of rows)
+        console.log(`     ${k.padEnd(22)} ${v.ms.toFixed(0).padStart(6)}ms  ${String(v.n).padStart(5)}次  ${(v.ms / v.n).toFixed(2).padStart(6)}ms  最長 ${v.max.toFixed(1)}ms`);
+    }
     // ★同時回傳後端（使用者無法把 console 貼回來 → 開發端用 GET /api/_perf_report 讀）
     const report = {
       frames: { p50: q(0.5), p95: q(0.95), max: q(1),
                 over50: frames.filter(x => x > 50).length,
                 over100: frames.filter(x => x > 100).length, n: frames.length },
+      auto: !!silent,
       env: { dpr: window.devicePixelRatio, bars: (typeof ohlcvData !== "undefined" ? ohlcvData.length : 0),
              barSpacing: bs, visible: vis, tf: (typeof currentTF !== "undefined" ? currentTF : "?"),
              sym: document.getElementById("symbolInput")?.value || "?",
@@ -459,8 +464,62 @@ window._perfProbe = function (sec) {
     };
     fetch("/api/_perf_report", { method: "POST", headers: { "Content-Type": "application/json" },
                                  body: JSON.stringify(report) })
-      .then(r => r.ok && console.log("%c  ✓ 結果已回傳，不用複製貼上", "color:#26a69a;font-weight:bold"))
-      .catch(() => console.log("%c  ↑ 回傳失敗，請把以上整段貼回對話", "color:#888"));
+      .then(r => { if (r.ok && !silent) console.log("%c  ✓ 結果已回傳，不用複製貼上", "color:#26a69a;font-weight:bold"); })
+      .catch(() => { if (!silent) console.log("%c  ↑ 回傳失敗，請把以上整段貼回對話", "color:#888"); });
   }, sec * 1000);
   return `量測中… ${sec} 秒後在 console 印出結果`;
 };
+
+/* ── 自動卡頓回報 ─────────────────────────────────────────────────────────────
+   為什麼:使用者環境無法複製貼上、也不方便開 console(2026-07-30)。而 headless 測不出他機器上的
+   卡頓——卡的原因通常是「某個預設關閉、但他開著」的疊加層(足跡那個 bug 就是這樣才找到的)。
+   → 讓 app 自己發現卡頓、自己量、自己回報,使用者只要正常操作。
+   機制:
+     ・只在「圖表互動中」才跑取樣迴圈(停手 1.2s 自動停)→ 閒置時零成本、不阻止瀏覽器節流 rAF。
+     ・一次互動內出現 ≥4 個 >50ms 的幀 → 判定卡頓 → 靜默啟動詳細探針 5 秒(包裝各圖層計時),
+       量完自動 POST /api/_perf_report。
+     ・節流:每 3 分鐘最多一次、整個分頁最多 5 次 → 不會洗版、不影響效能。 */
+(function autoJankReport() {
+  let sampling = false, probing = false, sent = 0, lastSent = 0;
+  const MAX_SENT = 5, COOLDOWN = 180000, JANK_MS = 50, JANK_MIN = 4;
+
+  function evaluate(frames) {
+    const slow = frames.filter(x => x > JANK_MS).length;
+    if (slow < JANK_MIN) return;
+    const now = Date.now();
+    if (probing || sent >= MAX_SENT || now - lastSent < COOLDOWN) return;
+    probing = true; sent++; lastSent = now;
+    try { window._perfProbe(5, true); } catch (e) {}
+    setTimeout(() => { probing = false; }, 6000);
+  }
+
+  function start() {
+    if (sampling || probing) return;
+    if (typeof window._perfProbe !== "function") return;
+    sampling = true;
+    const frames = [];
+    let last = performance.now();
+    const t0 = last;
+    const tick = () => {
+      const n = performance.now(), d = n - last; last = n;
+      if (d < 4000) frames.push(d);          // 忽略分頁被切走/睡眠造成的巨大間隔
+      // ★至少量 2.5 秒再看「是否停手」:pointerdown 當下 _chartMoveTs 還沒被設(要 move 才更新),
+      //   只看 moving 會在第一幀就退出 → 永遠取樣不到(2026-07-30 第一版就是這樣沒觸發)。
+      const warmup = (n - t0) < 2500;
+      const moving = window._chartMoveTs && (n - window._chartMoveTs) < 1200;
+      if ((warmup || moving) && frames.length < 900) { requestAnimationFrame(tick); return; }
+      sampling = false;
+      evaluate(frames);
+    };
+    requestAnimationFrame(tick);
+  }
+
+  function bind() {
+    const el = document.getElementById("mainChart");
+    if (!el) { setTimeout(bind, 1500); return; }
+    ["wheel", "pointerdown", "touchstart"].forEach(ev =>
+      el.addEventListener(ev, start, { passive: true, capture: true }));
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", bind);
+  else bind();
+})();
