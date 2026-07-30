@@ -186,6 +186,36 @@ def _require_admin(key: str):
         raise HTTPException(403, "需要管理金鑰（?key=ACCOUNT_ADMIN_KEY）")
 
 
+# ── 效能回報收集（配合前端 window._perfProbe）────────────────────────────────
+#   為什麼要有這條：使用者無法把 console 輸出貼回來（環境限制），headless 又測不出他機器上的
+#   卡頓（卡的原因通常是「某個預設關閉、但他開著」的疊加層 —— 足跡那個 bug 就是這樣才找到的）。
+#   → 探針量完直接 POST 上來，開發端 GET 回來看。純數字與開關名稱，不含任何個資。
+#   記憶體環形緩衝、上限 20 筆、單筆 32KB；重啟即清空。
+_PERF_REPORTS: "collections.deque" = _collections.deque(maxlen=20)
+
+
+@router.post("/_perf_report")
+async def perf_report(request: Request):
+    try:
+        raw = await request.body()
+        if len(raw) > 32768:
+            raise HTTPException(413, "報告過大")
+        import orjson as _oj
+        data = _oj.loads(raw)
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(400, "格式錯誤")
+    _PERF_REPORTS.append({"at": _dt.datetime.now().isoformat(timespec="seconds"), "r": data})
+    return {"ok": True, "n": len(_PERF_REPORTS)}
+
+
+@router.get("/_perf_report")
+def perf_report_list():
+    """開發端讀回來看（最新在最後）。"""
+    return {"n": len(_PERF_REPORTS), "reports": list(_PERF_REPORTS)}
+
+
 @router.get("/_diag")
 def diag(key: str = ""):
     """環境變數診斷（只回名稱/長度/數量，**絕不洩漏金鑰值**），用來確認 Railway 設定是否生效。"""

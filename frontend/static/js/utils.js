@@ -444,7 +444,23 @@ window._perfProbe = function (sec) {
     console.log("  各圖層（總 ms／次數／每次／最長）：");
     for (const [k, v] of rows)
       console.log(`     ${k.padEnd(22)} ${v.ms.toFixed(0).padStart(6)}ms  ${String(v.n).padStart(5)}次  ${(v.ms / v.n).toFixed(2).padStart(6)}ms  最長 ${v.max.toFixed(1)}ms`);
-    console.log("%c  ↑ 把以上整段貼回對話即可定位", "color:#888");
+    // ★同時回傳後端（使用者無法把 console 貼回來 → 開發端用 GET /api/_perf_report 讀）
+    const report = {
+      frames: { p50: q(0.5), p95: q(0.95), max: q(1),
+                over50: frames.filter(x => x > 50).length,
+                over100: frames.filter(x => x > 100).length, n: frames.length },
+      env: { dpr: window.devicePixelRatio, bars: (typeof ohlcvData !== "undefined" ? ohlcvData.length : 0),
+             barSpacing: bs, visible: vis, tf: (typeof currentTF !== "undefined" ? currentTF : "?"),
+             sym: document.getElementById("symbolInput")?.value || "?",
+             w: window.innerWidth, h: window.innerHeight, sec },
+      on,
+      layers: rows.map(([k, v]) => ({ f: k, ms: +v.ms.toFixed(1), n: v.n,
+                                      per: +(v.ms / v.n).toFixed(3), max: +v.max.toFixed(1) })),
+    };
+    fetch("/api/_perf_report", { method: "POST", headers: { "Content-Type": "application/json" },
+                                 body: JSON.stringify(report) })
+      .then(r => r.ok && console.log("%c  ✓ 結果已回傳，不用複製貼上", "color:#26a69a;font-weight:bold"))
+      .catch(() => console.log("%c  ↑ 回傳失敗，請把以上整段貼回對話", "color:#888"));
   }, sec * 1000);
   return `量測中… ${sec} 秒後在 console 印出結果`;
 };
