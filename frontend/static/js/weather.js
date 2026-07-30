@@ -2950,7 +2950,15 @@
   }
 
   /* ── main loop ── */
+  let _offCleared = false;   // 「無」天氣時畫布已清空的旗標（見 draw/loop）
   function draw(t) {
+    // ★「無」天氣且沒開磁磚＝畫面上什麼都沒有 → 清一次就好，別每幀把 6 個全螢幕圖層再 clearRect
+    //   一遍（DPR2 下那是好幾千萬像素/秒的純浪費）。搭配 loop() 的停轉,關掉天氣＝真的不算。
+    if (type === "off" && !_bearTilesOn) {
+      if (!_offCleared) { _LAYER_DEFS.forEach(([name]) => _layers[name].ctx.clearRect(0,0,W,H)); _offCleared = true; }
+      return;
+    }
+    _offCleared = false;
     _LAYER_DEFS.forEach(([name]) => _layers[name].ctx.clearRect(0,0,W,H));
     // 「無」模式：磁磚開→鋪橘子熊牆紙；磁磚關→全黑（由 stage 黑底處理，畫布留空）
     if (type === "off") { if (_bearTilesOn) _drawBearTiles(t); return; }
@@ -2968,6 +2976,13 @@
   }
   let _fxPenalty = 0;   // 自適應降幀補償(ms)：手機畫不動時拉大幀間隔 → 自動降溫/減卡
   function loop(ts) {
+    // ★關掉天氣(且無磁磚)就真的停轉:原本無條件排下一幀,等於「隱藏的東西還在算」——每秒 22 次
+    //   進 draw() 再 return。停轉後由天氣變更處的 `if (!rafId) requestAnimationFrame(loop)` 復活。
+    if (type === "off" && !_bearTilesOn) {
+      rafId = 0;
+      if (!_offCleared) draw(0);      // 收尾清一次畫布
+      return;
+    }
     rafId = requestAnimationFrame(loop);
     if (document.hidden) { _lastClockTs = 0; return; }
     const _now = (performance.now ? performance.now() : Date.now());

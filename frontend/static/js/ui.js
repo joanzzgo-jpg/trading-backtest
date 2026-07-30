@@ -901,7 +901,11 @@ function _initSubChartsToggle() {
     // 若已有指標欄(之前開過)則直接補算。(replay 中交由 replay 迴圈補)
     if (!nowHidden && !replayActive && ohlcvData.length) {
       const hasInd = ohlcvData.some(d => d.kdj_k != null);
-      if (hasInd) { if (typeof _renderSubcharts === "function") _renderSubcharts(ohlcvData); }
+      if (hasInd) {
+        if (typeof _renderSubcharts === "function") _renderSubcharts(ohlcvData);
+        // 隱藏期間不推 range（見 charts.js _flushSync）→ 顯示時補一次，第一幀就對齊主圖
+        if (typeof window._syncSubchartsNow === "function") window._syncSubchartsNow();
+      }
       else if (typeof loadData === "function") loadData(false);   // 此時副圖已顯示→buildPayload 帶 indicators=true
     }
     // 觸發 LWC 重新計算大小（主圖會撐滿/縮回）+ 手機把時間軸移到目前最下方可見面板（桌面不受影響）

@@ -1001,7 +1001,20 @@ function syncTimeScales() {
     _lastFlushTs = _now;
     _pendingSync = null;
     syncing = true;
-    allCharts.forEach((dst, di) => { if (di !== p.si) dst.timeScale().setVisibleLogicalRange(p.range); });
+    // ★只同步「真的看得見」的圖（2026-07-31）：原本無條件推給全部 4 張，隱藏/收合的副圖照樣被
+    //   setVisibleLogicalRange 強制重新佈局＝純浪費（副圖預設就是隱藏，等於每個人每一幀都在付）。
+    //   副圖每幀重新佈局的成本實測很可觀（開副圖時 3 張共 ~150ms/幀，見 render.js _renderSubcharts 註）。
+    //   ⚠ 主圖(di=0)永遠同步；重新顯示時由 ui.js 的 toggle 補一次 _renderSubcharts + 這裡下一幀自然跟上。
+    const _subHid = (typeof _subchartsHidden === "function") && _subchartsHidden();
+    allCharts.forEach((dst, di) => {
+      if (di === p.si) return;
+      if (di !== 0) {
+        if (_subHid) return;                                   // 整組隱藏（預設）→ 完全不推
+        const el = _syncPaneEl(di);
+        if (el && el.clientHeight < 2) return;                  // 個別收合到 0 高 → 不推
+      }
+      dst.timeScale().setVisibleLogicalRange(p.range);
+    });
     syncing = false;
     // 平移/縮放 → 重算可見範圍的標記視窗（debounced，避免長範圍時 setMarkers 拖慢）
     if (typeof _scheduleMarkerRewindow === "function") _scheduleMarkerRewindow();
@@ -1037,6 +1050,29 @@ function syncTimeScales() {
     // 副圖指標「可見範圍窗化」:視野快移出目前窗才重建(見 render.js _scheduleSubRewindow)。
     if (typeof _scheduleSubRewindow === "function") _scheduleSubRewindow();
   }
+  // pane 元素快取（同步時要看是否收合；每幀查一次 DOM 太浪費）
+  const _SYNC_PANE_IDS = ["mainPane", "kdjPane", "rsiPane", "macdPane"];
+  const _syncPaneCache = [];
+  function _syncPaneEl(i) {
+    let e = _syncPaneCache[i];
+    if (!e || !e.isConnected) { e = document.getElementById(_SYNC_PANE_IDS[i]); _syncPaneCache[i] = e; }
+    return e;
+  }
+
+  // 副圖由隱藏→顯示時補一次同步：隱藏期間完全不推 range（見 _flushSync 註）→ 顯示瞬間會停在
+  //   舊位置，這裡把主圖當下的可見範圍直接套上去，使用者看到的第一幀就是對的。
+  window._syncSubchartsNow = function () {
+    try {
+      const r = mainChart.timeScale().getVisibleLogicalRange();
+      if (!r) return;
+      syncing = true;
+      [kdjChart, rsiChart, macdChart].forEach(c => {
+        try { c.timeScale().setVisibleLogicalRange(r); } catch (e) {}
+      });
+      syncing = false;
+    } catch (e) { syncing = false; }
+  };
+
   // 目前由誰驅動跨圖同步：0=主圖（預設）。使用者按/滾到哪個 pane，那個 pane 就成為驅動者。
   //   ⚠ 只在真的收到指標/滾輪事件時才改，程式化設定 range 不會改 → 補載/修剪的補償一律由主圖出發。
   let _syncDriver = 0;
