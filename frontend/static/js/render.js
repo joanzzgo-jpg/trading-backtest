@@ -1160,8 +1160,42 @@ async function _bgLoadNewerBars(scrollTriggered = false) {
       if (!json.data?.length || !guard() || myGen !== _bgLoadGen) break;
 
       const existingLatest = toTime(ohlcvData[ohlcvData.length - 1].time);
-      const newBars = json.data.filter(b => toTime(b.time) > existingLatest);
+      let newBars = json.data.filter(b => toTime(b.time) > existingLatest);
       if (!newBars.length) { window._hasFwdGap = false; break; }   // 沒有更新的→已到現在
+
+      // ★接合檢查(2026-07-30 加):原本只判斷「比尾巴新」就 concat,只要抓回來的區塊起點比我們的
+      //   尾巴晚一截,就會**靜默接出一個洞**——K 棒只是少一段、不報錯,極難察覺(這次就是倉庫檔缺
+      //   434 根,一路到深滑 E2E 才抓到)。→ 接不上先補中間那段一次;補不到就照接(資料源真的沒有,
+      //   例如標的上市前/交易所停機),但把洞記到 window._dataHoles 供診斷。
+      if (toTime(newBars[0].time) > existingLatest + _tfSec * 1.5) {
+        try {
+          const gRes = await fetch("/api/ohlcv", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              market: snapMarket, symbol: snapSymbol, timeframe: snapTf, exchange: snapExchange,
+              start: toIso(existingLatest), end: toIso(toTime(newBars[0].time) + 86400),
+              limit: 0, indicators: false,
+            }),
+          });
+          if (gRes.ok && guard() && myGen === _bgLoadGen) {
+            const gj = await gRes.json();
+            const patch = (gj.data || []).filter(b => toTime(b.time) > existingLatest);
+            if (patch.length) {
+              // 併回去重排序:補到的中段 + 原本那塊
+              const seen = new Set();
+              newBars = patch.concat(newBars)
+                .filter(b => { const t = toTime(b.time); if (seen.has(t)) return false; seen.add(t); return true; })
+                .sort((a, b) => toTime(a.time) - toTime(b.time));
+            }
+          }
+        } catch (e) { /* 補洞失敗就照原樣接,可用性優先 */ }
+        if (toTime(newBars[0].time) > existingLatest + _tfSec * 1.5) {
+          const miss = Math.round((toTime(newBars[0].time) - existingLatest) / _tfSec) - 1;
+          (window._dataHoles = window._dataHoles || []).push(
+            { sym: snapSymbol, tf: snapTf, from: ohlcvData[ohlcvData.length - 1].time, to: newBars[0].time, miss });
+          console.warn(`[補新] 資料源缺 ${miss} 根(${snapSymbol} ${snapTf}) → 照接,已記入 window._dataHoles`);
+        }
+      }
 
       // ★確定性 logical:append 不改既有 index;只修剪「左側」(往右看時最舊在畫面外)、用捕捉的 vr 算保留區
       //   → 絕不剪到剛 append 的右側最新棒(舊版 _trimRollingWindow 讀瞬態 vr 會誤剪右側→資料右緣前進又倒退)。

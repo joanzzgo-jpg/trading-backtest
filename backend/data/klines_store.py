@@ -101,6 +101,73 @@ def load_range(symbol: str, tf: str, start: str, end: str):
     return out if not out.empty else None
 
 
+TF_SEC = {"1m": 60, "5m": 300, "15m": 900, "30m": 1800,
+          "1h": 3600, "2h": 7200, "4h": 14400, "1d": 86400}
+
+
+def find_holes(df, tf):
+    """回傳倉庫資料的破洞 [(前一根, 後一根, 缺幾根)]。df 可為 DataFrame 或 None。
+
+    ★為什麼一定要有這個(2026-07-30 血淚)：倉庫檔是版控的、會隨 git 上 Railway。暖機/回填只要
+    中途缺一塊，那個洞就被**固化進檔案**，之後所有讀倉庫的請求都拿到有洞的資料——而且不報錯、
+    不拋例外，K 線只是「少一段」。實際踩到：BTC 5m 缺 434 根、BTC/ETH 4h 各缺 10 個月，全都已
+    commit 上線才被深滑 E2E 抓到。→ 寫入端(warm)與檢查端(repair)都必須跑這個。"""
+    sec = TF_SEC.get(tf)
+    if not sec or df is None or getattr(df, "empty", True):
+        return []
+    t = df["time"].tolist()
+    out = []
+    for i in range(1, len(t)):
+        gap = (t[i] - t[i - 1]).total_seconds()
+        if gap > sec:
+            out.append((t[i - 1], t[i], int(gap // sec) - 1))
+    return out
+
+
+def repair_holes(sym: str, tf: str, exchange: str = "binance",
+                 pad_days: int = 1, log=print):
+    """補洞：找出破洞 → 分段重抓 → 存回。回傳 (修補前破洞數, 修補後仍存在的破洞數)。
+
+    ★分段抓是必要的、不能圖方便一次要整段(2026-07-30 追出來的第二層根因)：
+      跨過「該幣在 Binance 的永續上線日」(BTC 2019-09-08 / ETH 2019-11-27)的長區間，fapi 會回
+      **非空、但只有上線後那一小截**(實測 2018-11-21~2019-09-09 只回 8 根、全在 09-08 之後)，
+      而 fetch_crypto_ohlcv 的 fallback **只在完全空時才觸發** → 前面 10 個月被靜默丟掉。
+      同一區間切短了問(2019-01-01~2019-01-05)就正常回 30 根。
+      → 每段約 500 根：落在上線日之前的每一段 fapi 都回空 → 正常退到其他來源，才抓得到。"""
+    from data.crypto import fetch_crypto_ohlcv   # 延遲匯入避免循環相依
+
+    df = load_all(sym, tf)
+    holes = find_holes(df, tf)
+    if not holes:
+        return 0, 0
+    sec = TF_SEC[tf]
+    chunk_days = max(1, int(500 * sec / 86400))
+    for a, b, n in holes:
+        got_all = []
+        cur = a - pd.Timedelta(days=pad_days)      # 兩側留邊際 → 必與既有資料重疊，dedup 會處理
+        stop = b + pd.Timedelta(days=pad_days)
+        while cur < stop:
+            nxt = min(cur + pd.Timedelta(days=chunk_days), stop)
+            try:
+                g = fetch_crypto_ohlcv(sym, tf, cur.strftime("%Y-%m-%d"),
+                                       nxt.strftime("%Y-%m-%d"), exchange)
+                if g is not None and not g.empty:
+                    got_all.append(g)
+            except Exception:
+                pass                               # 單段失敗不影響其他段
+            cur = nxt
+        if not got_all:
+            log(f"     {a} → {b}（缺 {n} 根）：資料源沒有這段")
+            continue
+        got = pd.concat(got_all, ignore_index=True).drop_duplicates("time").sort_values("time")
+        inside = got[(got["time"] > a) & (got["time"] < b)]   # 只算真正落在缺口內的
+        log(f"     {a} → {b}（缺 {n} 根）：抓到 {len(got)} 根，缺口內 {len(inside)} 根")
+        if len(inside):
+            save(sym, tf, got)
+    left = find_holes(load_all(sym, tf), tf)
+    return len(holes), len(left)
+
+
 def load_from(symbol: str, tf: str, start: str):
     """回傳倉庫中 >= start 的所有資料(到倉庫最新)。倉庫夠深(涵蓋 start)才回,否則 None → 交還 API;
     呼叫端會再接「倉庫最新~今天」的新尾巴保鮮。"""

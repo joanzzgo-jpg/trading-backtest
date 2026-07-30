@@ -20,7 +20,13 @@ cd /Users/noah/trading/backend && uvicorn main:app --reload
 ```bash
 node scripts/smoke_e2e.js   # 需本機服務跑著；於裝過 puppeteer-core 的目錄執行
 ```
-進場→K棒/標記→真拖曳平移(驗範圍有變)→縮放→切4H→零JS錯誤。**改前端/圖表相關程式後、推送前必跑**。⚠ headless 進場唯一正解=`window._landingEnter()`（點城門按鈕會被登入鎖擋、互動全打在城門頁上＝假測試）。
+進場→K棒/標記→真拖曳平移(驗範圍有變)→縮放→切4H→零JS錯誤。**改前端/圖表相關程式後、推送前必跑**。⚠ headless 進場唯一正解=`window._landingEnter()`（點城門按鈕會被登入鎖擋、互動全打在城門頁上＝假測試）。⚠ 寫拖曳測試要先讀 `#mainChart` 的 rect 把幅度夾在圖內（主圖實際只有 ~1150px，用 ±500 當起點會落到圖外＝空操作，曾據此得出錯誤結論）。
+
+### 動到 K 線倉庫後（守門員之二）
+```bash
+cd backend && python scripts/repair_klines5m.py     # 只掃描；有洞回傳碼 1
+```
+倉庫檔（`backend/data/klines5m/*.pkl.gz`）是**版控、會隨 git 上 Railway** 的。暖機/回填只要缺一塊，洞就被固化進檔案，之後所有讀倉庫的請求都拿到有洞的資料——**不報錯、K 線只是少一段**。2026-07-30 實測抓到 BTC 5m 缺 434 根、BTC/ETH 4h 各缺 10 個月，全都已上線才被深滑 E2E 發現。`--fix` 會分段補抓（**必須分段**：跨永續上線日的長區間，fapi 回「非空但只有上線後那截」→ fallback 不觸發 → 前段被靜默丟掉）。詳見 memory `project_klines-store-holes`。
 
 ## 📚 詳細文件（做相關工作時再讀，避免每輪載入吃 context）
 > 架構細節已從本檔拆到 `docs/`，需要時用下方路徑讀取對應檔案即可。
