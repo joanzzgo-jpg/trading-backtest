@@ -155,7 +155,10 @@
         <option value="pionex" selected>Pionex</option>
       </select>
       <div class="tb-symbol-wrap">
-        <input id="symbolInput" class="tb-symbol-input" type="text" value="BTC/USDT" placeholder="BTC/USDT" />
+        <!-- 全新使用者的預設標的＝永續(.P)，與全站一致：報價列預設「合約」分頁、FVG 策略/
+             自動交易都是 Binance USDⓈ-M 永續。舊值 BTC/USDT 是現貨，等於一進來就落在跟
+             其他功能不同的商品上(繪圖/設定也存到現貨那把 key)。有存過標的者由 loadLastSymbol() 還原，不受影響。 -->
+        <input id="symbolInput" class="tb-symbol-input" type="text" value="BTC/USDT.P" placeholder="BTC/USDT.P" />
         <svg class="tb-sym-caret" width="8" height="5" viewBox="0 0 8 5"><path d="M0 0L4 5L8 0" fill="currentColor"/></svg>
       </div>
       <button id="watchlistStarBtn" class="tb-star-btn" title="加入自選">

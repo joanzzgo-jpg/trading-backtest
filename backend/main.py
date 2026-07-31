@@ -177,11 +177,25 @@ app.add_middleware(StaticCacheMiddleware)
 # ── 限流 + 請求大小上限（防 DoS / 灌流 / 交易口令暴力猜）──────────────────────
 #   ⚠ Railway 在反向代理後 → 真實用戶 IP 由可信代理附加在 X-Forwarded-For 最右側(非最左,最左可偽造);
 #     直接用 request.client 會把所有人看成同一個代理 IP → 誤鎖。故取 XFF 右數第 N 段(見 _client_ip)。
-#   兩層桶:一般 /api/ 寬鬆(擋灌流,不動正常使用);/api/trade/ 嚴格(擋口令暴力猜)。
-_RL_WIN      = 10.0                       # 視窗秒數
-_RL_MAX_API  = 300                        # 一般 /api/：每 IP 每 10 秒 300 次(=30/s,遠高於正常:每秒 ticker 1 次)
+#   三層桶(2026-08-01 由兩層改三層)。原本「一般 /api/ 一律 300/10s」同時錯在兩頭:
+#     ① 對輪詢太緊 — 實測單一分頁光是閒置就 21~32 次/10 秒(每秒報價+每秒 latest)。
+#        限流是「每 IP」，辦公室/學校/宿舍共用一個出口 IP 時，約 10 個人就會集體撞 429。
+#        這類使用者的請求既便宜又幾乎全走快取/差量，本來就不該被當成攻擊。
+#     ② 對貴路徑太鬆 — /api/crt_winrate 冷路徑實測 0.53 秒、回應 ~960KB。300 次/10 秒
+#        全打不同標的 = 159 CPU 秒/10 秒，機器直接躺平。也就是說舊設定擋不住真正會痛的那種灌流。
+#   → 拆成「貴」「便宜」兩桶分開計數(每個請求只計入一桶,數字才是它字面的意思)。
+#   額度取自實測尖峰:單分頁用比真人更快的節奏連切 8 標的×2 時框，貴路徑尖峰 6 次/10 秒、
+#   便宜路徑 21 次/10 秒 → 貴 90(≈15 個重度使用者同時尖峰)、便宜 1200(≈57 個分頁)。
+_RL_WIN       = 10.0                      # 視窗秒數
+_RL_MAX_API   = 1200                      # 便宜/輪詢類 /api/：每 IP 每 10 秒(NAT 共用 IP 也夠)
+_RL_MAX_HEAVY = 90                        # 貴路徑(見 _RL_HEAVY)：每 IP 每 10 秒
 _RL_MAX_TRADE = 20                        # /api/trade/：每 IP 每 10 秒 20 次(口令猜測極慢化)
-_RL_BUCKETS   = {}                        # ip -> deque[timestamps]（一般）
+# 貴路徑=會真的去算/去抓大量資料的端點(非快取命中時單次數百毫秒、回應數百 KB)。
+# ⚠ 新增這類端點時要一併加進來，否則它會落到 1200 那桶等於沒防護。
+_RL_HEAVY = ("/api/crt_winrate", "/api/ohlcv", "/api/smc_coach", "/api/coach_scan",
+             "/api/export_klines", "/api/footprint", "/api/ai_research")
+_RL_BUCKETS   = {}                        # ip -> deque[timestamps]（便宜/輪詢）
+_RL_BUCKETS_H = {}                        # ip -> deque[timestamps]（貴路徑）
 _RL_BUCKETS_T = {}                        # ip -> deque[timestamps]（交易）
 _MAX_BODY = 8 * 1024 * 1024               # 8MB 請求上限(帳號快照含繪圖可能較大,設寬;超過=惡意)
 # 可信代理層數:真實 client IP 由可信代理(Railway)附加在 X-Forwarded-For 最右側,攻擊者只能偽造左側。
@@ -222,10 +236,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if path.startswith("/api/"):
             ip = _client_ip(request)
             now = time.time()
-            is_trade = path.startswith("/api/trade/")
-            if is_trade and _rl_hit(_RL_BUCKETS_T, ip, _RL_MAX_TRADE, now):
-                return PlainTextResponse("too many trade requests", status_code=429, headers={"Retry-After": "10"})
-            if _rl_hit(_RL_BUCKETS, ip, _RL_MAX_API, now):
+            if path.startswith("/api/trade/"):
+                if _rl_hit(_RL_BUCKETS_T, ip, _RL_MAX_TRADE, now):
+                    return PlainTextResponse("too many trade requests", status_code=429, headers={"Retry-After": "10"})
+            elif path.startswith(_RL_HEAVY):
+                if _rl_hit(_RL_BUCKETS_H, ip, _RL_MAX_HEAVY, now):
+                    return PlainTextResponse("rate limit", status_code=429, headers={"Retry-After": "5"})
+            elif _rl_hit(_RL_BUCKETS, ip, _RL_MAX_API, now):
                 return PlainTextResponse("rate limit", status_code=429, headers={"Retry-After": "5"})
         return await call_next(request)
 
