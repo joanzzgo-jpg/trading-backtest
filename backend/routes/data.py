@@ -2318,11 +2318,19 @@ def _tag_htf_bias(df, timeframe, result):
         _n = len(df); _PL = 8                                # 半窗 8 根定「較主要」擺動(對齊 ICT:用有意義擺動、避免 micro range)
         zn = [0] * _n; _sh = None; _sl = None; _cur = 0; _legStart = 0
         _lHi = None; _lLo = None; _legs = []                 # 每段結構腿：(startIdx, endIdx, top, bot)
+        # 擺動點的「兩側各 _PL 根極值」先用滾動視窗一次算好（2026-07-31）：原本在逐棒迴圈裡對
+        # numpy 切片做 .max()/.min()，剖析器實測各 17512 次呼叫、合計約 24ms。
+        # ⚠ 等價性：迴圈裡 _j 的範圍是 [_PL, _n-_PL-1]，視窗 [_j-_PL, _j+_PL] 永遠落在陣列內
+        #   → 中心式 rolling(2*_PL+1) 在該範圍內給的值與切片 .max()/.min() 逐格相同（邊緣的 NaN
+        #   落在 _j 用不到的區間）。
+        _win = 2 * _PL + 1
+        _rmax = pd.Series(_H).rolling(_win, center=True).max().to_numpy()
+        _rmin = pd.Series(_L).rolling(_win, center=True).min().to_numpy()
         for _i in range(_n):
             _j = _i - _PL                                    # 於 _j 確認 pivot(需兩側各 _PL 根)
             if _j >= _PL:
-                if _H[_j] >= _H[_j - _PL:_j + _PL + 1].max(): _sh = _H[_j]   # 擺動高
-                if _L[_j] <= _L[_j - _PL:_j + _PL + 1].min(): _sl = _L[_j]   # 擺動低
+                if _H[_j] >= _rmax[_j]: _sh = _H[_j]         # 擺動高
+                if _L[_j] <= _rmin[_j]: _sl = _L[_j]         # 擺動低
             _flip = 0                                        # BOS 轉向 → 開新腿
             if _sh is not None and _C[_i] > _sh and _cur != 1: _flip = 1
             elif _sl is not None and _C[_i] < _sl and _cur != -1: _flip = -1
@@ -2341,24 +2349,24 @@ def _tag_htf_bias(df, timeframe, result):
         if _lHi is not None and _lLo is not None and _lHi > _lLo:   # 最後(進行中)那腿 endIdx=None
             _legs.append((_legStart, None, _lHi, _lLo))
         _bt = pd.to_datetime(df["time"]).values
-
-        def _zone_at(tstr):
-            t = np.datetime64(pd.to_datetime(tstr))
-            i = np.searchsorted(_bt, t, side="right") - 1    # 標記所在(或之前)那根棒(自身資料已知，非未來)
-            return int(zn[i]) if 0 <= i < _n else 0
-        # 弱信號＝位置不對：空/破多在折價區(-1)、多/破空在溢價區(+1)。fvg_ms:d=s空/d=l多；fvg_break:d=l破多(bear)/d=s破空(bull)
-        for m in ms:
-            _z = _zone_at(m["t"]); bear = (m.get("d") == "s")
-            m["weak"] = bool((bear and _z == -1) or ((not bear) and _z == 1))
-        for m in bk:
-            _z = _zone_at(m["t"]); bear = (m.get("d") == "l")
-            m["weak"] = bool((bear and _z == -1) or ((not bear) and _z == 1))
-        for m in sh:                                     # 順多/順空 與 多/空 同規則：順空在折價、順多在溢價 → weak
-            _z = _zone_at(m["t"]); bear = (m.get("d") == "s")
-            m["weak"] = bool((bear and _z == -1) or ((not bear) and _z == 1))
-        for m in (result.get("fvg_special") or []):      # 特多/特空 同規則：特空在折價、特多在溢價 → weak
-            _z = _zone_at(m["t"]); bear = (m.get("d") == "s")
-            m["weak"] = bool((bear and _z == -1) or ((not bear) and _z == 1))
+        # 弱信號＝位置不對：空/破多在折價區(-1)、多/破空在溢價區(+1)。
+        #   fvg_ms:d=s空/d=l多；fvg_break:d=l破多(bear)/d=s破空(bull)；fvg_shun/fvg_special 同 fvg_ms。
+        # ★一次向量化解析時間（2026-07-31）：原本是 `def _zone_at(tstr)` 每個標記呼叫一次，裡面對
+        #   **單一字串**做 pd.to_datetime —— pandas 對純量會每次重新推斷格式，剖析器實測 364 次呼叫
+        #   吃掉 87ms（其中 61ms 花在 _guess_datetime_format_for_array、57148 次 re.search），
+        #   佔整個勝率計算 292ms 的 30%。改成把四組標記的時間收成一個陣列、轉一次、searchsorted
+        #   一次 → 格式只推斷一次。輸出完全相同（同一批值、同一個來源格式）。
+        _groups = [(ms, "s"), (bk, "l"), (sh, "s"), (result.get("fvg_special") or [], "s")]
+        _all_t = [m["t"] for _grp, _bd in _groups for m in _grp]
+        if _all_t:
+            _idx = np.searchsorted(_bt, pd.to_datetime(pd.Series(_all_t)).values, side="right") - 1
+            _k = 0
+            for _grp, _bear_d in _groups:
+                for m in _grp:
+                    _i = int(_idx[_k]); _k += 1
+                    _z = int(zn[_i]) if 0 <= _i < _n else 0   # 標記所在(或之前)那根棒(自身資料已知，非未來)
+                    bear = (m.get("d") == _bear_d)
+                    m["weak"] = bool((bear and _z == -1) or ((not bear) and _z == 1))
         # 每段歷史交易區間(給前端畫折價/溢價/EQ)：t0→t1(None=進行中)、top/bot/eq。近 300 段。
         _tl = df["time"].tolist()
         _rngs = []
