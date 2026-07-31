@@ -8,6 +8,7 @@ import time
 import urllib.request
 import urllib.parse
 import urllib.error
+import requests
 import pandas as pd
 from datetime import datetime, timezone, timedelta
 from typing import Union, Optional
@@ -39,10 +40,36 @@ TIMEFRAME_MAP = {
 }
 
 
+# ── HTTP 連線池（2026-08-01）──────────────────────────────────────────────────
+# 原本每次請求都是 urllib.request.urlopen＝每次重新做一輪 TCP+TLS 交握。
+# 實測（同機、每發間隔 1.2 秒、limit=1 的最輕請求，避開限流）：
+#     每次新連線 中位 137ms（78~161 起伏大） ←→ 連線重用 中位 50ms（48~52 非常穩）
+#   → 每個請求省約 104ms，而且抖動幾乎消失（交握時間本來就不穩）。
+# 這 100ms 是**每一發都在付**的：深度抓 K 線一次要 12 個窗、報價 worker／教練掃描／
+# 訊號監控更是整天在打 Binance。
+# ⚠ 錯誤型別刻意維持 urllib.error.HTTPError：全專案只有 _binance_get / _pionex_get
+#   兩處在 except 它（靠 e.code 判 418/429/4xx、靠 e.headers 讀 Retry-After），
+#   換成 requests 自己的例外會讓那兩道限流防線靜默失效。
+_HTTP = requests.Session()
+_HTTP.headers["User-Agent"] = "Mozilla/5.0"
+# pool_maxsize 要蓋過最大平行度（_fetch_binance_klines_parallel 用 8 個 worker），
+# 否則多出來的請求會等連線或被丟棄重建＝白白失去重用。max_retries=0：重試邏輯在 _binance_get，
+# 這層再自己重試會讓 418/429 熔斷判斷前多打好幾發（正是 CLAUDE.md 說的「重試會延長封禁」）。
+_HTTP.mount("https://", requests.adapters.HTTPAdapter(
+    pool_connections=8, pool_maxsize=32, max_retries=0))
+
+
+def _http_json(url: str, timeout: int = 30, with_headers: bool = False):
+    """走連線池的 GET → JSON。非 2xx 一律轉成 urllib.error.HTTPError（見上方註）。"""
+    r = _HTTP.get(url, timeout=timeout)
+    if r.status_code >= 400:
+        raise urllib.error.HTTPError(url, r.status_code, r.reason or "", r.headers, None)
+    data = r.json()
+    return (data, r.headers) if with_headers else data
+
+
 def _get(url: str, timeout: int = 30) -> Union[dict, list]:
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return json.loads(r.read())
+    return _http_json(url, timeout=timeout)
 
 
 # ── Binance 全域熔斷（418/429）─────────────────────────────────
@@ -74,15 +101,14 @@ def _binance_get(url: str, timeout: int = 30, retries: int = 1) -> Union[dict, l
     if _u > _lim * 0.75:
         time.sleep(0.3)   # 微睡讓分鐘窗滑走，平滑突發
     def _bget():
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            try:
-                _w = r.headers.get("X-MBX-USED-WEIGHT-1M")
-                if _w is not None:
-                    _BINANCE_USED_W[_host] = int(_w); _BINANCE_W_TS[_host] = time.time()
-            except Exception:
-                pass
-            return json.loads(r.read())
+        data, hdrs = _http_json(url, timeout=timeout, with_headers=True)
+        try:
+            _w = hdrs.get("X-MBX-USED-WEIGHT-1M")
+            if _w is not None:
+                _BINANCE_USED_W[_host] = int(_w); _BINANCE_W_TS[_host] = time.time()
+        except Exception:
+            pass
+        return data
     last = None
     for attempt in range(retries + 1):
         try:
