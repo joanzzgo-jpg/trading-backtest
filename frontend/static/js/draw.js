@@ -1911,6 +1911,8 @@ function initCoachToggle() {
     if (typeof _applyMainMarkers === "function") _applyMainMarkers();  // 立即顯示/隱藏教練標記(掃頂掃底)
     _scheduleRenderDrawings();                                          // 立即顯示/隱藏教練畫布層(BOS/CHoCH線)
     if (typeof _updateCoachPanel === "function") _updateCoachPanel();   // 立即顯示/隱藏教練面板
+    // 圖層剛打開 → 勝率回應裡若沒帶這層的資料（預設不送、省流量）就自動補抓一次
+    if (typeof window._wrRefetchIfMissing === "function") window._wrRefetchIfMissing();
   });
 }
 
@@ -1932,6 +1934,8 @@ function initVwapToggle() {
     try { localStorage.setItem("vwapOverlay", window._vwapOn ? "1" : "0"); } catch (e) {}
     _sync();
     _scheduleRenderDrawings();   // 立即顯示/隱藏 VWAP 折線
+    // 圖層剛打開 → 勝率回應裡若沒帶這層的資料（預設不送、省流量）就自動補抓一次
+    if (typeof window._wrRefetchIfMissing === "function") window._wrRefetchIfMissing();
   });
 }
 // 開關：window.toggleVWAP() 切換 VWAP 顯示（可帶布林值強制 on/off）
@@ -1944,6 +1948,8 @@ window.toggleVWAP = function (on) {
   if (st) st.textContent = window._vwapOn ? "開啟" : "關閉";
   const row = document.getElementById("mSetVWAP");
   if (row) row.classList.toggle("m-set-on", window._vwapOn);
+  // 同 vwapToggleBtn：圖層剛打開時，勝率回應裡若沒帶 vwap（預設不送）就自動補抓
+  if (typeof window._wrRefetchIfMissing === "function") window._wrRefetchIfMissing();
   if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();
   return window._vwapOn;
 };
@@ -2122,6 +2128,7 @@ function _drawPDZones(W, H) {
 // 開關：window.togglePDZones() 切換折價/溢價區顯示（預設關）
 window.togglePDZones = function (on) {
   window._pdOn = (on === undefined) ? (window._pdOn !== true) : !!on;
+  if (typeof window._wrRefetchIfMissing === "function") window._wrRefetchIfMissing();   // 同上：缺資料就補抓
   if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();
   return window._pdOn;
 };

@@ -612,10 +612,52 @@ function _wrWarmNextTier() {
       proto_min: String(_wrProtoMin), no_proto_ms: _wrNoProtoMs ? "1" : "0",
       no_proto_break: _wrNoProtoBreak ? "1" : "0", warm: "1",
     });
+    const _skw = _wrSkipList();                // ★必須與 _fetchWinRateNow 帶一樣的 skip，否則暖到別的形態＝白暖
+    if (_skw.length) p.set("skip", _skw.join(","));
     fetch("/api/crt_winrate?" + p, { priority: "low" }).catch(() => {});
   } catch (e) {}
 }
 window._wrWarmNextTier = _wrWarmNextTier;
+
+/* 「沒在顯示的圖層就不跟後端要」（2026-07-31）。
+   這些圖層前端只有在對應開關打開時才畫，而三個開關預設都是關的：
+     ・教練疊加層 window._coachOn → smc_sweep / smc_struct / smc_ob / smc_sr / channel
+       （掃蕩標記也一樣，見 render.js 的 `window._coachOn ? lastSMCSweepMarkers : []`）
+     ・VWAP window._vwapOn → vwap
+     ・關鍵高低 window._pdOn → pd_ranges
+   實測 BTC 1h 一份回應 546KB 裡它們佔 261KB —— 預設情況下有一半傳輸從頭到尾沒被用到。
+   ★開關打開時：_wrNeedRefetch() 會發現快取那份缺這個 key → 觸發重抓完整的（見 _wrRefetchIfMissing）。 */
+const _WR_SKIP_GROUPS = [
+  [() => window._coachOn === true, ["smc_sweep", "smc_struct", "smc_ob", "smc_sr", "channel"]],
+  [() => window._vwapOn  === true, ["vwap"]],
+  [() => window._pdOn    === true, ["pd_ranges"]],
+];
+function _wrSkipList() {
+  const out = [];
+  for (const [needed, keys] of _WR_SKIP_GROUPS) {
+    let on = false;
+    try { on = needed(); } catch (e) { on = true; }   // 判斷不了就當「要」，寧可多送不要少送
+    if (!on) out.push(...keys);
+  }
+  return out;
+}
+/* 某個圖層剛被打開 → 手上那份若缺它就重抓。由各開關的 toggle 呼叫（window 導出）。 */
+function _wrRefetchIfMissing() {
+  try {
+    const c = _wrCacheLast;
+    if (!c) { if (typeof fetchWinRate === "function") fetchWinRate(); return; }
+    const need = [];
+    for (const [needed, keys] of _WR_SKIP_GROUPS) {
+      let on = false;
+      try { on = needed(); } catch (e) {}
+      if (on) need.push(...keys);
+    }
+    if (!need.some(k => c[k] === undefined)) return;   // 該有的都在 → 不必重抓
+    _wrCache = {};                                     // 各階快取都是「缺圖層」的形態 → 全部作廢
+    if (typeof fetchWinRate === "function") fetchWinRate();
+  } catch (e) {}
+}
+window._wrRefetchIfMissing = _wrRefetchIfMissing;
 
 let _wrFetchCtrl = null;   // 切標的時取消舊勝率請求
 let _wrInFlight = false;   // 勝率請求飛行中(加速器預熱讓路用;完成/失敗於 finally 清除)
@@ -682,6 +724,8 @@ async function _fetchWinRateNow() {
     const _prev = _wrPickBase(cacheKey, _vw);
     const _baseH = (_prev && _prev._h) ? _prev._h : "";
     const _q = { market, symbol, exchange, timeframe, stop_buffer_pct: bufDec.toFixed(4), vw: String(_vw), proto_min: String(_wrProtoMin), no_proto_ms: _wrNoProtoMs ? "1" : "0", no_proto_break: _wrNoProtoBreak ? "1" : "0" };
+    const _sk = _wrSkipList();                 // 目前用不到的圖層 → 請後端別送（見 _WR_SKIP_GROUPS）
+    if (_sk.length) _q.skip = _sk.join(",");
     if (_baseH) _q.base_h = _baseH;
     const p   = new URLSearchParams(_q);
     const res = await fetch("/api/crt_winrate?" + p, { signal: myCtrl.signal, cache: "no-cache" });

@@ -1524,6 +1524,7 @@ def crt_winrate_api(
     lite: str = "",
     warm: int = 0,
     base_h: str = "",
+    skip: str = "",
 ):
     """/api/crt_winrate 路由：呼叫 get_crt_winrate(含快取) → 回前端時把 signals『瘦身』
     （拿掉只後端用的 est/rr 欄位 + 省略 None 值），省 ~40% 傳輸量、加快手機端載入。
@@ -1579,11 +1580,27 @@ def crt_winrate_api(
         out["signals"] = [{k: v for k, v in s.items() if v is not None and k not in _WR_SLIM_DROP}
                           for s in sigs if s.get("k") in _SS_KEEP_KEYS]
     out = _wr_slim(out)                       # 先瘦身成「送出形態」，差量才是對前端手上那份做的
-    if _h:
-        out["_h"] = _h                        # 前端存起來，下次升階當 base_h 用
-        _wr_hidx_put(_h, out)                 # 登記雜湊索引（下一階要拿它算差量）
-    if base_h and base_h != _h:
-        d = _wr_build_delta(base_h, out, _h)
+    # ★「沒在顯示的圖層就不送」（2026-07-31）：這些圖層前端只有在對應開關打開時才會畫，而
+    #   它們預設全是關的 —— 教練疊加層(smc_*/channel)、VWAP、關鍵高低(pd_ranges)。實測 BTC 1h
+    #   一份回應 533KB 裡它們佔 259KB(49%)，等於預設情況下有一半的傳輸從頭到尾沒被用到。
+    #   前端在 fetch 時把「目前用不到的」列進 skip；任何圖層被打開時前端會發現快取裡缺這個 key
+    #   → 自動重抓一次完整的。
+    # ⚠ 只做在這個 HTTP 邊界，不能做進 crt.py —— notify_monitor 直接呼叫 get_crt_winrate 餵
+    #   自動交易，那條路徑必須永遠拿到完整內容。
+    # ⚠ 指紋要跟著 skip 走：_h 是「內容」的指紋，但送出去的形態現在依 skip 而不同。若不區分，
+    #   不同 skip 的客戶端會共用同一個 _h → ETag 回錯的 304、差量索引拿到別種形態的 base。
+    _skip = {s for s in (skip or "").replace(" ", "").split(",") if s} & _WR_SKIPPABLE
+    if _skip:
+        out = {k: v for k, v in out.items() if k not in _skip}
+    _h_eff = (_h + "." + ",".join(sorted(_skip))) if (_h and _skip) else _h
+    if _h_eff:
+        etag = f'W/"{_h_eff}-{_git_rev()}"'
+        if not base_h and request.headers.get("if-none-match") == etag:
+            return Response(status_code=304, headers={"ETag": etag, "Cache-Control": "private, no-cache"})
+        out["_h"] = _h_eff                    # 前端存起來，下次升階當 base_h 用
+        _wr_hidx_put(_h_eff, out)             # 登記雜湊索引（下一階要拿它算差量）
+    if base_h and base_h != _h_eff:
+        d = _wr_build_delta(base_h, out, _h_eff)
         if d is not None:
             return _wr_resp(d, slim=False, no_store=True)
     return _wr_resp(out, etag, slim=False)
@@ -1693,6 +1710,16 @@ def _wr_resp(payload, etag=None, slim=True, no_store=False):
 #     不符就整包回。→ diff 有 bug 只會退化成「沒省到頻寬」，永遠不會送出錯的標記。
 #   ・只存「每筆的雜湊」不存內容（copy 指令用索引、literal 取自新的那份）→ 一份索引約 100~200KB，
 #     上限 16 份；換實例/被淘汰 → 找不到 base_h → 整包回（前端本來就吃兩種回應）。
+# 「沒在顯示就不送」的可省略圖層（前端依當下開關決定要不要列進 skip）。
+#   ・smc_sweep/smc_struct/smc_ob/smc_sr/channel：只在 _drawCoachOverlay 內畫，由 window._coachOn
+#     控制（掃蕩標記也一樣，見 render.js 的 `window._coachOn ? lastSMCSweepMarkers : []`）。預設關。
+#   ・vwap：由 window._vwapOn 控制，且前端還有自算版本優先。預設關。
+#   ・pd_ranges：由 window._pdOn 控制。預設關。
+# ⚠ 白名單制：只有列在這裡的 key 允許被省略 —— 前端就算送了別的名字也不會生效，
+#   免得哪天誤傳把 fvg/signals 這種主體砍掉。
+_WR_SKIPPABLE = frozenset({"smc_sweep", "smc_struct", "smc_ob", "smc_sr",
+                           "channel", "vwap", "pd_ranges"})
+
 _WR_DELTA_KEYS = ("fvg", "signals", "fvg_ms", "fvg_break", "fvg_shun", "fvg_special",
                   "fvg_trades", "smc_sweep", "smc_struct", "smc_ob", "smc_sr", "vwap",
                   "fvg_bb", "fvg_bb_a", "fvg_bb_m", "fvg_sigs")
