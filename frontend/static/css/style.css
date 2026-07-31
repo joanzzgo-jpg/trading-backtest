@@ -360,7 +360,10 @@ html, body {
 }
 html.perf-mode .tb-icon-btn:hover svg { animation: none; transform: scale(1.1); }
 .tb-icon-btn:active { transform: translateY(0) scale(.94); }
-.tb-icon-btn.active { color: var(--accent); background: rgba(255,106,26,.14); box-shadow: inset 0 0 0 1px rgba(255,106,26,.3), 0 2px 8px rgba(255,106,26,.16); }
+/* .on 與 .active 同款：掛單/足跡/訂單簿三顆從時框列(.tf-toggle 用 .on)搬過來，JS 沿用 .on
+   不動 → 這裡讓 .tb-icon-btn.on 吃同一組樣式，避免為了樣式去改三支 JS。 */
+.tb-icon-btn.active,
+.tb-icon-btn.on { color: var(--accent); background: rgba(255,106,26,.14); box-shadow: inset 0 0 0 1px rgba(255,106,26,.3), 0 2px 8px rgba(255,106,26,.16); }
 /* 手機不需要策略回測 → 隱藏回測鈕（時段標記鈕仍保留） */
 @media (max-width: 1180px) and (pointer: fine), (hover: none) and (pointer: coarse) and (orientation: portrait), (hover: none) and (pointer: coarse) and (orientation: landscape) and (max-height: 599px) { #backtestBtn { display: none !important; } }
 /* 交易時段標記按鈕：手機改放「設定」分頁（topbar 太佔位） */

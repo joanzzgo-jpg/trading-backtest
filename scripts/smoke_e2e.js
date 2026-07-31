@@ -48,7 +48,25 @@ const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
     const b = document.getElementById("_annLater"); if (b) b.click();
     document.getElementById("announceOverlay")?.remove();
   });
-  await dismissAnn();
+  // ★一定要「等到真的點過一次」才算關掉（2026-07-31）：只呼叫一次 dismissAnn 是有race 的 ——
+  //   彈窗若晚於這次呼叫才渲染，_annLater 當下不存在 → 沒有 markSeen → _maybeShow 的每秒重試
+  //   迴圈(最多30s)之後照樣把它跳出來蓋住圖表，拖曳就打在彈窗上＝假失敗。
+  //   （實測今天就這樣掛過一次：主圖中心點的 elementFromPoint 是 DIV.ann-name。）
+  //   點到 _annLater 才會 markSeen，之後重試迴圈才會真的停。
+  const dismissAnnSure = async (ms = 10000) => {
+    const t0 = Date.now();
+    while (Date.now() - t0 < ms) {
+      const clicked = await page.evaluate(() => {
+        const b = document.getElementById("_annLater");
+        if (b) { b.click(); return true; }
+        return !document.getElementById("announceOverlay") ? null : false;   // null＝本來就沒公告
+      });
+      if (clicked === true || clicked === null) { await dismissAnn(); return; }
+      await new Promise(r => setTimeout(r, 250));
+    }
+    await dismissAnn();
+  };
+  await dismissAnnSure();
   console.log("✓ 進場");
 
   // 2) K 棒 + 勝率標記

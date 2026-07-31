@@ -380,11 +380,8 @@
       <button class="tf-btn" data-tf="15m">15m</button>
       <button class="tf-btn" data-tf="5m">5m</button>
       <button class="tf-btn" data-tf="1m">1m</button>
-      <span class="tf-sep"></span>
       <!-- 線型鈕已移到「愛心收藏」右邊（見 tb-symbol-group） -->
-      <button id="orderbookBtn" type="button" class="tf-toggle" style="display:none" title="掛單牆：即時盤口大掛單畫在主圖右緣（綠=買方支撐牆、紅=賣方壓力牆，長度=掛單金額）。牆消失時判定「✓吃掉」（行情掃到才消失=真防守）或「⚠撤走」（沒碰到就不見=疑似假單）。左上顯示掛單買賣比。僅加密貨幣即時盤口">🧱 掛單</button>
-      <button id="footprintBtn" type="button" class="tf-toggle" style="display:none" title="Footprint 足跡圖：每根K棒內各價位的主動買/賣量（左紅=主動賣、右綠=主動買、金框=POC、亮框=失衡、主圖底部Δ=買賣差、背離分兩型⚠↑亮綠=K漲卻Δ負(賣被吸收·偏多)/⚠↓亮紅=K跌卻Δ正(買被吸收·偏空)、底部紫線=CVD累積Δ：每根Δ累加成線、對比價格創高但CVD沒創高的背離）。1m~1h逐筆精確、4h/1d聚合。僅加密貨幣；K棒間距放大後才顯示">👣 足跡</button>
-      <button id="domBtn" type="button" class="tf-toggle" style="display:none" title="訂單簿 DOM：主圖右側階梯，即時顯示各價位『等待成交』的買/賣掛單（綠=買方掛單、紅=賣方掛單，橫條長度=掛量），藉此看出大額資金的防守位置。現價置中、上方賣單下方買單。僅加密貨幣即時盤口">📊 訂單簿</button>
+      <!-- 掛單／足跡／訂單簿三顆已縮小移到 topbar-right 的勝率標記鈕右邊（2026-07-31 使用者要求） -->
     </div>
   </div>
 
@@ -407,6 +404,30 @@
         <path d="M8 1.5 L10.6 6.5 L8 4.9 L5.4 6.5 Z" fill="currentColor"/>
         <path d="M8 14.5 L5.4 9.5 L8 11.1 L10.6 9.5 Z" fill="currentColor" opacity="0.6"/>
         <circle cx="8" cy="8" r="1.3" fill="currentColor" opacity="0.85"/>
+      </svg>
+    </button>
+    <!-- 掛單／足跡／訂單簿：原本在時框列、是帶 emoji 的寬按鈕，2026-07-31 依使用者要求縮小成圖示鈕
+         並移到勝率標記鈕右邊。狀態 class 仍是 .on（JS 未改，CSS 已讓 .tb-icon-btn.on 等同 .active）。
+         三顆一樣由各自的 _xxBtnRefresh() 控制「只在加密貨幣顯示」。 -->
+    <button id="orderbookBtn" type="button" class="tb-icon-btn" style="display:none" title="掛單牆：即時盤口大掛單畫在主圖右緣（綠=買方支撐牆、紅=賣方壓力牆，長度=掛單金額）。牆消失時判定「✓吃掉」（行情掃到才消失=真防守）或「⚠撤走」（沒碰到就不見=疑似假單）。左上顯示掛單買賣比。僅加密貨幣即時盤口">
+      <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+        <path d="M3 4.2 H13"/><path d="M6 7.4 H13"/><path d="M4.5 10.6 H13"/><path d="M8 13.8 H13"/>
+      </svg>
+    </button>
+    <button id="footprintBtn" type="button" class="tb-icon-btn" style="display:none" title="Footprint 足跡圖：每根K棒內各價位的主動買/賣量（左紅=主動賣、右綠=主動買、金框=POC、亮框=失衡、主圖底部Δ=買賣差、背離分兩型⚠↑亮綠=K漲卻Δ負(賣被吸收·偏多)/⚠↓亮紅=K跌卻Δ正(買被吸收·偏空)、底部紫線=CVD累積Δ：每根Δ累加成線、對比價格創高但CVD沒創高的背離）。1m~1h逐筆精確、4h/1d聚合。僅加密貨幣；K棒間距放大後才顯示">
+      <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">
+        <rect x="2.2" y="2.6" width="5" height="3" rx="0.6"/><rect x="8.8" y="2.6" width="5" height="3" rx="0.6"/>
+        <rect x="2.2" y="6.5" width="5" height="3" rx="0.6" fill="currentColor" opacity="0.55" stroke="none"/>
+        <rect x="8.8" y="6.5" width="5" height="3" rx="0.6"/>
+        <rect x="2.2" y="10.4" width="5" height="3" rx="0.6"/>
+        <rect x="8.8" y="10.4" width="5" height="3" rx="0.6" fill="currentColor" opacity="0.55" stroke="none"/>
+      </svg>
+    </button>
+    <button id="domBtn" type="button" class="tb-icon-btn" style="display:none" title="訂單簿 DOM：主圖右側階梯，即時顯示各價位『等待成交』的買/賣掛單（綠=買方掛單、紅=賣方掛單，橫條長度=掛量），藉此看出大額資金的防守位置。現價置中、上方賣單下方買單。僅加密貨幣即時盤口">
+      <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+        <path d="M2.6 3.4 H9.4"/><path d="M2.6 6 H7"/>
+        <path d="M1.8 8 H14.2" opacity="0.95"/>
+        <path d="M2.6 10 H7.8"/><path d="M2.6 12.6 H10.6"/>
       </svg>
     </button>
     <!-- S1~S12 標記已退役，全/S/SS 過濾鈕隱藏 -->
