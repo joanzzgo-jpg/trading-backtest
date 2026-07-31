@@ -1392,16 +1392,46 @@ def get_latest(req: LatestRequest):
             #   TTL 取 1 秒＝剛好等於前端輪詢間隔 → 單一使用者的新鮮度完全不變（他下一次輪詢時
             #   快取已過期、照樣抓新的），但「同一秒內的多個使用者」會收斂成一次上游請求。
             #   帶自有金鑰的請求不走快取（那是使用者自己的交易所連線，不與他人共用）。
+            # ★單飛（2026-07-31 補）：光有 TTL 快取擋不住「同時 miss」—— 8 個請求同一瞬間到達時，
+            #   快取都還沒被填，於是 8 個全部打上游（實測純快取版在冷叢發下毫無改善）。而要防的
+            #   Binance 限流恰恰就是這種叢發。→ 同一把 key 只讓一個人去抓（leader），其他人等它
+            #   （follower，最多 3 秒）；抓完大家一起讀快取。等逾時就自己抓，最壞退回原本行為。
+            #   同 _WR_SF 的作法。
             _ck = f"crypto_latest_{req.exchange}_{req.symbol}_{req.timeframe}"
             df = cache.get(_ck, ttl=1) if not req.api_key else None
-            if df is None:
+            if df is None and not req.api_key:
+                _leader = False
+                with _LATEST_SF_LOCK:
+                    _ev = _LATEST_SF.get(_ck)
+                    if _ev is None:
+                        _ev = _threading.Event(); _LATEST_SF[_ck] = _ev; _leader = True
+                if not _leader:
+                    _ev.wait(3.0)                       # 等 leader 抓完（結果已進快取）
+                    df = cache.get(_ck, ttl=2)          # 放寬一點點：leader 剛寫完就算它「1 秒前」也接受
+                if df is None:
+                    try:
+                        df = fetch_crypto_ohlcv(
+                            req.symbol, req.timeframe, limit=3,
+                            exchange_id=req.exchange,
+                            api_key=req.api_key, api_secret=req.api_secret,
+                        )
+                        if df is not None and not df.empty:
+                            cache.set(_ck, df)
+                    finally:
+                        if _leader:                     # 一定要放行，否則其他人白等 3 秒
+                            with _LATEST_SF_LOCK:
+                                _LATEST_SF.pop(_ck, None)
+                            _ev.set()
+                elif _leader:
+                    with _LATEST_SF_LOCK:
+                        _LATEST_SF.pop(_ck, None)
+                    _ev.set()
+            elif df is None:
                 df = fetch_crypto_ohlcv(
                     req.symbol, req.timeframe, limit=3,
                     exchange_id=req.exchange,
                     api_key=req.api_key, api_secret=req.api_secret,
                 )
-                if not req.api_key and df is not None and not df.empty:
-                    cache.set(_ck, df)
     except Exception as e:
         raise HTTPException(400, str(e))
 
@@ -1491,6 +1521,10 @@ def _git_rev():
 #   ・follower 等待有上限(_WR_SF_WAIT);逾時就自己算 → 最壞退化成現狀,不會卡住。
 #   ・leader 一律在 finally 釋放(含例外)→ 不會有鎖漏掉導致後續全部等到逾時。
 #   ・solve 模式不參與(語義不同、不共用快取)。
+# 即時價單飛：同一把 key 同時 miss 時只讓一個人去抓上游，其他人等它（見 get_latest 的 crypto 分支）
+_LATEST_SF_LOCK = _threading.Lock()
+_LATEST_SF: dict = {}
+
 _WR_SF_LOCK = _threading.Lock()
 _WR_SF: dict = {}
 _WR_SF_WAIT = 25.0
