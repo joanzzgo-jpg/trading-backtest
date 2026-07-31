@@ -853,7 +853,9 @@ def _exec_signal_for_account(name, cfg, market, exchange, symbol, tf, k, d, sig,
         pos = client.positions()
         max_adds = int(cfg.get("maxAdds", 1) or 1)
         is_add = False; add_row_id = None; cur_adds = 1
-        add_old_sl = None; add_old_sl_oid = None     # 既有自動倉的止損(圖表價)與其交易所單 id → 加倉時用來收緊重掛
+        # 註：這裡曾另外接出既有倉的 sl / sl_oid（打算加倉時收緊重掛），但下面的加倉分支已定案為
+        #     「止損固定首筆、完全不動」→ 那兩個值沒有任何使用者，2026-07-31 移除。
+        #     SELECT 的欄位順序不動（後面 _r[4]/_r[5]/_r[6] 靠索引取）。
 
         _psd = _posside(want, _hedge)              # hedge: LONG/SHORT；單向: None
         # 同合約持倉判定：hedge 下只認『同 side』為既有倉（多/空各一槽、互不擋）
@@ -884,7 +886,7 @@ def _exec_signal_for_account(name, cfg, market, exchange, symbol, tf, k, d, sig,
                 _log_trade(source="auto", acct=name, mode=client.env, status="skipped", symbol=symbol, bsym=bsym,
                            side=want, sig=k, d=d, tf=tf, sigt=str(sig.get("t")), msg=_why)
                 return
-            is_add = True; add_row_id = _r[0]; add_old_sl = _r[2]; add_old_sl_oid = _r[3]
+            is_add = True; add_row_id = _r[0]
             # 原進場訊號鍵/方向/訊號棒時間 → 讓加倉通知「回覆」串接回原自動進場訊息（同一串）
             add_entry_sig = _r[4]; add_entry_d = _r[5]; add_entry_sigt = _r[6]
         elif _open_pos_count(name, k) >= cfg["maxPos"]:   # 各策略獨立計數(只算同策略倉)
@@ -973,6 +975,20 @@ def _exec_signal_for_account(name, cfg, market, exchange, symbol, tf, k, d, sig,
 
         side = "BUY" if want == "long" else "SELL"
         o = client.place_order(bsym, side, qty, "MARKET", position_side=_psd)   # 市價：開倉 or 加倉(同向加進淨倉)
+        # 真實成交均價（合約價 → 圖表價）。之前這個回傳整個被丟掉、trade_log.entry 記的是策略的
+        # **預定**進場價 → 滑價完全看不到，而且與加倉路徑不一致（那邊本來就回查 positions() 取
+        # 真實均價 new_entry_chart）→ 同一張表兩種語意。2026-07-31 改成記真實成交價。
+        # ⚠ 只影響「記錄／顯示」：止盈與風險計算下面一律仍用策略的 entry(plan 價)——那是策略定義
+        #   的一部分，改用成交價等於靜默改變下單行為。查過 entry 欄只有 /history 端點讀去顯示，
+        #   沒有任何地方拿它回推 TP/SL。
+        # 市價單偶爾會先回 status=NEW、avgPrice=0（還沒成交回報）→ 取不到就退回 plan 價。
+        entry_log = entry
+        try:
+            _ap = float((o or {}).get("avgPrice") or 0)
+            if _ap > 0 and scale:
+                entry_log = _ap / scale
+        except Exception:
+            pass
         # 止盈到「下軌→上軌的 _AUTO_TP_BAND_RATIO 位」（空→鏡像靠下軌、多→靠上軌；用原始策略風險算→
         # 不受停損緩衝影響）。因標準布林上下軌對稱於中軌 → 該比例位 = 中軌 + (2r−1)(外軌−中軌)，
         # 換算 RR：tp_rr = rr + (2r−1)(rr_b − rr)（rr＝中軌預估RR、rr_b＝外軌預估RR）。缺 rr_b/rr →
@@ -1008,27 +1024,19 @@ def _exec_signal_for_account(name, cfg, market, exchange, symbol, tf, k, d, sig,
             _ne = _np.get("entry") if _np else None
             new_entry_chart = (_ne / scale) if (_ne and scale) else _ne     # 合約均價 → 圖表均價
             new_adds = cur_adds + 1
-            new_sl_oid = add_old_sl_oid          # 沿用首筆 SL 單 id（不動）
-            new_sl_chart = None                  # 不改 sl 欄（維持首筆止損價）
             sl_note = "止損固定首筆、不隨加倉移動"
 
+            # 只更新 qty/entry/adds，sl/sl_oid 兩欄一律不動（＝維持首筆止損，見上方說明）。
+            # 註：這裡原本有一條「若止損有移動則連 sl/sl_oid 一起更新」的分支，但它的條件是
+            #     常數 None → 永遠走不到，2026-07-31 刪掉；行為與刪除前完全相同。
             try:
                 _c2, _ph2 = _acct._db()
                 try:
-                    if new_sl_chart is not None:                 # 有移動 → 連 sl/sl_oid 一起更新
-                        _c2.execute(
-                            f"UPDATE trade_log SET qty={_ph2}, entry={_ph2}, adds={_ph2}, "
-                            f"sl={_ph2}, sl_oid={_ph2} WHERE id={_ph2}",
-                            (str(new_qty) if new_qty is not None else None,
-                             str(new_entry_chart) if new_entry_chart is not None else None,
-                             new_adds, str(round(new_sl_chart, 8)),
-                             str(new_sl_oid) if new_sl_oid is not None else None, add_row_id))
-                    else:                                        # 沒移動 → 只更新 qty/entry/adds
-                        _c2.execute(
-                            f"UPDATE trade_log SET qty={_ph2}, entry={_ph2}, adds={_ph2} WHERE id={_ph2}",
-                            (str(new_qty) if new_qty is not None else None,
-                             str(new_entry_chart) if new_entry_chart is not None else None,
-                             new_adds, add_row_id))
+                    _c2.execute(
+                        f"UPDATE trade_log SET qty={_ph2}, entry={_ph2}, adds={_ph2} WHERE id={_ph2}",
+                        (str(new_qty) if new_qty is not None else None,
+                         str(new_entry_chart) if new_entry_chart is not None else None,
+                         new_adds, add_row_id))
                     _c2.commit()
                 finally:
                     _c2.close()
@@ -1072,7 +1080,7 @@ def _exec_signal_for_account(name, cfg, market, exchange, symbol, tf, k, d, sig,
                 except bt.TradeError:
                     pass
                 _log_trade(source="auto", acct=name, mode=client.env, status="failed", symbol=symbol, bsym=bsym, side=want,
-                           qty=qty, entry=str(entry), sl=str(round(stop_chart, 8)), sig=k, d=d, tf=tf,
+                           qty=qty, entry=str(entry_log), sl=str(round(stop_chart, 8)), sig=k, d=d, tf=tf,
                            sigt=str(sig.get("t")),
                            msg=f"停損無法掛單（{e}）→ 已清殘單仍失敗 → 即時平倉，不留無保護持倉")
                 _push_owner(owner, f"⚠ 自動進場取消 · {symbol}",
@@ -1091,7 +1099,7 @@ def _exec_signal_for_account(name, cfg, market, exchange, symbol, tf, k, d, sig,
             except bt.TradeError as e:
                 warn.append(f"TP 掛單失敗（不影響停損保護）：{e}")
         _log_trade(source="auto", acct=name, mode=client.env, status="open", symbol=symbol, bsym=bsym, side=want,
-                   qty=qty, entry=str(entry), sl=str(round(stop_chart, 8)),
+                   qty=qty, entry=str(entry_log), sl=str(round(stop_chart, 8)),
                    tp=(str(round(tgt, 8)) if (tp_px and tgt is not None) else None), tp_oid=tp_oid, sl_oid=sl_oid,
                    sig=k, d=d, tf=tf, sigt=str(sig.get("t")), msg="；".join(warn) or None)
         # 通知擁有者：自動進場（方向用 📈做多 / 📉做空 一眼看出）
@@ -1099,7 +1107,15 @@ def _exec_signal_for_account(name, cfg, market, exchange, symbol, tf, k, d, sig,
         dir_emoji = "📉" if want == "short" else "📈"
         dir_txt = f"{dir_emoji} {'做空' if want == 'short' else '做多'}"
         l1 = f"{dir_txt} · {lev}x · 數量 {qty} · {envtag}"
-        l2 = f"進場 {_fmt_px(entry)}" + (f" → 止盈 {_fmt_px(tgt)}" if (tp_px and tgt is not None) else "")
+        # 通知也顯示真實成交價（與 trade_log 一致）。與策略預定價差超過 0.05% 才附註滑價，
+        # 免得每則通知都掛一串沒資訊量的數字。
+        _slip = ""
+        try:
+            if entry and entry_log and abs(entry_log - float(entry)) / float(entry) > 0.0005:
+                _slip = f"（策略價 {_fmt_px(entry)}）"
+        except Exception:
+            pass
+        l2 = f"進場 {_fmt_px(entry_log)}{_slip}" + (f" → 止盈 {_fmt_px(tgt)}" if (tp_px and tgt is not None) else "")
         l3 = f"停損 {_fmt_px(stop_chart)}"
         body = "\n".join([l1, l2, l3]) + (f"\n⚠ {_size_warn}" if _size_warn else "")
         _push_owner(owner, f"{dir_emoji} 自動進場{'做空' if want == 'short' else '做多'} · {symbol}（{envtag}）",

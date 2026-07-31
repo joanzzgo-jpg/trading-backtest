@@ -7,6 +7,7 @@ CWA 無 key 或失敗時，一律回退 Open-Meteo。
 """
 import os, json, math, time, ipaddress, asyncio
 from datetime import date, datetime
+from collections import OrderedDict
 import aiohttp
 from fastapi import APIRouter, Query, Request
 from utils.cache import SimpleCache
@@ -51,7 +52,18 @@ NOM_URL  = "https://nominatim.openstreetmap.org/reverse"
 # 站點資料快取（10 分鐘）
 _STATION_CACHE: dict = {"data": None, "ts": 0.0}
 # 反向地理編碼快取（lat/lon 取小數後2位 ≈ 1km 格）
-_GEOCODE_CACHE: dict = {}
+_GEOCODE_CACHE: "OrderedDict" = OrderedDict()
+
+# 這兩個座標快取本來沒有任何淘汰：每個新座標(_GEOCODE_CACHE)／每個新日期(_SUN_CACHE 的 key
+# 含日期)都是一個新條目，永遠不會被回收 → 單人長跑會逐日長胖、多使用者上線後更明顯。
+# 值都很小，所以不必做 LRU，設個上限、滿了丟最舊的就夠（丟掉只是下次重查一次）。
+_COORD_CACHE_MAX = 2000
+
+
+def _cache_put(cache: "OrderedDict", key, val, cap: int = _COORD_CACHE_MAX):
+    cache[key] = val
+    while len(cache) > cap:
+        cache.popitem(last=False)      # FIFO：丟最早寫入的
 
 # ─── 共用工具 ────────────────────────────────────────────────
 
@@ -126,7 +138,7 @@ async def _reverse_geocode(lat: float, lon: float) -> str:
                     or addr.get("town") or addr.get("village") or "")
         city     = addr.get("city") or addr.get("county") or addr.get("state") or ""
         location = (city + district) if (city and district) else (district or city or "")
-        _GEOCODE_CACHE[key] = location
+        _cache_put(_GEOCODE_CACHE, key, location)
         return location
     except Exception:
         return ""
@@ -985,7 +997,7 @@ async def _fetch_omt_aqi(lat: float, lon: float):
     return {"us_aqi": aqi, "pm25": pm}
 
 
-_SUN_CACHE: dict = {}   # (rlat, rlon, date) -> {"rise","set","tz_off"}（當天天文日出日落）
+_SUN_CACHE: "OrderedDict" = OrderedDict()   # (rlat, rlon, date) -> {"rise","set","tz_off"}（當天天文日出日落）
 
 async def _omt_sun(lat: float, lon: float) -> dict:
     """用 Open-Meteo daily 取「該地真實時區（含日光節約）」的天文日出/日落時刻，作為各源
@@ -1015,7 +1027,7 @@ async def _omt_sun(lat: float, lon: float) -> dict:
         "tz_off": int(data.get("utc_offset_seconds", 0) or 0) // 60,
     }
     if out["rise"] is not None or out["set"] is not None:
-        _SUN_CACHE[key] = out
+        _cache_put(_SUN_CACHE, key, out)
     return out
 
 
@@ -1143,7 +1155,6 @@ async def weather(
             _now["temp"] = round(res["temperature"]); _now["feels"] = None
         if res.get("humidity"):   _now["humidity"] = res["humidity"]
         if res.get("wind_speed"): _now["wind"] = res["wind_speed"]
-        _pn = res.get("pop_now")            # 官方此刻降雨機率
         _pd = res.get("pop")                # 官方今日降雨機率
         _today = fc.setdefault("today", {}) # 確保 today 存在(前端 !f.today 會整段放棄→連溫度都不講)
         if _pd is not None:                 # 今日降雨機率改用官方值（Open-Meteo 常灌到 80%+ 對不上官方）

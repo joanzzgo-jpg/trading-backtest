@@ -231,25 +231,25 @@ def run(market: str, symbol: str, tf: str, exchange: str = "pionex", days: int =
     df = fetch_history_df(market, symbol, tf, days=days, exchange=exchange)
     print(f"   bars: {len(df)}, from {df.iloc[0]['time']} to {df.iloc[-1]['time']}")
 
-    print(f"\n🧮 計算訊號 + 結果...")
+    print("\n🧮 計算訊號 + 結果...")
     result = _calc_crt_winrate(df, stop_buffer_pct=0.0, long_only=(market == "tw"))
     sigs = result.get("signals", [])
     n_w_mid = sum(1 for s in sigs if s.get("r") == "w")
     n_l_mid = sum(1 for s in sigs if s.get("r") == "l")
     print(f"   訊號: {len(sigs)} 個（中軌 win/loss = {n_w_mid}/{n_l_mid}）")
 
-    print(f"\n🔍 計算每訊號特徵...")
+    print("\n🔍 計算每訊號特徵...")
     df_f = analyze(df, result)
     print(f"   feature DataFrame: {len(df_f)} 列")
 
-    print(f"\n📈 整體比較 win vs loss（依 effect size 排序，top 15）:")
+    print("\n📈 整體比較 win vs loss（依 effect size 排序，top 15）:")
     feat_cols = ["est_rr", "bb_width", "atr_pct", "body_pct", "uw_pct",
                  "lw_pct", "close_in_r", "vol_ratio", "trend_dev",
                  "bb_slope", "rsi", "kdj_k"]
     cmp = _compare_groups(df_f, feat_cols)
     print(cmp.head(15).to_string(index=False))
 
-    print(f"\n🎯 各訊號類型的失敗共同點（effect>=0.15，依 effect 排）:")
+    print("\n🎯 各訊號類型的失敗共同點（effect>=0.15，依 effect 排）:")
     per_sig = _per_signal_breakdown(df_f)
     if len(per_sig) > 0:
         print(per_sig.to_string(index=False))

@@ -21,8 +21,10 @@ import collections as _collections
 
 from data.taiwan import fetch_tw_stock, resample_tw, fetch_tw_intraday, fetch_tw_realtime, fetch_tw_intraday_yf, fetch_tw_latest_bar_yf, fetch_tw_daily_yf, YF_MAX_DAYS as TW_YF_MAX_DAYS
 from data.fugle import fetch_fugle_intraday, fugle_enabled
-from data.taifex_mis import (fetch_taifex_daily, fetch_taifex_quote,
-                             resolve_front_month, PRODUCTS as FUTOPT_PRODUCTS, _INTRADAY_MIN as TXF_INTRADAY)
+# 註：fetch_taifex_quote / resolve_front_month 曾列在這裡但整檔沒用到（唯一的使用者是
+#     _diag_futopt，它在函式內自己 import）→ 2026-07-31 移除，順便解掉那處名稱遮蔽。
+from data.taifex_mis import (fetch_taifex_daily,
+                             PRODUCTS as FUTOPT_PRODUCTS, _INTRADAY_MIN as TXF_INTRADAY)
 from data.cnyes_futures import get_txf_intraday, fetch_cnyes_stock_intraday
 from data.alpaca import fetch_alpaca_bars, alpaca_enabled
 from data.twelvedata import fetch_twelvedata_intraday, twelvedata_enabled
@@ -192,7 +194,7 @@ def _require_admin(key: str):
 #   卡頓（卡的原因通常是「某個預設關閉、但他開著」的疊加層 —— 足跡那個 bug 就是這樣才找到的）。
 #   → 探針量完直接 POST 上來，開發端 GET 回來看。純數字與開關名稱，不含任何個資。
 #   記憶體環形緩衝、上限 20 筆、單筆 32KB；重啟即清空。
-_PERF_REPORTS: "collections.deque" = _collections.deque(maxlen=20)
+_PERF_REPORTS: "_collections.deque" = _collections.deque(maxlen=20)
 
 
 @router.post("/_perf_report")
@@ -1675,7 +1677,7 @@ def _wr_resp(payload, etag=None, slim=True, no_store=False):
 _WR_DELTA_KEYS = ("fvg", "signals", "fvg_ms", "fvg_break", "fvg_shun", "fvg_special",
                   "fvg_trades", "smc_sweep", "smc_struct", "smc_ob", "smc_sr", "vwap",
                   "fvg_bb", "fvg_bb_a", "fvg_bb_m", "fvg_sigs")
-_WR_HIDX: "collections.OrderedDict" = _collections.OrderedDict()   # _h → {key: [每筆雜湊]}
+_WR_HIDX: "_collections.OrderedDict" = _collections.OrderedDict()   # _h → {key: [每筆雜湊]}
 _WR_HIDX_MAX = 16
 _WR_HIDX_LOCK = _threading.Lock()
 
@@ -2364,9 +2366,10 @@ def get_crt_winrate(
                     return _res
 
     MIN_CASES = 40   # 每個訊號（S1~S7 × 空/多）最少採樣數；不足會自動往前加倍天數
-    # 各時間框架：初始天數 / 最大天數
-    # 上限拉到資料源實際可能的歷史深度（Binance fapi BTC 2019/9~、spot 2017/8~、Bybit/OKX 類似）
-    TF_INIT = {"1M": 3650, "1w": 1825, "1d": 730,  "8h": 730,  "4h": 365,  "2h": 365,  "1h": 365,   "30m": 90,  "15m": 60,  "5m": 30,  "1m": 7}
+    # 各時間框架的最大歷史深度。上限拉到資料源實際可能的深度（Binance fapi BTC 2019/9~、
+    # spot 2017/8~、Bybit/OKX 類似）。
+    # 註：這裡原本還有一份沒人用的 TF_INIT（初始天數）→ 2026-07-31 移除；
+    #     實際在用的初始天數表是 research/ai_strategy.py 的 _TF_INIT_DAYS。
     # 注意：TF_MAX 是「勝率計算」用的歷史深度，不是圖表顯示深度
     # 5/15/30m 圖上不必看到太久以前，但統計需要足夠案例數（MIN_CASES=40 × 11 訊號 × 空/多）
     TF_MAX  = {"1M": 7300, "1w": 7300, "1d": 7300, "8h": 5475, "4h": 5475, "2h": 4380, "1h": 2920,  "30m": 730, "15m": 720, "5m": 180, "1m": 20}

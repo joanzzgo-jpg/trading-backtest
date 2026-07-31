@@ -151,7 +151,6 @@ def fetch_tw_daily_yf(symbol: str, start: str, end: str) -> pd.DataFrame:
     先試 .TW 再試 .TWO；end 自動 +1 天確保包含當日。
     """
     import yfinance as yf
-    from datetime import date, timedelta
     try:
         end_incl = (date.fromisoformat(end) + timedelta(days=1)).isoformat()
     except Exception:
@@ -187,7 +186,6 @@ def fetch_tw_intraday_yf(symbol: str, timeframe: str, start: str, end: str) -> p
     錯位」bug——yfinance 直接抓 1h 會少 35% 成交量、第一根落在 10:00 而非 09:00）。
     """
     import yfinance as yf
-    from datetime import date, timedelta
 
     # 1h 內部用 15m 重組（解決 yfinance 1h bug）
     src_tf      = "15m" if timeframe == "1h" else timeframe

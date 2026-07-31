@@ -384,7 +384,12 @@ def run_coach(df15, htf_bull_zones, htf_bear_zones, direction, touch_mode=True,
               PL=5, LB=20, MAXWAIT=120):
     """15M 逐棒步驟狀態機（移植 Pine coachLong/ShortStage）。direction:1多/-1空。
     htf_*_zones：4H/1H 方向側未填補區 [(top,bot),...]（步驟2「進入HTF區」用）。
-    回傳當前 setup 狀態（stage 與各關鍵價/區）。"""
+    回傳當前 setup 狀態（stage 與各關鍵價/區）。
+
+    ⚠ 2026-07-31 查核：**整個函式已無呼叫端**，全站教練走的是下面的 run_coach2
+      （「忠實版狀態機」，routes/data.py 唯一使用者）。這裡先保留當對照實作、不動它，
+      但要清楚它不在任何線上路徑上——改它不會影響教練/自動交易，也別拿它當現行行為的依據。
+      （所以本函式裡的 trend15 沒有讀取者，是整塊沒接線、不是漏寫。）"""
     if df15 is None or len(df15) < PL * 2 + 3 or direction == 0:
         return {"stage": 0}
     H, L, C, O, T = _to_lists(df15)
@@ -404,7 +409,7 @@ def run_coach(df15, htf_bull_zones, htf_bear_zones, direction, touch_mode=True,
     sweepBar = None; sweepPx = None; turnTrig = None; turnBar = None
     bosTrig = None; bosTrigSetBar = None; bosBar = None
     entTop = entBot = None; entName = ""
-    lastSH = lastSL = None; lastSHb = lastSLb = None
+    lastSH = lastSL = None
     shBroken = slBroken = False; shSwept = slSwept = False
     trend15 = 0
 
@@ -423,18 +428,21 @@ def run_coach(df15, htf_bull_zones, htf_bear_zones, direction, touch_mode=True,
         # 更新已確認 pivot（落點 i-PL）
         p = i - PL
         if p - PL >= 0:
+            # 註：這裡原本還記 lastSHb/lastSLb（pivot 的棒索引）,整檔沒有任何讀取者 → 2026-07-31 移除。
             if _is_ph(H, p, PL):
-                lastSH = H[p]; lastSHb = p; shBroken = False
+                lastSH = H[p]; shBroken = False
             if _is_pl(L, p, PL):
-                lastSL = L[p]; lastSLb = p; slBroken = False
+                lastSL = L[p]; slBroken = False
         ci = C[i]; cp = C[i - 1] if i > 0 else float("nan")
         if ci != ci:
             continue
         # 15M 結構破（判 CHoCH 反向失效用）
         bullBreak = lastSH is not None and not shBroken and ci > lastSH and (cp != cp or cp <= lastSH)
         bearBreak = lastSL is not None and not slBroken and ci < lastSL and (cp != cp or cp >= lastSL)
-        if bullBreak: shBroken = True; _pt = trend15; trend15 = 1
-        if bearBreak: slBroken = True; _pt2 = trend15; trend15 = -1
+        # trend15 沒有任何讀取者（見函式開頭的「整個函式已無呼叫端」說明）。
+        # （原本還有 _pt/_pt2 兩個同樣沒人讀的暫存，2026-07-31 一併移除。）
+        if bullBreak: shBroken = True; trend15 = 1
+        if bearBreak: slBroken = True; trend15 = -1
         # 掃頂/掃底
         bullSweep = lastSL is not None and not slSwept and L[i] < lastSL and ci > lastSL
         bearSweep = lastSH is not None and not shSwept and H[i] > lastSH and ci < lastSH

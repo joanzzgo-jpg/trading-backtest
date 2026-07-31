@@ -1083,14 +1083,14 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             # ── 融合單趟掃描：一次算出 _t2/_midi(中線填補)、_ett/_etm/_etb(上/中/下緣首觸)、_pens(逐深突破)。
             #   原本是三個各自 range(_g+2,_N) 的掃描(其中 _t2 與 _etm 條件完全相同、重複掃)；三合一省 ~2/3 迭代。
             #   終止：觸及最遠緣(多=下緣/空=上緣)那一刻，三者本來就同時完成(_etb/_ett 定、pens 到底) → 同點 break。
-            _t2 = None; _midi = None; _ett = _etm = _etb = None; _pens = []; _pm = None
+            _midi = None; _ett = _etm = _etb = None; _pens = []; _pm = None
             _mid = (_top + _bot) / 2.0
             for _j in range(_g + 2, _N):
                 if _dir == "l":
                     _lj = _L[_j]
                     if _lj > _top: continue                          # 沒碰進區間
                     if _ett is None: _ett = times_iso[_j]            # 首觸上緣
-                    if _etm is None and _lj <= _mid: _etm = times_iso[_j]; _t2 = _etm; _midi = _j   # 中線(=填補點)
+                    if _etm is None and _lj <= _mid: _etm = times_iso[_j]; _midi = _j   # 中線(=填補點)
                     if _etb is None and _lj <= _bot: _etb = times_iso[_j]
                     _pv = _bot if _lj < _bot else _lj                # 封底於下緣
                     if _pm is None or _pv < _pm:
@@ -1100,7 +1100,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                     _hj = _H[_j]
                     if _hj < _bot: continue
                     if _etb is None: _etb = times_iso[_j]            # 首觸下緣(近端)
-                    if _etm is None and _hj >= _mid: _etm = times_iso[_j]; _t2 = _etm; _midi = _j
+                    if _etm is None and _hj >= _mid: _etm = times_iso[_j]; _midi = _j
                     if _ett is None and _hj >= _top: _ett = times_iso[_j]
                     _pv = _top if _hj > _top else _hj                # 封頂於上緣
                     if _pm is None or _pv > _pm:
@@ -1242,13 +1242,13 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                     continue
                 _mid = (_top + _bot) / 2.0; _W = _top - _bot
                 # 融合單趟掃描：首觸上/中/下緣(_ett/_etm/_etb)、中線填補(_t2/_midi)、逐深突破(_pens)。掃描自 g+1 起。
-                _t2 = None; _midi = None; _ett = _etm = _etb = None; _pens = []; _pm = None
+                _midi = None; _ett = _etm = _etb = None; _pens = []; _pm = None
                 for _j in range(_g + 1, _N):
                     if _dir == "l":
                         _lj = _L[_j]
                         if _lj > _top: continue
                         if _ett is None: _ett = times_iso[_j]
-                        if _etm is None and _lj <= _mid: _etm = times_iso[_j]; _t2 = _etm; _midi = _j
+                        if _etm is None and _lj <= _mid: _etm = times_iso[_j]; _midi = _j
                         if _etb is None and _lj <= _bot: _etb = times_iso[_j]
                         _pv = _bot if _lj < _bot else _lj
                         if _pm is None or _pv < _pm:
@@ -1258,7 +1258,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                         _hj = _H[_j]
                         if _hj < _bot: continue
                         if _etb is None: _etb = times_iso[_j]
-                        if _etm is None and _hj >= _mid: _etm = times_iso[_j]; _t2 = _etm; _midi = _j
+                        if _etm is None and _hj >= _mid: _etm = times_iso[_j]; _midi = _j
                         if _ett is None and _hj >= _top: _ett = times_iso[_j]
                         _pv = _top if _hj > _top else _hj
                         if _pm is None or _pv > _pm:
@@ -1323,9 +1323,8 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         _gseq = [(_ci, _tp, _bt, _dr) for (_ci, _tp, _bt, _dr) in _gaps_seq
                  if (_tp - _bt) / (_bt if _dr == "l" else _tp) >= _SETUP_MIN]
         _seq_cf  = [_ci for (_ci, _tp, _bt, _dr) in _gseq]      # 缺口確認棒 cf，升序(生成序)
-        _seq_dr  = [_dr for (_ci, _tp, _bt, _dr) in _gseq]      # 對應方向
-        _seq_top = [_tp for (_ci, _tp, _bt, _dr) in _gseq]      # 對應上緣
-        _seq_bot = [_bt for (_ci, _tp, _bt, _dr) in _gseq]      # 對應下緣
+        # 註：原本還一起建 _seq_dr/_seq_top/_seq_bot 三條平行陣列，但下游改用 _bear/_bull 的
+        #     tuple 之後就沒人讀了 → 2026-07-31 移除（順便少掃 _gseq 三趟）。
         _bear = [(_ci, _tp, _bt) for (_ci, _tp, _bt, _dr) in _gseq if _dr == "s"]
         _bull = [(_ci, _tp, _bt) for (_ci, _tp, _bt, _dr) in _gseq if _dr == "l"]
         # B＝「proto 缺口」偵測：bull＝g 收盤站上前根高點(C[g]>H[g-1])→缺口[H[g-1], C[g]]，右邊 g+1 收盤沒跌回
