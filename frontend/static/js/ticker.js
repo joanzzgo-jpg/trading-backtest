@@ -177,6 +177,31 @@ function _tkUrl(m, key, useSince) {
   return "/api/tickers?market=" + m + ((useSince && _tkRev[key]) ? "&since=" + encodeURIComponent(_tkRev[key]) : "");
 }
 
+/* ── 現貨清單改「需要時才每秒」(2026-07-31) ───────────────────────────────────
+   報價輪詢是全站最高頻的請求(crypto 每秒一輪)，而每輪其實抓「合約＋現貨」兩包。
+   ★但 _spotTickerData 全站只有兩個消費者：
+     ① 標的搜尋視窗切到「現貨」分頁(_symSearchMarket === "spot") — 視窗多數時間是關的
+     ② updatePageTitle() 在「目前看的就是現貨標的」時要拿現貨價 — 多數人看的是 .P 永續
+     （「全部」分頁只吃 _tickerData，見 _renderAllSearchList；報價列本身也只用合約/台股）
+   實測 gzip 後現貨包 9.5KB/秒/人，佔報價流量 28% —— 平常整份下載完沒有任何東西讀它。
+   → 平時只留 15 秒心跳保鮮(開視窗時不會是舊資料)，真的要用時才回到每秒。
+   ⚠ 心跳這種低頻抓法一律走整包不帶 since：delta 的自癒是「每 60 輪整包一次」，
+     低頻後幾乎輪不到那一輪 → 差量會一路疊下去無從校正。而現貨整包 gzip 9.5KB
+     vs delta 9.2KB 差異可忽略(幣價每秒幾乎全動，差量本來就省不到)，直接整包最穩。*/
+const _SPOT_IDLE_MS = 15000;
+let _spotLastTs = 0;
+function _spotNeeded() {
+  try {
+    const ov = document.getElementById("symOverlay");
+    if (ov && !ov.classList.contains("hidden") && _symSearchMarket === "spot") return true;
+    if ((document.getElementById("marketSelect")?.value || "crypto") === "crypto") {
+      const sym = (document.getElementById("symbolInput")?.value || "").trim().toUpperCase();
+      if (sym && !sym.endsWith(".P")) return true;   // 現貨標的 → 分頁標題要現貨價
+    }
+  } catch (e) {}
+  return false;
+}
+
 async function fetchTickers() {
   try {
     _tkPollN++;
@@ -185,12 +210,14 @@ async function fetchTickers() {
       const res = await fetch(_tkUrl("tw", "tw", useSince));
       if (res.ok) { const j = await res.json(); _twTickerData = _tkMerge(_twTickerData, j, "tw"); }
     } else {
+      const wantSpot = _spotNeeded() || (Date.now() - _spotLastTs >= _SPOT_IDLE_MS);
+      if (wantSpot) _spotLastTs = Date.now();
       const [futRes, spotRes] = await Promise.all([
         fetch(_tkUrl("futures", "futures", useSince)),
-        fetch(_tkUrl("spot", "spot", useSince)),
+        wantSpot ? fetch(_tkUrl("spot", "spot", false)) : null,
       ]);
       if (futRes.ok)  { const j = await futRes.json();  _tickerData     = _tkMerge(_tickerData, j, "futures"); }
-      if (spotRes.ok) { const j = await spotRes.json(); _spotTickerData = _tkMerge(_spotTickerData, j, "spot"); }
+      if (spotRes && spotRes.ok) { const j = await spotRes.json(); _spotTickerData = _tkMerge(_spotTickerData, j, "spot"); }
     }
 
     // 手機版面板未滑出時跳過 DOM 更新；桌面版面板永遠可見
@@ -1329,6 +1356,9 @@ function initSymSearch() {
       btn.classList.add("active");
       _symSearchMarket = btn.dataset.market;
       _symSearchFocusIdx = -1;
+      // 切到「現貨」分頁：現貨清單平時只有 15 秒心跳(見 _spotNeeded) → 立刻補抓一次拿最新價，
+      // 之後的每秒輪詢會自動含現貨。清單先用手上那份秒顯，不留白。
+      if (_symSearchMarket === "spot") { _spotLastTs = 0; fetchTickers(); }
       _applySymPlaceholder();
       _renderSymSearchList();
     });

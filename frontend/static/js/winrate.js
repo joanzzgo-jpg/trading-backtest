@@ -626,11 +626,20 @@ window._wrWarmNextTier = _wrWarmNextTier;
      ・VWAP window._vwapOn → vwap
      ・關鍵高低 window._pdOn → pd_ranges
    實測 BTC 1h 一份回應 546KB 裡它們佔 261KB —— 預設情況下有一半傳輸從頭到尾沒被用到。
-   ★開關打開時：_wrNeedRefetch() 會發現快取那份缺這個 key → 觸發重抓完整的（見 _wrRefetchIfMissing）。 */
+   ★開關打開時：_wrNeedRefetch() 會發現快取那份缺這個 key → 觸發重抓完整的（見 _wrRefetchIfMissing）。
+   ⚠ 判定不能只看 window._coachOn / window._vwapOn：這兩個旗標是由 draw.js 從 localStorage 還原的，
+     而 draw.js 是延遲載入(requestIdleCallback，最晚 DOMContentLoaded+1200ms)，第一次勝率請求
+     不保證排在它後面 → 使用者明明把教練/VWAP 開著，重新整理後第一份回應卻不含這些圖層，
+     疊加層空白到手動關再開才回來(靜默、很難察覺)。本機實測餘裕只有 230~440ms，不能賭。
+     → 直接讀 localStorage(同一個真相來源、從第一行就讀得到)，旗標只當還沒持久化時的後備。 */
+const _wrLsOn = (k, flag) => {
+  try { const v = localStorage.getItem(k); if (v != null) return v === "1"; } catch (e) {}
+  return flag === true;
+};
 const _WR_SKIP_GROUPS = [
-  [() => window._coachOn === true, ["smc_sweep", "smc_struct", "smc_ob", "smc_sr", "channel"]],
-  [() => window._vwapOn  === true, ["vwap"]],
-  [() => window._pdOn    === true, ["pd_ranges"]],
+  [() => _wrLsOn("coachOverlay", window._coachOn), ["smc_sweep", "smc_struct", "smc_ob", "smc_sr", "channel"]],
+  [() => _wrLsOn("vwapOverlay",  window._vwapOn),  ["vwap"]],
+  [() => window._pdOn === true,                    ["pd_ranges"]],   // 關鍵高低沒有持久化，本來就每次重開都是關的
 ];
 function _wrSkipList() {
   const out = [];
