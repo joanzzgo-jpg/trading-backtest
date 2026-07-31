@@ -36,6 +36,7 @@ function _domFmtP(p) {
 
 async function _domFetch() {
   if (!_domShow || _domFetching) return;
+  if (document.hidden) return;   // 背景分頁不輪詢（1.5s 一輪、打的是 Binance）；回前景由 main.js 立刻補一輪
   const market = document.getElementById("marketSelect")?.value || "crypto";
   const symbol = _domLiveSym();
   if (market !== "crypto" || !symbol) {

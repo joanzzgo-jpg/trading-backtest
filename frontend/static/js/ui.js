@@ -716,7 +716,8 @@ function bindLegendToggles() {
   // 面板收合：點擊「−」縮至只剩圖例列；點「+」展開
   // 面板收合：點「-」= 整個 pane（含圖例資訊列）+ 它下方分隔線一起隱藏 = 完全消失、不留痕跡；
   //   還原改由下方「隱藏指標還原列」(_syncHiddenIndBar) 的小晶片點回來（因為「+」也跟著消失了）。
-  _initIndPopup();   // 左側工具列「指標」hover 勾選選單（取代每個 pane 上的「−」鈕）
+  _initIndPopup();          // 桌機：左側工具列「指標」hover 勾選選單
+  _initMobileIndChips();    // 手機：設定面板裡的 KDJ / RSI / MACD chip（工具島在手機是隱藏的）
   _syncHiddenIndBar();
 }
 
@@ -732,16 +733,44 @@ let _indPop = null, _indPopTimer = null, _indPopOpenTimer = null;
 const _IND_POP_DELAY = 1000;   // 滑鼠停留多久才跳出（使用者要求 1 秒，避免經過就閃出來）
 
 function _syncIndPopup() {
-  if (!_indPop) return;
+  const chips = document.getElementById("mSetIndRow");
   for (const id of Object.keys(_PANE_LABEL)) {
-    const row = _indPop.querySelector('[data-pane="' + id + '"]');
-    if (!row) continue;
     const p = document.getElementById(id);
     const on = !!p && !p.classList.contains("pane-collapsed");
-    row.dataset.on = on ? "true" : "false";
-    const box = row.querySelector(".ind-pop-box");
-    if (box) box.textContent = on ? "\u2713" : "";
+    if (_indPop) {
+      const row = _indPop.querySelector('[data-pane="' + id + '"]');
+      if (row) {
+        row.dataset.on = on ? "true" : "false";
+        const box = row.querySelector(".ind-pop-box");
+        if (box) box.textContent = on ? "\u2713" : "";
+      }
+    }
+    // \u624b\u6a5f\u8a2d\u5b9a\u9762\u677f\u90a3\u6392 chip\uff08\u684c\u6a5f CSS \u96b1\u85cf\uff09\u2014\u2014\u540c\u4e00\u4efd\u6536\u5408\u72c0\u614b\uff0c\u5169\u908a\u986f\u793a\u8981\u4e00\u81f4
+    if (chips) chips.querySelector('[data-pane="' + id + '"]')?.classList.toggle("on", on);
   }
+  // \u6574\u7d44\u96b1\u85cf\u6642\u500b\u5225\u52fe\u9078\u6c92\u6709\u610f\u7fa9 \u2192 chip \u6574\u6392\u8b8a\u7070\u3001\u9ede\u4e86\u4e5f\u4e0d\u505a\u4e8b
+  if (chips) chips.classList.toggle("all-off",
+    !!document.getElementById("chartsContainer")?.classList.contains("subcharts-hidden"));
+}
+
+// \u624b\u6a5f\uff1a\u500b\u5225\u958b\u95dc\u67d0\u500b\u526f\u5716\u3002\u684c\u6a5f\u8d70\u5de5\u5177\u5cf6\u7684 hover \u9078\u55ae\uff0c\u4f46\u624b\u6a5f\u6c92\u6709 hover\u3001.draw-toolbar \u53c8\u6574\u500b
+// display:none \u2192 \u90a3\u689d\u8def\u8d70\u4e0d\u5230\u3002\uff082026-07-31 \u4fee\uff1aa07369f \u62ff\u6389 pane \u4e0a\u7684\u300c\u2212\u300d\u9215\u5f8c\u624b\u6a5f\u5c31\u6c92\u6709
+// \u4efb\u4f55\u300c\u53ea\u95dc\u6389 MACD\u300d\u7684\u8fa6\u6cd5\u4e86\uff0c\u53ea\u5269\u6574\u7d44\u958b/\u95dc\u3002\uff09
+function _initMobileIndChips() {
+  const row = document.getElementById("mSetIndRow");
+  if (!row || row.dataset.bound) return;
+  row.dataset.bound = "1";
+  row.addEventListener("click", e => {
+    const chip = e.target.closest(".m-set-indchip");
+    if (!chip) return;
+    e.preventDefault(); e.stopPropagation();          // \u4e0d\u8981\u9023\u5e36\u95dc\u6389\u8a2d\u5b9a\u9762\u677f
+    if (row.classList.contains("all-off")) return;    // \u6574\u7d44\u96b1\u85cf\u4e2d \u2192 \u5148\u7528\u4e0a\u9762\u90a3\u9846\u6253\u958b
+    const id = chip.dataset.pane;
+    if (!document.getElementById(id)) return;
+    if (document.getElementById(id).classList.contains("pane-collapsed")) _showPane(id);
+    else _hidePane(id);
+  });
+  _syncIndPopup();
 }
 
 function _indPopShow() {
@@ -956,6 +985,7 @@ function _initSubChartsToggle() {
     if (ms) ms.textContent = hidden ? "已隱藏 · 點擊顯示 KDJ / RSI / MACD" : "顯示中 · 點擊隱藏";
     const row = document.getElementById("mSetSubcharts");
     if (row) row.classList.toggle("m-set-on", !hidden);   // 顯示中＝高亮(開)
+    _syncIndPopup();   // 整組開/關會改變個別 chip 是否可用（all-off）→ 一起同步
   };
   let hidden = "1";
   try { hidden = localStorage.getItem("subChartsHidden") ?? "1"; } catch (e) {}

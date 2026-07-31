@@ -38,6 +38,7 @@ function _fpFmt(v) {
 
 async function _fpFetch() {
   if (!_fpShow || _fpFetching) return;
+  if (document.hidden) return;   // 背景分頁不輪詢（aggTrades 每請求預算 40 次，很貴）；回前景由 main.js 立刻補一輪
   const market = document.getElementById("marketSelect")?.value || "crypto";
   const symbol = document.getElementById("symbolInput")?.value?.trim() || "";
   const tf = (typeof currentTF !== "undefined" && currentTF) || "";

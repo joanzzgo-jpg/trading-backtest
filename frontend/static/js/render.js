@@ -913,31 +913,14 @@ async function _bgLoadOlderBars(scrollTriggered = false) {
         // ★看歷史滑動補舊:確定性 logical 位移——prepend nPrepended 根→視野同步 +nPrepended(數學上停在同幾根,
         //   不用時間軸捕捉→不會捕到瞬間退化視野而縮到1根/亂跳)。子圖同步。★不套「貼最新」錨點(那會貼回最新)。
         const vr = mainChart.timeScale().getVisibleLogicalRange();
-        // ★即時修剪右側:往左看時最新那批在畫面外→剪掉讓 n 有界(否則越深 n 越大、setData 越慢=「越深越停一下才出來」)。
-        //   右側修剪不動左側 index→shifted(+nPrepended) 仍正確;剪掉最新→標記往後缺口讓右滑可補回。
-        let _incAnchor = nPrepended;
-        // ★手還在拖的當下不修剪(2026-07-28):修剪那一幀 LWC 會先用「新資料 × 舊視野」畫一幀才吃到我們的
-        //   補償 → 使用者看到閃跳(逐幀量到 −317/−458 根往返)。停手 250ms 後由 _scheduleIdleTrim 做同樣的事
-        //   (實測放手後零飄移)→ 記憶體一樣有界、但拖曳過程不再跳。
-        // ★停用「補舊時順手剪右側」(2026-07-30):它剪的正是右緣 = LWC 捲動定位的基準 → 必跳。
-        //   記憶體改由 _scheduleIdleTrim 在「使用者滑回最新附近」時回收(那時剪左側、右緣不動、不跳)。
-        //   代價:一路往舊滑的過程中常駐根數會長到 TRIM_MAX 以上,滑回來時才收掉。
-        const _dragging = window._chartMoveTs && (performance.now() - window._chartMoveTs < 250);
-        if (false && vr && !_dragging && ohlcvData.length > TRIM_MAX) {
-          const viewToNew = Math.ceil(vr.to) + nPrepended;      // 視野右緣在「已 prepend」的新 index 空間
-          const keepHi = Math.min(ohlcvData.length - 1, viewToNew + 4500);
-          if (keepHi > viewToNew + 50 && keepHi < ohlcvData.length - 1) {
-            ohlcvData = ohlcvData.slice(0, keepHi + 1);
-            _rebuildTimeIndex();
-            _incAnchor = 0;                                       // 已改動右側→全量重建 anchor
-            try {
-              const _lastT = toTime(ohlcvData[ohlcvData.length - 1].time);
-              const _nowSec = Math.floor(Date.now() / 1000) + 8 * 3600;
-              const _tfS = { "1m":60,"5m":300,"15m":900,"30m":1800,"1h":3600,"2h":7200,"4h":14400,"1d":86400 }[currentTF] || 3600;
-              window._hasFwdGap = _lastT < _nowSec - _tfS * 2;
-            } catch (e) {}
-          }
-        }
+        const _incAnchor = nPrepended;
+        // ⚠ 這裡曾經有「補舊時順手把右側最新那批剪掉」讓 n 有界的程式碼,2026-07-30 停用、
+        //   2026-07-31 刪除(留這段說明避免有人再實作一次):
+        //   ・它剪的正是右緣 = LWC 捲動定位(rightOffset)的基準 → 剪完視野必被往舊帶,一定跳。
+        //   ・想在同一批用 setVisibleLogicalRange 補償也沒用:setData 排到繪製才生效、補償立刻生效,
+        //     中間必然畫錯一幀(逐幀量到 −317/−458 根的往返)。這條路已窮盡,別再試。
+        //   ★記憶體改由 _scheduleIdleTrim 在「停手且滑回最新附近」時回收——那時剪的是左側、
+        //     右緣不動 → 不跳。代價是一路往舊滑的過程中常駐根數會超過 TRIM_MAX,滑回來才收掉。
         const shifted = vr ? { from: vr.from + nPrepended, to: vr.to + nPrepended } : null;
         // ★這裡若剛剪過右側,也要把 LWC 真正用來捲動的位置一起設對(同 _scheduleIdleTrim 的說明):
         //   只設 logical range 的話,換資料那一幀 LWC 會拿舊 rightOffset 重算 → 畫面整整偏掉一個

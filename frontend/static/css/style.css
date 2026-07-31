@@ -1840,21 +1840,6 @@ html.perf-mode #domHead { color: #333; border-bottom-color: rgba(0, 0, 0, 0.1); 
   transition: background .15s;
 }
 
-.pane-collapse-btn {
-  background: transparent;
-  border: none;
-  color: var(--muted);
-  font-size: 14px;
-  line-height: 1;
-  cursor: pointer;
-  padding: 0 5px;
-  flex-shrink: 0;
-  pointer-events: all;
-  border-radius: 3px;
-  transition: background .12s, color .12s;
-}
-.pane-collapse-btn:hover { color: var(--text); background: var(--bg3); }
-
 /* Cross-pane vertical line */
 .pane-vline {
   position: absolute;
@@ -3285,7 +3270,7 @@ html.perf-mode .time-axis-year {
 ══════════════════════════════════════════ */
 .tf-btn, .ct-btn, .btn-load, .btn-mode,
 .rp-btn, .rp-speed, .dt-btn, .tb-icon-btn,
-.tb-indicators-btn, .pane-collapse-btn, .ind-gear-btn,
+.tb-indicators-btn, .ind-gear-btn,
 .sym-tab, .tk-seg-btn {
   position: relative;
   overflow: hidden;
@@ -3293,7 +3278,7 @@ html.perf-mode .time-axis-year {
 .tf-btn:active,    .ct-btn:active,      .btn-load:active,
 .btn-mode:active,  .rp-btn:active,      .rp-speed:active,
 .dt-btn:active,    .tb-icon-btn:active, .tb-indicators-btn:active,
-.pane-collapse-btn:active, .ind-gear-btn:active,
+.ind-gear-btn:active,
 .sym-tab:active,   .tk-seg-btn:active {
   transform: scale(0.88);
   transition: transform 0.07s ease;
@@ -6740,6 +6725,32 @@ html.landing-active .landing { background: transparent; }
   .m-set-row:has(+ .m-set-sec),
   .m-set-row:last-child { border-bottom-left-radius: 14px; border-bottom-right-radius: 14px; border-bottom: none; }
   .m-set-row:active { background: rgba(255,255,255,.11); }
+  /* ── 副圖個別開關（手機專用）──────────────────────────────────────────────
+     桌機是工具島的 hover 勾選選單；手機沒有 hover、.draw-toolbar 又整個 display:none，
+     所以「只關掉 MACD」這件事在手機只能從這裡做。緊貼在「副圖指標」那列下方＝同一張卡片。 */
+  .m-set-indrow {
+    display: flex; gap: 8px;
+    width: calc(100% - 24px); box-sizing: border-box;
+    margin: 0 12px; padding: 10px 16px 12px;
+    background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02));
+    -webkit-backdrop-filter: blur(9px); backdrop-filter: blur(9px);
+    border-bottom: 1px solid rgba(255,255,255,.07);
+  }
+  .m-set-indchip {
+    flex: 1; min-height: 34px; border-radius: 9px;
+    border: 1px solid rgba(255,255,255,.14);
+    background: rgba(255,255,255,.04); color: var(--muted, #8b93a3);
+    font-family: inherit; font-size: 13px; font-weight: 700; letter-spacing: .3px;
+    cursor: pointer; -webkit-tap-highlight-color: transparent;
+    transition: background .12s ease, color .12s ease, border-color .12s ease;
+  }
+  .m-set-indchip.on {
+    background: rgba(41,98,255,.20); border-color: var(--blue, #2962ff); color: var(--text);
+  }
+  .m-set-indchip:active { transform: scale(0.94); }
+  /* 整組隱藏中 → 個別勾選沒有意義，整排變淡且不接受點擊（點了也 return） */
+  .m-set-indrow.all-off { opacity: .38; }
+  .m-set-indrow.all-off .m-set-indchip { pointer-events: none; }
   /* ── 切換狀態：開啟＝中性亮一階 + 左側指示條（去橘漸層，使用者要求）；關閉＝灰，仍一眼確認 ── */
   .m-set-row.m-set-on {
     background: rgba(255,255,255,.10);

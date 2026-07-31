@@ -19,3 +19,13 @@ zhconv>=1.4.3
 redis>=5.0.0
 rcssmin>=1.1.0
 pillow>=10.0.0
+
+# ── 直接 import、但過去只靠傳遞相依帶進來的（2026-07-31 補宣告）────────────────
+#   這三個在程式碼裡是直接 import 的，之前沒列出來，能跑純粹是上游順手裝了：
+#     requests      ← yfinance / FinMind 帶進來；被 10+ 模組直接用，含 binance_trade.py 下單路徑
+#     cryptography  ← pywebpush 帶進來；trade.py 用 Fernet/PBKDF2 加密使用者的交易所金鑰
+#     py_vapid      ← pywebpush 帶進來；notify.py 產 Web Push VAPID 金鑰
+#   上游哪天換掉或改 pin → Railway 開機就 ImportError，而且會一起打掉下單與推播。
+requests>=2.31.0
+cryptography>=42.0.0
+py-vapid>=1.9.0

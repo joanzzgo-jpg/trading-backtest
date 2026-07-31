@@ -1203,6 +1203,13 @@
       <span class="m-set-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" filter="url(#mSketch)"><rect x="3.5" y="3.5" width="17" height="9" rx="1.6"/><path d="M5.6 9.4 L9 6.4 L12 8.4 L15.6 5.4"/><rect x="3.5" y="15" width="17" height="5.6" rx="1.4"/><path d="M6 18.6 V17.4 M9.4 18.6 V16.4 M12.8 18.6 V17 M16.2 18.6 V15.8"/></svg></span>
       <span class="m-set-lbl">副圖指標<small id="mSetSubchartsState">KDJ / RSI / MACD</small></span><span class="m-set-arr">›</span>
     </button>
+    <!-- 手機的「單獨開關某個副圖」：桌機是工具島的 hover 勾選選單，手機沒有 hover、工具島也整個
+         隱藏 → 那條路走不到，放在這裡（上面那顆是整組開/關，這排是個別）。 -->
+    <div class="m-set-indrow" id="mSetIndRow">
+      <button type="button" class="m-set-indchip" data-pane="kdjPane">KDJ</button>
+      <button type="button" class="m-set-indchip" data-pane="rsiPane">RSI</button>
+      <button type="button" class="m-set-indchip" data-pane="macdPane">MACD</button>
+    </div>
     <button class="m-set-row" id="mSetSession" onclick="event.stopPropagation();document.getElementById('sessionToggleBtn')?.click();">
       <span class="m-set-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" filter="url(#mSketch)"><circle cx="8.4" cy="10.5" r="5" opacity="0.5"/><circle cx="15.6" cy="10.5" r="5" opacity="0.75"/><circle cx="12" cy="14.5" r="5"/></svg></span>
       <span class="m-set-lbl">交易時段標記<small id="mSetSessionState">開啟</small></span><span class="m-set-arr">›</span>

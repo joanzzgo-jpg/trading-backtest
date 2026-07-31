@@ -14,6 +14,7 @@ import time
 import math
 import threading
 import pandas as pd
+import numpy as np
 import datetime as _dt
 import threading as _threading
 import collections as _collections
@@ -848,12 +849,45 @@ class OHLCVRequest(BaseModel):
 #             ②回 ORJSONResponse 跳過 jsonable_encoder。實測 ~68ms → ~7ms。
 #   ⚠ 不能改動共用的 df_to_records：其他端點仍走 FastAPI 預設編碼器，那裡 NaN 必須先轉 None
 #     （json.dumps 會吐出非法的 `NaN`）。故另開這兩個只給本端點用的函式。
+# 指標欄位瘦身用：這些是「算出來、只拿去畫線／顯示」的欄位，帶著 float64 的 17 位有效數字
+#   （`"bb_middle": 60514.079999999994`）純粹是浪費頻寬——螢幕上根本畫不出那個精度。
+#   實測 BTC 1h 1500 根：693KB→559KB，gzip 230KB→157KB（−32%）。這是首屏最大的一包。
+# ⚠ 一定要用「有效位數」不能用「小數位數」：bb_*／macd_* 是**價格尺度**，round(x, 4) 會把
+#   SHIB 那種 0.00001234 直接抹平成 0。8 位有效數字在任何價位都遠超過畫面能表現的精度。
+# ⚠ 只動這 11 個推導欄位，open/high/low/close/volume 一律不碰（前端會拿它們重算 BB、比對時間、
+#   算量能均線——原值進原值出，不引入任何誤差）。
+_OHLCV_SLIM_COLS = ("rsi_14", "rsi_7", "macd", "macd_signal", "macd_hist",
+                    "bb_upper", "bb_middle", "bb_lower", "kdj_k", "kdj_d", "kdj_j")
+_OHLCV_SLIM_SIG = 8
+
+
+def _round_sig_series(s, sig=_OHLCV_SLIM_SIG):
+    """向量化「四捨五入到 N 位有效數字」。NaN/inf/0 原樣保留。
+    做法：先取十進位指數 → 縮放到整數位四捨五入 → 縮回去。之所以不用 np.round(a, decimals)，
+    是因為它的 decimals 只吃純量，而我們每一格需要不同的小數位（值的量級不同）。"""
+    a = s.to_numpy(dtype="float64", copy=True)
+    m = np.isfinite(a) & (a != 0)
+    if not m.any():
+        return a
+    scale = np.power(10.0, sig - 1 - np.floor(np.log10(np.abs(a[m]))))
+    r = np.round(a[m] * scale) / scale
+    a[m] = np.where(np.isfinite(r), r, a[m])   # 極端量級導致 scale 溢位 → 保留原值
+    return a
+
+
 def _ohlcv_records(df):
-    """DataFrame → records（時間戳向量化轉 ISO；NaN 原樣留給 orjson 轉 null）。"""
+    """DataFrame → records（時間戳向量化轉 ISO；指標欄位縮到 8 位有效數字；NaN 原樣留給 orjson 轉 null）。"""
     try:
         out = df
-        if "time" in out.columns and hasattr(out["time"], "dt"):
+        _slim = [c for c in _OHLCV_SLIM_COLS if c in out.columns]
+        if _slim or ("time" in out.columns and hasattr(out["time"], "dt")):
             out = out.copy()
+        for c in _slim:
+            try:
+                out[c] = _round_sig_series(out[c])
+            except Exception:
+                pass          # 單一欄位轉換失敗 → 該欄保持原樣（瘦身是可有可無的，正確性優先）
+        if "time" in out.columns and hasattr(out["time"], "dt"):
             out["time"] = out["time"].dt.strftime("%Y-%m-%dT%H:%M:%S")
         return out.to_dict(orient="records")
     except Exception:

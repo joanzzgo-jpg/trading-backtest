@@ -30,6 +30,7 @@ function _obFmtN(n) {
 
 async function _obFetch() {
   if (!_obShow || _obFetching) return;
+  if (document.hidden) return;   // 背景分頁不輪詢（2.5s 一輪、打的是 Binance）；回前景由 main.js 立刻補一輪
   const market = document.getElementById("marketSelect")?.value || "crypto";
   const symbol = document.getElementById("symbolInput")?.value?.trim() || "";
   if (market !== "crypto" || !symbol) {

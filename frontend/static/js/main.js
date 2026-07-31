@@ -332,6 +332,11 @@ document.addEventListener("DOMContentLoaded", async () => {
       // 分頁重新可見 → 強制重抓一次勝率：離開期間新收盤棒的 FVG 沒被即時補（realtime 停了、
       //   或回來時跳超過 5 根被防跳躍守則略過）→ 回來補上，最近一段 FVG 不會凍結。
       if (!replayActive && typeof window._wrRefreshCurrent === "function") window._wrRefreshCurrent();
+      // 盤口/掛單牆/足跡在背景時各自 return 掉了（見它們的 document.hidden 守衛）→ 回前景立刻補一輪，
+      // 不然要空等一個間隔才更新（足跡 20 秒最有感）。各函式自己會判「沒開就不做」。
+      if (typeof _domFetch === "function") _domFetch();
+      if (typeof _obFetch  === "function") _obFetch();
+      if (typeof _fpFetch  === "function") _fpFetch();
     }
   });
 
