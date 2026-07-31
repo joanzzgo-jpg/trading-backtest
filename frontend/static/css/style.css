@@ -2069,6 +2069,26 @@ html.perf-mode .time-axis-year {
 
 .tk-loading { color: #555; font-size: 11px; padding: 12px 8px; }
 
+/* 行情中斷提示（#tkStale）：連續數輪抓不到報價才顯示，抓到就立刻收起。
+   刻意用紅底實色而非淡淡的一行——「價格是死的」這件事必須一眼看見。 */
+.tk-stale {
+  flex-shrink: 0;
+  margin: 6px 8px 0;
+  padding: 5px 8px;
+  border-radius: 5px;
+  background: rgba(239, 83, 80, 0.16);
+  border: 1px solid #ef5350;
+  color: #ef8a88;
+  font-size: 11px;
+  line-height: 1.35;
+  text-align: center;
+  animation: tkStaleBlink 1.6s ease-in-out infinite;
+}
+@keyframes tkStaleBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+@media (prefers-reduced-motion: reduce) { .tk-stale { animation: none; } }
+/* 極簡模式是白底：#ef8a88 淡紅字在淡紅底上幾乎看不見 → 換成深紅（只動顏色，不碰版面） */
+html.perf-mode .tk-stale { background: rgba(220, 38, 38, 0.10); border-color: #dc2626; color: #b91c1c; }
+
 .ticker-item {
   display: flex;
   align-items: center;

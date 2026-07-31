@@ -202,13 +202,48 @@ function _spotNeeded() {
   return false;
 }
 
+/* ── 行情中斷提示（2026-08-01）─────────────────────────────────────────────
+   ★為什麼：實測把 /api/ 全部切斷後，畫面**完全沒有任何跡象**——報價列、主圖、
+     連分頁標題都停在最後一次的價格，30 秒後依然理直氣壯寫著「BTC/USDT.P 63,057.2」。
+     94 個請求失敗全被 `catch {}` 吃掉。對回測/交易工具來說這是最危險的一種壞法：
+     使用者以為自己在看即時價，其實是一張凍住的截圖。
+   → 連續數輪抓不到就明講。抓到就立刻收起（收起條件只看「有沒有成功過」，不做遲滯，
+     免得網路一恢復還卡著紅字反而更令人懷疑）。
+   ⚠ 看門狗要獨立於 fetchTickers 的 setInterval：請求若是**卡住**(不是失敗)，
+     fetchTickers 會停在 await 上不返回，靠它自己回報等於永遠不會亮。 */
+const _TK_STALE_MS = { crypto: 10000, tw: 15000 };   // 輪詢 1s / 3s → 約 10 輪 / 5 輪沒消息
+let _tkLastOkTs = 0;
+let _tkStaleOn  = false;
+function _tkStaleCheck() {
+  try {
+    if (!_tkLastOkTs) return;                        // 還沒成功過(初次載入中) → 不亂報
+    const lim  = _TK_STALE_MS[_tickerMkt === "tw" ? "tw" : "crypto"];
+    const gone = Date.now() - _tkLastOkTs;
+    const bad  = gone > lim;
+    if (bad === _tkStaleOn) {                        // 狀態沒變 → 只更新秒數
+      if (bad) { const t = document.getElementById("tkStaleTxt");
+                 if (t) t.textContent = `⚠ 行情中斷 ${Math.round(gone / 1000)} 秒 — 畫面上的價格已非即時`; }
+      return;
+    }
+    _tkStaleOn = bad;
+    document.getElementById("tkStale")?.classList.toggle("hidden", !bad);
+    const t = document.getElementById("tkStaleTxt");
+    if (t && bad) t.textContent = `⚠ 行情中斷 ${Math.round(gone / 1000)} 秒 — 畫面上的價格已非即時`;
+    _lastPageTitle = "";                             // 讓 updatePageTitle 重寫(加/去掉標題前綴)
+    updatePageTitle();
+  } catch (e) {}
+}
+if (typeof window !== "undefined" && !window._tkStaleTimer) {
+  window._tkStaleTimer = setInterval(_tkStaleCheck, 2000);
+}
+
 async function fetchTickers() {
   try {
     _tkPollN++;
     const useSince = (_tkPollN % 60 !== 1);   // 每 60 輪第 1 次拿整包,其餘走 delta
     if (_tickerMkt === "tw") {
       const res = await fetch(_tkUrl("tw", "tw", useSince));
-      if (res.ok) { const j = await res.json(); _twTickerData = _tkMerge(_twTickerData, j, "tw"); }
+      if (res.ok) { const j = await res.json(); _twTickerData = _tkMerge(_twTickerData, j, "tw"); _tkLastOkTs = Date.now(); }
     } else {
       const wantSpot = _spotNeeded() || (Date.now() - _spotLastTs >= _SPOT_IDLE_MS);
       if (wantSpot) _spotLastTs = Date.now();
@@ -216,9 +251,10 @@ async function fetchTickers() {
         fetch(_tkUrl("futures", "futures", useSince)),
         wantSpot ? fetch(_tkUrl("spot", "spot", false)) : null,
       ]);
-      if (futRes.ok)  { const j = await futRes.json();  _tickerData     = _tkMerge(_tickerData, j, "futures"); }
+      if (futRes.ok)  { const j = await futRes.json();  _tickerData     = _tkMerge(_tickerData, j, "futures"); _tkLastOkTs = Date.now(); }
       if (spotRes && spotRes.ok) { const j = await spotRes.json(); _spotTickerData = _tkMerge(_spotTickerData, j, "spot"); }
     }
+    if (_tkStaleOn) _tkStaleCheck();   // 恢復了 → 不等下一次看門狗，立刻收起紅字
 
     // 手機版面板未滑出時跳過 DOM 更新；桌面版面板永遠可見
     const isMobile = window.innerWidth <= 900 || isMobileUI();
@@ -289,9 +325,11 @@ function updatePageTitle() {
     (t.spot  || "").toUpperCase() === sym ||
     (t.display || "").toUpperCase() === sym
   );
+  // 行情中斷時標題加前綴：使用者常把這個分頁丟在背景當報價看板，那時分頁標題是唯一的訊息通道
+  const pre = _tkStaleOn ? "⚠ 已中斷 " : "";
   const newTitle = hit
-    ? `${hit.display || sym} ${fmtTickerPrice(hit.price)} ${hit.change_pct >= 0 ? "+" : ""}${hit.change_pct.toFixed(2)}%`
-    : sym;
+    ? `${pre}${hit.display || sym} ${fmtTickerPrice(hit.price)} ${hit.change_pct >= 0 ? "+" : ""}${hit.change_pct.toFixed(2)}%`
+    : pre + sym;
   if (newTitle !== _lastPageTitle) { _lastPageTitle = newTitle; document.title = newTitle; }
 }
 

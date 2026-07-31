@@ -739,6 +739,9 @@
       <input id="tickerSearch" class="tk-search" type="text" placeholder="搜尋標的…" />
       <button id="tickerSearchClear" class="tk-search-clear hidden" type="button" title="清除" aria-label="清除搜尋">✕</button>
     </div>
+    <!-- 行情中斷提示：連續數輪抓不到報價時顯示（見 ticker.js _tkStaleCheck）。
+         交易工具最忌「畫面還在、數字卻是死的」→ 寧可明講斷了，也不要讓人拿舊價當現價。 -->
+    <div class="tk-stale hidden" id="tkStale"><span id="tkStaleTxt">行情中斷</span></div>
     <div class="ticker-list" id="tickerList"><div class="tk-loading">載入中…</div></div>
   </div>
 
