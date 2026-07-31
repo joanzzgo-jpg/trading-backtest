@@ -6,7 +6,7 @@
  *  - /static/*、CDN → cache-first。靜態 URL 都帶 ?v=版號，改版即換 URL → 不會吃到舊檔。
  * 換快取策略時把 CACHE 版號 +1 即可讓舊快取在 activate 時清掉。
  */
-const CACHE = "ahh-static-v19";  // v19:移除 unpkg CDN 快取(庫已全自架,同步 CSP 收緊)
+const CACHE = "ahh-static-v20";  // v20:靜態資源改「存新的就刪同檔舊版號」(見 _pruneOldVersions)
 
 self.addEventListener("install", (e) => {
   self.skipWaiting();
@@ -101,10 +101,30 @@ self.addEventListener("fetch", (e) => {
         // 只快取成功回應
         if (resp && resp.status === 200) {
           const copy = resp.clone();
-          caches.open(CACHE).then((c) => c.put(req, copy));
+          caches.open(CACHE).then((c) =>
+            c.put(req, copy).then(() => _pruneOldVersions(c, url))
+          ).catch(() => {});
         }
         return resp;
       });
     })
   );
 });
+
+// 存進新版本後，把「同一支檔案的其他 ?v=」清掉。
+//
+// 為什麼需要（2026-07-31 修）：這裡是 cache-first + 靠 ?v= 換 URL 破快取，但舊版號的條目
+// 從來沒有人刪 —— 版號是 git hash+時間戳，**每次部署都會變** → 每部署一次就永久多存一整包
+// app.bundle.js(≈420KB)＋style.min.css(≈195KB)＋所有改過的資產。實測重新載入後快取裡同時
+// 躺著 4 個版本的 app.bundle.js。累積到瀏覽器配額上限時，整個來源的儲存(含 App 離線用的
+// IndexedDB 快照)都可能被一起清掉 → 反而變成「離線就進不去」。
+// 舊版號被刪掉後若真有人要（例如還開著的舊分頁），退回走網路即可，不影響正確性。
+function _pruneOldVersions(cache, url) {
+  return cache.keys().then((keys) => Promise.all(
+    keys.filter((r) => {
+      let u;
+      try { u = new URL(r.url); } catch (_) { return false; }
+      return u.origin === url.origin && u.pathname === url.pathname && u.search !== url.search;
+    }).map((r) => cache.delete(r))
+  )).catch(() => {});
+}
