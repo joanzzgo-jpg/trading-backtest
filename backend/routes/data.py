@@ -19,7 +19,7 @@ import datetime as _dt
 import threading as _threading
 import collections as _collections
 
-from data.taiwan import fetch_tw_stock, resample_tw, fetch_tw_intraday, fetch_tw_realtime, fetch_tw_intraday_yf, fetch_tw_latest_bar_yf, fetch_tw_daily_yf, merge_tw_intraday, cnyes_last_good, YF_MAX_DAYS as TW_YF_MAX_DAYS
+from data.taiwan import fetch_tw_stock, resample_tw, fetch_tw_intraday, fetch_tw_realtime, fetch_tw_intraday_yf, fetch_tw_latest_bar_yf, fetch_tw_daily_yf, merge_tw_intraday, cnyes_last_good, resample_tw_4h, YF_MAX_DAYS as TW_YF_MAX_DAYS
 from data.fugle import fetch_fugle_intraday, fugle_enabled
 # 註：fetch_taifex_quote / resolve_front_month 曾列在這裡但整檔沒用到（唯一的使用者是
 #     _diag_futopt，它在函式內自己 import）→ 2026-07-31 移除，順便解掉那處名稱遮蔽。
@@ -116,11 +116,15 @@ def fetch_crt_df(market: str, symbol: str, timeframe: str, days: int,
                     _df = fetch_tw_intraday(symbol, "1h", start, end, finmind_token)
                 else:
                     raise
-            _df = _df.set_index("time")
-            _df = _df.resample("4h", origin="start_day", offset="1h").agg(
-                {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
-            )
-            return _df.dropna(subset=["open"]).reset_index()
+            # 4h 也接 cnyes（2026-07-31）：這條原本只吃 yfinance 1h，而 yfinance 台股盤中會落後
+            # 十幾二十分鐘（實測 12:36 時它只到 11:45、cnyes 已到 12:30）→ **形成中的那根 4h 棒
+            # 的收盤/高低都是舊的**。先把當日的 cnyes 1h 合併進來再分桶，形成中的 4h 就是最新的。
+            try:
+                _c1 = cnyes_last_good(symbol, "1h", fetch_cnyes_stock_intraday(symbol, "1h"))
+                _df = merge_tw_intraday(_df, _c1)
+            except Exception:
+                pass
+            return resample_tw_4h(_df)
         else:
             start = (date.today() - timedelta(days=days)).isoformat()
             try:
@@ -1210,15 +1214,22 @@ def get_latest(req: LatestRequest):
                 # ⭐ cnyes 個股即時分鐘K 最優先（同台指期資料源：09:00 起連續無跳號、無延遲、含即時那根、
                 #    免金鑰）。徹底解決 yfinance 台股盤中延遲15-20分 + MIS 只補打開後那段 → 「1010跳1030」
                 #    斷層。快取 8 秒；失敗/收盤/查無 → fallback 回 Fugle→yfinance+MIS。
-                if tf in ("1m", "5m", "15m", "1h"):
-                    cnkey = f"tw_cnyes_{req.symbol}_{tf}"
+                # 4h 也走這條（2026-07-31）：cnyes 沒有原生 4h → 抓 1h 再用與 /api/ohlcv **同一個**
+                # 分桶函式 resample_tw_4h 產 4h。原本 4h 被排除在外，只能落到最下面的 yfinance
+                # 路徑並回 live=False → 前端根本不會輪詢更新它，盤中那根 4h 就一直是舊值。
+                _src_tf = "1h" if tf == "4h" else tf
+                if tf in ("1m", "5m", "15m", "1h", "4h"):
+                    cnkey = f"tw_cnyes_{req.symbol}_{_src_tf}"
                     cndf = cache.get(cnkey, ttl=8)
                     if cndf is None:
-                        cndf = fetch_cnyes_stock_intraday(req.symbol, tf)
+                        cndf = fetch_cnyes_stock_intraday(req.symbol, _src_tf)
                         if cndf is not None and not cndf.empty:
                             cache.set(cnkey, cndf)
                     if cndf is not None and not cndf.empty:
-                        return {"live": True, "data": df_to_records(cndf.tail(40))}
+                        if tf == "4h":
+                            cndf = resample_tw_4h(cndf)
+                        if cndf is not None and not cndf.empty:
+                            return {"live": True, "data": df_to_records(cndf.tail(40))}
                 # Fugle 富果即時分鐘K 次之（無 20 分延遲、無空隙）。快取 8 秒；失敗或未設 FUGLE_TOKEN → yfinance+MIS。
                 if tf in ("1m", "5m", "15m", "1h") and fugle_enabled():
                     fkey = f"tw_fugle_{req.symbol}_{tf}"

@@ -643,3 +643,17 @@ def merge_tw_intraday(yf_df, cn_df):
     only_c = c.index.difference(y.index)              # cnyes 才有的（yfinance 落後的尾巴）
     out = pd.concat([y, c.loc[only_c]]) if len(only_c) else y
     return out.sort_index().reset_index()
+
+
+def resample_tw_4h(df_1h):
+    """台股 1h → 4h 的**唯一**分桶定義。origin=start_day + offset=1h ＝ 09:00/13:00 兩桶
+    （台股 09:00~13:30）。
+    ⚠ 抽成共用函式的理由：/api/ohlcv 與 /api/latest 兩條路徑都要產 4h 棒，分桶規則只要有一邊
+      寫得不一樣，最後一根的時間戳就對不上 → 前端會把它當成「新的一根」接上去，圖上多出一根
+      假 K 棒。改規則時這裡改一次就好。"""
+    if df_1h is None or df_1h.empty:
+        return df_1h
+    out = df_1h.set_index("time").resample("4h", origin="start_day", offset="1h").agg(
+        {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
+    )
+    return out.dropna(subset=["open"]).reset_index()
