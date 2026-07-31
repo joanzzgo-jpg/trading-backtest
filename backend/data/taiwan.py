@@ -538,18 +538,51 @@ def _tw_stock_info(api_token: str = "") -> list:
     if records:
         _TW_INFO_CACHE["ts"] = now
         _TW_INFO_CACHE["records"] = records
+        _TW_INFO_CACHE["current"] = None      # 換了新清單 → 去重結果作廢，下次重算
         return records
     return c["records"] or []
 
 
-def search_tw_stock(keyword: str, api_token: str = "") -> list[dict]:
-    """搜尋台股代號（清單走 12hr 記憶體快取，過濾在本機、毫秒級）"""
+def _tw_stock_current(api_token: str = "") -> list:
+    """把上面那份清單「每個代號只留現行那一筆」。
+
+    來源 TaiwanStockInfo 是**產業分類異動史**：同一檔股票每換一次分類就多一列，實測 4296 筆
+    裡有 1048 個代號重複。而且代號會被回收再配給別家公司（5450 舊列＝寶聯通 2020、
+    新列＝南良 2026）→ 不處理的話搜尋不只跳出重複項，還會顯示**已經不是那家公司的舊名**。
+    取 date 最大的那列＝現行分類與現行名稱。
+
+    ⚠ 必須在「過濾關鍵字之前」做：先過濾再去重的話，搜舊公司名時整個過濾結果裡只剩那筆舊列、
+      沒有新列可以把它擠掉 → 舊名照樣被搜出來（等於沒修）。
+    結果跟著 12hr 清單一起快取，不必每次搜尋都掃 4296 筆。"""
+    c = _TW_INFO_CACHE
     records = _tw_stock_info(api_token)
+    if c.get("current") is not None and c.get("current_src") is records:
+        return c["current"]
+    latest: dict = {}
+    for r in records:
+        sid = r.get("stock_id", "")
+        if not sid:
+            continue
+        cur = latest.get(sid)
+        # date 缺失視為最舊（空字串在字串比較下本來就最小）；ISO 日期可直接字串比大小
+        if cur is None or str(r.get("date") or "") >= str(cur.get("date") or ""):
+            latest[sid] = r
+    out = list(latest.values())
+    c["current"] = out
+    c["current_src"] = records
+    return out
+
+
+def search_tw_stock(keyword: str, api_token: str = "") -> list[dict]:
+    """搜尋台股代號（清單走 12hr 記憶體快取，過濾在本機、毫秒級）。
+
+    清單先經 _tw_stock_current() 去重（每個代號只留現行那筆）→ 搜 2330 不再跳出兩個台積電、
+    也不會搜到已經換過公司的舊名。理由與順序的講究見該函式。"""
+    records = _tw_stock_current(api_token)
     keyword = keyword.lower()
-    results = [
+    return [
         {"symbol": r["stock_id"], "name": r.get("stock_name", "")}
         for r in records
         if keyword in r.get("stock_id", "").lower()
         or keyword in r.get("stock_name", "").lower()
-    ]
-    return results[:20]
+    ][:20]

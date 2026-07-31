@@ -506,9 +506,9 @@ function _renderCoachList(container, currentSym) {
       return `<span style="color:${dc};font-weight:700">${tf}${dl}</span>${tag}`;
     }).join('<span style="color:#556">·</span>');
     const gone = !!r._gone;   // 已失效(退階/離區):灰化停留2分鐘,標「已失效」
-    return `<div class="ticker-item coach-item${active ? " tk-active" : ""}" data-mkt="crypto" data-exch="pionex" data-sym="${sym}" data-symbol="${sym.replace("/", "").replace(".P", "")}" data-display="${disp}" data-ver="${bestVer}" style="cursor:pointer${gone ? ";opacity:.42" : ""}">
+    return `<div class="ticker-item coach-item${active ? " tk-active" : ""}" data-mkt="crypto" data-exch="pionex" data-sym="${escHtml(sym)}" data-symbol="${escHtml(sym.replace("/", "").replace(".P", ""))}" data-display="${escHtml(disp)}" data-ver="${bestVer}" style="cursor:pointer${gone ? ";opacity:.42" : ""}">
       <div style="display:flex;justify-content:space-between;align-items:center;width:100%;padding:3px 2px">
-        <span style="font-weight:700">${gone ? "💤" : "🎯"} ${disp}${gone ? '<span style="color:#98a;font-size:10px;margin-left:4px">已失效</span>' : ""}</span><span style="font-size:12px;display:flex;gap:4px;align-items:center">${vers}</span>
+        <span style="font-weight:700">${gone ? "💤" : "🎯"} ${escHtml(disp)}${gone ? '<span style="color:#98a;font-size:10px;margin-left:4px">已失效</span>' : ""}</span><span style="font-size:12px;display:flex;gap:4px;align-items:center">${vers}</span>
       </div></div>`;
   }).join("");
   container.innerHTML = html;
@@ -645,11 +645,11 @@ function renderTickers() {
 /* ── 三種 row 的 build（建立）/ update（重用時只改變動值）── */
 function _buildWlRow(it) {
   if (it._hdr)   // 市場分組標題列（不可點選，_bindTickerRow 會略過）
-    return `<div class="tk-wl-hdr"><span class="tk-wl-hdr-t">${it.label}</span><span class="tk-wl-hdr-n">${it.count}</span></div>`;
+    return `<div class="tk-wl-hdr"><span class="tk-wl-hdr-t">${escHtml(it.label)}</span><span class="tk-wl-hdr-n">${it.count}</span></div>`;
   const m = it.item;
-  return `<div class="ticker-item${it.active ? " tk-active" : ""}" data-mkt="${m.market}" data-exch="${m.exchange || ""}" data-sym="${m.symbol}">
+  return `<div class="ticker-item${it.active ? " tk-active" : ""}" data-mkt="${escHtml(m.market)}" data-exch="${escHtml(m.exchange || "")}" data-sym="${escHtml(m.symbol)}">
     ${_coinLogoHtml(m.symbol)}
-    <div class="tk-info"><span class="tk-sym">${m.symbol}</span><span class="tk-full">${m.market === "crypto" ? _coinFullName(m.symbol) : m.market.toUpperCase()}</span></div>
+    <div class="tk-info"><span class="tk-sym">${escHtml(m.symbol)}</span><span class="tk-full">${escHtml(m.market === "crypto" ? _coinFullName(m.symbol) : m.market.toUpperCase())}</span></div>
     <div class="tk-prices">
       <span class="tk-price-val">${it.priceStr}</span>
       <div class="tk-chg-row"><span class="tk-chg-amt ${it.chgCls}">${it.amtStr}</span><span class="tk-chg ${it.chgCls}">${it.pctStr}</span></div>
@@ -666,9 +666,9 @@ function _updateWlRow(el, it) {
 }
 function _buildTwRow(it) {
   const t = it.t;
-  return `<div class="ticker-item${it.active ? " tk-active" : ""}${it.limitCls ? " " + it.limitCls : ""}" data-mkt="tw" data-exch="" data-sym="${t.symbol}" data-display="${t.symbol}">
+  return `<div class="ticker-item${it.active ? " tk-active" : ""}${it.limitCls ? " " + it.limitCls : ""}" data-mkt="tw" data-exch="" data-sym="${escHtml(t.symbol)}" data-display="${escHtml(t.symbol)}">
     ${_twLogoHtml(t.symbol, t.name)}
-    <div class="tk-info"><span class="tk-sym">${t.symbol}</span><span class="tk-full">${t.name || ""}</span></div>
+    <div class="tk-info"><span class="tk-sym">${escHtml(t.symbol)}</span><span class="tk-full">${escHtml(t.name || "")}</span></div>
     <div class="tk-prices">
       <span class="tk-price-val">${it.priceStr}</span>
       <div class="tk-chg-row"><span class="tk-chg-amt ${it.cls}">${it.amtStr}</span><span class="tk-chg ${it.cls}">${it.pctStr}</span><span class="tk-limit-badge">${it.limitTxt}</span></div>
@@ -687,9 +687,9 @@ function _updateTwRow(el, it) {
 }
 function _buildCryptoRow(it) {
   const t = it.t;
-  return `<div class="ticker-item${it.active ? " tk-active" : ""}" data-mkt="crypto" data-exch="${it.exch}" data-sym="${t.display}" data-symbol="${t.symbol}" data-display="${t.display}" data-spot="${t.spot || t.display}">
+  return `<div class="ticker-item${it.active ? " tk-active" : ""}" data-mkt="crypto" data-exch="${escHtml(it.exch)}" data-sym="${escHtml(t.display)}" data-symbol="${escHtml(t.symbol)}" data-display="${escHtml(t.display)}" data-spot="${escHtml(t.spot || t.display)}">
     ${it.logo}
-    <div class="tk-info"><span class="tk-sym">${t.display}</span><span class="tk-full">${it.full}</span></div>
+    <div class="tk-info"><span class="tk-sym">${escHtml(t.display)}</span><span class="tk-full">${escHtml(it.full)}</span></div>
     <div class="tk-prices">
       <span class="tk-price-val">${it.priceStr}</span>
       <div class="tk-chg-row"><span class="tk-chg-amt ${it.cls}">${it.amtStr}</span><span class="tk-chg ${it.cls}">${it.pctStr}</span></div>
@@ -915,14 +915,15 @@ function _symItemHTML(t, idx, mkt) {
   const desc   = isFut ? `${base} USDT 永續合約` : `${base} / USDT`;
   // 現貨代號（供 OHLCV API 使用）
   const spot   = t.spot || `${base}/USDT`;
+  // 交易所標的清單（Binance / Pionex）也是外部來源 → 同 _usItemHTML 的理由，一律跳脫
   return `<div class="sym-result-item" data-idx="${idx}" data-market="crypto"
-    data-symbol="${rawSym}" data-display="${name}"
-    data-spot="${spot}"
+    data-symbol="${escHtml(rawSym)}" data-display="${escHtml(name)}"
+    data-spot="${escHtml(spot)}"
     data-change_pct="${chg}" data-price="${t.price || 0}">
-    <div class="sym-icon" style="background:${color}">${base.slice(0,2)}</div>
+    <div class="sym-icon" style="background:${color}">${escHtml(base.slice(0,2))}</div>
     <div class="sym-result-info">
-      <span class="sym-result-name">${name}</span>
-      <span class="sym-result-desc">${desc}</span>
+      <span class="sym-result-name">${escHtml(name)}</span>
+      <span class="sym-result-desc">${escHtml(desc)}</span>
     </div>
     <div class="sym-result-right">
       <span class="sym-result-chg ${cls}">${sign}${chg.toFixed(2)}%</span>
@@ -934,12 +935,13 @@ function _symItemHTML(t, idx, mkt) {
 // 台股搜尋結果項（data-market="tw"）
 function _twItemHTML(r, idx) {
   const id = String(r.stock_id || r.symbol || r);
+  const eid = escHtml(id);   // TWSE/TPEX opendata 來源 → 同 _usItemHTML 的理由，一律跳脫
   return `<div class="sym-result-item" data-idx="${idx}" data-market="tw"
-    data-symbol="${id}" data-display="${id}" tabindex="${idx}">
-    <div class="sym-icon" style="background:${symIconColor(id)}">${id.slice(0,2)}</div>
+    data-symbol="${eid}" data-display="${eid}" tabindex="${idx}">
+    <div class="sym-icon" style="background:${symIconColor(id)}">${escHtml(id.slice(0,2))}</div>
     <div class="sym-result-info">
-      <span class="sym-result-name">${id}</span>
-      <span class="sym-result-desc">${r.stock_name || r.name || ""}</span>
+      <span class="sym-result-name">${eid}</span>
+      <span class="sym-result-desc">${escHtml(r.stock_name || r.name || "")}</span>
     </div>
     <span class="sym-result-tag">台股</span>
   </div>`;
@@ -947,26 +949,30 @@ function _twItemHTML(r, idx) {
 
 // 美股搜尋結果項（data-market="us"）
 function _usItemHTML(r, idx) {
+  // ⚠ symbol/name/exchange/type 都是外部 API 回來的 → 進 HTML 與屬性前必須 escHtml()，
+  //   否則名稱裡一個引號就會截斷 data-symbol（點了載錯標的），也擋不住上游注入。
+  const sym = escHtml(r.symbol);
   return `<div class="sym-result-item" data-idx="${idx}" data-market="us"
-    data-symbol="${r.symbol}" data-display="${r.symbol}" tabindex="${idx}">
-    <div class="sym-icon" style="background:${symIconColor(r.symbol)}">${r.symbol.slice(0,2).toUpperCase()}</div>
+    data-symbol="${sym}" data-display="${sym}" tabindex="${idx}">
+    <div class="sym-icon" style="background:${symIconColor(r.symbol)}">${escHtml(String(r.symbol || "").slice(0,2).toUpperCase())}</div>
     <div class="sym-result-info">
-      <span class="sym-result-name">${r.symbol}</span>
-      <span class="sym-result-desc">${r.name || ""}${r.exchange ? " · " + r.exchange : ""}</span>
+      <span class="sym-result-name">${sym}</span>
+      <span class="sym-result-desc">${escHtml(r.name || "")}${r.exchange ? " · " + escHtml(r.exchange) : ""}</span>
     </div>
-    <span class="sym-result-tag">${r.type || "美股"}</span>
+    <span class="sym-result-tag">${escHtml(r.type || "美股")}</span>
   </div>`;
 }
 
 // 港股搜尋結果項（data-market="hk"；symbol 形如 0700.HK）
 function _hkItemHTML(r, idx) {
   const sym = String(r.symbol || "");
+  const esym = escHtml(sym);   // 外部來源 → 同 _usItemHTML 的理由，一律跳脫
   return `<div class="sym-result-item" data-idx="${idx}" data-market="hk"
-    data-symbol="${sym}" data-display="${sym}" tabindex="${idx}">
-    <div class="sym-icon" style="background:${symIconColor(sym)}">${sym.replace(".HK","").slice(0,2)}</div>
+    data-symbol="${esym}" data-display="${esym}" tabindex="${idx}">
+    <div class="sym-icon" style="background:${symIconColor(sym)}">${escHtml(sym.replace(".HK","").slice(0,2))}</div>
     <div class="sym-result-info">
-      <span class="sym-result-name">${sym}</span>
-      <span class="sym-result-desc">${r.name || ""}</span>
+      <span class="sym-result-name">${esym}</span>
+      <span class="sym-result-desc">${escHtml(r.name || "")}</span>
     </div>
     <span class="sym-result-tag">港股</span>
   </div>`;

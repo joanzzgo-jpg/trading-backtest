@@ -293,6 +293,20 @@ function _thousands(s) {
   if (head.length > 3) head = head.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   return sign + head + tail;
 }
+// 把字串塞進 innerHTML 樣板前一律先過這裡。
+// 為什麼需要：標的搜尋清單的公司名／代號是**外部 API 回來的**（Finnhub / TwelveData /
+//   yfinance / TWSE / cnyes），我們既把它放進文字節點、也放進 data-symbol="..." 屬性。
+//   ・功能面：名稱裡只要有一個 " 就會提前關掉屬性 → data-symbol 被截斷 → 點下去載錯標的。
+//   ・安全面：上游若回 <img onerror=...> 就直接在使用者頁面上執行。
+// 兩種位置共用一份（連 " 和 ' 一起跳脫）→ 文字與屬性都安全。
+// 報價列每秒重繪上百列 → 先用一次 test() 判有沒有危險字元，絕大多數（純代號）直接原樣回，
+// 不跑那 5 趟 replace。
+const _ESC_RE = /[&<>"']/;
+const _ESC_MAP = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+function escHtml(s) {
+  const str = (typeof s === "string") ? s : (s == null ? "" : String(s));
+  return _ESC_RE.test(str) ? str.replace(/[&<>"']/g, c => _ESC_MAP[c]) : str;
+}
 function fmt(v)    { const n = Number(v); return (v != null && isFinite(n)) ? _thousands(String(+n.toFixed(4))) : "—"; }
 function n2(v)     { return v!=null ? Number(v).toFixed(2) : "—"; }
 function _fmtPx(p) {

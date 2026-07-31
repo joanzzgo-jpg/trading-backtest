@@ -91,10 +91,10 @@ function _trdRenderOverview() {
   posEl.innerHTML = !pos.length ? `<div class="trd-empty">無持倉</div>` : pos.map(p => `
     <div class="trd-row">
       <span class="trd-side ${p.side === "long" ? "trd-up" : "trd-dn"}">${p.side === "long" ? "多" : "空"}</span>
-      <span class="trd-sym"><b class="trd-sym-jump" data-jump="${p.symbol}">${p.symbol}</b><small>×${p.lev}</small>${p.adds ? `<small class="trd-adds">加倉${p.adds}筆</small>` : ""}</span>
+      <span class="trd-sym"><b class="trd-sym-jump" data-jump="${escHtml(p.symbol)}">${escHtml(p.symbol)}</b><small>×${p.lev}</small>${p.adds ? `<small class="trd-adds">加倉${p.adds}筆</small>` : ""}</span>
       <span class="trd-nums">${_trdFmt(p.qty)} @ ${_trdFmt(p.entry)}</span>
       <span class="trd-pnl ${p.upnl >= 0 ? "trd-up" : "trd-dn"}">${p.upnl >= 0 ? "+" : ""}${_trdFmt(p.upnl, 2)}</span>
-      <button class="trd-x" data-bsym="${p.symbol}">平倉</button>
+      <button class="trd-x" data-bsym="${escHtml(p.symbol)}">平倉</button>
     </div>`).join("");
   posEl.querySelectorAll(".trd-x").forEach(btn => btn.addEventListener("click", async e => {
     e.stopPropagation();
@@ -116,9 +116,9 @@ function _trdRenderOverview() {
   const ords = ov.orders || [];
   ordEl.innerHTML = !ords.length ? "" : `<div class="trd-sub">掛單</div>` + ords.map(o => `
     <div class="trd-row trd-row-sm">
-      <span class="trd-sym">${o.symbol}</span>
-      <span class="trd-nums">${o.type.replace("_MARKET", "")} ${o.side === "BUY" ? "買" : "賣"} ${o.stopPrice ? "@" + _trdFmt(o.stopPrice) : "@" + _trdFmt(o.price)}</span>
-      <button class="trd-x" data-bsym="${o.symbol}" data-oid="${o.orderId}">撤</button>
+      <span class="trd-sym">${escHtml(o.symbol)}</span>
+      <span class="trd-nums">${escHtml(String(o.type || "").replace("_MARKET", ""))} ${o.side === "BUY" ? "買" : "賣"} ${o.stopPrice ? "@" + _trdFmt(o.stopPrice) : "@" + _trdFmt(o.price)}</span>
+      <button class="trd-x" data-bsym="${escHtml(o.symbol)}" data-oid="${escHtml(o.orderId)}">撤</button>
     </div>`).join("");
   ordEl.querySelectorAll(".trd-x").forEach(btn => btn.addEventListener("click", async e => {
     e.stopPropagation();

@@ -617,8 +617,8 @@ function _ntfRenderFeed(opts) {
       <img class="m-sig-avatar" src="/static/img/bear.png" alt="小啊">
       <div class="m-sig-col">
         <div class="m-sig-name">小啊</div>
-        <div class="m-sig-bubble ${ty.bub}" data-sym="${it.symbol || ""}" data-mkt="${it.market || ""}" data-exch="${it.exchange || ""}"
-             data-tf="${it.tf || ""}" data-t="${_ntfEsc(it.t || "")}">
+        <div class="m-sig-bubble ${ty.bub}" data-sym="${escHtml(it.symbol || "")}" data-mkt="${escHtml(it.market || "")}" data-exch="${escHtml(it.exchange || "")}"
+             data-tf="${escHtml(it.tf || "")}" data-t="${escHtml(it.t || "")}">
           <div class="m-sig-b-head">
             <span class="m-sig-tag ${ty.cls}">${ty.label}</span>
             <span class="m-sig-b-title">${_ntfEsc(headline)}</span>
@@ -654,7 +654,9 @@ function _ntfRenderFeed(opts) {
   else { list.scrollTop = prevTop; if (grew) _ntfShowNewPill(); }
 }
 
-function _ntfEsc(s) { return String(s || "").replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
+// 原本只跳脫 &<> —— 但它有被用在 data-t="…" 這種**屬性**位置，引號沒跳脫等於防線有洞
+// （值裡一個 " 就提前關掉屬性）。改為轉呼叫 utils.js 的 escHtml（連 " ' 一起處理）。
+function _ntfEsc(s) { return escHtml(s == null ? "" : s); }
 
 function _ntfUpdateBadge() {
   const badge = document.getElementById("mSignalsBadge");
