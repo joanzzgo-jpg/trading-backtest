@@ -1373,11 +1373,24 @@ def get_latest(req: LatestRequest):
             if df.empty:                                      # 休市且無累積 → 優雅回空(不報 400)
                 return {"live": False, "data": []}
         else:
-            df = fetch_crypto_ohlcv(
-                req.symbol, req.timeframe, limit=3,
-                exchange_id=req.exchange,
-                api_key=req.api_key, api_secret=req.api_secret,
-            )
+            # ★1 秒共用快取（2026-07-31 補）：這條是**唯一沒有快取**的即時價路徑 —— tw(10s)/
+            #   hk(8s)/alpaca(8s)/twelvedata(10s) 都有，只有 crypto 每次請求都直接打 Binance。
+            #   而前端 crypto 是「每秒一次」且依規範不可改慢 → 每多一個同時在看的人就多 1 req/s，
+            #   全部共用伺服器同一個 IP，而 fapi 是 10 次/秒/IP、超過會全域熔斷 60 秒（還會 +10s
+            #   累加）。再加上 ticker worker、教練暖掃、足跡 aggTrades 也在吃同一份額度。
+            #   TTL 取 1 秒＝剛好等於前端輪詢間隔 → 單一使用者的新鮮度完全不變（他下一次輪詢時
+            #   快取已過期、照樣抓新的），但「同一秒內的多個使用者」會收斂成一次上游請求。
+            #   帶自有金鑰的請求不走快取（那是使用者自己的交易所連線，不與他人共用）。
+            _ck = f"crypto_latest_{req.exchange}_{req.symbol}_{req.timeframe}"
+            df = cache.get(_ck, ttl=1) if not req.api_key else None
+            if df is None:
+                df = fetch_crypto_ohlcv(
+                    req.symbol, req.timeframe, limit=3,
+                    exchange_id=req.exchange,
+                    api_key=req.api_key, api_secret=req.api_secret,
+                )
+                if not req.api_key and df is not None and not df.empty:
+                    cache.set(_ck, df)
     except Exception as e:
         raise HTTPException(400, str(e))
 

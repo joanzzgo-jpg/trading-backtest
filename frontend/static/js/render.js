@@ -653,14 +653,26 @@ function _subWindowFor(n) {
   return { lo: Math.max(0, Math.floor(vr.from) - pad), hi: Math.min(n, Math.ceil(vr.to) + pad) };
 }
 
+let _subAnchorSig = "";   // 錨點目前對應的時間軸簽章（見 _renderSubcharts）
+
 function _renderSubcharts(data) {
   if (_subchartsHidden()) return;
   // 濾掉壞棒(缺 time/算出 NaN 時間)→ 否則 anchor/指標線的時間為 NaN,LWC paint 會拋「Value is null」(切時框報錯)
   const _valid = data.filter(d => d && Number.isFinite(_bt(d)));
-  const anchorTimes = _valid.map(d => ({ time: _bt(d), value: 50 }));
-  kdjAnchor.setData(anchorTimes);          // ★錨點維持全長(對齊用,見上方註)
-  rsiAnchor.setData(anchorTimes);
-  macdAnchor.setData(anchorTimes.map(d => ({ ...d, value: 0 })));
+  // ★時間軸沒變就不重設錨點（2026-07-31）：錨點只帶「時間」、值是固定的 50/0，完全不含價格
+  //   → 只要時間軸一樣，重設出來的東西逐格相同，純屬白做。
+  //   而 _scheduleSubRewindow（平移到窗緣時重開窗）每次都會走到這裡，那條路徑底層資料根本沒動，
+  //   等於每次平移都白重建三條全長 series。實測 4382 根時錨點佔整個 _renderSubcharts 的 34%
+  //   （3.21ms / 9.35ms），根數越多越貴。
+  //   簽章＝根數＋首尾時間：append/prepend/修剪/切標的/切時框 任一種都會改到其中之一。
+  const _sig = _valid.length + "|" + (_valid.length ? _bt(_valid[0]) + "|" + _bt(_valid[_valid.length - 1]) : "");
+  if (_sig !== _subAnchorSig) {
+    const anchorTimes = _valid.map(d => ({ time: _bt(d), value: 50 }));
+    kdjAnchor.setData(anchorTimes);        // ★錨點維持全長(對齊用,見上方註)
+    rsiAnchor.setData(anchorTimes);
+    macdAnchor.setData(anchorTimes.map(d => ({ ...d, value: 0 })));
+    _subAnchorSig = _sig;
+  }
   _subWin = _subWindowFor(_valid.length);
   const _slice = _valid.slice(_subWin.lo, _subWin.hi);
   renderKDJ(_slice);
@@ -748,6 +760,7 @@ function _bgApplyChunk(data, nPrepended) {
     kdjAnchor.setData(_bgAnchorCache);
     rsiAnchor.setData(_bgAnchorCache);
     macdAnchor.setData(_bgMacdCache);
+    _subAnchorSig = "";   // 這裡繞過 _renderSubcharts 直接改了錨點 → 讓它的快取簽章失效
   }
   // applyOhlcvToSeries：直接更新 candleSeries，不呼叫 setMarkers（避免 marker 清空閃爍）
   applyOhlcvToSeries(data);

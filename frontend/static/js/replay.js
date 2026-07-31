@@ -318,6 +318,7 @@ function _replayStep(bar) {
     kdjAnchor.update({ time:t, value:50 });
     rsiAnchor.update({ time:t, value:50 });
     macdAnchor.update({ time:t, value:0 });
+    _subAnchorSig = "";   // 這裡逐格 update 拉長了錨點 → 讓 _renderSubcharts 的快取簽章失效
     if (bar.kdj_k != null) {
       kdjK.update({ time:t, value:bar.kdj_k });
       kdjD.update({ time:t, value:bar.kdj_d });
