@@ -5,6 +5,7 @@ let replayTimer    = null;
 let replayActive   = false;
 let _replaySpan    = 50;   // 進入重播時保存的可視 bar 數
 let _replayLastIdx = -1;   // 上一幀渲染的 idx，用於增量更新判斷
+const _RP_RIGHT_PAD = 2;   // 重播棒右側預留幾根空白（進場/跳轉時用；之後沿用使用者自己拉出來的留白）
 
 const _rpCal = (() => {
   const pad = n => String(n).padStart(2, "0");
@@ -339,7 +340,56 @@ function _replayStep(bar) {
   updateSymbolBar([_prevBar, bar]);
 }
 
+/* 拖 scrubber 專用的「輕量渲染」（2026-07-31 修「重播用起來卡卡的」）。
+   問題：scrubber 每一個 input 都走完整的跳躍路徑 —— replayData.slice(0, n) 之後把 K 棒、
+   布林、量、副圖全部 setData 一次，成本隨 replayIdx 線性成長。實測 4368 根時每次 13.9ms
+   (p95 31ms)，而重播是把 ohlcvData 整包快照、深載後常是上萬根 → 等比例就是 50~140ms 一次，
+   拖起來當然頓。（逐步播放不受影響：那條走增量 update，實測只有 1.7ms。）
+   作法：拖動中只更新 K 棒與視野（其餘圖層保持上一次的樣子），放開或停手 140ms 才補完整重建。
+   ＋連續 input 合併成每幀最多一次，避免同一幀排進好幾次渲染。 */
+let _rpDragRaf = 0, _rpDragPending = null, _rpDragSettle = null;
+
+function _replayRenderLight() {
+  const n = replayIdx + 1;
+  try {
+    const vr = mainChart.timeScale().getVisibleLogicalRange();
+    const span = vr ? (vr.to - vr.from) : _replaySpan;
+    const range = { from: (n - 1) - span + _RP_RIGHT_PAD, to: (n - 1) + _RP_RIGHT_PAD };
+    _blockSync = true;
+    renderCandles(replayData.slice(0, n));
+    [mainChart, kdjChart, rsiChart, macdChart].forEach(c => c?.timeScale().setVisibleLogicalRange(range));
+    _blockSync = false;
+  } catch (e) { _blockSync = false; }
+  _replayLastIdx = -1;          // 輕量渲染沒有重建其他圖層 → 下一次一定要走完整路徑
+  _replayRenderDate(replayData[replayIdx]);
+  const pct = replayData.length > 1 ? Math.round((replayIdx / (replayData.length - 1)) * 100) : 100;
+  document.getElementById("replayProgressBar").style.width = pct + "%";
+  document.getElementById("replayProgress").textContent = pct + "%";
+}
+
+function _replayScrubTo(idx) {
+  replayIdx = idx;
+  _rpDragPending = idx;
+  if (!_rpDragRaf) {
+    _rpDragRaf = requestAnimationFrame(() => {
+      _rpDragRaf = 0;
+      if (_rpDragPending == null) return;
+      _rpDragPending = null;
+      _replayRenderLight();
+    });
+  }
+  clearTimeout(_rpDragSettle);
+  _rpDragSettle = setTimeout(() => { if (replayActive) _replayRender(); }, 140);
+}
+
 function _replayRender() {
+  // ★連「待執行的輕量渲染」一起取消，不能只取消 settle 計時器：
+  //   放開滑鼠時 change 會立刻叫完整渲染，但同一幀還排著一個輕量渲染 —— 它跑起來會再呼叫
+  //   renderCandles，而那會**清空標記陣列** → 完整渲染剛補好的標記瞬間被抹掉（實測放開後標記
+  //   歸零、要再按一次下一根才回來）。
+  clearTimeout(_rpDragSettle);
+  if (_rpDragRaf) { cancelAnimationFrame(_rpDragRaf); _rpDragRaf = 0; }
+  _rpDragPending = null;
   const n = replayIdx + 1;
   // 視圖規則(2026-07-14 修「按下一根會跳回原縮放」)：**保持使用者當下的縮放倍率與右緣間距**。
   //   - 視圖右緣貼著「上一個重播點」(±2根) → 跟隨：窗寬(span)與右側留白(offset)原封不動、整窗平移到新棒；
@@ -349,10 +399,19 @@ function _replayRender() {
   try {
     const vr = mainChart.timeScale().getVisibleLogicalRange();
     if (vr) {
-      const span = vr.to - vr.from;
-      const prevLast = (_replayLastIdx >= 0) ? _replayLastIdx : n - 1;
-      if (vr.to >= prevLast - 2) {
-        const offset = vr.to - prevLast;          // 右緣距最新棒幾根(使用者自留的右側空白)
+      const span = vr.to - vr.from;               // 窗寬＝可見幾根，跨資料集通用（縮放倍率）
+      if (_replayLastIdx < 0) {
+        // ★進入重播 / 日期跳轉後的**第一次**渲染（2026-07-31 修「重播起始前的 K 棒看不到」）：
+        //   此時 vr 還是「上一份資料」的座標 —— 剛進重播時圖上仍掛著完整的 ohlcvData（例如
+        //   1151 根、可見 [1100.8, 1150]），而 n-1 是**重播**索引（例如 230）。舊寫法拿
+        //   vr.to - (n-1) 當「右側留白」＝ 1150-230 = 920 根，兩個座標系相減出來的垃圾 →
+        //   視野被推到 [229, 278]，畫面上實際有 K 棒的格數只剩 1，起始點之前的 229 根全在
+        //   畫面外（而且往左拖也拉不回來，因為每次渲染又把它推回去）。
+        //   → 第一次一律「把目前重播棒放到右緣、往左顯示 span 根」，只沿用縮放倍率不沿用留白。
+        range = { from: (n - 1) - span + _RP_RIGHT_PAD, to: (n - 1) + _RP_RIGHT_PAD };
+      } else if (vr.to >= _replayLastIdx - 2) {
+        // 之後的逐步：vr 與 _replayLastIdx 同在重播座標系 → 留白才有意義，原封不動平移。
+        const offset = vr.to - _replayLastIdx;    // 右緣距最新棒幾根(使用者自留的右側空白)
         range = { from: (n - 1) + offset - span, to: (n - 1) + offset };
       }
     } else {
@@ -443,15 +502,17 @@ function bindReplayBar() {
   document.getElementById("replayStepF").addEventListener("click", replayStepForward);
   document.getElementById("replayStepB").addEventListener("click", replayStepBack);
 
-  document.getElementById("replayScrubber").addEventListener("input", e => {
+  const _sc = document.getElementById("replayScrubber");
+  _sc.addEventListener("input", e => {
     if (replayTimer) {
       clearInterval(replayTimer); replayTimer = null;
       document.getElementById("replayPlay").classList.remove("playing");
       document.getElementById("replayPlay").textContent = "▶";
     }
-    replayIdx = parseInt(e.target.value);
-    _replayRender();
+    _replayScrubTo(parseInt(e.target.value));   // 拖動中：輕量＋每幀一次；停手 140ms 自動補完整
   });
+  // 放開滑鼠/鍵盤選定 → 立刻補完整重建，不必等那 140ms
+  _sc.addEventListener("change", () => { if (replayActive) _replayRender(); });
 
   document.getElementById("replayDatePicker").addEventListener("change", e => {
     if (!e.target.value || !replayData.length) return;
