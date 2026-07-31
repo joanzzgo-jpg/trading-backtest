@@ -249,6 +249,17 @@ function exitReplay() {
   document.getElementById("replayPlay").classList.remove("playing");
   document.getElementById("replayPlay").textContent = "▶";
   renderAll(ohlcvData.length ? ohlcvData : replayData);
+
+  // ★ 把 enterReplay 停掉的即時行情開回來（2026-07-31 修）。
+  //   原本只有 stopRealtime() 沒有對應的 start → 退出重播後圖表就**凍在那裡**：不進新棒、
+  //   價格線不動、即時圓點不亮，實測退出後 4 秒 0 次 /api/latest。要切標的（loadData）或
+  //   把分頁切走再切回來（main.js 的 visibilitychange）才會活過來，使用者不會知道要這樣做。
+  if (typeof startRealtime === "function" && Array.isArray(ohlcvData) && ohlcvData.length) {
+    startRealtime();
+  }
+  // 重播期間現實時間照樣在走，可能已經收了新棒 → 補抓一次勝率，否則最近一段 FVG 會凍住
+  //（同 main.js 分頁回前景的處理）。
+  if (typeof window._wrRefreshCurrent === "function") window._wrRefreshCurrent();
 }
 
 /* 重播：以台灣時間格式化 bar 的日期，並同步日期選擇器 */

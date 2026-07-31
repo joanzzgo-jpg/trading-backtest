@@ -1331,7 +1331,14 @@ async function _bgLoadNewerBars(scrollTriggered = false) {
       ohlcvData = ohlcvData.concat(newBars);        // 往右 append
       _rebuildTimeIndex();
       let _cut = 0;
-      if (vr && Number.isFinite(vr.from) && ohlcvData.length > TRIM_MAX) {
+      // ⚠ 重播中不修剪（2026-07-31 補上，其他修剪路徑本來就有守 replayActive、只有這裡漏了）：
+      //   重播期間圖上畫的是 replayData 的前綴，vr 是**重播座標**；而 ohlcvData 是另一個還在
+      //   成長、而且可能已被往前補過舊資料（index 整體位移）的陣列。拿重播座標去切 ohlcvData
+      //   等於切錯位置。平常 vr.from 很小（keepLo 算出 0）所以看不出來，但只要復盤到 4550 根
+      //   之後、且 ohlcvData 超過 TRIM_MAX，就會剪掉不該剪的一段。
+      //   重播中本來就「靜默累積、不碰圖表」（見下方 if (!replayActive)），退出時 renderAll
+      //   會整包重畫 → 不修剪只是常駐根數多一點，退出後閒置修剪會收掉。
+      if (!replayActive && vr && Number.isFinite(vr.from) && ohlcvData.length > TRIM_MAX) {
         const keepLo = Math.max(0, Math.floor(vr.from) - 4500);   // 保留視野左側 4500 根,其餘(更舊)丟棄
         if (keepLo > 50) { _cut = keepLo; ohlcvData = ohlcvData.slice(_cut); _rebuildTimeIndex(); }
       }
