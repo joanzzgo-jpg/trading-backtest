@@ -19,7 +19,7 @@ import datetime as _dt
 import threading as _threading
 import collections as _collections
 
-from data.taiwan import fetch_tw_stock, resample_tw, fetch_tw_intraday, fetch_tw_realtime, fetch_tw_intraday_yf, fetch_tw_latest_bar_yf, fetch_tw_daily_yf, YF_MAX_DAYS as TW_YF_MAX_DAYS
+from data.taiwan import fetch_tw_stock, resample_tw, fetch_tw_intraday, fetch_tw_realtime, fetch_tw_intraday_yf, fetch_tw_latest_bar_yf, fetch_tw_daily_yf, merge_tw_intraday, cnyes_last_good, YF_MAX_DAYS as TW_YF_MAX_DAYS
 from data.fugle import fetch_fugle_intraday, fugle_enabled
 # 註：fetch_taifex_quote / resolve_front_month 曾列在這裡但整檔沒用到（唯一的使用者是
 #     _diag_futopt，它在函式內自己 import）→ 2026-07-31 移除，順便解掉那處名稱遮蔽。
@@ -90,13 +90,19 @@ def fetch_crt_df(market: str, symbol: str, timeframe: str, days: int,
                 else:
                     raise
             # 今日改用 cnyes 個股即時分鐘K（連續無跳號）→ 策略/勝率標記在今日棒上也對齊即時；歷史仍 yfinance。
+            # ★2026-07-31 改「合併」不再「二選一」（使用者回報「台股K棒不穩定」）：
+            #   舊作法 = 以 cnyes 最早那根當 cutoff、yfinance 只留之前的、cnyes 整段蓋上去，且
+            #   cnyes 一失敗就 except: pass → 當日**整段**退回落後的 yfinance（實測 12:36 時它
+            #   只到 11:45）→ 最後幾根 K 棒往回退、重整又跑回來。
+            #   現在：① cnyes 抓失敗就沿用「今天最後一次成功」的那份（cnyes_last_good）；
+            #         ② 與 yfinance 逐欄位合併（時間軸取聯集、high 取大 low 取小、open/close 以
+            #            即時源為準、volume 取大）→ 結果是決定性的，不再受接合點位置影響。
+            #   規則與理由詳見 data/taiwan.py 的 merge_tw_intraday。
             if df is not None and not df.empty:
                 try:
-                    cdf = fetch_cnyes_stock_intraday(symbol, timeframe)
-                    if cdf is not None and not cdf.empty:
-                        cutoff = cdf["time"].min()
-                        df = pd.concat([df[df["time"] < cutoff], cdf],
-                                       ignore_index=True).sort_values("time").reset_index(drop=True)
+                    cdf = cnyes_last_good(symbol, timeframe,
+                                          fetch_cnyes_stock_intraday(symbol, timeframe))
+                    df = merge_tw_intraday(df, cdf)
                 except Exception:
                     pass
             return df

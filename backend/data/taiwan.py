@@ -586,3 +586,60 @@ def search_tw_stock(keyword: str, api_token: str = "") -> list[dict]:
         if keyword in r.get("stock_id", "").lower()
         or keyword in r.get("stock_name", "").lower()
     ][:20]
+
+
+# ─── 台股分鐘 K：yfinance（歷史）× cnyes（當日即時）合併 ────────────────────────
+#
+# 為什麼要「合併」而不是「二選一」（2026-07-31）：
+#   原本的作法是 cutoff = cnyes 最早那根，然後 yfinance 只留 cutoff 之前、cnyes 整段接上去。
+#   它有兩個問題：
+#     ① cnyes 一失敗就 except: pass → 當日**整段**退回 yfinance，而 yfinance 的當日尾巴會落後
+#        （實測 12:36 時它只到 11:45）→ 使用者看到最後幾根 K 棒「往回退」、重整又跑回來。
+#     ② 兩個來源對同一根偶爾會有單一欄位的小差異（實測 13 根已收盤棒裡 1 根：2330 的 high 差 5、
+#        0050 的 close 差 0.05）。誰贏純粹看接合點落在哪 → 同一根 K 棒的值會因為接合位置而變。
+#   合併之後：
+#     ・時間軸取聯集 → 任何一邊有的棒都不會消失。
+#     ・重疊的棒逐欄位合：high 取兩邊較高、low 取兩邊較低（兩個 feed 的逐筆覆蓋度本來就略有差異，
+#       取極值才是這根棒真正的高低）、close/open 以 cnyes 為準（即時源、連續無跳號）、
+#       volume 取大（cnyes 盤中是累積中的量，取大值才單調不倒退）。
+#   ★這是「決定性」的：同一組輸入永遠得到同一個結果，不再受接合點位置影響。
+_TW_CN_LAST: dict = {}          # (symbol, tf) → (日期, cnyes df)：最後一次成功的當日分鐘K
+_TW_CN_LAST_MAX = 200
+
+
+def cnyes_last_good(symbol: str, tf: str, fresh):
+    """記住最後一次成功的 cnyes 當日 K；這次抓失敗就沿用（同一天才算數）。
+    → cnyes 短暫失敗不會讓當日 K 棒整段退回落後的 yfinance（＝使用者看到的「K 棒不穩定」）。"""
+    key = (symbol, tf)
+    today = date.today().isoformat()
+    if fresh is not None and not fresh.empty:
+        if len(_TW_CN_LAST) > _TW_CN_LAST_MAX:
+            _TW_CN_LAST.clear()                      # 粗暴但有界（同 main.py 限流桶的作法）
+        _TW_CN_LAST[key] = (today, fresh)
+        return fresh
+    got = _TW_CN_LAST.get(key)
+    if got and got[0] == today:
+        return got[1]                                # 沿用今天最後一次成功的
+    return None
+
+
+def merge_tw_intraday(yf_df, cn_df):
+    """yfinance 歷史 × cnyes 當日 → 逐欄位合併（規則見上方說明）。任一邊為空就回另一邊。"""
+    if cn_df is None or cn_df.empty:
+        return yf_df
+    if yf_df is None or yf_df.empty:
+        return cn_df.sort_values("time").reset_index(drop=True)
+    y = yf_df.set_index("time")
+    c = cn_df.set_index("time")
+    both = y.index.intersection(c.index)
+    if len(both):
+        # 逐欄位合併（只動重疊那段；其餘各自保留）
+        for col, how in (("high", "max"), ("low", "min"), ("volume", "max")):
+            if col in y.columns and col in c.columns:
+                y.loc[both, col] = (y.loc[both, col].combine(c.loc[both, col], max if how == "max" else min))
+        for col in ("open", "close"):                 # 即時源優先
+            if col in y.columns and col in c.columns:
+                y.loc[both, col] = c.loc[both, col]
+    only_c = c.index.difference(y.index)              # cnyes 才有的（yfinance 落後的尾巴）
+    out = pd.concat([y, c.loc[only_c]]) if len(only_c) else y
+    return out.sort_index().reset_index()
