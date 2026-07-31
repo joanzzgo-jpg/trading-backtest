@@ -20,6 +20,26 @@ from urllib.parse import urlencode
 
 import requests
 
+# ── 共用連線池（2026-08-01）────────────────────────────────────────────────────
+# 原本 _request 用 requests.request(...)＝模組層函式，它每次呼叫都**新建一個 Session
+# 再丟掉**，等於每一發下單/查詢都重做一輪 TCP+TLS 交握。實測（公開的 /fapi/v1/time，
+# 不需金鑰、不下單）：
+#     demo-fapi 中位 155ms → 45ms（−110ms）  ／  fapi(正式) 中位 83ms → 49ms（−34ms）
+#   而且抖動大幅收斂（78~226ms 忽快忽慢 → 穩定在 47~50ms）。
+# 對交易來說這段延遲就是滑價：行情在動的時候，晚 100 毫秒送到的市價單成交價會不一樣。
+#
+# ★★ 兩個安全點，改動這裡前務必看懂：
+#   ① **絕不可把 X-MBX-APIKEY 掛到 session.headers 上**。這個 process 同時服務多個帳號，
+#      金鑰掛在共用 session 上會跨帳號外洩／串單。金鑰一律維持逐請求傳（見 _request）。
+#      連線池是「per host」的，與身分無關，共用完全安全。
+#   ② **max_retries=0 不可放寬**。下單是非冪等的：若連線在「送出後、收到回應前」斷掉，
+#      自動重試會變成**重複下單**（同一個訊號成交兩次）。設 0 → urllib3 直接拋錯不重試，
+#      由呼叫端當成一般連線失敗處理（對帳/幽靈單清理本來就會收尾）。
+#      注意 requests 的 HTTPAdapter 預設就是 0，這裡明寫是為了「不要有人好心把它調大」。
+_HTTP = requests.Session()
+_HTTP.mount("https://", requests.adapters.HTTPAdapter(
+    pool_connections=4, pool_maxsize=16, max_retries=0))
+
 LIVE_BASE    = "https://fapi.binance.com"
 # 2026-06：Binance 把合約測試網由舊 testnet.binancefuture.com 遷到新版 demo 平台
 # （後台 demo.binance.com / API 域名 demo-fapi.binance.com）。兩者目前同帳號同資料，
@@ -171,8 +191,9 @@ class Client:
         params["signature"] = hmac.new(self.api_secret.encode(), qs.encode(),
                                        hashlib.sha256).hexdigest()
         try:
-            r = requests.request(method, self.base + path, params=params,
-                                 headers={"X-MBX-APIKEY": self.api_key}, timeout=timeout)
+            # ⚠ 金鑰逐請求傳，絕不掛到 _HTTP.headers（多帳號共用同一個 session，見檔頭說明）
+            r = _HTTP.request(method, self.base + path, params=params,
+                              headers={"X-MBX-APIKEY": self.api_key}, timeout=timeout)
         except requests.RequestException as e:
             raise TradeError(f"連線 Binance 失敗：{e}")
         if r.status_code >= 400:

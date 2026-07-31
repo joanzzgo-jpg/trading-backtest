@@ -6,6 +6,8 @@ import time as _time
 import logging
 import pandas as pd
 import requests
+
+from utils.http_pool import SESSION   # 共用連線池（省掉每次 TLS 交握，見該模組）
 from datetime import datetime, timedelta, date
 
 _log = logging.getLogger("taiwan")
@@ -26,7 +28,7 @@ def fetch_tw_stock(symbol: str, start: str, end: str, api_token: str = "") -> pd
         "end_date": end,
         "token": api_token,
     }
-    resp = requests.get(FINMIND_API_URL, params=params, timeout=30)
+    resp = SESSION.get(FINMIND_API_URL, params=params, timeout=30)
     resp.raise_for_status()
     data = resp.json()
 
@@ -83,7 +85,7 @@ def fetch_tw_intraday(symbol: str, timeframe: str, start: str, end: str, api_tok
         "end_date": end,
         "token": api_token,
     }
-    resp = requests.get(FINMIND_API_URL, params=params, timeout=30)
+    resp = SESSION.get(FINMIND_API_URL, params=params, timeout=30)
     resp.raise_for_status()
     data = resp.json()
 
@@ -301,7 +303,7 @@ def fetch_tw_tickers() -> list:
 
     # ── 1. TWSE 上市全量 ──────────────────────────────────────
     try:
-        resp = requests.get(TWSE_DAY_ALL_URL, timeout=15)
+        resp = SESSION.get(TWSE_DAY_ALL_URL, timeout=15)
         resp.raise_for_status()
         for d in resp.json():
             code = (d.get("Code") or "").strip()
@@ -329,7 +331,7 @@ def fetch_tw_tickers() -> list:
 
     # ── 2. TPEX 上櫃全量 ──────────────────────────────────────
     try:
-        resp = requests.get(TPEX_DAY_ALL_URL, timeout=15)
+        resp = SESSION.get(TPEX_DAY_ALL_URL, timeout=15)
         resp.raise_for_status()
         for d in resp.json():
             code = (d.get("SecuritiesCompanyCode") or "").strip()
@@ -427,7 +429,7 @@ def fetch_tw_realtime_bulk(symbols):
             return
         ex_ch = "|".join(f"{prefix}_{s}.tw" for s in batch)
         try:
-            resp = requests.get(TWSE_MIS_URL,
+            resp = SESSION.get(TWSE_MIS_URL,
                                 params={"ex_ch": ex_ch, "json": "1", "delay": "0"},
                                 headers=TWSE_MIS_HEADERS, timeout=10)
             resp.raise_for_status()
@@ -479,7 +481,7 @@ def fetch_tw_realtime(symbol: str):
 
     for exchange in ("tse", "otc"):
         try:
-            resp = requests.get(
+            resp = SESSION.get(
                 TWSE_MIS_URL,
                 params={"ex_ch": f"{exchange}_{symbol}.tw", "json": "1", "delay": "0"},
                 headers=TWSE_MIS_HEADERS,
@@ -529,7 +531,7 @@ def _tw_stock_info(api_token: str = "") -> list:
     if c["records"] is not None and now - c["ts"] < 43200:
         return c["records"]
     try:
-        resp = requests.get(FINMIND_API_URL,
+        resp = SESSION.get(FINMIND_API_URL,
                             params={"dataset": "TaiwanStockInfo", "token": api_token}, timeout=30)
         resp.raise_for_status()
         records = resp.json().get("data", [])

@@ -10,6 +10,8 @@ cnyes charting API（TradingView UDF 格式）：免金鑰、免開戶、**含�
 """
 import time
 import requests
+
+from utils.http_pool import SESSION   # 共用連線池（省掉每次 TLS 交握，見該模組）
 import pandas as pd
 from datetime import datetime
 
@@ -35,7 +37,7 @@ def fetch_cnyes_1m(product: str):
     if c and now - c[0] < 8:
         return c[1]
     try:
-        r = requests.get(_BASE, params={"symbol": sym, "resolution": "1", "to": int(now)},
+        r = SESSION.get(_BASE, params={"symbol": sym, "resolution": "1", "to": int(now)},
                          headers=_HDRS, timeout=8)
         r.raise_for_status()
         d = (r.json() or {}).get("data") or {}
@@ -78,7 +80,7 @@ def fetch_cnyes_stock_intraday(symbol: str, timeframe: str):
     if _c and now - _c[0] < 8:
         return _c[1]
     try:
-        r = requests.get(_BASE, params={"symbol": f"TWS:{symbol}:STOCK", "resolution": "1", "to": now},
+        r = SESSION.get(_BASE, params={"symbol": f"TWS:{symbol}:STOCK", "resolution": "1", "to": now},
                          headers=_HDRS, timeout=8)
         r.raise_for_status()
         d = (r.json() or {}).get("data") or {}
