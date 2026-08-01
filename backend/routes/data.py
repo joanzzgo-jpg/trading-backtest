@@ -1107,8 +1107,24 @@ def get_ohlcv(req: OHLCVRequest):
             else:
                 end   = req.end or date.today().isoformat()
                 start_raw = req.start or end
-                min_start = (date.fromisoformat(end) - timedelta(days=max_d)).isoformat()
-                start = max(start_raw, min_start)
+                # ★2026-08-01：下限要以「今天」算，不是以 end 算。
+                #   yfinance 的分鐘/小時資料是**相對於現在**的滾動視窗（15m/30m 約 60 天），
+                #   跟你要求的 end 落在哪天無關。原本寫 end - max_d，往回補歷史時（end 也在過去）
+                #   會算出一個 yfinance 根本搆不到的區間 → 回空 → 被當成「查無此標的」，
+                #   前端 console 一路 400，訊息還是「請確認代號正確」——但代號根本沒錯。
+                #   實測 AAPL 15m/30m 帶 start=2026-06-01 起就必定 400（15m 早就如此，非新問題）。
+                _floor = (date.today() - timedelta(days=max_d)).isoformat()
+                start = max(start_raw, _floor)
+                # 夾完之後 start 追上或越過 end ＝ 這段已經在可取範圍之外（或被夾成零寬區間）。
+                # ⚠ 一定要含「等於」：背景補載是一天一天往回要的，走到邊界時會出現
+                #   start=06-02 end=06-03、夾完變成 start=end=06-03 的零寬請求，
+                #   yfinance 對零寬區間回空 → 又被當成「查無此標的」。
+                if end <= _floor or start >= end:
+                    # 整段都在可取範圍之外（例：要 2025 年的 15m）→ 這不是錯誤，是「沒有更舊的了」。
+                    # 回空讓前端的背景補載自然停住，不要拋 400 誤導成代號有問題。
+                    _empty = {"data": []}
+                    cache.set(cache_key, _empty)
+                    return _ohlcv_resp(_empty)
             df = fetch_us_stock(req.symbol, start, end, req.timeframe)
             # Finnhub 即時報價疊加到最後一根 K 棒（失敗不影響主流程）；港股無 Finnhub 覆蓋，純用 yfinance。
             if req.market == "us" and os.getenv("FINNHUB_TOKEN"):
