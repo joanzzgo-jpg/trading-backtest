@@ -1224,15 +1224,19 @@ def get_latest(req: LatestRequest):
                     "volume": rt["volume"],
                 }]}
             # 分鐘/小時時框：
-            if tf in ("1m", "5m", "15m", "1h", "4h"):
+            if tf in ("1m", "5m", "15m", "1h") or tf in TW_RESAMPLE:
                 # ⭐ cnyes 個股即時分鐘K 最優先（同台指期資料源：09:00 起連續無跳號、無延遲、含即時那根、
                 #    免金鑰）。徹底解決 yfinance 台股盤中延遲15-20分 + MIS 只補打開後那段 → 「1010跳1030」
                 #    斷層。快取 8 秒；失敗/收盤/查無 → fallback 回 Fugle→yfinance+MIS。
                 # 4h 也走這條（2026-07-31）：cnyes 沒有原生 4h → 抓 1h 再用與 /api/ohlcv **同一個**
                 # 分桶函式 resample_tw_4h 產 4h。原本 4h 被排除在外，只能落到最下面的 yfinance
                 # 路徑並回 live=False → 前端根本不會輪詢更新它，盤中那根 4h 就一直是舊值。
-                _src_tf = "1h" if tf == "4h" else tf
-                if tf in ("1m", "5m", "15m", "1h", "4h"):
+                # ★2026-08-01：連同 30m/2h 一起（原本只有 4h）。理由與上方 4h 那段完全相同 ——
+                #   被排除在外的時框會落到最下面的 yfinance 路徑並回 live=False → **前端根本不會
+                #   輪詢更新它**，盤中那根就一直是舊值。30m/2h 先前拿到的是日線所以看不出來，
+                #   現在它們是真的盤中棒了，這個洞就會現形。
+                _src_tf = TW_RESAMPLE[tf][0] if tf in TW_RESAMPLE else tf
+                if True:
                     cnkey = f"tw_cnyes_{req.symbol}_{_src_tf}"
                     cndf = cache.get(cnkey, ttl=8)
                     if cndf is None:
@@ -1240,8 +1244,8 @@ def get_latest(req: LatestRequest):
                         if cndf is not None and not cndf.empty:
                             cache.set(cnkey, cndf)
                     if cndf is not None and not cndf.empty:
-                        if tf == "4h":
-                            cndf = resample_tw_4h(cndf)
+                        if tf in TW_RESAMPLE:
+                            cndf = resample_tw_intraday(cndf, tf)   # 與 /api/ohlcv 同一個分桶函式
                         if cndf is not None and not cndf.empty:
                             return {"live": True, "data": df_to_records(cndf.tail(40))}
                 # Fugle 富果即時分鐘K 次之（無 20 分延遲、無空隙）。快取 8 秒；失敗或未設 FUGLE_TOKEN → yfinance+MIS。

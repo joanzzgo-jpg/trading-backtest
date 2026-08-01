@@ -39,22 +39,50 @@ def _yf_ticker(symbol):
             pass
     return yf.Ticker(symbol)
 
+# 目標時框 → 跟 yfinance 要的 interval。
+# ⚠ Yahoo 只認這些：[1m, 2m, 5m, 15m, 30m, 60m, 90m, 1h, 4h, 1d, 5d, 1wk, 1mo, 3mo]
+#   —— 也就是 **2h 不支援**（實測回 "Invalid input - interval=2h is not supported"）。
+# ★2026-08-01 修：原本這張表沒有 30m 也沒有 2h，而取值是 TF_MAP.get(tf, "1d") →
+#   兩者**靜默退回日線**，前端切到 30m/2h 看到的是日 K（有東西、不報錯，極難發現）。
+#   實測 AAPL 30m/2h 都只有「最後交易日 1 根、時間 04:00」＝與 1d 完全一致。
+#   30m 官方支援 → 直接要；2h 不支援 → 要 1h 回來自己併（見 _resample_session）。
 TF_MAP = {
     "1M": "1mo",
     "1w": "1wk",
     "1d": "1d",
     "4h": "4h",
+    "2h": "1h",     # Yahoo 無 2h → 抓 1h 再併
     "1h": "1h",
+    "30m": "30m",
     "15m": "15m",
     "5m": "5m",
     "1m": "1m",
 }
+RESAMPLE_N = {"2h": 2}     # 目標時框 → 要把幾根來源棒併成一根
 
 MAX_DAYS = {
     "1M": 3650, "1w": 3650, "1d": 3650,
     # yfinance 對 intraday 是「嚴格小於」邊界（剛好觸頂會被拒），留 1 天 buffer
-    "4h": 59, "1h": 720, "15m": 59, "5m": 59, "1m": 7,   # 1m yfinance 僅近 7 天
+    "4h": 59, "2h": 720, "1h": 720, "30m": 59, "15m": 59, "5m": 59, "1m": 7,   # 1m yfinance 僅近 7 天
 }
+
+
+def _resample_session(df: pd.DataFrame, n: int) -> pd.DataFrame:
+    """把每個交易日的 K 棒「每 n 根併成一根」（從當天第一根算起）。
+
+    ⚠ 刻意不用固定時間原點分桶：美股夏令/冬令時開盤的 UTC 時間差 1 小時（13:30 vs 14:30），
+      港股還有午休（09:30-12:00、13:00-16:00 HKT）。用「當天第幾根」分組，對所有市場、
+      所有時區、DST 換季都成立，而且與 Yahoo 自己的 4h 分法（貼齊開盤）一致。"""
+    if df is None or df.empty or n <= 1:
+        return df
+    d = df.copy()
+    day = d["time"].dt.normalize()
+    grp = d.groupby(day).cumcount() // n
+    out = d.groupby([day, grp], sort=True).agg(
+        time=("time", "first"), open=("open", "first"), high=("high", "max"),
+        low=("low", "min"), close=("close", "last"), volume=("volume", "sum"),
+    ).reset_index(drop=True)
+    return out.sort_values("time").reset_index(drop=True)
 
 
 def fetch_us_stock(symbol: str, start: str, end: str, timeframe: str = "1d") -> pd.DataFrame:
@@ -88,6 +116,11 @@ def fetch_us_stock(symbol: str, start: str, end: str, timeframe: str = "1d") -> 
     else:
         df["time"] = pd.to_datetime(df["time"]).dt.floor("s")
     df = df.dropna(subset=["close"]).reset_index(drop=True)
+    # Yahoo 沒有的時框（目前只有 2h）→ 由來源棒併出來。放在**這個函式內**而不是各路由，
+    # 是因為 fetch_us_stock 有 4 個呼叫端 —— 台股就是同一份分桶規則抄在兩處而分歧過。
+    _n = RESAMPLE_N.get(timeframe)
+    if _n:
+        df = _resample_session(df, _n)
     return df
 
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""台股資料來源守門員 —— 動到 data/taiwan.py 或 routes/data.py 的台股段就跑這支。
+"""股票資料來源守門員（台股為主，兼驗美股/港股同類坑）——
+動到 data/taiwan.py、data/us_stock.py 或 routes/data.py 的股票段就跑這支。
 
 用法：
     cd backend && ../.venv312/bin/python scripts/check_tw_sources.py
@@ -107,6 +108,22 @@ for tf, (lo, hi) in EXPECT.items():
         check(f"{tf} 最後交易日 {cnt} 根（預期 {lo}~{hi}）", lo <= cnt <= hi, f"{last}")
     except Exception as e:
         check(f"{tf} 有資料", False, f"{type(e).__name__}: {e}")
+
+print("\n⑦ 美股／港股同一個坑（30m/2h 曾經也是日線）")
+US_EXPECT = {"15m": (20, 30), "30m": (11, 15), "1h": (6, 8), "2h": (3, 5), "4h": (2, 3), "1d": (1, 1)}
+for mkt, sym in (("us", "AAPL"), ("hk", "0700.HK")):
+    for tf, (lo, hi) in US_EXPECT.items():
+        try:
+            df = fetch_crt_df(mkt, sym, tf, 30)
+            if df is None or df.empty:
+                check(f"{mkt} {tf} 有資料", False, "空")
+                continue
+            t = pd.to_datetime(df["time"])
+            last = t.dt.date.max()
+            cnt = int((t.dt.date == last).sum())
+            check(f"{mkt} {tf} 最後交易日 {cnt} 根（預期 {lo}~{hi}）", lo <= cnt <= hi, f"{last}")
+        except Exception as e:
+            check(f"{mkt} {tf} 有資料", False, f"{type(e).__name__}: {e}")
 
 print()
 if FAILS:
