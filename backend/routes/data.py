@@ -1,10 +1,26 @@
 """數據獲取 API 路由"""
 from fastapi import APIRouter, HTTPException, Request, Response
-try:                                                    # 勝率大回應直送 orjson（見 _wr_resp）
-    from fastapi.responses import ORJSONResponse as _ORJSONResp
-    import orjson as _orjson_check                       # noqa: F401  確認套件真的在
+# 大回應（ohlcv / 勝率，動輒 1MB+）直送 orjson：跳過 FastAPI 的 jsonable_encoder 整棵樹走訪。
+# ★2026-08-02 改用 Response + orjson.dumps，不再用 fastapi.responses.ORJSONResponse：
+#   後者在 FastAPI 0.139 已標記棄用，**每回應一次就噴一則 FastAPIDeprecationWarning**
+#   → 伺服器 log 被洗版到看不見真正的警告（實測要一路往上撈才找得到一則 TWSE 逾時）。
+#   這裡的 options 與 ORJSONResponse.render 完全相同（OPT_NON_STR_KEYS | OPT_SERIALIZE_NUMPY），
+#   輸出位元組一致，只是少了那個棄用的類別。
+try:
+    import orjson as _orjson
+    _ORJ_OPT = _orjson.OPT_NON_STR_KEYS | _orjson.OPT_SERIALIZE_NUMPY
 except Exception:
-    _ORJSONResp = None
+    _orjson = None
+    _ORJ_OPT = 0
+
+
+def _json_resp(payload, headers=None):
+    """等同舊的 ORJSONResponse（同樣的 orjson options），但不觸發棄用警告。
+    沒裝 orjson → 原樣回 dict，走 FastAPI 預設序列化路徑。"""
+    if _orjson is None:
+        return payload
+    return Response(content=_orjson.dumps(payload, option=_ORJ_OPT),
+                    media_type="application/json", headers=headers)
 from pydantic import BaseModel
 from datetime import date, timedelta, datetime as dt
 from typing import Optional
@@ -252,7 +268,7 @@ def diag(key: str = ""):
         _leader = None
     return {
         "python": _sys.version.split()[0],                 # 執行中 Python 版本（本機/Railway 一致性檢查）
-        "orjson": _ORJSONResp is not None,                 # orjson 序列化是否生效
+        "orjson": _orjson is not None,                     # orjson 序列化是否生效
         "redis": _rcache.enabled(),                        # Redis 共享快取(REDIS_URL)是否啟用
         "monitor_leader": _leader,                         # 本 worker 是否為 monitor 單跑者(多實例診斷)
         "fugle_keys": len(_fugle_keys()),                  # 台股：Fugle 金鑰把數（0 = 沒設對）
@@ -917,8 +933,8 @@ def _ohlcv_resp(payload):
     """大回應直接交給 orjson；缺 orjson 時退回純 dict（走 FastAPI 預設路徑）。
     ⚠ 退回預設路徑時 records 內可能留著 NaN → json.dumps 會產生非法 JSON，故此時改用
       df_to_records 的語義補一次 None 轉換。"""
-    if _ORJSONResp is not None:
-        return _ORJSONResp(payload)
+    if _orjson is not None:
+        return _json_resp(payload)
     try:
         for r in payload.get("data") or []:
             for k, v in r.items():
@@ -1771,8 +1787,8 @@ def _wr_resp(payload, etag=None, slim=True, no_store=False):
         hdrs = {"ETag": etag, "Cache-Control": "private, no-cache"}
     if slim:
         payload = _wr_slim(payload)      # 線材瘦身（只影響送出去的這份，見上方註解）
-    if _ORJSONResp is not None:
-        return _ORJSONResp(payload, headers=hdrs)
+    if _orjson is not None:
+        return _json_resp(payload, headers=hdrs)
     return payload
 
 
