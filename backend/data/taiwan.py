@@ -303,26 +303,35 @@ def _parse_tw_change(s: str) -> float:
 #   兩邊都給 ETag/Last-Modified 且實測支援 304（回 0 bytes、8ms/28ms）→ 帶條件標頭即可。
 # ⚠ 逐來源各自快取「解析結果」，不可只留一份合併後的：兩包更新時間不同（相差數小時），
 #   若只留合併結果，TWSE 變而 TPEX 沒變的那一輪就會把 TPEX 的資料整批弄丟。
-_TW_DUMP: dict = {}      # url -> {etag, lastmod, tickers}
+# 條件式抓取的驗證碼快取 —— **鍵是 (url, 用途)，不是只有 url**。
+# ★為什麼要帶「用途」：同一份 opendata 有兩個消費者，而且各自把解析結果存在不同地方
+#   （清單 → _TW_DUMP[...]["payload"]；日線 → _TW_DAY_SRC[url]["rows"]）。
+#   若驗證碼只用 url 當鍵、兩邊共用，就會出現「A 存了 ETag 但沒有 A 的結果，B 拿到 304
+#   卻沒東西可用」→ 實測台股清單從 1972 檔掉到 50 檔，而且因為檔案內容真的沒變會一直
+#   304 下去，**要等隔天檔案更新才會自己好**。
+#   分開存之後，每個用途的「驗證碼」與「它自己的結果」永遠成對出現，別的呼叫端動不到，
+#   這個 bug 從結構上就不可能再發生（而不是靠呼叫端記得傳對旗標）。
+_TW_DUMP: dict = {}      # (url, purpose) -> {etag, lastmod, payload}
+
+DUMP_TICKERS = "tickers"   # 用途：全台股報價清單
+DUMP_DAY     = "day"       # 用途：最新交易日日線（tw_daily_fill_latest）
+
+_TW_TICKER_PEAK = {"n": 0}   # 清單歷史高水位（健全性守門用，見 fetch_tw_tickers 末段）
 
 
 class _NotModified(Exception):
     """內部哨兵：304 → 跳過該來源的解析段（不是錯誤）。"""
 
 
-def _dump_get(url: str, timeout: int = 20, have_cached: bool = False):
+def _dump_get(url: str, purpose: str, timeout: int = 20):
     """帶 If-None-Match / If-Modified-Since 抓 opendata。
     回 (json, True)＝有更新要重新解析；(None, False)＝沒變，沿用上次解析結果。
 
-    ⚠ have_cached：**呼叫端手上真的有可用的解析結果時才可以送條件標頭**。
-      這裡有兩個呼叫端、各自把結果存在不同地方（清單存 _TW_DUMP[url]["tickers"]、
-      日線存 _TW_DAY_SRC[url]["rows"]），但 ETag 是共用的。若不看這個旗標：
-      備援路徑先跑 → 存下 ETag 卻沒建 tickers → worker 接著拿到 304 → 用空的清單，
-      **台股清單直接從 1972 檔掉到 50 檔**，而且要等隔天檔案真的變了才會自己好。
-      （這不是假設，是實測出來的回歸。）"""
-    ent = _TW_DUMP.setdefault(url, {})
+    只有「這個用途上次真的解析成功過」才會送條件標頭 —— 見上方 _TW_DUMP 說明。
+    解析成功後呼叫端要用 _dump_done() 把結果登記回來，下次才敢走 304。"""
+    ent = _TW_DUMP.setdefault((url, purpose), {})
     hdrs = {}
-    if have_cached:
+    if ent.get("payload") is not None:          # 手上有結果才敢問「有沒有變」
         if ent.get("etag"):
             hdrs["If-None-Match"] = ent["etag"]
         if ent.get("lastmod"):
@@ -333,7 +342,18 @@ def _dump_get(url: str, timeout: int = 20, have_cached: bool = False):
     r.raise_for_status()
     ent["etag"]    = r.headers.get("ETag")
     ent["lastmod"] = r.headers.get("Last-Modified")
+    ent["payload"] = None                        # 先作廢：解析完才由 _dump_done 補上
     return r.json(), True
+
+
+def _dump_done(url: str, purpose: str, payload):
+    """解析成功 → 登記結果。沒登記過的用途永遠不會走 304（見 _dump_get）。"""
+    _TW_DUMP.setdefault((url, purpose), {})["payload"] = payload
+
+
+def _dump_cached(url: str, purpose: str):
+    """取上次解析成功的結果（304 時用）。"""
+    return _TW_DUMP.get((url, purpose), {}).get("payload")
 
 
 def fetch_tw_tickers() -> list:
@@ -345,13 +365,11 @@ def fetch_tw_tickers() -> list:
 
     # ── 1. TWSE 上市全量 ──────────────────────────────────────
     try:
-        _data, _changed = _dump_get(TWSE_DAY_ALL_URL, timeout=15,
-                                    have_cached=bool(_TW_DUMP.get(TWSE_DAY_ALL_URL, {}).get("tickers")))
-        _ent = _TW_DUMP[TWSE_DAY_ALL_URL]
+        _data, _changed = _dump_get(TWSE_DAY_ALL_URL, DUMP_TICKERS, timeout=15)
         if not _changed:                      # 304：內容沒變 → 直接用上次解析好的，跳過整輪解析
-            tickers.update(_ent.get("tickers") or {})
+            tickers.update(_dump_cached(TWSE_DAY_ALL_URL, DUMP_TICKERS) or {})
             raise _NotModified
-        _ent["tickers"] = {}
+        _parsed = {}
         _day_reset(TWSE_DAY_ALL_URL)
         for d in _data:
             code = (d.get("Code") or "").strip()
@@ -369,7 +387,7 @@ def fetch_tw_tickers() -> list:
                 _day_put(TWSE_DAY_ALL_URL, code, d,
                          ("OpeningPrice", "HighestPrice", "LowestPrice", "ClosingPrice"),
                          "TradeVolume", d.get("Date"))
-                _ent["tickers"][code] = {
+                _parsed[code] = {
                     "symbol": code, "display": code,
                     "name": (d.get("Name") or code).strip(),
                     "price": close, "change_pct": change_pct,
@@ -377,7 +395,8 @@ def fetch_tw_tickers() -> list:
                 }
             except (ValueError, TypeError):
                 continue
-        tickers.update(_ent["tickers"])
+        _dump_done(TWSE_DAY_ALL_URL, DUMP_TICKERS, _parsed)   # 登記後下次才敢走 304
+        tickers.update(_parsed)
     except _NotModified:
         pass
     except Exception as e:
@@ -385,14 +404,12 @@ def fetch_tw_tickers() -> list:
 
     # ── 2. TPEX 上櫃全量 ──────────────────────────────────────
     try:
-        _data, _changed = _dump_get(TPEX_DAY_ALL_URL, timeout=15,
-                                    have_cached=bool(_TW_DUMP.get(TPEX_DAY_ALL_URL, {}).get("tickers")))
-        _ent = _TW_DUMP[TPEX_DAY_ALL_URL]
+        _data, _changed = _dump_get(TPEX_DAY_ALL_URL, DUMP_TICKERS, timeout=15)
         if not _changed:                      # 304 → 沿用上次解析結果（見 _dump_get）
-            for _c, _v in (_ent.get("tickers") or {}).items():
+            for _c, _v in (_dump_cached(TPEX_DAY_ALL_URL, DUMP_TICKERS) or {}).items():
                 tickers.setdefault(_c, _v)    # setdefault：TSE 優先，與下方 `if code in tickers` 一致
             raise _NotModified
-        _ent["tickers"] = {}
+        _parsed = {}
         _day_reset(TPEX_DAY_ALL_URL)
         for d in _data:
             code = (d.get("SecuritiesCompanyCode") or "").strip()
@@ -416,7 +433,7 @@ def fetch_tw_tickers() -> list:
                 vol        = float((d.get("TradingShares") or "0").replace(",", ""))
                 _day_put(TPEX_DAY_ALL_URL, code, d, ("Open", "High", "Low", "Close"),
                          "TradingShares", d.get("Date"))
-                _ent["tickers"][code] = {
+                _parsed[code] = {
                     "symbol": code, "display": code,
                     "name": (d.get("CompanyName") or code).strip(),
                     "price": close, "change_pct": change_pct,
@@ -424,7 +441,8 @@ def fetch_tw_tickers() -> list:
                 }
             except (ValueError, TypeError):
                 continue
-        for _c, _v in _ent["tickers"].items():
+        _dump_done(TPEX_DAY_ALL_URL, DUMP_TICKERS, _parsed)
+        for _c, _v in _parsed.items():
             tickers.setdefault(_c, _v)
     except _NotModified:
         pass
@@ -433,6 +451,24 @@ def fetch_tw_tickers() -> list:
 
     # 兩包都解析完 → 把順手收集的「最新交易日日線」搬進快取（給 tw_daily_fill_latest 用）
     _day_commit()
+
+    # ── 健全性守門：清單「莫名其妙縮水」就丟掉條件式快取、下一輪強制整包重抓 ──────────
+    # ★為什麼要有這個：條件式抓取（304）失敗時的樣子是「安靜地回一份不完整的清單」，
+    #   而且因為來源檔案內容真的沒變，會一直 304 下去 —— 自己不會好，要等隔天。
+    #   實測就發生過一次（1972 → 50 檔）。上面已經從結構上修掉成因，但這類「快取狀態
+    #   與現實脫節」的錯法不會只有一種，所以留一道能**自我復原**的網：
+    #   只要比歷史高水位少掉一半以上，就清掉驗證碼，下一輪（30 秒後）整包重抓。
+    try:
+        _n = len(tickers)
+        _peak = _TW_TICKER_PEAK["n"]
+        if _n and _peak and _n < _peak * 0.5:
+            _log.warning(f"[tw_tickers] 清單異常縮水 {_peak} → {_n} 檔，丟棄條件式快取、下輪整包重抓")
+            _TW_DUMP.clear()
+            _TW_TICKER_PEAK["n"] = 0          # 重新建立高水位，避免持續誤判
+        elif _n > _peak:
+            _TW_TICKER_PEAK["n"] = _n
+    except Exception:
+        pass
 
     # ── 3. MIS 即時補強（盤中）：⚠ opendata(STOCK_DAY_ALL) 盤中給的是【昨日收盤】，用 MIS(delay:0)
     #      把今日即時價疊到熱門 50 支(單一請求、輕)。全部台股的今日價由 _tw_rt_overlay_worker 分頁輪掃補齊
@@ -867,9 +903,7 @@ def _tw_day_all_refresh():
             (TPEX_DAY_ALL_URL, "SecuritiesCompanyCode", ("Open", "High", "Low", "Close"), "TradingShares"),
         ):
             try:
-                data, changed = _dump_get(
-                    url, timeout=20,
-                    have_cached=bool(_TW_DAY_SRC.get(url, {}).get("rows")))
+                data, changed = _dump_get(url, DUMP_DAY, timeout=20)
                 if not changed:            # 沒變 → 這來源既有的 _TW_DAY_SRC 仍有效
                     continue
                 _day_reset(url)
@@ -877,6 +911,7 @@ def _tw_day_all_refresh():
                     c = (item.get(code_key) or "").strip()
                     if c.isdigit() and len(c) == 4:
                         _day_put(url, c, item, ohlc, vol_key, item.get("Date"))
+                _dump_done(url, DUMP_DAY, _TW_DAY_SRC.get(url))
             except Exception as e:
                 _log.warning(f"[tw_day_all] {url.rsplit('/', 1)[-1]} 失敗: {e}")
         _day_commit()
