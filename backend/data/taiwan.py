@@ -310,15 +310,23 @@ class _NotModified(Exception):
     """內部哨兵：304 → 跳過該來源的解析段（不是錯誤）。"""
 
 
-def _dump_get(url: str, timeout: int = 20):
+def _dump_get(url: str, timeout: int = 20, have_cached: bool = False):
     """帶 If-None-Match / If-Modified-Since 抓 opendata。
-    回 (json, True)＝有更新要重新解析；(None, False)＝沒變，沿用上次解析結果。"""
+    回 (json, True)＝有更新要重新解析；(None, False)＝沒變，沿用上次解析結果。
+
+    ⚠ have_cached：**呼叫端手上真的有可用的解析結果時才可以送條件標頭**。
+      這裡有兩個呼叫端、各自把結果存在不同地方（清單存 _TW_DUMP[url]["tickers"]、
+      日線存 _TW_DAY_SRC[url]["rows"]），但 ETag 是共用的。若不看這個旗標：
+      備援路徑先跑 → 存下 ETag 卻沒建 tickers → worker 接著拿到 304 → 用空的清單，
+      **台股清單直接從 1972 檔掉到 50 檔**，而且要等隔天檔案真的變了才會自己好。
+      （這不是假設，是實測出來的回歸。）"""
     ent = _TW_DUMP.setdefault(url, {})
     hdrs = {}
-    if ent.get("etag"):
-        hdrs["If-None-Match"] = ent["etag"]
-    if ent.get("lastmod"):
-        hdrs["If-Modified-Since"] = ent["lastmod"]
+    if have_cached:
+        if ent.get("etag"):
+            hdrs["If-None-Match"] = ent["etag"]
+        if ent.get("lastmod"):
+            hdrs["If-Modified-Since"] = ent["lastmod"]
     r = SESSION.get(url, headers=hdrs, timeout=timeout)
     if r.status_code == 304:
         return None, False
@@ -337,7 +345,8 @@ def fetch_tw_tickers() -> list:
 
     # ── 1. TWSE 上市全量 ──────────────────────────────────────
     try:
-        _data, _changed = _dump_get(TWSE_DAY_ALL_URL, timeout=15)
+        _data, _changed = _dump_get(TWSE_DAY_ALL_URL, timeout=15,
+                                    have_cached=bool(_TW_DUMP.get(TWSE_DAY_ALL_URL, {}).get("tickers")))
         _ent = _TW_DUMP[TWSE_DAY_ALL_URL]
         if not _changed:                      # 304：內容沒變 → 直接用上次解析好的，跳過整輪解析
             tickers.update(_ent.get("tickers") or {})
@@ -376,7 +385,8 @@ def fetch_tw_tickers() -> list:
 
     # ── 2. TPEX 上櫃全量 ──────────────────────────────────────
     try:
-        _data, _changed = _dump_get(TPEX_DAY_ALL_URL, timeout=15)
+        _data, _changed = _dump_get(TPEX_DAY_ALL_URL, timeout=15,
+                                    have_cached=bool(_TW_DUMP.get(TPEX_DAY_ALL_URL, {}).get("tickers")))
         _ent = _TW_DUMP[TPEX_DAY_ALL_URL]
         if not _changed:                      # 304 → 沿用上次解析結果（見 _dump_get）
             for _c, _v in (_ent.get("tickers") or {}).items():
@@ -844,41 +854,33 @@ def fetch_tw_day_all():
 
 
 def _tw_day_all_refresh():
-    """背景更新（見 fetch_tw_day_all）。只有台股 worker 沒在跑時才會用到。"""
+    """背景更新（見 fetch_tw_day_all）。只有台股 worker 沒在跑時才會用到。
+
+    ⚠ 這裡**刻意重用 _dump_get/_day_reset/_day_put/_day_commit**，不自己再抄一份解析：
+      原本抄了一份，而那份用 `d0 = d0 or ...`（日期只取第一個來源的）→ TWSE 與 TPEX
+      分屬不同交易日時，TPEX 的每一列都會被貼上 TWSE 的日期＝日期錯的 K 棒。
+      主路徑修好了、這份沒有，正是「同樣的邏輯抄兩份」必然出現的分歧。現在只有一份。"""
     global _TW_DAY_REFRESHING
-    rows, d0 = {}, None
     try:
-        for item in SESSION.get(TWSE_DAY_ALL_URL, timeout=20).json():
-            code = (item.get("Code") or "").strip()
-            if not (code.isdigit() and len(code) == 4):
-                continue
-            o, h, l, c = (_f(item.get(k)) for k in
-                          ("OpeningPrice", "HighestPrice", "LowestPrice", "ClosingPrice"))
-            if None in (o, h, l, c) or c <= 0:
-                continue
-            d0 = d0 or _roc_to_date(item.get("Date"))
-            rows[code] = {"open": o, "high": h, "low": l, "close": c,
-                          "volume": _f(item.get("TradeVolume")) or 0.0}
-    except Exception as e:
-        _log.warning(f"[tw_day_all] TWSE 失敗: {e}")
-    try:
-        for item in SESSION.get(TPEX_DAY_ALL_URL, timeout=20).json():
-            code = (item.get("SecuritiesCompanyCode") or "").strip()
-            if not (code.isdigit() and len(code) == 4) or code in rows:
-                continue
-            o, h, l, c = (_f(item.get(k)) for k in ("Open", "High", "Low", "Close"))
-            if None in (o, h, l, c) or c <= 0:
-                continue
-            d0 = d0 or _roc_to_date(item.get("Date"))
-            rows[code] = {"open": o, "high": h, "low": l, "close": c,
-                          "volume": _f(item.get("TradingShares")) or 0.0}
-    except Exception as e:
-        _log.warning(f"[tw_day_all] TPEX 失敗: {e}")
-    try:
-        if d0 and rows:
-            _TW_DAY_ALL.update({"ts": _time.time(), "date": d0, "rows": rows})
-        else:
-            _TW_DAY_ALL["ts"] = _time.time()      # 這次失敗 → 沿用上次成功的，但別狂重試
+        for url, code_key, ohlc, vol_key in (
+            (TWSE_DAY_ALL_URL, "Code", ("OpeningPrice", "HighestPrice", "LowestPrice", "ClosingPrice"), "TradeVolume"),
+            (TPEX_DAY_ALL_URL, "SecuritiesCompanyCode", ("Open", "High", "Low", "Close"), "TradingShares"),
+        ):
+            try:
+                data, changed = _dump_get(
+                    url, timeout=20,
+                    have_cached=bool(_TW_DAY_SRC.get(url, {}).get("rows")))
+                if not changed:            # 沒變 → 這來源既有的 _TW_DAY_SRC 仍有效
+                    continue
+                _day_reset(url)
+                for item in data:
+                    c = (item.get(code_key) or "").strip()
+                    if c.isdigit() and len(c) == 4:
+                        _day_put(url, c, item, ohlc, vol_key, item.get("Date"))
+            except Exception as e:
+                _log.warning(f"[tw_day_all] {url.rsplit('/', 1)[-1]} 失敗: {e}")
+        _day_commit()
+        _TW_DAY_ALL["ts"] = _time.time()   # 就算全失敗也更新時戳，避免狂重試
     finally:
         _TW_DAY_REFRESHING = False
 
