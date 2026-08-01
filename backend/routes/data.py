@@ -19,7 +19,7 @@ import datetime as _dt
 import threading as _threading
 import collections as _collections
 
-from data.taiwan import fetch_tw_stock, resample_tw, fetch_tw_intraday, fetch_tw_realtime, fetch_tw_intraday_yf, fetch_tw_latest_bar_yf, fetch_tw_daily_yf, merge_tw_intraday, cnyes_last_good, resample_tw_4h, YF_MAX_DAYS as TW_YF_MAX_DAYS
+from data.taiwan import fetch_tw_stock, resample_tw, fetch_tw_intraday, fetch_tw_realtime, fetch_tw_intraday_yf, fetch_tw_latest_bar_yf, fetch_tw_daily_yf, merge_tw_intraday, cnyes_last_good, resample_tw_4h, resample_tw_intraday, TW_RESAMPLE, YF_MAX_DAYS as TW_YF_MAX_DAYS
 from data.fugle import fetch_fugle_intraday, fugle_enabled
 # 註：fetch_taifex_quote / resolve_front_month 曾列在這裡但整檔沒用到（唯一的使用者是
 #     _diag_futopt，它在函式內自己 import）→ 2026-07-31 移除，順便解掉那處名稱遮蔽。
@@ -106,25 +106,29 @@ def fetch_crt_df(market: str, symbol: str, timeframe: str, days: int,
                 except Exception:
                     pass
             return df
-        elif timeframe == "4h":
-            max_d = TW_YF_MAX_DAYS.get("1h", 60)
+        elif timeframe in TW_RESAMPLE:          # 30m / 2h / 4h ← 由 15m 或 1h 重採樣
+            # ★2026-08-01：原本這裡只有 "4h"，30m/2h 因此掉進下面的日線分支 →
+            #   resample_tw 對未知 rule 一律退回 "1d"（見該函式）→ **日線資料被貼上 30m/2h 的標籤**
+            #   送到前端。使用者看到的是「切到 30m，圖卻是日線」，而且完全不報錯。
+            _src_tf, _ = TW_RESAMPLE[timeframe]
+            max_d = TW_YF_MAX_DAYS.get(_src_tf, 60)
             start = (date.today() - timedelta(days=min(days, max_d))).isoformat()
             try:
-                _df = fetch_tw_intraday_yf(symbol, "1h", start, end)
+                _df = fetch_tw_intraday_yf(symbol, _src_tf, start, end)
             except Exception:
                 if finmind_token:
-                    _df = fetch_tw_intraday(symbol, "1h", start, end, finmind_token)
+                    _df = fetch_tw_intraday(symbol, _src_tf, start, end, finmind_token)
                 else:
                     raise
-            # 4h 也接 cnyes（2026-07-31）：這條原本只吃 yfinance 1h，而 yfinance 台股盤中會落後
-            # 十幾二十分鐘（實測 12:36 時它只到 11:45、cnyes 已到 12:30）→ **形成中的那根 4h 棒
-            # 的收盤/高低都是舊的**。先把當日的 cnyes 1h 合併進來再分桶，形成中的 4h 就是最新的。
+            # 也接 cnyes（2026-07-31）：這條原本只吃 yfinance，而 yfinance 台股盤中會落後
+            # 十幾二十分鐘（實測 12:36 時它只到 11:45、cnyes 已到 12:30）→ **形成中的那根棒
+            # 的收盤/高低都是舊的**。先把當日的 cnyes 合併進來再分桶，形成中的那根就是最新的。
             try:
-                _c1 = cnyes_last_good(symbol, "1h", fetch_cnyes_stock_intraday(symbol, "1h"))
+                _c1 = cnyes_last_good(symbol, _src_tf, fetch_cnyes_stock_intraday(symbol, _src_tf))
                 _df = merge_tw_intraday(_df, _c1)
             except Exception:
                 pass
-            return resample_tw_4h(_df)
+            return resample_tw_intraday(_df, timeframe)
         else:
             start = (date.today() - timedelta(days=days)).isoformat()
             try:
@@ -977,12 +981,12 @@ def get_ohlcv(req: OHLCVRequest):
         elif req.market == "tw":
             if "/" in req.symbol:
                 raise ValueError(f"{req.symbol} 不是台股代號，請確認市場選擇")
-            if req.timeframe in ("1m", "5m", "15m", "1h", "4h"):
-                # 4h 走 1h 來源再重採樣（避免 yfinance 1h bug）
-                src_tf = "1h" if req.timeframe == "4h" else req.timeframe
+            if req.timeframe in ("1m", "5m", "15m", "1h") or req.timeframe in TW_RESAMPLE:
+                # 30m/2h/4h 走 15m 或 1h 來源再重採樣（避免 yfinance 對台股非 15m 盤中時框的 bug）
+                src_tf = TW_RESAMPLE[req.timeframe][0] if req.timeframe in TW_RESAMPLE else req.timeframe
                 max_d = TW_YF_MAX_DAYS.get(src_tf, 60)
                 if use_limit:
-                    bars_per_day = {"1m": 270, "5m": 78, "15m": 26, "1h": 5, "4h": 2}.get(req.timeframe, 26)
+                    bars_per_day = {"1m": 270, "5m": 78, "15m": 26, "30m": 9, "1h": 5, "2h": 3, "4h": 2}.get(req.timeframe, 26)
                     days = min(max_d, req.limit // bars_per_day)
                     days = max(days, 5)
                     end   = date.today().isoformat()
@@ -1003,14 +1007,19 @@ def get_ohlcv(req: OHLCVRequest):
                         raise
                 # ⭐ 今日改用 cnyes 個股即時分鐘K（歷史仍 yfinance）→ 一載入就即時、連續無跳號、無延遲、
                 #    免金鑰（同台指期資料源）。只在「查詢範圍含今日」時併入（歷史/重播查詢 end 為過去日，跳過不影響）。
+                # ★2026-08-01 補上「合併」：這條是**畫在圖上的那份資料**，但先前只有勝率那條
+                #   （fetch_crt_df）換成了 merge_tw_intraday，這裡還停在舊的「切一刀再接上去」。
+                #   舊作法＝以 cnyes 最早那根當 cutoff、整段蓋掉 yfinance，且 cnyes 一失敗就整段
+                #   退回落後的 yfinance（實測 12:36 時它只到 11:45）→ 最後幾根 K 棒往回退、
+                #   重整又跑回來，正是使用者回報的「台股 K 棒不穩定」。與勝率那條用同一套規則：
+                #   ① 抓不到就沿用今天最後一次成功的（cnyes_last_good）② 逐欄位合併（見 merge_tw_intraday）。
                 _today_live = False
                 if (src_tf in ("1m", "5m", "15m", "1h")
                         and end >= date.today().isoformat() and not df.empty):
-                    cdf = fetch_cnyes_stock_intraday(req.symbol, src_tf)
+                    cdf = cnyes_last_good(req.symbol, src_tf,
+                                          fetch_cnyes_stock_intraday(req.symbol, src_tf))
                     if cdf is not None and not cdf.empty:
-                        cutoff = cdf["time"].min()           # cnyes 當日最早一根(09:00) → 之後全用 cnyes
-                        df = pd.concat([df[df["time"] < cutoff], cdf],
-                                       ignore_index=True).sort_values("time").reset_index(drop=True)
+                        df = merge_tw_intraday(df, cdf)
                         _today_live = True
                 # cnyes 失敗（收盤/查無）時退回 Fugle（若設 token）→ 再退回純 yfinance。
                 if (not _today_live and fugle_enabled() and src_tf in ("1m", "5m", "15m", "1h")
@@ -1020,12 +1029,12 @@ def get_ohlcv(req: OHLCVRequest):
                         cutoff = fdf["time"].min()           # Fugle 當日最早一根 → 之後全用 Fugle
                         df = pd.concat([df[df["time"] < cutoff], fdf],
                                        ignore_index=True).sort_values("time").reset_index(drop=True)
-                # 4h 重採樣（對齊台北 09:00 = UTC 01:00）
-                if req.timeframe == "4h":
-                    df = df.set_index("time").resample(
-                        "4h", origin="start_day", offset="1h"
-                    ).agg({"open":"first","high":"max","low":"min","close":"last","volume":"sum"}) \
-                     .dropna(subset=["open"]).reset_index()
+                # 30m/2h/4h 重採樣（對齊台北 09:00 = UTC 01:00）
+                # ⚠ 改用共用的 resample_tw_intraday：這裡原本是把分桶規則**抄一份**在本地，
+                #   正是 resample_tw_4h 註解警告過的情況（兩條路徑規則一旦分歧，最後一根時間戳
+                #   對不上 → 前端當成新的一根接上去 → 圖上多一根假 K 棒）。
+                if req.timeframe in TW_RESAMPLE:
+                    df = resample_tw_intraday(df, req.timeframe)
                 if use_limit:
                     df = df.tail(req.limit)
             else:

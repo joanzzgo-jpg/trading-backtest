@@ -647,15 +647,32 @@ def merge_tw_intraday(yf_df, cn_df):
     return out.sort_index().reset_index()
 
 
-def resample_tw_4h(df_1h):
-    """台股 1h → 4h 的**唯一**分桶定義。origin=start_day + offset=1h ＝ 09:00/13:00 兩桶
-    （台股 09:00~13:30）。
-    ⚠ 抽成共用函式的理由：/api/ohlcv 與 /api/latest 兩條路徑都要產 4h 棒，分桶規則只要有一邊
+# 台股盤中重採樣：目標時框 → (來源時框, pandas rule)
+#   台股交易時段 09:00~13:30（台北）＝ 01:00~05:30 UTC，只有 4.5 小時。
+#   一律 origin="start_day" + offset="1h"，讓每天第一桶從 UTC 01:00（＝台北 09:00）開始：
+#     30m → 09:00,09:30,…,13:00（9 桶，最後一桶只有半小時）
+#     2h  → 09:00,11:00,13:00（3 桶，最後一桶只有半小時）
+#     4h  → 09:00,13:00（2 桶）
+#   來源一律取 15m 而非直接跟 yfinance 要 30m/2h：yfinance 對台股的非 15m 盤中時框有
+#   「成交量缺漏＋開盤錯位」問題（1h 的實測見 fetch_tw_intraday_yf 註解），從 15m 自己組最可靠。
+TW_RESAMPLE = {"30m": ("15m", "30min"), "2h": ("15m", "2h"), "4h": ("1h", "4h")}
+
+
+def resample_tw_intraday(df_src, timeframe: str):
+    """台股盤中時框重採樣的**唯一**分桶定義（30m / 2h / 4h 共用）。
+
+    ⚠ 抽成共用函式的理由：/api/ohlcv 與 /api/latest 兩條路徑都要產這些棒，分桶規則只要有一邊
       寫得不一樣，最後一根的時間戳就對不上 → 前端會把它當成「新的一根」接上去，圖上多出一根
       假 K 棒。改規則時這裡改一次就好。"""
-    if df_1h is None or df_1h.empty:
-        return df_1h
-    out = df_1h.set_index("time").resample("4h", origin="start_day", offset="1h").agg(
+    ent = TW_RESAMPLE.get(timeframe)
+    if ent is None or df_src is None or df_src.empty:
+        return df_src
+    out = df_src.set_index("time").resample(ent[1], origin="start_day", offset="1h").agg(
         {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
     )
     return out.dropna(subset=["open"]).reset_index()
+
+
+def resample_tw_4h(df_1h):
+    """（保留舊名給既有呼叫端）台股 1h → 4h，實作見 resample_tw_intraday。"""
+    return resample_tw_intraday(df_1h, "4h")
