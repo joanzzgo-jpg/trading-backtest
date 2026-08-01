@@ -3,6 +3,7 @@
 """
 import re as _re
 import time as _time
+import threading as _threading
 import logging
 import pandas as pd
 import requests
@@ -318,6 +319,8 @@ def fetch_tw_tickers() -> list:
                 prev       = close - change_amt
                 change_pct = round(change_amt / prev * 100, 2) if prev else 0.0
                 vol        = float((d.get("TradeVolume") or "0").replace(",", ""))
+                _day_put(code, d, ("OpeningPrice", "HighestPrice", "LowestPrice", "ClosingPrice"),
+                         "TradeVolume", d.get("Date"))
                 tickers[code] = {
                     "symbol": code, "display": code,
                     "name": (d.get("Name") or code).strip(),
@@ -347,7 +350,13 @@ def fetch_tw_tickers() -> list:
                 change_amt = _parse_tw_change(d.get("Change", "0"))
                 prev       = close - change_amt
                 change_pct = round(change_amt / prev * 100, 2) if prev else 0.0
-                vol        = float((d.get("Volume") or "0").replace(",", ""))
+                # ⚠ 欄位名是 TradingShares（TPEX 回應裡**沒有** "Volume" 這個欄位）→
+                #   原本寫 d.get("Volume") 永遠拿到 0：實測全清單 1972 檔有 877 檔量=0，
+                #   全部是上櫃股。後果不只是「依量排序時上櫃永遠墊底」，更嚴重的是
+                #   _tw_rt_overlay_worker 只對「量最大前 120 檔」疊即時價 → 上櫃股永遠輪不到，
+                #   盤中顯示的會是 opendata 的【昨日收盤】（見下方第 3 段註解）。
+                vol        = float((d.get("TradingShares") or "0").replace(",", ""))
+                _day_put(code, d, ("Open", "High", "Low", "Close"), "TradingShares", d.get("Date"))
                 tickers[code] = {
                     "symbol": code, "display": code,
                     "name": (d.get("CompanyName") or code).strip(),
@@ -358,6 +367,9 @@ def fetch_tw_tickers() -> list:
                 continue
     except Exception as e:
         _log.warning(f"[tw_tickers] TPEX opendata error: {e}")
+
+    # 兩包都解析完 → 把順手收集的「最新交易日日線」搬進快取（給 tw_daily_fill_latest 用）
+    _day_commit()
 
     # ── 3. MIS 即時補強（盤中）：⚠ opendata(STOCK_DAY_ALL) 盤中給的是【昨日收盤】，用 MIS(delay:0)
     #      把今日即時價疊到熱門 50 支(單一請求、輕)。全部台股的今日價由 _tw_rt_overlay_worker 分頁輪掃補齊
@@ -676,3 +688,151 @@ def resample_tw_intraday(df_src, timeframe: str):
 def resample_tw_4h(df_1h):
     """（保留舊名給既有呼叫端）台股 1h → 4h，實作見 resample_tw_intraday。"""
     return resample_tw_intraday(df_1h, "4h")
+
+
+# ── 官方 opendata 補「最新交易日」日線（2026-08-01）────────────────────────────
+# ★為什麼：日線來源是 yfinance，而它對台股收盤後會延遲很久才補上當天那根。實測 7/31（週五）
+#   13:30 收盤後，直到隔天（週六）凌晨 03:00 它都還只到 7/30 —— 也就是**收盤後約 13 個小時，
+#   日線圖上根本看不到剛剛結束的那個交易日**（週線/月線同理，因為都由日線聚合）。
+#   那天 2330 收 2425（漲停 +9.98%），日線圖卻停在 2205，落差很大且完全沒有提示。
+# → 改成：日線抓回來後，若官方 opendata 的最新交易日比它新，就用官方那根補上。
+#
+# ⚠ 成交量口徑不同，這點要知道：同一天 2330，TWSE 官方 TradeVolume 69,478,145 股、
+#   yfinance 57,145,894 股（差 21%）。價格（開高低收）兩邊一致，量不一致。官方是權威值，
+#   但為了讓整條序列的量看起來一致，補進去的這根仍會在 yfinance 補上後被它取代
+#   （見下方 tw_daily_fill_latest：只在「官方日期比較新」時才補，日期一樣就不動）。
+_TW_DAY_ALL = {"ts": 0.0, "date": None, "rows": {}}
+_TW_DAY_ALL_TTL = 600.0
+_TW_DAY_REFRESHING = False
+
+# 暫存區：fetch_tw_tickers 解析那兩包 opendata 時順手填這裡（同一份回應，零額外網路），
+# 整輪跑完再一次搬進 _TW_DAY_ALL（避免半套的資料被讀到）。
+_TW_DAY_STAGE = {"date": None, "rows": {}}
+
+
+def _day_put(code, item, ohlc_keys, vol_key, date_str):
+    """把 opendata 的一列存成日線棒（給 fetch_tw_tickers 的兩個解析迴圈共用）。"""
+    try:
+        o, h, l, c = (_f(item.get(k)) for k in ohlc_keys)
+        if None in (o, h, l, c) or c <= 0:
+            return
+        if _TW_DAY_STAGE["date"] is None:
+            _TW_DAY_STAGE["date"] = _roc_to_date(date_str)
+        _TW_DAY_STAGE["rows"][code] = {"open": o, "high": h, "low": l, "close": c,
+                                       "volume": _f(item.get(vol_key)) or 0.0}
+    except Exception:
+        pass
+
+
+def _day_commit():
+    """fetch_tw_tickers 一輪解析完 → 把暫存搬進正式快取。"""
+    if _TW_DAY_STAGE["date"] and _TW_DAY_STAGE["rows"]:
+        _TW_DAY_ALL.update({"ts": _time.time(), "date": _TW_DAY_STAGE["date"],
+                            "rows": dict(_TW_DAY_STAGE["rows"])})
+    _TW_DAY_STAGE["date"] = None
+    _TW_DAY_STAGE["rows"] = {}
+
+
+def _roc_to_date(s: str):
+    """民國日期字串 "1150731" → date(2026, 7, 31)。格式不符回 None。"""
+    s = (s or "").strip()
+    if len(s) != 7 or not s.isdigit():
+        return None
+    try:
+        return date(int(s[:3]) + 1911, int(s[3:5]), int(s[5:7]))
+    except ValueError:
+        return None
+
+
+def _f(v):
+    """opendata 的數字字串（可能含千分位/"--"/"+"）→ float；不可解析回 None。"""
+    try:
+        t = str(v).replace(",", "").replace("+", "").strip()
+        return float(t) if t and t not in ("--", "---") else None
+    except (ValueError, TypeError):
+        return None
+
+
+def fetch_tw_day_all():
+    """TWSE(上市)＋TPEX(上櫃) 官方 opendata 的「最新交易日全市場日線」。
+    回 (trade_date, {代號: {open,high,low,close,volume}})；抓不到回 (None, {})。
+
+    ⚠ 全市場一次抓、依代號查表 —— 這兩包合計約 1.2 萬列，**絕不可每個標的各打一次**。
+      實測兩包都只含單一交易日，所以不需要再依日期過濾。"""
+    global _TW_DAY_REFRESHING
+    now = _time.time()
+    stale = not _TW_DAY_ALL["date"] or now - _TW_DAY_ALL["ts"] >= _TW_DAY_ALL_TTL
+    if not stale:
+        return _TW_DAY_ALL["date"], _TW_DAY_ALL["rows"]
+    # ★過期也**先把手上這份回傳**，更新丟到背景做（stale-while-revalidate）。
+    #   實測冷抓要 3.25 秒（TPEX 那包 3.9MB／2.58s、TWSE 只有 310KB／162ms）——
+    #   放在請求路徑上等於「每 10 分鐘就有一個使用者的台股日線多等 3 秒」，不可接受。
+    #   正常情況下這裡根本不會觸發：_tw_ticker_worker 每 30 秒抓同樣那兩包，會透過
+    #   _day_put/_day_commit 順手把這份快取填好（零額外網路）。這條只是「台股 worker
+    #   沒在跑」時的保險（例如純加密貨幣部署）。
+    if not _TW_DAY_REFRESHING:
+        _TW_DAY_REFRESHING = True
+        _threading.Thread(target=_tw_day_all_refresh, daemon=True).start()
+    return _TW_DAY_ALL["date"], _TW_DAY_ALL["rows"]
+
+
+def _tw_day_all_refresh():
+    """背景更新（見 fetch_tw_day_all）。只有台股 worker 沒在跑時才會用到。"""
+    global _TW_DAY_REFRESHING
+    rows, d0 = {}, None
+    try:
+        for item in SESSION.get(TWSE_DAY_ALL_URL, timeout=20).json():
+            code = (item.get("Code") or "").strip()
+            if not (code.isdigit() and len(code) == 4):
+                continue
+            o, h, l, c = (_f(item.get(k)) for k in
+                          ("OpeningPrice", "HighestPrice", "LowestPrice", "ClosingPrice"))
+            if None in (o, h, l, c) or c <= 0:
+                continue
+            d0 = d0 or _roc_to_date(item.get("Date"))
+            rows[code] = {"open": o, "high": h, "low": l, "close": c,
+                          "volume": _f(item.get("TradeVolume")) or 0.0}
+    except Exception as e:
+        _log.warning(f"[tw_day_all] TWSE 失敗: {e}")
+    try:
+        for item in SESSION.get(TPEX_DAY_ALL_URL, timeout=20).json():
+            code = (item.get("SecuritiesCompanyCode") or "").strip()
+            if not (code.isdigit() and len(code) == 4) or code in rows:
+                continue
+            o, h, l, c = (_f(item.get(k)) for k in ("Open", "High", "Low", "Close"))
+            if None in (o, h, l, c) or c <= 0:
+                continue
+            d0 = d0 or _roc_to_date(item.get("Date"))
+            rows[code] = {"open": o, "high": h, "low": l, "close": c,
+                          "volume": _f(item.get("TradingShares")) or 0.0}
+    except Exception as e:
+        _log.warning(f"[tw_day_all] TPEX 失敗: {e}")
+    try:
+        if d0 and rows:
+            _TW_DAY_ALL.update({"ts": _time.time(), "date": d0, "rows": rows})
+        else:
+            _TW_DAY_ALL["ts"] = _time.time()      # 這次失敗 → 沿用上次成功的，但別狂重試
+    finally:
+        _TW_DAY_REFRESHING = False
+
+
+def tw_daily_fill_latest(df, symbol: str):
+    """yfinance 日線落後時，用官方 opendata 補上最新那個交易日。
+
+    只在「官方交易日**嚴格新於** df 最後一根」時才補 —— 日期一樣就不動，讓 yfinance
+    自己那根當主（整條序列的成交量口徑才一致，見上方說明）。"""
+    if df is None or df.empty or "time" not in df.columns:
+        return df
+    try:
+        d0, rows = fetch_tw_day_all()
+        bar = rows.get(str(symbol).strip()) if d0 else None
+        if not bar:
+            return df
+        last = pd.to_datetime(df["time"].iloc[-1]).date()
+        if d0 <= last:                                   # 已經有了（或官方比較舊）→ 不動
+            return df
+        add = pd.DataFrame([{"time": pd.Timestamp(d0), **bar}])
+        return pd.concat([df, add], ignore_index=True)
+    except Exception as e:
+        _log.warning(f"[tw_daily_fill] {symbol}: {e}")
+        return df

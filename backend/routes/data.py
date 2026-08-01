@@ -19,7 +19,7 @@ import datetime as _dt
 import threading as _threading
 import collections as _collections
 
-from data.taiwan import fetch_tw_stock, resample_tw, fetch_tw_intraday, fetch_tw_realtime, fetch_tw_intraday_yf, fetch_tw_latest_bar_yf, fetch_tw_daily_yf, merge_tw_intraday, cnyes_last_good, resample_tw_4h, resample_tw_intraday, TW_RESAMPLE, YF_MAX_DAYS as TW_YF_MAX_DAYS
+from data.taiwan import fetch_tw_stock, resample_tw, fetch_tw_intraday, fetch_tw_realtime, fetch_tw_intraday_yf, fetch_tw_latest_bar_yf, fetch_tw_daily_yf, merge_tw_intraday, cnyes_last_good, resample_tw_4h, resample_tw_intraday, TW_RESAMPLE, tw_daily_fill_latest, YF_MAX_DAYS as TW_YF_MAX_DAYS
 from data.fugle import fetch_fugle_intraday, fugle_enabled
 # 註：fetch_taifex_quote / resolve_front_month 曾列在這裡但整檔沒用到（唯一的使用者是
 #     _diag_futopt，它在函式內自己 import）→ 2026-07-31 移除，順便解掉那處名稱遮蔽。
@@ -135,6 +135,9 @@ def fetch_crt_df(market: str, symbol: str, timeframe: str, days: int,
                 _df = fetch_tw_daily_yf(symbol, start, end)
             except Exception:
                 _df = fetch_tw_stock(symbol, start, end, finmind_token)
+            # yfinance 台股日線收盤後會延遲很久才補上當天（實測週五收盤後 13 小時仍沒有）→
+            # 用 TWSE/TPEX 官方 opendata 補最新那個交易日；週線/月線由日線聚合，一併受惠。
+            _df = tw_daily_fill_latest(_df, symbol)
             if timeframe != "1d":
                 _df = resample_tw(_df, timeframe)
             return _df
@@ -1047,6 +1050,8 @@ def get_ohlcv(req: OHLCVRequest):
                     df = fetch_tw_daily_yf(req.symbol, start, end)
                 except Exception:
                     df = fetch_tw_stock(req.symbol, start, end, req.finmind_token)
+                # 同 fetch_crt_df：官方 opendata 補最新交易日（yfinance 收盤後會延遲很久）
+                df = tw_daily_fill_latest(df, req.symbol)
                 df = resample_tw(df, req.timeframe)
                 if use_limit:
                     df = df.tail(req.limit)
