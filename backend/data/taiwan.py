@@ -295,6 +295,39 @@ def _parse_tw_change(s: str) -> float:
     return -val if neg else val
 
 
+# ── opendata 條件式抓取（2026-08-01）─────────────────────────────────────────
+# ★_tw_ticker_worker 每 30 秒抓這兩包，但它們**一天只變一次**：
+#     TWSE Last-Modified 05:20（台北）、TPEX 15:30 GMT＝23:30（台北），都是收盤後才更新。
+#   而每輪要下載 429KB（gzip 後：TWSE 72KB + TPEX 357KB；解壓後是 310KB + 3886KB）
+#   → 一天 2880 輪 ≈ **1.24GB 下載 + 每輪 1.79 秒的解析**，其中 2878 輪內容一模一樣。
+#   兩邊都給 ETag/Last-Modified 且實測支援 304（回 0 bytes、8ms/28ms）→ 帶條件標頭即可。
+# ⚠ 逐來源各自快取「解析結果」，不可只留一份合併後的：兩包更新時間不同（相差數小時），
+#   若只留合併結果，TWSE 變而 TPEX 沒變的那一輪就會把 TPEX 的資料整批弄丟。
+_TW_DUMP: dict = {}      # url -> {etag, lastmod, tickers}
+
+
+class _NotModified(Exception):
+    """內部哨兵：304 → 跳過該來源的解析段（不是錯誤）。"""
+
+
+def _dump_get(url: str, timeout: int = 20):
+    """帶 If-None-Match / If-Modified-Since 抓 opendata。
+    回 (json, True)＝有更新要重新解析；(None, False)＝沒變，沿用上次解析結果。"""
+    ent = _TW_DUMP.setdefault(url, {})
+    hdrs = {}
+    if ent.get("etag"):
+        hdrs["If-None-Match"] = ent["etag"]
+    if ent.get("lastmod"):
+        hdrs["If-Modified-Since"] = ent["lastmod"]
+    r = SESSION.get(url, headers=hdrs, timeout=timeout)
+    if r.status_code == 304:
+        return None, False
+    r.raise_for_status()
+    ent["etag"]    = r.headers.get("ETag")
+    ent["lastmod"] = r.headers.get("Last-Modified")
+    return r.json(), True
+
+
 def fetch_tw_tickers() -> list:
     """抓取全台股（上市＋上櫃）每日行情，以漲跌幅排序。
     主力：TWSE/TPEX opendata（全量，盤中更新）。
@@ -304,9 +337,14 @@ def fetch_tw_tickers() -> list:
 
     # ── 1. TWSE 上市全量 ──────────────────────────────────────
     try:
-        resp = SESSION.get(TWSE_DAY_ALL_URL, timeout=15)
-        resp.raise_for_status()
-        for d in resp.json():
+        _data, _changed = _dump_get(TWSE_DAY_ALL_URL, timeout=15)
+        _ent = _TW_DUMP[TWSE_DAY_ALL_URL]
+        if not _changed:                      # 304：內容沒變 → 直接用上次解析好的，跳過整輪解析
+            tickers.update(_ent.get("tickers") or {})
+            raise _NotModified
+        _ent["tickers"] = {}
+        _day_reset(TWSE_DAY_ALL_URL)
+        for d in _data:
             code = (d.get("Code") or "").strip()
             if not (code and code.isdigit() and len(code) == 4):
                 continue
@@ -319,9 +357,10 @@ def fetch_tw_tickers() -> list:
                 prev       = close - change_amt
                 change_pct = round(change_amt / prev * 100, 2) if prev else 0.0
                 vol        = float((d.get("TradeVolume") or "0").replace(",", ""))
-                _day_put(code, d, ("OpeningPrice", "HighestPrice", "LowestPrice", "ClosingPrice"),
+                _day_put(TWSE_DAY_ALL_URL, code, d,
+                         ("OpeningPrice", "HighestPrice", "LowestPrice", "ClosingPrice"),
                          "TradeVolume", d.get("Date"))
-                tickers[code] = {
+                _ent["tickers"][code] = {
                     "symbol": code, "display": code,
                     "name": (d.get("Name") or code).strip(),
                     "price": close, "change_pct": change_pct,
@@ -329,14 +368,23 @@ def fetch_tw_tickers() -> list:
                 }
             except (ValueError, TypeError):
                 continue
+        tickers.update(_ent["tickers"])
+    except _NotModified:
+        pass
     except Exception as e:
         _log.warning(f"[tw_tickers] TWSE opendata error: {e}")
 
     # ── 2. TPEX 上櫃全量 ──────────────────────────────────────
     try:
-        resp = SESSION.get(TPEX_DAY_ALL_URL, timeout=15)
-        resp.raise_for_status()
-        for d in resp.json():
+        _data, _changed = _dump_get(TPEX_DAY_ALL_URL, timeout=15)
+        _ent = _TW_DUMP[TPEX_DAY_ALL_URL]
+        if not _changed:                      # 304 → 沿用上次解析結果（見 _dump_get）
+            for _c, _v in (_ent.get("tickers") or {}).items():
+                tickers.setdefault(_c, _v)    # setdefault：TSE 優先，與下方 `if code in tickers` 一致
+            raise _NotModified
+        _ent["tickers"] = {}
+        _day_reset(TPEX_DAY_ALL_URL)
+        for d in _data:
             code = (d.get("SecuritiesCompanyCode") or "").strip()
             if not (code and code.isdigit() and len(code) == 4):
                 continue
@@ -356,8 +404,9 @@ def fetch_tw_tickers() -> list:
                 #   _tw_rt_overlay_worker 只對「量最大前 120 檔」疊即時價 → 上櫃股永遠輪不到，
                 #   盤中顯示的會是 opendata 的【昨日收盤】（見下方第 3 段註解）。
                 vol        = float((d.get("TradingShares") or "0").replace(",", ""))
-                _day_put(code, d, ("Open", "High", "Low", "Close"), "TradingShares", d.get("Date"))
-                tickers[code] = {
+                _day_put(TPEX_DAY_ALL_URL, code, d, ("Open", "High", "Low", "Close"),
+                         "TradingShares", d.get("Date"))
+                _ent["tickers"][code] = {
                     "symbol": code, "display": code,
                     "name": (d.get("CompanyName") or code).strip(),
                     "price": close, "change_pct": change_pct,
@@ -365,6 +414,10 @@ def fetch_tw_tickers() -> list:
                 }
             except (ValueError, TypeError):
                 continue
+        for _c, _v in _ent["tickers"].items():
+            tickers.setdefault(_c, _v)
+    except _NotModified:
+        pass
     except Exception as e:
         _log.warning(f"[tw_tickers] TPEX opendata error: {e}")
 
@@ -705,32 +758,46 @@ _TW_DAY_ALL = {"ts": 0.0, "date": None, "rows": {}}
 _TW_DAY_ALL_TTL = 600.0
 _TW_DAY_REFRESHING = False
 
-# 暫存區：fetch_tw_tickers 解析那兩包 opendata 時順手填這裡（同一份回應，零額外網路），
-# 整輪跑完再一次搬進 _TW_DAY_ALL（避免半套的資料被讀到）。
-_TW_DAY_STAGE = {"date": None, "rows": {}}
+# 逐來源存放（**不可只留一份合併結果**）：TWSE 與 TPEX 的更新時刻差好幾小時
+# （實測 Last-Modified：TWSE 台北 05:20、TPEX 台北 23:30）→ 會有一段時間兩包分屬不同交易日。
+# 若混在一起，晚更新的那包就會被貼上另一包的日期＝**日期錯的 K 棒**。
+# 故各自記自己的日期，合併時只採用「最新那個交易日」的來源；還沒更新的那包就先不參與
+# （寧可上櫃股暫時補不到，也不要補一根日期錯的）。
+_TW_DAY_SRC: dict = {}       # url -> {"date": date, "rows": {code: bar}}
 
 
-def _day_put(code, item, ohlc_keys, vol_key, date_str):
+def _day_reset(url):
+    """該來源要重新解析（HTTP 200）→ 先清掉它自己那份，避免舊列殘留。"""
+    _TW_DAY_SRC[url] = {"date": None, "rows": {}}
+
+
+def _day_put(url, code, item, ohlc_keys, vol_key, date_str):
     """把 opendata 的一列存成日線棒（給 fetch_tw_tickers 的兩個解析迴圈共用）。"""
     try:
         o, h, l, c = (_f(item.get(k)) for k in ohlc_keys)
         if None in (o, h, l, c) or c <= 0:
             return
-        if _TW_DAY_STAGE["date"] is None:
-            _TW_DAY_STAGE["date"] = _roc_to_date(date_str)
-        _TW_DAY_STAGE["rows"][code] = {"open": o, "high": h, "low": l, "close": c,
-                                       "volume": _f(item.get(vol_key)) or 0.0}
+        ent = _TW_DAY_SRC.setdefault(url, {"date": None, "rows": {}})
+        if ent["date"] is None:
+            ent["date"] = _roc_to_date(date_str)
+        ent["rows"][code] = {"open": o, "high": h, "low": l, "close": c,
+                             "volume": _f(item.get(vol_key)) or 0.0}
     except Exception:
         pass
 
 
 def _day_commit():
-    """fetch_tw_tickers 一輪解析完 → 把暫存搬進正式快取。"""
-    if _TW_DAY_STAGE["date"] and _TW_DAY_STAGE["rows"]:
-        _TW_DAY_ALL.update({"ts": _time.time(), "date": _TW_DAY_STAGE["date"],
-                            "rows": dict(_TW_DAY_STAGE["rows"])})
-    _TW_DAY_STAGE["date"] = None
-    _TW_DAY_STAGE["rows"] = {}
+    """各來源解析完 → 取「最新交易日」那些來源合併成正式快取。"""
+    dates = [v["date"] for v in _TW_DAY_SRC.values() if v.get("date")]
+    if not dates:
+        return
+    best = max(dates)
+    rows = {}
+    for v in _TW_DAY_SRC.values():
+        if v.get("date") == best:
+            rows.update(v["rows"])
+    if rows:
+        _TW_DAY_ALL.update({"ts": _time.time(), "date": best, "rows": rows})
 
 
 def _roc_to_date(s: str):
