@@ -70,6 +70,38 @@ function _rsiLowerBound(t) {
   while (lo < hi) { const m = (lo + hi) >> 1; _rsiBands[m].t < t ? lo = m + 1 : hi = m; }
   return lo;
 }
+
+/* ── 兩個 primitive 共用的省算工具（2026-08-04 降負擔）──────────────────────────
+   LWC 依「邏輯索引」等距排列 K 棒 → 陣列若是連續的棒，x 座標就是索引的線性函數，
+   可由頭尾兩點推出全部 x，省掉每點一次 timeToCoordinate。實測（BTC 5m、19487 棒、
+   全縮出去 2339 可見點）timeToCoordinate 與 priceToCoordinate 各佔 0.45／0.47ms，
+   等距推算等於直接省掉其中一半。
+   ⚠ 不能無條件假設：陣列中間若缺棒就不成立 → 抽 4 個點驗證，誤差超過 1px 就回 null，
+     呼叫端退回逐點換算。正確性優先，驗證本身只花 6 次換算。 */
+function _linearX(ts, arr, i0, i1) {
+  const n = i1 - i0;
+  if (n < 3) return null;
+  const xa = ts.timeToCoordinate(arr[i0].t), xb = ts.timeToCoordinate(arr[i1 - 1].t);
+  if (xa == null || xb == null) return null;
+  const step = (xb - xa) / (n - 1);
+  for (let k = 1; k <= 4; k++) {
+    const i = i0 + Math.round(n * k / 5);
+    if (i <= i0 || i >= i1 - 1) continue;
+    const x = ts.timeToCoordinate(arr[i].t);
+    if (x == null || Math.abs(x - (xa + (i - i0) * step)) > 1) return null;
+  }
+  return { x0: xa, step };
+}
+/* 每幀重複使用的暫存區：避免每幀替可見點各配一個 {x,y,v} 物件（放大時是數千個 → GC 壓力）。
+   ⚠ RSI 與線型兩個 primitive 共用這組陣列。可以共用是因為 canvas 繪製是同步的：
+     每個 draw() 在回傳前就把暫存區用完了，不會交錯。若日後有人把繪製改成非同步／延後，
+     這裡必須先改成各自持有。 */
+let _sX = new Float64Array(0), _sHi = new Float64Array(0), _sLo = new Float64Array(0);
+function _ensureScratch(n) {
+  if (_sX.length >= n) return;
+  const cap = n + 512;
+  _sX = new Float64Array(cap); _sHi = new Float64Array(cap); _sLo = new Float64Array(cap);
+}
 /* 某條 RSI 目前是否顯示（圖例可各自開關）。讀不到就當作顯示，寧可多畫也不要無故消失。 */
 function _rsiVisible(series) {
   try { return series ? series.options().visible !== false : false; } catch (e) { return !!series; }
@@ -93,31 +125,34 @@ function _makeRSIZonePrimitive() {
         // 讀「目前哪幾條 RSI 開著」→ 只用開著的算包絡
         const vis14 = _rsiVisible(rsiLine14), vis7 = _rsiVisible(rsiLine7);
         if (!vis14 && !vis7) return;                     // 兩條都關 → 不畫
-        const pick = (p, up) => {
+        /* 單趟掃描把可見點的 x／上包絡／下包絡填進暫存區。
+           ⚠ 這裡刻意「不算 y」：y 只有越界（>70 或 <30）的點才畫得到，門檻內的點僅供
+             內插交點用，而交點只吃 x 與值。實測 2339 個可見點裡只有 601 點越界 →
+             原本 4×2339 次座標換算縮到 2 次(x 兩端) + 601 次(y)。 */
+        const lin = _linearX(ts, _rsiBands, i0, i1);
+        const n0 = i1 - i0;
+        _ensureScratch(n0);
+        let m = 0, nHi = 0, nLo = 0;
+        for (let i = i0; i < i1; i++) {
+          const p = _rsiBands[i];
           const a = vis14 ? p.v14 : null, b = vis7 ? p.v7 : null;
-          if (a == null) return b;
-          if (b == null) return a;
-          return up ? Math.max(a, b) : Math.min(a, b);
-        };
-        const mk = (up) => {
-          const out = [];
-          for (let i = i0; i < i1; i++) {
-            const p = _rsiBands[i];
-            const v = pick(p, up);
-            if (v == null) continue;
-            const x = ts.timeToCoordinate(p.t), y = _series.priceToCoordinate(v);
-            if (x != null && y != null) out.push({ x, y, v });
-          }
-          return out;
-        };
-        const ptsHi = mk(true), ptsLo = mk(false);
-        if (ptsHi.length < 2 && ptsLo.length < 2) return;
+          let hi, lo;
+          if (a == null) { if (b == null) continue; hi = lo = b; }
+          else if (b == null) { hi = lo = a; }
+          else if (a > b) { hi = a; lo = b; }
+          else { hi = b; lo = a; }
+          const x = lin ? lin.x0 + (i - i0) * lin.step : ts.timeToCoordinate(p.t);
+          if (x == null) continue;
+          _sX[m] = x; _sHi[m] = hi; _sLo[m] = lo; m++;
+          if (hi > OB) nHi++;
+          if (lo < OS) nLo++;
+        }
+        if (!nHi && !nLo) return;                        // 整段都在 30~70 之間 → 沒東西可畫
 
         // 畫某一側越界的所有段落。lvl=門檻值、yLvl=門檻線 y、above=是否取「高於門檻」
         //   ⚠ 填色用漸層而非單一色：貼著門檻線較淡、越往極端越深（越極端＝越濃），
         //     且整體不透明度給足，看起來要是「填滿」而不是一層薄膜。
-        const band = (lvl, yLvl, above, rgb, pts) => {
-          if (pts.length < 2) return;
+        const band = (lvl, yLvl, above, rgb, V) => {
           const yFar = _series.priceToCoordinate(above ? 100 : 0);
           const yTip = (yFar == null) ? yLvl + (above ? -60 : 60) : yFar;
           // 細分漸層：只給 3 個停點會看得出「一階一階」的分界，改成 9 段連續加深
@@ -130,40 +165,44 @@ function _makeRSIZonePrimitive() {
             g.addColorStop(t, `rgba(${rgb},${a.toFixed(3)})`);
           }
           ctx.fillStyle = g;
-          let poly = null;
-          const cross = (a, b) => {           // a、b 之間與門檻線的交點 x（線性內插）
-            const d = b.v - a.v;
-            if (!d) return b.x;
-            return a.x + (b.x - a.x) * ((lvl - a.v) / d);
+          // poly 存的是「暫存區索引」而非物件 → 段落通常只有幾十點，且不必先配一整批物件
+          let poly = null, xStart = 0;
+          const cross = (ka, kb) => {         // ka、kb 之間與門檻線的交點 x（線性內插）
+            const va = V[ka], d = V[kb] - va;
+            if (!d) return _sX[kb];
+            return _sX[ka] + (_sX[kb] - _sX[ka]) * ((lvl - va) / d);
           };
           const close = (xEnd) => {
-            if (poly && poly.length >= 2) {
+            if (poly && poly.length) {
               ctx.beginPath();
-              ctx.moveTo(poly[0].x * hr, yLvl * vp);
-              for (const q of poly) ctx.lineTo(q.x * hr, q.y * vp);
+              ctx.moveTo(xStart * hr, yLvl * vp);
+              for (const k of poly) {
+                const y = _series.priceToCoordinate(V[k]);   // ★只有越界點才換算 y
+                if (y != null) ctx.lineTo(_sX[k] * hr, y * vp);
+              }
               ctx.lineTo(xEnd * hr, yLvl * vp);
               ctx.closePath(); ctx.fill();
             }
             poly = null;
           };
-          for (let i = 0; i < pts.length; i++) {
-            const p = pts[i], out = above ? p.v > lvl : p.v < lvl;
+          for (let k = 0; k < m; k++) {
+            const out = above ? V[k] > lvl : V[k] < lvl;
             if (out) {
               if (!poly) {                    // 起點：從與門檻線的交點開始
-                const prev = pts[i - 1];
-                poly = [{ x: prev ? cross(prev, p) : p.x, y: yLvl }];
+                xStart = k > 0 ? cross(k - 1, k) : _sX[k];
+                poly = [];
               }
-              poly.push(p);
+              poly.push(k);
             } else if (poly) {
-              close(cross(pts[i - 1], p));    // 終點：收在交點上
+              close(cross(k - 1, k));         // 終點：收在交點上
             }
           }
-          if (poly) close(poly[poly.length - 1].x);
+          if (poly) close(_sX[poly[poly.length - 1]]);
         };
         // 配色沿用全站既有調色盤（C.down 青綠 #26a69a / C.up 紅 #ef5350）：
         // 原本用的是飽和度更高的翠綠(38,180,120)，配上近乎實色的 0.92 → 在深色副圖上很跳。
-        band(OB, yOB, true,  "38,166,154", ptsHi);   // 超買＝青綠（同 C.down）
-        band(OS, yOS, false, "239,83,80",  ptsLo);   // 超賣＝紅（同 C.up）
+        if (nHi) band(OB, yOB, true,  "38,166,154", _sHi);   // 超買＝青綠（同 C.down）
+        if (nLo) band(OS, yOS, false, "239,83,80",  _sLo);   // 超賣＝紅（同 C.up）
       });
     },
   };
@@ -213,14 +252,21 @@ function _makeLineGradPrimitive() {
         // ★漸層要綁「這段線自己的最高/最低」而不是整個窗格高度：
         //   價格波動小的時候，線只佔窗格中間一小條，綁窗格會讓整條線都落在漸層的同一個色段
         //   → 看起來像單色。綁自身範圍才會像參考圖那樣，永遠是完整的紫→藍→青。
-        let yMin = Infinity, yMax = -Infinity;
+        //   ⚠ y 只算一趟並存進暫存區，下面描線直接重用：原本 min/max 一趟、描線又一趟，
+        //     等於每點做兩次 priceToCoordinate（實測各佔 0.47ms／幀）。
+        const lin = _linearX(ts, _lineGradPts, i0, i1);
+        _ensureScratch(i1 - i0);
+        let yMin = Infinity, yMax = -Infinity, m = 0;
         for (let i = i0; i < i1; i++) {
           const yy = _series.priceToCoordinate(_lineGradPts[i].v);
           if (yy == null) continue;
+          const xx = lin ? lin.x0 + (i - i0) * lin.step : ts.timeToCoordinate(_lineGradPts[i].t);
+          if (xx == null) continue;
+          _sX[m] = xx; _sHi[m] = yy; m++;
           if (yy < yMin) yMin = yy;
           if (yy > yMax) yMax = yy;
         }
-        if (!isFinite(yMin) || !isFinite(yMax)) return;
+        if (m < 2 || !isFinite(yMin) || !isFinite(yMax)) return;
         if (yMax - yMin < 4) { yMin -= 20; yMax += 20; }   // 幾乎水平時給一點範圍，免得整條同色
         // 細分：4 個停點在大範圍下會看到色帶分界，補到 9 段讓過渡連續
         const g = ctx.createLinearGradient(0, yMin * vp, 0, yMax * vp);
@@ -232,15 +278,9 @@ function _makeLineGradPrimitive() {
         ctx.lineWidth = Math.max(1, 2 * hr);
         ctx.lineJoin = "round"; ctx.lineCap = "round";
         ctx.beginPath();
-        let started = false;
-        for (let i = i0; i < i1; i++) {
-          const p = _lineGradPts[i];
-          const x = ts.timeToCoordinate(p.t), y = _series.priceToCoordinate(p.v);
-          if (x == null || y == null) continue;
-          if (!started) { ctx.moveTo(x * hr, y * vp); started = true; }
-          else ctx.lineTo(x * hr, y * vp);
-        }
-        if (started) ctx.stroke();
+        ctx.moveTo(_sX[0] * hr, _sHi[0] * vp);
+        for (let k = 1; k < m; k++) ctx.lineTo(_sX[k] * hr, _sHi[k] * vp);
+        ctx.stroke();
       });
     },
   };
