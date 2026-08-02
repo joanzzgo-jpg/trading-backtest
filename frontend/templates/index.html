@@ -19,10 +19,13 @@
   <link rel="apple-touch-icon" href="/static/img/icon-192.png?v={{ ver }}">
   <link rel="icon" type="image/png" href="/static/img/bear.png?v={{ ver }}"/>
   <link rel="preload" href="/static/img/bear.png?v={{ ver }}" as="image">
-  <link rel="preload" href="/static/img/bear-full.png?v={{ ver }}" as="image">
+  <!-- bear-full(偷看熊) 不預載：它在主 UI(非封面頁)，封面階段用不到，預載只是跟關鍵資源搶頻寬。
+       HTML 裡的 <img> 仍會照常載入，只是不再插隊。 -->
   <!-- 封面城堡圖：高優先預載 gate(初始顯示)、低優先預載 open(進場開門時切換用) → 載入更快、開門不卡 -->
   <link rel="preload" href="/static/img/landing-castle-gate.webp?v={{ ver }}&c=4" as="image" fetchpriority="high">
-  <link rel="preload" href="/static/img/landing-castle-open.webp?v={{ ver }}&c=4" as="image" fetchpriority="low">
+  <!-- ⚠ open(開門圖) 不在這裡預載：它 81KB，卻要按下大門才用得到。實測慢 4G：預載讓它
+       從 167ms 佔到 2731ms，全程跟 app.bundle.js 搶頻寬，「可進場」因此卡到 3070ms。
+       移掉後 2630ms 可進場（快 440ms）→ 改由 main.js initLanding 在 bundle 跑起來後才抓。 -->
   <!-- 字型自架(同源)：原走 Google Fonts CDN(fonts.googleapis/gstatic)，同 LWC 理由改自架、去除 CDN 依賴。
        只含 latin/latin-ext 子集(logo「AHH TRADING」＋Caveat 草寫；中文由 font stack 退回 PingFang TC 系統字)。 -->
   <link rel="stylesheet" href="/static/vendor/fonts.css?v={{ ver }}">
@@ -1330,6 +1333,9 @@
   background:rgba(18,20,26,0.9);border:1px solid rgba(255,255,255,0.14);border-radius:8px;
   padding:7px 9px;font:12px/1.5 -apple-system,'PingFang TC',sans-serif;color:#e6e6e6;
   pointer-events:none;backdrop-filter:blur(3px);box-shadow:0 2px 12px rgba(0,0,0,0.45)"></div>
-<script defer src="/static/js/app.bundle.js?v={{ ver }}"></script>
+<!-- ⚠ fetchpriority="high"：defer 的 script 在 Chrome 預設是 Low 優先權，慢 4G 實測
+     它被城堡/熊圖(Low/Medium)壓著、到 3006ms 才下載完，而「可進場」正是等它。
+     這兩支是進場的必要條件，優先權必須高過任何圖片。 -->
+<script defer fetchpriority="high" src="/static/js/app.bundle.js?v={{ ver }}"></script>
 </body>
 </html>

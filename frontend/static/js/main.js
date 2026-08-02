@@ -20,6 +20,15 @@ document.addEventListener("DOMContentLoaded", async () => {
     let timer = null;
     const seenAt = () => { try { return parseInt(sessionStorage.getItem("landingDismissedAt") || "0", 10); } catch (e) { return 0; } };
     const art = scr.querySelector(".landing-art");
+    /* 開門圖暖載（原本是 <head> 的 rel=preload，移走的理由見 index.html 的說明）。
+       時機＝bundle 已執行、關鍵路徑走完 → 完全不影響「可進場」。
+       ⚠ 已知取捨，別再花時間調優先權：實測慢 4G 進場後頻寬被 ohlcv(129KB)+勝率(106KB)
+         +延遲 JS 佔滿，這張圖不論標 low / 預設 / high 都要 4.9~5.1s 才好（三種都量過，
+         差異在雜訊內），而 2.6s 就能按了。換句話說「保住開門動畫」與「早 440ms 進場」
+         在慢速網路下互斥 —— 選了進場快。
+       ⚠ 沒載完也不會壞：瀏覽器在新圖解碼完成前會繼續顯示舊圖（關門圖），放大動畫照跑，
+         只是少了開門那一格，不閃爍、不破圖。快 4G 下 1.8s 就好，一般反應時間內趕得上。 */
+    if (art && art.dataset.open) { const im = new Image(); im.src = art.dataset.open; }
     const hide = () => {   // 點大門 → 進場序列：換開門圖 → 門內漸變放大 + 暖光鋪滿 → 進圖表
       if (scr.classList.contains("landing-entering")) return;          // 防重複觸發
       try { sessionStorage.setItem("landingDismissedAt", String(Date.now())); } catch (e) {}
