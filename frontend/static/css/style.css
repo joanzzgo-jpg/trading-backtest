@@ -7454,3 +7454,72 @@ html.perf-mode .ind-pop { background: #FFF !important; border-color: rgba(0,0,0,
 html.perf-mode .ind-pop-row { color: #2A2620 !important; }
 html.perf-mode .ind-pop-row:hover { background: rgba(0,0,0,.06) !important; }
 @media (max-width: 1180px) { .ind-pop { display: none !important; } }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   互動回饋補強（2026-08-02）
+   盤點現況後補的兩件事：
+     ① **鍵盤焦點完全看不見** —— 全站沒有任何 :focus 樣式。剛加了鍵盤快捷鍵
+        （1-0 切時框、/ 搜尋、? 說明）之後這個缺口更明顯：用 Tab 走訪時
+        完全不知道焦點在哪。用 :focus-visible 而非 :focus → **只有鍵盤操作才顯示**，
+        滑鼠點擊不會多出一圈框（不影響既有視覺）。
+     ② **按下去沒有回饋** —— 多數按鈕只有 :hover 沒有 :active。手機沒有 hover，
+        等於整個「按下去」的瞬間毫無反應，會讓人不確定有沒有點到而重複點。
+   ⚠ 一律只動 transform / outline / filter，不動顏色與版面 → 不會破壞既有配色
+     （含極簡模式那套 !important 覆寫）。
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── ① 鍵盤焦點：只在鍵盤操作時出現 ── */
+.tf-btn:focus-visible,
+.tb-btn:focus-visible,
+.tk-mkt-btn:focus-visible,
+.tk-seg-btn:focus-visible,
+.sym-tab:focus-visible,
+.sym-result-item:focus-visible,
+.ticker-item:focus-visible,
+.leg-toggle:focus-visible,
+.rp-preset:focus-visible,
+.ann-btn:focus-visible,
+button:focus-visible,
+[role="button"]:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--accent, #FF6A1A);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+/* 深色底上橘色外框對比不足處 → 加一圈暗描邊讓它在任何背景都看得見 */
+.ticker-item:focus-visible,
+.sym-result-item:focus-visible {
+  box-shadow: 0 0 0 4px rgba(0, 0, 0, .35);
+}
+
+/* ── ② 按下瞬間的回饋（手機沒有 hover，這是唯一的確認）── */
+.tk-mkt-btn:active,
+.tk-seg-btn:active,
+.leg-toggle:active,
+.rp-preset:active,
+.sym-tab:active,
+.tf-btn:active {
+  transform: scale(.94);
+}
+.ticker-item:active,
+.sym-result-item:active {
+  transform: scale(.985);
+  filter: brightness(1.12);
+}
+.tk-mkt-btn, .tk-seg-btn, .leg-toggle, .rp-preset, .sym-tab,
+.ticker-item, .sym-result-item {
+  transition: transform .1s ease, filter .12s ease;
+}
+/* 清單項目本來就沒抑制觸控高亮 → 補上，避免點擊時整塊藍色閃一下 */
+.sym-result-item, .rp-preset { -webkit-tap-highlight-color: transparent; }
+
+/* 尊重「減少動態效果」的系統設定 */
+@media (prefers-reduced-motion: reduce) {
+  .tk-mkt-btn, .tk-seg-btn, .leg-toggle, .rp-preset, .sym-tab,
+  .ticker-item, .sym-result-item { transition: none; }
+  .tk-mkt-btn:active, .tk-seg-btn:active, .leg-toggle:active, .rp-preset:active,
+  .sym-tab:active, .tf-btn:active, .ticker-item:active, .sym-result-item:active {
+    transform: none;
+  }
+}
