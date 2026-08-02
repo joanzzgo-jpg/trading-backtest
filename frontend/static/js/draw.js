@@ -9,7 +9,11 @@ let dragState      = null;   // { id, startX, startY, moved, snapshot }
 let _dragJustMoved = false;  // 拖移結束後抑制下一個 click，避免開啟顏色面板
 let _mx = 0, _my = 0;
 let _drawColor  = "#f5c518";  // 目前繪圖顏色
-let _magnetMode = false;
+// ⚠ 在「宣告處」還原偏好，不能只在 ui.js 還原：draw.js 是延遲載入的，
+//   它的 `let _magnetMode = ...` 會在 ui.js(bundle) 跑完之後才執行 → 直接把已還原的值蓋回 false
+//   （本專案記錄過的同類陷阱：延遲載入檔用 let 蓋掉 bundle 已設好的共享變數）。
+//   實測症狀：按鈕亮著（ui.js 設的 class 還在）但磁鐵其實沒作用。
+let _magnetMode = (() => { try { return localStorage.getItem("magnetMode") === "1"; } catch (e) { return false; } })();
 
 const DCP_COLORS = ["#f5c518","#ef5350","#26a69a","#2962ff","#ff9800","#7e57c2","#ec407a","#26c6da","#ffffff","#787b86"];
 const DRAW_WIDTH  = 1.5;

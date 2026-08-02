@@ -147,6 +147,10 @@ function applyAllColors() {
       wickVisible: S.wickVisible !== false,
       wickUpColor: C.wickUp, wickDownColor: C.wickDown,
     });
+    // ★這裡是無條件把蠟燭顏色寫回去的，會蓋掉「線型圖模式」設的全透明 →
+    //   開著線型圖時重開頁面，還原顏色偏好之後蠟燭又冒出來，變成 K 棒與折線疊在一起。
+    //   套完顏色再讓 applyChartType 重新裁決一次（它是圖型的唯一真相）。
+    if (typeof applyChartType === "function") applyChartType();
   }
   bbU.applyOptions({ color:C.bbU }); bbM.applyOptions({ color:C.bbM }); bbL.applyOptions({ color:C.bbL });
   kdjK.applyOptions({ color:C.kdjK }); kdjD.applyOptions({ color:C.kdjD }); kdjJ.applyOptions({ color:C.kdjJ });

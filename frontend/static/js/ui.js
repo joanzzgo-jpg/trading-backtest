@@ -138,10 +138,20 @@ function bindEvents() {
       setDrawTool(btn.dataset.tool);
     });
   });
-  // 弱磁鐵切換
+  // 弱磁鐵切換（狀態要記住 —— 使用者回報「下次開又是關的」）
+  const _magnetSync = () => {
+    document.getElementById("btnMagnet")?.classList.toggle("active", _magnetMode);
+    try { localStorage.setItem("magnetMode", _magnetMode ? "1" : "0"); } catch (e) {}
+  };
+  window._magnetSync = _magnetSync;
+  // 只同步按鈕外觀；變數本身由 draw.js 在宣告處還原（它延遲載入、會覆寫這裡設的值）
+  try {
+    document.getElementById("btnMagnet")?.classList.toggle("active",
+      localStorage.getItem("magnetMode") === "1");
+  } catch (e) {}
   document.getElementById("btnMagnet")?.addEventListener("click", () => {
     _magnetMode = !_magnetMode;
-    document.getElementById("btnMagnet").classList.toggle("active", _magnetMode);
+    _magnetSync();
   });
   // Esc 回到 pointer / 取消進行中的繪圖
   document.addEventListener("keydown", e => {
@@ -169,7 +179,8 @@ function bindEvents() {
     }
     if ((e.key === "m" || e.key === "M") && document.activeElement.tagName !== "INPUT") {
       _magnetMode = !_magnetMode;
-      document.getElementById("btnMagnet")?.classList.toggle("active", _magnetMode);
+      if (typeof window._magnetSync === "function") window._magnetSync();   // 同上：一併存偏好
+      else document.getElementById("btnMagnet")?.classList.toggle("active", _magnetMode);
     }
   });
 

@@ -121,9 +121,9 @@ function _makeRSIZonePrimitive() {
           const yFar = _series.priceToCoordinate(above ? 100 : 0);
           const yTip = (yFar == null) ? yLvl + (above ? -60 : 60) : yFar;
           const g = ctx.createLinearGradient(0, yLvl * vp, 0, yTip * vp);
-          g.addColorStop(0.00, `rgba(${rgb},0.30)`);   // 貼著門檻線：淡
-          g.addColorStop(0.45, `rgba(${rgb},0.62)`);
-          g.addColorStop(1.00, `rgba(${rgb},0.92)`);   // 最極端：幾乎實色
+          g.addColorStop(0.00, `rgba(${rgb},0.16)`);   // 貼著門檻線：很淡
+          g.addColorStop(0.50, `rgba(${rgb},0.44)`);
+          g.addColorStop(1.00, `rgba(${rgb},0.72)`);   // 最極端：濃但不到實色（實色會太生硬）
           ctx.fillStyle = g;
           let poly = null;
           const cross = (a, b) => {           // a、b 之間與門檻線的交點 x（線性內插）
@@ -155,8 +155,10 @@ function _makeRSIZonePrimitive() {
           }
           if (poly) close(poly[poly.length - 1].x);
         };
-        band(OB, yOB, true,  "38,180,120", ptsHi);   // 超買＝綠（取兩條 RSI 較高者）
-        band(OS, yOS, false, "214,64,72", ptsLo);    // 超賣＝紅（取兩條 RSI 較低者）
+        // 配色沿用全站既有調色盤（C.down 青綠 #26a69a / C.up 紅 #ef5350）：
+        // 原本用的是飽和度更高的翠綠(38,180,120)，配上近乎實色的 0.92 → 在深色副圖上很跳。
+        band(OB, yOB, true,  "38,166,154", ptsHi);   // 超買＝青綠（同 C.down）
+        band(OS, yOS, false, "239,83,80",  ptsLo);   // 超賣＝紅（同 C.up）
       });
     },
   };
