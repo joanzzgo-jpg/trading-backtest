@@ -7523,3 +7523,19 @@ select:focus-visible {
     transform: none;
   }
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   手機版面精簡（2026-08-02）
+   截圖檢視後發現：手機上「圖表開始之前」的介面列吃掉超過三分之一螢幕高度。
+   其中這一條是純浪費 —— 「十字線移到訊號 K 棒 → 顯示該棒勝率」是**滑鼠操作**的說明，
+   觸控裝置根本沒有 hover 十字線，等於佔一整列講一件在這台裝置做不到的事。
+   ⚠ 只隱藏「說明文字」，不動 .tb-wr-hover 容器與 .tb-wr-hover-item —— 真的有內容
+     （點到訊號棒）時仍然顯示得出來，只是平常不再佔位。
+   ══════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 1180px) and (pointer: fine),
+       (hover: none) and (pointer: coarse) and (orientation: portrait),
+       (hover: none) and (pointer: coarse) and (orientation: landscape) and (max-height: 599px) {
+  .tb-wr-hover-hint { display: none !important; }
+  /* 容器沒內容時不佔高度（有 hover 項目時 flex 子項會把它撐開） */
+  .tb-wr-hover:empty, .tb-wr-hover { min-height: 0 !important; }
+}

@@ -349,7 +349,28 @@ function escHtml(s) {
   const str = (typeof s === "string") ? s : (s == null ? "" : String(s));
   return _ESC_RE.test(str) ? str.replace(/[&<>"']/g, c => _ESC_MAP[c]) : str;
 }
-function fmt(v)    { const n = Number(v); return (v != null && isFinite(n)) ? _thousands(String(+n.toFixed(4))) : "—"; }
+/* 價格顯示格式（符號列 OHLC、BB 圖例共用）。
+   ★2026-08-02 改成隨價格級距調整小數位。原本一律 toFixed(4)，兩頭都不對：
+     ・大價位 → BTC 顯示 65,089.7364，後面兩位是雜訊、又佔掉圖例橫向空間
+     ・小價位 → **直接變成 0**：0.00001234 → "0"、8.12e-7 → "0"
+       （報價列用的是另一個 fmtTickerPrice 所以看起來正常，只有主圖這條壞掉）
+       低價幣（SHIB/PEPE 這類）的開高低收與布林值等於完全看不到。
+   規則：≥100 兩位；1~100 四位；<1 則「第一個有效數字之後再取 4 位」→ 再小都看得到數字。 */
+function fmt(v) {
+  const n = Number(v);
+  if (v == null || !isFinite(n)) return "—";
+  const a = Math.abs(n);
+  let d;
+  if (a >= 100)   d = 2;
+  else if (a >= 1) d = 4;
+  else if (a > 0)  d = Math.min(12, Math.max(4, Math.ceil(-Math.log10(a)) + 3));
+  else             d = 2;
+  // ⚠ 不可用 +n.toFixed(d) 轉回 Number 再轉字串：JS 在小於 1e-6 時會切成科學記號
+  //   （8.12e-7 會原樣顯示成 "8.12e-7"，看盤時完全不能用）。改成直接修剪字串尾端的 0。
+  let out = n.toFixed(d);
+  if (out.indexOf(".") >= 0) out = out.replace(/0+$/, "").replace(/\.$/, "");
+  return _thousands(out);
+}
 function n2(v)     { return v!=null ? Number(v).toFixed(2) : "—"; }
 function _fmtPx(p) {
   if (!isFinite(p)) return "—";
