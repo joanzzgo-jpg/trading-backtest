@@ -40,13 +40,51 @@ function _updateBBTail() {
    （_bgLoadNewerBars 補到現在就把 _hasFwdGap 清掉），這裡只避免每秒重複發動。 */
 let _gapFillAt = 0;
 function _scheduleGapFill() {
+  // 補不動就要老實回 false —— 背景補載只支援 window._BG_TF 那幾個時框（1w/1M 不在內）。
+  // ⚠ 這個回傳值很重要：呼叫端靠它決定「交給補載」還是「退回舊行為照接」。
+  //   若這裡補不動、呼叫端又不接，圖表會**整個凍住**（比留一個洞更糟）。
+  const _tfs = (typeof window !== "undefined" && window._BG_TF) || null;
+  if (!_tfs || !_tfs.has(currentTF) || typeof _bgLoadNewerBars !== "function") return false;
   const now = Date.now();
-  if (now - _gapFillAt < 5000) return;       // 5 秒內只發動一次
-  _gapFillAt = now;
+  if (now - _gapFillAt >= 5000) {            // 5 秒內只發動一次（補載本身是非同步且會自我終止）
+    _gapFillAt = now;
+    try {
+      window._hasFwdGap = true;              // _bgLoadNewerBars 的入口條件
+      _bgLoadNewerBars();
+    } catch (e) { return false; }
+  }
+  return true;                               // 已有人在處理（這次或 5 秒內那次）
+}
+
+/* ── 連續性自我檢查（2026-08-02）──────────────────────────────────────────────
+   ★為什麼還要這一層：上面修的是「即時輪詢中斷」這條路徑，但 K 棒的洞不是只有那一個來源
+     ——背景補載接合、切時框、重播進出、資料源本身缺一段都可能留下洞，而且**全都不會報錯**，
+     使用者只看到「圖上少一段、重整才好」。與其逐條路徑防守，不如定期驗一次結果。
+   做法：每 30 秒掃尾段（只掃最近 300 根，成本可忽略），發現不連續就叫補載修。
+   ⚠ 只掃尾段是刻意的：深歷史的洞多半是資料源真的沒有（標的上市前、交易所停機），
+     修不回來，掃了只會反覆觸發補載。近端的洞才是「我們自己漏接」的那種。
+   ⚠ 只對 crypto 判斷：台股/美股/港股有休市（夜間、週末、假日），K 棒本來就不等距。 */
+const _CONT_SCAN_BARS = 300;
+function _checkContinuity() {
   try {
-    window._hasFwdGap = true;                // _bgLoadNewerBars 的入口條件
-    if (typeof _bgLoadNewerBars === "function") _bgLoadNewerBars();
+    if (typeof replayActive !== "undefined" && replayActive) return;
+    if (typeof ohlcvData === "undefined" || ohlcvData.length < 3) return;
+    if ((document.getElementById("marketSelect")?.value || "crypto") !== "crypto") return;
+    const per = { "1M":2592000,"1w":604800,"1d":86400,"4h":14400,"2h":7200,"1h":3600,
+                  "30m":1800,"15m":900,"5m":300,"1m":60 }[currentTF];
+    if (!per) return;
+    const from = Math.max(1, ohlcvData.length - _CONT_SCAN_BARS);
+    for (let i = from; i < ohlcvData.length; i++) {
+      if (toTime(ohlcvData[i].time) - toTime(ohlcvData[i - 1].time) > per * 1.5) {
+        window._hasFwdGap = true;
+        _scheduleGapFill();
+        return;
+      }
+    }
   } catch (e) {}
+}
+if (typeof window !== "undefined" && !window._contTimer) {
+  window._contTimer = setInterval(_checkContinuity, 30000);
 }
 
 let _lastTickDraw = 0;   // 手機：上次「tick 觸發整層重畫」時刻(節流用)
@@ -96,8 +134,12 @@ async function fetchLatest() {
       if (t > lastT && _per && _gapSec > _per * 1.5) {
         // 7 天以內視為「輪詢中斷造成的落後」（休眠/背景分頁/斷線）→ 補回來。
         // 超過就當作歷史模式，維持原本行為不接上去。
-        if (_gapSec <= 7 * 86400) _scheduleGapFill();
-        return;
+        // 補得動 → 交給補載，這根先不接（接了中間就是永久的洞）。
+        if (_gapSec <= 7 * 86400 && _scheduleGapFill()) return;
+        // 補不動（1w/1M 不在背景補載範圍）或差太多（＝在看歷史）：
+        //   差太多 → 維持忽略；補不動但差距合理 → **退回舊行為照接**，
+        //   寧可留一個洞，也不要讓圖表凍在那裡不動。
+        if (_gapSec > 7 * 86400) return;
       }
       if (t === lastT) {
         // 性能：若 OHLC 完全沒變，跳過 LWC update 與 indicator 重算（省 CPU）

@@ -653,6 +653,12 @@ function _subWindowFor(n) {
   return { lo: Math.max(0, Math.floor(vr.from) - pad), hi: Math.min(n, Math.ceil(vr.to) + pad) };
 }
 
+/* 背景補載支援的時框（**唯一定義**）。
+   ⚠ 原本這份 Set 在本檔被複製了兩份，realtime.js 判斷「缺口補不補得動」也要用同一份 —
+   抄多份必然分歧（台股才因此出過兩次事）。掛在 window 上讓跨檔共用同一個來源。 */
+const BG_TF = new Set(["1m", "5m", "15m", "30m", "1h", "2h", "4h", "1d"]);   // 8h 已移除
+window._BG_TF = BG_TF;
+
 let _subAnchorSig = "";   // 錨點目前對應的時間軸簽章（見 _renderSubcharts）
 
 function _renderSubcharts(data) {
@@ -789,7 +795,6 @@ function _bgScheduleIndicators() {
 }
 
 async function _bgLoadOlderBars(scrollTriggered = false) {
-  const BG_TF = new Set(["1m", "5m", "15m", "1h", "4h", "2h", "30m", "1d"]);   // 8h 已移除
   if (!BG_TF.has(currentTF) || _bgLoadInProgress || !ohlcvData.length) return;
 
   const snapMarket   = document.getElementById("marketSelect").value;
@@ -1255,7 +1260,6 @@ window._scheduleIdleTrim = _scheduleIdleTrim;
 /* 往「新(未來/現在)」方向背景補載(捲歷史抓的有界視窗未到現在時,往右拖到近右緣觸發)。
    與 _bgLoadOlderBars 對稱:往右 append、不改既有 index;補完順手滾動修剪左側 → 常駐根數有界。 */
 async function _bgLoadNewerBars(scrollTriggered = false) {
-  const BG_TF = new Set(["1m", "5m", "15m", "1h", "4h", "2h", "30m", "1d"]);
   if (!BG_TF.has(currentTF) || _bgLoadInProgress || !ohlcvData.length || !window._hasFwdGap) return;
 
   const snapMarket   = document.getElementById("marketSelect").value;
