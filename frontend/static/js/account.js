@@ -94,6 +94,7 @@ async function _acctLogin(name) {
   for (const k of _ACCT_SEED_SKIP) delete seed[k];
   const j = await _acctApi("login", { name, data: seed });
   _acctSaveSession(j.name || name);
+  setTimeout(_refreshDrawingsIfStale, 300);   // 登入把快照寫進 localStorage 後，記憶體要跟上
   // 自選走寫穿表：登入即拉雲端最新覆蓋本機（含舊快照自選遷移）。在套快照前先設好。
   await _acctPullWatch(j.name || name, j.data, true);
   const hasData = j.data && typeof j.data === "object" && Object.keys(j.data).length > 0;
@@ -137,7 +138,9 @@ window._acctTouch = function () {
 };
 async function _acctFlush() {
   if (!_ACCT.name) return;
-  try { await _acctApi("sync", { name: _ACCT.name, data: _acctSnapshot() }); }
+  try {
+    await _acctApi("sync", { name: _ACCT.name, data: _acctSnapshot() });
+  }
   catch (e) { if (/查無|404/.test(e.message)) _acctSaveSession(null); }
 }
 
@@ -170,6 +173,66 @@ async function _acctPullWatch(name, snapData, clearIfEmpty) {
     }
   } catch (e) {}
 }
+
+/* ── 繪圖跨裝置同步（2026-08-02）────────────────────────────────────────────────
+   ★問題：使用者回報「手機看不到電腦畫的繪圖」。查下去：
+     ・繪圖確實有上雲（帳號快照裡 tv_drawings_v2 都在，實測某帳號 11 個標的、BTC 115 筆）
+     ・手機也確實畫得出來（同一份 localStorage 下，手機視窗渲染像素比桌面還多）
+     ・真正的斷點是**下行**：回到前景時只呼叫 _acctPullWatch，而它**只拉自選**
+       （打 /mywatch、只寫 watchlist）。繪圖只有在「登入那一刻」才會隨快照下來 →
+       一台已經登入著的手機，永遠看不到電腦後來新畫的線。
+   → 回前景時多拉一次唯讀快照，只把繪圖那一把同步下來。
+   ⚠ 只同步 tv_drawings_v2，不整包套用：chartColors_m / chartStyles_m 這些是
+     「手機與電腦各自獨立」的設定，整包蓋下去會把手機的配色洗成電腦的。
+   ⚠ 用 updated_at 比對，雲端不比我們新就不動 → 不會把手機剛畫的線洗掉。 */
+/* 上次「已處理過的雲端版本」。⚠ 記的是**伺服器回報的 updated_at**，不是我們自己推送的時間：
+   本機任何 localStorage 寫入（例如報價快取 _tc）都會觸發 debounce 推送，
+   若用自己的推送時間當基準，這個閘門幾乎永遠是關的 → 別台的變更永遠拉不下來
+   （第一版就是這樣寫，實測完全沒作用）。用伺服器版本比對，重複套用自己的推送也無害
+   （內容相同 → _refreshDrawingsIfStale 會自己判定沒變、不重繪）。 */
+let _acctSeenTs = 0;
+
+async function _acctPullDrawings(name) {
+  if (name) {
+    try {
+      const r = await _acctApi("pull", { name });
+      if (r && r.exists && r.data) {
+        const ts = Number(r.updated_at || 0);
+        if (ts !== _acctSeenTs) {
+          _acctSeenTs = ts;
+          const remote = r.data.tv_drawings_v2;
+          if (typeof remote === "string") {
+            let local = null;
+            try { local = localStorage.getItem("tv_drawings_v2"); } catch (e) {}
+            if (remote !== local) { try { localStorage.setItem("tv_drawings_v2", remote); } catch (e) {} }
+          }
+        }
+      }
+    } catch (e) {}
+  }
+  // ⚠ 一定要在最後無條件跑：上面任何一步提早結束，都不該讓「儲存有、畫面沒有」的狀態留著。
+  _refreshDrawingsIfStale();
+}
+
+/* 把「localStorage 裡當前標的的繪圖」與「畫面上實際畫著的」比對，不一致就重讀重畫。
+   ★不能只比對 localStorage 前後有沒有變 —— 實測登入時快照**已經**把繪圖寫進 localStorage 了，
+     但 draw.js 的 drawings 陣列是更早載入時讀進記憶體的、仍然是空的
+     → 字串比對會相等而跳過，畫面永遠是空的（這正是「手機看不到電腦繪圖」的最後一哩）。
+     所以要比的是**記憶體 vs 儲存**，不是儲存 vs 遠端。 */
+function _refreshDrawingsIfStale() {
+  try {
+    if (typeof _drawSymKey !== "function" || typeof loadDrawings !== "function") return;
+    let store = {};
+    try { store = JSON.parse(localStorage.getItem("tv_drawings_v2") || "{}") || {}; } catch (e) { return; }
+    const want = store[_drawSymKey()] || [];
+    const have = (typeof drawings !== "undefined" && drawings) || [];
+    if (want.length === have.length && JSON.stringify(want) === JSON.stringify(have)) return;
+    loadDrawings();
+    if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();
+    if (want.length && typeof showToast === "function") showToast("✏️ 已同步另一台裝置的繪圖");
+  } catch (e) {}
+}
+window._refreshDrawingsIfStale = _refreshDrawingsIfStale;
 
 function _acctSetMsg(msg, isErr) {
   const el = document.getElementById("landingAcctMsg");
@@ -275,6 +338,7 @@ async function initAccount() {
       _acctPullWatch(_ACCT.name, null, false).then(() => {
         if (typeof window._acctReloadWatch === "function") window._acctReloadWatch();
       });
+      _acctPullDrawings(_ACCT.name);   // 繪圖同樣要下行（見該函式：原本只有自選會下來）
     }
   });
 }

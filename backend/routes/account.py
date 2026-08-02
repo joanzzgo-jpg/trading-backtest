@@ -272,6 +272,40 @@ def sync(req: SyncReq):
     return {"ok": True}
 
 
+class PullReq(BaseModel):
+    """唯讀取回：只需要帳號名。⚠ 不要沿用 SyncReq —— 它的 data 是必填，
+    前端只想「拉」的時候不必也不該帶整包快照上來（實測沿用會 422）。"""
+    name: str
+
+
+@router.post("/pull")
+def pull(req: PullReq):
+    """**唯讀**取回帳號快照（含 updated_at）。
+
+    ★為什麼要獨立一支：原本前端想拿雲端資料只能打 /login，而 /login 會在雲端為空時
+      用本機快照回寫 —— 拿來當「定期拉取」用等於每次都可能寫入。這支保證不寫任何東西。
+    用途：手機端回到前景時比對 updated_at，若雲端較新就把繪圖同步下來
+      （先前只有 /mywatch 拉自選，繪圖只在「登入那一刻」才會下來 → 已登入的手機
+       永遠看不到電腦後來畫的線）。"""
+    _require_enabled()
+    name = _norm_name(req.name)
+    if not _valid_name(name):
+        raise HTTPException(status_code=400, detail="帳號名稱不正確")
+    conn, ph = _db()
+    try:
+        cur = conn.execute(f"SELECT data, updated_at FROM accounts WHERE name={ph}", (name,))
+        row = cur.fetchone()
+        if not row:
+            return {"ok": True, "exists": False}
+        try:
+            data = json.loads(row[0]) if isinstance(row[0], str) else (row[0] or {})
+        except Exception:
+            data = {}
+        return {"ok": True, "exists": True, "updated_at": row[1] or 0, "data": data}
+    finally:
+        conn.close()
+
+
 @router.post("/savewatch")
 def save_watch(req: SaveWatchReq):
     """把自選清單寫穿到帳號的 account_watchlist 表（唯一真相）。每次加/刪自選即呼叫 →
