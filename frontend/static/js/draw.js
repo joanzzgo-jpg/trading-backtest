@@ -1553,10 +1553,14 @@ function _drawSessionOverlay(W, H) {
   //    不必等整盤收完。判定＝這根是某盤、且「真實前一根」不同盤（避免畫面左緣誤判開盤）。
   drawCtx.save();
   drawCtx.font = "bold 11px sans-serif"; drawCtx.textAlign = "left";
-  for (let i = Math.max(1, from); i <= to; i++) {
-    const sess = _sessionOf(ohlcvData[i].time);
-    if (!sess || _sessionOf(ohlcvData[i - 1].time) === sess) continue;   // 非該盤、或不是開盤那根
-    const x = ts.timeToCoordinate(toTime(ohlcvData[i].time));
+  //    ⚠ 直接用上面那份 runs：每個 run 的 r.s 依定義就是「該盤第一根」（前一根不同盤），
+  //      與逐根重算的結果完全等價。原本每幀掃過所有可見棒、每根呼叫兩次 _sessionOf
+  //      （滑動時 2000+ 根 × 2 次）→ 改成走 runs（整份資料才幾百段），_sessionOf 退出熱路徑。
+  const _lo = Math.max(1, from);
+  for (const r of runs) {
+    if (r.s < _lo || r.s > to) continue;   // 不在可見範圍、或是第 0 根（左緣無前一根可比）
+    const sess = r.sess;
+    const x = ts.timeToCoordinate(toTime(ohlcvData[r.s].time));
     if (x == null || x < 0 || x > plotW) continue;
     const xL = x - half;
     drawCtx.strokeStyle = _SESSION_LINE[sess]; drawCtx.lineWidth = 1; drawCtx.globalAlpha = 0.45;
