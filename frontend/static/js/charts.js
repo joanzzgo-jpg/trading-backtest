@@ -47,102 +47,89 @@ function _candleBorderVisible() {
   return !(C.borderUp === C.up && C.borderDown === C.down);  // 同色=白畫兩次 → 跳過(像素零差異)
 }
 
-/* ── RSI 超買/超賣填色（2026-08-03，TradingView 樣式）─────────────────────────
-   TV 的 RSI 長相有三個要素，這裡三個都做：
-     ① 30~70 之間一層很淡的底色（帶狀背景，讓「中性區」一眼可辨）
-     ② RSI 走到 70 以上／30 以下時，**填「曲線與門檻線之間」那塊**——
-        重點是跟著曲線走，不是畫一個方塊（這是像不像 TV 的關鍵）
-     ③ 越極端顏色越濃（漸層：貼著門檻線透明 → 往極端加深）
-   ⚠ 用 series primitive 自畫：LWC 沒有原生區間填色，而多加 series 會讓副圖每次
-     重新佈局都變重（副圖重排成本隨總點數走，正是先前「開副圖滑動卡」的成因）。
-   ⚠ 只掃可見範圍：本專案踩過「每幀掃全陣列 → 放大就卡」的坑，這裡用二分搜尋
-     定位視窗起訖，逐幀成本與資料總量無關。 */
-let _rsiBands = [];        // [{t, v}] RSI(14) 值，依時間升序（畫填色用）
-function _rsiLowerBound(t) {          // 第一個 >= t 的索引（_rsiBands 已排序）
+/* ── RSI 超買/超賣填色（2026-08-03，依使用者提供的參考圖）───────────────────
+   只填「曲線**超出門檻線**的那一小塊」——跟著曲線走、頭尾自然收在交叉點上。
+   超買(>70)＝綠、超賣(<30)＝紅。線本身維持單色，不做任何著色。
+   ★這版是把前兩次做過頭的東西拿掉：
+     ・第一版：畫成矩形色塊 → 硬邊、跟曲線無關，像貼上去的
+     ・第二版：整條線做溫度漸層 + 對中線 50 填色 → 太花，不是參考圖的樣子
+     參考圖的重點就是「小、貼合曲線、只在越界處出現」，所以刻意不加底色、不加描邊。
+   ⚠ 邊界要內插到「與門檻線的交點」，不能直接用越界那根的 x：
+     否則色塊會從前一根就開始（或晚一根才開始），看起來與線對不齊。
+   ⚠ 只掃可見範圍（二分搜尋）：避免「每幀掃全陣列 → 放大就卡」。 */
+let _rsiBands = [];        // [{t, v}] RSI(14)，升序
+function _rsiLowerBound(t) {
   let lo = 0, hi = _rsiBands.length;
   while (lo < hi) { const m = (lo + hi) >> 1; _rsiBands[m].t < t ? lo = m + 1 : hi = m; }
   return lo;
-}
-function _rsiBarW() {
-  try { return Math.max(2, mainChart.timeScale().options().barSpacing || 6); } catch (e) { return 6; }
 }
 function _makeRSIZonePrimitive() {
   let _chart = null, _series = null, _req = null;
   const OB = 70, OS = 30;
   const renderer = {
     draw(target) {
-      if (!_chart || !_series) return;
+      if (!_chart || !_series || !_rsiBands.length) return;
       const ts = _chart.timeScale();
       let vr = null; try { vr = ts.getVisibleRange(); } catch (e) {}
+      if (!vr) return;
       const yOB = _series.priceToCoordinate(OB), yOS = _series.priceToCoordinate(OS);
       if (yOB == null || yOS == null) return;
+      const i0 = Math.max(0, _rsiLowerBound(vr.from) - 1);
+      const i1 = Math.min(_rsiBands.length, _rsiLowerBound(vr.to) + 2);
+      if (i1 - i0 < 2) return;
       target.useBitmapCoordinateSpace(scope => {
         const ctx = scope.context, hr = scope.horizontalPixelRatio, vp = scope.verticalPixelRatio;
-        const W = scope.bitmapSize.width;
-        // ① 中性區底色（30~70）：TV 的淡紫底。
-        //   ⚠ 刻意極淡：副圖實測只有 ~79px 高，這層一濃就會把超買/超賣的紅青對比洗掉。
-        ctx.fillStyle = "rgba(126,87,194,0.035)";
-        ctx.fillRect(0, yOB * vp, W, (yOS - yOB) * vp);
-        if (!_rsiBands.length || !vr) return;
-        // ② + ③ 超買/超賣：填「曲線 ↔ 門檻線」，跟著曲線走
-        const i0 = Math.max(0, _rsiLowerBound(vr.from) - 1);
-        const i1 = Math.min(_rsiBands.length, _rsiLowerBound(vr.to) + 1);
-        const paint = (ob) => {
-          const edge = ob ? OB : OS, yEdge = ob ? yOB : yOS;
-          const rgb  = ob ? "239,83,80" : "38,166,154";
-          let run = null;                     // 連續越界的一段
-          const flush = () => {
-            // ⚠ 單根也要畫：實測 BTC 4h 最近 150 根只有「1 根」超買、SOL 4h 只有 1 根超賣，
-            //   原本要求 >=2 才畫 → 這些情況完全看不到東西，使用者當然覺得「沒作用」。
-            if (run && run.pts.length >= 1) {
-              const depth = Math.min(1, run.peak / 20);          // 離門檻多遠 → 多濃
-              const yFar = _series.priceToCoordinate(ob ? 100 : 0);
-              const yTip = (yFar == null) ? yEdge + (ob ? -50 : 50) : yFar;
-              const x1 = run.pts[0].x;
-              let x2 = run.pts[run.pts.length - 1].x;
-              if (x2 - x1 < 2) x2 = x1 + Math.max(2, _rsiBarW());   // 單根/極窄 → 撐到一根 K 棒寬
-              // ⓐ 先鋪一層「門檻線 → 極端端點」的整段底色：副圖太矮（~79px），
-              //    只填曲線下方的話面積小到看不出來，先鋪底才有存在感。
-              const gb = ctx.createLinearGradient(0, yEdge * vp, 0, yTip * vp);
-              // ⚠ 濃度要靠這層撐：RSI 只微幅越過門檻時（例如 72），「曲線↔門檻線」那塊
-              //   在 79px 的面板裡只有 1~2px 高，等於看不到；有面積的是這層底色。
-              //   所以起始就給得夠明顯，再隨深度加濃。
-              gb.addColorStop(0, `rgba(${rgb},0.06)`);
-              gb.addColorStop(1, `rgba(${rgb},${(0.26 + depth * 0.34).toFixed(3)})`);
-              ctx.fillStyle = gb;
-              ctx.fillRect(x1 * hr, Math.min(yEdge, yTip) * vp,
-                           Math.max(1, (x2 - x1) * hr), Math.abs(yTip - yEdge) * vp);
-              // ⓑ 再填「曲線 ↔ 門檻線」那塊（TV 的樣子：跟著曲線走），顏色更實
-              const g = ctx.createLinearGradient(0, yEdge * vp, 0, yTip * vp);
-              g.addColorStop(0, `rgba(${rgb},0.14)`);
-              g.addColorStop(1, `rgba(${rgb},${(0.42 + depth * 0.38).toFixed(3)})`);
-              ctx.fillStyle = g;
-              ctx.beginPath();
-              ctx.moveTo(x1 * hr, yEdge * vp);
-              for (const q of run.pts) ctx.lineTo(q.x * hr, q.y * vp);   // 沿著 RSI 曲線
-              if (run.pts.length === 1) ctx.lineTo(x2 * hr, run.pts[0].y * vp);   // 單根：拉成一小塊
-              ctx.lineTo(x2 * hr, yEdge * vp);
-              ctx.closePath(); ctx.fill();
-              // ⓒ 門檻線上加一條同色實線，界線清楚（矮面板下最有效的辨識線索）
-              ctx.strokeStyle = `rgba(${rgb},${(0.75 + depth * 0.25).toFixed(3)})`;
-              ctx.lineWidth = Math.max(1, 1.8 * hr);
-              ctx.beginPath(); ctx.moveTo(x1 * hr, yEdge * vp); ctx.lineTo(x2 * hr, yEdge * vp); ctx.stroke();
-            }
-            run = null;
+        const pts = [];
+        for (let i = i0; i < i1; i++) {
+          const p = _rsiBands[i];
+          const x = ts.timeToCoordinate(p.t), y = _series.priceToCoordinate(p.v);
+          if (x != null && y != null) pts.push({ x, y, v: p.v });
+        }
+        if (pts.length < 2) return;
+
+        // 畫某一側越界的所有段落。lvl=門檻值、yLvl=門檻線 y、above=是否取「高於門檻」
+        //   ⚠ 填色用漸層而非單一色：貼著門檻線較淡、越往極端越深（越極端＝越濃），
+        //     且整體不透明度給足，看起來要是「填滿」而不是一層薄膜。
+        const band = (lvl, yLvl, above, rgb) => {
+          const yFar = _series.priceToCoordinate(above ? 100 : 0);
+          const yTip = (yFar == null) ? yLvl + (above ? -60 : 60) : yFar;
+          const g = ctx.createLinearGradient(0, yLvl * vp, 0, yTip * vp);
+          g.addColorStop(0.00, `rgba(${rgb},0.30)`);   // 貼著門檻線：淡
+          g.addColorStop(0.45, `rgba(${rgb},0.62)`);
+          g.addColorStop(1.00, `rgba(${rgb},0.92)`);   // 最極端：幾乎實色
+          ctx.fillStyle = g;
+          let poly = null;
+          const cross = (a, b) => {           // a、b 之間與門檻線的交點 x（線性內插）
+            const d = b.v - a.v;
+            if (!d) return b.x;
+            return a.x + (b.x - a.x) * ((lvl - a.v) / d);
           };
-          for (let i = i0; i < i1; i++) {
-            const p = _rsiBands[i];
-            const over = ob ? (p.v >= edge) : (p.v <= edge);
-            if (!over) { flush(); continue; }
-            const x = ts.timeToCoordinate(p.t), y = _series.priceToCoordinate(p.v);
-            if (x == null || y == null) { flush(); continue; }
-            if (!run) run = { pts: [], peak: 0 };
-            run.pts.push({ x, y });
-            run.peak = Math.max(run.peak, ob ? p.v - edge : edge - p.v);
+          const close = (xEnd) => {
+            if (poly && poly.length >= 2) {
+              ctx.beginPath();
+              ctx.moveTo(poly[0].x * hr, yLvl * vp);
+              for (const q of poly) ctx.lineTo(q.x * hr, q.y * vp);
+              ctx.lineTo(xEnd * hr, yLvl * vp);
+              ctx.closePath(); ctx.fill();
+            }
+            poly = null;
+          };
+          for (let i = 0; i < pts.length; i++) {
+            const p = pts[i], out = above ? p.v > lvl : p.v < lvl;
+            if (out) {
+              if (!poly) {                    // 起點：從與門檻線的交點開始
+                const prev = pts[i - 1];
+                poly = [{ x: prev ? cross(prev, p) : p.x, y: yLvl }];
+              }
+              poly.push(p);
+            } else if (poly) {
+              close(cross(pts[i - 1], p));    // 終點：收在交點上
+            }
           }
-          flush();
+          if (poly) close(poly[poly.length - 1].x);
         };
-        paint(true); paint(false);
+        band(OB, yOB, true,  "38,180,120");   // 超買＝綠
+        band(OS, yOS, false, "214,64,72");    // 超賣＝紅
       });
     },
   };
@@ -154,7 +141,6 @@ function _makeRSIZonePrimitive() {
     requestUpdate() { if (_req) _req(); },
   };
 }
-/* 由 renderRSI 餵入 RSI(14) 值 */
 window._setRSIZones = function (pts) {
   _rsiBands = Array.isArray(pts) ? pts : [];
   if (_rsiZonePrim) { try { _rsiZonePrim.requestUpdate(); } catch (e) {} }
