@@ -21,8 +21,11 @@
   <link rel="preload" href="/static/img/bear.png?v={{ ver }}" as="image">
   <!-- bear-full(偷看熊) 不預載：它在主 UI(非封面頁)，封面階段用不到，預載只是跟關鍵資源搶頻寬。
        HTML 裡的 <img> 仍會照常載入，只是不再插隊。 -->
-  <!-- 封面城堡圖：高優先預載 gate(初始顯示)、低優先預載 open(進場開門時切換用) → 載入更快、開門不卡 -->
-  <link rel="preload" href="/static/img/landing-castle-gate.webp?v={{ ver }}&c=4" as="image" fetchpriority="high">
+  <!-- 封面城堡圖(gate)的預載改成「只在真的要顯示封面頁時才發」，由下方判斷腳本注入。
+       ⚠ 為什麼：landing-skip(同 session 重整＋已登入)的人根本看不到封面頁，卻照樣下載
+         這張 81KB —— 純浪費。實測擋掉這張圖可進場從 2668→2211ms，它是關鍵路徑上最大的單筆。
+       ⚠ 只移預載還不夠，<img> 自己也會觸發下載 → 那邊配 loading="lazy"，
+         配合 `html.landing-skip .landing{display:none}` 讓瀏覽器連抓都不抓（已實測驗證）。 -->
   <!-- ⚠ open(開門圖) 不在這裡預載：它 81KB，卻要按下大門才用得到。實測慢 4G：預載讓它
        從 167ms 佔到 2731ms，全程跟 app.bundle.js 搶頻寬，「可進場」因此卡到 3070ms。
        移掉後 2630ms 可進場（快 440ms）→ 改由 main.js initLanding 在 bundle 跑起來後才抓。 -->
@@ -56,6 +59,12 @@
         document.documentElement.classList.add("landing-skip");
       } else {
         document.documentElement.classList.add("landing-active");   // 顯示首頁 → 露天氣背景、隱藏圖表 UI
+        // 確定要顯示封面頁才預載城堡圖（跳過封面的人省下 81KB）。在 head 注入 → 仍趕在
+        // <img> 被解析之前發出，優先權與時機都跟原本寫死的 <link rel=preload> 相同。
+        var _pl = document.createElement("link");
+        _pl.rel = "preload"; _pl.as = "image"; _pl.fetchPriority = "high";
+        _pl.href = "/static/img/landing-castle-gate.webp?v={{ ver }}&c=4";
+        document.head.appendChild(_pl);
       }
     } catch (e) {}
   </script>
@@ -67,7 +76,10 @@
   <div class="landing-loc" id="landingLoc"></div>
   <div class="landing-logo"><span class="ll-main">AHH</span><span class="ll-sub">TRADING</span></div>
   <div class="landing-stage">
-    <img class="landing-art" src="/static/img/landing-castle-gate.webp?v={{ ver }}&c=4"
+    <!-- loading="lazy"：landing-skip 時整個 .landing 是 display:none → 惰性圖片不會進入
+         視窗、瀏覽器連抓都不抓（省 81KB）。真的要顯示封面時它在視窗內，照常立即載入，
+         而且 head 已注入 rel=preload，這裡直接命中快取、不會變慢。 -->
+    <img class="landing-art" loading="lazy" src="/static/img/landing-castle-gate.webp?v={{ ver }}&c=4"
          data-closed="/static/img/landing-castle-gate.webp?v={{ ver }}&c=4"
          data-open="/static/img/landing-castle-open.webp?v={{ ver }}&c=4"
          alt="橘子熊城堡" draggable="false" />

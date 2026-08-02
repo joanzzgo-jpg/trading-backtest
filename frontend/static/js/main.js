@@ -28,7 +28,10 @@ document.addEventListener("DOMContentLoaded", async () => {
          在慢速網路下互斥 —— 選了進場快。
        ⚠ 沒載完也不會壞：瀏覽器在新圖解碼完成前會繼續顯示舊圖（關門圖），放大動畫照跑，
          只是少了開門那一格，不閃爍、不破圖。快 4G 下 1.8s 就好，一般反應時間內趕得上。 */
-    if (art && art.dataset.open) { const im = new Image(); im.src = art.dataset.open; }
+    // ⚠ landing-skip(看不到封面頁)時不暖載：那 81KB 對這些人是純浪費。
+    if (art && art.dataset.open && !document.documentElement.classList.contains("landing-skip")) {
+      const im = new Image(); im.src = art.dataset.open;
+    }
     const hide = () => {   // 點大門 → 進場序列：換開門圖 → 門內漸變放大 + 暖光鋪滿 → 進圖表
       if (scr.classList.contains("landing-entering")) return;          // 防重複觸發
       try { sessionStorage.setItem("landingDismissedAt", String(Date.now())); } catch (e) {}
