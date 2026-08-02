@@ -114,12 +114,52 @@ function saveLastSymbol() {
       rangeBarCount, rangeToOffset, barSpacing, scrollPos,
     }));
   } catch {}
+  _syncUrlState();      // 網址同步反映現況 → 可直接複製分享／加書籤
+}
+
+/* ── 網址帶狀態（deep link，2026-08-02）────────────────────────────────────────
+   ?s=BTC/USDT.P&tf=4h&m=crypto
+   為什麼：原本網址永遠是 "/"，等於
+     ・沒辦法把「BTC 4h 這個設定」加書籤或傳給別人
+     ・重開只能靠 localStorage 那**唯一一組** lastSymbol，多分頁想各看各的就會互相覆蓋
+   規則：網址有指定 → 網址優先（分享出去的連結必須忠實重現）；沒指定 → 完全照舊用 lastSymbol。
+   ⚠ 只覆蓋標的/市場/時框，**不覆蓋縮放與視窗位置** —— 那是「我自己上次看到哪」的本機偏好，
+     別人分享給你的連結不該連他的捲動位置一起搬過來。 */
+function _applyUrlState() {
+  try {
+    const q = new URLSearchParams(location.search);
+    const m = q.get("m"), sym = q.get("s"), tf = q.get("tf");
+    if (m && ["crypto", "us", "tw", "hk"].includes(m)) document.getElementById("marketSelect").value = m;
+    if (sym) document.getElementById("symbolInput").value = sym.trim();
+    if (tf && TF_LABELS[tf]) {
+      currentTF = tf;
+      document.querySelectorAll(".tf-btn").forEach(b => b.classList.toggle("active", b.dataset.tf === currentTF));
+    }
+    return !!(sym || tf || m);
+  } catch (e) { return false; }
+}
+
+/* 標的/時框變動時把網址同步成目前狀態。
+   ⚠ 用 replaceState 不用 pushState：每切一次時框就塞一筆上一頁，會把返回鍵變成
+     「倒退時框」——想離開這個頁面得按十幾次。網址只要「反映現況、可複製」就夠了。
+   ⚠ 保留既有的其他參數（例如 ?mtab= 指定分頁），只動 s/tf/m。 */
+function _syncUrlState() {
+  try {
+    const q = new URLSearchParams(location.search);
+    const sym = document.getElementById("symbolInput")?.value?.trim();
+    if (!sym) return;
+    q.set("s", sym);
+    q.set("tf", currentTF);
+    q.set("m", document.getElementById("marketSelect")?.value || "crypto");
+    const url = location.pathname + "?" + q.toString();
+    if (url !== location.pathname + location.search) history.replaceState(null, "", url);
+  } catch (e) {}
 }
 
 function loadLastSymbol() {
   try {
     const last = JSON.parse(localStorage.getItem("lastSymbol") || "null");
-    if (!last || !last.symbol) return;
+    if (!last || !last.symbol) { _applyUrlState(); return; }
     document.getElementById("symbolInput").value = last.symbol;
     if (last.exchange) document.getElementById("exchangeSelect").value = last.exchange;
     if (last.market)   document.getElementById("marketSelect").value   = last.market;
@@ -135,6 +175,8 @@ function loadLastSymbol() {
       _pendingRestoreRange = { barCount: last.rangeBarCount, toOffset: last.rangeToOffset ?? 0 };
     }
   } catch {}
+  // 網址優先（放在最後：先讓 lastSymbol 還原縮放等本機偏好，再讓網址覆蓋標的/時框）
+  if (_applyUrlState()) _pendingRestoreRange = null;   // 別人分享的連結 → 不套用我上次的縮放
 }
 
 /* 將 LINE_STYLES 中儲存的線寬 / 樣式套用到對應 series */
