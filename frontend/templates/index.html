@@ -402,13 +402,6 @@
         <path d="M6.6 5.6 L10.4 8 L6.6 10.4 Z" fill="currentColor" opacity="0.5"/>
       </svg>
     </button>
-    <button id="wrSignalsToggleBtn" class="tb-icon-btn" title="一鍵隱藏/顯示主圖上 S1–S12 訊號標記">
-      <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
-        <path d="M8 1.5 L10.6 6.5 L8 4.9 L5.4 6.5 Z" fill="currentColor"/>
-        <path d="M8 14.5 L5.4 9.5 L8 11.1 L10.6 9.5 Z" fill="currentColor" opacity="0.6"/>
-        <circle cx="8" cy="8" r="1.3" fill="currentColor" opacity="0.85"/>
-      </svg>
-    </button>
     <!-- 掛單／足跡／訂單簿：原本在時框列、是帶 emoji 的寬按鈕，2026-07-31 依使用者要求縮小成圖示鈕
          並移到勝率標記鈕右邊。狀態 class 仍是 .on（JS 未改，CSS 已讓 .tb-icon-btn.on 等同 .active）。
          三顆一樣由各自的 _xxBtnRefresh() 控制「只在加密貨幣顯示」。 -->
@@ -435,6 +428,13 @@
     </button>
     <!-- S1~S12 標記已退役，全/S/SS 過濾鈕隱藏 -->
     <button id="wrSigSeriesBtn" class="tb-icon-btn tb-icon-btn-txt" style="display:none">全</button>
+    <button id="wrSignalsToggleBtn" class="tb-icon-btn" title="一鍵隱藏/顯示主圖上 S1–S12 訊號標記">
+      <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+        <path d="M8 1.5 L10.6 6.5 L8 4.9 L5.4 6.5 Z" fill="currentColor"/>
+        <path d="M8 14.5 L5.4 9.5 L8 11.1 L10.6 9.5 Z" fill="currentColor" opacity="0.6"/>
+        <circle cx="8" cy="8" r="1.3" fill="currentColor" opacity="0.85"/>
+      </svg>
+    </button>
     <button id="sessionToggleBtn" class="tb-icon-btn" title="交易時段標記（台股/歐洲/美盤 高低範圍 + 星期）">
       <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
         <circle cx="5.6" cy="7" r="3.6" stroke="currentColor" stroke-width="1.3" opacity="0.5"/>
@@ -478,6 +478,12 @@
       </svg>
     </button>
     <button id="aiResearchBtn" class="tb-icon-btn" title="AI 策略研究：暴力枚舉指標組合找可獲利配方" hidden>🤖</button>
+    <!-- 我的實際交易：貼上交易所的倉位詳情文字 → 把自己的進出場標在主圖 -->
+    <button id="btnMyTrades" class="tb-icon-btn" title="我的交易：把自己在交易所的實際進出場標在主圖上。手機長按交易所截圖→「選取文字」→拷貝→貼進來即可（辨識在你的手機/電腦完成，圖片不會上傳）">
+      <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M1.8 12 L5.6 7.4 L8.2 10 L14 3.6"/><path d="M10.6 3.6 H14 V7"/>
+      </svg>
+    </button>
     <button id="fxToggleBtn" class="tb-icon-btn" title="背景 & 點擊特效">
       <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
         <!-- 主四角星（cross 形，curve-pinched 腰身，Apple Intelligence 風格）-->
@@ -493,12 +499,6 @@
         <circle cx="13.5" cy="2.5" r="0.55" fill="currentColor" opacity="0.55"/>
         <!-- 左下塵點 -->
         <circle cx="2.5" cy="13.5" r="0.5" fill="currentColor" opacity="0.45"/>
-      </svg>
-    </button>
-    <!-- 我的實際交易：貼上交易所的倉位詳情文字 → 把自己的進出場標在主圖 -->
-    <button id="btnMyTrades" class="tb-icon-btn" title="我的交易：把自己在交易所的實際進出場標在主圖上。手機長按交易所截圖→「選取文字」→拷貝→貼進來即可（辨識在你的手機/電腦完成，圖片不會上傳）">
-      <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M1.8 12 L5.6 7.4 L8.2 10 L14 3.6"/><path d="M10.6 3.6 H14 V7"/>
       </svg>
     </button>
     <button id="sysSettingsBtn" class="tb-icon-btn" title="系統外觀">

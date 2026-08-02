@@ -7536,6 +7536,57 @@ select:focus-visible {
        (hover: none) and (pointer: coarse) and (orientation: portrait),
        (hover: none) and (pointer: coarse) and (orientation: landscape) and (max-height: 599px) {
   .tb-wr-hover-hint { display: none !important; }
-  /* 容器沒內容時不佔高度（有 hover 項目時 flex 子項會把它撐開） */
-  .tb-wr-hover:empty, .tb-wr-hover { min-height: 0 !important; }
+  /* ★說明文字藏起來之後，容器仍然撐著 36px 的空白列（實測 #winrateBar 98px 裡有 38px
+     是這個空列）→ 改成高度隨內容。真的有 hover 項目時 flex 子項會把它撐開，不影響功能。 */
+  /* ★整列收掉：手機的 topbar 是換行 flex，#wrScroll 被設成 width:100% → 它**自己佔一整列**，
+     所以只把裡面的內容藏起來、改 height:auto 都沒用（實測只從 98px 降到 96px）。
+     這一列在手機上唯一可能的內容是「十字線 hover 到訊號棒的勝率」，而觸控沒有 hover 十字線
+     → 常駐一列 38px 換一個在這台裝置做不到的功能。
+     ⚠ 這不是新做法：更窄的斷點本來就有 `.tb-wr-scroll { display:none }`，這裡只是套到手機斷點。 */
+  #wrScroll, .tb-wr-scroll { display: none !important; }
+  /* 勝率列本身的上下留白在手機也偏大 */
+  .tb-winrate { padding-top: 2px !important; padding-bottom: 2px !important; row-gap: 2px !important; }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   ① 頂列圖示分組（2026-08-02）
+   右上原本 18 顆同樣大小、同樣顏色的圖示擠成一排，沒有任何分界 —— 要找某個功能
+   只能一顆一顆 hover 看提示。依功能分成五群，用「群間留較大間距」表示分界：
+       檢視工具 │ 即時盤口 │ 主圖疊加層 │ 面板/工具 │ 系統
+   ⚠ 刻意用**間距**而不是插分隔線元素：盤口那群只有加密貨幣才顯示（其餘市場整群
+     display:none），插線會在台股/美股留下一條孤立的分隔線；間距則自然消失。
+   ⚠ 只加 margin-left，不動任何按鈕的大小/顏色/行為。 */
+.topbar-right #orderbookBtn,
+.topbar-right #wrSignalsToggleBtn,
+.topbar-right #tickerToggle,
+.topbar-right #fxToggleBtn { margin-left: 11px; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   ② 手機：把「開高低收 + BB 圖例」收成單列可捲動（2026-08-02）
+   實測手機上圖表之前的介面吃掉 335px（39% 螢幕高），其中 OHLC 兩行 + BB 圖例一行
+   就佔掉約三分之一。這些是「看一眼就好」的資訊，不需要常駐兩三行。
+   → 併成一列、超出用橫向捲動；文字略縮小。資訊全部保留，只是不再換行堆疊。
+   ══════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 1180px) and (pointer: fine),
+       (hover: none) and (pointer: coarse) and (orientation: portrait),
+       (hover: none) and (pointer: coarse) and (orientation: landscape) and (max-height: 599px) {
+  .symbol-bar {
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    gap: 7px !important;
+    padding-top: 2px !important;
+    padding-bottom: 2px !important;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .symbol-bar::-webkit-scrollbar { display: none; }
+  .symbol-bar > * { flex: 0 0 auto !important; white-space: nowrap !important; }
+  .chart-legend {
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    scrollbar-width: none;
+  }
+  .chart-legend::-webkit-scrollbar { display: none; }
+  .chart-legend > * { flex: 0 0 auto !important; white-space: nowrap !important; }
 }
