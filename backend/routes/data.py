@@ -906,7 +906,13 @@ class OHLCVRequest(BaseModel):
 #   算量能均線——原值進原值出，不引入任何誤差）。
 _OHLCV_SLIM_COLS = ("rsi_14", "rsi_7", "macd", "macd_signal", "macd_hist",
                     "bb_upper", "bb_middle", "bb_lower", "kdj_k", "kdj_d", "kdj_j")
-_OHLCV_SLIM_SIG = 8
+#   2026-08-04 再收一檔 8→6（實測 BTC 5m 2218 根：gzip 193.2KB→163.7KB，再省 15.3%）。
+#   ⚠ 6 是「顯示會不會變」定出來的，不是拍腦袋：winrate.js 的 fmt() 對 >=1000 的價格用
+#     toFixed(0)、<1000 用 toFixed(4)。6 位有效數字能保住 999,999 以內價格的整數位
+#     → 兩條格式化路徑輸出完全不變。再往下走 sig=5 就會把六位數價格捨到十位
+#     （BTC 曾站上 100000，120456 會顯示成 120460）＝使用者看得出來，故止步於 6。
+#     畫面誤差方面 6 位只有 0.0067px（400px 高的窗格），遠在看不見的範圍。
+_OHLCV_SLIM_SIG = 6
 
 
 def _round_sig_series(s, sig=_OHLCV_SLIM_SIG):

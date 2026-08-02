@@ -8,6 +8,17 @@ function toTime(s) {
   return Math.floor(new Date(iso).getTime() / 1000) + 8 * 3600;
 }
 
+/* 靜態資源路徑加上版號。JS 裡引用 /static/img/... 一律走這支。
+   ⚠ 不加的話會跟 index.html 裡帶 ?v= 的同一張圖變成兩個不同 URL → 抓兩次、兩份快取，
+     而且沒版號那份長快取永遠不會被新版沖掉（改了圖也不會更新）。
+   版號由 index.html 的 window.__V 提供；讀不到就原樣回傳（不影響功能，只是少了破快取）。 */
+function _v(path) {
+  const v = window.__V;
+  if (!v) return path;
+  return path + (path.includes("?") ? "&" : "?") + "v=" + v;
+}
+window._v = _v;
+
 /* ── 手機 TF 選擇器（使用者自選最多 4 個要顯示的時間框） ── */
 function loadMobileTFs() {
   try {
@@ -427,7 +438,7 @@ function showLoading(show) {
     if (!el) {
       el = document.createElement("div");
       el.id = "loadingOverlay"; el.className = "loading-overlay";
-      el.innerHTML = `<div class="loading-inner"><img src="/static/img/bear.png" class="loading-bear"/><span class="loading-text">處理中...</span></div>`;
+      el.innerHTML = `<div class="loading-inner"><img src="${_v("/static/img/bear.png")}" class="loading-bear"/><span class="loading-text">處理中...</span></div>`;
       document.body.appendChild(el);
     }
   } else { el?.remove(); }

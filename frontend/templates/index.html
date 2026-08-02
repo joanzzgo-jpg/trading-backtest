@@ -11,6 +11,11 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="AHH">
+  <!-- 資源版號給 JS 用。⚠ 沒有這個的話，JS 裡寫死的 /static/img/xxx.png 會跟 HTML 裡帶 ?v= 的
+       同一張圖變成「兩個不同 URL」→ 瀏覽器抓兩次、存兩份快取，而且沒版號那份永遠不會被新版沖掉。
+       實測冷載時 bear.png(24KB)＋bear-bg.png(28KB) 各被抓兩次＝白費 52KB。
+       新增 JS 引用靜態圖檔時，一律用 _v("/static/img/xxx.png")（見 utils.js）。 -->
+  <script>window.__V = "{{ ver }}";</script>
   <link rel="apple-touch-icon" href="/static/img/icon-192.png?v={{ ver }}">
   <link rel="icon" type="image/png" href="/static/img/bear.png?v={{ ver }}"/>
   <link rel="preload" href="/static/img/bear.png?v={{ ver }}" as="image">
@@ -982,7 +987,7 @@
   <button id="resetSysColors" class="btn-reset">重設預設色</button>
   <!-- 帳號：登入在封面門上的鎖；這裡顯示登入狀態 + 登出 -->
   <div id="sysAcctRow" class="sys-acct-row">
-    <img src="/static/img/bear.png" class="sys-acct-avatar" alt="">
+    <img src="/static/img/bear.png?v={{ ver }}" class="sys-acct-avatar" alt="">
     <span id="sysAcctName" class="sys-acct-name"></span>
     <button id="sysLogoutBtn" class="sys-acct-logout">登出</button>
   </div>
@@ -1211,7 +1216,7 @@
 
     <!-- 小啊（橘子熊吉祥物）對話卡：天氣下方。點泡泡換一句（依時間/天氣/訊號的情境語錄；純前端、無 AI 後端）-->
     <div id="mXiaoa" class="m-xiaoa" role="button" tabindex="0" aria-label="跟小啊說說話">
-      <img class="m-xiaoa-avatar" src="/static/img/bear.png" alt="小啊">
+      <img class="m-xiaoa-avatar" src="/static/img/bear.png?v={{ ver }}" alt="小啊">
       <div class="m-xiaoa-col">
         <div class="m-xiaoa-name"><span>小啊</span><button type="button" id="mXiaoaWxBtn" class="m-xiaoa-wx">天氣如何？</button></div>
         <div class="m-xiaoa-bubble"><span id="mXiaoaText">嗨～點我跟我聊兩句 🐻</span></div>
@@ -1220,7 +1225,7 @@
 
     <div class="m-set-sec">帳號</div>
     <div class="m-set-row m-set-acct">
-      <img src="/static/img/bear.png" class="m-set-avatar" alt="">
+      <img src="/static/img/bear.png?v={{ ver }}" class="m-set-avatar" alt="">
       <span class="m-set-lbl" id="mSetAcctName">未登入</span>
       <button class="m-set-logout" id="mSetLogoutBtn">登出</button>
     </div>

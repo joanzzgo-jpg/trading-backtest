@@ -128,7 +128,7 @@
       `<span class="ann-ver">${PUB_DATE.replace(/-/g, ".")}</span>` +
       `<button class="ann-close" id="_annX" aria-label="關閉">×</button>` +
       `<div class="ann-head">` +
-      `<img class="ann-bear" src="/static/img/bear.png" alt="">` +
+      `<img class="ann-bear" src="${_v("/static/img/bear.png")}" alt="">` +
       `<div class="ann-head-txt"><div class="ann-title">熊報 · 最新消息</div>` +
       `<div class="ann-sub">小啊幫你整理了近兩天的更新 🍊</div></div></div>` +
       `<ul class="ann-list">${items}</ul>` +

@@ -2863,7 +2863,7 @@
     x.fillStyle = lg; x.fillRect(0, 0, gc.width, gc.height);
     _bearGold = gc;
   }
-  (function () { _bearImg = new Image(); _bearImg.onload = () => { _bearReady = true; _buildGoldBear(); }; _bearImg.src = "/static/img/bear-bg.png"; })();
+  (function () { _bearImg = new Image(); _bearImg.onload = () => { _bearReady = true; _buildGoldBear(); }; _bearImg.src = (window._v ? window._v("/static/img/bear-bg.png") : "/static/img/bear-bg.png"); })();
   function _drawBearTiles(t) {
     if (!_bearReady) return;
     const g = _layers.mid.ctx;

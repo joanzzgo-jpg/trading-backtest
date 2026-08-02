@@ -614,7 +614,7 @@ function _ntfRenderFeed(opts) {
     // 標題統一成「標的 · 時框」（不管後端 title 怎麼帶）→ 種類由左側 tag 標示
     const headline = (it.symbol || "") + (it.tf ? " · " + it.tf : "");
     html += `<div class="m-sig-msg" id="mSigMsg${i}">
-      <img class="m-sig-avatar" src="/static/img/bear.png" alt="小啊">
+      <img class="m-sig-avatar" src="${_v("/static/img/bear.png")}" alt="小啊">
       <div class="m-sig-col">
         <div class="m-sig-name">小啊</div>
         <div class="m-sig-bubble ${ty.bub}" data-sym="${escHtml(it.symbol || "")}" data-mkt="${escHtml(it.market || "")}" data-exch="${escHtml(it.exchange || "")}"

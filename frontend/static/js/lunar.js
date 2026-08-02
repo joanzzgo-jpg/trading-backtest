@@ -32,7 +32,7 @@
       '<div class="lunar-card" role="dialog" aria-label="今日農民曆">' +
       '  <button class="lunar-close" aria-label="關閉">×</button>' +
       '  <div class="lunar-head">' +
-      '    <img class="lunar-bear" src="/static/img/bear.png" alt="">' +
+      '    <img class="lunar-bear" src="' + _v("/static/img/bear.png") + '" alt="">' +
       '    <div class="lunar-head-txt"><div class="lunar-title">今日黃曆</div>' +
       '    <div class="lunar-solar"></div></div>' +
       '  </div>' +
