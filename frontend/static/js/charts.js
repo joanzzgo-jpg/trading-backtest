@@ -120,10 +120,15 @@ function _makeRSIZonePrimitive() {
           if (pts.length < 2) return;
           const yFar = _series.priceToCoordinate(above ? 100 : 0);
           const yTip = (yFar == null) ? yLvl + (above ? -60 : 60) : yFar;
+          // 細分漸層：只給 3 個停點會看得出「一階一階」的分界，改成 9 段連續加深
+          //   （曲線是 ease-in：貼著門檻線變化慢、越靠極端加深越快 → 越極端越明顯）
           const g = ctx.createLinearGradient(0, yLvl * vp, 0, yTip * vp);
-          g.addColorStop(0.00, `rgba(${rgb},0.16)`);   // 貼著門檻線：很淡
-          g.addColorStop(0.50, `rgba(${rgb},0.44)`);
-          g.addColorStop(1.00, `rgba(${rgb},0.72)`);   // 最極端：濃但不到實色（實色會太生硬）
+          const A0 = 0.10, A1 = 0.74;                  // 門檻處 → 最極端
+          for (let k = 0; k <= 8; k++) {
+            const t = k / 8;
+            const a = A0 + (A1 - A0) * (t * t * (3 - 2 * t));   // smoothstep，避免線性看起來呆板
+            g.addColorStop(t, `rgba(${rgb},${a.toFixed(3)})`);
+          }
           ctx.fillStyle = g;
           let poly = null;
           const cross = (a, b) => {           // a、b 之間與門檻線的交點 x（線性內插）
@@ -217,11 +222,12 @@ function _makeLineGradPrimitive() {
         }
         if (!isFinite(yMin) || !isFinite(yMax)) return;
         if (yMax - yMin < 4) { yMin -= 20; yMax += 20; }   // 幾乎水平時給一點範圍，免得整條同色
+        // 細分：4 個停點在大範圍下會看到色帶分界，補到 9 段讓過渡連續
         const g = ctx.createLinearGradient(0, yMin * vp, 0, yMax * vp);
-        g.addColorStop(0.00, "#b06bf0");
-        g.addColorStop(0.35, "#6d5ef5");
-        g.addColorStop(0.70, "#3d8bfd");
-        g.addColorStop(1.00, "#35c8f0");
+        const RAMP = [[0.00,"#c06bf0"],[0.125,"#a869f2"],[0.25,"#8f66f4"],[0.375,"#7663f5"],
+                      [0.50,"#5f6ff7"],[0.625,"#4a86fa"],[0.75,"#3d9dfc"],[0.875,"#37b5f6"],
+                      [1.00,"#35cbef"]];
+        for (const [t, c] of RAMP) g.addColorStop(t, c);
         ctx.strokeStyle = g;
         ctx.lineWidth = Math.max(1, 2 * hr);
         ctx.lineJoin = "round"; ctx.lineCap = "round";
