@@ -737,7 +737,10 @@ function renderRSI(data) {
   data = data.filter(d => d && Number.isFinite(_bt(d)));   // 自我防禦:濾壞時間棒
   // _bt(d)：用 _rebuildTimeIndex 已算好的秒數（見該函式註）；3 條線 × 34k 根原本是 10 萬次 ISO 解析
   const line = k => data.filter(d => Number.isFinite(d[k])).map(d => ({ time:_bt(d), value:d[k] }));   // Number.isFinite 擋 null/undefined/NaN(否則 LWC paint 拋「Value is null」)
-  rsiLine14.setData(line("rsi_14")); rsiLine7.setData(line("rsi_7"));
+  const _r14 = line("rsi_14");
+  rsiLine14.setData(_r14); rsiLine7.setData(line("rsi_7"));
+  // 超買/超賣漸層底：把 RSI(14) 的值餵給 primitive（只在越過門檻的區段畫，越極端越濃）
+  if (typeof window._setRSIZones === "function") window._setRSIZones(_r14.map(p => ({ t: p.time, v: p.value })));
   if (data.length) {
     const f = toTime(data[0].time), l = toTime(data[data.length-1].time);
     const _r30 = Number.isFinite(S.rsiH30val) ? S.rsiH30val : 30, _r70 = Number.isFinite(S.rsiH70val) ? S.rsiH70val : 70;

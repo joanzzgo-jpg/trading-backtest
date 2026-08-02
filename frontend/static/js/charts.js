@@ -47,6 +47,194 @@ function _candleBorderVisible() {
   return !(C.borderUp === C.up && C.borderDown === C.down);  // 同色=白畫兩次 → 跳過(像素零差異)
 }
 
+/* ── RSI 超買/超賣填色（2026-08-03，TradingView 樣式）─────────────────────────
+   TV 的 RSI 長相有三個要素，這裡三個都做：
+     ① 30~70 之間一層很淡的底色（帶狀背景，讓「中性區」一眼可辨）
+     ② RSI 走到 70 以上／30 以下時，**填「曲線與門檻線之間」那塊**——
+        重點是跟著曲線走，不是畫一個方塊（這是像不像 TV 的關鍵）
+     ③ 越極端顏色越濃（漸層：貼著門檻線透明 → 往極端加深）
+   ⚠ 用 series primitive 自畫：LWC 沒有原生區間填色，而多加 series 會讓副圖每次
+     重新佈局都變重（副圖重排成本隨總點數走，正是先前「開副圖滑動卡」的成因）。
+   ⚠ 只掃可見範圍：本專案踩過「每幀掃全陣列 → 放大就卡」的坑，這裡用二分搜尋
+     定位視窗起訖，逐幀成本與資料總量無關。 */
+let _rsiBands = [];        // [{t, v}] RSI(14) 值，依時間升序（畫填色用）
+function _rsiLowerBound(t) {          // 第一個 >= t 的索引（_rsiBands 已排序）
+  let lo = 0, hi = _rsiBands.length;
+  while (lo < hi) { const m = (lo + hi) >> 1; _rsiBands[m].t < t ? lo = m + 1 : hi = m; }
+  return lo;
+}
+function _makeRSIZonePrimitive() {
+  let _chart = null, _series = null, _req = null;
+  const OB = 70, OS = 30;
+  const renderer = {
+    draw(target) {
+      if (!_chart || !_series) return;
+      const ts = _chart.timeScale();
+      let vr = null; try { vr = ts.getVisibleRange(); } catch (e) {}
+      const yOB = _series.priceToCoordinate(OB), yOS = _series.priceToCoordinate(OS);
+      if (yOB == null || yOS == null) return;
+      target.useBitmapCoordinateSpace(scope => {
+        const ctx = scope.context, hr = scope.horizontalPixelRatio, vp = scope.verticalPixelRatio;
+        const W = scope.bitmapSize.width;
+        // ① 中性區底色（30~70）：TV 的淡紫底
+        ctx.fillStyle = "rgba(126,87,194,0.07)";
+        ctx.fillRect(0, yOB * vp, W, (yOS - yOB) * vp);
+        if (!_rsiBands.length || !vr) return;
+        // ② + ③ 超買/超賣：填「曲線 ↔ 門檻線」，跟著曲線走
+        const i0 = Math.max(0, _rsiLowerBound(vr.from) - 1);
+        const i1 = Math.min(_rsiBands.length, _rsiLowerBound(vr.to) + 1);
+        const paint = (ob) => {
+          const edge = ob ? OB : OS, yEdge = ob ? yOB : yOS;
+          const rgb  = ob ? "239,83,80" : "38,166,154";
+          let run = null;                     // 連續越界的一段
+          const flush = () => {
+            if (run && run.pts.length >= 2) {
+              const depth = Math.min(1, run.peak / 25);          // 離門檻多遠 → 多濃
+              const yFar = _series.priceToCoordinate(ob ? 100 : 0);
+              const yTip = (yFar == null) ? yEdge + (ob ? -50 : 50) : yFar;
+              const g = ctx.createLinearGradient(0, yEdge * vp, 0, yTip * vp);
+              g.addColorStop(0, `rgba(${rgb},0.04)`);             // 貼門檻線＝幾乎透明
+              g.addColorStop(1, `rgba(${rgb},${(0.18 + depth * 0.42).toFixed(3)})`);
+              ctx.fillStyle = g;
+              ctx.beginPath();
+              ctx.moveTo(run.pts[0].x * hr, yEdge * vp);
+              for (const q of run.pts) ctx.lineTo(q.x * hr, q.y * vp);   // 沿著 RSI 曲線
+              ctx.lineTo(run.pts[run.pts.length - 1].x * hr, yEdge * vp);
+              ctx.closePath(); ctx.fill();
+            }
+            run = null;
+          };
+          for (let i = i0; i < i1; i++) {
+            const p = _rsiBands[i];
+            const over = ob ? (p.v >= edge) : (p.v <= edge);
+            if (!over) { flush(); continue; }
+            const x = ts.timeToCoordinate(p.t), y = _series.priceToCoordinate(p.v);
+            if (x == null || y == null) { flush(); continue; }
+            if (!run) run = { pts: [], peak: 0 };
+            run.pts.push({ x, y });
+            run.peak = Math.max(run.peak, ob ? p.v - edge : edge - p.v);
+          }
+          flush();
+        };
+        paint(true); paint(false);
+      });
+    },
+  };
+  return {
+    attached(p) { _chart = p.chart; _series = p.series; _req = p.requestUpdate; },
+    detached() { _chart = _series = _req = null; },
+    updateAllViews() {},
+    paneViews() { return [{ renderer: () => renderer, zOrder: () => "bottom" }]; },
+    requestUpdate() { if (_req) _req(); },
+  };
+}
+/* 由 renderRSI 餵入 RSI(14) 值 */
+window._setRSIZones = function (pts) {
+  _rsiBands = Array.isArray(pts) ? pts : [];
+  if (_rsiZonePrim) { try { _rsiZonePrim.requestUpdate(); } catch (e) {} }
+};
+let _rsiZonePrim = null;
+
+/* ── 線型圖的漸層線（2026-08-03）─────────────────────────────────────────────
+   線的顏色隨「價格在畫面中的高低」變化：上方紫 → 中段藍 → 下方青。
+   ⚠ 為什麼要自己畫：LWC 的 LineSeries 只接受單一 color，AreaSeries 只能填線下方，
+     兩者都做不出「線本身是漸層」。故 series 設全透明（仍負責縮放/十字線/資料），
+     可見的線由這個 primitive 用 canvas 漸層 strokeStyle 描出來。
+   ⚠ 只描可見範圍內的點：本專案踩過「每幀掃全陣列 → 放大就卡」，這裡用二分搜尋定位。
+   ⚠ 漸層綁在「窗格像素高度」而不是固定價位 → 不論縮放到哪一段，畫面上永遠是完整色譜
+     （與參考圖一致）。 */
+let _lineGradPts = [];      // [{t, v}] 收盤價，升序
+let _lineGradPrim = null;
+function _lineGradLB(t) {
+  let lo = 0, hi = _lineGradPts.length;
+  while (lo < hi) { const m = (lo + hi) >> 1; _lineGradPts[m].t < t ? lo = m + 1 : hi = m; }
+  return lo;
+}
+function _makeLineGradPrimitive() {
+  let _chart = null, _series = null, _req = null;
+  const renderer = {
+    draw(target) {
+      if (!window._chartTypeLine || !_lineGradPts.length || !_chart || !_series) return;
+      const ts = _chart.timeScale();
+      let vr = null; try { vr = ts.getVisibleRange(); } catch (e) {}
+      if (!vr) return;
+      target.useBitmapCoordinateSpace(scope => {
+        const ctx = scope.context, hr = scope.horizontalPixelRatio, vp = scope.verticalPixelRatio;
+        const H = scope.bitmapSize.height;
+        const i0 = Math.max(0, _lineGradLB(vr.from) - 1);
+        const i1 = Math.min(_lineGradPts.length, _lineGradLB(vr.to) + 2);
+        if (i1 - i0 < 2) return;
+        // ★漸層要綁「這段線自己的最高/最低」而不是整個窗格高度：
+        //   價格波動小的時候，線只佔窗格中間一小條，綁窗格會讓整條線都落在漸層的同一個色段
+        //   → 看起來像單色。綁自身範圍才會像參考圖那樣，永遠是完整的紫→藍→青。
+        let yMin = Infinity, yMax = -Infinity;
+        for (let i = i0; i < i1; i++) {
+          const yy = _series.priceToCoordinate(_lineGradPts[i].v);
+          if (yy == null) continue;
+          if (yy < yMin) yMin = yy;
+          if (yy > yMax) yMax = yy;
+        }
+        if (!isFinite(yMin) || !isFinite(yMax)) return;
+        if (yMax - yMin < 4) { yMin -= 20; yMax += 20; }   // 幾乎水平時給一點範圍，免得整條同色
+        const g = ctx.createLinearGradient(0, yMin * vp, 0, yMax * vp);
+        g.addColorStop(0.00, "#b06bf0");
+        g.addColorStop(0.35, "#6d5ef5");
+        g.addColorStop(0.70, "#3d8bfd");
+        g.addColorStop(1.00, "#35c8f0");
+        ctx.strokeStyle = g;
+        ctx.lineWidth = Math.max(1, 2 * hr);
+        ctx.lineJoin = "round"; ctx.lineCap = "round";
+        ctx.beginPath();
+        let started = false;
+        for (let i = i0; i < i1; i++) {
+          const p = _lineGradPts[i];
+          const x = ts.timeToCoordinate(p.t), y = _series.priceToCoordinate(p.v);
+          if (x == null || y == null) continue;
+          if (!started) { ctx.moveTo(x * hr, y * vp); started = true; }
+          else ctx.lineTo(x * hr, y * vp);
+        }
+        if (started) ctx.stroke();
+      });
+    },
+  };
+  return {
+    attached(p) { _chart = p.chart; _series = p.series; _req = p.requestUpdate; },
+    detached() { _chart = _series = _req = null; },
+    updateAllViews() {},
+    paneViews() { return [{ renderer: () => renderer, zOrder: () => "top" }]; },
+    requestUpdate() { if (_req) _req(); },
+  };
+}
+/* 即時更新：新棒 append、同一根就改最後一筆（realtime.js 每秒呼叫） */
+window._lineGradTail = function (t, v) {
+  if (!_lineGradPts.length) return;
+  const last = _lineGradPts[_lineGradPts.length - 1];
+  if (last.t === t) last.v = v;
+  else if (t > last.t) _lineGradPts.push({ t, v });
+  if (_lineGradPrim) { try { _lineGradPrim.requestUpdate(); } catch (e) {} }
+};
+window._setLineGradData = function (pts) {
+  _lineGradPts = Array.isArray(pts) ? pts : [];
+  if (_lineGradPrim) { try { _lineGradPrim.requestUpdate(); } catch (e) {} }
+};
+
+/* 把圖表線色轉成帶透明度的 rgba（線型圖漸層用）。吃 #rgb / #rrggbb / rgb(...) 三種寫法；
+   認不得就原樣回傳（LWC 會自己處理，不會炸）。 */
+function _areaRgba(col, a) {
+  try {
+    if (typeof col !== "string") return col;
+    let h = col.trim();
+    if (h[0] === "#") {
+      if (h.length === 4) h = "#" + h[1] + h[1] + h[2] + h[2] + h[3] + h[3];
+      const r = parseInt(h.slice(1, 3), 16), g = parseInt(h.slice(3, 5), 16), b = parseInt(h.slice(5, 7), 16);
+      return `rgba(${r},${g},${b},${a})`;
+    }
+    const m = h.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
+    if (m) return `rgba(${m[1]},${m[2]},${m[3]},${a})`;
+  } catch (e) {}
+  return col;
+}
+
 function createCandleSeries() {
   if (candleSeries) { try { mainChart.removeSeries(candleSeries); } catch {} candleSeries = null; }
   if (lineSeries)   { try { mainChart.removeSeries(lineSeries);   } catch {} lineSeries = null; }
@@ -61,10 +249,24 @@ function createCandleSeries() {
     priceLineVisible: false, lastValueVisible: false,
   });
   // 線型圖：收盤價折線，與蠟燭並存（切換時只改可見性＋把蠟燭設透明）。標記/FVG 主圖仍依附 candleSeries 不動。
+  // ★2026-08-03 改用 AreaSeries：線下方加 TradingView 式的漸層（線色→透明），比純折線好看也好讀
+  //   （一眼看得出「價格在區間裡的位置」）。資料格式與 LineSeries 完全相同（{time,value}），
+  //   所以 setData / update 的呼叫端一行都不用改。
+  // ★線型圖：線**本身**是垂直漸層（高價紫 → 中段藍 → 低價青），不是線下方填色。
+  //   LWC 的 LineSeries 只吃單一顏色、AreaSeries 只能填下方 → 兩者都做不到，
+  //   所以線改由 primitive 自己描（見 _makeLineGradPrimitive）。
+  //   這個 series 仍保留並照常餵資料：價格軸自動縮放、十字線吸附、最後價標籤都靠它，
+  //   只是把顏色設成全透明、由 primitive 畫可見的那條。
   lineSeries = mainChart.addLineSeries({
-    color: (C.lineChart || "#2196f3"), lineWidth: 2,
+    color: "rgba(0,0,0,0)", lineWidth: 2,
     priceLineVisible: false, lastValueVisible: false, visible: false,
+    crosshairMarkerVisible: true,
+    crosshairMarkerBorderColor: "#8b5cf6", crosshairMarkerBackgroundColor: "#8b5cf6",
   });
+  try {
+    _lineGradPrim = _makeLineGradPrimitive();
+    lineSeries.attachPrimitive(_lineGradPrim);
+  } catch (e) {}
   // FVG 失衡缺口色塊（自訂 primitive）：蠟燭重建時一併重掛，沿用全域 _fvgZones
   try {
     _fvgPrimitive = _makeFVGPrimitive();
@@ -837,8 +1039,13 @@ function applyOhlcvToSeries(data) {
     candleSeries.setData(data.map(d => ({
       time: _tm(d), open: d.open, high: d.high, low: d.low, close: d.close,
     })));
-    if (lineSeries) lineSeries.setData(   // 線型圖收盤折線；濾掉 null close(否則 LWC Line 拋「Value is null」)
-      data.filter(d => d.close != null).map(d => ({ time: _tm(d), value: d.close })));
+    if (lineSeries) {   // 線型圖收盤折線；濾掉 null close(否則 LWC Line 拋「Value is null」)
+      const _lp = data.filter(d => d.close != null).map(d => ({ time: _tm(d), value: d.close }));
+      lineSeries.setData(_lp);
+      // 同一份資料餵給漸層 primitive（series 本身是透明的，可見的線由它畫）
+      if (typeof window._setLineGradData === "function")
+        window._setLineGradData(_lp.map(p => ({ t: p.time, v: p.value })));
+    }
   }
   updateLatestPriceLine(data[data.length - 1].close);
 }
@@ -926,6 +1133,10 @@ function buildCharts() {
   rsiH30 = rsiChart.addLineSeries({ color:C.rsiH30, lineWidth:S.rsiHLWidth, lineStyle:1, priceLineVisible:false, lastValueVisible:true });
   rsiH50 = rsiChart.addLineSeries({ color:C.rsiH50, lineWidth:S.rsiHLWidth, lineStyle:1, priceLineVisible:false, lastValueVisible:true });
   rsiH70 = rsiChart.addLineSeries({ color:C.rsiH70, lineWidth:S.rsiHLWidth, lineStyle:1, priceLineVisible:false, lastValueVisible:true });
+  try {   // 超買/超賣漸層底（掛在 RSI(14) 上，畫在最底層不擋線）
+    _rsiZonePrim = _makeRSIZonePrimitive();
+    rsiLine14.attachPrimitive(_rsiZonePrim);
+  } catch (e) {}
 
   macdChart = LightweightCharts.createChart(document.getElementById("macdChart"), subT);
   macdAnchor = macdChart.addLineSeries({ color:"rgba(0,0,0,0)", lineWidth:1, priceLineVisible:false, lastValueVisible:false });

@@ -170,7 +170,14 @@ async function fetchLatest() {
       }
       else return;
       candleSeries.update({ time:t, open:bar.open, high:bar.high, low:bar.low, close:bar.close });
-      if (typeof lineSeries !== "undefined" && lineSeries && bar.close != null) lineSeries.update({ time:t, value:bar.close });   // 線型圖同步
+      if (typeof lineSeries !== "undefined" && lineSeries && bar.close != null) {
+        lineSeries.update({ time:t, value:bar.close });   // 線型圖同步
+        // 漸層線 primitive 的資料是獨立一份 → 新棒/更新最後一根時要跟著補，否則線的尾端會停住
+        try {
+          const _g = window._lineGradTail;
+          if (typeof _g === "function") _g(t, bar.close);
+        } catch (e) {}
+      }
       _dirty = true;
       const _va2 = (typeof _volAlphaHex === "function") ? _volAlphaHex() : Math.round((S.volAlpha ?? 0.67) * 255).toString(16).padStart(2, "0");
       volSeries.update({ time:t, value:bar.volume||0, color: bar.close>=bar.open ? C.volUp+_va2 : C.volDown+_va2 });
