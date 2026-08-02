@@ -699,6 +699,19 @@ def _mis_acc_list(symbol: str, minutes: int):
                     "close": b["c"], "volume": b["vol"]})
     return out
 
+# 即時累積器支援的時框 → 每根幾分鐘（台股 MIS 與港股騰訊**共用這一份**）。
+# ★2026-08-02 收斂：原本這張表在台股/港股兩個分支各抄一份（1309/1409 行），
+#   而且兩份都缺 30m —— 30m/2h 直到今天才真的能用，之前是日線，所以沒人發現。
+# ⚠ 為什麼只加 30m、**不加 2h**：累積器是依「UTC 時鐘整除」分桶，主路徑
+#   （resample_tw_intraday / _resample_session）是「貼齊開盤」分桶。實測：
+#     30m → 台股/港股兩邊邊界都一致（01:00,01:30,…）→ 安全
+#     2h  → 台股 主路徑 01:00/03:00/05:00 vs 累積器 00:00/02:00/04:00  ✗
+#           港股 主路徑 01:30/03:30/05:30 vs 累積器 00:00/02:00/04:00  ✗
+#   加了會堆出「與主序列對不上的假 K 棒」，正是 resample_tw_4h 註解警告過的情況。
+#   要支援 2h 得先把累積器改成貼齊開盤分桶 —— 那是另一件事，單獨做、單獨驗。
+RT_ACC_MINUTES = {"1m": 1, "5m": 5, "15m": 15, "30m": 30, "1h": 60}
+
+
 def _mis_accumulate(symbol: str, minutes: int, rt: dict):
     """用 TWSE MIS 即時報價即時堆出當前/近期『真實』分鐘 K 棒。回傳今日已累積 bar list(升冪)。
     背景 worker 與請求執行緒都可能同時呼叫同一 key → 全程持鎖，避免讀改寫競態。"""
@@ -1305,8 +1318,8 @@ def get_latest(req: LatestRequest):
                     df_out = df_intra.tail(6).copy()           # 多送幾根，讓 yfinance 之後補的真實棒能覆蓋暫時的 MIS 棒
                     recs = df_to_records(df_out)
                     is_live = False
-                    if rt and tf in ("1m", "5m", "15m", "1h"):
-                        minutes = {"1m": 1, "5m": 5, "15m": 15, "1h": 60}[tf]
+                    if rt and tf in RT_ACC_MINUTES:
+                        minutes = RT_ACC_MINUTES[tf]
                         _tw_hot[(req.symbol, minutes)] = time.time()   # 背景 worker 據此持續累積此標的
                         # MIS 即時累積真實分鐘棒：把 yfinance 最後一根之後的(含當下這根)接上 → 當下就有最新棒、無 20 分 gap
                         yf_last = pd.Timestamp(df_out.iloc[-1]["time"]).floor(f"{minutes}min")
@@ -1406,7 +1419,7 @@ def get_latest(req: LatestRequest):
                     pass  # Finnhub 出錯就純用 yfinance 資料
         elif req.market == "hk":
             # 港股(hk)：歷史 yfinance(延遲~15分)，即時尖端用騰訊即時報價自己堆分鐘棒 → 當下就有最新棒、無延遲。
-            _mins = {"1m": 1, "5m": 5, "15m": 15, "1h": 60}.get(req.timeframe)
+            _mins = RT_ACC_MINUTES.get(req.timeframe)
             df = pd.DataFrame()
             try:                                              # yfinance 尾(補真實量)；1m 僅近 7 天，取 6 天內
                 end   = date.today().isoformat()
