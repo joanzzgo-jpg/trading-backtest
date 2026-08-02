@@ -1059,7 +1059,10 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                 continue   # 跨資料斷層：g-1/g+1 陣列相鄰但時間差極大→非真連續 K，不造缺口
             _h0 = _H[_g-1]; _l0 = _L[_g-1]
             _h2 = _H[_g+1]; _l2 = _L[_g+1]
-            if any(_v != _v for _v in (_h0, _l0, _h2, _l2)):   # NaN
+            # NaN 檢查（x != x 只有 NaN 成立）。⚠ 不用 any(genexpr)：這個迴圈跑遍全部 K 棒，
+            #   每輪都要建一個 tuple + 一個 generator，profile 上是熱點（實測 any 被呼叫 ~2 萬次/次計算）。
+            #   直接展開成短路比較，語意完全相同且大多數情況第一項就結束。
+            if _h0 != _h0 or _l0 != _l0 or _h2 != _h2 or _l2 != _l2:
                 continue
             if _l2 > _h0 and (_l2 - _h0) / _h0 > _MS:          # 多頭缺口（支撐）候選
                 _dir, _top, _bot = "l", _l2, _h0
@@ -1336,7 +1339,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             if _gap_guard and (_secs[_g2+1] - _secs[_g2-1]) > _gap_span_max:
                 continue   # 跨資料斷層不成立 proto 缺口（否則破多/破空/多空標記會被假缺口污染）
             _hm1 = _H[_g2 - 1]; _lm1 = _L[_g2 - 1]; _cg = _C[_g2]
-            if any(_v != _v for _v in (_hm1, _lm1, _cg)):            # NaN
+            if _hm1 != _hm1 or _lm1 != _lm1 or _cg != _cg:           # NaN（理由同上，不用 any(genexpr)）
                 continue
             if _cg > _hm1:                                            # bull proto
                 _pt, _pb, _pd = _cg, _hm1, "l"
