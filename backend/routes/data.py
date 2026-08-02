@@ -1874,8 +1874,13 @@ def _wr_resp(payload, etag=None, slim=True, no_store=False):
 #   ・pd_ranges：由 window._pdOn 控制。預設關。
 # ⚠ 白名單制：只有列在這裡的 key 允許被省略 —— 前端就算送了別的名字也不會生效，
 #   免得哪天誤傳把 fvg/signals 這種主體砍掉。
+# ★signals（SS1/SS2 反轉訊號標記）2026-08-03 加入：它是回應裡第二大的一塊，
+#   而且**是唯一值多的資料，gzip 壓不掉** —— 實測不送它 gzip 607KB → 493KB（省 19%）。
+#   前端有「一鍵隱藏訊號標記」按鈕（wrSignalsToggleBtn），隱藏時這 114KB 完全用不到。
+#   ⚠ 與其他幾個不同：signals **預設是顯示的** → 只有主動關掉的人才省得到，
+#     這是有意的（不能為了省流量而讓預設看不到東西）。
 _WR_SKIPPABLE = frozenset({"smc_sweep", "smc_struct", "smc_ob", "smc_sr",
-                           "channel", "vwap", "pd_ranges"})
+                           "channel", "vwap", "pd_ranges", "signals"})
 
 _WR_DELTA_KEYS = ("fvg", "signals", "fvg_ms", "fvg_break", "fvg_shun", "fvg_special",
                   "fvg_trades", "smc_sweep", "smc_struct", "smc_ob", "smc_sr", "vwap",

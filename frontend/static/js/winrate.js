@@ -640,6 +640,11 @@ const _WR_SKIP_GROUPS = [
   [() => _wrLsOn("coachOverlay", window._coachOn), ["smc_sweep", "smc_struct", "smc_ob", "smc_sr", "channel"]],
   [() => _wrLsOn("vwapOverlay",  window._vwapOn),  ["vwap"]],
   [() => window._pdOn === true,                    ["pd_ranges"]],   // 關鍵高低沒有持久化，本來就每次重開都是關的
+  // 訊號標記（SS1/SS2）：回應裡第二大的一塊，而且是唯一值多、gzip 壓不掉的資料
+  //   —— 實測不送它 gzip 607KB → 493KB（省 19%）。
+  // ⚠ 與上面幾個不同：這個**預設是顯示的**（_wrSignalsHidden 預設 false），
+  //   所以只有主動按下「隱藏訊號標記」的人才會省到。不為了省流量改預設。
+  [() => localStorage.getItem("wrSignalsHidden") !== "1", ["signals"]],
 ];
 function _wrSkipList() {
   const out = [];

@@ -572,6 +572,10 @@ function initWRSignalsToggle() {
     try { localStorage.setItem("wrSignalsHidden", _wrSignalsHidden ? "1" : "0"); } catch (e) {}
     _sync();
     _applyMainMarkers();
+    // 從「隱藏」切回「顯示」時，手上那份勝率回應可能是**沒帶 signals** 的（見 winrate.js
+    // 的 _WR_SKIP_GROUPS：隱藏時不向後端要，省 gzip 後 114KB）→ 缺就自動補抓一次，
+    // 否則按了顯示卻什麼都沒出現。
+    if (typeof window._wrRefetchIfMissing === "function") window._wrRefetchIfMissing();
     // 切換瞬間若正 hover 某根棒，清掉已展開的 hover 勝率/RR 盒（否則殘留到下次移動才更新）
     if (typeof _updateHoverWR === "function") _updateHoverWR(null);
   });
