@@ -63,6 +63,9 @@ function _rsiLowerBound(t) {          // 第一個 >= t 的索引（_rsiBands �
   while (lo < hi) { const m = (lo + hi) >> 1; _rsiBands[m].t < t ? lo = m + 1 : hi = m; }
   return lo;
 }
+function _rsiBarW() {
+  try { return Math.max(2, mainChart.timeScale().options().barSpacing || 6); } catch (e) { return 6; }
+}
 function _makeRSIZonePrimitive() {
   let _chart = null, _series = null, _req = null;
   const OB = 70, OS = 30;
@@ -89,16 +92,23 @@ function _makeRSIZonePrimitive() {
           const rgb  = ob ? "239,83,80" : "38,166,154";
           let run = null;                     // 連續越界的一段
           const flush = () => {
-            if (run && run.pts.length >= 2) {
+            // ⚠ 單根也要畫：實測 BTC 4h 最近 150 根只有「1 根」超買、SOL 4h 只有 1 根超賣，
+            //   原本要求 >=2 才畫 → 這些情況完全看不到東西，使用者當然覺得「沒作用」。
+            if (run && run.pts.length >= 1) {
               const depth = Math.min(1, run.peak / 20);          // 離門檻多遠 → 多濃
               const yFar = _series.priceToCoordinate(ob ? 100 : 0);
               const yTip = (yFar == null) ? yEdge + (ob ? -50 : 50) : yFar;
-              const x1 = run.pts[0].x, x2 = run.pts[run.pts.length - 1].x;
+              const x1 = run.pts[0].x;
+              let x2 = run.pts[run.pts.length - 1].x;
+              if (x2 - x1 < 2) x2 = x1 + Math.max(2, _rsiBarW());   // 單根/極窄 → 撐到一根 K 棒寬
               // ⓐ 先鋪一層「門檻線 → 極端端點」的整段底色：副圖太矮（~79px），
               //    只填曲線下方的話面積小到看不出來，先鋪底才有存在感。
               const gb = ctx.createLinearGradient(0, yEdge * vp, 0, yTip * vp);
-              gb.addColorStop(0, `rgba(${rgb},0)`);
-              gb.addColorStop(1, `rgba(${rgb},${(0.10 + depth * 0.28).toFixed(3)})`);
+              // ⚠ 濃度要靠這層撐：RSI 只微幅越過門檻時（例如 72），「曲線↔門檻線」那塊
+              //   在 79px 的面板裡只有 1~2px 高，等於看不到；有面積的是這層底色。
+              //   所以起始就給得夠明顯，再隨深度加濃。
+              gb.addColorStop(0, `rgba(${rgb},0.06)`);
+              gb.addColorStop(1, `rgba(${rgb},${(0.26 + depth * 0.34).toFixed(3)})`);
               ctx.fillStyle = gb;
               ctx.fillRect(x1 * hr, Math.min(yEdge, yTip) * vp,
                            Math.max(1, (x2 - x1) * hr), Math.abs(yTip - yEdge) * vp);
@@ -110,11 +120,12 @@ function _makeRSIZonePrimitive() {
               ctx.beginPath();
               ctx.moveTo(x1 * hr, yEdge * vp);
               for (const q of run.pts) ctx.lineTo(q.x * hr, q.y * vp);   // 沿著 RSI 曲線
+              if (run.pts.length === 1) ctx.lineTo(x2 * hr, run.pts[0].y * vp);   // 單根：拉成一小塊
               ctx.lineTo(x2 * hr, yEdge * vp);
               ctx.closePath(); ctx.fill();
               // ⓒ 門檻線上加一條同色實線，界線清楚（矮面板下最有效的辨識線索）
-              ctx.strokeStyle = `rgba(${rgb},${(0.5 + depth * 0.4).toFixed(3)})`;
-              ctx.lineWidth = Math.max(1, 1.4 * hr);
+              ctx.strokeStyle = `rgba(${rgb},${(0.75 + depth * 0.25).toFixed(3)})`;
+              ctx.lineWidth = Math.max(1, 1.8 * hr);
               ctx.beginPath(); ctx.moveTo(x1 * hr, yEdge * vp); ctx.lineTo(x2 * hr, yEdge * vp); ctx.stroke();
             }
             run = null;
