@@ -36,6 +36,19 @@ function _updateBBTail() {
   try { bbU.update({ time: t, value: up }); bbM.update({ time: t, value: mean }); bbL.update({ time: t, value: lo }); } catch (e) {}
 }
 
+/* 偵測到 K 棒不連續 → 觸發「往新方向補」。節流：補載本身是非同步且會自我終止
+   （_bgLoadNewerBars 補到現在就把 _hasFwdGap 清掉），這裡只避免每秒重複發動。 */
+let _gapFillAt = 0;
+function _scheduleGapFill() {
+  const now = Date.now();
+  if (now - _gapFillAt < 5000) return;       // 5 秒內只發動一次
+  _gapFillAt = now;
+  try {
+    window._hasFwdGap = true;                // _bgLoadNewerBars 的入口條件
+    if (typeof _bgLoadNewerBars === "function") _bgLoadNewerBars();
+  } catch (e) {}
+}
+
 let _lastTickDraw = 0;   // 手機：上次「tick 觸發整層重畫」時刻(節流用)
 async function fetchLatest() {
   if (replayActive) return;
@@ -62,15 +75,30 @@ async function fetchLatest() {
     if (!json.data?.length) return;
     const dot = document.getElementById("realtimeDot");
     if (dot) dot.classList.toggle("hidden", json.live === false);
-    const _tfSec = { "1M":2592000,"1w":604800,"1d":86400,"4h":14400,"1h":3600,"15m":900,"5m":300 };
+    // ⚠ 這張表要「每個時框都有」：缺的時框會退成 86400（見下方 || 86400），
+    //   等於把週期當成一天 → 缺口判斷整個失效。原本缺 1m / 30m / 2h。
+    const _tfSec = { "1M":2592000,"1w":604800,"1d":86400,"4h":14400,"2h":7200,"1h":3600,
+                     "30m":1800,"15m":900,"5m":300,"1m":60 };
     let _dirty = false;   // 本輪是否真的改了 K → 決定要不要重畫疊加層(三盤色塊)
     let _newBar = false;  // 本輪是否有「新收盤棒」出現 → 觸發勝率重抓讓 FVG 延伸到最新棒
     json.data.forEach(bar => {
       const t     = toTime(bar.time);
       const last  = ohlcvData[ohlcvData.length - 1];
       const lastT = last ? toTime(last.time) : 0;
-      // 歷史資料模式：若新 bar 與最後一根相差 > 5 根週期，不插入（避免 2024→2026 跳躍）
-      if (t > lastT && (t - lastT) > (_tfSec[currentTF] || 86400) * 5) return;
+      // 歷史資料模式：若新 bar 與最後一根差太多，不插入（避免 2024→2026 跳躍）。
+      // ★2026-08-02：原本這裡是「> 5 根週期就 return」，而且 return 得比下面的缺口補載更早
+      //   → 停超過 5 根週期（1m 只要 5 分鐘）就**每一輪都被擋掉、圖表整個凍住不再前進**，
+      //   使用者只能重整。實測停 8 分鐘再恢復：根數與最後一根時間完全沒動。
+      //   改成分流：差距在「可以補回來」的範圍內 → 交給 _bgLoadNewerBars 補；
+      //   真的差到離譜（＝在看很久以前的歷史）才維持原本的忽略。
+      const _per = _tfSec[currentTF] || 0;
+      const _gapSec = t - lastT;
+      if (t > lastT && _per && _gapSec > _per * 1.5) {
+        // 7 天以內視為「輪詢中斷造成的落後」（休眠/背景分頁/斷線）→ 補回來。
+        // 超過就當作歷史模式，維持原本行為不接上去。
+        if (_gapSec <= 7 * 86400) _scheduleGapFill();
+        return;
+      }
       if (t === lastT) {
         // 性能：若 OHLC 完全沒變，跳過 LWC update 與 indicator 重算（省 CPU）
         if (last.close === bar.close && last.high === bar.high && last.low === bar.low && last.open === bar.open) return;
@@ -78,6 +106,15 @@ async function fetchLatest() {
         // 同時間不需重建 Map（key 不變）
       }
       else if (t > lastT) {
+        /* ── 中間漏掉的棒要補回來，不能直接接上去（2026-08-02）──────────────────
+           使用者回報「網頁開太久 K 棒會斷掉，要重整才會好」。實測重現：
+             /api/latest 每次只回 **2 根**，所以只要輪詢中斷超過 2 根的時間
+             （分頁被瀏覽器凍結、電腦休眠、網路斷一下、行情中斷…），中間那幾根就永遠不會到。
+             舊寫法直接 push 最新這根 → ohlcvData 裡就留下一個**永久的洞**，
+             而且不報錯、只有圖上少一段。重整才好，正是因為重整會整條重抓。
+           實測（1m、停掉輪詢 4 分鐘再恢復）：斷點數 0 → 1，16:46 直接跳到 16:49、缺 2 根。
+           → 偵測到不連續就**不要接**，改叫 _bgLoadNewerBars 從我們的尾巴往新的方向補
+             （它已有接合檢查與中段補洞，見 render.js），補完自然包含這一根。 */
         bar._t = t;       // 圖表秒數快取（同 _rebuildTimeIndex 的 _t；這裡 t 已經算好了，順手存）
         ohlcvData.push(bar);
         _newBar = true;   // 出現新棒＝前一根剛收盤 → 稍後重抓勝率補上它的 FVG
