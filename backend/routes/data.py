@@ -958,19 +958,62 @@ def _ohlcv_resp(payload):
     return payload
 
 
-@router.post("/ohlcv")
-def get_ohlcv(req: OHLCVRequest):
-    """取得 OHLCV 數據"""
+_OHLCV_SF_LOCK = _threading.Lock()
+_OHLCV_SF: dict = {}
+_OHLCV_SF_WAIT = 20.0        # 深歷史一次可能抓十幾個窗，等久一點也比重複打交易所划算
+
+
+def _ohlcv_cache_key(req):
+    """算出快取鍵 / TTL / use_limit。**單一定義**：路由的單飛與實作都用這一份，
+    抄兩份就會出現「等的人跟做的人用不同的鍵」→ 單飛完全失效卻沒人發現。"""
     use_limit = req.limit > 0
     # 守衛:limit<=0 且沒給日期範圍 → 強制 500。內部「無上限」約定(背景補載/重播預載)
     # 一律附 start/end;外部亂傳 0/負值會拉整段歷史(BTC 1h 自 2017 起 ~8 萬根)=巨量回應。
     if not use_limit and not req.start and not req.end:
         req.limit, use_limit = 500, True
-    cache_key = f"ohlcv:{req.market}:{req.symbol}:{req.timeframe}:{req.exchange}:{req.start}:{req.end}:{req.limit}:i{int(req.indicators)}"
-    ttl = 30 if use_limit else 300
+    key = (f"ohlcv:{req.market}:{req.symbol}:{req.timeframe}:{req.exchange}:"
+           f"{req.start}:{req.end}:{req.limit}:i{int(req.indicators)}")
+    return key, (30 if use_limit else 300), use_limit
+
+
+@router.post("/ohlcv")
+def get_ohlcv(req: OHLCVRequest):
+    """取得 OHLCV 數據（單飛外殼；實作在 _ohlcv_build）。
+
+    ★為什麼要單飛（2026-08-02）：純 TTL 快取擋不住「同時 miss」的叢發 ——
+      實測 8 個人同時開**同一個標的**的圖表，會**各自**打交易所一次（8 次）。
+      /api/latest 早就有單飛（同樣測試只打 1 次），但 ohlcv 才是重的那支：
+      一般請求 500 根、深歷史一次十幾個窗 → 8 人同開 = 交易所被打近百次。
+      使用者一多就是這樣撞上限流的（Binance 10 次/秒/IP，全站共用一個出口 IP）。
+    → 同一把 key 只讓一個人去抓（leader），其他人等它抓完直接讀快取。
+      等逾時就自己抓 → 最壞退回原本行為，不會卡住。"""
+    cache_key, ttl, _ = _ohlcv_cache_key(req)
     cached = cache.get(cache_key, ttl)
     if cached:
         return _ohlcv_resp(cached)
+
+    _leader = False
+    with _OHLCV_SF_LOCK:
+        _ev = _OHLCV_SF.get(cache_key)
+        if _ev is None:
+            _ev = _threading.Event(); _OHLCV_SF[cache_key] = _ev; _leader = True
+    if not _leader:
+        _ev.wait(_OHLCV_SF_WAIT)
+        cached = cache.get(cache_key, ttl + 5)   # 放寬幾秒：leader 剛寫完就算「稍舊」也接受
+        if cached:
+            return _ohlcv_resp(cached)
+    try:
+        return _ohlcv_build(req)
+    finally:
+        if _leader:                              # 一定要放行，否則其他人白等 20 秒
+            with _OHLCV_SF_LOCK:
+                _OHLCV_SF.pop(cache_key, None)
+            _ev.set()
+
+
+def _ohlcv_build(req: OHLCVRequest):
+    """實際抓取/組裝（原 get_ohlcv 的內容，一行未改）。"""
+    cache_key, ttl, use_limit = _ohlcv_cache_key(req)
 
     # ── BB 暖身期補償（2026-07-30）────────────────────────────────────────────
     #   BB(20) 需要 20 根才有值 → 每一塊的**開頭 19 根 bb_upper/middle/lower 都是 null**。

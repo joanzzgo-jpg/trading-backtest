@@ -22,6 +22,8 @@ _OB_W_CAP = 600            # 盤口整體權重上限（60s 滑動窗）
 _OB_W_LOG: list = []
 _lock = threading.Lock()
 
+_DEPTH_SF_LOCK = threading.Lock()
+_DEPTH_SF: dict = {}      # sym -> Event（深度單飛，見 _get_depth）
 _depth_cache: dict = {}     # sym -> (ts, {bids, asks, mid})：原始深度 1.2s 共用快取（掛單牆＋DOM 同一份）
 _ob_cache: dict = {}        # sym -> (ts, payload)：整包結果 1.5s 快取（多觀看者共用一次抓取）
 _wall_store: dict = {}      # sym -> { (side, priceStr): {first, last, qty} } 追蹤牆生命週期
@@ -52,8 +54,28 @@ def _get_depth(sym: str):
         return hit[1], False
     if not _ob_gate(_DEPTH_W):
         return (hit[1] if hit else None), (hit is None)   # 繁忙時退回舊快取（可能過期但可用）
-    url = f"{_crypto.BINANCE_FAPI_BASE}/fapi/v1/depth?symbol={sym}&limit={_DEPTH_LIMIT}"
-    d = _crypto._binance_get(url, timeout=8, retries=0)
+    # ★單飛（2026-08-02）：1.2 秒 TTL 擋不住「同時 miss」——掛單牆與 DOM 是**每 1.2 秒輪詢一次**，
+    #   同一個標的有 N 個人在看，快取一過期就 N 個執行緒同時衝進來各打一次深度。
+    #   實測 8 個並發 → 交易所 8 次。使用者一多這是最容易先撞到限流的一支（頻率最高）。
+    #   → 同一個 sym 只讓一個人去抓，其他人等它（最多 2.5 秒）後直接讀快取。
+    _leader = False
+    with _DEPTH_SF_LOCK:
+        _ev = _DEPTH_SF.get(sym)
+        if _ev is None:
+            _ev = threading.Event(); _DEPTH_SF[sym] = _ev; _leader = True
+    if not _leader:
+        _ev.wait(2.5)
+        hit2 = _depth_cache.get(sym)
+        if hit2 and time.time() - hit2[0] < 3.0:      # leader 剛寫完 → 直接用
+            return hit2[1], False
+        return (hit2[1] if hit2 else (hit[1] if hit else None)), (hit2 is None and hit is None)
+    try:
+        url = f"{_crypto.BINANCE_FAPI_BASE}/fapi/v1/depth?symbol={sym}&limit={_DEPTH_LIMIT}"
+        d = _crypto._binance_get(url, timeout=8, retries=0)
+    finally:
+        with _DEPTH_SF_LOCK:
+            _DEPTH_SF.pop(sym, None)
+        _ev.set()
     bids = [(float(p), float(q)) for p, q in d.get("bids", []) if float(q) > 0]
     asks = [(float(p), float(q)) for p, q in d.get("asks", []) if float(q) > 0]
     if not bids or not asks:
