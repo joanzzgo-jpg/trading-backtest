@@ -30,7 +30,7 @@ async function loadData(autoLoad = false, forceLatest = false) {
           //   ✓ 抓目標左約300根、右約120根 → 目標時間落在視窗內、第一次畫就對齊(_placeAtAnchor 必中);
           //     視窗僅數百根 → 任何時框都秒回、無 row-cap 風險;背景再往兩側補供拖曳。
           //   後端:end 在過去→倉庫直接切片 _k_load(快)/API 範圍抓;end≥今天(錨點接近現在)→量本來就小。
-          const _ntfSec = { "1m":60,"5m":300,"15m":900,"30m":1800,"1h":3600,"2h":7200,"4h":14400,"1d":86400 }[currentTF] || 3600;
+          const _ntfSec = tfSec(currentTF);
           window._loadRangeStart = Math.floor(_tr.to - 300 * _ntfSec);
           window._loadRangeEnd   = Math.floor(_tr.to + 120 * _ntfSec);
           window._hasFwdGap = true;   // 有界視窗未到現在 → 往右拖到近右緣時 _bgLoadNewerBars 往「新」方向補
@@ -653,6 +653,17 @@ function _subWindowFor(n) {
   return { lo: Math.max(0, Math.floor(vr.from) - pad), hi: Math.min(n, Math.ceil(vr.to) + pad) };
 }
 
+/* 時框 → 秒數（**唯一定義**）。
+   ⚠ 這張表原本在本檔被複製了 5 份、CHUNK_DAYS 複製了 2 份。同一份對照表散在多處，
+     只要有人新增時框卻漏改其中一份就會出事 —— 本專案已因此連續踩過三次
+     （BG_TF 兩份、台股分桶規則兩份、台股解析兩份）。一律收斂成單一來源。
+   ⚠ 刻意**不含 1w / 1M**，維持原本「查不到就當 3600」的行為：其中三個呼叫端
+     （loadData / _trimRollingWindow / _scheduleIdleTrim）沒有 BG_TF 閘門、1w/1M 走得到，
+     現在把它們補進表裡等於偷改行為。要改的話單獨一次改、單獨驗。 */
+const CHUNK_DAYS = { "1m": 5, "5m": 25, "15m": 80, "1h": 240, "4h": 950, "30m": 240, "2h": 730, "1d": 4000 };
+const TF_SEC = { "1m":60,"5m":300,"15m":900,"30m":1800,"1h":3600,"2h":7200,"4h":14400,"1d":86400 };
+function tfSec(tf) { return TF_SEC[tf] || 3600; }
+
 /* 背景補載支援的時框（**唯一定義**）。
    ⚠ 原本這份 Set 在本檔被複製了兩份，realtime.js 判斷「缺口補不補得動」也要用同一份 —
    抄多份必然分歧（台股才因此出過兩次事）。掛在 window 上讓跨檔共用同一個來源。 */
@@ -813,14 +824,13 @@ async function _bgLoadOlderBars(scrollTriggered = false) {
   let   targetStartTs = Math.floor(Date.now() / 1000) - totalDays * 86400;
   // 看歷史切時框:分頁串流必須補到「你正在看的那段」才停,否則對齊落空(切不到同一天)。
   //   把目標深度延伸到待對齊起點前 1 天(近段仍先載、含現在→不會往最新斷)。
-  const _tfSec = { "1m":60,"5m":300,"15m":900,"30m":1800,"1h":3600,"2h":7200,"4h":14400,"1d":86400 }[snapTf] || 3600;
+  const _tfSec = tfSec(snapTf);
   if (_pendingAlignRange) {
     // 補到「目標時間 − 可見根數×時框」再前 1 天 → 確保目標右緣左側有足夠根數(保持縮放)
     targetStartTs = Math.min(targetStartTs, _pendingAlignRange.anchorT - _pendingAlignRange.bc * _tfSec - 86400);
   }
 
-  const CHUNK_DAYS = { "1m": 5, "5m": 25, "15m": 80, "1h": 240, "4h": 950, "30m": 240, "2h": 730, "1d": 4000 };
-  const chunkDays  = CHUNK_DAYS[snapTf] || 30;
+    const chunkDays  = CHUNK_DAYS[snapTf] || 30;
 
   const toIso = ts => new Date(ts * 1000).toISOString().slice(0, 10);
   const guard = () =>
@@ -1068,7 +1078,7 @@ function _trimRollingWindow() {
   try {
     const _lastT = toTime(ohlcvData[ohlcvData.length - 1].time);
     const _nowSec = Math.floor(Date.now() / 1000) + 8 * 3600;
-    const _tfS = { "1m":60,"5m":300,"15m":900,"30m":1800,"1h":3600,"2h":7200,"4h":14400,"1d":86400 }[currentTF] || 3600;
+    const _tfS = tfSec(currentTF);
     window._hasFwdGap = _lastT < _nowSec - _tfS * 2;
   } catch (e) {}
   return lo;
@@ -1192,7 +1202,7 @@ function _scheduleIdleTrim() {
     try {
       const _lastT = toTime(ohlcvData[ohlcvData.length - 1].time);
       const _nowSec = Math.floor(Date.now() / 1000) + 8 * 3600;
-      const _tfS = { "1m":60,"5m":300,"15m":900,"30m":1800,"1h":3600,"2h":7200,"4h":14400,"1d":86400 }[currentTF] || 3600;
+      const _tfS = tfSec(currentTF);
       window._hasFwdGap = _lastT < _nowSec - _tfS * 2;
     } catch (e) {}
     // ★換資料+補償原子化:修剪 setData 期間各圖發出的舊 index range 若被延遲同步推回主圖,
@@ -1266,9 +1276,8 @@ async function _bgLoadNewerBars(scrollTriggered = false) {
   const snapSymbol   = document.getElementById("symbolInput").value.trim();
   const snapTf       = currentTF;
   const snapExchange = document.getElementById("exchangeSelect").value;
-  const _tfSec   = { "1m":60,"5m":300,"15m":900,"30m":1800,"1h":3600,"2h":7200,"4h":14400,"1d":86400 }[snapTf] || 3600;
-  const CHUNK_DAYS = { "1m": 5, "5m": 25, "15m": 80, "1h": 240, "4h": 950, "30m": 240, "2h": 730, "1d": 4000 };
-  const chunkDays  = CHUNK_DAYS[snapTf] || 30;
+  const _tfSec   = tfSec(snapTf);
+    const chunkDays  = CHUNK_DAYS[snapTf] || 30;
   const nowSec = Math.floor(Date.now() / 1000) + 8 * 3600;   // chart-time(+8h)的「現在」
   const toIso  = ts => new Date(ts * 1000).toISOString().slice(0, 10);
   const guard  = () =>
