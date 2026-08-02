@@ -1166,18 +1166,13 @@ window.toggleFVGSpecial = function (on) {
   return !window._fvgSpecialHidden;
 };
 
-// 策略止損線資料：time → {sl,d}。sl＝該策略「生成的第一個 FVG 的 g-1 頂端」(後端帶入)。
-//   hover 到策略訊號棒(多/空·破·順)時，由 draw.js 的 _renderStratSLLine 畫一條止損線。取代原「自動盈虧比盒」。
+// 策略止損線（hover 顯示）已移除（2026-08-03，使用者要求）。
+// 這張 time → {sl,tp} 的對照表只餵那條線，沒有其他消費者 → 一併停止建立。
+//   ⚠ 保留這個空函式與空 Map：render.js 的 _applyMainMarkersNow 每次全量重建標記都會呼叫
+//     window._rebuildStratSL()，直接刪掉會變成 undefined 呼叫。留空殼最省事也最安全。
+//   （後端仍會帶 sl/tp 欄位 —— 那是 charts.js「點選缺口才顯示交易位階線」在用，不受影響。）
 window._stratSlByTime = new Map();
-window._rebuildStratSL = function () {
-  const m = new Map();
-  const add = (arr) => { for (const it of (arr || [])) { if (it && it.sl != null) m.set(toTime(it.t), { sl: it.sl, tp: (it.tp != null ? it.tp : null), d: it.d }); } };
-  add(typeof _lastFVGMS !== "undefined" ? _lastFVGMS : null);
-  add(typeof _lastFVGBreak !== "undefined" ? _lastFVGBreak : null);
-  add(typeof _lastFVGShun !== "undefined" ? _lastFVGShun : null);
-  add(typeof _lastFVGSpecial !== "undefined" ? _lastFVGSpecial : null);
-  window._stratSlByTime = m;
-};
+window._rebuildStratSL = function () {};
 
 // SMC 掃頂/掃底標記（階段1：SR+SMC 教練疊加層）：掃頂=棒上紫「掃頂」、掃底=棒下青「掃底」。
 // 由右上 coachToggleBtn（window._coachOn）決定是否顯示；此處永遠備好標記，實際顯示在 _applyMainMarkers 依 _coachOn 過濾。
@@ -1703,33 +1698,20 @@ function _updateHoverWR(time) {
     _hoverRRSigs = []; _hoverFVGZones = [];
     if (typeof renderDrawings === "function") requestAnimationFrame(renderDrawings);
   }
-  // ── 改成：hover 到策略訊號棒（多/空·破·順，帶 sl）→ 在「第一個 FVG 的 g-1 頂端」畫止損線；換棒/離開即移除 ──
-  const _slInfo = (time != null && window._stratSlByTime) ? window._stratSlByTime.get(time) : null;
-  const _slVal = _slInfo ? _slInfo.sl : null;
-  if (_slVal !== window._curSlLineVal) {
-    window._curSlLineVal = _slVal;
-    if (window._slPriceLine) { try { candleSeries.removePriceLine(window._slPriceLine); } catch (e) {} window._slPriceLine = null; }
-    if (_slVal != null && typeof candleSeries !== "undefined" && candleSeries) {
-      try {
-        window._slPriceLine = candleSeries.createPriceLine({
-          price: _slVal, color: "#ff3b6b", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "止損",
-        });
-      } catch (e) {}
-    }
+  // ── hover 止損/止盈線已移除（2026-08-03，使用者要求）──────────────────────────
+  //   原本 hover 到策略訊號棒（多/空·破·順）會在主圖畫「止損」紅線＋「止盈」青線。
+  //   ⚠ 保留這段清除邏輯：使用者可能有上一版留下的線還掛在 series 上（換標的/重載不會自動掉），
+  //     這裡確保進到這個函式就一定清乾淨，不會有孤兒線殘留在圖上。
+  if (window._slPriceLine) {
+    try { candleSeries.removePriceLine(window._slPriceLine); } catch (e) {}
+    window._slPriceLine = null;
   }
-  // 止盈線（量>標記棒且同色確認棒的收盤價；僅 fvg_ms 帶 tp，破/順無 tp→不顯示）
-  const _tpVal = _slInfo ? _slInfo.tp : null;
-  if (_tpVal !== window._curTpLineVal) {
-    window._curTpLineVal = _tpVal;
-    if (window._tpPriceLine) { try { candleSeries.removePriceLine(window._tpPriceLine); } catch (e) {} window._tpPriceLine = null; }
-    if (_tpVal != null && typeof candleSeries !== "undefined" && candleSeries) {
-      try {
-        window._tpPriceLine = candleSeries.createPriceLine({
-          price: _tpVal, color: "#26c6da", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "止盈",
-        });
-      } catch (e) {}
-    }
+  if (window._tpPriceLine) {
+    try { candleSeries.removePriceLine(window._tpPriceLine); } catch (e) {}
+    window._tpPriceLine = null;
   }
+  window._curSlLineVal = null;
+  window._curTpLineVal = null;
 }
 
 // 單一訊號的勝率小卡 HTML
