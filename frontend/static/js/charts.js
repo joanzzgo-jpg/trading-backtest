@@ -76,8 +76,9 @@ function _makeRSIZonePrimitive() {
       target.useBitmapCoordinateSpace(scope => {
         const ctx = scope.context, hr = scope.horizontalPixelRatio, vp = scope.verticalPixelRatio;
         const W = scope.bitmapSize.width;
-        // ① 中性區底色（30~70）：TV 的淡紫底
-        ctx.fillStyle = "rgba(126,87,194,0.07)";
+        // ① 中性區底色（30~70）：TV 的淡紫底。
+        //   ⚠ 刻意極淡：副圖實測只有 ~79px 高，這層一濃就會把超買/超賣的紅青對比洗掉。
+        ctx.fillStyle = "rgba(126,87,194,0.035)";
         ctx.fillRect(0, yOB * vp, W, (yOS - yOB) * vp);
         if (!_rsiBands.length || !vr) return;
         // ② + ③ 超買/超賣：填「曲線 ↔ 門檻線」，跟著曲線走
@@ -89,18 +90,32 @@ function _makeRSIZonePrimitive() {
           let run = null;                     // 連續越界的一段
           const flush = () => {
             if (run && run.pts.length >= 2) {
-              const depth = Math.min(1, run.peak / 25);          // 離門檻多遠 → 多濃
+              const depth = Math.min(1, run.peak / 20);          // 離門檻多遠 → 多濃
               const yFar = _series.priceToCoordinate(ob ? 100 : 0);
               const yTip = (yFar == null) ? yEdge + (ob ? -50 : 50) : yFar;
+              const x1 = run.pts[0].x, x2 = run.pts[run.pts.length - 1].x;
+              // ⓐ 先鋪一層「門檻線 → 極端端點」的整段底色：副圖太矮（~79px），
+              //    只填曲線下方的話面積小到看不出來，先鋪底才有存在感。
+              const gb = ctx.createLinearGradient(0, yEdge * vp, 0, yTip * vp);
+              gb.addColorStop(0, `rgba(${rgb},0)`);
+              gb.addColorStop(1, `rgba(${rgb},${(0.10 + depth * 0.28).toFixed(3)})`);
+              ctx.fillStyle = gb;
+              ctx.fillRect(x1 * hr, Math.min(yEdge, yTip) * vp,
+                           Math.max(1, (x2 - x1) * hr), Math.abs(yTip - yEdge) * vp);
+              // ⓑ 再填「曲線 ↔ 門檻線」那塊（TV 的樣子：跟著曲線走），顏色更實
               const g = ctx.createLinearGradient(0, yEdge * vp, 0, yTip * vp);
-              g.addColorStop(0, `rgba(${rgb},0.04)`);             // 貼門檻線＝幾乎透明
-              g.addColorStop(1, `rgba(${rgb},${(0.18 + depth * 0.42).toFixed(3)})`);
+              g.addColorStop(0, `rgba(${rgb},0.14)`);
+              g.addColorStop(1, `rgba(${rgb},${(0.42 + depth * 0.38).toFixed(3)})`);
               ctx.fillStyle = g;
               ctx.beginPath();
-              ctx.moveTo(run.pts[0].x * hr, yEdge * vp);
+              ctx.moveTo(x1 * hr, yEdge * vp);
               for (const q of run.pts) ctx.lineTo(q.x * hr, q.y * vp);   // 沿著 RSI 曲線
-              ctx.lineTo(run.pts[run.pts.length - 1].x * hr, yEdge * vp);
+              ctx.lineTo(x2 * hr, yEdge * vp);
               ctx.closePath(); ctx.fill();
+              // ⓒ 門檻線上加一條同色實線，界線清楚（矮面板下最有效的辨識線索）
+              ctx.strokeStyle = `rgba(${rgb},${(0.5 + depth * 0.4).toFixed(3)})`;
+              ctx.lineWidth = Math.max(1, 1.4 * hr);
+              ctx.beginPath(); ctx.moveTo(x1 * hr, yEdge * vp); ctx.lineTo(x2 * hr, yEdge * vp); ctx.stroke();
             }
             run = null;
           };
