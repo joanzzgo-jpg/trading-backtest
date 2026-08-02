@@ -1792,6 +1792,14 @@ def _wr_slim_row(k, z):
     y = dict(z)
     if k == "fvg":
         y.pop("gi", None); y.pop("sweep", None)        # 前端 grep 0 引用（伺服器端仍拿得到完整版）
+        # ★pens（每次被突破的點位）同理，而且是最大的一塊：實測 BTC 1h vw=45000
+        #   整包 3214KB 裡 pens 就佔 378KB（11.8%）、13,027 個點。
+        #   charts.js 明確寫著「『吃到 FVG 的點位』(pens 突破菱形) 使用者要求隱藏 → 不再畫」，
+        #   全前端對 .pens 的讀取只剩「把它對映進 zone 物件」那兩行，對映完再也沒人讀 →
+        #   算了、轉了時間戳、壓縮了、傳了、parse 了，然後丟掉。
+        #   ⚠ 只在這層拿掉：notify_monitor 直接吃 _calc_crt_winrate 的結果餵自動交易，
+        #     核心那份必須保持完整（見本區塊開頭的說明）。
+        y.pop("pens", None)
         for b in ("go", "gv", "dim", "inv", "gap"):
             if y.get(b) is False:                       # 前端是 `z.go === true` / `!!z.dim` → 缺鍵=false
                 y.pop(b, None)
@@ -1804,9 +1812,7 @@ def _wr_slim_row(k, z):
     for tk in _WR_EPOCH_KEYS:
         if tk in y:
             y[tk] = _wr_ep(y[tk])
-    _p = y.get("pens")
-    if isinstance(_p, list):
-        y["pens"] = [({**e, "t": _wr_ep(e.get("t"))} if isinstance(e, dict) else e) for e in _p]
+    # （pens 已在上面 fvg 分支整個拿掉 → 不再需要逐點轉時間戳，順帶省下這段 CPU）
     _f = y.get("fills")
     if isinstance(_f, list):
         y["fills"] = [([_wr_ep(e[0]), *e[1:]] if isinstance(e, (list, tuple)) and e else

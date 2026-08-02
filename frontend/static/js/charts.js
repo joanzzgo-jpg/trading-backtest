@@ -286,8 +286,8 @@ function setFVGZones(list) {
     ett: _fvgEt(z, "ett"),
     etm: _fvgEt(z, "etm"),
     etb: _fvgEt(z, "etb"),
-    pens: (Array.isArray(z.pens)                    // 每被突破一次的點 {t,p}：轉圖表時間、濾掉壞值
-      ? z.pens.map(e => ({ t: toTime(e.t), p: e.p })).filter(e => e.t != null && e.p != null) : []),
+    // pens（突破點位）已不再繪製（見上方 211 行註解），後端也不再傳 →
+    // 這裡原本還在逐點 toTime 轉換再丟掉，一併移除。
   })).filter(z => z.t1 != null && z.top != null && z.bot != null && !z.inv);   // IFVG(inv) 先關閉：不顯示反轉缺口色塊
   _fvgSelected = null;                       // 資料重載→清除點選(舊物件已不在新陣列裡)
   if (_fvgPrimitive) _fvgPrimitive.requestUpdate();
