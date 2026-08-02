@@ -56,12 +56,23 @@ function _candleBorderVisible() {
      參考圖的重點就是「小、貼合曲線、只在越界處出現」，所以刻意不加底色、不加描邊。
    ⚠ 邊界要內插到「與門檻線的交點」，不能直接用越界那根的 x：
      否則色塊會從前一根就開始（或晚一根才開始），看起來與線對不齊。
+   ★填色跟著「**目前顯示中**的那幾條 RSI」：
+     副圖可畫 RSI(14) 與 RSI(7)，兩條都能由圖例各自開關，而 RSI(7) 波動大得多
+     —— 實測同一份資料 RSI7 跌破 30 有 19 根、RSI14 只有 1 根。
+     若寫死只跟 RSI(14) 算，看 RSI(7) 的人會發現「線明明破了卻沒填色」，
+     以為填色用了不同的計算。故每次繪製時讀兩條 series 的 visible 狀態，
+     只用開著的那幾條算包絡（超買取較高、超賣取較低）→ 填色永遠貼合你看得到的線。
+     兩條都關 → 不畫任何填色。
    ⚠ 只掃可見範圍（二分搜尋）：避免「每幀掃全陣列 → 放大就卡」。 */
-let _rsiBands = [];        // [{t, v}] RSI(14)，升序
+let _rsiBands = [];        // [{t, hi, lo}] hi=兩條 RSI 取大、lo=取小，升序
 function _rsiLowerBound(t) {
   let lo = 0, hi = _rsiBands.length;
   while (lo < hi) { const m = (lo + hi) >> 1; _rsiBands[m].t < t ? lo = m + 1 : hi = m; }
   return lo;
+}
+/* 某條 RSI 目前是否顯示（圖例可各自開關）。讀不到就當作顯示，寧可多畫也不要無故消失。 */
+function _rsiVisible(series) {
+  try { return series ? series.options().visible !== false : false; } catch (e) { return !!series; }
 }
 function _makeRSIZonePrimitive() {
   let _chart = null, _series = null, _req = null;
@@ -79,18 +90,34 @@ function _makeRSIZonePrimitive() {
       if (i1 - i0 < 2) return;
       target.useBitmapCoordinateSpace(scope => {
         const ctx = scope.context, hr = scope.horizontalPixelRatio, vp = scope.verticalPixelRatio;
-        const pts = [];
-        for (let i = i0; i < i1; i++) {
-          const p = _rsiBands[i];
-          const x = ts.timeToCoordinate(p.t), y = _series.priceToCoordinate(p.v);
-          if (x != null && y != null) pts.push({ x, y, v: p.v });
-        }
-        if (pts.length < 2) return;
+        // 讀「目前哪幾條 RSI 開著」→ 只用開著的算包絡
+        const vis14 = _rsiVisible(rsiLine14), vis7 = _rsiVisible(rsiLine7);
+        if (!vis14 && !vis7) return;                     // 兩條都關 → 不畫
+        const pick = (p, up) => {
+          const a = vis14 ? p.v14 : null, b = vis7 ? p.v7 : null;
+          if (a == null) return b;
+          if (b == null) return a;
+          return up ? Math.max(a, b) : Math.min(a, b);
+        };
+        const mk = (up) => {
+          const out = [];
+          for (let i = i0; i < i1; i++) {
+            const p = _rsiBands[i];
+            const v = pick(p, up);
+            if (v == null) continue;
+            const x = ts.timeToCoordinate(p.t), y = _series.priceToCoordinate(v);
+            if (x != null && y != null) out.push({ x, y, v });
+          }
+          return out;
+        };
+        const ptsHi = mk(true), ptsLo = mk(false);
+        if (ptsHi.length < 2 && ptsLo.length < 2) return;
 
         // 畫某一側越界的所有段落。lvl=門檻值、yLvl=門檻線 y、above=是否取「高於門檻」
         //   ⚠ 填色用漸層而非單一色：貼著門檻線較淡、越往極端越深（越極端＝越濃），
         //     且整體不透明度給足，看起來要是「填滿」而不是一層薄膜。
-        const band = (lvl, yLvl, above, rgb) => {
+        const band = (lvl, yLvl, above, rgb, pts) => {
+          if (pts.length < 2) return;
           const yFar = _series.priceToCoordinate(above ? 100 : 0);
           const yTip = (yFar == null) ? yLvl + (above ? -60 : 60) : yFar;
           const g = ctx.createLinearGradient(0, yLvl * vp, 0, yTip * vp);
@@ -128,8 +155,8 @@ function _makeRSIZonePrimitive() {
           }
           if (poly) close(poly[poly.length - 1].x);
         };
-        band(OB, yOB, true,  "38,180,120");   // 超買＝綠
-        band(OS, yOS, false, "214,64,72");    // 超賣＝紅
+        band(OB, yOB, true,  "38,180,120", ptsHi);   // 超買＝綠（取兩條 RSI 較高者）
+        band(OS, yOS, false, "214,64,72", ptsLo);    // 超賣＝紅（取兩條 RSI 較低者）
       });
     },
   };
