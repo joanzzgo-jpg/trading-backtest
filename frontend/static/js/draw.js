@@ -1,5 +1,28 @@
 let drawings    = [];
 let drawingWIP  = null;
+
+/* ── Shift＝水平約束（2026-08-03）────────────────────────────────────────────
+   畫線時按住 Shift → 第二點的價格鎖成第一點的價格，畫出完全水平的線（TradingView 同款）。
+   ⚠ 只給「兩點線型」工具：trendline／ray／arrow。rect 與 fib 水平化會退化成零高度、
+     longpos/shortpos 的第二點是停利停損位，套上去都沒有意義，故不納入。
+   ⚠ 必須用「追蹤按鍵狀態」而不是只讀事件的 e.shiftKey：預覽虛線是由 renderDrawings()
+     畫的、手上沒有事件物件。也因此按下/放開 Shift 當下要主動重畫一次，
+     否則滑鼠不動時預覽不會跟著切換。
+   ⚠ window 失焦要清掉：切去別的視窗時放開 Shift 收不到 keyup，會一直卡在水平模式。 */
+const _H_SNAP_TYPES = new Set(["trendline", "ray", "arrow"]);
+let _shiftDown = false;
+function _hSnapOn(type) { return _shiftDown && _H_SNAP_TYPES.has(type); }
+window.addEventListener("keydown", e => {
+  if (e.key !== "Shift" || _shiftDown) return;
+  _shiftDown = true;
+  if (drawingWIP || dragState) _scheduleRenderDrawings();
+});
+window.addEventListener("keyup", e => {
+  if (e.key !== "Shift") return;
+  _shiftDown = false;
+  if (drawingWIP || dragState) _scheduleRenderDrawings();
+});
+window.addEventListener("blur", () => { _shiftDown = false; });
 let drawCanvas  = null;
 let drawCtx     = null;
 let drawTool    = "pointer";
@@ -1032,7 +1055,9 @@ function _onChartClick(e) {
   if (!drawingWIP) {
     drawingWIP = { type:drawTool, p1:pt };
   } else {
-    drawings.push({ id:_did(), type:drawTool, p1:drawingWIP.p1, p2:pt, color:_drawColor });
+    // 按住 Shift → 第二點的價格取第一點的，畫出水平線
+    const p2 = _hSnapOn(drawTool) ? { ...pt, price: drawingWIP.p1.price } : pt;
+    drawings.push({ id:_did(), type:drawTool, p1:drawingWIP.p1, p2, color:_drawColor });
     drawingWIP = null;
     saveDrawings(); _returnToPointer();
     _scheduleRenderDrawings();
@@ -1126,10 +1151,11 @@ function _updateDrag(x, y) {
     const part = dragState.part;
     if (part === "p1") {
       const np = screenToChart(x, y);
-      if (np) d.p1 = { time: np.time, price: np.price };
+      // 拖端點時按住 Shift 一樣鎖水平（對齊另一端的價格）
+      if (np) d.p1 = { time: np.time, price: _hSnapOn(d.type) ? d.p2.price : np.price };
     } else if (part === "p2") {
       const np = screenToChart(x, y);
-      if (np) d.p2 = { time: np.time, price: np.price };
+      if (np) d.p2 = { time: np.time, price: _hSnapOn(d.type) ? d.p1.price : np.price };
     } else {
       const a = chartToScreen(orig.p1.time, orig.p1.price);
       const b = chartToScreen(orig.p2.time, orig.p2.price);
@@ -2587,7 +2613,9 @@ function renderDrawings() {
 
   if (drawingWIP) {
     const p1s = chartToScreen(drawingWIP.p1.time, drawingWIP.p1.price);
-    if (p1s) drawPreview(drawingWIP.type, p1s, { x:_cmx, y:_cmy }, W, H);
+    // 預覽要跟著 Shift 走，否則放手前看到的線跟畫出來的不一樣
+    if (p1s) drawPreview(drawingWIP.type, p1s,
+                         { x:_cmx, y: _hSnapOn(drawingWIP.type) ? p1s.y : _cmy }, W, H);
   }
 
   if (drawTool !== "pointer" && drawTool !== "crosshair") {
