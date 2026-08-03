@@ -18,7 +18,7 @@
   <script>window.__V = "{{ ver }}";</script>
   <link rel="apple-touch-icon" href="/static/img/icon-192.png?v={{ ver }}">
   <link rel="icon" type="image/png" href="/static/img/bear.png?v={{ ver }}"/>
-  <link rel="preload" href="/static/img/bear.png?v={{ ver }}" as="image">
+  <!-- bear.png 不預載：它在 topbar/彈窗，封面階段都看不到；favicon(<link rel=icon>) 本來就會抓一份。 -->
   <!-- bear-full(偷看熊) 不預載：它在主 UI(非封面頁)，封面階段用不到，預載只是跟關鍵資源搶頻寬。
        HTML 裡的 <img> 仍會照常載入，只是不再插隊。 -->
   <!-- 封面城堡圖(gate)的預載改成「只在真的要顯示封面頁時才發」，由下方判斷腳本注入。
@@ -31,7 +31,13 @@
        移掉後 2630ms 可進場（快 440ms）→ 改由 main.js initLanding 在 bundle 跑起來後才抓。 -->
   <!-- 字型自架(同源)：原走 Google Fonts CDN(fonts.googleapis/gstatic)，同 LWC 理由改自架、去除 CDN 依賴。
        只含 latin/latin-ext 子集(logo「AHH TRADING」＋Caveat 草寫；中文由 font stack 退回 PingFang TC 系統字)。 -->
-  <link rel="stylesheet" href="/static/vendor/fonts.css?v={{ ver }}">
+  <!-- ⚠ 非阻塞載入(media=print → onload 切回 all)：這支是 render-blocking stylesheet，
+       實測慢 4G 它連帶的兩個 woff2(45KB) 在關鍵路徑上值 286ms（用 CDP 擋掉對照量出來的）。
+       字面本來就全是 font-display:swap → 文字一律先用系統字顯示、載好再換，
+       改成非阻塞只是把「換字」那一刻往後挪一點，不會多出原本沒有的閃動。
+       ⚠ noscript 退路必留：關 JS 時 onload 不會觸發，沒有它就永遠套不到字型。 -->
+  <link rel="stylesheet" href="/static/vendor/fonts.css?v={{ ver }}" media="print" onload="this.media='all';this.onload=null">
+  <noscript><link rel="stylesheet" href="/static/vendor/fonts.css?v={{ ver }}"></noscript>
   <!-- LightweightCharts 自架(同源)：原走 unpkg CDN，部分裝置/網路(iPad、某些Windows/公司網)連不到 CDN
        → LightweightCharts undefined → 整個 app「進不去」。改自架後跟 app 同源、必達，不再依賴外部 CDN。 -->
   <script defer src="/static/vendor/lightweight-charts.standalone.production.js?v={{ ver }}"></script>
@@ -43,6 +49,13 @@
         document.documentElement.classList.add("perf-mode");
       }
     } catch (e) {}
+    // 字型 CSS 非阻塞載入的保險：正常由 <link onload> 把 media 切回 all；
+    // 萬一 onload 沒觸發（未來 CSP 拿掉 'unsafe-inline' 會擋掉 inline handler、
+    // 或某些瀏覽器對已快取資源不發 onload）→ 這裡再補一次，字型不會永遠套不上。
+    addEventListener("DOMContentLoaded", function () {
+      var l = document.querySelector('link[href*="fonts.css"][media="print"]');
+      if (l) l.media = "all";
+    });
     // 開場首頁顯示時機（用 sessionStorage 區分 reload vs 關閉重開）：
     //  · reload：同一分頁 session → sessionStorage 還在 → 不跳首頁
     //  · 關掉重開 / 重開 app：sessionStorage 清空 → 跳首頁
@@ -675,7 +688,9 @@
         </div>
       </div>
       <div class="pane-body" id="mainChart">
-        <img src="/static/img/bear-bg.png?v={{ ver }}" class="chart-bear-bg perf-only" alt="" />
+        <!-- loading="lazy"：非極簡模式時 .chart-bear-bg.perf-only 是 display:none → 不會被抓（省 28KB）。
+           weather.js 另有自己的 new Image() 會在延遲載入後自行取用，不受影響。 -->
+      <img src="/static/img/bear-bg.png?v={{ ver }}" class="chart-bear-bg perf-only" loading="lazy" alt="" />
       </div>
       <!-- 回到最新：看歷史時才出現。★放在 #mainChart「外面」——draw.js 在 #mainChart 上掛了
            capture 階段的滑鼠處理，放裡面會被它先吃掉、按鈕點不動。 -->
@@ -1148,7 +1163,7 @@
 <div class="peek-bear" id="peekBear" title="👀 嗨！">
   <button type="button" id="bearWxBtn" class="bear-wx-btn">天氣如何？</button>
   <div class="bear-bubble" id="bearBubble"></div>
-  <img src="/static/img/bear-full.png?v={{ ver }}" alt="橘子熊偷看" draggable="false" />
+  <img src="/static/img/bear-full.png?v={{ ver }}" loading="lazy" alt="橘子熊偷看" draggable="false" />
 </div>
 
 <!-- 3D 天氣舞台：CSS perspective 容器，weather.js 會在內部依 translateZ 建立多張景深 canvas
