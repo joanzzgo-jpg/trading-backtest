@@ -105,7 +105,7 @@ cd backend && ../.venv312/bin/python scripts/check_tw_sources.py
 - **台股即時個股分鐘 K = cnyes**（`data/cnyes_futures.py` `fetch_cnyes_stock_intraday`，同台指期源、連續無跳號、無延遲、免金鑰）；get_latest / ohlcv 初次載入 / fetch_crt_df 三處當日主源，歷史仍 yfinance，Fugle 退為備援。詳見 [docs/backend.md](docs/backend.md)。
 
 ### 不可更改的設定
-- `startTickerRefresh()`（`ticker.js`）的 `setInterval(fetchTickers, …)` 間隔依市場固定：**crypto 1 秒、台股 3 秒**（行情即時性需求；2026-07-09 台股 10 秒→3 秒，配合後端 `_tw_rt_overlay_worker` 每 3 秒 MIS bulk 疊「量最大前 120 檔」即時價 → 報價列即時跳動），**禁止以「減輕伺服器負擔」為由改慢**。台股全量清單仍由 `_tw_ticker_worker` 每 30 秒抓 TWSE/TPEX opendata 維護。
+- `startTickerRefresh()`（`ticker.js`）的 `setInterval(fetchTickers, …)` 間隔依市場固定：**crypto 1 秒、台股 3 秒**（行情即時性需求；2026-07-09 台股 10 秒→3 秒，配合後端 `_tw_rt_overlay_worker` 每 5 秒 MIS bulk 疊價：前 50 高量每輪必打＋其餘 250 檔輪掃，約 40 秒覆蓋全台股 → 報價列即時跳動），**禁止以「減輕伺服器負擔」為由改慢**。台股全量清單仍由 `_tw_ticker_worker` 每 30 秒抓 TWSE/TPEX opendata 維護。
 
 ## 圖片資源
 所有原始圖片存放於 **桌面 `Claude-分類/虛擬貨幣/`**，已複製至 `frontend/static/img/`。對應表與前端使用位置見 [docs/frontend.md](docs/frontend.md)。
