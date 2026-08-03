@@ -526,6 +526,83 @@ def fetch_tw_latest_bar_yf(symbol: str):
     return None
 
 
+def _mis_f(x):
+    """MIS 欄位轉正數；"-"／空／0 一律回 None（MIS 用 "-" 表示「沒有這個值」）。"""
+    try:
+        v = float(x)
+        return v if v > 0 else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _mis_first(seq):
+    """MIS 的五檔字串 "0.0000_110.5000_110.0000_..." → 第一個有效價；沒有則 None。"""
+    if not seq or seq == "-":
+        return None
+    for part in str(seq).split("_"):
+        v = _mis_f(part)
+        if v:
+            return v
+    return None
+
+
+def _mis_today_price(d):
+    """從 MIS 記錄取「今日成交價」；判不出來就回 None（呼叫端會跳過該檔）。
+
+    ★ 2026-08-03 修的 bug（使用者回報「台股右列表看到的都是舊的」）：
+      舊碼在 z(最新成交價)=="-" 時直接拿 y(昨收)頂替。但 z 是 "-" 的最大宗情形是
+      **漲跌停鎖死**——當下沒有撮合，不是沒有行情。實測 2337 旺宏：
+          z=-  y=100.5  o=102.5  h=u=110.5  a=-（無人賣）  b=…110.5（買盤全掛漲停）
+      拿 y 頂替 → 顯示 100.5、漲跌幅 0%，而且這個「昨收」還會經由 overlay_tw()
+      **覆蓋掉 opendata 已經正確的今日價(110.5)** → 使用者看到的整列都是舊價。
+
+    取值順序（一律只取「今天」的價，寧可回 None 也不拿昨收混充）：
+      ① z 有效 → 直接用
+      ② 今天沒成交(v<=0) → 今日無價可言 → None（讓 opendata 的值留著）
+      ③ 只有買盤沒賣盤 → 漲停鎖死 → 今日最高已觸漲停價就取漲停價，否則取最佳買價
+      ④ 只有賣盤沒買盤 → 跌停鎖死 → 同理取跌停價／最佳賣價
+      ⑤ 今日高低相同 → 全天只成交在一個價 → 用它
+      ⑥ 兩邊都有報價 → 用「今日高/低之中，落在買賣價區間內的那一個」
+         最後成交價必定落在買賣價之間，而 h/l 是今天真的成交過的價 → 只有一個落在區間內時
+         幾乎就是它。實測 6862 三集瑞-KY：買 136.5／賣 137.5，h=137.5 在區間內、l=125 不在
+         → 取 137.5（正確；中價會算成 137.0，落後的 opendata 更是給 125.0）。
+      ⑦ h、l 都在或都不在區間內 → 買賣中價（標準 mark price 近似）
+
+    ⚠ 這裡刻意「寧可估也不要讓路」：曾一度改成判不出就 return None、讓 opendata 的值留著，
+      但實測 opendata 對冷門股會落後一整天（6862 給 125.0 ＝ 昨收，真實 137.5），
+      讓路等於把錯的留下。買賣價區間是當下的真實市場，估出來的誤差遠小於落後一天。
+    """
+    z = _mis_f(d.get("z"))
+    if z:
+        return z
+    try:
+        vol = float((d.get("v", "0") or "0").replace(",", ""))
+    except (TypeError, ValueError):
+        vol = 0.0
+    if vol <= 0:
+        return None                       # 今天還沒成交過 → 沒有「今日價」
+    bid, ask = _mis_first(d.get("b")), _mis_first(d.get("a"))
+    hi, lo = _mis_f(d.get("h")), _mis_f(d.get("l"))
+    up, dn = _mis_f(d.get("u")), _mis_f(d.get("w"))
+    if bid and not ask:
+        # 賣單整個空掉＝漲停鎖死。若今日最高已觸漲停價，最後成交價就是漲停價
+        # （不能直接取最佳買價：實測 6862 買 136.5 但實際已成交在漲停 137.5）。
+        return up if (hi and up and hi == up) else bid
+    if ask and not bid:
+        return dn if (lo and dn and lo == dn) else ask   # 跌停鎖死，同理
+    if hi and lo and hi == lo:
+        return hi
+    if bid and ask:
+        _in = lambda v: v is not None and bid - 1e-9 <= v <= ask + 1e-9
+        hi_in, lo_in = _in(hi), _in(lo)
+        if hi_in and not lo_in:
+            return hi
+        if lo_in and not hi_in:
+            return lo
+        return round((bid + ask) / 2, 4)
+    return None
+
+
 def fetch_tw_realtime_bulk(symbols):
     """MIS 即時報價 bulk（一次多檔、盤中 delay:0）：symbols=代號 list。
     先全試上市(tse)、未解析的再試上櫃(otc)。回 {sym: {price,change_pct,change_amt,volume}}。
@@ -548,13 +625,13 @@ def fetch_tw_realtime_bulk(symbols):
                 sym = d.get("c", "")
                 if not sym:
                     continue
-                z = d.get("z", "-"); y = d.get("y", "-")
-                if not z or z == "-":
-                    z = y
-                if not y or y == "-":
+                prev = _mis_f(d.get("y"))
+                if not prev:
                     continue
+                price = _mis_today_price(d)
+                if price is None:
+                    continue            # 判不出今日價 → 整檔跳過，別覆蓋 opendata 已有的正確值
                 try:
-                    price = float(z); prev = float(y)
                     camt = round(price - prev, 2)
                     cpct = round((camt / prev * 100) if prev else 0.0, 2)
                     vol = float((d.get("v", "0") or "0").replace(",", "")) * 1000

@@ -345,16 +345,22 @@ def _tw_ticker_worker():
 
 
 def _tw_rt_overlay_worker():
-    """背景執行緒：交易時段每 3 秒用 MIS bulk 疊台股【今日即時價】(opendata 盤中是昨收)。
-    分頁輪掃(不一次狂打全部→避免 MIS 速率限制回 z=-)：每輪＝前 100 高量股(永遠打→即時跳動)
-    ＋輪流補一批其餘 100(rot 遞移)→ 約 30-40 秒內全部台股都更新成今日價。"""
+    """背景執行緒：交易時段每 5 秒用 MIS bulk 疊台股【今日即時價】。
+    分頁輪掃(不一次狂打全部→避免 MIS 速率限制)：每輪＝前 50 高量股(永遠打→即時跳動)
+    ＋輪流補一批其餘 250(rot 遞移)→ 約 40 秒內全台股都更新成今日價。
+
+    ⚠ 舊註解寫「每 3 秒／前 100 檔／30-40 秒一輪」全部與程式不符(實際 5 秒／前 50／輪掃 100 秒)，
+      2026-08-03 一併更正。輪掃批量由 100 提到 250：每輪 300 檔＝3 個請求(每個間隔 0.35s)
+      ＝約 0.6 req/s，正好是本函式原本就寫明的預算上限，覆蓋一輪從 ~100s 縮到 ~40s。
+    ⚠ opendata 基底對冷門股會落後一整天(實測 6862 給昨收 125.0、真實 137.5)，
+      所以「輪掃多久回來一次」直接等於使用者看到多舊的價 —— 別為了省流量把它調慢。"""
     from datetime import datetime as _dt, timedelta as _td
     from data.taiwan import fetch_tw_realtime_bulk
     from utils.live_data import overlay_tw, has_tw_data, get as live_get
     _rot = 0
     _miss = 0                                             # 連續空回(疑似被 MIS 封)計數
     while True:
-        _nap = 5                                          # 5s/輪：~150檔(前50+輪100)、每請求0.35s間隔→~0.6req/s、避免封
+        _nap = 5                                          # 5s/輪：~300檔(前50+輪250)、每請求0.35s間隔→~0.6req/s、避免封
         try:
             now_tpe = _dt.utcnow() + _td(hours=8)
             mod = now_tpe.hour * 60 + now_tpe.minute
@@ -369,8 +375,8 @@ def _tw_rt_overlay_worker():
                 batch = list(top)
                 if rest:
                     n = len(rest)
-                    off = (_rot * 100) % n
-                    batch += rest[off:off + 100]          # 輪流補一批(100)其餘→全部約 30-40s 更新成今日價
+                    off = (_rot * 250) % n
+                    batch += rest[off:off + 250]          # 輪流補一批(250)其餘→全部約 40s 更新成今日價
                     _rot += 1
                 pm = fetch_tw_realtime_bulk(batch)
                 if pm:
