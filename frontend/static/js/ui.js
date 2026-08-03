@@ -337,6 +337,17 @@ function _mobileTimeAxis() { updateBottomTimeAxis(); }
 
 /* ── 圖例顏色點（點色點即可改色）── */
 function bindLegendColors() {
+  /* 有「顯隱切換」的圖例一律不掛色盤（2026-08-04）。
+     使用者回報：點副圖指標的圓點想切顯示/隱藏，卻跳出調色盤。
+     這幾個的顏色在齒輪設定面板（KDJ／RSI／MACD 設定）都能調，色盤是多餘的干擾。
+     ⚠ 用「同一份清單」驅動、不要手動刪 map 裡那幾筆：本專案吃過好幾次「兩份表各自漂移」的虧
+       （BG_TF ×2、台股 resample 規則 ×2…）。日後有人替某個圖例加上顯隱切換，
+       只要加進下面 lineMap，色盤就會自動讓開。 */
+  const _LEG_TOGGLE_IDS = new Set([
+    "legK", "legD", "legJ", "legRsi14", "legRsi7", "legMacd", "legMacdSig", "legMacdHist",
+  ]);
+  window._LEG_TOGGLE_IDS = _LEG_TOGGLE_IDS;   // 給下方 lineMap 自我檢查用
+
   const map = [
     // legBB / legVol 不掛色盤：點圖例只切顯隱（由 leg-toggle 處理）；
     // 顏色改用齒輪「主圖設定」面板（BB 上/下·中、量柱漲跌）設定，避免點到就跳色盤。
@@ -356,6 +367,7 @@ function bindLegendColors() {
     { id:"legMacdHist",key:"macdHist",apply: c => { C.macdHist = c; macdHist?.applyOptions({color:c}); savePrefs(); } },
   ];
   map.forEach(({ id, key, apply }) => {
+    if (_LEG_TOGGLE_IDS.has(id)) return;       // 有顯隱切換 → 不掛色盤（見上方說明）
     const legEl = document.getElementById(id);
     if (!legEl) return;
     const dot = legEl.querySelector(".leg-dot");
@@ -693,6 +705,13 @@ function bindLegendToggles() {
     { id: "legMacdSig",  series: () => [macdSignal] },
     { id: "legMacdHist", series: () => [macdHist] },
   ];
+  // 自我檢查：有顯隱切換的「副圖指標」若沒登記進 _LEG_TOGGLE_IDS，色盤就會又跑出來擋路。
+  // 只檢查副圖那幾個（主圖的 FVG/PDHL 等本來就沒掛色盤），開發時 console 會直接講。
+  try {
+    const _need = ["legK","legD","legJ","legRsi14","legRsi7","legMacd","legMacdSig","legMacdHist"];
+    const _miss = _need.filter(id => lineMap.some(m => m.id === id) && !_LEG_TOGGLE_IDS.has(id));
+    if (_miss.length) console.warn("[legend] 這些圖例有顯隱切換但沒登記進 _LEG_TOGGLE_IDS，色盤會擋路:", _miss);
+  } catch (e) {}
   lineMap.forEach(({ id, series, action }) => {
     const el = document.getElementById(id);
     if (!el) return;
