@@ -1157,13 +1157,22 @@ function _updateDrag(x, y) {
       const np = screenToChart(x, y);
       if (np) d.p2 = { time: np.time, price: _hSnapOn(d.type) ? d.p1.price : np.price };
     } else {
+      /* 整體移動：只換算「一個」參考點，另一點用原本的時間/價格差量推回去。
+         ★ 2026-08-03 修的 bug（使用者回報「畫好的矩形移動他大小會變」）：
+           原本兩個角**各自**呼叫 screenToChart，而它會套磁吸 → 兩角各吸到不同 K 棒的
+           OHLC，形狀就被扯歪；就算關掉磁吸，_xToTime 也會把兩角各自量化到最近的棒，
+           拖曳過程仍會左右各差一根、寬度抖動。
+           改成只有 p1 吃磁吸/量化，p2 = p1 + 原本的差量 → 移動時形狀**完全不變**。
+         ⚠ 這個分支吃的是所有雙點圖形（rect / trendline / ray / arrow / fib …），
+           不是只有矩形，所以全部一起修好。 */
       const a = chartToScreen(orig.p1.time, orig.p1.price);
-      const b = chartToScreen(orig.p2.time, orig.p2.price);
-      if (a && b) {
+      if (a) {
         const na = screenToChart(a.x + dx, a.y + dy);
-        const nb = screenToChart(b.x + dx, b.y + dy);
-        if (na) d.p1 = { time:na.time, price:na.price };
-        if (nb) d.p2 = { time:nb.time, price:nb.price };
+        if (na) {
+          d.p1 = { time: na.time, price: na.price };
+          d.p2 = { time:  na.time  + (orig.p2.time  - orig.p1.time),
+                   price: na.price + (orig.p2.price - orig.p1.price) };
+        }
       }
     }
   }
