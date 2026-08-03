@@ -32,6 +32,20 @@ def check(name, ok, detail=""):
         FAILS.append(name)
 
 
+def skip(name, reason):
+    print(f"  ⊘ {name}  — 跳過：{reason}")
+
+
+def _src_dates():
+    """讀兩包 opendata 各自的交易日。回 {url: date}，抓不到的不列入。"""
+    out = {}
+    for url in (TW.TWSE_DAY_ALL_URL, TW.TPEX_DAY_ALL_URL):
+        d = (TW._TW_DAY_SRC.get(url) or {}).get("date")
+        if d:
+            out[url] = d
+    return out
+
+
 def reset():
     TW._TW_DAY_ALL.update({"ts": 0.0, "date": None, "rows": {}})
     TW._TW_DAY_SRC.clear()
@@ -59,19 +73,48 @@ check("第 2 輪明顯變快（代表 304 生效）", times[1] < times[0] * 0.5,
       f"{times[0]:.2f}s → {times[1]:.2f}s")
 
 print("\n③ 兩個呼叫端交錯（ETag 與解析結果分家會在這裡爆）")
+# ⚠ 上游「兩包日期不同」時要換一組斷言，不是放寬（2026-08-04）：
+#   TWSE(上市) 與 TPEX(上櫃) 的 opendata 發布時間不同步，收盤後有一段時間兩包分屬不同交易日。
+#   這時我們的程式會**正確地排除舊的那包** → 日線只剩單一市場（實測 859 檔），
+#   舊斷言「日線 >1500」就會失敗 —— 程式做對了事卻被判壞，正是 CLAUDE.md 講的「狼來了」。
+#   對策：偵測到上游日期不一致時，改測「真實情境下該有的行為」——日線必須是**單一日期、
+#   且等於較新那包的日期**（這才是我們真正在意的「不得混用日期」保證），而清單仍必須完整。
 for order in (("備援", "清單"), ("清單", "備援")):
     reset()
     for who in order:
         TW._tw_day_all_refresh() if who == "備援" else TW.fetch_tw_tickers()
     n = len(TW.fetch_tw_tickers())
     d = len(TW._TW_DAY_ALL["rows"])
-    check(f"順序 {order[0]}→{order[1]}：清單與日線都完整", n > 1500 and d > 1500, f"清單 {n} 檔 / 日線 {d} 檔")
+    sd = _src_dates()
+    mixed = len(set(sd.values())) > 1
+    if mixed:
+        newest = max(sd.values())
+        # ⚠ 斷言必須包含「檔數等於較新那包」：光驗 date==newest 是**擋不住 bug 的**——
+        #   把兩包混在一起時 date 照樣等於較新的那個（實測混用會是 1950 檔、正確是 859 檔）。
+        #   第一版我就是只驗 date，模擬植入壞碼後直接放行，等於白做。
+        n_new = sum(len((TW._TW_DAY_SRC.get(u) or {}).get("rows") or {})
+                    for u, dt in sd.items() if dt == newest)
+        check(f"順序 {order[0]}→{order[1]}：上游日期不一致時只採較新那包",
+              n > 1500 and TW._TW_DAY_ALL["date"] == newest and d == n_new,
+              f"清單 {n} 檔 / 日線 {d} 檔（較新那包 {n_new} 檔）/ 採用 {TW._TW_DAY_ALL['date']}"
+              f"（上游 {sorted(str(x) for x in set(sd.values()))}）")
+    else:
+        check(f"順序 {order[0]}→{order[1]}：清單與日線都完整", n > 1500 and d > 1500,
+              f"清單 {n} 檔 / 日線 {d} 檔")
 
 print("\n④ 日線快取：兩包分屬不同交易日時不得混用日期")
 reset()
 TW.fetch_tw_tickers()
 import datetime                                              # noqa: E402
-if TW._TW_DAY_SRC.get(TW.TPEX_DAY_ALL_URL):
+_sd4 = _src_dates()
+if len(set(_sd4.values())) > 1:
+    # 這項是「人工把上櫃標成舊日期，驗它會被排除」。前提是當下兩包同日期；
+    # 上游正在發布造成日期不一致時，前提不成立（real 已經是排除後的結果）→ 測了也沒意義。
+    # 上面 ③ 在同一情境下已經用真實資料驗過「只採較新那包」，保護沒有缺口。
+    skip("舊日期那包被排除（不會補出日期錯的 K 棒）",
+         f"上游兩包分屬不同交易日 {sorted(str(x) for x in set(_sd4.values()))}，"
+         f"③ 已用真實情境驗過同一保證")
+elif TW._TW_DAY_SRC.get(TW.TPEX_DAY_ALL_URL):
     real = TW._TW_DAY_ALL["date"]
     TW._TW_DAY_SRC[TW.TPEX_DAY_ALL_URL]["date"] = real - datetime.timedelta(days=1)
     TW._day_commit()
