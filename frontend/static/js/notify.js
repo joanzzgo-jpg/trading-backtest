@@ -840,3 +840,14 @@ function _ntfScrollToTime(t, tf) {
     mainChart.timeScale().setVisibleRange({ from: tgt - 90 * sec, to: tgt + 30 * sec });
   } catch (e) {}
 }
+
+/* 自我初始化（2026-08-04 移出首屏 bundle 後）：原本由 main.js 的 DOMContentLoaded 呼叫，
+   現在這支是延遲載入、那時早已跑完 → 自己接手。
+   ⚠ 兩種時序都要顧：DOM 還沒好就等 DOMContentLoaded，已經好了就直接跑。
+   ⚠ 冪等保護：萬一哪天又併回 bundle 而 main.js 也呼叫到，這裡不會重複初始化。 */
+(function () {
+  if (window._ntfInited) return;
+  const _go = () => { if (window._ntfInited) return; window._ntfInited = true; try { initNotify(); } catch (e) {} };
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", _go, { once: true });
+  else _go();
+})();

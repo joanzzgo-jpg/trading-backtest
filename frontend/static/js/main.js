@@ -163,6 +163,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   if (typeof initVwapToggle === "function") initVwapToggle();  // VWAP 成交量加權均價 獨立開關（右上）
   if (typeof initWRSignalsToggle === "function") initWRSignalsToggle();  // S1~S12 訊號標記 一鍵開關
   if (typeof initMobileTF === "function") initMobileTF();            // 手機 TF 選擇器（自選最多4個顯示）
+  // notify.js 已移出 bundle → 由它自己在載入末段呼叫 initNotify()（保留 typeof 判斷以防哪天又併回來）
   if (typeof initNotify === "function") initNotify();                // CRT 訊號 Web Push 通知（後端未設 VAPID 會自動隱藏入口）
   if (typeof initTrade === "function") initTrade();                  // Binance 永續交易面板（後端未設交易金鑰會自動隱藏入口）
   window.addEventListener("beforeunload", () => { saveLastSymbol(); });
@@ -412,8 +413,11 @@ document.addEventListener("DOMContentLoaded", async () => {
     const ver = window._APP_VER || "1";
     // draw / trade 也在此延遲載入（已移出首屏 bundle，省 ~42% 首屏 JS）；async=false 保留插入順序。
     // 兩者末段各自 initDrawTools()/initTrade() 自我初始化 → 載入完成即接手繪圖工具/交易面板。
+    // signal_info / notify 同理（2026-08-04 移出 bundle，再省 17.7KB gzip／首屏 -14%）：
+    //   signal_info 本來就是自包 IIFE，載入即綁事件；notify 末段自我呼叫 initNotify()。
     // 載入 *.min.js（後端 _build_fx_min 壓縮版；來源改動後版號 ?v= 會破快取重抓）。
-    ["effects.min.js", "weather.min.js", "draw.min.js", "trade.min.js"].forEach(name => {
+    ["effects.min.js", "weather.min.js", "draw.min.js", "trade.min.js",
+     "signal_info.min.js", "notify.min.js"].forEach(name => {
       const s = document.createElement("script");
       s.src = "/static/js/" + name + "?v=" + ver;
       s.async = false;

@@ -37,7 +37,7 @@ def _build_js_bundle():
         js = js.resolve()
         # ⚠ draw / trade 已移出 bundle → 改由 main.js 於首屏後閒置時動態載入（首屏 JS 省 ~42%）。
         #   兩者對 core 的耦合皆經 typeof/window guard，且各自在載入時自我初始化（見 draw.js/trade.js 末段）。
-        names = ["config","utils","charts","colors","ticker","winrate","footprint","orderbook","dom","htffvg","econ","tradeparse","tradeui","render","realtime","replay","ui","ai_research","signal_info","account","notify","chartorder","xiaoa","lunar","announce","multichart","hotkeys","main"]
+        names = ["config","utils","charts","colors","ticker","winrate","footprint","orderbook","dom","htffvg","econ","tradeparse","tradeui","render","realtime","replay","ui","ai_research","account","chartorder","xiaoa","lunar","announce","multichart","hotkeys","main"]
         srcs = [js / f"{n}.js" for n in names]
         bundle = js / "app.bundle.js"
         srcs_exist = [p for p in srcs if p.exists()]
@@ -86,7 +86,8 @@ _build_css_bundle()
 
 
 def _build_fx_min():
-    """把動態載入(非首屏 bundle)的 4 支 JS 壓縮成 *.min.js：effects/weather/draw/trade。
+    """把動態載入(非首屏 bundle)的 JS 壓縮成 *.min.js：
+    effects/weather/draw/trade + signal_info/notify（後兩支 2026-08-04 移出 bundle，見下）。
     這些原本原始碼直送(只靠 gzip)；minify 後閒置載入更輕(weather.js ~207KB 最有感)。
     來源比產物新才重建；缺 rjsmin 退回原樣複製 → 產物恆存在(不會讓 _loadFx 404 而繪圖/天氣/交易失效)。"""
     try:
@@ -97,7 +98,7 @@ def _build_fx_min():
             _min = rjsmin.jsmin
         except Exception:
             _min = lambda s: s   # 沒 rjsmin → 原樣複製，仍正確、只是沒壓縮
-        for name in ("effects", "weather", "draw", "trade"):
+        for name in ("effects", "weather", "draw", "trade", "signal_info", "notify"):
             src = js / f"{name}.js"; out = js / f"{name}.min.js"
             if not src.exists():
                 continue
@@ -267,6 +268,8 @@ _EFFECTS_PATH = os.path.join(FRONTEND_DIR, "static", "js", "effects.js")
 _WEATHER_PATH = os.path.join(FRONTEND_DIR, "static", "js", "weather.js")
 _DRAW_PATH    = os.path.join(FRONTEND_DIR, "static", "js", "draw.js")    # 動態載入（不在 bundle），版號須含它
 _TRADE_PATH   = os.path.join(FRONTEND_DIR, "static", "js", "trade.js")   # 同上
+_SIGINFO_PATH = os.path.join(FRONTEND_DIR, "static", "js", "signal_info.js")  # 同上（2026-08-04 移出 bundle）
+_NOTIFY_PATH  = os.path.join(FRONTEND_DIR, "static", "js", "notify.js")       # 同上
 _FONTS_PATH   = os.path.join(FRONTEND_DIR, "static", "vendor", "fonts.css")
 
 
@@ -275,7 +278,8 @@ def _asset_ver() -> str:
     每次請求即時算，本地改前端（即使沒重啟服務、沒 commit）也會改版號、破瀏覽器快取。"""
     try:
         m = max(os.path.getmtime(p) for p in (_BUNDLE_PATH, _CSS_PATH, _EFFECTS_PATH, _WEATHER_PATH,
-                                              _DRAW_PATH, _TRADE_PATH, _FONTS_PATH) if os.path.exists(p))
+                                              _DRAW_PATH, _TRADE_PATH, _SIGINFO_PATH, _NOTIFY_PATH,
+                                              _FONTS_PATH) if os.path.exists(p))
         return f"{_GIT_VER}-{int(m)}"
     except Exception:
         return _GIT_VER

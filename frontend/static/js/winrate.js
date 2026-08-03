@@ -1,3 +1,13 @@
+/* 「雙擊隱藏的訊號」清單提早還原（2026-08-04）。
+   ⚠ 這段本來在 signal_info.js，但那支已移出首屏 bundle、約 1 秒後才載入 →
+     期間 window._hiddenWrSigs 是 undefined，下面兩處過濾（marker、hover 明細）就不生效
+     ＝使用者隱藏過的訊號會先冒出來一下才消失。這裡先建好，signal_info.js 的
+     `window._hiddenWrSigs = window._hiddenWrSigs || new Set()` 會直接沿用（重複 add 對 Set 無害）。 */
+window._hiddenWrSigs = window._hiddenWrSigs || (() => {
+  try { return new Set(JSON.parse(localStorage.getItem("wrHiddenSigs") || "[]")); }
+  catch (e) { return new Set(); }
+})();
+
 // LRU 上限避免切大量標的時記憶體無限累積（每筆結果 ~50KB，5 個夠用）
 const _WR_CACHE_MAX = 5;
 let _wrCache = {};
