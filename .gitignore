@@ -42,4 +42,6 @@ frontend/static/js/effects.min.js
 frontend/static/js/weather.min.js
 frontend/static/js/draw.min.js
 frontend/static/js/trade.min.js
+frontend/static/js/signal_info.min.js
+frontend/static/js/notify.min.js
 .venv312/
