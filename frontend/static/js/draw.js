@@ -1701,38 +1701,53 @@ function _drawHtfOpens(W, H) {
   const vr = ts.getVisibleLogicalRange();
   if (!vr) return;
   const len = ohlcvData.length;
-  // 與 _drawKeyLevels 同樣的夾範圍保險：切時框瞬間可視範圍可能還是舊資料的索引
-  const from = Math.min(len - 1, Math.max(0, Math.floor(vr.from) - 2));
-  let to = Math.min(len - 1, Math.max(0, Math.ceil(vr.to) + 2));
-  if (typeof replayActive !== "undefined" && replayActive && typeof replayIdx === "number") to = Math.min(to, replayIdx);
-  if (to < from || !ohlcvData[from] || !ohlcvData[to]) return;
+  let vFrom = Math.min(len - 1, Math.max(0, Math.floor(vr.from)));
+  let vTo = Math.min(len - 1, Math.max(0, Math.ceil(vr.to)));
+  if (typeof replayActive !== "undefined" && replayActive && typeof replayIdx === "number") vTo = Math.min(vTo, replayIdx);
+  if (vTo < vFrom || !ohlcvData[vFrom] || !ohlcvData[vTo]) return;
+  const lastIdx = (typeof replayActive !== "undefined" && replayActive && typeof replayIdx === "number")
+    ? Math.min(len - 1, replayIdx) : len - 1;
 
   const isCrypto = (document.getElementById("marketSelect")?.value || "crypto") === "crypto";
   const utc = (bar) => toTime(bar.time) - 8 * 3600;          // toTime 已 +8h → 減回真 UTC
-  // 分桶：回傳一個「同一根大K」共用的字串鍵
-  let dayStartUtc = null, dayStartKey = null;
-  const bucket = (bar, sec) => {
-    const u = utc(bar);
-    if (isCrypto) return Math.floor(u / sec);
-    const d = Math.floor((u + 8 * 3600) / 86400);            // 股票：用當地日期切日
-    if (sec >= 86400) return d;
-    if (dayStartKey !== d) { dayStartKey = d; dayStartUtc = u; }   // 當日第一根＝該日盤中起點
-    return d + ":" + Math.floor((u - dayStartUtc) / sec);
-  };
 
   let plotW = W;
   try { const tw = ts.width(); if (tw > 0) plotW = tw; } catch (e) {}
   drawCtx.save();
   drawCtx.beginPath(); drawCtx.rect(0, 0, plotW, H); drawCtx.clip();
   drawCtx.font = "bold 10px sans-serif";
-  drawCtx.textAlign = "left";
 
   for (const [sec, label, color] of [[86400, "日開", "#f5a623"], [14400, "4H開", "#7aa2f7"]]) {
     if (cur >= sec) continue;                                // 不畫「不大於當前時框」的
-    // 掃可見範圍，找每個大K段的第一根 → 它的 open 就是該段的開盤價
+    /* ⚠ 掃描範圍要往兩側各外擴「一整個大K」的棒數，不能只掃可見範圍：
+         只掃可見範圍的話，段的起訖會被畫面邊界切斷 → 標籤（貼在右端）會隨著平移一路滑動，
+         使用者回報的「他會亂動」就是這個。外擴後拿到的是**真實**邊界，平移時線與標籤都不動。 */
+    const pad = Math.ceil(sec / cur) + 2;
+    const a0 = Math.max(0, vFrom - pad), a1 = Math.min(lastIdx, vTo + pad);
+    // 分桶（股票要依序推進「當日起點」，故在同一趟順掃裡算）
+    let dayKey = null, dayStartUtc = 0;
+    const bucket = (bar) => {
+      const u = utc(bar);
+      if (isCrypto) return Math.floor(u / sec);
+      const d = Math.floor((u + 8 * 3600) / 86400);          // 股票：用當地日期切日
+      if (dayKey !== d) { dayKey = d; dayStartUtc = u; }      // 當日第一根＝該日盤中起點
+      return sec >= 86400 ? d : (d + ":" + Math.floor((u - dayStartUtc) / sec));
+    };
+    // 先算出「當前這一段」的鍵：它還沒收盤 → 不畫（使用者只要已收盤的）
+    let curKey = null;
+    { let dk = null, ds = 0;
+      for (let i = 0; i <= lastIdx; i++) {                    // 股票需從頭推進日起點才正確
+        const u = utc(ohlcvData[i]);
+        if (isCrypto) { curKey = Math.floor(u / sec); continue; }
+        const d = Math.floor((u + 8 * 3600) / 86400);
+        if (dk !== d) { dk = d; ds = u; }
+        curKey = sec >= 86400 ? d : (d + ":" + Math.floor((u - ds) / sec));
+      } }
+
     let key = null, segStart = -1, segOpen = 0;
     const flush = (endIdx) => {
-      if (segStart < 0) return;
+      if (segStart < 0 || key === curKey) { segStart = -1; return; }   // 未收盤那段不畫
+      if (endIdx < vFrom || segStart > vTo) { segStart = -1; return; } // 完全在畫面外
       const y = candleSeries.priceToCoordinate(segOpen);
       const x1 = _timeToX(toTime(ohlcvData[segStart].time));
       const x2 = _timeToX(toTime(ohlcvData[endIdx].time));
@@ -1741,24 +1756,30 @@ function _drawHtfOpens(W, H) {
         drawCtx.setLineDash([5, 4]); drawCtx.globalAlpha = 0.85;
         drawCtx.beginPath(); drawCtx.moveTo(x1, y); drawCtx.lineTo(x2, y); drawCtx.stroke();
         drawCtx.setLineDash([]); drawCtx.globalAlpha = 1;
-        // 標籤放「線的右端」：放左端會被整段的 K 棒壓在下面看不清（使用者回報）。
-        // 右端＝該段最新的位置；當前這一段的右端外側就是右邊留白，最不擋。
-        // 另外描一圈深色外框：即使壓在 K 棒上也讀得出來（只有標籤這幾個字，成本可忽略）。
-        const tx = Math.max(2, Math.min(plotW - 3, x2 - 3));
-        drawCtx.textAlign = "right";
-        drawCtx.lineWidth = 3; drawCtx.strokeStyle = "rgba(12,14,20,0.85)";
-        drawCtx.strokeText(label, tx, y - 3);
-        drawCtx.fillStyle = color;
-        drawCtx.fillText(label, tx, y - 3);
+        /* 標籤貼在線的「真實右端」（放左端會被整段 K 棒壓住）。
+           ⚠ 不可以把 x 夾到畫面邊緣：段的右端在畫面外時，夾制會讓標籤黏在螢幕右緣、
+             隨著平移一路滑動 —— 使用者回報的「他不應該隨著我往左滑而有改變」就是這個。
+             右端不在畫面內就乾脆不畫標籤（線本身仍被 clip 正常顯示），這樣所有東西
+             都只跟著圖表一起移動，相對位置永遠不變。
+           深色外框讓它壓在 K 棒上也讀得出來。 */
+        if (x2 >= 24 && x2 <= plotW - 2) {
+          drawCtx.textAlign = "right";
+          drawCtx.lineWidth = 3; drawCtx.strokeStyle = "rgba(12,14,20,0.85)";
+          drawCtx.strokeText(label, x2 - 3, y - 3);
+          drawCtx.fillStyle = color;
+          drawCtx.fillText(label, x2 - 3, y - 3);
+        }
       }
       segStart = -1;
     };
-    for (let i = from; i <= to; i++) {
-      const k = bucket(ohlcvData[i], sec);
-      if (k !== key) { flush(i - 1 >= from ? i - 1 : i); key = k; segStart = i; segOpen = +ohlcvData[i].open; }
+    for (let i = a0; i <= a1; i++) {
+      const k = bucket(ohlcvData[i]);
+      if (k !== key) {
+        if (segStart >= 0) flush(i - 1);
+        key = k; segStart = i; segOpen = +ohlcvData[i].open;
+      }
     }
-    flush(to);
-    dayStartKey = null;                                      // 換一種週期要重算股票的日起點
+    flush(a1);
   }
   drawCtx.restore();
 }
