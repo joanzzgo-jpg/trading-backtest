@@ -136,6 +136,38 @@ check("偵測到縮水並清掉條件式快取", not TW._TW_DUMP, f"高水位 {p
 recovered = len(TW.fetch_tw_tickers())
 check("下一輪自動復原", recovered > 1500, f"{recovered} 檔")
 
+# ── 盤中「最後交易日＝今天」時，預期根數要按已過的盤中時間縮放（2026-08-04）──────────
+# ⚠ 原本三組 EXPECT 都寫死「完整交易日」的根數。盤中跑這支時最後交易日就是今天、只走了一部分
+#   （實測台北 11:05 跑：5m 只有 25 根，而寫死的下限是 40）→ 程式好好的卻被判失敗，
+#   跟 ③④ 的「上游發布不同步」同一類「狼來了」。
+# ⚠ 不是放寬：這支要抓的是「30m/2h 拿到的其實是日線」——那種情況根數會掉到 1，
+#   等比縮放後的下限仍遠大於 1，照樣抓得到（見下方 _expect 的下限計算）。
+_SESSIONS = {   # 市場 → (開盤分鐘, 收盤分鐘, 時區偏移小時)
+    "tw": (9 * 60, 13 * 60 + 30, 8),
+    "hk": (9 * 60 + 30, 16 * 60, 8),
+    "us": (9 * 60 + 30, 16 * 60, -4),      # 夏令 EDT；冬令差一小時，只影響縮放比例、不影響判定方向
+}
+
+
+def _expect(mkt, lo, hi, last_date):
+    """回 (lo, hi)。最後交易日不是今天（＝完整的一天）→ 原樣；是今天且盤中未收 → 等比縮放。"""
+    import datetime as _dt
+    o, c, tzh = _SESSIONS.get(mkt, _SESSIONS["tw"])
+    now = _dt.datetime.now(_dt.timezone(_dt.timedelta(hours=tzh)))
+    if last_date != now.date():
+        return lo, hi, ""
+    mins = now.hour * 60 + now.minute - o
+    total = c - o
+    if mins >= total or mins <= 0:
+        return lo, hi, ""
+    r = mins / total
+    _lo, _hi = max(1, int(lo * r)), int(hi * r) + 1
+    # ⚠ 開盤沒多久時縮放後的下限會掉到 1 → 這時「其實拿到日線」(根數也是 1) 會被放行，
+    #   檢查等於失去鑑別力。與其假裝有驗，不如明確回報跳過（原本就該 >1 根才驗得出來）。
+    if lo > 1 and _lo <= 1:
+        return None, None, f"盤中僅過 {mins}/{total} 分，預期根數縮到 1 以下、驗不出『拿到日線』"
+    return _lo, _hi, f"盤中已過 {mins}/{total} 分，預期按 {r:.0%} 縮放"
+
 print("\n⑥ 各時框分桶（30m/2h 曾經拿到的是日線）")
 EXPECT = {"5m": (40, 60), "15m": (15, 22), "30m": (8, 12), "1h": (4, 6), "2h": (2, 4), "4h": (1, 3), "1d": (1, 1)}
 import pandas as pd                                          # noqa: E402
@@ -148,7 +180,12 @@ for tf, (lo, hi) in EXPECT.items():
         t = pd.to_datetime(df["time"])
         last = t.dt.date.max()
         cnt = int((t.dt.date == last).sum())
-        check(f"{tf} 最後交易日 {cnt} 根（預期 {lo}~{hi}）", lo <= cnt <= hi, f"{last}")
+        _lo, _hi, _note = _expect("tw", lo, hi, last)
+        if _lo is None:
+            skip(f"{tf} 最後交易日根數", _note)
+        else:
+            check(f"{tf} 最後交易日 {cnt} 根（預期 {_lo}~{_hi}）", _lo <= cnt <= _hi,
+                  f"{last}{('  ' + _note) if _note else ''}")
     except Exception as e:
         check(f"{tf} 有資料", False, f"{type(e).__name__}: {e}")
 
@@ -164,7 +201,12 @@ for mkt, sym in (("us", "AAPL"), ("hk", "0700.HK")):
             t = pd.to_datetime(df["time"])
             last = t.dt.date.max()
             cnt = int((t.dt.date == last).sum())
-            check(f"{mkt} {tf} 最後交易日 {cnt} 根（預期 {lo}~{hi}）", lo <= cnt <= hi, f"{last}")
+            _lo, _hi, _note = _expect(mkt, lo, hi, last)
+            if _lo is None:
+                skip(f"{mkt} {tf} 最後交易日根數", _note)
+            else:
+                check(f"{mkt} {tf} 最後交易日 {cnt} 根（預期 {_lo}~{_hi}）", _lo <= cnt <= _hi,
+                      f"{last}{('  ' + _note) if _note else ''}")
         except Exception as e:
             check(f"{mkt} {tf} 有資料", False, f"{type(e).__name__}: {e}")
 
