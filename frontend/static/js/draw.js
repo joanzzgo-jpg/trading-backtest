@@ -73,17 +73,32 @@ window._syncDrawColorForTf = function () {
   if (c) _drawColor = c;
   _syncDrawColorChip();
 };
-/* 使用者改了顏色 → 記成該時框的偏好 */
-function _rememberDrawColor(c) {
+/* 使用者改了顏色 → 記成該時框的偏好。
+   recolorExisting=true 時，連「已經畫在盤面上、用著這個時框舊色」的線一起換過去。
+   ⚠ 兩個入口要分清楚，否則會誤傷：
+     ・工具列色框 = 「改這個時框的顏色」→ 連動已畫的線（使用者要求）
+     ・點單一條線的色盤 = 「只改這一條」→ 不連動，否則改一條會把同色的全部改掉
+   ⚠ 用「舊色比對」而不是替繪圖加時框標記：既有的繪圖沒有標記、補標會標錯
+     （舊圖會被標成當下的時框）。比對舊色的語意剛好就是使用者要的「那些藍線變成綠線」，
+     而且個別手動改過色的線（已經不是舊色）會自動被排除，不會被連坐。 */
+function _rememberDrawColor(c, recolorExisting) {
+  const prev = _drawColor;
   _drawColor = c;
   _syncDrawColorChip();
   const tf = (typeof currentTF !== "undefined") ? currentTF : "";
-  if (!tf) return;
-  try {
-    const m = JSON.parse(localStorage.getItem("drawColorByTf") || "{}") || {};
-    m[tf] = c;
-    localStorage.setItem("drawColorByTf", JSON.stringify(m));
-  } catch (e) {}
+  if (tf) {
+    try {
+      const m = JSON.parse(localStorage.getItem("drawColorByTf") || "{}") || {};
+      m[tf] = c;
+      localStorage.setItem("drawColorByTf", JSON.stringify(m));
+    } catch (e) {}
+  }
+  if (!recolorExisting || !prev || prev === c) return;
+  let n = 0;
+  for (const d of drawings) {
+    if (d && d.color === prev) { d.color = c; n++; }
+  }
+  if (n) { saveDrawings(); _scheduleRenderDrawings(); }
 }
 // ⚠ 在「宣告處」還原偏好，不能只在 ui.js 還原：draw.js 是延遲載入的，
 //   它的 `let _magnetMode = ...` 會在 ui.js(bundle) 跑完之後才執行 → 直接把已還原的值蓋回 false
@@ -640,7 +655,7 @@ function initDrawTools() {
     showLegColorPopup(r.right + 6, r.top, [{
       label: null,
       currentColor: (_drawColor || "#f5c518").substring(0, 7),
-      apply: c => { _rememberDrawColor(c); },
+      apply: c => { _rememberDrawColor(c, true); },   // 從色框改 → 已畫的同色線一起換
     }]);
   });
   loadDrawings();
@@ -1254,7 +1269,7 @@ function showDrawColorPicker(drawing, clientX, clientY) {
       currentColor: (drawing.color || "#2962ff").substring(0, 7),
       apply: c => {
         drawing.color = c;
-        _rememberDrawColor(c);      // 同時記成「當前時框的預選色」
+        _rememberDrawColor(c, false);   // 只改這一條；同時記成「當前時框的預選色」
         saveDrawings();
         _scheduleRenderDrawings();
       }
