@@ -1,3 +1,22 @@
+/* ── 主圖價格軸/量軸的上下留白：**單一來源**（2026-08-04）───────────────────────
+   ⚠ 這兩行原本在 charts.js 與 render.js 各寫一份一模一樣的。render.js 那份在每次
+     重繪成交量時執行 → 會把 charts.js 的設定蓋回去。我改了 charts.js 卻「完全沒效果」，
+     就是撞到這個。本專案已經吃過好幾次「兩份表各自漂移」的虧（BG_TF ×2、台股 resample ×2、
+     時框秒數 ×5），這裡直接收斂成一份，兩邊都呼叫這支。
+   ⚠ 為什麼要收緊：使用者回報「整個 K 棒圖太高的感覺」。實測 1600×900、主圖畫布 746px 時
+     K 棒只佔 388px＝52%，上方空 115px、下方空 243px —— 近一半是留白，看起來又高又空。
+     下緣是留給成交量疊圖的（量柱自己用 volume 軸的 top 值佔住底部）→ 兩者必須一起調，
+     只改一邊會讓量柱和價格區重疊或留下空隙。 */
+const MAIN_SCALE_MARGINS = { top: 0.04, bottom: 0.15 };   // 價格區 = 畫布的 81%
+const VOL_SCALE_MARGINS  = { top: 0.87, bottom: 0 };      // 量柱佔底部 13%
+function applyMainScaleMargins() {
+  if (typeof mainChart === "undefined" || !mainChart) return;
+  try {
+    mainChart.priceScale("volume").applyOptions({ scaleMargins: VOL_SCALE_MARGINS, visible: false });
+    mainChart.priceScale("right").applyOptions({ scaleMargins: MAIN_SCALE_MARGINS });
+  } catch (e) {}
+}
+
 function makeBaseOpts(scaleMargins = null, showTime = false) {
   // 極簡模式用亮色系，其他維持原本暗色
   const _perf = document.documentElement.classList.contains("perf-mode");
@@ -1205,8 +1224,7 @@ function buildCharts() {
   // 成交量疊在主圖下方（獨立 priceScaleId，不影響 K 棒價格軸）
   volSeries   = mainChart.addHistogramSeries({ priceScaleId:"volume", priceLineVisible:false, lastValueVisible:false });
   volMaSeries = mainChart.addLineSeries({ priceScaleId:"volume", color:(C.volMa||"#ffcc02"), lineWidth:1, priceLineVisible:false, lastValueVisible:false });
-  mainChart.priceScale("volume").applyOptions({ scaleMargins:{ top:0.80, bottom:0 }, visible:false });
-  mainChart.priceScale("right").applyOptions({ scaleMargins:{ top:0.05, bottom:0.22 } });
+  applyMainScaleMargins();
 
   kdjChart = LightweightCharts.createChart(document.getElementById("kdjChart"), sub);
   kdjAnchor = kdjChart.addLineSeries({ color:"rgba(0,0,0,0)", lineWidth:1, priceLineVisible:false, lastValueVisible:false });

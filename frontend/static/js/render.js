@@ -612,9 +612,10 @@ function renderVolume(data) {
     const a = dimOn ? (markSet.has(t) ? "ff" : "1f") : _va;
     return { time:t, value:d.volume||0, color: base + a };
   }));
-  // 每次重新套用 scale 設定，避免切換標的或市場後比例跑掉
-  mainChart.priceScale("volume").applyOptions({ scaleMargins:{ top:0.80, bottom:0 }, visible:false });
-  mainChart.priceScale("right").applyOptions({ scaleMargins:{ top:0.05, bottom:0.22 } });
+  // 每次重新套用 scale 設定，避免切換標的或市場後比例跑掉。
+  // ⚠ 數值統一放 charts.js 的 MAIN_SCALE_MARGINS / VOL_SCALE_MARGINS，別在這裡再寫一份
+  //   （原本兩邊各一份，這份會蓋掉那份 → 改了 charts.js 卻沒效果）。
+  applyMainScaleMargins();
   // 均量：rolling sum O(n)（原本每根 slice+reduce 是 O(n×period)＋n 個臨時陣列）
   const period = Math.max(1, S.volMaPeriod);
   const maData = [];
