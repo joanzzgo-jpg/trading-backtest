@@ -1,4 +1,7 @@
 """搜索 API 路由"""
+import threading
+import time as _time
+
 from fastapi import APIRouter, HTTPException, Response
 from data.taiwan import search_tw_stock
 from data.us_stock import search_us_stocks
@@ -6,6 +9,59 @@ from data.crypto import fetch_crypto_markets, fetch_tickers, _fetch_pionex_symbo
 from utils.cache import cache
 
 router = APIRouter(prefix="/api", tags=["search"])
+
+
+# ── 台指期報價：過期先給舊值、背景單飛更新（2026-08-04）────────────────────────────
+# ★ 為什麼：原本寫成 `futs = cache.get("txf_tickers", ttl=3)` → 沒中就**在請求執行緒裡**
+#   呼叫 fetch_wall_tickers()（cnyes 網路請求，實測 214~473ms）。等於每 3 秒就有「一個
+#   倒楣的使用者」替所有人去抓一次，他那次請求整個卡住。
+#   實測（台股報價列，前端每 3 秒輪詢一次）：每 ~3.5 秒出現一次 400~800ms、最慢 2.8s 的卡頓；
+#   同時段 /api/latest 完全正常（120 次只有 1 次 >150ms）→ 證實不是全行程 GIL 爭用，
+#   就是這一支自己在請求裡等網路。
+# ★ 改法：有舊值就先回舊值 + 背景更新（單飛，最多一條在跑）；只有冷啟動那一次才同步抓。
+#   台指期報價本來就允許幾秒誤差（前端 3 秒輪詢），拿 3 秒前的值換「零卡頓」非常划算。
+# ⚠ 失敗也要記時間戳：否則抓失敗後每個請求都會再踢一次背景更新，變成打爆 cnyes。
+_TXF_TTL = 3.0
+_TXF = {"data": None, "ts": 0.0, "busy": False}
+_TXF_LOCK = threading.Lock()
+
+
+def _txf_refresh():
+    try:
+        from data.cnyes_futures import fetch_wall_tickers
+        d = fetch_wall_tickers()
+        with _TXF_LOCK:
+            _TXF["data"] = d
+    except Exception:
+        pass
+    finally:
+        with _TXF_LOCK:
+            _TXF["ts"] = _time.time()      # 成功失敗都記，避免失敗時每個請求都重踢
+            _TXF["busy"] = False
+
+
+def _txf_tickers():
+    """台指期三兄弟報價。永遠不讓請求執行緒等網路（冷啟動第一次除外）。"""
+    now = _time.time()
+    kick = False
+    with _TXF_LOCK:
+        data, stale = _TXF["data"], (now - _TXF["ts"]) >= _TXF_TTL
+        if stale and not _TXF["busy"]:
+            _TXF["busy"] = True
+            kick = data is not None        # 有舊值 → 背景更新；沒有 → 下面同步抓
+    if kick:
+        threading.Thread(target=_txf_refresh, daemon=True).start()
+        return data
+    if data is not None:
+        return data
+    # 冷啟動：完全沒有值可回。只有搶到 busy 的那一個同步抓，其餘先回空（下一輪就有了）。
+    with _TXF_LOCK:
+        mine = _TXF["busy"]
+    if not mine:
+        return []
+    _txf_refresh()
+    with _TXF_LOCK:
+        return _TXF["data"] or []
 
 
 @router.get("/search")
@@ -90,12 +146,9 @@ def get_tickers(response: Response, market: str = "futures", since: str = ""):
     # 避免多分頁/多用戶同步 polling 造成的重複請求。
     response.headers["Cache-Control"] = f"public, max-age={2 if market == 'tw' else 1}"
     if market == "tw":
-        # 台指期（三兄弟近月）置頂於台股清單。cnyes 即時價(含夜盤)+MIS 參考價，快取 3 秒。
-        from data.cnyes_futures import fetch_wall_tickers
-        futs = cache.get("txf_tickers", ttl=3)
-        if futs is None:
-            futs = fetch_wall_tickers()
-            cache.set("txf_tickers", futs)
+        # 台指期（三兄弟近月）置頂於台股清單。cnyes 即時價(含夜盤)+MIS 參考價。
+        # ⚠ 走 _txf_tickers()：過期先回舊值、背景更新 —— 絕不在請求裡等網路（見上方說明）。
+        futs = _txf_tickers()
         if has_tw_data():
             if since:
                 d = get_delta("tw", since)
