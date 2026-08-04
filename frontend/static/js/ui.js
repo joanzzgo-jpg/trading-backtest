@@ -693,6 +693,7 @@ function bindLegendToggles() {
     { id: "legFVGShun",  series: null,  action: (hidden) => { if (typeof toggleFVGShun === "function") toggleFVGShun(!hidden); } },
     { id: "legHtfFvg",   series: null,  action: (hidden) => { if (window.toggleHtfFvg) window.toggleHtfFvg(!hidden); } },
     { id: "legPDHL",     series: null,  action: (hidden) => { if (window.togglePDHL) window.togglePDHL(!hidden); } },
+    { id: "legHtfOpen",  series: null,  action: (hidden) => { if (window.toggleHtfOpen) window.toggleHtfOpen(!hidden); } },
     { id: "legEngulf",   series: null,  action: (hidden) => { if (window.toggleEngulf) window.toggleEngulf(!hidden); } },
     { id: "legEcon",     series: null,  action: (hidden) => { if (window.toggleEcon) window.toggleEcon(!hidden); } },
     { id: "legSwing",    series: null,  action: (hidden) => { if (window.toggleSwing) window.toggleSwing(!hidden); } },

@@ -1679,6 +1679,83 @@ function _drawSessionOverlay(W, H) {
   drawCtx.restore();   // 外層繪圖區裁切
 }
 
+/* ── 日開 / 4H 開盤價（獨立開關 window._htfOpenOn，＝圖例「日/4H開」）─────────────
+   在小時框圖上畫出「當前日 K 的開盤價」與「當前 4H K 的開盤價」水平線，
+   讓人在 5m/15m 上也看得到大時框的開盤位置（多空分界常被盯著）。
+
+   ★ 邊界必須跟 app 自己的大時框 K 棒一致，不能用「台北日界」隨手切：
+     ・加密：後端的 1d/4h 是 **UTC** 週期 → 這裡用 UTC 取整。
+       ⚠ toTime() 已經 +8h，所以要先減回 8h 才是真正的 UTC 秒數。
+         用台北日界會差 8 小時（UTC 日界在圖上是台北 08:00）→ 線會畫錯位置。
+     ・股票(台/美/港)：後端是**依盤別**切日、4H 由盤中小時重採樣 → 日界＝當地日期變動，
+       4H 段＝從當日第一根起算每 4 小時。這是貼近後端 _resample_session 的近似。
+
+   只畫「比當前時框大」的那幾條：看 4h 圖就不再畫 4H 開（那就是它自己的開盤）。 */
+function _drawHtfOpens(W, H) {
+  if (!window._htfOpenOn) return;
+  if (typeof ohlcvData === "undefined" || !ohlcvData.length ||
+      typeof mainChart === "undefined" || !candleSeries) return;
+  const tf = (typeof currentTF !== "undefined") ? currentTF : "";
+  const cur = (typeof tfSec === "function") ? tfSec(tf) : 3600;
+  const ts = mainChart.timeScale();
+  const vr = ts.getVisibleLogicalRange();
+  if (!vr) return;
+  const len = ohlcvData.length;
+  // 與 _drawKeyLevels 同樣的夾範圍保險：切時框瞬間可視範圍可能還是舊資料的索引
+  const from = Math.min(len - 1, Math.max(0, Math.floor(vr.from) - 2));
+  let to = Math.min(len - 1, Math.max(0, Math.ceil(vr.to) + 2));
+  if (typeof replayActive !== "undefined" && replayActive && typeof replayIdx === "number") to = Math.min(to, replayIdx);
+  if (to < from || !ohlcvData[from] || !ohlcvData[to]) return;
+
+  const isCrypto = (document.getElementById("marketSelect")?.value || "crypto") === "crypto";
+  const utc = (bar) => toTime(bar.time) - 8 * 3600;          // toTime 已 +8h → 減回真 UTC
+  // 分桶：回傳一個「同一根大K」共用的字串鍵
+  let dayStartUtc = null, dayStartKey = null;
+  const bucket = (bar, sec) => {
+    const u = utc(bar);
+    if (isCrypto) return Math.floor(u / sec);
+    const d = Math.floor((u + 8 * 3600) / 86400);            // 股票：用當地日期切日
+    if (sec >= 86400) return d;
+    if (dayStartKey !== d) { dayStartKey = d; dayStartUtc = u; }   // 當日第一根＝該日盤中起點
+    return d + ":" + Math.floor((u - dayStartUtc) / sec);
+  };
+
+  let plotW = W;
+  try { const tw = ts.width(); if (tw > 0) plotW = tw; } catch (e) {}
+  drawCtx.save();
+  drawCtx.beginPath(); drawCtx.rect(0, 0, plotW, H); drawCtx.clip();
+  drawCtx.font = "bold 10px sans-serif";
+  drawCtx.textAlign = "left";
+
+  for (const [sec, label, color] of [[86400, "日開", "#f5a623"], [14400, "4H開", "#7aa2f7"]]) {
+    if (cur >= sec) continue;                                // 不畫「不大於當前時框」的
+    // 掃可見範圍，找每個大K段的第一根 → 它的 open 就是該段的開盤價
+    let key = null, segStart = -1, segOpen = 0;
+    const flush = (endIdx) => {
+      if (segStart < 0) return;
+      const y = candleSeries.priceToCoordinate(segOpen);
+      const x1 = _timeToX(toTime(ohlcvData[segStart].time));
+      const x2 = _timeToX(toTime(ohlcvData[endIdx].time));
+      if (y != null && isFinite(y) && x1 != null && x2 != null) {
+        drawCtx.strokeStyle = color; drawCtx.lineWidth = 1.2;
+        drawCtx.setLineDash([5, 4]); drawCtx.globalAlpha = 0.85;
+        drawCtx.beginPath(); drawCtx.moveTo(x1, y); drawCtx.lineTo(x2, y); drawCtx.stroke();
+        drawCtx.setLineDash([]); drawCtx.globalAlpha = 1;
+        drawCtx.fillStyle = color;
+        drawCtx.fillText(label, Math.max(2, x1 + 3), y - 3);
+      }
+      segStart = -1;
+    };
+    for (let i = from; i <= to; i++) {
+      const k = bucket(ohlcvData[i], sec);
+      if (k !== key) { flush(i - 1 >= from ? i - 1 : i); key = k; segStart = i; segOpen = +ohlcvData[i].open; }
+    }
+    flush(to);
+    dayStartKey = null;                                      // 換一種週期要重算股票的日起點
+  }
+  drawCtx.restore();
+}
+
 // 關鍵高低（獨立開關 window._pdhlOn，＝圖例「關鍵高低」）：把「亞洲盤 / 歐洲盤」當盤高低
 //   延伸成流動性線（等著被下一盤獵取），配「前日高低」(charts.js PDHL primitive 同一開關) 一起看。
 //   不綁時段色塊開關（_sessionOn）→ 想看關鍵價位不必忍受整片色塊；加密 24/7 killzone 才有意義。
@@ -2588,6 +2665,7 @@ function renderDrawings() {
   // 交易時段 overlay（背景帶=當盤高低範圍 + 上下緣高低線 + 星期標籤；可開關）
   _drawSessionOverlay(W, H);
   _drawKeyLevels(W, H);
+  _drawHtfOpens(W, H);      // 日開 / 4H 開盤價水平線（小時框上看大時框開盤位置）
 
   // 折價/溢價區（ICT/SMC dealing range：溢價紅上半、折價綠下半、EQ 50%線；開關 _pdOn 預設開）
   _drawPDZones(W, H);

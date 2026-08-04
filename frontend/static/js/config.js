@@ -106,6 +106,7 @@ window._dimCounterTrendOn = false;  // 「大時框順勢」：逆大時框(滾�
 window._fvgFilterGopp = false;   // FVG 過濾：只顯示「g 方向與 g-1、g+1 皆相反」的缺口；切換:toggleFvgFilterGopp()
 window._fvgFilterGvol = false;   // FVG 過濾：只顯示「g 成交量 < g+1 成交量」的缺口；切換:toggleFvgFilterGvol()
 window._pdhlOn = false;          // 前一日高低(PDH/PDL)水平線；切換:togglePDHL()
+window._htfOpenOn = false;      // 日開/4H開 水平線；切換:toggleHtfOpen()
 window._engulfOn = false;        // 外包吞噬掃蕩(第2根上下兩側都吃第1根+方向相反)；切換:toggleEngulf()
 window._econOn = false;          // 經濟事件垂直線(NFP/CPI/FOMC)；切換:toggleEcon()
 window._swingOn = false;         // Swing point 擺動點(3根中間根為區域高/低)；切換:toggleSwing()

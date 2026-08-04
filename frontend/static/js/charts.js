@@ -666,6 +666,10 @@ function _makePDHLPrimitive() {
     updateAllViews() {}, paneViews() { return [paneView]; }, requestUpdate() { if (_req) _req(); },
   };
 }
+window.toggleHtfOpen = function (on) {
+  window._htfOpenOn = (on === undefined) ? !window._htfOpenOn : !!on;
+  if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();
+};
 window.togglePDHL = function (on) {
   window._pdhlOn = (on === undefined) ? !window._pdhlOn : !!on;
   if (_pdhlPrim) _pdhlPrim.requestUpdate();
