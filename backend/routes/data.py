@@ -49,7 +49,7 @@ from data.hk_stock import fetch_hk_realtime
 from data.us_finnhub import fetch_us_quote
 from data.crypto import fetch_crypto_ohlcv, last_fetch_source
 import data.crypto as _crypto
-from utils.cache import cache, data_cache
+from utils.cache import cache, data_cache, coach_cache
 from utils import disk_cache
 from utils.data import enrich_df, df_to_records
 from utils.crt import _calc_crt_winrate
@@ -345,7 +345,8 @@ def diag_mem():
         "workers_env": os.getenv("WEB_CONCURRENCY", "1"),   # 設定的 worker 數
         "ticker_ws": (os.getenv("TICKER_WS") or "0"),        # WS 報價開關
         "redis": _redis_status(),         # Redis 共享層（configured/ok/roundtrip）
-        "data_cache": _report(data_cache),   # 深歷史 df + 勝率結果（32 條硬上限）
+        "data_cache": _report(data_cache),        # 深歷史 df + 勝率結果（32 條硬上限）
+        "coach_cache": _report(coach_cache),      # 教練 df/結果（160 條；與上面分開才不會互相擠掉）
         "volatile_cache": _report(cache),    # ohlcv/報價/搜尋等（48 條）
     }
 
@@ -2086,7 +2087,7 @@ def smc_coach_api(
     _top_tf, _hh_tf, _hl_tf, _ex_tf, _hh_lbl, _hl_lbl = _COACH_ROLES[_tfset]
     _ex_lbl = _ex_tf.upper()   # 執行時框標籤(default:15M／fast:5M)
     ck = f"smc_coach:{market}:{symbol}:{exchange}:{_tfset}:{1 if closed else 0}"
-    cached = data_cache.get(ck, ttl=10)
+    cached = coach_cache.get(ck, ttl=10)      # 教練走自己的快取（見 utils/cache.py 說明）
     if cached:
         return cached
     # 4 個時框平行抓取（各僅 1 window/1 請求 → 並行安全、不觸限流）：序列 ~520ms → 並行 ~150ms。
@@ -2101,10 +2102,10 @@ def smc_coach_api(
             dk = f"coach_df:{market}:{symbol}:{exchange}:{tf}:{days}"
             # TTL 按時框分層:高時框結構一根棒才變一次,不必每輪重抓 → 暖掃每輪只真抓 5m/15m,權重大降
             _dttl = {"5m": 30, "15m": 60, "1h": 300, "4h": 600, "1d": 900}.get(tf, 100)
-            d = data_cache.get(dk, ttl=_dttl)
+            d = coach_cache.get(dk, ttl=_dttl)
             if d is None:
                 d = fetch_crt_df(market, symbol, tf, days, exchange, api_key, api_secret, finmind_token)
-                data_cache.set(dk, d)
+                coach_cache.set(dk, d)
             if closed:
                 _iv = _CRT_IV.get(tf)
                 if _iv and len(d) >= 30:
@@ -2234,7 +2235,7 @@ def smc_coach_api(
         "htf_channels": htf_channels,
         "steps": steps,
     }
-    data_cache.set(ck, out)
+    coach_cache.set(ck, out)
     return out
 
 
@@ -2277,7 +2278,7 @@ def _coach_scan_compute(market, exchange, n, tfset, min_stage, ck):
     out = {"ok": True, "scanned": len(syms), "min_stage": min_stage,
            "results": results, "asof": time.time()}
     if syms:                       # universe 抓不到(418封禁/暖機)＝掃了個空 → 不寫快取,下次請求直接重試
-        data_cache.set(ck, out)
+        coach_cache.set(ck, out)
     return out
 
 

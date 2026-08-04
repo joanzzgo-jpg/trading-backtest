@@ -54,3 +54,12 @@ cache = SimpleCache(max_size=48)
 # 多人化加大到 32（每標的約佔 df+wr 2 格 → 約 16 個標的同時熱）。每個 df 約 1–8MB，
 # 32 格上限約 100–250MB（30 分 TTL 會自動釋放、單飛鎖避免重抓）。Railway RAM 緊就調小。
 data_cache = SimpleCache(max_size=32)
+
+# 教練（SR+SMC）專用快取 —— 與 data_cache 分開（2026-08-04）。
+# ⚠ 為什麼要分：教練暖掃每輪掃「前 60 檔 × 2 組時框」，光是它的 working set 就 120+ 筆，
+#   遠大於 data_cache 的 32 筆。實測（/api/_diag_mem 連續取樣）暖掃期間**整個 32 筆快取
+#   在 24 秒內被完整換掉兩次** → 勝率的 df 與結果快取每輪都被教練擠光，下次要用又得重算重抓，
+#   白白多打交易所（正是限流的來源）。
+# ⚠ 容量給 160：教練每筆很小（實測 coach_df 約 0.01MB／smc_coach 不是 DataFrame），
+#   160 筆約 1.5MB，換掉「每分鐘把勝率快取洗一遍」非常划算。
+coach_cache = SimpleCache(max_size=160)
