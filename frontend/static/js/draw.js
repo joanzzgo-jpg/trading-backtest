@@ -1741,8 +1741,15 @@ function _drawHtfOpens(W, H) {
         drawCtx.setLineDash([5, 4]); drawCtx.globalAlpha = 0.85;
         drawCtx.beginPath(); drawCtx.moveTo(x1, y); drawCtx.lineTo(x2, y); drawCtx.stroke();
         drawCtx.setLineDash([]); drawCtx.globalAlpha = 1;
+        // 標籤放「線的右端」：放左端會被整段的 K 棒壓在下面看不清（使用者回報）。
+        // 右端＝該段最新的位置；當前這一段的右端外側就是右邊留白，最不擋。
+        // 另外描一圈深色外框：即使壓在 K 棒上也讀得出來（只有標籤這幾個字，成本可忽略）。
+        const tx = Math.max(2, Math.min(plotW - 3, x2 - 3));
+        drawCtx.textAlign = "right";
+        drawCtx.lineWidth = 3; drawCtx.strokeStyle = "rgba(12,14,20,0.85)";
+        drawCtx.strokeText(label, tx, y - 3);
         drawCtx.fillStyle = color;
-        drawCtx.fillText(label, Math.max(2, x1 + 3), y - 3);
+        drawCtx.fillText(label, tx, y - 3);
       }
       segStart = -1;
     };
