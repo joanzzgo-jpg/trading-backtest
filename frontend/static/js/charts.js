@@ -7,8 +7,11 @@
      K 棒只佔 388px＝52%，上方空 115px、下方空 243px —— 近一半是留白，看起來又高又空。
      下緣是留給成交量疊圖的（量柱自己用 volume 軸的 top 值佔住底部）→ 兩者必須一起調，
      只改一邊會讓量柱和價格區重疊或留下空隙。 */
-const MAIN_SCALE_MARGINS = { top: 0.04, bottom: 0.15 };   // 價格區 = 畫布的 81%
-const VOL_SCALE_MARGINS  = { top: 0.87, bottom: 0 };      // 量柱佔底部 13%
+//   ⚠ top / bottom 是「一起決定位置與高度」的：top 加大＝整塊 K 棒往下移，
+//     bottom 加大＝往上移。要「往下移但不變矮」，就得同時把 bottom 縮回來，
+//     而 bottom 是留給量柱的 → 量軸的 top 也要跟著加大，否則量柱會跟價格區疊在一起。
+const MAIN_SCALE_MARGINS = { top: 0.12, bottom: 0.10 };   // 價格區 = 畫布的 12%~90%
+const VOL_SCALE_MARGINS  = { top: 0.90, bottom: 0 };      // 量柱佔底部 10%
 function applyMainScaleMargins() {
   if (typeof mainChart === "undefined" || !mainChart) return;
   try {
