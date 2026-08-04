@@ -55,15 +55,28 @@ function _tfDrawColors() {
   try { return { ..._TF_DRAW_COLOR_DEF, ...(JSON.parse(localStorage.getItem("drawColorByTf") || "{}") || {}) }; }
   catch (e) { return { ..._TF_DRAW_COLOR_DEF }; }
 }
+/* 工具列顏色框：顯示「當前畫筆色 + 它屬於哪個時框」。
+   各時框有各自的預選色、切時框會自動換筆 → 沒有這個標記就看不出現在拿的是哪支筆。 */
+function _syncDrawColorChip() {
+  const sw = document.getElementById("dtcSwatch");
+  const tfEl = document.getElementById("dtcTf");
+  const tf = (typeof currentTF !== "undefined") ? currentTF : "";
+  if (sw) sw.style.background = _drawColor;
+  if (tfEl) tfEl.textContent = tf || "—";
+  const btn = document.getElementById("btnDrawColor");
+  if (btn) btn.title = `繪圖顏色：${tf || "目前時框"} 的預選色 ${_drawColor}。點擊可更改（會記住成這個時框的偏好）`;
+}
 /* 切時框後由 ui.js 呼叫：把畫筆換成該時框的顏色 */
 window._syncDrawColorForTf = function () {
   const tf = (typeof currentTF !== "undefined") ? currentTF : "";
   const c = _tfDrawColors()[tf];
   if (c) _drawColor = c;
+  _syncDrawColorChip();
 };
 /* 使用者改了顏色 → 記成該時框的偏好 */
 function _rememberDrawColor(c) {
   _drawColor = c;
+  _syncDrawColorChip();
   const tf = (typeof currentTF !== "undefined") ? currentTF : "";
   if (!tf) return;
   try {
@@ -620,6 +633,16 @@ window._initSubDraw = _initSubDraw;
 function initDrawTools() {
   // 初次載入也要套用該時框的預選色：deep link / 還原上次時框都不會經過 tf-btn 的點擊事件
   if (typeof window._syncDrawColorForTf === "function") window._syncDrawColorForTf();
+  // 顏色框：點擊 → 改「當前時框」的預選色（不動任何已畫好的線）
+  document.getElementById("btnDrawColor")?.addEventListener("click", e => {
+    e.stopPropagation();
+    const r = e.currentTarget.getBoundingClientRect();
+    showLegColorPopup(r.right + 6, r.top, [{
+      label: null,
+      currentColor: (_drawColor || "#f5c518").substring(0, 7),
+      apply: c => { _rememberDrawColor(c); },
+    }]);
+  });
   loadDrawings();
 
   const chartEl = document.getElementById("mainChart");

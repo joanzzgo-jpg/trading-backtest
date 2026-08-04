@@ -1705,6 +1705,24 @@ html.perf-mode .tk-seg {
 .dt-undo-btn:active:not(:disabled) { transform: scale(.96); }
 .dt-undo-btn:disabled { opacity: .3; cursor: default; }
 
+/* 繪圖顏色框（工具列）：色塊 + 該色所屬時框的文字標記 */
+.dt-color-btn {
+  width: 34px; height: 34px;
+  background: transparent; border: 1px solid transparent;
+  border-radius: 5px; cursor: pointer; flex-shrink: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+  padding: 0; transition: background .12s, border-color .12s;
+}
+.dt-color-btn:hover { background: var(--bg3); border-color: var(--border); }
+.dtc-swatch {
+  width: 18px; height: 8px; border-radius: 2px;
+  background: #f5c518; border: 1px solid rgba(0,0,0,.35);
+  box-shadow: 0 0 0 1px rgba(255,255,255,.12) inset;
+}
+.dtc-tf {
+  font-size: 9px; font-weight: 800; line-height: 1;
+  color: var(--muted); letter-spacing: .02em;
+}
 .dt-magnet-btn {
   width: 34px;
   height: 34px;

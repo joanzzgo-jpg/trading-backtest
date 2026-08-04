@@ -646,6 +646,13 @@
 
     <div class="dt-sep"></div>
 
+    <!-- 繪圖顏色框：顯示「當前畫筆色 + 它屬於哪個時框」。點它可改該時框的預選色。
+         各時框有各自的預選色(draw.js _TF_DRAW_COLOR_DEF)，切時框會自動換筆 → 這裡讓你一眼看出現在是哪支筆。 -->
+    <button class="dt-color-btn" id="btnDrawColor" title="繪圖顏色：目前時框的預選色。點擊可更改（會記住成這個時框的偏好）">
+      <span class="dtc-swatch" id="dtcSwatch"></span>
+      <span class="dtc-tf" id="dtcTf">—</span>
+    </button>
+    <div class="dt-sep"></div>
     <button class="dt-magnet-btn" id="btnMagnet" title="弱磁鐵：自動吸附至 K 棒高低開收（按 M 切換）">
       <svg width="15" height="15" viewBox="0 0 15 15">
         <path d="M2.5 13 L2.5 7.5 A5 5 0 0 1 12.5 7.5 L12.5 13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
