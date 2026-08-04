@@ -32,6 +32,46 @@ let dragState      = null;   // { id, startX, startY, moved, snapshot }
 let _dragJustMoved = false;  // 拖移結束後抑制下一個 click，避免開啟顏色面板
 let _mx = 0, _my = 0;
 let _drawColor  = "#f5c518";  // 目前繪圖顏色
+
+/* ── 各時框專屬的繪圖預選色（2026-08-04）─────────────────────────────────────
+   切到哪個時框，畫筆就自動換成該時框的顏色 → 不必每次手動切色，
+   而且日後一眼就看得出「這條線是在哪個時框畫的」。
+   ⚠ 使用者用色盤改過顏色 → 記成「該時框的偏好」寫進 localStorage，下次切回來就是它。
+     所以這是「預選」不是「鎖死」，改了會被記住。
+   ⚠ 只影響**接下來要畫的**東西；已經畫好的線一律保留自己的 color，不會被追溯改掉。 */
+const _TF_DRAW_COLOR_DEF = {
+  "1m": "#ef5350",   // 紅
+  "5m": "#ff9800",   // 橘
+  "15m": "#ffd54f",  // 琥珀
+  "30m": "#66bb6a",  // 綠
+  "1h": "#ab47bc",   // 紫
+  "2h": "#26c6da",   // 青
+  "4h": "#2962ff",   // 藍
+  "1d": "#f5c518",   // 金（沿用原本的預設色）
+  "1w": "#ec407a",   // 粉
+  "1M": "#8d6e63",   // 棕
+};
+function _tfDrawColors() {
+  try { return { ..._TF_DRAW_COLOR_DEF, ...(JSON.parse(localStorage.getItem("drawColorByTf") || "{}") || {}) }; }
+  catch (e) { return { ..._TF_DRAW_COLOR_DEF }; }
+}
+/* 切時框後由 ui.js 呼叫：把畫筆換成該時框的顏色 */
+window._syncDrawColorForTf = function () {
+  const tf = (typeof currentTF !== "undefined") ? currentTF : "";
+  const c = _tfDrawColors()[tf];
+  if (c) _drawColor = c;
+};
+/* 使用者改了顏色 → 記成該時框的偏好 */
+function _rememberDrawColor(c) {
+  _drawColor = c;
+  const tf = (typeof currentTF !== "undefined") ? currentTF : "";
+  if (!tf) return;
+  try {
+    const m = JSON.parse(localStorage.getItem("drawColorByTf") || "{}") || {};
+    m[tf] = c;
+    localStorage.setItem("drawColorByTf", JSON.stringify(m));
+  } catch (e) {}
+}
 // ⚠ 在「宣告處」還原偏好，不能只在 ui.js 還原：draw.js 是延遲載入的，
 //   它的 `let _magnetMode = ...` 會在 ui.js(bundle) 跑完之後才執行 → 直接把已還原的值蓋回 false
 //   （本專案記錄過的同類陷阱：延遲載入檔用 let 蓋掉 bundle 已設好的共享變數）。
@@ -578,6 +618,8 @@ function _initSubDraw() {
 window._initSubDraw = _initSubDraw;
 
 function initDrawTools() {
+  // 初次載入也要套用該時框的預選色：deep link / 還原上次時框都不會經過 tf-btn 的點擊事件
+  if (typeof window._syncDrawColorForTf === "function") window._syncDrawColorForTf();
   loadDrawings();
 
   const chartEl = document.getElementById("mainChart");
@@ -1189,7 +1231,7 @@ function showDrawColorPicker(drawing, clientX, clientY) {
       currentColor: (drawing.color || "#2962ff").substring(0, 7),
       apply: c => {
         drawing.color = c;
-        _drawColor = c;
+        _rememberDrawColor(c);      // 同時記成「當前時框的預選色」
         saveDrawings();
         _scheduleRenderDrawings();
       }

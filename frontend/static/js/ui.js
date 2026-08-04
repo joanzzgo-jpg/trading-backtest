@@ -191,6 +191,8 @@ function bindEvents() {
       document.querySelectorAll(".tf-btn").forEach(b => b.classList.remove("active"));
       btn.classList.add("active");
       currentTF = btn.dataset.tf;
+      // 各時框有自己的繪圖預選色（draw.js `_TF_DRAW_COLOR_DEF`）→ 切完就換筆，不必手動切色
+      if (typeof window._syncDrawColorForTf === "function") window._syncDrawColorForTf();
       if (typeof applyMobileTFVisibility === "function") applyMobileTFVisibility();  // 當前 TF 一律可見
       loadData(false);   // 切換時間框自動載入，不需手動按「載入」
     });
