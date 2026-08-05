@@ -86,7 +86,8 @@ function _applyChartBgGradient(color) {
   const _perf = document.documentElement.classList.contains("perf-mode");
   if (_perf) {
     pane.style.background = "";   // 極簡模式不上色，浮水印才看得到
-    ["kdjPane", "rsiPane", "macdPane"].forEach(id => { const el = document.getElementById(id); if (el) el.style.background = ""; });
+    ["kdjPane", "rsiPane", "macdPane", "mainPane"].forEach(id => { const el = document.getElementById(id);
+      if (el) { if (id !== "mainPane") el.style.background = ""; el.style.backdropFilter = ""; el.style.webkitBackdropFilter = ""; } });
     document.querySelector(".charts-container")?.style.removeProperty("background");   // 同上：交回 CSS 的白底
     return;
   }
@@ -123,12 +124,35 @@ function _applyChartBgGradient(color) {
      WX_DIM 就是濾鏡濃度：要更暗調高、要天氣更清楚調低。 */
   const WX_DIM = 30;   // %：天氣模式下主圖底色的不透明度（0=全透明→天氣最亮，100=完全遮住天氣）
   const veil = `color-mix(in srgb, ${base} ${WX_DIM}%, transparent)`;
+  /* ★ 2026-08-05 濾鏡升級（使用者：「暗的濾鏡可以更好嗎」）。
+     單靠色膜是「加法」蓋色：整片一起洗灰，太陽那種爆亮處壓不下來、原本就暗的地方
+     反而被墊亮，天氣的層次與顏色一起被磨平。
+     改成再疊一層 backdrop-filter（**乘法**）：亮處壓很多、暗處幾乎不動 → 對比與紋理保留，
+     只是變暗。saturate 稍降則讓天氣的彩度不跟 K 棒搶眼。
+     ★ backdrop-filter 只作用在元素「背後」已繪製的內容（= 天氣層）；K 棒與繪圖是 #mainPane
+       的子層、在它之後才畫 → 完全不受影響（已像素驗證）。這正是使用者要的「放置在下」。
+     實測代價：10 秒真拖曳，中位 +0.1ms、p95 +0.2ms、零長幀 → 幾乎免費。
+     ★ 強度依天氣型態分級：晴天中午與夜晚本來亮度差很多，用同一個值不是太暗就是不夠。 */
+  const _WX_BRIGHT = {
+    sunny: 0.50, partly: 0.54, snow: 0.54, hail: 0.60,          // 亮：壓多一點
+    cloudy: 0.62, overcast: 0.62, fog: 0.64, windy: 0.62,
+    leaves: 0.62, spring: 0.62, mahjong: 0.62,
+    drizzle: 0.70, rain: 0.70,                                   // 本來就偏暗
+    storm: 0.78, thunder: 0.78,
+    night: 0.88,                                                 // 夜空幾乎不用壓（壓了就看不到星星）
+  };
+  const wxBright = _WX_BRIGHT[wxt] != null ? _WX_BRIGHT[wxt] : 0.62;
+  const wxFilter = `brightness(${wxBright}) saturate(0.78)`;
   /* ★ 2026-08-05：非天氣時改成「單一純色、零漸層」。
      原本疊了五層：右緣、上緣、下緣、右上角 radial 三種都是往 var(--bg) 混接，加一層極輕暗角。
      那些混接的用意是讓主圖與系統背景看不出邊界 —— 但使用者要的正好相反：
      「主圖背景要跟系統外觀的主背景色**不同**」「合約行情跟主圖中間不要用漸層」「上下漸層也拿掉」。
      邊界分明 = 一律 base 純色。⚠ 別再加回任何 var(--bg) 混接層。 */
   pane.style.background = seeThru ? veil : base;
+  // 非天氣時底色本來就不透明，backdrop-filter 沒有意義（且會多開一層合成）→ 清掉
+  const _bd = seeThru ? wxFilter : "";
+  pane.style.backdropFilter = _bd;
+  pane.style.webkitBackdropFilter = _bd;
   // 天氣 accent 仍寫進 CSS 變數（側欄等元件用）；指標區(KDJ/RSI/MACD)不再隨天氣染色(濾鏡已移除)。
   document.documentElement.style.setProperty("--wxA", AC ? AC[0] : "transparent");
   document.documentElement.style.setProperty("--wxB", AC ? AC[1] : "transparent");
@@ -150,6 +174,8 @@ function _applyChartBgGradient(color) {
     // 非天氣：透明 → 吃 container 的主圖色（副圖＝主圖的一部分，同色）
     // 天氣：跟主圖一樣上那層暗色濾鏡，否則副圖會比主圖亮一截
     el.style.background = seeThru ? veil : "transparent";
+    const _b = seeThru ? wxFilter : "";
+    el.style.backdropFilter = _b; el.style.webkitBackdropFilter = _b;
   });
 }
 

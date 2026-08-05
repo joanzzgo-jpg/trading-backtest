@@ -357,14 +357,27 @@
     return "storm";
   }
 
+  /* ★ 2026-08-05 天氣解析度（使用者：「解析度更高」）。
+     原本 backing store 只照 **CSS 像素** 算 → Retina(DPR2) 上等於 1x 畫完被放大 2x，
+     太陽/月亮/星星/前景物件邊緣糊掉。改成吃 devicePixelRatio。
+     ⚠ 填充率是平方成長（DPR2 = 4 倍像素），所以**分層給**，不是全部拉滿：
+       ・astro/fore（太陽·月亮·星空·前景，看得出銳利度）→ 全 DPR
+       ・sky/far/mid/near（漸層天空與雲，本來就是柔邊）→ 1x，拉高只是純燒填充率
+     _lowFx（手機）一律 1x，不動。 */
+  const _HI_RES_LAYERS = { astro: 1, fore: 1 };
+  function _layerDpr(name) {
+    if (_lowFx || !_HI_RES_LAYERS[name]) return 1;
+    return Math.min(window.devicePixelRatio || 1, 2);
+  }
   function resize() {
     W = window.innerWidth  || 1200;
     H = window.innerHeight || 700;
     _LAYER_DEFS.forEach(([name]) => {
       const L = _layers[name];
-      L.cv.width  = Math.ceil(W * L.bs);    // 一般層 backing 縮 1/s 省填充率；高解析層（astro/fore）1:1 保細節
-      L.cv.height = Math.ceil(H * L.bs);
-      L.ctx.setTransform(L.bs, 0, 0, L.bs, 0, 0);   // 基準變換：繪製程式照舊用螢幕座標
+      const k = L.bs * _layerDpr(name);      // bs＝視差補償縮放；再乘 DPR＝真實裝置像素
+      L.cv.width  = Math.ceil(W * k);        // 一般層 backing 縮 1/s 省填充率；高解析層（astro/fore）吃滿 DPR
+      L.cv.height = Math.ceil(H * k);
+      L.ctx.setTransform(k, 0, 0, k, 0, 0);  // 基準變換：繪製程式照舊用螢幕座標
     });
     _buildGradCache();
     _init();
