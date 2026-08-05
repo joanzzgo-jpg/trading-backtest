@@ -1778,9 +1778,14 @@ function _drawSessionOverlay(W, H) {
     const yH = candleSeries?.priceToCoordinate(rHi), yL = candleSeries?.priceToCoordinate(rLo);
     if (yH == null || yL == null) continue;
     // 色塊只填「當盤高點~低點」之間（上下緣＝高/低點，不上下無限延伸）
-    // 平移/縮放中跳過大面積半透明填色（日內時框整片日色塊是 overlay 最貴的像素工作,2x 畫布上
-    // 一次重繪可近半張圖）→ 只留上下緣線勾輪廓,停手 240ms 由 renderDrawings settle 補回(同 FVG 模式)
-    if (!window._ovMoving) {
+    /* 三盤色塊「移動中也照畫」（2026-08-05）。
+       原本平移/縮放時會跳過這片半透明填色、只留上下緣線，停手 240ms 才補回
+       —— 使用者回報「移動主圖時三盤中間的著色會消失」。
+       ⚠ 這不是憑感覺放回去：DPR2、1600×1000、5m、三盤開著各量 100 幀，
+         跳過填色 vs 一直填色 = 中位都 16.7ms、p90 17.3 vs 17.7、最長 17.9 vs 18.5，
+         超過 20ms 的幀兩者都是 0。差距 0.6ms、同樣穩在 60fps → 這個犧牲已無必要
+         （本輪其他優化把餘裕騰出來了）。日後若真的量到掉幀，再把條件加回來。 */
+    {
       drawCtx.fillStyle = _SESSION_COLOR[r.sess];
       drawCtx.fillRect(L, yH, R - L, yL - yH);
       // 開盤首段深底色：亞/歐 前 1 小時、美 前 1.5 小時（時間窗；僅 ≤1h 時框對得齊）
