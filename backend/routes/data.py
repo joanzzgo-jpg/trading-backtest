@@ -442,7 +442,6 @@ def diag_trade(key: str = ""):
             out["auto_accounts"].append({
                 "name": name,
                 "main_on": cfg.get("on"),
-                "ss_on": (cfg.get("ss") or {}).get("on"),
                 "fvg_on": (cfg.get("fvg") or {}).get("on"),
                 "fvg_entry": (cfg.get("fvg") or {}).get("entry"),
                 "scan_tfs": sorted(nm._auto_tfs(cfg)),
@@ -1634,8 +1633,9 @@ def _round_wr_floats(o):
 
 # 只後端(回測/自動交易)用、前端不讀的 per-signal 欄位 → 回前端 JSON 時砍掉
 _WR_SLIM_DROP = frozenset({"est_r", "est_r_b", "rr", "rr_b", "rr_real", "rr_b_real"})
-# S1~S12 已退役，前端只保留 SS 系列訊號（ss1/ss2）。S1~S12 的 key＝abc/ab/3~12。
-_SS_KEEP_KEYS = frozenset({"ss1", "ss2"})
+# S1~S12 已退役；SS 系列（ss1/ss2/ss3）2026-08-05 亦全面移除 → 不再回傳任何策略訊號給前端。
+# 保留這個空集合而不是拆掉整條過濾：signals 這個欄位仍存在（前端與瘦身邏輯都吃它），只是恆為空。
+_SS_KEEP_KEYS = frozenset()
 
 
 _GIT_REV = None
@@ -1758,7 +1758,7 @@ def crt_winrate_api(
     out = {k: v for k, v in wr.items() if k != "_h"}
     sigs = wr.get("signals")
     if sigs:
-        # S1~S12 已退役（全驗無 edge）→ 只回 SS 系列訊號（ss1/ss2）給前端；S1~S12 標記/HUD 不再出現。
+        # 策略訊號已全部退役（S1~S12 無 edge、SS 系列 2026-08-05 移除）→ 這裡恆為空清單。
         # fvg 為獨立 key，原樣保留。⚠ 回測走 Python 直呼 get_crt_winrate 拿完整 signals，不受此處影響。
         out["signals"] = [{k: v for k, v in s.items() if v is not None and k not in _WR_SLIM_DROP}
                           for s in sigs if s.get("k") in _SS_KEEP_KEYS]

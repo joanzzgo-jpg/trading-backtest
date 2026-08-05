@@ -206,7 +206,11 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
 
     # ── 計數器：mid_cnt[k] = [ws, ls, wl, ll]；band_cnt 同結構 ──
     # SS 系列：獨立於 S1~S12 的新訊號群，自成一套合計與「敗後停手」（不與 S 的合併時間軸混搭）。
-    _SS_KEYS = ("ss1", "ss2")
+    # ★ SS 系列（ss1/ss2/ss3）2026-08-05 全面移除（使用者要求，含自動交易訊號源）。
+    #   這裡留一個空 tuple 而不是把每個 `k in _SS_KEYS` 的判斷都拆掉 ——
+    #   那些判斷的語意是「把 SS 排除在 S 系列統計之外」，空集合下自然恆假，行為完全正確，
+    #   而逐一改動反而有把 S 系列邏輯改壞的風險。
+    _SS_KEYS = ()
     SIG_KEYS = ["abc", "ab", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", *_SS_KEYS]
     mid_cnt   = {k: [0, 0, 0, 0] for k in SIG_KEYS}
     band_cnt  = {k: [0, 0, 0, 0] for k in SIG_KEYS}
@@ -439,16 +443,19 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         #   做空：以 (上軌+中軌)/2 為界 → 收盤 > 界 → SS1（靠上軌）；中軌 < 收盤 ≤ 界 → SS2
         ss_mid_lo = (b_lo_band + b_mid) / 2.0   # 下半界（多用）
         ss_mid_up = (b_up_band + b_mid) / 2.0   # 上半界（空用）
-        for i in np.flatnonzero(ss_short | ss_long):
+        # ⚠ SS 系列已移除 → 不再產生任何 ss 訊號（上方 ss_short/ss_long 的計算保留但不使用，
+        #   因為 ss_mid_up/ss_mid_lo 等中間量與布林帶共用，拆掉風險大於收益）。
+        for i in []:
+
             i = int(i)
             direction = "short" if ss_short[i] else "long"
             ib = i + 1   # B 棒（訊號棒）
             if direction == "short":
                 stop_px = _stop(max(highs[i], highs[ib]), direction)
-                ss_key = "ss1" if b_close[i] > ss_mid_up[i] else "ss2"
+                ss_key = None      # SS 系列已移除（此迴圈已不執行）
             else:
                 stop_px = _stop(min(lows[i], lows[ib]), direction)
-                ss_key = "ss1" if b_close[i] < ss_mid_lo[i] else "ss2"
+                ss_key = None      # 同上
             d_str = "s" if direction == "short" else "l"
             sig_time = times_iso[ib]
             entry_i = i + 2
@@ -951,37 +958,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
     ss_out = _build_ss_out("mid", mid_cnt, mid_rr, streak_mid)
     ss_out["band"] = _build_ss_out("band", band_cnt, band_rr, streak_band)   # 上下軌版（前端切換用）
 
-    # ── SS3：SS 群聚衍生訊號（主圖標記用）──────────────────────────
-    # 定義：兩個「同向」SS 相隔 2 棒(中間 1 根非策略棒)、且第二個入場價更優(空→更高/多→更低)。
-    # 把符合的「第二個 SS」複製一份、k 改 "ss3" 後加入 signals → 前端當獨立訊號標記在主圖。
-    # (止損/出場的實盤細節由自動交易端處理；此處只負責「在哪些棒觸發 SS3」的視覺標記。)
-    try:
-        _t2i = {t: i for i, t in enumerate(times_iso)}
-        _ssbar = {"s": {}, "l": {}}; _allbar = set()
-        for _s in signals:
-            if _s.get("k") in ("ss1", "ss2") and _s.get("t") is not None:
-                _bi = _t2i.get(_s["t"])
-                if _bi is not None and _s.get("d") in _ssbar:
-                    _ssbar[_s["d"]][_bi] = _s; _allbar.add(_bi)
-        _ss3 = []
-        for _s in signals:
-            if _s.get("k") not in ("ss1", "ss2"):
-                continue
-            _d = _s.get("d"); _bi = _t2i.get(_s.get("t"))
-            if _bi is None or _d not in _ssbar:
-                continue
-            _prev = _ssbar[_d].get(_bi - 2)          # 前面相隔 2 棒、同向 SS
-            if _prev is None or (_bi - 1) in _allbar:  # 中間 1 根須為非策略棒
-                continue
-            _e = _s.get("entry"); _oe = _prev.get("entry")
-            if _e is None or _oe is None:
-                continue
-            if not ((_d == "s" and _e > _oe) or (_d == "l" and _e < _oe)):
-                continue                              # 第二個入場須更優
-            _c = dict(_s); _c["k"] = "ss3"; _ss3.append(_c)
-        signals = signals + _ss3
-    except Exception:
-        pass
+    # （SS3 衍生訊號隨 SS 系列一併移除，2026-08-05）
 
     # ── FVG（失衡缺口，主圖視覺標記用）────────────────────────────
     # 三根K [g-1],[g],[g+1]：多頭FVG(支撐) low[g+1]>high[g-1]；空頭FVG(壓力) high[g+1]<low[g-1]。
@@ -2149,7 +2126,8 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
 
     return {
         **mid_out,                # backward compat：mid 統計放在頂層
-        "ss":   ss_out,           # SS 系列（獨立合計 + 敗後停手，不與 S 混）
+        # "ss" 欄位隨 SS 系列一併移除（2026-08-05）。計算函式仍在但已無來源資料、
+        #   輸出恆為空，故不再放進回應，省下前端白讀一份全零統計。
         "band": band_out,         # 帶軌（short=BB 下軌、long=BB 上軌）統計
         "rr":   rr_out,           # 1:1 目標（止盈距離 = 止損距離）統計
         "long_only": long_only,   # 是否只算多單（台股=True）

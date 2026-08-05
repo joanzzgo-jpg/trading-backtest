@@ -9,7 +9,7 @@
    ══════════════════════════════════════════════════════════════ */
 const _TRD = { st: null, ov: null, pollTimer: null, busy: false };
 
-const _TRD_SIG_ORDER = ["ss1", "ss2", "ss3"];   // S1~S12 已退役；FVG 改放獨立分頁，不在此 chip 列
+const _TRD_SIG_ORDER = [];   // S1~S12 與 SS 系列皆已退役；FVG／教練各有獨立分頁 列
 const _TRD_ALL_TFS = ["5m", "15m", "30m", "1h", "2h", "4h", "1d", "1w"];   // 8h 已移除
 
 const _TRD_ICO = `<svg class="trd-ico" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4.5 13.5H11L9.5 22 19 9.5h-6.5L13 2Z"/></svg>`;
@@ -19,7 +19,7 @@ function _trdKey() { try { return localStorage.getItem("tradeKey") || ""; } catc
 function _trdTokKey() { return "tradeTok:" + (window._acctName || ""); }
 function _trdToken() { try { return localStorage.getItem(_trdTokKey()) || ""; } catch (e) { return ""; } }
 function _trdSetToken(t) { try { t ? localStorage.setItem(_trdTokKey(), t) : localStorage.removeItem(_trdTokKey()); } catch (e) {} }
-function _trdSigLabel(k) { return k === "abc" ? "S1" : k === "ab" ? "S2" : k === "ss1" ? "SS1" : k === "ss2" ? "SS2" : k === "fvg" ? "FVG" : "S" + k; }
+function _trdSigLabel(k) { return k === "abc" ? "S1" : k === "ab" ? "S2" : k === "fvg" ? "FVG" : "S" + k; }
 
 async function _trdApi(path, body) {
   // 一律帶上 key（口令）+ name（登入帳號，供後端 owner 白名單檢查）；body 同名欄位可覆寫
@@ -906,7 +906,7 @@ function _trdBuildPopup() {
     e.stopPropagation();
     const b = e.currentTarget;
     const toHedge = !b.classList.contains("sel");
-    if (toHedge && !confirm("⚠ 切『雙向持倉(Hedge)』？\n這是【帳號級】Binance 設定，會影響此帳號『所有』交易(含 ss1/ss2、手動)，不只 FVG。\n好處：同幣可同時做多+做空各一倉(FVG 雙槽，追月均 20% 需要)。\n強烈建議：用一個『專用帳號』跑 FVG 雙向，別把跑 ss 的帳號切過去。\n有未平倉/掛單時 Binance 會拒切。確定切雙向？")) return;
+    if (toHedge && !confirm("⚠ 切『雙向持倉(Hedge)』？\n這是【帳號級】Binance 設定，會影響此帳號『所有』交易(含自動與手動)，不只 FVG。\n好處：同幣可同時做多+做空各一倉(FVG 雙槽，追月均 20% 需要)。\n強烈建議：用一個『專用帳號』跑 FVG 雙向，別把跑 ss 的帳號切過去。\n有未平倉/掛單時 Binance 會拒切。確定切雙向？")) return;
     if (!toHedge && !confirm("切回『單向持倉』？此帳號將回到一般單向模式。")) return;
     try {
       const j = await _trdApi("posmode", { hedge: toHedge });

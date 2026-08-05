@@ -650,7 +650,7 @@ const _WR_SKIP_GROUPS = [
   [() => _wrLsOn("coachOverlay", window._coachOn), ["smc_sweep", "smc_struct", "smc_ob", "smc_sr", "channel"]],
   [() => _wrLsOn("vwapOverlay",  window._vwapOn),  ["vwap"]],
   [() => window._pdOn === true,                    ["pd_ranges"]],   // 關鍵高低沒有持久化，本來就每次重開都是關的
-  // 訊號標記（SS1/SS2）：回應裡第二大的一塊，而且是唯一值多、gzip 壓不掉的資料
+  // 訊號標記：回應裡第二大的一塊（SS 系列已於 2026-08-05 移除，此路徑保留給未來的訊號）
   //   —— 實測不送它 gzip 607KB → 493KB（省 19%）。
   // ⚠ 與上面幾個不同：這個**預設是顯示的**（_wrSignalsHidden 預設 false），
   //   所以只有主動按下「隱藏訊號標記」的人才會省到。不為了省流量改預設。
@@ -863,9 +863,6 @@ function _renderWRSignals(signals) {
                  : k === "9"   ? (isShort ? "#fff176" : "#fff59d")
                  : k === "10"  ? (isShort ? "#90caf9" : "#bbdefb")
                  : k === "11"  ? (isShort ? "#aed581" : "#c5e1a5")
-                 : k === "ss1" ? (isShort ? "#ff2a6d" : "#05d9e8")   // SS1 軌道反轉（深）：賽博龐克霓虹（空=霓虹粉、多=霓虹青）
-                 : k === "ss2" ? (isShort ? "#c724b1" : "#39ff14")   // SS2 軌道反轉（淺）：霓虹紫 / 霓虹綠
-                 : k === "ss3" ? (isShort ? "#ffd000" : "#ffea00")   // SS3 群聚(2個SS相隔2棒、第二更優)：霓虹金/黃
                  :                (isShort ? "#ffab91" : "#ffccbc");  // k=12
     const eShape = k === "abc" ? "circle"
                  : k === "ab"  ? "square"
@@ -881,9 +878,6 @@ function _renderWRSignals(signals) {
                  : k === "9"   ? (isShort ? "空⁹" : "多⁹")
                  : k === "10"  ? (isShort ? "空¹⁰" : "多¹⁰")
                  : k === "11"  ? (isShort ? "空¹¹" : "多¹¹")
-                 : k === "ss1" ? (isShort ? "空ˢ" : "多ˢ")
-                 : k === "ss2" ? (isShort ? "空ˢ²" : "多ˢ²")
-                 : k === "ss3" ? (isShort ? "空ˢ³" : "多ˢ³")
                  :                (isShort ? "空¹²" : "多¹²");
     allMarkers.push({
       time: et, position: isShort ? "aboveBar" : "belowBar",
@@ -1525,10 +1519,6 @@ function _renderWinRate(d) {
   setRow("wrS12L", d.s12?.long);
   // SS 系列：中軌在 ss、上下軌在 ss.band → 跟著目標切換
   const ssView = _wrSsView(_wrCacheLast);
-  setRow("wrSS1S", ssView?.ss1?.short);
-  setRow("wrSS1L", ssView?.ss1?.long);
-  setRow("wrSS2S", ssView?.ss2?.short);
-  setRow("wrSS2L", ssView?.ss2?.long);
 
   // 系列切換：SS 系列時，右側「合計 / 敗後停手 / 近期」改用 ssView（含上下軌）；S 系列維持 view
   _applySeriesVisibility();
@@ -1643,16 +1633,16 @@ try { _applySeriesVisibility(); } catch (e) {}
 ══════════════════════════════════════════ */
 const _SIG_LABEL = {
   abc:"S1", ab:"S2", s3:"S3", s4:"S4", s5:"S5",
-  s6:"S6", s7:"S7", s8:"S8", s9:"S9", s10:"S10", s11:"S11", s12:"S12", ss1:"SS1", ss2:"SS2", ss3:"SS3",
+  s6:"S6", s7:"S7", s8:"S8", s9:"S9", s10:"S10", s11:"S11", s12:"S12",
 };
 const _SIG_ICON = {
   abc:"●", ab:"■", s3:"▲", s4:"◆", s5:"★",
-  s6:"◇", s7:"⬢", s8:"⬡", s9:"✦", s10:"✪", s11:"✸", s12:"❖", ss1:"⇋", ss2:"⇌", ss3:"⇶",
+  s6:"◇", s7:"⬢", s8:"⬡", s9:"✦", s10:"✪", s11:"✸", s12:"❖",
 };
 // signal.k（"3"…）→ stat key（"s3"…），給 hover 顯示該棒訊號勝率用
 const _SIGK_TO_STATKEY = {
   abc:"abc", ab:"ab", "3":"s3", "4":"s4", "5":"s5",
-  "6":"s6", "7":"s7", "8":"s8", "9":"s9", "10":"s10", "11":"s11", "12":"s12", ss1:"ss1", ss2:"ss2", ss3:"ss3",
+  "6":"s6", "7":"s7", "8":"s8", "9":"s9", "10":"s10", "11":"s11", "12":"s12",
 };
 
 /* ══════════════════════════════════════════

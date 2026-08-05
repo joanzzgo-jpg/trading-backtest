@@ -31,10 +31,6 @@ def _sig_label(k: str) -> str:
         return "S1"
     if k == "ab":
         return "S2"
-    if k == "ss1":
-        return "SS1"
-    if k == "ss2":
-        return "SS2"
     return "S" + k
 
 
@@ -169,8 +165,11 @@ def _process_combo(market, exchange, symbol, tf, subs_here, now, df=None):
 
     res = _calc_crt_winrate(df, long_only=(market == "tw"))
     signals = res.get("signals") or []
-    # S1~S12 已退役（無 edge）→ 不推播、不觸發自動交易；只保留 SS 系列（ss1/ss2）。
-    signals = [s for s in signals if s.get("k") in ("ss1", "ss2")]
+    # S1~S12 已退役（無 edge）；SS 系列（ss1/ss2/ss3）2026-08-05 亦全面移除
+    # → 這條路徑不再有任何可推播/可下單的策略訊號。
+    # ⚠ 仍保留 signals 這個變數與後續流程：FVG 進場（下方 fvg_sigs）與教練都走各自的來源，
+    #   把整段拆掉會牽動它們的早退條件，風險大於收益。
+    signals = []
 
     fresh_cut = last_closed_open - (FRESH_BARS - 1) * iv
 

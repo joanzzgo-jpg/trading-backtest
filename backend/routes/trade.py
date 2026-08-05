@@ -44,7 +44,7 @@ _ALLOW = {_acct._norm_name(s) for s in (os.getenv("TRADE_ALLOW") or _OWNER).spli
 def _allowed(name: str) -> bool:
     return _acct._norm_name(name or "") in _ALLOW if _ALLOW else False
 
-_ALL_SIGS = {"ss1", "ss2", "ss3", "fvg"}   # S1~S12 已退役(無 edge)，自動交易只收 SS 系列 + FVG
+_ALL_SIGS = {"fvg"}   # S1~S12 與 SS 系列皆已退役 → 自動交易只收 FVG（教練走自己的子設定）
 _ALL_TFS = {"5m", "15m", "30m", "1h", "2h", "4h", "8h", "1d", "1w", "1M"}
 # 自動交易止盈目標＝「下軌→上軌」的此比例位（多單靠上軌、空單鏡像靠下軌），取代滿格外軌(=1.0)。
 # 0.98＝離上軌 2% 處先止盈 → 不等價格剛好碰到外軌(常常差一點點沒成交又反轉吐回)。進場初始 TP 與
@@ -55,15 +55,6 @@ _AUTO_TP_BAND_RATIO = 0.98
 # 共用的只有 on(主開關)/owner。hedge 不進 cfg(是 Binance 帳號級、由 _is_hedge 讀)。
 # riskUsd=每筆風險金額(打到停損約虧這麼多 USDT,含來回手續費)；>0 改「固定風險倉位」(數量由停損距離算、
 #   槓桿自動挑、lev 當上限)；0=保證金×槓桿。dirs=方向過濾。
-_SS_DEFAULT = {"on": False, "sigs": [], "tfs": [], "dirs": "both",
-               "usdt": 50.0, "lev": 3, "riskUsd": 0.0, "maxPos": 3,
-               # maxAdds=加倉上限(含首筆)。1=不加倉；>1=同向持倉中再現加一筆(到上限)。只 riskUsd>0 生效。
-               "maxAdds": 1,
-               # slPct=全域止損緩衝%(0=用訊號原停損)。perSym={標的:%} 或 {"標的|時框":%} 個別覆寫。
-               "slPct": 0.0, "perSym": {}}
-# FVG 子設定：進場模式 market(收盤確認市價,保證成交)/limit(缺口⅓階梯,影線版,成交率未實證)。固定 1h、
-# 止損3W/止盈6W → 無 slPct/無 maxAdds/無 tfs；maxPos 預設 15(回測組合上限)。
-# universe=標的來源：watchlist(自選,預設)/top20(成交量前20加密永續,排除RWA如PAXG黃金,每日重抓)。
 _FVG_DEFAULT = {"on": False, "entry": "market", "dirs": "both",
                 "usdt": 50.0, "lev": 3, "riskUsd": 0.0, "maxPos": 15, "universe": "watchlist"}
 # 教練(SR+SMC 多空)子設定：市價進場+訊號止損+單一固定 TP(用 TP1-4 其中一檔)。時框固定 default(4h方向/
@@ -74,7 +65,7 @@ _COACH_DEFAULT = {"on": False, "dirs": "both", "entry": "limit",
                   "universe": "watchlist", "tp": "tp2",
                   "slPct": 0.0, "perSym": {}}
 _AUTO_DEFAULT = {"on": False, "owner": "",
-                 "ss": dict(_SS_DEFAULT), "fvg": dict(_FVG_DEFAULT), "coach": dict(_COACH_DEFAULT)}
+                 "fvg": dict(_FVG_DEFAULT), "coach": dict(_COACH_DEFAULT)}
 
 
 # ── 金鑰加密（Fernet）：Secret 加密後才入庫 ───────────────────
@@ -470,33 +461,6 @@ def _num(v, dflt, lo, hi, integer=False):
         return dflt
 
 
-def _clean_ss(p: dict) -> dict:
-    """SS 子設定 sanitize。"""
-    p = p or {}
-    o = dict(_SS_DEFAULT)
-    o["on"] = bool(p.get("on"))
-    o["sigs"] = [s for s in (p.get("sigs") or []) if s in ("ss1", "ss2", "ss3")]
-    o["tfs"] = [t for t in (p.get("tfs") or []) if t in _ALL_TFS]
-    if p.get("dirs") in ("both", "long", "short"):
-        o["dirs"] = p["dirs"]
-    o["usdt"] = _num(p.get("usdt"), 50.0, 1.0, 100000.0)
-    o["lev"] = _num(p.get("lev"), 3, 1, 50, True)
-    o["riskUsd"] = _num(p.get("riskUsd") or 0, 0.0, 0.0, 100000.0)
-    o["maxPos"] = _num(p.get("maxPos"), 3, 1, 50, True)
-    o["maxAdds"] = _num(p.get("maxAdds"), 1, 1, 20, True)
-    o["slPct"] = _num(p.get("slPct") or 0, 0.0, 0.0, 50.0)
-    ps = {}
-    for sym, v in (p.get("perSym") or {}).items():
-        try:
-            fv = float(v)
-        except (TypeError, ValueError):
-            continue
-        if fv > 0:
-            ps[str(sym)] = max(0.0, min(fv, 50.0))
-    o["perSym"] = ps
-    return o
-
-
 def _clean_fvg(p: dict) -> dict:
     """FVG 子設定 sanitize（固定 1h/3W/6W → 無 tfs/slPct/maxAdds）。"""
     p = p or {}
@@ -537,16 +501,13 @@ def _clean_auto(p: Optional[dict]) -> dict:
     owner=綁定擁有者帳號：自動交易只下此帳號自選清單裡的標的（避免掃到別人自選就用你的 Binance 下單）。"""
     p = p or {}
     out = {"on": bool(p.get("on")), "owner": (p.get("owner") or "").strip()[:40]}
-    if "ss" in p or "fvg" in p or "coach" in p:
-        out["ss"] = _clean_ss(p.get("ss") or {})
+    # ⚠ 舊設定裡可能還帶著 "ss"（SS 系列 2026-08-05 全面移除）→ 直接忽略、不再產生該鍵，
+    #   讀到舊資料不會報錯，存回去時那一段自然消失。
+    if "fvg" in p or "coach" in p or "ss" in p:
         out["fvg"] = _clean_fvg(p.get("fvg") or {})
         out["coach"] = _clean_coach(p.get("coach") or {})
     else:
-        # ── 舊扁平格式遷移：sizing/sigs/tfs/緩衝/加倉 全給 SS；FVG 取舊 fvgEntry+sizing、maxPos 預設15 ──
-        ss = _clean_ss(p)
-        ss["sigs"] = [s for s in (p.get("sigs") or []) if s in ("ss1", "ss2", "ss3")]
-        ss["on"] = bool(ss["sigs"])                    # 舊有勾 ss → SS 開
-        out["ss"] = ss
+        # ── 舊扁平格式遷移：FVG 取舊 fvgEntry+sizing ──
         fvg = _clean_fvg({"entry": p.get("fvgEntry"), "dirs": p.get("dirs"),
                           "usdt": p.get("usdt"), "lev": p.get("lev"), "riskUsd": p.get("riskUsd")})
         fvg["on"] = "fvg" in (p.get("sigs") or [])     # 舊有勾 fvg → FVG 開
@@ -557,7 +518,7 @@ def _clean_auto(p: Optional[dict]) -> dict:
 
 def _auto_active(cfg: dict) -> bool:
     """此帳號自動交易是否有效＝主開關 on 且至少一個策略開。"""
-    return bool(cfg.get("on") and (cfg.get("ss", {}).get("on") or cfg.get("fvg", {}).get("on")
+    return bool(cfg.get("on") and (cfg.get("fvg", {}).get("on")
                                    or cfg.get("coach", {}).get("on")))
 
 
@@ -754,9 +715,10 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
     if market != "crypto":
         return
     for _name, _cfg in get_all_auto_cfgs():
-        scfg = (_cfg["fvg"] if k == "fvg" else
-                _cfg["coach"] if k == "coach" else _cfg["ss"])   # 各策略獨立子設定（sizing/maxPos/方向…）
-        if not scfg.get("on"):
+        # 各策略獨立子設定（sizing/maxPos/方向…）。SS 系列已移除 → 只剩 fvg / coach，
+        # 其他 k 一律不處理（不再有 fallback，避免把未知訊號誤送進某個策略下單）。
+        scfg = _cfg.get("fvg") if k == "fvg" else _cfg.get("coach") if k == "coach" else None
+        if not scfg or not scfg.get("on"):
             continue
         try:
             _exec_signal_for_account(_name, scfg, market, exchange, symbol, tf, k, d, sig, all_signals)
@@ -766,7 +728,8 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
 
 def _open_pos_count(name, strat) -> int:
     """此帳號目前未了結的自動倉數（供各策略獨立 maxPos）。
-    strat="fvg" 只算 FVG(含 pending 限價)；"coach" 只算教練；其餘(ss1/2/3) 只算 SS。"""
+    strat="fvg" 只算 FVG(含 pending 限價)；"coach" 只算教練。
+    ⚠ SS 系列已移除 → 沒有第三種策略；未知 strat 一律回 0（不再落到某個分支而算錯上限）。"""
     try:
         c, ph = _acct._db()
         try:
@@ -777,8 +740,7 @@ def _open_pos_count(name, strat) -> int:
                 r = c.execute(f"SELECT COUNT(*) FROM trade_log WHERE source='auto' AND acct={ph} "
                               f"AND sig='coach' AND status='open'", (name,)).fetchone()
             else:
-                r = c.execute(f"SELECT COUNT(*) FROM trade_log WHERE source='auto' AND acct={ph} "
-                              f"AND sig IN ('ss1','ss2','ss3') AND status='open'", (name,)).fetchone()
+                return 0
             return r[0] if r else 0
         finally:
             c.close()
@@ -1258,8 +1220,9 @@ def reconcile_auto_position(market, exchange, symbol, tf):
                     if ev is None:
                         # 退回判定：固定風險模式下「真止損」≈ 虧掉 riskUsd（有感金額）。若 |pnl| 遠小於它
                         # （<40%），代表是「平盤/止盈附近」出場，不是真止損 → 標止盈，避免賠 0.01 被誤標成止損。
-                        # cfg 為巢狀 → 依該列 sig 取對應子設定的 riskUsd（fvg列→fvg、ss列→ss）。
-                        _sub = cfg.get("fvg", {}) if rsig == "fvg" else cfg.get("ss", {})
+                        # cfg 為巢狀 → 依該列 sig 取對應子設定的 riskUsd。
+                        # SS 已移除 → 非 fvg 一律當教練（目前只剩這兩種）。
+                        _sub = cfg.get("fvg", {}) if rsig == "fvg" else cfg.get("coach", {})
                         _rk = _sub.get("riskUsd") or 0
                         if _rk > 0 and abs(pnl) < _rk * 0.4:
                             ev = "tp"
