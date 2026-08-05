@@ -1711,7 +1711,13 @@ html.perf-mode .tk-seg {
      符號列高度是 --symbar-h(30px) 且 overflow:hidden，塞不下 34px 的按鈕 → 用 24px。 */
 .sym-quickdraw {
   display: inline-flex; align-items: center; gap: 3px;
-  margin-left: auto; padding-left: 10px; flex-shrink: 0;
+  /* 盡量靠中央，但不能壓到左邊的開高低收量。
+     實測（1600px）左側內容右緣已經到 755px＝47%，而這排寬 237px →
+     **真正置中的左緣會落在 682px，一定重疊**（符號列 overflow:hidden，被蓋住還看不出來）。
+     所以做法是「緊接在內容後面、右邊留 auto 吃掉剩餘空間」＝不重疊前提下最靠中央的位置
+     （實測中心約 55%，比原本貼右的 93%、或兩側 auto 的 73% 都更接近中間）。
+     ⚠ 不要改用 position:absolute + left:50%：視窗一窄就會直接壓在數值上面。 */
+  margin-left: 14px; margin-right: auto; flex-shrink: 0;
 }
 .sqd-btn {
   width: 24px; height: 24px; padding: 0;
