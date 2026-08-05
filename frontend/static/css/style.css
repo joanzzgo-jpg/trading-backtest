@@ -529,6 +529,19 @@ html.perf-mode .tb-icon-btn:hover svg { animation: none; transform: scale(1.1); 
   letter-spacing: .01em;
 }
 .tf-btn:hover  { background: var(--bg3); color: var(--text); }
+/* 時框按鈕底部細色帶＝該時框的繪圖畫筆色，讓整張對照表一眼看完，不必逐一切換去看色框。
+   ⚠ 用 ::after 疊上去而不是改 border-bottom：border 會撐高按鈕、把整條時框列往下推。
+   顏色由 draw.js 寫進 --tf-pen（沒寫到就完全不顯示，不會留下沒意義的灰條）。 */
+.tf-btn { position: relative; }
+.tf-btn::after {
+  content: "";
+  position: absolute; left: 5px; right: 5px; bottom: 2px; height: 2px;
+  border-radius: 1px;
+  background: var(--tf-pen, transparent);
+  opacity: .85;
+  pointer-events: none;
+}
+.tf-btn.active::after { opacity: 1; height: 2.5px; }
 .tf-btn.active { background: var(--blue); color: #fff; font-weight: 600; }
 .tf-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 /* 熊牆紙開關：emoji 按鈕(獨立樣式，不掛 .tf-btn 以免被時框點擊處理器攔截) */

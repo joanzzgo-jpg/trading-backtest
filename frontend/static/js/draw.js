@@ -57,6 +57,20 @@ function _tfDrawColors() {
 }
 /* 工具列顏色框：顯示「當前畫筆色 + 它屬於哪個時框」。
    各時框有各自的預選色、切時框會自動換筆 → 沒有這個標記就看不出現在拿的是哪支筆。 */
+/* 把每個時框的畫筆色寫進它自己的按鈕（--tf-pen）→ 時框列本身就是一張顏色對照表。
+   使用者要「一眼看出各時框顏色」，做在按鈕上就不必點開任何東西。
+   ⚠ 改過色、切時框、初次載入都要重跑：色表存在 localStorage，任何一處改了都要同步整列。 */
+function _syncTfPenColors() {
+  try {
+    const m = _tfDrawColors();
+    document.querySelectorAll(".tf-btn").forEach(b => {
+      const c = m[b.dataset.tf];
+      if (c) b.style.setProperty("--tf-pen", c);
+      else b.style.removeProperty("--tf-pen");
+    });
+  } catch (e) {}
+}
+
 function _syncDrawColorChip() {
   // ⚠ 色框有兩處（左側工具島 + 開高低收量右側快捷列）→ 一起更新，否則會各說各話
   const tf = (typeof currentTF !== "undefined") ? currentTF : "";
@@ -68,6 +82,7 @@ function _syncDrawColorChip() {
     if (tfEl) tfEl.textContent = tf || "—";
     if (btn) btn.title = _t;
   }
+  _syncTfPenColors();      // 色框與時框列的色表永遠一起更新
 }
 /* 切時框後由 ui.js 呼叫：把畫筆換成該時框的顏色 */
 window._syncDrawColorForTf = function () {
@@ -84,10 +99,32 @@ window._syncDrawColorForTf = function () {
    ⚠ 用「舊色比對」而不是替繪圖加時框標記：既有的繪圖沒有標記、補標會標錯
      （舊圖會被標成當下的時框）。比對舊色的語意剛好就是使用者要的「那些藍線變成綠線」，
      而且個別手動改過色的線（已經不是舊色）會自動被排除，不會被連坐。 */
+/* 顏色撞號防呆：不讓某個時框的畫筆設成「別的時框已經在用」的顏色。
+   ⚠ 為什麼要擋：整套設計是「看顏色就知道這條線是在哪個時框畫的」。
+     如果在 1m 把畫筆設成 5m 的橘色，之後 1m 畫出來的線跟 5m 的長得一模一樣，
+     這個對照關係就整個失效了 —— 而且是安靜失效，事後根本分不出來。
+   回傳撞到的時框（沒撞回 null）。 */
+function _penColorClash(c, myTf) {
+  const m = _tfDrawColors();
+  const norm = x => String(x || "").trim().toLowerCase();
+  for (const tf in m) {
+    if (tf === myTf) continue;
+    if (norm(m[tf]) === norm(c)) return tf;
+  }
+  return null;
+}
+
 function _rememberDrawColor(c, recolorExisting) {
+  const _tfNow = (typeof currentTF !== "undefined") ? currentTF : "";
+  const _clash = _penColorClash(c, _tfNow);
+  if (_clash) {
+    if (typeof showToast === "function")
+      showToast(`⚠ 這個顏色是 ${_clash} 在用的 —— 換一個，才能一眼分出線是哪個時框畫的`);
+    _syncDrawColorChip();      // 色盤可能已經先變色 → 拉回實際值
+    return;
+  }
   const prev = _drawColor;
   _drawColor = c;
-  _syncDrawColorChip();
   const tf = (typeof currentTF !== "undefined") ? currentTF : "";
   if (tf) {
     try {
@@ -96,6 +133,9 @@ function _rememberDrawColor(c, recolorExisting) {
       localStorage.setItem("drawColorByTf", JSON.stringify(m));
     } catch (e) {}
   }
+  // ⚠ 一定要「寫完 localStorage 才同步」：時框列的色表是從 localStorage 讀的，
+  //   先同步的話會讀到舊值 —— 改了 4h 的顏色，時框列上的 4h 色帶卻不動。
+  _syncDrawColorChip();
   if (!recolorExisting || !prev || prev === c) return;
   let n = 0;
   for (const d of drawings) {
