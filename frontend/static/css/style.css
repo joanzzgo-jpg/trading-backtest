@@ -3496,20 +3496,25 @@ html:not(.perf-mode).sky-night #weatherStage { opacity: 0.6; }
 
 /* ═══════════════ 橘子熊可愛風格 ═══════════════ */
 
-/* warm topbar gradient — 維持不透明色塊，天氣 canvas（z:1, opacity:.28）會自然疊在其上 */
+/* ★ 2026-08-05：這三條原本寫死橘褐漸層（#1F1410→#261810、#1A0F09→#221408、
+   #261810→#1F1410）。⚠ 但它們其實是**死碼**——本檔約 4880 行起有同名同 !important
+   的另一組規則（用 var(--bg)/var(--bg2) 漸層），位置在後、會整個蓋掉這裡。
+   我一度誤判「主圖與主背景色調不一」是這三條造成的；實際上真正生效的是後面那組。
+   仍改成 var(--bg) 的理由：留著寫死色碼會讓人（包括我）再被騙一次。
+   ⚠ 要調 topbar/symbol-bar/合約行情的底色，請改 4880 行起那組，不是這裡。 */
 .topbar {
-  background: linear-gradient(135deg, #1F1410 0%, #261810 100%) !important;
+  background: var(--bg) !important;
   border-bottom: 1px solid transparent !important;
   box-shadow: 0 2px 18px rgba(255,145,71,.07) !important;
 }
 .symbol-bar {
-  background: linear-gradient(135deg, #1A0F09 0%, #221408 100%) !important;
+  background: var(--bg) !important;
   border-bottom: 1px solid transparent !important;
 }
 
 /* 合約行情：跟 topbar 連貫 — 不透明色塊，天氣 canvas 自然疊在其上 */
 .ticker-panel {
-  background: linear-gradient(180deg, #261810 0%, #1F1410 100%) !important;
+  background: var(--bg) !important;
   border-left: 1px solid transparent !important;
 }
 /* 合約行情頂部分隔線（標題下方）也淡化，與 topbar 連成一塊 */
