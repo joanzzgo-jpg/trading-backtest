@@ -262,9 +262,13 @@ html, body {
   flex-shrink: 0;
   gap: 0;
   position: relative;
-  /* 注意：不可加 z-index 蓋過 #weatherStage——雲/天氣物件「飄過主圖上方控制列」是設計特色
-     （曾為去毛玻璃感誤加 z-index:2 → 天氣物件全被蓋掉）。毛玻璃感由 weather.js 把全幕灰膜
-     移到最深天空層解決。 */
+  /* ⚠ 2026-08-05 使用者改變決定：這裡原本寫「不可加 z-index 蓋過 #weatherStage——雲/天氣
+     物件飄過主圖上方控制列是設計特色」。現已改為蓋過（見下方 .wx-opaque-chrome 區塊）。
+     原因：#weatherStage(z:1, opacity .45) 疊在 topbar/標的列/合約行情上會把它們**染亮**，
+     而 .charts-container(z:2) 在天氣層之上不受染 → 主背景與主圖選同一個色，周圍卻比主圖亮
+     一大截（實測 --bg #130c1b：主圖 #160f1d、合約行情 #251b26），使用者回報「兩邊都選同一色
+     但主圖明顯更暗」。使用者選擇「周圍也不讓天氣染」以換取色調完全一致。
+     ⚠ 要改回「雲飄過控制列」，請直接刪掉 .wx-opaque-chrome 那組規則，別動這裡。 */
 }
 
 .topbar-left {
@@ -3493,6 +3497,20 @@ html:not(.perf-mode) body {
 html:not(.perf-mode).sky-show .charts-container { background: transparent !important; }
 html:not(.perf-mode).sky-show #weatherStage { opacity: 0.45; }
 html:not(.perf-mode).sky-night #weatherStage { opacity: 0.6; }
+
+/* ═══ .wx-opaque-chrome：主圖周圍的面板不被天氣層染亮（2026-08-05 使用者選擇）═══
+   #weatherStage 是 position:fixed / z-index:1，會疊在 topbar、標的列、合約行情之上把它們
+   染亮；.charts-container 有 z-index:2 在天氣層之上，所以主圖維持使用者選的暗色 →
+   同一個選色，周圍卻明顯比主圖亮（實測 --bg #130c1b：主圖 #160f1d vs 合約行情 #251b26）。
+   把這三塊也提到 z-index:2，四塊就都等於 var(--bg)、色調完全一致。
+   代價：這三塊不再透出天氣（主圖後方的 3D 天氣場景不受影響，仍照常顯示）。
+   ⚠ 要恢復「雲飄過控制列」的舊設計，刪掉這一組即可（.topbar 該處註解已同步更新）。 */
+html:not(.perf-mode) .topbar,
+html:not(.perf-mode) .symbol-bar,
+html:not(.perf-mode) .ticker-panel {
+  position: relative;
+  z-index: 2;
+}
 
 /* ═══════════════ 橘子熊可愛風格 ═══════════════ */
 
