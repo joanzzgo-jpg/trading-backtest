@@ -1837,10 +1837,15 @@ html.perf-mode .tk-seg {
 /* 「無」+磁磚開：圖表面板全透明 → 後方 weatherStage 磁磚牆紙透出（off 模式無天氣色帶）。
    天氣模式(sky-show/night)不在此列：改由 _applyChartBgGradient 用低不透明度色帶 →
    天氣從後方透出『且』保留天氣色帶濾鏡（兩者兼得）。 */
-html:not(.perf-mode).bear-tiles-show #mainPane,
-html:not(.perf-mode).bear-tiles-show #kdjPane,
-html:not(.perf-mode).bear-tiles-show #rsiPane,
-html:not(.perf-mode).bear-tiles-show #macdPane { background: transparent !important; }
+/* ★ 2026-08-05 移除這裡原本的
+     `html:not(.perf-mode).bear-tiles-show #mainPane,#kdjPane,#rsiPane,#macdPane
+        { background: transparent !important; }`
+   使用者回報「主圖背景只有在無動畫且關掉小熊才看得到」—— 就是這條：磁磚一開，
+   四個 pane 被 !important 設成全透明，JS 上的主圖色完全進不去。
+   改由 colors.js `_applyChartBgGradient` 統一決定：磁磚模式跟天氣模式一樣上一層
+   半透明暗色底（濃度 WX_DIM）→ 主圖色看得到、小熊牆紙仍從後方透出。
+   ⚠ 別再加回 !important 的透明規則。.charts-container 仍維持透明（_applyOffBlack 設）
+     ——牆紙畫在它後方的 #weatherStage 上，容器不透就整片被擋掉。 */
 
 .chart-pane {
   display: flex;

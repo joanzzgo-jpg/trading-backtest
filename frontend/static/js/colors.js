@@ -25,7 +25,7 @@ function _darkenForChart(hex) {
   /* ★ 2026-08-05：暗色系濾鏡由「一律壓暗」改成「只封頂」。
      舊版 `Math.min(l_orig * 0.30, 0.18)` 是無條件縮放＋硬上限 → 連本來就很暗的選色
      也被再壓一次，色盤上看得出差別的顏色，上到圖上全變成一團差不多的深色。
-     新版 `Math.min(l_orig * 0.70, 0.26)`：縮放溫和很多、上限放寬，
+     新版 `Math.min(l_orig * 0.45, 0.16)`（2026-08-05 使用者說「不夠暗」再調深一階）：縮放溫和很多、上限放寬，
        → 仍是明確的暗色系看盤環境，但不同選色之間看得出差別（S 完全保留＝色相辨識度不變）。
      ⚠ 別回到 0.30/0.18 那組：壓太狠 → 所有選色殊途同歸，體感就是「主圖背景色改不了」。
      ⚠ ★ 這個濾鏡**只准做在背景色本身**（#mainPane / .charts-container 的 background，
@@ -33,7 +33,7 @@ function _darkenForChart(hex) {
        那會連 K 棒、標記、使用者畫的線一起壓暗。要調暗只調這裡的 L。
      ⚠ 順帶一提，真正讓顏色完全無效的是 style.css 那條 `.charts-container … !important`
        （已移除），不是這裡；查這類問題要先確認行內樣式有沒有被 !important 壓掉。 */
-  const L = Math.min(l_orig * 0.70, 0.26);
+  const L = Math.min(l_orig * 0.45, 0.16);
   const S = s;                             // S 完全保留（hue 區辨力 +++）
   const q = L < 0.5 ? L * (1 + S) : L + S - L * S;
   const p = 2 * L - q;
@@ -108,6 +108,10 @@ function _applyChartBgGradient(color) {
   const wxt = (typeof window._getWeatherType === "function" && window._getWeatherType()) || null;
   const AC = _WX_ACCENT[wxt] || null;
   const show = document.documentElement.classList.contains("sky-show");
+  // 小熊磁磚牆紙也算「背後有東西要透出來」的模式 → 與天氣同一條路（半透明底而非全透明），
+  // 否則使用者選的主圖色在磁磚模式下完全看不到（見 style.css 該處註解）。
+  const tiles = document.documentElement.classList.contains("bear-tiles-show");
+  const seeThru = show || tiles;
   /* ★ 2026-08-05 天氣模式的暗色系濾鏡（使用者：「我需要暗色系濾鏡，要小心不要疊到 K 棒
      跟繪圖物件上，放置在下」）。
      原本 sky-show 時主圖 background 直接 "transparent" → 天氣天空整片透上來、看盤區很亮，
@@ -117,14 +121,14 @@ function _applyChartBgGradient(color) {
        （已用像素驗證：換背景色時漲跌柱像素數與純色皆一模一樣）。
      ⚠ 絕不可改成在上層蓋一片半透明黑：那才會把 K 棒與繪圖一起壓暗。
      WX_DIM 就是濾鏡濃度：要更暗調高、要天氣更清楚調低。 */
-  const WX_DIM = 62;   // %：天氣模式下主圖底色的不透明度（0=全透明→天氣最亮，100=完全遮住天氣）
+  const WX_DIM = 84;   // %：天氣模式下主圖底色的不透明度（0=全透明→天氣最亮，100=完全遮住天氣）
   const veil = `color-mix(in srgb, ${base} ${WX_DIM}%, transparent)`;
   /* ★ 2026-08-05：非天氣時改成「單一純色、零漸層」。
      原本疊了五層：右緣、上緣、下緣、右上角 radial 三種都是往 var(--bg) 混接，加一層極輕暗角。
      那些混接的用意是讓主圖與系統背景看不出邊界 —— 但使用者要的正好相反：
      「主圖背景要跟系統外觀的主背景色**不同**」「合約行情跟主圖中間不要用漸層」「上下漸層也拿掉」。
      邊界分明 = 一律 base 純色。⚠ 別再加回任何 var(--bg) 混接層。 */
-  pane.style.background = show ? veil : base;
+  pane.style.background = seeThru ? veil : base;
   // 天氣 accent 仍寫進 CSS 變數（側欄等元件用）；指標區(KDJ/RSI/MACD)不再隨天氣染色(濾鏡已移除)。
   document.documentElement.style.setProperty("--wxA", AC ? AC[0] : "transparent");
   document.documentElement.style.setProperty("--wxB", AC ? AC[1] : "transparent");
@@ -139,13 +143,13 @@ function _applyChartBgGradient(color) {
     cc.style.removeProperty("background");
     if (document.documentElement.classList.contains("bear-tiles-show"))
       cc.style.setProperty("background", "transparent", "important");
-    else if (!show) cc.style.background = base;   // 天氣模式(show)留空 → 吃 CSS 的 var(--bg)
+    else if (!show) cc.style.background = base;   // 天氣模式留空 → 吃 CSS 的 var(--bg)
   }
   ["kdjPane", "rsiPane", "macdPane"].forEach(id => {
     const el = document.getElementById(id); if (!el) return;
     // 非天氣：透明 → 吃 container 的主圖色（副圖＝主圖的一部分，同色）
     // 天氣：跟主圖一樣上那層暗色濾鏡，否則副圖會比主圖亮一截
-    el.style.background = show ? veil : "transparent";
+    el.style.background = seeThru ? veil : "transparent";
   });
 }
 
