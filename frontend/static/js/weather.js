@@ -2934,7 +2934,13 @@
   //   setProperty(..., "important") 才壓得過(一般 inline 輸給 stylesheet 的 !important)。
   function _applyOffBlack() {
     const off   = (type === "off");
-    const black = off && !_bearTilesOn;   // 無+磁磚關 → 全黑
+    /* ★ 2026-08-05：「無天氣 + 磁磚關」不再強制全黑。
+       原本這個組合會用 !important 把 charts-container / html / body 全設成 #000，
+       使用者在色盤選的主圖背景色**整個被蓋掉、怎麼改都沒反應**
+       （使用者回報「主圖背景色改不了」「關掉背景動畫又關掉熊的背景有切換 bug」）。
+       改成不覆寫 → 交回系統背景(var(--bg)) 與使用者的主圖色去決定。
+       想要全黑的人，把系統外觀的背景色設成黑即可，兩者不再互相打架。 */
+    const black = false;
     const tiles = off &&  _bearTilesOn;    // 無+磁磚開 → 圖表區透明，讓 weatherStage 磁磚牆紙透出
     const setBg = (el, val) => {
       if (!el) return;
@@ -2947,6 +2953,9 @@
     setBg(document.body,            black ? "#000" : "");
     // 磁磚顯示時 → 圖表面板也透明（同 sky-show 機制），否則不透明色帶會把磁磚蓋住
     document.documentElement.classList.toggle("bear-tiles-show", tiles);
+    // ⚠ 切換完一定要重套主圖背景：這幾個 class/inline 樣式一變，pane 的透明/不透明就變了，
+    //   不重套的話會沿用切換前的狀態（＝使用者看到的「切換 bug」：關掉天氣後背景沒跟著回來）。
+    try { window._applyChartBgGradient?.(); } catch (e) {}
   }
 
   /* ── main loop ── */
@@ -3458,8 +3467,17 @@
     _bearTilesOn = !_bearTilesOn;
     try { localStorage.setItem("bearTiles", _bearTilesOn ? "1" : "0"); } catch (e) {}
     _bearFlashes = [];                                   // 關閉立即清掉殘餘脈衝
-    _applyOffBlack();                                    // 立即套用全黑/牆紙背景
+    _applyOffBlack();                                    // 立即套用背景（磁磚透出/一般）
     _syncBearWallBtn();
+    /* ★ 關掉磁磚時 loop() 會 `rafId = 0` 真的停轉（省電，見該處註解）。
+       但它只在「天氣變更」那裡用 `if (!rafId) requestAnimationFrame(loop)` 復活 ——
+       切磁磚不是天氣變更 → 開回來時迴圈永遠不會重啟、畫面一片空白，
+       使用者回報的「小熊背景開不回來」就是這個。這裡自己負責復活。
+       ⚠ _offCleared 也要清掉：它是「已清空畫布」的旗標，不清的話 draw() 會直接 return。 */
+    if (_bearTilesOn) {
+      _offCleared = false;
+      if (!rafId) rafId = requestAnimationFrame(loop);
+    }
   };
   _syncBearWallBtn();
   window._sunsetToggle  = () => _toggleWx("sunset");

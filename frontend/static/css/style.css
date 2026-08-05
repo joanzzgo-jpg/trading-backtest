@@ -5598,26 +5598,19 @@ html.perf-mode {
 .ticker-panel::before { display: none !important; }
 
 /* ═══════════════════════════════════════════════════════════
-   主圖邊界漸層 — 中間純 var(--bg)（user 選的色），三個邊（上/左/右）
-   靠近相鄰區域 60px 內漸層淡化，讓邊界線消失
+   ★ 2026-08-05 移除「主圖邊界漸層」（原本上緣 60px／右緣 60px／左緣 40px 三道
+     往 var(--bg)+var(--bg2) 淡化的漸層，底層再壓一層 `var(--bg) !important`）。
+
+   兩個問題都出在這條規則：
+   ① `!important` 讓 JS 寫的行內主圖色**完全無效**（實測行內 rgb(43,27,61)、
+      運算結果仍是 var(--bg) rgb(30,34,45)）→ 使用者回報「主圖背景色改不了」。
+   ② 右緣那道 270deg 就是「合約行情(ticker-panel)與主圖之間的漸層」，上緣 180deg
+      就是「上下漸層」→ 使用者要求兩者都拿掉、邊界分明。
+
+   現況：.charts-container 的背景由 colors.js `_applyChartBgGradient()` 上行內純色
+   （主圖＋副圖＋pane-divider 全區同一色），CSS 只留最上面 .charts-container 的
+   `background: var(--bg)` 當 fallback。⚠ 別再加回任何 !important 或邊緣漸層。
    ═══════════════════════════════════════════════════════════ */
-.charts-container {
-  background:
-    /* 上緣 60px：接 symbol-bar 色 → 主圖色 */
-    linear-gradient(180deg,
-      color-mix(in srgb, var(--bg) 50%, var(--bg2) 50%) 0,
-      transparent 60px),
-    /* 右緣 60px：接 ticker-panel 色 → 主圖色 */
-    linear-gradient(270deg,
-      color-mix(in srgb, var(--bg) 50%, var(--bg2) 50%) 0,
-      transparent 60px),
-    /* 左緣 40px：接 draw-toolbar 色 → 主圖色 */
-    linear-gradient(90deg,
-      color-mix(in srgb, var(--bg) 55%, var(--bg2) 45%) 0,
-      transparent 40px),
-    /* 底層：user 選的純色（中間維持這個色）*/
-    var(--bg) !important;
-}
 
 /* html 主背景：保留純色，由 user 選擇控制（不加漸層）*/
 html { background: var(--bg) !important; }

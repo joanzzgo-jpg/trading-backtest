@@ -22,10 +22,18 @@ function _darkenForChart(hex) {
     }
     h /= 6;
   }
-  // 比例縮放 + 軟上限：L 按 30% 縮放（保留同色相深淺差），但極亮的不超過 18%
-  // 例：#FF0000(L=50%)→15%、#CC0000(L=40%)→12%、#660000(L=20%)→6%
-  // 任何同色相不同深淺的色都會保留相對亮度差，不會被壓成同一個值
-  const L = Math.min(l_orig * 0.30, 0.18);
+  /* ★ 2026-08-05：暗色系濾鏡由「一律壓暗」改成「只封頂」。
+     舊版 `Math.min(l_orig * 0.30, 0.18)` 是無條件縮放＋硬上限 → 連本來就很暗的選色
+     也被再壓一次，色盤上看得出差別的顏色，上到圖上全變成一團差不多的深色。
+     新版 `Math.min(l_orig * 0.70, 0.26)`：縮放溫和很多、上限放寬，
+       → 仍是明確的暗色系看盤環境，但不同選色之間看得出差別（S 完全保留＝色相辨識度不變）。
+     ⚠ 別回到 0.30/0.18 那組：壓太狠 → 所有選色殊途同歸，體感就是「主圖背景色改不了」。
+     ⚠ ★ 這個濾鏡**只准做在背景色本身**（#mainPane / .charts-container 的 background，
+       位置在所有 LWC canvas 與繪圖疊加 canvas 之下）。**絕不可以改成蓋一層半透明暗色**：
+       那會連 K 棒、標記、使用者畫的線一起壓暗。要調暗只調這裡的 L。
+     ⚠ 順帶一提，真正讓顏色完全無效的是 style.css 那條 `.charts-container … !important`
+       （已移除），不是這裡；查這類問題要先確認行內樣式有沒有被 !important 壓掉。 */
+  const L = Math.min(l_orig * 0.70, 0.26);
   const S = s;                             // S 完全保留（hue 區辨力 +++）
   const q = L < 0.5 ? L * (1 + S) : L + S - L * S;
   const p = 2 * L - q;
@@ -79,6 +87,7 @@ function _applyChartBgGradient(color) {
   if (_perf) {
     pane.style.background = "";   // 極簡模式不上色，浮水印才看得到
     ["kdjPane", "rsiPane", "macdPane"].forEach(id => { const el = document.getElementById(id); if (el) el.style.background = ""; });
+    document.querySelector(".charts-container")?.style.removeProperty("background");   // 同上：交回 CSS 的白底
     return;
   }
   if (color == null) color = (typeof C !== "undefined" && (C.chartBg || C.bg)) || "#131722";  // 無參數→用目前主圖色（給 effects.js 夜空切換重套用）
@@ -98,25 +107,45 @@ function _applyChartBgGradient(color) {
   };
   const wxt = (typeof window._getWeatherType === "function" && window._getWeatherType()) || null;
   const AC = _WX_ACCENT[wxt] || null;
-  // 天氣模式(sky-show)：主圖背景『完全透明』→ 天氣全透出，無邊緣混接/無暗角/無色帶調色(主圖濾鏡全拿掉)；
-  // 非天氣→純色不透明漸層(正常主圖、與系統背景上下/邊緣混接)。
   const show = document.documentElement.classList.contains("sky-show");
-  const vignette = `radial-gradient(125% 95% at 50% 42%, transparent 62%, rgba(0,0,6,.08) 100%), `;  // 極輕暗角(僅非天氣)
-  const botFade  = `color-mix(in srgb, var(--bg) 38%, transparent)`;
-  pane.style.background = show
-    ? "transparent"
-    : `radial-gradient(circle 200px at 100% 0%, var(--bg) 0%, transparent 70%), ` +
-      vignette +
-      `linear-gradient(to right, transparent 0%, transparent 96%, var(--bg) 100%), ` +
-      `linear-gradient(to bottom, var(--bg) 0%, transparent 8%), ` +
-      `linear-gradient(to top, ${botFade} 0%, transparent 10%), ` +
-      `linear-gradient(168deg, ${base} 0%, ${base} 100%)`;
+  /* ★ 2026-08-05 天氣模式的暗色系濾鏡（使用者：「我需要暗色系濾鏡，要小心不要疊到 K 棒
+     跟繪圖物件上，放置在下」）。
+     原本 sky-show 時主圖 background 直接 "transparent" → 天氣天空整片透上來、看盤區很亮，
+     使用者說的「濾鏡沒回來、還是很亮」就是這個。
+     ★ 作法：把濾鏡做成 **pane 自己的半透明暗色背景**。它在 DOM 上是所有 LWC canvas 與
+       繪圖疊加 canvas 的**父層背景** → 天氣被壓暗，K 棒/標記/使用者畫的線完全不受影響
+       （已用像素驗證：換背景色時漲跌柱像素數與純色皆一模一樣）。
+     ⚠ 絕不可改成在上層蓋一片半透明黑：那才會把 K 棒與繪圖一起壓暗。
+     WX_DIM 就是濾鏡濃度：要更暗調高、要天氣更清楚調低。 */
+  const WX_DIM = 62;   // %：天氣模式下主圖底色的不透明度（0=全透明→天氣最亮，100=完全遮住天氣）
+  const veil = `color-mix(in srgb, ${base} ${WX_DIM}%, transparent)`;
+  /* ★ 2026-08-05：非天氣時改成「單一純色、零漸層」。
+     原本疊了五層：右緣、上緣、下緣、右上角 radial 三種都是往 var(--bg) 混接，加一層極輕暗角。
+     那些混接的用意是讓主圖與系統背景看不出邊界 —— 但使用者要的正好相反：
+     「主圖背景要跟系統外觀的主背景色**不同**」「合約行情跟主圖中間不要用漸層」「上下漸層也拿掉」。
+     邊界分明 = 一律 base 純色。⚠ 別再加回任何 var(--bg) 混接層。 */
+  pane.style.background = show ? veil : base;
   // 天氣 accent 仍寫進 CSS 變數（側欄等元件用）；指標區(KDJ/RSI/MACD)不再隨天氣染色(濾鏡已移除)。
   document.documentElement.style.setProperty("--wxA", AC ? AC[0] : "transparent");
   document.documentElement.style.setProperty("--wxB", AC ? AC[1] : "transparent");
+  /* ★ 使用者定調「下方副圖也算主圖一部分」→ 副圖(KDJ/RSI/MACD)與主圖同一個背景色。
+     作法是把顏色上在 .charts-container、副圖自己保持透明去吃它：
+     這樣連 pane 之間 3px 的 .pane-divider(transparent) 也一起變同色，
+     不會在主圖與副圖之間留一條系統色的細縫。 */
+  const cc = document.querySelector(".charts-container");
+  if (cc) {
+    // ⚠ 磁磚牆紙(bear-tiles-show)必須維持 transparent+important（同 _applyOffBlack 的寫法）：
+    //   否則使用者在磁磚開著時改顏色，這裡會把 base 蓋上去、把小熊牆紙整個遮掉。
+    cc.style.removeProperty("background");
+    if (document.documentElement.classList.contains("bear-tiles-show"))
+      cc.style.setProperty("background", "transparent", "important");
+    else if (!show) cc.style.background = base;   // 天氣模式(show)留空 → 吃 CSS 的 var(--bg)
+  }
   ["kdjPane", "rsiPane", "macdPane"].forEach(id => {
     const el = document.getElementById(id); if (!el) return;
-    el.style.background = show ? "transparent" : "";   // 天氣模式：子面板也透明 → 下方天氣全透出
+    // 非天氣：透明 → 吃 container 的主圖色（副圖＝主圖的一部分，同色）
+    // 天氣：跟主圖一樣上那層暗色濾鏡，否則副圖會比主圖亮一截
+    el.style.background = show ? veil : "transparent";
   });
 }
 
@@ -130,10 +159,8 @@ function applyAllColors() {
   [mainChart, kdjChart, rsiChart, macdChart].forEach(c =>
     c?.applyOptions({ layout: { background:{ color:"rgba(0,0,0,0)" }, textColor: _txt } })
   );
-  // body / charts-container 維持 var(--bg)（CSS 預設），只有主圖 pane 套使用者色 + 漸層
+  // body 維持 var(--bg)（CSS 預設）；charts-container(含主圖+副圖) 的使用者色由 _applyChartBgGradient 負責
   document.body.style.background = "";
-  const _cc = document.querySelector(".charts-container");
-  if (_cc) _cc.style.background = "";
   _applyChartBgGradient(bg);
 
   {
