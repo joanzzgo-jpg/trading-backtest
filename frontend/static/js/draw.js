@@ -403,6 +403,13 @@ function findNearest(x, y, maxDist = 12) {
 
 /* 偵測游標是否靠近 p1 或 p2 端點 */
 function _endpointHit(d, x, y, thresh = 10) {
+  if (d.type === "path" && Array.isArray(d.pts)) {      // 連續箭頭：每個轉折點都是把手
+    for (let i = 0; i < d.pts.length; i++) {
+      const c = chartToScreen(d.pts[i].time, d.pts[i].price);
+      if (c && Math.hypot(c.x - x, c.y - y) <= thresh) return "pt" + i;
+    }
+    return null;
+  }
   if (!d.p1 || !d.p2) return null;
   const a = chartToScreen(d.p1.time, d.p1.price);
   const b = chartToScreen(d.p2.time, d.p2.price);
@@ -1131,7 +1138,15 @@ function _onChartClick(e) {
     return;
   }
 
-  // 雙點工具（trendline / ray / fib）
+  /* 連續箭頭（path）：多點累積，雙擊或按 Esc 收尾（TradingView 的「路徑」）。
+     ⚠ 與雙點工具分開處理：雙點工具第二下就結束，path 要一直收點直到使用者說停。 */
+  if (drawTool === "path") {
+    if (!drawingWIP || drawingWIP.type !== "path") drawingWIP = { type: "path", pts: [pt] };
+    else drawingWIP.pts.push(pt);
+    _scheduleRenderDrawings();
+    return;
+  }
+  // 雙點工具（trendline / ray / fib / circle）
   if (!drawingWIP) {
     drawingWIP = { type:drawTool, p1:pt };
   } else {
@@ -1144,7 +1159,22 @@ function _onChartClick(e) {
   }
 }
 
+/* 收尾連續箭頭：<2 點就丟棄（點一下就切工具的情況），否則存成一筆 path。
+   ⚠ 掛上 window 給 ui.js 的 Esc 處理器呼叫：那支在 bundle 裡、比延遲載入的 draw.js **先註冊**，
+     會直接 `drawingWIP = null` —— 我原本在 draw.js 自己聽 Esc，等跑到時 WIP 早被清掉了
+     （實測：WIP 明明有 3 點，Esc 後卻沒新增任何東西）。改成由那支唯一入口先問過這裡。 */
+function _finishPath() {
+  const w = drawingWIP;
+  drawingWIP = null;
+  if (!w || w.type !== "path" || !w.pts || w.pts.length < 2) { _scheduleRenderDrawings(); return; }
+  drawings.push({ id: _did(), type: "path", pts: w.pts, color: _drawColor });
+  saveDrawings(); _returnToPointer(); _scheduleRenderDrawings();
+}
+window._finishPath = _finishPath;
+
 function _onChartDblClick(e) {
+  // 連續箭頭：雙擊＝收尾（最後那次單擊已經把點加進去了，這裡不再加）
+  if (drawTool === "path" && drawingWIP && drawingWIP.type === "path") { _finishPath(); return; }
   const { x, y } = _canvasXY(e);
   const near = findNearest(x, y, 16);
   if (near) {
@@ -1227,6 +1257,27 @@ function _updateDrag(x, y) {
   } else if (d.type === "text" || d.type === "emoji") {
     const op = chartToScreen(orig.time, orig.price);
     if (op) { const np = screenToChart(op.x + dx, op.y + dy); if (np) { d.time = np.time; d.price = np.price; } }
+  } else if (d.type === "path" && Array.isArray(d.pts)) {
+    const part = dragState.part || "";
+    const m = part.match(/^pt(\d+)$/);
+    if (m) {                                   // 拖單一轉折點
+      const i = +m[1];
+      const np = screenToChart(x, y);
+      if (np && d.pts[i]) d.pts[i] = { time: np.time, price: np.price };
+    } else {
+      /* 整體移動：與雙點圖形同樣的原則 —— 只換算一個參考點，其餘用原本的差量跟著走。
+         各點各自 screenToChart 會被磁吸/量化扯歪形狀（見 _drawHtfOpens 上方那次的教訓）。 */
+      const o0 = orig.pts && orig.pts[0];
+      if (o0) {
+        const a0 = chartToScreen(o0.time, o0.price);
+        if (a0) {
+          const na = screenToChart(a0.x + dx, a0.y + dy);
+          if (na) d.pts = orig.pts.map((q, i) => i === 0
+            ? { time: na.time, price: na.price }
+            : { time: na.time + (q.time - o0.time), price: na.price + (q.price - o0.price) });
+        }
+      }
+    }
   } else if (d.p1 && d.p2) {
     const part = dragState.part;
     if (part === "p1") {
@@ -1452,6 +1503,32 @@ function drawingDist(d, x, y) {
     // 框內：靠近邊框才算命中(避免整個大框都攔截點擊、擋住底下K棒/其他繪圖)
     const nearEdge = Math.min(x - rx, rX - x, y - ry, rY - y);
     return nearEdge <= 8 ? 2 : Infinity;
+  }
+  if (d.type === "path" && Array.isArray(d.pts) && d.pts.length >= 2) {
+    // 逐段取「點到線段」的最短距離
+    let best = Infinity, prev = null;
+    for (const q of d.pts) {
+      const c = chartToScreen(q.time, q.price);
+      if (!c) { prev = null; continue; }
+      if (prev) {
+        const dx = c.x - prev.x, dy = c.y - prev.y, l2 = dx * dx + dy * dy;
+        const t = l2 ? Math.max(0, Math.min(1, ((x - prev.x) * dx + (y - prev.y) * dy) / l2)) : 0;
+        best = Math.min(best, Math.hypot(x - (prev.x + t * dx), y - (prev.y + t * dy)));
+      }
+      prev = c;
+    }
+    return best;
+  }
+  if (d.type === "circle" && d.p1 && d.p2) {
+    // 橢圓內接於 p1/p2 圍成的框；用「歸一化半徑」判斷離邊框多遠（框內不整片攔截，同 rect）
+    const a = chartToScreen(d.p1.time, d.p1.price);
+    const b = chartToScreen(d.p2.time, d.p2.price);
+    if (!a || !b) return Infinity;
+    const cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2;
+    const rx = Math.abs(b.x - a.x) / 2, ry = Math.abs(b.y - a.y) / 2;
+    if (rx < 1 || ry < 1) return Infinity;
+    const k = Math.hypot((x - cx) / rx, (y - cy) / ry);      // 1 = 正好在邊上
+    return Math.abs(k - 1) * Math.min(rx, ry);               // 換算回大約的像素距離
   }
   if (d.p1 && d.p2) {
     const a = chartToScreen(d.p1.time, d.p1.price);
@@ -2653,7 +2730,8 @@ function _deltaBox(ctx, x, y, lines, W, H) {
   lines.forEach((l, i) => { ctx.fillStyle = l.c || "#e6e6e6"; ctx.fillText(l.t, bx + pad, by + pad / 2 + i * lh); });
   ctx.restore();
 }
-const _TWO_PT = ["trendline", "ray", "arrow", "rect", "fib", "longpos", "shortpos", "measure"];
+const _TWO_PT = ["trendline", "ray", "arrow", "rect", "circle", "fib", "longpos", "shortpos", "measure"];
+// ⚠ path(連續箭頭) 是**多點**、不放進 _TWO_PT：它自己收點、雙擊/Esc 收尾，資料是 pts[] 不是 p1/p2。
 function _drawDrawTags(W, H) {
   const wip = drawingWIP, dragging = dragState && dragState.moved;
   if (!wip && !dragging) return;
@@ -2806,7 +2884,27 @@ function renderDrawings() {
     if (snp) { _cmx = snp.x; _cmy = snp.y; }
   }
 
-  if (drawingWIP) {
+  if (drawingWIP && drawingWIP.type === "path" && Array.isArray(drawingWIP.pts)) {
+    // 連續箭頭預覽：已收的折線 + 從最後一點拉到游標的那一段（虛線），並標出已收的轉折點
+    const ps = drawingWIP.pts.map(q => chartToScreen(q.time, q.price)).filter(Boolean);
+    if (ps.length) {
+      drawCtx.save();
+      drawCtx.strokeStyle = _drawColor; drawCtx.fillStyle = _drawColor;
+      drawCtx.lineWidth = DRAW_WIDTH; drawCtx.lineJoin = "round"; drawCtx.lineCap = "round";
+      drawCtx.beginPath(); drawCtx.moveTo(ps[0].x, ps[0].y);
+      for (let i = 1; i < ps.length; i++) drawCtx.lineTo(ps[i].x, ps[i].y);
+      drawCtx.stroke();
+      drawCtx.setLineDash([4, 3]);
+      drawCtx.beginPath();
+      drawCtx.moveTo(ps[ps.length - 1].x, ps[ps.length - 1].y);
+      drawCtx.lineTo(_cmx, _cmy);
+      drawCtx.stroke();
+      drawCtx.setLineDash([]);
+      ps.forEach(q => { drawCtx.beginPath(); drawCtx.arc(q.x, q.y, 3.5, 0, Math.PI * 2); drawCtx.fill(); });
+      drawCtx.restore();
+    }
+  }
+  else if (drawingWIP) {
     const p1s = chartToScreen(drawingWIP.p1.time, drawingWIP.p1.price);
     // 預覽要跟著 Shift 走，否則放手前看到的線跟畫出來的不一樣
     if (p1s) drawPreview(drawingWIP.type, p1s,
@@ -3054,6 +3152,45 @@ function drawOne(d, W, H, isHovered, isSelected) {
       const hoverPartArr = _endpointHit(d, _mx, _my);
       [[a, "p1"], [b, "p2"]].forEach(([p, ep]) => {
         drawCtx.beginPath(); drawCtx.arc(p.x, p.y, hoverPartArr === ep ? 7 : 5, 0, Math.PI*2); drawCtx.fill();
+      });
+    }
+  }
+  else if (d.type === "circle" && d.p1 && d.p2) {
+    const a = chartToScreen(d.p1.time, d.p1.price);
+    const b = chartToScreen(d.p2.time, d.p2.price);
+    if (!a || !b) { drawCtx.restore(); return; }
+    const cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2;
+    const rx = Math.abs(b.x - a.x) / 2, ry = Math.abs(b.y - a.y) / 2;
+    drawCtx.beginPath(); drawCtx.ellipse(cx, cy, Math.max(1, rx), Math.max(1, ry), 0, 0, Math.PI * 2);
+    drawCtx.stroke();
+    if (isSelected) {   // 兩個對角把手（沿用 p1/p2 的拖曳邏輯）
+      const hp = _endpointHit(d, _mx, _my);
+      [[a, "p1"], [b, "p2"]].forEach(([q, ep]) => {
+        drawCtx.beginPath(); drawCtx.arc(q.x, q.y, hp === ep ? 7 : 5, 0, Math.PI * 2); drawCtx.fill();
+      });
+    }
+  }
+  else if (d.type === "path" && Array.isArray(d.pts) && d.pts.length >= 2) {
+    const ps = d.pts.map(q => chartToScreen(q.time, q.price)).filter(Boolean);
+    if (ps.length < 2) { drawCtx.restore(); return; }
+    drawCtx.lineCap = "round"; drawCtx.lineJoin = "round";
+    drawCtx.beginPath(); drawCtx.moveTo(ps[0].x, ps[0].y);
+    for (let i = 1; i < ps.length; i++) drawCtx.lineTo(ps[i].x, ps[i].y);
+    drawCtx.stroke();
+    // 箭頭在最後一段的末端，方向沿最後一段
+    const q1 = ps[ps.length - 2], q2 = ps[ps.length - 1];
+    const ang = Math.atan2(q2.y - q1.y, q2.x - q1.x);
+    const hl = 12 + (d.width || DRAW_WIDTH) * 2, ha = Math.PI / 7;
+    drawCtx.beginPath();
+    drawCtx.moveTo(q2.x, q2.y);
+    drawCtx.lineTo(q2.x - hl * Math.cos(ang - ha), q2.y - hl * Math.sin(ang - ha));
+    drawCtx.lineTo(q2.x - hl * Math.cos(ang + ha), q2.y - hl * Math.sin(ang + ha));
+    drawCtx.closePath(); drawCtx.fill();
+    drawCtx.shadowBlur = 0;
+    if (isSelected) {   // 每個轉折點都是把手
+      const hp = _endpointHit(d, _mx, _my);
+      ps.forEach((q, i) => {
+        drawCtx.beginPath(); drawCtx.arc(q.x, q.y, hp === ("pt" + i) ? 7 : 5, 0, Math.PI * 2); drawCtx.fill();
       });
     }
   }
@@ -3416,6 +3553,15 @@ function drawOne(d, W, H, isHovered, isSelected) {
 
 function drawPreview(type, a, b, W, H) {
   drawCtx.save();
+
+  if (type === "circle") {
+    drawCtx.strokeStyle = _drawColor; drawCtx.lineWidth = DRAW_WIDTH; drawCtx.setLineDash([4, 3]);
+    drawCtx.beginPath();
+    drawCtx.ellipse((a.x + b.x) / 2, (a.y + b.y) / 2,
+                    Math.max(1, Math.abs(b.x - a.x) / 2), Math.max(1, Math.abs(b.y - a.y) / 2), 0, 0, Math.PI * 2);
+    drawCtx.stroke(); drawCtx.setLineDash([]);
+    drawCtx.restore(); return;
+  }
 
   if (type === "longpos" || type === "shortpos") {
     const mirrorY = 2 * a.y - b.y;

@@ -158,7 +158,12 @@ function bindEvents() {
     if (e.key === "Escape" && !document.getElementById("symOverlay").classList.contains("hidden")) return;
     if (e.key === "Escape") {
       if (replayActive) { exitReplay(); return; }
-      if (drawingWIP) { drawingWIP = null; requestAnimationFrame(renderDrawings); }
+      // 連續箭頭(path)是多點工具：Esc 的語意是「收尾」而不是「丟棄」→ 先交給它處理。
+      // ⚠ 這裡是唯一入口：draw.js 自己再聽一個 Esc 沒用，本支在 bundle 內先註冊、
+      //   會搶先把 drawingWIP 清成 null，那邊就永遠等不到東西。
+      if (drawingWIP && drawingWIP.type === "path" && typeof window._finishPath === "function") {
+        window._finishPath();
+      } else if (drawingWIP) { drawingWIP = null; requestAnimationFrame(renderDrawings); }
       document.querySelectorAll(".dt-btn").forEach(b => b.classList.remove("active"));
       document.querySelector(".dt-btn[data-tool='pointer']")?.classList.add("active");
       setDrawTool("pointer");
