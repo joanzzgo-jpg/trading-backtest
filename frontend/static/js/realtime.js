@@ -118,6 +118,7 @@ async function fetchLatest() {
     const _tfSec = { "1M":2592000,"1w":604800,"1d":86400,"4h":14400,"2h":7200,"1h":3600,
                      "30m":1800,"15m":900,"5m":300,"1m":60 };
     let _dirty = false;   // 本輪是否真的改了 K → 決定要不要重畫疊加層(三盤色塊)
+    let _needRedraw = false;  // 本輪有沒有「改到非最後一根」→ 需要整張重畫（LWC update 只能動最後一根）
     let _newBar = false;  // 本輪是否有「新收盤棒」出現 → 觸發勝率重抓讓 FVG 延伸到最新棒
     json.data.forEach(bar => {
       const t     = toTime(bar.time);
@@ -140,6 +141,46 @@ async function fetchLatest() {
         //   差太多 → 維持忽略；補不動但差距合理 → **退回舊行為照接**，
         //   寧可留一個洞，也不要讓圖表凍在那裡不動。
         if (_gapSec > 7 * 86400) return;
+      }
+      if (t < lastT) {
+        /* ── 剛收盤那根的「最終值」補回去（2026-08-04）──────────────────────────
+           使用者回報「最新一根會有小跳空，要重新整理才會好」。實測抓到根因：
+             /api/latest 固定回 **2 根**＝[剛收盤那根, 形成中那根]。第一根的用途正是
+             「把上一根補成最終值」，但這個 forEach 只有 t===lastT(更新)與 t>lastT(新增)
+             兩個分支 —— 一旦下一根已經被 push，它就落到**沒有分支、被靜默丟棄**。
+           後果：那根永遠停在「下一根出現那一瞬間」的未完成值，而下一根用真正的最終價開盤
+             → 兩者對不上，畫面留下一道小跳空；重整才好，因為重整會整條重抓。
+           實測（BTC 1m、180 秒）：**179 根被丟棄**，其中那根 close 存的是 63507.6、
+             實際最終值是 63504.3，而畫面上量到的跳空正好 3.3。
+           ⚠ LWC 的 series.update() 只能更新最後一根，改不了倒數第二根 → 要用 setData 重畫。
+             但這只在「值真的不同」時才做，而且一根 K 棒週期內至多發生一次（補正後就相等了），
+             不是每輪都重畫。 */
+        /* ⚠ 索引一定要回頭驗證時間相符，不能直接信 _secToIdx：
+             補舊/修剪/重建索引都會讓它一時對不上，信了就會把「這根的值」寫到「別根」身上
+             —— 實測就是這樣：兩組四欄全不同的數值在同一根上來回蓋，畫面反覆重畫。
+             驗不過就退回小範圍線性掃描（只可能在尾端幾根，成本可忽略）。 */
+        let _i = -1;
+        if (typeof _secToIdx !== "undefined" && _secToIdx.has(t)) {
+          const _c = _secToIdx.get(t);
+          if (ohlcvData[_c] && toTime(ohlcvData[_c].time) === t) _i = _c;
+        }
+        if (_i < 0) for (let k = ohlcvData.length - 1; k >= 0 && k >= ohlcvData.length - 8; k--) {
+          if (ohlcvData[k] && toTime(ohlcvData[k].time) === t) { _i = k; break; }
+        }
+        if (_i < 0 || _i >= ohlcvData.length - 1) return;   // 找不到、或它其實是最後一根 → 不處理
+        const _cur = ohlcvData[_i];
+        if (+_cur.open === +bar.open && +_cur.high === +bar.high
+            && +_cur.low === +bar.low && +_cur.close === +bar.close) return;
+        /* ⚠ 這裡刻意「照單全收」，不要加「只在能讓接縫變小時才補」的閘門。
+             試過那樣做，結果更糟：/api/latest 每次回的是**一份內部一致的快照**，
+             選擇性套用會把兩份快照混在一起 → 接縫又冒出來（實測跳空 1.6/4.7 點回歸）。
+             照單全收的話尾端永遠等於最後一份快照、內部一致 → 沒有接縫；
+             代價只是已收盤棒會隨快照微調 0.007% 等級（肉眼不可見），
+             而使用者真正看得到的是跳空。 */
+        ohlcvData[_i] = { ..._cur, ...bar, _t: t };
+        _dirty = true;
+        _needRedraw = true;   // ⚠ 只標記，重畫留到整批處理完再做一次（見迴圈之後）
+        return;
       }
       if (t === lastT) {
         // 性能：若 OHLC 完全沒變，跳過 LWC update 與 indicator 重算（省 CPU）
@@ -190,6 +231,12 @@ async function fetchLatest() {
       updateLatestPriceLine(bar.close);
       _updateBBTail();   // 即時補畫布林（否則新棒沒布林、刷新才出現）
     });
+    /* 補正到「非最後一根」時的重畫：LWC 的 series.update() 只能動最後一根，
+       改到更早的棒必須整張 setData。⚠ 一定要放在迴圈**外面**做一次 —— 放在迴圈裡的話，
+       一次回應有幾根要補就重畫幾次，補載追進度時更會連續狂畫（實測 6777 根一次 11.4ms）。 */
+    if (_needRedraw) {
+      try { if (typeof applyOhlcvToSeries === "function") applyOhlcvToSeries(ohlcvData); } catch (e) {}
+    }
     updateSymbolBar(ohlcvData);
     // 新收盤棒出現 → 重抓勝率，讓 FVG 缺口盒/策略標記延伸到最新棒(realtime 不會自己重算勝率，
     //   否則最近一段永遠沒 FVG)。debounce 在 _wrRefreshCurrent 內；非當前標的不受影響。

@@ -1551,7 +1551,12 @@ def get_latest(req: LatestRequest):
     if df.empty:
         raise HTTPException(400, "無資料")
 
-    records = df_to_records(df.tail(2))
+    # ⚠ 回 3 根不是 2 根（2026-08-04）：第一根的用途是「把已收盤那根補成最終值」。
+    #   只回 2 根時補正窗口只有一輪 —— 交易所把上一根定案得稍慢一點，等前端要補時
+    #   那根已經被擠出回傳範圍，於是永遠停在未完成值、與下一根的開盤價對不上＝小跳空
+    #   （使用者回報「最新一根都會這樣、要重整才會好」，實測跳空 3~6 點）。
+    #   本來就已經抓了 limit=3，多回一根成本可忽略，卻讓補正多一輪機會。
+    records = df_to_records(df.tail(3))
     # 若有 FINNHUB_TOKEN，美股也算即時；港股(騰訊即時)在上面 hk 分支已 return，這裡只是純 yfinance 尾
     live = (req.market == "crypto") or (req.market == "us" and bool(os.getenv("FINNHUB_TOKEN")))
     return {"live": live, "data": records}
