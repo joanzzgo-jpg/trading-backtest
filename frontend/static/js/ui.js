@@ -130,11 +130,16 @@ function bindEvents() {
     if (wrap && !wrap.contains(e.target)) _rpCal.close();
   });
 
-  // ── 繪圖工具欄 ──────────────────────────────
-  document.querySelectorAll(".dt-btn").forEach(btn => {
+  /* ── 繪圖工具欄 ──────────────────────────────
+     ⚠ 選擇器用 [data-tool] 而不是 .dt-btn：工具按鈕現在有**兩排**
+       （左側工具島 .dt-btn、開高低收量右側的快捷列 .sqd-btn）。
+       用同一個選擇器 → 綁定與 active 狀態自動涵蓋兩邊，不必維護第二份。 */
+  document.querySelectorAll("[data-tool]").forEach(btn => {
     btn.addEventListener("click", () => {
-      document.querySelectorAll(".dt-btn").forEach(b => b.classList.remove("active"));
-      btn.classList.add("active");
+      document.querySelectorAll("[data-tool]").forEach(b => b.classList.remove("active"));
+      // ⚠ 要把「同一個工具的所有按鈕」都點亮，不能只亮被點的那顆：
+      //   同一個工具在兩排各有一顆，只亮一顆的話另一排看起來像沒選到。
+      document.querySelectorAll(`[data-tool="${btn.dataset.tool}"]`).forEach(b => b.classList.add("active"));
       setDrawTool(btn.dataset.tool);
     });
   });
@@ -164,8 +169,8 @@ function bindEvents() {
       if (drawingWIP && drawingWIP.type === "path" && typeof window._finishPath === "function") {
         window._finishPath();
       } else if (drawingWIP) { drawingWIP = null; requestAnimationFrame(renderDrawings); }
-      document.querySelectorAll(".dt-btn").forEach(b => b.classList.remove("active"));
-      document.querySelector(".dt-btn[data-tool='pointer']")?.classList.add("active");
+      document.querySelectorAll("[data-tool]").forEach(b => b.classList.remove("active"));
+      document.querySelectorAll("[data-tool='pointer']").forEach(b => b.classList.add("active"));
       setDrawTool("pointer");
     }
     if (e.key === " " && replayActive && document.activeElement.tagName !== "INPUT") {

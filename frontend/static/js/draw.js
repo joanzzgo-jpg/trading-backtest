@@ -58,13 +58,16 @@ function _tfDrawColors() {
 /* 工具列顏色框：顯示「當前畫筆色 + 它屬於哪個時框」。
    各時框有各自的預選色、切時框會自動換筆 → 沒有這個標記就看不出現在拿的是哪支筆。 */
 function _syncDrawColorChip() {
-  const sw = document.getElementById("dtcSwatch");
-  const tfEl = document.getElementById("dtcTf");
+  // ⚠ 色框有兩處（左側工具島 + 開高低收量右側快捷列）→ 一起更新，否則會各說各話
   const tf = (typeof currentTF !== "undefined") ? currentTF : "";
-  if (sw) sw.style.background = _drawColor;
-  if (tfEl) tfEl.textContent = tf || "—";
-  const btn = document.getElementById("btnDrawColor");
-  if (btn) btn.title = `繪圖顏色：${tf || "目前時框"} 的預選色 ${_drawColor}。點擊可更改（會記住成這個時框的偏好）`;
+  const _t = `繪圖顏色：${tf || "目前時框"} 的預選色 ${_drawColor}。點擊可更改（會記住成這個時框的偏好）`;
+  for (const [swId, tfId, btnId] of [["dtcSwatch", "dtcTf", "btnDrawColor"],
+                                      ["dtcSwatch2", "dtcTf2", "btnDrawColor2"]]) {
+    const sw = document.getElementById(swId), tfEl = document.getElementById(tfId), btn = document.getElementById(btnId);
+    if (sw) sw.style.background = _drawColor;
+    if (tfEl) tfEl.textContent = tf || "—";
+    if (btn) btn.title = _t;
+  }
 }
 /* 切時框後由 ui.js 呼叫：把畫筆換成該時框的顏色 */
 window._syncDrawColorForTf = function () {
@@ -656,7 +659,7 @@ function initDrawTools() {
   // 初次載入也要套用該時框的預選色：deep link / 還原上次時框都不會經過 tf-btn 的點擊事件
   if (typeof window._syncDrawColorForTf === "function") window._syncDrawColorForTf();
   // 顏色框：點擊 → 改「當前時框」的預選色（不動任何已畫好的線）
-  document.getElementById("btnDrawColor")?.addEventListener("click", e => {
+  ["btnDrawColor", "btnDrawColor2"].forEach(id => document.getElementById(id)?.addEventListener("click", e => {
     e.stopPropagation();
     const r = e.currentTarget.getBoundingClientRect();
     showLegColorPopup(r.right + 6, r.top, [{
@@ -664,7 +667,7 @@ function initDrawTools() {
       currentColor: (_drawColor || "#f5c518").substring(0, 7),
       apply: c => { _rememberDrawColor(c, true); },   // 從色框改 → 已畫的同色線一起換
     }]);
-  });
+  }));
   loadDrawings();
 
   const chartEl = document.getElementById("mainChart");
@@ -923,8 +926,8 @@ function setDrawTool(tool) {
 }
 
 function _returnToPointer() {
-  document.querySelectorAll(".dt-btn").forEach(b => b.classList.remove("active"));
-  document.querySelector(".dt-btn[data-tool='pointer']")?.classList.add("active");
+  document.querySelectorAll("[data-tool]").forEach(b => b.classList.remove("active"));
+  document.querySelectorAll("[data-tool='pointer']").forEach(b => b.classList.add("active"));
   setDrawTool("pointer");
 }
 

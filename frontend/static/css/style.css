@@ -1706,6 +1706,52 @@ html.perf-mode .tk-seg {
 .dt-undo-btn:disabled { opacity: .3; cursor: default; }
 
 /* 繪圖顏色框（工具列）：色塊 + 該色所屬時框的文字標記 */
+/* 快捷繪圖列：放在開高低收量右側的空白處。左側工具島要滑到邊緣才彈出，這排常用的直接可按。
+   ⚠ 視覺刻意與左側 .dt-btn 完全一致（圓角/配色/hover 微放大/選中暖橘暈），只有尺寸縮小：
+     符號列高度是 --symbar-h(30px) 且 overflow:hidden，塞不下 34px 的按鈕 → 用 24px。 */
+.sym-quickdraw {
+  display: inline-flex; align-items: center; gap: 3px;
+  margin-left: auto; padding-left: 10px; flex-shrink: 0;
+}
+.sqd-btn {
+  width: 24px; height: 24px; padding: 0;
+  background: transparent; border: 1px solid transparent;
+  color: var(--muted); border-radius: 7px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  transition: background .14s ease, color .14s ease, border-color .14s ease, transform .14s cubic-bezier(.34,1.56,.64,1);
+}
+.sqd-btn:hover {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--text);
+  transform: scale(1.1);
+}
+.sqd-btn:active { transform: scale(.96); }
+.sqd-btn.active {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.sqd-sep { width: 1px; height: 15px; background: var(--border); margin: 0 4px; flex-shrink: 0; }
+.sqd-color {
+  display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+  width: 26px; height: 24px; padding: 0;
+  background: transparent; border: 1px solid transparent; border-radius: 7px; cursor: pointer; flex-shrink: 0;
+  transition: background .14s ease, border-color .14s ease, transform .14s cubic-bezier(.34,1.56,.64,1);
+}
+.sqd-color:hover {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+  transform: scale(1.1);
+}
+.sqd-color:active { transform: scale(.96); }
+.sqd-swatch {
+  width: 16px; height: 7px; border-radius: 2px; background: #f5c518;
+  border: 1px solid rgba(0,0,0,.35); box-shadow: 0 0 0 1px rgba(255,255,255,.12) inset;
+}
+.sqd-tf { font-size: 8.5px; font-weight: 800; line-height: 1; color: var(--muted); letter-spacing: .02em; }
+@media (max-width: 1180px) { .sym-quickdraw { display: none; } }
+
 .dt-color-btn {
   width: 34px; height: 34px;
   background: transparent; border: 1px solid transparent;
