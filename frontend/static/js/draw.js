@@ -51,9 +51,34 @@ const _TF_DRAW_COLOR_DEF = {
   "1w": "#ec407a",   // 粉
   "1M": "#8d6e63",   // 棕
 };
+/* 撞色化解時的備用色（都與上面的預設色不重複；不夠用時就維持原樣，不會亂配） */
+const _TF_SPARE_COLORS = ["#00bcd4", "#7e57c2", "#9ccc65", "#ff7043", "#5c6bc0",
+                          "#26a69a", "#d4e157", "#f06292", "#78909c", "#ffa726"];
+
 function _tfDrawColors() {
-  try { return { ..._TF_DRAW_COLOR_DEF, ...(JSON.parse(localStorage.getItem("drawColorByTf") || "{}") || {}) }; }
-  catch (e) { return { ..._TF_DRAW_COLOR_DEF }; }
+  let m;
+  try { m = { ..._TF_DRAW_COLOR_DEF, ...(JSON.parse(localStorage.getItem("drawColorByTf") || "{}") || {}) }; }
+  catch (e) { m = { ..._TF_DRAW_COLOR_DEF }; }
+  /* ★硬規則：任何兩個時框都不得同色。
+     只在「設定當下」擋是不夠的 —— 防呆是後來才加的，之前存進 localStorage 的重複值
+     會一直留著；而且使用者可能手改儲存內容。這裡在**每次讀取**就化解衝突：
+     自訂值優先保留，撞到的那個退回它自己的預設色；若預設色也被佔走，就從備用盤挑一個沒人用的。
+     ⚠ 一定要用固定順序（_TF_ORDER）走訪，否則同一份資料每次解出來的結果可能不同。 */
+  const used = new Map();                 // 正規化色 → 已佔用的時框
+  const norm = x => String(x || "").trim().toLowerCase();
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem("drawColorByTf") || "{}") || {}; } catch (e) {}
+  // 自訂過的先卡位（使用者明確選過的優先），其餘再依固定順序填
+  const order = [...Object.keys(m).filter(tf => saved[tf]), ...Object.keys(m).filter(tf => !saved[tf])];
+  for (const tf of order) {
+    let c = norm(m[tf]);
+    if (!used.has(c)) { used.set(c, tf); continue; }
+    const def = norm(_TF_DRAW_COLOR_DEF[tf]);
+    if (def && !used.has(def)) { m[tf] = _TF_DRAW_COLOR_DEF[tf]; used.set(def, tf); continue; }
+    const spare = _TF_SPARE_COLORS.find(x => !used.has(norm(x)));
+    if (spare) { m[tf] = spare; used.set(norm(spare), tf); }
+  }
+  return m;
 }
 /* 工具列顏色框：顯示「當前畫筆色 + 它屬於哪個時框」。
    各時框有各自的預選色、切時框會自動換筆 → 沒有這個標記就看不出現在拿的是哪支筆。 */
