@@ -287,7 +287,6 @@ function _findSignalAtTime(barTime) {
 // 點擊訊號棒 toggle 顯示盈虧比盒；回傳是否成功 toggle
 function _toggleAutoRR(barTime) {
   // S1~S12 訊號一鍵隱藏時：點擊訊號棒不展開盈虧比盒（與主圖 marker / hover 一致）
-  if ((typeof _wrSignalsHidden !== "undefined") && _wrSignalsHidden) return false;
   const sig = _findSignalAtTime(barTime);
   if (!sig) return false;
   const key = sig.t;  // 用進場棒時間當 key
@@ -466,7 +465,6 @@ function _renderAutoRRBoxes(W, H) {
     if (box) drawOne(box, W, H, false, false);
   }
   // S1~S12 訊號一鍵隱藏時：釘選/hover 的盈虧比盒都不畫（與主圖 marker 一致）
-  if ((typeof _wrSignalsHidden !== "undefined") && _wrSignalsHidden) return;
   for (const t of _autoRRSet) {
     const sig = _lastWRSignals && _lastWRSignals.find(s => s.t === t);
     if (!sig) continue;
@@ -650,11 +648,8 @@ const _WR_SKIP_GROUPS = [
   [() => _wrLsOn("coachOverlay", window._coachOn), ["smc_sweep", "smc_struct", "smc_ob", "smc_sr", "channel"]],
   [() => _wrLsOn("vwapOverlay",  window._vwapOn),  ["vwap"]],
   [() => window._pdOn === true,                    ["pd_ranges"]],   // 關鍵高低沒有持久化，本來就每次重開都是關的
-  // 訊號標記：回應裡第二大的一塊（SS 系列已於 2026-08-05 移除，此路徑保留給未來的訊號）
-  //   —— 實測不送它 gzip 607KB → 493KB（省 19%）。
-  // ⚠ 與上面幾個不同：這個**預設是顯示的**（_wrSignalsHidden 預設 false），
-  //   所以只有主動按下「隱藏訊號標記」的人才會省到。不為了省流量改預設。
-  [() => localStorage.getItem("wrSignalsHidden") !== "1", ["signals"]],
+  // 2026-08-05 移除 signals 的跳過條件：一鍵隱藏鈕已刪，條件永遠成立（＝一律要），
+  // 留著只是雜訊。要再省這 19%（gzip 607KB→493KB）得先有新的開關。
 ];
 function _wrSkipList() {
   const out = [];
@@ -1676,9 +1671,7 @@ function _updateHoverWR(time) {
   if (time === _lastHoverBarTime) return;   // 同一根棒不重算（避免 60Hz 重繪）
   _lastHoverBarTime = time;
   const idx = _buildSigTimeIndex();
-  // S1~S12 訊號一鍵隱藏時（topbar #wrSignalsToggleBtn）：hover 也不顯示勝率/RR 盒，與主圖 marker 一致
-  const sigHidden = (typeof _wrSignalsHidden !== "undefined") && _wrSignalsHidden;
-  let sigs = (!sigHidden && time != null && idx.has(time)) ? idx.get(time) : [];
+  let sigs = (time != null && idx.has(time)) ? idx.get(time) : [];   // 一鍵隱藏鈕已於 2026-08-05 移除
   // 雙擊隱藏 過濾（與主圖 marker 一致）
   const hidden = window._hiddenWrSigs;
   if (sigs.length && hidden && hidden.size) {

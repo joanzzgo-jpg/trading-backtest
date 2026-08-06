@@ -464,8 +464,8 @@ function _scheduleMarkerRewindow() {
   _markerWinTimer = setTimeout(() => _applyMainMarkers(true), 100);   // 平移：只重切視窗，不重建/重排
 }
 
-// S1~S12 訊號標記一鍵開關（topbar 按鈕 #wrSignalsToggleBtn）；true=隱藏
-let _wrSignalsHidden = (() => { try { return localStorage.getItem("wrSignalsHidden") === "1"; } catch (e) { return false; } })();
+// 2026-08-05 移除「S1~S12 訊號標記一鍵隱藏」（_wrSignalsHidden / #wrSignalsToggleBtn）：
+// S1~S12 與 SS 系列都已刪除，開關控制的東西不存在了 → 標記固定顯示。
 
 // 合併+排序後的全部標記快取：只在「資料/圖層開關變動」時重建；平移只重切視窗時沿用，
 // 省掉每次平移都 concat 五陣列 + 整列 sort（上千筆時很貴）。
@@ -511,7 +511,7 @@ function _applyMainMarkers(windowOnly) {
 function _applyMainMarkersNow(windowOnly) {
   if (!windowOnly || !_sortedMarkerCache) {
     _sortedMarkerCache = [
-      ...(_wrSignalsHidden ? [] : lastWRSignalMarkers),
+      ...lastWRSignalMarkers,
       ...(window._fvgTradesHidden ? [] : lastFVGTradeMarkers),
       ...((window._fvgBBHidden || window._fvgBBHideD) ? [] : lastFVGBBMarkers),
       ...((window._fvgBBHidden || window._fvgBBHideA) ? [] : lastFVGBBMarkersA),
@@ -555,34 +555,12 @@ window.toggleDimCounterTrend = function (on) {
   return window._dimCounterTrendOn;
 };
 
-// 頂部「S1~S12 訊號標記」一鍵開關按鈕
-function initWRSignalsToggle() {
-  const btn = document.getElementById("wrSignalsToggleBtn");
-  if (!btn) return;
-  const _sync = () => {
-    btn.classList.toggle("active", _wrSignalsHidden);   // active = 目前隱藏中
-    const st = document.getElementById("mSetWrSigState");
-    if (st) st.textContent = _wrSignalsHidden ? "隱藏" : "顯示";
-    const row = document.getElementById("mSetWrSig");
-    if (row) row.classList.toggle("m-set-on", !_wrSignalsHidden);   // 顯示中＝高亮(開)
-  };
-  _sync();
-  btn.addEventListener("click", () => {
-    _wrSignalsHidden = !_wrSignalsHidden;
-    try { localStorage.setItem("wrSignalsHidden", _wrSignalsHidden ? "1" : "0"); } catch (e) {}
-    _sync();
-    _applyMainMarkers();
-    // 從「隱藏」切回「顯示」時，手上那份勝率回應可能是**沒帶 signals** 的（見 winrate.js
-    // 的 _WR_SKIP_GROUPS：隱藏時不向後端要，省 gzip 後 114KB）→ 缺就自動補抓一次，
-    // 否則按了顯示卻什麼都沒出現。
-    if (typeof window._wrRefetchIfMissing === "function") window._wrRefetchIfMissing();
-    // 切換瞬間若正 hover 某根棒，清掉已展開的 hover 勝率/RR 盒（否則殘留到下次移動才更新）
-    if (typeof _updateHoverWR === "function") _updateHoverWR(null);
-  });
+/* 2026-08-05 移除 initWRSignalsToggle()（頂部「S1~S12 訊號標記」一鍵開關）。
+   S1~S12 與 SS 都已刪除，按鈕、手機設定列(#mSetWrSig)、localStorage "wrSignalsHidden"
+   與 winrate.js 的 signals 跳過群組一併清掉。
+   ⚠ window._wrSigSeries 仍被 winrate.js 讀取（標記系列過濾，現固定 "all"）→ 保留設值。 */
+window._wrSigSeries = "all";
 
-  // 主圖標記系列循環鈕（全/S/SS）已退役：S1~S12 標記已移除，固定顯示全部（剩 SS）。
-  window._wrSigSeries = "all";
-}
 
 // 成交量棒透明度(hex)：天氣模式(sky-show)強制不透明，否則用使用者 volAlpha。
 //   原因：主圖背景透明讓天氣透出後，半透明量條會被後面持續動的天氣動畫透出→「最新棒一閃一閃/跳」。

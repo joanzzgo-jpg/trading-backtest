@@ -445,15 +445,8 @@
         <path d="M2.6 10 H7.8"/><path d="M2.6 12.6 H10.6"/>
       </svg>
     </button>
-    <!-- S1~S12 標記已退役，全/S/SS 過濾鈕隱藏 -->
-    <button id="wrSigSeriesBtn" class="tb-icon-btn tb-icon-btn-txt" style="display:none">全</button>
-    <button id="wrSignalsToggleBtn" class="tb-icon-btn" title="一鍵隱藏/顯示主圖上 S1–S12 訊號標記">
-      <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
-        <path d="M8 1.5 L10.6 6.5 L8 4.9 L5.4 6.5 Z" fill="currentColor"/>
-        <path d="M8 14.5 L5.4 9.5 L8 11.1 L10.6 9.5 Z" fill="currentColor" opacity="0.6"/>
-        <circle cx="8" cy="8" r="1.3" fill="currentColor" opacity="0.85"/>
-      </svg>
-    </button>
+    <!-- 2026-08-05 移除：S1~S12 訊號標記的「一鍵隱藏」鈕與已退役的全/S/SS 過濾鈕。
+         S1~S12 與 SS 系列都已刪除，這兩顆按鈕控制的東西不存在了。 -->
     <button id="sessionToggleBtn" class="tb-icon-btn" title="交易時段標記（台股/歐洲/美盤 高低範圍 + 星期）">
       <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
         <circle cx="5.6" cy="7" r="3.6" stroke="currentColor" stroke-width="1.3" opacity="0.5"/>
@@ -1308,10 +1301,6 @@
     <button class="m-set-row" id="mSetSession" onclick="event.stopPropagation();document.getElementById('sessionToggleBtn')?.click();">
       <span class="m-set-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" filter="url(#mSketch)"><circle cx="8.4" cy="10.5" r="5" opacity="0.5"/><circle cx="15.6" cy="10.5" r="5" opacity="0.75"/><circle cx="12" cy="14.5" r="5"/></svg></span>
       <span class="m-set-lbl">交易時段標記<small id="mSetSessionState">開啟</small></span><span class="m-set-arr">›</span>
-    </button>
-    <button class="m-set-row" id="mSetWrSig" onclick="event.stopPropagation();document.getElementById('wrSignalsToggleBtn')?.click();">
-      <span class="m-set-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" filter="url(#mSketch)"><path d="M12 3.5 L15.5 9.5 L12 7.3 L8.5 9.5 Z"/><path d="M12 20.5 L8.5 14.5 L12 16.7 L15.5 14.5 Z" opacity="0.55"/><circle cx="12" cy="12" r="1.6"/></svg></span>
-      <span class="m-set-lbl">S1–S12 訊號標記<small id="mSetWrSigState">顯示</small></span><span class="m-set-arr">›</span>
     </button>
     <button class="m-set-row m-set-on" id="mSetWrBar" onclick="event.stopPropagation();window._toggleWrBar&&window._toggleWrBar();">
       <span class="m-set-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" filter="url(#mSketch)"><rect x="3.5" y="5" width="17" height="6" rx="1.6"/><path d="M6.2 8 H13.8"/><path d="M4 15.5 H20 M4 19 H14"/></svg></span>
