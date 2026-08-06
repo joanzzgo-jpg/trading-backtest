@@ -122,7 +122,14 @@ function _applyChartBgGradient(color) {
        （已用像素驗證：換背景色時漲跌柱像素數與純色皆一模一樣）。
      ⚠ 絕不可改成在上層蓋一片半透明黑：那才會把 K 棒與繪圖一起壓暗。
      WX_DIM 就是濾鏡濃度：要更暗調高、要天氣更清楚調低。 */
-  const WX_DIM = 30;   // %：天氣模式下主圖底色的不透明度（0=全透明→天氣最亮，100=完全遮住天氣）
+  /* WX_DIM = 天氣模式下「使用者選色」的不透明度（0=全透明→天氣最亮，100=完全遮住天氣）。
+     ★ 2026-08-05 定案於 70：這是三個互相拉扯的要求唯一能同時成立的設定 ——
+       ・天氣看得到（使用者：「我的天氣直接消失了」）→ 不能是 100
+       ・主圖與周圍看不出交界（使用者：「不應該讓我看出他們的界線」）→ 兩邊必須用**同一條公式**
+         （所以 topbar/標的列/合約行情也提到 z-index:2 並套同一個 veil，而不是讓天氣疊在它們上面）
+       ・主圖顏色要接近選色（使用者：「疊加會讓主圖更暗」）→ 不能太低，30 太透
+     要更貼近選色就調高、要天氣更明顯就調低；兩邊會一起變，交界不會因此跑掉。 */
+  const WX_DIM = 70;
   const veil = `color-mix(in srgb, ${base} ${WX_DIM}%, transparent)`;
   /* ★ 2026-08-05 濾鏡升級（使用者：「暗的濾鏡可以更好嗎」）。
      單靠色膜是「加法」蓋色：整片一起洗灰，太陽那種爆亮處壓不下來、原本就暗的地方
@@ -153,7 +160,7 @@ function _applyChartBgGradient(color) {
      代價：主圖後方看不到 3D 天氣場景（天氣改由主圖周圍那圈面板呈現，見下方 chrome 區塊）。
      要把天氣找回來：把這裡改回 `seeThru ? veil : base`（veil = base@WX_DIM%）。
      ⚠ 磁磚模式(tiles)仍用 veil：那是「小熊牆紙」，使用者要看得到牆紙與金熊脈衝。 */
-  pane.style.background = tiles ? veil : base;
+  pane.style.background = seeThru ? veil : base;
   /* ⚠ backdrop-filter 只給**天氣**模式，磁磚(小熊牆紙)不套。
      那層乘法壓暗是為了「爆亮的天空」設計的；小熊牆紙本來就是暗底，再壓 38% 會把
      牆紙與金熊脈衝一起壓掉 → 使用者回報「小熊磁磚的發亮太暗了」。
@@ -201,9 +208,9 @@ function _applyChartBgGradient(color) {
          ⚠ 代價（已明確告知使用者）：天氣背景在這個組合下**整個看不到**
            —— 版面被主圖與這三塊完全覆蓋，天氣層在它們底下。
            要讓天氣回來，就得接受交界看得出來（把這裡改回 veil、主圖改回 seeThru ? veil : base）。 */
-      el.style.removeProperty("background");
+      el.style.setProperty("background", veil, "important");
       el.style.setProperty("position", "relative");
-      el.style.setProperty("z-index", "2");
+      el.style.setProperty("z-index", "2");   // 提到 #weatherStage(z:1) 之上：改由 veil 決定透出量
       el.style.backdropFilter = ""; el.style.webkitBackdropFilter = "";
     } else {
       el.style.removeProperty("background");
@@ -215,7 +222,7 @@ function _applyChartBgGradient(color) {
     const el = document.getElementById(id); if (!el) return;
     // 非天氣：透明 → 吃 container 的主圖色（副圖＝主圖的一部分，同色）
     // 天氣：跟主圖一樣上那層暗色濾鏡，否則副圖會比主圖亮一截
-    el.style.background = tiles ? veil : "transparent";   // 同主圖：天氣模式不再合成天氣進來
+    el.style.background = seeThru ? veil : "transparent";   // 與主圖同一條 veil
     el.style.backdropFilter = ""; el.style.webkitBackdropFilter = "";
   });
 }
