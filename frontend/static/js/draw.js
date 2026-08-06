@@ -799,13 +799,41 @@ function initDrawTools() {
     }
   });
 
-  // ── 觸控支援（手機繪圖）──
+  /* ── 觸控支援（手機繪圖）──
+     ★ 2026-08-06 手機改成「長按才抓得動繪圖」（使用者：「手機版主圖上的繪製內容太容易誤觸，
+       螢幕小不好調整」）。原本 touchstart 直接呼叫 _onChartMouseDown → 手指落點 12px 內
+       有繪圖就**立刻**進入拖曳；但手指接觸面積遠大於 12px，於是在繪圖附近平移圖表
+       十之八九會抓到線。
+     作法：手指按住不動 _TOUCH_HOLD_MS 才進入拖曳；期間移動超過 _TOUCH_SLOP px 就取消
+       （＝使用者是要平移圖表，照常交給 LWC）。判定半徑同時放寬到 _TOUCH_HIT px，
+       長按之後反而更好抓 —— 「不易誤觸」與「好調整」是同一個改動的兩面。
+     ⚠ 只影響觸控；桌面滑鼠仍是按下即拖（滑鼠是精準輸入，不需要這道關卡）。 */
+  const _TOUCH_HOLD_MS = 380;   // 長按門檻
+  const _TOUCH_SLOP    = 10;    // 這個距離內都算「按住不動」
+  const _TOUCH_HIT     = 22;    // 觸控的判定半徑（比滑鼠的 12 寬）
+  let _holdTimer = null, _holdFrom = null;
+  const _cancelHold = () => { if (_holdTimer) { clearTimeout(_holdTimer); _holdTimer = null; } _holdFrom = null; };
+
   chartEl.addEventListener("touchstart", e => {
     const touch = e.touches[0]; if (!touch) return;
-    const fake = { clientX: touch.clientX, clientY: touch.clientY, button: 0 };
+    /* ⚠ 一定要補 stopPropagation／preventDefault：_onChartMouseDown 進入拖曳時會呼叫
+       e.stopPropagation() 擋掉 LWC 平移。假事件物件沒有這兩個方法就會拋
+       TypeError，而且是在 `dragState = {...}` **之前**拋 → 手機從來就拖不動繪圖
+       （既有 bug，touchend 那個假物件早就補了、touchstart 這個沒有）。 */
+    const fake = { clientX: touch.clientX, clientY: touch.clientY, button: 0,
+                   stopPropagation: () => {}, preventDefault: () => {} };
     if (drawTool === "pointer") {
-      // pointer 模式：可拖移既有繪圖
-      _onChartMouseDown(fake);
+      _cancelHold();
+      const { x, y } = _canvasXY(fake);
+      const near = findNearest(x, y, _TOUCH_HIT);
+      if (!near || near.locked) return;         // 附近沒東西（或已鎖定）→ 完全不攔，LWC 正常平移
+      _holdFrom = { x: touch.clientX, y: touch.clientY };
+      _holdTimer = setTimeout(() => {
+        _holdTimer = null;
+        // 長按成立 → 這時才真的進入拖曳（_onChartMouseDown 內會 stopPropagation 擋掉 LWC 平移）
+        _onChartMouseDown(fake);
+        _scheduleRenderDrawings();
+      }, _TOUCH_HOLD_MS);
       return;
     }
     if (drawTool === "crosshair") return;
@@ -815,7 +843,11 @@ function initDrawTools() {
 
   chartEl.addEventListener("touchmove", e => {
     const touch = e.touches[0]; if (!touch) return;
-    const fake = { clientX: touch.clientX, clientY: touch.clientY };
+    const fake = { clientX: touch.clientX, clientY: touch.clientY,
+                   stopPropagation: () => {}, preventDefault: () => {} };   // 同上：補齊方法
+    // 長按還沒成立就先滑動 → 使用者是要平移圖表，取消長按（不要抓線）
+    if (_holdTimer && _holdFrom &&
+        Math.hypot(touch.clientX - _holdFrom.x, touch.clientY - _holdFrom.y) > _TOUCH_SLOP) _cancelHold();
     if (_vpDrag)   { e.preventDefault(); _onChartMouseMove(fake); return; }
     if (dragState) { e.preventDefault(); _onChartMouseMove(fake); return; }
     if (drawTool === "crosshair") return;
@@ -825,14 +857,18 @@ function initDrawTools() {
 
   chartEl.addEventListener("touchend", e => {
     const touch = e.changedTouches[0]; if (!touch) return;
-    const fake = { clientX: touch.clientX, clientY: touch.clientY, stopPropagation: () => {} };
+    const _wasHold = !!_holdTimer;   // 長按尚未成立就放開 ＝ 這是一次「輕點」
+    _cancelHold();
+    const fake = { clientX: touch.clientX, clientY: touch.clientY,
+                   stopPropagation: () => {}, preventDefault: () => {} };
     if (_vpDrag)   { _onChartMouseUp(); return; }
     if (dragState) { _onChartMouseUp(); return; }
     if (drawTool === "pointer") {
       // 點擊選取繪圖，帶出顏色選擇器
       const { x, y } = _canvasXY(fake);
-      const near = findNearest(x, y, _magnetMode ? 20 : 12);
-      if (near) {
+      const near = findNearest(x, y, _TOUCH_HIT);
+      // ⚠ 只有「長按未成立的輕點」才開色盤：長按已進入拖曳的那次放手不該又跳色盤。
+      if (near && _wasHold) {
         e.preventDefault(); e.stopPropagation();
         selectedId = near.id;
         showDrawColorPicker(near, touch.clientX, touch.clientY);
