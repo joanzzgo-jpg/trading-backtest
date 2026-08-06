@@ -544,11 +544,22 @@ function initColorPicker() {
     currentInput.dispatchEvent(new Event("input", { bubbles: true }));
   }
 
+  /* ★ 2026-08-05「不透明度的選擇要被記住」：三個開啟入口原本都寫死 opSlider.value = 100，
+     重開色盤就把存好的 alpha 丟掉；接著使用者只要動任何一項，applyColor() 就以 100% 寫回去
+     → 已選的不透明度被無聲清掉。改成從存起來的 8 位 #RRGGBBAA 反推百分比。
+     ⚠ 真值在 `input._cpColor`（帶 alpha），`input.value` 是給原生 color input 用的 6 位版，
+       所以要先讀 _cpColor。⚠ currentHex 仍取 substring(0,7)，否則 hexAlpha() 會再接一次 alpha。 */
+  function _alphaPct(v) {
+    const m = /^#?[0-9a-f]{6}([0-9a-f]{2})$/i.exec(String(v || ""));
+    return m ? Math.round(parseInt(m[1], 16) / 255 * 100) : 100;
+  }
+  function _setOp(pct) { opSlider.value = pct; opNum.value = pct; }
+
   function show(input, triggerEl) {
     if (currentInput && currentInput !== input) closePicker();
     currentInput = input;
     currentHex   = (input.value || "#ffffff").substring(0, 7);
-    opSlider.value = 100; opNum.value = 100;
+    _setOp(_alphaPct(input._cpColor || input.value));
     opSlider.style.background = `linear-gradient(to right, transparent, ${currentHex})`;
     // 標記已選色塊
     if (currentSwatch) currentSwatch.classList.remove("selected");
@@ -632,6 +643,7 @@ function initColorPicker() {
         _activeSecIdx = i;
         tabRow.querySelectorAll(".cp-tab-btn").forEach((b, j) => b.classList.toggle("active", j === i));
         currentHex = (sections[i].currentColor || "#ffffff").substring(0, 7);
+        _setOp(_alphaPct(sections[i].currentColor));   // 切分頁也要跟著還原該項的不透明度
         opSlider.style.background = `linear-gradient(to right, transparent, ${currentHex})`;
         popup.querySelectorAll(".cp-swatch").forEach(sw =>
           sw.classList.toggle("selected", sw.dataset.color.toLowerCase() === currentHex.toLowerCase()));
@@ -640,7 +652,7 @@ function initColorPicker() {
     });
 
     currentHex = (sections[0].currentColor || "#ffffff").substring(0, 7);
-    opSlider.value = 100; opNum.value = 100;
+    _setOp(_alphaPct(sections[0].currentColor));
     opSlider.style.background = `linear-gradient(to right, transparent, ${currentHex})`;
     if (currentSwatch) currentSwatch.classList.remove("selected");
     currentSwatch = null;

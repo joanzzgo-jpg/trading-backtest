@@ -387,7 +387,10 @@ function bindLegendColors() {
     dot.style.cursor = "pointer";
     dot.addEventListener("click", e => {
       e.stopPropagation();   // 不要觸發 leg-toggle 的顯隱切換
-      const cur = (C[key] || "#888").substring(0, 7);
+      // ⚠ 2026-08-05：這裡**不可**再 substring(0,7)。色盤要靠 currentColor 的 8 位 #RRGGBBAA
+      //   還原「不透明度」滑桿；砍掉 alpha 就永遠顯示 100%，使用者一動就把選好的不透明度覆蓋掉
+      //   （使用者：「不透明度的選擇要被記住」）。色盤內部自己會 substring(0,7) 取色相。
+      const cur = (C[key] || "#888");
       showLegColorPopup(e.clientX, e.clientY, [{
         label: null,
         currentColor: cur,
@@ -498,7 +501,7 @@ function bindIndicatorPanel() {
           e.stopPropagation();
           showLegColorPopup(e.clientX, e.clientY, [{
             label: null,
-            currentColor: (C[key]||"#888").substring(0,7),
+            currentColor: (C[key]||"#888"),   // 同上：保留 alpha
             apply: c => { dot.style.background = c; C[key] = c; applyAllColors(); savePrefs(); }
           }]);
         });
@@ -521,7 +524,7 @@ function bindIndicatorPanel() {
           e.stopPropagation();
           showLegColorPopup(e.clientX, e.clientY, [{
             label: null,
-            currentColor: (C[key]||"#888").substring(0,7),
+            currentColor: (C[key]||"#888"),   // 同上：保留 alpha
             apply: c => { dot.style.background = c; C[key] = c; row.onColor?.(); savePrefs(); }
           }]);
         });
@@ -561,7 +564,7 @@ function bindIndicatorPanel() {
         e.stopPropagation();
         showLegColorPopup(e.clientX, e.clientY, [{
           label: null,
-          currentColor: (C[row.colorKey] || "#888").substring(0, 7),
+          currentColor: (C[row.colorKey] || "#888"),   // 保留 alpha：色盤要用它還原不透明度滑桿
           apply: c => {
             dot.style.background = c;
             C[row.colorKey] = c;
@@ -1149,7 +1152,7 @@ function bindSystemColors() {
     sw.addEventListener("click", e => {
       e.stopPropagation();
       const id  = sw.dataset.sc;
-      const cur = (SC[id] || "#888").slice(0, 7);
+      const cur = (SC[id] || "#888");   // 同上：保留 alpha（色塊顯示才用 slice(0,7)）
       showLegColorPopup(e.clientX, e.clientY, [{
         label: null,
         currentColor: cur,

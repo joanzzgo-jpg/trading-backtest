@@ -569,6 +569,12 @@
       <svg width="15" height="15" viewBox="0 0 15 15"><path d="M2.5 3.5h10M7.5 3.5v9" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
     </button>
     <span class="sqd-sep"></span>
+    <!-- 回到上一步（2026-08-05 使用者要求）：與左側工具島的 #btnDrawUndo 同一個動作與同一份
+         disabled 狀態（draw.js _undoBtnSync/繫結都改成同時處理兩顆）。 -->
+    <button class="sqd-btn" id="btnDrawUndo2" title="復原上一步繪圖（畫錯／誤拖／誤刪都可退回；Ctrl／⌘+Z）" disabled>
+      <svg width="15" height="15" viewBox="0 0 15 15"><path d="M5.6 2.6 L2.2 6 L5.6 9.4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M2.2 6 H9.3 A3.6 3.6 0 0 1 9.3 13.2 H5.2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+    </button>
+    <span class="sqd-sep"></span>
     <!-- 時框畫筆顏色：與左側工具島的色框同一份狀態（draw.js _syncDrawColorChip 會同時更新兩處） -->
     <button class="sqd-color" id="btnDrawColor2" title="繪圖顏色：目前時框的預選色。點擊可更改（會記住成這個時框的偏好）">
       <span class="sqd-swatch" id="dtcSwatch2"></span>

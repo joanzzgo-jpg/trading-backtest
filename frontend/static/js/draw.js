@@ -302,8 +302,12 @@ let _drawSaveWarned = false;   // 儲存失敗提示去重（見 saveDrawings）
 let _undoStack = [];
 let _undoBase  = "[]";   // 最後一次已儲存狀態(JSON)＝下一次變動的「變動前」
 function _undoBtnSync() {
-  const b = document.getElementById("btnDrawUndo");
-  if (b) b.disabled = !_undoStack.length;
+  // 兩顆：左側工具島 #btnDrawUndo、上方快捷列 #btnDrawUndo2（2026-08-05 新增）。
+  // ⚠ 新增第三處入口時要一併加進來，否則會出現「有的能按有的不能按」。
+  const on = !_undoStack.length;
+  ["btnDrawUndo", "btnDrawUndo2"].forEach(id => {
+    const b = document.getElementById(id); if (b) b.disabled = on;
+  });
 }
 function _drawUndo() {
   if (!_undoStack.length) return;
@@ -780,7 +784,8 @@ function initDrawTools() {
   window.addEventListener("mouseup", _onChartMouseUp);
 
   // 繪圖復原：工具列返回鍵 + Ctrl/⌘+Z（打字中不攔；Shift+Z=redo 不支援、放行）
-  document.getElementById("btnDrawUndo")?.addEventListener("click", _drawUndo);
+  ["btnDrawUndo", "btnDrawUndo2"].forEach(id =>
+    document.getElementById(id)?.addEventListener("click", _drawUndo));
   document.addEventListener("keydown", e => {
     if ((e.metaKey || e.ctrlKey) && !e.shiftKey && (e.key === "z" || e.key === "Z")) {
       const a = document.activeElement;
