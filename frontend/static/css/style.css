@@ -7690,13 +7690,14 @@ select:focus-visible {
    四態：saved=已儲存至雲端／syncing=同步中／offline=離線（存在本機，連上會自動補傳）／
         local=沒登入帳號的本機模式。用點＋文字，不搶勝率數字的視覺重量。 */
 .tb-wr-sync {
-  font-size: 11px;
-  margin-left: 9px;
+  font-size: 10.5px;
+  margin-left: 8px;
   white-space: nowrap;
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  opacity: .85;
+  opacity: .34;                                  /* 預設淡；實際由 data-state 覆寫 */
+  transition: opacity .25s ease, color .25s ease;
 }
 .tb-wr-sync::before {
   content: "";
@@ -7704,10 +7705,14 @@ select:focus-visible {
   background: currentColor;
   flex-shrink: 0;
 }
-.tb-wr-sync[data-state="saved"]   { color: #4CC38A; }
-.tb-wr-sync[data-state="syncing"] { color: #E0A85A; }
-.tb-wr-sync[data-state="offline"] { color: #E07474; }
-.tb-wr-sync[data-state="local"]   { color: var(--muted, #787b86); opacity: .6; }
+/* ★ 2026-08-05 使用者：「文字淡化顯示，除非沒儲存或有異狀才更亮」
+   → 正常態（已儲存／本機）幾乎隱形；只有「還沒存上去」或「出狀況」才跳出來。
+   ⚠ 別把 saved 調亮：一切正常時它不該吸引注意力，那正是使用者要的。 */
+.tb-wr-sync[data-state="saved"]   { color: var(--muted, #787b86); opacity: .34; }
+.tb-wr-sync[data-state="local"]   { color: var(--muted, #787b86); opacity: .28; }
+.tb-wr-sync[data-state="syncing"] { color: #FFC062; opacity: .95; font-weight: 600; }
+.tb-wr-sync[data-state="offline"] { color: #FF8A8A; opacity: 1; font-weight: 700;
+                                    text-shadow: 0 0 6px rgba(255,110,110,.35); }
 .tb-wr-sync[data-state="syncing"]::before { animation: tbSyncPulse 1s ease-in-out infinite; }
 @keyframes tbSyncPulse { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
 html.perf-mode .tb-wr-sync[data-state="local"] { color: #8B8B8B; }

@@ -145,6 +145,8 @@ async function _acctLogout() {
 const _SYNC_TXT = { local: "本機模式", syncing: "同步中…", saved: "已儲存至雲端", offline: "離線中（未上傳）" };
 let _acctSyncState = null;
 function _acctSetSyncState(st) {
+  if (st == null) st = _acctSyncState;      // 無參數＝重套目前狀態（勝率列重繪後補掛用）
+  if (st == null) return;
   _acctSyncState = st;
   const el = document.getElementById("acctSyncState");
   if (!el) return;                       // 手機/極簡版面可能沒有這個節點

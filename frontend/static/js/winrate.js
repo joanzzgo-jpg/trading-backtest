@@ -1784,6 +1784,16 @@ function _renderWrTop3() {
   // 「連敗機率」按鈕已移除；改為「上方勝率列」收合按鈕（▾=展開中可點收起；▸=已收起可點展開）
   const label = _ssCollapsed ? "勝率 ▸" : "勝率 ▾";
   root.innerHTML = `<span class="wr-streak-wrap"><button class="wr-streak-btn${_ssCollapsed ? "" : " on"}" onclick="_toggleSSCollapse()" title="收起／展開上方整條勝率列">${label}</button></span>`;
+  /* 雲端同步狀態掛在「勝率 ▾」鈕右邊（2026-08-05 使用者指定位置）。
+     ⚠ 上一行是 innerHTML 整個重寫 → 每次重繪都會把它清掉，所以這裡要把節點搬回來
+       （appendChild 對既有節點＝移動，不會複製），再請 account.js 重套一次目前狀態。 */
+  let _sy = document.getElementById("acctSyncState");
+  if (!_sy) {
+    _sy = document.createElement("span");
+    _sy.id = "acctSyncState"; _sy.className = "tb-wr-sync"; _sy.title = "帳號雲端同步狀態";
+  }
+  root.appendChild(_sy);
+  try { window._acctSetSyncState && window._acctSetSyncState(); } catch (e) {}
 }
 
 /* ══════════════════════════════════════════

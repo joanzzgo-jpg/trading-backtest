@@ -2872,7 +2872,7 @@
     x.drawImage(_bearImg, 0, 0);                        // 先畫熊
     x.globalCompositeOperation = "source-in";          // 只在熊的不透明像素上著色
     const lg = x.createLinearGradient(0, 0, 0, gc.height);
-    lg.addColorStop(0, "#FFE79A"); lg.addColorStop(0.5, "#FFD24A"); lg.addColorStop(1, "#F2A93B");  // 亮金漸層
+    lg.addColorStop(0, "#FFF3C4"); lg.addColorStop(0.5, "#FFDE6B"); lg.addColorStop(1, "#FFBB4D");  // 亮金漸層（2026-08-05 再提亮一階）
     x.fillStyle = lg; x.fillRect(0, 0, gc.width, gc.height);
     _bearGold = gc;
   }
@@ -2931,7 +2931,7 @@
       const glow = Math.sin(k * Math.PI);                                         // 0→1→0 鐘形脈衝
       const r = _bearRot[(f.cy % _GRID) * _GRID + (f.cx % _GRID)] || 0;
       g.save();
-      g.globalAlpha = 0.85 * glow;
+      g.globalAlpha = 1.0 * glow;    // 2026-08-05 使用者「發亮太暗」→ 0.85→1.0（另已停用磁磚模式的 backdrop 壓暗）
       g.translate(f.cx * ts + ts / 2, f.cy * ts + ts / 2);
       g.rotate(r * Math.PI / 2);
       const s = 1 + 0.18 * glow;                                                  // 略放大增強亮感

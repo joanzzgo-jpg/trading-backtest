@@ -148,9 +148,18 @@ function _applyChartBgGradient(color) {
      那些混接的用意是讓主圖與系統背景看不出邊界 —— 但使用者要的正好相反：
      「主圖背景要跟系統外觀的主背景色**不同**」「合約行情跟主圖中間不要用漸層」「上下漸層也拿掉」。
      邊界分明 = 一律 base 純色。⚠ 別再加回任何 var(--bg) 混接層。 */
-  pane.style.background = seeThru ? veil : base;
-  // 非天氣時底色本來就不透明，backdrop-filter 沒有意義（且會多開一層合成）→ 清掉
-  const _bd = seeThru ? wxFilter : "";
+  /* ★ 2026-08-05 使用者：「疊加會讓主圖更暗，不要主背景疊加在主圖上」。
+     → 主圖 pane 一律**不透明純色** = 使用者選的色本身，天氣不再從 K 棒後方合成進來。
+     代價：主圖後方看不到 3D 天氣場景（天氣改由主圖周圍那圈面板呈現，見下方 chrome 區塊）。
+     要把天氣找回來：把這裡改回 `seeThru ? veil : base`（veil = base@WX_DIM%）。
+     ⚠ 磁磚模式(tiles)仍用 veil：那是「小熊牆紙」，使用者要看得到牆紙與金熊脈衝。 */
+  pane.style.background = tiles ? veil : base;
+  /* ⚠ backdrop-filter 只給**天氣**模式，磁磚(小熊牆紙)不套。
+     那層乘法壓暗是為了「爆亮的天空」設計的；小熊牆紙本來就是暗底，再壓 38% 會把
+     牆紙與金熊脈衝一起壓掉 → 使用者回報「小熊磁磚的發亮太暗了」。
+     磁磚模式只保留半透明色膜(veil)，讓使用者選的主圖色仍看得到即可。
+     非天氣也不用（底色本來就不透明，套了只是多開一層合成）。 */
+  const _bd = "";   // 主圖不再套壓暗濾鏡（沒有天氣合成進來就沒有要壓的東西）
   pane.style.backdropFilter = _bd;
   pane.style.webkitBackdropFilter = _bd;
   // 天氣 accent 仍寫進 CSS 變數（側欄等元件用）；指標區(KDJ/RSI/MACD)不再隨天氣染色(濾鏡已移除)。
@@ -169,13 +178,35 @@ function _applyChartBgGradient(color) {
       cc.style.setProperty("background", "transparent", "important");
     else if (!show) cc.style.background = base;   // 天氣模式留空 → 吃 CSS 的 var(--bg)
   }
+  /* ★ 2026-08-05「主圖跟主背景比顏色不同，是被疊加嗎」「我都點同一顏色」→ 是，而且方向相反：
+     #weatherStage(z:1) 疊在 topbar/標的列/合約行情**上面**把它們染亮，而 .charts-container(z:2)
+     在天氣層之上、主圖只吃自己那層半透明底 → 同一個選色兩邊composite 結果不同。
+     先前把周圍提到天氣層之上雖然色調一致，但天氣整個不見（使用者：「背景直接消失了」）。
+     改成**對稱**：周圍也提上去，但背景換成與主圖 pane 一模一樣的 veil ＋ 同一個 backdrop-filter
+     → 兩邊的合成公式完全相同（base@WX_DIM% 疊在被同樣壓暗的天氣上）＝色調一致，
+       而且天氣仍從半透明處透出來、不會消失。
+     ⚠ 一定要用 setProperty(..., "important")：style.css 約 4880 行那組 .topbar/.symbol-bar/
+       .ticker-panel 是 !important 漸層，一般行內樣式壓不過（先前就是被它騙過一次）。
+     ⚠ 只在天氣模式做；非天氣時交回 CSS（那時四塊本來就都等於 var(--bg)，已實測一致）。 */
+  ["topbar", "symbol-bar", "ticker-panel"].forEach(cls => {
+    const el = document.querySelector("." + cls); if (!el) return;
+    if (show) {
+      el.style.setProperty("background", veil, "important");
+      el.style.setProperty("position", "relative");
+      el.style.setProperty("z-index", "2");            // 提到 #weatherStage(z:1) 之上，改由 veil 控制透出量
+      el.style.backdropFilter = wxFilter; el.style.webkitBackdropFilter = wxFilter;
+    } else {
+      el.style.removeProperty("background");
+      el.style.removeProperty("z-index");
+      el.style.backdropFilter = ""; el.style.webkitBackdropFilter = "";
+    }
+  });
   ["kdjPane", "rsiPane", "macdPane"].forEach(id => {
     const el = document.getElementById(id); if (!el) return;
     // 非天氣：透明 → 吃 container 的主圖色（副圖＝主圖的一部分，同色）
     // 天氣：跟主圖一樣上那層暗色濾鏡，否則副圖會比主圖亮一截
-    el.style.background = seeThru ? veil : "transparent";
-    const _b = seeThru ? wxFilter : "";
-    el.style.backdropFilter = _b; el.style.webkitBackdropFilter = _b;
+    el.style.background = tiles ? veil : "transparent";   // 同主圖：天氣模式不再合成天氣進來
+    el.style.backdropFilter = ""; el.style.webkitBackdropFilter = "";
   });
 }
 
