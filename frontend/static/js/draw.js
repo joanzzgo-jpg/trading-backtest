@@ -3197,7 +3197,12 @@ function drawOne(d, W, H, isHovered, isSelected) {
     if (!a || !b) { drawCtx.restore(); return; }
     const rx = Math.min(a.x, b.x), ry = Math.min(a.y, b.y), rw = Math.abs(b.x - a.x), rh = Math.abs(b.y - a.y);
     drawCtx.save(); drawCtx.globalAlpha *= 0.12; drawCtx.fillStyle = d.color || _drawColor; drawCtx.fillRect(rx, ry, rw, rh); drawCtx.restore();   // 半透明底
-    drawCtx.strokeRect(rx, ry, rw, rh);                                       // 邊框(承 strokeStyle/lineWidth)
+    /* ★ 2026-08-06 平時不畫邊框（使用者：「矩形不要有邊框，會擋到 K 棒」）。
+       只留半透明底標示範圍，K 棒完全看得見。
+       ⚠ 但 hover/選取時要畫回來：矩形的可抓區域**就是邊框**（中間抓不到，
+         這點 2026-08-03 已踩過 —— 拖矩形中心完全不動、只有邊框 8px 內抓得到），
+         完全沒有邊框的話使用者不知道要拖哪裡。 */
+    if (isSelected || isHovered) drawCtx.strokeRect(rx, ry, rw, rh);          // 邊框(承 strokeStyle/lineWidth)
     drawCtx.shadowBlur = 0;
     // 中線(0.5 高度)水平虛線：一眼看出方框的中間價位
     drawCtx.save();
