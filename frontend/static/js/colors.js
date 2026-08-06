@@ -3,7 +3,26 @@
 ══════════════════════════════════════════ */
 // 將任意色強制轉為深色版本（保留色相＋飽和度，壓低亮度到 ~8% L）
 // 這樣 picker 顯示原色，但實際套到圖表是低亮度版（保證天氣動畫看得見）
+/* 把選色拆成「6 位 hex」＋「alpha(0~1)」。
+   ★ 2026-08-05：色盤有「不透明度」滑桿（hexAlpha 產生 8 位 #RRGGBBAA），
+     而下面 _darkenForChart 舊的正規表達式只吃 6 位 → 8 位直接原樣回傳、
+     **壓暗整個失效**，底墊也跟著變半透明 → body 的 var(--bg) 從後面透上來
+     ＝使用者回報「改不透明度有問題」「好像也會變成全部都改」。 */
+function _splitAlpha(hex) {
+  const m8 = String(hex || "").match(/^#?([a-f\d]{6})([a-f\d]{2})$/i);
+  if (m8) return { hex6: "#" + m8[1], a: parseInt(m8[2], 16) / 255 };
+  const m6 = String(hex || "").match(/^#?([a-f\d]{6})$/i);
+  if (m6) return { hex6: "#" + m6[1], a: 1 };
+  return { hex6: null, a: 1 };
+}
+
 function _darkenForChart(hex) {
+  // 帶 alpha 的選色：拆掉 alpha 只壓暗 RGB，最後原樣接回去（保留使用者選的不透明度）
+  const _sp = _splitAlpha(hex);
+  if (_sp.hex6 && _sp.a < 1) {
+    const d = _darkenForChart(_sp.hex6);
+    return d + Math.round(_sp.a * 255).toString(16).padStart(2, "0");
+  }
   const m = String(hex || "").match(/^#?([a-f\d]{6})$/i);
   if (!m) return hex;
   let r = parseInt(m[1].slice(0,2), 16) / 255;
@@ -96,7 +115,12 @@ function _applyChartBgGradient(color) {
   const dark = _darkenForChart(color);
   // ⚠ 主圖天氣色帶濾鏡依使用者要求「移除」：主圖背景一律純色不透明漸層、不隨天氣染色 →
   //   漸層/「系統背景↔主圖色」混接保留、K 棒清晰不被天氣染。天氣 accent 仍寫進 CSS 變數供側欄用。
-  const base = dark;   // 不透明純色（不再 color-mix 透明 → 不被後方天氣透染）
+  /* ★ base 一律取**不透明**版：它同時是 #chartUnderlay（擋住 body 系統色的地板）與
+     非天氣時的主圖底色。這兩處只要有一點透明，系統色就會透上來（見 _splitAlpha 註解）。
+     使用者選的不透明度改為乘進 veil（＝控制「天氣/牆紙透出多少」），語意才對。 */
+  const _baseSp = _splitAlpha(dark);
+  const base    = _baseSp.hex6 || dark;   // 不透明純色
+  const userA   = _baseSp.a;              // 使用者在色盤拉的不透明度（0~1）
   // 天氣聯動色：中央色帶混入當前天氣 accent（上/下兩色 → 雙色斜向漸層），
   // 雨天透藍灰、晴天透暖金、夜透靛紫…看盤瞄一眼底色就知道外面天氣
   const _WX_ACCENT = {
@@ -131,7 +155,7 @@ function _applyChartBgGradient(color) {
        ・主圖顏色要接近選色（使用者：「疊加會讓主圖更暗」）→ 不能太低，30 太透
      要更貼近選色就調高、要天氣更明顯就調低；兩邊會一起變，交界不會因此跑掉。 */
   const WX_DIM = 70;
-  const veil = `color-mix(in srgb, ${base} ${WX_DIM}%, transparent)`;
+  const veil = `color-mix(in srgb, ${base} ${Math.round(WX_DIM * userA)}%, transparent)`;
   /* ⚠ 2026-08-05 使用者：「主背景控制跟主圖控制混在一起了」「變成都同色」——
      周圍面板(topbar/標的列/合約行情)先前套的是 veil，而 veil 是用 base（＝**主圖**選色）算的
      → 改主圖色會連帶改掉周圍，兩個色盤黏在一起。
