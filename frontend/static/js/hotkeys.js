@@ -65,7 +65,7 @@
 
   const ROWS = [
     ["1 – 0", "切換時間框架（依上方按鈕順序，0＝最後一個）"],
-    ["[  ]", "上一個／下一個時間框架"],
+    ["[  ]　← →", "上一個／下一個時間框架（重播中 ← → 改為逐根前進/後退）"],
     ["/", "開啟標的搜尋"],
     ["R", "重播模式"],
     ["Cmd/Ctrl + Z", "復原繪圖"],
@@ -112,6 +112,15 @@
     if (e.key === "0")                { e.preventDefault(); _gotoTf(tfBtns().length - 1); return; }
     if (e.key === "[")                { e.preventDefault(); _stepTf(-1); return; }
     if (e.key === "]")                { e.preventDefault(); _stepTf(1);  return; }
+    /* ★ 2026-08-06 左右鍵也切時框（使用者要求）。方向與畫面一致：上方那排是
+       1M 1W 1D 4H 2H 1H 30m 15m 5m 1m（左＝大、右＝小）→ 按右就往右移＝切到更小的時框。
+       ⚠ 重播模式下左右鍵是「逐根前進/後退」（ui.js 已註冊），那時不能搶。 */
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      if (typeof replayActive !== "undefined" && replayActive) return;
+      e.preventDefault();
+      _stepTf(e.key === "ArrowRight" ? 1 : -1);
+      return;
+    }
     if (e.key === "/")                { e.preventDefault(); if (typeof openSymSearch === "function") openSymSearch(); return; }
     if (e.key === "r" || e.key === "R") {
       e.preventDefault();
