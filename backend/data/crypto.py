@@ -1139,6 +1139,11 @@ def _fetch_pionex_tickers(market: str = "futures") -> list:
         return []
 
 
+# Binance 永續行情的「上一份好資料」＋可沿用的秒數（見 fetch_tickers 內註解）
+_LAST_FUT_TICKERS = {"data": [], "ts": 0.0}
+_TK_STALE_OK = 90.0
+
+
 def fetch_tickers(market: str = "futures") -> list:
     """24h 行情。**改以 Binance 為主**（Pionex 用 Binance 流動性、價格一致、限流寬鬆），
     過濾成 Pionex 有的標的；Binance 失敗才退回 Pionex。
@@ -1151,8 +1156,20 @@ def fetch_tickers(market: str = "futures") -> list:
         tickers = _apply_perp_filter(_fetch_futures_tickers_fapi())
         if tickers:
             tickers.sort(key=lambda x: x["change_pct"], reverse=True)
+            _LAST_FUT_TICKERS["data"] = tickers
+            _LAST_FUT_TICKERS["ts"] = time.time()
             return tickers
-        return _fetch_pionex_tickers("futures")   # Binance 失敗才退回 Pionex
+        # ★ 2026-08-06 Binance 這次失敗 → **先沿用上一份 Binance 快照**，不要立刻整份換成 Pionex。
+        #   原因：使用者回報「合約行情即時價格對不上我正在看的標的」。實測抓到現場——
+        #   同一輪觀測裡報價列的 symbol 從 BTCUSDT(Binance) 變成 BTC_USDT_PERP(Pionex)，
+        #   不但價格偏掉，還**卡住不動**（9 秒同一個數字，主圖卻在跳）。
+        #   Binance 每秒被打一次，偶發失敗很常見；一次失敗就整列換源＝價格跳一下再凍住。
+        #   與 fetch_crypto_ohlcv 的「降級來源防污染」同一個原則：寧可短暫沿用上一份同源資料，
+        #   也不要把兩個交易所的價格混在同一份清單裡。
+        #   ⚠ 上限 _TK_STALE_OK 秒：真的長時間中斷還是要退 Pionex（有東西看 > 完全停住）。
+        if _LAST_FUT_TICKERS["data"] and (time.time() - _LAST_FUT_TICKERS["ts"]) <= _TK_STALE_OK:
+            return _LAST_FUT_TICKERS["data"]
+        return _fetch_pionex_tickers("futures")   # 真的久到不行才退回 Pionex
     # 現貨：Binance 現貨過濾成 Pionex 現貨。Pionex 現貨清單暫抓不到時，退用永續清單
     # （有硬編碼備援）當過濾代理，避免 spot 空白；都不打 Pionex tickers 以免 429。
     psyms = _fetch_pionex_symbols() or _fetch_pionex_perp_symbols()
