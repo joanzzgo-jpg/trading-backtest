@@ -228,7 +228,7 @@ async function _acctPullWatch(name, snapData, clearIfEmpty) {
    （內容相同 → _refreshDrawingsIfStale 會自己判定沒變、不重繪）。 */
 let _acctSeenTs = 0;
 
-async function _acctPullDrawings(name) {
+async function _acctPullDrawings(name, _bootPull) {
   if (name) {
     try {
       const r = await _acctApi("pull", { name });
@@ -243,16 +243,25 @@ async function _acctPullDrawings(name) {
              ⚠ 只搬白名單這幾個「使用者設定」key，不整包套用：整包會連 acctName/裝置本地
                狀態一起蓋（_ACCT_SKIP 存在的理由），也會把手機/桌面各自獨立的那份互相汙染。
                手機/桌面各自的 _m 變體都在清單裡、各平台讀自己那份，不衝突。 */
-          const PULL_KEYS = ["tv_drawings_v2",
-                             "chartColors", "chartStyles", "chartLineStyles",
-                             "chartColors_m", "chartStyles_m", "chartLineStyles_m",
-                             "sysColors", "mobileTFs",
-                             // 每個時框的畫筆預選色（使用者：「每個時區的線條色也要記」）
-                             "drawColorByTf",
-                             // 繪圖工具列的顯示開關（交易時段/週框/量能分佈…），一起帶著走比較不突兀
-                             "sessionOverlay", "weekBox", "vpProfile", "myTradesOn"];
-          let colorsChanged = false, sysChanged = false, tfPenChanged = false;
-          for (const k of PULL_KEYS) {
+          /* ★ 2026-08-06 由「白名單下行」改成「黑名單下行」。
+             原本每漏一項就補一次白名單（繪圖 → 顏色 → 線寬 → 時框畫筆色…），
+             稽核後發現還有 43 個 key 是「有上傳但已登入的裝置收不到」。
+             根因是兩邊不對稱：上行是 `除了 _ACCT_SKIP 全上傳`，下行卻是白名單。
+             改成同一套邏輯 —— **上去的就會下來**，以後不用再逐項補。
+             _PULL_SKIP＝不上傳的那幾個（本來就不會有）＋「裝置自己的狀態」
+             （使用者 2026-08-06 明確選擇不跨裝置：極簡模式、手機字級/版面、面板比例、
+              多圖版面、公告已讀、搜尋紀錄、加速器、上次看的標的）。 */
+          const _PULL_SKIP = new Set([..._ACCT_SKIP,
+            "perfMode", "mFontScale", "mHideWr", "mLastTab",
+            "paneFlexes", "collapsedPanes", "multiChart",
+            "announceSeenVer", "symSearchHistory", "accelOn", "lastSymbol"]);
+          // 這幾項我們有辦法「當場重讀重套」，其餘只能靠重新載入才會反映到畫面
+          const _LIVE = new Set(["tv_drawings_v2", "sysColors", "drawColorByTf",
+                                 "chartColors", "chartStyles", "chartLineStyles",
+                                 "chartColors_m", "chartStyles_m", "chartLineStyles_m"]);
+          let colorsChanged = false, sysChanged = false, tfPenChanged = false, needReload = false;
+          for (const k in r.data) {
+            if (_PULL_SKIP.has(k)) continue;
             const remote = r.data[k];
             if (typeof remote !== "string") continue;
             let local = null;
@@ -262,6 +271,20 @@ async function _acctPullDrawings(name) {
             if (k === "sysColors") sysChanged = true;
             else if (k === "drawColorByTf") tfPenChanged = true;
             else if (k.startsWith("chart")) colorsChanged = true;
+            if (!_LIVE.has(k)) needReload = true;   // 例：hiddenLegs / notifyPrefs / 勝率欄設定…
+          }
+          /* 寫進 localStorage 只是第一步：記憶體裡的狀態是各模組更早載入時讀的。
+             顏色那幾項有重讀函式（下面處理）；其餘 30 幾項沒有 → 沿用登入時的做法重新載入一次。
+             ⚠ 只在**開機**這條路重載（切回前景時重載太擾人，那時就讓它下次開啟才生效）。
+             ⚠ 用 sessionStorage 上鎖防迴圈；正常情況下重載後兩邊已相同、不會再觸發。 */
+          if (needReload && _bootPull) {
+            let done = false;
+            try { done = sessionStorage.getItem("_acctBootReloaded") === "1"; } catch (e) {}
+            if (!done) {
+              try { sessionStorage.setItem("_acctBootReloaded", "1"); } catch (e) {}
+              setTimeout(() => location.reload(), 60);
+              return;
+            }
           }
           // 寫進 localStorage 還不夠：記憶體裡的 C/S/SC 是更早載入時讀的，要重讀+重套才會反映在畫面上
           if (sysChanged) {
@@ -397,7 +420,7 @@ async function initAccount() {
   window.addEventListener("online",  () => { if (_ACCT.name) _acctFlush(); });
 
   if (_ACCT.name) {
-    _acctPullDrawings(_ACCT.name);
+    _acctPullDrawings(_ACCT.name, true);   // true＝開機那一次（需要時可重載套用）
     _acctPullWatch(_ACCT.name, null, false).then(() => {
       if (typeof window._acctReloadWatch === "function") window._acctReloadWatch();
     });
