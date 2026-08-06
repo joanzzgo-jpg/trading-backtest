@@ -15,7 +15,11 @@ let _acctLSHooked = false;
 // （快照 last-write-wins 會被別台舊快照蓋掉、換裝置帶不到）。
 // watchlist=自選改走伺服器寫穿表（/api/account/savewatch|mywatch）當唯一真相，不進整包快照
 // （快照 last-write-wins 會被別台舊快照蓋掉 → 多裝置自選不同步、換裝置帶不到，與 tradeKey 同理）。
-const _ACCT_SKIP = new Set(["acctName", "wxCoords", "notifyFeedSeen", "tradeKey", "watchlist"]);
+// _tc=行情快取（ticker.js 每 ~2 秒寫一次，含期貨+現貨全清單）。★2026-08-05 加入：
+//   它每 2 秒觸發一次 _acctTouch → 2.5s 的 debounce **永遠被重新計時**，_acctFlush 幾乎不會執行
+//   （＝開著頁面時整包雲端同步形同失效，只剩切到背景那次 flush）；而且它是純裝置本地的快取，
+//   推上雲端只是白白灌大快照。症狀：勝率欄的同步指示永遠停在「同步中…」。
+const _ACCT_SKIP = new Set(["acctName", "wxCoords", "notifyFeedSeen", "tradeKey", "watchlist", "_tc"]);
 // 每個帳號各自保存、切換帳號時要「乾淨換成該帳號的」設定 key：
 //   chartColors=K棒+指標顏色 / chartStyles=指標參數·線寬·樣式 / chartLineStyles=各線寬樣式 /
 //   sysColors=系統外觀色 / mobileTFs=手機顯示的時間框
@@ -114,6 +118,7 @@ async function _acctLogout() {
   const hadName = !!_ACCT.name;
   try { if (hadName) await _acctFlush(); } catch (e) {}     // 存檔（等它完成再清）
   _acctSaveSession(null);
+  _acctSetSyncState("local");                               // 登出 → 回本機模式（勝率欄右端指示）
   try {
     const toRemove = [];
     for (let i = 0; i < localStorage.length; i++) {
@@ -130,18 +135,47 @@ async function _acctLogout() {
   if (typeof window._landingShow === "function") window._landingShow();     // 登出 → 跳回封面頁
 }
 
+/* ── 雲端同步狀態指示（勝率欄右端 #acctSyncState，2026-08-05 使用者要求）──
+   四態：
+     local   沒登入帳號 → 純本機，不會跨裝置（灰）
+     syncing 有變更待推送 / 推送中（橘，圓點呼吸）
+     saved   已儲存至雲端（綠）
+     offline 推不上去（斷網或伺服器錯誤）→ 資料仍在本機，連上會自動補傳（紅）
+   ⚠ 只反映**上行**（本機→雲端）。下行是開機與切回前景各拉一次，不在這裡表示。 */
+const _SYNC_TXT = { local: "本機模式", syncing: "同步中…", saved: "已儲存至雲端", offline: "離線中（未上傳）" };
+let _acctSyncState = null;
+function _acctSetSyncState(st) {
+  _acctSyncState = st;
+  const el = document.getElementById("acctSyncState");
+  if (!el) return;                       // 手機/極簡版面可能沒有這個節點
+  el.dataset.state = st;
+  el.textContent = _SYNC_TXT[st] || "";
+  el.title = st === "offline"
+    ? "連不上伺服器：資料已存在這台裝置，恢復連線後會自動補傳"
+    : st === "local" ? "沒有登入帳號 → 設定與繪圖只留在這台裝置"
+    : st === "saved" ? "設定與繪圖已同步到雲端，換裝置登入同一帳號就看得到"
+    : "正在把變更推送到雲端…";
+}
+window._acctSetSyncState = _acctSetSyncState;
+
 // 自動同步：登入中、設定/自選變更 → debounce 推送整包
 window._acctTouch = function () {
   if (!_ACCT.name) return;
+  _acctSetSyncState("syncing");          // 有變更待推 → 立刻讓使用者看到「還沒存完」
   clearTimeout(_acctSyncTimer);
   _acctSyncTimer = setTimeout(_acctFlush, 2500);
 };
 async function _acctFlush() {
   if (!_ACCT.name) return;
+  _acctSetSyncState("syncing");
   try {
     await _acctApi("sync", { name: _ACCT.name, data: _acctSnapshot() });
+    _acctSetSyncState("saved");
   }
-  catch (e) { if (/查無|404/.test(e.message)) _acctSaveSession(null); }
+  catch (e) {
+    if (/查無|404/.test(e.message)) { _acctSaveSession(null); _acctSetSyncState("local"); }
+    else _acctSetSyncState("offline");   // 斷網/伺服器錯誤：資料還在本機，連上會補傳
+  }
 }
 
 // ── 自選寫穿（唯一真相，不進快照）──────────────────────────────
@@ -309,10 +343,32 @@ async function initAccount() {
   if (!_ACCT.enabled) {           // 後端未啟用 → 隱藏鎖（點門直接進場）、隱藏系統外觀帳號列
     lock?.style.setProperty("display", "none");
     _acctRenderSys();
+    _acctSetSyncState("local");     // 後端沒開帳號功能 → 一律本機模式
     return;
   }
   _initLandingLock();
   _acctRenderSys();
+
+  /* ★ 2026-08-05「同一個帳號，切裝置繪圖沒被帶走」。
+     根因：開機這條路只做 _acctLoadSession()（把帳號名稱從 localStorage 讀回來），
+     **從來不向雲端拉快照**。_acctPullDrawings / _acctPullWatch 原本只掛在
+     visibilitychange 的「切回前景」分支 → 在 B 裝置直接開啟頁面，看到的永遠是
+     B 自己 localStorage 裡的舊繪圖；要先把分頁切走再切回來才會下行（沒人會這樣操作）。
+     修法：已登入就在開機時補一次下行，與切回前景走完全相同的函式與參數。
+     ⚠ clearIfEmpty 用 false：雲端沒有時不要清掉本機（本機可能有還沒上傳的）。
+     ⚠ 上行不受影響：localStorage.setItem 的攔截器 + 2.5s debounce 照舊。 */
+  _acctSetSyncState(_ACCT.name ? (navigator.onLine === false ? "offline" : "saved") : "local");
+  // 斷線/回線：立刻反映，回線時把剛才沒推成功的補推上去
+  window.addEventListener("offline", () => { if (_ACCT.name) _acctSetSyncState("offline"); });
+  window.addEventListener("online",  () => { if (_ACCT.name) _acctFlush(); });
+
+  if (_ACCT.name) {
+    _acctPullDrawings(_ACCT.name);
+    _acctPullWatch(_ACCT.name, null, false).then(() => {
+      if (typeof window._acctReloadWatch === "function") window._acctReloadWatch();
+    });
+  }
+
   document.getElementById("sysLogoutBtn")?.addEventListener("click", e => { e.stopPropagation(); _acctLogout(); });
   document.getElementById("mSetLogoutBtn")?.addEventListener("click", e => { e.stopPropagation(); _acctLogout(); });
 

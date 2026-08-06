@@ -7685,3 +7685,33 @@ select:focus-visible {
   .chart-legend::-webkit-scrollbar { display: none; }
   .chart-legend > * { flex: 0 0 auto !important; white-space: nowrap !important; }
 }
+
+/* ═══ 雲端同步狀態（勝率欄右端，2026-08-05）═══
+   四態：saved=已儲存至雲端／syncing=同步中／offline=離線（存在本機，連上會自動補傳）／
+        local=沒登入帳號的本機模式。用點＋文字，不搶勝率數字的視覺重量。 */
+.tb-wr-sync {
+  font-size: 11px;
+  margin-left: 9px;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  opacity: .85;
+}
+.tb-wr-sync::before {
+  content: "";
+  width: 6px; height: 6px; border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+.tb-wr-sync[data-state="saved"]   { color: #4CC38A; }
+.tb-wr-sync[data-state="syncing"] { color: #E0A85A; }
+.tb-wr-sync[data-state="offline"] { color: #E07474; }
+.tb-wr-sync[data-state="local"]   { color: var(--muted, #787b86); opacity: .6; }
+.tb-wr-sync[data-state="syncing"]::before { animation: tbSyncPulse 1s ease-in-out infinite; }
+@keyframes tbSyncPulse { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
+html.perf-mode .tb-wr-sync[data-state="local"] { color: #8B8B8B; }
+/* 手機：勝率欄本來就擠，只留圓點不留字 */
+@media (max-width: 1180px) and (pointer: fine), (hover: none) and (pointer: coarse) {
+  .tb-wr-sync { font-size: 0; margin-left: 6px; gap: 0; }
+}
