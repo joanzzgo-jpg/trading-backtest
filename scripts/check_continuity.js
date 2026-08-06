@@ -49,15 +49,56 @@ const check = (name, ok, detail) => {
   await page.evaluate(`[...document.querySelectorAll(".tf-btn")].find(x=>x.dataset.tf==="1m")?.click()`);
   await sleep(14000);
 
+  /* ★ 2026-08-06 加入「價格連續」檢查。
+     原本只驗時間間隔（holes）—— 但使用者回報的「小跳空」是**時間連續、價格對不上**：
+     輪詢中斷時我們的最後一根停在未完成值，補載只 append 它之後的棒、不修它
+     → 那根與下一根的開盤價接不起來。時間軸完全連續，holes 永遠是 0，測不出來。
+     實測 300 根 1m：open[i] !== close[i-1] 的有 **0 根** → 對 crypto 可以用嚴格相等當斷言。
+     ⚠ 只掃尾段 120 根：深歷史的接縫多半是資料源本身（停機/上市），修不回來也不該讓守門員紅。 */
   const stat = () => page.evaluate(`(() => {
     const per = 60; let holes = 0;
     for (let i = 1; i < ohlcvData.length; i++)
       if (toTime(ohlcvData[i].time) - toTime(ohlcvData[i-1].time) > per * 1.5) holes++;
-    return { n: ohlcvData.length, last: String(ohlcvData[ohlcvData.length-1].time), holes };
+    /* 門檻＝單根振幅中位數的 15%。不能用「嚴格相等」：
+       實測全新載入時接縫恆為 0，但用按鈕切時框（走背景補載接合）後，尾段會出現
+       ~50% 的棒有 ≤0.1 的差 —— 那是浮點瘦身/接合的量化噪音（0.1/64874＝0.00015%），
+       肉眼不可見，拿它當失敗會讓守門員變成狼來了。
+       而真實的接縫是另一個量級：2026-08-04 那次實測 3.3 點（0.005%）。
+       以本次量到的中位振幅 17.9 為例 → 門檻 2.7：噪音 0.1 過、真實 3.3 不過，分得開。 */
+    const from = Math.max(1, ohlcvData.length - 120);
+    const _rng = [];
+    for (let i = from; i < ohlcvData.length; i++) _rng.push(Math.abs(+ohlcvData[i].high - +ohlcvData[i].low));
+    _rng.sort((a, b) => a - b);
+    const medRange = _rng[Math.floor(_rng.length / 2)] || 0;
+    const TH = Math.max(medRange * 0.15, 1e-9);
+    let seams = 0, maxSeam = 0, seamAt = null, noise = 0;
+    for (let i = from; i < ohlcvData.length; i++) {
+      const d = Math.abs(+ohlcvData[i].open - +ohlcvData[i-1].close);
+      if (d > maxSeam) { maxSeam = d; seamAt = String(ohlcvData[i].time); }
+      if (d > TH) seams++; else if (d > 0) noise++;
+    }
+    // 接縫附近三根的原始數值：判斷是「邊界那根沒被修正」還是「兩個資料源對不起來」的唯一依據
+    let around = null;
+    if (seamAt) {
+      const j = ohlcvData.findIndex(d => String(d.time) === seamAt);
+      // ⚠ 這段字串是塞在 page.evaluate(\`...\`) 的模板字串裡 → 內層不能再用反引號（會提前結束外層），
+      //   一律用字串串接。
+      if (j > 0) around = ohlcvData.slice(Math.max(0, j - 2), j + 2).map(function (d) {
+        return String(d.time).slice(11,16) + " O" + d.open + " H" + d.high + " L" + d.low + " C" + d.close;
+      });
+    }
+    return { n: ohlcvData.length, last: String(ohlcvData[ohlcvData.length-1].time), holes,
+             seams, maxSeam: +maxSeam.toFixed(4), seamAt, noise, around,
+             th: +TH.toFixed(3), medRange: +medRange.toFixed(2) };
   })()`);
+  const seamMsg = (s) => s.seams
+    ? `${s.seams} 處超過門檻，最大 ${s.maxSeam} @ ${s.seamAt}（門檻 ${s.th}＝中位振幅 ${s.medRange} 的 15%）`
+      + (s.around ? `\n        接縫附近：${s.around.join("　|　")}` : "")
+    : `尾段 120 根無可見接縫（最大 ${s.maxSeam} < 門檻 ${s.th}；另有 ${s.noise} 處量化噪音）`;
 
   const base = await stat();
   check("初始無破洞", base.holes === 0, `${base.n} 根，最後 ${base.last}`);
+  check("初始無價格接縫", base.seams === 0, seamMsg(base));
 
   // ① 中斷 4 分鐘（< 5 根週期）→ 舊版會留洞
   console.log("\n① 模擬輪詢中斷 4 分鐘（分頁凍結／休眠）…");
@@ -67,6 +108,7 @@ const check = (name, ok, detail) => {
   await sleep(25000);
   let s1 = await stat();
   check("中斷 4 分鐘後無破洞", s1.holes === 0, `${s1.n} 根，最後 ${s1.last}`);
+  check("中斷 4 分鐘後無價格接縫", s1.seams === 0, seamMsg(s1));
   check("有追上進度（不是凍住）", s1.n > base.n, `${base.n} → ${s1.n} 根`);
 
   // ② 中斷 8 分鐘（> 5 根週期）→ 舊版整個凍住不再前進
@@ -78,6 +120,7 @@ const check = (name, ok, detail) => {
   await sleep(30000);
   const s2 = await stat();
   check("中斷 8 分鐘後無破洞", s2.holes === 0, `${s2.n} 根，最後 ${s2.last}`);
+  check("中斷 8 分鐘後無價格接縫", s2.seams === 0, seamMsg(s2));
   check("有追上進度（舊版會完全不動）", s2.n > b2.n, `${b2.n} → ${s2.n} 根`);
 
   // ③ 歷史模式保護：把資料砍到兩年前，不可以把「現在」接上去

@@ -323,6 +323,18 @@ def diag_mem():
         return {"count": len(items), "max_size": c._max_size,
                 "df_total_mb": round(total, 1), "entries": ents}
 
+    def _crypto_source_status():
+        """Binance 熔斷剩餘秒數 + 最近一次抓取實際用的來源。"""
+        st = {"last_source": None, "binance_cooldown_left": 0.0}
+        try:
+            from data import crypto as _c
+            st["last_source"] = last_fetch_source()
+            cd = float(getattr(_c, "_BINANCE_COOLDOWN_UNTIL", 0.0) or 0.0)
+            st["binance_cooldown_left"] = round(max(0.0, cd - time.time()), 1)
+        except Exception as e:
+            st["error"] = str(e)[:120]
+        return st
+
     # Redis 共享層狀態（多 worker 報價共享用）：configured=有無設 REDIS_URL；ok=實際能否讀寫
     def _redis_status():
         st = {"configured": False, "ok": False, "roundtrip_ms": None}
@@ -348,6 +360,13 @@ def diag_mem():
         "data_cache": _report(data_cache),        # 深歷史 df + 勝率結果（32 條硬上限）
         "coach_cache": _report(coach_cache),      # 教練 df/結果（160 條；與上面分開才不會互相擠掉）
         "volatile_cache": _report(cache),    # ohlcv/報價/搜尋等（48 條）
+        # ★ 2026-08-06 加：crypto 資料源狀態。
+        #   查「K 棒有小跳空／策略標記怪」時第一個要看的東西 —— Binance 一旦熔斷就會降級到
+        #   Bybit/Pionex，兩者對同一根已收盤 K 棒的數值差幾點（實測整串偏移 3~6 點）。
+        #   每份快照**內部**都連續，但前端把「來源 A 的即時」與「來源 B 的補洞」拼起來，
+        #   接合處就是一道跳空。⚠ 這兩個值是 uvicorn 行程內的模組全域，
+        #   在另一個 python 行程裡 import 讀到的永遠是初始值 0（我踩過）→ 只能靠這支端點看。
+        "crypto_source": _crypto_source_status(),
     }
 
 

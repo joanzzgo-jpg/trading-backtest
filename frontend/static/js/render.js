@@ -1303,6 +1303,33 @@ async function _bgLoadNewerBars(scrollTriggered = false) {
       if (!json.data?.length || !guard() || myGen !== _bgLoadGen) break;
 
       const existingLatest = toTime(ohlcvData[ohlcvData.length - 1].time);
+      /* ★ 2026-08-06 邊界那根要用抓回來的權威值蓋掉 —— 不能只接它後面的。
+         輪詢中斷（休眠／背景分頁／斷線）時，我們的最後一根往往停在「中斷當下的未完成值」；
+         補載若只 append 它之後的棒，那根就永遠停在半路 → 與下一根的開盤價對不上，
+         就是使用者回報的「有時候還是要重新整理，K 棒才不會有小跳空」。
+         ⚠ 這種洞的**時間軸是連續的** → _checkContinuity（只驗時間間隔）永遠抓不到；
+           realtime.js 的 `t < lastT` 補正也搆不到（那只覆蓋 /api/latest 回的最後 3 根，
+           中斷若久於此，邊界那根早就不在回應裡了）。這是第三條路徑，要在這裡收。
+         ⚠ 不必額外發請求：start 用 toIso() 截到日界，回應本來就含這根。
+         ⚠ 也不用額外重畫：它就是 ohlcvData 最後一根，下面 concat 後會整張 _bgApplyChunk。 */
+      /* ⚠ 不能只校正**最後一根**：中斷時「還沒收到最終值」的往往不只一根。
+         實測（1m、中斷 4 分鐘）：只蓋最後一根之後，接縫從邊界後一格移到邊界那格
+         —— 因為它前一根也還停在半路。realtime 的 `t < lastT` 補正只覆蓋 /api/latest
+         回的最後 3 根，中斷期間那幾根根本沒機會被補到。
+         → 尾端 5 根只要在抓回來的資料裡有對應時間且值不同，一律用權威值蓋掉。
+         5 根是刻意的上限：realtime 只碰得到尾端，再往前的棒不可能是半路值，
+         全掃只會白花時間（而且會把使用者正在看的歷史段一起重寫）。 */
+      const _auth = new Map();
+      for (const b2 of json.data) _auth.set(toTime(b2.time), b2);
+      for (let k = ohlcvData.length - 1; k >= 0 && k >= ohlcvData.length - 5; k--) {
+        const _cur = ohlcvData[k];
+        const _a = _auth.get(toTime(_cur.time));
+        if (!_a) continue;
+        if (+_cur.open !== +_a.open || +_cur.high !== +_a.high
+            || +_cur.low !== +_a.low || +_cur.close !== +_a.close) {
+          ohlcvData[k] = { ..._cur, ..._a, _t: toTime(_cur.time) };
+        }
+      }
       let newBars = json.data.filter(b => toTime(b.time) > existingLatest);
       if (!newBars.length) { window._hasFwdGap = false; break; }   // 沒有更新的→已到現在
 
