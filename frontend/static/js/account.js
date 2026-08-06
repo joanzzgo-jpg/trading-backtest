@@ -236,11 +236,43 @@ async function _acctPullDrawings(name) {
         const ts = Number(r.updated_at || 0);
         if (ts !== _acctSeenTs) {
           _acctSeenTs = ts;
-          const remote = r.data.tv_drawings_v2;
-          if (typeof remote === "string") {
+          /* ★ 2026-08-05 使用者：「主背景色、線條配色等都要同步」。
+             這裡原本**只搬 tv_drawings_v2**，其餘 key 只有「登入那一刻」才隨快照套用 →
+             一台已經登入著的裝置，永遠看不到另一台後來改的顏色/線寬/系統外觀。
+             與繪圖是同一類 bug，補上同一組處理。
+             ⚠ 只搬白名單這幾個「使用者設定」key，不整包套用：整包會連 acctName/裝置本地
+               狀態一起蓋（_ACCT_SKIP 存在的理由），也會把手機/桌面各自獨立的那份互相汙染。
+               手機/桌面各自的 _m 變體都在清單裡、各平台讀自己那份，不衝突。 */
+          const PULL_KEYS = ["tv_drawings_v2",
+                             "chartColors", "chartStyles", "chartLineStyles",
+                             "chartColors_m", "chartStyles_m", "chartLineStyles_m",
+                             "sysColors", "mobileTFs",
+                             // 每個時框的畫筆預選色（使用者：「每個時區的線條色也要記」）
+                             "drawColorByTf",
+                             // 繪圖工具列的顯示開關（交易時段/週框/量能分佈…），一起帶著走比較不突兀
+                             "sessionOverlay", "weekBox", "vpProfile", "myTradesOn"];
+          let colorsChanged = false, sysChanged = false, tfPenChanged = false;
+          for (const k of PULL_KEYS) {
+            const remote = r.data[k];
+            if (typeof remote !== "string") continue;
             let local = null;
-            try { local = localStorage.getItem("tv_drawings_v2"); } catch (e) {}
-            if (remote !== local) { try { localStorage.setItem("tv_drawings_v2", remote); } catch (e) {} }
+            try { local = localStorage.getItem(k); } catch (e) {}
+            if (remote === local) continue;
+            try { localStorage.setItem(k, remote); } catch (e) {}
+            if (k === "sysColors") sysChanged = true;
+            else if (k === "drawColorByTf") tfPenChanged = true;
+            else if (k.startsWith("chart")) colorsChanged = true;
+          }
+          // 寫進 localStorage 還不夠：記憶體裡的 C/S/SC 是更早載入時讀的，要重讀+重套才會反映在畫面上
+          if (sysChanged) {
+            try { loadSystemColors(); applyAllSystemColors(); syncSysSwatches?.(); } catch (e) {}
+          }
+          if (colorsChanged) {
+            try { loadPrefs(); applyAllColors(); } catch (e) {}
+          }
+          // 時框畫筆色：draw.js 讀 localStorage 算出當前時框的預選色 → 重同步兩處色框
+          if (tfPenChanged) {
+            try { window._syncTfPenColors?.(); window._syncDrawColorChip?.(); } catch (e) {}
           }
         }
       }

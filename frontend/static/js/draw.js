@@ -96,6 +96,9 @@ function _syncTfPenColors() {
   } catch (e) {}
 }
 
+/* ⚠ 掛上 window：account.js 的跨裝置下行同步在把 drawColorByTf 從雲端寫回 localStorage 後，
+   要重算「當前時框的預選色」並更新左側工具島與上方快捷列兩處色框。
+   draw.js 是延遲載入、account.js 在 bundle 裡 → 只能靠 window 溝通。 */
 function _syncDrawColorChip() {
   // ⚠ 色框有兩處（左側工具島 + 開高低收量右側快捷列）→ 一起更新，否則會各說各話
   const tf = (typeof currentTF !== "undefined") ? currentTF : "";
@@ -109,6 +112,8 @@ function _syncDrawColorChip() {
   }
   _syncTfPenColors();      // 色框與時框列的色表永遠一起更新
 }
+window._syncTfPenColors = _syncTfPenColors;
+window._syncDrawColorChip = _syncDrawColorChip;
 /* 切時框後由 ui.js 呼叫：把畫筆換成該時框的顏色 */
 window._syncDrawColorForTf = function () {
   const tf = (typeof currentTF !== "undefined") ? currentTF : "";
