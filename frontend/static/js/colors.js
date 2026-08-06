@@ -160,13 +160,17 @@ function _applyChartBgGradient(color) {
        ・主圖顏色要接近選色（使用者：「疊加會讓主圖更暗」）→ 不能太低，30 太透
      要更貼近選色就調高、要天氣更明顯就調低；兩邊會一起變，交界不會因此跑掉。 */
   const WX_DIM = 70;
-  const veil = `color-mix(in srgb, ${base} ${Math.round(WX_DIM * userA)}%, transparent)`;
+  /* 小熊磁磚牆紙用**獨立**濃度：牆紙是使用者主動打開來看的裝飾，跟天氣（要壓暗才看得清 K 棒）
+     需求相反。共用 70% 會把牆紙蓋掉七成 → 使用者回報「背景小熊磁磚太暗了」。 */
+  const TILE_DIM = 32;
+  const DIM = tiles ? TILE_DIM : WX_DIM;
+  const veil = `color-mix(in srgb, ${base} ${Math.round(DIM * userA)}%, transparent)`;
   /* ⚠ 2026-08-05 使用者：「主背景控制跟主圖控制混在一起了」「變成都同色」——
      周圍面板(topbar/標的列/合約行情)先前套的是 veil，而 veil 是用 base（＝**主圖**選色）算的
      → 改主圖色會連帶改掉周圍，兩個色盤黏在一起。
      周圍要吃的是**系統外觀主背景** var(--bg)：用同一個 WX_DIM、同一種 color-mix 公式，
      只是換色源 → 兩邊選同色時結果仍完全相同（無縫），選不同色時各自獨立。 */
-  const chromeVeil = `color-mix(in srgb, var(--bg) ${WX_DIM}%, transparent)`;
+  const chromeVeil = `color-mix(in srgb, var(--bg) ${DIM}%, transparent)`;   // 與主圖同濃度，交界才不會現形
   /* ★ 2026-08-05 濾鏡升級（使用者：「暗的濾鏡可以更好嗎」）。
      單靠色膜是「加法」蓋色：整片一起洗灰，太陽那種爆亮處壓不下來、原本就暗的地方
      反而被墊亮，天氣的層次與顏色一起被磨平。

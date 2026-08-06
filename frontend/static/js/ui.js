@@ -1067,16 +1067,67 @@ function _initSubChartsToggle() {
 function applySystemColor(id, color) {
   const vars = SC_CSS_MAP[id];
   if (!vars) return;
-  // 主背景（sc-bg）強制變暗：任何 picker 色經 _darkenForChart 壓到接近黑
-  // 這樣天氣動畫、weather canvas 永遠有對比可見
+  // 主背景（sc-bg）仍過一次 _darkenForChart：2026-08-05 起它已不壓暗（見該函式註解），
+  // 保留呼叫是因為它也負責處理色盤的 8 位 #RRGGBBAA（帶不透明度的選色）。
   const applied = (id === "sc-bg" && typeof _darkenForChart === "function")
     ? _darkenForChart(color)
     : color;
   vars.forEach(v => document.documentElement.style.setProperty(v, applied));
   if (id === "sc-bg") document.body.style.background = applied;
 }
+
+/* ★ 2026-08-05 文字自動對比（配色優化）。
+   背景壓暗濾鏡移除後，使用者第一次真的可以把背景選成亮色 —— 但 --text/--muted/--border
+   是**固定的淺色**，選亮底就直接看不見字。實測對比度：
+     #1E222D → 文字 10.71:1 ✓ ／ #7A4A1F → 次要文字 1.76:1 ✗
+     #C8B89A → 1.31:1 ✗ ／ #FFFFFF → 1.48:1 ✗   （WCAG 內文門檻 4.5:1、次要 3:1）
+   格線早就會依背景明暗自動反轉（colors.js _applyAutoGrid），文字卻不會 → 這裡補上同一套邏輯。
+   ⚠ 只在使用者**沒有自己調過**文字色時才自動（＝仍是 SC_DEFAULTS）；一旦他手動選過就完全尊重，
+     不要覆蓋使用者的明確選擇。 */
+function _scRgb(c) {
+  const m = /^#?([0-9a-f]{6})/i.exec(String(c || ""));
+  if (m) return [parseInt(m[1].slice(0,2),16), parseInt(m[1].slice(2,4),16), parseInt(m[1].slice(4,6),16)];
+  const r = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(String(c || ""));
+  return r ? [+r[1], +r[2], +r[3]] : null;
+}
+// WCAG 相對亮度與對比度（別用 _lum：那是 0~255 的感知亮度，算不出 WCAG 比值）
+function _scRelLum(c) {
+  const p = _scRgb(c); if (!p) return 0;
+  const f = v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+  return 0.2126 * f(p[0]) + 0.7152 * f(p[1]) + 0.0722 * f(p[2]);
+}
+function _scContrast(a, b) {
+  const l1 = _scRelLum(a), l2 = _scRelLum(b);
+  const [hi, lo] = l1 > l2 ? [l1, l2] : [l2, l1];
+  return (hi + 0.05) / (lo + 0.05);
+}
+/* 從候選色裡挑「第一個達到 min 對比」的；都不到就回對比最高那個（盡力而為，不留最差解）。
+   候選同時給亮、暗兩個方向 → 中間調背景（如 #7A4A1F）也找得到出路。 */
+function _scPick(bg, cands, min) {
+  let best = cands[0], bestC = 0;
+  for (const c of cands) {
+    const k = _scContrast(bg, c);
+    if (k >= min) return c;
+    if (k > bestC) { bestC = k; best = c; }
+  }
+  return best;
+}
+const _SC_TEXT_CANDS  = ["#d1d4dc", "#1F2328", "#FFFFFF", "#0B0E12"];
+const _SC_MUTED_CANDS = ["#787b86", "#5B6270", "#A8AEBC", "#3E4450", "#C6CBD5"];
+function _autoTextContrast() {
+  const ds = document.documentElement.style;
+  const bg = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim();
+  if (!_scRgb(bg)) return;
+  const untouched = (k) => SC[k] === SC_DEFAULTS[k];
+  // 內文門檻 4.5:1、次要文字 3:1（WCAG AA）
+  if (untouched("sc-text"))  ds.setProperty("--text",  _scPick(bg, _SC_TEXT_CANDS,  4.5));
+  if (untouched("sc-muted")) ds.setProperty("--muted", _scPick(bg, _SC_MUTED_CANDS, 3.0));
+  if (untouched("sc-border"))
+    ds.setProperty("--border", _scRelLum(bg) >= 0.25 ? "rgba(0,0,0,0.16)" : SC_DEFAULTS["sc-border"]);
+}
 function applyAllSystemColors() {
   for (const [id, color] of Object.entries(SC)) applySystemColor(id, color);
+  _autoTextContrast();   // ⚠ 必須在最後：要讀已套用的 --bg 才判斷得出明暗
 }
 function saveSystemColors() {
   try { localStorage.setItem("sysColors", JSON.stringify(SC)); } catch {}
