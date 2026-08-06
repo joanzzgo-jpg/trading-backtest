@@ -1210,7 +1210,18 @@ function _onChartClick(e) {
      ⚠ 與雙點工具分開處理：雙點工具第二下就結束，path 要一直收點直到使用者說停。 */
   if (drawTool === "path") {
     if (!drawingWIP || drawingWIP.type !== "path") drawingWIP = { type: "path", pts: [pt] };
-    else drawingWIP.pts.push(pt);
+    else {
+      /* ★ 2026-08-05「路徑還是不能雙擊完成」：不要只靠 dblclick 事件收尾。
+         dblclick 在觸控裝置（iPad 雙擊）與「兩下間隔稍慢」時根本不會發出 → 路徑永遠結束不了。
+         改成看**位置**：這一點落在上一點 12px 內就當作收尾。
+         這同時把雙擊也一起修好了 —— 雙擊的第二下必然落在第一下附近，
+         不管瀏覽器有沒有真的派送 dblclick，都會走到這裡。原本的 dblclick 分支保留（先到先算）。 */
+      const prev = drawingWIP.pts[drawingWIP.pts.length - 1];
+      const px = _timeToX(prev.time), py = candleSeries?.priceToCoordinate(prev.price);
+      if (drawingWIP.pts.length >= 2 && px != null && py != null &&
+          Math.hypot(x - px, y - py) <= 12) { _finishPath(); return; }
+      drawingWIP.pts.push(pt);
+    }
     _scheduleRenderDrawings();
     return;
   }
