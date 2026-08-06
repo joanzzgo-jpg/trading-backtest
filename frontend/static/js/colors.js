@@ -25,7 +25,7 @@ function _darkenForChart(hex) {
   /* ★ 2026-08-05：暗色系濾鏡由「一律壓暗」改成「只封頂」。
      舊版 `Math.min(l_orig * 0.30, 0.18)` 是無條件縮放＋硬上限 → 連本來就很暗的選色
      也被再壓一次，色盤上看得出差別的顏色，上到圖上全變成一團差不多的深色。
-     現值 `Math.min(l_orig * 0.58, 0.21)`（08-05 調校紀錄：0.70/0.26 →『不夠暗』→ 0.45/0.16 →『太強』→ 取中）：縮放溫和很多、上限放寬，
+     現值 `Math.min(l_orig * 0.75, 0.28)`（08-05 調校紀錄：0.70/0.26『不夠暗』→ 0.45/0.16『太強』→ 0.58/0.21 → 使用者『濾鏡再調低』→ 0.75/0.28）：縮放溫和很多、上限放寬，
        → 仍是明確的暗色系看盤環境，但不同選色之間看得出差別（S 完全保留＝色相辨識度不變）。
      ⚠ 別回到 0.30/0.18 那組：壓太狠 → 所有選色殊途同歸，體感就是「主圖背景色改不了」。
      ⚠ ★ 這個濾鏡**只准做在背景色本身**（#mainPane / .charts-container 的 background，
@@ -33,7 +33,7 @@ function _darkenForChart(hex) {
        那會連 K 棒、標記、使用者畫的線一起壓暗。要調暗只調這裡的 L。
      ⚠ 順帶一提，真正讓顏色完全無效的是 style.css 那條 `.charts-container … !important`
        （已移除），不是這裡；查這類問題要先確認行內樣式有沒有被 !important 壓掉。 */
-  const L = Math.min(l_orig * 0.58, 0.21);
+  const L = Math.min(l_orig * 0.75, 0.28);
   const S = s;                             // S 完全保留（hue 區辨力 +++）
   const q = L < 0.5 ? L * (1 + S) : L + S - L * S;
   const p = 2 * L - q;
@@ -191,10 +191,20 @@ function _applyChartBgGradient(color) {
   ["topbar", "symbol-bar", "ticker-panel"].forEach(cls => {
     const el = document.querySelector("." + cls); if (!el) return;
     if (show) {
-      el.style.setProperty("background", veil, "important");
+      /* ★ 2026-08-05 使用者：「主圖跟主背景都選同一顏色，就不應該讓我看出他們的界線，
+         但目前還是能看到」。
+         前一版周圍是 veil(半透明)＋主圖是純色 → 兩邊合成公式不同，交界必然現形
+         （實測 --bg #472b12：主圖 #472b12、合約行情 #312112）。
+         「主圖不被疊加」＋「看不出界線」兩個要求放在一起，唯一解就是**周圍也不被疊加**：
+         提到 z-index:2（天氣層之上）且**不留任何行內背景** → 交回 CSS 的 var(--bg)/var(--bg2)
+         漸層，而 sc-bg 同時寫入這兩個變數 → 整片精確等於使用者選的色、與主圖無縫。
+         ⚠ 代價（已明確告知使用者）：天氣背景在這個組合下**整個看不到**
+           —— 版面被主圖與這三塊完全覆蓋，天氣層在它們底下。
+           要讓天氣回來，就得接受交界看得出來（把這裡改回 veil、主圖改回 seeThru ? veil : base）。 */
+      el.style.removeProperty("background");
       el.style.setProperty("position", "relative");
-      el.style.setProperty("z-index", "2");            // 提到 #weatherStage(z:1) 之上，改由 veil 控制透出量
-      el.style.backdropFilter = wxFilter; el.style.webkitBackdropFilter = wxFilter;
+      el.style.setProperty("z-index", "2");
+      el.style.backdropFilter = ""; el.style.webkitBackdropFilter = "";
     } else {
       el.style.removeProperty("background");
       el.style.removeProperty("z-index");

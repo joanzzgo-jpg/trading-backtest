@@ -7710,7 +7710,9 @@ select:focus-visible {
    ⚠ 別把 saved 調亮：一切正常時它不該吸引注意力，那正是使用者要的。 */
 .tb-wr-sync[data-state="saved"]   { color: var(--muted, #787b86); opacity: .34; }
 .tb-wr-sync[data-state="local"]   { color: var(--muted, #787b86); opacity: .28; }
-.tb-wr-sync[data-state="syncing"] { color: #FFC062; opacity: .95; font-weight: 600; }
+/* 2026-08-05 使用者追加：「同步中…也可以淡化」→ 它是正常流程的一部分，不算異狀。
+   只留下 offline（真的沒存上去）會亮起來。圓點仍呼吸，提供「有在動」的暗示但不搶眼。 */
+.tb-wr-sync[data-state="syncing"] { color: var(--muted, #787b86); opacity: .40; }
 .tb-wr-sync[data-state="offline"] { color: #FF8A8A; opacity: 1; font-weight: 700;
                                     text-shadow: 0 0 6px rgba(255,110,110,.35); }
 .tb-wr-sync[data-state="syncing"]::before { animation: tbSyncPulse 1s ease-in-out infinite; }
