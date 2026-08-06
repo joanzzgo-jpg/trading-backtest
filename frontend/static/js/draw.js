@@ -808,8 +808,10 @@ function initDrawTools() {
        （＝使用者是要平移圖表，照常交給 LWC）。判定半徑同時放寬到 _TOUCH_HIT px，
        長按之後反而更好抓 —— 「不易誤觸」與「好調整」是同一個改動的兩面。
      ⚠ 只影響觸控；桌面滑鼠仍是按下即拖（滑鼠是精準輸入，不需要這道關卡）。 */
-  const _TOUCH_HOLD_MS = 380;   // 長按門檻
-  const _TOUCH_SLOP    = 10;    // 這個距離內都算「按住不動」
+  /* 調校紀錄：380ms/10px 之後使用者仍回報「還是太容易動到繪圖」→ 調到 650ms/8px。
+     650ms 對「刻意要調整」不算久，但足以把「按著看盤／捲動前的短暫停頓」擋在外面。 */
+  const _TOUCH_HOLD_MS = 650;   // 長按門檻
+  const _TOUCH_SLOP    = 8;     // 超過這個位移就取消長按（＝使用者要平移）
   const _TOUCH_HIT     = 22;    // 觸控的判定半徑（比滑鼠的 12 寬）
   let _holdTimer = null, _holdFrom = null;
   const _cancelHold = () => { if (_holdTimer) { clearTimeout(_holdTimer); _holdTimer = null; } _holdFrom = null; };
@@ -825,6 +827,7 @@ function initDrawTools() {
     if (drawTool === "pointer") {
       _cancelHold();
       const { x, y } = _canvasXY(fake);
+      if (e.touches.length > 1) return;         // 多指（縮放）一律不進拖曳
       const near = findNearest(x, y, _TOUCH_HIT);
       if (!near || near.locked) return;         // 附近沒東西（或已鎖定）→ 完全不攔，LWC 正常平移
       _holdFrom = { x: touch.clientX, y: touch.clientY };
@@ -846,6 +849,7 @@ function initDrawTools() {
     const fake = { clientX: touch.clientX, clientY: touch.clientY,
                    stopPropagation: () => {}, preventDefault: () => {} };   // 同上：補齊方法
     // 長按還沒成立就先滑動 → 使用者是要平移圖表，取消長按（不要抓線）
+    if (e.touches.length > 1) _cancelHold();   // 中途變成多指 → 使用者要縮放，放棄長按
     if (_holdTimer && _holdFrom &&
         Math.hypot(touch.clientX - _holdFrom.x, touch.clientY - _holdFrom.y) > _TOUCH_SLOP) _cancelHold();
     if (_vpDrag)   { e.preventDefault(); _onChartMouseMove(fake); return; }
@@ -857,7 +861,6 @@ function initDrawTools() {
 
   chartEl.addEventListener("touchend", e => {
     const touch = e.changedTouches[0]; if (!touch) return;
-    const _wasHold = !!_holdTimer;   // 長按尚未成立就放開 ＝ 這是一次「輕點」
     _cancelHold();
     const fake = { clientX: touch.clientX, clientY: touch.clientY,
                    stopPropagation: () => {}, preventDefault: () => {} };
@@ -865,15 +868,11 @@ function initDrawTools() {
     if (dragState) { _onChartMouseUp(); return; }
     if (drawTool === "pointer") {
       // 點擊選取繪圖，帶出顏色選擇器
-      const { x, y } = _canvasXY(fake);
-      const near = findNearest(x, y, _TOUCH_HIT);
-      // ⚠ 只有「長按未成立的輕點」才開色盤：長按已進入拖曳的那次放手不該又跳色盤。
-      if (near && _wasHold) {
-        e.preventDefault(); e.stopPropagation();
-        selectedId = near.id;
-        showDrawColorPicker(near, touch.clientX, touch.clientY);
-        _scheduleRenderDrawings();
-      }
+      /* ★ 2026-08-06 手機不再跳色盤（使用者：「手機版設計成不支援調色板跳出好了，
+         只能移動線，所以我點到他最多只能移動」）。
+         小螢幕上「輕點就跳色盤」是誤觸的大宗：手指一碰到線就彈出面板擋住畫面。
+         改成輕點什麼都不做；要調整位置＝長按後拖曳（見 touchstart 的 _TOUCH_HOLD_MS）。
+         ⚠ 顏色仍可在桌面版或工具列的畫筆顏色改；這裡只是拿掉觸控的彈出入口。 */
       return;
     }
     if (drawTool === "crosshair") return;

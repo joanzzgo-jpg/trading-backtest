@@ -1347,9 +1347,20 @@ async function _bgLoadNewerBars(scrollTriggered = false) {
         const _cur = ohlcvData[k];
         const _a = _auth.get(toTime(_cur.time));
         if (!_a) continue;
-        if (+_cur.open !== +_a.open || +_cur.high !== +_a.high
-            || +_cur.low !== +_a.low || +_cur.close !== +_a.close) {
-          ohlcvData[k] = { ..._cur, ..._a, _t: toTime(_cur.time) };
+        /* ★ 2026-08-06 同源校正**不動 open**（使用者：「最新 K 棒會因為你的計算而動一下，
+           不能固定嗎？開盤價不是都固定位置嗎」）。
+           開盤價在該根開出來的那一刻就定了、之後不會變；這裡要補的是「中斷期間沒收到的
+           最終 high/low/close」。連 open 一起覆蓋只會因為浮點瘦身的量化差異讓整根跳一下。
+           ⚠ 例外：來源換手的整段重對齊（_srcDiff）要連 open 一起換 —— 那時整串數值都來自
+             另一份快照，只換一半反而製造接縫。 */
+        const _same = _srcDiff
+          ? (+_cur.open === +_a.open && +_cur.high === +_a.high && +_cur.low === +_a.low && +_cur.close === +_a.close)
+          : (+_cur.high === +_a.high && +_cur.low === +_a.low && +_cur.close === +_a.close);
+        if (!_same) {
+          ohlcvData[k] = _srcDiff
+            ? { ..._cur, ..._a, _t: toTime(_cur.time) }
+            : { ..._cur, high: _a.high, low: _a.low, close: _a.close,
+                volume: _a.volume != null ? _a.volume : _cur.volume, _t: toTime(_cur.time) };
         }
       }
       let newBars = json.data.filter(b => toTime(b.time) > existingLatest);

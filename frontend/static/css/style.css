@@ -6193,10 +6193,13 @@ body, button, input, select, textarea,
     box-shadow: none !important;
     overflow-x: hidden !important;
     padding-top: env(safe-area-inset-top, 0px) !important;  /* 避開 iOS 狀態列 */
-    /* 用主題主背景色系（--bg/--bg2 棕橘）+ 頂部一抹橘光，與設定頁／全站同款 */
+    /* 用主題主背景色系 + 頂部一抹橘光，與設定頁／全站同款。
+       ⚠ 2026-08-06 改吃 --bg2-solid/--bg-solid（去掉 alpha 的同色）：使用者若把系統主背景
+         選成半透明，這裡會整片透光 → 後面的圖表頁（標的列/時框鈕/開高低收）全部看得到。
+         這條的優先級(0,2,1)+!important 高過通用的 .ticker-panel 規則，所以要在這裡改。 */
     background:
       radial-gradient(130% 45% at 50% -6%, rgba(255,145,71,.10), transparent 60%),
-      linear-gradient(180deg, var(--bg2) 0%, var(--bg) 100%) !important;
+      linear-gradient(180deg, var(--bg2-solid, var(--bg2)) 0%, var(--bg-solid, var(--bg)) 100%) !important;
     /* 統一品牌圓體（橘子熊可愛風）*/
     font-family: "M PLUS Rounded 1c", -apple-system, "PingFang TC", system-ui, sans-serif !important;
   }
@@ -7737,4 +7740,18 @@ html.perf-mode .tb-wr-sync[data-state="local"] { color: #8B8B8B; }
 /* 手機：勝率欄本來就擠，只留圓點不留字 */
 @media (max-width: 1180px) and (pointer: fine), (hover: none) and (pointer: coarse) {
   .tb-wr-sync { font-size: 0; margin-left: 6px; gap: 0; }
+}
+
+/* ═══ 手機分頁面板：一律不透光（2026-08-06）═══
+   .m-settings / .m-signals / .ticker-panel 的背景本來是 rgba(0,0,0,0)，靠 var(--bg) 撐底。
+   使用者若把系統主背景選成半透明，這幾頁就會透出後面的**圖表頁**（標的列、時框鈕、
+   開高低收都看得到）。改吃 --bg-solid（同一個顏色、去掉 alpha）。
+   ⚠ 不會蓋掉自選頁的太陽系儀：那是 #weatherStage 的 fore 層，在該分頁 z-index 690
+     ＞ 面板的 650，畫在面板**上面**，與這裡的底色無關。 */
+/* ⚠ 斷點必須與 isMobileUI() 完全一致（含 orientation 條件）—— 我第一版漏了 orientation，
+   那會讓 iPad 橫放也套到手機規則。全站唯一準則見 utils.js isMobileUI()。 */
+@media (max-width: 1180px) and (pointer: fine),
+       (hover: none) and (pointer: coarse) and (orientation: portrait),
+       (hover: none) and (pointer: coarse) and (orientation: landscape) and (max-height: 599px) {
+  .m-settings, .m-signals, .ticker-panel { background: var(--bg-solid, var(--bg)) !important; }
 }

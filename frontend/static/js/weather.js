@@ -2973,9 +2973,23 @@
 
   /* ── main loop ── */
   let _offCleared = false;   // 「無」天氣時畫布已清空的旗標（見 draw/loop）
+  /* ★ 2026-08-06 封面永遠有天氣（使用者：「就算裡面選小熊磁磚，首頁也要保持天氣」）。
+     app 內選「無天氣＋小熊磁磚」是看盤用的設定；封面是門面，應該照樣是真實天氣。
+     _effType()：landing-active 時把 type 從 "off" 換成自動解析出來的真實天氣型態。
+     ⚠ 只在封面覆寫，進場後立刻回到使用者的選擇（type 本身完全沒被改動）。 */
+  function _onLanding() {
+    try { return document.documentElement.classList.contains("landing-active"); } catch (e) { return false; }
+  }
+  function _effType() {
+    if (type === "off" && _onLanding()) {
+      try { return _resolveAutoType() || "sunny"; } catch (e) { return "sunny"; }
+    }
+    return type;
+  }
   function draw(t) {
     // ★「無」天氣且沒開磁磚＝畫面上什麼都沒有 → 清一次就好，別每幀把 6 個全螢幕圖層再 clearRect
     //   一遍（DPR2 下那是好幾千萬像素/秒的純浪費）。搭配 loop() 的停轉,關掉天氣＝真的不算。
+    const type = _effType();          // ⚠ 遮蔽外層 type：以下整段都用「封面已換算過」的型態
     if (type === "off" && !_bearTilesOn) {
       if (!_offCleared) { _LAYER_DEFS.forEach(([name]) => _layers[name].ctx.clearRect(0,0,W,H)); _offCleared = true; }
       return;
@@ -2983,6 +2997,7 @@
     _offCleared = false;
     _LAYER_DEFS.forEach(([name]) => _layers[name].ctx.clearRect(0,0,W,H));
     // 「無」模式：磁磚開→鋪橘子熊牆紙；磁磚關→全黑（由 stage 黑底處理，畫布留空）
+    // ⚠ 封面不鋪磁磚（_effType 已把封面的 "off" 換成真實天氣，走不到這裡；這行是磁磚模式的一般情況）
     if (type === "off") { if (_bearTilesOn) _drawBearTiles(t); return; }
     _applyCamera();              // 3D 相機：平滑移動 perspective-origin（純 GPU 合成、不觸發重繪）
     _drawBackdrop(t);            // 亮麗天色底 + 雙色流動光暈（sky 最深層，最先畫）
@@ -3000,7 +3015,8 @@
   function loop(ts) {
     // ★關掉天氣(且無磁磚)就真的停轉:原本無條件排下一幀,等於「隱藏的東西還在算」——每秒 22 次
     //   進 draw() 再 return。停轉後由天氣變更處的 `if (!rafId) requestAnimationFrame(loop)` 復活。
-    if (type === "off" && !_bearTilesOn) {
+    // ⚠ 封面要有天氣 → 迴圈不能停（_effType 會把封面的 "off" 換成真實天氣，需要持續重繪）
+    if (type === "off" && !_bearTilesOn && !_onLanding()) {
       rafId = 0;
       if (!_offCleared) draw(0);      // 收尾清一次畫布
       return;

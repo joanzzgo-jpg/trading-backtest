@@ -1076,7 +1076,20 @@ function applySystemColor(id, color) {
     ? _darkenForChart(color)
     : color;
   vars.forEach(v => document.documentElement.style.setProperty(v, applied));
-  if (id === "sc-bg") document.body.style.background = applied;
+  if (id === "sc-bg") {
+    document.body.style.background = applied;
+    /* ★ 2026-08-06 另外寫一個「去掉 alpha 的系統色」--bg-solid。
+       使用者可以把主背景選成半透明（色盤有不透明度滑桿）——桌面上那是特色，
+       天氣會從 topbar/行情列透出來。但**手機的分頁面板背景是完全透明的**、靠 var(--bg)
+       撐底，半透明就會讓後面的圖表頁整個透出來
+       （使用者：「因為透明度 導致其他分頁背景有圖表」，實測設定頁可看到標的列、
+        時框鈕、開高低收數字）。→ 手機分頁改吃 --bg-solid，不受不透明度影響。 */
+    const _m8 = /^#?([0-9a-f]{6})[0-9a-f]{2}$/i.exec(String(applied || ""));
+    const _solid = _m8 ? "#" + _m8[1] : applied;
+    document.documentElement.style.setProperty("--bg-solid", _solid);
+    // sc-bg 同時寫入 --bg 與 --bg2 → 兩個都要有去 alpha 版，否則用 --bg2 的漸層照樣透光
+    document.documentElement.style.setProperty("--bg2-solid", _solid);
+  }
 }
 
 /* ★ 2026-08-05 文字自動對比（配色優化）。

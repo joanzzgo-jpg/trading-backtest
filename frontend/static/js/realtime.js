@@ -176,23 +176,29 @@ async function fetchLatest() {
         }
         if (_i < 0 || _i >= ohlcvData.length - 1) return;   // 找不到、或它其實是最後一根 → 不處理
         const _cur = ohlcvData[_i];
-        if (+_cur.open === +bar.open && +_cur.high === +bar.high
-            && +_cur.low === +bar.low && +_cur.close === +bar.close) return;
+        if (+_cur.high === +bar.high && +_cur.low === +bar.low && +_cur.close === +bar.close) return;
         /* ⚠ 這裡刻意「照單全收」，不要加「只在能讓接縫變小時才補」的閘門。
              試過那樣做，結果更糟：/api/latest 每次回的是**一份內部一致的快照**，
              選擇性套用會把兩份快照混在一起 → 接縫又冒出來（實測跳空 1.6/4.7 點回歸）。
              照單全收的話尾端永遠等於最後一份快照、內部一致 → 沒有接縫；
              代價只是已收盤棒會隨快照微調 0.007% 等級（肉眼不可見），
              而使用者真正看得到的是跳空。 */
-        ohlcvData[_i] = { ..._cur, ...bar, _t: t };
+        /* ⚠ 同上：保留原本的 open。開盤價定了就不該再變，覆蓋它會讓那根視覺上跳一下
+           （使用者回報「最新 K 棒會因為你的計算而動一下」）。這裡要補的是最終 high/low/close。 */
+        ohlcvData[_i] = { ..._cur, high: bar.high, low: bar.low, close: bar.close,
+                          volume: bar.volume != null ? bar.volume : _cur.volume, _t: t };
         _dirty = true;
         _needRedraw = true;   // ⚠ 只標記，重畫留到整批處理完再做一次（見迴圈之後）
         return;
       }
       if (t === lastT) {
         // 性能：若 OHLC 完全沒變，跳過 LWC update 與 indicator 重算（省 CPU）
-        if (last.close === bar.close && last.high === bar.high && last.low === bar.low && last.open === bar.open) return;
-        ohlcvData[ohlcvData.length - 1] = { ...last, ...bar };
+        // ⚠ 不比 open 也不覆寫 open：那根開出來時 open 就定了，之後任何一輪都不該再動它。
+        //   覆寫的話（浮點瘦身的量化差異、或來源微調）整根會在畫面上跳一下
+        //   —— 使用者：「最新 K 棒會因為你的計算而動一下，開盤價不是都固定位置嗎」。
+        if (last.close === bar.close && last.high === bar.high && last.low === bar.low) return;
+        ohlcvData[ohlcvData.length - 1] = { ...last, high: bar.high, low: bar.low, close: bar.close,
+                                            volume: bar.volume != null ? bar.volume : last.volume };
         // 同時間不需重建 Map（key 不變）
       }
       else if (t > lastT) {
