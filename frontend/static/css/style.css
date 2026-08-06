@@ -6598,11 +6598,16 @@ html.landing-active .landing { background: transparent; }
 }
 @media (max-width: 1180px) and (pointer: fine), (hover: none) and (pointer: coarse) and (orientation: portrait), (hover: none) and (pointer: coarse) and (orientation: landscape) and (max-height: 599px) {
   body.m-tab-signals .charts-container { display: none !important; }
+  /* ⚠ 2026-08-06 以下三個滿版分頁面板（.m-signals / .m-settings / 交易頁的 #tradePopup）
+     一律吃 --bg2-solid/--bg-solid（同色去 alpha）。使用者可以把系統主背景選成半透明，
+     用 var(--bg) 當底就會整片透光 → 後面的圖表頁全部看得到。
+     ⚠ 交易頁那條是 `body.m-tab-trade #tradePopup.open`（0,3,1 + !important），
+       用另外追加的通用規則壓不過 —— 必須在源頭改，否則只有它會漏（實際就漏過一次）。 */
   .m-signals {
     position: fixed; left: 0; right: 0; top: 0; bottom: 46px; z-index: 650;
     background:
       radial-gradient(130% 55% at 50% -8%, rgba(255,145,71,.12), transparent 62%),
-      linear-gradient(180deg, var(--bg2) 0%, var(--bg) 100%);
+      linear-gradient(180deg, var(--bg2-solid, var(--bg2)) 0%, var(--bg-solid, var(--bg)) 100%);
     flex-direction: column; padding-top: env(safe-area-inset-top, 0px);
     font-family: "M PLUS Rounded 1c", -apple-system, "PingFang TC", system-ui, sans-serif;
     display: flex !important; opacity: 0; visibility: hidden; pointer-events: none;
@@ -6823,7 +6828,7 @@ html.landing-active .landing { background: transparent; }
     /* 用主題主背景色系（--bg/--bg2 棕橘）+ 頂部一抹橘光 → 與全站同款、僅多一點層次 */
     background:
       radial-gradient(130% 55% at 50% -8%, rgba(255,145,71,.12), transparent 62%),
-      linear-gradient(180deg, var(--bg2) 0%, var(--bg) 100%);
+      linear-gradient(180deg, var(--bg2-solid, var(--bg2)) 0%, var(--bg-solid, var(--bg)) 100%);
     flex-direction: column;
     padding-top: env(safe-area-inset-top, 0px);
     /* 統一品牌圓體（橘子熊可愛風）→ 內部標題/列/小字皆繼承 */
@@ -7017,7 +7022,7 @@ html.landing-active .landing { background: transparent; }
     padding: calc(env(safe-area-inset-top, 8px) + 12px) 16px calc(20px + env(safe-area-inset-bottom, 0px)) !important;
     background:
       radial-gradient(130% 55% at 50% -8%, rgba(255,145,71,.12), transparent 62%),
-      linear-gradient(180deg, var(--bg2) 0%, var(--bg) 100%) !important;
+      linear-gradient(180deg, var(--bg2-solid, var(--bg2)) 0%, var(--bg-solid, var(--bg)) 100%) !important;
     font-family: "M PLUS Rounded 1c", -apple-system, "PingFang TC", system-ui, sans-serif;
   }
 }
