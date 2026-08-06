@@ -272,8 +272,19 @@ function _applyChartBgGradient(color) {
      ⚠ 一定要用 setProperty(..., "important")：style.css 約 4880 行那組 .topbar/.symbol-bar/
        .ticker-panel 是 !important 漸層，一般行內樣式壓不過（先前就是被它騙過一次）。
      ⚠ 只在天氣模式做；非天氣時交回 CSS（那時四塊本來就都等於 var(--bg)，已實測一致）。 */
+  /* ⚠ 手機款 UI 不套：桌面時這三塊是「主圖周圍的框」，半透明才能與主圖無縫；
+     但手機款的 .ticker-panel 是**整頁的分頁**（行情/自選），半透明會讓後方天氣/底墊
+     透上來污染整頁內容（使用者：「手機版的各個分頁會被透明度污染」）。
+     ⚠ isMobileUI() 是全站唯一準則（見 utils.js），別自己另寫寬度判斷。 */
+  const _mobUI = (typeof isMobileUI === "function") && isMobileUI();
   ["topbar", "symbol-bar", "ticker-panel"].forEach(cls => {
     const el = document.querySelector("." + cls); if (!el) return;
+    if (_mobUI) {   // 手機：交回 CSS，維持不透明
+      el.style.removeProperty("background");
+      el.style.removeProperty("z-index");
+      el.style.backdropFilter = ""; el.style.webkitBackdropFilter = "";
+      return;
+    }
     // ⚠ 條件是 seeThru（天氣 **或** 小熊磁磚），不是只有 show：
     //   磁磚模式下若走 else 分支，周圍會是 100% 系統色、主圖卻是 veil 疊在牆紙上
     //   → 公式不同就有色差（使用者：「小熊磁磚還沒，主圖跟主背景還是有色差」）。

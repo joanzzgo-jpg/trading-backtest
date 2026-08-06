@@ -6379,7 +6379,23 @@ html.landing-active .sig-drawer,           /* 訊號通知抽屜 */
 html.landing-active .m-settings,           /* 手機「設定」分頁面板（z650，透明封面會透出→在設定頁登出時穿幫） */
 html.landing-active .m-signals,            /* 手機「訊號」分頁面板（同上，透明封面會透出） */
 html.landing-active #coachPanel,           /* SR+SMC 教練面板（z低於封面但半透明封面會透出） */
-html.landing-active #announceOverlay { visibility: hidden !important; }
+html.landing-active #announceOverlay,
+/* ★ 2026-08-06 #chartUnderlay（主圖區底墊，2026-08-06 新增於 body 之下、z-index:0）
+   封面時也要藏：它塗的是**主圖**色，天氣透明處會露出它 → 封面看起來不是主背景色。
+   使用者：「封面頁要維持天氣，只有主背景顏色」。 */
+html.landing-active #chartUnderlay { visibility: hidden !important; }
+
+/* ★ 2026-08-06 手機款：非「圖表」分頁時底墊也要收掉。
+   #chartUnderlay 是 position:fixed 掛在 body 上、塗**主圖色**的一層，桌面時它墊在天氣層
+   底下讓主圖不吃到系統色（見 colors.js）。但手機的自選/訊號/設定/交易分頁會把
+   .charts-container 設成 display:none —— 底墊不在那條規則裡，於是整片主圖色留在背景上
+   （使用者：「手機版的圖表頁以外，背景不應該有主圖色」）。
+   ⚠ 這幾個 body class 要與上面各處 `body.m-tab-* .charts-container { display:none }`
+     保持一致；新增分頁時兩邊都要加，否則又會漏。 */
+body.m-tab-watch    #chartUnderlay,
+body.m-tab-signals  #chartUnderlay,
+body.m-tab-settings #chartUnderlay,
+body.m-tab-trade    #chartUnderlay { display: none !important; }
 /* 底層漸層放在 body（天氣 canvas 之下）：主背景色（上）→ 米白（下） */
 html.landing-active body {
   background: linear-gradient(180deg, var(--bg) 0%, var(--bg) 36%, #E5DDD9 84%, #EFEAE4 100%) !important;
