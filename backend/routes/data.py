@@ -1253,6 +1253,15 @@ def _ohlcv_build(req: OHLCVRequest):
         except Exception:
             pass
     result = {"data": _ohlcv_records(df)}
+    # ★ 2026-08-06 回傳實際資料源（crypto）。用途：前端接合時判斷「這批資料跟我手上那批
+    #   是不是同一個來源」—— 各來源對同一根已收盤 K 棒的數值差幾點（實測整串偏移 3~6 點），
+    #   每份快照內部連續、混在一起才會在接合處留下跳空。
+    #   ⚠ 放在 cache.set 之前：快取命中時也要帶著它當初的來源，否則前端判斷會失真。
+    if req.market == "crypto":
+        try:
+            result["src"] = last_fetch_source()
+        except Exception:
+            pass
     cache.set(cache_key, result)
     return _ohlcv_resp(result)
 
@@ -1577,7 +1586,13 @@ def get_latest(req: LatestRequest):
     records = df_to_records(df.tail(3))
     # 若有 FINNHUB_TOKEN，美股也算即時；港股(騰訊即時)在上面 hk 分支已 return，這裡只是純 yfinance 尾
     live = (req.market == "crypto") or (req.market == "us" and bool(os.getenv("FINNHUB_TOKEN")))
-    return {"live": live, "data": records}
+    resp = {"live": live, "data": records}
+    if req.market == "crypto":   # 同 /api/ohlcv：讓前端看得到來源，接合前先比對
+        try:
+            resp["src"] = last_fetch_source()
+        except Exception:
+            pass
+    return resp
 
 
 def _solve_stop_pct(df, target: str, long_only: bool):

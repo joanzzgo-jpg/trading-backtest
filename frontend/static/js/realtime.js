@@ -81,6 +81,8 @@ function _checkContinuity() {
         return;
       }
     }
+    // 沒有時間洞，但即時輪詢發現來源換了 → 排一次整段重對齊（見 fetchLatest 的 _srcRealign）
+    if (window._srcRealign) _scheduleGapFill();
   } catch (e) {}
 }
 if (typeof window !== "undefined" && !window._contTimer) {
@@ -110,6 +112,11 @@ async function fetchLatest() {
         || document.getElementById("marketSelect")?.value !== _mkt0
         || currentTF !== _tf0
         || (typeof replayActive !== "undefined" && replayActive)) return;
+    /* ★ 2026-08-06 來源換手偵測。各來源對同一根已收盤 K 棒的數值差幾點（實測換源那次
+       20 根裡 19 根全變），把兩份混在一起就是使用者看到的小跳空。
+       這裡不當場改資料（即時路徑要輕），只標記；由 _checkContinuity 觸發一次整段重對齊。 */
+    if (json.src && window._ohlcvSrc && json.src !== window._ohlcvSrc) window._srcRealign = true;
+    if (json.src && !window._ohlcvSrc) window._ohlcvSrc = json.src;
     if (!json.data?.length) return;
     const dot = document.getElementById("realtimeDot");
     if (dot) dot.classList.toggle("hidden", json.live === false);

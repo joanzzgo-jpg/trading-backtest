@@ -126,6 +126,11 @@ async function loadData(autoLoad = false, forceLatest = false) {
     }
     if (!res.ok) throw new Error(json.detail || "載入失敗");
     ohlcvData = json.data;
+    /* ★ 2026-08-06 記下這批資料的來源（crypto 才有 src）。
+       各來源（Binance/Bybit/Pionex）對同一根**已收盤** K 棒的數值差幾點：
+       實測來源由 binance 換成 bybit 那一次，20 根裡 19 根全變（同來源時 0 根變）。
+       每份快照內部都連續，混在一起才會在接合處留下跳空 → 接合前要先比對來源。 */
+    window._ohlcvSrc = json.src || null;
     if (typeof window._snapInvalidate === "function") window._snapInvalidate();   // 真資料落地→作廢未完成的快照繪製
     ++_bgLoadGen; _bgLoadInProgress = false; // 取消舊的背景請求
     clearTimeout(_bgIndicatorTimer);
@@ -1260,7 +1265,10 @@ window._scheduleIdleTrim = _scheduleIdleTrim;
 /* 往「新(未來/現在)」方向背景補載(捲歷史抓的有界視窗未到現在時,往右拖到近右緣觸發)。
    與 _bgLoadOlderBars 對稱:往右 append、不改既有 index;補完順手滾動修剪左側 → 常駐根數有界。 */
 async function _bgLoadNewerBars(scrollTriggered = false) {
-  if (!BG_TF.has(currentTF) || _bgLoadInProgress || !ohlcvData.length || !window._hasFwdGap) return;
+  /* ⚠ 入口多一個 _srcRealign：即時輪詢發現「來源換了」時，時間軸其實沒有洞
+     （_hasFwdGap 是 false），但整串數值已經和我們手上這份差幾點 → 也要進來重對齊一次。 */
+  if (!BG_TF.has(currentTF) || _bgLoadInProgress || !ohlcvData.length
+      || !(window._hasFwdGap || window._srcRealign)) return;
 
   const snapMarket   = document.getElementById("marketSelect").value;
   const snapSymbol   = document.getElementById("symbolInput").value.trim();
@@ -1284,7 +1292,8 @@ async function _bgLoadNewerBars(scrollTriggered = false) {
   try {
     while (myGen === _bgLoadGen && _bgLoadInProgress && guard()) {
       const latestTs = toTime(ohlcvData[ohlcvData.length - 1].time);
-      if (latestTs >= nowSec - _tfSec) { window._hasFwdGap = false; break; }   // 已補到現在
+      // 已補到現在 → 正常情況直接收工；但若是「來源換手要重對齊」，仍需抓一次來覆蓋數值。
+      if (latestTs >= nowSec - _tfSec && !window._srcRealign) { window._hasFwdGap = false; break; }
 
       const startTs = latestTs + 1;
       const endTs   = Math.min(startTs + chunkDays * 86400, nowSec + 86400);
@@ -1312,6 +1321,18 @@ async function _bgLoadNewerBars(scrollTriggered = false) {
            中斷若久於此，邊界那根早就不在回應裡了）。這是第三條路徑，要在這裡收。
          ⚠ 不必額外發請求：start 用 toIso() 截到日界，回應本來就含這根。
          ⚠ 也不用額外重畫：它就是 ohlcvData 最後一根，下面 concat 後會整張 _bgApplyChunk。 */
+      /* ★ 來源換手時要整段重對齊（2026-08-06）。
+         只補尾端 5 根是為了修「停在半路的棒」；但若這批資料來自**另一個來源**，
+         整串數值都會差幾點 —— 只換尾端等於把接縫往前挪一格，換多少根就挪多少格。
+         → 不同源時，把「回應涵蓋範圍內我們已經有的每一根」全部換成這份快照，
+           整個近端視窗就是同一份、內部連續，接縫消失（殘留的接縫落在回應涵蓋的最左端，
+           通常是一天以前、視野外）。
+         ⚠ 成本可忽略：只是 Map 查表 + 覆寫，而且後面本來就要整張 setData。 */
+      const _srcNow = json.src || null;
+      const _srcDiff = (!!_srcNow && !!window._ohlcvSrc && _srcNow !== window._ohlcvSrc)
+                       || !!window._srcRealign;      // 即時輪詢已偵測到換源 → 這次一定整段對齊
+      window._srcRealign = false;                    // 一次就好，避免每輪重抓
+      if (_srcNow) window._ohlcvSrc = _srcNow;
       /* ⚠ 不能只校正**最後一根**：中斷時「還沒收到最終值」的往往不只一根。
          實測（1m、中斷 4 分鐘）：只蓋最後一根之後，接縫從邊界後一格移到邊界那格
          —— 因為它前一根也還停在半路。realtime 的 `t < lastT` 補正只覆蓋 /api/latest
@@ -1321,7 +1342,8 @@ async function _bgLoadNewerBars(scrollTriggered = false) {
          全掃只會白花時間（而且會把使用者正在看的歷史段一起重寫）。 */
       const _auth = new Map();
       for (const b2 of json.data) _auth.set(toTime(b2.time), b2);
-      for (let k = ohlcvData.length - 1; k >= 0 && k >= ohlcvData.length - 5; k--) {
+      const _fixFrom = _srcDiff ? 0 : Math.max(0, ohlcvData.length - 5);
+      for (let k = ohlcvData.length - 1; k >= _fixFrom; k--) {
         const _cur = ohlcvData[k];
         const _a = _auth.get(toTime(_cur.time));
         if (!_a) continue;
