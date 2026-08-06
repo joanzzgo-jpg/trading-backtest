@@ -89,6 +89,7 @@ function _applyChartBgGradient(color) {
     ["kdjPane", "rsiPane", "macdPane", "mainPane"].forEach(id => { const el = document.getElementById(id);
       if (el) { if (id !== "mainPane") el.style.background = ""; el.style.backdropFilter = ""; el.style.webkitBackdropFilter = ""; } });
     document.querySelector(".charts-container")?.style.removeProperty("background");   // 同上：交回 CSS 的白底
+    document.getElementById("chartUnderlay")?.remove();   // 極簡模式不需要底墊
     return;
   }
   if (color == null) color = (typeof C !== "undefined" && (C.chartBg || C.bg)) || "#131722";  // 無參數→用目前主圖色（給 effects.js 夜空切換重套用）
@@ -131,6 +132,12 @@ function _applyChartBgGradient(color) {
      要更貼近選色就調高、要天氣更明顯就調低；兩邊會一起變，交界不會因此跑掉。 */
   const WX_DIM = 70;
   const veil = `color-mix(in srgb, ${base} ${WX_DIM}%, transparent)`;
+  /* ⚠ 2026-08-05 使用者：「主背景控制跟主圖控制混在一起了」「變成都同色」——
+     周圍面板(topbar/標的列/合約行情)先前套的是 veil，而 veil 是用 base（＝**主圖**選色）算的
+     → 改主圖色會連帶改掉周圍，兩個色盤黏在一起。
+     周圍要吃的是**系統外觀主背景** var(--bg)：用同一個 WX_DIM、同一種 color-mix 公式，
+     只是換色源 → 兩邊選同色時結果仍完全相同（無縫），選不同色時各自獨立。 */
+  const chromeVeil = `color-mix(in srgb, var(--bg) ${WX_DIM}%, transparent)`;
   /* ★ 2026-08-05 濾鏡升級（使用者：「暗的濾鏡可以更好嗎」）。
      單靠色膜是「加法」蓋色：整片一起洗灰，太陽那種爆亮處壓不下來、原本就暗的地方
      反而被墊亮，天氣的層次與顏色一起被磨平。
@@ -160,6 +167,17 @@ function _applyChartBgGradient(color) {
      代價：主圖後方看不到 3D 天氣場景（天氣改由主圖周圍那圈面板呈現，見下方 chrome 區塊）。
      要把天氣找回來：把這裡改回 `seeThru ? veil : base`（veil = base@WX_DIM%）。
      ⚠ 磁磚模式(tiles)仍用 veil：那是「小熊牆紙」，使用者要看得到牆紙與金熊脈衝。 */
+  /* ★ 2026-08-05 使用者定調：「主圖控制主圖，主背景控制上方跟右邊不是主圖的位置」＝兩者完全獨立。
+     主圖一律**不透明**：只要留透明度，後方（weatherStage opacity .45 → 再後面是 body 的 var(--bg)）
+     的系統色就會滲進來 —— 實測主圖固定 #0D3B2E 時，系統色換三次主圖跟著變成
+     #122a27 / #253324 / #15292a，正是使用者說的「主背景還是會影響主圖」。
+     ★ 解法（2026-08-05，使用者接著說「主圖的天氣不見了」）：不是把主圖變不透明，而是在
+       **天氣層底下**幫主圖區墊一層自己的純色（#chartUnderlay，fixed / z-index:0，
+       蓋住 .charts-container 的範圍）。堆疊變成
+         底墊(主圖純色) → weatherStage(z:1) → charts-container(z:2,透明) → mainPane(veil) → K棒
+       → 天氣照樣從主圖後方透出，但後面已經是主圖自己的顏色，body 的 var(--bg) 永遠到不了。
+     ⚠ 底墊必須是 fixed 且 z-index:0：charts-container 自己是 z-index:2 的堆疊脈絡，
+       放在它裡面的任何子層都會在天氣之上，墊不到後面去。 */
   pane.style.background = seeThru ? veil : base;
   /* ⚠ backdrop-filter 只給**天氣**模式，磁磚(小熊牆紙)不套。
      那層乘法壓暗是為了「爆亮的天空」設計的；小熊牆紙本來就是暗底，再壓 38% 會把
@@ -177,13 +195,39 @@ function _applyChartBgGradient(color) {
      這樣連 pane 之間 3px 的 .pane-divider(transparent) 也一起變同色，
      不會在主圖與副圖之間留一條系統色的細縫。 */
   const cc = document.querySelector(".charts-container");
+  /* 主圖區底墊 #chartUnderlay：見上方 pane.style.background 的說明。
+     只在非極簡模式存在；顏色＝主圖純色；範圍跟著 .charts-container 走。 */
+  if (cc) {
+    let ul = document.getElementById("chartUnderlay");
+    if (!ul) {
+      ul = document.createElement("div");
+      ul.id = "chartUnderlay";
+      ul.style.cssText = "position:fixed;z-index:0;pointer-events:none;";
+      document.body.appendChild(ul);
+      const _pos = () => {
+        const r = cc.getBoundingClientRect();
+        ul.style.left = r.left + "px"; ul.style.top = r.top + "px";
+        ul.style.width = r.width + "px"; ul.style.height = r.height + "px";
+      };
+      ul._pos = _pos;
+      window.addEventListener("resize", _pos);
+      // 版面變動（收合合約行情/副圖）也要跟上；ResizeObserver 比在各處補呼叫可靠
+      try { new ResizeObserver(_pos).observe(cc); } catch (e) {}
+    }
+    ul.style.background = base;
+    ul._pos && ul._pos();
+  }
   if (cc) {
     // ⚠ 磁磚牆紙(bear-tiles-show)必須維持 transparent+important（同 _applyOffBlack 的寫法）：
     //   否則使用者在磁磚開著時改顏色，這裡會把 base 蓋上去、把小熊牆紙整個遮掉。
     cc.style.removeProperty("background");
     if (document.documentElement.classList.contains("bear-tiles-show"))
       cc.style.setProperty("background", "transparent", "important");
-    else if (!show) cc.style.background = base;   // 天氣模式留空 → 吃 CSS 的 var(--bg)
+    else if (show)
+      // 天氣模式：容器透明，讓後方天氣透出（後方再後面是 #chartUnderlay 的主圖純色，不是系統色）
+      cc.style.setProperty("background", "transparent", "important");
+    else
+      cc.style.setProperty("background", base, "important");
   }
   /* ★ 2026-08-05「主圖跟主背景比顏色不同，是被疊加嗎」「我都點同一顏色」→ 是，而且方向相反：
      #weatherStage(z:1) 疊在 topbar/標的列/合約行情**上面**把它們染亮，而 .charts-container(z:2)
@@ -197,7 +241,10 @@ function _applyChartBgGradient(color) {
      ⚠ 只在天氣模式做；非天氣時交回 CSS（那時四塊本來就都等於 var(--bg)，已實測一致）。 */
   ["topbar", "symbol-bar", "ticker-panel"].forEach(cls => {
     const el = document.querySelector("." + cls); if (!el) return;
-    if (show) {
+    // ⚠ 條件是 seeThru（天氣 **或** 小熊磁磚），不是只有 show：
+    //   磁磚模式下若走 else 分支，周圍會是 100% 系統色、主圖卻是 veil 疊在牆紙上
+    //   → 公式不同就有色差（使用者：「小熊磁磚還沒，主圖跟主背景還是有色差」）。
+    if (seeThru) {
       /* ★ 2026-08-05 使用者：「主圖跟主背景都選同一顏色，就不應該讓我看出他們的界線，
          但目前還是能看到」。
          前一版周圍是 veil(半透明)＋主圖是純色 → 兩邊合成公式不同，交界必然現形
@@ -208,7 +255,7 @@ function _applyChartBgGradient(color) {
          ⚠ 代價（已明確告知使用者）：天氣背景在這個組合下**整個看不到**
            —— 版面被主圖與這三塊完全覆蓋，天氣層在它們底下。
            要讓天氣回來，就得接受交界看得出來（把這裡改回 veil、主圖改回 seeThru ? veil : base）。 */
-      el.style.setProperty("background", veil, "important");
+      el.style.setProperty("background", chromeVeil, "important");   // 系統色，非主圖色
       el.style.setProperty("position", "relative");
       el.style.setProperty("z-index", "2");   // 提到 #weatherStage(z:1) 之上：改由 veil 決定透出量
       el.style.backdropFilter = ""; el.style.webkitBackdropFilter = "";
