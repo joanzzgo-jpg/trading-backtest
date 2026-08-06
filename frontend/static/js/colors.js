@@ -52,7 +52,12 @@ function _darkenForChart(hex) {
        那會連 K 棒、標記、使用者畫的線一起壓暗。要調暗只調這裡的 L。
      ⚠ 順帶一提，真正讓顏色完全無效的是 style.css 那條 `.charts-container … !important`
        （已移除），不是這裡；查這類問題要先確認行內樣式有沒有被 !important 壓掉。 */
-  const L = Math.min(l_orig * 0.75, 0.28);
+  /* ★ 2026-08-05 使用者「濾鏡移除看看」→ 壓暗整個關掉：選什麼色就是什麼色。
+     要裝回來就把下一行改成 Math.min(l_orig * K, CAP)。
+     調校紀錄（K/CAP）：0.30/0.18 舊版 → 0.70/0.26『不夠暗』→ 0.45/0.16『太強』
+     → 0.58/0.21 → 0.75/0.28『再調低』→ 現在 = 不壓暗。
+     ⚠ 格線仍會依實際背景明暗自動反轉（_gridColorForBg），選亮色 K 棒也不會看不見。 */
+  const L = l_orig;
   const S = s;                             // S 完全保留（hue 區辨力 +++）
   const q = L < 0.5 ? L * (1 + S) : L + S - L * S;
   const p = 2 * L - q;
