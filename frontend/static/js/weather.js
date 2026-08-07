@@ -2876,9 +2876,22 @@
     x.fillStyle = lg; x.fillRect(0, 0, gc.width, gc.height);
     _bearGold = gc;
   }
-  (function () { _bearImg = new Image(); _bearImg.onload = () => { _bearReady = true; _buildGoldBear(); }; _bearImg.src = (window._v ? window._v("/static/img/bear-bg.png") : "/static/img/bear-bg.png"); })();
+  /* ★ 2026-08-07 改成用到才載。原本是模組載入時無條件抓 bear-bg.png（28KB，實測列在
+     首屏下載清單裡）＋順便建一份金熊 canvas —— 但「小熊磁磚」預設是**關的**
+     （_bearTilesOn 讀 localStorage，預設 false），等於絕大多數人白下載 28KB。
+     ⚠ 不能只在 toggle 時載：磁磚狀態會從 localStorage 還原，重開頁面時沒人按 toggle。
+       所以 _drawBearTiles 自己也要能觸發（它本來就有 !_bearReady 就 return 的保護，
+       第一幀先跳過、圖到了下一幀自然畫出來）。 */
+  let _bearImgReq = false;
+  function _ensureBearImg() {
+    if (_bearImgReq) return;
+    _bearImgReq = true;
+    _bearImg = new Image();
+    _bearImg.onload = () => { _bearReady = true; _buildGoldBear(); };
+    _bearImg.src = (window._v ? window._v("/static/img/bear-bg.png") : "/static/img/bear-bg.png");
+  }
   function _drawBearTiles(t) {
-    if (!_bearReady) return;
+    if (!_bearReady) { _ensureBearImg(); return; }
     const g = _layers.mid.ctx;
     const ts = Math.round(Math.max(22, Math.min(38, Math.min(W, H) * 0.04)));    // 單格邊長(再縮半→數量再×4)
     if (_bearTileSize !== ts || !_bearPat) {
@@ -3504,6 +3517,7 @@
        使用者回報的「小熊背景開不回來」就是這個。這裡自己負責復活。
        ⚠ _offCleared 也要清掉：它是「已清空畫布」的旗標，不清的話 draw() 會直接 return。 */
     if (_bearTilesOn) {
+      _ensureBearImg();        // 開啟時先抓圖（否則要等 _drawBearTiles 跑到才開始下載）
       _offCleared = false;
       if (!rafId) rafId = requestAnimationFrame(loop);
     }
