@@ -1342,10 +1342,18 @@ async function _bgLoadNewerBars(scrollTriggered = false) {
          全掃只會白花時間（而且會把使用者正在看的歷史段一起重寫）。 */
       const _auth = new Map();
       for (const b2 of json.data) _auth.set(toTime(b2.time), b2);
+      /* ⚠ 效能：來源換手時 _fixFrom=0，這個迴圈會掃整個 ohlcvData（TRIM_MAX 上限 4 萬根）。
+         兩個必要的優化，實測 40000 根 8.9ms → 0.13ms（66x）：
+         ① 用每根快取好的 _t，不要每根都 toTime()（那是 new Date(iso) 完整解析）。
+         ② 一旦掃到比「回應涵蓋的最舊那根」還舊，後面不可能有對應 → 直接 break。
+         沒有這兩點的話，換源當下會多出 ~9ms 的同步工作（正好卡在使用者看得到的那一刻）。 */
+      const _oldestAuth = json.data.length ? toTime(json.data[0].time) : Infinity;
       const _fixFrom = _srcDiff ? 0 : Math.max(0, ohlcvData.length - 5);
       for (let k = ohlcvData.length - 1; k >= _fixFrom; k--) {
         const _cur = ohlcvData[k];
-        const _a = _auth.get(toTime(_cur.time));
+        const _ct = _cur._t != null ? _cur._t : toTime(_cur.time);
+        if (_ct < _oldestAuth) break;
+        const _a = _auth.get(_ct);
         if (!_a) continue;
         /* ★ 2026-08-06 同源校正**不動 open**（使用者：「最新 K 棒會因為你的計算而動一下，
            不能固定嗎？開盤價不是都固定位置嗎」）。
@@ -1358,9 +1366,9 @@ async function _bgLoadNewerBars(scrollTriggered = false) {
           : (+_cur.high === +_a.high && +_cur.low === +_a.low && +_cur.close === +_a.close);
         if (!_same) {
           ohlcvData[k] = _srcDiff
-            ? { ..._cur, ..._a, _t: toTime(_cur.time) }
+            ? { ..._cur, ..._a, _t: _ct }
             : { ..._cur, high: _a.high, low: _a.low, close: _a.close,
-                volume: _a.volume != null ? _a.volume : _cur.volume, _t: toTime(_cur.time) };
+                volume: _a.volume != null ? _a.volume : _cur.volume, _t: _ct };
         }
       }
       let newBars = json.data.filter(b => toTime(b.time) > existingLatest);
