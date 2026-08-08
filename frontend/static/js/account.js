@@ -107,9 +107,12 @@ async function _acctLogin(name) {
     try { sessionStorage.setItem("landingDismissedAt", String(Date.now())); } catch (e) {}
     return { applied: true };
   }
-  // 雲端空：不 reload → 即時刷新自選清單（可能已遷移/清空）
+  /* ★ 2026-08-08 雲端為空的帳號也要重載。
+     原本這條路「不 reload」，於是前一個使用者留在記憶體裡的顏色/設定會被新帳號繼承，
+     接著 savePrefs 一寫就變成新帳號的資料（實測 A 的 #AA0000 跑進 B 的帳號）。
+     空帳號重載後一切從乾淨狀態開始，第一次的設定才真的是他自己的。 */
   if (typeof window._acctReloadWatch === "function") window._acctReloadWatch();
-  return { applied: false };
+  return { applied: true };
 }
 
 async function _acctLogout() {
@@ -125,6 +128,11 @@ async function _acctLogout() {
       const k = localStorage.key(i);
       if (k && !_ACCT_SKIP.has(k)) toRemove.push(k);        // 保留裝置本地 key
     }
+    /* ★ 2026-08-08：_ACCT_SKIP 裡有兩個是「每帳號專屬、只是改走伺服器寫穿表」的 key
+       —— watchlist 與 tradeKey。它們不進整包快照，但**絕對不能留給下一個登入的人**。
+       實測：A 登出後自選仍是 A 的，B 登入後直接看到 A 的自選。
+       其餘 skip 項（wxCoords/notifyFeedSeen/_tc）才是真正的裝置本地，保留。 */
+    toRemove.push("watchlist", "tradeKey");
     for (const k of toRemove) localStorage.removeItem(k);
   } catch (e) {}
   _acctRenderSys();
@@ -133,6 +141,14 @@ async function _acctLogout() {
   if (typeof window._mSetTab === "function") window._mSetTab("chart");
   try { sessionStorage.removeItem("landingDismissedAt"); } catch (e) {}      // 不再自動跳過封面
   if (typeof window._landingShow === "function") window._landingShow();     // 登出 → 跳回封面頁
+  /* ★ 2026-08-08 登出後強制重新載入。
+     清 localStorage **不會**清掉記憶體裡的狀態 —— C（K棒/主圖顏色）、SC（系統外觀）、
+     drawings 等都是模組物件，登出後仍留著上一個帳號的值；下一個人登入時若雲端為空
+     （applied:false → 不重載），這些值會被原封不動繼承，還會被存進他的帳號。
+     實測：A 設 #AA0000 → 登出 → B 登入，B 的主圖色/系統色就是 #AA0000。
+     重載是唯一能保證「記憶體與 localStorage 一起歸零」的做法，成本只有一次載入，
+     而且登出本來就回封面頁、重載後也是封面頁，體感一致。 */
+  setTimeout(() => { try { location.reload(); } catch (e) {} }, 250);
 }
 
 /* ── 雲端同步狀態指示（勝率欄右端 #acctSyncState，2026-08-05 使用者要求）──
