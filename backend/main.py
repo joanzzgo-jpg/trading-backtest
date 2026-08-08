@@ -285,6 +285,35 @@ def _asset_ver() -> str:
         return _GIT_VER
 
 
+def _apply_ticker_prices(rows, prices):
+            """把最新價套回清單。
+            ★ 2026-08-08 改成「正規化比對」而非 symbol 完全相等。
+              原因：清單有可能來自 Pionex（Binance 偶發失敗時的 fallback），
+              代號是 BTC_USDT_PERP，而價格來源永遠是 Binance 的 BTCUSDT
+              → prices.get(t["symbol"]) 永遠 None → **整列價格凍住**，
+              要等 15 秒後重抓 24h 才動一下（使用者回報「合約行情跳動有問題」，
+              實測 30 秒內報價完全不變、主圖卻一直在跳）。
+              正規化後即使清單是 Pionex 格式，價格照樣每秒更新。
+            ⚠ 只影響「比對鍵」，不動清單內容與排序。"""
+            def _norm(x):
+                x = (x or "").upper().replace("_", "").replace("-", "")
+                return x[:-4] if x.endswith("PERP") else x
+            pm = prices
+            if rows and prices and rows[0].get("symbol") not in prices:
+                pm = {_norm(k): v for k, v in prices.items()}   # 只在對不上時才重建索引
+            for t in rows:
+                p = pm.get(t["symbol"])
+                if p is None:
+                    p = pm.get(_norm(t["symbol"]))
+                if p is None:
+                    continue
+                t["price"] = p
+                o = t.get("open") or 0
+                if o:
+                    t["change_amt"] = round(p - o, 8)
+                    t["change_pct"] = round((p - o) / o * 100, 2)
+
+
 def _ticker_worker():
     """背景執行緒：每秒更新 crypto ticker 最新價（輕量 weight2 端點），每 6 秒重抓
     24h 漲跌幅/量。資料源為 Binance（Pionex 同流動性、價格一致、限流寬鬆）。
@@ -304,16 +333,7 @@ def _ticker_worker():
             else:
                 # 其餘每秒只抓最新價（weight 低），並用「現價＋快取24h開盤」重算漲跌幅
                 # → 漲跌幅也每秒更新（24h 開盤一秒內不變，不需每秒抓 24hr 而撞權重）
-                def _apply_prices(rows, prices):
-                    for t in rows:
-                        p = prices.get(t["symbol"])
-                        if p is None:
-                            continue
-                        t["price"] = p
-                        o = t.get("open") or 0
-                        if o:
-                            t["change_amt"] = round(p - o, 8)
-                            t["change_pct"] = round((p - o) / o * 100, 2)
+                _apply_prices = _apply_ticker_prices
                 fp = _fetch_fapi_prices()
                 if fp:
                     _apply_prices(futures, fp)
