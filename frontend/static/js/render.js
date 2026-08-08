@@ -1,6 +1,36 @@
 // 切標的時 abort 上一筆未完成請求；30s timeout 防止後端卡住前端
 let _loadDataCtrl = null;
 let _pendingAlignRange = null; // 看歷史切小時框:目標時間段初次還沒載到→先記著,背景補到涵蓋時再拉回視野
+
+/* ── 換標的/時框 → 清掉上一個脈絡的策略圖層快取（2026-08-08）────────────────────────
+   使用者回報「切時框會冒出很多線條」。根因：renderAll 為了修好「切換後標記消失」，會在
+   renderCandles 清空之後，用 _lastFVG* 這幾份快取把圖層「重畫回來」——但切換的當下那幾份
+   裝的還是**上一個時框**的資料（要等新的勝率回應才被換掉）。
+     ・標記層看不出來：_renderFVG* 都經過 _has() 過濾（時間不在當下 K 棒裡的標記會被丟掉）。
+     ・FVG 逐筆止損/止盈**線**（setFVGTradeLines）沒有這層過濾 —— 它是直接
+       timeToCoordinate 畫下去。大時框的進場時間（如 1d 的 00:00）在小時框上**找得到**
+       對應座標 → 上一個時框最多 600 筆交易的紅綠虛線一次全冒出來＝使用者看到的「很多線條」。
+   → 脈絡（市場|標的|交易所|時框）一變就把快取清空：寧可空白到新資料回來，也不要畫別的時框的東西。
+   ⚠ 一定要在 fetchWinRate() 之前呼叫：勝率快取命中是**同步**填好這幾份的，
+     清在它後面會把剛填好的正確資料一起洗掉（切回看過的時框就整片沒標記）。 */
+let _layerCtxKey = "";
+function _resetLayerCacheOnCtxChange() {
+  let ctx = "";
+  try {
+    ctx = [document.getElementById("marketSelect")?.value,
+           document.getElementById("symbolInput")?.value.trim(),
+           document.getElementById("exchangeSelect")?.value,
+           currentTF].join("|");
+  } catch (e) { return; }
+  if (ctx === _layerCtxKey) return;      // 同一個脈絡（背景補載/即時重建）→ 快取要留著，正是它們的用途
+  _layerCtxKey = ctx;
+  _lastWRSignals = []; _lastFVGTrades = []; _lastFVGBreak = [];
+  _lastFVGMS = []; _lastFVGShun = []; _lastFVGSpecial = [];
+  try { _lastFVGBB = []; _lastFVGBBA = []; _lastFVGBBM = []; } catch (e) {}
+  try { _lastSMCSweep = []; } catch (e) {}
+  if (typeof setFVGTradeLines === "function") setFVGTradeLines([]);   // 已畫上去的線也要收掉
+  if (typeof setFVGZones === "function") setFVGZones([]);             // FVG 色塊同理（也是純時間定位）
+}
 async function loadData(autoLoad = false, forceLatest = false) {
   if (replayActive) exitReplay();
   _pendingAlignRange = null;   // 新載入作廢上一次未完成的歷史對齊目標
@@ -62,6 +92,8 @@ async function loadData(autoLoad = false, forceLatest = false) {
   const _vSave = { bc: _savedBarCount, tr: _savedTimeRange, ro: _savedRightOffset, bs: _savedBarSpacing };
 
   stopRealtime();
+
+  _resetLayerCacheOnCtxChange();   // 換標的/時框 → 丟掉上一個脈絡的策略圖層快取（見該函式註）
 
   // 切標的瞬間：上方報價列立即換成新標的名稱、價格數字暫清成「—」，
   // 等 ohlcv 載入完才填新價（否則新標的名稱下會殘留舊標的價格，看起來像數值亂跳）

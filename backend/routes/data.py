@@ -335,6 +335,21 @@ def diag_mem():
             st["error"] = str(e)[:120]
         return st
 
+    def _ticker_price_status():
+        """報價列價格更新健康度：age_sec 一直長大＝合約行情正在凍住（安靜壞掉，沒這個查不出來）。
+        ★ 2026-08-08 加：使用者回報「主圖跟合約行情數值有時候對不上」，根因是 Binance 掛掉時
+          主圖有 fallback 會換源續跳、報價列沒有就整列凍住 → 要能一眼看出「現在是不是凍著」。"""
+        st = {"age_sec": None, "src": None}
+        try:
+            import main as _m
+            s = getattr(_m, "_TK_PRICE_STAT", None) or {}
+            if s.get("ts"):
+                st["age_sec"] = round(time.time() - s["ts"], 1)
+            st["src"] = s.get("src") or None
+        except Exception as e:
+            st["error"] = str(e)[:120]
+        return st
+
     # Redis 共享層狀態（多 worker 報價共享用）：configured=有無設 REDIS_URL；ok=實際能否讀寫
     def _redis_status():
         st = {"configured": False, "ok": False, "roundtrip_ms": None}
@@ -367,6 +382,7 @@ def diag_mem():
         #   接合處就是一道跳空。⚠ 這兩個值是 uvicorn 行程內的模組全域，
         #   在另一個 python 行程裡 import 讀到的永遠是初始值 0（我踩過）→ 只能靠這支端點看。
         "crypto_source": _crypto_source_status(),
+        "ticker_price": _ticker_price_status(),   # 報價列多久沒更新到新價 + 這次的價格來源
     }
 
 

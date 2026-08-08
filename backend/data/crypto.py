@@ -902,7 +902,16 @@ def fetch_crypto_ohlcv(
         # 為什麼改：Binance/Pionex 同幣的插針(wick)與高低不完全一樣（小幣尤甚）→ 若圖表走 Pionex、
         # 自動交易卻在 Binance 成交，會出現「圖上沒有的針→照樣觸發進場/止損」的幽靈單。圖＝偵測＝
         # 成交都統一在 Binance，才一致。Binance fapi 沒有(Pionex 獨有幣)才退回 Pionex。
-        if ex == "pionex" and is_perp:
+        # ★ 2026-08-08：條件由「ex == pionex and is_perp」放寬成「is_perp」。
+        #   使用者回報「主圖跟合約行情數值有時候對不上」，實測抓到現場：
+        #     前端送的是 exchange=binance，於是 `.P` 永續**走不進這條永續專用鏈**，
+        #     落到下面「無 .P」那段 —— 那段第一步是 fapi(對的)，但 fapi 一失敗
+        #     **第二步就是 _fetch_binance＝現貨**。實測主圖 BTC/USDT.P 顯示 64980.26，
+        #     恰恰等於 Binance **現貨** 64980.25，而永續各家都是 64952~64953（差 28 點／4.3bps）。
+        #   後果不只是價格對不上：現貨棒會被混進永續序列 → 假 FVG／錯收盤／接縫，
+        #   而且完全不報錯（圖上有東西、只是換了一個商品）。
+        #   → 永續一律只走永續鏈（fapi → Bybit linear → Pionex perp），寧可回錯也不給現貨。
+        if is_perp:
             try:
                 df = _fetch_binance_fapi(symbol, timeframe, start, end, limit, max_candles=mc)
                 if not df.empty:
@@ -987,7 +996,10 @@ def fetch_crypto_ohlcv(
         raise ValueError(f"找不到 {symbol} 的行情資料，請確認標的代號是否正確")
     elif ex == "bybit":
         _set_src("bybit")
-        return _fetch_bybit(symbol, timeframe, start, end, limit, max_candles=mc)
+        # ⚠ category 一定要跟著 is_perp 走：_fetch_bybit 的預設是 "spot"，
+        #   不帶的話 `.P` 永續會被拿去抓**現貨**（與上面那個 28 點價差同一個坑）。
+        return _fetch_bybit(symbol, timeframe, start, end, limit, max_candles=mc,
+                            category=("linear" if is_perp else "spot"))
     elif ex == "okx":
         _set_src("okx")
         return _fetch_okx(symbol, timeframe, start, end, limit, max_candles=mc)
@@ -1058,6 +1070,35 @@ def _fetch_fapi_prices() -> dict:
         data = _binance_get(f"{BINANCE_FAPI_BASE}/fapi/v1/ticker/price", timeout=8, retries=0)
         return {d["symbol"]: float(d["price"]) for d in data
                 if isinstance(d, dict) and d.get("symbol") and d.get("price")}
+    except Exception:
+        return {}
+
+
+def _fetch_bybit_prices() -> dict:
+    """Bybit 永續全合約最新價 {SYMBOL: price}（一次呼叫拿全市場，給 Binance 掛掉時頂替）。
+
+    ★ 為什麼要這支（2026-08-08）：使用者回報「主圖跟合約行情數值有時候對不上」，實測抓到現場——
+      Binance 被限流／熔斷的那幾分鐘，**兩邊降級的方式不一樣**：
+        ・主圖（/api/latest → fetch_crypto_ohlcv）有 fallback 鏈 → 換到 Bybit，價格照跳但差幾十點；
+        ・合約行情（_ticker_worker → _fetch_fapi_prices）**完全沒有 fallback** → 整列凍在
+          最後一份 Binance 快照，而且一聲不吭（實測 BTC 卡 2 分鐘以上：行情 64953.7 動也不動，
+          主圖同時間從 64980.96 跳到 64983.68）。
+      → 讓報價側走**與主圖同一條 fallback 鏈**（Binance → Bybit）：兩邊一起降級到同一個交易所，
+        數字就對得回來，而不是一邊凍住一邊跑。
+    ⚠ Bybit linear 的代號格式與 Binance 相同（BTCUSDT）→ 併進同一份價格表不需轉換；
+      非 USDT 結算（如 BTCPERP=USDC）濾掉，避免與 USDT 永續撞名義。"""
+    try:
+        data = _get(f"{BYBIT_BASE}/v5/market/tickers?category=linear", timeout=8)
+        out = {}
+        for d in (data or {}).get("result", {}).get("list", []):
+            sym = d.get("symbol") or ""
+            px  = d.get("lastPrice")
+            if sym.endswith("USDT") and px:
+                try:
+                    out[sym] = float(px)
+                except (TypeError, ValueError):
+                    continue
+        return out
     except Exception:
         return {}
 

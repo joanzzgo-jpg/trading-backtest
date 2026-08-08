@@ -285,6 +285,12 @@ def _asset_ver() -> str:
         return _GIT_VER
 
 
+# 報價價格更新的健康狀態（給 /api/_diag_mem 看：凍住是安靜壞掉，沒有這個查不出來）。
+#   ts  = 最後一次「成功把新價套進清單」的時間；age 一直長大＝報價正在凍住。
+#   src = 那一次的價格來源（binance / bybit / none）。
+_TK_PRICE_STAT = {"ts": 0.0, "src": ""}
+
+
 def _apply_ticker_prices(rows, prices):
             """把最新價套回清單。
             ★ 2026-08-08 改成「正規化比對」而非 symbol 完全相等。
@@ -318,7 +324,8 @@ def _ticker_worker():
     """背景執行緒：每秒更新 crypto ticker 最新價（輕量 weight2 端點），每 6 秒重抓
     24h 漲跌幅/量。資料源為 Binance（Pionex 同流動性、價格一致、限流寬鬆）。
     這樣可達「每秒有新報價」又不撞 Binance FAPI 權重上限。"""
-    from data.crypto import fetch_tickers, _fetch_fapi_prices, _fetch_spot_prices
+    from data.crypto import (fetch_tickers, _fetch_fapi_prices, _fetch_spot_prices,
+                             _fetch_bybit_prices)
     from utils.live_data import update as live_update
     futures, spot = [], []
     cnt = 0
@@ -335,8 +342,18 @@ def _ticker_worker():
                 # → 漲跌幅也每秒更新（24h 開盤一秒內不變，不需每秒抓 24hr 而撞權重）
                 _apply_prices = _apply_ticker_prices
                 fp = _fetch_fapi_prices()
+                _psrc = "binance"
+                if not fp:
+                    # ★ Binance 這一輪拿不到價（限流/熔斷/逾時）→ 退 Bybit，**別讓整列凍住**。
+                    #   凍住是「安靜壞掉」：使用者只看到報價列不動、主圖卻在跳，於是回報
+                    #   「主圖跟合約行情數值對不上」。主圖本來就有 Binance→Bybit fallback，
+                    #   報價側跟著同一條鏈降級，兩邊才會是同一個交易所的數字。
+                    fp = _fetch_bybit_prices()
+                    _psrc = "bybit" if fp else "none"
                 if fp:
                     _apply_prices(futures, fp)
+                    _TK_PRICE_STAT["ts"] = time.time()
+                _TK_PRICE_STAT["src"] = _psrc
                 sp = _fetch_spot_prices()
                 if sp:
                     _apply_prices(spot, sp)
