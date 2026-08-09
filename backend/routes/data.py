@@ -1320,9 +1320,57 @@ def export_klines(symbol: str, timeframe: str = "1d", market: str = "crypto", ex
                     headers={"Content-Disposition": f'attachment; filename="{fn}"'})
 
 
+# ── 即時 K 棒的「來源黏著」（2026-08-08）────────────────────────────────────────
+#   使用者回報「主圖最新 K 棒還是會動」。實測（headless 盯 ohlcvData，1m、100 秒）：
+#     形成中那根的 open 變動 1 次、**已收盤的棒被改寫 38 次**，幅度 4~15 點（不是浮點誤差）。
+#   根因是**來源在 binance / bybit 之間反覆跳**：Binance 偶發限流/逾時 → 這一秒退 Bybit、
+#   下一秒又回 Binance。兩家對同一根已收盤 K 棒差幾點，而前端為了「不留接縫」，
+#   換源時會整段重對齊（連 open 一起換）、同源時保留 open 只換 h/l/c ——
+#   於是每跳一次，畫面上那幾根就跟著動一次。連續性守門員甚至傾印出
+#   **O64938 但 L64948（低點比開盤還高）的不可能 K 棒**，就是兩份不同來源被縫在同一根上。
+#
+#   對策：短時間內**守住原來的來源**。新抓到的資料若換了交易所，而我們手上這份同源資料
+#   還很新（≤ _SRC_STICKY_SEC），這一拍就**回空**（不是回舊資料，見下方 ⚠），前端的
+#   `if (!json.data?.length) return;` 會乾淨地跳過這一輪、圖表停在原值不動。
+#     ・Binance 只是「每隔幾秒漏一拍」→ 那幾拍跳過，完全不換源，也就沒有任何重寫。
+#     ・Binance 真的掛掉 → 沒有新的同源資料來刷新 ts，過了 _SRC_STICKY_SEC 就採用 Bybit，
+#       整個切換過程只發生**一次**重對齊，而不是每秒一次。
+#   ⚠ 第一版是「回手上那份舊的」，錯得很隱蔽：於是回應在「最新」與「最多 15 秒前」之間交替，
+#     而前端的 `t < lastT` 補正是**照單全收**的 → 同一根 K 棒被新值、舊值輪流蓋，
+#     實測同一根 high 在 65048 ↔ 65038.1 之間來回跳（±9.9）。**回空才是對的**：
+#     沒有資料就什麼都不動，比給一份「內部一致但過期」的快照安全。
+#   ⚠ 代價是換源那一刻最多有 _SRC_STICKY_SEC 秒「最後一根不動」。這是刻意的取捨：
+#     停一下看不出來，跳來跳去很明顯。別為了「更即時」把它調到 5 秒以下（等於沒黏著）。
+_SRC_STICKY: dict = {}
+#   ★ 60 秒是量出來的，不是拍腦袋：本機 Binance 約 28% 的秒數失敗（150 秒裡 34 次退 Bybit、
+#     27 次 hold）。窗口 15 秒時仍有 2 次真的換源 → 定案棒被整根改寫、看得出來在動。
+#     拉到 60 秒＝「只要 Binance 一分鐘內成功過一次就絕不換源」，正常的間歇性失敗完全吃掉。
+#     代價：Binance 真的整組掛掉時，最後一根最多停 60 秒才切到 Bybit。這是刻意的取捨——
+#     停一下沒人看得出來，數字跳來跳去每個人都看得出來。
+_SRC_STICKY_SEC = 60.0
+_SRC_STICKY_LOCK = _threading.Lock()
+
+
+def _sticky_source(key: str, df, src):
+    """回傳 (df, src, hold)。hold=True 代表「這一拍別送」（換源但手上同源資料還新）。"""
+    if df is None or getattr(df, "empty", True) or not src:
+        return df, src, False
+    now = time.time()
+    with _SRC_STICKY_LOCK:
+        st = _SRC_STICKY.get(key)
+        if st and st["src"] != src and (now - st["ts"]) <= _SRC_STICKY_SEC:
+            return df, src, True           # 守住原來的來源：這一拍跳過
+        if len(_SRC_STICKY) > 200:         # 只留近期在看的標的，別無限長大
+            for k in [k for k, v in _SRC_STICKY.items() if now - v["ts"] > 300]:
+                _SRC_STICKY.pop(k, None)
+        _SRC_STICKY[key] = {"src": src, "ts": now}
+    return df, src, False
+
+
 @router.post("/latest")
 def get_latest(req: LatestRequest):
     """取得最新 K 棒"""
+    _crypto_src = None      # 這份 df 的實際來源（crypto 才有；跟著資料走，見下方快取那段）
     try:
         if req.market == "tw" and req.symbol.upper() in FUTOPT_PRODUCTS:
             # 台指期（歸台股底下）：盤中時框回累積K tail（快取 3 秒）；日/週/月線無即時 tick 回空
@@ -1553,8 +1601,19 @@ def get_latest(req: LatestRequest):
             #   Binance 限流恰恰就是這種叢發。→ 同一把 key 只讓一個人去抓（leader），其他人等它
             #   （follower，最多 3 秒）；抓完大家一起讀快取。等逾時就自己抓，最壞退回原本行為。
             #   同 _WR_SF 的作法。
+            # ★ 2026-08-08：快取存的是 (df, src) 而不是單獨的 df。
+            #   為什麼：src 來自 last_fetch_source()，那是 **thread-local**——「這條執行緒上次抓的來源」。
+            #   走快取時根本沒發生抓取，事後再問它，拿到的是**同一條 worker thread 上一個請求**
+            #   （可能是別的標的）的來源。實測兩個客戶端同時輪詢時，同一個標的的 src 會在
+            #   binance/bybit 之間**完美交替**——全是假的換源。
+            #   後果不是顯示問題而是**改資料**：前端 _bgLoadNewerBars 看到「換源」就整段重對齊
+            #   （連 open 一起換）→ 已收盤的棒 open 跳 12 點；看到「同源」則保留 open 只換 h/l/c
+            #   → 兩份不同來源的快照被縫在同一根上，量到 **O64938 但 L64948（低點比開盤高）的
+            #   不可能 K 棒**。使用者說的「最新 K 棒還是會動」就是這個。
+            #   → 來源必須跟著資料本身走（/api/ohlcv 早就是把 src 存進快取內容，這支漏了）。
             _ck = f"crypto_latest_{req.exchange}_{req.symbol}_{req.timeframe}"
-            df = cache.get(_ck, ttl=1) if not req.api_key else None
+            _hit = cache.get(_ck, ttl=1) if not req.api_key else None
+            df, _crypto_src = _hit if isinstance(_hit, tuple) else (None, None)
             if df is None and not req.api_key:
                 _leader = False
                 with _LATEST_SF_LOCK:
@@ -1563,7 +1622,8 @@ def get_latest(req: LatestRequest):
                         _ev = _threading.Event(); _LATEST_SF[_ck] = _ev; _leader = True
                 if not _leader:
                     _ev.wait(3.0)                       # 等 leader 抓完（結果已進快取）
-                    df = cache.get(_ck, ttl=2)          # 放寬一點點：leader 剛寫完就算它「1 秒前」也接受
+                    _hit = cache.get(_ck, ttl=2)        # 放寬一點點：leader 剛寫完就算它「1 秒前」也接受
+                    df, _crypto_src = _hit if isinstance(_hit, tuple) else (None, None)
                 if df is None:
                     try:
                         df = fetch_crypto_ohlcv(
@@ -1571,8 +1631,10 @@ def get_latest(req: LatestRequest):
                             exchange_id=req.exchange,
                             api_key=req.api_key, api_secret=req.api_secret,
                         )
+                        # ⚠ 一定要在這裡取（同一條執行緒、剛抓完的那一刻）才對得上這份 df
+                        _crypto_src = last_fetch_source()
                         if df is not None and not df.empty:
-                            cache.set(_ck, df)
+                            cache.set(_ck, (df, _crypto_src))
                     finally:
                         if _leader:                     # 一定要放行，否則其他人白等 3 秒
                             with _LATEST_SF_LOCK:
@@ -1588,8 +1650,15 @@ def get_latest(req: LatestRequest):
                     exchange_id=req.exchange,
                     api_key=req.api_key, api_secret=req.api_secret,
                 )
+                _crypto_src = last_fetch_source()       # 自有金鑰路徑不走快取，抓完立刻取
     except Exception as e:
         raise HTTPException(400, str(e))
+
+    if req.market == "crypto" and not req.api_key:
+        df, _crypto_src, _hold = _sticky_source(
+            f"{req.exchange}_{req.symbol}_{req.timeframe}", df, _crypto_src)
+        if _hold:
+            return {"live": True, "data": []}   # 這一拍跳過，不拿別的來源去蓋
 
     if df.empty:
         raise HTTPException(400, "無資料")
@@ -1604,10 +1673,10 @@ def get_latest(req: LatestRequest):
     live = (req.market == "crypto") or (req.market == "us" and bool(os.getenv("FINNHUB_TOKEN")))
     resp = {"live": live, "data": records}
     if req.market == "crypto":   # 同 /api/ohlcv：讓前端看得到來源，接合前先比對
-        try:
-            resp["src"] = last_fetch_source()
-        except Exception:
-            pass
+        # ⚠ 用「跟著這份 df 一起記下來的」來源，不要在這裡現問 last_fetch_source()——
+        #   它是 thread-local，走快取時回的是同一條執行緒上一個請求（可能是別的標的）的來源。
+        if _crypto_src:
+            resp["src"] = _crypto_src
     return resp
 
 

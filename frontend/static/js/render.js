@@ -1387,21 +1387,27 @@ async function _bgLoadNewerBars(scrollTriggered = false) {
         if (_ct < _oldestAuth) break;
         const _a = _auth.get(_ct);
         if (!_a) continue;
-        /* ★ 2026-08-06 同源校正**不動 open**（使用者：「最新 K 棒會因為你的計算而動一下，
-           不能固定嗎？開盤價不是都固定位置嗎」）。
-           開盤價在該根開出來的那一刻就定了、之後不會變；這裡要補的是「中斷期間沒收到的
-           最終 high/low/close」。連 open 一起覆蓋只會因為浮點瘦身的量化差異讓整根跳一下。
-           ⚠ 例外：來源換手的整段重對齊（_srcDiff）要連 open 一起換 —— 那時整串數值都來自
-             另一份快照，只換一半反而製造接縫。 */
-        const _same = _srcDiff
-          ? (+_cur.open === +_a.open && +_cur.high === +_a.high && +_cur.low === +_a.low && +_cur.close === +_a.close)
-          : (+_cur.high === +_a.high && +_cur.low === +_a.low && +_cur.close === +_a.close);
-        if (!_same) {
-          ohlcvData[k] = _srcDiff
-            ? { ..._cur, ..._a, _t: _ct }
-            : { ..._cur, high: _a.high, low: _a.low, close: _a.close,
-                volume: _a.volume != null ? _a.volume : _cur.volume, _t: _ct };
-        }
+        /* ★ 2026-08-08 改成「整根換，或完全不動」——**絕不混兩份快照**。
+           舊版是「保留 open、只換 h/l/c」（為了修使用者說的「最新 K 棒會動一下」）。
+           那在同一份快照裡沒事，但這裡的權威資料可能來自**另一次抓取／另一個交易所**，
+           於是 open 來自 A、h/l/c 來自 B → 縫出**不可能的 K 棒**：連續性守門員實測傾印到
+           `O65082 但 L65084.1`（低點比開盤還高）。畫出來就是使用者說的「K 棒怪怪的、會動」。
+           新規則：四欄有任何一欄不同 → **整根用權威值**（內部一定一致）；
+                   完全相同 → 一個欄位都不碰（浮點量化差異也不會讓它抖，比舊版更穩）。 */
+        const _same = +_cur.open === +_a.open && +_cur.high === +_a.high
+                   && +_cur.low === +_a.low && +_cur.close === +_a.close;
+        if (_same) continue;
+        /* ★ 2026-08-08 只補「我們手上這根是半路值」的情況。
+           判準＝權威值的範圍**涵蓋**我們這根（high 只會更高、low 只會更低）——
+           那正是「還沒收完就被我們記下來」的形狀，補上去是把它補完整。
+           反過來若權威值比較窄或整根平移，代表那是**另一份快照**（另一次抓取/另一個交易所），
+           拿它去蓋一根早就定案的棒，畫面上就是使用者說的「K 棒自己在動」
+           （實測 age=5 的棒四欄一起位移 3.2 點，就是這樣來的）。
+           ⚠ 這跟 realtime.js 那個「別加閘門」的教訓不衝突：那裡擋的是「只補一半欄位」，
+             這裡是**整根補或整根不補**，永遠不會把兩份快照縫在一起。
+           ⚠ 來源真的換手（_srcDiff）時不套這個閘門：那時整段本來就該對齊到新來源。 */
+        if (!_srcDiff && !(+_a.high >= +_cur.high && +_a.low <= +_cur.low)) continue;
+        ohlcvData[k] = { ..._cur, ..._a, _t: _ct };
       }
       let newBars = json.data.filter(b => toTime(b.time) > existingLatest);
       if (!newBars.length) { window._hasFwdGap = false; break; }   // 沒有更新的→已到現在

@@ -115,8 +115,18 @@ async function fetchLatest() {
     /* ★ 2026-08-06 來源換手偵測。各來源對同一根已收盤 K 棒的數值差幾點（實測換源那次
        20 根裡 19 根全變），把兩份混在一起就是使用者看到的小跳空。
        這裡不當場改資料（即時路徑要輕），只標記；由 _checkContinuity 觸發一次整段重對齊。 */
-    if (json.src && window._ohlcvSrc && json.src !== window._ohlcvSrc) window._srcRealign = true;
-    if (json.src && !window._ohlcvSrc) window._ohlcvSrc = json.src;
+    /* ⚠ 要**連續兩次**看到同一個新來源才算換手（2026-08-08）。
+       `/api/ohlcv`（整批載入）與 `/api/latest`（每秒）是兩個獨立端點、各自有快取，
+       其中一支偶爾漏一拍退到 Bybit，就會讓兩邊的 src 對不上一拍。
+       單次就觸發整段重對齊的話，那幾根定案棒會被整批改寫＝畫面上「K 棒自己在動」
+       （實測 180 秒內 16 次、幅度到 7.5 點）。連續兩次才動 → 真的換手才對齊，抖一下不算。 */
+    if (json.src && window._ohlcvSrc && json.src !== window._ohlcvSrc) {
+      if (window._srcCand === json.src) { window._srcRealign = true; window._srcCand = null; }
+      else window._srcCand = json.src;
+    } else if (json.src) {
+      window._srcCand = null;
+      if (!window._ohlcvSrc) window._ohlcvSrc = json.src;
+    }
     if (!json.data?.length) return;
     const dot = document.getElementById("realtimeDot");
     if (dot) dot.classList.toggle("hidden", json.live === false);
@@ -176,16 +186,28 @@ async function fetchLatest() {
         }
         if (_i < 0 || _i >= ohlcvData.length - 1) return;   // 找不到、或它其實是最後一根 → 不處理
         const _cur = ohlcvData[_i];
-        if (+_cur.high === +bar.high && +_cur.low === +bar.low && +_cur.close === +bar.close) return;
+        /* ★ 2026-08-08：四欄一起比、一起換（含 open）——**絕不混兩份快照**。
+           舊版保留 open 只換 h/l/c，若這份快照來自另一次抓取/另一個交易所，就會縫出
+           `open` 在 [low, high] 之外的**不可能 K 棒**（連續性守門員實測傾印到 O65082/L65084.1）。
+           已收盤那根本來就該「整根定案」，整根換才是對的；完全相同時一個欄位都不碰。 */
+        if (+_cur.open === +bar.open && +_cur.high === +bar.high
+            && +_cur.low === +bar.low && +_cur.close === +bar.close) return;
         /* ⚠ 這裡刻意「照單全收」，不要加「只在能讓接縫變小時才補」的閘門。
              試過那樣做，結果更糟：/api/latest 每次回的是**一份內部一致的快照**，
              選擇性套用會把兩份快照混在一起 → 接縫又冒出來（實測跳空 1.6/4.7 點回歸）。
              照單全收的話尾端永遠等於最後一份快照、內部一致 → 沒有接縫；
              代價只是已收盤棒會隨快照微調 0.007% 等級（肉眼不可見），
              而使用者真正看得到的是跳空。 */
-        /* ⚠ 同上：保留原本的 open。開盤價定了就不該再變，覆蓋它會讓那根視覺上跳一下
-           （使用者回報「最新 K 棒會因為你的計算而動一下」）。這裡要補的是最終 high/low/close。 */
-        ohlcvData[_i] = { ..._cur, high: bar.high, low: bar.low, close: bar.close,
+        /* ★ 單調閘門（2026-08-08）：只有「權威值涵蓋我們這根」才補（high 只更高、low 只更低）。
+           同一家交易所的**最終值**必然涵蓋我們記到的**半路值** → 該補的一定補得到；
+           而另一份快照（另一次抓取／另一個交易所）通常是平移或更窄 → 一定被擋掉。
+           沒有這道閘門時實測會**來回打架**：同一根 01:01 在 65057.8 ↔ 65056.1 之間反覆跳，
+           因為兩個寫入端各拿著自己的快照互相蓋。加上它之後已收盤棒只會單向定案、不再抖。
+           ⚠ 這跟下面「別加閘門」的舊教訓不衝突：那裡擋的是**逐欄挑著補**（會縫出混血棒），
+             這裡是**整根補或整根不補**，永遠只有一份快照落在一根上。 */
+        if (!(+bar.high >= +_cur.high && +bar.low <= +_cur.low)) return;
+        /* ⚠ 整根換（含 open）：保留 open 只換 h/l/c 會縫出不可能的 K 棒（low 比 open 高）。 */
+        ohlcvData[_i] = { ..._cur, open: bar.open, high: bar.high, low: bar.low, close: bar.close,
                           volume: bar.volume != null ? bar.volume : _cur.volume, _t: t };
         _dirty = true;
         _needRedraw = true;   // ⚠ 只標記，重畫留到整批處理完再做一次（見迴圈之後）
@@ -197,7 +219,20 @@ async function fetchLatest() {
         //   覆寫的話（浮點瘦身的量化差異、或來源微調）整根會在畫面上跳一下
         //   —— 使用者：「最新 K 棒會因為你的計算而動一下，開盤價不是都固定位置嗎」。
         if (last.close === bar.close && last.high === bar.high && last.low === bar.low) return;
-        ohlcvData[ohlcvData.length - 1] = { ...last, high: bar.high, low: bar.low, close: bar.close,
+        /* ★ 形成中那根：open 對不上＝這是**另一份快照**，整拍跳過（2026-08-08）。
+           開盤價在該根開出來那一刻就定了（使用者：「開盤價不是都固定位置嗎」）。
+           同一個來源不可能改它 → 只要 open 不同，就代表這一拍換了快照；
+           此時「保留自己的 open + 吃它的 h/l/c」會縫出不可能的 K 棒，「整根吃下去」則是開盤價跳動。
+           兩個都不要：這一拍什麼都不做，等下一拍同源的資料。後端有來源黏著，這種情況很少。
+           ⚠ 保險絲：真的換源（黏著期過了、對方永久接手）時不能永遠凍住 →
+             連續跳過 10 拍就整根收下（一次乾淨的定案，而不是每秒抖一下）。 */
+        if (+last.open !== +bar.open) {
+          window._fbOpenSkip = (window._fbOpenSkip || 0) + 1;
+          if (window._fbOpenSkip < 10) return;
+        }
+        window._fbOpenSkip = 0;
+        ohlcvData[ohlcvData.length - 1] = { ...last, open: bar.open, high: bar.high, low: bar.low,
+                                            close: bar.close,
                                             volume: bar.volume != null ? bar.volume : last.volume };
         // 同時間不需重建 Map（key 不變）
       }

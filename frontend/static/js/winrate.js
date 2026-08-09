@@ -1971,7 +1971,7 @@ setTimeout(() => {
   //   當你在看 BTC/ETH/XAUT,idle 時偷偷把它其他常用時框的 K棒+勝率抓好 _put 成快照;
   //   之後切過去 _snapPaint 秒畫(再由真資料更新)。只對這三個高頻標的做,避免濫抓。
   const _PREFETCH_SYMS = ["BTC/USDT", "ETH/USDT", "XAUT/USDT"];
-  const _PREFETCH_TFS = ["1d", "4h", "2h", "1h", "30m", "15m", "5m"];
+  const _PREFETCH_TFS = ["1d", "4h", "1h", "15m", "5m"];
   const _preDone = {};   // key → 時戳,避免同一 key 反覆抓(5 分鐘內不重抓)
   async function _prefetchTF(market, symbol, exchange, tf) {
     const key = [market, symbol, exchange, tf].join("|");

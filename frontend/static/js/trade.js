@@ -10,7 +10,7 @@
 const _TRD = { st: null, ov: null, pollTimer: null, busy: false };
 
 const _TRD_SIG_ORDER = [];   // S1~S12 與 SS 系列皆已退役；FVG／教練各有獨立分頁 列
-const _TRD_ALL_TFS = ["5m", "15m", "30m", "1h", "2h", "4h", "1d", "1w"];   // 8h 已移除
+const _TRD_ALL_TFS = ["5m", "15m", "1h", "4h", "1d", "1w"];   // 8h/2h/30m 已移除
 
 const _TRD_ICO = `<svg class="trd-ico" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4.5 13.5H11L9.5 22 19 9.5h-6.5L13 2Z"/></svg>`;
 

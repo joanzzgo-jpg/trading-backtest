@@ -147,10 +147,13 @@ let _dataVersion        = 0;     // ohlcvData 變更時 ++，給 memo cache 用
 
 const PANE_FLEX_DEFAULTS = { mainPane:5, kdjPane:1, rsiPane:1, macdPane:1 };
 
-const TF_LABELS = { "1M":"月","1w":"週","1d":"日","4h":"4H","2h":"2H","1h":"1H","30m":"30m","15m":"15m","5m":"5m","1m":"1m" };   // 8h 已移除
+const TF_LABELS = { "1M":"月","1w":"週","1d":"日","4h":"4H","1h":"1H","15m":"15m","5m":"5m","1m":"1m" };   // 8h/2h/30m 已移除
+// ⚠ 這張表同時是「可用時框」的白名單：loadLastSymbol / _applyUrlState 都用 TF_LABELS[tf] 當閘門
+//   → 從這裡拿掉，舊使用者存著的 lastSymbol.tf="2h"、或別人分享的 ?tf=30m 會自動被擋掉退回預設，
+//   不會卡在一個已經沒有按鈕的時框上。
 
 /* ── 手機 TF 選擇器：使用者自選最多 4 個要顯示的時間框（設定分頁設定；桌面顯示全部） ── */
 const MOBILE_TF_MAX = 4;
-const MOBILE_TF_ALL = ["1M","1w","1d","4h","2h","1h","30m","15m","5m","1m"];   // 順序＝按鈕列順序（8h 已移除）
+const MOBILE_TF_ALL = ["1M","1w","1d","4h","1h","15m","5m","1m"];   // 順序＝按鈕列順序（8h/2h/30m 已移除）
 let _mobileTFs = ["1d","4h","1h","15m"];   // 預設顯示的 4 個；由 loadMobileTFs() 從 localStorage 載入
 
