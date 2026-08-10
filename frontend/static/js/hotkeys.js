@@ -68,6 +68,7 @@
     ["[  ]　← →", "上一個／下一個時間框架（重播中 ← → 改為逐根前進/後退）"],
     ["/", "開啟標的搜尋"],
     ["R", "重播模式"],
+    ["Shift（輕點）", "切換 K 棒圖／線型圖（按住 Shift 仍是繪圖鎖水平，不受影響）"],
     ["Cmd/Ctrl + Z", "復原繪圖"],
     ["↑ ↓ / 空白", "報價列上下選取"],
     ["?", "顯示／關閉這張表"],
@@ -122,11 +123,52 @@
       return;
     }
     if (e.key === "/")                { e.preventDefault(); if (typeof openSymSearch === "function") openSymSearch(); return; }
+    /* ★ 2026-08-10 輕點 Shift＝切換 K 棒／線型圖（使用者要求）。
+       ⚠ 不能直接在 keydown 就切：Shift **已經被繪圖用掉了**——按住 Shift 畫線是「鎖水平」
+         （draw.js `_shiftDown`／`_hSnapOn`）。若一按下就切，使用者每畫一條水平線圖型就翻一次。
+       → 用「輕點」語義：按下時只記下候選，出現下列任一情況就取消候選：
+           ① 按住期間又按了別的鍵（Shift+X 之類的組合）
+           ② 按住期間有滑鼠動作（正在畫圖／拖曳）
+           ③ 按住超過 400ms（＝在「按住」而不是「輕點」）
+         放開時候選還在才切換。這樣畫水平線完全不受影響。 */
     if (e.key === "r" || e.key === "R") {
       e.preventDefault();
       document.getElementById("replayModeBtn")?.click();
     }
   });
+
+  /* 輕點 Shift → 切換 K 棒／線型圖（見上方 keydown 內的說明）。
+     ⚠ 用獨立的監聽器（capture=false、掛 window）而不是塞進上面那個 keydown：
+       Shift 的 keydown 會**連發**（按住不放時作業系統重複送），要靠 e.repeat 擋掉；
+       而且真正觸發的時機在 keyup，混在同一個 handler 裡反而難讀。 */
+  let _shTap = false, _shAt = 0;
+  const _shCancel = () => { _shTap = false; };
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Shift") {
+      if (e.repeat) { _shTap = false; return; }        // 按住連發＝不是輕點
+      if (e.metaKey || e.ctrlKey || e.altKey) { _shTap = false; return; }
+      if (_typing() || _overlayOpen()) { _shTap = false; return; }
+      _shTap = true; _shAt = Date.now();
+      return;
+    }
+    _shCancel();                                        // 按住 Shift 期間又按別的鍵 → 組合鍵，不算輕點
+  }, false);
+  // 有「真的在操作」才取消：按住 Shift 拖曳/畫線是鎖水平，不能被當成切圖型。
+  // ⚠ mousemove 必須加 buttons>0 的條件：純粹移動滑鼠不該取消（手在圖上飄一下就取消＝按了沒反應）。
+  ["mousedown", "wheel", "touchstart"].forEach(ev =>
+    window.addEventListener(ev, _shCancel, { passive: true }));
+  window.addEventListener("mousemove", (e) => { if (e.buttons > 0) _shCancel(); }, { passive: true });
+  window.addEventListener("blur", _shCancel);
+  window.addEventListener("keyup", (e) => {
+    if (e.key !== "Shift") return;
+    const tap = _shTap && (Date.now() - _shAt) < 400;   // 400ms 內放開才算輕點
+    _shTap = false;
+    if (!tap) return;
+    if (_typing() || _overlayOpen()) return;
+    if (typeof window.toggleChartType !== "function") return;
+    const isLine = window.toggleChartType();
+    if (typeof showToast === "function") showToast(isLine ? "線型圖" : "K 棒圖");
+  }, false);
 
   window._hotkeySheet = _toggleSheet;   // 供說明按鈕呼叫
 })();
