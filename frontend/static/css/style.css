@@ -2087,10 +2087,9 @@ html.perf-mode .time-axis-year {
 }
 #trdDock .tk-dock-hd:hover { background: rgba(255,255,255,.04); }
 #trdDock .tk-dock-hd .trd-ico { width: 13px; height: 13px; flex-shrink: 0; }
-/* 箭頭同交易那套：展開＝▶（按了往右收）、收起＝◀（按了往左展開） */
 #trdDock .tk-dock-hd .trd-dock-caret { margin-left: auto; color: var(--muted, #889);
-  font-size: 10px; transition: transform .18s ease; transform: rotate(-90deg); }
-#trdDock .tk-dock-hd.tk-hd-collapsed .trd-dock-caret { transform: rotate(90deg); }
+  font-size: 10px; transition: transform .18s ease; }
+#trdDock .tk-dock-hd.tk-hd-collapsed .trd-dock-caret { transform: rotate(-90deg); }
 /* 交易欄自己收成細條時：行情這列也轉直書，但**高度自適應**（不吃掉交易的位置） */
 #trdDock.trd-collapsed .tk-dock-hd {
   writing-mode: vertical-rl; justify-content: center;
@@ -4359,15 +4358,9 @@ html.perf-mode .tb-wr-total { font-size: 20px !important; }
      ⚠ 我中間試過 flex:1 1 0 + overflow-x:auto 讓它可縮可捲，使用者明確不要
        （「上方時間框變成有限制」）→ 改回**原尺寸、不縮不捲**，只是位置靠左；
        中間的空白留給右側按鈕。真的窄到不夠時，退讓的是左邊那組（見 .topbar-left）。 */
-  /* 使用者：「要接近置中」→ 左右都給 auto margin，時框列就會落在
-     「左側那組」與「右側按鈕」之間的正中央（不是貼右、也不是貼左）。 */
-  margin-left: auto;
-  margin-right: auto;
+  margin-left: 0;
   flex: 0 0 auto;
 }
-/* ⚠ 勝率前三名那條原本是 flex:1 1 0（會長大吃掉所有剩餘空間）→ 時框的 auto margin
-   就分不到空間、永遠被推到右邊。改成不主動長大，空間才留得下來給置中用。 */
-#wrTop3.tb-wr-top3 { flex: 0 1 auto !important; }
 
 /* 右側 icons 自己釘右端（原本靠 .topbar-tf 的 auto margin 一起被推過去） */
 .topbar-right { margin-left: auto; }
