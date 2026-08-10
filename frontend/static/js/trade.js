@@ -562,7 +562,11 @@ function _trdBuildPopup() {
       transition:transform .18s ease; font-size:10px; transform:rotate(-90deg); }
     /* ⚠ 選擇器要帶 .trd-dock-hd：不然「行情」那一列的箭頭會跟著交易的收合狀態轉，
          但它反映的應該是行情面板自己的狀態（兩列互不影響）。 */
-    #trdDock.trd-collapsed .trd-dock-hd .trd-dock-caret { transform:rotate(90deg); }
+    /* ⚠ 2026-08-11 收起時的方向以**實際看到的**為準（使用者：「交易收起來箭頭左右反了」）。
+       這裡繞過兩層干擾：① 收起後標題列是 vertical-rl，瀏覽器會自動轉字元
+       （已由 style.css 對 caret 還原成 horizontal-tb）；② rotate 值的視覺方向容易推錯。
+       結論就是收起時要 -90deg，不要照抄展開那套的相反值。 */
+    #trdDock.trd-collapsed .trd-dock-hd .trd-dock-caret { transform:rotate(-90deg); }
     #trdDock .trd-dock-body { flex:1 1 auto; min-height:0; overflow-y:auto; }
     #tradePopup .trd-bind { display:none; }
     #tradePopup.trd-need-bind .trd-bind { display:block; }
