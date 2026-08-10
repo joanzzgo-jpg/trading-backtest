@@ -354,9 +354,11 @@ function applyAllColors() {
   kdjH50.applyOptions({ color:C.kdjH50, lineWidth:S.kdjHLWidth });
   kdjH80.applyOptions({ color:C.kdjH80, lineWidth:S.kdjHLWidth });
   rsiLine14.applyOptions({ color:C.rsi14 }); rsiLine7.applyOptions({ color:C.rsi7 });
-  rsiH30.applyOptions({ color:C.rsiH30, lineWidth:S.rsiHLWidth });
-  rsiH50.applyOptions({ color:C.rsiH50, lineWidth:S.rsiHLWidth });
-  rsiH70.applyOptions({ color:C.rsiH70, lineWidth:S.rsiHLWidth });
+  // ⚠ 線型也要一起套：只套顏色/線寬的話，換色盤或重建圖表會把使用者選的線型洗回預設
+  const _rhls = S.rsiHLStyle ?? 1;
+  rsiH30.applyOptions({ color:C.rsiH30, lineWidth:S.rsiHLWidth, lineStyle:_rhls });
+  rsiH50.applyOptions({ color:C.rsiH50, lineWidth:S.rsiHLWidth, lineStyle:_rhls });
+  rsiH70.applyOptions({ color:C.rsiH70, lineWidth:S.rsiHLWidth, lineStyle:_rhls });
   macdLine.applyOptions({ color:C.macd }); macdSignal.applyOptions({ color:C.macdSig }); macdHist?.applyOptions({ color:C.macdHist });
   volMaSeries?.applyOptions({ color:C.volMa });
 

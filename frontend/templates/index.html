@@ -762,9 +762,9 @@
       <div class="pane-legend">
         <span class="leg-item leg-toggle" id="legRsi14" style="color:#7e57c2"><span class="leg-dot" style="background:#7e57c2;border-color:#7e57c2"></span><span class="leg-val">RSI 14 —</span></span>
         <span class="leg-item leg-toggle" id="legRsi7"  style="color:#ef5350"><span class="leg-dot" style="background:#ef5350;border-color:#ef5350"></span><span class="leg-val">RSI 7 —</span></span>
-        <span class="leg-item" id="legRsiH30"><span class="leg-dot" style="background:#4a4a6a;border-color:#4a4a6a"></span><span class="leg-val">30</span></span>
-        <span class="leg-item" id="legRsiH50"><span class="leg-dot" style="background:#666688;border-color:#666688"></span><span class="leg-val">50</span></span>
-        <span class="leg-item" id="legRsiH70"><span class="leg-dot" style="background:#4a4a6a;border-color:#4a4a6a"></span><span class="leg-val">70</span></span>
+        <!-- 圖例的 30/50/70 已移除（使用者：沒啥用）。三條水平線的顏色/位置/線型/線寬
+             改由 RSI 設定齒輪（超買/超賣兩列）控制；_syncLegDot 與圖例色盤綁定都有
+             「找不到元素就跳過」的保護，移除不會壞。 -->
         <div class="pane-btns">
           <button class="ind-gear-btn" data-ind="rsi" title="RSI設定">⚙</button>
         </div>

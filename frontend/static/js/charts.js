@@ -1242,9 +1242,11 @@ function buildCharts() {
   rsiAnchor = rsiChart.addLineSeries({ color:"rgba(0,0,0,0)", lineWidth:1, priceLineVisible:false, lastValueVisible:false });
   rsiLine14 = rsiChart.addLineSeries({ color:C.rsi14, lineWidth:S.rsi14Width??1, lineStyle:S.rsi14Style??0, priceLineVisible:false, lastValueVisible:false });
   rsiLine7  = rsiChart.addLineSeries({ color:C.rsi7,  lineWidth:S.rsi7Width??1,  lineStyle:S.rsi7Style??0,  priceLineVisible:false, lastValueVisible:false });
-  rsiH30 = rsiChart.addLineSeries({ color:C.rsiH30, lineWidth:S.rsiHLWidth, lineStyle:1, priceLineVisible:false, lastValueVisible:true });
-  rsiH50 = rsiChart.addLineSeries({ color:C.rsiH50, lineWidth:S.rsiHLWidth, lineStyle:1, priceLineVisible:false, lastValueVisible:true });
-  rsiH70 = rsiChart.addLineSeries({ color:C.rsiH70, lineWidth:S.rsiHLWidth, lineStyle:1, priceLineVisible:false, lastValueVisible:true });
+  // 線型改吃 S.rsiHLStyle（使用者可在 RSI 設定裡切實線/點線/虛線/長虛線）；?? 1 維持舊外觀
+  const _rhls = S.rsiHLStyle ?? 1;
+  rsiH30 = rsiChart.addLineSeries({ color:C.rsiH30, lineWidth:S.rsiHLWidth, lineStyle:_rhls, priceLineVisible:false, lastValueVisible:true });
+  rsiH50 = rsiChart.addLineSeries({ color:C.rsiH50, lineWidth:S.rsiHLWidth, lineStyle:_rhls, priceLineVisible:false, lastValueVisible:true });
+  rsiH70 = rsiChart.addLineSeries({ color:C.rsiH70, lineWidth:S.rsiHLWidth, lineStyle:_rhls, priceLineVisible:false, lastValueVisible:true });
   try {   // 超買/超賣漸層底（掛在 RSI(14) 上，畫在最底層不擋線）
     _rsiZonePrim = _makeRSIZonePrimitive();
     rsiLine14.attachPrimitive(_rsiZonePrim);

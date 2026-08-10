@@ -371,9 +371,8 @@ function bindLegendColors() {
     { id:"legKdjH20",  key:"kdjH20",  apply: c => { C.kdjH20  = c; kdjH20?.applyOptions({color:c}); savePrefs(); } },
     { id:"legKdjH50",  key:"kdjH50",  apply: c => { C.kdjH50  = c; kdjH50?.applyOptions({color:c}); savePrefs(); } },
     { id:"legKdjH80",  key:"kdjH80",  apply: c => { C.kdjH80  = c; kdjH80?.applyOptions({color:c}); savePrefs(); } },
-    { id:"legRsiH30",  key:"rsiH30",  apply: c => { C.rsiH30  = c; rsiH30?.applyOptions({color:c}); savePrefs(); } },
-    { id:"legRsiH50",  key:"rsiH50",  apply: c => { C.rsiH50  = c; rsiH50?.applyOptions({color:c}); savePrefs(); } },
-    { id:"legRsiH70",  key:"rsiH70",  apply: c => { C.rsiH70  = c; rsiH70?.applyOptions({color:c}); savePrefs(); } },
+    // RSI 的 legRsiH30/50/70 圖例已移除（使用者：那三個 30/50/70 沒啥用）→ 這裡的色盤綁定一併刪掉。
+    //   顏色改由 RSI 設定齒輪的「超買/超賣」兩列調整；留著也只是空跑（下方有 if(!legEl) return 保護）。
     { id:"legMacd",    key:"macd",    apply: c => { C.macd    = c; macdLine?.applyOptions({color:c});   const el=document.getElementById("legMacd");    if(el) el.style.color=c; savePrefs(); } },
     { id:"legMacdSig", key:"macdSig", apply: c => { C.macdSig = c; macdSignal?.applyOptions({color:c}); const el=document.getElementById("legMacdSig"); if(el) el.style.color=c; savePrefs(); } },
     { id:"legMacdHist",key:"macdHist",apply: c => { C.macdHist = c; macdHist?.applyOptions({color:c}); savePrefs(); } },
@@ -461,7 +460,9 @@ function bindIndicatorPanel() {
         { label:"RSI 14", colorKey:"rsi14", onColor: c=>{rsiLine14?.applyOptions({color:c}); _syncLegDot("legRsi14",c);}, lsKey:"rsi14Style", series:()=>rsiLine14, widKey:"rsi14Width", serW:()=>rsiLine14 },
         { label:"RSI 7",  colorKey:"rsi7",  onColor: c=>{rsiLine7?.applyOptions({color:c});  _syncLegDot("legRsi7",c);},  lsKey:"rsi7Style",  series:()=>rsiLine7,  widKey:"rsi7Width",  serW:()=>rsiLine7  },
         { divider: true },
-        { label:"超買", colorKey:"rsiH70", onColor: c=>{rsiH70?.applyOptions({color:c}); _syncLegDot("legRsiH70",c);}, numKey:"rsiH70val", numSeries:()=>rsiH70, widKey:"rsiHLWidth", onWidth: w=>{ [rsiH30,rsiH50,rsiH70].forEach(s=>s?.applyOptions({lineWidth:w})); } },
+        { label:"超買", colorKey:"rsiH70", onColor: c=>{rsiH70?.applyOptions({color:c}); _syncLegDot("legRsiH70",c);}, numKey:"rsiH70val", numSeries:()=>rsiH70,
+          lsKey:"rsiHLStyle", onLs: v=>{ [rsiH30,rsiH50,rsiH70].forEach(s=>s?.applyOptions({lineStyle:v})); },   // 線型：三條水平線一起換
+          widKey:"rsiHLWidth", onWidth: w=>{ [rsiH30,rsiH50,rsiH70].forEach(s=>s?.applyOptions({lineWidth:w})); } },
         { label:"超賣", colorKey:"rsiH30", onColor: c=>{rsiH30?.applyOptions({color:c}); _syncLegDot("legRsiH30",c);}, numKey:"rsiH30val", numSeries:()=>rsiH30 },
       ]
     },
@@ -608,7 +609,11 @@ function bindIndicatorPanel() {
         e.stopPropagation();
         const next = ((parseInt(lsBtn.dataset.ls) || 0) + 1) % 4;
         lsBtn.dataset.ls = next; lsBtn.textContent = LS_CHARS[next];
-        S[row.lsKey] = next; row.series()?.applyOptions({ lineStyle: next }); savePrefs();
+        // onLs＝一顆鈕要套到多條線（如 RSI 三條水平線）；否則沿用單一 series
+        S[row.lsKey] = next;
+        if (row.onLs) row.onLs(next);
+        else row.series()?.applyOptions({ lineStyle: next });
+        savePrefs();
       });
       rowEl.appendChild(lsBtn);
     }

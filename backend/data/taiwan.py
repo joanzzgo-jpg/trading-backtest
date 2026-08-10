@@ -683,23 +683,35 @@ def fetch_tw_realtime(symbol: str):
             date_str = d.get("d", "")
             if not date_str:
                 continue
-            # z = 最新成交價；盤中可能瞬間為 '-'，改用委買最佳價補位
-            z = (d.get("z") or "-").strip()
-            if z == "-":
-                b_raw = (d.get("b") or "").split("_")[0].strip()
-                if b_raw and b_raw not in ("-", ""):
-                    z = b_raw  # 委買最佳價作為近似現價
-                else:
-                    continue   # 真的沒有即時報價，試下一個交易所
+            # ★ 2026-08-10 改用與報價列**同一個**估價器 _mis_today_price（使用者回報
+            #   「台股日 K 最新顯示有 bug、會變成像下大 K 棒」）。
+            #   舊碼：z(最新成交價)=="-" 時直接拿**最佳委買價**當現價。委買永遠在委賣之下，
+            #   於是每當 z 消失（實測 2330 在盤中可以連續一分鐘以上都是 '-'，不是瞬間），
+            #   當日 K 的收盤就被壓到買價 → 日 K 被畫成陰線，且**系統性偏低**。
+            #   實測現場：z='-'、買 2380／賣 2385、開 2390 → 主圖收 2380（畫成大陰線），
+            #   而報價列走 _mis_today_price 得到 2385 → 兩邊還對不上（同「主圖跟行情不一致」那類）。
+            #   _mis_today_price 有 7 條規則（漲跌停鎖死、只有單邊掛單、用今日高/低落在買賣區間
+            #   內的那一個…），是為了報價列踩過坑才寫出來的；圖表沒理由另外自己猜一套。
+            _px = _mis_today_price(d)
+            if _px is None:
+                continue   # 真的判不出今日價 → 試下一個交易所（別拿昨收/買價混充）
             time_str = d.get("t", "09:00:00")
             ts = datetime.strptime(f"{date_str} {time_str}", "%Y%m%d %H:%M:%S")
             volume = _f(d.get("v"), "0") * 1000  # 張 → 股
+            _o = _f(d.get("o"), _px)
+            _h = _f(d.get("h"), _px)
+            _l = _f(d.get("l"), _px)
+            # ⚠ OHLC 不變式：估出來的收盤價可能落在 MIS 回報的今日高低之外（例如規則⑦取買賣中價，
+            #   而中價比今日最低還低）→ 會畫出「低點比收盤高」的不可能 K 棒。一律把高低撐開包住
+            #   open/close，寧可高低多一點點，也不要送出自相矛盾的棒（同 crypto 那條硬不變式）。
+            _h = max(_h, _o, _px)
+            _l = min(_l, _o, _px) if _l else min(_o, _px)
             return {
                 "time":   ts,
-                "open":   _f(d.get("o"), z),
-                "high":   _f(d.get("h"), z),
-                "low":    _f(d.get("l"), z),
-                "close":  _f(z),
+                "open":   _o,
+                "high":   _h,
+                "low":    _l,
+                "close":  _px,
                 "volume": volume,
             }
         except Exception:

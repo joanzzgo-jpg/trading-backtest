@@ -48,6 +48,9 @@ const DEFAULT_STYLES = {
   kdjKStyle: 0, kdjDStyle: 0, kdjJStyle: 0,
   kdjKWidth: 1, kdjDWidth: 1, kdjJWidth: 1,
   rsi14Style: 0, rsi7Style: 0,
+  // RSI 超買/超賣/中線三條水平線的線型（0實線 1點線 2虛線 3長虛線）。
+  // 預設 1＝維持原本寫死 lineStyle:1 的外觀；由 RSI 設定齒輪的「超買」列那顆線型鈕統一控制三條。
+  rsiHLStyle: 1,
   rsi14Width: 1, rsi7Width: 1,
   macdStyle: 0, macdSigStyle: 0,
   macdWidth: 1, macdSigWidth: 1,
