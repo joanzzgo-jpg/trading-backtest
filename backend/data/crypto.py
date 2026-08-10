@@ -608,8 +608,17 @@ def _fetch_binance_klines_parallel(base_url, sym, tf, since_ms, end_ms, timefram
     def _run(ws_list):
         if not ws_list:
             return {}
-        n = min(8, max(4, len(ws_list)))
-        with ThreadPoolExecutor(max_workers=n) as pool:
+        # ⚠ 背景工作降併發（2026-08-10）：門檻只在「請求送出前」檢查，一次派 8 個併發時，
+        #   跨過門檻的那一刻已經有 8 發在路上 → 一定會超衝。實測背景暖掃仍衝到 90% 上限，
+        #   離互動門檻 92% 只剩一步。併發降到 2 → 超衝量跟著降到 1/4，互動永遠有餘裕。
+        #   互動請求維持 8：使用者在等的那條路要快，不能為了省權重讓他多等。
+        n = 2 if is_background() else min(8, max(4, len(ws_list)))
+        # ⚠ 背景標記一定要傳進池子（2026-08-10）：這裡是**最重的那條路**——深度歷史每頁
+        #   limit>1000＝權重 10，一次暖掃就 232 次／2275 權重。池裡的 worker 不會繼承
+        #   thread-local，漏傳就等於整條深抓完全不受背景門檻管（實測門檻加了卻毫無效果，
+        #   就是漏了這個池子）。傳 is_background() 而非寫死：互動請求走同一條，不能被降級。
+        with ThreadPoolExecutor(max_workers=n, initializer=mark_background,
+                                initargs=(is_background(),)) as pool:
             return dict(zip(ws_list, pool.map(_fetch_window, ws_list)))
 
     # ① 一次平行抓全部 window（含原本被單獨序列打的第一個 → 省一次往返 ~250ms）
