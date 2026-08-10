@@ -946,6 +946,26 @@ function _trdInjectDesktopDock() {
     + `<span class="trd-dock-caret">▼</span></div>`
     + `<div class="trd-dock-body"></div>`;
   panel.insertAdjacentElement("afterend", dock);   // 放在合約行情面板『右側』成獨立欄（並排，非堆疊）
+  /* ★ 2026-08-10 使用者指定：在「交易」**上方**放一列「行情」，與交易同一套設計
+     （圖示＋文字＋收合箭頭、點整列收放）。它控制的是左邊那欄合約行情的收放。
+     放這裡而不是放在合約行情自己那欄：交易欄收起來時上方那條仍在 → 這顆永遠看得到，
+     合約行情就算收到 0 寬也放得回來。 */
+  const _tkHd = document.createElement("div");
+  _tkHd.className = "trd-dock-hd tk-dock-hd";
+  _tkHd.id = "tickerDockHd";
+  _tkHd.title = "收起／展開行情";
+  _tkHd.innerHTML =
+    '<svg class="trd-ico" viewBox="0 0 16 16" fill="none" aria-hidden="true">'
+    + '<path d="M1 9.2 H4 L5.6 3.5 L8 13 L9.6 7.4 H11 L12.4 5.4 L13.6 7.4 H15" stroke="currentColor"'
+    + ' stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+    + '<span>行情</span><span class="trd-dock-caret">▼</span>';
+  dock.insertAdjacentElement("afterbegin", _tkHd);
+  _tkHd.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const on = panel.classList.toggle("ticker-collapsed");
+    _tkHd.classList.toggle("tk-hd-collapsed", on);
+    setTimeout(() => { if (typeof window.resizeAll === "function") window.resizeAll(); }, 50);
+  });
   // 把交易面板本體搬進 dock body（保留所有事件處理器），切成嵌入態
   const body = dock.querySelector(".trd-dock-body");
   body.appendChild(pop);

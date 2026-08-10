@@ -1869,7 +1869,19 @@ html.perf-mode .tk-seg {
   background: transparent;
   z-index: 5;
   pointer-events: none;
+  /* ★ 2026-08-10 小螢幕不再擠壓（使用者：「bb vol fvg 那行也會因為螢幕小而擠壓」）。
+     這排有 14 個項目（BB/VOL/FVG/大時框FVG/關鍵高低/日4H開/吞噬/經濟事件/擺動點/
+     多空/破多空/順多空/寬≥/B≥），flex item 預設 flex-shrink:1 → 螢幕一窄就整排被壓扁、
+     文字擠成一團。改成**不壓縮、放不下就在自己這一行橫向捲動**，每個標籤維持原本可讀的寬度。
+     ⚠ 容器保持 pointer-events:none（不能擋住圖表互動）；捲動仍可用——滑鼠在 .leg-item
+       （它們是 pointer-events:auto）上滾動時，捲動鏈會找到這個可捲的祖先。 */
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
 }
+.pane-legend::-webkit-scrollbar { display: none; }
+.pane-legend > * { flex: 0 0 auto; }
 
 .pane-body { flex: 1; min-height: 0; overflow: hidden; position: relative; isolation: isolate; }
 
@@ -2058,11 +2070,20 @@ html.perf-mode .time-axis-year {
 }
 
 /* ═══ TICKER PANEL ═══ */
+/* 合約行情收起：收到 0 寬（收放的標題列在右邊「交易」那一欄，不會跟著消失） */
 .ticker-panel.ticker-collapsed {
   width: 0 !important;
   min-width: 0;
   overflow: hidden;
   border-left: none;
+}
+/* 「行情」標題列＝沿用交易那套 .trd-dock-hd 視覺；收起時箭頭轉向表示可展開 */
+#trdDock .tk-dock-hd.tk-hd-collapsed .trd-dock-caret { transform: rotate(-90deg); }
+
+/* 桌機版隱藏上方列那顆舊的行情開關（使用者：「右上原本設計給他的縮放鈕可以刪了」）。
+   ⚠ 只在桌機隱藏、不刪元素：手機版的行情面板就是靠它開關的（ui.js 依 isMobile 分流）。 */
+@media (min-width: 1181px) and (pointer: fine) {
+  #tickerToggle { display: none !important; }
 }
 
 .ticker-panel {
@@ -2084,6 +2105,17 @@ html.perf-mode .time-axis-year {
   flex-shrink: 0;
 }
 .ticker-title { font-size: 12px; font-weight: 600; color: var(--text); }
+
+
+.tk-collapse-btn {
+  flex: 0 0 auto;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 20px;
+  padding: 0; border: 1px solid var(--border); border-radius: 5px;
+  background: transparent; color: var(--text-dim, var(--text));
+  cursor: pointer; opacity: .62; transition: opacity .15s, background .15s;
+}
+.tk-collapse-btn:hover { opacity: 1; background: rgba(255,255,255,.07); }
 
 .tk-mkt-tabs { display: flex; gap: 2px; }
 .tk-mkt-btn {
@@ -4303,27 +4335,16 @@ html.perf-mode .tb-wr-total { font-size: 20px !important; }
    - 右：TF buttons + icon buttons（margin-left:auto 推到右邊）
 ═══════════════════════════════════════ */
 .topbar-tf {
-  /* ★ 2026-08-10 時框列改靠左（使用者要求「讓時間框選項靠左、讓出空間給右上按鈕」）。
-     舊寫法 margin-left:auto 把「時框＋右側 icons」整組推到最右，小螢幕（實測 ≤1366px）
-     第一列塞不下 → topbar 有 flex-wrap（勝率欄本來就靠它獨立成第二列）→ **右側那排按鈕
-     整組被擠到下一列的最左邊**，上方列從 74px 撐到 106px，就是使用者說的「跑到左邊第二行」。
-     → 時框緊接在標的區右邊（靠左），空白留在中間；右側 icons 改用自己的 margin-left:auto
-       釘在右端（見 .topbar-right），寬螢幕的視覺位置維持不變。 */
+  /* ★ 2026-08-10 時框列整個往左靠（使用者：「我要的是整個往左放，挪出位置給那些按鈕」）。
+     舊寫法 margin-left:auto 把「時框＋右側 icons」整組推到最右，小螢幕第一列塞不下 →
+     topbar 的 flex-wrap 生效 → 右側那排按鈕整組被擠到下一列最左邊（74px→106px）。
+     ⚠ 我中間試過 flex:1 1 0 + overflow-x:auto 讓它可縮可捲，使用者明確不要
+       （「上方時間框變成有限制」）→ 改回**原尺寸、不縮不捲**，只是位置靠左；
+       中間的空白留給右側按鈕。真的窄到不夠時，退讓的是左邊那組（見 .topbar-left）。 */
   margin-left: 0;
-  /* ★ 可縮 + 自己橫向捲動：極窄時時框列縮小並在自己內部捲，
-     而不是把右側那排按鈕擠到下一列（使用者回報的症狀）。
-     ⚠ **關鍵是 flex-basis 要 0，不是 flex-shrink**：換行與否是用「假設主軸尺寸」決定的，
-       而 basis:auto 的假設尺寸＝內容寬（349px）→ 一樣會把右側按鈕擠到下一列；
-       flex-shrink 只在「同一列已經放得下、但空間不足」時才作用，影響不到換行判斷。
-       basis:0 → 假設尺寸 0 → 永不觸發換行；實際寬度由剩餘空間決定，塞不下就在自己內部捲。
-       （我第一版只寫 flex:0 1 auto + min-width:0，實測 1280/1200 仍然換行。） */
-  flex: 1 1 0;
-  min-width: 0;
-  overflow-x: auto;
-  scrollbar-width: none;
+  flex: 0 0 auto;
 }
-.topbar-tf::-webkit-scrollbar { display: none; }
-.topbar-tf .tf-group { flex-wrap: nowrap; }
+
 /* 右側 icons 自己釘右端（原本靠 .topbar-tf 的 auto margin 一起被推過去） */
 .topbar-right { margin-left: auto; }
 
@@ -4338,6 +4359,10 @@ html.perf-mode .tb-wr-total { font-size: 20px !important; }
    （1180px 以下走手機版版面，本來就是另一套規則，不受影響。） */
 @media (min-width: 1181px) and (max-width: 1400px) {
   .tb-wr-top3 { display: none !important; }
+  /* 窄螢幕時要退讓的是**左邊那組**（logo＋標的），不是時框：
+     時框維持原尺寸靠左、右側按鈕釘右端，兩者都不動；不夠的空間從這裡收。 */
+  .topbar-left { flex: 0 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+  .topbar-left::-webkit-scrollbar { display: none; }
 }
 
 /* TF 按鈕略放大 */
