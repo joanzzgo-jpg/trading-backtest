@@ -90,13 +90,38 @@ def _resample_session(df: pd.DataFrame, n: int) -> pd.DataFrame:
     return out.sort_values("time").reset_index(drop=True)
 
 
+# ── Yahoo 限流冷卻（2026-08-11）────────────────────────────────────────────────
+# ⚠ 為什麼要有：快速連續切標的/時框時（外匯 21 檔尤其容易），Yahoo 會回 **429**，
+#   而舊碼把任何失敗都說成「無資料，請確認代號正確」→ 使用者看到的是「找不到」，
+#   但代號根本沒錯，只是被限流。而且沒有冷卻的話會繼續打、把限流拖更久。
+#   （同 Binance/Pionex 那兩個熔斷的思路：撞到限流就停手一下，並回**正確的訊息**。）
+_YF_COOLDOWN_UNTIL = 0.0
+_YF_COOLDOWN_SEC = 20.0
+
+
+def _yf_is_rate_limited(err) -> bool:
+    m = str(err).lower()
+    return ("429" in m or "too many requests" in m or "rate limit" in m)
+
+
 def fetch_us_stock(symbol: str, start: str, end: str, timeframe: str = "1d") -> pd.DataFrame:
+    global _YF_COOLDOWN_UNTIL
+    import time as _t
+    if _t.time() < _YF_COOLDOWN_UNTIL:
+        raise ValueError(f"{symbol} 暫時無法取得：資料源限流中，請稍候幾秒再試")
     interval = TF_MAP.get(timeframe, "1d")
     ticker   = _yf_ticker(symbol)
     try:
-        raw = ticker.history(start=start, end=end, interval=interval, auto_adjust=True, timeout=_YF_TIMEOUT)
-    except TypeError:   # 舊版 yfinance history 不吃 timeout
-        raw = ticker.history(start=start, end=end, interval=interval, auto_adjust=True)
+        try:
+            raw = ticker.history(start=start, end=end, interval=interval, auto_adjust=True, timeout=_YF_TIMEOUT)
+        except TypeError:   # 舊版 yfinance history 不吃 timeout
+            raw = ticker.history(start=start, end=end, interval=interval, auto_adjust=True)
+    except Exception as _e:
+        # ⚠ 限流(429) 與「真的查無此代號」要分開講：混在一起會讓使用者以為代號打錯。
+        if _yf_is_rate_limited(_e):
+            _YF_COOLDOWN_UNTIL = _t.time() + _YF_COOLDOWN_SEC
+            raise ValueError(f"{symbol} 暫時無法取得：資料源限流中，請稍候幾秒再試")
+        raise
 
     if raw.empty:
         raise ValueError(f"無資料: {symbol}，請確認代號正確（如 AAPL、TSLA）")
