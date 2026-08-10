@@ -351,6 +351,15 @@
     const now = Date.now();
     if (now - _lastClick < 80) return;
     _lastClick = now;
+    /* ★ 2026-08-11 點在「控制項」上不放特效（使用者：點天氣鈕也會出現圓形特效）。
+       這個點擊特效是給圖表/空白處用的小驚喜；落在按鈕、輸入框、圖例、行情列上時
+       只會蓋住 UI、看起來像 bug。→ 只在非互動元素上觸發。
+       ⚠ 與 btn-ripple-wave 是**兩套不同機制**：那個是插一個 <span> 進按鈕（已全域關閉），
+         這個是在點擊座標灑粒子。使用者連續回報「還是有」正是因為我只修了前者。 */
+    if (e.target && e.target.closest &&
+        e.target.closest("button,a,input,select,textarea,label,.tf-btn,.leg-item," +
+                         ".tk-row,.tk-seg-btn,.tk-mkt-btn,.ind-sp-row,.m-tab,.topbar,.ticker-panel,#trdDock"))
+      return;
     const cx = e.clientX, cy = e.clientY;
     const wt = window._getWeatherType ? window._getWeatherType() : null;
     if (wt === "off") return;  // 「無」模式：跳過點擊特效
@@ -634,14 +643,31 @@
    按鈕漣漪效果
 ══════════════════════════════════════════ */
 (function initButtonRipple() {
+  /* ★ 2026-08-11 全域關閉按鈕漣漪（使用者要求）。
+     歷程：原本就已經在「手機/觸控」「極簡模式」「交易面板」關掉（矮寬按鈕上漣漪會外溢成半圓）；
+     這次使用者又連續指出三處不要 —— 橘子熊牆紙鈕、行情面板的合約/台股分頁與排序鈕、
+     上方的快捷繪圖工具。與其一個一個排除（打地鼠），直接整個關掉。
+     ⚠ 要復原只要把下面這行 return 拿掉：底下的實作、CSS(.btn-ripple-wave) 與各處排除條件都保留著，
+       不是刪掉重寫。 */
+  const RIPPLE_ON = false;
   const TARGETS = "button,.tf-btn,.rp-btn,.dt-btn,.tk-seg-btn,.sym-tab";
   document.addEventListener("pointerdown", e => {
+    if (!RIPPLE_ON) return;
     // 手機/觸控：整個關掉漣漪（矮寬按鈕上會外溢成半圓放大動畫，使用者不要）
     if (window.matchMedia && (matchMedia("(max-width: 768px)").matches || matchMedia("(pointer: coarse)").matches)) return;
     const btn = e.target.closest(TARGETS);
     if (!btn) return;
     // 交易面板（桌面嵌入合約行情底部 / 手機交易分頁）：矮寬按鈕漣漪會外溢成半圓動畫，使用者不要 → 整面板關閉
     if (btn.closest("#tradePopup")) return;
+    // 橘子熊牆紙鈕（時框列上那顆）：漣漪在這顆小方鈕上會脹成一個圓圈蓋住熊
+    //   → 使用者：「點熊圖示會出現圓形特效，不要那個」。
+    //   ⚠ 我一開始以為是焦點環／點擊高亮／按壓底色，改了 CSS 全都沒用；
+    //     實際在頁面上量才發現是這裡插進去的 <span class="btn-ripple-wave">（DOM 3685→3686）。
+    //     教訓：這種「看得到的東西」要直接量 DOM 差異，不要靠猜 CSS。
+    if (btn.id === "bearWallToggleBtn") return;
+    // 行情面板（合約／台股分頁、漲跌量♥🎯 排序鈕…）：使用者「點合約台股也會出現」，
+    //   同交易面板的處理 —— 整面板關閉漣漪。這些都是矮扁小鈕，漣漪脹起來會蓋住文字。
+    if (btn.closest(".ticker-panel")) return;
     const rect = btn.getBoundingClientRect();
     const size = Math.max(rect.width, rect.height) * 2.2;
     const x    = e.clientX - rect.left  - size / 2;
