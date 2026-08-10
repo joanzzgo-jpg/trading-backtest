@@ -1008,24 +1008,14 @@ function _initMarketPill() {
      —— 使用者：「我要重新整理才會變，不是在我點標的時」。 */
   window._setMarketPill = setMarket;
 
-  pill.addEventListener("click", () => {
-    const cur  = sel.value || "crypto";
-    const next = MKTS[(MKTS.indexOf(cur) + 1) % MKTS.length];
-    // 1) 舊文字上滑淡出
-    pill.classList.add("cycling");
-    setTimeout(() => {
-      // 2) 切換 select.value + 觸發 change（既有市場切換流程接手）
-      sel.value = next;
-      sel.dispatchEvent(new Event("change", { bubbles: true }));
-      // 3) 換新文字 + 瞬時放到下方
-      pill.classList.remove("cycling");
-      pill.classList.add("cycling-in");
-      setMarket(next);
-      // 4) 強制 reflow → 移除 cycling-in → 文字從下方 slide 回中央
-      void label.offsetWidth;
-      requestAnimationFrame(() => pill.classList.remove("cycling-in"));
-    }, 280);
-  });
+  /* ★ 2026-08-11 市場改成「純標示」，不再是可點的切換鈕（使用者要求）。
+     理由：市場現在由標的自動判斷（loadData 開頭的 _detectMarket），
+     點它循環切市場會馬上被下一次載入覆蓋回去 —— 那是「看起來壞掉」的互動，不如拿掉。
+     ⚠ 拿掉點擊不影響瀏覽各市場：標的搜尋視窗有全部市場的分頁、行情列也有自己的分頁。
+     ⚠ 保留 setMarket / _setMarketPill：標示本身仍要跟著市場變（文字＋配色）。 */
+  pill.style.cursor = "default";
+  pill.setAttribute("aria-disabled", "true");
+  pill.title = "目前市場（依標的自動判斷）";
 
   // 別處改變 select 時也同步 pill
   sel.addEventListener("change", () => setMarket(sel.value || "crypto"));

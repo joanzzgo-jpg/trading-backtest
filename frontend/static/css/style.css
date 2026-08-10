@@ -1356,6 +1356,10 @@ html.perf-mode .tb-wr-buffer-pct { color: #8B8B8B; }
 .tb-wr-block[data-sig="s11"]::after { display: none !important; }
 
 /* ═══ 市場切換單鍵循環按鈕 — 配色跟 .tb-icon-btn / .tf-btn 一致（中性、不分市場著色）═══ */
+/* ★ 2026-08-11 市場由標的自動判斷 → 這顆改成純標示，不接受點擊
+   （hover/按壓的互動回饋一併拿掉，否則看起來還像可以按）。 */
+.tb-mkt-cycle { pointer-events: none; }
+.tb-mkt-cycle:hover, .tb-mkt-cycle:active { filter: none; transform: none; }
 .tb-mkt-cycle {
   position: relative;
   display: inline-flex;
