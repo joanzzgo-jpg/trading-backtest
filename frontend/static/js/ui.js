@@ -990,8 +990,11 @@ function _initMarketPill() {
   const sel   = document.getElementById("marketSelect");
   if (!pill || !sel) return;
   const label = pill.querySelector(".mkt-cycle-label");
-  const MKTS  = ["crypto", "tw", "us", "hk"];
-  const LBL   = { crypto: "Crypto", tw: "TW", us: "US", hk: "HK" };
+  // ⚠ 新增市場一定要同時加進這兩個常數：使用者是點這顆 pill 循環切market 的，
+  //   只加進 index.html 那個 hidden 的 <select> 是**進不去**的（外匯上線當天就這樣漏掉，
+  //   使用者回報「怎麼知道哪些是外匯」）。
+  const MKTS  = ["crypto", "tw", "us", "hk", "fx"];
+  const LBL   = { crypto: "Crypto", tw: "TW", us: "US", hk: "HK", fx: "FX" };
 
   const setMarket = (mkt) => {
     if (!LBL[mkt]) return;

@@ -960,7 +960,8 @@ function renderSymSearch() {
   // 週期性刷新只對「本地即時資料」（合約/現貨）有意義——能順帶更新清單裡的即時漲跌。
   // API 模式（全部/美股/台股）每 2s 重抓重繪會清空 innerHTML → 列表跳動、loading 閃爍、
   // scroll 位置重置（手機無 hover 旗標擋不住）。這些模式只在使用者輸入時才渲染。
-  if (_symSearchMarket === "all" || _symSearchMarket === "us" || _symSearchMarket === "tw" || _symSearchMarket === "hk") return;
+  if (_symSearchMarket === "all" || _symSearchMarket === "us" || _symSearchMarket === "tw"
+      || _symSearchMarket === "hk" || _symSearchMarket === "fx") return;
   _renderSymSearchList();
 }
 
@@ -1158,6 +1159,32 @@ function _renderSymSearchList() {
   }
 
   // 港股：用 /api/hk/search（Yahoo 過濾 .HK）搜尋
+  /* 外匯（2026-08-11）：清單固定 21 檔 → 空字串也直接列出全部，不必先打字。
+     ⚠ 後端 /api/search?market=fx 是純本機過濾、不打網路，所以可以每次輸入都查。 */
+  if (_symSearchMarket === "fx") {
+    const _thisQuery = query;
+    fetch(`/api/search?market=fx&keyword=${encodeURIComponent(query || "")}`)
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(data => {
+        const cur = (document.getElementById("symModalInput")?.value || "").toLowerCase().trim();
+        if (cur !== _thisQuery) return;
+        const results = data?.results || [];
+        if (!results.length) {
+          list.innerHTML = `<div class="sym-empty">查無結果（外匯共 21 檔，可搜 EUR、JPY、XAU…）</div>`;
+          return;
+        }
+        list.innerHTML = results.map((r, i) =>
+          `<div class="sym-result-item" data-idx="${i}" data-market="fx"
+                data-symbol="${escHtml(r.symbol)}" data-display="${escHtml(r.symbol)}">
+             <span class="sym-result-code">${escHtml(r.symbol)}</span>
+             <span class="sym-result-name">外匯</span>
+           </div>`).join("");
+        _bindSymItems(list);
+      })
+      .catch(() => { list.innerHTML = `<div class="sym-empty">外匯清單載入失敗</div>`; });
+    return;
+  }
+
   if (_symSearchMarket === "hk") {
     if (!query) {
       list.innerHTML = `<div class="sym-empty">輸入代號或名稱搜尋（如 0700、tencent）</div>`;
@@ -1258,7 +1285,7 @@ function _selectSymbol(el) {
   // 市場以「該項目自身」為準（全部搜尋模式各項各自帶市場），回退當前 tab
   const mkt = el.dataset.market ||
               (_symSearchMarket === "tw" ? "tw" : _symSearchMarket === "us" ? "us"
-               : _symSearchMarket === "hk" ? "hk" : "crypto");
+               : _symSearchMarket === "hk" ? "hk" : _symSearchMarket === "fx" ? "fx" : "crypto");
   // 選擇後切換到對應市場
   if (mkt === "tw") {
     document.getElementById("marketSelect").value = "tw";
