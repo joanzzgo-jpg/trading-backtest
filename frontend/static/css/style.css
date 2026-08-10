@@ -2077,8 +2077,25 @@ html.perf-mode .time-axis-year {
   overflow: hidden;
   border-left: none;
 }
-/* 「行情」標題列＝沿用交易那套 .trd-dock-hd 視覺；收起時箭頭轉向表示可展開 */
+/* 「行情」標題列：視覺與交易那列一致，但**自成一個 class**，不受交易收合規則影響
+   （交易收起時 .trd-dock-hd 會變 height:100% 直書，共用 class 會互相搶位）。 */
+#trdDock .tk-dock-hd {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 5px;
+  padding: 6px 10px; cursor: pointer; font-size: 12px; font-weight: 700;
+  color: var(--text, #ddd); border-bottom: 1px solid var(--border, #3a3a50);
+  user-select: none; -webkit-tap-highlight-color: transparent;
+}
+#trdDock .tk-dock-hd:hover { background: rgba(255,255,255,.04); }
+#trdDock .tk-dock-hd .trd-ico { width: 13px; height: 13px; flex-shrink: 0; }
+#trdDock .tk-dock-hd .trd-dock-caret { margin-left: auto; color: var(--muted, #889);
+  font-size: 10px; transition: transform .18s ease; }
 #trdDock .tk-dock-hd.tk-hd-collapsed .trd-dock-caret { transform: rotate(-90deg); }
+/* 交易欄自己收成細條時：行情這列也轉直書，但**高度自適應**（不吃掉交易的位置） */
+#trdDock.trd-collapsed .tk-dock-hd {
+  writing-mode: vertical-rl; justify-content: center;
+  height: auto; flex: 0 0 auto; padding: 10px 0; gap: 8px;
+}
+#trdDock.trd-collapsed .tk-dock-hd .trd-dock-caret { margin: 0; }
 
 /* 桌機版隱藏上方列那顆舊的行情開關（使用者：「右上原本設計給他的縮放鈕可以刪了」）。
    ⚠ 只在桌機隱藏、不刪元素：手機版的行情面板就是靠它開關的（ui.js 依 isMobile 分流）。 */

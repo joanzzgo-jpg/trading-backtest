@@ -951,7 +951,9 @@ function _trdInjectDesktopDock() {
      放這裡而不是放在合約行情自己那欄：交易欄收起來時上方那條仍在 → 這顆永遠看得到，
      合約行情就算收到 0 寬也放得回來。 */
   const _tkHd = document.createElement("div");
-  _tkHd.className = "trd-dock-hd tk-dock-hd";
+  // ⚠ **不要**共用 trd-dock-hd class：交易欄收起時有一條 `.trd-dock-hd{height:100%}`，
+  //   兩個標題列都套到就會互相搶位（使用者：「行情吃掉交易的按鈕位」）。用自己的 class。
+  _tkHd.className = "tk-dock-hd";
   _tkHd.id = "tickerDockHd";
   _tkHd.title = "收起／展開行情";
   _tkHd.innerHTML =
