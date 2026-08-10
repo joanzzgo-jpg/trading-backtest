@@ -21,6 +21,22 @@ function bindEvents() {
     if (!tickerOpen) document.getElementById("panelOverlay").classList.add("hidden");
   }
 
+  /* ★ 2026-08-11 上方右側按鈕列：把「垂直滾輪」轉成「橫向捲動」（使用者：「按鈕還是不能滑動」）。
+     窄螢幕時那一列已經是 overflow-x:auto、程式上捲得動（實測 scrollLeft 可到 88px），
+     但**滑鼠滾輪預設不會橫向捲**（要 Shift+滾輪或觸控板橫向手勢）→ 使用者實際上滑不動。
+     ⚠ 只有真的溢出時才攔截 wheel，否則會把整頁的正常捲動吃掉。
+     ⚠ 用 passive:false 才能 preventDefault（不然瀏覽器會忽略）。 */
+  const _tbRight = document.querySelector(".topbar-right");
+  if (_tbRight) {
+    _tbRight.addEventListener("wheel", (e) => {
+      if (_tbRight.scrollWidth <= _tbRight.clientWidth + 1) return;   // 沒溢出 → 不攔
+      const d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+      if (!d) return;
+      _tbRight.scrollLeft += d;
+      e.preventDefault();
+    }, { passive: false });
+  }
+
   document.getElementById("tickerToggle")?.addEventListener("click", () => {
     if (isMobile()) {
       const open = document.getElementById("tickerPanel").classList.contains("ticker-open");
