@@ -1234,8 +1234,13 @@ def _ohlcv_build(req: OHLCVRequest):
                         req.symbol, req.timeframe, req.start, req.end,
                         req.exchange, api_key=req.api_key, api_secret=req.api_secret,
                     )
-        elif req.market in ("us", "hk"):
+        elif req.market in ("us", "hk", "fx"):
             # 港股(hk)＝美股同一條 yfinance 路（代號 xxxx.HK）。即時報價疊加僅美股(Finnhub)，港股純用 yfinance。
+            # ★ 2026-08-11 外匯(fx)也走這條：只差代號轉換（EUR/USD → EURUSD=X、黃金 → GC=F）。
+            #   為什麼不另寫一套：這條路已經處理完所有踩過的坑 —— Yahoo 不支援 2h（抓 1h 併）、
+            #   4h 也由 1h 併（原生 4h 只能回溯 60 天）、各時框 MAX_DAYS 與「嚴格小於」邊界 buffer、
+            #   零寬區間要回空不能拋 400。外匯自己再寫一份只會把這些重踩一遍。
+            #   ⚠ 外匯無成交量（Yahoo 的 FX volume 恆為 0）——這是店頭市場的性質，不是 bug。
             max_d = US_MAX_DAYS.get(req.timeframe, 3650)
             # 美股各 TF 每日 bar 數（用於 limit→days 反推，避免過量請求觸 yfinance 邊界）
             # 6.5h 交易：4h≈2、1h≈7、15m≈26、5m≈78（港股交易時段較短，buffer 已足夠涵蓋）
@@ -1268,7 +1273,11 @@ def _ohlcv_build(req: OHLCVRequest):
                     _empty = {"data": []}
                     cache.set(cache_key, _empty)
                     return _ohlcv_resp(_empty)
-            df = fetch_us_stock(req.symbol, start, end, req.timeframe)
+            _sym = req.symbol
+            if req.market == "fx":
+                from data.forex import to_yf as _fx_to_yf
+                _sym = _fx_to_yf(req.symbol)
+            df = fetch_us_stock(_sym, start, end, req.timeframe)
             # Finnhub 即時報價疊加到最後一根 K 棒（失敗不影響主流程）；港股無 Finnhub 覆蓋，純用 yfinance。
             if req.market == "us" and os.getenv("FINNHUB_TOKEN"):
                 try:
@@ -1588,6 +1597,18 @@ def get_latest(req: LatestRequest):
                     df, _ = _finnhub_overlay(df, quote)   # 報價過期/日線 → 退回疊加最後一根
                 except Exception:
                     pass  # Finnhub 出錯就純用 yfinance 資料
+        elif req.market == "fx":
+            # 外匯即時：走與 /api/ohlcv 同一條 yfinance 路抓最近幾根。
+            # ⚠ 實測主要貨幣對（EUR/USD、USD/JPY、GBP/USD）最後一根 1m K 只落後 **0.8 分鐘**
+            #   ——與加密同量級，不需要像台股/美股那樣另外接即時源疊加。
+            #   （黃金走期貨 GC=F 約落後 10 分鐘，屬資料源限制。）
+            from data.forex import to_yf as _fx_to_yf
+            _fxdays = {"1m": 3, "5m": 8, "15m": 20, "1h": 40, "4h": 120}.get(req.timeframe, 400)
+            df = fetch_us_stock(_fx_to_yf(req.symbol),
+                                (date.today() - timedelta(days=_fxdays)).isoformat(),
+                                date.today().isoformat(), req.timeframe)
+            if df is None or df.empty:
+                return {"live": False, "data": []}
         elif req.market == "hk":
             # 港股(hk)：歷史 yfinance(延遲~15分)，即時尖端用騰訊即時報價自己堆分鐘棒 → 當下就有最新棒、無延遲。
             _mins = RT_ACC_MINUTES.get(req.timeframe)
@@ -1700,7 +1721,8 @@ def get_latest(req: LatestRequest):
     #   本來就已經抓了 limit=3，多回一根成本可忽略，卻讓補正多一輪機會。
     records = df_to_records(df.tail(3))
     # 若有 FINNHUB_TOKEN，美股也算即時；港股(騰訊即時)在上面 hk 分支已 return，這裡只是純 yfinance 尾
-    live = (req.market == "crypto") or (req.market == "us" and bool(os.getenv("FINNHUB_TOKEN")))
+    live = ((req.market == "crypto") or (req.market == "fx")
+            or (req.market == "us" and bool(os.getenv("FINNHUB_TOKEN"))))
     resp = {"live": live, "data": records}
     if req.market == "crypto":   # 同 /api/ohlcv：讓前端看得到來源，接合前先比對
         # ⚠ 用「跟著這份 df 一起記下來的」來源，不要在這裡現問 last_fetch_source()——

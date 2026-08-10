@@ -4419,9 +4419,18 @@ html.perf-mode .tb-wr-total { font-size: 20px !important; }
     flex: 1 1 0;
     min-width: 0;
     overflow-x: auto;
-    justify-content: flex-end;
+    /* ⚠ **不可以用 justify-content: flex-end**（使用者：「上方按鈕在螢幕縮小時不能滑動」）。
+       flexbox 的經典陷阱：容器溢出時 flex-end 會把「開頭那幾個項目」推到可捲區之外，
+       瀏覽器捲不到 —— 實測 1200px 時 scrollWidth 與 clientWidth 相同（回報沒有溢出），
+       但第一顆按鈕已經在可視範圍外，所以怎麼捲都捲不出來。
+       正解：justify-content 維持 flex-start，改用**第一個子元素的 margin-left:auto** 推靠右
+       —— 空間夠時效果與 flex-end 相同；空間不夠時 auto 解析為 0，內容從左邊開始、可正常捲。 */
+    justify-content: flex-start;
     scrollbar-width: none;
+    overscroll-behavior-x: contain;   /* 捲到底不要把整頁一起帶走 */
   }
+  .topbar-right::-webkit-scrollbar { display: none; }
+  .topbar-right > *:first-child { margin-left: auto; }
   .topbar-right::-webkit-scrollbar { display: none; }
 }
 @media (min-width: 1500px) {
