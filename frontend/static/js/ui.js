@@ -1003,6 +1003,10 @@ function _initMarketPill() {
   };
   // 初始同步 select → pill 顯示
   setMarket(sel.value || "crypto");
+  /* ★ 2026-08-11 對外暴露：自動判斷市場（loadData 開頭）改了 select.value 之後，
+     必須連**顯示標籤**一起更新，否則資料切了、左上還寫舊市場，要重整才對
+     —— 使用者：「我要重新整理才會變，不是在我點標的時」。 */
+  window._setMarketPill = setMarket;
 
   pill.addEventListener("click", () => {
     const cur  = sel.value || "crypto";

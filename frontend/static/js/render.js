@@ -45,6 +45,8 @@ async function loadData(autoLoad = false, forceLatest = false) {
     if (_mkEl && _det && _mkEl.value !== _det) {
       _mkEl.value = _det;
       if (typeof updateMarketUI === "function") updateMarketUI(true);   // true＝別覆寫 symbolInput
+      // ⚠ 顯示標籤也要同步：只改 select.value 的話左上那顆仍寫舊市場，要重整才對。
+      if (typeof window._setMarketPill === "function") window._setMarketPill(_det);
     }
   } catch (e) {}
   _pendingAlignRange = null;   // 新載入作廢上一次未完成的歷史對齊目標
