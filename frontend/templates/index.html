@@ -394,22 +394,11 @@
   <!-- 時間框架 strip（桌面：右側；手機：第二列全寬） -->
   <div class="topbar-tf">
     <div class="tf-group">
-      <!-- 橘子熊圖示（2026-08-11 第三版）。前兩版失敗的原因記著：
-           ① 8 條路徑（含吻部/人中）在 17px 下糊成一團 → 太細碎；
-           ② 改簡約後「不像熊」——因為耳朵陷進頭裡（頭 r6.4/耳 cy7 重疊 3.2px），
-              而且少了**吻部**：那才是熊臉的辨識點（沒有它就只是一顆有耳朵的圓）。
-           這版：耳朵移到頭頂外緣只咬進 1.2px（明顯是「兩隻耳朵」）、加回吻部橢圓、
-           眼睛拉開放在吻部上方，五官比例照真實熊臉（眼距寬、吻部大而低）。 -->
+      <!-- 熊按鈕改用 AHH 的熊圖（2026-08-11 使用者：「熊還是好醜，把 AHH 的圖示用上去好了」）。
+           手繪 SVG 版連改三版仍不像熊 —— 17px 的線條圖本來就很難畫出動物辨識度，
+           而 topbar logo 那張 bear.png 已經是這個 app 的品牌形象，直接沿用最一致也最好看。 -->
       <button id="bearWallToggleBtn" type="button" class="bearwall-btn" onclick="window._bearWallToggle&&window._bearWallToggle()" title="背景磁磚（橘子熊牆紙）開關：開＝「無」天氣鋪滿牆紙、關＝全黑" aria-label="橘子熊牆紙開關">
-        <svg class="bearwall-ico" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <circle cx="6.4" cy="6.9" r="2.75" />
-          <circle cx="17.6" cy="6.9" r="2.75" />
-          <circle cx="12" cy="14.3" r="6.5" />
-          <ellipse cx="12" cy="16.9" rx="3.5" ry="2.6" />
-          <circle cx="8.9" cy="12.3" r=".9" fill="currentColor" stroke="none" />
-          <circle cx="15.1" cy="12.3" r=".9" fill="currentColor" stroke="none" />
-          <ellipse cx="12" cy="15.5" rx="1.25" ry=".95" fill="currentColor" stroke="none" />
-        </svg>
+        <img src="/static/img/bear.png?v={{ ver }}" class="bearwall-ico" alt="橘子熊" draggable="false" />
       </button>
       <button class="tf-btn" data-tf="1M">1M</button>
       <button class="tf-btn" data-tf="1w">1W</button>

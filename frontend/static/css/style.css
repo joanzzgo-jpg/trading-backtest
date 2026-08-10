@@ -557,22 +557,14 @@ html.perf-mode .tb-icon-btn:hover svg { animation: none; transform: scale(1.1); 
 .bearwall-btn:hover { background: var(--bg3); }
 .bearwall-btn.bearwall-off { filter: grayscale(1); opacity: .35; }
 
-/* 手繪橘子熊圖示（2026-08-11）：墨線筆觸 —— 圓頭圓尾、線寬略粗、微傾斜製造手繪感。
-   ⚠ 用 currentColor 不寫死顏色：這顆鈕在深/淺兩種色盤下都要看得清楚。
-   ⚠ vector-effect:non-scaling-stroke：按鈕在不同縮放下線寬保持一致，不會忽粗忽細。 */
+/* 熊按鈕圖示：直接用 AHH 的熊圖（與 topbar logo 同一張，品牌一致）。
+   ⚠ 是 <img> 不是 <svg> → 用 object-fit 保持比例，關閉狀態的灰階/淡化由 .bearwall-off 處理。 */
 .bearwall-ico {
-  width: 17px; height: 17px; display: block;
-  stroke: currentColor;
-  stroke-width: 1.5;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  fill: none;
-  vector-effect: non-scaling-stroke;
+  width: 19px; height: 19px; display: block;
+  object-fit: contain;
   transition: transform .18s ease, opacity .18s ease;
 }
 .bearwall-btn:hover .bearwall-ico { transform: scale(1.1); }
-/* 開啟（牆紙開）時上暖橘，與城堡繪本風同一個色系 */
-.bearwall-btn:not(.bearwall-off) .bearwall-ico { color: #E2A52A; }
 /* 時框行的指標開關（足跡／掛單牆）：比照 tf-btn，亮起=開啟 */
 .tf-sep { width: 1px; align-self: center; height: 16px; background: var(--border); margin: 0 3px; flex-shrink: 0; }
 .tf-toggle {
