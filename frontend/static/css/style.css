@@ -2112,8 +2112,13 @@ html.perf-mode .time-axis-year {
 }
 #trdDock .tk-dock-hd:hover { background: rgba(255,255,255,.04); }
 #trdDock .tk-dock-hd .trd-ico { width: 13px; height: 13px; flex-shrink: 0; }
+/* ★ 行情的箭頭方向與交易**相反**（2026-08-11 使用者：「行情的箭頭方向不對」）。
+   交易欄在最右邊、收起時往右退 → 展開時 ▶。
+   行情欄在交易的**左邊**，收起時往左退、展開時往右長 →
+     展開時要 ◀（按了往左收）、收起時 ▶（按了往右展開）。
+   （原本展開是沒轉的 ▼ 朝下，方向與動作對不上。） */
 #trdDock .tk-dock-hd .trd-dock-caret { margin-left: auto; color: var(--muted, #889);
-  font-size: 10px; transition: transform .18s ease; }
+  font-size: 10px; transition: transform .18s ease; transform: rotate(90deg); }
 #trdDock .tk-dock-hd.tk-hd-collapsed .trd-dock-caret { transform: rotate(-90deg); }
 /* 交易欄自己收成細條時：行情這列也轉直書，但**高度自適應**（不吃掉交易的位置） */
 #trdDock.trd-collapsed .tk-dock-hd {
