@@ -516,12 +516,19 @@ def _winrate_warm_worker():
             _t.sleep(300)
 
 
+# 這個 worker 是不是 leader（＝有沒有在跑背景執行緒）。/api/_diag_mem 會回報，
+# 否則 follower 的權重/報價健康度全是 0/None，看起來像「一切正常」其實是「這裡本來就不做事」。
+_IS_LEADER = False
+
+
 @app.on_event("startup")
 async def _warmup():
     """啟動時立即預熱並啟動背景 ticker 更新（僅 leader worker）。"""
+    global _IS_LEADER
     if not _acquire_leader():
         print("  ⓘ follower worker：背景抓取/推播/交易由 leader 負責；本 worker 只服務請求（讀共享報價快照）")
         return
+    _IS_LEADER = True
     import asyncio
     loop = asyncio.get_event_loop()
     loop.run_in_executor(None, _fetch_pionex_symbols)

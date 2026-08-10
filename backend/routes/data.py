@@ -381,7 +381,21 @@ def diag_mem():
             st["err"] = str(e)[:120]
         return st
 
+    def _role():
+        """這個回應是**哪一個 worker** 給的。
+        ★ 沒有這欄會嚴重誤導（2026-08-10 實測踩到）：線上 workers=2，只有 leader 跑背景執行緒，
+          follower 的權重/報價健康度**永遠是 0/None**。隨機打到 follower 時看起來像「一切閒置正常」，
+          實際上那個 worker 本來就什麼都不做 —— 等於把「查不到」誤讀成「沒問題」。
+          要看真實狀態就一直打到 role=leader 為止（或用 pid 區分兩個 worker）。"""
+        try:
+            import main as _m
+            return {"role": "leader" if getattr(_m, "_IS_LEADER", False) else "follower",
+                    "pid": os.getpid()}
+        except Exception:
+            return {"role": "unknown", "pid": os.getpid()}
+
     return {
+        "worker": _role(),                # ⚠ 先看這個：follower 的背景數據全是 0，不是「健康」
         "process_rss_mb": _rss_mb(),      # 整個服務目前吃多少 RAM
         "platform": sys.platform,
         "workers_env": os.getenv("WEB_CONCURRENCY", "1"),   # 設定的 worker 數

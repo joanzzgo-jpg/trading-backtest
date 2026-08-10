@@ -61,11 +61,21 @@ async def run_ticker_ws():
     def _spot_set():
         return _fetch_pionex_symbols() or _fetch_pionex_perp_symbols() or set()
 
-    def _emit(force=False):
+    def _emit(force=False, src=None):
         now = time.time()
         if not force and now - _last_emit[0] < 1.0:   # 最多每秒餵一次(WS 可能更密)
             return
         _last_emit[0] = now
+        # ★ 2026-08-10 回報健康度給 /api/_diag_mem。線上（TICKER_WS=1）走的是**這條**，
+        #   原本只有 REST worker 有埋 → 診斷永遠顯示 null，等於線上報價完全不可觀測。
+        #   報價凍住是「安靜壞掉」（畫面不動、不報錯），沒有 age_sec 就只能靠使用者回報。
+        if src:
+            try:
+                import main as _m
+                _m._TK_PRICE_STAT["ts"] = now
+                _m._TK_PRICE_STAT["src"] = src
+            except Exception:
+                pass
         fut = sorted(fut_map.values(), key=lambda x: x["change_pct"], reverse=True)
         spot = sorted(spot_map.values(), key=lambda x: x["change_pct"], reverse=True)
         try:
@@ -110,6 +120,7 @@ async def run_ticker_ws():
         期貨 fstream WS 被 Binance 靜默封鎖（連得上不推）時，合約報價就靠這條 1s REST 保持跳動；
         spot WS 正常時 spot 不會觸發。另每 ~15s 做一次完整 24h 重抓（補新標的、刷新量/open）。"""
         from data.crypto import _fetch_fapi_prices, _fetch_spot_prices
+        from utils.live_data import spot_wanted as _spot_wanted
         cnt = 0
         while True:
             _t0 = time.time()
@@ -119,7 +130,9 @@ async def run_ticker_ws():
                 fp = await loop.run_in_executor(None, _fetch_fapi_prices)
                 if _apply_prices(fut_map, fp):
                     changed = True
-            if now - _last_ws_spot[0] > 4:
+            # 現貨「有人看才抓」：與 REST worker 同一個判準（見 utils/live_data.spot_wanted）。
+            # 現貨全標的實測 3683 筆（永續才 726）→ 沒人看時每秒白抓白解析一份。
+            if now - _last_ws_spot[0] > 4 and _spot_wanted():
                 sp = await loop.run_in_executor(None, _fetch_spot_prices)
                 if _apply_prices(spot_map, sp):
                     changed = True
@@ -128,7 +141,7 @@ async def run_ticker_ws():
                 await loop.run_in_executor(None, _rest_refresh)
                 changed = True
             if changed:
-                _emit(force=True)
+                _emit(force=True, src="rest-fallback")
             # 週期固定 1s：扣掉本輪抓價/emit 耗時再睡（原本 sleep(1) 疊加 → 實際 ~1.15s/輪）
             await asyncio.sleep(max(0.0, 1.0 - (time.time() - _t0)))
 
@@ -163,7 +176,7 @@ async def run_ticker_ws():
                                 if d and d["symbol"][:-4].upper() in allow:
                                     mp[d["symbol"]] = d
                             (_last_ws_fut if is_fut else _last_ws_spot)[0] = time.time()   # 該市場 WS 有推進
-                            _emit()
+                            _emit(src=("ws-fut" if is_fut else "ws-spot"))
             except Exception as e:
                 await asyncio.sleep(min(backoff, 30))
                 backoff = min(backoff * 2, 30)
