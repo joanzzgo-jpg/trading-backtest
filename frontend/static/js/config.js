@@ -150,6 +150,35 @@ let _dataVersion        = 0;     // ohlcvData 變更時 ++，給 memo cache 用
 
 const PANE_FLEX_DEFAULTS = { mainPane:5, kdjPane:1, rsiPane:1, macdPane:1 };
 
+/* ── 由代號自動判斷市場（2026-08-11 使用者要求「不再用上方按鈕切市場，會自動分辨」）──
+   規則由「最明確」往「最模糊」排，判不出來就**回 null 保持現狀**——
+   ⚠ 這點很重要：寧可不改也不要猜錯。猜錯會把使用者丟到別的市場、拿不到資料，
+     比「沒自動切」還糟。
+   ・含 "/" 且結尾 .P 或報價幣是 USDT/USDC/BTC/ETH → 加密（BTC/USDT.P）
+   ・在外匯清單裡（EUR/USD、XAU/USD…）→ fx
+   ・xxxx.HK → 港股
+   ・純數字 4~6 碼 → 台股（2330、00631L 這類）
+   ・純英文 1~5 碼 → 美股（AAPL、TSLA）
+   ⚠ 外匯與加密都長得像 "AAA/BBB"，順序上外匯清單要**先比對**再落到加密判斷，
+     否則 EUR/USD 會被當成加密對（這正是「點外匯提示找不到」那個 bug 的同一類錯）。 */
+const FX_SYMS = new Set(["EUR/USD","USD/JPY","GBP/USD","USD/CHF","AUD/USD","USD/CAD","NZD/USD",
+  "EUR/JPY","GBP/JPY","EUR/GBP","AUD/JPY","EUR/AUD","CHF/JPY","CAD/JPY","NZD/JPY",
+  "EUR/CHF","GBP/CHF","AUD/NZD","EUR/CAD","XAU/USD","XAG/USD"]);
+window._detectMarket = function (sym) {
+  const s = String(sym || "").trim().toUpperCase();
+  if (!s) return null;
+  if (FX_SYMS.has(s)) return "fx";
+  if (/\.HK$/.test(s)) return "hk";
+  if (s.includes("/")) {
+    const quote = s.split("/")[1] || "";
+    if (/^(USDT|USDC|BTC|ETH|BUSD|FDUSD)(\.P)?$/.test(quote)) return "crypto";
+    return null;                       // 其他斜線代號judgement不足 → 不亂改
+  }
+  if (/^\d{4,6}[A-Z]?$/.test(s)) return "tw";
+  if (/^[A-Z]{1,5}$/.test(s)) return "us";
+  return null;
+};
+
 const TF_LABELS = { "1M":"月","1w":"週","1d":"日","4h":"4H","1h":"1H","15m":"15m","5m":"5m","1m":"1m" };   // 8h/2h/30m 已移除
 // ⚠ 這張表同時是「可用時框」的白名單：loadLastSymbol / _applyUrlState 都用 TF_LABELS[tf] 當閘門
 //   → 從這裡拿掉，舊使用者存著的 lastSymbol.tf="2h"、或別人分享的 ?tf=30m 會自動被擋掉退回預設，

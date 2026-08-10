@@ -33,6 +33,20 @@ function _resetLayerCacheOnCtxChange() {
 }
 async function loadData(autoLoad = false, forceLatest = false) {
   if (replayActive) exitReplay();
+  /* ★ 2026-08-11 由代號自動判斷市場（使用者：「不再用上方按鈕切市場，會自動分辨」）。
+     放在 loadData 開頭是因為**所有進入點都會經過這裡**（手動輸入、搜尋選取、網址參數、
+     記住的上次標的、快捷鍵切時框…），只改這一處就全涵蓋，不必逐個路徑補
+     ——先前 fx 就是因為要「逐處補」而漏了 _selectSymbol，害使用者一直看到「找不到」。
+     ⚠ 判不出來（_detectMarket 回 null）就保持現狀，不猜。 */
+  try {
+    const _mkEl = document.getElementById("marketSelect");
+    const _det = (typeof window._detectMarket === "function")
+      ? window._detectMarket(document.getElementById("symbolInput")?.value) : null;
+    if (_mkEl && _det && _mkEl.value !== _det) {
+      _mkEl.value = _det;
+      if (typeof updateMarketUI === "function") updateMarketUI(true);   // true＝別覆寫 symbolInput
+    }
+  } catch (e) {}
   _pendingAlignRange = null;   // 新載入作廢上一次未完成的歷史對齊目標
   window._loadRangeStart = null;   // 預設抓最近 N 根;下方「捲歷史切換」設成目標時間附近的有界視窗(start+end)直接範圍抓取
   window._loadRangeEnd = null;
