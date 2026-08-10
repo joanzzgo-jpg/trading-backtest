@@ -4303,7 +4303,41 @@ html.perf-mode .tb-wr-total { font-size: 20px !important; }
    - 右：TF buttons + icon buttons（margin-left:auto 推到右邊）
 ═══════════════════════════════════════ */
 .topbar-tf {
-  margin-left: auto;            /* 把 TF + 右側 icons 全部推到右邊 */
+  /* ★ 2026-08-10 時框列改靠左（使用者要求「讓時間框選項靠左、讓出空間給右上按鈕」）。
+     舊寫法 margin-left:auto 把「時框＋右側 icons」整組推到最右，小螢幕（實測 ≤1366px）
+     第一列塞不下 → topbar 有 flex-wrap（勝率欄本來就靠它獨立成第二列）→ **右側那排按鈕
+     整組被擠到下一列的最左邊**，上方列從 74px 撐到 106px，就是使用者說的「跑到左邊第二行」。
+     → 時框緊接在標的區右邊（靠左），空白留在中間；右側 icons 改用自己的 margin-left:auto
+       釘在右端（見 .topbar-right），寬螢幕的視覺位置維持不變。 */
+  margin-left: 0;
+  /* ★ 可縮 + 自己橫向捲動：極窄時時框列縮小並在自己內部捲，
+     而不是把右側那排按鈕擠到下一列（使用者回報的症狀）。
+     ⚠ **關鍵是 flex-basis 要 0，不是 flex-shrink**：換行與否是用「假設主軸尺寸」決定的，
+       而 basis:auto 的假設尺寸＝內容寬（349px）→ 一樣會把右側按鈕擠到下一列；
+       flex-shrink 只在「同一列已經放得下、但空間不足」時才作用，影響不到換行判斷。
+       basis:0 → 假設尺寸 0 → 永不觸發換行；實際寬度由剩餘空間決定，塞不下就在自己內部捲。
+       （我第一版只寫 flex:0 1 auto + min-width:0，實測 1280/1200 仍然換行。） */
+  flex: 1 1 0;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.topbar-tf::-webkit-scrollbar { display: none; }
+.topbar-tf .tf-group { flex-wrap: nowrap; }
+/* 右側 icons 自己釘右端（原本靠 .topbar-tf 的 auto margin 一起被推過去） */
+.topbar-right { margin-left: auto; }
+
+/* ★ 2026-08-10 小桌機（1181~1400px）：收起「勝率前三名」資訊帶，把第一列空間讓給控制項。
+   實測 1366px：第一列光是 左側 385 + 時框 349 + 右側按鈕 577 ＝ 1311px（＋內距 12），
+   再加上這條資訊帶就超過 → topbar 的 flex-wrap 生效（它本來是給勝率欄獨立成第二列用的）
+   → **右側那排按鈕整組被擠到下一列**，上方列 74px → 106px，就是使用者回報的
+   「螢幕較小的人，右上那幾個按鈕會跑到左邊第二行」。
+   ⚠ 這條帶子已經有 flex:1 1 0 + min-width:0，能縮但縮不到 0（內距/邊框/外距佔 38px），
+     而缺口就差那一點 → 與其讓按鈕換行，不如把純資訊的它收起來。
+     勝率數字本來就在下面那條獨立的勝率欄裡，資訊沒有消失。
+   （1180px 以下走手機版版面，本來就是另一套規則，不受影響。） */
+@media (min-width: 1181px) and (max-width: 1400px) {
+  .tb-wr-top3 { display: none !important; }
 }
 
 /* TF 按鈕略放大 */
