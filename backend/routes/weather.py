@@ -20,6 +20,29 @@ router = APIRouter(prefix="/api", tags=["weather"])
 # 讓「開始下雨/雨停」約 1.5~3 分內反映(原本乾濕都 5 分,疊前端 5 分輪詢+觀測 10 分 → 最壞 20 分)。
 # 晴天維持 300s,對 CWA/Open-Meteo 的請求量不變。
 _WX_CACHE = SimpleCache(max_size=64)
+# ── 過期先回舊值、背景更新（stale-while-revalidate，2026-08-11）──────────────
+# ⚠ 為什麼要有：實測 /api/weather **冷路徑 1817ms**、/api/nearby_rain **3300ms**
+#   （熱的只有 10ms / 3ms）。也就是快取一過期，那個倒楣的使用者就在請求裡等 1.8~3.3 秒。
+#   這與台指期報價踩過的坑完全相同（見 routes/search.py `_txf_tickers` 的說明）：
+#   「絕不在請求執行緒裡等網路」。
+# 作法：手上有舊值就**立刻回舊值**並在背景重算；只有「從來沒抓過」那一次才同步等。
+#   天氣本來就允許幾分鐘誤差（原本 TTL 就是 300s），拿幾分鐘前的值換「永不卡頓」非常划算。
+# ⚠ 背景重算要用 _force 旗標繞過這層，否則它自己也會拿到舊值就回來 → 永遠不更新。
+# ⚠ 失敗也要清 busy，否則一次失敗後就再也不會有人去更新（同 _txf_tickers 的教訓）。
+_SWR_MAX_AGE = 1800.0        # 舊值最多沿用 30 分鐘；再舊就寧可讓使用者等一次
+_WX_STALE: dict = {}
+_WX_BUSY: set = set()
+
+
+async def _wx_bg_refresh(lat: float, lon: float, key: str):
+    try:
+        await weather(lat, lon, _force=True)
+    except Exception:
+        pass
+    finally:
+        _WX_BUSY.discard(key)
+
+
 _WX_TTL = 300
 _WX_TTL_WET = 90
 _RAINY_TYPES = frozenset({"drizzle", "rain", "storm", "thunder"})
@@ -1080,6 +1103,7 @@ async def geoip(request: Request):
 async def weather(
     lat: float = Query(25.04, description="緯度"),
     lon: float = Query(121.51, description="經度"),
+    _force: bool = False,
 ):
     """天氣 API — 在地化分流：
       • 台灣 → 中央氣象署 (CWA) 自動氣象站
@@ -1101,6 +1125,18 @@ async def weather(
             _cached = None
     if _cached is not None:
         return _cached
+    # ★ 過期了但手上有舊值 → 立刻回舊值，背景重算（見檔頭 SWR 說明）
+    if not _force:
+        import time as _t, asyncio as _aio
+        _st = _WX_STALE.get(_ck)
+        if _st and (_t.time() - _st["ts"]) < _SWR_MAX_AGE:
+            if _ck not in _WX_BUSY:
+                _WX_BUSY.add(_ck)
+                try:
+                    _aio.create_task(_wx_bg_refresh(lat, lon, _ck))
+                except Exception:
+                    _WX_BUSY.discard(_ck)
+            return _st["val"]
     res = None
     if CWA_KEY and _in_taiwan(lat, lon):           # 台灣 → CWA（精準到鄉/區）
         try: res = await _from_cwa(lat, lon)
@@ -1187,6 +1223,11 @@ async def weather(
     else:
         res["tz_offset_min"] = None
     _WX_CACHE.set(_ck, res)
+    import time as _t2
+    _WX_STALE[_ck] = {"val": res, "ts": _t2.time()}
+    if len(_WX_STALE) > 200:                     # 只留近期座標，別無限長大
+        for k in [k for k, v in _WX_STALE.items() if _t2.time() - v["ts"] > _SWR_MAX_AGE]:
+            _WX_STALE.pop(k, None)
     return res
 
 
