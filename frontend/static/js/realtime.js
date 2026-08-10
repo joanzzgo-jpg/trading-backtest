@@ -462,11 +462,24 @@ function updateSymbolBar(data) {
   const tfLabel = TF_LABELS[currentTF] || currentTF;
   document.getElementById("symbolName").textContent =
     (market === "tw" || market === "us" || market === "hk") ? symbol : symbol.replace("/", " / ");
-  document.getElementById("symExchange").textContent =
-    market === "tw" ? `台股 · ${tfLabel}` :
-    market === "us" ? `美股 · ${tfLabel}` :
-    market === "hk" ? `港股 · ${tfLabel}` :
-    `${exch} · ${tfLabel}`;
+  /* ★ 2026-08-11 來源標示要標**真的來源**（使用者：「來源標示不要全標 pionex，標正確的」）。
+     舊碼對非台美港一律印 `exchangeSelect.value`，而那個 select **只有 pionex 一個選項**
+     → 加密與外匯全被標成 pionex，實際上加密可能來自 Binance/Bybit、外匯來自 Yahoo。
+     ⚠ 加密的實際來源由後端回傳的 `src` 決定（window._ohlcvSrc，就是修「K 棒自己動」時加的
+       那個欄位）；還沒拿到就先印 exchangeSelect 的值當回退，不要顯示空白。 */
+  const _srcName = (() => {
+    if (market === "tw") return "台股";
+    if (market === "us") return "美股";
+    if (market === "hk") return "港股";
+    if (market === "fx") {
+      // 外匯：貴金屬走幣安代幣化商品（PAXG/XAG 永續），其餘貨幣對走 Yahoo
+      const _s = symbol.toUpperCase();
+      return (_s === "XAU/USD" || _s === "XAG/USD") ? "Binance" : "Yahoo";
+    }
+    const _m = { binance: "Binance", bybit: "Bybit", pionex: "Pionex", okx: "OKX" };
+    return _m[String(window._ohlcvSrc || "").toLowerCase()] || _m[String(exch).toLowerCase()] || exch;
+  })();
+  document.getElementById("symExchange").textContent = `${_srcName} · ${tfLabel}`;
   if (!data.length) return;
   // 滑鼠在任一圖表內時，不要覆寫上方 OHLCV——避免 realtime poll 每秒
   // 打斷使用者觀看歷史 K 棒。滑鼠離開圖表後下次 poll 才會更新回最新。

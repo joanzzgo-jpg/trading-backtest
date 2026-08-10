@@ -45,9 +45,13 @@ async function loadData(autoLoad = false, forceLatest = false) {
     if (_mkEl && _det && _mkEl.value !== _det) {
       _mkEl.value = _det;
       if (typeof updateMarketUI === "function") updateMarketUI(true);   // true＝別覆寫 symbolInput
-      // ⚠ 顯示標籤也要同步：只改 select.value 的話左上那顆仍寫舊市場，要重整才對。
-      if (typeof window._setMarketPill === "function") window._setMarketPill(_det);
     }
+    /* ⚠ 標籤要**無條件**同步，不能只在「值有變」時才做（使用者：「左上標籤我剛剛試還是沒有」）。
+       原因：從搜尋視窗點選標的時，_selectSymbol() 自己就先把 marketSelect.value 設好了，
+       等 loadData 跑到這裡時「值已經是對的」→ 上面那個 if 不成立 → 標籤永遠不更新，
+       只有重整（pill 初始化時讀一次 select）才會對。
+       所以這行放在 if 外面，以當下的 select 值為準同步顯示。 */
+    if (_mkEl && typeof window._setMarketPill === "function") window._setMarketPill(_mkEl.value);
   } catch (e) {}
   _pendingAlignRange = null;   // 新載入作廢上一次未完成的歷史對齊目標
   window._loadRangeStart = null;   // 預設抓最近 N 根;下方「捲歷史切換」設成目標時間附近的有界視窗(start+end)直接範圍抓取
