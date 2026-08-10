@@ -556,6 +556,23 @@ html.perf-mode .tb-icon-btn:hover svg { animation: none; transform: scale(1.1); 
 }
 .bearwall-btn:hover { background: var(--bg3); }
 .bearwall-btn.bearwall-off { filter: grayscale(1); opacity: .35; }
+
+/* 手繪橘子熊圖示（2026-08-11）：墨線筆觸 —— 圓頭圓尾、線寬略粗、微傾斜製造手繪感。
+   ⚠ 用 currentColor 不寫死顏色：這顆鈕在深/淺兩種色盤下都要看得清楚。
+   ⚠ vector-effect:non-scaling-stroke：按鈕在不同縮放下線寬保持一致，不會忽粗忽細。 */
+.bearwall-ico {
+  width: 17px; height: 17px; display: block;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  fill: none;
+  vector-effect: non-scaling-stroke;
+  transition: transform .18s ease, opacity .18s ease;
+}
+.bearwall-btn:hover .bearwall-ico { transform: scale(1.1); }
+/* 開啟（牆紙開）時上暖橘，與城堡繪本風同一個色系 */
+.bearwall-btn:not(.bearwall-off) .bearwall-ico { color: #E2A52A; }
 /* 時框行的指標開關（足跡／掛單牆）：比照 tf-btn，亮起=開啟 */
 .tf-sep { width: 1px; align-self: center; height: 16px; background: var(--border); margin: 0 3px; flex-shrink: 0; }
 .tf-toggle {
@@ -4351,35 +4368,40 @@ html.perf-mode .tb-wr-total { font-size: 20px !important; }
    - 中間填空白
    - 右：TF buttons + icon buttons（margin-left:auto 推到右邊）
 ═══════════════════════════════════════ */
+/* ★ 2026-08-11 時框列置中（使用者：「時間框置中、按鈕保持原位」「按鈕跟時間框什麼情況都不能重疊」）
+   絕對定位才能精準置中（auto margin 分的是剩餘空間，左右群組不一樣寬就不會落在視窗正中，
+   實測偏差到 +183px）。但絕對定位的元素**不會被 flex 推開**，窄螢幕會直接壓到右側按鈕上
+   （實測 1200px：時框右緣 775 已越過按鈕起點 664）→ 所以只在「寬到不會撞」時才啟用。
+   碰撞門檻推導：時框半寬 175、右側按鈕寬 530＋內距 6
+     → 需要 W/2 + 175 ≤ W − 536 → W ≥ 1422，取 1500 留餘裕。
+   ⚠ 副作用要補兩個，否則就是我前一版踩到的坑（列高變矮、按鈕位移）：
+     ① 時框原本是第一列最高的元素，脫離流排後第一列會塌（74→66px）→ .topbar-left 補 min-height。
+     ② 時框原本的 margin-left:auto 順帶把右側 icons 推到右緣 → 改由 .topbar-right 自己頂上。
+   1500px 以下維持原本的 margin-left:auto（時框貼在按鈕左邊），由 flex 保證絕不重疊。 */
 .topbar-tf {
-  /* ★ 2026-08-10 時框列整個往左靠（使用者：「我要的是整個往左放，挪出位置給那些按鈕」）。
-     舊寫法 margin-left:auto 把「時框＋右側 icons」整組推到最右，小螢幕第一列塞不下 →
-     topbar 的 flex-wrap 生效 → 右側那排按鈕整組被擠到下一列最左邊（74px→106px）。
-     ⚠ 我中間試過 flex:1 1 0 + overflow-x:auto 讓它可縮可捲，使用者明確不要
-       （「上方時間框變成有限制」）→ 改回**原尺寸、不縮不捲**，只是位置靠左；
-       中間的空白留給右側按鈕。真的窄到不夠時，退讓的是左邊那組（見 .topbar-left）。 */
-  margin-left: 0;
-  flex: 0 0 auto;
+  margin-left: auto;            /* 預設（窄螢幕）：跟按鈕並排靠右，flex 保證不重疊 */
 }
-
-/* 右側 icons 自己釘右端（原本靠 .topbar-tf 的 auto margin 一起被推過去） */
-.topbar-right { margin-left: auto; }
-
-/* ★ 2026-08-10 小桌機（1181~1400px）：收起「勝率前三名」資訊帶，把第一列空間讓給控制項。
-   實測 1366px：第一列光是 左側 385 + 時框 349 + 右側按鈕 577 ＝ 1311px（＋內距 12），
-   再加上這條資訊帶就超過 → topbar 的 flex-wrap 生效（它本來是給勝率欄獨立成第二列用的）
-   → **右側那排按鈕整組被擠到下一列**，上方列 74px → 106px，就是使用者回報的
-   「螢幕較小的人，右上那幾個按鈕會跑到左邊第二行」。
-   ⚠ 這條帶子已經有 flex:1 1 0 + min-width:0，能縮但縮不到 0（內距/邊框/外距佔 38px），
-     而缺口就差那一點 → 與其讓按鈕換行，不如把純資訊的它收起來。
-     勝率數字本來就在下面那條獨立的勝率欄裡，資訊沒有消失。
-   （1180px 以下走手機版版面，本來就是另一套規則，不受影響。） */
-@media (min-width: 1181px) and (max-width: 1400px) {
+/* 1500px 以下：收起「勝率前三名」資訊帶。實測 1280px 第一列固定內容
+   （左 385＋時框 349＋右側 530＋內距 12）＝1276，只差幾 px，而這條帶子光是左右外距就 16px
+   → 剛好把右側按鈕擠到下一列。它是純資訊，勝率數字在下面獨立那列還有。 */
+@media (min-width: 1181px) and (max-width: 1499px) {
   .tb-wr-top3 { display: none !important; }
-  /* 窄螢幕時要退讓的是**左邊那組**（logo＋標的），不是時框：
-     時框維持原尺寸靠左、右側按鈕釘右端，兩者都不動；不夠的空間從這裡收。 */
-  .topbar-left { flex: 0 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; }
-  .topbar-left::-webkit-scrollbar { display: none; }
+}
+@media (min-width: 1500px) {
+  .topbar-tf {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    top: 0;
+    margin: 0;
+    z-index: 3;
+  }
+  .topbar-left { min-height: var(--topbar-h); }   /* ① 撐住第一列高度 */
+  .topbar-right { margin-left: auto; }            /* ② 按鈕維持在右緣、位置與原本相同 */
+  /* ③ 勝率前三名會長大（flex:1 1 0）→ 會長到置中的時框底下。讓它在碰到之前就停。
+     ⚠ 一定要保留 flex-basis:0，別改成 auto：這條是**非同步填資料**的，basis 一旦變內容寬，
+        資料到貨那刻就把右側按鈕擠到下一列（使用者：「有時候突然變兩行、明明還有空間」）。 */
+  #wrTop3.tb-wr-top3 { max-width: max(0px, calc(50% - 600px)); }
 }
 
 /* TF 按鈕略放大 */

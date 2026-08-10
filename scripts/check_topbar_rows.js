@@ -61,16 +61,26 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       });
       const right = document.querySelector(".topbar-right").getBoundingClientRect();
       const left = document.querySelector(".topbar-left").getBoundingClientRect();
+      const tf = document.querySelector(".topbar-tf").getBoundingClientRect();
+      // ★「什麼情況都不能重疊」：時框置中是絕對定位，不會被 flex 推開 → 必須明確驗矩形不相交
+      const hit = (a, b) => !(a.right <= b.left + 0.5 || b.right <= a.left + 0.5 ||
+                              a.bottom <= b.top + 0.5 || b.bottom <= a.top + 0.5);
       return { rows: rows.length, h: Math.round(bar.getBoundingClientRect().height),
                rightY: Math.round(right.y), leftY: Math.round(left.y),
+               overlapRight: hit(tf, right), overlapLeft: hit(tf, left),
+               tfCenter: Math.round(tf.x + tf.width / 2), vpCenter: Math.round(innerWidth / 2),
                top3W: Math.round(document.getElementById("wrTop3")?.getBoundingClientRect().width || 0) };
     })()`);
     // 正常＝2 群（第一列 + 勝率欄）；3 群以上代表第一列被拆開
     const wrapped = r.rows > 2 || Math.abs(r.rightY - r.leftY) > 12;
-    const mark = wrapped ? "✗" : "✓";
-    if (wrapped) bad++;
+    const overlap = r.overlapRight || r.overlapLeft;
+    const mark = (wrapped || overlap) ? "✗" : "✓";
+    if (wrapped || overlap) bad++;
+    const off = r.tfCenter - r.vpCenter;
     console.log(`  ${mark} 寬 ${String(w).padStart(4)}　列高 ${r.h}px　分 ${r.rows} 列　` +
-                `左y${r.leftY}/右y${r.rightY}　前三名寬 ${r.top3W}px${filled ? "" : "（未填資料）"}`);
+                `時框偏離中心 ${off > 0 ? "+" : ""}${off}px　` +
+                `重疊[右${r.overlapRight ? "✗" : "無"}/左${r.overlapLeft ? "✗" : "無"}]　` +
+                `前三名 ${r.top3W}px${filled ? "" : "（未填資料）"}`);
   }
   await br.close();
   console.log(bad ? `\n★ ${bad} 個寬度下上方列被拆成兩行` : "\n★ 各寬度下上方列都維持單列");
