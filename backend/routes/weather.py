@@ -1100,12 +1100,25 @@ async def geoip(request: Request):
         return {"ok": False, "reason": str(e)}
 
 @router.get("/weather")
-async def weather(
+async def weather_api(
     lat: float = Query(25.04, description="緯度"),
     lon: float = Query(121.51, description="經度"),
+):
+    """天氣 API（對外端點）。實作在下面的 `weather()`。
+
+    ⚠ 為什麼要多包一層：`weather()` 有個 `_force` 旗標（背景重算要用它繞過 SWR）。
+      如果 `_force` 留在**被 @router 裝飾的函式**簽章上，FastAPI 會把它當成公開查詢參數 →
+      任何人打 `?_force=1` 就能繞過快取、每個請求都直打 CWA/Open-Meteo（免費額度打爆）。
+      拆成「對外只有 lat/lon」+「內部實作帶 _force」，外面就沒有這個開關。"""
+    return await weather(lat, lon)
+
+
+async def weather(
+    lat: float = 25.04,
+    lon: float = 121.51,
     _force: bool = False,
 ):
-    """天氣 API — 在地化分流：
+    """天氣資料取得 — 在地化分流：
       • 台灣 → 中央氣象署 (CWA) 自動氣象站
       • 香港 → 香港天文台 (HKO) 即時天氣
       • 日本 → 日本氣象廳 (JMA) AMeDAS 觀測
@@ -1255,6 +1268,21 @@ _8DIR = ["北", "東北", "東", "東南", "南", "西南", "西", "西北"]
 _RAIN_STATION_CACHE: dict = {"data": None, "ts": 0.0}   # CWA 雨量站(5 分鐘快取)
 _RAIN_HIST: dict = {}   # source → 最近兩份「不同觀測時間」的雨量快照(估雨帶移動)
 _NR_CACHE = SimpleCache(max_size=64)
+# 附近雨區的 SWR 舊值（同 _WX_STALE，但沿用時限短很多——雨不能拿太舊的騙人）
+_NR_SWR_MAX_AGE = 600.0
+_NR_STALE: dict = {}
+_NR_BUSY: set = set()
+
+
+async def _nr_bg_refresh(lat: float, lon: float, key: str):
+    try:
+        await nearby_rain(lat, lon, _force=True)
+    except Exception:
+        pass
+    finally:
+        _NR_BUSY.discard(key)                          # 失敗也要清，否則就再也不會更新
+
+
 _NR_TTL = 120
 # ⚠ 07-13「雨系自適應TTL」漏定義此值 → 快取命中+雨系(正在下/接近)時 NameError 500、
 # 前端靜默吞掉 → 「每次真的下雨,附近雨區資訊反而整個消失」。07-16 補上。
@@ -1823,9 +1851,19 @@ async def _nearby_rain_omt(lat, lon, radius=NEARBY_RADIUS_KM) -> dict:
 
 
 @router.get("/nearby_rain")
-async def nearby_rain(
+async def nearby_rain_api(
     lat: float = Query(25.04, description="緯度"),
     lon: float = Query(121.51, description="經度"),
+):
+    """附近雨區偵測（對外端點）。實作在下面的 `nearby_rain()`。
+    ⚠ `_force` 刻意不放在這層 —— 理由同 `weather_api`（別讓外面能繞過快取直打上游）。"""
+    return await nearby_rain(lat, lon)
+
+
+async def nearby_rain(
+    lat: float = 25.04,
+    lon: float = 121.51,
+    _force: bool = False,
 ):
     """附近雨區偵測 — 用在地氣象局測站網找出周圍正在下雨的位置(方位/距離/雨勢)，
     並估雨帶是否正往使用者移動、約幾分鐘後到。地理分流：台灣 CWA／香港 HKO／
@@ -1836,6 +1874,24 @@ async def nearby_rain(
         cached = _NR_CACHE.get(ck, _NR_TTL_WET)        # 下雨中/雨接近 → 60s 新鮮度重驗
     if cached is not None:
         return cached
+    # ★ 過期了但手上有舊值 → 立刻回舊值，背景重算（見檔頭 SWR 說明）。
+    #   這支是全站最慢的端點（冷路徑實測 3300ms：測站網＋雷達圖磚＋濕度，好幾趟網路串起來）。
+    # ⚠ 但「雨」比「天氣」對新鮮度敏感得多 → 舊值只沿用到 _NR_SWR_MAX_AGE（10 分），
+    #   再舊就寧可讓這一位使用者等一次，也不要拿 20 分鐘前的雨區騙他「沒雨」。
+    if not _force:
+        import time as _t, asyncio as _aio
+        st = _NR_STALE.get(ck)
+        if st and (_t.time() - st["ts"]) < _NR_SWR_MAX_AGE:
+            if ck not in _NR_BUSY:
+                _NR_BUSY.add(ck)
+                try:
+                    _aio.create_task(_nr_bg_refresh(lat, lon, ck))
+                except RuntimeError:               # 沒有事件迴圈（測試/腳本）→ 就照原路同步算
+                    _NR_BUSY.discard(ck)
+                else:
+                    return st["val"]
+            else:
+                return st["val"]
     res = None
     try:
         if CWA_KEY and _in_taiwan(lat, lon):
@@ -1894,6 +1950,11 @@ async def nearby_rain(
                                               "scale": None, "size_km": None,
                                               "trend": None, "fade_min": None}
     _NR_CACHE.set(ck, res)
+    import time as _t2
+    _NR_STALE[ck] = {"val": res, "ts": _t2.time()}     # 給下一輪 SWR 當舊值
+    if len(_NR_STALE) > 200:                           # 不讓它無限長大（多用戶各自座標）
+        for k in sorted(_NR_STALE, key=lambda k: _NR_STALE[k]["ts"])[:100]:
+            _NR_STALE.pop(k, None)
     return res
 
 
