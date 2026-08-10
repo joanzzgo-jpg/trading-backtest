@@ -2126,6 +2126,15 @@ html.perf-mode .time-axis-year {
   height: auto; flex: 0 0 auto; padding: 10px 0; gap: 8px;
 }
 #trdDock.trd-collapsed .tk-dock-hd .trd-dock-caret { margin: 0; }
+/* ★ 2026-08-11 收起時箭頭會反掉（使用者：「交易的按鈕在收起來時反了」）。
+   根因：收起後標題列是 writing-mode: vertical-rl，**瀏覽器會把 ▼ 這類字元自動轉 90°**，
+   我的 transform 再疊上去 → 方向就跑掉了。
+   → 對 caret 單獨還原成水平書寫，rotate 值代表的方向才等於看到的方向。 */
+#trdDock.trd-collapsed .trd-dock-hd .trd-dock-caret,
+#trdDock.trd-collapsed .tk-dock-hd .trd-dock-caret {
+  writing-mode: horizontal-tb;
+  text-orientation: mixed;
+}
 
 /* 桌機版隱藏上方列那顆舊的行情開關（使用者：「右上原本設計給他的縮放鈕可以刪了」）。
    ⚠ 只在桌機隱藏、不刪元素：手機版的行情面板就是靠它開關的（ui.js 依 isMobile 分流）。 */
@@ -4399,6 +4408,21 @@ html.perf-mode .tb-wr-total { font-size: 20px !important; }
    → 剛好把右側按鈕擠到下一列。它是純資訊，勝率數字在下面獨立那列還有。 */
 @media (min-width: 1181px) and (max-width: 1499px) {
   .tb-wr-top3 { display: none !important; }
+  /* ★ 2026-08-11 使用者：「螢幕太小，按鈕改成可滑動」。
+     ⚠ 關鍵是 flex-basis 要 0：換行與否是用「假設主軸尺寸」判斷的，
+       basis:auto（＝內容寬 530px）照樣會把自己擠到下一列，flex-shrink 幫不上忙
+       （shrink 只在同一列已經放得下時才作用）。basis:0 → 不參與換行判斷 → 永遠留在第一列，
+       放不下就在自己這一欄內橫向捲。
+     ⚠ 要配 justify-content:flex-end：grow 之後這一格會變很寬，
+       不靠右的話按鈕會看起來「跑到中間」（使用者先前抱怨過）。 */
+  .topbar-right {
+    flex: 1 1 0;
+    min-width: 0;
+    overflow-x: auto;
+    justify-content: flex-end;
+    scrollbar-width: none;
+  }
+  .topbar-right::-webkit-scrollbar { display: none; }
 }
 @media (min-width: 1500px) {
   .topbar-tf {
