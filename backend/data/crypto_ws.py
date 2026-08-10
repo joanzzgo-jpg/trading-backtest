@@ -146,6 +146,7 @@ async def run_ticker_ws():
             await asyncio.sleep(max(0.0, 1.0 - (time.time() - _t0)))
 
     async def _stream(url, is_fut):
+        from utils.live_data import spot_wanted as _spot_wanted
         backoff = 1
         try:
             allow = _perp_set() if is_fut else _spot_set()
@@ -160,6 +161,14 @@ async def run_ticker_ws():
                         backoff = 1
                         async for msg in ws:
                             if msg.type != aiohttp.WSMsgType.TEXT:
+                                continue
+                            # ★ 2026-08-10 現貨沒人看就整包丟掉，連 json.loads 都不做。
+                            #   現貨 mini-ticker 每秒推一次、一包 **3683 檔**（永續才 726），
+                            #   解析＋逐檔寫 map 是 leader 上持續性的 CPU，而線上實測
+                            #   spot_poll.active=false（沒人開現貨分頁）＝這些工全是白做的。
+                            #   有人要看時（/api/tickers?market=spot 進來）下一則訊息就恢復處理，
+                            #   而且 _rest_refresh 每 15 秒仍會補完整現貨清單 → 打開就有東西。
+                            if not is_fut and not _spot_wanted():
                                 continue
                             try:
                                 arr = json.loads(msg.data)
