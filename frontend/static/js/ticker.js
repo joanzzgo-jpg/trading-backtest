@@ -1296,6 +1296,14 @@ function _selectSymbol(el) {
   } else if (mkt === "hk") {
     document.getElementById("marketSelect").value = "hk";
     updateMarketUI();
+  } else if (mkt === "fx") {
+    /* ★ 2026-08-11 外匯（漏掉這一段就是使用者說的「點外匯提示找不到」的真正原因）。
+       這個 if/else 鏈的 **else 是 crypto**：沒有 fx 分支時，選了 EUR/USD 會落到 crypto，
+       於是送出 market=crypto & symbol=EUR/USD → 後端當然「找不到」。
+       ⚠ 錯誤訊息還會說「請確認標的代號是否正確」，代號其實完全正確 → 極度誤導。
+       ⚠ 守則：新增市場要同時改三處 —— market pill 的 MKTS/LBL、搜尋分頁、**這裡的分派**。 */
+    document.getElementById("marketSelect").value = "fx";
+    updateMarketUI();
   } else {
     // crypto（futures / spot）→ 確保切到 crypto market
     const mktEl = document.getElementById("marketSelect");
