@@ -326,17 +326,31 @@ def _ticker_worker():
     這樣可達「每秒有新報價」又不撞 Binance FAPI 權重上限。"""
     from data.crypto import (fetch_tickers, _fetch_fapi_prices, _fetch_spot_prices,
                              _fetch_bybit_prices)
-    from utils.live_data import update as live_update
+    from utils.live_data import update as live_update, spot_wanted as _spot_wanted
     futures, spot = [], []
     cnt = 0
     while True:
         _t0 = time.perf_counter()
         try:
-            if cnt % 15 == 0 or not (futures or spot):
+            # ★ 現貨「有人看才抓」（2026-08-10）：現貨全標的實測 **3683 筆**（永續才 726 筆），
+            #   無條件每秒抓＝每秒多解析 5 倍 JSON、多吃一份上游權重，而現貨只有「標的搜尋切到
+            #   現貨分頁」時才看得到。省下來的 CPU 與額度直接回饋到永續那條熱路徑
+            #   （Binance 限流正是來源反覆跳→K 棒抖動的源頭）。
+            _want_spot = _spot_wanted()
+            # ⚠⚠ 這個條件**只能看節拍，不能看「清單是不是空的」**（2026-08-10 血的教訓）。
+            #   寫成 `or not futures` 看起來很合理（沒資料就趕快再抓一次），實際是一個正回饋炸彈：
+            #   完整清單走的是 /fapi/v1/ticker/24hr，**權重 40**。一旦這輪抓失敗、futures 是空的，
+            #   下一秒又抓、再失敗、再抓…… 40×60 = **2400/分＝剛好等於 fapi 的全部額度**。
+            #   實測 /api/_diag_mem：fapi 權重直接貼在 2393/2400，權重節流於是擋下所有 Binance 請求 →
+            #   主圖與報價全被迫降級到 Bybit → 就是使用者看到的「K 棒在動、行情對不上」。
+            #   失敗時什麼都不做才是對的：fetch_tickers 內部已有「沿用上一份好資料」的保護，
+            #   等下一個 15 秒節拍再試，成本有上限。
+            if cnt % 15 == 0 or (_want_spot and not spot and cnt % 15 == 1):
                 # 每 15 秒（或首次）重抓完整 24h（含漲跌幅、量）——全市場 24h ticker 權重重(fapi 40/spot 80)，
                 # 6s→15s 省 6 成基載權重；現價仍每秒抓＋重算漲跌幅，前端無感
                 futures = fetch_tickers("futures")
-                spot    = fetch_tickers("spot")
+                if _want_spot:
+                    spot = fetch_tickers("spot")
             else:
                 # 其餘每秒只抓最新價（weight 低），並用「現價＋快取24h開盤」重算漲跌幅
                 # → 漲跌幅也每秒更新（24h 開盤一秒內不變，不需每秒抓 24hr 而撞權重）
@@ -354,9 +368,10 @@ def _ticker_worker():
                     _apply_prices(futures, fp)
                     _TK_PRICE_STAT["ts"] = time.time()
                 _TK_PRICE_STAT["src"] = _psrc
-                sp = _fetch_spot_prices()
-                if sp:
-                    _apply_prices(spot, sp)
+                if _want_spot:
+                    sp = _fetch_spot_prices()
+                    if sp:
+                        _apply_prices(spot, sp)
             if futures or spot:
                 live_update(futures, spot)
         except Exception:
@@ -471,6 +486,11 @@ def _winrate_warm_worker():
       ≈ 0.8/90 ≈ 1%、線上幾乎無感。設計：① 啟動延遲 120s(避 healthcheck)；② 只 Railway、leader-only；
       ③ 只暖前 N 幣的 1h/15m；④ Binance 冷卻中該次跳過；⑤ get_crt_winrate 內建快取(已熱秒回、df 7天磁碟)。"""
     import time as _t
+    try:
+        from data.crypto import mark_background
+        mark_background(True)                              # 預熱＝背景工作，權重吃緊時自動讓路（見 _binance_get）
+    except Exception:
+        pass
     _t.sleep(120)                                          # 延遲開工：先讓 app 過 healthcheck、穩定
     _TFS = ["1h", "15m"]; _N = 10; _GAP = 90               # ★ 每 90s 才暖一個 → GIL 佔用 ~1%、不卡
     while True:

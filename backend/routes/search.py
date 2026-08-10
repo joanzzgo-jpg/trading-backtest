@@ -162,6 +162,14 @@ def get_tickers(response: Response, market: str = "futures", since: str = ""):
                 out["rev"] = tok
             return out
         return {"tickers": (futs or []) + fetch_tw_tickers(), "source": "direct"}
+    if market == "spot":
+        # ★ 2026-08-10 現貨改成「有人看才抓」：登記需求時間，背景 worker 據此決定要不要每秒更新。
+        #   為什麼：worker 原本無條件每秒抓 Binance 現貨全標的 —— 實測 **3683 筆**（永續才 726 筆），
+        #   等於每秒多解析 5 倍的 JSON、多吃一份 API 權重，而現貨清單只有「標的搜尋切到現貨分頁」
+        #   時才看得到（前端自己的註解：視窗多數時間是關的）。這條白吃的 CPU 與上游額度，
+        #   正是造成 Binance 偶發限流→來源反覆跳→K 棒抖動的那份預算。
+        from utils import live_data as _ld
+        _ld.mark_spot_wanted()
     if has_data():
         if since:
             d = get_delta(market, since)

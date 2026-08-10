@@ -120,6 +120,27 @@ def _read_shared() -> dict:
     return data
 
 
+# ── 現貨「有人看才抓」（2026-08-10）──────────────────────────────────────────
+#   /api/tickers?market=spot 進來就蓋一次時間戳；背景 worker 只在 _SPOT_WANT_SEC 秒內
+#   有人要過才更新現貨。沒人看時每秒省下 3683 筆 JSON 解析＋一份 Binance api 權重。
+#   ⚠ 別把窗口調太短：使用者在現貨分頁上「看著不動」時不會一直發請求嗎——會，前端每秒輪詢，
+#     所以 90 秒非常寬鬆，純粹是「關掉視窗後多跑一會兒」的緩衝。
+_SPOT_WANT = {"ts": 0.0}
+_SPOT_WANT_SEC = 90.0
+
+
+def mark_spot_wanted():
+    _SPOT_WANT["ts"] = time.time()
+
+
+def spot_wanted() -> bool:
+    return (time.time() - _SPOT_WANT["ts"]) <= _SPOT_WANT_SEC
+
+
+def spot_idle_sec() -> float:
+    return round(time.time() - _SPOT_WANT["ts"], 1) if _SPOT_WANT["ts"] else -1.0
+
+
 def _local_fresh() -> bool:
     return bool(_cache["ts"]) and (time.time() - _cache["ts"]) < _FRESH_SEC
 

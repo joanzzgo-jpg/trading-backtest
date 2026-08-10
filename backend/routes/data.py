@@ -330,10 +330,25 @@ def diag_mem():
             from data import crypto as _c
             st["last_source"] = last_fetch_source()
             cd = float(getattr(_c, "_BINANCE_COOLDOWN_UNTIL", 0.0) or 0.0)
-            st["binance_cooldown_left"] = round(max(0.0, cd - time.time()), 1)
+            st["binance_cooldown_left"] = round(max(0.0, cd - time.time(), ), 1)
+            # ★ 已用權重＝整條穩定性鏈的預算表：撞到上限 → 熔斷 → 來源反覆跳 → K 棒抖動。
+            #   查「K 棒又在動」「行情凍住」時先看這裡，比翻日誌快。
+            w, ts, lim = _c._BINANCE_USED_W, _c._BINANCE_W_TS, _c._BINANCE_W_LIMIT
+            st["weight"] = {h: {"used": (w[h] if time.time() - ts[h] < 70 else 0), "limit": lim[h]}
+                            for h in ("fapi", "api")}
+            # 誰把權重吃光：最近 60 秒按端點分類（查限流問題的第一站）
+            st["weight"]["fapi"]["by_endpoint"] = _c.weight_breakdown("fapi")
         except Exception as e:
             st["error"] = str(e)[:120]
         return st
+
+    def _spot_poll_status():
+        """現貨背景輪詢是否在跑（有人看才抓；idle_sec=-1 代表這輪從沒人要過）。"""
+        try:
+            from utils import live_data as _ld
+            return {"active": _ld.spot_wanted(), "idle_sec": _ld.spot_idle_sec()}
+        except Exception as e:
+            return {"error": str(e)[:120]}
 
     def _ticker_price_status():
         """報價列價格更新健康度：age_sec 一直長大＝合約行情正在凍住（安靜壞掉，沒這個查不出來）。
@@ -383,6 +398,7 @@ def diag_mem():
         #   在另一個 python 行程裡 import 讀到的永遠是初始值 0（我踩過）→ 只能靠這支端點看。
         "crypto_source": _crypto_source_status(),
         "ticker_price": _ticker_price_status(),   # 報價列多久沒更新到新價 + 這次的價格來源
+        "spot_poll": _spot_poll_status(),         # 現貨背景輪詢（有人看才抓）
     }
 
 
@@ -2240,7 +2256,9 @@ def smc_coach_api(
             return tf, d, smc.snapshot(d)
         except Exception:
             return tf, None, None
-    with _TPE(max_workers=len(_TFS)) as _pool:
+    # ⚠ 池裡的 worker 不會繼承 thread-local 的背景標記 → 一定要傳下去（見 crypto.is_background 註）
+    from data.crypto import mark_background as _mbg, is_background as _isbg
+    with _TPE(max_workers=len(_TFS), initializer=_mbg, initargs=(_isbg(),)) as _pool:
         for tf, d, sn in _pool.map(_coach_load, list(_TFS.items())):
             dfs[tf] = d; snaps[tf] = sn
     # 角色別名：頂(顯示)/高HTF(方向+區)/低HTF(區)/執行 → 沿用原 s1d/s4h/s1h/s15 變數名，其餘判斷不改。
@@ -2393,7 +2411,8 @@ def _coach_scan_compute(market, exchange, n, tfset, min_stage, ck):
 
     results = []
     if syms:
-        with _TPE(max_workers=6) as _pool:                # 每標的內部已並行4時框；併發6標的(權重感知節流已防429/418)
+        from data.crypto import mark_background as _mbg, is_background as _isbg
+        with _TPE(max_workers=6, initializer=_mbg, initargs=(_isbg(),)) as _pool:   # 併發6標的；背景標記要傳進池子
             for sym, hits in _pool.map(_scan_one, syms):
                 if hits:
                     results.append({"symbol": sym, "hits": hits,
@@ -2516,7 +2535,8 @@ def coach_scan_api(
         rs = (results or [])[:24]   # 上限24檔，防極端長清單拖慢
         if not rs:
             return []
-        with _TPE(max_workers=4) as _pool:
+        from data.crypto import mark_background as _mbg, is_background as _isbg
+        with _TPE(max_workers=4, initializer=_mbg, initargs=(_isbg(),)) as _pool:
             fresh = [r for r in _pool.map(_one, rs) if r]
         fresh.sort(key=lambda r: -r["top_stage"])
         return fresh

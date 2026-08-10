@@ -2,8 +2,10 @@
 加密貨幣資料抓取 — 直接呼叫 Binance REST API（無需 ccxt）
 Pionex 使用 Binance 流動性，行情相同；Bybit / OKX 也各自實作。
 """
+import collections as _collections
 import json
 import os
+import threading as _threading   # ⚠ 必須在頂端：下方 _BG_PRIORITY 在檔案前段就要用（原本的 import 在 172 行，會 NameError）
 import time
 import urllib.request
 import urllib.parse
@@ -85,6 +87,94 @@ _BINANCE_USED_W  = {"fapi": 0, "api": 0}
 _BINANCE_W_TS    = {"fapi": 0.0, "api": 0.0}
 _BINANCE_W_LIMIT = {"fapi": 2400, "api": 6000}
 
+# 背景工作標記（thread-local）：在背景執行緒開頭呼叫一次 mark_background()，
+# 該執行緒之後所有 Binance 請求都吃「低優先權」的權重天花板（見 _binance_get）。
+# 用 thread-local 而不是逐層傳參數：暖掃底下是 coach_scan_api → get_ohlcv → fetch_crypto_ohlcv
+# → _fetch_binance_fapi 好幾層，逐層加參數又多又容易漏，執行緒層級標一次就全涵蓋。
+_BG_PRIORITY = _threading.local()
+
+
+def mark_background(low: bool = True):
+    """把「目前這條執行緒」標成背景工作（暖掃/預熱）。互動請求不要呼叫。"""
+    _BG_PRIORITY.low = bool(low)
+
+
+def is_background() -> bool:
+    """目前這條執行緒是不是背景工作。
+    ⚠ 用途：**開執行緒池時要把它傳下去**（`initializer=mark_background, initargs=(is_background(),)`）——
+      thread-local 不會自動被池裡的 worker 繼承，漏傳的話真正發請求的那些執行緒完全不受
+      背景門檻管。實測就是這樣：教練暖掃標了背景卻照樣把 fapi 吃到 1906 權重／分。
+      而且同一支 coach_scan_api 互動也會呼叫 → 不能在池子裡寫死 True，必須「繼承呼叫端」。"""
+    return bool(getattr(_BG_PRIORITY, "low", False))
+
+
+# ── 送出當下就先記帳的本地權重估計（2026-08-10）──────────────────────────────
+#   只靠回應表頭 X-MBX-USED-WEIGHT-1M 會**慢一拍**：暖掃是平行發請求的，
+#   幾十發同時在路上、表頭都還沒回來，門檻檢查看到的還是舊值 → 一輪就從 0 衝到 2400（實測）。
+#   → 每發一個請求，先把「這支端點大概多重」記進最近 60 秒的帳本；門檻取
+#     max(表頭衰減值, 本地帳本) → 突發當下就擋得住，表頭回來再校正成真值。
+#   權重取官方值並**寧可高估**（低估＝撞 429＝熔斷 60 秒，代價遠大於少抓幾次）。
+_W_LEDGER: "dict[str, _collections.deque]" = {"fapi": _collections.deque(), "api": _collections.deque()}
+_W_LOCK = _threading.Lock()
+
+
+def _est_weight(url: str) -> int:
+    u = url.split("?")[0]
+    if u.endswith("/ticker/24hr"):   return 40      # 全市場 24h（最重）
+    if u.endswith("/ticker/price"):  return 2       # 全市場現價
+    if u.endswith("/klines"):
+        # 官方權重依 limit 分級：<100→1、<500→2、≤1000→5、>1000→10。
+        # ⚠ 別一律當 10：實測穩態真實用量 61/分，一律取 10 會估成 482 → 背景門檻誤擋、暖掃永遠跑不動。
+        try:
+            _lim_q = int(dict(p.split("=", 1) for p in url.split("?", 1)[1].split("&")
+                              if "=" in p).get("limit", 500))
+        except Exception:
+            _lim_q = 500
+        return 1 if _lim_q < 100 else 2 if _lim_q < 500 else 5 if _lim_q <= 1000 else 10
+    if u.endswith("/aggTrades"):     return 20      # 逐筆成交（足跡）
+    if u.endswith("/depth"):         return 20      # 盤口
+    return 5
+
+
+# 按端點分類的最近 60 秒用量（純診斷）：查「誰把權重吃光」時一眼看出兇手，
+# 不然只能瞎猜。key＝端點路徑最後一段，value＝(次數, 權重合計)。
+_W_BY_EP: "_collections.deque" = _collections.deque()
+
+
+def weight_breakdown(host: str = "fapi") -> dict:
+    now = time.time()
+    with _W_LOCK:
+        while _W_BY_EP and now - _W_BY_EP[0][0] > 60:
+            _W_BY_EP.popleft()
+        agg: dict = {}
+        for _, h, ep, w in _W_BY_EP:
+            if h != host:
+                continue
+            a = agg.setdefault(ep, {"n": 0, "w": 0})
+            a["n"] += 1; a["w"] += w
+    return dict(sorted(agg.items(), key=lambda kv: -kv[1]["w"]))
+
+
+def _ledger_add(host: str, w: int, url: str = ""):
+    now = time.time()
+    with _W_LOCK:
+        dq = _W_LEDGER[host]
+        dq.append((now, w))
+        while dq and now - dq[0][0] > 60:
+            dq.popleft()
+        _W_BY_EP.append((now, host, url.split("?")[0].rsplit("/", 1)[-1] or "?", w))
+        while _W_BY_EP and now - _W_BY_EP[0][0] > 60:
+            _W_BY_EP.popleft()
+
+
+def _ledger_sum(host: str) -> float:
+    now = time.time()
+    with _W_LOCK:
+        dq = _W_LEDGER[host]
+        while dq and now - dq[0][0] > 60:
+            dq.popleft()
+        return float(sum(w for _, w in dq))
+
 def _binance_get(url: str, timeout: int = 30, retries: int = 1) -> Union[dict, list]:
     """Binance 專用 GET：暫時性失敗（逾時／連線中斷／5xx）重試 retries 次＋418/429 全域熔斷＋權重軟節流。
     切標的瞬間 Binance 偶發 timeout 會被誤報成「無此標的」，一次重試即可大幅減少。
@@ -94,13 +184,32 @@ def _binance_get(url: str, timeout: int = 30, retries: int = 1) -> Union[dict, l
     if time.time() < _BINANCE_COOLDOWN_UNTIL:
         raise RuntimeError("Binance 熔斷中（418/429 冷卻），暫不請求")
     _host = "fapi" if "fapi.binance" in url else "api"
-    _u = _BINANCE_USED_W[_host] if time.time() - _BINANCE_W_TS[_host] < 70 else 0
+    # ★ 2026-08-10 已用權重要隨時間**線性衰減**，不能是「70 秒內用滿值、之後瞬間歸零」的斷崖。
+    #   舊寫法會把自己鎖死：用量一旦爬過 92%，這裡對**每一個**請求都直接拋錯 → 不再送出請求 →
+    #   收不到新的 X-MBX-USED-WEIGHT-1M → 計數器凍在高點 → 一路鎖到 70 秒過期才解。
+    #   實測（/api/_diag_mem 每 5 秒取樣）：fapi 卡在 2376/2400 **整整 60 秒不動**，
+    #   期間 last_source 全是 bybit；窗口一滾就掉到 8、來源立刻變回 binance。
+    #   這 60 秒的「Binance 不可用」正是主圖換源、K 棒抖動、報價與主圖對不上的上游成因。
+    #   衰減模型：Binance 的 1 分鐘窗會滑走 → 靜默 t 秒後，實際已用量至多是 used×(1−t/60)。
+    #   保守、單調、天然自癒：靜默約 8~10 秒就降到門檻下、放一個請求出去，表頭一回來就校正成真值。
+    _age = time.time() - _BINANCE_W_TS[_host]
+    _u = max(0.0, _BINANCE_USED_W[_host] * (1.0 - _age / 60.0)) if _age < 60 else 0.0
+    _u = max(_u, _ledger_sum(_host))   # 本地帳本：平行突發當下就看得到（表頭會慢一拍）
     _lim = _BINANCE_W_LIMIT[_host]
-    if _u > _lim * 0.92:
-        raise RuntimeError(f"Binance {_host} 權重 {_u}/{_lim} 接近上限，跳過本次請求")
+    # ★ 2026-08-10 背景工作用**較低的天花板**：互動路徑（主圖 K 線／報價）永遠優先。
+    #   背景暖掃（教練前 60 檔、勝率預熱）跟使用者當下在看的圖表搶同一份權重額度，
+    #   而且量體大得多 —— 實測 fapi 直接被吃到 2400/2400，於是使用者那條路被節流擋掉、
+    #   全部降級到 Bybit，畫面上就是「K 棒在動、行情對不上」。
+    #   把背景的門檻壓到 55%：暖掃只在有餘裕時跑，永遠留 45% 給真人。
+    _bg = getattr(_BG_PRIORITY, "low", False)
+    _gate = 0.55 if _bg else 0.92
+    if _u > _lim * _gate:
+        raise RuntimeError(f"Binance {_host} 權重 {_u:.0f}/{_lim}"
+                           f"{'（背景工作額度已滿，讓路給互動請求）' if _bg else '接近上限'}，跳過本次請求")
     if _u > _lim * 0.75:
         time.sleep(0.3)   # 微睡讓分鐘窗滑走，平滑突發
     def _bget():
+        _ledger_add(_host, _est_weight(url), url)   # ⚠ 先記帳再送：突發要在「送出當下」就算得到
         data, hdrs = _http_json(url, timeout=timeout, with_headers=True)
         try:
             _w = hdrs.get("X-MBX-USED-WEIGHT-1M")

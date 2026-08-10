@@ -458,7 +458,8 @@ def _tick(last_seen: dict):
                 _dfs[key] = fetch_crt_df(_m, _s, _t, _monitor_days(_t), _e)
             except Exception:
                 _dfs[key] = None            # 預抓失敗 → _process_combo 內自抓再試一次
-        with ThreadPoolExecutor(max_workers=4) as _ex:
+        from data.crypto import mark_background as _mbg, is_background as _isbg
+        with ThreadPoolExecutor(max_workers=4, initializer=_mbg, initargs=(_isbg(),)) as _ex:
             list(_ex.map(_prefetch, list(combos.keys())))
     for (mkt, exch, sym, tf), subs_here in combos.items():
         try:
@@ -635,6 +636,15 @@ def run_monitor_loop():
     last_coach = 0.0
     last_coach_warm = 0.0   # 常駐暖掃(教練前60)節拍
     _was_leader = None
+    # ★ 2026-08-10 把這條執行緒標成「背景工作」：底下的教練暖掃／訊號掃描會吃大量 Binance 權重
+    #   （實測把 fapi 吃到 2400/2400），與使用者當下在看的圖表搶同一份額度 → 互動路徑被節流擋掉、
+    #   全部降級到 Bybit ＝ 畫面上「K 棒在動、行情對不上」。標記後它只在權重 <55% 時才動，
+    #   永遠留一半給真人。暖掃拿不到資料只是「這輪沒暖到」，下一輪再來，功能不受影響。
+    try:
+        from data.crypto import mark_background
+        mark_background(True)
+    except Exception:
+        pass
     # 啟動後稍等，讓 app 完成預熱
     time.sleep(20)
     while True:
