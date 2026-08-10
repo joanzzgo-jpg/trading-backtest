@@ -555,20 +555,32 @@ html.perf-mode .tb-icon-btn:hover svg { animation: none; transform: scale(1.1); 
   transition: background .12s, opacity .12s, filter .12s;
 }
 .bearwall-btn:hover { background: var(--bg3); }
+/* ★ 2026-08-11 點下去不要出現圓圈（使用者：「點熊圖示會出現圓形特效，不要那個」）。
+   來源是瀏覽器的焦點環／行動端點擊高亮／按壓底色 —— 這顆鈕只要圖示本身的變化就夠了。
+   ⚠ 只關掉「滑鼠點擊」的視覺：:focus-visible（鍵盤 Tab 過來）保留一個細框，
+     不然鍵盤使用者會完全看不出焦點在哪。 */
+.bearwall-btn { -webkit-tap-highlight-color: transparent; }
+.bearwall-btn:focus { outline: none; box-shadow: none; }
+.bearwall-btn:focus:not(:focus-visible) { outline: none; box-shadow: none; background: transparent; }
+.bearwall-btn:active { background: transparent; box-shadow: none; }
+.bearwall-btn:focus-visible { outline: 1px solid var(--muted); outline-offset: 1px; border-radius: 4px; }
 .bearwall-btn.bearwall-off { filter: grayscale(1); opacity: .35; }
 
 /* 熊按鈕圖示：AHH 熊的輪廓線稿（路徑由 bear.png 描出來，形狀與 logo 一致）。
    ⚠ 線寬用 vector-effect:non-scaling-stroke → 不同縮放下粗細一致，小尺寸才不會忽粗忽細。 */
 /* 熊圖示：外框用描邊、五官用填色（各自在 <path> 上指定），這裡只定顏色與尺寸。
-   使用者要白色 → 用 color 帶 currentColor，兩種畫法一起跟著變。 */
+   ★ 顏色用 var(--muted)＝次文字色（使用者：「配色跟次文字一起」）。
+     這正是隔壁 .tf-btn 用的同一個變數 → 熊與時框按鈕看起來是同一組，換主題也一起變。
+     currentColor 讓描邊與填色同時跟著走，不必分別指定。 */
 .bearwall-ico {
   width: 19px; height: 19px; display: block;
-  color: #fff;
-  transition: transform .18s ease, opacity .18s ease;
+  color: var(--muted);
+  transition: transform .18s ease, opacity .18s ease, color .12s;
 }
+/* hover 提亮，與 .tf-btn:hover { color: var(--text) } 一致 */
+.bearwall-btn:hover .bearwall-ico { color: var(--text); transform: scale(1.1); }
 /* 開啟（牆紙開）時上暖橘，與 AHH 品牌色一致 */
 
-.bearwall-btn:hover .bearwall-ico { transform: scale(1.1); }
 /* 時框行的指標開關（足跡／掛單牆）：比照 tf-btn，亮起=開啟 */
 .tf-sep { width: 1px; align-self: center; height: 16px; background: var(--border); margin: 0 3px; flex-shrink: 0; }
 .tf-toggle {
