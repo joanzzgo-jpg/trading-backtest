@@ -555,9 +555,14 @@ function _trdBuildPopup() {
     #trdDock .trd-dock-hd:hover { background:rgba(255,255,255,.04); }
     #trdDock .trd-dock-hd .trd-ico { width:13px; height:13px; }
     #trdDock .trd-dock-hd .trd-env { padding:0 6px; font-size:10px; }
+    /* ★ 2026-08-10 箭頭改成「指出按下去會往哪動」（使用者：改一下交易按鈕繪製方向）。
+       這是往右收合的側欄：展開時按了會往右收 → ▶；收起時按了會往左展開 → ◀。
+       （▼ 順時針 90° = ◀、逆時針 90° = ▶。原本是展開▼收起▶，方向對不上動作。） */
     #trdDock .trd-dock-hd .trd-dock-caret { margin-left:auto; color:var(--muted,#889);
-      transition:transform .18s ease; font-size:10px; }
-    #trdDock.trd-collapsed .trd-dock-caret { transform:rotate(-90deg); }
+      transition:transform .18s ease; font-size:10px; transform:rotate(-90deg); }
+    /* ⚠ 選擇器要帶 .trd-dock-hd：不然「行情」那一列的箭頭會跟著交易的收合狀態轉，
+         但它反映的應該是行情面板自己的狀態（兩列互不影響）。 */
+    #trdDock.trd-collapsed .trd-dock-hd .trd-dock-caret { transform:rotate(90deg); }
     #trdDock .trd-dock-body { flex:1 1 auto; min-height:0; overflow-y:auto; }
     #tradePopup .trd-bind { display:none; }
     #tradePopup.trd-need-bind .trd-bind { display:block; }
