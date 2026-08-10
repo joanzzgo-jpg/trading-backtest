@@ -56,6 +56,18 @@ age=0 形成中（h/l/c 本來就會變＝正常，但 **open 永遠不該變**�
 ④`_srcRealign` 要**連續兩次**看到新來源才觸發整段重對齊。
 實測 180 秒：定案棒改寫 38 → **0**、不可能 K 棒 → **0**、形成中 open 變動 → **0**。
 
+### 新增/移除時框、或改任何資料源後（守門員之八）
+```bash
+cd backend && ../.venv312/bin/python scripts/check_tf_spacing.py
+```
+每個時框實際請求一次，驗**回來的 K 棒間隔中位數真的等於那個時框**（crypto/us/tw 共 16 個組合）。
+專治本檔一直在講的那個坑：「對照表漏列 → `.get(tf, 預設)` 靜默退回日線」——圖上有東西、不報錯。
+★ 這支**不看程式碼、不看對照表**，直接問「你回給我的資料間隔對不對」→ 不論哪張表漏列、
+哪個 fallback 退化都抓得到。已驗證：把 `us_stock.TF_MAP` 的 1h 拿掉 → 立刻報
+`us 1h: 間隔 86400s ≠ 3600s`。
+⚠ 別改成「檢查對照表有沒有這個 key」那種啟發式：實測**會誤報**（Pionex 沒有 1m 是回空表讓上層
+fallback、`YF_TF_MAP` 是盤中專用函式本來就不管日/週/月）。會叫狼來了的守門員比沒有更糟。
+
 ### 動到 crypto fallback 鏈後（守門員之五）
 ```bash
 cd backend && ../.venv312/bin/python scripts/check_perp_not_spot.py
