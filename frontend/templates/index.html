@@ -394,11 +394,15 @@
   <!-- 時間框架 strip（桌面：右側；手機：第二列全寬） -->
   <div class="topbar-tf">
     <div class="tf-group">
-      <!-- 熊按鈕改用 AHH 的熊圖（2026-08-11 使用者：「熊還是好醜，把 AHH 的圖示用上去好了」）。
-           手繪 SVG 版連改三版仍不像熊 —— 17px 的線條圖本來就很難畫出動物辨識度，
-           而 topbar logo 那張 bear.png 已經是這個 app 的品牌形象，直接沿用最一致也最好看。 -->
+      <!-- 熊按鈕：AHH 熊的**輪廓線稿**（2026-08-11 使用者：「用 AHH 輪廓、線條繪出來」）。
+           作法：讀 bear.png 的透明通道二值化 → Moore 鄰域輪廓追蹤 → Douglas-Peucker 簡化
+           （容差 1.6 → 68 點；容差太小線會抖、太大會失形）→ 縮放到 24×24 viewBox。
+           所以形狀與 topbar logo 那隻熊完全一致，只是改用線條表現、可隨主題色變色。
+           ⚠ 這條路徑是**產生**出來的，不要手改；要調整請重跑 scratchpad/trace_bear.py 換容差。 -->
       <button id="bearWallToggleBtn" type="button" class="bearwall-btn" onclick="window._bearWallToggle&&window._bearWallToggle()" title="背景磁磚（橘子熊牆紙）開關：開＝「無」天氣鋪滿牆紙、關＝全黑" aria-label="橘子熊牆紙開關">
-        <img src="/static/img/bear.png?v={{ ver }}" class="bearwall-ico" alt="橘子熊" draggable="false" />
+        <svg class="bearwall-ico" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M3.90 3.07 L6.16 3.33 L7.12 3.94 L7.38 4.73 L7.82 4.55 L10.87 4.47 L13.13 4.90 L13.48 3.77 L13.92 3.33 L14.87 3.42 L15.48 4.12 L15.48 5.60 L17.49 6.64 L18.18 7.43 L18.62 6.73 L19.75 6.47 L20.45 6.56 L21.67 7.43 L22.45 8.39 L22.80 9.60 L22.80 10.65 L22.45 10.91 L22.54 11.26 L22.10 11.78 L21.15 12.22 L21.49 13.61 L21.41 15.70 L20.88 16.66 L20.88 17.18 L20.36 17.53 L20.10 18.40 L19.58 18.58 L19.14 19.27 L18.10 19.97 L16.44 20.58 L16.01 20.49 L15.75 20.75 L15.05 20.84 L12.17 20.93 L11.91 20.67 L10.95 20.75 L10.69 20.49 L9.39 20.49 L7.38 19.97 L5.90 19.36 L5.73 19.01 L4.86 18.84 L4.60 18.40 L3.81 18.14 L2.51 16.83 L1.55 15.18 L1.20 12.74 L1.37 10.74 L1.72 10.30 L1.55 10.04 L1.90 9.78 L2.51 8.47 L1.98 8.12 L1.37 7.17 L1.55 5.60 L1.81 5.25 L2.51 5.69 L3.03 5.51 L2.85 4.55 L2.51 4.38 L2.51 4.03 L3.20 3.33 L3.90 3.07 Z" />
+        </svg>
       </button>
       <button class="tf-btn" data-tf="1M">1M</button>
       <button class="tf-btn" data-tf="1w">1W</button>
