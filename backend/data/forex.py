@@ -27,11 +27,31 @@ CROSSES = ["EUR/JPY", "GBP/JPY", "EUR/GBP", "AUD/JPY", "EUR/AUD", "CHF/JPY",
 METALS = ["XAU/USD", "XAG/USD"]
 FX_PAIRS: List[str] = MAJORS + CROSSES + METALS
 
-# Yahoo 對貴金屬不用 `=X` 那套（XAUUSD=X 查無資料），要用期貨/現貨代號。
+# Yahoo 對貴金屬不用 `=X` 那套（XAUUSD=X 查無資料），只能用期貨代號 —— 但期貨在 Yahoo
+# **延遲 10 分鐘**，且期貨對現貨有升水。→ 貴金屬改走幣安的代幣化商品（見 CRYPTO_BACKED）。
+# 這裡保留期貨代號當**後備**：幣安那條掛掉時仍有東西可看。
 _SPECIAL = {
-    "XAU/USD": "GC=F",   # 黃金（COMEX 期貨，最接近現貨且資料完整）
-    "XAG/USD": "SI=F",   # 白銀
+    "XAU/USD": "GC=F",   # 黃金（COMEX 期貨；僅後備）
+    "XAG/USD": "SI=F",   # 白銀（僅後備）
 }
+
+# ★ 2026-08-11 貴金屬改走幣安（使用者提議）。實測對照：
+#     Yahoo GC=F(期貨)  4412.70　延遲 **10 分**
+#     幣安 PAXGUSDT     4349.99　延遲 **0.6 分**、有成交量
+#   那 −1.4% 不是代幣折價 —— GC=F 是期貨、對現貨本來就有升水（contango），
+#   PAXG 追蹤的是**現貨**金價，反而比期貨更接近真實 XAU/USD。
+#   好處：即時（0.6 分）、有真實成交量、24/7、而且走的是本專案已經驗證過的加密管線。
+#   ⚠ 差異要知道：以 USDT 計價（≈USD，偏差通常 <0.1%）、是代幣/永續商品而非 OTC 現貨，
+#     可能有溢價/折價；且加密 24/7 交易，週末仍有 K 棒（現貨黃金週末休市）。
+CRYPTO_BACKED = {
+    "XAU/USD": "PAXG/USDT.P",   # PAX Gold 永續：1 代幣 = 1 金衡盎司
+    "XAG/USD": "XAG/USDT.P",    # 幣安白銀永續
+}
+
+
+def crypto_symbol(symbol: str):
+    """這個外匯代號要不要改走幣安？回傳加密代號，或 None（走 yfinance）。"""
+    return CRYPTO_BACKED.get((symbol or "").strip().upper())
 
 _PAIR_SET = {p.upper() for p in FX_PAIRS}
 

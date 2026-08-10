@@ -1274,10 +1274,18 @@ def _ohlcv_build(req: OHLCVRequest):
                     cache.set(cache_key, _empty)
                     return _ohlcv_resp(_empty)
             _sym = req.symbol
+            _fx_crypto = None
             if req.market == "fx":
-                from data.forex import to_yf as _fx_to_yf
+                from data.forex import to_yf as _fx_to_yf, crypto_symbol as _fx_cs
+                _fx_crypto = _fx_cs(req.symbol)      # 貴金屬 → 幣安代幣化商品（即時且有量）
                 _sym = _fx_to_yf(req.symbol)
-            df = fetch_us_stock(_sym, start, end, req.timeframe)
+            if _fx_crypto:
+                if use_limit:
+                    df = fetch_crypto_ohlcv(_fx_crypto, req.timeframe, limit=req.limit, exchange_id="binance")
+                else:
+                    df = fetch_crypto_ohlcv(_fx_crypto, req.timeframe, start, end, "binance")
+            else:
+                df = fetch_us_stock(_sym, start, end, req.timeframe)
             # Finnhub 即時報價疊加到最後一根 K 棒（失敗不影響主流程）；港股無 Finnhub 覆蓋，純用 yfinance。
             if req.market == "us" and os.getenv("FINNHUB_TOKEN"):
                 try:
@@ -1602,11 +1610,15 @@ def get_latest(req: LatestRequest):
             # ⚠ 實測主要貨幣對（EUR/USD、USD/JPY、GBP/USD）最後一根 1m K 只落後 **0.8 分鐘**
             #   ——與加密同量級，不需要像台股/美股那樣另外接即時源疊加。
             #   （黃金走期貨 GC=F 約落後 10 分鐘，屬資料源限制。）
-            from data.forex import to_yf as _fx_to_yf
-            _fxdays = {"1m": 3, "5m": 8, "15m": 20, "1h": 40, "4h": 120}.get(req.timeframe, 400)
-            df = fetch_us_stock(_fx_to_yf(req.symbol),
-                                (date.today() - timedelta(days=_fxdays)).isoformat(),
-                                date.today().isoformat(), req.timeframe)
+            from data.forex import to_yf as _fx_to_yf, crypto_symbol as _fx_cs
+            _fx_crypto = _fx_cs(req.symbol)
+            if _fx_crypto:                            # 貴金屬走幣安：即時 0.6 分、有成交量
+                df = fetch_crypto_ohlcv(_fx_crypto, req.timeframe, limit=3, exchange_id="binance")
+            else:
+                _fxdays = {"1m": 3, "5m": 8, "15m": 20, "1h": 40, "4h": 120}.get(req.timeframe, 400)
+                df = fetch_us_stock(_fx_to_yf(req.symbol),
+                                    (date.today() - timedelta(days=_fxdays)).isoformat(),
+                                    date.today().isoformat(), req.timeframe)
             if df is None or df.empty:
                 return {"live": False, "data": []}
         elif req.market == "hk":
