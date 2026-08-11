@@ -2,7 +2,22 @@
 美股資料抓取 - 使用 yfinance
 """
 import pandas as pd
-import yfinance as yf
+
+# ── yfinance 延遲載入（2026-08-12）──────────────────────────────────────────
+# 它在 pandas/numpy 之外**額外吃 30.9 MB**、另外拉進 93 個模組
+# （curl_cffi / peewee / bs4 / lxml / websockets / protobuf …）。
+# 原本是模組層 import → 每個 worker 一開機就付這筆錢，但美股/港股/外匯的請求
+# 不見得每個 worker 都會遇到（線上 workers=2、follower 常常整天只服務加密貨幣）。
+# 改成第一次真的要用才載入 → 沒用到就完全不佔。
+# ⚠ 一定要走 `_yf()` 取用，不要在模組層 `import yfinance as yf` —— 那就白費了。
+# ⚠ taiwan.py / routes/search.py 早就是函式內 import（延遲的），只有這裡是模組層。
+_yf_mod = None
+def _yf():
+    global _yf_mod
+    if _yf_mod is None:
+        import yfinance as _m
+        _yf_mod = _m
+    return _yf_mod
 
 # ── yfinance 反封/防卡：Railway 等雲端 IP 常被 Yahoo tarpit（連上不回應）→ 無 timeout 會無限卡。
 #   ① 一律加 timeout（止血，不再卡死）②用 curl_cffi 瀏覽器指紋 session 假冒（避開 Yahoo bot 偵測，雲端標準解法）。
@@ -34,10 +49,10 @@ def _yf_ticker(symbol):
     sess = _yf_session()
     if sess:
         try:
-            return yf.Ticker(symbol, session=sess)
+            return _yf().Ticker(symbol, session=sess)
         except Exception:
             pass
-    return yf.Ticker(symbol)
+    return _yf().Ticker(symbol)
 
 # 目標時框 → 跟 yfinance 要的 interval。
 # ⚠ Yahoo 只認這些：[1m, 2m, 5m, 15m, 30m, 60m, 90m, 1h, 4h, 1d, 5d, 1wk, 1mo, 3mo]
@@ -187,6 +202,6 @@ def search_us_stocks(query: str) -> list:
 
     # 方法 2: yf.Search fallback
     try:
-        return _parse_yf_quotes(yf.Search(query, max_results=10).quotes)
+        return _parse_yf_quotes(_yf().Search(query, max_results=10).quotes)
     except Exception:
         return []
