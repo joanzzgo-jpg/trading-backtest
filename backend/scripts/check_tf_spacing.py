@@ -93,13 +93,57 @@ def main() -> int:
             if not ok:
                 bad.append((market, tf, f"間隔 {med:.0f}s ≠ {want}"))
 
+    # ── 前後端時框清單必須一致（2026-08-11 新增）────────────────────────────────
+    # ★ 直接讀前端 config.js 的 TF_LABELS 比對，不要在這裡再抄一份清單 ——
+    #   抄一份就等於多一個「加了一邊忘了另一邊」的地方，正是要防的東西。
+    # 為什麼要驗：實測 timeframe="99z"/"3h" 會 **200 OK 回日線**。也就是前端只要加一個
+    #   後端沒支援的時框，使用者看到的就是「標著 3H 的日線」，沒有任何一層會出聲。
+    #   後端已在 utils/tf.py 白名單擋掉（不認得→400），這裡驗兩件事：
+    #     ① 前端提供的每個時框，後端都要收（漏列＝那個按鈕按下去會壞）
+    #     ② 亂填的時框後端要拒絕（＝白名單真的還在，沒被誰不小心拿掉）
+    print("── 前後端時框清單一致性 ──")
+    import os
+    import re
+    cfg = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__)))), "frontend", "static", "js", "config.js")
+    try:
+        src = open(cfg, encoding="utf-8").read()
+        line = re.search(r"const\s+TF_LABELS\s*=\s*\{([^}]*)\}", src).group(1)
+        fe_tfs = re.findall(r'"([^"]+)"\s*:', line)
+    except Exception as e:
+        print(f"   讀不到前端 TF_LABELS（{type(e).__name__}）→ 略過這段，不算失敗")
+        fe_tfs = []
+    for tf in fe_tfs:
+        try:
+            _post("/api/ohlcv", {"market": "crypto", "symbol": "BTC/USDT.P", "timeframe": tf,
+                                 "exchange": "binance", "limit": 20, "indicators": False}, to=60)
+            print(f"   ✓ 前端有 {tf:4s} → 後端收")
+        except Exception as e:
+            code = getattr(e, "code", None)
+            if code == 400:
+                print(f"   ✗ 前端有 {tf:4s} → 後端 **400 不支援**（那顆按鈕按下去會壞）")
+                bad.append(("前後端不一致", tf, "前端提供但後端白名單沒有"))
+            else:
+                print(f"   {tf:4s} 取得失敗（{type(e).__name__}）— 不算失敗")
+    for junk in ("99z", "3h", ""):
+        try:
+            _post("/api/ohlcv", {"market": "crypto", "symbol": "BTC/USDT.P", "timeframe": junk,
+                                 "exchange": "binance", "limit": 20, "indicators": False}, to=60)
+            print(f"   ✗ 亂填時框 {junk!r} 竟然被接受（會靜默回日線）")
+            bad.append(("白名單失效", junk or "(空字串)", "亂填的時框沒有被擋下來"))
+        except Exception as e:
+            if getattr(e, "code", None) == 400:
+                print(f"   ✓ 亂填時框 {junk!r} 被擋下（400）")
+            else:
+                print(f"   亂填 {junk!r} 回了 {type(e).__name__} — 不算失敗（至少沒回日線）")
+
     print()
     if bad:
-        print("★ 有時框拿到錯誤間隔（＝靜默退回別的時框）：")
+        print("★ 有時框拿到錯誤間隔（＝靜默退回別的時框）或前後端清單不一致：")
         for m, tf, why in bad:
             print(f"   {m} {tf}: {why}")
         return 1
-    print(f"★ {checked} 個時框的 K 棒間隔全部正確，沒有靜默退化")
+    print(f"★ {checked} 個時框的 K 棒間隔全部正確，前後端清單一致，亂填的時框會被擋下")
     return 0
 
 

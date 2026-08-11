@@ -22,6 +22,7 @@ def _json_resp(payload, headers=None):
     return Response(content=_orjson.dumps(payload, option=_ORJ_OPT),
                     media_type="application/json", headers=headers)
 from pydantic import BaseModel
+from utils.tf import check_tf as _check_tf, clamp_limit as _clamp_limit
 from datetime import date, timedelta, datetime as dt
 from typing import Optional
 import os
@@ -1051,6 +1052,10 @@ def _ohlcv_cache_key(req):
 def get_ohlcv(req: OHLCVRequest):
     """取得 OHLCV 數據（單飛外殼；實作在 _ohlcv_build）。
 
+    ⚠ 開頭先擋不認得的時框／夾住 limit（utils/tf.py）：
+      沒有這層的話 timeframe="99z" 會 **200 OK 回 500 根日線**（靜默退化，圖上有東西不報錯），
+      limit=999999 會回 **60079 根**。兩者都實測過。
+
     ★為什麼要單飛（2026-08-02）：純 TTL 快取擋不住「同時 miss」的叢發 ——
       實測 8 個人同時開**同一個標的**的圖表，會**各自**打交易所一次（8 次）。
       /api/latest 早就有單飛（同樣測試只打 1 次），但 ohlcv 才是重的那支：
@@ -1058,6 +1063,8 @@ def get_ohlcv(req: OHLCVRequest):
       使用者一多就是這樣撞上限流的（Binance 10 次/秒/IP，全站共用一個出口 IP）。
     → 同一把 key 只讓一個人去抓（leader），其他人等它抓完直接讀快取。
       等逾時就自己抓 → 最壞退回原本行為，不會卡住。"""
+    req.timeframe = _check_tf(req.timeframe)
+    req.limit = _clamp_limit(req.limit)
     cache_key, ttl, _ = _ohlcv_cache_key(req)
     cached = cache.get(cache_key, ttl)
     if cached:
@@ -1417,6 +1424,7 @@ def _sticky_source(key: str, df, src):
 @router.post("/latest")
 def get_latest(req: LatestRequest):
     """取得最新 K 棒"""
+    req.timeframe = _check_tf(req.timeframe)      # 不認得的時框當場 400，不要靜默退日線
     _crypto_src = None      # 這份 df 的實際來源（crypto 才有；跟著資料走，見下方快取那段）
     try:
         if req.market == "tw" and req.symbol.upper() in FUTOPT_PRODUCTS:
