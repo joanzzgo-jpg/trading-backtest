@@ -72,6 +72,7 @@
     ["Cmd/Ctrl + Z", "復原繪圖"],
     ["Z / X / C", "顯示／隱藏繪圖圖層 A / B / C（點圖層鈕＝切換要畫在哪一層）"],
     ["V", "回上一步（復原繪圖；與 Cmd/Ctrl + Z 相同）"],
+    ["Shift + Z/X/C", "把選中的繪圖移到圖層 A/B/C（先點選那條線）"],
     ["↑ ↓ / 空白", "報價列上下選取"],
     ["?", "顯示／關閉這張表"],
     ["Esc", "關閉彈窗"],
@@ -148,6 +149,19 @@
       if (typeof window._drawUndo === "function") {
         e.preventDefault();
         _flash(window._drawUndo() ? "↩ 已復原繪圖" : "沒有可復原的繪圖");
+      }
+      return;
+    }
+    /* Shift+Z/X/C＝把**選中的繪圖**移到圖層 A/B/C（原本只能刪掉重畫）。
+       ⚠ 必須排在下面「單獨 Z/X/C 切顯示」之前，否則會被那條先吃掉。
+       ⚠ Shift 本身是「輕點切 K 棒/線型圖」，但按住 Shift 再按別的鍵會取消輕點判定
+         （見下方 _shCancel），所以這個組合不會誤觸。 */
+    if (e.shiftKey && "zxc".includes(K.toLowerCase())) {
+      const layer = { z: "A", x: "B", c: "C" }[K.toLowerCase()];
+      if (typeof window._moveSelectedToLayer === "function") {
+        e.preventDefault();
+        const r = window._moveSelectedToLayer(layer);
+        _flash(r ? "已移到圖層 " + r : "先點選一個繪圖，再按 Shift+" + K.toUpperCase());
       }
       return;
     }

@@ -98,6 +98,25 @@ window._toggleDrawLayer = _toggleDrawLayer;
 window._setDrawLayer    = _setDrawLayer;
 window._drawLayerState  = () => ({ active: _drawLayer, hidden: [..._drawHidden] });
 
+/* 把「目前選中的繪圖」移到別的圖層（Shift+Z/X/C）。
+   回傳移到哪一層；沒選中東西回 null（呼叫端據此提示，別假裝有做事）。
+   ⚠ 移到**隱藏中的層**會讓那個繪圖當場消失 → 自動取消該層隱藏（同 _pushDraw 的處理）。
+   ⚠ 走 saveDrawings()：它會把變更推進 undo 堆疊 → 移錯層可以用 V 復原，也會存檔＋同步。 */
+function _moveSelectedToLayer(name) {
+  if (!DRAW_LAYERS.includes(name)) return null;
+  const d = drawings.find(x => x.id === selectedId);
+  if (!d) return null;
+  if (_layerOf(d) !== name) {
+    d.layer = name;
+    if (_drawHidden.has(name)) { _drawHidden.delete(name); _saveLayerState(); _syncLayerBtns(); }
+    saveDrawings();
+    _scheduleRenderDrawings();
+    if (typeof _renderAllSub === "function") { try { _renderAllSub(); } catch (e) {} }
+  }
+  return name;
+}
+window._moveSelectedToLayer = _moveSelectedToLayer;
+
 window._syncDrawLayerBtns = _syncLayerBtns;   // 勝率列每次重繪後由 winrate.js 呼叫，把外觀套回來
 _loadLayerState();
 /* ⚠ draw.js 是**延遲載入**的 → 它跑起來時 DOMContentLoaded 多半早就發生過了，
