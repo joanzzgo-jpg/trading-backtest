@@ -217,7 +217,10 @@ class MyWatchReq(BaseModel):
 @router.get("/status")
 def status():
     # store=postgres → 已接 Postgres（永久）；sqlite → 本機/未接 Postgres（Railway 重部署會重置）
-    return {"enabled": _enabled(), "store": "postgres" if _use_pg() else "sqlite"}
+    out = {"enabled": _enabled(), "store": "postgres" if _use_pg() else "sqlite"}
+    if _UPSTREAM_ON:                      # 本機才有：繪圖自動上傳 Railway 的最近一次結果
+        out["upstream"] = {"url": _UPSTREAM_URL, **_relay_stat}
+    return out
 
 
 @router.post("/login")
@@ -250,6 +253,94 @@ def login(req: LoginReq):
         conn.close()
 
 
+# ── 本機繪圖自動上傳到 Railway（2026-08-11，使用者要求）──────────────────────────
+# 情境：在本機開發時畫的線，只會存進本機的 SQLite（backend/.accounts.db），
+#       Railway 上同名帳號完全看不到 → 換到手機/正式站就沒有那些線。
+#
+# ★ 只搬「繪圖」那一格，不整包推上去。
+#   `accounts.data` 是**整包 localStorage 快照**，本機那份跟線上那份是不同的世界
+#   （自選、設定、通知偏好、其他裝置存的東西都在裡面）。整包推上去＝把手機上的設定洗掉。
+#   所以流程是：拉線上快照 → **只換掉 tv_drawings_v2 這一格** → 推回去。
+# ★ 合併是**逐標的**（`{...線上, ...本機}`）：本機沒畫過的標的沿用線上的，
+#   不會因為本機沒有就把手機畫的線刪掉；本機把某標的清空（存 []）則會照樣同步過去。
+# ⚠ 快照裡每個值都是**字串**（localStorage.getItem 的結果）→ 讀要 json.loads、寫要 json.dumps，
+#   直接當 dict 用會壞（見 memory project_account-snapshot-string-values）。
+# ⚠ 絕不在請求執行緒裡做：整段丟背景執行緒，上游掛掉/慢也不影響本機存檔。
+# ⚠ 只在**本機**啟用（_ON_RAILWAY 為真就關掉），否則線上會自己轉發給自己。
+_UPSTREAM_URL = os.getenv("ACCOUNT_UPSTREAM_URL",
+                          "https://web-production-32b54d.up.railway.app").rstrip("/")
+_UPSTREAM_ON = (not _ON_RAILWAY) and os.getenv("ACCOUNT_UPSTREAM", "1") != "0"
+_DRAW_KEY = "tv_drawings_v2"
+_relay_lock = threading.Lock()
+_relay_busy: set = set()
+_relay_last: dict = {}          # name → 上次成功送上去的繪圖指紋（沒變就不重送）
+_relay_stat: dict = {"at": 0.0, "ok": None, "msg": "", "name": "", "symbols": 0}
+
+
+def _relay_post(path: str, payload: dict, timeout: float = 12.0):
+    import urllib.request
+    req = urllib.request.Request(_UPSTREAM_URL + "/api/account/" + path,
+                                 data=json.dumps(payload).encode(),
+                                 headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return json.loads(r.read() or b"{}")
+
+
+def _relay_drawings(name: str, local_snap: dict):
+    """把本機這次同步的繪圖合併進上游（Railway）同名帳號。背景執行、失敗只記錄不拋。"""
+    try:
+        raw = (local_snap or {}).get(_DRAW_KEY)
+        if not raw:
+            return                                   # 本機根本沒繪圖 → 沒事可做
+        try:
+            local_draw = json.loads(raw) if isinstance(raw, str) else (raw or {})
+        except Exception:
+            return
+        if not isinstance(local_draw, dict):
+            return
+        fp = json.dumps(local_draw, sort_keys=True)
+        if _relay_last.get(name) == fp:
+            return                                   # 跟上次送的一模一樣 → 不重送
+        up = _relay_post("pull", {"name": name})
+        if not up.get("exists"):
+            _relay_stat.update({"at": time.time(), "ok": False, "name": name,
+                                "msg": f"線上沒有「{name}」這個帳號（帳號只能由後台建立）"})
+            return
+        up_snap = up.get("data") or {}
+        try:
+            up_draw = json.loads(up_snap.get(_DRAW_KEY) or "{}")
+        except Exception:
+            up_draw = {}
+        if not isinstance(up_draw, dict):
+            up_draw = {}
+        merged = {**up_draw, **local_draw}           # 逐標的合併，本機優先
+        up_snap[_DRAW_KEY] = json.dumps(merged)      # ⚠ 快照值必須是字串
+        _relay_post("sync", {"name": name, "data": up_snap})
+        _relay_last[name] = fp
+        _relay_stat.update({"at": time.time(), "ok": True, "name": name,
+                            "symbols": len(local_draw),
+                            "msg": f"已上傳 {len(local_draw)} 個標的的繪圖到 {_UPSTREAM_URL}"})
+        print(f"  ✏️ 繪圖已同步到線上：{name} — 本機 {len(local_draw)} 個標的 → 線上共 {len(merged)} 個")
+    except Exception as e:
+        _relay_stat.update({"at": time.time(), "ok": False, "name": name,
+                            "msg": f"{type(e).__name__}: {str(e)[:120]}"})
+        print(f"  ⚠ 繪圖同步到線上失敗（{name}）：{type(e).__name__}: {str(e)[:100]}"
+              f" — 本機存檔不受影響，下次同步會再試")
+    finally:
+        with _relay_lock:
+            _relay_busy.discard(name)
+
+
+def _kick_relay(name: str, snap: dict):
+    if not _UPSTREAM_ON:
+        return
+    with _relay_lock:
+        if name in _relay_busy:
+            return                                   # 單飛：同一帳號同時只有一條在送
+        _relay_busy.add(name)
+    threading.Thread(target=_relay_drawings, args=(name, snap), daemon=True).start()
+
+
 @router.post("/sync")
 def sync(req: SyncReq):
     _require_enabled()
@@ -269,6 +360,7 @@ def sync(req: SyncReq):
         raise HTTPException(status_code=500, detail=f"同步失敗：{e}")
     finally:
         conn.close()
+    _kick_relay(name, req.data or {})     # 本機：把繪圖那一格轉發到 Railway（背景、不擋回應）
     return {"ok": True}
 
 
