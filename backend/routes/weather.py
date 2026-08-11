@@ -1469,6 +1469,45 @@ def _cluster_span(cells, seed):
     return span, len(members)
 
 
+# 孤站雨胞的預設半徑(km)：只有一個測站在下雨時，我們解析不出那片雨到底多大 —— 但它一定
+# 不是「一個點」。取 5km（直徑 10km ≈ 一顆典型對流雨胞，也小於 CWA 平地站距）當保守下限。
+_LONE_CELL_R = 5.0
+
+
+def _cluster_radius_map(cells):
+    """一次算出每個雨區所屬「整片雨區」的有效半徑(km)，回傳與 cells 同序的 list。
+
+    為什麼要有：ETA 要判「這片雨會不會**經過你**」，就必須知道它多寬 —— 點對點算不出來。
+    ⚠ 效能：原本 `_cluster_span` 每叫一次就重跑一次 BFS+全對距離(O(n²))，逐個雨區叫＝O(n³)。
+      這裡改成一次掃出所有連通分量、同群共用結果（同樣的 ≤15km 相鄰定義）。
+    """
+    n = len(cells)
+    pts = [(c.get("_lat"), c.get("_lon")) for c in cells]
+    out = [_LONE_CELL_R] * n
+    comp = [-1] * n
+    for s in range(n):
+        if comp[s] >= 0 or pts[s][0] is None:
+            continue
+        comp[s] = s
+        stack, members = [s], [s]
+        while stack:                                # BFS 串接相鄰雨區（同 _cluster_span）
+            i = stack.pop()
+            for j in range(n):
+                if comp[j] >= 0 or pts[j][0] is None:
+                    continue
+                if _haversine_km(pts[i][0], pts[i][1], pts[j][0], pts[j][1]) <= 15:
+                    comp[j] = s; stack.append(j); members.append(j)
+        span = 0.0
+        for a in range(len(members)):
+            for b in range(a + 1, len(members)):
+                span = max(span, _haversine_km(pts[members[a]][0], pts[members[a]][1],
+                                               pts[members[b]][0], pts[members[b]][1]))
+        r = max(span / 2.0, _LONE_CELL_R)
+        for m in members:
+            out[m] = r
+    return out
+
+
 def _size_label(span, count):
     """雨區跨距(km)/站數 → 範圍大小中文。"""
     if count <= 1 or span < 8:  return "局部"       # 點狀/雷陣雨(小於站距)
@@ -1505,16 +1544,43 @@ def _finalize_nearby(lat, lon, cells, here_rate, motion, src, obs_time,
     approaching = None
     if motion:
         mb, spd = motion["bearing"], motion["speed_kmh"]
-        for c in scan:
+        # ── ETA 用攔截幾何(CPA)，不用「速度投影」(2026-08-11 修正)──────────────────
+        # 舊算法：把雨區當一個點，用 dist / (speed×cos(夾角)) 當 ETA。兩個方向都會錯：
+        #   ✗ **誤報**：夾角 65° 的雨區其實是從 7.3km 外**斜掠而過、永遠不會到**，
+        #     舊算法照樣回「約 38 分後到」（cos 只是把速度除小，時間變長，但它終究不會到你頭上）。
+        #   ✗ **晚報**：一整片 40km 寬的雨帶斜壓過來，先碰到你的是它的**邊緣**不是中心，
+        #     舊算法用中心距離算 → 實測晚報 8 分鐘（32 分 vs 真實 24 分）。
+        # 新算法（雨區＝有半徑的一片，不是一個點）：
+        #   沿程距離 d_along = d·cos(夾角)：到「離你最近那一刻」還要走多遠
+        #   掠過距離 d_miss  = d·sin(夾角)：它最近會從你身邊多遠掠過
+        #   d_miss ≥ 這片雨的半徑 → **不會經過你**：只留「往你移動」旗標，不掛假時間
+        #   會經過 → 邊緣比中心早到 √(R²−miss²)，ETA 從邊緣算
+        # ⚠ 半徑要加一個「方向不確定度圓錐」d·sin(誤差角)：移動方向本身有誤差，而且愈遠的雨區
+        #   誤差累積愈大。風向推估(by='wind')比質心位移粗 → 給更大的角(15° vs 8°)。
+        #   沒有這一層的話，遠處雨區會因為方向差一點點就被判成「掠過」而漏報（漏報比誤報更糟）。
+        _rmap = _cluster_radius_map(scan)
+        _err = math.sin(math.radians(15.0 if by == "wind" else 8.0))
+        for _i, c in enumerate(scan):
             c2u = _bearing_deg(c["_lat"], c["_lon"], lat, lon)   # 雨區→你 的方位
             diff = abs(((c2u - mb + 180) % 360) - 180)           # 與移動去向的夾角
-            if diff <= 70:
-                c["approaching"] = True
-                v = spd * math.cos(math.radians(diff))           # 朝你的有效速度分量
-                if v >= 3:
-                    c["eta_min"] = int(round(c["dist_km"] / v * 60))
-            else:
+            if diff > 70 or spd < 3:
                 c["approaching"] = False
+                continue
+            c["approaching"] = True
+            d, rad = c["dist_km"], math.radians(diff)
+            d_along, d_miss = d * math.cos(rad), abs(d * math.sin(rad))
+            reach = _rmap[_i] + d * _err                          # 這片雨的半徑 ＋ 方向誤差圓錐
+            c["miss_km"] = round(d_miss, 1)                       # 診斷用：最近會從多遠掠過
+            if d_miss >= reach:
+                continue                                          # 斜掠而過 → 不給假時間
+            # ⚠ 側向與沿程**不能共用同一個半徑**：
+            #   側向(reach)用「整片雨區的寬度」—— 40km 寬的雨帶斜著來仍然會蓋到你。
+            #   沿程(edge)只能用「單一雨胞的尺度」—— 那片雨往兩側鋪開，不代表它往**你這個方向**
+            #   多伸出 20km；已知最接近的雨就是這個測站，再往前猜就是憑空提早報。
+            #   （第一版把 reach 直接拿去減沿程距離，害正對面 20km 的雨從 30 分變成 25 分。）
+            _e = min(d_miss, _LONE_CELL_R)
+            edge = math.sqrt(max(0.0, _LONE_CELL_R * _LONE_CELL_R - _e * _e))
+            c["eta_min"] = max(0, int(round((d_along - edge) / spd * 60)))
         # 只在可信視野內(≤ETA_HORIZON_MIN)才報「約X分後到」；更久 → 雨胞可能已生消,只留 approaching 旗標
         # (前端 nearest 行會顯示「往你移動」但不掛假時間)。
         appr = [c for c in scan if c.get("approaching") and 0 <= c.get("eta_min", 1e9) <= ETA_HORIZON_MIN]
