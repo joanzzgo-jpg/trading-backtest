@@ -70,6 +70,7 @@
     ["R", "重播模式"],
     ["Shift（輕點）", "切換 K 棒圖／線型圖（按住 Shift 仍是繪圖鎖水平，不受影響）"],
     ["Cmd/Ctrl + Z", "復原繪圖"],
+    ["Z / X / C", "顯示／隱藏繪圖圖層 A / B / C（左側工具列點圖層鈕＝切換要畫在哪一層）"],
     ["↑ ↓ / 空白", "報價列上下選取"],
     ["?", "顯示／關閉這張表"],
     ["Esc", "關閉彈窗"],
@@ -111,6 +112,17 @@
 
     if (e.key >= "1" && e.key <= "9") { e.preventDefault(); _gotoTf(+e.key - 1); return; }
     if (e.key === "0")                { e.preventDefault(); _gotoTf(tfBtns().length - 1); return; }
+    /* Z/X/C＝顯示／隱藏繪圖圖層 A/B/C。三層各自獨立，可以同時全開。
+       ⚠ 走 window._toggleDrawLayer：draw.js 是延遲載入的，bundle 這裡拿不到它的區域函式。
+       ⚠ 只認沒有修飾鍵的單鍵：Cmd/Ctrl+Z 是「復原繪圖」，不能被吃掉。 */
+    if (!e.metaKey && !e.ctrlKey && !e.altKey && "zxc".includes((e.key || "").toLowerCase())) {
+      const layer = { z: "A", x: "B", c: "C" }[e.key.toLowerCase()];
+      if (typeof window._toggleDrawLayer === "function") {
+        const on = window._toggleDrawLayer(layer);
+        if (on !== null) { e.preventDefault(); _flash("圖層 " + layer + (on ? " 顯示" : " 隱藏")); }
+      }
+      return;
+    }
     if (e.key === "[")                { e.preventDefault(); _stepTf(-1); return; }
     if (e.key === "]")                { e.preventDefault(); _stepTf(1);  return; }
     /* ★ 2026-08-06 左右鍵也切時框（使用者要求）。方向與畫面一致：上方那排是

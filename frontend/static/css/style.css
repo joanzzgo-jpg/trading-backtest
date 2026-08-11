@@ -7946,3 +7946,38 @@ html.perf-mode .tb-wr-sync[data-state="local"] { color: #8B8B8B; }
   .app-toast { transition: opacity .15s linear; transform: none; }
   .app-toast.on, .app-toast.out { transform: none; }
 }
+
+/* ── 繪圖圖層 A/B/C（2026-08-11）─────────────────────────────────────────
+   點＝設為作用層（新畫的線進這層，橘色實心）；再點一次＝隱藏／顯示。
+   隱藏的層畫成「灰底＋刪除線」，一眼分得出「不是沒在用，是被關起來了」。 */
+/* topbar 裡的圖層鈕：橫排，夾在時間匡與勝率/雲端狀態之間 */
+.tb-draw-layers { display: inline-flex; gap: 3px; align-items: center; margin: 0 8px 0 4px; vertical-align: middle; }
+.dt-layer {
+  width: 22px; height: 19px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--muted);
+  border-radius: 8px;
+  font: 700 11px/1 -apple-system, system-ui, sans-serif;
+  letter-spacing: .06em;
+  cursor: pointer; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .14s ease, color .14s ease, border-color .14s ease;
+}
+.dt-layer:hover { background: rgba(255,255,255,.06); color: var(--text); }
+.dt-layer.active {                       /* 作用層：新畫的線會進這一層 */
+  background: var(--accent, #FF9147);
+  border-color: var(--accent, #FF9147);
+  color: #1a1207;
+}
+.dt-layer.hidden-layer {                 /* 被隱藏：灰掉 + 刪除線 */
+  color: var(--muted);
+  opacity: .45;
+  text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
+}
+.dt-layer.hidden-layer.active {          /* 作用層又被隱藏（畫下去會自動取消隱藏）*/
+  background: transparent;
+  border-color: var(--accent, #FF9147);
+  color: var(--accent, #FF9147);
+}

@@ -429,6 +429,19 @@
   </div>
 
   <div class="topbar-right">
+    <!-- 繪圖圖層 A/B/C（2026-08-11 使用者指定：緊鄰置中的時間匡右側）
+       ⚠ 放在 .topbar-right 的最前面，理由是踩過兩次：
+         ・放 #wrTop3 裡面 → 那個容器沒有 Top3 資料時整個 display:none，圖層鈕跟著消失。
+         ・放一般流內（#wrTop3 之前）→ .topbar-tf 是**絕對置中**的，兩者會直接疊在一起
+           （實測圖層鈕 x=401 落在時間匡區內）——使用者早就要求「按鈕跟時間匡什麼情況都不能重疊」。
+         放進 .topbar-right 這個既有的 flex 列就不可能重疊，也跟著它一起可捲動。
+       三顆各自獨立開關、可以同時全開；橘色實心＝作用層（新畫的線進那一層）。 -->
+    <div class="tb-draw-layers" id="drawLayers">
+      <button class="dt-layer active" data-layer="A" title="圖層 A —— 點＝設為作用層（新畫的線進這層）；再點一次＝隱藏／顯示（快捷鍵 Z）。A/B/C 可以同時顯示。">A</button>
+      <button class="dt-layer" data-layer="B" title="圖層 B —— 點＝設為作用層；再點一次＝隱藏／顯示（快捷鍵 X）。A/B/C 可以同時顯示。">B</button>
+      <button class="dt-layer" data-layer="C" title="圖層 C —— 點＝設為作用層；再點一次＝隱藏／顯示（快捷鍵 C）。A/B/C 可以同時顯示。">C</button>
+    </div>
+
     <button id="tbInstallBtn" class="tb-icon-btn" title="安裝 App 到這台電腦（獨立視窗、桌面圖示，免下載安裝包）" style="display:none" onclick="window._pwaInstall?.()">
       <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5 V14.5 M8 11 L12 15 L16 11"/><path d="M4.5 16.5 V19 A1.5 1.5 0 0 0 6 20.5 H18 A1.5 1.5 0 0 0 19.5 19 V16.5"/></svg>
     </button>

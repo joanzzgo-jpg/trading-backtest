@@ -1,6 +1,113 @@
 let drawings    = [];
 let drawingWIP  = null;
 
+/* ── 繪圖圖層 A/B/C（2026-08-11）─────────────────────────────────────────────
+   把繪圖分成三層，可以個別隱藏、切換「作用層」（新畫的線進哪一層）。
+   用途：例如 A 放長線結構、B 放當日進出場、C 放實驗性的線 —— 想專心看某一組時
+   把其他層關掉，不必真的把線刪掉再重畫。
+
+   資料相容性（重要）
+   ・圖層就是繪圖物件上的一個 `layer` 欄位。**沒有這個欄位的一律視為 A** →
+     所有既有繪圖不必遷移、不會消失，舊版前端讀到新資料也只是忽略這個欄位。
+   ・因此存檔格式沒變，`tv_drawings_v2` 照舊，帳號同步／上傳 Railway 那條路也不用改。
+
+   ⚠ 隱藏的層**連命中判定一起跳過**：看不見的線不能被選取、拖曳、或被橡皮擦刪掉 ——
+     否則會出現「拖到一條看不見的線」這種找不出原因的怪事。
+   ⚠ 顯示狀態是**跨標的共用**（存 localStorage）：它是「我現在想看哪一組」的檢視偏好，
+     不是某個標的的資料；跟著標的走的話，切個標的圖層就自己變了，反而難預期。 */
+const DRAW_LAYERS = ["A", "B", "C"];
+let _drawLayer  = "A";              // 作用層：新畫的繪圖進這一層
+let _drawHidden = new Set();        // 被隱藏的層
+
+function _layerOf(d) { return (d && d.layer) || "A"; }          // 沒有 layer 欄位＝A（既有繪圖）
+function _layerOn(d) { return !_drawHidden.has(_layerOf(d)); }  // 這個繪圖現在看得見嗎
+
+function _loadLayerState() {
+  try {
+    const s = JSON.parse(localStorage.getItem("drawLayerState") || "null");
+    if (s && DRAW_LAYERS.includes(s.active)) _drawLayer = s.active;
+    if (s && Array.isArray(s.hidden)) _drawHidden = new Set(s.hidden.filter(x => DRAW_LAYERS.includes(x)));
+  } catch (e) {}
+}
+function _saveLayerState() {
+  try {
+    localStorage.setItem("drawLayerState",
+      JSON.stringify({ active: _drawLayer, hidden: [..._drawHidden] }));
+  } catch (e) {}
+}
+
+/* 新增繪圖的**唯一**入口：蓋上目前的作用層。
+   ⚠ 一定要在建立時蓋章，不能在存檔時補 —— 存檔時補會把「沒有 layer 的既有繪圖」
+     一起蓋成當下的作用層，等於把使用者以前畫的線整批搬到別層。
+   ⚠ 若作用層正被隱藏 → 自動取消隱藏：不然使用者會對著空白畫半天，畫完什麼也沒出現。 */
+function _pushDraw(d) {
+  d.layer = _drawLayer;
+  if (_drawHidden.has(_drawLayer)) { _drawHidden.delete(_drawLayer); _saveLayerState(); _syncLayerBtns(); }
+  drawings.push(d);
+  return d;
+}
+
+/* 把三顆按鈕的外觀同步成目前狀態（作用層＝橘色實心、隱藏＝灰掉加刪除線）。 */
+function _syncLayerBtns() {
+  document.querySelectorAll("[data-layer]").forEach(b => {
+    const n = b.dataset.layer;
+    b.classList.toggle("active", n === _drawLayer);
+    b.classList.toggle("hidden-layer", _drawHidden.has(n));
+  });
+}
+
+/* 切換某一層的顯示／隱藏（快捷鍵 Z/X/C 與「再點一次作用層」都走這裡）。
+   回傳切換後是否可見，讓呼叫端可以提示。 */
+function _toggleDrawLayer(name) {
+  if (!DRAW_LAYERS.includes(name)) return null;
+  if (_drawHidden.has(name)) _drawHidden.delete(name); else _drawHidden.add(name);
+  _saveLayerState(); _syncLayerBtns();
+  // ⚠ 隱藏中的層若有東西被選著／滑鼠正懸在上面，要清掉 —— 否則會留下一個
+  //   「看不見卻仍可被鍵盤刪除、仍在畫控制點」的幽靈選取。
+  const gone = d => d && !_layerOn(d);
+  if (gone(drawings.find(d => d.id === selectedId))) selectedId = null;
+  if (gone(drawings.find(d => d.id === hoveredId)))  hoveredId  = null;
+  _scheduleRenderDrawings();
+  if (typeof _renderAllSub === "function") { try { _renderAllSub(); } catch (e) {} }
+  return !_drawHidden.has(name);
+}
+
+/* 設為作用層；已經是作用層時再點一次＝切換顯示／隱藏。
+   ⚠ 切到某一層時若它是隱藏的 → 順手取消隱藏：使用者的意圖顯然是「要來畫這層」。 */
+function _setDrawLayer(name) {
+  if (!DRAW_LAYERS.includes(name)) return;
+  if (_drawLayer === name) { _toggleDrawLayer(name); return; }
+  _drawLayer = name;
+  if (_drawHidden.has(name)) _drawHidden.delete(name);
+  _saveLayerState(); _syncLayerBtns(); _scheduleRenderDrawings();
+  if (typeof _renderAllSub === "function") { try { _renderAllSub(); } catch (e) {} }
+}
+
+/* ⚠ draw.js 是延遲載入的，bundle（hotkeys.js 等）拿不到這裡的函式 →
+     一律掛 window（見 memory：延遲載入檔勿用 let 宣告 bundle 會寫入的共享變數）。 */
+window._toggleDrawLayer = _toggleDrawLayer;
+window._setDrawLayer    = _setDrawLayer;
+window._drawLayerState  = () => ({ active: _drawLayer, hidden: [..._drawHidden] });
+
+window._syncDrawLayerBtns = _syncLayerBtns;   // 勝率列每次重繪後由 winrate.js 呼叫，把外觀套回來
+_loadLayerState();
+/* ⚠ draw.js 是**延遲載入**的 → 它跑起來時 DOMContentLoaded 多半早就發生過了，
+     掛 DOMContentLoaded 監聽器等於永遠不會執行（實測：點按鈕完全沒反應）。
+     → 已經載入完就直接跑，否則才等。 */
+function _initLayerUI() {
+  _syncLayerBtns();
+  const host = document.getElementById("drawLayers");
+  if (host && !host._bound) {
+    host._bound = true;
+    host.addEventListener("click", e => {
+      const b = e.target.closest("[data-layer]");
+      if (b) _setDrawLayer(b.dataset.layer);
+    });
+  }
+}
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", _initLayerUI);
+else _initLayerUI();
+
 /* ── Shift＝水平約束（2026-08-03）────────────────────────────────────────────
    畫線時按住 Shift → 第二點的價格鎖成第一點的價格，畫出完全水平的線（TradingView 同款）。
    ⚠ 只給「兩點線型」工具：trendline／ray／arrow。rect 與 fib 水平化會退化成零高度、
@@ -471,6 +578,7 @@ function findNearest(x, y, maxDist = 12) {
   let best = maxDist, found = null;
   drawings.forEach(d => {
     if (d.pane && d.pane !== "main") return;   // 副圖繪圖由副圖自己的命中處理
+    if (!_layerOn(d)) return;                  // 隱藏層：看不見就不能被選取/拖曳
     const dist = drawingDist(d, x, y);
     if (dist < best) { best = dist; found = d; }
   });
@@ -583,7 +691,7 @@ function _subDist(d, x, y, id) {
 }
 function _subFindNearest(id, x, y, tol) {
   let best=null, bd=tol;
-  drawings.filter(d=>d.pane===id).forEach(d=>{ const dd=_subDist(d,x,y,id); if(dd<bd){bd=dd;best=d;} });
+  drawings.filter(d=>d.pane===id&&_layerOn(d)).forEach(d=>{ const dd=_subDist(d,x,y,id); if(dd<bd){bd=dd;best=d;} });
   return best;
 }
 function _subHitPart(d, x, y, id) {
@@ -601,7 +709,7 @@ function _renderSub(id) {
   const W=reg.canvas.width/dpr, H=reg.canvas.height/dpr;
   ctx.clearRect(0,0,W,H);
   const s=reg.def.getSeries(); if(!s) return;
-  drawings.filter(d=>d.pane===id).forEach(d=>{
+  drawings.filter(d=>d.pane===id&&_layerOn(d)).forEach(d=>{
     const col=d.color||_drawColor, sel=(d.id===selectedId);
     ctx.save(); ctx.strokeStyle=col; ctx.fillStyle=col; ctx.lineWidth=d.width||1.5;
     ctx.setLineDash(d.lineStyle===2?[6,4]:d.lineStyle===1?[2,3]:[]);
@@ -679,14 +787,14 @@ function _subClick(e, id) {
   if (time==null||price==null) return;
   e.stopPropagation();
   if (drawTool==="eraser") { const n=_subFindNearest(id,x,y,14); if(n){ drawings=drawings.filter(z=>z.id!==n.id); saveDrawings(); _renderSub(id);} return; }
-  if (drawTool==="hline") { drawings.push({id:_did(),type:"hline",pane:id,price,color:_drawColor}); saveDrawings(); _returnToPointer(); _renderSub(id); return; }
+  if (drawTool==="hline") { _pushDraw({id:_did(),type:"hline",pane:id,price,color:_drawColor}); saveDrawings(); _returnToPointer(); _renderSub(id); return; }
   if (drawTool==="text") {
-    _showTextInput(e.clientX, e.clientY, txt=>{ if(txt&&txt.trim()){ drawings.push({id:_did(),type:"text",pane:id,time,price,text:txt.trim(),color:_drawColor}); saveDrawings(); } _returnToPointer(); _renderSub(id); });
+    _showTextInput(e.clientX, e.clientY, txt=>{ if(txt&&txt.trim()){ _pushDraw({id:_did(),type:"text",pane:id,time,price,text:txt.trim(),color:_drawColor}); saveDrawings(); } _returnToPointer(); _renderSub(id); });
     return;
   }
   if (_SUB_TWO[drawTool]) {
     if (!drawingWIP || drawingWIP.pane!==id) { drawingWIP={ type:drawTool, pane:id, p1:{time,price} }; }
-    else { drawings.push({id:_did(),type:drawTool,pane:id,p1:drawingWIP.p1,p2:{time,price},color:_drawColor}); drawingWIP=null; saveDrawings(); _returnToPointer(); _renderSub(id); }
+    else { _pushDraw({id:_did(),type:drawTool,pane:id,p1:drawingWIP.p1,p2:{time,price},color:_drawColor}); drawingWIP=null; saveDrawings(); _returnToPointer(); _renderSub(id); }
     return;
   }
   // 其他工具(框/測量/部位…)step1 副圖尚未支援:給提示、不建立
@@ -1161,22 +1269,22 @@ function _onChartClick(e) {
   if (drawTool === "eraser") { eraseNear(x, y); return; }
 
   if (drawTool === "hline") {
-    drawings.push({ id:_did(), type:"hline", price:pt.price, color:_drawColor });
+    _pushDraw({ id:_did(), type:"hline", price:pt.price, color:_drawColor });
     saveDrawings(); _returnToPointer(); return;
   }
   if (drawTool === "vline") {
-    drawings.push({ id:_did(), type:"vline", time:pt.time, color:_drawColor });
+    _pushDraw({ id:_did(), type:"vline", time:pt.time, color:_drawColor });
     saveDrawings(); _returnToPointer(); return;
   }
   if (drawTool === "avwap") {
     // 錨定 VWAP：點一根 K 棒起算(往後累積);曲線在 drawOne 依 ohlcvData 現算
-    drawings.push({ id:_did(), type:"avwap", time:pt.time, color:_drawColor });
+    _pushDraw({ id:_did(), type:"avwap", time:pt.time, color:_drawColor });
     saveDrawings(); _returnToPointer(); return;
   }
   if (drawTool === "text") {
     _showTextInput(e.clientX, e.clientY, txt => {
       if (txt?.trim()) {
-        drawings.push({ id:_did(), type:"text", time:pt.time, price:pt.price, text:txt.trim(), color:_drawColor });
+        _pushDraw({ id:_did(), type:"text", time:pt.time, price:pt.price, text:txt.trim(), color:_drawColor });
         saveDrawings();
       }
       _returnToPointer();
@@ -1186,7 +1294,7 @@ function _onChartClick(e) {
   if (drawTool === "emoji") {
     _showEmojiPicker(e.clientX, e.clientY, em => {
       if (em) {
-        drawings.push({ id:_did(), type:"emoji", time:pt.time, price:pt.price, text:em, size:28, barRef:_emojiBarSp() });
+        _pushDraw({ id:_did(), type:"emoji", time:pt.time, price:pt.price, text:em, size:28, barRef:_emojiBarSp() });
         saveDrawings();
       }
       _returnToPointer();
@@ -1216,7 +1324,7 @@ function _onChartClick(e) {
       const _bv  = _vr ? Math.max(10, _vr.to - _vr.from) : 50;
       const _ppb = _cssW() / _bv;
       const _bw  = Math.max(3, Math.round(Math.abs((_ex2 ?? 0) - (_ex1 ?? 0)) / _ppb));
-      drawings.push({ id:_did(), type:"longpos", p1:drawingWIP.p1, tp, sl, color:_drawColor, barWidth:_bw });
+      _pushDraw({ id:_did(), type:"longpos", p1:drawingWIP.p1, tp, sl, color:_drawColor, barWidth:_bw });
       drawingWIP = null;
       saveDrawings(); _returnToPointer();
     }
@@ -1244,7 +1352,7 @@ function _onChartClick(e) {
       const _bvs  = _vrs ? Math.max(10, _vrs.to - _vrs.from) : 50;
       const _ppbs = _cssW() / _bvs;
       const _bws  = Math.max(3, Math.round(Math.abs((_ex2s ?? 0) - (_ex1s ?? 0)) / _ppbs));
-      drawings.push({ id:_did(), type:"shortpos", p1:drawingWIP.p1, tp, sl, color:_drawColor, barWidth:_bws });
+      _pushDraw({ id:_did(), type:"shortpos", p1:drawingWIP.p1, tp, sl, color:_drawColor, barWidth:_bws });
       drawingWIP = null;
       saveDrawings(); _returnToPointer();
     }
@@ -1276,7 +1384,7 @@ function _onChartClick(e) {
   } else {
     // 按住 Shift → 第二點的價格取第一點的，畫出水平線
     const p2 = _hSnapOn(drawTool) ? { ...pt, price: drawingWIP.p1.price } : pt;
-    drawings.push({ id:_did(), type:drawTool, p1:drawingWIP.p1, p2, color:_drawColor });
+    _pushDraw({ id:_did(), type:drawTool, p1:drawingWIP.p1, p2, color:_drawColor });
     drawingWIP = null;
     saveDrawings(); _returnToPointer();
     _scheduleRenderDrawings();
@@ -1291,7 +1399,7 @@ function _finishPath() {
   const w = drawingWIP;
   drawingWIP = null;
   if (!w || w.type !== "path" || !w.pts || w.pts.length < 2) { _scheduleRenderDrawings(); return; }
-  drawings.push({ id: _did(), type: "path", pts: w.pts, color: _drawColor });
+  _pushDraw({ id: _did(), type: "path", pts: w.pts, color: _drawColor });
   saveDrawings(); _returnToPointer(); _scheduleRenderDrawings();
 }
 window._finishPath = _finishPath;
@@ -1540,6 +1648,7 @@ function chartToScreen(time, price) {
 function eraseNear(x, y) {
   let best = 14, idx = -1;
   drawings.forEach((d, i) => {
+    if (!_layerOn(d)) return;                  // 隱藏層不能被橡皮擦誤刪
     const dist = drawingDist(d, x, y);
     if (dist < best) { best = dist; idx = i; }
   });
@@ -2996,7 +3105,8 @@ function renderDrawings() {
   // Draw non-selected first, then hovered, then selected on top
   // 單一繪圖 render 丟例外時只跳過它、不拖垮整塊 overlay(catch 內補 restore 平衡 save 堆疊)。
   const _safeDraw = (d, hov, sel) => { try { drawOne(d, W, H, hov, sel); } catch (e) { try { drawCtx.restore(); } catch (_) {} } };
-  const _isMain = d => !d.pane || d.pane === "main";   // 副圖繪圖不在主圖畫(交給 _renderSub)
+  // ⚠ 圖層過濾跟 _isMain 一起做：被隱藏的層不畫（下面命中判定也要跳過，見 _layerOn）
+  const _isMain = d => (!d.pane || d.pane === "main") && _layerOn(d);   // 副圖繪圖不在主圖畫(交給 _renderSub)
   drawings.filter(d => _isMain(d) && d.id !== selectedId && d.id !== hoveredId).forEach(d => _safeDraw(d, false, false));
   drawings.filter(d => _isMain(d) && d.id === hoveredId && d.id !== selectedId).forEach(d => _safeDraw(d, true, false));
   drawings.filter(d => _isMain(d) && d.id === selectedId).forEach(d => _safeDraw(d, false, true));
