@@ -525,6 +525,14 @@ _IS_LEADER = False
 async def _warmup():
     """啟動時立即預熱並啟動背景 ticker 更新（僅 leader worker）。"""
     global _IS_LEADER
+    # ⚠ 記憶體回收要**兩個 worker 都掛**，不能只給 leader —— 實測線上 513MB 的正是 follower
+    #   （它快取幾乎空的，撐住 RSS 的是歷來尖峰留下的碎片，見 utils/memtrim.py）。
+    try:
+        from utils import memtrim
+        if memtrim.start():
+            print(f"  🧹 malloc_trim 背景回收已啟動（每 {memtrim.INTERVAL_SEC:.0f} 秒）")
+    except Exception as e:
+        print(f"  ⚠ malloc_trim 啟動失敗（不影響服務）：{e}")
     if not _acquire_leader():
         print("  ⓘ follower worker：背景抓取/推播/交易由 leader 負責；本 worker 只服務請求（讀共享報價快照）")
         return

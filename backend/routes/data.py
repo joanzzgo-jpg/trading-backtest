@@ -398,6 +398,7 @@ def diag_mem():
     return {
         "worker": _role(),                # ⚠ 先看這個：follower 的背景數據全是 0，不是「健康」
         "process_rss_mb": _rss_mb(),      # 整個服務目前吃多少 RAM
+        "malloc_trim": (lambda: __import__("utils.memtrim", fromlist=["stat"]).stat)(),
         "platform": sys.platform,
         "workers_env": os.getenv("WEB_CONCURRENCY", "1"),   # 設定的 worker 數
         "ticker_ws": (os.getenv("TICKER_WS") or "0"),        # WS 報價開關
