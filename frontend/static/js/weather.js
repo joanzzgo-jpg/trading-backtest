@@ -3578,6 +3578,15 @@
     try { localStorage.setItem('wxCoords', JSON.stringify({ lat: lat, lon: lon, ts: Date.now() })); } catch (e) {}
   };
   const _ipFallback = (painted) => {
+    // ★ 已經用 GPS 快取畫過了 → **不要**讓 IP 粗定位蓋掉（2026-08-11 使用者回報
+    //   「我在新北新莊卻顯示新竹的雲」，差 60km）。IP 是城市級精度，台灣很多 ISP 的
+    //   IP 都註冊在別的縣市；而快取裡放的是上次真實 GPS 的座標，永遠比 IP 準。
+    //   ⚠ `painted` 這個參數本來就是為此而設，但舊碼只在「IP 也查不到」那兩個分支用到它，
+    //     IP 查得到的時候照樣無條件 fetchWeather(g.lat,g.lon) 覆蓋 → 就是這條路把
+    //     正確的所在地換成鄰縣市。冷啟動 GPS 要等 20s+8s，一逾時就中。
+    //   ⚠ 這也讓冷啟動跟下面 _wxRefresh 的策略一致：那邊早就寫「定位失敗 → 沿用上次座標，
+    //     不退 IP、不把已準的所在地弄丟」，只有冷啟動這條沒跟上。
+    if (painted) { window._wxGeoSrc = '快取(GPS逾時)'; return; }
     fetch('/api/geoip').then(r => r.ok ? r.json() : null).then(g => {
       if (g && g.ok && g.lat != null && g.lon != null) {
         window._wxGeoSrc = 'IP約略'; window._wxGeoAcc = null;   // IP 粗定位：不寫入 wxCoords，避免污染 GPS 快取基準（先前會 IP→存快取→下次先畫IP→GPS超時又IP 惡性循環）
