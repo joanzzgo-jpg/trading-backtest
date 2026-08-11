@@ -7908,3 +7908,41 @@ html.perf-mode .tb-wr-sync[data-state="local"] { color: #8B8B8B; }
        (hover: none) and (pointer: coarse) and (orientation: landscape) and (max-height: 599px) {
   .m-settings, .m-signals, .ticker-panel { background: var(--bg-solid, var(--bg)) !important; }
 }
+
+/* ── 全站浮動提示 showToast（2026-08-11 改版）─────────────────────────────
+   舊版樣式是**寫死在 utils.js 的行內字串**：冷灰藍 #2a2e39 + 紅框 —— 那是還沒換成
+   橘子熊配色之前留下的，跟全站暖棕/米黃/橘完全是兩套；而且**每一則都紅框**，
+   連「↩ 已復原繪圖」「✅ 已安裝」這種好消息也被畫成錯誤。
+   改成：①走主題變數（跟著配色走，不再各講各的）②左緣一條語意色帶區分好/警/錯
+   ③淡入上浮的進退場 ④多則會**往上堆疊**（舊版是 fixed 同座標，兩則會完全疊在一起）。 */
+#toastHost {
+  position: fixed; left: 50%; z-index: 9999;
+  bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  display: flex; flex-direction: column-reverse; align-items: center; gap: 7px;
+  max-width: min(92vw, 460px); pointer-events: none;
+}
+.app-toast {
+  padding: 9px 15px; border-radius: 13px;
+  /* ⚠ 底色必須走 --bg3/--bg2 這種**會被使用者色盤覆蓋**的變數：app 在執行期用存下來的
+     色盤蓋掉 :root（實測 --text 被蓋成 #d1d4dc 冷灰、--bg3 蓋成 #2a2e39），
+     這裡寫死暖棕就會出現「暖底配冷字」。--accent(橘) 不在覆蓋清單裡 → 留給語意色帶當識別。 */
+  background: linear-gradient(180deg, var(--bg3, #2C1E17), var(--bg2, #1F1410));
+  border: 1px solid var(--border, #3B2920);
+  border-left: 3px solid var(--accent, #FF9147);
+  color: var(--text, #EDD4A8);
+  font-size: 12.5px; line-height: 1.5; text-align: center;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, .5), inset 0 1px 0 rgba(255, 145, 71, .12);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  opacity: 0; transform: translateY(10px) scale(.97);
+  transition: opacity .22s ease, transform .26s cubic-bezier(.2, .9, .3, 1.25);
+}
+.app-toast.on  { opacity: 1; transform: translateY(0) scale(1); }
+.app-toast.out { opacity: 0; transform: translateY(-6px) scale(.97); }
+.app-toast.t-ok   { border-left-color: var(--green, #26a69a); }
+.app-toast.t-err  { border-left-color: var(--red, #ef5350); }
+.app-toast.t-warn { border-left-color: var(--accent, #FF9147); }
+@media (prefers-reduced-motion: reduce) {
+  .app-toast { transition: opacity .15s linear; transform: none; }
+  .app-toast.on, .app-toast.out { transform: none; }
+}

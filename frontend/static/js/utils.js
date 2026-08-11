@@ -399,12 +399,32 @@ function fmtVol(v) {
   return Number(v).toLocaleString();
 }
 
+/* 全站浮動提示。樣式在 style.css 的 #toastHost / .app-toast（別再寫回行內樣式：
+   寫在這裡就吃不到主題變數，配色一改又會各講各的，舊版就是這樣留下一個冷灰藍紅框的）。 */
 function showToast(msg, ms = 4000) {
+  let host = document.getElementById("toastHost");
+  if (!host) {
+    host = document.createElement("div");
+    host.id = "toastHost";
+    document.body.appendChild(host);
+  }
+  const s = String(msg == null ? "" : msg);
+  // 依訊息語意分色。★ 刻意用「讀訊息內容」而不是加參數：呼叫端散在 20 幾處
+  //   （繪圖/載入/安裝/同步…），加參數就得全部改一遍還容易漏，而這些訊息本來就帶
+  //   ⚠ ✅ ↩ ✏️ 這類前綴與「失敗/已復原」等字眼，直接判就夠準。
+  const kind = /失敗|錯誤|無法|已滿|沒能/.test(s) ? "t-err"
+             : /^[✅✔🎉↩✏]|已安裝|已同步|已復原|已存/.test(s) ? "t-ok"
+             : "t-warn";
   const el = document.createElement("div");
-  el.style.cssText = "position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:#2a2e39;border:1px solid #ef5350;color:#d1d4dc;padding:8px 18px;border-radius:6px;z-index:9999;font-size:12px;pointer-events:none";
-  el.textContent = msg;
-  document.body.appendChild(el);
-  setTimeout(() => el.remove(), ms);
+  el.className = "app-toast " + kind;
+  el.textContent = s;
+  host.appendChild(el);
+  while (host.children.length > 3) host.firstChild.remove();   // 別堆成一面牆
+  requestAnimationFrame(() => el.classList.add("on"));
+  setTimeout(() => {
+    el.classList.add("out");
+    setTimeout(() => { el.remove(); if (!host.children.length) host.remove(); }, 260);
+  }, ms);
 }
 
 /* ── 切時框/標的：TV 式主圖過場暗場(只蓋 #mainChart 的 K 棒區，非整頁) ──
