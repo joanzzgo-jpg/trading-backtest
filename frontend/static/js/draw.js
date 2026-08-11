@@ -421,10 +421,11 @@ function _undoBtnSync() {
     const b = document.getElementById(id); if (b) b.disabled = on;
   });
 }
+/* 回傳「這次有沒有真的復原」→ 快捷鍵據此決定要不要跳提示（沒東西可復原就別騙人說復原了）。 */
 function _drawUndo() {
-  if (!_undoStack.length) return;
+  if (!_undoStack.length) return false;
   const prev = _undoStack.pop();
-  try { drawings = JSON.parse(prev); } catch (e) { _undoBtnSync(); return; }
+  try { drawings = JSON.parse(prev); } catch (e) { _undoBtnSync(); return false; }
   _undoBase = prev;   // 還原後＝基準 → 下方 saveDrawings 比對相同、不會再推疊
   if (selectedId && !drawings.some(d => d.id === selectedId)) selectedId = null;
   if (hoveredId  && !drawings.some(d => d.id === hoveredId))  hoveredId  = null;
@@ -432,6 +433,7 @@ function _drawUndo() {
   _undoBtnSync();
   _scheduleRenderDrawings();
   if (typeof showToast === "function") showToast("↩ 已復原繪圖");
+  return true;
 }
 window._drawUndo = _drawUndo;
 
@@ -900,7 +902,9 @@ function initDrawTools() {
   ["btnDrawUndo", "btnDrawUndo2"].forEach(id =>
     document.getElementById(id)?.addEventListener("click", _drawUndo));
   document.addEventListener("keydown", e => {
-    if ((e.metaKey || e.ctrlKey) && !e.shiftKey && (e.key === "z" || e.key === "Z")) {
+    // ⚠ 中文輸入法下 e.key 會是 "Process" → 走 window._physKey 取實體按鍵（見 hotkeys.js）
+    const _uk = (typeof window._physKey === "function") ? window._physKey(e) : (e.key || "");
+    if ((e.metaKey || e.ctrlKey) && !e.shiftKey && (_uk === "z" || _uk === "Z")) {
       const a = document.activeElement;
       if (a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.isContentEditable)) return;
       if (_undoStack.length) { e.preventDefault(); _drawUndo(); }

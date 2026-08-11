@@ -70,7 +70,8 @@
     ["R", "重播模式"],
     ["Shift（輕點）", "切換 K 棒圖／線型圖（按住 Shift 仍是繪圖鎖水平，不受影響）"],
     ["Cmd/Ctrl + Z", "復原繪圖"],
-    ["Z / X / C", "顯示／隱藏繪圖圖層 A / B / C（左側工具列點圖層鈕＝切換要畫在哪一層）"],
+    ["Z / X / C", "顯示／隱藏繪圖圖層 A / B / C（點圖層鈕＝切換要畫在哪一層）"],
+    ["V", "回上一步（復原繪圖；與 Cmd/Ctrl + Z 相同）"],
     ["↑ ↓ / 空白", "報價列上下選取"],
     ["?", "顯示／關閉這張表"],
     ["Esc", "關閉彈窗"],
@@ -135,6 +136,16 @@
     /* Z/X/C＝顯示／隱藏繪圖圖層 A/B/C。三層各自獨立，可以同時全開。
        ⚠ 走 window._toggleDrawLayer：draw.js 是延遲載入的，bundle 這裡拿不到它的區域函式。
        ⚠ 只認沒有修飾鍵的單鍵：Cmd/Ctrl+Z 是「復原繪圖」，不能被吃掉。 */
+    /* V＝回上一步（復原繪圖）。與 Cmd/Ctrl+Z 同一個實作，只是單鍵更順手。
+       ⚠ 只在真的有東西可復原時才提示：_drawUndo() 回 false 就不跳，別騙人說復原了。
+       ⚠ 走 window._drawUndo：draw.js 是延遲載入的，這裡拿不到它的區域函式。 */
+    if (K === "v" || K === "V") {
+      if (typeof window._drawUndo === "function") {
+        e.preventDefault();
+        _flash(window._drawUndo() ? "↩ 已復原繪圖" : "沒有可復原的繪圖");
+      }
+      return;
+    }
     if ("zxc".includes(K.toLowerCase())) {
       const layer = { z: "A", x: "B", c: "C" }[K.toLowerCase()];
       if (typeof window._toggleDrawLayer === "function") {
