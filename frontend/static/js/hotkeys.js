@@ -99,32 +99,52 @@
     document.body.appendChild(el);
   }
 
+  /* ── 中文輸入法下的實體按鍵（2026-08-11 使用者回報「在中文輸入法時無效」）──────
+     注音/拼音等 IME 開著時，瀏覽器會先把按鍵交給輸入法 → keydown 的 `e.key` 變成
+     "Process"（keyCode 229），**所有用 e.key 判斷的快捷鍵一律失效**。
+     這不只影響新加的 Z/X/C —— R（重播）、M（磁鐵）、數字切時框、[ ] / 全都中。
+     `e.code` 是**實體按鍵位置**，不受輸入法與鍵盤配置影響 → e.key 認不出來時退回它。
+     ⚠ 只在 e.key 不是單一字元時才退回，正常（英數輸入法）路徑完全不動。
+     ⚠ 不需要排除 e.isComposing：真的在輸入文字時 `_typing()` 已經先擋掉了；
+       焦點在圖表上時 IME 不會真的組字，那正是要救的情況。 */
+  function _physKey(e) {
+    const k = e.key || "";
+    if (k.length === 1) return k;                      // 英數輸入法：照原本
+    const c = e.code || "";
+    if (/^Key[A-Z]$/.test(c))   return c.slice(3).toLowerCase();
+    if (/^Digit[0-9]$/.test(c)) return c.slice(5);
+    const M = { BracketLeft: "[", BracketRight: "]", Slash: e.shiftKey ? "?" : "/" };
+    return M[c] || k;
+  }
+  window._physKey = _physKey;                          // 給 ui.js 的 M 鍵共用
+
   document.addEventListener("keydown", (e) => {
     if (e.metaKey || e.ctrlKey || e.altKey) return;      // 交給瀏覽器/系統與既有的 Cmd+Z
     if (_typing()) return;
+    const K = _physKey(e);          // 中文輸入法下 e.key 會是 "Process"，一律走 K
 
     // ? 與 Esc 要能關掉自己這張表（即使有其他遮罩判斷）
     const sheet = document.getElementById(SHEET_ID);
-    if (sheet && (e.key === "Escape" || e.key === "?")) { e.preventDefault(); sheet.remove(); return; }
-    if (e.key === "?") { e.preventDefault(); _toggleSheet(); return; }
+    if (sheet && (e.key === "Escape" || K === "?")) { e.preventDefault(); sheet.remove(); return; }
+    if (K === "?") { e.preventDefault(); _toggleSheet(); return; }
 
     if (_overlayOpen()) return;
 
-    if (e.key >= "1" && e.key <= "9") { e.preventDefault(); _gotoTf(+e.key - 1); return; }
-    if (e.key === "0")                { e.preventDefault(); _gotoTf(tfBtns().length - 1); return; }
+    if (K >= "1" && K <= "9") { e.preventDefault(); _gotoTf(+K - 1); return; }
+    if (K === "0")                { e.preventDefault(); _gotoTf(tfBtns().length - 1); return; }
     /* Z/X/C＝顯示／隱藏繪圖圖層 A/B/C。三層各自獨立，可以同時全開。
        ⚠ 走 window._toggleDrawLayer：draw.js 是延遲載入的，bundle 這裡拿不到它的區域函式。
        ⚠ 只認沒有修飾鍵的單鍵：Cmd/Ctrl+Z 是「復原繪圖」，不能被吃掉。 */
-    if (!e.metaKey && !e.ctrlKey && !e.altKey && "zxc".includes((e.key || "").toLowerCase())) {
-      const layer = { z: "A", x: "B", c: "C" }[e.key.toLowerCase()];
+    if ("zxc".includes(K.toLowerCase())) {
+      const layer = { z: "A", x: "B", c: "C" }[K.toLowerCase()];
       if (typeof window._toggleDrawLayer === "function") {
         const on = window._toggleDrawLayer(layer);
         if (on !== null) { e.preventDefault(); _flash("圖層 " + layer + (on ? " 顯示" : " 隱藏")); }
       }
       return;
     }
-    if (e.key === "[")                { e.preventDefault(); _stepTf(-1); return; }
-    if (e.key === "]")                { e.preventDefault(); _stepTf(1);  return; }
+    if (K === "[")                { e.preventDefault(); _stepTf(-1); return; }
+    if (K === "]")                { e.preventDefault(); _stepTf(1);  return; }
     /* ★ 2026-08-06 左右鍵也切時框（使用者要求）。方向與畫面一致：上方那排是
        1M 1W 1D 4H 2H 1H 30m 15m 5m 1m（左＝大、右＝小）→ 按右就往右移＝切到更小的時框。
        ⚠ 重播模式下左右鍵是「逐根前進/後退」（ui.js 已註冊），那時不能搶。 */
@@ -134,7 +154,7 @@
       _stepTf(e.key === "ArrowRight" ? 1 : -1);
       return;
     }
-    if (e.key === "/")                { e.preventDefault(); if (typeof openSymSearch === "function") openSymSearch(); return; }
+    if (K === "/")                { e.preventDefault(); if (typeof openSymSearch === "function") openSymSearch(); return; }
     /* ★ 2026-08-10 輕點 Shift＝切換 K 棒／線型圖（使用者要求）。
        ⚠ 不能直接在 keydown 就切：Shift **已經被繪圖用掉了**——按住 Shift 畫線是「鎖水平」
          （draw.js `_shiftDown`／`_hSnapOn`）。若一按下就切，使用者每畫一條水平線圖型就翻一次。
@@ -143,7 +163,7 @@
            ② 按住期間有滑鼠動作（正在畫圖／拖曳）
            ③ 按住超過 400ms（＝在「按住」而不是「輕點」）
          放開時候選還在才切換。這樣畫水平線完全不受影響。 */
-    if (e.key === "r" || e.key === "R") {
+    if (K === "r" || K === "R") {
       e.preventDefault();
       document.getElementById("replayModeBtn")?.click();
     }

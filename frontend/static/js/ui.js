@@ -203,7 +203,9 @@ function bindEvents() {
       saveDrawings();
       requestAnimationFrame(renderDrawings);
     }
-    if ((e.key === "m" || e.key === "M") && document.activeElement.tagName !== "INPUT") {
+    // ⚠ 中文輸入法下 e.key 會是 "Process" → 走 window._physKey 取實體按鍵（見 hotkeys.js）
+    const _k = (typeof window._physKey === "function") ? window._physKey(e) : (e.key || "");
+    if ((_k === "m" || _k === "M") && document.activeElement.tagName !== "INPUT") {
       _magnetMode = !_magnetMode;
       if (typeof window._magnetSync === "function") window._magnetSync();   // 同上：一併存偏好
       else document.getElementById("btnMagnet")?.classList.toggle("active", _magnetMode);
