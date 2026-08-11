@@ -64,6 +64,84 @@ def _txf_tickers():
         return _TXF["data"] or []
 
 
+# ── 外匯報價：同 _txf_tickers（過期先給舊值、背景單飛更新）───────────────────────
+# ★ 2026-08-11 實測：這支冷路徑 **894ms**、熱的 1ms。前端 fx 也是**每秒**輪詢（ticker.js
+#   只有台股放慢到 3 秒），伺服器快取 30 秒 → 每 30 秒就有一個倒楣使用者等 0.9 秒。
+# ★ 更嚴重的是**沒有單飛**：多個使用者同時撞到過期那一刻，每個人各自去打 21 檔 yfinance
+#   → 一瞬間 N×21 個請求砸向 Yahoo，直接吃 429（us_stock 已經為了 429 加過冷卻，
+#   但這條路是直接 `yf.download`，不受那層保護）。單飛把它壓成「最多一條在跑」。
+_FX_TTL = 30.0
+_FX = {"data": None, "ts": 0.0, "busy": False}
+_FX_LOCK = threading.Lock()
+
+
+def _fx_fetch():
+    """抓 21 個貨幣對的「最近兩根日線」算現價與漲跌幅。回 list（失敗回 None）。"""
+    from data.forex import FX_PAIRS, to_yf
+    try:
+        import yfinance as _yf, warnings as _w
+        _w.filterwarnings("ignore")
+        _map = {to_yf(p_): p_ for p_ in FX_PAIRS}
+        data = _yf.download(list(_map.keys()), period="5d", interval="1d",
+                            progress=False, group_by="ticker", threads=True)
+    except Exception:
+        return None
+    rows = []
+    for ysym, disp in _map.items():
+        try:
+            col = data[ysym]["Close"].dropna()
+            if len(col) < 1:
+                continue
+            price = float(col.iloc[-1])
+            prev = float(col.iloc[-2]) if len(col) > 1 else price
+            amt = round(price - prev, 6)
+            rows.append({"symbol": disp, "display": disp, "price": price,
+                         "open": prev, "change_amt": amt,
+                         "change_pct": round((amt / prev * 100) if prev else 0.0, 2),
+                         "volume": 0})     # ⚠ 外匯是店頭市場、無集中成交量 → 恆為 0
+        except Exception:
+            continue
+    rows.sort(key=lambda t: -t["change_pct"])
+    return rows or None
+
+
+def _fx_refresh():
+    try:
+        d = _fx_fetch()
+        if d:
+            with _FX_LOCK:
+                _FX["data"] = d
+    except Exception:
+        pass
+    finally:
+        with _FX_LOCK:
+            _FX["ts"] = _time.time()       # 成功失敗都記，避免失敗時每個請求都重踢
+            _FX["busy"] = False
+
+
+def _fx_tickers():
+    """外匯報價列。永遠不讓請求執行緒等網路（冷啟動第一次除外）。"""
+    now = _time.time()
+    kick = False
+    with _FX_LOCK:
+        data, stale = _FX["data"], (now - _FX["ts"]) >= _FX_TTL
+        if stale and not _FX["busy"]:
+            _FX["busy"] = True
+            kick = data is not None
+    if kick:
+        threading.Thread(target=_fx_refresh, daemon=True).start()
+        return data
+    if data is not None:
+        return data
+    with _FX_LOCK:                          # 冷啟動：只有搶到 busy 的那一個同步抓
+        mine = _FX["busy"]
+    if not mine:
+        return []                           # 其餘先回空，下一輪（1 秒後）就有了
+    _fx_refresh()
+    with _FX_LOCK:
+        return _FX["data"] or []
+
+
 @router.get("/search")
 def search(market: str, keyword: str, exchange: str = "pionex", token: str = ""):
     """搜索標的"""
@@ -168,42 +246,10 @@ def get_tickers(response: Response, market: str = "futures", since: str = ""):
         return {"tickers": (futs or []) + fetch_tw_tickers(), "source": "direct"}
     if market == "fx":
         # 外匯行情列：固定 21 個貨幣對，用 yfinance 批次抓「最近兩根日線」算現價與漲跌幅。
+        # ⚠ 走 _fx_tickers()：過期先回舊值、背景單飛更新 —— 絕不在請求裡等網路（見上方說明）。
         # ⚠ 快取 30 秒：外匯沒有像加密那樣的免費全市場即時端點，逐檔抓成本高；
         #   報價列本來就是給「看盤面」用的，30 秒夠了（主圖那條是每秒更新、不受此影響）。
-        # ⚠ 沒有成交量：Yahoo 的 FX volume 恆為 0（店頭市場無集中成交量）→ 量欄一律 0。
-        from utils.cache import cache as _c
-        _hit = _c.get("fx_tickers", ttl=30)
-        if _hit is not None:
-            return {"tickers": _hit, "source": "live"}
-        from data.forex import FX_PAIRS, to_yf
-        rows = []
-        try:
-            import yfinance as _yf, warnings as _w
-            _w.filterwarnings("ignore")
-            _map = {to_yf(p_): p_ for p_ in FX_PAIRS}
-            data = _yf.download(list(_map.keys()), period="5d", interval="1d",
-                                progress=False, group_by="ticker", threads=True)
-            for ysym, disp in _map.items():
-                try:
-                    col = data[ysym]["Close"].dropna()
-                    if len(col) < 1:
-                        continue
-                    price = float(col.iloc[-1])
-                    prev = float(col.iloc[-2]) if len(col) > 1 else price
-                    amt = round(price - prev, 6)
-                    rows.append({"symbol": disp, "display": disp, "price": price,
-                                 "open": prev, "change_amt": amt,
-                                 "change_pct": round((amt / prev * 100) if prev else 0.0, 2),
-                                 "volume": 0})
-                except Exception:
-                    continue
-        except Exception as e:
-            _log = None
-            return {"tickers": [], "source": "error", "err": str(e)[:120]}
-        rows.sort(key=lambda t: -t["change_pct"])
-        if rows:
-            _c.set("fx_tickers", rows)
-        return {"tickers": rows, "source": "live"}
+        return {"tickers": _fx_tickers(), "source": "live"}
     if market == "spot":
         # ★ 2026-08-10 現貨改成「有人看才抓」：登記需求時間，背景 worker 據此決定要不要每秒更新。
         #   為什麼：worker 原本無條件每秒抓 Binance 現貨全標的 —— 實測 **3683 筆**（永續才 726 筆），

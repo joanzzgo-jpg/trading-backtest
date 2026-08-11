@@ -2489,6 +2489,27 @@ async def _fetch_cwa_typhoon_warning(sess):
         return None
 
 
+async def _tc_fetch():
+    """真的去抓 JMA 全球颱風 + CWA 台灣警特報，寫進 _TC_CACHE 並回傳。"""
+    timeout = aiohttp.ClientTimeout(total=12)
+    async with aiohttp.ClientSession(timeout=timeout) as sess:
+        tys = await _fetch_jma_typhoons(sess)
+        tw = await _fetch_cwa_typhoon_warning(sess)
+    base = {"typhoons": tys, "tw_warning": tw, "asof": time.time()}
+    _TC_CACHE["data"] = base
+    _TC_CACHE["ts"] = time.time()
+    return base
+
+
+async def _tc_bg_refresh():
+    try:
+        await _tc_fetch()
+    except Exception:
+        pass
+    finally:
+        _TC_CACHE["busy"] = False          # 失敗也要清，否則就再也不會更新
+
+
 @router.get("/typhoon")
 async def typhoon(lat: float = Query(None), lon: float = Query(None)):
     """現行颱風資訊：JMA 全球颱風(名稱/強度/現在位置/歷史+預測路徑，免金鑰) + CWA 台灣颱風警特報(有金鑰時)。
@@ -2497,14 +2518,25 @@ async def typhoon(lat: float = Query(None), lon: float = Query(None)):
     c = _TC_CACHE
     if c["data"] is not None and now - c["ts"] < _TC_TTL:
         base = c["data"]
+    elif c["data"] is not None:
+        # ★ 過期但有舊值 → 立刻回舊值、背景更新（實測冷路徑 937ms／熱 4ms，2026-08-11）。
+        #   颱風報約每小時才更新一次，拿 10 幾分鐘前的值完全無害；
+        #   讓一個倒楣使用者卡 0.9 秒才是真的問題。
+        # ⚠ 單飛：`busy` 保證同時只有一條在抓。沒有它的話，多個使用者同時撞到過期
+        #   會各自開一個 aiohttp session 打 JMA/CWA（N 倍請求，還可能被擋）。
+        if not c.get("busy"):
+            c["busy"] = True
+            try:
+                asyncio.create_task(_tc_bg_refresh())
+            except RuntimeError:                     # 沒有事件迴圈 → 退回同步抓
+                c["busy"] = False
+                base = await _tc_fetch()
+            else:
+                base = c["data"]
+        else:
+            base = c["data"]
     else:
-        timeout = aiohttp.ClientTimeout(total=12)
-        async with aiohttp.ClientSession(timeout=timeout) as sess:
-            tys = await _fetch_jma_typhoons(sess)
-            tw = await _fetch_cwa_typhoon_warning(sess)
-        base = {"typhoons": tys, "tw_warning": tw, "asof": now}
-        c["data"] = base
-        c["ts"] = now
+        base = await _tc_fetch()                     # 冷啟動：完全沒值可回，只能等這一次
     # 距離依 lat/lon 即時算（不進快取）
     tys = base["typhoons"]
     nearest = None
