@@ -109,13 +109,18 @@
      ⚠ 不需要排除 e.isComposing：真的在輸入文字時 `_typing()` 已經先擋掉了；
        焦點在圖表上時 IME 不會真的組字，那正是要救的情況。 */
   function _physKey(e) {
-    const k = e.key || "";
-    if (k.length === 1) return k;                      // 英數輸入法：照原本
+    /* ★ 字母/數字一律**直接看實體按鍵**，完全不看 e.key。
+       第一版寫成「e.key 長度不是 1 才退回 e.code」→ 使用者回報「還是要切輸入法」。
+       原因：注音輸入法下 e.key **不是** "Process"，而是注音符號本身
+       —— 實體 Z 鍵在注音配置是「ㄈ」，長度剛好是 1 → 那個條件永遠不成立、退路沒被走到。
+       （"Process"/keyCode 229 只發生在某些 IME 的組字狀態；不能只防那一種。）
+       e.code 是實體按鍵位置，不管掛哪套輸入法、產生什麼字元都不會變。 */
     const c = e.code || "";
     if (/^Key[A-Z]$/.test(c))   return c.slice(3).toLowerCase();
     if (/^Digit[0-9]$/.test(c)) return c.slice(5);
     const M = { BracketLeft: "[", BracketRight: "]", Slash: e.shiftKey ? "?" : "/" };
-    return M[c] || k;
+    if (M[c]) return M[c];
+    return e.key || "";                                // 其餘（Escape/方向鍵…）照原本
   }
   window._physKey = _physKey;                          // 給 ui.js 的 M 鍵共用
 
