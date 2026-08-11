@@ -22,6 +22,15 @@ let _drawHidden = new Set();        // 被隱藏的層
 function _layerOf(d) { return (d && d.layer) || "A"; }          // 沒有 layer 欄位＝A（既有繪圖）
 function _layerOn(d) { return !_drawHidden.has(_layerOf(d)); }  // 這個繪圖現在看得見嗎
 
+/* 堆疊順序：**上到下是 A → B → C**（A 蓋在最上面、C 在最底下）。
+   Canvas 是「後畫的蓋在上面」→ 要先畫 C、再 B、最後 A。
+   ⚠ 不能只靠陣列順序（那是建立順序）：不然後畫的 C 會蓋掉先畫的 A。
+   ⚠ 排序要**穩定**：同一層內仍照建立順序，後畫的蓋先畫的（跟原本行為一致）。
+     Array.prototype.sort 在現代瀏覽器保證穩定，可以直接用。 */
+const _LAYER_Z = { C: 0, B: 1, A: 2 };
+function _layerRank(d) { return _LAYER_Z[_layerOf(d)] ?? 2; }
+function _byLayer(list) { return list.slice().sort((x, y) => _layerRank(x) - _layerRank(y)); }
+
 function _loadLayerState() {
   try {
     const s = JSON.parse(localStorage.getItem("drawLayerState") || "null");
@@ -578,7 +587,9 @@ function findNearest(x, y, maxDist = 12) {
     return c.result;
   }
   let best = maxDist, found = null;
-  drawings.forEach(d => {
+  // ⚠ 用 _byLayer 反過來掃（A 先）：兩條線重疊時要抓到**看得見的那一條**，
+  //   也就是堆疊在上面的層 —— 否則會出現「點到的是被蓋住的線」。
+  _byLayer(drawings).reverse().forEach(d => {
     if (d.pane && d.pane !== "main") return;   // 副圖繪圖由副圖自己的命中處理
     if (!_layerOn(d)) return;                  // 隱藏層：看不見就不能被選取/拖曳
     const dist = drawingDist(d, x, y);
@@ -711,7 +722,7 @@ function _renderSub(id) {
   const W=reg.canvas.width/dpr, H=reg.canvas.height/dpr;
   ctx.clearRect(0,0,W,H);
   const s=reg.def.getSeries(); if(!s) return;
-  drawings.filter(d=>d.pane===id&&_layerOn(d)).forEach(d=>{
+  _byLayer(drawings).filter(d=>d.pane===id&&_layerOn(d)).forEach(d=>{
     const col=d.color||_drawColor, sel=(d.id===selectedId);
     ctx.save(); ctx.strokeStyle=col; ctx.fillStyle=col; ctx.lineWidth=d.width||1.5;
     ctx.setLineDash(d.lineStyle===2?[6,4]:d.lineStyle===1?[2,3]:[]);
@@ -3111,12 +3122,12 @@ function renderDrawings() {
   const _safeDraw = (d, hov, sel) => { try { drawOne(d, W, H, hov, sel); } catch (e) { try { drawCtx.restore(); } catch (_) {} } };
   // ⚠ 圖層過濾跟 _isMain 一起做：被隱藏的層不畫（下面命中判定也要跳過，見 _layerOn）
   const _isMain = d => (!d.pane || d.pane === "main") && _layerOn(d);   // 副圖繪圖不在主圖畫(交給 _renderSub)
-  drawings.filter(d => _isMain(d) && d.id !== selectedId && d.id !== hoveredId).forEach(d => _safeDraw(d, false, false));
-  drawings.filter(d => _isMain(d) && d.id === hoveredId && d.id !== selectedId).forEach(d => _safeDraw(d, true, false));
-  drawings.filter(d => _isMain(d) && d.id === selectedId).forEach(d => _safeDraw(d, false, true));
+  _byLayer(drawings).filter(d => _isMain(d) && d.id !== selectedId && d.id !== hoveredId).forEach(d => _safeDraw(d, false, false));
+  _byLayer(drawings).filter(d => _isMain(d) && d.id === hoveredId && d.id !== selectedId).forEach(d => _safeDraw(d, true, false));
+  _byLayer(drawings).filter(d => _isMain(d) && d.id === selectedId).forEach(d => _safeDraw(d, false, true));
 
   // 繪圖文字標籤(非文字型)+ 鎖定圖示:畫在繪圖錨點上方
-  drawings.forEach(d => { if (d.text && _isMain(d)) { try { _drawDrawingBadge(d, W, H); } catch (e) { try { drawCtx.restore(); } catch (_) {} } } });
+  _byLayer(drawings).forEach(d => { if (d.text && _isMain(d)) { try { _drawDrawingBadge(d, W, H); } catch (e) { try { drawCtx.restore(); } catch (_) {} } } });
 
   // （策略棒止損線改由 realtime.js onMainCrosshair 用 LWC 原生 price line 畫，不再走 overlay）
 
