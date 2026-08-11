@@ -399,9 +399,21 @@ function fmtVol(v) {
   return Number(v).toLocaleString();
 }
 
-/* 全站浮動提示。樣式在 style.css 的 #toastHost / .app-toast（別再寫回行內樣式：
-   寫在這裡就吃不到主題變數，配色一改又會各講各的，舊版就是這樣留下一個冷灰藍紅框的）。 */
-function showToast(msg, ms = 4000) {
+/* 全站浮動提示 —— **預設靜音**。
+   使用者 2026-08-11：「提示框可以拿掉，只有找不到標的時需要，操作上不用」。
+   ★ 為什麼是「預設靜音 + 呼叫端明確開啟」而不是刪掉函式或用關鍵字過濾：
+     ・呼叫端有 20 幾處（繪圖復原/顏色衝突/儲存已滿/同步/PWA 安裝/時框數量…），
+       刪函式要全部改一遍、還會漏掉 draw.js 那種 `typeof showToast === "function"` 的動態呼叫。
+     ・用關鍵字猜「哪些算找不到標的」很脆弱，訊息一改就默默失效。
+   ★ 靜音的也還是 console.debug 出來 —— 這個專案吃過太多次「錯誤被靜默吞掉」的虧
+     （後端 500 因為前端 .catch 而隱形好幾天），不要為了畫面乾淨連診斷線索都沒了。
+   目前唯一會顯示的：render.js 載入失敗那支（後端回的「查無標的」等訊息）。
+   樣式在 style.css 的 #toastHost / .app-toast。 */
+function showToast(msg, ms = 4000, show = false) {
+  if (!show) {
+    try { console.debug("[toast 靜音]", msg); } catch (e) {}
+    return;
+  }
   let host = document.getElementById("toastHost");
   if (!host) {
     host = document.createElement("div");

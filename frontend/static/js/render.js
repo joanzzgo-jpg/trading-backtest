@@ -219,7 +219,9 @@ async function loadData(autoLoad = false, forceLatest = false) {
       if (!autoLoad && typeof showToast === "function") showToast("⏱ 載入中斷，請再試一次");
     } else {
       console.error("[loadData] error:", e.name, e.message, e);   // 真正的錯誤才記
-      if (!autoLoad && typeof showToast === "function") showToast("❌ " + (e.message || "載入失敗"));
+      // 第三個參數 true＝真的顯示。showToast 預設靜音（使用者：操作類提示不要，
+      // 只有「找不到標的」這種需要知道的才跳）—— 這是目前唯一開啟的呼叫端。
+      if (!autoLoad && typeof showToast === "function") showToast("❌ " + (e.message || "載入失敗"), 4000, true);
     }
     // 不再重拋:所有呼叫端都是 fire-and-forget(無 await/.catch),重拋只會變
     // unhandled rejection 雜訊(每次打錯標的/斷網都冒一顆 pageerror)。錯誤已 toast+console。
