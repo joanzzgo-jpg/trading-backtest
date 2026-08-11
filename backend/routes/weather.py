@@ -218,7 +218,25 @@ async def _fetch_stations() -> list:
     return stations
 
 async def _from_cwa(lat: float, lon: float) -> dict:
-    stations = await _fetch_stations()
+    # ── 三個上游彼此獨立 → 並行抓（2026-08-11）─────────────────────────────────
+    # 舊寫法是串著 await：①測站清單(O-A0001,~700 站) ②反向地理編碼(Nominatim)
+    # ③腳下雨量站(O-A0002,1310 站)。三者都只吃 lat/lon，**誰也不需要誰的結果**，
+    # 串起來延遲就是「相加」。本機看不太出來（都在台灣、幾十毫秒），但線上 Railway
+    # 離這些上游很遠 —— 實測線上 /api/weather 冷路徑 **10.8 秒**，本機只有 1.8 秒。
+    # 同一支函式下面的補充資料（pop/forecast/aqi/sun）早就用 gather 了，這三個漏掉。
+    # ⚠ return_exceptions=True：測站清單掛掉要照原本行為往外拋（讓上層退回 Open-Meteo），
+    #   但另外兩個是加值資料、掛掉只要退回預設，不可以連帶把整支天氣弄倒。
+    _st, _loc, _rg = await asyncio.gather(
+        _fetch_stations(),
+        _reverse_geocode(lat, lon),
+        _rain_gauge_here(lat, lon),
+        return_exceptions=True,
+    )
+    if isinstance(_st, BaseException):
+        raise _st
+    stations = _st
+    _geo_name = None if isinstance(_loc, BaseException) else _loc
+    rain_mmph, rain_gauge_km = (0.0, None) if isinstance(_rg, BaseException) else _rg
     s = _nearest_station(stations, lat, lon)
     if not s:
         raise RuntimeError("no_station")
@@ -255,7 +273,7 @@ async def _from_cwa(lat: float, lon: float) -> dict:
     # 萬華等無自身測站的區，最近站常落在鄰區（如隔新店溪的永和），直接用站名會顯示錯區。
     # 天氣『數據』仍取自最近站（相距數 km、天氣相同）；反向地理編碼失敗才退回站名鄉鎮。
     station_town = (county + town) if (county and town) else (town or county or station_name)
-    location = await _reverse_geocode(lat, lon) or station_town
+    location = _geo_name or station_town          # 已在上面並行抓好
 
     # Cloud cover: prefer sunshine sensor; fall back to text when night or sensor absent
     if sun_h >= 0 and is_day:
@@ -273,7 +291,6 @@ async def _from_cwa(lat: float, lon: float) -> dict:
     # ── 腳下雨量站融合（修「出門淋雨、卡片顯示陰」）──
     # 氣象站文字缺值(-99→雲量推斷推不出雨)或站遠沒淋到 → 若最近雨量站(≤5km)顯示
     # 正在下雨，主天氣強制轉雨。文字已含雨/雷/雪者不動（官方描述更細，別蓋掉）。
-    rain_mmph, rain_gauge_km = await _rain_gauge_here(lat, lon)
     if rain_mmph >= 0.5 and not any(k in desc for k in ("雨", "雷", "雪", "霰", "雹")):
         lvl = ("毛毛雨" if rain_mmph < 1.0 else (_rain_level(rain_mmph) or "小雨"))
         desc = lvl if lvl == "毛毛雨" else (("陰有" if cloud_cover >= 80 else "") + lvl)
@@ -578,7 +595,13 @@ async def _jma_fetch_obs():
 
 
 async def _from_jma(lat: float, lon: float) -> dict:
-    table, obs, latest = await _jma_fetch_obs()
+    # AMeDAS 觀測與反向地理編碼彼此獨立 → 並行（同 _from_cwa；串著等＝延遲相加）
+    _ob, _loc = await asyncio.gather(_jma_fetch_obs(), _reverse_geocode(lat, lon),
+                                     return_exceptions=True)
+    if isinstance(_ob, BaseException):
+        raise _ob                               # 觀測掛掉照原本行為往外拋（上層退 Open-Meteo）
+    table, obs, latest = _ob
+    _geo_name = None if isinstance(_loc, BaseException) else _loc
 
     # 找最近且有溫度觀測的站（AMeDAS 部分站只測雨量/風，無溫度）
     best, bd = None, float("inf")
@@ -622,7 +645,7 @@ async def _from_jma(lat: float, lon: float) -> dict:
     elif sun1h >= .1:                           wtype = "cloudy"
     else:                                       wtype = "overcast"
 
-    location = await _reverse_geocode(lat, lon) or info.get("kjName") or "日本"
+    location = _geo_name or info.get("kjName") or "日本"      # 已在上面並行抓好
     sr, ss = _sun_times_local(lat, lon)
     mp = _moon_phase()
     mr, ms = _moon_times(sr, ss, mp)
@@ -1958,6 +1981,14 @@ async def nearby_rain(
                     return st["val"]
             else:
                 return st["val"]
+    # ── 雷達回波先開跑，與雨量站/測站網並行（2026-08-11）──────────────────────
+    # 雷達只吃 lat/lon、跟雨量站那邊誰也不需要誰 —— 但原本是等雨量站整批回來、算完
+    # 才去抓雷達圖(下載 PNG + 解碼)，延遲直接相加。線上實測 /api/nearby_rain 冷路徑
+    # **6.8 秒**（本機 3.3 秒），Railway 離這些上游遠 → 串行的代價被放大。
+    # ⚠ 這是**預抓**：只有「腳下沒在下雨」時才會用到雷達 —— 而那正是常態
+    #   （在下雨就直接講在下雨了，不需要預警）→ 幾乎每次都用得到，不是浪費。
+    #   用不到的那次（正在下雨）下面會 cancel 掉。
+    _radar_task = asyncio.ensure_future(_radar_overhead(lat, lon))
     res = None
     try:
         if CWA_KEY and _in_taiwan(lat, lon):
@@ -1972,6 +2003,7 @@ async def nearby_rain(
         try:
             res = await _nearby_rain_omt(lat, lon)
         except Exception as e:
+            _radar_task.cancel()                       # 整支要倒了 → 別留孤兒 task
             from fastapi import HTTPException
             raise HTTPException(status_code=503, detail=f"附近雨區取得失敗：{e}")
     # ── 雷達頭頂偵測:對流在正上方初生時,雨量站全乾、移動法沒東西追,只有雷達看得到 ──
@@ -1981,7 +2013,10 @@ async def nearby_rain(
     #   watch (≥35dBZ + 濕度≥85%,周邊乾=對流初生型)   → 軟性「醞釀中」(~18-30%,寧可提醒);
     #   其餘回波不觸發(高空虛回波為主)。每次判斷記 log 供離線比對真實結果、持續校準。
     if not res.get("raining_here"):
-        dbz, age_min = await _radar_overhead(lat, lon)
+        try:
+            dbz, age_min = await _radar_task           # 多半早就抓完了（上面並行開跑）
+        except Exception:
+            dbz, age_min = None, None
         if dbz is not None and dbz >= 35:
             rh = await _nearest_rh(lat, lon) if (CWA_KEY and _in_taiwan(lat, lon)) else None
             near = (res.get("nearest") or {}).get("dist_km")
@@ -2015,6 +2050,8 @@ async def nearby_rain(
                                               "name": "", "area": "", "by": "radar",
                                               "scale": None, "size_km": None,
                                               "trend": None, "fade_min": None}
+    else:
+        _radar_task.cancel()                           # 正在下雨＝用不到雷達預抓，別留孤兒 task
     _NR_CACHE.set(ck, res)
     import time as _t2
     _NR_STALE[ck] = {"val": res, "ts": _t2.time()}     # 給下一輪 SWR 當舊值
@@ -2493,8 +2530,12 @@ async def _tc_fetch():
     """真的去抓 JMA 全球颱風 + CWA 台灣警特報，寫進 _TC_CACHE 並回傳。"""
     timeout = aiohttp.ClientTimeout(total=12)
     async with aiohttp.ClientSession(timeout=timeout) as sess:
-        tys = await _fetch_jma_typhoons(sess)
-        tw = await _fetch_cwa_typhoon_warning(sess)
+        # JMA 全球颱風與 CWA 台灣警特報是兩個完全獨立的上游 → 並行（原本串著等＝相加）
+        tys, tw = await asyncio.gather(_fetch_jma_typhoons(sess),
+                                       _fetch_cwa_typhoon_warning(sess),
+                                       return_exceptions=True)
+        tys = [] if isinstance(tys, BaseException) else tys
+        tw = None if isinstance(tw, BaseException) else tw
     base = {"typhoons": tys, "tw_warning": tw, "asof": time.time()}
     _TC_CACHE["data"] = base
     _TC_CACHE["ts"] = time.time()
