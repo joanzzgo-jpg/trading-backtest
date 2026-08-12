@@ -126,6 +126,21 @@ def fetch_us_stock(symbol: str, start: str, end: str, timeframe: str = "1d") -> 
         raise ValueError(f"{symbol} 暫時無法取得：資料源限流中，請稍候幾秒再試")
     interval = TF_MAP.get(timeframe, "1d")
     ticker   = _yf_ticker(symbol)
+    # ── end 要往後推一天（2026-08-12，使用者：「為什麼外匯斷了，最新只到 6:55」）──────
+    # ⚠ yfinance 的 `end` 是**嚴格小於**，而且是按**該標的交易所的時區**算午夜，不是 UTC。
+    #   外匯 EURUSD=X 在 Yahoo 掛倫敦時區（八月 BST=UTC+1）→ end="今天" 等於切在
+    #   **昨天 23:00 UTC**，今天的盤中資料整段被排除；FX 日線的時間戳本來就落在 23:00 UTC，
+    #   於是連最近一根日線也一起被切掉（使用者的日線因此少兩天）。
+    #   實測 2026-08-12 10:12（台北）：EUR/USD 5m 最後一根停在 08-11 22:55 UTC
+    #   （前端 +8 顯示＝06:55，正是使用者看到的），落後 3 小時 15 分；
+    #   同一時間直接問 Yahoo 有到 02:11 UTC → **上游是新的，是我們把上邊界切掉了**。
+    #   美股/港股在自己的交易時段內也會中同一個坑（end 落在該市場午夜之前）。
+    # → 把上邊界放寬一天。不會多抓到未來（本來就沒有資料），只是不再切掉今天。
+    try:
+        import datetime as _d
+        end = (_d.date.fromisoformat(str(end)) + _d.timedelta(days=1)).isoformat() if end else end
+    except Exception:
+        pass    # end 不是 ISO 日期就原樣放行（呼叫端可能傳別的格式）
     try:
         try:
             raw = ticker.history(start=start, end=end, interval=interval, auto_adjust=True, timeout=_YF_TIMEOUT)

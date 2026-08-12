@@ -7981,3 +7981,41 @@ html.perf-mode .tb-wr-sync[data-state="local"] { color: #8B8B8B; }
   border-color: var(--accent, #FF9147);
   color: var(--accent, #FF9147);
 }
+
+
+/* ── 全站離線指示（2026-08-12）─────────────────────────────────────────
+   使用者要求「若斷網，需要在網頁上顯示已離線」。
+   ⚠ 這是**狀態**不是事件 → 常駐顯示，不用提示框（使用者已明確不要操作類提示框）。
+   ⚠ fixed + 高 z-index：不參與 topbar 的版面計算（那邊調過很多次，不能再動）。 */
+.net-offline {
+  position: fixed; left: 50%; top: 12px; transform: translateX(-50%);
+  z-index: 100000; display: flex; align-items: center; gap: 7px;
+  padding: 7px 15px; border-radius: 999px;
+  background: linear-gradient(180deg, rgba(120, 32, 28, .96), rgba(74, 18, 16, .96));
+  border: 1px solid rgba(239, 83, 80, .55);
+  color: #ffdad7; font-size: 12.5px; font-weight: 700; letter-spacing: .02em;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .55);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  pointer-events: none;
+}
+.net-offline[hidden] { display: none; }
+.net-offline .no-dot {
+  width: 7px; height: 7px; border-radius: 50%; background: #ef5350; flex: 0 0 auto;
+  animation: no-blink 1.4s ease-in-out infinite;
+}
+@keyframes no-blink { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
+@media (prefers-reduced-motion: reduce) { .net-offline .no-dot { animation: none; } }
+
+/* ── 連線訊號格數（2026-08-12）──────────────────────────────────────────
+   四根由矮到高的柱子（同手機訊號）。亮起幾根＝連線品質，全暗＋紅＝離線。 */
+.net-sig { display: inline-flex; align-items: flex-end; gap: 2px; height: 14px; padding: 0 4px; flex: 0 0 auto; cursor: default; }
+.net-sig i { width: 3px; border-radius: 1px; background: var(--muted, #9A7A58); opacity: .28; transition: opacity .25s ease, background .25s ease; }
+.net-sig i:nth-child(1) { height: 5px; }
+.net-sig i:nth-child(2) { height: 8px; }
+.net-sig i:nth-child(3) { height: 11px; }
+.net-sig i:nth-child(4) { height: 14px; }
+.net-sig i.on { opacity: 1; background: var(--green, #26a69a); }
+.net-sig[data-q="2"] i.on { background: #d7a13a; }
+.net-sig[data-q="1"] i.on { background: #e8833a; }
+.net-sig[data-q="0"] i     { background: var(--red, #ef5350); opacity: .30; }
+.net-sig[data-q="0"] i:nth-child(1) { opacity: 1; animation: no-blink 1.4s ease-in-out infinite; }

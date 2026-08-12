@@ -237,13 +237,15 @@ if (typeof window !== "undefined" && !window._tkStaleTimer) {
   window._tkStaleTimer = setInterval(_tkStaleCheck, 2000);
 }
 
+let _tkRttMs = null;          // 最近一次報價請求的往返時間 → 給訊號格數用（見 utils.js 的連線指示）
 async function fetchTickers() {
+  const _rt0 = (performance && performance.now) ? performance.now() : Date.now();
   try {
     _tkPollN++;
     const useSince = (_tkPollN % 60 !== 1);   // 每 60 輪第 1 次拿整包,其餘走 delta
     if (_tickerMkt === "tw") {
       const res = await fetch(_tkUrl("tw", "tw", useSince));
-      if (res.ok) { const j = await res.json(); _twTickerData = _tkMerge(_twTickerData, j, "tw"); _tkLastOkTs = Date.now(); }
+      if (res.ok) { const j = await res.json(); _twTickerData = _tkMerge(_twTickerData, j, "tw"); _tkLastOkTs = Date.now(); _tkRttMs = ((performance&&performance.now)?performance.now():Date.now()) - _rt0; }
     } else {
       const wantSpot = _spotNeeded() || (Date.now() - _spotLastTs >= _SPOT_IDLE_MS);
       if (wantSpot) _spotLastTs = Date.now();
@@ -251,7 +253,7 @@ async function fetchTickers() {
         fetch(_tkUrl("futures", "futures", useSince)),
         wantSpot ? fetch(_tkUrl("spot", "spot", false)) : null,
       ]);
-      if (futRes.ok)  { const j = await futRes.json();  _tickerData     = _tkMerge(_tickerData, j, "futures"); _tkLastOkTs = Date.now(); }
+      if (futRes.ok)  { const j = await futRes.json();  _tickerData     = _tkMerge(_tickerData, j, "futures"); _tkLastOkTs = Date.now(); _tkRttMs = ((performance&&performance.now)?performance.now():Date.now()) - _rt0; }
       if (spotRes && spotRes.ok) { const j = await spotRes.json(); _spotTickerData = _tkMerge(_spotTickerData, j, "spot"); }
     }
     if (_tkStaleOn) _tkStaleCheck();   // 恢復了 → 不等下一次看門狗，立刻收起紅字

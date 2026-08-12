@@ -429,6 +429,10 @@
   </div>
 
   <div class="topbar-right">
+    <!-- 連線訊號格數（2026-08-12 使用者要求）。四格＝很好，一格＝很慢，全暗＋紅＝離線。
+         ⚠ 放 .topbar-right 這個既有 flex 列：不會跟絕對置中的時間匡重疊（圖層鈕踩過那個坑）。
+         ⚠ 視窗窄時這列可以左右捲 → 真的離線時另有一個 fixed 的紅色提示，捲走也看得到。 -->
+    <div class="net-sig" id="netSig" title="連線狀態"><i></i><i></i><i></i><i></i></div>
     <!-- 繪圖圖層 A/B/C（2026-08-11 使用者指定：緊鄰置中的時間匡右側）
        ⚠ 放在 .topbar-right 的最前面，理由是踩過兩次：
          ・放 #wrTop3 裡面 → 那個容器沒有 Top3 資料時整個 display:none，圖層鈕跟著消失。
@@ -620,6 +624,13 @@
 <div id="panelOverlay" class="panel-overlay hidden"></div>
 
 <!-- ③ 主體 -->
+<!-- 全站離線指示（2026-08-12 使用者要求）。fixed 定位，不參與任何既有版面計算。
+     ⚠ 跟行情面板裡的「行情中斷」不同：那個在面板內（收起來就看不到）、講的是資料流；
+       這個講的是「這台裝置連不上網」，收面板也看得到。 -->
+<div id="netOffline" class="net-offline" hidden>
+  <span class="no-dot"></span><span id="netOfflineTxt">已離線</span>
+</div>
+
 <div class="body-layout">
 
   <!-- 左緣 hover 觸發區：滑鼠靠近左邊就彈出繪圖工具島 -->

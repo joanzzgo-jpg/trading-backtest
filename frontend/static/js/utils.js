@@ -644,3 +644,101 @@ window._perfProbe = function (sec, silent) {
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", bind);
   else bind();
 })();
+
+/* ── 全站離線偵測（2026-08-12 使用者要求：「若斷網 需要在網頁上顯示已離線」）─────
+   ⚠ **不能只信 `navigator.onLine`**：它只反映「有沒有連上網路介面」——
+     連著 Wi-Fi 但那條 Wi-Fi 沒有對外網路（最常見的斷網情境：路由器掛了、飯店網路要登入、
+     行動網路沒訊號但還連著基地台）它照樣回 true。只靠它會整個漏掉。
+   ⚠ 也不能只看「報價有沒有更新」：行情 API 自己壞掉時也會停更，那時報「已離線」是誣賴使用者的網路。
+   → 兩段式：先用便宜的訊號察覺可疑（onLine=false，或報價心跳 `_tkLastOkTs` 停超過 12 秒），
+     再用一次**主動探測**確認到底是網路斷了還是只有那支 API 壞了。
+   ⚠ 探測打 `/static/manifest.json`（純靜態檔、不碰任何應用邏輯、不會因為某支 API 壞掉而誤判），
+     帶 cache-busting 避免 Service Worker 或瀏覽器快取回一個假的成功。
+   ⚠ 這是**狀態**不是事件 → 常駐指示，不用提示框（使用者已明確表示操作類提示不要）。 */
+(function () {
+  const EL = () => document.getElementById("netOffline");
+  const TXT = () => document.getElementById("netOfflineTxt");
+  const STALE_MS = 12000;      // 報價每秒輪詢 → 停 12 秒才算可疑（避免一次逾時就喊斷網）
+  const PROBE_MS = 6000;
+  let _off = false, _probing = false, _offAt = 0;
+
+  function _paint() {
+    const el = EL(); if (!el) return;
+    el.hidden = !_off;
+    if (_off) {
+      const s = Math.round((Date.now() - _offAt) / 1000);
+      const t = TXT();
+      if (t) t.textContent = s >= 60 ? `已離線 ${Math.floor(s / 60)} 分鐘` : "已離線";
+      el.title = "這台裝置連不上網路：畫面上的價格與資料都不會更新，恢復連線後會自動繼續。";
+    }
+  }
+  function _set(off) {
+    if (off === _off) { _paint(); return; }
+    _off = off;
+    if (off) _offAt = Date.now();
+    _paint();
+    try { window.dispatchEvent(new CustomEvent("net:offline", { detail: { offline: off } })); } catch (e) {}
+  }
+
+  async function _probe() {
+    if (_probing) return;
+    _probing = true;
+    try {
+      const c = new AbortController();
+      const timer = setTimeout(() => c.abort(), PROBE_MS);
+      const r = await fetch("/static/manifest.json?_n=" + Date.now(),
+                           { cache: "no-store", signal: c.signal });
+      clearTimeout(timer);
+      _set(!r.ok);
+    } catch (e) {
+      _set(true);                 // 連自己的靜態檔都拿不到 → 真的斷了
+    } finally {
+      _probing = false;
+    }
+  }
+
+  /* ── 訊號格數（2026-08-12 使用者要求「顯示當前連線情況，就是訊號幾格」）──────
+     RTT 直接取既有的每秒報價輪詢（`_tkRttMs`）→ **零額外流量**，而且量到的正是
+     app 真正在走的那條路，比另外打一支測速請求更貼近實際體驗。
+     ⚠ 格數用「最近幾次的中位數」而不是最後一次：單一次逾時或剛好塞車會讓格數亂跳，
+       看起來像訊號在閃。中位數對離群值不敏感（跟本專案其他量測一致）。
+     門檻：<150ms 四格／<400ms 三格／<900ms 兩格／其餘一格／離線零格。 */
+  const _rtt = [];
+  function _quality() {
+    if (_off) return 0;
+    const hb = (typeof _tkLastOkTs !== "undefined") ? _tkLastOkTs : 0;
+    if (hb && Date.now() - hb > STALE_MS) return 1;      // 還沒判定離線但心跳停了 → 只給一格
+    const r = (typeof _tkRttMs !== "undefined") ? _tkRttMs : null;
+    if (r != null && Number.isFinite(r)) { _rtt.push(r); if (_rtt.length > 7) _rtt.shift(); }
+    if (!_rtt.length) return 4;                          // 還沒量到（剛開頁）→ 不要先嚇人
+    const m = [..._rtt].sort((a, b) => a - b)[Math.floor(_rtt.length / 2)];
+    return m < 150 ? 4 : m < 400 ? 3 : m < 900 ? 2 : 1;
+  }
+  function _paintSig() {
+    const el = document.getElementById("netSig"); if (!el) return;
+    const q = _quality();
+    el.dataset.q = String(q);
+    [...el.children].forEach((b, i) => b.classList.toggle("on", i < q));
+    const m = _rtt.length ? Math.round([..._rtt].sort((a, b) => a - b)[Math.floor(_rtt.length / 2)]) : null;
+    el.title = q === 0 ? "已離線：資料不會更新"
+      : `連線 ${q}/4 格${m != null ? `（回應 ${m} ms）` : ""}` +
+        (q <= 2 ? " — 資料更新會變慢" : "");
+  }
+
+  function _tick() {
+    if (navigator.onLine === false) { _set(true); _paintSig(); return; }   // 介面層就斷了 → 不必探測
+    const hb = (typeof _tkLastOkTs !== "undefined") ? _tkLastOkTs : 0;
+    const suspicious = hb && (Date.now() - hb > STALE_MS);
+    if (suspicious || _off) _probe().then(_paintSig);          // 可疑、或已在離線中（要確認恢復）
+    else { _paint(); _paintSig(); }
+  }
+
+  window.addEventListener("offline", () => _set(true));
+  window.addEventListener("online",  () => _probe());          // 系統說回來了 → 還是探一次再解除
+  setInterval(_tick, 4000);
+  setInterval(_paintSig, 2000);      // 格數更新得比離線判定勤（它只讀既有數字、不打網路）
+  setInterval(() => { if (_off) _paint(); }, 15000);           // 更新「已離線 N 分鐘」
+  window._netIsOffline = () => _off;
+  window._netQuality   = _quality;   // 測試用
+  window._netProbeNow  = _probe;                               // 測試用
+})();
