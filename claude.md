@@ -105,6 +105,30 @@ cd backend && ../.venv312/bin/python scripts/check_tw_sources.py
 台股漏 30m/2h（`resample_tw` 退回 1d）、美股/港股漏 30m/2h（`TF_MAP.get(tf,"1d")` 退回日線）。
 新增時框或改資料源時，先確認每個市場的對照表都有該時框、且沒有靜默 fallback。
 
+### 往 topbar 加任何元素後（守門員之九）
+```bash
+node scripts/check_topbar_reachable.js   # 需本機服務跑著；360/375/390/820/1200 五種寬度
+```
+`.topbar-right` 是一排**只會越加越多**的圖示按鈕。它自己不是捲動區時，排在最後的那幾顆會直接
+落在視窗外 —— `.topbar` 不捲、`body` 又 `overflow-x:hidden` → **永遠點不到，畫面上零異常、零錯誤**。
+2026-08-13 我加 `#netSig`+`#drawLayers`（+114px）就把「我的交易」「VWAP」推出去了；
+⚠ 而且修正前只剩 **6px** 餘裕 → 360px 的 Android 早就中了 → 修法要對任何寬度成立，
+**不是把新元素藏起來**（下一顆按鈕又會把它推出去）。判準＝每顆可見按鈕 `elementFromPoint` 命中。
+⚠ ★★ 這支的判準**不可以用 `scrollIntoView()`**（我第一版就是，植回舊碼照樣通過＝叫不出狼）：
+`overflow-x:hidden` 只擋使用者、不擋程式改 `scrollLeft`。只捲「overflow-x 是 auto/scroll 且真有溢出」
+的祖先，量之前把 `documentElement.scrollLeft` 歸零。詳見 memory `project_topbar-right-overflow`。
+
+### 動到十字線／crosshair 相關後（守門員之十）
+```bash
+node scripts/check_crosshair_blank.js    # 需本機服務跑著
+```
+鉛直線**不是 LWC 原生的**（原生已關掉），是 `charts.js` 自繪的四個 `.pane-vline`，靠
+`subscribeCrosshairMove` 的 `param.time` 定位 → **空白區沒有對應時間**就會整批隱藏，
+但橫線／價格標籤走另一條路徑還在 ＝ 使用者看到「十字線只剩一半」（2026-08-13 回報）。
+⚠ **空白區有兩邊、程式路徑不同**：右側（最後一根之後）一直有 `positionLinesByX`，左側漏了；
+左側空白很常見（1M/1d/8h 資料少、或縮到最小看見全部時）。修邊界外的行為**先問「另一邊呢」**。
+判準＝左空白/K棒區/右空白三處線都在、在空白區內**會跟著游標動**、離開圖表要收掉。
+
 倉庫檔（`backend/data/klines5m/*.pkl.gz`）是**版控、會隨 git 上 Railway** 的。暖機/回填只要缺一塊，洞就被固化進檔案，之後所有讀倉庫的請求都拿到有洞的資料——**不報錯、K 線只是少一段**。2026-07-30 實測抓到 BTC 5m 缺 434 根、BTC/ETH 4h 各缺 10 個月，全都已上線才被深滑 E2E 發現。`--fix` 會分段補抓（**必須分段**：跨永續上線日的長區間，fapi 回「非空但只有上線後那截」→ fallback 不觸發 → 前段被靜默丟掉）。詳見 memory `project_klines-store-holes`。
 
 ## 📚 詳細文件（做相關工作時再讀，避免每輪載入吃 context）
