@@ -1557,8 +1557,8 @@ function syncTimeScales() {
     timeLabel.style.bottom = (axisOffset + (replayActive ? 42 : 0)) + "px";
   }
 
-  // 用游標 x 直接定位鉛直線（給「最後一根K棒右側空白區」用：該處無對應時間，
-  // 原生會把十字線時間 snap 到最後一根 → 線卡在最後一根不動。改用游標 x 讓線跟著進入空白）。
+  // 用游標 x 直接定位鉛直線（給「K 棒序列以外的空白區」用：該處無對應時間，
+  // 原生會把十字線時間 snap 到最近那根 → 線卡住不動。改用游標 x 讓線跟著進入空白）。
   function positionLinesByX(px) {
     timeLabel.style.display = "none";          // 空白區無對應時間 → 不顯示時間標籤
     const { cRect, panes } = _paneRects();     // 版面座標快取，同 positionLines
@@ -1576,14 +1576,25 @@ function syncTimeScales() {
   panesConf.forEach(({ chart }) => {
     chart.subscribeCrosshairMove(param => {
       clearTimeout(hideTimer);
-      // 游標在「最後一根K棒右側空白區」：用游標 x 直接定位鉛直線，跟著游標進入空白、不卡在最後一根
+      // 游標在「K 棒序列以外的空白區」：用游標 x 直接定位鉛直線，跟著游標進入空白、不卡在邊緣那根。
+      // ★ 2026-08-13 使用者：「鼠標的虛線對齊十字到沒 K 棒處就消失了」——
+      //   原本只處理**右側**（最後一根之後）。左側（第一根之前）的空白 param.time 是 undefined，
+      //   直接掉進下面的 `!param.time` 分支 → 四條鉛直線全隱藏，但橫線/價格標籤還在
+      //   ＝十字線只剩一半。左邊空白很常見：大時框（1M/1d/8h）資料本來就少、
+      //   或縮到最小看見全部時第一根左邊就是空白。
+      //   ⚠ 兩側都要判：只補一邊就是把同一個 bug 留在另一邊。
       if (param.point) {
         const ts = mainChart.timeScale();
         const n = (typeof ohlcvData !== "undefined") ? ohlcvData.length : 0;
-        const lastX = n ? ts.logicalToCoordinate(n - 1) : null;
-        let pw = ts.width();
-        if (lastX != null && param.point.x > lastX + 0.5 && param.point.x <= pw) {
-          positionLinesByX(param.point.x);
+        // logicalToCoordinate 只吃整數（餵小數回 0）；0 與 n-1 都是整數，安全。
+        // 邊緣那根捲出畫面時它回的是負值/超界值 → 下面的比較自然不成立，不必特判。
+        const firstX = n ? ts.logicalToCoordinate(0) : null;
+        const lastX  = n ? ts.logicalToCoordinate(n - 1) : null;
+        const pw = ts.width(), px = param.point.x;
+        const outR = lastX  != null && px > lastX + 0.5;
+        const outL = firstX != null && px < firstX - 0.5;
+        if ((outR || outL) && px >= 0 && px <= pw) {
+          positionLinesByX(px);
           if (typeof _updateHoverWR === "function") _updateHoverWR(null);
           return;
         }

@@ -6121,8 +6121,24 @@ body, button, input, select, textarea,
   .tb-symbol-wrap  { flex: 1 1 auto !important; min-width: 0 !important; }
   .tb-symbol-input { width: 100% !important; min-width: 96px !important; font-size: 15px !important; height: 34px !important; }
 
-  /* 右側圖示跟在列1尾端 */
-  .topbar-right { order: 2 !important; flex: 0 0 auto !important; margin-left: auto !important; gap: 2px !important; }
+  /* 右側圖示跟在列1尾端。
+     ★ 2026-08-12：必須**可橫向捲動**，否則排在最後的按鈕（我的交易/VWAP）會直接落在視窗外
+       —— topbar 沒有 overflow 可捲、body 也 overflow-x:hidden，等於**永遠點不到**且不報錯。
+       實測 390px：加了 netSig(26)+drawLayers(72) 後 topbar-right 從 313 變 427 → 兩顆出界。
+       ⚠ 這不是「加了新東西才壞」而已：修正前的 313 距離 390 只剩 6px，
+         360px 的 Android 早就中了 → 所以修法要對**任何寬度、任何按鈕數**都成立，
+         不是把新元素藏起來了事。
+     ⚠ flex-basis 用 auto（不是 0）：這裡**要**它在窄螢幕換到自己那一列（原本的版面就是這樣），
+       換行後它獨佔一列，shrink 才生效 → 縮到列寬、內容超出的部分靠捲。
+       basis:0 會讓它硬留在列1、把標的輸入框壓扁。
+     ⚠ 不可用 justify-content:flex-end（見上方 1181~1499px 那段的說明：溢出時開頭項目會捲不到）。*/
+  .topbar-right {
+    order: 2 !important; flex: 1 1 auto !important; margin-left: auto !important; gap: 2px !important;
+    min-width: 0 !important; overflow-x: auto !important; justify-content: flex-start !important;
+    scrollbar-width: none; overscroll-behavior-x: contain;
+  }
+  .topbar-right::-webkit-scrollbar { display: none; }
+  .topbar-right > *:first-child { margin-left: auto; }   /* 空間夠時仍靠右；不夠時 auto=0 可正常捲 */
 
   /* ── 列2：勝率（整列）。內部再分兩行：總數列 + 各訊號橫滑列 ── */
   .tb-winrate {
