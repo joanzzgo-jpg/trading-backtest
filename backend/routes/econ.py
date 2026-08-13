@@ -2,7 +2,8 @@
 
 時間一律以 America/New_York 定義 → 自動處理美國日光節約 → 轉成 UTC unix 秒給前端。
   NFP 非農就業：每月第一個星期五 08:30 ET（公式，真自動、免抓；偶爾落第二個週五，屬近似）。
-  CPI 消費者物價：08:30 ET。BLS 擋爬蟲(403) → 只能內建日期表(需定期核對)。
+  CPI 消費者物價：08:30 ET。BLS 擋爬蟲(403)；改走 FRED release/dates（需 FRED_API_KEY，免費）
+                 → 有金鑰就自動延伸，沒金鑰退回內建日期表(需定期核對)。
   FOMC 利率聲明：14:00 ET（會議第二天）。Fed 官網可抓 → 自動更新，內建 2025–26 當 fallback。
 
 Fed 抓取採「保守採用」：某年**剛好**解析出 8 場(FOMC 固定一年 8 場)才採用該年，
@@ -40,7 +41,11 @@ _FOMC_FALLBACK = {
     2025: [(1, 29), (3, 19), (5, 7), (6, 18), (7, 30), (9, 17), (10, 29), (12, 10)],
     2026: [(1, 28), (3, 18), (4, 29), (6, 17), (7, 29), (9, 16), (10, 28), (12, 9)],
 }
-# CPI 發佈日 08:30 ET（BLS 擋爬蟲，只能內建；★需定期核對）。
+# CPI 發佈日 08:30 ET。內建表是**底**；設了 FRED_API_KEY 就會自動延伸（見 _cpi_by_year）。
+# ★ 沒有金鑰時這張表就是全部 → 表用完那天起 CPI 標記會**安靜消失**（不報錯）。
+#   check_econ_events.py 會在剩不到 120 天時叫。
+# ⚠ 不要用「第 N 個週幾」外推：實測 2025-26 這 24 筆落在週二 8／週三 8／週四 6／週五 2，
+#   而且 2025-10-24 差了整整兩週（當年政府停擺順延）→ 外推出來的線看起來很權威、其實是錯的。
 _CPI = {
     2025: [(1, 15), (2, 12), (3, 12), (4, 10), (5, 13), (6, 11), (7, 15), (8, 12), (9, 11), (10, 24), (11, 13), (12, 18)],
     2026: [(1, 13), (2, 11), (3, 11), (4, 10), (5, 12), (6, 10), (7, 14), (8, 12), (9, 15), (10, 13), (11, 12), (12, 10)],
@@ -112,6 +117,70 @@ def _fomc_by_year() -> dict:
     return merged
 
 
+# ── CPI 自動延伸：FRED 的官方發布行事曆（release_id 10＝Consumer Price Index）──
+# 為什麼走 FRED 而不是 BLS：BLS 對這台機器一律 403（curl 與真瀏覽器都是），繞不過去也不該繞。
+# FRED 是聖路易聯準銀行的官方轉載，`release/dates` 帶 include_release_dates_with_no_data=true
+# 會**連未來已排定的日期一起回**，正是我們缺的東西 → 接上去之後 CPI 就跟 FOMC 一樣自己長。
+# 需要一把免費金鑰（環境變數 FRED_API_KEY）；沒設就完全走內建表，行為與以前一模一樣。
+_FRED_URL = ("https://api.stlouisfed.org/fred/release/dates?release_id=10&file_type=json"
+             "&include_release_dates_with_no_data=true&limit=1000&sort_order=asc"
+             "&realtime_start={rt}&api_key={key}")
+_CPI_CACHE_FILE = os.path.join(tempfile.gettempdir(), "econ_cpi_fred_cache.json")
+
+
+def _parse_fred_cpi(payload: dict) -> dict:
+    """FRED release/dates → {year: [(month, day), ...]}。**只收剛好 12 筆的年份**。
+
+    ⚠ 這條「剛好 12 筆才採用」跟 FOMC 的「剛好 8 場才採用」是同一個保險：
+      上游改版／解析壞掉時寧可退回內建表，也不要標出殘缺或錯位的日期
+      —— 圖上多一條或少一條垂直線都不會報錯，但使用者會照著它做決策。
+    """
+    by_year: dict = {}
+    for row in (payload.get("release_dates") or []):
+        try:
+            d = date.fromisoformat(str(row.get("date"))[:10])
+        except Exception:
+            continue
+        by_year.setdefault(d.year, []).append((d.month, d.day))
+    out = {}
+    for y, lst in by_year.items():
+        lst = sorted(set(lst))
+        if len(lst) == 12 and len({m for m, _ in lst}) == 12:   # 一年 12 個月各一次
+            out[y] = lst
+    return out
+
+
+def _cpi_by_year() -> dict:
+    """CPI 發佈日：FRED（快取 7 天）為主、內建為底；沒金鑰或抓不到就完全用內建。"""
+    fetched = {}
+    key = os.getenv("FRED_API_KEY", "").strip()
+    if key:
+        try:
+            cache = None
+            if (os.path.exists(_CPI_CACHE_FILE)
+                    and (time.time() - os.path.getmtime(_CPI_CACHE_FILE) < _FETCH_TTL)):
+                with open(_CPI_CACHE_FILE, "r") as f:
+                    cache = json.load(f)
+            if cache is None:
+                url = _FRED_URL.format(rt=(date.today() - timedelta(days=800)).isoformat(), key=key)
+                req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+                raw = urllib.request.urlopen(req, timeout=15).read().decode("utf-8", "ignore")
+                cache = _parse_fred_cpi(json.loads(raw))
+                try:
+                    with open(_CPI_CACHE_FILE, "w") as f:
+                        json.dump(cache, f)
+                except Exception:
+                    pass
+            fetched = {int(k): v for k, v in cache.items()}
+        except Exception:
+            fetched = {}
+    merged = {y: list(v) for y, v in _CPI.items()}
+    for y, v in fetched.items():
+        if len(v) == 12:
+            merged[y] = [(int(a), int(b)) for a, b in v]
+    return merged
+
+
 @router.get("/api/econ_events")
 def econ_events():
     """回傳視窗內(過去約 13 個月 ~ 未來約 8 個月)的美國經濟事件發佈時刻(UTC unix 秒)。"""
@@ -126,9 +195,10 @@ def econ_events():
         for m in range(1, 13):
             fd = _first_friday(y, m)
             events.append(("NFP", _unix(fd, 8, 30)))
-    # CPI：內建日期表 08:30 ET
+    # CPI：FRED/內建 日期表 08:30 ET
+    cpi = _cpi_by_year()
     for y in years:
-        for (m, d) in _CPI.get(y, []):
+        for (m, d) in cpi.get(y, []):
             events.append(("CPI", _unix(date(y, m, d), 8, 30)))
     # FOMC：Fed/內建 決策日 14:00 ET
     fomc = _fomc_by_year()

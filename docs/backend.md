@@ -14,6 +14,16 @@
 - `ALPACA_KEY`/`ALPACA_SECRET`：美股 Alpaca IEX 即時(含量)（`data/alpaca.py`，已接好但**需券商
   KYC+2FA、且常引導付費** → 通常不用；設了就優先）。
 - 美股即時優先序：Alpaca > Twelve Data > Finnhub 累積器 > yfinance。`/api/_diag` 可查各金鑰是否生效。
+- `FRED_API_KEY`：CPI 發佈日自動延伸（免費、無 KYC，https://fred.stlouisfed.org/docs/api/api_key.html）。
+  主圖經濟事件的 **CPI 垂直線**原本只能靠 `routes/econ.py` 的 `_CPI` 內建表手動維護
+  （BLS 對本專案一律 403，curl 與真瀏覽器都是，繞不過去也不該繞）。設了這把金鑰後改走
+  FRED `release/dates?release_id=10&include_release_dates_with_no_data=true`
+  （聖路易聯準銀行官方轉載，**會連未來已排定的日期一起回**）→ CPI 就跟 FOMC 一樣自己長，
+  快取 7 天。**沒設就完全走內建表、行為與以前一模一樣**（純加法、零風險）。
+  ⚠ 沿用 FOMC 那條保險：**某年剛好 12 筆、且 12 個月各一次**才採用該年，否則整年退回內建
+  —— 上游改版或解析壞掉時，寧可少一條線也不要標出錯位的日期（圖上不會報錯，但使用者會照著它做決策）。
+  ⚠ 別改成「用第 N 個週幾外推」：實測 2025-26 那 24 筆散在週二/三/四/五，
+  2025-10-24 還差整整兩週（政府停擺順延）→ 外推的線看起來很權威、其實是錯的。
 - `CWA_API_KEY`：中央氣象署授權碼（天氣 routes/weather.py 的台灣資料源；申請
   https://opendata.cwa.gov.tw/）。未設定時台灣座標也會 fallback 到 Open-Meteo。
 - `FUGLE_TOKEN`：Fugle 富果 Marketdata 即時行情金鑰（免費申請 https://developer.fugle.tw）。
