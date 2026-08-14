@@ -118,6 +118,23 @@ node scripts/check_topbar_reachable.js   # 需本機服務跑著；360/375/390/8
 `overflow-x:hidden` 只擋使用者、不擋程式改 `scrollLeft`。只捲「overflow-x 是 auto/scroll 且真有溢出」
 的祖先，量之前把 `documentElement.scrollLeft` 歸零。詳見 memory `project_topbar-right-overflow`。
 
+### 在勝率回應新增圖層後（守門員之十三）
+```bash
+node scripts/check_wr_cache_layers.js   # 需本機服務跑著；約 1 分鐘
+```
+`fetchWinRate()` 有兩條路（網路成功／`_wrCache` 命中），兩條都要重繪 FVG/SMC/VWAP/通道…各層。
+**少寫一層，那層就留著「上一個標的」的資料** —— 圖上照樣有標記、不報錯，只是位置全錯
+（已修過兩次：02b429a 補載完成後漏重繪、ca8ec0f 快取命中分支漏重繪）。本檔上面那條
+「兩條路徑都要加」的守則原本**只靠人記**，這支把它變成測得到的。
+判準＝A（網路）→B→A（快取）後，每一層的**內容指紋**必須完全相同（只驗「有沒有值」不夠：
+漏重繪時那層裝的是 B 的資料，有值但是錯的）。圖層清單**從 winrate.js 原始碼 regex 抽**，
+不寫死 → 以後新增圖層自動涵蓋。
+⚠ 兩個坑（我都踩了）：①`_last*` 是 **bundle 頂層的 `let`、不在 `window` 上** →
+`Object.keys(window)` 一個都找不到，要用 `page.evaluate(字串)`＋`eval(名字)`。
+②驗之前**必須先關掉 `_snapPaint`**：本機快照秒畫會把該標的的圖層先畫回來（正確的資料），
+把漏重繪蓋掉 → 不關就永遠是綠的。關掉之後才是「第一次造訪／清過瀏覽器資料」的人走的路，
+而那正是快取分支唯一負責的情境。
+
 ### 動到重播模式／即時更新／背景補載後（守門員之十二）
 ```bash
 node scripts/check_replay_no_future.js   # 需本機服務跑著；約 1 分鐘
