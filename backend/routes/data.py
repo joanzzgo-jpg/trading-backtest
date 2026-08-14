@@ -1572,6 +1572,7 @@ def get_latest(req: LatestRequest):
             df = fetch_tw_stock(req.symbol, start, end, req.finmind_token)
             df = resample_tw(df, req.timeframe)
         elif req.market == "us":
+            _us_live = False          # 有沒有真的套到即時來源（見下方各 return 與 _finnhub_overlay）
             # ⭐ Alpaca IEX 即時分鐘K 優先（無延遲、當下就有最新棒）；快取 8 秒、失敗 fallback 回 Finnhub+yfinance
             if alpaca_enabled():
                 akey = f"us_alpaca_{req.symbol}_{req.timeframe}"
@@ -1611,7 +1612,9 @@ def get_latest(req: LatestRequest):
                                 recs.append({"time": b["time"].isoformat(), "open": b["open"],
                                              "high": b["high"], "low": b["low"], "close": b["close"], "volume": b["volume"]})
                         return {"live": True, "data": recs}
-                    df, _ = _finnhub_overlay(df, quote)   # 報價過期/日線 → 退回疊加最後一根
+                    # ★ 第二個回傳值就是「有沒有真的疊到即時價」——原本被丟掉，
+                    #   結果只能靠「有沒有設金鑰」猜 live，對 Finnhub 沒涵蓋的標的就會說謊。
+                    df, _us_live = _finnhub_overlay(df, quote)   # 報價過期/日線 → 退回疊加最後一根
                 except Exception:
                     pass  # Finnhub 出錯就純用 yfinance 資料
         elif req.market == "fx":
@@ -1741,9 +1744,22 @@ def get_latest(req: LatestRequest):
     #   （使用者回報「最新一根都會這樣、要重整才會好」，實測跳空 3~6 點）。
     #   本來就已經抓了 limit=3，多回一根成本可忽略，卻讓補正多一輪機會。
     records = df_to_records(df.tail(3))
-    # 若有 FINNHUB_TOKEN，美股也算即時；港股(騰訊即時)在上面 hk 分支已 return，這裡只是純 yfinance 尾
+    # ★ 2026-08-15 使用者：「NQ=F 跳很慢」。舊判定是
+    #     `req.market == "us" and bool(os.getenv("FINNHUB_TOKEN"))`
+    #   —— 只看「**有沒有設金鑰**」，不看「**這一檔到底有沒有拿到即時資料**」。
+    #   Finnhub／Twelve Data 不涵蓋 CME 期貨（NQ=F、ES=F…）與部分 ETF/外國掛牌 →
+    #   那些標的其實是純 yfinance 的 ~10~15 分延遲資料，卻照樣回 live=True、
+    #   前端的即時指示燈亮著。線上實測：AAPL 落後 1.6 分（真即時）、NQ=F 落後 **11.5 分**，
+    #   兩者都回 live=True。這是**對使用者說謊**：他以為在看即時、實際上慢十分鐘。
+    #   → 改成看「資料本身新不新鮮」：最後一根的起始時間距現在若超過「一個週期 + 3 分鐘」，
+    #     就不是即時。這個判準與哪家供應商無關，供應商臨時失效時也會自己說實話。
+    #   ⚠ 只改盤中時框：日/週/月線的最後一根本來就會「舊」一整天，用這個判準會恆為 False。
+    #   ⚠ 一開始我改成「看最後一根的棒齡」，那是錯的判準：15m 的形成中那根本來就會
+    #     「舊」到 15 分鐘 —— 實測 AAPL 15m（真即時）與 NQ=F 15m（延遲 11.9 分）棒齡一模一樣，
+    #     完全分不出來。正確訊號是「**有沒有真的套到即時來源**」，而它早就存在：
+    #     `_finnhub_overlay` 的第二個回傳值，只是原本被丟掉了。
     live = ((req.market == "crypto") or (req.market == "fx")
-            or (req.market == "us" and bool(os.getenv("FINNHUB_TOKEN"))))
+            or (req.market == "us" and locals().get("_us_live", False)))
     resp = {"live": live, "data": records}
     if req.market == "crypto":   # 同 /api/ohlcv：讓前端看得到來源，接合前先比對
         # ⚠ 用「跟著這份 df 一起記下來的」來源，不要在這裡現問 last_fetch_source()——
