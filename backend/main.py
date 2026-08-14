@@ -7,7 +7,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.middleware.gzip import GZipMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response, PlainTextResponse
-import os, sys, time, subprocess, threading
+import os, sys, time, subprocess, threading, hashlib
 from collections import deque
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
@@ -273,16 +273,66 @@ _NOTIFY_PATH  = os.path.join(FRONTEND_DIR, "static", "js", "notify.js")       # 
 _FONTS_PATH   = os.path.join(FRONTEND_DIR, "static", "vendor", "fonts.css")
 
 
+_STATIC_DIR = os.path.join(FRONTEND_DIR, "static")
+_AV_CACHE = {"checked": 0.0, "sig": None, "ver": ""}
+_AV_RECHECK_SEC = 2.0     # 兩次請求間最多掃一次 mtime（線上檔案不會在執行中改，等於免費）
+
+
 def _asset_ver() -> str:
-    """資產版號 = git hash + 前端資產最新 mtime（bundle / css / effects / weather / draw / trade 取最新者）。
-    每次請求即時算，本地改前端（即使沒重啟服務、沒 commit）也會改版號、破瀏覽器快取。"""
+    """資產版號 ＝ `frontend/static/` **整棵樹的內容雜湊**。
+
+    ★ 2026-08-14 從「git hash + 最新 mtime」改成內容雜湊。線上實測發現的問題：
+      `/static` 掛的是 `Cache-Control: max-age=31536000, immutable`，所以**版號一變，
+      所有回訪使用者就把整包前端重抓一遍**（bundle 430KB + css 206KB + 動態那幾支 ≈ 1MB）。
+      而舊版號在 Railway 上等於「開機時間」：
+        ・容器裡沒有 `.git` → `_GIT_VER` 落到 `str(int(time.time()))`＝開機時間
+        ・`app.bundle.js` 是 gitignore、**開機時才組出來**的 → mtime 也＝開機時間
+        ・其餘來源檔是 deploy 當下 checkout 的 → mtime 一樣是新的
+      → 線上實際看到 `?v=1786672187-1786672187`。**容器每重啟一次（平台重啟／崩潰／擴縮），
+        內容一個位元組沒變也會換一組網址、全體使用者重抓 1MB。**
+
+    ⚠ **一定要涵蓋整棵 static，不能只挑那幾支 JS/CSS**（我第一版就只挑 9 支，是個洞）：
+      `?v={{ ver }}` 同時掛在自架圖表庫、字型、圖片、manifest 上 —— 只雜湊 JS/CSS 的話，
+      「升級 lightweight-charts 但沒動到那 9 支」就不會換版號 → 使用者永遠吃到**舊的圖表庫**，
+      而那正是 2026-07-10 那次「整個 app 進不去」的事故形狀。整棵樹才 3.7MB，雜湊一次幾毫秒。
+
+    內容沒變 → 版號不變 → 重啟不影響快取；任何一個位元組變了（含改名/新增/刪除）→ 版號必變。
+    mtime 與檔案數只拿來當「要不要重算雜湊」的便宜觸發器，**回傳值只由內容決定**
+    （本機改前端即使沒重啟、沒 commit，也照樣在 2 秒內換版號、即時破快取）。
+    """
+    c = _AV_CACHE
+    now = time.time()
+    if c["ver"] and (now - c["checked"]) < _AV_RECHECK_SEC:
+        return c["ver"]
+    c["checked"] = now
     try:
-        m = max(os.path.getmtime(p) for p in (_BUNDLE_PATH, _CSS_PATH, _EFFECTS_PATH, _WEATHER_PATH,
-                                              _DRAW_PATH, _TRADE_PATH, _SIGINFO_PATH, _NOTIFY_PATH,
-                                              _FONTS_PATH) if os.path.exists(p))
-        return f"{_GIT_VER}-{int(m)}"
+        files = []
+        for root, dirs, names in os.walk(_STATIC_DIR):
+            dirs[:] = [d for d in dirs if not d.startswith(".")]
+            for n in names:
+                if n.startswith(".") or n.endswith(".map"):
+                    continue
+                p = os.path.join(root, n)
+                try:
+                    files.append((p, os.path.getmtime(p)))
+                except OSError:
+                    pass
+        if not files:
+            return c["ver"] or _GIT_VER
+        # 觸發器含**檔案數**：只看 max(mtime) 的話，「刪掉一個檔」不會改變它 → 版號不動
+        sig = (len(files), max(m for _, m in files))
+        if sig != c["sig"]:
+            h = hashlib.md5()
+            for p, _m in sorted(files):
+                h.update(os.path.relpath(p, _STATIC_DIR).encode("utf-8", "ignore"))
+                h.update(b"\0")
+                with open(p, "rb") as f:
+                    for chunk in iter(lambda: f.read(1 << 20), b""):
+                        h.update(chunk)
+            c["ver"], c["sig"] = h.hexdigest()[:12], sig
     except Exception:
-        return _GIT_VER
+        return c["ver"] or _GIT_VER
+    return c["ver"]
 
 
 # 報價價格更新的健康狀態（給 /api/_diag_mem 看：凍住是安靜壞掉，沒有這個查不出來）。
