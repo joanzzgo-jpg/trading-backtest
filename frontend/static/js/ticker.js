@@ -1,5 +1,22 @@
 let _watchlist = [];
-let _wlPriceCache = {}; // key: "market:exchange:symbol" → {price, change_pct, volume, ts}
+// key: "market:exchange:symbol" → {price, change_pct, volume, ts}
+// ★ 2026-08-15 使用者：「美股的自選一樣要繃一下才有」。原因有兩個，兩個都修：
+//   ①價只在「點進自選那一刻」才開始抓 → 第一次一定看到 `---`，要等一趟網路。
+//     → 開機後就先抓一次（見 _wlPrefetch），你點進去時多半已經有了。
+//   ②快取只在記憶體 → 重新整理就全空，每次都要重繃一次。
+//     → 存進 localStorage，開頁就先用上次的值填上（畫面立刻有東西），新值到了再蓋掉。
+//   ⚠ 存起來的值會標 ts，讀回來時**不當成新鮮的**（照樣會被下一輪更新蓋掉），
+//     只是讓畫面不要空白 —— 跟主圖的本機快照秒畫同一個思路。
+const _WL_CACHE_KEY = "_wlpx";
+let _wlPriceCache = (() => {
+  try {
+    const o = JSON.parse(localStorage.getItem(_WL_CACHE_KEY) || "{}");
+    return (o && typeof o === "object") ? o : {};
+  } catch (e) { return {}; }
+})();
+function _wlCacheSave() {
+  try { localStorage.setItem(_WL_CACHE_KEY, JSON.stringify(_wlPriceCache)); } catch (e) {}
+}
 function _loadWatchlist() {
   try { _watchlist = JSON.parse(localStorage.getItem("watchlist") || "[]"); } catch { _watchlist = []; }
 }
@@ -384,6 +401,7 @@ async function fetchTickers() {
 const _WL_PRICE_TTL = 12000;
 async function _refreshWlPrices() {
   const items = _watchlist.filter(w => w.market === "us" || w.market === "tw" || w.market === "hk");
+  let _dirty = false;
   await Promise.all(items.map(async item => {
     const key = `${item.market}:${item.exchange || ""}:${item.symbol}`;
     const cached = _wlPriceCache[key];
@@ -400,10 +418,23 @@ async function _refreshWlPrices() {
         const prev = data[data.length - 2], last = data[data.length - 1];
         const change_pct = prev.close ? (last.close - prev.close) / prev.close * 100 : 0;
         _wlPriceCache[key] = { price: last.close, change_pct, volume: last.volume, ts: Date.now() };
+        _dirty = true;
       }
     } catch {}
   }));
+  if (_dirty) _wlCacheSave();
   if (_tickerSort === "wl") renderTickers();
+}
+
+/* 開機後先抓一次自選裡的非加密報價：使用者點進「自選」時多半已經有值，不必當場等一趟網路。
+   ⚠ 延後 3 秒：別跟首屏的 K 棒/勝率搶頻寬與主執行緒。
+   ⚠ 沒有非加密自選就完全不打（大多數人是這種）。 */
+function _wlPrefetch() {
+  setTimeout(() => {
+    try {
+      if (_watchlist.some(w => w.market !== "crypto")) _refreshWlPrices();
+    } catch (e) {}
+  }, 3000);
 }
 
 /* 停在「自選」分頁時持續更新非加密標的的報價（加密那些本來就跟著每秒的報價輪詢在跳）。
@@ -419,6 +450,7 @@ function _startWlPriceLoop() {
   }, 15000);
 }
 _startWlPriceLoop();
+_wlPrefetch();
 
 function updatePageTitle() {
   const sym = (document.getElementById("symbolInput")?.value || "").trim().toUpperCase();
