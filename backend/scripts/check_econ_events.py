@@ -99,15 +99,29 @@ def main() -> int:
             print(f"   {key:5s} 一筆都沒有 → 略過（可能本來就不提供）")
             continue
         days = (last - now).days
+        if key == "CPI":
+            # ★ CPI 不能用「往後至少 N 天」當門檻（2026-08-14 修正）：
+            #   BLS **在前一年年底才公告**下一年的時程 —— 2026-08 時 2027 的日期
+            #   根本還不存在，任何來源上的 2027 都只是推估。用 120 天門檻的話，
+            #   每年從夏天到年底這段會一直紅，而**那段時間誰都補不了** ＝ 標準的狼來了。
+            #   改成問「該有的有沒有」：隨時都要蓋到**今年年底**；到了 12 月才要求明年。
+            need_year = now.year + 1 if now.month == 12 else now.year
+            ok = (last.year > need_year) or (last.year == need_year and last.month == 12)
+            note = f"需蓋到 {need_year} 年底"
+            print(f"   {'✓' if ok else '✗'} {key:5s} 最後一筆 {last.strftime('%Y-%m-%d')}"
+                  f"（往後 {days} 天）　{note}")
+            if not ok:
+                bad.append((key, last.strftime("%Y-%m-%d"),
+                            f"表沒蓋到 {need_year} 年底 —— BLS 擋 403（curl 與真瀏覽器都是）："
+                            "設 FRED_API_KEY 可自動延伸，否則手動補 routes/econ.py 的 _CPI"))
+            elif last.year == now.year and now.month >= 11:
+                print(f"         （提醒：{now.year + 1} 年的時程 BLS 通常此時已公告，可以先補了）")
+            continue
         ok = days >= MIN_FUTURE_DAYS
         print(f"   {'✓' if ok else '✗'} {key:5s} 最後一筆 {last.strftime('%Y-%m-%d')}，"
               f"往後還有 {days} 天（需 ≥{MIN_FUTURE_DAYS}）")
         if not ok:
-            bad.append((key, last.strftime("%Y-%m-%d"),
-                        f"往後只剩 {days} 天的事件 —— "
-                        + ("內建表要補了（BLS 擋 403）：設 FRED_API_KEY 可自動延伸，"
-                           "否則手動補 routes/econ.py 的 _CPI" if key == "CPI"
-                           else "表要補了")))
+            bad.append((key, last.strftime("%Y-%m-%d"), f"往後只剩 {days} 天的事件 —— 表要補了"))
 
     print()
     if bad:
@@ -115,7 +129,7 @@ def main() -> int:
         for k, when, why in bad:
             print(f"   {k} {when}: {why}")
         return 1
-    print(f"★ {checked} 筆事件的發布時刻正確，且各類事件往後都還有 ≥{MIN_FUTURE_DAYS} 天")
+    print(f"★ {checked} 筆事件的發布時刻正確；NFP/FOMC 往後還有 ≥{MIN_FUTURE_DAYS} 天，CPI 蓋到該蓋的年底")
     return 0
 
 
