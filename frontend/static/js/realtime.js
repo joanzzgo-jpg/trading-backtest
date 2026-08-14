@@ -50,6 +50,12 @@ function _updateBBTail() {
    ⚠ 只寫「最後一根」：LWC 的 update() 只能動最後一個點。 */
 const _IND_WIN = 300;   // 重算窗口（夠長讓遞迴 EMA 收斂）
 function _updateIndicatorTail() {
+  // 副圖收起來時（**預設就是收起來**）直接跳過：
+  //   ①那時 buildPayload 送 indicators:false → 後端根本沒回指標，只往最後一根寫值
+  //     會造成「只有一根有指標、其餘沒有」的不一致陣列；
+  //   ②畫面上也沒有東西在看它（每秒 0.054ms 的純白工）。
+  //   打開副圖會重新載入帶指標的資料，不會漏。
+  if (typeof _subchartsHidden === "function" && _subchartsHidden()) return;
   const n = ohlcvData.length;
   if (n < 30) return;
   const s = Math.max(0, n - _IND_WIN);
