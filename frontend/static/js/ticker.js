@@ -357,12 +357,22 @@ async function fetchTickers() {
   } catch {}
 }
 
+/* 自選裡的美股/台股/港股報價。
+   ★ 2026-08-15 使用者：「我只要加到自選 他會出現價格並跳動就好」。
+     原本這支**只在點「自選」分頁那一下被呼叫一次**，加上每檔 60 秒快取
+     → 價格出現一次之後就再也不動。改成停在自選分頁時持續輪詢（見 _wlTimer）。
+   ⚠ 快取 TTL 跟輪詢間隔要配套：TTL 若 ≥ 間隔，每輪都命中快取＝等於沒輪詢。
+     這裡 TTL 12s / 輪詢 15s。
+   ⚠ 為什麼不做更快：這支是**逐檔**打 /api/latest（美股沒有像加密那樣一次回全市場的免費端點）。
+     自選 10 檔 × 每 15 秒 ≈ 40 次/分，還在 Finnhub 免費額度（60 次/分）內；
+     再快就會開始撞限流，而限流一撞就是整批報價一起壞（見 memory binance-weight-self-lockout 同一種病）。 */
+const _WL_PRICE_TTL = 12000;
 async function _refreshWlPrices() {
   const items = _watchlist.filter(w => w.market === "us" || w.market === "tw" || w.market === "hk");
   await Promise.all(items.map(async item => {
     const key = `${item.market}:${item.exchange || ""}:${item.symbol}`;
     const cached = _wlPriceCache[key];
-    if (cached && Date.now() - cached.ts < 60000) return;
+    if (cached && Date.now() - cached.ts < _WL_PRICE_TTL) return;
     try {
       const res = await fetch("/api/latest", {
         method: "POST",
@@ -380,6 +390,20 @@ async function _refreshWlPrices() {
   }));
   if (_tickerSort === "wl") renderTickers();
 }
+
+/* 停在「自選」分頁時持續更新非加密標的的報價（加密那些本來就跟著每秒的報價輪詢在跳）。
+   ⚠ 分頁被切走 / 瀏覽器分頁在背景 → 不打：使用者看不到的東西不值得消耗上游額度，
+     而且背景分頁被瀏覽器節流後會排隊、回前景時一次爆發。 */
+let _wlTimer = null;
+function _startWlPriceLoop() {
+  if (_wlTimer) return;
+  _wlTimer = setInterval(() => {
+    if (_tickerSort !== "wl" || document.hidden) return;
+    if (!_watchlist.some(w => w.market !== "crypto")) return;   // 自選裡沒有非加密標的 → 不必打
+    _refreshWlPrices();
+  }, 15000);
+}
+_startWlPriceLoop();
 
 function updatePageTitle() {
   const sym = (document.getElementById("symbolInput")?.value || "").trim().toUpperCase();
