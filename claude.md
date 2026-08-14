@@ -118,6 +118,21 @@ node scripts/check_topbar_reachable.js   # 需本機服務跑著；360/375/390/8
 `overflow-x:hidden` 只擋使用者、不擋程式改 `scrollLeft`。只捲「overflow-x 是 auto/scroll 且真有溢出」
 的祖先，量之前把 `documentElement.scrollLeft` 歸零。詳見 memory `project_topbar-right-overflow`。
 
+### 動到重播模式／即時更新／背景補載後（守門員之十二）
+```bash
+node scripts/check_replay_no_future.js   # 需本機服務跑著；約 1 分鐘
+```
+**回測工具最嚴重的一種錯誤**：重播時若看得到游標之後的 K 棒，你做的每個判斷都是作弊、
+結論全部無效 —— 而畫面上完全看不出來（K 棒就是 K 棒，不會標示「這根還沒發生」）。
+本檔的鐵則「replay 中任何改圖表的操作必須先檢查 `replayActive`」原本**只靠人記**。
+判準在做完「前進 40 根／真拖曳／縮放＋等一輪輪詢」之後才驗（那些非同步路徑才是會踩破的地方）。
+★★ 判準一定要問 **`candleSeries.data()`（實際畫在圖上的序列）**，
+**不可以拿 `ohlcvData`**（我第一版就是，報出 5488 根假的「未來棒」）：`enterReplay()` 是把
+ohlcvData **複製**成 replayData 再畫前 N 根，`ohlcvData` 本來就留著完整資料、它是來源不是畫面；
+而且重播中背景補載還會繼續往它加舊棒（實測 1150→2533 根）。
+⚠ 這條路有**三層**防護（`enterReplay` 的 `stopRealtime()`／`fetchLatest` 入口／`await` 之後再檢一次），
+拿掉任一層都還擋得住 —— 植回舊碼時要三層一起拿掉才叫得出狼（實測就會漏出真實世界當下那根）。
+
 ### 動到繪圖圖層 A/B/C 後（守門員之十一）
 ```bash
 node scripts/check_draw_layers.js   # 需本機服務跑著
