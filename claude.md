@@ -118,6 +118,21 @@ node scripts/check_topbar_reachable.js   # 需本機服務跑著；360/375/390/8
 `overflow-x:hidden` 只擋使用者、不擋程式改 `scrollLeft`。只捲「overflow-x 是 auto/scroll 且真有溢出」
 的祖先，量之前把 `documentElement.scrollLeft` 歸零。詳見 memory `project_topbar-right-overflow`。
 
+### 動到繪圖圖層 A/B/C 後（守門員之十一）
+```bash
+node scripts/check_draw_layers.js   # 需本機服務跑著
+```
+繪圖是**使用者自己畫的資料，弄丟救不回來**（2026-08-12 我用測試腳本清掉過使用者 118 個繪圖）。
+圖層動到的正好是兩條靜默失敗的路徑：①存檔時若把隱藏層濾掉 → 重新整理後那層**永遠消失**、
+零提示；②命中判定若沒濾掉隱藏層 → 使用者會拖到／刪到**看不見的線**。
+判準＝隱藏一層後記憶體與 localStorage 的繪圖數都不變／重新整理後三層都在且隱藏狀態記得住／
+`findNearest` 對顯示層命中自己、對隱藏層必須沒命中。已植回舊碼證明會失敗。
+★★ **測試一律用假帳號名 `__gk_draw_test__`**：設成真實帳號名的話 account.js 會把整包
+localStorage 快照同步進後端 → 測試就會寫壞真實資料。假名字查無帳號 → `/api/account/sync`
+回 404 什麼都不寫（**測試過程會看到那個 404，那是正確行為**）。
+⚠ 造測試繪圖時端點時間要用**真的存在的 K 棒時間**：LWC 的 `timeToCoordinate` 對不存在的時間
+回 null（我第一版用 `t±7200` 秒，日線上不落在任何一根 → 命中判定那段整個沒測到卻「通過」）。
+
 ### 動到十字線／crosshair 相關後（守門員之十）
 ```bash
 node scripts/check_crosshair_blank.js    # 需本機服務跑著
