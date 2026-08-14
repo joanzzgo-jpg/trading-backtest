@@ -203,7 +203,6 @@ async function loadData(autoLoad = false, forceLatest = false) {
     // 真資料已經畫上去了 → 這時才敢說「主圖上的 K 棒＝這一檔」（見上方 _chartDataKey 說明）
     window._chartDataKey = window._mkChartDataKey
       ? window._mkChartDataKey(document.getElementById("marketSelect")?.value,
-                               document.getElementById("exchangeSelect")?.value,
                                document.getElementById("symbolInput")?.value)
       : null;
     // 主圖資料一就位就立刻同步行情列那一列，不要等它下一次輪詢（否則切標的後會有 <1 秒的

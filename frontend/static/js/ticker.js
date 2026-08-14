@@ -111,15 +111,20 @@ function _tkChildren(el) {
 
 /* 行情列與主圖的數值一致：市場/交易所/標的三者都對得上，才拿主圖的價。
    鑰匙由 render.js 維護（loadData 開頭清空、真資料畫上去之後才寫）→ 載入中一律回 null。 */
-window._mkChartDataKey = (mkt, exch, sym) =>
-  `${(mkt || "").trim()}|${(exch || "").trim()}|${(sym || "").trim()}`.toUpperCase();
+// ⚠ 鑰匙**只用「市場＋標的」，不含交易所**（2026-08-14 修）：
+//   `exchangeSelect` 實際上只有 pionex 一個選項，把它放進鑰匙沒有任何辨識力，
+//   卻會讓某些列永遠對不上 —— 自選(watchlist)列的 `data-exch` 是**空字串**，
+//   合約列是 "pionex" → 同一檔 BTC 在自選裡就配不起來，於是自選那列永遠退回
+//   /api/tickers 的整批快照（另一個來源、另一個節奏）＝使用者看到的「合約行情會慢」。
+window._mkChartDataKey = (mkt, sym) =>
+  `${(mkt || "").trim()}|${(sym || "").trim()}`.toUpperCase();
 
 function _mainChartPrice(el) {
   const key = window._chartDataKey;
   if (!key) return null;                       // 沒載完／載入中 → 不冒用
   const d = el.dataset;
   // 行情列的 data-sym 就是使用者點下去會送進 symbolInput 的字串，兩邊用同一把 key 產生器
-  const rowKey = window._mkChartDataKey(d.mkt, d.exch, d.display || d.sym);
+  const rowKey = window._mkChartDataKey(d.mkt, d.display || d.sym);
   if (rowKey !== key) return null;
   if (typeof ohlcvData === "undefined" || !Array.isArray(ohlcvData) || !ohlcvData.length) return null;
   const v = +ohlcvData[ohlcvData.length - 1].close;   // 主圖最後一根（形成中那根）的收盤＝畫面上的現價
@@ -192,10 +197,14 @@ window._tkSyncChartRow = function () {
   if (!container) return;
   const src = _tickerMkt === "tw" ? _twTickerData : _tickerData;
   if (!Array.isArray(src) || !src.length) return;
-  for (const el of container.querySelectorAll(".ticker-item[data-display]")) {
+  // ⚠ 查詢用 `.ticker-item` 而不是 `.ticker-item[data-display]`：
+  //   **自選列沒有 data-display**（只有 data-sym）→ 用後者會整批漏掉自選，
+  //   那正是「同一檔 BTC 在自選裡就是跟主圖對不上」的原因。
+  for (const el of container.querySelectorAll(".ticker-item")) {
     const d = el.dataset;
-    if (window._mkChartDataKey(d.mkt, d.exch, d.display || d.sym) !== key) continue;
-    const t = src.find(x => (x.display || x.symbol) === d.display) || src.find(x => x.symbol === d.display);
+    const rowSym = d.display || d.sym;
+    if (!rowSym || window._mkChartDataKey(d.mkt, rowSym) !== key) continue;
+    const t = src.find(x => (x.display || x.symbol) === rowSym) || src.find(x => x.symbol === rowSym);
     if (t) _paintTickerRow(el, t);
     return;   // 一次只會有一列命中
   }
