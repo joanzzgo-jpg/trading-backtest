@@ -229,14 +229,17 @@ def hk_search(q: str = ""):
 #   時成立，幣安一冷卻降級就全錯。見 memory project_ticker-merge-key-display。
 # ⚠ 只套用在 crypto：台股那批的 change_amt 是「對前一日收盤」算的，不是 price−open，推導不成立。
 # ⚠ 不可原地改 live_data 的字典（那是共用的即時快取）→ 一律建新的。
-_SLIM_MEMO = {"rev": None, "rows": None}
+# ⚠ 記憶的鍵**必須含 market**：futures 與 spot 的版本計數器是各自獨立的，值會撞號
+#   （兩邊都可能是 `boot:509`）→ 只用 rev 當鍵會把現貨清單當成永續回出去。
+#   實測踩到：_tickerData 從 689 變 926 檔、現貨混進永續、分頁標題變成 BTC/USDT。
+_SLIM_MEMO = {}   # (market, rev) → rows
 
 
-def _slim_crypto_rows(rows, rev):
-    """砍可推導欄位＋浮點瘦身。以 rev 記憶，同一版只算一次（多人同時輪詢時只付一次 CPU）。"""
-    m = _SLIM_MEMO
-    if rev is not None and m["rev"] == rev and m["rows"] is not None:
-        return m["rows"]
+def _slim_crypto_rows(rows, market, rev):
+    """砍可推導欄位＋浮點瘦身。以 (market, rev) 記憶，同一版只算一次（多人同時輪詢只付一次 CPU）。"""
+    ck = (market, rev)
+    if rev is not None and ck in _SLIM_MEMO:
+        return _SLIM_MEMO[ck]
     out = []
     for t in rows:
         o = dict(t)
@@ -254,7 +257,8 @@ def _slim_crypto_rows(rows, rev):
             o["volume"] = int(v)
         out.append(o)
     if rev is not None:
-        m["rev"], m["rows"] = rev, out
+        _SLIM_MEMO.clear()          # 只留最新那幾版，別無限長大
+        _SLIM_MEMO[ck] = out
     return out
 
 
@@ -304,10 +308,10 @@ def get_tickers(response: Response, market: str = "futures", since: str = ""):
         if since:
             d = get_delta(market, since)
             if d is not None:
-                d["tickers"] = _slim_crypto_rows(d["tickers"], None)   # 差量筆數少，不進記憶體
+                d["tickers"] = _slim_crypto_rows(d["tickers"], market, None)   # 差量筆數少，不進記憶體
                 d["source"] = "live"
                 return d
-        out = {"tickers": _slim_crypto_rows(live_get(market), tok), "source": "live"}
+        out = {"tickers": _slim_crypto_rows(live_get(market), market, tok), "source": "live"}
         if tok:
             out["rev"] = tok
         return out

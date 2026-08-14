@@ -41,32 +41,74 @@ def _track(market: str, lst: list):
     d["prev"] = {s: dict(t) for s, t in cur.items()}
 
 
+def _snap_with_delta() -> dict:
+    """在 _lock 內呼叫：把「資料」與「delta 狀態」放進同一份快照。
+
+    ★ 2026-08-15 為什麼要share delta 狀態：`_track` 只在 leader 跑 → follower 的 `_delta` 永遠是空的
+      → `delta_token()` 回 None、`get_delta()` 也回 None → **follower 一律回整包**。
+      線上 workers=2 輪流服務 ≈ 一半的輪詢都在傳整包。台股整包 gzip **52.1KB**、
+      差量只要 **0.5KB**（實測 4 秒內只有 3/1966 檔變動）→ 這一半的浪費非常貴
+      （台股 3 秒一輪 ≈ 每人每小時 62MB）。
+    ⚠ 只 share `rev`/`sym_rev`，**不 share `prev`**：那是 leader 比對用的整份上一版快照，
+      體積等於再放一份資料，而 follower 根本不需要（它不做 _track）。
+    ⚠ boot 也要跟著走：follower 要用**leader 的 boot** 發 token，否則兩邊發出的 token
+      互不相認，等於沒修。
+    """
+    snap = dict(_cache)
+    snap["_boot"] = _BOOT
+    snap["_delta"] = {m: {"rev": d["rev"], "sym_rev": dict(d["sym_rev"])}
+                      for m, d in _delta.items()}
+    return snap
+
+
+def _shared_delta(market: str):
+    """follower 用：從共享快照取 (boot, rev, sym_rev)；沒有就回 None。"""
+    sh = _read_shared()
+    boot = sh.get("_boot")
+    d = (sh.get("_delta") or {}).get(market)
+    if not boot or not d:
+        return None
+    return boot, d.get("rev", 0), d.get("sym_rev") or {}
+
+
 def delta_token(market: str):
     """目前版本 token（整包回應附上 → 客戶端下次帶 since 用）。follower 無 _delta → None。"""
     d = _delta.get(market)
-    return f"{_BOOT}:{d['rev']}" if d else None
+    if d:
+        return f"{_BOOT}:{d['rev']}"
+    sd = _shared_delta(market)          # follower：用 leader 寫在共享快照裡的版本
+    return f"{sd[0]}:{sd[1]}" if sd else None
 
 
 def get_delta(market: str, token: str):
     """回「自 token 版以來有變動的標的」；token 失效/跨程序/太舊 → None（呼叫端回整包）。
     先鎖內快照 rev/sym_rev 再取清單：期間若又有更新,新變動不在本次回應,但回的 token 也是舊 rev
     → 下一輪必補到,不漏報。"""
-    d = _delta.get(market)
-    if not d or not token:
+    if not token:
         return None
     try:
         boot, r = token.rsplit(":", 1)
         r = int(r)
     except Exception:
         return None
-    with _lock:
-        rev = d["rev"]
-        if boot != _BOOT or r > rev or rev - r > 900:   # 900版≈15分鐘沒跟上 → 整包重來
+    d = _delta.get(market)
+    if d:                                              # leader：用自己的
+        with _lock:
+            rev = d["rev"]
+            if boot != _BOOT or r > rev or rev - r > 900:   # 900版≈15分鐘沒跟上 → 整包重來
+                return None
+            srev = dict(d["sym_rev"])
+        my_boot = _BOOT
+    else:                                              # follower：用 leader 寫在共享快照裡的
+        sd = _shared_delta(market)
+        if not sd:
             return None
-        srev = dict(d["sym_rev"])
+        my_boot, rev, srev = sd
+        if boot != my_boot or r > rev or rev - r > 900:
+            return None
     lst = get(market)
     changed = [] if r == rev else [t for t in lst if srev.get(t.get("symbol"), rev) > r]
-    return {"tickers": changed, "rev": f"{_BOOT}:{rev}", "delta": True}
+    return {"tickers": changed, "rev": f"{my_boot}:{rev}", "delta": True}
 
 # 共享磁碟快照（與 disk_cache 同目錄，跨 process 存活）。原子寫（temp+rename）避免讀到半截。
 _SHARE_DIR  = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".df_cache")
@@ -173,7 +215,7 @@ def update(futures: list, spot: list):
         _cache["ts"]      = time.time()
         _track("futures", futures)
         _track("spot", spot)
-        snap = dict(_cache)
+        snap = _snap_with_delta()
     _write_shared(snap)                              # leader 寫共享磁碟供 follower 讀
 
 
@@ -182,7 +224,7 @@ def update_tw(tw: list):
         _cache["tw"] = tw
         _cache["ts"] = time.time()
         _track("tw", tw)
-        snap = dict(_cache)
+        snap = _snap_with_delta()
     _write_shared(snap)
 
 
