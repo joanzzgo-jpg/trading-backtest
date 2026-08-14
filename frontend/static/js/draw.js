@@ -1817,11 +1817,13 @@ function drawingDist(d, x, y) {
 //   三色 key(asia/europe/us)沿用，只有盤名(_SESSION_NAME/_CRYPTO)依市場不同。
 const _SESSION_INTRADAY = ["1m", "5m", "15m", "30m", "1h", "2h"];
 // weekend＝加密週末(傳統外匯/期貨休市)：中性灰、很淡，不當 killzone、不強調高低。
-const _SESSION_COLOR = { asia: "rgba(66,133,244,0.055)", europe: "rgba(124,104,228,0.055)", us: "rgba(255,159,40,0.05)", weekend: "rgba(130,130,145,0.04)" };
+// 2026-08-14 使用者：「三盤的顏色標示在但有一些淡」→ 底色由 0.04~0.055 調到 0.065~0.10（約 1.8x）。
+// ⚠ 這是**疊在 K 棒下方的大面積填色**，太濃會蓋掉影線與量柱 → 只加到「看得出分界」為止，不要再往上。
+const _SESSION_COLOR = { asia: "rgba(66,133,244,0.10)", europe: "rgba(124,104,228,0.10)", us: "rgba(255,159,40,0.09)", weekend: "rgba(130,130,145,0.065)" };
 const _SESSION_LINE  = { asia: "rgba(66,133,244,0.9)",  europe: "rgba(150,130,245,0.85)", us: "rgba(255,159,40,0.9)", weekend: "rgba(150,150,162,0.6)" };
 const _SESSION_NAME  = { asia: "台股", europe: "歐洲", us: "美盤", weekend: "週末" };
 const _SESSION_NAME_CRYPTO = { asia: "亞洲", europe: "倫敦", us: "紐約·交界", weekend: "週末薄量" };
-const _SESSION_COLOR_HR = { asia: "rgba(66,133,244,0.15)", europe: "rgba(124,104,228,0.15)", us: "rgba(255,159,40,0.14)", weekend: "rgba(130,130,145,0.04)" };  // 開盤首段深底色
+const _SESSION_COLOR_HR = { asia: "rgba(66,133,244,0.21)", europe: "rgba(124,104,228,0.21)", us: "rgba(255,159,40,0.20)", weekend: "rgba(130,130,145,0.065)" };  // 開盤首段深底色（同步調濃，維持與底色的層次差）
 const _SESSION_HL_SEC   = { asia: 3600, europe: 3600, us: 3600, weekend: 3600 };   // 開盤加深時長：三盤皆前 1 小時
 const _WEEKDAY = ["週日", "週一", "週二", "週三", "週四", "週五", "週六"];
 // 開關（頂部按鈕；預設開）
