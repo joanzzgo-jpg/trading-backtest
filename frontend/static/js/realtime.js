@@ -36,6 +36,90 @@ function _updateBBTail() {
   try { bbU.update({ time: t, value: up }); bbM.update({ time: t, value: mean }); bbL.update({ time: t, value: lo }); } catch (e) {}
 }
 
+/* 即時更新 RSI / KDJ / MACD：與 _updateBBTail 同一個問題 ——
+   `/api/latest` 只回裸價格、不含指標 → 隨時間進來的新棒，副圖那幾條線**不會延伸**，
+   使用者：「rsi 不會自己補，要刷新才有」（刷新＝重抓 /api/ohlcv，那支才帶指標）。
+   ⚠ 為什麼可以在前端算：這些都是**遞迴 EMA**（RSI 用 Wilder 的 ewm(com=n-1)、
+     KDJ 用 ewm(com=2)、MACD 用 ewm(span=n)），初始條件的影響會指數衰減 →
+     只要用夠長的窗口從頭跑一次就會收斂到與後端相同的值。
+     RSI-14 的 alpha=1/14，跑 300 根後初始誤差約 (13/14)^300 ≈ 1e-10，完全可忽略。
+   ⚠ 公式必須逐字對齊後端 indicators/engine.py，差一點就會與重新整理後的值對不上：
+     RSI   = 100 - 100/(1+rs)，rs = ewm(com=p-1) 的平均漲幅 / 平均跌幅
+     KDJ   = rsv 用 9 根的最高/最低；k = ewm(com=2)(rsv)、d = ewm(com=2)(k)、j = 3k-2d
+     MACD  = ema12 - ema26；signal = ema9(macd)；hist = macd - signal
+   ⚠ 只寫「最後一根」：LWC 的 update() 只能動最後一個點。 */
+const _IND_WIN = 300;   // 重算窗口（夠長讓遞迴 EMA 收斂）
+function _updateIndicatorTail() {
+  const n = ohlcvData.length;
+  if (n < 30) return;
+  const s = Math.max(0, n - _IND_WIN);
+  const c = [], hi = [], lo = [];
+  for (let i = s; i < n; i++) { const b = ohlcvData[i]; c.push(+b.close); hi.push(+b.high); lo.push(+b.low); }
+  const m = c.length;
+  const bar = ohlcvData[n - 1];
+  const t = toTime(bar.time);
+  const _upd = (ser, v) => { if (ser && isFinite(v)) { try { ser.update({ time: t, value: v }); } catch (e) {} } };
+
+  // ── RSI（Wilder：ewm(com=p-1, adjust=false) ⇒ alpha = 1/p）──
+  const _rsi = p => {
+    const a = 1 / p;
+    let ag = 0, al = 0;
+    for (let i = 1; i < m; i++) {
+      const d = c[i] - c[i - 1];
+      const g = d > 0 ? d : 0, l = d < 0 ? -d : 0;
+      ag = a * g + (1 - a) * ag;
+      al = a * l + (1 - a) * al;
+    }
+    if (al === 0) return 100;
+    return 100 - 100 / (1 + ag / al);
+  };
+  const r14 = _rsi(14), r7 = _rsi(7);
+  bar.rsi_14 = r14; bar.rsi_7 = r7;
+  _upd(typeof rsiLine14 !== "undefined" ? rsiLine14 : null, r14);
+  _upd(typeof rsiLine7  !== "undefined" ? rsiLine7  : null, r7);
+
+  // ── KDJ（k_period=9、ewm(com=2) ⇒ alpha = 1/3）──
+  {
+    const a = 1 / 3;
+    let k = 50, d = 50, started = false;
+    for (let i = 8; i < m; i++) {
+      let mn = Infinity, mx = -Infinity;
+      for (let j = i - 8; j <= i; j++) { if (lo[j] < mn) mn = lo[j]; if (hi[j] > mx) mx = hi[j]; }
+      const rng = mx - mn;
+      if (!(rng > 0)) continue;                 // 對齊後端 replace(0, nan)：整段同價 → 跳過
+      const rsv = 100 * (c[i] - mn) / rng;
+      if (!started) { k = rsv; d = rsv; started = true; }   // 收斂型初值，300 根後影響 ~0
+      else { k = a * rsv + (1 - a) * k; d = a * k + (1 - a) * d; }
+    }
+    if (started) {
+      const j = 3 * k - 2 * d;
+      bar.kdj_k = k; bar.kdj_d = d; bar.kdj_j = j;
+      _upd(typeof kdjK !== "undefined" ? kdjK : null, k);
+      _upd(typeof kdjD !== "undefined" ? kdjD : null, d);
+      _upd(typeof kdjJ !== "undefined" ? kdjJ : null, j);
+    }
+  }
+
+  // ── MACD（ema(span) ⇒ alpha = 2/(span+1)）──
+  {
+    const A12 = 2 / 13, A26 = 2 / 27, A9 = 2 / 10;
+    let e12 = c[0], e26 = c[0], sig = 0, first = true;
+    for (let i = 1; i < m; i++) {
+      e12 = A12 * c[i] + (1 - A12) * e12;
+      e26 = A26 * c[i] + (1 - A26) * e26;
+      const ml = e12 - e26;
+      if (first) { sig = ml; first = false; } else sig = A9 * ml + (1 - A9) * sig;
+    }
+    const ml = e12 - e26, hist = ml - sig;
+    bar.macd = ml; bar.macd_signal = sig; bar.macd_hist = hist;
+    _upd(typeof macdLine !== "undefined" ? macdLine : null, ml);
+    _upd(typeof macdSignal !== "undefined" ? macdSignal : null, sig);
+    if (typeof macdHist !== "undefined" && macdHist && isFinite(hist)) {
+      try { macdHist.update({ time: t, value: hist, color: hist >= 0 ? C.macdHist : C.macdHist }); } catch (e) {}
+    }
+  }
+}
+
 /* 偵測到 K 棒不連續 → 觸發「往新方向補」。節流：補載本身是非同步且會自我終止
    （_bgLoadNewerBars 補到現在就把 _hasFwdGap 清掉），這裡只避免每秒重複發動。 */
 let _gapFillAt = 0;
@@ -278,6 +362,7 @@ async function fetchLatest() {
       }
       updateLatestPriceLine(bar.close);
       _updateBBTail();   // 即時補畫布林（否則新棒沒布林、刷新才出現）
+      _updateIndicatorTail();   // 同理補 RSI/KDJ/MACD（使用者：「rsi 不會自己補、要刷新才有」）
     });
     /* 補正到「非最後一根」時的重畫：LWC 的 series.update() 只能動最後一根，
        改到更早的棒必須整張 setData。⚠ 一定要放在迴圈**外面**做一次 —— 放在迴圈裡的話，
