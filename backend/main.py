@@ -517,17 +517,26 @@ def _acquire_leader() -> bool:
         import fcntl
     except Exception:
         return True   # 非 unix（無 fcntl）→ 視為單一 worker，當 leader
+    # ⚠ 2026-08-14：**開鎖檔失敗** 與 **鎖被別人持有** 一定要分開判。
+    #   舊版把兩者都算成「別人是 leader」→ 磁碟/權限一有問題就整個服務沒有 leader、
+    #   背景工作全部不跑而且不報錯。開不了檔就保守當 leader（寧可多一個在跑，也不要沒人跑）。
+    fh = None
     try:
         d = os.path.join(os.path.dirname(__file__), ".df_cache")
         os.makedirs(d, exist_ok=True)
         fh = open(os.path.join(d, "leader.lock"), "w")
-        fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)   # 非阻塞獨佔鎖
-        _leader_lock_fh = fh                              # 保持開啟＝持有鎖
-        return True
-    except (OSError, IOError):
-        return False   # 已被別的 worker 鎖住 → 本 worker 當 follower
     except Exception:
-        return True    # 其他異常 → 保守當 leader（至少要有一個在跑背景工作）
+        return True
+    try:
+        fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)   # 非阻塞獨佔鎖
+    except (OSError, IOError):
+        try:
+            fh.close()        # ⚠ 一定要關：這支會被重試執行緒每 20 秒呼叫一次，不關就是 fd 洩漏
+        except Exception:
+            pass
+        return False   # 已被別的 worker 鎖住 → 本 worker 當 follower
+    _leader_lock_fh = fh   # 保持開啟＝持有鎖（**不可 close**，close 等於放掉鎖）
+    return True
 
 
 def _winrate_warm_worker():
@@ -583,12 +592,52 @@ async def _warmup():
             print(f"  🧹 malloc_trim 背景回收已啟動（每 {memtrim.INTERVAL_SEC:.0f} 秒）")
     except Exception as e:
         print(f"  ⚠ malloc_trim 啟動失敗（不影響服務）：{e}")
-    if not _acquire_leader():
-        print("  ⓘ follower worker：背景抓取/推播/交易由 leader 負責；本 worker 只服務請求（讀共享報價快照）")
-        return
-    _IS_LEADER = True
     import asyncio
     loop = asyncio.get_event_loop()
+    if not _acquire_leader():
+        # ★ 2026-08-14 使用者：「合約行情不動了」。根因＝這裡**只試一次**：開機時剛好撞到
+        #   前一個 process 還沒完全退出（重啟／崩潰重生／rolling restart 都會），搶輸就
+        #   **永遠**是 follower。本機 workers=1 時等於「整個服務沒有 leader」→ 報價、推播、
+        #   自動交易、暖快取全部靜靜地不跑，而且**完全不報錯**（`/api/tickers` 照樣回 200、
+        #   689 檔、source=live，只是價格一直是同一份快照）。實測本機凍在 63489.0 十六秒不動。
+        #   → 改成 follower 每 20 秒重試接手；原 leader 消失時也會有人補上。
+        print("  ⓘ follower worker：背景工作由 leader 負責；本 worker 只服務請求"
+              f"（每 {int(_LEADER_RETRY_SEC)} 秒重試接手，避免『沒有任何 leader』）")
+        threading.Thread(target=_leader_retry_worker, args=(loop,), daemon=True).start()
+        return
+    _IS_LEADER = True
+    _start_leader_jobs(loop)
+
+
+_LEADER_RETRY_SEC = 20.0
+
+
+def _leader_retry_worker(loop):
+    """follower 定期重試搶 leader：搶到就把背景工作補跑起來。
+
+    ⚠ `_start_leader_jobs` 內有 `loop.create_task` / `run_in_executor`，**必須在 event loop
+      的執行緒上跑**（從別的執行緒直接呼叫 create_task 是未定義行為）→ 用 call_soon_threadsafe 丟回去。
+    ⚠ flock 搶不到是常態（正常情況下 leader 一直活著）→ 這支只是每 20 秒開一次檔、失敗就關掉，
+      成本可忽略；搶到之後就結束執行緒。
+    """
+    global _IS_LEADER
+    while True:
+        time.sleep(_LEADER_RETRY_SEC)
+        if _IS_LEADER:
+            return
+        if not _acquire_leader():
+            continue
+        _IS_LEADER = True
+        print("  ✓ 接手成為 leader（開機時搶輸、或原 leader 已消失）→ 背景工作補啟動")
+        try:
+            loop.call_soon_threadsafe(lambda: _start_leader_jobs(loop))
+        except Exception as e:
+            print(f"  ⚠ 接手後啟動背景工作失敗：{e}")
+        return
+
+
+def _start_leader_jobs(loop):
+    """leader 專屬的背景工作。⚠ 必須在 event loop 執行緒上呼叫。"""
     loop.run_in_executor(None, _fetch_pionex_symbols)
     loop.run_in_executor(None, _fetch_pionex_perp_symbols)
     # crypto 即時報價：TICKER_WS=1 → Binance WebSocket（權重近乎0，取代每秒REST輪詢）；否則沿用 REST。
