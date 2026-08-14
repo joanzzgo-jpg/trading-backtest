@@ -592,6 +592,25 @@ async def _warmup():
             print(f"  🧹 malloc_trim 背景回收已啟動（每 {memtrim.INTERVAL_SEC:.0f} 秒）")
     except Exception as e:
         print(f"  ⚠ malloc_trim 啟動失敗（不影響服務）：{e}")
+    # ★ 2026-08-15 使用者：「美股報價沒顯示，要過一段時間才有」。
+    #   根因是我在 b79f9cc 把 yfinance 改成延遲載入（省開機記憶體）—— 但美股／外匯／台股歷史
+    #   **一定會用到它**，所以那筆 import 成本沒有消失，只是從開機時搬到了「第一個切到美股的
+    #   使用者」身上。線上實測：容器冷啟後第一次美股請求 **21.1 秒**，之後每次都只要 ~1 秒。
+    #   → 改成開機後在背景把它 import 起來：使用者永遠不用等，開機也不被拖慢。
+    #   ⚠ 誠實記一下代價：這樣就拿不回那 21 MB 了（本機量 import 一次 +84 MB RSS／+1050 模組）。
+    #     但那個「省」本來就只在**從來沒人用美股**時才成立，而它是常用功能 —— 拿 21 秒的
+    #     卡頓換 21 MB 是划不來的。真要省，該做的是別讓 yfinance 進到這個 process，不是延後它。
+    #   ⚠ 兩個 worker 都要暖（follower 也服務美股請求）→ 放在 leader 判斷**之前**。
+    def _warm_yf():
+        time.sleep(12)          # 讓開機/healthcheck 先過，不跟啟動搶 CPU
+        try:
+            from data.us_stock import _yf
+            t0 = time.time()
+            _yf()
+            print(f"  ✓ yfinance 背景預載完成（{time.time() - t0:.1f}s）")
+        except Exception as e:
+            print(f"  ⚠ yfinance 預載失敗（不影響服務，之後仍會延遲載入）：{e}")
+    threading.Thread(target=_warm_yf, daemon=True).start()
     import asyncio
     loop = asyncio.get_event_loop()
     if not _acquire_leader():
