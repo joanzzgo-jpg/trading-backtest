@@ -138,6 +138,11 @@ async function loadData(autoLoad = false, forceLatest = false) {
   if (_isSwitch && typeof window._chartDimOn === "function") window._chartDimOn();
 
   showLoading(true);
+  // ★「行情列與主圖數值要一致」用的鑰匙（2026-08-14）：標記**主圖上這批 K 棒到底是哪一檔**。
+  //   載入期間先清成 null → 行情列該列這段時間退回用它自己的價。
+  //   ⚠ 這一步是關鍵：不能拿 symbolInput 的值當依據（點下去就變了，但 ohlcvData 還是前一檔）
+  //     —— 舊版就是這樣才出現「點下去跳成別的標的的價、再跳回」，那次因此整個拿掉。
+  window._chartDataKey = null;
   // ⚡ 速度：先「發射」ohlcv 網路請求(不 await)→ 讓 TCP/後端往返與下面的快照渲染「平行」跑，
   //    不再讓快照渲染(~50-100ms 主執行緒)擋在網路請求前面(舊順序是先畫快照才發網路＝白等)。
   const _ohlcvP = fetch("/api/ohlcv", {
@@ -195,6 +200,15 @@ async function loadData(autoLoad = false, forceLatest = false) {
     _savedBarCount = _vSave.bc; _savedTimeRange = _vSave.tr;
     _savedRightOffset = _vSave.ro; _savedBarSpacing = _vSave.bs;
     renderAll(json.data);   // 內部 renderCandles 會清 marker，但 renderAll 結尾會重填 WR markers
+    // 真資料已經畫上去了 → 這時才敢說「主圖上的 K 棒＝這一檔」（見上方 _chartDataKey 說明）
+    window._chartDataKey = window._mkChartDataKey
+      ? window._mkChartDataKey(document.getElementById("marketSelect")?.value,
+                               document.getElementById("exchangeSelect")?.value,
+                               document.getElementById("symbolInput")?.value)
+      : null;
+    // 主圖資料一就位就立刻同步行情列那一列，不要等它下一次輪詢（否則切標的後會有 <1 秒的
+    // 空窗：主圖已是新價、行情列還是自己那份）。使用者：「要小到毫秒等級都相同」。
+    if (typeof window._tkSyncChartRow === "function") { try { window._tkSyncChartRow(); } catch (e) {} }
     startRealtime();
     saveLastSymbol();   // 載入成功後記憶此次標的
     if (typeof loadDrawings === "function") {   // 切換標的：載入該標的專屬繪圖並重繪

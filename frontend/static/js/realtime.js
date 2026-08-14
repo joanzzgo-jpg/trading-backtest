@@ -286,6 +286,10 @@ async function fetchLatest() {
       try { if (typeof applyOhlcvToSeries === "function") applyOhlcvToSeries(ohlcvData); } catch (e) {}
     }
     updateSymbolBar(ohlcvData);
+    // ★ 行情列「你正在看的那一檔」跟主圖同一拍更新（使用者：「要小到毫秒等級都相同」）。
+    //   放在 updateSymbolBar 旁邊＝主圖價寫進畫面的同一個 tick，兩邊讀的都是剛更新完的
+    //   ohlcvData 最後一根 → 不會有「一邊已經跳、另一邊還在等下次輪詢」的空窗。
+    if (typeof window._tkSyncChartRow === "function") { try { window._tkSyncChartRow(); } catch (e) {} }
     // 新收盤棒出現 → 重抓勝率，讓 FVG 缺口盒/策略標記延伸到最新棒(realtime 不會自己重算勝率，
     //   否則最近一段永遠沒 FVG)。debounce 在 _wrRefreshCurrent 內；非當前標的不受影響。
     if (_newBar && typeof window._wrRefreshCurrent === "function") window._wrRefreshCurrent();

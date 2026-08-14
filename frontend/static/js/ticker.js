@@ -109,6 +109,23 @@ function _tkChildren(el) {
   return c;
 }
 
+/* 行情列與主圖的數值一致：市場/交易所/標的三者都對得上，才拿主圖的價。
+   鑰匙由 render.js 維護（loadData 開頭清空、真資料畫上去之後才寫）→ 載入中一律回 null。 */
+window._mkChartDataKey = (mkt, exch, sym) =>
+  `${(mkt || "").trim()}|${(exch || "").trim()}|${(sym || "").trim()}`.toUpperCase();
+
+function _mainChartPrice(el) {
+  const key = window._chartDataKey;
+  if (!key) return null;                       // 沒載完／載入中 → 不冒用
+  const d = el.dataset;
+  // 行情列的 data-sym 就是使用者點下去會送進 symbolInput 的字串，兩邊用同一把 key 產生器
+  const rowKey = window._mkChartDataKey(d.mkt, d.exch, d.display || d.sym);
+  if (rowKey !== key) return null;
+  if (typeof ohlcvData === "undefined" || !Array.isArray(ohlcvData) || !ohlcvData.length) return null;
+  const v = +ohlcvData[ohlcvData.length - 1].close;   // 主圖最後一根（形成中那根）的收盤＝畫面上的現價
+  return (isFinite(v) && v > 0) ? v : null;
+}
+
 function _updateTickerPrices() {
   const container = document.getElementById("tickerList");
   if (!container) return;
@@ -118,34 +135,71 @@ function _updateTickerPrices() {
   src.forEach(x => { srcMap.set(x.display || x.symbol, x); srcMap.set(x.symbol, x); });
   container.querySelectorAll(".ticker-item[data-display]").forEach(el => {
     const t = srcMap.get(el.dataset.display);
-    if (!t) return;
-    const sign    = t.change_pct >= 0 ? "+" : "";
-    const cls     = t.change_pct >= 0 ? "up" : "dn";
-    const { price: priceEl, chg: chgEl, amt: amtEl } = _tkChildren(el);
-    // 每列一律顯示「該標的自己的即時價」。
-    // （原本對 tk-active 列改用主圖最新收盤 chartLastClose 同步，但切標的瞬間 ohlcvData 還是
-    //   前一個標的 → 該列短暫顯示前一標的的價＝「點下去跳成別的、再跳回」的元兇，故移除。）
-    const displayPrice = t.price;
-    // 比對後再寫，值相同不觸發 repaint
-    if (priceEl) {
-      const v = fmtTickerPrice(displayPrice);
-      if (priceEl.textContent !== v) priceEl.textContent = v;
-    }
-    if (chgEl) {
-      const v = `${sign}${t.change_pct.toFixed(2)}%`, c = `tk-chg ${cls}`;
-      if (chgEl.textContent !== v) chgEl.textContent = v;
-      if (chgEl.className   !== c) chgEl.className   = c;
-    }
-    if (amtEl) {
-      const amt = t.change_amt != null ? t.change_amt : t.price * t.change_pct / 100 / (1 + t.change_pct / 100);
-      const v = _tickerMkt === "tw" ? sign + Math.abs(amt).toFixed(2) : sign + _fmtAmt(amt, t.price);
-      const c = `tk-chg-amt ${cls}`;
-      if (amtEl.textContent !== v) amtEl.textContent = v;
-      if (amtEl.className   !== c) amtEl.className   = c;
-    }
+    if (t) _paintTickerRow(el, t);
   });
   updatePageTitle();
 }
+
+/* 畫一列。抽出來是為了「主圖價一變就只重畫那一列」（見 _tkSyncChartRow）。 */
+function _paintTickerRow(el, t) {
+  const { price: priceEl, chg: chgEl, amt: amtEl } = _tkChildren(el);
+  // 「你正在看的那一檔」用主圖的價，其餘用該標的自己的即時價（使用者：「我希望他們是一致的」）。
+  // 兩支 API 本來就同源（Binance 永續，實測同刻中位差 0.10 點），差別只在取樣時刻不同 →
+  // 對齊成同一個數字即可，不必動任何資料來源。
+  // ⚠ 這件事以前做過一次、失敗後整個拿掉：舊版用 tk-active 判斷，但切標的瞬間 ohlcvData
+  //   還是**前一個標的**的 → 該列閃現前一檔的價（「點下去跳成別的、再跳回」）。
+  //   這次改用 `_chartDataKey`：loadData 開頭清空、真資料 renderAll 之後才寫入
+  //   → 載入中一律對不上、退回自己的價，結構上不可能再閃到別檔。
+  const _mp = _mainChartPrice(el);
+  const displayPrice = (_mp != null) ? _mp : t.price;
+  // ⚠ 漲跌幅/漲跌額必須跟著**顯示的那個價**一起算，否則會出現「價是主圖的、%卻是行情列的」
+  //   這種自己跟自己對不上的列。基準價優先用該標的的開盤(24h open)，沒有才退回原本的欄位。
+  let pct = t.change_pct, amt = (t.change_amt != null)
+    ? t.change_amt : t.price * t.change_pct / 100 / (1 + t.change_pct / 100);
+  if (_mp != null) {
+    const base = (t.open != null && +t.open > 0) ? +t.open : (t.price - amt);
+    if (isFinite(base) && base > 0) { amt = _mp - base; pct = amt / base * 100; }
+  }
+  const sign = pct >= 0 ? "+" : "";
+  const cls  = pct >= 0 ? "up" : "dn";
+  // 比對後再寫，值相同不觸發 repaint
+  if (priceEl) {
+    const v = fmtTickerPrice(displayPrice);
+    if (priceEl.textContent !== v) priceEl.textContent = v;
+  }
+  if (chgEl) {
+    const v = `${sign}${pct.toFixed(2)}%`, c = `tk-chg ${cls}`;
+    if (chgEl.textContent !== v) chgEl.textContent = v;
+    if (chgEl.className   !== c) chgEl.className   = c;
+  }
+  if (amtEl) {
+    const v = _tickerMkt === "tw" ? sign + Math.abs(amt).toFixed(2) : sign + _fmtAmt(amt, t.price);
+    const c = `tk-chg-amt ${cls}`;
+    if (amtEl.textContent !== v) amtEl.textContent = v;
+    if (amtEl.className   !== c) amtEl.className   = c;
+  }
+}
+
+/* ★ 主圖價一更新就同步那一列（使用者：「要小到毫秒等級都相同」）。
+   只靠各自的輪詢是不夠的：行情列 1 秒一次、主圖 /api/latest 另一套節奏 →
+   兩次更新之間必然有一段時間顯示不同的數字。改由 realtime.js 在把新價寫進 ohlcvData
+   之後**立刻**呼叫這支 → 兩邊讀同一個 `ohlcvData` 最後一根、在同一拍寫入，永遠一致。
+   ⚠ 只動「主圖那一檔」那一列，其他列不碰（成本＝一次 querySelector + 三個字串比對）。*/
+window._tkSyncChartRow = function () {
+  const key = window._chartDataKey;
+  if (!key) return;
+  const container = document.getElementById("tickerList");
+  if (!container) return;
+  const src = _tickerMkt === "tw" ? _twTickerData : _tickerData;
+  if (!Array.isArray(src) || !src.length) return;
+  for (const el of container.querySelectorAll(".ticker-item[data-display]")) {
+    const d = el.dataset;
+    if (window._mkChartDataKey(d.mkt, d.exch, d.display || d.sym) !== key) continue;
+    const t = src.find(x => (x.display || x.symbol) === d.display) || src.find(x => x.symbol === d.display);
+    if (t) _paintTickerRow(el, t);
+    return;   // 一次只會有一列命中
+  }
+};
 
 // ── 報價 delta 輪詢：帶上次 rev token → 後端只回「有變動的標的」,本地按 symbol 合併 ──
 //    頻寬大減但「報價照樣每秒報」(變動的每檔都在 delta 裡)。每 ~60 輪拿一次整包
@@ -642,6 +696,7 @@ function renderTickers() {
     rows.filter(r => !_WL_ORDER.includes(r.item.market))   // 未知市場（理論上無）→ 收尾「其他」
         .forEach((r, i, arr) => { if (i === 0) items.push({ _k: "__wlhdr:other", _hdr: true, label: "其他", count: arr.length }); items.push(r); });
     _reconcileTicker(container, items, _buildWlRow, _updateWlRow);
+    if (typeof window._tkSyncChartRow === "function") { try { window._tkSyncChartRow(); } catch (e) {} }
     return;
   }
 
@@ -706,6 +761,10 @@ function renderTickers() {
     };
   });
   _reconcileTicker(container, _tkSlice(items), _buildCryptoRow, _updateCryptoRow);
+  // ⚠ 整批重畫/協調走的是 _buildCryptoRow / _updateCryptoRow（HTML 樣板），那條路用的是
+  //   該標的自己的 t.price → 重畫完那一瞬間「主圖那一檔」會退回不同的數字。
+  //   實測抓到過（列 1881.99 vs 主圖 1882.33）→ 重畫後立刻補一次同步。
+  if (typeof window._tkSyncChartRow === "function") { try { window._tkSyncChartRow(); } catch (e) {} }
   updatePageTitle();
 }
 
