@@ -257,7 +257,10 @@ def _slim_crypto_rows(rows, market, rev):
             o["volume"] = int(v)
         out.append(o)
     if rev is not None:
-        _SLIM_MEMO.clear()          # 只留最新那幾版，別無限長大
+        # ⚠ 不可以 clear() 全清：futures 與 spot 會交替進來，互相踢掉就變成每次都重算。
+        #   改成「每個 market 只留最新那一版」——既不會無限長大，也不會互踢。
+        for k in [k for k in _SLIM_MEMO if k[0] == market]:
+            del _SLIM_MEMO[k]
         _SLIM_MEMO[ck] = out
     return out
 
