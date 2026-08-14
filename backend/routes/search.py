@@ -217,6 +217,47 @@ def hk_search(q: str = ""):
     return result
 
 
+# ── 報價列傳輸瘦身（★只做在 HTTP 邊界，不可下沉到 live_data）───────────────────
+# 為什麼：報價輪詢是全站最高頻的請求（crypto 每秒一輪／人）。實測整包 689 檔
+#   raw 105.5KB / gzip **25.0KB**，而其中兩個欄位是「算得出來的」：
+#     change_amt ≡ price − open（689/689 筆完全吻合）
+#     spot       ≡ display 去掉 ".P"（689/689 筆完全吻合）
+#   加上浮點瘦身（volume 例如 643173198.826843 → 整數；price/open 6 位有效數字；pct 2 位）
+#   → gzip 25.0 → **17.5KB（-29.9%）**。前端在唯一的合併點 `_tkFill()` 補回來，消費者不必改。
+# ⚠ **不可以連 symbol 一起省**（還能再省 9.6%）：跨源時 symbol 格式不同
+#   （Binance `EVAAUSDT` vs Pionex `EVAA_USDT_PERP`）→ 從 display 推導只在「來源是 Binance」
+#   時成立，幣安一冷卻降級就全錯。見 memory project_ticker-merge-key-display。
+# ⚠ 只套用在 crypto：台股那批的 change_amt 是「對前一日收盤」算的，不是 price−open，推導不成立。
+# ⚠ 不可原地改 live_data 的字典（那是共用的即時快取）→ 一律建新的。
+_SLIM_MEMO = {"rev": None, "rows": None}
+
+
+def _slim_crypto_rows(rows, rev):
+    """砍可推導欄位＋浮點瘦身。以 rev 記憶，同一版只算一次（多人同時輪詢時只付一次 CPU）。"""
+    m = _SLIM_MEMO
+    if rev is not None and m["rev"] == rev and m["rows"] is not None:
+        return m["rows"]
+    out = []
+    for t in rows:
+        o = dict(t)
+        o.pop("change_amt", None)
+        o.pop("spot", None)
+        for k in ("price", "open"):
+            v = o.get(k)
+            if isinstance(v, float):
+                o[k] = float(f"{v:.6g}")
+        v = o.get("change_pct")
+        if isinstance(v, float):
+            o["change_pct"] = round(v, 2)
+        v = o.get("volume")
+        if isinstance(v, float):
+            o["volume"] = int(v)
+        out.append(o)
+    if rev is not None:
+        m["rev"], m["rows"] = rev, out
+    return out
+
+
 @router.get("/tickers")
 def get_tickers(response: Response, market: str = "futures", since: str = ""):
     """取得標的列表：優先從記憶體即時快取讀取，啟動初期才 fallback 至直接 API。
@@ -259,13 +300,14 @@ def get_tickers(response: Response, market: str = "futures", since: str = ""):
         from utils import live_data as _ld
         _ld.mark_spot_wanted()
     if has_data():
+        tok = delta_token(market)
         if since:
             d = get_delta(market, since)
             if d is not None:
+                d["tickers"] = _slim_crypto_rows(d["tickers"], None)   # 差量筆數少，不進記憶體
                 d["source"] = "live"
                 return d
-        out = {"tickers": live_get(market), "source": "live"}
-        tok = delta_token(market)
+        out = {"tickers": _slim_crypto_rows(live_get(market), tok), "source": "live"}
         if tok:
             out["rev"] = tok
         return out

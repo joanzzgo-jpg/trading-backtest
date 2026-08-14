@@ -221,8 +221,23 @@ let _tkPollN = 0;
 //   重複污染、殘留不散(降級源舊格式再也不出現在後續 delta) → 「合約排列有時候怪怪的」根因。
 //   display 是 render(_k=c::display)/排序(display||symbol) 一致採用的穩定識別，故合併也用它。
 //   用 Map 重建：既有同鍵後者覆蓋前者＝順帶清掉既有重複(自癒已污染的清單)。
+/* 後端為了省流量省略掉的欄位，在**唯一的合併點**補回來 → 所有既有消費者不必改。
+   ★ 2026-08-15：報價輪詢是全站最高頻的請求（crypto 每秒一輪），實測整包 gzip 25.0KB/秒/人。
+     `change_amt` 純粹是 price−open、`spot` 純粹是 display 去掉 ".P" —— 送這兩個等於在傳
+     算得出來的東西。省掉它們＋浮點瘦身後 25.0 → 17.5KB（-29.9%）。
+   ⚠ **不可以連 `symbol` 一起省**（那還能再省 9.6%）：跨源時 symbol 格式不同
+     （Binance `EVAAUSDT` vs Pionex `EVAA_USDT_PERP`），從 display 推導只在「來源是 Binance」
+     時剛好成立 —— 幣安一冷卻降級就全錯，而那正是最不該出錯的時候。見 memory
+     project_ticker-merge-key-display。 */
+function _tkFill(t) {
+  if (t.spot === undefined && typeof t.display === "string") t.spot = t.display.replace(".P", "");
+  if (t.change_amt === undefined && typeof t.price === "number" && typeof t.open === "number")
+    t.change_amt = t.price - t.open;
+  return t;
+}
 function _tkMerge(cur, j, key) {
   if (j.rev) _tkRev[key] = j.rev;
+  if (j.tickers) for (const t of j.tickers) _tkFill(t);
   const _id = t => t.display || t.symbol;
   if (!j.delta) {                                                           // 整包(或舊後端/冷啟動空包→保留舊資料)
     if (!j.tickers || !j.tickers.length) return cur;
