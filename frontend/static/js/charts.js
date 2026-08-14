@@ -942,7 +942,6 @@ function _makeStratMarkersPrimitive() {
       let vrng = null; try { vrng = ts.getVisibleRange(); } catch (e) {}
       const lo = vrng ? vrng.from : -Infinity, hi = vrng ? vrng.to : Infinity;
       const dimOn = !!window._dimBigBarOn;
-      const dimVolOn = !!window._dimVolOn;
       const dimCTOn = !!window._dimCounterTrendOn;
       const _htfTrend = dimCTOn ? _getHtfTrend() : null;
       const n = ohlcvData.length;
@@ -982,12 +981,6 @@ function _makeStratMarkersPrimitive() {
               const range = bar.high - bar.low; let sum = 0;
               for (let k = idx - 10; k < idx; k++) sum += (ohlcvData[k].high - ohlcvData[k].low);
               if (range > (sum / 10) * 2) _dim = true;
-            }
-            // 量淡化(測驗)：標記棒成交量「小於前三根其中一根」→ 保留；否則(≥前三根全部＝量能高點)→ 淡化
-            if (!_dim && dimVolOn && idx >= 3) {
-              const v = bar.volume || 0;
-              const v1 = ohlcvData[idx-1].volume || 0, v2 = ohlcvData[idx-2].volume || 0, v3 = ohlcvData[idx-3].volume || 0;
-              if (!(v < v1 || v < v2 || v < v3)) _dim = true;   // 沒有一根比它大 → 它≥前三根全部 → 淡化
             }
             // 大時框順勢過濾：逆大時框趨勢的標記淡化。方向看 position（aboveBar=空方(含破多)、
             //   belowBar=多方(含破空)）——不能用文字「多/空」，因為「破多」是看空、「破空」是看多。

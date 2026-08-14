@@ -104,7 +104,6 @@ window._fvgShunHidden = true;    // 預設隱藏順多/順空標記（使用者�
 let lastFVGSpecialMarkers = [];  // 「特多/特空」：多空/破多空序列 A→B→C 三連市場結構（標在 C）（主圖）
 window._fvgSpecialHidden = true;  // 特多/特空標記已從圖例移除(使用者要求刪除)→ 永久隱藏、不再顯示
 window._dimBigBarOn = false;     // 「大棒淡化」：標記棒全長>前10根平均→淡化該棒三組策略標記；切換:toggleDimBigBar()
-window._dimVolOn = false;        // 「量淡化」(測驗)：標記棒成交量小於前三根其中一根→保留,否則(≥前三根全部)淡化；切換:toggleDimVol()
 window._dimCounterTrendOn = false;  // 「大時框順勢」：逆大時框(滾動VWAP)偏向的策略標記淡化；切換:toggleDimCounterTrend()
 window._fvgFilterGopp = false;   // FVG 過濾：只顯示「g 方向與 g-1、g+1 皆相反」的缺口；切換:toggleFvgFilterGopp()
 window._fvgFilterGvol = false;   // FVG 過濾：只顯示「g 成交量 < g+1 成交量」的缺口；切換:toggleFvgFilterGvol()

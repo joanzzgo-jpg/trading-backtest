@@ -614,12 +614,6 @@ window.toggleDimBigBar = function (on) {
   _applyMainMarkers();   // 全量重建(windowOnly undefined) → 重新套淡化
   return window._dimBigBarOn;
 };
-// 開關：window.toggleDimVol() 切換「量淡化」(測驗)→ 通知策略貼圖重畫(淡化在 primitive draw 內即時判定)
-window.toggleDimVol = function (on) {
-  window._dimVolOn = (on === undefined) ? !window._dimVolOn : !!on;
-  _applyMainMarkers();
-  return window._dimVolOn;
-};
 // 開關：window.toggleDimCounterTrend() 切換「大時框順勢過濾」→ 逆大時框趨勢標記淡化(primitive draw 內即時判定)
 window.toggleDimCounterTrend = function (on) {
   window._dimCounterTrendOn = (on === undefined) ? !window._dimCounterTrendOn : !!on;
