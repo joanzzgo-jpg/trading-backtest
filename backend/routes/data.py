@@ -679,6 +679,9 @@ def pionex_status():
 
 
 
+_US_MKT_WARNED = set()   # 只警告一次（這支每個 /api/latest 都會呼叫，不能洗版）
+
+
 def _us_market_open() -> bool:
     """美股現在是不是盤中（美東 09:30–16:00、週一~五）。
 
@@ -701,8 +704,14 @@ def _us_market_open() -> bool:
             return False
         mins = now.hour * 60 + now.minute
         return 9 * 60 + 30 <= mins <= 16 * 60
-    except Exception:
-        return True    # 判不出來就別亂關（寧可維持原本行為）
+    except Exception as e:
+        # ⚠ 判不出來就別亂關（寧可維持原本行為），但**不可以靜默** ——
+        #   我第一版把 `dt` 寫成 `datetime`，NameError 被這裡吞掉 → 恆回 True、
+        #   週六凌晨也說「盤中」，而且完全看不出來。只印一次，不洗版。
+        if not _US_MKT_WARNED:
+            _US_MKT_WARNED.add(1)
+            print(f"  ⚠ _us_market_open 判定失敗（{type(e).__name__}: {e}）→ 一律視為盤中")
+        return True
 
 
 def _finnhub_overlay(df: pd.DataFrame, quote: dict):

@@ -516,7 +516,8 @@ def _acquire_leader() -> bool:
     try:
         import fcntl
     except Exception:
-        return True   # 非 unix（無 fcntl）→ 視為單一 worker，當 leader
+        print("  ⓘ 沒有 fcntl（非 unix）→ 視為單一 worker、直接當 leader")
+        return True
     # ⚠ 2026-08-14：**開鎖檔失敗** 與 **鎖被別人持有** 一定要分開判。
     #   舊版把兩者都算成「別人是 leader」→ 磁碟/權限一有問題就整個服務沒有 leader、
     #   背景工作全部不跑而且不報錯。開不了檔就保守當 leader（寧可多一個在跑，也不要沒人跑）。
@@ -525,7 +526,10 @@ def _acquire_leader() -> bool:
         d = os.path.join(os.path.dirname(__file__), ".df_cache")
         os.makedirs(d, exist_ok=True)
         fh = open(os.path.join(d, "leader.lock"), "w")
-    except Exception:
+    except Exception as e:
+        # ⚠ 這條是「磁碟/權限壞了」，不是「別人是 leader」——保守當 leader，但**一定要留痕跡**：
+        #   靜默地回 True 會讓「兩個 worker 都自認 leader」變成查不出來的事。
+        print(f"  ⚠ 開不了 leader.lock（{type(e).__name__}: {e}）→ 保守當 leader")
         return True
     try:
         fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)   # 非阻塞獨佔鎖
