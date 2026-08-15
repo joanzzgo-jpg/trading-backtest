@@ -679,6 +679,32 @@ def pionex_status():
 
 
 
+def _us_market_open() -> bool:
+    """美股現在是不是盤中（美東 09:30–16:00、週一~五）。
+
+    ★ 2026-08-15：用來讓「即時指示燈」在收盤後誠實。三條即時來源
+      （Alpaca / Twelve Data / Finnhub）都是**無條件**回 live=True，
+      收盤後它們照樣回得出「最後一根」→ 指示燈整晚亮著說即時，
+      但實測收盤後 AAPL 5m 已落後 25 分。
+    ⚠ 不用「最後一根的棒齡」判斷：15m/1h 的形成中那根本來就會舊到一個週期，
+      真即時與延遲的棒齡一模一樣，分不出來（這個坑我在 NQ=F 那次踩過）。
+    ⚠ 不含美股假日表（那要年年維護，正是 CPI 那張表的教訓）→ 假日會殘留一次誤報，
+      但假日整天沒有新資料、使用者本來就看得出來，代價可接受。
+    """
+    try:
+        from zoneinfo import ZoneInfo
+        # ⚠ 本模組把 datetime 類別匯入成 `dt`（line 26），沒有裸的 `datetime` 名稱。
+        #   我第一版寫 datetime.now() → NameError → 被下面的 except 吞掉、恆回 True，
+        #   而且**看起來完全正常**（週六凌晨測出「盤中=True」才發現）。
+        now = dt.now(ZoneInfo("America/New_York"))
+        if now.weekday() >= 5:
+            return False
+        mins = now.hour * 60 + now.minute
+        return 9 * 60 + 30 <= mins <= 16 * 60
+    except Exception:
+        return True    # 判不出來就別亂關（寧可維持原本行為）
+
+
 def _finnhub_overlay(df: pd.DataFrame, quote: dict):
     """把 Finnhub 即時報價疊加到 yfinance 最後一根 K 棒。Returns (df, is_live).
     只更新「close」並擴展 high/low；不建新 bar（避免半小時錯位的 1h/4h 對齊問題，
@@ -1583,7 +1609,7 @@ def get_latest(req: LatestRequest):
                     if adf is not None and not adf.empty:
                         cache.set(akey, adf)
                 if adf is not None and not adf.empty:
-                    return {"live": True, "data": df_to_records(adf.tail(20))}
+                    return {"live": _us_market_open(), "data": df_to_records(adf.tail(20))}
             # ⭐ Twelve Data 即時 + 成交量（可選升級；設 TWELVEDATA_TOKEN 啟用）；快取 10 秒
             if twelvedata_enabled() and req.timeframe in ("5m", "15m", "1h", "4h"):
                 tkey = f"us_td_{req.symbol}_{req.timeframe}"
@@ -1593,7 +1619,7 @@ def get_latest(req: LatestRequest):
                     if tdf is not None and not tdf.empty:
                         cache.set(tkey, tdf)
                 if tdf is not None and not tdf.empty:
-                    return {"live": True, "data": df_to_records(tdf.tail(20))}
+                    return {"live": _us_market_open(), "data": df_to_records(tdf.tail(20))}
             end   = date.today().isoformat()
             start = (date.today() - timedelta(days=10)).isoformat()
             df = fetch_us_stock(req.symbol, start, end, req.timeframe)
@@ -1611,7 +1637,7 @@ def get_latest(req: LatestRequest):
                             if pd.Timestamp(b["time"]) > yf_last:
                                 recs.append({"time": b["time"].isoformat(), "open": b["open"],
                                              "high": b["high"], "low": b["low"], "close": b["close"], "volume": b["volume"]})
-                        return {"live": True, "data": recs}
+                        return {"live": _us_market_open(), "data": recs}
                     # ★ 第二個回傳值就是「有沒有真的疊到即時價」——原本被丟掉，
                     #   結果只能靠「有沒有設金鑰」猜 live，對 Finnhub 沒涵蓋的標的就會說謊。
                     df, _us_live = _finnhub_overlay(df, quote)   # 報價過期/日線 → 退回疊加最後一根
@@ -1759,7 +1785,7 @@ def get_latest(req: LatestRequest):
     #     完全分不出來。正確訊號是「**有沒有真的套到即時來源**」，而它早就存在：
     #     `_finnhub_overlay` 的第二個回傳值，只是原本被丟掉了。
     live = ((req.market == "crypto") or (req.market == "fx")
-            or (req.market == "us" and locals().get("_us_live", False)))
+            or (req.market == "us" and locals().get("_us_live", False) and _us_market_open()))
     resp = {"live": live, "data": records}
     if req.market == "crypto":   # 同 /api/ohlcv：讓前端看得到來源，接合前先比對
         # ⚠ 用「跟著這份 df 一起記下來的」來源，不要在這裡現問 last_fetch_source()——
