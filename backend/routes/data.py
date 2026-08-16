@@ -248,8 +248,9 @@ async def perf_report(request: Request):
 
 
 @router.get("/_perf_report")
-def perf_report_list():
-    """開發端讀回來看（最新在最後）。"""
+def perf_report_list(key: str = ""):
+    """開發端讀回來看（最新在最後）。⚠ 需管理金鑰（POST 那支不能擋，前端要寫）。"""
+    _require_admin(key)
     return {"n": len(_PERF_REPORTS), "reports": list(_PERF_REPORTS)}
 
 
@@ -284,9 +285,11 @@ def diag(key: str = ""):
 
 
 @router.get("/_diag_mem")
-def diag_mem():
+def diag_mem(key: str = ""):
     """記憶體診斷：process RSS + 兩個快取池的佔用（本機、Railway 皆可用）。
-    看 process_rss_mb（整個服務吃多少 RAM）與 data_cache.df_total_mb（深歷史 df 快取佔多少）。"""
+    看 process_rss_mb（整個服務吃多少 RAM）與 data_cache.df_total_mb（深歷史 df 快取佔多少）。
+    ⚠ 需管理金鑰：快取鍵會把「此刻有人在看哪些標的/時框」整排列出來，還有 pid / leader 角色。"""
+    _require_admin(key)
     import subprocess
     def _rss_mb():
         try:   # Linux(Railway)：/proc/self/status VmRSS（當前 RSS，kB）
@@ -419,11 +422,14 @@ def diag_mem():
 
 
 @router.get("/_diag_fugle")
-def diag_fugle(symbol: str = "2330", timeframe: str = "1m"):
+def diag_fugle(symbol: str = "2330", timeframe: str = "1m", key: str = ""):
     """富果即時抓取探針（瀏覽器直接開）：定位『台股還是延遲 20 分』斷在哪。
     直接打 Fugle intraday candles，回報 HTTP 狀態＋最新一根 K 時間，**絕不洩漏金鑰**。
     判讀：status=200 且 last_candle 接近現在→富果正常(延遲另有他因)；429→額度爆(該把冷卻)；
-         401/403→金鑰權限；data 空→休市或該檔無資料。多把金鑰逐把測，看是否某把壞。"""
+         401/403→金鑰權限；data 空→休市或該檔無資料。多把金鑰逐把測，看是否某把壞。
+    ⚠ 需管理金鑰：它會**拿我們的每一把金鑰各打一次上游**——沒擋的話任何人都能從外面
+      把富果額度打爆（429 一撞就是整個台股即時報價一起壞）。"""
+    _require_admin(key)
     import time as _t
     import requests
     from data.fugle import _keys as _fugle_keys, _BASE, _TF
@@ -463,10 +469,12 @@ def diag_fugle(symbol: str = "2330", timeframe: str = "1m"):
 
 
 @router.get("/_diag_futopt")
-def diag_futopt(product: str = "TXF"):
+def diag_futopt(product: str = "TXF", key: str = ""):
     """台指期（TAIFEX MIS）抓取探針：確認免費官方源是否正常回即時報價。免金鑰。
     判讀：front_month 有值且 quote.price 有值→正常（休市則為最後收盤）；
-         都是 None→MIS 連線失敗或該產品不在 feed（如微台 TMF）。"""
+         都是 None→MIS 連線失敗或該產品不在 feed（如微台 TMF）。
+    ⚠ 需管理金鑰：每次呼叫都會直接打 TAIFEX MIS（同「外人可以代我們打上游」那一類）。"""
+    _require_admin(key)
     product = (product or "TXF").upper()
     from data.taifex_mis import resolve_front_month as _rf, fetch_taifex_quote, _get_quote_list
     front = _rf(product)
@@ -522,11 +530,15 @@ def diag_trade(key: str = ""):
 
 
 @router.get("/_diag_fvg")
-def diag_fvg():
+def diag_fvg(key: str = ""):
     """FVG 限價掛單診斷（瀏覽器直接開）：定位『限價模式卻都沒掛單』斷在哪。
     surge=爆量封控是否擋單；gap_cache=每整點刷新的新鮮缺口快取(空→收盤掃描沒跑/沒缺口)；
     per_account=各 limit 帳號的宇宙標的數＋此刻快取中『逼近且通過該宇宙過濾』的缺口數(>0 卻沒掛=掛單函式內閘門擋住)；
-    recent_fvg_log=近期 FVG 掛單記錄(status/msg→有沒有嘗試、為何失敗)。**不洩漏任何金鑰。**"""
+    recent_fvg_log=近期 FVG 掛單記錄(status/msg→有沒有嘗試、為何失敗)。**不洩漏任何金鑰。**
+    ⚠ 需管理金鑰：雖然不含金鑰，但會列出**帳號名稱與各帳號的掛單記錄**（隔壁 _diag_trade
+      早就因為同一個理由擋起來了，這支是漏的），而且它會真的去打 fapi 抓價＋逐帳號跑閘門
+      → 沒擋的話任何人都能從外面消耗我們的 Binance 權重（見 memory binance-weight-self-lockout）。"""
+    _require_admin(key)
     out = {}
     try:
         from routes.trade import _fvg_surge_active
@@ -658,8 +670,12 @@ def diag_fvg():
 
 
 @router.post("/reset_pionex_cooldown")
-def reset_pionex_cooldown():
-    """手動清除 Pionex 5 分鐘限流冷卻（給卡死時應急用）"""
+def reset_pionex_cooldown(key: str = ""):
+    """手動清除 Pionex 5 分鐘限流冷卻（給卡死時應急用）。
+    ⚠ 需管理金鑰：這是全站**唯一一支沒有身分就能改伺服器狀態**的端點，而它改的正好是
+      限流保護 —— 清掉冷卻就會馬上再去打 Pionex，而 Pionex 的封鎖是「重試會 +10s、
+      永遠清不掉」那種（見 memory pionex-exclusive-rate-limit）。"""
+    _require_admin(key)
     import data.crypto as _c
     _c._PIONEX_COOLDOWN_UNTIL = 0.0
     return {"ok": True, "msg": "Pionex 冷卻已清除"}

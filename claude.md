@@ -118,6 +118,24 @@ node scripts/check_topbar_reachable.js   # 需本機服務跑著；360/375/390/8
 `overflow-x:hidden` 只擋使用者、不擋程式改 `scrollLeft`。只捲「overflow-x 是 auto/scroll 且真有溢出」
 的祖先，量之前把 `documentElement.scrollLeft` 歸零。詳見 memory `project_topbar-right-overflow`。
 
+### 新增任何 `/api/_diag*` 或內部端點後（守門員之十五）
+```bash
+cd backend && ../.venv312/bin/python scripts/check_diag_auth.py   # 不需服務跑著
+```
+診斷端點是「開瀏覽器就能看」的除錯窗口，很好用所以會一直長出新的 —— 每支新的都可能忘記加
+`_require_admin`，**忘了也完全沒有跡象**（自己開起來一樣好好的）。2026-08-16 稽核抓到：
+`_diag_trade` 早就因為「會列出帳號名」擋起來，隔壁做同一件事的 `_diag_fvg` 卻全開 —— 它回
+**帳號名稱＋各帳號掛單記錄**，而且每次呼叫都真的打 fapi 抓價＋逐帳號跑閘門（＝外人可以消耗
+我們的 Binance 權重）。同批還有 `_diag_fugle`（拿我們每把金鑰各打一次富果，429 一撞台股即時
+報價整批壞）、`_diag_mem`（快取鍵列出此刻有人在看哪些標的）、以及 `POST
+/reset_pionex_cooldown` —— 全站**唯一**不需身分就能改伺服器狀態的端點，改的正好是限流保護。
+⚠ `_require_admin` 是「設了 `ACCOUNT_ADMIN_KEY` 才擋」→ 本機開發完全不受影響，線上才生效。
+⚠ 端點清單**從 OpenAPI schema 自動列舉**（路徑含底線開頭的段落＝內部），新增的自動涵蓋；
+**不可以走 `app.routes`**：這版 FastAPI 的 include_router 會包成 `_IncludedRouter`（無 `.routes`、
+`.path` 空字串）→ 只列得到 1 個、這支就「因為沒東西可測而通過」（我第一版就是，故另加
+「列舉到 <5 個算測試不成立」的保險）。真的要公開就加進腳本的 `_EXEMPT` 並寫明理由。
+已植回舊碼證明會失敗（拿掉 `_diag_fvg` 的守衛 → 立刻報「無金鑰 200」、回傳 1）。
+
 ### 動到「重整後回到上次的畫面」後（守門員之十四）
 ```bash
 node scripts/check_view_restore.js   # 需本機服務跑著；約 2 分鐘
