@@ -165,7 +165,23 @@ document.addEventListener("DOMContentLoaded", async () => {
   // notify.js 已移出 bundle → 由它自己在載入末段呼叫 initNotify()（保留 typeof 判斷以防哪天又併回來）
   if (typeof initNotify === "function") initNotify();                // CRT 訊號 Web Push 通知（後端未設 VAPID 會自動隱藏入口）
   if (typeof initTrade === "function") initTrade();                  // Binance 永續交易面板（後端未設交易金鑰會自動隱藏入口）
+  /* 記住「上次看到哪」的落地時機（2026-08-16 使用者：「重整後要一樣」）。
+     ⚠ 只靠 beforeunload 不夠：iOS Safari / PWA 被系統回收、分頁被丟棄時它**不會**觸發 ——
+       手機使用者正是最容易遇到的那群。pagehide + 切到背景各補一次。
+     ⚠ 再補一條「停手就存」：上面三個事件全都只在離開時才發生，被強制關掉就什麼都沒存到。
+       訂在既有的 range 訂閱裡，停手 1.2 秒才寫一次（平移中不寫，避免每幀 JSON.stringify）。
+       重播中不寫：重播的可見範圍是模擬出來的，存下來會讓下次重整停在重播位置。 */
   window.addEventListener("beforeunload", () => { saveLastSymbol(); });
+  window.addEventListener("pagehide",     () => { saveLastSymbol(); });
+  document.addEventListener("visibilitychange", () => { if (document.hidden) saveLastSymbol(); });
+  try {
+    let _svTimer = null;
+    mainChart.timeScale().subscribeVisibleLogicalRangeChange(() => {
+      if (typeof replayActive !== "undefined" && replayActive) return;
+      clearTimeout(_svTimer);
+      _svTimer = setTimeout(() => { try { saveLastSymbol(); } catch (e) {} }, 1200);
+    });
+  } catch (e) {}
 
   // 手機底部分頁：切換 圖表 / 勝率 / 自選 三個畫面（用 body class 控制各畫面顯示）
   (function initMobileTabs() {

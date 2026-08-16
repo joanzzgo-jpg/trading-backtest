@@ -118,6 +118,27 @@ node scripts/check_topbar_reachable.js   # 需本機服務跑著；360/375/390/8
 `overflow-x:hidden` 只擋使用者、不擋程式改 `scrollLeft`。只捲「overflow-x 是 auto/scroll 且真有溢出」
 的祖先，量之前把 `documentElement.scrollLeft` 歸零。詳見 memory `project_topbar-right-overflow`。
 
+### 動到「重整後回到上次的畫面」後（守門員之十四）
+```bash
+node scripts/check_view_restore.js   # 需本機服務跑著；約 2 分鐘
+```
+使用者 2026-08-16：「記憶上次看的畫面，包含大小跟時區，重整後要一樣」。這條路有**三個各自
+獨立、都靜默失效**的環節，缺一個畫面就回不去 ——
+①**存**：`lastSymbol` 只存 barSpacing ＋「距最新棒幾根」→ 只描述得了「貼在最新」的畫面；
+捲回 7/20 重整就跳回今天。改成捲在歷史時另存右緣的**時間** `anchorT`。
+★ 錨點一律問 `getVisibleRange()`（直接回時間），**不可以拿 logical index 去索引 `ohlcvData`**
+（index 指的是畫在圖上的序列、`ohlcvData` 是來源，兩者長度不同 → 實測把「看 7/20」存成 4/30）。
+②**讀**：`loadLastSymbol()` 原本「網址有 s/tf/m 就丟掉本機視角」，但 `_syncUrlState()` 每次切
+標的/時框都 replaceState 把 s/tf/m 寫進**自己的**網址 → 重整時這條件**永遠成立**＝連縮放還原
+都從來沒生效過。改成比對「網址指的是不是同一個畫面」。
+③**還原後守住**：`_placeAtAnchor` 用邏輯索引只設一次，之後背景補載往 `ohlcvData` 塞進幾千根
+舊棒（實測 420→14,040）→ 同一個索引指到的時間整個位移，還原到 7/22 的畫面幾秒後自己跑到
+**2025-09-01**（差 11 個月）。修法＝`_holdAnchorByTime()` 按時間重申 8 秒、使用者一動就放手。
+旁邊的 `_guardRestore` 救不了：它只看 span 有沒有被壓爛、而且只守 380ms。
+⚠ 判準要比**時間**不可比 logical index；⚠ 還原後要**連續盯 20 秒**（漂移是重整後好幾秒才發生，
+只驗剛還原那一刻會是綠的）；⚠ 「資料有沒有長大」要跟**重整後**的起點比（重整後是先拿有界視窗
+再補回去，永遠補不「超過」重整前那個數字 → 拿重整前當基準這支永遠不成立）。已植回舊碼證明會失敗。
+
 ### 在勝率回應新增圖層後（守門員之十三）
 ```bash
 node scripts/check_wr_cache_layers.js   # 需本機服務跑著；約 1 分鐘

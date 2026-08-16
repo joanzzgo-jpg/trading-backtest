@@ -117,12 +117,30 @@ function saveLastSymbol() {
     //   程式以 rightOffset 設定的留白會回 0 → 切標的數次後留白歸零黏回右緣（與 render.js 同因）。
     let barSpacing = null, scrollPos = null;
     try { barSpacing = ts?.options().barSpacing; scrollPos = (r && ohlcvData.length) ? Math.max(0, r.to - (ohlcvData.length - 1)) : 0; } catch (e) {}
+    /* ── 捲在歷史時，另存右緣所在的**時間**(2026-08-16 使用者：「重整後要一樣」)──────────
+       上面那組(barSpacing + scrollPos)只描述「相對最新棒的位置」→ 只還原得了「貼在最新」
+       的畫面。使用者捲回去看 7 月，重整後照樣跳回今天（實測 7/20 → 8/14）。
+       ⚠ 存**時間**不存 index：index 會隨背景補載整段位移，時間才是眼睛看到的東西
+         （切時框那條路早就是這樣做的，這裡沿用同一個錨點語義）。
+       ⚠ 只有「不在最新」才存：還在看最新卻存了時間錨點的話，隔天重整會停在昨天那根、
+         即時更新看起來像壞掉 —— 看最新就該永遠貼最新。 */
+    /* ★ 錨點一律問 timeScale().getVisibleRange()（直接回**時間**），
+         不可以拿 r.to 去索引 ohlcvData —— logical index 指的是**畫在圖上的序列**，
+         而 ohlcvData 是來源、兩者長度不同（平移修剪會砍圖上的、背景補載又往 ohlcvData 加）。
+         實測就是這樣把「看 7/20」存成了 4/30，差了快三個月。 */
+    let anchorT = null;
+    try {
+      const vr = ts?.getVisibleRange();
+      const lastT = ohlcvData.length ? toTime(ohlcvData[ohlcvData.length - 1].time) : null;
+      // 差超過一根才算「捲在歷史」：還在看最新就不存錨點（否則隔天重整會停在昨天那根）
+      if (vr && vr.to != null && lastT != null && vr.to < lastT - tfSec(currentTF)) anchorT = vr.to;
+    } catch (e) {}
     localStorage.setItem("lastSymbol", JSON.stringify({
       symbol:   document.getElementById("symbolInput")?.value  || "",
       exchange: document.getElementById("exchangeSelect")?.value || "pionex",
       market:   document.getElementById("marketSelect")?.value  || "crypto",
       tf:       currentTF,
-      rangeBarCount, rangeToOffset, barSpacing, scrollPos,
+      rangeBarCount, rangeToOffset, barSpacing, scrollPos, anchorT,
     }));
   } catch {}
   _syncUrlState();      // 網址同步反映現況 → 可直接複製分享／加書籤
@@ -185,9 +203,26 @@ function loadLastSymbol() {
     } else if (last.rangeBarCount != null) {
       _pendingRestoreRange = { barCount: last.rangeBarCount, toOffset: last.rangeToOffset ?? 0 };
     }
+    // 捲在歷史 → 交給 loadData 對齊到同一個時間錨點（見 render.js 的 _pendingRestoreAnchor）
+    if (last.anchorT) window._pendingRestoreAnchor = { t: last.anchorT, bars: last.rangeBarCount || 50 };
   } catch {}
-  // 網址優先（放在最後：先讓 lastSymbol 還原縮放等本機偏好，再讓網址覆蓋標的/時框）
-  if (_applyUrlState()) _pendingRestoreRange = null;   // 別人分享的連結 → 不套用我上次的縮放
+  /* 網址優先（放在最後：先讓 lastSymbol 還原縮放等本機偏好，再讓網址覆蓋標的/時框）。
+     ★ 2026-08-16：原本這裡是「網址有 s/tf/m 就丟掉本機視角」，理由是「別人分享的連結
+       不該把他的捲動位置搬過來」—— 但 _syncUrlState() 每次切標的/時框都會 replaceState
+       把 s/tf/m 寫進**自己的**網址，於是重整時這個條件**永遠成立** → 縮放/視角還原
+       等於從來沒生效過（使用者：「包含大小」也要記得）。
+       改成比對「網址指的是不是同一個畫面」：一樣 → 是我自己那頁（或剛好同一個標的的
+       分享連結，套自己的縮放也對）；不一樣 → 才是真的換了脈絡，丟掉本機視角。 */
+  const _fromUrl = _applyUrlState();
+  if (_fromUrl) {
+    try {
+      const q = new URLSearchParams(location.search);
+      const last = JSON.parse(localStorage.getItem("lastSymbol") || "null") || {};
+      const _same = (a, b) => !a || String(a).trim().toUpperCase() === String(b || "").trim().toUpperCase();
+      const sameCtx = _same(q.get("s"), last.symbol) && _same(q.get("tf"), last.tf) && _same(q.get("m"), last.market);
+      if (!sameCtx) { _pendingRestoreRange = null; window._pendingRestoreAnchor = null; }
+    } catch (e) { _pendingRestoreRange = null; window._pendingRestoreAnchor = null; }
+  }
 }
 
 /* 將 LINE_STYLES 中儲存的線寬 / 樣式套用到對應 series */

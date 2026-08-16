@@ -106,6 +106,28 @@ async function loadData(autoLoad = false, forceLatest = false) {
     }
   }
 
+  /* ── 重整還原「上次看的那個時間區間」(2026-08-16 使用者：「重整後要一樣」)────────────
+     開機那一次由 loadLastSymbol() 放下 window._pendingRestoreAnchor（右緣時間＋可見根數），
+     這裡把它翻譯成「捲在歷史切換」那條路已經在用的三樣東西：_savedTimeRange（對齊目標）、
+     _savedBarCount（＝縮放）、有界視窗 _loadRangeStart/_loadRangeEnd（只抓錨點附近數百根）。
+     ⚠ 一定要放在上面那段**之後**：那段是從「現在的圖表」推算的，而開機時 ohlcvData 還是空的
+       → `!ohlcvData.length` 讓 _atLatest 恆為 true → 它剛好會把 _savedTimeRange 清成 null。
+     ⚠ 只用一次（用完清掉）：之後切標的/時框要走各自的邏輯，不能一直被開機那個錨點綁住。 */
+  if (window._pendingRestoreAnchor) {
+    try {
+      const _pa = window._pendingRestoreAnchor;
+      const _paSec = tfSec(currentTF);
+      _savedBarCount  = Math.max(5, _pa.bars || 50);
+      _savedTimeRange = { from: _pa.t - _savedBarCount * _paSec, to: _pa.t };
+      window._loadRangeStart = Math.floor(_pa.t - 300 * _paSec);
+      window._loadRangeEnd   = Math.floor(_pa.t + 120 * _paSec);
+      window._hasFwdGap = true;      // 有界視窗未到現在 → 往右拖時 _bgLoadNewerBars 往「新」補
+      _pendingRestoreRange = null;   // 與時間錨點互斥：有錨點就不要再套「貼最新」那組
+      window._bootAnchorHold = _pa.t;   // 還原之後要按住幾秒（見 _holdAnchorByTime）
+    } catch (e) {}
+    window._pendingRestoreAnchor = null;
+  }
+
   // 快照秒畫(_snapPaint→renderAll)會先消耗上面保存的視野變數(renderAll 結尾歸 null)→
   // 真資料到貨的第二次 renderAll 拿到 null、跳回「最新50根」。先留副本，真資料 renderAll 前還原，
   // 讓快照與真資料兩次都套用同一個視野（切標的記得縮放+平移位置）。
@@ -314,6 +336,35 @@ function _nearestIdxByTime(sec) {
   return dLo < dHi ? lo : hi;
 }
 
+/* 開機還原到歷史錨點後，把「右緣＝那個時間」按住幾秒（2026-08-16）。
+   ★ 為什麼需要：_placeAtAnchor 用的是**邏輯索引**，只設一次；設完之後背景補載會往
+     ohlcvData 塞進成千上萬根舊棒（實測 420 → 14,040 根），同一個邏輯索引指到的時間就整個
+     位移 —— 實測還原到 2026-07-22 的畫面，幾秒後自己跑到 2025-09-01（差 11 個月），
+     而且過程沒有任何錯誤、使用者只覺得「重整後看到的不是我剛剛那頁」。
+     旁邊的 _guardRestore 救不了：它只看**span 有沒有被壓爛**、而且只守 380ms。
+   ⚠ 使用者一動（滾輪/按下/觸控）就立刻放手，絕不跟使用者搶圖表。
+   ⚠ 判準用時間差 > 半根，不用相等：LWC 的可見範圍是連續值，要求相等會每輪都重設。 */
+function _holdAnchorByTime(anchorT, bc) {
+  let stop = false;
+  const _off = () => { stop = true; };
+  ["mousedown", "wheel", "touchstart", "keydown"].forEach(e =>
+    window.addEventListener(e, _off, { once: true, passive: true }));
+  const t0 = Date.now();
+  const tick = () => {
+    if (stop || replayActive || Date.now() - t0 > 8000) return;
+    try {
+      const ts = mainChart.timeScale();
+      const vr = ts.getVisibleRange();
+      if (vr && vr.to != null && Math.abs(vr.to - anchorT) > tfSec(currentTF) / 2) {
+        const idx = _nearestIdxByTime(anchorT);
+        if (idx != null) ts.setVisibleLogicalRange({ from: idx - bc, to: idx });
+      }
+    } catch (e) {}
+    setTimeout(tick, 400);
+  };
+  setTimeout(tick, 400);
+}
+
 /* ══════════════════════════════════════════
    渲染
 ══════════════════════════════════════════ */
@@ -456,6 +507,7 @@ function renderAll(data) {
       const idx = _nearestIdxByTime(_anchorT);
       if (idx == null) { _restoreByBarCount(); return; }
       _guardRestore(() => { try { mainChart.timeScale().setVisibleLogicalRange({ from: idx - _bc, to: idx }); } catch (e) {} });
+      if (window._bootAnchorHold === _anchorT) { window._bootAnchorHold = null; _holdAnchorByTime(_anchorT, _bc); }
     };
     if (_anchorT >= _first && _anchorT <= _last + 1) {
       // 目標時間已在載入資料內 → 一次定位到目標段、保持原縮放(單張畫面直達,不跳不滑)
@@ -592,10 +644,8 @@ function _applyMainMarkersNow(windowOnly) {
       ...(window._coachOn ? lastSMCSweepMarkers : []),           // SMC 掃頂/掃底(階段1:SR+SMC 教練疊加層,右上開關)
       ...(window._coachOn ? lastCoachBOSMarkers : []),           // 教練步驟5(BOS)達成點箭頭(右上開關)
     ].sort((a, b) => a.time - b.time);
-    // 標記(多空/破多空)變動 → 重畫成交量，讓有標記的棒顯化、其餘淡化（僅全量重建時，平移不觸發）
-    // ⚠ 重播中不重畫：重播的成交量由 replay.js 管 slice/逐根 update，整列 ohlcvData 會把未來棒洩漏進圖
-    if (!(typeof replayActive !== "undefined" && replayActive)
-        && typeof renderVolume === "function" && typeof ohlcvData !== "undefined" && ohlcvData.length) renderVolume(ohlcvData);
+    /* 這裡原本會「標記一變就整份重畫成交量」，唯一目的是套上面那個淡化。
+       淡化拿掉後成交量與標記完全無關 → 連帶省掉每次標記更新的一次全量 setData。 */
   }
   const all = _sortedMarkerCache;
   const [ws, we] = _windowMarkers(all);
@@ -636,26 +686,19 @@ function _volAlphaHex() {
   return Math.round((S.volAlpha ?? 0.67) * 255).toString(16).padStart(2, "0");
 }
 
-// 有策略標記(多/空・破多/破空)的那些棒時間集合 → 成交量顯化用
-function _stratVolTimes() {
-  const s = new Set();
-  const add = (arr) => { if (arr) for (const m of arr) s.add(m.time); };
-  if (typeof lastFVGMSMarkers    !== "undefined") add(lastFVGMSMarkers);
-  if (typeof lastFVGBreakMarkers !== "undefined") add(lastFVGBreakMarkers);
-  return s;
-}
-
+/* 成交量一律用使用者的 volAlpha，不做任何淡化（2026-08-16 使用者：「我不要淡化」）。
+   ★ 原本這裡會在「有多/空・破多空標記」時，把**沒有標記的棒**壓到 alpha 1f（12%）——
+     沒有任何開關可以關，使用者看到的就是「有些成交量被淡化」。
+     而且 replay.js / realtime.js 那兩條更新路徑從來都用 _va → 最新那根永遠全亮、
+     旁邊的歷史棒卻是淡的，同一張圖上兩種亮度。
+   ⚠ 別再加回來：真要「顯化某些棒」請走獨立開關，預設關。 */
 function renderVolume(data) {
   const _va = _volAlphaHex();
-  // 有多空／破多空標記的棒 → 全亮(顯化)；其餘淡化。無任何標記時(集合空)照常顯示。
-  const markSet = _stratVolTimes();
-  const dimOn = markSet.size > 0;
-  volSeries.setData(data.map(d => {
-    const t = _bt(d);
-    const base = d.close >= d.open ? C.volUp : C.volDown;
-    const a = dimOn ? (markSet.has(t) ? "ff" : "1f") : _va;
-    return { time:t, value:d.volume||0, color: base + a };
-  }));
+  volSeries.setData(data.map(d => ({
+    time: _bt(d),
+    value: d.volume || 0,
+    color: (d.close >= d.open ? C.volUp : C.volDown) + _va,
+  })));
   // 每次重新套用 scale 設定，避免切換標的或市場後比例跑掉。
   // ⚠ 數值統一放 charts.js 的 MAIN_SCALE_MARGINS / VOL_SCALE_MARGINS，別在這裡再寫一份
   //   （原本兩邊各一份，這份會蓋掉那份 → 改了 charts.js 卻沒效果）。
@@ -838,15 +881,13 @@ function _bgApplyChunk(data, nPrepended) {
   // applyOhlcvToSeries：直接更新 candleSeries，不呼叫 setMarkers（避免 marker 清空閃爍）
   applyOhlcvToSeries(data);
   // 輕量 volume 更新（跳過 priceScale.applyOptions 避免 layout thrashing）
-  // 淡化邏輯與 renderVolume 一致：否則補載每段 chunk 都把「標記棒顯化」洗回全亮、載完才被救回（閃爍）
+  // 透明度與 renderVolume 一致（都是純 _va，不淡化）
   const _va = _volAlphaHex();
-  const _mkSet = _stratVolTimes();
-  const _dimOn = _mkSet.size > 0;
-  volSeries.setData(data.map(d => {
-    const t = _bt(d);
-    const base = d.close >= d.open ? C.volUp : C.volDown;
-    return { time: t, value: d.volume || 0, color: base + (_dimOn ? (_mkSet.has(t) ? "ff" : "1f") : _va) };
-  }));
+  volSeries.setData(data.map(d => ({
+    time: _bt(d),
+    value: d.volume || 0,
+    color: (d.close >= d.open ? C.volUp : C.volDown) + _va,
+  })));
 }
 
 // 指標 debounce：每段 chunk 後重設計時器，最後一段完成 800ms 後才計算
