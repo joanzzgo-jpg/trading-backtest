@@ -95,6 +95,25 @@ async function main() {
   }, TF);
   await sleep(12000);
 
+  /* ── ⓪ 全新進場（乾淨 profile、什麼都沒動過）→ 最後一根 K 棒與右緣之間要有留白 ──
+     使用者 2026-08-17：「右邊無留白」。LWC 預設 rightOffset=0＝最後一根貼著價格軸，
+     本專案原本沒有預設值，既有的 rightOffset 邏輯全都只是「保住使用者自己拉出來的位置」。
+     ★ 判準用**像素**不用根數：根數會被縮放騙（放大時 3 根就很寬、縮小時 3 根等於沒有）。
+     ★ 必須在動任何東西**之前**測：後面 ① 會自己設 rightOffset=20，那之後再問「有沒有留白」
+       是必然成立的＝等於沒測（我第一版就放在那裡）。 */
+  const pad = await page.evaluate(`(() => {
+    const ts = mainChart.timeScale(), n = candleSeries.data().length;
+    const x = ts.logicalToCoordinate(n - 1);
+    return { px: x == null ? null : Math.round(ts.width() - x), bs: +ts.options().barSpacing.toFixed(1) };
+  })()`);
+  /* ⚠ 門檻不可以用固定小數字：rightOffset=0（舊行為，最後一根就是貼著）量到的仍有 ~12px ——
+     那只是「半根 K 棒 + 內距」，用 8px 當門檻舊碼照樣通過＝叫不出狼（我第一版就是）。
+     以 barSpacing 為基準：要比「兩根 K 棒」還寬才算真的留了空間。 */
+  const padMin = Math.max(24, Math.round(pad.bs * 2));
+  const okPad = pad.px != null && pad.px > padMin;
+  console.log(`   ⓪ 全新進場：最後一根 K 棒離右緣 ${pad.px}px（門檻 ${padMin}px＝兩根 K 棒 bs=${pad.bs}）　${okPad ? "✓ 有留白" : "✗ 等於貼著價格軸"}`);
+  if (!okPad) fails.push(`全新進場：最後一根 K 棒離右緣只有 ${pad.px}px（不到兩根 K 棒 ${padMin}px）＝貼著價格軸，預設留白沒生效`);
+
   /* ── ① 看最新時重整：縮放、以及**右緣留白**都要一樣，而且不可以反而被釘在過去 ──
      ★ 留白這項一定要驗（使用者 2026-08-16：「最新框會右貼」）：存進去的值是對的（實測 20 根），
        是**還原端的夾限**把它砍掉的 —— 還原發生在圖表還沒佈局好的那一刻，`ts.width()` 回 0
@@ -124,7 +143,6 @@ async function main() {
   if (!aBars)   fails.push(`看最新重整：可見根數 ${a1.bars} → ${a2.bars}（縮放沒還原）`);
   if (!aLatest) fails.push(`看最新重整：右緣停在 ${a2.to}、最新棒卻是 ${a2.last}（被釘在過去）`);
   if (!aGap)    fails.push(`看最新重整：右緣留白 ${a1.gap} 根 → ${a2.gap} 根（K 棒被貼到右邊）`);
-
   // ── ② 捲在歷史時重整 ──
   const moved = await page.evaluate(back => {
     const ts = mainChart.timeScale(), v = ts.getVisibleLogicalRange();

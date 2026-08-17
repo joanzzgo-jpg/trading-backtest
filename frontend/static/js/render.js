@@ -448,13 +448,26 @@ function renderAll(data) {
        上限變成 5 → 使用者原本 20 根的留白被夾成 5 根＝K 棒幾乎貼著右邊。
      → 量不到寬度時**不要夾**（只留絕對上限 60）。夾限是為了治「已存進垃圾值」的舊狀態，
        用一個還沒準備好的寬度去夾，等於每次重整都吃掉使用者的留白 —— 治病治成了病。 */
-  const _roCapFor = (bs) => {
+  const _visNFor = (bs) => {
     let w = 0;
     try { w = mainChart.timeScale().width(); } catch (e) {}
     if (!(w > 50)) { try { w = document.getElementById("mainChart")?.clientWidth || 0; } catch (e) {} }
-    if (!(w > 50)) return 60;
-    const visN = Math.max(10, Math.round(w / Math.max(0.5, bs)));
-    return Math.min(Math.max(5, Math.floor(visN / 2)), 60);
+    return (w > 50) ? Math.max(10, Math.round(w / Math.max(0.5, bs))) : null;   // null＝量不到
+  };
+  const _roCapFor = (bs) => {
+    const visN = _visNFor(bs);
+    return visN == null ? 60 : Math.min(Math.max(5, Math.floor(visN / 2)), 60);
+  };
+  /* 看最新時，最後一根 K 棒與右緣之間的**預設留白**（單位＝K 棒數）。
+     ★ 2026-08-17 使用者：「右邊無留白」。LWC 預設 rightOffset=0 ＝最後一根貼著價格軸：
+       最新那根被切在邊上、也沒有空間看「接下來要往哪走」。本專案一直沒有預設值，
+       之前的 rightOffset 邏輯全都只是「保住使用者自己拉出來的位置」而已。
+     ⚠ 用**比例**不用固定根數：固定根數在放大時會變成半個畫面、縮小時又等於沒有；
+       依可見根數等比例算，不論縮放到哪一級，看起來的留白寬度都差不多。
+     ⚠ 只當**下限**（跟已存的值取大）：使用者自己拉出更大的留白要保留得住。 */
+  const _defaultRightPad = (bs) => {
+    const visN = _visNFor(bs) || (_savedBarCount || 50);
+    return Math.min(20, Math.max(3, Math.round(visN * 0.06)));
   };
   const _restoreByBarCount = () => {
     const ts = mainChart.timeScale();
@@ -462,17 +475,18 @@ function renderAll(data) {
     // 持久選項跨 setData/fitContent/背景載入都不會被沖掉（解決「切幾次後黏回右邊」）。
     if (_savedBarSpacing != null) {
       // 還原端同樣夾限 rightOffset(治「已存進垃圾值」的舊狀態:半屏K棒下限+絕對60)
-      const opt = { barSpacing: _savedBarSpacing,
-                    rightOffset: Math.min(_savedRightOffset || 0, _roCapFor(_savedBarSpacing)) };
+      const _ro = Math.max(_savedRightOffset || 0, _defaultRightPad(_savedBarSpacing));
+      const opt = { barSpacing: _savedBarSpacing, rightOffset: Math.min(_ro, _roCapFor(_savedBarSpacing)) };
       ts.applyOptions(opt);
       _bgPosAnchor = opt;   // 背景分頁載入每段後重套此錨點，防縮放被 fitContent 壓回 0.5
       return;
     }
-    // 否則（首次、無保存）→ 預設貼最新 N 根
+    // 否則（首次、無保存）→ 預設貼最新 N 根，右側留一段空白（見 _defaultRightPad）
     const _prevRange = ts.getVisibleLogicalRange();
     const _barCount  = (_prevRange && _savedBarCount != null) ? _savedBarCount : 50;
     if (data.length > _barCount) {
-      ts.setVisibleLogicalRange({ from: data.length - _barCount, to: data.length - 1 });
+      const _pad = Math.min(20, Math.max(3, Math.round(_barCount * 0.06)));
+      ts.setVisibleLogicalRange({ from: data.length - _barCount + _pad, to: data.length - 1 + _pad });
     }
   };
   _bgPosAnchor = null;   // 預設無錨點（捲到歷史/時間範圍還原時不鎖縮放）；下方看最新分支才設
@@ -484,8 +498,8 @@ function renderAll(data) {
       // （localStorage 可能已存有被 fitContent 競態污染的大值 → 載入即自癒）。
       try {
         const _ts = mainChart.timeScale();
-        const opt = { barSpacing: pr.barSpacing,
-                      rightOffset: Math.min(pr.rightOffset || 0, _roCapFor(pr.barSpacing)) };
+        const _ro = Math.max(pr.rightOffset || 0, _defaultRightPad(pr.barSpacing));
+        const opt = { barSpacing: pr.barSpacing, rightOffset: Math.min(_ro, _roCapFor(pr.barSpacing)) };
         _ts.applyOptions(opt);
         _bgPosAnchor = opt;
       } catch (e) {}
