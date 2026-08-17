@@ -20,6 +20,13 @@ let _acctLSHooked = false;
 //   （＝開著頁面時整包雲端同步形同失效，只剩切到背景那次 flush）；而且它是純裝置本地的快取，
 //   推上雲端只是白白灌大快照。症狀：勝率欄的同步指示永遠停在「同步中…」。
 const _ACCT_SKIP = new Set(["acctName", "wxCoords", "notifyFeedSeen", "tradeKey", "watchlist", "_tc"]);
+/* 「照樣進快照上雲、但**不主動觸發**推送」的 key。
+   ★ 2026-08-17 lastSymbol：使用者要「上次看的畫面跨裝置同步」，所以它必須上雲；但它現在
+     每次平移/縮放（停手 1.2 秒）就寫一次 —— 若跟著觸發 _acctTouch，2.5 秒的 debounce 會被
+     一直重新計時、_acctFlush 幾乎不會執行，整包雲端同步等於失效（`_tc` 當初就是踩這個才被
+     加進 _ACCT_SKIP，見上方註解）。放這裡＝有別的設定變更、或切到背景 flush 時順便帶上去，
+     而「最後看到哪」本來就只有最後那一次有意義。 */
+const _ACCT_NO_TOUCH = new Set(["lastSymbol"]);
 // 每個帳號各自保存、切換帳號時要「乾淨換成該帳號的」設定 key：
 //   chartColors=K棒+指標顏色 / chartStyles=指標參數·線寬·樣式 / chartLineStyles=各線寬樣式 /
 //   sysColors=系統外觀色 / mobileTFs=手機顯示的時間框
@@ -266,16 +273,21 @@ async function _acctPullDrawings(name, _bootPull) {
              改成同一套邏輯 —— **上去的就會下來**，以後不用再逐項補。
              _PULL_SKIP＝不上傳的那幾個（本來就不會有）＋「裝置自己的狀態」
              （使用者 2026-08-06 明確選擇不跨裝置：極簡模式、手機字級/版面、面板比例、
-              多圖版面、公告已讀、搜尋紀錄、加速器、上次看的標的）。 */
+              多圖版面、公告已讀、搜尋紀錄、加速器）。
+             ★ 2026-08-17 `lastSymbol` 從這裡拿掉 —— 使用者要「上次看的畫面跨裝置同步」。
+               它現在裝的不只是標的/時框，還有縮放與看到哪個時間段（見 utils.js saveLastSymbol）。 */
           const _PULL_SKIP = new Set([..._ACCT_SKIP,
             "perfMode", "mFontScale", "mHideWr", "mLastTab",
             "paneFlexes", "collapsedPanes", "multiChart",
-            "announceSeenVer", "symSearchHistory", "accelOn", "lastSymbol"]);
+            "announceSeenVer", "symSearchHistory", "accelOn"]);
           // 這幾項我們有辦法「當場重讀重套」，其餘只能靠重新載入才會反映到畫面
           const _LIVE = new Set(["tv_drawings_v2", "sysColors", "drawColorByTf",
                                  "chartColors", "chartStyles", "chartLineStyles",
-                                 "chartColors_m", "chartStyles_m", "chartLineStyles_m"]);
+                                 "chartColors_m", "chartStyles_m", "chartLineStyles_m",
+                                 // lastSymbol 走 loadLastSymbol(true)+loadData() 當場切過去，不必重載
+                                 "lastSymbol"]);
           let colorsChanged = false, sysChanged = false, tfPenChanged = false, needReload = false;
+          let lastSymChanged = false;
           for (const k in r.data) {
             if (_PULL_SKIP.has(k)) continue;
             const remote = r.data[k];
@@ -284,7 +296,8 @@ async function _acctPullDrawings(name, _bootPull) {
             try { local = localStorage.getItem(k); } catch (e) {}
             if (remote === local) continue;
             try { localStorage.setItem(k, remote); } catch (e) {}
-            if (k === "sysColors") sysChanged = true;
+            if (k === "lastSymbol") lastSymChanged = true;
+            else if (k === "sysColors") sysChanged = true;
             else if (k === "drawColorByTf") tfPenChanged = true;
             else if (k.startsWith("chart")) colorsChanged = true;
             if (!_LIVE.has(k)) needReload = true;   // 例：hiddenLegs / notifyPrefs / 勝率欄設定…
@@ -312,6 +325,20 @@ async function _acctPullDrawings(name, _bootPull) {
           // 時框畫筆色：draw.js 讀 localStorage 算出當前時框的預選色 → 重同步兩處色框
           if (tfPenChanged) {
             try { window._syncTfPenColors?.(); window._syncDrawColorChip?.(); } catch (e) {}
+          }
+          /* 上次看的畫面跨裝置（2026-08-17 使用者：「要跨裝置同步」）。
+             在手機看到哪、換電腦開就接著那裡：標的/時框/縮放/看到哪個時間段全部帶過去。
+             ⚠ **只在開機那一次**套用：切回前景時也套的話，另一台一動、你這台的圖就被扯走，
+               看盤看到一半畫面自己跑掉。開機接續是同步，中途搶畫面是干擾。
+             ⚠ 要 `skipUrl`：本機網址上的 ?s=&tf= 是**這台自己**上次寫進去的（_syncUrlState 每次
+               切標的都會 replaceState），不 skip 的話它會把剛拉下來的雲端值又蓋回去。
+             ⚠ 走 loadLastSymbol()+loadData() 當場切，不進上面那條 reload 分支（lastSymbol 每次
+               平移都在變，靠重載等於幾乎每次開機都閃一次）。 */
+          if (lastSymChanged && _bootPull) {
+            try {
+              if (typeof loadLastSymbol === "function") loadLastSymbol(true);
+              if (typeof loadData === "function") loadData(true);
+            } catch (e) { console.debug("[帳號] 套用雲端上次畫面失敗:", e); }
           }
         }
       }
@@ -455,7 +482,7 @@ async function initAccount() {
         _origSet(k, v);
         // 裝置本地 key（_ACCT_SKIP）不觸發雲端同步 → 否則高頻寫入會把整包設定（含自選）
         // 反覆推上雲端、覆蓋其他裝置的自選。
-        if (!_ACCT_SKIP.has(k) && window._acctTouch) window._acctTouch();
+        if (!_ACCT_SKIP.has(k) && !_ACCT_NO_TOUCH.has(k) && window._acctTouch) window._acctTouch();
       };
     }
   } catch (e) {}

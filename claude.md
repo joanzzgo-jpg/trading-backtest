@@ -136,6 +136,32 @@ cd backend && ../.venv312/bin/python scripts/check_diag_auth.py   # 不需服務
 「列舉到 <5 個算測試不成立」的保險）。真的要公開就加進腳本的 `_EXEMPT` 並寫明理由。
 已植回舊碼證明會失敗（拿掉 `_diag_fvg` 的守衛 → 立刻報「無金鑰 200」、回傳 1）。
 
+### 動到報價列差量（`/api/tickers`）後（守門員之十六）
+```bash
+node scripts/check_ticker_delta_fields.js   # 需本機服務跑著；約 2 分鐘
+```
+報價輪詢是**全站最高頻的請求**（crypto 每秒一輪／人）。2026-08-17 差量從「這個標的變了就整列
+重送」細到**只送真的變了的欄位**（`_track` 的 `sym_rev` 由 `{sym: rev}` 改成 `{sym: {欄位: rev}}`）
+→ 實測 **−55%**。動機：crypto 每秒有 672/689 檔在動，列級差量幾乎等於整包（17.4KB vs 17.9KB），
+但一列 6 個欄位裡 `symbol`/`display` **永遠不變**（佔 40%）、`open` 一整天不變（13%）。
+⚠ 差量是相對**客戶端的 token**（不是伺服器的上一版）→ 每個欄位都要各自記最後變動版本。
+⚠ 前端 `_tkMerge` 的 delta 分支必須是**合併** `{...old, ...t}`，不可覆蓋（覆蓋＝沒送來的欄位消失，
+而 symbol/open 不再送＝清單變空殼）；`_tkFill` 要在**合併之後**（它算 change_amt 需要 price＋open
+兩個）；推導欄位（change_amt/spot）只在**後端沒送**時才作廢重算 —— 台股的 change_amt 是對前一日
+收盤算的、由後端送來，清掉會被錯誤公式蓋掉。
+判準＝跑滿 **>60 輪**（跨過整包自癒）後，把前端手上的清單跟**同一刻的整包**逐欄位比：慢變欄位
+（symbol/display/open/volume）必須完全相同，每秒在跳的（price/change_pct）只驗是數字。
+
+### 「上次看的畫面」跨裝置同步（2026-08-17）
+`lastSymbol`（標的/時框/縮放/看到哪個時間段）已從 `_PULL_SKIP` 拿掉 → 跟著帳號快照跨裝置。
+⚠ 它同時被加進 **`_ACCT_NO_TOUCH`**：它每次平移停手 1.2 秒就寫一次，若跟著觸發 `_acctTouch`，
+2.5 秒的 debounce 會被一直重新計時、`_acctFlush` 幾乎不會執行 ＝**整包雲端同步等於失效**
+（`_tc` 當初就是踩這個才被加進 `_ACCT_SKIP`）。放 NO_TOUCH＝照樣進快照，但等別的變更或切背景
+flush 時才上去。⚠ 下行**只在開機那一次**套用（切回前景也套的話，另一台一動你這台的圖就被扯走）；
+且必須 `loadLastSymbol(true)` 跳過網址（網址的 ?s=&tf= 是這台自己 replaceState 寫的，會蓋回雲端值）。
+⚠ 測這個功能**一定要用假帳號名**（見 memory `feedback_never-use-real-account-in-tests`）；
+本機沒設 `ACCOUNT_ADMIN_KEY` 開不了 `admin/create` → 直接往 `backend/.accounts.db` 插一列、測完刪掉。
+
 ### 動到「重整後回到上次的畫面」後（守門員之十四）
 ```bash
 node scripts/check_view_restore.js   # 需本機服務跑著；約 2 分鐘

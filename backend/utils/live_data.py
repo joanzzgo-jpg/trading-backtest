@@ -18,12 +18,20 @@ _lock  = threading.Lock()
 # 路由帶舊 rev 來 → 只回有變動的標的（crypto 1s 輪詢頻寬大減、行為不變）。
 # token 摻 _BOOT（process 標識）：重啟/別的 worker 的 token 一律判失效 → 回整包，永不出錯資料。
 _BOOT  = f"{int(time.time()):x}-{os.getpid():x}"
-_delta = {}   # market → {"rev": int, "sym_rev": {sym: rev}, "prev": {sym: dict快照}}
+_delta = {}   # market → {"rev": int, "sym_rev": {sym: {欄位: rev}}, "prev": {sym: dict快照}}
 
 
 def _track(market: str, lst: list):
-    """在 _lock 內呼叫：比對每個標的 dict 是否與上一版不同 → 蓋最後變動 rev。
-    ⚠ prev 必須存「副本」：overlay_tw 是就地改同一批 dict，存原參照會永遠相等、測不到變動。"""
+    """在 _lock 內呼叫：逐**欄位**比對是否與上一版不同 → 蓋該欄位的最後變動 rev。
+    ⚠ prev 必須存「副本」：overlay_tw 是就地改同一批 dict，存原參照會永遠相等、測不到變動。
+
+    ★ 2026-08-17 由「每標的一個 rev」細到「每欄位一個 rev」。
+      為什麼：crypto 永續每秒有 672/689 檔在動 → 舊的列級差量幾乎等於整包（實測 17.4KB vs
+      17.9KB，省不到 3%）。但一列 6 個欄位裡，`symbol`／`display` **永遠不變**（佔封包 40%），
+      `open` 一整天不變（13%），真正每秒在跳的只有 price/change_pct/volume。
+      改成欄位級之後實測 **−55%**（三輪 8845B → 3995B）。
+    ⚠ 差量是相對**客戶端的 token**（不是相對伺服器的上一版）→ 每個欄位都得各自記錄
+      最後變動版本，不能只記「這一版有沒有變」；落後好幾版的客戶端才拿得到完整的差異。"""
     d = _delta.setdefault(market, {"rev": 0, "sym_rev": {}, "prev": {}})
     d["rev"] += 1
     rev, prev, srev = d["rev"], d["prev"], d["sym_rev"]
@@ -33,8 +41,16 @@ def _track(market: str, lst: list):
         if not s:
             continue
         cur[s] = t
-        if prev.get(s) != t:
-            srev[s] = rev
+        p, fr = prev.get(s), srev.get(s)
+        if p is None or not isinstance(fr, dict):
+            srev[s] = {k: rev for k in t}        # 新標的（或從舊格式升上來）→ 整列算這一版變的
+            continue
+        for k, v in t.items():
+            if p.get(k) != v:
+                fr[k] = rev
+        for k in [k for k in fr if k not in t]:  # 欄位消失（換來源）→ 記成變動，讓下次整列重送
+            fr.pop(k, None)
+            fr["_gone"] = rev
     for s in list(srev.keys()):          # 下架標的清掉（防 srev 無限長大）
         if s not in cur:
             srev.pop(s, None)
@@ -107,7 +123,24 @@ def get_delta(market: str, token: str):
         if boot != my_boot or r > rev or rev - r > 900:
             return None
     lst = get(market)
-    changed = [] if r == rev else [t for t in lst if srev.get(t.get("symbol"), rev) > r]
+    changed = []
+    if r != rev:
+        for t in lst:
+            fr = srev.get(t.get("symbol"))
+            if not isinstance(fr, dict):     # 沒有紀錄（剛上架／舊格式）→ 保守整列送
+                changed.append(t)
+                continue
+            ks = [k for k, kr in fr.items() if kr > r]
+            if not ks:
+                continue
+            row = {k: t[k] for k in ks if k in t}
+            # 合併鍵一定要在：前端 _tkMerge 用 display（沒有才退回 symbol）當鍵，少了它這一列
+            # 會被當成新標的塞進清單（跨源 symbol 格式不同，見 memory ticker-merge-key-display）。
+            if t.get("display") is not None:
+                row["display"] = t["display"]
+            elif t.get("symbol") is not None:
+                row["symbol"] = t["symbol"]
+            changed.append(row)
     return {"tickers": changed, "rev": f"{my_boot}:{rev}", "delta": True}
 
 # 共享磁碟快照（與 disk_cache 同目錄，跨 process 存活）。原子寫（temp+rename）避免讀到半截。

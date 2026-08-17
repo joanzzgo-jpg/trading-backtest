@@ -194,10 +194,12 @@ function _syncUrlState() {
   } catch (e) {}
 }
 
-function loadLastSymbol() {
+/* skipUrl＝不讓網址覆蓋（帳號把雲端的「上次看的畫面」拉下來後當場套用時用：
+   網址上的 ?s=&tf= 是**這台自己**上次寫進去的，會把剛拉下來的雲端值蓋回去）。 */
+function loadLastSymbol(skipUrl) {
   try {
     const last = JSON.parse(localStorage.getItem("lastSymbol") || "null");
-    if (!last || !last.symbol) { _applyUrlState(); return; }
+    if (!last || !last.symbol) { if (!skipUrl) _applyUrlState(); return; }
     document.getElementById("symbolInput").value = last.symbol;
     if (last.exchange) document.getElementById("exchangeSelect").value = last.exchange;
     if (last.market)   document.getElementById("marketSelect").value   = last.market;
@@ -222,6 +224,7 @@ function loadLastSymbol() {
        等於從來沒生效過（使用者：「包含大小」也要記得）。
        改成比對「網址指的是不是同一個畫面」：一樣 → 是我自己那頁（或剛好同一個標的的
        分享連結，套自己的縮放也對）；不一樣 → 才是真的換了脈絡，丟掉本機視角。 */
+  if (skipUrl) return;
   const _fromUrl = _applyUrlState();
   if (_fromUrl) {
     try {

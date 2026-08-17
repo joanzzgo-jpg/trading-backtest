@@ -254,10 +254,10 @@ function _tkFill(t) {
 }
 function _tkMerge(cur, j, key) {
   if (j.rev) _tkRev[key] = j.rev;
-  if (j.tickers) for (const t of j.tickers) _tkFill(t);
   const _id = t => t.display || t.symbol;
   if (!j.delta) {                                                           // 整包(或舊後端/冷啟動空包→保留舊資料)
     if (!j.tickers || !j.tickers.length) return cur;
+    for (const t of j.tickers) _tkFill(t);
     const m = new Map();
     for (const t of j.tickers) m.set(_id(t), t);                            // 去重(降級來源殘留/保險)
     return [...m.values()];
@@ -265,7 +265,22 @@ function _tkMerge(cur, j, key) {
   if (!j.tickers || !j.tickers.length) return cur;                          // delta 空=真的沒變動
   const m = new Map();
   for (const t of cur) m.set(_id(t), t);                                    // 既有(同鍵去重)
-  for (const t of j.tickers) m.set(_id(t), t);                              // 變動覆蓋(不新增重複)
+  /* ★ 2026-08-17 差量細到**欄位級**（後端只送真的變了的欄位）→ 這裡必須「合併」不能「覆蓋」。
+     覆蓋的話沒送來的欄位會整個消失（symbol/open 一整天不變＝永遠不會再送）→ 清單瞬間變空殼。
+     ⚠ _tkFill 要在**合併之後**才做：它推導的 change_amt 需要 price 與 open 兩個，
+       在只帶 price 的差量列上算不出來。
+     ⚠ change_amt/spot 是推導欄位，來源欄位一變就得作廢重算 —— 但**只在後端沒送**時才清：
+       台股的 change_amt 是「對前一日收盤」算的、不是 price−open，是後端算好送來的，
+       清掉會被 _tkFill 用錯公式蓋掉（見 _slim_crypto_rows 的註解：推導只對 crypto 成立）。 */
+  for (const t of j.tickers) {
+    const k = _id(t);
+    const old = m.get(k);
+    if (!old) { m.set(k, _tkFill(t)); continue; }
+    const row = { ...old, ...t };
+    if (t.change_amt === undefined && (t.price !== undefined || t.open !== undefined)) delete row.change_amt;
+    if (t.spot === undefined && t.display !== undefined) delete row.spot;
+    m.set(k, _tkFill(row));
+  }
   return [...m.values()];
 }
 function _tkUrl(m, key, useSince) {
