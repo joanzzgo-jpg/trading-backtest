@@ -350,6 +350,21 @@ function _nearestIdxByTime(sec) {
      旁邊的 _guardRestore 救不了：它只看**span 有沒有被壓爛**、而且只守 380ms。
    ⚠ 使用者一動（滾輪/按下/觸控）就立刻放手，絕不跟使用者搶圖表。
    ⚠ 判準用時間差 > 半根，不用相等：LWC 的可見範圍是連續值，要求相等會每輪都重設。 */
+/* 開機還原出來的視野選項，在載入還沒完全落定的這幾秒內「按住」。
+   ⚠ 一定要有保險絲＋使用者一動就放手：不然使用者接下來的縮放/平移會被下一次 renderAll
+     重設回開機那組，變成「圖表自己彈回去」。 */
+function _bootViewHold(opt) {
+  window._bootViewOpt = opt;
+  const _release = () => {
+    window._bootViewOpt = null;
+    clearTimeout(window._bootViewFuse);
+  };
+  ["mousedown", "wheel", "touchstart", "keydown"].forEach(e =>
+    window.addEventListener(e, _release, { once: true, passive: true }));
+  clearTimeout(window._bootViewFuse);
+  window._bootViewFuse = setTimeout(_release, 9000);
+}
+
 function _holdAnchorByTime(anchorT, bc) {
   let stop = false;
   const _off = () => { stop = true; window._viewRestoreBusy = false; };
@@ -454,9 +469,14 @@ function renderAll(data) {
     if (!(w > 50)) { try { w = document.getElementById("mainChart")?.clientWidth || 0; } catch (e) {} }
     return (w > 50) ? Math.max(10, Math.round(w / Math.max(0.5, bs))) : null;   // null＝量不到
   };
+  /* rightOffset 的上限。原本是「可見根數的一半、絕對 60」——那是為了治「已存進垃圾值」的舊狀態
+     （大 rightOffset 會被重申機制保護、每次切換複發「最右邊沒 K 棒」）。
+     ★ 2026-08-17 使用者：「有留白，但跟原本不同」——實測把留白拉到 35 根，重整後被砍成 27（789px→79px）。
+       一半太緊了：想把最後一根推到偏左看延伸(畫趨勢線/等突破)是很常見的用法。
+     → 放寬到可見根數的 80%（畫面上一定還留得下兩成 K 棒，不會變成整片空白），絕對上限 200。 */
   const _roCapFor = (bs) => {
     const visN = _visNFor(bs);
-    return visN == null ? 60 : Math.min(Math.max(5, Math.floor(visN / 2)), 60);
+    return visN == null ? 200 : Math.min(Math.max(5, Math.round(visN * 0.8)), 200);
   };
   /* 看最新時，最後一根 K 棒與右緣之間的**預設留白**（單位＝K 棒數）。
      ★ 2026-08-17 使用者：「右邊無留白」。LWC 預設 rightOffset=0 ＝最後一根貼著價格軸：
@@ -471,6 +491,15 @@ function renderAll(data) {
   };
   const _restoreByBarCount = () => {
     const ts = mainChart.timeScale();
+    /* ★ 開機還原剛套好的那組值，在這個載入週期內優先重套（2026-08-17）。
+       loadData 一次載入會跑**不只一次** renderAll（本機快照秒畫一次、真資料到貨再一次），
+       而 _pendingRestoreRange 是一次性的 —— 第二次進來時它已經是 null、_savedBarSpacing 在
+       開機時也還是 null → 掉到最下面那條「貼最新 N 根」，把剛剛還原好的位置整個蓋掉。
+       實測：使用者把留白拉到 35 根，重整後 options().rightOffset 確實是 35（還原成功了），
+       但畫面上只剩 3 根 —— 就是被第二次 renderAll 的 setVisibleLogicalRange 蓋掉的。 */
+    if (window._bootViewOpt) {
+      try { ts.applyOptions(window._bootViewOpt); _bgPosAnchor = window._bootViewOpt; return; } catch (e) {}
+    }
     // 有保存縮放(barSpacing) → 用持久選項還原縮放 + 最新棒水平位置(rightOffset)。
     // 持久選項跨 setData/fitContent/背景載入都不會被沖掉（解決「切幾次後黏回右邊」）。
     if (_savedBarSpacing != null) {
@@ -502,6 +531,7 @@ function renderAll(data) {
         const opt = { barSpacing: pr.barSpacing, rightOffset: Math.min(_ro, _roCapFor(pr.barSpacing)) };
         _ts.applyOptions(opt);
         _bgPosAnchor = opt;
+        _bootViewHold(opt);   // 這個載入週期內的後續 renderAll 一律重套同一組（見 _restoreByBarCount）
       } catch (e) {}
     } else {
       const { barCount, toOffset } = pr;

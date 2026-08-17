@@ -119,7 +119,9 @@ async function main() {
        是**還原端的夾限**把它砍掉的 —— 還原發生在圖表還沒佈局好的那一刻，`ts.width()` 回 0
        → 上限崩到最小值 5 → 20 根留白被夾成 5 根＝K 棒幾乎貼著右邊。
        只驗「縮放」與「有沒有貼最新」這兩項完全看不出來（那時它們都是綠的）。 */
-  const RO = 20;
+  /* ⚠ 這個值要**大到會踩到夾限**：原本用 20，在 49 根可見時剛好落在舊上限(一半＝25)以內 →
+     「自訂留白被砍掉」那個 bug 測不出來。35 才會踩到（實測舊碼 789px → 79px）。 */
+  const RO = 35;
   await page.evaluate(ro => mainChart.timeScale().applyOptions({ barSpacing: 22, rightOffset: ro }), RO);
   await sleep(2500);
   const a1 = await snap(page);
