@@ -47,6 +47,9 @@ const snap = page => page.evaluate(`(() => {
     bs: +ts.options().barSpacing.toFixed(2),
     n: candleSeries.data().length, src: ohlcvData.length,
     last: ohlcvData.length ? iso(toTime(ohlcvData[ohlcvData.length - 1].time)) : null,
+    /* 右緣留白＝可見範圍右端超出最後一根幾根。★分母要用**畫在圖上的序列**長度，
+       不可用 ohlcvData（平移修剪會砍圖上的、背景補載又往 ohlcvData 加，兩者長度會不同）。 */
+    gap: lr ? +(lr.to - (candleSeries.data().length - 1)).toFixed(2) : null,
   };
 })()`);
 
@@ -92,8 +95,13 @@ async function main() {
   }, TF);
   await sleep(12000);
 
-  // ── ① 看最新時重整：縮放要一樣，而且**不可以**反而被釘在過去 ──
-  await page.evaluate(() => mainChart.timeScale().applyOptions({ barSpacing: 22 }));
+  /* ── ① 看最新時重整：縮放、以及**右緣留白**都要一樣，而且不可以反而被釘在過去 ──
+     ★ 留白這項一定要驗（使用者 2026-08-16：「最新框會右貼」）：存進去的值是對的（實測 20 根），
+       是**還原端的夾限**把它砍掉的 —— 還原發生在圖表還沒佈局好的那一刻，`ts.width()` 回 0
+       → 上限崩到最小值 5 → 20 根留白被夾成 5 根＝K 棒幾乎貼著右邊。
+       只驗「縮放」與「有沒有貼最新」這兩項完全看不出來（那時它們都是綠的）。 */
+  const RO = 20;
+  await page.evaluate(ro => mainChart.timeScale().applyOptions({ barSpacing: 22, rightOffset: ro }), RO);
   await sleep(2500);
   const a1 = await snap(page);
   await page.evaluate(() => saveLastSymbol());
@@ -104,11 +112,18 @@ async function main() {
   const a2 = await snap(page);
   const aBars = Math.abs(a1.bars - a2.bars) <= 1;
   const aLatest = a2.to === a2.last;                       // 看最新 → 重整後仍要貼著最新那根
-  console.log(`   ① 看最新時重整`);
-  console.log(`      前 ${a1.to}（${a1.bars} 根, bs=${a1.bs}）　後 ${a2.to}（${a2.bars} 根, bs=${a2.bs}）`);
-  console.log(`      ${aBars ? "✓" : "✗"} 縮放一致　${aLatest ? "✓" : "✗"} 仍貼著最新（最新棒 ${a2.last}）`);
+  const aGap = Math.abs(a1.gap - a2.gap) <= 1.5;
+  console.log(`   ① 看最新時重整（右緣先留白 ${RO} 根）`);
+  console.log(`      前 ${a1.to}（${a1.bars} 根, bs=${a1.bs}, 留白 ${a1.gap} 根）　後 ${a2.to}（${a2.bars} 根, bs=${a2.bs}, 留白 ${a2.gap} 根）`);
+  console.log(`      ${aBars ? "✓" : "✗"} 縮放一致　${aLatest ? "✓" : "✗"} 仍貼著最新（最新棒 ${a2.last}）　${aGap ? "✓" : "✗"} 右緣留白一致`);
+  if (a1.gap < RO - 1.5) {
+    console.log(`✗ 留白根本沒設上去（只有 ${a1.gap} 根）→ 這項測不到，測試不成立`);
+    await browser.close();
+    return 2;
+  }
   if (!aBars)   fails.push(`看最新重整：可見根數 ${a1.bars} → ${a2.bars}（縮放沒還原）`);
   if (!aLatest) fails.push(`看最新重整：右緣停在 ${a2.to}、最新棒卻是 ${a2.last}（被釘在過去）`);
+  if (!aGap)    fails.push(`看最新重整：右緣留白 ${a1.gap} 根 → ${a2.gap} 根（K 棒被貼到右邊）`);
 
   // ── ② 捲在歷史時重整 ──
   const moved = await page.evaluate(back => {

@@ -124,6 +124,12 @@ async function loadData(autoLoad = false, forceLatest = false) {
       window._hasFwdGap = true;      // 有界視窗未到現在 → 往右拖時 _bgLoadNewerBars 往「新」補
       _pendingRestoreRange = null;   // 與時間錨點互斥：有錨點就不要再套「貼最新」那組
       window._bootAnchorHold = _pa.t;   // 還原之後要按住幾秒（見 _holdAnchorByTime）
+      /* 還原完成前禁止 saveLastSymbol 寫入（見該函式）。
+         ⚠ 保險絲不可省：錨點若落在已載資料之外，走的是 _pendingAlignRange / _restoreByBarCount，
+           那兩條**不會**呼叫 _holdAnchorByTime → 旗標沒人解除＝從此再也不存檔（比原本的 bug 更糟）。 */
+      window._viewRestoreBusy = true;
+      clearTimeout(window._viewRestoreFuse);
+      window._viewRestoreFuse = setTimeout(() => { window._viewRestoreBusy = false; }, 9000);
     } catch (e) {}
     window._pendingRestoreAnchor = null;
   }
@@ -346,12 +352,12 @@ function _nearestIdxByTime(sec) {
    ⚠ 判準用時間差 > 半根，不用相等：LWC 的可見範圍是連續值，要求相等會每輪都重設。 */
 function _holdAnchorByTime(anchorT, bc) {
   let stop = false;
-  const _off = () => { stop = true; };
+  const _off = () => { stop = true; window._viewRestoreBusy = false; };
   ["mousedown", "wheel", "touchstart", "keydown"].forEach(e =>
     window.addEventListener(e, _off, { once: true, passive: true }));
   const t0 = Date.now();
   const tick = () => {
-    if (stop || replayActive || Date.now() - t0 > 8000) return;
+    if (stop || replayActive || Date.now() - t0 > 8000) { window._viewRestoreBusy = false; return; }
     try {
       const ts = mainChart.timeScale();
       const vr = ts.getVisibleRange();
@@ -436,15 +442,28 @@ function renderAll(data) {
   //  1. 重整後 → _pendingRestoreRange（bar 數 + 右緣偏移）
   //  2. 切標的/時框且原本捲在歷史 → _savedTimeRange（對齊同一時間段，與新標的有重疊才用）
   //  3. 其他（看最新）→ _savedBarCount 貼齊最新 N 根，預設 50
+  /* 右緣留白(rightOffset)的上限。
+     ★ 2026-08-16 使用者：「最新框會右貼」——存的是對的(實測存進 20 根)，是**這裡把它砍掉的**：
+       還原發生在圖表還沒完成佈局的那一刻，`ts.width()` 回 0 → _visN 掉到下限 10 →
+       上限變成 5 → 使用者原本 20 根的留白被夾成 5 根＝K 棒幾乎貼著右邊。
+     → 量不到寬度時**不要夾**（只留絕對上限 60）。夾限是為了治「已存進垃圾值」的舊狀態，
+       用一個還沒準備好的寬度去夾，等於每次重整都吃掉使用者的留白 —— 治病治成了病。 */
+  const _roCapFor = (bs) => {
+    let w = 0;
+    try { w = mainChart.timeScale().width(); } catch (e) {}
+    if (!(w > 50)) { try { w = document.getElementById("mainChart")?.clientWidth || 0; } catch (e) {} }
+    if (!(w > 50)) return 60;
+    const visN = Math.max(10, Math.round(w / Math.max(0.5, bs)));
+    return Math.min(Math.max(5, Math.floor(visN / 2)), 60);
+  };
   const _restoreByBarCount = () => {
     const ts = mainChart.timeScale();
     // 有保存縮放(barSpacing) → 用持久選項還原縮放 + 最新棒水平位置(rightOffset)。
     // 持久選項跨 setData/fitContent/背景載入都不會被沖掉（解決「切幾次後黏回右邊」）。
     if (_savedBarSpacing != null) {
       // 還原端同樣夾限 rightOffset(治「已存進垃圾值」的舊狀態:半屏K棒下限+絕對60)
-      const _visN = Math.max(10, Math.round(ts.width() / Math.max(0.5, _savedBarSpacing)));
-      const _roCap = Math.min(Math.max(5, Math.floor(_visN / 2)), 60);
-      const opt = { barSpacing: _savedBarSpacing, rightOffset: Math.min(_savedRightOffset || 0, _roCap) };
+      const opt = { barSpacing: _savedBarSpacing,
+                    rightOffset: Math.min(_savedRightOffset || 0, _roCapFor(_savedBarSpacing)) };
       ts.applyOptions(opt);
       _bgPosAnchor = opt;   // 背景分頁載入每段後重套此錨點，防縮放被 fitContent 壓回 0.5
       return;
@@ -465,9 +484,8 @@ function renderAll(data) {
       // （localStorage 可能已存有被 fitContent 競態污染的大值 → 載入即自癒）。
       try {
         const _ts = mainChart.timeScale();
-        const _visN = Math.max(10, Math.round(_ts.width() / Math.max(0.5, pr.barSpacing)));
-        const _roCap = Math.min(Math.max(5, Math.floor(_visN / 2)), 60);
-        const opt = { barSpacing: pr.barSpacing, rightOffset: Math.min(pr.rightOffset || 0, _roCap) };
+        const opt = { barSpacing: pr.barSpacing,
+                      rightOffset: Math.min(pr.rightOffset || 0, _roCapFor(pr.barSpacing)) };
         _ts.applyOptions(opt);
         _bgPosAnchor = opt;
       } catch (e) {}

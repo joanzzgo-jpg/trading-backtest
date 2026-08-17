@@ -106,6 +106,15 @@ function loadPrefs() {
 }
 
 function saveLastSymbol() {
+  /* ★ 開機還原還在進行中 → 不准寫（2026-08-16）。
+     `loadData` 在 `renderAll()` 之後**馬上**呼叫這支，但 LWC 的 setVisibleLogicalRange 要等到
+     下一次繪製才生效 → 這一刻讀到的還是還原**之前**的範圍（＝剛載進來那批的最右邊）
+     → 算出 anchorT=null → 把使用者存了一整晚的錨點**當場洗掉**。
+     （之後 1.2 秒的 debounce 會再存一次正確值，所以多數時候看起來是好的 —— 但只要在那 1.2 秒
+       內關掉分頁／再重整一次，下一次就回到最新。這種「偶爾才失靈」最難查。）
+     還原期間的畫面是過渡狀態，本來就沒有保存價值；旗標由 _holdAnchorByTime 結束或
+     使用者一動就解除。 */
+  if (window._viewRestoreBusy) { _syncUrlState(); return; }
   try {
     const ts = mainChart?.timeScale();
     const r = ts?.getVisibleLogicalRange();
