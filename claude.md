@@ -136,6 +136,24 @@ cd backend && ../.venv312/bin/python scripts/check_diag_auth.py   # 不需服務
 「列舉到 <5 個算測試不成立」的保險）。真的要公開就加進腳本的 `_EXEMPT` 並寫明理由。
 已植回舊碼證明會失敗（拿掉 `_diag_fvg` 的守衛 → 立刻報「無金鑰 200」、回傳 1）。
 
+### 動到任何資料源／重採樣後（守門員之十七）
+```bash
+cd backend && ../.venv312/bin/python scripts/check_bar_invariants.py   # 需本機服務跑著；約 1 分鐘
+```
+K 棒本身錯了，上面所有 FVG／勝率／訊號**全部無效** —— 而畫面上完全看不出來。既有守門員各顧一塊：
+`check_tf_spacing` 只驗「間隔對不對」、`check_bar_stability` 只盯 1m 即時那幾根、冒煙只驗一個組合；
+**沒人驗過「每個市場每個時框拿回來的整段資料本身合不合法」**。判準都是硬不變式：
+`low ≤ min(open,close) 且 high ≥ max(open,close)`（違反＝兩份快照縫出來的，沒有別的可能）／
+`high ≥ low` ／時間嚴格遞增（重複的棒會讓回測算兩次）／沒有未來棒／無 NaN/inf/負值。
+⚠ **不驗「有沒有洞」**：假日、停牌、永續上市日之前本來就有洞，驗了一定叫狼來了（那是
+`repair_klines5m` 的守備範圍）。已驗證五種植入的壞資料全抓到、且「資料有洞」不誤報。
+⚠ 時框清單**從 `config.js` 的 `TF_LABELS` 抽**，不寫死（我第一版寫死 8h/2h/30m → 9 個組合回 400，
+印成一排「抓不到」）。
+★ 間隔判準用**最小正間隔**不用中位數：美股一天只有 6.5 小時 → 4h 每天只有 2 根，盤中間隔 4h、
+跨日 20h **各佔一半** → 中位數是擲骰子（實測 us/hk 4h 被誤判）。`check_tf_spacing` 註解寫著
+「中位數判準通用」，但它從來沒測過股市的 4h —— 同 session 內相鄰棒必然剛好差一個時框，
+最小間隔對 24 小時與有收盤的市場都成立。
+
 ### 動到報價列差量（`/api/tickers`）後（守門員之十六）
 ```bash
 node scripts/check_ticker_delta_fields.js   # 需本機服務跑著；約 2 分鐘
@@ -308,7 +326,9 @@ node scripts/check_crosshair_blank.js    # 需本機服務跑著
   1. `_bgLoadOlderBars` 補載歷史完成後（02b429a）；
   2. `_fetchWinRateNow` **快取命中分支**——必須與網路成功路徑重繪**同一組層**（fvg_ms/fvg_break/fvg_trades/fvg_bb/SMC 掃蕩·結構·OB·SR/VWAP/通道/pd_ranges），少一個就是切標的回來沿用舊標的標記（ca8ec0f）。
 - 之後在勝率回應新增圖層時，**兩條路徑都要加**。
-- 各時框可看深度：背景補載僅 1m/5m/15m/1h/4h；**8h/2h/30m/1d 一次載入**（如 8h 僅 ~500 根）→ 舊區段「沒 K 棒也沒標記」是設計、不是 bug。
+- 各時框可看深度：背景補載僅 1m/5m/15m/1h/4h；**1d/1w/1M 一次載入** → 舊區段「沒 K 棒也沒標記」是設計、不是 bug。
+  ⚠ 2026-08-18 更正：**8h/2h/30m 早已移除**（`config.js` 的 `TF_LABELS` 就是可用時框白名單，那裡寫著「已移除」），
+  後端對它們一律回 400。本檔上面幾處提到 30m/2h 的都是**當年的事故紀錄**、不是現況。寫測試前先從 `TF_LABELS` 抽清單，別寫死。
 
 ### 極簡模式（perf-mode）不可污染正常模式
 - `savePrefs()`（utils.js）在 perf-mode 直接 `return` — 否則 in-memory perf palette 會被寫回 `localStorage.chartColors`。
