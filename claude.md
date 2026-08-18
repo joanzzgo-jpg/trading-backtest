@@ -28,6 +28,17 @@ cd backend && python scripts/repair_klines5m.py     # 只掃描；出現「新�
 ```
 ⚠ 2026-07-31 起：現存 15 個洞全是**永久性**的（2018-19 幣安中斷、XAUT 永續上市日之前）→ 舊版「有洞就回 1」等於**永遠回 1**、當守門員是狼來了。改成只有不在腳本 `_KNOWN_HOLES` 白名單裡的洞才算失敗（`--strict` 可看原始全貌）。新增白名單項目前，先跑 `--fix` 確認它真的補不回來。
 
+**倉庫也會「落後」，那是另一回事**（2026-08-18 加 `--extend`）：`--fix` 只補**已存區間內**的洞，
+補不了「倉庫停在 8/12、今天是 8/18」。落後的代價實測 **9.6 倍**：同一段 5m，倉庫涵蓋 8.0ms、
+落到 API 77.0ms。定期跑：
+```bash
+cd backend && ../.venv312/bin/python scripts/repair_klines5m.py --extend   # 補到今天
+../.venv312/bin/python scripts/repair_klines5m.py                          # 再確認沒有新破洞
+git add backend/data/klines5m/   # ★ 是版控檔，要 commit 才會上 Railway
+```
+⚠ 5m 的「淨增」會顯示 **0**：`_KEEP_DAYS["5m"]=370`，尾巴長多少頭就被砍多少 →
+**判斷有沒有補到要看尾端日期，不是看根數**。
+
 ### 動到即時更新／背景補載後（守門員之四）
 ```bash
 node scripts/check_continuity.js     # 需本機服務跑著；約 14 分鐘（要等真實 K 棒收盤，別縮短）

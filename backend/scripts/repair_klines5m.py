@@ -29,7 +29,8 @@ import argparse
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from data.klines_store import (load_all, find_holes, repair_holes,  # noqa: E402
+from data.klines_store import (  # noqa: E402
+    save, load_all, find_holes, repair_holes,
                                SYMBOLS, STORE_TFS)
 
 # 已確認補不回來的破洞（資料源本身就沒有）。鍵＝(標的, 時框, 洞前最後一根, 洞後第一根)。
@@ -59,13 +60,73 @@ def _is_known(sym, tf, a, b):
     return (sym, tf, str(a), str(b)) in _KNOWN_HOLES
 
 
+def _extend(args) -> int:
+    """把每個 (標的, 時框) 的倉庫從「最後一根」續抓到今天。
+
+    為什麼要有這個：`--fix` 只補**已存區間內**的洞，補不了「倉庫停在 8/12、今天是 8/18」。
+    而倉庫落後的代價是實測 **9 倍**：同樣一段 5m，倉庫涵蓋 8.6ms、要走 API 77.0ms。
+    ⚠ 一定要**分段**抓：跨永續上線日的長區間，fapi 會回「非空但只有上線後那截」→ fallback
+      不觸發 → 前段被靜默丟掉（見 CLAUDE.md 倉庫那段）。這裡一次只抓 ~7 天，天然分段。
+    ⚠ 最後一根**要重抓**（從 last 當起點，不是 last+1）：它可能是當時還沒收盤的半成品，
+      save() 會 drop_duplicates 保留後到的那一份。
+    """
+    import datetime as _dt
+    from data.crypto import fetch_crypto_ohlcv
+    today = _dt.date.today()
+    grand = 0
+    for sym in sorted(SYMBOLS):
+        if args.symbol and not sym.upper().startswith(args.symbol.upper()):
+            continue
+        for tf in sorted(STORE_TFS):
+            if args.tf and tf != args.tf:
+                continue
+            df = load_all(sym, tf)
+            if df is None or df.empty:
+                print(f"  {sym} {tf}: 倉庫是空的，跳過（先跑暖機）")
+                continue
+            last = df["time"].iloc[-1].date()
+            if last >= today:
+                print(f"  {sym} {tf}: 已到 {last}，不用補")
+                continue
+            added = 0
+            cur = last
+            while cur < today:
+                nxt = min(cur + _dt.timedelta(days=7), today)
+                try:
+                    part = fetch_crypto_ohlcv(sym, tf, str(cur), str(nxt + _dt.timedelta(days=1)),
+                                              exchange_id="binance")
+                except Exception as e:  # noqa: BLE001
+                    print(f"     {cur}~{nxt} 抓取失敗（{type(e).__name__}: {str(e)[:50]}）")
+                    part = None
+                if part is not None and not part.empty:
+                    _cur_df = load_all(sym, tf)          # ⚠ DataFrame 不可用 `or`（真值判定會拋）
+                    before = 0 if _cur_df is None else len(_cur_df)
+                    total = save(sym, tf, part)
+                    added += total - before
+                cur = nxt
+            after = load_all(sym, tf)
+            _end = "(空)" if after is None or after.empty else str(after['time'].iloc[-1].date())
+            # ⚠ 「新增」是**淨值**：5m 的 _KEEP_DAYS=370 → 尾巴長多少、頭就被 save() 砍多少
+            #   → 這個數字會是 0，但尾端日期確實有前進。要判斷有沒有補到，看的是日期不是根數。
+            print(f"  {sym} {tf}: {last} → {_end}　淨增 {added} 根（共 {0 if after is None else len(after)}）")
+            grand += added
+    print(f"\n★ 共新增 {grand} 根。接著跑一次不帶參數的掃描確認沒有新破洞，然後把 "
+          f"backend/data/klines5m/ 一起 commit（它是版控檔、會隨 git 上 Railway）。")
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--fix", action="store_true", help="實際補抓並寫回檔案（預設只掃描）")
     ap.add_argument("--strict", action="store_true", help="已知（補不回來的）破洞也算失敗")
     ap.add_argument("--tf", default="", help="只處理指定時框（如 5m）")
     ap.add_argument("--symbol", default="", help="只處理指定標的（如 BTC）")
+    ap.add_argument("--extend", action="store_true",
+                    help="把倉庫尾巴補到今天（--fix 只補「範圍內」的洞，補不了「還沒存到現在」）")
     args = ap.parse_args()
+
+    if args.extend:
+        return _extend(args)
 
     total = 0
     known_n = 0
