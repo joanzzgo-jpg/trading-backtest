@@ -352,6 +352,36 @@ if (typeof window !== "undefined" && !window._tkStaleTimer) {
   window._tkStaleTimer = setInterval(_tkStaleCheck, 2000);
 }
 
+/* ── 自選跨市場保鮮（2026-08-19 使用者：「我在台股所以他不動，要都可以動」）─────────────
+   報價輪詢一次只抓「目前分頁那個市場」。自選卻是**混市場**的清單 ——
+   停在台股分頁時 `_tickerData`（加密）沒有人更新 → 自選裡的加密價格全部定格，
+   而且完全不報錯，看起來就是「壞了」。
+   ⚠ 為什麼 `_refreshWlPrices` 沒接住：它刻意跳過 crypto，註解寫著「加密那些本來就跟著
+     每秒的報價輪詢在跳」—— 那個前提只在「人在加密分頁」時成立。
+   → 另一個市場只要**自選裡真的有它的標的**就順便抓一份差量（沒有就完全不打）。
+   ⚠ 節流 3 秒＋走差量：實測一次差量約 1~2KB，而整包加密 17.8KB／台股 52KB —— 沒有節流的話
+     這條順手抓會變成第二條全速輪詢。 */
+const _XM_MS = 3000;
+let _xmLastTs = 0;
+function _wlHasMarket(mkt) {
+  try { return _watchlist.some(w => (w.market || "crypto") === mkt); } catch (e) { return false; }
+}
+async function _fetchCrossMarket() {
+  if (Date.now() - _xmLastTs < _XM_MS) return;
+  const other = (_tickerMkt === "tw") ? "crypto" : "tw";
+  if (!_wlHasMarket(other)) return;
+  _xmLastTs = Date.now();
+  try {
+    if (other === "crypto") {
+      const r = await fetch(_tkUrl("futures", "futures", true));
+      if (r.ok) _tickerData = _tkMerge(_tickerData, await r.json(), "futures");
+    } else {
+      const r = await fetch(_tkUrl("tw", "tw", true));
+      if (r.ok) _twTickerData = _tkMerge(_twTickerData, await r.json(), "tw");
+    }
+  } catch (e) { console.debug("[報價] 跨市場保鮮失敗:", e); }
+}
+
 let _tkRttMs = null;          // 最近一次報價請求的往返時間 → 給訊號格數用（見 utils.js 的連線指示）
 async function fetchTickers() {
   const _rt0 = (performance && performance.now) ? performance.now() : Date.now();
@@ -371,6 +401,7 @@ async function fetchTickers() {
       if (futRes.ok)  { const j = await futRes.json();  _tickerData     = _tkMerge(_tickerData, j, "futures"); _tkLastOkTs = Date.now(); _tkRttMs = ((performance&&performance.now)?performance.now():Date.now()) - _rt0; }
       if (spotRes && spotRes.ok) { const j = await spotRes.json(); _spotTickerData = _tkMerge(_spotTickerData, j, "spot"); }
     }
+    await _fetchCrossMarket();   // 自選裡有另一個市場的標的 → 它也要保持在動（見該函式）
     if (_tkStaleOn) _tkStaleCheck();   // 恢復了 → 不等下一次看門狗，立刻收起紅字
 
     // 手機版面板未滑出時跳過 DOM 更新；桌面版面板永遠可見
@@ -434,9 +465,14 @@ async function _refreshWlPrices() {
       });
       if (!res.ok) return;
       const data = (await res.json()).data || [];
-      if (data.length >= 2) {
-        const prev = data[data.length - 2], last = data[data.length - 1];
-        const change_pct = prev.close ? (last.close - prev.close) / prev.close * 100 : 0;
+      /* ⚠ 只回 1 根時也要收（2026-08-19）：原本要求 `>= 2`（要前一根算漲跌幅），
+         但收盤後 /api/latest 常常就只回當日那一根 → 條件不成立、什麼都不存
+         → 自選那一列永遠是 `---`。有價就先顯示價，漲跌幅拿不到就留空，
+         總比「明明有價卻顯示沒有」好。 */
+      if (data.length >= 1) {
+        const last = data[data.length - 1];
+        const prev = data.length >= 2 ? data[data.length - 2] : null;
+        const change_pct = (prev && prev.close) ? (last.close - prev.close) / prev.close * 100 : null;
         _wlPriceCache[key] = { price: last.close, change_pct, volume: last.volume, ts: Date.now() };
         _dirty = true;
       }
@@ -768,8 +804,20 @@ function renderTickers() {
           t.symbol?.toUpperCase() === item.symbol.toUpperCase());
         if (td) { price = td.price; change_pct = td.change_pct; }
       } else {
-        const c = _wlPriceCache[`${item.market}:${item.exchange || ""}:${item.symbol}`];
-        if (c) { price = c.price; change_pct = c.change_pct; }
+        /* 台股：**優先讀台股清單**（2026-08-19）。它本來就有價、漲跌幅、成交量，而且跨市場
+           保鮮已經確保它是新的。原本一律走 `_wlPriceCache`（逐檔打 /api/latest）——
+           但收盤後 /api/latest 只回 **1 根**，而那條路要求 `data.length >= 2`（要前一根算漲跌幅）
+           → 條件不成立就什麼都不存 → 自選的台股永遠顯示 `---`，即使清單裡明明有 2380.0。 */
+        if (item.market === "tw" && typeof _twTickerData !== "undefined") {
+          const tw = _twTickerData.find(t =>
+            t.symbol?.toUpperCase() === item.symbol.toUpperCase() ||
+            t.display?.toUpperCase() === item.symbol.toUpperCase());
+          if (tw) { price = tw.price; change_pct = tw.change_pct; }
+        }
+        if (price == null) {
+          const c = _wlPriceCache[`${item.market}:${item.exchange || ""}:${item.symbol}`];
+          if (c) { price = c.price; change_pct = c.change_pct; }
+        }
       }
       return {
         _k: `${item.market}:${item.exchange || ""}:${item.symbol}`,
