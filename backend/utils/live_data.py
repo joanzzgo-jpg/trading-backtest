@@ -96,10 +96,18 @@ def delta_token(market: str):
     return f"{sd[0]}:{sd[1]}" if sd else None
 
 
-def get_delta(market: str, token: str):
+def get_delta(market: str, token: str, fields: bool = False):
     """回「自 token 版以來有變動的標的」；token 失效/跨程序/太舊 → None（呼叫端回整包）。
     先鎖內快照 rev/sym_rev 再取清單：期間若又有更新,新變動不在本次回應,但回的 token 也是舊 rev
-    → 下一輪必補到,不漏報。"""
+    → 下一輪必補到,不漏報。
+
+    fields=True → **只回真的變了的欄位**（省 55%）。**必須由前端明講它看得懂**（`?fd=1`）。
+    ★ 2026-08-19 事故：欄位級差量上線後，使用者回報「合約行情不動了」。
+      根因是**版本歪斜**：他的分頁還跑著改版前的 JS，而後端已經在送部分欄位 ——
+      舊版 `_tkMerge` 是「整列覆蓋」(`m.set(id, t)`)，收到 `{display, price, change_pct}`
+      就把 `symbol`/`open`/`volume` 全洗掉 → 排序崩掉、畫面看起來凍住，**而且零錯誤**。
+      全新 profile 永遠測不到（它拿的是新 JS）；線上每次部署都會有一批「開著沒重整」的分頁中招。
+    → 預設回舊格式（整列），前端帶 `fd=1` 才升級。舊分頁自動安全，不必等使用者重整。"""
     if not token:
         return None
     try:
@@ -132,6 +140,9 @@ def get_delta(market: str, token: str):
                 continue
             ks = [k for k, kr in fr.items() if kr > r]
             if not ks:
+                continue
+            if not fields:                   # 舊前端：這一列有任何欄位變了就整列送（改版前的行為）
+                changed.append(t)
                 continue
             row = {k: t[k] for k in ks if k in t}
             # 合併鍵一定要在：前端 _tkMerge 用 display（沒有才退回 symbol）當鍵，少了它這一列

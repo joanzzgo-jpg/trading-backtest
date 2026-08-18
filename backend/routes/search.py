@@ -266,10 +266,13 @@ def _slim_crypto_rows(rows, market, rev):
 
 
 @router.get("/tickers")
-def get_tickers(response: Response, market: str = "futures", since: str = ""):
+def get_tickers(response: Response, market: str = "futures", since: str = "", fd: str = ""):
     """取得標的列表：優先從記憶體即時快取讀取，啟動初期才 fallback 至直接 API。
     since=上次回應的 rev token → 只回「有變動的標的」(delta:true)＋新 token；
-    token 失效(重啟/別的worker/太舊/無資料) → 自動回整包。crypto 1s/tw 3s 輪詢頻寬大減、行為不變。"""
+    token 失效(重啟/別的worker/太舊/無資料) → 自動回整包。crypto 1s/tw 3s 輪詢頻寬大減、行為不變。
+    fd=1 → 前端表明「我看得懂欄位級差量」(只回真的變了的欄位，再省 55%)。
+    ⚠ 沒帶 fd 一律回舊格式(整列)：見 live_data.get_delta 的說明——舊分頁的合併是「整列覆蓋」，
+      收到部分欄位會把 symbol/open/volume 洗掉、畫面凍住且零錯誤(2026-08-19 使用者實際踩到)。"""
     from utils.live_data import get as live_get, has_data, has_tw_data, get_delta, delta_token
     from data.taiwan import fetch_tw_tickers
     # HTTP 快取：crypto 1s、tw 2s（台股高量股由 MIS 疊價 worker 每 3s 更新記憶體→短快取讓報價列即時跳）。
@@ -281,7 +284,7 @@ def get_tickers(response: Response, market: str = "futures", since: str = ""):
         futs = _txf_tickers()
         if has_tw_data():
             if since:
-                d = get_delta("tw", since)
+                d = get_delta("tw", since, fields=(fd == "1"))
                 if d is not None:   # delta＝台股變動檔＋台指期三兄弟一律附上（客戶端靠 symbol 合併）
                     d["tickers"] = (futs or []) + d["tickers"]
                     d["source"] = "live"
@@ -309,7 +312,7 @@ def get_tickers(response: Response, market: str = "futures", since: str = ""):
     if has_data():
         tok = delta_token(market)
         if since:
-            d = get_delta(market, since)
+            d = get_delta(market, since, fields=(fd == "1"))
             if d is not None:
                 d["tickers"] = _slim_crypto_rows(d["tickers"], market, None)   # 差量筆數少，不進記憶體
                 d["source"] = "live"

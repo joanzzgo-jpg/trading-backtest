@@ -68,6 +68,23 @@ async function main() {
     return 2;
   }
 
+  /* ★ 版本歪斜保護：**沒帶 `fd=1` 的請求必須回整列**。
+     2026-08-19 使用者回報「合約行情不動了」就是這個 —— 他的分頁跑著改版前的 JS
+     （`_tkMerge` 是整列覆蓋），後端卻已經在送部分欄位 → symbol/open/volume 被洗掉、
+     排序崩掉、畫面凍住，**而且零錯誤**。全新 profile 永遠測不到（它拿的是新 JS），
+     但線上每次部署都會有一批「開著沒重整」的分頁中招。 */
+  const skew = await page.evaluate(`(async () => {
+    const j = await (await fetch("/api/tickers?market=futures")).json();
+    const d = await (await fetch("/api/tickers?market=futures&since=" + encodeURIComponent(j.rev))).json();
+    const rows = d.tickers || [];
+    const keys = [...new Set(rows.flatMap(r => Object.keys(r)))].sort();
+    return { delta: !!d.delta, n: rows.length, keys };
+  })()`);
+  const NEED = ["symbol", "display", "open", "volume", "price", "change_pct"];
+  const skewOk = skew.n === 0 || NEED.every(k => skew.keys.includes(k));
+  console.log(`   ⓪ 不帶 fd=1 的差量（模擬舊分頁）：${skew.n} 列，欄位 ${JSON.stringify(skew.keys)}　${skewOk ? "✓ 是整列" : "✗ 只有部分欄位"}`);
+  if (!skewOk) fails.push(`不帶 fd=1 卻回了部分欄位 ${JSON.stringify(skew.keys)} — 舊分頁會被洗成空殼（畫面凍住、零錯誤）`);
+
   const n0 = await page.evaluate("_tickerData.length");
   console.log(`   進場：${n0} 檔。開始跑 ${ROUNDS_SEC} 秒的每秒輪詢（跨過 60 輪的整包自癒）…`);
   await sleep(ROUNDS_SEC * 1000);

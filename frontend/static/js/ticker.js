@@ -284,7 +284,12 @@ function _tkMerge(cur, j, key) {
   return [...m.values()];
 }
 function _tkUrl(m, key, useSince) {
-  return "/api/tickers?market=" + m + ((useSince && _tkRev[key]) ? "&since=" + encodeURIComponent(_tkRev[key]) : "");
+  /* fd=1＝「我看得懂欄位級差量」。★ 這個旗標不可省：後端預設回舊格式(整列)，
+     因為部署後仍有一批「開著沒重整」的分頁跑著舊版 _tkMerge（整列覆蓋）——
+     那種分頁一收到部分欄位就會把 symbol/open/volume 洗掉、畫面凍住而且零錯誤
+     （2026-08-19 使用者回報「合約行情不動了」就是這個）。 */
+  return "/api/tickers?market=" + m
+       + ((useSince && _tkRev[key]) ? "&since=" + encodeURIComponent(_tkRev[key]) + "&fd=1" : "");
 }
 
 /* ── 現貨清單改「需要時才每秒」(2026-07-31) ───────────────────────────────────
