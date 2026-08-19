@@ -774,6 +774,12 @@ window._perfProbe = function (sec, silent) {
 
   function _tick() {
     if (navigator.onLine === false) { _set(true); _paintSig(); return; }   // 介面層就斷了 → 不必探測
+    /* ★ 分頁在背景時不探測（2026-08-19）。背景時報價輪詢是**刻意停掉**的，於是 `_tkLastOkTs`
+       必然變舊 → 下面的「可疑」永遠成立 → 每 4 秒打一次探測，整天開著就是整天在打
+       （實測背景 60 秒打了 12 次 manifest.json，是背景期間**唯一**的流量）。
+       而且沒有意義：使用者根本沒在看，就算真的斷線也不需要現在告訴他；回到前景後
+       輪詢恢復，12 秒內就會判出來。 */
+    if (typeof document !== "undefined" && document.hidden) { _paint(); _paintSig(); return; }
     const hb = (typeof _tkLastOkTs !== "undefined") ? _tkLastOkTs : 0;
     const suspicious = hb && (Date.now() - hb > STALE_MS);
     if (suspicious || _off) _probe().then(_paintSig);          // 可疑、或已在離線中（要確認恢復）

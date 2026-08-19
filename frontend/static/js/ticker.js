@@ -1016,7 +1016,12 @@ function fmtTickerPrice(p) {
 
 function _saveTickerCache() {
   try {
-    localStorage.setItem("_tc", JSON.stringify({ f: _tickerData, s: _spotTickerData, ts: Date.now() }));
+    /* ★ 台股那份也要存（2026-08-19）：原本只存 f(合約)+s(現貨) → 切到台股分頁時本機沒有
+       任何底稿，慢網路下實測**空白 2.4 秒**（在那之前更糟：顯示的是合約的價格）。
+       ⚠ 只有真的用過台股才存：只看合約的人不必為這 1959 檔付 localStorage 空間。 */
+    const _c = { f: _tickerData, s: _spotTickerData, ts: Date.now() };
+    if (typeof _twTickerData !== "undefined" && _twTickerData.length) _c.t = _twTickerData;
+    localStorage.setItem("_tc", JSON.stringify(_c));
   } catch {}
 }
 
@@ -1026,6 +1031,7 @@ function _loadTickerCache() {
     if (c && Array.isArray(c.f) && c.f.length) {
       _tickerData     = c.f;
       _spotTickerData = c.s || [];
+      if (Array.isArray(c.t) && c.t.length) _twTickerData = c.t;   // 台股底稿（切過去不會空白）
       renderTickers();   // 立即顯示上次快取
     }
   } catch {}
@@ -1090,6 +1096,13 @@ function bindTickerPanel() {
       _tickerMkt     = btn.dataset.mkt;
       try { localStorage.setItem("tkMkt", _tickerMkt); } catch (e) {}
       _lastTickerKey = "";
+      /* ★ 立刻用「新市場手上已有的資料」重畫（2026-08-19 使用者：「切換有短暫的價格沒切換」）。
+         原本只發非同步的 fetchTickers() 就結束 → 在回應到達前，畫面上留著的是**上一個市場**
+         的那幾列與價格。本機只有幾十毫秒看不太出來，手機/慢網路就是明顯的「切了還是舊的」。
+         隔壁排序切換（.tk-seg-btn）本來就有這一行，市場切換漏了。
+         ⚠ 新市場若還沒有資料，這裡會畫成空的 → 那是對的：寧可空一下，也不要顯示**別的市場
+           的價格**（使用者會以為那是這個市場的行情）。 */
+      try { renderTickers(); } catch (e) {}
       // 重設更新頻率
       if (_tickerTimer) clearInterval(_tickerTimer);
       fetchTickers();
