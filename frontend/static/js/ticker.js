@@ -300,11 +300,24 @@ function _tkUrl(m, key, useSince) {
      （「全部」分頁只吃 _tickerData，見 _renderAllSearchList；報價列本身也只用合約/台股）
    實測 gzip 後現貨包 9.5KB/秒/人，佔報價流量 28% —— 平常整份下載完沒有任何東西讀它。
    → 平時只留 15 秒心跳保鮮(開視窗時不會是舊資料)，真的要用時才回到每秒。
-   ⚠ 心跳這種低頻抓法一律走整包不帶 since：delta 的自癒是「每 60 輪整包一次」，
-     低頻後幾乎輪不到那一輪 → 差量會一路疊下去無從校正。而現貨整包 gzip 9.5KB
-     vs delta 9.2KB 差異可忽略(幣價每秒幾乎全動，差量本來就省不到)，直接整包最穩。*/
+   ⚠ 心跳原本一律走整包不帶 since，理由是「差量省不到」——★ 2026-08-19 重測後**已不成立**：
+     那是**列級差量**時代的結論（幣價每秒幾乎全動 → 變動列≈全部列 → 差量≈整包）。
+     改成欄位級之後，15 秒間隔的現貨差量實測 6.3KB → **1.87KB（−70%）**。
+     另一個顧慮「低頻抓法輪不到整包自癒」也已處理：下面給現貨自己的計數器，每 20 次
+     （≈5 分鐘）拿一次整包校正；而且差量是相對**客戶端 token** 算的，伺服器發現落後太多
+     （rev-r>900，1 rev/秒＝15 分鐘）會自己回整包，不會無聲飄移。
+     ★ 通則：註解裡「量過、不划算」的結論會隨著相依的東西改變而過期——引用它之前先重量一次。*/
 const _SPOT_IDLE_MS = 15000;
 let _spotLastTs = 0;
+let _spotPollN = 0;
+/* ★ 2026-08-19 使用者：「只用得到合約」。心跳原本**無條件**每 15 秒打一次，
+   但現貨清單全站只有兩個消費者（搜尋視窗的現貨分頁／主圖看的是現貨標的）——
+   只看永續的人一輩子都不會讀到它，那 9.7KB/分鐘是純浪費。
+   → 改成「這次工作階段真的用過才保鮮」，用過之後再保溫 10 分鐘。
+   ⚠ 沒保溫也不會壞：切到現貨分頁時 `_spotLastTs = 0` + 立刻 fetchTickers()（見分頁切換那段），
+     最多就是第一次開的那不到 1 秒還沒有值。 */
+const _SPOT_WARM_MS = 10 * 60 * 1000;
+let _spotUsedTs = 0;
 function _spotNeeded() {
   try {
     const ov = document.getElementById("symOverlay");
@@ -363,6 +376,7 @@ if (typeof window !== "undefined" && !window._tkStaleTimer) {
      這條順手抓會變成第二條全速輪詢。 */
 const _XM_MS = 3000;
 let _xmLastTs = 0;
+let _xmPollN = 0;
 function _wlHasMarket(mkt) {
   try { return _watchlist.some(w => (w.market || "crypto") === mkt); } catch (e) { return false; }
 }
@@ -371,12 +385,15 @@ async function _fetchCrossMarket() {
   const other = (_tickerMkt === "tw") ? "crypto" : "tw";
   if (!_wlHasMarket(other)) return;
   _xmLastTs = Date.now();
+  /* ⚠ 這條路也要有「整包自癒」：主輪詢是每 60 輪拿一次整包當校正，而這裡若永遠帶 since，
+     萬一合併真的漏掉什麼就**沒有任何機會被修正**。每 40 次（3s×40 ≈ 2 分鐘）整包一次。 */
+  const useSince = (++_xmPollN % 40 !== 1);
   try {
     if (other === "crypto") {
-      const r = await fetch(_tkUrl("futures", "futures", true));
+      const r = await fetch(_tkUrl("futures", "futures", useSince));
       if (r.ok) _tickerData = _tkMerge(_tickerData, await r.json(), "futures");
     } else {
-      const r = await fetch(_tkUrl("tw", "tw", true));
+      const r = await fetch(_tkUrl("tw", "tw", useSince));
       if (r.ok) _twTickerData = _tkMerge(_twTickerData, await r.json(), "tw");
     }
   } catch (e) { console.debug("[報價] 跨市場保鮮失敗:", e); }
@@ -392,11 +409,17 @@ async function fetchTickers() {
       const res = await fetch(_tkUrl("tw", "tw", useSince));
       if (res.ok) { const j = await res.json(); _twTickerData = _tkMerge(_twTickerData, j, "tw"); _tkLastOkTs = Date.now(); _tkRttMs = ((performance&&performance.now)?performance.now():Date.now()) - _rt0; }
     } else {
-      const wantSpot = _spotNeeded() || (Date.now() - _spotLastTs >= _SPOT_IDLE_MS);
+      const _spotNow = _spotNeeded();
+      if (_spotNow) _spotUsedTs = Date.now();
+      const wantSpot = _spotNow
+        || (_spotUsedTs && Date.now() - _spotUsedTs < _SPOT_WARM_MS
+            && Date.now() - _spotLastTs >= _SPOT_IDLE_MS);
       if (wantSpot) _spotLastTs = Date.now();
+      // 現貨自己的整包自癒節奏：每 20 次（15s×20 ≈ 5 分鐘）拿一次整包校正，其餘走差量
+      const useSpotSince = wantSpot && (++_spotPollN % 20 !== 1);
       const [futRes, spotRes] = await Promise.all([
         fetch(_tkUrl("futures", "futures", useSince)),
-        wantSpot ? fetch(_tkUrl("spot", "spot", false)) : null,
+        wantSpot ? fetch(_tkUrl("spot", "spot", useSpotSince)) : null,
       ]);
       if (futRes.ok)  { const j = await futRes.json();  _tickerData     = _tkMerge(_tickerData, j, "futures"); _tkLastOkTs = Date.now(); _tkRttMs = ((performance&&performance.now)?performance.now():Date.now()) - _rt0; }
       if (spotRes && spotRes.ok) { const j = await spotRes.json(); _spotTickerData = _tkMerge(_spotTickerData, j, "spot"); }
