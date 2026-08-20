@@ -749,7 +749,9 @@ function _renderSub(id) {
       if (d.type==="hline") {
         const y=_subV2Y(id,d.price); if(y==null){ctx.restore();return;}
         ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke();
-        ctx.setLineDash([]); ctx.font="10px monospace"; ctx.fillText((+d.price).toFixed(2), 4, y-3);
+        ctx.setLineDash([]); ctx.font="10px monospace";
+        const _pTxt=(+d.price).toFixed(2);                       // 同主圖：價格標籤靠右
+        ctx.fillText(_pTxt, Math.max(4, W - ctx.measureText(_pTxt).width - 5), y-3);
         if(sel){ ctx.fillStyle="rgba(255,255,255,.13)"; ctx.fillRect(0,y-5,W,10); ctx.fillStyle=col; ctx.beginPath(); ctx.arc(W*0.5,y,4,0,7); ctx.fill(); }
       } else if (d.type==="trendline") {
         const x1=_timeToX(d.p1.time), y1=_subV2Y(id,d.p1.price), x2=_timeToX(d.p2.time), y2=_subV2Y(id,d.p2.price);
@@ -3269,7 +3271,14 @@ function drawOne(d, W, H, isHovered, isSelected) {
     drawCtx.shadowBlur = 0;
     drawCtx.font = "10px monospace";
     const _hp = d.price;
-    drawCtx.fillText(_hp >= 1000 ? _hp.toFixed(1) : _hp >= 10 ? _hp.toFixed(2) : _hp >= 1 ? _hp.toFixed(3) : _hp.toFixed(4), 5, y - 3);
+    /* 價格標籤靠右（2026-08-20 使用者：「放右邊比較順眼」）。
+       原本寫死 x=5＝貼在左緣；價軸在右邊，標籤放右緣才跟 LWC 自己的價格標籤同側、視線不用來回跑。
+       ⚠ 用 timeScale().width()（繪圖區右緣）不是畫布寬 W：W 含價軸，貼 W 會被價軸蓋住。
+       ⚠ 量完文字寬再往左退，否則長數字（如 5 位數價格）會超出繪圖區被切掉。 */
+    const _hpTxt = _hp >= 1000 ? _hp.toFixed(1) : _hp >= 10 ? _hp.toFixed(2) : _hp >= 1 ? _hp.toFixed(3) : _hp.toFixed(4);
+    let _hpRight = W;
+    try { const _tw = mainChart.timeScale().width(); if (_tw > 0) _hpRight = _tw; } catch (e) {}
+    drawCtx.fillText(_hpTxt, Math.max(5, _hpRight - drawCtx.measureText(_hpTxt).width - 5), y - 3);
     if (isSelected) {
       drawCtx.fillStyle = "rgba(255,255,255,0.15)";
       drawCtx.fillRect(0, y - 6, W, 12);
