@@ -295,6 +295,18 @@ async function _acctPullDrawings(name, _bootPull) {
             let local = null;
             try { local = localStorage.getItem(k); } catch (e) {}
             if (remote === local) continue;
+            /* ★ 2026-08-20 `lastSymbol` 要比時間戳，不可無條件讓雲端蓋掉本機。
+               它被列在 `_ACCT_NO_TOUCH`（每次平移都寫，不能觸發推送，否則同步 debounce 永遠
+               被重設）→ **雲端那份常常是舊的**。原本開機時無條件套用 → 把使用者「剛剛的縮放」
+               換成雲端那份舊的，症狀就是使用者說的「刷新後會縮小」
+               （舊資料若沒有 barSpacing，還會退回 fitContent 把整段擠進畫面＝更小）。
+               → 只有雲端**比本機新**才套（缺 ts 的舊資料視為最舊，一律不覆蓋本機）。 */
+            if (k === "lastSymbol") {
+              let lts = 0, rts = 0;
+              try { lts = (JSON.parse(local || "null") || {}).ts || 0; } catch (e) {}
+              try { rts = (JSON.parse(remote) || {}).ts || 0; } catch (e) {}
+              if (!(rts > lts)) continue;            // 雲端不比本機新 → 保留本機（也不算變更）
+            }
             try { localStorage.setItem(k, remote); } catch (e) {}
             if (k === "lastSymbol") lastSymChanged = true;
             else if (k === "sysColors") sysChanged = true;

@@ -150,6 +150,10 @@ function saveLastSymbol() {
       market:   document.getElementById("marketSelect")?.value  || "crypto",
       tf:       currentTF,
       rangeBarCount, rangeToOffset, barSpacing, scrollPos, anchorT,
+      /* 跨裝置同步要靠它決定誰比較新（account.js 的下行會比對）。
+         沒有它的話雲端那份（常常是舊的，因為 lastSymbol 不觸發推送）會無條件蓋掉本機
+         → 使用者剛調好的縮放被換成舊的＝「刷新後會縮小」。 */
+      ts: Date.now(),
     }));
   } catch {}
   _syncUrlState();      // 網址同步反映現況 → 可直接複製分享／加書籤
