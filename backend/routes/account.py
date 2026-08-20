@@ -426,16 +426,65 @@ def _kick_relay(name: str, snap: dict):
     threading.Thread(target=_relay_all, args=(name, snap), daemon=True).start()
 
 
+def _merge_drawings_on_sync(name: str, incoming: dict) -> dict:
+    """整包快照寫入前，**繪圖那一格改成逐標的合併**，不讓一台裝置整份取代。
+
+    ★ 2026-08-21 事故：使用者「railway 上我的 qwer 帳號繪圖都被清掉了」——
+      線上從 23 標的 / 209 筆掉到 **2 標的 / 3 筆**。本機那份完好無缺（22/208），
+      所以不是本機推壞的，是**某台裝置把自己那份殘缺的快照整份蓋上去**
+      （事故當下線上快照只有 24 個 key，本機是 66 個）。
+    根因：`tv_drawings_v2` 是**一個 localStorage key 裝所有標的**，而 `/api/account/sync`
+      是整包 last-write-wins。任何一台裝置只要在「還沒把雲端那份拉下來」的狀態下畫了一筆，
+      `saveDrawings()` 就會把它那份殘缺的 store 寫回去 → 同步上來 → 覆蓋掉全部。
+      手機瀏覽器把站台資料清掉（iOS 常見）之後回來用，就是這個劇本。
+    → 伺服器端擋：合併成 `{...原有, ...這次送上來的}`。一台裝置只能**新增/更新它知道的標的**，
+      永遠不能刪掉它從沒看過的標的。
+    ⚠ 代價：把某個標的的繪圖**全部刪光**不會同步出去（那個 key 會從 incoming 消失 → 保留原有）。
+      刪個別線條照樣同步（那個標的的清單整份換新）。用 209 筆的風險換一個罕見操作，值得。
+    ⚠ 只保護繪圖：其餘設定本來就是 last-write-wins，改動它們影響面太大且不是這次的問題。
+    """
+    if not isinstance(incoming, dict) or _DRAW_KEY not in incoming:
+        return incoming
+    try:
+        conn, ph = _db()
+        try:
+            row = conn.execute(f"SELECT data FROM accounts WHERE name={ph}", (name,)).fetchone()
+        finally:
+            conn.close()
+        if not row:
+            return incoming
+        old_snap = json.loads(row[0]) if isinstance(row[0], str) else (row[0] or {})
+        old_draw = old_snap.get(_DRAW_KEY)
+        old_draw = json.loads(old_draw) if isinstance(old_draw, str) else (old_draw or {})
+        new_draw = incoming.get(_DRAW_KEY)
+        new_draw = json.loads(new_draw) if isinstance(new_draw, str) else (new_draw or {})
+        if not isinstance(old_draw, dict) or not isinstance(new_draw, dict) or not old_draw:
+            return incoming
+        merged = {**old_draw, **new_draw}
+        if merged == new_draw:
+            return incoming                          # 沒有保住任何東西 → 原樣寫入
+        kept = [k for k in old_draw if k not in new_draw]
+        print(f"  🛡 繪圖保護：{name} 這次送上來 {len(new_draw)} 個標的，"
+              f"保留它沒帶到的 {len(kept)} 個（{', '.join(kept[:5])}{'…' if len(kept) > 5 else ''}）")
+        out = dict(incoming)
+        out[_DRAW_KEY] = json.dumps(merged, ensure_ascii=False)
+        return out
+    except Exception as e:                           # 保護失敗不可以擋住存檔
+        print(f"  ⚠ 繪圖合併保護失敗（{name}）：{type(e).__name__}: {str(e)[:80]} — 照原樣寫入")
+        return incoming
+
+
 @router.post("/sync")
 def sync(req: SyncReq):
     _require_enabled()
     name = _norm_name(req.name)
     if not _valid_name(name):
         raise HTTPException(status_code=400, detail="帳號名稱不正確")
+    data = _merge_drawings_on_sync(name, req.data or {})
     conn, ph = _db()
     try:
         cur = conn.execute(f"UPDATE accounts SET data={ph}, updated_at={ph} WHERE name={ph}",
-                           (json.dumps(req.data or {}), time.time(), name))
+                           (json.dumps(data), time.time(), name))
         if cur.rowcount == 0:
             raise HTTPException(status_code=404, detail="查無此帳號")
         conn.commit()
@@ -445,7 +494,7 @@ def sync(req: SyncReq):
         raise HTTPException(status_code=500, detail=f"同步失敗：{e}")
     finally:
         conn.close()
-    _kick_relay(name, req.data or {})     # 本機：把繪圖那一格轉發到 Railway（背景、不擋回應）
+    _kick_relay(name, data)              # 本機：把繪圖那一格轉發到 Railway（背景、不擋回應）
     return {"ok": True}
 
 
