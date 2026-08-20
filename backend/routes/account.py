@@ -326,7 +326,92 @@ def _relay_drawings(name: str, local_snap: dict):
                             "msg": f"{type(e).__name__}: {str(e)[:120]}"})
         print(f"  ⚠ 繪圖同步到線上失敗（{name}）：{type(e).__name__}: {str(e)[:100]}"
               f" — 本機存檔不受影響，下次同步會再試")
+    # ⚠ busy 不在這裡清：自選那條還要跑，統一由 _relay_all 收尾（見該函式）
+
+
+_WL_KEY = "__watchlist__"
+
+
+def _local_watchlist(name: str):
+    """讀本機這台的自選寫穿表 → (清單, updated_at)。讀不到回 (None, 0)。"""
+    conn, ph = _db()
+    try:
+        cur = conn.execute(f"SELECT wl, updated_at FROM account_watchlist WHERE name={ph}", (name,))
+        row = cur.fetchone()
+    except Exception:
+        return None, 0.0
     finally:
+        conn.close()
+    if not row:
+        return None, 0.0
+    try:
+        wl = json.loads(row[0]) if isinstance(row[0], str) else (row[0] or [])
+    except Exception:
+        return None, 0.0
+    return (wl if isinstance(wl, list) else None), float(row[1] or 0)
+
+
+def _wl_key(w):
+    """自選項目的識別鍵：市場+交易所+代號（大小寫不敏感）。"""
+    if not isinstance(w, dict):
+        return None
+    return (str(w.get("market") or "crypto").lower(),
+            str(w.get("exchange") or "").lower(),
+            str(w.get("symbol") or "").upper())
+
+
+def _relay_watchlist(name: str):
+    """把本機的自選同步到上游（Railway）同名帳號。背景執行、失敗只記錄不拋。
+
+    ★ 2026-08-20 使用者：「自選也要更新」。繪圖那條可以逐標的合併（本機沒畫過的沿用線上），
+      自選卻是**一份清單**、而且「刪掉某檔」是真實操作 —— 沒有可以躲的分割。
+      所以規則按「誰比較新」走（兩邊表裡本來就有 updated_at）：
+        ・本機較新 → 整份取代（本機的新增**與刪除**都會過去）
+        ・線上較新 → **不送**（手機剛改過，別被本機的舊清單洗掉；本機下次拉雲端會拿到）
+        ・線上讀不到時間（舊版伺服器還沒部署到）→ 退回**聯集**：只會多不會少，
+          寧可少同步一次刪除，也不要在不知道誰新的情況下刪掉對方的東西。
+    ⚠ 與繪圖同樣的鐵則：絕不在請求執行緒裡做；失敗不影響本機存檔。
+    """
+    local, lts = _local_watchlist(name)
+    if local is None:
+        return                                       # 本機沒有這個帳號的自選 → 沒事可做
+    try:
+        up = _relay_post("mywatch", {"name": name})
+    except Exception as e:
+        _relay_stat.update({"wl_ok": False, "wl_msg": f"拉線上自選失敗：{str(e)[:60]}"})
+        return
+    online = up.get("wl") if isinstance(up.get("wl"), list) else []
+    ots = up.get("updated_at")
+    if ots is None:                                  # 舊版上游 → 聯集（只增不減）
+        seen = {_wl_key(w) for w in local if _wl_key(w)}
+        merged = list(local) + [w for w in online if _wl_key(w) and _wl_key(w) not in seen]
+        mode = "聯集(上游沒有時間戳)"
+    elif lts > float(ots or 0):
+        merged, mode = list(local), "本機較新→整份取代"
+    else:
+        _relay_stat.update({"wl_ok": True, "wl_msg": f"線上較新({len(online)} 檔)，本機不覆蓋"})
+        return
+    if [_wl_key(w) for w in merged] == [_wl_key(w) for w in online]:
+        _relay_stat.update({"wl_ok": True, "wl_msg": f"自選已一致（{len(online)} 檔）"})
+        return                                       # 沒變就不送
+    try:
+        _relay_post("savewatch", {"name": name, "wl": merged})
+        _relay_stat.update({"wl_ok": True,
+                            "wl_msg": f"已上傳 {len(merged)} 檔自選（{mode}）"})
+    except Exception as e:
+        _relay_stat.update({"wl_ok": False, "wl_msg": f"上傳自選失敗：{str(e)[:60]}"})
+
+
+def _relay_all(name: str, snap: dict):
+    try:
+        _relay_drawings(name, snap)
+    finally:
+        try:
+            _relay_watchlist(name)
+        except Exception:
+            pass
+        # ⚠ 一定要清，而且要在**兩條都跑完之後**：沒清＝這個帳號從此再也不會轉發
+        #   （同 _wx_bg_refresh／_nr_bg_refresh 的教訓）。
         with _relay_lock:
             _relay_busy.discard(name)
 
@@ -338,7 +423,7 @@ def _kick_relay(name: str, snap: dict):
         if name in _relay_busy:
             return                                   # 單飛：同一帳號同時只有一條在送
         _relay_busy.add(name)
-    threading.Thread(target=_relay_drawings, args=(name, snap), daemon=True).start()
+    threading.Thread(target=_relay_all, args=(name, snap), daemon=True).start()
 
 
 @router.post("/sync")
@@ -417,6 +502,9 @@ def save_watch(req: SaveWatchReq):
         raise HTTPException(status_code=500, detail=f"自選同步失敗：{e}")
     finally:
         conn.close()
+    # 本機：自選也轉發到 Railway（背景、不擋回應）。⚠ 一定要在這裡踢——自選走的是寫穿表，
+    # 不經過 /api/account/sync，只掛在那邊的話「加/刪自選」永遠不會上線。
+    _kick_relay(name, {})
     return {"ok": True}
 
 
@@ -430,7 +518,7 @@ def my_watch(req: MyWatchReq):
         return {"wl": [], "exists": False}
     conn, ph = _db()
     try:
-        cur = conn.execute(f"SELECT wl FROM account_watchlist WHERE name={ph}", (name,))
+        cur = conn.execute(f"SELECT wl, updated_at FROM account_watchlist WHERE name={ph}", (name,))
         row = cur.fetchone()
     finally:
         conn.close()
@@ -440,7 +528,10 @@ def my_watch(req: MyWatchReq):
         wl = json.loads(row[0]) if isinstance(row[0], str) else (row[0] or [])
     except Exception:
         wl = []
-    return {"wl": wl if isinstance(wl, list) else [], "exists": True}
+    # updated_at 追加回傳（2026-08-20）：本機→線上的自選轉發要靠它判誰比較新。
+    # 純加法，舊前端不讀它、行為不變。
+    return {"wl": wl if isinstance(wl, list) else [], "exists": True,
+            "updated_at": float(row[1] or 0)}
 
 
 @router.post("/admin/create")

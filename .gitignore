@@ -45,3 +45,7 @@ frontend/static/js/trade.min.js
 frontend/static/js/signal_info.min.js
 frontend/static/js/notify.min.js
 .venv312/
+
+# 帳號備份（含真實使用者資料，絕不進版控）
+backend/.qwer_*_backup.json
+backend/.*_backup.json
