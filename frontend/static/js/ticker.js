@@ -155,8 +155,17 @@ function _updateTickerPrices() {
   // Map 查表取代 O(n) find，整體從 O(n²) 降為 O(n)
   const srcMap = new Map();
   src.forEach(x => { srcMap.set(x.display || x.symbol, x); srcMap.set(x.symbol, x); });
-  container.querySelectorAll(".ticker-item[data-display]").forEach(el => {
-    const t = srcMap.get(el.dataset.display);
+  /* ⚠ 選擇器用 `.ticker-item` 不可用 `.ticker-item[data-display]`（2026-08-21 修）：
+       **自選列沒有 data-display**（`_buildWlRow` 只給 data-mkt/data-exch/data-sym）
+       → 舊寫法把整個自選分頁的列全部跳過，它們只能等別的路徑偶爾重畫。
+       症狀：**你正在看的那一列**會卡住好幾秒、跟其他列對不上
+       （使用者：「點進 A 再點 B，A 的會卡住回到之前」）。實測正在看的那列
+       DOM 2317.85 / 來源 2318.41，而且 +500ms 與 +3000ms 都同一個數字。
+     ★ 旁邊 `_tkSyncChartRow` 的註解早就記過這個坑，但這支沒跟著修 ——
+       同一個陷阱在同一個檔案裡踩了兩次。 */
+  container.querySelectorAll(".ticker-item").forEach(el => {
+    const d = el.dataset;
+    const t = srcMap.get(d.display || d.sym);
     if (t) _paintTickerRow(el, t);
   });
   updatePageTitle();
