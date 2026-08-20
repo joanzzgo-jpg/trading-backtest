@@ -737,7 +737,7 @@ async function _fetchWinRateNow() {
     bar.classList.add("calculating");
   }
   // 不寫 "計算中…" 到 wrStatus，由中央 .tb-wr-loading（小熊 + 文字）顯示
-  if (statusEl) statusEl.textContent = "";
+  if (statusEl) { statusEl.textContent = ""; statusEl.title = ""; }   // 清掉上一次的失敗說明
   try {
     // 升階差量：手上有「前一階」且帶指紋 → 請後端只回差量（見上方 _wrApplyDelta 註解）
     const _prev = _wrPickBase(cacheKey, _vw);
@@ -797,7 +797,16 @@ async function _fetchWinRateNow() {
                      || myCtrl !== _wrFetchCtrl;
     if (!isAbortLike) {
       console.error("[fetchWinRate] error:", e.name, e.message);
-      if (statusEl) statusEl.textContent = "—";
+      /* ★ 2026-08-20：原本只寫「—」。實測把 /api/crt_winrate 擋成 503 → 標記全清成 0、
+         HUD 顯示「—」、畫面上**沒有任何其他跡象** —— 跟「這個標的真的沒有訊號」完全分不出來。
+         對回測工具來說這兩件事意義天差地遠（「算不出來」vs「這裡沒機會」），而且是本專案
+         已經認定最危險的那個形狀：靜默地給一個看起來正常的答案（同 `行情中斷` 那條）。
+         ⚠ 不用提示框（使用者明確表示操作類提示不要）→ 就地把狀態寫清楚＋滑過去看得到原因。 */
+      if (statusEl) {
+        statusEl.textContent = "訊號計算失敗";
+        statusEl.title = `無法取得訊號/勝率（${e.name}: ${e.message || ""}）。`
+                       + "圖上沒有標記是因為算不出來，不是這個標的沒有訊號。切換時框或稍後會自動重試。";
+      }
       lastWRSignalMarkers = [];
       _applyMainMarkers();
     }
