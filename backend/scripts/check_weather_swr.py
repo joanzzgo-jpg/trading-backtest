@@ -71,9 +71,17 @@ async def _run() -> int:
             fails.append(f"{name} 過期時仍在請求裡同步等網路（{warm:.0f}ms）")
         if res is None:
             fails.append(f"{name} 過期時回了空值")
-        await asyncio.sleep(4.0)                    # 等背景那條跑完
+        # 等背景那條跑完。★ 等待時間必須跟著**實測的冷取時間**走，不可寫死。
+        #   原本固定等 4 秒 —— 但背景重算就是再跑一次冷路徑，實測 /api/weather 冷取 5519ms
+        #   → 4 秒必然還沒跑完 → 每次都報「busy 沒清乾淨」＝叫狼來了（2026-08-20 踩到）。
+        #   （同一輪 nearby_rain 冷取 8118ms 卻通過，因為它的測站清單已被上一趟快取住、
+        #     背景那趟很快就結束 —— 這種「兩支結果不一致」正是判準寫死時間的典型症狀。）
+        deadline = time.perf_counter() + max(6.0, cold / 1000.0 * 2.0 + 3.0)
+        while busy and time.perf_counter() < deadline:
+            await asyncio.sleep(0.3)
         if busy:
-            fails.append(f"{name} busy 沒清乾淨 → 一次失敗後就再也不會更新")
+            fails.append(f"{name} busy 沒清乾淨（等了 {max(6.0, cold/1000.0*2.0+3.0):.0f}s）"
+                         f" → 一次失敗後就再也不會更新")
         print(f"     背景更新收尾 {'✓' if not busy else '✗ 仍卡著'}　舊值儲存 {len(stale)} 筆")
 
     # _force 不得外露成查詢參數

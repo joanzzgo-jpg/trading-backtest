@@ -3328,7 +3328,9 @@
   function _emitWxUpdated() { try { window.dispatchEvent(new CustomEvent('wx:updated')); } catch (e) {} }
   function fetchNearbyRain(lat, lon) {
     fetch('/api/nearby_rain?lat=' + lat + '&lon=' + lon)
-      .then(r => r.json())
+      // ⚠ 一定要看 r.ok：錯誤回應的 body 也是 JSON，直接 .json() 會把它當成一份合法答案
+      //   （503 的 {"detail":...} 沒有 raining_here → 被當成「沒有雨」）。
+      .then(r => r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)))
       .then(d => {
         _wd.nearby = d;
         _wd.nearbyRaining = !!(d && d.raining_here);   // 附近雨量站測到所在地正在下雨 → 背景跟著下雨
@@ -3336,7 +3338,14 @@
         if (!_isManualOn() && !window._restoreManualWxIfAny?.()) _applyAutoType();  // 背景動畫同步(非手動時)
         _emitWxUpdated();                              // 通知小啊「天氣如何」按鈕更新
       })
-      .catch(() => { _emitWxUpdated(); });
+      .catch(err => {
+        // 沒有舊值可用時才標記「取不到」——有舊值就留著（10 分鐘內的雨況仍有參考價值），
+        // 但絕不讓失敗變成一句「都沒下雨」。
+        if (!_wd.nearby || _wd.nearby.unavailable) _wd.nearby = { unavailable: true };
+        console.debug('[天氣] 附近雨區取得失敗:', err && err.message);
+        _renderWeatherCard();
+        _emitWxUpdated();
+      });
   }
   // 附近雨區 → 一行文字（只講「哪個區在下雨」，方向不重要）：
   //   所在地正在下雨 ＞ 某區的雨正往你這來(含ETA) ＞ 大範圍 ＞ 最近有雨的區 ＞ 無雨
@@ -3349,6 +3358,13 @@
   }
   function _nearbyText(n) {
     if (!n) return '';
+    /* ★ 2026-08-20：取不到就要說取不到，不可以掉進最後那句「☀️ 你這和附近都沒下雨」。
+       實測把 /api/nearby_rain 擋成 503 → 它的 body 也是 JSON（{"detail":...}）→ `r.json()`
+       照樣成功 → 這份「沒有 raining_here / cells / nearest」的東西被當成一份合法答案，
+       畫面上就出現一句**很有自信的肯定句**「你這和附近都沒下雨」。
+       那比「沒資料」更糟：它宣稱了一件我們根本不知道的事（同勝率那條、同行情中斷那條）。 */
+    if (n.unavailable || (n.raining_here === undefined && !n.cells && !n.nearest))
+      return '🌫️ 附近雨況暫時取不到（來源沒回應，稍後自動重試）';
     // 一律先講所在地有沒有下雨，再帶附近
     if (n.raining_here) return '☔ 你所在地正在下雨' + _trendZh(n.nearest);
     // 雷達頭頂回波＝最急迫（雨在正上方、隨時落下）→ 排在 ETA 之前;soft=對流醞釀(信度較低)
