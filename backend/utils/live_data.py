@@ -159,6 +159,9 @@ _SHARE_DIR  = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 _SHARE_PATH = os.path.join(_SHARE_DIR, "live_ticker.pkl")
 _FRESH_SEC  = 5.0           # 本地記憶體視為「新鮮」的秒數（leader 每秒 update → 一直新鮮）
 _shared_memo = {"ts": 0.0, "data": None}   # follower 讀磁碟的 0.5s memo
+# 共享快照最多能有多舊還算數。leader 每秒寫一次 → 30 秒代表已經連續 30 次沒寫成功／換人了。
+_SHARED_MAX_AGE = 30.0
+_stale_warn = {"ts": 0.0}
 
 
 _REDIS_KEY = "live:ticker"
@@ -201,6 +204,27 @@ def _read_shared() -> dict:
                 data = pickle.load(f)
         except Exception:
             pass
+    # ── 過期的共享快照一律丟掉（2026-08-21 事故）──────────────────────────────
+    # ★ 使用者：「線上整個合約行情會卡住」。線上是 workers=2：
+    #     pid 6 = leader   → 696 檔、rev ~350，一直在動
+    #     pid 5 = follower → **1255 檔、rev 3200，凍住的**（boot id 比 leader 早 12.6 小時）
+    #   前端每秒輪流打到兩個 worker，一半的回應是**十二小時前的快照**，而且 `source` 照樣寫
+    #   "live"、HTTP 200、筆數還更多 —— 畫面上看起來就是價格一直彈回舊值＝「卡住」。
+    # 根因：這支讀到什麼就回什麼，**從來不看那份資料多舊**。共享快照檔在磁碟上，
+    #   leader 換人／寫入失敗／檔案是上一輪容器留下的，follower 都會照樣把它當即時資料端出去。
+    # → 超過 _SHARED_MAX_AGE 就視同「沒有資料」：上層 has_data() 會回 False，
+    #   `/api/tickers` 自動退回直接打交易所（慢一點，但**是真的**）。
+    # ⚠ 寧可回空也不要回舊：舊快照有筆數、有價格、不報錯，是最難發現的一種壞法。
+    try:
+        _ts = float(data.get("ts") or 0)
+    except Exception:
+        _ts = 0.0
+    if _ts and now - _ts > _SHARED_MAX_AGE:
+        if now - _stale_warn["ts"] > 60:             # 不洗版：同一種狀況每分鐘最多講一次
+            _stale_warn["ts"] = now
+            print(f"  ⚠ 共享報價快照已過期 {now - _ts:.0f} 秒（上限 {_SHARED_MAX_AGE:.0f}s）"
+                  f" → 視為無資料，不拿舊價當即時價")
+        data = {"futures": [], "spot": [], "tw": [], "ts": 0.0}
     _shared_memo["ts"] = now
     _shared_memo["data"] = data
     return data
