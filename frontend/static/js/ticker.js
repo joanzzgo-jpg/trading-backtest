@@ -144,7 +144,25 @@ function _mainChartPrice(el) {
   const rowKey = window._mkChartDataKey(d.mkt, d.display || d.sym);
   if (rowKey !== key) return null;
   if (typeof ohlcvData === "undefined" || !Array.isArray(ohlcvData) || !ohlcvData.length) return null;
-  const v = +ohlcvData[ohlcvData.length - 1].close;   // 主圖最後一根（形成中那根）的收盤＝畫面上的現價
+  /* ★ 2026-08-23：主圖最後一根**必須真的是「現在」那一根**，才能拿它當現價。
+     使用者：「畫面位置記憶在歷史時，行情列的數值差很多」「要動一下主圖才會有最新價格」——
+     實測重整後停在 2026-07-27 的畫面，行情列顯示 **65,375.1**、真實行情 **77,300.1**，
+     差 **15.43%**。原因：捲在歷史時載入的是「錨點附近的有界視窗」(window._hasFwdGap=true)，
+     `ohlcvData` 最後一根是一個月前的收盤，而這裡無條件把它當現價餵給那一列。
+     ⚠ 兩道都要：`_hasFwdGap`（有界視窗，資料本來就沒到現在）＋「最後一根不能太舊」
+       （即時輪詢中斷、補載還沒追上時也會發生，那時沒有旗標可看）。
+     → 不合格就回 null → 那一列退回用行情來源的即時價（正確的那個）。 */
+  if (window._hasFwdGap) return null;
+  const lastBar = ohlcvData[ohlcvData.length - 1];
+  try {
+    // ⚠ `toTime()` 回的是**圖表時間（已 +8 小時）**，不可直接跟 Date.now() 比 ——
+    //   我第一版就是，age 永遠多 8 小時 → 判定永遠不通過 → 等於把這個功能整個關掉
+    //   （症狀很像「修好了」：那一列改用行情來源、數字剛好對得上，但主圖同步沒了）。
+    const age = (Date.now() / 1000 + 8 * 3600) - toTime(lastBar.time);
+    const tol = Math.max(120, tfSec(currentTF) * 2);   // 容許形成中那根 + 一點輪詢延遲
+    if (!(age >= -60 && age <= tol)) return null;
+  } catch (e) { return null; }
+  const v = +lastBar.close;   // 主圖最後一根（形成中那根）的收盤＝畫面上的現價
   return (isFinite(v) && v > 0) ? v : null;
 }
 
