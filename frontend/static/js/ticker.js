@@ -386,13 +386,23 @@ if (typeof window !== "undefined" && !window._tkStaleTimer) {
 const _XM_MS = 3000;
 let _xmLastTs = 0;
 let _xmPollN = 0;
+/* 「這次工作階段用過哪個市場分頁」。★ 2026-08-23 使用者：「點進合約行情後，數值會先跳錯的」——
+   原本跨市場保鮮**只在自選裡有該市場的標的**時才跑；自選沒有加密的人待在台股分頁時，
+   `_tickerData` 就整段凍住，切回合約那一刻先顯示**凍住的舊價**、下一輪才跳成對的。
+   實測待在台股 25 秒後切回：切換當下最大偏離正確值 **0.395%**。
+   → 只要「這個市場你用過」就順便保鮮它（同現貨那條「用過才保鮮」的原則：
+     沒用過的市場一格流量都不花，用過的就別讓它凍住）。 */
+const _MKT_WARM_MS = 15 * 60 * 1000;
+const _mktUsedTs = {};
+function _markMktUsed(m) { try { _mktUsedTs[m] = Date.now(); } catch (e) {} }
+function _mktWarm(m) { return (Date.now() - (_mktUsedTs[m] || 0)) < _MKT_WARM_MS; }
 function _wlHasMarket(mkt) {
   try { return _watchlist.some(w => (w.market || "crypto") === mkt); } catch (e) { return false; }
 }
 async function _fetchCrossMarket() {
   if (Date.now() - _xmLastTs < _XM_MS) return;
   const other = (_tickerMkt === "tw") ? "crypto" : "tw";
-  if (!_wlHasMarket(other)) return;
+  if (!_wlHasMarket(other) && !_mktWarm(other)) return;   // 自選沒有它、也沒用過 → 完全不打
   _xmLastTs = Date.now();
   /* ⚠ 這條路也要有「整包自癒」：主輪詢是每 60 輪拿一次整包當校正，而這裡若永遠帶 since，
      萬一合併真的漏掉什麼就**沒有任何機會被修正**。每 40 次（3s×40 ≈ 2 分鐘）整包一次。 */
@@ -1047,6 +1057,7 @@ function _loadTickerCache() {
 }
 
 function startTickerRefresh() {
+  _markMktUsed(_tickerMkt);                   // 開頁時所在的市場也算「用過」
   if (_tickerTimer) clearInterval(_tickerTimer);
   _loadTickerCache();
   fetchTickers();
@@ -1102,7 +1113,9 @@ function bindTickerPanel() {
       if (btn.dataset.mkt === _tickerMkt) return;
       document.querySelectorAll(".tk-mkt-btn").forEach(b => b.classList.remove("active"));
       btn.classList.add("active");
+      _markMktUsed(_tickerMkt);                 // 離開的這個市場＝用過 → 之後保持保鮮
       _tickerMkt     = btn.dataset.mkt;
+      _markMktUsed(_tickerMkt);
       try { localStorage.setItem("tkMkt", _tickerMkt); } catch (e) {}
       _lastTickerKey = "";
       /* ★ 立刻用「新市場手上已有的資料」重畫（2026-08-19 使用者：「切換有短暫的價格沒切換」）。
