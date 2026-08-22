@@ -272,6 +272,14 @@
   let _wxLat = 25.04, _wxLon = 121.51, _wxTimer = null;
   const _wd = { code:0, temp:null, precip:0, pop:null, cloudCover:50, windSpeed:0, windDir:null, visibility:10000, isDay:true, city:null, country:null, updatedAt:null, intensity:0.5, desc:null, source:null,
                sunRiseMin:360, sunSetMin:1080, moonPhase:0, moonRiseMin:1080, moonSetMin:360 };
+  /* 雲量 → 晴朗度 0~1。★ 一律走這支，別直接算 `1 - _wd.cloudCover/100`：
+     cloudCover 可能是 undefined/null/字串，算出 NaN 之後會一路傳進 rgba()／globalAlpha，
+     canvas 直接拋 DOMException 且每幀重複（見 dSunny 的說明）。 */
+  function _cloudClr() {
+    const cc = Number(_wd && _wd.cloudCover);
+    if (!isFinite(cc)) return 1;                 // 不知道雲量 → 當晴朗（原本的預設值也是這個意思）
+    return Math.max(0, Math.min(1, 1 - cc / 100));
+  }
 
   // 晚霞漸層快取：天空隨「夜化係數 nf」由晚霞色混向深夜藍（鍵：H + nf 量化階）；
   // 地平線暖霾只跟 H 有關。免每幀重建。
@@ -1743,7 +1751,12 @@
     const sy = H*0.88 - (H*0.88-H*0.08)*Math.sin(prog*Math.PI);
     sunAngle += .0035;
     /* 晴朗度：雲量越高 → 陽光（光芒/光暈）越弱（有下限，不會完全消失） */
-    const clr = Math.max(0, 1 - _wd.cloudCover/100), rk = .35 + .65*clr;
+    /* ⚠ `Math.max(0, NaN)` 回傳的是 **NaN 不是 0** —— 這道防呆原本擋不住任何東西。
+       `_wd.cloudCover` 只要是 undefined/null（天氣還沒載到、或那個來源沒給雲量），
+       clr → NaN → rk → NaN → 下面每個 `rgba(...,${NaN})` 都被 canvas 拒絕，
+       **每一幀丟一次 DOMException**（實測 95 秒噴 1328 個）。畫面上只是光效不見，
+       不會有任何提示 —— 而它會把守門員的「零 JS 錯誤」判準整個淹掉。 */
+    const clr = _cloudClr(), rk = .35 + .65*clr;
     /* background warm glow → 天空層（最遠的大氣底光；太陽本體/光束留在 mid 層 → 相機移動時微微分離出縱深） */
     const gs = _layers.sky.ctx;
     const bg = gs.createRadialGradient(sx,sy,0,sx,sy,W*.85);

@@ -265,6 +265,44 @@ def _slim_crypto_rows(rows, market, rev):
     return out
 
 
+# ── 「直接打交易所」那條路一定要有 TTL＋單飛 ────────────────────────────────────
+# 為什麼（2026-08-21）：這條路原本只在冷啟動那幾秒會走到，所以沒人在意它沒有快取。
+# 但 2026-08-21 起「共享快照過期就視同無資料」——一個卡住的 follower 會**持續**落到這裡，
+# 而前端是**每秒**輪詢：沒有快取的話，每個請求都打一次 fapi 全市場 24hr（權重約 40）
+# → 單一使用者就吃掉近半的每分鐘權重預算，直接把 Binance 打進冷卻
+# （見 memory binance-weight-self-lockout：權重自鎖是本專案不穩定的總源頭）。
+# → 2 秒 TTL：不論多少人、多少請求，每個 worker 每 2 秒最多打一次。
+# ⚠ 還要單飛：TTL 擋不住「同時 miss」的叢發（同 /api/ohlcv 的教訓，8 人同開＝打 8 次）。
+_DIRECT_TTL = 2.0
+_direct_memo: dict = {}
+_direct_lock = threading.Lock()
+_direct_busy: dict = {}
+
+
+def _direct_tickers(market: str) -> list:
+    now = _time.time()
+    hit = _direct_memo.get(market)
+    if hit and now - hit[0] < _DIRECT_TTL:
+        return hit[1]
+    with _direct_lock:
+        ev = _direct_busy.get(market)
+        leader = ev is None
+        if leader:
+            ev = threading.Event(); _direct_busy[market] = ev
+    if not leader:
+        ev.wait(6.0)                                  # 等 leader 抓完，直接讀它寫進來的
+        hit = _direct_memo.get(market)
+        return hit[1] if hit else []
+    try:
+        rows = fetch_tickers(market) or []
+        _direct_memo[market] = (now, rows)
+        return rows
+    finally:
+        with _direct_lock:
+            _direct_busy.pop(market, None)
+        ev.set()                                      # 一定要放行，否則其他人白等 6 秒
+
+
 @router.get("/tickers")
 def get_tickers(response: Response, market: str = "futures", since: str = "", fd: str = ""):
     """取得標的列表：優先從記憶體即時快取讀取，啟動初期才 fallback 至直接 API。
@@ -322,8 +360,7 @@ def get_tickers(response: Response, market: str = "futures", since: str = "", fd
             out["rev"] = tok
         return out
     # 冷啟動 fallback：直接呼叫 API
-    tickers = fetch_tickers(market)
-    return {"tickers": tickers, "source": "direct"}
+    return {"tickers": _direct_tickers(market), "source": "direct"}
 
 
 @router.get("/pionex/symbols")
