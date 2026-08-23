@@ -1158,6 +1158,23 @@ function applyOhlcvToSeries(data) {
 
 let _curPriceLabelEl = null;   // 現價的自訂 DOM 標籤（與十字線價格標籤同風格）
 
+/* 切標的時先把現價標線收起來（2026-08-23 使用者：「主圖點進去，會有一瞬間最新價格標線不對」）。
+   `updateLatestPriceLine` 只在 `renderCandles` 拿到新資料時才更新 → 從點下去到新資料到達的
+   這段時間，標線與右軸標籤留著**上一檔**的價。實測本機約 80ms 就顯示上一檔的 77,311.6
+   （目標 2,425），慢一點的機器/網路窗口更長。
+   ⚠ 只在**換標的**時收（換時框是同一檔，價仍然有效，收掉反而閃一下）。
+   ⚠ 不必另外復原：新資料一畫上去，renderCandles 就會呼叫 updateLatestPriceLine 重建。 */
+function hideLatestPriceLine() {
+  try {
+    if (latestPriceLine && candleSeries) candleSeries.removePriceLine(latestPriceLine);
+  } catch (e) {}
+  latestPriceLine = null;
+  try {
+    if (_curPriceLabelEl && _curPriceLabelEl.isConnected) _curPriceLabelEl.style.display = "none";
+  } catch (e) {}
+}
+window.hideLatestPriceLine = hideLatestPriceLine;
+
 function updateLatestPriceLine(price) {
   if (!candleSeries || price == null) return;
   if (latestPriceLine) {

@@ -170,6 +170,17 @@ async function loadData(autoLoad = false, forceLatest = false) {
   //   載入期間先清成 null → 行情列該列這段時間退回用它自己的價。
   //   ⚠ 這一步是關鍵：不能拿 symbolInput 的值當依據（點下去就變了，但 ohlcvData 還是前一檔）
   //     —— 舊版就是這樣才出現「點下去跳成別的標的的價、再跳回」，那次因此整個拿掉。
+  /* 換標的 → 先收掉現價標線（見 charts.js hideLatestPriceLine）：
+     它會留著上一檔的價，直到新資料畫上去為止。換時框不收（同一檔，價仍有效）。 */
+  try {
+    const _prevKey = window._chartDataKey;
+    const _newKey = window._mkChartDataKey
+      ? window._mkChartDataKey(document.getElementById("marketSelect")?.value,
+                              document.getElementById("symbolInput")?.value)
+      : null;
+    if (_prevKey && _newKey && _prevKey !== _newKey && typeof window.hideLatestPriceLine === "function")
+      window.hideLatestPriceLine();
+  } catch (e) {}
   window._chartDataKey = null;
   // ⚡ 速度：先「發射」ohlcv 網路請求(不 await)→ 讓 TCP/後端往返與下面的快照渲染「平行」跑，
   //    不再讓快照渲染(~50-100ms 主執行緒)擋在網路請求前面(舊順序是先畫快照才發網路＝白等)。
