@@ -180,6 +180,7 @@ async function loadData(autoLoad = false, forceLatest = false) {
       : null;
     if (_prevKey && _newKey && _prevKey !== _newKey && typeof window.hideLatestPriceLine === "function")
       window.hideLatestPriceLine();
+    if (window._resetCurPrice) window._resetCurPrice();   // 換標的：清掉上一檔的現價
   } catch (e) {}
   window._chartDataKey = null;
   // ⚡ 速度：先「發射」ohlcv 網路請求(不 await)→ 讓 TCP/後端往返與下面的快照渲染「平行」跑，

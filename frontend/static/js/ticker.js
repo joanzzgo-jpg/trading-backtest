@@ -136,6 +136,28 @@ function _tkChildren(el) {
 window._mkChartDataKey = (mkt, sym) =>
   `${(mkt || "").trim()}|${(sym || "").trim()}`.toUpperCase();
 
+
+/* ── 「現價」收斂成單一數字（2026-08-23 使用者：「我要一致，且都是最新」）──────────
+   同一檔的現價有兩個來源，實測**兩個都準到 0.05 點**（BTC 76,000 上、三支同時取樣）：
+     ・主圖 `/api/latest`：形成中那根 K 棒的收盤
+     ・報價列 `/api/tickers`：24hr ticker 的最後成交價
+   兩個都對，只是取樣時刻差一瞬 → 誰也不比誰準，但**顯示兩個數字就會看到跳動**。
+   → 收斂成一個：誰的 `ts` 新就用誰，然後**同一個數字同時餵給行情列那一列與主圖現價線**。
+   ⚠ 只對「主圖正在看的那一檔」做（其他列本來就只有報價來源，沒有第二個數字可比）。
+   ⚠ 換標的要清掉，否則會把上一檔的價餵給新的那一列。
+   ⚠ 一律走這裡更新現價線 → 兩者由**同一次呼叫**寫入，結構上不可能不一致。 */
+const _curPx = { key: null, price: null, ts: 0 };
+window._pushCurPrice = function (key, price, ts) {
+  if (!key || price == null || !isFinite(price) || price <= 0) return;
+  ts = +ts || 0;
+  if (_curPx.key === key && ts && _curPx.ts && ts < _curPx.ts) return;   // 舊的不覆蓋新的
+  if (_curPx.key !== key) { _curPx.key = key; _curPx.ts = 0; }
+  _curPx.price = price; _curPx.ts = ts || _curPx.ts;
+  try { if (typeof updateLatestPriceLine === "function") updateLatestPriceLine(price); } catch (e) {}
+  try { window._tkSyncChartRow && window._tkSyncChartRow(); } catch (e) {}
+};
+window._resetCurPrice = function () { _curPx.key = null; _curPx.price = null; _curPx.ts = 0; };
+
 function _mainChartPrice(el) {
   const key = window._chartDataKey;
   if (!key) return null;                       // 沒載完／載入中 → 不冒用
@@ -160,8 +182,8 @@ function _mainChartPrice(el) {
      前端只能固定選一邊，於是切標的時就在兩個值之間彈。
      → 主圖那份**比較舊**就不要用它，讓那一列退回行情來源（比較新的那個）。
      ⚠ 給 1.5 秒寬容：兩支各自 1 秒節奏，差一拍是常態，不必為此放棄主圖同步。 */
-  const _cts = +window._chartPriceTs || 0, _fts = +window._feedPriceTs || 0;
-  if (_cts && _fts && _fts - _cts > 1.5) return null;
+  // 收斂後的現價（誰新用誰，見 _pushCurPrice）；沒有就退回主圖最後一根
+  if (_curPx.key === key && _curPx.price != null) return _curPx.price;
   const lastBar = ohlcvData[ohlcvData.length - 1];
   try {
     // ⚠ `toTime()` 回的是**圖表時間（已 +8 小時）**，不可直接跟 Date.now() 比 ——
@@ -224,11 +246,9 @@ function _paintTickerRow(el, t) {
        → 主圖確定比較新時才寫回去（有時間戳可判，不是猜的）。之後報價來源真的追上來，
          它自然會蓋過去（那是往前走），但不會再退回舊值。
        ⚠ 漲跌幅/額要一起寫，否則會變成「價是主圖的、%是報價列的」自己跟自己對不上。 */
-    if ((+window._chartPriceTs || 0) > (+window._feedPriceTs || 0)) {
-      t.price = _mp;
-      if (isFinite(amt)) t.change_amt = amt;
-      if (isFinite(pct)) t.change_pct = pct;
-    }
+    t.price = _mp;                       // 收斂後的現價寫回這一筆 → 切走也不會退回別的數字
+    if (isFinite(amt)) t.change_amt = amt;
+    if (isFinite(pct)) t.change_pct = pct;
   }
   const sign = pct >= 0 ? "+" : "";
   const cls  = pct >= 0 ? "up" : "dn";
@@ -303,6 +323,18 @@ function _tkFill(t) {
 function _tkMerge(cur, j, key) {
   if (j.rev) _tkRev[key] = j.rev;
   if (j.ts) { window._feedPriceTs = +j.ts; _tkNoteTs(+j.ts); }   // 記時刻＋餵給相位對齊
+  /* 報價來源也推進「單一現價」：它若比主圖那份新，現價線與那一列會一起換成它。 */
+  try {
+    const _k = window._chartDataKey;
+    if (_k && j.ts && j.tickers) {
+      for (const t of j.tickers) {
+        const id = t.display || t.symbol;
+        if (id && window._mkChartDataKey((t.market || "crypto"), id) === _k && t.price != null) {
+          window._pushCurPrice(_k, +t.price, +j.ts); break;
+        }
+      }
+    }
+  } catch (e) {}
   const _id = t => t.display || t.symbol;
   if (!j.delta) {                                                           // 整包(或舊後端/冷啟動空包→保留舊資料)
     if (!j.tickers || !j.tickers.length) return cur;

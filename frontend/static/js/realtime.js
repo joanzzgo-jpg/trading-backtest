@@ -218,6 +218,13 @@ async function fetchLatest() {
       if (!window._ohlcvSrc) window._ohlcvSrc = json.src;
     }
     if (json.ts) window._chartPriceTs = +json.ts;   // 這份主圖現價是幾點的（跟報價列比新舊用）
+    /* 主圖這份也推進「單一現價」（見 ticker.js _pushCurPrice）：
+       誰新用誰，然後同一個數字同時寫進現價線與行情列那一列 → 結構上不可能不一致。 */
+    try {
+      const _d = json.data || [];
+      if (_d.length && window._chartDataKey && window._pushCurPrice)
+        window._pushCurPrice(window._chartDataKey, +_d[_d.length - 1].close, +json.ts || 0);
+    } catch (e) {}
     if (!json.data?.length) return;
     const dot = document.getElementById("realtimeDot");
     if (dot) dot.classList.toggle("hidden", json.live === false);
