@@ -311,7 +311,8 @@ def get_tickers(response: Response, market: str = "futures", since: str = "", fd
     fd=1 → 前端表明「我看得懂欄位級差量」(只回真的變了的欄位，再省 55%)。
     ⚠ 沒帶 fd 一律回舊格式(整列)：見 live_data.get_delta 的說明——舊分頁的合併是「整列覆蓋」，
       收到部分欄位會把 symbol/open/volume 洗掉、畫面凍住且零錯誤(2026-08-19 使用者實際踩到)。"""
-    from utils.live_data import get as live_get, has_data, has_tw_data, get_delta, delta_token
+    from utils.live_data import (get as live_get, has_data, has_tw_data, get_delta,
+                                 delta_token, snapshot_ts)
     from data.taiwan import fetch_tw_tickers
     # HTTP 快取：crypto 1s、tw 2s（台股高量股由 MIS 疊價 worker 每 3s 更新記憶體→短快取讓報價列即時跳）。
     # 避免多分頁/多用戶同步 polling 造成的重複請求。
@@ -354,8 +355,10 @@ def get_tickers(response: Response, market: str = "futures", since: str = "", fd
             if d is not None:
                 d["tickers"] = _slim_crypto_rows(d["tickers"], market, None)   # 差量筆數少，不進記憶體
                 d["source"] = "live"
+                d["ts"] = snapshot_ts()          # 這份報價是幾點的（給前端比新舊，見 live_data.snapshot_ts）
                 return d
-        out = {"tickers": _slim_crypto_rows(live_get(market), market, tok), "source": "live"}
+        out = {"tickers": _slim_crypto_rows(live_get(market), market, tok), "source": "live",
+               "ts": snapshot_ts()}
         if tok:
             out["rev"] = tok
         return out

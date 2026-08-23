@@ -217,6 +217,7 @@ async function fetchLatest() {
       window._srcCand = null;
       if (!window._ohlcvSrc) window._ohlcvSrc = json.src;
     }
+    if (json.ts) window._chartPriceTs = +json.ts;   // 這份主圖現價是幾點的（跟報價列比新舊用）
     if (!json.data?.length) return;
     const dot = document.getElementById("realtimeDot");
     if (dot) dot.classList.toggle("hidden", json.live === false);

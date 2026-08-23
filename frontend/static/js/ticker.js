@@ -153,6 +153,15 @@ function _mainChartPrice(el) {
        （即時輪詢中斷、補載還沒追上時也會發生，那時沒有旗標可看）。
      → 不合格就回 null → 那一列退回用行情來源的即時價（正確的那個）。 */
   if (window._hasFwdGap) return null;
+  /* ★ 2026-08-23 使用者：「我點進去跟我看到的有差，兩個 API 可以推算誰的資料比較新嗎？」
+     可以：兩支端點現在都回 `ts`（這份資料是幾點抓的）。
+     `/api/latest`（主圖，K 棒收盤）與 `/api/tickers`（行情列，24hr 最後成交價）是兩個獨立
+     端點、不同取樣時刻，實測同一檔差 ~9 點（0.012%）—— 誰新誰舊原本**無從判斷**，
+     前端只能固定選一邊，於是切標的時就在兩個值之間彈。
+     → 主圖那份**比較舊**就不要用它，讓那一列退回行情來源（比較新的那個）。
+     ⚠ 給 1.5 秒寬容：兩支各自 1 秒節奏，差一拍是常態，不必為此放棄主圖同步。 */
+  const _cts = +window._chartPriceTs || 0, _fts = +window._feedPriceTs || 0;
+  if (_cts && _fts && _fts - _cts > 1.5) return null;
   const lastBar = ohlcvData[ohlcvData.length - 1];
   try {
     // ⚠ `toTime()` 回的是**圖表時間（已 +8 小時）**，不可直接跟 Date.now() 比 ——
@@ -208,6 +217,18 @@ function _paintTickerRow(el, t) {
   if (_mp != null) {
     const base = (t.open != null && +t.open > 0) ? +t.open : (t.price - amt);
     if (isFinite(base) && base > 0) { amt = _mp - base; pct = amt / base * 100; }
+    /* ★ 2026-08-23 使用者：「來回切換，價格會跳回之前的」「有種價格變動感」。
+       兩支端點現在都回 `ts`，實測 **主圖那份系統性地比報價列新，中位 +0.78 秒**。
+       原本主圖的價只用來畫這一次、不寫回資料 → 一切走就退回**比較舊**的報價值，
+       數字在時間上往回走，那就是那個「變動感」。
+       → 主圖確定比較新時才寫回去（有時間戳可判，不是猜的）。之後報價來源真的追上來，
+         它自然會蓋過去（那是往前走），但不會再退回舊值。
+       ⚠ 漲跌幅/額要一起寫，否則會變成「價是主圖的、%是報價列的」自己跟自己對不上。 */
+    if ((+window._chartPriceTs || 0) > (+window._feedPriceTs || 0)) {
+      t.price = _mp;
+      if (isFinite(amt)) t.change_amt = amt;
+      if (isFinite(pct)) t.change_pct = pct;
+    }
   }
   const sign = pct >= 0 ? "+" : "";
   const cls  = pct >= 0 ? "up" : "dn";
@@ -281,6 +302,7 @@ function _tkFill(t) {
 }
 function _tkMerge(cur, j, key) {
   if (j.rev) _tkRev[key] = j.rev;
+  if (j.ts) { window._feedPriceTs = +j.ts; _tkNoteTs(+j.ts); }   // 記時刻＋餵給相位對齊
   const _id = t => t.display || t.symbol;
   if (!j.delta) {                                                           // 整包(或舊後端/冷啟動空包→保留舊資料)
     if (!j.tickers || !j.tickers.length) return cur;
@@ -1074,17 +1096,56 @@ function _loadTickerCache() {
   } catch {}
 }
 
+
+/* ── 輪詢相位對齊（2026-08-23）────────────────────────────────────────────────
+   使用者：「感覺合約行情數據沒主圖快，看能不能跟上」。實測（兩支端點現在都回 `ts`）：
+   **主圖比報價列新，中位 0.78 秒**。原因不是誰的資料差，是**取得方式不同**：
+     ・`/api/latest`（主圖）＝你要的時候現抓（1 秒 TTL＋單飛）→ 資料年齡 ≈ 0
+     ・`/api/tickers`（報價列）＝背景 worker **每秒推一次**快照 → 你的輪詢落在隨機相位，
+       平均就慢半拍（0~1 秒，實測中位 0.78）
+   → 固定 `setInterval` 改成**自我排程**：用回應裡的 `ts` 算出「這份資料多舊」，
+     把下一次輪詢排在「伺服器剛更新完」之後一點點 → 相位鎖住，隨機那半拍消失。
+   ⚠ 時鐘偏差：`Date.now() - ts*1000` 含了本機與伺服器的時鐘差，不能直接當「舊了多久」。
+     用**最近樣本的最小值**當基準（那一筆最接近「剛更新就拿到」）→ 偏差被抵銷，
+     剩下的才是真正的陳舊度。
+   ⚠ 一定要夾限：算錯也不能變成狂打或停擺 → 下限 250ms、上限 1.5 倍週期。
+   ⚠ 失敗（沒有 ts / 台股 / 冷啟動）一律退回原本的固定週期，行為不變。 */
+const _TK_AIM_MS = 120;              // 瞄準「伺服器更新後」這麼多毫秒才問
+let _tkAgeMin = null;                // 最近觀測到的最小表觀年齡＝時鐘偏差基準
+const _tkAgeHist = [];
+function _tkNoteTs(ts) {
+  if (!ts) return;
+  const app = Date.now() - ts * 1000;                 // 表觀年齡（含時鐘偏差）
+  _tkAgeHist.push(app);
+  if (_tkAgeHist.length > 40) _tkAgeHist.shift();
+  _tkAgeMin = Math.min(..._tkAgeHist);
+}
+function _tkNextDelay() {
+  const period = _tickerMkt === "tw" ? 3000 : 1000;
+  if (_tkAgeMin == null || !_tkAgeHist.length) return period;
+  const stale = _tkAgeHist[_tkAgeHist.length - 1] - _tkAgeMin;   // 真正的陳舊度
+  if (!isFinite(stale)) return period;
+  return Math.max(250, Math.min(period * 1.5, period - stale + _TK_AIM_MS));
+}
+function _tkSchedule() {
+  if (_tickerTimer) { clearTimeout(_tickerTimer); _tickerTimer = null; }
+  _tickerTimer = setTimeout(async () => {
+    try { await fetchTickers(); } catch (e) {}
+    if (_tickerTimer !== null) _tkSchedule();          // 被 stopTickerRefresh 清掉就不再排
+  }, _tkNextDelay());
+}
+
 function startTickerRefresh() {
   _markMktUsed(_tickerMkt);                   // 開頁時所在的市場也算「用過」
-  if (_tickerTimer) clearInterval(_tickerTimer);
+  if (_tickerTimer) { clearTimeout(_tickerTimer); _tickerTimer = null; }
   _loadTickerCache();
   fetchTickers();
   // crypto 1秒；台股 3秒（後端 MIS 疊價 worker 每 3s 更新高量股即時價→報價列即時跳；setInterval 動態切換）
-  _tickerTimer = setInterval(fetchTickers, _tickerMkt === "tw" ? 3000 : 1000);
+  _tkSchedule();
 }
 
 function stopTickerRefresh() {
-  if (_tickerTimer) { clearInterval(_tickerTimer); _tickerTimer = null; }
+  if (_tickerTimer) { clearTimeout(_tickerTimer); _tickerTimer = null; }
 }
 
 function bindTickerPanel() {
@@ -1144,9 +1205,9 @@ function bindTickerPanel() {
            的價格**（使用者會以為那是這個市場的行情）。 */
       try { renderTickers(); } catch (e) {}
       // 重設更新頻率
-      if (_tickerTimer) clearInterval(_tickerTimer);
+      if (_tickerTimer) { clearTimeout(_tickerTimer); _tickerTimer = null; }
       fetchTickers();
-      _tickerTimer = setInterval(fetchTickers, _tickerMkt === "tw" ? 3000 : 1000);
+      _tkSchedule();
     });
   });
 

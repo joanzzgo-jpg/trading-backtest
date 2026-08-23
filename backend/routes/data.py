@@ -1478,6 +1478,7 @@ def get_latest(req: LatestRequest):
     """取得最新 K 棒"""
     req.timeframe = _check_tf(req.timeframe)      # 不認得的時框當場 400，不要靜默退日線
     _crypto_src = None      # 這份 df 的實際來源（crypto 才有；跟著資料走，見下方快取那段）
+    _crypto_ts = 0.0        # 這份 df 抓到的時刻（epoch 秒）→ 前端拿去跟 /api/tickers 的 ts 比新舊
     try:
         if req.market == "tw" and req.symbol.upper() in FUTOPT_PRODUCTS:
             # 台指期（歸台股底下）：盤中時框回累積K tail（快取 3 秒）；日/週/月線無即時 tick 回空
@@ -1739,7 +1740,8 @@ def get_latest(req: LatestRequest):
             #   → 來源必須跟著資料本身走（/api/ohlcv 早就是把 src 存進快取內容，這支漏了）。
             _ck = f"crypto_latest_{req.exchange}_{req.symbol}_{req.timeframe}"
             _hit = cache.get(_ck, ttl=1) if not req.api_key else None
-            df, _crypto_src = _hit if isinstance(_hit, tuple) else (None, None)
+            df, _crypto_src, _crypto_ts = (_hit if (isinstance(_hit, tuple) and len(_hit) == 3)
+                                           else (None, None, 0.0))
             if df is None and not req.api_key:
                 _leader = False
                 with _LATEST_SF_LOCK:
@@ -1749,7 +1751,8 @@ def get_latest(req: LatestRequest):
                 if not _leader:
                     _ev.wait(3.0)                       # 等 leader 抓完（結果已進快取）
                     _hit = cache.get(_ck, ttl=2)        # 放寬一點點：leader 剛寫完就算它「1 秒前」也接受
-                    df, _crypto_src = _hit if isinstance(_hit, tuple) else (None, None)
+                    df, _crypto_src, _crypto_ts = (_hit if (isinstance(_hit, tuple) and len(_hit) == 3)
+                                                   else (None, None, 0.0))
                 if df is None:
                     try:
                         df = fetch_crypto_ohlcv(
@@ -1760,7 +1763,8 @@ def get_latest(req: LatestRequest):
                         # ⚠ 一定要在這裡取（同一條執行緒、剛抓完的那一刻）才對得上這份 df
                         _crypto_src = last_fetch_source()
                         if df is not None and not df.empty:
-                            cache.set(_ck, (df, _crypto_src))
+                            _crypto_ts = time.time()   # 這份 df 抓到的時刻（給前端比新舊）
+                            cache.set(_ck, (df, _crypto_src, _crypto_ts))
                     finally:
                         if _leader:                     # 一定要放行，否則其他人白等 3 秒
                             with _LATEST_SF_LOCK:
@@ -1812,6 +1816,10 @@ def get_latest(req: LatestRequest):
     live = ((req.market == "crypto") or (req.market == "fx")
             or (req.market == "us" and locals().get("_us_live", False) and _us_market_open()))
     resp = {"live": live, "data": records}
+    if req.market == "crypto" and _crypto_ts:
+        # ★ 這份資料是幾點的。使用者：「兩個 API 可以推算誰的資料比較新嗎？」——
+        #   /api/tickers 也附了同名欄位，前端一律採用比較新的那個，就不會在兩個值之間彈。
+        resp["ts"] = round(_crypto_ts, 3)
     if req.market == "crypto":   # 同 /api/ohlcv：讓前端看得到來源，接合前先比對
         # ⚠ 用「跟著這份 df 一起記下來的」來源，不要在這裡現問 last_fetch_source()——
         #   它是 thread-local，走快取時回的是同一條執行緒上一個請求（可能是別的標的）的來源。

@@ -262,6 +262,21 @@ def get(market: str) -> list:
     return list(_read_shared().get(market, []))     # follower / 記憶體尚無資料 → 讀共享磁碟
 
 
+def snapshot_ts() -> float:
+    """這份報價快照是「幾點抓的」（epoch 秒）。0＝不知道。
+
+    ★ 2026-08-23 使用者：「我點進去跟我看到的有差，兩個 API 可以推算誰的資料比較新嗎？」
+      可以 —— 但前提是兩邊都要把「這份資料是幾點的」講出來。`/api/tickers` 與 `/api/latest`
+      是兩個不同端點、不同取樣時刻（實測同一檔差 ~9 點 / 0.012%），誰新誰舊原本**無從判斷**，
+      前端只能二選一，於是切標的時就在兩個值之間彈。
+    → 兩邊都附上 `ts`，前端就能一律採用比較新的那個。
+    """
+    with _lock:
+        if _local_fresh():
+            return float(_cache.get("ts") or 0)
+    return float(_read_shared().get("ts") or 0)
+
+
 def has_data() -> bool:
     with _lock:
         if _local_fresh():
