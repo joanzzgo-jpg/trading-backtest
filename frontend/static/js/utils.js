@@ -623,9 +623,11 @@ window._perfProbe = function (sec, silent) {
     // ★同時回傳後端（使用者無法把 console 貼回來 → 開發端用 GET /api/_perf_report 讀）
     const report = {
       frames: { p50: q(0.5), p95: q(0.95), max: q(1),
+                over33: frames.filter(x => x > 33).length,
                 over50: frames.filter(x => x > 50).length,
                 over100: frames.filter(x => x > 100).length, n: frames.length },
       auto: !!silent,
+      trigger: window.__jankTrigger || null,
       env: { dpr: window.devicePixelRatio, bars: (typeof ohlcvData !== "undefined" ? ohlcvData.length : 0),
              barSpacing: bs, visible: vis, tf: (typeof currentTF !== "undefined" ? currentTF : "?"),
              sym: document.getElementById("symbolInput")?.value || "?",
@@ -634,6 +636,7 @@ window._perfProbe = function (sec, silent) {
       layers: rows.map(([k, v]) => ({ f: k, ms: +v.ms.toFixed(1), n: v.n,
                                       per: +(v.ms / v.n).toFixed(3), max: +v.max.toFixed(1) })),
     };
+    window.__jankTrigger = null;   // 一次性：手動 _perfProbe() 不該沿用上次自動觸發的原因
     fetch("/api/_perf_report", { method: "POST", headers: { "Content-Type": "application/json" },
                                  body: JSON.stringify(report) })
       .then(r => { if (r.ok && !silent) console.log("%c  ✓ 結果已回傳，不用複製貼上", "color:#26a69a;font-weight:bold"); })
@@ -652,21 +655,32 @@ window._perfProbe = function (sec, silent) {
        量完自動 POST /api/_perf_report。
      ・節流:每 3 分鐘最多一次、整個分頁最多 5 次 → 不會洗版、不影響效能。 */
 (function autoJankReport() {
-  let sampling = false, probing = false, sent = 0, lastSent = 0;
+  let sampling = false, probing = false, sent = 0, lastSent = 0, kind = "";
   const MAX_SENT = 5, COOLDOWN = 180000, JANK_MS = 50, JANK_MIN = 4;
+  /* ★ 第二級「持續掉幀」(2026-08-24 使用者回報「縮放有點卡卡的」)：
+     原本只有一級 ≥4 個 >50ms＝**大停頓**。但「卡卡的」多半不是停頓，是一路掉到 25~30fps
+     ——幀落在 33~50ms 之間，一個都跨不過 50ms 的門檻 → 回報永遠 0 筆，我因此白查一輪。
+     33ms = 掉一幀(60→30fps)；同一段互動裡累積 ≥12 個才算，正常滑順操作不會誤觸。 */
+  const CHOP_MS = 33, CHOP_MIN = 12;
 
   function evaluate(frames) {
     const slow = frames.filter(x => x > JANK_MS).length;
-    if (slow < JANK_MIN) return;
+    const chop = frames.filter(x => x > CHOP_MS).length;
+    if (slow < JANK_MIN && chop < CHOP_MIN) return;
     const now = Date.now();
     if (probing || sent >= MAX_SENT || now - lastSent < COOLDOWN) return;
     probing = true; sent++; lastSent = now;
+    // 帶上「哪種操作觸發的」＋觸發前那段的形狀 → 才分得出是縮放還是拖曳（見 _perfProbe 的 trigger）
+    window.__jankTrigger = { by: kind || "?", over50: slow, over33: chop, n: frames.length };
     try { window._perfProbe(5, true); } catch (e) {}
     setTimeout(() => { probing = false; }, 6000);
   }
 
-  function start() {
+  function start(ev) {
     if (sampling || probing) return;
+    kind = (ev && ev.type) === "wheel" ? "縮放/滾輪"
+         : (ev && ev.type) === "touchstart" ? "觸控"
+         : (ev && ev.type) === "pointerdown" ? "拖曳/點按" : "?";
     if (typeof window._perfProbe !== "function") return;
     sampling = true;
     const frames = [];

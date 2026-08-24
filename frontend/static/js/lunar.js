@@ -1,9 +1,11 @@
-// 今日農民曆卡 — 觸發：①系統閒置一段時間自動跳 ②連點小啊三次。畫面正中間黃曆卡。
+// 今日農民曆卡 — 觸發：**只有**連點小啊三次。畫面正中間黃曆卡。
 //   資料來自後端 /api/lunar（cnlunar 算干支/節氣/宜忌/沖煞，zhconv 轉繁體），同一天只抓一次。
+//   ⚠ 2026-08-24 使用者要求移除「閒置 10 分鐘自動跳」：看盤本來就常盯著不動，
+//     跳出來會蓋住圖表。連帶拿掉整組閒置偵測（原本在 window 上掛了 mousemove/scroll/wheel
+//     六個監聽器只為了重設計時器）—— 不是留著不用，是整條移除。
 (function () {
-  const IDLE_MS = 10 * 60 * 1000;   // 閒置多久沒操作 → 自動跳（10 分鐘）
   const TRIPLE_MS = 800;            // 連點三次的間隔上限
-  let _data = null, _dataDate = "", _idleTimer = null, _open = false;
+  let _data = null, _dataDate = "", _open = false;
   let _clicks = [];
 
   function _today() {
@@ -94,8 +96,10 @@
 
   async function show() {
     if (_open) return;
-    // 封面頁(landing/城門頁)顯示中 → 不跳農民曆卡(會與封面圖重疊、不好看)；稍後再排程，等進到圖表才跳。
-    if (document.documentElement.classList.contains("landing-active")) { _resetIdle(); return; }
+    // 封面頁(landing/城門頁)顯示中 → 不跳農民曆卡(會與封面圖重疊、不好看)。
+    // ⚠ 舊碼在這裡呼叫 _resetIdle() 重排；閒置那條路已整個移除 → 直接 return，
+    //   否則就是呼叫一個不存在的函式（ReferenceError）。
+    if (document.documentElement.classList.contains("landing-active")) return;
     const d = await _fetch();
     if (!d) return;
     const ov = _ensureDom();
@@ -108,23 +112,11 @@
     const ov = document.getElementById("lunarOverlay");
     if (ov) ov.classList.remove("on");
     _open = false;
-    _resetIdle();           // 關閉後重新計時
   }
   // 給封面頁(landing)重新顯示時呼叫：關掉已開著的農民曆卡，避免封面圖跳出來跟它重疊。
   window._lunarHide = hide;
 
-  // ── 閒置偵測 ──
-  function _resetIdle() {
-    if (_idleTimer) clearTimeout(_idleTimer);
-    if (_open) return;      // 已開著就不再排程
-    _idleTimer = setTimeout(() => { show(); }, IDLE_MS);
-  }
-  function _onActivity() {
-    if (_open) return;      // 卡片開著時的點擊由 overlay 自己處理（關閉）；不重置
-    _resetIdle();
-  }
-
-  // ── 連點小啊三次 ──
+  // ── 連點小啊三次（唯一觸發方式）──
   function _onBearClick() {
     const now = Date.now();
     _clicks.push(now);
@@ -133,15 +125,11 @@
   }
 
   function init() {
-    ["mousemove", "mousedown", "keydown", "touchstart", "scroll", "wheel"].forEach(ev =>
-      window.addEventListener(ev, _onActivity, { passive: true })
-    );
     ["mXiaoa", "peekBear"].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.addEventListener("click", _onBearClick);
     });
     document.addEventListener("keydown", (e) => { if (e.key === "Escape" && _open) hide(); });
-    _resetIdle();
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);

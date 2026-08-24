@@ -243,15 +243,56 @@ async def perf_report(request: Request):
         raise
     except Exception:
         raise HTTPException(400, "格式錯誤")
-    _PERF_REPORTS.append({"at": _dt.datetime.now().isoformat(timespec="seconds"), "r": data})
+    rec = {"at": _dt.datetime.now().isoformat(timespec="seconds"), "r": data}
+    _PERF_REPORTS.append(rec)
+    _perf_append_disk(rec)
     return {"ok": True, "n": len(_PERF_REPORTS)}
+
+
+# ★ 落磁碟的理由：線上 workers=2，報告只存在收到 POST 的那個 process 記憶體裡 →
+#   GET 有一半機率打到另一個 worker、回 0 筆，看起來像「使用者沒回報」（實際上有）。
+#   2026-08-24 就是這樣白查了一輪。檔案很小（單筆數 KB、只留最後 40 筆），與記憶體環形並存。
+_PERF_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".df_cache", "perf_reports.jsonl")
+
+
+def _perf_append_disk(rec: dict) -> None:
+    try:
+        import orjson as _oj
+        os.makedirs(os.path.dirname(_PERF_FILE), exist_ok=True)
+        with open(_PERF_FILE, "ab") as f:
+            f.write(_oj.dumps(rec) + b"\n")
+        # 超過 80 行才修剪成最後 40 行（攤銷成本，不用每次重寫整檔）
+        with open(_PERF_FILE, "rb") as f:
+            lines = f.readlines()
+        if len(lines) > 80:
+            with open(_PERF_FILE, "wb") as f:
+                f.writelines(lines[-40:])
+    except Exception:
+        pass   # 診斷用途，寫不進去不能影響回報本身
 
 
 @router.get("/_perf_report")
 def perf_report_list(key: str = ""):
     """開發端讀回來看（最新在最後）。⚠ 需管理金鑰（POST 那支不能擋，前端要寫）。"""
     _require_admin(key)
-    return {"n": len(_PERF_REPORTS), "reports": list(_PERF_REPORTS)}
+    out = []
+    try:
+        import orjson as _oj
+        with open(_PERF_FILE, "rb") as f:
+            for ln in f:
+                ln = ln.strip()
+                if ln:
+                    try:
+                        out.append(_oj.loads(ln))
+                    except Exception:
+                        pass
+    except FileNotFoundError:
+        pass
+    except Exception:
+        pass
+    if not out:                       # 磁碟讀不到才退回本 worker 的記憶體環形
+        out = list(_PERF_REPORTS)
+    return {"n": len(out), "reports": out[-40:]}
 
 
 @router.get("/_diag")

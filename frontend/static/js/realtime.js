@@ -16,6 +16,55 @@ function stopRealtime() {
   document.getElementById("realtimeDot").classList.add("hidden");
 }
 
+/* ── 形成中那根跟著「單一現價」走 ────────────────────────────────────────────
+   2026-08-24 使用者：「最新Ｋ棒的即時實體跟不太上最新價格線」。
+   根因＝**兩者的更新來源不同**：現價線吃的是收斂後的單一現價（報價列每秒一次 ＋
+   /api/latest 每秒一次，誰新用誰，見 ticker.js _pushCurPrice），但 K 棒實體只有
+   /api/latest 那一路會動。兩支請求各自有快取與來回時間 → 現價線先跳、實體慢半拍才追上。
+   → 讓形成中那根的 close 直接跟著**同一個數字**走：結構上不可能不一致。
+   ⚠ 鐵則（對應 check_bar_stability.js 的判準，缺一條就會被它抓到）：
+     ・只動「最後一根、且現在確實落在它的週期內」的棒；**絕不新增棒**（開新棒是 /api/latest 的事，
+       這裡憑一個報價價格開棒就會生出時間錯位的假棒）。
+     ・**open 永遠不動**（使用者早就講過「開盤價不是都固定位置嗎」）。
+     ・high 只更高、low 只更低 → low ≤ min(open,close)、high ≥ max(open,close) 自動成立，
+       不可能縫出「不可能 K 棒」。
+     ・replayActive 中一律不動（守門員十二：重播看得到未來＝所有回測結論作廢）。
+     ・_hasFwdGap（在看歷史、和「現在」中間還有缺口）時最後一根不是「現在」→ 不動。 */
+window._tickFormingBar = function (price) {
+  try {
+    if (typeof replayActive !== "undefined" && replayActive) return;
+    if (window._hasFwdGap) return;
+    if (typeof candleSeries === "undefined" || !candleSeries) return;
+    if (typeof ohlcvData === "undefined" || !Array.isArray(ohlcvData) || !ohlcvData.length) return;
+    const p = +price;
+    if (!isFinite(p) || p <= 0) return;
+    const last = ohlcvData[ohlcvData.length - 1];
+    if (!last) return;
+    const t = toTime(last.time);
+    const per = (typeof tfSec === "function") ? tfSec(currentTF) : 0;
+    if (!t || !per) return;
+    /* 「現在」要落在這根的週期內才算形成中。⚠ toTime() 是 +8 小時的圖表時間軸，
+       比較的另一邊也必須換算到同一個軸上（拿 Date.now() 直接比會永遠不成立——踩過一次）。 */
+    const nowChart = Math.floor(Date.now() / 1000) + 8 * 3600;
+    if (nowChart < t || nowChart >= t + per) return;   // 已收盤／還沒開始 → 不碰
+    const hi = Math.max(+last.high, p), lo = Math.min(+last.low, p);
+    if (+last.close === p && +last.high === hi && +last.low === lo) return;   // 沒變就不畫
+    last.close = p; last.high = hi; last.low = lo;
+    candleSeries.update({ time: t, open: +last.open, high: hi, low: lo, close: p });
+    if (typeof lineSeries !== "undefined" && lineSeries) {
+      lineSeries.update({ time: t, value: p });
+      try { const _g = window._lineGradTail; if (typeof _g === "function") _g(t, p); } catch (e) {}
+    }
+    // 量能柱顏色是看 close 跟 open 的關係 → close 越過 open 時要跟著翻色，否則「紅K配綠量」。
+    if (typeof volSeries !== "undefined" && volSeries) {
+      const _va = (typeof _volAlphaHex === "function") ? _volAlphaHex()
+                : Math.round((S.volAlpha ?? 0.67) * 255).toString(16).padStart(2, "0");
+      volSeries.update({ time: t, value: last.volume || 0,
+                         color: (p >= +last.open ? C.volUp : C.volDown) + _va });
+    }
+  } catch (e) {}
+};
+
 // 即時更新布林通道：/api/latest 只回裸價格、不含 BB → 隨時間進來的新棒布林不會延伸
 // （「布林不會畫、K棒怪怪的，要刷新才好」）。這裡用前端最後 N 根收盤即時重算 BB 補上，
 // 對齊後端 indicators/engine.py：period=20、std=2.0、pandas .std() 的樣本標準差(ddof=1)。

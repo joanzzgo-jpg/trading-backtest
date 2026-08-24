@@ -153,6 +153,11 @@ window._pushCurPrice = function (key, price, ts) {
   if (_curPx.key === key && ts && _curPx.ts && ts < _curPx.ts) return;   // 舊的不覆蓋新的
   if (_curPx.key !== key) { _curPx.key = key; _curPx.ts = 0; }
   _curPx.price = price; _curPx.ts = ts || _curPx.ts;
+  /* 形成中那根的實體也用同一個數字（使用者：「最新Ｋ棒的即時實體跟不太上最新價格線」）。
+     ★ 順序必須在 updateLatestPriceLine **之前**：現價線的虛線吃的是這裡傳進去的 price，
+       但它右軸那張自訂標籤(updateCurrentPriceLabel)讀的是 `ohlcvData` 最後一根的 close
+       —— 先畫線再改資料的話，標籤會拿到還沒更新的舊值、比虛線慢一拍。 */
+  try { window._tickFormingBar && window._tickFormingBar(price); } catch (e) {}
   try { if (typeof updateLatestPriceLine === "function") updateLatestPriceLine(price); } catch (e) {}
   try { window._tkSyncChartRow && window._tkSyncChartRow(); } catch (e) {}
 };
