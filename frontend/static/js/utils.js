@@ -434,8 +434,48 @@ function fmt(v) {
   return _thousands(out);
 }
 function n2(v)     { return v!=null ? Number(v).toFixed(2) : "—"; }
-function _fmtPx(p) {
+
+/* ── 價格小數位：問「資料實際用到幾位」，不要用價格大小猜 ─────────────────────
+   2026-08-25 使用者：「有些標的不用小數點後那麼多位」。全站三支格式化函式原本都是
+   依價格級距給固定位數（≥1 → 4 位…），但級距跟交易所的**最小跳動**沒有任何關係 ——
+   實測 12 檔永續：右軸 6 檔給多、行情列 4 檔給多
+     SOL 97.3（實際只要 2 位）被寫成 97.3000、LINK 11.67 → 11.6700、AVAX 7.631 → 7.6310；
+   而低價幣是**反過來被砍掉**：PEPE 4.1473e-06 需要 10 位、行情列只給 6 位。
+   → 改成數這批數字實際用到幾位小數。
+   ⚠ 取 **p99 不取最大值**：極少數浮點表示雜訊（0.30000000000000004 這種）會拉出十幾位，
+     取最大值就被它綁架；p99 在乾淨資料上等於最大值，有雜訊時剛好濾掉。 */
+function _decOf(v) {
+  const n = +v;
+  if (v == null || !isFinite(n)) return 0;
+  const s = String(n);
+  const e = s.indexOf("e") >= 0 ? s.indexOf("e") : s.indexOf("E");
+  if (e >= 0) {                       // 科學記號（|n| < 1e-6 時 JS 會這樣印）：5.486e-7 → 10 位
+    const m = s.match(/^-?(\d+)(?:\.(\d+))?[eE]([+-]?\d+)$/);
+    if (!m) return 0;
+    return Math.max(0, (m[2] || "").length - (+m[3]));
+  }
+  const i = s.indexOf(".");
+  return i < 0 ? 0 : s.length - i - 1;
+}
+function _pxDecInfer(vals, cap) {
+  const ds = [];
+  for (const v of vals) if (v != null && isFinite(+v)) ds.push(_decOf(v));
+  if (!ds.length) return null;
+  ds.sort((a, b) => a - b);
+  const d = ds[Math.min(ds.length - 1, Math.floor(ds.length * 0.99))];
+  return Math.max(0, Math.min(cap == null ? 10 : cap, d));
+}
+
+/* prec 省略時用主圖那一檔推出來的位數（window._pxPrec，由 _applyPriceFormat 寫入）→
+   右軸、十字線、現價標籤、繪圖/掛單標籤全都跟右軸同一套位數。
+   ⚠ 多圖模式(multichart)畫的是**別的標的**，必須自己傳 prec，不可沿用主圖那份。 */
+function _fmtPx(p, prec) {
   if (!isFinite(p)) return "—";
+  const d = (prec == null) ? window._pxPrec : prec;
+  if (d != null && d >= 0) {
+    const out = Math.abs(p) >= 1000 ? _thousands(p.toFixed(d)) : p.toFixed(d);
+    return out;
+  }
   const a = Math.abs(p);
   if (a >= 10000) return _thousands(String(+p.toFixed(1)));
   if (a >= 100)   return p.toFixed(2);

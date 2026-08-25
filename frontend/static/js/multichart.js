@@ -63,7 +63,7 @@
     cell.tfEl.textContent = (typeof TF_LABELS !== "undefined" && TF_LABELS[m.tf]) || m.tf;
     if (cell.lastC != null && cell.prevC != null && cell.prevC > 0) {
       const pct = (cell.lastC - cell.prevC) / cell.prevC * 100;
-      cell.pxEl.textContent = `${(typeof _fmtPx === "function") ? _fmtPx(cell.lastC) : cell.lastC}  ${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%`;
+      cell.pxEl.textContent = `${(typeof _fmtPx === "function") ? _fmtPx(cell.lastC, cell.prec != null ? cell.prec : -1) : cell.lastC}  ${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%`;
       cell.pxEl.className = "mini-px " + (pct >= 0 ? "up" : "down");
     } else { cell.pxEl.textContent = ""; }
   }
@@ -84,6 +84,13 @@
       const n = j.data.length;
       cell.lastT = toTime(j.data[n - 1].time);   // 最後一根時間：_tickMini 只能 update ≥ 此時間的棒(LWC 限制)
       cell.lastC = j.data[n - 1].close; cell.prevC = n > 1 ? j.data[n - 2].close : null;
+      /* ★ 每一格是**別的標的**，小數位要自己推，不可沿用主圖那份（_fmtPx 省略 prec 時會拿
+         window._pxPrec）→ 否則 BTC 主圖(1 位)開著時，這格的低價幣會被壓成 "0.0"。 */
+      try {
+        const _v = [];
+        for (const b of j.data.slice(-400)) _v.push(b.open, b.high, b.low, b.close);
+        cell.prec = (typeof _pxDecInfer === "function") ? _pxDecInfer(_v, 10) : null;
+      } catch (e) { cell.prec = null; }
       cell.chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, n - 90), to: n + 3 });
       _updHeader(i);
       _loadMiniMarkers(i, gen, new Set(j.data.map(b => toTime(b.time))));   // 策略標記(輕量,async 補上)

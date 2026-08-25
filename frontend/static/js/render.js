@@ -180,6 +180,9 @@ async function loadData(autoLoad = false, forceLatest = false) {
       : null;
     if (_prevKey && _newKey && _prevKey !== _newKey && typeof window.hideLatestPriceLine === "function")
       window.hideLatestPriceLine();
+    // 換標的 → 丟掉上一檔推出來的小數位（新資料到貨時 _applyPriceFormat 會重新推），
+    // 否則 BTC(1 位) 切到低價幣的那一瞬間，標籤會把價格壓成 "0.0"。
+    if (_prevKey && _newKey && _prevKey !== _newKey) window._pxPrec = null;
     if (window._resetCurPrice) window._resetCurPrice();   // 換標的：清掉上一檔的現價
   } catch (e) {}
   window._chartDataKey = null;
@@ -401,17 +404,31 @@ function _holdAnchorByTime(anchorT, bc) {
 /* ══════════════════════════════════════════
    渲染
 ══════════════════════════════════════════ */
-/* 根據最後成交價動態設定主圖右側價格軸精度 */
+/* 主圖右側價格軸精度。
+   ★ 2026-08-25 改成**問資料實際用到幾位小數**（見 utils.js `_pxDecInfer` 的完整說明），
+     原本依價格級距猜 → SOL 97.3 被寫成 97.3000、PEPE 反而被砍掉兩位。
+   ⚠ 級距那套仍留作**後備**：資料還沒到／全是整數時 `_pxDecInfer` 回 null，
+     此時退回原本的規則，不要讓精度變成 0（整數價的標的會整片變成沒有小數）。 */
 function _applyPriceFormat(data) {
   if (!data || !data.length) return;
   const p = Math.abs(data[data.length - 1]?.close || 0);
-  let precision, minMove;
-  if      (p >= 100)    { precision = 2; minMove = 0.01; }
-  else if (p >= 1)      { precision = 4; minMove = 0.0001; }
-  else if (p >= 0.1)    { precision = 5; minMove = 0.00001; }
-  else if (p >= 0.01)   { precision = 6; minMove = 0.000001; }
-  else if (p >= 0.001)  { precision = 7; minMove = 0.0000001; }
-  else                  { precision = 8; minMove = 0.00000001; }
+  let precision;
+  const vals = [];
+  for (let i = Math.max(0, data.length - 600); i < data.length; i++) {
+    const b = data[i];
+    if (!b) continue;
+    vals.push(b.open, b.high, b.low, b.close);
+  }
+  const inferred = (typeof _pxDecInfer === "function") ? _pxDecInfer(vals, 10) : null;
+  if (inferred != null && inferred > 0) precision = inferred;
+  else if (p >= 100)    precision = 2;
+  else if (p >= 1)      precision = 4;
+  else if (p >= 0.1)    precision = 5;
+  else if (p >= 0.01)   precision = 6;
+  else if (p >= 0.001)  precision = 7;
+  else                  precision = 8;
+  const minMove = Math.pow(10, -precision);
+  window._pxPrec = precision;   // 十字線/現價標籤/繪圖標籤跟著同一套（見 _fmtPx）
   const fmt = { type: "price", precision, minMove };
   [candleSeries, bbU, bbM, bbL].forEach(s => s?.applyOptions({ priceFormat: fmt }));
 }

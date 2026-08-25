@@ -259,7 +259,7 @@ function _paintTickerRow(el, t) {
   const cls  = pct >= 0 ? "up" : "dn";
   // 比對後再寫，值相同不觸發 repaint
   if (priceEl) {
-    const v = fmtTickerPrice(displayPrice);
+    const v = fmtTickerPrice(displayPrice, t.display || t.symbol, t.open);
     if (priceEl.textContent !== v) priceEl.textContent = v;
   }
   if (chgEl) {
@@ -639,7 +639,7 @@ function updatePageTitle() {
   // 行情中斷時標題加前綴：使用者常把這個分頁丟在背景當報價看板，那時分頁標題是唯一的訊息通道
   const pre = _tkStaleOn ? "⚠ 已中斷 " : "";
   const newTitle = hit
-    ? `${pre}${hit.display || sym} ${fmtTickerPrice(hit.price)} ${hit.change_pct >= 0 ? "+" : ""}${hit.change_pct.toFixed(2)}%`
+    ? `${pre}${hit.display || sym} ${fmtTickerPrice(hit.price, hit.display || sym, hit.open)} ${hit.change_pct >= 0 ? "+" : ""}${hit.change_pct.toFixed(2)}%`
     : pre + sym;
   if (newTitle !== _lastPageTitle) { _lastPageTitle = newTitle; document.title = newTitle; }
 }
@@ -942,7 +942,7 @@ function renderTickers() {
         _k: `${item.market}:${item.exchange || ""}:${item.symbol}`,
         item, mktLabel,
         active:   item.symbol.toUpperCase() === currentSym,
-        priceStr: price != null ? fmtTickerPrice(price) : "---",
+        priceStr: price != null ? fmtTickerPrice(price, item.symbol) : "---",
         chgCls:   change_pct != null ? (change_pct >= 0 ? "up" : "dn") : "",
         pctStr:   change_pct != null ? (change_pct >= 0 ? "+" : "") + change_pct.toFixed(2) + "%" : mktLabel,
         amtStr:   (change_pct != null && price != null)
@@ -993,7 +993,7 @@ function renderTickers() {
         inWl:   _watchlist.some(w => `${w.market}:${w.exchange || ""}:${w.symbol}` === `tw::${t.symbol}`),
         limitCls: t.change_pct >= 9.7 ? "tk-limit-up" : t.change_pct <= -9.7 ? "tk-limit-dn" : "",
         limitTxt: t.change_pct >= 9.7 ? "漲停" : t.change_pct <= -9.7 ? "跌停" : "",
-        priceStr: fmtTickerPrice(t.price),
+        priceStr: fmtTickerPrice(t.price, t.symbol, t.open),
         amtStr:   sign + Math.abs(t.change_amt).toFixed(2),
         pctStr:   sign + t.change_pct.toFixed(2) + "%",
       };
@@ -1022,7 +1022,7 @@ function renderTickers() {
       inWl:   _watchlist.some(w => `${w.market}:${w.exchange || ""}:${w.symbol}` === `crypto:${exchVal}:${t.display}`),
       logo:   _coinLogoHtml(t.display),
       full:   _coinFullName(t.display),
-      priceStr: fmtTickerPrice(t.price),
+      priceStr: fmtTickerPrice(t.price, t.display || t.symbol, t.open),
       amtStr:   sign + _fmtAmt(amt, t.price),
       pctStr:   sign + t.change_pct.toFixed(2) + "%",
     };
@@ -1102,7 +1102,36 @@ function _setTxt(el, sel, txt) { const n = el.querySelector(sel); if (n && n.tex
 function _setTxtCls(el, sel, txt, cls) { const n = el.querySelector(sel); if (!n) return; if (n.textContent !== txt) n.textContent = txt; if (n.className !== cls) n.className = cls; }
 function _setStar(el, inWl) { const s = el.querySelector(".tk-star"); if (!s) return; s.classList.toggle("active", inWl); const tt = inWl ? "移除自選" : "加入自選"; if (s.title !== tt) s.title = tt; }
 
-function fmtTickerPrice(p) {
+/* 行情列的小數位。跟右軸同一個原則：問「這檔實際用到幾位」，不要用價格大小猜
+   （原本 SOL 97.3 被寫成 97.3000、LINK 11.67 → 11.6700；PEPE 反而被砍到只剩 6 位）。
+   ⚠ 這裡跟右軸不同的難處：一列只有一兩個數字，單次取樣推不準（97.30 看起來只要 1 位）
+     → **記住這檔看過的最大位數**。報價每秒一輪，幾秒內就收斂，數字也不會在
+     97.3 / 97.31 之間反覆改變寬度。
+   ⚠ 仍要用價格級距夾一個上限：某一筆的浮點雜訊不能讓整檔突然變成 10 位。 */
+const _pxDecSeen = new Map();
+function _tkDecCap(a) {
+  a = Math.abs(a);
+  if (a >= 10000) return 2;
+  if (a >= 100)   return 3;
+  if (a >= 1)     return 5;
+  if (a >= 0.01)  return 6;
+  return 10;
+}
+function fmtTickerPrice(p, key, open) {
+  if (!isFinite(p)) return "---";
+  const cap = _tkDecCap(p);
+  let d = null;
+  if (key && typeof _decOf === "function") {
+    const seen = Math.max(_decOf(p), open != null ? _decOf(open) : 0);
+    d = Math.min(cap, Math.max(_pxDecSeen.get(key) || 0, seen));
+    _pxDecSeen.set(key, d);
+  } else if (typeof _decOf === "function") {
+    d = Math.min(cap, _decOf(p));
+  }
+  if (d != null) {
+    return p >= 1000 ? p.toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d })
+                     : p.toFixed(d);
+  }
   if (p >= 10000) return p.toLocaleString(undefined, { maximumFractionDigits: 1 });
   if (p >= 100)   return p.toFixed(2);
   if (p >= 1)     return p.toFixed(4);
