@@ -418,11 +418,20 @@ function escHtml(s) {
        （報價列用的是另一個 fmtTickerPrice 所以看起來正常，只有主圖這條壞掉）
        低價幣（SHIB/PEPE 這類）的開高低收與布林值等於完全看不到。
    規則：≥100 兩位；1~100 四位；<1 則「第一個有效數字之後再取 4 位」→ 再小都看得到數字。 */
-function fmt(v) {
+function fmt(v, prec) {
   const n = Number(v);
   if (v == null || !isFinite(n)) return "—";
   const a = Math.abs(n);
   let d;
+  /* 2026-08-25：跟右軸用同一套小數位（window._pxPrec，見 _applyPriceFormat）。
+     這支畫的是符號列 O/H/L/C、布林圖例、溢價/折價區間 —— 全都是**主圖那一檔**的價，
+     位數跟右軸不一樣就會出現「同一個數字兩種寫法」：實測 LINK 右軸 3 位、符號列寫成
+     12.02（2 位），PEPE 右軸 10 位、符號列只到 9 位。
+     ⚠ 級距那套留作後備（還沒推出來時），不可以讓它變成 0 位。
+     ⚠ 用了 _pxPrec 就**不修剪尾端的 0**：97.30 要跟右軸一樣寫成 97.30，
+       修掉會變 97.3、四個欄位寬度也對不齊。 */
+  const _p = (prec == null) ? window._pxPrec : prec;
+  if (_p != null && _p >= 0) return _thousands(n.toFixed(_p));
   if (a >= 100)   d = 2;
   else if (a >= 1) d = 4;
   else if (a > 0)  d = Math.min(12, Math.max(4, Math.ceil(-Math.log10(a)) + 3));

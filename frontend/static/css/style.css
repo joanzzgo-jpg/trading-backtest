@@ -2037,12 +2037,24 @@ html.perf-mode #domHead { color: #333; border-bottom-color: rgba(0, 0, 0, 0.1); 
   transform: translateY(-50%);
   border-radius: 4px;
   text-align: left;
-  width: 66px;                 /* 與十字線價格框同寬、靠左 */
+  /* ⚠ 用 min-width 不用固定 width（2026-08-25）：小數位改成依資料推算之後，
+     低價幣會出現 "0.0000043077" 這種 12 個字的價 → 固定 66px 裝不下會滿出框外。
+     靠 right 定位 → 變寬時往左長，不會被推出畫面。 */
+  min-width: 66px;             /* 與十字線價格框同寬、靠左 */
   box-sizing: border-box;
   font-size: 10px;
-  background: rgba(255, 145, 71, 0.55);       /* ＝最新價線色，半透明 */
+  /* ── 半透明（2026-08-25 使用者：「不然右邊數值會被遮到」）────────────────────
+     ★ 真正遮住後面的**不是**底色，而是繼承自上面那條共用規則的 `backdrop-filter: blur(10px)`
+       —— 底色本來就只有 0.55 alpha，但整片模糊會把後面的價格軸刻度糊成一團、等於看不到。
+       → 這一顆關掉模糊、底色再降到 0.3，價格軸的數字就能直接透出來。
+     ⚠ 底色一淡，白字就得自己站得住 → 補 text-shadow；邊框維持不透明，
+       否則整顆標籤在淺色盤上會糊掉、找不到現價線在哪。 */
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  background: rgba(255, 145, 71, 0.30);       /* ＝最新價線色，半透明 */
   border-color: rgba(255, 145, 71, 0.9);      /* 邊框＝最新價線色 */
   color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
   z-index: 25;
 }
 
