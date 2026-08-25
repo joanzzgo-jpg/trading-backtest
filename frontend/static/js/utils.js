@@ -625,7 +625,7 @@ window._perfProbe = function (sec, silent) {
       finally { const d = performance.now() - t, s = P[nm]; s.n++; s.ms += d; if (d > s.max) s.max = d; }
     };
   };
-  ["renderDrawings", "_drawSessionOverlay", "_drawVolumeProfile", "_drawKeyLevels", "_drawPDZones",
+  ["renderDrawings", "_drawSessionOverlay", "_drawVolumeProfile", "_drawKeyLevels", "_drawVisHL", "_drawPDZones",
    "_drawCoachOverlay", "_drawVWAP", "_drawMyTrades", "_applyMainMarkersNow", "renderVolume",
    "renderBB", "_bgApplyChunk", "_rebuildTimeIndex"].forEach(wrap);
 
@@ -651,6 +651,7 @@ window._perfProbe = function (sec, silent) {
     flag(typeof _domShow !== "undefined" && _domShow, "訂單簿");
     flag(typeof _obShow !== "undefined" && _obShow, "掛單");
     flag(window._pdhlOn, "關鍵高低"); flag(window._econOn, "經濟事件");
+    flag(window._visHLOn, "可見高低");
     flag(window._engulfOn, "吞噬"); flag(window._swingOn, "轉折");
     flag(window._dimBigBarOn, "大棒淡化");
     flag(document.documentElement.classList.contains("sky-show"), "天氣背景");

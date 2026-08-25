@@ -692,6 +692,13 @@ window.toggleHtfOpen = function (on) {
   window._htfOpenOn = (on === undefined) ? !window._htfOpenOn : !!on;
   if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();
 };
+/* 可見高低（畫面上這批 K 棒的最高/最低點）。畫在 overlay 畫布上 → 走 _scheduleRenderDrawings，
+   不像 PDHL 那樣有自己的 primitive。 */
+window.toggleVisHL = function (on) {
+  window._visHLOn = (on === undefined) ? !window._visHLOn : !!on;
+  if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();
+  return window._visHLOn;
+};
 window.togglePDHL = function (on) {
   window._pdhlOn = (on === undefined) ? !window._pdhlOn : !!on;
   if (_pdhlPrim) _pdhlPrim.requestUpdate();

@@ -2220,6 +2220,76 @@ function _drawHtfOpens(W, H) {
 // 關鍵高低（獨立開關 window._pdhlOn，＝圖例「關鍵高低」）：把「亞洲盤 / 歐洲盤」當盤高低
 //   延伸成流動性線（等著被下一盤獵取），配「前日高低」(charts.js PDHL primitive 同一開關) 一起看。
 //   不綁時段色塊開關（_sessionOn）→ 想看關鍵價位不必忍受整片色塊；加密 24/7 killzone 才有意義。
+/* ── 可見高低：畫面上這批 K 棒的最高價 / 最低價，標點＋寫出數值 ──────────────
+   2026-08-26 使用者：「有辦法在主圖上標記出 K 棒最高價位跟最低價位點 並寫出數值嗎」。
+   範圍＝**目前看得到的那些棒**（跟著平移/縮放即時變），不是整份資料 —— 整份的極值多半在
+   畫面外，標了看不到、數字也對不上眼前的走勢。
+   ⚠ 只掃**可見範圍**、不加左右緩衝：這支的答案就是「畫面上的最高/最低」，
+     多掃幾根就會標到看不見的棒上（跟 _drawKeyLevels 那種要畫延伸線的需求不同）。
+   ⚠ 重播中要夾到 replayIdx，否則會用還沒發生的棒算極值＝洩漏未來（守門員之十二）。 */
+function _drawVisHL(W, H) {
+  if (!window._visHLOn) return;
+  if (typeof ohlcvData === "undefined" || !ohlcvData.length || typeof mainChart === "undefined" || !candleSeries) return;
+  const ts = mainChart.timeScale();
+  const vr = ts.getVisibleLogicalRange();
+  if (!vr) return;
+  const _len = ohlcvData.length;
+  const from = Math.min(_len - 1, Math.max(0, Math.ceil(vr.from)));
+  let to = Math.min(_len - 1, Math.max(0, Math.floor(vr.to)));
+  if (typeof replayActive !== "undefined" && replayActive && typeof replayIdx === "number") to = Math.min(to, replayIdx);
+  if (to < from) return;
+  let hi = -Infinity, lo = Infinity, hiI = -1, loI = -1;
+  for (let i = from; i <= to; i++) {
+    const b = ohlcvData[i];
+    if (!b) continue;
+    const h = +b.high, l = +b.low;
+    if (isFinite(h) && h > hi) { hi = h; hiI = i; }
+    if (isFinite(l) && l < lo) { lo = l; loI = i; }
+  }
+  if (hiI < 0 || loI < 0) return;
+  let plotW = W;
+  try { const tw = ts.width(); if (tw > 0) plotW = tw; } catch (e) {}
+
+  const _mark = (idx, price, isHi) => {
+    const x = ts.timeToCoordinate(toTime(ohlcvData[idx].time));
+    const y = candleSeries.priceToCoordinate(price);
+    if (x == null || y == null) return;                       // 座標算不出來(不在圖上)→ 不畫
+    const col = isHi ? "#ef5350" : "#26a69a";
+    const dir = isHi ? -1 : 1;                                // 高點往上標、低點往下標
+    drawCtx.save();
+    drawCtx.strokeStyle = col; drawCtx.fillStyle = col;
+    drawCtx.lineWidth = 1;
+    // 三角形指向那根棒的高/低點
+    drawCtx.beginPath();
+    drawCtx.moveTo(x, y + dir * 3);
+    drawCtx.lineTo(x - 5, y + dir * 11);
+    drawCtx.lineTo(x + 5, y + dir * 11);
+    drawCtx.closePath(); drawCtx.fill();
+    // 貫穿整張圖的水平虛線，方便對照右軸
+    drawCtx.globalAlpha = 0.35;
+    drawCtx.setLineDash([4, 4]);
+    drawCtx.beginPath(); drawCtx.moveTo(0, y); drawCtx.lineTo(plotW, y); drawCtx.stroke();
+    drawCtx.setLineDash([]); drawCtx.globalAlpha = 1;
+    // 數值：小數位跟右軸同一套（_fmtPx 省略 prec 時吃 window._pxPrec）
+    const txt = (isHi ? "高 " : "低 ") + ((typeof _fmtPx === "function") ? _fmtPx(price) : price);
+    drawCtx.font = "bold 11px sans-serif";
+    drawCtx.textAlign = "left";
+    const tw2 = drawCtx.measureText(txt).width;
+    // 貼著三角形放；靠近右緣就翻到左邊，不讓字被價格軸切掉
+    let lx = x + 8;
+    if (lx + tw2 + 8 > plotW) lx = x - 8 - tw2;
+    if (lx < 2) lx = 2;
+    const ly = y + dir * 14;
+    drawCtx.fillStyle = "rgba(20,24,34,0.82)";
+    drawCtx.fillRect(lx - 4, ly - 9, tw2 + 8, 16);
+    drawCtx.fillStyle = col;
+    drawCtx.fillText(txt, lx, ly + 3);
+    drawCtx.restore();
+  };
+  _mark(hiI, hi, true);
+  _mark(loI, lo, false);
+}
+
 function _drawKeyLevels(W, H) {
   if (!window._pdhlOn) return;
   if (typeof ohlcvData === "undefined" || !ohlcvData.length || typeof mainChart === "undefined" || !candleSeries) return;
@@ -3127,6 +3197,7 @@ function renderDrawings() {
   // 交易時段 overlay（背景帶=當盤高低範圍 + 上下緣高低線 + 星期標籤；可開關）
   _drawSessionOverlay(W, H);
   _drawKeyLevels(W, H);
+  _drawVisHL(W, H);         // 可見範圍的最高/最低點（三角標＋數值；獨立開關 _visHLOn）
   _drawHtfOpens(W, H);      // 日開 / 4H 開盤價水平線（小時框上看大時框開盤位置）
 
   // 折價/溢價區（ICT/SMC dealing range：溢價紅上半、折價綠下半、EQ 50%線；開關 _pdOn 預設開）
