@@ -763,20 +763,14 @@ function bindLegendToggles() {
     });
   });
 
-  // FVG 最小寬度% 輸入（使用者自定；localStorage 持久化）→ setFVGMinWidth 即時過濾主圖缺口
-  const _fvgWInp = document.getElementById("fvgMinW");
-  if (_fvgWInp) {
-    try { const saved = localStorage.getItem("fvgMinW"); if (saved != null && saved !== "") _fvgWInp.value = saved; } catch (e) {}
-    const _applyFvgW = () => {
-      if (typeof setFVGMinWidth === "function") setFVGMinWidth(_fvgWInp.value);
-      try { localStorage.setItem("fvgMinW", _fvgWInp.value); } catch (e) {}
-    };
-    _applyFvgW();   // 套用載入時的值
-    _fvgWInp.addEventListener("input",  _applyFvgW);
-    _fvgWInp.addEventListener("change", _applyFvgW);
-    // 點輸入框不要觸發圖例切換/其他父層行為
-    _fvgWInp.addEventListener("click", e => e.stopPropagation());
-  }
+  /* FVG 最小寬度%：輸入框已於 2026-08-26 依使用者要求從圖例列移除（連同 B≥／多空=／破= 三個 chip）。
+     ⚠ 值本身仍要套用 —— `_fvgMinW` 的宣告預設是 0（不過濾），輸入框一拿掉就沒人呼叫
+       `setFVGMinWidth` 了，設過非 0 的人會**靜默地變成不過濾**（圖上突然多出一堆缺口）。
+       這裡照樣讀 localStorage 套上去，把「刪 UI」限縮成純粹的介面改動、不動行為。 */
+  try {
+    const saved = localStorage.getItem("fvgMinW");
+    if (saved != null && saved !== "" && typeof setFVGMinWidth === "function") setFVGMinWidth(saved);
+  } catch (e) {}
 
   // proto 缺口(B)門檻切換 chip：初始標籤同步（值存在 winrate.js 的 _wrProtoMin，點擊走 _cycleProtoMin）
   if (typeof window._syncProtoMinLabel === "function") window._syncProtoMinLabel();
