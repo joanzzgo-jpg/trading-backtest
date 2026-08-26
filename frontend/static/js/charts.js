@@ -1360,6 +1360,8 @@ function syncTimeScales() {
     syncing = false;
     // 平移/縮放 → 重算可見範圍的標記視窗（debounced，避免長範圍時 setMarkers 拖慢）
     if (typeof _scheduleMarkerRewindow === "function") _scheduleMarkerRewindow();
+    // 布林改成只畫「可見範圍±3屏」後，平移/縮放要跟著重切視窗（見 render.js _bbWindow）
+    if (typeof _scheduleBBRewindow === "function") _scheduleBBRewindow();
     // 接近左側邊界就提前預抓下一塊歷史（門檻拉大 → 還沒滑到空白就先載好，補資料更快不卡頓）
     //   ⚠ 方向搶佔:若正在跑「補新」而使用者回頭往左→中止補新、立刻改補舊(否則共用旗標會擋掉→沒往舊補)
     // ⚠ 縮到最小(看見全部)時視野同時貼近左右兩端(from<2000 且 to≈最新)→ 不可觸發補舊,否則往右滑也一直誤觸

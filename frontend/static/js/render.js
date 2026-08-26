@@ -646,12 +646,74 @@ function renderCandles(data) {
   candleSeries.setMarkers([]);
 }
 
+/* ── 布林重畫：資料沒變就整支跳過（2026-08-26）─────────────────────────────────
+   使用者的自動卡頓回報抓到 `renderBB` 單次 32.2ms（18,796 根、縮放途中）。
+   實測成本結構（4000/10000/19000 根）：
+     組陣列 1.3 / 1.3 / 2.3ms　　setData×3 **13.1 / 17.5 / 20.3ms**
+   → 貴的是 LWC 的 setData，而且**次線性**（4000 根就要 13.1ms＝有一大塊固定開銷）。
+   這排除了兩條直覺路線：
+     ・優化組陣列（改單迴圈一次組三條）只省 ~1.5ms —— 不值得動。
+     ・像標記那樣視窗化：19000→1500 也只從 20.3ms 降到 ~11ms（固定開銷跑不掉），
+       卻要冒「平移時布林線缺一段」的風險（這個 app 出過「布林不會畫要刷新」的 bug）。
+   → 唯一划算的是**不要重複呼叫**。呼叫點有 6 個，其中背景補載那條路是
+     「`_applyTrim` 後同步 renderBB」＋「`_bgScheduleIndicators` 800ms 後再一次」，
+     載入停下來時後面那次必定是同一份資料 → 白做一次 20ms 的 setData。
+   ⚠ 指紋要含**中間那根**：只看頭尾的話，「長度與頭尾都沒變、但中段被就地改寫」會被誤跳過。
+   ⚠ 這裡不能改成「比整份內容」——那樣光是比對就跟重畫一樣貴。 */
+/* 布林要畫的範圍＝可見範圍前後各 _BB_PAD 屏。回傳 [start, end)；涵蓋全部就回 [0, n]。
+   ⚠ 緩衝要夠大（3 屏）：使用者拖一下就跨過緩衝的話，會看到線的邊緣缺一段才補上。
+     一次拖 3 屏至少要幾百毫秒，而重畫是停手後 150ms 就跑 → 追得上。 */
+const _BB_PAD = 3;
+function _bbWindow(n) {
+  try {
+    if (!mainChart || n <= 3000) return [0, n];      // 小資料整份畫最省事（setData 本來就有固定開銷）
+    const vr = mainChart.timeScale().getVisibleLogicalRange();
+    if (!vr || vr.to == null) return [0, n];
+    const span = Math.max(1, vr.to - vr.from);
+    const s = Math.max(0, Math.floor(vr.from - span * _BB_PAD));
+    const e = Math.min(n, Math.ceil(vr.to + span * _BB_PAD));
+    if (e <= s) return [0, n];
+    return [s, e];
+  } catch (e) { return [0, n]; }
+}
+
+let _bbLastFp = "";
 function renderBB(data) {
+  if (!data || !data.length) { _bbLastFp = ""; return; }
+  const n = data.length;
+  const [s, e] = _bbWindow(n);
+  const a = data[s], z = data[e - 1], mid = data[(s + e) >> 1];
+  const fp = s + "-" + e + "|" + n + "|" + (a ? (a._t || a.time) : "") + "|" + (z ? (z._t || z.time) : "") +
+             "|" + (z ? z.bb_upper : "") + "|" + (z ? z.bb_middle : "") + "|" + (z ? z.bb_lower : "") +
+             "|" + (mid ? mid.bb_upper : "");
+  if (fp === _bbLastFp) return;
+  _bbLastFp = fp;
   // _bt(d)：用 _rebuildTimeIndex 已算好的秒數（見該函式註）；3 條線 × 34k 根原本是 10 萬次 ISO 解析
-  const line = k => data.filter(d => Number.isFinite(d[k])).map(d => ({ time:_bt(d), value:d[k] }));   // Number.isFinite 擋 null/undefined/NaN(否則 LWC paint 拋「Value is null」)
-  bbU.setData(line("bb_upper")); bbM.setData(line("bb_middle")); bbL.setData(line("bb_lower"));
+  // Number.isFinite 擋 null/undefined/NaN（否則 LWC paint 拋「Value is null」）
+  const U = [], M = [], L = [];
+  for (let i = s; i < e; i++) {
+    const d = data[i];
+    if (!d) continue;
+    const t = _bt(d);
+    if (Number.isFinite(d.bb_upper))  U.push({ time: t, value: d.bb_upper });
+    if (Number.isFinite(d.bb_middle)) M.push({ time: t, value: d.bb_middle });
+    if (Number.isFinite(d.bb_lower))  L.push({ time: t, value: d.bb_lower });
+  }
+  bbU.setData(U); bbM.setData(M); bbL.setData(L);
   // 1σ 內帶(bbU1/bbL1)已移除，不再繪製
 }
+
+/* 平移/縮放停手後重切布林視窗（同標記的 _scheduleMarkerRewindow）。
+   視窗沒變時 renderBB 會被指紋擋下來 → 一般平移幾乎是零成本。 */
+let _bbWinTimer = null;
+function _scheduleBBRewindow() {
+  clearTimeout(_bbWinTimer);
+  _bbWinTimer = setTimeout(() => {
+    if (typeof replayActive !== "undefined" && replayActive) return;   // 重播有自己的那套(renderBB(slice))
+    if (ohlcvData && ohlcvData.length) renderBB(ohlcvData);
+  }, 150);
+}
+window._scheduleBBRewindow = _scheduleBBRewindow;
 
 // 標記視窗化：長範圍（小時/4H 背景載入上千根）時，CRT+KDJ+共振+多空訊號會產生數千個標記，
 // 一次全丟 setMarkers 會讓 LWC 每次平移/縮放/十字線都重繪全部 → 卡。只渲染「可見範圍 ±一屏」的
