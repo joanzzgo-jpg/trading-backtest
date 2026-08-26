@@ -142,16 +142,38 @@ window._mkChartDataKey = (mkt, sym) =>
      ・主圖 `/api/latest`：形成中那根 K 棒的收盤
      ・報價列 `/api/tickers`：24hr ticker 的最後成交價
    兩個都對，只是取樣時刻差一瞬 → 誰也不比誰準，但**顯示兩個數字就會看到跳動**。
-   → 收斂成一個：誰的 `ts` 新就用誰，然後**同一個數字同時餵給行情列那一列與主圖現價線**。
+   → 收斂成一個，然後**同一個數字同時餵給行情列那一列與主圖現價線**。
    ⚠ 只對「主圖正在看的那一檔」做（其他列本來就只有報價來源，沒有第二個數字可比）。
    ⚠ 換標的要清掉，否則會把上一檔的價餵給新的那一列。
-   ⚠ 一律走這裡更新現價線 → 兩者由**同一次呼叫**寫入，結構上不可能不一致。 */
-const _curPx = { key: null, price: null, ts: 0 };
-window._pushCurPrice = function (key, price, ts) {
+   ⚠ 一律走這裡更新現價線 → 兩者由**同一次呼叫**寫入，結構上不可能不一致。
+
+   ★★ 2026-08-27 修正選法（使用者：「即時報價會出現很怪的上下」）：
+   原本是「誰的 `ts` 新就用誰」。那個規則假設兩邊在**量同一件事、只差延遲** ——
+   但它們是**兩個各自獨立的取樣程序**，交替採用等於把「兩者的差值」當成價格變動。
+   實測 90 秒（BTC 1m，同一份資料做對照組）：
+     單一來源 /api/latest　樣本 36　方向反轉 30　路徑長 101.2　淨位移 31.8　抖動比 3.2
+     單一來源 報價列　　　樣本 90　方向反轉 16　路徑長  68.9　淨位移 34.7　抖動比 2.0
+     **混合（實際顯示）　樣本 126　方向反轉 43　路徑長 132.2　淨位移 31.8　抖動比 4.2**
+   混合走了 132 點才淨移動 32 點，**比任何單一來源都亂**；來源交錯 97 次裡有 70%
+   是「換來源就往回走」，最大回退 28.9 點。
+   → 改成**單一權威來源**：主圖那支（`/api/latest`）說了算，報價列只在它斷了（>2.5 秒沒推）才頂上。
+   ⚠ 為什麼選主圖那支而不是比較平滑的報價列：K 棒的 open/high/low 本來就只有它在寫
+     （realtime.js 的 forEach 會 `candleSeries.update`），現價若改用報價列，
+     實體就會有兩個writer 交替 → 抖動只是從價格線搬到 K 棒實體上，沒有解決。
+   ⚠ 2.5 秒的門檻＝主圖輪詢週期(1s)的兩倍多：掉一兩拍不切換（切了就是抖動回來），
+     真的停了才換手。 */
+const _curPx = { key: null, price: null, ts: 0, authTs: 0 };
+const _CUR_AUTH_MS = 2500;
+window._pushCurPrice = function (key, price, ts, src) {
   if (!key || price == null || !isFinite(price) || price <= 0) return;
   ts = +ts || 0;
-  if (_curPx.key === key && ts && _curPx.ts && ts < _curPx.ts) return;   // 舊的不覆蓋新的
-  if (_curPx.key !== key) { _curPx.key = key; _curPx.ts = 0; }
+  const auth = (src === "chart");
+  const now = Date.now();
+  if (_curPx.key !== key) { _curPx.key = key; _curPx.ts = 0; _curPx.authTs = 0; }
+  // 權威來源還活著 → 其他來源一律不碰（這就是「怪的上下」的來源）
+  if (!auth && _curPx.authTs && now - _curPx.authTs < _CUR_AUTH_MS) return;
+  if (auth) _curPx.authTs = now;
+  if (ts && _curPx.ts && ts < _curPx.ts) return;   // 同一來源內：舊的不覆蓋新的
   _curPx.price = price; _curPx.ts = ts || _curPx.ts;
   /* 形成中那根的實體也用同一個數字（使用者：「最新Ｋ棒的即時實體跟不太上最新價格線」）。
      ★ 順序必須在 updateLatestPriceLine **之前**：現價線的虛線吃的是這裡傳進去的 price，
@@ -161,7 +183,7 @@ window._pushCurPrice = function (key, price, ts) {
   try { if (typeof updateLatestPriceLine === "function") updateLatestPriceLine(price); } catch (e) {}
   try { window._tkSyncChartRow && window._tkSyncChartRow(); } catch (e) {}
 };
-window._resetCurPrice = function () { _curPx.key = null; _curPx.price = null; _curPx.ts = 0; };
+window._resetCurPrice = function () { _curPx.key = null; _curPx.price = null; _curPx.ts = 0; _curPx.authTs = 0; };
 
 function _mainChartPrice(el) {
   const key = window._chartDataKey;
@@ -335,7 +357,7 @@ function _tkMerge(cur, j, key) {
       for (const t of j.tickers) {
         const id = t.display || t.symbol;
         if (id && window._mkChartDataKey((t.market || "crypto"), id) === _k && t.price != null) {
-          window._pushCurPrice(_k, +t.price, +j.ts); break;
+          window._pushCurPrice(_k, +t.price, +j.ts, "feed"); break;
         }
       }
     }

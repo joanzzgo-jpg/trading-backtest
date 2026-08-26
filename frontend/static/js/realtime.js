@@ -272,7 +272,7 @@ async function fetchLatest() {
     try {
       const _d = json.data || [];
       if (_d.length && window._chartDataKey && window._pushCurPrice)
-        window._pushCurPrice(window._chartDataKey, +_d[_d.length - 1].close, +json.ts || 0);
+        window._pushCurPrice(window._chartDataKey, +_d[_d.length - 1].close, +json.ts || 0, "chart");
     } catch (e) {}
     if (!json.data?.length) return;
     const dot = document.getElementById("realtimeDot");
