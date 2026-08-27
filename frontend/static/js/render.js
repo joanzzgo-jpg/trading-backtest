@@ -1011,6 +1011,20 @@ function renderMACD(data) {
    即時更新
 ══════════════════════════════════════════ */
 
+/* 等使用者停手（最多 maxMs）。`_uxBusy()` ＝最後一次互動在 400ms 內（見 utils.js 互動偵測器）。
+   ⚠ 一定要有上限：使用者一直不放手也不能無限期不更新資料。 */
+function _waitUserIdle(maxMs) {
+  return new Promise(res => {
+    if (typeof window._uxBusy !== "function" || !window._uxBusy()) return res();
+    const t0 = Date.now();
+    const tick = () => {
+      if (!window._uxBusy() || Date.now() - t0 >= maxMs) return res();
+      setTimeout(tick, 60);
+    };
+    setTimeout(tick, 60);
+  });
+}
+
 function _bgApplyChunk(data, nPrepended) {
   // ⚡ 副圖隱藏(預設)時:3 條錨點 series 在 display:none 的圖上、setData 純白工 → 跳過(每塊補載省 3 條全量
   //    setData + 2 次全量 map,把切 chunk 的 ~100ms 頓砍掉大半)。副圖打開時由 renderAll 重建錨點,不影響。
@@ -1160,6 +1174,26 @@ async function _bgLoadOlderBars(scrollTriggered = false) {
           console.warn(`[補舊] 資料源缺 ${miss} 根(${snapSymbol} ${snapTf}) → 照接,已記入 window._dataHoles`);
         }
       }
+
+      /* ★ 讓路：使用者正在縮放/平移時，先別把這塊塞進圖表（2026-08-27）。
+         使用者的自動卡頓回報：`_bgApplyChunk` **87.4ms / 5 次**，那一輪最大幀 118.1ms。
+         拆開量（9,201 根、副圖開）：副圖錨點 setData×3 **9.8ms**、K 棒 4.9ms、成交量 2.2ms
+         ＝一次 19.4ms，而且是 O(根數) → 越補越貴。這 19ms 若落在手勢中的那一幀就是「卡」。
+         ★ 為什麼可以等：套用當下這批新棒**必定全在畫面外** —— 補舊的觸發條件是
+           「視野左緣 index < 2000」，prepend 之後新棒佔 [0, n)、視野整段往右位移，兩者不相交。
+         ⚠ 但「快滑到底」的人不能等：左緣離舊資料最左不到 300 根時代表他正往那裡滑，
+           這時晚幾百毫秒就是他看到的空白 → 照舊立刻套用。
+         ⚠ 上限 2000ms：實測連續滾輪縮放一輪約 1.5 秒，上限 900ms 時 20/23 塊照樣落在手勢中
+           （等到上限就放行＝等於沒讓路）。要比典型手勢長才有意義。
+         ⚠ await 之後要重驗 gen/guard（中途切標的/切時框就作廢）。 */
+      try {
+        const _vr = mainChart && mainChart.timeScale().getVisibleLogicalRange();
+        const _runway = (_vr && _vr.from != null) ? _vr.from : 9999;
+        if (_runway > 300 && typeof window._uxBusy === "function" && window._uxBusy()) {
+          await _waitUserIdle(2000);
+          if (myGen !== _bgLoadGen || !guard()) return;
+        }
+      } catch (e) {}
 
       const nPrepended = newBars.length;
       ohlcvData = newBars.concat(ohlcvData);
