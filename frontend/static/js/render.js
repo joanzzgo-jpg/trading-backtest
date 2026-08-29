@@ -1011,16 +1011,30 @@ function renderMACD(data) {
    即時更新
 ══════════════════════════════════════════ */
 
-/* 等使用者停手（最多 maxMs）。`_uxBusy()` ＝最後一次互動在 400ms 內（見 utils.js 互動偵測器）。
-   ⚠ 一定要有上限：使用者一直不放手也不能無限期不更新資料。 */
-function _waitUserIdle(maxMs) {
+/* 等到「可以套用這塊資料」為止：使用者停手了，或者他真的需要這批資料了。
+   ★ 為什麼**不是**單純的固定時間上限（2026-08-27 第一版就是，量出來才知道沒用）：
+     連續滾輪縮放會讓 `_uxBusy()` 一路都是 true，時間到就放行 ＝ 等於沒讓路
+     —— 實測上限 900ms 時 20/23 塊照樣落在手勢中、2000ms 時仍有 10/23。
+   ★ 正解是**用「他需不需要」當條件，而不是用時間**：
+     每一輪重新看「視野左緣還剩幾根」（runway）。只要還有緩衝就繼續等；
+     一旦他滑到快沒資料（或縮過頭讓 from 變負）就立刻放行 → 使用者永遠不會因為讓路而看到空白。
+   ⚠ 仍留一個很寬的保險絲（預設 15 秒）：萬一 `_uxBusy` 因為別的原因卡在 true，
+     資料也不能無限期不進圖表。正常情況下永遠碰不到它。 */
+const _APPLY_RUNWAY_MIN = 300;   // 左緣緩衝低於這個根數＝他正往那裡滑，不能再等
+function _waitApplyOk(maxMs) {
   return new Promise(res => {
-    if (typeof window._uxBusy !== "function" || !window._uxBusy()) return res();
     const t0 = Date.now();
-    const tick = () => {
-      if (!window._uxBusy() || Date.now() - t0 >= maxMs) return res();
-      setTimeout(tick, 60);
+    const ok = () => {
+      if (typeof window._uxBusy !== "function" || !window._uxBusy()) return true;
+      if (Date.now() - t0 >= maxMs) return true;
+      try {
+        const vr = mainChart && mainChart.timeScale().getVisibleLogicalRange();
+        if (vr && vr.from != null && vr.from <= _APPLY_RUNWAY_MIN) return true;
+      } catch (e) { return true; }
+      return false;
     };
+    if (ok()) return res();
+    const tick = () => { if (ok()) return res(); setTimeout(tick, 60); };
     setTimeout(tick, 60);
   });
 }
@@ -1181,19 +1195,15 @@ async function _bgLoadOlderBars(scrollTriggered = false) {
          ＝一次 19.4ms，而且是 O(根數) → 越補越貴。這 19ms 若落在手勢中的那一幀就是「卡」。
          ★ 為什麼可以等：套用當下這批新棒**必定全在畫面外** —— 補舊的觸發條件是
            「視野左緣 index < 2000」，prepend 之後新棒佔 [0, n)、視野整段往右位移，兩者不相交。
-         ⚠ 但「快滑到底」的人不能等：左緣離舊資料最左不到 300 根時代表他正往那裡滑，
-           這時晚幾百毫秒就是他看到的空白 → 照舊立刻套用。
-         ⚠ 上限 2000ms：實測連續滾輪縮放一輪約 1.5 秒，上限 900ms 時 20/23 塊照樣落在手勢中
-           （等到上限就放行＝等於沒讓路）。要比典型手勢長才有意義。
+         ⚠ 但「快滑到底」的人不能等：左緣離舊資料最左不到 300 根（或縮過頭讓 from 變負）
+           代表他正往那裡滑，這時晚一下就是他看到的空白 → 立刻放行。
+           這個條件是**每輪重新評估**的，見 _waitApplyOk。
+         ⚠ **不可以用固定時間上限當放行條件**（第一版就是，量出來才知道沒用）：連續滾輪會讓
+           `_uxBusy()` 一路是 true，時間到就放行＝等於沒讓路（900ms→20/23、2000ms→10/23 仍在手勢中）。
+           放行條件要是「他需不需要」，見 _waitApplyOk。15 秒只是保險絲、正常碰不到。
          ⚠ await 之後要重驗 gen/guard（中途切標的/切時框就作廢）。 */
-      try {
-        const _vr = mainChart && mainChart.timeScale().getVisibleLogicalRange();
-        const _runway = (_vr && _vr.from != null) ? _vr.from : 9999;
-        if (_runway > 300 && typeof window._uxBusy === "function" && window._uxBusy()) {
-          await _waitUserIdle(2000);
-          if (myGen !== _bgLoadGen || !guard()) return;
-        }
-      } catch (e) {}
+      await _waitApplyOk(15000);
+      if (myGen !== _bgLoadGen || !guard()) return;
 
       const nPrepended = newBars.length;
       ohlcvData = newBars.concat(ohlcvData);
