@@ -713,15 +713,27 @@ window._perfProbe = function (sec, silent) {
      33ms = 掉一幀(60→30fps)；同一段互動裡累積 ≥12 個才算，正常滑順操作不會誤觸。 */
   const CHOP_MS = 33, CHOP_MIN = 12;
 
-  function evaluate(frames) {
+  function evaluate(frames, slowAt) {
     const slow = frames.filter(x => x > JANK_MS).length;
     const chop = frames.filter(x => x > CHOP_MS).length;
     if (slow < JANK_MIN && chop < CHOP_MIN) return;
     const now = Date.now();
     if (probing || sent >= MAX_SENT || now - lastSent < COOLDOWN) return;
     probing = true; sent++; lastSent = now;
-    // 帶上「哪種操作觸發的」＋觸發前那段的形狀 → 才分得出是縮放還是拖曳（見 _perfProbe 的 trigger）
-    window.__jankTrigger = { by: kind || "?", over50: slow, over33: chop, n: frames.length };
+    /* ★ 2026-08-30：觸發窗的**實際幀分佈**也要帶上，不能只帶次數。
+       探針是「偵測到卡頓**之後**才開始量 5 秒」→ 真正卡的那一段根本不在它的取樣裡：
+       實測使用者的回報出現「觸發統計說 >50ms 有 4~6 幀，探針自己那 5 秒卻是 0」，
+       等於知道有卡頓、卻拿不到它長什麼樣子。
+       ⚠ `slowAt` 記的是「距這次互動開始幾毫秒 → 那一幀多久」→ 分得出
+         「手勢一開始就頓一下」(初始化成本) 與「整段都在掉幀」(持續性成本)，兩者的修法完全不同。 */
+    const srt = frames.slice().sort((a, b) => a - b);
+    const q = p => srt.length ? +srt[Math.min(srt.length - 1, Math.floor(srt.length * p))].toFixed(1) : 0;
+    window.__jankTrigger = {
+      by: kind || "?", over50: slow, over33: chop, n: frames.length,
+      p50: q(0.5), p95: q(0.95), max: q(1),
+      worst: srt.slice(-6).map(x => +x.toFixed(1)),
+      slowAt: (slowAt || []).slice(0, 14),
+    };
     try { window._perfProbe(5, true); } catch (e) {}
     setTimeout(() => { probing = false; }, 6000);
   }
@@ -733,19 +745,23 @@ window._perfProbe = function (sec, silent) {
          : (ev && ev.type) === "pointerdown" ? "拖曳/點按" : "?";
     if (typeof window._perfProbe !== "function") return;
     sampling = true;
-    const frames = [];
+    const frames = [], slowAt = [];
     let last = performance.now();
     const t0 = last;
     const tick = () => {
       const n = performance.now(), d = n - last; last = n;
-      if (d < 4000) frames.push(d);          // 忽略分頁被切走/睡眠造成的巨大間隔
+      if (d < 4000) {                        // 忽略分頁被切走/睡眠造成的巨大間隔
+        frames.push(d);
+        // 掉幀發生在互動的第幾毫秒（見 evaluate 的說明）；只留前 14 筆，不無限長
+        if (d > CHOP_MS && slowAt.length < 14) slowAt.push([Math.round(n - t0), +d.toFixed(1)]);
+      }
       // ★至少量 2.5 秒再看「是否停手」:pointerdown 當下 _chartMoveTs 還沒被設(要 move 才更新),
       //   只看 moving 會在第一幀就退出 → 永遠取樣不到(2026-07-30 第一版就是這樣沒觸發)。
       const warmup = (n - t0) < 2500;
       const moving = window._chartMoveTs && (n - window._chartMoveTs) < 1200;
       if ((warmup || moving) && frames.length < 900) { requestAnimationFrame(tick); return; }
       sampling = false;
-      evaluate(frames);
+      evaluate(frames, slowAt);
     };
     requestAnimationFrame(tick);
   }
