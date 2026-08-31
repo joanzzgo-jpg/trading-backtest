@@ -8047,3 +8047,18 @@ html.perf-mode .tb-wr-sync[data-state="local"] { color: #8B8B8B; }
 .net-sig[data-q="1"] i.on { background: #e8833a; }
 .net-sig[data-q="0"] i     { background: var(--red, #ef5350); opacity: .30; }
 .net-sig[data-q="0"] i:nth-child(1) { opacity: 1; animation: no-blink 1.4s ease-in-out infinite; }
+
+/* ── 自選拖曳排序（2026-08-31）───────────────────────────────────────────────
+   ⚠ `touch-action: none` 只加在自選分頁的列上：整個清單都設的話，
+     其他分頁（合約/現貨/台股）會**捲不動**。 */
+#tickerList .ticker-item[data-mkt] { touch-action: pan-y; }
+body.wl-drag-on { user-select: none; -webkit-user-select: none; }
+body.wl-drag-on #tickerList .ticker-item { touch-action: none; }
+#tickerList .ticker-item.wl-dragging {
+  position: relative;
+  z-index: 5;
+  opacity: .92;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .35);
+  background: rgba(255, 255, 255, .06);
+  border-radius: 6px;
+}

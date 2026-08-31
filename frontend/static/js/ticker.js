@@ -926,6 +926,9 @@ function _renderCoachList(container, currentSym) {
 function renderTickers() {
   const container = document.getElementById("tickerList");
   if (!container) return;
+  /* 拖曳排序進行中 → 整支跳過（見 _initWlReorder）。報價每秒都會叫這支，
+     `_reconcileTicker` 會把列重排回舊順序、把手上那一列抽走。 */
+  if (window._wlDragging && window._wlDragging()) return;
 
   const currentSym = document.getElementById("symbolInput")?.value.trim().toUpperCase();
   const exchVal    = document.getElementById("exchangeSelect")?.value || "pionex";
@@ -985,6 +988,7 @@ function renderTickers() {
     rows.filter(r => !_WL_ORDER.includes(r.item.market))   // 未知市場（理論上無）→ 收尾「其他」
         .forEach((r, i, arr) => { if (i === 0) items.push({ _k: "__wlhdr:other", _hdr: true, label: "其他", count: arr.length }); items.push(r); });
     _reconcileTicker(container, items, _buildWlRow, _updateWlRow);
+    _initWlReorder();
     if (typeof window._tkSyncChartRow === "function") { try { window._tkSyncChartRow(); } catch (e) {} }
     return;
   }
@@ -1072,6 +1076,106 @@ function _buildWlRow(it) {
     <div class="tk-action"><button class="wl-del" title="移除"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V5.6A1.6 1.6 0 0 1 10.6 4h2.8A1.6 1.6 0 0 1 15 5.6V7"/><path d="M6.2 7l.9 12.4A1.6 1.6 0 0 0 8.7 21h6.6a1.6 1.6 0 0 0 1.6-1.5L17.8 7"/><path d="M10 11v6M14 11v6"/></svg></button></div>
   </div>`;
 }
+/* ── 自選排序：拖曳改變順序（2026-08-31 使用者：「自選標的排序要可以讓使用者自己決定」）──
+   ⚠ 只能在**同一個市場組內**換位：自選是依市場分組顯示的（加密/台股/美股/港股，順序固定），
+     跨組拖曳沒有意義，也會讓分組標題的計數對不上。
+   ⚠ 觸控要「長按才進入拖曳」：直接按下就拖的話，使用者在手機上**捲不動這個清單**。
+     滑鼠則是移動超過 4px 就開始（桌面沒有捲動衝突）。
+   ⚠ 拖曳期間必須擋掉每秒的重繪：`_reconcileTicker` 會把列重排回舊順序，手上那一列會被抽走。 */
+let _wlDrag = null;
+window._wlDragging = () => !!(_wlDrag && _wlDrag.active);
+
+function _wlRowsOf(el) {   // 同一組（同市場）的所有自選列，依畫面順序
+  const mkt = el.dataset.mkt;
+  return [...el.parentElement.querySelectorAll(`.ticker-item[data-mkt="${CSS.escape(mkt)}"]`)];
+}
+
+function _wlDragStart(el, y) {
+  _wlDrag.active = true;
+  _wlDrag.el = el;
+  _wlDrag.rows = _wlRowsOf(el);
+  _wlDrag.startY = y;
+  _wlDrag.baseTop = el.getBoundingClientRect().top;
+  el.classList.add("wl-dragging");
+  document.body.classList.add("wl-drag-on");
+}
+
+function _wlDragMove(y) {
+  const d = _wlDrag;
+  d.el.style.transform = `translateY(${y - d.startY}px)`;
+  // 目前指標位置落在同組哪一列上 → 就插到那裡
+  const mid = y;
+  for (const r of d.rows) {
+    if (r === d.el) continue;
+    const b = r.getBoundingClientRect();
+    if (mid > b.top && mid < b.bottom) {
+      const after = mid > b.top + b.height / 2;
+      r.parentElement.insertBefore(d.el, after ? r.nextSibling : r);
+      // 換位後基準也要跟著移，否則位移量會累積成跳動
+      d.startY = y;
+      d.el.style.transform = "";
+      d.baseTop = d.el.getBoundingClientRect().top;
+      d.rows = _wlRowsOf(d.el);
+      break;
+    }
+  }
+}
+
+function _wlDragEnd() {
+  const d = _wlDrag;
+  if (d && d.el) { d.el.style.transform = ""; d.el.classList.remove("wl-dragging"); }
+  document.body.classList.remove("wl-drag-on");
+  if (d && d.active) {
+    /* 把畫面順序寫回 _watchlist：**只重排，不新增不刪除** ——
+       依畫面上出現的 key 順序取出對應項目，畫面上沒有的（其他市場/被過濾掉的）原樣接在後面，
+       這樣就算 DOM 少了什麼也不會把使用者的自選弄丟。 */
+    try {
+      const cont = document.getElementById("tickerList");
+      const order = [...cont.querySelectorAll(".ticker-item")]
+        .map(r => `${r.dataset.mkt}:${r.dataset.exch || ""}:${r.dataset.sym}`);
+      const byKey = new Map(_watchlist.map(w => [`${w.market}:${w.exchange || ""}:${w.symbol}`, w]));
+      const out = [];
+      for (const k of order) { const w = byKey.get(k); if (w) { out.push(w); byKey.delete(k); } }
+      for (const w of byKey.values()) out.push(w);          // 畫面上沒出現的原樣保留
+      if (out.length === _watchlist.length) { _watchlist = out; _saveWatchlist(); }
+    } catch (e) {}
+  }
+  _wlDrag = null;
+  try { renderTickers(); } catch (e) {}
+}
+
+function _initWlReorder() {
+  const cont = document.getElementById("tickerList");
+  if (!cont || cont._wlReorderBound) return;
+  cont._wlReorderBound = true;
+  const HOLD_MS = 380, SLOP = 4;
+  cont.addEventListener("pointerdown", e => {
+    if (_tickerSort !== "wl") return;
+    if (e.button != null && e.button !== 0) return;
+    const el = e.target.closest(".ticker-item");
+    if (!el || !el.dataset.mkt) return;
+    if (e.target.closest(".wl-del")) return;      // 刪除鈕不觸發拖曳
+    _wlDrag = { el, active: false, startY: e.clientY, touch: e.pointerType !== "mouse", timer: null, moved: false };
+    if (_wlDrag.touch) _wlDrag.timer = setTimeout(() => { if (_wlDrag && !_wlDrag.moved) _wlDragStart(el, _wlDrag.startY); }, HOLD_MS);
+  });
+  cont.addEventListener("pointermove", e => {
+    if (!_wlDrag) return;
+    const dy = e.clientY - _wlDrag.startY;
+    if (!_wlDrag.active) {
+      if (_wlDrag.touch) { if (Math.abs(dy) > SLOP) { _wlDrag.moved = true; clearTimeout(_wlDrag.timer); _wlDrag = null; } return; }
+      if (Math.abs(dy) > SLOP) _wlDragStart(_wlDrag.el, _wlDrag.startY);
+      else return;
+    }
+    e.preventDefault();
+    _wlDragMove(e.clientY);
+  }, { passive: false });
+  const _up = () => { if (!_wlDrag) return; clearTimeout(_wlDrag.timer); if (_wlDrag.active) _wlDragEnd(); else _wlDrag = null; };
+  cont.addEventListener("pointerup", _up);
+  cont.addEventListener("pointercancel", _up);
+  window.addEventListener("blur", _up);
+}
+window._initWlReorder = _initWlReorder;
+
 function _updateWlRow(el, it) {
   if (it._hdr) { _setTxt(el, ".tk-wl-hdr-n", String(it.count)); return; }
   el.classList.toggle("tk-active", it.active);
