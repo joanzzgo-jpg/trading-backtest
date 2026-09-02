@@ -653,13 +653,26 @@ function _emojiSize(d) {
   return Math.max(4, base * ratio);
 }
 
+/* 貼圖的兩顆把手（右下＝縮放、左上＝旋轉）。
+   ⚠ 把手要跟著 `rot` 一起轉：不轉的話，貼圖轉了 90° 之後把手還停在原本的角落，
+     使用者看到的是「把手離開了貼圖」而且抓不準。 */
+function _emojiHandles(d, p, sz) {
+  const r = (+d.rot || 0) * Math.PI / 180;
+  const c = Math.cos(r), s2 = Math.sin(r);
+  const k = sz / 2 + 3;
+  const _pt = (ox, oy) => ({ x: p.x + ox * c - oy * s2, y: p.y + ox * s2 + oy * c });
+  return { size: _pt(k, k), rot: _pt(-k, -k) };
+}
+
 /* 對 longpos/shortpos 判斷拖移的是哪一條線 */
 function _drawingHitPart(d, x, y) {
-  if (d.type === "emoji") {   // 右下角縮放把手優先
+  if (d.type === "emoji") {   // 右下＝縮放、左上＝旋轉（2026-09-02 使用者：「貼圖不能旋轉」）
     const p = chartToScreen(d.time, d.price);
     if (p) {
       const sz = _emojiSize(d);
-      if (Math.hypot((p.x + sz / 2 + 3) - x, (p.y + sz / 2 + 3) - y) <= 10) return "size";
+      const h = _emojiHandles(d, p, sz);
+      if (Math.hypot(h.rot.x - x, h.rot.y - y) <= 11) return "rot";
+      if (Math.hypot(h.size.x - x, h.size.y - y) <= 10) return "size";
     }
     return "move";
   }
@@ -1518,6 +1531,16 @@ function _updateDrag(x, y) {
   } else if (d.type === "vline" || d.type === "avwap") {
     const ox = _timeToX(orig.time);
     if (ox != null) { const nt = _xToTime(ox + dx); if (nt != null) d.time = nt; }
+  } else if (d.type === "emoji" && dragState.part === "rot") {
+    /* 旋轉：角度＝中心→游標的方位角。左上把手在 -135°，扣掉它才不會一抓就跳 135°。
+       ⚠ 按住 Shift 吸附 15°（跟繪圖工具的 Shift 鎖水平同一套手感）。 */
+    const p = chartToScreen(d.time, d.price);
+    if (p) {
+      let deg = Math.atan2(y - p.y, x - p.x) * 180 / Math.PI + 135;
+      if (_shiftDown) deg = Math.round(deg / 15) * 15;   // 沿用既有的 Shift 追蹤（見 _shiftDown）
+      deg = ((deg % 360) + 360) % 360;
+      d.rot = Math.abs(deg) < 0.5 || Math.abs(deg - 360) < 0.5 ? 0 : +deg.toFixed(1);
+    }
   } else if (d.type === "emoji" && dragState.part === "size") {
     // 拖右下角把手縮放：中心到游標的最大軸距 ×2 ＝ emoji 邊長（12~300）
     const p = chartToScreen(d.time, d.price);
@@ -3628,6 +3651,11 @@ function drawOne(d, W, H, isHovered, isSelected) {
     if (!p) { drawCtx.restore(); return; }
     drawCtx.shadowBlur = 0;
     const sz = _emojiSize(d);   // 隨 K 棒縮放,已限幅(放大上限 _EMOJI_MAX_ZOOM)
+    /* 旋轉（2026-09-02）：以錨點為圓心轉整個貼圖。
+       ⚠ 一定要 save/restore 包住：這裡的 translate/rotate 會污染同一幀後面所有繪圖
+         （選中框、其他圖層都會跟著歪）。 */
+    const _rot = (+d.rot || 0) * Math.PI / 180;
+    if (_rot) { drawCtx.save(); drawCtx.translate(p.x, p.y); drawCtx.rotate(_rot); drawCtx.translate(-p.x, -p.y); }
     drawCtx.font = `${sz}px sans-serif`;
     drawCtx.textAlign = "center";
     // ⚠ textBaseline="middle" 對 emoji 字形不是真的置中,偏差還會隨字級放大而變大 → 放大時 emoji 往上位移
@@ -3638,13 +3666,18 @@ function drawOne(d, W, H, isHovered, isSelected) {
     const _desc = _em.actualBoundingBoxDescent || sz * 0.1;
     drawCtx.fillText(d.text || "❓", p.x, p.y + (_asc - _desc) / 2);   // 邊界中心 = 錨點 p.y
     drawCtx.textAlign = "start";
-    if (isSelected) {   // 選中框 + 右下角縮放把手
+    if (isSelected) {   // 選中框 + 右下角縮放把手（此時仍在旋轉座標系內 → 框會跟著轉）
       drawCtx.strokeStyle = "#2962ff"; drawCtx.lineWidth = 1; drawCtx.setLineDash([3,2]);
       drawCtx.strokeRect(p.x - sz/2 - 3, p.y - sz/2 - 3, sz + 6, sz + 6);
       drawCtx.setLineDash([]);
       drawCtx.fillStyle = "#2962ff";
       drawCtx.beginPath(); drawCtx.arc(p.x + sz/2 + 3, p.y + sz/2 + 3, 5, 0, Math.PI*2); drawCtx.fill();
+      // 左上＝旋轉把手（空心圈，跟實心的縮放把手一眼分得出來）
+      drawCtx.beginPath(); drawCtx.arc(p.x - sz/2 - 3, p.y - sz/2 - 3, 5, 0, Math.PI*2);
+      drawCtx.fillStyle = "#0b0f1a"; drawCtx.fill();
+      drawCtx.strokeStyle = "#2962ff"; drawCtx.lineWidth = 1.6; drawCtx.stroke();
     }
+    if (_rot) drawCtx.restore();
   }
   else if (d.type === "longpos" && d.p1) {
     const entryRefP = d.p1.price;
