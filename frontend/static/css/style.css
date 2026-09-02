@@ -8048,17 +8048,28 @@ html.perf-mode .tb-wr-sync[data-state="local"] { color: #8B8B8B; }
 .net-sig[data-q="0"] i     { background: var(--red, #ef5350); opacity: .30; }
 .net-sig[data-q="0"] i:nth-child(1) { opacity: 1; animation: no-blink 1.4s ease-in-out infinite; }
 
-/* ── 自選拖曳排序（2026-08-31）───────────────────────────────────────────────
-   ⚠ `touch-action: none` 只加在自選分頁的列上：整個清單都設的話，
+/* ── 自選拖曳排序（2026-08-31 / 手感優化 2026-09-01）─────────────────────────
+   ⚠ `touch-action` 只加在自選分頁的列上：整個清單都設的話，
      其他分頁（合約/現貨/台股）會**捲不動**。 */
 #tickerList .ticker-item[data-mkt] { touch-action: pan-y; }
-body.wl-drag-on { user-select: none; -webkit-user-select: none; }
+/* 可拖曳的提示：桌面用游標（不佔版面、不必多塞一顆握把把價格擠掉） */
+@media (hover: hover) and (pointer: fine) {
+  #tickerList .ticker-item[data-mkt] { cursor: grab; }
+  #tickerList .ticker-item[data-mkt]:active { cursor: grabbing; }
+}
+body.wl-drag-on { user-select: none; -webkit-user-select: none; cursor: grabbing; }
 body.wl-drag-on #tickerList .ticker-item { touch-action: none; }
 #tickerList .ticker-item.wl-dragging {
   position: relative;
   z-index: 5;
-  opacity: .92;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, .35);
-  background: rgba(255, 255, 255, .06);
-  border-radius: 6px;
+  opacity: .96;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, .42);
+  background: rgba(255, 255, 255, .08);
+  border-radius: 8px;
+  /* 稍微放大＝手指/游標「抓起來了」的回饋（觸控長按時尤其需要，否則不知道何時可以拖） */
+  animation: wlGrab .16s cubic-bezier(.2,.7,.3,1) forwards;
+  will-change: transform;
 }
+@keyframes wlGrab { from { scale: 1; } to { scale: 1.025; } }
+/* 被擠開的列由 JS 補 FLIP 位移動畫（見 _wlSlide）；這裡只保證不會被別的 transition 干擾 */
+#tickerList .ticker-item[data-mkt] { transition: none; }

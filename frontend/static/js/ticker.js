@@ -1090,39 +1090,98 @@ function _wlRowsOf(el) {   // 同一組（同市場）的所有自選列，依�
   return [...el.parentElement.querySelectorAll(`.ticker-item[data-mkt="${CSS.escape(mkt)}"]`)];
 }
 
+function _wlScroller(el) {   // 找清單真正在捲的那個祖先（自動捲動用）
+  let n = el.parentElement;
+  while (n && n !== document.body) {
+    const o = getComputedStyle(n).overflowY;
+    if ((o === "auto" || o === "scroll") && n.scrollHeight > n.clientHeight + 2) return n;
+    n = n.parentElement;
+  }
+  return null;
+}
+
 function _wlDragStart(el, y) {
-  _wlDrag.active = true;
-  _wlDrag.el = el;
-  _wlDrag.rows = _wlRowsOf(el);
-  _wlDrag.startY = y;
-  _wlDrag.baseTop = el.getBoundingClientRect().top;
+  const d = _wlDrag;
+  d.active = true;
+  d.el = el;
+  d.rows = _wlRowsOf(el);
+  d.startY = y;
+  d.scroller = _wlScroller(el);
   el.classList.add("wl-dragging");
   document.body.classList.add("wl-drag-on");
+  // 觸控：長按到了要有回饋，否則使用者不知道「已經可以拖了」
+  if (d.touch) { try { navigator.vibrate && navigator.vibrate(12); } catch (e) {} }
+  _wlAutoScrollStart();
+}
+
+/* 被擠開的那一列用 FLIP 補一段位移動畫：純靠 DOM 換位是**瞬間跳**的，
+   看起來像畫面閃一下、也看不出東西被推到哪去。 */
+function _wlSlide(el, fromTop) {
+  const dy = fromTop - el.getBoundingClientRect().top;
+  if (!dy) return;
+  el.style.transition = "none";
+  el.style.transform = `translateY(${dy}px)`;
+  requestAnimationFrame(() => {
+    el.style.transition = "transform .16s cubic-bezier(.2,.7,.3,1)";
+    el.style.transform = "";
+    setTimeout(() => { el.style.transition = ""; el.style.transform = ""; }, 200);
+  });
 }
 
 function _wlDragMove(y) {
   const d = _wlDrag;
+  d.lastY = y;
   d.el.style.transform = `translateY(${y - d.startY}px)`;
-  // 目前指標位置落在同組哪一列上 → 就插到那裡
-  const mid = y;
   for (const r of d.rows) {
     if (r === d.el) continue;
     const b = r.getBoundingClientRect();
-    if (mid > b.top && mid < b.bottom) {
-      const after = mid > b.top + b.height / 2;
-      r.parentElement.insertBefore(d.el, after ? r.nextSibling : r);
-      // 換位後基準也要跟著移，否則位移量會累積成跳動
-      d.startY = y;
-      d.el.style.transform = "";
-      d.baseTop = d.el.getBoundingClientRect().top;
-      d.rows = _wlRowsOf(d.el);
-      break;
-    }
+    if (y <= b.top || y >= b.bottom) continue;
+    const after = y > b.top + b.height / 2;
+    const rTop = b.top;
+    /* ★ 換位後要保住「視覺位置不動」：DOM 換位會讓被拖的那列的**版面位置**跳動，
+       若沿用同一個 startY，畫面上它會瞬間位移一整列高。
+       正解是把 startY 補上版面位移量（不是把 startY 重設成目前指標位置 ——
+       那會讓列瞬間對齊到指標、抓取點跑掉，手感就是「一換位就彈一下」）。 */
+    const oldTop = d.el.getBoundingClientRect().top;
+    r.parentElement.insertBefore(d.el, after ? r.nextSibling : r);
+    const newTop = d.el.getBoundingClientRect().top;
+    d.startY += (newTop - oldTop);
+    d.el.style.transform = `translateY(${y - d.startY}px)`;
+    _wlSlide(r, rTop);
+    d.rows = _wlRowsOf(d.el);
+    break;
   }
+}
+
+/* 拖到清單上下邊緣時自動捲動：長自選清單裡，不捲的話根本拖不到看不見的位置。 */
+function _wlAutoScrollStart() {
+  const d = _wlDrag;
+  if (!d || !d.scroller) return;
+  const EDGE = 46, MAX = 14;
+  const step = () => {
+    if (!_wlDrag || !_wlDrag.active) return;
+    const sc = _wlDrag.scroller, y = _wlDrag.lastY;
+    if (sc && y != null) {
+      const b = sc.getBoundingClientRect();
+      let v = 0;
+      if (y < b.top + EDGE)         v = -MAX * Math.min(1, (b.top + EDGE - y) / EDGE);
+      else if (y > b.bottom - EDGE) v =  MAX * Math.min(1, (y - (b.bottom - EDGE)) / EDGE);
+      if (v) {
+        const before = sc.scrollTop;
+        sc.scrollTop += v;
+        // 捲動會讓版面移動 → 同樣要補 startY，否則被拖的列會跟著飄走
+        const moved = sc.scrollTop - before;
+        if (moved) { _wlDrag.startY -= moved; _wlDragMove(y); }
+      }
+    }
+    _wlDrag.raf = requestAnimationFrame(step);
+  };
+  d.raf = requestAnimationFrame(step);
 }
 
 function _wlDragEnd() {
   const d = _wlDrag;
+  if (d && d.raf) cancelAnimationFrame(d.raf);
   if (d && d.el) { d.el.style.transform = ""; d.el.classList.remove("wl-dragging"); }
   document.body.classList.remove("wl-drag-on");
   if (d && d.active) {
@@ -1139,9 +1198,18 @@ function _wlDragEnd() {
       for (const w of byKey.values()) out.push(w);          // 畫面上沒出現的原樣保留
       if (out.length === _watchlist.length) { _watchlist = out; _saveWatchlist(); }
     } catch (e) {}
+    /* 拖完放開時若剛好落回原位，瀏覽器會補一個 click → 把主圖標的換掉。
+       用一次性的捕獲階段攔截（只擋這一次，不影響之後的點擊）。 */
+    _wlSwallowClick();
   }
   _wlDrag = null;
   try { renderTickers(); } catch (e) {}
+}
+
+function _wlSwallowClick() {
+  const kill = e => { e.stopPropagation(); e.preventDefault(); };
+  document.addEventListener("click", kill, { capture: true, once: true });
+  setTimeout(() => document.removeEventListener("click", kill, { capture: true }), 350);
 }
 
 function _initWlReorder() {
