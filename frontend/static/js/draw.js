@@ -426,6 +426,19 @@ window._myTradesToggle = (on) => {
 };
 
 // 繪圖按「標的」分桶儲存（market:exchange:symbol）→ 各標的繪圖互不干擾。
+/* 切標的/時框時清掉選取（2026-09-03 使用者：「貼圖標示…切時區他會蓋到 K 棒」）。
+   選中的貼圖會畫藍色虛線框 ＋ 兩顆把手；切換之後那些**標示**仍留在圖上蓋住 K 棒，
+   而使用者的注意力早就換到別的畫面了，留著沒有任何用處。
+   ⚠ 只清「選取狀態」，不動任何繪圖資料。 */
+window._clearDrawSel = function () {
+  try {
+    if (typeof selectedId !== "undefined" && selectedId) {
+      selectedId = null;
+      if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();
+    }
+  } catch (e) {}
+};
+
 function _drawSymKey() {
   const sym = document.getElementById("symbolInput")?.value || "";
   const mkt = document.getElementById("marketSelect")?.value || "crypto";
@@ -644,13 +657,25 @@ function _emojiBarSp() {
    但放大主圖時到上限就不再變大(避免蓋住 K 棒)、縮小也有下限。 */
 const _EMOJI_MAX_ZOOM = 2.0;   // 放大上限：最多長到放置時的 2 倍(放大主圖也不再更大→不蓋住 K 棒)
 const _EMOJI_MIN_ZOOM = 0.5;   // 縮小下限：最小為放置時的 0.5 倍
+/* ★ 覆蓋上限（2026-09-03 使用者：「切時區他會蓋到 K 棒」）：
+   上面那兩個限幅是**相對放置時的縮放**，管不到「實際蓋住幾根 K 棒」——
+   縮小下限 0.5 讓貼圖不會再變小，於是**越縮小、蓋住的 K 棒越多**。實測 40px 的貼圖：
+     barSpacing 6(放置時) → 蓋 6.7 根　　2 → 10 根　　1 → **20 根**　　0.5 → **40 根**
+   而使用者常用的深度縮小正好落在 bs 0.5~0.8。
+   → 再加一道「最多蓋 _EMOJI_MAX_BARS 根」的上限，並留一個像素下限讓它仍看得見
+     （縮到那個程度本來就只是個位置標記，不需要看清楚 emoji 細節）。 */
+const _EMOJI_MAX_BARS = 10;    // 一個貼圖最多蓋住幾根 K 棒
+const _EMOJI_MIN_PX   = 12;    // 但不小於這個像素（再小就等於看不見、也點不到）
 function _emojiSize(d) {
   const base = d.size || 24;
   const cur = _emojiBarSp();
   if (cur == null) return base;
   if (!d.barRef || !isFinite(d.barRef) || d.barRef <= 0) { d.barRef = cur; return base; }   // 首次錨定當下縮放
   const ratio = Math.max(_EMOJI_MIN_ZOOM, Math.min(_EMOJI_MAX_ZOOM, cur / d.barRef));
-  return Math.max(4, base * ratio);
+  let px = Math.max(4, base * ratio);
+  const cap = _EMOJI_MAX_BARS * cur;
+  if (px > cap) px = Math.max(_EMOJI_MIN_PX, cap);
+  return px;
 }
 
 /* 貼圖的兩顆把手（右下＝縮放、左上＝旋轉）。

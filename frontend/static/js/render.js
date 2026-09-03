@@ -142,6 +142,8 @@ async function loadData(autoLoad = false, forceLatest = false) {
   stopRealtime();
 
   _resetLayerCacheOnCtxChange();   // 換標的/時框 → 丟掉上一個脈絡的策略圖層快取（見該函式註）
+  // 換標的/時框 → 也清掉繪圖的選取狀態（藍框+把手留在圖上會蓋住 K 棒，見 draw.js _clearDrawSel）
+  try { window._clearDrawSel && window._clearDrawSel(); } catch (e) {}
 
   // 切標的瞬間：上方報價列立即換成新標的名稱、價格數字暫清成「—」，
   // 等 ohlcv 載入完才填新價（否則新標的名稱下會殘留舊標的價格，看起來像數值亂跳）
