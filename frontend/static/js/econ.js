@@ -160,7 +160,8 @@ function _econRefreshBar() {
   el.hidden = false;
   el.classList.toggle("soon", left <= _ECON_LEAD_DAYS * 86400);
   const html = '<span class="se-dot" style="background:rgba(' + (_ECON_COLOR[e.type] || "200,200,200") + ',.9)"></span>'
-             + '<span class="se-txt">' + nm + " " + _econLeadText(left) + "</span>";
+             + '<span class="se-txt">' + nm + " " + _econLeadText(left) + "</span>"
+             + '<span class="se-more">▾</span>';   // 提示可以點開看三場
   if (el.innerHTML !== html) el.innerHTML = html;    // 值未變不寫，免 repaint
   const d = new Date(e.ct * 1000), p2 = n => String(n).padStart(2, "0");
   el.title = "下一個經濟事件：" + nm + " " + d.getUTCFullYear() + "/" + p2(d.getUTCMonth() + 1) + "/" + p2(d.getUTCDate())
@@ -196,7 +197,68 @@ function _econRefreshLegend() {
 function _econBootNotice() { _fetchEconEvents(); _econRefreshLegend(); _econRefreshBar(); }
 if (typeof requestIdleCallback === "function") requestIdleCallback(_econBootNotice, { timeout: 8000 });
 else setTimeout(_econBootNotice, 3000);
-setInterval(() => { _econRefreshLegend(); _econRefreshBar(); }, 60000);   // 倒數保鮮；純本地計算，不打網路
+setInterval(() => { _econRefreshLegend(); _econRefreshBar(); _econRenderPop(); }, 60000);   // 倒數保鮮；純本地計算，不打網路
+
+/* ── 點擊展開：NFP / CPI / FOMC 各自的下一場 ─────────────────────────────
+   使用者 2026-09-05：「點擊後三個經濟事件倒數都會出來，若沒點就只有最近的」。
+   ⚠ 用 fixed 浮層而不是把三列攤在符號列上：三列並排約 255px，1200px 以下會被
+     .symbol-bar 的 overflow:hidden 安靜切掉（同「量=/漲跌幅在手機看不到」那個坑）。 */
+function _econNextByType() {
+  const nowAxis = Date.now() / 1000 + 8 * 3600;
+  const best = {};
+  for (const e of _econEvents) {
+    if (e.ct < nowAxis) continue;
+    if (!best[e.type] || e.ct < best[e.type].ct) best[e.type] = e;
+  }
+  return Object.values(best).sort((a, b) => a.ct - b.ct);   // 最近的排最上面
+}
+
+function _econRenderPop() {
+  const pop = document.getElementById("econPop");
+  if (!pop || pop.hidden) return;
+  const list = _econNextByType();
+  const nowAxis = Date.now() / 1000 + 8 * 3600;
+  const p2 = n => String(n).padStart(2, "0");
+  let h = '<div class="econ-pop-title">接下來的經濟事件</div>';
+  if (!list.length) h += '<div class="econ-pop-empty">目前沒有排定的事件</div>';
+  for (const e of list) {
+    const d = new Date(e.ct * 1000), left = e.ct - nowAxis;
+    h += '<div class="econ-pop-row' + (left <= _ECON_LEAD_DAYS * 86400 ? " soon" : "") + '">'
+       + '<span class="ep-dot" style="background:rgba(' + (_ECON_COLOR[e.type] || "200,200,200") + ',.9)"></span>'
+       + '<span class="ep-nm">' + (_ECON_NAME[e.type] || e.type) + '</span>'
+       + '<span class="ep-at">' + p2(d.getUTCMonth() + 1) + "/" + p2(d.getUTCDate()) + " "
+       + p2(d.getUTCHours()) + ":" + p2(d.getUTCMinutes()) + '</span>'
+       + '<span class="ep-when">' + _econLeadText(left) + '</span></div>';
+  }
+  pop.innerHTML = h;
+}
+
+function _econClosePop() {
+  const pop = document.getElementById("econPop");
+  if (pop) pop.hidden = true;
+}
+
+function _econTogglePop() {
+  const pop = document.getElementById("econPop"), btn = document.getElementById("econNext");
+  if (!pop || !btn) return;
+  if (!pop.hidden) { pop.hidden = true; return; }
+  pop.hidden = false;
+  _econRenderPop();
+  // 定位：貼在倒數欄正下方；右緣超出視窗就往左收（不夾就會被切掉）。
+  const r = btn.getBoundingClientRect();
+  pop.style.left = "0px"; pop.style.top = "0px";          // 先歸零才量得到真實寬度
+  const w = pop.offsetWidth;
+  pop.style.left = Math.max(6, Math.min(r.left, innerWidth - w - 6)) + "px";
+  pop.style.top  = (r.bottom + 6) + "px";
+}
+
+document.addEventListener("click", e => {
+  const btn = document.getElementById("econNext");
+  if (btn && btn.contains(e.target)) { e.stopPropagation(); _econTogglePop(); return; }
+  const pop = document.getElementById("econPop");
+  if (pop && !pop.hidden && !pop.contains(e.target)) _econClosePop();   // 點外面關掉
+});
+document.addEventListener("keydown", e => { if (e.key === "Escape") _econClosePop(); });
 
 window.toggleEcon = function (on) {
   window._econOn = (on === undefined) ? !window._econOn : !!on;

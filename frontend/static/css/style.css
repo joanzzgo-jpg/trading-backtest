@@ -1773,7 +1773,32 @@ html.perf-mode .tk-seg {
   margin-right: auto; min-width: 0; overflow: hidden;
   font-size: 13px; color: var(--muted); white-space: nowrap; cursor: default;
 }
+.sym-econ { cursor: pointer; border-radius: 6px; padding: 1px 5px; margin-left: -5px; }
+.sym-econ:hover { background: rgba(255,255,255,.06); }
 .sym-econ .se-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.sym-econ .se-more { color: var(--muted); font-size: 10px; margin-left: 1px; opacity: .8; }  /* ▾ 提示可展開 */
+
+/* 點擊展開的三場倒數（NFP/CPI/FOMC 各下一場）。
+   ⚠ 用 fixed 浮層不內嵌在符號列：三列並排約 255px，1200px 以下會被 .symbol-bar 的
+     overflow:hidden **安靜切掉**（同「量=/漲跌幅在手機看不到」那個坑）。 */
+.econ-pop {
+  position: fixed; z-index: 700;
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: 0 4px 20px rgba(0,0,0,.5);
+  padding: 6px 0; min-width: 236px; font-size: 12px;
+}
+.econ-pop[hidden] { display: none; }
+.econ-pop-title {
+  padding: 4px 12px 6px; font-size: 11px; font-weight: 600; color: var(--muted);
+  letter-spacing: .05em; border-bottom: 1px solid var(--border); margin-bottom: 2px;
+}
+.econ-pop-row { display: flex; align-items: center; gap: 7px; padding: 5px 12px; white-space: nowrap; }
+.econ-pop-row .ep-dot  { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.econ-pop-row .ep-nm   { font-weight: 700; color: var(--text); min-width: 40px; }
+.econ-pop-row .ep-at   { color: var(--muted); font-size: 11px; }
+.econ-pop-row .ep-when { margin-left: auto; font-weight: 700; color: var(--text); }
+.econ-pop-row.soon .ep-when { color: var(--blue, #4aa3ff); }   /* 兩天內 */
+.econ-pop-empty { padding: 8px 12px; color: var(--muted); }
 .sym-econ .se-txt { overflow: hidden; text-overflow: ellipsis; }
 .sym-econ.soon .se-txt { color: var(--text); font-weight: 700; }   /* 兩天內＝重點看待 */
 .sqd-btn {
