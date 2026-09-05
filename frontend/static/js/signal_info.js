@@ -443,7 +443,11 @@
     const p = new URLSearchParams({ market, symbol, exchange, timeframe: tf,
       solve: 1, solve_target: tgt });
     const applyKey = `${symbol}|${tf}|${tgt}`;
-    fetch("/api/crt_winrate?" + p).then(r => r.json()).then(d => {
+    // ⚠ 一定要看 r.ok：錯誤回應的 body 也是 JSON → d.stop_pct 是 undefined → 顯示「—」，
+    //   跟「求解不出結果」完全分不出來（網路錯誤走 .catch 顯示「求解失敗」，兩者行為不一致）。
+    fetch("/api/crt_winrate?" + p)
+      .then(r => r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status)))
+      .then(d => {
       if (!d || d.stop_pct == null) { _set("—"); return; }
       if (d.achieved) {
         const cls = d.win_rate >= 80 ? "good" : "";

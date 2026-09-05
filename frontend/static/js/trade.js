@@ -343,7 +343,12 @@ function _trdShowApproval(show) {
 async function _trdReloadStatus() {
   try {
     const q = `name=${encodeURIComponent(window._acctName || "")}&token=${encodeURIComponent(_trdToken())}`;
-    _TRD.st = await (await fetch("/api/trade/status?" + q)).json();
+    // ⚠ 一定要看 r.ok：錯誤回應的 body 也是 JSON → _TRD.st 變成 {"detail":...}，
+    //   allowed/approved 都是 undefined → _trdGate() 的「需核准」分支不成立而直接放行，
+    //   面板看起來像已核准。失敗就保留上一份（不覆蓋），由呼叫端自然重試。
+    const _r = await fetch("/api/trade/status?" + q);
+    if (!_r.ok) throw new Error("HTTP " + _r.status);
+    _TRD.st = await _r.json();
   } catch (e) {}
 }
 // 開面板把關：已核准→true；需核准→顯示核准 UI 並回 false

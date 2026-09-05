@@ -3298,7 +3298,11 @@
     // light=true（雨系快速通道）：只刷天氣+附近雨、跳過颱風（颱風資訊沒有分鐘級變化）
     _wxLat = lat; _wxLon = lon;   // 自動刷新計時器移到定位流程末尾（改為「重新定位+天氣」，見 _wxRefresh）
     fetch('/api/weather?lat='+lat+'&lon='+lon)
-      .then(r => r.json())
+      // ⚠ 一定要看 r.ok（同 fetchNearbyRain）：錯誤回應的 body 也是 JSON，直接 .json() 會把
+      //   {"detail":...} 當成合法答案 → 下面每個欄位都被寫成 undefined（溫度/地名/降雨機率/預報
+      //   全部洗掉），而 _wd.updatedAt 還蓋上 new Date() ＝ 一份「看起來剛更新」的空資料。
+      //   連帶關掉 90 秒雨系快速通道（它靠 popNow/nearbyRaining 判斷）。
+      .then(r => r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)))
       .then(d => {
         _wd.source      = d.source || null;
         _wd.temp        = d.temperature;
@@ -3329,9 +3333,15 @@
         if (!_isManualOn() && !window._restoreManualWxIfAny?.()) start(_resolveAutoType());
         _renderWeatherCard();
       })
-      .catch(() => {
-        _autoType = 'sunny'; _wd.intensity = 0.5;
-        if (!_isManualOn() && !window._restoreManualWxIfAny?.()) start(_resolveAutoType());
+      .catch(err => {
+        console.debug('[天氣] 天氣取得失敗:', err && err.message);
+        // 有上一份有效資料就整份留著（5 分鐘後的自動刷新會再試）——絕不讓失敗變成一句「晴天」。
+        // 只有真的從來沒拿到過資料時，才退到晴天當保底畫面。
+        if (_wd.temp == null) {
+          _autoType = 'sunny'; _wd.intensity = 0.5;
+          if (!_isManualOn() && !window._restoreManualWxIfAny?.()) start(_resolveAutoType());
+        }
+        _renderWeatherCard();
       });
     fetchNearbyRain(lat, lon);   // 附近雨區偵測（獨立請求，晚到就重繪天氣卡）
     if (!light) _fetchTyphoon(lat, lon);   // 颱風資訊（獨立請求，見檔末颱風迷你地圖模組）；快速通道跳過
@@ -3744,8 +3754,12 @@
     try {
       const q = (lat != null && lon != null) ? ('?lat=' + lat + '&lon=' + lon) : '';
       const r = await fetch('/api/typhoon' + q, { cache: 'no-store' });
+      // ⚠ 一定要看 r.ok：錯誤回應的 body 也是 JSON → _ty.active 是 undefined →
+      //   _tyApply() 當成「沒有颱風」把警報收掉，跟真的沒颱風完全分不出來。
+      //   失敗就保留上一份（後端本身有 10 分快取，舊的仍有參考價值），60 秒後自然重試。
+      if (!r.ok) throw new Error('HTTP ' + r.status);
       _ty = await r.json();
-    } catch (e) { return; }
+    } catch (e) { console.debug('[颱風] 取得失敗:', e && e.message); return; }
     _tyApply();
   }
 

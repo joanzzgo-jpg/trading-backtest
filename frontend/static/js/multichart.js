@@ -143,6 +143,9 @@
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ market: m.market, symbol: m.symbol, timeframe: m.tf, exchange: m.exchange || "pionex" }),
       });
+      // 錯誤回應的 body 也是 JSON；這裡下面的 Array.isArray(j.data) 已擋得住，
+      // 明寫 r.ok 讓意圖清楚（輪詢會自然重試，行為不變）。
+      if (!res.ok) throw new Error("HTTP " + res.status);
       const j = await res.json();
       if (gen !== cell.gen || !j || !Array.isArray(j.data) || !j.data.length) return;
       // ⚠ series.update() 只接受「時間 ≥ 目前最後一根」的棒（LWC 限制）：先前把倒數第二根也丟進去

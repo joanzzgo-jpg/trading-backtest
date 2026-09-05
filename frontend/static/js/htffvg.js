@@ -49,6 +49,9 @@ async function _htfFvgFetch() {
       try {
         const p = new URLSearchParams({ symbol, timeframe: tf, market }).toString();   // ⚠ 端點參數是 timeframe 非 tf
         const res = await fetch("/api/crt_winrate?" + p, { cache: "no-cache" });
+        // ⚠ 一定要看 r.ok：錯誤回應的 body 也是 JSON → j.fvg 是 undefined → zones=[]，
+        //   跟「這個時框真的沒有缺口」完全分不出來，而下面還會把 key 記起來＝永不重試。
+        if (!res.ok) throw new Error("HTTP " + res.status);
         const j = await res.json();
         const raw = Array.isArray(j.fvg) ? j.fvg : [];
         // 顯示 HTF 缺口：未填補(t2==null)延伸到現在=有效待測 S/R；已填補的保留其原始盒(在過去)。
@@ -58,12 +61,15 @@ async function _htfFvgFetch() {
           .map(z => ({ t1: toTime(z.t), t2: (z.t2 != null ? toTime(z.t2) : null), top: z.top, bot: z.bot, d: z.d, open: z.t2 == null }))
           .filter(z => z.t1 != null && !Number.isNaN(z.t1))
           .sort((a, b) => a.t1 - b.t1);
-        return { tf, zones: zones.slice(-_HTF_FVG_CAP) };
-      } catch (e) { return { tf, zones: [] }; }
+        return { tf, zones: zones.slice(-_HTF_FVG_CAP), ok: true };
+      } catch (e) { return { tf, zones: [], ok: false }; }
     }));
     if (_htfLiveKey() !== key) return;   // 抓回來已切標的/時框 → 丟棄
     _htfFvgData = results;
-    _htfFvgKey = key;
+    // 有任何時框失敗就不記快取鍵 → 下次 render 會重試（第 87 行那個 1 秒節流擋住連發）；
+    // 另把 lastAttempt 往後推 5 秒，避免上游持續掛掉時每秒重打。
+    if (results.every(r => r.ok)) { _htfFvgKey = key; }
+    else { _htfFvgKey = ""; _htfFvgLastAttempt = Date.now() + 5000; }
   } finally {
     _htfFvgFetching = false;
     if (_htfFvgPrim) _htfFvgPrim.requestUpdate();

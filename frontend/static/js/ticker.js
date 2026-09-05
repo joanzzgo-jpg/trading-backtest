@@ -847,6 +847,10 @@ async function _fetchCoachScan(force) {
     // 對限價單交易者提前到「還來得及掛單」的時點(第7步壽命僅幾分鐘,等到7就晚了)。
     // 兩版都列(使用者要 5m)。每次回應已複驗+點擊後5s刷新,把退階落差壓到最小。
     const r = await fetch("/api/coach_scan?n=60&min_stage=5&at_entry=1", { cache: "no-store" });
+    // ⚠ 一定要看 r.ok：錯誤回應的 body 也是 JSON → j.results 是 undefined → fresh=[]，
+    //   畫面上跟「現在沒有任何標的到步驟5」完全分不出來，而且 cs.ts=now 會把這份空的記成新資料。
+    //   丟給 catch → 保留上一輪 cs.data 與 cs.ts，下次輪詢自然重試。
+    if (!r.ok) throw new Error("HTTP " + r.status);
     const j = await r.json();
     if (j && j.warming) {
       // 伺服器冷啟動暖機中(背景掃描跑著) → 8 秒後自動重試,期間顯示「掃描中」

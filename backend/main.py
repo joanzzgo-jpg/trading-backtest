@@ -105,7 +105,7 @@ def _build_fx_min():
             if out.exists() and out.stat().st_mtime >= src.stat().st_mtime:
                 continue
             out.write_text(_min(src.read_text(encoding="utf-8")), encoding="utf-8")
-        print("  ✓ fx *.min.js rebuilt (effects/weather/draw/trade)")
+        print("  ✓ fx *.min.js rebuilt (effects/weather/draw/trade/signal_info/notify)")
     except Exception as e:
         print(f"  ⚠ fx min build failed: {e}")
 

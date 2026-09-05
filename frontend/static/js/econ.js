@@ -16,7 +16,11 @@ function _fetchEconEvents() {
   if (_econLoaded || _econLoading) return;
   _econLoading = true;
   fetch("/api/econ_events")
-    .then(r => r.json())
+    // ⚠ 一定要看 r.ok：錯誤回應的 body 也是 JSON，直接 .json() 會把 {"detail":...} 當成合法答案
+    //   → j.events 是 undefined → _econEvents=[] 但同時 _econLoaded=true，
+    //   而 _fetchEconEvents 開頭就被 _econLoaded 擋住 → 連關掉再開都救不回來，只能重整頁面。
+    //   丟給下面的 .catch（它只清 _econLoading、保留 _econLoaded=false）→ 下次開啟會重試。
+    .then(r => r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status)))
     .then(j => {
       _econEvents = (j.events || []).map(e => ({ ct: e.t + 8 * 3600, type: e.type }));
       _econLoaded = true; _econLoading = false;

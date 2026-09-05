@@ -38,6 +38,10 @@
     if (_stCache && Date.now() - _stTs < 15000) return _stCache;
     try {
       const r = await fetch("/api/trade/status?name=" + encodeURIComponent(window._acctName || ""));
+      // ⚠ 一定要看 r.ok：錯誤回應的 body 也是 JSON → _stCache 會被塞進 {"detail":...}，
+      //   那是個 truthy 物件（過得了 if (_stCache) 檢查）卻沒有任何欄位，而且 _stTs 一蓋
+      //   就被當成有效資料快取 15 秒。走 catch 才會得到可分辨的 null。
+      if (!r.ok) throw new Error("HTTP " + r.status);
       _stCache = await r.json(); _stTs = Date.now();
     } catch (e) { _stCache = null; }
     return _stCache;
