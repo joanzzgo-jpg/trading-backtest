@@ -1776,7 +1776,14 @@ html.perf-mode .tk-seg {
 .sym-econ { cursor: pointer; border-radius: 6px; padding: 1px 5px; margin-left: -5px; }
 .sym-econ:hover { background: rgba(255,255,255,.06); }
 .sym-econ .se-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
-.sym-econ .se-more { color: var(--muted); font-size: 10px; margin-left: 1px; opacity: .8; }  /* ▾ 提示可展開 */
+/* ▾ 提示可展開。⚠ 原本 10px + opacity .8 在符號列上小到像一顆雜訊點（截圖上看起來像逗號）。
+   放大到 11px、對齊基線，並在展開時翻轉 180° —— 從「裝飾」變成真正的狀態指示。 */
+.sym-econ .se-more {
+  color: var(--muted); font-size: 11px; line-height: 1; margin-left: 2px;
+  transition: transform .16s ease; transform-origin: 50% 55%;
+}
+.sym-econ.open .se-more { transform: rotate(180deg); color: var(--text); }
+.sym-econ.open { background: rgba(255,255,255,.08); }
 
 /* 點擊展開的三場倒數（NFP/CPI/FOMC 各下一場）。
    ⚠ 用 fixed 浮層不內嵌在符號列：三列並排約 255px，1200px 以下會被 .symbol-bar 的

@@ -582,27 +582,10 @@ function bindIndicatorPanel() {
     lbl.textContent = row.label;
     rowEl.appendChild(lbl);
 
-    // 「自動」開關（目前只有格線用）：開＝程式依背景明暗自動決定，關＝用使用者挑的色。
-    // ⚠ 這顆要在色塊**之前**建立，因為色塊的 apply 會呼叫 _autoSync() 把它關掉。
+    // 「自動」開關（目前只有格線用）。宣告在前、DOM 在色塊之後append：
+    // ⚠ 色塊的 apply 會呼叫 _autoSync()，所以這個變數必須先存在（實際函式在下面才指派，
+    //   而 apply 只在使用者點擊時執行 → 那時早就指派好了）。
     let _autoSync = () => {};
-    if (row.autoKey) {
-      const ab = document.createElement("button");
-      ab.className = "ind-sp-ls"; ab.textContent = "自動";
-      ab.title = "自動：依主圖背景明暗自動選格線色（亮底給深色、暗底給淺色）。關掉就固定用右邊挑的顏色。";
-      ab.addEventListener("click", e => {
-        e.stopPropagation();
-        C[row.autoKey] = !C[row.autoKey];
-        _autoSync(); row.onAuto?.(); savePrefs();
-      });
-      rowEl.appendChild(ab);
-      _autoSync = () => {
-        const on = C[row.autoKey] !== false;
-        ab.style.opacity = on ? "1" : "0.45";
-        ab.style.fontWeight = on ? "700" : "400";
-        const d = rowEl.querySelector("[data-cdot]");
-        if (d) d.style.opacity = on ? "0.35" : "1";   // 自動時把色塊淡掉＝那個顏色現在沒在用
-      };
-    }
 
     // 顏色色塊 → 點擊開 cpPopup
     if (row.colorKey) {
@@ -625,7 +608,6 @@ function bindIndicatorPanel() {
         }]);
       });
       rowEl.appendChild(dot);
-      _autoSync();
 
       // 背景色快速預設色塊
       if (row.bgPresets) {
@@ -647,6 +629,30 @@ function bindIndicatorPanel() {
         });
         rowEl.appendChild(wrap);
       }
+  
+    }
+
+    // 自動勾選框：**沿用「主體/邊框/燭芯」那三列的視覺語言**（14px accent-color 勾選框），
+    // 而不是線型鈕的樣式 —— 同一個面板裡「開/關」只該有一種長相。
+    // ⚠ 不再把色塊調暗：暗到 0.35 的低彩度色看起來像「壞掉／不能點」，但它其實可以點
+    //   （點了就挑色並自動關掉「自動」）。狀態由勾選框自己表達就夠了。
+    if (row.autoKey) {
+      const wrap = document.createElement("label");
+      wrap.style.cssText = "display:inline-flex;align-items:center;gap:5px;cursor:pointer;flex-shrink:0;margin-left:auto;";
+      wrap.title = "自動：依主圖背景明暗自動選格線色（亮底給深色、暗底給淺色）。關掉就固定用左邊挑的顏色。";
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.style.cssText = "width:14px;height:14px;cursor:pointer;flex-shrink:0;margin:0;accent-color:#2962ff;";
+      const txt = document.createElement("span");
+      txt.className = "ind-sp-lbl"; txt.textContent = "自動";
+      cb.addEventListener("change", () => {
+        C[row.autoKey] = cb.checked;
+        row.onAuto?.(); savePrefs();
+      });
+      wrap.append(cb, txt);
+      rowEl.appendChild(wrap);
+      _autoSync = () => { cb.checked = C[row.autoKey] !== false; };
+      _autoSync();
     }
 
     // 線型按鈕

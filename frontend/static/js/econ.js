@@ -239,13 +239,14 @@ function _econRenderPop() {
 function _econClosePop() {
   const pop = document.getElementById("econPop");
   if (pop) pop.hidden = true;
+  document.getElementById("econNext")?.classList.remove("open");   // ▾ 轉回來
 }
 
 function _econTogglePop() {
   const pop = document.getElementById("econPop"), btn = document.getElementById("econNext");
   if (!pop || !btn) return;
-  if (!pop.hidden) { pop.hidden = true; return; }
-  pop.hidden = false;
+  if (!pop.hidden) { pop.hidden = true; btn.classList.remove("open"); return; }
+  pop.hidden = false; btn.classList.add("open");
   _econRenderPop();
   // 定位：貼在倒數欄正下方；右緣超出視窗就往左收（不夾就會被切掉）。
   const r = btn.getBoundingClientRect();
