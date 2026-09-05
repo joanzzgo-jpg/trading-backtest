@@ -945,7 +945,7 @@ function renderTickers() {
     }
     const rows = _watchlist.map(item => {
       const mktLabel = item.market === "crypto" ? (item.exchange || "crypto").toUpperCase() : item.market.toUpperCase();
-      let price = null, change_pct = null;
+      let price = null, change_pct = null, name = null;
       if (item.market === "crypto") {
         const td = _tickerData.find(t =>
           t.display?.toUpperCase() === item.symbol.toUpperCase() ||
@@ -960,7 +960,7 @@ function renderTickers() {
           const tw = _twTickerData.find(t =>
             t.symbol?.toUpperCase() === item.symbol.toUpperCase() ||
             t.display?.toUpperCase() === item.symbol.toUpperCase());
-          if (tw) { price = tw.price; change_pct = tw.change_pct; }
+          if (tw) { price = tw.price; change_pct = tw.change_pct; name = tw.name || null; }
         }
         if (price == null) {
           const c = _wlPriceCache[`${item.market}:${item.exchange || ""}:${item.symbol}`];
@@ -970,6 +970,11 @@ function renderTickers() {
       return {
         _k: `${item.market}:${item.exchange || ""}:${item.symbol}`,
         item, mktLabel,
+        /* 副標（代號下面那行）。原本非加密**一律寫死市場代號**（台股就顯示 "TW"）
+           → 使用者：「台股自選頁只有數字編號，沒有中文名稱」。台股清單本來就帶 name
+           （台積電/鼎元/台指期(大台)），台股分頁 _buildTwRow 也早就在用，只有自選漏了。
+           ⚠ 拿不到名稱時退回市場代號，不要留空白（列會看起來像壞掉）。 */
+        fullStr:  item.market === "crypto" ? _coinFullName(item.symbol) : (name || mktLabel),
         active:   item.symbol.toUpperCase() === currentSym,
         priceStr: price != null ? fmtTickerPrice(price, item.symbol) : "---",
         chgCls:   change_pct != null ? (change_pct >= 0 ? "up" : "dn") : "",
@@ -1072,7 +1077,7 @@ function _buildWlRow(it) {
   const m = it.item;
   return `<div class="ticker-item${it.active ? " tk-active" : ""}" data-mkt="${escHtml(m.market)}" data-exch="${escHtml(m.exchange || "")}" data-sym="${escHtml(m.symbol)}">
     ${_coinLogoHtml(m.symbol)}
-    <div class="tk-info"><span class="tk-sym">${escHtml(m.symbol)}</span><span class="tk-full">${escHtml(m.market === "crypto" ? _coinFullName(m.symbol) : m.market.toUpperCase())}</span></div>
+    <div class="tk-info"><span class="tk-sym">${escHtml(m.symbol)}</span><span class="tk-full">${escHtml(it.fullStr || "")}</span></div>
     <div class="tk-prices">
       <span class="tk-price-val">${it.priceStr}</span>
       <div class="tk-chg-row"><span class="tk-chg-amt ${it.chgCls}">${it.amtStr}</span><span class="tk-chg ${it.chgCls}">${it.pctStr}</span></div>
@@ -1251,6 +1256,9 @@ window._initWlReorder = _initWlReorder;
 function _updateWlRow(el, it) {
   if (it._hdr) { _setTxt(el, ".tk-wl-hdr-n", String(it.count)); return; }
   el.classList.toggle("tk-active", it.active);
+  // ⚠ 副標也要更新：台股清單常常**晚於自選列**才到（跨市場保鮮是節流的），
+  //   只在建列時寫一次的話，第一次畫到的是 "TW"，之後永遠不會補成中文名。
+  _setTxt(el, ".tk-full", it.fullStr || "");
   _setTxt(el, ".tk-price-val", it.priceStr);
   _setTxtCls(el, ".tk-chg-amt", it.amtStr, "tk-chg-amt " + it.chgCls);
   _setTxtCls(el, ".tk-chg", it.pctStr, "tk-chg " + it.chgCls);
