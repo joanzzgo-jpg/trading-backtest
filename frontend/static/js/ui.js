@@ -452,6 +452,10 @@ function bindIndicatorPanel() {
             savePrefs();
           }
         },
+        // 格線：預設「自動」(依背景明暗反轉)，使用者也可以自己挑一個固定色。
+        // 挑色即自動關掉「自動」——不必先按一次開關再挑（見 autoKey 的渲染）。
+        { label:"格線", colorKey:"gridColor", autoKey:"gridAuto",
+          onColor: ()=>{ _applyAutoGrid(); }, onAuto: ()=>{ _applyAutoGrid(); } },
         { divider: true },
         { volRow: true, label:"量柱", upKey:"volUp", downKey:"volDown", alphaKey:"volAlpha",
           onColor: ()=>{ if (ohlcvData.length) renderVolume(ohlcvData); },
@@ -575,9 +579,32 @@ function bindIndicatorPanel() {
     lbl.textContent = row.label;
     rowEl.appendChild(lbl);
 
+    // 「自動」開關（目前只有格線用）：開＝程式依背景明暗自動決定，關＝用使用者挑的色。
+    // ⚠ 這顆要在色塊**之前**建立，因為色塊的 apply 會呼叫 _autoSync() 把它關掉。
+    let _autoSync = () => {};
+    if (row.autoKey) {
+      const ab = document.createElement("button");
+      ab.className = "ind-sp-ls"; ab.textContent = "自動";
+      ab.title = "自動：依主圖背景明暗自動選格線色（亮底給深色、暗底給淺色）。關掉就固定用右邊挑的顏色。";
+      ab.addEventListener("click", e => {
+        e.stopPropagation();
+        C[row.autoKey] = !C[row.autoKey];
+        _autoSync(); row.onAuto?.(); savePrefs();
+      });
+      rowEl.appendChild(ab);
+      _autoSync = () => {
+        const on = C[row.autoKey] !== false;
+        ab.style.opacity = on ? "1" : "0.45";
+        ab.style.fontWeight = on ? "700" : "400";
+        const d = rowEl.querySelector("[data-cdot]");
+        if (d) d.style.opacity = on ? "0.35" : "1";   // 自動時把色塊淡掉＝那個顏色現在沒在用
+      };
+    }
+
     // 顏色色塊 → 點擊開 cpPopup
     if (row.colorKey) {
       const dot = document.createElement("div");
+      dot.dataset.cdot = "1";
       dot.style.cssText = `width:18px;height:18px;border-radius:3px;border:1px solid #444;cursor:pointer;flex-shrink:0;background:${(C[row.colorKey]||"#888").substring(0,7)}`;
       dot.addEventListener("click", e => {
         e.stopPropagation();
@@ -587,12 +614,15 @@ function bindIndicatorPanel() {
           apply: c => {
             dot.style.background = c;
             C[row.colorKey] = c;
+            // 挑了顏色＝要用這個 → 自動關掉「自動」，否則挑了半天畫面沒反應。
+            if (row.autoKey) { C[row.autoKey] = false; _autoSync(); }
             row.onColor?.(c);
             savePrefs();
           }
         }]);
       });
       rowEl.appendChild(dot);
+      _autoSync();
 
       // 背景色快速預設色塊
       if (row.bgPresets) {

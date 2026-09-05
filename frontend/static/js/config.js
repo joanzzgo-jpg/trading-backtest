@@ -35,6 +35,10 @@ const DEFAULT_COLORS = {
   resonanceBull: "#26c6da", resonanceBear: "#ff9800",
   bg:      "#131722",
   chartBg: "#131722",
+  // 格線：預設「自動」＝依背景明暗自動反轉(colors.js _gridColorForBg)。
+  // 使用者在主圖設定挑色後 gridAuto 轉 false，就固定用 gridColor。
+  gridAuto:  true,
+  gridColor: "#ffd8b021",   // 8 位 hex＝暗底那組亮奶油格線的同色(alpha 0x21≈0.13)，當自訂的起點
 };
 
 const DEFAULT_STYLES = {

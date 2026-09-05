@@ -95,9 +95,18 @@ function _gridColorForBg() {
                    : "rgba(64,42,24,0.24)";                               // 亮底 → 深暖棕格線
 }
 
-// 把自動格線色套到四張圖（主圖＋KDJ/RSI/MACD）。背景變(天氣/主題/日夜)時呼叫。
+// 實際要用的格線色：使用者自選優先，沒選(gridAuto)才走自動反轉。
+// ⚠ 極簡模式一律走自動：它是**暫時**套上的純白配色（savePrefs 在該模式直接 return），
+//   若沿用使用者為暗底挑的深色格線，在白底上會突兀，且那不是他為極簡模式挑的。
+function _gridColorEffective() {
+  if (document.documentElement.classList.contains("perf-mode")) return _gridColorForBg();
+  if (typeof C !== "undefined" && C.gridAuto === false && C.gridColor) return C.gridColor;
+  return _gridColorForBg();
+}
+
+// 把格線色套到四張圖（主圖＋KDJ/RSI/MACD）。背景變(天氣/主題/日夜)或使用者改色時呼叫。
 function _applyAutoGrid() {
-  const gc = _gridColorForBg();
+  const gc = _gridColorEffective();
   [typeof mainChart !== "undefined" && mainChart, typeof kdjChart !== "undefined" && kdjChart,
    typeof rsiChart !== "undefined" && rsiChart, typeof macdChart !== "undefined" && macdChart]
     .forEach(c => { try { c && c.applyOptions({ grid: { vertLines: { color: gc }, horzLines: { color: gc } } }); } catch (e) {} });
