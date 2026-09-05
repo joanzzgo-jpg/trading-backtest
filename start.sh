@@ -13,33 +13,11 @@ fi
 echo "📦 安裝依賴..."
 "$PY" -m pip install -r requirements.txt -q
 
-echo "🔧 打包 JS..."
-"$PY" - <<'PYEOF'
-import sys
-from pathlib import Path
-
-js = Path("frontend/static/js")
-files = ["config","utils","charts","draw","ticker","winrate","render","realtime","replay","ui","ai_research","signal_info","main"]
-parts = []
-for name in files:
-    f = js / f"{name}.js"
-    if f.exists():
-        parts.append(f.read_text(encoding="utf-8"))
-    else:
-        print(f"  ⚠ {name}.js not found", file=sys.stderr)
-
-content = "\n".join(parts)
-
-try:
-    import rjsmin
-    content = rjsmin.jsmin(content)
-    print(f"  ✓ minified → {len(content)//1024} KB")
-except ImportError:
-    print("  ⚠ rjsmin 未安裝，跳過壓縮")
-
-(js / "app.bundle.js").write_text(content, encoding="utf-8")
-print("  ✓ app.bundle.js 完成")
-PYEOF
+# ⚠ 這裡「不要」再自己打包 JS。
+# bundle 的唯一權威清單在 backend/main.py 的 _build_js_bundle() names，
+# 它會在 uvicorn import main:app 時自動比對 mtime 並重建（CSS / fx *.min.js 同理）。
+# 舊版 start.sh 另存了一份硬寫的檔案清單，早已與 main.py 分家（少 15 支、多包已改動態載入的 draw），
+# 且會自我固化：先寫出殘缺 bundle → main.py 看到 bundle 比來源新就跳過重建 → 前端安靜壞掉。
 
 echo "🚀 啟動回測系統..."
 cd backend && "$UVICORN" main:app --host 0.0.0.0 --port 8000 --reload
