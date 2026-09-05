@@ -6447,13 +6447,11 @@ body, button, input, select, textarea,
 
   /* TF 時間框架列「10 顆等分塞滿、不橫滑」已整合進上方「下劃線分頁」區（單一來源，避免再被 11px 鎖死字級）*/
 
-  /* K 棒資訊：把 開/高/低/收/量 標籤顯示回來（手機原本藏了標籤只剩裸數字），
-     並允許換行（固定不橫滑），讓資訊一眼可讀。
-     ⚠ 高度必須 auto：基礎 .symbol-bar 是固定 30px + overflow:hidden，換行的第二行(量+漲跌)
-     會被裁掉半截、又壓到下方 BB 圖例列 → 手機頂部糊成一團。height:auto 讓容器容納兩行、
-     把圖表往下推,不再裁切/重疊（min-height 保留單行時的高度）。 */
-  .symbol-bar { flex-wrap: wrap !important; row-gap: 1px; overflow: hidden !important;
-                height: auto !important; min-height: var(--symbar-h); }
+  /* K 棒資訊：把 開/高/低/收/量 標籤顯示回來（手機原本藏了標籤只剩裸數字）。
+     ⚠ 這裡**不要**再寫 flex-wrap/height/overflow —— 檔案後段（見「手機：收成單列可捲動」
+       那個 @media，2026-08-02）已經把符號列定案為「單列 + 橫向捲動」，那邊的
+       `flex-wrap:nowrap !important` 會完全蓋掉這裡。舊版在這裡寫的 `wrap + height:auto`
+       是**死碼**，只會讓人以為手機版會換行成兩行（我 2026-09-05 就是照它推論而誤判）。 */
   .symbol-bar .sym-label { display: inline !important; color: var(--muted) !important; }
 
   /* 布林通道數值：手機原本把所有圖例文字藏掉（只剩色點），
@@ -7925,6 +7923,14 @@ select:focus-visible {
   }
   .symbol-bar::-webkit-scrollbar { display: none; }
   .symbol-bar > * { flex: 0 0 auto !important; white-space: nowrap !important; }
+  /* ★ 單列放不下就得捲，所以「先看到誰」很重要。實測 390px：開/高/低/收 就佔滿整個
+     可見寬度，**漲跌幅被推到要往右捲才看得到** —— 那正是一眼最想看的數字之一。
+     → 把「收 + 漲跌幅」排到最前面，其餘（開/高/低/量）往後捲。
+     ⚠ 標籤與數值是兩個獨立的 span（沒有共同容器），所以用 :has(+ #symC) 抓「緊鄰 #symC
+       前面的那個標籤」，讓「收=」跟著它的數值一起搬，不會被拆散。 */
+  .symbol-bar .sym-label:has(+ #symC) { order: -2 !important; }
+  .symbol-bar #symC   { order: -2 !important; }
+  .symbol-bar #symChg { order: -1 !important; margin-left: 0 !important; }
   .chart-legend {
     flex-wrap: nowrap !important;
     overflow-x: auto !important;
