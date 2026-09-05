@@ -763,9 +763,7 @@ function bindLegendToggles() {
     { id: "legPDHL",     series: null,  action: (hidden) => { if (window.togglePDHL) window.togglePDHL(!hidden); } },
     { id: "legVisHL",   series: null,  action: (hidden) => { if (window.toggleVisHL) window.toggleVisHL(!hidden); } },
     { id: "legHtfOpen",  series: null,  action: (hidden) => { if (window.toggleHtfOpen) window.toggleHtfOpen(!hidden); } },
-    { id: "legEngulf",   series: null,  action: (hidden) => { if (window.toggleEngulf) window.toggleEngulf(!hidden); } },
     { id: "legEcon",     series: null,  action: (hidden) => { if (window.toggleEcon) window.toggleEcon(!hidden); } },
-    { id: "legSwing",    series: null,  action: (hidden) => { if (window.toggleSwing) window.toggleSwing(!hidden); } },
     { id: "legK",        series: () => [kdjK] },
     { id: "legD",        series: () => [kdjD] },
     { id: "legJ",        series: () => [kdjJ] },
@@ -789,6 +787,8 @@ function bindLegendToggles() {
       const hidden = el.classList.toggle("line-off");
       if (action) action(hidden);
       else series()?.forEach(s => s.applyOptions({ visible: !hidden }));
+      // BB 關掉 → 圖例只留 "BB"（三個價格佔整排 22%，關掉時毫無意義）；開回來就補值。
+      if (id === "legBB" && window._refreshBBLeg) window._refreshBBLeg();
       saveVisibilityPrefs();
     });
   });

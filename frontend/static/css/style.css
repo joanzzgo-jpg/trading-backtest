@@ -1940,8 +1940,8 @@ html.perf-mode .tk-seg {
   z-index: 5;
   pointer-events: none;
   /* ★ 2026-08-10 小螢幕不再擠壓（使用者：「bb vol fvg 那行也會因為螢幕小而擠壓」）。
-     這排有 14 個項目（BB/VOL/FVG/大時框FVG/關鍵高低/日4H開/吞噬/經濟事件/擺動點/
-     多空/破多空/順多空/寬≥/B≥），flex item 預設 flex-shrink:1 → 螢幕一窄就整排被壓扁、
+     這排有 11 個項目（BB/VOL/FVG/大時框FVG/關鍵高低/可見高低/日4H開/經濟事件/
+     多空/破多空/順多空），flex item 預設 flex-shrink:1 → 螢幕一窄就整排被壓扁、
      文字擠成一團。改成**不壓縮、放不下就在自己這一行橫向捲動**，每個標籤維持原本可讀的寬度。
      ⚠ 容器保持 pointer-events:none（不能擋住圖表互動）；捲動仍可用——滑鼠在 .leg-item
        （它們是 pointer-events:auto）上滾動時，捲動鏈會找到這個可捲的祖先。 */

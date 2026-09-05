@@ -652,7 +652,6 @@ window._perfProbe = function (sec, silent) {
     flag(typeof _obShow !== "undefined" && _obShow, "掛單");
     flag(window._pdhlOn, "關鍵高低"); flag(window._econOn, "經濟事件");
     flag(window._visHLOn, "可見高低");
-    flag(window._engulfOn, "吞噬"); flag(window._swingOn, "轉折");
     flag(window._dimBigBarOn, "大棒淡化");
     flag(document.documentElement.classList.contains("sky-show"), "天氣背景");
     flag(document.documentElement.classList.contains("perf-mode"), "極簡模式");

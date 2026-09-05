@@ -485,6 +485,19 @@ function _paintSymbolQuote(price) {
   _setSym("symC", fmt(price));
 }
 
+/* BB 圖例文字。⚠ 三個呼叫點（十字線 hover／移開後補最新值／重播）都要走這裡。
+   BB 關掉時圖上根本沒有那三條線，數字卻照樣佔著整排 **22%** 的寬度（實測 249px → 64px），
+   而這排在 1024px 以下本來就放不下 → 關掉就只留 "BB"。
+   值另外記在 _bbLegVals：切換顯隱時要能就地重畫，不必等下一次滑鼠移動。 */
+let _bbLegVals = null;
+function _setBBLeg(u, m, l) {
+  if (u != null) _bbLegVals = [u, m, l];
+  const off = document.getElementById("legBB")?.classList.contains("line-off");
+  const v = _bbLegVals;
+  _setLegText("legBB", (off || !v) ? "BB" : `BB  U:${fmt(v[0])}  M:${fmt(v[1])}  L:${fmt(v[2])}`);
+}
+window._refreshBBLeg = () => _setBBLeg();
+
 function updateAllLegends(t) {
   // 熱路徑（每次 crosshair 移動觸發 60Hz）：O(1) Map 查 idx 共用，避免後續 indexOf O(n)
   let idx = (_secToIdx && _secToIdx.has(t)) ? _secToIdx.get(t) : -1;
@@ -501,8 +514,7 @@ function updateAllLegends(t) {
   if (idx > 0) _updateSymChg(d.close, ohlcvData[idx - 1].close);
 
   // BB
-  if (d.bb_upper != null)
-    _setLegText("legBB", `BB  U:${fmt(d.bb_upper)}  M:${fmt(d.bb_middle)}  L:${fmt(d.bb_lower)}`);
+  if (d.bb_upper != null) _setBBLeg(d.bb_upper, d.bb_middle, d.bb_lower);
 
   // 成交量
   _setLegText("legVol",     `VOL  ${fmtVol(d.volume)}`);
@@ -592,7 +604,7 @@ function onMainCrosshair(param) {
   const bu = param.seriesData.get(bbU)?.value;
   const bm = param.seriesData.get(bbM)?.value;
   const bl = param.seriesData.get(bbL)?.value;
-  if (bu != null) _setLegText("legBB", `BB  U:${fmt(bu)}  M:${fmt(bm)}  L:${fmt(bl)}`);
+  if (bu != null) _setBBLeg(bu, bm, bl);
 }
 function _updateSymChg(close, prevClose) {
   const el   = _symEl("symChg");
@@ -647,8 +659,7 @@ function updateSymbolBar(data) {
   _updateSymChg(last.close, prev.close);
   // 主圖 BB 數值：手機沒有 hover crosshair，這裡用最新一根 K 棒把布林通道數值填進
   // 圖例（桌面未 hover 時也順便顯示最新值，行為更像專業看盤 app）
-  if (last.bb_upper != null)
-    _setLegText("legBB", `BB  U:${fmt(last.bb_upper)}  M:${fmt(last.bb_middle)}  L:${fmt(last.bb_lower)}`);
+  if (last.bb_upper != null) _setBBLeg(last.bb_upper, last.bb_middle, last.bb_lower);
 }
 
 /* ══════════════════════════════════════════
