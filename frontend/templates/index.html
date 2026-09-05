@@ -617,6 +617,12 @@
     </button>
   </span>
 
+  <!-- 距離下個經濟事件多久（2026-09-05 使用者要求：顯示在快捷小工具旁）。
+       ⚠ 刻意放在 .sym-quickdraw **外面**：那排在 ≤1180px 會整個 display:none（手機款），
+         放進去等於手機看不到。這裡自己扛 margin-right:auto（原本掛在 quickdraw 上，
+         移過來才不會把本欄推到最右邊、離快捷小工具很遠）。 -->
+  <span class="sym-econ" id="econNext" hidden></span>
+
 </div>
 
 

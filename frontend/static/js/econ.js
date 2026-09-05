@@ -30,7 +30,7 @@ function _fetchEconEvents() {
     .then(j => {
       _econEvents = (j.events || []).map(e => ({ ct: e.t + 8 * 3600, type: e.type }));
       _econLoaded = true; _econLoading = false;
-      _econRefreshLegend();
+      _econRefreshLegend(); _econRefreshBar();
       if (_econPrim) _econPrim.requestUpdate();
     })
     .catch(() => { _econLoading = false; });
@@ -126,10 +126,45 @@ function _econUpcoming(days) {
   return _econEvents.filter(e => e.ct >= nowAxis && e.ct <= lim).sort((a, b) => a.ct - b.ct);
 }
 
+// 「還有多久」文字。使用者 2026-09-05：要「幾天幾小時後」，不要 6.2 天這種小數。
+// ⚠ 一律用 floor 不用 round：「還有 6 天 23 小時」被進位成「7 天」會讓人以為還很久。
+//   次級單位為 0 就省略（「6天後」比「6天0小時後」乾淨）。
 function _econLeadText(sec) {
-  if (sec < 3600)  return Math.max(1, Math.round(sec / 60)) + "分後";
-  if (sec < 86400) return Math.round(sec / 3600) + "小時後";
-  return (sec / 86400).toFixed(1) + "天後";
+  if (sec < 60) return "即將發布";
+  if (sec < 3600) return Math.floor(sec / 60) + "分後";
+  if (sec < 86400) {
+    const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60);
+    return h + "小時" + (m ? m + "分" : "") + "後";
+  }
+  const d = Math.floor(sec / 86400), h = Math.floor((sec % 86400) / 3600);
+  return d + "天" + (h ? h + "小時" : "") + "後";
+}
+
+/* 符號列上的「距離下個經濟事件多久」（使用者：顯示在快捷小工具旁）。
+   跟圖例預告的差別：這欄**永遠顯示下一場**（不限兩天內），兩天內才加粗高亮。 */
+function _econNextOne() {
+  const nowAxis = Date.now() / 1000 + 8 * 3600;
+  let best = null;
+  for (const e of _econEvents) if (e.ct >= nowAxis && (!best || e.ct < best.ct)) best = e;
+  return best;
+}
+
+function _econRefreshBar() {
+  const el = document.getElementById("econNext");
+  if (!el) return;
+  const e = _econNextOne();
+  if (!e) { el.hidden = true; return; }              // 資料還沒到／表已用完 → 整欄收起，不佔位
+  const nowAxis = Date.now() / 1000 + 8 * 3600;
+  const left = e.ct - nowAxis;
+  const nm = _ECON_NAME[e.type] || e.type;
+  el.hidden = false;
+  el.classList.toggle("soon", left <= _ECON_LEAD_DAYS * 86400);
+  const html = '<span class="se-dot" style="background:rgba(' + (_ECON_COLOR[e.type] || "200,200,200") + ',.9)"></span>'
+             + '<span class="se-txt">' + nm + " " + _econLeadText(left) + "</span>";
+  if (el.innerHTML !== html) el.innerHTML = html;    // 值未變不寫，免 repaint
+  const d = new Date(e.ct * 1000), p2 = n => String(n).padStart(2, "0");
+  el.title = "下一個經濟事件：" + nm + " " + d.getUTCFullYear() + "/" + p2(d.getUTCMonth() + 1) + "/" + p2(d.getUTCDate())
+           + " " + p2(d.getUTCHours()) + ":" + p2(d.getUTCMinutes()) + "（台灣時間）";
 }
 
 let _econLegBase = null;    // index.html 原本那段說明文字，別被洗掉
@@ -158,10 +193,10 @@ function _econRefreshLegend() {
 
 // 預告需要資料，但圖上標記**預設是關的** → 閒置時無條件抓一次（gzip 僅 344 bytes）。
 // 圖上畫不畫仍然只看 _econOn，這裡只餵圖例文字。
-function _econBootNotice() { _fetchEconEvents(); _econRefreshLegend(); }
+function _econBootNotice() { _fetchEconEvents(); _econRefreshLegend(); _econRefreshBar(); }
 if (typeof requestIdleCallback === "function") requestIdleCallback(_econBootNotice, { timeout: 8000 });
 else setTimeout(_econBootNotice, 3000);
-setInterval(_econRefreshLegend, 60000);   // 倒數保鮮；純本地計算，不打網路
+setInterval(() => { _econRefreshLegend(); _econRefreshBar(); }, 60000);   // 倒數保鮮；純本地計算，不打網路
 
 window.toggleEcon = function (on) {
   window._econOn = (on === undefined) ? !window._econOn : !!on;

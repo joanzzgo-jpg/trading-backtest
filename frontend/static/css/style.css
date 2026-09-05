@@ -1762,8 +1762,20 @@ html.perf-mode .tk-seg {
      所以做法是「緊接在內容後面、右邊留 auto 吃掉剩餘空間」＝不重疊前提下最靠中央的位置
      （實測中心約 55%，比原本貼右的 93%、或兩側 auto 的 73% 都更接近中間）。
      ⚠ 不要改用 position:absolute + left:50%：視窗一窄就會直接壓在數值上面。 */
-  margin-left: 14px; margin-right: auto; flex-shrink: 0;
+     ⚠ margin-right:auto 已移到後面的 .sym-econ（距離下個經濟事件）——那欄要緊貼在這排旁邊，
+       auto 留在這裡會把它推到符號列最右緣。quickdraw 自己的位置不受影響（實測相同）。 */
+  margin-left: 14px; margin-right: 8px; flex-shrink: 0;
 }
+/* 距離下個經濟事件：緊鄰快捷小工具右側；auto 吃掉剩餘空間（原本掛在 .sym-quickdraw 上）。
+   ⚠ .symbol-bar 是 overflow:hidden → 放不下會**安靜被切掉**，所以整欄 nowrap 且允許縮到 0。 */
+.sym-econ {
+  display: inline-flex; align-items: center; gap: 4px;
+  margin-right: auto; min-width: 0; overflow: hidden;
+  font-size: 13px; color: var(--muted); white-space: nowrap; cursor: default;
+}
+.sym-econ .se-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.sym-econ .se-txt { overflow: hidden; text-overflow: ellipsis; }
+.sym-econ.soon .se-txt { color: var(--text); font-weight: 700; }   /* 兩天內＝重點看待 */
 .sqd-btn {
   width: 24px; height: 24px; padding: 0;
   background: transparent; border: 1px solid transparent;
@@ -1801,7 +1813,11 @@ html.perf-mode .tk-seg {
   border: 1px solid rgba(0,0,0,.35); box-shadow: 0 0 0 1px rgba(255,255,255,.12) inset;
 }
 .sqd-tf { font-size: 8.5px; font-weight: 800; line-height: 1; color: var(--muted); letter-spacing: .02em; }
-@media (max-width: 1180px) { .sym-quickdraw { display: none; } }
+/* ⚠ 手機款(≤1180px)符號列**本來就已經溢出**：實測 390px 下「量=」「9.9K」「漲跌幅」
+   就已經在畫面外被 overflow:hidden 靜靜切掉。倒數欄排在它們後面 → 一樣看不到，
+   留著只是多佔一段看不見的寬度 → 跟著快捷列一起收起。
+   （要讓手機也看得到，得先解決符號列本身的溢出——那是另一件事，不在本次範圍。） */
+@media (max-width: 1180px) { .sym-quickdraw, .sym-econ { display: none; } }
 
 .dt-color-btn {
   width: 34px; height: 34px;
