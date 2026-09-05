@@ -229,6 +229,9 @@ function bindEvents() {
   bindPaneDividers();
   bindLegendToggles();
   bindLegendColors();
+  // ⚠ 一定要在這裡補一次：_syncLegDot 原本只有「設定面板改色」會呼叫，開機從來沒跑過
+  //   → 改過顏色的人重整後，線是新色、圖例那顆點卻還是 index.html 寫死的預設色。
+  syncAllLegDots();
   initColorPicker();
   bindReplayBar();
   bindIndicatorPanel();
@@ -745,9 +748,33 @@ function bindIndicatorPanel() {
 }
 
 function _syncLegDot(legId, color) {
-  const dot = document.querySelector(`#${legId} .leg-dot`);
+  const el = document.getElementById(legId);
+  if (!el) return;                                   // 例：RSI 的 30/70 圖例已移除（刻意的 no-op）
+  const dot = el.querySelector(".leg-dot");
   if (dot) { dot.style.background = color; dot.style.borderColor = color; }
+  // 文字色跟著走：這些圖例的 HTML 本來就寫死 style="color:線的顏色"（設計上文字＝線色），
+  // 只同步點的話，改色後會變成「點是新色、字還是舊色」。只動本來就有行內色的那些。
+  if (el.style.color) el.style.color = color;
 }
+
+/* 圖例點／文字色 ↔ 實際線色的對照表。
+   ⚠ 2026-09-05 使用者：「rsi 標記點顏色也有錯誤，會沒記錄到」。根因＝_syncLegDot
+     **只在設定面板改色時被呼叫，開機時從來沒跑過** → 顏色存在 C 裡、線會照著畫，
+     但圖例點永遠是 index.html 寫死的預設色 → 改過色的人一重整，點就跟線對不上了
+     （而且完全不報錯，只是那顆點在說謊）。這裡在開機與載入偏好之後補上一次全同步。 */
+const _LEG_DOT_MAP = {
+  legBB: "bbU",
+  legK: "kdjK", legD: "kdjD", legJ: "kdjJ",
+  legKdjH20: "kdjH20", legKdjH50: "kdjH50", legKdjH80: "kdjH80",
+  legRsi14: "rsi14", legRsi7: "rsi7",
+  legMacd: "macd", legMacdSig: "macdSig", legMacdHist: "macdHist",
+};
+function syncAllLegDots() {
+  if (typeof C === "undefined" || !C) return;
+  for (const [id, key] of Object.entries(_LEG_DOT_MAP))
+    if (C[key]) _syncLegDot(id, C[key]);
+}
+window.syncAllLegDots = syncAllLegDots;
 
 /* ── 圖例點擊切換線條 + 面板收合 ── */
 function bindLegendToggles() {

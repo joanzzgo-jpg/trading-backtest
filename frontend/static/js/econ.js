@@ -72,13 +72,16 @@ function _econSnapTime(ct) {
 }
 
 function _makeEconPrimitive() {
-  let _chart = null, _series = null, _req = null, _settleT = null;
+  let _chart = null, _series = null, _req = null;
   const renderer = {
     draw(target) {
       if (!window._econOn || !_chart || !_series || !_econEvents.length) return;
-      // 平移中略過(垂直全高虛線最貴)、停手補畫
-      const _nowP = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
-      if (window._chartMoveTs && _nowP - window._chartMoveTs < 220) { clearTimeout(_settleT); _settleT = setTimeout(() => { if (_req) _req(); }, 240); return; }
+      // ⚠ 這裡原本會「平移/縮放中整批略過、停手才補畫」，理由寫的是「垂直全高虛線最貴」。
+      //   2026-09-05 使用者：「經濟事件會在縮放圖表時不見，停了才出現」。實際量過：
+      //   典型視野只有 **4 條線**，每幀 **0.011ms ＝ 60fps 預算的 0.1%**（就算把全部 34 條
+      //   已發生事件都畫出來也只有 ~0.09ms）。那個節流在保護一個不存在的成本，卻讓圖層
+      //   在每次互動時消失 → 拿掉。
+      //   ★ 通則：註解裡「這個最貴」的結論會過期，引用它之前先重量一次。
       const ts = _chart.timeScale();
       let vr = null; try { vr = ts.getVisibleRange(); } catch (e) {}
       const lo = vr ? vr.from : -Infinity, hi = vr ? vr.to : Infinity;
