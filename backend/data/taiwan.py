@@ -356,6 +356,30 @@ def _dump_cached(url: str, purpose: str):
     return _TW_DUMP.get((url, purpose), {}).get("payload")
 
 
+def _tw_code_ok(code: str) -> bool:
+    """這個代號要不要收進台股清單。
+
+    ・4 碼純數字 ＝ 一般股票，以及早期的 ETF（0050 / 0056）。
+    ・「00」開頭的 5~6 碼 ＝ 近年的 ETF（00878 國泰永續高股息、006208 富邦台50、
+      00919、00929…）。可能帶一個**字尾字母**（00631L 正2 / 00632R 反1 / 00679B 債券）
+      → 所以不能用 code.isdigit() 判，要只看前 5 碼是不是數字。
+
+    ⚠⚠ **不可以放寬成「5~6 碼都收」**：上櫃那份 opendata 有 10963 筆，其中
+        70xx/71xx/72xx/73xx 開頭的 **9950 筆是權證**（實測），全收進來清單會爆掉。
+        「00」這個前綴正好把 ETF 跟權證分開。
+    ⚠ 2026-09-06 之前這裡是硬寫 `len(code) == 4` → 上市 232 檔、上櫃 119 檔 ETF
+      **整批不存在**（清單、搜尋、自選名稱、報價全都沒有）。使用者回報的形狀是
+      「台股依舊有些沒中文名」——自選裡的 00878/006208 找不到對應資料，副標只好退回 "TW"。
+    """
+    if not code:
+        return False
+    if len(code) == 4 and code.isdigit():
+        return True
+    if 5 <= len(code) <= 6 and code.startswith("00") and code[:5].isdigit():
+        return True
+    return False
+
+
 def fetch_tw_tickers() -> list:
     """抓取全台股（上市＋上櫃）每日行情，以漲跌幅排序。
     主力：TWSE/TPEX opendata（全量，盤中更新）。
@@ -373,7 +397,7 @@ def fetch_tw_tickers() -> list:
         _day_reset(TWSE_DAY_ALL_URL)
         for d in _data:
             code = (d.get("Code") or "").strip()
-            if not (code and code.isdigit() and len(code) == 4):
+            if not _tw_code_ok(code):
                 continue
             close_s = (d.get("ClosingPrice") or "").replace(",", "").strip()
             if not close_s or close_s in ("--", "0", "0.00"):
@@ -413,7 +437,7 @@ def fetch_tw_tickers() -> list:
         _day_reset(TPEX_DAY_ALL_URL)
         for d in _data:
             code = (d.get("SecuritiesCompanyCode") or "").strip()
-            if not (code and code.isdigit() and len(code) == 4):
+            if not _tw_code_ok(code):
                 continue
             close_s = (d.get("Close") or "").replace(",", "").strip()
             if not close_s or close_s in ("--", "0", "0.00"):
