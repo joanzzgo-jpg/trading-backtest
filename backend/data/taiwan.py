@@ -380,6 +380,44 @@ def _tw_code_ok(code: str) -> bool:
     return False
 
 
+# 公司基本資料（上市 t187ap03_L / 上櫃 mopsfin_t187ap03_O）：只拿「代號 → 簡稱」。
+# ⚠ 為什麼需要它：每日行情那兩份只收錄「當天有成交資訊」的標的，**當天沒被收錄的上市櫃股票
+#   會整檔從清單消失** —— 名稱、搜尋、自選副標全都沒有（使用者 2026-09-06 回報的
+#   「6949 就沒有」＝沛爾生醫*-創，它在公司清單裡、圖表也載得到，只是不在行情那份）。
+#   實測這種標的共 6 檔（1563 巧新 / 1589 永冠-KY / 4804 大略-KY / 6129 普誠 /
+#   6461 益得 / 6949 沛爾生醫*-創）→ 補進來時只給名稱、價格留 None（見 fetch_tw_tickers 末段）。
+# 6 小時抓一次就夠（公司清單一天最多變動幾檔）；抓失敗就沿用上一份，絕不清空。
+_TW_NAME_MASTER = {"map": {}, "ts": 0.0}
+_TW_MASTER_TTL = 6 * 3600
+
+def _tw_name_master() -> dict:
+    import time as _t
+    if _TW_NAME_MASTER["map"] and _t.time() - _TW_NAME_MASTER["ts"] < _TW_MASTER_TTL:
+        return _TW_NAME_MASTER["map"]
+    out = {}
+    for url, ckey, nkeys in (
+        ("https://openapi.twse.com.tw/v1/opendata/t187ap03_L", "公司代號", ("公司簡稱", "公司名稱")),
+        ("https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O", "SecuritiesCompanyCode",
+         ("CompanyAbbreviation", "CompanyName")),
+    ):
+        try:
+            r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=20)
+            r.raise_for_status()
+            for d in r.json():
+                code = str(d.get(ckey) or "").strip()
+                if not _tw_code_ok(code):
+                    continue
+                name = next((str(d.get(k) or "").strip() for k in nkeys if str(d.get(k) or "").strip()), "")
+                if name:
+                    out.setdefault(code, name)
+        except Exception as e:
+            _log.warning(f"[tw_tickers] 公司清單 {url.rsplit('/', 1)[-1]} 取得失敗: {e}")
+    if out:                                   # ⚠ 抓失敗不可以把既有的清空（寧可用舊的）
+        _TW_NAME_MASTER["map"] = out
+        _TW_NAME_MASTER["ts"] = _t.time()
+    return _TW_NAME_MASTER["map"]
+
+
 def fetch_tw_tickers() -> list:
     """抓取全台股（上市＋上櫃）每日行情，以漲跌幅排序。
     主力：TWSE/TPEX opendata（全量，盤中更新）。
@@ -511,8 +549,22 @@ def fetch_tw_tickers() -> list:
     except Exception as e:
         _log.warning(f"[tw_tickers] MIS error: {e}")
 
-    result = [t for t in tickers.values() if t["price"] > 0]
-    result.sort(key=lambda x: x["change_pct"], reverse=True)
+    # ── 4. 補上「有掛牌但今天沒有行情」的股票：只給名稱，價格留 None ──────────────
+    #   前端對 price == null 已有「---」的處理；這樣它們至少**存在**（搜尋得到、加得進自選、
+    #   自選副標有中文名、點下去圖表也載得出來），而不是整檔消失。
+    try:
+        for code, name in _tw_name_master().items():
+            if code not in tickers:
+                tickers[code] = {"symbol": code, "display": code, "name": name,
+                                 "price": None, "change_pct": None,
+                                 "change_amt": None, "volume": 0}
+    except Exception as e:
+        _log.warning(f"[tw_tickers] 補名稱失敗: {e}")
+
+    # price 是 None ＝ 只有名稱沒有行情（上面補的），要留著；price <= 0 ＝ 髒資料，丟掉。
+    result = [t for t in tickers.values() if t.get("price") is None or t["price"] > 0]
+    # ⚠ 沒有漲跌幅的排最後（不能直接拿 None 比大小，會 TypeError）
+    result.sort(key=lambda x: (x.get("change_pct") is None, -(x.get("change_pct") or 0.0)))
     return result
 
 

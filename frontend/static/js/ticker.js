@@ -105,9 +105,13 @@ function _sortTickerList(list) {
       return (ia ?? 9999) - (ib ?? 9999);
     });
   }
-  if (_tickerSort === "asc")      return [...list].sort((a, b) => a.change_pct - b.change_pct);
-  if (_tickerSort === "vol")      return [...list].sort((a, b) => b.volume - a.volume);
-  return [...list].sort((a, b) => b.change_pct - a.change_pct);
+  /* ⚠ 「有掛牌但今天沒有行情」的股票 change_pct 是 null（見 taiwan.py 末段）。
+     直接相減的話 JS 會把 null 當 0 → 它們混進平盤股中間；一律排到最後才對。 */
+  const _np = t => !(typeof t.change_pct === "number" && isFinite(t.change_pct));
+  const _byPct = dir => (a, b) => (_np(a) - _np(b)) || dir * ((b.change_pct || 0) - (a.change_pct || 0));
+  if (_tickerSort === "asc")      return [...list].sort(_byPct(-1));
+  if (_tickerSort === "vol")      return [...list].sort((a, b) => (b.volume || 0) - (a.volume || 0));
+  return [...list].sort(_byPct(1));
 }
 
 
@@ -1020,17 +1024,23 @@ function renderTickers() {
     list = [...futs, ...stocks];
 
     const items = list.map(t => {
-      const sign = t.change_pct >= 0 ? "+" : "";
+      /* ⚠ 有掛牌但今天沒有行情的股票，後端會補一列「只有名稱、price/change 皆為 null」
+         （見 taiwan.py 末段；實測 6 檔，如 6949 沛爾生醫*-創）。
+         這裡每一項都要能吃 null —— 原本 `t.change_pct.toFixed(2)` 會直接 TypeError
+         把整個台股分頁畫爆。沒有行情就顯示「---」，不要假裝是 0。 */
+      const pct = (typeof t.change_pct === "number" && isFinite(t.change_pct)) ? t.change_pct : null;
+      const amt = (typeof t.change_amt === "number" && isFinite(t.change_amt)) ? t.change_amt : null;
+      const sign = pct == null ? "" : (pct >= 0 ? "+" : "");
       return {
         _k: `tw::${t.symbol}`, t,
-        cls:    t.change_pct >= 0 ? "up" : "dn",
+        cls:    pct == null ? "" : (pct >= 0 ? "up" : "dn"),
         active: t.symbol === currentSym,
         inWl:   _watchlist.some(w => `${w.market}:${w.exchange || ""}:${w.symbol}` === `tw::${t.symbol}`),
-        limitCls: t.change_pct >= 9.7 ? "tk-limit-up" : t.change_pct <= -9.7 ? "tk-limit-dn" : "",
-        limitTxt: t.change_pct >= 9.7 ? "漲停" : t.change_pct <= -9.7 ? "跌停" : "",
-        priceStr: fmtTickerPrice(t.price, t.symbol, t.open),
-        amtStr:   sign + Math.abs(t.change_amt).toFixed(2),
-        pctStr:   sign + t.change_pct.toFixed(2) + "%",
+        limitCls: pct == null ? "" : (pct >= 9.7 ? "tk-limit-up" : pct <= -9.7 ? "tk-limit-dn" : ""),
+        limitTxt: pct == null ? "" : (pct >= 9.7 ? "漲停" : pct <= -9.7 ? "跌停" : ""),
+        priceStr: (t.price == null) ? "---" : fmtTickerPrice(t.price, t.symbol, t.open),
+        amtStr:   amt == null ? "" : sign + Math.abs(amt).toFixed(2),
+        pctStr:   pct == null ? "---" : sign + pct.toFixed(2) + "%",
       };
     });
     _reconcileTicker(container, _tkSlice(items), _buildTwRow, _updateTwRow);

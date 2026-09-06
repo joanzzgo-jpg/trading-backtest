@@ -58,8 +58,14 @@ reset()
 tk = TW.fetch_tw_tickers()
 n0 = len(tk)
 check("抓得到全台股清單", n0 > 1500, f"{n0} 檔")
-zero = [x for x in tk if x.get("volume", 0) == 0]
-check("成交量不得整批為 0（上櫃欄位名曾寫錯）", len(zero) == 0, f"量=0 的 {len(zero)} 檔")
+# ⚠ 判準只看「有報價的」那些：2026-09-06 起清單會多收一批**有掛牌但當天沒有行情**的股票
+#   （price/change 皆為 None、volume 0；如 6949 沛爾生醫*-創），那是合法狀態，不該叫警報。
+#   原本要抓的 bug 是「上櫃欄位名寫錯 → 約 900 檔**有價卻量全 0**」——限定在有報價的範圍內
+#   一樣抓得到，偵測力沒有降低。實測：量=0 的 34 檔全部都是沒報價的，有報價的 0 檔。
+zero = [x for x in tk if x.get("price") is not None and not x.get("volume")]
+_noq = [x for x in tk if x.get("price") is None]
+check("成交量不得整批為 0（上櫃欄位名曾寫錯）", len(zero) == 0,
+      f"有報價卻量=0 的 {len(zero)} 檔（另有 {len(_noq)} 檔無行情、量本來就是 0）")
 
 print("\n② 條件式抓取：連跑多輪不得縮水（304 快速路徑）")
 reset()          # ★必須先清掉，否則第 1 輪已經是 304，等於拿 304 比 304
