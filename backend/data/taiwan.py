@@ -253,6 +253,8 @@ TWSE_MIS_HEADERS = {"Referer": "https://mis.twse.com.tw/stock/index.jsp"}
 TWSE_DAY_ALL_URL = "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL"
 # TPEX opendata：全上櫃股票每日行情
 TPEX_DAY_ALL_URL = "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes"
+# 興櫃即時統計（含最新成交價/均價/量）。興櫃沒有收盤集合競價 → 漲跌以「前一日均價」為基準。
+TPEX_ESB_URL     = "https://www.tpex.org.tw/openapi/v1/tpex_esb_latest_statistics"
 
 # 備援熱門清單（opendata 失敗時用 MIS 抓這 50 支）
 TW_POPULAR = [
@@ -399,6 +401,8 @@ def _tw_name_master() -> dict:
         ("https://openapi.twse.com.tw/v1/opendata/t187ap03_L", "公司代號", ("公司簡稱", "公司名稱")),
         ("https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O", "SecuritiesCompanyCode",
          ("CompanyAbbreviation", "CompanyName")),
+        ("https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_R", "SecuritiesCompanyCode",
+         ("CompanyAbbreviation", "CompanyName")),     # 興櫃
     ):
         try:
             r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=20)
@@ -514,6 +518,39 @@ def fetch_tw_tickers() -> list:
     # 兩包都解析完 → 把順手收集的「最新交易日日線」搬進快取（給 tw_daily_fill_latest 用）
     _day_commit()
 
+    # ── 2b. 興櫃（TPEX ESB）─────────────────────────────────────
+    #   使用者 2026-09-06:「7887 為什麼沒有中文」→ 7887 宇川精材是**興櫃**，
+    #   而興櫃整批 363 檔原本完全不在清單裡（上市/上櫃兩份都沒有它）。
+    #   ⚠ 興櫃沒有收盤集合競價 → 這份給的是 LatestPrice(最新成交) 與
+    #     PreviousAveragePrice(前一日均價)，漲跌一律以**前一日均價**為基準，
+    #     不能拿「收盤價」的算法硬套。
+    #   ⚠ 標記 is_esb=True：興櫃流動性與上市櫃差很多，前端/使用者要分得出來。
+    try:
+        _r = requests.get(TPEX_ESB_URL, headers={"User-Agent": "Mozilla/5.0"}, timeout=20)
+        _r.raise_for_status()
+        for d in _r.json():
+            code = (d.get("SecuritiesCompanyCode") or "").strip()
+            if not _tw_code_ok(code) or code in tickers:      # 上市/上櫃優先
+                continue
+            try:
+                last = float((d.get("LatestPrice") or "").replace(",", "").strip() or 0)
+                base = float((d.get("PreviousAveragePrice") or "").replace(",", "").strip() or 0)
+                if last <= 0:
+                    continue
+                amt = round(last - base, 2) if base > 0 else 0.0
+                pct = round(amt / base * 100, 2) if base > 0 else 0.0
+                vol = float((d.get("TransactionVolume") or "0").replace(",", "").strip() or 0)
+                tickers[code] = {
+                    "symbol": code, "display": code,
+                    "name": (d.get("CompanyName") or code).strip(),
+                    "price": last, "change_pct": pct, "change_amt": amt,
+                    "volume": vol, "is_esb": True,
+                }
+            except (ValueError, TypeError):
+                continue
+    except Exception as e:
+        _log.warning(f"[tw_tickers] 興櫃 opendata error: {e}")
+
     # ── 健全性守門：清單「莫名其妙縮水」就丟掉條件式快取、下一輪強制整包重抓 ──────────
     # ★為什麼要有這個：條件式抓取（304）失敗時的樣子是「安靜地回一份不完整的清單」，
     #   而且因為來源檔案內容真的沒變，會一直 304 下去 —— 自己不會好，要等隔天。
@@ -563,8 +600,14 @@ def fetch_tw_tickers() -> list:
 
     # price 是 None ＝ 只有名稱沒有行情（上面補的），要留著；price <= 0 ＝ 髒資料，丟掉。
     result = [t for t in tickers.values() if t.get("price") is None or t["price"] > 0]
-    # ⚠ 沒有漲跌幅的排最後（不能直接拿 None 比大小，會 TypeError）
-    result.sort(key=lambda x: (x.get("change_pct") is None, -(x.get("change_pct") or 0.0)))
+    # 排序：上市櫃有行情 → 興櫃 → 沒有行情。
+    # ⚠ 興櫃必須排在上市櫃**之後**：興櫃**沒有漲跌幅限制**，直接混在一起排的話它會佔滿
+    #   漲幅榜前段（實測前 25 名被興櫃拿走 6 席：+51%/+42%/+39%/+33%/+25%/+12%），
+    #   把上市櫃真正的 ±10% 漲停股整批擠下去 —— 而那才是看這張榜的人要找的東西。
+    # ⚠ 沒有漲跌幅的排最後（不能直接拿 None 比大小，會 TypeError）。
+    result.sort(key=lambda x: (x.get("change_pct") is None,
+                               bool(x.get("is_esb")),
+                               -(x.get("change_pct") or 0.0)))
     return result
 
 
