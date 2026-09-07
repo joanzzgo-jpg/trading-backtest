@@ -525,10 +525,17 @@ def fetch_tw_tickers() -> list:
     #     PreviousAveragePrice(前一日均價)，漲跌一律以**前一日均價**為基準，
     #     不能拿「收盤價」的算法硬套。
     #   ⚠ 標記 is_esb=True：興櫃流動性與上市櫃差很多，前端/使用者要分得出來。
+    # ⚠ 一定要走 _dump_get 的條件式抓取（跟上市/上櫃同一套）：直接 requests.get 的話，
+    #   worker 每 30 秒就重抓一次整份（~140KB）且每輪都要重新解析 —— 守門員的
+    #   「第 2 輪明顯變快（代表 304 生效）」會直接失敗（實測 0.67s → 0.38s，門檻 <0.335s）。
     try:
-        _r = requests.get(TPEX_ESB_URL, headers={"User-Agent": "Mozilla/5.0"}, timeout=20)
-        _r.raise_for_status()
-        for d in _r.json():
+        _data, _changed = _dump_get(TPEX_ESB_URL, DUMP_TICKERS, timeout=20)
+        if not _changed:                       # 304：沿用上次解析結果
+            for _c, _v in (_dump_cached(TPEX_ESB_URL, DUMP_TICKERS) or {}).items():
+                tickers.setdefault(_c, _v)
+            raise _NotModified
+        _esb_parsed = {}
+        for d in _data:
             code = (d.get("SecuritiesCompanyCode") or "").strip()
             if not _tw_code_ok(code) or code in tickers:      # 上市/上櫃優先
                 continue
@@ -540,7 +547,7 @@ def fetch_tw_tickers() -> list:
                 amt = round(last - base, 2) if base > 0 else 0.0
                 pct = round(amt / base * 100, 2) if base > 0 else 0.0
                 vol = float((d.get("TransactionVolume") or "0").replace(",", "").strip() or 0)
-                tickers[code] = {
+                _esb_parsed[code] = {
                     "symbol": code, "display": code,
                     "name": (d.get("CompanyName") or code).strip(),
                     "price": last, "change_pct": pct, "change_amt": amt,
@@ -548,6 +555,11 @@ def fetch_tw_tickers() -> list:
                 }
             except (ValueError, TypeError):
                 continue
+        _dump_done(TPEX_ESB_URL, DUMP_TICKERS, _esb_parsed)   # 登記後下次才敢走 304
+        for _c, _v in _esb_parsed.items():
+            tickers.setdefault(_c, _v)
+    except _NotModified:
+        pass
     except Exception as e:
         _log.warning(f"[tw_tickers] 興櫃 opendata error: {e}")
 

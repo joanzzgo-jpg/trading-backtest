@@ -1036,8 +1036,11 @@ function renderTickers() {
         cls:    pct == null ? "" : (pct >= 0 ? "up" : "dn"),
         active: t.symbol === currentSym,
         inWl:   _watchlist.some(w => `${w.market}:${w.exchange || ""}:${w.symbol}` === `tw::${t.symbol}`),
-        limitCls: pct == null ? "" : (pct >= 9.7 ? "tk-limit-up" : pct <= -9.7 ? "tk-limit-dn" : ""),
-        limitTxt: pct == null ? "" : (pct >= 9.7 ? "漲停" : pct <= -9.7 ? "跌停" : ""),
+        /* ⚠ 興櫃**沒有漲跌幅限制**（實測當日就有 +51.11%）→ 絕不可以標「漲停/跌停」，
+           那個標籤的意思是「已經打到當日上限」，對興櫃是錯的資訊。 */
+        limitCls: (pct == null || t.is_esb) ? "" : (pct >= 9.7 ? "tk-limit-up" : pct <= -9.7 ? "tk-limit-dn" : ""),
+        limitTxt: (pct == null || t.is_esb) ? "" : (pct >= 9.7 ? "漲停" : pct <= -9.7 ? "跌停" : ""),
+        esb:      !!t.is_esb,          // 興櫃：畫面上要分得出來（流動性/漲跌幅限制都與上市櫃不同）
         priceStr: (t.price == null) ? "---" : fmtTickerPrice(t.price, t.symbol, t.open),
         amtStr:   amt == null ? "" : sign + Math.abs(amt).toFixed(2),
         pctStr:   pct == null ? "---" : sign + pct.toFixed(2) + "%",
@@ -1277,7 +1280,9 @@ function _buildTwRow(it) {
   const t = it.t;
   return `<div class="ticker-item${it.active ? " tk-active" : ""}${it.limitCls ? " " + it.limitCls : ""}" data-mkt="tw" data-exch="" data-sym="${escHtml(t.symbol)}" data-display="${escHtml(t.symbol)}">
     ${_twLogoHtml(t.symbol, t.name)}
-    <div class="tk-info"><span class="tk-sym">${escHtml(t.symbol)}</span><span class="tk-full">${escHtml(t.name || "")}</span></div>
+    <div class="tk-info">${it.esb
+      ? `<span class="tk-sym tk-sym-tagged"><span class="tk-code">${escHtml(t.symbol)}</span><span class="tk-esb-tag" title="興櫃：尚未上市／上櫃。無漲跌幅限制、成交量通常較小；報價以最新成交價與前一日均價計算。">興</span></span>`
+      : `<span class="tk-sym">${escHtml(t.symbol)}</span>`}<span class="tk-full">${escHtml(t.name || "")}</span></div>
     <div class="tk-prices">
       <span class="tk-price-val">${it.priceStr}</span>
       <div class="tk-chg-row"><span class="tk-chg-amt ${it.cls}">${it.amtStr}</span><span class="tk-chg ${it.cls}">${it.pctStr}</span><span class="tk-limit-badge">${it.limitTxt}</span></div>

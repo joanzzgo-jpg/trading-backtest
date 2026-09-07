@@ -2388,6 +2388,22 @@ html.perf-mode .tk-stale { background: rgba(220, 38, 38, 0.10); border-color: #d
 .ticker-item.tk-limit-dn { background: rgba(38,166,154,.09); }
 .ticker-item.tk-limit-up:hover { background: rgba(239,83,80,.15); }
 .ticker-item.tk-limit-dn:hover { background: rgba(38,166,154,.15); }
+/* 興櫃標記：跟在代號後面的小字。
+   ⚠ 刻意**不用** .tk-limit-badge 那種會脈動的警示樣式 —— 這是「這檔屬於哪個板」的分類，
+     不是「現在發生了什麼」的事件；用低調的框線色塊，別跟漲跌停搶注意力。 */
+/* ⚠ .tk-sym 是 overflow:hidden + text-overflow:ellipsis → 直接把標記塞進去會**被截掉**
+   （實測 6864/7754 顯示成「6864…」，連「興」都不見了）。帶標記的那格改成 flex，
+   代號另包一層 .tk-code 自己吃 ellipsis，標記 flex-shrink:0 永遠留著。 */
+.tk-sym-tagged { display: flex; align-items: center; gap: 4px; }
+.tk-sym-tagged .tk-code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.tk-esb-tag {
+  display: inline-block; padding: 0 3px;
+  font-size: 9px; font-weight: 700; line-height: 1.5; vertical-align: 1px;
+  color: var(--muted); border: 1px solid var(--border); border-radius: 3px;
+  flex-shrink: 0;
+}
+
 .tk-limit-badge:empty { display: none; }   /* tw row 恆有此 span，無漲跌停時空字串→隱藏 */
 .tk-limit-badge {
   display: inline-block;
