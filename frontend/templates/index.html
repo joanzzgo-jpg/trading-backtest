@@ -629,6 +629,9 @@
 <!-- 經濟事件倒數：點 #econNext 展開三場（NFP/CPI/FOMC 各下一場）。fixed 浮層，不參與任何版面計算。 -->
 <div id="econPop" class="econ-pop" hidden></div>
 
+<!-- 共享繪圖設定浮層：由 #btnShareDraw 開啟（draw.js initShareToggle）。 -->
+<div id="shareDrawPop" class="share-pop" hidden></div>
+
 <!-- 遮罩 -->
 <div id="panelOverlay" class="panel-overlay hidden"></div>
 
@@ -743,6 +746,16 @@
     <button class="dt-btn dt-subcharts-btn" id="subChartsToggle" title="顯示／隱藏副圖指標（KDJ / RSI / MACD）">
       <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
         <path d="M3 6 L7.5 10.5 L12 6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </button>
+  
+    <div class="dt-sep"></div>
+    <!-- 共享繪圖（2026-09-08）：看別人在同一標的上畫了什麼／把自己的分享出去。
+         ⚠ 兩個開關是分開的，而且**預設都關**——分享是隱私動作，不可以順手打開。 -->
+    <button class="dt-share-btn" id="btnShareDraw" title="共享繪圖：看別人在這個標的上畫了什麼（也可以把自己的分享出去）">
+      <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="4" cy="7.5" r="2"/><circle cx="11" cy="4" r="2"/><circle cx="11" cy="11" r="2"/>
+        <path d="M5.8 6.6 L9.2 4.9 M5.8 8.4 L9.2 10.1"/>
       </svg>
     </button>
   </div>

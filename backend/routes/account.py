@@ -161,6 +161,29 @@ def _ensure_db():
                 updated_at REAL
             )
         """)
+        # 共享繪圖（2026-09-08）：使用者可以把「自己在某個標的上畫的東西」分享出去，
+        # 其他人看同一個標的時就看得到。**預設完全不分享**，要在畫面上明確打開才會寫進這張表。
+        # ⚠ 走「寫穿表」不進 accounts.data 整包快照：
+        #   ① 快照是 last-write-wins，分享內容被別台舊快照蓋掉會很難察覺；
+        #   ② 更重要的是**隔離**——快照裡是使用者的全部私有資料，分享功能絕不該碰它。
+        # ⚠ 一列＝一個帳號在一個標的上的繪圖；取消分享＝刪掉那一列（不是留空陣列）。
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS account_shared_drawings (
+                name       TEXT,
+                sym        TEXT,
+                d          TEXT,
+                updated_at DOUBLE PRECISION,
+                PRIMARY KEY (name, sym)
+            )
+        """ if _use_pg() else """
+            CREATE TABLE IF NOT EXISTS account_shared_drawings (
+                name       TEXT,
+                sym        TEXT,
+                d          TEXT,
+                updated_at REAL,
+                PRIMARY KEY (name, sym)
+            )
+        """)
         for nm in _SEED:
             conn.execute(
                 f"INSERT INTO accounts (name, data, updated_at) VALUES ({ph},'{{}}',{ph}) "
@@ -581,6 +604,99 @@ def my_watch(req: MyWatchReq):
     # 純加法，舊前端不讀它、行為不變。
     return {"wl": wl if isinstance(wl, list) else [], "exists": True,
             "updated_at": float(row[1] or 0)}
+
+
+# ══════════════════════════════════════════════════════════════
+#  共享繪圖：看得到別人在同一個標的上畫了什麼
+#  ⚠⚠ 隱私前提：**預設不分享**。只有使用者自己在畫面上打開開關，前端才會呼叫
+#     /share_drawings 把「當前標的」那一份送上來；關掉就整列刪除。
+#     既有的繪圖不會因為這個功能被動上傳 —— 沒有任何路徑會自動分享。
+#  ⚠ 身分只有帳號名（跟 /sync、/savewatch 同一套，本專案沒有密碼/token）→
+#     這是分享出去的東西，請當成「公開」看待。見 /shared_drawings 的註解。
+# ══════════════════════════════════════════════════════════════
+_SHARE_MAX_ITEMS = 400        # 單一標的最多分享幾個繪圖（防止有人塞爆）
+_SHARE_MAX_BYTES = 256 * 1024 # 單一標的序列化後上限
+
+
+class ShareDrawReq(BaseModel):
+    name: str
+    sym: str                        # 標的鍵，格式同前端 _drawSymKey()：MARKET:EXCHANGE:SYMBOL
+    drawings: list | None = None    # None 或空陣列＝取消分享這個標的
+
+
+@router.post("/share_drawings")
+def share_drawings(req: ShareDrawReq):
+    """把自己在某標的上的繪圖分享出去（或取消分享）。"""
+    _require_enabled()
+    name = _norm_name(req.name)
+    if not _valid_name(name):
+        raise HTTPException(status_code=400, detail="帳號名稱不正確")
+    sym = (req.sym or "").strip().upper()[:120]
+    if not sym:
+        raise HTTPException(status_code=400, detail="缺少標的")
+    items = req.drawings if isinstance(req.drawings, list) else []
+    conn, ph = _db()
+    try:
+        if not items:                                   # 取消分享＝刪列
+            conn.execute(f"DELETE FROM account_shared_drawings WHERE name={ph} AND sym={ph}", (name, sym))
+            conn.commit()
+            return {"ok": True, "n": 0}
+        if len(items) > _SHARE_MAX_ITEMS:
+            raise HTTPException(status_code=400,
+                                detail=f"單一標的最多分享 {_SHARE_MAX_ITEMS} 個繪圖（目前 {len(items)} 個）")
+        blob = json.dumps(items, ensure_ascii=False)
+        if len(blob.encode("utf-8")) > _SHARE_MAX_BYTES:
+            raise HTTPException(status_code=400, detail="分享內容太大")
+        conn.execute(
+            f"INSERT INTO account_shared_drawings (name, sym, d, updated_at) VALUES ({ph},{ph},{ph},{ph}) "
+            f"ON CONFLICT (name, sym) DO UPDATE SET d=excluded.d, updated_at=excluded.updated_at",
+            (name, sym, blob, time.time()))
+        conn.commit()
+        return {"ok": True, "n": len(items)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"分享失敗：{e}")
+    finally:
+        conn.close()
+
+
+class SharedDrawReq(BaseModel):
+    sym: str
+    exclude: str | None = None      # 通常帶自己的帳號名：自己的已經畫在圖上了，不必重複
+
+
+@router.post("/shared_drawings")
+def shared_drawings(req: SharedDrawReq):
+    """取回「其他人」在這個標的上分享的繪圖。
+    回 {authors:[{name, drawings, updated_at}]}。
+    ⚠ 這裡回的東西會被畫到別人的圖表上 → 只回**明確分享過**的列（表裡有列＝有分享）。"""
+    _require_enabled()
+    sym = (req.sym or "").strip().upper()[:120]
+    if not sym:
+        return {"authors": []}
+    me = _norm_name(req.exclude or "")
+    conn, ph = _db()
+    try:
+        cur = conn.execute(
+            f"SELECT name, d, updated_at FROM account_shared_drawings WHERE sym={ph} "
+            f"ORDER BY updated_at DESC", (sym,))
+        rows = cur.fetchall() or []
+    except Exception:
+        rows = []
+    finally:
+        conn.close()
+    out = []
+    for nm, d, ts in rows:
+        if me and _norm_name(nm) == me:
+            continue
+        try:
+            arr = json.loads(d) if isinstance(d, str) else (d or [])
+        except Exception:
+            continue
+        if isinstance(arr, list) and arr:
+            out.append({"name": nm, "drawings": arr, "updated_at": float(ts or 0)})
+    return {"authors": out}
 
 
 @router.post("/admin/create")

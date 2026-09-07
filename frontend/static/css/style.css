@@ -8143,3 +8143,25 @@ body.wl-drag-on #tickerList .ticker-item { touch-action: none; }
 @keyframes wlGrab { from { scale: 1; } to { scale: 1.025; } }
 /* 被擠開的列由 JS 補 FLIP 位移動畫（見 _wlSlide）；這裡只保證不會被別的 transition 干擾 */
 #tickerList .ticker-item[data-mkt] { transition: none; }
+
+/* ── 共享繪圖 ─────────────────────────────────────────────── */
+.dt-share-btn { /* 沿用工具列其他按鈕的尺寸/互動，只有 .on 時才亮起 */ }
+.dt-share-btn.on { color: var(--blue, #4aa3ff) !important; }
+.share-pop {
+  position: fixed; z-index: 700;
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: 0 4px 20px rgba(0,0,0,.5);
+  padding: 8px 0; min-width: 262px; font-size: 12px;
+}
+.share-pop[hidden] { display: none; }
+.share-pop-title {
+  padding: 2px 12px 7px; font-size: 11px; font-weight: 600; color: var(--muted);
+  border-bottom: 1px solid var(--border); margin-bottom: 4px;
+}
+.share-row { display: flex; align-items: center; gap: 8px; padding: 7px 12px; cursor: pointer; }
+.share-row:hover { background: rgba(255,255,255,.04); }
+.share-row input { width: 14px; height: 14px; margin: 0; flex-shrink: 0; accent-color: #2962ff; cursor: pointer; }
+.share-row .sr-txt { color: var(--text); }
+.share-row .sr-sub { display: block; font-size: 10px; color: var(--muted); margin-top: 2px; line-height: 1.45; }
+.share-row.disabled { opacity: .45; cursor: not-allowed; }
+.share-note { padding: 6px 12px 2px; font-size: 10px; color: var(--muted); line-height: 1.5; border-top: 1px solid var(--border); margin-top: 4px; }

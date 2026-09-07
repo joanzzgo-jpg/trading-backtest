@@ -494,6 +494,9 @@ function saveDrawings() {
     if (drawings.length) store[key] = drawings; else delete store[key];
     localStorage.setItem("tv_drawings_v2", JSON.stringify(store));
     _drawSaveWarned = false;
+    // 有開「分享我的繪圖」才推送（debounce 1.5s，避免拖曳過程每一動都打）。
+    // ⚠ 放在存檔成功之後：本機都沒存起來的東西不該先分享出去。
+    try { if (typeof _shPush === "function") _shPush(); } catch (e) {}
   } catch (e) {
     // ★別再靜默吞掉(2026-07-31):原本 `catch {}` → 瀏覽器儲存空間滿時繪圖**存不進去卻毫無提示**,
     //   使用者以為畫好了,重新整理就全沒了。這是資料遺失,一定要講。
@@ -527,6 +530,8 @@ function loadDrawings() {
   _undoStack.length = 0;
   try { _undoBase = JSON.stringify(drawings); } catch (e) { _undoBase = "[]"; }
   _undoBtnSync();
+  // 換標的 → 別人的繪圖也要跟著換（_shFetch 內部會比對標的鍵，同一檔不會重抓）
+  try { if (typeof _shFetch === "function") _shFetch(false); } catch (e) {}
 }
 
 /* ── 自選標的 ── */
@@ -3222,6 +3227,219 @@ function _drawDrawingBadge(d, W, H) {
   drawCtx.restore();
 }
 
+
+/* ══════════════════════════════════════════════════════════════
+   共享繪圖：看得到「別人在同一個標的上畫了什麼」（2026-09-08）
+
+   兩個**互相獨立**的開關，預設都是關的：
+     ・看別人的（_shView）  ── 純讀，對別人沒有任何影響
+     ・分享我的（_shShare） ── 隱私動作：打開才會把「當前標的」那一份送上去
+
+   ⚠⚠ 安全隔離（這條是本功能最重要的規則）
+     別人的繪圖只存在 `_shAuthors`，**永遠不會進 `drawings`**：
+       ① saveDrawings() 只寫 `drawings` → 不可能把別人的東西存成你的
+       ② findNearest() 只掃 `drawings`   → 不可能選到／拖到／刪到別人的
+       ③ 不寫 localStorage、換標的就重抓
+     （2026-08-12 我曾用測試腳本清掉使用者 118 個繪圖，那類事故不能再發生一次。）
+
+   ⚠ 身分只有帳號名（本專案沒有密碼／token，/sync、/savewatch 都一樣）→
+     分享出去的東西要當成**公開**看待，UI 上必須講明白。
+   ══════════════════════════════════════════════════════════════ */
+let _shView = false, _shShare = false;
+let _shAuthors = [];          // [{name, drawings:[...]}]，只在記憶體
+let _shKey = "";              // _shAuthors 對應的標的鍵
+let _shFetching = false, _shPushT = null;
+const _SH_PREF_KEY = "tv_share_prefs_v1";
+
+function _shAcct() { try { return (window._acctName || "").trim(); } catch (e) { return ""; } }
+
+function _shLoadPrefs() {
+  try {
+    const o = JSON.parse(localStorage.getItem(_SH_PREF_KEY) || "{}") || {};
+    _shView = !!o.view; _shShare = !!o.share;
+  } catch (e) { _shView = _shShare = false; }
+}
+function _shSavePrefs() {
+  try { localStorage.setItem(_SH_PREF_KEY, JSON.stringify({ view: _shView, share: _shShare })); } catch (e) {}
+}
+
+/* 取回別人分享的繪圖。⚠ 一定要看 r.ok（本檔通則）：錯誤回應的 body 也是 JSON，
+   直接 .json() 會拿到一個沒有 authors 的東西 → 靜靜變成「沒有人分享」。 */
+async function _shFetch(force) {
+  const key = (typeof _drawSymKey === "function") ? _drawSymKey() : "";
+  if (!_shView || !key) { if (_shAuthors.length) { _shAuthors = []; _scheduleRenderDrawings(); } return; }
+  if (_shFetching) return;
+  if (!force && key === _shKey) return;
+  _shFetching = true;
+  try {
+    const r = await fetch("/api/account/shared_drawings", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sym: key, exclude: _shAcct() }),
+    });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const j = await r.json();
+    if (_drawSymKey() !== key) return;            // 抓回來已經換標的 → 丟棄
+    _shAuthors = (j.authors || []).map(a => ({
+      name: String(a.name || "?"),
+      // 只收畫得出來的：沒有 id/type 的東西丟給 drawOne 會拋錯
+      drawings: (a.drawings || []).filter(d => d && d.id && d.type),
+    })).filter(a => a.drawings.length);
+    _shKey = key;
+    _scheduleRenderDrawings();
+    try { if (window._shRepaintUI && !document.getElementById("shareDrawPop")?.hidden) window._shRepaintUI(); } catch (e) {}
+  } catch (e) {
+    console.debug("[共享繪圖] 取得失敗:", e && e.message);
+  } finally { _shFetching = false; }
+}
+
+/* 把「目前標的」我的繪圖分享出去。只有 _shShare 打開才會走到這裡。 */
+function _shPush(delay) {
+  if (_shPushT) { clearTimeout(_shPushT); _shPushT = null; }
+  if (!_shShare) return;
+  const name = _shAcct();
+  if (!name) return;                              // 沒登入不分享（也不該有東西可分享）
+  const key = (typeof _drawSymKey === "function") ? _drawSymKey() : "";
+  if (!key) return;
+  _shPushT = setTimeout(async () => {
+    _shPushT = null;
+    try {
+      // ⚠ 只送「主圖、當前標的」那些；副圖繪圖座標系不同，畫到別人圖上沒有意義。
+      const mine = (Array.isArray(drawings) ? drawings : []).filter(d => d && d.id && d.type && (!d.pane || d.pane === "main"));
+      const r = await fetch("/api/account/share_drawings", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, sym: key, drawings: mine }),
+      });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+    } catch (e) { console.debug("[共享繪圖] 分享失敗:", e && e.message); }
+  }, delay == null ? 1500 : delay);
+}
+window._shPush = _shPush;
+
+/* 取消分享「目前標的」（關開關時呼叫）→ 後端把那一列刪掉。 */
+async function _shUnshare(key) {
+  const name = _shAcct(); if (!name) return;
+  try {
+    await fetch("/api/account/share_drawings", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, sym: key || _drawSymKey(), drawings: [] }),
+    });
+  } catch (e) { console.debug("[共享繪圖] 取消分享失敗:", e && e.message); }
+}
+
+/* 畫別人的繪圖：在自己的**下面**、整段降低不透明度、唯讀。
+   ⚠ 用 save/restore 包住並在最後強制 restore —— drawOne 內部若拋錯會留下髒的 ctx 狀態，
+     那會污染後面自己那批的顏色/透明度。 */
+function _shRenderOthers(W, H) {
+  if (!_shView || !_shAuthors.length || !drawCtx) return;
+  drawCtx.save();
+  try {
+    drawCtx.globalAlpha = 0.42;                   // 一眼看得出「這不是我畫的」
+    for (const a of _shAuthors) {
+      for (const d of a.drawings) {
+        if (d.pane && d.pane !== "main") continue;
+        try { drawOne(d, W, H, false, false); } catch (e) { try { drawCtx.restore(); drawCtx.save(); drawCtx.globalAlpha = 0.42; } catch (_) {} }
+      }
+    }
+  } finally { try { drawCtx.restore(); } catch (e) {} }
+  // 誰畫的：左上角一行小字（逐個繪圖標作者太吵，這裡集中講）
+  try {
+    drawCtx.save();
+    drawCtx.font = "600 10px system-ui, sans-serif";
+    drawCtx.textBaseline = "top";
+    const names = _shAuthors.map(a => `${a.name}(${a.drawings.length})`).join("  ");
+    const txt = "👥 " + names;
+    const w = drawCtx.measureText(txt).width;
+    // ⚠ x 要讓開左側繪圖工具島（寬 46px、left:10px）——原本放 x=8 會被它蓋掉半截
+    //   （實測只看得到「_alice__(3)」）。工具島是 hover 才彈出，但重疊時看不到才是問題。
+    const bx = 64;
+    drawCtx.fillStyle = "rgba(0,0,0,0.45)";
+    drawCtx.fillRect(bx, 8, w + 12, 17);
+    drawCtx.fillStyle = "rgba(255,255,255,0.82)";
+    drawCtx.fillText(txt, bx + 6, 12);
+    drawCtx.restore();
+  } catch (e) { try { drawCtx.restore(); } catch (_) {} }
+}
+
+/* 開關：給 UI 呼叫。回傳目前狀態。 */
+/* ⚠ 切換後一定要同步工具列按鈕的亮起狀態：不同步的話，使用者從浮層裡打開了功能，
+   按鈕看起來卻是關的 —— 「開了沒反應」的典型誤會。 */
+function _shSyncBtn() {
+  try { document.getElementById("btnShareDraw")?.classList.toggle("on", _shView || _shShare); } catch (e) {}
+}
+window._shToggleView = function (on) {
+  _shView = (on === undefined) ? !_shView : !!on;
+  _shSavePrefs(); _shSyncBtn();
+  if (_shView) _shFetch(true); else { _shAuthors = []; _shKey = ""; _scheduleRenderDrawings(); }
+  return _shView;
+};
+window._shToggleShare = function (on) {
+  const key = (typeof _drawSymKey === "function") ? _drawSymKey() : "";
+  _shShare = (on === undefined) ? !_shShare : !!on;
+  _shSavePrefs(); _shSyncBtn();
+  if (_shShare) _shPush(0); else _shUnshare(key);
+  return _shShare;
+};
+window._shState = () => ({ view: _shView, share: _shShare, acct: _shAcct(),
+                           authors: _shAuthors.map(a => ({ name: a.name, n: a.drawings.length })) });
+
+_shLoadPrefs();
+
+
+/* 共享繪圖的 UI：工具列按鈕 → 小浮層，兩個開關分開放。
+   ⚠ draw.js 是延遲載入的，**不可以掛 DOMContentLoaded**（那時早就觸發過了，永遠不執行）
+     → 由檔末的自我初始化直接呼叫。 */
+function initShareToggle() {
+  const btn = document.getElementById("btnShareDraw");
+  const pop = document.getElementById("shareDrawPop");
+  if (!btn || !pop) return;
+
+  const paint = () => {
+    const acct = _shAcct();
+    const st = window._shState();
+    btn.classList.toggle("on", st.view || st.share);
+    const seen = st.authors.length
+      ? st.authors.map(a => `${a.name}（${a.n}）`).join("、")
+      : "目前這個標的還沒有人分享";
+    pop.innerHTML =
+      '<div class="share-pop-title">共享繪圖</div>' +
+      '<label class="share-row"><input type="checkbox" id="shChkView"' + (st.view ? " checked" : "") + '>' +
+        '<span class="sr-txt">看別人的繪圖<span class="sr-sub">' + _shEsc(seen) + '</span></span></label>' +
+      '<label class="share-row' + (acct ? "" : " disabled") + '"><input type="checkbox" id="shChkShare"' +
+        (st.share ? " checked" : "") + (acct ? "" : " disabled") + '>' +
+        '<span class="sr-txt">分享我在這個標的的繪圖<span class="sr-sub">' +
+        (acct ? ('以「' + _shEsc(acct) + '」的名義公開；關掉就立刻收回') : "要先登入帳號才能分享") +
+        '</span></span></label>' +
+      '<div class="share-note">分享是<b>逐標的</b>的：只有你打開時所在的那個標的會被分享。' +
+      '本站的身分只有帳號名稱、沒有密碼，分享出去的內容請當成公開資訊。</div>';
+    const v = pop.querySelector("#shChkView"), sh = pop.querySelector("#shChkShare");
+    if (v) v.addEventListener("change", () => { window._shToggleView(v.checked); setTimeout(paint, 400); });
+    if (sh && acct) sh.addEventListener("change", () => { window._shToggleShare(sh.checked); paint(); });
+  };
+
+  btn.addEventListener("click", e => {
+    e.stopPropagation();
+    if (!pop.hidden) { pop.hidden = true; return; }
+    paint();
+    pop.hidden = false;
+    const r = btn.getBoundingClientRect();
+    pop.style.left = "0px"; pop.style.top = "0px";
+    const w = pop.offsetWidth, h = pop.offsetHeight;
+    pop.style.left = Math.max(6, Math.min(r.right + 8, innerWidth - w - 6)) + "px";
+    pop.style.top  = Math.max(6, Math.min(r.top, innerHeight - h - 6)) + "px";
+  });
+  document.addEventListener("click", e => {
+    if (!pop.hidden && !pop.contains(e.target) && !btn.contains(e.target)) pop.hidden = true;
+  });
+  document.addEventListener("keydown", e => { if (e.key === "Escape") pop.hidden = true; });
+
+  window._shRepaintUI = paint;
+  if (_shView) _shFetch(true);         // 上次開著 → 進來就抓
+  btn.classList.toggle("on", _shView || _shShare);
+}
+function _shEsc(t) {
+  return String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 function renderDrawings() {
   if (!drawCtx || !drawCanvas) return;
   // 圖表移動中旗標：給 _drawSessionOverlay 等跳過大面積半透明填色（overlay 2x 畫布最貴的像素工作）
@@ -3264,6 +3482,8 @@ function renderDrawings() {
   const _safeDraw = (d, hov, sel) => { try { drawOne(d, W, H, hov, sel); } catch (e) { try { drawCtx.restore(); } catch (_) {} } };
   // ⚠ 圖層過濾跟 _isMain 一起做：被隱藏的層不畫（下面命中判定也要跳過，見 _layerOn）
   const _isMain = d => (!d.pane || d.pane === "main") && _layerOn(d);   // 副圖繪圖不在主圖畫(交給 _renderSub)
+  // 別人分享的繪圖畫在**最下層**：自己的永遠蓋在上面（自己的才是可以操作的那些）
+  _shRenderOthers(W, H);
   _byLayer(drawings).filter(d => _isMain(d) && d.id !== selectedId && d.id !== hoveredId).forEach(d => _safeDraw(d, false, false));
   _byLayer(drawings).filter(d => _isMain(d) && d.id === hoveredId && d.id !== selectedId).forEach(d => _safeDraw(d, true, false));
   _byLayer(drawings).filter(d => _isMain(d) && d.id === selectedId).forEach(d => _safeDraw(d, false, true));
@@ -4049,5 +4269,6 @@ if (!window._drawBooted) {
   try {
     initDrawTools();
     initSessionToggle(); initWeekBoxToggle(); initVPToggle(); initCoachToggle(); initVwapToggle();
+    initShareToggle();
   } catch (e) { console.warn("draw self-init failed", e); }
 }
