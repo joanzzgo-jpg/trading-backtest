@@ -1992,27 +1992,32 @@ function _drawSessionWatermark(sess, axisT, L, R, yH, yL, plotW) {
   // 取「色塊與畫面的交集」當可用範圍
   const vL = Math.max(L, 0), vR = Math.min(R, plotW);
   const availW = vR - vL;
-  if (availW < 34 || boxH < 14) return;                 // 放不下就不畫（寧可沒有，不要一坨糊字）
+  if (availW < 34) return;                              // 放不下就不畫（寧可沒有，不要一坨糊字）
   const d = new Date(axisT * 1000);
   // 時間寫成「8AM / 2PM」（使用者指定）。分鐘不是整點才補上（盤別開盤幾乎都是整點，
   // 但 4h 之類的時框第一根可能落在半點）。0 時 → 12AM、12 時 → 12PM。
   const hh = d.getUTCHours(), mm = d.getUTCMinutes();
   const h12 = hh % 12 === 0 ? 12 : hh % 12;
   const txt = `${_SESSION_NAME_OF(sess)} ${h12}${mm ? ":" + String(mm).padStart(2, "0") : ""}${hh < 12 ? "AM" : "PM"}`;
-  // 依可用寬高推字級：寬度以「每字約 0.62 em」估，再夾在 10~26px
-  let size = Math.min(availW / (txt.length * 0.62), boxH * 0.62, 26);
+  // 字級：只受可用寬度限制（文字畫在色塊**外面**、在最高點上方，不再被色塊高度綁住），
+  // 以「每字約 0.62 em」估算後夾在 10~20px。
+  let size = Math.min(availW / (txt.length * 0.62), 20);
   if (size < 10) return;
   size = Math.round(size);
   drawCtx.save();
   try {
     drawCtx.font = `700 ${size}px system-ui, sans-serif`;
     drawCtx.textAlign = "center";
-    drawCtx.textBaseline = "middle";
+    drawCtx.textBaseline = "bottom";
     const w = drawCtx.measureText(txt).width;
     if (w > availW - 4) { drawCtx.restore(); return; }   // 量完還是放不下 → 不畫
     drawCtx.globalAlpha = 0.17;                          // 浮水印：只是背景標示，不跟 K 棒搶注意力
     drawCtx.fillStyle = _SESSION_LINE[sess] || "rgba(200,200,210,0.9)";
-    drawCtx.fillText(txt, (vL + vR) / 2, (yH + yL) / 2);
+    // 2026-09-08 使用者：「文字顯示在上方好了，就是最高點上方」→ 貼在該盤高點線上緣。
+    // ⚠ 要夾住上界：盤的高點很靠近圖表頂端時（例如剛創高），字會被切掉一半 →
+    //   夾在至少 size+2 的位置，寧可壓在高點線上也不要看不到。
+    const ty = Math.max(size + 2, yH - 3);
+    drawCtx.fillText(txt, (vL + vR) / 2, ty);
   } finally { drawCtx.restore(); }
 }
 
