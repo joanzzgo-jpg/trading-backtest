@@ -1877,7 +1877,9 @@ const _SESSION_INTRADAY = ["1m", "5m", "15m", "30m", "1h", "2h"];
 const _SESSION_COLOR = { asia: "rgba(66,133,244,0.10)", europe: "rgba(124,104,228,0.10)", us: "rgba(255,159,40,0.09)", weekend: "rgba(130,130,145,0.065)" };
 const _SESSION_LINE  = { asia: "rgba(66,133,244,0.9)",  europe: "rgba(150,130,245,0.85)", us: "rgba(255,159,40,0.9)", weekend: "rgba(150,150,162,0.6)" };
 const _SESSION_NAME  = { asia: "台股", europe: "歐洲", us: "美盤", weekend: "週末" };
-const _SESSION_NAME_CRYPTO = { asia: "亞洲", europe: "倫敦", us: "紐約·交界", weekend: "週末薄量" };
+// 顯示名稱。us 原本叫「紐約·交界」（它的定義確實是歐美重疊那段，見上方註解），
+// 2026-09-08 使用者要求簡化成「紐約」——浮水印寫在色塊裡，名字短一點才不會擠。
+const _SESSION_NAME_CRYPTO = { asia: "亞洲", europe: "倫敦", us: "紐約", weekend: "週末薄量" };
 const _SESSION_COLOR_HR = { asia: "rgba(66,133,244,0.21)", europe: "rgba(124,104,228,0.21)", us: "rgba(255,159,40,0.20)", weekend: "rgba(130,130,145,0.065)" };  // 開盤首段深底色（同步調濃，維持與底色的層次差）
 const _SESSION_HL_SEC   = { asia: 3600, europe: 3600, us: 3600, weekend: 3600 };   // 開盤加深時長：三盤皆前 1 小時
 const _WEEKDAY = ["週日", "週一", "週二", "週三", "週四", "週五", "週六"];
@@ -1974,6 +1976,46 @@ function _getSessionRuns() {
   return runs;
 }
 // K 棒後方：①各交易時段淡色直條 ②各盤當盤高/低點虛線 ③星期標籤。只在日內時框、且開關開啟。
+
+/* 盤別浮水印：在該盤的色塊裡寫「亞洲 8:00」這種字樣（2026-09-08 使用者要求，
+   取代原本那條貫穿全圖的開盤直立線＋頂端盤名）。
+
+   ⚠ 時間要用 getUTC*：傳進來的是**軸時間**（toTime 已 +8 小時），用 getHours()
+     會變成看的人自己的時區，跟圖上的 K 棒對不起來（同 econ.js 那條）。
+   ⚠ 字級要**跟著色塊縮放**並夾限：色塊窄的時候（縮小、或盤剛開只有幾根 K）
+     固定字級會直接溢出到隔壁盤去；太小則糊成一團看不出是什麼 → 放不下就整個不畫。
+   ⚠ 只畫看得見的那一段：色塊左右緣可能遠在畫面外（buffer 往兩側各多算 64 根），
+     用可見區間的中點當錨，否則字會被畫到畫面外等於沒畫。 */
+function _drawSessionWatermark(sess, axisT, L, R, yH, yL, plotW) {
+  const boxW = R - L, boxH = yL - yH;
+  if (!(boxW > 0) || !(boxH > 0)) return;
+  // 取「色塊與畫面的交集」當可用範圍
+  const vL = Math.max(L, 0), vR = Math.min(R, plotW);
+  const availW = vR - vL;
+  if (availW < 34 || boxH < 14) return;                 // 放不下就不畫（寧可沒有，不要一坨糊字）
+  const d = new Date(axisT * 1000);
+  // 時間寫成「8AM / 2PM」（使用者指定）。分鐘不是整點才補上（盤別開盤幾乎都是整點，
+  // 但 4h 之類的時框第一根可能落在半點）。0 時 → 12AM、12 時 → 12PM。
+  const hh = d.getUTCHours(), mm = d.getUTCMinutes();
+  const h12 = hh % 12 === 0 ? 12 : hh % 12;
+  const txt = `${_SESSION_NAME_OF(sess)} ${h12}${mm ? ":" + String(mm).padStart(2, "0") : ""}${hh < 12 ? "AM" : "PM"}`;
+  // 依可用寬高推字級：寬度以「每字約 0.62 em」估，再夾在 10~26px
+  let size = Math.min(availW / (txt.length * 0.62), boxH * 0.62, 26);
+  if (size < 10) return;
+  size = Math.round(size);
+  drawCtx.save();
+  try {
+    drawCtx.font = `700 ${size}px system-ui, sans-serif`;
+    drawCtx.textAlign = "center";
+    drawCtx.textBaseline = "middle";
+    const w = drawCtx.measureText(txt).width;
+    if (w > availW - 4) { drawCtx.restore(); return; }   // 量完還是放不下 → 不畫
+    drawCtx.globalAlpha = 0.17;                          // 浮水印：只是背景標示，不跟 K 棒搶注意力
+    drawCtx.fillStyle = _SESSION_LINE[sess] || "rgba(200,200,210,0.9)";
+    drawCtx.fillText(txt, (vL + vR) / 2, (yH + yL) / 2);
+  } finally { drawCtx.restore(); }
+}
+
 function _drawSessionOverlay(W, H) {
   // 星期標籤(③)永遠顯示——不受右上「交易時段」開關(_sessionOn)控制；
   // 交易時段色塊/高低線/開盤標記(①②④)只在『細日內時框』(_SESSION_INTRADAY)；
@@ -2065,32 +2107,17 @@ function _drawSessionOverlay(W, H) {
     drawCtx.beginPath(); drawCtx.moveTo(L, yH); drawCtx.lineTo(R, yH); drawCtx.stroke();
     drawCtx.beginPath(); drawCtx.moveTo(L, yL); drawCtx.lineTo(R, yL); drawCtx.stroke();
     drawCtx.restore();
+    // 盤別浮水印（2026-09-08 使用者：「把時間線刪除，改成在該上色處背後放浮水印，亞洲8:00這樣」）
+    _drawSessionWatermark(r.sess, toTime(ohlcvData[r.s].time), L, R, yH, yL, plotW);
   }
 
   // ⑤ 亞/歐盤高低延伸線已移到獨立「關鍵高低」開關（_drawKeyLevels，gated by _pdhlOn）→
   //   不再綁在時段色塊開關，且時段疊加層更乾淨（配合「收斂色塊」需求）。
 
-  // ④ 各盤「開盤」標記：該盤第一根 K（8:00台股 / 14:00歐洲 / 20:00美盤）一出現就標，
-  //    不必等整盤收完。判定＝這根是某盤、且「真實前一根」不同盤（避免畫面左緣誤判開盤）。
-  drawCtx.save();
-  drawCtx.font = "bold 11px sans-serif"; drawCtx.textAlign = "left";
-  //    ⚠ 直接用上面那份 runs：每個 run 的 r.s 依定義就是「該盤第一根」（前一根不同盤），
-  //      與逐根重算的結果完全等價。原本每幀掃過所有可見棒、每根呼叫兩次 _sessionOf
-  //      （滑動時 2000+ 根 × 2 次）→ 改成走 runs（整份資料才幾百段），_sessionOf 退出熱路徑。
-  const _lo = Math.max(1, from);
-  for (const r of runs) {
-    if (r.s < _lo || r.s > to) continue;   // 不在可見範圍、或是第 0 根（左緣無前一根可比）
-    const sess = r.sess;
-    const x = ts.timeToCoordinate(toTime(ohlcvData[r.s].time));
-    if (x == null || x < 0 || x > plotW) continue;
-    const xL = x - half;
-    drawCtx.strokeStyle = _SESSION_LINE[sess]; drawCtx.lineWidth = 1; drawCtx.globalAlpha = 0.45;
-    drawCtx.beginPath(); drawCtx.moveTo(xL, 0); drawCtx.lineTo(xL, plotBottom); drawCtx.stroke();   // 開盤直線（止於時間軸上緣）
-    drawCtx.globalAlpha = 1;
-    drawCtx.fillStyle = _SESSION_LINE[sess];
-    drawCtx.fillText(_SESSION_NAME_OF(sess), xL + 3, 30);                                   // 盤名（星期列下方）
-  }
-  drawCtx.restore();
+  // ④ 各盤開盤：**原本畫一條貫穿全圖的直立線 + 頂端盤名**，2026-09-08 依使用者要求移除
+  //    （「亞洲歐洲倫敦把時間線刪除，改成在該上色處背後放浮水印，亞洲8:00這樣」）。
+  //    盤名與開盤時間改由色塊內的浮水印表達（見 _drawSessionWatermark）——
+  //    資訊沒有變少，但不再有一排直線把圖切得零碎。
   }   // end if (_sessionOn) — 以下星期標籤永遠畫
 
   // 每日像素寬（可見範圍前兩次換日的間距）：③b 週框 / ③ 星期標籤的密度門檻共用。
