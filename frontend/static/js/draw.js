@@ -1877,9 +1877,11 @@ const _SESSION_INTRADAY = ["1m", "5m", "15m", "30m", "1h", "2h"];
 const _SESSION_COLOR = { asia: "rgba(66,133,244,0.10)", europe: "rgba(124,104,228,0.10)", us: "rgba(255,159,40,0.09)", weekend: "rgba(130,130,145,0.065)" };
 const _SESSION_LINE  = { asia: "rgba(66,133,244,0.9)",  europe: "rgba(150,130,245,0.85)", us: "rgba(255,159,40,0.9)", weekend: "rgba(150,150,162,0.6)" };
 const _SESSION_NAME  = { asia: "台股", europe: "歐洲", us: "美盤", weekend: "週末" };
-// 顯示名稱。us 原本叫「紐約·交界」（它的定義確實是歐美重疊那段，見上方註解），
-// 2026-09-08 使用者要求簡化成「紐約」——浮水印寫在色塊裡，名字短一點才不會擠。
-const _SESSION_NAME_CRYPTO = { asia: "亞洲", europe: "倫敦", us: "紐約", weekend: "週末薄量" };
+// 顯示名稱（加密）。演進：「紐約·交界」→「紐約」→ 2026-09-08 使用者要求改**英文簡寫**。
+// 用的是交易圈的通用寫法：ASIA / LDN(London) / NY(New York) / WKND(weekend)。
+// ⚠ 短名還有一個好處：浮水印寫在色塊上方，名字短才不會在窄色塊上被判定「放不下」而整個不畫。
+// ⚠ 股市那份(_SESSION_NAME)維持中文：台股/歐洲/美盤是市場別的說法，不是同一組時段名稱。
+const _SESSION_NAME_CRYPTO = { asia: "ASIA", europe: "LDN", us: "NY", weekend: "WKND" };
 const _SESSION_COLOR_HR = { asia: "rgba(66,133,244,0.21)", europe: "rgba(124,104,228,0.21)", us: "rgba(255,159,40,0.20)", weekend: "rgba(130,130,145,0.065)" };  // 開盤首段深底色（同步調濃，維持與底色的層次差）
 const _SESSION_HL_SEC   = { asia: 3600, europe: 3600, us: 3600, weekend: 3600 };   // 開盤加深時長：三盤皆前 1 小時
 const _WEEKDAY = ["週日", "週一", "週二", "週三", "週四", "週五", "週六"];
@@ -1998,27 +2000,58 @@ function _drawSessionWatermark(sess, axisT, L, R, yH, yL, plotW) {
   // 但 4h 之類的時框第一根可能落在半點）。0 時 → 12AM、12 時 → 12PM。
   const hh = d.getUTCHours(), mm = d.getUTCMinutes();
   const h12 = hh % 12 === 0 ? 12 : hh % 12;
-  const txt = `${_SESSION_NAME_OF(sess)} ${h12}${mm ? ":" + String(mm).padStart(2, "0") : ""}${hh < 12 ? "AM" : "PM"}`;
+  const nameTxt = _SESSION_NAME_OF(sess);
+  const timeTxt = `${h12}${mm ? ":" + String(mm).padStart(2, "0") : ""}${hh < 12 ? "AM" : "PM"}`;
+  const txt = nameTxt + " " + timeTxt;   // 只用來估字級/判斷放不放得下
   // 字級：只受可用寬度限制（文字畫在色塊**外面**、在最高點上方，不再被色塊高度綁住），
   // 以「每字約 0.62 em」估算後夾在 10~20px。
   let size = Math.min(availW / (txt.length * 0.62), 20);
   if (size < 10) return;
   size = Math.round(size);
+  /* ── 排版（2026-09-08 使用者：「字體幫我設計一下」）──────────────────────
+     兩段分開畫（不是同一串 fillText），字體都用全站自架的 **M PLUS Rounded 1c**
+     （style.css 已在用 → 一定會被下載，canvas 取得到；它只有 latin 子集，而盤名改成
+     英文簡寫後正好全部落在覆蓋範圍內）：
+       ・盤名 ASIA/LDN/NY ＝ 600 + 字距 → 讀起來像「標籤」而不是內文。
+       ・時間 8AM ＝ 800、更濃 → 這才是要一眼抓到的資訊。
+     ⚠ 股市那份盤名仍是中文（台股/歐洲/美盤）→ 字體串一定要留系統字 fallback，
+       否則圓體缺中文字時會掉到瀏覽器預設字型，看起來突兀。
+     ⚠ 兩段濃度不同（盤名 0.38 / 時間 0.52）：時間才是要一眼抓到的資訊，
+       盤名是它的說明 → 用濃度做主次，不用大小（大小差太多會顯得雜）。
+     ⚠ letterSpacing 會留在 ctx 上，finally 一定要清掉，否則污染後面所有文字。 */
   drawCtx.save();
   try {
-    drawCtx.font = `700 ${size}px system-ui, sans-serif`;
-    drawCtx.textAlign = "center";
+    const NAME_F = `600 ${size}px "M PLUS Rounded 1c", system-ui, "PingFang TC", sans-serif`;
+    const TIME_F = `800 ${size}px "M PLUS Rounded 1c", system-ui, sans-serif`;
+    const gap = Math.round(size * 0.40);
+    drawCtx.textAlign = "left";
     drawCtx.textBaseline = "bottom";
-    const w = drawCtx.measureText(txt).width;
-    if (w > availW - 4) { drawCtx.restore(); return; }   // 量完還是放不下 → 不畫
-    drawCtx.globalAlpha = 0.17;                          // 浮水印：只是背景標示，不跟 K 棒搶注意力
-    drawCtx.fillStyle = _SESSION_LINE[sess] || "rgba(200,200,210,0.9)";
+    let nameW = 0, timeW = 0;
+    try { drawCtx.letterSpacing = `${(size * 0.06).toFixed(2)}px`; } catch (e) {}
+    drawCtx.font = NAME_F; nameW = drawCtx.measureText(nameTxt).width;
+    try { drawCtx.letterSpacing = "0px"; } catch (e) {}
+    drawCtx.font = TIME_F; timeW = drawCtx.measureText(timeTxt).width;
+    const total = nameW + gap + timeW;
+    if (total > availW - 4) return;                      // 量完還是放不下 → 不畫（finally 會清 ctx）
     // 2026-09-08 使用者：「文字顯示在上方好了，就是最高點上方」→ 貼在該盤高點線上緣。
     // ⚠ 要夾住上界：盤的高點很靠近圖表頂端時（例如剛創高），字會被切掉一半 →
     //   夾在至少 size+2 的位置，寧可壓在高點線上也不要看不到。
     const ty = Math.max(size + 2, yH - 3);
-    drawCtx.fillText(txt, (vL + vR) / 2, ty);
-  } finally { drawCtx.restore(); }
+    let tx = (vL + vR) / 2 - total / 2;
+    const col = _SESSION_LINE[sess] || "rgba(200,200,210,0.9)";
+    drawCtx.fillStyle = col;
+    try { drawCtx.letterSpacing = `${(size * 0.06).toFixed(2)}px`; } catch (e) {}
+    drawCtx.font = NAME_F; drawCtx.globalAlpha = 0.38;
+    drawCtx.fillText(nameTxt, tx, ty);
+    try { drawCtx.letterSpacing = "0px"; } catch (e) {}
+    drawCtx.font = TIME_F; drawCtx.globalAlpha = 0.52;
+    drawCtx.fillText(timeTxt, tx + nameW + gap, ty);
+  } finally {
+    // ⚠ letterSpacing 不保證被 restore() 還原（各家實作不一）→ 明確歸零，
+    //   否則後面所有 canvas 文字都會帶著字距（很難查的那種「字忽然變寬」）。
+    try { drawCtx.letterSpacing = "0px"; } catch (e) {}
+    drawCtx.restore();
+  }
 }
 
 function _drawSessionOverlay(W, H) {
