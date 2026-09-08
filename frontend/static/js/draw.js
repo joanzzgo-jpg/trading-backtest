@@ -1882,7 +1882,9 @@ const _SESSION_INTRADAY = ["1m", "5m", "15m", "30m", "1h", "2h"];
 // ⚠ 這是**疊在 K 棒下方的大面積填色**，太濃會蓋掉影線與量柱 → 只加到「看得出分界」為止，不要再往上。
 const _SESSION_COLOR = { asia: "rgba(66,133,244,0.10)", europe: "rgba(124,104,228,0.10)", us: "rgba(255,159,40,0.09)", weekend: "rgba(130,130,145,0.065)" };
 const _SESSION_LINE  = { asia: "rgba(66,133,244,0.9)",  europe: "rgba(150,130,245,0.85)", us: "rgba(255,159,40,0.9)", weekend: "rgba(150,150,162,0.6)" };
-const _SESSION_NAME  = { asia: "台股", europe: "歐洲", us: "美盤", weekend: "週末" };
+// 顯示名稱（股市）。2026-09-08 跟著加密那份一起改成英文簡寫 —— 同一個視覺元素不該
+// 因為市場不同就切換語言。TW=台股盤、EU=歐洲盤、US=美盤、WKND=週末。
+const _SESSION_NAME  = { asia: "TW", europe: "EU", us: "US", weekend: "WKND" };
 // 顯示名稱（加密）。演進：「紐約·交界」→「紐約」→ 2026-09-08 使用者要求改**英文簡寫**。
 // 用的是交易圈的通用寫法：ASIA / LDN(London) / NY(New York) / WKND(weekend)。
 // ⚠ 短名還有一個好處：浮水印寫在色塊上方，名字短才不會在窄色塊上被判定「放不下」而整個不畫。
