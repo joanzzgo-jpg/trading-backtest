@@ -1948,16 +1948,36 @@ function _sessionOf(t) {
         }
       }
     }
+  } else if (_curSessMkt === "fx") {
+    // 外匯 24/5，跟加密同一套 killzone 只差沒有加密的週末 → 交給上面那條路（呼叫端不會走到這裡）。
+    v = null;
   } else {
-    // 股票：台灣固定時間、僅週一~五。
-    const d = new Date(toTime(t) * 1000);
-    const day = d.getUTCDay();
-    if (day < 1 || day > 5) v = null;
-    else {
-      const h = d.getUTCHours();
-      v = (h >= 8 && h < 12) ? "asia"
-        : (h >= 14 && h < 17) ? "europe"
-        : (h >= 20 && h < 23) ? "us" : null;
+    /* 股票：用**該市場自己的正規交易時段**，不是「全球亞/歐/美盤」那套。
+       ⚠⚠ 原本寫死台北時間 8~12 / 14~17 / 20~23（那是全球三盤的切法），套在個別股市上是錯的：
+         台股實際交易到 **13:30**，但 8~12 這個桶在 12:00 就結束 → 實測每個交易日有 **7 根
+         K 棒（12:00~13:30，約 37% 的盤中時間）完全不在色塊裡**。而色塊上下緣畫的是
+         「當盤高低」→ 等於給了一個**只算上午**的高低點，對交易工具來說是錯的資訊。
+       ⚠ 美股要處理 DST 與跨午夜：ET 09:30~16:00 換成台北是夏令 21:30~翌04:00、
+         冬令 22:30~翌05:00 → 用 _tzOff 動態換算，並且**用 ET 當地的星期**判斷平日
+         （台北時間週六凌晨 02:00 其實還在美股週五那一盤）。 */
+    const u = toTime(t) - 8 * 3600;                       // 真實 UTC 秒
+    const d = new Date(toTime(t) * 1000);                 // 台北時間（toTime 已 +8）
+    const tpeMin = d.getUTCHours() * 60 + d.getUTCMinutes();
+    if (_curSessMkt === "us") {
+      const off = _tzOff(u, "America/New_York");           // 夏令 -4 / 冬令 -5
+      const et = new Date((u + off * 3600) * 1000);        // 紐約當地時刻
+      const etDay = et.getUTCDay();
+      const etMin = et.getUTCHours() * 60 + et.getUTCMinutes();
+      v = (etDay >= 1 && etDay <= 5 && etMin >= 9 * 60 + 30 && etMin < 16 * 60) ? "us" : null;
+    } else {
+      const day = d.getUTCDay();
+      if (day < 1 || day > 5) v = null;
+      else if (_curSessMkt === "hk")                       // 港股 09:30~16:00（HKT＝台北同時區）
+        // ⚠ 收在 16:00 那根要**收進來**（收盤競價）：實測 0700.HK 每天最後一根就是 16:00，
+        //   用 `< 16:00` 會把它漏掉 → 當盤高低少算最後一根（實測 23 根只涵蓋 22 根）。
+        v = (tpeMin >= 9 * 60 + 30 && tpeMin <= 16 * 60) ? "asia" : null;
+      else                                                 // 台股 09:00~13:30
+        v = (tpeMin >= 9 * 60 && tpeMin <= 13 * 60 + 30) ? "asia" : null;
     }
   }
   _sessCache.set(ck, v);
@@ -1972,13 +1992,28 @@ function _getSessionRuns() {
   const key = n + "|" + (n ? ohlcvData[0].time + "_" + ohlcvData[n - 1].time : "") + "|" + (typeof currentTF !== "undefined" ? currentTF : "") + "|" + _curSessMkt;
   if (_sessRunsKey === key && _sessRuns) return _sessRuns;
   const runs = [];
-  let s = -1, cur = null, hi = -Infinity, lo = Infinity;
+  let s = -1, cur = null, hi = -Infinity, lo = Infinity, curDay = -1;
   for (let i = 0; i < n; i++) {
     const sess = _sessionOf(ohlcvData[i].time);
-    if (sess !== cur) {
+    /* ⚠ 換日一定要斷開區段，不能只看「盤別有沒有變」。
+       股市改用各市場自己的交易時間之後（2026-09-08），一天之內每根 K 的盤別都相同，
+       跨日也還是相同 → 只比對盤別的話**整份資料會併成一大段**，色塊上下緣那條
+       「當盤高低」就變成「整張圖的高低」，比原本的 bug 更糟（實測 595 根併成 1 段）。
+       ⚠ 用**盤別自己的日界**：美股一盤跨台北午夜（21:30~翌04:00），拿台北日期切會
+       把同一盤剖成兩半 → 美股用紐約當地日期，其餘用台北日期。 */
+    const _t = toTime(ohlcvData[i].time);
+    let dayKey;
+    if (_curSessMkt === "us" && sess) {
+      const u = _t - 8 * 3600;
+      dayKey = Math.floor((u + _tzOff(u, "America/New_York") * 3600) / 86400);
+    } else {
+      dayKey = Math.floor(_t / 86400);
+    }
+    if (sess !== cur || (sess && dayKey !== curDay)) {
       if (cur && s >= 0) runs.push({ s, e: i - 1, sess: cur, hi, lo });
       s = i; cur = sess; hi = -Infinity; lo = Infinity;
     }
+    curDay = dayKey;
     if (cur) { const b = ohlcvData[i]; if (b.high > hi) hi = b.high; if (b.low < lo) lo = b.low; }
   }
   if (cur && s >= 0) runs.push({ s, e: n - 1, sess: cur, hi, lo });
