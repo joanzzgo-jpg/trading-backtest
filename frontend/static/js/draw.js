@@ -530,8 +530,14 @@ function loadDrawings() {
   _undoStack.length = 0;
   try { _undoBase = JSON.stringify(drawings); } catch (e) { _undoBase = "[]"; }
   _undoBtnSync();
-  // 換標的 → 別人的繪圖也要跟著換（_shFetch 內部會比對標的鍵，同一檔不會重抓）
-  try { if (typeof _shFetch === "function") _shFetch(false); } catch (e) {}
+  // 換標的 → 別人的繪圖跟著換（_shFetch 內部會比對標的鍵，同一檔不會重抓）；
+  // ⚠ 按鈕與浮層的勾選框也要重畫：「分享」是**逐標的**的，換了標的就是另一個答案，
+  //   不更新的話會停在上一個標的的狀態＝畫面說謊（這正是本次修掉的那個 bug）。
+  try {
+    if (typeof _shFetch === "function") _shFetch(false);
+    if (typeof _shSyncBtn === "function") _shSyncBtn();
+    if (window._shRepaintUI && !document.getElementById("shareDrawPop")?.hidden) window._shRepaintUI();
+  } catch (e) {}
 }
 
 /* ── 自選標的 ── */
@@ -3298,7 +3304,7 @@ function _drawDrawingBadge(d, W, H) {
 
    兩個**互相獨立**的開關，預設都是關的：
      ・看別人的（_shView）  ── 純讀，對別人沒有任何影響
-     ・分享我的（_shShare） ── 隱私動作：打開才會把「當前標的」那一份送上去
+     ・分享我的（_shShareSet）── 隱私動作，**逐標的**：只有替該標的打開才會送上去
 
    ⚠⚠ 安全隔離（這條是本功能最重要的規則）
      別人的繪圖只存在 `_shAuthors`，**永遠不會進 `drawings`**：
@@ -3310,7 +3316,12 @@ function _drawDrawingBadge(d, W, H) {
    ⚠ 身分只有帳號名（本專案沒有密碼／token，/sync、/savewatch 都一樣）→
      分享出去的東西要當成**公開**看待，UI 上必須講明白。
    ══════════════════════════════════════════════════════════════ */
-let _shView = false, _shShare = false;
+let _shView = false;
+/* ⚠ 分享狀態必須**逐標的**記錄，不能用單一布林（2026-09-08 實測抓到的隱私瑕疵）：
+   舊版 _shShare 是全域的 → 在 A 開了分享、切到 B，勾選框仍顯示「已分享」但 B 其實沒有
+   （畫面在說謊）；更糟的是接著在 B 隨手畫一筆，**B 就被自動公開了** ——
+   使用者以為只是畫線，卻不知道自己公開了東西。分享是隱私動作，必須每個標的各自明確同意。 */
+let _shShareSet = new Set();
 let _shAuthors = [];          // [{name, drawings:[...]}]，只在記憶體
 let _shKey = "";              // _shAuthors 對應的標的鍵
 let _shFetching = false, _shPushT = null;
@@ -3321,11 +3332,19 @@ function _shAcct() { try { return (window._acctName || "").trim(); } catch (e) {
 function _shLoadPrefs() {
   try {
     const o = JSON.parse(localStorage.getItem(_SH_PREF_KEY) || "{}") || {};
-    _shView = !!o.view; _shShare = !!o.share;
-  } catch (e) { _shView = _shShare = false; }
+    _shView = !!o.view;
+    _shShareSet = new Set(Array.isArray(o.shareSyms) ? o.shareSyms : []);
+  } catch (e) { _shView = false; _shShareSet = new Set(); }
 }
 function _shSavePrefs() {
-  try { localStorage.setItem(_SH_PREF_KEY, JSON.stringify({ view: _shView, share: _shShare })); } catch (e) {}
+  try {
+    localStorage.setItem(_SH_PREF_KEY, JSON.stringify({ view: _shView, shareSyms: [..._shShareSet] }));
+  } catch (e) {}
+}
+/* 目前這個標的有沒有在分享 */
+function _shSharingHere() {
+  const k = (typeof _drawSymKey === "function") ? _drawSymKey() : "";
+  return !!k && _shShareSet.has(k);
 }
 
 /* 取回別人分享的繪圖。⚠ 一定要看 r.ok（本檔通則）：錯誤回應的 body 也是 JSON，
@@ -3357,10 +3376,10 @@ async function _shFetch(force) {
   } finally { _shFetching = false; }
 }
 
-/* 把「目前標的」我的繪圖分享出去。只有 _shShare 打開才會走到這裡。 */
+/* 把「目前標的」我的繪圖分享出去。只有這個標的有在分享才會走到這裡（_shSharingHere）。 */
 function _shPush(delay) {
   if (_shPushT) { clearTimeout(_shPushT); _shPushT = null; }
-  if (!_shShare) return;
+  if (!_shSharingHere()) return;          // ⚠ 逐標的：沒有替這個標的打開分享就絕不送
   const name = _shAcct();
   if (!name) return;                              // 沒登入不分享（也不該有東西可分享）
   const key = (typeof _drawSymKey === "function") ? _drawSymKey() : "";
@@ -3429,7 +3448,7 @@ function _shRenderOthers(W, H) {
 /* ⚠ 切換後一定要同步工具列按鈕的亮起狀態：不同步的話，使用者從浮層裡打開了功能，
    按鈕看起來卻是關的 —— 「開了沒反應」的典型誤會。 */
 function _shSyncBtn() {
-  try { document.getElementById("btnShareDraw")?.classList.toggle("on", _shView || _shShare); } catch (e) {}
+  try { document.getElementById("btnShareDraw")?.classList.toggle("on", _shView || _shSharingHere()); } catch (e) {}
 }
 window._shToggleView = function (on) {
   _shView = (on === undefined) ? !_shView : !!on;
@@ -3439,15 +3458,31 @@ window._shToggleView = function (on) {
 };
 window._shToggleShare = function (on) {
   const key = (typeof _drawSymKey === "function") ? _drawSymKey() : "";
-  _shShare = (on === undefined) ? !_shShare : !!on;
+  if (!key) return false;
+  const want = (on === undefined) ? !_shShareSet.has(key) : !!on;
+  if (want) _shShareSet.add(key); else _shShareSet.delete(key);
   _shSavePrefs(); _shSyncBtn();
-  if (_shShare) _shPush(0); else _shUnshare(key);
-  return _shShare;
+  if (want) _shPush(0); else _shUnshare(key);
+  return want;
 };
-window._shState = () => ({ view: _shView, share: _shShare, acct: _shAcct(),
+window._shState = () => ({ view: _shView, share: _shSharingHere(), acct: _shAcct(),
+                           shareCount: _shShareSet.size,
                            authors: _shAuthors.map(a => ({ name: a.name, n: a.drawings.length })) });
 
 _shLoadPrefs();
+
+/* 別人的繪圖會變（對方繼續畫、或收回分享）→ 開著「看別人的」時定期重抓。
+   ⚠ document.hidden 就跳過：分頁在背景時**應該是零流量**（本專案已為此修過一次
+     離線偵測的背景輪詢）。回到前景時下面的 visibilitychange 會立刻補一次。
+   ⚠ 60 秒夠了：這是「別人畫的線」，不是報價，沒有即時性需求。 */
+const _SH_POLL_MS = 60000;
+setInterval(() => {
+  if (!_shView || document.hidden) return;
+  try { _shFetch(true); } catch (e) {}
+}, _SH_POLL_MS);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && _shView) { try { _shFetch(true); } catch (e) {} }
+});
 
 
 /* 共享繪圖的 UI：工具列按鈕 → 小浮層，兩個開關分開放。
@@ -3474,7 +3509,8 @@ function initShareToggle() {
         '<span class="sr-txt">分享我在這個標的的繪圖<span class="sr-sub">' +
         (acct ? ('以「' + _shEsc(acct) + '」的名義公開；關掉就立刻收回') : "要先登入帳號才能分享") +
         '</span></span></label>' +
-      '<div class="share-note">分享是<b>逐標的</b>的：只有你打開時所在的那個標的會被分享。' +
+      '<div class="share-note">分享是<b>逐標的</b>的：上面那個勾選框只管你現在看的這一檔。' +
+      (st.shareCount ? '目前你一共分享了 <b>' + st.shareCount + '</b> 個標的。' : "") +
       '本站的身分只有帳號名稱、沒有密碼，分享出去的內容請當成公開資訊。</div>';
     const v = pop.querySelector("#shChkView"), sh = pop.querySelector("#shChkShare");
     if (v) v.addEventListener("change", () => { window._shToggleView(v.checked); setTimeout(paint, 400); });
@@ -3499,7 +3535,7 @@ function initShareToggle() {
 
   window._shRepaintUI = paint;
   if (_shView) _shFetch(true);         // 上次開著 → 進來就抓
-  btn.classList.toggle("on", _shView || _shShare);
+  btn.classList.toggle("on", _shView || _shSharingHere());
 }
 function _shEsc(t) {
   return String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
