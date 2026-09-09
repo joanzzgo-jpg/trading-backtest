@@ -750,6 +750,14 @@
     </button>
   
     <div class="dt-sep"></div>
+    <!-- 🔔 價格提示線（2026-09-10）：點圖上任一價位設到價通知。判斷在後端背景監控器,
+         所以**關掉網頁也會通知**（Web Push）。點線上的標籤即可移除。 -->
+    <button class="dt-btn" data-tool="alert" title="價格提示線：選這個之後點圖上任一價位，價格碰到就推播通知你（關掉網頁也會通知）。點線上的 🔔 標籤可移除。">
+      <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 6.5a3.5 3.5 0 0 1 7 0c0 3 1.2 4 1.2 4H2.8s1.2-1 1.2-4z"/><path d="M6.2 12.6a1.6 1.6 0 0 0 2.6 0"/>
+      </svg>
+    </button>
+    <div class="dt-sep"></div>
     <!-- 共享繪圖（2026-09-08）：看別人在同一標的上畫了什麼／把自己的分享出去。
          ⚠ 兩個開關是分開的，而且**預設都關**——分享是隱私動作，不可以順手打開。 -->
     <button class="dt-share-btn" id="btnShareDraw" title="共享繪圖：看別人在這個標的上畫了什麼（也可以把自己的分享出去）">

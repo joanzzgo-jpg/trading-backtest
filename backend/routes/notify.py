@@ -132,6 +132,39 @@ def _ensure_db():
                 ts      REAL
             )
         """)
+        # 價格提示線（2026-09-10）：使用者在圖上指定一個價位，價格碰到就推播。
+        # ⚠ 存在後端而不是瀏覽器：整個重點就是「關掉網頁也會通知」——放前端等於沒做。
+        # dir＝建立當下由現價決定要往上碰還是往下碰（base 記下建立時的現價，供顯示與診斷）。
+        # fired_at 為 NULL＝待命；觸發後填時間並保留（讓使用者看得到「已觸發」而不是憑空消失）。
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS price_alerts (
+                id         TEXT PRIMARY KEY,
+                name       TEXT,
+                market     TEXT,
+                exchange   TEXT,
+                symbol     TEXT,
+                price      DOUBLE PRECISION,
+                base       DOUBLE PRECISION,
+                dir        TEXT,
+                note       TEXT,
+                created_at DOUBLE PRECISION,
+                fired_at   DOUBLE PRECISION
+            )
+        """ if _acct._use_pg() else """
+            CREATE TABLE IF NOT EXISTS price_alerts (
+                id         TEXT PRIMARY KEY,
+                name       TEXT,
+                market     TEXT,
+                exchange   TEXT,
+                symbol     TEXT,
+                price      REAL,
+                base       REAL,
+                dir        TEXT,
+                note       TEXT,
+                created_at REAL,
+                fired_at   REAL
+            )
+        """)
         # 訊號歷史（聊天室式通知中心）：每帳號每事件一筆，前端拉清單顯示。
         # sig/dir/sigt = 訊號鍵/方向/進場訊號棒時間 → 止盈止損訊息可精確「回覆」原進場訊息。
         conn.execute("""
@@ -615,3 +648,153 @@ def test_push(req: TestReq):
     log_signal(name, _t.time(), "entry", payload["title"], payload["body"],
                "BTC/USDT", "crypto", "pionex", "4h")
     return {"ok": True, "sent": sent, "total": len(rows)}
+
+
+# ══════════════════════════════════════════════════════════════
+#  價格提示線：價格碰到指定價位就推播
+#  ⚠ 判斷放在**後端**背景監控器（notify_monitor._price_alert_scan）——
+#    「關掉網頁也會通知」是這個功能的全部意義，放前端等於沒做。
+# ══════════════════════════════════════════════════════════════
+_ALERT_MAX_PER_ACCT = 200        # 每帳號待命上限（防呆，不是效能瓶頸）
+
+
+class AlertAddReq(BaseModel):
+    name: str
+    market: str
+    exchange: Optional[str] = ""
+    symbol: str
+    price: float
+    base: Optional[float] = None     # 建立當下的現價（前端傳；沒有就由後端當場抓）
+    note: Optional[str] = ""
+
+
+@router.post("/alerts/add")
+def alerts_add(req: AlertAddReq):
+    _ensure_db()
+    name = _acct._norm_name(req.name or "")
+    if not _acct._valid_name(name):
+        raise HTTPException(status_code=400, detail="帳號名稱不正確")
+    sym = (req.symbol or "").strip().upper()[:60]
+    if not sym:
+        raise HTTPException(status_code=400, detail="缺少標的")
+    try:
+        price = float(req.price)
+    except Exception:
+        raise HTTPException(status_code=400, detail="價格不正確")
+    if not (price > 0):
+        raise HTTPException(status_code=400, detail="價格必須大於 0")
+    market = (req.market or "crypto").strip().lower()[:10]
+    exch = (req.exchange or "").strip().lower()[:20]
+    base = None
+    try:
+        base = float(req.base) if req.base is not None else None
+    except Exception:
+        base = None
+    if base is None or not (base > 0):
+        base = _alert_price_of(market, exch, sym)
+    if base is None:
+        raise HTTPException(status_code=400, detail="抓不到目前價格，無法判斷方向")
+    # ⚠ 方向在**建立當下**就定案：價位在現價之上＝等它漲上來，之下＝等它跌下去。
+    #   不能每次掃描時才比（那樣「現價剛好在提示價附近抖動」會反覆觸發）。
+    direction = "up" if price > base else "down"
+    conn, ph = _acct._db()
+    try:
+        cur = conn.execute(
+            f"SELECT COUNT(*) FROM price_alerts WHERE name={ph} AND fired_at IS NULL", (name,))
+        if int((cur.fetchone() or [0])[0]) >= _ALERT_MAX_PER_ACCT:
+            raise HTTPException(status_code=400, detail=f"待命中的提示線已達上限 {_ALERT_MAX_PER_ACCT} 條")
+        aid = base64.urlsafe_b64encode(os.urandom(9)).decode().rstrip("=")
+        conn.execute(
+            f"INSERT INTO price_alerts (id,name,market,exchange,symbol,price,base,dir,note,created_at,fired_at) "
+            f"VALUES ({ph},{ph},{ph},{ph},{ph},{ph},{ph},{ph},{ph},{ph},NULL)",
+            (aid, name, market, exch, sym, price, base, direction, (req.note or "")[:120], time.time()))
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True, "id": aid, "dir": direction, "base": base}
+
+
+class AlertListReq(BaseModel):
+    name: str
+    symbol: Optional[str] = None     # 帶了就只回這一檔（畫圖用）
+    market: Optional[str] = None
+
+
+@router.post("/alerts/list")
+def alerts_list(req: AlertListReq):
+    _ensure_db()
+    name = _acct._norm_name(req.name or "")
+    if not _acct._valid_name(name):
+        return {"alerts": []}
+    conn, ph = _acct._db()
+    try:
+        q = f"SELECT id,market,exchange,symbol,price,base,dir,note,created_at,fired_at FROM price_alerts WHERE name={ph}"
+        args = [name]
+        if req.symbol:
+            q += f" AND symbol={ph}"; args.append(req.symbol.strip().upper())
+        if req.market:
+            q += f" AND market={ph}"; args.append(req.market.strip().lower())
+        q += " ORDER BY created_at DESC"
+        rows = conn.execute(q, tuple(args)).fetchall() or []
+    finally:
+        conn.close()
+    ks = ("id", "market", "exchange", "symbol", "price", "base", "dir", "note", "created_at", "fired_at")
+    return {"alerts": [dict(zip(ks, r)) for r in rows]}
+
+
+class AlertDelReq(BaseModel):
+    name: str
+    id: Optional[str] = None
+    clear_fired: Optional[bool] = False    # 一次清掉所有「已觸發」的
+
+
+@router.post("/alerts/del")
+def alerts_del(req: AlertDelReq):
+    _ensure_db()
+    name = _acct._norm_name(req.name or "")
+    if not _acct._valid_name(name):
+        raise HTTPException(status_code=400, detail="帳號名稱不正確")
+    conn, ph = _acct._db()
+    try:
+        if req.clear_fired:
+            cur = conn.execute(f"DELETE FROM price_alerts WHERE name={ph} AND fired_at IS NOT NULL", (name,))
+        elif req.id:
+            cur = conn.execute(f"DELETE FROM price_alerts WHERE name={ph} AND id={ph}", (name, req.id))
+        else:
+            raise HTTPException(status_code=400, detail="要指定 id 或 clear_fired")
+        conn.commit()
+        return {"ok": True, "n": cur.rowcount}
+    finally:
+        conn.close()
+
+
+def _alert_price_of(market: str, exchange: str, symbol: str):
+    """取某標的目前價。優先用背景 worker already 維護好的報價快照（免費、每秒更新）；
+    ⚠ 沒有才退回真的去抓——提示線可能有幾十條，逐條打 API 會把權重吃光。"""
+    try:
+        from utils import live_data
+        sym_u = (symbol or "").upper()
+        for mk in (("futures", "spot") if market == "crypto" else ("tw",)):
+            for t in live_data.get(mk) or []:
+                d = str(t.get("display") or "").upper()
+                sy = str(t.get("symbol") or "").upper()
+                if d == sym_u or sy == sym_u:
+                    px = t.get("price")
+                    if isinstance(px, (int, float)) and px > 0:
+                        return float(px)
+    except Exception:
+        pass
+    # 退路：真的去抓一根最新 K（美股/港股不在報價快照裡，只能走這條）。
+    # ⚠ 只在快照沒有時才走；提示線可能有幾十條，逐條打 API 會把交易所權重吃光。
+    try:
+        from routes.data import get_latest, LatestRequest
+        r = get_latest(LatestRequest(market=market, symbol=symbol,
+                                     exchange=(exchange or "binance"), timeframe="1m"))
+        arr = (r or {}).get("data") or []
+        if arr:
+            px = arr[-1].get("close")
+            if isinstance(px, (int, float)) and px > 0:
+                return float(px)
+    except Exception:
+        pass
+    return None

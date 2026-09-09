@@ -626,6 +626,71 @@ def _coach_scan_push():
                 except Exception: pass
 
 
+
+def _price_alert_scan():
+    """價格提示線：待命中的提示線,價格碰到就推播（2026-09-10）。
+
+    ⚠ 這支的全部意義就是「**關掉網頁也會通知**」→ 判斷一定要在後端跑。
+    ⚠ 一個標的只解析一次價格:同一檔可能有很多條提示線,逐條抓會把交易所權重吃光
+      （報價快照是免費的,美股/港股才會退回真的去抓）。
+    ⚠ 方向在**建立時**就定案（price > 當時現價 ⇒ 等它漲上來,反之等它跌下去）,
+      掃描時只比一次 → 現價在提示價附近抖動也不會反覆觸發。
+    ⚠ 觸發後**保留該列**只填 fired_at:使用者要看得到「已觸發」,而不是提示線憑空消失。
+    絕不拋例外（背景迴圈裡的一環,壞了不能拖垮其他掃描）。"""
+    try:
+        from routes import notify as _nt
+        from routes import account as _acct2
+        _nt._ensure_db()
+        conn, ph = _acct2._db()
+        try:
+            rows = conn.execute(
+                "SELECT id,name,market,exchange,symbol,price,dir,note FROM price_alerts "
+                "WHERE fired_at IS NULL").fetchall() or []
+        finally:
+            conn.close()
+        if not rows:
+            return
+        prices = {}                                   # (market,exchange,symbol) → 現價，一檔只解析一次
+        fired = []
+        for aid, name, market, exch, sym, target, direction, note in rows:
+            key = (market, exch, sym)
+            if key not in prices:
+                prices[key] = _nt._alert_price_of(market, exch, sym)
+            px = prices[key]
+            if px is None or target is None:
+                continue
+            hit = (px >= float(target)) if direction == "up" else (px <= float(target))
+            if hit:
+                fired.append((aid, name, market, exch, sym, float(target), float(px), note))
+        if not fired:
+            return
+        now = time.time()
+        conn, ph = _acct2._db()
+        try:
+            for aid, *_ in fired:
+                conn.execute(f"UPDATE price_alerts SET fired_at={ph} WHERE id={ph}", (now, aid))
+            conn.commit()
+        finally:
+            conn.close()
+        for aid, name, market, exch, sym, target, px, note in fired:
+            arrow = "▲" if px >= target else "▼"
+            body = f"{arrow} 價格碰到 {_fmt_price(target)}（現價 {_fmt_price(px)}）"
+            if note:
+                body += f"\n{note}"
+            try:
+                _nt.push_to_account(name, {
+                    "title": f"🔔 {sym} 到價",
+                    "body": body,
+                    "tag": f"alert:{aid}",
+                    "data": {"symbol": sym, "market": market, "exchange": exch},
+                })
+            except Exception as e:
+                print(f"  ⚠ 到價推播失敗 {sym}: {e}")
+            print(f"  🔔 到價提示: {name} {sym} {target} (現價 {px})")
+    except Exception as e:
+        print(f"  ⚠ 價格提示線掃描失敗：{e}")
+
+
 def run_monitor_loop():
     """背景執行緒入口（daemon）。"""
     from utils.singleton_lease import SingletonLease
@@ -661,6 +726,11 @@ def run_monitor_loop():
             _tick(last_seen)
         except Exception as e:
             print(f"  ⚠ 訊號監控 tick 失敗：{e}")
+        # 每 ~60s：價格提示線（使用者在圖上設的到價通知）
+        try:
+            _price_alert_scan()
+        except Exception as e:
+            print(f"  ⚠ 價格提示線掃描失敗：{e}")
         # 每 ~60s：價格逼近缺口就「即時補掛」FVG 限價單（整個小時不漏單，不只收盤那一刻）
         try:
             _fvg_approach_scan()

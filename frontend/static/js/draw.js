@@ -534,6 +534,7 @@ function loadDrawings() {
   // ⚠ 按鈕與浮層的勾選框也要重畫：「分享」是**逐標的**的，換了標的就是另一個答案，
   //   不更新的話會停在上一個標的的狀態＝畫面說謊（這正是本次修掉的那個 bug）。
   try {
+    if (typeof _alFetch === "function") _alFetch(false);   // 🔔 提示線也跟著換標的
     if (typeof _shFetch === "function") _shFetch(false);
     if (typeof _shSyncBtn === "function") _shSyncBtn();
     if (window._shRepaintUI && !document.getElementById("shareDrawPop")?.hidden) window._shRepaintUI();
@@ -1324,6 +1325,17 @@ function _onChartMouseUp() {
 function _onChartClick(e) {
   if (_dragJustMoved) { _dragJustMoved = false; return; }
   const { x, y } = _canvasXY(e);
+
+  // 🔔 價格提示線：選了 alert 工具就「點哪個價位設哪裡」，設完自動回游標
+  if (drawTool === "alert") {
+    e.stopPropagation();
+    const pr = candleSeries?.coordinateToPrice(y);
+    if (pr != null && pr > 0) _alAdd(pr);
+    _returnToPointer();
+    return;
+  }
+  // 游標模式下點到提示線的標籤 → 移除那條（不必先切工具）
+  if (drawTool === "pointer" && _alertClickHit(x, y)) { e.stopPropagation(); return; }
 
   if (drawTool === "pointer") {
     if (dragState?.moved) return;
@@ -3512,6 +3524,14 @@ _shLoadPrefs();
    ⚠ document.hidden 就跳過：分頁在背景時**應該是零流量**（本專案已為此修過一次
      離線偵測的背景輪詢）。回到前景時下面的 visibilitychange 會立刻補一次。
    ⚠ 60 秒夠了：這是「別人畫的線」，不是報價，沒有即時性需求。 */
+/* 🔔 提示線：開機抓一次；之後每 60 秒重抓（可能在別的裝置新增、或已被後端標成觸發）。
+   ⚠ document.hidden 就跳過（背景零流量原則）；回前景補一次。 */
+setTimeout(() => { try { _alFetch(true); } catch (e) {} }, 2500);
+setInterval(() => { if (!document.hidden) { try { _alFetch(true); } catch (e) {} } }, 60000);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) { try { _alFetch(true); } catch (e) {} }
+});
+
 const _SH_POLL_MS = 60000;
 setInterval(() => {
   if (!_shView || document.hidden) return;
@@ -3578,6 +3598,136 @@ function _shEsc(t) {
   return String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+
+/* ══════════════════════════════════════════════════════════════
+   價格提示線（2026-09-10 使用者：「價格到後會自己發訊息」）
+
+   ⚠⚠ 判斷在**後端**（notify_monitor._price_alert_scan），不在這裡 ——
+     這個功能的全部意義就是「**關掉網頁也會通知**」，放前端等於沒做。
+     前端只負責：建立 / 顯示 / 刪除。
+   ⚠ 提示線**不是繪圖**：不進 `drawings`、不進 localStorage、不參與 findNearest。
+     它是伺服器上的一筆狀態，這裡只是把它畫出來。
+   ══════════════════════════════════════════════════════════════ */
+let _alerts = [];            // 當前標的的提示線（含已觸發的）
+let _alertKey = "";          // _alerts 對應的標的
+let _alertBusy = false;
+const _ALERT_C = { wait: "255,167,38", fired: "120,123,134" };   // 待命=橘、已觸發=灰
+
+function _alSym() {
+  return {
+    market: document.getElementById("marketSelect")?.value || "crypto",
+    exchange: document.getElementById("exchangeSelect")?.value || "",
+    symbol: (document.getElementById("symbolInput")?.value || "").trim().toUpperCase(),
+  };
+}
+function _alAcct() { try { return (window._acctName || "").trim(); } catch (e) { return ""; } }
+
+async function _alFetch(force) {
+  const name = _alAcct(); const { symbol } = _alSym();
+  const key = (typeof _drawSymKey === "function") ? _drawSymKey() : "";
+  if (!name || !symbol) { if (_alerts.length) { _alerts = []; _scheduleRenderDrawings(); } return; }
+  if (!force && key === _alertKey) return;
+  try {
+    const r = await fetch("/api/notify/alerts/list", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, symbol }),
+    });
+    if (!r.ok) throw new Error("HTTP " + r.status);       // ⚠ 錯誤回應的 body 也是 JSON
+    const j = await r.json();
+    if (_drawSymKey() !== key) return;                    // 抓回來已換標的 → 丟棄
+    _alerts = (j.alerts || []).filter(a => a && a.price > 0);
+    _alertKey = key;
+    _scheduleRenderDrawings();
+  } catch (e) { console.debug("[提示線] 取得失敗:", e && e.message); }
+}
+window._alFetch = _alFetch;
+
+async function _alAdd(price) {
+  const name = _alAcct();
+  if (!name) { if (typeof showToast === "function") showToast("要先登入帳號才能設定到價通知", 2600, true); return; }
+  if (!(price > 0) || _alertBusy) return;
+  const { market, exchange, symbol } = _alSym();
+  _alertBusy = true;
+  try {
+    // base 帶目前現價 → 後端據此決定「等它漲上來」還是「等它跌下去」
+    let base = null;
+    try { if (typeof ohlcvData !== "undefined" && ohlcvData.length) base = ohlcvData[ohlcvData.length - 1].close; } catch (e) {}
+    const r = await fetch("/api/notify/alerts/add", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, market, exchange, symbol, price, base }),
+    });
+    if (!r.ok) {
+      let msg = "HTTP " + r.status;
+      try { const j = await r.json(); if (j && j.detail) msg = j.detail; } catch (e) {}
+      throw new Error(msg);
+    }
+    await _alFetch(true);
+    if (typeof showToast === "function") showToast("🔔 已設定到價通知 " + _fmtAlertPx(price), 2200, true);
+  } catch (e) {
+    console.debug("[提示線] 建立失敗:", e && e.message);
+    if (typeof showToast === "function") showToast("設定失敗：" + (e && e.message), 3000, true);
+  } finally { _alertBusy = false; }
+}
+
+async function _alDel(id) {
+  const name = _alAcct(); if (!name || !id) return;
+  try {
+    const r = await fetch("/api/notify/alerts/del", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, id }),
+    });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    _alerts = _alerts.filter(a => a.id !== id);
+    _scheduleRenderDrawings();
+    if (typeof showToast === "function") showToast("已移除到價通知", 1800, true);
+  } catch (e) { console.debug("[提示線] 刪除失敗:", e && e.message); }
+}
+
+function _fmtAlertPx(p) {
+  try { if (typeof _fmtPx === "function") return _fmtPx(p); } catch (e) {}
+  return String(Math.round(p * 100) / 100);
+}
+
+/* 畫提示線。回傳每條線的標籤矩形（給命中判定用：點標籤＝刪除）。 */
+let _alertHit = [];
+function _drawPriceAlerts(W, H) {
+  _alertHit = [];
+  if (!drawCtx || !_alerts.length || typeof candleSeries === "undefined" || !candleSeries) return;
+  drawCtx.save();
+  try {
+    drawCtx.font = "700 10px system-ui, sans-serif";
+    drawCtx.textBaseline = "middle";
+    for (const a of _alerts) {
+      const y = candleSeries.priceToCoordinate(a.price);
+      if (y == null || y < 0 || y > H) continue;
+      const fired = !!a.fired_at;
+      const rgb = fired ? _ALERT_C.fired : _ALERT_C.wait;
+      drawCtx.strokeStyle = `rgba(${rgb},${fired ? 0.5 : 0.9})`;
+      drawCtx.lineWidth = 1;
+      drawCtx.setLineDash([5, 4]);
+      drawCtx.beginPath(); drawCtx.moveTo(0, y); drawCtx.lineTo(W, y); drawCtx.stroke();
+      drawCtx.setLineDash([]);
+      // 標籤：🔔 + 價格（已觸發加 ✓）。畫在左緣，讓開左側工具島。
+      const txt = (fired ? "✓ " : "🔔 ") + _fmtAlertPx(a.price);
+      const tw = drawCtx.measureText(txt).width;
+      const bx = 64, bw = tw + 12, bh = 16;
+      drawCtx.fillStyle = `rgba(${rgb},${fired ? 0.22 : 0.32})`;
+      drawCtx.fillRect(bx, y - bh / 2, bw, bh);
+      drawCtx.fillStyle = fired ? "rgba(255,255,255,0.6)" : "rgba(255,255,255,0.92)";
+      drawCtx.fillText(txt, bx + 6, y);
+      _alertHit.push({ id: a.id, x1: bx, x2: bx + bw, y1: y - bh / 2, y2: y + bh / 2 });
+    }
+  } finally { drawCtx.restore(); }
+}
+
+/* 點到提示線標籤 → 刪除。回傳有沒有處理掉這次點擊。 */
+function _alertClickHit(x, y) {
+  for (const h of _alertHit) {
+    if (x >= h.x1 && x <= h.x2 && y >= h.y1 && y <= h.y2) { _alDel(h.id); return true; }
+  }
+  return false;
+}
+
 function renderDrawings() {
   if (!drawCtx || !drawCanvas) return;
   // 圖表移動中旗標：給 _drawSessionOverlay 等跳過大面積半透明填色（overlay 2x 畫布最貴的像素工作）
@@ -3625,6 +3775,9 @@ function renderDrawings() {
   _byLayer(drawings).filter(d => _isMain(d) && d.id !== selectedId && d.id !== hoveredId).forEach(d => _safeDraw(d, false, false));
   _byLayer(drawings).filter(d => _isMain(d) && d.id === hoveredId && d.id !== selectedId).forEach(d => _safeDraw(d, true, false));
   _byLayer(drawings).filter(d => _isMain(d) && d.id === selectedId).forEach(d => _safeDraw(d, false, true));
+
+  // 價格提示線（伺服器上的到價通知；不是繪圖）→ 畫在繪圖之上，別被線條蓋住
+  _drawPriceAlerts(W, H);
 
   // 繪圖文字標籤(非文字型)+ 鎖定圖示:畫在繪圖錨點上方
   _byLayer(drawings).forEach(d => { if (d.text && _isMain(d)) { try { _drawDrawingBadge(d, W, H); } catch (e) { try { drawCtx.restore(); } catch (_) {} } } });
