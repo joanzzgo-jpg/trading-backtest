@@ -3746,6 +3746,13 @@ function _alReconcile() {
   clearTimeout(_alRecT);
   _alRecT = setTimeout(async () => {
     if (!_alAcct() || !_alerts.length) return;
+    /* ★★ 一定要確認「_alerts 是不是**這個標的**的」才能對帳。
+       ⚠ 少了這道檢查會**刪光別的標的的鬧鐘**（實測 4 條 → 0 條）：
+         換標的時 drawings 是同步換的，_alFetch 卻是非同步的 → 中間有一段
+         「drawings 已是新標的、_alerts 還是舊標的」的窗口；此時只要使用者畫了任何東西
+         （saveDrawings → 對帳），舊標的那些鬧鐘就會因為「沒有線引用」被整批刪掉。
+         而且完全靜默：使用者是在另一檔上操作，根本不會聯想到 BTC 的鬧鐘為什麼不見了。 */
+    if (_alertKey !== ((typeof _drawSymKey === "function") ? _drawSymKey() : "")) return;
     const live = new Map();
     for (const d of (Array.isArray(drawings) ? drawings : []))
       if (d && d.type === "hline" && d.alertId) live.set(d.alertId, d);

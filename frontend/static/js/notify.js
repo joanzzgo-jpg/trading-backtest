@@ -467,6 +467,7 @@ function _ntfMatch(ev, f) {
 // 事件 → 種類標籤（顯示用）：label=標籤字 / cls=標籤色 / bub=泡泡邊色
 function _ntfType(ev) {
   switch (ev) {
+    case "alert":       return { label: "🔔 到價",   cls: "t-alert",   bub: "evt-alert" };
     case "coach":       return { label: "🎯 可進場", cls: "t-tp",      bub: "evt-entry" };
     case "entry":       return { label: "進場",     cls: "t-entry",   bub: "evt-entry" };
     case "tp":          return { label: "止盈",     cls: "t-tp",      bub: "evt-tp" };

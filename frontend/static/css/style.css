@@ -7014,6 +7014,7 @@ html.landing-active .landing { background: transparent; }
   }
   .m-sig-bubble:active { background: rgba(255,145,71,.12); }
   .m-sig-bubble.evt-entry { border-left-color: var(--accent, #ff9147); }
+  .m-sig-bubble.evt-alert { border-left-color: #ffa726; }   /* 🔔 到價 */
   .m-sig-bubble.evt-tp { border-left-color: #46c08a; }
   .m-sig-bubble.evt-sl { border-left-color: #e05a6d; }
   /* 自動交易：暖金色系 + 淡金底 → 跟訊號區隔但仍貼合暖色調 */
@@ -7029,6 +7030,7 @@ html.landing-active .landing { background: transparent; }
   .m-sig-tag.t-tp      { background: rgba(70,192,138,.2);  color: #5ccb9d; }
   .m-sig-tag.t-sl      { background: rgba(224,90,109,.2);  color: #ed7588; }
   .m-sig-tag.t-auto    { background: rgba(227,169,62,.22); color: #E3A93E; }
+  .m-sig-tag.t-alert   { background: rgba(255,167,38,.22);  color: #ffa726; }   /* 🔔 到價 */
   .m-sig-tag.t-auto-tp { background: rgba(70,192,138,.2);  color: #5ccb9d; }
   .m-sig-tag.t-auto-sl { background: rgba(224,90,109,.2);  color: #ed7588; }
   /* 止盈/止損的「回覆」引用塊（LINE/Messenger 感）：點它捲回原進場訊息 */

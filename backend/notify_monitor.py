@@ -677,15 +677,24 @@ def _price_alert_scan():
             body = f"{arrow} 價格碰到 {_fmt_price(target)}（現價 {_fmt_price(px)}）"
             if note:
                 body += f"\n{note}"
+            title = f"🔔 {sym} 到價"
             try:
                 _nt.push_to_account(name, {
-                    "title": f"🔔 {sym} 到價",
+                    "title": title,
                     "body": body,
                     "tag": f"alert:{aid}",
                     "data": {"symbol": sym, "market": market, "exchange": exch},
                 })
             except Exception as e:
                 print(f"  ⚠ 到價推播失敗 {sym}: {e}")
+            # ★ 一定要留紀錄（2026-09-10 使用者：「確認會有記錄」）：推播是**一次性**的,
+            #   手機鎖著、通知被滑掉、或當下不在旁邊,就完全沒有痕跡了。
+            #   寫進 notify_log → 通知中心(聊天室)看得到「什麼時候、哪一檔、碰到什麼價」。
+            #   ⚠ 即使推播失敗也要記:推不出去才更需要留下紀錄。
+            try:
+                _nt.log_signal(name, now, "alert", title, body, sym, market, exch, "")
+            except Exception as e:
+                print(f"  ⚠ 到價紀錄寫入失敗 {sym}: {e}")
             print(f"  🔔 到價提示: {name} {sym} {target} (現價 {px})")
     except Exception as e:
         print(f"  ⚠ 價格提示線掃描失敗：{e}")
