@@ -8165,3 +8165,7 @@ body.wl-drag-on #tickerList .ticker-item { touch-action: none; }
 .share-row .sr-sub { display: block; font-size: 10px; color: var(--muted); margin-top: 2px; line-height: 1.45; }
 .share-row.disabled { opacity: .45; cursor: not-allowed; }
 .share-note { padding: 6px 12px 2px; font-size: 10px; color: var(--muted); line-height: 1.5; border-top: 1px solid var(--border); margin-top: 4px; }
+
+/* 🔔 到價鬧鐘按鈕（上方快捷列，選到水平線才出現）。.on＝這條線已經設了通知。 */
+.sqd-alert.on { color: #ffa726 !important; }
+.sqd-alert.on svg { fill: rgba(255,167,38,.22); }

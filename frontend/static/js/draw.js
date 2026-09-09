@@ -497,6 +497,8 @@ function saveDrawings() {
     // 有開「分享我的繪圖」才推送（debounce 1.5s，避免拖曳過程每一動都打）。
     // ⚠ 放在存檔成功之後：本機都沒存起來的東西不該先分享出去。
     try { if (typeof _shPush === "function") _shPush(); } catch (e) {}
+    // 🔔 到價鬧鐘對帳：線被刪/被拖動 → 伺服器上那條跟著刪或改（debounce，見 _alReconcile）
+    try { if (typeof _alReconcile === "function") _alReconcile(); } catch (e) {}
   } catch (e) {
     // ★別再靜默吞掉(2026-07-31):原本 `catch {}` → 瀏覽器儲存空間滿時繪圖**存不進去卻毫無提示**,
     //   使用者以為畫好了,重新整理就全沒了。這是資料遺失,一定要講。
@@ -1325,17 +1327,6 @@ function _onChartMouseUp() {
 function _onChartClick(e) {
   if (_dragJustMoved) { _dragJustMoved = false; return; }
   const { x, y } = _canvasXY(e);
-
-  // 🔔 價格提示線：選了 alert 工具就「點哪個價位設哪裡」，設完自動回游標
-  if (drawTool === "alert") {
-    e.stopPropagation();
-    const pr = candleSeries?.coordinateToPrice(y);
-    if (pr != null && pr > 0) _alAdd(pr);
-    _returnToPointer();
-    return;
-  }
-  // 游標模式下點到提示線的標籤 → 移除那條（不必先切工具）
-  if (drawTool === "pointer" && _alertClickHit(x, y)) { e.stopPropagation(); return; }
 
   if (drawTool === "pointer") {
     if (dragState?.moved) return;
@@ -3545,6 +3536,14 @@ document.addEventListener("visibilitychange", () => {
 /* 共享繪圖的 UI：工具列按鈕 → 小浮層，兩個開關分開放。
    ⚠ draw.js 是延遲載入的，**不可以掛 DOMContentLoaded**（那時早就觸發過了，永遠不執行）
      → 由檔末的自我初始化直接呼叫。 */
+/* 🔔 快捷列鈴鐺的綁定。⚠ draw.js 延遲載入 → 由檔末自我初始化呼叫，不可掛 DOMContentLoaded。 */
+function initLineAlert() {
+  const btn = document.getElementById("btnLineAlert");
+  if (!btn) return;
+  btn.addEventListener("click", e => { e.stopPropagation(); _alToggleForSelected(); });
+  _alSyncBtn();
+}
+
 function initShareToggle() {
   const btn = document.getElementById("btnShareDraw");
   const pop = document.getElementById("shareDrawPop");
@@ -3644,8 +3643,8 @@ window._alFetch = _alFetch;
 
 async function _alAdd(price) {
   const name = _alAcct();
-  if (!name) { if (typeof showToast === "function") showToast("要先登入帳號才能設定到價通知", 2600, true); return; }
-  if (!(price > 0) || _alertBusy) return;
+  if (!name) { if (typeof showToast === "function") showToast("要先登入帳號才能設定到價通知", 2600, true); return null; }
+  if (!(price > 0) || _alertBusy) return null;
   const { market, exchange, symbol } = _alSym();
   _alertBusy = true;
   try {
@@ -3661,11 +3660,14 @@ async function _alAdd(price) {
       try { const j = await r.json(); if (j && j.detail) msg = j.detail; } catch (e) {}
       throw new Error(msg);
     }
+    const j = await r.json();
     await _alFetch(true);
     if (typeof showToast === "function") showToast("🔔 已設定到價通知 " + _fmtAlertPx(price), 2200, true);
+    return j && j.id ? j.id : null;
   } catch (e) {
     console.debug("[提示線] 建立失敗:", e && e.message);
     if (typeof showToast === "function") showToast("設定失敗：" + (e && e.message), 3000, true);
+    return null;
   } finally { _alertBusy = false; }
 }
 
@@ -3683,49 +3685,92 @@ async function _alDel(id) {
   } catch (e) { console.debug("[提示線] 刪除失敗:", e && e.message); }
 }
 
+/* 這條線有沒有在響的鬧鐘（回傳 alert 物件或 null）。給 drawOne 的價格標籤用。 */
+function _alOf(d) {
+  if (!d || !d.alertId || !_alerts.length) return null;
+  return _alerts.find(a => a.id === d.alertId) || null;
+}
+
 function _fmtAlertPx(p) {
   try { if (typeof _fmtPx === "function") return _fmtPx(p); } catch (e) {}
   return String(Math.round(p * 100) / 100);
 }
 
-/* 畫提示線。回傳每條線的標籤矩形（給命中判定用：點標籤＝刪除）。 */
-let _alertHit = [];
-function _drawPriceAlerts(W, H) {
-  _alertHit = [];
-  if (!drawCtx || !_alerts.length || typeof candleSeries === "undefined" || !candleSeries) return;
-  drawCtx.save();
-  try {
-    drawCtx.font = "700 10px system-ui, sans-serif";
-    drawCtx.textBaseline = "middle";
-    for (const a of _alerts) {
-      const y = candleSeries.priceToCoordinate(a.price);
-      if (y == null || y < 0 || y > H) continue;
-      const fired = !!a.fired_at;
-      const rgb = fired ? _ALERT_C.fired : _ALERT_C.wait;
-      drawCtx.strokeStyle = `rgba(${rgb},${fired ? 0.5 : 0.9})`;
-      drawCtx.lineWidth = 1;
-      drawCtx.setLineDash([5, 4]);
-      drawCtx.beginPath(); drawCtx.moveTo(0, y); drawCtx.lineTo(W, y); drawCtx.stroke();
-      drawCtx.setLineDash([]);
-      // 標籤：🔔 + 價格（已觸發加 ✓）。畫在左緣，讓開左側工具島。
-      const txt = (fired ? "✓ " : "🔔 ") + _fmtAlertPx(a.price);
-      const tw = drawCtx.measureText(txt).width;
-      const bx = 64, bw = tw + 12, bh = 16;
-      drawCtx.fillStyle = `rgba(${rgb},${fired ? 0.22 : 0.32})`;
-      drawCtx.fillRect(bx, y - bh / 2, bw, bh);
-      drawCtx.fillStyle = fired ? "rgba(255,255,255,0.6)" : "rgba(255,255,255,0.92)";
-      drawCtx.fillText(txt, bx + 6, y);
-      _alertHit.push({ id: a.id, x1: bx, x2: bx + bw, y1: y - bh / 2, y2: y + bh / 2 });
-    }
-  } finally { drawCtx.restore(); }
+/* 左側那個獨立徽章已移除（2026-09-10）：使用者要的是「價格數字左邊」一個圖示，
+   兩處都畫等於同一件事講兩遍。狀態現在由 drawOne 的價格標籤旁那個 🔔／✓ 表達。
+   這裡保留空實作，讓 renderDrawings 的呼叫點不用動。 */
+function _drawPriceAlerts(W, H) {}
+
+/* 快捷列的 🔔 按鈕：只有「選取了一條水平線」時才出現；.on＝那條線已設鬧鐘。 */
+let _alBtnLast = "";
+function _alSyncBtn() {
+  const btn = document.getElementById("btnLineAlert");
+  const sep = document.getElementById("sqdAlertSep");
+  if (!btn) return;
+  const d = (Array.isArray(drawings) ? drawings : []).find(x => x.id === selectedId);
+  const show = !!(d && d.type === "hline");
+  btn.hidden = !show; if (sep) sep.hidden = !show;
+  if (!show) return;
+  const a = d.alertId ? _alerts.find(x => x.id === d.alertId) : null;
+  btn.classList.toggle("on", !!a);
+  btn.title = a
+    ? (a.fired_at ? "這條線的到價通知已觸發過；點一下取消" : "已設到價通知：價格碰到就推播。點一下取消")
+    : "到價通知：價格碰到這條線就推播提醒你（關掉網頁也會通知）";
+}
+window._alSyncBtn = _alSyncBtn;
+
+/* 按鈕行為：沒設就設、設了就取消。 */
+async function _alToggleForSelected() {
+  const d = (Array.isArray(drawings) ? drawings : []).find(x => x.id === selectedId);
+  if (!d || d.type !== "hline") return;
+  if (d.alertId && _alerts.some(x => x.id === d.alertId)) {
+    const id = d.alertId;
+    delete d.alertId;
+    saveDrawings();                       // 存檔會觸發對帳，把伺服器那條也刪掉
+    await _alDel(id);
+  } else {
+    const id = await _alAdd(d.price);
+    if (id) { d.alertId = id; saveDrawings(); }
+  }
+  _alSyncBtn();
+  _scheduleRenderDrawings();
 }
 
-/* 點到提示線標籤 → 刪除。回傳有沒有處理掉這次點擊。 */
-function _alertClickHit(x, y) {
-  for (const h of _alertHit) {
-    if (x >= h.x1 && x <= h.x2 && y >= h.y1 && y <= h.y2) { _alDel(h.id); return true; }
-  }
-  return false;
+/* ── 對帳：把「線」與「伺服器上的鬧鐘」拉回一致 ────────────────────────────
+   ⚠ 用對帳而不是逐條掛鉤刪除路徑：繪圖有右鍵刪除、橡皮擦、復原(整份還原)、清除圖層…
+     多條路徑，漏掛一條就會留下**刪不掉的孤兒鬧鐘**（線沒了、通知還在響）。
+     saveDrawings() 是所有變動的共同出口 → 在那裡對帳一次，全部涵蓋。
+   做兩件事：① 沒有任何線引用的鬧鐘 → 刪掉  ② 線被拖動、價格變了 → 重設成新價。 */
+let _alRecT = null;
+function _alReconcile() {
+  clearTimeout(_alRecT);
+  _alRecT = setTimeout(async () => {
+    if (!_alAcct() || !_alerts.length) return;
+    const live = new Map();
+    for (const d of (Array.isArray(drawings) ? drawings : []))
+      if (d && d.type === "hline" && d.alertId) live.set(d.alertId, d);
+    for (const a of [..._alerts]) {
+      const d = live.get(a.id);
+      if (!d) { await _alDel(a.id); continue; }                    // ① 沒人引用 → 刪
+      if (Math.abs(Number(d.price) - Number(a.price)) > 1e-9) {    // ② 線被移動 → 重設
+        await _alDel(a.id);
+        const id = await _alAdd(d.price);
+        if (id) { d.alertId = id; try { _saveDrawStoreOnly(); } catch (e) {} }
+        else delete d.alertId;
+      }
+    }
+    _alSyncBtn();
+  }, 900);
+}
+
+/* 只把 drawings 寫回 localStorage，不再觸發對帳（避免對帳→存檔→對帳的迴圈）。 */
+function _saveDrawStoreOnly() {
+  try {
+    const store = _loadDrawStore();
+    const key = _drawSymKey();
+    if (drawings.length) store[key] = drawings; else delete store[key];
+    localStorage.setItem("tv_drawings_v2", JSON.stringify(store));
+  } catch (e) {}
 }
 
 function renderDrawings() {
@@ -3776,8 +3821,13 @@ function renderDrawings() {
   _byLayer(drawings).filter(d => _isMain(d) && d.id === hoveredId && d.id !== selectedId).forEach(d => _safeDraw(d, true, false));
   _byLayer(drawings).filter(d => _isMain(d) && d.id === selectedId).forEach(d => _safeDraw(d, false, true));
 
-  // 價格提示線（伺服器上的到價通知；不是繪圖）→ 畫在繪圖之上，別被線條蓋住
+  // 🔔 到價鬧鐘：畫在繪圖之上，別被線條蓋住
   _drawPriceAlerts(W, H);
+  // 選取狀態變了就同步快捷列那顆鈴鐺（選取只會透過重繪反映出來，這裡是共同出口）
+  try {
+    const _k = (selectedId || "") + "|" + _alerts.length;
+    if (_k !== _alBtnLast) { _alBtnLast = _k; _alSyncBtn(); }
+  } catch (e) {}
 
   // 繪圖文字標籤(非文字型)+ 鎖定圖示:畫在繪圖錨點上方
   _byLayer(drawings).forEach(d => { if (d.text && _isMain(d)) { try { _drawDrawingBadge(d, W, H); } catch (e) { try { drawCtx.restore(); } catch (_) {} } } });
@@ -3908,7 +3958,22 @@ function drawOne(d, W, H, isHovered, isSelected) {
     const _hpTxt = _hp >= 1000 ? _hp.toFixed(1) : _hp >= 10 ? _hp.toFixed(2) : _hp >= 1 ? _hp.toFixed(3) : _hp.toFixed(4);
     let _hpRight = W;
     try { const _tw = mainChart.timeScale().width(); if (_tw > 0) _hpRight = _tw; } catch (e) {}
-    drawCtx.fillText(_hpTxt, Math.max(5, _hpRight - drawCtx.measureText(_hpTxt).width - 5), y - 3);
+    const _hpX = Math.max(5, _hpRight - drawCtx.measureText(_hpTxt).width - 5);
+    drawCtx.fillText(_hpTxt, _hpX, y - 3);
+    /* 🔔 到價鬧鐘標示（2026-09-10 使用者：「價格數字左側要有提示圖示」）。
+       ⚠ 分開畫、不併進 _hpTxt：鈴鐺要用鬧鐘自己的顏色（待命橘/已觸發灰），
+         併進同一次 fillText 就只能跟價格同色，看不出狀態。
+       ⚠ 位置由已算好的 _hpX 往左退，不重新排版 → 價格數字位置完全不受影響。 */
+    try {
+      const _a = (typeof _alOf === "function") ? _alOf(d) : null;
+      if (_a) {
+        const _mk = _a.fired_at ? "✓" : "🔔";
+        drawCtx.save();
+        drawCtx.fillStyle = _a.fired_at ? "rgba(120,123,134,0.95)" : "rgba(255,167,38,0.95)";
+        drawCtx.fillText(_mk, Math.max(2, _hpX - drawCtx.measureText(_mk).width - 3), y - 3);
+        drawCtx.restore();
+      }
+    } catch (e) {}
     if (isSelected) {
       drawCtx.fillStyle = "rgba(255,255,255,0.15)";
       drawCtx.fillRect(0, y - 6, W, 12);
@@ -4560,6 +4625,6 @@ if (!window._drawBooted) {
   try {
     initDrawTools();
     initSessionToggle(); initWeekBoxToggle(); initVPToggle(); initCoachToggle(); initVwapToggle();
-    initShareToggle();
+    initShareToggle(); initLineAlert();
   } catch (e) { console.warn("draw self-init failed", e); }
 }
