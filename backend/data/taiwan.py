@@ -148,6 +148,90 @@ def _yf_history(ticker, interval: str, start: str, end: str):
         return None
 
 
+
+# ══════════════════════════════════════════════════════════════
+#  分割／減資自動還原（2026-09-10 使用者：「若有拆股的標的自動換算價格」）
+#
+#  ⚠ 為什麼不用 yfinance 的 .splits：**它會漏**。實測 6949 沛爾生醫*-創 2026-09-07
+#    做了 1:20 分割，yfinance 的 splits 回「無」（太新、又是創新板）→ 圖上留下一個
+#    -94.5% 的假崩盤（停牌 7 天、1490 → 81.9）。舊案例（6415/2603/6669）它有收錄，
+#    所以「資料源已經處理好」只對舊事件成立，不能當通則。
+#  ⚠ 官方 opendata 也沒有：除權息預告表(TWT48U_ALL)只收除權除息，
+#    面額變更/分割屬於另一種公司行動，不在裡面。
+#
+#  → 改用**資料本身**判斷，不依賴任何 split feed：
+#    台股有 ±10% 漲跌幅限制 → 跳空超過門檻在數學上不可能，除非發生公司行動。
+#    而且限制反過來把比例夾在很窄的範圍：
+#      還原後的前收 = 前收/R，且「開盤必須落在它的 ±10% 內」
+#      → R ∈ [前收/(開×1.1), 前收/(開×0.9)]
+#    在這個範圍裡找**乾淨的比例**（整數倍，或 1/2、2/5 這類簡單減資比）。
+#    6949：R ∈ [16.5, 20.2] → 唯一乾淨解 = 20（1490÷20 = 74.5，開 81.95 正好漲停）。
+#
+#  ★★ 找不到乾淨解就**原樣不動** —— 寧可留著那個跳空，也不要編一個比例把歷史整段改掉。
+#     （錯的還原比沒有還原更糟：使用者看不出來，但每個價格都是假的。）
+# ══════════════════════════════════════════════════════════════
+_TW_LIMIT = 0.10            # 台股單日漲跌幅限制
+_TW_GAP_TRIGGER = 0.18      # 跳空超過這個才懷疑公司行動（留足夠緩衝，不誤判正常行情）
+# 乾淨比例候選：分割（1股變 N 股）與減資（N 股併 1 股 / 常見減資比例）
+_TW_CLEAN_RATIOS = [2, 2.5, 3, 4, 5, 6, 8, 10, 12, 15, 20, 25, 40, 50, 100]
+_TW_CLEAN_RATIOS += [1/2, 2/5, 1/4, 3/10, 1/5, 3/5, 7/10, 1/10, 4/5, 9/10]
+
+
+def _tw_clean_ratio(lo: float, hi: float):
+    """在 [lo,hi] 範圍內找唯一一個「乾淨」的比例；找不到或有多個 → None（不還原）。"""
+    hits = [r for r in _TW_CLEAN_RATIOS if lo <= r <= hi]
+    if len(hits) != 1:
+        return None
+    return hits[0]
+
+
+def tw_adjust_splits(df, symbol: str = ""):
+    """把分割/減資**之前**的價格換算成現在的股數基準（量同步反向調整）。
+
+    ⚠ 日期一律看 time 欄位：本檔 fetch_tw_daily_yf 回的是 RangeIndex + time 欄位，
+      拿 df.index 當日期會變成 1970 年 → 條件對每一根都成立 → **整份資料（含最新價）
+      全被除掉**（實測 6415 最新收盤 404 被改成 101，而後面 tw_daily_fill_latest 又會
+      用官方值蓋回最後一根 → 最新價看起來是對的、只有歷史全錯，最難發現的那種）。
+    ⚠ 由新往舊掃、比例累乘：跨越兩次分割的舊資料要除以兩者的乘積。
+    """
+    try:
+        if df is None or getattr(df, "empty", True) or len(df) < 3:
+            return df
+        need = ("open", "high", "low", "close")
+        if not all(c in df.columns for c in need):
+            return df
+        t = pd.to_datetime(df["time"]) if "time" in df.columns else pd.to_datetime(df.index)
+        c = df["close"].astype(float).values
+        o = df["open"].astype(float).values
+        events = []                                   # (位置, 比例) —— 位置之前的都要除
+        for i in range(1, len(df)):
+            pc, op = c[i - 1], o[i]
+            if not (pc > 0 and op > 0):
+                continue
+            if abs(op - pc) / pc < _TW_GAP_TRIGGER:   # 沒有異常跳空 → 不是公司行動
+                continue
+            lo = pc / (op * (1 + _TW_LIMIT))
+            hi = pc / (op * (1 - _TW_LIMIT))
+            r = _tw_clean_ratio(min(lo, hi), max(lo, hi))
+            if r:
+                events.append((i, r))
+        if not events:
+            return df
+        out = df.copy()
+        div = pd.Series(1.0, index=df.index)
+        for i, r in events:
+            div.iloc[:i] *= r                         # 這次事件之前的全部要除
+        for col in need:
+            out[col] = (out[col].astype(float) / div).round(4)
+        if "volume" in out.columns:
+            out["volume"] = (out["volume"].astype(float) * div).round(0)
+        _log.info(f"[tw_splits] {symbol}: 偵測到 {len(events)} 次分割/減資 "
+                  f"{[(str(t.iloc[i])[:10], round(r, 4)) for i, r in events]}")
+        return out
+    except Exception as e:
+        _log.warning(f"[tw_adjust_splits] {symbol}: {e}")
+        return df
+
 def fetch_tw_daily_yf(symbol: str, start: str, end: str) -> pd.DataFrame:
     """
     用 yfinance 抓台股日線資料（不需 token，盤中即更新）。

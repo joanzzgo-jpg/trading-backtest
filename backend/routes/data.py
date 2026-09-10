@@ -145,6 +145,12 @@ def fetch_crt_df(market: str, symbol: str, timeframe: str, days: int,
                 _df = merge_tw_intraday(_df, _c1)
             except Exception:
                 pass
+            # 盤中也要還原：分割若發生在近 58 天內，盤中歷史一樣會有那個假跳空。
+            try:
+                from data.taiwan import tw_adjust_splits
+                _df = tw_adjust_splits(_df, symbol)
+            except Exception:
+                pass
             return resample_tw_intraday(_df, timeframe)
         else:
             start = (date.today() - timedelta(days=days)).isoformat()
@@ -152,6 +158,14 @@ def fetch_crt_df(market: str, symbol: str, timeframe: str, days: int,
                 _df = fetch_tw_daily_yf(symbol, start, end)
             except Exception:
                 _df = fetch_tw_stock(symbol, start, end, finmind_token)
+            # 分割/減資自動還原（2026-09-10）：不依賴 yfinance 的 splits（它會漏，實測 6949
+            # 2026-09-07 的 1:20 分割它就沒有）→ 由資料本身偵測「超過漲跌幅限制的跳空」。
+            # 找不到乾淨比例就原樣不動，見 taiwan.tw_adjust_splits。
+            try:
+                from data.taiwan import tw_adjust_splits
+                _df = tw_adjust_splits(_df, symbol)
+            except Exception:
+                pass
             # yfinance 台股日線收盤後會延遲很久才補上當天（實測週五收盤後 13 小時仍沒有）→
             # 用 TWSE/TPEX 官方 opendata 補最新那個交易日；週線/月線由日線聚合，一併受惠。
             _df = tw_daily_fill_latest(_df, symbol)
@@ -1279,6 +1293,11 @@ def _ohlcv_build(req: OHLCVRequest):
                 # ⚠ 改用共用的 resample_tw_intraday：這裡原本是把分桶規則**抄一份**在本地，
                 #   正是 resample_tw_4h 註解警告過的情況（兩條路徑規則一旦分歧，最後一根時間戳
                 #   對不上 → 前端當成新的一根接上去 → 圖上多一根假 K 棒）。
+                try:
+                    from data.taiwan import tw_adjust_splits
+                    df = tw_adjust_splits(df, req.symbol)
+                except Exception:
+                    pass
                 if req.timeframe in TW_RESAMPLE:
                     df = resample_tw_intraday(df, req.timeframe)
                 if use_limit:
@@ -1293,6 +1312,14 @@ def _ohlcv_build(req: OHLCVRequest):
                     df = fetch_tw_daily_yf(req.symbol, start, end)
                 except Exception:
                     df = fetch_tw_stock(req.symbol, start, end, req.finmind_token)
+                # ⚠ 分割/減資還原：這裡是 /api/ohlcv 的日線路徑,跟 fetch_crt_df 那條是**兩個**
+                #   各自獨立的呼叫點 —— 只掛一邊的話,圖表照樣顯示假崩盤（我第一版就漏了這個,
+                #   6949 透過 API 仍是 -94.5%）。兩處都要。
+                try:
+                    from data.taiwan import tw_adjust_splits
+                    df = tw_adjust_splits(df, req.symbol)
+                except Exception:
+                    pass
                 # 同 fetch_crt_df：官方 opendata 補最新交易日（yfinance 收盤後會延遲很久）
                 df = tw_daily_fill_latest(df, req.symbol)
                 df = resample_tw(df, req.timeframe)
