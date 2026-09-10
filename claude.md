@@ -165,6 +165,26 @@ K 棒本身錯了，上面所有 FVG／勝率／訊號**全部無效** —— �
 「中位數判準通用」，但它從來沒測過股市的 4h —— 同 session 內相鄰棒必然剛好差一個時框，
 最小間隔對 24 小時與有收盤的市場都成立。
 
+### 動到 `/api/latest` 任何一條 return 後（守門員之十八）
+```bash
+cd backend && ../.venv312/bin/python scripts/check_latest_json_safe.py   # 不需服務跑著，約 5 秒
+```
+2026-09-10 從本機日誌挖出來的既存事故：**216 次** `POST /api/latest → 500`，例外是
+`ValueError: Out of range float values are not JSON compliant: nan`。主圖每秒的即時輪詢、
+自選那幾列的價格全走這支 —— 它一 500 就是使用者說的「K 棒停住、要重整才好」，
+而前端兩個呼叫點都是 `if (!res.ok) return;` ＝**完全靜默**（畫面零錯誤、零提示）。
+⚠ 根因是**結構性**的不是某一行寫錯：`_get_latest_impl` 有 8 條 return，只有走
+`df_to_records()` 的那幾條會把 NaN 換掉，另外幾條是**手工組 dict**（台股 MIS 日線／
+MIS 補號平盤棒／yfinance 單根／Finnhub、騰訊累積器）—— 上游一顆 NaN 直接進回應。
+→ 消毒移到**邊界**（`_scrub_latest`），第 9 條 return 也不可能漏。
+⚠ **壞棒是丟掉不是補 None**：K 棒少了價格就不是 K 棒，送 null 只是把爆炸點搬到前端。
+⚠ 那份 traceback **一行我們自己的程式都沒有**（錯在 FastAPI 序列化回應時）→ 事後查不出
+是哪一檔哪個時框，所以 `_scrub_latest` 一定要把丟掉的棒印出來（每組合只印一次）。
+★★ 判準必須用 `json.dumps(..., allow_nan=False)`（starlette 就是這樣序列化的）：
+用預設的 `allow_nan=True` 測，NaN 會被寫成非法的 `NaN` 字面值卻**不報錯** ＝ 假通過，
+我第一版就這樣，差點得出「植回舊碼也沒事」的結論。
+已對 6 條路徑各自注入 NaN 並確認植回舊碼會壞（注入沒生效的情境回傳碼 2＝測試不成立）。
+
 ### 錯誤回應的 body 也是 JSON —— `.json()` 成功不代表拿到答案（2026-08-20）
 天氣卡在 `/api/nearby_rain` 回 503 時，畫面上寫的是 **「☀️ 你這和附近都沒下雨」** ——
 一個很有自信的**肯定句**，而我們其實根本不知道。根因：`fetch(...).then(r => r.json())`

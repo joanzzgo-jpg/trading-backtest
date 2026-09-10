@@ -385,7 +385,11 @@
     const el = document.getElementById('_wxCard');
     if (!el) return;
     // 動 transform 不動 bottom(毛玻璃卡每幀重排+重算模糊會頓)；與 weather.js 建卡時的檔位一致
-    el.style.transform = state==='full'?'translateY(0)':'translateY(305px)';
+    const out = (state === 'full');
+    // 收回跟熊同步「立刻」：出來保留回彈(0.45s)，收回改短促 0.2s（見 style.css .peek-bear.retracting）
+    el.style.transitionTimingFunction = out ? 'cubic-bezier(0.34,1.56,0.64,1)' : 'cubic-bezier(0.4,0,0.6,1)';
+    el.style.transitionDuration = out ? '0.45s' : '0.2s';
+    el.style.transform = out ? 'translateY(0)' : 'translateY(305px)';
   };
 
   const LINES = [
@@ -469,7 +473,6 @@
 
   let _bubbleTimer = null;
   let _bearHover = false;
-  let _bearTransitioning = false;
   let _bearTransTimer = null;
 
   function showBubble() {
@@ -480,31 +483,47 @@
     _bubbleTimer = setTimeout(() => { if (!_bearHover) bubble.classList.remove("visible"); }, 5500);
   }
 
-  function _startHideBubble() {
-    clearTimeout(_bubbleTimer);
-    _bubbleTimer = setTimeout(() => bubble?.classList.remove("visible"), 3000);
-  }
-
   setTimeout(() => { bear.classList.add("peeking"); window._syncWeatherCard('peeking'); }, 2800);
+
+  /* ★ 2026-09-11 使用者：「有時候跳出來有點打擾看盤，改成我滑鼠移到那再跳出來」
+       ＋「滑鼠移開就立刻收回」。
+     → 整隻跳出來**只由滑鼠觸發**（原本還有每 10 分鐘自動跳出來播天氣，已移除，見下方）。
+     ⚠ 天氣播報沒有被丟掉：那條自動跳出來的唯一用途就是每 10 分鐘講一次天氣 ——
+       改成「距上次講超過 10 分鐘，這次滑過去就講天氣、否則講笑話」。
+       資訊照樣是每 10 分鐘一輪，只是等你去看它，而不是它來打斷你。 */
+  const _WX_EVERY = 600000;        // 天氣輪替間隔，與原本每 10 分鐘自動播報一致
+  let _lastWxBubbleTs = 0;
 
   function _onEnter() {
     _bearHover = true;
-    clearTimeout(_bearTransTimer);
-    _bearTransitioning = true;
+    bear.classList.remove('retracting');
     bear.classList.add('peek-full');
-    _bearTransTimer = setTimeout(() => { _bearTransitioning = false; }, 520);
     clearTimeout(_bubbleTimer);
-    if (!bubble?.classList.contains("visible")) showBubble();
+    if (!bubble?.classList.contains("visible")) {
+      // ⚠ 只有「真的講得出天氣」才算用掉這一輪：剛開站還沒定位時 _weatherReport() 是空的，
+      //   若照樣把時間戳推掉，使用者這 10 分鐘內就再也等不到天氣了（靜靜地少一次資訊）。
+      const wx = (Date.now() - _lastWxBubbleTs >= _WX_EVERY) ? _weatherReport() : null;
+      if (wx) { _lastWxBubbleTs = Date.now(); showForecastBubble(); }
+      else showBubble();
+    }
     window._syncWeatherCard('full');
   }
   function _onLeave(e) {
-    if (_bearTransitioning) return;   // ignore during slide-up animation
+    /* ⚠ 這裡原本有一道 `if (_bearTransitioning) return;`（跳出來的 520ms 內忽略 mouseleave）——
+       那正是「移開了卻不收回」的來源：滑開得夠快就整個被吃掉，熊留在外面。
+       它當初是為了擋一種假 mouseleave：熊往上滑 85px 時，貼在畫面最底那 5px 的游標
+       會落到元素外。→ 改成用 `.peek-bear::before` 把命中區往下補一段（見 style.css），
+       幾何上不再有那個縫，就不需要用「忽略事件」去掩蓋它了。 */
     const to = e.relatedTarget;
     if (bear.contains(to) || bubble?.contains(to)) return;
     _bearHover = false;
+    bear.classList.add('retracting');            // 收回用短促曲線，不走跳出來那條回彈
     bear.classList.remove('peek-full');
-    _startHideBubble();
+    clearTimeout(_bubbleTimer);
+    bubble?.classList.remove("visible");         // 泡泡也立刻收（原本還要再留 3 秒）
     window._syncWeatherCard('peeking');
+    clearTimeout(_bearTransTimer);
+    _bearTransTimer = setTimeout(() => bear.classList.remove('retracting'), 300);
   }
 
   bear.addEventListener("mouseenter", _onEnter);
@@ -536,37 +555,17 @@
     e.stopPropagation();
     bear.classList.remove("wave"); void bear.offsetWidth; bear.classList.add("wave");
     showForecastBubble();
+    _lastWxBubbleTs = Date.now();   // 剛親自問過天氣 → 下次滑過去先講笑話，別重複播同一份
     _bearWxPending = true;
     if (typeof window._wxRefreshNow === "function") window._wxRefreshNow();
   });
   window.addEventListener("wx:updated", () => {
     if (_bearWxPending) { _bearWxPending = false; showForecastBubble(); }   // 最新資料到 → 重講
   });
-  /* 對齊時鐘整 10 分刻度（9:00 / 9:10 / 9:20…）冒出全身播天氣預報 */
-  function _doForecastVisit() {
-    if (document.hidden) return;                       // 背景分頁不拜訪(沒人在看,省電)
-    if (!bear.classList.contains("peeking")) return;   // 使用者正在互動(full)→ 這次跳過、不打斷
-    bear.classList.add("peek-visit");
-    window._syncWeatherCard('full');
-    showForecastBubble();
-    const stay = 8000;   // 完整報告(多行)→ 停留 8 秒
-    setTimeout(() => {
-      bear.classList.remove("peek-visit");
-      window._syncWeatherCard('peeking');
-    }, stay);
-  }
-  function _msToNext10min() {   // 到下一個整 10 分刻度的毫秒數
-    const now = new Date();
-    const into = now.getMinutes() % 10 * 60000 + now.getSeconds() * 1000 + now.getMilliseconds();
-    return 600000 - into;
-  }
-  function scheduleVisit() {
-    setTimeout(() => {
-      _doForecastVisit();
-      setInterval(_doForecastVisit, 600000);   // 之後每 10 分鐘整點刻度
-    }, _msToNext10min());
-  }
-  scheduleVisit();
+  /* ⛔ 原本這裡有「對齊時鐘整 10 分刻度自動冒出全身播天氣」(_doForecastVisit / scheduleVisit)。
+     2026-09-11 移除：使用者看盤時被它彈出來打斷（整隻熊 + 毛玻璃天氣卡一起滑上來、停 8 秒）。
+     它唯一的功能是「每 10 分鐘講一次天氣」，已改由 _onEnter 承接（見上方 _WX_EVERY）：
+     滑過去時若距上次超過 10 分鐘就講天氣，資訊一樣不漏，但由使用者決定什麼時候看。 */
 
   // 暴露給手機版「設定頁小啊」(xiaoa.js)共用同一批笑話與天氣預報 → 手機/桌面一致
   window._bearNextLine = _nextLine;

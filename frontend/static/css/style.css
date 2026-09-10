@@ -3466,9 +3466,24 @@ html.perf-mode .tk-stale { background: rgba(220, 38, 38, 0.10); border-color: #d
 .peek-bear.peeking {
   transform: translateY(-120px);   /* = bottom:-80px */
 }
-.peek-bear.peek-visit,
 .peek-bear.peek-full {
   transform: translateY(-205px);   /* = bottom:5px */
+}
+/* ★ 收回要「立刻」（2026-09-11 使用者要求）：跳出來保留回彈曲線(0.45s 有表情)，
+   收回改成短促的 0.2s、不回彈。⚠ 不能直接改上面 .peek-bear 的基礎 transition ——
+   那條同時管「開站 2.8 秒後第一次露頭」，改掉會連進場動畫一起變得死板。 */
+.peek-bear.retracting {
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.6, 1);
+}
+/* ★ 把命中區往下補 12px：熊往上滑 85px 時，原本貼在畫面最底那幾 px 的游標會落到元素外
+   → 觸發**假的** mouseleave。舊碼是用「跳出來的 520ms 內忽略 mouseleave」去掩蓋它，
+   但那道忽略同時把**真的**移開也吃掉了＝「移開卻不收回」。幾何上補起來就不需要忽略事件。
+   ⚠ 這段永遠在視窗底邊之下(或剛好貼齊)，不會多擋到任何看得見的東西。 */
+.peek-bear::before {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; top: 100%;
+  height: 12px;
 }
 .peek-bear img {
   width: 100%;
@@ -3486,7 +3501,7 @@ html.perf-mode .tk-stale { background: rgba(220, 38, 38, 0.10); border-color: #d
 }
 
 /* 「天氣如何？」按鈕（桌機）：放小啊右側(頭部右上角)，在對話泡泡下方 → 不被泡泡擋。
-   只在小啊『整隻跳出來』(滑過 peek-full／每10分自動 peek-visit) 時才顯示；
+   只在小啊『整隻跳出來』(滑鼠移過去＝peek-full) 時才顯示；
    平時只露頭(peeking)、躲回去(hidden)、城門、極簡模式 → 一律隱藏，不單獨漂浮在右下角。 */
 .bear-wx-btn {
   position: absolute;
@@ -3507,7 +3522,6 @@ html.perf-mode .tk-stale { background: rgba(220, 38, 38, 0.10); border-color: #d
   pointer-events: none;
   transition: opacity 0.3s ease;
 }
-.peek-bear.peek-visit .bear-wx-btn,
 .peek-bear.peek-full .bear-wx-btn {
   opacity: 1;
   visibility: visible;
