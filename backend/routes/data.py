@@ -177,6 +177,21 @@ def fetch_crt_df(market: str, symbol: str, timeframe: str, days: int,
         max_d = US_MAX_DAYS.get(timeframe, 3650)
         start = (date.today() - timedelta(days=min(days, max_d))).isoformat()
         return fetch_us_stock(symbol, start, end, timeframe)
+    elif market == "fx":
+        # 外匯（2026-09-10 補）：原本這裡沒有 fx → `/api/crt_winrate` 一律 400
+        # 「不支援的市場: fx」→ 前端把它當成**失敗**，勝率 HUD 寫「訊號計算失敗、
+        # 稍後會自動重試」。那句話是假的：它不會好，外匯每次載入都撞同一個 400。
+        # ⚠ 這正是本檔那條「算不出來不可以長得像這裡沒有訊號」的反面 ——
+        #   「這個市場根本沒接」也不可以長得像「暫時算不出來」。
+        # 取資料的方式與 `/api/ohlcv` 的 fx 分支**完全同源**（貴金屬走幣安、
+        # 其餘走 yfinance），兩邊看到的 K 棒才會是同一份。
+        from data.forex import to_yf as _fx_to_yf, crypto_symbol as _fx_cs
+        max_d = US_MAX_DAYS.get(timeframe, 3650)
+        start = (date.today() - timedelta(days=min(days, max_d))).isoformat()
+        _fx_crypto = _fx_cs(symbol)
+        if _fx_crypto:                      # XAU/XAG 等貴金屬：幣安有量、又即時
+            return fetch_crypto_ohlcv(_fx_crypto, timeframe, start, end, "binance")
+        return fetch_us_stock(_fx_to_yf(symbol), start, end, timeframe)
     elif market == "crypto":
         start = (date.today() - timedelta(days=days)).isoformat()
         from data.crypto import _fetch_binance_fapi, _calc_max_candles, _set_src
@@ -2272,6 +2287,13 @@ def _wr_slim(payload):
             v = out.get(k)
             if isinstance(v, list) and v:
                 out[k] = [_wr_slim_row(k, z) for z in v]
+        # 全是 null 的 VWAP 一律砍成空陣列：外匯現貨（EUR/USD 那類）成交量恆為 0 →
+        # VWAP 算不出來，卻照樣送 3000 筆 {"t":…,"v":null}（gzip 前約 60KB）。
+        # 前端本來就會跳過 null，砍掉行為完全不變、只是不再運那一車空氣。
+        _vw = out.get("vwap")
+        if isinstance(_vw, list) and _vw and all(
+                (z.get("v") is None) for z in _vw if isinstance(z, dict)):
+            out["vwap"] = []
         return out
     except Exception:
         return payload   # 瘦身失敗照原樣送（功能優先）
