@@ -185,6 +185,68 @@ def _tw_clean_ratio(lo: float, hi: float):
     return hits[0]
 
 
+# ── 官方係數（比猜的準）───────────────────────────────────────────────
+#  2026-09-10 抓到的實例：6901 亞果生醫 2022-11-23 開 77.54、前一天收 62.66
+#  ＝ **+23.75% 的跳空**，台股 ±10% 之下不可能 —— 是 yfinance 把當年的
+#  現金增資/股票股利記成「1.27 分割」，卻只調整了一半的資料所留下的假斷崖。
+#  乾淨比例只猜得到 0.8（真值 1/1.27 = 0.7874，差 1.6%），而 yfinance 自己
+#  就有那個係數 → 有記錄就用**精確值**，沒記錄（6949 那種新分割）才退回用猜的。
+#  ⚠ 只在「係數落在漲跌幅推出來的窗口內」時才採用：對不上就代表那筆記錄跟這個
+#    跳空無關（日期錯位／別的事件），寧可不用也不要拿錯的係數改歷史。
+#  ⚠ 只有**偵測到跳空**才會來問（一般標的一次都不問），並快取 12 小時 ——
+#    這支會被每一次台股日線請求呼叫，不可以在常見路徑上多打一次網路。
+_TW_SPLIT_FEED: dict = {}          # symbol → (取得時刻, {date: 係數})
+_TW_SPLIT_FEED_TTL = 12 * 3600
+
+
+def _tw_split_feed(symbol: str) -> dict:
+    """yfinance 登記的分割係數 {date: 係數}；抓不到回空 dict（不是錯誤，多數股票本來就沒有）。"""
+    import time as _t
+    hit = _TW_SPLIT_FEED.get(symbol)
+    if hit and _t.time() - hit[0] < _TW_SPLIT_FEED_TTL:
+        return hit[1]
+    out = {}
+    try:
+        import yfinance as yf
+        for suffix in (".TW", ".TWO"):
+            try:
+                sp = yf.Ticker(f"{symbol}{suffix}").splits
+            except Exception:
+                continue
+            if sp is None or len(sp) == 0:
+                continue
+            for k, v in sp.items():
+                try:
+                    out[pd.Timestamp(k).tz_localize(None).date()] = float(v)
+                except Exception:
+                    continue
+            break
+    except Exception:
+        pass
+    _TW_SPLIT_FEED[symbol] = (_t.time(), out)
+    return out
+
+
+def _tw_feed_ratio(symbol: str, when, lo: float, hi: float):
+    """這一天有沒有登記的分割係數？有且落在 [lo,hi] 內就回它（精確值），否則 None。"""
+    if not symbol:
+        return None
+    feed = _tw_split_feed(symbol)
+    if not feed:
+        return None
+    try:
+        d0 = pd.Timestamp(when).date()
+    except Exception:
+        return None
+    for dd, fac in feed.items():
+        if abs((dd - d0).days) > 2 or not fac:      # 日期允許差 2 天（來源常錯位一天）
+            continue
+        for cand in (1.0 / fac, float(fac)):        # 除以係數才是「換算回現在的股數基準」
+            if lo <= cand <= hi:
+                return cand
+    return None
+
+
 def tw_adjust_splits(df, symbol: str = ""):
     """把分割/減資**之前**的價格換算成現在的股數基準（量同步反向調整）。
 
@@ -212,7 +274,9 @@ def tw_adjust_splits(df, symbol: str = ""):
                 continue
             lo = pc / (op * (1 + _TW_LIMIT))
             hi = pc / (op * (1 - _TW_LIMIT))
-            r = _tw_clean_ratio(min(lo, hi), max(lo, hi))
+            _lo, _hi = min(lo, hi), max(lo, hi)
+            # 先問官方係數（精確），沒登記才退回「唯一乾淨解」那套猜法
+            r = _tw_feed_ratio(symbol, t.iloc[i], _lo, _hi) or _tw_clean_ratio(_lo, _hi)
             if r:
                 events.append((i, r))
         if not events:
