@@ -1541,9 +1541,84 @@ def _sticky_source(key: str, df, src):
     return df, src, False
 
 
+# ══════════════════════════════════════════════════════════════════════
+#  /api/latest 的數字防線
+#  ★ 2026-09-10 事故：本機日誌抓到 216 次
+#      `POST /api/latest → 500` ＋ `ValueError: Out of range float values are not
+#      JSON compliant: nan`
+#    —— 主圖即時輪詢與自選價格全靠這支，它一 500 就是「K 棒停住、要重整才好」，
+#    而前端兩個呼叫點都是 `if (!res.ok) return;`＝**完全靜默**。
+#  ★ 根因是結構性的，不是某一行寫錯：`_get_latest_impl` 有 8 條 return，只有走
+#    `df_to_records()` 的那幾條會把 NaN 換成 None，另外幾條是**手工組 dict**
+#    （台股 MIS 日線、MIS 補號平盤棒、yfinance 單根、Finnhub/騰訊累積器）——
+#    它們直接把上游算出來的浮點塞進回應，一顆 NaN 就整支掛掉。
+#    → 消毒**移到邊界**做一次，之後不管誰再加第 9 條 return 都不可能漏。
+#  ⚠ 例外拋不出資訊：那份 traceback **一行我們自己的程式都沒有**（錯在 FastAPI
+#    序列化回應時），所以事後完全查不出是哪一檔、哪個時框 → 這裡一定要記下來。
+# ══════════════════════════════════════════════════════════════════════
+_LATEST_BAD_WARNED = set()      # (market,symbol,tf) → 只印一次，別洗版
+
+
+def _finite(v):
+    """能轉成有限浮點就回它，否則 None（NaN／±inf／None／字串都吃）。"""
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return f if math.isfinite(f) else None
+
+
+def _scrub_latest(resp, req):
+    """把不合法的數字擋在 API 邊界。
+
+    ⚠ 壞掉的棒是**丟掉**不是補 None：K 棒少了價格就不是 K 棒了，
+      送 null 出去只是把爆炸點從後端搬到前端（LWC 拿 null 當座標會畫出鬼線）。
+      寧可這一拍沒有新棒——下一拍就補回來了，而 500 是連舊棒都不會更新。
+    ⚠ 量（volume）不同：量壞掉不影響價格，補 0 就好，不必連整根丟掉。"""
+    if not isinstance(resp, dict):
+        return resp
+    data = resp.get("data")
+    if not isinstance(data, list) or not data:
+        return resp
+    good, bad = [], []
+    for r in data:
+        if not isinstance(r, dict):
+            continue
+        o, h, l, c = (_finite(r.get("open")), _finite(r.get("high")),
+                      _finite(r.get("low")), _finite(r.get("close")))
+        if None in (o, h, l, c) or min(o, h, l, c) <= 0:
+            bad.append({k: r.get(k) for k in ("time", "open", "high", "low", "close")})
+            continue
+        r["open"], r["high"], r["low"], r["close"] = o, h, l, c
+        v = _finite(r.get("volume"))
+        r["volume"] = v if (v is not None and v >= 0) else 0.0
+        for k in list(r.keys()):                    # 其餘欄位（指標等）也不能有 NaN
+            if isinstance(r[k], float) and not math.isfinite(r[k]):
+                r[k] = None
+        good.append(r)
+    if bad:
+        key = (req.market, req.symbol, req.timeframe)
+        if key not in _LATEST_BAD_WARNED:
+            _LATEST_BAD_WARNED.add(key)
+            print(f"  ⚠ /api/latest 收到不合法的 K 棒並已丟棄 "
+                  f"{req.market}:{req.symbol}:{req.timeframe} × {len(bad)} → {bad[:2]}")
+        resp["data"] = good
+    ts = resp.get("ts")
+    if ts is not None and _finite(ts) is None:
+        resp.pop("ts", None)
+    return resp
+
+
 @router.post("/latest")
 def get_latest(req: LatestRequest):
-    """取得最新 K 棒"""
+    """取得最新 K 棒（對外唯一入口；實作在 `_get_latest_impl`）。
+
+    這層只做一件事：**保證回出去的每個數字都是合法的 JSON 數字**。見 `_scrub_latest`。"""
+    return _scrub_latest(_get_latest_impl(req), req)
+
+
+def _get_latest_impl(req: LatestRequest):
+    """取得最新 K 棒（實作；⚠ 不要直接對外，回應要經過 `_scrub_latest`）"""
     req.timeframe = _check_tf(req.timeframe)      # 不認得的時框當場 400，不要靜默退日線
     _crypto_src = None      # 這份 df 的實際來源（crypto 才有；跟著資料走，見下方快取那段）
     _crypto_ts = 0.0        # 這份 df 抓到的時刻（epoch 秒）→ 前端拿去跟 /api/tickers 的 ts 比新舊

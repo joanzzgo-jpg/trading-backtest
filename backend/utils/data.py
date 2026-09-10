@@ -53,7 +53,9 @@ def df_to_records(df: pd.DataFrame):
         if "time" in r and hasattr(r["time"], "isoformat"):
             r["time"] = r["time"].isoformat()
         for key in list(r.keys()):
-            if isinstance(r[key], float) and math.isnan(r[key]):
+            # ⚠ 不能只擋 NaN：±inf 一樣不是合法的 JSON 數字，json.dumps 會拋
+            #   「Out of range float values are not JSON compliant」把整支端點打成 500。
+            if isinstance(r[key], float) and not math.isfinite(r[key]):
                 r[key] = None
     return records
 
