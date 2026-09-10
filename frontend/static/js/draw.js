@@ -3636,6 +3636,11 @@ async function _alFetch(force) {
     if (_drawSymKey() !== key) return;                    // 抓回來已換標的 → 丟棄
     _alerts = (j.alerts || []).filter(a => a && a.price > 0);
     _alertKey = key;
+    // 記下「本機這份繪圖確實引用著」的那些 → 之後它們消失才算是使用者刪的
+    try {
+      for (const d of (Array.isArray(drawings) ? drawings : []))
+        if (d && d.type === "hline" && d.alertId) _alRefSeen.add(d.alertId);
+    } catch (e) {}
     _scheduleRenderDrawings();
   } catch (e) { console.debug("[提示線] 取得失敗:", e && e.message); }
 }
@@ -3741,6 +3746,15 @@ async function _alToggleForSelected() {
      多條路徑，漏掛一條就會留下**刪不掉的孤兒鬧鐘**（線沒了、通知還在響）。
      saveDrawings() 是所有變動的共同出口 → 在那裡對帳一次，全部涵蓋。
    做兩件事：① 沒有任何線引用的鬧鐘 → 刪掉  ② 線被拖動、價格變了 → 重設成新價。 */
+/* ★★ 本機曾經看到「有線引用」的鬧鐘 id。對帳只會刪這些。
+   ⚠ 沒有這道記錄會**刪掉別台裝置設的鬧鐘**（實測 1 條 → 0 條）：
+     A 裝置設好鬧鐘後,B 裝置手上那份繪圖還是舊的（沒有 alertId）——
+     此時 B 只要畫任何東西,對帳就會判定「這個鬧鐘沒有線引用」而把它刪掉。
+     使用者在 B 上根本沒碰那條線,A 上的鬧鐘卻消失了,而且完全靜默。
+   → 只有「本機確實看過某條線引用它、現在那條線不見了」才算是使用者刪的。
+     從沒在本機被引用過的（別台建的、或這台還沒同步到）一律不碰。 */
+let _alRefSeen = new Set();
+
 let _alRecT = null;
 function _alReconcile() {
   clearTimeout(_alRecT);
@@ -3756,9 +3770,15 @@ function _alReconcile() {
     const live = new Map();
     for (const d of (Array.isArray(drawings) ? drawings : []))
       if (d && d.type === "hline" && d.alertId) live.set(d.alertId, d);
+    for (const d0 of live.values()) if (d0.alertId) _alRefSeen.add(d0.alertId);   // 現在引用著＝看過
     for (const a of [..._alerts]) {
       const d = live.get(a.id);
-      if (!d) { await _alDel(a.id); continue; }                    // ① 沒人引用 → 刪
+      if (!d) {
+        // ① 沒人引用 → 只有「本機看過它被引用」才算使用者刪掉那條線；
+        //    否則是別台設的／這台還沒同步到 → 不要動它（見 _alRefSeen 的說明）
+        if (_alRefSeen.has(a.id)) { _alRefSeen.delete(a.id); await _alDel(a.id); }
+        continue;
+      }
       if (Math.abs(Number(d.price) - Number(a.price)) > 1e-9) {    // ② 線被移動 → 重設
         await _alDel(a.id);
         const id = await _alAdd(d.price);
