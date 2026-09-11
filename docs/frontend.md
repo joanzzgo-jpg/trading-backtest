@@ -134,6 +134,7 @@
 - ⚠ `#invertBtn` 不可用 `.ind-gear-btn` class：那個在極簡模式會被藏（它管配色），⇅ 不是配色。
 - ⚠ 圖例列最後的 `.pane-btns` 是 sticky 貼右緣＋≤1320px 間距 8→4：多一顆鈕就會在窄的桌面款（1181px＋BB 開）把 ⚙ 擠到隱藏捲軸外。
 - ⚠ LWC 4.2 原生標記的 aboveBar/belowBar 不看座標是否反轉 → 顛倒時 `_applyMainMarkersNow` 把原生標記清掉、改放 `_invNativeMarkers` 由策略標記 primitive 代畫；primitive 用 `drawUp = above !== inv` 決定畫在錨點上方或下方。
+- ⚠ **LWC 自己的影線在反轉座標下會穿過實體**（2026-09-12 使用者：「空心K中間有直線穿過」）：renderer 畫影線是 `fillRect(x, highY, w, 實體上緣−highY)`＋`fillRect(x, 實體下緣+1, w, lowY−實體下緣)`，反轉後兩段高度變負 → 往回畫穿過實體（實心 K 被蓋住看不出來）。顛倒時 `_candleColorOpts` 關掉 `wickVisible`、改由 `_makeInvWickPrimitive` 畫（寬度公式/像素對齊照抄 LWC，只畫實體外兩段；用 `dataByIndex` 取實際序列 → 重播安全）。⚠ 它必須 zOrder normal 且**最後才掛**：用 bottom 時 FVG 8% 填色會蓋在影線上（61 段有 17 段被染色）。驗法＝讀 `#mainChart table canvas`（不是最大那張，那是 draw.js 覆蓋層）實體中央像素。
 - ⚠ 任何「以為 yHigh < yLow」的繪圖在顛倒時會出錯：`_drawSessionWatermark` 原本 `boxH = yL - yH; if (!(boxH > 0)) return` → 盤名浮水印整個消失，已改成先換成畫面上/下緣。新寫的圖層一律用 `Math.min/abs`。
 - 同批修：`renderVolume(ohlcvData)` 在重播中會畫出游標之後的量柱（天氣「無↔有」切換、換色盤、主圖設定量柱都走這條）→ 入口改成重播中自動切到游標為止。
 

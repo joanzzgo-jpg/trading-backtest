@@ -408,6 +408,10 @@ function createCandleSeries() {
       _econPrim = _makeEconPrimitive();
       candleSeries.attachPrimitive(_econPrim);
     }
+    // 上下顛倒時代替 LWC 畫影線（它的影線在反轉座標下會穿過實體）；平常 draw 直接 return。
+    //   ⚠ 一定要最後掛：同為 normal 層的其他圖層（FVG 半透明填色）才會在它底下，跟原生影線一樣
+    _invWickPrim = _makeInvWickPrimitive();
+    candleSeries.attachPrimitive(_invWickPrim);
   } catch (e) { /* 舊版 LWC 無 attachPrimitive 時靜默略過 */ }
   applyChartType();   // 建好後套用目前圖型（蠟燭/線型）
 }
@@ -423,12 +427,85 @@ function _candleColorOpts() {
     downColor: S.bodyVisible !== false ? dn : "rgba(0,0,0,0)",
     borderVisible: _candleBorderVisible(),
     borderUpColor: inv ? C.borderDown : C.borderUp, borderDownColor: inv ? C.borderUp : C.borderDown,
-    wickVisible:   S.wickVisible !== false,
+    // 上下顛倒時 LWC 自己的影線會穿過實體（見 _makeInvWickPrimitive）→ 關掉、改由 primitive 畫
+    wickVisible:   S.wickVisible !== false && !inv,
     wickUpColor:   inv ? C.wickDown : C.wickUp, wickDownColor: inv ? C.wickUp : C.wickDown,   // 還原紅綠影線色(線型時被改成折線色)
   };
 }
 // 成交量柱顏色：跟 K 棒同一套漲跌判定；上下顛倒時一起對調（上漲那根的量柱也是跌的顏色）
 function _volColor(isUp) { return (isUp !== !!window._chartInverted) ? C.volUp : C.volDown; }
+
+/* ── 上下顛倒時的影線（2026-09-12 使用者：「上下顛倒的空心Ｋ中間有直線穿過」）──────────
+   LWC 4.2 畫影線（renderer 的 Ae）是兩段：
+     fillRect(x, highY, w, 實體上緣 − highY)   與   fillRect(x, 實體下緣+1, w, lowY − 實體下緣)
+   —— 假設 highY 在實體上方。價格軸一反轉 highY 跑到下面，兩段高度都變負的 → canvas 往回畫、
+   整段穿過實體。實心 K 被實體蓋住看不出來；空心 K（主體關）或半透明實體就是一條直線。
+   （實體 Ie／邊框 ze 用的是 min/max，不受影響，只有影線中。）
+   → 顛倒時關掉 LWC 自己的影線（_candleColorOpts 的 wickVisible），改由這裡畫：
+     K 棒寬度公式、影線寬度、像素對齊、相鄰棒防重疊都照抄 LWC，唯一差別是上下緣先取 min/max
+     → 影線只畫在實體外面那兩段。
+   ⚠ 圖層：用 normal、而且**最後才掛**（createCandleSeries 那串的最後一個）。實測用 bottom 時
+     FVG 缺口的 8% 半透明填色會蓋在影線上（原生影線在它上面），61 段裡有 17 段被染色。
+   ⚠ 棒要用 dataByIndex 取「實際畫在圖上的序列」：重播時序列只到游標，拿 ohlcvData 會畫出未來。 */
+let _invWickPrim = null;
+function _lwcBarWidth(bs, hr) {   // = LWC 4.2 Ht.K 的 K 棒寬度（bitmap px）
+  let w;
+  if (bs >= 2.5 && bs <= 4) w = Math.floor(3 * hr);
+  else {
+    const k = 1 - 0.2 * Math.atan(Math.max(4, bs) - 4) / (0.5 * Math.PI);
+    w = Math.max(Math.floor(hr), Math.min(Math.floor(bs * k * hr), Math.floor(bs * hr)));
+  }
+  if (w >= 2 && Math.floor(hr) % 2 !== w % 2) w--;
+  return w;
+}
+function _makeInvWickPrimitive() {
+  let _chart = null, _series = null, _req = null;
+  const renderer = {
+    draw(target) {
+      if (!window._chartInverted || window._chartTypeLine || S.wickVisible === false || !_chart || !_series) return;
+      const ts = _chart.timeScale();
+      const vr = ts.getVisibleLogicalRange();
+      const bs = ts.options().barSpacing;
+      if (!vr || !(bs > 0)) return;
+      const o = _series.options();
+      target.useBitmapCoordinateSpace(scope => {
+        const ctx = scope.context, hr = scope.horizontalPixelRatio, r = scope.verticalPixelRatio;
+        let lw = Math.min(Math.floor(hr), Math.floor(bs * hr));
+        lw = Math.max(Math.floor(hr), Math.min(lw, _lwcBarWidth(bs, hr)));
+        const half = Math.floor(0.5 * lw);
+        let prevR = null, fill = "";
+        const i1 = Math.ceil(vr.to) + 1;
+        for (let i = Math.max(0, Math.floor(vr.from) - 1); i <= i1; i++) {
+          const d = _series.dataByIndex(i);
+          if (!d || d.open == null) continue;
+          const x = ts.logicalToCoordinate(i);
+          const yo = _series.priceToCoordinate(d.open), yc = _series.priceToCoordinate(d.close);
+          const yh = _series.priceToCoordinate(d.high), yl = _series.priceToCoordinate(d.low);
+          if (x == null || yo == null || yc == null || yh == null || yl == null) continue;
+          const col = (d.open <= d.close) ? o.wickUpColor : o.wickDownColor;   // 同 LWC colorer 的漲跌判定
+          if (col !== fill) { ctx.fillStyle = col; fill = col; }
+          const top = Math.round(Math.min(yh, yl) * r), bot = Math.round(Math.max(yh, yl) * r);
+          const bTop = Math.round(Math.min(yo, yc) * r), bBot = Math.round(Math.max(yo, yc) * r);
+          let L = Math.round(x * hr) - half;
+          const R = L + lw - 1;
+          if (prevR !== null) { L = Math.max(prevR + 1, L); L = Math.min(L, R); }
+          const w = R - L + 1;
+          if (bTop > top) ctx.fillRect(L, top, w, bTop - top);
+          if (bot > bBot) ctx.fillRect(L, bBot + 1, w, bot - bBot);
+          prevR = R;
+        }
+      });
+    },
+  };
+  const paneView = { renderer() { return renderer; } };   // zOrder 預設 normal，見上方註解
+  return {
+    attached(p) { _chart = p.chart; _series = p.series; _req = p.requestUpdate; },
+    detached() { _chart = _series = _req = null; },
+    updateAllViews() {},
+    paneViews() { return [paneView]; },
+    requestUpdate() { if (_req) _req(); },
+  };
+}
 
 /* ── 上下顛倒（多空翻轉看法，2026-09-11）───────────────────────────────────────
    使用者：「新增多空翻轉看法」→「是指 K 棒整個上下顛倒」→「就是上漲變下跌顯示」。
