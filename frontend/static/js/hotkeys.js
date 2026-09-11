@@ -132,7 +132,7 @@
        ⚠ 看 e.code 不看 e.key：Mac 的 Option+I 是變音死鍵（e.key="Dead"），中文輸入法下也不是 "i"。 */
     if (e.altKey && !e.metaKey && !e.ctrlKey && e.code === "KeyI") {
       // 只有「真的能打字」的欄位才讓路（Option+I 會打出 ˆ）；勾選框不算 ——
-      //   否則在 ⚙ 面板勾完「上下顛倒」、焦點留在勾選框上，接著按快捷鍵會沒反應（實測踩到）。
+      //   否則剛點完 ⚙ 面板裡的勾選框（主體/邊框…）、焦點留在上面時，按快捷鍵會沒反應（實測踩到）。
       const a = document.activeElement;
       const textEntry = !!a && (a.isContentEditable || /^(textarea|select)$/i.test(a.tagName) ||
         (/^input$/i.test(a.tagName) && !/^(checkbox|radio|button|submit|reset|range|color)$/i.test(a.type || "")));

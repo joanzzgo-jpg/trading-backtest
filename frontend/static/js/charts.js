@@ -437,7 +437,8 @@ function _volColor(isUp) { return (isUp !== !!window._chartInverted) ? C.volUp :
    ・數字一律照實：價格軸刻度、OHLC、報價都是真的價格（只是軸倒著排）。
    ・只翻主圖價格軸：K 棒／BB／VWAP／FVG／繪圖都掛在這條軸上一起翻；成交量在自己的軸、副圖指標不動。
    ・刻意不存檔 —— 忘了關的話，下次打開看到倒過來的圖會直接看反。開著時主圖上方掛「⇅ 上下顛倒中」，
-     點它就恢復。入口：⚙ 主圖設定最上面一列、Alt/Option+I（同 TradingView 反轉座標）。 */
+     點它就恢復。入口：主圖圖例列 ⚙ 旁邊的 ⇅ 鈕（#invertBtn）、Alt/Option+I（同 TradingView 反轉座標）、
+     手機「設定」分頁。 */
 window.toggleChartInvert = function (on) {
   window._chartInverted = (on === undefined) ? !window._chartInverted : !!on;
   const inv = window._chartInverted;
@@ -454,8 +455,8 @@ window.toggleChartInvert = function (on) {
   }
   const badge = document.getElementById("invertBadge");
   if (badge) badge.hidden = !inv;
-  const cb = document.getElementById("indSpInvert");  // ⚙ 面板開著時用快捷鍵切換 → 勾選框同步
-  if (cb) cb.checked = inv;
+  const btn = document.getElementById("invertBtn");   // ⚙ 旁邊的 ⇅ 鈕（快捷鍵／點標章切換時也要同步亮暗）
+  if (btn) { btn.classList.toggle("active", inv); btn.setAttribute("aria-pressed", inv ? "true" : "false"); }
   const mRow = document.getElementById("mSetInvert"), mSt = document.getElementById("mSetInvertState");   // 手機設定分頁
   if (mRow) mRow.classList.toggle("m-set-on", inv);
   if (mSt) mSt.textContent = inv ? "開啟" : "關閉";

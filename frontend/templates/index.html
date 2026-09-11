@@ -786,6 +786,14 @@
         <span class="leg-item leg-toggle" id="legFVGBreak"><span class="leg-dot" style="background:#05d9e8;border-color:#05d9e8"></span><span class="leg-val">破多空</span></span>
         <span class="leg-item leg-toggle line-off" id="legFVGShun"><span class="leg-dot" style="background:#00b8ff;border-color:#00b8ff"></span><span class="leg-val">順多空</span></span>
         <div class="pane-btns">
+          <!-- 上下顛倒（多空翻轉看法）：2026-09-11 使用者要求從 ⚙ 面板移出來、放在 ⚙ 旁邊。
+               ⚠ 不用 .ind-gear-btn：那個 class 在極簡模式／手機會被藏（它管的是配色），這顆不是。 -->
+          <button type="button" id="invertBtn" class="invert-btn" aria-pressed="false"
+                  onclick="window.toggleChartInvert&&window.toggleChartInvert()"
+                  title="上下顛倒：整張主圖倒過來，上漲顯示成下跌（紅綠也對調），用來檢查自己的多空偏見。價格數字都是真的；重新整理會自動恢復。快捷鍵 Alt/Option + I"
+                  aria-label="主圖上下顛倒">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 20 V4 M4 8 L8 4 L12 8"/><path d="M16 4 V20 M12 16 L16 20 L20 16"/></svg>
+          </button>
           <button class="ind-gear-btn" data-ind="main" title="主圖設定">⚙</button>
         </div>
       </div>

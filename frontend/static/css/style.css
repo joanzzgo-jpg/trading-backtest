@@ -1962,6 +1962,13 @@ html.perf-mode .tk-seg {
 }
 .pane-legend::-webkit-scrollbar { display: none; }
 .pane-legend > * { flex: 0 0 auto; }
+/* ⇅／⚙ 排在這排最後 → 放不下時被推到橫捲區外，而捲軸是隱藏的＝看起來「沒有這兩顆鈕」。
+   2026-09-11 在 ⚙ 旁加 ⇅ 後，1181px＋BB 開著會溢出（實測加 54px 的圖例項時 1200px 就溢出 23px）。
+   sticky 讓它們在任何寬度都貼著右緣看得到；放得下時 margin-left:auto 本來就在最右邊，沒有差別。
+   窄的桌面款另外把間距 8→4（項目自帶 4px 內距，視覺上仍分得開）→ 常見寬度根本不溢出。
+   手機款那段有自己的 gap:6px !important，不受這條影響。 */
+.pane-legend > .pane-btns { position: sticky; right: 0; }
+@media (max-width: 1320px) { .pane-legend { gap: 4px; } }
 
 .pane-body { flex: 1; min-height: 0; overflow: hidden; position: relative; isolation: isolate; }
 
@@ -3239,6 +3246,15 @@ html.perf-mode .tk-stale { background: rgba(220, 38, 38, 0.10); border-color: #d
   flex-shrink: 0;
 }
 .ind-gear-btn:hover { color: var(--text); background: var(--bg3); }
+/* ⇅ 上下顛倒鈕（⚙ 左邊）：外觀跟 ⚙ 同一組；開著時亮橘色＝跟主圖上那個「上下顛倒中」標章同色 */
+.invert-btn {
+  background: none; border: none; color: var(--muted); cursor: pointer;
+  padding: 2px 4px; border-radius: 3px; line-height: 0; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.invert-btn:hover { color: var(--text); background: var(--bg3); }
+.invert-btn.active { color: #ffa726; background: rgba(255,167,38,.16); }
+.invert-btn:active { transform: scale(0.88); transition: transform 0.07s ease; }
 
 /* ── 指標小浮動設定視窗 ── */
 .ind-settings-popup {
@@ -6533,6 +6549,8 @@ body, button, input, select, textarea,
 
   /* 圖表各 pane 的 ⚙ 齒輪（主圖/KDJ/RSI/MACD）：已集中到「設定」分頁 → 手機隱藏 */
   .ind-gear-btn { display: none !important; }
+  /* ⇅ 上下顛倒鈕跟著 ⚙ 藏：手機的入口是「設定」分頁的 #mSetInvert */
+  .invert-btn { display: none !important; }
 
   /* ── 手機按鈕放大、好點（app 化）── */
   /* 註：.topbar-tf / .tf-btn 的尺寸與外觀已統一收斂到上方「下劃線分頁」區，
