@@ -798,6 +798,12 @@
            capture 階段的滑鼠處理，放裡面會被它先吃掉、按鈕點不動。 -->
       <button id="btnGoLatest" class="go-latest" type="button" hidden
               title="回到最新（跳回現在，不用一路拖回來）" aria-label="回到最新">⏭</button>
+      <!-- 上下顛倒中（多空翻轉看法，2026-09-11）：開著才出現、點它恢復 —— 倒過來的圖不能讓人忘了它是倒的。
+           ⚠ 同上，放 #mainChart 外面。 -->
+      <button id="invertBadge" class="invert-badge" type="button" hidden
+              onclick="window.toggleChartInvert&&window.toggleChartInvert(false)"
+              title="主圖上下顛倒中：上漲顯示成下跌、紅綠也對調（價格數字都是真的）。點一下恢復正常（快捷鍵 Alt/Option + I）"
+              aria-label="主圖上下顛倒中，點一下恢復">⇅ 上下顛倒中 · 點此恢復</button>
 
       <!-- 訂單簿 DOM 階梯（主圖右側獨立面板，dom.js 繪製；預設隱藏） -->
       <div id="domPanel" aria-hidden="true">
@@ -1386,6 +1392,11 @@
     <button class="m-set-row" id="mSetWeekBox" onclick="event.stopPropagation();document.getElementById('weekBoxToggleBtn')?.click();">
       <span class="m-set-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" filter="url(#mSketch)"><rect x="3.5" y="5.5" width="17" height="13" rx="2"/><path d="M8 5.5 V18.5" opacity="0.5"/><path d="M16 5.5 V18.5" opacity="0.5"/></svg></span>
       <span class="m-set-lbl">週框（週一~五）<small id="mSetWeekBoxState">開啟</small></span><span class="m-set-arr">›</span>
+    </button>
+    <!-- 上下顛倒（多空翻轉看法）：手機沒有 ⚙ 與快捷鍵，入口在這裡。狀態刻意不存檔（charts.js toggleChartInvert） -->
+    <button class="m-set-row" id="mSetInvert" onclick="event.stopPropagation();window.toggleChartInvert?.();">
+      <span class="m-set-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" filter="url(#mSketch)"><path d="M8 20 V4 M4.5 7.5 L8 4 L11.5 7.5"/><path d="M16 4 V20 M12.5 16.5 L16 20 L19.5 16.5"/></svg></span>
+      <span class="m-set-lbl">主圖上下顛倒（上漲顯示成下跌）<small id="mSetInvertState">關閉</small></span><span class="m-set-arr">›</span>
     </button>
     <button class="m-set-row" id="mSetVP" onclick="event.stopPropagation();document.getElementById('vpToggleBtn')?.click();">
       <span class="m-set-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" filter="url(#mSketch)"><path d="M4 5.5 H16 M4 9 H20 M4 12.5 H11 M4 16 H18 M4 19.5 H9"/></svg></span>

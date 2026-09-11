@@ -773,6 +773,7 @@ function _dimBigRange(markers) {
   });
 }
 let _lastMarkerWin = { cache: null, start: -1, end: -1 };   // 上次套用的視窗（同快取＋同邊界 → 整段跳過）
+let _invNativeMarkers = [];   // 上下顛倒時改由策略標記 primitive 代畫的原生標記（依 time 升序）
 // 全量重建合併：一次勝率回應會讓 ~13 個圖層 render 各呼叫一次 _applyMainMarkers() →
 //   同一輪 task 的多次全量重建塌成一次 microtask（concat+sort+setMarkers+止損映射+成交量重繪只跑 1 次）。
 //   平移的 windowOnly 路徑維持同步；快取先同步失效，期間若平移搶先會自己走全量、排程那次再覆蓋（等冪）。
@@ -808,7 +809,9 @@ function _applyMainMarkersNow(windowOnly) {
   // 止損線映射重掃、primitive 重繪通知全是白工 → 整段跳過（省掉平移中每 100ms 的多餘 LWC 重排）。
   if (windowOnly && _lastMarkerWin.cache === all && _lastMarkerWin.start === ws && _lastMarkerWin.end === we) return;
   _lastMarkerWin.cache = all; _lastMarkerWin.start = ws; _lastMarkerWin.end = we;
-  candleSeries.setMarkers((ws === 0 && we === all.length) ? all : all.slice(ws, we));
+  // 上下顛倒：LWC 原生標記會疊進 K 棒（它不看座標有沒有反轉）→ 交給 charts.js 的策略標記 primitive 畫
+  if (window._chartInverted) { _invNativeMarkers = all; candleSeries.setMarkers([]); }
+  else { _invNativeMarkers = []; candleSeries.setMarkers((ws === 0 && we === all.length) ? all : all.slice(ws, we)); }
   if (typeof window._rebuildStratSL === "function") window._rebuildStratSL();   // 策略棒→止損線映射(hover 用)
   // 策略方向標記(多/空·破多空·順多空)改由 charts.js 的 series primitive 自畫 → 資料/開關/淡化任一變動都通知它重畫
   if (typeof _stratMarkersUpdate === "function") _stratMarkersUpdate();
@@ -848,11 +851,18 @@ function _volAlphaHex() {
      旁邊的歷史棒卻是淡的，同一張圖上兩種亮度。
    ⚠ 別再加回來：真要「顯化某些棒」請走獨立開關，預設關。 */
 function renderVolume(data) {
+  /* ★ 重播中拿到「完整資料」一律切到游標為止（2026-09-11）。
+     會拿 ohlcvData 來重畫量柱的有：換色盤(colors.js)、主圖設定量柱色/透明度/量均(ui.js)、
+     天氣「無↔有」切換(weather.js，量條透明度跟著變)、上下顛倒。它們都沒看 replayActive →
+     重播中一觸發，游標之後的量柱全部冒出來＝看得到未來（天氣那條是自動的，不用使用者做任何事）。
+     擋在這個入口，所有呼叫點一次涵蓋；重播自己傳進來的是切片（不是 ohlcvData 本身），不受影響。 */
+  if (data === ohlcvData && typeof replayActive !== "undefined" && replayActive
+      && typeof replayData !== "undefined" && replayData.length) data = replayData.slice(0, replayIdx + 1);
   const _va = _volAlphaHex();
   volSeries.setData(data.map(d => ({
     time: _bt(d),
     value: d.volume || 0,
-    color: (d.close >= d.open ? C.volUp : C.volDown) + _va,
+    color: _volColor(d.close >= d.open) + _va,
   })));
   // 每次重新套用 scale 設定，避免切換標的或市場後比例跑掉。
   // ⚠ 數值統一放 charts.js 的 MAIN_SCALE_MARGINS / VOL_SCALE_MARGINS，別在這裡再寫一份
@@ -1069,7 +1079,7 @@ function _bgApplyChunk(data, nPrepended) {
   volSeries.setData(data.map(d => ({
     time: _bt(d),
     value: d.volume || 0,
-    color: (d.close >= d.open ? C.volUp : C.volDown) + _va,
+    color: _volColor(d.close >= d.open) + _va,
   })));
 }
 

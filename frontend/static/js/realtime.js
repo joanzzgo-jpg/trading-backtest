@@ -60,7 +60,7 @@ window._tickFormingBar = function (price) {
       const _va = (typeof _volAlphaHex === "function") ? _volAlphaHex()
                 : Math.round((S.volAlpha ?? 0.67) * 255).toString(16).padStart(2, "0");
       volSeries.update({ time: t, value: last.volume || 0,
-                         color: (p >= +last.open ? C.volUp : C.volDown) + _va });
+                         color: _volColor(p >= +last.open) + _va });
     }
   } catch (e) {}
 };
@@ -416,7 +416,7 @@ async function fetchLatest() {
       }
       _dirty = true;
       const _va2 = (typeof _volAlphaHex === "function") ? _volAlphaHex() : Math.round((S.volAlpha ?? 0.67) * 255).toString(16).padStart(2, "0");
-      volSeries.update({ time:t, value:bar.volume||0, color: bar.close>=bar.open ? C.volUp+_va2 : C.volDown+_va2 });
+      volSeries.update({ time:t, value:bar.volume||0, color: _volColor(bar.close >= bar.open) + _va2 });
       const _maPeriod = S.volMaPeriod || 5;
       const _maIdx = ohlcvData.length - 1;
       if (_maIdx >= _maPeriod - 1) {

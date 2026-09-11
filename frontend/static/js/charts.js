@@ -413,15 +413,54 @@ function createCandleSeries() {
 }
 
 // 蠟燭正常顏色選項（切回蠟燭時還原用；與 createCandleSeries 定義一致）
+// ★ 這是 K 棒顏色的唯一出口：createCandleSeries 與 applyAllColors 最後都經 applyChartType() 回到這裡
+//   → 上下顛倒的「漲跌色對調」只要做在這一處，換色盤／重建 series 都不會把它洗掉。
 function _candleColorOpts() {
+  const inv = !!window._chartInverted;
+  const up = inv ? C.down : C.up, dn = inv ? C.up : C.down;
   return {
-    upColor:   S.bodyVisible !== false ? C.up   : "rgba(0,0,0,0)",
-    downColor: S.bodyVisible !== false ? C.down : "rgba(0,0,0,0)",
+    upColor:   S.bodyVisible !== false ? up : "rgba(0,0,0,0)",
+    downColor: S.bodyVisible !== false ? dn : "rgba(0,0,0,0)",
     borderVisible: _candleBorderVisible(),
+    borderUpColor: inv ? C.borderDown : C.borderUp, borderDownColor: inv ? C.borderUp : C.borderDown,
     wickVisible:   S.wickVisible !== false,
-    wickUpColor:   C.wickUp,   wickDownColor: C.wickDown,   // 還原紅綠影線色(線型時被改成折線色)
+    wickUpColor:   inv ? C.wickDown : C.wickUp, wickDownColor: inv ? C.wickUp : C.wickDown,   // 還原紅綠影線色(線型時被改成折線色)
   };
 }
+// 成交量柱顏色：跟 K 棒同一套漲跌判定；上下顛倒時一起對調（上漲那根的量柱也是跌的顏色）
+function _volColor(isUp) { return (isUp !== !!window._chartInverted) ? C.volUp : C.volDown; }
+
+/* ── 上下顛倒（多空翻轉看法，2026-09-11）───────────────────────────────────────
+   使用者：「新增多空翻轉看法」→「是指 K 棒整個上下顛倒」→「就是上漲變下跌顯示」。
+   主圖價格軸反轉（高價在下）＋漲跌兩組顏色對調 → 上漲那段在畫面上就是一段下跌、顏色也是跌的，
+   看起來就是一個完全相反的行情。用途：檢查自己的多空偏見（倒過來還想做同一邊，才是真的看到東西）。
+   ・數字一律照實：價格軸刻度、OHLC、報價都是真的價格（只是軸倒著排）。
+   ・只翻主圖價格軸：K 棒／BB／VWAP／FVG／繪圖都掛在這條軸上一起翻；成交量在自己的軸、副圖指標不動。
+   ・刻意不存檔 —— 忘了關的話，下次打開看到倒過來的圖會直接看反。開著時主圖上方掛「⇅ 上下顛倒中」，
+     點它就恢復。入口：⚙ 主圖設定最上面一列、Alt/Option+I（同 TradingView 反轉座標）。 */
+window.toggleChartInvert = function (on) {
+  window._chartInverted = (on === undefined) ? !window._chartInverted : !!on;
+  const inv = window._chartInverted;
+  try { mainChart.priceScale("right").applyOptions({ invertScale: inv }); } catch (e) {}
+  applyChartType();                                   // K 棒顏色（_candleColorOpts 依旗標對調）
+  if (typeof ohlcvData !== "undefined" && ohlcvData.length && typeof renderVolume === "function")
+    renderVolume(ohlcvData);                          // 量柱顏色（重播中 renderVolume 自己會切到游標為止）
+  if (typeof _applyMainMarkers === "function") _applyMainMarkers();   // 原生標記在顛倒時改由 primitive 畫（見 render.js）
+  _stratMarkersUpdate();
+  // 繪圖是另一層 canvas、靠 priceToCoordinate 定位 → 價格軸一翻就要重畫；下一幀再補一次（等圖表套用新座標）
+  if (typeof _scheduleRenderDrawings === "function") {
+    _scheduleRenderDrawings();
+    requestAnimationFrame(() => _scheduleRenderDrawings());
+  }
+  const badge = document.getElementById("invertBadge");
+  if (badge) badge.hidden = !inv;
+  const cb = document.getElementById("indSpInvert");  // ⚙ 面板開著時用快捷鍵切換 → 勾選框同步
+  if (cb) cb.checked = inv;
+  const mRow = document.getElementById("mSetInvert"), mSt = document.getElementById("mSetInvertState");   // 手機設定分頁
+  if (mRow) mRow.classList.toggle("m-set-on", inv);
+  if (mSt) mSt.textContent = inv ? "開啟" : "關閉";
+  return inv;
+};
 
 // 套用目前圖型：線型＝蠟燭全透明(標記仍在、依附 candleSeries 不變)＋顯示收盤折線；蠟燭＝還原顏色、隱藏折線。
 function applyChartType() {
@@ -778,6 +817,10 @@ function _makeStratMarkersPrimitive() {
       if (!_chart || !_series || typeof ohlcvData === "undefined" || !ohlcvData.length) return;
       if (typeof _secToIdx === "undefined" || _secToIdx.size === 0) return;
       const groups = [];   // 依原生合併順序(破→多空→順)決定同棒堆疊先後
+      // 上下顛倒時，原生標記(setMarkers)改由這裡畫：LWC 4.2 的 aboveBar/belowBar 不管座標有沒有反轉，
+      //   一律「高點往上偏移／低點往下偏移」→ 反轉後兩種都會疊進 K 棒裡（render.js _applyMainMarkersNow）
+      const inv = !!window._chartInverted;
+      if (inv && typeof _invNativeMarkers !== "undefined" && _invNativeMarkers.length) groups.push(_invNativeMarkers);
       if (!window._fvgBreakHidden && typeof lastFVGBreakMarkers !== "undefined") groups.push(lastFVGBreakMarkers);
       if (!window._fvgMSHidden    && typeof lastFVGMSMarkers    !== "undefined") groups.push(lastFVGMSMarkers);
       if (!window._fvgShunHidden  && typeof lastFVGShunMarkers  !== "undefined") groups.push(lastFVGShunMarkers);
@@ -844,7 +887,10 @@ function _makeStratMarkersPrimitive() {
             const prov = !!m.prov;
             if (prov) { ctx.globalAlpha = 0.5; ctx.strokeStyle = color; ctx.lineWidth = Math.max(1, 1.4 * scale) * hr; }
             const x = xc * hr, yBar = yc * vr;
-            if (above) {
+            // above＝語意（看空、錨在高點）；drawUp＝畫在錨點的上方還是下方。
+            //   上下顛倒時高點在 K 棒的**下緣** → 改畫到下方、箭頭一起翻，整張圖才是真的倒過來。
+            const drawUp = above !== inv;
+            if (drawUp) {
               const off = stepAbove.get(idx) || 0;
               const tipY = yBar - gap - off;                 // 尖端朝下、貼近 high 上方
               ctx.beginPath();

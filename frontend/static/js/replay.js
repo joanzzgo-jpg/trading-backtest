@@ -302,7 +302,7 @@ function _replayStep(bar) {
   }
 
   volSeries.update({ time:t, value:bar.volume||0,
-    color: bar.close >= bar.open ? C.volUp + _va : C.volDown + _va });
+    color: _volColor(bar.close >= bar.open) + _va });
   const period = Math.max(1, S.volMaPeriod);
   if (replayIdx >= period - 1) {
     const s = Math.max(0, replayIdx - period + 1);

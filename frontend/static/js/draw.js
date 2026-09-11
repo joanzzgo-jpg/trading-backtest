@@ -2035,6 +2035,9 @@ function _getSessionRuns() {
    ⚠ 只畫看得見的那一段：色塊左右緣可能遠在畫面外（buffer 往兩側各多算 64 根），
      用可見區間的中點當錨，否則字會被畫到畫面外等於沒畫。 */
 function _drawSessionWatermark(sess, axisT, L, R, yH, yL, plotW) {
+  // 主圖上下顛倒（charts.js toggleChartInvert）時高點在畫面**下緣**、yH > yL →
+  //   下面的 boxH 會是負的、整個不畫。一律改成「畫面上緣/下緣」，字照樣寫在色塊上方。
+  if (yH > yL) { const _t = yH; yH = yL; yL = _t; }
   const boxW = R - L, boxH = yL - yH;
   if (!(boxW > 0) || !(boxH > 0)) return;
   // 取「色塊與畫面的交集」當可用範圍

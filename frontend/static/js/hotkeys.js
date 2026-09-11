@@ -69,6 +69,7 @@
     ["/", "開啟標的搜尋"],
     ["R", "重播模式"],
     ["Shift（輕點）", "切換 K 棒圖／線型圖（按住 Shift 仍是繪圖鎖水平，不受影響）"],
+    ["Alt/Option + I", "主圖上下顛倒（上漲顯示成下跌，檢查多空偏見；再按一次恢復）"],
     ["Cmd/Ctrl + Z", "復原繪圖"],
     ["Z / X / C", "顯示／隱藏繪圖圖層 A / B / C（點圖層鈕＝切換要畫在哪一層）"],
     ["V", "回上一步（復原繪圖；與 Cmd/Ctrl + Z 相同）"],
@@ -126,6 +127,20 @@
   window._physKey = _physKey;                          // 給 ui.js 的 M 鍵共用
 
   document.addEventListener("keydown", (e) => {
+    /* Alt/Option + I＝主圖上下顛倒（同 TradingView「反轉座標」那組鍵）。
+       ⚠ 必須排在下面「帶修飾鍵一律略過」之前。
+       ⚠ 看 e.code 不看 e.key：Mac 的 Option+I 是變音死鍵（e.key="Dead"），中文輸入法下也不是 "i"。 */
+    if (e.altKey && !e.metaKey && !e.ctrlKey && e.code === "KeyI") {
+      // 只有「真的能打字」的欄位才讓路（Option+I 會打出 ˆ）；勾選框不算 ——
+      //   否則在 ⚙ 面板勾完「上下顛倒」、焦點留在勾選框上，接著按快捷鍵會沒反應（實測踩到）。
+      const a = document.activeElement;
+      const textEntry = !!a && (a.isContentEditable || /^(textarea|select)$/i.test(a.tagName) ||
+        (/^input$/i.test(a.tagName) && !/^(checkbox|radio|button|submit|reset|range|color)$/i.test(a.type || "")));
+      if (textEntry || _overlayOpen() || typeof window.toggleChartInvert !== "function") return;
+      e.preventDefault();
+      _flash(window.toggleChartInvert() ? "⇅ 上下顛倒" : "恢復正常");
+      return;
+    }
     if (e.metaKey || e.ctrlKey || e.altKey) return;      // 交給瀏覽器/系統與既有的 Cmd+Z
     if (_typing()) return;
     const K = _physKey(e);          // 中文輸入法下 e.key 會是 "Process"，一律走 K

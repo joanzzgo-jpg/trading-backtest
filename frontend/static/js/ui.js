@@ -441,6 +441,9 @@ function bindIndicatorPanel() {
     main: {
       title: "主圖設定",
       rows: [
+        // 上下顛倒（多空翻轉看法）：狀態不存檔、不進 S（見 charts.js toggleChartInvert）
+        { invertRow: true },
+        { divider: true },
         { candleRow: true, label:"主體", visKey:"bodyVisible",   upKey:"up",        downKey:"down"      },
         { candleRow: true, label:"邊框", visKey:"borderVisible", upKey:"borderUp",  downKey:"borderDown" },
         { candleRow: true, label:"燭芯", visKey:"wickVisible",   upKey:"wickUp",    downKey:"wickDown"   },
@@ -506,6 +509,24 @@ function bindIndicatorPanel() {
       const el = document.createElement("div");
       el.className = "ind-sp-divider";
       return el;
+    }
+    if (row.invertRow) {
+      // 沿用下面「主體/邊框/燭芯」的勾選框視覺語言（同一個面板裡開/關只該有一種長相）
+      const rowEl = document.createElement("label");
+      rowEl.className = "ind-sp-row";
+      rowEl.style.cursor = "pointer";
+      rowEl.title = "整張主圖上下倒過來：上漲顯示成下跌、紅綠也對調，用來檢查自己的多空偏見。" +
+                    "價格數字都是真的；重新整理會自動恢復。快捷鍵 Alt/Option + I";
+      const cb = document.createElement("input");
+      cb.type = "checkbox"; cb.id = "indSpInvert"; cb.checked = !!window._chartInverted;
+      cb.style.cssText = "width:14px;height:14px;cursor:pointer;flex-shrink:0;margin:0;accent-color:#2962ff;";
+      cb.addEventListener("change", () => { if (window.toggleChartInvert) window.toggleChartInvert(cb.checked); });
+      const lbl = document.createElement("span");
+      lbl.className = "ind-sp-lbl"; lbl.textContent = "上下顛倒";
+      const hint = document.createElement("span");
+      hint.className = "ind-sp-wlbl"; hint.textContent = "上漲顯示成下跌";
+      rowEl.append(cb, lbl, hint);
+      return rowEl;
     }
     if (row.candleRow) {
       const rowEl = document.createElement("div");
