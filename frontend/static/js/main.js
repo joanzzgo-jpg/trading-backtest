@@ -455,9 +455,20 @@ document.addEventListener("DOMContentLoaded", async () => {
       document.head.appendChild(s);
     });
   };
-  "requestIdleCallback" in window
-    ? requestIdleCallback(_loadFx, { timeout: 1200 })   // 縮短:天氣背景早點出現(刷新後別空白5秒);仍讓出首屏給圖表
-    : setTimeout(_loadFx, 500);
+  /* 裝飾性 JS（天氣43＋繪圖40＋交易18＋通知11＋訊號10＋特效10 ≈ 132KB）讓路給**圖表資料**。
+     2026-09-12 實測(手機 4G+CPU 4x,全新裝置)：可進場 2843ms、看到 K 棒 4200ms —— 中間那 1.36 秒
+     在下載 ohlcv(48KB)+勝率(43KB)，而這六支剛好也在 2840ms 開始下載、整段跟它們搶頻寬。
+     → 改成「第一批 K 棒進來（或 5 秒保險絲）」才載。快取命中／本機快照的情況本來就秒有資料，
+       反而比原本的 1200ms timeout 更早載入，天氣背景不會變慢。
+     ⚠ 保險絲不可省：資料失敗/離線時也一定要載，否則天氣背景與繪圖工具永遠不出現。 */
+  const _fxIdle = () => ("requestIdleCallback" in window
+    ? requestIdleCallback(_loadFx, { timeout: 400 }) : setTimeout(_loadFx, 60));
+  let _fxDone = false;
+  const _fxGo = () => { if (_fxDone) return; _fxDone = true; clearInterval(_fxPoll); clearTimeout(_fxFuse); _fxIdle(); };
+  const _fxFuse = setTimeout(_fxGo, 5000);
+  const _fxPoll = setInterval(() => {
+    if (typeof ohlcvData !== "undefined" && ohlcvData && ohlcvData.length) _fxGo();
+  }, 100);
 });
 
 

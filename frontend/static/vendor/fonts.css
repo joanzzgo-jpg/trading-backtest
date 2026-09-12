@@ -1,3 +1,6 @@
+/* ⚠ 2026-09-12 移除 M PLUS Rounded 1c 的 **500**：實測整個畫面只有兩個元素用它，
+   而且都是中文（「陰」、公告副標）—— 中文本來就退回系統字，那支 22KB 的 latin 檔
+   只是為了渲染一個空白字元而被下載。移除後 font-weight:500 由瀏覽器選最近的字重(400)。 */
 /* 自架字型子集(latin/latin-ext)：M PLUS Rounded 1c(英文 logo)＋Caveat(草寫)。
    中文由 font stack 退回系統 PingFang TC。原 Google Fonts 匯出含 590 條 gstatic CDN 的
    CJK 全子集(用不到、又是 CDN 依賴)已移除 → 570KB→精簡，阻塞渲染大降。 */
@@ -31,22 +34,6 @@
   font-weight: 400;
   font-display: swap;
   src: url(/static/vendor/fonts/M_PLUS_Rounded_1c-400-latin.woff2) format('woff2');
-  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-}
-@font-face {
-  font-family: 'M PLUS Rounded 1c';
-  font-style: normal;
-  font-weight: 500;
-  font-display: swap;
-  src: url(/static/vendor/fonts/M_PLUS_Rounded_1c-500-latin-ext.woff2) format('woff2');
-  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
-}
-@font-face {
-  font-family: 'M PLUS Rounded 1c';
-  font-style: normal;
-  font-weight: 500;
-  font-display: swap;
-  src: url(/static/vendor/fonts/M_PLUS_Rounded_1c-500-latin.woff2) format('woff2');
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 @font-face {
