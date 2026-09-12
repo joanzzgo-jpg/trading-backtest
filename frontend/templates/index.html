@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>AHH Trading</title>
   <!-- PWA：可加到主畫面、全螢幕 app 體驗 -->
-  <link rel="manifest" href="/static/manifest.json?v={{ ver }}">
+  <link rel="manifest" href="{{ v('/static/manifest.json') }}">
   <meta name="theme-color" content="#000000">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -15,9 +15,9 @@
        同一張圖變成「兩個不同 URL」→ 瀏覽器抓兩次、存兩份快取，而且沒版號那份永遠不會被新版沖掉。
        實測冷載時 bear.png(24KB)＋bear-bg.png(28KB) 各被抓兩次＝白費 52KB。
        新增 JS 引用靜態圖檔時，一律用 _v("/static/img/xxx.png")（見 utils.js）。 -->
-  <script>window.__V = "{{ ver }}";</script>
-  <link rel="apple-touch-icon" href="/static/img/icon-192.png?v={{ ver }}">
-  <link rel="icon" type="image/png" href="/static/img/bear.png?v={{ ver }}"/>
+  <script>window.__V = "{{ ver }}"; window.__VMAP = {{ vmap|safe }};</script>
+  <link rel="apple-touch-icon" href="{{ v('/static/img/icon-192.png') }}">
+  <link rel="icon" type="image/png" href="{{ v('/static/img/bear.png') }}"/>
   <!-- bear.png 不預載：它在 topbar/彈窗，封面階段都看不到；favicon(<link rel=icon>) 本來就會抓一份。 -->
   <!-- bear-full(偷看熊) 不預載：它在主 UI(非封面頁)，封面階段用不到，預載只是跟關鍵資源搶頻寬。
        HTML 裡的 <img> 仍會照常載入，只是不再插隊。 -->
@@ -36,12 +36,12 @@
        字面本來就全是 font-display:swap → 文字一律先用系統字顯示、載好再換，
        改成非阻塞只是把「換字」那一刻往後挪一點，不會多出原本沒有的閃動。
        ⚠ noscript 退路必留：關 JS 時 onload 不會觸發，沒有它就永遠套不到字型。 -->
-  <link rel="stylesheet" href="/static/vendor/fonts.css?v={{ ver }}" media="print" onload="this.media='all';this.onload=null">
-  <noscript><link rel="stylesheet" href="/static/vendor/fonts.css?v={{ ver }}"></noscript>
+  <link rel="stylesheet" href="{{ v('/static/vendor/fonts.css') }}" media="print" onload="this.media='all';this.onload=null">
+  <noscript><link rel="stylesheet" href="{{ v('/static/vendor/fonts.css') }}"></noscript>
   <!-- LightweightCharts 自架(同源)：原走 unpkg CDN，部分裝置/網路(iPad、某些Windows/公司網)連不到 CDN
        → LightweightCharts undefined → 整個 app「進不去」。改自架後跟 app 同源、必達，不再依賴外部 CDN。 -->
-  <script defer src="/static/vendor/lightweight-charts.standalone.production.js?v={{ ver }}"></script>
-  <link rel="stylesheet" href="/static/css/style.min.css?v={{ ver }}" />
+  <script defer src="{{ v('/static/vendor/lightweight-charts.standalone.production.js') }}"></script>
+  <link rel="stylesheet" href="{{ v('/static/css/style.min.css') }}" />
   <script>
     // 極簡模式（perf mode）：在 body 渲染前先掛上 class，避免特效資源被瀏覽器排程
     try {
@@ -80,7 +80,7 @@
         // <img> 被解析之前發出，優先權與時機都跟原本寫死的 <link rel=preload> 相同。
         var _pl = document.createElement("link");
         _pl.rel = "preload"; _pl.as = "image"; _pl.fetchPriority = "high";
-        _pl.href = "/static/img/landing-castle-gate.webp?v={{ ver }}&c=4";
+        _pl.href = "{{ v('/static/img/landing-castle-gate.webp?c=4') }}";
         document.head.appendChild(_pl);
       }
     } catch (e) {}
@@ -96,9 +96,9 @@
     <!-- loading="lazy"：landing-skip 時整個 .landing 是 display:none → 惰性圖片不會進入
          視窗、瀏覽器連抓都不抓（省 81KB）。真的要顯示封面時它在視窗內，照常立即載入，
          而且 head 已注入 rel=preload，這裡直接命中快取、不會變慢。 -->
-    <img class="landing-art" loading="lazy" src="/static/img/landing-castle-gate.webp?v={{ ver }}&c=4"
-         data-closed="/static/img/landing-castle-gate.webp?v={{ ver }}&c=4"
-         data-open="/static/img/landing-castle-open.webp?v={{ ver }}&c=4"
+    <img class="landing-art" loading="lazy" src="{{ v('/static/img/landing-castle-gate.webp?c=4') }}"
+         data-closed="{{ v('/static/img/landing-castle-gate.webp?c=4') }}"
+         data-open="{{ v('/static/img/landing-castle-open.webp?c=4') }}"
          alt="橘子熊城堡" draggable="false" />
     <!-- 指向大門的手繪墨線箭頭（城堡風、略帶筆觸抖動） -->
     <div class="landing-arrow" aria-hidden="true">
@@ -168,7 +168,7 @@
 
     <!-- Logo -->
     <a href="/" class="topbar-logo" title="AHH Trading">
-      <img src="/static/img/bear.png?v={{ ver }}" alt="AHH" class="topbar-bear" />
+      <img src="{{ v('/static/img/bear.png') }}" alt="AHH" class="topbar-bear" />
       <span class="topbar-brand">
         <span class="topbar-brand-name">AHH</span>
         <span class="topbar-brand-sub">TRADING</span>
@@ -389,7 +389,7 @@
     </div>
     <!-- 計算中 overlay：小熊頭 + 文字（絕對置中） -->
     <div class="tb-wr-loading" id="wrLoading">
-      <img src="/static/img/bear.png?v={{ ver }}" class="tb-wr-loading-bear" alt="計算中" draggable="false" />
+      <img src="{{ v('/static/img/bear.png') }}" class="tb-wr-loading-bear" alt="計算中" draggable="false" />
       <span class="tb-wr-loading-text">計算中…</span>
     </div>
     <!-- 計算中進度條（絕對定位，跨整列） -->
@@ -804,7 +804,7 @@
       <div class="pane-body" id="mainChart">
         <!-- loading="lazy"：非極簡模式時 .chart-bear-bg.perf-only 是 display:none → 不會被抓（省 28KB）。
            weather.js 另有自己的 new Image() 會在延遲載入後自行取用，不受影響。 -->
-      <img src="/static/img/bear-bg.png?v={{ ver }}" class="chart-bear-bg perf-only" loading="lazy" alt="" />
+      <img src="{{ v('/static/img/bear-bg.png') }}" class="chart-bear-bg perf-only" loading="lazy" alt="" />
       </div>
       <!-- 回到最新：看歷史時才出現。★放在 #mainChart「外面」——draw.js 在 #mainChart 上掛了
            capture 階段的滑鼠處理，放裡面會被它先吃掉、按鈕點不動。 -->
@@ -1138,7 +1138,7 @@
   <button id="resetSysColors" class="btn-reset">重設預設色</button>
   <!-- 帳號：登入在封面門上的鎖；這裡顯示登入狀態 + 登出 -->
   <div id="sysAcctRow" class="sys-acct-row">
-    <img src="/static/img/bear.png?v={{ ver }}" class="sys-acct-avatar" alt="">
+    <img src="{{ v('/static/img/bear.png') }}" class="sys-acct-avatar" alt="">
     <span id="sysAcctName" class="sys-acct-name"></span>
     <button id="sysLogoutBtn" class="sys-acct-logout">登出</button>
   </div>
@@ -1284,7 +1284,7 @@
 <div class="peek-bear" id="peekBear" title="👀 嗨！">
   <button type="button" id="bearWxBtn" class="bear-wx-btn">天氣如何？</button>
   <div class="bear-bubble" id="bearBubble"></div>
-  <img src="/static/img/bear-full.png?v={{ ver }}" loading="lazy" alt="橘子熊偷看" draggable="false" />
+  <img src="{{ v('/static/img/bear-full.png') }}" loading="lazy" alt="橘子熊偷看" draggable="false" />
 </div>
 
 <!-- 3D 天氣舞台：CSS perspective 容器，weather.js 會在內部依 translateZ 建立多張景深 canvas
@@ -1367,7 +1367,7 @@
 
     <!-- 小啊（橘子熊吉祥物）對話卡：天氣下方。點泡泡換一句（依時間/天氣/訊號的情境語錄；純前端、無 AI 後端）-->
     <div id="mXiaoa" class="m-xiaoa" role="button" tabindex="0" aria-label="跟小啊說說話">
-      <img class="m-xiaoa-avatar" src="/static/img/bear.png?v={{ ver }}" alt="小啊">
+      <img class="m-xiaoa-avatar" src="{{ v('/static/img/bear.png') }}" alt="小啊">
       <div class="m-xiaoa-col">
         <div class="m-xiaoa-name"><span>小啊</span><button type="button" id="mXiaoaWxBtn" class="m-xiaoa-wx">天氣如何？</button></div>
         <div class="m-xiaoa-bubble"><span id="mXiaoaText">嗨～點我跟我聊兩句 🐻</span></div>
@@ -1376,7 +1376,7 @@
 
     <div class="m-set-sec">帳號</div>
     <div class="m-set-row m-set-acct">
-      <img src="/static/img/bear.png?v={{ ver }}" class="m-set-avatar" alt="">
+      <img src="{{ v('/static/img/bear.png') }}" class="m-set-avatar" alt="">
       <span class="m-set-lbl" id="mSetAcctName">未登入</span>
       <button class="m-set-logout" id="mSetLogoutBtn">登出</button>
     </div>
@@ -1485,6 +1485,6 @@
 <!-- ⚠ fetchpriority="high"：defer 的 script 在 Chrome 預設是 Low 優先權，慢 4G 實測
      它被城堡/熊圖(Low/Medium)壓著、到 3006ms 才下載完，而「可進場」正是等它。
      這兩支是進場的必要條件，優先權必須高過任何圖片。 -->
-<script defer fetchpriority="high" src="/static/js/app.bundle.js?v={{ ver }}"></script>
+<script defer fetchpriority="high" src="{{ v('/static/js/app.bundle.js') }}"></script>
 </body>
 </html>

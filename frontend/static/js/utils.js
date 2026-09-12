@@ -13,9 +13,14 @@ function toTime(s) {
      而且沒版號那份長快取永遠不會被新版沖掉（改了圖也不會更新）。
    版號由 index.html 的 window.__V 提供；讀不到就原樣回傳（不影響功能，只是少了破快取）。 */
 function _v(path) {
-  const v = window.__V;
+  /* 版號優先用**這支檔案自己**的內容雜湊（window.__VMAP，後端 _asset_url 同一份）：
+     整棵 static 共用一個雜湊的話，任何一支檔案改動 → 所有網址一起變 → 每次部署後
+     全體使用者重抓整包（/static 掛 immutable 一年）。查不到才退回全站版號。 */
+  const q = path.indexOf("?");
+  const bare = q < 0 ? path : path.slice(0, q);
+  const v = (window.__VMAP && window.__VMAP[bare]) || window.__V;
   if (!v) return path;
-  return path + (path.includes("?") ? "&" : "?") + "v=" + v;
+  return path + (q >= 0 ? "&" : "?") + "v=" + v;
 }
 window._v = _v;
 

@@ -7,7 +7,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.middleware.gzip import GZipMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response, PlainTextResponse
-import os, sys, time, subprocess, threading, hashlib
+import os, sys, time, subprocess, threading, hashlib, json
 from collections import deque
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
@@ -274,7 +274,7 @@ _FONTS_PATH   = os.path.join(FRONTEND_DIR, "static", "vendor", "fonts.css")
 
 
 _STATIC_DIR = os.path.join(FRONTEND_DIR, "static")
-_AV_CACHE = {"checked": 0.0, "sig": None, "ver": ""}
+_AV_CACHE = {"checked": 0.0, "sig": None, "ver": "", "map": {}}
 _AV_RECHECK_SEC = 2.0     # 兩次請求間最多掃一次 mtime（線上檔案不會在執行中改，等於免費）
 
 
@@ -323,16 +323,47 @@ def _asset_ver() -> str:
         sig = (len(files), max(m for _, m in files))
         if sig != c["sig"]:
             h = hashlib.md5()
+            amap = {}
             for p, _m in sorted(files):
-                h.update(os.path.relpath(p, _STATIC_DIR).encode("utf-8", "ignore"))
+                rel = os.path.relpath(p, _STATIC_DIR).replace(os.sep, "/")
+                fh = hashlib.md5()
+                h.update(rel.encode("utf-8", "ignore"))
                 h.update(b"\0")
                 with open(p, "rb") as f:
                     for chunk in iter(lambda: f.read(1 << 20), b""):
                         h.update(chunk)
-            c["ver"], c["sig"] = h.hexdigest()[:12], sig
+                        fh.update(chunk)
+                amap[rel] = fh.hexdigest()[:10]        # 每支檔案**自己**的內容雜湊
+            c["ver"], c["sig"], c["map"] = h.hexdigest()[:12], sig, amap
     except Exception:
         return c["ver"] or _GIT_VER
     return c["ver"]
+
+
+def _asset_map() -> dict:
+    """/static/ 每支檔案 → 自己的內容雜湊（相對路徑當鍵）。順便確保快取是新的。"""
+    _asset_ver()
+    return _AV_CACHE.get("map") or {}
+
+
+def _asset_url(path: str) -> str:
+    """靜態資源網址加上**這支檔案自己**的版號。
+
+    ★ 2026-09-12 從「整棵 static 共用一個雜湊」改成 per-file（使用者：手機啟動慢）。
+      共用雜湊的問題：/static 掛的是 immutable 一年，任何一支檔案改一個位元組 → **所有**資產
+      網址一起變 → 每次部署後，每個使用者都要把整包重抓一次（實測手機 4G 662KB / 24 個請求）。
+      改成各自的雜湊之後，只有真的改到的檔案換網址，其餘照樣命中快取。
+    ⚠ 仍然涵蓋整棵 static（圖表庫/字型/圖片/manifest 都在內）—— 那是上一版最重要的教訓，
+      漏掉誰誰就永遠拿不到新版（2026-07-10 整個 app 進不去就是這個形狀）。
+    ⚠ 查不到（例如剛新增還沒被掃到）→ 退回全站版號，寧可多抓一次也不要拿到舊檔。
+    """
+    q = ""
+    if "?" in path:                       # 例：...webp?c=4 → 版號接在後面
+        path, q = path.split("?", 1)
+        q = "&" + q
+    rel = path[len("/static/"):] if path.startswith("/static/") else path.lstrip("/")
+    ver = _asset_map().get(rel) or _asset_ver()
+    return f"{path}?v={ver}{q}"
 
 
 # 報價價格更新的健康狀態（給 /api/_diag_mem 看：凍住是安靜壞掉，沒有這個查不出來）。
@@ -702,7 +733,9 @@ def index(request: Request):
     return templates.TemplateResponse(
         request,
         "index.html",
-        {"ver": _asset_ver()},
+        {"ver": _asset_ver(), "v": _asset_url,
+         "vmap": json.dumps({("/static/" + k): v for k, v in _asset_map().items()},
+                            separators=(",", ":"))},
         headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
     )
 

@@ -439,7 +439,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   // 延遲載入特效（點擊特效/SFX 在 effects.js；天氣動畫在 weather.js），等瀏覽器閒置後再執行
   // 兩支皆獨立 IIFE，async=false 保留插入順序（互不依賴，順序僅為穩妥）
   const _loadFx = () => {
-    const ver = window._APP_VER || "1";
+    // 版號走 _v()：每支檔案自己的雜湊（沒改到的檔案部署後仍命中快取）
+    const _fxUrl = (n) => (window._v ? window._v("/static/js/" + n)
+                                     : "/static/js/" + n + "?v=" + (window._APP_VER || "1"));
     // draw / trade 也在此延遲載入（已移出首屏 bundle，省 ~42% 首屏 JS）；async=false 保留插入順序。
     // 兩者末段各自 initDrawTools()/initTrade() 自我初始化 → 載入完成即接手繪圖工具/交易面板。
     // signal_info / notify 同理（2026-08-04 移出 bundle，再省 17.7KB gzip／首屏 -14%）：
@@ -448,7 +450,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     ["effects.min.js", "weather.min.js", "draw.min.js", "trade.min.js",
      "signal_info.min.js", "notify.min.js"].forEach(name => {
       const s = document.createElement("script");
-      s.src = "/static/js/" + name + "?v=" + ver;
+      s.src = _fxUrl(name);
       s.async = false;
       document.head.appendChild(s);
     });
