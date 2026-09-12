@@ -158,6 +158,13 @@ def fetch_crt_df(market: str, symbol: str, timeframe: str, days: int,
                 _df = fetch_tw_daily_yf(symbol, start, end)
             except Exception:
                 _df = fetch_tw_stock(symbol, start, end, finmind_token)
+            # 興櫃：yfinance 幾乎沒有歷史（實測 7887 只有 4 根）→ 官方興櫃歷史補在前面。
+            #   非興櫃完全不受影響（esb_codes 查不到就原樣回傳）。
+            try:
+                from data.taiwan import tw_esb_backfill
+                _df = tw_esb_backfill(_df, symbol, start)
+            except Exception:
+                pass
             # 分割/減資自動還原（2026-09-10）：不依賴 yfinance 的 splits（它會漏，實測 6949
             # 2026-09-07 的 1:20 分割它就沒有）→ 由資料本身偵測「超過漲跌幅限制的跳空」。
             # 找不到乾淨比例就原樣不動，見 taiwan.tw_adjust_splits。
@@ -1327,6 +1334,12 @@ def _ohlcv_build(req: OHLCVRequest):
                     df = fetch_tw_daily_yf(req.symbol, start, end)
                 except Exception:
                     df = fetch_tw_stock(req.symbol, start, end, req.finmind_token)
+                # 興櫃歷史補齊（同 fetch_crt_df 那條，兩個呼叫點都要）
+                try:
+                    from data.taiwan import tw_esb_backfill
+                    df = tw_esb_backfill(df, req.symbol, start)
+                except Exception:
+                    pass
                 # ⚠ 分割/減資還原：這裡是 /api/ohlcv 的日線路徑,跟 fetch_crt_df 那條是**兩個**
                 #   各自獨立的呼叫點 —— 只掛一邊的話,圖表照樣顯示假崩盤（我第一版就漏了這個,
                 #   6949 透過 API 仍是 -94.5%）。兩處都要。

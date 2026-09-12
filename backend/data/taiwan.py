@@ -276,7 +276,11 @@ def tw_adjust_splits(df, symbol: str = ""):
             hi = pc / (op * (1 - _TW_LIMIT))
             _lo, _hi = min(lo, hi), max(lo, hi)
             # 先問官方係數（精確），沒登記才退回「唯一乾淨解」那套猜法
-            r = _tw_feed_ratio(symbol, t.iloc[i], _lo, _hi) or _tw_clean_ratio(_lo, _hi)
+            # ⚠ 興櫃**沒有漲跌幅限制** → 「跳空超過漲跌幅＝公司行動」這個前提對它不成立，
+            #   真實的一日大漲大跌會被猜成分割比例、把整段歷史除掉。興櫃只認官方登記的係數。
+            r = _tw_feed_ratio(symbol, t.iloc[i], _lo, _hi)
+            if not r and str(symbol).strip() not in esb_codes():
+                r = _tw_clean_ratio(_lo, _hi)
             if r:
                 events.append((i, r))
         if not events:
@@ -295,6 +299,149 @@ def tw_adjust_splits(df, symbol: str = ""):
     except Exception as e:
         _log.warning(f"[tw_adjust_splits] {symbol}: {e}")
         return df
+
+# ── 興櫃(ESB)日線：官方 TPEX「興櫃個股歷史行情」──────────────────────────────
+#   2026-09-12 使用者：「7887日Ｋ怪怪的」「我看其他看盤軟體都很多」。
+#   根因：興櫃股在 yfinance 幾乎沒有歷史（實測 7887 只有 4 根：2026-09-08 起），
+#   而官方其實有（TPEX 這支端點回得到 2026-03 以來每一天）。
+#   ⚠ 興櫃公開資料**沒有開盤價、也沒有收盤價**，只有 成交最高/最低/均價/股數/筆數：
+#     ・收盤 ← 官方均價（興櫃的漲跌本來就是以「前一日均價」為基準算的，行情列那份也是）
+#     ・開盤 ← 前一日均價，且**必須夾進當日高低區間**。不夾就會生出「開盤價高於最高價」的
+#       不可能 K 棒 —— FinMind 的興櫃資料就是沒夾（實測 7887 2026-09-11：開 153.55 > 高 152.00），
+#       那種棒會被 check_bar_invariants 判定資料壞掉，也會讓所有策略計算失真。
+_ESB_HIST_CACHE = {}                      # (code, y, m) -> (寫入時間, rows)
+_ESB_CODES_CACHE = {"ts": 0.0, "codes": set()}
+_ESB_HDRS = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
+
+
+def esb_codes() -> set:
+    """目前的興櫃代號集合（TPEX 當日行情表，300 多檔）。10 分鐘快取；抓不到回空集合＝不啟用興櫃路徑。"""
+    now = _time.time()
+    if _ESB_CODES_CACHE["codes"] and now - _ESB_CODES_CACHE["ts"] < 600:
+        return _ESB_CODES_CACHE["codes"]
+    try:
+        r = SESSION.get(TPEX_ESB_URL, headers=_ESB_HDRS, timeout=15)
+        r.raise_for_status()
+        codes = {str(d.get("SecuritiesCompanyCode", "")).strip()
+                 for d in r.json() if str(d.get("SecuritiesCompanyCode", "")).strip()}
+        if codes:
+            _ESB_CODES_CACHE.update(ts=now, codes=codes)
+    except Exception as e:
+        _log.warning(f"[esb] 興櫃代號清單抓取失敗: {e}")
+    return _ESB_CODES_CACHE["codes"]
+
+
+def _esb_month(code: str, y: int, m: int) -> list:
+    """抓某檔某個月的興櫃日成交（回原始列）。過去月份的資料不會再變 → 快取 7 天，當月 10 分鐘。"""
+    key = (code, y, m)
+    hit = _ESB_HIST_CACHE.get(key)
+    today = date.today()
+    ttl = 600 if (y == today.year and m == today.month) else 7 * 86400
+    if hit and _time.time() - hit[0] < ttl:
+        return hit[1]
+    rows = []
+    try:
+        r = SESSION.get(TPEX_ESB_HIST_URL, headers=_ESB_HDRS, timeout=20,
+                        params={"code": code, "date": f"{y}/{m:02d}/01", "response": "json"})
+        r.raise_for_status()
+        j = r.json()
+        for t in (j.get("tables") or []):
+            if t.get("data"):
+                rows = t["data"]
+                break
+    except Exception as e:
+        _log.warning(f"[esb] {code} {y}/{m:02d} 歷史抓取失敗: {e}")
+        return hit[1] if hit else []
+    _ESB_HIST_CACHE[key] = (_time.time(), rows)
+    return rows
+
+
+def fetch_esb_daily(symbol: str, start: str, end: str = "", max_months: int = 24) -> pd.DataFrame:
+    """興櫃個股日線（官方）。回 time/open/high/low/close/volume；抓不到回空 DataFrame。
+
+    ⚠ 一個月一個請求 → 由新往舊掃，連續兩個月沒資料就停（＝上興櫃之前）；再加 max_months 上限，
+      免得使用者把時間軸拉到很早時對官方站狂打幾十次。
+    """
+    cols = ["time", "open", "high", "low", "close", "volume"]
+    try:
+        s_date = date.fromisoformat(start) if start else (date.today() - timedelta(days=365))
+    except Exception:
+        s_date = date.today() - timedelta(days=365)
+    cur = date.today().replace(day=1)
+    out, empty_run = [], 0
+    for _ in range(max_months):
+        rows = _esb_month(symbol, cur.year, cur.month)
+        if not rows:
+            empty_run += 1
+            if empty_run >= 2:
+                break
+        else:
+            empty_run = 0
+            for r in rows:
+                try:
+                    roc = str(r[0]).split("/")
+                    d = date(int(roc[0]) + 1911, int(roc[1]), int(roc[2]))
+                    vol = float(str(r[1]).replace(",", "") or 0)
+                    hi  = float(str(r[3]).replace(",", "") or 0)
+                    lo  = float(str(r[4]).replace(",", "") or 0)
+                    avg = float(str(r[5]).replace(",", "") or 0)
+                except (ValueError, IndexError, TypeError):
+                    continue
+                if vol <= 0 or avg <= 0 or hi <= 0 or lo <= 0:
+                    continue                                  # 當天沒成交 → 沒有 K 棒
+                out.append((d, hi, lo, avg, vol))
+        cur = (cur - timedelta(days=1)).replace(day=1)         # 往前一個月
+        if cur < s_date.replace(day=1):
+            break
+    if not out:
+        return pd.DataFrame(columns=cols)
+    out.sort(key=lambda x: x[0])
+    recs, prev_avg = [], None
+    for d, hi, lo, avg, vol in out:
+        op = avg if prev_avg is None else min(max(prev_avg, lo), hi)   # 開盤＝前一日均價，夾進當日區間
+        recs.append({"time": pd.Timestamp(d), "open": round(op, 2), "high": round(hi, 2),
+                     "low": round(lo, 2), "close": round(avg, 2), "volume": vol})
+        prev_avg = avg
+    df = pd.DataFrame(recs, columns=cols)
+    if end:
+        try:
+            df = df[df["time"] <= pd.Timestamp(date.fromisoformat(end))]
+        except Exception:
+            pass
+    return df.reset_index(drop=True)
+
+
+def tw_esb_backfill(df, symbol: str, start: str):
+    """興櫃：把官方歷史補在 yfinance 那幾根**前面**（yfinance 幾乎沒有興櫃歷史）。
+
+    ⚠ yfinance 有的那幾天維持原樣不覆蓋：那幾根是真實的開高低收（第一筆/最後一筆成交），
+      比官方那份「均價當收盤」更貼近其他看盤軟體；官方那份只用來補它沒有的歷史。
+    非興櫃、或官方也沒有資料 → 原樣回傳（完全不影響上市櫃）。
+    """
+    try:
+        code = str(symbol).strip()
+        if code not in esb_codes():
+            return df
+        have = 0
+        first = None
+        if df is not None and not getattr(df, "empty", True) and "time" in df.columns:
+            have = len(df)
+            first = pd.to_datetime(df["time"]).min()
+        old = fetch_esb_daily(code, start)
+        if old is None or old.empty:
+            return df
+        if first is not None:
+            old = old[pd.to_datetime(old["time"]) < first]
+        if old.empty:
+            return df
+        merged = old if not have else pd.concat([old, df], ignore_index=True)
+        merged = merged.sort_values("time").drop_duplicates(subset="time", keep="last").reset_index(drop=True)
+        _log.info(f"[esb] {code} 興櫃歷史補齊：yfinance {have} 根 → {len(merged)} 根")
+        return merged
+    except Exception as e:
+        _log.warning(f"[esb] {symbol} 歷史補齊失敗: {e}")
+        return df
+
 
 def fetch_tw_daily_yf(symbol: str, start: str, end: str) -> pd.DataFrame:
     """
@@ -403,6 +550,8 @@ TWSE_DAY_ALL_URL = "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL"
 TPEX_DAY_ALL_URL = "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes"
 # 興櫃即時統計（含最新成交價/均價/量）。興櫃沒有收盤集合競價 → 漲跌以「前一日均價」為基準。
 TPEX_ESB_URL     = "https://www.tpex.org.tw/openapi/v1/tpex_esb_latest_statistics"
+# 興櫃個股「歷史行情」（一次一個月；ROC 日期）。openapi 只有當日行情表，歷史只有這支新站端點。
+TPEX_ESB_HIST_URL = "https://www.tpex.org.tw/www/zh-tw/emerging/historical"
 
 # 備援熱門清單（opendata 失敗時用 MIS 抓這 50 支）
 TW_POPULAR = [
