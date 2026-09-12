@@ -2422,7 +2422,9 @@ function _drawVisHL(W, H) {
     const y = candleSeries.priceToCoordinate(price);
     if (x == null || y == null) return;                       // 座標算不出來(不在圖上)→ 不畫
     const col = isHi ? "#ef5350" : "#26a69a";
-    const dir = isHi ? -1 : 1;                                // 高點往上標、低點往下標
+    // 高點往上標、低點往下標；主圖上下顛倒時高點在畫面**下方** → 整組(三角+標籤)跟著翻，
+    //   否則箭頭會指向畫面外（實測顛倒時「低」跑到最上面、▲ 還朝上）。
+    const dir = (isHi !== !!window._chartInverted) ? -1 : 1;
     drawCtx.save();
     drawCtx.strokeStyle = col; drawCtx.fillStyle = col;
     drawCtx.lineWidth = 1;
