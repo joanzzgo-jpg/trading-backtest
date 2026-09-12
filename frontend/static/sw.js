@@ -7,17 +7,29 @@
  * 換快取策略時把 CACHE 版號 +1 即可讓舊快取在 activate 時清掉。
  */
 const CACHE = "ahh-static-v20";  // v20:靜態資源改「存新的就刪同檔舊版號」(見 _pruneOldVersions)
+const SHELL = "/__shell__";      // 離線外殼(HTML)的快取鍵；導覽走 stale-while-revalidate(見 fetch)
+// ⚠ 改導覽策略時**不要**動 CACHE 版號：一改名，activate 會把使用者已經存好的整包靜態資源
+//   全部刪掉 → 下一次啟動反而要重抓 600KB+，跟「開得更快」的目的相反。
 
 self.addEventListener("install", (e) => {
   self.skipWaiting();
 });
 
 self.addEventListener("activate", (e) => {
-  e.waitUntil(
-    caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
-      .then(() => self.clients.claim())
-  );
+  e.waitUntil((async () => {
+    const keys = await caches.keys();
+    await Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)));
+    await self.clients.claim();
+    /* 先把外殼存起來：第一次造訪時 SW 還沒接管那次導覽，不補這一手的話「第二次啟動」
+       仍然要等網路（要到第三次才秒開）。抓失敗就算了，下次導覽會補存。 */
+    try {
+      const cache = await caches.open(CACHE);
+      if (!(await cache.match(SHELL))) {
+        const r = await fetch("/", { cache: "reload" });
+        if (r && r.status === 200) await cache.put(SHELL, r.clone());
+      }
+    } catch (_) {}
+  })());
 });
 
 // ── Web Push：收到推播 → 顯示系統通知 ──────────────────────────
@@ -70,21 +82,30 @@ self.addEventListener("fetch", (e) => {
   // 與圖示更新不到（Chrome 讀到 SW 回的舊 manifest → 一直維持舊安裝模式）。
   if (url.pathname === "/static/manifest.json") return;
 
-  // 導覽(HTML)＝離線外殼：連得上**永遠走網路**（絕不吃舊頁），成功順手存一份；
-  // 連不上（斷網/伺服器掛）→ 退回上次存的外殼 → 配合本機快照(IndexedDB)，
-  // 斷網重開 App 也進得去、看得到最後一份圖（API 照樣失敗，行情不更新屬預期）。
+  /* 導覽(HTML)＝離線外殼。**先端出上次那份、同時在背景抓新的**（stale-while-revalidate）。
+   *
+   * 2026-09-12 改：原本是「永遠走網路，連不上才退快取」。理由是要拿最新的 ?v= 資產版號 ——
+   * 但代價是**每次打開 App 都要先等伺服器回 HTML 才畫得出第一個像素**。手機上這段是
+   * 「開啟很慢、不像 app」的主因：行動網路 RTT 動輒 100~300ms，Railway 冷啟動更久，
+   * 而這段時間畫面是全白的（靜態檔明明都在快取裡）。
+   * 換成 SWR 之後：開 App＝直接用快取那份，0 網路等待；新版在背景抓好存起來，下一次啟動生效。
+   *
+   * 為什麼「晚一次啟動才換新版」是安全的：
+   *  ・?v= 只是破快取用的網址參數，伺服器不看它 —— 舊網址照樣拿到現在的檔案內容。
+   *  ・舊外殼要的資產都還在快取裡（新版資產要等新外殼上場才會被抓、才會觸發 _pruneOldVersions）。
+   *  ・真的要立刻拿到新版：重新整理一次即可（第二次進來時快取裡已經是新的）。
+   * 斷網時照樣退回這份外殼，配合本機快照(IndexedDB) 仍進得去、看得到最後一份圖。 */
   if (req.mode === "navigate" && url.origin === self.location.origin) {
-    e.respondWith(
-      fetch(req).then((resp) => {
-        if (resp && resp.status === 200) {
-          const copy = resp.clone();
-          caches.open(CACHE).then((c) => c.put("/__shell__", copy)).catch(() => {});
-        }
+    e.respondWith((async () => {
+      const cache = await caches.open(CACHE);
+      const hit = await cache.match(SHELL);
+      const net = fetch(req).then((resp) => {
+        if (resp && resp.status === 200) cache.put(SHELL, resp.clone()).catch(() => {});
         return resp;
-      }).catch(() =>
-        caches.match("/__shell__").then((hit) => hit || Response.error())
-      )
-    );
+      }).catch(() => null);
+      if (hit) { e.waitUntil(net); return hit; }     // 有存過 → 秒開，背景更新
+      return (await net) || Response.error();        // 第一次（還沒存過）→ 只能等網路
+    })());
     return;
   }
 

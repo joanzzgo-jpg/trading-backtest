@@ -111,6 +111,7 @@ async function _acctLogin(name) {
   const hasData = j.data && typeof j.data === "object" && Object.keys(j.data).length > 0;
   if (hasData) {
     _acctApplySnapshot(j.data);
+    try { localStorage.setItem("landingDismissedAt", String(Date.now())); } catch (e) {}
     try { sessionStorage.setItem("landingDismissedAt", String(Date.now())); } catch (e) {}
     return { applied: true };
   }
@@ -146,7 +147,8 @@ async function _acctLogout() {
   document.getElementById("sysSettingsPopup")?.classList.remove("open");   // 收掉系統外觀彈窗
   // 手機：先把分頁切回「圖表」，收掉設定面板（#mSettings）背景，否則會跟封面圖重疊
   if (typeof window._mSetTab === "function") window._mSetTab("chart");
-  try { sessionStorage.removeItem("landingDismissedAt"); } catch (e) {}      // 不再自動跳過封面
+  try { localStorage.removeItem("landingDismissedAt"); } catch (e) {}       // 不再自動跳過封面
+  try { sessionStorage.removeItem("landingDismissedAt"); } catch (e) {}
   if (typeof window._landingShow === "function") window._landingShow();     // 登出 → 跳回封面頁
   /* ★ 2026-08-08 登出後強制重新載入。
      清 localStorage **不會**清掉記憶體裡的狀態 —— C（K棒/主圖顏色）、SC（系統外觀）、

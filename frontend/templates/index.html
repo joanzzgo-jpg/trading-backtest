@@ -61,7 +61,11 @@
     //  · 關掉重開 / 重開 app：sessionStorage 清空 → 跳首頁
     //  · 一直開著超過 24h：由 main.js 計時重新跳（此處只負責 reload 當下不閃）
     try {
-      var _ts = parseInt(sessionStorage.getItem("landingDismissedAt") || "0", 10);
+      // 「看過封面」時間戳：localStorage 優先（手機關掉 App 就是新 session，sessionStorage 一定空的
+      //   → 這條 24 小時規則在手機上等於從來沒生效，每次開 App 都要重看城門。見 main.js 同一段註解）
+      var _ts = 0;
+      try { _ts = Math.max(parseInt(localStorage.getItem("landingDismissedAt") || "0", 10) || 0,
+                           parseInt(sessionStorage.getItem("landingDismissedAt") || "0", 10) || 0); } catch (e) {}
       var _hasAcct = false; try { _hasAcct = !!localStorage.getItem("acctName"); } catch (e) {}
       // 指定地點預覽（?wxlat=/?wxloc=）→ 強制顯示首頁，方便預覽各地天氣/國旗。
       // 僅看網址參數；不帶參數的純網址一律走正常流程（真實定位）。

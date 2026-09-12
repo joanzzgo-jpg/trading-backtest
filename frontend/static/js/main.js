@@ -18,7 +18,19 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (!scr || !btn) return;
     const DAY = 86400000;
     let timer = null;
-    const seenAt = () => { try { return parseInt(sessionStorage.getItem("landingDismissedAt") || "0", 10); } catch (e) { return 0; } };
+    /* 「看過封面」的時間戳：**localStorage**（2026-09-12 使用者：「手機啟動時慢 沒辦法像app一樣快」）。
+       ⚠ 原本存 sessionStorage —— 手機把 App 關掉再打開就是新的 session、一定是空的 →
+         下面這條「已登入 + 24 小時內看過 → 跳過封面」的規則**在手機上從來沒有生效過**：
+         每次啟動都要重看城門、多抓 81KB 城堡圖、再等 1.3 秒開門動畫才看得到圖表。
+       ⚠ 跳過仍要求已登入（head 腳本的 _hasAcct）→ 訪客/未登入照樣回封面選登入，行為不變。
+       ⚠ 兩邊都讀：舊分頁只寫過 sessionStorage，取大的那個才不會讓它突然又跳封面。 */
+    const _SEEN_K = "landingDismissedAt";
+    const seenAt = () => {
+      let a = 0, b = 0;
+      try { a = parseInt(localStorage.getItem(_SEEN_K) || "0", 10) || 0; } catch (e) {}
+      try { b = parseInt(sessionStorage.getItem(_SEEN_K) || "0", 10) || 0; } catch (e) {}
+      return Math.max(a, b);
+    };
     const art = scr.querySelector(".landing-art");
     /* 開門圖暖載（原本是 <head> 的 rel=preload，移走的理由見 index.html 的說明）。
        時機＝bundle 已執行、關鍵路徑走完 → 完全不影響「可進場」。
@@ -34,7 +46,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
     const hide = () => {   // 點大門 → 進場序列：換開門圖 → 門內漸變放大 + 暖光鋪滿 → 進圖表
       if (scr.classList.contains("landing-entering")) return;          // 防重複觸發
-      try { sessionStorage.setItem("landingDismissedAt", String(Date.now())); } catch (e) {}
+      try { localStorage.setItem(_SEEN_K, String(Date.now())); } catch (e) {}
+      try { sessionStorage.setItem(_SEEN_K, String(Date.now())); } catch (e) {}   // 舊鍵一併寫，回退版本也讀得到
       if (art && art.dataset.open) art.src = art.dataset.open;          // 換成「開門」圖
       scr.classList.add("landing-entering");                           // 觸發 zoom + 暖光動畫
       setTimeout(() => {                                               // 暖光快鋪滿後才還原圖表（避免邊緣穿幫）
@@ -62,7 +75,8 @@ document.addEventListener("DOMContentLoaded", async () => {
       const ts = seenAt();
       if (ts && Date.now() - ts >= DAY) {
         if (timer) { clearInterval(timer); timer = null; }
-        try { sessionStorage.removeItem("landingDismissedAt"); } catch (e) {}
+        try { localStorage.removeItem(_SEEN_K); } catch (e) {}
+        try { sessionStorage.removeItem(_SEEN_K); } catch (e) {}
         show();
       }
     };
