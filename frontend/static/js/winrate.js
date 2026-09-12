@@ -650,7 +650,33 @@ const _WR_SKIP_GROUPS = [
   [() => window._pdOn === true,                    ["pd_ranges"]],   // 關鍵高低沒有持久化，本來就每次重開都是關的
   // 2026-08-05 移除 signals 的跳過條件：一鍵隱藏鈕已刪，條件永遠成立（＝一律要），
   // 留著只是雜訊。要再省這 19%（gzip 607KB→493KB）得先有新的開關。
+
+  /* 2026-09-12 追加：這幾層前端**預設就是關的**，實測預設情況下佔整份回應 29%
+     （gzip 50.8KB / 172.9KB，SUI 1h）—— 換一個沒看過的標的就要多傳這些。
+     ⚠ fvg_trades / fvg_bb* 連 UI 開關都沒有（只剩 window.toggleFVGxx 可從主控台開），
+       fvg_special 已從圖例移除、永久隱藏 → 平常一律不送；真的打開時各自的 toggle
+       會呼叫 _wrRefetchIfMissing() 補抓完整版。
+     ⚠ fvg_shun 讀 localStorage 的圖例狀態（不是讀旗標）：旗標要等 loadVisibilityPrefs
+       點過圖例才會變，第一份請求不保證排在它後面 —— 同教練/VWAP 那兩條的理由。 */
+  //   ⚠ 兩個來源取「或」：圖例點下去時 saveVisibilityPrefs 是在 toggle **之後**才寫
+  //     localStorage → 只讀 localStorage 的話，剛打開那一刻仍是舊值＝不會補抓（實測踩到）。
+  //     旗標(_fvgShunHidden)是當下的真相；localStorage 負責「還沒點過圖例」的開機那一刻。
+  [() => window._fvgShunHidden !== true || _wrLegOn("legFVGShun", false), ["fvg_shun"]],
+  [() => window._fvgTradesHidden !== true,          ["fvg_trades"]],
+  [() => (window._fvgBBHideD !== true || window._fvgBBHideA !== true
+          || window._fvgBBHideM !== true),          ["fvg_bb", "fvg_bb_a", "fvg_bb_m"]],
+  [() => window._fvgSpecialHidden !== true,         ["fvg_special"]],
+  // fvg_sigs：前端沒有任何消費者（自動交易是後端 notify_monitor 自己算的）→ 一律不送。
+  [() => false,                                     ["fvg_sigs"]],
 ];
+/* 圖例的顯示狀態（hiddenLegs 存的是「被關掉」的 id）。沒有這筆記錄（第一次造訪）→ 用預設值。 */
+const _wrLegOn = (id, defOn) => {
+  try {
+    const raw = localStorage.getItem("hiddenLegs");
+    if (raw != null) return !JSON.parse(raw).includes(id);
+  } catch (e) {}
+  return defOn === true;
+};
 function _wrSkipList() {
   const out = [];
   for (const [needed, keys] of _WR_SKIP_GROUPS) {
@@ -1026,6 +1052,7 @@ window.toggleFVGBB = function (ver, on) {
   const key = ver === "A" ? "_fvgBBHideA" : ver === "M" ? "_fvgBBHideM" : "_fvgBBHideD";
   window[key] = (on === undefined) ? !window[key] : !on;
   _applyMainMarkers();
+  _wrRefetchIfMissing();   // 這三層預設不跟後端要（見 _WR_SKIP_GROUPS）→ 打開時補抓
   return !window[key];   // 回傳「是否顯示」
 };
 
@@ -1135,9 +1162,22 @@ function _renderFVGShun(items) {
 }
 window._renderFVGShun = _renderFVGShun;
 // 開關：window.toggleFVGShun() 切換順多/順空標記顯示
+/* 這兩層沒有 UI 開關（研究用/已移除），但旗標可以從主控台改 →
+   給一個正式的 toggle，改旗標時順便補抓，不然打開了卻沒有資料（靜默空白）。 */
+window.toggleFVGTrades = function (on) {
+  window._fvgTradesHidden = (on === undefined) ? !window._fvgTradesHidden : !on;
+  _applyMainMarkers(); _wrRefetchIfMissing();
+  return !window._fvgTradesHidden;
+};
+window.toggleFVGSpecialLayer = function (on) {
+  window._fvgSpecialHidden = (on === undefined) ? !window._fvgSpecialHidden : !on;
+  _applyMainMarkers(); _wrRefetchIfMissing();
+  return !window._fvgSpecialHidden;
+};
 window.toggleFVGShun = function (on) {
   window._fvgShunHidden = (on === undefined) ? !window._fvgShunHidden : !on;
   _applyMainMarkers();
+  _wrRefetchIfMissing();      // 這層預設不跟後端要（見 _WR_SKIP_GROUPS）→ 打開時補抓
   return !window._fvgShunHidden;
 };
 

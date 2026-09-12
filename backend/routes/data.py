@@ -2357,7 +2357,13 @@ def _wr_resp(payload, etag=None, slim=True, no_store=False):
 #   ⚠ 與其他幾個不同：signals **預設是顯示的** → 只有主動關掉的人才省得到，
 #     這是有意的（不能為了省流量而讓預設看不到東西）。
 _WR_SKIPPABLE = frozenset({"smc_sweep", "smc_struct", "smc_ob", "smc_sr",
-                           "channel", "vwap", "pd_ranges", "signals"})
+                           "channel", "vwap", "pd_ranges", "signals",
+                           # 2026-09-12 追加：這些圖層在前端**預設就是關的**（有的連 UI 開關都沒有），
+                           #   實測預設情況下佔整份回應的 29%（gzip 50.8KB / 172.9KB，SUI 1h）。
+                           #   前端 _WR_SKIP_GROUPS 依開關決定要不要；打開時 _wrRefetchIfMissing 會補抓。
+                           #   ⚠ 只砍 HTTP 邊界(_wr_resp)，crt.py 照算 → notify_monitor / 自動交易那條路不受影響。
+                           "fvg_trades", "fvg_bb", "fvg_bb_a", "fvg_bb_m",
+                           "fvg_shun", "fvg_special", "fvg_sigs"})
 
 _WR_DELTA_KEYS = ("fvg", "signals", "fvg_ms", "fvg_break", "fvg_shun", "fvg_special",
                   "fvg_trades", "smc_sweep", "smc_struct", "smc_ob", "smc_sr", "vwap",
