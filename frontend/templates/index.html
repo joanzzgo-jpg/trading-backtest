@@ -17,7 +17,10 @@
        新增 JS 引用靜態圖檔時，一律用 _v("/static/img/xxx.png")（見 utils.js）。 -->
   <script>window.__V = "{{ ver }}"; window.__VMAP = {{ vmap|safe }};</script>
   <link rel="apple-touch-icon" href="{{ v('/static/img/icon-192.png') }}">
-  <link rel="icon" type="image/png" href="{{ v('/static/img/bear.png') }}"/>
+  <!-- favicon 用 96px 的小檔（6.5KB），不要用 topbar 那張 24KB 的原圖：瀏覽器抓 favicon 走
+       獨立管道、不會跟 <img> 共用那一次下載（實測第一次載入 bear.png 被抓兩次）。
+       同一隻熊、同一個造型，只是尺寸剛好夠分頁圖示用。 -->
+  <link rel="icon" type="image/png" sizes="96x96" href="{{ v('/static/img/favicon-96.png') }}"/>
   <!-- bear.png 不預載：它在 topbar/彈窗，封面階段都看不到；favicon(<link rel=icon>) 本來就會抓一份。 -->
   <!-- bear-full(偷看熊) 不預載：它在主 UI(非封面頁)，封面階段用不到，預載只是跟關鍵資源搶頻寬。
        HTML 裡的 <img> 仍會照常載入，只是不再插隊。 -->
@@ -80,7 +83,10 @@
         // <img> 被解析之前發出，優先權與時機都跟原本寫死的 <link rel=preload> 相同。
         var _pl = document.createElement("link");
         _pl.rel = "preload"; _pl.as = "image"; _pl.fetchPriority = "high";
-        _pl.href = "{{ v('/static/img/landing-castle-gate.webp?c=4') }}";
+        // ⚠ 必須 |safe：這行在 <script> 裡，Jinja 預設會把網址裡的 & 轉成 &amp; →
+        //   預載抓的是「?v=…&amp;c=4」、<img> 抓的是「?v=…&c=4」，兩個不同網址 →
+        //   同一張 81KB 的城堡圖在第一次載入被抓兩次（實測到，2026-09-13 修）。
+        _pl.href = "{{ v('/static/img/landing-castle-gate.webp?c=4') | safe }}";
         document.head.appendChild(_pl);
       }
     } catch (e) {}

@@ -129,6 +129,20 @@ node scripts/check_topbar_reachable.js   # 需本機服務跑著；360/375/390/8
 `overflow-x:hidden` 只擋使用者、不擋程式改 `scrollLeft`。只捲「overflow-x 是 auto/scroll 且真有溢出」
 的祖先，量之前把 `documentElement.scrollLeft` 歸零。詳見 memory `project_topbar-right-overflow`。
 
+### 動到 `?v=` 資產版號、或在 `<script>` 裡組靜態網址後（守門員之十九）
+```bash
+node scripts/check_dup_assets.js   # 需本機服務跑著；約 40 秒
+```
+2026-09-13：`?v=` 改成**每支檔案各自的內容雜湊**（省下「部署後重抓整包」）之後，城堡圖在第一次載入
+被抓了**兩次**（81KB × 2，就在關鍵路徑上）。根因＝預載那行寫在 `<script>` 裡，
+**Jinja 會把變數輸出中的 `&` 轉成 `&amp;`** → 預載抓 `?v=…&amp;c=4`、`<img>` 抓 `?v=…&c=4`，
+兩個不同網址。修法＝該處加 `| safe`（HTML 屬性裡不用，只有 script 內要）。
+⚠ 這種壞法**完全無聲**：圖照樣顯示、零錯誤，只是白花一倍頻寬（修好後「看到 K 棒」快 0.3 秒）。
+⚠ 判準要看**請求的網址**，不能看畫面 —— 畫面永遠是對的，這正是它難發現的原因。
+已植回舊碼證明會失敗（拿掉 `| safe` → 立刻報「同一支檔案有 2 種網址」＋「網址帶著 &amp;」、回傳 1）。
+⚠ favicon 走瀏覽器獨立管道、不跟 `<img>` 共用那一次下載 → 一律指專用小檔
+（`favicon-96.png` 6.5KB，不要指 topbar 那張 24KB 的 `bear.png`）。
+
 ### 新增任何 `/api/_diag*` 或內部端點後（守門員之十五）
 ```bash
 cd backend && ../.venv312/bin/python scripts/check_diag_auth.py   # 不需服務跑著
