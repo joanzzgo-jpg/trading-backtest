@@ -17,10 +17,11 @@
        新增 JS 引用靜態圖檔時，一律用 _v("/static/img/xxx.png")（見 utils.js）。 -->
   <script>window.__V = "{{ ver }}"; window.__VMAP = {{ vmap|safe }};</script>
   <link rel="apple-touch-icon" href="{{ v('/static/img/icon-192.png') }}">
-  <!-- favicon 用 96px 的小檔（6.5KB），不要用 topbar 那張 24KB 的原圖：瀏覽器抓 favicon 走
-       獨立管道、不會跟 <img> 共用那一次下載（實測第一次載入 bear.png 被抓兩次）。
-       同一隻熊、同一個造型，只是尺寸剛好夠分頁圖示用。 -->
-  <link rel="icon" type="image/png" sizes="96x96" href="{{ v('/static/img/favicon-96.png') }}"/>
+  <!-- ⚠ favicon 就指 topbar 那張 bear.png，**不要**另外做一支小檔（2026-09-14 我試過、是反效果）：
+       瀏覽器確實會為 favicon 再發一次請求，但那一次是**從磁碟快取讀的**（重用 <img> 已經下載的
+       那份，CDP 顯示 fromDiskCache=true、沒打網路）。改成獨立小檔反而變成真的多打一次網路（+6.5KB）。
+       判斷「重複下載」一律要看**有沒有真的打到網路**，不能只數請求次數。 -->
+  <link rel="icon" type="image/png" href="{{ v('/static/img/bear.png') }}"/>
   <!-- bear.png 不預載：它在 topbar/彈窗，封面階段都看不到；favicon(<link rel=icon>) 本來就會抓一份。 -->
   <!-- bear-full(偷看熊) 不預載：它在主 UI(非封面頁)，封面階段用不到，預載只是跟關鍵資源搶頻寬。
        HTML 裡的 <img> 仍會照常載入，只是不再插隊。 -->
