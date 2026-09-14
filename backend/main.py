@@ -37,7 +37,10 @@ def _build_js_bundle():
         js = js.resolve()
         # ⚠ draw / trade 已移出 bundle → 改由 main.js 於首屏後閒置時動態載入（首屏 JS 省 ~42%）。
         #   兩者對 core 的耦合皆經 typeof/window guard，且各自在載入時自我初始化（見 draw.js/trade.js 末段）。
-        names = ["config","utils","charts","colors","ticker","winrate","footprint","orderbook","dom","htffvg","econ","tradeparse","tradeui","render","realtime","replay","ui","ai_research","account","chartorder","xiaoa","lunar","announce","multichart","hotkeys","main"]
+        # ⚠ 2026-09-14 移出首屏的 9 支見 _FX_DEFER（chartorder/multichart/dom/ai_research/lunar/
+        #   xiaoa/announce/tradeparse/tradeui）：它們跟其他模組**沒有任何全域相依**（機械掃過
+        #   頂層宣告 × 其他檔的裸引用），而且都是「使用者點了才用得到」的面板。
+        names = ["config","utils","charts","colors","ticker","winrate","footprint","orderbook","htffvg","econ","render","realtime","replay","ui","account","hotkeys","main"]
         srcs = [js / f"{n}.js" for n in names]
         bundle = js / "app.bundle.js"
         srcs_exist = [p for p in srcs if p.exists()]
@@ -85,6 +88,12 @@ def _build_css_bundle():
 _build_css_bundle()
 
 
+# 閒置後才載入的 JS（非首屏）。**順序就是載入順序**（main.js `_loadFx` 用 async=false 保序）：
+#   tradeparse/tradeui 必須排在 trade 之前（交易面板的解析/UI helper）。
+_FX_DEFER = ("effects", "weather", "draw", "tradeparse", "tradeui", "trade", "signal_info", "notify",
+             "chartorder", "multichart", "dom", "ai_research", "lunar", "xiaoa", "announce")
+
+
 def _build_fx_min():
     """把動態載入(非首屏 bundle)的 JS 壓縮成 *.min.js：
     effects/weather/draw/trade + signal_info/notify（後兩支 2026-08-04 移出 bundle，見下）。
@@ -98,14 +107,14 @@ def _build_fx_min():
             _min = rjsmin.jsmin
         except Exception:
             _min = lambda s: s   # 沒 rjsmin → 原樣複製，仍正確、只是沒壓縮
-        for name in ("effects", "weather", "draw", "trade", "signal_info", "notify"):
+        for name in _FX_DEFER:
             src = js / f"{name}.js"; out = js / f"{name}.min.js"
             if not src.exists():
                 continue
             if out.exists() and out.stat().st_mtime >= src.stat().st_mtime:
                 continue
             out.write_text(_min(src.read_text(encoding="utf-8")), encoding="utf-8")
-        print("  ✓ fx *.min.js rebuilt (effects/weather/draw/trade/signal_info/notify)")
+        print(f"  ✓ fx *.min.js rebuilt ({len(_FX_DEFER)} 支)")
     except Exception as e:
         print(f"  ⚠ fx min build failed: {e}")
 

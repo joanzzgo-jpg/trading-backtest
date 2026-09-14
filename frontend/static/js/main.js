@@ -447,8 +447,15 @@ document.addEventListener("DOMContentLoaded", async () => {
     // signal_info / notify 同理（2026-08-04 移出 bundle，再省 17.7KB gzip／首屏 -14%）：
     //   signal_info 本來就是自包 IIFE，載入即綁事件；notify 末段自我呼叫 initNotify()。
     // 載入 *.min.js（後端 _build_fx_min 壓縮版；來源改動後版號 ?v= 會破快取重抓）。
-    ["effects.min.js", "weather.min.js", "draw.min.js", "trade.min.js",
-     "signal_info.min.js", "notify.min.js"].forEach(name => {
+    /* ⚠ 這份清單要跟 main.py 的 _FX_DEFER **順序一致**（async=false 保序）：
+       tradeparse/tradeui 在 trade 之前；2026-09-14 另把 9 支「點了才用得到」的面板
+       移出首屏 bundle（chartorder/multichart/dom/ai_research/lunar/xiaoa/announce）。
+       它們都自帶 readyState 判斷 → 晚載入也會自己初始化。 */
+    ["effects.min.js", "weather.min.js", "draw.min.js",
+     "tradeparse.min.js", "tradeui.min.js", "trade.min.js",
+     "signal_info.min.js", "notify.min.js",
+     "chartorder.min.js", "multichart.min.js", "dom.min.js", "ai_research.min.js",
+     "lunar.min.js", "xiaoa.min.js", "announce.min.js"].forEach(name => {
       const s = document.createElement("script");
       s.src = _fxUrl(name);
       s.async = false;

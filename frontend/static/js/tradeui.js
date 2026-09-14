@@ -213,6 +213,10 @@ function _mtClose() { if (_mtWrap) _mtWrap.style.display = "none"; }
 function _mtOpen() { _mtBuild().style.display = "flex"; _mtRender(); }
 window._myTradesOpen = _mtOpen;
 
-document.addEventListener("DOMContentLoaded", () => {
-  document.getElementById("btnMyTrades")?.addEventListener("click", _mtOpen);
-});
+/* ⚠ 要判 readyState：2026-09-14 這支移出首屏 bundle、改成閒置後才載入 →
+   那時 DOMContentLoaded 早就過了，只掛事件的話「我的交易」按鈕永遠沒有反應（靜默失效）。 */
+(function () {
+  const _bind = () => document.getElementById("btnMyTrades")?.addEventListener("click", _mtOpen);
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", _bind);
+  else _bind();
+})();
