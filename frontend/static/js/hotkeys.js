@@ -69,7 +69,7 @@
     ["/", "開啟標的搜尋"],
     ["R", "重播模式"],
     ["Shift（輕點）", "切換 K 棒圖／線型圖（按住 Shift 仍是繪圖鎖水平，不受影響）"],
-    ["Alt/Option + I", "主圖上下顛倒（上漲顯示成下跌，檢查多空偏見；再按一次恢復）"],
+    ["A", "主圖上下顛倒（上漲顯示成下跌，檢查多空偏見；再按一次恢復。Alt/Option + I 同功能）"],
     ["Cmd/Ctrl + Z", "復原繪圖"],
     ["Z / X / C", "顯示／隱藏繪圖圖層 A / B / C（點圖層鈕＝切換要畫在哪一層）"],
     ["V", "回上一步（復原繪圖；與 Cmd/Ctrl + Z 相同）"],
@@ -208,6 +208,16 @@
            ② 按住期間有滑鼠動作（正在畫圖／拖曳）
            ③ 按住超過 400ms（＝在「按住」而不是「輕點」）
          放開時候選還在才切換。這樣畫水平線完全不受影響。 */
+    /* A＝主圖上下顛倒（2026-09-16 使用者要求單鍵；Alt/Option+I 保留不動）。
+       ⚠ 用 K（_physKey → e.code）不可用 e.key：注音輸入法下這顆實體鍵送出的是「ㄇ」，
+         長度剛好 1、騙得過「長度不是 1 才退回」那種檢查 —— 本檔開頭那個教訓。
+       ⚠ 打字中/彈窗開著時不作用：上面的 _typing() 與 _overlayOpen() 已經擋掉。 */
+    if (K === "a") {
+      if (typeof window.toggleChartInvert !== "function") return;
+      e.preventDefault();
+      _flash(window.toggleChartInvert() ? "⇅ 上下顛倒" : "恢復正常");
+      return;
+    }
     if (K === "r" || K === "R") {
       e.preventDefault();
       document.getElementById("replayModeBtn")?.click();
