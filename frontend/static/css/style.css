@@ -6549,8 +6549,18 @@ body, button, input, select, textarea,
 
   /* 圖表各 pane 的 ⚙ 齒輪（主圖/KDJ/RSI/MACD）：已集中到「設定」分頁 → 手機隱藏 */
   .ind-gear-btn { display: none !important; }
-  /* ⇅ 上下顛倒鈕跟著 ⚙ 藏：手機的入口是「設定」分頁的 #mSetInvert */
-  .invert-btn { display: none !important; }
+  /* ⇅ 上下顛倒鈕手機也要（2026-09-16 使用者：「手機版也需要上下顛倒鈕」）。
+     ⚠ 跟 ⚙ 不同：⚙ 是配色設定、已整批移到「設定」分頁；這顆是**看盤當下**要隨手切的，
+       埋在設定分頁裡等於每次要跳兩個分頁再跳回來。
+     ⚠ 放大到 34px 好按（手機觸控目標），並給底色 —— 圖例列是橫向捲動的，
+       這顆 sticky 貼在右緣，沒有底色的話下面的 chip 會從它底下捲過去、看起來像疊字。 */
+  .invert-btn {
+    width: 34px; height: 34px; padding: 0;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    box-shadow: -6px 0 8px -4px rgba(0,0,0,.35);   /* 左側淡淡陰影：看得出 chip 是捲到它下面 */
+  }
+  .invert-btn svg { width: 15px; height: 15px; }
+  .invert-btn.active { color: #ffa726; background: rgba(255,167,38,.18); border-color: rgba(255,167,38,.5); }
 
   /* ── 手機按鈕放大、好點（app 化）── */
   /* 註：.topbar-tf / .tf-btn 的尺寸與外觀已統一收斂到上方「下劃線分頁」區，
