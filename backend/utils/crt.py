@@ -1294,6 +1294,46 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         #     右邊 g+1 只檢查沒把缺口收盤填回(干擾)。⚠ 加密 24/7 連續盤不用「g.low>g-1.high」字面 2 根缺口(必 0 個)。
         # 約束：觸碰→B 之間不能夾任何反向缺口(除非觸碰棒 cf−touch≤2 順手做的)；
         #       多：B下緣>A下緣 且 B上緣>A上緣(不得完全被A包住、可部分重疊)；空：B下緣<A上緣(重疊可)。不套「B寬<A寬」。
+        # ★ 2026-09-17「跳到下一根有意義的觸碰」：多/空、順多/順空的 4 個觸碰迴圈原本對每個缺口
+        #   逐根往後掃到資料尾端，絕大多數棒走 `continue`（沒碰進缺口、或沒有更深）。改成用區間極值
+        #   稀疏表＋二分跳躍直接找下一根「可能改變狀態」的棒 —— 被跳過的棒在逐根版一定是 continue、
+        #   不改任何狀態 → 輸出逐位元相同（守門員：對照舊版逐欄比對，含注入 NaN 的資料）。
+        #   可能改變狀態的棒（做空方向，看 high；做多鏡像看 low）：
+        #     還沒有錨(None)或錨是 NaN → high ≥ 缺口下緣；有錨 → high > 錨（衝過緣 10% 作廢的棒必在此集合內）。
+        #   ⚠ NaN 棒在逐根版裡會被當成一次觸碰（比較全是 False → 錨變 NaN）→ 建表時 NaN 換成 ±inf，保證被找到。
+        def _sp_table(_arr, _fill, _agg):
+            _a = np.where(np.isnan(_arr), _fill, _arr)
+            _tab = [_a]
+            _k = 1
+            while (1 << _k) <= len(_a):
+                _pv = _tab[-1]; _hf = 1 << (_k - 1)
+                _tab.append(_agg(_pv[:-_hf], _pv[_hf:]))    # 第 k 層 [i] = 區間 [i, i+2^k-1] 的極值
+                _k += 1
+            return _tab
+        _tabH = _sp_table(highs, np.inf, np.maximum)
+        _tabL = _sp_table(lows, -np.inf, np.minimum)
+        _INF = math.inf
+
+        def _nx_ge(_s, _thr):
+            """從 _s 起第一個 high(NaN 視為 +inf) ≥ _thr 的棒；沒有回 _N。"""
+            if _s >= _N:
+                return _N
+            for _k in range(len(_tabH) - 1, -1, -1):
+                _lv = _tabH[_k]
+                if _s < len(_lv) and _lv[_s] < _thr:
+                    _s += 1 << _k
+            return _s if _s < _N else _N
+
+        def _nx_le(_s, _thr):
+            """從 _s 起第一個 low(NaN 視為 -inf) ≤ _thr 的棒；沒有回 _N。"""
+            if _s >= _N:
+                return _N
+            for _k in range(len(_tabL) - 1, -1, -1):
+                _lv = _tabL[_k]
+                if _s < len(_lv) and _lv[_s] > _thr:
+                    _s += 1 << _k
+            return _s if _s < _N else _N
+
         _MSWIN = 60
         _MSMIN = proto_min if proto_min and proto_min > 0 else 0.0005  # proto 缺口(B)寬度門檻(前端 B≥ 開關可切換比較)；預設 0.05%
         _SETUP_MIN = 0.0005  # setup A(視覺缺口序列 _gseq)過濾門檻：固定 0.05%，不隨 proto_min 變。
@@ -1352,7 +1392,10 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
         _ms_seen = set()                                   # 去重：同一 B(_cf2)只標一次
         for (_cf, _top, _bot) in _bear:                    # 空：setup A 為 3 根 bear FVG、B 為 proto 缺口
             _mx = None
-            for _touch in range(_cf + 1, _N):
+            _touch = _cf
+            while True:                                    # 跳躍版（見上方 _nx_ge 說明；以下判斷與逐根版逐行相同）
+                _touch = _nx_ge(_touch + 1, _bot if (_mx is None or _mx != _mx) else math.nextafter(_mx, _INF))
+                if _touch >= _N: break
                 if _mx is not None and _mx >= _top: break
                 if _H[_touch] > _top * (1 + _MSOVR): break
                 if _H[_touch] < _bot: continue
@@ -1382,7 +1425,10 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                 _fvg_ms.append(_e); _ms_seen.add(_cf2); _used.add(_cf)
         for (_cf, _top, _bot) in _bull:                    # 多（鏡像）
             _mn = None
-            for _touch in range(_cf + 1, _N):
+            _touch = _cf
+            while True:                                    # 跳躍版（鏡像，見 _nx_le）
+                _touch = _nx_le(_touch + 1, _top if (_mn is None or _mn != _mn) else math.nextafter(_mn, -_INF))
+                if _touch >= _N: break
                 if _mn is not None and _mn <= _bot: break
                 if _L[_touch] < _bot * (1 - _MSOVR): break
                 if _L[_touch] > _top: continue
@@ -1491,7 +1537,14 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
             """_gaps=A候選(同向)、_rcand_cfs=反向FVG的cf清單(升序)、_events=反向FVG突破事件(bj,rcf)依bj升序、_d='l'順多/'s'順空。"""
             for (_cf, _top, _bot) in _gaps:
                 _anchor = None                         # 逐錨更深觸碰(與多/空同)
-                for _touch in range(_cf + 1, _N):
+                _touch = _cf
+                while True:                            # 跳躍版（見多/空區塊的 _nx_ge/_nx_le 說明）
+                    _free = (_anchor is None or _anchor != _anchor)
+                    if _d == "l":
+                        _touch = _nx_le(_touch + 1, _top if _free else math.nextafter(_anchor, -_INF))
+                    else:
+                        _touch = _nx_ge(_touch + 1, _bot if _free else math.nextafter(_anchor, _INF))
+                    if _touch >= _N: break
                     if _d == "l":
                         if _anchor is not None and _anchor <= _bot: break  # 錨達下緣→無更深觸碰(無損止掃)
                         if _L[_touch] < _bot * (1 - _MSOVR): break     # 衝過下緣10% → A作廢

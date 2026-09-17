@@ -2544,6 +2544,11 @@ def _tag_htf_bias(df, timeframe, result):
         _win = 2 * _PL + 1
         _rmax = pd.Series(_H).rolling(_win, center=True).max().to_numpy()
         _rmin = pd.Series(_L).rolling(_win, center=True).min().to_numpy()
+        # ★ 2026-09-17：下面是逐根的純 Python 迴圈 → 先轉 list 再跑。對 numpy 陣列逐個取值
+        #   （每次都要包一個 numpy 純量）比取 list 元素慢好幾倍；crt.py 的幾個大迴圈早就這樣做，這裡漏了。
+        #   ⚠ 等價：float64 → Python float 值完全相同，NaN 比較照樣是 False；迴圈之後沒有再把它們當陣列用。
+        _H = _H.tolist(); _L = _L.tolist(); _C = _C.tolist()
+        _rmax = _rmax.tolist(); _rmin = _rmin.tolist()
         for _i in range(_n):
             _j = _i - _PL                                    # 於 _j 確認 pivot(需兩側各 _PL 根)
             if _j >= _PL:
@@ -2647,7 +2652,7 @@ def get_crt_winrate(
     _pm_tag = "" if abs(_pm - 0.0005) < 1e-9 else f":pm{_pm}"
     # no_proto_ms/break：多空、破多空各自 B 改用正常3根FVG(g+1確認)取代單根proto；預設關(空tag、沿用proto快取)
     _np_tag = ("" if not no_proto_ms else ":npm1") + ("" if not no_proto_break else ":npb1")
-    cache_key = f"crt_wr105:{market}:{symbol}:{exchange}:{timeframe}:{_buf}:{int(_long_only)}{_br_tag}{_vw_tag}{_pm_tag}{_np_tag}"   # v101:no_proto拆多空/破多空獨立;v99:止損連續反色K run極值;v97:+fvg_ms止盈
+    cache_key = f"crt_wr106:{market}:{symbol}:{exchange}:{timeframe}:{_buf}:{int(_long_only)}{_br_tag}{_vw_tag}{_pm_tag}{_np_tag}"   # v106:拿掉 smc_*/channel 五層(2026-09-17，舊快取含這些鍵、已不在可省略白名單→會被整包送出);v101:no_proto拆多空/破多空獨立;v99:止損連續反色K run極值;v97:+fvg_ms止盈
     bar_key = cache_key + ":bar"
     # bar-aware 新鮮度：記下「算這份結果時最新那根棒的開盤時刻」。crypto 在「同一根棒內」吃快取，
     # 一旦有新棒收盤就讓快取失效 → 走下方短窗補抓重算 → 最新訊號最多慢到「收盤後第一次請求」，

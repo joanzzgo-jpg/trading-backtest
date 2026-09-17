@@ -1,0 +1,106 @@
+{
+ "BTC 1d 2020~2025": {
+  "bars": 2192,
+  "counts": {
+   "fvg": 526,
+   "fvg_break": 167,
+   "fvg_ms": 232,
+   "fvg_shun": 144,
+   "fvg_sigs": 147,
+   "fvg_special": 48,
+   "signals": 0
+  },
+  "hash": "42f4c08a0ae49793bcbc"
+ },
+ "BTC 4h 2021~2024": {
+  "bars": 8766,
+  "counts": {
+   "fvg": 1770,
+   "fvg_break": 535,
+   "fvg_ms": 838,
+   "fvg_shun": 520,
+   "fvg_sigs": 200,
+   "fvg_special": 164,
+   "signals": 0
+  },
+  "hash": "ab779dfe654d809de1d9"
+ },
+ "BTC 4h no_proto_ms/break": {
+  "bars": 4386,
+  "counts": {
+   "fvg": 853,
+   "fvg_break": 147,
+   "fvg_ms": 280,
+   "fvg_shun": 247,
+   "fvg_sigs": 200,
+   "fvg_special": 19,
+   "signals": 0
+  },
+  "hash": "533bc6ca25b52c576c72"
+ },
+ "BTC 4h visual_window=2000": {
+  "bars": 8766,
+  "counts": {
+   "fvg": 431,
+   "fvg_break": 129,
+   "fvg_ms": 203,
+   "fvg_shun": 129,
+   "fvg_sigs": 105,
+   "fvg_special": 34,
+   "signals": 0
+  },
+  "hash": "940559c7acc2087953ad"
+ },
+ "BTC 4h 注入 1% NaN": {
+  "bars": 8766,
+  "counts": {
+   "fvg": 1726,
+   "fvg_break": 521,
+   "fvg_ms": 904,
+   "fvg_shun": 537,
+   "fvg_sigs": 200,
+   "fvg_special": 161,
+   "signals": 0
+  },
+  "hash": "9928912999a1341a5b94"
+ },
+ "ETH 4h 2022~2025H1": {
+  "bars": 7662,
+  "counts": {
+   "fvg": 1683,
+   "fvg_break": 535,
+   "fvg_ms": 798,
+   "fvg_shun": 529,
+   "fvg_sigs": 200,
+   "fvg_special": 154,
+   "signals": 0
+  },
+  "hash": "745a3fa42d7edac16951"
+ },
+ "ETH 4h stock_gap+long_only": {
+  "bars": 4386,
+  "counts": {
+   "fvg": 739,
+   "fvg_break": 274,
+   "fvg_ms": 436,
+   "fvg_shun": 257,
+   "fvg_sigs": 200,
+   "fvg_special": 85,
+   "signals": 0
+  },
+  "hash": "3037fb5d6eda5c3bf5ed"
+ },
+ "ETH 4h 注入 2% NaN": {
+  "bars": 6576,
+  "counts": {
+   "fvg": 1373,
+   "fvg_break": 420,
+   "fvg_ms": 751,
+   "fvg_shun": 463,
+   "fvg_sigs": 200,
+   "fvg_special": 130,
+   "signals": 0
+  },
+  "hash": "ac287b76ab2265955523"
+ }
+}
