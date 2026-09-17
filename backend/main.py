@@ -472,18 +472,38 @@ def _ticker_worker():
         time.sleep(max(0.0, 1.0 - (time.perf_counter() - _t0)))
 
 
+def _tw_worker_nap(tw, streak: int):
+    """台股清單這輪抓完要睡多久 → 回 (秒數, 新的連續不完整次數)。
+
+    ★ 2026-09-17：服務剛啟動那一輪若上櫃 opendata 剛好沒抓到（實測上櫃伺服器不穩時常見），
+      手上又還沒有「上一份」可沿用 → 約 900 檔上櫃股**沒有價格**，原本要等滿 30 秒下一輪才補。
+      → 清單裡有一大批沒報價就提早重抓：5 → 10 → 20 秒，之後回到正常 30 秒（不在對方不穩時狂打）。
+    ⚠ 門檻 200：正常時「掛牌但當天沒成交」的只有 30~50 檔（實測），整個上櫃缺價是 900 多檔。"""
+    noq = sum(1 for t in (tw or []) if t.get("price") is None)
+    if not tw or noq > 200:
+        streak += 1
+        return min(30, 5 * 2 ** (streak - 1)), streak
+    return 30, 0
+
+
 def _tw_ticker_worker():
-    """背景執行緒：每 30 秒從 TWSE/TPEX opendata 抓全台股行情存入記憶體。"""
+    """背景執行緒：每 30 秒從 TWSE/TPEX opendata 抓全台股行情存入記憶體（清單不完整時提早重抓，見 _tw_worker_nap）。"""
     from data.taiwan import fetch_tw_tickers
     from utils.live_data import update_tw as live_update_tw
+    streak = 0
     while True:
+        tw = None
         try:
             tw = fetch_tw_tickers()
             if tw:
                 live_update_tw(tw)
         except Exception:
             pass
-        time.sleep(30)
+        nap, streak = _tw_worker_nap(tw, streak)
+        if streak:   # 只在「不完整」時印（正常每 30 秒一輪不印）
+            _noq = sum(1 for t in (tw or []) if t.get("price") is None)
+            print(f"[tw_tickers] 清單不完整（{len(tw or [])} 檔中 {_noq} 檔沒報價，第 {streak} 輪）→ {nap} 秒後提早重抓", flush=True)
+        time.sleep(nap)
 
 
 def _tw_rt_overlay_worker():
