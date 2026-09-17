@@ -1872,14 +1872,15 @@ html.perf-mode .sym-quickdraw.sqd-floating { background: #FFFFFF; box-shadow: 0 
 .sqd-dock-slot {
   display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
   height: 26px; box-sizing: border-box; border-radius: 9px;
-  border: 1.5px dashed transparent; color: transparent;
+  border: 1.5px solid transparent; color: transparent;   /* 半透明實線（2026-09-17 使用者：「改成半透明實線框」，原本虛線） */
   font-size: 11px; white-space: nowrap; overflow: hidden; pointer-events: none;
   transition: background .12s ease, border-color .12s ease, color .12s ease, box-shadow .12s ease;
 }
 .sqd-dock-slot:not(.home) { display: none; width: 64px; }
-.symbol-bar.sb-drop > .sqd-dock-slot { display: inline-flex; border-color: color-mix(in srgb, var(--muted) 60%, transparent); color: var(--muted); }
+.symbol-bar.sb-drop > .sqd-dock-slot { display: inline-flex; border-color: rgba(255,255,255,.22); background: rgba(255,255,255,.035); color: var(--muted); }
+html.perf-mode .symbol-bar.sb-drop > .sqd-dock-slot { border-color: rgba(0,0,0,.18); background: rgba(0,0,0,.03); }
 .symbol-bar.sb-drop > .sqd-dock-slot.active {
-  color: var(--accent); border-color: var(--accent);
+  color: var(--accent); border-color: color-mix(in srgb, var(--accent) 65%, transparent);
   background: color-mix(in srgb, var(--accent) 14%, transparent);
   box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 30%, transparent);
 }

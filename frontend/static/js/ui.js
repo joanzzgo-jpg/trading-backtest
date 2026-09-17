@@ -59,7 +59,7 @@ function bindEvents() {
   const _sbBar = document.querySelector(".symbol-bar");
   const _SB_IDS = ["symQuickDraw", "symSelTools", "econNext"];
   const _SB_ORDER_KEY = "symBlockOrder";
-  const _SB_SNAP = 28;                       // 游標離虛線框多近算「放在框上」
+  const _SB_SNAP_X = 6;                      // 把手（游標）左右超出虛線框多少仍算「在框上」（原本 28px 圓形距離太寬）
   if (_sbBar && _SB_IDS.every(id => document.getElementById(id))) {
     const _isSlot = e => e.classList.contains("sqd-dock-slot");
     const _sbZone = () => [..._sbBar.children].filter(e => _SB_IDS.includes(e.id) || _isSlot(e));
@@ -149,21 +149,27 @@ function bindEvents() {
         });
         if (!prevSlot) _sbBar.appendChild(mkSlot(false));
       };
+      // 「在框上」＝把手（游標）真的在那一格的左右範圍內（±6px）、而且在符號列那一行裡。
+      // ⚠ 2026-09-17 使用者兩次說「太遠就觸發」：原本是「游標離框 28px 圓形距離內」→ 框一出現、
+      //   游標還在符號列下方十幾 px 就已經亮起、放開就停靠了。
       const nearestSlot = (x, y) => {
+        const br = _sbBar.getBoundingClientRect();
+        if (y < br.top || y > br.bottom) return null;
         let best = null, bd = Infinity;
         slots().forEach(s => {
           const r = s.getBoundingClientRect();
-          if (!r.width) return;
-          const d = Math.hypot(Math.max(r.left - x, 0, x - r.right), Math.max(r.top - y, 0, y - r.bottom));
+          if (!r.width || x < r.left - _SB_SNAP_X || x > r.right + _SB_SNAP_X) return;
+          const d = Math.abs(x - (r.left + r.width / 2));       // 左右都沾到時取中心較近的那格
           if (d < bd) { bd = d; best = s; }
         });
-        return bd <= _SB_SNAP ? best : null;
+        return best;
       };
-      // 「碰到上方」才出現放置框（2026-09-17 使用者：「拖到有碰到上方再出現虛線可放置位」）：
-      // 拖著的積木本身跟符號列有重疊才算 —— 原本是游標在符號列上下 40~60px 內就出現，太早。
-      const touchBar = () => {
+      // 出現放置框：拖著的積木**大半進到符號列那一行**（垂直中心落在符號列範圍內）才算。
+      // 演進：游標在符號列上下 40~60px 內（太早）→ 積木邊緣碰到（抓把手時游標還在下方 ~15px，仍太早）→ 現在。
+      const inBar = () => {
         const r = _sbBar.getBoundingClientRect(), e = el.getBoundingClientRect();
-        return e.top <= r.bottom && e.bottom >= r.top;
+        const cy = e.top + e.height / 2;
+        return cy >= r.top && cy <= r.bottom;
       };
 
       let drag = null, lastTap = 0;
@@ -185,7 +191,7 @@ function bindEvents() {
           d.dx += g2.left - g1.left; d.dy += g2.top - g1.top;
         }
         place(e.clientX - d.dx, e.clientY - d.dy);
-        const on = touchBar();
+        const on = inBar();
         if (on !== _sbBar.classList.contains("sb-drop")) { _sbBar.classList.toggle("sb-drop", on); _sbSync(); }
         const hit = on ? nearestSlot(e.clientX, e.clientY) : null;
         slots().forEach(s => s.classList.toggle("active", s === hit));
