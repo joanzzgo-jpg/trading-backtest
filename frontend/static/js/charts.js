@@ -327,22 +327,6 @@ window._setLineGradData = function (pts) {
   if (_lineGradPrim) { try { _lineGradPrim.requestUpdate(); } catch (e) {} }
 };
 
-/* 把圖表線色轉成帶透明度的 rgba（線型圖漸層用）。吃 #rgb / #rrggbb / rgb(...) 三種寫法；
-   認不得就原樣回傳（LWC 會自己處理，不會炸）。 */
-function _areaRgba(col, a) {
-  try {
-    if (typeof col !== "string") return col;
-    let h = col.trim();
-    if (h[0] === "#") {
-      if (h.length === 4) h = "#" + h[1] + h[1] + h[2] + h[2] + h[3] + h[3];
-      const r = parseInt(h.slice(1, 3), 16), g = parseInt(h.slice(3, 5), 16), b = parseInt(h.slice(5, 7), 16);
-      return `rgba(${r},${g},${b},${a})`;
-    }
-    const m = h.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
-    if (m) return `rgba(${m[1]},${m[2]},${m[3]},${a})`;
-  } catch (e) {}
-  return col;
-}
 
 function createCandleSeries() {
   if (candleSeries) { try { mainChart.removeSeries(candleSeries); } catch {} candleSeries = null; }
@@ -1580,7 +1564,6 @@ function syncTimeScales() {
         const outL = firstX != null && px < firstX - 0.5;
         if ((outR || outL) && px >= 0 && px <= pw) {
           positionLinesByX(px);
-          if (typeof _updateHoverWR === "function") _updateHoverWR(null);
           return;
         }
       }
@@ -1589,13 +1572,10 @@ function syncTimeScales() {
           lineEls.forEach(l => l.style.display = "none");
           timeLabel.style.display = "none";
         }, 60);
-        if (typeof _updateHoverWR === "function") _updateHoverWR(null);   // 離開圖表 → 清 hover 勝率/RR 盒
         return;
       }
       positionLines(param.time, param.point.x);
       updateAllLegends(param.time);
-      // 十字線移到該 K 棒 → 上方 S1-S12 區顯示該棒訊號勝率 + 圖上畫 RR 盒
-      if (typeof _updateHoverWR === "function") _updateHoverWR(param.time);
     });
   });
 

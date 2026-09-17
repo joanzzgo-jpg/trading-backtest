@@ -90,12 +90,9 @@ let rsiChart,    rsiLine14, rsiLine7, rsiH30, rsiH50, rsiH70;
 let macdChart,   macdLine, macdSignal, macdHist;
 let kdjAnchor, rsiAnchor, macdAnchor;   // 透明錨定系列，確保時間軸對齊
 
-/* ── 狀態 ── */
-const currentChartType = "candlestick";
 let ohlcvData       = [];
 let currentTF       = "1d";
 let realtimeTimer   = null;
-let lastWRSignalMarkers  = [];
 let lastFVGTradeMarkers  = [];   // FVG「接1次」cascade 進出場標記（主圖）
 let lastFVGBBMarkers     = [];   // D版(三根止損+1.5R)進出場標記（研究用·主圖）
 let lastFVGBBMarkersA    = [];   // A版(g-1止損+布林軌外1W)進出場標記（同場對比·主圖）
@@ -121,7 +118,6 @@ window._fvgTradesHidden = true;  // 預設隱藏舊「多F/空F」cascade 標記
 window._fvgBBHideD = true;       // 預設隱藏 D版(三根止損+1.5R)標記；切換:toggleFVGBB('D')
 window._fvgBBHideA = true;       // 預設隱藏 A版(g-1止損+布林軌外1W)標記；切換:toggleFVGBB('A')
 window._fvgBBHideM = true;       // 預設隱藏 M版(中軌分側順勢=順多/順空)標記（使用者要求從主圖移除）；切換:toggleFVGBB('M')
-let _lastWRSignals       = [];   // 完整訊號列表（背景載入後重新過濾用）
 let _lastFVGTrades       = [];   // FVG「接1次」cascade 進出場（背景重畫用）
 let _lastFVGBreak        = [];   // 結構轉破:多FVG→空FVG→收破前一個多FVG（背景重畫用）
 let _lastFVGMS           = [];   // 多/空方向標記:吃到未填補反向FVG→收破同向FVG（背景重畫用）

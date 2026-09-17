@@ -27,20 +27,6 @@ const _ACCT_SKIP = new Set(["acctName", "wxCoords", "notifyFeedSeen", "tradeKey"
      加進 _ACCT_SKIP，見上方註解）。放這裡＝有別的設定變更、或切到背景 flush 時順便帶上去，
      而「最後看到哪」本來就只有最後那一次有意義。 */
 const _ACCT_NO_TOUCH = new Set(["lastSymbol"]);
-// 每個帳號各自保存、切換帳號時要「乾淨換成該帳號的」設定 key：
-//   chartColors=K棒+指標顏色 / chartStyles=指標參數·線寬·樣式 / chartLineStyles=各線寬樣式 /
-//   sysColors=系統外觀色 / mobileTFs=手機顯示的時間框
-// （這些本就含在整包快照同步內；列出來是為了切帳號時「取代而非合併」，避免殘留前一帳號的設定）
-// 含手機端專屬 _m 變體（顏色/樣式手機與電腦各自獨立）→ 切帳號時也要一併清掉殘留
-const _ACCT_THEME_KEYS = ["chartColors", "chartStyles", "chartLineStyles",
-                          "chartColors_m", "chartStyles_m", "chartLineStyles_m",
-                          "sysColors", "mobileTFs",
-                          // 繪圖（各標的分桶）跟著帳戶移動：切帳號採「取代」→ 對方帳號沒繪圖就清空，
-                          // 不殘留前一帳號的線/斐波那契。tv_drawings 為舊版單一全域 key（一併清掉）。
-                          "tv_drawings_v2", "tv_drawings",
-                          // 自選 + 通知偏好＝每帳號專屬：切帳號必須「取代」→ 否則前一帳號的自選會殘留、
-                          // 被當成新帳號的自選同步上去（曾發生：Abc 的自選灌進 qwer，通知/自動交易跳錯標的）。
-                          "watchlist", "notifyPrefs"];
 // 登入「種子」不可帶的每帳號專屬 key：避免把上一個帳號的自選/偏好灌進「剛登入的空帳號」。
 const _ACCT_SEED_SKIP = new Set(["watchlist", "notifyPrefs",
                                  "tv_drawings_v2", "tv_drawings"]);

@@ -24,10 +24,9 @@ function _resetLayerCacheOnCtxChange() {
   } catch (e) { return; }
   if (ctx === _layerCtxKey) return;      // 同一個脈絡（背景補載/即時重建）→ 快取要留著，正是它們的用途
   _layerCtxKey = ctx;
-  _lastWRSignals = []; _lastFVGTrades = []; _lastFVGBreak = [];
+  _lastFVGTrades = []; _lastFVGBreak = [];
   _lastFVGMS = []; _lastFVGShun = []; _lastFVGSpecial = [];
   try { _lastFVGBB = []; _lastFVGBBA = []; _lastFVGBBM = []; } catch (e) {}
-  try { _lastSMCSweep = []; } catch (e) {}
   if (typeof setFVGTradeLines === "function") setFVGTradeLines([]);   // 已畫上去的線也要收掉
   if (typeof setFVGZones === "function") setFVGZones([]);             // FVG 色塊同理（也是純時間定位）
 }
@@ -239,8 +238,6 @@ async function loadData(autoLoad = false, forceLatest = false) {
     _bgAnchorCache = null;
     _bgMacdCache   = null;
     _rebuildTimeIndex();  // 效能：重建 time→idx Map（O(1) 取代 findIndex）
-    // 切換標的/時框：清空已展開的自動盈虧比盒（舊訊號時間不存在於新資料）
-    if (typeof _clearAutoRR === "function") _clearAutoRR();
     // 還原視野副本（可能已被快照秒畫的 renderAll 消耗掉）→ 真資料照樣對齊使用者的縮放+平移位置
     _savedBarCount = _vSave.bc; _savedTimeRange = _vSave.tr;
     _savedRightOffset = _vSave.ro; _savedBarSpacing = _vSave.bs;
@@ -323,21 +320,6 @@ function _rebuildTimeIndex() {
 // 取棒的圖表秒數：優先用 _rebuildTimeIndex 算好的 _t，沒有(例如剛 fetch 還沒建索引)才現算。
 function _bt(d) { return d._t !== undefined ? d._t : toTime(d.time); }
 
-/* 夾住可見時間範圍在資料內:右緣超過最後一根→整段往左夾(保持span)、左緣超過第一根→夾住。
-   還原視野前套用→杜絕「右緣跑到資料外=右邊空白斷掉的Ｋ棒/閃」。回 null 表不合理不還原。 */
-function _clampVisT(vt) {
-  if (!vt || !ohlcvData.length) return vt;
-  try {
-    const firstT = toTime(ohlcvData[0].time);
-    const lastT  = toTime(ohlcvData[ohlcvData.length - 1].time);
-    let from = vt.from, to = vt.to;
-    if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) return null;
-    if (to > lastT) { const span = to - from; to = lastT; from = to - span; }
-    if (from < firstT) from = firstT;
-    if (to <= from) return null;
-    return { from, to };
-  } catch (e) { return vt; }
-}
 
 // 時間(秒)→ ohlcvData 中最接近的 bar index(二分查找;資料依時間升冪)。
 // 歷史切換「保持縮放定位在目標時間」用:右緣放這根、往左顯示同樣根數。
@@ -451,11 +433,7 @@ function renderAll(data) {
   renderVolume(data);
   _renderSubcharts(data);   // 副圖(KDJ/RSI/MACD)隱藏時(預設)內部直接跳過，省 8 條 series 的 setData
   updateSymbolBar(data);
-  // renderCandles 會清空 lastWRSignalMarkers + setMarkers([])，必須在這裡重填
-  // 否則切標的/TF 時即使 _lastWRSignals 已有資料，主圖也看不到進出場標記
-  if (typeof _renderWRSignals === "function" && _lastWRSignals && _lastWRSignals.length) {
-    _renderWRSignals();
-  }
+  // renderCandles 會清空各標記陣列 + setMarkers([])，必須在這裡重填
   if (typeof _renderFVGTrades === "function" && _lastFVGTrades && _lastFVGTrades.length) {
     _renderFVGTrades();
   }
@@ -642,7 +620,7 @@ function renderAll(data) {
 
 function renderCandles(data) {
   applyOhlcvToSeries(data);
-  lastWRSignalMarkers = []; lastFVGTradeMarkers = []; lastFVGBBMarkers = []; lastFVGBBMarkersA = []; lastFVGBBMarkersM = []; lastFVGBreakMarkers = []; lastFVGMSMarkers = []; lastFVGShunMarkers = []; lastFVGSpecialMarkers = [];
+  lastFVGTradeMarkers = []; lastFVGBBMarkers = []; lastFVGBBMarkersA = []; lastFVGBBMarkersM = []; lastFVGBreakMarkers = []; lastFVGMSMarkers = []; lastFVGShunMarkers = []; lastFVGSpecialMarkers = [];
   if (typeof setFVGTradeLines === "function") setFVGTradeLines([]);   // 換標的/重載 → 清舊止損止盈線，避免殘留
   _sortedMarkerCache = null;   // 標記陣列已清空 → 失效快取，避免平移重切視窗時殘留舊標記
   candleSeries.setMarkers([]);
@@ -759,19 +737,6 @@ function _dimHex(color, a = 0.26) {
   const r = parseInt(h.slice(1, 3), 16), g = parseInt(h.slice(3, 5), 16), b = parseInt(h.slice(5, 7), 16);
   return `rgba(${r},${g},${b},${a})`;
 }
-function _dimBigRange(markers) {
-  if (!window._dimBigBarOn || !markers || !markers.length) return markers;
-  const n = ohlcvData.length;
-  return markers.map(m => {
-    const idx = _secToIdx.get(m.time);
-    if (idx == null || idx < 10 || idx >= n) return m;      // 前 10 根不足 → 不判斷
-    const range = ohlcvData[idx].high - ohlcvData[idx].low;
-    let sum = 0;
-    for (let i = idx - 10; i < idx; i++) sum += (ohlcvData[i].high - ohlcvData[i].low);
-    return (range > (sum / 10) * 2) ? { ...m, color: _dimHex(m.color) } : m;   // >前10根平均的2倍
-
-  });
-}
 let _lastMarkerWin = { cache: null, start: -1, end: -1 };   // 上次套用的視窗（同快取＋同邊界 → 整段跳過）
 let _invNativeMarkers = [];   // 上下顛倒時改由策略標記 primitive 代畫的原生標記（依 time 升序）
 // 全量重建合併：一次勝率回應會讓 ~13 個圖層 render 各呼叫一次 _applyMainMarkers() →
@@ -791,7 +756,6 @@ function _applyMainMarkers(windowOnly) {
 function _applyMainMarkersNow(windowOnly) {
   if (!windowOnly || !_sortedMarkerCache) {
     _sortedMarkerCache = [
-      ...lastWRSignalMarkers,
       ...(window._fvgTradesHidden ? [] : lastFVGTradeMarkers),
       ...((window._fvgBBHidden || window._fvgBBHideD) ? [] : lastFVGBBMarkers),
       ...((window._fvgBBHidden || window._fvgBBHideA) ? [] : lastFVGBBMarkersA),
@@ -827,11 +791,6 @@ window.toggleDimCounterTrend = function (on) {
   return window._dimCounterTrendOn;
 };
 
-/* 2026-08-05 移除 initWRSignalsToggle()（頂部「S1~S12 訊號標記」一鍵開關）。
-   S1~S12 與 SS 都已刪除，按鈕、手機設定列(#mSetWrSig)、localStorage "wrSignalsHidden"
-   與 winrate.js 的 signals 跳過群組一併清掉。
-   ⚠ window._wrSigSeries 仍被 winrate.js 讀取（標記系列過濾，現固定 "all"）→ 保留設值。 */
-window._wrSigSeries = "all";
 
 
 // 成交量棒透明度(hex)：天氣模式(sky-show)強制不透明，否則用使用者 volAlpha。
@@ -1089,7 +1048,6 @@ function _bgScheduleIndicators() {
     if (!ohlcvData.length) return;
     renderBB(ohlcvData);
     if (!_subchartsHidden()) setTimeout(() => { _renderSubcharts(ohlcvData); }, 0);   // 走 _renderSubcharts 才有窗化(見該函式註)
-    if (_lastWRSignals.length) _renderWRSignals();
   }, 800);
 }
 
@@ -1341,7 +1299,6 @@ async function _bgLoadOlderBars(scrollTriggered = false) {
         if (guard() && ohlcvData.length) {
           renderBB(ohlcvData);
           if (!_subchartsHidden()) setTimeout(() => { _renderSubcharts(ohlcvData); }, 0);   // 走 _renderSubcharts 才有窗化(見該函式註)
-          if (_lastWRSignals.length) _renderWRSignals();
           // 補載歷史後也要重繪 FVG 標記(多/空/破多/破空/順多/順空)——否則新載進來那段的標記被 _has() 過濾掉不顯示
           if (typeof _renderFVGMS === "function") _renderFVGMS();
           if (typeof _renderFVGShun === "function") _renderFVGShun();
@@ -1367,30 +1324,6 @@ async function _bgLoadOlderBars(scrollTriggered = false) {
    代價:常駐根數上限 15k→40k(約 4MB、setData 略慢),換掉滑動中被亂帶。*/
 const TRIM_MAX = 40000;
 
-function _trimRollingWindow() {
-  const MAX = TRIM_MAX, BUF = 4500;   // 保留視窗放大→往右滑一段後回頭往左仍在已載範圍內、不用重抓(消除「停一下才出來」)
-  if (ohlcvData.length <= MAX || replayActive) return 0;
-  let vr;
-  try { vr = mainChart.timeScale().getVisibleLogicalRange(); } catch (e) { return 0; }
-  // ⚠ 防呆:背景載入/切換途中視野可能是異常值(NaN 或 from>to 顛倒)→ 若不擋,slice(lo,hi) 在 hi<lo
-  //   時會切成空陣列、把 ohlcvData 清空(series 卻還在)＝資料憑空消失的 bug。異常一律不修。
-  if (!vr || !Number.isFinite(vr.from) || !Number.isFinite(vr.to) || vr.to <= vr.from) return 0;
-  const lo = Math.max(0, Math.floor(vr.from) - BUF);
-  const hi = Math.min(ohlcvData.length - 1, Math.ceil(vr.to) + BUF);
-  if (hi <= lo || (hi - lo + 1) < 200) return 0;                 // 範圍不合理/會留太少→不修
-  if (hi - lo + 1 >= ohlcvData.length) return 0;                 // 視野±緩衝已涵蓋全部→不修
-  ohlcvData = ohlcvData.slice(lo, hi + 1);
-  _rebuildTimeIndex();
-  // 修剪後動態更新往後缺口旗標:若最新棒不到現在(右側被剪掉,如從看最新往左滑很多後)→標記有缺口,
-  //   讓使用者往右滑時 _bgLoadNewerBars 能重新補回現在(否則回不去最新)。反之補到現在則清除。
-  try {
-    const _lastT = toTime(ohlcvData[ohlcvData.length - 1].time);
-    const _nowSec = Math.floor(Date.now() / 1000) + 8 * 3600;
-    const _tfS = tfSec(currentTF);
-    window._hasFwdGap = _lastT < _nowSec - _tfS * 2;
-  } catch (e) {}
-  return lo;
-}
 
 /* 閒置滾動修剪:平移停手後,若常駐根數過多(往兩側補載累積)→ 只留可見±緩衝、其餘丟棄,
    讓 setData 成本與記憶體維持有界(往右補新的整包 setData 更快、頓幀更少)。
@@ -1774,7 +1707,6 @@ async function _bgLoadNewerBars(scrollTriggered = false) {
         if (guard() && ohlcvData.length) {
           renderBB(ohlcvData);
           if (!_subchartsHidden()) setTimeout(() => { _renderSubcharts(ohlcvData); }, 0);   // 走 _renderSubcharts 才有窗化(見該函式註)
-          if (_lastWRSignals.length) _renderWRSignals();
           if (typeof _renderFVGMS === "function") _renderFVGMS();
           if (typeof _renderFVGShun === "function") _renderFVGShun();
           if (typeof _renderFVGSpecial === "function") _renderFVGSpecial();

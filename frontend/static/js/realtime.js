@@ -633,27 +633,6 @@ function _bindChartHoverTracking() {
     }, { passive: true, capture: true });
   }
 }
-function onMainCrosshair(param) {
-  _hoveredTime = param.time || null;
-  if (!param.time) return;
-  const c = param.seriesData.get(candleSeries);
-  if (c) {
-    _setSym("symO", fmt(c.open));
-    _setSym("symH", fmt(c.high));
-    _setSym("symL", fmt(c.low));
-    _setSym("symC", fmt(c.close));
-    // O(1) Map 取代 O(n) findIndex（70k 根 × 60Hz mouseMove = 每秒 4M 次 toTime 字串轉換的主因）
-    const idx = (_secToIdx && _secToIdx.has(param.time)) ? _secToIdx.get(param.time) : -1;
-    if (idx >= 0) {
-      _setSym("symV", fmtVol(ohlcvData[idx].volume));
-      if (idx > 0) _updateSymChg(c.close, ohlcvData[idx - 1].close);
-    }
-  }
-  const bu = param.seriesData.get(bbU)?.value;
-  const bm = param.seriesData.get(bbM)?.value;
-  const bl = param.seriesData.get(bbL)?.value;
-  if (bu != null) _setBBLeg(bu, bm, bl);
-}
 function _updateSymChg(close, prevClose) {
   if (_symFrozen()) return;                 // 拖曳積木中不改寬度（見 _setSym）
   const el   = _symEl("symChg");

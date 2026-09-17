@@ -1097,11 +1097,6 @@ function bindLegendToggles() {
     if (saved != null && saved !== "" && typeof setFVGMinWidth === "function") setFVGMinWidth(saved);
   } catch (e) {}
 
-  // proto 缺口(B)門檻切換 chip：初始標籤同步（值存在 winrate.js 的 _wrProtoMin，點擊走 _cycleProtoMin）
-  if (typeof window._syncProtoMinLabel === "function") window._syncProtoMinLabel();
-  // 「B=proto / 正常FVG」切換 chip：初始狀態同步（值存 winrate.js 的 _wrNoProto，點擊走 _toggleNoProto）
-  if (typeof window._syncNoProtoLabel === "function") window._syncNoProtoLabel();
-
   // 面板收合：點擊「−」縮至只剩圖例列；點「+」展開
   // 面板收合：點「-」= 整個 pane（含圖例資訊列）+ 它下方分隔線一起隱藏 = 完全消失、不留痕跡；
   //   還原改由下方「隱藏指標還原列」(_syncHiddenIndBar) 的小晶片點回來（因為「+」也跟著消失了）。

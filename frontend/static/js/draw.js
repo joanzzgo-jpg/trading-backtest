@@ -314,7 +314,6 @@ function _rememberDrawColor(c, recolorExisting) {
 //   實測症狀：按鈕亮著（ui.js 設的 class 還在）但磁鐵其實沒作用。
 let _magnetMode = (() => { try { return localStorage.getItem("magnetMode") === "1"; } catch (e) { return false; } })();
 
-const DCP_COLORS = ["#f5c518","#ef5350","#26a69a","#2962ff","#ff9800","#7e57c2","#ec407a","#26c6da","#ffffff","#787b86"];
 const DRAW_WIDTH  = 1.5;
 // _cpShowDirect 由 colors.js 的 initColorPicker() 設在 window 上（draw.js 為延遲載入、晚於 initColorPicker，
 // 若在此用 `let _cpShowDirect=null` 會於載入時把已設好的值蓋回 null → 色盤永遠開不了）。一律走 window._cpShowDirect。
@@ -3422,7 +3421,6 @@ function _shEsc(t) {
 let _alerts = [];            // 當前標的的提示線（含已觸發的）
 let _alertKey = "";          // _alerts 對應的標的
 let _alertBusy = false;
-const _ALERT_C = { wait: "255,167,38", fired: "120,123,134" };   // 待命=橘、已觸發=灰
 
 function _alSym() {
   return {

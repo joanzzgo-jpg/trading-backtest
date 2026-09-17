@@ -89,13 +89,13 @@ _build_css_bundle()
 
 # 閒置後才載入的 JS（非首屏）。**順序就是載入順序**（main.js `_loadFx` 用 async=false 保序）：
 #   tradeparse/tradeui 必須排在 trade 之前（交易面板的解析/UI helper）。
-_FX_DEFER = ("effects", "weather", "draw", "tradeparse", "tradeui", "trade", "signal_info", "notify",
+_FX_DEFER = ("effects", "weather", "draw", "tradeparse", "tradeui", "trade", "notify",
              "chartorder", "multichart", "dom", "ai_research", "lunar", "xiaoa", "announce")
 
 
 def _build_fx_min():
     """把動態載入(非首屏 bundle)的 JS 壓縮成 *.min.js：
-    effects/weather/draw/trade + signal_info/notify（後兩支 2026-08-04 移出 bundle，見下）。
+    effects/weather/draw/trade + notify（2026-08-04 移出 bundle，見下）。
     這些原本原始碼直送(只靠 gzip)；minify 後閒置載入更輕(weather.js ~207KB 最有感)。
     來源比產物新才重建；缺 rjsmin 退回原樣複製 → 產物恆存在(不會讓 _loadFx 404 而繪圖/天氣/交易失效)。"""
     try:

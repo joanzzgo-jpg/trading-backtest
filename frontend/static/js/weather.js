@@ -345,25 +345,7 @@
     80:'陣雨',81:'中陣雨',82:'暴雨',85:'小陣雪',86:'大陣雪',
     95:'雷暴',96:'冰雹雷暴',99:'冰雹雷暴'
   };
-  const _TZ_CITY = {
-    'Taipei':'台北','Hong_Kong':'香港','Tokyo':'東京','Seoul':'首爾',
-    'Shanghai':'上海','Beijing':'北京','Singapore':'新加坡',
-    'Bangkok':'曼谷','New_York':'紐約','Los_Angeles':'洛杉磯',
-    'Chicago':'芝加哥','London':'倫敦','Paris':'巴黎','Dubai':'杜拜',
-    'Sydney':'雪梨','Melbourne':'墨爾本','Auckland':'奧克蘭',
-  };
 
-  function wmoType(c, d) {
-    if (c <= 1)                                    return d ? "sunny" : "night";
-    if (c <= 3)                                    return "cloudy";
-    if (c >= 45 && c <= 48)                        return "fog";
-    if (c >= 51 && c <= 57)                        return "rain";
-    if (c >= 61 && c <= 67)                        return c >= 65 ? "storm" : "rain";
-    if ((c >= 71 && c <= 77) || c===85 || c===86)  return "snow";
-    if (c >= 80 && c <= 82)                        return c === 82 ? "storm" : "rain";
-    if (c === 95 || c === 96 || c === 99)           return "thunder";
-    return "storm";
-  }
 
   /* ★ 2026-08-05 天氣解析度（使用者：「解析度更高」）。
      原本 backing store 只照 **CSS 像素** 算 → Retina(DPR2) 上等於 1x 畫完被放大 2x，

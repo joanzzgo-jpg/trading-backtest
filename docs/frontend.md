@@ -95,7 +95,7 @@
 | `draw.js` | ~1470 | **繪圖工具核心**：drawings 狀態、initDrawTools（懸浮島工具欄）、滑鼠/觸控事件（含主圖空白區可繪圖）、hit-test（findNearest/_drawingHitPart）、renderDrawings、drawOne（含 longpos/shortpos 盈虧比盒、斐波那契）、drawPreview。繪圖按標的/帳戶隔離 |
 | `colors.js` | ~442 | **顏色/樣式系統**（2026-06 從 draw.js 拆出）：_darkenForChart、_applyChartBgGradient、applyAllColors、initColorPicker（色票面板）、_updateStarBtn。手機端/電腦端配色各自獨立、皆隨帳戶同步 |
 | `ticker.js` | ~1069 | 自選清單、行情面板（fetchTickers/renderTickers + `_reconcileTicker` 鍵控重用）、標的搜尋（initSymSearch） |
-| `winrate.js` | ~848 | `_wrCache`、fetchWinRate、_renderWRSignals、_renderWinRate、hover 勝率（_updateHoverWR）、自動盈虧比盒、**系列切換 `_wrSeries`（S↔SS）+ 主圖「標記系列」過濾（全部/只S/只SS）** |
+| `winrate.js` | ~870 | `_wrCache`、fetchWinRate（網路/快取命中兩條路重繪同一組圖層）、升階差量、跳過不顯示的圖層、FVG 各標記層 render、加速器預熱、本機快照（2026-09-17 勝率欄相關的填值/hover 勝率/盈虧比盒/止損緩衝已刪） |
 | `footprint.js` | ~200 | **Footprint 足跡圖**（2026-07-17）：`toggleFootprint`/`_fpFetch`/`_makeFootprintPrimitive`。打 `/api/footprint`，primitive 畫每根棒各價位買賣量（左紅賣/右綠買、金框 POC、棒底 Δ+總量）。僅 crypto、tf∈1m~1h（逐筆精確、漸進補齊：`pending_min>0` 時 5s 快輪詢 `_fpFastT`＋右上角顯示「剩 N 分鐘」）＋4h/1d（`kagg` 1m聚合）；開關=主圖右上 #footprintBtn（chart-order-btn 同款、.fp-btn right:166，crypto 才顯示）預設關；barSpacing<14 只顯提示、≥52 才畫數字；抓失敗不記 `_fpKey`→draw() 5s 退避自癒（`_fpNextTryTs`）；primitive 於 `charts.js createCandleSeries()` 掛載 |
 | `orderbook.js` | ~200 | **掛單牆 Order Book Wall**（2026-07-17）：`toggleOrderbook`/`_obFetch`/`_makeOrderbookPrimitive`。打 `/api/orderbook`（僅 crypto 即時），primitive 畫右緣掛單牆橫條（綠買/紅賣、長∝金額）＋牆消失事件標「✓吃掉/⚠撤走」（假單判定）＋左上掛單買賣比；2.5s 輪詢；開關=右上 `#orderbookBtn`（.ob-btn right:246）。足跡另有失衡標示 `_FP_IMB=2`（買/賣 ≥2倍高亮該格）在 footprint.js |
 | `render.js` | ~582 | loadData、_applyPriceFormat、renderAll、renderCandles/BB/CRT/KDJCross/Resonance/Volume/KDJ/RSI/MACD、_bgApplyChunk、_bgScheduleIndicators、_bgLoadOlderBars |
@@ -103,7 +103,6 @@
 | `replay.js` | ~459 | replayData 狀態、_rpCal 日曆 IIFE、enterReplay/exitReplay、replayPlay/Step、bindReplayBar |
 | `ui.js` | ~947 | bindEvents、updateMarketUI、bindPaneDividers、bindIndicatorPanel、bindLegendColors、bindLegendToggles、bindSystemColors、手機底部分頁切換（淡入淡出） |
 | `ai_research.js` | ~233 | AI 研究面板 |
-| `signal_info.js` | ~732 | 訊號詳情左抽屜（SIGNAL_INFO metadata、統計列、敗後停手細節） |
 | `notify.js` | ~393 | **訊號通知中心**（聊天室式底部分頁）+ Web Push 訂閱（VAPID）：偏好（監控時框/通知事件）帳號級同步、`/api/notify/feed` 訊號歷史、測試通知。詳見「訊號通知中心」節 |
 | `trade.js` | ~300 | **Binance 永續交易面板**（手動下單/持倉/平倉/撤單 + 自動交易設定）：後端未設交易金鑰時入口自動隱藏；testnet/實盤徽章；交易口令存 localStorage["tradeKey"]；面板開著時每 5s 刷新持倉。後端見 docs/backend.md「Binance 永續交易」節 |
 | `account.js` | ~197 | 帳號系統（登入/登出、雲端同步 _acctTouch）+ landing 帳號鎖（`_initLandingLock`） |

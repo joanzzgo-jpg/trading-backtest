@@ -164,8 +164,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   updateMarketUI();
   applyAllColors();
   startTickerRefresh();
-  _initWrTargetBtn();   // 勝率欄目標切換按鈕初始狀態
-  _initWrStopBuffer();  // 勝率欄停損緩衝輸入
   _initSubChartsToggle();  // 副圖指標 顯示/隱藏 toggle（左下浮按鈕）
   _initGoLatestBtn();      // 回到最新 ⏭（主圖右下，看歷史時才出現）
   _initMarketPill();       // 市場切換動畫 pill（Crypto / TW / US）
@@ -423,8 +421,8 @@ document.addEventListener("DOMContentLoaded", async () => {
                                      : "/static/js/" + n + "?v=" + (window._APP_VER || "1"));
     // draw / trade 也在此延遲載入（已移出首屏 bundle，省 ~42% 首屏 JS）；async=false 保留插入順序。
     // 兩者末段各自 initDrawTools()/initTrade() 自我初始化 → 載入完成即接手繪圖工具/交易面板。
-    // signal_info / notify 同理（2026-08-04 移出 bundle，再省 17.7KB gzip／首屏 -14%）：
-    //   signal_info 本來就是自包 IIFE，載入即綁事件；notify 末段自我呼叫 initNotify()。
+    // notify 同理（2026-08-04 移出 bundle）：末段自我呼叫 initNotify()。
+    //   （signal_info.js 訊號詳情抽屜 2026-09-17 刪除：入口在勝率欄，隨勝率欄移除後打不開。）
     // 載入 *.min.js（後端 _build_fx_min 壓縮版；來源改動後版號 ?v= 會破快取重抓）。
     /* ⚠ 這份清單要跟 main.py 的 _FX_DEFER **順序一致**（async=false 保序）：
        tradeparse/tradeui 在 trade 之前；2026-09-14 另把 9 支「點了才用得到」的面板
@@ -432,7 +430,7 @@ document.addEventListener("DOMContentLoaded", async () => {
        它們都自帶 readyState 判斷 → 晚載入也會自己初始化。 */
     ["effects.min.js", "weather.min.js", "draw.min.js",
      "tradeparse.min.js", "tradeui.min.js", "trade.min.js",
-     "signal_info.min.js", "notify.min.js",
+     "notify.min.js",
      "chartorder.min.js", "multichart.min.js", "dom.min.js", "ai_research.min.js",
      "lunar.min.js", "xiaoa.min.js", "announce.min.js"].forEach(name => {
       const s = document.createElement("script");
