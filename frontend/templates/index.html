@@ -586,6 +586,14 @@
        ⚠ 按鈕用 data-tool，與左側工具島共用同一套事件（ui.js 對 [data-tool] 綁定，涵蓋兩排），
          所以兩邊的 active 狀態會自動同步，不需要另外維護一份。 -->
   <span class="sym-quickdraw" id="symQuickDraw">
+    <!-- ⋮⋮ 拖曳把手（2026-09-17 使用者：「上方快捷繪圖工具改成跟 TV 一樣可以拖移」）：
+         拖了就整排浮起來、放哪記哪；雙擊放回符號列原位。邏輯在 ui.js（_sqd*）。 -->
+    <span class="sqd-grip" id="sqdGrip" title="拖曳：移到任何位置（位置會記住）　雙擊：放回原位">
+      <svg width="8" height="14" viewBox="0 0 8 14" aria-hidden="true"><g fill="currentColor">
+        <circle cx="2" cy="2.5" r="1.1"/><circle cx="6" cy="2.5" r="1.1"/>
+        <circle cx="2" cy="7" r="1.1"/><circle cx="6" cy="7" r="1.1"/>
+        <circle cx="2" cy="11.5" r="1.1"/><circle cx="6" cy="11.5" r="1.1"/></g></svg>
+    </span>
     <button class="sqd-btn" data-tool="pointer" title="游標（按 Esc 返回）">
       <svg width="15" height="15" viewBox="0 0 15 15"><path d="M2.5 1L2.5 11.5L5.5 8.5L7.2 13L8.8 12.3L7.1 7.8L11.5 7.8Z" fill="currentColor"/></svg>
     </button>

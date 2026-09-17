@@ -1813,6 +1813,27 @@ html.perf-mode .tk-seg {
   box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 30%, transparent);
 }
 .sqd-sep { width: 1px; height: 15px; background: var(--border); margin: 0 4px; flex-shrink: 0; }
+/* ⋮⋮ 拖曳把手＋浮動狀態（2026-09-17，跟 TradingView 浮動繪圖列同一種手感）。
+   ⚠ 浮動時 ui.js 會把整排搬到 <body> 底下：符號列是 overflow:hidden，留在原處拖出去會被裁掉。
+   ⚠ z-index 640：要壓過圖表與右緣交易欄(46)，但要在它自己叫出的色盤(.cp-popup 3000)、經濟事件浮層(700)之下。 */
+.sqd-grip {
+  width: 12px; height: 24px; flex-shrink: 0; margin-right: 1px; border-radius: 5px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--muted); opacity: .5; cursor: grab; user-select: none; touch-action: none;
+  transition: opacity .14s ease, background .14s ease;
+}
+.sqd-grip:hover { opacity: 1; background: color-mix(in srgb, var(--accent) 12%, transparent); }
+body.sqd-dragging, body.sqd-dragging * { cursor: grabbing !important; user-select: none !important; }
+.sym-quickdraw.sqd-floating {
+  position: fixed; z-index: 640; margin: 0;
+  padding: 3px 6px 3px 3px; border-radius: 10px;
+  background: color-mix(in srgb, var(--bg2) 94%, transparent);
+  border: 1px solid var(--border);
+  box-shadow: 0 6px 22px rgba(0,0,0,.45);
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+}
+.sym-quickdraw.sqd-dragging { box-shadow: 0 12px 32px rgba(0,0,0,.55); }
+html.perf-mode .sym-quickdraw.sqd-floating { background: #FFFFFF; border-color: #E5E5E5; box-shadow: 0 6px 20px rgba(0,0,0,.12); }
 .sqd-color {
   display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
   width: 26px; height: 24px; padding: 0;
@@ -6647,6 +6668,7 @@ html.landing-active #_wxCard,
 html.landing-active #tradePopup,
 html.landing-active #trdDock,
 html.landing-active .trd-edge-trigger,
+html.landing-active .sym-quickdraw.sqd-floating,   /* 浮動的快捷繪圖列（搬到 body 底下了，封面要一起藏） */
 html.landing-active .bt-overlay,
 html.landing-active #sysSettingsPopup,
 html.landing-active .lunar-overlay,        /* 農民曆卡（z低於封面但半透明封面會透出） */

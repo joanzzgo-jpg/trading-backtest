@@ -281,6 +281,7 @@ async function _acctPullDrawings(name, _bootPull) {
           const _PULL_SKIP = new Set([..._ACCT_SKIP,
             "perfMode", "mFontScale", "mHideWr", "mLastTab",
             "paneFlexes", "collapsedPanes", "multiChart",
+            "sqdFloatPos",   // 快捷繪圖列拖到哪（像素座標＝這台螢幕專屬，別台尺寸不同會放錯）
             "announceSeenVer", "symSearchHistory", "accelOn"]);
           // 這幾項我們有辦法「當場重讀重套」，其餘只能靠重新載入才會反映到畫面
           const _LIVE = new Set(["tv_drawings_v2", "sysColors", "drawColorByTf",
