@@ -3520,13 +3520,11 @@ function _drawPriceAlerts(W, H) {}
 let _alBtnLast = "";
 function _alSyncBtn() {
   const btn = document.getElementById("btnLineAlert");
-  const sep = document.getElementById("sqdAlertSep");
   if (!btn) return;
   const d = (Array.isArray(drawings) ? drawings : []).find(x => x.id === selectedId);
   const show = !!(d && d.type === "hline");
   btn.hidden = !show;
   // 🔒/✎ 那一塊（#symSelTools，自成一塊積木）：選到**任何**繪圖就出現（鈴鐺只有水平線才有）。⚠ 必須在下面 early return 之前。
-  if (sep) sep.hidden = !d;
   const _selBlk = document.getElementById("symSelTools");
   if (_selBlk) _selBlk.hidden = !d;
   const lk = document.getElementById("btnDrawLock"), tx = document.getElementById("btnDrawText");

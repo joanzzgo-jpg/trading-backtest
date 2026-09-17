@@ -545,8 +545,6 @@ function updateMarketUI() {
   if (tabHK)      tabHK.style.display      = isHK ? "" : "none";
 }
 
-// 台指期三兄弟（歸在台股市場底下，由 symbol 判定走 TAIFEX 資料；全時框皆支援）
-function isTxfSym(s) { return /^(TXF|MXF|TMF)$/i.test((s || "").trim()); }
 
 /* ── 面板拖曳分隔 ── */
 function bindPaneDividers() {
@@ -1097,12 +1095,8 @@ function bindLegendToggles() {
     if (saved != null && saved !== "" && typeof setFVGMinWidth === "function") setFVGMinWidth(saved);
   } catch (e) {}
 
-  // 面板收合：點擊「−」縮至只剩圖例列；點「+」展開
-  // 面板收合：點「-」= 整個 pane（含圖例資訊列）+ 它下方分隔線一起隱藏 = 完全消失、不留痕跡；
-  //   還原改由下方「隱藏指標還原列」(_syncHiddenIndBar) 的小晶片點回來（因為「+」也跟著消失了）。
   _initIndPopup();          // 桌機：左側工具列「指標」hover 勾選選單
   _initMobileIndChips();    // 手機：設定面板裡的 KDJ / RSI / MACD chip（工具島在手機是隱藏的）
-  _syncHiddenIndBar();
 }
 
 const _PANE_LABEL = { kdjPane: "KDJ", rsiPane: "RSI", macdPane: "MACD" };
@@ -1258,17 +1252,10 @@ function _showPane(paneId) {
 }
 
 function _afterPaneToggle() {
-  _syncHiddenIndBar();
   updateBottomTimeAxis();
   resizeAll();
   saveVisibilityPrefs();
   savePaneFlexes();
-}
-
-function _syncHiddenIndBar() {
-  // 底部「隱藏的指標」還原列已移除（使用者要求不要顯示在下方）：收合改成原地保留圖例列，
-  // 上面的 ＋ 就能點回來。這裡只負責把舊版可能殘留的那條列清掉。
-  document.getElementById("hiddenIndBar")?.remove();
 }
 
 function nextVisiblePane(el) {
