@@ -109,7 +109,7 @@
 | `backtest.js` | ~324 | 策略回測 UI（📊 鈕 #backtestBtn）：注入 modal，CRT 訊號模式→/api/crt_backtest；績效卡 + canvas 資金曲線 |
 | `main.js` | ~271 | DOMContentLoaded 初始化入口（呼叫所有 init、initBacktest、loadData）、字體大小 IIFE、延遲載入特效、**landing 封面進場/重跳邏輯（`initLanding`）** |
 
-> bundle `names` 順序（main.py）：`config, utils, charts, draw, colors, ticker, winrate, render, realtime, replay, ui, ai_research, signal_info, account, notify, trade, backtest, main`。
+> bundle `names` 順序（main.py `_build_js_bundle`）：`config, utils, charts, colors, ticker, winrate, footprint, orderbook, htffvg, econ, render, realtime, replay, ui, account, hotkeys, main`；其餘（draw/trade/notify/weather/effects…）走 `_FX_DEFER` 延遲載入。
 > **已移除功能**：ICT 工具（FVG/BOS/CHoCH/Order Block/2022 模型）與 SnR 支撐壓力曾加入後又於 commit f1d0f25 整組移除（視覺太雜），現已無相關程式碼。
 
 **B. 動態載入檔（不在 bundle，由 `main.js` 閒置後注入 `<script async=false>`，版號走 `_asset_ver` 的 mtime）**
@@ -147,14 +147,13 @@
 
 ### 頂部工具列（topbar）結構
 ```
-[左：Logo + 標的選擇] [勝率欄 flex:1 撐滿] [TF按鈕] [icon 按鈕]
+[左：Logo + 標的選擇 + 同步狀態/訊號計算失敗]   [TF 按鈕（能放下就置中）]   [icon 按鈕]
 ```
-- `.topbar` 用 `display: flex; justify-content: flex-start`
-- `.topbar-left` `flex: 0 0 auto`（不主動 grow，保護內容空間）
-- `.tb-winrate` `flex: 1 1 auto`（佔滿可用空間），內部三段式（見 [docs/crt-winrate.md](crt-winrate.md) 的「勝率顯示欄」章節）
-- `.topbar-tf` 與 `.topbar-right` `flex-shrink: 0`（固定不縮）
-- 注：舊版用 `position:absolute; left:50%` 居中，但會擋到 TF 按鈕，改為 flex 佈局後解決
-- 手機 `@media (max-width:1180px), (hover:none) and (pointer:coarse)`：`.tb-winrate { display:none }`
+- 上方勝率欄（`.tb-winrate`）2026-09-17 整條移除 → 上方只剩一列；同步狀態 `#acctSyncState` 與
+  「訊號計算失敗」`#wrFailNote` 搬到左側 `.tb-status`。
+- TF 置中改成**實際量**（ui.js `_tbFitTf`）：置中後左右都不壓到才加 `.tf-centered`，否則退回一般排列；
+  盯 resize／左側與 TF 尺寸／右側按鈕增減。原本用 CSS 寫死 `min-width:1500px`，1500~1600 寬會壓到右側按鈕。
+- 守門員：`check_topbar_reachable.js`（每顆按鈕點得到）、`check_topbar_rows.js`（各寬度維持單列）。
 - **手機/桌面斷點（2026-06 起全站統一）**：UI 只分兩款——手機款＝寬 ≤1180px（涵蓋手機＋所有 iPad＋桌機縮窄視窗）或觸控無 hover 裝置（補 12.9" iPad 橫向 1366px）；JS 端用 `isMobileUI()`（utils.js，全站唯一準則），CSS 端所有手機斷點同步用上述雙條件。769~1100 平板專屬區塊已移除。
 - TF 按鈕（`.topbar-tf`）在 HTML 中排在 winrate 之後，視覺上靠右
 

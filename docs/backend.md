@@ -84,9 +84,9 @@
 - `backend/indicators/` - 技術指標計算
   - `engine.py` - 指標計算引擎（BB, KDJ, RSI, MACD, CRT 等）
 
-### 回測（只剩 CRT 訊號回測）
-- `routes/backtest.py` `run_crt_backtest` - **重用 `/api/crt_winrate` 已算好的 `signals`**（不另抓），把選定訊號的勝負序列 × 每筆預估盈虧比做資金模擬。詳見 [docs/crt-winrate.md](crt-winrate.md) 的「回測功能」。
-- **已移除**：`backend/strategies/`（`builtin.py` 7 個通用策略）、`backend/backtest/`（`engine.py` 向量化引擎）、`routes/strategies.py`、`/api/backtest`、`/api/strategies` 皆已刪除（前端拿掉入口後一併清掉，且 engine 有未修的做空帳務/NaN bug）。日後若要復活須一併重建並修 bug，見 crt-winrate.md。
+### 回測（已全部移除）
+- CRT 訊號回測（`routes/backtest.py`、`/api/crt_backtest`）已隨 S1~S12 訊號移除。
+- 更早移除的：`backend/strategies/`（`builtin.py` 7 個通用策略）、`backend/backtest/`（`engine.py` 向量化引擎）、`routes/strategies.py`、`/api/backtest`、`/api/strategies` 皆已刪除（前端拿掉入口後一併清掉，且 engine 有未修的做空帳務/NaN bug）。日後若要復活須一併重建並修 bug（細節見 git 歷史）。
 
 ## 重要技術細節
 - **時間戳**：所有圖表時間戳 +8 小時（Taiwan Time），`toTime()` 函數處理

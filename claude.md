@@ -555,7 +555,7 @@ node scripts/check_crosshair_blank.js    # 需本機服務跑著
 > 架構細節已從本檔拆到 `docs/`，需要時用下方路徑讀取對應檔案即可。
 - **後端**：環境變數、資料夾結構、資料源、即時行情疊加（台股分鐘K）、天氣資料源、背景載入策略、Pionex 限流、已知問題 → [docs/backend.md](docs/backend.md)
 - **前端**：JS 模組表、視覺特效、音效、極簡模式（perf-mode）完整說明、版面配置、圖片資源、星號按鈕、標記視窗化 → [docs/frontend.md](docs/frontend.md)
-- **CRT 勝率/回測**：S1~S12 訊號邏輯、新增訊號 checklist、勝率 HUD、各時框回測天數、後端 `crt.py` 結構與效能 → [docs/crt-winrate.md](docs/crt-winrate.md)
+- **策略標記計算 `/api/crt_winrate`**：輸出哪些鍵、誰在用、vw 階梯／跳過圖層／差量／快取、守門員；勝率統計與 S1~S12／SS 訊號已移除（考古清單在文末） → [docs/crt-winrate.md](docs/crt-winrate.md)
 - **FVG 策略定版規格（v2.3，參數已鎖定）**：止損/止盈檔位、雙槽多空、多幣組合、止盈先到撤殘單 → [docs/fvg-strategy.md](docs/fvg-strategy.md)
   - ⚠ 主圖方向多空/破多空標記（`crt.py` `_calc_crt_winrate` 的 `_pseq` proto 缺口）**2026-07-10 拿掉 g+1「沒填回」檢查** → proto 純「g 收盤站上前根高/破前根低」即定案、**不再被下一根收盤回頭撤掉（非 repaint）**；代價破多空標記約 2x。**未收盤最後一根**另出「暫定」標記（半透明+空心+?，`_prov_proto`，收盤才轉正式、會 repaint、使用者已同意）。auto-trade 進場 `_fvg_sigs` 是另一套、不受這些影響。
 - **3D 天氣背景實作規格**：Canvas 2D 粒子＋CSS 3D 分層、Phase 進度與實作差異 → [docs/weather-3d-spec.md](docs/weather-3d-spec.md)
