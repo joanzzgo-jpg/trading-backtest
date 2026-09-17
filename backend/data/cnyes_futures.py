@@ -25,6 +25,36 @@ _TF_MIN = {"1m": 1, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "2h": 120, "4h": 24
 
 _live_cache: dict = {}   # prod → (fetch_ts, df_1m[ts,o,h,l,c,v])
 
+# ★ 2026-09-17 實測：鉅亨約 7~10% 的請求回 **HTTP 200** 但內容是
+#   {"statusCode": 5031, "message": "Redis連線錯誤", "data": []}（對方伺服器內部錯誤）。
+#   原本只看 HTTP 狀態 → 當成「沒資料」回 None → 台股當日 K 退回**落後約 20 分鐘**的 yfinance
+#   （守門員 check_tw_sources 在開盤 48 分鐘時只拿到 6 根 5 分 K＝只到 09:25，就是這樣抓到的）。
+#   伺服器常駐時有 cnyes_last_good 墊著，但開機後第一次、或當天第一次看某檔時沒得墊。
+# ⚠ 只重試 statusCode ≥ 500：「真的沒資料」（收盤後、不存在的代號）是 statusCode 200 ＋ t 為空陣列，
+#   不可以重試（每次請求都會白打一倍）。
+# ⚠ 只重試 **1 次**、等 0.3 秒：錯誤是**一陣一陣**的（實測 75 秒內 9 次錯誤全擠在同一段 4.3 秒裡），
+#   要蓋住一整段得在請求裡等 4 秒以上 —— 這條在即時報價路徑上（每秒輪詢），不可以；
+#   對方故障時狂重試也只會加重它的負擔。重試 1 次只救零星的與錯誤段邊緣的；
+#   整段錯誤期間靠 routes 端的 cnyes_last_good 墊著，下一輪輪詢自然恢復。
+_CNYES_TRIES = 2
+
+def _cnyes_data(params: dict) -> dict:
+    """打 charting API，回 data（dict）。對方伺服器錯誤（statusCode≥500）短暫等待後重試；
+    連線/HTTP 錯誤照樣丟出（呼叫端原本就有 except）。"""
+    for _i in range(_CNYES_TRIES):
+        r = SESSION.get(_BASE, params=params, headers=_HDRS, timeout=8)
+        r.raise_for_status()
+        j = r.json() or {}
+        try:
+            _sc = int(j.get("statusCode") or 200)
+        except (TypeError, ValueError):
+            _sc = 200
+        if _sc < 500 or _i == _CNYES_TRIES - 1:
+            d = j.get("data")
+            return d if isinstance(d, dict) else {}
+        time.sleep(0.3)
+    return {}
+
 
 def fetch_cnyes_1m(product: str):
     """cnyes 當前時段 1 分鐘K（含夜盤）DataFrame[ts,o,h,l,c,v]。快取 8s；失敗沿用上次。無資料回 None。"""
@@ -37,10 +67,7 @@ def fetch_cnyes_1m(product: str):
     if c and now - c[0] < 8:
         return c[1]
     try:
-        r = SESSION.get(_BASE, params={"symbol": sym, "resolution": "1", "to": int(now)},
-                         headers=_HDRS, timeout=8)
-        r.raise_for_status()
-        d = (r.json() or {}).get("data") or {}
+        d = _cnyes_data({"symbol": sym, "resolution": "1", "to": int(now)})
     except Exception:
         return c[1] if c else None
     t = d.get("t") or []
@@ -80,10 +107,7 @@ def fetch_cnyes_stock_intraday(symbol: str, timeframe: str):
     if _c and now - _c[0] < 8:
         return _c[1]
     try:
-        r = SESSION.get(_BASE, params={"symbol": f"TWS:{symbol}:STOCK", "resolution": "1", "to": now},
-                         headers=_HDRS, timeout=8)
-        r.raise_for_status()
-        d = (r.json() or {}).get("data") or {}
+        d = _cnyes_data({"symbol": f"TWS:{symbol}:STOCK", "resolution": "1", "to": now})
     except Exception:
         return None
     t = d.get("t") or []

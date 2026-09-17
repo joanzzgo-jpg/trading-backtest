@@ -622,6 +622,27 @@ class _NotModified(Exception):
     """內部哨兵：304 → 跳過該來源的解析段（不是錯誤）。"""
 
 
+# ★ 下載「途中」斷線要自己重試（2026-09-17 實測）：上櫃全量 opendata 解壓約 3.9MB，
+#   連抓 12 次斷 2 次，全是 ChunkedEncodingError（標頭收到了、內容下載到一半連線被對方關掉）；
+#   上市/興櫃同樣抓 12 次 0 次。http_pool 的 urllib3 Retry **管不到這段** —— 它只重試
+#   「送出請求～收到標頭」，requests 讀內容是在那之後。
+#   沒重試的後果（植回舊碼實測）：那一輪上櫃約 900 檔**變成沒有價格**（公司名單補回名稱、價格空白）、
+#   約 120 檔整個不見；公司名單也剛好抓失敗時更糟，整批消失（2681→1689，只少 37%，碰不到下面
+#   「縮水一半」的自我修復門檻）→ 零錯誤。守門員 check_tw_sources 就是這樣紅的。
+# ⚠ 只重試 ChunkedEncodingError：連線層錯誤 urllib3 已經重試過 2 次，再包一層只會讓
+#   逾時的最壞情況翻倍（worker 卡更久）。GET 冪等，整個請求重來是安全的。
+_TW_BODY_TRIES = 3
+
+def _get_body_retry(url: str, headers: dict = None, timeout: int = 20):
+    for _i in range(_TW_BODY_TRIES):
+        try:
+            return SESSION.get(url, headers=headers or {}, timeout=timeout)
+        except requests.exceptions.ChunkedEncodingError:
+            if _i == _TW_BODY_TRIES - 1:
+                raise
+            _time.sleep(0.3 * (_i + 1))
+
+
 def _dump_get(url: str, purpose: str, timeout: int = 20):
     """帶 If-None-Match / If-Modified-Since 抓 opendata。
     回 (json, True)＝有更新要重新解析；(None, False)＝沒變，沿用上次解析結果。
@@ -635,7 +656,7 @@ def _dump_get(url: str, purpose: str, timeout: int = 20):
             hdrs["If-None-Match"] = ent["etag"]
         if ent.get("lastmod"):
             hdrs["If-Modified-Since"] = ent["lastmod"]
-    r = SESSION.get(url, headers=hdrs, timeout=timeout)
+    r = _get_body_retry(url, headers=hdrs, timeout=timeout)
     if r.status_code == 304:
         return None, False
     r.raise_for_status()
@@ -702,7 +723,9 @@ def _tw_name_master() -> dict:
          ("CompanyAbbreviation", "CompanyName")),     # 興櫃
     ):
         try:
-            r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=20)
+            # 走共用池＋內容斷線重試（上櫃公司清單同樣會中途斷，見 _get_body_retry）；
+            # 池不存 cookie，行為與原本 requests.get 相同
+            r = _get_body_retry(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=20)
             r.raise_for_status()
             for d in r.json():
                 code = str(d.get(ckey) or "").strip()
@@ -763,7 +786,11 @@ def fetch_tw_tickers() -> list:
     except _NotModified:
         pass
     except Exception as e:
-        _log.warning(f"[tw_tickers] TWSE opendata error: {e}")
+        # 重試完還是失敗 → 沿用上一輪成功解析的那份（檔案一天只更新幾次，30 秒前那份仍然有效）；
+        # 不沿用的話這一輪清單直接少掉一整個市場。手上沒有（冷啟動）才真的缺。
+        _prev = _dump_cached(TWSE_DAY_ALL_URL, DUMP_TICKERS) or {}
+        tickers.update(_prev)
+        _log.warning(f"[tw_tickers] TWSE opendata error: {e}（沿用上一份 {len(_prev)} 檔）")
 
     # ── 2. TPEX 上櫃全量 ──────────────────────────────────────
     try:
@@ -810,7 +837,10 @@ def fetch_tw_tickers() -> list:
     except _NotModified:
         pass
     except Exception as e:
-        _log.warning(f"[tw_tickers] TPEX opendata error: {e}")
+        _prev = _dump_cached(TPEX_DAY_ALL_URL, DUMP_TICKERS) or {}   # 同上：沿用上一份
+        for _c, _v in _prev.items():
+            tickers.setdefault(_c, _v)
+        _log.warning(f"[tw_tickers] TPEX opendata error: {e}（沿用上一份 {len(_prev)} 檔）")
 
     # 兩包都解析完 → 把順手收集的「最新交易日日線」搬進快取（給 tw_daily_fill_latest 用）
     _day_commit()
@@ -858,7 +888,10 @@ def fetch_tw_tickers() -> list:
     except _NotModified:
         pass
     except Exception as e:
-        _log.warning(f"[tw_tickers] 興櫃 opendata error: {e}")
+        _prev = _dump_cached(TPEX_ESB_URL, DUMP_TICKERS) or {}       # 同上：沿用上一份
+        for _c, _v in _prev.items():
+            tickers.setdefault(_c, _v)
+        _log.warning(f"[tw_tickers] 興櫃 opendata error: {e}（沿用上一份 {len(_prev)} 檔）")
 
     # ── 健全性守門：清單「莫名其妙縮水」就丟掉條件式快取、下一輪強制整包重抓 ──────────
     # ★為什麼要有這個：條件式抓取（304）失敗時的樣子是「安靜地回一份不完整的清單」，

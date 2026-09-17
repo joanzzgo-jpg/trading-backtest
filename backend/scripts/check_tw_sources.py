@@ -155,8 +155,15 @@ _SESSIONS = {   # 市場 → (開盤分鐘, 收盤分鐘, 時區偏移小時)
 }
 
 
-def _expect(mkt, lo, hi, last_date):
-    """回 (lo, hi)。最後交易日不是今天（＝完整的一天）→ 原樣；是今天且盤中未收 → 等比縮放。"""
+def _expect(mkt, lo, hi, last_date, last_ts=None, tf_min=None):
+    """回 (lo, hi, 說明)。最後交易日不是今天（＝完整的一天）→ 原樣；是今天且盤中未收 → 等比縮放。
+
+    ★ 2026-09-17：縮放比例改用「資料自己最後一根的時間」而不是「現在幾點」（有給 last_ts/tf_min 時）。
+      原本用現在時刻 → 主來源（鉅亨）一陣錯誤、當日 K 暫時退回落後約 20 分鐘的 yfinance 時，
+      根數「比現在該有的少」就被判失敗（實測開盤 48 分只有 6 根＝只到 09:25）＝叫狼來了。
+      這一段要抓的是「30m/2h 其實拿到日線」，跟資料新不新無關 → 用資料自己的時間縮放，
+      落後另外印提示、不算失敗（新鮮度有別的守門員管）。
+      ⚠ 仍抓得到日線：日線棒的時間戳在開盤前（台股 00:00 UTC＝08:00），會直接判失敗。"""
     import datetime as _dt
     o, c, tzh = _SESSIONS.get(mkt, _SESSIONS["tw"])
     now = _dt.datetime.now(_dt.timezone(_dt.timedelta(hours=tzh)))
@@ -166,13 +173,22 @@ def _expect(mkt, lo, hi, last_date):
     total = c - o
     if mins >= total or mins <= 0:
         return lo, hi, ""
+    _lag = ""
+    if last_ts is not None and tf_min:
+        _loc = (pd.Timestamp(last_ts) + pd.Timedelta(hours=tzh))
+        _mins_data = _loc.hour * 60 + _loc.minute - o + tf_min      # 最後一根涵蓋到它的結束
+        if _mins_data <= 0:
+            return 0, 0, f"最後一根 {_loc:%H:%M} 在開盤前 —— 不是盤中棒（像是拿到日線）"
+        if mins - _mins_data > 2 * tf_min:
+            _lag = f"  ⚠ 資料落後現在 {mins - _mins_data} 分（主來源暫時錯誤時會退回延遲來源；只提示、不算失敗）"
+        mins = min(_mins_data, mins)
     r = mins / total
     _lo, _hi = max(1, int(lo * r)), int(hi * r) + 1
     # ⚠ 開盤沒多久時縮放後的下限會掉到 1 → 這時「其實拿到日線」(根數也是 1) 會被放行，
     #   檢查等於失去鑑別力。與其假裝有驗，不如明確回報跳過（原本就該 >1 根才驗得出來）。
     if lo > 1 and _lo <= 1:
-        return None, None, f"盤中僅過 {mins}/{total} 分，預期根數縮到 1 以下、驗不出『拿到日線』"
-    return _lo, _hi, f"盤中已過 {mins}/{total} 分，預期按 {r:.0%} 縮放"
+        return None, None, f"盤中僅過 {mins}/{total} 分，預期根數縮到 1 以下、驗不出『拿到日線』{_lag}"
+    return _lo, _hi, f"盤中已過 {mins}/{total} 分，預期按 {r:.0%} 縮放{_lag}"
 
 print("\n⑥ 各時框分桶（30m/2h 曾經拿到的是日線）")
 EXPECT = {"5m": (40, 60), "15m": (15, 22), "30m": (8, 12), "1h": (4, 6), "2h": (2, 4), "4h": (1, 3), "1d": (1, 1)}
@@ -186,7 +202,8 @@ for tf, (lo, hi) in EXPECT.items():
         t = pd.to_datetime(df["time"])
         last = t.dt.date.max()
         cnt = int((t.dt.date == last).sum())
-        _lo, _hi, _note = _expect("tw", lo, hi, last)
+        _TFM = {"5m": 5, "15m": 15, "30m": 30, "1h": 60, "2h": 120, "4h": 240}
+        _lo, _hi, _note = _expect("tw", lo, hi, last, t.max() if tf in _TFM else None, _TFM.get(tf))
         if _lo is None:
             skip(f"{tf} 最後交易日根數", _note)
         else:
@@ -215,6 +232,92 @@ for mkt, sym in (("us", "AAPL"), ("hk", "0700.HK")):
                       f"{last}{('  ' + _note) if _note else ''}")
         except Exception as e:
             check(f"{mkt} {tf} 有資料", False, f"{type(e).__name__}: {e}")
+
+print("\n⑧ 上游下載途中斷線（上櫃 opendata 實測約 1/6 會斷；不可以讓清單少掉一整個市場）")
+# ★ 2026-09-17：這支的 ② 在真實網路下時紅時綠（[1689, 2681, 2681]）——根因是上櫃那份
+#   約 3.9MB 的回應下載到一半被對方關掉（ChunkedEncodingError），http_pool 的重試管不到
+#   「內容下載」這段 → 那一輪上櫃一千多檔整批不見。
+#   靠真實網路碰運氣驗不出修好沒有 → 這裡直接注入斷線，結果是確定的。
+import requests as _rq
+_orig_get = TW.SESSION.get
+_calls = {"n": 0}
+
+
+def _flaky(fail_times):
+    def _g(url, *a, **k):
+        if url == TW.TPEX_DAY_ALL_URL:
+            _calls["n"] += 1
+            if _calls["n"] <= fail_times:
+                raise _rq.exceptions.ChunkedEncodingError("模擬：內容下載到一半連線被關")
+        return _orig_get(url, *a, **k)
+    return _g
+
+
+try:
+    # A. 冷啟動（手上沒有上一份）只斷一次 → 內容重試要救回完整清單
+    reset(); _calls["n"] = 0
+    TW.SESSION.get = _flaky(1)
+    _nA = len(TW.fetch_tw_tickers())
+    check("斷一次 → 重試救回完整清單", _nA >= n0 * 0.95 and _calls["n"] >= 2,
+          f"{_nA} 檔（基準 {n0}）、上櫃請求 {_calls['n']} 次")
+    # B. 手上有上一份、這輪怎麼重試都斷 → 沿用上一份，上櫃那批一檔都不能少
+    TW.SESSION.__dict__.pop("get", None)
+    reset()
+    TW.fetch_tw_tickers()
+    _prev_otc = set((TW._dump_cached(TW.TPEX_DAY_ALL_URL, TW.DUMP_TICKERS) or {}).keys())
+    _calls["n"] = 0
+    TW.SESSION.get = _flaky(99)
+    _symsB = {x["symbol"] for x in TW.fetch_tw_tickers()}
+    _lost = _prev_otc - _symsB
+    check("一直斷 → 沿用上一份，上櫃不縮水", len(_prev_otc) > 500 and not _lost,
+          f"上一份上櫃 {len(_prev_otc)} 檔，這輪少了 {len(_lost)} 檔（上櫃請求 {_calls['n']} 次）")
+finally:
+    TW.SESSION.__dict__.pop("get", None)   # 還原成類別上的方法
+
+print("\n⑨ 鉅亨回 HTTP 200 但內容是伺服器錯誤（statusCode 5031「Redis連線錯誤」，實測約 5~10%）")
+# ★ 2026-09-17：原本只看 HTTP 狀態 → 5031 被當成「沒資料」→ 台股當日 K 退回落後約 20 分鐘的 yfinance。
+#   規則：statusCode≥500 重試 1 次；「真的沒資料」（statusCode 200 ＋ t 空陣列）不可重試（會白打一倍）。
+import data.cnyes_futures as CN   # noqa: E402
+
+
+class _FakeResp:
+    status_code = 200
+    def __init__(self, body): self._b = body
+    def raise_for_status(self): pass
+    def json(self): return self._b
+
+
+_ERR = {"statusCode": 5031, "message": "Redis連線錯誤", "data": []}
+_now = int(time.time())
+_OK = {"statusCode": 200, "message": "OK", "data": {"s": "ok", "t": [_now - 120, _now - 60],
+       "o": [1, 2], "h": [1, 2], "l": [1, 2], "c": [1, 2], "v": [1, 1]}}
+_EMPTY = {"statusCode": 200, "message": "OK", "data": {"s": "ok", "t": [], "o": [], "h": [], "l": [], "c": [], "v": []}}
+_cn = {"n": 0}
+
+
+def _script(bodies):
+    def _g(url, *a, **k):
+        if url != CN._BASE:
+            return _orig_get(url, *a, **k)
+        _cn["n"] += 1
+        return _FakeResp(bodies[min(_cn["n"] - 1, len(bodies) - 1)])
+    return _g
+
+
+try:
+    for _name, _bodies, _want_df, _want_calls in (
+        ("一次 5031 → 重試後拿到資料", [_ERR, _OK], True, 2),
+        ("真的沒資料（200＋空）→ 不重試", [_EMPTY], False, 1),
+        ("連續 5031 → 只重試 1 次就放棄（不在請求裡死等）", [_ERR, _ERR, _ERR], False, 2),
+    ):
+        CN._stock_cache.clear(); _cn["n"] = 0
+        CN.SESSION.get = _script(_bodies)
+        _df = CN.fetch_cnyes_stock_intraday("2330", "1m")
+        _got = _df is not None and not _df.empty
+        check(_name, _got == _want_df and _cn["n"] == _want_calls, f"拿到資料={_got}、請求 {_cn['n']} 次")
+finally:
+    CN.SESSION.__dict__.pop("get", None)
+    CN._stock_cache.clear()
 
 print()
 if FAILS:
