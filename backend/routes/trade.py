@@ -50,8 +50,8 @@ _ALL_TFS = {"5m", "15m", "30m", "1h", "2h", "4h", "8h", "1d", "1w", "1M"}
 # 0.98＝離上軌 2% 處先止盈 → 不等價格剛好碰到外軌(常常差一點點沒成交又反轉吐回)。進場初始 TP 與
 # retarget 跟軌共用此比例。改這一個值即可調整。
 _AUTO_TP_BAND_RATIO = 0.98
-# 自動交易設定＝SS 與 FVG 兩份『完全獨立』的子設定（風險控制本就不同：slPct/加倉/多時框 是 SS 專屬；
-# 進場模式 是 FVG 專屬；FVG 固定 1h、3W/6W、無加倉/無緩衝；連 maxPos/每筆風險的理想值都不同）。
+# 自動交易設定＝各策略『完全獨立』的子設定；目前只剩 FVG（SS 2026-08-05 移除、教練 2026-09-17 移除但設定保留給對帳）。
+# FVG 固定 1h、3W/6W、無加倉/無緩衝。
 # 共用的只有 on(主開關)/owner。hedge 不進 cfg(是 Binance 帳號級、由 _is_hedge 讀)。
 # riskUsd=每筆風險金額(打到停損約虧這麼多 USDT,含來回手續費)；>0 改「固定風險倉位」(數量由停損距離算、
 #   槓桿自動挑、lev 當上限)；0=保證金×槓桿。dirs=方向過濾。
@@ -525,7 +525,7 @@ def _autotrade_blocked(where: str) -> bool:
 
 
 def _clean_auto(p: Optional[dict]) -> dict:
-    """回巢狀 {on, owner, ss:{…}, fvg:{…}}。相容『舊扁平 cfg』→ 平滑遷移到 ss/fvg 兩份。
+    """回巢狀 {on, owner, fvg:{…}, coach:{…}}。相容『舊扁平 cfg』→ 平滑遷移。
     owner=綁定擁有者帳號：自動交易只下此帳號自選清單裡的標的（避免掃到別人自選就用你的 Binance 下單）。"""
     p = p or {}
     out = {"on": bool(p.get("on")), "owner": (p.get("owner") or "").strip()[:40]}
@@ -596,7 +596,7 @@ def get_all_auto_cfgs(fresh: bool = False):
                 cfg = _clean_auto(json.loads(cfgs))
             except Exception:
                 continue
-            if not _auto_active(cfg):           # 主開關關、或 SS/FVG 兩策略都關 → 不收錄
+            if not _auto_active(cfg):           # 主開關關、或所有策略都關 → 不收錄
                 continue
             cfg["owner"] = nm
             out.append((nm, cfg))
@@ -736,10 +736,9 @@ def _posside(want, hedge):
 
 
 # ── 自動交易執行器（notify_monitor 呼叫；絕不向外拋例外）───────
-def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=None):
+def execute_signal_trade(market, exchange, symbol, tf, k, d, sig):
     """新進場訊號 → 逐個『已開啟自動交易』的帳號各自獨立評估下單
-    （每帳號用自己的金鑰/自選/設定、紀錄以 acct 隔離，互不干擾）。
-    all_signals=該標的當前完整訊號列表（含結算結果），供「敗後停手」模擬用。"""
+    （每帳號用自己的金鑰/自選/設定、紀錄以 acct 隔離，互不干擾）。"""
     if _autotrade_blocked("execute_signal_trade"):   # 自動交易暫停中：不開新倉（對帳不受影響）
         return
     if market != "crypto":
@@ -751,7 +750,7 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
         if not scfg or not scfg.get("on"):
             continue
         try:
-            _exec_signal_for_account(_name, scfg, market, exchange, symbol, tf, k, d, sig, all_signals)
+            _exec_signal_for_account(_name, scfg, market, exchange, symbol, tf, k, d, sig)
         except Exception as e:
             print(f"  ⚠ 自動下單失敗 {_name} {symbol} {tf} {k}/{d}：{e}")
 
@@ -778,9 +777,9 @@ def _open_pos_count(name, strat) -> int:
         return 0
 
 
-def _exec_signal_for_account(name, cfg, market, exchange, symbol, tf, k, d, sig, all_signals=None):
+def _exec_signal_for_account(name, cfg, market, exchange, symbol, tf, k, d, sig):
     """單一帳號(name)的進場評估：用該帳號自己的金鑰下單、自選過濾、acct 隔離紀錄。
-    ⚠ cfg = 該策略的『子設定』(ss 或 fvg)，已在 execute_signal_trade gate 過 on。"""
+    ⚠ cfg = 該策略的『子設定』(fvg 或 coach)，已在 execute_signal_trade gate 過 on。"""
     try:
         if k == "fvg":
             # FVG 限價版由 place_fvg_limit_ladder 在缺口確認時掛限價 → 市價路徑(fvg_sigs)不下單。
@@ -798,9 +797,7 @@ def _exec_signal_for_account(name, cfg, market, exchange, symbol, tf, k, d, sig,
                     _idx = {"tp1": 0, "tp2": 1, "tp3": 2, "tp4": 3}.get(cfg.get("tp", "tp2"), 1)
                     sig = {**sig, "tp": float(_tps[min(_idx, len(_tps) - 1)])}
         else:
-            # SS：訊號/時框未勾 → 靜默 return（量大，留紀錄會洗版）。
-            if not (k in cfg.get("sigs", []) and tf in cfg.get("tfs", [])):
-                return
+            return   # 只有 fvg / coach（SS 訊號與子設定已移除；execute_signal_trade 也只會傳這兩種）
         want = "short" if d == "s" else "long"
         import routes.notify as notify
         # 逐事件去重（鍵含帳號名 → 每帳號各自獨立評估一次）：之後每個「跳過原因」都只記一次 log。

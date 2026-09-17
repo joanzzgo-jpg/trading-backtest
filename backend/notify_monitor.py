@@ -3,7 +3,7 @@
 設計重點：
 - **收盤棒 gating**：每個時框只在「有新棒收盤」的那一刻才重算（避免每 60s 狂算）。
 - **即時、不吃 30 分勝率快取**：用短窗 df（fetch_crt_df + 小 days）即時抓最新棒；
-  訊號偵測重用 _calc_crt_winrate（勝率統計不重要，只取 signals）。
+  進場訊號取自 _calc_crt_winrate 的 fvg_sigs（S1~S12／SS 訊號與其推播皆已移除）。
 - **去重**：notify_state(scope=market:exchange:symbol:tf:sigkey:dir, last_t) → 同訊號不重發、重啟也不重發。
 - **新鮮度防呆**：只推「最近數根收盤棒」上的訊號，且資料須夠新 → 避免首次訂閱時把舊歷史訊號一次轟出。
 - 時間基準：Binance K 線為 UTC tz-naive；以 pd.Timestamp.value（以 UTC 解讀 naive）對齊 time.time()。
@@ -96,16 +96,10 @@ def _process_combo(market, exchange, symbol, tf, subs_here, now, df=None):
         print(f"  ⚠ TP 移動 hook 失敗：{e}")
 
     res = _calc_crt_winrate(df, long_only=(market == "tw"))
-    signals = res.get("signals") or []
-    # S1~S12 已退役（無 edge）；SS 系列（ss1/ss2/ss3）2026-08-05 亦全面移除
-    # → 這條路徑不再有任何可推播/可下單的策略訊號。
-    # ⚠ 仍保留 signals 這個變數與後續流程：FVG 進場（下方 fvg_sigs）與教練都走各自的來源，
-    #   把整段拆掉會牽動它們的早退條件，風險大於收益。
-    signals = []
 
     fresh_cut = last_closed_open - (FRESH_BARS - 1) * iv
 
-    # ── FVG 收盤確認進場（只 1h；獨立於 ss 訊號，故放在 ss 早退之前）─────────────
+    # ── FVG 收盤確認進場（只 1h）─────────────────────────────────────────────────
     # 進場訊號由 crt 的 fvg_sigs 產（收盤回補棒 + 固定 3W/6W；docs/fvg-strategy.md v2.3）。
     # 只下單、不推播訂閱者（execute_signal_trade 內建 owner 推播 + 逐帳號去重）。出場由交易所託管觸發單
     # 盤中即時觸發，下方 reconcile 只事後補記錄。
@@ -202,10 +196,9 @@ def _process_combo(market, exchange, symbol, tf, subs_here, now, df=None):
         except Exception as e:
             print(f"  ⚠ FVG限價處理失敗：{e}")
 
-    # ── 自動交易出場對帳（所有 tf 都跑，含無 ss 訊號時的 FVG 倉）──────────────────
+    # ── 自動交易出場對帳（所有 tf 都跑）──────────────────────────────────────────
     # 出場全交給交易所掛的觸發單『盤中即時』觸發；此處只『對帳』：未平自動倉若交易所已無持倉
     # (觸發單已平) → 補記錄+通知。冪等且無持倉時只查一次 DB（無開倉列即略過、不打交易所 API）。
-    # ⚠ 放在 ss 早退之前 → 修「該標的×時框無新 ss 訊號就早退、害既有自動倉平倉記錄/通知延宕」。
     try:
         from routes.trade import reconcile_auto_position
         reconcile_auto_position(market, exchange, symbol, tf)
@@ -224,44 +217,13 @@ def _process_combo(market, exchange, symbol, tf, subs_here, now, df=None):
     except Exception as e:
         print(f"  ⚠ FVG深檔拉近 hook 失敗：{e}")
 
-    if not signals:
-        return
-    # 由舊到新處理，每個 scope 只推「比已推過的最新時間更新」的訊號 → 不重發、不漏發
-    sigs = sorted((s for s in signals if s.get("k") and s.get("t")), key=lambda s: _epoch(s["t"]))
-    new_max = {}   # scope -> 本輪推到的最新訊號時間
-    for sig in sigs:
-        k = sig["k"]; d = sig.get("d"); t = sig["t"]
-        if _epoch(t) < fresh_cut:        # 舊訊號（不在最近數根收盤棒）→ 略過
-            continue
-        scope = f"{market}:{exchange}:{symbol}:{tf}:{k}:{d}"
-        prev = new_max.get(scope) or notify.last_notified(scope)
-        if prev and _epoch(t) <= _epoch(prev):   # 已推過（或更舊）→ 略過
-            continue
-        # 自動交易：新進場訊號 → 依設定下單（自帶逐事件去重，與推播成敗無關；絕不拋例外）
-        # 傳入完整 signals（含結算結果）供「敗後停手」模擬
-        try:
-            from routes.trade import execute_signal_trade
-            execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=signals)
-        except Exception as e:
-            print(f"  ⚠ 自動交易 hook 失敗：{e}")
-        # 策略訊號通知已停用（使用者只要『自動交易』通知）：此處只做自動交易，不再推播/記錄 SS 訊號。
-        # 進場/止盈/止損的通知改由 execute_signal_trade(owner 推播) 與 reconcile_auto_position(出場對帳) 發出。
-        new_max[scope] = t
-    for scope, t in new_max.items():
-        notify.mark_notified(scope, t)
-
-    # （自動交易出場對帳已上移到 ss 早退之前，所有 tf 都跑 → 不在此重複呼叫）
-    # （SS 策略訊號的止盈/止損通知已移除；自動倉的出場通知由 reconcile_auto_position 發。）
-
 
 def _auto_tfs(cfg):
-    """從(巢狀)自動交易 cfg 取要掃描的時框：SS 開→ss.tfs；FVG 開→固定 1h。相容舊扁平 cfg。
-    ⚠ SS/FVG 拆分後 cfg 變巢狀(tfs 在 cfg['ss'])，頂層已無 'tfs'——直接讀 cfg.get('tfs') 會是
-      None → 自動交易標的全沒掃 → 不進場也不推播。此函式修正之。"""
-    if "ss" in cfg or "fvg" in cfg:
+    """從(巢狀)自動交易 cfg 取要掃描的時框：FVG 開→固定 1h。相容舊扁平 cfg。
+    ⚠ cfg 是巢狀的（頂層沒有 'tfs'）——直接讀 cfg.get('tfs') 會是 None → 自動交易標的全沒掃。
+    （SS 子設定的 ss.tfs 2026-09-17 隨 SS 子設定移除；_clean_auto 早在 2026-08-05 就不再保留 ss。）"""
+    if "fvg" in cfg:
         tfs = set()
-        if (cfg.get("ss") or {}).get("on"):
-            tfs |= {t for t in ((cfg.get("ss") or {}).get("tfs") or [])}
         if (cfg.get("fvg") or {}).get("on"):
             tfs.add("1h")                       # FVG 固定 1h
         return tfs
@@ -307,7 +269,7 @@ def _tick(last_seen: dict):
             if tf in _TF_SEC:
                 active_tfs.add(tf)
     for _nm, _cfg in auto_cfgs:
-        for tf in _auto_tfs(_cfg):              # 巢狀 cfg：SS→ss.tfs、FVG→1h（頂層已無 tfs）
+        for tf in _auto_tfs(_cfg):              # 巢狀 cfg：FVG→1h（頂層已無 tfs）
             if tf in _TF_SEC:
                 active_tfs.add(tf)
     fresh_tfs = set()
@@ -350,7 +312,7 @@ def _tick(last_seen: dict):
                 continue
             mkt = w.get("market") or "crypto"
             exch = w.get("exchange") or "pionex"
-            for tf in _auto_tfs(cfg):           # 巢狀 cfg：SS→ss.tfs、FVG→1h（頂層已無 tfs）
+            for tf in _auto_tfs(cfg):           # 巢狀 cfg：FVG→1h（頂層已無 tfs）
                 if tf in fresh_tfs:
                     combos.setdefault((mkt, exch, sym, tf), [])   # 確保此 combo 會被處理（無推播訂閱者）
 
