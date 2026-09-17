@@ -69,14 +69,37 @@ check("成交量不得整批為 0（上櫃欄位名曾寫錯）", len(zero) == 0
 
 print("\n② 條件式抓取：連跑多輪不得縮水（304 快速路徑）")
 reset()          # ★必須先清掉，否則第 1 輪已經是 304，等於拿 304 比 304
+# ★ 2026-09-17：原本判「第 2 輪耗時 < 第 1 輪一半」→ 那一輪還包含 MIS 即時報價與公司名單請求，
+#   對方一慢就不準（實測 2.11s→1.17s 差一點被判失敗，而 304 其實有生效）＝叫狼來了。
+#   要驗的是「有沒有走 304」→ 直接記錄三份 opendata 每輪回的狀態碼。耗時只印出來參考。
+_OPEN = {TW.TWSE_DAY_ALL_URL: "上市", TW.TPEX_DAY_ALL_URL: "上櫃", TW.TPEX_ESB_URL: "興櫃"}
+_st_orig = TW.SESSION.get
+_rounds = []
+
+
+def _st_spy(url, *a, **k):
+    r = _st_orig(url, *a, **k)
+    if url in _OPEN and _rounds:
+        _rounds[-1][_OPEN[url]] = r.status_code
+    return r
+
+
 sizes, times = [], []
-for _ in range(3):
-    t = time.perf_counter()
-    sizes.append(len(TW.fetch_tw_tickers()))
-    times.append(time.perf_counter() - t)
+TW.SESSION.get = _st_spy
+try:
+    for _ in range(3):
+        _rounds.append({})
+        t = time.perf_counter()
+        sizes.append(len(TW.fetch_tw_tickers()))
+        times.append(time.perf_counter() - t)
+finally:
+    TW.SESSION.__dict__.pop("get", None)
 check("三輪筆數一致", len(set(sizes)) == 1, f"{sizes}")
-check("第 2 輪明顯變快（代表 304 生效）", times[1] < times[0] * 0.5,
-      f"{times[0]:.2f}s → {times[1]:.2f}s")
+_r2 = _rounds[1] if len(_rounds) > 1 else {}
+_n304 = sum(1 for v in _r2.values() if v == 304)
+# ≥2 份就算：上游剛好在兩輪之間更新某一份時回 200 是合法的；壞掉的形狀是「全部 200」
+check("第 2 輪走 304（沒有重新下載整包）", _n304 >= 2,
+      f"第 2 輪狀態 {_r2}；耗時 {times[0]:.2f}s → {times[1]:.2f}s（僅供參考）")
 
 print("\n③ 兩個呼叫端交錯（ETag 與解析結果分家會在這裡爆）")
 # ⚠ 上游「兩包日期不同」時要換一組斷言，不是放寬（2026-08-04）：
@@ -224,7 +247,9 @@ for mkt, sym in (("us", "AAPL"), ("hk", "0700.HK")):
             t = pd.to_datetime(df["time"])
             last = t.dt.date.max()
             cnt = int((t.dt.date == last).sum())
-            _lo, _hi, _note = _expect(mkt, lo, hi, last)
+            _TFM7 = {"15m": 15, "30m": 30, "1h": 60, "2h": 120, "4h": 240}
+            # 同 ⑥：用資料自己的最後一根縮放（yfinance 港股本來就延遲，實測 30m 被誤判 6 根 < 7）
+            _lo, _hi, _note = _expect(mkt, lo, hi, last, t.max() if tf in _TFM7 else None, _TFM7.get(tf))
             if _lo is None:
                 skip(f"{mkt} {tf} 最後交易日根數", _note)
             else:
@@ -318,6 +343,67 @@ try:
 finally:
     CN.SESSION.__dict__.pop("get", None)
     CN._stock_cache.clear()
+
+print("\n⑩ 對方「慢慢吐」的下載要有總時限（上櫃實測一次拖 685 秒、清單背景更新整個卡住）")
+# ★ requests 的 timeout 是「兩次收到資料之間」的上限，不是整個下載 → 用本機假伺服器每 0.2 秒吐 64 bytes，
+#   舊寫法 12 秒後還卡著（逾時從沒觸發）。這項不打外部網路、結果確定。
+import json as _json                                          # noqa: E402
+import threading as _thr                                      # noqa: E402
+from http.server import ThreadingHTTPServer as _HS, BaseHTTPRequestHandler as _BH   # noqa: E402
+_BODY = _json.dumps([{"Code": f"{i:04d}"} for i in range(20000)]).encode()
+
+
+class _Trickle(_BH):
+    def log_message(self, *a): pass
+
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(_BODY)))
+        self.end_headers()
+        try:
+            if self.path.startswith("/fast"):
+                self.wfile.write(_BODY)
+                return
+            for i in range(0, len(_BODY), 64):
+                self.wfile.write(_BODY[i:i + 64]); self.wfile.flush(); time.sleep(0.2)
+        except Exception:
+            pass
+
+
+_srv = _HS(("127.0.0.1", 0), _Trickle)
+_thr.Thread(target=_srv.serve_forever, daemon=True).start()
+_base = f"http://127.0.0.1:{_srv.server_address[1]}"
+# ⚠ 在背景執行緒裡跑、最多等 6 秒：程式若退化回「沒有總時限」，這一呼叫會真的卡 19 分鐘，
+#   守門員自己被拖垮（等於沒回報）。用模組常數設時限（不用參數）→ 植回舊碼時照樣呼叫得起來、照樣卡住＝叫得出狼。
+_budget_orig = TW._TW_BODY_BUDGET if hasattr(TW, "_TW_BODY_BUDGET") else None
+TW._TW_BODY_BUDGET = 2
+try:
+    _res = {}
+
+    def _slow_call():
+        _t0 = time.monotonic()
+        try:
+            TW._get_body_retry(_base + "/slow")
+            _res["v"] = ("拿到內容", time.monotonic() - _t0)
+        except Exception as _e:
+            _res["v"] = (type(_e).__name__, time.monotonic() - _t0)
+
+    _th = _thr.Thread(target=_slow_call, daemon=True)
+    _th.start()
+    _th.join(6)
+    if _th.is_alive():
+        check("慢慢吐 → 總時限到點切斷", False, "6 秒後還卡在下載裡（沒有總時限）")
+    else:
+        _kind, _dt = _res["v"]
+        check("慢慢吐 → 總時限到點切斷", _kind == "Timeout" and _dt < 3.5,
+              f"時限 2s、{_kind} 於 {_dt:.2f}s（完整下載要 {len(_BODY)//64*0.2:.0f}s）")
+    _r = TW._get_body_retry(_base + "/fast")
+    check("正常回應不受影響（內容完整、r.json() 可用）", len(_r.json()) == 20000, f"{len(_r.content)//1024}KB")
+finally:
+    if _budget_orig is not None:
+        TW._TW_BODY_BUDGET = _budget_orig
+    _srv.shutdown()
 
 print()
 if FAILS:

@@ -632,15 +632,71 @@ class _NotModified(Exception):
 # ⚠ 只重試 ChunkedEncodingError：連線層錯誤 urllib3 已經重試過 2 次，再包一層只會讓
 #   逾時的最壞情況翻倍（worker 卡更久）。GET 冪等，整個請求重來是安全的。
 _TW_BODY_TRIES = 3
+# ★ 總時限（2026-09-17 實測）：上櫃那份有一次整整拖了 **685 秒**才斷、另一次 36 秒。
+#   requests 的 timeout 是「兩次收到資料之間最多等多久」，**不是整個下載的上限** ——
+#   對方每隔幾秒吐一點，下載就能無限拖下去 → 台股清單背景更新（每 30 秒一輪）整個卡住十幾分鐘，
+#   期間上市/上櫃/興櫃基底都不更新、零錯誤（守門員曾因此卡 17 分鐘）。
+#   → 內容改串流讀、由計時器到點直接切斷 socket（卡在讀取中的呼叫會立刻出錯），
+#     接著走呼叫端的「沿用上一份」。正常情況：上市 <2s、上櫃 3~5s，30 秒很寬。
+# ⚠ 標頭階段拿不到 socket（回應物件還沒生出來）→ 靠每次讀取的逾時擋（最多 10 秒一次）。
+_TW_BODY_BUDGET = 30
 
-def _get_body_retry(url: str, headers: dict = None, timeout: int = 20):
-    for _i in range(_TW_BODY_TRIES):
+
+def _kill_resp(r):
+    """從別的執行緒切斷回應底層的 socket：shutdown 才能叫醒卡在 recv 的讀取（光 close 不一定會）。"""
+    import socket as _socket
+    for _get in (lambda: r.raw.connection.sock, lambda: r.raw._fp.fp.raw._sock):
         try:
-            return SESSION.get(url, headers=headers or {}, timeout=timeout)
+            _sk = _get()
+            if _sk is not None:
+                _sk.shutdown(_socket.SHUT_RDWR)
+                break
+        except Exception:
+            continue
+    try:
+        r.close()
+    except Exception:
+        pass
+
+
+def _get_body_retry(url: str, headers: dict = None, timeout: int = 20, budget: float = None):
+    budget = _TW_BODY_BUDGET if budget is None else budget
+    t0 = _time.monotonic()
+    for _i in range(_TW_BODY_TRIES):
+        left = budget - (_time.monotonic() - t0)
+        if left <= 0.5:
+            raise requests.exceptions.Timeout(f"{url.rsplit('/', 1)[-1]} 超過總時限 {budget:.0f}s")
+        try:
+            r = SESSION.get(url, headers=headers or {}, timeout=(5, min(timeout, 10, left)), stream=True)
         except requests.exceptions.ChunkedEncodingError:
             if _i == _TW_BODY_TRIES - 1:
                 raise
             _time.sleep(0.3 * (_i + 1))
+            continue
+        left = budget - (_time.monotonic() - t0)
+        _killed = {"v": False}
+        def _kill():
+            _killed["v"] = True
+            _kill_resp(r)
+        _tm = _threading.Timer(max(0.1, left), _kill)
+        _tm.daemon = True
+        _tm.start()
+        try:
+            buf = bytearray()
+            for _chunk in r.iter_content(65536):
+                buf += _chunk
+            r._content = bytes(buf)                 # 讓呼叫端照常用 r.json() / r.status_code
+            r._content_consumed = True
+            return r
+        except Exception:
+            if _killed["v"]:
+                raise requests.exceptions.Timeout(
+                    f"{url.rsplit('/', 1)[-1]} 內容下載超過總時限 {budget:.0f}s（對方拖著慢慢吐）")
+            if _i == _TW_BODY_TRIES - 1:
+                raise
+            _time.sleep(0.3 * (_i + 1))
+        finally:
+            _tm.cancel()
 
 
 def _dump_get(url: str, purpose: str, timeout: int = 20):
