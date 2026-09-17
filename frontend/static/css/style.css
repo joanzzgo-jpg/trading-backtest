@@ -1861,11 +1861,10 @@ html.perf-mode .sym-quickdraw.sqd-floating { background: #FFFFFF; box-shadow: 0 
 .symbol-bar > .sb-block.sb-last { margin-right: auto !important; }
 .sym-seltools[hidden] { display: none !important; }   /* 同 .sqd-alert[hidden]：inline-flex 會蓋掉 hidden */
 /* 拖繪圖快捷接近符號列時：沒選取繪圖（選取工具隱藏）也顯示成半透明示意塊 →「前／中／後」三格才分得開 */
-.symbol-bar.sb-drop > #symSelTools[hidden] {
-  display: inline-flex !important; opacity: .45; height: 24px; padding: 0 7px;
-  border-radius: 7px; background: rgba(255,255,255,.05);
-}
-.symbol-bar.sb-drop > #symSelTools[hidden]::before { content: "🔔 🔒 ✎"; font-size: 11px; letter-spacing: 1px; color: var(--muted); white-space: nowrap; }
+.symbol-bar.sb-drop > #symSelTools[hidden] { display: inline-flex !important; opacity: .45; pointer-events: none; }
+/* 示意塊直接用三顆按鈕原本的白色線條圖示（2026-09-17 使用者：「拖移時變成 emoji，不是現在的白色簡約繪製」）。
+   ⚠ 按鈕各自有 [hidden]{display:none!important}（.sqd-alert/.sqd-selbtn）→ 這裡要用帶 ID 的選擇器才蓋得過。 */
+.symbol-bar.sb-drop > #symSelTools[hidden] > .sqd-btn[hidden] { display: flex !important; }
 /* 放置位（虛線框）：
    ・原位那格（.home）＝一拖出去就佔住原本的寬、但看不見 → 旁邊的積木不會跳位
    ・其他縫隙的格子＝平常不佔位（display:none）
