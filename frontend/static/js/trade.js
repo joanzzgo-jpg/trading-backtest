@@ -61,8 +61,10 @@ function _trdFmt(n, dp) {
 // ── 資料載入 ──────────────────────────────────────────────────
 async function _trdRefresh() {
   if (document.hidden) return;   // 背景分頁/鎖屏不輪詢(省電+省API);回前景下一輪自動恢復
+  if (_trdDockOutOfSight()) return;   // 桌面交易欄收在右緣外(沒滑出來)→ 不打;滑出時 mouseenter 立刻補抓
   if (_TRD.busy) return;
   _TRD.busy = true;
+  _TRD.lastRefreshTs = Date.now();
   try {
     _TRD.ov = await _trdApi("overview");
     _trdRenderOverview();
@@ -558,6 +560,25 @@ function _trdBuildPopup() {
        結論就是收起時要 -90deg，不要照抄展開那套的相反值。 */
     #trdDock.trd-collapsed .trd-dock-hd .trd-dock-caret { transform:rotate(-90deg); }
     #trdDock .trd-dock-body { flex:1 1 auto; min-height:0; overflow-y:auto; }
+    /* ★ 2026-09-17 使用者：「最靠近螢幕右側的 交易跟行情 滑鼠碰到螢幕右邊再出現」
+       → 整欄改懸浮、平常不佔版面，滑鼠碰到右緣才滑出、移開立刻收回。與左緣繪圖工具島（.dt-edge-trigger）同一套。
+       ⚠ 改絕對定位＝不佔 flex 寬度：滑出時是「蓋在」行情列上，圖表不跟著 resize（每次 hover 都重排圖表會頓）。
+       ⚠ 觸發區只給 6px（左緣給 18px）：右緣緊貼著行情列的 ♥ 按鈕與 3px 捲軸，寬了會擋到它們。
+       ⚠ 欄內輸入框/選單有焦點時不收：打到一半面板消失、Enter 送進看不見的表單很危險；點別處失焦才收。 */
+    .trd-edge-trigger { position:absolute; right:0; top:0; bottom:0; width:6px; z-index:45; }
+    .trd-edge-trigger::before { content:""; position:absolute; right:1px; top:50%; width:3px; height:44px;
+      transform:translateY(-50%); border-radius:3px; pointer-events:none;
+      background:linear-gradient(180deg, rgba(255,145,71,.75), rgba(255,145,71,.3)); opacity:.32; transition:opacity .2s ease; }
+    .trd-edge-trigger:hover::before { opacity:.9; }
+    #trdDock.trd-autohide { position:absolute; top:0; right:0; bottom:0; height:auto; width:230px; z-index:46;
+      transform:translateX(100%); visibility:hidden;
+      transition:transform .2s cubic-bezier(.4,0,.6,1), width .18s ease, visibility 0s linear .2s; }
+    #trdDock.trd-autohide.trd-collapsed { width:34px; }
+    .trd-edge-trigger:hover ~ #trdDock.trd-autohide,
+    #trdDock.trd-autohide:hover,
+    #trdDock.trd-autohide:has(input:focus, select:focus, textarea:focus) {
+      transform:none; visibility:visible; box-shadow:-10px 0 26px rgba(0,0,0,.42);
+      transition:transform .26s cubic-bezier(.2,.8,.3,1), width .18s ease, visibility 0s; }
     #tradePopup .trd-bind { display:none; }
     #tradePopup.trd-need-bind .trd-bind { display:block; }
     #tradePopup.trd-need-bind .trd-main { display:none; }
@@ -945,6 +966,26 @@ function _trdInjectDesktopDock() {
     applyCollapsed();
   });
   applyCollapsed();
+  // 右緣自動隱藏（樣式與理由見 CSS 的 .trd-edge-trigger）：觸發區必須是 dock 前面的兄弟（CSS 用 ~ 選）
+  const trig = document.createElement("div");
+  trig.className = "trd-edge-trigger";
+  dock.insertAdjacentElement("beforebegin", trig);
+  dock.classList.add("trd-autohide");
+  // 滑出來那一刻補抓一次（隱藏期間 _trdRefresh 不打 API）；2 秒內重複進出不重抓
+  dock.addEventListener("mouseenter", () => {
+    if (!_TRD.pollTimer || dock.classList.contains("trd-collapsed")) return;
+    if (Date.now() - (_TRD.lastRefreshTs || 0) < 2000) return;
+    _trdRefresh();
+  });
+  setTimeout(() => { if (typeof window.resizeAll === "function") window.resizeAll(); }, 50);   // 讓出的寬度交給圖表
+}
+
+// 桌面交易欄自動隱藏、此刻沒滑出來 → 看不到。用來擋輪詢：overview 每次都打交易所帳戶端點，看不到就別打。
+function _trdDockOutOfSight() {
+  const d = document.getElementById("trdDock");
+  if (!d || !d.classList.contains("trd-autohide")) return false;
+  try { return !d.matches(":hover") && !d.matches(":has(input:focus, select:focus, textarea:focus)"); }
+  catch (e) { return !d.matches(":hover"); }   // 不支援 :has 的瀏覽器
 }
 
 // 依 canTrade 切換「綁金鑰表單」或「交易介面」；同步環境徽章文字
