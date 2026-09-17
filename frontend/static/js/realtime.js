@@ -470,10 +470,24 @@ function _symEl(id) {
 // ★ 拖曳符號列積木（繪圖快捷）時凍結這排數字（2026-09-17）：十字線掃過不同 K 棒會改寫開高低收/漲跌幅，
 //   位數一變寬度就變 → 符號列上的「放這裡」虛線框跟著左右跳、很難對準。放開後下一次十字線/即時更新就會補回。
 const _symFrozen = () => document.body.classList.contains("sqd-dragging");
-function _setSym(id, text) { if (_symFrozen()) return; const e = _symEl(id); if (e && e.textContent !== text) e.textContent = text; }
+// ★ 寬度只增不減（2026-09-17 使用者：「現價的浮動會讓經濟倒數日動來動去」）：tabular-nums 只擋住「同位數」的晃動，
+//   位數一變（漲跌 +99.5 ↔ +100.2、滑過不同 K 棒）寬度照樣變 → 後面的經濟倒數/繪圖快捷整排左右跳。
+//   實測十字線掃一趟：倒數位置改變 68 次、在 11 個位置間跳、範圍 35px。
+//   → 每次改完量一次寬，變寬就撐開 min-width、變窄不收；換標的（_resetSymbolBarQuote）才歸零。
+function _symHold(e) {
+  const w = Math.ceil(e.getBoundingClientRect().width);
+  if (w > (e._symMinW || 0)) { e._symMinW = w; e.style.minWidth = w + "px"; }
+}
+function _setSym(id, text) {
+  if (_symFrozen()) return;
+  const e = _symEl(id);
+  if (e && e.textContent !== text) { e.textContent = text; _symHold(e); }
+}
 
 // 切標的時把上方報價數字歸零成 placeholder，避免新標的名稱卻殘留舊標的價格（看起來像亂跳）
 function _resetSymbolBarQuote() {
+  // 換標的：保留的最小寬歸零（價位級距可能完全不同，例如 BTC 76,000 → PEPE 0.0000123）
+  ["symO", "symH", "symL", "symC", "symV", "symChg"].forEach(id => { const e = _symEl(id); if (e) { e._symMinW = 0; e.style.minWidth = ""; } });
   ["symO", "symH", "symL", "symC", "symV"].forEach(id => _setSym(id, "—"));
   const chg = _symEl("symChg");
   if (chg) { chg.textContent = ""; chg.className = "sym-chg"; }
@@ -616,7 +630,8 @@ function _updateSymChg(close, prevClose) {
   const amt  = close - prevClose;
   const pct  = prevClose ? (amt / prevClose * 100) : 0;
   const sign = amt >= 0 ? "+" : "";
-  el.textContent = `${sign}${fmt(amt)}  (${sign}${pct.toFixed(2)}%)`;
+  const _t = `${sign}${fmt(amt)}  (${sign}${pct.toFixed(2)}%)`;
+  if (el.textContent !== _t) { el.textContent = _t; _symHold(el); }
   el.className   = "sym-chg " + (amt >= 0 ? "up" : "dn");
 }
 
