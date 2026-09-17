@@ -7,7 +7,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.middleware.gzip import GZipMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import PlainTextResponse
-import os, sys, time, subprocess, threading, hashlib, json
+import os, sys, re, time, subprocess, threading, hashlib, json
 from collections import deque
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
@@ -261,6 +261,30 @@ FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "..", "frontend")
 app.mount("/static", StaticFiles(directory=os.path.join(FRONTEND_DIR, "static")), name="static")
 
 templates = Jinja2Templates(directory=os.path.join(FRONTEND_DIR, "templates"))
+
+
+# HTML 註解只給開發者看（index.html 的 <!-- … --> 約佔 16%）→ 載入模板時濾掉，原始檔照留。
+#   每次開頁 gzip 少約 8KB；HTML 本身是 no-cache，每次造訪都要下載，不像 /static 有長快取。
+#   ⚠ 只濾 <script>/<style> 以外的部分（那兩種區塊裡的 "<!--" 可能是程式字串）。
+#   Jinja 會快取編譯結果 → 只在第一次載入（或模板檔變動）時跑一次。
+class _StripHtmlCommentLoader(templates.env.loader.__class__):
+    _BLOCK = re.compile(r"(<(script|style)\b.*?</\2>)", re.S | re.I)
+    #   ⚠ 註解內文用 (?:(?!-->).)* 而不是 .*?：後者在「註解後同一行還有東西」時會回溯延伸到下一個 -->，把中間的真實內容一起吞掉。
+    _COMMENT = re.compile(r"^[ \t]*<!--(?:(?!-->).)*-->[ \t]*\n|<!--(?:(?!-->).)*-->", re.S | re.M)
+
+    def get_source(self, environment, template):
+        src, filename, uptodate = super().get_source(environment, template)
+        parts = self._BLOCK.split(src)
+        out, i = [], 0
+        while i < len(parts):
+            out.append(self._COMMENT.sub("", parts[i]))          # 區塊外
+            if i + 1 < len(parts):
+                out.append(parts[i + 1])                          # <script>/<style> 區塊原樣
+            i += 3                                                # split 帶兩個群組 → 每段 3 格
+        return "".join(out), filename, uptodate
+
+
+templates.env.loader = _StripHtmlCommentLoader(os.path.join(FRONTEND_DIR, "templates"))
 
 try:
     _GIT_VER = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"],
