@@ -1669,20 +1669,11 @@ function showDrawColorPicker(drawing, clientX, clientY) {
       saveDrawings(); _scheduleRenderDrawings();
     },
     extraActions: [
+      // 鎖定/文字也放在上方快捷列（鈴鐺旁）；這裡保留 —— 鎖住的繪圖選不起來，右鍵是唯一的解鎖路徑
       { label: drawing.locked ? "🔓 解鎖" : "🔒 鎖定", active: !!drawing.locked,
-        onClick: () => {
-          drawing.locked = !drawing.locked;
-          if (drawing.locked && selectedId === drawing.id) selectedId = null;   // 鎖定即取消選取,避免殘留把手
-          saveDrawings(); _scheduleRenderDrawings();
-        } },
+        onClick: () => _drawToggleLock(drawing) },
       { label: (drawing.text ? "✎ 改文字" : "✎ 加文字"),
-        onClick: () => {
-          const cur = drawing.text || "";
-          const t = window.prompt("繪圖文字(顯示在上方;清空移除):", cur);
-          if (t === null) return;                 // 取消
-          drawing.text = t.trim() || undefined;   // 空字串→移除
-          saveDrawings(); _scheduleRenderDrawings();
-        } },
+        onClick: () => _drawEditText(drawing) },
     ],
   });
 }
@@ -3546,7 +3537,30 @@ function initLineAlert() {
   const btn = document.getElementById("btnLineAlert");
   if (!btn) return;
   btn.addEventListener("click", e => { e.stopPropagation(); _alToggleForSelected(); });
+  // 🔒 / ✎（2026-09-17 移到鈴鐺旁）：作用在「目前選取的那個繪圖」
+  const _sel = () => (Array.isArray(drawings) ? drawings : []).find(x => x.id === selectedId);
+  document.getElementById("btnDrawLock")?.addEventListener("click", e => {
+    e.stopPropagation(); const d = _sel(); if (d) _drawToggleLock(d);
+  });
+  document.getElementById("btnDrawText")?.addEventListener("click", e => {
+    e.stopPropagation(); const d = _sel(); if (d) _drawEditText(d);
+  });
   _alSyncBtn();
+}
+
+/* 鎖定／解鎖。右鍵選單與上方快捷列共用這一份（兩處行為不可以分家）。
+   鎖定即取消選取：避免殘留把手，也符合「鎖住＝點不到」的語意。 */
+function _drawToggleLock(d) {
+  d.locked = !d.locked;
+  if (d.locked && selectedId === d.id) selectedId = null;
+  saveDrawings(); _scheduleRenderDrawings(); _alSyncBtn();
+}
+/* 加／改文字（顯示在繪圖上方；清空＝移除）。右鍵選單與快捷列共用。 */
+function _drawEditText(d) {
+  const t = window.prompt("繪圖文字(顯示在上方;清空移除):", d.text || "");
+  if (t === null) return;                 // 取消
+  d.text = t.trim() || undefined;         // 空字串→移除
+  saveDrawings(); _scheduleRenderDrawings(); _alSyncBtn();
 }
 
 function initShareToggle() {
@@ -3719,7 +3733,16 @@ function _alSyncBtn() {
   if (!btn) return;
   const d = (Array.isArray(drawings) ? drawings : []).find(x => x.id === selectedId);
   const show = !!(d && d.type === "hline");
-  btn.hidden = !show; if (sep) sep.hidden = !show;
+  btn.hidden = !show;
+  // 分隔線與 🔒/✎：選到**任何**繪圖就出現（鈴鐺只有水平線才有）。⚠ 必須在下面 early return 之前。
+  if (sep) sep.hidden = !d;
+  const lk = document.getElementById("btnDrawLock"), tx = document.getElementById("btnDrawText");
+  if (lk) lk.hidden = !d;
+  if (tx) {
+    tx.hidden = !d;
+    tx.classList.toggle("on", !!(d && d.text));
+    tx.title = d && d.text ? `改文字（目前：「${d.text}」；清空＝移除）` : "加文字：在這個繪圖上方標一段文字";
+  }
   if (!show) return;
   const a = d.alertId ? _alerts.find(x => x.id === d.alertId) : null;
   btn.classList.toggle("on", !!a);

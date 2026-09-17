@@ -8235,5 +8235,8 @@ body.wl-drag-on #tickerList .ticker-item { touch-action: none; }
      同一個坑本檔已有前例（#exchangeSelect[hidden]）——凡是給 .sqd-btn/.dt-btn 這類
      「CSS 有設 display」的元素用 hidden 切換，都要補一條。 */
 .sqd-alert[hidden] { display: none !important; }
+/* 🔒/✎（選到繪圖才出現）：同上，沒有這條 hidden 規則就會一直看得見 */
+.sqd-selbtn[hidden] { display: none !important; }
+.sqd-selbtn.on { color: #ffa726 !important; }   /* ✎ 亮＝這個繪圖已經有文字 */
 .sqd-alert.on { color: #ffa726 !important; }
 .sqd-alert.on svg { fill: rgba(255,167,38,.22); }
