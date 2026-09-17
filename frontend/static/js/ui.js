@@ -131,7 +131,7 @@ function bindEvents() {
       const mkSlot = (home, w) => {
         const s = document.createElement("span");
         s.className = "sqd-dock-slot sb-block" + (home ? " home" : "");   // sb-block：套同一套間距（原位空格才會跟原本一樣寬，旁邊不跳）
-        s.textContent = "放這裡";
+        // 不放文字、只有虛線框（2026-09-17 使用者：「不要寫放這裡，固定框就好」）
         if (home) s.style.width = Math.max(64, Math.round(w)) + "px";
         return s;
       };

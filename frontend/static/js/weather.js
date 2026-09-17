@@ -1114,10 +1114,16 @@
 
   /* 22° 日暈：卷雲（中等雲量）時太陽外圈光環，內紅外藍白（真實大氣光學，雲量 ~50% 最明顯） */
   function _sunHalo(g, x, y) {
-    const cc = _wd.cloudCover == null ? 50 : _wd.cloudCover;
+    // ⚠ 雲量沒資料/不是數字 → 當 50。原本 `== null ? 50 : 值` 擋不住 NaN（Math.max(0, NaN) 仍是 NaN，
+    //   f 變 NaN 通過下面的門檻 → addColorStop 收到 rgba(…,NaN) 丟例外；同 _cloudClr 那次的教訓）。
+    const _cc = Number(_wd.cloudCover);
+    const cc = (_wd.cloudCover == null || !isFinite(_cc)) ? 50 : _cc;
     const f = Math.max(0, 1 - Math.abs(cc - 50) / 35);
     if (f <= 0.02) return;
     const R = Math.min(W, H) * 0.16;
+    // ⚠ 內圈半徑是 R-8：畫布剛建立/調整大小時寬高還很小（甚至 0）→ R<8 → 負半徑，
+    //   createRadialGradient 直接丟 IndexSizeError（2026-09-17 守門員偶發抓到）。光暈這麼小也看不見，直接不畫。
+    if (!(R > 8)) return;
     const gr = g.createRadialGradient(x, y, R - 8, x, y, R + 16);
     gr.addColorStop(0, 'rgba(255,255,255,0)');
     gr.addColorStop(0.30, `rgba(255,128,84,${(0.14 * f).toFixed(3)})`);   // 內緣偏紅（真實特徵）

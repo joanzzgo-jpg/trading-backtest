@@ -1838,7 +1838,7 @@ body.sqd-dragging, body.sqd-dragging * { cursor: grabbing !important; user-selec
   background: color-mix(in srgb, var(--bg2) 94%, transparent);
   /* ★ 邊框要一眼認得出來（2026-09-17 使用者：「拖出來要有邊框方便使用者辨識」）：
      暖橘主色、跟選中按鈕同色系；原本 1px var(--border) 在深色圖表上幾乎看不見。 */
-  border: 1.5px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  border: 1.5px dashed color-mix(in srgb, var(--accent) 80%, transparent);   /* 虛線（2026-09-17 使用者：「繪圖邊框改成虛線」） */
   box-shadow: 0 0 0 1px rgba(0,0,0,.35), 0 0 12px color-mix(in srgb, var(--accent) 22%, transparent), 0 6px 22px rgba(0,0,0,.45);
   -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
   transition: opacity .12s ease;
