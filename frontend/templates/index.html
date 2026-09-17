@@ -629,9 +629,9 @@
     </button>
     <!-- 🔒 鎖定／✎ 加文字（2026-09-17 使用者：「把鎖定跟加文字功能移到鬧鐘旁」）：
          **選到任何繪圖**就出現（鈴鐺仍只有水平線才有）。
-         ⚠ 右鍵選單裡的同名項目保留：鎖住的繪圖點不到、選不起來 → 快捷列根本不會出現，
-           右鍵是唯一的解鎖路徑。兩處呼叫 draw.js 同一個函式。 -->
-    <button class="sqd-btn sqd-selbtn" id="btnDrawLock" hidden title="鎖定：鎖住之後不會被誤拖、也點不到（要解鎖請在繪圖上按右鍵）">
+         右鍵調色盤裡的同名項目已移除（同日使用者：「鬧鐘旁有了」）。
+         ⚠ 解鎖也在這裡：鎖住的線只是拖不動，單擊照樣選得起來 → 🔒 亮著＝已鎖，按一下解開。 -->
+    <button class="sqd-btn sqd-selbtn" id="btnDrawLock" hidden title="鎖定：鎖住之後就拖不動，避免誤拖">
       <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round">
         <rect x="3" y="6.8" width="9" height="6.2" rx="1.3"/><path d="M5 6.8V4.9a2.5 2.5 0 0 1 5 0v1.9"/>
       </svg>

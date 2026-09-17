@@ -1298,7 +1298,8 @@ function _onChartMouseDown(e) {
   // 只有 pointer 模式且滑鼠在線上才啟動拖移
   if (drawTool === "pointer") {
     const near = findNearest(x, y, _magnetMode ? 20 : 12);
-    // ⚠ 鎖定的繪圖:不攔截點擊(讓 LWC 正常平移穿過)、不啟動拖移 → 「鎖住」不會被誤拖。右鍵/雙擊仍可開選單解鎖。
+    // ⚠ 鎖定的繪圖:不攔截按下(讓 LWC 正常平移穿過)、不啟動拖移 → 「鎖住」不會被誤拖。
+    //   單擊仍會選取（_onChartClick）→ 鈴鐺旁 🔒 亮著，按一下解鎖。這是唯一的解鎖入口，別把單擊也擋掉。
     if (near && !near.locked) {
       e.stopPropagation();   // 阻止 LWC pan
       selectedId = near.id;
@@ -1668,13 +1669,9 @@ function showDrawColorPicker(drawing, clientX, clientY) {
       drawing.width = w; drawing.lineStyle = s;
       saveDrawings(); _scheduleRenderDrawings();
     },
-    extraActions: [
-      // 鎖定/文字也放在上方快捷列（鈴鐺旁）；這裡保留 —— 鎖住的繪圖選不起來，右鍵是唯一的解鎖路徑
-      { label: drawing.locked ? "🔓 解鎖" : "🔒 鎖定", active: !!drawing.locked,
-        onClick: () => _drawToggleLock(drawing) },
-      { label: (drawing.text ? "✎ 改文字" : "✎ 加文字"),
-        onClick: () => _drawEditText(drawing) },
-    ],
+    // 鎖定／解鎖／加文字只放上方快捷列（鈴鐺旁）—— 2026-09-17 使用者：「調色盤處的鎖定跟加文字可以移除，鬧鐘旁有了」。
+    // 解鎖也不必留在這裡：鎖住的線只是**拖不動**，單擊照樣選得起來（_onChartClick 不看 locked）→
+    //   快捷列會出現、🔒 亮著，再按一下就解開。（我一度以為「鎖住＝點不到」而想留解鎖，實測不是。）
   });
 }
 
@@ -3095,7 +3092,7 @@ function _drawDrawTags(W, H) {
 }
 
 // 繪圖上方的文字標籤(非文字型;text/emoji/note 的 text 是本體不另畫)。錨點:hline=左緣該價、vline=該時間頂、其餘=p1。
-// (鎖定不在主圖畫圖示——狀態看右鍵選單按鈕變「🔓 解鎖」即可,避免污染主圖。)
+// (鎖定不在主圖畫圖示——選取後看鈴鐺旁 🔒 有沒有亮即可,避免污染主圖。)
 function _drawDrawingBadge(d, W, H) {
   const TEXT_TYPES = { text: 1, emoji: 1, note: 1 };
   if (!d.text || TEXT_TYPES[d.type]) return;
@@ -3344,14 +3341,14 @@ function initLineAlert() {
   _alSyncBtn();
 }
 
-/* 鎖定／解鎖。右鍵選單與上方快捷列共用這一份（兩處行為不可以分家）。
+/* 鎖定／解鎖（只在上方快捷列；右鍵選單的同名項目已於 2026-09-17 移除）。
    鎖定即取消選取：避免殘留把手，也符合「鎖住＝點不到」的語意。 */
 function _drawToggleLock(d) {
   d.locked = !d.locked;
   if (d.locked && selectedId === d.id) selectedId = null;
   saveDrawings(); _scheduleRenderDrawings(); _alSyncBtn();
 }
-/* 加／改文字（顯示在繪圖上方；清空＝移除）。右鍵選單與快捷列共用。 */
+/* 加／改文字（顯示在繪圖上方；清空＝移除）。只在上方快捷列（右鍵選單已移除，2026-09-17）。 */
 function _drawEditText(d) {
   const t = window.prompt("繪圖文字(顯示在上方;清空移除):", d.text || "");
   if (t === null) return;                 // 取消
@@ -3533,7 +3530,12 @@ function _alSyncBtn() {
   // 分隔線與 🔒/✎：選到**任何**繪圖就出現（鈴鐺只有水平線才有）。⚠ 必須在下面 early return 之前。
   if (sep) sep.hidden = !d;
   const lk = document.getElementById("btnDrawLock"), tx = document.getElementById("btnDrawText");
-  if (lk) lk.hidden = !d;
+  if (lk) {
+    lk.hidden = !d;
+    // 亮起＝這條已鎖：鎖住的線單擊照樣選得起來，這顆就是它的解鎖鈕 → 狀態一定要看得出來
+    lk.classList.toggle("on", !!(d && d.locked));
+    lk.title = d && d.locked ? "已鎖定（拖不動）；點一下解鎖" : "鎖定：鎖住之後就拖不動，避免誤拖";
+  }
   if (tx) {
     tx.hidden = !d;
     tx.classList.toggle("on", !!(d && d.text));

@@ -8219,6 +8219,10 @@ body.wl-drag-on #tickerList .ticker-item { touch-action: none; }
 .sqd-alert[hidden] { display: none !important; }
 /* 🔒/✎（選到繪圖才出現）：同上，沒有這條 hidden 規則就會一直看得見 */
 .sqd-selbtn[hidden] { display: none !important; }
-.sqd-selbtn.on { color: #ffa726 !important; }   /* ✎ 亮＝這個繪圖已經有文字 */
+.sqd-selbtn.on { color: #ffa726 !important; }   /* ✎ 亮＝這個繪圖已經有文字；🔒 亮＝已鎖定（按一下解鎖） */
+/* 跟鈴鐺 .sqd-alert.on 同一套上色：橘線條＋圖示內部淡橘填色（2026-09-17 使用者：「快捷上鎖沒有跟鬧鐘一樣上色」）。
+   ⚠ 只填「封閉的主體」：🔒 填鎖身 rect、✎ 填對話框那條 path。鎖環是開放弧線，填了會變成實心半圓。 */
+#btnDrawLock.on svg rect,
+#btnDrawText.on svg path:first-child { fill: rgba(255,167,38,.22); }
 .sqd-alert.on { color: #ffa726 !important; }
 .sqd-alert.on svg { fill: rgba(255,167,38,.22); }

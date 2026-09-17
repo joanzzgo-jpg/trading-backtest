@@ -698,11 +698,16 @@ function initColorPicker() {
 
     let left = clientX + 12, top = clientY - 10;
     if (left + 234 > window.innerWidth)  left = clientX - 234 - 12;
-    if (top  + 420 > window.innerHeight) top  = window.innerHeight - 420 - 8;
-    if (top < 4) top = 4;
     popup.style.left = left + "px";
     popup.style.top  = top  + "px";
     popup.classList.add("open");
+    // ⚠ 用「實際高度」夾在視窗內（原本寫死 420px）：內容比 420 高時（例如當年多一排鎖定/文字按鈕，
+    //   實測底緣落在 y=924 > 視窗 900），在畫面下半部開啟就會超出底部 → 最下面的刪除鍵點不到。
+    //   open 之後才量得到高度（關閉時 display:none）。
+    const _h = popup.offsetHeight || 420;
+    if (top + _h > window.innerHeight - 8) top = window.innerHeight - _h - 8;
+    if (top < 4) top = 4;
+    popup.style.top = top + "px";
   }
 
   window._cpShowDirect = showDirect;   // 掛 window：draw.js 為延遲載入(晚於此)，用 let 會被其 `let _cpShowDirect=null` 蓋掉→色盤開不了
