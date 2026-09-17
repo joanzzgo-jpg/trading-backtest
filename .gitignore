@@ -38,12 +38,9 @@ backend/cache/
 # 帳號 SQLite（本機開發用）
 backend/.accounts.db
 frontend/static/css/style.min.css
-frontend/static/js/effects.min.js
-frontend/static/js/weather.min.js
-frontend/static/js/draw.min.js
-frontend/static/js/trade.min.js
-frontend/static/js/signal_info.min.js
-frontend/static/js/notify.min.js
+# 動態載入 JS 的壓縮產物：開機時 _build_fx_min() 產生。⚠ 不可進版控 ——
+# 它用「產物 mtime ≥ 原始碼」判斷要不要重建，git 取出時兩者同時間 → 會沿用版控裡的舊產物。
+frontend/static/js/*.min.js
 .venv312/
 
 # 帳號備份（含真實使用者資料，絕不進版控）
