@@ -99,6 +99,7 @@ node scripts/check_tf_switch_layers.js     # 需本機服務跑著
 （直接 `timeToCoordinate`）→ 大時框的進場時間在小時框上找得到座標，上百條紅綠虛線一次冒出來
 （使用者：「切時框會出現很多線條」）。修法＝`loadData` 開頭 `_resetLayerCacheOnCtxChange()`，
 **必須在 `fetchWinRate()` 之前**（勝率快取命中是同步填好那幾份的，清在後面會把正確資料一起洗掉）。
+⚠ 2026-09-12 起 FVG 交易線預設隱藏且**不下載** → 腳本開頭必須先 `toggleFVGTrades(true)`，否則永遠回 2（測試不成立）—— 這支就這樣安靜失效了 5 天才發現。
 ⚠ 判準要看**內容指紋**不能只數條數：切完本來就會有線（本機快照 `_snapPaint` 秒畫的是**這個**時框的資料，
 那是對的），只有畫成舊時框那一批才是 bug。一般冒煙測試抓不到——它只驗最終狀態，而這個 bug 活在
 「切換瞬間～新勝率回來」那段窗口裡，最後會被正確資料蓋掉。
@@ -523,7 +524,7 @@ node scripts/check_crosshair_blank.js    # 需本機服務跑著
 - **3D 天氣背景實作規格**：Canvas 2D 粒子＋CSS 3D 分層、Phase 進度與實作差異 → [docs/weather-3d-spec.md](docs/weather-3d-spec.md)
 - **自動交易引擎**（Binance USDⓈ-M 永續，testnet 預設、逐帳號自有金鑰）：`routes/trade.py`＝下單/對帳/生命週期，`notify_monitor.py`＝背景偵測訊號→下單。訊號源子設定 `{ss, fvg}`：ss=SR/SMC 反轉、fvg=失衡缺口。核心 `execute_signal_trade`／`_exec_signal_for_account`（市價）、`place_fvg_limit_ladder`（限價）＋各自 `reconcile_*`。
   - ⏸ **2026-09-17 起自動交易暫停**：環境變數 `AUTOTRADE_PAUSED` 預設 `1` → 所有**新進場**入口（`_autotrade_blocked()`）直接略過；既有倉位/掛單的 `reconcile_*` **照跑**（停掉會讓已開的倉沒人管）。恢復＝Railway 設 `AUTOTRADE_PAUSED=0`。⚠ 暫停**不會**撤掉交易所上已掛的限價單。
-  - 🗑 **SR+SMC 教練（coach）已於 2026-09-17 整個移除**（UI／`/api/smc_coach`／`/api/coach_scan`／掃描推播／`place_coach_limit`／`utils/smc.py`）。**刻意保留** `reconcile_coach_pending(_all)`：管理移除前教練開過、還掛著或還持有的單；`_clean_coach` 一律存成 `on=False`。`window._coachVWAP` 只是 VWAP 沿用的舊變數名，不是教練。`crt.py` 的 `smc_*` 計算也保留（自動交易的 sweepBoost 會用到；HTTP 邊界一律 skip 不送前端）。
+  - 🗑 **SR+SMC 教練（coach）已於 2026-09-17 整個移除**（UI／`/api/smc_coach`／`/api/coach_scan`／掃描推播／`place_coach_limit`／`utils/smc.py`）。**刻意保留** `reconcile_coach_pending(_all)`：管理移除前教練開過、還掛著或還持有的單；`_clean_coach` 一律存成 `on=False`。`window._coachVWAP` 只是 VWAP 沿用的舊變數名，不是教練。`crt.py` 的 `smc_*`／`channel` 計算也已刪（2026-09-17，全站零讀者；勝率計算快 25~42%）——⚠ sweepBoost 讀的是 **FVG 缺口自己的 `sweep` 欄位**，跟 `smc_sweep` 無關，別被名字騙了（我就寫錯過一次）。
 
 ## ⚠️ 關鍵鐵則（違反會造成 bug，務必遵守）
 

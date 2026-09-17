@@ -629,8 +629,7 @@ window._wrWarmNextTier = _wrWarmNextTier;
 
 /* 「沒在顯示的圖層就不跟後端要」（2026-07-31）。
    這些圖層前端只有在對應開關打開時才畫，而三個開關預設都是關的：
-     ・教練疊加層 → smc_sweep / smc_struct / smc_ob / smc_sr / channel
-       （2026-09-17 SR+SMC 教練整個移除 → 這組改成永遠不要，見下方群組）
+     ・（當年還有教練疊加層 smc_* / channel —— 2026-09-17 隨教練移除，後端也不再計算）
      ・VWAP window._vwapOn → vwap
      ・關鍵高低 window._pdOn → pd_ranges
    實測 BTC 1h 一份回應 546KB 裡它們佔 261KB —— 預設情況下有一半傳輸從頭到尾沒被用到。
@@ -645,8 +644,6 @@ const _wrLsOn = (k, flag) => {
   return flag === true;
 };
 const _WR_SKIP_GROUPS = [
-  // 教練疊加層（掃蕩/結構/OB/SR/通道）已隨教練移除（2026-09-17）→ 永遠不要
-  [() => false,                                     ["smc_sweep", "smc_struct", "smc_ob", "smc_sr", "channel"]],
   [() => _wrLsOn("vwapOverlay",  window._vwapOn),  ["vwap"]],
   [() => window._pdOn === true,                    ["pd_ranges"]],   // 關鍵高低沒有持久化，本來就每次重開都是關的
   // 2026-08-05 移除 signals 的跳過條件：一鍵隱藏鈕已刪，條件永遠成立（＝一律要），

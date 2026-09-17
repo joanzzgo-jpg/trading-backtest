@@ -2201,7 +2201,7 @@ def crt_winrate_api(
                           for s in sigs if s.get("k") in _SS_KEEP_KEYS]
     out = _wr_slim(out)                       # 先瘦身成「送出形態」，差量才是對前端手上那份做的
     # ★「沒在顯示的圖層就不送」（2026-07-31）：這些圖層前端只有在對應開關打開時才會畫，而
-    #   它們預設全是關的 —— 教練疊加層(smc_*/channel)、VWAP、關鍵高低(pd_ranges)。實測 BTC 1h
+    #   它們預設全是關的 —— 當年的教練疊加層(smc_*/channel，2026-09-17 已移除)、VWAP、關鍵高低(pd_ranges)。實測 BTC 1h
     #   一份回應 533KB 裡它們佔 259KB(49%)，等於預設情況下有一半的傳輸從頭到尾沒被用到。
     #   前端在 fetch 時把「目前用不到的」列進 skip；任何圖層被打開時前端會發現快取裡缺這個 key
     #   → 自動重抓一次完整的。
@@ -2241,7 +2241,7 @@ def crt_winrate_api(
 _WR_EPOCH_KEYS = ("t", "t2", "t0", "t1", "ot", "ot_b", "et", "xt", "ett", "etm", "etb",
                   "tp1t", "tp2t", "tp3t", "tp4t", "slt")
 _WR_LIST_KEYS = ("fvg", "signals", "fvg_ms", "fvg_break", "fvg_shun", "fvg_special",
-                 "fvg_trades", "smc_sweep", "smc_struct", "smc_ob", "smc_sr", "vwap")
+                 "fvg_trades", "vwap")
 
 
 def _wr_ep(v):
@@ -2344,8 +2344,8 @@ def _wr_resp(payload, etag=None, slim=True, no_store=False):
 #   ・只存「每筆的雜湊」不存內容（copy 指令用索引、literal 取自新的那份）→ 一份索引約 100~200KB，
 #     上限 16 份；換實例/被淘汰 → 找不到 base_h → 整包回（前端本來就吃兩種回應）。
 # 「沒在顯示就不送」的可省略圖層（前端依當下開關決定要不要列進 skip）。
-#   ・smc_sweep/smc_struct/smc_ob/smc_sr/channel：原本只給 SR+SMC 教練疊加層畫。教練已於 2026-09-17
-#     整個移除 → 前端現在**永遠**列進 skip、沒有任何畫面會讀它們（留在白名單裡只是讓舊分頁送來的 skip 照樣生效）。
+#   ・（smc_sweep/smc_struct/smc_ob/smc_sr/channel 已於 2026-09-17 隨教練移除，crt.py 不再計算。
+#     舊分頁若還送這幾個名字：跟白名單取交集後就是空的，指紋 _h_eff 與新分頁一致，不會錯配 ETag。）
 #   ・vwap：由 window._vwapOn 控制，且前端還有自算版本優先。預設關。
 #   ・pd_ranges：由 window._pdOn 控制。預設關。
 # ⚠ 白名單制：只有列在這裡的 key 允許被省略 —— 前端就算送了別的名字也不會生效，
@@ -2355,17 +2355,17 @@ def _wr_resp(payload, etag=None, slim=True, no_store=False):
 #   前端有「一鍵隱藏訊號標記」按鈕（wrSignalsToggleBtn），隱藏時這 114KB 完全用不到。
 #   ⚠ 與其他幾個不同：signals **預設是顯示的** → 只有主動關掉的人才省得到，
 #     這是有意的（不能為了省流量而讓預設看不到東西）。
-_WR_SKIPPABLE = frozenset({"smc_sweep", "smc_struct", "smc_ob", "smc_sr",
-                           "channel", "vwap", "pd_ranges", "signals",
+_WR_SKIPPABLE = frozenset({"vwap", "pd_ranges", "signals",
                            # 2026-09-12 追加：這些圖層在前端**預設就是關的**（有的連 UI 開關都沒有），
                            #   實測預設情況下佔整份回應的 29%（gzip 50.8KB / 172.9KB，SUI 1h）。
                            #   前端 _WR_SKIP_GROUPS 依開關決定要不要；打開時 _wrRefetchIfMissing 會補抓。
                            #   ⚠ 只砍 HTTP 邊界(_wr_resp)，crt.py 照算 → notify_monitor / 自動交易那條路不受影響。
+                           #     （對照：smc_* 是「整個沒人讀」才從 crt.py 拿掉，跟這裡「前端暫時不看」是兩回事。）
                            "fvg_trades", "fvg_bb", "fvg_bb_a", "fvg_bb_m",
                            "fvg_shun", "fvg_special", "fvg_sigs"})
 
 _WR_DELTA_KEYS = ("fvg", "signals", "fvg_ms", "fvg_break", "fvg_shun", "fvg_special",
-                  "fvg_trades", "smc_sweep", "smc_struct", "smc_ob", "smc_sr", "vwap",
+                  "fvg_trades", "vwap",
                   "fvg_bb", "fvg_bb_a", "fvg_bb_m", "fvg_sigs")
 _WR_HIDX: "_collections.OrderedDict" = _collections.OrderedDict()   # _h → {key: [每筆雜湊]}
 _WR_HIDX_MAX = 16

@@ -41,6 +41,11 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   await page.evaluate(() => window._landingEnter());
   await sleep(2000);
   await page.evaluate(() => { document.querySelectorAll(".ann-ok,#annOkBtn").forEach(b => b.click()); });
+  // ⚠ 2026-09-12（23de9eb）起 FVG 交易線預設隱藏、而且**不下載**（勝率回應 skip fvg_trades）→
+  //   不先打開，下面永遠找不到「有交易線的時框」，這支從那天起一直回 2（測試不成立）沒人發現，
+  //   2026-09-17 才補上。打開後 toggle 會自己補抓完整回應。
+  await page.evaluate(() => { if (typeof window.toggleFVGTrades === "function") window.toggleFVGTrades(true); });
+  await sleep(1500);
 
   // 讀圖層狀態：_lastFVGTrades / _fvgTradeLines 都是 bundle 頂層 let → 全域詞法環境讀得到
   // ⚠ 判準必須看「內容」不能只看「條數」：切完之後本來就會有線（本機快照 _snapPaint 會把
