@@ -136,8 +136,10 @@ function bindEvents() {
         return s;
       };
       // 拖曳開始：原位放「看不見但佔寬」的格子；其餘每個縫隙各放一格（接近上方才顯示）
-      const buildSlots = (wasDocked, w) => {
-        if (wasDocked) _sbBar.insertBefore(mkSlot(true, w), el);
+      // ★ 2026-09-17 使用者：「從上方拖走，有沒有馬上回復原大小」→ 原位**不再**保留看不見的空位：
+      //   一拖走旁邊就馬上補位。原位跟其他縫隙一樣只放「拖進符號列那一行才出現」的放置框（平常不佔位）。
+      //   （上一版為了「旁邊不跳位」留了等寬空位到放開才收，使用者要的是相反的行為。）
+      const buildSlots = () => {
         // 隱藏的選取工具也算一塊（拖曳時顯示成示意塊，見 style.css .sb-drop #symSelTools[hidden]）；
         // 倒數沒資料（隱藏）就不算，否則會多出一格位置重疊的框
         const seq = _sbZone().filter(e => _isSlot(e) || (e !== el && (!e.hidden || e.id === "symSelTools")));
@@ -182,8 +184,7 @@ function bindEvents() {
           el.classList.add("sqd-dragging");
           document.body.classList.add("sqd-dragging");
           const g1 = grip.getBoundingClientRect(), r1 = el.getBoundingClientRect();
-          const wasDocked = el.parentNode === _sbBar;
-          buildSlots(wasDocked, r1.width);
+          buildSlots();
           float(r1.left, r1.top);
           _sbSync();
           try { grip.setPointerCapture(e.pointerId); } catch (err) {}

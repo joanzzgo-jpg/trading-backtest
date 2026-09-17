@@ -1867,7 +1867,7 @@ html.perf-mode .sym-quickdraw.sqd-floating { background: #FFFFFF; box-shadow: 0 
    ⚠ 按鈕各自有 [hidden]{display:none!important}（.sqd-alert/.sqd-selbtn）→ 這裡要用帶 ID 的選擇器才蓋得過。 */
 .symbol-bar.sb-drop > #symSelTools[hidden] > .sqd-btn[hidden] { display: flex !important; }
 /* 放置位（虛線框）：
-   ・原位那格（.home）＝一拖出去就佔住原本的寬、但看不見 → 旁邊的積木不會跳位
+   ・（原位不再留空位：一拖走旁邊就補位，2026-09-17 使用者要求；.home 規則保留但目前不會產生）
    ・其他縫隙的格子＝平常不佔位（display:none）
    ・游標接近符號列（.symbol-bar.sb-drop）→ 全部以虛線框出現；靠近哪格哪格亮（.active） */
 .sqd-dock-slot {
