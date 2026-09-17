@@ -19,7 +19,6 @@ html.perf-mode input[type="date"],
 html.perf-mode textarea { cursor: text; }
 html.perf-mode .peek-bear,
 html.perf-mode #weatherStage,
-html.perf-mode .click-spark,
 html.perf-mode .btn-ripple-wave { display: none !important; }
 /* 手機：關掉按鈕漣漪（矮寬按鈕上會外溢成半圓放大動畫）— JS 已不建立，這是保險 */
 @media (max-width: 1180px) and (pointer: fine), (hover: none) and (pointer: coarse) and (orientation: portrait), (hover: none) and (pointer: coarse) and (orientation: landscape) and (max-height: 599px) { .btn-ripple-wave { display: none !important; } }
@@ -85,36 +84,25 @@ html.perf-mode .topbar-brand-name {
   color: #1F1F1F !important;
 }
 html.perf-mode .tb-icon-btn,
-html.perf-mode .topbar-tf .tf-btn,
-html.perf-mode .btn-mode,
-html.perf-mode .btn-load {
+html.perf-mode .topbar-tf .tf-btn {
   background: transparent;
   border: 1px solid #E5E5E5;
   color: #1F1F1F;
 }
 html.perf-mode .tb-icon-btn:hover,
-html.perf-mode .topbar-tf .tf-btn:hover,
-html.perf-mode .btn-mode:hover {
+html.perf-mode .topbar-tf .tf-btn:hover {
   background: #F5F5F5;
   border-color: #D9D9D9;
 }
-html.perf-mode .topbar-tf .tf-btn.active,
-html.perf-mode .btn-mode.active {
+html.perf-mode .topbar-tf .tf-btn.active {
   background: #FF6A1A;
   border-color: #FF6A1A;
   color: #FFFFFF;
 }
-html.perf-mode .btn-load { background: #FF6A1A; border-color: #FF6A1A; color: #FFFFFF; }
-html.perf-mode .btn-load:hover { background: #E55A0A; border-color: #E55A0A; }
+
 html.perf-mode .topbar-brand-name,
 html.perf-mode .topbar-brand-sub { color: #1F1F1F; }
-/* 勝率欄在亮色下：純白底＋單純邊線，移除暗色漸層、橘光暈、陰影 */
-html.perf-mode .tb-winrate {
-  background: #FAFAFA !important;
-  border: 1px solid #E5E5E5 !important;
-  box-shadow: none !important;
-}
-html.perf-mode .tb-wr-tag { color: #FF6A1A; }
+
 /* 圖表面板下分隔線顏色淡化（線本身畫在 ::before，見 .pane-divider） */
 html.perf-mode .pane-divider { background: transparent; }
 html.perf-mode .pane-divider::before { background: #E5E5E5; }
@@ -126,34 +114,9 @@ html.perf-mode .ind-sp-wlbl { color: #1F1F1F; }
 html.perf-mode .tk-mkt-btn { color: #1F1F1F; border-color: #E5E5E5; }
 html.perf-mode .tk-mkt-btn:hover:not(.active) { background: #F5F5F5; }
 html.perf-mode .tk-mkt-btn.active { background: #FF6A1A; color: #FFFFFF; border-color: #FF6A1A; }
-/* 自選清單 hover 顏色 */
-html.perf-mode .wl-item:hover { background: #F5F5F5; }
+
 /* 圖例文字 fallback：本來會吃 JS 動態色，極簡模式統一深灰 */
 html.perf-mode .leg-toggle .leg-val { color: #1F1F1F; }
-
-/* 勝率欄內部元件——原本為暗底配色，全部改成在純白下對比夠的深色 */
-html.perf-mode .tb-wr-icon { filter: none; }
-html.perf-mode .wr-abc { color: #E53935; }
-html.perf-mode .wr-ab  { color: #FB8C00; }
-html.perf-mode .wr-s3  { color: #8E24AA; }
-html.perf-mode .wr-s4  { color: #00897B; }
-html.perf-mode .wr-s5  { color: #F57C00; }
-html.perf-mode .wr-s6  { color: #3949AB; }
-html.perf-mode .wr-s7  { color: #0097A7; }
-html.perf-mode .wr-s8  { color: #C2185B; }
-html.perf-mode .wr-s9  { color: #F57F17; }
-html.perf-mode .wr-s12 { color: #E65100; }
-html.perf-mode .tb-wr-pct { color: #1F1F1F; }
-html.perf-mode .tb-wr-v.good .tb-wr-pct { color: #16a34a; text-shadow: none; }
-html.perf-mode .tb-wr-v.bad  .tb-wr-pct { color: #dc2626; text-shadow: none; }
-html.perf-mode .tb-wr-cnt    { color: #8B8B8B; }
-html.perf-mode .tb-wr-total  { color: #1F1F1F; text-shadow: none; }
-html.perf-mode .tb-wr-total.good { color: #16a34a; text-shadow: none; }
-html.perf-mode .tb-wr-total.bad  { color: #dc2626; text-shadow: none; }
-html.perf-mode .tb-wr-divider,
-html.perf-mode .tb-wr-total-sep { background: #E5E5E5; }
-html.perf-mode .tb-wr-status { color: #8B8B8B; }
-html.perf-mode .tb-wr-from   { color: #8B8B8B; }
 
 /* topbar 中央／左側其他元件補上 */
 html.perf-mode .tb-mkt-select,
@@ -185,7 +148,6 @@ html.perf-mode .music-panel,
 html.perf-mode #drawToolbar,
 html.perf-mode .ticker-panel,
 html.perf-mode .sym-modal,
-html.perf-mode #symModalBackdrop > *,
 html.perf-mode #fxPanel {
   box-shadow: 0 1px 4px rgba(60,40,20,0.06);
 }
@@ -198,9 +160,7 @@ html.perf-mode .ticker-panel {
   background: #FFFFFF;
   border: 1px solid var(--border);
 }
-/* 關掉非必要的無限動畫（loading 那種仍保留） */
-html.perf-mode .blink,
-html.perf-mode .tk-limit-pulse { animation: none !important; }
+
 /* 大型過場 transition 簡化 */
 html.perf-mode .peek-bear,
 html.perf-mode .music-panel,
@@ -246,8 +206,6 @@ html, body {
   flex-shrink: 0;
   height: var(--topbar-h);
 }
-.mob-load { display: none; }
-.tb-desk-only { /* dividers only shown on desktop */ }
 
 .topbar {
   display: flex;
@@ -325,15 +283,6 @@ html, body {
 }
 .topbar-right { display: flex; align-items: center; gap: 4px; flex-shrink: 0; padding-left: 6px; }
 
-/* Vertical divider in topbar */
-.tb-divider-v {
-  width: 1px;
-  height: 18px;
-  background: var(--border);
-  flex-shrink: 0;
-  margin: 0 5px;
-}
-
 /* Icon buttons */
 .tb-icon-btn {
   background: transparent;
@@ -369,7 +318,7 @@ html.perf-mode .tb-icon-btn:hover svg { animation: none; transform: scale(1.1); 
 .tb-icon-btn.active,
 .tb-icon-btn.on { color: var(--accent); background: rgba(255,106,26,.14); box-shadow: inset 0 0 0 1px rgba(255,106,26,.3), 0 2px 8px rgba(255,106,26,.16); }
 /* 手機不需要策略回測 → 隱藏回測鈕（時段標記鈕仍保留） */
-@media (max-width: 1180px) and (pointer: fine), (hover: none) and (pointer: coarse) and (orientation: portrait), (hover: none) and (pointer: coarse) and (orientation: landscape) and (max-height: 599px) { #backtestBtn { display: none !important; } }
+
 /* 交易時段標記按鈕：手機改放「設定」分頁（topbar 太佔位） */
 @media (max-width: 1180px) and (pointer: fine), (hover: none) and (pointer: coarse) and (orientation: portrait), (hover: none) and (pointer: coarse) and (orientation: landscape) and (max-height: 599px) { #sessionToggleBtn { display: none !important; } }
 /* 2026-08-05：S1–S12 訊號標記開關(#wrSignalsToggleBtn)已整個移除，原本的手機隱藏規則一併刪除。 */
@@ -404,7 +353,7 @@ html.perf-mode .tb-icon-btn:hover svg { animation: none; transform: scale(1.1); 
 .fx-btn.spring-active   { background: rgba(255,160,200,.18); color: #FF9ABF; border-color: rgba(255,160,200,.35); }
 .fx-btn.thunder-active  { background: rgba(120,100,255,.22); color: #A090FF; border-color: rgba(120,100,255,.35); }
 .fx-btn.mahjong-active  { background: rgba(200,50,50,.20);  color: #E84040; border-color: rgba(200,50,50,.35); }
-.fx-btn.dice-active     { background: rgba(80,160,80,.20);  color: #5CBF5C; border-color: rgba(80,160,80,.35); }
+
 .fx-btn.hail-active     { background: rgba(150,210,255,.20); color: #AEDBFF; border-color: rgba(150,210,255,.38); }
 .fx-btn.tornado-active  { background: rgba(140,140,160,.22); color: #B8BCCF; border-color: rgba(140,140,160,.40); }
 .fx-btn.quake-active    { background: rgba(190,90,60,.22);  color: #E08A5C; border-color: rgba(190,90,60,.40); }
@@ -412,8 +361,6 @@ html.perf-mode .tb-icon-btn:hover svg { animation: none; transform: scale(1.1); 
 .fx-btn.sunset-active   { background: rgba(255,140,80,.20); color: #FF9A4D; border-color: rgba(255,140,80,.40); }
 .fx-btn.meteor-active   { background: rgba(150,180,255,.20); color: #9AB4FF; border-color: rgba(150,180,255,.40); }
 .fx-btn.nofx-active     { background: rgba(120,120,120,.20); color: #BFBFBF; border-color: rgba(120,120,120,.45); }
-
-.tb-sidebar-btn { margin-right: 2px; }
 
 .tb-star-btn {
   background: transparent;
@@ -561,10 +508,8 @@ html.perf-mode .tb-icon-btn:hover svg { animation: none; transform: scale(1.1); 
 }
 /* hover 提亮，與 .tf-btn:hover { color: var(--text) } 一致 */
 .bearwall-btn:hover .bearwall-ico { color: var(--text); transform: scale(1.1); }
-/* 開啟（牆紙開）時上暖橘，與 AHH 品牌色一致 */
 
 /* 時框行的指標開關（足跡／掛單牆）：比照 tf-btn，亮起=開啟 */
-.tf-sep { width: 1px; align-self: center; height: 16px; background: var(--border); margin: 0 3px; flex-shrink: 0; }
 .tf-toggle {
   background: transparent; border: 1px solid var(--border); color: var(--muted);
   padding: 4px 8px; border-radius: 4px; cursor: pointer; height: 26px;
@@ -575,12 +520,6 @@ html.perf-mode .tb-icon-btn:hover svg { animation: none; transform: scale(1.1); 
 .tf-toggle.on { background: var(--accent, #FF9147); color: #2C1607; border-color: transparent; font-weight: 600; }
 
 /* Chart type buttons */
-.chart-type-group {
-  display: flex;
-  gap: 1px;
-  flex-shrink: 0;
-  padding: 0 3px;
-}
 .ct-btn {
   background: transparent;
   border: 1px solid transparent;
@@ -593,79 +532,6 @@ html.perf-mode .tb-icon-btn:hover svg { animation: none; transform: scale(1.1); 
 }
 .ct-btn:hover { background: var(--bg3); color: var(--text); }
 .ct-btn.active { color: var(--blue); background: rgba(41,98,255,.12); border-color: rgba(41,98,255,.3); }
-
-/* Indicators button */
-.tb-indicators-btn {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  background: transparent;
-  border: none;
-  color: var(--muted);
-  padding: 4px 9px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 500;
-  height: 26px;
-  white-space: nowrap;
-  transition: background .12s, color .12s;
-  flex-shrink: 0;
-}
-.tb-indicators-btn:hover { background: var(--bg3); color: var(--text); }
-.tb-indicators-btn.active { color: var(--blue); background: rgba(41,98,255,.12); }
-
-/* Date inputs */
-.tb-input {
-  background: var(--bg3);
-  border: 1px solid transparent;
-  color: var(--text);
-  padding: 3px 7px;
-  border-radius: 4px;
-  font-size: 11px;
-  height: 26px;
-  outline: none;
-  transition: border-color .12s;
-}
-.tb-input:focus { border-color: var(--blue); }
-.tb-date { width: 114px; }
-.tb-sep  { color: var(--muted); flex-shrink: 0; padding: 0 2px; }
-
-.btn-load {
-  background: var(--blue);
-  color: #fff;
-  border: none;
-  padding: 0 14px;
-  height: 26px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
-  flex-shrink: 0;
-  transition: background .12s;
-  margin-left: 3px;
-}
-.btn-load:hover { background: #1e53e5; }
-
-.btn-mode {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  background: transparent;
-  color: var(--muted);
-  border: 1px solid var(--border);
-  padding: 0 10px;
-  height: 26px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
-  transition: all .12s;
-}
-.btn-mode:hover  { border-color: var(--muted); color: var(--text); }
-.btn-mode.active { background: rgba(38,166,154,.12); color: var(--green); border-color: var(--green); }
 
 /* ═══ SYMBOL BAR ═══ */
 .symbol-bar {
@@ -695,167 +561,11 @@ html.perf-mode .tb-icon-btn:hover svg { animation: none; transform: scale(1.1); 
 /* ═══ TOPBAR WIN-RATE ═══ */
 /* 細項永遠顯示；只在窄到會嚴重重疊時整欄隱藏（TF 按鈕已 z-index:3 蓋過勝率欄） */
 @media (max-width: 1180px) and (pointer: fine), (hover: none) and (pointer: coarse) and (orientation: portrait), (hover: none) and (pointer: coarse) and (orientation: landscape) and (max-height: 599px) {
-  /* iPad / 手機：勝率欄縮小成「只剩右側摘要」，總勝率 + 敗後停手仍可見 */
-  .tb-winrate { flex: 0 0 auto !important; margin: 0 4px !important; padding: 0 4px !important; }
-  /* 隱藏左側目標切換 / SL buffer 設定（進階控制，桌面才需要） */
-  .tb-wr-fixed-left { display: none !important; }
-  /* 隱藏中間 S1~S11 細項橫向滾動列（太寬） */
-  .tb-wr-scroll { display: none !important; }
+
   /* ticker 側欄直接隱藏 → chart 用 flex:1 自然填滿
      使用者要找標的可改用左上 symbol input 或 ⭐ 自選清單 */
   .ticker-panel { display: none !important; }
 }
-
-/* （2026-06 移除）769~1100px 平板專屬優化：手機斷點已拉到 ≤1180px，此區間一律走手機版 UI */
-.tb-winrate {
-  /* flex:1 佔滿 topbar 內 left 與 tf+right 之間的所有可用空間 */
-  flex: 1 1 auto;
-  margin: 0 6px;
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  padding: 0 7px;
-  height: 30px;
-  min-width: 0;
-  /* 外層不滾動；滾動由內部 .tb-wr-scroll 處理 */
-  overflow: hidden;
-  /* 完全透明 — z-index:2 + 無背景 → 看穿到 z:1 的天氣動畫（疊在 topbar 之上）*/
-  background: transparent;
-  border: 1px solid rgba(255,180,120,.22);
-  border-radius: 6px;
-  white-space: nowrap;
-  pointer-events: none;
-  z-index: 2;   /* 維持原值：勝率欄子元素（fixed-right z:3 / scroll z:1）依賴此 stacking context */
-  /* 無重 glow / 無 blur，跟 top3 一致 */
-  box-shadow: none;
-}
-/* 流線動畫：從左到右掃過的微光 */
-.tb-winrate::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: -40%;
-  width: 30%;
-  height: 100%;
-  background: linear-gradient(90deg,
-    transparent 0%,
-    rgba(255,200,150,.06) 35%,
-    rgba(255,180,120,.10) 50%,
-    rgba(255,200,150,.06) 65%,
-    transparent 100%);
-  animation: wr-flow 6s linear infinite;
-  pointer-events: none;
-  z-index: 1;
-  border-radius: 10px;
-}
-@keyframes wr-flow {
-  0%   { left: -40%; }
-  100% { left: 110%; }
-}
-/* 頂部與底部各一條超細漸層邊（HUD 風格） */
-.tb-winrate::after {
-  content: '';
-  position: absolute;
-  top: 0; left: 8%; right: 8%;
-  height: 1px;
-  background: linear-gradient(90deg,
-    transparent 0%,
-    rgba(255,200,140,.4) 30%,
-    rgba(255,200,140,.5) 50%,
-    rgba(255,200,140,.4) 70%,
-    transparent 100%);
-  pointer-events: none;
-  z-index: 1;
-}
-.tb-winrate > * { pointer-events: auto; }
-.tb-winrate { position: relative; }                /* 給絕對定位的 progress bar */
-
-/* 三段式：左 / 中（可滾）/ 右 ─── 左右固定，只有中央滾動 */
-.tb-wr-fixed-left,
-.tb-wr-fixed-right {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  position: relative;
-  z-index: 3;  /* 在中央滾動內容之上，防止視覺壓到 */
-}
-.tb-wr-scroll {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  /* 中央內容超寬時內部橫向滾動，scrollbar 隱藏 */
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
-  position: relative;
-  z-index: 1;
-}
-.tb-wr-scroll::-webkit-scrollbar { display: none; }
-/* 滾動區左右各加 1px 暗影遮罩，暗示「可滾動」 */
-.tb-wr-scroll {
-  mask-image: linear-gradient(90deg, transparent 0%, #000 2%, #000 99%, transparent 100%);
-  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 2%, #000 99%, transparent 100%);
-}
-
-/* ── S1-S12 區改為「十字線移到該 K 棒 → 顯示該棒訊號勝率」──
-   隱藏常駐 S1-S12 清單（依使用者要求「其他不用」），只顯示 hover 內容 */
-#wrScroll > .tb-wr-block,
-#wrScroll > .tb-wr-divider { display: none !important; }
-
-.tb-wr-hover {
-  flex: 1 1 auto; min-width: 0; height: 100%;
-  display: flex; align-items: center; gap: 7px;
-}
-.tb-wr-hover-hint {
-  color: var(--muted); font-size: 12px; opacity: .72;
-  white-space: nowrap; padding-left: 2px; letter-spacing: .02em;
-}
-.tb-wr-hover-item {
-  display: flex; align-items: center; gap: 5px;
-  padding: 3px 9px; border-radius: 8px; cursor: pointer;
-  background: rgba(255,255,255,.04);
-  border: 1px solid rgba(255,180,120,.16);
-  white-space: nowrap; flex: 0 0 auto;
-  transition: background .12s, border-color .12s;
-}
-.tb-wr-hover-item:hover { background: rgba(255,180,120,.12); border-color: rgba(255,180,120,.34); }
-.tb-wr-hover-item:active { transform: scale(.97); }
-.tb-wr-hover-ic { font-size: 13px; line-height: 1; flex: 0 0 auto; }
-.tb-wr-hover-lbl { font-size: 12.5px; font-weight: 700; color: var(--text); display: flex; align-items: baseline; gap: 2px; }
-.tb-wr-hover-dir { font-style: normal; font-size: 11px; font-weight: 700; }
-.tb-wr-hover-dir.s { color: #ef5350; }
-.tb-wr-hover-dir.l { color: #26a69a; }
-.tb-wr-hover-pct { font-size: 14px; font-weight: 800; color: var(--text); }
-.tb-wr-hover-pct.good { color: #26d07c; }
-.tb-wr-hover-pct.bad  { color: #ff7a7a; }
-.tb-wr-hover-cnt { font-size: 10.5px; color: var(--muted); }
-.tb-wr-hover-res { font-size: 10.5px; font-weight: 700; padding: 1px 6px; border-radius: 6px; }
-.tb-wr-hover-res.win  { color: #26d07c; background: rgba(38,208,124,.14); }
-.tb-wr-hover-res.loss { color: #ff7a7a; background: rgba(255,122,122,.14); }
-.tb-wr-hover-res.open { color: var(--muted); background: rgba(255,255,255,.06); }
-.tb-wr-hover-sep { width: 1px; align-self: stretch; margin: 5px 1px; background: rgba(255,180,120,.18); flex: 0 0 auto; }
-
-/* 手機 3+ 訊號：圖卡切換（一次一張 + ‹ N/M ›）*/
-.tb-wr-hover-cardwrap { display: flex; align-items: center; gap: 6px; width: 100%; }
-.tb-wr-hover-cardwrap .tb-wr-hover-item { flex: 1 1 auto; justify-content: center; }
-.tb-wr-hover-nav {
-  flex: 0 0 auto; width: 32px; height: 32px; border-radius: 8px;
-  display: flex; align-items: center; justify-content: center;
-  background: rgba(255,180,120,.12); border: 1px solid rgba(255,180,120,.28);
-  color: var(--text); font-size: 20px; font-weight: 700; line-height: 1;
-  cursor: pointer; -webkit-tap-highlight-color: transparent;
-}
-.tb-wr-hover-nav:active { background: rgba(255,180,120,.26); }
-.tb-wr-hover-pager { flex: 0 0 auto; font-size: 11px; font-weight: 700; color: var(--muted); min-width: 26px; text-align: center; }
-html.perf-mode .tb-wr-hover-nav { background: #F0F0F0; border-color: #E0E0E0; }
-/* 卡片自動/手動切換的淡入淡出 */
-.tb-wr-hover-cardwrap .tb-wr-hover-item { animation: wrCardIn .32s ease; }
-.tb-wr-hover-cardwrap .tb-wr-hover-item.wr-card-out { animation: wrCardOut .15s ease forwards; }
-@keyframes wrCardIn  { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
-@keyframes wrCardOut { from { opacity: 1; } to { opacity: 0; transform: translateY(-4px); } }
 
 /* ── 手機字體大小選項（標準 / 大 / 特大）：放大主要可讀文字（設定分頁切換）── */
 @media (max-width: 1180px) and (pointer: fine), (hover: none) and (pointer: coarse) and (orientation: portrait), (hover: none) and (pointer: coarse) and (orientation: landscape) and (max-height: 599px) {
@@ -865,12 +575,9 @@ html.perf-mode .tb-wr-hover-nav { background: #F0F0F0; border-color: #E0E0E0; }
   body.m-font-lg .tk-full                                  { font-size: 12.5px !important; }
   body.m-font-lg .tk-chg, body.m-font-lg .tk-chg-amt       { font-size: 13px !important; }
   body.m-font-lg .symbol-bar, body.m-font-lg .symbol-bar .sym-val, body.m-font-lg .symbol-bar .sym-label { font-size: 14px !important; }
-  body.m-font-lg .symbol-name                              { font-size: 16px !important; }
+  
   body.m-font-lg .pane-legend, body.m-font-lg .pane-legend .leg-val { font-size: 13px !important; }
-  body.m-font-lg .tb-wr-hover-lbl, body.m-font-lg .tb-wr-hover-pct  { font-size: 15px !important; }
-  body.m-font-lg .tb-wr-hover-cnt, body.m-font-lg .tb-wr-hover-res  { font-size: 12px !important; }
-  body.m-font-lg .tb-wr-total                              { font-size: 21px !important; }
-  body.m-font-lg .tb-wr-stoprate, body.m-font-lg .tb-wr-recent      { font-size: 13px !important; }
+
   body.m-font-lg .m-set-row                                { font-size: 18px !important; }
   body.m-font-lg .m-set-lbl small                          { font-size: 13px !important; }
   body.m-font-lg .topbar-tf .tf-btn                        { font-size: 14px !important; }
@@ -880,464 +587,13 @@ html.perf-mode .tb-wr-hover-nav { background: #F0F0F0; border-color: #E0E0E0; }
   body.m-font-xl .tk-full                                  { font-size: 14px !important; }
   body.m-font-xl .tk-chg, body.m-font-xl .tk-chg-amt       { font-size: 15px !important; }
   body.m-font-xl .symbol-bar, body.m-font-xl .symbol-bar .sym-val, body.m-font-xl .symbol-bar .sym-label { font-size: 16px !important; }
-  body.m-font-xl .symbol-name                              { font-size: 18px !important; }
+  
   body.m-font-xl .pane-legend, body.m-font-xl .pane-legend .leg-val { font-size: 15px !important; }
-  body.m-font-xl .tb-wr-hover-lbl, body.m-font-xl .tb-wr-hover-pct  { font-size: 17px !important; }
-  body.m-font-xl .tb-wr-hover-cnt, body.m-font-xl .tb-wr-hover-res  { font-size: 13px !important; }
-  body.m-font-xl .tb-wr-total                              { font-size: 24px !important; }
-  body.m-font-xl .tb-wr-stoprate, body.m-font-xl .tb-wr-recent      { font-size: 14.5px !important; }
+
   body.m-font-xl .m-set-row                                { font-size: 20px !important; }
   body.m-font-xl .m-set-lbl small                          { font-size: 14px !important; }
   body.m-font-xl .topbar-tf .tf-btn                        { font-size: 15.5px !important; }
 }
-
-/* 極簡模式：去掉橘光、用純色邊 */
-html.perf-mode .tb-wr-hover-item { background: #F5F5F5; border-color: #E5E5E5; }
-html.perf-mode .tb-wr-hover-item:hover { background: #EFEFEF; }
-html.perf-mode .tb-wr-hover-pct.good { color: #16a34a; }
-html.perf-mode .tb-wr-hover-pct.bad  { color: #dc2626; }
-html.perf-mode .tb-wr-hover-res.win  { color: #16a34a; background: rgba(22,163,74,.12); }
-html.perf-mode .tb-wr-hover-res.loss { color: #dc2626; background: rgba(220,38,38,.12); }
-
-/* 計算中 overlay：橘子熊 + 文字 */
-.tb-wr-loading {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  pointer-events: none;
-  z-index: 6;
-  opacity: 0;
-  transition: opacity .2s ease-out;
-}
-.tb-wr-loading-bear {
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  filter: drop-shadow(0 0 5px rgba(255,145,71,.65));
-  animation: bear-bounce 0.9s ease-in-out infinite;
-}
-.tb-wr-loading-text {
-  font: 800 10px/1 'SF Mono', 'Courier New', monospace;
-  color: #FFD8B0;
-  text-shadow:
-    0 0 5px rgba(255,180,120,.7),
-    0 0 12px rgba(255,145,71,.4);
-  letter-spacing: .18em;
-  /* 文字微脈動 */
-  animation: wr-loading-pulse 1.4s ease-in-out infinite;
-}
-.tb-winrate.calculating .tb-wr-loading {
-  opacity: 1;
-}
-@keyframes bear-bounce {
-  0%, 100% { transform: translateY(0) rotate(-6deg) scale(1);    }
-  25%      { transform: translateY(-4px) rotate(0deg) scale(1.05); }
-  50%      { transform: translateY(0) rotate(6deg) scale(1);    }
-  75%      { transform: translateY(-2px) rotate(0deg) scale(1.05); }
-}
-@keyframes wr-loading-pulse {
-  0%, 100% { opacity: .75; }
-  50%      { opacity: 1;   }
-}
-html.perf-mode .tb-wr-loading-bear { filter: drop-shadow(0 0 3px rgba(255,106,26,.5)); }
-html.perf-mode .tb-wr-loading-text {
-  color: #FF6A1A;
-  text-shadow: 0 0 3px rgba(255,106,26,.3);
-}
-
-/* 計算中：底部進度條 — 水流動態漸層 */
-.tb-wr-progress {
-  position: absolute;
-  left: 0;
-  bottom: 0;
-  height: 3px;
-  width: 0;
-  /* 多 stop 水流漸層：深橘→亮金→淺金→亮金→深橘，搭配 background-size 200% 跑動 */
-  background: linear-gradient(90deg,
-    rgba(255, 80,  10, .95) 0%,
-    rgba(255,140,  50, 1)  15%,
-    rgba(255,200, 110, 1)  30%,
-    rgba(255,240, 180, 1)  45%,
-    rgba(255,210, 130, 1)  55%,
-    rgba(255,170,  80, 1)  70%,
-    rgba(255,120,  40, .95) 85%,
-    rgba(255, 90,  20, .9) 100%);
-  background-size: 200% 100%;
-  border-radius: 0 0 10px 10px;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity .25s;
-  box-shadow:
-    0 0 10px rgba(255,145,71,.7),
-    0 0 22px rgba(255,145,71,.32),
-    inset 0 1px 0 rgba(255,240,200,.5);
-}
-/* 上方一條微光線（水面反射感） */
-.tb-wr-progress::before {
-  content: '';
-  position: absolute;
-  top: -1px; left: 0; right: 0;
-  height: 1px;
-  background: linear-gradient(90deg,
-    transparent 0%,
-    rgba(255,240,200,.5) 50%,
-    transparent 100%);
-  pointer-events: none;
-}
-.tb-winrate.calculating .tb-wr-progress {
-  opacity: 1;
-  /* 雙動畫：寬度 0→95%（fill）+ 漸層位置橫向流動（flow） */
-  animation:
-    wr-progress-fill 2.5s linear forwards,
-    wr-progress-flow 1.6s linear infinite;
-}
-@keyframes wr-progress-fill {
-  0%  { width: 1%;  }
-  60% { width: 70%; }
-  100%{ width: 95%; }
-}
-@keyframes wr-progress-flow {
-  0%   { background-position: 200% 50%; }
-  100% { background-position:   0% 50%; }
-}
-/* 進度條後方水波微光（::after on .tb-winrate.calculating，覆蓋整列底部） */
-.tb-winrate.calculating::before {
-  /* 重定義原本流線動畫，加速並提亮 */
-  animation: wr-flow 2.5s linear infinite !important;
-  background: linear-gradient(90deg,
-    transparent 0%,
-    rgba(255,200,140,.18) 40%,
-    rgba(255,220,170,.25) 50%,
-    rgba(255,200,140,.18) 60%,
-    transparent 100%) !important;
-}
-/* 極簡模式：水流仍存在但色票對應 */
-html.perf-mode .tb-wr-progress {
-  background: linear-gradient(90deg,
-    #FF6A1A 0%, #FF8A3A 25%, #FFA050 50%, #FF8A3A 75%, #FF6A1A 100%);
-  background-size: 200% 100%;
-  box-shadow:
-    0 0 6px rgba(255,106,26,.5),
-    0 0 14px rgba(255,106,26,.25);
-}
-/* 計算中：把舊數據變暗，提示「這不是當前資料」 */
-.tb-winrate.calculating .tb-wr-block,
-.tb-winrate.calculating .tb-wr-divider,
-.tb-winrate.calculating .tb-wr-total,
-.tb-winrate.calculating .tb-wr-total-sep,
-.tb-winrate.calculating .tb-wr-from {
-  opacity: 0.32;
-  transition: opacity .15s;
-}
-.tb-winrate.calculating .tb-wr-status {
-  color: #FFB878;
-  font-weight: 700;
-}
-/* 極簡模式：進度條改深橘 + 文字色調整 */
-html.perf-mode .tb-wr-progress {
-  background: linear-gradient(90deg, #FF6A1A, #E55A0A);
-  box-shadow: 0 0 4px rgba(255,106,26,.4);
-}
-html.perf-mode .tb-winrate.calculating .tb-wr-status { color: #FF6A1A; }
-
-/* 台股 long_only 模式：隱藏空單行（data-dir="s"） */
-.tb-winrate.long-only .tb-wr-v[data-dir="s"] { display: none; }
-
-/* ═══ 目標切換按鈕（中軌 ↔ 上軌）— 漸層流線單鍵 ═══ */
-.tb-wr-toggle {
-  font: 800 10px/1 'SF Mono', 'Courier New', monospace;
-  color: rgba(255,200,160,.7);
-  background: linear-gradient(180deg,
-    rgba(255,145,71,.08) 0%,
-    rgba(255,145,71,.03) 100%);
-  border: 1px solid rgba(255,145,71,.35);
-  border-radius: 5px;
-  padding: 4px 7px;
-  cursor: pointer;
-  flex-shrink: 0;
-  margin-right: 2px;
-  /* 顏色/邊框平滑漸變；不要 all（避免文字寬度變動造成跳動） */
-  transition: background .28s ease, border-color .28s ease, color .28s ease, box-shadow .28s ease;
-  letter-spacing: .04em;
-  position: relative;
-  z-index: 2;
-  min-width: 44px;
-  white-space: nowrap;
-  overflow: hidden;   /* slide-out 不溢出 */
-}
-.tb-wr-toggle-inner {
-  display: inline-block;
-  position: relative;
-  transition: transform .25s cubic-bezier(.4,0,.2,1), opacity .22s ease;
-}
-.tb-wr-toggle-inner.tb-wr-slide-out {
-  position: absolute;
-  left: 7px; top: 4px;
-  transform: translateY(-140%);
-  opacity: 0;
-  pointer-events: none;
-}
-.tb-wr-toggle-inner.tb-wr-slide-in {
-  animation: tb-wr-slide-in .26s cubic-bezier(.4,0,.2,1);
-}
-@keyframes tb-wr-slide-in {
-  0%   { transform: translateY(140%); opacity: 0; }
-  60%  { opacity: 1; }
-  100% { transform: translateY(0);    opacity: 1; }
-}
-/* 點擊閃光 ring */
-.tb-wr-toggle.tb-wr-flash::after {
-  content: "";
-  position: absolute;
-  inset: -3px;
-  border-radius: 8px;
-  pointer-events: none;
-  background: radial-gradient(circle, rgba(255,200,160,.55) 0%, transparent 65%);
-  animation: tb-wr-flash-pulse .35s ease-out forwards;
-}
-@keyframes tb-wr-flash-pulse {
-  0%   { opacity: 0; transform: scale(.7); }
-  45%  { opacity: 1; transform: scale(1.0); }
-  100% { opacity: 0; transform: scale(1.35); }
-}
-.tb-wr-toggle:active { transform: scale(.96); }
-.tb-wr-toggle:hover {
-  color: #FFD8B0;
-  border-color: rgba(255,180,120,.6);
-  background: linear-gradient(180deg,
-    rgba(255,145,71,.18) 0%,
-    rgba(255,145,71,.08) 100%);
-  box-shadow: 0 0 8px rgba(255,145,71,.25);
-}
-.tb-wr-toggle.band {
-  color: #FFFFFF;
-  background: linear-gradient(180deg,
-    rgba(255,170,90,.55) 0%,
-    rgba(255,120,40,.4) 45%,
-    rgba(255,90,20,.5) 100%);
-  border-color: rgba(255,180,120,.75);
-  text-shadow: 0 0 5px rgba(255,200,140,.85);
-  box-shadow:
-    inset 0 0 6px rgba(255,200,160,.4),
-    inset 0 1px 0 rgba(255,255,255,.18),
-    0 0 10px rgba(255,145,71,.35);
-}
-.tb-wr-toggle.rr {
-  color: #FFFFFF;
-  background: linear-gradient(180deg,
-    rgba(90,200,210,.55) 0%,
-    rgba(40,150,170,.42) 45%,
-    rgba(20,120,150,.5) 100%);
-  border-color: rgba(120,210,225,.75);
-  text-shadow: 0 0 5px rgba(150,230,240,.85);
-  box-shadow:
-    inset 0 0 6px rgba(160,230,240,.4),
-    inset 0 1px 0 rgba(255,255,255,.18),
-    0 0 10px rgba(60,180,200,.35);
-}
-/* 8成軌：金黃色，介於中軌(預設)與上下軌(橘)之間，一眼可區分 */
-.tb-wr-toggle.band80 {
-  color: #3a2a08;
-  background: linear-gradient(180deg,
-    rgba(255,216,110,.7) 0%,
-    rgba(245,190,70,.55) 45%,
-    rgba(235,170,45,.62) 100%);
-  border-color: rgba(255,224,150,.8);
-  text-shadow: 0 0 4px rgba(255,240,190,.7);
-  box-shadow:
-    inset 0 0 6px rgba(255,235,170,.45),
-    inset 0 1px 0 rgba(255,255,255,.25),
-    0 0 10px rgba(245,195,80,.4);
-}
-html.perf-mode .tb-wr-toggle {
-  color: #8B8B8B;
-  background: #FFFFFF;
-  border-color: #E5E5E5;
-}
-html.perf-mode .tb-wr-toggle:hover {
-  color: #1F1F1F;
-  border-color: #FF6A1A;
-  background: #FFF7F0;
-  box-shadow: none;
-}
-html.perf-mode .tb-wr-toggle.band {
-  color: #FFFFFF;
-  background: #FF6A1A;
-  border-color: #FF6A1A;
-  text-shadow: none;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.2);
-}
-html.perf-mode .tb-wr-toggle.rr {
-  color: #FFFFFF;
-  background: #0E8A9E;
-  border-color: #0E8A9E;
-  text-shadow: none;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.2);
-}
-
-/* ═══ 止損緩衝輸入（自由填入 0~10%）═══ */
-.tb-wr-buffer {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  flex-shrink: 0;
-  margin-right: 2px;
-  position: relative;
-  z-index: 2;
-}
-.tb-wr-buffer-input {
-  width: 32px;
-  height: 20px;
-  padding: 0 3px;
-  background: linear-gradient(180deg,
-    rgba(255,145,71,.10) 0%,
-    rgba(255,145,71,.03) 100%);
-  border: 1px solid rgba(255,145,71,.35);
-  border-radius: 4px;
-  color: #FFD8B0;
-  font: 700 10px/1 'SF Mono', 'Courier New', monospace;
-  outline: none;
-  text-align: right;
-  -moz-appearance: textfield;
-  transition: all .15s;
-}
-.tb-wr-buffer-input::-webkit-outer-spin-button,
-.tb-wr-buffer-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
-.tb-wr-buffer-input:hover { border-color: rgba(255,180,120,.55); }
-.tb-wr-buffer-input:focus {
-  border-color: rgba(255,180,120,.85);
-  background: linear-gradient(180deg,
-    rgba(255,170,90,.20) 0%,
-    rgba(255,145,71,.08) 100%);
-  box-shadow: 0 0 10px rgba(255,145,71,.35);
-  color: #FFFFFF;
-}
-.tb-wr-buffer-pct {
-  color: rgba(255,180,120,.6);
-  font-size: 9px;
-  font-weight: 700;
-  font-family: 'SF Mono', 'Courier New', monospace;
-  letter-spacing: .04em;
-}
-html.perf-mode .tb-wr-buffer-input {
-  background: #FFFFFF;
-  border-color: #E5E5E5;
-  color: #1F1F1F;
-}
-html.perf-mode .tb-wr-buffer-input:focus {
-  border-color: #FF6A1A;
-  background: #FFF7F0;
-  box-shadow: none;
-}
-html.perf-mode .tb-wr-buffer-pct { color: #8B8B8B; }
-
-/* 左側 CRT 標籤 */
-.tb-wr-tag {
-  font-size: 7px;
-  font-weight: 900;
-  color: rgba(255,145,71,.42);
-  letter-spacing: .22em;
-  text-transform: uppercase;
-  flex-shrink: 0;
-  padding-right: 7px;
-  border-right: 1px solid rgba(255,145,71,.14);
-  align-self: stretch;
-  display: flex;
-  align-items: center;
-}
-
-/* ─────────────────────────────────────────────────────────
-   S1~S11 — TF 按鈕同款手感：透明底、hover 才有 subtle bg、無邊框
-   - 符號保留（短、緊湊）：●■▲◆★◇⬢⬡✦✪✸
-   - 移除 drop-shadow glow（Apple 風格）
-   - 暖橘色族 hover、原訊號色保留作識別
-   ───────────────────────────────────────────────────────── */
-.tb-wr-block {
-  display: inline-flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 3px;
-  padding: 3px 5px;
-  flex-shrink: 0;
-  border-radius: 4px;                          /* 同 .tf-btn */
-  background: transparent;                     /* 同 .tf-btn 透明底 */
-  cursor: pointer;
-  transition: background .12s ease, color .12s ease;
-  position: relative;
-}
-.tb-wr-block:hover {
-  background: var(--bg3);                      /* 同 .tf-btn hover */
-}
-
-/* 訊號符號 — 簡單美學：全部統一暖橘 + 微透明，靠形狀區辨；無 glow */
-.tb-wr-icon {
-  font-size: 9px;
-  flex-shrink: 0;
-  cursor: pointer;
-  line-height: 1;
-  filter: none;
-  opacity: .72;
-}
-
-/* ─────────────────────────────────────────────────────
-   S1~S11 策略「數字浮水印」— ::after 大字浮在 block 後方
-   不擴張 block 尺寸；用 z-index 把浮水印壓到內容下方
-   ───────────────────────────────────────────────────── */
-.tb-wr-block::after {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  font: 900 28px/1 -apple-system, "SF Pro Display", system-ui, sans-serif;
-  font-variant-numeric: tabular-nums;
-  color: rgba(255, 200, 160, 0.22);     /* 0.07 → 0.22，明顯多了 */
-  letter-spacing: -0.04em;
-  pointer-events: none;
-  z-index: 0;
-  white-space: nowrap;
-}
-.tb-wr-block > * { position: relative; z-index: 1; }  /* content 蓋過浮水印 */
-.tb-wr-block:hover::after { color: rgba(255, 200, 160, 0.40); }
-
-/* data-sig → 數字 1~11 映射 */
-.tb-wr-block[data-sig="abc"]::after { content: "1"; }
-.tb-wr-block[data-sig="ab"]::after  { content: "2"; }
-.tb-wr-block[data-sig="s3"]::after  { content: "3"; }
-.tb-wr-block[data-sig="s4"]::after  { content: "4"; }
-.tb-wr-block[data-sig="s5"]::after  { content: "5"; }
-.tb-wr-block[data-sig="s6"]::after  { content: "6"; }
-.tb-wr-block[data-sig="s7"]::after  { content: "7"; }
-.tb-wr-block[data-sig="s8"]::after  { content: "8"; }
-.tb-wr-block[data-sig="s9"]::after  { content: "9"; }
-.tb-wr-block[data-sig="s10"]::after { content: "10"; }
-.tb-wr-block[data-sig="s11"]::after { content: "11"; }
-.tb-wr-block[data-sig="s12"]::after { content: "12"; }
-
-/* 雙擊隱藏的策略 — 主圖不顯示其 marker；block 縮小到剩 icon（標籤）+ 浮水印 */
-.tb-wr-block.sig-hidden { opacity: 0.55; padding: 0 4px !important; min-width: 0 !important; }
-.tb-wr-block.sig-hidden .tb-wr-vals { display: none !important; }
-.tb-wr-block.sig-hidden .tb-wr-icon { filter: grayscale(1) brightness(0.85); }
-/* 隱藏時所有 block 都顯示浮水印（覆蓋奇數隱藏規則） */
-.tb-wr-block.sig-hidden::after {
-  display: inline !important;
-  font-size: 18px !important;
-  position: static !important;
-  transform: none !important;
-  color: rgba(255, 200, 160, 0.55) !important;
-  margin-left: 2px;
-}
-
-/* 只顯示 2 的倍數 — 奇數策略（1/3/5/7/9/11）浮水印隱藏 */
-.tb-wr-block[data-sig="abc"]::after,
-.tb-wr-block[data-sig="s3"]::after,
-.tb-wr-block[data-sig="s5"]::after,
-.tb-wr-block[data-sig="s7"]::after,
-.tb-wr-block[data-sig="s9"]::after,
-.tb-wr-block[data-sig="s11"]::after { display: none !important; }
 
 /* ═══ 市場切換單鍵循環按鈕 — 配色跟 .tb-icon-btn / .tf-btn 一致（中性、不分市場著色）═══ */
 /* ★ 2026-08-11 市場由標的自動判斷 → 這顆改成純標示，不接受點擊
@@ -1387,15 +643,6 @@ html.perf-mode .tb-wr-buffer-pct { color: #8B8B8B; }
   transition: transform .28s cubic-bezier(.4, 0, .2, 1), opacity .28s ease;
   will-change: transform, opacity;
 }
-.tb-mkt-cycle.cycling .mkt-cycle-label {
-  transform: translateY(-130%);
-  opacity: 0;
-}
-.tb-mkt-cycle.cycling-in .mkt-cycle-label {
-  transform: translateY(130%);
-  opacity: 0;
-  transition: none;   /* 瞬間放到底部，再 transition 回中央 */
-}
 
 /* perf-mode：純橘色按鈕無漸層 */
 html.perf-mode .tb-mkt-cycle {
@@ -1436,105 +683,6 @@ html.perf-mode .tk-seg {
     inset 0 1px 2px rgba(0, 0, 0, 0.10),
     inset 0 0 0 1px rgba(0, 0, 0, 0.05) !important;
 }
-.wr-abc, .wr-ab, .wr-s3, .wr-s4, .wr-s5, .wr-s6,
-.wr-s7, .wr-s8, .wr-s9, .wr-s10, .wr-s11, .wr-s12, .wr-ss1, .wr-ss2 {
-  color: #C48560;     /* 暖橘 accent — 單一色，明顯降飽和（無螢光）*/
-}
-.tb-wr-block:hover .tb-wr-icon { opacity: 1; }
-
-/* 空/多上下堆疊（緊湊縱列）*/
-.tb-wr-vals {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-
-/* 每個 percentage — 簡單美學：SF Pro 系統字、中性偏暖灰、tabular-nums */
-.tb-wr-v {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 3px;
-  font: 500 11px/1 -apple-system, "SF Pro Text", "Helvetica Neue", "PingFang TC", system-ui, sans-serif;
-  font-variant-numeric: tabular-nums;
-  cursor: default;
-  line-height: 1;
-  letter-spacing: -0.005em;
-}
-.tb-wr-arr {
-  font-size: 8px;
-  font-style: normal;
-  flex-shrink: 0;
-  line-height: 1;
-  opacity: 0.45;
-  font-weight: 600;
-}
-/* 方向色：更降飽和，無螢光感 */
-.tb-wr-arr.s { color: rgba(184,124,124,.6); }
-.tb-wr-arr.l { color: rgba(122,174,147,.6); }
-.tb-wr-pct {
-  font-size: 11px;
-  font-weight: 500;
-  color: rgba(228,218,206,.88);   /* 暖灰提亮 — 不螢光、有存在感 */
-  letter-spacing: 0;
-  font-variant-numeric: tabular-nums;
-}
-/* good/bad：適度飽和、不發光 */
-.tb-wr-v.good .tb-wr-pct { color: #8fcba6; text-shadow: none; }
-.tb-wr-v.bad  .tb-wr-pct { color: #d49595; text-shadow: none; }
-/* 筆數（每訊號空/多總筆數）顯示在勝率右側 */
-.tb-wr-cnt { display: inline-block; margin-left: 3px; opacity: 0.6; }
-
-/* 訊號間分隔線 — Apple HUD 改用 pill spacing 區隔，divider 隱藏 */
-.tb-wr-divider { display: none !important; }
-
-/* 合計前分隔線（稍粗 + 雙線） */
-.tb-wr-total-sep {
-  width: 2px;
-  height: 22px;
-  background:
-    linear-gradient(to bottom,
-      transparent 0%,
-      rgba(255,180,120,.08) 15%,
-      rgba(255,160,90,.4) 50%,
-      rgba(255,180,120,.08) 85%,
-      transparent 100%);
-  border-radius: 2px;
-  flex-shrink: 0;
-  margin: 0 4px;
-  box-shadow: 0 0 4px rgba(255,145,71,.2);
-  position: relative;
-  z-index: 2;
-}
-
-/* 總勝率 — 漸層流線高亮 */
-.tb-wr-total {
-  font-size: 13px;
-  font-weight: 800;
-  color: var(--text);
-  font-family: 'SF Mono', 'Courier New', monospace;
-  cursor: default;
-  letter-spacing: .02em;
-  padding: 0 4px;
-  position: relative;
-  z-index: 2;
-}
-.tb-wr-total.good {
-  background: linear-gradient(180deg, #6FE0D2 0%, #2BB8A8 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  filter: drop-shadow(0 0 6px rgba(77,208,196,.5));
-}
-.tb-wr-total.bad {
-  background: linear-gradient(180deg, #FF8888 0%, #E04848 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  filter: drop-shadow(0 0 6px rgba(239,112,112,.45));
-}
-
-.tb-wr-status { color: var(--muted); font-size: 10px; margin-left: 2px; }
-.tb-wr-from   { font-size: 8.5px; color: rgba(154,122,88,.5); font-family: 'SF Mono','Courier New',monospace; margin-left: 4px; letter-spacing: .01em; white-space: nowrap; }
 
 .realtime-dot {
   width: 6px; height: 6px; border-radius: 50%;
@@ -1546,7 +694,6 @@ html.perf-mode .tk-seg {
    原本 .hidden＝display:none → 點一消失後面的繪圖快捷/倒數整排左移約 8px、一出現又右移 →
    ⋮⋮ 把手要抓的時候在跳。⚠ 選擇器要比通用 .hidden{display:none!important} 更具體才蓋得過。 */
 .symbol-bar > .realtime-dot.hidden { display: block !important; visibility: hidden; animation: none; }
-
 
 /* ═══ BODY LAYOUT ═══ */
 .body-layout {
@@ -1581,16 +728,6 @@ html.perf-mode .tk-seg {
 }
 .btn-reset:hover { color: var(--text); border-color: var(--muted); }
 
-
-/* ═══ WATCHLIST (右欄) ═══ */
-.wl-list  { display: flex; flex-direction: column; gap: 1px; max-height: 180px; overflow-y: auto;
-            padding: 2px 4px 4px; }
-.wl-empty { color: var(--muted); font-size: 11px; padding: 8px; text-align: center; }
-.wl-item  { display: flex; align-items: center; justify-content: space-between; padding: 5px 6px;
-            background: var(--bg3); border-radius: 4px; cursor: pointer; transition: background .1s; }
-.wl-item:hover { background: #2a3040; }
-.wl-sym   { flex: 1; font-size: 12px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.wl-mkt   { font-size: 10px; color: var(--muted); margin: 0 4px; text-transform: uppercase; }
 .wl-del   { background: none; border: none; color: var(--muted); cursor: pointer;
             padding: 0 2px; line-height: 1; transition: color .1s; flex-shrink: 0;
             display: inline-flex; align-items: center; justify-content: center; }
@@ -2288,18 +1425,6 @@ html.perf-mode .time-axis-year {
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
-.ticker-title { font-size: 12px; font-weight: 600; color: var(--text); }
-
-
-.tk-collapse-btn {
-  flex: 0 0 auto;
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 22px; height: 20px;
-  padding: 0; border: 1px solid var(--border); border-radius: 5px;
-  background: transparent; color: var(--text-dim, var(--text));
-  cursor: pointer; opacity: .62; transition: opacity .15s, background .15s;
-}
-.tk-collapse-btn:hover { opacity: 1; background: rgba(255,255,255,.07); }
 
 .tk-mkt-tabs { display: flex; gap: 2px; }
 .tk-mkt-btn {
@@ -2778,7 +1903,7 @@ html.perf-mode .tk-stale { background: rgba(220, 38, 38, 0.10); border-color: #d
   background: var(--blue);
   border-radius: 18px 18px 0 0;
 }
-.rp-picker-icon { color: var(--blue); margin-bottom: 2px; }
+
 .rp-picker-title {
   font-size: 16px; font-weight: 700; color: var(--text);
   letter-spacing: .02em; align-self: flex-start;
@@ -2847,7 +1972,7 @@ html.perf-mode .tk-stale { background: rgba(220, 38, 38, 0.10); border-color: #d
 .rp-cal-day.today { border-color: var(--blue); color: var(--blue); }
 .rp-cal-day.selected { background: var(--blue); color: var(--bg); border-color: var(--blue); }
 .rp-cal-day.today.selected { background: var(--blue); color: var(--bg); }
-.rp-cal-day.other-month { color: var(--muted); opacity: .4; }
+
 .rp-cal-day.disabled { color: var(--muted); opacity: .25; cursor: default; }
 .rp-cal-day.empty { cursor: default; }
 .rp-picker-confirm {
@@ -2932,38 +2057,6 @@ html.perf-mode .tk-stale { background: rgba(220, 38, 38, 0.10); border-color: #d
 }
 #chartDimVeil.on { opacity: 1; transition: opacity .08s ease; }
 
-/* ═══ DRAWING COLOR PICKER ═══ */
-.dcp-popup {
-  position: fixed;
-  z-index: 4000;
-  background: #1e222d;
-  border: 1px solid #3a3f4d;
-  border-radius: 8px;
-  padding: 10px;
-  box-shadow: 0 8px 28px rgba(0,0,0,.7);
-  width: 178px;
-  user-select: none;
-}
-.dcp-colors {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-  justify-content: flex-start;
-}
-.dcp-swatch {
-  width: 22px;
-  height: 22px;
-  border-radius: 4px;
-  cursor: pointer;
-  border: 2px solid transparent;
-  transition: transform .1s, border-color .1s;
-  box-sizing: border-box;
-  flex-shrink: 0;
-}
-.dcp-swatch:hover { transform: scale(1.15); }
-.dcp-swatch.active { border-color: #fff; }
-.dcp-divider { height: 1px; background: #2a2e39; margin: 8px 0; }
-.dcp-actions { display: flex; }
 .dcp-delete {
   width: 100%;
   background: transparent;
@@ -3133,7 +2226,6 @@ html.perf-mode .tk-stale { background: rgba(220, 38, 38, 0.10); border-color: #d
 
 /* ═══ MOBILE RESPONSIVE ═══ */
 @media (max-width: 1180px) and (pointer: fine), (hover: none) and (pointer: coarse) and (orientation: portrait), (hover: none) and (pointer: coarse) and (orientation: landscape) and (max-height: 599px) {
-  .tb-indicators-btn { display: none; }
 
   /* 繪圖工具欄移到底部 */
   .draw-toolbar {
@@ -3251,22 +2343,15 @@ html.perf-mode .tk-stale { background: rgba(220, 38, 38, 0.10); border-color: #d
 
   /* Hide logo & desktop-only elements on mobile */
   .topbar-logo { display: none; }
-  .tb-desk-only { display: none !important; }
-
-  /* Show mobile load button */
-  .mob-load { display: flex !important; }
-  #loadBtn  { display: none !important; }
 
   /* Touch-friendly sizes */
   .tb-mkt-select  { height: 36px; font-size: 13px; padding: 0 4px; }
   .tb-exc-select  { height: 36px; font-size: 13px; padding: 0 4px; }
   .tb-symbol-input { height: 36px; font-size: 14px; width: 100px; }
   .tb-star-btn    { width: 32px; height: 36px; font-size: 17px; }
-  .btn-load, .mob-load { height: 32px; font-size: 12px; padding: 0 10px; }
+  
   #replayModeBtn  { height: 32px; font-size: 12px; padding: 0 8px; }
   .tb-icon-btn    { width: 36px; height: 36px; }
-
-  .tb-date   { width: 106px; font-size: 11px; }
 
   /* Symbol bar */
   .symbol-bar { font-size: 11px; gap: 3px; padding: 3px 8px; }
@@ -3274,7 +2359,7 @@ html.perf-mode .tk-stale { background: rgba(220, 38, 38, 0.10); border-color: #d
   .sym-name   { display: none; }   /* 手機 K 棒資訊前不顯示標的名稱（標的已在頂部選擇列） */
   .sym-tag    { display: none; }
   .sym-divider{ display: none; }
-  .tb-winrate { display: none; }
+  
   .leg-item   { font-size: 10px; }
 }
 
@@ -3355,16 +2440,6 @@ html.perf-mode .tk-stale { background: rgba(220, 38, 38, 0.10); border-color: #d
   flex: 1;
   color: var(--text);
   white-space: nowrap;
-}
-
-.ind-sp-clr {
-  width: 22px; height: 18px;
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  padding: 1px;
-  background: none;
-  cursor: pointer;
-  flex-shrink: 0;
 }
 
 .ind-sp-ls {
@@ -3463,11 +2538,10 @@ html.perf-mode .tk-stale { background: rgba(220, 38, 38, 0.10); border-color: #d
 }
 
 @media (max-width: 520px) {
-  #startDate, #endDate, .tb-sep { display: none !important; }
+  #startDate { display: none !important; }
   #exchangeSelect { display: none; }
   .tb-symbol-input { width: 90px; }
-  .chart-type-group { display: none; }
-  .tb-divider-v { margin: 0 2px; }
+
   .leg-item span:not(.leg-dot) { display: none; }
   .leg-toggle { gap: 0; }
   .leg-dot    { width: 8px; height: 8px; }
@@ -3513,7 +2587,6 @@ html.perf-mode .tk-stale { background: rgba(220, 38, 38, 0.10); border-color: #d
   40%  { opacity: 1; }
   100% { opacity: 0; transform: translate(calc(-50% + var(--sx)), calc(-50% + var(--sy))) scale(0); }
 }
-
 
 /* ══════════════════════════════════════
    右下角偷看橘子熊
@@ -3637,18 +2710,27 @@ html.perf-mode .tk-stale { background: rgba(220, 38, 38, 0.10); border-color: #d
 /* ══════════════════════════════════════════
    按鈕回饋效果：按壓縮放 + 漣漪
 ══════════════════════════════════════════ */
-.tf-btn, .ct-btn, .btn-load, .btn-mode,
-.rp-btn, .rp-speed, .dt-btn, .tb-icon-btn,
-.tb-indicators-btn, .ind-gear-btn,
-.sym-tab, .tk-seg-btn {
+.tf-btn,
+.ct-btn,
+.rp-btn,
+.rp-speed,
+.dt-btn,
+.tb-icon-btn,
+.ind-gear-btn,
+.sym-tab,
+.tk-seg-btn {
   position: relative;
   overflow: hidden;
 }
-.tf-btn:active,    .ct-btn:active,      .btn-load:active,
-.btn-mode:active,  .rp-btn:active,      .rp-speed:active,
-.dt-btn:active,    .tb-icon-btn:active, .tb-indicators-btn:active,
+.tf-btn:active,
+.ct-btn:active,
+.rp-btn:active,
+.rp-speed:active,
+.dt-btn:active,
+.tb-icon-btn:active,
 .ind-gear-btn:active,
-.sym-tab:active,   .tk-seg-btn:active {
+.sym-tab:active,
+.tk-seg-btn:active {
   transform: scale(0.88);
   transition: transform 0.07s ease;
 }
@@ -3796,26 +2878,35 @@ html:not(.perf-mode).sky-night #weatherStage { opacity: 0.6; }
 }
 
 /* rounder corners on all interactive elements */
-.tb-icon-btn, .tf-btn, .ct-btn, .tb-indicators-btn,
-.btn-mode, .rp-btn, .dt-btn, .wl-header-btn, .btn-reset,
-.ind-sp-inc, .ind-sp-dec      { border-radius: 12px !important; }
+.tb-icon-btn,
+.tf-btn,
+.ct-btn,
+.rp-btn,
+.dt-btn,
+.btn-reset      { border-radius: 12px !important; }
 .tb-mkt-select, .tb-exc-select, .tb-symbol-wrap { border-radius: 10px !important; }
 .sym-tag                                         { border-radius: 99px !important; padding: 2px 8px !important; }
 .sym-modal                                       { border-radius: 24px !important; }
 .sym-modal-search-wrap                           { border-radius: 14px !important; }
-.dcp-popup, .cp-popup, .ind-settings-popup       { border-radius: 20px !important; }
+.cp-popup,
+.ind-settings-popup       { border-radius: 20px !important; }
 .music-panel                                     { border-radius: 22px !important; }
-.wl-item                                         { border-radius: 8px !important; }
 
 /* bouncy hover animations */
 .tb-icon-btn {
   transition: background .12s, color .12s, transform .18s cubic-bezier(.34,1.56,.64,1) !important;
 }
 .tb-icon-btn:hover { transform: translateY(-1px) scale(1.12) !important; }
-.tf-btn, .ct-btn, .dt-btn, .btn-mode, .btn-reset {
+.tf-btn,
+.ct-btn,
+.dt-btn,
+.btn-reset {
   transition: background .12s, color .12s, transform .14s cubic-bezier(.34,1.56,.64,1) !important;
 }
-.tf-btn:hover, .ct-btn:hover, .dt-btn:hover, .btn-mode:hover, .btn-reset:hover {
+.tf-btn:hover,
+.ct-btn:hover,
+.dt-btn:hover,
+.btn-reset:hover {
   transform: translateY(-1px) scale(1.05) !important;
 }
 
@@ -3830,11 +2921,6 @@ html:not(.perf-mode).sky-night #weatherStage { opacity: 0.6; }
   background: rgba(255,145,71,.14) !important;
   border-color: rgba(255,145,71,.42) !important;
 }
-.btn-mode.active {
-  background: rgba(255,145,71,.16) !important;
-  color: #FF9147 !important;
-  border-color: rgba(255,145,71,.4) !important;
-}
 
 /* orange focus glow on search */
 .sym-modal-search-wrap:focus-within {
@@ -3848,9 +2934,6 @@ html:not(.perf-mode).sky-night #weatherStage { opacity: 0.6; }
 
 /* float panel warm（.music-panel 為共用基底，#fxPanel 等沿用） */
 .music-panel { border-color: #3D2820 !important; box-shadow: 0 10px 36px rgba(0,0,0,.55), 0 0 0 1px rgba(255,145,71,.08) !important; }
-
-/* watchlist item hover orange tint */
-.wl-item:hover { background: rgba(255,145,71,.08) !important; }
 
 /* star button */
 #watchlistStarBtn.starred { color: #FF9147 !important; }
@@ -4130,123 +3213,6 @@ html.perf-mode .ai-preset-desc { color: #888; }
 html.perf-mode .ai-preset-hint { background: rgba(255,106,26,.05); border-left-color: #FF6A1A; color: #555; }
 html.perf-mode .ai-adv-section { background: #FAFAFA; border-color: #E5E5E5; }
 
-/* ════════════════════════════════════════
-   訊號詳細資訊抽屜（左側滑出）
-═══════════════════════════════════════ */
-.tb-wr-block[data-sig] {
-  cursor: pointer;
-  transition: background .12s;
-  border-radius: 4px;
-}
-.tb-wr-block[data-sig]:hover {
-  background: rgba(255,145,71,.08);
-}
-
-.sig-drawer {
-  position: fixed;
-  top: 0; left: 0; bottom: 0;
-  width: 420px;
-  max-width: 92vw;
-  z-index: 1050;
-  background: var(--bg2);
-  border-right: 1px solid var(--bg4);
-  box-shadow: 8px 0 32px rgba(0,0,0,.45);
-  display: flex; flex-direction: column;
-  transform: translateX(0);
-  transition: transform .22s cubic-bezier(.4,0,.2,1);
-}
-.sig-drawer.hidden {
-  transform: translateX(-100%);
-  pointer-events: none;
-}
-
-/* 內層 wrapper 也要 flex 容器；補上 flex chain 讓 .sig-dwr-body overflow-y:auto 生效 */
-.sig-drawer-content {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;  /* 關鍵：允許 flex child 縮到內容下方再 overflow */
-  overflow: hidden;
-}
-
-.sig-dwr-hd {
-  display: flex; align-items: center; gap: 10px;
-  padding: 14px 16px 12px;
-  border-bottom: 1px solid var(--bg4);
-  background: linear-gradient(135deg, rgba(255,145,71,.08), rgba(255,145,71,.02));
-}
-.sig-dwr-icon { font-size: 26px; line-height: 1; }
-.sig-dwr-titles { flex: 1; min-width: 0; }
-.sig-dwr-name {
-  font-size: 15px; font-weight: 700; color: var(--text); letter-spacing: .3px;
-}
-.sig-dwr-sub {
-  font-size: 11px; color: var(--muted); margin-top: 2px;
-}
-.sig-dwr-close {
-  background: none; border: none; color: var(--muted);
-  cursor: pointer; font-size: 16px; padding: 4px 8px;
-  border-radius: 4px; transition: background .12s, color .12s;
-}
-.sig-dwr-close:hover { background: var(--bg3); color: var(--text); }
-
-.sig-dwr-body {
-  flex: 1; overflow-y: auto;
-  padding: 14px 16px 22px;
-  font-size: 12.5px; line-height: 1.55;
-}
-.sig-dwr-body::-webkit-scrollbar { width: 6px; }
-.sig-dwr-body::-webkit-scrollbar-thumb { background: var(--bg3); border-radius: 3px; }
-
-.sig-section {
-  padding: 10px 0;
-  border-bottom: 1px solid rgba(255,255,255,.05);
-}
-.sig-section:last-child { border-bottom: none; }
-.sig-h3 {
-  font-size: 11px; font-weight: 700; color: var(--muted);
-  text-transform: uppercase; letter-spacing: 1.5px;
-  margin-bottom: 8px;
-}
-.sig-gist {
-  background: rgba(255,145,71,.06);
-  border-left: 2px solid rgba(255,145,71,.45);
-  padding: 8px 10px; border-radius: 4px;
-  color: var(--text); font-size: 12px;
-}
-.sig-gist b { color: #FFB178; }
-
-/* 達標建議止損 求解結果 */
-.sig-solve {
-  font-size: 13px; color: var(--text); padding: 6px 0;
-  background: rgba(255,180,120,.06); border-radius: 4px; padding: 8px 10px;
-}
-.sig-solve b { color: #FFB178; font-size: 15px; }
-.sig-solve b.good { color: #26a69a; }
-.sig-solve .sig-stat-cnt { display: block; margin-top: 2px; color: var(--muted); font-size: 11px; }
-.sig-apply-btn {
-  display: inline-block; margin-top: 6px;
-  font-size: 12px; font-weight: 700; cursor: pointer;
-  color: #1a1a1a; background: #FFB178; border: none;
-  border-radius: 5px; padding: 3px 10px; font-family: inherit;
-}
-.sig-apply-btn:hover { background: #ffc599; }
-.sig-apply-btn:active { transform: scale(0.94); }
-html.perf-mode .sig-solve b { color: #E85A1A; }
-html.perf-mode .sig-solve b.good { color: #16a34a; }
-
-.sig-pat-row {
-  display: flex; gap: 8px;
-  padding: 4px 0;
-  font-size: 12px;
-}
-.sig-pat-dir {
-  flex-shrink: 0; min-width: 80px;
-  color: #FFB178; font-weight: 600;
-}
-.sig-pat-cond { color: var(--text); }
-.sig-pat-cond b { color: #FFB178; }
-
 .sig-list {
   list-style: none; padding: 0; margin: 0;
 }
@@ -4260,184 +3226,9 @@ html.perf-mode .sig-solve b.good { color: #16a34a; }
   color: rgba(255,145,71,.7);
 }
 
-.sig-rule {
-  display: flex; gap: 12px;
-  padding: 4px 0;
-  font-size: 12px;
-}
-.sig-rule-lbl {
-  flex-shrink: 0; min-width: 44px;
-  color: var(--muted); font-weight: 600;
-}
-
-.sig-stat-row {
-  display: flex; align-items: center; gap: 10px;
-  padding: 6px 8px;
-  background: var(--bg3);
-  border-radius: 5px;
-  margin-bottom: 4px;
-}
-.sig-stat-lbl {
-  flex-shrink: 0; min-width: 46px;
-  color: var(--muted); font-size: 12px; font-weight: 600;
-}
-.sig-stat-val {
-  font-size: 16px; font-weight: 700;
-  color: var(--text); font-variant-numeric: tabular-nums;
-}
-.sig-stat-val.good { color: #4caf50; }
-.sig-stat-val.bad  { color: #ef5350; }
-.sig-stat-cnt {
-  color: var(--muted); font-size: 11px;
-  margin-left: auto;
-}
-.sig-visible-line {
-  color: var(--muted); font-size: 11px;
-  margin-top: 6px; padding: 4px 8px;
-  background: rgba(255,255,255,.02);
-  border-radius: 3px;
-}
-.sig-visible-line b { color: #FFB178; }
-
-.sig-list-box {
-  background: var(--bg3);
-  border-radius: 5px;
-  max-height: 260px;
-  overflow-y: auto;
-  padding: 2px 0;
-}
-.sig-list-box::-webkit-scrollbar { width: 4px; }
-.sig-list-box::-webkit-scrollbar-thumb { background: var(--bg4); border-radius: 2px; }
-
-.sig-row {
-  display: grid;
-  grid-template-columns: 110px 28px 26px 1fr;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 10px;
-  border-bottom: 1px solid rgba(255,255,255,.03);
-  font-size: 11px;
-  cursor: pointer;
-  transition: background .1s;
-}
-.sig-row:hover { background: rgba(255,145,71,.08); }
-.sig-row:last-child { border-bottom: none; }
-.sig-row-t {
-  color: var(--text); font-variant-numeric: tabular-nums; font-family: monospace;
-}
-.sig-row-d.dir-s { color: #ef5350; font-weight: 700; text-align: center; }
-.sig-row-d.dir-l { color: #26a69a; font-weight: 700; text-align: center; }
-.sig-row-r { text-align: center; font-weight: 700; }
-.sig-row-r.win  { color: #4caf50; }
-.sig-row-r.loss { color: #ef5350; }
-.sig-row-ot {
-  color: var(--muted); font-size: 10px;
-  font-family: monospace; text-align: right;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-
 .sig-empty {
   color: var(--muted); font-size: 11px;
   padding: 18px; text-align: center;
-}
-
-/* 抽屜開啟時，圖表稍微讓位（可選）— 預設不縮，浮在上方 */
-body.sig-drawer-open { /* 留作未來用 */ }
-
-@media (max-width: 1180px) and (pointer: fine), (hover: none) and (pointer: coarse) and (orientation: portrait), (hover: none) and (pointer: coarse) and (orientation: landscape) and (max-height: 599px) {
-  .sig-drawer { width: 100%; max-width: 100%; }
-}
-
-/* perf-mode 純白系適配 */
-html.perf-mode .sig-drawer {
-  background: #FFFFFF;
-  border-right-color: #E5E5E5;
-  box-shadow: 4px 0 18px rgba(0,0,0,.08);
-}
-html.perf-mode .sig-dwr-hd {
-  background: #FAFAFA;
-  border-bottom-color: #E5E5E5;
-}
-html.perf-mode .sig-section { border-bottom-color: #F0F0F0; }
-html.perf-mode .sig-gist {
-  background: rgba(255,106,26,.06);
-  border-left-color: #FF6A1A;
-}
-html.perf-mode .sig-gist b,
-html.perf-mode .sig-pat-cond b,
-html.perf-mode .sig-pat-dir,
-html.perf-mode .sig-visible-line b { color: #E85A1A; }
-html.perf-mode .sig-stat-row { background: #FAFAFA; }
-html.perf-mode .sig-list-box { background: #FAFAFA; }
-html.perf-mode .sig-row { border-bottom-color: #F0F0F0; }
-html.perf-mode .sig-row:hover { background: rgba(255,106,26,.06); }
-html.perf-mode .tb-wr-block[data-sig]:hover { background: rgba(255,106,26,.08); }
-
-/* 訊號抽屜 — 預估/實際 RR 雙欄區塊 */
-.sig-rr-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  margin: 6px 0 8px;
-  padding: 8px;
-  background: rgba(255,145,71,.04);
-  border: 1px solid rgba(255,145,71,.18);
-  border-radius: 6px;
-}
-.sig-rr-col {
-  display: flex; flex-direction: column;
-  font-size: 11px;
-}
-.sig-rr-hd {
-  font-size: 10px; color: var(--muted);
-  text-transform: uppercase; letter-spacing: .5px;
-  margin-bottom: 4px;
-  border-bottom: 1px dashed var(--bg4);
-  padding-bottom: 3px;
-}
-.sig-rr-line {
-  display: flex; justify-content: space-between;
-  align-items: baseline;
-  padding: 2px 0;
-}
-.sig-rr-line span { color: var(--muted); font-size: 10.5px; }
-.sig-rr-line b {
-  color: var(--text); font-variant-numeric: tabular-nums;
-  font-size: 12px; font-weight: 700;
-}
-.sig-rr-line b.good { color: #4caf50; }
-.sig-rr-line b.bad  { color: #ef5350; }
-
-html.perf-mode .sig-rr-grid {
-  background: rgba(255,106,26,.04);
-  border-color: rgba(255,106,26,.22);
-}
-html.perf-mode .sig-rr-hd { border-bottom-color: #E5E5E5; }
-
-.sig-low-sample {
-  color: #ffa726;
-  font-weight: 700;
-  margin-left: 4px;
-  cursor: help;
-}
-html.perf-mode .sig-low-sample { color: #E85A1A; }
-
-/* 原版/強化版切換 — 復用 wrTargetToggle 樣式但加區別 */
-#wrVariantToggle.variant {
-  background: linear-gradient(135deg, rgba(126,87,194,.22), rgba(126,87,194,.10));
-  border-color: rgba(126,87,194,.55) !important;
-  color: #b39ddb !important;
-}
-#wrVariantToggle.variant::after {
-  content: "⚡";
-  margin-left: 3px;
-  font-size: 9px;
-  opacity: .8;
-}
-html.perf-mode #wrVariantToggle.variant {
-  background: rgba(126,87,194,.10);
-  border-color: #7e57c2 !important;
-  color: #5e35b1 !important;
 }
 
 /* ════════════════════════════════════════
@@ -4446,110 +3237,6 @@ html.perf-mode #wrVariantToggle.variant {
    - .tb-winrate flex-basis 100% + order 999 強制換到第二列
 ═══════════════════════════════════════ */
 .topbar { flex-wrap: wrap; }
-.tb-winrate {
-  flex: 0 0 100% !important;
-  order: 999;
-  margin: 4px 0 0 !important;   /* 上方留小間距 */
-  border-radius: 6px;            /* 比較貼合整列 */
-  height: 32px;                  /* 略加高一點獨立列的呼吸 */
-}
-html.perf-mode .tb-winrate { margin-top: 3px !important; }
-@media (max-width: 1180px) and (pointer: fine), (hover: none) and (pointer: coarse) and (orientation: portrait), (hover: none) and (pointer: coarse) and (orientation: landscape) and (max-height: 599px) {
-  .tb-winrate { height: 30px; }
-}
-
-/* ════════════════════════════════════════
-   勝率欄獨立列後放大優化（v2 顯示）
-   原版字級太小（icon 8px / pct 9.5px），獨立列有空間就放大
-═══════════════════════════════════════ */
-.tb-winrate {
-  height: 56px !important;             /* 32 → 56 */
-  padding: 0 12px !important;
-  gap: 6px;
-  border-radius: 8px;
-}
-
-/* 訊號 icon：放大（不加陰影，保持 Apple clean）*/
-.tb-wr-icon {
-  font-size: 16px;                     /* 8 → 16 */
-  filter: none;                        /* 去 glow */
-}
-
-/* 訊號 block 加 padding/間距 */
-.tb-wr-block {
-  gap: 6px;
-  padding: 2px 4px;
-}
-
-/* 空/多兩行的勝率數字 */
-.tb-wr-vals { gap: 2px; }
-.tb-wr-v    { gap: 4px; }
-.tb-wr-arr  { font-size: 11px; }       /* 8 → 11 */
-.tb-wr-pct  { font-size: 14px; letter-spacing: .02em; }     /* 9.5 → 14 */
-.tb-wr-cnt  { font-size: 10px; }                            /* 7 → 10 */
-
-/* 分隔線拉高 */
-.tb-wr-divider { height: 34px; }       /* 18 → 34 */
-
-/* 合計分隔線拉高 */
-.tb-wr-total-sep { height: 40px; }     /* 22 → 40 */
-
-/* 總勝率字級大幅放大（最主要的顯示） */
-.tb-wr-total {
-  font-size: 22px !important;          /* 13 → 22 */
-  padding: 0 8px;
-  letter-spacing: .03em;
-}
-
-/* 起始日/狀態字級配合放大 */
-.tb-wr-status {
-  font-size: 13px;                      /* 10 → 13 */
-  font-family: 'SF Mono','Courier New',monospace;
-  letter-spacing: .02em;
-}
-.tb-wr-from {
-  font-size: 11px;                      /* 8.5 → 11 */
-  margin-left: 6px;
-}
-
-/* 左側 toggle 按鈕也放大 */
-.tb-wr-toggle {
-  font-size: 12px !important;           /* 原來約 10 */
-  padding: 6px 12px !important;
-  height: auto !important;
-  line-height: 1.2;
-}
-
-/* SL% 輸入框配合放大 */
-.tb-wr-buffer-input {
-  font-size: 12px !important;
-  width: 44px !important;
-  height: 26px !important;
-}
-.tb-wr-buffer-pct { font-size: 11px !important; }
-
-/* 左/右固定區的 gap 變寬 */
-.tb-wr-fixed-left,
-.tb-wr-fixed-right { gap: 6px; }
-
-/* 計算中 overlay 字級配合放大 */
-.tb-wr-loading-text { font-size: 13px !important; }
-.tb-wr-loading-bear { width: 24px !important; height: 24px !important; }
-
-/* perf-mode 略小一點（白底字小可讀） */
-html.perf-mode .tb-winrate { height: 50px !important; }
-html.perf-mode .tb-wr-icon { font-size: 15px; filter: none; }
-html.perf-mode .tb-wr-pct  { font-size: 13px; }
-html.perf-mode .tb-wr-total { font-size: 20px !important; }
-
-@media (max-width: 1180px) and (pointer: fine), (hover: none) and (pointer: coarse) and (orientation: portrait), (hover: none) and (pointer: coarse) and (orientation: landscape) and (max-height: 599px) {
-  .tb-winrate { height: 48px !important; padding: 0 8px !important; }
-  .tb-wr-icon { font-size: 14px; }
-  .tb-wr-pct  { font-size: 12px; }
-  .tb-wr-total { font-size: 18px !important; }
-  .tb-wr-divider { height: 26px; }
-  .tb-wr-total-sep { height: 32px; }
-}
 
 /* ════════════════════════════════════════
    Topbar 分左右兩邊（v2）
@@ -4574,7 +3261,7 @@ html.perf-mode .tb-wr-total { font-size: 20px !important; }
    （左 385＋時框 349＋右側 530＋內距 12）＝1276，只差幾 px，而這條帶子光是左右外距就 16px
    → 剛好把右側按鈕擠到下一列。它是純資訊，勝率數字在下面獨立那列還有。 */
 @media (min-width: 1181px) and (max-width: 1499px) {
-  .tb-wr-top3 { display: none !important; }
+  
   /* ★ 2026-08-11 使用者：「螢幕太小，按鈕改成可滑動」。
      ⚠ 關鍵是 flex-basis 要 0：換行與否是用「假設主軸尺寸」判斷的，
        basis:auto（＝內容寬 530px）照樣會把自己擠到下一列，flex-shrink 幫不上忙
@@ -4618,10 +3305,7 @@ html.perf-mode .tb-wr-total { font-size: 20px !important; }
   }
   .topbar.tf-centered .topbar-left { min-height: var(--topbar-h); }   /* ① 撐住第一列高度 */
   .topbar.tf-centered .topbar-right { margin-left: auto; }            /* ② 按鈕維持在右緣、位置與原本相同 */
-  /* ③ 勝率前三名會長大（flex:1 1 0）→ 會長到置中的時框底下。讓它在碰到之前就停。
-     ⚠ 一定要保留 flex-basis:0，別改成 auto：這條是**非同步填資料**的，basis 一旦變內容寬，
-        資料到貨那刻就把右側按鈕擠到下一列（使用者：「有時候突然變兩行、明明還有空間」）。 */
-  .topbar.tf-centered #wrTop3.tb-wr-top3 { max-width: max(0px, calc(50% - 600px)); }
+
 }
 
 /* TF 按鈕略放大 */
@@ -4632,8 +3316,7 @@ html.perf-mode .tb-wr-total { font-size: 20px !important; }
 }
 
 /* 右側 icon 按鈕略放大 + 更清楚 */
-.topbar-right .tb-icon-btn,
-.topbar-right .btn-mode {
+.topbar-right .tb-icon-btn {
   padding: 8px 10px;
   font-size: 13px;
 }
@@ -4665,8 +3348,7 @@ html.perf-mode .tb-wr-total { font-size: 20px !important; }
   padding: revert;
   min-width: revert;
 }
-.topbar-right .tb-icon-btn,
-.topbar-right .btn-mode {
+.topbar-right .tb-icon-btn {
   padding: revert;
   font-size: revert;
 }
@@ -4680,257 +3362,11 @@ html.perf-mode .tb-wr-total { font-size: 20px !important; }
   .topbar { padding: revert !important; }
 }
 
-/* ════════════════════════════════════════
-   勝率欄字級縮回（先前放大太多）
-   只略大於原版，主要靠獨立列的寬鬆呼吸感
-   2026-06：依使用者要求整體再縮小一點（更不佔版面）
-═══════════════════════════════════════ */
-.tb-winrate { height: 30px !important; padding: 0 7px !important; }
-.tb-wr-icon { font-size: 10px; }
-.tb-wr-arr  { font-size: 8px; }
-.tb-wr-pct  { font-size: 10px; }
-.tb-wr-cnt  { font-size: 7.5px; }
-.tb-wr-divider { height: 18px; }
-.tb-wr-total-sep { height: 21px; }
-.tb-wr-total { font-size: 13px !important; padding: 0 4px; }
-.tb-wr-status { font-size: 10px; }
-.tb-wr-from { font-size: 9px; }
-.tb-wr-toggle { font-size: 10px !important; padding: 3px 8px !important; }
-.tb-wr-buffer-input { font-size: 10px !important; width: 34px !important; height: 19px !important; }
-.tb-wr-buffer-pct { font-size: 9px !important; }
-.tb-wr-loading-text { font-size: 11px !important; }
-.tb-wr-loading-bear { width: 18px !important; height: 18px !important; }
+   /* 簡單美學：統一柔和暖橘 */
 
-html.perf-mode .tb-winrate { height: 36px !important; }
-html.perf-mode .tb-wr-icon { font-size: 11px; filter: none; }
-html.perf-mode .tb-wr-pct  { font-size: 11px; }
-html.perf-mode .tb-wr-total { font-size: 14px !important; }
+   /* 簡單美學：統一柔和暖橘 */
 
-@media (max-width: 1180px) and (pointer: fine), (hover: none) and (pointer: coarse) and (orientation: portrait), (hover: none) and (pointer: coarse) and (orientation: landscape) and (max-height: 599px) {
-  .tb-winrate { height: 34px !important; padding: 0 6px !important; }
-  .tb-wr-icon { font-size: 10px; }
-  .tb-wr-pct  { font-size: 10px; }
-  .tb-wr-total { font-size: 13px !important; }
-  .tb-wr-divider { height: 18px; }
-  .tb-wr-total-sep { height: 22px; }
-}
-
-/* 「打到一開始預估止盈」機率 — 小字顯示在總勝率右邊 */
-.tb-wr-est {
-  font-size: 10px;
-  color: var(--muted);
-  font-family: 'SF Mono','Courier New',monospace;
-  margin-left: 5px;
-  letter-spacing: .02em;
-  white-space: nowrap;
-  opacity: .85;
-  cursor: help;
-}
-.tb-wr-recent {
-  font-size: 10px;
-  color: var(--muted);
-  font-family: 'SF Mono','Courier New',monospace;
-  margin-left: 5px;
-  letter-spacing: .02em;
-  white-space: nowrap;
-  cursor: help;
-}
-.tb-wr-recent.good { color: #26d07c; }
-.tb-wr-recent.bad  { color: #ff7a7a; }
-html.perf-mode .tb-wr-recent.good { color: #16a34a; }
-html.perf-mode .tb-wr-recent.bad  { color: #dc2626; }
-.tb-wr-recstop {
-  font-size: 10px; color: #c89bd6; font-family: 'SF Mono','Courier New',monospace;
-  margin-left: 5px; letter-spacing: .02em; white-space: nowrap; cursor: help;
-}
-.tb-wr-recstop.good { color: #26d07c; }
-.tb-wr-recstop.bad  { color: #ff7a7a; }
-html.perf-mode .tb-wr-recstop.good { color: #16a34a; }
-html.perf-mode .tb-wr-recstop.bad  { color: #dc2626; }
-
-/* 敗後停手勝率：常駐顯示的關鍵指標，給暖色藥丸襯底凸顯 */
-.tb-wr-stoprate {
-  font-size: 10px;
-  font-family: 'SF Mono','Courier New',monospace;
-  color: #FFB178;
-  background: rgba(255,160,90,.14);
-  border: 1px solid rgba(255,180,120,.32);
-  border-radius: 5px;
-  padding: 1px 6px;
-  margin-left: 5px;
-  letter-spacing: .02em;
-  white-space: nowrap;
-  cursor: help;
-}
-.tb-wr-stoprate.good { color: #26d07c; border-color: rgba(38,208,124,.45); background: rgba(38,208,124,.12); }
-.tb-wr-stoprate.bad  { color: #ff7a7a; border-color: rgba(255,122,122,.4); background: rgba(255,122,122,.10); }
-html.perf-mode .tb-wr-stoprate { color: #E85A1A; background: rgba(255,106,26,.08); border-color: rgba(255,106,26,.3); }
-html.perf-mode .tb-wr-stoprate.good { color: #16a34a; }
-html.perf-mode .tb-wr-stoprate.bad  { color: #dc2626; }
-
-@media (max-width: 1180px) and (pointer: fine), (hover: none) and (pointer: coarse) and (orientation: portrait), (hover: none) and (pointer: coarse) and (orientation: landscape) and (max-height: 599px) {
-  .tb-wr-est { font-size: 9px; }
-  .tb-wr-recent { font-size: 9px; }
-}
-
-.wr-s10 { color: #C48560; }   /* 簡單美學：統一柔和暖橘 */
-html.perf-mode .wr-s10 { color: #FF6A1A; }
-.wr-s12 { color: #C48560; }   /* 簡單美學：統一柔和暖橘 */
-html.perf-mode .wr-s12 { color: #FF6A1A; }
-.wr-ss1 { color: #26a69a; }   /* SS1 系列：青綠（軌道反轉・深）*/
-html.perf-mode .wr-ss1 { color: #00897B; }
-.wr-ss2 { color: #5aa469; }   /* SS2 系列：黃綠（軌道反轉・淺）*/
-html.perf-mode .wr-ss2 { color: #2E7D32; }
-#wrSeriesToggle.active { background: #26a69a !important; color: #fff !important; border-color: #26a69a !important; }
-.tb-icon-btn-txt { font-size: 11px; font-weight: 800; letter-spacing: .3px; }
-#wrSigSeriesBtn.active { color: #05d9e8; text-shadow: 0 0 6px rgba(5,217,232,.7); }   /* 賽博龐克霓虹青 */
-
-.sig-stat-streak {
-  margin-left: 6px;
-  color: #ffa726;
-  font-size: 10.5px;
-  font-weight: 600;
-  cursor: help;
-}
-html.perf-mode .sig-stat-streak { color: #E85A1A; }
-
-/* ════════════════════════════════════════
-   勝率欄上方 TOP 3 列
-═══════════════════════════════════════ */
-.tb-wr-top3 {
-  flex: 1 1 0 !important;         /* basis 0：只填可用空間、內容過寬時內部捲動，不撐開 row 1 換行 */
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 10px;
-  margin: 0 8px;
-  background: linear-gradient(135deg, rgba(50,30,15,.45), rgba(80,50,20,.38) 50%, rgba(50,30,15,.45));
-  border: 1px solid rgba(255,180,120,.22);
-  border-radius: 6px;
-  font-size: 11px;
-  color: var(--text);
-  white-space: nowrap;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-.tb-wr-top3::-webkit-scrollbar { display: none; }
-.tb-wr-top3:empty { display: none; }
-
-.wr-top3-label {
-  font-size: 9px; font-weight: 700;
-  color: #FFB178; letter-spacing: .5px;
-  flex-shrink: 0;
-}
-.wr-top3-items {
-  display: flex; align-items: center; gap: 3px;
-  flex-shrink: 0;
-}
-.wr-top3-item {
-  display: inline-flex; align-items: baseline; gap: 2px;
-  padding: 1px 4px;
-  border-radius: 3px;
-  background: rgba(255,180,120,.06);
-}
-.wr-top3-name { font-weight: 700; font-size: 10.5px; }   /* 顏色由 wr-{key} class 提供 */
-.wr-top3-dir { font-weight: 700; font-size: 10px; }
-.wr-top3-dir.s { color: #ef7070; }
-.wr-top3-dir.l { color: #4dd0c4; }
-.wr-top3-wr {
-  font-family: 'SF Mono','Courier New',monospace;
-  font-size: 11px; font-weight: 800;
-  color: #fff;
-}
-.wr-top3-sum {
-  margin-left: auto;
-  font-size: 11px; font-weight: 800;
-  color: #FFB178;
-  font-family: 'SF Mono','Courier New',monospace;
-  cursor: help;
-  flex-shrink: 0;
-}
-
-/* 綜合連敗風險（敗後再敗）— 按鈕 + 數字，接在 TOP3 合計後面 */
-.wr-streak-wrap {
-  display: inline-flex; align-items: center; gap: 5px;
-  margin-left: 10px; padding-left: 10px;
-  border-left: 1px solid rgba(255,180,120,.25);
-  font-size: 11px; flex-shrink: 0;
-}
-.wr-streak-btn {
-  font-size: 10.5px; font-weight: 700;
-  color: var(--muted);
-  background: rgba(255,180,120,.10);
-  border: 1px solid rgba(255,180,120,.30);
-  border-radius: 5px; padding: 1px 7px;
-  cursor: pointer; white-space: nowrap;
-  font-family: inherit;
-}
-.wr-streak-btn:hover { background: rgba(255,180,120,.20); }
-.wr-streak-btn.on { color: #FFB178; border-color: rgba(255,180,120,.6); background: rgba(255,160,90,.18); }
-/* 勝率列收合：整條 #winrateBar 隱藏（由 wrTop3 的「勝率 ▾/▸」按鈕切換 .wr-collapsed；
-   wrTop3 在 winrateBar 上方、為獨立兄弟元素 → 收起後切換鈕仍在，可再展開） */
-#winrateBar.wr-collapsed { display: none !important; }
-.wr-stop-detail { cursor: pointer; display: inline-flex; align-items: center; gap: 5px; border-radius: 4px; padding: 0 2px; }
-.wr-stop-detail:hover { background: rgba(255,180,120,.14); box-shadow: 0 0 0 1px rgba(255,180,120,.3) inset; }
-.wr-cond-i { color: #c9cdd6; font-family: 'SF Mono','Courier New',monospace; }
-.wr-cond-i b { font-weight: 800; color: #FFB178; margin-left: 1px; }
-.wr-cond-i.bad  b { color: #ef5350; }
-.wr-cond-i.good b { color: #26a69a; }
-.wr-cond-i small { color: var(--muted); font-size: 9px; margin-left: 1px; }
-html.perf-mode .wr-cond-i b { color: #E85A1A; }
-html.perf-mode .wr-cond-i.bad  b { color: #dc2626; }
-html.perf-mode .wr-cond-i.good b { color: #16a34a; }
-html.perf-mode .wr-cond-i small { color: #8B8B8B; }
-
-/* S12 特別敗後停手（顯示在敗後停手右邊）*/
-.wr-byzantine {
-  color: #c9cdd6;
-  font-family: 'SF Mono','Courier New',monospace;
-  margin-left: 6px;
-  padding: 0 4px;
-  border-left: 1px solid rgba(255,180,120,.24);
-}
-.wr-byzantine b { font-weight: 800; color: #FFB178; margin-left: 2px; }
-.wr-byzantine.bad  b { color: #ef5350; }
-.wr-byzantine.good b { color: #26a69a; }
-.wr-byzantine small { color: var(--muted); font-size: 9px; margin-left: 1px; }
-html.perf-mode .wr-byzantine b { color: #E85A1A; }
-html.perf-mode .wr-byzantine.bad  b { color: #dc2626; }
-html.perf-mode .wr-byzantine.good b { color: #16a34a; }
-html.perf-mode .wr-byzantine small { color: #8B8B8B; }
-html.perf-mode .wr-byzantine { border-left-color: #FFCC80; }
-html.perf-mode .wr-streak-btn { color: #8B6B4A; background: #FFF3E0; border-color: #FFCC80; }
-html.perf-mode .wr-streak-btn.on { color: #E85A1A; border-color: #FFB74D; }
-
-html.perf-mode .tb-wr-top3 {
-  background: #FFF8E1;
-  border-color: #FFD54F;
-  color: #333;
-}
-html.perf-mode .wr-top3-label { color: #E85A1A; }
-html.perf-mode .wr-top3-sum { color: #E85A1A; }
-html.perf-mode .wr-top3-wr { color: #1F1F1F; }
-html.perf-mode .wr-top3-item { background: rgba(255,180,80,.12); }
-
-@media (max-width: 1180px) and (pointer: fine), (hover: none) and (pointer: coarse) and (orientation: portrait), (hover: none) and (pointer: coarse) and (orientation: landscape) and (max-height: 599px) {
-  .tb-wr-top3 { font-size: 10px; height: 22px; padding: 0 6px; }
-  .wr-top3-icon { font-size: 10px; }
-  .wr-top3-wr   { font-size: 11px; }
-  .wr-top3-sum  { font-size: 11px; }
-}
-
-.wr-s11 { color: #C48560; }   /* 簡單美學：統一柔和暖橘 */
-html.perf-mode .wr-s11 { color: #FF6A1A; }
-
-/* 抽屜 section 可收納 */
-.sig-h3-toggle { cursor: pointer; user-select: none; display: flex; align-items: center; justify-content: space-between; }
-.sig-h3-toggle:hover { color: #FFB178; }
-.sig-collapse-arr { font-size: 9px; opacity: .6; transition: transform .15s; }
-.sig-section.collapsed .sig-collapse-arr { transform: rotate(-90deg); }
-.sig-section.collapsed .sig-sec-body { display: none; }
-.sig-sec-body { margin-top: 2px; }
+   /* 簡單美學：統一柔和暖橘 */
 
 /* ═══════════════════════════════════════════════════════════
    Apple 輕量打磨（topbar only）— 保留橘子熊暖色，只升級控制項手感
@@ -4946,7 +3382,6 @@ html.perf-mode .wr-s11 { color: #FF6A1A; }
 .topbar .tb-mkt-select,
 .topbar .tb-symbol-input,
 .topbar .tf-btn,
-.topbar .btn-mode,
 .topbar .ct-btn {
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue",
                "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif !important;
@@ -5030,9 +3465,6 @@ html.perf-mode .wr-s11 { color: #FF6A1A; }
     0 0 0 0.5px rgba(255,145,71,.18) !important;
 }
 
-/* 重播 / 加載按鈕（topbar-right）— 圓角統一 */
-.btn-mode, .btn-load { border-radius: 7px !important; }
-
 /* symbol-bar：主圖上方分界線改用漸層接續，移除 hairline */
 .symbol-bar { border-bottom-color: transparent !important; }
 
@@ -5046,7 +3478,6 @@ html.perf-mode .wr-s11 { color: #FF6A1A; }
    ═══════════════════════════════════════════════════════════ */
 
 /* 控制項字體統一 Apple 系統字 */
-.ticker-panel .ticker-title,
 .ticker-panel .tk-mkt-btn,
 .ticker-panel .tk-seg-btn,
 .ticker-panel .tk-search,
@@ -5065,7 +3496,6 @@ html.perf-mode .wr-s11 { color: #FF6A1A; }
   padding: 9px 10px 8px !important;
   border-bottom-color: rgba(61, 40, 32, 0.35) !important;
 }
-.ticker-title { font-size: 12.5px !important; font-weight: 600 !important; }
 
 /* ═══ iOS segmented：市場分類（台股/合約）── 同 TF 按鈕配方 ═══ */
 .tk-mkt-tabs {
@@ -5157,14 +3587,6 @@ html.perf-mode .wr-s11 { color: #FF6A1A; }
 .tk-price-val { font-size: 12.5px !important; font-weight: 600 !important; font-variant-numeric: tabular-nums !important; }
 .tk-chg-row   { font-variant-numeric: tabular-nums !important; }
 
-/* 自選項目（watchlist）圓角＆hover 一致 */
-.wl-item {
-  border-radius: 8px !important;
-  padding: 6px 8px !important;
-  transition: background .12s !important;
-}
-.wl-item:hover { background: rgba(255,145,71,.06) !important; }
-
 /* ── ticker-hd：合約/台股 與 漲跌量 改單列（緊湊 + 最大上移）── */
 .ticker-hd {
   flex-direction: row !important;
@@ -5243,480 +3665,6 @@ html.perf-mode .ticker-panel,
 html.perf-mode .ticker-hd { background: #FFFFFF !important; }
 
 /* ═══════════════════════════════════════════════════════════
-   策略勝率欄 + TOP3/敗後停手 — Apple 暗色橘暖調和
-   - 11 個訊號色統一 L≈63%, S≈48%，warm 留鮮、cool 退飽和
-   - icon 加大、block 間距拉寬、hover affordance
-   - TOP3 列改用同色族 gradient + 暖色 accent
-   ═══════════════════════════════════════════════════════════ */
-
-/* ── S1-S11 訊號 icon 色：HSL 同明度/同飽和度調和（warm 留亮、cool 退飽和）── */
-.wr-abc { color: #e07474 !important; }   /* S1 暖紅 */
-.wr-ab  { color: #e09955 !important; }   /* S2 暖橘（接 brand） */
-.wr-s3  { color: #c889c2 !important; }   /* S3 mauve */
-.wr-s4  { color: #6db8a5 !important; }   /* S4 退飽和青 */
-.wr-s5  { color: #e0a85a !important; }   /* S5 蜂蜜 */
-.wr-s6  { color: #8e94b8 !important; }   /* S6 退飽和淡紫 */
-.wr-s7  { color: #6fb0b8 !important; }   /* S7 退飽和青 */
-.wr-s8  { color: #d878a0 !important; }   /* S8 玫瑰 */
-.wr-s9  { color: #d4c060 !important; }   /* S9 米金（不再鮮黃） */
-.wr-s10 { color: #7298b8 !important; }   /* S10 退飽和藍 */
-.wr-s11 { color: #94b870 !important; }   /* S11 鼠尾草綠 */
-.wr-s12 { color: #d89270 !important; }   /* S12 焦糖橙 */
-
-/* Icon 加大 + 柔和 glow（不再硬光） */
-.tb-wr-icon {
-  font-size: 11px !important;
-  filter: drop-shadow(0 0 2px currentColor) !important;
-  opacity: .92;
-}
-
-/* Block 間距加寬 + hover affordance */
-.tb-wr-scroll { gap: 5px !important; }
-.tb-wr-block {
-  gap: 5px !important;
-  padding: 2px 5px !important;
-  border-radius: 6px !important;
-  cursor: pointer;
-  transition: background .15s !important;
-}
-.tb-wr-block:hover {
-  background: rgba(255,145,71,.07) !important;
-}
-
-/* 訊號間細分隔線：更淡（拉開間距後不需明顯線） */
-.tb-wr-divider {
-  background: linear-gradient(to bottom,
-    transparent 0%,
-    rgba(255,200,140,.10) 50%,
-    transparent 100%) !important;
-  height: 14px !important;
-}
-
-/* 勝率數字 — 字體稍大、配色柔化 */
-.tb-wr-pct { font-size: 11px !important; }
-.tb-wr-v.good .tb-wr-pct {
-  color: #8fcba6 !important;            /* 適度飽和，無螢光 */
-  text-shadow: none !important;
-}
-.tb-wr-v.bad  .tb-wr-pct { color: #d49595 !important; text-shadow: none !important; }
-.tb-wr-cnt { color: rgba(255,180,120,.42) !important; }
-
-/* ═══ TOP3 + 敗後停手列：同色族 gradient ═══ */
-.tb-wr-top3 {
-  height: 30px !important;
-  gap: 8px !important;
-  padding: 0 12px !important;
-  background: linear-gradient(135deg,
-    rgba(45,28,16,.55) 0%,
-    rgba(70,42,20,.48) 50%,
-    rgba(45,28,16,.55) 100%) !important;
-  border: 1px solid rgba(255,165,90,.22) !important;
-  border-radius: 8px !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255,200,150,.06),
-    0 2px 8px rgba(0,0,0,.30) !important;
-}
-
-.wr-top3-label {
-  color: var(--accent) !important;
-  letter-spacing: .14em !important;
-  font-size: 9.5px !important;
-  opacity: .85;
-}
-
-.wr-top3-item {
-  padding: 2px 6px !important;
-  border-radius: 5px !important;
-  background: rgba(255,165,90,.08) !important;
-  transition: background .15s !important;
-}
-.wr-top3-item:hover { background: rgba(255,165,90,.16) !important; }
-.wr-top3-name { font-size: 11px !important; opacity: .95; }
-.wr-top3-dir.s { color: #e89090 !important; }   /* 配 .bad pct 同階 */
-.wr-top3-dir.l { color: #6dd8c8 !important; }   /* 配 .good pct 同階 */
-.wr-top3-wr {
-  font-size: 11.5px !important;
-  color: #FFE0BE !important;                      /* 暖白、不再純白 */
-  letter-spacing: 0 !important;
-}
-.wr-top3-sum {
-  color: var(--accent) !important;
-  font-size: 11.5px !important;
-  text-shadow: 0 0 6px rgba(255,145,71,.35) !important;
-}
-
-/* 敗後停手 / 連敗按鈕 */
-.wr-streak-wrap {
-  border-left-color: rgba(255,165,90,.20) !important;
-  padding-left: 12px !important;
-  margin-left: 12px !important;
-}
-.wr-streak-btn {
-  font-size: 10.5px !important;
-  padding: 3px 9px !important;
-  border-radius: 6px !important;
-  background: rgba(255,165,90,.08) !important;
-  border-color: rgba(255,165,90,.28) !important;
-  color: rgba(255,200,160,.78) !important;
-  transition: all .15s !important;
-}
-.wr-streak-btn:hover {
-  background: rgba(255,165,90,.18) !important;
-  border-color: rgba(255,165,90,.45) !important;
-  color: var(--text) !important;
-}
-.wr-streak-btn.on {
-  background: linear-gradient(180deg,
-    rgba(255,170,90,.40) 0%,
-    rgba(255,130,50,.30) 100%) !important;
-  border-color: rgba(255,180,120,.55) !important;
-  color: #FFE0BE !important;
-  text-shadow: 0 0 4px rgba(255,180,120,.45) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255,220,180,.18),
-    0 0 6px rgba(255,145,71,.25) !important;
-}
-
-/* 條件數字（連敗風險 / 敗後停手結果）— 統一 hover ring */
-.wr-stop-detail {
-  padding: 1px 5px !important;
-  border-radius: 5px !important;
-  transition: background .15s, box-shadow .15s !important;
-}
-.wr-stop-detail:hover {
-  background: rgba(255,165,90,.12) !important;
-  box-shadow: 0 0 0 1px rgba(255,180,120,.35) inset !important;
-}
-.wr-cond-i { color: #d4b8a0 !important; }                /* 由 #c9cdd6 改暖灰 */
-.wr-cond-i b { color: var(--accent) !important; }
-.wr-cond-i.bad  b { color: #e89090 !important; }
-.wr-cond-i.good b { color: #6dd8c8 !important; }
-.wr-cond-i small { color: rgba(255,180,120,.45) !important; }
-
-/* ═══════════════════════════════════════════════════════════
-   策略區 — 漸層感強化（多 stop + gradient text-fill）
-   ═══════════════════════════════════════════════════════════ */
-
-/* ── S1-S11 icon 改成 gradient fill（從亮→當前色→暗），有立體感 ── */
-.tb-wr-icon {
-  background: linear-gradient(135deg,
-    color-mix(in srgb, currentColor 100%, white 35%) 0%,
-    currentColor 50%,
-    color-mix(in srgb, currentColor 100%, black 30%) 100%) !important;
-  -webkit-background-clip: text !important;
-  background-clip: text !important;
-  -webkit-text-fill-color: transparent !important;
-  filter: drop-shadow(0 0 3px currentColor)
-          drop-shadow(0 1px 1px rgba(0,0,0,.4)) !important;
-}
-
-/* ── Block hover：扁平 tint → 暖橘對角漸層 ── */
-.tb-wr-block:hover {
-  background: linear-gradient(135deg,
-    rgba(255,165,90,.04) 0%,
-    rgba(255,140,60,.14) 50%,
-    rgba(255,165,90,.04) 100%) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255,200,150,.10),
-    inset 0 -1px 0 rgba(0,0,0,.25) !important;
-}
-
-/* ── 勝率數字（good/bad）：純色 + 適度飽和（無漸層 / 無 glow）── */
-.tb-wr-v.good .tb-wr-pct {
-  background: none !important;
-  -webkit-text-fill-color: currentColor !important;
-  color: #8fcba6 !important;
-  text-shadow: none !important;
-  filter: none !important;
-}
-.tb-wr-v.bad .tb-wr-pct {
-  background: none !important;
-  -webkit-text-fill-color: currentColor !important;
-  color: #d49595 !important;
-  text-shadow: none !important;
-  filter: none !important;
-}
-
-/* ── 分隔線 — 多 stop 流線（亮中暗循環）── */
-.tb-wr-divider {
-  background: linear-gradient(180deg,
-    transparent 0%,
-    rgba(255,140,60,.05) 15%,
-    rgba(255,200,140,.25) 38%,
-    rgba(255,230,180,.35) 50%,
-    rgba(255,200,140,.25) 62%,
-    rgba(255,140,60,.05) 85%,
-    transparent 100%) !important;
-  height: 16px !important;
-  width: 1px !important;
-  box-shadow: 0 0 3px rgba(255,180,120,.20) !important;
-}
-
-/* ═══ TOP3 列 — 多 stop 大跨度漸層 + ::before 流光 ═══ */
-.tb-wr-top3 {
-  position: relative;
-  background:
-    linear-gradient(135deg,
-      rgba(28,16,8,.70) 0%,
-      rgba(55,32,16,.55) 25%,
-      rgba(78,46,22,.50) 50%,
-      rgba(55,32,16,.55) 75%,
-      rgba(28,16,8,.70) 100%) !important;
-  border: 1px solid transparent !important;
-  border-image: linear-gradient(135deg,
-    rgba(255,145,71,.35) 0%,
-    rgba(255,200,140,.18) 50%,
-    rgba(255,145,71,.35) 100%) 1 !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255,210,160,.12),
-    inset 0 -1px 0 rgba(0,0,0,.45),
-    0 2px 10px rgba(0,0,0,.40) !important;
-  overflow: hidden;
-}
-/* TOP3 內部頂部一條超細漸層高光（HUD 感）*/
-.tb-wr-top3::before {
-  content: '';
-  position: absolute;
-  top: 0; left: 10%; right: 10%;
-  height: 1px;
-  background: linear-gradient(90deg,
-    transparent 0%,
-    rgba(255,200,140,.45) 35%,
-    rgba(255,220,170,.55) 50%,
-    rgba(255,200,140,.45) 65%,
-    transparent 100%);
-  pointer-events: none;
-}
-
-/* TOP3 item — 暖橘對角漸層底 */
-.wr-top3-item {
-  background: linear-gradient(135deg,
-    rgba(255,165,90,.04) 0%,
-    rgba(255,140,60,.12) 50%,
-    rgba(255,165,90,.04) 100%) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255,200,150,.08),
-    inset 0 -1px 0 rgba(0,0,0,.20) !important;
-  transition: background .15s, box-shadow .15s !important;
-}
-.wr-top3-item:hover {
-  background: linear-gradient(135deg,
-    rgba(255,165,90,.10) 0%,
-    rgba(255,140,60,.24) 50%,
-    rgba(255,165,90,.10) 100%) !important;
-}
-
-/* TOP3 sum 改 gradient text-fill */
-.wr-top3-sum {
-  background: linear-gradient(180deg, #FFD8B0 0%, #FF9147 55%, #E55A0A 100%) !important;
-  -webkit-background-clip: text !important;
-  background-clip: text !important;
-  -webkit-text-fill-color: transparent !important;
-  color: transparent !important;
-  filter: drop-shadow(0 0 4px rgba(255,145,71,.45)) !important;
-}
-
-/* TOP3 wr 數字 — 暖白漸層 */
-.wr-top3-wr {
-  background: linear-gradient(180deg, #FFEFD8 0%, #FFD8B0 100%) !important;
-  -webkit-background-clip: text !important;
-  background-clip: text !important;
-  -webkit-text-fill-color: transparent !important;
-  color: transparent !important;
-}
-
-/* TOP3 label */
-.wr-top3-label {
-  background: linear-gradient(180deg, #FFC890 0%, #FF8C40 100%) !important;
-  -webkit-background-clip: text !important;
-  background-clip: text !important;
-  -webkit-text-fill-color: transparent !important;
-  color: transparent !important;
-}
-
-/* ═══ 連敗 / 敗後停手按鈕 — base 與 .on 都加深漸層 ═══ */
-.wr-streak-btn {
-  background: linear-gradient(180deg,
-    rgba(255,165,90,.12) 0%,
-    rgba(255,140,60,.04) 100%) !important;
-  border: 1px solid transparent !important;
-  border-image: linear-gradient(180deg,
-    rgba(255,165,90,.38) 0%,
-    rgba(255,140,60,.18) 100%) 1 !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255,200,150,.10),
-    inset 0 -1px 0 rgba(0,0,0,.20) !important;
-}
-.wr-streak-btn:hover {
-  background: linear-gradient(180deg,
-    rgba(255,165,90,.22) 0%,
-    rgba(255,140,60,.10) 100%) !important;
-}
-.wr-streak-btn.on {
-  background: linear-gradient(180deg,
-    rgba(255,200,130,.55) 0%,
-    rgba(255,140,60,.40) 45%,
-    rgba(255,100,30,.50) 100%) !important;
-  border-image: linear-gradient(180deg,
-    rgba(255,210,150,.7) 0%,
-    rgba(255,160,80,.5) 100%) 1 !important;
-  color: #FFFFFF !important;
-  text-shadow:
-    0 0 5px rgba(255,200,140,.85),
-    0 1px 0 rgba(0,0,0,.30) !important;
-  box-shadow:
-    inset 0 0 6px rgba(255,210,170,.40),
-    inset 0 1px 0 rgba(255,255,255,.22),
-    0 0 10px rgba(255,145,71,.40) !important;
-}
-
-/* 條件數字 hover 改漸層底 */
-.wr-stop-detail:hover {
-  background: linear-gradient(135deg,
-    rgba(255,165,90,.06) 0%,
-    rgba(255,140,60,.20) 50%,
-    rgba(255,165,90,.06) 100%) !important;
-  box-shadow: 0 0 0 1px rgba(255,180,120,.40) inset !important;
-}
-.wr-cond-i b {
-  background: linear-gradient(180deg, #FFD8B0 0%, #FF9147 100%) !important;
-  -webkit-background-clip: text !important;
-  background-clip: text !important;
-  -webkit-text-fill-color: transparent !important;
-  color: transparent !important;
-}
-.wr-cond-i.bad b {
-  background: linear-gradient(180deg, #FFA8A8 0%, #EF5350 100%) !important;
-  -webkit-background-clip: text !important;
-  background-clip: text !important;
-  -webkit-text-fill-color: transparent !important;
-}
-.wr-cond-i.good b {
-  background: linear-gradient(180deg, #6DD8C8 0%, #26A69A 100%) !important;
-  -webkit-background-clip: text !important;
-  background-clip: text !important;
-  -webkit-text-fill-color: transparent !important;
-}
-
-/* ═══════════════════════════════════════════════════════════
-   策略區 — 打破單調感（節奏 / 分組 / hero / 紋理）
-   ═══════════════════════════════════════════════════════════ */
-
-/* ── 訊號 block 交錯底色（odd/even nth-child 視覺節奏）── */
-.tb-wr-scroll .tb-wr-block:nth-of-type(odd) {
-  background: linear-gradient(180deg,
-    rgba(255,165,90,.025) 0%,
-    rgba(255,140,60,.06) 100%) !important;
-}
-.tb-wr-scroll .tb-wr-block:nth-of-type(even) {
-  background: linear-gradient(180deg,
-    rgba(80,55,30,.10) 0%,
-    rgba(50,32,18,.15) 100%) !important;
-}
-/* hover 仍蓋過交錯（用 .tb-wr-block:hover 已 !important） */
-
-/* ── 分組分隔線：S1 後（abc）/ S6 後（前段結束）特別粗 ── */
-/* 由 HTML 結構推算：abc(S1) 後第 1 條 divider；S6 後是第 6 條 */
-.tb-wr-scroll .tb-wr-divider:nth-of-type(2),
-.tb-wr-scroll .tb-wr-divider:nth-of-type(12) {
-  width: 2px !important;
-  height: 22px !important;
-  background: linear-gradient(180deg,
-    transparent 0%,
-    rgba(255,140,60,.15) 12%,
-    rgba(255,180,100,.55) 38%,
-    rgba(255,210,140,.70) 50%,
-    rgba(255,180,100,.55) 62%,
-    rgba(255,140,60,.15) 88%,
-    transparent 100%) !important;
-  box-shadow:
-    0 0 4px rgba(255,160,80,.35),
-    0 0 8px rgba(255,140,60,.18) !important;
-  border-radius: 2px !important;
-  margin: 0 4px !important;
-}
-
-/* ── TOP3 hero：sum 數字升級為大型重點顯示 ── */
-.wr-top3-sum {
-  font-size: 14px !important;
-  font-weight: 900 !important;
-  letter-spacing: -.01em !important;
-  padding: 2px 8px !important;
-  border-radius: 6px !important;
-  background:
-    linear-gradient(135deg,
-      rgba(255,200,130,.22) 0%,
-      rgba(255,140,60,.32) 50%,
-      rgba(255,100,30,.28) 100%) !important;
-  border: 1px solid rgba(255,180,120,.45) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255,220,180,.25),
-    0 0 8px rgba(255,145,71,.30) !important;
-  /* gradient text-fill 蓋過外層 bg */
-  color: #FFFFFF !important;
-  -webkit-background-clip: border-box !important;
-  background-clip: border-box !important;
-  -webkit-text-fill-color: #FFFFFF !important;
-  text-shadow:
-    0 0 6px rgba(255,200,140,.85),
-    0 1px 0 rgba(0,0,0,.30) !important;
-  filter: none !important;
-}
-
-/* ── TOP3 bg 加 subtle 噪點紋理（避免大色塊單調）── */
-.tb-wr-top3 {
-  background-image:
-    /* 對角細條紋（極淡，1px 間距） */
-    repeating-linear-gradient(135deg,
-      transparent 0px,
-      transparent 2px,
-      rgba(255,200,140,.018) 2px,
-      rgba(255,200,140,.018) 3px),
-    linear-gradient(135deg,
-      rgba(28,16,8,.70) 0%,
-      rgba(55,32,16,.55) 25%,
-      rgba(78,46,22,.50) 50%,
-      rgba(55,32,16,.55) 75%,
-      rgba(28,16,8,.70) 100%) !important;
-}
-
-/* ── winrate 列保持透明（讓天氣 canvas 透過）— 條紋紋理移除 ── */
-.tb-winrate {
-  background-image: none !important;
-  background-color: transparent !important;
-}
-
-/* ── S1 (abc) block：標註「參考」— 簡單美學：只用 opacity 降階，不加框 ── */
-.tb-wr-scroll .tb-wr-block:first-of-type {
-  opacity: .55;
-}
-.tb-wr-scroll .tb-wr-block:first-of-type:hover {
-  opacity: 1;
-}
-
-/* ── 連敗按鈕 .on 加 subtle pulse（節奏感不只在配色，動態也算）── */
-@keyframes wr-streak-pulse {
-  0%, 100% { box-shadow:
-    inset 0 0 6px rgba(255,210,170,.40),
-    inset 0 1px 0 rgba(255,255,255,.22),
-    0 0 10px rgba(255,145,71,.40); }
-  50%      { box-shadow:
-    inset 0 0 8px rgba(255,220,180,.55),
-    inset 0 1px 0 rgba(255,255,255,.30),
-    0 0 16px rgba(255,145,71,.60); }
-}
-.wr-streak-btn.on {
-  animation: wr-streak-pulse 2.2s ease-in-out infinite !important;
-}
-
-/* ── TOP3 item 內部數字加上下微縱條（區分視覺重心）── */
-.wr-top3-name {
-  border-left: 2px solid rgba(255,165,90,.35);
-  padding-left: 5px;
-  margin-right: 2px;
-}
-
-/* ═══════════════════════════════════════════════════════════
    色彩系統整合 — 三層 layer：互動暖橘 / 數據冷青紅 / 文字暖白
    ═══════════════════════════════════════════════════════════ */
 :root {
@@ -5765,88 +3713,16 @@ html.perf-mode {
   --txt-faint: #8B8B8B;
 }
 
-/* ── 套用：勝率數字（純色，適度飽和、無漸層、無 glow）── */
-.tb-wr-v.good .tb-wr-pct {
-  background: none !important;
-  -webkit-text-fill-color: currentColor !important;
-  color: #8fcba6 !important;
-  filter: none !important;
-}
-.tb-wr-v.bad .tb-wr-pct {
-  background: none !important;
-  -webkit-text-fill-color: currentColor !important;
-  color: #d49595 !important;
-  filter: none !important;
-}
-
-/* ── 套用：總勝率 ── */
-.tb-wr-total.good {
-  background: linear-gradient(180deg, var(--data-win-hi) 0%, var(--data-win-deep) 100%) !important;
-  -webkit-background-clip: text !important;
-  background-clip: text !important;
-  -webkit-text-fill-color: transparent !important;
-  filter: drop-shadow(0 0 6px var(--data-win-glow)) !important;
-}
-.tb-wr-total.bad {
-  background: linear-gradient(180deg, var(--data-loss-hi) 0%, var(--data-loss-deep) 100%) !important;
-  -webkit-background-clip: text !important;
-  background-clip: text !important;
-  -webkit-text-fill-color: transparent !important;
-  filter: drop-shadow(0 0 6px var(--data-loss-glow)) !important;
-}
-
-/* ── 套用：TOP3 / 敗後停手 方向色（s=空=loss、l=多=win）── */
-.tb-wr-arr.s,
-.wr-top3-dir.s,
-/* 只覆蓋 winrate 內部的方向色，不動全站 .up/.dn（ticker 價格、K 線等保留 var(--red)/var(--green)） */
-.tb-wr-arr.l,
-.wr-top3-dir.l { color: var(--data-win) !important; }
-
-/* ── 條件數字（bad/good）統一 ── */
-.wr-cond-i.bad b {
-  background: linear-gradient(180deg, var(--data-loss-hi) 0%, var(--data-loss) 100%) !important;
-  -webkit-background-clip: text !important;
-  background-clip: text !important;
-  -webkit-text-fill-color: transparent !important;
-}
-.wr-cond-i.good b {
-  background: linear-gradient(180deg, var(--data-win-hi) 0%, var(--data-win) 100%) !important;
-  -webkit-background-clip: text !important;
-  background-clip: text !important;
-  -webkit-text-fill-color: transparent !important;
-}
-.wr-cond-i b {
-  background: linear-gradient(180deg, var(--ui-accent-hi) 0%, var(--ui-accent) 100%) !important;
-  -webkit-background-clip: text !important;
-  background-clip: text !important;
-  -webkit-text-fill-color: transparent !important;
-}
-
-/* ── TOP3 / 連敗按鈕都改吃 --ui-accent 系列 ── */
-.wr-top3-label,
-.wr-top3-sum {
-  background: linear-gradient(180deg, var(--ui-accent-hi) 0%, var(--ui-accent) 55%, var(--ui-accent-deep) 100%) !important;
-  -webkit-background-clip: text !important;
-  background-clip: text !important;
-  -webkit-text-fill-color: transparent !important;
-  color: transparent !important;
-}
-.wr-top3-sum {
-  /* sum 還是有外框 hero — 強制疊回外框 + 透明文字漸層 */
-  -webkit-text-fill-color: #FFFFFF !important;
-  background:
-    linear-gradient(135deg, var(--ui-accent-soft) 0%, var(--ui-accent-glow) 50%, var(--ui-accent-soft) 100%) !important;
-  border-color: var(--ui-accent-soft) !important;
-}
-
 /* ── Topbar 互動元素：所有 active/hover 都吃 --ui-accent ── */
 .tf-btn.active,
 .tk-mkt-btn.active,
 .tk-seg-btn.active {
   color: var(--ui-accent) !important;
 }
-.tf-btn:hover, .tk-mkt-btn:hover:not(.active), .tk-seg-btn:hover:not(.active),
-.wl-item:hover, .ticker-item:hover {
+.tf-btn:hover,
+.tk-mkt-btn:hover:not(.active),
+.tk-seg-btn:hover:not(.active),
+.ticker-item:hover {
   background: var(--ui-accent-faint) !important;
 }
 
@@ -5862,59 +3738,6 @@ html.perf-mode {
 .tk-full      { color: var(--txt-mute) !important; }
 .tk-price-val { color: var(--txt-hi) !important; }
 .tk-chg-amt   { color: var(--txt-mute) !important; }
-
-/* ── 移除過去散落的硬色（讓 var token 接管）── */
-.tb-wr-arr.s, .tb-wr-arr.l { font-weight: 700; }
-
-/* ═══════════════════════════════════════════════════════════
-   策略勝率框 — 邊界漸層用 user 選的 var(--bg)/var(--bg2) 衍生
-   - 拿掉硬橘框 + 外發光 glow + backdrop blur（HUD 科幻感）
-   - 保留漸層感（從 user color 衍生 + 細邊框 hairline gradient）
-   ═══════════════════════════════════════════════════════════ */
-.tb-winrate {
-  /* 完全透明 + 只保留上下兩條淡 hairline（左右無邊、無圓角，融入 topbar） */
-  background: transparent !important;
-  background-image: none !important;
-  border: none !important;
-  border-top: 1px solid rgba(255, 200, 160, 0.10) !important;
-  border-bottom: 1px solid rgba(255, 200, 160, 0.10) !important;
-  border-image: none !important;
-  border-radius: 0 !important;
-  box-shadow: none !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
-}
-
-/* 動畫流光與頂部高光：拿掉（HUD 感太重） */
-.tb-winrate::before,
-.tb-winrate::after { display: none !important; }
-
-/* TOP3 列 — 同樣用 user color 衍生漸層 + gradient hairline */
-.tb-wr-top3 {
-  background:
-    repeating-linear-gradient(135deg,
-      transparent 0px,
-      transparent 2px,
-      rgba(255,200,140,.012) 2px,
-      rgba(255,200,140,.012) 3px),
-    linear-gradient(135deg,
-      color-mix(in srgb, var(--bg) 75%, var(--bg2) 25%) 0%,
-      color-mix(in srgb, var(--bg) 55%, var(--bg2) 45%) 50%,
-      color-mix(in srgb, var(--bg) 75%, var(--bg2) 25%) 100%) !important;
-  border: 1px solid transparent !important;
-  border-image: linear-gradient(135deg,
-    transparent 0%,
-    rgba(255,145,71,.25) 30%,
-    rgba(255,200,140,.40) 50%,
-    rgba(255,145,71,.25) 70%,
-    transparent 100%) 1 !important;
-  border-radius: 8px !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255,200,150,.06),
-    inset 0 -1px 0 rgba(0,0,0,.30),
-    0 1px 4px rgba(0,0,0,.30) !important;
-}
-.tb-wr-top3::before { display: none !important; }
 
 /* ── 區邊界改用漸層銜接（不再畫 hairline）；保留 border-bottom:0 ── */
 .topbar {
@@ -5958,89 +3781,6 @@ html.perf-mode { background: #FFFFFF !important; }
 html.perf-mode .charts-container { background: #FFFFFF !important; }
 
 /* ═══════════════════════════════════════════════════════════
-   FINAL：簡單美學 — TOP3 / 敗後停手列全面去螢光、去漸層文字
-   蓋掉前面散落的 gradient text-fill + drop-shadow + text-shadow
-   ═══════════════════════════════════════════════════════════ */
-/* TOP3 名稱 / 數字 / 標籤 — 純色 */
-.wr-top3-sum,
-.wr-top3-wr,
-.wr-top3-label {
-  background: none !important;
-  background-image: none !important;
-  -webkit-text-fill-color: currentColor !important;
-  color: #E8A270 !important;       /* 暖橘 accent，無漸層 */
-  filter: none !important;
-  text-shadow: none !important;
-  border-color: transparent !important;
-}
-.wr-top3-name { color: rgba(228,218,206,.88) !important; }
-.wr-top3-dir.s { color: #d49595 !important; }
-.wr-top3-dir.l { color: #8fcba6 !important; }
-
-/* 連敗 / 敗後停手按鈕 — 透明底、純色字、無 glow / 無 pulse */
-.wr-streak-btn {
-  background: transparent !important;
-  background-image: none !important;
-  border: none !important;                 /* 完全無框 */
-  border-image: none !important;
-  outline: none !important;
-  color: rgba(228,218,206,.78) !important;
-  text-shadow: none !important;
-  box-shadow: none !important;
-  animation: none !important;
-}
-.wr-streak-btn:hover {
-  background: rgba(255,180,120,.10) !important;
-  background-image: none !important;
-  border: none !important;
-  color: #E8A270 !important;
-}
-.wr-streak-btn.on {
-  background: rgba(255,140,60,.16) !important;
-  background-image: none !important;
-  border: none !important;                 /* .on 也無框 */
-  color: #E8A270 !important;
-  text-shadow: none !important;
-  box-shadow: none !important;
-  animation: none !important;
-}
-
-/* 條件數字（連敗 / 敗後停手結果）— 純色 b 元素 */
-.wr-cond-i      { color: rgba(228,218,206,.88) !important; font-family: inherit !important; }
-.wr-cond-i b    {
-  background: none !important; background-image: none !important;
-  -webkit-text-fill-color: currentColor !important;
-  color: #E8A270 !important;
-  filter: none !important; text-shadow: none !important;
-}
-.wr-cond-i.good b {
-  -webkit-text-fill-color: currentColor !important;
-  color: #8fcba6 !important;
-  background: none !important; background-image: none !important;
-  filter: none !important;
-}
-.wr-cond-i.bad b {
-  -webkit-text-fill-color: currentColor !important;
-  color: #d49595 !important;
-  background: none !important; background-image: none !important;
-  filter: none !important;
-}
-.wr-cond-i small { color: rgba(228,218,206,.40) !important; }
-
-/* hover detail：簡化（無 inset 雙線、無漸層）*/
-.wr-stop-detail:hover {
-  background: rgba(255,180,120,.10) !important;
-  background-image: none !important;
-  box-shadow: none !important;
-}
-
-/* TOP3 行 item hover：簡化 */
-.wr-top3-item:hover {
-  background: rgba(255,180,120,.08) !important;
-  background-image: none !important;
-}
-
-/* ═══════════════════════════════════════════════════════════
    游標鎖定：任何狀況、任何元素都用魔法棒游標
    — 用 :is(*) :where() :hover :focus :active 全狀態 + 偽元素全覆寫
    ═══════════════════════════════════════════════════════════ */
@@ -6074,65 +3814,30 @@ canvas, svg, iframe, embed, object,
    - 數字自動 tabular-nums
    - 把所有散落 SF Mono / Courier New / monospace 統一掉
    ═══════════════════════════════════════════════════════════ */
-body, button, input, select, textarea,
-.tb-wr-v, .tb-wr-pct, .tb-wr-arr, .tb-wr-cnt,
-.tb-wr-total, .tb-wr-recent, .tb-wr-est, .tb-wr-from, .tb-wr-status,
-.tb-wr-toggle, .tb-wr-buffer-input, .tb-wr-buffer-pct, .tb-wr-loading-text,
-.wr-cond-i, .wr-streak-btn, .wr-stop-detail,
-.wr-top3-name, .wr-top3-dir, .wr-top3-wr, .wr-top3-sum, .wr-top3-label,
-.rp-time, .rp-progress, .sym-label, .sym-val, .sym-name,
-.tk-sym, .tk-full, .tk-price-val, .tk-chg-row {
+body,
+button,
+input,
+select,
+textarea,
+.rp-time,
+.rp-progress,
+.sym-label,
+.sym-val,
+.sym-name,
+.tk-sym,
+.tk-full,
+.tk-price-val,
+.tk-chg-row {
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
                "Helvetica Neue", "PingFang TC", "Microsoft JhengHei",
                system-ui, sans-serif !important;
 }
 /* 數字統一 tabular-nums 對齊（不影響非數字） */
-.tb-wr-v, .tb-wr-pct, .tb-wr-total, .tb-wr-recent, .tb-wr-est,
-.tb-wr-from, .tb-wr-status, .tb-wr-buffer-input,
-.wr-cond-i, .wr-cond-i b, .wr-top3-wr, .wr-top3-sum,
-.tk-price-val, .tk-chg-row, .rp-time, .rp-progress,
+.tk-price-val,
+.tk-chg-row,
+.rp-time,
+.rp-progress,
 .sym-val { font-variant-numeric: tabular-nums !important; }
-
-/* ═══════════════════════════════════════════════════════════
-   敗後停手列 (.tb-wr-top3)：TOP3 已移除，只剩單按鈕 → 右收齊
-   無背景、無邊框、保持 row 高度供按鈕浮在右側
-   ═══════════════════════════════════════════════════════════ */
-.tb-wr-top3 {
-  background: transparent !important;
-  background-image: none !important;
-  border: none !important;
-  border-image: none !important;
-  border-radius: 0 !important;
-  box-shadow: none !important;
-  padding: 0 8px !important;
-  justify-content: flex-start !important;  /* 按鈕靠左：cond 數字往右延伸，按鈕不亂跳 */
-  height: 26px !important;
-}
-.tb-wr-top3::before { display: none !important; }
-
-/* TOP3 個別 item — 透明底、圓角，hover 才微亮 */
-.wr-top3-item {
-  background: transparent !important;
-  background-image: none !important;
-  box-shadow: none !important;
-  border-radius: 7px !important;
-  padding: 2px 8px !important;
-  transition: background .15s ease !important;
-}
-.wr-top3-item:hover {
-  background: rgba(255,180,120,.08) !important;
-  background-image: none !important;
-  box-shadow: none !important;
-}
-
-/* 「敗後停手」/ 連敗按鈕本身 — 全圓角膠囊（pill），消除稜角 */
-.wr-streak-btn {
-  border-radius: 99px !important;     /* 完全圓 */
-  padding: 4px 12px !important;        /* 配合膠囊形狀 */
-  min-width: 72px !important;          /* 固定寬：避免「關/2連/敗後停手」標籤切換時尺寸跳動 */
-  text-align: center !important;
-  transition: background-color .12s ease, color .12s ease !important;  /* 收斂 transition，不再 all */
-}
 
 /* ─────────────────────────────────────────────────────
    副圖指標 顯示/隱藏 — 左側 draw-toolbar 最底部
@@ -6154,97 +3859,6 @@ body, button, input, select, textarea,
 .charts-container.subcharts-hidden .pane-divider[data-target="rsiPane"] {
   display: none !important;
 }
-.wr-streak-btn.on {
-  border-radius: 99px !important;
-}
-
-/* 中軌/上下軌/1:1 切換按鈕 — 同樣 fix 「閃一下」：固定寬 + 收斂 transition */
-.tb-wr-toggle {
-  min-width: 56px !important;           /* 容納最長的「上/下軌」三字 + 一字 + 餘裕 */
-  text-align: center !important;
-  transition: background-color .12s ease, color .12s ease !important;
-}
-/* 同時拿掉 .band/.rr 的 glow/inset — 跟簡單美學一致、也降低 transition 起點/終點差距 */
-.tb-wr-toggle.band, .tb-wr-toggle.rr {
-  text-shadow: none !important;
-  box-shadow: none !important;
-}
-
-/* ═══ 右側總勝率區（wrAll / wrRecent100 / wrEstHit / wrFromDate / wrStatus）═══
-   全部統一 SF Pro 系統字、tabular-nums、無 gradient text / 無 glow */
-.tb-wr-total {
-  font-size: 17px !important;
-  font-weight: 600 !important;
-  font-family: -apple-system, "SF Pro Display", "SF Pro Text", "Helvetica Neue",
-               "PingFang TC", system-ui, sans-serif !important;
-  font-variant-numeric: tabular-nums !important;
-  letter-spacing: -0.01em !important;
-  padding: 0 6px !important;
-  /* 純色（預設暖橘 accent）— 不漸層、不發光 */
-  background: none !important;
-  background-image: none !important;
-  -webkit-text-fill-color: currentColor !important;
-  color: #E8A270 !important;
-  filter: none !important;
-  text-shadow: none !important;
-}
-.tb-wr-total.good {
-  background: none !important;
-  -webkit-text-fill-color: currentColor !important;
-  color: #8fcba6 !important;
-  filter: none !important;
-}
-.tb-wr-total.bad {
-  background: none !important;
-  -webkit-text-fill-color: currentColor !important;
-  color: #d49595 !important;
-  filter: none !important;
-}
-
-/* total 前的縱向分隔 — 簡化為單色 hairline */
-.tb-wr-total-sep {
-  width: 1px !important;
-  height: 18px !important;
-  background: rgba(255,255,255,.08) !important;
-  box-shadow: none !important;
-  border-radius: 0 !important;
-  margin: 0 6px !important;
-}
-
-/* recent 100 / est — 比 total 小一級 */
-.tb-wr-recent,
-.tb-wr-est {
-  font-size: 11px !important;
-  font-weight: 500 !important;
-  font-family: -apple-system, "SF Pro Text", "Helvetica Neue", "PingFang TC", system-ui, sans-serif !important;
-  font-variant-numeric: tabular-nums !important;
-  letter-spacing: 0 !important;
-  margin-left: 6px !important;
-  color: rgba(228,218,206,.78) !important;
-  opacity: 1 !important;
-}
-.tb-wr-recent.good { color: #8fcba6 !important; }
-.tb-wr-recent.bad  { color: #d49595 !important; }
-
-/* from date / status — 最小，最暗 */
-.tb-wr-from {
-  font-size: 10px !important;
-  font-weight: 400 !important;
-  font-family: -apple-system, "SF Pro Text", "Helvetica Neue", "PingFang TC", system-ui, sans-serif !important;
-  font-variant-numeric: tabular-nums !important;
-  color: rgba(228,218,206,.78) !important;
-  letter-spacing: 0 !important;
-  margin-left: 6px !important;
-}
-.tb-wr-status {
-  font-size: 10px !important;
-  font-weight: 400 !important;
-  font-family: -apple-system, "SF Pro Text", "Helvetica Neue", "PingFang TC", system-ui, sans-serif !important;
-  font-variant-numeric: tabular-nums !important;
-  color: rgba(228,218,206,.78) !important;
-  letter-spacing: 0 !important;
-  margin-left: 4px !important;
-}
 
 /* ══════════════════════════════════════════════════════════════
    桌面 PWA：window-controls-overlay
@@ -6262,9 +3876,14 @@ body, button, input, select, textarea,
     app-region: drag;
   }
   /* 互動元素不可被拖曳吃掉點擊 */
-  .topbar button, .topbar input, .topbar select, .topbar a,
-  .topbar label, .topbar [role="button"], .topbar [tabindex],
-  .topbar .tb-wr-scroll, .topbar .leg-dot {
+  .topbar button,
+.topbar input,
+.topbar select,
+.topbar a,
+.topbar label,
+.topbar [role="button"],
+.topbar [tabindex],
+.topbar .leg-dot {
     -webkit-app-region: no-drag;
     app-region: no-drag;
   }
@@ -6310,30 +3929,8 @@ body, button, input, select, textarea,
   .topbar-right::-webkit-scrollbar { display: none; }
   .topbar-right > *:first-child { margin-left: auto; }   /* 空間夠時仍靠右；不夠時 auto=0 可正常捲 */
 
-  /* ── 列2：勝率（整列）。內部再分兩行：總數列 + 各訊號橫滑列 ── */
-  .tb-winrate {
-    order: 3 !important;
-    display: flex !important;
-    flex-wrap: wrap !important;
-    width: 100% !important;
-    flex: 1 1 100% !important;
-    height: auto !important;
-    min-height: 32px !important;
-    padding: 3px 6px !important;
-    margin: 0 !important;
-    row-gap: 2px;
-  }
-  /* 第一行：中軌/緩衝（左）＋ 總/近100/預估/日期（右靠） */
-  .tb-wr-fixed-left  { order: 1 !important; display: flex !important; align-items: center; }
-  .tb-wr-fixed-right { order: 2 !important; display: flex !important; align-items: center; margin-left: auto !important; }
-  /* 第二行：12 個訊號小區塊，整列橫向滑動 */
-  .tb-wr-scroll { order: 3 !important; width: 100% !important; flex: 1 1 100% !important; overflow-x: auto !important; }
-
   /* ── 列3：TF 橫向滑動 ── */
   .topbar-tf { order: 4 !important; width: 100% !important; flex: 1 1 100% !important; overflow-x: auto !important; flex-wrap: nowrap !important; gap: 2px; }
-
-  /* Top3/連敗那排在手機隱藏（避免孤立的「連敗 關」佔一整列）；勝率細項仍可在桌面看 */
-  .tb-wr-top3 { display: none !important; }
 
   /* 手機不需要繪圖工具列（觸控畫線不實用、又佔底部空間）→ 隱藏、把空間還給圖表 */
   .draw-toolbar { display: none !important; }
@@ -6342,9 +3939,6 @@ body, button, input, select, textarea,
   /* ── 效能：減少手機卡頓 ── */
   /* backdrop-filter 毛玻璃在手機 GPU 負擔很大、捲動/操作會卡 → 全關，改實心背景 */
   * { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
-  /* 持續跑的裝飾動畫（勝率欄掃光、閃爍）→ 關掉，省掉不必要的每幀重繪 */
-  .tb-winrate::before, .tb-winrate::after { animation: none !important; }
-  .blink, .tk-limitPulse { animation: none !important; }
 
   /* 偷看熊是桌面 hover 彩蛋：觸控只有「進」沒有「離」→ 彈出後收不回去卡住。手機隱藏。 */
   .peek-bear, #bearBubble { display: none !important; }
@@ -6379,39 +3973,7 @@ body, button, input, select, textarea,
 .m-tabbar { display: none; }
 
 @media (max-width: 1180px) and (pointer: fine), (hover: none) and (pointer: coarse) and (orientation: portrait), (hover: none) and (pointer: coarse) and (orientation: landscape) and (max-height: 599px) {
-  /* 手機「回測」分頁：把桌面的置中小 modal 撐成「滿版整頁介面」(使用者要的是頁面、不是小視窗)。
-     z-index 690 → 蓋過設定/訊號浮層(650)、低於分頁列(700) 讓底部分頁仍可點切走。!important 壓過
-     backtest.js 注入的 z-60 與置中 modal 樣式。 */
-  .bt-overlay {
-    z-index: 690 !important;
-    align-items: stretch !important;     /* 不置中 → 讓 modal 撐滿 */
-    justify-content: stretch !important;
-    padding: 0 !important;
-    background: var(--panel, #1b1b1f) !important;   /* 滿版實底，不要半透明遮罩感 */
-    -webkit-backdrop-filter: none !important;
-    backdrop-filter: none !important;
-  }
-  .bt-modal {
-    width: 100vw !important; max-width: 100vw !important;
-    height: 100vh !important; max-height: 100vh !important;
-    border-radius: 0 !important;
-    box-sizing: border-box;
-    padding-top: env(safe-area-inset-top, 0px);                       /* 避開瀏海/狀態列 */
-    padding-bottom: calc(46px + env(safe-area-inset-bottom, 0px)) !important;  /* 避開底部分頁列 */
-  }
-  /* 回測手機介面更像原生頁面：頂欄吸頂放大、表單控件加大好點按、執行/最佳化鈕全寬 */
-  .bt-hd { position: sticky; top: 0; z-index: 3; background: var(--panel,#1b1b1f) !important;
-           padding: 16px !important; }
-  .bt-hd b { font-size: 18px !important; }
-  .bt-x { font-size: 24px !important; padding: 6px 10px !important; }
-  .bt-body { padding: 16px !important; gap: 16px !important; }
-  .bt-row label { flex: 0 0 96px !important; font-size: 14px !important; }
-  .bt-row select, .bt-row input { padding: 12px 12px !important; font-size: 16px !important; border-radius: 10px !important; }
-  .bt-seg { gap: 6px !important; }
-  .bt-seg button { padding: 11px 6px !important; font-size: 13.5px !important; border-radius: 9px !important; }
-  .bt-run { padding: 16px !important; font-size: 17px !important; border-radius: 13px !important; }
-  .bt-opt-btn { padding: 14px !important; font-size: 15px !important; }
-  .bt-card .v { font-size: 18px !important; }
+
   .m-tabbar {
     display: flex;
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 700;
@@ -6598,10 +4160,6 @@ body, button, input, select, textarea,
   .pane-legend .leg-toggle.line-off .leg-val { color: var(--muted); }
   .pane-legend .leg-dot { width: 10px !important; height: 10px !important; }
 
-  /* ── 📈 圖表分頁：隱藏勝率欄 → 圖表多拿回 ~54px、畫面乾淨像看盤 app ──
-     （勝率資訊移到下方「勝率」分頁；iPad 769–1100px 無分頁 → 不受影響、仍顯示） */
-  body.m-tab-chart .tb-winrate { display: none !important; }
-
   /* 行情列表鈕（四條線圖示）：手機已有底部「自選」分頁 → 多餘，隱藏 */
   #tickerToggle { display: none !important; }
 
@@ -6628,68 +4186,8 @@ body, button, input, select, textarea,
      不再於此重複覆寫，避免多處 !important 互相打架（先前「太醜」的根因）*/
   .topbar-right .tb-icon-btn { width: 40px !important; height: 40px !important; }
   .topbar-right .tb-icon-btn svg { width: 17px; height: 17px; }
-  /* 分頁列已收斂為精簡尺寸（見上方 .m-tabbar 區），此處不再放大 */
 
-  /* ── 📊 勝率分頁：勝率欄改「直向堆疊」面板（控制列 / 數字列 / 訊號列各佔一整列）──
-     原本沿用 topbar 橫向 HUD → 右側數字會爆出螢幕被 overflow 裁掉、敗後看不到、排版亂。
-     改 flex-direction:column + 允許換行 + 取消 overflow 裁切 → 每組整列、自然換行。 */
-  body.m-tab-wr .tb-winrate {
-    display: flex !important;
-    flex-direction: column !important;
-    align-items: stretch !important;
-    flex-wrap: nowrap !important;
-    white-space: normal !important;       /* 蓋掉 base 的 nowrap，數字列才能換行 */
-    overflow: visible !important;          /* 蓋掉 base 的 overflow:hidden，不裁切 */
-    height: auto !important; min-height: 0 !important;
-    padding: 3px 10px !important;          /* 上下縮小（依使用者要求）*/
-    gap: 3px; row-gap: 3px;
-  }
-  /* 控制列：中軌切換 + SL% 放大好按 */
-  body.m-tab-wr .tb-wr-fixed-left {
-    order: 1 !important; display: flex !important; align-items: center; gap: 10px;
-    flex: 0 0 auto !important;
-  }
-  body.m-tab-wr .tb-wr-toggle {
-    font-size: 12px !important; font-weight: 700;
-    padding: 5px 11px !important; height: auto !important;
-    line-height: 1.1; border-radius: 7px;
-  }
-  body.m-tab-wr .tb-wr-buffer-input {
-    font-size: 12px !important; width: 46px !important; height: 26px !important;
-  }
-  body.m-tab-wr .tb-wr-buffer-pct { font-size: 11px !important; }
-  /* 數字列：整列、靠左、自然換行；字級緊湊（依使用者要求縮小） */
-  body.m-tab-wr .tb-wr-fixed-right {
-    order: 2 !important; margin: 0 !important;
-    display: flex !important; flex-wrap: wrap !important; align-items: baseline;
-    justify-content: flex-start !important; gap: 2px 12px;
-  }
-  body.m-tab-wr .tb-wr-total-sep { display: none !important; }   /* 直向版不需要左分隔線 */
-  body.m-tab-wr .tb-wr-total { font-size: 16px !important; padding: 0; margin: 0 !important; }
-  body.m-tab-wr .tb-wr-stoprate { font-size: 11.5px; padding: 2px 8px; margin: 0 !important; }
-  body.m-tab-wr .tb-wr-recent,
-  body.m-tab-wr .tb-wr-est { font-size: 11px !important; margin: 0 !important; }
-  body.m-tab-wr .tb-wr-from,
-  body.m-tab-wr .tb-wr-status { font-size: 10px; margin: 0 !important; }
-  /* 十字線 hover 勝率列：固定高度 → hover 內容增減「不」改變面板高度，
-     避免下方主圖被壓縮造成 resize 抖動（手機直向排列的關鍵修正） */
-  body.m-tab-wr .tb-wr-scroll {
-    display: flex !important;      /* 蓋過 ≤1100px 的 display:none，勝率分頁要顯示 hover 列 */
-    order: 3 !important; width: 100% !important;
-    flex: 0 0 38px !important; height: 38px !important;   /* 上下縮小 */
-    align-items: center !important;
-    overflow-x: auto !important; overflow-y: hidden !important; gap: 2px;
-    border-top: 1px solid rgba(255,180,120,.18);
-    padding-top: 1px;
-  }
-  body.m-tab-wr .tb-wr-block { gap: 4px; padding: 4px 6px; border-radius: 6px; }
-  body.m-tab-wr .tb-wr-block:active { background: rgba(255,180,120,.12); }
-  body.m-tab-wr .tb-wr-icon { font-size: 14px; }
-  body.m-tab-wr .tb-wr-v,
-  body.m-tab-wr .tb-wr-pct { font-size: 11px; }
-  body.m-tab-wr .tb-wr-divider { height: 26px; }
 }
-
 
 /* ══════════════════════════════════════════════════════════════
    開場首頁 Landing（極簡黑白：黑底白「開始」鈕；其餘圖稍後由使用者提供）
@@ -6715,22 +4213,16 @@ html.landing-active .ticker-panel,
 html.landing-active .m-tabbar,
 html.landing-active .peek-bear,
 html.landing-active #_wxCard,
-/* 封面（active/透明）重現時，這些浮層會從透明封面透出來重疊 → 一併隱藏。封面只露天氣。 */
 html.landing-active #tradePopup,
 html.landing-active #trdDock,
 html.landing-active .trd-edge-trigger,
-html.landing-active .sym-quickdraw.sqd-floating,   /* 浮動的快捷繪圖列（搬到 body 底下了，封面要一起藏） */
-html.landing-active .bt-overlay,
+html.landing-active .sym-quickdraw.sqd-floating,
 html.landing-active #sysSettingsPopup,
-html.landing-active .lunar-overlay,        /* 農民曆卡（z低於封面但半透明封面會透出） */
-html.landing-active #notifyPopup,          /* 通知設定/中心彈窗 */
-html.landing-active .sig-drawer,           /* 訊號通知抽屜 */
-html.landing-active .m-settings,           /* 手機「設定」分頁面板（z650，透明封面會透出→在設定頁登出時穿幫） */
-html.landing-active .m-signals,            /* 手機「訊號」分頁面板（同上，透明封面會透出） */
+html.landing-active .lunar-overlay,
+html.landing-active #notifyPopup,
+html.landing-active .m-settings,
+html.landing-active .m-signals,
 html.landing-active #announceOverlay,
-/* ★ 2026-08-06 #chartUnderlay（主圖區底墊，2026-08-06 新增於 body 之下、z-index:0）
-   封面時也要藏：它塗的是**主圖**色，天氣透明處會露出它 → 封面看起來不是主背景色。
-   使用者：「封面頁要維持天氣，只有主背景顏色」。 */
 html.landing-active #chartUnderlay { visibility: hidden !important; }
 
 /* ★ 2026-08-06 手機款：非「圖表」分頁時底墊也要收掉。
@@ -6813,13 +4305,7 @@ html.landing-active .landing { background: transparent; }
 .lloc-1 { font-size: clamp(17px, 2.6vw, 28px); font-weight: 700; }   /* 位置（城市）放大 */
 .lloc-wx { font-size: .62em; font-weight: 500; opacity: .82; margin-left: .15em; }  /* 天氣描述小字 */
 .lloc-2 { font-size: clamp(15px, 2.1vw, 23px); font-weight: 700; }
-/* 當前小時降雨機率：手繪時鐘符號（表「此刻」）+ %，與今日雨滴並列、一眼區分整天vs此刻 */
-.lloc-pop-now { display: inline-flex; align-items: center; gap: .14em; font-size: .6em; font-weight: 600; opacity: .82; margin-left: .5em; }
-.lloc-pop-now::before {
-  content: ""; flex: 0 0 auto; width: .98em; height: .98em;
-  background: no-repeat center / contain
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='8.3' fill='%23ffffff' stroke='%238a8a8a' stroke-width='1.4'/%3E%3Cpath d='M12 12 L12 7' fill='none' stroke='%238a8a8a' stroke-width='1.6' stroke-linecap='round'/%3E%3Cpath d='M12 12 L15.4 13.7' fill='none' stroke='%23b9b9b9' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
-}
+
 /* 降雨機率：手繪雨滴符號（取代「降雨」二字） */
 .lloc-pop { display: inline-flex; align-items: center; gap: .12em; }   /* 雨滴與 % 垂直置中對齊 */
 .lloc-pop::before {
@@ -6911,18 +4397,36 @@ html.landing-active .landing { background: transparent; }
    ══════════════════════════════════════════════════════════════ */
 @media (max-width: 1180px) and (pointer: fine), (hover: none) and (pointer: coarse) and (orientation: portrait), (hover: none) and (pointer: coarse) and (orientation: landscape) and (max-height: 599px) {
   /* 點任何按鈕都不要冒出灰色高亮方塊（iOS/Android 預設） */
-  a, button, .tb-icon-btn, .fx-btn, .m-tab, .tf-btn, .sym-tab,
-  .tk-mkt-btn, .tk-seg-btn, .ticker-item, .leg-toggle, .tb-wr-block {
+  a,
+button,
+.tb-icon-btn,
+.fx-btn,
+.m-tab,
+.tf-btn,
+.sym-tab,
+.tk-mkt-btn,
+.tk-seg-btn,
+.ticker-item,
+.leg-toggle {
     -webkit-tap-highlight-color: transparent;
   }
   /* 介面元件不被長按誤選文字（更像原生 app）；輸入框與行情數字仍可選 */
-  .topbar, .symbol-bar, .m-tabbar, .pane-legend, .tb-winrate,
-  .draw-toolbar, .ticker-hd, .tk-mkt-tabs {
+  .topbar,
+.symbol-bar,
+.m-tabbar,
+.pane-legend,
+.draw-toolbar,
+.ticker-hd,
+.tk-mkt-tabs {
     -webkit-user-select: none; user-select: none;
   }
   /* 可捲動區：iOS 慣性捲動 + 捲到底不把回彈傳給整頁（消除露白/卡頓） */
-  .ticker-list, .topbar-tf, .tb-wr-scroll, .topbar-left,
-  .ind-settings-popup, .sys-settings-popup, .sig-drawer, .ai-modal-results {
+  .ticker-list,
+.topbar-tf,
+.topbar-left,
+.ind-settings-popup,
+.sys-settings-popup,
+.ai-modal-results {
     -webkit-overflow-scrolling: touch;
     overscroll-behavior: contain;
   }
@@ -7397,64 +4901,24 @@ html.landing-active .landing { background: transparent; }
   .ticker-panel .tk-chg { font-size: 13px !important; }
 }
 
-/* ══════════════════════════════════════════════════════════════
-   帳號 modal（登入/註冊 + 跨裝置同步）
-   ══════════════════════════════════════════════════════════════ */
-.acct-overlay {
-  position: fixed; inset: 0; z-index: 100050;
-  display: flex; align-items: center; justify-content: center;
-  background: rgba(0,0,0,.55); padding: 16px;
-}
-.acct-overlay.hidden { display: none; }
-.acct-modal {
-  width: min(92vw, 380px); background: var(--bg2);
-  border: 1px solid var(--border); border-radius: 14px;
-  box-shadow: 0 12px 48px rgba(0,0,0,.55); overflow: hidden;
-}
-.acct-modal-hd {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 13px 16px; border-bottom: 1px solid var(--border);
-}
-.acct-modal-title { font-size: 16px; font-weight: 800; color: var(--text); }
-.acct-close {
-  background: none; border: none; color: var(--muted);
-  font-size: 18px; cursor: pointer; line-height: 1; padding: 4px 6px; border-radius: 6px;
-}
-.acct-close:hover { color: var(--text); background: var(--bg3); }
-.acct-modal-body { padding: 16px; }
-.acct-hint { font-size: 12.5px; color: var(--muted); line-height: 1.5; margin-bottom: 12px; }
 .acct-input {
   width: 100%; height: 44px; margin-bottom: 10px;
   background: var(--bg3); border: 1px solid var(--border); border-radius: 9px;
   color: var(--text); font-size: 15px; padding: 0 13px;
 }
 .acct-input:focus { outline: none; border-color: var(--accent, #FF6A1A); }
-.acct-btn-row { display: flex; gap: 9px; }
+
 .acct-btn {
   flex: 1; height: 44px; border: none; border-radius: 9px; cursor: pointer;
   background: var(--accent, #FF6A1A); color: #fff; font-size: 15px; font-weight: 700;
   font-family: inherit;
 }
 .acct-btn:active { filter: brightness(.92); }
-.acct-btn-ghost { background: var(--bg3); color: var(--text); border: 1px solid var(--border); }
-.acct-status { font-size: 12.5px; color: var(--muted); margin-top: 12px; min-height: 16px; text-align: center; }
-.acct-status.acct-err { color: #ff7a7a; }
-.acct-logged-row { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
-.acct-logged-lbl { font-size: 12px; color: var(--muted); }
-.acct-logged-row b { font-size: 15px; color: var(--text); word-break: break-all; }
-.acct-logged .acct-btn { width: 100%; margin-top: 10px; }
-#acctTopBtn.acct-on { color: var(--accent, #FF6A1A); }
 
-html.perf-mode .acct-modal { background: #FFFFFF; border-color: #E5E5E5; }
-html.perf-mode .acct-modal-hd { border-bottom-color: #E5E5E5; }
 html.perf-mode .acct-input { background: #FAFAFA; border-color: #E5E5E5; }
 html.perf-mode .acct-btn { background: #FF6A1A; }
-html.perf-mode .acct-btn-ghost { background: #F5F5F5; color: #1F1F1F; border-color: #E5E5E5; }
 
 /* 手機：桌面帳號鈕隱藏（改用「設定」分頁的帳號列） */
-@media (max-width: 1180px) and (pointer: fine), (hover: none) and (pointer: coarse) and (orientation: portrait), (hover: none) and (pointer: coarse) and (orientation: landscape) and (max-height: 599px) {
-  #acctTopBtn { display: none !important; }
-}
 
 /* ── 封面大門上的鎖（手繪城堡風；在 .landing-stage 內 → 隨門一起放大、黏在門上）──
      預設隱藏；點門 → .landing-locking 門放大、鎖在門上浮現。 */
@@ -7475,11 +4939,7 @@ html.perf-mode .acct-btn-ghost { background: #F5F5F5; color: #1F1F1F; border-col
   width: 60%;
   display: flex; flex-direction: column; align-items: stretch; gap: 5px;
 }
-.lock-title {
-  font-family: "M PLUS Rounded 1c", system-ui, sans-serif;
-  font-size: 12px; font-weight: 800; text-align: center; color: #6E4E22;
-  letter-spacing: .04em; text-shadow: 0 1px 0 rgba(255,255,255,.4);
-}
+
 .landing-acct-input {
   width: 100%; height: 30px; box-sizing: border-box;
   /* 透明輸入框 + 虛線框（依使用者要求）*/
@@ -7656,7 +5116,6 @@ html.perf-mode .lunar-card { font-family: inherit; }
 }
 .chart-order-btn .co-ico { font-size: 12px; }
 
-
 /* 跟著滑鼠的水平導引線 + 價格/方向標籤 */
 .co-guide-line {
   position: absolute; left: 0; right: 0; height: 0; z-index: 24;
@@ -7676,15 +5135,12 @@ html.perf-mode .lunar-card { font-family: inherit; }
 
 /* 損益區塊（進場↔止盈綠、進場↔止損紅，半透明）+ 可拖曳線/把手 — TradingView 風 */
 .co-zone { position: absolute; left: 0; right: 0; z-index: 22; pointer-events: none; }
-.co-zone-tp { background: rgba(38, 166, 154, .12); }
-.co-zone-sl { background: rgba(239, 83, 80, .12); }
+
 .co-line {
   position: absolute; left: 0; right: 0; height: 0; z-index: 24; pointer-events: none; display: none;
   border-top: 1px solid #888;
 }
-.co-line-entry { border-top: 1px dashed rgba(255, 145, 71, .95); }
-.co-line-sl    { border-top: 1px solid rgba(239, 83, 80, .95); }
-.co-line-tp    { border-top: 1px solid rgba(38, 166, 154, .95); }
+
 .co-handle {
   position: absolute; right: 8px; top: 0; transform: translateY(-50%);
   padding: 2px 8px; border-radius: 5px; cursor: ns-resize; pointer-events: auto;
@@ -7692,9 +5148,7 @@ html.perf-mode .lunar-card { font-family: inherit; }
   font-variant-numeric: tabular-nums; user-select: none; touch-action: none;
   box-shadow: 0 1px 6px rgba(0, 0, 0, .35);
 }
-.co-line-entry .co-handle { background: #FF9147; color: #2C1607; }
-.co-line-sl    .co-handle { background: #ef5350; }
-.co-line-tp    .co-handle { background: #26a69a; }
+
 .co-handle:hover { filter: brightness(1.08); }
 
 /* 確認卡 */
@@ -7735,7 +5189,7 @@ html.perf-mode .lunar-card { font-family: inherit; }
 .co-row2 { display: flex; gap: 6px; }
 .co-row2 .co-row { flex: 1; }
 .co-row2 .co-row > span { width: auto; }
-.co-notional { font-size: 11px; color: var(--muted, #9A7A58); text-align: right; margin: 2px 0 7px; min-height: 13px; }
+
 .co-submit {
   width: 100%; padding: 9px; border: none; border-radius: 9px; cursor: pointer;
   background: var(--accent, #FF9147); color: #2C1607; font-weight: 800; font-size: 13px;
@@ -7756,11 +5210,6 @@ html.perf-mode .lunar-card { font-family: inherit; }
 }
 .co-toast.on { opacity: 1; transform: translateX(-50%) translateY(0); }
 .co-toast.co-err { border-color: #f8717188; color: #f8a; }
-
-/* 手機版：設定頁關閉「勝率欄（頂部）」→ 隱藏整塊勝率 HUD（總勝率+訊號勝率列+Top3），
-   頂欄變矮、圖表容器變大（class 只在手機款由 JS 加上，見 main.js initWrBarToggle）。 */
-body.m-hide-wr #winrateBar,
-body.m-hide-wr #wrTop3 { display: none !important; }
 
 /* ── 手機版：整體頁面下拉刷新指示器（pull-to-refresh，見 main.js initPullRefresh） ── */
 #mPullRefresh {
@@ -7952,7 +5401,6 @@ html.perf-mode .ind-pop-row:hover { background: rgba(0,0,0,.06) !important; }
 
 /* ── ① 鍵盤焦點：只在鍵盤操作時出現 ── */
 .tf-btn:focus-visible,
-.tb-btn:focus-visible,
 .tk-mkt-btn:focus-visible,
 .tk-seg-btn:focus-visible,
 .sym-tab:focus-visible,
@@ -8014,21 +5462,6 @@ select:focus-visible {
    ⚠ 只隱藏「說明文字」，不動 .tb-wr-hover 容器與 .tb-wr-hover-item —— 真的有內容
      （點到訊號棒）時仍然顯示得出來，只是平常不再佔位。
    ══════════════════════════════════════════════════════════════════════════ */
-@media (max-width: 1180px) and (pointer: fine),
-       (hover: none) and (pointer: coarse) and (orientation: portrait),
-       (hover: none) and (pointer: coarse) and (orientation: landscape) and (max-height: 599px) {
-  .tb-wr-hover-hint { display: none !important; }
-  /* ★說明文字藏起來之後，容器仍然撐著 36px 的空白列（實測 #winrateBar 98px 裡有 38px
-     是這個空列）→ 改成高度隨內容。真的有 hover 項目時 flex 子項會把它撐開，不影響功能。 */
-  /* ★整列收掉：手機的 topbar 是換行 flex，#wrScroll 被設成 width:100% → 它**自己佔一整列**，
-     所以只把裡面的內容藏起來、改 height:auto 都沒用（實測只從 98px 降到 96px）。
-     這一列在手機上唯一可能的內容是「十字線 hover 到訊號棒的勝率」，而觸控沒有 hover 十字線
-     → 常駐一列 38px 換一個在這台裝置做不到的功能。
-     ⚠ 這不是新做法：更窄的斷點本來就有 `.tb-wr-scroll { display:none }`，這裡只是套到手機斷點。 */
-  #wrScroll, .tb-wr-scroll { display: none !important; }
-  /* 勝率列本身的上下留白在手機也偏大 */
-  .tb-winrate { padding-top: 2px !important; padding-bottom: 2px !important; row-gap: 2px !important; }
-}
 
 /* ══════════════════════════════════════════════════════════════════════════
    ① 頂列圖示分組（2026-08-02）
@@ -8071,13 +5504,7 @@ select:focus-visible {
   .symbol-bar .sym-label:has(+ #symC) { order: -2 !important; }
   .symbol-bar #symC   { order: -2 !important; }
   .symbol-bar #symChg { order: -1 !important; margin-left: 0 !important; }
-  .chart-legend {
-    flex-wrap: nowrap !important;
-    overflow-x: auto !important;
-    scrollbar-width: none;
-  }
-  .chart-legend::-webkit-scrollbar { display: none; }
-  .chart-legend > * { flex: 0 0 auto !important; white-space: nowrap !important; }
+
 }
 
 /* ═══ 雲端同步狀態（勝率欄右端，2026-08-05）═══
@@ -8207,7 +5634,6 @@ html.perf-mode .tb-wr-sync[data-state="local"] { color: #8B8B8B; }
   border-color: var(--accent, #FF9147);
   color: var(--accent, #FF9147);
 }
-
 
 /* ── 全站離線指示（2026-08-12）─────────────────────────────────────────
    使用者要求「若斷網，需要在網頁上顯示已離線」。
