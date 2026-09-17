@@ -478,16 +478,47 @@ function _symHold(e) {
   const w = Math.ceil(e.getBoundingClientRect().width);
   if (w > (e._symMinW || 0)) { e._symMinW = w; e.style.minWidth = w + "px"; }
 }
+/* ★ 預留寬度（2026-09-17 使用者：「是左邊的現在價格變化推到它左邊基準位」）：
+   只增不減還是會在「第一次出現更長的數字」時把後面的經濟倒數往右推（切時框又重來一次）。
+   → 新標的第一次填進真實收盤價時，就用「同位數、數字全換成 8」的樣板把每格撐到可能的最寬：
+     開高低收＝收盤價的樣板、量＝888.88M、漲跌＝「-(收盤價 15% 的位數)  (-88.88%)」。
+     tabular-nums 下每個數字等寬 → 樣板寬＝同位數的最寬 → 之後價格怎麼跳，倒數的左邊都不動。
+   超出樣板（價格跨位數、漲跌超過 15%）時仍由 _symHold 只增不減接手。 */
+let _symReservedDone = false;
+function _symReserveOne(id, tmpl) {
+  const e = _symEl(id);
+  if (!e) return;
+  const old = e.textContent;
+  e.textContent = tmpl;                                   // 同一個 task 內換回來 → 不會被畫出來
+  const w = Math.ceil(e.getBoundingClientRect().width);
+  e.textContent = old;
+  if (w > (e._symMinW || 0)) { e._symMinW = w; e.style.minWidth = w + "px"; }
+}
+function _symReserveAll(closeText) {
+  const d8 = t => String(t).replace(/\d/g, "8");
+  const px = d8(closeText);
+  ["symO", "symH", "symL", "symC"].forEach(id => _symReserveOne(id, px));
+  _symReserveOne("symV", "888.88M");
+  const n = parseFloat(String(closeText).replace(/,/g, ""));
+  const amt = isFinite(n) ? d8(fmt(n * 0.15)) : px;
+  _symReserveOne("symChg", `-${amt}  (-88.88%)`);
+  _symReservedDone = true;
+}
 function _setSym(id, text) {
   if (_symFrozen()) return;
   const e = _symEl(id);
-  if (e && e.textContent !== text) { e.textContent = text; _symHold(e); }
+  if (e && e.textContent !== text) {
+    e.textContent = text;
+    if (!_symReservedDone && id === "symC" && /\d/.test(text)) _symReserveAll(text);
+    _symHold(e);
+  }
 }
 
 // 切標的時把上方報價數字歸零成 placeholder，避免新標的名稱卻殘留舊標的價格（看起來像亂跳）
 function _resetSymbolBarQuote() {
   // 換標的：保留的最小寬歸零（價位級距可能完全不同，例如 BTC 76,000 → PEPE 0.0000123）
   ["symO", "symH", "symL", "symC", "symV", "symChg"].forEach(id => { const e = _symEl(id); if (e) { e._symMinW = 0; e.style.minWidth = ""; } });
+  _symReservedDone = false;          // 新標的/時框第一次填真實價時重新預留（見 _symReserveAll）
   ["symO", "symH", "symL", "symC", "symV"].forEach(id => _setSym(id, "—"));
   const chg = _symEl("symChg");
   if (chg) { chg.textContent = ""; chg.className = "sym-chg"; }

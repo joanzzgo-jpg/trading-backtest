@@ -130,17 +130,15 @@ function _econUpcoming(days) {
 }
 
 // 「還有多久」文字。使用者 2026-09-05：要「幾天幾小時後」，不要 6.2 天這種小數。
+// ★ 2026-09-17 使用者：「倒數恢復成幾小時幾分都有」→ 天/小時/分**一律都寫**（0 也寫）：
+//   原本「超過一天只寫天＋小時、小時是 0 就省略」→ 剛好整點時只剩「15天後」，看起來像壞掉。
 // ⚠ 一律用 floor 不用 round：「還有 6 天 23 小時」被進位成「7 天」會讓人以為還很久。
-//   次級單位為 0 就省略（「6天後」比「6天0小時後」乾淨）。
 function _econLeadText(sec) {
   if (sec < 60) return "即將發布";
-  if (sec < 3600) return Math.floor(sec / 60) + "分後";
-  if (sec < 86400) {
-    const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60);
-    return h + "小時" + (m ? m + "分" : "") + "後";
-  }
-  const d = Math.floor(sec / 86400), h = Math.floor((sec % 86400) / 3600);
-  return d + "天" + (h ? h + "小時" : "") + "後";
+  const d = Math.floor(sec / 86400), h = Math.floor((sec % 86400) / 3600), m = Math.floor((sec % 3600) / 60);
+  if (d > 0) return d + "天" + h + "小時" + m + "分後";
+  if (h > 0) return h + "小時" + m + "分後";
+  return m + "分後";
 }
 
 /* 符號列上的「距離下個經濟事件多久」（使用者：顯示在快捷小工具旁）。
@@ -200,7 +198,12 @@ function _econRefreshLegend() {
 function _econBootNotice() { _fetchEconEvents(); _econRefreshLegend(); _econRefreshBar(); }
 if (typeof requestIdleCallback === "function") requestIdleCallback(_econBootNotice, { timeout: 8000 });
 else setTimeout(_econBootNotice, 3000);
-setInterval(() => { _econRefreshLegend(); _econRefreshBar(); _econRenderPop(); }, 60000);   // 倒數保鮮；純本地計算，不打網路
+// 倒數保鮮；純本地計算，不打網路。⚠ 對齊「整分」才刷新：現在顯示到分鐘，
+// 沒對齊的話畫面上的分最多慢將近 1 分鐘（例如實際剩 41 分，畫面還寫 42 分）。
+{
+  const _econTick = () => { _econRefreshLegend(); _econRefreshBar(); _econRenderPop(); };
+  setTimeout(() => { _econTick(); setInterval(_econTick, 60000); }, 60000 - (Date.now() % 60000) + 50);
+}
 
 /* ── 點擊展開：NFP / CPI / FOMC 各自的下一場 ─────────────────────────────
    使用者 2026-09-05：「點擊後三個經濟事件倒數都會出來，若沒點就只有最近的」。

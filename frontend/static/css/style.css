@@ -1799,7 +1799,7 @@ html.perf-mode .tk-seg {
 .econ-pop-row .ep-when { margin-left: auto; font-weight: 700; color: var(--text); }
 .econ-pop-row.soon .ep-when { color: var(--blue, #4aa3ff); }   /* 兩天內 */
 .econ-pop-empty { padding: 8px 12px; color: var(--muted); }
-.sym-econ .se-txt { overflow: hidden; text-overflow: ellipsis; }
+.sym-econ .se-txt { overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }   /* 分鐘數跳動時寬度不變，後面的積木不晃 */
 .sym-econ.soon .se-txt { color: var(--text); font-weight: 700; }   /* 兩天內＝重點看待 */
 .sqd-btn {
   width: 24px; height: 24px; padding: 0;
