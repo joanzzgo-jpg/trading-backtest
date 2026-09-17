@@ -110,7 +110,7 @@ def _scan_outcome_np(highs, lows, closes, target_arr, times_iso, entry_i, n, sto
 
 
 def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only: bool = False,
-                      _solve=None, band_ratio: float = 1.0, visual_window: int = 0,
+                      band_ratio: float = 1.0, visual_window: int = 0,
                       stock_gap: bool = False, proto_min: float = 0.0005,
                       no_proto_ms: bool = False, no_proto_break: bool = False) -> dict:
     """no_proto_ms / no_proto_break=True：分別讓「多/空」與「破多/破空」的 B 觸發
@@ -129,10 +129,6 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
 
     long_only：True 時只算多單（台股不能放空），所有 short mask 強制清空。
 
-    _solve：求解專用精簡模式 = target 字串（"mid"/"band"/"rr"）。
-        設定後：每個訊號只掃選定目標（省 3/4 掃描）、跳過 est/RR/全部統計，
-        只跑「敗後停手」模擬並回傳 {"win_rate", "total"}。
-        偵測 mask 與完整版完全共用，結果與完整版 stop_strategy 一致。
     """
     n = len(df)
 
@@ -157,16 +153,8 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
     bb_mid = _col_f("bb_middle")
     bb_up  = _col_f("bb_upper")
     bb_lo  = _col_f("bb_lower")
-    # 帶軌「止盈目標」軌（可參數化）：band_ratio=1.0 → 原本上/下軌（完全等同舊行為）；
-    #   <1.0 → 下軌往上 ratio 處（做多目標 band_up_t）/ 上軌往下 ratio 處（做空目標 band_lo_t）。
-    #   只用於止盈目標，訊號偵測（bb_up_touch 等）一律仍用真實 bb_up/bb_lo。
-    if band_ratio >= 0.999:
-        band_lo_t = bb_lo        # 做空目標（原＝下軌）
-        band_up_t = bb_up        # 做多目標（原＝上軌）
-    else:
-        _bw = bb_up - bb_lo
-        band_lo_t = bb_lo + (1.0 - band_ratio) * _bw   # 做空：上軌往下 ratio 處（＝下軌+剩餘%）
-        band_up_t = bb_lo + band_ratio * _bw            # 做多：下軌往上 ratio 處
+    # （band_ratio 原本用來算「帶軌止盈目標」陣列，只供已移除的訊號勝負掃描使用 → 2026-09-17 刪除；
+    #   參數保留，快取鍵仍帶它，呼叫端不必改。）
 
     # 註：crt / kdj_cross / resonance / bb 觸軌 / MACD 叉 等訊號陣列原供 S1~S12 用，
     #     S1~S12 移除後已無人讀取 → 一併刪除（enrich_df 預設也不再算這三欄，見 utils/data.py）。
@@ -204,180 +192,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
     recent:  list = []
     signals: list = []
 
-    # 連續去重：S9 / S10 / S12 因為是「視窗式掃描」，連續多根 K 棒會重複觸發同個 setup
-    # → 只計第一筆（連續同方向 entry_i 相差 1 視為延續）
-    _DEDUP_SIG_KEYS = {"9", "10", "12"}
-    _last_entry_per_kd = {}   # (sig_key, direction) → 最後一次 entry_i（push 與 skip 都更新）
 
-    def _bump(counters, sig_key, direction, outcome):
-        if outcome is None: return
-        if direction == "short":
-            counters[sig_key][0 if outcome == "win" else 1] += 1
-        else:
-            counters[sig_key][2 if outcome == "win" else 3] += 1
-
-    def _stop(base, direction):
-        """套用停損緩衝：短=base×(1+buf)、多=base×(1-buf)"""
-        if direction == "short":
-            return base * (1.0 + stop_buffer_pct)
-        return base * (1.0 - stop_buffer_pct)
-
-    def _scan_dual(entry_i, stop_px, direction):
-        """同時掃中軌與帶軌目標。
-        帶軌目標：short→bb_lower、long→bb_upper（更遠的反向極端）。
-        _solve 模式只掃選定目標，另一目標回 None（省一半掃描）。"""
-        if _solve is not None:
-            if _solve == "rr":
-                return None, None, -1, None, None, -1   # 1:1 在 _push_signal 內算
-            if _solve == "band":
-                band_arr = band_lo_t if direction == "short" else band_up_t
-                ob, otb, obj = _scan_outcome_np(highs, lows, closes, band_arr, times_iso, entry_i, n, stop_px, direction)
-                return None, None, -1, ob, otb, obj
-            om, otm, omj = _scan_outcome_np(highs, lows, closes, bb_mid, times_iso, entry_i, n, stop_px, direction)
-            return om, otm, omj, None, None, -1
-        om, otm, omj = _scan_outcome_np(highs, lows, closes, bb_mid, times_iso, entry_i, n, stop_px, direction)
-        band_arr = band_lo_t if direction == "short" else band_up_t
-        ob, otb, obj = _scan_outcome_np(highs, lows, closes, band_arr, times_iso, entry_i, n, stop_px, direction)
-        return om, otm, omj, ob, otb, obj
-
-    def _rr_at(entry_i, exit_idx, stop_px, direction, target_arr):
-        """計算 RR：reward / risk。
-        - 預估（exit_idx=-1 → 用 entry_i 的 target）
-        - 實際（exit_idx≥0 → 用 exit_idx 的 target，僅 win 有意義）
-        單根 RR cap 10 避免 BB 極端展寬時 outlier 拉爆統計。"""
-        if entry_i < 0 or entry_i >= n: return None
-        entry_px = opens[entry_i]
-        idx = entry_i if exit_idx < 0 else exit_idx
-        tgt = target_arr[idx]
-        if entry_px != entry_px or tgt != tgt:  # NaN
-            return None
-        risk = abs(entry_px - stop_px)
-        if risk < 1e-12: return None
-        return min(abs(entry_px - tgt) / risk, 10.0)
-
-    def _bump_rr(rr_dict, sig_key, direction, entry_i, exit_idx, stop_px, outcome, target_arr):
-        b = rr_dict[sig_key][direction]
-        rr_est = _rr_at(entry_i, -1, stop_px, direction, target_arr)
-        if rr_est is not None:
-            b["est_sum_all"] += rr_est
-            b["est_n_all"]   += 1
-        if outcome == "win":
-            if rr_est is not None:
-                b["est_sum_win"] += rr_est
-            rr_act = _rr_at(entry_i, exit_idx, stop_px, direction, target_arr)
-            if rr_act is not None:
-                b["act_sum_win"] += rr_act
-            b["n_win"] += 1
-        elif outcome == "loss":
-            b["n_loss"] += 1
-
-    def _scan_rr(sig_key, direction, entry_i, stop_px):
-        """1:1 目標（止盈距離 = 止損距離）勝負。
-
-        ⚠ 1:1(rr) 目標已從前端移除（2026-06）→ 不再掃描，省下每個訊號一次固定目標
-        掃描（勝率計算的可觀成本）。輸出仍保留 rr 結構但為空、signals r_rr=None，前端不讀。
-        若日後要恢復：掃 target = 進場價 ∓ |進場價 - 止損| 的固定目標掃描（_scan_outcome_fixed_t 已於 2026-09-17 刪除，要恢復從 git 歷史拿）。"""
-        return None, None
-
-    def _push_signal(sig_time, d_str, sig_key, direction, entry_i, stop_px,
-                     om, otm, omj, ob, otb, obj):
-        # 連續去重：S9 / S10 視窗式掃描，連續 entry_i 視為同一個 setup → 只保留第一筆
-        # （無論是否被 skip，都更新 last_entry_i 以正確處理 N 根連續的長串）
-        if sig_key in _DEDUP_SIG_KEYS:
-            _kd = (sig_key, direction)
-            _prev = _last_entry_per_kd.get(_kd)
-            _last_entry_per_kd[_kd] = entry_i
-            if _prev is not None and entry_i == _prev + 1:
-                return   # 連續同方向 → 跳過（既不 push 進 signals 也不算進統計）
-
-        # _solve 精簡模式：只存敗後停手所需欄位（t/d/k/r/r_b/r_rr），跳過 est/RR/recent
-        if _solve is not None:
-            r_rr = None
-            if _solve == "rr":
-                r_rr, _ = _scan_rr(sig_key, direction, entry_i, stop_px)
-            signals.append({
-                "t": sig_time, "d": d_str, "k": sig_key,
-                "r":   "w" if om == "win" else ("l" if om else None),
-                "r_b": "w" if ob == "win" else ("l" if ob else None),
-                "r_rr": r_rr,
-            })
-            return
-        # est_r / est_r_b：固定目標掃描結果（要存到 signal 才能算 deduped total）
-        est_r = None; est_r_b = None
-        if sig_key != "abc" and entry_i < n:
-            tgt_mid_fix  = bb_mid[entry_i]
-            tgt_band_fix = band_lo_t[entry_i] if direction == "short" else band_up_t[entry_i]
-            if tgt_mid_fix == tgt_mid_fix:
-                o = _scan_outcome_fixed(highs, lows, closes, entry_i, n,
-                                         stop_px, float(tgt_mid_fix), direction)
-                est_r = "w" if o == "win" else ("l" if o == "loss" else None)
-            if tgt_band_fix == tgt_band_fix:
-                o = _scan_outcome_fixed(highs, lows, closes, entry_i, n,
-                                         stop_px, float(tgt_band_fix), direction)
-                est_r_b = "w" if o == "win" else ("l" if o == "loss" else None)
-        # 預估盈虧比 RR(中軌/上下軌) = |進場-目標|/|進場-止損|，供前端盈虧比盒 + 自動交易初始 TP 用
-        est_rr_val = None; est_rr_b_val = None
-        if sig_key != "abc" and entry_i < n:
-            entry_px = opens[entry_i]
-            tgt_mid  = bb_mid[entry_i]
-            tgt_band = band_lo_t[entry_i] if direction == "short" else band_up_t[entry_i]   # 帶軌目標：空→下軌、多→上軌（依 band_ratio）
-            if not math.isnan(entry_px):
-                risk = abs(entry_px - stop_px)
-                if risk > 1e-9:
-                    if not math.isnan(tgt_mid):
-                        est_rr_val = round(min(abs(entry_px - tgt_mid) / risk, 10.0), 3)
-                    if not math.isnan(tgt_band):
-                        est_rr_b_val = round(min(abs(entry_px - tgt_band) / risk, 10.0), 3)
-        # 1:1 目標結果（止盈距離 = 止損距離）
-        r_rr, ot_rr = _scan_rr(sig_key, direction, entry_i, stop_px)
-        rr_out = "win" if r_rr == "w" else ("loss" if r_rr == "l" else None)
-        # 進場價（下一根開盤）→ 回測算「資金用量」用：部位佔資金 = 風險% ÷ (|進場-止損|/進場)
-        entry_px_rec = None
-        if 0 <= entry_i < n:
-            _ep = opens[entry_i]
-            if not math.isnan(_ep):
-                entry_px_rec = float(_ep)
-        # 已實現盈虧比（含號）：依「實際出場棒的目標價」算。動態中軌/帶軌會漂移，趨勢拖久時
-        # 出場目標可能漂到進場的錯邊 → 雖判 win 但實際是虧 → rr 為負。回測用此才貼近真實損益。
-        # 出場在止損 → -1R；未結算/取不到 → None。（omj/obj 為絕對出場索引）
-        rr_real = rr_b_real = None
-        if entry_px_rec is not None:
-            _risk = abs(entry_px_rec - stop_px)
-            if _risk > 1e-9:
-                def _rr_real(outcome, exit_idx, tgt_arr):
-                    if outcome == "loss":
-                        return -1.0
-                    if outcome != "win" or exit_idx is None or exit_idx < 0 or exit_idx >= n:
-                        return None
-                    xpx = tgt_arr[exit_idx]
-                    if math.isnan(xpx):
-                        return None
-                    rew = (entry_px_rec - xpx) if direction == "short" else (xpx - entry_px_rec)
-                    return round(max(-10.0, min(rew / _risk, 10.0)), 3)   # 封頂 ±10（與預估 _rr_at 一致，防停損極小→單筆 RR 爆大拉爆報酬）
-                rr_real   = _rr_real(om, omj, bb_mid)
-                rr_b_real = _rr_real(ob, obj, band_lo_t if direction == "short" else band_up_t)
-        signals.append({
-            "t": sig_time, "d": d_str, "k": sig_key,
-            "r":   "w" if om == "win" else ("l" if om else None), "ot":   otm,
-            "r_b": "w" if ob == "win" else ("l" if ob else None), "ot_b": otb,
-            "r_rr": r_rr, "ot_rr": ot_rr,
-            "stop": float(stop_px),   # 實際止損價（含 buffer、多棒取極值）→ 前端盈虧比盒/1:1 止盈用
-            "entry": entry_px_rec,    # 進場價（含 None＝末端未進場）
-            "est_r":   est_r,
-            "est_r_b": est_r_b,
-            "rr": est_rr_val,         # 進場預估盈虧比(中軌，恆正，供前端 RR 盒/顯示)
-            "rr_b": est_rr_b_val,     # 進場預估盈虧比(上下軌，恆正)→ 自動交易初始 TP 用
-            "rr_real":   rr_real,     # 已實現盈虧比(中軌，含號)→ 回測用
-            "rr_b_real": rr_b_real,   # 已實現盈虧比(上下軌，含號)
-        })
-        _bump(mid_cnt,  sig_key, direction, om)
-        _bump(band_cnt, sig_key, direction, ob)
-        _bump(rr11_cnt, sig_key, direction, rr_out)
-        _bump_rr(mid_rr,  sig_key, direction, entry_i, omj, stop_px, om, bb_mid)
-        band_arr = band_lo_t if direction == "short" else band_up_t
-        _bump_rr(band_rr, sig_key, direction, entry_i, obj, stop_px, ob, band_arr)
-        if om is not None and sig_key not in _SS_KEYS:   # SS 系列不混入 S 的近期清單
-            recent.append({"t": sig_time, "d": d_str, "r": "w" if om == "win" else "l", "k": sig_key})
 
     # ── S1~S12（CRT 訊號）已於 2026-07 移除（使用者要求：主圖只留 SS 系列與 FVG）──
     #    偵測迴圈整段刪除＝不再逐訊號掃描勝負（省下最大計算量）。SIG_KEYS 仍含 S 鍵但恆為空，
@@ -385,40 +200,8 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
 
     # ── SS1/SS2（布林軌道反轉）已於 2026-08-05 移除；原本留著的觸軌陣列計算＋不會執行的迴圈 2026-09-17 刪除 ──
 
-    # 依時間排一次，供 _solve / _calc_streaks / _build_combined 共用（原本各自 sort）
+    # 依時間排一次，供 _calc_streaks / _build_combined 共用（原本各自 sort）
     signals_sorted = sorted(signals, key=lambda x: x["t"])
-
-    # ── _solve 精簡模式：只跑「敗後停手」模擬後直接回傳（省下全部統計） ──
-    #    與完整版 _build_combined(target, est=False) + stop_strategy 一致
-    if _solve is not None:
-        _rk = {"mid": "r", "band": "r_b", "rr": "r_rr"}[_solve]
-        _seen = set(); _seq = []
-        # S12 insertion order 排在 S11 之後 → 穩定排序下，同 t 上其他策略會先入 _seen，
-        # S12 只在「(t,d) 不與其他策略重疊」時才進入敗後停手序列
-        for s in signals_sorted:
-            if s["k"] == "abc" or s["k"] in _SS_KEYS:   # SS 系列不混入 S 的敗後停手
-                continue
-            _key = (s["t"], s["d"])
-            if _key in _seen:
-                continue
-            _seen.add(_key)
-            _r = s.get(_rk)
-            if _r in ("w", "l"):
-                _seq.append((s["d"], _r))
-        _active = {"s": True, "l": True}
-        _w = {"s": 0, "l": 0}; _l = {"s": 0, "l": 0}
-        for _d, _r in _seq:
-            if _active[_d]:
-                if _r == "w":
-                    _w[_d] += 1
-                else:
-                    _l[_d] += 1; _active[_d] = False
-            elif _r == "w":
-                _active[_d] = True
-            _active["l" if _d == "s" else "s"] = True
-        _tot = _w["s"] + _l["s"] + _w["l"] + _l["l"]
-        _win = _w["s"] + _w["l"]
-        return {"win_rate": round(_win / _tot * 100, 1) if _tot else None, "total": _tot}
 
     # ── 統計輸出 ─────────────────────────────────────────────
     def _stats(w, l, rr=None, streak=0, cond=None):

@@ -1954,42 +1954,6 @@ def _get_latest_impl(req: LatestRequest):
     return resp
 
 
-def _solve_stop_pct(df, target: str, long_only: bool):
-    """掃描止損%，找出讓「敗後停手」總勝率達標的最小止損%。
-    目標 80%（止損 ≤5%）；若需 >5% 才達 80%，改找達 75% 的止損%。
-    回傳 {stop_pct, win_rate, total, target, sweep}。"""
-    def _wr_at(buf):
-        # _solve 精簡模式：只算選定 target 的「敗後停手」勝率（比完整計算快 ~4-6x）
-        r = _calc_crt_winrate(df, stop_buffer_pct=buf, long_only=long_only,
-                              _solve=target)
-        return r.get("win_rate"), (r.get("total") or 0)
-
-    sweep = []
-    buf = 0.0
-    while buf <= 0.0601:
-        wr, tot = _wr_at(round(buf, 4))
-        sweep.append({"pct": round(buf * 100, 2), "wr": wr, "total": tot})
-        buf += 0.005
-
-    def _first(thresh, max_pct):
-        for s in sweep:
-            if s["wr"] is not None and s["wr"] >= thresh and s["pct"] <= max_pct + 1e-9:
-                return s
-        return None
-
-    hit = _first(80, 5.0)
-    if hit:
-        return {"stop_pct": hit["pct"], "win_rate": hit["wr"], "total": hit["total"],
-                "target": 80, "achieved": True, "sweep": sweep}
-    hit = _first(75, 6.0)
-    if hit:
-        return {"stop_pct": hit["pct"], "win_rate": hit["wr"], "total": hit["total"],
-                "target": 75, "achieved": True, "sweep": sweep}
-    best = max(sweep, key=lambda s: (s["wr"] or 0))
-    return {"stop_pct": best["pct"], "win_rate": best["wr"], "total": best["total"],
-            "target": 80, "achieved": False, "sweep": sweep}
-
-
 def _round_wr_floats(o):
     """勝率回應浮點瘦身：全部 round 到 8 位有效數字（相對誤差 <5e-9，顯示/下單/回測皆無感）。
     vwap 等全精度浮點（如 2030.54431503598→2030.5443）是回應體積的主要水分；
@@ -2051,7 +2015,6 @@ def _git_rev():
 #   ・key 用「路由參數」組:它完整決定內部 cache_key(long_only 由 market 推導),不必複製內部鍵邏輯。
 #   ・follower 等待有上限(_WR_SF_WAIT);逾時就自己算 → 最壞退化成現狀,不會卡住。
 #   ・leader 一律在 finally 釋放(含例外)→ 不會有鎖漏掉導致後續全部等到逾時。
-#   ・solve 模式不參與(語義不同、不共用快取)。
 # 即時價單飛：同一把 key 同時 miss 時只讓一個人去抓上游，其他人等它（見 get_latest 的 crypto 分支）
 _LATEST_SF_LOCK = _threading.Lock()
 _LATEST_SF: dict = {}
@@ -2087,8 +2050,6 @@ def crt_winrate_api(
     timeframe: str = "1d",
     exchange: str = "pionex",
     stop_buffer_pct: float = 0.0,
-    solve: int = 0,
-    solve_target: str = "mid",
     api_key: str = "",
     api_secret: str = "",
     finmind_token: str = "",
@@ -2111,25 +2072,22 @@ def crt_winrate_api(
     ⚠ 回測/自動交易是 Python 直接呼叫 get_crt_winrate → 拿『完整』signals，不受此瘦身影響。"""
     def _run():
         return get_crt_winrate(market, symbol, timeframe, exchange, stop_buffer_pct,
-                               solve, solve_target, api_key, api_secret, finmind_token,
+                               api_key, api_secret, finmind_token,
                                band_ratio=band_ratio, vw=vw, proto_min=proto_min,
                                no_proto_ms=bool(no_proto_ms), no_proto_break=bool(no_proto_break))
 
-    if solve:
-        wr = _run()                       # solve 語義不同、不共用快取 → 不參與合併
+    _sf_key = (f"{market}|{symbol}|{exchange}|{timeframe}|{stop_buffer_pct}|{band_ratio}"
+               f"|{vw}|{proto_min}|{int(bool(no_proto_ms))}|{int(bool(no_proto_break))}")
+    _leader, _ev = _wr_sf_acquire(_sf_key)
+    if _leader:
+        try:
+            wr = _run()
+        finally:
+            _wr_sf_release(_sf_key)   # ★含例外一定釋放,否則後續 follower 全等到逾時
     else:
-        _sf_key = (f"{market}|{symbol}|{exchange}|{timeframe}|{stop_buffer_pct}|{band_ratio}"
-                   f"|{vw}|{proto_min}|{int(bool(no_proto_ms))}|{int(bool(no_proto_break))}")
-        _leader, _ev = _wr_sf_acquire(_sf_key)
-        if _leader:
-            try:
-                wr = _run()
-            finally:
-                _wr_sf_release(_sf_key)   # ★含例外一定釋放,否則後續 follower 全等到逾時
-        else:
-            _ev.wait(_WR_SF_WAIT)         # 等 leader 算完(結果已進快取)→ 自己再走一次=命中快取
-            wr = _run()                   # 逾時也走這裡:最壞退化成「各自算」,不會卡住
-    if solve or not isinstance(wr, dict):        # solve 模式非勝率結構 → 原樣回
+        _ev.wait(_WR_SF_WAIT)         # 等 leader 算完(結果已進快取)→ 自己再走一次=命中快取
+        wr = _run()                   # 逾時也走這裡:最壞退化成「各自算」,不會卡住
+    if not isinstance(wr, dict):
         return wr
     # warm=1：只為了「把這個 vw 階梯算進快取」，不要整包回（前端往舊滑時預熱下一階用）。
     #   量測(2026-07-28)：同一 vw 冷算 ~2.5s、之後命中僅 16ms(gzip 82ms) → 使用者感受到的
@@ -2570,8 +2528,6 @@ def get_crt_winrate(
     timeframe: str = "1d",
     exchange: str = "pionex",
     stop_buffer_pct: float = 0.0,
-    solve: int = 0,
-    solve_target: str = "mid",
     api_key: str = "",
     api_secret: str = "",
     finmind_token: str = "",
@@ -2614,33 +2570,31 @@ def get_crt_winrate(
     # 不再被 30 分 TTL 拖。tw/us 維持原 30 分行為（盤外不必每根棒重抓、也避免多打 yfinance）。
     _iv = _CRT_IV.get(timeframe)
     _bar_now = math.floor(time.time() / _iv) * _iv if _iv else None
-    # 注意：solve 模式不可命中此勝率快取（cache_key 不含 solve），否則會回傳勝率而非求解結果
     _wr_cached = None
-    if not solve:
-        cached = data_cache.get(cache_key, ttl=_WR_CACHE_TTL)   # 保鮮期內直接回快取（即時價另走每秒路徑）
-        if cached:
-            # 新鮮度：容許結果落後「1 根」(新棒剛形成的幾秒內 df 還沒補到→不必每次重算 storm；且最新一根
-            #   本來就不能有完整 FVG)。落後超過 1 根 → 判不新鮮 → 重算+重試尾巴補抓 → 自癒。
-            _bk = data_cache.get(bar_key, ttl=_WR_CACHE_TTL)
-            _fresh = (market != "crypto" or _bar_now is None
-                      or (_bk is not None and (_bar_now - _bk) <= (_iv or 0)))
-            if _fresh:
-                if not with_bars:
-                    return cached
-                _wr_cached = cached   # with_bars：沿用快取結果，但仍往下載 df 取 K 棒陣列
-        if _wr_cached is None and not with_bars:
-            # Redis 共享快取(多實例,REDIS_URL 未設=no-op)：別的實例算過就直接拿(~10-20ms vs 重算 5-8s)。
-            # 與記憶體路徑同 bar-aware 語義：crypto 存入時的最新棒 != 當前棒 → 視為過期不採用。
-            from utils import redis_cache as _rcache
-            _rhit = _rcache.get_json("wr:" + cache_key)
-            if _rhit and isinstance(_rhit, dict) and "result" in _rhit:
-                _rb = _rhit.get("bar")
-                if market != "crypto" or _bar_now is None or (_rb is not None and (_bar_now - _rb) <= (_iv or 0)):
-                    _res = _rhit["result"]
-                    data_cache.set(cache_key, _res)          # 回填本實例記憶體
-                    if _bar_now is not None:
-                        data_cache.set(bar_key, _bar_now)
-                    return _res
+    cached = data_cache.get(cache_key, ttl=_WR_CACHE_TTL)   # 保鮮期內直接回快取（即時價另走每秒路徑）
+    if cached:
+        # 新鮮度：容許結果落後「1 根」(新棒剛形成的幾秒內 df 還沒補到→不必每次重算 storm；且最新一根
+        #   本來就不能有完整 FVG)。落後超過 1 根 → 判不新鮮 → 重算+重試尾巴補抓 → 自癒。
+        _bk = data_cache.get(bar_key, ttl=_WR_CACHE_TTL)
+        _fresh = (market != "crypto" or _bar_now is None
+                  or (_bk is not None and (_bar_now - _bk) <= (_iv or 0)))
+        if _fresh:
+            if not with_bars:
+                return cached
+            _wr_cached = cached   # with_bars：沿用快取結果，但仍往下載 df 取 K 棒陣列
+    if _wr_cached is None and not with_bars:
+        # Redis 共享快取(多實例,REDIS_URL 未設=no-op)：別的實例算過就直接拿(~10-20ms vs 重算 5-8s)。
+        # 與記憶體路徑同 bar-aware 語義：crypto 存入時的最新棒 != 當前棒 → 視為過期不採用。
+        from utils import redis_cache as _rcache
+        _rhit = _rcache.get_json("wr:" + cache_key)
+        if _rhit and isinstance(_rhit, dict) and "result" in _rhit:
+            _rb = _rhit.get("bar")
+            if market != "crypto" or _bar_now is None or (_rb is not None and (_bar_now - _rb) <= (_iv or 0)):
+                _res = _rhit["result"]
+                data_cache.set(cache_key, _res)          # 回填本實例記憶體
+                if _bar_now is not None:
+                    data_cache.set(bar_key, _bar_now)
+                return _res
 
     # 各時間框架的最大歷史深度。上限拉到資料源實際可能的深度（Binance fapi BTC 2019/9~、
     # spot 2017/8~、Bybit/OKX 類似）。
@@ -2727,7 +2681,7 @@ def get_crt_winrate(
     # 短窗夠長（~400 根）涵蓋指標 lookback，且 df 受 30 分 TTL 護著，尾巴最多差 30 分→必然重疊不留 gap。
     # ⚠ Binance 冷卻中不補抓：此時 _fetch_df 會降級到 Pionex/Bybit，接到 Binance 尾巴上 → 接縫兩側
     #   wick 不同會生假 FVG（且被 concat 進快取）。冷卻中直接用既有乾淨 df，冷卻結束再補即可。
-    if (market == "crypto" and not solve and _bar_now is not None and df is not None
+    if (market == "crypto" and _bar_now is not None and df is not None
             and time.time() >= _crypto._BINANCE_COOLDOWN_UNTIL):
         try:
             _last = pd.Timestamp(df["time"].iloc[-1]).value / 1e9
@@ -2746,17 +2700,6 @@ def get_crt_winrate(
                     disk_cache.set(df_key, df)
         except Exception:
             pass                                       # 補抓失敗就用舊 df，不影響可用性
-
-    # 求解模式：掃描止損% 找達標的建議值（用已快取的 df，免重抓）
-    if solve:
-        solve_key = f"crt_solve5:{market}:{symbol}:{exchange}:{timeframe}:{solve_target}:{int(_long_only)}"
-        cached_s = data_cache.get(solve_key, ttl=3600)
-        if cached_s:
-            return cached_s
-        _solve_tgt = solve_target if solve_target in ("mid", "band", "rr") else "mid"
-        sol = _solve_stop_pct(df, target=_solve_tgt, long_only=_long_only)
-        data_cache.set(solve_key, sol)
-        return sol
 
     if _wr_cached is not None:
         result = _wr_cached
