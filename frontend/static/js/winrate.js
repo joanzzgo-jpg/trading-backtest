@@ -710,6 +710,9 @@ async function _fetchWinRateNow() {
   const exchange  = document.getElementById("exchangeSelect")?.value || "pionex";
   const timeframe = currentTF || "1d";
   if (!symbol) return;
+  // 換一次請求（含快取命中）就先清掉上一次的「訊號計算失敗」：快取命中那條會提早 return，
+  // 不在這裡清的話，標記其實已經正常顯示、上方卻還掛著失敗（誤導）。
+  { const _fn = document.getElementById("wrFailNote"); if (_fn) { _fn.textContent = ""; _fn.title = ""; } }
   // 台指期（TXF/MXF/TMF）現在後端 fetch_crt_df 已接 futopt 資料（cnyes即時+自建DB歷史/期貨日線）
   //  → 照常打 /api/crt_winrate 算 FVG/策略（勝率統計視資料深度而定，標記照畫；期貨可做空）。
   const bufDec = (_wrStopBuffer || 0) / 100;
@@ -748,7 +751,8 @@ async function _fetchWinRateNow() {
   const timeoutId = setTimeout(() => myCtrl.abort(), 45000);   // 勝率計算較重，45s 上限
   // 進入「計算中」狀態：舊數據變暗、進度條動畫 0→95%，避免使用者誤判前一個 symbol 的數據
   const bar = document.getElementById("winrateBar");
-  const statusEl = document.getElementById("wrStatus");
+  // 失敗提示改寫到上方左側的 #wrFailNote（2026-09-17 勝率欄 #wrStatus 隨整條勝率列刪除）
+  const statusEl = document.getElementById("wrFailNote");
   if (bar) {
     bar.classList.remove("calculating"); // 強制重啟動畫
     void bar.offsetWidth;                // 強制 reflow

@@ -159,9 +159,11 @@ function bindEvents() {
         });
         return bd <= _SB_SNAP ? best : null;
       };
-      const nearBar = (y) => {                 // 「接近上方」：游標在符號列上下這一段範圍內
-        const r = _sbBar.getBoundingClientRect();
-        return y >= r.top - 40 && y <= r.bottom + 60;
+      // 「碰到上方」才出現放置框（2026-09-17 使用者：「拖到有碰到上方再出現虛線可放置位」）：
+      // 拖著的積木本身跟符號列有重疊才算 —— 原本是游標在符號列上下 40~60px 內就出現，太早。
+      const touchBar = () => {
+        const r = _sbBar.getBoundingClientRect(), e = el.getBoundingClientRect();
+        return e.top <= r.bottom && e.bottom >= r.top;
       };
 
       let drag = null, lastTap = 0;
@@ -183,7 +185,7 @@ function bindEvents() {
           d.dx += g2.left - g1.left; d.dy += g2.top - g1.top;
         }
         place(e.clientX - d.dx, e.clientY - d.dy);
-        const on = nearBar(e.clientY);
+        const on = touchBar();
         if (on !== _sbBar.classList.contains("sb-drop")) { _sbBar.classList.toggle("sb-drop", on); _sbSync(); }
         const hit = on ? nearestSlot(e.clientX, e.clientY) : null;
         slots().forEach(s => s.classList.toggle("active", s === hit));

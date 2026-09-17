@@ -10,10 +10,12 @@
 //        （勝率前三名那條資料到貨才變寬），所以載入當下看起來好好的，過幾秒才壞。
 //
 // ★ 判準：量「第一列的元素分佈在幾個 y」。同一列的元素 y 會相近（垂直置中差幾 px），
-//   換行的話 y 會差一整個列高 → 用 y 分群，群數 >2（第一列 + 勝率欄）就是換行了。
+//   換行的話 y 會差一整個列高 → 用 y 分群，群數 >1 就是換行了。
+//   ⚠ 2026-09-17 勝率欄整條刪除：原本正常是 2 群（第一列＋勝率欄）、>2 才算換行 → 現在正常只有 1 群，
+//     判準沒跟著收緊的話，第一列真的換行（2 群）會被當成正常＝叫不出狼。
 // ★ 這支會**等到前三名那條真的有內容**才判定：那正是「突然變兩行」的觸發時機，
 //   一載入就判定會漏掉（我第一版就是這樣，量到的都是還沒填資料的狀態）。
-// ⚠ 別把判準寫成「topbar 高度 > 60」：正常就是 74px（第一列 + 勝率欄兩列），會永遠回失敗。
+// ⚠ 高度判準（2026-09-17 起）：勝率欄刪除後正常是單列 38px；另外驗高度 ≤ 50px，換行時必然超過。
 
 let puppeteer = null;
 {
@@ -46,10 +48,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       document.querySelectorAll(".ann-ok,#annOkBtn").forEach(x => x.click());
       document.getElementById("announceOverlay")?.remove();
     });
-    // ★ 等前三名那條有內容（非同步）→ 那是「突然變兩行」真正的觸發時機
-    const filled = await p.waitForFunction(
-      () => { const e = document.getElementById("wrTop3"); return !!(e && e.children.length > 0); },
-      { timeout: 25000 }).then(() => true).catch(() => false);
+    // （勝率前三名那條已隨勝率欄刪除，不用再等它非同步長出來；改等報價/經濟事件等非同步內容到位）
+    const filled = true;
     await sleep(1500);
     const r = await p.evaluate(`(() => {
       const bar = document.querySelector(".topbar");
@@ -71,10 +71,10 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
                rightY: Math.round(right.y), leftY: Math.round(left.y),
                overlapRight: hit(tf, right), overlapLeft: hit(tf, left),
                tfCenter: Math.round(tf.x + tf.width / 2), vpCenter: Math.round(innerWidth / 2),
-               top3W: Math.round(document.getElementById("wrTop3")?.getBoundingClientRect().width || 0) };
+               top3W: 0 };
     })()`);
-    // 正常＝2 群（第一列 + 勝率欄）；3 群以上代表第一列被拆開
-    const wrapped = r.rows > 2 || Math.abs(r.rightY - r.leftY) > 12;
+    // 正常＝1 群（勝率欄已刪）；2 群以上或高度 > 50px 代表第一列被拆開
+    const wrapped = r.rows > 1 || r.h > 50 || Math.abs(r.rightY - r.leftY) > 12;
     const overlap = r.overlapRight || r.overlapLeft;
     const mark = (wrapped || overlap) ? "✗" : "✓";
     if (wrapped || overlap) bad++;
@@ -82,7 +82,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     console.log(`  ${mark} 寬 ${String(w).padStart(4)}　列高 ${r.h}px　分 ${r.rows} 列　` +
                 `時框偏離中心 ${off > 0 ? "+" : ""}${off}px　` +
                 `重疊[右${r.overlapRight ? "✗" : "無"}/左${r.overlapLeft ? "✗" : "無"}]　` +
-                `前三名 ${r.top3W}px${filled ? "" : "（未填資料）"}`);
+                ``);
   }
   await br.close();
   console.log(bad ? `\n★ ${bad} 個寬度下上方列被拆成兩行` : "\n★ 各寬度下上方列都維持單列");

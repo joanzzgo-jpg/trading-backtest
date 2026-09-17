@@ -8081,6 +8081,10 @@ select:focus-visible {
 /* ═══ 雲端同步狀態（勝率欄右端，2026-08-05）═══
    四態：saved=已儲存至雲端／syncing=同步中／offline=離線（存在本機，連上會自動補傳）／
         local=沒登入帳號的本機模式。用點＋文字，不搶勝率數字的視覺重量。 */
+/* 上方左側狀態小字（2026-09-17 勝率列刪除後搬來）：雲端同步狀態＋訊號計算失敗 */
+.tb-status { display: inline-flex; align-items: center; gap: 8px; margin-left: 10px; white-space: nowrap; flex-shrink: 0; }
+.tb-fail-note { font-size: 12px; font-weight: 700; color: #FF8A8A; cursor: help; }
+.tb-fail-note:empty { display: none; }
 .tb-wr-sync {
   font-size: 10.5px;
   margin-left: 8px;

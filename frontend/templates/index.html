@@ -231,177 +231,21 @@
           <rect class="ct-body-dn" x="11.1" y="4.2" width="3.8" height="6" rx="1" fill="currentColor"/>
         </svg>
       </button>
+      <!-- 狀態小字（勝率列刪除後搬來）：
+           ・#wrFailNote：平常是空的；訊號/勝率算不出來時寫「訊號計算失敗」＋滑過去看原因
+             （「算不出來」不可以長得像「這裡沒有訊號」—— claude.md 那條規則的落點）
+           ・#acctSyncState：雲端同步狀態（2026-08-05 使用者要求顯示；文字由 account.js 寫入） -->
+      <span class="tb-status">
+        <span id="wrFailNote" class="tb-fail-note"></span>
+        <span id="acctSyncState" class="tb-wr-sync" title="帳號雲端同步狀態"></span>
+      </span>
     </div>
 
 
   </div>
 
-  <!-- Top 3 高勝率指標（勝率欄上方獨立一列，order:998） -->
-  <div class="tb-wr-top3" id="wrTop3"></div>
-
-  <!-- CRT 策略勝率（絕對居中）— 三段式：左固定 / 中可滾 / 右固定 -->
-  <div class="tb-winrate" id="winrateBar">
-    <!-- 左固定區：目標切換 + SL 輸入 -->
-    <div class="tb-wr-fixed-left">
-      <!-- S1~S12 已退役，系列固定 SS，切換鈕隱藏 -->
-      <button id="wrSeriesToggle" class="tb-wr-toggle" style="display:none"
-              onclick="_toggleWrSeries&&_toggleWrSeries()">SS</button>
-      <button id="wrTargetToggle" class="tb-wr-toggle" onclick="_toggleWrTarget()"
-              title="切換目標：中軌（保守，BB middle）→ 上下軌（極端反向：多→上軌、空→下軌）">中軌</button>
-      <span class="tb-wr-buffer" title="停損緩衝 %（0~10）：短=高於最高值 X%、多=低於最低值 X% 才算停損">
-        <input id="wrStopBuffer" class="tb-wr-buffer-input" type="number"
-               step="0.1" min="0" max="10" value="0" />
-        <span class="tb-wr-buffer-pct">%</span>
-      </span>
-    </div>
-    <!-- 中央可滾動區：十字線移到 K 棒 → 顯示該棒訊號勝率（多個並列）；下方靜態 S1-S12 清單已隱藏 -->
-    <div class="tb-wr-scroll" id="wrScroll">
-    <div class="tb-wr-hover" id="wrHover"><span class="tb-wr-hover-hint">十字線移到訊號 K 棒 → 顯示該棒勝率</span></div>
-    <span class="tb-wr-block" data-sig="abc" title="點擊查看訊號一詳細資訊">
-      <span class="tb-wr-icon wr-abc">●</span>
-      <span class="tb-wr-vals">
-        <span id="wrAbcS" class="tb-wr-v" data-dir="s">—</span>
-        <span id="wrAbcL" class="tb-wr-v" data-dir="l">—</span>
-      </span>
-    </span>
-
-    <span class="tb-wr-divider"></span>
-
-    <span class="tb-wr-block" data-sig="ab" title="點擊查看訊號二詳細資訊">
-      <span class="tb-wr-icon wr-ab">■</span>
-      <span class="tb-wr-vals">
-        <span id="wrAbS" class="tb-wr-v" data-dir="s">—</span>
-        <span id="wrAbL" class="tb-wr-v" data-dir="l">—</span>
-      </span>
-    </span>
-
-    <span class="tb-wr-divider"></span>
-
-    <span class="tb-wr-block" data-sig="s3" title="點擊查看訊號三詳細資訊">
-      <span class="tb-wr-icon wr-s3">▲</span>
-      <span class="tb-wr-vals">
-        <span id="wrS3S" class="tb-wr-v" data-dir="s">—</span>
-        <span id="wrS3L" class="tb-wr-v" data-dir="l">—</span>
-      </span>
-    </span>
-
-    <span class="tb-wr-divider"></span>
-
-    <span class="tb-wr-block" data-sig="s4" title="點擊查看訊號四詳細資訊">
-      <span class="tb-wr-icon wr-s4">◆</span>
-      <span class="tb-wr-vals">
-        <span id="wrS4S" class="tb-wr-v" data-dir="s">—</span>
-        <span id="wrS4L" class="tb-wr-v" data-dir="l">—</span>
-      </span>
-    </span>
-
-    <span class="tb-wr-divider"></span>
-
-    <span class="tb-wr-block" data-sig="s5" title="點擊查看訊號五詳細資訊">
-      <span class="tb-wr-icon wr-s5">★</span>
-      <span class="tb-wr-vals">
-        <span id="wrS5S" class="tb-wr-v" data-dir="s">—</span>
-        <span id="wrS5L" class="tb-wr-v" data-dir="l">—</span>
-      </span>
-    </span>
-
-    <span class="tb-wr-divider"></span>
-
-    <span class="tb-wr-block" data-sig="s6" title="點擊查看訊號六詳細資訊">
-      <span class="tb-wr-icon wr-s6">◇</span>
-      <span class="tb-wr-vals">
-        <span id="wrS6S" class="tb-wr-v" data-dir="s">—</span>
-        <span id="wrS6L" class="tb-wr-v" data-dir="l">—</span>
-      </span>
-    </span>
-
-    <span class="tb-wr-divider"></span>
-
-    <span class="tb-wr-block" data-sig="s7" title="點擊查看訊號七詳細資訊（S4 寬鬆版）">
-      <span class="tb-wr-icon wr-s7">⬢</span>
-      <span class="tb-wr-vals">
-        <span id="wrS7S" class="tb-wr-v" data-dir="s">—</span>
-        <span id="wrS7L" class="tb-wr-v" data-dir="l">—</span>
-      </span>
-    </span>
-
-    <span class="tb-wr-divider"></span>
-
-    <span class="tb-wr-block" data-sig="s8" title="點擊查看訊號八詳細資訊（三棒序列：共振→CRT→KDJ叉）">
-      <span class="tb-wr-icon wr-s8">⬡</span>
-      <span class="tb-wr-vals">
-        <span id="wrS8S" class="tb-wr-v" data-dir="s">—</span>
-        <span id="wrS8L" class="tb-wr-v" data-dir="l">—</span>
-      </span>
-    </span>
-
-    <span class="tb-wr-divider"></span>
-
-    <span class="tb-wr-block" data-sig="s9" title="點擊查看訊號九詳細資訊（三棒視窗：BB 觸軌 + MACD 叉）">
-      <span class="tb-wr-icon wr-s9">✦</span>
-      <span class="tb-wr-vals">
-        <span id="wrS9S" class="tb-wr-v" data-dir="s">—</span>
-        <span id="wrS9L" class="tb-wr-v" data-dir="l">—</span>
-      </span>
-    </span>
-
-    <span class="tb-wr-divider"></span>
-
-    <span class="tb-wr-block" data-sig="s10" title="點擊查看訊號十詳細資訊（ABCD 四棒：CRT + MACD 叉 + BB 觸軌）">
-      <span class="tb-wr-icon wr-s10">✪</span>
-      <span class="tb-wr-vals">
-        <span id="wrS10S" class="tb-wr-v" data-dir="s">—</span>
-        <span id="wrS10L" class="tb-wr-v" data-dir="l">—</span>
-      </span>
-    </span>
-
-    <span class="tb-wr-divider"></span>
-
-    <span class="tb-wr-block" data-sig="s11" title="點擊查看訊號十一詳細資訊（ABCD：A純超買/賣、BC全無、D純KDJ叉）">
-      <span class="tb-wr-icon wr-s11">✸</span>
-      <span class="tb-wr-vals">
-        <span id="wrS11S" class="tb-wr-v" data-dir="s">—</span>
-        <span id="wrS11L" class="tb-wr-v" data-dir="l">—</span>
-      </span>
-    </span>
-
-    <span class="tb-wr-divider"></span>
-
-    <span class="tb-wr-block" data-sig="s12" title="點擊查看訊號十二詳細資訊（10K棒視窗：超賣/超買 → 金叉/死叉；不計入總勝率）">
-      <span class="tb-wr-icon wr-s12">❖</span>
-      <span class="tb-wr-vals">
-        <span id="wrS12S" class="tb-wr-v" data-dir="s">—</span>
-        <span id="wrS12L" class="tb-wr-v" data-dir="l">—</span>
-      </span>
-    </span>
-
-    <span class="tb-wr-divider wr-ss-div"></span>
-
-
-    </div>
-    <!-- 右固定區：總勝率 + 起始日 + 筆數 -->
-    <div class="tb-wr-fixed-right">
-      <span class="tb-wr-total-sep"></span>
-      <span id="wrAll" class="tb-wr-total">—</span>
-      <!-- 敗後停手已退役，隱藏 -->
-      <span id="wrStopRate" class="tb-wr-stoprate" style="display:none">—</span>
-      <span id="wrRecent100" class="tb-wr-recent" title="最近約 100 筆已結算訊號的勝率（合併時間軸去重；看近期表現 vs 全期）">—</span>
-      <span id="wrRecentStop" class="tb-wr-recstop" style="display:none">—</span>
-      <span id="wrEstHit" class="tb-wr-est" title="打到「進場時 BB 預估止盈位」的機率（固定目標掃描，不隨 BB 漂移）">—</span>
-      <span id="wrFromDate" class="tb-wr-from"></span>
-      <span id="wrStatus" class="tb-wr-status"></span>
-      <!-- 雲端同步狀態（2026-08-05 使用者要求）：已儲存至雲端／同步中／離線／本機模式。
-           放在勝率欄右端，跟筆數/起始日同一排；文字由 account.js 的 _acctSetSyncState 寫入。 -->
-      <span id="acctSyncState" class="tb-wr-sync" title="帳號雲端同步狀態"></span>
-    </div>
-    <!-- 計算中 overlay：小熊頭 + 文字（絕對置中） -->
-    <div class="tb-wr-loading" id="wrLoading">
-      <img src="{{ v('/static/img/bear.png') }}" class="tb-wr-loading-bear" alt="計算中" draggable="false" />
-      <span class="tb-wr-loading-text">計算中…</span>
-    </div>
-    <!-- 計算中進度條（絕對定位，跨整列） -->
-    <div class="tb-wr-progress" id="wrProgress"></div>
-  </div>
+  <!-- （2026-09-17 使用者：「上方勝率的東西也刪除」）原本這裡是「勝率 ▾」收合列 #wrTop3 與整條勝率欄 #winrateBar
+       （中軌/停損緩衝/十字線勝率/總勝率/起始日/計算中）。雲端同步狀態與「訊號計算失敗」搬到上方左側 .tb-status。 -->
 
   <!-- 時間框架 strip（桌面：右側；手機：第二列全寬） -->
   <div class="topbar-tf">
@@ -1421,10 +1265,6 @@
     <button class="m-set-row" id="mSetSession" onclick="event.stopPropagation();document.getElementById('sessionToggleBtn')?.click();">
       <span class="m-set-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" filter="url(#mSketch)"><circle cx="8.4" cy="10.5" r="5" opacity="0.5"/><circle cx="15.6" cy="10.5" r="5" opacity="0.75"/><circle cx="12" cy="14.5" r="5"/></svg></span>
       <span class="m-set-lbl">交易時段標記<small id="mSetSessionState">開啟</small></span><span class="m-set-arr">›</span>
-    </button>
-    <button class="m-set-row m-set-on" id="mSetWrBar" onclick="event.stopPropagation();window._toggleWrBar&&window._toggleWrBar();">
-      <span class="m-set-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" filter="url(#mSketch)"><rect x="3.5" y="5" width="17" height="6" rx="1.6"/><path d="M6.2 8 H13.8"/><path d="M4 15.5 H20 M4 19 H14"/></svg></span>
-      <span class="m-set-lbl">勝率欄（頂部）<small id="mSetWrBarState">顯示</small></span><span class="m-set-arr">›</span>
     </button>
     <button class="m-set-row" id="mSetWeekBox" onclick="event.stopPropagation();document.getElementById('weekBoxToggleBtn')?.click();">
       <span class="m-set-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" filter="url(#mSketch)"><rect x="3.5" y="5.5" width="17" height="13" rx="2"/><path d="M8 5.5 V18.5" opacity="0.5"/><path d="M16 5.5 V18.5" opacity="0.5"/></svg></span>
