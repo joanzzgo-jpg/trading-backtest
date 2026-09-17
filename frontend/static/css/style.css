@@ -1838,13 +1838,14 @@ body.sqd-dragging, body.sqd-dragging * { cursor: grabbing !important; user-selec
   background: color-mix(in srgb, var(--bg2) 94%, transparent);
   /* ★ 邊框要一眼認得出來（2026-09-17 使用者：「拖出來要有邊框方便使用者辨識」）：
      暖橘主色、跟選中按鈕同色系；原本 1px var(--border) 在深色圖表上幾乎看不見。 */
-  border: 1.5px dashed color-mix(in srgb, var(--accent) 80%, transparent);   /* 虛線（2026-09-17 使用者：「繪圖邊框改成虛線」） */
+  /* 半透明實線（2026-09-17 使用者先說「繪圖邊框改成虛線」，隨後「改成半透明實線框」「還是一樣虛線」→ 定案半透明實線） */
+  border: 1.5px solid color-mix(in srgb, var(--accent) 45%, transparent);
   box-shadow: 0 0 0 1px rgba(0,0,0,.35), 0 0 12px color-mix(in srgb, var(--accent) 22%, transparent), 0 6px 22px rgba(0,0,0,.45);
   -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
   transition: opacity .12s ease;
 }
 .sym-quickdraw.sqd-dragging {
-  border-color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 65%, transparent);   /* 拖著時略亮，仍半透明 */
   box-shadow: 0 0 0 1px rgba(0,0,0,.35), 0 0 18px color-mix(in srgb, var(--accent) 35%, transparent), 0 12px 32px rgba(0,0,0,.55);
 }
 .sym-quickdraw.sqd-will-dock { opacity: .4; }   /* 游標在虛線框上：放開就停靠（調淡讓底下亮起的框看得到——拖著的積木剛好蓋在那格上） */
