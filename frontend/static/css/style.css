@@ -375,24 +375,6 @@ html.perf-mode .tb-icon-btn:hover svg { animation: none; transform: scale(1.1); 
 /* 2026-08-05：S1–S12 訊號標記開關(#wrSignalsToggleBtn)已整個移除，原本的手機隱藏規則一併刪除。 */
 /* 成交量分佈圖開關：手機改放「設定」分頁（#mSetVP 代按 topbar 鈕） */
 @media (max-width: 1180px) and (pointer: fine), (hover: none) and (pointer: coarse) and (orientation: portrait), (hover: none) and (pointer: coarse) and (orientation: landscape) and (max-height: 599px) { #vpToggleBtn { display: none !important; } }
-/* SR+SMC 教練開關：手機改放「設定」分頁（#mSetCoach 代按 topbar 鈕） */
-@media (max-width: 1180px) and (pointer: fine), (hover: none) and (pointer: coarse) and (orientation: portrait), (hover: none) and (pointer: coarse) and (orientation: landscape) and (max-height: 599px) { #coachToggleBtn { display: none !important; } }
-/* 手機端教練面板：展開後 8 步驟內容原本往上長→超出螢幕頂端(標題列/收合鈕跑到畫面外無法關)，且 pointer-events:none 無法捲動看步驟。
-   → 改：橫向鋪滿(降低高度)、封頂 max-height 內部捲動、pointer-events 開放(可捲)、底部避開 tabbar；標題列 sticky 讓「收合 ▴」永遠點得到。 */
-@media (max-width: 1180px) and (pointer: fine), (hover: none) and (pointer: coarse) and (orientation: portrait), (hover: none) and (pointer: coarse) and (orientation: landscape) and (max-height: 599px) {
-  #coachPanel {
-    left: 6px !important; right: 6px !important; max-width: none !important; width: auto !important;
-    top: auto !important; bottom: calc(84px + env(safe-area-inset-bottom, 0px)) !important;  /* 抬到時間軸(距底~46px tabbar+~28px軸)之上,不擋日期列 */
-    max-height: 58vh !important; overflow-y: auto !important; -webkit-overflow-scrolling: touch;
-    pointer-events: auto !important; padding: 0 7px 6px !important;
-    font-size: 11px !important; line-height: 1.4 !important;   /* 手機收得更小：字級/行高縮 */
-  }
-  /* 標題列(第一個子 div，含收合/切換鈕)黏頂，捲動步驟時也永遠可關；padding-top 移進來讓內容不從頂縫露出 */
-  #coachPanel > div:first-child {
-    position: sticky; top: 0; z-index: 3;
-    background: rgba(18,20,26,0.98); padding-top: 7px !important; margin-bottom: 4px !important;
-  }
-}
 #leafToggleBtn, #rainToggleBtn, #snowToggleBtn, #springToggleBtn { font-size: 14px; }
 #leafToggleBtn.leaf-active   { background: rgba(230,126,34,.18);  color: #E67E22; }
 #rainToggleBtn.rain-active   { background: rgba(100,160,255,.18); color: #6EB5FF; }
@@ -6664,7 +6646,6 @@ html.landing-active #notifyPopup,          /* 通知設定/中心彈窗 */
 html.landing-active .sig-drawer,           /* 訊號通知抽屜 */
 html.landing-active .m-settings,           /* 手機「設定」分頁面板（z650，透明封面會透出→在設定頁登出時穿幫） */
 html.landing-active .m-signals,            /* 手機「訊號」分頁面板（同上，透明封面會透出） */
-html.landing-active #coachPanel,           /* SR+SMC 教練面板（z低於封面但半透明封面會透出） */
 html.landing-active #announceOverlay,
 /* ★ 2026-08-06 #chartUnderlay（主圖區底墊，2026-08-06 新增於 body 之下、z-index:0）
    封面時也要藏：它塗的是**主圖**色，天氣透明處會露出它 → 封面看起來不是主背景色。

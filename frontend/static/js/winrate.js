@@ -629,13 +629,13 @@ window._wrWarmNextTier = _wrWarmNextTier;
 
 /* 「沒在顯示的圖層就不跟後端要」（2026-07-31）。
    這些圖層前端只有在對應開關打開時才畫，而三個開關預設都是關的：
-     ・教練疊加層 window._coachOn → smc_sweep / smc_struct / smc_ob / smc_sr / channel
-       （掃蕩標記也一樣，見 render.js 的 `window._coachOn ? lastSMCSweepMarkers : []`）
+     ・教練疊加層 → smc_sweep / smc_struct / smc_ob / smc_sr / channel
+       （2026-09-17 SR+SMC 教練整個移除 → 這組改成永遠不要，見下方群組）
      ・VWAP window._vwapOn → vwap
      ・關鍵高低 window._pdOn → pd_ranges
    實測 BTC 1h 一份回應 546KB 裡它們佔 261KB —— 預設情況下有一半傳輸從頭到尾沒被用到。
    ★開關打開時：_wrNeedRefetch() 會發現快取那份缺這個 key → 觸發重抓完整的（見 _wrRefetchIfMissing）。
-   ⚠ 判定不能只看 window._coachOn / window._vwapOn：這兩個旗標是由 draw.js 從 localStorage 還原的，
+   ⚠ 判定不能只看 window._vwapOn（當年還有教練的 _coachOn）：旗標是由 draw.js 從 localStorage 還原的，
      而 draw.js 是延遲載入(requestIdleCallback，最晚 DOMContentLoaded+1200ms)，第一次勝率請求
      不保證排在它後面 → 使用者明明把教練/VWAP 開著，重新整理後第一份回應卻不含這些圖層，
      疊加層空白到手動關再開才回來(靜默、很難察覺)。本機實測餘裕只有 230~440ms，不能賭。
@@ -645,7 +645,8 @@ const _wrLsOn = (k, flag) => {
   return flag === true;
 };
 const _WR_SKIP_GROUPS = [
-  [() => _wrLsOn("coachOverlay", window._coachOn), ["smc_sweep", "smc_struct", "smc_ob", "smc_sr", "channel"]],
+  // 教練疊加層（掃蕩/結構/OB/SR/通道）已隨教練移除（2026-09-17）→ 永遠不要
+  [() => false,                                     ["smc_sweep", "smc_struct", "smc_ob", "smc_sr", "channel"]],
   [() => _wrLsOn("vwapOverlay",  window._vwapOn),  ["vwap"]],
   [() => window._pdOn === true,                    ["pd_ranges"]],   // 關鍵高低沒有持久化，本來就每次重開都是關的
   // 2026-08-05 移除 signals 的跳過條件：一鍵隱藏鈕已刪，條件永遠成立（＝一律要），
@@ -733,13 +734,7 @@ async function _fetchWinRateNow() {
     _renderFVGMS(c.fvg_ms);
     _renderFVGShun(c.fvg_shun);
     _renderFVGSpecial(c.fvg_special);
-    _renderSMCSweep(c.smc_sweep);
-    _renderSMCStruct(c.smc_struct);
-    _renderSMCOB(c.smc_ob);
-    _renderSMCSR(c.smc_sr);
-    _renderCoachVWAP(c.vwap);
-    _renderCoachChannel(c.channel);
-    _updateCoachPanel();
+    _renderCoachVWAP(c.vwap);         // VWAP（教練已移除；VWAP 獨立開關仍讀這份資料）
     if (typeof setFVGZones === "function") setFVGZones(c.fvg);
     _setFVGData(c.fvg);
     window._pdRanges = c.pd_ranges || (c.pd_range ? [c.pd_range] : []);
@@ -802,13 +797,7 @@ async function _fetchWinRateNow() {
     _renderFVGMS(d.fvg_ms);           // 多/空方向標記:吃 setup FVG 後窗內首次同向 proto 缺口 B（標在 g）（主圖）
     _renderFVGShun(d.fvg_shun);       // 順多/順空:吃同向FVG後影線穿透既存反向FVG（主圖）
     _renderFVGSpecial(d.fvg_special); // 特多/特空:多空/破多空序列 A→B→C 三連市場結構（標在 C）（主圖）
-    _renderSMCSweep(d.smc_sweep);     // SMC 掃頂/掃底（階段1：SR+SMC 教練疊加層，右上開關 coachToggleBtn）
-    _renderSMCStruct(d.smc_struct);   // SMC BOS/CHoCH 結構破線段（階段2，畫布層，右上開關）
-    _renderSMCOB(d.smc_ob);           // SMC 訂單區 OB 框（階段3，畫布層，右上開關）
-    _renderSMCSR(d.smc_sr);           // SMC 支撐/阻力區（階段4，畫布層，右上開關）
-    _renderCoachVWAP(d.vwap);         // VWAP 成交量加權均價（階段5，畫布層，右上開關）
-    _renderCoachChannel(d.channel);   // 自動平行通道（階段5，畫布層，右上開關）
-    _updateCoachPanel();              // SR+SMC 教練面板（階段6，左下摘要）
+    _renderCoachVWAP(d.vwap);         // VWAP（教練已移除；VWAP 獨立開關仍讀這份資料）
     if (typeof setFVGZones === "function") setFVGZones(d.fvg);
     _setFVGData(d.fvg);
     window._pdRanges = d.pd_ranges || (d.pd_range ? [d.pd_range] : []);   // 每段歷史折價/溢價區(主圖畫)
@@ -1222,295 +1211,16 @@ window.toggleFVGSpecial = function (on) {
 window._stratSlByTime = new Map();
 window._rebuildStratSL = function () {};
 
-// SMC 掃頂/掃底標記（階段1：SR+SMC 教練疊加層）：掃頂=棒上紫「掃頂」、掃底=棒下青「掃底」。
-// 由右上 coachToggleBtn（window._coachOn）決定是否顯示；此處永遠備好標記，實際顯示在 _applyMainMarkers 依 _coachOn 過濾。
-let _lastSMCSweep = [];
-function _renderSMCSweep(items) {
-  if (items !== undefined) _lastSMCSweep = items || [];
-  const hasIdx = (typeof _secToIdx !== "undefined" && _secToIdx.size > 0);
-  const chartTimeSet = hasIdx ? null : new Set(ohlcvData.map(d => toTime(d.time)));
-  const _has = t => hasIdx ? _secToIdx.has(t) : chartTimeSet.has(t);
-  const _rpCut = (typeof replayActive !== "undefined" && replayActive
-    && typeof replayData !== "undefined" && replayData[replayIdx])
-    ? toTime(replayData[replayIdx].time) : null;
-  const out = [];
-  for (const it of (_lastSMCSweep || [])) {
-    const tm = toTime(it.t);
-    if (!_has(tm) || (_rpCut != null && tm > _rpCut)) continue;
-    if (it.d === "s") {
-      out.push({ time: tm, position: "aboveBar", color: "#ab47bc",
-                 shape: "circle", size: 1, text: "掃頂" });
-    } else {
-      out.push({ time: tm, position: "belowBar", color: "#26c6da",
-                 shape: "circle", size: 1, text: "掃底" });
-    }
-  }
-  out.sort((a, b) => a.time - b.time);
-  lastSMCSweepMarkers = out;
-  _applyMainMarkers();
-}
-window._renderSMCSweep = _renderSMCSweep;
-
-// 教練步驟5(BOS 延續)達成點：主圖箭頭標記(多↑綠棒下／空↓紅棒上，text「步驟5 BOS」)。
-// 與計畫線同源：15m 圖用 default、5m 圖用 fast（其他時框 bos_time 不對齊棒、自然不顯示）。
-// 由 _coachOn 控制（併入 _applyMainMarkers 的 lastCoachBOSMarkers）。資料來自 _coachData(按標的鍵)+bos_time。
-function _renderCoachBOS() {
-  lastCoachBOSMarkers = [];
-  const _tf = (typeof currentTF !== "undefined") ? currentTF : "";
-  const d = _tf === "15m" ? (_coachData && _coachData.def)
-          : _tf === "5m"  ? (_coachData && _coachData.fast) : null;
-  if (d && d.ok && d.bos_time && (d.stage || 0) >= 5 && typeof ohlcvData !== "undefined" && ohlcvData) {
-    const hasIdx = (typeof _secToIdx !== "undefined" && _secToIdx.size > 0);
-    const chartTimeSet = hasIdx ? null : new Set(ohlcvData.map(x => toTime(x.time)));
-    const _has = t => hasIdx ? _secToIdx.has(t) : chartTimeSet.has(t);
-    const _rpCut = (typeof replayActive !== "undefined" && replayActive
-      && typeof replayData !== "undefined" && replayData[replayIdx])
-      ? toTime(replayData[replayIdx].time) : null;
-    const tm = toTime(d.bos_time);
-    if (_has(tm) && (_rpCut == null || tm <= _rpCut)) {
-      const up = d.direction === 1;
-      lastCoachBOSMarkers.push({
-        time: tm,
-        position: up ? "belowBar" : "aboveBar",
-        color: up ? "#26a69a" : "#ef5350",
-        shape: up ? "arrowUp" : "arrowDown",
-        size: 2,
-        text: "步驟5 BOS",
-      });
-    }
-  }
-  _applyMainMarkers();
-}
-window._renderCoachBOS = _renderCoachBOS;
-
-// SMC BOS/CHoCH 結構破線段（階段2）：存資料給畫布層(draw.js _drawCoachOverlay)，由 _coachOn 決定是否畫。
-function _renderSMCStruct(items) {
-  window._coachStructure = items || [];
-  if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();
-}
-window._renderSMCStruct = _renderSMCStruct;
-
-// SMC 訂單區 OB（階段3）：存資料給畫布層(draw.js _drawCoachOverlay)，由 _coachOn 決定是否畫。
-function _renderSMCOB(items) {
-  window._coachOB = items || [];
-  if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();
-}
-window._renderSMCOB = _renderSMCOB;
-
-// SMC 支撐/阻力區（階段4）：存資料給畫布層(draw.js _drawCoachOverlay)，由 _coachOn 決定是否畫。
-function _renderSMCSR(items) {
-  window._coachSR = items || [];
-  if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();
-}
-window._renderSMCSR = _renderSMCSR;
-
-// VWAP / 自動平行通道（階段5）：存資料給畫布層，由 _coachOn 決定是否畫。
+// VWAP 資料：存給畫布層（draw.js _drawVWAP，獨立開關 _vwapOn）。
+//   ⚠ 2026-09-17 SR+SMC 教練整個移除，這支**刻意保留**：VWAP 還在用，名稱沿用避免牽動
+//     勝率快取守門員（check_wr_cache_layers 從本檔抽圖層變數）。
 function _renderCoachVWAP(items) {
   window._coachVWAP = items || [];
   if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();
 }
 window._renderCoachVWAP = _renderCoachVWAP;
-function _renderCoachChannel(ch) {
-  window._coachChannel = ch || null;
-  if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();
-}
-window._renderCoachChannel = _renderCoachChannel;
 
-// SR+SMC 多空教練面板（多時框步驟狀態機）：抓 /api/smc_coach 兩版(default 1d/4h/1h/15m + fast 4h/1h/15m/5m)。
-//   展開＝兩版並列全表；收合＝只顯示選中那版＋按鈕切換。由 _coachOn 控制。
-let _coachData = null, _coachFetching = false;   // _coachData = { def, fast, _key, _ts }
-try { window._coachWhich = localStorage.getItem("coachWhich") === "fast" ? "fast" : "default"; } catch (e) { window._coachWhich = "default"; }
-function _coachSel() {   // 目前選中(收合顯示/HTF投影用)那版資料
-  if (!_coachData) return null;
-  return window._coachWhich === "fast" ? _coachData.fast : _coachData.def;
-}
-function _fetchCoachData(force) {
-  if (!window._coachOn) { _renderCoachPanel(); return; }   // 關閉→隱藏面板（_renderCoachPanel 內會 display:none）
-  const market = document.getElementById("marketSelect")?.value || "crypto";
-  const symbol = document.getElementById("symbolInput")?.value?.trim() || "";
-  const exchange = document.getElementById("exchangeSelect")?.value || "pionex";
-  if (!symbol) return;
-  const key = market + "|" + symbol + "|" + exchange;
-  if (!force && _coachData && _coachData._key === key && (Date.now() - _coachData._ts < 20000)) {
-    _renderCoachPanel(); _renderCoachBOS(); return;   // 快取命中(含切時框reload)：同標的資料→重建步驟5標記
-  }
-  if (_coachFetching) return;
-  _coachFetching = true;
-  _renderCoachPanel();   // 先顯示載入中
-  const _one = tfset => fetch("/api/smc_coach?" + new URLSearchParams({ market, symbol, exchange, tfset }), { cache: "no-store" })
-    .then(r => r.json()).catch(() => null);
-  Promise.all([_one("default"), _one("fast")])
-    .then(([dd, df]) => {
-      if (dd && dd.ok) _coachAlertOnAdvance(key + "|d", dd);   // 兩版各自的步驟前進鬧鐘
-      if (df && df.ok) _coachAlertOnAdvance(key + "|f", df);
-      _coachData = { def: dd, fast: df, _key: key, _ts: Date.now() };
-      _renderCoachPanel();
-      const sel = _coachSel();   // HTF 投影只畫選中那版(避免兩版疊圖)
-      window._coachHTF = (sel && sel.ok && sel.htf_zones) ? sel.htf_zones : [];
-      window._coachHTFCh = (sel && sel.ok && sel.htf_channels) ? sel.htf_channels : [];
-      // 交易計畫線畫主圖：15m 圖用 default(執行15m)、5m 圖用 fast(執行5m)，BOS(stage≥5)確認起就給
-      // (stage5 進場區=HTF區、6=掛單區、≥7=已觸碰；提前畫讓使用者 BOS 一到就看得到計畫)
-      window._coachPlanByTf = {
-        "15m": (dd && dd.ok && dd.stage >= 5) ? dd.plan : null,
-        "5m": (df && df.ok && df.stage >= 5) ? df.plan : null,
-      };
-      _renderCoachBOS();   // 步驟5(BOS)達成點主圖標記
-      if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();
-    })
-    .catch(() => {})
-    .finally(() => { _coachFetching = false; });
-}
-window._fetchCoachData = _fetchCoachData;
-
-// 步驟前進鬧鐘（Pine「步驟 1～7 響鈴」）：同標的步驟數變大 → toast + 瀏覽器通知。
-const _coachLastStage = {};
-function _coachAlertOnAdvance(key, d) {
-  const prev = _coachLastStage[key];
-  _coachLastStage[key] = d.stage;
-  if (prev === undefined || d.stage <= prev) return;   // 首次載入或未前進 → 不叫
-  const st = (d.steps || []).find(x => x.n === d.stage);
-  const dirTxt = d.direction === 1 ? "多單" : d.direction === -1 ? "空單" : "";
-  const msg = `🎯 ${d.symbol}｜${dirTxt}｜步驟 ${d.stage}${st ? "｜" + st.title : ""} 完成`;
-  if (typeof showToast === "function") showToast(msg + (st ? "：" + st.text : ""), 7000);
-  try {
-    if (window.Notification && Notification.permission === "granted")
-      new Notification("SR+SMC 教練", { body: msg, tag: "coach-" + key });
-  } catch (e) {}
-}
-
-function _renderCoachPanel() {
-  const el = document.getElementById("coachPanel");
-  if (!el) return;
-  if (!window._coachOn) { el.style.display = "none"; return; }
-  el.style.display = "block";
-  const dd = _coachData && _coachData.def, df = _coachData && _coachData.fast;
-  if ((!dd || !dd.ok) && (!df || !df.ok)) {
-    el.innerHTML = `<div style="font-weight:700;color:#ffca28">SR+SMC 教練</div><div style="color:#9aa">${_coachFetching ? "載入中…" : "無資料"}</div>`;
-    return;
-  }
-  const fmt = v => v == null ? "—" : (Math.abs(v) >= 1000 ? Number(v).toFixed(0) : Number(v).toFixed(4));
-  const tflabel = d => (d && d.tfset === "fast") ? "4h/1h/15m/5m" : "1d/4h/1h/15m";
-  const dcOf = d => (d && d.direction === 1) ? "#26a69a" : (d && d.direction === -1) ? "#ef5350" : "#9aa";
-  const dtOf = d => (d && d.direction === 1) ? "多單" : (d && d.direction === -1) ? "空單" : "待定";
-  // 單一版本的內容（不含最外層標題列）
-  const bodyFor = (d, collapsed, compact) => {
-    if (!d || !d.ok) return `<div style="color:#9aa">（此版無資料）</div>`;
-    const dc = dcOf(d);
-    const mp = d.market_pos;
-    const mpTxt = mp ? `${mp.inside ? "目前位於" : "最近"}：${mp.kind} ${fmt(mp.bot)} ~ ${fmt(mp.top)}` : "—";
-    const pl = d.plan;
-    const tps = (pl && Array.isArray(pl.tps) && pl.tps.length) ? pl.tps : (pl && pl.tp != null ? [pl.tp] : []);
-    const planParts = pl ? [
-      pl.entry ? ["進場", fmt(pl.entry[0]) + "~" + fmt(pl.entry[1]), "#4fc3f7"] : null,
-      pl.sl != null ? ["止損", fmt(pl.sl), "#ef5350"] : null,
-      ...tps.map((v, i) => ["止盈" + (i + 1), fmt(v), "#26a69a"]),   // TP1～TP4
-    ].filter(Boolean) : [];
-    const planTxt = planParts.length
-      ? planParts.map(p => `<span style="color:${p[2]}">${p[0]} ${p[1]}</span>`).join(`<span style="color:#667">｜</span>`)
-      : "—";
-    if (collapsed) {
-      const planLine = `<div style="font-weight:600;background:rgba(255,255,255,0.05);border-radius:5px;padding:3px 6px">${planTxt}</div>`;
-      if (compact) return planLine;   // 手機收合：只留交易計畫一行（省掉 progress 敘述那行）
-      return `<div style="color:#cdd;max-width:390px;margin-bottom:3px">${d.progress}</div>` + planLine;
-    }
-    const row = (k, v, c) => `<div style="display:flex;gap:8px;padding:1px 0"><span style="color:#9aa;min-width:76px">${k}</span><span style="color:${c || '#e6e6e6'};flex:1">${v}</span></div>`;
-    const stepRow = s => `<div style="display:flex;gap:6px;padding:2px 0;border-top:1px solid rgba(255,255,255,0.07)"><span style="color:${s.done ? dc : '#8a95a5'};min-width:104px;font-weight:600">${s.done ? '✓' : '○'} 步驟${s.n}｜${s.title}</span><span style="color:${s.done ? '#e6e6e6' : '#9aa'};flex:1">${s.text}</span></div>`;
-    return row("持倉狀態", d.position_status || "無持倉")
-      + row("市場位置", mpTxt)
-      + row("通道", d.channel_1h)
-      + row("交易計畫", planTxt, "#ffd54f")
-      + `<div style="margin-top:3px">` + (d.steps || []).map(stepRow).join("") + `</div>`;
-  };
-  const sym = (dd && dd.symbol) || (df && df.symbol) || "";
-  const collapsed = window._coachCollapsed !== false;
-  // 進場狀態徽章：與「可進場」清單同一套定義(stage≥5 起顯示)——階梯 stage5=BOS完成·準備掛單 →
-  //   stage6=掛單中 → stage≥7 還要看「現價距掛單區」:區內=🎯可進場(綠)、≤3%=🎯可進場·距x%(綠)、>3%=已觸碰·價已離區(黃灰)
-  const entryBadge = d => {
-    if (!d || !d.ok) return "";
-    if (d.stage >= 7) {
-      const ent = d.plan && d.plan.entry; let dist = null;
-      if (ent && ent.length >= 2 && ent[0] != null && d.price != null) {
-        const lo = Math.min(ent[0], ent[1]), hi = Math.max(ent[0], ent[1]);
-        dist = (d.price >= lo && d.price <= hi) ? 0 : Math.min(Math.abs(d.price - lo), Math.abs(d.price - hi)) / d.price * 100;
-      }
-      if (dist != null && dist > 3)
-        return `<span style="background:#4a3b00;color:#d8c07a;border-radius:3px;padding:0 5px;margin-left:5px">已觸碰·價已離區${dist.toFixed(1)}%</span>`;
-      const t = (dist != null && dist > 0) ? `·距${dist.toFixed(1)}%` : "";
-      return `<span style="background:#1b5e20;color:#b6ffbf;border-radius:3px;padding:0 5px;margin-left:5px;font-weight:700">🎯可進場${t}</span>`;
-    }
-    if (d.stage >= 6) return `<span style="background:#4a3b00;color:#ffd54f;border-radius:3px;padding:0 5px;margin-left:5px">掛單中</span>`;
-    // stage5：BOS 延續完成，setup 成立、下一步就是去掛單 → 提前顯示的核心狀態
-    if (d.stage >= 5) return `<span style="background:#0d3b52;color:#8fd3ff;border-radius:3px;padding:0 5px;margin-left:5px;font-weight:700">✅BOS完成·準備掛單</span>`;
-    return "";
-  };
-  const subhead = d => `<div style="color:#ffca28;font-weight:600;margin:3px 0 1px;font-size:10.5px">〔${tflabel(d)}〕<b style="color:${dcOf(d)}">${dtOf(d)}</b>｜步驟 ${d ? d.stage : 0}/8${entryBadge(d)}</div>`;
-  // 從「可進場」清單點進來的期望檢查:命中版本若已失效退階(<5)→紅色提示+立即刷新清單
-  // (5m/15m 執行時框設定壽命短,點開瞬間剛失效是週期本質——明講,而不是讓使用者以為清單亂給)
-  let expectWarn = "";
-  try {
-    const ex = window._coachClickExpect;
-    if (ex && sym === ex.sym && Date.now() - ex.ts < 30000) {
-      const dv = ex.ver === "fast" ? df : dd;
-      if (dv && dv.ok) {
-        if ((dv.stage || 0) < 5) {
-          expectWarn = `<div style="background:#4a1414;color:#ffb3ab;border-radius:4px;padding:2px 6px;margin-bottom:3px;font-size:11px">⚠ 此設定剛失效退階（${ex.ver === "fast" ? "⚡5m" : "15m"} 週期變化快）— 清單已同步更新</div>`;
-          if (typeof _fetchCoachScan === "function") setTimeout(() => _fetchCoachScan(true), 300);
-        }
-        window._coachClickExpect = null;   // 評過一次就清掉
-      }
-    }
-  } catch (e) {}
-  if (collapsed) {   // 收合：桌機兩版同時顯示；手機只顯示選中那版＋精簡（收得更小）
-    const first  = window._coachWhich === "fast" ? df : dd;
-    const second = window._coachWhich === "fast" ? dd : df;
-    const _mob = (typeof isMobileUI === "function" && isMobileUI());
-    const head = `<div style="display:flex;align-items:center;gap:8px;border-bottom:1px solid rgba(255,255,255,0.12);padding-bottom:3px;margin-bottom:3px">`
-      + `<span style="font-weight:700;color:#ffca28;flex:1">教練 · ${sym}</span>`
-      + (_mob ? `<button onclick="window._coachToggleWhich&&window._coachToggleWhich()" style="pointer-events:auto;cursor:pointer;background:rgba(79,195,247,0.18);border:0;border-radius:4px;color:#8fd3ff;font-size:11px;padding:1px 6px" title="切換時框組">切 ⇄</button>` : ``)
-      + `<button onclick="window._coachToggleCollapse&&window._coachToggleCollapse()" style="pointer-events:auto;cursor:pointer;background:rgba(255,255,255,0.1);border:0;border-radius:4px;color:#cfd;font-size:11px;padding:1px 6px">展開 ▾</button></div>`;
-    el.innerHTML = _mob
-      ? head + expectWarn + subhead(first) + bodyFor(first, true, true)   // 手機：單版＋compact（只留計畫一行）
-      : head + expectWarn
-        + subhead(first) + bodyFor(first, true)
-        + `<div style="height:6px;border-top:1px dashed rgba(255,255,255,0.14);margin-top:4px"></div>`
-        + subhead(second) + bodyFor(second, true);
-    return;
-  }
-  // 展開：只顯示選中那版全表 + 按鈕切換
-  const sel = _coachSel() || dd || df;
-  const head = `<div style="display:flex;align-items:center;gap:6px;border-bottom:1px solid rgba(255,255,255,0.12);padding-bottom:3px;margin-bottom:4px">`
-    + `<span style="font-weight:700;color:#ffca28;flex:1">教練 · ${sym}｜〔${tflabel(sel)}〕｜<b style="color:${dcOf(sel)}">${dtOf(sel)}</b>｜步驟 ${sel ? sel.stage : 0}/8${entryBadge(sel)}</span>`
-    + `<button onclick="window._coachToggleWhich&&window._coachToggleWhich()" style="pointer-events:auto;cursor:pointer;background:rgba(79,195,247,0.18);border:0;border-radius:4px;color:#8fd3ff;font-size:11px;padding:1px 6px" title="切換時框組">切 ⇄</button>`
-    + `<button onclick="window._coachToggleCollapse&&window._coachToggleCollapse()" style="pointer-events:auto;cursor:pointer;background:rgba(255,255,255,0.1);border:0;border-radius:4px;color:#cfd;font-size:11px;padding:1px 6px">收合 ▴</button></div>`;
-  el.innerHTML = head + expectWarn + bodyFor(sel, false);
-}
-window._renderCoachPanel = _renderCoachPanel;
-// 收合/展開（唯一可互動處，因面板整體 pointer-events:none）
-window._coachToggleCollapse = function () {
-  window._coachCollapsed = !(window._coachCollapsed !== false);
-  try { localStorage.setItem("coachCollapsed", window._coachCollapsed ? "1" : "0"); } catch (e) {}
-  _renderCoachPanel();
-};
-// 收合時切換顯示哪一版（default⇄fast）；HTF 投影跟著換
-window._coachToggleWhich = function () {
-  window._coachWhich = window._coachWhich === "fast" ? "default" : "fast";
-  try { localStorage.setItem("coachWhich", window._coachWhich); } catch (e) {}
-  const sel = _coachSel();
-  window._coachHTF = (sel && sel.ok && sel.htf_zones) ? sel.htf_zones : [];
-  window._coachHTFCh = (sel && sel.ok && sel.htf_channels) ? sel.htf_channels : [];
-  if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();
-  _renderCoachPanel();
-};
-try { window._coachCollapsed = localStorage.getItem("coachCollapsed") !== "0"; } catch (e) {}
-
-function _updateCoachPanel() { _fetchCoachData(false); }
-window._updateCoachPanel = _updateCoachPanel;
-
-// 教練面板定時刷新（15M 新棒收盤後狀態會變）：開啟時每 20s 抓一次。
-if (typeof window !== "undefined" && !window._coachPollStarted) {
-  window._coachPollStarted = true;
-  setInterval(() => { if (window._coachOn && !document.hidden) _fetchCoachData(false); }, 20000);
-}
+// （2026-09-17 SR+SMC 多空教練面板與其輪詢已移除。）
 
 function _renderWinRate(d) {
   _wrCacheLast = d;
@@ -2001,12 +1711,7 @@ setTimeout(() => {
         _renderFVGMS(c.fvg_ms);
         _renderFVGShun(c.fvg_shun);
         _renderFVGSpecial(c.fvg_special);
-        _renderSMCSweep(c.smc_sweep);
-        _renderSMCStruct(c.smc_struct);
-        _renderSMCOB(c.smc_ob);
-        _renderSMCSR(c.smc_sr);
         _renderCoachVWAP(c.vwap);
-        _renderCoachChannel(c.channel);
         if (typeof setFVGZones === "function") setFVGZones(c.fvg);
         _setFVGData(c.fvg);
         window._pdRanges = c.pd_ranges || (c.pd_range ? [c.pd_range] : []);

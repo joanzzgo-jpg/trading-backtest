@@ -513,118 +513,8 @@ def _fvg_approach_scan():
         print(f"  ⚠ FVG逼近掃描失敗：{e}")
 
 
-def _coach_autotrade_market(sym, h):
-    """教練『市價』帳號進場(only near_pct==0=現價在區內)：走既有引擎市價路徑。
-    限價帳號在 execute_signal_trade→_exec_signal_for_account 內會因 entry=='limit' 自動 skip、改由 place_coach_limit 掛單。"""
-    plan = h.get("plan") or {}
-    ent = plan.get("entry"); sl = plan.get("sl")
-    tps = plan.get("tps") or ([plan.get("tp")] if plan.get("tp") is not None else [])
-    if not ent or sl is None or not tps:
-        return
-    d = "l" if h.get("direction") == 1 else "s"
-    try:
-        entry_mid = (float(ent[0]) + float(ent[1])) / 2.0
-        # sig.t=去重指紋(方向+止損位)：同一 setup 跨掃描只下一次；換 setup(止損位變)才再下。
-        sig = {"entry": entry_mid, "stop": float(sl),
-               "tps": [float(t) for t in tps], "t": f"{d}:{round(float(sl), 4)}", "r": None}
-        from routes.trade import execute_signal_trade
-        execute_signal_trade("crypto", "binance", sym, "15m", "coach", d, sig)
-    except Exception as e:
-        print(f"  ⚠ 教練市價下單失敗 {sym}: {e}")
-
-
-def _coach_dispatch(sym, h, coach_accts):
-    """教練命中(default時框、stage≥5) → 分派下單：
-    - 市價帳號：只有現價已在進場區內(near_pct==0)才市價進場。
-    - 限價帳號：near_pct 0~3(at_entry 都算)→ 在進場區掛限價單、價來了自動成交(不會錯過)。"""
-    npc = h.get("near_pct", 0)
-    if npc == 0:
-        _coach_autotrade_market(sym, h)
-    for name, cfg in coach_accts:
-        co = cfg.get("coach") or {}
-        if co.get("entry", "limit") == "limit":
-            try:
-                from routes.trade import place_coach_limit
-                place_coach_limit(name, co, "crypto", "binance", sym, "15m", h)
-            except Exception as e:
-                print(f"  ⚠ 教練限價掛單失敗 {sym}: {e}")
-
-
-def _coach_scan_push():
-    """背景：掃前60加密永續的教練，發現新 setup(stage≥5=BOS 延續完成)→ Web Push + 寫訊號中心(event=coach)。
-    步驟5=setup成立、步驟6=去掛限價單、步驟7=觸碰成交 → 提前到 BOS 一確認就推,對限價單交易者留掛單前置時間。
-    同標的同方向同版每小時最多推一次(seen_event 去重,先到的早階段先推、後面同小時同標的不重推)。純資訊、不下單。"""
-    import routes.notify as notify
-    # 教練自動交易帳號(獨立於推播訂閱：可能只開自動交易、沒訂閱推播)
-    try:
-        from routes.trade import get_all_auto_cfgs
-        coach_accts = [(n, c) for n, c in get_all_auto_cfgs() if (c.get("coach") or {}).get("on")]
-    except Exception:
-        coach_accts = []
-    push_on = notify.notify_enabled()
-    subs = notify.all_active_subs() if push_on else []
-    if not subs and not coach_accts:
-        return
-    try:
-        from routes.data import coach_scan_api
-        # min_stage=5+at_entry=1：BOS(步驟5)完成(與面板同基準)＋「現價此刻正好在區內」才推
-        # → 收到推播時價格就在掛單/區位置(接近層 near_pct>0 在下方迴圈跳過不推)
-        res = coach_scan_api(market="crypto", exchange="binance", n=60, tfset="both", min_stage=5, wait=1, at_entry=1)
-    except Exception as e:
-        print(f"  ⚠ 教練掃描失敗：{e}")
-        return
-    hits = res.get("results") or []
-    if not hits:
-        return
-    from collections import defaultdict
-    by_name = defaultdict(list)
-    for s in subs:
-        by_name[s["name"]].append(s)
-    _hr = int(time.time() // 3600)
-    def _f(v):
-        return "—" if v is None else (f"{v:.0f}" if abs(v) >= 1000 else f"{v:.4f}")
-    for r in hits:
-        sym = r["symbol"]
-        for ver, h in (r.get("hits") or {}).items():
-            # ── 教練自動交易：只 default(4h方向/15m進場)、現價已在進場區內(near_pct==0)、stage≥5(BOS確認,
-            #    與面板顯示/推播同門檻)才市價下單。市價進場故仍要求 near_pct==0(價在區內)→ 成交價≈計畫進場；
-            #    「接近中(near_pct>0)」不下(避免離計畫進場太遠)。逐帳號 gate 在 execute_signal_trade 內。 ──
-            if coach_accts and ver == "default" and h.get("stage", 0) >= 5:
-                _coach_dispatch(sym, h, coach_accts)
-            if not subs:
-                continue   # 沒推播訂閱者 → 只跑自動交易、不推播
-            if h.get("near_pct", 0) > 0:
-                continue   # 「接近」不推,只推「現價正在掛單區內」→ 收到推播=當下就是可進場價
-            d = h.get("direction"); dl = "多" if d == 1 else "空"
-            tf_lbl = "5m" if ver == "fast" else "15m"
-            evt_key = f"coach:{sym}:{ver}:{dl}:{_hr}"
-            if notify.seen_event(evt_key):
-                continue
-            notify.mark_event(evt_key)
-            plan = h.get("plan") or {}
-            tps = plan.get("tps") or ([plan.get("tp")] if plan.get("tp") is not None else [])
-            ent = plan.get("entry")
-            ent_s = f"{_f(ent[0])}~{_f(ent[1])}" if ent else "—"
-            tp_s = "、".join(_f(t) for t in tps) if tps else "—"
-            # 標題依步驟語意分級：5=BOS確認(去掛單)、6=掛單區已成、≥7=已觸碰可進場
-            _stg = h.get("stage", 0)
-            _verb = "可進場" if _stg >= 7 else ("掛單中" if _stg == 6 else "BOS確認·準備掛單")
-            _lbl = "進場" if _stg >= 6 else "區域"
-            title = f"{sym} · {tf_lbl}教練｜{_verb}（{dl}）"
-            body = f"{_lbl} {ent_s}\n止損 {_f(plan.get('sl'))}｜止盈 {tp_s}"
-            payload = {"title": title, "body": body, "tag": f"coach-{sym}-{ver}",
-                       "data": {"symbol": sym, "market": "crypto", "exchange": "pionex", "tf": tf_lbl, "kind": "coach"}}
-            for name, slist in by_name.items():
-                # 「教練通知」獨立開關（關→只停該帳號推播，仍寫訊號中心）
-                try: coach_ok = notify.account_prefs(name).get("coachNotify", True)
-                except Exception: coach_ok = True
-                if coach_ok:
-                    for s in slist:
-                        try: notify.send_push(s, payload)
-                        except Exception: pass
-                try: notify.log_signal(name, time.time(), "coach", title, body, sym, "crypto", "pionex", tf_lbl)
-                except Exception: pass
-
+# （2026-09-17 SR+SMC 教練功能整個移除：_coach_autotrade_market / _coach_dispatch /
+#   _coach_scan_push 已刪。教練開過的既有限價單/倉位仍由 reconcile_coach_pending_all 管理。）
 
 
 def _price_alert_scan():
@@ -707,8 +597,6 @@ def run_monitor_loop():
     _lease = SingletonLease("notify_monitor")   # 多 worker/多實例下全局只有一個跑者(自動下單/推播不可重複)
     last_seen = {}
     last_status = 0.0
-    last_coach = 0.0
-    last_coach_warm = 0.0   # 常駐暖掃(教練前60)節拍
     _was_leader = None
     # ★ 2026-08-10 把這條執行緒標成「背景工作」：底下的教練暖掃／訊號掃描會吃大量 Binance 權重
     #   （實測把 fapi 吃到 2400/2400），與使用者當下在看的圖表搶同一份額度 → 互動路徑被節流擋掉、
@@ -758,6 +646,8 @@ def run_monitor_loop():
         except Exception as e:
             print(f"  ⚠ 手動限價補掛失敗：{e}")
         # 每 ~60s：教練限價單成交就「即時補掛止損止盈」、過期/幽靈殘單清理
+        # ⚠ 教練功能已移除（2026-09-17），這段**刻意保留**：先前教練掛出的單/開的倉位若還在，
+        #   仍需要這裡補掛止損止盈與撤過期單。沒有 status='pending' 的教練單時它什麼都不做。
         try:
             from routes.trade import reconcile_coach_pending_all
             reconcile_coach_pending_all()
@@ -772,23 +662,6 @@ def run_monitor_loop():
                 push_auto_status()
             except Exception as e:
                 print(f"  ⚠ 狀況推播失敗：{e}")
-        # 每 ~60 秒：常駐暖掃教練前60（與前端同 cache key）→ 清單 1 分鐘級即時。
-        # K棒快取按時框分層(高時框吃快取),每輪實際只重抓 5m/15m ≈ 450~600 權重/分,
-        # 加 ticker 基載共 ~37% 上限;權重感知節流(>75%減速/>92%跳過)+418熔斷雙保險。
-        if now - last_coach_warm >= 60:
-            last_coach_warm = now
-            try:
-                from routes.data import coach_scan_api
-                coach_scan_api(market="crypto", exchange="binance", n=60, tfset="both", min_stage=5, wait=1)
-            except Exception as e:
-                print(f"  ⚠ 教練暖掃失敗：{e}")
-        # 每 ~10 分鐘：教練掃描前60 → 新『可進場』推播 + 訊號中心（讀暖掃快取,幾乎零成本）
-        if now - last_coach >= 600:
-            last_coach = now
-            try:
-                _coach_scan_push()
-            except Exception as e:
-                print(f"  ⚠ 教練掃描推播失敗：{e}")
         # 喚醒對齊「整分 +3s」(2026-07-13)：K 棒都在整分收盤,原本固定 sleep 60s 相位隨機 →
         # 最壞要等 ~59s 才開掃,推播/自動進場整整晚一分鐘。對齊後每輪都在收盤後 ~3-8s 開掃。
         # 迴圈本體若吃超過一分鐘則落到下一個 :03,行為不變只是慢一輪(與原本相同)。

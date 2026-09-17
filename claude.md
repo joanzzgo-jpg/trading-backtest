@@ -521,7 +521,9 @@ node scripts/check_crosshair_blank.js    # 需本機服務跑著
 - **FVG 策略定版規格（v2.3，參數已鎖定）**：止損/止盈檔位、雙槽多空、多幣組合、止盈先到撤殘單 → [docs/fvg-strategy.md](docs/fvg-strategy.md)
   - ⚠ 主圖方向多空/破多空標記（`crt.py` `_calc_crt_winrate` 的 `_pseq` proto 缺口）**2026-07-10 拿掉 g+1「沒填回」檢查** → proto 純「g 收盤站上前根高/破前根低」即定案、**不再被下一根收盤回頭撤掉（非 repaint）**；代價破多空標記約 2x。**未收盤最後一根**另出「暫定」標記（半透明+空心+?，`_prov_proto`，收盤才轉正式、會 repaint、使用者已同意）。auto-trade 進場 `_fvg_sigs` 是另一套、不受這些影響。
 - **3D 天氣背景實作規格**：Canvas 2D 粒子＋CSS 3D 分層、Phase 進度與實作差異 → [docs/weather-3d-spec.md](docs/weather-3d-spec.md)
-- **自動交易引擎**（Binance USDⓈ-M 永續，testnet 預設、逐帳號自有金鑰）：`routes/trade.py`＝下單/對帳/生命週期，`notify_monitor.py`＝背景偵測訊號→下單。三個訊號源子設定 `{ss, fvg, coach}`：ss=SR/SMC 反轉、fvg=失衡缺口、**coach=SR+SMC 多空教練（2026-07-10 接入，限價/市價進場+訊號止損+單一固定TP，方向 edge 未回測、testnet 先跑）**。核心 `execute_signal_trade`／`_exec_signal_for_account`（市價）、`place_coach_limit`／`place_fvg_limit_ladder`（限價）＋各自 `reconcile_*`。詳見 memory `project_coach-system`。
+- **自動交易引擎**（Binance USDⓈ-M 永續，testnet 預設、逐帳號自有金鑰）：`routes/trade.py`＝下單/對帳/生命週期，`notify_monitor.py`＝背景偵測訊號→下單。訊號源子設定 `{ss, fvg}`：ss=SR/SMC 反轉、fvg=失衡缺口。核心 `execute_signal_trade`／`_exec_signal_for_account`（市價）、`place_fvg_limit_ladder`（限價）＋各自 `reconcile_*`。
+  - ⏸ **2026-09-17 起自動交易暫停**：環境變數 `AUTOTRADE_PAUSED` 預設 `1` → 所有**新進場**入口（`_autotrade_blocked()`）直接略過；既有倉位/掛單的 `reconcile_*` **照跑**（停掉會讓已開的倉沒人管）。恢復＝Railway 設 `AUTOTRADE_PAUSED=0`。⚠ 暫停**不會**撤掉交易所上已掛的限價單。
+  - 🗑 **SR+SMC 教練（coach）已於 2026-09-17 整個移除**（UI／`/api/smc_coach`／`/api/coach_scan`／掃描推播／`place_coach_limit`／`utils/smc.py`）。**刻意保留** `reconcile_coach_pending(_all)`：管理移除前教練開過、還掛著或還持有的單；`_clean_coach` 一律存成 `on=False`。`window._coachVWAP` 只是 VWAP 沿用的舊變數名，不是教練。`crt.py` 的 `smc_*` 計算也保留（自動交易的 sweepBoost 會用到；HTTP 邊界一律 skip 不送前端）。
 
 ## ⚠️ 關鍵鐵則（違反會造成 bug，務必遵守）
 

@@ -2700,34 +2700,7 @@ function initVPToggle() {
   });
 }
 
-// 右上「SR+SMC 教練」疊加層總開關（階段1：掃頂/掃底；後續階段：BOS/CHoCH/OB/SR/通道/教練面板）
-function initCoachToggle() {
-  const btn = document.getElementById("coachToggleBtn");
-  if (!btn) return;
-  try { window._coachOn = localStorage.getItem("coachOverlay") === "1"; } catch (e) {}
-  const _sync = () => {
-    btn.classList.toggle("active", window._coachOn);
-    const st = document.getElementById("mSetCoachState");
-    if (st) st.textContent = window._coachOn ? "開啟" : "關閉";
-    const row = document.getElementById("mSetCoach");
-    if (row) row.classList.toggle("m-set-on", window._coachOn);
-  };
-  _sync();
-  btn.addEventListener("click", () => {
-    window._coachOn = !window._coachOn;
-    try { localStorage.setItem("coachOverlay", window._coachOn ? "1" : "0"); } catch (e) {}
-    // 開啟時請求瀏覽器通知權限（步驟前進鬧鐘用；此為使用者手勢，允許請求）
-    try { if (window._coachOn && window.Notification && Notification.permission === "default") Notification.requestPermission(); } catch (e) {}
-    _sync();
-    if (typeof _applyMainMarkers === "function") _applyMainMarkers();  // 立即顯示/隱藏教練標記(掃頂掃底)
-    _scheduleRenderDrawings();                                          // 立即顯示/隱藏教練畫布層(BOS/CHoCH線)
-    if (typeof _updateCoachPanel === "function") _updateCoachPanel();   // 立即顯示/隱藏教練面板
-    // 圖層剛打開 → 勝率回應裡若沒帶這層的資料（預設不送、省流量）就自動補抓一次
-    if (typeof window._wrRefetchIfMissing === "function") window._wrRefetchIfMissing();
-  });
-}
-
-// 右上「VWAP」獨立開關：與教練層解耦，資料仍來自勝率回應的 window._coachVWAP
+// 右上「VWAP」獨立開關：資料來自勝率回應的 window._coachVWAP（變數名沿用舊名；教練功能已於 2026-09-17 移除）
 function initVwapToggle() {
   const btn = document.getElementById("vwapToggleBtn");
   if (!btn) return;
@@ -2866,14 +2839,6 @@ function _avwapCurve(d) {
   return curve;
 }
 
-// SR+SMC 教練疊加層繪製（階段2：BOS/CHoCH 結構破線段）。畫布在 K 棒之上、不限時框。
-// 由後端 smc_struct 提供線段端點：t0=擺點K、t1=收破K、p=擺點價、k=事件型別。
-const _COACH_STRUCT_STYLE = {
-  bos_up:   { c: "#26a69a", dash: false, t: "BOS↑" },   // 多方延續
-  choch_up: { c: "#26a69a", dash: true,  t: "CHoCH↑" }, // 轉多（虛線）
-  bos_dn:   { c: "#ef5350", dash: false, t: "BOS↓" },   // 空方延續
-  choch_dn: { c: "#ef5350", dash: true,  t: "CHoCH↓" }, // 轉空（虛線）
-};
 // 折價/溢價區（ICT/SMC dealing range）：以「畫面右緣那根」為當下，只用到它為止的 K 棒現算(非重繪、不看未來)。
 //   捲到哪、右緣就是那個歷史時點→看到的是「當時」的折價/溢價。溢價=EQ→top(紅上)、折價=bot→EQ(綠下)、EQ=50%(黃虛)。
 let _pdCache = null;   // 折價/溢價區全棒掃描結果快取 { len, E, rHi, rLo, legStart, ts }（平移時節流重算）
@@ -2943,175 +2908,6 @@ window.togglePDZones = function (on) {
   if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();
   return window._pdOn;
 };
-
-function _drawCoachOverlay(W, H) {
-  if (!window._coachOn) return;
-  const items = window._coachStructure;
-  if (!items || !items.length) return;
-  if (typeof mainChart === "undefined" || typeof candleSeries === "undefined" || !candleSeries) return;
-  const ts = mainChart.timeScale();
-  let plotW = W;
-  try { const tw = ts.width(); if (tw > 0) plotW = tw; } catch (e) {}   // 裁掉右側價格軸
-  const _rpCut = (typeof replayActive !== "undefined" && replayActive
-    && typeof replayData !== "undefined" && replayData[replayIdx])
-    ? toTime(replayData[replayIdx].time) : null;
-  drawCtx.save();
-  drawCtx.beginPath(); drawCtx.rect(0, 0, plotW, H); drawCtx.clip();
-  drawCtx.font = "10px sans-serif"; drawCtx.textBaseline = "middle";   // 精簡：非粗體
-  // 視覺精簡：去重疊。_boxes 記已畫框價格範圍；新框與任一舊框重疊>80%→視為重複、不再畫(降雜亂)。
-  const _boxes = [];
-  const _overlapDup = (top, bot) => {
-    const t = Math.max(top, bot), b = Math.min(top, bot), h = (t - b) || 1e-9;
-    for (const q of _boxes) {
-      const ov = Math.min(t, q.t) - Math.max(b, q.b);
-      if (ov > 0 && ov / Math.min(h, (q.t - q.b) || 1e-9) > 0.8) return true;
-    }
-    _boxes.push({ t, b }); return false;
-  };
-  const _labels = [];   // 已放標籤 (x,y)：太近就不重複畫(避免疊字)
-  const _labelDup = (x, y) => { for (const l of _labels) if (Math.abs(l.y - y) < 10 && Math.abs(l.x - x) < 60) return true; _labels.push({ x, y }); return false; };
-  // 每類只畫離現價最近的 N 個區(遠方用不到→不畫，大幅減少全寬橫條)
-  const _px = (typeof ohlcvData !== "undefined" && ohlcvData && ohlcvData.length) ? ohlcvData[ohlcvData.length - 1].close : null;
-  const _nearest = (arr, n = 3) => {
-    if (_px == null || !arr || arr.length <= n) return arr || [];
-    return arr.map(z => [z, Math.abs((z.top + z.bot) / 2 - _px)]).sort((a, b) => a[1] - b[1]).slice(0, n).map(x => x[0]);
-  };
-  // 共用：畫一個區框(SR/OB)。z={t0,t1,top,bot}；存活(t1=null)延伸到右緣，replay 裁切。
-  const _zoneBox = (z, rgb, label) => {
-    const t0 = toTime(z.t0);
-    if (_rpCut != null && t0 > _rpCut) return;
-    const x0 = _timeToX(t0);
-    if (x0 == null) return;
-    const t1eff = z.t1 ? toTime(z.t1) : null;          // 右端：失效→失效K；存活→右緣(replay到揭曉點)
-    let xr;
-    if (_rpCut != null && (t1eff == null || t1eff > _rpCut)) xr = _timeToX(_rpCut);
-    else if (t1eff != null) xr = _timeToX(t1eff);
-    else xr = plotW;
-    if (xr == null) xr = plotW;
-    if (xr < 0 || x0 > plotW) return;
-    if (_overlapDup(z.top, z.bot)) return;             // 去重疊：與已畫框幾乎重合→略過
-    const yT = candleSeries.priceToCoordinate(z.top), yB = candleSeries.priceToCoordinate(z.bot);
-    if (yT == null || yB == null) return;
-    const L = Math.max(x0, 0), R = Math.min(xr, plotW), tp = Math.min(yT, yB), hgt = Math.abs(yB - yT);
-    if (R <= L) return;
-    drawCtx.fillStyle = `rgba(${rgb},0.05)`;           // 精簡：降透明度
-    drawCtx.fillRect(L, tp, R - L, hgt);
-    drawCtx.strokeStyle = `rgba(${rgb},0.5)`; drawCtx.lineWidth = 0.8;   // 精簡：細線+降透明
-    drawCtx.strokeRect(L, tp, R - L, hgt);
-    if (!_labelDup(L, tp + 7)) {                        // 去重疊：標籤太近不重畫
-      drawCtx.fillStyle = `rgba(${rgb},0.85)`;
-      drawCtx.fillText(label, L + 3, tp + 7);
-    }
-  };
-  // ⓪a HTF 投影區（1H/4H 的 OB/FVG/SR，像 TV 畫在低時框圖上）：從形成K往右延伸的盒子、虛線邊、左側標籤。
-  const htf = window._coachHTF;
-  if (htf && htf.length) {
-    drawCtx.setLineDash([5, 4]);
-    for (const z of _nearest(htf)) {                // 只畫離現價最近的幾個
-      if (_overlapDup(z.top, z.bot)) continue;      // 去重疊：與已畫框幾乎重合→略過
-      const yT = candleSeries.priceToCoordinate(z.top), yB = candleSeries.priceToCoordinate(z.bot);
-      if (yT == null || yB == null) continue;
-      let x0 = z.t0 ? _timeToX(toTime(z.t0)) : 0;
-      if (x0 == null) x0 = 0;                       // 形成K在畫面外→從左緣起
-      x0 = Math.max(0, Math.min(x0, plotW));
-      const tp = Math.min(yT, yB), hgt = Math.max(1, Math.abs(yB - yT));
-      const rgb = z.kind === "ob" ? (z.dir === "l" ? "33,150,243" : "255,152,0")
-        : z.kind === "fvg" ? (z.dir === "l" ? "0,188,212" : "156,39,176")
-        : (z.dir === "l" ? "38,166,154" : "239,83,80");   // sr
-      drawCtx.fillStyle = `rgba(${rgb},0.045)`;     // 精簡：降透明度
-      drawCtx.fillRect(x0, tp, plotW - x0, hgt);
-      drawCtx.strokeStyle = `rgba(${rgb},0.5)`; drawCtx.lineWidth = 0.8;   // 精簡：細線+降透明
-      drawCtx.strokeRect(x0, tp, plotW - x0, hgt);
-      if (!_labelDup(x0, tp + 7)) {                 // 去重疊：標籤太近不重畫
-        drawCtx.fillStyle = `rgba(${rgb},0.8)`;
-        drawCtx.fillText(z.name, x0 + 3, tp + 7);
-      }
-    }
-    drawCtx.setLineDash([]);
-  }
-  // ⓪ SR 支撐/阻力區（最底層）：阻力紅/支撐綠
-  for (const z of _nearest(window._coachSR || [])) _zoneBox(z, z.d === "res" ? "239,83,80" : "38,166,154", z.d === "res" ? "阻力" : "支撐");
-  // ① OB 訂單區框：多OB藍/空OB橘
-  for (const z of _nearest(window._coachOB || [])) _zoneBox(z, z.d === "l" ? "33,150,243" : "255,152,0", z.d === "l" ? "多OB" : "空OB");
-  // ② 平行通道：從「錨點K(t1)」沿斜率延伸到右緣（涵蓋範圍對齊 TV）。畫 當前TF通道 + 4H靛 + 1H青。
-  const _drawChan = (c, rgb) => {
-    if (!c || !c.t1) return;
-    const cx1 = _timeToX(toTime(c.t1)), cx2 = _timeToX(toTime(c.t2));
-    const yU1 = candleSeries.priceToCoordinate(c.up1), yU2 = candleSeries.priceToCoordinate(c.up2);
-    const yL1 = candleSeries.priceToCoordinate(c.lo1), yL2 = candleSeries.priceToCoordinate(c.lo2);
-    if (cx1 == null || cx2 == null || cx2 === cx1 || yU1 == null || yU2 == null || yL1 == null || yL2 == null) return;
-    const _ext = (xa, ya, xb, yb, xt) => ya + (yb - ya) * (xt - xa) / (xb - xa);
-    const xL = Math.max(0, cx1), xR = plotW;                 // 起點=錨點K（不再拉到最左）
-    const yUL = _ext(cx1, yU1, cx2, yU2, xL), yUR = _ext(cx1, yU1, cx2, yU2, xR);
-    const yLL = _ext(cx1, yL1, cx2, yL2, xL), yLR = _ext(cx1, yL1, cx2, yL2, xR);
-    drawCtx.fillStyle = `rgba(${rgb},0.03)`;                              // 精簡：降透明度
-    drawCtx.beginPath(); drawCtx.moveTo(xL, yUL); drawCtx.lineTo(xR, yUR); drawCtx.lineTo(xR, yLR); drawCtx.lineTo(xL, yLL); drawCtx.closePath(); drawCtx.fill();
-    drawCtx.strokeStyle = `rgba(${rgb},0.6)`; drawCtx.lineWidth = 1;      // 精簡：細線+降透明
-    drawCtx.beginPath(); drawCtx.moveTo(xL, yUL); drawCtx.lineTo(xR, yUR); drawCtx.stroke();
-    drawCtx.beginPath(); drawCtx.moveTo(xL, yLL); drawCtx.lineTo(xR, yLR); drawCtx.stroke();
-  };
-  for (const c of (window._coachHTFCh || [])) _drawChan(c, c.tf === "4H" ? "63,81,181" : "0,150,136");  // 4H靛 / 1H青
-  _drawChan(window._coachChannel, window._coachChannel && window._coachChannel.dir === 1 ? "38,166,154" : "239,83,80");
-  // ③ VWAP：改由獨立開關 _vwapOn 控制（_drawVWAP，不再綁教練層）
-  // ④ BOS/CHoCH 結構破線段（精簡：整段調更淡）
-  drawCtx.globalAlpha = 0.5;
-  for (const it of items) {
-    const st = _COACH_STRUCT_STYLE[it.k];
-    if (!st) continue;
-    const t1 = toTime(it.t1);
-    if (_rpCut != null && t1 > _rpCut) continue;          // replay：未揭曉的不畫
-    const x0 = _timeToX(toTime(it.t0)), x1 = _timeToX(t1);
-    if (x0 == null || x1 == null) continue;
-    if (x1 < 0 || x0 > plotW) continue;                   // 完全在畫面外→略過
-    const y = candleSeries.priceToCoordinate(it.p);
-    if (y == null) continue;
-    drawCtx.strokeStyle = st.c; drawCtx.lineWidth = 1;    // 精簡：細線
-    drawCtx.setLineDash(st.dash ? [4, 3] : []);
-    drawCtx.beginPath(); drawCtx.moveTo(x0, y); drawCtx.lineTo(x1, y); drawCtx.stroke();
-    drawCtx.setLineDash([]);
-    if (!_labelDup(Math.min(x1 + 4, plotW), y)) {         // 去重疊：太近的結構標籤不重畫
-      const tw = drawCtx.measureText(st.t).width;
-      const lx = Math.min(x1 + 4, plotW - tw - 3);
-      drawCtx.fillStyle = "rgba(0,0,0,0.4)";
-      drawCtx.fillRect(lx - 2, y - 7, tw + 4, 14);
-      drawCtx.fillStyle = st.c;
-      drawCtx.fillText(st.t, lx, y + 0.5);
-    }
-  }
-  drawCtx.globalAlpha = 1;
-  // ⑤ 交易計畫線：僅 15m/5m 圖 + BOS 確認(stage≥5,由 _coachPlanByTf 篩)。進場區/止損/止盈1~4 畫成主圖水平價位線(最上層清楚)
-  const _tf = (typeof currentTF !== "undefined") ? currentTF : "";
-  const plan = ((_tf === "15m" || _tf === "5m") && window._coachPlanByTf) ? window._coachPlanByTf[_tf] : null;
-  if (plan) {
-    drawCtx.font = "bold 10px sans-serif";
-    const _hline = (price, rgb, label, dash) => {
-      if (price == null) return;
-      const y = candleSeries.priceToCoordinate(price);
-      if (y == null) return;
-      drawCtx.strokeStyle = `rgba(${rgb},0.95)`; drawCtx.lineWidth = 1.2;
-      drawCtx.setLineDash(dash ? [6, 4] : []);
-      drawCtx.beginPath(); drawCtx.moveTo(0, y); drawCtx.lineTo(plotW, y); drawCtx.stroke();
-      drawCtx.setLineDash([]);
-      if (label) {
-        const tw = drawCtx.measureText(label).width;
-        const lx = plotW - tw - 7;
-        drawCtx.fillStyle = "rgba(0,0,0,0.65)"; drawCtx.fillRect(lx - 3, y - 7, tw + 6, 14);
-        drawCtx.fillStyle = `rgba(${rgb},1)`; drawCtx.fillText(label, lx, y + 0.5);
-      }
-    };
-    if (plan.entry && plan.entry[0] != null) {          // 進場區(淡藍band + 上下虛線)
-      const y0 = candleSeries.priceToCoordinate(plan.entry[0]), y1 = candleSeries.priceToCoordinate(plan.entry[1]);
-      if (y0 != null && y1 != null) { drawCtx.fillStyle = "rgba(79,195,247,0.12)"; drawCtx.fillRect(0, Math.min(y0, y1), plotW, Math.abs(y1 - y0)); }
-      _hline(plan.entry[0], "79,195,247", "進場", true);
-      _hline(plan.entry[1], "79,195,247", "", true);
-    }
-    _hline(plan.sl, "239,83,80", "SL 止損");            // 止損(紅)
-    const tps = plan.tps || (plan.tp != null ? [plan.tp] : []);
-    tps.forEach((v, i) => _hline(v, "38,166,154", "TP" + (i + 1)));   // 止盈1~4(綠)
-    drawCtx.font = "10px sans-serif";
-  }
-  drawCtx.restore();
-}
 
 // renderDrawings 合併排程 —— 「領先同幀 + 尾隨合併」：
 //   平移時 LWC 在同一事件裡先更新內部座標才發 subscribeVisibleTimeRangeChange → 此刻「同步」重繪，
@@ -3856,9 +3652,6 @@ function renderDrawings() {
 
   // 折價/溢價區（ICT/SMC dealing range：溢價紅上半、折價綠下半、EQ 50%線；開關 _pdOn 預設開）
   _drawPDZones(W, H);
-
-  // SR+SMC 教練疊加層（階段2：BOS/CHoCH 結構破線段+標籤；全時框；右上開關 _coachOn）
-  _drawCoachOverlay(W, H);
 
   // VWAP 成交量加權均價（黃折線；獨立開關 _vwapOn）
   _drawVWAP(W, H);
@@ -4679,7 +4472,7 @@ if (!window._drawBooted) {
   window._drawBooted = true;
   try {
     initDrawTools();
-    initSessionToggle(); initWeekBoxToggle(); initVPToggle(); initCoachToggle(); initVwapToggle();
+    initSessionToggle(); initWeekBoxToggle(); initVPToggle(); initVwapToggle();
     initShareToggle(); initLineAlert();
   } catch (e) { console.warn("draw self-init failed", e); }
 }

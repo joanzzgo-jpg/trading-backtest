@@ -642,7 +642,7 @@ function renderAll(data) {
 
 function renderCandles(data) {
   applyOhlcvToSeries(data);
-  lastWRSignalMarkers = []; lastFVGTradeMarkers = []; lastFVGBBMarkers = []; lastFVGBBMarkersA = []; lastFVGBBMarkersM = []; lastFVGBreakMarkers = []; lastFVGMSMarkers = []; lastFVGShunMarkers = []; lastFVGSpecialMarkers = []; lastSMCSweepMarkers = []; lastCoachBOSMarkers = [];
+  lastWRSignalMarkers = []; lastFVGTradeMarkers = []; lastFVGBBMarkers = []; lastFVGBBMarkersA = []; lastFVGBBMarkersM = []; lastFVGBreakMarkers = []; lastFVGMSMarkers = []; lastFVGShunMarkers = []; lastFVGSpecialMarkers = [];
   if (typeof setFVGTradeLines === "function") setFVGTradeLines([]);   // 換標的/重載 → 清舊止損止盈線，避免殘留
   _sortedMarkerCache = null;   // 標記陣列已清空 → 失效快取，避免平移重切視窗時殘留舊標記
   candleSeries.setMarkers([]);
@@ -797,8 +797,6 @@ function _applyMainMarkersNow(windowOnly) {
       ...((window._fvgBBHidden || window._fvgBBHideA) ? [] : lastFVGBBMarkersA),
       // M版(順多/順空/順平)已從主圖移除——不再合併進標記，console 也叫不出來
       // 破多/破空·多/空·順多/順空 三組已改由 charts.js 的 _makeStratMarkersPrimitive 自畫(隨 K 棒縮放、與棒同步)→ 不再走原生 setMarkers
-      ...(window._coachOn ? lastSMCSweepMarkers : []),           // SMC 掃頂/掃底(階段1:SR+SMC 教練疊加層,右上開關)
-      ...(window._coachOn ? lastCoachBOSMarkers : []),           // 教練步驟5(BOS)達成點箭頭(右上開關)
     ].sort((a, b) => a.time - b.time);
     /* 這裡原本會「標記一變就整份重畫成交量」，唯一目的是套上面那個淡化。
        淡化拿掉後成交量與標記完全無關 → 連帶省掉每次標記更新的一次全量 setData。 */

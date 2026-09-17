@@ -493,12 +493,17 @@ def _clean_coach(p: dict) -> dict:
     o["tp"] = p.get("tp") if p.get("tp") in ("tp1", "tp2", "tp3", "tp4") else "tp2"
     o["slPct"] = _num(p.get("slPct") or 0, 0.0, 0.0, 50.0)
     o["perSym"] = p.get("perSym") if isinstance(p.get("perSym"), dict) else {}
-    return o
+    # ⚠ 2026-09-17 教練功能移除：一律 on=False。存著 True 的舊設定也不會再啟用；
+    #   其餘欄位保留，reconcile_auto_position 對既有教練倉位出場時還會讀。
+    _out = o
+    if isinstance(_out, dict):
+        _out["on"] = False
+    return _out
 
 
 # ── 自動交易總暫停（2026-09-17 使用者：「自動交易功能暫時關掉」）──────────────────────
-#   ★ 只擋「開新倉」的三個入口：execute_signal_trade（市價）、place_fvg_limit_ladder、
-#     place_coach_limit（限價）。**對帳一律照跑**（reconcile_*）：成交後補掛止損止盈、過期殘單清掉、
+#   ★ 只擋「開新倉」的三個入口：execute_signal_trade（市價）、place_fvg_limit_ladder（限價）
+#     （教練限價入口已隨教練功能移除）。**對帳一律照跑**（reconcile_*）：成交後補掛止損止盈、過期殘單清掉、
 #     持倉出場結算 —— 連這些都停的話，已經在場上的倉位就沒人管，比開著自動交易更危險。
 #   ⚠ 已經掛在交易所上、還沒成交的限價進場單**不會被這裡取消**：價格碰到仍可能成交，
 #     成交後會由對帳照常掛上止損止盈。要一併撤掉得另外處理（會動到真實帳戶的掛單）。
@@ -1683,108 +1688,8 @@ def reconcile_fvg_pending_all():
         print(f"  ⚠ FVG即時止損對帳失敗：{e}")
 
 
-def place_coach_limit(name, cfg, market, exchange, symbol, tf, h):
-    """教練限價進場：在進場區「價格先碰到的那一緣」掛 1 張限價單(maker, GTC)，價來了自動成交。
-    h=教練命中(plan.entry=[bot,top]/sl/tps、direction)。SL/TP 不在此掛——成交後由 reconcile_coach_pending
-    掛 closePosition 觸發單；殘單/過期/成交後撤殘單亦由其管理。用此帳號金鑰/自選/方向過濾。絕不拋例外。"""
-    if _autotrade_blocked("place_coach_limit"):   # 自動交易暫停中：不開新倉（對帳不受影響）
-        return
-    if market != "crypto":
-        return
-    try:
-        import routes.notify as notify
-        plan = h.get("plan") or {}
-        ent = plan.get("entry"); sl = plan.get("sl")
-        tps = plan.get("tps") or ([plan.get("tp")] if plan.get("tp") is not None else [])
-        if not ent or len(ent) < 2 or ent[0] is None or ent[1] is None or sl is None or not tps:
-            return
-        d = "l" if h.get("direction") == 1 else "s"
-        want = "short" if d == "s" else "long"
-        if cfg["dirs"] != "both" and cfg["dirs"] != want:
-            return
-        e_bot = float(min(ent)); e_top = float(max(ent))
-        # 限價價位＝進場區價格先碰到的緣：多單(價在上、跌入區)=上緣；空單(價在下、漲入區)=下緣
-        entry_px = e_top if want == "long" else e_bot
-        _idx = {"tp1": 0, "tp2": 1, "tp3": 2, "tp4": 3}.get(cfg.get("tp", "tp2"), 1)
-        tp = float(tps[min(_idx, len(tps) - 1)])
-        stop = float(sl)
-        slpct = cfg.get("slPct") or 0
-        if slpct > 0:                                   # 止損緩衝%：訊號停損往「虧損側」外推
-            stop = stop * (1 + slpct / 100) if want == "short" else stop * (1 - slpct / 100)
-        if (want == "long" and stop >= entry_px) or (want == "short" and stop <= entry_px):
-            return                                       # 止損必須在進場價虧損側
-        setup_id = f"{d}:{round(stop, 6)}"               # 去重指紋：方向+止損位(換 setup 才變)→同 setup 只掛一次
-        evt = f"coachlimit:{name}:{symbol}:{tf}:{setup_id}"
-        if notify.seen_event(evt):
-            return
-        notify.mark_event(evt)
-        client, _ = _client_for(name)
-        if client is None:
-            return
-        if symbol not in {(w.get("symbol") or "") for w in fvg_account_symbols(name, cfg)}:
-            return                                       # universe=top60 → 比對成交量前60；否則自選
-        bsym, scale = client.resolve_symbol(symbol)
-        _hedge = _is_hedge(client)
-        _psd = _posside(want, _hedge)
-        _c, _ph = _acct._db()                            # 去重 + maxPos（只算教練自己的倉）
-        try:
-            if _hedge:
-                _dup = _c.execute(f"SELECT 1 FROM trade_log WHERE source='auto' AND sig='coach' AND status IN ('pending','open') AND acct={_ph} AND symbol={_ph} AND dir={_ph} LIMIT 1", (name, symbol, d)).fetchone()
-            else:
-                _dup = _c.execute(f"SELECT 1 FROM trade_log WHERE source='auto' AND sig='coach' AND status IN ('pending','open') AND acct={_ph} AND symbol={_ph} LIMIT 1", (name, symbol)).fetchone()
-            _open_n = _c.execute(f"SELECT COUNT(*) FROM trade_log WHERE source='auto' AND sig='coach' AND status IN ('pending','open') AND acct={_ph}", (name,)).fetchone()
-        finally:
-            _c.close()
-        if _dup:
-            return
-        if _open_n and _open_n[0] >= int(cfg.get("maxPos", 5) or 5):
-            return
-        risk_usd = cfg.get("riskUsd") or 0               # 倉位（同市價路徑：riskUsd→止損距離反推；否則保證金×槓桿）
-        e_c = entry_px * scale; s_c = stop * scale
-        try:
-            max_lev, mmr = client.lev_bracket(bsym)
-        except Exception:
-            max_lev, mmr = 50, 0.0
-        stop_pct = abs(e_c - s_c) / e_c if e_c else 0.05
-        safe_lev = int(1.0 / (stop_pct * 1.25 + mmr)) if (stop_pct * 1.25 + mmr) > 0 else max_lev
-        fee = 0.0005
-        if risk_usd > 0:
-            per = abs(e_c - s_c) + fee * e_c + fee * s_c
-            qb = risk_usd / per if per > 0 else 0
-            lev = max(1, min(safe_lev, max_lev, 50))
-        else:
-            lev = max(1, min(int(cfg["lev"]), safe_lev, max_lev, 50))
-            qb = (cfg["usdt"] * lev) / e_c if e_c else 0
-        qty = client.quantize_qty(bsym, qb)
-        if float(qty) * e_c < client.min_notional(bsym):
-            _log_trade(source="auto", acct=name, mode=client.env, status="failed", symbol=symbol, bsym=bsym, side=want,
-                       sig="coach", d=d, tf=tf, sigt=setup_id, msg=f"名目 {float(qty)*e_c:.1f} < 下限 {client.min_notional(bsym)}")
-            return
-        try:
-            client.set_leverage(bsym, lev)
-        except bt.TradeError:
-            pass
-        side = "BUY" if want == "long" else "SELL"
-        px = client.quantize_price(bsym, e_c)
-        try:
-            o = client.place_order(bsym, side, qty, "LIMIT", price=px, position_side=_psd)
-            oid = o.get("orderId")
-        except bt.TradeError as e:
-            _log_trade(source="auto", acct=name, mode=client.env, status="failed", symbol=symbol, bsym=bsym, side=want,
-                       sig="coach", d=d, tf=tf, sigt=setup_id, msg=f"教練限價掛單失敗：{str(e)[:80]}")
-            return
-        extra = json.dumps({"oid": oid, "setup_id": setup_id, "e_top": e_top, "e_bot": e_bot})
-        _log_trade(source="auto", acct=name, mode=client.env, status="pending", symbol=symbol, bsym=bsym, side=want,
-                   sig="coach", d=d, tf=tf, sigt=setup_id, sl=str(round(stop, 8)), tp=str(round(tp, 8)),
-                   entry=str(round(entry_px, 8)), extra=extra, msg="教練限價掛單")
-        envtag = "實盤" if client.env == "live" else "測試網"
-        dir_emoji = "📉" if want == "short" else "📈"
-        _push_owner(name, f"⏳ 教練限價掛單{dir_emoji} · {symbol}（{envtag}）",
-                    f"{'做空' if want == 'short' else '做多'} · 進場 {_fmt_px(entry_px)}\n止損 {_fmt_px(stop)} · 止盈 {_fmt_px(tp)}",
-                    symbol, tf=tf, event="atrade_open", sig="coach", d=d, sigt=setup_id)
-        print(f"  ⏳ 教練限價 {client.env}: {bsym} {side} @ {px}（{symbol} {tf} {d}）")
-    except Exception as e:
-        print(f"  ⚠ 教練限價掛單失敗 {name} {symbol}：{e}")
+# （2026-09-17 教練功能移除：教練限價掛單函式已刪 —— 唯一的呼叫者是 notify_monitor 的教練派發，一併移除。
+#   下面的 reconcile_coach_pending **刻意保留**：先前教練掛出的單/開的倉位若還在，要靠它補掛止損止盈、撤過期單。）
 
 
 def reconcile_coach_pending(market, exchange, symbol, tf):

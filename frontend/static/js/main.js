@@ -173,7 +173,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   if (typeof initSessionToggle === "function") initSessionToggle();  // 交易時段標記開關
   if (typeof initWeekBoxToggle === "function") initWeekBoxToggle();  // 週框開關
   if (typeof initVPToggle === "function") initVPToggle();  // 成交量分佈圖開關（右上）
-  if (typeof initCoachToggle === "function") initCoachToggle();  // SR+SMC 教練疊加層開關（右上·階段1:掃頂掃底）
   if (typeof initVwapToggle === "function") initVwapToggle();  // VWAP 成交量加權均價 獨立開關（右上）
   if (typeof initMobileTF === "function") initMobileTF();            // 手機 TF 選擇器（自選最多4個顯示）
   // notify.js 已移出 bundle → 由它自己在載入末段呼叫 initNotify()（保留 typeof 判斷以防哪天又併回來）

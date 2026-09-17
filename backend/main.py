@@ -202,7 +202,7 @@ _RL_MAX_HEAVY = 90                        # 貴路徑(見 _RL_HEAVY)：每 IP �
 _RL_MAX_TRADE = 20                        # /api/trade/：每 IP 每 10 秒 20 次(口令猜測極慢化)
 # 貴路徑=會真的去算/去抓大量資料的端點(非快取命中時單次數百毫秒、回應數百 KB)。
 # ⚠ 新增這類端點時要一併加進來，否則它會落到 1200 那桶等於沒防護。
-_RL_HEAVY = ("/api/crt_winrate", "/api/ohlcv", "/api/smc_coach", "/api/coach_scan",
+_RL_HEAVY = ("/api/crt_winrate", "/api/ohlcv",
              "/api/export_klines", "/api/footprint", "/api/ai_research")
 _RL_BUCKETS   = {}                        # ip -> deque[timestamps]（便宜/輪詢）
 _RL_BUCKETS_H = {}                        # ip -> deque[timestamps]（貴路徑）

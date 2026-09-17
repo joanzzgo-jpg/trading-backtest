@@ -631,7 +631,7 @@ window._perfProbe = function (sec, silent) {
     };
   };
   ["renderDrawings", "_drawSessionOverlay", "_drawVolumeProfile", "_drawKeyLevels", "_drawVisHL", "_drawPDZones",
-   "_drawCoachOverlay", "_drawVWAP", "_drawMyTrades", "_applyMainMarkersNow", "renderVolume",
+   "_drawVWAP", "_drawMyTrades", "_applyMainMarkersNow", "renderVolume",
    "renderBB", "_bgApplyChunk", "_rebuildTimeIndex"].forEach(wrap);
 
   const frames = [];
@@ -651,7 +651,7 @@ window._perfProbe = function (sec, silent) {
     const on = [];
     const flag = (v, name) => { try { if (v) on.push(name); } catch (e) {} };
     flag(typeof _fpShow !== "undefined" && _fpShow, "足跡");
-    flag(window._coachOn, "教練"); flag(window._vwapOn, "VWAP");
+    flag(window._vwapOn, "VWAP");
     flag(typeof _htfFvgOn !== "undefined" && _htfFvgOn, "大時框FVG");
     flag(typeof _domShow !== "undefined" && _domShow, "訂單簿");
     flag(typeof _obShow !== "undefined" && _obShow, "掛單");

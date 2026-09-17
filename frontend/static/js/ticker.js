@@ -48,7 +48,7 @@ let _spotTickerData = [];
 let _twTickerData   = [];   // 含台指期三兄弟（後端 /api/tickers?market=tw 已置頂 is_future 列）
 // 記住使用者選的市場分頁與排序（重刷新/下次回來還原）
 let _tickerMkt      = (() => { try { return localStorage.getItem("tkMkt") || "crypto"; } catch (e) { return "crypto"; } })();   // "crypto" | "tw"
-let _tickerSort     = (() => { try { return localStorage.getItem("tkSort") || "desc"; } catch (e) { return "desc"; } })();      // desc=漲幅 asc=跌幅 vol=量 wl=自選
+let _tickerSort     = (() => { try { const v = localStorage.getItem("tkSort"); return (v && v !== "coach") ? v : "desc"; } catch (e) { return "desc"; } })();   // desc=漲幅 asc=跌幅 vol=量 wl=自選；"coach"=已移除的 🎯 教練分頁（2026-09-17）→ 退回預設
 let _tickerTimer    = null;
 let _lastTickerKey  = "";        // 追蹤目前渲染的 ticker 結構，避免不必要的 DOM 重建
 let _lastPageTitle  = "";        // 快取上次 title，避免重複寫 DOM
@@ -554,7 +554,7 @@ async function fetchTickers() {
     const panelOpen = !isMobile || document.getElementById("tickerPanel").classList.contains("ticker-open");
     if (!panelOpen) { updatePageTitle(); return; }
 
-    if (_tickerSort !== "wl" && _tickerSort !== "coach") {
+    if (_tickerSort !== "wl") {
       const search  = (document.getElementById("tickerSearch")?.value || "").toLowerCase();
       const srcList = _tickerMkt === "tw" ? _twTickerData : _tickerData;
       let list = srcList.filter(t =>
@@ -838,99 +838,6 @@ function _removeWatchlistByKey(key) {
   if (idx >= 0) { _watchlist.splice(idx, 1); _saveWatchlist(); renderTickers(); }
 }
 
-// 🎯 教練可進場 tab：抓 /api/coach_scan（前60、stage≥5），列出可進場標的（點擊載入）。60s 自刷。
-let _coachScan = { ts: 0, loading: false, data: [] };
-async function _fetchCoachScan(force) {
-  const cs = _coachScan;
-  if (cs.loading) return;
-  if (!force && cs.data.length && Date.now() - cs.ts < 15000) return;   // 15s:伺服器即回+每次複驗,常刷不卡
-  cs.loading = true;
-  if (_tickerSort === "coach") renderTickers();     // 顯示「掃描中…」
-  try {
-    // min_stage=5+at_entry=1：BOS(步驟5)一確認就列——步驟5=setup成立、步驟6=去掛限價單、步驟7=觸碰成交,
-    // 對限價單交易者提前到「還來得及掛單」的時點(第7步壽命僅幾分鐘,等到7就晚了)。
-    // 兩版都列(使用者要 5m)。每次回應已複驗+點擊後5s刷新,把退階落差壓到最小。
-    const r = await fetch("/api/coach_scan?n=60&min_stage=5&at_entry=1", { cache: "no-store" });
-    // ⚠ 一定要看 r.ok：錯誤回應的 body 也是 JSON → j.results 是 undefined → fresh=[]，
-    //   畫面上跟「現在沒有任何標的到步驟5」完全分不出來，而且 cs.ts=now 會把這份空的記成新資料。
-    //   丟給 catch → 保留上一輪 cs.data 與 cs.ts，下次輪詢自然重試。
-    if (!r.ok) throw new Error("HTTP " + r.status);
-    const j = await r.json();
-    if (j && j.warming) {
-      // 伺服器冷啟動暖機中(背景掃描跑著) → 8 秒後自動重試,期間顯示「掃描中」
-      cs.warming = true;
-      setTimeout(() => { _coachScan.ts = 0; _fetchCoachScan(true); }, 8000);
-    } else {
-      cs.warming = false;
-      // 優雅退場:上一輪還在、這輪消失的(退階/離區)不直接不見 → 變灰標「已失效」停留2分鐘再移除
-      const fresh = (j && j.results) || [];
-      const freshSyms = new Set(fresh.map(r => r.symbol));
-      const now = Date.now();
-      const ghosts = (cs.data || [])
-        .filter(r => !freshSyms.has(r.symbol))
-        .map(r => ({ ...r, _gone: r._gone || now }))
-        .filter(r => now - r._gone < 120000);
-      cs.data = fresh.concat(ghosts);
-      cs.ts = now;
-    }
-  } catch (e) {} finally {
-    cs.loading = false;
-    if (_tickerSort === "coach") renderTickers();
-  }
-}
-function _renderCoachList(container, currentSym) {
-  const cs = _coachScan;
-  if (!cs.loading && (!cs.data.length || Date.now() - cs.ts > 15000)) _fetchCoachScan();   // 陳舊→背景刷新
-  if ((cs.loading || cs.warming) && !cs.data.length) { container.innerHTML = '<div class="tk-loading">教練掃描中…</div>'; return; }
-  if (!cs.data.length) {
-    container.innerHTML = '<div class="tk-loading">目前無標的正在進場價位<br><span style="font-size:11px;color:#889">自動掃前60檔·現價進掛單區才列出</span></div>';
-    return;
-  }
-  const html = cs.data.map(r => {
-    const sym = r.symbol;                            // 'BTC/USDT.P'
-    const disp = sym.replace(".P", "");
-    const active = sym.toUpperCase() === (currentSym || "").toUpperCase();
-    let bestVer = "default", bestStage = -1;         // 命中版本(取最高stage那版)→點擊時教練面板切到這版
-    const vers = Object.entries(r.hits || {}).map(([ver, h]) => {
-      if ((h.stage || 0) > bestStage) { bestStage = h.stage || 0; bestVer = ver; }
-      const dl = h.direction === 1 ? "多" : "空";
-      const dc = h.direction === 1 ? "#26a69a" : "#ef5350";
-      const tf = ver === "fast" ? "⚡5m" : "15m";   // ⚡=短效提示:5m 第7步壽命僅幾分鐘,點開可能剛失效
-      // 依步驟分級標示(門檻已下修到 stage≥5)——避免把「還沒到進場」的步驟5/6 誤標成「進場中」:
-      //   步驟5=BOS·待掛單(藍) / 步驟6=掛單中(黃) / 步驟≥7=依 near_pct:區內●進場中(亮黃)、距區近x%(灰)
-      const st = h.stage || 0;
-      const np = h.near_pct;
-      let tag;
-      if (st >= 7) {
-        tag = (np === 0) ? '<span style="color:#ffd54f;font-size:10px">●進場中</span>'
-            : (np > 0 ? `<span style="color:#889;font-size:10px">近${np}%</span>` : "");
-      } else if (st === 6) {
-        tag = `<span style="color:#ffd54f;font-size:10px">掛單中${np > 0 ? `·近${np}%` : ""}</span>`;
-      } else {   // st === 5
-        tag = `<span style="color:#8fd3ff;font-size:10px">BOS·待掛單${np > 0 ? `·近${np}%` : ""}</span>`;
-      }
-      return `<span style="color:${dc};font-weight:700">${tf}${dl}</span>${tag}`;
-    }).join('<span style="color:#556">·</span>');
-    const gone = !!r._gone;   // 已失效(退階/離區):灰化停留2分鐘,標「已失效」
-    return `<div class="ticker-item coach-item${active ? " tk-active" : ""}" data-mkt="crypto" data-exch="pionex" data-sym="${escHtml(sym)}" data-symbol="${escHtml(sym.replace("/", "").replace(".P", ""))}" data-display="${escHtml(disp)}" data-ver="${bestVer}" style="cursor:pointer${gone ? ";opacity:.42" : ""}">
-      <div style="display:flex;justify-content:space-between;align-items:center;width:100%;padding:3px 2px">
-        <span style="font-weight:700">${gone ? "💤" : "🎯"} ${escHtml(disp)}${gone ? '<span style="color:#98a;font-size:10px;margin-left:4px">已失效</span>' : ""}</span><span style="font-size:12px;display:flex;gap:4px;align-items:center">${vers}</span>
-      </div></div>`;
-  }).join("");
-  container.innerHTML = html;
-  container.querySelectorAll(".coach-item").forEach(el => el.addEventListener("click", () => {
-    // 面板切到「命中的那一版」再載標的——否則清單是 fast(5m) 到第7步、面板卻顯示 default(15m) 第4步 → 看似「沒到第7步就放上來」
-    const ver = el.dataset.ver === "fast" ? "fast" : "default";
-    window._coachWhich = ver;
-    window._coachClickExpect = { sym: el.dataset.sym, ver, ts: Date.now() };   // 面板載入後驗證仍在第7步,失效即提示
-    try { localStorage.setItem("coachWhich", ver); } catch (e) {}
-    // 教練面板關著就自動打開（點「可進場」就是要看教練步驟）
-    if (!window._coachOn) { try { document.getElementById("coachToggleBtn")?.click(); } catch (e) {} }
-    _selectTickerRow(el);
-    setTimeout(() => _fetchCoachScan(true), 5000);   // 點擊後強制刷新清單:剛失效的標的快速掉出
-  }));
-}
-
 function renderTickers() {
   const container = document.getElementById("tickerList");
   if (!container) return;
@@ -1005,9 +912,6 @@ function renderTickers() {
     if (typeof window._tkSyncChartRow === "function") { try { window._tkSyncChartRow(); } catch (e) {} }
     return;
   }
-
-  // ── 🎯 教練可進場 tab ─────────────────────────────────
-  if (_tickerSort === "coach") { _renderCoachList(container, currentSym); return; }
 
   const search = (document.getElementById("tickerSearch")?.value || "").toLowerCase();
 
@@ -1507,7 +1411,6 @@ function bindTickerPanel() {
       _lastTickerKey = "";
       renderTickers();
       if (btn.dataset.sort === "wl") _refreshWlPrices();
-      if (btn.dataset.sort === "coach") _fetchCoachScan(true);
     });
   });
 

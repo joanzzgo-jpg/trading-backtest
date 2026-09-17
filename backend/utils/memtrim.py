@@ -3,7 +3,7 @@
 
 為什麼需要（2026-08-11 實測）
     線上 follower worker 佔 **513 MB**，但它的快取幾乎是空的
-    （data_cache 6/32 只有 0.2MB、coach_cache 0/160、volatile 3/48）。
+    （data_cache 6/32 只有 0.2MB、volatile 3/48）。
     一個把所有套件都 import 完的乾淨行程只有 **136 MB** → 差了將近 380 MB。
 
     量過**不是漏**：連打三輪各 12 個重請求，RSS 434→454 MB（第一輪 +20MB），
