@@ -496,6 +496,29 @@ def _clean_coach(p: dict) -> dict:
     return o
 
 
+# ── 自動交易總暫停（2026-09-17 使用者：「自動交易功能暫時關掉」）──────────────────────
+#   ★ 只擋「開新倉」的三個入口：execute_signal_trade（市價）、place_fvg_limit_ladder、
+#     place_coach_limit（限價）。**對帳一律照跑**（reconcile_*）：成交後補掛止損止盈、過期殘單清掉、
+#     持倉出場結算 —— 連這些都停的話，已經在場上的倉位就沒人管，比開著自動交易更危險。
+#   ⚠ 已經掛在交易所上、還沒成交的限價進場單**不會被這裡取消**：價格碰到仍可能成交，
+#     成交後會由對帳照常掛上止損止盈。要一併撤掉得另外處理（會動到真實帳戶的掛單）。
+#   恢復：Railway 環境變數設 AUTOTRADE_PAUSED=0（不必改程式、不必重新部署程式碼），或改這裡的預設。
+#   預設「暫停」＝推上 git 部署後立即生效，不依賴任何人記得去改環境變數。
+AUTOTRADE_PAUSED = os.getenv("AUTOTRADE_PAUSED", "1").strip() not in ("0", "false", "False", "no", "")
+_pause_log_ts = {"t": 0.0}
+
+
+def _autotrade_blocked(where: str) -> bool:
+    """開新倉前呼叫；暫停中回 True（並每 10 分鐘最多記一次，免得洗版）。"""
+    if not AUTOTRADE_PAUSED:
+        return False
+    now = time.time()
+    if now - _pause_log_ts["t"] > 600:
+        _pause_log_ts["t"] = now
+        print(f"[autotrade] 自動交易已暫停（AUTOTRADE_PAUSED）→ 略過新進場：{where}", flush=True)
+    return True
+
+
 def _clean_auto(p: Optional[dict]) -> dict:
     """回巢狀 {on, owner, ss:{…}, fvg:{…}}。相容『舊扁平 cfg』→ 平滑遷移到 ss/fvg 兩份。
     owner=綁定擁有者帳號：自動交易只下此帳號自選清單裡的標的（避免掃到別人自選就用你的 Binance 下單）。"""
@@ -712,6 +735,8 @@ def execute_signal_trade(market, exchange, symbol, tf, k, d, sig, all_signals=No
     """新進場訊號 → 逐個『已開啟自動交易』的帳號各自獨立評估下單
     （每帳號用自己的金鑰/自選/設定、紀錄以 acct 隔離，互不干擾）。
     all_signals=該標的當前完整訊號列表（含結算結果），供「敗後停手」模擬用。"""
+    if _autotrade_blocked("execute_signal_trade"):   # 自動交易暫停中：不開新倉（對帳不受影響）
+        return
     if market != "crypto":
         return
     for _name, _cfg in get_all_auto_cfgs():
@@ -1351,6 +1376,8 @@ def place_fvg_limit_ladder(name, cfg, market, exchange, symbol, tf, gap):
     """FVG 限價階梯版（影線版）進場：缺口 top/mid/bot 各掛 ⅓ 限價單(maker, GTC)。
     gap={"t","top","bot","d"}(圖表價)。只 1h、用此帳號自己金鑰/自選/方向過濾。SL/TP 不在此掛——
     成交後由 reconcile_fvg_pending 掛 closePosition 觸發單；殘單/過期/平倉撤殘單亦由其管理。絕不拋例外。"""
+    if _autotrade_blocked("place_fvg_limit_ladder"):   # 自動交易暫停中：不開新倉（對帳不受影響）
+        return
     if market != "crypto":
         return
     try:
@@ -1660,6 +1687,8 @@ def place_coach_limit(name, cfg, market, exchange, symbol, tf, h):
     """教練限價進場：在進場區「價格先碰到的那一緣」掛 1 張限價單(maker, GTC)，價來了自動成交。
     h=教練命中(plan.entry=[bot,top]/sl/tps、direction)。SL/TP 不在此掛——成交後由 reconcile_coach_pending
     掛 closePosition 觸發單；殘單/過期/成交後撤殘單亦由其管理。用此帳號金鑰/自選/方向過濾。絕不拋例外。"""
+    if _autotrade_blocked("place_coach_limit"):   # 自動交易暫停中：不開新倉（對帳不受影響）
+        return
     if market != "crypto":
         return
     try:
@@ -2292,6 +2321,7 @@ def status(name: str = "", token: str = ""):
         # 此裝置是否已有有效交易核准 token（前端據此決定是否要跳核准流程）
         "approved": (_valid_trade_session(token, nm) if (nm and token) else False),
         "approver": _APPROVER,                    # 核准管理員帳號（前端顯示「向 X 索取驗證碼」）
+        "autoPaused": AUTOTRADE_PAUSED,           # 自動交易總暫停中（前端顯示橫幅，避免以為還在跑）
     }
 
 

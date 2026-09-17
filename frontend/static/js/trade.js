@@ -349,6 +349,8 @@ async function _trdReloadStatus() {
     const _r = await fetch("/api/trade/status?" + q);
     if (!_r.ok) throw new Error("HTTP " + _r.status);
     _TRD.st = await _r.json();
+    const _pb = document.getElementById("trdAutoPaused");
+    if (_pb) _pb.hidden = !(_TRD.st && _TRD.st.autoPaused);
   } catch (e) {}
 }
 // 開面板把關：已核准→true；需核准→顯示核准 UI 並回 false
@@ -485,6 +487,11 @@ function _trdBuildPopup() {
       -webkit-tap-highlight-color:transparent; }
     #tradePopup .trd-chip:hover { border-color:var(--blue,#4a90d9); color:var(--text,#ddd); }
     #tradePopup .trd-chip.sel { box-shadow:0 2px 7px -3px var(--blue,#4a90d9); }
+    /* ⏸ 自動交易總暫停橫幅（[hidden] 要自己補：下面設了 display） */
+    .trd-paused{display:flex;flex-direction:column;gap:4px;margin:0 0 10px;padding:10px 12px;border-radius:10px;
+      background:rgba(255,167,38,.12);border:1px solid rgba(255,167,38,.45);color:var(--text);font-size:12px;line-height:1.55}
+    .trd-paused b{color:#ffa726;font-size:13px}
+    .trd-paused[hidden]{display:none!important}
     /* 自動交易卡片：標題列＝實體開關 + 運行指示燈，開啟時整張卡片亮起 */
     #tradePopup .trd-auto-card { margin:4px 0 2px; padding:6px 10px 9px; border-radius:12px;
       border:1px solid var(--border,#3a3a50); background:rgba(255,255,255,.02);
@@ -667,6 +674,13 @@ function _trdBuildPopup() {
     <div class="trd-ord"></div>
     </div>
     <div class="trd-page trd-page-auto">
+    <!-- 自動交易總暫停（2026-09-17）：後端 AUTOTRADE_PAUSED 開著時顯示。設定照樣可以改、會被存起來，
+         但**不會開新倉**；已在場上的倉位照常管理止損止盈。避免使用者看到開關是亮的就以為在跑。 -->
+    <div class="trd-paused" id="trdAutoPaused" hidden>
+      <b>⏸ 自動交易已暫停</b>
+      <span>目前不會開任何新倉。已經在場上的倉位照常管理止損／止盈；
+      已掛在交易所、還沒成交的限價單不會被自動取消。</span>
+    </div>
     <div class="trd-auto-card">
       <button class="trd-auto-toggle">
         <span class="trd-auto-led"></span>
