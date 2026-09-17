@@ -27,7 +27,9 @@ let puppeteer = null;
 }
 const BASE = process.argv[2] || "http://127.0.0.1:8000";
 const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-const WIDTHS = [1920, 1600, 1440, 1366, 1280, 1200];
+// ⚠ 1536／1680 是 2026-09-17 補的：時框置中原本寫死 ≥1500px，右側按鈕長大後 1500~1600 會重疊，
+//   而舊清單只有 1440 與 1600 → 最嚴重的那段（1536＝1920×125% 的常見筆電）剛好沒測到。
+const WIDTHS = [1920, 1680, 1600, 1536, 1440, 1366, 1280, 1200];
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 (async () => {

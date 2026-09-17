@@ -4528,8 +4528,15 @@ html.perf-mode .tb-wr-total { font-size: 20px !important; }
   .topbar-right > *:first-child { margin-left: auto; }
   .topbar-right::-webkit-scrollbar { display: none; }
 }
+/* ★ 2026-09-17 置中改成「量得到放得下才置中」：.tf-centered 由 ui.js 實測切換（_tbFitTf）。
+   上面那段「右側按鈕 530px → 取 1500」的推導**已經過期**：之後陸續加了網路訊號、繪圖圖層 A/B/C、
+   安裝鈕…右側長到 616px，真正需要約 1602px → 1500~1600 之間時框直接壓在右側按鈕上
+   （實測 1536 寬＝常見的 1920×125% 筆電：時框右緣 943 蓋過網路訊號 920~946）。
+   寫死的寬度門檻一定會隨按鈕增加而過期（同 memory project_topbar-right-overflow 的教訓）→ 改量實際寬度。
+   ⚠ media 門檻保留當上限保護：1500 以下的排版（勝率前三名收起、右側可捲）是另一套，不在這裡切。
+   ⚠ HTML 預設就帶 tf-centered（寬螢幕開機不跳動），量到放不下才拿掉。 */
 @media (min-width: 1500px) {
-  .topbar-tf {
+  .topbar.tf-centered .topbar-tf {
     position: absolute;
     left: 50%;
     transform: translateX(-50%);
@@ -4537,12 +4544,12 @@ html.perf-mode .tb-wr-total { font-size: 20px !important; }
     margin: 0;
     z-index: 3;
   }
-  .topbar-left { min-height: var(--topbar-h); }   /* ① 撐住第一列高度 */
-  .topbar-right { margin-left: auto; }            /* ② 按鈕維持在右緣、位置與原本相同 */
+  .topbar.tf-centered .topbar-left { min-height: var(--topbar-h); }   /* ① 撐住第一列高度 */
+  .topbar.tf-centered .topbar-right { margin-left: auto; }            /* ② 按鈕維持在右緣、位置與原本相同 */
   /* ③ 勝率前三名會長大（flex:1 1 0）→ 會長到置中的時框底下。讓它在碰到之前就停。
      ⚠ 一定要保留 flex-basis:0，別改成 auto：這條是**非同步填資料**的，basis 一旦變內容寬，
         資料到貨那刻就把右側按鈕擠到下一列（使用者：「有時候突然變兩行、明明還有空間」）。 */
-  #wrTop3.tb-wr-top3 { max-width: max(0px, calc(50% - 600px)); }
+  .topbar.tf-centered #wrTop3.tb-wr-top3 { max-width: max(0px, calc(50% - 600px)); }
 }
 
 /* TF 按鈕略放大 */

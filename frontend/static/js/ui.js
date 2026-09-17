@@ -37,6 +37,53 @@ function bindEvents() {
     }, { passive: false });
   }
 
+  /* ★ 2026-09-17 時框列「置中」改成實際量：放得下才置中，放不下退回跟按鈕並排（flex 保證不重疊）。
+     原本 CSS 寫死 min-width:1500px（依「右側按鈕 530px」推導）→ 右側後來長到 616px，
+     1500~1600 寬時框直接壓在右側按鈕上（1536 寬實測重疊，守門員 check_topbar_rows 在 1600 抓到）。
+     ⚠ 右側寬度量「可見子元素實際佔的範圍」，不量容器：並排模式下容器可能被 flex 撐大，量容器會誤判放不下。
+     ⚠ 判斷不依賴目前是哪個模式（左群組、時框、右側按鈕的寬度在兩種模式下都相同）→ 不會來回切換。 */
+  const _tbBar = document.querySelector(".topbar");
+  const _tbTf = _tbBar && _tbBar.querySelector(".topbar-tf");
+  const _tbLeft = _tbBar && _tbBar.querySelector(".topbar-left");
+  if (_tbBar && _tbTf && _tbLeft && _tbRight) {
+    const _mqWide = window.matchMedia("(min-width: 1500px)");
+    const _TB_GAP = 12;                    // 時框與兩側內容至少留這麼多
+    const _span = el => {
+      let lo = Infinity, hi = -Infinity;
+      for (const c of el.children) {
+        if (c.offsetParent === null) continue;
+        const r = c.getBoundingClientRect();
+        if (!r.width) continue;
+        if (r.left < lo) lo = r.left;
+        if (r.right > hi) hi = r.right;
+      }
+      return hi > lo ? hi - lo : 0;
+    };
+    let _tbRaf = 0;
+    const _tbFitTf = () => {
+      _tbRaf = 0;
+      if (!_mqWide.matches) { _tbBar.classList.remove("tf-centered"); return; }
+      const bar = _tbBar.getBoundingClientRect();
+      if (!bar.width) return;
+      const W = bar.width, bs = getComputedStyle(_tbBar), rs = getComputedStyle(_tbRight);
+      const rightW = _span(_tbRight) + (parseFloat(rs.paddingLeft) || 0) + (parseFloat(rs.paddingRight) || 0);
+      const tfW = _tbTf.getBoundingClientRect().width;
+      const leftEnd = _tbLeft.getBoundingClientRect().right - bar.left;
+      const fits = W / 2 + tfW / 2 + _TB_GAP <= W - (parseFloat(bs.paddingRight) || 0) - rightW
+                && W / 2 - tfW / 2 - _TB_GAP >= leftEnd;
+      _tbBar.classList.toggle("tf-centered", fits);
+    };
+    const _tbSched = () => { if (!_tbRaf) _tbRaf = requestAnimationFrame(_tbFitTf); };
+    window._tbFitTf = _tbSched;
+    window.addEventListener("resize", _tbSched);
+    try { _mqWide.addEventListener("change", _tbSched); } catch (e) {}
+    try { new ResizeObserver(_tbSched).observe(_tbLeft); new ResizeObserver(_tbSched).observe(_tbTf); } catch (e) {}
+    // 右側按鈕會非同步出現/隱藏（安裝鈕、網路訊號…）→ 盯 hidden/style/class 與增減
+    try { new MutationObserver(_tbSched).observe(_tbRight, { subtree: true, childList: true, attributes: true, attributeFilter: ["hidden", "style", "class"] }); } catch (e) {}
+    try { document.fonts && document.fonts.ready.then(_tbSched); } catch (e) {}
+    _tbSched();
+  }
+
   document.getElementById("tickerToggle")?.addEventListener("click", () => {
     if (isMobile()) {
       const open = document.getElementById("tickerPanel").classList.contains("ticker-open");
