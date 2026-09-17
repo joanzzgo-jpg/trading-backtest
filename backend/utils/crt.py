@@ -48,38 +48,6 @@ def _scan_outcome_fixed(highs, lows, closes, entry_i, n, stop_px, target_px, dir
     return "win" if hit_tgt[j] else "loss"
 
 
-def _scan_outcome_fixed_t(highs, lows, closes, times_iso, entry_i, n, stop_px, target_px, direction):
-    """同 _scan_outcome_fixed，但額外回傳結算時間與索引（給 1:1 固定目標的圖表標記用）。
-    回傳 ('win'/'loss', bar_time_iso, exit_idx) 或 (None, None, -1)。"""
-    end = min(n, entry_i + _SCAN_MAX_HOLD)
-    if entry_i >= end:
-        return None, None, -1
-    hi = highs[entry_i:end]
-    lo = lows[entry_i:end]
-    cl = closes[entry_i:end]
-    if direction == "short":
-        hit_stop = hi >= stop_px
-        hit_tgt  = lo <= target_px
-    else:
-        hit_stop = lo <= stop_px
-        hit_tgt  = hi >= target_px
-    rel_idx = np.flatnonzero(hit_stop | hit_tgt)
-    if len(rel_idx) == 0:
-        return None, None, -1
-    j = rel_idx[0]
-    j_abs = entry_i + int(j)
-    if hit_stop[j] and hit_tgt[j]:
-        if direction == "short":
-            result = "win" if cl[j] <= target_px else "loss"
-        else:
-            result = "win" if cl[j] >= target_px else "loss"
-    elif hit_stop[j]:
-        result = "loss"
-    else:
-        result = "win"
-    return result, times_iso[j_abs], j_abs
-
-
 _SCAN_MAX_HOLD = 500   # 單個訊號最長掃描 K 棒數（避免最近的未結算訊號掃到資料底）
 
 def _first_le_idx(arr, start, thr):
@@ -308,7 +276,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
 
         ⚠ 1:1(rr) 目標已從前端移除（2026-06）→ 不再掃描，省下每個訊號一次固定目標
         掃描（勝率計算的可觀成本）。輸出仍保留 rr 結構但為空、signals r_rr=None，前端不讀。
-        若日後要恢復：掃 target = 進場價 ∓ |進場價 - 止損| 的 _scan_outcome_fixed_t。"""
+        若日後要恢復：掃 target = 進場價 ∓ |進場價 - 止損| 的固定目標掃描（_scan_outcome_fixed_t 已於 2026-09-17 刪除，要恢復從 git 歷史拿）。"""
         return None, None
 
     def _push_signal(sig_time, d_str, sig_key, direction, entry_i, stop_px,
@@ -415,53 +383,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
     #    偵測迴圈整段刪除＝不再逐訊號掃描勝負（省下最大計算量）。SIG_KEYS 仍含 S 鍵但恆為空，
     #    下方統計機器對空 S 資料算出全零、不影響 SS（_SS_KEYS 自成一套）與 FVG/SMC/VWAP。
 
-    # ── SS1（獨立系列）：布林軌道反轉 2 棒 ───────────────────────
-    # 顏色：紅K=上漲(close>open)、綠K=下跌(close<open)。
-    # 做多（下軌反轉）：A=綠K，B=紅K 且 收>下軌，A/B 任一觸下軌，排除 B 已碰中軌；停損取兩棒最低。
-    # 做空（上軌反轉）：A=紅K，B=綠K 且 收<上軌，A/B 任一觸上軌，排除 B 已碰中軌；停損取兩棒最高。
-    if n >= 3:
-        bull = closes > opens        # 紅K 上漲
-        bear = closes < opens        # 綠K 下跌
-        a_bull = bull[:n-2]; a_bear = bear[:n-2]
-        b_bull = bull[1:n-1]; b_bear = bear[1:n-1]
-        b_close = closes[1:n-1]; b_high = highs[1:n-1]; b_low = lows[1:n-1]
-        b_lo_band = bb_lo[1:n-1]; b_up_band = bb_up[1:n-1]; b_mid = bb_mid[1:n-1]
-        # SS1 用「嚴格觸軌」：low 真的 ≤ 下軌 / high 真的 ≥ 上軌（不套用 S 系列那組 0.3% 容差，
-        # 否則 low 在軌上方 0.3% 內也被算「碰」→ 出現「沒碰軌卻觸發」）。
-        lo_touch = (~np.isnan(bb_lo)) & (lows <= bb_lo)
-        up_touch = (~np.isnan(bb_up)) & (highs >= bb_up)
-        a_lo_t = lo_touch[:n-2]; b_lo_t = lo_touch[1:n-1]
-        a_up_t = up_touch[:n-2]; b_up_t = up_touch[1:n-1]
-        ss_long  = a_bear & b_bull & (b_close > b_lo_band) & (a_lo_t | b_lo_t) \
-                   & ~np.isnan(b_mid) & (b_high < b_mid)
-        ss_short = a_bull & b_bear & (b_close < b_up_band) & (a_up_t | b_up_t) \
-                   & ~np.isnan(b_mid) & (b_low > b_mid)
-        if long_only:
-            ss_short[:] = False
-        # 依 B 棒收盤價在「軌道↔中軌」的深度，把同一觸發拆成 SS1（深）/ SS2（淺）：
-        #   做多：以 (下軌+中軌)/2 為界 → 收盤 < 界 → SS1（靠下軌、較深）；界 ≤ 收盤 < 中軌 → SS2（上半、較淺）
-        #   做空：以 (上軌+中軌)/2 為界 → 收盤 > 界 → SS1（靠上軌）；中軌 < 收盤 ≤ 界 → SS2
-        ss_mid_lo = (b_lo_band + b_mid) / 2.0   # 下半界（多用）
-        ss_mid_up = (b_up_band + b_mid) / 2.0   # 上半界（空用）
-        # ⚠ SS 系列已移除 → 不再產生任何 ss 訊號（上方 ss_short/ss_long 的計算保留但不使用，
-        #   因為 ss_mid_up/ss_mid_lo 等中間量與布林帶共用，拆掉風險大於收益）。
-        for i in []:
-
-            i = int(i)
-            direction = "short" if ss_short[i] else "long"
-            ib = i + 1   # B 棒（訊號棒）
-            if direction == "short":
-                stop_px = _stop(max(highs[i], highs[ib]), direction)
-                ss_key = None      # SS 系列已移除（此迴圈已不執行）
-            else:
-                stop_px = _stop(min(lows[i], lows[ib]), direction)
-                ss_key = None      # 同上
-            d_str = "s" if direction == "short" else "l"
-            sig_time = times_iso[ib]
-            entry_i = i + 2
-            om, otm, omj, ob, otb, obj = _scan_dual(entry_i, float(stop_px), direction)
-            _push_signal(sig_time, d_str, ss_key, direction, entry_i, float(stop_px),
-                         om, otm, omj, ob, otb, obj)
+    # ── SS1/SS2（布林軌道反轉）已於 2026-08-05 移除；原本留著的觸軌陣列計算＋不會執行的迴圈 2026-09-17 刪除 ──
 
     # 依時間排一次，供 _solve / _calc_streaks / _build_combined 共用（原本各自 sort）
     signals_sorted = sorted(signals, key=lambda x: x["t"])
@@ -1259,26 +1181,7 @@ def _calc_crt_winrate(df: pd.DataFrame, stop_buffer_pct: float = 0.0, long_only:
                 _fvg.append({"t": times_iso[_g], "top": _top, "bot": _bot, "d": _dir, "t2": _box_t2,
                              "sweep": False, "sl": _gsl, "tp": _gtp, "dim": False, "gi": _g,
                              "ett": _ett, "etm": _etm, "etb": _etb, "pens": _pens, "gap": True})
-                if False:   # 股票缺口碰到即消失 → 不畫 IFVG 反轉延續
-                    _idir = "s" if _dir == "l" else "l"
-                    _isl = _top if _dir == "l" else _bot
-                    _itp = (_bot - 2 * _W) if _dir == "l" else (_top + 2 * _W)
-                    _iett = _ietm = _ietb = None
-                    for _m in range(_invi + 1, _N):
-                        if _idir == "l":
-                            _lm = _L[_m]
-                            if _iett is None and _lm <= _top: _iett = times_iso[_m]
-                            if _ietm is None and _lm <= _mid: _ietm = times_iso[_m]
-                            if _ietb is None and _lm <= _bot: _ietb = times_iso[_m]
-                        else:
-                            _hm = _H[_m]
-                            if _iett is None and _hm >= _top: _iett = times_iso[_m]
-                            if _ietm is None and _hm >= _mid: _ietm = times_iso[_m]
-                            if _ietb is None and _hm >= _bot: _ietb = times_iso[_m]
-                        if _iett and _ietm and _ietb: break
-                    _fvg.append({"t": _inv_t, "top": _top, "bot": _bot, "d": _idir, "t2": _ietm,
-                                 "sweep": False, "sl": _isl, "tp": _itp, "inv": True, "dim": False,
-                                 "ett": _iett, "etm": _ietm, "etb": _ietb, "gap": True})
+                # 股票缺口碰到即消失 → 不畫 IFVG 反轉延續（原本這裡是一段 `if False:` 的反轉延續實作，2026-09-17 刪除）
         _fvg = _fvg[-20000:]        # 平衡值:5m ~8個月缺口盒(一年 3.4萬=15MB payload 太重);方向標記 fvg_ms 另留一年(輕)
         _fvg_sigs = _fvg_sigs[-200:]
 

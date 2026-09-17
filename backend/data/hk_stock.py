@@ -38,18 +38,6 @@ def hk_canon_code(code: str):
     return str(n).zfill(5)
 
 
-def hk_yahoo_code(code: str):
-    """港股代號 → Yahoo/yfinance 用的 4 碼格式(去前導零、補足 4 碼)：00700→0700、09988→9988。
-    只認普通股/ETF 區間(1~9999)；結構性商品/RMB 雙櫃檯(≥10000，如 80700)回 None。非數字回 None。"""
-    s = "".join(ch for ch in str(code) if ch.isdigit())
-    if not s:
-        return None
-    n = int(s)
-    if n < 1 or n > 9999:              # 09999 以上非普通股(窩輪/牛熊證/RMB 櫃檯)
-        return None
-    return str(n).zfill(4)
-
-
 def _decode_esc(s: str) -> str:
     """騰訊建議回應的名稱是 \\uXXXX 轉義字串 → 還原成中文；失敗回原字串。"""
     try:

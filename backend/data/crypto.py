@@ -1168,20 +1168,6 @@ def fetch_crypto_markets(exchange_id: str = "pionex"):
     return results
 
 
-def _apply_pionex_perp_filter(tickers: list) -> list:
-    """依 Pionex 永續合約清單過濾；API 失敗時使用硬編碼備援"""
-    pionex_syms = _fetch_pionex_perp_symbols()
-    return [t for t in tickers if t["symbol"][:-4].upper() in pionex_syms]
-
-
-def _apply_pionex_filter(tickers: list) -> list:
-    """依 Pionex 現貨標的清單過濾；API 失敗（空集合）時不過濾"""
-    pionex_syms = _fetch_pionex_symbols()
-    if not pionex_syms:
-        return tickers
-    return [t for t in tickers if t["symbol"][:-4].upper() in pionex_syms]
-
-
 def _fetch_fapi_prices() -> dict:
     """Binance 永續全合約最新價 {SYMBOL: price}（weight 2，給每秒高頻更新用）。"""
     try:

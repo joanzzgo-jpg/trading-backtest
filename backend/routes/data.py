@@ -24,7 +24,6 @@ def _json_resp(payload, headers=None):
 from pydantic import BaseModel
 from utils.tf import check_tf as _check_tf, clamp_limit as _clamp_limit
 from datetime import date, timedelta, datetime as dt
-from typing import Optional
 import os
 import sys
 import time
@@ -36,7 +35,7 @@ import datetime as _dt
 import threading as _threading
 import collections as _collections
 
-from data.taiwan import fetch_tw_stock, resample_tw, fetch_tw_intraday, fetch_tw_realtime, fetch_tw_intraday_yf, fetch_tw_latest_bar_yf, fetch_tw_daily_yf, merge_tw_intraday, cnyes_last_good, resample_tw_4h, resample_tw_intraday, TW_RESAMPLE, tw_daily_fill_latest, YF_MAX_DAYS as TW_YF_MAX_DAYS
+from data.taiwan import fetch_tw_stock, resample_tw, fetch_tw_intraday, fetch_tw_realtime, fetch_tw_intraday_yf, fetch_tw_latest_bar_yf, fetch_tw_daily_yf, merge_tw_intraday, cnyes_last_good, resample_tw_intraday, TW_RESAMPLE, tw_daily_fill_latest, YF_MAX_DAYS as TW_YF_MAX_DAYS
 from data.fugle import fetch_fugle_intraday, fugle_enabled
 # 註：fetch_taifex_quote / resolve_front_month 曾列在這裡但整檔沒用到（唯一的使用者是
 #     _diag_futopt，它在函式內自己 import）→ 2026-07-31 移除，順便解掉那處名稱遮蔽。
@@ -357,7 +356,6 @@ def diag(key: str = ""):
         "alpaca": bool(os.getenv("ALPACA_KEY") and os.getenv("ALPACA_SECRET")),
         "finnhub": bool(os.getenv("FINNHUB_TOKEN")),
         "cwa": bool(os.getenv("CWA_API_KEY")),
-        "anthropic": bool(os.getenv("ANTHROPIC_API_KEY")),   # Claude API 金鑰(小熊台詞/交易截圖辨識用)
     }
 
 
@@ -770,7 +768,6 @@ def pionex_status():
     }
 
 
-
 _US_MKT_WARNED = set()   # 只警告一次（這支每個 /api/latest 都會呼叫，不能洗版）
 
 
@@ -827,47 +824,6 @@ def _finnhub_overlay(df: pd.DataFrame, quote: dict):
     return df, True
 
 
-def _mis_overlay(df: pd.DataFrame, rt: dict, minutes: int):
-    """Overlay TWSE MIS live price onto the latest intraday bar. Returns (df, is_live).
-    fetch_tw_intraday_yf already floors timestamps to bar boundaries, so last_ts
-    should already be clean. We also floor defensively here for safety.
-    """
-    mis_utc = rt["time"] - timedelta(hours=8)          # TST naive → UTC naive
-    total_min = mis_utc.hour * 60 + mis_utc.minute
-    bar_min = (total_min // minutes) * minutes
-    bar_ts = mis_utc.replace(hour=bar_min // 60, minute=bar_min % 60,
-                             second=0, microsecond=0)
-    # 台股交易時間：09:00-13:30 Taipei。bar_ts 對應的 TPE 時間若在交易時間外，
-    # 不建立/更新 bar（避免 13:30 收盤後 MIS 還回傳資料時造出 phantom 13:30 bar）
-    bar_tpe_min = ((bar_ts.hour + 8) % 24) * 60 + bar_ts.minute
-    if bar_tpe_min < 9 * 60 or bar_tpe_min >= 13 * 60 + 30:
-        return df, False
-    last = df.iloc[-1]
-    last_ts = pd.Timestamp(last["time"])
-    last_bar_ts = last_ts.floor(f"{minutes}min")
-    close = rt["close"]
-    if bar_ts == last_bar_ts:
-        df = df.copy()
-        i = df.index[-1]
-        df.at[i, "close"] = close
-        df.at[i, "high"]  = max(float(last["high"] or close), close)
-        df.at[i, "low"]   = min(float(last["low"]  or close), close)
-        return df, True
-    if bar_ts > last_bar_ts:
-        # yfinance 台股分鐘線延遲 ~20 分：若把即時棒放到「現在」的時間點，會與最後一根真實棒
-        # 之間出現 ~20 分鐘空隙。改為把即時棒接在「最後一根真實棒的下一根」→ 連續、無 gap；
-        # 等 yfinance 之後補上真實資料(tail 多送幾根)就會覆蓋並自然往前推進。
-        o = float(last["close"] or close)
-        new = {"time": last_bar_ts + timedelta(minutes=minutes), "open": o,
-               "high": max(o, close), "low": min(o, close), "close": close, "volume": 0}
-        for col in df.columns:
-            if col not in new:
-                new[col] = None
-        df = pd.concat([df, pd.DataFrame([new])], ignore_index=True)
-        return df, True
-    return df, False
-
-
 # ───────── MIS 即時累積『真實』分鐘 K（突破 yfinance 台股 ~20 分延遲）─────────
 # yfinance/Yahoo 對台股分鐘線強制延遲約 20 分鐘（無解）。但 TWSE MIS 即時報價無延遲
 # （回傳即時價 + 當日累積成交量），故逐次取樣可即時堆出『真實』分鐘 K，填補 yfinance
@@ -901,7 +857,7 @@ def _mis_acc_list(symbol: str, minutes: int):
 #     30m → 台股/港股兩邊邊界都一致（01:00,01:30,…）→ 安全
 #     2h  → 台股 主路徑 01:00/03:00/05:00 vs 累積器 00:00/02:00/04:00  ✗
 #           港股 主路徑 01:30/03:30/05:30 vs 累積器 00:00/02:00/04:00  ✗
-#   加了會堆出「與主序列對不上的假 K 棒」，正是 resample_tw_4h 註解警告過的情況。
+#   加了會堆出「與主序列對不上的假 K 棒」，正是 resample_tw_intraday 註解警告過的情況。
 #   要支援 2h 得先把累積器改成貼齊開盤分桶 —— 那是另一件事，單獨做、單獨驗。
 RT_ACC_MINUTES = {"1m": 1, "5m": 5, "15m": 15, "30m": 30, "1h": 60}
 
@@ -1312,7 +1268,7 @@ def _ohlcv_build(req: OHLCVRequest):
                                        ignore_index=True).sort_values("time").reset_index(drop=True)
                 # 30m/2h/4h 重採樣（對齊台北 09:00 = UTC 01:00）
                 # ⚠ 改用共用的 resample_tw_intraday：這裡原本是把分桶規則**抄一份**在本地，
-                #   正是 resample_tw_4h 註解警告過的情況（兩條路徑規則一旦分歧，最後一根時間戳
+                #   正是 resample_tw_intraday 註解警告過的情況（兩條路徑規則一旦分歧，最後一根時間戳
                 #   對不上 → 前端當成新的一根接上去 → 圖上多一根假 K 棒）。
                 try:
                     from data.taiwan import tw_adjust_splits
@@ -1693,7 +1649,7 @@ def _get_latest_impl(req: LatestRequest):
                 #    免金鑰）。徹底解決 yfinance 台股盤中延遲15-20分 + MIS 只補打開後那段 → 「1010跳1030」
                 #    斷層。快取 8 秒；失敗/收盤/查無 → fallback 回 Fugle→yfinance+MIS。
                 # 4h 也走這條（2026-07-31）：cnyes 沒有原生 4h → 抓 1h 再用與 /api/ohlcv **同一個**
-                # 分桶函式 resample_tw_4h 產 4h。原本 4h 被排除在外，只能落到最下面的 yfinance
+                # 分桶函式 resample_tw_intraday 產 4h。原本 4h 被排除在外，只能落到最下面的 yfinance
                 # 路徑並回 live=False → 前端根本不會輪詢更新它，盤中那根 4h 就一直是舊值。
                 # ★2026-08-01：連同 30m/2h 一起（原本只有 4h）。理由與上方 4h 那段完全相同 ——
                 #   被排除在外的時框會落到最下面的 yfinance 路徑並回 live=False → **前端根本不會
@@ -2632,7 +2588,6 @@ def get_crt_winrate(
     短：stop = base_high × (1 + buf)；多：stop = base_low × (1 - buf)。
     band_ratio：上下軌『止盈目標』比例（1.0=原上下軌；0.8=8成軌）。非 1.0 時 cache_key 另分流，不污染主勝率。
     """
-    from datetime import date, timedelta
     _buf = round(max(0.0, float(stop_buffer_pct or 0.0)), 4)
     _br = round(max(0.1, min(1.0, float(band_ratio or 1.0))), 3)
     _long_only = (market == "tw" and symbol.upper() not in FUTOPT_PRODUCTS)  # 台股不能放空；台指期是期貨可做空
@@ -2687,21 +2642,14 @@ def get_crt_winrate(
                         data_cache.set(bar_key, _bar_now)
                     return _res
 
-    MIN_CASES = 40   # 每個訊號（S1~S7 × 空/多）最少採樣數；不足會自動往前加倍天數
     # 各時間框架的最大歷史深度。上限拉到資料源實際可能的深度（Binance fapi BTC 2019/9~、
     # spot 2017/8~、Bybit/OKX 類似）。
     # 註：這裡原本還有一份沒人用的 TF_INIT（初始天數）→ 2026-07-31 移除；
     #     實際在用的初始天數表是 research/ai_strategy.py 的 _TF_INIT_DAYS。
     # 注意：TF_MAX 是「勝率計算」用的歷史深度，不是圖表顯示深度
-    # 5/15/30m 圖上不必看到太久以前，但統計需要足夠案例數（MIN_CASES=40 × 11 訊號 × 空/多）
+    # 5/15/30m 圖上不必看到太久以前，但統計需要足夠案例數（每訊號空/多各數十例）
     TF_MAX  = {"1M": 7300, "1w": 7300, "1d": 7300, "8h": 5475, "4h": 5475, "2h": 4380, "1h": 2920,  "30m": 730, "15m": 720, "5m": 180, "1m": 20}
 
-    def _sufficient(r: dict) -> bool:
-        """每個訊號的空/多案例數都達到 MIN_CASES"""
-        return all(
-            (r.get(sig) or {}).get(d, {}).get("total", 0) >= MIN_CASES
-            for sig in ("abc", "ab", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11") for d in ("short", "long")
-        )
 
     def _fetch_df(days: int) -> pd.DataFrame:
         """依市場 / 時間框架取得指定天數的 K 棒（委派模組層級 fetch_crt_df，邏輯不變）。"""
@@ -2710,7 +2658,7 @@ def get_crt_winrate(
 
     # 深度按需(2026-07-11)：深時框(5m~4h)初始只抓「統計 floor 深度」→ 標記快出(fetch 佔冷啟 ~90%)；
     #   往歷史滑時前端 vw 變大 → 這裡自動加深、補算舊區標記，最深仍到 TF_MAX。floor 已給 ~1.5萬根K
-    #   (遠超 MIN_CASES=40)、勝率統計幾乎不受影響。8h/1d/1w/1M/1m 資料本就少、不縮(維持 TF_MAX)。
+    #   (遠超統計所需的數十例)、勝率統計幾乎不受影響。8h/1d/1w/1M/1m 資料本就少、不縮(維持 TF_MAX)。
     _tf_max = TF_MAX.get(timeframe, 3650)
     # BTC/ETH/SOL 有本機/版控 5m 倉庫 → 5m FVG/勝率深度上限拉到 1 年(倉庫供得起深歷史→老K也有FVG,免API抓一年)
     if timeframe == "5m" and market == "crypto":

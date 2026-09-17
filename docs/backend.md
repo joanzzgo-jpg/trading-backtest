@@ -3,7 +3,6 @@
 > 從 CLAUDE.md 拆出的後端詳細參考。CLAUDE.md 只留關鍵鐵則，細節在此。
 
 ## 環境變數
-- `ANTHROPIC_API_KEY`：橘子熊台詞生成（routes/bear.py 用 Claude Haiku）
 - `FINNHUB_TOKEN`：美股即時（免費 https://finnhub.io、免 KYC、60 req/min）。`/api/latest`
   US 分鐘(5m/15m/1h/4h)用 Finnhub `/quote` 即時價**累積出「當下這根」**(`_finnhub_accumulate`,
   同 MIS 思路) → 無 ~15 分延遲；**即時棒無成交量**(Finnhub quote 無量, yfinance 之後回補)。
@@ -53,8 +52,7 @@
   stepSize/tickSize 量化（快取 1hr）；停損/止盈用 `closePosition=true` 條件市價單交易所託管。
 - **自動交易**：設定存 DB 單列 `trade_auto`（10s 快取）。`notify_monitor._process_combo` 偵測到
   新進場訊號 → `execute_signal_trade()`（市價進場+掛 SL/TP；逐事件去重 `atrade:*` 走 notify_seen，
-  先標記再下單=只試一次）；策略判定止盈/止損 → `settle_signal_trade()` 平掉對應倉位（與回測邏輯
-  對齊；交易所端先出場則冪等跳過）。**前提**：標的在帳號自選 + 帳號至少一台裝置有啟用通知訂閱
+  先標記再下單=只試一次）；出場靠交易所端的 SL/TP 觸發單，`reconcile_auto_position()` 每輪對帳補記錄。**前提**：標的在帳號自選 + 帳號至少一台裝置有啟用通知訂閱
   （監控器以訂閱者的 watchlist 組掃描清單）。
 - 符號解析：圖表符號 `BTC/USDT(.P)` → `BTCUSDT`；找不到時試 `1000`+base（圖上 1000 倍合約已
   ÷1000 顯示 → 下單價格 ×scale 換回）。每筆下單記 `trade_log`（含 testnet/live 標記）。
@@ -159,14 +157,6 @@ Pionex API：**10 次/秒/IP**，超過回 **429 封鎖 60s**，且**封鎖期�
 ---
 
 ## 即時行情疊加（台股分鐘K）
-
-### `_mis_overlay(df, rt, minutes)` in `routes/data.py`
-- 從 TWSE MIS 抓到即時價後疊加到 yfinance 最新 K 棒
-- MIS 時間為台灣本地時間（UTC+8），需先 `-timedelta(hours=8)` 轉 UTC
-- K 棒對齊：用 `last_ts.floor(f"{minutes}min")` 比對，避免 yfinance 不完整棒造成跳空
-- 若 `bar_ts == last_bar_ts`：更新最後一棒的 close/high/low
-- 若 `bar_ts > last_bar_ts`：新增一根合成棒（volume=0）
-- 適用 5m / 15m / 1h；4h 及以上不做疊加
 
 ### `fetch_tw_intraday_yf` 時間戳修正
 - yfinance 不完整棒時間戳可能錯誤（如 1h K 出現 11:40）

@@ -14,7 +14,7 @@
 - 出場：全由交易所掛的觸發單『盤中即時』觸發（止損 STOP_MARKET＝緩衝價、止盈 TAKE_PROFIT_MARKET＝上下軌，
   retarget_auto_tp 每根把 TP 移到最新上下軌）→ 碰到止盈/止損位就出，不等收盤(整點)決定。
   reconcile_auto_position() 每輪對帳：未平倉若交易所已無持倉(觸發單已平) → 補記錄+通知。
-  （舊的 settle_signal_trade() 會在收盤用訊號結算提早市價平倉、架空止損緩衝 → 已停用，保留定義備查。）
+  （舊的 settle_signal_trade() 會在收盤用訊號結算提早市價平倉、架空止損緩衝 → 已停用，2026-09-17 刪除。）
 - 每筆交易記 trade_log（含 testnet/live 標記），前端交易面板顯示。
 """
 import os
@@ -1157,37 +1157,6 @@ def _close_auto_position(owner, client, row_id, bsym, symbol, tf, event, reason,
                 sig=sig, d=d, sigt=sigt)
     print(f"  🤖 自動平倉 {client.env}: {bsym}（{event}）pnl={pnl}")
     return pnl
-
-
-def settle_signal_trade(market, exchange, symbol, tf, k, d, sig, event):
-    """訊號引擎判定止盈/止損 → 平掉對應自動倉（逐帳號獨立）。
-    註：監控器已改走 reconcile_auto_position（盤中觸發單對帳），此函式保留備查。"""
-    try:
-        if market != "crypto":
-            return
-        sigt = str(sig.get("t"))
-        for name, cfg in get_all_auto_cfgs():
-            client, _ = _client_for(name)
-            if client is None:
-                continue
-            _ensure_db()
-            conn, ph = _acct._db()
-            try:
-                row = conn.execute(
-                    f"SELECT id, bsym FROM trade_log WHERE source='auto' AND status='open' "
-                    f"AND acct={ph} AND symbol={ph} AND tf={ph} AND sig={ph} AND dir={ph} AND sigt={ph} "
-                    f"ORDER BY id DESC LIMIT 1",
-                    (name, symbol, tf, k, d, sigt)).fetchone()
-            finally:
-                conn.close()
-            if not row:
-                continue
-            row_id, bsym = row
-            reason = "策略止盈平倉" if event == "tp" else "策略止損平倉"
-            _close_auto_position(name, client, row_id, bsym, symbol, tf, event, reason,
-                                 sig=k, d=d, sigt=sigt)
-    except Exception as e:
-        print(f"  ⚠ 自動平倉失敗 {symbol} {tf}：{e}")
 
 
 def reconcile_auto_position(market, exchange, symbol, tf):

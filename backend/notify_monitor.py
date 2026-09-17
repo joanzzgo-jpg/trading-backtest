@@ -12,7 +12,6 @@ import time
 import math
 import threading
 
-CHECK_INTERVAL = 60          # 名目節奏 60s(實際喚醒對齊「整分+3s」,見 run_monitor_loop 迴圈尾)
 _lease = None                # 單跑者租約(run_monitor_loop 內初始化;/_diag 讀 held 顯示角色)
 _LAST_DIAG = 0.0             # 早期診斷節流
 MONITOR_BARS   = 320         # 短窗抓多少根（足夠指標 lookback + 最近棒）
@@ -24,14 +23,6 @@ _TF_SEC = {
     "5m": 300, "15m": 900, "30m": 1800, "1h": 3600, "2h": 7200,
     "4h": 14400, "8h": 28800, "1d": 86400, "1w": 604800, "1M": 2592000,
 }
-
-# 訊號鍵 → 顯示名
-def _sig_label(k: str) -> str:
-    if k == "abc":
-        return "S1"
-    if k == "ab":
-        return "S2"
-    return "S" + k
 
 
 def _interval_sec(tf: str):
@@ -60,65 +51,6 @@ def _fmt_price(p) -> str:
     if p >= 1:
         return f"{p:.4g}"
     return f"{p:.6g}"
-
-
-def _fmt_dt(iso):
-    """訊號時間（UTC naive）→ 台灣時間 M/D HH:MM。"""
-    import pandas as pd
-    try:
-        d = pd.Timestamp(iso) + pd.Timedelta(hours=8)
-        return f"{d.month}/{d.day} {d.hour:02d}:{d.minute:02d}"
-    except Exception:
-        return ""
-
-
-def _build_payload(symbol, market, exchange, tf, k, d, sig, event="entry"):
-    """event: entry=進場訊號 / tp=止盈達成 / sl=止損出場。"""
-    dir_txt = "做空" if d == "s" else "做多"
-    label = _sig_label(k)
-    title = f"{symbol} · {tf}"
-    entry = sig.get("entry"); stop = sig.get("stop"); rr = sig.get("rr")
-    risk = abs(entry - stop) if (entry is not None and stop is not None) else None
-
-    if event in ("tp", "sl"):
-        rr_real = sig.get("rr_real")     # 止損時引擎已給 -1.0
-        exit_px = None
-        if entry is not None and risk and rr_real is not None:
-            exit_px = entry - rr_real * risk if d == "s" else entry + rr_real * risk
-        rr_show = rr_real if rr_real is not None else rr
-        mark = "✅" if event == "tp" else "❌"   # 止盈勾勾 / 止損叉叉（推播與聊天室都吃 body）
-        l1 = f"{mark} {label} {dir_txt} " + ("止盈達成" if event == "tp" else "止損出場")
-        if rr_show is not None:
-            l1 += f" · 盈虧比 {rr_show:+.2f}"
-        l2 = (f"進場 {_fmt_price(entry)}" if entry is not None else "")
-        if exit_px is not None:
-            l2 += f" → 出場 {_fmt_price(exit_px)}"
-        l3 = _fmt_dt(sig.get("t")) + (f" → {_fmt_dt(sig.get('ot'))}" if sig.get("ot") else "")
-        tag = f"{market}:{exchange}:{symbol}:{tf}:{k}:{d}:{event}"
-    else:
-        target = None
-        if entry is not None and risk and rr is not None:
-            target = entry - rr * risk if d == "s" else entry + rr * risk
-        l1 = f"{label} {dir_txt}訊號"
-        if rr is not None:
-            l1 += f" · 盈虧比 {rr:.2g}"
-        l2 = (f"進場 {_fmt_price(entry)}" if entry is not None else "")
-        if target is not None:
-            l2 += f" → 目標 {_fmt_price(target)}"
-        l3 = (f"停損 {_fmt_price(stop)}" if stop is not None else "")
-        if sig.get("t"):
-            l3 += (" · " if l3 else "") + _fmt_dt(sig["t"])
-        tag = f"{market}:{exchange}:{symbol}:{tf}:{k}:{d}:entry"
-
-    body = "\n".join(x for x in (l1, l2, l3) if x)
-    return {
-        "title": title,
-        "body": body,
-        "tag": tag,
-        # t=進場訊號棒時間（UTC naive ISO）→ 前端點通知可跳到對應時框與時間位置
-        "data": {"symbol": symbol, "market": market, "exchange": exchange, "tf": tf,
-                 "t": str(sig.get("t") or "")},
-    }
 
 
 def _process_combo(market, exchange, symbol, tf, subs_here, now, df=None):

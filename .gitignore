@@ -46,3 +46,5 @@ frontend/static/js/*.min.js
 # 帳號備份（含真實使用者資料，絕不進版控）
 backend/.qwer_*_backup.json
 backend/.*_backup.json
+# 帳號快照/還原前備份（檔名不一定帶 _backup）
+backend/.qwer_*.json

@@ -84,10 +84,6 @@ def notify_enabled() -> bool:
     return _vapid is not None and _acct._enabled()
 
 
-def get_vapid_public_key() -> Optional[str]:
-    return _vapid_appkey
-
-
 # ── DB ────────────────────────────────────────────────────────
 _inited = False
 

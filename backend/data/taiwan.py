@@ -148,7 +148,6 @@ def _yf_history(ticker, interval: str, start: str, end: str):
         return None
 
 
-
 # ══════════════════════════════════════════════════════════════
 #  分割／減資自動還原（2026-09-10 使用者：「若有拆股的標的自動換算價格」）
 #
@@ -1388,11 +1387,6 @@ def resample_tw_intraday(df_src, timeframe: str):
         {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
     )
     return out.dropna(subset=["open"]).reset_index()
-
-
-def resample_tw_4h(df_1h):
-    """（保留舊名給既有呼叫端）台股 1h → 4h，實作見 resample_tw_intraday。"""
-    return resample_tw_intraday(df_1h, "4h")
 
 
 # ── 官方 opendata 補「最新交易日」日線（2026-08-01）────────────────────────────

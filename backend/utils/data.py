@@ -1,7 +1,7 @@
 """數據處理工具"""
 import math
 import pandas as pd
-from indicators.engine import add_indicators, crt_markers, rsi as calc_rsi, macd as calc_macd, \
+from indicators.engine import add_indicators, crt_markers, rsi as calc_rsi, \
     kdj_first_cross, bb_kdj_rsi_resonance
 
 

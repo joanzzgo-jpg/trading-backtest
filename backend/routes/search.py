@@ -2,7 +2,7 @@
 import threading
 import time as _time
 
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, Response
 from data.taiwan import search_tw_stock
 from data.us_stock import search_us_stocks
 from data.crypto import fetch_crypto_markets, fetch_tickers, _fetch_pionex_symbols, _fetch_pionex_perp_symbols

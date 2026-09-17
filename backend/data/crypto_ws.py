@@ -38,7 +38,7 @@ def _mini_to_ticker(m: dict, is_fut: bool):
 async def run_ticker_ws():
     """leader 專用：WS 維護 futures/spot 即時報價 → live_data。永不 return（含重連）。"""
     import aiohttp
-    from data.crypto import (fetch_tickers, _apply_perp_filter,
+    from data.crypto import (fetch_tickers,
                              _fetch_pionex_symbols, _fetch_pionex_perp_symbols)
     from utils.live_data import update as live_update
 

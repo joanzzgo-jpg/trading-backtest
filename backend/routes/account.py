@@ -352,9 +352,6 @@ def _relay_drawings(name: str, local_snap: dict):
     # ⚠ busy 不在這裡清：自選那條還要跑，統一由 _relay_all 收尾（見該函式）
 
 
-_WL_KEY = "__watchlist__"
-
-
 def _local_watchlist(name: str):
     """讀本機這台的自選寫穿表 → (清單, updated_at)。讀不到回 (None, 0)。"""
     conn, ph = _db()

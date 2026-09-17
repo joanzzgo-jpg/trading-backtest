@@ -1,16 +1,12 @@
 # Footprint（足跡圖）指標：每根 K 棒內「各價位的主動買量 / 主動賣量」——全時框逐筆精確
 #
-# 架構（2026-07-17 精確化改版）：
-#   「分鐘級足跡倉」_minute_store：aggTrades（m=isBuyerMaker 給主動方向）逐筆算出
-#   每個已收盤分鐘的 {細桶idx: [買,賣]}，永久快取（記憶體、LRU 上限）。
-#   任何時框的棒 = 其分鐘格子的聚合 → 15m/30m/1h 也是逐筆精確、且跨時框共用快取
-#   （看過 15m 再切 1h，重疊的分鐘直接命中不重抓）。
-#
-# 限流防護（aggTrades 權重 20/次，貴）：
-#   - 每次請求「呼叫預算」_CALL_BUDGET=40（≈800 權重）；抓不完 → 回應帶 pending_min
-#     （尚缺的分鐘數），前端輪詢下次續抓 → 漸進補齊，補完就全精確、之後只重抓未收盤分鐘。
-#   - 逐棒「整段連續翻頁」而非逐分鐘打（冷門幣一根 1h 棒可能只要 1~2 次呼叫）。
-#   - 全走 data.crypto._binance_get → 繼承 418/429 全域熔斷＋權重軟節流。
+# 架構（現況，見 _build）：
+#   - 每棒先用該時框 K 線粗略近似（x=false）頂著 → 首屏 <1s；
+#   - 背景用「細 K 線聚合」補精確（≤1h←1m、4h←5m、1d←15m；量＝交易所 takerBuy 實數），存 _hist_cache；
+#   - 1m~1h 再用 Binance 每日成交 CSV 把近 _CSV_DAYS 天覆蓋成逐筆精確（footprint_csv.py）。
+#   回應帶 pending_min（尚未精確的棒數）→ 前端續輪詢漸進補齊。
+#   ⚠ 2026-07-17 版的「aggTrades 分鐘級足跡倉 _minute_store」已不再使用，2026-09-17 刪除。
+#   全走 data.crypto._binance_get → 繼承 418/429 全域熔斷＋權重軟節流；另有足跡專屬權重閘門 _fp_gate。
 #
 # 價位桶：細桶 fine_bin 依標的黏著（近 60 根 1m 平均全長/5 取漂亮階梯；價格劇變 >50% 才重算並清倉）；
 #   顯示桶 bin = fine_bin 的整數倍（貼近該時框平均全長/12）→ 聚合無縫、無浮點錯位。
@@ -30,8 +26,6 @@ _CSV_TFS = {"1m", "5m", "15m", "30m", "1h"}   # 4h/1d 天數太多、細K已足�
 
 _TF_MS = {"1m": 60_000, "5m": 300_000, "15m": 900_000, "30m": 1_800_000,
           "1h": 3_600_000, "4h": 14_400_000, "1d": 86_400_000}
-# 近端「逐筆精確」窗口（aggTrades，權重貴 → 漸進補齊）
-_BARS_CAP = {"1m": 20, "5m": 12, "15m": 12, "30m": 10, "1h": 8, "4h": 0, "1d": 0}
 # 歷史總深度（近端之外用「細 K 線聚合」補：量=交易所實數 takerBuy、價位歸屬到細K的高低區；
 # 算一次就進快取，之後零成本）。全歷史逐筆物理上不可行（1d 一根數百萬筆 aggTrades）。
 # 歷史深度（近端優先填、深段逐輪往回補）：1m 10h／5m 3.5天／15m 10天／30m 21天／1h 37天／4h 150天／1d 2.7年
@@ -41,7 +35,6 @@ _HIST_CAP = {"1m": 600, "5m": 1000, "15m": 1000, "30m": 1000, "1h": 900, "4h": 9
 # 歷史聚合用的細 K 線時框：≤1h 用 1m；4h 用 5m（48 子棒/根）；1d 用 15m（96 子棒/根）
 _SUB_TF = {"1m": "1m", "5m": "1m", "15m": "1m", "30m": "1m", "1h": "1m", "4h": "5m", "1d": "15m"}
 _SUB_MS = {"1m": 60_000, "5m": 300_000, "15m": 900_000}
-_KLINE_TFS = {"4h", "1d"}          # 全程走細K聚合（近端逐筆窗口=0）
 _HIST_KLINE_BUDGET = 22            # 每次背景填充最多幾次「歷史細K」呼叫（1500 根/次、權重個位數）；深段跨多輪補
 
 # ── 足跡專屬權重閘門（滑動 60s 窗）──────────────────────────────
@@ -51,7 +44,7 @@ _HIST_KLINE_BUDGET = 22            # 每次背景填充最多幾次「歷史細K
 # 回 pending/partial 讓前端下輪輪詢續補（補齊變慢，但其他功能永遠有 2/3 額度）。
 _FP_W_CAP = 800
 _FP_W_LOG: list = []               # [(ts, cost), ...] 60s 滑動窗
-_W_AGG, _W_KL_BIG, _W_KL_SMALL = 20, 10, 2   # aggTrades / klines(1500) / klines(小)
+_W_KL_BIG = 10                     # klines(1500 根) 的權重
 
 
 def _fp_gate(cost: int) -> bool:
@@ -65,13 +58,10 @@ def _fp_gate(cost: int) -> bool:
             return False
         _FP_W_LOG.append((now, cost))
         return True
-_CALL_BUDGET = 16            # 每次請求最多幾次 aggTrades 呼叫（×20 權重）；小批＝首屏快回、多輪續補
+
 _MIN_MS = 60_000
 
 _lock = threading.Lock()
-_minute_store: dict = {}     # (sym, minuteTs) -> {fineIdx: [buy, sell]}（僅完整覆蓋的已收盤分鐘）
-_minute_order: list = []     # FIFO 清理
-_MINUTE_MAX = 6000           # ≈ 100 小時·標的 混合上限
 _sym_fine: dict = {}         # sym -> (fine_bin, ref_close)
 _resp_cache: dict = {}       # key -> (ts, payload)：短 TTL 吸收多分頁；漸進補齊要新鮮 → 2s
 
@@ -118,87 +108,10 @@ def _fine_bin_for(sym: str) -> float:
 
 
 def _fine_regime_check(sym: str, last_close: float):
-    """價格量級劇變（>50%）→ 細桶失真 → 重算並清掉該標的舊分鐘格"""
+    """價格量級劇變（>50%）→ 細桶失真 → 重算（舊細桶的歷史棒快取鍵含 bin，自然不再命中）"""
     cur = _sym_fine.get(sym)
     if cur and cur[1] > 0 and abs(last_close - cur[1]) / cur[1] > 0.5:
         _sym_fine.pop(sym, None)
-        with _lock:
-            for k in [k for k in _minute_store if k[0] == sym]:
-                _minute_store.pop(k, None)
-            _minute_order[:] = [k for k in _minute_order if k[0] != sym]
-
-
-def _store_get(sym: str, mts: int):
-    return _minute_store.get((sym, mts))
-
-
-def _store_put(sym: str, mts: int, rows: dict):
-    with _lock:
-        key = (sym, mts)
-        if key not in _minute_store:
-            _minute_order.append(key)
-        _minute_store[key] = rows
-        while len(_minute_order) > _MINUTE_MAX:
-            _minute_store.pop(_minute_order.pop(0), None)
-
-
-class _Budget:
-    def __init__(self, n): self.left = n
-    def take(self):
-        if self.left <= 0:
-            return False
-        self.left -= 1
-        return True
-
-
-def _fetch_span_minutes(sym: str, span_s: int, span_e: int, fine: float,
-                        budget: "_Budget", now_ms: int, overlay: dict) -> None:
-    """連續翻頁抓 [span_s, span_e) 的 aggTrades，切成分鐘格：
-    - 完整覆蓋的已收盤分鐘 → 進永久倉
-    - 未收盤（正在走的）分鐘 → 只放 overlay 給本次回應用，不進倉
-    預算不夠翻到底 → 只提交「確定完整」的分鐘（覆蓋到最後一筆成交的時間為準），其餘留給下輪。"""
-    acc: dict = {}          # mts -> {fineIdx: [b, s]}
-    covered_to = span_s     # 已確定完整覆蓋到（exclusive）
-    t0 = span_s
-    while t0 < span_e:
-        if not budget.take() or not _fp_gate(_W_AGG):
-            break           # 每請求預算或全站足跡權重閘門到頂 → 下輪續補
-        url = (f"{_crypto.BINANCE_FAPI_BASE}/fapi/v1/aggTrades?symbol={sym}"
-               f"&startTime={t0}&endTime={span_e - 1}&limit=1000")
-        chunk = _crypto._binance_get(url, timeout=10, retries=0)
-        if not chunk:
-            covered_to = span_e
-            break
-        for t in chunk:
-            ts = int(t["T"])
-            mts = ts // _MIN_MS * _MIN_MS
-            cell = acc.setdefault(mts, {})
-            idx = math.floor(float(t["p"]) / fine)
-            bs = cell.setdefault(idx, [0.0, 0.0])
-            if t["m"]:
-                bs[1] += float(t["q"])
-            else:
-                bs[0] += float(t["q"])
-        if len(chunk) < 1000:
-            covered_to = span_e
-            break
-        covered_to = int(chunk[-1]["T"]) + 1
-        t0 = covered_to
-    # 提交：分鐘完整覆蓋（m_end <= covered_to）才算數
-    for mts, rows in acc.items():
-        m_end = mts + _MIN_MS
-        if m_end > covered_to:
-            continue            # 尾巴沒翻完的分鐘 → 丟棄，下輪重抓（浪費 ≤1 頁）
-        if m_end <= now_ms:
-            _store_put(sym, mts, rows)
-        overlay[mts] = rows      # 已收盤進倉；未收盤分鐘只給本次用
-    # 也把「時間已走完但這段根本沒成交」的分鐘記為空格（否則冷門幣永遠 pending）
-    if covered_to >= span_e:
-        mts = span_s
-        while mts + _MIN_MS <= min(span_e, now_ms):
-            if mts not in acc and _store_get(sym, mts) is None:
-                _store_put(sym, mts, {})
-            mts += _MIN_MS
 
 
 def _pack_bar(bar_ts: int, rows: dict, bin_size: float, exact: bool) -> dict:
@@ -351,22 +264,6 @@ def _get_tf_klines(sym: str, tf: str, n: int):
     # 抓失敗（權重繁忙/熔斷）→ 回上次成功的 K 線：載入過一次後就不再「連線失敗」，
     # 只是最新那根 K 稍舊；背景填充與下輪輪詢會在權重放行時補上。
     return _tfkl_good.get((sym, tf))
-
-
-def _rows_from_store_bar(sym, ts, tf_ms, now_ms, k_mult):
-    """近端某棒：分鐘倉全部到位才回精確 rows，否則 None（缺就退回粗略近似）"""
-    rows = {}
-    mts = ts
-    bar_end = min(ts + tf_ms, now_ms)
-    while mts + _MIN_MS <= bar_end:          # 只算已收盤分鐘
-        cell = _store_get(sym, mts)
-        if cell is None:
-            return None                       # 尚有分鐘沒逐筆到位
-        for fidx, (b, s) in cell.items():
-            didx = fidx // k_mult if k_mult > 1 else fidx
-            r = rows.setdefault(didx, [0.0, 0.0]); r[0] += b; r[1] += s
-        mts += _MIN_MS
-    return rows or None
 
 
 def _csv_overlay(sym, tf, starts, now_ms, tf_ms, bin_size, fine):

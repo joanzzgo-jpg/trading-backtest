@@ -12,7 +12,6 @@ import re
 import time
 import requests
 import pandas as pd
-from datetime import datetime, timedelta
 
 _URL = "https://mis.taifex.com.tw/futures/api/getQuoteList"
 _DETAIL_URL = "https://mis.taifex.com.tw/futures/api/getQuoteDetail"  # 指定合約(熱門清單沒有的微台 TMF 用此)
@@ -163,83 +162,6 @@ def fetch_taifex_quote(product: str):
         "bid": _f(q.get("CBidPrice1")), "ask": _f(q.get("CAskPrice1")),
         "cdate": q.get("CDate"), "ctime": q.get("CTime"),
     }
-
-
-def fetch_taifex_tickers():
-    """報價牆用：台指三兄弟近月即時報價 rows（欄位對齊台股 ticker + is_future 置頂旗標）。"""
-    out = []
-    for prod in PRODUCTS:
-        q = fetch_taifex_quote(prod)
-        if not q or q.get("price") is None:
-            continue
-        out.append({
-            "symbol": prod, "display": prod, "name": q["name"], "price": q["price"],
-            "change_pct": q.get("change_pct") or 0.0,
-            "change_amt": q.get("change_amt") or 0.0,
-            "volume": q.get("volume") or 0, "is_future": True,
-        })
-    return out
-
-
-# ── 盤中分鐘K：TAIFEX MIS getChartData1M 直接回『今日完整 1 分鐘K』，再 resample ──
-#    （非前向累積：一次就拿到整個交易時段的分時，休市時回最後一個交易日的完整當日。）
-_CHART_URL = "https://mis.taifex.com.tw/futures/api/getChartData1M"
-_kcache: dict = {}   # prod → (fetch_ts, df_1m)
-
-
-def _fetch_1m(product: str):
-    """今日完整 1 分鐘K DataFrame（time UTC naive）。快取 4 秒；失敗沿用上次。無資料回 None。"""
-    prod = (product or "").upper()
-    now = time.time()
-    c = _kcache.get(prod)
-    if c and now - c[0] < 4:
-        return c[1]
-    sid = resolve_front_month(prod)
-    if not sid:
-        return c[1] if c else None
-    try:
-        r = requests.post(_CHART_URL, json={"SymbolID": sid}, headers=_HDRS, timeout=8)
-        r.raise_for_status()
-        rd = (r.json() or {}).get("RtData") or {}
-    except Exception:
-        return c[1] if c else None
-    ticks = rd.get("Ticks") or []
-    cdate = ((rd.get("Quote") or {}).get("CDate")) or ""
-    if not ticks or len(cdate) < 8:
-        return c[1] if c else None
-    base = datetime(int(cdate[:4]), int(cdate[4:6]), int(cdate[6:8]))
-    out = []
-    for t in ticks:
-        try:
-            hhmmss = str(t[0]).rjust(6, "0")
-            hh, mm, ss = int(hhmmss[:2]), int(hhmmss[2:4]), int(hhmmss[4:6])
-            # 夜盤傍晚(15:00+)在前一日曆日；日盤與夜盤凌晨(<15:00)為 CDate 當日
-            dd = base - timedelta(days=1) if hh >= 15 else base
-            ts = dd.replace(hour=hh, minute=mm, second=ss) - timedelta(hours=8)   # TPE→UTC naive
-            out.append({"time": ts, "open": _f(t[1]), "high": _f(t[2]),
-                        "low": _f(t[3]), "close": _f(t[4]), "volume": _f(t[5]) or 0})
-        except Exception:
-            continue
-    if not out:
-        return c[1] if c else None
-    df = pd.DataFrame(out).sort_values("time").reset_index(drop=True)
-    _kcache[prod] = (now, df)
-    return df
-
-
-def fetch_taifex_candles(product: str, timeframe: str):
-    """盤中 K DataFrame（time UTC naive）。今日完整 1 分鐘K → resample 成各盤中時框。無資料回 None。"""
-    m = _INTRADAY_MIN.get(timeframe)
-    if m is None:
-        return None
-    df = _fetch_1m(product)
-    if df is None or df.empty:
-        return None
-    if m == 1:
-        return df.copy()
-    return df.set_index("time").resample(f"{m}min").agg({
-        "open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum",
-    }).dropna(subset=["open"]).reset_index()
 
 
 # ── 日線歷史（FinMind 期貨日資料，免費）→ 供 1d/1w/1M 時框（跨日歷史 MIS 沒有）──

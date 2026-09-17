@@ -53,12 +53,6 @@ def crypto_symbol(symbol: str):
     """這個外匯代號要不要改走幣安？回傳加密代號，或 None（走 yfinance）。"""
     return CRYPTO_BACKED.get((symbol or "").strip().upper())
 
-_PAIR_SET = {p.upper() for p in FX_PAIRS}
-
-
-def is_fx(symbol: str) -> bool:
-    """這個代號是不是外匯（用於市場自動判斷／防呆）。"""
-    return (symbol or "").strip().upper() in _PAIR_SET
 
 
 def to_yf(symbol: str) -> str:

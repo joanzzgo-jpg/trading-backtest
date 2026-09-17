@@ -1,7 +1,6 @@
 """AI 策略研究 API：暴力枚舉指標組合，找可獲利配方"""
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
-from typing import Optional
 
 from research.ai_strategy import run_research, ATOM_KEYS, ATOM_LABELS
 from utils.cache import cache

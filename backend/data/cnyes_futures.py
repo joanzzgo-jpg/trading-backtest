@@ -9,7 +9,6 @@ cnyes charting API（TradingView UDF 格式）：免金鑰、免開戶、**含�
 ⚠ 跨重啟持久需 Railway Postgres；本機/無 PG 的 SQLite 重部署會清。
 """
 import time
-import requests
 
 from utils.http_pool import SESSION   # 共用連線池（省掉每次 TLS 交握，見該模組）
 import pandas as pd

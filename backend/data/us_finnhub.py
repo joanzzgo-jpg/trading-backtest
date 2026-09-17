@@ -82,26 +82,3 @@ def fetch_us_quote(symbol: str, token: str = ""):
         return None
 
 
-def fetch_us_tickers(symbols: list, token: str = "") -> list:
-    """批次抓多檔即時報價（用於 ticker panel）。串行呼叫但有 cache，速度堪用。
-
-    回傳格式相容 fetch_tw_tickers / fetch_tickers 的結構。
-    """
-    tok = _get_token(token)
-    if not tok or not symbols:
-        return []
-    out = []
-    for sym in symbols:
-        q = fetch_us_quote(sym, tok)
-        if not q:
-            continue
-        out.append({
-            "symbol":     sym,
-            "display":    sym,
-            "name":       sym,
-            "price":      q["price"],
-            "change_pct": q["change_pct"],
-            "change_amt": q["change"],
-            "volume":     0,  # /quote 沒給 volume
-        })
-    return out

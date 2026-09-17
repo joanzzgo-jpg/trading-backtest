@@ -6,7 +6,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.gzip import GZipMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import Response, PlainTextResponse
+from starlette.responses import PlainTextResponse
 import os, sys, time, subprocess, threading, hashlib, json
 from collections import deque
 from dotenv import load_dotenv
@@ -16,7 +16,6 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from routes.data import router as data_router
 from routes.search import router as search_router
-from routes.bear import router as bear_router
 from routes.weather import router as weather_router
 from routes.ai_research import router as ai_research_router
 from routes.account import router as account_router
@@ -269,17 +268,6 @@ try:
                                        stderr=subprocess.DEVNULL).decode().strip()
 except Exception:
     _GIT_VER = str(int(time.time()))
-_BUNDLE_PATH  = os.path.join(FRONTEND_DIR, "static", "js", "app.bundle.js")
-_CSS_PATH     = os.path.join(FRONTEND_DIR, "static", "css", "style.css")
-# effects.js / weather.js 由 main.js 動態獨立載入（不在 bundle 內），版號也須隨它們變動，
-# 否則只改這兩支時 /static 的 immutable 長快取會讓瀏覽器吃到舊檔。
-_EFFECTS_PATH = os.path.join(FRONTEND_DIR, "static", "js", "effects.js")
-_WEATHER_PATH = os.path.join(FRONTEND_DIR, "static", "js", "weather.js")
-_DRAW_PATH    = os.path.join(FRONTEND_DIR, "static", "js", "draw.js")    # 動態載入（不在 bundle），版號須含它
-_TRADE_PATH   = os.path.join(FRONTEND_DIR, "static", "js", "trade.js")   # 同上
-_SIGINFO_PATH = os.path.join(FRONTEND_DIR, "static", "js", "signal_info.js")  # 同上（2026-08-04 移出 bundle）
-_NOTIFY_PATH  = os.path.join(FRONTEND_DIR, "static", "js", "notify.js")       # 同上
-_FONTS_PATH   = os.path.join(FRONTEND_DIR, "static", "vendor", "fonts.css")
 
 
 _STATIC_DIR = os.path.join(FRONTEND_DIR, "static")
@@ -782,7 +770,6 @@ def service_worker():
 
 app.include_router(data_router)
 app.include_router(search_router)
-app.include_router(bear_router)
 app.include_router(weather_router)
 app.include_router(ai_research_router)
 app.include_router(account_router)
@@ -790,7 +777,5 @@ app.include_router(notify_router)
 app.include_router(trade_router)
 app.include_router(lunar_router)
 app.include_router(footprint_router)
-from routes.tradeshot import router as tradeshot_router   # 交易截圖辨識(視覺模型讀進出場)
-app.include_router(tradeshot_router)
 app.include_router(orderbook_router)
 app.include_router(econ_router)
