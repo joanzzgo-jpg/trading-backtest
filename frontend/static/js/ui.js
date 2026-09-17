@@ -42,104 +42,209 @@ function bindEvents() {
      1500~1600 寬時框直接壓在右側按鈕上（1536 寬實測重疊，守門員 check_topbar_rows 在 1600 抓到）。
      ⚠ 右側寬度量「可見子元素實際佔的範圍」，不量容器：並排模式下容器可能被 flex 撐大，量容器會誤判放不下。
      ⚠ 判斷不依賴目前是哪個模式（左群組、時框、右側按鈕的寬度在兩種模式下都相同）→ 不會來回切換。 */
-  /* ★ 2026-09-17 快捷繪圖列可拖移（使用者：「上方快捷繪圖工具改成跟 TV 一樣可以拖移」）。
-     只從左端 ⋮⋮ 把手拖（跟 TradingView 一樣）：按鈕本身照常點擊，不會誤拖。
-     ・拖動＝整排浮起來（搬到 <body> 底下：符號列 overflow:hidden，留在原處會被裁掉）
-     ・放開＝記住位置（localStorage sqdFloatPos；這台螢幕專屬，不從雲端拉，見 account.js）
-     ・雙擊把手＝放回符號列原位
-     ・視窗縮放時夾回畫面內（不會拖丟找不回來）
-     ⚠ 按鈕是同一批 DOM 節點搬家，ui.js 對 [data-tool] 綁的事件、_alSyncBtn 的 getElementById 都照樣有效。 */
-  const _sqd = document.getElementById("symQuickDraw");
-  const _sqdGrip = document.getElementById("sqdGrip");
-  if (_sqd && _sqdGrip) {
-    const _SQD_KEY = "sqdFloatPos";
-    const _sqdHome = _sqd.parentNode;
-    const _sqdClamp = (x, y) => {
-      const w = _sqd.offsetWidth || 260, h = _sqd.offsetHeight || 32;
-      return [Math.round(Math.max(4, Math.min(x, window.innerWidth - w - 4))),
-              Math.round(Math.max(4, Math.min(y, window.innerHeight - h - 4)))];
+  /* ★ 2026-09-17 符號列積木（使用者陸續要求）：
+       「上方快捷繪圖工具改成跟 TV 一樣可以拖移」「也要設計成可以放回去」「拖出來要有邊框方便辨識」
+       「要像積木一樣可以放在數據發布前或後」「線的通知文字那些不要跟繪圖快捷綁在一起」
+       「等到接近上方才出現可放置位，邊框用虛線」
+       更正：「通知／鎖定／文字、數據發布倒數不用拖移，只要繪圖快捷可以拖、隨意放在前中後」
+     積木＝繪圖快捷 #symQuickDraw、選取工具(🔔🔒✎) #symSelTools、數據發布倒數 #econNext。
+     **只有繪圖快捷可以拖**（左端 ⋮⋮ 把手；按鈕照常點）：
+       ・拖出去＝浮起來（搬到 <body>：符號列 overflow:hidden，留在原處會被裁掉），放開記住位置
+       ・拖到符號列附近＝出現虛線框：選取工具與倒數的「前／中／後」，放在框上＝停靠在那裡，順序記住
+         （沒選取繪圖時選取工具是隱藏的 →「前」「中」會疊在同一點分不出來 → 拖曳時暫時顯示成示意塊）
+       ・雙擊把手＝放回上次停靠的位置
+     ⚠ 按鈕是同一批 DOM 節點搬家 → ui.js 對 [data-tool] 綁的事件、_alSyncBtn 的 getElementById 照樣有效。
+     ⚠ 移動/放開一律聽 window：搬動節點會讓瀏覽器自動釋放 pointer capture（第一版踩到：第一次拖一定卡住）。
+     ⚠ 位置/順序是這台螢幕專屬 → account.js _PULL_SKIP，不從雲端拉。 */
+  const _sbBar = document.querySelector(".symbol-bar");
+  const _SB_IDS = ["symQuickDraw", "symSelTools", "econNext"];
+  const _SB_ORDER_KEY = "symBlockOrder";
+  const _SB_SNAP = 28;                       // 游標離虛線框多近算「放在框上」
+  if (_sbBar && _SB_IDS.every(id => document.getElementById(id))) {
+    const _isSlot = e => e.classList.contains("sqd-dock-slot");
+    const _sbZone = () => [..._sbBar.children].filter(e => _SB_IDS.includes(e.id) || _isSlot(e));
+    const _sbShown = e => getComputedStyle(e).display !== "none";   // 含拖曳中顯示成示意塊的隱藏選取工具
+    // 誰排第一塊／最後一塊（間距看這個，見 style.css .sb-first/.sb-last）
+    const _sbSync = () => {
+      const z = _sbZone();
+      z.forEach(e => e.classList.remove("sb-first", "sb-last"));
+      const v = z.filter(_sbShown);
+      if (v.length) { v[0].classList.add("sb-first"); v[v.length - 1].classList.add("sb-last"); }
     };
-    const _sqdPlace = (x, y) => {
-      const [cx, cy] = _sqdClamp(x, y);
-      _sqd.style.left = cx + "px"; _sqd.style.top = cy + "px";
-      return [cx, cy];
+    const _sbDefault = _SB_IDS.slice();
+    const _sbGetOrder = () => {
+      try {
+        const o = JSON.parse(localStorage.getItem(_SB_ORDER_KEY) || "null");
+        if (Array.isArray(o) && o.length === _SB_IDS.length && _SB_IDS.every(id => o.includes(id))) return o;
+      } catch (e) {}
+      return _sbDefault;
     };
-    const _sqdFloat = (x, y) => {
-      if (!_sqd.classList.contains("sqd-floating")) {
-        document.body.appendChild(_sqd);
-        _sqd.classList.add("sqd-floating");
-      }
-      return _sqdPlace(x, y);
+    // 存順序：符號列裡的照實際順序；浮在外面的保留它在舊順序裡的相對位置（雙擊才放得回原處）
+    const _sbSaveOrder = () => {
+      const prev = _sbGetOrder();
+      const docked = _sbZone().filter(e => !_isSlot(e)).map(e => e.id);
+      const out = docked.slice();
+      prev.forEach((id, i) => {
+        if (out.includes(id)) return;
+        let at = 0;
+        for (let k = i - 1; k >= 0; k--) { const j = out.indexOf(prev[k]); if (j >= 0) { at = j + 1; break; } }
+        out.splice(at, 0, id);
+      });
+      try { localStorage.setItem(_SB_ORDER_KEY, JSON.stringify(out)); } catch (e) {}
     };
-    const _sqdDock = () => {
-      _sqd.classList.remove("sqd-floating");
-      _sqd.style.left = ""; _sqd.style.top = "";
-      const _econ = document.getElementById("econNext");     // 原位＝經濟事件倒數的前面
-      if (_econ && _econ.parentNode === _sqdHome) _sqdHome.insertBefore(_sqd, _econ);
-      else _sqdHome.appendChild(_sqd);
-      try { localStorage.removeItem(_SQD_KEY); } catch (e) {}
+    // 依順序把「在符號列裡的」積木排好（積木區是符號列最後一段，後面沒有別的元素 → append 即可）
+    const _sbApplyOrder = () => {
+      _sbGetOrder().forEach(id => { const e = document.getElementById(id); if (e && e.parentNode === _sbBar) _sbBar.appendChild(e); });
     };
-    window._sqdDock = _sqdDock;
-    try {
-      const p = JSON.parse(localStorage.getItem(_SQD_KEY) || "null");
-      if (p && isFinite(p.x) && isFinite(p.y)) _sqdFloat(p.x, p.y);
-    } catch (e) {}
-    let _sqdDrag = null, _sqdLastTap = 0;
-    // ⚠ 移動/放開一律聽 window，不靠 pointer capture：第一次浮起來要把整排搬到 <body>，
-    //   **搬動節點會讓瀏覽器自動釋放捕捉** → 只聽把手的話，之後的 move/up 全收不到＝
-    //   工具列卡在半路、位置也沒存（實測第一次拖一定中，第二次起因為不用再搬才正常）。
-    const _sqdMove = (e) => {
-      const d = _sqdDrag;
-      if (!d || e.pointerId !== d.id) return;
-      if (!d.moved) {
-        if (Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < 3) return;   // 手抖不算拖（點兩下要能成立）
-        d.moved = true;
-        _sqd.classList.add("sqd-dragging");
-        document.body.classList.add("sqd-dragging");
-        // 從符號列浮起來時內距會變 → 以把手為準重算抓取點，游標下的把手不會跳一下
-        const g1 = _sqdGrip.getBoundingClientRect(), r1 = _sqd.getBoundingClientRect();
-        _sqdFloat(r1.left, r1.top);
-        try { _sqdGrip.setPointerCapture(e.pointerId); } catch (err) {}   // 搬家後補設（放到視窗外也收得到 up）
-        const g2 = _sqdGrip.getBoundingClientRect();
-        d.dx += g2.left - g1.left; d.dy += g2.top - g1.top;
-      }
-      _sqdPlace(e.clientX - d.dx, e.clientY - d.dy);
+    // 雙擊放回：插在順序中「它後面第一個還在符號列裡的積木」前面
+    const _sbDockByOrder = (el) => {
+      const o = _sbGetOrder(); const i = o.indexOf(el.id);
+      let ref = null;
+      for (let k = i + 1; k < o.length; k++) { const e = document.getElementById(o[k]); if (e && e.parentNode === _sbBar) { ref = e; break; } }
+      _sbBar.insertBefore(el, ref);
     };
-    const _sqdEnd = (e) => {
-      const d = _sqdDrag;
-      if (!d || (e && e.pointerId !== d.id)) return;
-      _sqdDrag = null;
-      window.removeEventListener("pointermove", _sqdMove);
-      window.removeEventListener("pointerup", _sqdEnd);
-      window.removeEventListener("pointercancel", _sqdEnd);
-      _sqd.classList.remove("sqd-dragging");
-      document.body.classList.remove("sqd-dragging");
-      if (d.moved) {
-        _sqdLastTap = 0;
-        try {
-          localStorage.setItem(_SQD_KEY, JSON.stringify({ x: parseFloat(_sqd.style.left), y: parseFloat(_sqd.style.top) }));
-        } catch (err) {}
-        return;
-      }
-      // 沒拖動＝點一下；400ms 內點第二下＝雙擊 → 放回原位
-      // （不用 dblclick 事件：pointerdown 有 preventDefault，各瀏覽器對後續 dblclick 的行為不一致）
-      const now = Date.now();
-      if (now - _sqdLastTap < 400) { _sqdLastTap = 0; if (_sqd.classList.contains("sqd-floating")) _sqdDock(); }
-      else _sqdLastTap = now;
+    _sbApplyOrder();
+    _sbSync();
+    // 顯示/隱藏會改變誰是第一塊/最後一塊（選取工具跟著選取繪圖出現、倒數等資料到才出現）
+    try { new MutationObserver(_sbSync).observe(_sbBar, { subtree: true, attributes: true, attributeFilter: ["hidden"], childList: true }); } catch (e) {}
+
+    const _sbMakeBlock = (el, floatKey) => {
+      const grip = el.querySelector(".sqd-grip");
+      if (!grip) return;
+      const clamp = (x, y) => {
+        const w = el.offsetWidth || 120, h = el.offsetHeight || 32;
+        return [Math.round(Math.max(4, Math.min(x, window.innerWidth - w - 4))),
+                Math.round(Math.max(4, Math.min(y, window.innerHeight - h - 4)))];
+      };
+      const place = (x, y) => { const [cx, cy] = clamp(x, y); el.style.left = cx + "px"; el.style.top = cy + "px"; };
+      const float = (x, y) => {
+        if (!el.classList.contains("sqd-floating")) { document.body.appendChild(el); el.classList.add("sqd-floating"); }
+        place(x, y);
+      };
+      const unfloat = () => { el.classList.remove("sqd-floating", "sqd-will-dock"); el.style.left = ""; el.style.top = ""; };
+      try {
+        const p = JSON.parse(localStorage.getItem(floatKey) || "null");
+        if (p && isFinite(p.x) && isFinite(p.y)) float(p.x, p.y);
+      } catch (e) {}
+
+      const slots = () => [..._sbBar.querySelectorAll(":scope > .sqd-dock-slot")];
+      const mkSlot = (home, w) => {
+        const s = document.createElement("span");
+        s.className = "sqd-dock-slot sb-block" + (home ? " home" : "");   // sb-block：套同一套間距（原位空格才會跟原本一樣寬，旁邊不跳）
+        s.textContent = "放這裡";
+        if (home) s.style.width = Math.max(64, Math.round(w)) + "px";
+        return s;
+      };
+      // 拖曳開始：原位放「看不見但佔寬」的格子；其餘每個縫隙各放一格（接近上方才顯示）
+      const buildSlots = (wasDocked, w) => {
+        if (wasDocked) _sbBar.insertBefore(mkSlot(true, w), el);
+        // 隱藏的選取工具也算一塊（拖曳時顯示成示意塊，見 style.css .sb-drop #symSelTools[hidden]）；
+        // 倒數沒資料（隱藏）就不算，否則會多出一格位置重疊的框
+        const seq = _sbZone().filter(e => _isSlot(e) || (e !== el && (!e.hidden || e.id === "symSelTools")));
+        let prevSlot = false;
+        seq.forEach(e => {
+          if (_isSlot(e)) { prevSlot = true; return; }
+          if (!prevSlot) _sbBar.insertBefore(mkSlot(false), e);
+          prevSlot = false;
+        });
+        if (!prevSlot) _sbBar.appendChild(mkSlot(false));
+      };
+      const nearestSlot = (x, y) => {
+        let best = null, bd = Infinity;
+        slots().forEach(s => {
+          const r = s.getBoundingClientRect();
+          if (!r.width) return;
+          const d = Math.hypot(Math.max(r.left - x, 0, x - r.right), Math.max(r.top - y, 0, y - r.bottom));
+          if (d < bd) { bd = d; best = s; }
+        });
+        return bd <= _SB_SNAP ? best : null;
+      };
+      const nearBar = (y) => {                 // 「接近上方」：游標在符號列上下這一段範圍內
+        const r = _sbBar.getBoundingClientRect();
+        return y >= r.top - 40 && y <= r.bottom + 60;
+      };
+
+      let drag = null, lastTap = 0;
+      const onMove = (e) => {
+        const d = drag;
+        if (!d || e.pointerId !== d.id) return;
+        if (!d.moved) {
+          if (Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < 3) return;   // 手抖不算拖（點兩下要能成立）
+          d.moved = true;
+          el.classList.add("sqd-dragging");
+          document.body.classList.add("sqd-dragging");
+          const g1 = grip.getBoundingClientRect(), r1 = el.getBoundingClientRect();
+          const wasDocked = el.parentNode === _sbBar;
+          buildSlots(wasDocked, r1.width);
+          float(r1.left, r1.top);
+          _sbSync();
+          try { grip.setPointerCapture(e.pointerId); } catch (err) {}
+          const g2 = grip.getBoundingClientRect();              // 浮起來內距會變 → 以把手為準，游標下不跳
+          d.dx += g2.left - g1.left; d.dy += g2.top - g1.top;
+        }
+        place(e.clientX - d.dx, e.clientY - d.dy);
+        const on = nearBar(e.clientY);
+        if (on !== _sbBar.classList.contains("sb-drop")) { _sbBar.classList.toggle("sb-drop", on); _sbSync(); }
+        const hit = on ? nearestSlot(e.clientX, e.clientY) : null;
+        slots().forEach(s => s.classList.toggle("active", s === hit));
+        el.classList.toggle("sqd-will-dock", !!hit);
+        d.hit = hit;
+      };
+      const onEnd = (e) => {
+        const d = drag;
+        if (!d || (e && e.pointerId !== d.id)) return;
+        drag = null;
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onEnd);
+        window.removeEventListener("pointercancel", onEnd);
+        el.classList.remove("sqd-dragging");
+        document.body.classList.remove("sqd-dragging");
+        if (d.moved) {
+          lastTap = 0;
+          if (d.hit && d.hit.parentNode === _sbBar) {
+            unfloat();
+            _sbBar.insertBefore(el, d.hit);                     // 停靠在那一格
+            try { localStorage.removeItem(floatKey); } catch (err) {}
+          } else {
+            el.classList.remove("sqd-will-dock");
+            try { localStorage.setItem(floatKey, JSON.stringify({ x: parseFloat(el.style.left), y: parseFloat(el.style.top) })); } catch (err) {}
+          }
+          slots().forEach(s => s.remove());
+          _sbBar.classList.remove("sb-drop");
+          _sbSaveOrder();
+          _sbSync();
+          return;
+        }
+        // 沒拖動＝點一下；400ms 內第二下＝雙擊 → 放回上次停靠的位置
+        // （不用 dblclick 事件：pointerdown 有 preventDefault，各瀏覽器後續 dblclick 行為不一致）
+        const now = Date.now();
+        if (now - lastTap < 400) {
+          lastTap = 0;
+          if (el.classList.contains("sqd-floating")) {
+            unfloat(); _sbDockByOrder(el);
+            try { localStorage.removeItem(floatKey); } catch (err) {}
+            _sbSync();
+          }
+        } else lastTap = now;
+      };
+      grip.addEventListener("pointerdown", (e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        const r = el.getBoundingClientRect();
+        drag = { id: e.pointerId, sx: e.clientX, sy: e.clientY, dx: e.clientX - r.left, dy: e.clientY - r.top, moved: false, hit: null };
+        try { grip.setPointerCapture(e.pointerId); } catch (err) {}
+        window.addEventListener("pointermove", onMove);
+        window.addEventListener("pointerup", onEnd);
+        window.addEventListener("pointercancel", onEnd);
+      });
+      window.addEventListener("resize", () => {
+        if (el.classList.contains("sqd-floating")) place(parseFloat(el.style.left) || 0, parseFloat(el.style.top) || 0);
+      });
     };
-    _sqdGrip.addEventListener("pointerdown", (e) => {
-      if (e.button !== 0) return;
-      e.preventDefault();
-      const r = _sqd.getBoundingClientRect();
-      _sqdDrag = { id: e.pointerId, sx: e.clientX, sy: e.clientY, dx: e.clientX - r.left, dy: e.clientY - r.top, moved: false };
-      try { _sqdGrip.setPointerCapture(e.pointerId); } catch (err) {}
-      window.addEventListener("pointermove", _sqdMove);
-      window.addEventListener("pointerup", _sqdEnd);
-      window.addEventListener("pointercancel", _sqdEnd);
-    });
-    window.addEventListener("resize", () => {
-      if (_sqd.classList.contains("sqd-floating")) _sqdPlace(parseFloat(_sqd.style.left) || 0, parseFloat(_sqd.style.top) || 0);
-    });
+    _sbMakeBlock(document.getElementById("symQuickDraw"), "sqdFloatPos");   // 只有繪圖快捷可以拖
+    // 同日中間版本「通知/鎖定/文字」也能拖（使用者隨即要求改成固定）→ 清掉那時可能存下的浮動位置
+    try { localStorage.removeItem("selFloatPos"); } catch (e) {}
+    _sbSync();
   }
 
   const _tbBar = document.querySelector(".topbar");

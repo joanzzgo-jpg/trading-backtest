@@ -685,8 +685,10 @@ html.perf-mode .tb-icon-btn:hover svg { animation: none; transform: scale(1.1); 
 .sym-divider { color: var(--border); margin: 0 2px; }
 .sym-label         { color: var(--muted); font-size: 13px; }
 .sym-label-v       { margin-left: 4px; }
-.sym-val           { font-weight: 600; margin-right: 2px; white-space: nowrap; font-size: 13px; color: var(--text); }
-.sym-chg           { font-weight: 700; margin-left: 4px; white-space: nowrap; font-size: 13px; }
+/* tabular-nums（2026-09-17）：數字等寬 → 價格每跳一次寬度才不會變，後面的繪圖快捷/倒數不跟著左右晃
+   （原本整排晃 5~10px，⋮⋮ 把手只有 12px 寬 → 要抓的時候目標在跳、常常按空）。 */
+.sym-val           { font-weight: 600; margin-right: 2px; white-space: nowrap; font-size: 13px; color: var(--text); font-variant-numeric: tabular-nums; }
+.sym-chg           { font-weight: 700; margin-left: 4px; white-space: nowrap; font-size: 13px; font-variant-numeric: tabular-nums; }
 .sym-chg.up        { color: var(--red); }
 .sym-chg.dn        { color: var(--green); }
 
@@ -1540,6 +1542,10 @@ html.perf-mode .tk-seg {
   animation: blink 1.4s infinite;
 }
 @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.15} }
+/* 即時點隱藏時「保留位置、只是看不見」（2026-09-17）：realtime.js 每次輪詢都依 json.live 切換 .hidden，
+   原本 .hidden＝display:none → 點一消失後面的繪圖快捷/倒數整排左移約 8px、一出現又右移 →
+   ⋮⋮ 把手要抓的時候在跳。⚠ 選擇器要比通用 .hidden{display:none!important} 更具體才蓋得過。 */
+.symbol-bar > .realtime-dot.hidden { display: block !important; visibility: hidden; animation: none; }
 
 
 /* ═══ BODY LAYOUT ═══ */
@@ -1743,9 +1749,11 @@ html.perf-mode .tk-seg {
      **真正置中的左緣會落在 682px，一定重疊**（符號列 overflow:hidden，被蓋住還看不出來）。
      所以做法是「緊接在內容後面、右邊留 auto 吃掉剩餘空間」＝不重疊前提下最靠中央的位置
      （實測中心約 55%，比原本貼右的 93%、或兩側 auto 的 73% 都更接近中間）。
-     ⚠ 不要改用 position:absolute + left:50%：視窗一窄就會直接壓在數值上面。 */
+     ⚠ 不要改用 position:absolute + left:50%：視窗一窄就會直接壓在數值上面。
      ⚠ margin-right:auto 已移到後面的 .sym-econ（距離下個經濟事件）——那欄要緊貼在這排旁邊，
-       auto 留在這裡會把它推到符號列最右緣。quickdraw 自己的位置不受影響（實測相同）。 */
+       auto 留在這裡會把它推到符號列最右緣。quickdraw 自己的位置不受影響（實測相同）。
+     ⚠ 2026-09-17 修：上一行原本多了一個提早結束的註解符號 → 後面兩行說明變成不合法 CSS，
+       瀏覽器容錯時把緊接的 margin-left:14px 一起吞掉（實測左邊距一直是 0、跟漲跌幅擠在一起）。 */
   margin-left: 14px; margin-right: 8px; flex-shrink: 0;
 }
 /* 距離下個經濟事件：緊鄰快捷小工具右側；auto 吃掉剩餘空間（原本掛在 .sym-quickdraw 上）。
@@ -1828,12 +1836,54 @@ body.sqd-dragging, body.sqd-dragging * { cursor: grabbing !important; user-selec
   position: fixed; z-index: 640; margin: 0;
   padding: 3px 6px 3px 3px; border-radius: 10px;
   background: color-mix(in srgb, var(--bg2) 94%, transparent);
-  border: 1px solid var(--border);
-  box-shadow: 0 6px 22px rgba(0,0,0,.45);
+  /* ★ 邊框要一眼認得出來（2026-09-17 使用者：「拖出來要有邊框方便使用者辨識」）：
+     暖橘主色、跟選中按鈕同色系；原本 1px var(--border) 在深色圖表上幾乎看不見。 */
+  border: 1.5px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  box-shadow: 0 0 0 1px rgba(0,0,0,.35), 0 0 12px color-mix(in srgb, var(--accent) 22%, transparent), 0 6px 22px rgba(0,0,0,.45);
   -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  transition: opacity .12s ease;
 }
-.sym-quickdraw.sqd-dragging { box-shadow: 0 12px 32px rgba(0,0,0,.55); }
-html.perf-mode .sym-quickdraw.sqd-floating { background: #FFFFFF; border-color: #E5E5E5; box-shadow: 0 6px 20px rgba(0,0,0,.12); }
+.sym-quickdraw.sqd-dragging {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px rgba(0,0,0,.35), 0 0 18px color-mix(in srgb, var(--accent) 35%, transparent), 0 12px 32px rgba(0,0,0,.55);
+}
+.sym-quickdraw.sqd-will-dock { opacity: .4; }   /* 游標在虛線框上：放開就停靠（調淡讓底下亮起的框看得到——拖著的積木剛好蓋在那格上） */
+html.perf-mode .sym-quickdraw.sqd-floating { background: #FFFFFF; box-shadow: 0 0 0 1px rgba(0,0,0,.06), 0 6px 20px rgba(0,0,0,.14); }
+/* ── 符號列積木（2026-09-17 使用者：「要像積木一樣可以放在數據發布前或後」「線的通知文字那些不要跟
+   繪圖快捷綁在一起」「等到接近上方才出現可放置位，邊框用虛線」）。
+   積木＝繪圖快捷 #symQuickDraw、選取工具 #symSelTools、數據發布倒數 #econNext，順序可換。
+   ⚠ 間距一律由 ui.js 標的 .sb-first/.sb-last 決定（誰排第一個、誰排最後一個會變），不寫死在各自的規則裡。
+     數值刻意與改版前相同：第一塊左 14px、其餘左 8px；倒數自帶 5px 內距（hover 底色）→ 邊距少 5px，視覺距離一樣。 */
+.symbol-bar > .sb-block { margin-left: 8px !important; margin-right: 0 !important; }
+.symbol-bar > .sb-block.sym-econ { margin-left: 3px !important; }
+.symbol-bar > .sb-block.sb-first { margin-left: 14px !important; }
+.symbol-bar > .sb-block.sym-econ.sb-first { margin-left: 9px !important; }
+.symbol-bar > .sb-block.sb-last { margin-right: auto !important; }
+.sym-seltools[hidden] { display: none !important; }   /* 同 .sqd-alert[hidden]：inline-flex 會蓋掉 hidden */
+/* 拖繪圖快捷接近符號列時：沒選取繪圖（選取工具隱藏）也顯示成半透明示意塊 →「前／中／後」三格才分得開 */
+.symbol-bar.sb-drop > #symSelTools[hidden] {
+  display: inline-flex !important; opacity: .45; height: 24px; padding: 0 7px;
+  border-radius: 7px; background: rgba(255,255,255,.05);
+}
+.symbol-bar.sb-drop > #symSelTools[hidden]::before { content: "🔔 🔒 ✎"; font-size: 11px; letter-spacing: 1px; color: var(--muted); white-space: nowrap; }
+/* 放置位（虛線框）：
+   ・原位那格（.home）＝一拖出去就佔住原本的寬、但看不見 → 旁邊的積木不會跳位
+   ・其他縫隙的格子＝平常不佔位（display:none）
+   ・游標接近符號列（.symbol-bar.sb-drop）→ 全部以虛線框出現；靠近哪格哪格亮（.active） */
+.sqd-dock-slot {
+  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+  height: 26px; box-sizing: border-box; border-radius: 9px;
+  border: 1.5px dashed transparent; color: transparent;
+  font-size: 11px; white-space: nowrap; overflow: hidden; pointer-events: none;
+  transition: background .12s ease, border-color .12s ease, color .12s ease, box-shadow .12s ease;
+}
+.sqd-dock-slot:not(.home) { display: none; width: 64px; }
+.symbol-bar.sb-drop > .sqd-dock-slot { display: inline-flex; border-color: color-mix(in srgb, var(--muted) 60%, transparent); color: var(--muted); }
+.symbol-bar.sb-drop > .sqd-dock-slot.active {
+  color: var(--accent); border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 30%, transparent);
+}
 .sqd-color {
   display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
   width: 26px; height: 24px; padding: 0;
@@ -1855,7 +1905,7 @@ html.perf-mode .sym-quickdraw.sqd-floating { background: #FFFFFF; border-color: 
    就已經在畫面外被 overflow:hidden 靜靜切掉。倒數欄排在它們後面 → 一樣看不到，
    留著只是多佔一段看不見的寬度 → 跟著快捷列一起收起。
    （要讓手機也看得到，得先解決符號列本身的溢出——那是另一件事，不在本次範圍。） */
-@media (max-width: 1180px) { .sym-quickdraw, .sym-econ { display: none; } }
+@media (max-width: 1180px) { .sym-quickdraw, .sym-econ, .sqd-dock-slot { display: none; } }
 
 .dt-color-btn {
   width: 34px; height: 34px;

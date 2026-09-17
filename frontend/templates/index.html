@@ -585,10 +585,10 @@
   <!-- 快捷繪圖：放在開高低收量右側的空白處。左側工具島要滑到邊緣才彈出，這排是常用的直接可按。
        ⚠ 按鈕用 data-tool，與左側工具島共用同一套事件（ui.js 對 [data-tool] 綁定，涵蓋兩排），
          所以兩邊的 active 狀態會自動同步，不需要另外維護一份。 -->
-  <span class="sym-quickdraw" id="symQuickDraw">
+  <span class="sym-quickdraw sb-block" id="symQuickDraw">
     <!-- ⋮⋮ 拖曳把手（2026-09-17 使用者：「上方快捷繪圖工具改成跟 TV 一樣可以拖移」）：
          拖了就整排浮起來、放哪記哪；雙擊放回符號列原位。邏輯在 ui.js（_sqd*）。 -->
-    <span class="sqd-grip" id="sqdGrip" title="拖曳：移到任何位置（位置會記住）　雙擊：放回原位">
+    <span class="sqd-grip" id="sqdGrip" title="拖曳：移到任何位置　拖到上方虛線框：放進符號列（通知/鎖定/文字與數據發布的前、中、後）　雙擊：放回">
       <svg width="8" height="14" viewBox="0 0 8 14" aria-hidden="true"><g fill="currentColor">
         <circle cx="2" cy="2.5" r="1.1"/><circle cx="6" cy="2.5" r="1.1"/>
         <circle cx="2" cy="7" r="1.1"/><circle cx="6" cy="7" r="1.1"/>
@@ -627,9 +627,14 @@
       <span class="sqd-swatch" id="dtcSwatch2"></span>
       <span class="sqd-tf" id="dtcTf2">—</span>
     </button>
+  </span>
+
+  <!-- 選取繪圖時才出現的「🔔 到價通知／🔒 鎖定／✎ 文字」—— 自己一塊（2026-09-17 使用者：
+       「線的通知文字那些不要跟繪圖快捷綁在一起」）。**固定不能拖**（同日更正：只有繪圖快捷可以拖）；
+       繪圖快捷可以放在它與數據發布倒數的前／中／後（邏輯在 ui.js 的符號列積木）。顯示/隱藏由 draw.js _alSyncBtn 控制。 -->
+  <span class="sym-quickdraw sym-seltools sb-block" id="symSelTools" hidden>
     <!-- 🔔 到價鬧鐘（2026-09-10）：**選取自己畫的水平線時才出現**。
          按下＝價格碰到那條線就推播（判斷在後端，關掉網頁也會通知）；再按一次取消。 -->
-    <span class="sqd-sep" id="sqdAlertSep" hidden></span>
     <button class="sqd-btn sqd-alert" id="btnLineAlert" hidden title="到價通知：價格碰到這條線就推播提醒你（關掉網頁也會通知）">
       <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round">
         <path d="M4 6.5a3.5 3.5 0 0 1 7 0c0 3 1.2 4 1.2 4H2.8s1.2-1 1.2-4z"/><path d="M6.2 12.6a1.6 1.6 0 0 0 2.6 0"/>
@@ -655,7 +660,7 @@
        ⚠ 刻意放在 .sym-quickdraw **外面**：那排在 ≤1180px 會整個 display:none（手機款），
          放進去等於手機看不到。這裡自己扛 margin-right:auto（原本掛在 quickdraw 上，
          移過來才不會把本欄推到最右邊、離快捷小工具很遠）。 -->
-  <span class="sym-econ" id="econNext" hidden></span>
+  <span class="sym-econ sb-block" id="econNext" hidden></span>
 
 </div>
 

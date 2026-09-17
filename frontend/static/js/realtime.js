@@ -467,7 +467,10 @@ function _symEl(id) {
   if (!e || !e.isConnected) { e = document.getElementById(id); _symElCache[id] = e; }
   return e;
 }
-function _setSym(id, text) { const e = _symEl(id); if (e && e.textContent !== text) e.textContent = text; }
+// ★ 拖曳符號列積木（繪圖快捷）時凍結這排數字（2026-09-17）：十字線掃過不同 K 棒會改寫開高低收/漲跌幅，
+//   位數一變寬度就變 → 符號列上的「放這裡」虛線框跟著左右跳、很難對準。放開後下一次十字線/即時更新就會補回。
+const _symFrozen = () => document.body.classList.contains("sqd-dragging");
+function _setSym(id, text) { if (_symFrozen()) return; const e = _symEl(id); if (e && e.textContent !== text) e.textContent = text; }
 
 // 切標的時把上方報價數字歸零成 placeholder，避免新標的名稱卻殘留舊標的價格（看起來像亂跳）
 function _resetSymbolBarQuote() {
@@ -607,6 +610,7 @@ function onMainCrosshair(param) {
   if (bu != null) _setBBLeg(bu, bm, bl);
 }
 function _updateSymChg(close, prevClose) {
+  if (_symFrozen()) return;                 // 拖曳積木中不改寬度（見 _setSym）
   const el   = _symEl("symChg");
   if (!el) return;
   const amt  = close - prevClose;
