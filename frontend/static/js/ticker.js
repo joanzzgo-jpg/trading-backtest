@@ -395,13 +395,44 @@ function _tkMerge(cur, j, key) {
   }
   return [...m.values()];
 }
+/* ★ 台股「正在看的那幾檔」清單（2026-09-18 使用者：「右邊跳動的數值太慢」）。
+   後端 MIS 疊價 worker 只有「前 50 高量」每輪都打，其餘 2600 多檔輪掃 → 沒上榜的要 40~70 秒
+   才換一次價，盯著看就像凍住。這裡把「畫面上真的看得到的台股列」＋自選台股＋主圖標的
+   帶給後端(?hot=)，worker 會把它們跟前 50 高量同等對待（名額從輪掃扣，總請求數不變）。
+   ⚠ 只送「看得到的」：捲動區外的列一律不送，否則 2000 多檔全塞進去等於沒有優先序。 */
+function _tkHotTw() {
+  const out = [];
+  const add = s => { s = String(s || "").trim(); if (s && !out.includes(s)) out.push(s); };
+  try {
+    const cur = document.getElementById("marketSelect")?.value;
+    if (cur === "tw") add(document.getElementById("symbolInput")?.value);
+    const list = document.querySelector(".ticker-list");
+    if (list) {
+      const box = list.getBoundingClientRect();
+      list.querySelectorAll('.ticker-item[data-mkt="tw"]').forEach(el => {
+        const r = el.getBoundingClientRect();
+        if (r.bottom > box.top - 40 && r.top < box.bottom + 40) add(el.dataset.sym);   // 視窗內(±40px)
+      });
+    }
+    // 自選裡的台股：使用者可能在別的分頁，但那幾檔仍在自選列顯示價格
+    try {
+      for (const w of JSON.parse(localStorage.getItem("watchlist") || "[]")) {
+        if (w && w.market === "tw") add(w.symbol);
+      }
+    } catch (e) {}
+  } catch (e) {}
+  return out.slice(0, 60);
+}
+
 function _tkUrl(m, key, useSince) {
   /* fd=1＝「我看得懂欄位級差量」。★ 這個旗標不可省：後端預設回舊格式(整列)，
      因為部署後仍有一批「開著沒重整」的分頁跑著舊版 _tkMerge（整列覆蓋）——
      那種分頁一收到部分欄位就會把 symbol/open/volume 洗掉、畫面凍住而且零錯誤
      （2026-08-19 使用者回報「合約行情不動了」就是這個）。 */
+  const hot = (m === "tw") ? _tkHotTw() : [];
   return "/api/tickers?market=" + m
-       + ((useSince && _tkRev[key]) ? "&since=" + encodeURIComponent(_tkRev[key]) + "&fd=1" : "");
+       + ((useSince && _tkRev[key]) ? "&since=" + encodeURIComponent(_tkRev[key]) + "&fd=1" : "")
+       + (hot.length ? "&hot=" + encodeURIComponent(hot.join(",")) : "");
 }
 
 /* ── 現貨清單改「需要時才每秒」(2026-07-31) ───────────────────────────────────

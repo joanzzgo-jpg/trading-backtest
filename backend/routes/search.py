@@ -304,7 +304,7 @@ def _direct_tickers(market: str) -> list:
 
 
 @router.get("/tickers")
-def get_tickers(response: Response, market: str = "futures", since: str = "", fd: str = ""):
+def get_tickers(response: Response, market: str = "futures", since: str = "", fd: str = "", hot: str = ""):
     """取得標的列表：優先從記憶體即時快取讀取，啟動初期才 fallback 至直接 API。
     since=上次回應的 rev token → 只回「有變動的標的」(delta:true)＋新 token；
     token 失效(重啟/別的worker/太舊/無資料) → 自動回整包。crypto 1s/tw 3s 輪詢頻寬大減、行為不變。
@@ -312,8 +312,12 @@ def get_tickers(response: Response, market: str = "futures", since: str = "", fd
     ⚠ 沒帶 fd 一律回舊格式(整列)：見 live_data.get_delta 的說明——舊分頁的合併是「整列覆蓋」，
       收到部分欄位會把 symbol/open/volume 洗掉、畫面凍住且零錯誤(2026-08-19 使用者實際踩到)。"""
     from utils.live_data import (get as live_get, has_data, has_tw_data, get_delta,
-                                 delta_token, snapshot_ts)
+                                 delta_token, snapshot_ts, mark_tw_hot)
     from data.taiwan import fetch_tw_tickers
+    # 前端把「畫面上看得到的台股列（＋自選＋主圖標的）」帶上來 → MIS 疊價 worker 每輪優先打它們
+    # （沒帶就維持原本的「前 50 高量＋輪掃」行為）。
+    if market == "tw" and hot:
+        mark_tw_hot(hot.split(",")[:80])
     # HTTP 快取：crypto 1s、tw 2s（台股高量股由 MIS 疊價 worker 每 3s 更新記憶體→短快取讓報價列即時跳）。
     # 避免多分頁/多用戶同步 polling 造成的重複請求。
     response.headers["Cache-Control"] = f"public, max-age={2 if market == 'tw' else 1}"

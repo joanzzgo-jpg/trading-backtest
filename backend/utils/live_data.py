@@ -239,6 +239,39 @@ _SPOT_WANT = {"ts": 0.0}
 _SPOT_WANT_SEC = 90.0
 
 
+# ── 台股「正在看」的代號（2026-09-18 使用者：「右邊跳動的數值太慢」）─────────────────
+#   MIS 疊價 worker 只有「前 50 高量」每輪都打，其餘 2600 多檔輪掃 → 沒上榜的要等 40~70 秒
+#   才輪到一次＝使用者盯著的那幾檔看起來像凍住。前端每次輪詢會把「畫面上看得到的台股列」
+#   （＋自選＋主圖標的）帶上來登記在這裡，worker 每輪一律優先打它們。
+#   ⚠ 只留 30 秒：關掉分頁/切走市場後就自然過期，不會永遠佔著輪掃配額。
+_TW_HOT: dict = {}          # symbol -> 最後一次被「看到」的時間
+_TW_HOT_SEC = 30
+_TW_HOT_MAX = 120           # 上限：避免有人塞一大包進來把輪掃擠掉
+
+
+def mark_tw_hot(syms):
+    """登記「使用者畫面上正在看的台股」。由 /api/tickers?market=tw&hot=… 呼叫。"""
+    now = time.time()
+    with _lock:
+        for s in syms:
+            s = str(s or "").strip()
+            if s and len(s) <= 10:
+                _TW_HOT[s] = now
+        if len(_TW_HOT) > _TW_HOT_MAX:                      # 超量 → 丟掉最久沒被看到的
+            for k, _ in sorted(_TW_HOT.items(), key=lambda kv: kv[1])[:len(_TW_HOT) - _TW_HOT_MAX]:
+                _TW_HOT.pop(k, None)
+
+
+def get_tw_hot() -> list:
+    """回「30 秒內有人在看」的台股代號（新的排前面）。"""
+    now = time.time()
+    with _lock:
+        live = [(s, t) for s, t in _TW_HOT.items() if now - t <= _TW_HOT_SEC]
+        for s in [s for s, t in _TW_HOT.items() if now - t > _TW_HOT_SEC]:
+            _TW_HOT.pop(s, None)
+    return [s for s, _ in sorted(live, key=lambda kv: kv[1], reverse=True)]
+
+
 def mark_spot_wanted():
     _SPOT_WANT["ts"] = time.time()
 

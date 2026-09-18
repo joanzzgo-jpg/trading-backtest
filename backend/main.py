@@ -530,9 +530,10 @@ def _tw_rt_overlay_worker():
       所以「輪掃多久回來一次」直接等於使用者看到多舊的價 —— 別為了省流量把它調慢。"""
     from datetime import datetime as _dt, timedelta as _td
     from data.taiwan import fetch_tw_realtime_bulk
-    from utils.live_data import overlay_tw, has_tw_data, get as live_get
+    from utils.live_data import overlay_tw, has_tw_data, get as live_get, get_tw_hot
     _rot = 0
     _miss = 0                                             # 連續空回(疑似被 MIS 封)計數
+    _hot_log = {"t": 0.0}                                 # 優先名單日誌節流
     while True:
         _nap = 5                                          # 5s/輪：~300檔(前50+輪250)、每請求0.35s間隔→~0.6req/s、避免封
         try:
@@ -544,14 +545,32 @@ def _tw_rt_overlay_worker():
                 syms = [t["symbol"] for t in
                         sorted([t for t in lst if not t.get("is_future")],
                                key=lambda t: t.get("volume") or 0, reverse=True)]
+                # ★「使用者正在看的」最優先（2026-09-18 使用者：「右邊跳動的數值太慢」）：
+                #   前端把畫面上看得到的台股列帶上來（live_data.mark_tw_hot）→ 這些每輪都打，
+                #   跟前 50 高量同等待遇 → 盯著看的那幾檔從「40~70 秒才換一次」變成每 5 秒。
+                #   ⚠ 它們佔的名額從輪掃配額扣掉 → 每輪總檔數不變＝MIS 請求數不變（別把限流打爆）。
+                _hot_all = get_tw_hot()
+                _sym_set = set(syms)
+                hot = [s for s in _hot_all if s in _sym_set][:80]
                 top = syms[:50]                           # 前 50 高量：每輪都打→即時跳動
                 rest = syms[50:]
-                batch = list(top)
+                batch = list(dict.fromkeys(hot + top))    # 去重保序（hot 與 top 常有重疊）
+                _rot_quota = max(60, 300 - len(batch))    # 輪掃至少留 60，避免長尾完全停更
                 if rest:
                     n = len(rest)
-                    off = (_rot * 250) % n
-                    batch += rest[off:off + 250]          # 輪流補一批(250)其餘→全部約 40s 更新成今日價
-                    _rot += 1
+                    # ⚠ 游標要「持續前進」不能用 輪數×配額：配額會隨 hot 多寡變動，
+                    #   乘出來的位置會跳過／重複某幾段，長尾就有檔永遠輪不到。
+                    off = _rot % n
+                    _seen = set(batch)
+                    batch += [s for s in (rest[off:off + _rot_quota] +
+                                          (rest[:max(0, off + _rot_quota - n)] if off + _rot_quota > n else []))
+                              if s not in _seen]
+                    _rot = (off + _rot_quota) % n
+                # 每 60 秒印一行：盤中要確認「正在看的那幾檔有被優先打」時看這個（不吵版）
+                if hot and time.time() - _hot_log["t"] > 60:
+                    _hot_log["t"] = time.time()
+                    print(f"[tw_rt] 優先 {len(hot)} 檔(使用者正在看) + 前50高量 + 輪掃{_rot_quota}"
+                          f" → 本輪 {len(batch)} 檔；例：{hot[:5]}", flush=True)
                 pm = fetch_tw_realtime_bulk(batch)
                 if pm:
                     overlay_tw(pm)
