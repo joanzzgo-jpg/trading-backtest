@@ -3007,7 +3007,7 @@ function _renderDrawingsAfterSettle() {
    ⚠ 只讓**標籤**讓位，線本身一定留在正確的價位上 —— 標籤挪幾像素不影響判讀，
      線挪了就是給錯價。
    ⚠ 往「離現有標籤較近的反方向」推，推不開就繼續往同一邊疊 → 多條時會排成一疊而不是互相蓋。 */
-const _HP_LBL_H = 12;            // 一個價格標籤佔的高度（字 10px + 上下內距）
+const _HP_LBL_H = 14;            // 一個價格標籤佔的高度（字 11.5px + 上下內距）
 const _hpLane = new Map();       // 這一幀每條水平線的標籤基線 y（id → y）
 /* 每幀先一次配好位置，不要邊畫邊搶：
    ⚠ 邊畫邊搶會依**繪圖陣列順序**分配 → 高價的標籤可能排到低價的下面（實測就是這樣，
@@ -3017,10 +3017,10 @@ const _hpPend = [];              // 這一幀待畫的價格標籤（等線都�
 function _hpFlush() {
   if (!_hpPend.length) return;
   drawCtx.save();
-  drawCtx.font = "10px monospace";
+  drawCtx.font = "11.5px monospace";   // 與上面量文字寬時同一個字級，不可分家
   for (const it of _hpPend) {
     drawCtx.fillStyle = "rgba(16,20,28,0.72)";
-    drawCtx.fillRect(it.x - 3, it.y - 9, it.w + 6, 12);
+    drawCtx.fillRect(it.x - 3, it.y - 11, it.w + 6, 14);
     if (it.mk) {
       drawCtx.fillStyle = it.mkCol;
       drawCtx.fillText(it.mk, Math.max(2, it.x - drawCtx.measureText(it.mk).width - 3), it.y);
@@ -3889,7 +3889,7 @@ function drawOne(d, W, H, isHovered, isSelected) {
     if (y == null || y < -5 || y > H + 5) { drawCtx.restore(); return; }
     drawCtx.beginPath(); drawCtx.moveTo(0, y); drawCtx.lineTo(W, y); drawCtx.stroke();
     drawCtx.shadowBlur = 0;
-    drawCtx.font = "10px monospace";
+    drawCtx.font = "11.5px monospace";   // 10→11.5px（2026-09-19 使用者微調）
     const _hp = d.price;
     /* 價格標籤靠右（2026-08-20 使用者：「放右邊比較順眼」）。
        原本寫死 x=5＝貼在左緣；價軸在右邊，標籤放右緣才跟 LWC 自己的價格標籤同側、視線不用來回跑。

@@ -1277,9 +1277,12 @@ html.perf-mode #domHead { color: #333; border-bottom-color: rgba(0, 0, 0, 0.1); 
   transform: translateY(-50%);
   border-radius: 4px;
   text-align: left;            /* 靠左：左緣固定不動、內容往右長 → 不抖、不吃 K 棒 */
-  width: 66px;                 /* 固定寬，左緣釘在價格軸內 */
+  /* ⚠ 用 min-width 不用固定 width：固定寬在低價幣（"0.0000043077" 12 位數）會直接溢出框外
+     ——字級從 10px 加到 12px 後實測需要 97px、框只有 66px。改 min-width 之後短價格的框寬
+     與原本完全相同（66px，不抖），只有真的裝不下才往左長。同 .current-price-label 的做法。 */
+  min-width: 66px;             /* 左緣釘在價格軸內；裝不下才往左長 */
   box-sizing: border-box;
-  font-size: 10px;             /* 縮小讓 BTC(含十萬位)塞進 80px 軸內 */
+  font-size: 11.5px;           /* 10→11.5px（2026-09-19 使用者微調）；⚠ 字級一改就要確認長價格沒被框切掉 */
 }
 /* % 在價格下方一行、小字；顏色由 JS 綁主圖 K 棒漲跌色 */
 .crosshair-price-label .cpl-pct {
@@ -1301,7 +1304,7 @@ html.perf-mode #domHead { color: #333; border-bottom-color: rgba(0, 0, 0, 0.1); 
      靠 right 定位 → 變寬時往左長，不會被推出畫面。 */
   min-width: 66px;             /* 與十字線價格框同寬、靠左 */
   box-sizing: border-box;
-  font-size: 10px;
+  font-size: 11.5px;           /* 同十字線價格框（2026-09-19 共加 1.5px） */
   /* ── 底色 70%（2026-09-19 使用者：「最新價的顯示底不要透明」→「70%」）──────────
      ★ 一定要關掉繼承自上面那條共用規則的 `backdrop-filter: blur(10px)`：整片模糊會把
        後面的價格軸刻度糊成一團（2026-08-25 的教訓——當時誤以為是底色在遮）。
