@@ -708,6 +708,8 @@ function bindIndicatorPanel() {
         { label:"BB 上/下", colorKey:"bbU", onColor: c=>{ C.bbL=c; bbU?.applyOptions({color:c}); bbL?.applyOptions({color:c}); _syncLegDot("legBB",c); }, widKey:"bbWidth", onWidth: w=>{ bbU?.applyOptions({lineWidth:w}); bbL?.applyOptions({lineWidth:w}); } },
         { label:"BB 中",    colorKey:"bbM", onColor: c=>{ bbM?.applyOptions({color:c}); }, widKey:"bbMWidth", serW:()=>bbM },
         { label:"VWAP",     colorKey:"vwap", onColor: ()=>{ if (typeof _scheduleRenderDrawings==="function") _scheduleRenderDrawings(); }, widKey:"vwapWidth", onWidth: ()=>{ if (typeof _scheduleRenderDrawings==="function") _scheduleRenderDrawings(); } },
+        // 現價線＋右側現價標籤（2026-09-18 使用者：「現價配色改成讓使用者自己選」）
+        { label:"現價線",   colorKey:"curPrice", onColor: ()=>{ if (typeof window._applyCurPriceColor==="function") window._applyCurPriceColor(); } },
         { divider: true },
         { label:"主圖背景", colorKey:"chartBg", bgPresets: true, onColor: c=>{
             C.chartBg = c;

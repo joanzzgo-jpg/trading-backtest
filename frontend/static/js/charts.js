@@ -1133,6 +1133,27 @@ function hideLatestPriceLine() {
 }
 window.hideLatestPriceLine = hideLatestPriceLine;
 
+/* 現價線／右側現價標籤的顏色：使用者可在「主圖設定 → 現價線」自選（C.curPrice，預設琥珀）。
+   線 80%、標籤底 30%、標籤邊框 90% —— 透明度維持原本的視覺，只換色相。 */
+function _curPriceCol() { return C.curPrice || DEFAULT_COLORS.curPrice; }
+/* 顏色 → rgba(…, a)：吃 #rgb/#rrggbb 與 rgb()/rgba()；認不得就原樣回（不會讓標籤消失）。 */
+function _colA(col, a) {
+  const c = String(col || "").trim();
+  let m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(c);
+  if (m) {
+    const h = m[1].length === 3 ? m[1].replace(/./g, x => x + x) : m[1];
+    return `rgba(${parseInt(h.slice(0, 2), 16)},${parseInt(h.slice(2, 4), 16)},${parseInt(h.slice(4, 6), 16)},${a})`;
+  }
+  m = /^rgba?\(([^)]+)\)$/i.exec(c);
+  if (m) { const p = m[1].split(",").map(x => x.trim()); return `rgba(${p[0]},${p[1]},${p[2]},${a})`; }
+  return c;
+}
+/* 色盤改了 → 線與標籤一起重上色（colors.js applyAllColors 與設定面板 onColor 都呼叫這支）。 */
+window._applyCurPriceColor = function () {
+  try { if (latestPriceLine) latestPriceLine.applyOptions({ color: _colA(_curPriceCol(), .8) }); } catch (e) {}
+  if (typeof updateCurrentPriceLabel === "function") updateCurrentPriceLabel();
+};
+
 function updateLatestPriceLine(price) {
   if (!candleSeries || price == null) return;
   if (latestPriceLine) {
@@ -1142,7 +1163,7 @@ function updateLatestPriceLine(price) {
   if (!latestPriceLine) {
     latestPriceLine = candleSeries.createPriceLine({
       price,
-      color: "rgba(255,145,71,.80)",
+      color: _colA(_curPriceCol(), .8),
       lineWidth: 1,
       lineStyle: 2,            /* 2 = Dashed */
       axisLabelVisible: false, /* 關掉原生橘色標籤，改用下方自訂 DOM 標籤 */
@@ -1174,6 +1195,9 @@ function updateCurrentPriceLabel() {
   const y = candleSeries.priceToCoordinate(price);
   if (y == null) { lbl.style.display = "none"; return; }
   lbl.textContent = (typeof _fmtPx === "function") ? _fmtPx(price) : price.toFixed(2);
+  const _cpc = _curPriceCol();
+  lbl.style.background = _colA(_cpc, .30);
+  lbl.style.borderColor = _colA(_cpc, .9);
   lbl.style.top = Math.round(y) + "px";
   lbl.style.display = "block";
 }

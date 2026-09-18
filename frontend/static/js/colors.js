@@ -357,6 +357,7 @@ function applyAllColors() {
     //   套完顏色再讓 applyChartType 重新裁決一次（它是圖型的唯一真相）。
     if (typeof applyChartType === "function") applyChartType();
     if (typeof window._symRetint === "function") window._symRetint();   // 上方開高低收數值跟著新的邊框色
+    if (typeof window._applyCurPriceColor === "function") window._applyCurPriceColor();   // 現價線/現價標籤
   }
   bbU.applyOptions({ color:C.bbU }); bbM.applyOptions({ color:C.bbM }); bbL.applyOptions({ color:C.bbL });
   kdjK.applyOptions({ color:C.kdjK }); kdjD.applyOptions({ color:C.kdjD }); kdjJ.applyOptions({ color:C.kdjJ });

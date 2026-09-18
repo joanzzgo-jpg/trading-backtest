@@ -23,6 +23,7 @@ const DEFAULT_COLORS = {
   wickUp:  "#ef5350", wickDown:  "#26a69a",
   volUp:   "#ef5350", volDown:   "#26a69a", volMa: "#ffcc02",
   bbU:     "#42a5f5", bbM:     "#ffcc02", bbL: "#42a5f5",
+  curPrice: "#FF9147",   // 現價線＋右側現價標籤（2026-09-18 起可在「主圖設定」自選；預設＝原本的琥珀）
   bb1:     "#90caf9",   // 布林 1σ 內帶（已移除，保留鍵不影響）
   vwap:    "#ffc107",   // VWAP 折線顏色（畫布層，可調色；繪製時套 0.45 透明度）
   kdjK:    "#f23645", kdjD:    "#1e88e5", kdjJ: "#ff9800",
