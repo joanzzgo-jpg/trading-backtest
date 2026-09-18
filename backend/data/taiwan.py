@@ -546,7 +546,14 @@ TWSE_MIS_HEADERS = {"Referer": "https://mis.twse.com.tw/stock/index.jsp"}
 # TWSE opendata：全上市股票每日行情（盤中更新）
 TWSE_DAY_ALL_URL = "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL"
 # TPEX opendata：全上櫃股票每日行情
-TPEX_DAY_ALL_URL = "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes"
+# ★ 2026-09-18 由 tpex_mainboard_daily_close_quotes 換成 tpex_mainboard_quotes：
+#   舊那份 **4.5MB / 11479 筆**，其中 10465 筆是 6 位數權證類代號（_tw_code_ok 本來就會濾掉）
+#   —— 下載 4.5MB 只為了用到其中 357KB 的部分。而櫃買伺服器慢的時候實測要 40~58 秒
+#   （甚至中途 "Response ended prematurely"）→ 一直撞到下載總時限 → 上櫃整批沒價格。
+#   新那份 **357KB / 1014 筆**，欄位完全相同（Close/Change/Open/High/Low/TradingShares/CompanyName/Date），
+#   且股票代號是舊那份的**超集合驗證過**：只在舊檔出現的 10465 筆全是 6 位數權證，
+#   4 位數股票與 00 開頭 ETF 一檔都沒少（888 檔股票 + 119 檔 ETF）。
+TPEX_DAY_ALL_URL = "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_quotes"
 # 興櫃即時統計（含最新成交價/均價/量）。興櫃沒有收盤集合競價 → 漲跌以「前一日均價」為基準。
 TPEX_ESB_URL     = "https://www.tpex.org.tw/openapi/v1/tpex_esb_latest_statistics"
 # 興櫃個股「歷史行情」（一次一個月；ROC 日期）。openapi 只有當日行情表，歷史只有這支新站端點。
@@ -636,9 +643,13 @@ _TW_BODY_TRIES = 3
 #   對方每隔幾秒吐一點，下載就能無限拖下去 → 台股清單背景更新（每 30 秒一輪）整個卡住十幾分鐘，
 #   期間上市/上櫃/興櫃基底都不更新、零錯誤（守門員曾因此卡 17 分鐘）。
 #   → 內容改串流讀、由計時器到點直接切斷 socket（卡在讀取中的呼叫會立刻出錯），
-#     接著走呼叫端的「沿用上一份」。正常情況：上市 <2s、上櫃 3~5s，30 秒很寬。
+#     接著走呼叫端的「沿用上一份」。
 # ⚠ 標頭階段拿不到 socket（回應物件還沒生出來）→ 靠每次讀取的逾時擋（最多 10 秒一次）。
-_TW_BODY_BUDGET = 30
+# ★ 2026-09-18 由 30 → 60 秒：註解原本寫「上櫃 3~5s，30 秒很寬」，但當天實測櫃買
+#   tpex_mainboard_quotes 357KB **要 45 秒**（15 秒只吐得出 196KB）→ 30 秒必然切斷、
+#   上櫃整批落到「沿用上一份」，冷啟動那幾輪更是一檔上櫃都沒有（使用者看到的是上櫃股沒價格）。
+#   60 秒仍然是有界的（當初要擋的是「一次拖 685 秒」那種），只是別把正常的慢當成壞掉。
+_TW_BODY_BUDGET = 60
 
 
 def _kill_resp(r):

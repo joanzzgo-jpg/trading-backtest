@@ -294,8 +294,14 @@ try:
     TW.SESSION.get = _flaky(99)
     _symsB = {x["symbol"] for x in TW.fetch_tw_tickers()}
     _lost = _prev_otc - _symsB
-    check("一直斷 → 沿用上一份，上櫃不縮水", len(_prev_otc) > 500 and not _lost,
-          f"上一份上櫃 {len(_prev_otc)} 檔，這輪少了 {len(_lost)} 檔（上櫃請求 {_calls['n']} 次）")
+    # ⚠ 手上沒有「上一份」就驗不了這件事（例：當下櫃買 opendata 真的抓不到）→ 回報「測試不成立」，
+    #   不可以算失敗：那會變成「上游慢 = 守門員紅」的狼來了（2026-09-18 實測櫃買要 45 秒時踩到）。
+    if len(_prev_otc) <= 500:
+        skip("一直斷 → 沿用上一份，上櫃不縮水",
+             f"這輪沒抓到上櫃基準（上一份只有 {len(_prev_otc)} 檔）→ 驗不出縮水與否")
+    else:
+        check("一直斷 → 沿用上一份，上櫃不縮水", not _lost,
+              f"上一份上櫃 {len(_prev_otc)} 檔，這輪少了 {len(_lost)} 檔（上櫃請求 {_calls['n']} 次）")
 finally:
     TW.SESSION.__dict__.pop("get", None)   # 還原成類別上的方法
 

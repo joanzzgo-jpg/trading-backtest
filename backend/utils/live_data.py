@@ -335,8 +335,34 @@ def update(futures: list, spot: list):
     _write_shared(snap)                              # leader 寫共享磁碟供 follower 讀
 
 
+# ── 台股 MIS 疊價「記住今天疊過什麼」（2026-09-18）──────────────────────────────
+#   ★ 為什麼要記住：基底(opendata)每 30 秒整包覆蓋一次，而它盤中/收盤後一段時間給的是
+#     **昨日收盤**（官方檔案約 14:30 才換成今天）。原本疊上去的今日價會被那次覆蓋洗掉，
+#     要等輪掃再輪到（~55 秒）才回來 → 非熱門股在「今日價 ↔ 昨日價」之間來回跳；
+#     收盤後 worker 停了更是直接停在**昨天的收盤與昨天的漲跌幅**（使用者：「收盤了但跟我看的有誤差」）。
+#   → 疊過的值存起來，之後每次基底重抓都重新貼上去；跨交易日才清空。
+_TW_OV = {"day": "", "map": {}}
+
+
+def _tw_ov_apply(lst: list):
+    """把今天疊過的 MIS 值重新貼到剛抓回來的基底清單上（呼叫端需持有 _lock）。"""
+    m = _TW_OV["map"]
+    if not m or not lst:
+        return
+    for t in lst:
+        u = m.get(t.get("symbol"))
+        if u:
+            t["price"] = u["price"]; t["change_pct"] = u["change_pct"]
+            t["change_amt"] = u["change_amt"]; t["volume"] = u["volume"]
+
+
+def tw_overlay_stats() -> dict:
+    return {"day": _TW_OV["day"], "n": len(_TW_OV["map"])}
+
+
 def update_tw(tw: list):
     with _lock:
+        _tw_ov_apply(tw)          # ⚠ 一定要在存進快取前貼：否則這 30 秒內大家看到的是昨天的價
         _cache["tw"] = tw
         _cache["ts"] = time.time()
         _track("tw", tw)
@@ -344,12 +370,17 @@ def update_tw(tw: list):
     _write_shared(snap)
 
 
-def overlay_tw(price_map: dict):
+def overlay_tw(price_map: dict, day: str = ""):
     """把 MIS 即時價(sym→{price,change_pct,change_amt,volume})就地疊到快取台股清單 →
-    熱門/高量股即時跳動，不必每次重抓 opendata 全量。只改變動值、不動清單結構(排序前端做)。"""
+    熱門/高量股即時跳動，不必每次重抓 opendata 全量。只改變動值、不動清單結構(排序前端做)。
+    day=台北日期(YYYY-MM-DD)：換日就把記住的疊價清空（否則隔天開盤前會端出昨天的價）。"""
     if not price_map:
         return
     with _lock:
+        if day and _TW_OV["day"] != day:
+            _TW_OV["day"] = day
+            _TW_OV["map"] = {}
+        _TW_OV["map"].update(price_map)          # 記住：基底每 30 秒整包覆蓋後要重貼
         lst = _cache.get("tw") or []
         if not lst:
             return

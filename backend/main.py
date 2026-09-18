@@ -539,8 +539,16 @@ def _tw_rt_overlay_worker():
         try:
             now_tpe = _dt.utcnow() + _td(hours=8)
             mod = now_tpe.hour * 60 + now_tpe.minute
-            # 盤中(09:00-13:35 TPE，尾端多留 5 分收尾)且已有基底清單才疊
-            if now_tpe.weekday() < 5 and 9 * 60 <= mod < 13 * 60 + 35 and has_tw_data():
+            _day = now_tpe.strftime("%Y-%m-%d")
+            # 盤中(09:00-13:35 TPE，尾端多留 5 分收尾)＋**收盤補齊**到 14:30：
+            #   ⚠ opendata 官方檔案約 14:30 才換成今天（實測 14:20 仍是 Date=1150917＝昨天）→
+            #     13:35 就停的話，沒被疊到的股票會停在**昨日收盤＋昨日漲跌幅**，使用者一比就發現不對。
+            #   收盤後 MIS 仍回得到今天的最終價（t=13:30:00），所以繼續輪掃把全部補成今日收盤；
+            #   這段不需要即時性 → 放慢到 12 秒一輪（約 4 分鐘可覆蓋全清單），對 MIS 更客氣。
+            _closing_fill = now_tpe.weekday() < 5 and 13 * 60 + 35 <= mod < 14 * 60 + 30
+            if _closing_fill:
+                _nap = 12
+            if now_tpe.weekday() < 5 and 9 * 60 <= mod < 14 * 60 + 30 and has_tw_data():
                 lst = live_get("tw")
                 syms = [t["symbol"] for t in
                         sorted([t for t in lst if not t.get("is_future")],
@@ -573,7 +581,7 @@ def _tw_rt_overlay_worker():
                           f" → 本輪 {len(batch)} 檔；例：{hot[:5]}", flush=True)
                 pm = fetch_tw_realtime_bulk(batch)
                 if pm:
-                    overlay_tw(pm)
+                    overlay_tw(pm, _day)
                     _miss = 0
                 elif batch:                               # 有打但全空 → 疑似被 MIS 限流封鎖
                     _miss += 1
