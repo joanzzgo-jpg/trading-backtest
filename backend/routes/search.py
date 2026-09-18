@@ -331,8 +331,12 @@ def get_tickers(response: Response, market: str = "futures", since: str = "", fd
                 if d is not None:   # delta＝台股變動檔＋台指期三兄弟一律附上（客戶端靠 symbol 合併）
                     d["tickers"] = (futs or []) + d["tickers"]
                     d["source"] = "live"
+                    d["ts"] = snapshot_ts()
                     return d
-            out = {"tickers": (futs or []) + live_get("tw"), "source": "live"}
+            # ⚠ 台股這條原本**沒回 ts** → 前端的「相位對齊」（把下一次輪詢排在伺服器剛更新完之後）
+            #   對台股整個沒生效，只能固定 3 秒亂打、平均白白慢半拍。2026-09-18 補上。
+            out = {"tickers": (futs or []) + live_get("tw"), "source": "live",
+                   "ts": snapshot_ts()}
             tok = delta_token("tw")
             if tok:
                 out["rev"] = tok

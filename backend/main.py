@@ -519,23 +519,27 @@ def _tw_ticker_worker():
 
 
 def _tw_rt_overlay_worker():
-    """背景執行緒：交易時段每 5 秒用 MIS bulk 疊台股【今日即時價】。
-    分頁輪掃(不一次狂打全部→避免 MIS 速率限制)：每輪＝前 50 高量股(永遠打→即時跳動)
-    ＋輪流補一批其餘 250(rot 遞移)→ 約 40 秒內全台股都更新成今日價。
+    """背景執行緒：交易時段每 5 秒疊上台股【今日即時價】（主源 cnyes、備源 TWSE MIS）。
+    分頁輪掃：每輪＝使用者正在看的 ＋ 前 50 高量股(永遠打→即時跳動) ＋ 輪流補其餘
+    → **約 15 秒**內全台股都更新成今日價。
 
-    ⚠ 舊註解寫「每 3 秒／前 100 檔／30-40 秒一輪」全部與程式不符(實際 5 秒／前 50／輪掃 100 秒)，
-      2026-08-03 一併更正。輪掃批量由 100 提到 250：每輪 300 檔＝3 個請求(每個間隔 0.35s)
-      ＝約 0.6 req/s，正好是本函式原本就寫明的預算上限，覆蓋一輪從 ~100s 縮到 ~40s。
+    ★ 2026-09-18 主源由 MIS 換成 cnyes 批次報價（實測對照見 `cnyes_futures.fetch_tw_quotes_bulk`）：
+      一個請求 100→**500 檔**、每檔 82→**36 bytes**、500 檔耗時 11s→**0.67s**
+      → 一輪打 1000 檔仍比舊的 300 檔少一半請求，輪掃一圈 45 秒→**15 秒**，
+      而且沒有 MIS「收盤後 z='-' 只能用買賣區間估價」的問題（抽樣與官方價 106/106 相同）。
+    ⚠ **不假設 cnyes 即時**：盤中量它自帶的報價時間戳，落後就退回 MIS（見迴圈內）。
     ⚠ opendata 基底對冷門股會落後一整天(實測 6862 給昨收 125.0、真實 137.5)，
       所以「輪掃多久回來一次」直接等於使用者看到多舊的價 —— 別為了省流量把它調慢。
     ★ 收盤後另有「收盤補齊」：判準是**今天補齊了沒**(進度)，不是時鐘窗口——理由見迴圈內註解。"""
     from datetime import datetime as _dt, timedelta as _td
     from data.taiwan import fetch_tw_realtime_bulk
+    from data.cnyes_futures import fetch_tw_quotes_bulk, tw_quotes_lag, CNYES_QUOTE_BATCH
     from utils.live_data import overlay_tw, has_tw_data, get as live_get, get_tw_hot
     _rot = 0
     _miss = 0                                             # 連續空回(疑似被 MIS 封)計數
     _hot_log = {"t": 0.0}                                 # 優先名單日誌節流
     _fill = {"done": "", "prog": "", "seen": set(), "rounds": 0}   # 收盤補齊進度（見下方說明）
+    _cn = {"bad_until": 0.0, "log": 0.0}                  # cnyes 判定不可用到幾點（退回 MIS）
     while True:
         _nap = 5                                          # 5s/輪：~300檔(前50+輪250)、每請求0.35s間隔→~0.6req/s、避免封
         try:
@@ -570,17 +574,26 @@ def _tw_rt_overlay_worker():
                 _hot_all = get_tw_hot()
                 _sym_set = set(syms)
                 hot = [s for s in _hot_all if s in _sym_set][:80]
+                # ★ 一輪打幾檔，取決於這輪用哪個來源（2026-09-18 換主源，實測見 cnyes_futures）：
+                #   cnyes 一個請求吃 500 檔／0.67 秒、每檔 36 bytes(gzip)；
+                #   MIS 一個請求只吃 100 檔／2.2 秒、每檔 82 bytes。
+                #   → cnyes 一輪打 1000 檔(2 請求) 仍比舊的 MIS 300 檔(3~4 請求) 更省，
+                #     而輪掃一圈從 ~45 秒縮到 **~15 秒**。
+                _use_cn = time.time() >= _cn["bad_until"]
+                _round_cap = (CNYES_QUOTE_BATCH * 2) if _use_cn else 300
                 if _closing_fill:
-                    # 補齊階段不必重覆打高量股（收盤價不會再變）→ 名額全給還沒補到的，
-                    #   2700 檔約 9 輪 ×12s ≈ 2 分鐘補完；只有「有人正在看又還沒補到」的插隊。
+                    # 補齊階段不必重覆打高量股（收盤價不會再變）→ 名額全給還沒補到的。
+                    #   cnyes 一輪 6 個請求就能吃下整個市場 → 收盤補齊**一輪就做完**
+                    #   （舊的 MIS 要 9 輪 ×12 秒）。只有「有人正在看又還沒補到」的插隊。
                     hot = [s for s in hot if s not in _fill["seen"]][:40]
                     top, rest = [], [s for s in syms if s not in _fill["seen"]]
-                    _left = len(rest)
+                    if _use_cn:
+                        _round_cap = CNYES_QUOTE_BATCH * 6
                 else:
                     top = syms[:50]                       # 前 50 高量：每輪都打→即時跳動
                     rest = syms[50:]
                 batch = list(dict.fromkeys(hot + top))    # 去重保序（hot 與 top 常有重疊）
-                _rot_quota = max(60, 300 - len(batch))    # 輪掃至少留 60，避免長尾完全停更
+                _rot_quota = max(60, _round_cap - len(batch))   # 輪掃至少留 60，避免長尾完全停更
                 if rest and _closing_fill:
                     # rest 本身已經排除補過的 → 直接取前面一段即可（不必游標，取完就空）
                     _seen = set(batch)
@@ -599,22 +612,49 @@ def _tw_rt_overlay_worker():
                 if hot and not _closing_fill and time.time() - _hot_log["t"] > 60:
                     _hot_log["t"] = time.time()
                     print(f"[tw_rt] 優先 {len(hot)} 檔(使用者正在看) + 前50高量 + 輪掃{_rot_quota}"
-                          f" → 本輪 {len(batch)} 檔；例：{hot[:5]}", flush=True)
-                pm = fetch_tw_realtime_bulk(batch)
+                          f" → 本輪 {len(batch)} 檔（{'cnyes' if _use_cn else 'MIS'}）；例：{hot[:5]}",
+                          flush=True)
+                # ── 取價：cnyes 為主、MIS 為備 ─────────────────────────────────
+                #   ★★ **不假設對方即時，量出來**：免費報價源最常見的壞法是安靜地延遲 15~20 分鐘
+                #      （畫面上完全看不出來，數字照樣在跳）。cnyes 每筆都自帶報價時間戳 →
+                #      盤中量「整批最新那筆距現在幾秒」，超過 3 分鐘就判定它落後 → 退回 MIS 十分鐘。
+                #      收盤後不做這個判斷（最後成交本來就停在 13:30）。
+                pm = {}
+                _asked = batch                            # 這輪「真的問到的那批」（收盤補齊據此記進度）
+                if _use_cn:
+                    pm = fetch_tw_quotes_bulk(batch)
+                    if pm and _intraday:
+                        _lag = tw_quotes_lag(pm)
+                        if _lag > 180:
+                            _cn["bad_until"] = time.time() + 600
+                            pm = {}
+                            if time.time() - _cn["log"] > 600:
+                                _cn["log"] = time.time()
+                                print(f"[tw_rt] ⚠ cnyes 報價落後 {_lag:.0f} 秒 → 改用 MIS 十分鐘",
+                                      flush=True)
+                if not pm:                                # cnyes 沒給（整批失敗／被判落後）→ MIS
+                    # ⚠ 同時把 cnyes 標記成短期不可用：下一輪才會用 MIS 的尺寸(300)去配輪掃額度，
+                    #   否則游標照 1000 檔前進、實際只打得到 300 檔 → 長尾每輪被跳過一大段。
+                    if _use_cn:
+                        _cn["bad_until"] = max(_cn["bad_until"], time.time() + 60)
+                    _asked = batch[:300]
+                    pm = fetch_tw_realtime_bulk(_asked)
                 if pm:
                     overlay_tw(pm, _day)
                     _miss = 0
-                elif batch:                               # 有打但全空 → 疑似被 MIS 限流封鎖
+                elif batch:                               # 兩個來源都空 → 疑似被限流封鎖
                     _miss += 1
                     if _miss >= 2:
-                        _nap = 60                         # 退避 60s 讓 MIS 解封(否則一直打→封鎖永不解，同 Pionex 教訓)
+                        _nap = 60                         # 退避 60s 讓上游解封(否則一直打→封鎖永不解，同 Pionex 教訓)
                 if _closing_fill:
-                    # 打過就算補過（MIS 查無／今天沒成交的也算，否則長尾永遠補不完＝無限打）
-                    _fill["seen"].update(batch)
+                    # 問過就算補過（查無／今天沒成交的也算，否則長尾永遠補不完＝無限打）。
+                    # ⚠ 記的是 **_asked（真的問出去的那批）** 不是 batch：退回 MIS 時只問得動前 300 檔，
+                    #   記成整批的話剩下 2400 檔會被當成「補過了」——實際上從沒問過（測試抓到的）。
+                    _fill["seen"].update(_asked)
                     _fill["rounds"] += 1
-                    # ⚠ 一定要有輪數上限：MIS 被封或整批查無時 batch 會一直有東西，
+                    # ⚠ 一定要有輪數上限：上游被封或整批查無時 batch 會一直有東西，
                     #   沒上限就會整晚每 12 秒打一次。60 輪 ≈ 12 分鐘，足夠補完 2700 檔。
-                    if _left <= _rot_quota or _fill["rounds"] >= 60:
+                    if len(_fill["seen"]) >= len(syms) or _fill["rounds"] >= 60:
                         _fill["done"] = _day
                         print(f"[tw_rt] 收盤補齊完成：{len(_fill['seen'])} 檔／{_fill['rounds']} 輪"
                               f"（{_day}）", flush=True)

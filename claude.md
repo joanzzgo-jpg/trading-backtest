@@ -606,7 +606,16 @@ node scripts/check_crosshair_blank.js    # 需本機服務跑著
 - **台股即時個股分鐘 K = cnyes**（`data/cnyes_futures.py` `fetch_cnyes_stock_intraday`，同台指期源、連續無跳號、無延遲、免金鑰）；get_latest / ohlcv 初次載入 / fetch_crt_df 三處當日主源，歷史仍 yfinance，Fugle 退為備援。詳見 [docs/backend.md](docs/backend.md)。
 
 ### 不可更改的設定
-- `startTickerRefresh()`（`ticker.js`）的 `setInterval(fetchTickers, …)` 間隔依市場固定：**crypto 1 秒、台股 3 秒**（行情即時性需求；2026-07-09 台股 10 秒→3 秒，配合後端 `_tw_rt_overlay_worker` 每 5 秒 MIS bulk 疊價：前 50 高量每輪必打＋其餘 250 檔輪掃，約 40 秒覆蓋全台股 → 報價列即時跳動），**禁止以「減輕伺服器負擔」為由改慢**。台股全量清單仍由 `_tw_ticker_worker` 每 30 秒抓 TWSE/TPEX opendata 維護。
+- 報價輪詢週期：**crypto 1 秒、台股 3 秒**（行情即時性需求），**禁止以「減輕伺服器負擔」為由改慢**。
+  2026-08-23 起實際排程是**相位對齊**（`_tkSchedule`／`_tkNextDelay`）：用回應的 `ts` 把下一次排在
+  「伺服器剛更新完」之後 120ms，上面那兩個數字是**沒有 ts 時的退路**。
+  ⚠ 2026-09-18：對齊改成**量測伺服器產出週期**（原本假設＝自己的輪詢週期）。台股產出 5 秒／輪詢 3 秒，
+  舊公式會算出負數被夾成下限 250ms ＝ **每 0.25 秒打一次**（台股當初就是為此被排除；伺服器一停更連加密也會中）。
+  守門員 `node scripts/check_ticker_phase.js`。
+- 台股疊價 `_tw_rt_overlay_worker` 每 5 秒：**主源 cnyes 批次報價**（一請求 500 檔、每檔 36 bytes、0.67 秒）
+  ＋備源 TWSE MIS。每輪打 1000 檔（使用者正在看的＋前 50 高量＋輪掃）→ **約 15 秒**覆蓋全台股。
+  ⚠ **不假設 cnyes 即時**：盤中量它自帶的報價時間戳，落後超過 3 分鐘就退回 MIS 十分鐘。
+  台股全量清單仍由 `_tw_ticker_worker` 每 30 秒抓 TWSE/TPEX opendata 維護。
   ⚠ **基底每 30 秒整包覆蓋，疊上去的今日價會被洗掉** → `live_data._TW_OV` 記住疊過什麼、每次覆蓋前重貼（2026-09-18，使用者：「收盤了但跟我看的有誤差」）。收盤補齊的判準是**「今天補齊了沒」不是時鐘窗口**（寫死 13:35~14:30 的話，14:52 部署重啟就補不到＝線上抽樣 8/10 檔退回昨天的價）。細節與「估價不可蓋掉官方收盤價」見 [docs/backend.md](docs/backend.md)。
 
 ## 圖片資源

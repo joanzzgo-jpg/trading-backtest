@@ -353,7 +353,12 @@ function _tkFill(t) {
 }
 function _tkMerge(cur, j, key) {
   if (j.rev) _tkRev[key] = j.rev;
-  if (j.ts) { window._feedPriceTs = +j.ts; _tkNoteTs(+j.ts); }   // 記時刻＋餵給相位對齊
+  // 記時刻＋餵給相位對齊。⚠ 只餵**畫面上這個市場**的回應：跨市場保鮮／現貨心跳打的是別的
+  //   端點、產出週期也不同（加密 1s／台股 5s），混進來會把下一次輪詢排到錯的時刻。
+  if (j.ts) {
+    window._feedPriceTs = +j.ts;
+    if (key === (_tickerMkt === "tw" ? "tw" : "futures")) _tkNoteTs(+j.ts);
+  }
   /* 報價來源也推進「單一現價」：它若比主圖那份新，現價線與那一列會一起換成它。 */
   try {
     const _k = window._chartDataKey;
@@ -1332,24 +1337,48 @@ function _loadTickerCache() {
    ⚠ 時鐘偏差：`Date.now() - ts*1000` 含了本機與伺服器的時鐘差，不能直接當「舊了多久」。
      用**最近樣本的最小值**當基準（那一筆最接近「剛更新就拿到」）→ 偏差被抵銷，
      剩下的才是真正的陳舊度。
-   ⚠ 一定要夾限：算錯也不能變成狂打或停擺 → 下限 250ms、上限 1.5 倍週期。
-   ⚠ 失敗（沒有 ts / 台股 / 冷啟動）一律退回原本的固定週期，行為不變。 */
+   ⚠ 一定要夾限：算錯也不能變成狂打或停擺。
+   ⚠ 失敗（沒有 ts / 冷啟動）一律退回原本的固定週期，行為不變。
+
+   ★ 2026-09-18 改成「**量出伺服器多久產一次**」再預測下一次更新（原本是假設＝自己的輪詢週期）：
+     台股的產出週期是疊價 worker 的 5 秒、輪詢週期卻是 3 秒 → 舊公式
+     `週期 − 陳舊度 + 瞄準` 會算出負數、被夾成下限 250ms ＝**每 0.25 秒狂打**。
+     （這就是台股當初被排除在相位對齊之外的原因；後端這次補上 ts 才有辦法修。）
+     新公式對加密是**完全相同的算式**（產出週期量出來就是 1 秒），台股則自動變成 5 秒對齊。
+   ⚠ 伺服器停更時「下一次更新」會一直落在過去 → 必須回固定週期，絕不可以變成狂打。 */
 const _TK_AIM_MS = 120;              // 瞄準「伺服器更新後」這麼多毫秒才問
 let _tkAgeMin = null;                // 最近觀測到的最小表觀年齡＝時鐘偏差基準
 const _tkAgeHist = [];
+let _tkLastTs = 0;                   // 最近看到的伺服器快照時刻（秒）
+const _tkGapHist = [];               // 相鄰兩次「不同的 ts」相差幾毫秒 → 推估產出週期
 function _tkNoteTs(ts) {
   if (!ts) return;
   const app = Date.now() - ts * 1000;                 // 表觀年齡（含時鐘偏差）
   _tkAgeHist.push(app);
   if (_tkAgeHist.length > 40) _tkAgeHist.shift();
   _tkAgeMin = Math.min(..._tkAgeHist);
+  if (_tkLastTs && ts > _tkLastTs) {
+    _tkGapHist.push((ts - _tkLastTs) * 1000);
+    if (_tkGapHist.length > 12) _tkGapHist.shift();
+  }
+  if (ts !== _tkLastTs) _tkLastTs = ts;
+}
+function _tkResetPhase() { _tkAgeHist.length = 0; _tkGapHist.length = 0; _tkAgeMin = null; _tkLastTs = 0; }
+function _tkProdPeriod(period) {     // 伺服器多久產一次（取中位數，夾在 0.5~3 倍輪詢週期內）
+  if (_tkGapHist.length < 3) return period;
+  const s = _tkGapHist.slice().sort((a, b) => a - b);
+  return Math.max(period * 0.5, Math.min(period * 3, s[Math.floor(s.length / 2)]));
 }
 function _tkNextDelay() {
   const period = _tickerMkt === "tw" ? 3000 : 1000;
-  if (_tkAgeMin == null || !_tkAgeHist.length) return period;
-  const stale = _tkAgeHist[_tkAgeHist.length - 1] - _tkAgeMin;   // 真正的陳舊度
-  if (!isFinite(stale)) return period;
-  return Math.max(250, Math.min(period * 1.5, period - stale + _TK_AIM_MS));
+  if (_tkAgeMin == null || !_tkLastTs) return period;
+  const prod = _tkProdPeriod(period);
+  // 伺服器下一次更新的時刻，換算到本機時鐘（_tkAgeMin ≈ 兩邊的時鐘偏差）
+  const d = _tkLastTs * 1000 + _tkAgeMin + prod + _TK_AIM_MS - Date.now();
+  if (!isFinite(d)) return period;
+  if (d >= 150) return Math.min(Math.max(period, prod) * 1.5, d);
+  if (d > -prod) return 400;         // 才剛過更新時刻（我們晚到一點點）→ 馬上追一次就對回相位
+  return period;                     // 伺服器停更／時鐘亂掉 → 回固定週期
 }
 function _tkSchedule() {
   if (_tickerTimer) { clearTimeout(_tickerTimer); _tickerTimer = null; }
@@ -1420,6 +1449,7 @@ function bindTickerPanel() {
       _tickerMkt     = btn.dataset.mkt;
       _markMktUsed(_tickerMkt);
       try { localStorage.setItem("tkMkt", _tickerMkt); } catch (e) {}
+      _tkResetPhase();      // 兩個市場的伺服器產出週期不同（加密 1s／台股 5s）→ 別拿舊樣本推估
       _lastTickerKey = "";
       /* ★ 立刻用「新市場手上已有的資料」重畫（2026-08-19 使用者：「切換有短暫的價格沒切換」）。
          原本只發非同步的 fetchTickers() 就結束 → 在回應到達前，畫面上留著的是**上一個市場**

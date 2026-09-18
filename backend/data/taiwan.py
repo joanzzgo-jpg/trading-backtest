@@ -982,7 +982,14 @@ def fetch_tw_tickers() -> list:
     #      (MIS 有速率限制、不能一次狂打全部；分頁節流)。opendata 失敗時此段也當備援清單。
     try:
         from utils.live_data import tw_rt_put
-        rt = fetch_tw_realtime_bulk([s for s, _ in TW_POPULAR])
+        _pop = [s for s, _ in TW_POPULAR]
+        try:                                 # 主源 cnyes（一個請求吃得下、值就是官方價）
+            from data.cnyes_futures import fetch_tw_quotes_bulk
+            rt = fetch_tw_quotes_bulk(_pop)
+        except Exception:
+            rt = {}
+        if not rt:
+            rt = fetch_tw_realtime_bulk(_pop)
         for sym, u in rt.items():
             t = tickers.get(sym)
             if t:

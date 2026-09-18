@@ -281,3 +281,82 @@ def get_txf_intraday(product: str, timeframe: str):
     return df.set_index("time").resample(f"{m}min").agg({
         "open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum",
     }).dropna(subset=["open"]).reset_index()
+
+
+# ── 台股批次即時報價（2026-09-18）────────────────────────────────────────────
+#   GET ws.api.cnyes.com/ws/api/v1/quote/quotes/TWS:2330:STOCK,TWS:2317:STOCK,…?column=A
+#   免金鑰、一個請求最多 **500 檔**（再多網址超長 → HTTP 400）。
+#
+#   ★ 為什麼從 TWSE MIS 換過來（實測，2026-09-18 收盤後量的）：
+#     | 　             | 每檔傳輸(gzip) | 一個請求吃幾檔 | 500 檔耗時 |
+#     | MIS            | 82 bytes      | 100           | ~11s(2.2s×5) |
+#     | cnyes quotes   | **36 bytes**  | **500**       | **0.67s**    |
+#     → 同樣的預算，輪掃一圈從 **45 秒縮到 ~15 秒**，請求數反而少一半。
+#     ★ 正確性：抽樣 120 檔與證交所官方價比對 **106/106 完全相同**（其餘 14 檔是 MIS 收盤後
+#       沒有成交價可比）。而且**沒有 MIS 那個「z 是 '-' 只好用買賣區間估價」的問題**
+#       （實測 6597 我們估 68.8、cnyes 給 70.1＝真實收盤，差 1.9%）。
+#   ⚠ 沒成交的股票 cnyes 回「無時間戳、無價格」（實測 33 檔）→ 一律跳過，讓 opendata 基底留著。
+#   ⚠ 回來的每筆都帶 **報價時間戳**(200007) → 呼叫端可以自己驗「這份資料有多新」，
+#     不必假設對方即時（見 main.py 疊價 worker 的落後偵測）。
+_QUOTE_URL = "https://ws.api.cnyes.com/ws/api/v1/quote/quotes/"
+CNYES_QUOTE_BATCH = 500          # 一個請求的上限（網址長度限制，501 檔起 HTTP 400）
+# 欄位代碼（column=A 這組）
+_Q_PRICE, _Q_CHG, _Q_PREV, _Q_PCT = "6", "11", "21", "56"
+_Q_TIME, _Q_VOL, _Q_CODE = "200007", "800001", "200010"
+
+
+def fetch_tw_quotes_bulk(symbols):
+    """cnyes 台股批次報價 → {代號: {price, change_pct, change_amt, volume, prev, est, qts}}。
+
+    est 一律 False（都是真實成交價，不是估的）、qts＝那筆報價的時間戳（unix 秒）。
+    整批失敗回空 dict（呼叫端會退回 MIS）。"""
+    out = {}
+    syms = [s for s in dict.fromkeys(symbols) if s]
+    for i in range(0, len(syms), CNYES_QUOTE_BATCH):
+        batch = syms[i:i + CNYES_QUOTE_BATCH]
+        url = _QUOTE_URL + ",".join(f"TWS:{s}:STOCK" for s in batch)
+        j = None
+        for _i in range(_CNYES_TRIES):        # 同 charting：對方 statusCode≥500 才重試一次
+            try:
+                r = SESSION.get(url, params={"column": "A"}, headers=_HDRS, timeout=10)
+                r.raise_for_status()
+                j = r.json() or {}
+            except Exception:
+                break
+            try:
+                _sc = int(j.get("statusCode") or 200)
+            except (TypeError, ValueError):
+                _sc = 200
+            if _sc < 500 or _i == _CNYES_TRIES - 1:
+                break
+            j = None
+            time.sleep(0.3)
+        for x in ((j or {}).get("data") or []):
+            sym, px, qts = x.get(_Q_CODE), x.get(_Q_PRICE), x.get(_Q_TIME)
+            if not sym or not px or not qts:      # 今天沒成交／查無 → 跳過（讓基底留著）
+                continue
+            try:
+                p, chg = float(px), round(float(x.get(_Q_CHG) or 0), 4)
+                # column=A 不含昨收欄位 → 由「現價 − 漲跌」推導（實測與 Yahoo 昨收逐檔相同）
+                prev = float(x.get(_Q_PREV) or 0) or round(p - chg, 4)
+                out[str(sym)] = {
+                    "price": p,
+                    "change_amt": chg,
+                    "change_pct": round(float(x.get(_Q_PCT) or 0), 2),
+                    "volume": float(x.get(_Q_VOL) or 0) * 1000,   # cnyes 給「張」→ 股（同 MIS）
+                    "prev": prev, "est": False, "qts": int(qts),
+                }
+            except (TypeError, ValueError):
+                continue
+    return out
+
+
+def tw_quotes_lag(price_map: dict) -> float:
+    """這批 cnyes 報價「最新的那筆」距現在幾秒。★ 用途：**不要假設對方即時，量出來**。
+
+    免費報價源最常見的壞法是安靜地延遲 15~20 分鐘（畫面上完全看不出來，數字照樣在跳）。
+    每筆報價都自帶時間戳 → 取整批的最大值（最活躍那檔的最後成交時間）就是這個來源的新鮮度。
+    盤中這個值應該是幾秒；大到幾分鐘就代表對方落後 → 呼叫端該退回 MIS。
+    空 dict 回 -1（沒東西可判）。"""
+    ts = [u.get("qts") or 0 for u in price_map.values()]
+    return round(time.time() - max(ts), 1) if ts and max(ts) else -1.0
