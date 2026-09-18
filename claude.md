@@ -607,6 +607,7 @@ node scripts/check_crosshair_blank.js    # 需本機服務跑著
 
 ### 不可更改的設定
 - `startTickerRefresh()`（`ticker.js`）的 `setInterval(fetchTickers, …)` 間隔依市場固定：**crypto 1 秒、台股 3 秒**（行情即時性需求；2026-07-09 台股 10 秒→3 秒，配合後端 `_tw_rt_overlay_worker` 每 5 秒 MIS bulk 疊價：前 50 高量每輪必打＋其餘 250 檔輪掃，約 40 秒覆蓋全台股 → 報價列即時跳動），**禁止以「減輕伺服器負擔」為由改慢**。台股全量清單仍由 `_tw_ticker_worker` 每 30 秒抓 TWSE/TPEX opendata 維護。
+  ⚠ **基底每 30 秒整包覆蓋，疊上去的今日價會被洗掉** → `live_data._TW_OV` 記住疊過什麼、每次覆蓋前重貼（2026-09-18，使用者：「收盤了但跟我看的有誤差」）。收盤補齊的判準是**「今天補齊了沒」不是時鐘窗口**（寫死 13:35~14:30 的話，14:52 部署重啟就補不到＝線上抽樣 8/10 檔退回昨天的價）。細節與「估價不可蓋掉官方收盤價」見 [docs/backend.md](docs/backend.md)。
 
 ## 圖片資源
 所有原始圖片存放於 **桌面 `Claude-分類/虛擬貨幣/`**，已複製至 `frontend/static/img/`。對應表與前端使用位置見 [docs/frontend.md](docs/frontend.md)。

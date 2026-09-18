@@ -981,12 +981,12 @@ def fetch_tw_tickers() -> list:
     #      把今日即時價疊到熱門 50 支(單一請求、輕)。全部台股的今日價由 _tw_rt_overlay_worker 分頁輪掃補齊
     #      (MIS 有速率限制、不能一次狂打全部；分頁節流)。opendata 失敗時此段也當備援清單。
     try:
+        from utils.live_data import tw_rt_put
         rt = fetch_tw_realtime_bulk([s for s, _ in TW_POPULAR])
         for sym, u in rt.items():
             t = tickers.get(sym)
             if t:
-                t["price"] = u["price"]; t["change_pct"] = u["change_pct"]
-                t["change_amt"] = u["change_amt"]; t["volume"] = u["volume"]
+                tw_rt_put(t, u)          # 估值不可蓋掉已經是今天的基底，見該函式
             else:
                 tickers[sym] = {"symbol": sym, "display": sym, "name": TW_NAME_MAP.get(sym, sym),
                                 "price": u["price"], "change_pct": u["change_pct"],
@@ -1162,8 +1162,11 @@ def fetch_tw_realtime_bulk(symbols):
                     camt = round(price - prev, 2)
                     cpct = round((camt / prev * 100) if prev else 0.0, 2)
                     vol = float((d.get("v", "0") or "0").replace(",", "")) * 1000
+                    # est＝z 是 "-"（收盤後冷門股只剩買賣盤）時用區間估出來的價；
+                    #   連同昨收一起帶出去，讓 live_data.tw_rt_put 判斷「該不該蓋基底」。
                     out[sym] = {"price": price, "change_pct": cpct,
-                                "change_amt": camt, "volume": vol}
+                                "change_amt": camt, "volume": vol,
+                                "prev": prev, "est": not _mis_f(d.get("z"))}
                 except (ValueError, TypeError):
                     continue
         except Exception as e:

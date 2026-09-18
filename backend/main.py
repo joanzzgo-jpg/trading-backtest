@@ -527,28 +527,38 @@ def _tw_rt_overlay_worker():
       2026-08-03 一併更正。輪掃批量由 100 提到 250：每輪 300 檔＝3 個請求(每個間隔 0.35s)
       ＝約 0.6 req/s，正好是本函式原本就寫明的預算上限，覆蓋一輪從 ~100s 縮到 ~40s。
     ⚠ opendata 基底對冷門股會落後一整天(實測 6862 給昨收 125.0、真實 137.5)，
-      所以「輪掃多久回來一次」直接等於使用者看到多舊的價 —— 別為了省流量把它調慢。"""
+      所以「輪掃多久回來一次」直接等於使用者看到多舊的價 —— 別為了省流量把它調慢。
+    ★ 收盤後另有「收盤補齊」：判準是**今天補齊了沒**(進度)，不是時鐘窗口——理由見迴圈內註解。"""
     from datetime import datetime as _dt, timedelta as _td
     from data.taiwan import fetch_tw_realtime_bulk
     from utils.live_data import overlay_tw, has_tw_data, get as live_get, get_tw_hot
     _rot = 0
     _miss = 0                                             # 連續空回(疑似被 MIS 封)計數
     _hot_log = {"t": 0.0}                                 # 優先名單日誌節流
+    _fill = {"done": "", "prog": "", "seen": set(), "rounds": 0}   # 收盤補齊進度（見下方說明）
     while True:
         _nap = 5                                          # 5s/輪：~300檔(前50+輪250)、每請求0.35s間隔→~0.6req/s、避免封
         try:
             now_tpe = _dt.utcnow() + _td(hours=8)
             mod = now_tpe.hour * 60 + now_tpe.minute
             _day = now_tpe.strftime("%Y-%m-%d")
-            # 盤中(09:00-13:35 TPE，尾端多留 5 分收尾)＋**收盤補齊**到 14:30：
-            #   ⚠ opendata 官方檔案約 14:30 才換成今天（實測 14:20 仍是 Date=1150917＝昨天）→
-            #     13:35 就停的話，沒被疊到的股票會停在**昨日收盤＋昨日漲跌幅**，使用者一比就發現不對。
-            #   收盤後 MIS 仍回得到今天的最終價（t=13:30:00），所以繼續輪掃把全部補成今日收盤；
-            #   這段不需要即時性 → 放慢到 12 秒一輪（約 4 分鐘可覆蓋全清單），對 MIS 更客氣。
-            _closing_fill = now_tpe.weekday() < 5 and 13 * 60 + 35 <= mod < 14 * 60 + 30
+            _wd = now_tpe.weekday() < 5
+            # ── 盤中(09:00-13:35 TPE，尾端多留 5 分收尾) ─────────────────────────
+            _intraday = _wd and 9 * 60 <= mod < 13 * 60 + 35
+            # ── 收盤補齊：★判準是「今天這批收盤價補齊了沒」，不是時鐘窗口 ────────
+            #   opendata 基底收盤後很久還是**昨天**的（實測 9/18 14:52 仍給 2330=2425＝昨收，
+            #   今日官方收盤 2460）→ 沒被 MIS 疊到的股票就停在昨日收盤＋昨日漲跌幅。
+            #   ⚠ 前一版寫成「13:35~14:30 才補」，於是 14:52 部署重啟後疊價表清空、窗口又已過
+            #     → 線上抽樣 10 檔有 8 檔退回昨天的價（就是這個 bug 的第二現場）。
+            #   改成：收盤後只要「今天還沒補齊」就一直補，補完就停 → 不管幾點重啟都會自己補回來，
+            #   而補完之後疊價表常駐（update_tw 每次覆蓋前重貼），不需要再打 MIS。
+            #   收盤後 MIS 仍回得到今日最終價（實測 d=20260918、t=13:30:00）。
+            _closing_fill = _wd and mod >= 13 * 60 + 35 and _fill["done"] != _day
             if _closing_fill:
-                _nap = 12
-            if now_tpe.weekday() < 5 and 9 * 60 <= mod < 14 * 60 + 30 and has_tw_data():
+                _nap = 12                                 # 不需要即時性 → 放慢，對 MIS 客氣
+                if _fill["prog"] != _day:                 # 換日／第一次進入 → 進度重新計
+                    _fill.update(prog=_day, seen=set(), rounds=0)
+            if (_intraday or _closing_fill) and has_tw_data():
                 lst = live_get("tw")
                 syms = [t["symbol"] for t in
                         sorted([t for t in lst if not t.get("is_future")],
@@ -560,11 +570,22 @@ def _tw_rt_overlay_worker():
                 _hot_all = get_tw_hot()
                 _sym_set = set(syms)
                 hot = [s for s in _hot_all if s in _sym_set][:80]
-                top = syms[:50]                           # 前 50 高量：每輪都打→即時跳動
-                rest = syms[50:]
+                if _closing_fill:
+                    # 補齊階段不必重覆打高量股（收盤價不會再變）→ 名額全給還沒補到的，
+                    #   2700 檔約 9 輪 ×12s ≈ 2 分鐘補完；只有「有人正在看又還沒補到」的插隊。
+                    hot = [s for s in hot if s not in _fill["seen"]][:40]
+                    top, rest = [], [s for s in syms if s not in _fill["seen"]]
+                    _left = len(rest)
+                else:
+                    top = syms[:50]                       # 前 50 高量：每輪都打→即時跳動
+                    rest = syms[50:]
                 batch = list(dict.fromkeys(hot + top))    # 去重保序（hot 與 top 常有重疊）
                 _rot_quota = max(60, 300 - len(batch))    # 輪掃至少留 60，避免長尾完全停更
-                if rest:
+                if rest and _closing_fill:
+                    # rest 本身已經排除補過的 → 直接取前面一段即可（不必游標，取完就空）
+                    _seen = set(batch)
+                    batch += [s for s in rest[:_rot_quota] if s not in _seen]
+                elif rest:
                     n = len(rest)
                     # ⚠ 游標要「持續前進」不能用 輪數×配額：配額會隨 hot 多寡變動，
                     #   乘出來的位置會跳過／重複某幾段，長尾就有檔永遠輪不到。
@@ -575,7 +596,7 @@ def _tw_rt_overlay_worker():
                               if s not in _seen]
                     _rot = (off + _rot_quota) % n
                 # 每 60 秒印一行：盤中要確認「正在看的那幾檔有被優先打」時看這個（不吵版）
-                if hot and time.time() - _hot_log["t"] > 60:
+                if hot and not _closing_fill and time.time() - _hot_log["t"] > 60:
                     _hot_log["t"] = time.time()
                     print(f"[tw_rt] 優先 {len(hot)} 檔(使用者正在看) + 前50高量 + 輪掃{_rot_quota}"
                           f" → 本輪 {len(batch)} 檔；例：{hot[:5]}", flush=True)
@@ -587,6 +608,16 @@ def _tw_rt_overlay_worker():
                     _miss += 1
                     if _miss >= 2:
                         _nap = 60                         # 退避 60s 讓 MIS 解封(否則一直打→封鎖永不解，同 Pionex 教訓)
+                if _closing_fill:
+                    # 打過就算補過（MIS 查無／今天沒成交的也算，否則長尾永遠補不完＝無限打）
+                    _fill["seen"].update(batch)
+                    _fill["rounds"] += 1
+                    # ⚠ 一定要有輪數上限：MIS 被封或整批查無時 batch 會一直有東西，
+                    #   沒上限就會整晚每 12 秒打一次。60 輪 ≈ 12 分鐘，足夠補完 2700 檔。
+                    if _left <= _rot_quota or _fill["rounds"] >= 60:
+                        _fill["done"] = _day
+                        print(f"[tw_rt] 收盤補齊完成：{len(_fill['seen'])} 檔／{_fill['rounds']} 輪"
+                              f"（{_day}）", flush=True)
         except Exception:
             pass
         time.sleep(_nap)

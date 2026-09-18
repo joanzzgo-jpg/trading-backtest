@@ -344,6 +344,26 @@ def update(futures: list, spot: list):
 _TW_OV = {"day": "", "map": {}}
 
 
+def tw_rt_put(t: dict, u: dict):
+    """把一筆 MIS 值套到台股清單的某一列（三個呼叫點共用的唯一入口）。
+
+    ⚠ `u["est"]` ＝這個價是**估的**：MIS 對冷門股收盤後 z 是 "-"（只剩買賣盤），
+      `_mis_today_price` 用買賣區間估一個出來。估值只有在「基底還是昨天那份」時才比基底好；
+      基底(opendata)換成今天之後（收盤後好幾小時才換）再蓋上去，就是拿估值洗掉官方收盤價。
+      實測 2026-09-18 收盤後：6697 買 41.45／賣 41.50 → 我們估 41.475。
+      判準＝基底價還等於 MIS 給的昨收(y) → 基底就是昨天那份 → 套；已經不一樣就放手。
+    （z 有值＝真實成交價，收盤後就是官方收盤價 → 無條件套。）"""
+    if u.get("est") and u.get("prev") is not None:
+        p = t.get("price")
+        try:
+            if p is not None and abs(float(p) - float(u["prev"])) > 1e-9:
+                return                       # 基底已是今天的官方值 → 不可用估值蓋掉
+        except (TypeError, ValueError):
+            pass
+    t["price"] = u["price"]; t["change_pct"] = u["change_pct"]
+    t["change_amt"] = u["change_amt"]; t["volume"] = u["volume"]
+
+
 def _tw_ov_apply(lst: list):
     """把今天疊過的 MIS 值重新貼到剛抓回來的基底清單上（呼叫端需持有 _lock）。"""
     m = _TW_OV["map"]
@@ -352,8 +372,7 @@ def _tw_ov_apply(lst: list):
     for t in lst:
         u = m.get(t.get("symbol"))
         if u:
-            t["price"] = u["price"]; t["change_pct"] = u["change_pct"]
-            t["change_amt"] = u["change_amt"]; t["volume"] = u["volume"]
+            tw_rt_put(t, u)
 
 
 def tw_overlay_stats() -> dict:
@@ -387,8 +406,7 @@ def overlay_tw(price_map: dict, day: str = ""):
         for t in lst:
             u = price_map.get(t.get("symbol"))
             if u:
-                t["price"] = u["price"]; t["change_pct"] = u["change_pct"]
-                t["change_amt"] = u["change_amt"]; t["volume"] = u["volume"]
+                tw_rt_put(t, u)
         _cache["ts"] = time.time()
         _track("tw", lst)     # 就地改也要追蹤變動（prev 存副本，比對可靠）
         snap = dict(_cache)
