@@ -1196,7 +1196,10 @@ function updateCurrentPriceLabel() {
   if (y == null) { lbl.style.display = "none"; return; }
   lbl.textContent = (typeof _fmtPx === "function") ? _fmtPx(price) : price.toFixed(2);
   const _cpc = _curPriceCol();
-  lbl.style.background = _colA(_cpc, .30);
+  // 底色 90%（2026-09-19 使用者：「最新價的顯示底不要透明」→「70%」）。
+  // ⚠ 這顆的 alpha 有兩處要一起改：這裡是「跟著使用者選的現價色」算出來的實際值，
+  //   style.css 那條是色盤還沒套用前的預設底色 —— 只改一邊會在開圖那一瞬間閃出舊的淡色。
+  lbl.style.background = _colA(_cpc, .70);
   lbl.style.borderColor = _colA(_cpc, .9);
   lbl.style.top = Math.round(y) + "px";
   lbl.style.display = "block";
