@@ -40,7 +40,7 @@
 - ⚠ 輸出結構變更要升 `crt_wrNNN` 快取鍵版號（現為 v107），否則部署後 30 分鐘內會送出舊格式。
 
 ### 快取
-- 記憶體 `data_cache` 鍵 `crt_wr106:...`（輸出結構變更就遞增版號），TTL 30 分；crypto 另有
+- 記憶體 `data_cache` 鍵 `crt_wr107:...`（輸出結構變更就遞增版號），TTL 30 分；crypto 另有
   bar-aware 新鮮度（落後超過 1 根就重算＋補抓尾巴）；Redis 共享快取（有設 `REDIS_URL` 才啟用）。
 - 降級資料來源（Bybit/Pionex）不寫長效快取，見 claude.md「降級來源防污染」。
 

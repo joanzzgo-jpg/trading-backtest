@@ -180,7 +180,7 @@ html.perf-mode #fxPanel { transition: none !important; }
   --accent:  #FF9147;
   --legend-h: 22px;
   --topbar-h: 38px;
-  --symbar-h: 30px;
+  --symbar-h: 34.65px;   /* 2026-09-18 使用者：快捷工具圖示先 +5%、再 +10% → 原 30px × 1.155 */
 }
 
 html, body {
@@ -878,7 +878,8 @@ html.perf-mode .tk-seg {
 /* 繪圖顏色框（工具列）：色塊 + 該色所屬時框的文字標記 */
 /* 快捷繪圖列：放在開高低收量右側的空白處。左側工具島要滑到邊緣才彈出，這排常用的直接可按。
    ⚠ 視覺刻意與左側 .dt-btn 完全一致（圓角/配色/hover 微放大/選中暖橘暈），只有尺寸縮小：
-     符號列高度是 --symbar-h(30px) 且 overflow:hidden，塞不下 34px 的按鈕 → 用 24px。 */
+     符號列高度是 --symbar-h 且 overflow:hidden，塞不下 34px 的按鈕 → 用 27.72px。
+   2026-09-18：整排（圖示/按鈕/把手/分隔線/色塊/放置框）與符號列高度一起放大 —— 先 ×1.05、再 ×1.10（合計 ×1.155）。 */
 .sym-quickdraw {
   display: inline-flex; align-items: center; gap: 3px;
   /* 盡量靠中央，但不能壓到左邊的開高低收量。
@@ -939,12 +940,14 @@ html.perf-mode .tk-seg {
 .sym-econ .se-txt { overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }   /* 分鐘數跳動時寬度不變，後面的積木不晃 */
 .sym-econ.soon .se-txt { color: var(--text); font-weight: 700; }   /* 兩天內＝重點看待 */
 .sqd-btn {
-  width: 24px; height: 24px; padding: 0;
+  width: 27.72px; height: 27.72px; padding: 0;
   background: transparent; border: 1px solid transparent;
   color: var(--muted); border-radius: 7px; cursor: pointer;
   display: flex; align-items: center; justify-content: center; flex-shrink: 0;
   transition: background .14s ease, color .14s ease, border-color .14s ease, transform .14s cubic-bezier(.34,1.56,.64,1);
 }
+/* 圖示：HTML 裡各按鈕的 <svg> 都是 15×15 → 這裡統一 ×1.05（改一處就好，不必動 11 顆按鈕的標記）。 */
+.sqd-btn svg { width: 17.33px; height: 17.33px; }
 .sqd-btn:hover {
   background: color-mix(in srgb, var(--accent) 14%, transparent);
   color: var(--text);
@@ -957,12 +960,12 @@ html.perf-mode .tk-seg {
   border-color: color-mix(in srgb, var(--accent) 40%, transparent);
   box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 30%, transparent);
 }
-.sqd-sep { width: 1px; height: 15px; background: var(--border); margin: 0 4px; flex-shrink: 0; }
+.sqd-sep { width: 1px; height: 17.33px; background: var(--border); margin: 0 4px; flex-shrink: 0; }
 /* ⋮⋮ 拖曳把手＋浮動狀態（2026-09-17，跟 TradingView 浮動繪圖列同一種手感）。
    ⚠ 浮動時 ui.js 會把整排搬到 <body> 底下：符號列是 overflow:hidden，留在原處拖出去會被裁掉。
    ⚠ z-index 640：要壓過圖表與右緣交易欄(46)，但要在它自己叫出的色盤(.cp-popup 3000)、經濟事件浮層(700)之下。 */
 .sqd-grip {
-  width: 12px; height: 24px; flex-shrink: 0; margin-right: 1px; border-radius: 5px;
+  width: 13.86px; height: 27.72px; flex-shrink: 0; margin-right: 1px; border-radius: 5px;
   display: flex; align-items: center; justify-content: center;
   color: var(--muted); opacity: .5; cursor: grab; user-select: none; touch-action: none;
   transition: opacity .14s ease, background .14s ease;
@@ -1009,7 +1012,7 @@ html.perf-mode .sym-quickdraw.sqd-floating { background: #FFFFFF; box-shadow: 0 
    ・游標接近符號列（.symbol-bar.sb-drop）→ 全部以虛線框出現；靠近哪格哪格亮（.active） */
 .sqd-dock-slot {
   display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
-  height: 26px; box-sizing: border-box; border-radius: 9px;
+  height: 30.03px; box-sizing: border-box; border-radius: 9px;
   border: 1.5px solid transparent; color: transparent;   /* 半透明實線（2026-09-17 使用者：「改成半透明實線框」，原本虛線） */
   font-size: 11px; white-space: nowrap; overflow: hidden; pointer-events: none;
   transition: background .12s ease, border-color .12s ease, color .12s ease, box-shadow .12s ease;
@@ -1024,7 +1027,7 @@ html.perf-mode .symbol-bar.sb-drop > .sqd-dock-slot { border-color: rgba(0,0,0,.
 }
 .sqd-color {
   display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
-  width: 26px; height: 24px; padding: 0;
+  width: 30.03px; height: 27.72px; padding: 0;
   background: transparent; border: 1px solid transparent; border-radius: 7px; cursor: pointer; flex-shrink: 0;
   transition: background .14s ease, border-color .14s ease, transform .14s cubic-bezier(.34,1.56,.64,1);
 }
@@ -1035,10 +1038,10 @@ html.perf-mode .symbol-bar.sb-drop > .sqd-dock-slot { border-color: rgba(0,0,0,.
 }
 .sqd-color:active { transform: scale(.96); }
 .sqd-swatch {
-  width: 16px; height: 7px; border-radius: 2px; background: #f5c518;
+  width: 18.48px; height: 8.09px; border-radius: 2px; background: #f5c518;
   border: 1px solid rgba(0,0,0,.35); box-shadow: 0 0 0 1px rgba(255,255,255,.12) inset;
 }
-.sqd-tf { font-size: 8.5px; font-weight: 800; line-height: 1; color: var(--muted); letter-spacing: .02em; }
+.sqd-tf { font-size: 9.8px; font-weight: 800; line-height: 1; color: var(--muted); letter-spacing: .02em; }
 /* ⚠ 手機款(≤1180px)符號列**本來就已經溢出**：實測 390px 下「量=」「9.9K」「漲跌幅」
    就已經在畫面外被 overflow:hidden 靜靜切掉。倒數欄排在它們後面 → 一樣看不到，
    留著只是多佔一段看不見的寬度 → 跟著快捷列一起收起。
