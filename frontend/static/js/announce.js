@@ -110,6 +110,33 @@
 .ann-bul li:last-child{margin-bottom:0}
 .ann-bul li::before{content:"・";position:absolute;left:-1px;top:0;color:#bf9350}
 .ann-desc b{color:#63482a}
+/* 分頁列（2026-09-18 使用者：「更新資訊設計成可以看快捷鍵設置跟之前的更新資訊」） */
+.ann-tabs{display:flex;gap:6px;flex-shrink:0;margin:2px 0 10px;padding:3px;border-radius:12px;
+  background:rgba(160,120,60,.13);border:1.5px solid rgba(150,110,55,.2)}
+.ann-tab{flex:1;font-family:inherit;font-size:12.5px;font-weight:800;color:#8a6c42;background:transparent;
+  border:none;border-radius:9px;padding:7px 0;cursor:pointer;-webkit-tap-highlight-color:transparent;
+  transition:background .16s ease,color .16s ease,box-shadow .16s ease}
+.ann-tab:hover{color:#6b4f2a;background:rgba(255,252,240,.5)}
+.ann-tab.on{color:#fff;background:linear-gradient(180deg,#f2ab52,#e0872f);
+  box-shadow:0 3px 9px rgba(200,115,35,.32),0 1px 0 rgba(255,255,255,.35) inset}
+/* 快捷鍵表 */
+.ann-kbd-hint{font-size:11.5px;color:#9a7c4e;margin:0 2px 9px}
+.ann-kbd{display:flex;gap:11px;align-items:baseline;padding:8px 11px;margin-bottom:7px;border-radius:11px;
+  background:rgba(255,252,240,.62);border:1.5px solid rgba(150,110,55,.22)}
+.ann-kbd-k{flex:0 0 118px;display:flex;flex-wrap:wrap;gap:4px}
+.ann-kbd-k span{font-size:11.5px;font-weight:800;color:#5f4324;background:linear-gradient(180deg,#fffaf0,#f0ddb9);
+  border:1.5px solid rgba(150,110,55,.38);border-bottom-width:2.5px;border-radius:6px;padding:2px 7px;white-space:nowrap}
+.ann-kbd-d{flex:1;min-width:0;font-size:12.5px;line-height:1.55;color:#7c6142}
+/* 歷史更新 */
+.ann-hist-day{display:flex;align-items:center;gap:8px;margin:4px 0 8px;font-size:12px;font-weight:800;color:#8a6c42}
+.ann-hist-day::after{content:"";flex:1;height:1.5px;background:repeating-linear-gradient(90deg,rgba(150,110,55,.3) 0 6px,transparent 6px 11px)}
+.ann-hist-item{padding:9px 11px;margin-bottom:7px;border-radius:11px;background:rgba(255,252,240,.5);
+  border:1.5px solid rgba(150,110,55,.2)}
+.ann-hist-t{font-size:13px;font-weight:800;color:#5f4324;margin-bottom:3px}
+.ann-hist-d{font-size:12px;line-height:1.55;color:#84694a}
+.ann-hist-d p{margin:0 0 5px}
+.ann-hist-d p:last-child{margin-bottom:0}
+.ann-empty{padding:24px 6px;text-align:center;font-size:12.5px;color:#9a7c4e}
 .ann-foot{display:flex;gap:10px;justify-content:flex-end;align-items:center;flex-shrink:0;padding-top:4px}
 .ann-btn{font-family:inherit;padding:10px 20px;border-radius:13px;font-size:13.5px;font-weight:700;cursor:pointer;
   -webkit-tap-highlight-color:transparent;user-select:none;
@@ -141,62 +168,141 @@
     return list;
   }
 
-  function _build() {
+  /* HTML 逃脫 + **粗體**（內文一直用 ** 寫，2026-09-05 前是照字面顯示給使用者看的）。 */
+  const _md = t => String(t)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/\*\*([^\n]+?)\*\*/g, "<b>$1</b>");   // 不跨行：粗體不該跨段落
+
+  /* 說明排版（2026-09-18）：空行分段；行首「・」的連續幾行併成一個條列。
+     原本整段丟進 white-space:pre-line → 長條目糊成一片，條列折行還會掉回行首。 */
+  function _descHtml(desc) {
+    const out = [];
+    let bul = null;
+    const flush = () => { if (bul) { out.push(`<ul class="ann-bul">${bul.join("")}</ul>`); bul = null; } };
+    for (const par of String(desc).split(/\n{2,}/)) {
+      for (const line of par.split("\n")) {
+        const t = line.trim();
+        if (!t) continue;
+        if (t.startsWith("・")) { (bul = bul || []).push(`<li>${_md(t.slice(1).trim())}</li>`); }
+        else { flush(); out.push(`<p>${_md(t)}</p>`); }
+      }
+      flush();
+    }
+    return out.join("");
+  }
+
+  const _TAGC = { "新功能": "#e0872f", "更快了": "#2f9e8f", "修好了": "#6f9e3a", "調整": "#a67c4a" };
+  function _newsHtml() {
+    const list = _recentUpdates();
+    if (!list.length) return `<div class="ann-empty">目前沒有新消息</div>`;
+    return `<ul class="ann-list">` + list.map(([date, emo, name, desc, tag], i) => {
+      const col = _TAGC[tag] || "#d79a4a";
+      return `<li class="ann-item" style="animation-delay:${0.1 + i * 0.05}s;--ann-accent:${col}">` +
+        `<div class="ann-item-hd"><span class="ann-emoji">${emo}</span>` +
+        `<div class="ann-name">${_md(name)}</div>` +
+        (tag ? `<span class="ann-tag">${_md(tag)}</span>` : "") + `</div>` +
+        `<div class="ann-desc">${_descHtml(desc)}</div></li>`;
+    }).join("") + `</ul>`;
+  }
+
+  /* 快捷鍵：直接用 hotkeys.js 的那份清單（window._HOTKEY_ROWS）→ 只有一份來源，加新鍵不必兩邊改。 */
+  function _keysHtml() {
+    const rows = (typeof window !== "undefined" && window._HOTKEY_ROWS) || [];
+    if (!rows.length) return `<div class="ann-empty">快捷鍵清單還在載入…稍等一下再開這個分頁</div>`;
+    return `<div class="ann-kbd-hint">在輸入框打字時快捷鍵不作用；中文輸入法下也能用（認的是實體按鍵位置）。</div>` +
+      rows.map(([k, d]) =>
+        `<div class="ann-kbd"><div class="ann-kbd-k">` +
+        // ⚠ 只用「兩個以上空白／全形空白」切成多顆鍵；不可以用 "/" 切 ——
+        //   "/"（開啟搜尋）本身就是一個快捷鍵，切完會變成一顆空白晶片（2026-09-18 踩到）。
+        (String(k).split(/\s{2,}|　/).map(x => x.trim()).filter(Boolean).map(x => `<span>${_md(x)}</span>`).join("")
+          || `<span>${_md(k)}</span>`) +
+        `</div><div class="ann-kbd-d">${_md(d)}</div></div>`).join("");
+  }
+
+  /* 歷史更新：90KB 的 docs/announce-history.md 不進 bundle → 點開這個分頁才跟後端要（最近 30 天）。 */
+  /* 歸檔時說明被壓成一行（換行換成空白）→ 這裡把「・」還原成條列，讀起來跟最新消息一致。 */
+  function _histDesc(d) {
+    const parts = String(d).split("・").map(x => x.trim()).filter(Boolean);
+    if (parts.length < 2) return `<p>${_md(d)}</p>`;
+    const lead = String(d).trim().startsWith("・") ? "" : `<p>${_md(parts.shift())}</p>`;
+    return lead + `<ul class="ann-bul">${parts.map(x => `<li>${_md(x)}</li>`).join("")}</ul>`;
+  }
+  let _histHtml = null, _histLoading = false;
+  function _renderHist(ov) {
+    const box = ov.querySelector(".ann-scroll");
+    if (!box) return;
+    if (_histHtml) { box.innerHTML = _histHtml; return; }
+    box.innerHTML = `<div class="ann-empty">載入中…</div>`;
+    if (_histLoading) return;
+    _histLoading = true;
+    fetch("/api/announce_history?days=30", { cache: "no-cache" })
+      .then(r => { if (!r.ok) throw new Error("http " + r.status); return r.json(); })   // ⚠ 先看 r.ok：錯誤回應也是 JSON
+      .then(j => {
+        const secs = (j && j.sections) || [];
+        _histHtml = secs.length
+          ? secs.map(sec => `<div class="ann-hist-day">${_md(sec.date)}</div>` +
+              (sec.items || []).map(it =>
+                `<div class="ann-hist-item"><div class="ann-hist-t">${it.e ? it.e + " " : ""}${_md(it.t)}</div>` +
+                (it.d ? `<div class="ann-hist-d">${_histDesc(it.d)}</div>` : "") + `</div>`).join("")).join("")
+          : `<div class="ann-empty">還沒有歷史紀錄</div>`;
+      })
+      .catch(() => { _histHtml = `<div class="ann-empty">拿不到歷史更新（可能離線）；稍後再試。</div>`; })
+      .finally(() => {
+        _histLoading = false;
+        const cur = document.getElementById("announceOverlay");
+        if (cur && cur.dataset.tab === "hist") _renderHist(cur);
+      });
+  }
+
+  const _TABS = [["news", "最新消息"], ["keys", "快捷鍵"], ["hist", "更新紀錄"]];
+  function _showTab(ov, tab) {
+    ov.dataset.tab = tab;
+    ov.querySelectorAll(".ann-tab").forEach(b => b.classList.toggle("on", b.dataset.tab === tab));
+    const box = ov.querySelector(".ann-scroll");
+    if (tab === "hist") { _renderHist(ov); return; }
+    box.innerHTML = tab === "keys" ? _keysHtml() : _newsHtml();
+    box.scrollTop = 0;
+  }
+
+  function _build(opts) {
     _injectStyle();
+    const auto = !(opts && opts.manual);            // 自動彈出 vs 使用者自己打開（決定要不要給「不再提醒」）
+    const tab = (opts && opts.tab) || "news";
     const ov = document.createElement("div");
     ov.id = "announceOverlay";
-    // ⚠ 內文一直是用 **粗體** 這種標記寫的，但這裡是直接塞 innerHTML、從來沒做轉換
-    //   → 星號**照字面顯示**給使用者看（既有公告全都是這樣，2026-09-05 才發現）。
-    //   先逃脫 HTML 特殊字元（內容是我們自己寫的，但別留下注入的形狀），再轉粗體。
-    //   換行/條列由 _descHtml 排版（見下）。
-    const _md = t => String(t)
-      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-      .replace(/\*\*([^\n]+?)\*\*/g, "<b>$1</b>");   // 不跨行：粗體不該跨段落
-    /* 說明排版（2026-09-18）：空行分段；行首「・」的連續幾行併成一個條列。
-       原本整段丟進 white-space:pre-line → 長條目糊成一片，條列折行還會掉回行首。 */
-    const _descHtml = (desc) => {
-      const out = [];
-      let bul = null;
-      const flush = () => { if (bul) { out.push(`<ul class="ann-bul">${bul.join("")}</ul>`); bul = null; } };
-      for (const par of String(desc).split(/\n{2,}/)) {
-        for (const line of par.split("\n")) {
-          const t = line.trim();
-          if (!t) continue;
-          if (t.startsWith("・")) { (bul = bul || []).push(`<li>${_md(t.slice(1).trim())}</li>`); }
-          else { flush(); out.push(`<p>${_md(t)}</p>`); }
-        }
-        flush();
-      }
-      return out.join("");
-    };
-    const _TAGC = { "新功能": "#e0872f", "更快了": "#2f9e8f", "修好了": "#6f9e3a", "調整": "#a67c4a" };
-    const items = _recentUpdates().map(([date, emo, name, desc, tag], i) => {
-      const col = _TAGC[tag] || "#d79a4a";
-      return `<li class="ann-item" style="animation-delay:${0.12 + i * 0.06}s;--ann-accent:${col}">` +
-      `<div class="ann-item-hd"><span class="ann-emoji">${emo}</span>` +
-      `<div class="ann-name">${_md(name)}</div>` +
-      (tag ? `<span class="ann-tag">${_md(tag)}</span>` : "") + `</div>` +
-      `<div class="ann-desc">${_descHtml(desc)}</div></li>`;
-    }).join("");
     ov.innerHTML =
-      `<div class="ann-card" role="dialog" aria-label="更新公告">` +
+      `<div class="ann-card" role="dialog" aria-label="更新資訊">` +
       `<span class="ann-ver">${PUB_DATE.replace(/-/g, ".")}</span>` +
       `<button class="ann-close" id="_annX" aria-label="關閉">×</button>` +
       `<div class="ann-head">` +
       `<img class="ann-bear" src="${_v("/static/img/bear.png")}" alt="">` +
-      `<div class="ann-head-txt"><div class="ann-title">熊報 · 最新消息</div>` +
+      `<div class="ann-head-txt"><div class="ann-title">熊報 · 更新資訊</div>` +
       `<div class="ann-sub">小啊幫你整理了 ${_recentUpdates().length} 則更新 🍊</div></div></div>` +
-      `<div class="ann-scroll"><ul class="ann-list">${items}</ul></div>` +
+      `<div class="ann-tabs">` + _TABS.map(([id, label]) =>
+        `<button class="ann-tab" data-tab="${id}">${label}</button>`).join("") + `</div>` +
+      `<div class="ann-scroll"></div>` +
       `<div class="ann-foot">` +
-      `<button class="ann-btn ann-btn-ghost" id="_annNever">不再提醒</button>` +
-      `<button class="ann-btn ann-btn-primary" id="_annLater">我知道了！</button></div></div>`;
+      (auto ? `<button class="ann-btn ann-btn-ghost" id="_annNever">不再提醒</button>` : "") +
+      `<button class="ann-btn ann-btn-primary" id="_annLater">${auto ? "我知道了！" : "關閉"}</button></div></div>`;
     document.body.appendChild(ov);
-    const close = () => ov.remove();
+    _showTab(ov, tab);
+    const close = () => { ov.remove(); document.removeEventListener("keydown", onKey, true); };
+    const onKey = e => { if (e.key === "Escape") { e.stopPropagation(); close(); } };
+    document.addEventListener("keydown", onKey, true);
     ov.addEventListener("click", e => { if (e.target === ov) close(); });                 // 點背景＝這次先關(下次還會跳)
+    ov.querySelectorAll(".ann-tab").forEach(b => b.addEventListener("click", () => _showTab(ov, b.dataset.tab)));
     ov.querySelector("#_annX").addEventListener("click", close);
-    ov.querySelector("#_annLater").addEventListener("click", close);                      // 知道了＝這次先關
-    ov.querySelector("#_annNever").addEventListener("click", () => { _markSeen(); close(); });  // 不再顯示＝此裝置永久關
+    ov.querySelector("#_annLater").addEventListener("click", close);
+    const never = ov.querySelector("#_annNever");
+    if (never) never.addEventListener("click", () => { _markSeen(); close(); });          // 不再顯示＝此裝置永久關
   }
+
+  /* 隨時打開（設定列的「更新資訊」、按 ? 看快捷鍵都走這支）。已開著就切分頁，不疊第二層。 */
+  window._annOpen = function (tab) {
+    const cur = document.getElementById("announceOverlay");
+    if (cur) { if (cur.dataset.tab === tab) cur.remove(); else _showTab(cur, tab || "news"); return; }
+    _build({ manual: true, tab: tab || "news" });
+  };
 
   function _maybeShow(tries) {
     if (_seen()) return;
@@ -205,7 +311,7 @@
       return;
     }
     if (document.getElementById("announceOverlay")) return;
-    _build();
+    _build({});
   }
 
   function init() { setTimeout(() => _maybeShow(30), 1500); }   // 進站稍等再跳，最多等封面 30 秒

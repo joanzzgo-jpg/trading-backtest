@@ -781,6 +781,49 @@ def index(request: Request):
     )
 
 
+# ── 歷史更新公告（給前端「更新紀錄」分頁；2026-09-18）────────────────────────────
+#   ⚠ 這份 docs/announce-history.md 有 90KB，**不可以**塞進首屏 bundle（公告彈窗本來就是
+#     為了這個才把舊條目搬出去的）→ 使用者真的點開那個分頁才抓，且只回最近 N 天。
+#   解析格式：`## YYYY-MM-DD` 一節，節內每行 `- emoji **標題** — 說明`。
+_ANN_HIST_MD = os.path.join(os.path.dirname(__file__), "..", "docs", "announce-history.md")
+_ann_hist_cache = {"mtime": None, "data": None}
+
+
+def _parse_announce_history(limit_days: int):
+    out, cur = [], None
+    with open(_ANN_HIST_MD, encoding="utf-8") as f:
+        for line in f:
+            line = line.rstrip("\n")
+            if line.startswith("## "):
+                if len(out) >= limit_days:
+                    break
+                cur = {"date": line[3:].strip(), "items": []}
+                out.append(cur)
+            elif cur is not None and line.startswith("- "):
+                body = line[2:].strip()
+                emo, _, rest = body.partition(" ")
+                title, sep, desc = rest.partition(" — ")
+                if not sep:                      # 沒有破折號（舊格式）→ 整行當標題
+                    title, desc = rest, ""
+                cur["items"].append({"e": emo, "t": title.strip().strip("*"), "d": desc.strip()})
+    return [s for s in out if s["items"]]
+
+
+@app.get("/api/announce_history")
+def announce_history(days: int = 30):
+    """歷史更新公告（最近 days 天，預設 30）。依檔案 mtime 快取，改檔才重解析。"""
+    try:
+        mt = os.path.getmtime(_ANN_HIST_MD)
+    except OSError:
+        return {"sections": []}
+    days = max(1, min(int(days or 30), 120))
+    key = (mt, days)
+    if _ann_hist_cache["mtime"] != key:
+        _ann_hist_cache["data"] = {"sections": _parse_announce_history(days)}
+        _ann_hist_cache["mtime"] = key
+    return _ann_hist_cache["data"]
+
+
 @app.get("/sw.js")
 def service_worker():
     """從根路徑提供 service worker（PWA 需要 root scope 才能控制整站）。"""

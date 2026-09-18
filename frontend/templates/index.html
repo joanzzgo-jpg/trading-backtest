@@ -1001,6 +1001,8 @@
   <div class="color-row"><label>次要文字</label><div class="sys-color-swatch" data-sc="sc-muted"></div></div>
   <div class="color-row"><label>強調色</label>  <div class="sys-color-swatch" data-sc="sc-blue"></div></div>
   <button id="resetSysColors" class="btn-reset">重設預設色</button>
+  <!-- 更新資訊（最新消息／快捷鍵／更新紀錄）：彈窗只會自動跳一次，這裡是隨時打得開的入口 -->
+  <button id="sysAnnBtn" class="btn-reset" onclick="event.stopPropagation();window._annOpen&&window._annOpen('news');">🍊 更新資訊 · 快捷鍵</button>
   <!-- 帳號：登入在封面門上的鎖；這裡顯示登入狀態 + 登出 -->
   <div id="sysAcctRow" class="sys-acct-row">
     <img src="{{ v('/static/img/bear.png') }}" class="sys-acct-avatar" alt="">
@@ -1277,6 +1279,10 @@
     <button class="m-set-row" id="mSetAccel" onclick="event.stopPropagation();window.toggleAccel?.();">
       <span class="m-set-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" filter="url(#mSketch)"><path d="M13 2.5 L5 13.5 H11 L9.5 21.5 L19 9.5 H12.5 Z"/></svg></span>
       <span class="m-set-lbl">加速器（預載自選標的）<small id="mSetAccelState">開啟</small></span><span class="m-set-arr">›</span>
+    </button>
+    <button class="m-set-row" id="mSetAnn" onclick="event.stopPropagation();window._annOpen&&window._annOpen('news');">
+      <span class="m-set-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" filter="url(#mSketch)"><path d="M4 5.5 H20 M4 10 H20 M4 14.5 H14"/><path d="M17.5 17 L19.5 19 L22 15.5"/></svg></span>
+      <span class="m-set-lbl">更新資訊<small>最新消息 · 快捷鍵 · 更新紀錄</small></span><span class="m-set-arr">›</span>
     </button>
     <button class="m-set-row" id="mSetInstall" onclick="event.stopPropagation();window._pwaInstall?.();" style="display:none">
       <span class="m-set-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" filter="url(#mSketch)"><path d="M12 3.5 V14.5 M8 11 L12 15 L16 11"/><path d="M4.5 16.5 V19 A1.5 1.5 0 0 0 6 20.5 H18 A1.5 1.5 0 0 0 19.5 19 V16.5"/></svg></span>

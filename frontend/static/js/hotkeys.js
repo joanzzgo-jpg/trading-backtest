@@ -148,7 +148,9 @@
     // ? 與 Esc 要能關掉自己這張表（即使有其他遮罩判斷）
     const sheet = document.getElementById(SHEET_ID);
     if (sheet && (e.key === "Escape" || K === "?")) { e.preventDefault(); sheet.remove(); return; }
-    if (K === "?") { e.preventDefault(); _toggleSheet(); return; }
+    // ⚠ 走 window._hotkeySheet（下方會改指向「更新資訊」面板的快捷鍵分頁）；直接叫本地 _toggleSheet
+    //   的話按 ? 永遠只開舊的那張簡表（2026-09-18 踩到）。
+    if (K === "?") { e.preventDefault(); (window._hotkeySheet || _toggleSheet)(); return; }
 
     if (_overlayOpen()) return;
 
@@ -257,5 +259,13 @@
     if (typeof showToast === "function") showToast(isLine ? "線型圖" : "K 棒圖");
   }, false);
 
-  window._hotkeySheet = _toggleSheet;   // 供說明按鈕呼叫
+  /* 這份清單同時給「更新資訊」彈窗的「快捷鍵」分頁用（announce.js 讀 window._HOTKEY_ROWS）
+     → 只有一份來源，之後加新快捷鍵不必兩邊改。 */
+  window._HOTKEY_ROWS = ROWS;
+  /* ? 鍵／說明按鈕：優先開「更新資訊」面板的快捷鍵分頁（同一個地方看更新、快捷鍵、歷史）；
+     announce.js 是延遲載入的 → 還沒載到就退回原本這張簡表。 */
+  window._hotkeySheet = function () {
+    if (typeof window._annOpen === "function") { window._annOpen("keys"); return; }
+    _toggleSheet();
+  };
 })();
