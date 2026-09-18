@@ -727,6 +727,13 @@ html.perf-mode .tk-seg {
   transition: all .12s;
 }
 .btn-reset:hover { color: var(--text); border-color: var(--muted); }
+/* 「重設預設色」按第一下後的待確認狀態（2026-09-18）：整顆變警示色，明確表示「再按就真的重設」 */
+.btn-reset-confirm {
+  color: #fff !important;
+  background: var(--red) !important;
+  border-color: var(--red) !important;
+  font-weight: 700;
+}
 
 .wl-del   { background: none; border: none; color: var(--muted); cursor: pointer;
             padding: 0 2px; line-height: 1; transition: color .1s; flex-shrink: 0;

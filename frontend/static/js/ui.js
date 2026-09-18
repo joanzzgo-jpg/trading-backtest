@@ -311,6 +311,7 @@ function bindEvents() {
 
   // 共用：關閉所有浮動面板（確保同時只開一個）
   window._closeAllFloatPanels = function(except) {
+    if (typeof window._sysResetDisarm === "function") window._sysResetDisarm();   // 重設鍵回到未確認狀態
     if (except !== "fx") {
       document.getElementById("fxPanel")?.classList.add("hidden");
       document.getElementById("fxToggleBtn")?.classList.remove("fx-open");
@@ -1503,12 +1504,43 @@ function bindSystemColors() {
     });
   });
 
-  document.getElementById("resetSysColors")?.addEventListener("click", () => {
-    SC = { ...SC_DEFAULTS };
-    syncSysSwatches();
-    applyAllSystemColors();
-    saveSystemColors();
-  });
+  /* 「重設預設色」＝一按就把使用者調過的整組系統配色蓋掉，而且沒有復原 → 要二次確認
+     （2026-09-18 使用者：「重設預設鍵要加防呆機制，要讓使用者二次確認」）。
+     ⚠ 不用 confirm() 對話框：本專案的原則是操作類提示不要跳框（見 memory feedback_no-operational-toasts）
+       → 改成按鈕自己變成「再按一次＝確定重設」，4 秒內沒有第二下就自動取消（誤觸不會有事）。
+     ⚠ 面板關掉 / 點到別的地方，也一律取消，避免下次打開時按鈕還停在「確定」狀態被誤按。 */
+  {
+    const _rb = document.getElementById("resetSysColors");
+    if (_rb) {
+      const _label = _rb.textContent;
+      let _armed = false, _timer = null;
+      const _disarm = () => {
+        _armed = false;
+        clearTimeout(_timer);
+        _rb.textContent = _label;
+        _rb.classList.remove("btn-reset-confirm");
+      };
+      window._sysResetDisarm = _disarm;          // 面板關閉時呼叫（見 _closeAllFloatPanels）
+      _rb.addEventListener("click", e => {
+        e.stopPropagation();
+        if (!_armed) {                            // 第一下：只是「準備好」，什麼都還沒動
+          _armed = true;
+          _rb.textContent = "再按一次＝確定重設";
+          _rb.classList.add("btn-reset-confirm");
+          clearTimeout(_timer);
+          _timer = setTimeout(_disarm, 4000);
+          return;
+        }
+        _disarm();                                // 第二下：真的重設
+        SC = { ...SC_DEFAULTS };
+        syncSysSwatches();
+        applyAllSystemColors();
+        saveSystemColors();
+        _rb.textContent = "已重設";
+        setTimeout(() => { _rb.textContent = _label; }, 1200);
+      });
+    }
+  }
 }
 
 /* ══════════════════════════════════════════
