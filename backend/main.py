@@ -549,19 +549,28 @@ def _tw_rt_overlay_worker():
             _wd = now_tpe.weekday() < 5
             # ── 盤中(09:00-13:35 TPE，尾端多留 5 分收尾) ─────────────────────────
             _intraday = _wd and 9 * 60 <= mod < 13 * 60 + 35
-            # ── 收盤補齊：★判準是「今天這批收盤價補齊了沒」，不是時鐘窗口 ────────
-            #   opendata 基底收盤後很久還是**昨天**的（實測 9/18 14:52 仍給 2330=2425＝昨收，
-            #   今日官方收盤 2460）→ 沒被 MIS 疊到的股票就停在昨日收盤＋昨日漲跌幅。
-            #   ⚠ 前一版寫成「13:35~14:30 才補」，於是 14:52 部署重啟後疊價表清空、窗口又已過
-            #     → 線上抽樣 10 檔有 8 檔退回昨天的價（就是這個 bug 的第二現場）。
-            #   改成：收盤後只要「今天還沒補齊」就一直補，補完就停 → 不管幾點重啟都會自己補回來，
-            #   而補完之後疊價表常駐（update_tw 每次覆蓋前重貼），不需要再打 MIS。
-            #   收盤後 MIS 仍回得到今日最終價（實測 d=20260918、t=13:30:00）。
-            _closing_fill = _wd and mod >= 13 * 60 + 35 and _fill["done"] != _day
+            # ── 收盤補齊：★判準是「最近一個收盤日的收盤價，抓到了沒」──────────────
+            #   ★★ opendata 基底**永遠落後一整個交易日**（2026-09-19 01:30 實測：TWSE
+            #      STOCK_DAY_ALL 的 Date 還是 **1150917**＝9/17，2330 給 2425；9/18 收盤是 2460）
+            #      → 這條疊價鏈**不是錦上添花，是唯一的真值來源**，少跑一次就整份清單退回前一天。
+            #   ⚠ 踩過兩次同一個坑，都是「補齊只在某個時間窗內做」：
+            #     ① 寫成 13:35~14:30 → 14:52 部署重啟就補不到（線上抽樣 8/10 檔退回昨天）
+            #     ② 改成「收盤後(>13:35)只要今天沒補齊就補」→ **凌晨 01:30 部署重啟**照樣補不到
+            #        （mod 才 90 分，連 13:35 都還沒到）→ 線上 2302 檔有 **1191 檔**退回 9/17。
+            #   → 判準與時鐘完全脫鉤：**只要不在盤中，而且「最近一個已收盤的交易日」還沒補齊就補**。
+            #      不管幾點、平日假日、重啟幾次，都會在一輪內把整份清單補成最後一次收盤價。
+            _sess_d = now_tpe if (_wd and mod >= 13 * 60 + 35) else None
+            if _sess_d is None:                           # 往前找最近一個平日（＝上一個交易日）
+                _sess_d = now_tpe - _td(days=1)
+                while _sess_d.weekday() >= 5:
+                    _sess_d -= _td(days=1)
+            _sess = _sess_d.strftime("%Y-%m-%d")          # ⚠ 國定假日不在這張表裡：那天上游會回
+            #   上一個交易日的價（值仍是對的），只是 done 標記記成假日那天——無害。
+            _closing_fill = (not _intraday) and _fill["done"] != _sess
             if _closing_fill:
-                _nap = 12                                 # 不需要即時性 → 放慢，對 MIS 客氣
-                if _fill["prog"] != _day:                 # 換日／第一次進入 → 進度重新計
-                    _fill.update(prog=_day, seen=set(), rounds=0)
+                _nap = 12                                 # 不需要即時性 → 放慢，對上游客氣
+                if _fill["prog"] != _sess:                # 換交易日／第一次進入 → 進度重新計
+                    _fill.update(prog=_sess, seen=set(), rounds=0)
             if (_intraday or _closing_fill) and has_tw_data():
                 lst = live_get("tw")
                 syms = [t["symbol"] for t in
@@ -655,9 +664,9 @@ def _tw_rt_overlay_worker():
                     # ⚠ 一定要有輪數上限：上游被封或整批查無時 batch 會一直有東西，
                     #   沒上限就會整晚每 12 秒打一次。60 輪 ≈ 12 分鐘，足夠補完 2700 檔。
                     if len(_fill["seen"]) >= len(syms) or _fill["rounds"] >= 60:
-                        _fill["done"] = _day
+                        _fill["done"] = _sess
                         print(f"[tw_rt] 收盤補齊完成：{len(_fill['seen'])} 檔／{_fill['rounds']} 輪"
-                              f"（{_day}）", flush=True)
+                              f"（交易日 {_sess}）", flush=True)
         except Exception:
             pass
         time.sleep(_nap)
