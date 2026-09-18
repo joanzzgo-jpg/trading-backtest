@@ -135,7 +135,8 @@
 - ⚠ 面板的工具名稱只取 `：`／`（` 之前那段：`title` 後面接的是用法說明，整句拿來當名稱會把面板撐爆。
 - ⚠ 符號列是 `overflow:hidden` → 多一顆按鈕就可能被**安靜切掉**；1280~1920 六種寬度都量過
   （沒折行、沒被切、編輯鈕 `elementFromPoint` 命中）。
-- `qdTools` 不在 `_ACCT_SKIP` → 跟著帳號快照跨裝置。
+- `qdTools` 不在 `_ACCT_SKIP` → 跟著帳號快照跨裝置，且列在 `_LIVE`：拉下來時呼叫
+  `window._qdRender()` **當場重畫**，不必為了這個整頁重載。
 
 ## 鍵盤快捷鍵（`hotkeys.js`，自訂於 2026-09-19）
 
@@ -154,7 +155,9 @@
   不自己讀 localStorage（綁定規則只能有一份）。
   ⚠ 錄製時的 keydown 必須走 **capture 階段並 stopPropagation**：hotkeys.js 對「說明鍵」的處理
   排在「有彈窗就讓路」之前 → 不攔的話，按到說明鍵會在錄製中把整個面板關掉。
-- `hotkeyMap` 不在 `_ACCT_SKIP` → 跟著帳號快照跨裝置。
+- `hotkeyMap` 不在 `_ACCT_SKIP` → 跟著帳號快照跨裝置，且列在 `_LIVE`：拉下來時呼叫
+  `window._hkReload()` 重讀 `_override` 並刷新顯示清單 —— ⚠ 不重讀的話，**localStorage 已是新的、
+  派送用的仍是開機時那份**，畫面顯示新鍵但按了沒反應。
 
 ## 前端圖表標記視窗化（效能，`render.js` / `charts.js`）
 - 小時/4H 背景載入上千根 → CRT+KDJ叉+共振+多空訊號可達**數千標記**（4h 滑到底 ~8500），全丟 `setMarkers` 會讓每次平移/縮放重繪全部 → 卡。

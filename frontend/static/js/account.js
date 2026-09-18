@@ -274,9 +274,11 @@ async function _acctPullDrawings(name, _bootPull) {
                                  "chartColors", "chartStyles", "chartLineStyles",
                                  "chartColors_m", "chartStyles_m", "chartLineStyles_m",
                                  // lastSymbol 走 loadLastSymbol(true)+loadData() 當場切過去，不必重載
-                                 "lastSymbol"]);
+                                 "lastSymbol",
+                                 // 自訂快捷鍵／快捷繪圖列：各有重讀重畫的入口 → 不必為了它整頁重載
+                                 "hotkeyMap", "qdTools"]);
           let colorsChanged = false, sysChanged = false, tfPenChanged = false, needReload = false;
-          let lastSymChanged = false;
+          let lastSymChanged = false, hotkeyChanged = false, qdChanged = false;
           for (const k in r.data) {
             if (_PULL_SKIP.has(k)) continue;
             const remote = r.data[k];
@@ -300,6 +302,8 @@ async function _acctPullDrawings(name, _bootPull) {
             if (k === "lastSymbol") lastSymChanged = true;
             else if (k === "sysColors") sysChanged = true;
             else if (k === "drawColorByTf") tfPenChanged = true;
+            else if (k === "hotkeyMap") hotkeyChanged = true;
+            else if (k === "qdTools") qdChanged = true;
             else if (k.startsWith("chart")) colorsChanged = true;
             if (!_LIVE.has(k)) needReload = true;   // 例：hiddenLegs / notifyPrefs / 勝率欄設定…
           }
@@ -323,6 +327,9 @@ async function _acctPullDrawings(name, _bootPull) {
           if (colorsChanged) {
             try { loadPrefs(); applyAllColors(); } catch (e) {}
           }
+          // 自訂快捷鍵／快捷繪圖列：各自重讀那份記憶體副本並重畫（見 hotkeys.js _hkReload / ui.js _qdRender）
+          if (hotkeyChanged) { try { window._hkReload?.(); } catch (e) {} }
+          if (qdChanged) { try { window._qdRender?.(); } catch (e) {} }
           // 時框畫筆色：draw.js 讀 localStorage 算出當前時框的預選色 → 重同步兩處色框
           if (tfPenChanged) {
             try { window._syncTfPenColors?.(); window._syncDrawColorChip?.(); } catch (e) {}

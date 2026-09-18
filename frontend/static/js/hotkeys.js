@@ -351,6 +351,12 @@
   }));
   window._hkBind = _bind;                      // (id, key) → {ok} / {ok:false, why}
   window._hkResetAll = _resetAll;
+  /* 帳號同步把雲端的 hotkeyMap 寫進 localStorage 之後呼叫這支 → 當場生效，不必整頁重載。
+     ⚠ _override 是模組載入時讀的一份記憶體副本，不重讀的話畫面/派送都還是舊綁定。 */
+  window._hkReload = function () {
+    try { _override = JSON.parse(localStorage.getItem(LS_KEY) || "{}") || {}; } catch (e) { _override = {}; }
+    _syncRows();
+  };
   window._hkDisp = _disp;
   window._hkPhysKey = _physKey;                // 編輯時要用同一套實體鍵判定（中文輸入法也能綁）
   window._HOTKEY_FIXED = FIXED;                // 不可改的那些（UI 直接列，不要自己用字串規則挑）
