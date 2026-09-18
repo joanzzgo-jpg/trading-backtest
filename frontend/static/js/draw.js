@@ -2401,10 +2401,30 @@ function _drawVisHL(W, H) {
     if (isFinite(l) && l < lo) { lo = l; loI = i; }
   }
   if (hiI < 0 || loI < 0) return;
+  /* 次高／次低（2026-09-19 使用者：「圖表新增次高跟次低位 在可見高低裡」）。
+     ⚠ **不可以直接取「第二大的 high」**：那幾乎一定是最高點**隔壁那根**（相鄰棒的高點差通常
+       只有一兩檔）→ 兩條線疊在一起，等於沒有多給任何資訊。
+     → 次高＝「離最高點夠遠的那些棒裡最高的」，才算得上另一個價位。
+       隔離距離用可見根數的 5%（至少 3 根）：跟著縮放自動調整，放大時不會因為根數變少就找不到。 */
+  const _span = to - from + 1;
+  const _gap = Math.max(3, Math.round(_span * 0.05));
+  const _second = (extI, isHi) => {
+    let v = isHi ? -Infinity : Infinity, idx = -1;
+    for (let i = from; i <= to; i++) {
+      if (Math.abs(i - extI) <= _gap) continue;             // 同一個波段的鄰棒不算
+      const b = ohlcvData[i];
+      if (!b) continue;
+      const p = isHi ? +b.high : +b.low;
+      if (!isFinite(p)) continue;
+      if (isHi ? p > v : p < v) { v = p; idx = i; }
+    }
+    return idx < 0 ? null : { idx, price: v };
+  };
+  const hi2 = _second(hiI, true), lo2 = _second(loI, false);
   let plotW = W;
   try { const tw = ts.width(); if (tw > 0) plotW = tw; } catch (e) {}
 
-  const _mark = (idx, price, isHi) => {
+  const _mark = (idx, price, isHi, second) => {
     const x = ts.timeToCoordinate(toTime(ohlcvData[idx].time));
     const y = candleSeries.priceToCoordinate(price);
     if (x == null || y == null) return;                       // 座標算不出來(不在圖上)→ 不畫
@@ -2415,19 +2435,24 @@ function _drawVisHL(W, H) {
     drawCtx.save();
     drawCtx.strokeStyle = col; drawCtx.fillStyle = col;
     drawCtx.lineWidth = 1;
+    // 次高/次低用「三角形小一號＋虛線細一點」區分主次，**不靠調淡**
+    //   （2026-09-19 使用者：「次高／次低 太淡」→ 0.62 提到 0.9，字也改回粗體）
+    if (second) drawCtx.globalAlpha = 0.9;
+    const _t = second ? 2 : 3, _b = second ? 8 : 11, _w = second ? 4 : 5;
     // 三角形指向那根棒的高/低點
     drawCtx.beginPath();
-    drawCtx.moveTo(x, y + dir * 3);
-    drawCtx.lineTo(x - 5, y + dir * 11);
-    drawCtx.lineTo(x + 5, y + dir * 11);
+    drawCtx.moveTo(x, y + dir * _t);
+    drawCtx.lineTo(x - _w, y + dir * _b);
+    drawCtx.lineTo(x + _w, y + dir * _b);
     drawCtx.closePath(); drawCtx.fill();
     // 貫穿整張圖的水平虛線，方便對照右軸
-    drawCtx.globalAlpha = 0.35;
-    drawCtx.setLineDash([4, 4]);
+    drawCtx.globalAlpha = second ? 0.32 : 0.35;
+    drawCtx.setLineDash(second ? [3, 4] : [4, 4]);
     drawCtx.beginPath(); drawCtx.moveTo(0, y); drawCtx.lineTo(plotW, y); drawCtx.stroke();
-    drawCtx.setLineDash([]); drawCtx.globalAlpha = 1;
+    drawCtx.setLineDash([]); drawCtx.globalAlpha = second ? 0.9 : 1;
     // 數值：小數位跟右軸同一套（_fmtPx 省略 prec 時吃 window._pxPrec）
-    const txt = (isHi ? "高 " : "低 ") + ((typeof _fmtPx === "function") ? _fmtPx(price) : price);
+    const txt = (second ? (isHi ? "次高 " : "次低 ") : (isHi ? "高 " : "低 "))
+              + ((typeof _fmtPx === "function") ? _fmtPx(price) : price);
     drawCtx.font = "bold 11px sans-serif";
     drawCtx.textAlign = "left";
     const tw2 = drawCtx.measureText(txt).width;
@@ -2435,15 +2460,18 @@ function _drawVisHL(W, H) {
     let lx = x + 8;
     if (lx + tw2 + 8 > plotW) lx = x - 8 - tw2;
     if (lx < 2) lx = 2;
-    const ly = y + dir * 14;
+    const ly = y + dir * (second ? 11 : 14);
     drawCtx.fillStyle = "rgba(20,24,34,0.82)";
     drawCtx.fillRect(lx - 4, ly - 9, tw2 + 8, 16);
     drawCtx.fillStyle = col;
     drawCtx.fillText(txt, lx, ly + 3);
     drawCtx.restore();
   };
-  _mark(hiI, hi, true);
-  _mark(loI, lo, false);
+  // 先畫次高/次低 → 極值那組疊在上面（重疊時看得到的是主要的那條）
+  if (hi2) _mark(hi2.idx, hi2.price, true, true);
+  if (lo2) _mark(lo2.idx, lo2.price, false, true);
+  _mark(hiI, hi, true, false);
+  _mark(loI, lo, false, false);
 }
 
 function _drawKeyLevels(W, H) {
