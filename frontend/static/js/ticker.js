@@ -404,8 +404,16 @@ function _tkHotTw() {
   const out = [];
   const add = s => { s = String(s || "").trim(); if (s && !out.includes(s)) out.push(s); };
   try {
+    // ⚠ 順序＝優先序（下面有 60 檔上限）：主圖標的 → 自選 → 畫面上看得到的列。
+    //   自選一定要排在「可見列」前面：台股分頁一次可見 20~40 列，排後面時自選會被擠掉
+    //   （使用者：「可以做到自選也五秒更新嗎」→ 自選是他明確標記要盯的，不能被清單擠掉）。
     const cur = document.getElementById("marketSelect")?.value;
     if (cur === "tw") add(document.getElementById("symbolInput")?.value);
+    try {
+      for (const w of JSON.parse(localStorage.getItem("watchlist") || "[]")) {
+        if (w && w.market === "tw") add(w.symbol);      // 人在別的分頁時，自選列也照樣要跳
+      }
+    } catch (e) {}
     const list = document.querySelector(".ticker-list");
     if (list) {
       const box = list.getBoundingClientRect();
@@ -414,12 +422,6 @@ function _tkHotTw() {
         if (r.bottom > box.top - 40 && r.top < box.bottom + 40) add(el.dataset.sym);   // 視窗內(±40px)
       });
     }
-    // 自選裡的台股：使用者可能在別的分頁，但那幾檔仍在自選列顯示價格
-    try {
-      for (const w of JSON.parse(localStorage.getItem("watchlist") || "[]")) {
-        if (w && w.market === "tw") add(w.symbol);
-      }
-    } catch (e) {}
   } catch (e) {}
   return out.slice(0, 60);
 }
