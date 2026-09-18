@@ -9,34 +9,27 @@
 //         ③ 把 PUB_ID 換成新值 → 所有裝置版本不符 → 全部重跳，且只看到「近兩天」這批更新。
 //   （PUB_ID 是內部版本鍵、只管「要不要重跳」；PUB_DATE 同時是卡片顯示日期＋「近 48h」過濾錨點。）
 (function () {
-  const PUB_ID   = "2026-09-17-1";     // ⚠ 只有「發公告」時才 bump（換任意新字串即可）→ 觸發全裝置重跳
-  const PUB_DATE = "2026-09-17";       // 卡片右上顯示的日期
+  const PUB_ID   = "2026-09-18-1";     // ⚠ 只有「發公告」時才 bump（換任意新字串即可）→ 觸發全裝置重跳
+  const PUB_DATE = "2026-09-18";       // 卡片右上顯示的日期
   const KEY = "announceSeenVer";
-  // 累積更新（依日期）：[日期 YYYY-MM-DD, emoji, 標題, 說明]
+  // 累積更新（依日期）：[日期 YYYY-MM-DD, emoji, 標題, 說明, 分類標籤(選填)]
+  //   分類標籤＝卡片右上角的小晶片：新功能／更快了／修好了／調整（沒寫就不顯示晶片）。
+  //   說明的排版：空行分段；行首「・」會自動排成條列（自動縮排對齊，不會在第二行掉回行首）。
   //   彈窗只顯示「當日（＝PUB_DATE）」的項目（發公告時把當天新增項目標上今天日期即可）。
   //   ⚠ 舊條目使用者永遠看不到、卻整包跟著首屏 bundle 下載 → 發公告時順手把「超過 ~3 天」
   //     的舊條目移到 docs/announce-history.md 歸檔（此檔只留近幾天 + 至少一天的退路項目）。
   const UPDATES = [
-    ["2026-09-17", "✏️", "繪圖快捷列可以拖到任何地方，像 TradingView 一樣",
-     "開高低收右邊那排繪圖工具，最左邊多了一個 **⋮⋮ 把手**：\n\n・**拖出來**：放在圖表上任何位置，變成浮動工具列，位置會記住。\n・**放回去**：拖進上方那一列就會出現放置框，可以放在「通知／鎖定／文字」和經濟事件倒數的**前、中、後**任一格，順序會記住。\n・**雙擊把手**：直接放回上方那一列。\n\n選取繪圖時出現的 🔔 到價通知、🔒 鎖定、✎ 文字，現在自己是一塊，不會跟著工具列被拖走。鎖住的線，🔒 會亮起來（跟設好鬧鐘的鈴鐺一樣），再按一下就解鎖；右鍵調色盤裡不再重複放這幾顆。"],
+    ["2026-09-18", "🎨", "上方那行放大了，數值會跟著 K 棒顏色",
+     "・**放大**：快捷繪圖的圖示大了約 15%，開高低收那一行跟著加高、字也放大（紅綠的漲跌值維持原本大小）。\n・**顏色**：開高低收與漲跌值改用你自己色盤裡「K 棒邊框」的那組顏色 —— 漲的棒用上漲色、跌的棒用下跌色，十字線移到哪根就跟著哪根。\n・換色盤、或開「上下顛倒」看圖時，這些數值都會跟著一起變，不會出現紅棒配綠字。", "調整"],
 
-    ["2026-09-17", "📊", "上方勝率列拿掉，圖表多出一列高度",
-     "上方那條勝率欄（勝率 ▾、中軌、十字線勝率、總勝率、起始日…）整條移除，上方從兩列變成一列，圖表往上多了一列的空間。\n\n主圖上的 FVG、多空等標記**完全不受影響**。雲端同步狀態搬到左上角（標的名稱右邊）；萬一訊號真的算不出來，那裡會出現紅字「訊號計算失敗」，不會讓你誤以為這個標的沒有訊號。"],
+    ["2026-09-18", "🎯", "現價線的顏色可以自己挑了",
+     "主圖左上角 ⚙（主圖設定）多了一列「**現價線**」：改的是右側那個現價標籤，還有圖上那條現價虛線。\n\n預設跟以前一樣是琥珀色，沒去動的話畫面完全不變；改過之後會記住，也會跟著帳號同步到別台裝置。", "新功能"],
 
-    ["2026-09-17", "⏱", "經濟事件倒數精確到分鐘，位置也不再跟著價格跑",
-     "・倒數改成**天／小時／分**都顯示（例如「15天0小時42分後」），剛好整點時不會再只剩「15天後」；每到整分鐘就更新。\n・上方那排的價格、漲跌幅數字一跳動，後面的倒數和工具列原本會被推得左右晃（十字線掃過圖表一趟，實測晃了 68 次）。現在一載入就先預留好寬度，位置固定不動。"],
+    ["2026-09-18", "🚀", "第一次打開更輕：少傳 38KB、少一個檔案",
+     "同樣是第一次打開（還沒有快取）時要下載的量，壓縮後：\n・首頁 33 → **24.3KB**\n・樣式表 44.5 → **32.2KB**\n・主程式 107.5 → **99.8KB**\n・另外少一支 9KB 的檔案請求\n\n做法是把早就沒在用的程式與樣式整批清掉（約 7000 行），送給瀏覽器的網頁也不再夾帶開發用的註解。", "更快了"],
 
-    ["2026-09-17", "⚡", "訊號標記計算快了三到五成",
-     "分兩步：先拿掉教練留下、已經沒人使用的計算，1 小時 K 8000 根 **62.8 → 47.3 毫秒**、5 分 K 34000 根 **188.8 → 109.9 毫秒**；再讓「找價格碰到缺口」直接跳到會碰到的那一根，又快了 **18～35%**。切換標的、時框，或新 K 棒收盤後重算都會比較快。\n\n標記結果跟以前**逐位元相同**：用固定的歷史資料比對過，也加了自動檢查，以後只要結果差一點點就會被擋下來。"],
-
-    ["2026-09-17", "🗑", "SR＋SMC 教練移除；自動交易暫時關閉",
-     "・**教練**功能整個移除：右上的教練開關、圖上的教練標記與面板、行情列的 🎯 可進場分頁、教練通知都拿掉了。\n・**自動交易暫時關閉**：不會再自動開新倉。已經開的倉位與掛單照常管理（成交後照樣掛止損、止盈），但**交易所上已經掛著的限價單不會被自動撤掉**，需要的話請到交易所自行處理。"],
-
-    ["2026-09-17", "🇹🇼", "台股：修掉三個偶發問題",
-     "・**上櫃股偶爾整批沒價格**：上櫃的資料檔很大，大約每 6 次下載就有 1 次在半路斷線，那一輪一千多檔上櫃股會沒價格。現在會自動重試，真的抓不到就沿用上一份。\n・**當日 K 棒偶爾落後 20 分鐘**：分鐘 K 的主要來源約有 5～10% 的時候回傳伺服器錯誤，卻被當成「沒資料」而改用有延遲的備援。現在會先重試一次。\n・**清單偶爾十幾分鐘不更新**：對方伺服器有時把一次下載拖到 11 分鐘還沒結束，整個背景更新就卡住。現在最多等 30 秒就改用上一份。"],
-
-    ["2026-09-17", "🩹", "順手修好的幾個小地方",
-     "・螢幕寬度 1500～1600（常見的 15 吋筆電）時，上方時間框會壓到右側的按鈕，現在會自動讓位。\n・有開交易功能的帳號（電腦版）：右側「行情／交易」欄平常收起來，滑鼠碰到螢幕最右邊才滑出，圖表更寬。\n・天氣背景的太陽光暈偶爾算出負半徑而出錯，已修掉。"],
+    ["2026-09-18", "🧹", "清掉「看不到卻還在」的東西",
+     "・**訊號詳情抽屜**：它的三個入口早就隨勝率欄一起移除了，整支刪掉。\n・**自動交易的 SS 子設定**：SS 訊號來源 8/5 就移除了，這個設定開著也永遠不會下單 —— 留著只會讓人以為它在跑，所以拿掉；FVG 那套完全不受影響。\n・伺服器端也清掉沒人呼叫的端點、以及一個每 20 分鐘跑一次的背景工作。\n・訊號資料裡不再夾帶那包「永遠是 0」的勝率統計。", "調整"],
   ];
 
   function _seen()     { try { return localStorage.getItem(KEY) === PUB_ID; } catch (e) { return false; } }
@@ -83,21 +76,40 @@
 .ann-head-txt{display:flex;flex-direction:column;gap:2px;min-width:0}
 .ann-title{font-size:19px;font-weight:900;color:#6b4d27;letter-spacing:.02em;text-shadow:0 1px 0 rgba(255,252,244,.6)}
 .ann-sub{font-size:12px;font-weight:500;color:#9a7c4e}
-.ann-list{list-style:none;padding:0;margin:2px 0 15px;overflow-y:auto;flex:1;min-height:0}
-.ann-list::-webkit-scrollbar{width:6px}
-.ann-list::-webkit-scrollbar-thumb{background:rgba(150,110,60,.35);border-radius:4px}
-.ann-item{display:flex;gap:12px;align-items:flex-start;padding:12px 6px 13px;
-  border-bottom:1.5px dashed rgba(140,105,60,.32);animation:annItem .5s ease both}
-.ann-item:last-child{border-bottom:none}
-@keyframes annItem{from{opacity:0;transform:translateX(-8px)}to{opacity:1;transform:none}}
-.ann-emoji{font-size:21px;line-height:1;flex-shrink:0;width:38px;height:38px;display:flex;align-items:center;justify-content:center;
-  background:radial-gradient(circle at 35% 30%,rgba(255,255,255,.75),rgba(255,236,198,.55));
-  border:1.5px solid rgba(150,110,55,.32);border-radius:50%;box-shadow:0 2px 5px rgba(140,90,30,.16)}
-.ann-item-body{flex:1;min-width:0}
-.ann-name{font-size:14.5px;font-weight:800;color:#5f4324;margin-bottom:3px}
-/* white-space:pre-line → 條目說明裡的 \n\n 才會真的換段落。
-   沒有它的話 innerHTML 會把換行摺成空白，長條目變成一整片文字牆（2026-08-07 發現）。 */
-.ann-desc{font-size:12.5px;line-height:1.6;color:#7c6142;white-space:pre-line}
+/* 捲動區：上下各留一段漸層淡出，暗示「還有內容」（2026-09-18 排版改版） */
+.ann-scroll{position:relative;flex:1;min-height:0;overflow-y:auto;margin:2px -2px 14px;padding:0 2px;
+  -webkit-mask-image:linear-gradient(180deg,transparent 0,#000 14px,#000 calc(100% - 14px),transparent 100%);
+  mask-image:linear-gradient(180deg,transparent 0,#000 14px,#000 calc(100% - 14px),transparent 100%)}
+.ann-scroll::-webkit-scrollbar{width:6px}
+.ann-scroll::-webkit-scrollbar-thumb{background:rgba(150,110,60,.35);border-radius:4px}
+.ann-list{list-style:none;padding:0;margin:0}
+/* 每則＝一張小卡（原本是虛線分隔的長條，長內容會糊成一片文字牆） */
+.ann-item{position:relative;margin:0 0 10px;padding:11px 13px 12px 14px;border-radius:14px;
+  background:rgba(255,252,240,.62);border:1.5px solid rgba(150,110,55,.26);
+  box-shadow:0 2px 6px rgba(140,95,35,.08);animation:annItem .5s ease both}
+.ann-item:last-child{margin-bottom:2px}
+.ann-item::before{content:"";position:absolute;left:0;top:10px;bottom:10px;width:3px;border-radius:3px;
+  background:var(--ann-accent,#d79a4a)}
+@keyframes annItem{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.ann-item-hd{display:flex;align-items:center;gap:9px;margin-bottom:6px}
+.ann-emoji{font-size:17px;line-height:1;flex-shrink:0;width:30px;height:30px;display:flex;align-items:center;justify-content:center;
+  background:radial-gradient(circle at 35% 30%,rgba(255,255,255,.8),rgba(255,236,198,.6));
+  border:1.5px solid rgba(150,110,55,.3);border-radius:50%;box-shadow:0 2px 5px rgba(140,90,30,.14)}
+.ann-name{flex:1;min-width:0;font-size:14.5px;font-weight:800;color:#5f4324;line-height:1.35}
+/* 分類晶片：一眼看出這則是新功能還是修好了 */
+.ann-tag{flex-shrink:0;align-self:flex-start;margin-top:1px;font-size:10.5px;font-weight:800;letter-spacing:.02em;
+  padding:2px 8px;border-radius:999px;color:#fff;background:var(--ann-accent,#d79a4a);
+  box-shadow:0 1px 3px rgba(120,75,20,.25)}
+.ann-desc{font-size:12.5px;line-height:1.62;color:#7c6142}
+.ann-desc p{margin:0 0 7px}
+.ann-desc p:last-child{margin-bottom:0}
+/* 行首「・」排成真正的條列：折行時對齊，不會掉回行首 */
+.ann-bul{list-style:none;margin:0 0 7px;padding:0}
+.ann-bul:last-child{margin-bottom:0}
+.ann-bul li{position:relative;padding-left:13px;margin:0 0 3px}
+.ann-bul li:last-child{margin-bottom:0}
+.ann-bul li::before{content:"・";position:absolute;left:-1px;top:0;color:#bf9350}
+.ann-desc b{color:#63482a}
 .ann-foot{display:flex;gap:10px;justify-content:flex-end;align-items:center;flex-shrink:0;padding-top:4px}
 .ann-btn{font-family:inherit;padding:10px 20px;border-radius:13px;font-size:13.5px;font-weight:700;cursor:pointer;
   -webkit-tap-highlight-color:transparent;user-select:none;
@@ -136,15 +148,36 @@
     // ⚠ 內文一直是用 **粗體** 這種標記寫的，但這裡是直接塞 innerHTML、從來沒做轉換
     //   → 星號**照字面顯示**給使用者看（既有公告全都是這樣，2026-09-05 才發現）。
     //   先逃脫 HTML 特殊字元（內容是我們自己寫的，但別留下注入的形狀），再轉粗體。
-    //   換行不用處理：.ann-desc 是 white-space:pre-line。
+    //   換行/條列由 _descHtml 排版（見下）。
     const _md = t => String(t)
       .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
       .replace(/\*\*([^\n]+?)\*\*/g, "<b>$1</b>");   // 不跨行：粗體不該跨段落
-    const items = _recentUpdates().map(([date, emo, name, desc], i) =>
-      `<li class="ann-item" style="animation-delay:${0.12 + i * 0.06}s">` +
-      `<span class="ann-emoji">${emo}</span>` +
-      `<div class="ann-item-body"><div class="ann-name">${_md(name)}</div><div class="ann-desc">${_md(desc)}</div></div></li>`
-    ).join("");
+    /* 說明排版（2026-09-18）：空行分段；行首「・」的連續幾行併成一個條列。
+       原本整段丟進 white-space:pre-line → 長條目糊成一片，條列折行還會掉回行首。 */
+    const _descHtml = (desc) => {
+      const out = [];
+      let bul = null;
+      const flush = () => { if (bul) { out.push(`<ul class="ann-bul">${bul.join("")}</ul>`); bul = null; } };
+      for (const par of String(desc).split(/\n{2,}/)) {
+        for (const line of par.split("\n")) {
+          const t = line.trim();
+          if (!t) continue;
+          if (t.startsWith("・")) { (bul = bul || []).push(`<li>${_md(t.slice(1).trim())}</li>`); }
+          else { flush(); out.push(`<p>${_md(t)}</p>`); }
+        }
+        flush();
+      }
+      return out.join("");
+    };
+    const _TAGC = { "新功能": "#e0872f", "更快了": "#2f9e8f", "修好了": "#6f9e3a", "調整": "#a67c4a" };
+    const items = _recentUpdates().map(([date, emo, name, desc, tag], i) => {
+      const col = _TAGC[tag] || "#d79a4a";
+      return `<li class="ann-item" style="animation-delay:${0.12 + i * 0.06}s;--ann-accent:${col}">` +
+      `<div class="ann-item-hd"><span class="ann-emoji">${emo}</span>` +
+      `<div class="ann-name">${_md(name)}</div>` +
+      (tag ? `<span class="ann-tag">${_md(tag)}</span>` : "") + `</div>` +
+      `<div class="ann-desc">${_descHtml(desc)}</div></li>`;
+    }).join("");
     ov.innerHTML =
       `<div class="ann-card" role="dialog" aria-label="更新公告">` +
       `<span class="ann-ver">${PUB_DATE.replace(/-/g, ".")}</span>` +
@@ -152,8 +185,8 @@
       `<div class="ann-head">` +
       `<img class="ann-bear" src="${_v("/static/img/bear.png")}" alt="">` +
       `<div class="ann-head-txt"><div class="ann-title">熊報 · 最新消息</div>` +
-      `<div class="ann-sub">小啊幫你整理了近兩天的更新 🍊</div></div></div>` +
-      `<ul class="ann-list">${items}</ul>` +
+      `<div class="ann-sub">小啊幫你整理了 ${_recentUpdates().length} 則更新 🍊</div></div></div>` +
+      `<div class="ann-scroll"><ul class="ann-list">${items}</ul></div>` +
       `<div class="ann-foot">` +
       `<button class="ann-btn ann-btn-ghost" id="_annNever">不再提醒</button>` +
       `<button class="ann-btn ann-btn-primary" id="_annLater">我知道了！</button></div></div>`;
