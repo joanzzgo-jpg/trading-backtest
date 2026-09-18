@@ -412,15 +412,124 @@ function bindEvents() {
      ⚠ 選擇器用 [data-tool] 而不是 .dt-btn：工具按鈕現在有**兩排**
        （左側工具島 .dt-btn、開高低收量右側的快捷列 .sqd-btn）。
        用同一個選擇器 → 綁定與 active 狀態自動涵蓋兩邊，不必維護第二份。 */
-  document.querySelectorAll("[data-tool]").forEach(btn => {
-    btn.addEventListener("click", () => {
-      document.querySelectorAll("[data-tool]").forEach(b => b.classList.remove("active"));
-      // ⚠ 要把「同一個工具的所有按鈕」都點亮，不能只亮被點的那顆：
-      //   同一個工具在兩排各有一顆，只亮一顆的話另一排看起來像沒選到。
-      document.querySelectorAll(`[data-tool="${btn.dataset.tool}"]`).forEach(b => b.classList.add("active"));
-      setDrawTool(btn.dataset.tool);
-    });
+  /* ⚠ 2026-09-19 改成**事件委派**：快捷列的工具按鈕現在是依使用者設定動態產生的，
+       開機時逐顆綁定的話，之後新增的那幾顆全都沒反應（而且不會報錯）。 */
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest && e.target.closest("[data-tool]");
+    if (!btn) return;
+    document.querySelectorAll("[data-tool]").forEach(b => b.classList.remove("active"));
+    // ⚠ 要把「同一個工具的所有按鈕」都點亮，不能只亮被點的那顆：
+    //   同一個工具在兩排各有一顆，只亮一顆的話另一排看起來像沒選到。
+    document.querySelectorAll(`[data-tool="${btn.dataset.tool}"]`).forEach(b => b.classList.add("active"));
+    setDrawTool(btn.dataset.tool);
   });
+
+  /* ── 快捷繪圖列：使用者自己挑要放哪些工具（2026-09-19 使用者：「編輯快捷」）──────────
+     ⚠ 圖示**從左側工具島同 data-tool 的按鈕複製**，不另外寫一份 SVG ——
+       寫兩份的話改了圖示只會改到一邊（本專案已經有過同一件事寫兩遍的教訓）。
+     ⚠ 存的是工具 id 陣列（localStorage.qdTools）；不在 _ACCT_SKIP → 跟著帳號跨裝置。 */
+  const QD_DEF = ["pointer", "trendline", "hline", "rect", "circle", "path", "text"];
+  const QD_LS = "qdTools";
+  function _qdAll() {                       // 全部可用工具：以左側工具島為準（那裡就是完整清單）
+    const out = [];
+    document.querySelectorAll("#drawToolbar [data-tool]").forEach(b => {
+      const t = b.dataset.tool;
+      if (t && !out.some(x => x.tool === t))
+        // ⚠ 名稱只取「：」或「（」之前那段：title 後面接的是用法說明，整句拿來當名稱會把面板撐爆
+        //   （實測「圓／橢圓：拖出一個框…標記形態。」整句都跑進來）
+        out.push({ tool: t, title: (b.getAttribute("title") || t).split(/[：（(]/)[0].trim(), html: b.innerHTML });
+    });
+    return out;
+  }
+  function _qdGet() {
+    let v = null;
+    try { v = JSON.parse(localStorage.getItem(QD_LS) || "null"); } catch (e) {}
+    if (!Array.isArray(v) || !v.length) return QD_DEF.slice();
+    const all = new Set(_qdAll().map(x => x.tool));
+    const keep = v.filter(t => all.has(t));
+    return keep.length ? keep : QD_DEF.slice();
+  }
+  function _qdSet(list) {
+    try { localStorage.setItem(QD_LS, JSON.stringify(list)); } catch (e) {}
+    _qdRender();
+  }
+  function _qdRender() {
+    const box = document.getElementById("sqdTools");
+    if (!box) return;
+    const all = _qdAll();
+    if (!all.length) return;                // 工具島還沒進 DOM（極早期）→ 等下次呼叫
+    const cur = _qdGet();
+    box.innerHTML = cur.map(t => {
+      const m = all.find(x => x.tool === t);
+      if (!m) return "";
+      const src = document.querySelector(`#drawToolbar [data-tool="${t}"]`);
+      return `<button class="sqd-btn" data-tool="${t}" title="${(src && src.getAttribute("title")) || m.title}">${m.html}</button>`;
+    }).join("");
+    // 目前選著的工具要跟著亮（重建後 class 會掉）
+    if (typeof drawTool !== "undefined" && drawTool)
+      box.querySelectorAll(`[data-tool="${drawTool}"]`).forEach(b => b.classList.add("active"));
+  }
+  window._qdRender = _qdRender;
+
+  /* 編輯面板：上半「已在快捷列」（可上移/下移/移除），下半「可加入」。改了立刻套用並存檔。 */
+  function _qdPicker() {
+    document.getElementById("qdPickPop")?.remove();
+    const anchor = document.getElementById("sqdEdit");
+    const all = _qdAll(), cur = _qdGet();
+    const pop = document.createElement("div");
+    pop.id = "qdPickPop";
+    pop.className = "qd-pick";
+    const row = (t, inBar, i) => {
+      const m = all.find(x => x.tool === t); if (!m) return "";
+      return `<div class="qd-row"><span class="qd-ico">${m.html}</span><span class="qd-nm">${m.title}</span>` +
+        (inBar
+          ? `<span class="qd-ops"><button data-up="${i}" title="上移"${i === 0 ? " disabled" : ""}>↑</button>` +
+            `<button data-dn="${i}" title="下移"${i === cur.length - 1 ? " disabled" : ""}>↓</button>` +
+            `<button data-rm="${t}" title="移除">✕</button></span>`
+          : `<span class="qd-ops"><button data-add="${t}" title="加入">＋</button></span>`) +
+        `</div>`;
+    };
+    pop.innerHTML =
+      `<div class="qd-tt">快捷繪圖列</div>` +
+      `<div class="qd-sec">目前這排（由左到右）</div>` + cur.map((t, i) => row(t, true, i)).join("") +
+      `<div class="qd-sec">可加入</div>` +
+      all.filter(x => !cur.includes(x.tool)).map(x => row(x.tool, false)).join("") +
+      `<div class="qd-foot"><button id="qdReset">還原預設</button></div>`;
+    document.body.appendChild(pop);
+    const r = anchor.getBoundingClientRect();
+    pop.style.top = Math.round(r.bottom + 6) + "px";
+    pop.style.left = Math.round(Math.min(r.left, window.innerWidth - pop.offsetWidth - 10)) + "px";
+    pop.addEventListener("click", (e) => {
+      const b = e.target.closest("button"); if (!b) return;
+      e.stopPropagation();
+      const list = _qdGet();
+      if (b.id === "qdReset") { _qdSet(QD_DEF.slice()); _qdPicker(); return; }
+      if (b.dataset.rm) {
+        if (list.length <= 1) return;       // 留一顆，不然整排消失找不回來（編輯鈕還在，但太容易嚇到）
+        _qdSet(list.filter(t => t !== b.dataset.rm));
+      } else if (b.dataset.add) {
+        _qdSet(list.concat([b.dataset.add]));
+      } else if (b.dataset.up != null) {
+        const i = +b.dataset.up; if (i > 0) { [list[i - 1], list[i]] = [list[i], list[i - 1]]; _qdSet(list); }
+      } else if (b.dataset.dn != null) {
+        const i = +b.dataset.dn; if (i < list.length - 1) { [list[i], list[i + 1]] = [list[i + 1], list[i]]; _qdSet(list); }
+      } else return;
+      _qdPicker();                          // 重開＝重畫（順序/按鈕狀態都會更新）
+    });
+    setTimeout(() => {
+      const close = (ev) => {
+        if (pop.contains(ev.target) || ev.target.closest("#sqdEdit")) return;
+        pop.remove(); document.removeEventListener("mousedown", close, true);
+      };
+      document.addEventListener("mousedown", close, true);
+    }, 0);
+  }
+  document.getElementById("sqdEdit")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (document.getElementById("qdPickPop")) { document.getElementById("qdPickPop").remove(); return; }
+    _qdPicker();
+  });
+  _qdRender();
   // 弱磁鐵切換（狀態要記住 —— 使用者回報「下次開又是關的」）
   const _magnetSync = () => {
     document.getElementById("btnMagnet")?.classList.toggle("active", _magnetMode);

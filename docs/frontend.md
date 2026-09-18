@@ -121,6 +121,22 @@
 > **原單體 `app.js` 早已拆分為多個模組並刪除（不復存在）。新增功能請編輯對應的模組檔案。**
 > **拆檔注意**：bundle 檔拆完要更新 `names`；動態檔（effects/weather）拆完要更新 `main.js` 的 `_loadFx` 與 `main.py` 的 `_asset_ver`。`effects.js` / `weather.js` 為 classic script（非 module），頂層 `const`/`let` 走「全域語彙環境」跨檔共享，故拆檔後仍可互相引用（被引用者需先載入）。
 
+## 快捷繪圖列可自選工具（`ui.js`，2026-09-19）
+
+上方那排快捷繪圖（`#symQuickDraw`）的工具按鈕改成**依 `localStorage.qdTools` 動態產生**，
+使用者按列尾的 `⋯`（`#sqdEdit`）開面板自己挑：加入／移除／上下排序／還原預設，改完立刻套用。
+
+- **圖示從左側工具島（`#drawToolbar`）同 `data-tool` 的按鈕複製**，不另外寫一份 SVG
+  —— 寫兩份的話改了圖示只會改到一邊。可用工具清單也以工具島為準（那裡就是完整的 18 個）。
+- ⚠ **`[data-tool]` 的點擊改成事件委派**：按鈕現在是動態產生的，開機時逐顆綁定的話，
+  之後新增的那幾顆全都沒反應**而且不會報錯**。
+- ⚠ 動態容器 `#sqdTools` 必須 `display: contents`：它是 `<span>`（inline），
+  裡面的按鈕會被當文字折行 —— 實測整排從一列變成 **164×194 的六列方塊**。
+- ⚠ 面板的工具名稱只取 `：`／`（` 之前那段：`title` 後面接的是用法說明，整句拿來當名稱會把面板撐爆。
+- ⚠ 符號列是 `overflow:hidden` → 多一顆按鈕就可能被**安靜切掉**；1280~1920 六種寬度都量過
+  （沒折行、沒被切、編輯鈕 `elementFromPoint` 命中）。
+- `qdTools` 不在 `_ACCT_SKIP` → 跟著帳號快照跨裝置。
+
 ## 鍵盤快捷鍵（`hotkeys.js`，自訂於 2026-09-19）
 
 派送是**表格驅動**：`ACTIONS`（id／預設鍵／說明）＋ 使用者覆寫 `localStorage.hotkeyMap`。

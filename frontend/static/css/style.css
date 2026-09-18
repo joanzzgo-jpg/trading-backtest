@@ -968,6 +968,41 @@ html.perf-mode .tk-seg {
   box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 30%, transparent);
 }
 .sqd-sep { width: 1px; height: 17.33px; background: var(--border); margin: 0 4px; flex-shrink: 0; }
+/* ⚠ 動態工具容器要 display:contents：它是個 <span>（inline），裡面的按鈕會被當文字折行 ——
+   實測整排從一列變成 164×194 的六列方塊。contents 讓按鈕直接成為 .sym-quickdraw 的 flex 子項，
+   版面與原本寫死那 7 顆完全相同。 */
+#sqdTools { display: contents; }
+/* 編輯這排快捷工具（2026-09-19）：平常淡、hover 才亮，不跟工具按鈕搶注意力 */
+.sqd-edit { opacity: .55; }
+.sqd-edit:hover { opacity: 1; }
+/* 挑工具的小面板 */
+.qd-pick {
+  position: fixed; z-index: 99990; min-width: 210px; max-width: 280px; max-height: 70vh; overflow-y: auto;
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: 0 18px 44px rgba(0,0,0,.55); padding: 9px 10px;
+}
+.qd-tt { font-size: 12.5px; font-weight: 800; color: var(--text); margin: 0 2px 7px; }
+.qd-sec { font-size: 10.5px; color: var(--muted); opacity: .75; margin: 9px 2px 4px; }
+.qd-row { display: flex; align-items: center; gap: 8px; padding: 4px 5px; border-radius: 8px; }
+.qd-row:hover { background: var(--bg3); }
+.qd-ico { display: flex; width: 17px; height: 17px; color: var(--muted); flex-shrink: 0; }
+.qd-ico svg { width: 15px; height: 15px; }
+.qd-nm { flex: 1; min-width: 0; font-size: 11.5px; color: var(--text); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; }
+.qd-ops { display: flex; gap: 2px; flex-shrink: 0; }
+.qd-ops button {
+  width: 21px; height: 21px; padding: 0; font: inherit; font-size: 11px; line-height: 1;
+  background: transparent; border: 1px solid var(--border); border-radius: 6px;
+  color: var(--muted); cursor: pointer;
+}
+.qd-ops button:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
+.qd-ops button:disabled { opacity: .3; cursor: default; }
+.qd-foot { margin-top: 9px; text-align: right; }
+.qd-foot button {
+  font: inherit; font-size: 11px; color: var(--muted); background: transparent;
+  border: 1px solid var(--border); border-radius: 8px; padding: 4px 10px; cursor: pointer;
+}
+.qd-foot button:hover { color: var(--text); border-color: var(--accent); }
 /* ⋮⋮ 拖曳把手＋浮動狀態（2026-09-17，跟 TradingView 浮動繪圖列同一種手感）。
    ⚠ 浮動時 ui.js 會把整排搬到 <body> 底下：符號列是 overflow:hidden，留在原處拖出去會被裁掉。
    ⚠ z-index 640：要壓過圖表與右緣交易欄(46)，但要在它自己叫出的色盤(.cp-popup 3000)、經濟事件浮層(700)之下。 */
