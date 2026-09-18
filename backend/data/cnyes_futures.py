@@ -305,41 +305,63 @@ _Q_PRICE, _Q_CHG, _Q_PREV, _Q_PCT = "6", "11", "21", "56"
 _Q_TIME, _Q_VOL, _Q_CODE = "200007", "800001", "200010"
 
 
-def fetch_tw_quotes_bulk(symbols):
-    """cnyes 台股批次報價 → {代號: {price, change_pct, change_amt, volume, prev, est, qts}}。
+#   ⚠ **上市/上櫃是 `TWS:`、興櫃是 `TWG:`**（2026-09-19）：只用 TWS 問的話興櫃整批 404，
+#     那 343 檔就只剩落後一整天的 opendata 基底價。前綴記在 _TW_PREFIX，暖機後分組送出
+#     → 穩定狀態不會多花請求；沒看過的代號先當 TWS、查無再用另一個前綴補問一次。
+_TW_PREFIX = {}                  # 代號 → 解得出來的前綴（"TWS" 上市櫃／"TWG" 興櫃）
+_TW_NOQ = {}                     # 代號 → 上次確認「兩種前綴都查無」的時間（30 分鐘內不再試）
+_NOQ_TTL = 1800
 
-    est 一律 False（都是真實成交價，不是估的）、qts＝那筆報價的時間戳（unix 秒）。
-    整批失敗回空 dict（呼叫端會退回 MIS）。"""
-    out = {}
-    syms = [s for s in dict.fromkeys(symbols) if s]
+
+def _quote_req(pref, batch):
+    """打一個批次，回 (data 陣列, 這批有沒有拿到回應)。連線失敗回 (None, False)。"""
+    url = _QUOTE_URL + ",".join(f"{pref}:{s}:STOCK" for s in batch)
+    j = None
+    for _i in range(_CNYES_TRIES):            # 同 charting：對方 statusCode≥500 才重試一次
+        try:
+            r = SESSION.get(url, params={"column": "A"}, headers=_HDRS, timeout=10)
+            r.raise_for_status()
+            j = r.json() or {}
+        except Exception:
+            return None, False
+        try:
+            _sc = int(j.get("statusCode") or 200)
+        except (TypeError, ValueError):
+            _sc = 200
+        if _sc < 500 or _i == _CNYES_TRIES - 1:
+            break
+        j = None
+        time.sleep(0.3)
+    if j is None:
+        return None, False
+    return (j.get("data") or []), True
+
+
+def _quote_pass(pref, syms, out, seen):
+    """用某個前綴問一輪。out 收有價的、seen 收「回應裡出現過的代號」。
+    ⚠ seen 與「有沒有價」要分開：今天還沒成交的股票**會**出現在回應裡但沒有價
+      —— 把它算成「查無」的話，它一開始交易我們也不會去更新它。"""
+    asked = set()
     for i in range(0, len(syms), CNYES_QUOTE_BATCH):
         batch = syms[i:i + CNYES_QUOTE_BATCH]
-        url = _QUOTE_URL + ",".join(f"TWS:{s}:STOCK" for s in batch)
-        j = None
-        for _i in range(_CNYES_TRIES):        # 同 charting：對方 statusCode≥500 才重試一次
-            try:
-                r = SESSION.get(url, params={"column": "A"}, headers=_HDRS, timeout=10)
-                r.raise_for_status()
-                j = r.json() or {}
-            except Exception:
-                break
-            try:
-                _sc = int(j.get("statusCode") or 200)
-            except (TypeError, ValueError):
-                _sc = 200
-            if _sc < 500 or _i == _CNYES_TRIES - 1:
-                break
-            j = None
-            time.sleep(0.3)
-        for x in ((j or {}).get("data") or []):
+        data, ok = _quote_req(pref, batch)
+        if not ok:
+            continue                          # 連線失敗＝沒問到，不可當成「查無」
+        asked.update(batch)
+        for x in (data or []):
             sym, px, qts = x.get(_Q_CODE), x.get(_Q_PRICE), x.get(_Q_TIME)
-            if not sym or not px or not qts:      # 今天沒成交／查無 → 跳過（讓基底留著）
+            if not sym:
+                continue
+            sym = str(sym)
+            seen.add(sym)
+            _TW_PREFIX[sym] = pref
+            if not px or not qts:             # 今天沒成交 → 跳過（讓基底留著）
                 continue
             try:
                 p, chg = float(px), round(float(x.get(_Q_CHG) or 0), 4)
                 # column=A 不含昨收欄位 → 由「現價 − 漲跌」推導（實測與 Yahoo 昨收逐檔相同）
                 prev = float(x.get(_Q_PREV) or 0) or round(p - chg, 4)
-                out[str(sym)] = {
+                out[sym] = {
                     "price": p,
                     "change_amt": chg,
                     "change_pct": round(float(x.get(_Q_PCT) or 0), 2),
@@ -348,6 +370,37 @@ def fetch_tw_quotes_bulk(symbols):
                 }
             except (TypeError, ValueError):
                 continue
+    return asked
+
+
+def fetch_tw_quotes_bulk(symbols):
+    """cnyes 台股批次報價 → {代號: {price, change_pct, change_amt, volume, prev, est, qts}}。
+
+    est 一律 False（都是真實成交價，不是估的）、qts＝那筆報價的時間戳（unix 秒）。
+    整批失敗回空 dict（呼叫端會退回 MIS）。"""
+    out, seen = {}, set()
+    now = time.time()
+    syms = [s for s in dict.fromkeys(symbols)
+            if s and now - _TW_NOQ.get(s, 0) > _NOQ_TTL]   # 兩種前綴都查無的，30 分鐘內不再問
+    grp = {"TWS": [], "TWG": []}
+    for s in syms:
+        grp[_TW_PREFIX.get(s, "TWS")].append(s)            # 沒看過的先當上市櫃
+    asked = set()
+    for pref in ("TWS", "TWG"):
+        if grp[pref]:
+            asked |= _quote_pass(pref, grp[pref], out, seen)
+    # 問過但回應裡根本沒這檔 → 前綴猜錯（多半是興櫃）→ 換另一個前綴補問一次，之後就記住了
+    retry = {"TWS": [], "TWG": []}
+    for s in asked:
+        if s not in seen:
+            retry["TWG" if _TW_PREFIX.get(s, "TWS") == "TWS" else "TWS"].append(s)
+    asked2 = set()
+    for pref in ("TWS", "TWG"):
+        if retry[pref]:
+            asked2 |= _quote_pass(pref, retry[pref], out, seen)
+    for s in asked2:                                        # 兩種前綴都查無（下市/停牌）→ 先擱著
+        if s not in seen:
+            _TW_NOQ[s] = now
     return out
 
 
