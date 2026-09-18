@@ -1203,6 +1203,28 @@ function updateCurrentPriceLabel() {
   lbl.style.borderColor = _colA(_cpc, .9);
   lbl.style.top = Math.round(y) + "px";
   lbl.style.display = "block";
+  _hideCurLabelIfCovered();     // 價格自己動到游標標籤下方時也要收起來（不然又疊回去）
+}
+
+let _crossLabelEl = null;   // 十字線價格標籤（建立於 setupCrosshairPriceLabel）
+/* 游標價標籤壓到最新價標籤時，把最新價那顆收起來。
+   ⚠ 兩顆都是自訂 DOM、各自依價格定位 → 游標移到現價附近必然重疊：實測 29px 內就疊到，
+     疊到時不是整顆被蓋掉（看不到現價），就是露出一條橘邊在游標框外緣＝更糟。
+   → 游標在附近時以游標那顆為準（它本來就同時顯示「游標價」與「距現價幾 %」，資訊沒少）。
+   ⚠ 用 visibility 不用 display：updateCurrentPriceLabel 每次重繪都會設 display="block"，
+     用 display 藏會被它立刻打開＝閃爍。 */
+function _hideCurLabelIfCovered(crossLbl) {
+  crossLbl = crossLbl || _crossLabelEl;
+  if (!_curPriceLabelEl || !_curPriceLabelEl.isConnected) return;
+  let hide = false;
+  try {
+    if (crossLbl && crossLbl.style.display !== "none") {
+      const a = crossLbl.getBoundingClientRect(), b = _curPriceLabelEl.getBoundingClientRect();
+      hide = !(a.bottom <= b.top || b.bottom <= a.top);
+    }
+  } catch (e) {}
+  const v = hide ? "hidden" : "";
+  if (_curPriceLabelEl.style.visibility !== v) _curPriceLabelEl.style.visibility = v;
 }
 
 /* ── 建立圖表 ── */
@@ -1622,12 +1644,13 @@ function syncTimeScales() {
     const lbl = document.createElement("div");
     lbl.className = "crosshair-price-label";
     mainEl.appendChild(lbl);
+    _crossLabelEl = lbl;                 // 給 _hideCurLabelIfCovered 用（現價自己移動時也要重判）
     mainChart.applyOptions({ crosshair: { horzLine: { labelVisible: false } } });
 
     mainChart.subscribeCrosshairMove(param => {
-      if (!param.point || !candleSeries) { lbl.style.display = "none"; return; }
+      if (!param.point || !candleSeries) { lbl.style.display = "none"; _hideCurLabelIfCovered(lbl); return; }
       const price = candleSeries.coordinateToPrice(param.point.y);
-      if (price == null) { lbl.style.display = "none"; return; }
+      if (price == null) { lbl.style.display = "none"; _hideCurLabelIfCovered(lbl); return; }
       // 參考價＝目前價（最新價線；重播時取「已揭曉」那根的收盤）
       const n = (typeof ohlcvData !== "undefined") ? ohlcvData.length : 0;
       let refIdx = n - 1;
@@ -1643,6 +1666,7 @@ function syncTimeScales() {
       lbl.innerHTML = pctStr ? `${priceStr}<br>${pctStr}` : priceStr;   // 上價下%（兩行）
       lbl.style.top = Math.round(param.point.y) + "px";
       lbl.style.display = "block";
+      _hideCurLabelIfCovered(lbl);
     });
   })();
 }
