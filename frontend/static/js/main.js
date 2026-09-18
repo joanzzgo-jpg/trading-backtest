@@ -393,8 +393,15 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   }
 
-  // 極簡模式：跳過 effects.js（SFX、BGM、天氣動畫、點擊特效），改用最小化的 FX 面板開關
-  if (document.documentElement.classList.contains("perf-mode")) {
+  /* 極簡模式：跳過 effects.js / weather.js（SFX、BGM、天氣動畫、點擊特效），改用最小化的 FX 面板開關。
+     ★★ 2026-09-18 修：這裡原本是 `return`，而 return 以下就是**所有**延遲載入檔的載入點 ——
+        2026-08-04 起 draw / trade / notify，2026-09-14 起 chartorder/multichart/dom/ai_research/
+        lunar/xiaoa/announce 都陸續移出首屏 bundle 放進那份清單 → 極簡模式等於**一支都不載**：
+        繪圖工具、交易面板、通知、更新公告、農民曆…按鈕都在、按了完全沒反應，而且零錯誤（最難發現的形狀）。
+        實測：極簡模式下延遲檔請求數 0、window._drawUndo/_annOpen/_ntfLoadFeed 全是 undefined。
+        → 改成只把那兩支特效檔從清單裡濾掉，其餘照載。 */
+  const _perfMode = document.documentElement.classList.contains("perf-mode");
+  if (_perfMode) {
     const _panel = document.getElementById("fxPanel");
     const _btn   = document.getElementById("fxToggleBtn");
     if (_panel && _btn) {
@@ -410,7 +417,6 @@ document.addEventListener("DOMContentLoaded", async () => {
         }
       });
     }
-    return; // 不載入 effects.js
   }
 
   // 延遲載入特效（點擊特效/SFX 在 effects.js；天氣動畫在 weather.js），等瀏覽器閒置後再執行
@@ -432,7 +438,9 @@ document.addEventListener("DOMContentLoaded", async () => {
      "tradeparse.min.js", "tradeui.min.js", "trade.min.js",
      "notify.min.js",
      "chartorder.min.js", "multichart.min.js", "dom.min.js", "ai_research.min.js",
-     "lunar.min.js", "xiaoa.min.js", "announce.min.js"].forEach(name => {
+     "lunar.min.js", "xiaoa.min.js", "announce.min.js"]
+      .filter(n => !(_perfMode && (n === "effects.min.js" || n === "weather.min.js")))   // 極簡模式只少這兩支
+      .forEach(name => {
       const s = document.createElement("script");
       s.src = _fxUrl(name);
       s.async = false;
