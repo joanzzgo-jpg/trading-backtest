@@ -59,15 +59,15 @@
 /* 手繪虛線內框 */
 .ann-card::after{content:"";position:absolute;inset:7px;border-radius:15px 11px 16px 12px/12px 15px 11px 15px;
   pointer-events:none;border:1.5px dashed rgba(122,88,46,.4)}
-/* 歪歪的日期貼紙(草寫)，微微翹出紙緣 */
+/* 歪歪的日期貼紙(草寫)，微微翹出紙緣。2026-09-18 降飽和：原本亮橘貼紙太跳 */
 .ann-ver{position:absolute;top:-10px;left:22px;z-index:4;transform:rotate(-4deg);
-  font-family:"Caveat",cursive;font-weight:700;font-size:16px;color:#7a4d1a;
-  background:linear-gradient(180deg,#ffe7b1,#f6c878);padding:2px 13px 3px;border-radius:5px;
-  border:1px solid rgba(150,100,30,.4);box-shadow:0 3px 9px rgba(120,70,10,.3)}
+  font-family:"Caveat",cursive;font-weight:700;font-size:16px;color:#7d5f33;
+  background:linear-gradient(180deg,#f6e6c4,#ecd6a8);padding:2px 13px 3px;border-radius:5px;
+  border:1px solid rgba(150,110,55,.32);box-shadow:0 2px 7px rgba(120,80,25,.18)}
 .ann-close{position:absolute;top:12px;right:13px;width:27px;height:27px;border-radius:50%;
   border:1.5px solid rgba(122,88,46,.35);background:rgba(255,250,236,.65);color:#8a6a3e;font-size:15px;line-height:1;
   cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.18s;-webkit-tap-highlight-color:transparent;z-index:3}
-.ann-close:hover{background:#e8a24d;color:#fff;border-color:#c47f2c;transform:rotate(90deg)}
+.ann-close:hover{background:#e0c08a;color:#5f4324;border-color:rgba(122,88,46,.5);transform:rotate(90deg)}
 .ann-close:active{transform:rotate(90deg) scale(.88)}
 .ann-head{display:flex;align-items:center;gap:13px;margin:8px 0 14px;flex-shrink:0}
 .ann-bear{width:46px;height:46px;border-radius:50%;object-fit:cover;padding:3px;flex-shrink:0;transform:rotate(-4deg);
@@ -89,17 +89,18 @@
   box-shadow:0 2px 6px rgba(140,95,35,.08);animation:annItem .5s ease both}
 .ann-item:last-child{margin-bottom:2px}
 .ann-item::before{content:"";position:absolute;left:0;top:10px;bottom:10px;width:3px;border-radius:3px;
-  background:var(--ann-accent,#d79a4a)}
+  background:color-mix(in srgb,var(--ann-accent,#d79a4a) 62%,transparent)}
 @keyframes annItem{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 .ann-item-hd{display:flex;align-items:center;gap:9px;margin-bottom:6px}
 .ann-emoji{font-size:17px;line-height:1;flex-shrink:0;width:30px;height:30px;display:flex;align-items:center;justify-content:center;
   background:radial-gradient(circle at 35% 30%,rgba(255,255,255,.8),rgba(255,236,198,.6));
   border:1.5px solid rgba(150,110,55,.3);border-radius:50%;box-shadow:0 2px 5px rgba(140,90,30,.14)}
 .ann-name{flex:1;min-width:0;font-size:14.5px;font-weight:800;color:#5f4324;line-height:1.35}
-/* 分類晶片：一眼看出這則是新功能還是修好了 */
+/* 分類晶片。2026-09-18 從「實心亮色＋白字」改成淡底同色字（不搶內容） */
 .ann-tag{flex-shrink:0;align-self:flex-start;margin-top:1px;font-size:10.5px;font-weight:800;letter-spacing:.02em;
-  padding:2px 8px;border-radius:999px;color:#fff;background:var(--ann-accent,#d79a4a);
-  box-shadow:0 1px 3px rgba(120,75,20,.25)}
+  padding:2px 8px;border-radius:999px;color:var(--ann-accent,#a67c4a);
+  background:color-mix(in srgb,var(--ann-accent,#d79a4a) 14%,transparent);
+  border:1px solid color-mix(in srgb,var(--ann-accent,#d79a4a) 34%,transparent)}
 .ann-desc{font-size:12.5px;line-height:1.62;color:#7c6142}
 .ann-desc p{margin:0 0 7px}
 .ann-desc p:last-child{margin-bottom:0}
@@ -117,8 +118,8 @@
   border:none;border-radius:9px;padding:7px 0;cursor:pointer;-webkit-tap-highlight-color:transparent;
   transition:background .16s ease,color .16s ease,box-shadow .16s ease}
 .ann-tab:hover{color:#6b4f2a;background:rgba(255,252,240,.5)}
-.ann-tab.on{color:#fff;background:linear-gradient(180deg,#f2ab52,#e0872f);
-  box-shadow:0 3px 9px rgba(200,115,35,.32),0 1px 0 rgba(255,255,255,.35) inset}
+.ann-tab.on{color:#5f4324;background:linear-gradient(180deg,#f2e2c1,#e6d1a5);
+  box-shadow:0 2px 6px rgba(150,110,55,.2),0 1px 0 rgba(255,255,255,.55) inset}
 /* 快捷鍵表 */
 .ann-kbd-hint{font-size:11.5px;color:#9a7c4e;margin:0 2px 9px}
 .ann-kbd{display:flex;gap:11px;align-items:baseline;padding:8px 11px;margin-bottom:7px;border-radius:11px;
@@ -130,13 +131,32 @@
 /* 歷史更新 */
 .ann-hist-day{display:flex;align-items:center;gap:8px;margin:4px 0 8px;font-size:12px;font-weight:800;color:#8a6c42}
 .ann-hist-day::after{content:"";flex:1;height:1.5px;background:repeating-linear-gradient(90deg,rgba(150,110,55,.3) 0 6px,transparent 6px 11px)}
-.ann-hist-item{padding:9px 11px;margin-bottom:7px;border-radius:11px;background:rgba(255,252,240,.5);
-  border:1.5px solid rgba(150,110,55,.2)}
-.ann-hist-t{font-size:13px;font-weight:800;color:#5f4324;margin-bottom:3px}
-.ann-hist-d{font-size:12px;line-height:1.55;color:#84694a}
+/* 只列標題、點了才展開（2026-09-18 使用者：「更新紀錄字太多了」） */
+.ann-hist-item{margin-bottom:6px;border-radius:11px;background:rgba(255,252,240,.5);
+  border:1.5px solid rgba(150,110,55,.2);overflow:hidden}
+.ann-hist-t{display:flex;align-items:center;gap:7px;width:100%;box-sizing:border-box;
+  font-family:inherit;text-align:left;background:transparent;border:none;cursor:pointer;
+  padding:9px 11px;font-size:12.5px;font-weight:800;color:#5f4324;line-height:1.4;
+  -webkit-tap-highlight-color:transparent}
+.ann-hist-t:hover{background:rgba(255,255,255,.45)}
+.ann-hist-tx{flex:1;min-width:0}
+.ann-hist-arr{flex-shrink:0;font-size:10px;color:#a8875a;transition:transform .18s ease}
+.ann-hist-item.open .ann-hist-arr{transform:rotate(180deg)}
+.ann-hist-d{font-size:12px;line-height:1.55;color:#84694a;padding:0 11px 10px}
 .ann-hist-d p{margin:0 0 5px}
 .ann-hist-d p:last-child{margin-bottom:0}
+.ann-hist-sum{font-size:11.5px;color:#9a7c4e;margin:0 2px 9px}
+.ann-more{display:block;width:100%;font-family:inherit;font-size:12.5px;font-weight:800;color:#8a6c42;
+  background:rgba(255,252,240,.55);border:1.5px dashed rgba(150,110,55,.4);border-radius:12px;
+  padding:9px 0;margin:4px 0 2px;cursor:pointer;-webkit-tap-highlight-color:transparent;transition:.16s}
+.ann-more:hover{background:rgba(242,221,180,.7);color:#6b4f2a;border-style:solid}
 .ann-empty{padding:24px 6px;text-align:center;font-size:12.5px;color:#9a7c4e}
+/* 左下角版本號（2026-09-18 使用者：「更新介面左下角寫目前版本號碼」）：
+   版本＝本次公告日期；build＝資產內容雜湊前 6 碼（回報問題時用來確認拿到的是哪一版）。 */
+.ann-vernum{margin-right:auto;display:flex;flex-direction:column;gap:1px;line-height:1.25;
+  font-size:11px;font-weight:700;color:#9a7c4e;user-select:text}
+.ann-vernum small{font-size:9.5px;font-weight:600;color:#b09169;letter-spacing:.04em;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
 .ann-foot{display:flex;gap:10px;justify-content:flex-end;align-items:center;flex-shrink:0;padding-top:4px}
 .ann-btn{font-family:inherit;padding:10px 20px;border-radius:13px;font-size:13.5px;font-weight:700;cursor:pointer;
   -webkit-tap-highlight-color:transparent;user-select:none;
@@ -144,10 +164,11 @@
 .ann-btn:active{transform:translateY(1px) scale(.96)}
 .ann-btn-ghost{background:transparent;border:1.5px solid rgba(130,95,50,.42);color:#8a6c42}
 .ann-btn-ghost:hover{background:rgba(130,95,50,.1);border-color:rgba(130,95,50,.66);color:#6b4f2a}
-.ann-btn-primary{border:1.5px solid #c47f2c;color:#fff;background:linear-gradient(180deg,#f2ab52,#e0872f);
-  box-shadow:0 5px 14px rgba(200,115,35,.4),0 1px 0 rgba(255,255,255,.4) inset}
-.ann-btn-primary:hover{transform:translateY(-1px);box-shadow:0 8px 20px rgba(200,115,35,.5),0 1px 0 rgba(255,255,255,.4) inset}
-.ann-btn-primary:active{transform:translateY(1px) scale(.96);box-shadow:0 3px 10px rgba(200,115,35,.42)}`;
+.ann-btn-primary{border:1.5px solid rgba(160,115,55,.6);color:#4e3a1f;background:linear-gradient(180deg,#eedab3,#e2c692);
+  box-shadow:0 3px 10px rgba(150,105,40,.22),0 1px 0 rgba(255,255,255,.5) inset}
+.ann-btn-primary:hover{transform:translateY(-1px);background:linear-gradient(180deg,#f3e2c1,#e7cf9f);
+  box-shadow:0 5px 14px rgba(150,105,40,.26),0 1px 0 rgba(255,255,255,.5) inset}
+.ann-btn-primary:active{transform:translateY(1px) scale(.96);box-shadow:0 2px 7px rgba(150,105,40,.24)}`;
     document.head.appendChild(st);
   }
 
@@ -191,7 +212,8 @@
     return out.join("");
   }
 
-  const _TAGC = { "新功能": "#e0872f", "更快了": "#2f9e8f", "修好了": "#6f9e3a", "調整": "#a67c4a" };
+  // 低飽和（2026-09-18 使用者：「更新版面設計太鮮艷」）
+  const _TAGC = { "新功能": "#bf8340", "更快了": "#4a8a80", "修好了": "#6d8f4b", "調整": "#9b7b52" };
   function _newsHtml() {
     const list = _recentUpdates();
     if (!list.length) return `<div class="ann-empty">目前沒有新消息</div>`;
@@ -227,30 +249,42 @@
     const lead = String(d).trim().startsWith("・") ? "" : `<p>${_md(parts.shift())}</p>`;
     return lead + `<ul class="ann-bul">${parts.map(x => `<li>${_md(x)}</li>`).join("")}</ul>`;
   }
-  let _histHtml = null, _histLoading = false;
-  function _renderHist(ov) {
+  /* 預設只載「近 7 天」（2026-09-18 使用者：「更新紀錄字太多了」→ 除了改成只列標題，
+     也不要一次倒 150 則出來）；要看更早的按下面那顆再抓。 */
+  const _HIST_FIRST = 7, _HIST_ALL = 120;
+  let _histDays = _HIST_FIRST, _histCache = {}, _histLoading = 0;
+  function _renderHist(ov, days) {
     const box = ov.querySelector(".ann-scroll");
     if (!box) return;
-    if (_histHtml) { box.innerHTML = _histHtml; return; }
+    days = days || _histDays;
+    _histDays = days;
+    const cached = _histCache[days];
+    if (cached) { box.innerHTML = cached; return; }
     box.innerHTML = `<div class="ann-empty">載入中…</div>`;
-    if (_histLoading) return;
-    _histLoading = true;
-    fetch("/api/announce_history?days=30", { cache: "no-cache" })
+    if (_histLoading === days) return;
+    _histLoading = days;
+    fetch("/api/announce_history?days=" + days, { cache: "no-cache" })
       .then(r => { if (!r.ok) throw new Error("http " + r.status); return r.json(); })   // ⚠ 先看 r.ok：錯誤回應也是 JSON
       .then(j => {
         const secs = (j && j.sections) || [];
-        _histHtml = secs.length
-          ? secs.map(sec => `<div class="ann-hist-day">${_md(sec.date)}</div>` +
+        const n = secs.reduce((a, s2) => a + ((s2.items || []).length), 0);
+        _histCache[days] = secs.length
+          ? `<div class="ann-hist-sum">${days >= _HIST_ALL ? "全部" : "最近 " + days + " 天"}共 ${n} 則 · 點標題看細節</div>` +
+            secs.map(sec => `<div class="ann-hist-day">${_md(sec.date)}</div>` +
               (sec.items || []).map(it =>
-                `<div class="ann-hist-item"><div class="ann-hist-t">${it.e ? it.e + " " : ""}${_md(it.t)}</div>` +
-                (it.d ? `<div class="ann-hist-d">${_histDesc(it.d)}</div>` : "") + `</div>`).join("")).join("")
+                `<div class="ann-hist-item">` +
+                `<button class="ann-hist-t" type="button">` +
+                `<span class="ann-hist-tx">${it.e ? it.e + " " : ""}${_md(it.t)}</span>` +
+                (it.d ? `<span class="ann-hist-arr">▼</span>` : "") + `</button>` +
+                (it.d ? `<div class="ann-hist-d" hidden>${_histDesc(it.d)}</div>` : "") + `</div>`).join("")).join("") +
+            (days < _HIST_ALL ? `<button class="ann-more" type="button" data-days="${_HIST_ALL}">看更早的更新</button>` : "")
           : `<div class="ann-empty">還沒有歷史紀錄</div>`;
       })
-      .catch(() => { _histHtml = `<div class="ann-empty">拿不到歷史更新（可能離線）；稍後再試。</div>`; })
+      .catch(() => { _histCache[days] = `<div class="ann-empty">拿不到歷史更新（可能離線）；稍後再試。</div>`; })
       .finally(() => {
-        _histLoading = false;
+        _histLoading = 0;
         const cur = document.getElementById("announceOverlay");
-        if (cur && cur.dataset.tab === "hist") _renderHist(cur);
+        if (cur && cur.dataset.tab === "hist") _renderHist(cur, days);
       });
   }
 
@@ -282,6 +316,8 @@
         `<button class="ann-tab" data-tab="${id}">${label}</button>`).join("") + `</div>` +
       `<div class="ann-scroll"></div>` +
       `<div class="ann-foot">` +
+      `<span class="ann-vernum" title="回報問題時可以把這兩行一起附上">版本 ${PUB_DATE.replace(/-/g, ".")}` +
+      `<small>build ${String(window._APP_VER || "").slice(0, 6) || "dev"}</small></span>` +
       (auto ? `<button class="ann-btn ann-btn-ghost" id="_annNever">不再提醒</button>` : "") +
       `<button class="ann-btn ann-btn-primary" id="_annLater">${auto ? "我知道了！" : "關閉"}</button></div></div>`;
     document.body.appendChild(ov);
@@ -291,6 +327,19 @@
     document.addEventListener("keydown", onKey, true);
     ov.addEventListener("click", e => { if (e.target === ov) close(); });                 // 點背景＝這次先關(下次還會跳)
     ov.querySelectorAll(".ann-tab").forEach(b => b.addEventListener("click", () => _showTab(ov, b.dataset.tab)));
+    // 更新紀錄：點標題展開/收合說明（內容是非同步塞進去的 → 用事件委派）
+    ov.querySelector(".ann-scroll").addEventListener("click", e => {
+      const more = e.target.closest(".ann-more");
+      if (more) { _renderHist(ov, +more.dataset.days || _HIST_ALL); return; }
+      const t = e.target.closest(".ann-hist-t");
+      if (!t) return;
+      const box = t.parentElement;
+      const d = box.querySelector(".ann-hist-d");
+      if (!d) return;
+      const open = d.hidden;
+      d.hidden = !open;
+      box.classList.toggle("open", open);
+    });
     ov.querySelector("#_annX").addEventListener("click", close);
     ov.querySelector("#_annLater").addEventListener("click", close);
     const never = ov.querySelector("#_annNever");
