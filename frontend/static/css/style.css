@@ -546,14 +546,14 @@ html.perf-mode .tb-icon-btn:hover svg { animation: none; transform: scale(1.1); 
   flex-shrink: 0;
   overflow: hidden;
 }
-.sym-name    { font-size: 14px; font-weight: 700; color: var(--text); white-space: nowrap; }
-.sym-tag     { background: var(--bg3); color: var(--muted); padding: 1px 5px; border-radius: 3px; font-size: 12px; white-space: nowrap; }
+.sym-name    { font-size: 16.2px; font-weight: 700; color: var(--text); white-space: nowrap; }
+.sym-tag     { background: var(--bg3); color: var(--muted); padding: 1px 5px; border-radius: 3px; font-size: 13.9px; white-space: nowrap; }
 .sym-divider { color: var(--border); margin: 0 2px; }
-.sym-label         { color: var(--muted); font-size: 13px; }
+.sym-label         { color: var(--muted); font-size: 15px; }
 .sym-label-v       { margin-left: 4px; }
 /* tabular-nums（2026-09-17）：數字等寬 → 價格每跳一次寬度才不會變，後面的繪圖快捷/倒數不跟著左右晃
    （原本整排晃 5~10px，⋮⋮ 把手只有 12px 寬 → 要抓的時候目標在跳、常常按空）。 */
-.sym-val           { font-weight: 600; margin-right: 2px; white-space: nowrap; font-size: 13px; color: var(--text); font-variant-numeric: tabular-nums; }
+.sym-val           { font-weight: 600; margin-right: 2px; white-space: nowrap; font-size: 15px; color: var(--text); font-variant-numeric: tabular-nums; }
 .sym-chg           { font-weight: 700; margin-left: 4px; white-space: nowrap; font-size: 13px; font-variant-numeric: tabular-nums; }
 .sym-chg.up        { color: var(--red); }
 .sym-chg.dn        { color: var(--green); }
@@ -899,7 +899,7 @@ html.perf-mode .tk-seg {
 .sym-econ {
   display: inline-flex; align-items: center; gap: 4px;
   margin-right: auto; min-width: 0; overflow: hidden;
-  font-size: 13px; color: var(--muted); white-space: nowrap; cursor: default;
+  font-size: 15px; color: var(--muted); white-space: nowrap; cursor: default;
 }
 /* ⚠ 同 .sqd-alert[hidden]：上面的 display:inline-flex 會蓋掉 hidden 屬性自帶的 display:none
    → 沒有下一場經濟事件（或資料還沒到）時，這一欄仍會佔位、還吃 hover 背景。 */
