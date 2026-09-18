@@ -508,6 +508,7 @@ window.toggleChartInvert = function (on) {
   if (typeof ohlcvData !== "undefined" && ohlcvData.length && typeof renderVolume === "function")
     renderVolume(ohlcvData);                          // 量柱顏色（重播中 renderVolume 自己會切到游標為止）
   if (typeof _applyMainMarkers === "function") _applyMainMarkers();   // 原生標記在顛倒時改由 primitive 畫（見 render.js）
+  if (typeof window._symRetint === "function") window._symRetint();  // 上方開高低收數值：顛倒時 K 棒邊框色對調，字也要跟著
   _stratMarkersUpdate();
   // 繪圖是另一層 canvas、靠 priceToCoordinate 定位 → 價格軸一翻就要重畫；下一幀再補一次（等圖表套用新座標）
   if (typeof _scheduleRenderDrawings === "function") {

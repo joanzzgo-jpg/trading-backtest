@@ -504,6 +504,24 @@ function _symReserveAll(closeText) {
   _symReserveOne("symChg", `-${amt}  (-88.88%)`);
   _symReservedDone = true;
 }
+/* ★ 開高低收數值跟著 K 棒邊框顏色（2026-09-18 使用者：「開高低收那行數值 顏色跟著Ｋ棒邊匡顏色」）。
+   ⚠ 取的是 C.borderUp/borderDown（使用者色盤的「邊框」那一組，跟著色盤即時改），不是寫死的紅綠。
+   ⚠ 上下顛倒（window._chartInverted）時 K 棒本身的邊框色就是對調的（charts.js 建 series 時交換）
+     → 這裡跟著對調，否則畫面上紅棒配綠字。
+   記住最後一次的方向 _symLastUp：換色盤/切顛倒時 window._symRetint() 重新上色（colors.js 末段呼叫）。 */
+let _symLastUp = null;
+function _symTint(up) {
+  _symLastUp = up;
+  if (up == null) return;
+  const inv = !!window._chartInverted;
+  const col = ((up !== inv) ? (C.borderUp || DEFAULT_COLORS.borderUp)
+                            : (C.borderDown || DEFAULT_COLORS.borderDown));
+  // ⚠ 一定要 important：style.css 末段「橘子熊可愛風格」有 `.symbol-bar .sym-val { color: … !important }`，
+  //   普通 inline 樣式壓不過它（實測 inline 設了、computed 仍是原色）。同 claude.md 提過的 topbar 覆寫規則。
+  ["symO", "symH", "symL", "symC"].forEach(id => { const e = _symEl(id); if (e) e.style.setProperty("color", col, "important"); });
+}
+window._symRetint = () => _symTint(_symLastUp);
+
 function _setSym(id, text) {
   if (_symFrozen()) return;
   const e = _symEl(id);
@@ -520,6 +538,8 @@ function _resetSymbolBarQuote() {
   ["symO", "symH", "symL", "symC", "symV", "symChg"].forEach(id => { const e = _symEl(id); if (e) { e._symMinW = 0; e.style.minWidth = ""; } });
   _symReservedDone = false;          // 新標的/時框第一次填真實價時重新預留（見 _symReserveAll）
   ["symO", "symH", "symL", "symC", "symV"].forEach(id => _setSym(id, "—"));
+  ["symO", "symH", "symL", "symC"].forEach(id => { const e = _symEl(id); if (e) e.style.removeProperty("color"); });   // 顏色回預設（新標的還沒有方向）
+  _symLastUp = null;
   const chg = _symEl("symChg");
   if (chg) { chg.textContent = ""; chg.className = "sym-chg"; }
 }
@@ -559,6 +579,7 @@ function updateAllLegends(t) {
   _setSym("symL", fmt(d.low));
   _setSym("symC", fmt(d.close));
   _setSym("symV", fmtVol(d.volume));
+  if (!_symFrozen()) _symTint(d.close >= d.open);
   if (idx > 0) _updateSymChg(d.close, ohlcvData[idx - 1].close);
 
   // BB
@@ -685,6 +706,7 @@ function updateSymbolBar(data) {
   _setSym("symL", fmt(last.low));
   _setSym("symC", fmt(last.close));
   _setSym("symV", fmtVol(last.volume));
+  if (!_symFrozen()) _symTint(last.close >= last.open);
   _updateSymChg(last.close, prev.close);
   // 主圖 BB 數值：手機沒有 hover crosshair，這裡用最新一根 K 棒把布林通道數值填進
   // 圖例（桌面未 hover 時也順便顯示最新值，行為更像專業看盤 app）

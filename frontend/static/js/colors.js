@@ -356,6 +356,7 @@ function applyAllColors() {
     //   開著線型圖時重開頁面，還原顏色偏好之後蠟燭又冒出來，變成 K 棒與折線疊在一起。
     //   套完顏色再讓 applyChartType 重新裁決一次（它是圖型的唯一真相）。
     if (typeof applyChartType === "function") applyChartType();
+    if (typeof window._symRetint === "function") window._symRetint();   // 上方開高低收數值跟著新的邊框色
   }
   bbU.applyOptions({ color:C.bbU }); bbM.applyOptions({ color:C.bbM }); bbL.applyOptions({ color:C.bbL });
   kdjK.applyOptions({ color:C.kdjK }); kdjD.applyOptions({ color:C.kdjD }); kdjJ.applyOptions({ color:C.kdjJ });
