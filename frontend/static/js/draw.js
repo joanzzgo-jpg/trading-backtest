@@ -3002,6 +3002,64 @@ function _renderDrawingsAfterSettle() {
   _watchAxis(1800);
 }
 
+/* ── 右緣價格標籤的「讓位」：畫幾條靠近的水平線時，價格數字會疊成一團看不清 ──────
+   （2026-09-19 使用者：「右邊價格那行 會重疊看不清」「因為畫水平線 價格也在那」）
+   ⚠ 只讓**標籤**讓位，線本身一定留在正確的價位上 —— 標籤挪幾像素不影響判讀，
+     線挪了就是給錯價。
+   ⚠ 往「離現有標籤較近的反方向」推，推不開就繼續往同一邊疊 → 多條時會排成一疊而不是互相蓋。 */
+const _HP_LBL_H = 12;            // 一個價格標籤佔的高度（字 10px + 上下內距）
+const _hpLane = new Map();       // 這一幀每條水平線的標籤基線 y（id → y）
+/* 每幀先一次配好位置，不要邊畫邊搶：
+   ⚠ 邊畫邊搶會依**繪圖陣列順序**分配 → 高價的標籤可能排到低價的下面（實測就是這樣，
+     80798.6 竟然在 80750.2 上方）。一定要先依價格排序再配。
+   ⚠ 擠開之後整叢往回移「平均位移量」→ 標籤群仍**對齊原本的價位**，不會整叢往下漂。 */
+const _hpPend = [];              // 這一幀待畫的價格標籤（等線都畫完再畫，才不會被線劃花）
+function _hpFlush() {
+  if (!_hpPend.length) return;
+  drawCtx.save();
+  drawCtx.font = "10px monospace";
+  for (const it of _hpPend) {
+    drawCtx.fillStyle = "rgba(16,20,28,0.72)";
+    drawCtx.fillRect(it.x - 3, it.y - 9, it.w + 6, 12);
+    if (it.mk) {
+      drawCtx.fillStyle = it.mkCol;
+      drawCtx.fillText(it.mk, Math.max(2, it.x - drawCtx.measureText(it.mk).width - 3), it.y);
+    }
+    drawCtx.fillStyle = it.col;
+    drawCtx.fillText(it.txt, it.x, it.y);
+  }
+  drawCtx.restore();
+  _hpPend.length = 0;
+}
+function _hpLaneBuild(list) {
+  _hpLane.clear();
+  const items = [];
+  for (const d of (list || [])) {
+    if (!d || d.type !== "hline" || d.id == null) continue;
+    const y = candleSeries?.priceToCoordinate(d.price);
+    if (y == null) continue;
+    items.push({ id: d.id, want: y - 3 });
+  }
+  if (!items.length) return;
+  items.sort((a, b) => a.want - b.want);
+  let prev = -1e9, cluster = [];
+  const flush = () => {
+    if (!cluster.length) return;
+    let sum = 0;
+    for (const it of cluster) sum += it.got - it.want;
+    const mid = sum / cluster.length;                    // 整叢的平均位移 → 扣掉＝置中
+    for (const it of cluster) _hpLane.set(it.id, it.got - mid);
+    cluster = [];
+  };
+  for (const it of items) {
+    if (it.want > prev + _HP_LBL_H) flush();             // 跟前一個不擠 → 前一叢結束
+    it.got = Math.max(it.want, prev + _HP_LBL_H);
+    prev = it.got;
+    cluster.push(it);
+  }
+  flush();
+}
+
 let _ovSettleT = null;   // 平移/縮放中省略的大面積填色 → 停手 240ms 補回（同 charts.js FVG settle 模式）
 /* ── 畫線/拖曳時的即時輔助：軸標籤(價格軸/時間軸) + Δ 資訊盒(TV 風) ── */
 function _fmtP(v) {
@@ -3665,6 +3723,11 @@ function renderDrawings() {
   const dpr = window.devicePixelRatio || 1;
   const W = drawCanvas.width / dpr, H = drawCanvas.height / dpr;
   drawCtx.clearRect(0, 0, W, H);
+  // 右緣價格標籤先配好位（見該函式）。⚠ 要跟下面實際會畫的那批同一個過濾條件：
+  //   副圖的線與隱藏圖層的線根本不畫在主圖上，讓它們去佔位會把看得到的標籤推開。
+  _hpLaneBuild((typeof drawings !== "undefined" ? drawings : [])
+    .filter(d => d && (!d.pane || d.pane === "main") && _layerOn(d)));
+  _hpPend.length = 0;
 
   // 現價標籤位置跟著價格軸縮放/平移/即時更新（renderDrawings 是 overlay 重畫的共同入口）
   if (typeof updateCurrentPriceLabel === "function") updateCurrentPriceLabel();
@@ -3697,6 +3760,7 @@ function renderDrawings() {
   _byLayer(drawings).filter(d => _isMain(d) && d.id === hoveredId && d.id !== selectedId).forEach(d => _safeDraw(d, true, false));
   _byLayer(drawings).filter(d => _isMain(d) && d.id === selectedId).forEach(d => _safeDraw(d, false, true));
 
+  _hpFlush();               // 水平線的價格標籤：等線都畫完才畫，否則會被別條線劃花
   // 🔔 到價鬧鐘：畫在繪圖之上，別被線條蓋住
   _drawPriceAlerts(W, H);
   // 選取狀態變了就同步快捷列那顆鈴鐺（選取只會透過重繪反映出來，這裡是共同出口）
@@ -3834,8 +3898,14 @@ function drawOne(d, W, H, isHovered, isSelected) {
     const _hpTxt = _hp >= 1000 ? _hp.toFixed(1) : _hp >= 10 ? _hp.toFixed(2) : _hp >= 1 ? _hp.toFixed(3) : _hp.toFixed(4);
     let _hpRight = W;
     try { const _tw = mainChart.timeScale().width(); if (_tw > 0) _hpRight = _tw; } catch (e) {}
-    const _hpX = Math.max(5, _hpRight - drawCtx.measureText(_hpTxt).width - 5);
-    drawCtx.fillText(_hpTxt, _hpX, y - 3);
+    const _hpW = drawCtx.measureText(_hpTxt).width;
+    const _hpX = Math.max(5, _hpRight - _hpW - 5);
+    /* 讓位＋底色（2026-09-19）：多條線靠近時數字本來會疊成一團，而且是裸字壓在 K 棒上。
+       底色用深色半透明小卡（同十字線/現價標籤的做法），線的顏色留給數字本身。 */
+    const _hpY = (_hpLane.get(d.id) ?? (y - 3));
+    // ⚠ 不在這裡畫：後面才畫的線會從標籤上穿過去（實測靠近的四條線把中間兩個標籤劃花）
+    //    → 收集起來，等所有繪圖都畫完再統一畫（見 _hpFlush）
+    _hpPend.push({ txt: _hpTxt, x: _hpX, y: _hpY, w: _hpW, col });
     /* 🔔 到價鬧鐘標示（2026-09-10 使用者：「價格數字左側要有提示圖示」）。
        ⚠ 分開畫、不併進 _hpTxt：鈴鐺要用鬧鐘自己的顏色（待命橘/已觸發灰），
          併進同一次 fillText 就只能跟價格同色，看不出狀態。
@@ -3844,10 +3914,8 @@ function drawOne(d, W, H, isHovered, isSelected) {
       const _a = (typeof _alOf === "function") ? _alOf(d) : null;
       if (_a) {
         const _mk = _a.fired_at ? "✓" : "🔔";
-        drawCtx.save();
-        drawCtx.fillStyle = _a.fired_at ? "rgba(120,123,134,0.95)" : "rgba(255,167,38,0.95)";
-        drawCtx.fillText(_mk, Math.max(2, _hpX - drawCtx.measureText(_mk).width - 3), y - 3);
-        drawCtx.restore();
+        _hpPend[_hpPend.length - 1].mk = _mk;
+        _hpPend[_hpPend.length - 1].mkCol = _a.fired_at ? "rgba(120,123,134,0.95)" : "rgba(255,167,38,0.95)";
       }
     } catch (e) {}
     if (isSelected) {
