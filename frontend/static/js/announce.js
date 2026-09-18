@@ -40,129 +40,111 @@
     const st = document.createElement("style");
     st.id = "announceStyle";
     st.textContent = `
-/* 城堡羊皮紙佈告：暖米紙+紙紋+手繪虛線內框，配合封面城堡繪本風(非冷藍玻璃卡) */
+/* 更新資訊面板：跟 app 其他面板同一套語言（深色面板＋系統配色變數＋圓角晶片）。
+   2026-09-18 改版：原本是封面城堡的「羊皮紙佈告」（米紙底、紙紋、手繪虛線框、草寫日期貼紙），
+   跟 app 介面差太多（使用者：「太鮮艷是指跟整體風格不同」）。
+   ★ 顏色一律走 var(--bg2/--bg3/--border/--text/--muted/--accent) → 使用者改系統配色、
+     或切極簡(白)模式時，這張卡自動跟著，不會再有一張「不屬於這個 app」的卡片。 */
 #announceOverlay{position:fixed;inset:0;z-index:100000;display:flex;align-items:center;justify-content:center;
-  padding:22px;background:radial-gradient(130% 110% at 50% 24%,rgba(52,32,12,.5),rgba(16,10,4,.74));
-  backdrop-filter:blur(5px);-webkit-backdrop-filter:blur(5px);animation:annFade .3s ease both}
+  padding:22px;background:rgba(8,5,3,.62);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);
+  animation:annFade .22s ease both}
 @keyframes annFade{from{opacity:0}to{opacity:1}}
-.ann-card{position:relative;width:min(440px,92vw);max-height:88vh;display:flex;flex-direction:column;
-  padding:24px 22px 20px;font-family:"M PLUS Rounded 1c",-apple-system,"PingFang TC",system-ui,sans-serif;color:#5c4526;
-  background:radial-gradient(100% 55% at 28% 4%,rgba(255,251,238,.9),transparent 55%),
-    linear-gradient(176deg,#f8ecd3,#f0ddb5 58%,#e6cd97);
-  border:2px solid #caa876;border-radius:20px 15px 22px 16px/16px 21px 15px 20px;
-  box-shadow:0 26px 66px rgba(34,18,4,.52),0 2px 0 rgba(255,255,255,.45) inset;
-  animation:annPop .5s cubic-bezier(.22,1.16,.36,1) both}
-@keyframes annPop{from{opacity:0;transform:translateY(18px) scale(.94) rotate(-.6deg)}to{opacity:1;transform:none}}
-/* 紙紋(SVG 雜訊·multiply 淡疊) */
-.ann-card::before{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;opacity:.05;mix-blend-mode:multiply;
-  background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='150' height='150'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='150' height='150' filter='url(%23n)'/%3E%3C/svg%3E");background-size:150px}
-/* 手繪虛線內框 */
-.ann-card::after{content:"";position:absolute;inset:7px;border-radius:15px 11px 16px 12px/12px 15px 11px 15px;
-  pointer-events:none;border:1.5px dashed rgba(122,88,46,.4)}
-/* 歪歪的日期貼紙(草寫)，微微翹出紙緣。2026-09-18 降飽和：原本亮橘貼紙太跳 */
-.ann-ver{position:absolute;top:-10px;left:22px;z-index:4;transform:rotate(-4deg);
-  font-family:"Caveat",cursive;font-weight:700;font-size:16px;color:#7d5f33;
-  background:linear-gradient(180deg,#f6e6c4,#ecd6a8);padding:2px 13px 3px;border-radius:5px;
-  border:1px solid rgba(150,110,55,.32);box-shadow:0 2px 7px rgba(120,80,25,.18)}
-.ann-close{position:absolute;top:12px;right:13px;width:27px;height:27px;border-radius:50%;
-  border:1.5px solid rgba(122,88,46,.35);background:rgba(255,250,236,.65);color:#8a6a3e;font-size:15px;line-height:1;
-  cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.18s;-webkit-tap-highlight-color:transparent;z-index:3}
-.ann-close:hover{background:#e0c08a;color:#5f4324;border-color:rgba(122,88,46,.5);transform:rotate(90deg)}
-.ann-close:active{transform:rotate(90deg) scale(.88)}
-.ann-head{display:flex;align-items:center;gap:13px;margin:8px 0 14px;flex-shrink:0}
-.ann-bear{width:46px;height:46px;border-radius:50%;object-fit:cover;padding:3px;flex-shrink:0;transform:rotate(-4deg);
-  background:radial-gradient(circle at 32% 28%,#ffce8a,#f39a3d);
-  box-shadow:0 4px 12px rgba(210,120,40,.4),0 0 0 2px rgba(255,255,255,.55)}
+.ann-card{position:relative;width:min(470px,93vw);max-height:88vh;display:flex;flex-direction:column;
+  padding:15px 15px 13px;color:var(--text);
+  font-family:"M PLUS Rounded 1c",-apple-system,"PingFang TC",system-ui,sans-serif;
+  background:var(--bg2);border:1px solid var(--border);border-radius:20px;
+  box-shadow:0 24px 80px rgba(0,0,0,.7),0 0 0 1px rgba(255,145,71,.08);
+  animation:annPop .26s cubic-bezier(.2,.9,.3,1) both}
+@keyframes annPop{from{opacity:0;transform:translateY(10px) scale(.985)}to{opacity:1;transform:none}}
+.ann-close{position:absolute;top:11px;right:12px;width:26px;height:26px;border-radius:50%;
+  border:1px solid var(--border);background:transparent;color:var(--muted);font-size:15px;line-height:1;
+  cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.16s;
+  -webkit-tap-highlight-color:transparent;z-index:3}
+.ann-close:hover{background:var(--bg3);color:var(--text)}
+.ann-close:active{transform:scale(.9)}
+.ann-head{display:flex;align-items:center;gap:10px;margin:0 34px 12px 0;flex-shrink:0}
+.ann-bear{width:36px;height:36px;border-radius:50%;object-fit:cover;flex-shrink:0;padding:2px;
+  background:var(--bg3);border:1px solid var(--border)}
 .ann-head-txt{display:flex;flex-direction:column;gap:2px;min-width:0}
-.ann-title{font-size:19px;font-weight:900;color:#6b4d27;letter-spacing:.02em;text-shadow:0 1px 0 rgba(255,252,244,.6)}
-.ann-sub{font-size:12px;font-weight:500;color:#9a7c4e}
-/* 捲動區：上下各留一段漸層淡出，暗示「還有內容」（2026-09-18 排版改版） */
-.ann-scroll{position:relative;flex:1;min-height:0;overflow-y:auto;margin:2px -2px 14px;padding:0 2px;
-  -webkit-mask-image:linear-gradient(180deg,transparent 0,#000 14px,#000 calc(100% - 14px),transparent 100%);
-  mask-image:linear-gradient(180deg,transparent 0,#000 14px,#000 calc(100% - 14px),transparent 100%)}
+.ann-title{font-size:15.5px;font-weight:800;color:var(--text);letter-spacing:.01em}
+.ann-sub{font-size:11.5px;color:var(--muted)}
+/* 日期：改成跟 .sym-tag 同款的小晶片（原本是歪斜的草寫貼紙） */
+.ann-ver{margin-left:auto;flex-shrink:0;align-self:center;font-size:11px;font-weight:700;color:var(--muted);
+  background:var(--bg3);border:1px solid var(--border);border-radius:99px;padding:3px 10px;
+  font-variant-numeric:tabular-nums}
+/* 分頁：沿用時框按鈕那組手感（未選＝透明+邊框、選中＝強調色+深字） */
+.ann-tabs{display:flex;gap:5px;flex-shrink:0;margin-bottom:10px}
+.ann-tab{flex:1;font-family:inherit;font-size:12.5px;font-weight:700;color:var(--muted);background:transparent;
+  border:1px solid var(--border);border-radius:10px;padding:7px 0;cursor:pointer;
+  -webkit-tap-highlight-color:transparent;transition:background .12s,color .12s,border-color .12s}
+.ann-tab:hover{background:var(--bg3);color:var(--text)}
+.ann-tab.on{background:var(--accent);border-color:transparent;color:#2C1607}
+.ann-scroll{position:relative;flex:1;min-height:0;overflow-y:auto;margin:0 -2px 12px;padding:0 2px}
 .ann-scroll::-webkit-scrollbar{width:6px}
-.ann-scroll::-webkit-scrollbar-thumb{background:rgba(150,110,60,.35);border-radius:4px}
+.ann-scroll::-webkit-scrollbar-thumb{background:rgba(255,145,71,.38);border-radius:99px}
 .ann-list{list-style:none;padding:0;margin:0}
-/* 每則＝一張小卡（原本是虛線分隔的長條，長內容會糊成一片文字牆） */
-.ann-item{position:relative;margin:0 0 10px;padding:11px 13px 12px 14px;border-radius:14px;
-  background:rgba(255,252,240,.62);border:1.5px solid rgba(150,110,55,.26);
-  box-shadow:0 2px 6px rgba(140,95,35,.08);animation:annItem .5s ease both}
+.ann-item{position:relative;margin:0 0 8px;padding:11px 12px;border-radius:14px;
+  background:var(--bg3);border:1px solid var(--border);animation:annItem .4s ease both}
 .ann-item:last-child{margin-bottom:2px}
-.ann-item::before{content:"";position:absolute;left:0;top:10px;bottom:10px;width:3px;border-radius:3px;
-  background:color-mix(in srgb,var(--ann-accent,#d79a4a) 62%,transparent)}
-@keyframes annItem{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
-.ann-item-hd{display:flex;align-items:center;gap:9px;margin-bottom:6px}
-.ann-emoji{font-size:17px;line-height:1;flex-shrink:0;width:30px;height:30px;display:flex;align-items:center;justify-content:center;
-  background:radial-gradient(circle at 35% 30%,rgba(255,255,255,.8),rgba(255,236,198,.6));
-  border:1.5px solid rgba(150,110,55,.3);border-radius:50%;box-shadow:0 2px 5px rgba(140,90,30,.14)}
-.ann-name{flex:1;min-width:0;font-size:14.5px;font-weight:800;color:#5f4324;line-height:1.35}
-/* 分類晶片。2026-09-18 從「實心亮色＋白字」改成淡底同色字（不搶內容） */
-.ann-tag{flex-shrink:0;align-self:flex-start;margin-top:1px;font-size:10.5px;font-weight:800;letter-spacing:.02em;
-  padding:2px 8px;border-radius:999px;color:var(--ann-accent,#a67c4a);
-  background:color-mix(in srgb,var(--ann-accent,#d79a4a) 14%,transparent);
-  border:1px solid color-mix(in srgb,var(--ann-accent,#d79a4a) 34%,transparent)}
-.ann-desc{font-size:12.5px;line-height:1.62;color:#7c6142}
-.ann-desc p{margin:0 0 7px}
+.ann-item::before{content:"";position:absolute;left:0;top:12px;bottom:12px;width:3px;border-radius:0 3px 3px 0;
+  background:var(--ann-accent,var(--accent));opacity:.55}
+@keyframes annItem{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+.ann-item-hd{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.ann-emoji{font-size:15px;line-height:1;flex-shrink:0;width:27px;height:27px;display:flex;align-items:center;justify-content:center;
+  background:var(--bg4);border:1px solid var(--border);border-radius:9px}
+.ann-name{flex:1;min-width:0;font-size:13.5px;font-weight:800;color:var(--text);line-height:1.35}
+.ann-tag{flex-shrink:0;align-self:flex-start;margin-top:1px;font-size:10.5px;font-weight:700;letter-spacing:.02em;
+  padding:2px 8px;border-radius:99px;color:var(--ann-accent,var(--muted));background:transparent;
+  border:1px solid color-mix(in srgb,var(--ann-accent,var(--border)) 45%,transparent)}
+.ann-desc{font-size:12px;line-height:1.6;color:var(--muted)}
+.ann-desc p{margin:0 0 6px}
 .ann-desc p:last-child{margin-bottom:0}
+.ann-desc b{color:var(--text);font-weight:700}
 /* 行首「・」排成真正的條列：折行時對齊，不會掉回行首 */
-.ann-bul{list-style:none;margin:0 0 7px;padding:0}
+.ann-bul{list-style:none;margin:0 0 6px;padding:0}
 .ann-bul:last-child{margin-bottom:0}
 .ann-bul li{position:relative;padding-left:13px;margin:0 0 3px}
 .ann-bul li:last-child{margin-bottom:0}
-.ann-bul li::before{content:"・";position:absolute;left:-1px;top:0;color:#bf9350}
-.ann-desc b{color:#63482a}
-/* 分頁列（2026-09-18 使用者：「更新資訊設計成可以看快捷鍵設置跟之前的更新資訊」） */
-.ann-tabs{display:flex;gap:6px;flex-shrink:0;margin:2px 0 10px;padding:3px;border-radius:12px;
-  background:rgba(160,120,60,.13);border:1.5px solid rgba(150,110,55,.2)}
-.ann-tab{flex:1;font-family:inherit;font-size:12.5px;font-weight:800;color:#8a6c42;background:transparent;
-  border:none;border-radius:9px;padding:7px 0;cursor:pointer;-webkit-tap-highlight-color:transparent;
-  transition:background .16s ease,color .16s ease,box-shadow .16s ease}
-.ann-tab:hover{color:#6b4f2a;background:rgba(255,252,240,.5)}
-.ann-tab.on{color:#5f4324;background:linear-gradient(180deg,#f2e2c1,#e6d1a5);
-  box-shadow:0 2px 6px rgba(150,110,55,.2),0 1px 0 rgba(255,255,255,.55) inset}
-/* 快捷鍵表 */
-.ann-kbd-hint{font-size:11.5px;color:#9a7c4e;margin:0 2px 9px}
-.ann-kbd{display:flex;gap:11px;align-items:baseline;padding:8px 11px;margin-bottom:7px;border-radius:11px;
-  background:rgba(255,252,240,.62);border:1.5px solid rgba(150,110,55,.22)}
-.ann-kbd-k{flex:0 0 118px;display:flex;flex-wrap:wrap;gap:4px}
-.ann-kbd-k span{font-size:11.5px;font-weight:800;color:#5f4324;background:linear-gradient(180deg,#fffaf0,#f0ddb9);
-  border:1.5px solid rgba(150,110,55,.38);border-bottom-width:2.5px;border-radius:6px;padding:2px 7px;white-space:nowrap}
-.ann-kbd-d{flex:1;min-width:0;font-size:12.5px;line-height:1.55;color:#7c6142}
-/* 歷史更新 */
-.ann-hist-day{display:flex;align-items:center;gap:8px;margin:4px 0 8px;font-size:12px;font-weight:800;color:#8a6c42}
-.ann-hist-day::after{content:"";flex:1;height:1.5px;background:repeating-linear-gradient(90deg,rgba(150,110,55,.3) 0 6px,transparent 6px 11px)}
-/* 只列標題、點了才展開（2026-09-18 使用者：「更新紀錄字太多了」） */
-.ann-hist-item{margin-bottom:6px;border-radius:11px;background:rgba(255,252,240,.5);
-  border:1.5px solid rgba(150,110,55,.2);overflow:hidden}
+.ann-bul li::before{content:"・";position:absolute;left:-1px;top:0;color:var(--accent);opacity:.65}
+/* 快捷鍵 */
+.ann-kbd-hint{font-size:11px;color:var(--muted);margin:0 2px 9px;opacity:.85}
+.ann-kbd{display:flex;gap:10px;align-items:baseline;padding:8px 11px;margin-bottom:6px;border-radius:12px;
+  background:var(--bg3);border:1px solid var(--border)}
+.ann-kbd-k{flex:0 0 116px;display:flex;flex-wrap:wrap;gap:4px}
+.ann-kbd-k span{font-size:11.5px;font-weight:700;color:var(--text);background:var(--bg4);
+  border:1px solid var(--border);border-bottom-width:2px;border-radius:6px;padding:2px 7px;white-space:nowrap}
+.ann-kbd-d{flex:1;min-width:0;font-size:12px;line-height:1.55;color:var(--muted)}
+/* 更新紀錄：只列標題、點了才展開 */
+.ann-hist-sum{font-size:11px;color:var(--muted);margin:0 2px 9px;opacity:.85}
+.ann-hist-day{display:flex;align-items:center;gap:8px;margin:6px 0 7px;font-size:11.5px;font-weight:700;
+  color:var(--muted);font-variant-numeric:tabular-nums}
+.ann-hist-day::after{content:"";flex:1;height:1px;background:var(--border)}
+.ann-hist-item{margin-bottom:6px;border-radius:12px;background:var(--bg3);border:1px solid var(--border);overflow:hidden}
 .ann-hist-t{display:flex;align-items:center;gap:7px;width:100%;box-sizing:border-box;
   font-family:inherit;text-align:left;background:transparent;border:none;cursor:pointer;
-  padding:9px 11px;font-size:12.5px;font-weight:800;color:#5f4324;line-height:1.4;
-  -webkit-tap-highlight-color:transparent}
-.ann-hist-t:hover{background:rgba(255,255,255,.45)}
+  padding:9px 11px;font-size:12.5px;font-weight:700;color:var(--text);line-height:1.4;
+  -webkit-tap-highlight-color:transparent;transition:background .12s}
+.ann-hist-t:hover{background:var(--bg4)}
 .ann-hist-tx{flex:1;min-width:0}
-.ann-hist-arr{flex-shrink:0;font-size:10px;color:#a8875a;transition:transform .18s ease}
+.ann-hist-arr{flex-shrink:0;font-size:9px;color:var(--muted);transition:transform .18s ease}
 .ann-hist-item.open .ann-hist-arr{transform:rotate(180deg)}
-.ann-hist-d{font-size:12px;line-height:1.55;color:#84694a;padding:0 11px 10px}
+.ann-hist-d{font-size:12px;line-height:1.55;color:var(--muted);padding:0 11px 10px}
 .ann-hist-d p{margin:0 0 5px}
 .ann-hist-d p:last-child{margin-bottom:0}
-.ann-hist-sum{font-size:11.5px;color:#9a7c4e;margin:0 2px 9px}
-.ann-more{display:block;width:100%;font-family:inherit;font-size:12.5px;font-weight:800;color:#8a6c42;
-  background:rgba(255,252,240,.55);border:1.5px dashed rgba(150,110,55,.4);border-radius:12px;
+.ann-more{display:block;width:100%;font-family:inherit;font-size:12.5px;font-weight:700;color:var(--muted);
+  background:transparent;border:1px dashed var(--border);border-radius:12px;
   padding:9px 0;margin:4px 0 2px;cursor:pointer;-webkit-tap-highlight-color:transparent;transition:.16s}
-.ann-more:hover{background:rgba(242,221,180,.7);color:#6b4f2a;border-style:solid}
-.ann-empty{padding:24px 6px;text-align:center;font-size:12.5px;color:#9a7c4e}
-.ann-foot{display:flex;gap:10px;justify-content:flex-end;align-items:center;flex-shrink:0;padding-top:4px}
-.ann-btn{font-family:inherit;padding:10px 20px;border-radius:13px;font-size:13.5px;font-weight:700;cursor:pointer;
-  -webkit-tap-highlight-color:transparent;user-select:none;
-  transition:transform .12s ease,box-shadow .2s ease,background .2s ease,border-color .2s ease,color .2s ease}
-.ann-btn:active{transform:translateY(1px) scale(.96)}
-.ann-btn-ghost{background:transparent;border:1.5px solid rgba(130,95,50,.42);color:#8a6c42}
-.ann-btn-ghost:hover{background:rgba(130,95,50,.1);border-color:rgba(130,95,50,.66);color:#6b4f2a}
-.ann-btn-primary{border:1.5px solid rgba(160,115,55,.6);color:#4e3a1f;background:linear-gradient(180deg,#eedab3,#e2c692);
-  box-shadow:0 3px 10px rgba(150,105,40,.22),0 1px 0 rgba(255,255,255,.5) inset}
-.ann-btn-primary:hover{transform:translateY(-1px);background:linear-gradient(180deg,#f3e2c1,#e7cf9f);
-  box-shadow:0 5px 14px rgba(150,105,40,.26),0 1px 0 rgba(255,255,255,.5) inset}
-.ann-btn-primary:active{transform:translateY(1px) scale(.96);box-shadow:0 2px 7px rgba(150,105,40,.24)}`;
+.ann-more:hover{background:var(--bg3);color:var(--text);border-style:solid}
+.ann-empty{padding:24px 6px;text-align:center;font-size:12.5px;color:var(--muted)}
+.ann-foot{display:flex;gap:8px;justify-content:flex-end;align-items:center;flex-shrink:0}
+.ann-btn{font-family:inherit;padding:8px 16px;border-radius:10px;font-size:12.5px;font-weight:700;cursor:pointer;
+  -webkit-tap-highlight-color:transparent;user-select:none;transition:background .14s,color .14s,border-color .14s,transform .1s}
+.ann-btn:active{transform:scale(.97)}
+.ann-btn-ghost{background:transparent;border:1px solid var(--border);color:var(--muted)}
+.ann-btn-ghost:hover{background:var(--bg3);color:var(--text)}
+.ann-btn-primary{background:var(--accent);border:1px solid transparent;color:#2C1607}
+.ann-btn-primary:hover{filter:brightness(1.06)}
+`;
     document.head.appendChild(st);
   }
 
@@ -207,7 +189,7 @@
   }
 
   // 低飽和（2026-09-18 使用者：「更新版面設計太鮮艷」）
-  const _TAGC = { "新功能": "#bf8340", "更快了": "#4a8a80", "修好了": "#6d8f4b", "調整": "#9b7b52" };
+  const _TAGC = { "新功能": "#E8A05C", "更快了": "#6FBFB1", "修好了": "#9DC271", "調整": "#B79770" };
   function _newsHtml() {
     const list = _recentUpdates();
     if (!list.length) return `<div class="ann-empty">目前沒有新消息</div>`;
@@ -300,12 +282,12 @@
     ov.id = "announceOverlay";
     ov.innerHTML =
       `<div class="ann-card" role="dialog" aria-label="更新資訊">` +
-      `<span class="ann-ver">${PUB_DATE.replace(/-/g, ".")}</span>` +
       `<button class="ann-close" id="_annX" aria-label="關閉">×</button>` +
       `<div class="ann-head">` +
       `<img class="ann-bear" src="${_v("/static/img/bear.png")}" alt="">` +
       `<div class="ann-head-txt"><div class="ann-title">熊報 · 更新資訊</div>` +
-      `<div class="ann-sub">小啊幫你整理了 ${_recentUpdates().length} 則更新 🍊</div></div></div>` +
+      `<div class="ann-sub">小啊幫你整理了 ${_recentUpdates().length} 則更新</div></div>` +
+      `<span class="ann-ver">${PUB_DATE.replace(/-/g, ".")}</span></div>` +
       `<div class="ann-tabs">` + _TABS.map(([id, label]) =>
         `<button class="ann-tab" data-tab="${id}">${label}</button>`).join("") + `</div>` +
       `<div class="ann-scroll"></div>` +
