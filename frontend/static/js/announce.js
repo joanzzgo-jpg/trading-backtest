@@ -123,6 +123,20 @@
 .ann-kbd-k span{font-size:11.5px;font-weight:700;color:var(--text);background:var(--bg4);
   border:1px solid var(--border);border-bottom-width:2px;border-radius:6px;padding:2px 7px;white-space:nowrap}
 .ann-kbd-d{flex:1;min-width:0;font-size:12px;line-height:1.55;color:var(--muted)}
+/* 可自訂的按鍵晶片：長得跟固定那顆一樣，只是可點（hover 才看得出來可互動） */
+.ann-kbd-btn{font:inherit;font-size:11.5px;font-weight:700;color:var(--text);background:var(--bg4);
+  border:1px solid var(--border);border-bottom-width:2px;border-radius:6px;padding:2px 9px;
+  white-space:nowrap;cursor:pointer;transition:border-color .12s,color .12s}
+.ann-kbd-btn:hover{border-color:var(--accent);color:var(--accent)}
+.ann-kbd-custom{border-color:var(--accent);color:var(--accent)}      /* 已改過的 */
+.ann-kbd-rec{border-color:var(--accent);color:#2C1607;background:var(--accent)}  /* 錄製中 */
+.ann-kbd-err{font-size:11.5px;color:#e5836a;margin:0 2px 8px;display:none}
+.ann-kbd-err.on{display:block}
+.ann-kbd-sec{font-size:11px;color:var(--muted);opacity:.7;margin:14px 2px 7px}
+.ann-kbd-foot{margin-top:12px;text-align:right}
+.ann-kbd-reset{font:inherit;font-size:11.5px;color:var(--muted);background:transparent;
+  border:1px solid var(--border);border-radius:9px;padding:5px 12px;cursor:pointer}
+.ann-kbd-reset:hover{color:var(--text);border-color:var(--accent)}
 /* 更新紀錄：只列標題、點了才展開 */
 .ann-hist-sum{font-size:11px;color:var(--muted);margin:0 2px 9px;opacity:.85}
 .ann-hist-day{display:flex;align-items:center;gap:8px;margin:6px 0 7px;font-size:11.5px;font-weight:700;
@@ -213,17 +227,77 @@
   }
 
   /* 快捷鍵：直接用 hotkeys.js 的那份清單（window._HOTKEY_ROWS）→ 只有一份來源，加新鍵不必兩邊改。 */
+  /* 快捷鍵分頁：可自訂的那幾顆做成可點的晶片（點了按新鍵就改），其餘列出來但標明固定。
+     ⚠ 只透過 window._hk* 那幾支跟 hotkeys.js 溝通，不自己讀 localStorage ——
+       綁定規則（哪些鍵不給綁、衝突怎麼判）只能有一份，散到兩邊一定會分家。 */
   function _keysHtml() {
+    const edit = (typeof window._HOTKEY_EDIT === "function") ? window._HOTKEY_EDIT() : [];
     const rows = (typeof window !== "undefined" && window._HOTKEY_ROWS) || [];
-    if (!rows.length) return `<div class="ann-empty">快捷鍵清單還在載入…稍等一下再開這個分頁</div>`;
-    return `<div class="ann-kbd-hint">在輸入框打字時快捷鍵不作用；中文輸入法下也能用（認的是實體按鍵位置）。</div>` +
-      rows.map(([k, d]) =>
+    if (!edit.length && !rows.length) return `<div class="ann-empty">快捷鍵清單還在載入…稍等一下再開這個分頁</div>`;
+    const chip = a =>
+      `<button class="ann-kbd-btn${a.custom ? " ann-kbd-custom" : ""}" data-hk="${a.id}" ` +
+      `title="點一下再按新的鍵；Esc 取消">${_md(window._hkDisp ? window._hkDisp(a.key) : a.key)}</button>`;
+    const editable = edit.map(a =>
+      `<div class="ann-kbd"><div class="ann-kbd-k">${chip(a)}</div>` +
+      `<div class="ann-kbd-d">${_md(a.label)}</div></div>`).join("");
+    // 固定的那些：hotkeys.js 直接給（⚠ 別在這裡用字串規則挑，「↑ ↓ / 空白」會因為含 "/" 被誤濾掉）
+    const fixed = ((window._HOTKEY_FIXED) || []).map(([k, d]) =>
         `<div class="ann-kbd"><div class="ann-kbd-k">` +
-        // ⚠ 只用「兩個以上空白／全形空白」切成多顆鍵；不可以用 "/" 切 ——
-        //   "/"（開啟搜尋）本身就是一個快捷鍵，切完會變成一顆空白晶片（2026-09-18 踩到）。
         (String(k).split(/\s{2,}|　/).map(x => x.trim()).filter(Boolean).map(x => `<span>${_md(x)}</span>`).join("")
           || `<span>${_md(k)}</span>`) +
         `</div><div class="ann-kbd-d">${_md(d)}</div></div>`).join("");
+    return `<div class="ann-kbd-hint">點下面的按鍵晶片就能改成自己順手的鍵（按 Esc 取消）。` +
+      `中文輸入法下也能用——認的是<b>實體按鍵位置</b>，不是打出來的字。</div>` +
+      `<div class="ann-kbd-err" id="_hkErr"></div>` + editable +
+      `<div class="ann-kbd-sec">以下固定不可更改</div>` + fixed +
+      `<div class="ann-kbd-foot"><button class="ann-kbd-reset" id="_hkReset">還原成預設快捷鍵</button></div>`;
+  }
+
+  /* 綁定互動：點晶片 → 下一個按鍵就是新綁定。
+     ⚠ 一定要用 capture 階段並 stopPropagation：hotkeys.js 的全域 keydown 對「說明鍵」的處理
+       排在「有彈窗就讓路」之前 → 不攔的話，按到說明鍵會在錄製中把整個面板關掉。 */
+  function _wireKeys(ov) {
+    const box = ov.querySelector(".ann-scroll");
+    if (!box) return;
+    const err = box.querySelector("#_hkErr");
+    let armed = null;                         // 正在錄製的動作 id
+    const say = m => { if (err) { err.textContent = m || ""; err.classList.toggle("on", !!m); } };
+    const disarm = () => {
+      if (!armed) return;
+      box.querySelectorAll(".ann-kbd-btn").forEach(b => b.classList.remove("ann-kbd-rec"));
+      armed = null;
+      document.removeEventListener("keydown", onKey, true);
+    };
+    function onKey(e) {
+      if (!armed) return;
+      e.preventDefault(); e.stopPropagation();
+      if (e.key === "Escape") { disarm(); say(""); return; }
+      if (["Shift", "Control", "Alt", "Meta"].includes(e.key)) return;   // 修飾鍵本身不算
+      const k = (window._hkPhysKey ? window._hkPhysKey(e) : e.key);
+      const id = armed;
+      disarm();
+      const r = window._hkBind ? window._hkBind(id, k) : { ok: false, why: "快捷鍵模組還沒載入" };
+      if (!r.ok) { say(`「${window._hkDisp ? window._hkDisp(k) : k}」不能用：${r.why}`); return; }
+      say("");
+      box.innerHTML = _keysHtml();            // 重畫（鍵顯示會變）
+      _wireKeys(ov);
+    }
+    box.querySelectorAll(".ann-kbd-btn").forEach(b => {
+      b.addEventListener("click", () => {
+        const was = armed === b.dataset.hk;
+        disarm();
+        if (was) { say(""); return; }         // 再點一次＝取消
+        armed = b.dataset.hk;
+        b.classList.add("ann-kbd-rec");
+        say("按下想用的鍵…（Esc 取消）");
+        document.addEventListener("keydown", onKey, true);
+      });
+    });
+    box.querySelector("#_hkReset")?.addEventListener("click", () => {
+      if (window._hkResetAll) window._hkResetAll();
+      box.innerHTML = _keysHtml();
+      _wireKeys(ov);
+    });
   }
 
   /* 歷史更新：90KB 的 docs/announce-history.md 不進 bundle → 點開這個分頁才跟後端要（最近 30 天）。 */
@@ -280,6 +354,7 @@
     const box = ov.querySelector(".ann-scroll");
     if (tab === "hist") { _renderHist(ov); return; }
     box.innerHTML = tab === "keys" ? _keysHtml() : _newsHtml();
+    if (tab === "keys") _wireKeys(ov);
     box.scrollTop = 0;
   }
 

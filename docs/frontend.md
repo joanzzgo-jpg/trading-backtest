@@ -121,6 +121,25 @@
 > **原單體 `app.js` 早已拆分為多個模組並刪除（不復存在）。新增功能請編輯對應的模組檔案。**
 > **拆檔注意**：bundle 檔拆完要更新 `names`；動態檔（effects/weather）拆完要更新 `main.js` 的 `_loadFx` 與 `main.py` 的 `_asset_ver`。`effects.js` / `weather.js` 為 classic script（非 module），頂層 `const`/`let` 走「全域語彙環境」跨檔共享，故拆檔後仍可互相引用（被引用者需先載入）。
 
+## 鍵盤快捷鍵（`hotkeys.js`，自訂於 2026-09-19）
+
+派送是**表格驅動**：`ACTIONS`（id／預設鍵／說明）＋ 使用者覆寫 `localStorage.hotkeyMap`。
+可自訂的有 8 個：搜尋 `/`、重播 `R`、上下顛倒 `A`、復原 `V`、圖層 `Z/X/C`、說明 `?`。
+
+- **存的是實體鍵代號**（`_physKey()` 產出的小寫字母／符號），不是 `e.key`：
+  否則中文輸入法下綁出來的會是「ㄈ」這種字元，換回英數輸入法就失效。
+- **可指定的鍵只有 a~z 與 `/` `?`**：數字 0-9 是切時框、`[` `]` 是上/下一個時框、
+  方向鍵/Esc/Shift 各有固定用途 → `RESERVED` 擋掉並說明原因。衝突時也擋下、指出被誰用了。
+- **顯示清單由綁定即時產生**（`_rows()`），不另外寫死一份 —— 兩份會分家（改了鍵、表上還是舊的）。
+  不可改的那些集中在 `FIXED`，UI 直接列；⚠ **不要讓 UI 用字串規則去挑固定列**
+  （第一版那樣寫，「↑ ↓ / 空白」因為含 `/` 被誤濾掉整列消失）。
+- 編輯 UI 在「更新資訊 → 快捷鍵」分頁（`announce.js` `_keysHtml`/`_wireKeys`），
+  只透過 `window._HOTKEY_EDIT / _hkBind / _hkResetAll / _hkDisp / _hkPhysKey / _HOTKEY_FIXED` 溝通，
+  不自己讀 localStorage（綁定規則只能有一份）。
+  ⚠ 錄製時的 keydown 必須走 **capture 階段並 stopPropagation**：hotkeys.js 對「說明鍵」的處理
+  排在「有彈窗就讓路」之前 → 不攔的話，按到說明鍵會在錄製中把整個面板關掉。
+- `hotkeyMap` 不在 `_ACCT_SKIP` → 跟著帳號快照跨裝置。
+
 ## 前端圖表標記視窗化（效能，`render.js` / `charts.js`）
 - 小時/4H 背景載入上千根 → CRT+KDJ叉+共振+多空訊號可達**數千標記**（4h 滑到底 ~8500），全丟 `setMarkers` 會讓每次平移/縮放重繪全部 → 卡。
 - `_applyMainMarkers` 只渲染「**可見範圍 ±一屏**」（`_windowMarkers` 用 `getVisibleRange` 過濾）；平移/縮放時 `_scheduleMarkerRewindow`（debounce 100ms）重算（掛在 `syncTimeScales` 的範圍變化）。
