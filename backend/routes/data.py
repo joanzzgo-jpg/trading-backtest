@@ -1988,13 +1988,6 @@ def _round_wr_floats(o):
     return o
 
 
-# 只後端(回測/自動交易)用、前端不讀的 per-signal 欄位 → 回前端 JSON 時砍掉
-_WR_SLIM_DROP = frozenset({"est_r", "est_r_b", "rr", "rr_b", "rr_real", "rr_b_real"})
-# S1~S12 已退役；SS 系列（ss1/ss2/ss3）2026-08-05 亦全面移除 → 不再回傳任何策略訊號給前端。
-# 保留這個空集合而不是拆掉整條過濾：signals 這個欄位仍存在（前端與瘦身邏輯都吃它），只是恆為空。
-_SS_KEEP_KEYS = frozenset()
-
-
 _GIT_REV = None
 def _git_rev():
     """ETag 摻 git 版號：部署後(瘦身/序列化邏輯可能變)舊 ETag 全數失效，永不 304 到跨版本殘影。"""
@@ -2063,13 +2056,12 @@ def crt_winrate_api(
     base_h: str = "",
     skip: str = "",
 ):
-    """/api/crt_winrate 路由：呼叫 get_crt_winrate(含快取) → 回前端時把 signals『瘦身』
-    （拿掉只後端用的 est/rr 欄位 + 省略 None 值），省 ~40% 傳輸量、加快手機端載入。
+    """/api/crt_winrate 路由：呼叫 get_crt_winrate(含快取) → 回前端前先瘦身（見 _wr_slim）。
     band_ratio：上下軌目標比例（1.0=上下軌；0.8=8成軌，HUD 切到 8成軌時前端帶此參數另抓一份）。
     vw：FVG/策略標記的近段窗根數（前端往歷史滑時加大→補算舊區標記；勝率統計不受影響）。
     ETag/304：結果帶內容指紋 _h(重算時算一次) → 同內容重看(同一根棒內切回標的、刷新)回 304
     幾乎零傳輸；前端 fetch 需用 cache:"no-cache"(存快取+每次驗證)。無 _h(舊快取/降級)則照常整包回。
-    ⚠ 回測/自動交易是 Python 直接呼叫 get_crt_winrate → 拿『完整』signals，不受此瘦身影響。"""
+    ⚠ 自動交易是 Python 直接呼叫 get_crt_winrate → 拿完整結果，不受此瘦身影響。"""
     def _run():
         return get_crt_winrate(market, symbol, timeframe, exchange, stop_buffer_pct,
                                api_key, api_secret, finmind_token,
@@ -2107,12 +2099,6 @@ def crt_winrate_api(
     if etag and not base_h and request.headers.get("if-none-match") == etag:
         return Response(status_code=304, headers={"ETag": etag, "Cache-Control": "private, no-cache"})
     out = {k: v for k, v in wr.items() if k != "_h"}
-    sigs = wr.get("signals")
-    if sigs:
-        # 策略訊號已全部退役（S1~S12 無 edge、SS 系列 2026-08-05 移除）→ 這裡恆為空清單。
-        # fvg 為獨立 key，原樣保留。⚠ 回測走 Python 直呼 get_crt_winrate 拿完整 signals，不受此處影響。
-        out["signals"] = [{k: v for k, v in s.items() if v is not None and k not in _WR_SLIM_DROP}
-                          for s in sigs if s.get("k") in _SS_KEEP_KEYS]
     out = _wr_slim(out)                       # 先瘦身成「送出形態」，差量才是對前端手上那份做的
     # ★「沒在顯示的圖層就不送」（2026-07-31）：這些圖層前端只有在對應開關打開時才會畫，而
     #   它們預設全是關的 —— 當年的教練疊加層(smc_*/channel，2026-09-17 已移除)、VWAP、關鍵高低(pd_ranges)。實測 BTC 1h
@@ -2154,7 +2140,7 @@ def crt_winrate_api(
 #        → 轉 epoch 秒整數（21B→10B）。前端 toTime() 已同時吃字串與數字（utils.js）。
 _WR_EPOCH_KEYS = ("t", "t2", "t0", "t1", "ot", "ot_b", "et", "xt", "ett", "etm", "etb",
                   "tp1t", "tp2t", "tp3t", "tp4t", "slt")
-_WR_LIST_KEYS = ("fvg", "signals", "fvg_ms", "fvg_break", "fvg_shun", "fvg_special",
+_WR_LIST_KEYS = ("fvg", "fvg_ms", "fvg_break", "fvg_shun", "fvg_special",
                  "fvg_trades", "vwap")
 
 
@@ -2263,13 +2249,9 @@ def _wr_resp(payload, etag=None, slim=True, no_store=False):
 #   ・vwap：由 window._vwapOn 控制，且前端還有自算版本優先。預設關。
 #   ・pd_ranges：由 window._pdOn 控制。預設關。
 # ⚠ 白名單制：只有列在這裡的 key 允許被省略 —— 前端就算送了別的名字也不會生效，
-#   免得哪天誤傳把 fvg/signals 這種主體砍掉。
-# ★signals（SS1/SS2 反轉訊號標記）2026-08-03 加入：它是回應裡第二大的一塊，
-#   而且**是唯一值多的資料，gzip 壓不掉** —— 實測不送它 gzip 607KB → 493KB（省 19%）。
-#   前端有「一鍵隱藏訊號標記」按鈕（wrSignalsToggleBtn），隱藏時這 114KB 完全用不到。
-#   ⚠ 與其他幾個不同：signals **預設是顯示的** → 只有主動關掉的人才省得到，
-#     這是有意的（不能為了省流量而讓預設看不到東西）。
-_WR_SKIPPABLE = frozenset({"vwap", "pd_ranges", "signals",
+#   免得哪天誤傳把 fvg 這種主體砍掉。
+#   （signals 2026-09-17 隨勝率統計整個移除，不再是可省略項。）
+_WR_SKIPPABLE = frozenset({"vwap", "pd_ranges",
                            # 2026-09-12 追加：這些圖層在前端**預設就是關的**（有的連 UI 開關都沒有），
                            #   實測預設情況下佔整份回應的 29%（gzip 50.8KB / 172.9KB，SUI 1h）。
                            #   前端 _WR_SKIP_GROUPS 依開關決定要不要；打開時 _wrRefetchIfMissing 會補抓。
@@ -2278,7 +2260,7 @@ _WR_SKIPPABLE = frozenset({"vwap", "pd_ranges", "signals",
                            "fvg_trades", "fvg_bb", "fvg_bb_a", "fvg_bb_m",
                            "fvg_shun", "fvg_special", "fvg_sigs"})
 
-_WR_DELTA_KEYS = ("fvg", "signals", "fvg_ms", "fvg_break", "fvg_shun", "fvg_special",
+_WR_DELTA_KEYS = ("fvg", "fvg_ms", "fvg_break", "fvg_shun", "fvg_special",
                   "fvg_trades", "vwap",
                   "fvg_bb", "fvg_bb_a", "fvg_bb_m", "fvg_sigs")
 _WR_HIDX: "_collections.OrderedDict" = _collections.OrderedDict()   # _h → {key: [每筆雜湊]}
@@ -2563,7 +2545,7 @@ def get_crt_winrate(
     _pm_tag = "" if abs(_pm - 0.0005) < 1e-9 else f":pm{_pm}"
     # no_proto_ms/break：多空、破多空各自 B 改用正常3根FVG(g+1確認)取代單根proto；預設關(空tag、沿用proto快取)
     _np_tag = ("" if not no_proto_ms else ":npm1") + ("" if not no_proto_break else ":npb1")
-    cache_key = f"crt_wr106:{market}:{symbol}:{exchange}:{timeframe}:{_buf}:{int(_long_only)}{_br_tag}{_vw_tag}{_pm_tag}{_np_tag}"   # v106:拿掉 smc_*/channel 五層(2026-09-17，舊快取含這些鍵、已不在可省略白名單→會被整包送出);v101:no_proto拆多空/破多空獨立;v99:止損連續反色K run極值;v97:+fvg_ms止盈
+    cache_key = f"crt_wr107:{market}:{symbol}:{exchange}:{timeframe}:{_buf}:{int(_long_only)}{_br_tag}{_vw_tag}{_pm_tag}{_np_tag}"   # v107:拿掉恆為零的勝率統計鍵(signals/win_rate/band/rr/recent…);v106:拿掉 smc_*/channel 五層(2026-09-17，舊快取含這些鍵、已不在可省略白名單→會被整包送出);v101:no_proto拆多空/破多空獨立;v99:止損連續反色K run極值;v97:+fvg_ms止盈
     bar_key = cache_key + ":bar"
     # bar-aware 新鮮度：記下「算這份結果時最新那根棒的開盤時刻」。crypto 在「同一根棒內」吃快取，
     # 一旦有新棒收盤就讓快取失效 → 走下方短窗補抓重算 → 最新訊號最多慢到「收盤後第一次請求」，

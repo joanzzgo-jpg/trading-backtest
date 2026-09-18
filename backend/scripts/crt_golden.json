@@ -7,10 +7,9 @@
    "fvg_ms": 232,
    "fvg_shun": 144,
    "fvg_sigs": 147,
-   "fvg_special": 48,
-   "signals": 0
+   "fvg_special": 48
   },
-  "hash": "42f4c08a0ae49793bcbc"
+  "hash": "46a3b7888bd8556283ff"
  },
  "BTC 4h 2021~2024": {
   "bars": 8766,
@@ -20,10 +19,9 @@
    "fvg_ms": 838,
    "fvg_shun": 520,
    "fvg_sigs": 200,
-   "fvg_special": 164,
-   "signals": 0
+   "fvg_special": 164
   },
-  "hash": "ab779dfe654d809de1d9"
+  "hash": "c9f954f3cc70cb59f193"
  },
  "BTC 4h no_proto_ms/break": {
   "bars": 4386,
@@ -33,10 +31,9 @@
    "fvg_ms": 280,
    "fvg_shun": 247,
    "fvg_sigs": 200,
-   "fvg_special": 19,
-   "signals": 0
+   "fvg_special": 19
   },
-  "hash": "533bc6ca25b52c576c72"
+  "hash": "e54ba62c5c0193de5d1a"
  },
  "BTC 4h visual_window=2000": {
   "bars": 8766,
@@ -46,10 +43,9 @@
    "fvg_ms": 203,
    "fvg_shun": 129,
    "fvg_sigs": 105,
-   "fvg_special": 34,
-   "signals": 0
+   "fvg_special": 34
   },
-  "hash": "940559c7acc2087953ad"
+  "hash": "94d384d64dfcdc6a17dd"
  },
  "BTC 4h 注入 1% NaN": {
   "bars": 8766,
@@ -59,10 +55,9 @@
    "fvg_ms": 904,
    "fvg_shun": 537,
    "fvg_sigs": 200,
-   "fvg_special": 161,
-   "signals": 0
+   "fvg_special": 161
   },
-  "hash": "9928912999a1341a5b94"
+  "hash": "4bff7c4dacffac6ccd8f"
  },
  "ETH 4h 2022~2025H1": {
   "bars": 7662,
@@ -72,10 +67,9 @@
    "fvg_ms": 798,
    "fvg_shun": 529,
    "fvg_sigs": 200,
-   "fvg_special": 154,
-   "signals": 0
+   "fvg_special": 154
   },
-  "hash": "745a3fa42d7edac16951"
+  "hash": "2386b6b07c91a89f8ed2"
  },
  "ETH 4h stock_gap+long_only": {
   "bars": 4386,
@@ -85,10 +79,9 @@
    "fvg_ms": 436,
    "fvg_shun": 257,
    "fvg_sigs": 200,
-   "fvg_special": 85,
-   "signals": 0
+   "fvg_special": 85
   },
-  "hash": "3037fb5d6eda5c3bf5ed"
+  "hash": "62c94f1aea15bbfa44ed"
  },
  "ETH 4h 注入 2% NaN": {
   "bars": 6576,
@@ -98,9 +91,8 @@
    "fvg_ms": 751,
    "fvg_shun": 463,
    "fvg_sigs": 200,
-   "fvg_special": 130,
-   "signals": 0
+   "fvg_special": 130
   },
-  "hash": "ac287b76ab2265955523"
+  "hash": "116c1a9a02fb5496bef7"
  }
 }

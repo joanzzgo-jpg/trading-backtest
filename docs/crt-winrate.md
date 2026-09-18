@@ -25,9 +25,8 @@
 | `fvg_sigs` | 收盤確認進場訊號 → 後端 `notify_monitor`／自動交易用，前端一律不送 |
 | `_h` | 內容指紋（ETag／差量 base） |
 
-- ⚠ 其餘頂層鍵（`win_rate/total/short/long/abc/s3…/band/rr/recent/signals/stop_strategy…`）是已移除的
-  S1~S12／SS 訊號統計，**恆為空或零**，只為了輸出形態穩定而留著（約 13KB 未壓縮）。
-  `notify_monitor` 讀了 `signals` 之後直接覆寫成 `[]`（見該處註解），實際只用 `fvg_sigs`。
+- 2026-09-17：已移除的 S1~S12／SS 訊號統計鍵（`win_rate/total/short/long/abc/s3…/band/rr/recent/signals/
+  stop_strategy…`，恆為空或零）連同產生它們的統計機器一併刪除 → 輸出只剩上表那些鍵。
 
 ### 參數
 - `vw`：標記視窗根數，前端依已載根數走階梯 `[8000, 20000, 45000, 100000, 250000]`（`_WR_VW_LADDER`）。
@@ -38,6 +37,7 @@
 - `lite=ms`：迷你圖只回 `fvg_ms/fvg_break` 各最近 250 筆。
 - `stop_buffer_pct`、`band_ratio`：只影響已移除的訊號統計；前端 2026-09-17 起不再傳。
 - `solve`：止損求解模式，2026-09-17 移除（傳了會被忽略）。
+- ⚠ 輸出結構變更要升 `crt_wrNNN` 快取鍵版號（現為 v107），否則部署後 30 分鐘內會送出舊格式。
 
 ### 快取
 - 記憶體 `data_cache` 鍵 `crt_wr106:...`（輸出結構變更就遞增版號），TTL 30 分；crypto 另有
@@ -59,6 +59,7 @@
 ## 已移除（考古用，細節看 git 歷史）
 - **S1~S12 CRT 訊號**（2026-07）、**SS1/SS2 布林軌道反轉**（2026-08-05）：偵測與勝負掃描整段刪除。
   2026-09-17 再刪掉殘留的 `_push_signal/_scan_dual/_rr_at` 等掃描函式與 `_solve` 求解模式。
+- **勝率統計**（中軌/帶軌/1:1 三套、連敗、敗後停手、近期勝率、per-signal RR）：2026-09-17 刪除，`_calc_crt_winrate` 少 900 行。
 - **勝率欄 HUD**（上方三段式勝率列、十字線 hover 勝率小卡、中軌/上下軌切換、停損緩衝、前三名列）、
   **訊號詳情抽屜** `signal_info.js`：2026-09-17 隨勝率欄移除。
 - **CRT 訊號回測** `/api/crt_backtest`、`backtest.js`，以及更早的通用技術策略回測引擎。

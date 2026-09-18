@@ -74,7 +74,7 @@ def main():
             continue
         r = _calc_crt_winrate(d.copy(), **kw)
         h = hashlib.sha256(json.dumps(r, sort_keys=True, default=str).encode()).hexdigest()[:20]
-        counts = {k: len(r.get(k) or []) for k in ("fvg", "fvg_ms", "fvg_break", "fvg_shun", "fvg_special", "fvg_sigs", "signals")}
+        counts = {k: len(r.get(k) or []) for k in ("fvg", "fvg_ms", "fvg_break", "fvg_shun", "fvg_special", "fvg_sigs")}
         out[name] = {"bars": len(d), "hash": h, "counts": counts}
         if update:
             print(f"  ✎ {name}  — {len(d)} 根 {h}  {counts}")
