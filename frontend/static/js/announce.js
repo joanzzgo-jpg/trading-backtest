@@ -151,12 +151,6 @@
   padding:9px 0;margin:4px 0 2px;cursor:pointer;-webkit-tap-highlight-color:transparent;transition:.16s}
 .ann-more:hover{background:rgba(242,221,180,.7);color:#6b4f2a;border-style:solid}
 .ann-empty{padding:24px 6px;text-align:center;font-size:12.5px;color:#9a7c4e}
-/* 左下角版本號（2026-09-18 使用者：「更新介面左下角寫目前版本號碼」）：
-   版本＝本次公告日期；build＝資產內容雜湊前 6 碼（回報問題時用來確認拿到的是哪一版）。 */
-.ann-vernum{margin-right:auto;display:flex;flex-direction:column;gap:1px;line-height:1.25;
-  font-size:11px;font-weight:700;color:#9a7c4e;user-select:text}
-.ann-vernum small{font-size:9.5px;font-weight:600;color:#b09169;letter-spacing:.04em;
-  font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
 .ann-foot{display:flex;gap:10px;justify-content:flex-end;align-items:center;flex-shrink:0;padding-top:4px}
 .ann-btn{font-family:inherit;padding:10px 20px;border-radius:13px;font-size:13.5px;font-weight:700;cursor:pointer;
   -webkit-tap-highlight-color:transparent;user-select:none;
@@ -316,8 +310,6 @@
         `<button class="ann-tab" data-tab="${id}">${label}</button>`).join("") + `</div>` +
       `<div class="ann-scroll"></div>` +
       `<div class="ann-foot">` +
-      `<span class="ann-vernum" title="回報問題時可以把這兩行一起附上">版本 ${PUB_DATE.replace(/-/g, ".")}` +
-      `<small>build ${String(window._APP_VER || "").slice(0, 6) || "dev"}</small></span>` +
       (auto ? `<button class="ann-btn ann-btn-ghost" id="_annNever">不再提醒</button>` : "") +
       `<button class="ann-btn ann-btn-primary" id="_annLater">${auto ? "我知道了！" : "關閉"}</button></div></div>`;
     document.body.appendChild(ov);
