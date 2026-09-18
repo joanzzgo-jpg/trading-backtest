@@ -509,18 +509,28 @@ function _symReserveAll(closeText) {
    ⚠ 上下顛倒（window._chartInverted）時 K 棒本身的邊框色就是對調的（charts.js 建 series 時交換）
      → 這裡跟著對調，否則畫面上紅棒配綠字。
    記住最後一次的方向 _symLastUp：換色盤/切顛倒時 window._symRetint() 重新上色（colors.js 末段呼叫）。 */
-let _symLastUp = null;
+let _symLastUp = null, _symChgLastUp = null;
+function _symDirCol(up) {
+  const inv = !!window._chartInverted;   // 顛倒時 K 棒邊框色本身就對調 → 字跟著對調
+  return (up !== inv) ? (C.borderUp || DEFAULT_COLORS.borderUp)
+                      : (C.borderDown || DEFAULT_COLORS.borderDown);
+}
 function _symTint(up) {
   _symLastUp = up;
   if (up == null) return;
-  const inv = !!window._chartInverted;
-  const col = ((up !== inv) ? (C.borderUp || DEFAULT_COLORS.borderUp)
-                            : (C.borderDown || DEFAULT_COLORS.borderDown));
+  const col = _symDirCol(up);
   // ⚠ 一定要 important：style.css 末段「橘子熊可愛風格」有 `.symbol-bar .sym-val { color: … !important }`，
   //   普通 inline 樣式壓不過它（實測 inline 設了、computed 仍是原色）。同 claude.md 提過的 topbar 覆寫規則。
   ["symO", "symH", "symL", "symC"].forEach(id => { const e = _symEl(id); if (e) e.style.setProperty("color", col, "important"); });
 }
-window._symRetint = () => _symTint(_symLastUp);
+function _symChgTint(up) {
+  _symChgLastUp = up;
+  const el = _symEl("symChg");
+  if (!el) return;
+  if (up == null) el.style.removeProperty("color");
+  else el.style.setProperty("color", _symDirCol(up), "important");   // 同上：要 important 才壓得過 .sym-chg 的色
+}
+window._symRetint = () => { _symTint(_symLastUp); _symChgTint(_symChgLastUp); };
 
 function _setSym(id, text) {
   if (_symFrozen()) return;
@@ -541,7 +551,8 @@ function _resetSymbolBarQuote() {
   ["symO", "symH", "symL", "symC"].forEach(id => { const e = _symEl(id); if (e) e.style.removeProperty("color"); });   // 顏色回預設（新標的還沒有方向）
   _symLastUp = null;
   const chg = _symEl("symChg");
-  if (chg) { chg.textContent = ""; chg.className = "sym-chg"; }
+  if (chg) { chg.textContent = ""; chg.className = "sym-chg"; chg.style.removeProperty("color"); }
+  _symChgLastUp = null;
 }
 
 // 切標的瞬間先用已知現價填上方「價格」（取代「—」），避免價格閃一下再回來。
@@ -664,6 +675,7 @@ function _updateSymChg(close, prevClose) {
   const _t = `${sign}${fmt(amt)}  (${sign}${pct.toFixed(2)}%)`;
   if (el.textContent !== _t) { el.textContent = _t; _symHold(el); }
   el.className   = "sym-chg " + (amt >= 0 ? "up" : "dn");
+  _symChgTint(amt >= 0);   // 2026-09-18 使用者：「+165.6 那個要跟著邊框顏色」
 }
 
 /* ══════════════════════════════════════════
