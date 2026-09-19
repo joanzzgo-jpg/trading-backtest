@@ -6,6 +6,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.gzip import GZipMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import FileResponse
 from starlette.responses import PlainTextResponse
 import os, sys, re, time, subprocess, threading, hashlib, json
 from collections import deque
@@ -119,6 +120,43 @@ def _build_fx_min():
 
 _build_fx_min()
 
+
+# ── 靜態文字檔預壓 brotli（2026-09-20）──────────────────────────────────────
+#   ★ 為什麼是「預壓」不是「即時壓」：brotli 最高級(11)很慢，放在請求路徑上會比 gzip 還糟；
+#     但這些檔案是 immutable（?v=內容雜湊），一輩子只需要壓一次 → 建置時壓好放旁邊。
+#   實測（gzip-4 是現況）：app.bundle 100.3→79.6KB、style.min.css 31.7→23.8KB、
+#     draw.min 38.2→30.7KB、weather.min 41.9→34.9KB ＝ **少 20.3%**，
+#     而且省掉每個請求現壓的 CPU（bundle 每次要 3ms）。
+#   ⚠ 只壓「夠大的文字檔」：小檔壓完省不到幾百 bytes，卻多一個檔案要維護。
+#   ⚠ 產物不進版控（.gitignore），開機自動生成；沒有 brotli 套件就整段跳過 → 照舊走 gzip。
+_BR_MIN_SIZE = 2048
+
+def _precompress_br():
+    try:
+        import brotli
+    except Exception:
+        print("  ⓘ 無 brotli 套件 → 靜態檔維持 gzip")
+        return
+    from pathlib import Path
+    root = (Path(os.path.dirname(__file__)) / ".." / "frontend" / "static").resolve()
+    n = done = 0
+    for f in list(root.rglob("*.js")) + list(root.rglob("*.css")):
+        if f.name.endswith(".br") or f.stat().st_size < _BR_MIN_SIZE:
+            continue
+        n += 1
+        br = f.with_suffix(f.suffix + ".br")
+        # 來源比產物新才重壓（跟 bundle/min 同一套判斷）
+        if br.exists() and br.stat().st_mtime >= f.stat().st_mtime:
+            continue
+        try:
+            br.write_bytes(brotli.compress(f.read_bytes(), quality=11))
+            done += 1
+        except Exception:
+            pass
+    print(f"  ✓ brotli 預壓 {done} 支（共 {n} 支文字靜態檔）")
+
+_precompress_br()
+
 # 序列化：FastAPI 0.139+ 內建 Pydantic 直出 JSON bytes(快)，不再需要 default_response_class=ORJSON
 # (會觸發 FastAPIDeprecationWarning)。勝率 1MB+ 大回應仍走 routes/data.py `_wr_resp` 直接回
 # ORJSONResponse「實例」跳過整棵編碼樹 —— 那條路不在棄用範圍、保留。
@@ -132,6 +170,44 @@ app = FastAPI(title="回測系統")
 #   只有 5Mbps 以下 L6 略優(2210 vs 2260ms、差 2%)。→ 取 L4。
 #   ★這是全站中介層：每個回應的壓縮 CPU 減半 → Railway 共用 CPU 下同時也少一半 GIL 佔用。
 app.add_middleware(GZipMiddleware, minimum_size=500, compresslevel=4)
+
+
+# ── 靜態檔改送預壓好的 brotli（比 gzip 少 20.3%、且不用現壓）────────────────
+#   ⚠ 一定要排在 GZipMiddleware **之後**註冊：Starlette 的中介層是後進先出，
+#     排後面＝先執行 → 我們直接回應、gzip 看到已有 Content-Encoding 就會跳過（不會重複壓）。
+#   ⚠ Content-Type 要用**原始副檔名**去判（.js/.css），不能讓 .br 被猜成 application/octet-stream。
+#   ⚠ 只處理 GET/HEAD 且客戶端明說接受 br；其餘一律放行走原本的路。
+class BrotliStaticMiddleware(BaseHTTPMiddleware):
+    # ⚠ 要跟 StaticFiles 原本給的 Content-Type 一模一樣（.js 是 text/javascript，不是
+    #   application/javascript）：同一支檔案在有無 br 時回不同 type，是那種很久以後才爆的差異。
+    _CT = {".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8"}
+
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+        if (request.method in ("GET", "HEAD") and path.startswith("/static/")
+                and "br" in request.headers.get("accept-encoding", "")):
+            ext = os.path.splitext(path)[1]
+            ct = self._CT.get(ext)
+            if ct:
+                rel = path[len("/static/"):]
+                # ⚠ 防目錄穿越：解析後必須仍在 static 底下
+                base = os.path.realpath(os.path.join(FRONTEND_DIR, "static"))
+                br = os.path.realpath(os.path.join(base, rel + ".br"))
+                if br.startswith(base + os.sep) and os.path.isfile(br):
+                    # ⚠ 來源比預壓檔新 → 不送預壓檔（放行走原路即時 gzip）。
+                    #   沒有這道保險的話：本機改完 JS 沒重啟，瀏覽器拿到的是**舊程式碼**，
+                    #   而且完全無聲（?v= 版號是即時算的，看起來像已經更新）。
+                    src = br[:-3]
+                    try:
+                        if os.path.getmtime(src) > os.path.getmtime(br):
+                            return await call_next(request)
+                    except OSError:
+                        return await call_next(request)
+                    return FileResponse(br, media_type=ct, headers={
+                        "Content-Encoding": "br", "Vary": "Accept-Encoding"})
+        return await call_next(request)
+
+app.add_middleware(BrotliStaticMiddleware)
 
 # ── CSP 內容安全政策字串（CSP_OFF=1 → 停用；緊急關閉用）──────────────────
 _CSP = "" if (os.getenv("CSP_OFF") or "").strip().lower() in ("1", "true", "on", "yes") else (

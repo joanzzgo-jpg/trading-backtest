@@ -24,6 +24,7 @@ pillow>=10.0.0
 #     cryptography  ← pywebpush 帶進來；trade.py 用 Fernet/PBKDF2 加密使用者的交易所金鑰
 #     py_vapid      ← pywebpush 帶進來；notify.py 產 Web Push VAPID 金鑰
 #   上游哪天換掉或改 pin → Railway 開機就 ImportError，而且會一起打掉下單與推播。
+brotli>=1.1.0          # 靜態檔預壓(main.py _precompress_br)；沒有它會自動退回 gzip，但線上就少了 20% 的壓縮率
 requests>=2.31.0
 cryptography>=42.0.0
 py-vapid>=1.9.0

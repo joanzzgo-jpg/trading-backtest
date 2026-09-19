@@ -150,6 +150,21 @@ node scripts/check_topbar_reachable.js   # 需本機服務跑著；360/375/390/8
 `overflow-x:hidden` 只擋使用者、不擋程式改 `scrollLeft`。只捲「overflow-x 是 auto/scroll 且真有溢出」
 的祖先，量之前把 `documentElement.scrollLeft` 歸零。詳見 memory `project_topbar-right-overflow`。
 
+### 動到靜態檔壓縮／預壓產物後（守門員之二十一）
+```bash
+cd backend && ../.venv312/bin/python scripts/check_static_br.py   # 需本機服務跑著；約 5 秒
+```
+2026-09-20：/static 的 .js/.css 開機時預壓成 `.br`（`main.py _precompress_br`，quality 11），
+請求帶 `Accept-Encoding: br` 直接送那份 —— 比原本的即時 gzip-4 **少 20.3%**
+（bundle 100.3→79.6KB、CSS 31.7→23.8KB），而且省掉每個請求現壓的 CPU（bundle 每次 3ms）。
+⚠ 這條路的壞法**全都是無聲的**：①`.br` 過期 → 瀏覽器拿到**舊程式碼**，而 `?v=` 是即時算的、
+看起來像已更新（且 immutable 一年，重整也沒用）②壓錯/截斷 → 整支 JS 解不開、白畫面
+③Content-Type 與原路不一致（.js 必須是 `text/javascript`）④被 GZipMiddleware 重複壓。
+判準＝**br 解壓後逐位元等於 identity**，一條涵蓋四種。已植入「過期的 .br」證明會失敗。
+⚠ 另有一道執行期保險：來源 mtime 比 `.br` 新就**不送預壓檔**（放行走即時 gzip）——
+沒有它的話，本機改完 JS 沒重啟就會安靜地送舊程式碼。
+⚠ `brotli` 已在 requirements 明確宣告（原本只是傳遞相依）；沒有它會自動退回 gzip，功能不壞只是少 20%。
+
 ### 動到 `?v=` 資產版號、或在 `<script>` 裡組靜態網址後（守門員之十九）
 ```bash
 node scripts/check_dup_assets.js   # 需本機服務跑著；約 40 秒

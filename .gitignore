@@ -48,3 +48,5 @@ backend/.qwer_*_backup.json
 backend/.*_backup.json
 # 帳號快照/還原前備份（檔名不一定帶 _backup）
 backend/.qwer_*.json
+# 靜態檔預壓產物（main.py _precompress_br 開機時生成）
+frontend/static/**/*.br
