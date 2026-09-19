@@ -246,8 +246,11 @@
         (String(k).split(/\s{2,}|　/).map(x => x.trim()).filter(Boolean).map(x => `<span>${_md(x)}</span>`).join("")
           || `<span>${_md(k)}</span>`) +
         `</div><div class="ann-kbd-d">${_md(d)}</div></div>`).join("");
+    const helpK = (edit.find(a => a.id === "help") || {}).key || "?";
     return `<div class="ann-kbd-hint">點下面的按鍵晶片就能改成自己順手的鍵（按 Esc 取消）。` +
-      `中文輸入法下也能用——認的是<b>實體按鍵位置</b>，不是打出來的字。</div>` +
+      `中文輸入法下也能用——認的是<b>實體按鍵位置</b>，不是打出來的字。` +
+      // ⚠ 顯示「目前的」說明鍵而不是寫死 "?"：使用者可以把它改掉，寫死就會教錯
+      `<br>隨時按 <b>${_md(window._hkDisp ? window._hkDisp(helpK) : helpK)}</b> 可以直接打開這一頁。</div>` +
       `<div class="ann-kbd-err" id="_hkErr"></div>` + editable +
       `<div class="ann-kbd-sec">以下固定不可更改</div>` + fixed +
       `<div class="ann-kbd-foot"><button class="ann-kbd-reset" id="_hkReset">還原成預設快捷鍵</button></div>`;

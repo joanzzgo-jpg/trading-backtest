@@ -989,8 +989,11 @@
   <div class="color-row"><label>次要文字</label><div class="sys-color-swatch" data-sc="sc-muted"></div></div>
   <div class="color-row"><label>強調色</label>  <div class="sys-color-swatch" data-sc="sc-blue"></div></div>
   <button id="resetSysColors" class="btn-reset">重設預設色</button>
-  <!-- 更新資訊（最新消息／快捷鍵／更新紀錄）：彈窗只會自動跳一次，這裡是隨時打得開的入口 -->
-  <button id="sysAnnBtn" class="btn-reset" onclick="event.stopPropagation();window._annOpen&&window._annOpen('news');">🍊 更新資訊 · 快捷鍵</button>
+  <!-- 更新資訊（最新消息／快捷鍵／更新紀錄）：彈窗只會自動跳一次，這裡是隨時打得開的入口。
+       ⚠ 2026-09-20 拆成兩顆：原本一顆寫著「更新資訊 · 快捷鍵」卻一律開到「最新消息」分頁
+         → 想改快捷鍵的人點進去看到的是公告，未必會注意到上面還有分頁（使用者實際問過「怎麼編輯」）。 -->
+  <button id="sysAnnBtn" class="btn-reset" onclick="event.stopPropagation();window._annOpen&&window._annOpen('news');">🍊 更新資訊</button>
+  <button id="sysKeysBtn" class="btn-reset" onclick="event.stopPropagation();window._annOpen&&window._annOpen('keys');">⌨️ 快捷鍵 · 可自訂</button>
   <!-- 帳號：登入在封面門上的鎖；這裡顯示登入狀態 + 登出 -->
   <div id="sysAcctRow" class="sys-acct-row">
     <img src="{{ v('/static/img/bear.png') }}" class="sys-acct-avatar" alt="">
