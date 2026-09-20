@@ -150,6 +150,18 @@ node scripts/check_topbar_reachable.js   # 需本機服務跑著；360/375/390/8
 `overflow-x:hidden` 只擋使用者、不擋程式改 `scrollLeft`。只捲「overflow-x 是 auto/scroll 且真有溢出」
 的祖先，量之前把 `documentElement.scrollLeft` 歸零。詳見 memory `project_topbar-right-overflow`。
 
+### 自訂 DOM 標籤蓋在價格軸上時，底下那格刻度要讓位（2026-09-20）
+現價／十字線價格標籤是**自訂 DOM**（LWC 原生標籤已關掉）→ LWC 不知道它們存在，底下的刻度照畫，
+兩個數字疊在一起（實測橘色「80,343.6」上緣透出灰色「80000.0」）。使用者最早回報的
+「右邊價格那行會重疊看不清」就是這個；**調標籤透明度只是遮，遮不掉半露在標籤外的那半截字**。
+→ `charts.js` `_axisTickText` 掛在 `localization.priceFormatter`：落在標籤範圍內的刻度回空字串。
+⚠ 不可以在 formatter 裡呼叫 `priceToCoordinate`（渲染中再進渲染）→ 改在更新標籤時先把
+「要蓋掉的價格區間」算好（`_axisHideSet`），formatter 只做數字比較。
+⚠ 沒被蓋到的刻度要**維持原本格式**：用 series 自己的 `priceFormat.precision` 走 `toFixed`。
+加千分位的話整排刻度都會跟著變（BTC「80000.0」變「80,000.0」），一眼看得出來。
+⚠ 標籤隱藏時要清掉抑制帶，否則刻度會永遠缺一格。
+⚠ 成交量軸是 `visible:false`，所以這個 chart 層級的 formatter 只影響右側價格軸；副圖各有自己的設定。
+
 ### 動到靜態檔壓縮／預壓產物後（守門員之二十一）
 ```bash
 cd backend && ../.venv312/bin/python scripts/check_static_br.py   # 需本機服務跑著；約 5 秒

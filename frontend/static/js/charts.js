@@ -1186,14 +1186,14 @@ function updateCurrentPriceLabel() {
   }
   const lbl = _curPriceLabelEl;
   const n = (typeof ohlcvData !== "undefined") ? ohlcvData.length : 0;
-  if (!n) { lbl.style.display = "none"; return; }
+  if (!n) { lbl.style.display = "none"; _axisHide[0] = null; return; }
   let idx = n - 1;
   if (typeof replayActive !== "undefined" && replayActive && typeof replayIdx === "number")
     idx = Math.min(idx, replayIdx);
   const price = ohlcvData[idx] && ohlcvData[idx].close;
-  if (price == null) { lbl.style.display = "none"; return; }
+  if (price == null) { lbl.style.display = "none"; _axisHide[0] = null; return; }
   const y = candleSeries.priceToCoordinate(price);
-  if (y == null) { lbl.style.display = "none"; return; }
+  if (y == null) { lbl.style.display = "none"; _axisHide[0] = null; return; }
   lbl.textContent = (typeof _fmtPx === "function") ? _fmtPx(price) : price.toFixed(2);
   const _cpc = _curPriceCol();
   // 底色 90%（2026-09-19 使用者：「最新價的顯示底不要透明」→「70%」）。
@@ -1203,10 +1203,35 @@ function updateCurrentPriceLabel() {
   lbl.style.borderColor = _colA(_cpc, .9);
   lbl.style.top = Math.round(y) + "px";
   lbl.style.display = "block";
+  _axisHideSet(0, y, 15);       // 這格刻度讓位（半高 10px + 刻度字半高 ~5px）
   _hideCurLabelIfCovered();     // 價格自己動到游標標籤下方時也要收起來（不然又疊回去）
 }
 
 let _crossLabelEl = null;   // 十字線價格標籤（建立於 setupCrosshairPriceLabel）
+
+/* ── 被自訂標籤蓋住的那格刻度，不要畫（2026-09-20）──────────────────────────────
+   現價/十字線標籤是**自訂 DOM**，LWC 不知道它們存在 → 底下的刻度照樣畫，兩個數字疊在一起
+   （實測：橘色「80,343.6」上緣透出灰色「80000.0」）。使用者最早回報的「右邊價格那行會重疊
+   看不清」就是這個；調標籤透明度只是遮，遮不掉**半露在標籤外**的那半截字。
+   ⚠ 不能在 formatter 裡呼叫 priceToCoordinate（渲染中再進渲染）→ 改成在更新標籤時
+     先把「要蓋掉的價格區間」算好存起來，formatter 只做數字比較。
+   ⚠ 沒被蓋到的刻度必須**維持原本的格式**：用 series 自己的 priceFormat.precision 走 toFixed，
+     跟 LWC 內建的價格格式化一致（加了千分位就會整排跟著變、看得出來）。
+   ⚠ 成交量軸是 visible:false，所以這個 chart 層級的 formatter 只會影響右側價格軸。 */
+const _axisHide = [];        // [{lo,hi}]：這些價格區間內的刻度不畫
+function _axisHideSet(i, y, half) {
+  if (y == null || !candleSeries) { _axisHide[i] = null; return; }
+  try {
+    const a = candleSeries.coordinateToPrice(y - half), b = candleSeries.coordinateToPrice(y + half);
+    _axisHide[i] = (a != null && b != null) ? { lo: Math.min(a, b), hi: Math.max(a, b) } : null;
+  } catch (e) { _axisHide[i] = null; }
+}
+function _axisTickText(p) {
+  for (const z of _axisHide) if (z && p >= z.lo && p <= z.hi) return "";
+  let prec = 2;
+  try { const pf = candleSeries && candleSeries.options().priceFormat; if (pf && pf.precision != null) prec = pf.precision; } catch (e) {}
+  return (+p).toFixed(prec);
+}
 /* 游標價標籤壓到最新價標籤時，把最新價那顆收起來。
    ⚠ 兩顆都是自訂 DOM、各自依價格定位 → 游標移到現價附近必然重疊：實測 29px 內就疊到，
      疊到時不是整顆被蓋掉（看不到現價），就是露出一條橘邊在游標框外緣＝更糟。
@@ -1236,6 +1261,8 @@ function buildCharts() {
 
   mainChart = LightweightCharts.createChart(document.getElementById("mainChart"), base);
   createCandleSeries();
+  // 價格軸刻度：被自訂標籤蓋住的那格不畫（見 _axisTickText）
+  mainChart.applyOptions({ localization: { priceFormatter: _axisTickText } });
   bbU = mainChart.addLineSeries({ color:C.bbU, lineWidth:S.bbWidth??1,  priceLineVisible:false, lastValueVisible:false });
   bbM = mainChart.addLineSeries({ color:C.bbM, lineWidth:S.bbMWidth??1, lineStyle:S.bbMStyle??2, priceLineVisible:false, lastValueVisible:false });
   bbL = mainChart.addLineSeries({ color:C.bbL, lineWidth:S.bbWidth??1,  priceLineVisible:false, lastValueVisible:false });
@@ -1648,9 +1675,9 @@ function syncTimeScales() {
     mainChart.applyOptions({ crosshair: { horzLine: { labelVisible: false } } });
 
     mainChart.subscribeCrosshairMove(param => {
-      if (!param.point || !candleSeries) { lbl.style.display = "none"; _hideCurLabelIfCovered(lbl); return; }
+      if (!param.point || !candleSeries) { lbl.style.display = "none"; _axisHide[1] = null; _hideCurLabelIfCovered(lbl); return; }
       const price = candleSeries.coordinateToPrice(param.point.y);
-      if (price == null) { lbl.style.display = "none"; _hideCurLabelIfCovered(lbl); return; }
+      if (price == null) { lbl.style.display = "none"; _axisHide[1] = null; _hideCurLabelIfCovered(lbl); return; }
       // 參考價＝目前價（最新價線；重播時取「已揭曉」那根的收盤）
       const n = (typeof ohlcvData !== "undefined") ? ohlcvData.length : 0;
       let refIdx = n - 1;
@@ -1666,6 +1693,7 @@ function syncTimeScales() {
       lbl.innerHTML = pctStr ? `${priceStr}<br>${pctStr}` : priceStr;   // 上價下%（兩行）
       lbl.style.top = Math.round(param.point.y) + "px";
       lbl.style.display = "block";
+      _axisHideSet(1, param.point.y, 21);   // 它是兩行（價＋%），半高較大
       _hideCurLabelIfCovered(lbl);
     });
   })();
