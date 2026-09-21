@@ -970,7 +970,16 @@ window._perfProbe = function (sec, silent) {
     place(x, y);
   };
 
+  /* 按著滑鼠的期間一律不出提示（2026-09-22 使用者：「我拖移快捷時 會跳出提示文字 多餘了」）。
+     拖曳中冒出說明沒有意義，而且正擋在你要放的位置上。
+     ⚠ 為什麼拖曳中會觸發：拖快捷繪圖列時那排會被搬到 body（見 memory
+       project_reparent-releases-pointer-capture）→ 游標下的元素換了 → 重新 mouseover
+       → 又開始算 800ms。純靠「mousedown 時 hide」擋不住，因為問題出在**之後**才重新開始計時。
+     ⚠ 用 `e.buttons` 判斷**當下有沒有按著**，不要自己維護 dragging 旗標：
+       放開時若剛好沒收到 mouseup（拖到視窗外放手、被別人 stopPropagation），旗標會永遠卡在
+       true ＝ 提示從此再也不出來，比原本的問題更糟。e.buttons 每個事件都自帶、不會卡住。 */
   document.addEventListener("mouseover", (e) => {
+    if (e.buttons) { hide(); return; }
     const h = e.target && e.target.closest && e.target.closest("[title]");
     if (!h || h === host) return;
     hide();

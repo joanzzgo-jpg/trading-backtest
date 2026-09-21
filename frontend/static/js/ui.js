@@ -459,17 +459,37 @@ function bindEvents() {
     const all = _qdAll();
     if (!all.length) return;                // 工具島還沒進 DOM（極早期）→ 等下次呼叫
     const cur = _qdGet();
-    box.innerHTML = cur.map(t => {
+    box.innerHTML = cur.map((t, i) => {
       const m = all.find(x => x.tool === t);
       if (!m) return "";
       const src = document.querySelector(`#drawToolbar [data-tool="${t}"]`);
-      return `<button class="sqd-btn" data-tool="${t}" title="${(src && src.getAttribute("title")) || m.title}">${m.html}</button>`;
+      const base = (src && src.getAttribute("title")) || m.title;
+      // 前 10 顆標上對應的數字鍵（1~9，第 10 顆是 0）；第 11 顆起沒有鍵可綁就不標，
+      // 免得標了卻按不出來（標號與實際可用的鍵必須一致）。
+      const num = i < 10 ? String((i + 1) % 10) : "";
+      return `<button class="sqd-btn" data-tool="${t}" title="${base}${num ? `　（快捷鍵 ${num}）` : ""}">` +
+             `${m.html}${num ? `<i class="sqd-num">${num}</i>` : ""}</button>`;
     }).join("");
     // 目前選著的工具要跟著亮（重建後 class 會掉）
     if (typeof drawTool !== "undefined" && drawTool)
       box.querySelectorAll(`[data-tool="${drawTool}"]`).forEach(b => b.classList.add("active"));
   }
   window._qdRender = _qdRender;
+
+  /* 數字鍵 1~9 / 0 → 選快捷繪圖列的第 1~10 顆（2026-09-22 使用者：「鍵盤1,2...-0改成
+     快捷繪圖用的按鈕」，原本是切時框、「用不太到」；時框仍可用 [ ] 與左右方向鍵切）。
+     ★ 內部走 `btn.click()` 重用既有的 [data-tool] 事件委派 → 行為跟滑鼠點一模一樣，
+       不會有「鍵盤走另一條路、少做了某件事」的分家問題（工具高亮、回到 pointer… 全都一致）。
+     回傳選到的工具名；那一格沒工具就回 null。 */
+  function _qdPick(n) {
+    const t = _qdGet()[n - 1];
+    if (!t) return null;
+    const btn = document.querySelector(`#sqdTools [data-tool="${t}"]`);
+    if (!btn) return null;
+    btn.click();
+    return t;
+  }
+  window._qdPick = _qdPick;
 
   /* 編輯面板：上半「已在快捷列」（可上移/下移/移除），下半「可加入」。改了立刻套用並存檔。 */
   function _qdPicker() {

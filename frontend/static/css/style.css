@@ -951,12 +951,23 @@ html.perf-mode .tk-seg {
 .sym-econ .se-txt { overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }   /* 分鐘數跳動時寬度不變，後面的積木不晃 */
 .sym-econ.soon .se-txt { color: var(--text); font-weight: 700; }   /* 兩天內＝重點看待 */
 .sqd-btn {
+  position: relative;                       /* 右下角的數字標（.sqd-num）定位用 */
   width: 27.72px; height: 27.72px; padding: 0;
   background: transparent; border: 1px solid transparent;
   color: var(--muted); border-radius: 7px; cursor: pointer;
   display: flex; align-items: center; justify-content: center; flex-shrink: 0;
   transition: background .14s ease, color .14s ease, border-color .14s ease, transform .14s cubic-bezier(.34,1.56,.64,1);
 }
+/* 數字標（對應鍵盤 1~9、0）：2026-09-22 使用者「在快捷下方標小數字」。
+   ⚠ 走絕對定位、不佔空間、不改按鈕尺寸 —— 符號列那一排的高度動到就會整列跳
+     （見 memory project_symbol-bar-blocks，那排使用者調過很多輪）。 */
+.sqd-num {
+  position: absolute; right: 1.5px; bottom: 0.5px;
+  font-size: 8px; font-weight: 700; font-style: normal; line-height: 1;
+  color: currentColor; opacity: .5; pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+.sqd-btn:hover .sqd-num, .sqd-btn.active .sqd-num { opacity: .95; }
 /* 圖示：HTML 裡各按鈕的 <svg> 都是 15×15 → 這裡統一 ×1.05（改一處就好，不必動 11 顆按鈕的標記）。 */
 .sqd-btn svg { width: 17.33px; height: 17.33px; }
 .sqd-btn:hover {
