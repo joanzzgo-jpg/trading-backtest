@@ -930,6 +930,15 @@ window._perfProbe = function (sec, silent) {
   const SHOW_MS = 800;
   const PAD = 14;                 // 離游標的距離
   let el = null, host = null, timer = null, poll = null, txt = "";
+  /* ⚠ 游標座標用「只在等待期間掛著」的監聽取得，不要常駐 document 的 mousemove：
+       主圖拖曳每秒會觸發上百次，常駐等於在最熱的路徑上多一個 handler。
+     ⚠ 顯示後**不跟著游標跑**（原生提示也不跟）：少一個高頻 handler，畫面也比較穩。 */
+  let mx = 0, my = 0;
+  const onMove = (e) => { mx = e.clientX; my = e.clientY; };
+  const track = (on) => {
+    document.removeEventListener("mousemove", onMove, { passive: true });
+    if (on) document.addEventListener("mousemove", onMove, { passive: true });
+  };
 
   const node = () => {
     if (!el) { el = document.createElement("div"); el.className = "ui-tip"; document.body.appendChild(el); }
@@ -945,6 +954,7 @@ window._perfProbe = function (sec, silent) {
   };
   const hide = () => {
     clearTimeout(timer); clearInterval(poll); timer = poll = null;
+    track(false);
     if (host) {
       // ⚠ JS 在 hover 期間重設過 title 就以它為準，別用舊值蓋回去
       if (!host.getAttribute("title") && host.dataset._tip) host.setAttribute("title", host.dataset._tip);
@@ -969,9 +979,13 @@ window._perfProbe = function (sec, silent) {
     host = h; txt = v;
     h.dataset._tip = v;
     h.removeAttribute("title");                 // 壓住原生提示
-    const x = e.clientX, y = e.clientY;
+    mx = e.clientX; my = e.clientY;
+    track(true);                                // 等待期間才追游標，顯示後就放掉
     timer = setTimeout(() => {
-      show(x, y);
+      // 等待期間元素被換掉了（行情列每秒重繪）→ 不要對著不存在的東西show
+      if (!host || !host.isConnected) { hide(); return; }
+      track(false);
+      show(mx, my);
       // 顯示中：title 被 JS 改了就跟著更新（例：連線四格的 ms 每 2 秒變一次）
       poll = setInterval(() => {
         if (!host || !host.isConnected) { hide(); return; }
@@ -987,7 +1001,6 @@ window._perfProbe = function (sec, silent) {
     if (to && host.contains(to)) return;        // 還在同一個元素內部移動
     hide();
   }, true);
-  document.addEventListener("mousemove", (e) => { if (el && el.classList.contains("on")) place(e.clientX, e.clientY); }, true);
   ["mousedown", "wheel", "keydown"].forEach(ev => document.addEventListener(ev, hide, true));
   window.addEventListener("blur", hide);
 })();
