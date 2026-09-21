@@ -1,4 +1,4 @@
-/* 守門員：盈虧比工具（longpos/shortpos）的五條行為。需本機服務跑著；約 40 秒。
+/* 守門員：盈虧比工具（longpos/shortpos）的六條行為。需本機服務跑著；約 60 秒。
  *
  * 2026-09-21 使用者：「盈虧比不好用」。實測抓到三個結構性缺陷，這支把它們釘住 ——
  *  ①★★ **整個盒子搬不動**：`_drawingHitPart` 取「離哪條線最近」且**沒有距離門檻**
@@ -13,7 +13,13 @@
  *   ①做多工具+停損在下 → longpos、RR=2　②做多工具+停損在上 → 自動 shortpos
  *   ③色塊空白處拖曳 → 三條線位移相同且 RR 不變　④靠近線才拉線、離線遠＝move
  *   ⑤風險/報酬% 有產生
+ *   ⑥拖進場線 → **上下停利停損釘住不動**、只有進場動、RR 跟著變；拖過頭要被夾在兩線之間
+ *     （2026-09-21 使用者：「我要能固定上下止盈止損線，能調整中間進場線」——
+ *      壓力位當停利、支撐位當停損都已經在圖上了，剩下的問題是「進場放哪裡划算」。）
  * ⚠ 判準要問**位移量與 RR**，不是「有沒有動」：拉單線時也「有東西在動」。
+ * ⚠⚠ ⑥b（夾限）**每次按下前都要重新量進場線的螢幕位置**：⑥ 已經把它移走了，
+ *    沿用舊座標會落在線外 >_POS_HIT → 判成 move ＝整盒平移，夾限根本沒被測到
+ *    而 `entry > sl` 照樣成立＝**假通過**（我第一版就是，SL 跟著變了才看出來）。
  * ⚠ 一律用假帳號名（見 memory feedback_never-use-real-account-in-tests）。
  * ⚠ 回傳碼 2＝進不了場/開不了瀏覽器（測試不成立），不是通過。
  */
@@ -140,8 +146,52 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   console.log(`\n⑤ 盒子上的第二行小字：「${pct}」`);
   if (!/報酬.*%.*風險.*%/.test(pct)) bad.push(`風險/報酬% 沒產生（得到「${pct}」）`);
 
+  // ⑥ 拖「進場線」→ 上下停利停損釘住不動，只有進場動（使用者：固定上下、調中間）
+  d = await make("longpos", cx, cy, cx + 90, cy + 60);
+  const b6 = { ...d };
+  const rr6a = (d.tp - d.entry) / (d.entry - d.sl);
+  await page.mouse.click(cx + 20, cy); await sleep(350);
+  const eLine = await ev(`(() => {
+    const d = drawings[drawings.length - 1];
+    const r = document.getElementById("mainChart").getBoundingClientRect();
+    return { x: r.x + _timeToX(d.p1.time) + 40,
+             y: r.y + candleSeries.priceToCoordinate(d.p1.price) };
+  })()`);
+  await page.mouse.move(eLine.x, eLine.y); await page.mouse.down();
+  for (let i = 1; i <= 6; i++) { await page.mouse.move(eLine.x, eLine.y + i * 5); await sleep(30); }
+  await page.mouse.up(); await sleep(400);
+  const a6 = await last();
+  const rr6b = (a6.tp - a6.entry) / (a6.entry - a6.sl);
+  console.log(`\n⑥ 拖「進場線」往下 30px（上下應釘住）：`);
+  console.log(`   entry ${(a6.entry - b6.entry).toFixed(1)}  TP ${(a6.tp - b6.tp).toFixed(1)}  SL ${(a6.sl - b6.sl).toFixed(1)}`);
+  console.log(`   RR 1:${rr6a.toFixed(2)} → 1:${rr6b.toFixed(2)}（進場往停損靠 → RR 應變大）`);
+  if (Math.abs(a6.tp - b6.tp) > 1e-6) bad.push(`拖進場線時停利跟著跑了（${(a6.tp - b6.tp).toFixed(2)}）`);
+  if (Math.abs(a6.sl - b6.sl) > 1e-6) bad.push(`拖進場線時停損跟著跑了（${(a6.sl - b6.sl).toFixed(2)}）`);
+  if (!(a6.entry < b6.entry - 1)) bad.push(`拖進場線時進場沒往下動（${(a6.entry - b6.entry).toFixed(2)}）`);
+  if (!(rr6b > rr6a + 0.05)) bad.push(`進場往停損靠，RR 應變大（${rr6a.toFixed(2)} → ${rr6b.toFixed(2)}）`);
+
+  // ⑥b 進場不可以被拖到停損之外（風險會變成負的）
+  // ⚠ 一定要**重新量**進場線的螢幕位置：⑥ 已經把它往下移了 30px，沿用舊座標會落在
+  //   線外 8px 以上 → 判成 move ＝整盒平移，夾限根本沒被測到（`entry > sl` 會假通過）。
+  const eLine2 = await ev(`(() => {
+    const d = drawings[drawings.length - 1];
+    const r = document.getElementById("mainChart").getBoundingClientRect();
+    return { x: r.x + _timeToX(d.p1.time) + 40,
+             y: r.y + candleSeries.priceToCoordinate(d.p1.price) };
+  })()`);
+  const slBefore = a6.sl, tpBefore = a6.tp;
+  await page.mouse.move(eLine2.x, eLine2.y); await page.mouse.down();
+  for (let i = 1; i <= 40; i++) { await page.mouse.move(eLine2.x, eLine2.y + i * 12); await sleep(12); }
+  await page.mouse.up(); await sleep(400);
+  const a6c = await last();
+  console.log(`   用力往下拖過頭 480px → entry ${a6c.entry.toFixed(1)}  SL ${a6c.sl.toFixed(1)}  TP ${a6c.tp.toFixed(1)}`);
+  if (Math.abs(a6c.sl - slBefore) > 1e-6 || Math.abs(a6c.tp - tpBefore) > 1e-6)
+    bad.push(`拖過頭時上下線沒釘住（SL ${(a6c.sl - slBefore).toFixed(2)} / TP ${(a6c.tp - tpBefore).toFixed(2)}）`);
+  if (!(a6c.entry > a6c.sl)) bad.push(`進場被拖到停損之外（entry ${a6c.entry.toFixed(1)} ≤ SL ${a6c.sl.toFixed(1)}）＝風險變負的`);
+  if (!(a6c.entry < a6c.tp)) bad.push(`進場被拖到停利之外（entry ${a6c.entry.toFixed(1)} ≥ TP ${a6c.tp.toFixed(1)}）`);
+
   if (errs.length) bad.push(`JS 錯誤 ${errs.length}：${errs[0]}`);
-  console.log(bad.length ? "\n✗ " + bad.join("\n✗ ") : "\n★ 盈虧比五項全部符合預期");
+  console.log(bad.length ? "\n✗ " + bad.join("\n✗ ") : "\n★ 盈虧比六項全部符合預期（含「上下釘住、只動進場」）");
   await browser.close();
   process.exit(bad.length ? 1 : 0);
 })();

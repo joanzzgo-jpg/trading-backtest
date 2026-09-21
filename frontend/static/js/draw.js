@@ -1557,9 +1557,24 @@ function _updateDrag(x, y) {
       const barsV = visR ? Math.max(10, visR.to - visR.from) : 50;
       const W2 = _cssW();
       d.barWidth = Math.max(3, (orig.barWidth ?? 3) + Math.round(dx / (W2 / barsV)));
+    } else if (part === "entry") {
+      /* 只動進場線：**上下的停利停損釘住不動**，滑動進場看 RR 怎麼變
+         （2026-09-21 使用者：「我要能固定上下止盈止損線，能調整中間進場線」）。
+         典型用法＝壓力位當停利、支撐位當停損都已經在圖上了，剩下的問題是「進場放哪裡划算」。
+         ⚠ 舊行為是整體平移（TP/SL 跟著走）→ 那個需求移到「按色塊空白處拖」。
+         ⚠ 夾在停損與停利之間：越過任一條會讓風險或報酬變成負的，RR 就失去意義。
+            留 2% 的縫，避免剛好貼到線讓風險＝0（RR 變 ∞）。 */
+      const oy = candleSeries?.priceToCoordinate(orig.p1.price);
+      if (oy != null) {
+        const np = candleSeries?.coordinateToPrice(oy + dy);
+        if (np != null) {
+          const lo = Math.min(d.tp, d.sl), hi = Math.max(d.tp, d.sl);
+          const pad = (hi - lo) * 0.02;
+          d.p1 = { ...orig.p1, price: Math.min(hi - pad, Math.max(lo + pad, np)) };
+        }
+      }
     } else {
-      // entry / move：整體平移（TP/SL 跟著走，RR 不變）。
-      //   "move"＝按在色塊空白處（離三條線都 >_POS_HIT），拖進場線也是同一個行為。
+      // move：整體平移（三條線一起走、RR 不變）＝按在色塊空白處（離三條線都 >_POS_HIT）。
       const oy = candleSeries?.priceToCoordinate(orig.p1.price);
       if (oy != null) {
         const newEntry  = candleSeries?.coordinateToPrice(oy + dy) ?? orig.p1.price;
