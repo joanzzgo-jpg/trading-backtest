@@ -694,6 +694,10 @@ html.perf-mode .tk-seg {
    原本 .hidden＝display:none → 點一消失後面的繪圖快捷/倒數整排左移約 8px、一出現又右移 →
    ⋮⋮ 把手要抓的時候在跳。⚠ 選擇器要比通用 .hidden{display:none!important} 更具體才蓋得過。 */
 .symbol-bar > .realtime-dot.hidden { display: block !important; visibility: hidden; animation: none; }
+/* 綠點 2026-09-20 搬到上方狀態列（雲端狀態左邊）。⚠ 同樣要「隱藏時仍佔位」：
+   否則即時更新一停一開，右邊的「已儲存至雲端／訊號提示」就會左右跳。 */
+.tb-status > .realtime-dot.hidden { display: inline-block !important; visibility: hidden; animation: none; }
+.tb-status > .realtime-dot { flex-shrink: 0; }
 
 /* ═══ BODY LAYOUT ═══ */
 .body-layout {
@@ -5560,11 +5564,28 @@ select:focus-visible {
         local=沒登入帳號的本機模式。用點＋文字，不搶勝率數字的視覺重量。 */
 /* 上方左側狀態小字（2026-09-17 勝率列刪除後搬來）：雲端同步狀態＋訊號計算失敗 */
 .tb-status { display: inline-flex; align-items: center; gap: 8px; margin-left: 10px; white-space: nowrap; flex-shrink: 0; }
-.tb-fail-note { font-size: 12px; font-weight: 700; color: #FF8A8A; cursor: help; }
+/* 訊號狀態（2026-09-20 使用者：「訊號要更確定正確狀態」）：原本只有「失敗」會寫字、
+   其餘時候是空白 → 分不出「算好了」「還在算」「失敗」。改成三態明講，與右邊的雲端狀態同款。
+   ⚠ 「算不出來」不可以長得像「這裡沒有訊號」——那正是空白最危險的地方（見 claude.md）。 */
+.tb-fail-note {
+  font-size: 10.5px; white-space: nowrap; cursor: help;
+  display: inline-flex; align-items: center; gap: 4px;
+}
 .tb-fail-note:empty { display: none; }
+.tb-fail-note::before {
+  content: ""; width: 6px; height: 6px; border-radius: 50%;
+  background: currentColor; flex-shrink: 0;
+}
+.tb-fail-note[data-state="calc"] { color: var(--muted, #787b86); opacity: .45; }
+.tb-fail-note[data-state="calc"]::before { animation: tbSyncPulse 1s ease-in-out infinite; }
+.tb-fail-note[data-state="ok"]   { color: var(--muted, #787b86); opacity: .34; }
+.tb-fail-note[data-state="stale"] { color: var(--muted, #787b86); opacity: .5; }
+.tb-fail-note[data-state="fail"] { color: #FF8A8A; opacity: 1; font-weight: 700;
+                                   text-shadow: 0 0 6px rgba(255,110,110,.35); }
 .tb-wr-sync {
   font-size: 10.5px;
-  margin-left: 8px;
+  /* ⚠ 2026-09-20 拿掉 margin-left：.tb-status 已有 gap:8px，兩者相加變 16px →
+     綠點跟這一欄看起來像分開的兩組。改由 gap 統一控制。 */
   white-space: nowrap;
   display: inline-flex;
   align-items: center;

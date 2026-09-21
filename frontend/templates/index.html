@@ -235,9 +235,11 @@
            ・#wrFailNote：平常是空的；訊號/勝率算不出來時寫「訊號計算失敗」＋滑過去看原因
              （「算不出來」不可以長得像「這裡沒有訊號」—— claude.md 那條規則的落點）
            ・#acctSyncState：雲端同步狀態（2026-08-05 使用者要求顯示；文字由 account.js 寫入） -->
+      <!-- 順序（2026-09-20 使用者指定）：即時更新綠點 → 雲端同步狀態 → 訊號提示 -->
       <span class="tb-status">
-        <span id="wrFailNote" class="tb-fail-note"></span>
+        <span id="realtimeDot" class="realtime-dot hidden" title="即時更新中"></span>
         <span id="acctSyncState" class="tb-wr-sync" title="帳號雲端同步狀態"></span>
+        <span id="wrFailNote" class="tb-fail-note"></span>
       </span>
     </div>
 
@@ -424,7 +426,7 @@
   <span class="sym-label">收=</span><span id="symC" class="sym-val">—</span>
   <span class="sym-label sym-label-v">量=</span><span id="symV" class="sym-val">—</span>
   <span id="symChg" class="sym-chg"></span>
-  <span id="realtimeDot" class="realtime-dot hidden" title="即時更新中"></span>
+  <!-- 即時更新綠點已搬到上方 .tb-status（2026-09-20 使用者：「放到已儲存到雲端左旁」） -->
 
   <!-- 快捷繪圖：放在開高低收量右側的空白處。左側工具島要滑到邊緣才彈出，這排是常用的直接可按。
        ⚠ 按鈕用 data-tool，與左側工具島共用同一套事件（ui.js 對 [data-tool] 綁定，涵蓋兩排），

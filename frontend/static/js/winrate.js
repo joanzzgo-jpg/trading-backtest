@@ -59,6 +59,22 @@ function fetchWinRate() {
 //   會命中舊快取不重算 → 必須先清掉當前 key 才會真的走網路重算(後端 fetch_crt_df crypto 無快取、即時)。
 //   debounce 1.5s：新棒事件本就分鐘級、不會頻繁；只是防同一秒多次觸發。
 let _wrRefreshTimer = null;
+/* 訊號狀態指示（上方左側 #wrFailNote）。三態都要明講 —— 空白會讓「算不出來」長得像
+   「這個標的沒有訊號」，那兩件事對回測工具意義天差地遠（claude.md 有專章）。
+   ⚠ 只寫狀態、不用提示框（使用者明確表示操作類提示不要）；細節放 title，滑過去看得到。 */
+const _WR_STATE_TXT = { calc: "訊號計算中…", ok: "訊號已更新", stale: "訊號未更新", fail: "訊號計算失敗" };
+function _wrSetState(st, title) {
+  const el = document.getElementById("wrFailNote");
+  if (!el) return;                       // 手機/極簡版面可能沒有這個節點
+  el.dataset.state = st;
+  el.textContent = _WR_STATE_TXT[st] || "";
+  el.title = title || (st === "calc"  ? "正在計算這個標的/時框的訊號與標記"
+                     : st === "ok"    ? "訊號與標記已依目前標的/時框算好並畫上"
+                     : st === "stale" ? "這次請求被中斷（多半是網路斷了一下）→ 圖上的標記可能不是最新的。切換時框或稍後會自動重試。"
+                     : "");
+}
+window._wrSetState = _wrSetState;
+
 window._wrRefreshCurrent = function () {
   clearTimeout(_wrRefreshTimer);
   _wrRefreshTimer = setTimeout(() => {
@@ -261,7 +277,7 @@ async function _fetchWinRateNow() {
   if (!symbol) return;
   // 換一次請求（含快取命中）就先清掉上一次的「訊號計算失敗」：快取命中那條會提早 return，
   // 不在這裡清的話，標記其實已經正常顯示、上方卻還掛著失敗（誤導）。
-  { const _fn = document.getElementById("wrFailNote"); if (_fn) { _fn.textContent = ""; _fn.title = ""; } }
+  _wrSetState("calc");
   // 台指期（TXF/MXF/TMF）現在後端 fetch_crt_df 已接 futopt 資料（cnyes即時+自建DB歷史/期貨日線）
   //  → 照常打 /api/crt_winrate 算 FVG/策略（勝率統計視資料深度而定，標記照畫；期貨可做空）。
   const _vw = _wrVwFor(typeof ohlcvData !== "undefined" ? ohlcvData.length : 0);
@@ -285,6 +301,7 @@ async function _fetchWinRateNow() {
     if (typeof setFVGZones === "function") setFVGZones(c.fvg);
     window._pdRanges = c.pd_ranges || (c.pd_range ? [c.pd_range] : []);
     if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();
+    _wrSetState("ok", "訊號與標記已算好並畫上（這次是本機快取命中，沒有重算）");
     return;
   }
   // 取消上次未完成的勝率請求
@@ -326,6 +343,7 @@ async function _fetchWinRateNow() {
     if (myCtrl !== _wrFetchCtrl) return;
     if (typeof window._snapSave === "function") window._snapSave(d);   // 本機快照(開app秒出圖,見檔尾模組)
     _wrCacheLast = d;
+    _wrSetState("ok");            // ⚠ 要在世代守衛之後：被新請求取代的舊結果不可以宣告「已更新」
     _renderFVGTrades(d.fvg_trades);   // FVG「接1次」進出場標記（主圖）
     _renderFVGBB(d.fvg_bb, d.fvg_bb_a, d.fvg_bb_m);   // FVG 進出場標記:D(青/粉)+A(橘/紫)+M中軌分側順勢(黃/藍)（研究·主圖）
     _renderFVGBreak(d.fvg_break);     // 破多/破空 結構轉破（proto 缺口序列、標在 g）（主圖）
@@ -350,16 +368,22 @@ async function _fetchWinRateNow() {
          對回測工具來說這兩件事意義天差地遠（「算不出來」vs「這裡沒機會」），而且是本專案
          已經認定最危險的那個形狀：靜默地給一個看起來正常的答案（同 `行情中斷` 那條）。
          ⚠ 不用提示框（使用者明確表示操作類提示不要）→ 就地把狀態寫清楚＋滑過去看得到原因。 */
-      if (statusEl) {
-        statusEl.textContent = "訊號計算失敗";
-        statusEl.title = `無法取得訊號/勝率（${e.name}: ${e.message || ""}）。`
-                       + "圖上沒有標記是因為算不出來，不是這個標的沒有訊號。切換時框或稍後會自動重試。";
-      }
+      _wrSetState("fail", `無法取得訊號/勝率（${e.name}: ${e.message || ""}）。`
+                        + "圖上沒有標記是因為算不出來，不是這個標的沒有訊號。切換時框或稍後會自動重試。");
       _applyMainMarkers();
     }
   } finally {
     clearTimeout(timeoutId);
-    if (myCtrl === _wrFetchCtrl) _wrInFlight = false;   // 只有最新請求結束才視為「沒請求在飛」
+    if (myCtrl === _wrFetchCtrl) {
+      _wrInFlight = false;   // 只有最新請求結束才視為「沒請求在飛」
+      /* ★ 保證狀態不會卡在「計算中…」：abort-like（含網路斷線的 Failed to fetch）是**靜默**路徑
+         （claude.md：整段斷網由 netOffline/tkStale 負責報，這裡不重複報）——
+         但既然現在會常駐顯示狀態，停在「計算中」就是**宣稱有事在做卻沒有**，比空白更誤導。
+         → 收尾時若仍是 calc 且自己還是最新那個請求，改寫成中性的「訊號未更新」（不是紅字告警）。
+         ⚠ 被新請求取代時不可以動（myCtrl !== _wrFetchCtrl）：那時狀態屬於新請求。 */
+      const _el = document.getElementById("wrFailNote");
+      if (_el && _el.dataset.state === "calc") _wrSetState("stale");
+    }
   }
 }
 
