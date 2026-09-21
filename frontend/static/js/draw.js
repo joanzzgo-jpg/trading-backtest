@@ -702,6 +702,49 @@ function _emojiHandles(d, p, sz) {
   return { size: _pt(k, k), rot: _pt(-k, -k) };
 }
 
+/* ═══ 盈虧比（longpos/shortpos）共用 ═══════════════════════════════════════
+   2026-09-21 使用者：「盈虧比不好用」。實測抓到的三個結構性問題，一起修：
+   ① **整個盒子搬不動**：`_drawingHitPart` 舊版取「離哪條線最近」且**沒有門檻** →
+      色塊內每一點都被 entry/tp/sl 瓜分，永遠回某條線、永遠回不到 "move"。
+      實測從色塊中間往下拖 48px：只有停利線被拉走，RR 1:1 → **1:0.31**。
+   ② 建立時第二點的語意會翻轉（點上面＝停利、點下面＝停損），另一邊鏡射成 1:1。
+   ③ 盒子上只有 `1 : x.xx`，看不到風險/報酬各是幾 %。                              */
+const RR_DEFAULT = 2;      // 第二點設完停損後，停利自動放在幾倍風險處
+const _POS_HIT   = 8;      // 離線幾 px 以內才算要拉那條線；再遠＝整體搬移
+
+/* 兩次點擊 → 一張盈虧比。p1＝進場、p2＝**停損**；停利依 RR_DEFAULT 自動放。 */
+function _mkPosDraw(p1, p2) {
+  const entry = p1.price, sl = p2.price;
+  if (!(Math.abs(sl - entry) > 0)) return null;        // 停損＝進場 → 風險 0，這張不成立
+  // ★ 方向看「停損在哪一邊」，不是看按了哪顆工具：停損在進場下方＝做多、上方＝做空。
+  //   按了做多卻把停損點在上面，那實際上是一張做空的單 —— 照按鈕硬做只會生出
+  //   「做多但停損在上面」的盒子（風險是負的、RR 無意義）。
+  const type = (sl < entry) ? "longpos" : "shortpos";
+  const risk = Math.abs(entry - sl);
+  const tp   = (type === "longpos") ? entry + risk * RR_DEFAULT : entry - risk * RR_DEFAULT;
+  // 色塊寬度＝兩次點擊的水平距離（換算成 K 棒數）
+  const x1 = _timeToX(p1.time), x2 = _timeToX(p2.time);
+  const vr = mainChart.timeScale().getVisibleLogicalRange();
+  const bv = vr ? Math.max(10, vr.to - vr.from) : 50;
+  const bw = Math.max(3, Math.round(Math.abs((x2 ?? 0) - (x1 ?? 0)) / (_cssW() / bv)));
+  return { id:_did(), type, p1, tp, sl, color:_drawColor, barWidth:bw };
+}
+
+/* 盈虧比的風險/報酬（相對進場的百分比）→ 盒子上那行小字。
+   ⚠ 用百分比不用點數：跨商品才比得出來（BTC 的 500 點跟 2330 的 500 點不是同一回事）。
+   reward 可能是負的（停利被拖到不利的一側）→ 照實顯示，不取絕對值。 */
+function _posPctTxt(d) {
+  const e = d.p1.price;
+  if (!(Math.abs(e) > 0) || d.tp == null || d.sl == null) return "";
+  const long = d.type === "longpos";
+  const reward = (long ? d.tp - e : e - d.tp) / e * 100;
+  const risk   = (long ? e - d.sl : d.sl - e) / e * 100;
+  if (!isFinite(reward) || !isFinite(risk)) return "";
+  // 小數位跟著級距走：0.5% 以下給兩位，否則一位（避免「報酬 0.0%」這種沒資訊的字）
+  const f = (v) => `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(Math.abs(v) < 0.5 ? 2 : 1)}%`;
+  return `報酬 ${f(reward)}　風險 ${f(-Math.abs(risk))}`;
+}
+
 /* 對 longpos/shortpos 判斷拖移的是哪一條線 */
 function _drawingHitPart(d, x, y) {
   if (d.type === "emoji") {   // 右下＝縮放、左上＝旋轉（2026-09-02 使用者：「貼圖不能旋轉」）
@@ -732,13 +775,16 @@ function _drawingHitPart(d, x, y) {
     const rx2 = Math.min(W2, ex + ZW);
     if (Math.abs(x - rx2) < 10 && y >= Math.min(ty, sy) - 8 && y <= Math.max(ty, sy) + 8) return "width";
   }
-  let bestDist = Infinity, bestPart = "entry";
+  let bestDist = Infinity, bestPart = null;
   [["entry", ey], ["tp", ty], ["sl", sy]].forEach(([part, py]) => {
     if (py == null) return;
     const dist = Math.abs(py - y);
     if (dist < bestDist) { bestDist = dist; bestPart = part; }
   });
-  return bestPart;
+  // ⚠⚠ 一定要有命中門檻：舊版無條件回最近的那條 → 色塊內**沒有任何一點**回 "move"，
+  //   整個盒子搬不動，想平移卻在拉線（實測 RR 1:1 被拖成 1:0.31）。
+  //   其他型別本來就是 `_endpointHit(...) || "move"`，這裡少了同一層。
+  return (bestPart && bestDist <= _POS_HIT) ? bestPart : "move";
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -1390,59 +1436,16 @@ function _onChartClick(e) {
     return;
   }
 
-  // 做多盈虧比（longpos）
-  if (drawTool === "longpos") {
+  // 盈虧比（longpos / shortpos）：★ 第二點固定＝**停損**，停利照 RR_DEFAULT 自動放。
+  //   2026-09-21 使用者：「盈虧比不好用」。舊做法是「點上面就當停利、點下面就當停損」，
+  //   另一邊鏡射成 1:1 —— 按下去之前不知道自己在設哪一個，而且交易實務上先定的是風險。
+  if (drawTool === "longpos" || drawTool === "shortpos") {
     if (!drawingWIP) {
-      drawingWIP = { type:"longpos", p1:pt };
+      drawingWIP = { type:drawTool, p1:pt };
     } else {
-      const entry = drawingWIP.p1.price;
-      const clicked = pt.price;
-      let tp, sl;
-      if (clicked >= entry) {
-        tp = clicked;
-        sl = entry - (tp - entry);
-      } else {
-        sl = clicked;
-        tp = entry + (entry - sl);
-      }
-      // 色塊寬度 = 兩次點擊的水平距離（換算成 K棒數）
-      const _ex1 = _timeToX(drawingWIP.p1.time);
-      const _ex2 = _timeToX(pt.time);
-      const _vr  = mainChart.timeScale().getVisibleLogicalRange();
-      const _bv  = _vr ? Math.max(10, _vr.to - _vr.from) : 50;
-      const _ppb = _cssW() / _bv;
-      const _bw  = Math.max(3, Math.round(Math.abs((_ex2 ?? 0) - (_ex1 ?? 0)) / _ppb));
-      _pushDraw({ id:_did(), type:"longpos", p1:drawingWIP.p1, tp, sl, color:_drawColor, barWidth:_bw });
-      drawingWIP = null;
-      saveDrawings(); _returnToPointer();
-    }
-    return;
-  }
-
-  // 做空盈虧比（shortpos）
-  if (drawTool === "shortpos") {
-    if (!drawingWIP) {
-      drawingWIP = { type:"shortpos", p1:pt };
-    } else {
-      const entry = drawingWIP.p1.price;
-      const clicked = pt.price;
-      let tp, sl;
-      if (clicked <= entry) {
-        tp = clicked;
-        sl = entry + (entry - tp);
-      } else {
-        sl = clicked;
-        tp = entry - (sl - entry);
-      }
-      const _ex1s = _timeToX(drawingWIP.p1.time);
-      const _ex2s = _timeToX(pt.time);
-      const _vrs  = mainChart.timeScale().getVisibleLogicalRange();
-      const _bvs  = _vrs ? Math.max(10, _vrs.to - _vrs.from) : 50;
-      const _ppbs = _cssW() / _bvs;
-      const _bws  = Math.max(3, Math.round(Math.abs((_ex2s ?? 0) - (_ex1s ?? 0)) / _ppbs));
-      _pushDraw({ id:_did(), type:"shortpos", p1:drawingWIP.p1, tp, sl, color:_drawColor, barWidth:_bws });
-      drawingWIP = null;
-      saveDrawings(); _returnToPointer();
+      const d = _mkPosDraw(drawingWIP.p1, pt);
+      if (d) { _pushDraw(d); drawingWIP = null; saveDrawings(); _returnToPointer(); }
+      // 停損＝進場（風險 0）→ 不成立，留在原地讓使用者再點一次
     }
     return;
   }
@@ -1555,7 +1558,8 @@ function _updateDrag(x, y) {
       const W2 = _cssW();
       d.barWidth = Math.max(3, (orig.barWidth ?? 3) + Math.round(dx / (W2 / barsV)));
     } else {
-      // entry：整體平移（TP/SL 跟隨）
+      // entry / move：整體平移（TP/SL 跟著走，RR 不變）。
+      //   "move"＝按在色塊空白處（離三條線都 >_POS_HIT），拖進場線也是同一個行為。
       const oy = candleSeries?.priceToCoordinate(orig.p1.price);
       if (oy != null) {
         const newEntry  = candleSeries?.coordinateToPrice(oy + dy) ?? orig.p1.price;
@@ -3842,22 +3846,33 @@ function renderDrawings() {
 
 // 自動盈虧比的 RR 數值：盒夠寬 → 置中盒內；縮小到盒太窄 → 移到盒旁並加深色底，
 // 確保任何縮放都看得見（不必放大才顯示）。
-function _drawRRLabel(ctx, txt, color, ex, rx, cy, W) {
+/* `sub`＝選填的第二行（風險/報酬 %），小一號、暗一點，跟主行左緣對齊。
+   ⚠ 兩行的寬度要一起量：只量主行的話，第二行比較寬時會戳出底襯外（落在 K 棒上看不清）。 */
+function _drawRRLabel(ctx, txt, color, ex, rx, cy, W, sub) {
   ctx.save();
   ctx.font = "bold 12px sans-serif";
   const tw = ctx.measureText(txt).width;
-  const y = cy + 4;
-  if (rx - ex > tw + 10) {
-    ctx.fillStyle = color;
-    ctx.fillText(txt, ex + (rx - ex - tw) / 2, y);
+  ctx.font = "10px sans-serif";
+  const sw = sub ? ctx.measureText(sub).width : 0;
+  const bw = Math.max(tw, sw);
+  const y = cy + (sub ? -1 : 4);            // 有第二行 → 主行往上讓位
+  const drawTxt = (x) => {
+    ctx.font = "bold 12px sans-serif"; ctx.fillStyle = color;
+    ctx.fillText(txt, x, y);
+    if (sub) {
+      ctx.font = "10px sans-serif"; ctx.fillStyle = "rgba(220,224,230,0.92)";
+      ctx.fillText(sub, x, y + 12);
+    }
+  };
+  if (rx - ex > bw + 10) {
+    drawTxt(ex + (rx - ex - bw) / 2);
   } else {
     let x = rx + 5;                        // 預設放盒右側
-    if (x + tw > W - 2) x = ex - tw - 5;   // 會超出右緣 → 改放盒左側
+    if (x + bw > W - 2) x = ex - bw - 5;   // 會超出右緣 → 改放盒左側
     if (x < 2) x = 2;                      // 仍超出 → 貼齊左緣
     ctx.fillStyle = "rgba(20,22,28,0.82)"; // 深色底襯，落在 K 棒上也清楚
-    ctx.fillRect(x - 4, y - 12, tw + 8, 16);
-    ctx.fillStyle = color;
-    ctx.fillText(txt, x, y);
+    ctx.fillRect(x - 4, y - 12, bw + 8, sub ? 28 : 16);
+    drawTxt(x);
   }
   ctx.restore();
 }
@@ -4321,7 +4336,8 @@ function drawOne(d, W, H, isHovered, isSelected) {
     const rrTxt = (rrAct != null && d._isAutoRR)
       ? `預估 1:${rrEst}  ⇢  實際 1:${rrAct}`
       : `1 : ${rrEst}`;
-    _drawRRLabel(drawCtx, rrTxt, (parseFloat(rrEst) < 0) ? "rgba(239,83,80,0.95)" : "rgba(38,166,154,0.95)", ex, rx, tpCY, W);
+    _drawRRLabel(drawCtx, rrTxt, (parseFloat(rrEst) < 0) ? "rgba(239,83,80,0.95)" : "rgba(38,166,154,0.95)",
+                 ex, rx, tpCY, W, _posPctTxt(d));
 
     // 右側標籤
     drawCtx.font = "11px sans-serif";
@@ -4452,7 +4468,8 @@ function drawOne(d, W, H, isHovered, isSelected) {
     const rrTxt = (rrAct != null && d._isAutoRR)
       ? `預估 1:${rrEst}  ⇢  實際 1:${rrAct}`
       : `1 : ${rrEst}`;
-    _drawRRLabel(drawCtx, rrTxt, (parseFloat(rrEst) < 0) ? "rgba(239,83,80,0.95)" : "rgba(38,166,154,0.95)", ex, rx, tpCY, W);
+    _drawRRLabel(drawCtx, rrTxt, (parseFloat(rrEst) < 0) ? "rgba(239,83,80,0.95)" : "rgba(38,166,154,0.95)",
+                 ex, rx, tpCY, W, _posPctTxt(d));
 
     drawCtx.font = "11px sans-serif";
     const tpLabel = d._isAutoRR ? `預估 ${_fmtPx(d.tp)}` : `TP  ${_fmtPx(d.tp)}`;
@@ -4502,18 +4519,20 @@ function drawPreview(type, a, b, W, H) {
   }
 
   if (type === "longpos" || type === "shortpos") {
-    const mirrorY = 2 * a.y - b.y;
-    const isLong  = type === "longpos";
-    const tpY     = isLong ? Math.min(b.y, mirrorY) : Math.max(b.y, mirrorY);
-    const slY     = isLong ? Math.max(b.y, mirrorY) : Math.min(b.y, mirrorY);
+    // ★ 預覽要跟建立出來的那張一致（見 _mkPosDraw）：b＝**停損**，方向由停損在哪一邊決定，
+    //   停利放在 RR_DEFAULT 倍風險處。舊版是把 b 當停利/停損鏡射成 1:1，放手後會變形。
+    const slY     = b.y;
+    const tpY     = a.y - (b.y - a.y) * RR_DEFAULT;
     const lineW   = Math.min(100, W - a.x);
-    // 色塊
+    // 色塊：獲利側永遠綠、風險側永遠紅。
+    // ⚠ 舊版用 isLong 分支挑 y 與高度，**做空時兩色是反的**（紅塊畫在獲利側）——
+    //   寫成「不管方向，算絕對範圍」就不可能配錯。
     drawCtx.fillStyle = "rgba(38,166,154,0.13)";
-    drawCtx.fillRect(a.x, isLong ? tpY : a.y, lineW, isLong ? a.y - tpY : slY - a.y);
+    drawCtx.fillRect(a.x, Math.min(a.y, tpY), lineW, Math.abs(tpY - a.y));
     drawCtx.fillStyle = "rgba(239,83,80,0.13)";
-    drawCtx.fillRect(a.x, isLong ? a.y : tpY, lineW, isLong ? slY - a.y : a.y - tpY);
-    // TP / Entry / SL 線
-    [[isLong ? tpY : slY, "#26a69a"], [a.y, "rgba(255,255,255,0.7)"], [isLong ? slY : tpY, "#ef5350"]].forEach(([ly, lc]) => {
+    drawCtx.fillRect(a.x, Math.min(a.y, slY), lineW, Math.abs(slY - a.y));
+    // TP / Entry / SL 線（停利永遠綠、停損永遠紅，同樣不看方向）
+    [[tpY, "#26a69a"], [a.y, "rgba(255,255,255,0.7)"], [slY, "#ef5350"]].forEach(([ly, lc]) => {
       drawCtx.strokeStyle = lc; drawCtx.lineWidth = 1; drawCtx.setLineDash([4, 3]);
       drawCtx.beginPath(); drawCtx.moveTo(a.x, ly); drawCtx.lineTo(a.x + lineW, ly); drawCtx.stroke();
     });
