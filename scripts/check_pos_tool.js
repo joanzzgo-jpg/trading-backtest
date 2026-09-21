@@ -1,4 +1,4 @@
-/* 守門員：盈虧比工具（longpos/shortpos）的六條行為。需本機服務跑著；約 60 秒。
+/* 守門員：盈虧比工具（longpos/shortpos）的七條行為。需本機服務跑著；約 75 秒。
  *
  * 2026-09-21 使用者：「盈虧比不好用」。實測抓到三個結構性缺陷，這支把它們釘住 ——
  *  ①★★ **整個盒子搬不動**：`_drawingHitPart` 取「離哪條線最近」且**沒有距離門檻**
@@ -16,6 +16,13 @@
  *   ⑥拖進場線 → **上下停利停損釘住不動**、只有進場動、RR 跟著變；拖過頭要被夾在兩線之間
  *     （2026-09-21 使用者：「我要能固定上下止盈止損線，能調整中間進場線」——
  *      壓力位當停利、支撐位當停損都已經在圖上了，剩下的問題是「進場放哪裡划算」。）
+ *   ⑦拖曳中**十字線要跟著游標走**、且圖表不可以被平移
+ *     （2026-09-22 使用者：「鼠標按著盈虧比線做調整，十字虛線不會跟著動」）。
+ *     根因：`_onChartMouseMove` 在拖曳分支 `stopPropagation()`，而那個監聽掛在
+ *     chartEl 的 **capture 階段** → 事件到不了裡面的 LWC 畫布，整個拖曳期間十字線凍住。
+ *     ★ 擋 pan 的是 **mousedown** 那次 stopPropagation，mousemove 放行只會更新十字線。
+ *     ⚠ 判準要**兩件事一起驗**：只驗「十字線會動」的話，把 mousedown 的攔截也拿掉照樣通過，
+ *       但圖表會被平移；只驗「沒平移」則原本的 bug 就是通過的。
  * ⚠ 判準要問**位移量與 RR**，不是「有沒有動」：拉單線時也「有東西在動」。
  * ⚠⚠ ⑥b（夾限）**每次按下前都要重新量進場線的螢幕位置**：⑥ 已經把它移走了，
  *    沿用舊座標會落在線外 >_POS_HIT → 判成 move ＝整盒平移，夾限根本沒被測到
@@ -190,8 +197,47 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   if (!(a6c.entry > a6c.sl)) bad.push(`進場被拖到停損之外（entry ${a6c.entry.toFixed(1)} ≤ SL ${a6c.sl.toFixed(1)}）＝風險變負的`);
   if (!(a6c.entry < a6c.tp)) bad.push(`進場被拖到停利之外（entry ${a6c.entry.toFixed(1)} ≥ TP ${a6c.tp.toFixed(1)}）`);
 
+  // ⑦ 拖曳中十字線要跟著游標走，而且圖表不可以被平移
+  //    （2026-09-22 使用者：「鼠標按著盈虧比線做調整，十字虛線不會跟著動」）
+  const crossState = () => ev(`(() => {
+    const v = [...document.querySelectorAll(".pane-vline")]
+      .filter(el => el.offsetParent !== null || el.style.display !== "none");
+    const lbl = document.querySelector(".crosshair-price-label");
+    return { x: v.map(el => el.style.left).filter(Boolean)[0] || null,
+             lbl: lbl ? lbl.textContent.trim() : null };
+  })()`);
+  d = await make("longpos", cx, cy, cx + 90, cy + 60);
+  await page.mouse.click(cx + 20, cy); await sleep(350);
+  const eL7 = await ev(`(() => {
+    const d = drawings[drawings.length - 1];
+    const r = document.getElementById("mainChart").getBoundingClientRect();
+    return { x: r.x + _timeToX(d.p1.time) + 40,
+             y: r.y + candleSeries.priceToCoordinate(d.p1.price) };
+  })()`);
+  const vis0 = await ev(`(() => { const r = mainChart.timeScale().getVisibleLogicalRange();
+                                  return r ? [r.from, r.to] : null; })()`);
+  await page.mouse.move(eL7.x, eL7.y); await sleep(200);
+  const cs = [await crossState()];
+  await page.mouse.down();
+  for (let i = 1; i <= 6; i++) {
+    await page.mouse.move(eL7.x + i * 18, eL7.y + i * 6); await sleep(120);
+    cs.push(await crossState());
+  }
+  await page.mouse.up(); await sleep(300);
+  const vis1 = await ev(`(() => { const r = mainChart.timeScale().getVisibleLogicalRange();
+                                  return r ? [r.from, r.to] : null; })()`);
+  const nx = new Set(cs.map(s => s.x).filter(Boolean)).size;
+  const nl = new Set(cs.map(s => s.lbl).filter(Boolean)).size;
+  console.log(`\n⑦ 拖曳中的十字線（拖 6 步，每步 18px）：`);
+  console.log(`   鉛垂線相異位置 ${nx} 個　價格標籤相異值 ${nl} 個`);
+  console.log(`   可見範圍 ${JSON.stringify(vis0)} → ${JSON.stringify(vis1)}`);
+  if (nx < 4) bad.push(`拖曳中鉛垂線沒跟著動（只有 ${nx} 種位置）`);
+  if (nl < 4) bad.push(`拖曳中價格標籤沒更新（只有 ${nl} 種值）`);
+  if (vis0 && vis1 && (Math.abs(vis1[0] - vis0[0]) > 0.5 || Math.abs(vis1[1] - vis0[1]) > 0.5))
+    bad.push(`拖曳繪圖時圖表被平移了（${JSON.stringify(vis0)} → ${JSON.stringify(vis1)}）`);
+
   if (errs.length) bad.push(`JS 錯誤 ${errs.length}：${errs[0]}`);
-  console.log(bad.length ? "\n✗ " + bad.join("\n✗ ") : "\n★ 盈虧比六項全部符合預期（含「上下釘住、只動進場」）");
+  console.log(bad.length ? "\n✗ " + bad.join("\n✗ ") : "\n★ 盈虧比七項全部符合預期（含「上下釘住、只動進場」與「拖曳中十字線跟著走」）");
   await browser.close();
   process.exit(bad.length ? 1 : 0);
 })();

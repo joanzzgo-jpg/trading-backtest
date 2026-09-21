@@ -1301,7 +1301,12 @@ function _onChartMouseMove(e) {
   }
 
   if (dragState) {
-    e.stopPropagation();   // 拖移時不讓 LWC 處理 pan
+    /* ⚠ 這裡**不要** stopPropagation（2026-09-22 使用者：「鼠標按著盈虧比線做調整，
+       十字虛線不會跟著動」）。這個監聽掛在 chartEl 的 **capture 階段** → 一 stop，
+       事件就到不了裡面的 LWC 畫布，十字線整個拖曳期間凍住（拖盈虧比時最明顯：
+       正在調價格，卻看不到游標對應的價）。
+       ★ 擋 pan 的是 **mousedown** 那次 stopPropagation（見 _onChartMouseDown）——
+       LWC 沒收到 mousedown 就不會進入平移狀態，mousemove 放行只會更新十字線。 */
     _updateDrag(x, y);
     return;
   }
