@@ -178,6 +178,8 @@ window._pushCurPrice = function (key, price, ts, src) {
   if (!auth && _curPx.authTs && now - _curPx.authTs < _CUR_AUTH_MS) return;
   if (auth) _curPx.authTs = now;
   if (ts && _curPx.ts && ts < _curPx.ts) return;   // 同一來源內：舊的不覆蓋新的
+  // 「價格真的動了」的時刻：圖表中斷偵測用它排除「休市本來就沒有新棒」（見 realtime.js）
+  if (_curPx.price !== price) window._lastPxMoveTs = Date.now();
   _curPx.price = price; _curPx.ts = ts || _curPx.ts;
   /* 形成中那根的實體也用同一個數字（使用者：「最新Ｋ棒的即時實體跟不太上最新價格線」）。
      ★ 順序必須在 updateLatestPriceLine **之前**：現價線的虛線吃的是這裡傳進去的 price，
@@ -560,6 +562,9 @@ async function _fetchCrossMarket() {
 }
 
 let _tkRttMs = null;          // 最近一次報價請求的往返時間 → 給訊號格數用（見 utils.js 的連線指示）
+/* ⚠ 一併記「這個數字是幾點量到的」：訊號格數原本每 2 秒就把 _tkRttMs 重複塞進樣本窗，
+   輪詢一停（背景/休眠/斷線）整個窗會被同一個舊值填滿 → 格數看起來還很健康。 */
+window._tkRttAt = 0;
 async function fetchTickers() {
   const _rt0 = (performance && performance.now) ? performance.now() : Date.now();
   try {
@@ -567,7 +572,7 @@ async function fetchTickers() {
     const useSince = (_tkPollN % 60 !== 1);   // 每 60 輪第 1 次拿整包,其餘走 delta
     if (_tickerMkt === "tw") {
       const res = await fetch(_tkUrl("tw", "tw", useSince));
-      if (res.ok) { const j = await res.json(); _twTickerData = _tkMerge(_twTickerData, j, "tw"); _tkLastOkTs = Date.now(); _tkRttMs = ((performance&&performance.now)?performance.now():Date.now()) - _rt0; }
+      if (res.ok) { const j = await res.json(); _twTickerData = _tkMerge(_twTickerData, j, "tw"); _tkLastOkTs = Date.now(); _tkRttMs = ((performance&&performance.now)?performance.now():Date.now()) - _rt0; window._tkRttAt = Date.now(); }
     } else {
       const _spotNow = _spotNeeded();
       if (_spotNow) _spotUsedTs = Date.now();
@@ -581,7 +586,7 @@ async function fetchTickers() {
         fetch(_tkUrl("futures", "futures", useSince)),
         wantSpot ? fetch(_tkUrl("spot", "spot", useSpotSince)) : null,
       ]);
-      if (futRes.ok)  { const j = await futRes.json();  _tickerData     = _tkMerge(_tickerData, j, "futures"); _tkLastOkTs = Date.now(); _tkRttMs = ((performance&&performance.now)?performance.now():Date.now()) - _rt0; }
+      if (futRes.ok)  { const j = await futRes.json();  _tickerData     = _tkMerge(_tickerData, j, "futures"); _tkLastOkTs = Date.now(); _tkRttMs = ((performance&&performance.now)?performance.now():Date.now()) - _rt0; window._tkRttAt = Date.now(); }
       if (spotRes && spotRes.ok) { const j = await spotRes.json(); _spotTickerData = _tkMerge(_spotTickerData, j, "spot"); }
     }
     await _fetchCrossMarket();   // 自選裡有另一個市場的標的 → 它也要保持在動（見該函式）

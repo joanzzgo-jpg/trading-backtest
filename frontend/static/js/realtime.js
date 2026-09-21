@@ -725,6 +725,73 @@ function updateSymbolBar(data) {
   if (last.bb_upper != null) _setBBLeg(last.bb_upper, last.bb_middle, last.bb_lower);
 }
 
+/* ── 電腦休眠/分頁凍結太久 → K 棒補不回來時，明講「請重新整理」（2026-09-21）────────
+   使用者：「K 棒若太久沒動會有斷掉問題，告訴使用者要重整」「就是使用者太久沒用電腦導致」。
+
+   ★ 為什麼需要這一層：`/api/latest` 每次只回 2 根，輪詢一中斷（休眠/凍結/斷線）中間那幾根
+     就永遠不到，而且**完全不報錯**——使用者只看到「K 棒斷掉、要重整才好」。
+     `_scheduleGapFill()` 會自動補，但它只支援 `window._BG_TF` 那幾個時框（1w/1M 補不動），
+     其餘情況也可能補不回來 —— 補不回來時目前**沒有任何人告訴使用者**。
+
+   偵測「電腦睡過」＝**計時器漂移**：每 5 秒跑一次，若兩次之間的真實間隔遠超過 5 秒，
+   就代表這個分頁被凍結/機器休眠了。這個判準與市場開收盤無關，也不必猜使用者行為。
+
+   ⚠⚠ 只有在「**真的沒修好**」時才出聲，否則就是狼來了。醒來後給 12 秒讓輪詢與補載追，
+     然後才驗三個條件，缺一不報：
+       ① 剛剛真的睡過（漂移 > 90 秒）
+       ② 最新一根 K 棒的年齡 > 2.5 個時框（＝該有新棒卻沒有）
+       ③ **價格正在動**（最近 60 秒內現價變過）→ 排除「市場休市本來就沒有新棒」
+     沒有 ③ 的話，台股/美股收盤後或週末一睡醒就會誤報。
+   ⚠ 比對 K 棒時間要用**原始 ISO 時間**：`toTime()` 回的是圖表時間（已 +8 小時），
+     直接拿去跟 Date.now() 比會差 8 小時（claude.md 記過這個坑）。 */
+const _CS_INT = 5000, _CS_SUSPEND = 90000, _CS_GRACE = 12000;
+const _cs = { last: Date.now(), checkAt: 0, shown: false };
+function _chartStaleHide() {
+  if (!_cs.shown) return;
+  _cs.shown = false;
+  document.getElementById("chartStale")?.classList.add("hidden");
+}
+function _chartStaleCheck() {
+  try {
+    if (typeof replayActive !== "undefined" && replayActive) return;   // 重播中本來就不會有新棒
+    if (typeof ohlcvData === "undefined" || !Array.isArray(ohlcvData) || !ohlcvData.length) return;
+    const per = { "1M":2592000,"1w":604800,"1d":86400,"4h":14400,"2h":7200,"1h":3600,
+                  "30m":1800,"15m":900,"5m":300,"1m":60 }[currentTF];
+    if (!per) return;
+    const lastRaw = ohlcvData[ohlcvData.length - 1].time;
+    const lastMs = (typeof lastRaw === "number") ? lastRaw * 1000 : Date.parse(lastRaw);
+    if (!isFinite(lastMs)) return;
+    const ageSec = (Date.now() - lastMs) / 1000;
+    if (ageSec <= per * 2.5) { _chartStaleHide(); return; }            // 已經補回來了 → 不出聲
+    const moveAt = (typeof window !== "undefined" && window._lastPxMoveTs) || 0;
+    if (!moveAt || Date.now() - moveAt > 60000) { _chartStaleHide(); return; }  // 價格沒在動＝休市
+    const el = document.getElementById("chartStale"), txt = document.getElementById("chartStaleTxt");
+    if (!el || !txt) return;
+    const mins = Math.round(ageSec / 60);
+    const human = mins >= 1440 ? `${Math.round(mins / 1440)} 天`
+                : mins >= 60   ? `${Math.round(mins / 60)} 小時` : `${mins} 分鐘`;
+    txt.textContent = `圖表已中斷約 ${human}（電腦休眠或分頁被凍結），K 棒沒有補回來`;
+    el.classList.remove("hidden");
+    _cs.shown = true;
+  } catch (e) {}
+}
+function _chartStaleTick() {
+  const now = Date.now();
+  const drift = now - _cs.last - _CS_INT;
+  _cs.last = now;
+  if (drift > _CS_SUSPEND) _cs.checkAt = now + _CS_GRACE;     // 睡過 → 等追進度再驗
+  if (_cs.checkAt && now >= _cs.checkAt) { _cs.checkAt = 0; _chartStaleCheck(); }
+  else if (_cs.shown) _chartStaleCheck();                     // 已顯示 → 每輪重驗（補回來就自動收）
+}
+if (typeof window !== "undefined" && !window._csTimer) {
+  window._csTimer = setInterval(_chartStaleTick, _CS_INT);
+  window._chartStaleCheck = _chartStaleCheck;                 // 測試用
+  document.addEventListener("DOMContentLoaded", () => {
+    document.getElementById("chartStaleBtn")?.addEventListener("click", () => location.reload());
+  });
+  document.getElementById("chartStaleBtn")?.addEventListener("click", () => location.reload());
+}
+
 /* ══════════════════════════════════════════
    重播 (Bar Replay)
 ══════════════════════════════════════════ */

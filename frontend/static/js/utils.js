@@ -837,27 +837,55 @@ window._perfProbe = function (sec, silent) {
      app 真正在走的那條路，比另外打一支測速請求更貼近實際體驗。
      ⚠ 格數用「最近幾次的中位數」而不是最後一次：單一次逾時或剛好塞車會讓格數亂跳，
        看起來像訊號在閃。中位數對離群值不敏感（跟本專案其他量測一致）。
-     門檻：<150ms 四格／<400ms 三格／<900ms 兩格／其餘一格／離線零格。 */
-  const _rtt = [];
+     ★ 門檻怎麼定的（2026-09-21 使用者：「這樣不會太容易四格嗎」）：
+       ⚠ **不可以直接套 ping 的分級**（<20ms 很好／20~50 好／50~100 可接受／100+ 差）——
+         那是 ICMP 單程延遲，而我們量的是**整個 HTTP 往返含伺服器處理**。
+         實測本服務的下限：線上 `/api/tickers` 中位 **99ms**（香港邊緣→新加坡後端，
+         純往返 84.5ms 已是地理極限）、本機 ~20ms。套 ping 標準的話線上所有人都會變成「差」。
+       → 照**本服務實際會遇到的區間**分級（都是量出來的）：
+         線上好連線 ~100ms／行動網路 200~300ms／壅塞或弱訊號 500ms+。
+         4 格 <120ms（貼著本服務下限）／3 格 <250ms（行動網路）／2 格 <600ms（明顯變慢）
+         ／1 格 其餘或心跳停／0 格 離線。
+       ⚠ 舊門檻 <150ms 就給四格 → 線上幾乎所有人恆為四格，這個指標等於沒有資訊。 */
+  /* ⚠ 2026-09-21 使用者：「訊號要更確定正確狀態」。修掉兩個「宣稱自己不知道的事」：
+       ① 還沒量到 RTT 時原本直接回 **4 格（滿格）**——那是在報一個沒根據的好消息。
+          改回 -1＝未知（畫成空心格、寫「量測中」）。
+       ② 樣本窗原本每 2 秒就把同一個 `_tkRttMs` 再塞一次 → 輪詢一停（背景/休眠/斷線）
+          整個窗會被同一個舊值填滿，格數看起來還很健康。改成**同一次量測只收一次**，
+          且超過 SAMPLE_TTL 沒有新樣本就視為未知。 */
+  const _rtt = [];                    // [{v, at}]
+  const SAMPLE_TTL = 20000;
+  let _lastRttAt = 0;
   function _quality() {
     if (_off) return 0;
-    const hb = (typeof _tkLastOkTs !== "undefined") ? _tkLastOkTs : 0;
-    if (hb && Date.now() - hb > STALE_MS) return 1;      // 還沒判定離線但心跳停了 → 只給一格
+    const now = Date.now();
+    const at = (typeof window !== "undefined" && window._tkRttAt) || 0;
     const r = (typeof _tkRttMs !== "undefined") ? _tkRttMs : null;
-    if (r != null && Number.isFinite(r)) { _rtt.push(r); if (_rtt.length > 7) _rtt.shift(); }
-    if (!_rtt.length) return 4;                          // 還沒量到（剛開頁）→ 不要先嚇人
-    const m = [..._rtt].sort((a, b) => a - b)[Math.floor(_rtt.length / 2)];
-    return m < 150 ? 4 : m < 400 ? 3 : m < 900 ? 2 : 1;
+    if (at && at !== _lastRttAt && r != null && Number.isFinite(r)) {
+      _lastRttAt = at;
+      _rtt.push({ v: r, at });
+      if (_rtt.length > 7) _rtt.shift();
+    }
+    while (_rtt.length && now - _rtt[0].at > SAMPLE_TTL) _rtt.shift();   // 過期樣本丟掉
+    const hb = (typeof _tkLastOkTs !== "undefined") ? _tkLastOkTs : 0;
+    if (hb && now - hb > STALE_MS) return 1;             // 還沒判定離線但心跳停了 → 只給一格
+    if (!_rtt.length) return -1;                        // 沒有有效樣本 → **未知**，不要假裝滿格
+    const vs = _rtt.map(x => x.v).sort((a, b) => a - b);
+    const m = vs[Math.floor(vs.length / 2)];
+    return m < 120 ? 4 : m < 250 ? 3 : m < 600 ? 2 : 1;
   }
   function _paintSig() {
     const el = document.getElementById("netSig"); if (!el) return;
     const q = _quality();
     el.dataset.q = String(q);
     [...el.children].forEach((b, i) => b.classList.toggle("on", i < q));
-    const m = _rtt.length ? Math.round([..._rtt].sort((a, b) => a - b)[Math.floor(_rtt.length / 2)]) : null;
+    const vs = _rtt.map(x => x.v).sort((a, b) => a - b);
+    const m = vs.length ? Math.round(vs[Math.floor(vs.length / 2)]) : null;
     el.title = q === 0 ? "已離線：資料不會更新"
+      : q < 0 ? "連線品質量測中（還沒有最近的往返時間樣本）"
       : `連線 ${q}/4 格${m != null ? `（回應 ${m} ms）` : ""}` +
-        (q <= 2 ? " — 資料更新會變慢" : "");
+        (q === 4 ? " — 順暢" : q === 3 ? " — 正常" : q === 2 ? " — 偏慢，資料更新會延遲"
+                                                            : " — 很慢，資料更新會明顯延遲");
   }
 
   function _tick() {

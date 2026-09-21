@@ -235,9 +235,11 @@
            ・#wrFailNote：平常是空的；訊號/勝率算不出來時寫「訊號計算失敗」＋滑過去看原因
              （「算不出來」不可以長得像「這裡沒有訊號」—— claude.md 那條規則的落點）
            ・#acctSyncState：雲端同步狀態（2026-08-05 使用者要求顯示；文字由 account.js 寫入） -->
-      <!-- 順序（2026-09-20 使用者指定）：即時更新綠點 → 雲端同步狀態 → 訊號提示 -->
+      <!-- 順序（2026-09-21 使用者指定）：即時更新綠點 → 連線四格 → 雲端同步狀態
+           （#wrFailNote 只在訊號真的算不出來時才出現，平常 display:none 不佔位） -->
       <span class="tb-status">
         <span id="realtimeDot" class="realtime-dot hidden" title="即時更新中"></span>
+        <div class="net-sig" id="netSig" title="連線狀態"><i></i><i></i><i></i><i></i></div>
         <span id="acctSyncState" class="tb-wr-sync" title="帳號雲端同步狀態"></span>
         <span id="wrFailNote" class="tb-fail-note"></span>
       </span>
@@ -289,7 +291,6 @@
     <!-- 連線訊號格數（2026-08-12 使用者要求）。四格＝很好，一格＝很慢，全暗＋紅＝離線。
          ⚠ 放 .topbar-right 這個既有 flex 列：不會跟絕對置中的時間匡重疊（圖層鈕踩過那個坑）。
          ⚠ 視窗窄時這列可以左右捲 → 真的離線時另有一個 fixed 的紅色提示，捲走也看得到。 -->
-    <div class="net-sig" id="netSig" title="連線狀態"><i></i><i></i><i></i><i></i></div>
     <!-- 繪圖圖層 A/B/C（2026-08-11 使用者指定：緊鄰置中的時間匡右側）
        ⚠ 放在 .topbar-right 的最前面，理由是踩過兩次：
          ・放 #wrTop3 裡面 → 那個容器沒有 Top3 資料時整個 display:none，圖層鈕跟著消失。
@@ -663,6 +664,14 @@
         </div>
       </div>
       <div class="pane-body" id="mainChart">
+        <!-- 圖表中斷提示（2026-09-21 使用者：「K 棒若太久沒動會有斷掉問題，告訴使用者要重整」，
+             情境＝電腦休眠/分頁凍結太久）。只有在「真的沒自動修好」時才出現，見 realtime.js。
+             ⚠ 放在 #mainChart 內：那個容器保證是 position:relative（現價標籤也掛在這）。
+             ⚠ 這是**狀態**不是操作提示（使用者明確表示操作類提示不要）→ 就地寫清楚＋給一顆重整鈕。 -->
+        <div class="chart-stale hidden" id="chartStale">
+          <span id="chartStaleTxt"></span>
+          <button type="button" id="chartStaleBtn">重新整理</button>
+        </div>
         <!-- loading="lazy"：非極簡模式時 .chart-bear-bg.perf-only 是 display:none → 不會被抓（省 28KB）。
            weather.js 另有自己的 new Image() 會在延遲載入後自行取用，不受影響。 -->
       <img src="{{ v('/static/img/bear-bg.png') }}" class="chart-bear-bg perf-only" loading="lazy" alt="" />

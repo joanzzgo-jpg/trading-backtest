@@ -1570,6 +1570,21 @@ html.perf-mode .time-axis-year {
 }
 @keyframes tkStaleBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
 @media (prefers-reduced-motion: reduce) { .tk-stale { animation: none; } }
+/* 圖表中斷（電腦休眠/分頁凍結太久，K 棒補不回來）：壓在主圖上方置中，不推擠版面 */
+.chart-stale {
+  position: absolute; left: 50%; top: 10px; transform: translateX(-50%);
+  z-index: 40; display: inline-flex; align-items: center; gap: 10px;
+  padding: 7px 10px 7px 12px; border-radius: 9px;
+  background: rgba(239, 83, 80, .16); border: 1px solid #ef5350; color: #ef8a88;
+  font-size: 12px; line-height: 1.35; white-space: nowrap;
+  box-shadow: 0 6px 20px rgba(0,0,0,.35);
+}
+.chart-stale.hidden { display: none; }
+.chart-stale button {
+  font: inherit; font-size: 11.5px; font-weight: 700; color: #2C1607;
+  background: #ef8a88; border: 0; border-radius: 6px; padding: 4px 10px; cursor: pointer;
+}
+.chart-stale button:hover { background: #ffa5a3; }
 /* 極簡模式是白底：#ef8a88 淡紅字在淡紅底上幾乎看不見 → 換成深紅（只動顏色，不碰版面） */
 html.perf-mode .tk-stale { background: rgba(220, 38, 38, 0.10); border-color: #dc2626; color: #b91c1c; }
 
@@ -5576,9 +5591,10 @@ select:focus-visible {
   content: ""; width: 6px; height: 6px; border-radius: 50%;
   background: currentColor; flex-shrink: 0;
 }
-.tb-fail-note[data-state="calc"] { color: var(--muted, #787b86); opacity: .45; }
-.tb-fail-note[data-state="calc"]::before { animation: tbSyncPulse 1s ease-in-out infinite; }
-.tb-fail-note[data-state="ok"]   { color: var(--muted, #787b86); opacity: .34; }
+/* ⚠ 2026-09-21：計算中/已更新**不顯示**——使用者要的「訊號」是右邊的連線四格，
+   這欄只在真的有問題時才該出現（原本的行為）。狀態機仍然四態，只是這兩態不佔版面。 */
+.tb-fail-note[data-state="calc"],
+.tb-fail-note[data-state="ok"] { display: none; }
 .tb-fail-note[data-state="stale"] { color: var(--muted, #787b86); opacity: .5; }
 .tb-fail-note[data-state="fail"] { color: #FF8A8A; opacity: 1; font-weight: 700;
                                    text-shadow: 0 0 6px rgba(255,110,110,.35); }
@@ -5740,6 +5756,8 @@ html.perf-mode .tb-wr-sync[data-state="local"] { color: #8B8B8B; }
 .net-sig[data-q="1"] i.on { background: #e8833a; }
 .net-sig[data-q="0"] i     { background: var(--red, #ef5350); opacity: .30; }
 .net-sig[data-q="0"] i:nth-child(1) { opacity: 1; animation: no-blink 1.4s ease-in-out infinite; }
+/* 未知（還沒有最近的往返時間樣本）：空心細框，不亮任何一格 —— 不要用滿格假裝連線很好 */
+.net-sig[data-q="-1"] i { background: transparent; border: 1px solid var(--muted, #9A7A58); opacity: .32; }
 
 /* ── 自選拖曳排序（2026-08-31 / 手感優化 2026-09-01）─────────────────────────
    ⚠ `touch-action` 只加在自選分頁的列上：整個清單都設的話，
