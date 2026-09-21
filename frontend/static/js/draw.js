@@ -756,7 +756,9 @@ function _posPctTxt(d) {
      lvl>1 落在**起點外側**（走勢來的方向），延伸位整個畫反邊。延伸位是**目標價**，
      要在**終點外側**（走勢繼續下去的方向）：drawTool 畫一段下跌，目標就該在更低的地方。
      存 frac 就不會再搞反：想畫在終點外，frac 就是 >1，看數字即可判斷。
-   `ext:true` ＝延伸位，用比較淡的細點線跟回調位區分。 */
+   ⚠ 2026-09-22 使用者要求**拿掉延伸位**（127.2/161.8）→ 目前只有回調位。
+     真要加回來：新增一筆 frac>1 即可（frac>1 ＝終點外側），繪製／命中判定／預覽
+     三處都讀這份，不必也不可以另外開一張表。 */
 const FIB_LEVELS = [
   { label: 0,     frac: 1,     col: "#ef5350" },   // 第二點（走勢終點）
   { label: 23.6,  frac: 0.764, col: "#ff9800" },
@@ -765,8 +767,6 @@ const FIB_LEVELS = [
   { label: 61.8,  frac: 0.382, col: "#26a69a" },
   { label: 78.6,  frac: 0.214, col: "#ff9800" },
   { label: 100,   frac: 0,     col: "#ef5350" },   // 第一點（走勢起點）
-  { label: 127.2, frac: 1.272, col: "#b39ddb", ext: true },   // 終點外側＝目標價
-  { label: 161.8, frac: 1.618, col: "#b39ddb", ext: true },
 ];
 const _fibPrice = (d, frac) => d.p1.price + (d.p2.price - d.p1.price) * frac;
 /* 斐波標籤的價格格式：小數位**問資料**（全站 `_fmtPx` ← `_pxDecInfer`），不照價格級距猜。
@@ -4212,25 +4212,24 @@ function drawOne(d, W, H, isHovered, isSelected) {
       return m ? `rgba(${parseInt(m[1],16)},${parseInt(m[2],16)},${parseInt(m[3],16)},${al})` : hex;
     };
     // 先算每層級的 y 座標（★ 讀唯一那份 FIB_LEVELS）
-    const _fibYs = FIB_LEVELS.map(({ label, frac, col: lcol, ext }) => {
+    const _fibYs = FIB_LEVELS.map(({ label, frac, col: lcol }) => {
       const price = _fibPrice(d, frac);
-      return { label, lcol, ext, price, y: candleSeries?.priceToCoordinate(price) };
+      return { label, lcol, price, y: candleSeries?.priceToCoordinate(price) };
     });
     // ① 各層級之間填半透明底色（仿台歐美三盤），底色取下緣層級的色
-    //    ⚠ 延伸位不填：它是「還沒發生的目標區」，填了會跟回調區混在一起分不出來
     for (let i = 0; i < _fibYs.length - 1; i++) {
       const top = _fibYs[i], bot = _fibYs[i + 1];
-      if (top.y == null || bot.y == null || bot.ext) continue;
+      if (top.y == null || bot.y == null) continue;
       drawCtx.fillStyle = _fibRgba(bot.lcol, 0.04);
       drawCtx.fillRect(xLeft, top.y, xRight - xLeft, bot.y - top.y);
     }
     // ② 各層級線（色淡一些）＋ 右側標籤
-    _fibYs.forEach(({ label, lcol, ext, price, y }) => {
+    _fibYs.forEach(({ label, lcol, price, y }) => {
       if (y == null) return;
       const edge = (label === 0 || label === 100);   // 兩個端點（走勢的起點與終點）
-      drawCtx.strokeStyle = _fibRgba(lcol, ext ? 0.42 : edge ? 0.75 : 0.5);   // 延伸位更淡
+      drawCtx.strokeStyle = _fibRgba(lcol, edge ? 0.75 : 0.5);   // 線條淡化
       drawCtx.lineWidth = edge ? 1.5 : 1;
-      drawCtx.setLineDash(ext ? [2, 4] : edge ? [] : [5, 3]);   // 延伸位＝細點線，一眼分得出來
+      drawCtx.setLineDash(edge ? [] : [5, 3]);
       drawCtx.shadowBlur = isSelected ? 6 : 0; drawCtx.shadowColor = lcol;
       drawCtx.beginPath(); drawCtx.moveTo(xLeft, y); drawCtx.lineTo(xRight, y); drawCtx.stroke();
       drawCtx.setLineDash([]); drawCtx.shadowBlur = 0;
@@ -4606,13 +4605,13 @@ function drawPreview(type, a, b, W, H) {
        一條普通虛線，層級要放手之後才出現。改成邊拖邊畫真正的層級（讀同一份 FIB_LEVELS）。
        ⚠ 這裡只有螢幕座標、沒有價格 → 直接用 y 做線性內插（跟價格線性是同一件事）。 */
     const xL = Math.min(a.x, b.x), xR = Math.max(a.x, b.x);
-    FIB_LEVELS.forEach(({ label, frac, col, ext }) => {
-      const y = a.y + (b.y - a.y) * frac;       // frac 0＝第一點、1＝第二點、>1＝終點外側
+    FIB_LEVELS.forEach(({ label, frac, col }) => {
+      const y = a.y + (b.y - a.y) * frac;       // frac 0＝第一點、1＝第二點
       const edge = (label === 0 || label === 100);
       drawCtx.strokeStyle = col;
-      drawCtx.globalAlpha = ext ? 0.38 : edge ? 0.7 : 0.45;
+      drawCtx.globalAlpha = edge ? 0.7 : 0.45;
       drawCtx.lineWidth = edge ? 1.5 : 1;
-      drawCtx.setLineDash(ext ? [2, 4] : edge ? [] : [5, 3]);
+      drawCtx.setLineDash(edge ? [] : [5, 3]);
       drawCtx.beginPath(); drawCtx.moveTo(xL, y); drawCtx.lineTo(xR, y); drawCtx.stroke();
     });
     drawCtx.globalAlpha = 1; drawCtx.setLineDash([]);

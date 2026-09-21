@@ -1,4 +1,4 @@
-/* 守門員：斐波那契工具的五條行為。需本機服務跑著；約 60 秒。
+/* 守門員：斐波那契工具的三條行為。需本機服務跑著；約 40 秒。
  *
  * 2026-09-22 使用者：「優化斐波」。實測抓到的問題，這支把它們釘住 ——
  *  ①★★ **右側 775px 的幽靈命中區**：`drawingDist` 只擋了左邊
@@ -11,23 +11,18 @@
  *     當時修了三支格式化函式，斐波這支是漏網的第四支。改成走全站 `_fmtPx`（問資料）。
  *  ③ 層級清單寫死在**兩個**地方（drawOne 的 _fibLevels 與 drawingDist）→ 加一條要改兩處，
  *     漏掉命中判定那份＝那條線**畫得出來卻摸不到**，完全不報錯。收斂成唯一的 FIB_LEVELS。
- *  ④ 新增延伸位 127.2 / 161.8（看目標價），細點線、更淡，跟回調位分得出來。
- *  ⑤★★ **延伸位畫反邊**（2026-09-22 使用者：「斐波那契延伸反了」）：層級原本只存一個
- *     `lvl`，再用 `p1 + (p2-p1) * (1 - lvl)` 換算 —— 那個 `1 - lvl` 讓 lvl>1 落在
- *     **起點外側**（走勢來的方向）。畫一段下跌，目標價卻標在更高的地方。
- *     延伸位＝目標價，必須在**終點外側**（走勢繼續下去的方向）。
- *     修＝層級改存 `frac`（佔整段走勢的幾成，0＝起點/1＝終點/>1＝終點外）＋ `label`
- *     （標籤印的百分比）。存 frac 就不會再搞反：想畫在終點外，frac 就是 >1。
+ *  ④ 延伸位（127.2/161.8）2026-09-22 加了又**移除**（使用者：「斐波那契延伸刪除」）。
+ *     加的當天還先出過一次「畫反邊」——層級原本只存一個 `lvl` 再用 `1 - lvl` 換算，
+ *     lvl>1 會落在**起點外側**（走勢來的方向），而延伸位是目標價、該在終點外側。
+ *     ★ 留著這段是因為**結構上的修法有價值**：層級改存 `frac`（佔整段走勢的幾成：
+ *       0＝起點／1＝終點／>1＝終點外）＋ `label`（標籤印的百分比），那個容易搞反的
+ *       換算就消失了。真要再加延伸位，新增一筆 frac>1 即可，三處都讀同一份。
  *
  * 判準：
  *   ①右端點外 → 摸不到（Infinity）；左端點外 → 摸不到；線上 → 摸得到
  *   ②`_fibFmt` 對小價位不可以歸零，且要跟著資料的小數位走
- *   ③④ 每一個 FIB_LEVELS 層級（含兩條延伸位）在它自己的 y 上都摸得到
+ *   ③ 每一個 FIB_LEVELS 層級在它自己的 y 上都摸得到，且恰好是 7 條回調位
  *      ← 這條同時證明「繪製與命中判定讀的是同一份」：漏掉就摸不到
- *   ⑤ 延伸位跟走勢**同向**（在第二點外側），**下跌段與上漲段各畫一次都要成立**
- * ⚠⚠ ⑤ 的判準要比**方向**（`Math.sign(px - p2) === Math.sign(p2 - p1)`）不是比大小：
- *    寫死「延伸位要比 p2 大」只對上漲段成立，下跌段會誤報；而且**只測一個方向不夠** ——
- *    正負號寫錯時其中一種走勢照樣通過（所以 ④b 一定要反方向再畫一次）。
  * ⚠⚠ 距離是 Infinity 時 **`Infinity < 12` 是 false，但 `null < 12` 是 true**：
  *    經過 page.evaluate 的 JSON 序列化，Infinity 會變成 null → 直接拿來比大小會
  *    把「摸不到」讀成「摸得到」＝**判準反了**（我第一版就是，修好了還報失敗）。
@@ -144,49 +139,16 @@ const _f = n => (Math.round(n * 10) / 10).toLocaleString("en-US");
                  dist: y == null ? null : drawingDist(d, xm, y), txt: _fibFmt(px) };
       }) };
   })()`);
-  const dir = Math.sign(lv.p2 - lv.p1);       // 這段走勢的方向（第一點 → 第二點）
-  console.log(`\n③④ 各層級（★＝延伸位）　走勢 ${lv.p1.toFixed(1)} → ${lv.p2.toFixed(1)}（${dir < 0 ? "下跌" : "上漲"}）：`);
+  console.log(`\n③ 各層級在自己的 y 上摸不摸得到（走勢 ${lv.p1.toFixed(1)} → ${lv.p2.toFixed(1)}）：`);
   lv.rows.forEach(({ label, ext, px, dist, txt }) => {
     const v = num(dist);
-    const side = ext ? (Math.sign(px - lv.p2) === dir ? "終點外側✓" : "★起點外側＝畫反邊") : "";
-    console.log(`   ${(ext ? "★" : " ")} ${String(label.toFixed(1)).padStart(6)}%  ${String(txt).padStart(11)}  ${v < 12 ? "摸得到" : "✗ 摸不到"}  ${side}`);
+    console.log(`   ${String(label.toFixed(1)).padStart(6)}%  ${String(txt).padStart(11)}  ${v < 12 ? "摸得到" : "✗ 摸不到"}`);
     if (!(v < 12)) bad.push(`層級 ${label.toFixed(1)}% 摸不到（繪製與命中判定的層級清單不同步？）`);
-    /* ★★ 延伸位＝**目標價**，必須在「走勢繼續下去」那一側（第二點外側）。
-       2026-09-22 使用者：「斐波那契延伸反了」—— 舊版用 `1 - lvl` 換算，lvl>1 落在
-       **起點外側**（走勢來的方向）→ 畫一段下跌，目標卻標在更高的地方，整個反邊。
-       ⚠ 判準要比**方向**不是比大小：上漲段的目標在更高處、下跌段在更低處，
-         寫死「延伸位要比 p2 大」只對其中一種走勢成立。 */
-    if (ext && Math.sign(px - lv.p2) !== dir)
-      bad.push(`延伸位 ${label.toFixed(1)}% 畫在起點外側（${txt}）—— 目標價應該在終點外側、走勢繼續的方向`);
+    // 2026-09-22 使用者要求拿掉延伸位 → 這份清單不該再有 frac>1 的項目
+    if (ext) bad.push(`層級 ${label.toFixed(1)}% 還標著 ext（延伸位已移除）`);
   });
-  const exts = lv.rows.filter(r => r.ext).map(r => r.label.toFixed(1));
-  if (exts.length < 2) bad.push(`延伸位應有 127.2/161.8 兩條，實得 ${exts.join("/") || "0 條"}`);
-
-  /* ④b 反方向再畫一次（上漲段）。⚠ 只測一個方向不夠：延伸位的正負號寫錯時，
-     其中一種走勢照樣會通過 —— 判準是「跟走勢同向」，就必須兩種走勢都驗。 */
-  await ev(`(() => { drawings.length = 0; selectedId = null; return 1; })()`);
-  await page.evaluate(() => document.querySelector('[data-tool="fib"]').click());
-  await sleep(250);
-  await page.mouse.click(cx, cy + 140); await sleep(250);      // 由下往上＝上漲段
-  await page.mouse.click(cx + 120, cy); await sleep(500);
-  const up = await ev(`(() => {
-    const d = drawings.find(x => x.type === "fib");
-    if (!d) return null;
-    return { p1: d.p1.price, p2: d.p2.price,
-      ext: FIB_LEVELS.filter(l => l.ext)
-             .map(l => ({ label: l.label, px: _fibPrice(d, l.frac) })) };
-  })()`);
-  if (!up) { bad.push("反方向那張 fib 沒建立成功 → ④b 沒驗到"); }
-  else {
-    const dUp = Math.sign(up.p2 - up.p1);
-    console.log(`\n④b 反方向：走勢 ${up.p1.toFixed(1)} → ${up.p2.toFixed(1)}（${dUp < 0 ? "下跌" : "上漲"}）`);
-    up.ext.forEach(({ label, px }) => {
-      const ok = Math.sign(px - up.p2) === dUp;
-      console.log(`   ★ ${String(label.toFixed(1)).padStart(6)}%  ${String(_f(px)).padStart(11)}  ${ok ? "終點外側✓" : "★起點外側＝畫反邊"}`);
-      if (!ok) bad.push(`上漲段的延伸位 ${label.toFixed(1)}% 畫在起點外側（${px.toFixed(1)}）`);
-    });
-    if (dUp <= 0) bad.push("④b 應該畫出上漲段，實際不是 → 測試不成立的情境，判準沒驗到反方向");
-  }
+  if (lv.rows.length !== 7)
+    bad.push(`層級應為 7 條回調位，實得 ${lv.rows.length} 條（${lv.rows.map(r => r.label).join("/")}）`);
 
   // ② 價格格式：小價位不可以被顯示成 0
   const fmt = await ev(`(() => {
@@ -204,7 +166,7 @@ const _f = n => (Math.round(n * 10) / 10).toLocaleString("en-US");
   });
 
   if (errs.length) bad.push(`JS 錯誤 ${errs.length}：${errs[0]}`);
-  console.log(bad.length ? "\n✗ " + bad.join("\n✗ ") : "\n★ 斐波五項全部符合預期（含延伸位方向，上漲與下跌段都驗過）");
+  console.log(bad.length ? "\n✗ " + bad.join("\n✗ ") : "\n★ 斐波三項全部符合預期");
   await browser.close();
   process.exit(bad.length ? 1 : 0);
 })();
