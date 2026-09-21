@@ -373,15 +373,27 @@ def _quote_pass(pref, syms, out, seen):
     return asked
 
 
-def fetch_tw_quotes_bulk(symbols):
+def fetch_tw_quotes_bulk(symbols, answered=None):
     """cnyes 台股批次報價 → {代號: {price, change_pct, change_amt, volume, prev, est, qts}}。
 
     est 一律 False（都是真實成交價，不是估的）、qts＝那筆報價的時間戳（unix 秒）。
-    整批失敗回空 dict（呼叫端會退回 MIS）。"""
+    整批失敗回空 dict（呼叫端會退回 MIS）。
+
+    `answered`（選填 set）＝這次**真的問出確定答案**的代號，回填給呼叫端記進度用。
+    ⚠⚠ **它不等於 symbols**，差別就是 2026-09-21 那個 bug 的根因：
+      ・某個 chunk 連線失敗 → 那 500 檔根本沒送出去（`_quote_pass` 會跳過，不算查無）
+      ・被 `_TW_NOQ` 擋掉的 → 這輪壓根沒問
+      呼叫端若拿 symbols 當「問過了」，**整批抓失敗會被記成「查過、這幾檔沒報價」**
+      → 收盤補齊一輪就宣告完成，203 檔興櫃整晚停在前一個交易日的價（本機實測）。
+      「確定的答案」只有三種：回應裡有它／兩種前綴都問過都沒有／剛確認過查無還在 NOQ 內。"""
     out, seen = {}, set()
     now = time.time()
-    syms = [s for s in dict.fromkeys(symbols)
-            if s and now - _TW_NOQ.get(s, 0) > _NOQ_TTL]   # 兩種前綴都查無的，30 分鐘內不再問
+    uniq = [s for s in dict.fromkeys(symbols) if s]
+    syms = [s for s in uniq
+            if now - _TW_NOQ.get(s, 0) > _NOQ_TTL]         # 兩種前綴都查無的，30 分鐘內不再問
+    if answered is not None:
+        # 被 NOQ 擋掉的＝30 分鐘內才剛確認過「兩種前綴都查無」→ 那也是一個確定的答案
+        answered.update(set(uniq) - set(syms))
     grp = {"TWS": [], "TWG": []}
     for s in syms:
         grp[_TW_PREFIX.get(s, "TWS")].append(s)            # 沒看過的先當上市櫃
@@ -401,6 +413,10 @@ def fetch_tw_quotes_bulk(symbols):
     for s in asked2:                                        # 兩種前綴都查無（下市/停牌）→ 先擱著
         if s not in seen:
             _TW_NOQ[s] = now
+            if answered is not None:
+                answered.add(s)                             # 兩種前綴都問到了、都沒有＝確定的答案
+    if answered is not None:
+        answered.update(seen)                               # 回應裡出現過的（有沒有成交都算問到了）
     return out
 
 

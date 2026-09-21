@@ -705,14 +705,16 @@ def _tw_rt_overlay_worker():
                 #      盤中量「整批最新那筆距現在幾秒」，超過 3 分鐘就判定它落後 → 退回 MIS 十分鐘。
                 #      收盤後不做這個判斷（最後成交本來就停在 13:30）。
                 pm = {}
-                _asked = batch                            # 這輪「真的問到的那批」（收盤補齊據此記進度）
+                _asked = batch                            # 這輪「打算問的那批」
+                _answered = set()                         # 這輪「真的問出確定答案的那批」（補齊據此記進度）
                 if _use_cn:
-                    pm = fetch_tw_quotes_bulk(batch)
+                    pm = fetch_tw_quotes_bulk(batch, answered=_answered)
                     if pm and _intraday:
                         _lag = tw_quotes_lag(pm)
                         if _lag > 180:
                             _cn["bad_until"] = time.time() + 600
                             pm = {}
+                            _answered.clear()             # 判定落後＝這批答案不採用，進度也不算
                             if time.time() - _cn["log"] > 600:
                                 _cn["log"] = time.time()
                                 print(f"[tw_rt] ⚠ cnyes 報價落後 {_lag:.0f} 秒 → 改用 MIS 十分鐘",
@@ -724,6 +726,8 @@ def _tw_rt_overlay_worker():
                         _cn["bad_until"] = max(_cn["bad_until"], time.time() + 60)
                     _asked = batch[:300]
                     pm = fetch_tw_realtime_bulk(_asked)
+                    # MIS 分不出「問到了但沒成交」與「整批沒問到」→ 有回東西才算這批問到了
+                    _answered = set(_asked) if pm else set()
                 if pm:
                     overlay_tw(pm, _day)
                     _miss = 0
@@ -732,17 +736,31 @@ def _tw_rt_overlay_worker():
                     if _miss >= 2:
                         _nap = 60                         # 退避 60s 讓上游解封(否則一直打→封鎖永不解，同 Pionex 教訓)
                 if _closing_fill:
-                    # 問過就算補過（查無／今天沒成交的也算，否則長尾永遠補不完＝無限打）。
-                    # ⚠ 記的是 **_asked（真的問出去的那批）** 不是 batch：退回 MIS 時只問得動前 300 檔，
-                    #   記成整批的話剩下 2400 檔會被當成「補過了」——實際上從沒問過（測試抓到的）。
-                    _fill["seen"].update(_asked)
+                    # 問到就算補過（查無／今天沒成交的也算，否則長尾永遠補不完＝無限打），
+                    # 但「問到」＝**來源真的給了答案**，不是「我打算問」。
+                    # ⚠⚠ 2026-09-21：這裡原本記 `_asked`（打算問的那批）→ 整批抓失敗
+                    #   （本機實測：睡醒後 DNS 解不到 mis.twse.com.tw、cnyes 也連不上）
+                    #   照樣被記成「補過了」，一輪就湊滿 2698 檔 → `done` 一蓋下去當天不再補，
+                    #   203 檔興櫃整晚停在前一個交易日的價。**失敗被記成有效狀態**，畫面零跡象。
+                    #   → 改記 `_answered`：cnyes 由 `fetch_tw_quotes_bulk(answered=)` 回填
+                    #   （chunk 連線失敗的、被 NOQ 擋掉的都不算），MIS 則「有回東西才算」。
+                    #   兩邊都掛掉時這輪進度＝0 → 下一輪自然重問，網路回來就自己補上。
+                    _fill["seen"].update(_answered)
                     _fill["rounds"] += 1
                     # ⚠ 一定要有輪數上限：上游被封或整批查無時 batch 會一直有東西，
                     #   沒上限就會整晚每 12 秒打一次。60 輪 ≈ 12 分鐘，足夠補完 2700 檔。
-                    if len(_fill["seen"]) >= len(syms) or _fill["rounds"] >= 60:
+                    _covered = len(_fill["seen"]) >= len(syms)
+                    if _covered or _fill["rounds"] >= 60:
                         _fill["done"] = _sess
-                        print(f"[tw_rt] 收盤補齊完成：{len(_fill['seen'])} 檔／{_fill['rounds']} 輪"
-                              f"（交易日 {_sess}）", flush=True)
+                        if _covered:
+                            print(f"[tw_rt] 收盤補齊完成：{len(_fill['seen'])} 檔／"
+                                  f"{_fill['rounds']} 輪（交易日 {_sess}）", flush=True)
+                        else:
+                            # ⚠ 這行出現＝有檔還停在前一個交易日的價（上游整段不通）。
+                            #   照樣收手是為了不整晚打上游；下次重啟或換交易日會重來。
+                            print(f"[tw_rt] ⚠ 收盤補齊**沒補完**就用盡 {_fill['rounds']} 輪："
+                                  f"{len(_fill['seen'])}/{len(syms)} 檔（交易日 {_sess}）"
+                                  f"，未補到的仍是前一個交易日的價", flush=True)
         except Exception:
             pass
         time.sleep(_nap)
