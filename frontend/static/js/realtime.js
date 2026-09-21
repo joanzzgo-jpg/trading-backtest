@@ -751,6 +751,20 @@ function _chartStaleHide() {
   _cs.shown = false;
   document.getElementById("chartStale")?.classList.add("hidden");
 }
+/* K 棒的「真正發生時刻」(ms)。★★ 兩個都不能直接用：
+     ・`Date.parse(raw)` —— 後端送的是 **naive ISO**（`"2026-09-21T00:00:00"`，沒有時區，
+       值代表 UTC）。JS 規格把「沒有時區的日期時間」當成**瀏覽器本地時間** →
+       台灣(UTC+8)會早 8 小時，紐約又是另一個偏移＝**每個使用者錯的量還不一樣**。
+     ・`toTime(raw)` —— 那是**圖表時間**，刻意 +8 小時給 LWC 顯示用，比真值晚 8 小時。
+   → 沒帶時區就補上 "Z" 當 UTC 解析。數字型的直接當 epoch 秒。
+   （2026-09-22 由 K 棒倒數量出來：1d 的倒數算出 -8929 秒＝差整整 8 小時。
+     同一個錯誤原本也在 _chartStaleCheck 裡，會讓休眠醒來後誤報「圖表已中斷」。） */
+function _barOpenMs(raw) {
+  if (typeof raw === "number") return raw * 1000;
+  if (typeof raw !== "string" || !raw) return NaN;
+  return Date.parse(/([zZ]|[+-]\d{2}:?\d{2})$/.test(raw) ? raw : raw + "Z");
+}
+
 function _chartStaleCheck() {
   try {
     if (typeof replayActive !== "undefined" && replayActive) return;   // 重播中本來就不會有新棒
@@ -758,8 +772,7 @@ function _chartStaleCheck() {
     const per = { "1M":2592000,"1w":604800,"1d":86400,"4h":14400,"2h":7200,"1h":3600,
                   "30m":1800,"15m":900,"5m":300,"1m":60 }[currentTF];
     if (!per) return;
-    const lastRaw = ohlcvData[ohlcvData.length - 1].time;
-    const lastMs = (typeof lastRaw === "number") ? lastRaw * 1000 : Date.parse(lastRaw);
+    const lastMs = _barOpenMs(ohlcvData[ohlcvData.length - 1].time);
     if (!isFinite(lastMs)) return;
     const ageSec = (Date.now() - lastMs) / 1000;
     if (ageSec <= per * 2.5) { _chartStaleHide(); return; }            // 已經補回來了 → 不出聲
@@ -783,6 +796,41 @@ function _chartStaleTick() {
   if (_cs.checkAt && now >= _cs.checkAt) { _cs.checkAt = 0; _chartStaleCheck(); }
   else if (_cs.shown) _chartStaleCheck();                     // 已顯示 → 每輪重驗（補回來就自動收）
 }
+/* ══ 最新 K 棒倒數（狀態列：訊號四格 ↔ 已儲存到雲端 之間）═══════════════════════
+   2026-09-22 使用者：「新增Ｋ棒倒數，就是最新Ｋ幾分後收，在哪個時間級別就用哪個」。
+   ⚠ 時間一律走 `_barOpenMs()`：`Date.parse(naive)` 會被當成瀏覽器本地時間、`toTime()` 是
+     +8 小時的圖表時間，兩個拿去跟 `Date.now()` 比都是錯的（見 _barOpenMs 的說明）。
+   ⚠ 算出來不在 0~一個時框之間就**不顯示**（休市、資料中斷、時鐘怪怪的）：
+     寧可空著，也不要端出一個負數或假的倒數 —— 那種情況該說話的是 #chartStale。
+   ⚠ 寬度固定由 CSS `.tb-countdown` 負責，這裡只管內容。 */
+const _BC_PER = { "1M":2592000, "1w":604800, "1d":86400, "4h":14400, "2h":7200,
+                  "1h":3600, "30m":1800, "15m":900, "5m":300, "1m":60 };
+function _barCountdownTxt() {
+  if (typeof replayActive !== "undefined" && replayActive) return "";   // 重播中沒有「還有多久收」
+  if (typeof ohlcvData === "undefined" || !Array.isArray(ohlcvData) || !ohlcvData.length) return "";
+  const per = _BC_PER[currentTF];
+  if (!per) return "";
+  const lastMs = _barOpenMs(ohlcvData[ohlcvData.length - 1].time);
+  if (!isFinite(lastMs)) return "";
+  const s = Math.round((lastMs + per * 1000 - Date.now()) / 1000);
+  if (s < 0 || s > per) return "";
+  const p2 = (n) => String(n).padStart(2, "0");
+  if (s < 3600)  return `${Math.floor(s / 60)}:${p2(s % 60)}`;
+  if (s < 86400) return `${Math.floor(s / 3600)}:${p2(Math.floor(s / 60) % 60)}:${p2(s % 60)}`;
+  return `${Math.floor(s / 86400)}天${Math.floor(s / 3600) % 24}時`;
+}
+function _barCountdownTick() {
+  const el = document.getElementById("barCountdown");
+  if (!el || document.hidden) return;              // 背景時不必重算（純本機計算，但沒人看）
+  const t = _barCountdownTxt();
+  if (el.textContent !== t) el.textContent = t;    // 只有真的變了才寫 DOM
+}
+if (typeof window !== "undefined" && !window._bcTimer) {
+  window._bcTimer = setInterval(_barCountdownTick, 1000);
+  window._barCountdownTxt = _barCountdownTxt;                 // 測試用
+  document.addEventListener("visibilitychange", _barCountdownTick);
+}
+
 if (typeof window !== "undefined" && !window._csTimer) {
   window._csTimer = setInterval(_chartStaleTick, _CS_INT);
   window._chartStaleCheck = _chartStaleCheck;                 // 測試用

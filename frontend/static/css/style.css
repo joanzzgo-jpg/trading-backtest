@@ -5635,6 +5635,22 @@ select:focus-visible {
 .tb-fail-note[data-state="stale"] { color: var(--muted, #787b86); opacity: .5; }
 .tb-fail-note[data-state="fail"] { color: #FF8A8A; opacity: 1; font-weight: 700;
                                    text-shadow: 0 0 6px rgba(255,110,110,.35); }
+/* 最新 K 棒倒數（狀態列：訊號四格 ↔ 已儲存到雲端 之間），2026-09-22。
+   ⚠⚠ 寬度**必須固定**（使用者：「已儲存到雲端左邊要留白不被倒數影響到位置」）：
+     秒數每秒在變，字寬一變右邊整排就會跟著左右跳。兩件事缺一不可 ——
+       ① `tabular-nums`：數字等寬，"1:11" 與 "9:00" 同寬
+       ② `min-width`：把「沒有倒數(空字串)」與最長的 "23:59:59" 撐成同一個寬度，
+          所以休市不顯示時那塊留白也還在，右邊不會位移。
+   ★ 同 memory project_symbol-bar-blocks：這一排只要有東西會變寬，整列就會跳。 */
+.tb-countdown {
+  display: inline-block;
+  min-width: 54px; text-align: center;
+  font-size: 10.5px; font-weight: 600; line-height: 1;
+  color: var(--muted); opacity: .72;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .tb-wr-sync {
   font-size: 10.5px;
   /* ⚠ 2026-09-20 拿掉 margin-left：.tb-status 已有 gap:8px，兩者相加變 16px →

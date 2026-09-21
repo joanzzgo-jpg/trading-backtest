@@ -238,8 +238,14 @@
       <!-- 順序（2026-09-21 使用者指定）：即時更新綠點 → 連線四格 → 雲端同步狀態
            （#wrFailNote 只在訊號真的算不出來時才出現，平常 display:none 不佔位） -->
       <span class="tb-status">
-        <span id="realtimeDot" class="realtime-dot hidden" title="即時更新中"></span>
+        <!-- 2026-09-22 使用者：「連線4/4跟閃爍的即時更新綠點互換位置」→ 四格在前、綠點在後。 -->
         <div class="net-sig" id="netSig" title="連線狀態"><i></i><i></i><i></i><i></i></div>
+        <span id="realtimeDot" class="realtime-dot hidden" title="即時更新中"></span>
+        <!-- 最新 K 棒倒數（2026-09-22 使用者要求，夾在訊號四格與雲端狀態之間）。
+             ⚠ 寬度固定、永遠佔位：秒數每秒在變，字寬一變右邊的「已儲存到雲端」就會左右跳
+                （使用者：「已儲存到雲端左邊要留白不被倒數影響到位置」）。見 .tb-countdown。 -->
+        <span id="barCountdown" class="tb-countdown"
+              title="最新 K 棒還有多久收盤（依目前的時間框架）"></span>
         <span id="acctSyncState" class="tb-wr-sync" title="帳號雲端同步狀態"></span>
         <span id="wrFailNote" class="tb-fail-note"></span>
       </span>
