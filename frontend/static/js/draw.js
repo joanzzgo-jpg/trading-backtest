@@ -749,21 +749,26 @@ function _posPctTxt(d) {
    繪製、命中判定、預覽全部從這裡讀。2026-09-22 之前寫死在兩個地方（drawOne 的
    `_fibLevels` 與 drawingDist），加一條就得改兩處 —— 漏掉命中判定那份＝那條線
    **畫得出來卻摸不到**，而且完全不報錯。
-   `ext:true` ＝延伸位（畫在 100% 外側，看目標價），用比較淡的虛線跟回調位區分。
-   ⚠ 價格公式是 `p1 + (p2-p1) * (1 - lvl)` → lvl 0 在第二點、100 在第一點，
-     所以 lvl>1 自然就落在第一點外側＝延伸，不需要另一套算法。 */
+   每一條存兩個數字，刻意分開（2026-09-22 使用者：「斐波那契延伸反了」）：
+     `frac` ＝**佔整段走勢的幾成**，0＝第一點(起點)、1＝第二點(終點)、>1＝終點再往外
+     `label` ＝標籤上印的百分比（回調位是「回檔了幾成」，所以跟 frac 相反）
+   ⚠⚠ 原本只存一個 `lvl` 再用 `p1 + (p2-p1) * (1 - lvl)` 換算 —— 那個 `1 - lvl` 讓
+     lvl>1 落在**起點外側**（走勢來的方向），延伸位整個畫反邊。延伸位是**目標價**，
+     要在**終點外側**（走勢繼續下去的方向）：drawTool 畫一段下跌，目標就該在更低的地方。
+     存 frac 就不會再搞反：想畫在終點外，frac 就是 >1，看數字即可判斷。
+   `ext:true` ＝延伸位，用比較淡的細點線跟回調位區分。 */
 const FIB_LEVELS = [
-  { lvl: 0,     col: "#ef5350" },
-  { lvl: 0.236, col: "#ff9800" },
-  { lvl: 0.382, col: "#ffcc02" },
-  { lvl: 0.5,   col: "#26a69a" },
-  { lvl: 0.618, col: "#26a69a" },
-  { lvl: 0.786, col: "#ff9800" },
-  { lvl: 1,     col: "#ef5350" },
-  { lvl: 1.272, col: "#b39ddb", ext: true },
-  { lvl: 1.618, col: "#b39ddb", ext: true },
+  { label: 0,     frac: 1,     col: "#ef5350" },   // 第二點（走勢終點）
+  { label: 23.6,  frac: 0.764, col: "#ff9800" },
+  { label: 38.2,  frac: 0.618, col: "#ffcc02" },
+  { label: 50,    frac: 0.5,   col: "#26a69a" },
+  { label: 61.8,  frac: 0.382, col: "#26a69a" },
+  { label: 78.6,  frac: 0.214, col: "#ff9800" },
+  { label: 100,   frac: 0,     col: "#ef5350" },   // 第一點（走勢起點）
+  { label: 127.2, frac: 1.272, col: "#b39ddb", ext: true },   // 終點外側＝目標價
+  { label: 161.8, frac: 1.618, col: "#b39ddb", ext: true },
 ];
-const _fibPrice = (d, lvl) => d.p1.price + (d.p2.price - d.p1.price) * (1 - lvl);
+const _fibPrice = (d, frac) => d.p1.price + (d.p2.price - d.p1.price) * frac;
 /* 斐波標籤的價格格式：小數位**問資料**（全站 `_fmtPx` ← `_pxDecInfer`），不照價格級距猜。
    ⚠ 舊版 `p < 1 → toFixed(4)`：0.00001234 顯示成 **0.0000**，小幣的斐波標籤整排都是 0。
      memory project_price-decimals-from-data 記過這個坑，當時修三支，這支是漏網的第四支。
@@ -1857,8 +1862,8 @@ function drawingDist(d, x, y) {
        ★ 同 memory project_crosshair-blank-vline 的教訓：修邊界外的行為先問「另一邊呢」。 */
     if (x < Math.min(a.x, b.x) - 10) return Infinity;
     if (x > Math.max(a.x, b.x) + 10) return Infinity;
-    const dists = FIB_LEVELS.map(({ lvl }) => {
-      const ly = candleSeries?.priceToCoordinate(_fibPrice(d, lvl));
+    const dists = FIB_LEVELS.map(({ frac }) => {
+      const ly = candleSeries?.priceToCoordinate(_fibPrice(d, frac));
       return ly != null ? Math.abs(ly - y) : Infinity;
     });
     return Math.min(...dists);
@@ -4207,9 +4212,9 @@ function drawOne(d, W, H, isHovered, isSelected) {
       return m ? `rgba(${parseInt(m[1],16)},${parseInt(m[2],16)},${parseInt(m[3],16)},${al})` : hex;
     };
     // 先算每層級的 y 座標（★ 讀唯一那份 FIB_LEVELS）
-    const _fibYs = FIB_LEVELS.map(({ lvl, col: lcol, ext }) => {
-      const price = _fibPrice(d, lvl);
-      return { lvl, lcol, ext, price, y: candleSeries?.priceToCoordinate(price) };
+    const _fibYs = FIB_LEVELS.map(({ label, frac, col: lcol, ext }) => {
+      const price = _fibPrice(d, frac);
+      return { label, lcol, ext, price, y: candleSeries?.priceToCoordinate(price) };
     });
     // ① 各層級之間填半透明底色（仿台歐美三盤），底色取下緣層級的色
     //    ⚠ 延伸位不填：它是「還沒發生的目標區」，填了會跟回調區混在一起分不出來
@@ -4220,9 +4225,9 @@ function drawOne(d, W, H, isHovered, isSelected) {
       drawCtx.fillRect(xLeft, top.y, xRight - xLeft, bot.y - top.y);
     }
     // ② 各層級線（色淡一些）＋ 右側標籤
-    _fibYs.forEach(({ lvl, lcol, ext, price, y }) => {
+    _fibYs.forEach(({ label, lcol, ext, price, y }) => {
       if (y == null) return;
-      const edge = (lvl === 0 || lvl === 1);
+      const edge = (label === 0 || label === 100);   // 兩個端點（走勢的起點與終點）
       drawCtx.strokeStyle = _fibRgba(lcol, ext ? 0.42 : edge ? 0.75 : 0.5);   // 延伸位更淡
       drawCtx.lineWidth = edge ? 1.5 : 1;
       drawCtx.setLineDash(ext ? [2, 4] : edge ? [] : [5, 3]);   // 延伸位＝細點線，一眼分得出來
@@ -4230,7 +4235,7 @@ function drawOne(d, W, H, isHovered, isSelected) {
       drawCtx.beginPath(); drawCtx.moveTo(xLeft, y); drawCtx.lineTo(xRight, y); drawCtx.stroke();
       drawCtx.setLineDash([]); drawCtx.shadowBlur = 0;
       drawCtx.font = "10px monospace"; drawCtx.fillStyle = _fibRgba(lcol, 0.85);
-      const _fibTxt = `${(lvl*100).toFixed(1)}%  ${_fibPriceFmt(price)}`;
+      const _fibTxt = `${label.toFixed(1)}%  ${_fibPriceFmt(price)}`;
       // 預設標籤放右端點外側；若太靠畫布右緣會被裁切 → 改放右端點內側靠右對齊
       if (xRight + 90 > W) {
         drawCtx.textAlign = "right"; drawCtx.fillText(_fibTxt, xRight - 4, y - 3); drawCtx.textAlign = "left";
@@ -4601,9 +4606,9 @@ function drawPreview(type, a, b, W, H) {
        一條普通虛線，層級要放手之後才出現。改成邊拖邊畫真正的層級（讀同一份 FIB_LEVELS）。
        ⚠ 這裡只有螢幕座標、沒有價格 → 直接用 y 做線性內插（跟價格線性是同一件事）。 */
     const xL = Math.min(a.x, b.x), xR = Math.max(a.x, b.x);
-    FIB_LEVELS.forEach(({ lvl, col, ext }) => {
-      const y = b.y + (a.y - b.y) * lvl;        // lvl 0 在第二點、1 在第一點
-      const edge = (lvl === 0 || lvl === 1);
+    FIB_LEVELS.forEach(({ label, frac, col, ext }) => {
+      const y = a.y + (b.y - a.y) * frac;       // frac 0＝第一點、1＝第二點、>1＝終點外側
+      const edge = (label === 0 || label === 100);
       drawCtx.strokeStyle = col;
       drawCtx.globalAlpha = ext ? 0.38 : edge ? 0.7 : 0.45;
       drawCtx.lineWidth = edge ? 1.5 : 1;
