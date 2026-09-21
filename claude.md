@@ -591,6 +591,27 @@ ohlcvData **複製**成 replayData 再畫前 N 根，`ohlcvData` 本來就留著
 ⚠ 這條路有**三層**防護（`enterReplay` 的 `stopRealtime()`／`fetchLatest` 入口／`await` 之後再檢一次），
 拿掉任一層都還擋得住 —— 植回舊碼時要三層一起拿掉才叫得出狼（實測就會漏出真實世界當下那根）。
 
+### 動到斐波那契工具後（守門員之二十四）
+```bash
+node scripts/check_fib_tool.js   # 需本機服務跑著；約 40 秒
+```
+2026-09-22 使用者：「優化斐波」。實測抓到的：
+①★★ **右側 775px 的幽靈命中區**：`drawingDist` 只擋左邊、右邊沒擋 → 線只畫到右端點，
+  右側卻一路到畫布邊緣都判定「距離 0」。實測斐波畫在 x 296~416，x=596/834/1072/1167 全都抓得到
+  → 點畫面右邊三分之二的任何地方都會選到它，**畫面上零跡象**。
+  ★ 同 memory `project_crosshair-blank-vline`：**修邊界外的行為先問「另一邊呢」**。
+②價格小數位照**價格級距**猜（`p<1 → toFixed(4)`）→ 0.00001234 顯示成 **0.0000**，小幣標籤整排是 0。
+  memory `project_price-decimals-from-data` 記過這個坑、當時修了三支，斐波這支是**漏網的第四支**。
+  改走全站 `_fmtPx`（問資料）。★ 之後再看到「自己寫一個 toFixed 決定小數位」就是同一個坑。
+③層級清單寫死在**兩處**（`drawOne` 的 `_fibLevels`／`drawingDist`）→ 收斂成唯一的 `FIB_LEVELS`。
+  漏改命中判定那份＝那條線**畫得出來卻摸不到**，完全不報錯（已植回證明守門員抓得到）。
+④新增延伸位 **127.2 / 161.8**（看目標價，細點線＋更淡，不填底色）；`drawPreview` 補上 fib 分支
+  （原本 fib 掉到「一般線段」分支 → 畫第二點時只看得到一條普通虛線）。
+⚠⚠ 判準裡 **`Infinity` 經 `page.evaluate` 會變成 `null`**，而 `null < 12` 是 **true**
+  → 直接比大小會把「摸不到」讀成「摸得到」＝判準整個反了（我第一版就是，修好了還報失敗）。
+  一律先把 null 正規化成 Infinity。
+⚠ 判準一律問**產品自己的函式**（`drawingDist`／`_fibFmt`／`FIB_LEVELS`），不在測試裡複製公式。
+
 ### 動到盈虧比工具（longpos/shortpos）後（守門員之二十三）
 ```bash
 node scripts/check_pos_tool.js   # 需本機服務跑著；約 40 秒

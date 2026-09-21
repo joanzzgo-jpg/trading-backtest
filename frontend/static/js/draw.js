@@ -745,6 +745,32 @@ function _posPctTxt(d) {
   return `報酬 ${f(reward)}　風險 ${f(-Math.abs(risk))}`;
 }
 
+/* ═══ 斐波那契層級：**唯一**一份 ════════════════════════════════════════════
+   繪製、命中判定、預覽全部從這裡讀。2026-09-22 之前寫死在兩個地方（drawOne 的
+   `_fibLevels` 與 drawingDist），加一條就得改兩處 —— 漏掉命中判定那份＝那條線
+   **畫得出來卻摸不到**，而且完全不報錯。
+   `ext:true` ＝延伸位（畫在 100% 外側，看目標價），用比較淡的虛線跟回調位區分。
+   ⚠ 價格公式是 `p1 + (p2-p1) * (1 - lvl)` → lvl 0 在第二點、100 在第一點，
+     所以 lvl>1 自然就落在第一點外側＝延伸，不需要另一套算法。 */
+const FIB_LEVELS = [
+  { lvl: 0,     col: "#ef5350" },
+  { lvl: 0.236, col: "#ff9800" },
+  { lvl: 0.382, col: "#ffcc02" },
+  { lvl: 0.5,   col: "#26a69a" },
+  { lvl: 0.618, col: "#26a69a" },
+  { lvl: 0.786, col: "#ff9800" },
+  { lvl: 1,     col: "#ef5350" },
+  { lvl: 1.272, col: "#b39ddb", ext: true },
+  { lvl: 1.618, col: "#b39ddb", ext: true },
+];
+const _fibPrice = (d, lvl) => d.p1.price + (d.p2.price - d.p1.price) * (1 - lvl);
+/* 斐波標籤的價格格式：小數位**問資料**（全站 `_fmtPx` ← `_pxDecInfer`），不照價格級距猜。
+   ⚠ 舊版 `p < 1 → toFixed(4)`：0.00001234 顯示成 **0.0000**，小幣的斐波標籤整排都是 0。
+     memory project_price-decimals-from-data 記過這個坑，當時修三支，這支是漏網的第四支。
+   ★ 放模組層級（不是 drawOne 裡的區域 const）→ 守門員可以直接問這支真函式，
+     不必在測試裡複製一份公式自己測自己。 */
+const _fibFmt = (p) => (typeof _fmtPx === "function") ? _fmtPx(p) : String(p);
+
 /* 對 longpos/shortpos 判斷拖移的是哪一條線 */
 function _drawingHitPart(d, x, y) {
   if (d.type === "emoji") {   // 右下＝縮放、左上＝旋轉（2026-09-02 使用者：「貼圖不能旋轉」）
@@ -1824,11 +1850,15 @@ function drawingDist(d, x, y) {
     const a = chartToScreen(d.p1.time, d.p1.price);
     const b = chartToScreen(d.p2.time, d.p2.price);
     if (!a || !b) return Infinity;
+    /* ⚠⚠ **兩邊都要擋**（2026-09-22）：舊版只擋左邊 → 線明明只畫到右端點，
+       右側卻一路到畫布邊緣都判定「距離 0」＝摸得到。實測斐波畫在 x 296~416，
+       但 x=596/834/1072/1167 全都抓得到 ＝ **775px 的幽靈命中區**，
+       點畫面右邊三分之二的任何地方都會選到它。畫面上零跡象。
+       ★ 同 memory project_crosshair-blank-vline 的教訓：修邊界外的行為先問「另一邊呢」。 */
     if (x < Math.min(a.x, b.x) - 10) return Infinity;
-    const priceRange = d.p2.price - d.p1.price;
-    const dists = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1].map(lvl => {
-      const price = d.p1.price + priceRange * (1 - lvl);
-      const ly = candleSeries?.priceToCoordinate(price);
+    if (x > Math.max(a.x, b.x) + 10) return Infinity;
+    const dists = FIB_LEVELS.map(({ lvl }) => {
+      const ly = candleSeries?.priceToCoordinate(_fibPrice(d, lvl));
       return ly != null ? Math.abs(ly - y) : Infinity;
     });
     return Math.min(...dists);
@@ -4168,35 +4198,34 @@ function drawOne(d, W, H, isHovered, isSelected) {
     const a = chartToScreen(d.p1.time, d.p1.price);
     const b = chartToScreen(d.p2.time, d.p2.price);
     if (!a || !b) { drawCtx.restore(); return; }
-    const priceRange = d.p2.price - d.p1.price;
     const xLeft  = Math.min(a.x, b.x);
     const xRight = Math.max(a.x, b.x);   // 線只畫到右端點，不再無限延伸到畫布右緣
-    const _fibPriceFmt = p => p >= 1000 ? p.toFixed(1) : p >= 10 ? p.toFixed(2) : p >= 1 ? p.toFixed(3) : p.toFixed(4);
+    const _fibPriceFmt = _fibFmt;            // 見模組層級的 _fibFmt
     // hex → rgba（線條／底色淡化用）
     const _fibRgba = (hex, al) => {
       const m = String(hex).match(/^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i);
       return m ? `rgba(${parseInt(m[1],16)},${parseInt(m[2],16)},${parseInt(m[3],16)},${al})` : hex;
     };
-    const _fibLevels = [[0,"#ef5350"],[0.236,"#ff9800"],[0.382,"#ffcc02"],[0.5,"#26a69a"],[0.618,"#26a69a"],[0.786,"#ff9800"],[1,"#ef5350"]];
-    // 先算每層級的 y 座標
-    const _fibYs = _fibLevels.map(([lvl, lcol]) => {
-      const price = d.p1.price + priceRange * (1 - lvl);
-      return { lvl, lcol, price, y: candleSeries?.priceToCoordinate(price) };
+    // 先算每層級的 y 座標（★ 讀唯一那份 FIB_LEVELS）
+    const _fibYs = FIB_LEVELS.map(({ lvl, col: lcol, ext }) => {
+      const price = _fibPrice(d, lvl);
+      return { lvl, lcol, ext, price, y: candleSeries?.priceToCoordinate(price) };
     });
     // ① 各層級之間填半透明底色（仿台歐美三盤），底色取下緣層級的色
+    //    ⚠ 延伸位不填：它是「還沒發生的目標區」，填了會跟回調區混在一起分不出來
     for (let i = 0; i < _fibYs.length - 1; i++) {
       const top = _fibYs[i], bot = _fibYs[i + 1];
-      if (top.y == null || bot.y == null) continue;
+      if (top.y == null || bot.y == null || bot.ext) continue;
       drawCtx.fillStyle = _fibRgba(bot.lcol, 0.04);
       drawCtx.fillRect(xLeft, top.y, xRight - xLeft, bot.y - top.y);
     }
     // ② 各層級線（色淡一些）＋ 右側標籤
-    _fibYs.forEach(({ lvl, lcol, price, y }) => {
+    _fibYs.forEach(({ lvl, lcol, ext, price, y }) => {
       if (y == null) return;
       const edge = (lvl === 0 || lvl === 1);
-      drawCtx.strokeStyle = _fibRgba(lcol, edge ? 0.75 : 0.5);   // 線條淡化
+      drawCtx.strokeStyle = _fibRgba(lcol, ext ? 0.42 : edge ? 0.75 : 0.5);   // 延伸位更淡
       drawCtx.lineWidth = edge ? 1.5 : 1;
-      drawCtx.setLineDash(edge ? [] : [5,3]);
+      drawCtx.setLineDash(ext ? [2, 4] : edge ? [] : [5, 3]);   // 延伸位＝細點線，一眼分得出來
       drawCtx.shadowBlur = isSelected ? 6 : 0; drawCtx.shadowColor = lcol;
       drawCtx.beginPath(); drawCtx.moveTo(xLeft, y); drawCtx.lineTo(xRight, y); drawCtx.stroke();
       drawCtx.setLineDash([]); drawCtx.shadowBlur = 0;
@@ -4563,6 +4592,25 @@ function drawPreview(type, a, b, W, H) {
       drawCtx.strokeStyle = lc; drawCtx.lineWidth = 1; drawCtx.setLineDash([4, 3]);
       drawCtx.beginPath(); drawCtx.moveTo(a.x, ly); drawCtx.lineTo(a.x + lineW, ly); drawCtx.stroke();
     });
+    drawCtx.restore();
+    return;
+  }
+
+  if (type === "fib") {
+    /* 2026-09-22 新增：原本 fib 掉到最後的「一般線段」分支 → 畫第二點的過程中只看得到
+       一條普通虛線，層級要放手之後才出現。改成邊拖邊畫真正的層級（讀同一份 FIB_LEVELS）。
+       ⚠ 這裡只有螢幕座標、沒有價格 → 直接用 y 做線性內插（跟價格線性是同一件事）。 */
+    const xL = Math.min(a.x, b.x), xR = Math.max(a.x, b.x);
+    FIB_LEVELS.forEach(({ lvl, col, ext }) => {
+      const y = b.y + (a.y - b.y) * lvl;        // lvl 0 在第二點、1 在第一點
+      const edge = (lvl === 0 || lvl === 1);
+      drawCtx.strokeStyle = col;
+      drawCtx.globalAlpha = ext ? 0.38 : edge ? 0.7 : 0.45;
+      drawCtx.lineWidth = edge ? 1.5 : 1;
+      drawCtx.setLineDash(ext ? [2, 4] : edge ? [] : [5, 3]);
+      drawCtx.beginPath(); drawCtx.moveTo(xL, y); drawCtx.lineTo(xR, y); drawCtx.stroke();
+    });
+    drawCtx.globalAlpha = 1; drawCtx.setLineDash([]);
     drawCtx.restore();
     return;
   }
