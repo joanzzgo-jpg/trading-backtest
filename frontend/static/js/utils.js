@@ -878,7 +878,11 @@ window._perfProbe = function (sec, silent) {
     const el = document.getElementById("netSig"); if (!el) return;
     const q = _quality();
     el.dataset.q = String(q);
-    [...el.children].forEach((b, i) => b.classList.toggle("on", i < q));
+    /* ⚠⚠ 一定要 `querySelectorAll("i")` 不能用 `el.children`（2026-09-22）：
+       即時更新綠點 2026-09-22 搬進 .net-sig 一起變成同一個符號 → `children` 的第 0 個
+       變成那顆 <span>，四格全部往後位移一格 → **q=4 只亮 3 格**（而且綠點會被加上 .on）。
+       畫面上只是「滿格看起來少一格」，不報錯、很難發現（我是看截圖才抓到的）。 */
+    [...el.querySelectorAll("i")].forEach((b, i) => b.classList.toggle("on", i < q));
     const vs = _rtt.map(x => x.v).sort((a, b) => a - b);
     const m = vs.length ? Math.round(vs[Math.floor(vs.length / 2)]) : null;
     el.title = q === 0 ? "已離線：資料不會更新"

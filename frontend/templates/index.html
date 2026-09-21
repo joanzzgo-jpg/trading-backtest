@@ -238,9 +238,14 @@
       <!-- 順序（2026-09-21 使用者指定）：即時更新綠點 → 連線四格 → 雲端同步狀態
            （#wrFailNote 只在訊號真的算不出來時才出現，平常 display:none 不佔位） -->
       <span class="tb-status">
-        <!-- 2026-09-22 使用者：「連線4/4跟閃爍的即時更新綠點互換位置」→ 四格在前、綠點在後。 -->
-        <div class="net-sig" id="netSig" title="連線狀態"><i></i><i></i><i></i><i></i></div>
-        <span id="realtimeDot" class="realtime-dot hidden" title="即時更新中"></span>
+        <!-- 連線四格＋即時更新綠點**合併成一組**（2026-09-22 使用者：「閃爍綠點跟訊號合併，
+             訊號放在最短那格的左邊」）：綠點擺在最短那格(第 1 格)的左邊，變成一個元件。
+             ⚠ 綠點插進來之後，.net-sig i 的高度選擇器必須是 `nth-of-type` 不是 `nth-child` ——
+               `nth-child` 會把這個 <span> 也算進去，四格高度整組位移（見 style.css）。 -->
+        <div class="net-sig" id="netSig" title="連線品質（依實際往返時間）">
+          <span id="realtimeDot" class="realtime-dot hidden" title="即時更新中（正在收到新報價）"></span>
+          <i></i><i></i><i></i><i></i>
+        </div>
         <!-- 最新 K 棒倒數（2026-09-22 使用者要求，夾在訊號四格與雲端狀態之間）。
              ⚠ 寬度固定、永遠佔位：秒數每秒在變，字寬一變右邊的「已儲存到雲端」就會左右跳
                 （使用者：「已儲存到雲端左邊要留白不被倒數影響到位置」）。見 .tb-countdown。 -->

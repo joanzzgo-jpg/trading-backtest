@@ -696,7 +696,9 @@ html.perf-mode .tk-seg {
 .symbol-bar > .realtime-dot.hidden { display: block !important; visibility: hidden; animation: none; }
 /* 綠點 2026-09-20 搬到上方狀態列（雲端狀態左邊）。⚠ 同樣要「隱藏時仍佔位」：
    否則即時更新一停一開，右邊的「已儲存至雲端／訊號提示」就會左右跳。 */
-.tb-status > .realtime-dot.hidden { display: inline-block !important; visibility: hidden; animation: none; }
+/* ⚠ 綠點 2026-09-22 搬進 .net-sig（與四格合併成一個符號）→ 選擇器要跟著改，
+   否則「隱藏時仍佔位」失效，綠點一消失整組符號就縮一格、旁邊全部左移。 */
+.net-sig > .realtime-dot.hidden { display: inline-block !important; visibility: hidden; animation: none; }
 .tb-status > .realtime-dot { flex-shrink: 0; }
 
 /* ═══ BODY LAYOUT ═══ */
@@ -5798,17 +5800,29 @@ html.perf-mode .tb-wr-sync[data-state="local"] { color: #8B8B8B; }
 
 /* ── 連線訊號格數（2026-08-12）──────────────────────────────────────────
    四根由矮到高的柱子（同手機訊號）。亮起幾根＝連線品質，全暗＋紅＝離線。 */
+/* 連線四格 ＋ 即時更新綠點＝**一個符號、兩種功能**（2026-09-22 使用者：
+   「閃爍綠點跟訊號合併」「讓他看起來像一個符號但有兩格功能」）：
+     ・綠點（最左、貼齊同一條基線）＝**資料有沒有在進來**（每秒收到新報價就閃）
+     ・四格（由短到高）＝**連線品質**（往返時間，見 utils.js _quality）
+   讀起來是一個「圓點 + 漸高訊號格」的整體圖形，但兩塊各自有 title、各講各的事。
+   ⚠⚠ 綠點是 .net-sig 的子元素 → 格子高度**必須用 `nth-of-type`**。
+     用 `nth-child` 的話那個 <span> 也會被數進去，四格高度整組位移一格（第 1 格變 8px、
+     第 4 格完全沒有規則）—— 畫面上看起來只是「格子怪怪的」，不會報錯。 */
 .net-sig { display: inline-flex; align-items: flex-end; gap: 2px; height: 14px; padding: 0 4px; flex: 0 0 auto; cursor: default; }
 .net-sig i { width: 3px; border-radius: 1px; background: var(--muted, #9A7A58); opacity: .28; transition: opacity .25s ease, background .25s ease; }
-.net-sig i:nth-child(1) { height: 5px; }
-.net-sig i:nth-child(2) { height: 8px; }
-.net-sig i:nth-child(3) { height: 11px; }
-.net-sig i:nth-child(4) { height: 14px; }
+.net-sig i:nth-of-type(1) { height: 5px; }
+.net-sig i:nth-of-type(2) { height: 8px; }
+.net-sig i:nth-of-type(3) { height: 11px; }
+.net-sig i:nth-of-type(4) { height: 14px; }
+/* 綠點：寬度**跟格子一樣 3px**、貼齊同一條基線、間距也與格與格之間相同
+   → 整排變成等寬等距的節奏，圓點像是這條漸高斜坡的第 0 階，讀起來是連貫的一個符號
+   （2026-09-22 使用者：「閃爍點縮小讓他看起來連貫」；原本 5px 比格子寬、像另外貼上去的）。 */
+.net-sig > .realtime-dot { width: 3px; height: 3px; align-self: flex-end; margin-bottom: 0; }
 .net-sig i.on { opacity: 1; background: var(--green, #26a69a); }
 .net-sig[data-q="2"] i.on { background: #d7a13a; }
 .net-sig[data-q="1"] i.on { background: #e8833a; }
 .net-sig[data-q="0"] i     { background: var(--red, #ef5350); opacity: .30; }
-.net-sig[data-q="0"] i:nth-child(1) { opacity: 1; animation: no-blink 1.4s ease-in-out infinite; }
+.net-sig[data-q="0"] i:nth-of-type(1) { opacity: 1; animation: no-blink 1.4s ease-in-out infinite; }
 /* 未知（還沒有最近的往返時間樣本）：空心細框，不亮任何一格 —— 不要用滿格假裝連線很好 */
 .net-sig[data-q="-1"] i { background: transparent; border: 1px solid var(--muted, #9A7A58); opacity: .32; }
 
