@@ -911,3 +911,83 @@ window._perfProbe = function (sec, silent) {
   window._netQuality   = _quality;   // 測試用
   window._netProbeNow  = _probe;                               // 測試用
 })();
+
+/* ── 快速提示（2026-09-21 使用者：「鼠標移到物件上 太久才顯示小字提示」）──────────────
+   原生 `title` 的延遲是瀏覽器寫死的（約 1~2 秒），CSS/HTML 完全改不了 → 自己畫一個。
+
+   ⚠ 用**事件委派 + 一個共用節點**：光 index.html 就有 87 個 title，還有一堆是 JS 動態設的
+     （連線四格每 2 秒重寫一次、繪圖鬧鈴、現價標籤…）→ 逐一綁定不可行、也接不到後來才出現的元素。
+   ⚠ 顯示期間必須把 `title` 拿掉，否則原生提示會在 1.5 秒後**疊上來**變成兩個。
+     但 title 常被 JS 更新 → 兩個保險：
+       ① 顯示中定期回讀，內容變了就跟著更新（不然看到的是舊說明）
+       ② 離開時若 JS 已經重新設過 title，就不要用舊值蓋掉它
+   ⚠ 觸控裝置不做：沒有 hover，而且長按本來就會叫出系統選單。 */
+(function () {
+  if (typeof document === "undefined") return;
+  try { if (window.matchMedia && window.matchMedia("(hover: none)").matches) return; } catch (e) {}
+  /* 延遲：原生約 1500ms 太久；260ms 會「滑過去就閃一下」（使用者：「太快了」）。
+     使用者最後定 800ms —— 比原生快一截，又確定是「停下來想看」才出現。 */
+  const SHOW_MS = 800;
+  const PAD = 14;                 // 離游標的距離
+  let el = null, host = null, timer = null, poll = null, txt = "";
+
+  const node = () => {
+    if (!el) { el = document.createElement("div"); el.className = "ui-tip"; document.body.appendChild(el); }
+    return el;
+  };
+  const place = (x, y) => {
+    const t = node(), r = t.getBoundingClientRect();
+    let left = x + PAD, top = y + PAD;
+    if (left + r.width > innerWidth - 6)  left = Math.max(6, x - PAD - r.width);
+    if (top + r.height > innerHeight - 6) top = Math.max(6, y - PAD - r.height);
+    t.style.left = Math.round(left) + "px";
+    t.style.top  = Math.round(top) + "px";
+  };
+  const hide = () => {
+    clearTimeout(timer); clearInterval(poll); timer = poll = null;
+    if (host) {
+      // ⚠ JS 在 hover 期間重設過 title 就以它為準，別用舊值蓋回去
+      if (!host.getAttribute("title") && host.dataset._tip) host.setAttribute("title", host.dataset._tip);
+      delete host.dataset._tip;
+      host = null;
+    }
+    if (el) el.classList.remove("on");
+  };
+  const show = (x, y) => {
+    const t = node();
+    t.textContent = txt;
+    t.classList.add("on");
+    place(x, y);
+  };
+
+  document.addEventListener("mouseover", (e) => {
+    const h = e.target && e.target.closest && e.target.closest("[title]");
+    if (!h || h === host) return;
+    hide();
+    const v = (h.getAttribute("title") || "").trim();
+    if (!v) return;
+    host = h; txt = v;
+    h.dataset._tip = v;
+    h.removeAttribute("title");                 // 壓住原生提示
+    const x = e.clientX, y = e.clientY;
+    timer = setTimeout(() => {
+      show(x, y);
+      // 顯示中：title 被 JS 改了就跟著更新（例：連線四格的 ms 每 2 秒變一次）
+      poll = setInterval(() => {
+        if (!host || !host.isConnected) { hide(); return; }
+        const nv = (host.getAttribute("title") || "").trim();
+        if (nv && nv !== txt) { txt = nv; host.dataset._tip = nv; host.removeAttribute("title"); node().textContent = txt; }
+      }, 600);
+    }, SHOW_MS);
+  }, true);
+
+  document.addEventListener("mouseout", (e) => {
+    if (!host) return;
+    const to = e.relatedTarget;
+    if (to && host.contains(to)) return;        // 還在同一個元素內部移動
+    hide();
+  }, true);
+  document.addEventListener("mousemove", (e) => { if (el && el.classList.contains("on")) place(e.clientX, e.clientY); }, true);
+  ["mousedown", "wheel", "keydown"].forEach(ev => document.addEventListener(ev, hide, true));
+  window.addEventListener("blur", hide);
+})();
