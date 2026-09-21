@@ -1,4 +1,4 @@
-/* 守門員：盈虧比工具（longpos/shortpos）的七條行為。需本機服務跑著；約 75 秒。
+/* 守門員：盈虧比工具（longpos/shortpos）的八條行為。需本機服務跑著；約 95 秒。
  *
  * 2026-09-21 使用者：「盈虧比不好用」。實測抓到三個結構性缺陷，這支把它們釘住 ——
  *  ①★★ **整個盒子搬不動**：`_drawingHitPart` 取「離哪條線最近」且**沒有距離門檻**
@@ -236,8 +236,43 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   if (vis0 && vis1 && (Math.abs(vis1[0] - vis0[0]) > 0.5 || Math.abs(vis1[1] - vis0[1]) > 0.5))
     bad.push(`拖曳繪圖時圖表被平移了（${JSON.stringify(vis0)} → ${JSON.stringify(vis1)}）`);
 
+  // ⑧ 縮放 K 棒時盒子與標籤不可以「跑掉」
+  //    （2026-09-22 使用者：「盈虧比有新問題是 我縮放Ｋ棒他會跑掉」）
+  d = await make("longpos", cx, cy, cx + 90, cy + 60);
+  const zsnap = () => ev(`(() => {
+    const dd = drawings[drawings.length - 1];
+    const W = document.getElementById("mainChart").getBoundingClientRect().width;
+    const vr = mainChart.timeScale().getVisibleLogicalRange();
+    const barsV = vr ? Math.max(10, vr.to - vr.from) : 50;
+    const ex = _timeToX(dd.p1.time);
+    const ZW = Math.max(20, Math.min(W * 0.4, Math.round(W * (dd.barWidth ?? 3) / barsV)));
+    return { entry: dd.p1.price, tp: dd.tp, sl: dd.sl, t: dd.p1.time,
+             boxW: Math.round(ZW),
+             // ★★ 讀 window._rrLblX ＝**這一幀真的畫上去的 x**，不是再算一次公式。
+             //    問 _rrLabelX 或在測試裡複製公式，都只是「自己測自己」——
+             //    有人把盒寬依賴寫回 _drawRRLabel 內部時會照樣通過。
+             lblOff: (window._rrLblX == null || ex == null) ? null : Math.round(window._rrLblX - ex) };
+  })()`);
+  const zs = [await zsnap()];
+  for (const [dir, n] of [[-1, 6], [1, 12], [1, 6]]) {
+    for (let i = 0; i < n; i++) { await page.mouse.move(cx, cy); await page.mouse.wheel({ deltaY: dir * 120 }); await sleep(110); }
+    await sleep(350); zs.push(await zsnap());
+  }
+  console.log(`\n⑧ 滾輪縮放（放大6→縮小12→再縮小6）：`);
+  console.log(`   盒寬 px：${zs.map(s => s.boxW).join(" → ")}`);
+  console.log(`   標籤距錨點 px：${zs.map(s => s.lblOff).join(" → ")}（應固定）`);
+  const z0 = zs[0];
+  zs.forEach((s, i) => {
+    if (Math.abs(s.entry - z0.entry) > 1e-9 || Math.abs(s.tp - z0.tp) > 1e-9 || Math.abs(s.sl - z0.sl) > 1e-9)
+      bad.push(`縮放第 ${i} 段後價格被改到（entry ${(s.entry - z0.entry).toFixed(4)}）`);
+    if (s.t !== z0.t) bad.push(`縮放第 ${i} 段後錨點時間變了（${z0.t} → ${s.t}）`);
+  });
+  const offs = new Set(zs.map(s => s.lblOff));
+  if (offs.size > 1)
+    bad.push(`縮放時 RR 標籤相對錨點跑掉了（距離 ${[...offs].join("/")} px）—— 位置不可以依賴會隨縮放變的盒寬`);
+
   if (errs.length) bad.push(`JS 錯誤 ${errs.length}：${errs[0]}`);
-  console.log(bad.length ? "\n✗ " + bad.join("\n✗ ") : "\n★ 盈虧比七項全部符合預期（含「上下釘住、只動進場」與「拖曳中十字線跟著走」）");
+  console.log(bad.length ? "\n✗ " + bad.join("\n✗ ") : "\n★ 盈虧比八項全部符合預期（含拖曳中十字線、縮放不跑掉）");
   await browser.close();
   process.exit(bad.length ? 1 : 0);
 })();

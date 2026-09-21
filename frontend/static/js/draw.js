@@ -3867,7 +3867,19 @@ function renderDrawings() {
 // 自動盈虧比的 RR 數值：盒夠寬 → 置中盒內；縮小到盒太窄 → 移到盒旁並加深色底，
 // 確保任何縮放都看得見（不必放大才顯示）。
 /* `sub`＝選填的第二行（風險/報酬 %），小一號、暗一點，跟主行左緣對齊。
-   ⚠ 兩行的寬度要一起量：只量主行的話，第二行比較寬時會戳出底襯外（落在 K 棒上看不清）。 */
+   ⚠ 兩行的寬度要一起量：只量主行的話，第二行比較寬時會戳出底襯外（落在 K 棒上看不清）。
+
+   ★★ 位置只能依賴**錨點 ex**（黏著 K 棒）與畫布寬度，**不可以依賴盒子的像素寬**
+   （2026-09-22 使用者：「我縮放 K 棒他會跑掉」）。舊版用 `rx - ex > bw + 10` 決定
+   「盒內置中／盒外右側」—— 盒寬會隨縮放變（實測 24~161px），加上第二行把標籤撐到
+   120px 之後，日常縮放就會一直跨過那個門檻 → 標籤在盒內與盒外之間**跳 75px**，
+   看起來就是盒子上的字自己在跑。現在一律貼著盒子左緣，縮放時只跟著 K 棒走。 */
+/* RR 標籤的 x：貼著盒子左緣（錨點），只有整塊會掉出畫布右緣時才往左收。
+   ★ 刻意**不吃盒寬**——盒寬隨縮放變，一旦參與計算，縮放就會讓標籤跳（守門員之二十三⑧）。 */
+function _rrLabelX(ex, bw, W) {
+  return Math.max(2, Math.min(ex + 6, W - bw - 4));
+}
+
 function _drawRRLabel(ctx, txt, color, ex, rx, cy, W, sub) {
   ctx.save();
   ctx.font = "bold 12px sans-serif";
@@ -3876,23 +3888,18 @@ function _drawRRLabel(ctx, txt, color, ex, rx, cy, W, sub) {
   const sw = sub ? ctx.measureText(sub).width : 0;
   const bw = Math.max(tw, sw);
   const y = cy + (sub ? -1 : 4);            // 有第二行 → 主行往上讓位
-  const drawTxt = (x) => {
-    ctx.font = "bold 12px sans-serif"; ctx.fillStyle = color;
-    ctx.fillText(txt, x, y);
-    if (sub) {
-      ctx.font = "10px sans-serif"; ctx.fillStyle = "rgba(220,224,230,0.92)";
-      ctx.fillText(sub, x, y + 12);
-    }
-  };
-  if (rx - ex > bw + 10) {
-    drawTxt(ex + (rx - ex - bw) / 2);
-  } else {
-    let x = rx + 5;                        // 預設放盒右側
-    if (x + bw > W - 2) x = ex - bw - 5;   // 會超出右緣 → 改放盒左側
-    if (x < 2) x = 2;                      // 仍超出 → 貼齊左緣
-    ctx.fillStyle = "rgba(20,22,28,0.82)"; // 深色底襯，落在 K 棒上也清楚
-    ctx.fillRect(x - 4, y - 12, bw + 8, sub ? 28 : 16);
-    drawTxt(x);
+  const x = _rrLabelX(ex, bw, W);
+  // 守門員之二十三⑧ 要觀察的是「真的畫在哪」，不是 _rrLabelX 回什麼 ——
+  // 否則有人把盒寬依賴寫回這裡，測試會照樣通過。
+  window._rrLblX = x;
+  // 底襯一律畫：標籤常常比盒子寬而蓋到 K 棒上，有沒有蓋到會隨縮放變 —— 一律畫才不會忽有忽無
+  ctx.fillStyle = "rgba(20,22,28,0.72)";
+  ctx.fillRect(x - 4, y - 12, bw + 8, sub ? 28 : 16);
+  ctx.font = "bold 12px sans-serif"; ctx.fillStyle = color;
+  ctx.fillText(txt, x, y);
+  if (sub) {
+    ctx.font = "10px sans-serif"; ctx.fillStyle = "rgba(220,224,230,0.92)";
+    ctx.fillText(sub, x, y + 12);
   }
   ctx.restore();
 }
