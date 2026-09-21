@@ -497,9 +497,10 @@ function _makeInvWickPrimitive() {
    看起來就是一個完全相反的行情。用途：檢查自己的多空偏見（倒過來還想做同一邊，才是真的看到東西）。
    ・數字一律照實：價格軸刻度、OHLC、報價都是真的價格（只是軸倒著排）。
    ・只翻主圖價格軸：K 棒／BB／VWAP／FVG／繪圖都掛在這條軸上一起翻；成交量在自己的軸、副圖指標不動。
-   ・刻意不存檔 —— 忘了關的話，下次打開看到倒過來的圖會直接看反。開著時主圖上方掛「⇅ 上下顛倒中」，
-     點它就恢復。入口：主圖圖例列 ⚙ 旁邊的 ⇅ 鈕（#invertBtn）、Alt/Option+I（同 TradingView 反轉座標）、
-     手機「設定」分頁。 */
+   ・刻意不存檔 —— 忘了關的話，下次打開看到倒過來的圖會直接看反。
+     開著時**整張主圖描一圈琥珀外框**（#invertFrame）＋左上角「⇅ 上下顛倒中」標籤附「恢復」鈕
+     （#invertBadge，2026-09-22 改設計；舊版是圖頂正中一顆實心橘色膠囊）。
+     入口：主圖圖例列 ⚙ 旁邊的 ⇅ 鈕（#invertBtn）、快捷鍵 A（Alt/Option+I 同功能）、手機「設定」分頁。 */
 window.toggleChartInvert = function (on) {
   window._chartInverted = (on === undefined) ? !window._chartInverted : !!on;
   const inv = window._chartInverted;
@@ -515,8 +516,12 @@ window.toggleChartInvert = function (on) {
     _scheduleRenderDrawings();
     requestAnimationFrame(() => _scheduleRenderDrawings());
   }
+  // 左上角標籤 ＋ 整張圖的琥珀外框（2026-09-22 改設計）：兩個都要切，少切一個就會
+  // 出現「有框沒標籤／有標籤沒框」的半套狀態。
   const badge = document.getElementById("invertBadge");
   if (badge) badge.hidden = !inv;
+  const frame = document.getElementById("invertFrame");
+  if (frame) frame.hidden = !inv;
   const btn = document.getElementById("invertBtn");   // ⚙ 旁邊的 ⇅ 鈕（快捷鍵／點標章切換時也要同步亮暗）
   if (btn) { btn.classList.toggle("active", inv); btn.setAttribute("aria-pressed", inv ? "true" : "false"); }
   const mRow = document.getElementById("mSetInvert"), mSt = document.getElementById("mSetInvertState");   // 手機設定分頁

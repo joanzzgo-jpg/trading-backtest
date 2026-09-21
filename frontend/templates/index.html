@@ -672,6 +672,25 @@
           <span id="chartStaleTxt"></span>
           <button type="button" id="chartStaleBtn">重新整理</button>
         </div>
+        <!-- 上下顛倒中（多空翻轉看法，2026-09-11；2026-09-22 改設計）：整張主圖描一圈琥珀框
+             ＋左上角標籤。★ 刻意醒目 —— 倒過來的圖若被當成正常的看，漲跌會整個讀反。
+             ⚠ 外框是 pointer-events:none 的覆蓋層：不動版面、不吃滑鼠（#mainChart 上有
+               draw.js 的 capture 階段處理，吃掉事件連繪圖都不能用）。
+             ⚠ 放 #mainChart 裡面才對得準（外面要靠 --legend-h 推算，手機圖例列較高會錯位）；
+               旁邊 #chartStale 的按鈕同樣在裡面、點得動，已用真實點擊驗過。 -->
+        <div class="invert-frame" id="invertFrame" hidden aria-hidden="true"></div>
+        <div class="invert-badge" id="invertBadge" hidden role="status"
+             title="主圖上下顛倒中：上漲顯示成下跌、紅綠也對調（價格數字都是真的）。快捷鍵 A">
+          <svg class="inv-ico" width="11" height="13" viewBox="0 0 11 13" aria-hidden="true">
+            <path d="M3 4.2 5.5 1.5 8 4.2M5.5 1.5v3.9M8 8.8 5.5 11.5 3 8.8M5.5 11.5V7.6"
+                  fill="none" stroke="currentColor" stroke-width="1.5"
+                  stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span>上下顛倒中</span>
+          <button type="button" id="invertRestore"
+                  onclick="window.toggleChartInvert&&window.toggleChartInvert(false)"
+                  aria-label="恢復正常方向">恢復</button>
+        </div>
         <!-- loading="lazy"：非極簡模式時 .chart-bear-bg.perf-only 是 display:none → 不會被抓（省 28KB）。
            weather.js 另有自己的 new Image() 會在延遲載入後自行取用，不受影響。 -->
       <img src="{{ v('/static/img/bear-bg.png') }}" class="chart-bear-bg perf-only" loading="lazy" alt="" />
@@ -680,12 +699,6 @@
            capture 階段的滑鼠處理，放裡面會被它先吃掉、按鈕點不動。 -->
       <button id="btnGoLatest" class="go-latest" type="button" hidden
               title="回到最新（跳回現在，不用一路拖回來）" aria-label="回到最新">⏭</button>
-      <!-- 上下顛倒中（多空翻轉看法，2026-09-11）：開著才出現、點它恢復 —— 倒過來的圖不能讓人忘了它是倒的。
-           ⚠ 同上，放 #mainChart 外面。 -->
-      <button id="invertBadge" class="invert-badge" type="button" hidden
-              onclick="window.toggleChartInvert&&window.toggleChartInvert(false)"
-              title="主圖上下顛倒中：上漲顯示成下跌、紅綠也對調（價格數字都是真的）。點一下恢復正常（快捷鍵 Alt/Option + I）"
-              aria-label="主圖上下顛倒中，點一下恢復">⇅ 上下顛倒中 · 點此恢復</button>
 
       <!-- 訂單簿 DOM 階梯（主圖右側獨立面板，dom.js 繪製；預設隱藏） -->
       <div id="domPanel" aria-hidden="true">
