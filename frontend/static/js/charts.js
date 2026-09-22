@@ -1237,6 +1237,12 @@ function _axisTickText(p) {
   try { const pf = candleSeries && candleSeries.options().priceFormat; if (pf && pf.precision != null) prec = pf.precision; } catch (e) {}
   return (+p).toFixed(prec);
 }
+/* 日線以上＝時間標籤只顯示「月-日」，其餘（盤中時框）都要帶「時:分」。
+   ⚠ 刻意列「日線以上」而不是列「盤中」：漏列時的預設方向才是安全的那邊
+     （漏列 → 顯示時分，最多多顯示一點；反過來漏列 → 整個看不出幾點幾分）。
+   ⚠ LWC 這版**不吃** `localization.timeFormatter`（實測掛上去 0 次呼叫）→
+     時間標籤一律由 charts.js 自繪的 `.crosshair-time-label` 產生，別再去試那個選項。 */
+const _TF_DAILY_UP = new Set(["1d", "1w", "1M"]);
 /* 游標價標籤壓到最新價標籤時，把最新價那顆收起來。
    ⚠ 兩顆都是自訂 DOM、各自依價格定位 → 游標移到現價附近必然重疊：實測 29px 內就疊到，
      疊到時不是整顆被蓋掉（看不到現價），就是露出一條橘邊在游標框外緣＝更糟。
@@ -1583,12 +1589,23 @@ function syncTimeScales() {
                height: Math.round(pr.rect.height + pr.divH) };   // divH＝緊接的 pane-divider 高
     });
 
-    // 底部時間標籤文字（月-日 (時:分)；年份改固定顯示在價格軸下方右下角）
+    /* 底部時間標籤文字（月-日 (時:分)；年份固定顯示在價格軸下方右下角）。
+       ⚠⚠ 判準是「**不是**日線以上」，不是「有沒有列在盤中清單裡」（2026-09-22 使用者：
+         「1m下方對其時間都是寫9/22 我看不出幾分」）。舊版寫死
+         `["4h","2h","1h","30m","15m","5m"]` —— **漏了 1m**（而且還留著早就移除的 2h/30m）
+         → 1m 掉到「只顯示日期」那條，hover 一根只看得到「09-22」，完全看不出幾點幾分。
+       ★ 同 claude.md 一直在講的「對照表漏列 → 靜默退回」。**反過來寫**之後，
+         漏列的預設方向就變成安全的那邊：新增任何盤中時框都自動有時分，
+         只有明確列為日線以上的才不顯示。
+       ⚠ `time` 是圖表時間（toTime 產出、已 +8 小時）→ 取時分必須用 UTC getter。 */
     const d = new Date(time * 1000);
     const pad = n => String(n).padStart(2, "0");
-    const timeStr = ["4h","2h","1h","30m","15m","5m"].includes(currentTF)
-      ? `${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`
-      : `${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())}`;
+    // 盤中時框＝**日期＋時:分**（2026-09-22 使用者：「寫日期跟幾點幾分」）。
+    // 日線以上沒有時分可看，只給日期。
+    const md = `${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())}`;
+    const timeStr = _TF_DAILY_UP.has(currentTF)
+      ? md
+      : `${md} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
 
     // ── 集中寫入 ──
     timeLabel.textContent = timeStr;

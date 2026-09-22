@@ -812,8 +812,20 @@ function _barCountdownTxt() {
   if (!per) return "";
   const lastMs = _barOpenMs(ohlcvData[ohlcvData.length - 1].time);
   if (!isFinite(lastMs)) return "";
-  const s = Math.round((lastMs + per * 1000 - Date.now()) / 1000);
-  if (s < 0 || s > per) return "";
+  const now = Date.now();
+  /* 這個市場現在有沒有在產生新棒？落後超過兩根就當成休市／資料中斷 → 空著不顯示。
+     （那種情況該說話的是 #chartStale，不是端一個假倒數出來。） */
+  if (now - lastMs > per * 2000) return "";
+  /* ★ 收盤那一刻**不可以變空白**（2026-09-22 使用者：「倒數結束後會自己消失」）：
+     最後一根要等下一次輪詢回來才會換，中間那幾秒 `lastMs + per` 已經是過去式 →
+     舊寫法算出負數就 return "" ＝ 倒數整個消失，直到新棒到貨才復活（實測空白約 3 秒）。
+     → 從最後一根的開盤時間往前推「下一個收盤時刻」，過去了就再加一根，直到落在未來。
+     這樣換棒是無縫的：歸零後直接跳回一整根的長度。
+     ⚠ 不可以改用 `Math.ceil(now / per)` 那種「時間格線」：1w 的格線起點是星期四
+       （epoch），但幣安的週線從星期一開始；1M 更不是固定長度。錨點一定要來自真實資料。 */
+  let closeMs = lastMs + per * 1000;
+  while (closeMs <= now) closeMs += per * 1000;
+  const s = Math.max(0, Math.round((closeMs - now) / 1000));
   const p2 = (n) => String(n).padStart(2, "0");
   if (s < 3600)  return `${Math.floor(s / 60)}:${p2(s % 60)}`;
   if (s < 86400) return `${Math.floor(s / 3600)}:${p2(Math.floor(s / 60) % 60)}:${p2(s % 60)}`;
