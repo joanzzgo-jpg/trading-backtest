@@ -288,15 +288,16 @@
       <button class="tf-btn" data-tf="15m">15m</button>
       <button class="tf-btn" data-tf="5m">5m</button>
       <button class="tf-btn" data-tf="1m">1m</button>
-      <!-- 最新 K 棒倒數（2026-09-23 使用者：「時間倒數放到 1m 右邊」）。
-           放在時框列尾端 —— 它講的就是「目前這個時框的那根還有多久收」，跟時框放一起最好懂。
-           ⚠ 寬度固定、永遠佔位（.tb-countdown 的 min-width）：秒數每秒在變，
-             字寬一變整條時框列就會左右跳。改字級務必重量 min-width。 -->
-      <span id="barCountdown" class="tb-countdown"
-            title="最新 K 棒還有多久收盤（依目前的時間框架）"></span>
       <!-- 線型鈕已移到「愛心收藏」右邊（見 tb-symbol-group） -->
       <!-- 掛單／足跡／訂單簿三顆已縮小移到 topbar-right 的勝率標記鈕右邊（2026-07-31 使用者要求） -->
     </div>
+    <!-- 最新 K 棒倒數（2026-09-23 使用者：「時間倒數放到 1m 右邊」→「是整個時間匡的右邊」）。
+         ⚠ 放在 .tf-group **外面**：那個是「凹陷軌道」樣式的框（style.css 的 .tf-group 區塊），
+           放進去會變成軌道裡的一格，看起來像多了一顆時框按鈕。
+         ⚠ 寬度固定、永遠佔位（.tb-countdown 的 min-width）：秒數每秒在變，
+           字寬一變整條列就會左右跳。改字級務必重量 min-width。 -->
+    <span id="barCountdown" class="tb-countdown"
+          title="最新 K 棒還有多久收盤（依目前的時間框架）"></span>
   </div>
 
   <div class="topbar-right">

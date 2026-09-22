@@ -3386,6 +3386,23 @@ html.perf-mode .ai-adv-section { background: #FAFAFA; border-color: #E5E5E5; }
   .topbar.tf-centered .topbar-left { min-height: var(--topbar-h); }   /* ① 撐住第一列高度 */
   .topbar.tf-centered .topbar-right { margin-left: auto; }            /* ② 按鈕維持在右緣、位置與原本相同 */
 
+  /* ③ **置不了中**（.tf-centered 被 _tbFitTf 拿掉）＝時框還在流排裡佔寬度 →
+        右側按鈕比照窄螢幕改成可縮可捲，否則整列會被擠成兩行。
+        2026-09-23 實測：K 棒倒數加進 .topbar-tf（+100px）後，1536 寬（常見 1920×125% 筆電）
+        列高 38→70px＝兩列，時框偏離中心 +533px。
+        ⚠ 沿用 1181~1499 那段的寫法：`justify-content` 維持 flex-start、靠第一個子元素的
+          `margin-left:auto` 推靠右 —— 用 flex-end 的話溢出時前幾顆會被推到可捲區外、永遠捲不到
+          （那段註解記過這個坑）。 */
+  .topbar:not(.tf-centered) .topbar-right {
+    flex: 1 1 0;
+    min-width: 0;
+    overflow-x: auto;
+    justify-content: flex-start;
+    scrollbar-width: none;
+    overscroll-behavior-x: contain;
+  }
+  .topbar:not(.tf-centered) .topbar-right > *:first-child { margin-left: auto; }
+  .topbar:not(.tf-centered) .topbar-right::-webkit-scrollbar { display: none; }
 }
 
 /* TF 按鈕略放大 */
@@ -5647,11 +5664,12 @@ select:focus-visible {
 .tb-countdown {
   display: inline-block;
   /* ⚠ min-width 要蓋過**最長**的那個字串，否則右邊的「已儲存到雲端」會被推走。
-     2026-09-23 字級 10.5→12.5px 之後實測：「23:59:59」74.8px、「29天23時」74.4px
-     → 62px 不夠（當場量到雲端狀態 x 從 515.7 跑到 528.4）。改字級務必重量一次。 */
-  min-width: 78px; text-align: center;
+     2026-09-23 踩過兩次：10.5→12.5px 時 min-width 還留 62px（「23:59:59」量到 74.8px）；
+     12.5→15px 時 78px 又不夠。**改字級一定要重量最長的那個字串**。 */
+  min-width: 92px; text-align: center;   /* 放大到 15px 後重量：見下方註解 */
+  margin-left: 8px;                 /* 跟「時間匡」那個凹陷軌道留一點距離，看得出是框外面的東西 */
   padding: 2px 7px; border-radius: 6px;
-  font-size: 12.5px; font-weight: 700; line-height: 1.25;
+  font-size: 15px; font-weight: 800; line-height: 1.2;
   color: var(--text);
   background: color-mix(in srgb, var(--accent) 11%, transparent);
   border: 1px solid color-mix(in srgb, var(--accent) 26%, transparent);
@@ -5667,6 +5685,16 @@ select:focus-visible {
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 22%, transparent);
   border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+/* 倒數移到「時間匡」外面之後（2026-09-23），手機上 .tf-group 的內容寬就佔滿整列
+   （實測 390 視窗：時間匡 6..384，倒數被推到 x=394 → **整塊在畫面外、永遠看不到**，
+   而且不報錯 —— 同 claude.md 守門員之九那個坑）。
+   → 窄螢幕讓時間匡可縮（它的按鈕本來就是彈性的，縮了只是每顆窄一點），倒數自己不縮。 */
+@media (max-width: 1180px) {
+  .topbar-tf { min-width: 0; }
+  .topbar-tf > .tf-group { flex: 1 1 auto; min-width: 0; }
+  .topbar-tf > .tb-countdown { flex-shrink: 0; }
 }
 
 .tb-wr-sync {
