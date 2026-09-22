@@ -246,11 +246,6 @@
           <span id="realtimeDot" class="realtime-dot hidden" title="即時更新中（正在收到新報價）"></span>
           <i></i><i></i><i></i><i></i>
         </div>
-        <!-- 最新 K 棒倒數（2026-09-22 使用者要求，夾在訊號四格與雲端狀態之間）。
-             ⚠ 寬度固定、永遠佔位：秒數每秒在變，字寬一變右邊的「已儲存到雲端」就會左右跳
-                （使用者：「已儲存到雲端左邊要留白不被倒數影響到位置」）。見 .tb-countdown。 -->
-        <span id="barCountdown" class="tb-countdown"
-              title="最新 K 棒還有多久收盤（依目前的時間框架）"></span>
         <span id="acctSyncState" class="tb-wr-sync" title="帳號雲端同步狀態"></span>
         <span id="wrFailNote" class="tb-fail-note"></span>
       </span>
@@ -293,6 +288,12 @@
       <button class="tf-btn" data-tf="15m">15m</button>
       <button class="tf-btn" data-tf="5m">5m</button>
       <button class="tf-btn" data-tf="1m">1m</button>
+      <!-- 最新 K 棒倒數（2026-09-23 使用者：「時間倒數放到 1m 右邊」）。
+           放在時框列尾端 —— 它講的就是「目前這個時框的那根還有多久收」，跟時框放一起最好懂。
+           ⚠ 寬度固定、永遠佔位（.tb-countdown 的 min-width）：秒數每秒在變，
+             字寬一變整條時框列就會左右跳。改字級務必重量 min-width。 -->
+      <span id="barCountdown" class="tb-countdown"
+            title="最新 K 棒還有多久收盤（依目前的時間框架）"></span>
       <!-- 線型鈕已移到「愛心收藏」右邊（見 tb-symbol-group） -->
       <!-- 掛單／足跡／訂單簿三顆已縮小移到 topbar-right 的勝率標記鈕右邊（2026-07-31 使用者要求） -->
     </div>
