@@ -5646,11 +5646,27 @@ select:focus-visible {
    ★ 同 memory project_symbol-bar-blocks：這一排只要有東西會變寬，整列就會跳。 */
 .tb-countdown {
   display: inline-block;
-  min-width: 54px; text-align: center;
-  font-size: 10.5px; font-weight: 600; line-height: 1;
-  color: var(--muted); opacity: .72;
+  /* ⚠ min-width 要蓋過**最長**的那個字串，否則右邊的「已儲存到雲端」會被推走。
+     2026-09-23 字級 10.5→12.5px 之後實測：「23:59:59」74.8px、「29天23時」74.4px
+     → 62px 不夠（當場量到雲端狀態 x 從 515.7 跑到 528.4）。改字級務必重量一次。 */
+  min-width: 78px; text-align: center;
+  padding: 2px 7px; border-radius: 6px;
+  font-size: 12.5px; font-weight: 700; line-height: 1.25;
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 11%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 26%, transparent);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  transition: color .2s ease, background .2s ease, border-color .2s ease;
+}
+/* 空的時候（休市／資料中斷）不要留一個空框在那 —— 但**位置仍要佔著**，
+   否則右邊的「已儲存到雲端」會左右跳（那正是 min-width 在做的事）。 */
+.tb-countdown:empty { background: transparent; border-color: transparent; }
+/* 最後 10 秒＝這根快收了，整塊轉成強調色 —— 盯著等收盤時一眼就看得到 */
+.tb-countdown[data-soon="1"] {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
 }
 
 .tb-wr-sync {

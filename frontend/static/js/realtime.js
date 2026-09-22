@@ -805,6 +805,7 @@ function _chartStaleTick() {
    ⚠ 寬度固定由 CSS `.tb-countdown` 負責，這裡只管內容。 */
 const _BC_PER = { "1M":2592000, "1w":604800, "1d":86400, "4h":14400, "2h":7200,
                   "1h":3600, "30m":1800, "15m":900, "5m":300, "1m":60 };
+let _bcSec = -1;              // 上一次算出的剩餘秒數（-1＝沒有倒數）
 function _barCountdownTxt() {
   if (typeof replayActive !== "undefined" && replayActive) return "";   // 重播中沒有「還有多久收」
   if (typeof ohlcvData === "undefined" || !Array.isArray(ohlcvData) || !ohlcvData.length) return "";
@@ -826,6 +827,7 @@ function _barCountdownTxt() {
   let closeMs = lastMs + per * 1000;
   while (closeMs <= now) closeMs += per * 1000;
   const s = Math.max(0, Math.round((closeMs - now) / 1000));
+  _bcSec = s;                                   // 給 _barCountdownTick 判斷「快收了」用
   const p2 = (n) => String(n).padStart(2, "0");
   if (s < 3600)  return `${Math.floor(s / 60)}:${p2(s % 60)}`;
   if (s < 86400) return `${Math.floor(s / 3600)}:${p2(Math.floor(s / 60) % 60)}:${p2(s % 60)}`;
@@ -834,8 +836,15 @@ function _barCountdownTxt() {
 function _barCountdownTick() {
   const el = document.getElementById("barCountdown");
   if (!el || document.hidden) return;              // 背景時不必重算（純本機計算，但沒人看）
+  _bcSec = -1;
   const t = _barCountdownTxt();
   if (el.textContent !== t) el.textContent = t;    // 只有真的變了才寫 DOM
+  // 最後 10 秒轉強調色（CSS `.tb-countdown[data-soon="1"]`）。
+  // ⚠ 同樣只有真的變了才寫屬性：每秒無條件寫 DOM 會讓 transition 一直重跑。
+  const soon = (t && _bcSec >= 0 && _bcSec <= 10) ? "1" : "";
+  if ((el.dataset.soon || "") !== soon) {
+    if (soon) el.dataset.soon = soon; else delete el.dataset.soon;
+  }
 }
 if (typeof window !== "undefined" && !window._bcTimer) {
   window._bcTimer = setInterval(_barCountdownTick, 1000);
