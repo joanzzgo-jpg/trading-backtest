@@ -3450,10 +3450,10 @@ _shLoadPrefs();
    ⚠ 60 秒夠了：這是「別人畫的線」，不是報價，沒有即時性需求。 */
 /* 🔔 提示線：開機抓一次；之後每 60 秒重抓（可能在別的裝置新增、或已被後端標成觸發）。
    ⚠ document.hidden 就跳過（背景零流量原則）；回前景補一次。 */
-setTimeout(() => { try { _alFetch(true); _alFetchAll(); } catch (e) {} }, 2500);
-setInterval(() => { if (!document.hidden) { try { _alFetch(true); _alFetchAll(); } catch (e) {} } }, 60000);
+setTimeout(() => { try { _alFetchAll(); } catch (e) {} }, 2500);
+setInterval(() => { if (!document.hidden) { try { _alFetchAll(); } catch (e) {} } }, 60000);
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) { try { _alFetch(true); _alFetchAll(); } catch (e) {} }
+  if (!document.hidden) { try { _alFetchAll(); } catch (e) {} }
 });
 
 const _SH_POLL_MS = 60000;
@@ -3581,28 +3581,32 @@ function _alSym() {
 }
 function _alAcct() { try { return (window._acctName || "").trim(); } catch (e) { return ""; } }
 
-async function _alFetch(force) {
-  const name = _alAcct(); const { symbol } = _alSym();
+/* 把 `_alAll`（全部標的那份）套到「目前這個標的」。★ 純本機篩選、**不打網路**。
+   ⚠ 2026-09-23 優化前，每次換標的都會打一次 `alerts/list?symbol=…`，而 60 秒那輪又會
+     `_alFetch(true)` + `_alFetchAll()` **各打一次** —— 但「全部」那份本來就包含這個標的。
+     實測 81 秒內 5 次請求（切 3 次標的 3 次 + 靜置 2 次），其中 4 次是重複的。 */
+function _alApplyCurrent() {
+  const { symbol } = _alSym();
   const key = (typeof _drawSymKey === "function") ? _drawSymKey() : "";
-  if (!name || !symbol) { if (_alerts.length) { _alerts = []; _scheduleRenderDrawings(); } return; }
-  if (!force && key === _alertKey) return;
+  if (!_alAcct() || !symbol) {
+    if (_alerts.length) { _alerts = []; _scheduleRenderDrawings(); }
+    return;
+  }
+  const up = String(symbol).toUpperCase();
+  _alerts = _alAll.filter(a => String(a.symbol || "").toUpperCase() === up);
+  _alertKey = key;
+  // 記下「本機這份繪圖確實引用著」的那些 → 之後它們消失才算是使用者刪的
   try {
-    const r = await fetch("/api/notify/alerts/list", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, symbol }),
-    });
-    if (!r.ok) throw new Error("HTTP " + r.status);       // ⚠ 錯誤回應的 body 也是 JSON
-    const j = await r.json();
-    if (_drawSymKey() !== key) return;                    // 抓回來已換標的 → 丟棄
-    _alerts = (j.alerts || []).filter(a => a && a.price > 0);
-    _alertKey = key;
-    // 記下「本機這份繪圖確實引用著」的那些 → 之後它們消失才算是使用者刪的
-    try {
-      for (const d of (Array.isArray(drawings) ? drawings : []))
-        if (d && d.type === "hline" && d.alertId) _alRefSeen.add(d.alertId);
-    } catch (e) {}
-    _scheduleRenderDrawings();
-  } catch (e) { console.debug("[提示線] 取得失敗:", e && e.message); }
+    for (const d of (Array.isArray(drawings) ? drawings : []))
+      if (d && d.type === "hline" && d.alertId) _alRefSeen.add(d.alertId);
+  } catch (e) {}
+  _scheduleRenderDrawings();
+}
+
+/* 舊介面保留（呼叫點很多）：force＝真的去抓一次，否則只做本機篩選。 */
+function _alFetch(force) {
+  if (force) return _alFetchAll();
+  _alApplyCurrent();
 }
 window._alFetch = _alFetch;
 
@@ -3644,7 +3648,11 @@ async function _alDel(id) {
       body: JSON.stringify({ name, id }),
     });
     if (!r.ok) throw new Error("HTTP " + r.status);
+    // ★ 兩份都要更新：_alerts（這個標的、畫在圖上的）與 _alAll（清單/角標）。
+    //   只更新其中一份的話，另一份要等 60 秒那輪才對 —— 而且**不會報錯**。
     _alerts = _alerts.filter(a => a.id !== id);
+    _alAll  = _alAll.filter(a => a.id !== id);
+    _alPaintBtn();
     _scheduleRenderDrawings();
     if (typeof showToast === "function") showToast("已移除到價通知", 1800, true);
   } catch (e) { console.debug("[提示線] 刪除失敗:", e && e.message); }
@@ -3720,6 +3728,7 @@ async function _alFetchAll() {
     _alAll = (j.alerts || []).filter(a => a && a.price > 0);
     _alAllAt = Date.now();
     _alPaintBtn();
+    _alApplyCurrent();                       // ★ 目前這個標的直接從這份篩，不再另外打一次
     if (!document.getElementById("alertsPop")?.hidden) _alListRender();
   } catch (e) { console.debug("[提示線] 取全部失敗:", e && e.message); }
 }
@@ -3789,7 +3798,7 @@ function _alListRender() {
       await _alDel(id);
       _alAll = _alAll.filter(x => x.id !== id);
       _alPaintBtn(); _alListRender();
-      _alFetch(true);                       // 這個標的的線可能少一條 → 重抓一次
+      _alApplyCurrent();                    // _alAll 已在本機更新過 → 套一下就好，不必再抓
     });
   });
   document.getElementById("alpClear")?.addEventListener("click", async (e) => {
@@ -3803,7 +3812,7 @@ function _alListRender() {
       });
       if (!r.ok) throw new Error("HTTP " + r.status);
     } catch (err) { console.debug("[提示線] 清除已觸發失敗:", err && err.message); }
-    await _alFetchAll(); _alListRender(); _alFetch(true);
+    await _alFetchAll(); _alListRender();   // _alFetchAll 裡已含 _alApplyCurrent
   });
 }
 
@@ -3845,7 +3854,8 @@ async function _alToggleForSelected() {
     if (id) { d.alertId = id; saveDrawings(); }
   }
   _alSyncBtn();
-  _alFetchAll();                          // 角標要立刻反映，不必等 60 秒那輪
+  // ⚠ 這裡**不要**再 _alFetchAll()：新增那條在 _alAdd 裡已經抓過一次、
+  //   刪除那條 _alDel 已經把 _alAll 一起更新掉 —— 再抓就是多打一次網路。
   _scheduleRenderDrawings();
 }
 
