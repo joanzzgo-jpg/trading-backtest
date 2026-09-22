@@ -309,19 +309,50 @@ def _relay_post(path: str, payload: dict, timeout: float = 12.0):
         return json.loads(r.read() or b"{}")
 
 
-def _relay_drawings(name: str, local_snap: dict):
-    """把本機這次同步的繪圖合併進上游（Railway）同名帳號。背景執行、失敗只記錄不拋。"""
+# 「這台裝置專屬」的設定，不往上游推：推上去對方也不會套用（前端 _PULL_SKIP 會擋），
+# 而且會把對方的版面/字級弄亂。★ 這份要跟 account.js 的 _ACCT_SKIP + _PULL_SKIP 對齊。
+_RELAY_SKIP = {
+    # _ACCT_SKIP：本來就不進雲端快照的
+    "acctName", "wxCoords", "notifyFeedSeen", "tradeKey", "watchlist", "_tc",
+    # _PULL_SKIP：進得去但對方不會套用的（版面、字級、這台看過什麼…）
+    "perfMode", "mFontScale", "mHideWr", "mLastTab",
+    "paneFlexes", "collapsedPanes", "multiChart",
+    "sqdFloatPos", "symBlockOrder",
+    "announceSeenVer", "symSearchHistory", "accelOn",
+}
+
+
+def _relay_snapshot(name: str, local_snap: dict):
+    """把本機這次同步的**繪圖＋設定**一起送進上游（Railway）同名帳號。背景執行、失敗只記錄不拋。
+
+    ⚠⚠ 繪圖與設定**必須在同一次 pull+sync 裡處理**：分成兩次讀-改-寫的話，
+      第二次用的是第一次寫入「之前」拉到的快照 → 會把第一次的結果整個蓋掉。
+
+    ・繪圖：**逐標的合併、本機優先**（up_draw 打底，local_draw 覆蓋）。
+      本機有畫過的那些標的以本機為準（所以在本機刪掉一條線，線上那一檔也會少那條）；
+      本機從沒碰過的標的保持線上原樣 —— 那可能是手機畫的，不該被這台清掉。
+    ・設定：**鏡像**（2026-09-23 使用者：「如果本機刪除 線上也刪除」）——
+      本機沒有的 key 會從線上刪掉，不是只做覆蓋。
+      ⚠ 安全閥：本機一個可推的設定都沒有時**什麼都不做** —— 那時分不出
+        「使用者把設定清光了」和「本機是空的/壞的」，而鏡像會直接把線上清空。
+    """
     try:
-        raw = (local_snap or {}).get(_DRAW_KEY)
-        if not raw:
-            return                                   # 本機根本沒繪圖 → 沒事可做
+        if not isinstance(local_snap, dict):
+            return
+        raw = local_snap.get(_DRAW_KEY)
         try:
             local_draw = json.loads(raw) if isinstance(raw, str) else (raw or {})
         except Exception:
-            return
+            local_draw = {}
         if not isinstance(local_draw, dict):
-            return
-        fp = json.dumps(local_draw, sort_keys=True)
+            local_draw = {}
+
+        local_set = {k: v for k, v in local_snap.items()
+                     if k not in _RELAY_SKIP and k != _DRAW_KEY}
+        if not local_draw and not local_set:
+            return                                   # 本機什麼都沒有 → 沒事可做
+
+        fp = json.dumps({"d": local_draw, "s": local_set}, sort_keys=True)
         if _relay_last.get(name) == fp:
             return                                   # 跟上次送的一模一樣 → 不重送
         up = _relay_post("pull", {"name": name})
@@ -330,24 +361,40 @@ def _relay_drawings(name: str, local_snap: dict):
                                 "msg": f"線上沒有「{name}」這個帳號（帳號只能由後台建立）"})
             return
         up_snap = up.get("data") or {}
+
+        # ── 繪圖：逐標的合併，本機優先 ──
         try:
             up_draw = json.loads(up_snap.get(_DRAW_KEY) or "{}")
         except Exception:
             up_draw = {}
         if not isinstance(up_draw, dict):
             up_draw = {}
-        merged = {**up_draw, **local_draw}           # 逐標的合併，本機優先
-        up_snap[_DRAW_KEY] = json.dumps(merged)      # ⚠ 快照值必須是字串
+        merged = {**up_draw, **local_draw}
+        if merged:
+            up_snap[_DRAW_KEY] = json.dumps(merged)   # ⚠ 快照值必須是字串
+
+        # ── 設定：鏡像（本機沒有的就刪掉）──
+        added = changed = removed = 0
+        if local_set:                                 # 見 docstring 的安全閥
+            for k in [k for k in up_snap
+                      if k not in _RELAY_SKIP and k != _DRAW_KEY and k not in local_set]:
+                up_snap.pop(k, None); removed += 1
+            for k, v in local_set.items():
+                if k not in up_snap: added += 1
+                elif up_snap[k] != v: changed += 1
+                up_snap[k] = v
+
         _relay_post("sync", {"name": name, "data": up_snap})
         _relay_last[name] = fp
         _relay_stat.update({"at": time.time(), "ok": True, "name": name,
                             "symbols": len(local_draw),
-                            "msg": f"已上傳 {len(local_draw)} 個標的的繪圖到 {_UPSTREAM_URL}"})
-        print(f"  ✏️ 繪圖已同步到線上：{name} — 本機 {len(local_draw)} 個標的 → 線上共 {len(merged)} 個")
+                            "msg": f"繪圖 {len(local_draw)} 個標的；設定 +{added}/改{changed}/刪{removed}"})
+        print(f"  ✏️ 已同步到線上：{name} — 繪圖 {len(local_draw)} 個標的（線上共 {len(merged)}）、"
+              f"設定新增 {added} 改 {changed} 刪 {removed}")
     except Exception as e:
         _relay_stat.update({"at": time.time(), "ok": False, "name": name,
                             "msg": f"{type(e).__name__}: {str(e)[:120]}"})
-        print(f"  ⚠ 繪圖同步到線上失敗（{name}）：{type(e).__name__}: {str(e)[:100]}"
+        print(f"  ⚠ 同步到線上失敗（{name}）：{type(e).__name__}: {str(e)[:100]}"
               f" — 本機存檔不受影響，下次同步會再試")
     # ⚠ busy 不在這裡清：自選那條還要跑，統一由 _relay_all 收尾（見該函式）
 
@@ -424,7 +471,7 @@ def _relay_watchlist(name: str):
 
 def _relay_all(name: str, snap: dict):
     try:
-        _relay_drawings(name, snap)
+        _relay_snapshot(name, snap)
     finally:
         try:
             _relay_watchlist(name)
