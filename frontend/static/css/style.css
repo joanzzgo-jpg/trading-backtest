@@ -5905,6 +5905,41 @@ body.wl-drag-on #tickerList .ticker-item { touch-action: none; }
   box-shadow: 0 4px 20px rgba(0,0,0,.5);
   padding: 8px 0; min-width: 262px; font-size: 12px;
 }
+/* 🔔 所有到價通知：topbar 上的條件式按鈕（有鬧鐘才出現）＋角標 */
+/* ⚠ `.tb-icon-btn` 有 `display:flex` → **會蓋過 `hidden` 屬性**（hidden 只是把 display 設成
+   none 的預設值，任何 display 規則都壓得過它）。不補這條的話「沒鬧鐘就不顯示」完全沒生效，
+   按鈕一直都在、還多佔右側 30px（實測 1680 寬把時框擠到距按鈕只剩 3px）。 */
+.tb-alerts-btn[hidden] { display: none !important; }
+.tb-alerts-btn { position: relative; }
+.tb-alerts-btn.has-fired { color: var(--accent); }        /* 有已觸發的沒清掉 → 提醒一下 */
+.tb-alerts-n {
+  position: absolute; top: -1px; right: -2px; min-width: 13px; height: 13px;
+  padding: 0 3px; border-radius: 7px; box-sizing: border-box;
+  font-size: 9px; font-weight: 800; line-height: 13px; text-align: center;
+  color: #2C1607; background: var(--accent);
+  font-variant-numeric: tabular-nums; pointer-events: none;
+}
+.tb-alerts-n[hidden] { display: none; }
+/* 清單：沿用 .share-pop 的外框，只補這裡特有的幾條 */
+.alerts-pop { max-height: 60vh; overflow-y: auto; min-width: 292px; }
+.alp-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.alp-clear {
+  font: inherit; font-size: 10px; font-weight: 700; color: var(--muted);
+  background: transparent; border: 1px solid var(--border); border-radius: 5px;
+  padding: 2px 7px; cursor: pointer;
+}
+.alp-clear:hover { color: var(--text); background: var(--bg3); }
+.alp-row { align-items: flex-start; }
+.alp-dir { flex-shrink: 0; width: 13px; color: var(--green, #26a69a); font-weight: 800; }
+.alp-row .alp-main { flex: 1; min-width: 0; }
+.alp-fired { opacity: .5; }
+.alp-fired .alp-dir { color: var(--muted); }
+.alp-del {
+  flex-shrink: 0; font: inherit; font-size: 11px; color: var(--muted);
+  background: transparent; border: none; border-radius: 4px; padding: 2px 5px; cursor: pointer;
+}
+.alp-del:hover { color: #ef5350; background: rgba(239,83,80,.12); }
+
 .share-pop[hidden] { display: none; }
 .share-pop-title {
   padding: 2px 12px 7px; font-size: 11px; font-weight: 600; color: var(--muted);

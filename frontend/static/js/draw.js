@@ -3450,10 +3450,10 @@ _shLoadPrefs();
    ⚠ 60 秒夠了：這是「別人畫的線」，不是報價，沒有即時性需求。 */
 /* 🔔 提示線：開機抓一次；之後每 60 秒重抓（可能在別的裝置新增、或已被後端標成觸發）。
    ⚠ document.hidden 就跳過（背景零流量原則）；回前景補一次。 */
-setTimeout(() => { try { _alFetch(true); } catch (e) {} }, 2500);
-setInterval(() => { if (!document.hidden) { try { _alFetch(true); } catch (e) {} } }, 60000);
+setTimeout(() => { try { _alFetch(true); _alFetchAll(); } catch (e) {} }, 2500);
+setInterval(() => { if (!document.hidden) { try { _alFetch(true); _alFetchAll(); } catch (e) {} } }, 60000);
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) { try { _alFetch(true); } catch (e) {} }
+  if (!document.hidden) { try { _alFetch(true); _alFetchAll(); } catch (e) {} }
 });
 
 const _SH_POLL_MS = 60000;
@@ -3482,7 +3482,12 @@ function initLineAlert() {
   document.getElementById("btnDrawText")?.addEventListener("click", e => {
     e.stopPropagation(); const d = _sel(); if (d) _drawEditText(d);
   });
+  // 🔔 topbar 的「所有到價通知」：常駐入口（見 _alFetchAll 的說明）
+  document.getElementById("tbAlertsBtn")?.addEventListener("click", e => {
+    e.stopPropagation(); _alListToggle();
+  });
   _alSyncBtn();
+  _alFetchAll();
 }
 
 /* 鎖定／解鎖（只在上方快捷列；右鍵選單的同名項目已於 2026-09-17 移除）。
@@ -3693,6 +3698,139 @@ function _alSyncBtn() {
 }
 window._alSyncBtn = _alSyncBtn;
 
+/* ═══ 所有到價通知（跨標的清單）════════════════════════════════════════════
+   2026-09-23 使用者：「提示鈴幫我優化」。
+   ⚠ 原本鬧鐘**只看得到當下這個標的**：`_alFetch` 帶 symbol 去問，而快捷列那顆鈴鐺又只在
+     「選取了一條水平線」時出現 → 設在 BTC 的鬧鐘，切到 ETH 就完全沒地方看，
+     也不知道自己總共設了幾個。後端 `alerts/list` **不帶 symbol 就回全部**，前端沒用到而已。
+   ⚠ 按鈕「有鬧鐘才出現」：沒設過的人不必多一顆永遠用不到的按鈕（同 orderbook/footprint）。 */
+let _alAll = [];                 // 全部標的的鬧鐘（含已觸發）
+let _alAllAt = 0;
+
+async function _alFetchAll() {
+  const name = _alAcct();
+  if (!name) { _alAll = []; _alPaintBtn(); return; }
+  try {
+    const r = await fetch("/api/notify/alerts/list", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),          // ★ 不帶 symbol ＝ 全部標的
+    });
+    if (!r.ok) throw new Error("HTTP " + r.status);   // ⚠ 錯誤回應的 body 也是 JSON
+    const j = await r.json();
+    _alAll = (j.alerts || []).filter(a => a && a.price > 0);
+    _alAllAt = Date.now();
+    _alPaintBtn();
+    if (!document.getElementById("alertsPop")?.hidden) _alListRender();
+  } catch (e) { console.debug("[提示線] 取全部失敗:", e && e.message); }
+}
+window._alFetchAll = _alFetchAll;
+
+/* 按鈕：有鬧鐘才出現；角標＝**還沒觸發**的那幾個（＝還在等的，才是要注意的數字）。 */
+function _alPaintBtn() {
+  const btn = document.getElementById("tbAlertsBtn"), n = document.getElementById("tbAlertsN");
+  if (!btn) return;
+  const pend = _alAll.filter(a => !a.fired_at).length;
+  btn.hidden = _alAll.length === 0;
+  if (n) { n.textContent = pend ? String(pend) : ""; n.hidden = !pend; }
+  btn.classList.toggle("has-fired", _alAll.some(a => a.fired_at));
+  btn.title = _alAll.length
+    ? `所有到價通知：${pend} 個等待中` + (_alAll.length - pend ? `、${_alAll.length - pend} 個已觸發` : "")
+    : "所有到價通知";
+}
+
+function _alJumpTo(a) {
+  try {
+    const mk = document.getElementById("marketSelect"), ex = document.getElementById("exchangeSelect");
+    if (mk && a.market) mk.value = a.market;
+    if (ex && a.exchange) ex.value = a.exchange;
+    document.getElementById("symbolInput").value = a.symbol;
+    if (typeof updateMarketUI === "function") updateMarketUI();
+    window._mSetTab && window._mSetTab("chart");
+    requestAnimationFrame(() => { if (typeof loadData === "function") loadData(false); });
+  } catch (e) {}
+}
+
+function _alListRender() {
+  const pop = document.getElementById("alertsPop");
+  if (!pop) return;
+  const esc = (t) => String(t).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const firedN = _alAll.filter(a => a.fired_at).length;
+  // 等待中的排前面，各自依建立時間新的在前
+  const rows = [..._alAll].sort((x, y) =>
+    (!!x.fired_at - !!y.fired_at) || ((y.created_at || 0) - (x.created_at || 0)));
+  pop.innerHTML =
+    `<div class="share-pop-title alp-title">到價通知（${_alAll.length}）` +
+    (firedN ? `<button type="button" class="alp-clear" id="alpClear">清掉已觸發 ${firedN}</button>` : "") +
+    `</div>` +
+    (rows.length ? rows.map(a => {
+      const fired = !!a.fired_at;
+      const arrow = fired ? "✓" : (a.dir === "down" ? "▼" : "▲");
+      const when = fired ? new Date(a.fired_at * 1000).toLocaleString("zh-TW",
+        { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }) : "";
+      return `<div class="share-row alp-row${fired ? " alp-fired" : ""}" data-id="${esc(a.id)}">` +
+        `<span class="alp-dir">${arrow}</span>` +
+        `<span class="sr-txt alp-main"><b>${esc(a.symbol)}</b> ${esc(_fmtAlertPx(a.price))}` +
+        `<span class="sr-sub">${fired ? "已觸發 " + esc(when) : "等待中"}` +
+        (a.note ? "　" + esc(a.note) : "") + `</span></span>` +
+        `<button type="button" class="alp-del" data-del="${esc(a.id)}" title="刪除這個通知">✕</button></div>`;
+    }).join("") : `<div class="share-note">目前沒有到價通知。在圖上畫一條水平線、選取它，按鈴鐺就能設。</div>`);
+
+  pop.querySelectorAll(".alp-row").forEach(el => {
+    el.addEventListener("click", (e) => {
+      if (e.target.closest(".alp-del")) return;
+      const a = _alAll.find(x => x.id === el.dataset.id);
+      if (a) { _alJumpTo(a); _alListHide(); }
+    });
+  });
+  pop.querySelectorAll(".alp-del").forEach(el => {
+    el.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const id = el.dataset.del;
+      await _alDel(id);
+      _alAll = _alAll.filter(x => x.id !== id);
+      _alPaintBtn(); _alListRender();
+      _alFetch(true);                       // 這個標的的線可能少一條 → 重抓一次
+    });
+  });
+  document.getElementById("alpClear")?.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    const name = _alAcct();
+    if (!name) return;
+    try {
+      const r = await fetch("/api/notify/alerts/del", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, clear_fired: true }),
+      });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+    } catch (err) { console.debug("[提示線] 清除已觸發失敗:", err && err.message); }
+    await _alFetchAll(); _alListRender(); _alFetch(true);
+  });
+}
+
+function _alListHide() {
+  const pop = document.getElementById("alertsPop");
+  if (pop) pop.hidden = true;
+  document.removeEventListener("mousedown", _alListAway, true);
+}
+function _alListAway(e) {
+  if (e.target.closest("#alertsPop") || e.target.closest("#tbAlertsBtn")) return;
+  _alListHide();
+}
+function _alListToggle() {
+  const pop = document.getElementById("alertsPop"), btn = document.getElementById("tbAlertsBtn");
+  if (!pop || !btn) return;
+  if (!pop.hidden) { _alListHide(); return; }
+  _alListRender();
+  pop.hidden = false;
+  // 貼齊按鈕下方；⚠ 會超出右緣就往左收（同 _qdPicker/_drawRRLabel 的處理）
+  const r = btn.getBoundingClientRect();
+  pop.style.top = Math.round(r.bottom + 6) + "px";
+  const w = pop.getBoundingClientRect().width || 262;
+  pop.style.left = Math.round(Math.max(6, Math.min(r.left, innerWidth - w - 6))) + "px";
+  document.addEventListener("mousedown", _alListAway, true);
+}
+window._alListToggle = _alListToggle;
+
 /* 按鈕行為：沒設就設、設了就取消。 */
 async function _alToggleForSelected() {
   const d = (Array.isArray(drawings) ? drawings : []).find(x => x.id === selectedId);
@@ -3707,6 +3845,7 @@ async function _alToggleForSelected() {
     if (id) { d.alertId = id; saveDrawings(); }
   }
   _alSyncBtn();
+  _alFetchAll();                          // 角標要立刻反映，不必等 60 秒那輪
   _scheduleRenderDrawings();
 }
 

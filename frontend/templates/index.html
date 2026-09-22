@@ -427,6 +427,19 @@
       </svg>
     </button>
   </div>
+    <!-- 🔔 所有到價通知（2026-09-23 使用者：「提示鈴幫我優化」）。
+         ⚠ 入口**必須常駐**：快捷列那顆鈴鐺只有「選取了一條水平線」時才看得到 →
+           設在別的標的上的鬧鐘完全沒地方看，也不知道自己總共設了幾個。
+         ⚠ 沿用 orderbook/footprint 那幾顆的做法：**有東西才出現**，沒鬧鐘時完全不佔位。 -->
+    <button id="tbAlertsBtn" class="tb-icon-btn tb-alerts-btn" type="button" hidden
+            title="所有到價通知" aria-label="所有到價通知">
+      <svg width="17" height="17" viewBox="0 0 15 15" fill="none" stroke="currentColor"
+           stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M4 6.5a3.5 3.5 0 0 1 7 0c0 3 1.2 4 1.2 4H2.8s1.2-1 1.2-4z"/>
+        <path d="M6.2 12.6a1.6 1.6 0 0 0 2.6 0"/>
+      </svg>
+      <span class="tb-alerts-n" id="tbAlertsN"></span>
+    </button>
 </header>
 
 <!-- ② 符號資訊列 -->
@@ -518,6 +531,7 @@
 
 <!-- 共享繪圖設定浮層：由 #btnShareDraw 開啟（draw.js initShareToggle）。 -->
 <div id="shareDrawPop" class="share-pop" hidden></div>
+<div id="alertsPop" class="share-pop alerts-pop" hidden></div>
 
 <!-- 遮罩 -->
 <div id="panelOverlay" class="panel-overlay hidden"></div>

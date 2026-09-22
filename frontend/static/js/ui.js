@@ -279,11 +279,24 @@ function bindEvents() {
       if (!_mqWide.matches) { _tbBar.classList.remove("tf-centered"); return; }
       const bar = _tbBar.getBoundingClientRect();
       if (!bar.width) return;
-      const W = bar.width, bs = getComputedStyle(_tbBar), rs = getComputedStyle(_tbRight);
-      const rightW = _span(_tbRight) + (parseFloat(rs.paddingLeft) || 0) + (parseFloat(rs.paddingRight) || 0);
+      const W = bar.width;
+      /* 右側內容**從右緣算起佔多少**（含它與右緣之間的內距／外距）。
+         ⚠⚠ 不要用「padding + 子元素寬度」去推算它從哪裡開始：2026-09-23 實測那個模型少算了
+           約 36px —— 公式以為右側內容從 1090 開始，實際是 1068，時框右緣 1065 只剩 **3px** 空隙
+           （`_TB_GAP` 明明設 12）。直接量「右緣減去最左那顆可見按鈕的 left」就沒有假設可以錯。
+         ⚠ 仍然是**位置無關**的量（從右緣起算）：右側內容永遠靠右（`margin-left:auto`），
+           所以置中與否都量到同一個值 → 不會出現「置中→變窄→不置中→變寬→置中」的來回跳。 */
+      let rightEdgeUse = 0;
+      for (const c of _tbRight.children) {
+        if (c.offsetParent === null) continue;
+        const r = c.getBoundingClientRect();
+        if (!r.width) continue;
+        rightEdgeUse = Math.max(rightEdgeUse, bar.right - r.left);
+      }
+      if (!rightEdgeUse) rightEdgeUse = _span(_tbRight);
       const tfW = _tbTf.getBoundingClientRect().width;
       const leftEnd = _tbLeft.getBoundingClientRect().right - bar.left;
-      const fits = W / 2 + tfW / 2 + _TB_GAP <= W - (parseFloat(bs.paddingRight) || 0) - rightW
+      const fits = W / 2 + tfW / 2 + _TB_GAP <= W - rightEdgeUse
                 && W / 2 - tfW / 2 - _TB_GAP >= leftEnd;
       _tbBar.classList.toggle("tf-centered", fits);
     };
