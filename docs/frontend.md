@@ -93,7 +93,7 @@
 | `utils.js` | ~267 | toTime、hexAlpha、偏好設定存取（savePrefs/loadPrefs）、格式化工具（fmt/fmtVol/fmtT）、showToast、showLoading |
 | `charts.js` | ~416 | makeBaseOpts、createCandleSeries、applyOhlcvToSeries、updateLatestPriceLine、buildCharts、resizeAll、syncTimeScales |
 | `draw.js` | ~1470 | **繪圖工具核心**：drawings 狀態、initDrawTools（懸浮島工具欄）、滑鼠/觸控事件（含主圖空白區可繪圖）、hit-test（findNearest/_drawingHitPart）、renderDrawings、drawOne（含 longpos/shortpos 盈虧比盒、斐波那契）、drawPreview。繪圖按標的/帳戶隔離 |
-| `colors.js` | ~442 | **顏色/樣式系統**（2026-06 從 draw.js 拆出）：_darkenForChart、_applyChartBgGradient、applyAllColors、initColorPicker（色票面板）、_updateStarBtn。手機端/電腦端配色各自獨立、皆隨帳戶同步 |
+| `colors.js` | ~442 | **顏色/樣式系統**（2026-06 從 draw.js 拆出）：_darkenForChart、_applyChartBgGradient、applyAllColors、initColorPicker（色票面板）、_updateStarBtn。配色**全裝置共用一份**（2026-09-23 合併，原本電腦/手機各一份）、隨帳戶同步 |
 | `ticker.js` | ~1069 | 自選清單、行情面板（fetchTickers/renderTickers + `_reconcileTicker` 鍵控重用）、標的搜尋（initSymSearch） |
 | `winrate.js` | ~870 | `_wrCache`、fetchWinRate（網路/快取命中兩條路重繪同一組圖層）、升階差量、跳過不顯示的圖層、FVG 各標記層 render、加速器預熱、本機快照（2026-09-17 勝率欄相關的填值/hover 勝率/盈虧比盒/止損緩衝已刪） |
 | `footprint.js` | ~200 | **Footprint 足跡圖**（2026-07-17）：`toggleFootprint`/`_fpFetch`/`_makeFootprintPrimitive`。打 `/api/footprint`，primitive 畫每根棒各價位買賣量（左紅賣/右綠買、金框 POC、棒底 Δ+總量）。僅 crypto、tf∈1m~1h（逐筆精確、漸進補齊：`pending_min>0` 時 5s 快輪詢 `_fpFastT`＋右上角顯示「剩 N 分鐘」）＋4h/1d（`kagg` 1m聚合）；開關=主圖右上 #footprintBtn（chart-order-btn 同款、.fp-btn right:166，crypto 才顯示）預設關；barSpacing<14 只顯提示、≥52 才畫數字；抓失敗不記 `_fpKey`→draw() 5s 退避自癒（`_fpNextTryTs`）；primitive 於 `charts.js createCandleSeries()` 掛載 |
@@ -235,6 +235,21 @@
   數字等於擲骰子。`el.style.transition="none"` ＋ 強制重算才拿得到確定的目標值。
 - ⚠ 日線以上用的是「開盤時間＋一個時框」：加密精確；**股市的日線不等於收盤時刻**（台股 13:30 收，
   但這裡會算到隔天同一時刻）。盤中時框都是準的。
+
+## 配色：全裝置共用一份（2026-09-23 合併）
+
+原本 `savePrefs`/`loadPrefs` 會依 `isMobileUI()` 讀寫 **`chartColors_m` / `chartStyles_m` /
+`chartLineStyles_m`** 那組，電腦與手機各一份。**已合併成一份**（使用者：「兩份從此合一」）。
+
+- ⚠⚠ 為什麼要合：`isMobileUI()` 的第一條是**「視窗寬 ≤1180px」**——那是給**版面**用的判準
+  （使用者自己就用桌機縮窗測手機版）。拿它來切**顏色偏好**的後果是：視窗一窄、或換到 iPad／手機，
+  配色就整組換掉，而畫面上**沒有任何提示**。
+  使用者回報「線上一直跳回紅色背景」，實測他帳號裡電腦那份 `chartBg=#000000`、
+  手機那份 `#eb4747`（紅），iPad 上讀到的就是後者 —— 不是同步問題，兩邊的顏色設定完全一致。
+- ⚠ **遷移**：只有 `_m` 那份的人（只用過手機）要拿它當起點，否則配色整組不見。
+  `loadPrefs` 讀不到主 key 時才去讀 `_m`，讀完把 `_m` 三個刪掉。
+- ⚠⚠ `_m` 三個**必須列進 `account.js` 的 `_PULL_SKIP`**，否則**收斂不了**：
+  下行會把雲端那份寫回 localStorage、下次同步又推上去 —— 本機每次開機都刪卻永遠刪不掉。
 
 ## 到價通知（`#tbAlertsBtn` / `#alertsPop`，2026-09-23 加清單）
 

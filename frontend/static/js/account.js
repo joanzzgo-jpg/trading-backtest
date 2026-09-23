@@ -229,7 +229,7 @@ async function _acctPullWatch(name, snapData, clearIfEmpty) {
        （打 /mywatch、只寫 watchlist）。繪圖只有在「登入那一刻」才會隨快照下來 →
        一台已經登入著的手機，永遠看不到電腦後來新畫的線。
    → 回前景時多拉一次唯讀快照，只把繪圖那一把同步下來。
-   ⚠ 只同步 tv_drawings_v2，不整包套用：chartColors_m / chartStyles_m 這些是
+   ⚠ 只同步 tv_drawings_v2，不整包套用：paneFlexes / sqdFloatPos 這些是
      「手機與電腦各自獨立」的設定，整包蓋下去會把手機的配色洗成電腦的。
    ⚠ 用 updated_at 比對，雲端不比我們新就不動 → 不會把手機剛畫的線洗掉。 */
 /* 上次「已處理過的雲端版本」。⚠ 記的是**伺服器回報的 updated_at**，不是我們自己推送的時間：
@@ -268,11 +268,14 @@ async function _acctPullDrawings(name, _bootPull) {
             "perfMode", "mFontScale", "mHideWr", "mLastTab",
             "paneFlexes", "collapsedPanes", "multiChart",
             "sqdFloatPos", "symBlockOrder",   // 符號列積木的浮動位置/順序（這台螢幕專屬，別台尺寸不同會放錯）
-            "announceSeenVer", "symSearchHistory", "accelOn"]);
+            "announceSeenVer", "symSearchHistory", "accelOn",
+            /* ★ 2026-09-23 電腦/手機兩份色盤已合一（見 utils.js loadPrefs）→ 這三個是**死資料**。
+               ⚠ 一定要列在這裡，否則收斂不了：下行會把雲端那份寫回 localStorage，
+                 下一次同步又把它推上去 —— 本機 loadPrefs 明明每次開機都刪，卻永遠刪不掉。 */
+            "chartColors_m", "chartStyles_m", "chartLineStyles_m"]);
           // 這幾項我們有辦法「當場重讀重套」，其餘只能靠重新載入才會反映到畫面
           const _LIVE = new Set(["tv_drawings_v2", "sysColors", "drawColorByTf",
                                  "chartColors", "chartStyles", "chartLineStyles",
-                                 "chartColors_m", "chartStyles_m", "chartLineStyles_m",
                                  // lastSymbol 走 loadLastSymbol(true)+loadData() 當場切過去，不必重載
                                  "lastSymbol",
                                  // 自訂快捷鍵／快捷繪圖列：各有重讀重畫的入口 → 不必為了它整頁重載

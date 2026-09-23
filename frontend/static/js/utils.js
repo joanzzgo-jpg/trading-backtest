@@ -81,26 +81,33 @@ function isMobileUI() {
     });
   } catch (e) {}
 })();
-function _isMobilePrefs() {
-  return isMobileUI();
-}
-function _prefKey(base) { return _isMobilePrefs() ? base + "_m" : base; }
+/* ★ 2026-09-23：**電腦／手機兩份色盤合併成一份**（使用者：「兩份從此合一，不再分電腦/手機」）。
+   原本 `_prefKey()` 會依 `isMobileUI()` 讀寫 `chartColors_m` 那組 —— 但那個判準的第一條是
+   **「視窗寬 ≤1180px」**（給版面用的、使用者自己就用桌機縮窗測手機版），拿它來切「顏色偏好」
+   等於：視窗一窄、或換到 iPad/手機，配色就整組換掉，而畫面上沒有任何提示。
+   使用者的回報是「線上一直跳回紅色背景」—— 實測他的帳號裡電腦那份 chartBg 是 #000000、
+   手機那份是 #eb4747（紅），iPad 上讀到的就是後者。
+   ⚠ 遷移：只有 `_m` 那份的人（只用過手機）要把它當起點，否則他的配色會整組不見。
+   ⚠ 舊的 `_m` 三個 key 在遷移後就刪掉：留著只會變成死資料，還會跟著帳號快照上雲端。 */
+const _PREF_KEYS = ["chartColors", "chartStyles", "chartLineStyles"];
 function savePrefs() {
   // 極簡模式禁止寫入 chart 偏好——避免暫時套上的純白配色汙染使用者的正常模式設定
   if (document.documentElement.classList.contains("perf-mode")) return;
   try {
-    localStorage.setItem(_prefKey("chartColors"),     JSON.stringify(C));
-    localStorage.setItem(_prefKey("chartStyles"),     JSON.stringify(S));
-    localStorage.setItem(_prefKey("chartLineStyles"), JSON.stringify(LINE_STYLES));
+    localStorage.setItem("chartColors",     JSON.stringify(C));
+    localStorage.setItem("chartStyles",     JSON.stringify(S));
+    localStorage.setItem("chartLineStyles", JSON.stringify(LINE_STYLES));
   } catch {}
   if (window._acctTouch) window._acctTouch();   // 登入中 → debounce 同步到雲端
 }
 function loadPrefs() {
-  // 讀平台專屬 key；手機首次（尚無 _m）沿用既有(電腦)設定當起點，之後一改即分流。
   const _get = base => {
-    const k = _prefKey(base);
-    let raw = localStorage.getItem(k);
-    if (raw == null && k !== base) raw = localStorage.getItem(base);
+    let raw = null;
+    try {
+      raw = localStorage.getItem(base);
+      // 遷移：沒有電腦那份、只有手機那份 → 拿手機那份當起點（否則只用過手機的人配色全沒了）
+      if (raw == null) raw = localStorage.getItem(base + "_m");
+    } catch (e) {}
     return raw || "{}";
   };
   try {
@@ -108,6 +115,10 @@ function loadPrefs() {
     Object.assign(S, JSON.parse(_get("chartStyles")));
     Object.assign(LINE_STYLES, JSON.parse(_get("chartLineStyles")));
   } catch {}
+  // 遷移完就把 _m 那三個清掉（本機清掉 → 帳號快照也不會再帶著它們上雲端）
+  try {
+    for (const k of _PREF_KEYS) if (localStorage.getItem(k + "_m") != null) localStorage.removeItem(k + "_m");
+  } catch (e) {}
 }
 
 function saveLastSymbol() {
