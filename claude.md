@@ -637,6 +637,34 @@ node scripts/check_fib_tool.js   # 需本機服務跑著；約 40 秒
   一律先把 null 正規化成 Infinity。
 ⚠ 判準一律問**產品自己的函式**（`drawingDist`／`_fibFmt`／`FIB_LEVELS`），不在測試裡複製公式。
 
+### 動到配色儲存／帳號快照同步後（守門員之二十六）
+```bash
+node scripts/check_palette_sync.js   # 需本機服務跑著；約 40 秒
+```
+2026-09-23 使用者：「我的 qwer 線上 railway 一直跳回紅色背景主背景」「而且我改完配色到黑色，下次還是跳紅色」。
+唯讀核對他的快照：`chartColors.chartBg = #000000`（電腦那份）、`chartColors_m.chartBg = #eb4747`（手機那份）。
+兩個環節串起來才會「改了又變回去」——
+①**兩份色盤**：舊 `savePrefs/loadPrefs` 用 `_prefKey()` 依 `isMobileUI()` 決定讀寫 `chartColors` 還是
+  `chartColors_m`，而 **iPad 一律手機款** → 永遠讀到紅的那份。已合一（只留不帶 `_m` 的三個 key，
+  `loadPrefs` 沒有電腦那份時拿 `_m` 當起點再刪掉）。
+②★★ **電腦會把紅的復活**：`_acctSnapshot()` 推的是**整包 localStorage**。電腦上那顆
+  `chartColors_m`（早年從手機同步下來的）電腦自己永遠不會改它，卻每次 flush 都原封不動再推一次
+  → iPad 改成黑、下次開機下行又把紅的蓋回來，**畫面零跡象**。
+  ★★ 通則：**整包快照同步時，任何一台留著的死 key 都會被它一直復活。**
+  廢棄一個 key 必須同時做三件事：**本機刪**、**列入 `_PULL_SKIP`**、**讀取端改讀新 key** ——
+  少做第二件就永遠收斂不了（本機每次開機都刪，雲端每次開機都寫回來）。
+③**切到背景的推送必須用 `navigator.sendBeacon`**：iOS 把 app 切到背景會**殺掉進行中的 `fetch`**
+  → `_acctFlush()` 送不出去；而下次開啟是全新開機、`_acctSeenTs` 是 0 →
+  下行**一定會套用雲端那份** → 剛改的顏色被雲端舊值蓋回去，同樣是「下次又變回來」。
+  `_acctBeaconFlush()` 成功就清掉 debounce 計時器；送不出去（>64KB）才退回 fetch。
+  ⚠ iOS Safari 常常只發 **`pagehide`**、不發 `visibilitychange`（切 app／鎖螢幕／關分頁）→ 兩個都要掛。
+⚠ ④ 沒辦法在 headless 裡重現「iOS 殺掉 fetch」（桌面 Chrome 的 fetch 會正常完成）→ 判準落在
+  **送出的機制**（有沒有呼叫 sendBeacon）。這是刻意取捨：差別本來就只在背景化時會不會被殺。
+⚠ 線上殘留的死 `chartColors_m` 會由本機的 `_relay_snapshot` **鏡像**自動刪掉（本機沒有的設定鍵，上游也刪），
+  不必手動去動真實帳號。
+已植回四項舊行為證明會失敗（①②③④a 全紅、離開碼 1）。
+⚠ 回傳碼 2＝進不了場／假帳號建不起來（測試不成立），不是通過。⚠ 一律用假帳號名 `__gk_palette_test__`。
+
 ### 動到盈虧比工具（longpos/shortpos）後（守門員之二十三）
 ```bash
 node scripts/check_pos_tool.js   # 需本機服務跑著；約 40 秒

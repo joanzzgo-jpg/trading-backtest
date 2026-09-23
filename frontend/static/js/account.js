@@ -178,6 +178,26 @@ window._acctTouch = function () {
   clearTimeout(_acctSyncTimer);
   _acctSyncTimer = setTimeout(_acctFlush, 2500);
 };
+/* 切到背景／關閉分頁時的推送。★★ 必須用 `sendBeacon`，不可以用 `fetch`
+   （2026-09-23 使用者：「我改完配色到黑色，下次還是跳紅色」）——
+   iOS/Safari 把 app 切到背景時會**殺掉進行中的 fetch**，`_acctFlush()` 送不出去；
+   而下次開啟 app 是全新開機、`_acctSeenTs` 是 0 → 下行**一定會套用雲端那份** →
+   剛改的顏色就被雲端的舊值蓋回去。使用者看到的就是「改了，下次又變回來」。
+   ⚠ sendBeacon 有大小上限（約 64KB）；送不出去會回 false → 退回原本的 fetch。
+   ⚠ 成功就把 debounce 計時器清掉，免得回前景後又推一次舊快照。 */
+function _acctBeaconFlush() {
+  if (!_ACCT.name) return false;
+  try {
+    if (!navigator.sendBeacon) return false;
+    const body = new Blob([JSON.stringify({ name: _ACCT.name, data: _acctSnapshot() })],
+                          { type: "application/json" });
+    const ok = navigator.sendBeacon("/api/account/sync", body);
+    if (ok) { clearTimeout(_acctSyncTimer); _acctSetSyncState("saved"); }
+    return ok;
+  } catch (e) { return false; }
+}
+window._acctBeaconFlush = _acctBeaconFlush;               // 測試用
+
 async function _acctFlush() {
   if (!_ACCT.name) return;
   _acctSetSyncState("syncing");
@@ -497,9 +517,13 @@ async function initAccount() {
       };
     }
   } catch (e) {}
+  /* ⚠ iOS Safari 常常只發 `pagehide`、不發 `visibilitychange`（切 app、鎖螢幕、關分頁）→
+     兩個都要掛，否則那幾種情況一樣推不出去。重複送一次無害（內容相同）。 */
+  window.addEventListener("pagehide", () => { if (_ACCT.name) _acctBeaconFlush(); });
   document.addEventListener("visibilitychange", () => {
     if (!_ACCT.name) return;
-    if (document.hidden) { _acctFlush(); }
+    // 離開前景：beacon 優先（fetch 會被 iOS 殺掉，見 _acctBeaconFlush）
+    if (document.hidden) { if (!_acctBeaconFlush()) _acctFlush(); }
     else {
       // 切回前景 → 拉雲端最新自選覆蓋本機並刷新（讓另一台改的自選即時跟上）
       _acctPullWatch(_ACCT.name, null, false).then(() => {
