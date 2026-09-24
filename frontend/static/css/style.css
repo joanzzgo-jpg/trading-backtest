@@ -3209,10 +3209,13 @@ html:not(.perf-mode).sky-night #weatherStage { opacity: 0.6; }
   border-color: rgba(255,145,71,.42) !important;
 }
 
-/* orange focus glow on search */
+/* ⚠ 2026-09-25 使用者：「按搜尋框會出現一圈橘色」「我不要那個匡」。
+   原本這裡是橘色邊框 ＋ 3px 橘色光暈，再疊上 `input:focus-visible` 的 2px 橘色 outline
+   （見本檔「鍵盤焦點」那段）—— 三層加起來就是他看到的那一圈。
+   焦點指示改回最低調的：只把邊框換成一般的 --border（游標閃爍本來就是文字框的焦點指示）。 */
 .sym-modal-search-wrap:focus-within {
-  border-color: #FF9147 !important;
-  box-shadow: 0 0 0 3px rgba(255,145,71,.20) !important;
+  border-color: var(--border) !important;
+  box-shadow: none !important;
 }
 
 /* orange scrollbar */
@@ -5771,6 +5774,22 @@ select:focus-visible {
 .ticker-item:focus-visible,
 .sym-result-item:focus-visible {
   box-shadow: var(--e-1);
+}
+/* ⚠⚠ 2026-09-25 文字輸入框排除掉那圈 outline（使用者：「我不要那個匡」）。
+   上面那段的註解寫著「:focus-visible → 滑鼠點擊不會多出一圈框」——
+   **那個假設對文字輸入框並不成立**：HTML 規範規定 <input type=text>/<textarea>
+   這類文字輸入元素連「滑鼠點擊」都會匹配 :focus-visible（不像按鈕只在鍵盤操作時才匹配）
+   → 使用者只是點一下搜尋框，就被一圈 2px 橘色外框框住。
+   ★ 拿掉不影響無障礙：文字輸入框本來就有**游標閃爍**當焦點指示，那是最通用的一種。
+   ⚠ 按鈕／連結／清單項目**不可**跟著拿掉：它們沒有游標，鍵盤 Tab 過去就真的看不到焦點在哪。 */
+input[type="text"]:focus-visible,
+input[type="number"]:focus-visible,
+input[type="date"]:focus-visible,
+input[type="search"]:focus-visible,
+input[type="password"]:focus-visible,
+input:not([type]):focus-visible,
+textarea:focus-visible {
+  outline: none;
 }
 
 /* ── ② 按下瞬間的回饋（手機沒有 hover，這是唯一的確認）── */
