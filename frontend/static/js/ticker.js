@@ -348,6 +348,10 @@ let _tkPollN = 0;
      時剛好成立 —— 幣安一冷卻降級就全錯，而那正是最不該出錯的時候。見 memory
      project_ticker-merge-key-display。 */
 function _tkFill(t) {
+  /* ★ display 與 symbol 相同的列（台股全部都是）後端會省略 display，在這裡補回來。
+     ⚠ 必須排在最前面：底下的 spot 推導讀的就是 display，順序反了台股會拿不到。
+     ⚠ 整包路徑是「先 _tkFill 再建合併鍵」（見 _tkMerge），所以補在這裡對 _id() 完全安全。 */
+  if (t.display === undefined && typeof t.symbol === "string") t.display = t.symbol;
   if (t.spot === undefined && typeof t.display === "string") t.spot = t.display.replace(".P", "");
   if (t.change_amt === undefined && typeof t.price === "number" && typeof t.open === "number")
     t.change_amt = t.price - t.open;
@@ -438,8 +442,13 @@ function _tkUrl(m, key, useSince) {
      因為部署後仍有一批「開著沒重整」的分頁跑著舊版 _tkMerge（整列覆蓋）——
      那種分頁一收到部分欄位就會把 symbol/open/volume 洗掉、畫面凍住而且零錯誤
      （2026-08-19 使用者回報「合約行情不動了」就是這個）。 */
+  /* nd=1＝「display 沒送我會自己補成 symbol」。台股 2700 檔每一列的 display 與 symbol
+     完全相同（實測 2700/2700），省掉後整包 gzip 67.9 → 58.1 KB（-14.5%）。
+     ★ 同 fd=1：後端預設照舊送，舊分頁不受影響（它們少了 display 會在
+       `t.display.toLowerCase()` 當場爆）。補回來的地方只有 _tkFill 一處。
+     ⚠ 整包也要帶（不像 fd 只在 since 分支）——最大的那一包正是整包。 */
   const hot = (m === "tw") ? _tkHotTw() : [];
-  return "/api/tickers?market=" + m
+  return "/api/tickers?market=" + m + "&nd=1"
        + ((useSince && _tkRev[key]) ? "&since=" + encodeURIComponent(_tkRev[key]) + "&fd=1" : "")
        + (hot.length ? "&hot=" + encodeURIComponent(hot.join(",")) : "");
 }

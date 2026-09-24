@@ -235,6 +235,27 @@ def hk_search(q: str = ""):
 _SLIM_MEMO = {}   # (market, rev) → rows
 
 
+def _drop_dup_display(rows):
+    """台股每一列的 `display` 與 `symbol` **完全相同**（實測 2700/2700 都是），等於把同一個字串送兩遍。
+    實測整包 gzip 67.9 → 58.1 KB（**省 14.5%**）——台股清單 2700 檔是全站最大的一份 JSON。
+    ⚠ **必須由前端帶 `nd=1` 明講它看得懂**，後端預設照舊送（同 `fd=1` 的教訓：
+      舊分頁少了 display 會在 `ticker.js` 的 `t.display.toLowerCase()` 當場爆）。
+      前端在**唯一的合併點** `_tkFill` 把它補回來 → 其餘二十幾個消費者一行都不必改。
+    ⚠ 只有「display 與 symbol 都在、而且相同」才省。差量列的合併鍵可能只帶 display 不帶 symbol
+      （見 live_data.get_delta）—— 那種 d != s（s 是 None），照原樣保留，不可以誤砍。
+    ⚠ 對加密是自動 no-op：它的 symbol 是 `BTCUSDT`、display 是 `BTC/USDT.P`，本來就不同。"""
+    out = []
+    for t in rows:
+        d = t.get("display")
+        if d is not None and d == t.get("symbol"):
+            o = dict(t)
+            o.pop("display", None)
+            out.append(o)
+        else:
+            out.append(t)
+    return out
+
+
 def _slim_crypto_rows(rows, market, rev):
     """砍可推導欄位＋浮點瘦身。以 (market, rev) 記憶，同一版只算一次（多人同時輪詢只付一次 CPU）。"""
     ck = (market, rev)
@@ -304,11 +325,13 @@ def _direct_tickers(market: str) -> list:
 
 
 @router.get("/tickers")
-def get_tickers(response: Response, market: str = "futures", since: str = "", fd: str = "", hot: str = ""):
+def get_tickers(response: Response, market: str = "futures", since: str = "", fd: str = "", hot: str = "",
+                nd: str = ""):
     """取得標的列表：優先從記憶體即時快取讀取，啟動初期才 fallback 至直接 API。
     since=上次回應的 rev token → 只回「有變動的標的」(delta:true)＋新 token；
     token 失效(重啟/別的worker/太舊/無資料) → 自動回整包。crypto 1s/tw 3s 輪詢頻寬大減、行為不變。
     fd=1 → 前端表明「我看得懂欄位級差量」(只回真的變了的欄位，再省 55%)。
+    nd=1 → 前端表明「display 沒送我會自己補成 symbol」(台股整包再省 14.5%，見 _drop_dup_display)。
     ⚠ 沒帶 fd 一律回舊格式(整列)：見 live_data.get_delta 的說明——舊分頁的合併是「整列覆蓋」，
       收到部分欄位會把 symbol/open/volume 洗掉、畫面凍住且零錯誤(2026-08-19 使用者實際踩到)。"""
     from utils.live_data import (get as live_get, has_data, has_tw_data, get_delta,
@@ -330,12 +353,17 @@ def get_tickers(response: Response, market: str = "futures", since: str = "", fd
                 d = get_delta("tw", since, fields=(fd == "1"))
                 if d is not None:   # delta＝台股變動檔＋台指期三兄弟一律附上（客戶端靠 symbol 合併）
                     d["tickers"] = (futs or []) + d["tickers"]
+                    if nd == "1":
+                        d["tickers"] = _drop_dup_display(d["tickers"])
                     d["source"] = "live"
                     d["ts"] = snapshot_ts()
                     return d
             # ⚠ 台股這條原本**沒回 ts** → 前端的「相位對齊」（把下一次輪詢排在伺服器剛更新完之後）
             #   對台股整個沒生效，只能固定 3 秒亂打、平均白白慢半拍。2026-09-18 補上。
-            out = {"tickers": (futs or []) + live_get("tw"), "source": "live",
+            _tw_rows = (futs or []) + live_get("tw")
+            if nd == "1":
+                _tw_rows = _drop_dup_display(_tw_rows)
+            out = {"tickers": _tw_rows, "source": "live",
                    "ts": snapshot_ts()}
             tok = delta_token("tw")
             if tok:

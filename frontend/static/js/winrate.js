@@ -757,7 +757,10 @@ setTimeout(() => {
 ══════════════════════════════════════════ */
 (function () {
   const STORE = "kv";
-  const MAX_SNAPS = 12;   // 最近 12 個(標的×時框)快照——夠容納「當前標的的常用時框」預抓(BTC/ETH/XAUT 秒切)
+  /* 最近 N 個(標的×時框)快照。2026-09-24 由 12 放大到 30：原本只快取「當前標的的常用時框」,
+     現在還要容納自選(最多 8 檔)與停留前 3 名 —— 留 12 的話它們會互相踢掉,等於白抓。
+     一筆約 1500 根 K 棒 + 整份勝率 ≈ 0.2MB → 30 筆約 6MB,IndexedDB 吃得下。 */
+  const MAX_SNAPS = 30;
   function _idb() {
     return new Promise((res, rej) => {
       const q = indexedDB.open("ahh_snapshot", 1);
@@ -818,13 +821,23 @@ setTimeout(() => {
     _get(key).then(s => {
       try {
         if (myGen !== _gen) return;                                        // 已被真資料/新載入取代
-        if (!s || !s.bars || !s.bars.length || !s.wr) return;
+        /* ★ 2026-09-24：容許「只有 K 棒、沒有勝率」的快照。
+           自選／常看清單的預抓只抓 K 棒（勝率 payload 單筆 101~222KB，抓一輪要 700KB，
+           而使用者要的是「歷史資料存在裝置」，不是勝率）→ 這種快照照樣要能秒畫出 K 棒，
+           標記層就讓它照常走網路。⚠ 沒有 wr 時**整段圖層渲染要跳過**，不可以拿 undefined
+           去餵 _render*：那會把既有圖層清掉（＝「切標的後標記消失」那類 bug 的反面）。 */
+        if (!s || !s.bars || !s.bars.length) return;
         if (Date.now() - (s.at || 0) > 7 * 86400000) return;               // 超過 7 天太舊，不畫
         if (typeof candleSeries === "undefined" || !candleSeries) return;
         if (key !== _uiKey()) return;                                      // 期間又切了標的
         ohlcvData = s.bars;
         if (typeof _rebuildTimeIndex === "function") _rebuildTimeIndex();
         renderAll(ohlcvData);
+        if (!s.wr) {                                   // 只有 K 棒的快照：畫完就好，標記等網路
+          if (typeof _scheduleRenderDrawings === "function") _scheduleRenderDrawings();
+          if (typeof showLoading === "function") showLoading(false);
+          return;
+        }
         const c = s.wr;   // 與 _fetchWinRateNow 快取命中分支同一組層,少一層就是舊標記殘留
         _wrCacheLast = c;
         _renderFVGTrades(c.fvg_trades);
@@ -845,10 +858,76 @@ setTimeout(() => {
   // ══ 背景預抓「當前標的的常用時框」→ 存成快照 → 切時框接近 TV 的瞬間 ══
   //   當你在看 BTC/ETH/XAUT,idle 時偷偷把它其他常用時框的 K棒+勝率抓好 _put 成快照;
   //   之後切過去 _snapPaint 秒畫(再由真資料更新)。只對這三個高頻標的做,避免濫抓。
-  const _PREFETCH_SYMS = ["BTC/USDT", "ETH/USDT", "XAUT/USDT"];
+  /* ★ 2026-09-24 使用者：「如果一個使用者常常打開只看 a,b 等標的，就設計成下載歷史資料
+     在該使用者的裝置，這樣歷史 api 不用另外打」。
+     原本這裡寫死 ["BTC/USDT","ETH/USDT","XAUT/USDT"] 且 `market !== "crypto"` 直接 return
+     → **台股／美股／港股整個被排除在外**，而且不管使用者實際在看什麼。
+     改成「看這台裝置上你**真的花時間在看**的前幾名」——
+     ⚠ 用**停留時間**不用「開啟次數」：翻找標的時會連續點開十幾檔，用次數會把「隨手點過」
+       算成常用；而 _prefetchTick 本來就每 6 秒跑一次，直接在這裡累計＝零額外掛勾、零熱路徑成本。
+     ⚠ 請求量**完全不變**：照樣 idle 才抓、每個 tick 最多抓一個、只抓「當前標的」的其他時框。
+       變的只是「誰有資格」，所以不會多打後端。
+     ⚠ 分數要衰減，否則三個月前的習慣會永遠佔著前三名。 */
+  const _USE_KEY = "symUse";        // 裝置本地（在 _ACCT_SKIP 裡，不上雲端：手機/電腦看的東西本來就不同）
+  const _USE_TOP = 3;               // 只讓前 3 名有資格 —— 維持今天的請求量級
+  const _USE_DECAY = 0.995;         // 每次記分全體衰減，約 140 個 tick（≈14 分鐘）半衰
+  const _USE_MAX = 40;              // 表格上限，避免無限長大
+  function _useLoad() {
+    try { const o = JSON.parse(localStorage.getItem(_USE_KEY) || "{}"); return (o && typeof o === "object") ? o : {}; }
+    catch (e) { return {}; }
+  }
+  function _useBump(k) {
+    const o = _useLoad();
+    for (const x in o) o[x] *= _USE_DECAY;
+    o[k] = (o[k] || 0) + 1;
+    const ks = Object.keys(o).sort((a, b) => o[b] - o[a]).slice(0, _USE_MAX);
+    const out = {}; for (const x of ks) if (o[x] > 0.05) out[x] = Math.round(o[x] * 1000) / 1000;
+    try { localStorage.setItem(_USE_KEY, JSON.stringify(out)); } catch (e) {}
+    return out;
+  }
+  function _useTop(o) {
+    return Object.keys(o).sort((a, b) => o[b] - o[a]).slice(0, _USE_TOP);
+  }
+  /* 時框也用同一套「學這台裝置真的在用什麼」。
+     ★ 為什麼要有這個：勝率 payload 很大（實測 4h 222KB／1h 123KB／15m 108KB／5m 101KB），
+       把「正在看的那一檔」的 5 個時框全預抓要 **581KB** —— 跟整個冷載同一個量級。
+       以前只有 3 檔寫死的加密會觸發所以沒人在意；改成「你常看的標的」之後變成人人有份。
+     → 只對**你真的用過的時框**抓勝率（前 2 名），其餘只抓 K 棒。
+       只看日線的人從此一毛都不必付；常在 1h/4h 之間切的人照樣秒開。
+     ⚠ 用「真的切過去看」當訊號，不是猜「相鄰時框」—— 猜的話對只看日線的人永遠是錯的。 */
+  const _TFU_KEY = "tfUse", _TFU_TOP = 2;
+  function _tfBump(tf) {
+    if (!tf) return {};
+    let o = {};
+    try { o = JSON.parse(localStorage.getItem(_TFU_KEY) || "{}") || {}; } catch (e) { o = {}; }
+    for (const x in o) o[x] *= _USE_DECAY;
+    o[tf] = (o[tf] || 0) + 1;
+    const out = {};
+    for (const x of Object.keys(o).sort((a, b) => o[b] - o[a]).slice(0, 8))
+      if (o[x] > 0.05) out[x] = Math.round(o[x] * 1000) / 1000;
+    try { localStorage.setItem(_TFU_KEY, JSON.stringify(out)); } catch (e) {}
+    return out;
+  }
+  const _tfTop = o => Object.keys(o).sort((a, b) => o[b] - o[a]).slice(0, _TFU_TOP);
   const _PREFETCH_TFS = ["1d", "4h", "1h", "15m", "5m"];
   const _preDone = {};   // key → 時戳,避免同一 key 反覆抓(5 分鐘內不重抓)
-  async function _prefetchTF(market, symbol, exchange, tf) {
+  const _WL_MAX = 8;     // 自選最多預抓前 8 檔：20 檔 ×5 時框 ×(K棒+勝率) 會排出上百個請求
+  const _SNAP_FRESH = 6 * 60 * 60 * 1000;            // 快照 6 小時內算新鮮，不重抓
+  function _wlForPrefetch() {
+    try {
+      const wl = JSON.parse(localStorage.getItem("watchlist") || "[]");
+      if (!Array.isArray(wl)) return [];
+      return wl.filter(w => w && w.symbol).slice(0, _WL_MAX).map(w => ({
+        market: w.market || "crypto", symbol: String(w.symbol).trim(),
+        exchange: w.exchange || w.exch || "pionex",
+      }));
+    } catch (e) { return []; }
+  }
+  async function _hasFreshSnap(key) {
+    const v = await _get(key);
+    return !!(v && v.at && Date.now() - v.at < _SNAP_FRESH);
+  }
+  async function _prefetchTF(market, symbol, exchange, tf, withWr) {
     const key = [market, symbol, exchange, tf].join("|");
     if (Date.now() - (_preDone[key] || 0) < 5 * 60 * 1000) return;
     _preDone[key] = Date.now();
@@ -862,6 +941,12 @@ setTimeout(() => {
       const oj = await oRes.json();
       const bars = oj.data;
       if (!bars || !bars.length) return;
+      /* 只抓 K 棒就收工（自選／常看清單走這條）。實測勝率 payload 單筆 101~222KB，
+         抓滿一輪 700KB —— 跟整個冷載同一個量級，不該替使用者付。 */
+      if (!withWr) {
+        await _put(key, { key, bars: bars.slice(-1500), at: Date.now() }).catch(() => {});
+        return;
+      }
       // 勝率(vw=8000＝首屏視窗;切過去初次 fetchWinRate 同 vw → 快照與之對得上)
       const p = new URLSearchParams({ market, symbol, exchange, timeframe: tf,
         vw: "8000", proto_min: String(typeof _wrProtoMin !== "undefined" ? _wrProtoMin : 0.0005),
@@ -873,8 +958,21 @@ setTimeout(() => {
       await _put(key, { key, bars: bars.slice(-1500), wr, at: Date.now() }).catch(() => {});
     } catch (e) {}
   }
+  /* ⚠ 省流量／慢網路不預抓（2026-09-24 改成「任何常看的標的」之後才需要這道）：
+     以前只有 3 檔加密會觸發，現在你待著的任何標的都會 → 一檔約 5 個時框 ×（K棒+勝率）≈ 275KB。
+     桌面沒差，但行動網路上那是替使用者做的決定。`saveData` 是使用者自己開的「資料節省」，
+     2g/3g 則是連首屏都還在吃力的情況 —— 兩者都直接跳過，功能不壞，只是少了秒切。 */
+  function _prefetchAllowed() {
+    try {
+      const c = navigator.connection;
+      if (!c) return true;                       // 不支援就當可以（桌面 Safari/Firefox）
+      if (c.saveData) return false;
+      return !/(^|-)(2g|slow-2g|3g)$/.test(c.effectiveType || "");
+    } catch (e) { return true; }
+  }
   async function _prefetchTick() {
     if (document.hidden) return;
+    if (!_prefetchAllowed()) return;
     if (typeof replayActive !== "undefined" && replayActive) return;
     if (typeof _wrInFlight !== "undefined" && _wrInFlight) return;       // 使用者的勝率請求優先,不搶
     if (typeof _bgLoadInProgress !== "undefined" && _bgLoadInProgress) return;
@@ -883,14 +981,44 @@ setTimeout(() => {
     const market = document.getElementById("marketSelect")?.value || "crypto";
     const symbol = document.getElementById("symbolInput")?.value?.trim() || "";
     const exchange = document.getElementById("exchangeSelect")?.value || "pionex";
-    if (market !== "crypto" || !_PREFETCH_SYMS.includes(symbol)) return;  // 只對三個高頻標的
-    // 找第一個「非當前時框、且沒新鮮快照」的常用時框,抓一個就好(每 tick 抓一個,不轟後端)
+    if (!symbol) return;
+    const score = _useBump([market, symbol, exchange].join("|"));   // 標的停留計分
+    const tfScore = _tfBump((typeof currentTF !== "undefined" && currentTF) ? currentTF : "");
+    const wrTfs = _tfTop(tfScore);                                  // 只有這幾個時框值得連勝率一起抓
+
+    /* 優先序（2026-09-24 使用者：「加入自選的必要做優先歷史載入下載」）：
+         ① 你**正在看**的標的的其他時框 —— 切時框是最即時的回饋，先顧這個
+         ② **自選**裡還沒有快照的標的（各抓 1 個時框）—— 使用者明確標記要盯的
+         ③ 停留分數前 3 名裡還沒有快照的
+       ⚠ 每個 tick 還是**只抓一個**、idle 才抓、省流量模式不抓 → 請求「速率」完全沒變，
+         變的只是排隊順序與涵蓋範圍。
+       ⚠ ②③ 只抓**一個時框**（你最後在看的那個）：整組 5 個時框只對「正在看的那一檔」做，
+         否則一個 20 檔的自選會排出 100 個請求。 */
+    const curTf = (typeof currentTF !== "undefined" && currentTF) ? currentTF : "1d";
+    const jobs = [];
+    // ① 正在看的：其他常用時框
     for (const tf of _PREFETCH_TFS) {
-      if (tf === (typeof currentTF !== "undefined" ? currentTF : "")) continue;
-      const key = [market, symbol, exchange, tf].join("|");
+      // 正在看的那一檔：**你用過的時框**才連勝率一起（切過去要秒開），其餘只抓 K 棒
+      if (tf !== curTf) jobs.push([market, symbol, exchange, tf, wrTfs.includes(tf)]);
+    }
+    // ② 自選（依清單順序＝使用者自己排的優先序），最多 _WL_MAX 檔
+    for (const w of _wlForPrefetch()) {
+      if (w.symbol === symbol && w.market === market) continue;     // 正在看的已在 ① 裡
+      jobs.push([w.market, w.symbol, w.exchange, curTf, false]);           // 自選：只要歷史 K 棒
+    }
+    // ③ 停留分數前 3 名
+    for (const k of _useTop(score)) {
+      const [m2, s2, e2] = k.split("|");
+      if (s2 === symbol && m2 === market) continue;
+      jobs.push([m2, s2, e2, curTf, false]);                               // 常看的：只要歷史 K 棒
+    }
+    for (const [m, sy, ex, tf, wr] of jobs) {
+      if (!sy) continue;
+      const key = [m, sy, ex, tf].join("|");
       if (Date.now() - (_preDone[key] || 0) < 5 * 60 * 1000) continue;
-      await _prefetchTF(market, symbol, exchange, tf);
-      break;
+      if (await _hasFreshSnap(key)) continue;        // 已經有快照就不重抓
+      await _prefetchTF(m, sy, ex, tf, wr);
+      break;                                          // 一個 tick 只抓一個，不轟後端
     }
   }
   // 進場穩定後開始,每 6 秒抓一個(idle 才抓、一次一個);與加速器錯開

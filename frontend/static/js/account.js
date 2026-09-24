@@ -19,7 +19,9 @@ let _acctLSHooked = false;
 //   它每 2 秒觸發一次 _acctTouch → 2.5s 的 debounce **永遠被重新計時**，_acctFlush 幾乎不會執行
 //   （＝開著頁面時整包雲端同步形同失效，只剩切到背景那次 flush）；而且它是純裝置本地的快取，
 //   推上雲端只是白白灌大快照。症狀：勝率欄的同步指示永遠停在「同步中…」。
-const _ACCT_SKIP = new Set(["acctName", "wxCoords", "notifyFeedSeen", "tradeKey", "watchlist", "_tc"]);
+// symUse=這台裝置「常看哪些標的」的計分表（winrate.js 預抓用）。裝置本地：手機跟電腦在看的
+//   東西本來就不同，而且它每 6 秒就可能寫一次 → 跟著上雲端會把同步 debounce 一直重設（同 _tc）。
+const _ACCT_SKIP = new Set(["acctName", "wxCoords", "notifyFeedSeen", "tradeKey", "watchlist", "_tc", "symUse", "tfUse"]);
 /* 「照樣進快照上雲、但**不主動觸發**推送」的 key。
    ★ 2026-08-17 lastSymbol：使用者要「上次看的畫面跨裝置同步」，所以它必須上雲；但它現在
      每次平移/縮放（停手 1.2 秒）就寫一次 —— 若跟著觸發 _acctTouch，2.5 秒的 debounce 會被

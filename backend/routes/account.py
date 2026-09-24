@@ -493,6 +493,34 @@ def _kick_relay(name: str, snap: dict):
     threading.Thread(target=_relay_all, args=(name, snap), daemon=True).start()
 
 
+# 純裝置本地、**伺服器端沒有任何讀者**的 key —— 進了雲端只是死重。
+#   2026-09-24 量到：帳號 Abc 的快照 125.8 KB，其中 `_tc`（行情快取）就佔 106.4 KB＝**84%**，
+#   而 `/api/account/pull` 是整包回傳 → 那 84% 每次開機都被下載、然後被前端 _PULL_SKIP 原封丟掉。
+#   它是 2026-06-12 那次同步留下的化石（`_tc` 2026-08-05 才被加進 _ACCT_SKIP）——
+#   現行前端早就不上傳了，但**舊分頁／舊版本／壞掉的客戶端隨時可以再送上來**，
+#   而且沒有任何人會把它清掉。→ 在寫入邊界擋掉，這扇門就永遠關上了。
+#   ★ 同 claude.md「整包快照同步時，任何一台留著的死 key 都會被它一直復活」：
+#     光靠前端不上傳不夠，**邊界要有一道**。
+# ⚠⚠ `watchlist` **不可以**列進來：`routes/notify.py` 會從快照讀它決定要通知哪些標的
+#   （`_coerce((data or {}).get("watchlist"))`）—— 剝掉就是靜默關掉自選標的的訊號通知。
+#   同理 `notifyPrefs` 也有讀者。只放「account.js 註解明講是真正裝置本地」且全後端零讀者的那三個。
+# ⚠ `tradeKey`/`acctName` 刻意不動：前者是交易口令（碰它等於動認證路徑），後者只有幾十位元組。
+_DEVICE_LOCAL = {"_tc", "wxCoords", "notifyFeedSeen"}
+
+
+def _strip_device_local(data: dict) -> dict:
+    if not isinstance(data, dict):
+        return data
+    drop = [k for k in data if k in _DEVICE_LOCAL]
+    if not drop:
+        return data
+    out = {k: v for k, v in data.items() if k not in _DEVICE_LOCAL}
+    saved = sum(len(str(data[k])) for k in drop)
+    if saved > 4096:                      # 只在真的省到東西時出聲，免得每次同步都洗版
+        print(f"  🧹 快照瘦身：丟掉純裝置本地的 {', '.join(drop)}（省 {saved/1024:.1f} KB）")
+    return out
+
+
 def _merge_drawings_on_sync(name: str, incoming: dict) -> dict:
     """整包快照寫入前，**繪圖那一格改成逐標的合併**，不讓一台裝置整份取代。
 
@@ -547,7 +575,7 @@ def sync(req: SyncReq):
     name = _norm_name(req.name)
     if not _valid_name(name):
         raise HTTPException(status_code=400, detail="帳號名稱不正確")
-    data = _merge_drawings_on_sync(name, req.data or {})
+    data = _strip_device_local(_merge_drawings_on_sync(name, req.data or {}))
     conn, ph = _db()
     try:
         cur = conn.execute(f"UPDATE accounts SET data={ph}, updated_at={ph} WHERE name={ph}",

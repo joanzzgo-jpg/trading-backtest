@@ -1051,6 +1051,117 @@ function _bgScheduleIndicators() {
   }, 800);
 }
 
+
+/* ══════════════════════════════════════════
+   深度歷史快取（IndexedDB `ahh_hist`）— 2026-09-24
+   使用者：「如果一個使用者常常打開只看 a,b 等標的，就設計成下載歷史資料在該使用者的裝置，
+           這樣歷史 api 不用另外打」。
+   實測動機：切到 5m 時 `/api/ohlcv` 的深度歷史那一發是 **140.2 KB**（limit=0 的往回補載），
+   而那些是**永遠不會再變的歷史 K 棒** —— 每次開同一個標的都重抓一次。
+   ★ 設計上刻意做成「**擋在 fetch 前面的一層**」，不是去改合併邏輯：
+     呼叫端拿到的 JSON 形狀完全相同 → `_bgLoadGen` 世代守衛、接縫檢查、修剪遮罩、
+     `replayActive` 那些全部原封不動。那條路是本檔記錄過最多事故的地方（往舊滑跳動、
+     heap 1GB、單幀 1127ms），能不碰就不碰。
+   ⚠ 只快取**已經定案**的區間：`end` 必須比現在早 _HIST_SAFE_MS（6 小時）。
+     否則會把「還在形成/剛收盤還會被修正」的那幾根固化進本機，變成使用者說的
+     「K 棒不一樣、要清快取才好」——比沒有快取更糟。
+   ⚠ 以「涵蓋範圍」判命中，不是以請求字串當 key：區塊邊界是從「目前最舊那根」往回推的，
+     每天、每次載入都會漂移 → 用字串當 key 幾乎不會命中。改成每個(標的|時框)存一段
+     連續的已知歷史，請求落在裡面就直接切一段回去。
+   ⚠ 任何一步失敗都要**退回真的去打網路**：快取壞掉不可以讓圖表壞掉。
+══════════════════════════════════════════ */
+const _HIST_DB = "ahh_hist", _HIST_STORE = "ranges";
+const _HIST_SAFE_MS = 6 * 3600 * 1000;   // end 比現在早這麼多才算定案
+const _HIST_MAX_BARS = 20000;            // 每個(標的|時框)最多留這麼多根，避免無限長大
+const _HIST_MAX_KEYS = 24;               // 最多這麼多個(標的|時框)，LRU 汰換
+let _histDbP = null;
+function _histIdb() {
+  if (!_histDbP) _histDbP = new Promise((res, rej) => {
+    const q = indexedDB.open(_HIST_DB, 1);
+    q.onupgradeneeded = () => q.result.createObjectStore(_HIST_STORE);
+    q.onsuccess = () => res(q.result);
+    q.onerror = () => rej(q.error);
+  }).catch(e => { _histDbP = null; throw e; });
+  return _histDbP;
+}
+const _histGet = k => _histIdb().then(db => new Promise(res => {
+  const q = db.transaction(_HIST_STORE, "readonly").objectStore(_HIST_STORE).get(k);
+  q.onsuccess = () => res(q.result || null); q.onerror = () => res(null);
+})).catch(() => null);
+const _histPut = (k, v) => _histIdb().then(db => new Promise((res, rej) => {
+  const tx = db.transaction(_HIST_STORE, "readwrite"), os = tx.objectStore(_HIST_STORE);
+  os.put(v, k);
+  const gk = os.get("__keys__");                       // LRU 索引（同一交易內修剪）
+  gk.onsuccess = () => {
+    let ks = Array.isArray(gk.result) ? gk.result : [];
+    ks = [k].concat(ks.filter(x => x !== k));
+    for (const x of ks.slice(_HIST_MAX_KEYS)) os.delete(x);
+    os.put(ks.slice(0, _HIST_MAX_KEYS), "__keys__");
+  };
+  tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+})).catch(() => {});
+
+function _histKeyOf(b) {
+  // indicators 要進 key：兩種回應的欄位數不同（9 vs 17），混用會讓副圖拿不到資料
+  return [b.market, b.symbol, b.exchange, b.timeframe, b.indicators ? "i1" : "i0"].join("|");
+}
+/** 往回補載專用的取得：命中本機就不打網路；沒中就打網路並把結果併進本機。
+ *  回傳與 `res.json()` 相同形狀的物件，失敗回 null（呼叫端照原本的 break 處理）。 */
+async function _histFetchJson(body, signalOk) {
+  const key = _histKeyOf(body);
+  /* ⚠⚠ 這裡有**兩種時間基準**，混用會靜默削掉資料（我第一版就是，實測同一區間
+       網路回 4032 根、快取只回 3457 根，最舊那端少了 8 小時）：
+     ① 「涵蓋範圍」比較必須全部用 `toTime()`＝**圖表時間（+8 小時）** ——
+        `from`/`to` 是 toTime() 存的，而 body.start/end 本來就是由 toIso(圖表時間) 產生的，
+        所以 toTime() 正好把它轉回同一個基準。
+     ② 「這段是不是已經定案」要跟 `Date.now()` 比，那是**真實 UTC**，不能用圖表時間
+        （差 8 小時＝會把還在變動的最近 8 小時當成定案存起來）。
+     見 claude.md「toTime() 回的是圖表時間，不可直接跟 Date.now() 比」。 */
+  const sTs = toTime(body.start), eTs = toTime(body.end);                      // ① 圖表時間
+  const endUtcMs = Date.parse(body.end + (/[Z+]/.test(body.end) ? "" : "Z"));  // ② 真實 UTC
+  const settled = Number.isFinite(endUtcMs) && (Date.now() - endUtcMs) > _HIST_SAFE_MS;
+  if (settled) {
+    try {
+      const hit = await _histGet(key);
+      if (hit && hit.bars && hit.bars.length && hit.from <= sTs && hit.to >= eTs) {
+        /* ⚠ 只切「比 end 新的那一端」，**不要在 start 那端截斷**：呼叫端本來就會再
+           `filter(b => toTime(b.time) < existingEarliest)`，多給它一些只會讓補載走得更深，
+           少給就是靜默掉資料。原則：快取**永遠不可以比網路少**。 */
+        const out = hit.bars.filter(x => toTime(x.time) <= eTs);
+        if (out.length) { window._histHits = (window._histHits || 0) + 1; return { data: out, src: "idb" }; }
+      }
+    } catch (e) {}
+  }
+  let json = null;
+  try {
+    const res = await fetch("/api/ohlcv", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    });
+    if (!res.ok) return null;
+    json = await res.json();
+  } catch (e) { return null; }
+  window._histMiss = (window._histMiss || 0) + 1;
+  if (settled && json && json.data && json.data.length && (!signalOk || signalOk())) {
+    try {
+      const hit = await _histGet(key);
+      const seen = new Set();
+      const merged = (hit && hit.bars ? hit.bars : []).concat(json.data)
+        .filter(x => { const t = toTime(x.time); if (seen.has(t)) return false; seen.add(t); return true; })
+        .sort((a, b) => toTime(a.time) - toTime(b.time))
+        .slice(-_HIST_MAX_BARS);
+      if (merged.length) {
+        await _histPut(key, { bars: merged, from: toTime(merged[0].time),
+                              to: toTime(merged[merged.length - 1].time), at: Date.now() });
+      }
+    } catch (e) {}
+  }
+  return json;
+}
+window._histClear = () => _histIdb().then(db => new Promise(res => {
+  const tx = db.transaction(_HIST_STORE, "readwrite"); tx.objectStore(_HIST_STORE).clear();
+  tx.oncomplete = res; tx.onerror = res;
+})).catch(() => {});
+
 async function _bgLoadOlderBars(scrollTriggered = false) {
   if (!BG_TF.has(currentTF) || _bgLoadInProgress || !ohlcvData.length) return;
 
@@ -1106,18 +1217,13 @@ async function _bgLoadOlderBars(scrollTriggered = false) {
       const endTs   = currentEarliestTs - 1;
       const startTs = Math.max(endTs - chunkDays * 86400, targetStartTs);
 
-      const res = await fetch("/api/ohlcv", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const json = await _histFetchJson({
           market: snapMarket, symbol: snapSymbol,
           timeframe: snapTf,  exchange: snapExchange,
           start: toIso(startTs), end: toIso(endTs), limit: 0,
           indicators: !(typeof _subchartsHidden === "function" && _subchartsHidden()),
-        }),
-      });
-      if (myGen !== _bgLoadGen || !res.ok) break;
-      const json = await res.json();
+        }, () => myGen === _bgLoadGen);
+      if (myGen !== _bgLoadGen || !json) break;
       if (!json.data?.length || !guard() || myGen !== _bgLoadGen) break;
 
       const existingEarliest = toTime(ohlcvData[0].time);
