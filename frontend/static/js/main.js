@@ -82,7 +82,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     };
     const armReshow = () => { if (timer) clearInterval(timer); timer = setInterval(checkExpiry, 60000); };
     window._landingEnter = hide;   // 帳號鎖解鎖後接續開門進場（account.js 呼叫）
-    btn.addEventListener("click", () => {
+    const tryEnter = () => {
       if (scr.classList.contains("landing-entering")) return;
       // 未登入 → 點門先放大、跳鎖要求輸入帳號（未登入不能直接用主圖）。
       // _acctEnabled !== false：連狀態未知時也先擋，避免快速點擊繞過；確認停用才放行。
@@ -95,6 +95,30 @@ document.addEventListener("DOMContentLoaded", async () => {
       }
       // 已登入 或 帳號功能確認停用 → 直接開門進主圖
       hide();
+    };
+    btn.addEventListener("click", tryEnter);
+
+    /* ★ 2026-09-25 使用者：「在首頁時按 enter 或空白鍵可進入」。
+       走**與點大門完全相同**的 `tryEnter()` —— 未登入照樣先跳鎖，
+       鍵盤不會變成繞過登入檢查的後門。
+       ⚠ 焦點在輸入框時一律不接手：帳號欄的 Enter 是「送出帳號」（account.js `doUnlock`），
+         而空白鍵本來就要能打進字裡。
+       ⚠ 鎖已經開著時也不接手：那時 Enter 的語意是送出帳號，不是再開一次門。
+       ⚠ 焦點在某顆按鈕/連結上時不接手：瀏覽器本來就會把 Enter/Space 轉成那顆的 click，
+         接手等於同一個動作跑兩次。
+       ⚠ 空白鍵預設會捲動頁面 → 真的要進場那一刻才 preventDefault。
+       ⚠ 封面沒顯示時直接 return：圖表頁的空白鍵另有用途，不可被這裡吃掉。 */
+    document.addEventListener("keydown", e => {
+      if (e.key !== "Enter" && e.key !== " " && e.code !== "Space") return;
+      if (e.altKey || e.ctrlKey || e.metaKey) return;
+      if (!document.documentElement.classList.contains("landing-active")) return;
+      if (scr.style.display === "none" || scr.classList.contains("landing-entering")) return;
+      if (scr.classList.contains("landing-locking")) return;
+      const t = e.target;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      if (t && t.closest && t.closest("button, a")) return;
+      e.preventDefault();
+      tryEnter();
     });
     // 鎖開著時點門外暗區 → 取消、縮回（不進場）
     scr.addEventListener("click", e => {
