@@ -617,8 +617,13 @@ let _fvgPrimitive = null;
 let _stratMarkersPrim = null;   // 策略方向標記 primitive（多/空·破多空·順多空，隨 K 棒縮放、同步不抖）
 const _STRAT_MAX_SCALE = 2.5;   // 策略標籤放大倍率上限：放大主圖時標籤到此倍率就不再變大（避免過大）
 let _fvgShow = true;
-let _fvgLevelsShow = true;   // FVG 交易位階線主開關（預設開＝允許顯示，但只畫「被點選」那個缺口）
-let _fvgSelected = null;     // 目前點選的缺口（只有它畫止損/止盈線；null＝全部隱藏）
+/* ⚠ 2026-09-25 移除「點 FVG → 顯示該缺口的止盈/止損線」（使用者：「fvg 點下去上下會出現線條，
+   需要移除點擊會出現這些東西」）。連帶移除的有：`_fvgLevelsShow`／`_fvgSelected`、
+   primitive 裡畫那兩條水平虛線的區塊、以及 `subscribeClick` 訂閱與 `toggleFVGLevels()`。
+   ★ `toggleFVGLevels` 當時只掛在 window、**全站沒有任何 UI 或程式呼叫它**（死開關），
+     所以整組拿掉不會讓任何按鈕失效。
+   ⚠ 後端仍會送每個缺口的 tp/sl 欄位（`setFVGZones` 照常收下），只是不再畫 ——
+     要連傳輸一起省的話那是另一件事，得先確認沒有別的消費者。 */
 let _fvgMinW = 0;            // FVG 最小寬度%（使用者自定）：寬度 < 此值的缺口不畫（純顯示過濾，不影響策略）
 function _makeFVGPrimitive() {
   let _chart = null, _series = null, _req = null;
@@ -673,27 +678,7 @@ function _makeFVGPrimitive() {
           // 虛線邊框已移除(使用者:FVG 不要有虛線匡)→ 只留填色色塊。
           // 寬度% 數字：使用者要求不再顯示（缺口盒保留、只是不標寬度百分比文字）。
           // 「吃到 FVG 的點位」(pens 突破菱形) 使用者要求隱藏 → 不再畫。
-          // 交易位階線：止盈(綠=2W)、止損(紅=g-1頂端)，沿盒寬 x1→x2 畫水平虛線。
-          //   預設隱藏（缺口太多會洗版）→ 只有「被點選」的缺口才畫，避免主圖滿屏線。
-          if (_fvgLevelsShow && z === _fvgSelected) {
-            ctx.lineWidth = Math.max(1, hr);
-            ctx.setLineDash([5 * hr, 4 * hr]);
-            if (z.tp != null) {
-              const yTP = _series.priceToCoordinate(z.tp);
-              if (yTP != null) {
-                ctx.strokeStyle = "rgba(38,198,166,0.8)";
-                ctx.beginPath(); ctx.moveTo(bx, yTP * vr); ctx.lineTo(bx + bw, yTP * vr); ctx.stroke();
-              }
-            }
-            if (z.sl != null) {
-              const ySL = _series.priceToCoordinate(z.sl);
-              if (ySL != null) {
-                ctx.strokeStyle = "rgba(239,83,80,0.8)";
-                ctx.beginPath(); ctx.moveTo(bx, ySL * vr); ctx.lineTo(bx + bw, ySL * vr); ctx.stroke();
-              }
-            }
-            ctx.setLineDash([]);
-          }
+          // 交易位階線（止盈綠／止損紅）已於 2026-09-25 移除，見檔案上方 _fvgZones 附近的說明。
           if (_faint) ctx.globalAlpha = 1;               // 復原 alpha，不影響下一個缺口
         }
       });
@@ -703,27 +688,8 @@ function _makeFVGPrimitive() {
   return {
     attached(p) {
       _chart = p.chart; _series = p.series; _req = p.requestUpdate;
-      // 點選缺口 → 只顯示它的止損/止盈線；再點同一個或點空白 → 取消。
-      try {
-        _chart.subscribeClick(param => {
-          if (!param || !param.point || param.time == null) { _fvgSelected = null; if (_req) _req(); return; }
-          const price = _series.coordinateToPrice(param.point.y);
-          if (price == null) { _fvgSelected = null; if (_req) _req(); return; }
-          const cands = _fvgZones.filter(z => {
-            const lo = Math.min(z.bot, z.top), hi = Math.max(z.bot, z.top);
-            if (price < lo || price > hi) return false;
-            const t2 = (z.t2 != null) ? z.t2 : Infinity;       // 未填補→延伸到右緣
-            return param.time >= z.t1 && param.time <= t2;
-          });
-          // 多個缺口重疊時，挑「盒高最小」那個（最貼近你點的那條缺口）
-          let hit = null;
-          for (const z of cands) {
-            if (!hit || Math.abs(z.top - z.bot) < Math.abs(hit.top - hit.bot)) hit = z;
-          }
-          _fvgSelected = (hit && hit === _fvgSelected) ? null : hit;   // 再點同一個→取消
-          if (_req) _req();
-        });
-      } catch (e) { /* 舊版 LWC 無 subscribeClick 時略過 */ }
+      // ⚠ 原本這裡有 `subscribeClick`：點缺口會選取它並畫止盈/止損線。2026-09-25 依使用者
+      //   要求整個移除 —— 點 FVG 現在不會有任何反應，主圖上也不再冒出那兩條水平虛線。
     },
     detached() { _chart = _series = _req = null; },
     updateAllViews() {},
@@ -753,7 +719,6 @@ function setFVGZones(list) {
     // pens（突破點位）已不再繪製（見上方 211 行註解），後端也不再傳 →
     // 這裡原本還在逐點 toTime 轉換再丟掉，一併移除。
   })).filter(z => z.t1 != null && z.top != null && z.bot != null && !z.inv);   // IFVG(inv) 先關閉：不顯示反轉缺口色塊
-  _fvgSelected = null;                       // 資料重載→清除點選(舊物件已不在新陣列裡)
   if (_fvgPrimitive) _fvgPrimitive.requestUpdate();
 }
 // 開關（預設開）：window.toggleFVG() 切換
@@ -1053,12 +1018,6 @@ function _makeStratMarkersPrimitive() {
 // 策略標記資料/開關/淡化變動時觸發重畫（由 render.js 的 _applyMainMarkers 呼叫）
 function _stratMarkersUpdate() { if (_stratMarkersPrim) _stratMarkersPrim.requestUpdate(); }
 
-// 交易位階線開關：window.toggleFVGLevels() 切換（止盈2W／止損g-1頂端）
-function toggleFVGLevels(on) {
-  _fvgLevelsShow = (on === undefined) ? !_fvgLevelsShow : !!on;
-  if (_fvgPrimitive) _fvgPrimitive.requestUpdate();
-  return _fvgLevelsShow;
-}
 // FVG 最小寬度%（使用者自定）：寬度小於 pct 的缺口不顯示。0＝全顯示。即時重繪。
 function setFVGMinWidth(pct) {
   _fvgMinW = Math.max(0, +pct || 0);
@@ -1068,7 +1027,6 @@ function setFVGMinWidth(pct) {
 window.setFVGZones = setFVGZones;
 window.setFVGMinWidth = setFVGMinWidth;
 window.toggleFVG = toggleFVG;
-window.toggleFVGLevels = toggleFVGLevels;
 
 /* ── FVG 逐筆止損/止盈價位線：每筆從進場(et)→出場(xt)畫水平線段（紅虛=止損、綠虛=止盈；
       深檔拉近會在 tp2t 階梯下移到近靶）。隨 window._fvgTradesHidden 與 FVG 標記同步開關。── */
