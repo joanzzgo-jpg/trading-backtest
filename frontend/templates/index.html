@@ -173,14 +173,9 @@
 <header class="topbar tf-centered">
   <div class="topbar-left">
 
-    <!-- Logo -->
-    <a href="/" class="topbar-logo" title="AHH Trading">
-      <img src="{{ v('/static/img/bear.png') }}" alt="AHH" class="topbar-bear" />
-      <span class="topbar-brand">
-        <span class="topbar-brand-name">AHH</span>
-        <span class="topbar-brand-sub">TRADING</span>
-      </span>
-    </a>
+    <!-- Logo 已移到主圖左下角的浮水印（.chart-watermark，見 #mainPane）——
+         2026-09-24 使用者：「左上的 ahh logo 移到左下 並變成浮水印 放在圖層下」。
+         ⚠ 順帶讓上方列左側空出約 100px，時框列更容易維持置中（見 ui.js _tbFitTf）。 -->
 
     <!-- 市場切換（單鍵循環：Crypto → TW → US → Crypto，帶滑動切換動畫） -->
     <button class="tb-mkt-cycle" id="marketPill" type="button" data-mkt="crypto" title="點擊切換市場（Crypto / TW / US / HK）">
@@ -674,6 +669,14 @@
 
     <!-- 主圖 -->
     <div class="chart-pane" id="mainPane" style="flex:5">
+      <!-- AHH 浮水印：2026-09-24 使用者「左上的 ahh logo 移到左下，並變成浮水印，放在圖層下」。
+           ⚠ 必須排在 #mainChart **之前**：兩者都是 #mainPane 的定位子層、z-index 相同，
+             由 DOM 順序決定誰先畫 → 排前面＝畫在 K 棒與繪圖的**下面**（使用者要的「圖層下」）。
+           ⚠ 面板底色是 #mainPane 自己的 background（畫在所有子層之下）→ 浮水印仍在底色之上。 -->
+      <div class="chart-watermark" aria-hidden="true">
+        <img src="{{ v('/static/img/bear.png') }}" alt="" class="cw-bear" />
+        <span class="cw-txt"><span class="cw-main">AHH</span><span class="cw-sub">TRADING</span></span>
+      </div>
       <div class="pane-legend">
         <span class="leg-item leg-toggle" id="legBB"><span class="leg-dot" style="background:#42a5f5;border-color:#42a5f5"></span><span class="leg-val">BB(20,2)</span></span>
         <span class="leg-item leg-toggle" id="legVol"><span class="leg-dot" style="background:#787b86;border-color:#787b86"></span><span class="leg-val">VOL</span></span>

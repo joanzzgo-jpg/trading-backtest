@@ -104,7 +104,7 @@ html.perf-mode .topbar-brand-name,
 html.perf-mode .topbar-brand-sub { color: #1F1F1F; }
 
 /* 圖表面板下分隔線顏色淡化（線本身畫在 ::before，見 .pane-divider） */
-html.perf-mode .pane-divider::before { background: #E5E5E5; }
+html.perf-mode .pane-divider::before { background: rgba(60, 40, 20, 0.16); }
 /* 主圖右上「⚙」齒輪本來就已隱藏；指標面板若還是開著時，文字色 fallback */
 html.perf-mode .ind-sp-row,
 html.perf-mode .ind-sp-lbl,
@@ -1323,6 +1323,51 @@ html.perf-mode .symbol-bar.sb-drop > .sqd-dock-slot { border-color: rgba(0,0,0,.
 
 .pane-body { flex: 1; min-height: 0; overflow: hidden; position: relative; isolation: isolate; }
 
+/* ── 主圖左下角的 AHH 浮水印（2026-09-24）──────────────────────────────────
+   使用者：「左上的 ahh logo 移到左下，並變成浮水印，放在圖層下」。
+   ⚠ 放在 #mainPane 內、#mainChart 之前（見 index.html）→ 畫在 K 棒與繪圖的**下面**。
+   ⚠ 顏色用 currentColor 系的半透明白，不寫死色碼：使用者換主圖配色（含亮色）時
+     才不會變成看不見或太搶眼。參考既有的 .time-axis-year 浮水印做法。
+   ⚠ pointer-events:none —— 絕不可擋到圖表互動。 */
+.chart-watermark {
+  position: absolute;
+  left: 14px; bottom: 12px;
+  z-index: 0;
+  pointer-events: none;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;                       /* 小熊 + 字標，與原本上方列的 logo 同一個組合 */
+  line-height: 1;
+  /* 2026-09-24 使用者：「浮水印太淡」→「logo 太淡」→「還是太淡」：.055 → .075 → .16 → .3 → .45 */
+  opacity: .45;
+  /* 「logo 放大 1.5」→「改 0.5 就好」——用 transform 整組等比縮放，不動字級：
+     字級走 --t-* 刻度（守門員 check_design_tokens 會擋裸 px），縮放交給 transform 最乾淨，
+     小熊與字標的相對比例也不會跑掉。原點釘左下角 → 放大後仍貼在主圖左下。 */
+  transform: scale(0.5);
+  transform-origin: left bottom;
+}
+/* ⚠ 小熊是 logo 的一部分（使用者：「ahh 小熊不見了」）—— 移到浮水印時要整組帶過來，
+   不是只搬文字。 */
+.chart-watermark .cw-bear {
+  width: 42px; height: 42px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+.chart-watermark .cw-txt { display: flex; flex-direction: column; }
+.chart-watermark .cw-main {
+  font: 800 var(--t-3xl)/1 "M PLUS Rounded 1c", -apple-system, system-ui, sans-serif;
+  letter-spacing: .06em;
+  color: var(--text);
+}
+.chart-watermark .cw-sub {
+  font: 700 var(--t-xs)/1 "M PLUS Rounded 1c", -apple-system, system-ui, sans-serif;
+  letter-spacing: .42em;
+  margin-top: 2px;
+  color: var(--text);
+}
+html.perf-mode .chart-watermark { opacity: .4; }
+
 /* ── 訂單簿 DOM 階梯面板（主圖右側，dom.js 繪製）─────────────────
    絕對定位貼 #mainPane 右緣、位於 legend 之下；預設隱藏，.on 才顯示。
    主圖 canvas 由 resizeAll() 減去本面板寬度 → 兩者並排不重疊。 */
@@ -1810,6 +1855,7 @@ html.perf-mode .tk-stale { background: rgba(220, 38, 38, 0.10); border-color: #d
      ★ 通則：**與其補一個機制產生的縫，不如讓那個縫不要產生。**
      ⚠ 1px 太細抓不到 → 拖曳命中區用 ::after 往上下各撐 4px（絕對定位，**不佔版面**）。 */
   height: 1px;
+  margin-top: -1px;          /* 疊在上一張畫布「不畫格線的最後一列」上，見 ::before 說明 */
   background: transparent;
   cursor: row-resize;
   flex-shrink: 0;
@@ -1824,10 +1870,18 @@ html.perf-mode .tk-stale { background: rgba(220, 38, 38, 0.10); border-color: #d
   position: absolute;
   left: 0; right: 0; top: 0;
   height: 1px;
-  background: var(--border);
-  opacity: .4;
+  /* ★ 2026-09-24 使用者：「背景格子線有斷掉問題」（很細微）。
+     實測格線亮度一路 51，交界處掉到 **25**。拆解後是**兩個 1px 疊加**：
+       ①這條分隔線原本用 `var(--border)`＝比格線更暗 → 在交叉處切出暗口
+       ②LWC **畫布的最後一列不畫格線** → 就算把分隔線整個移除，那 1px 仍是 25
+     → ①改成與格線同色系的**淡色**；②讓這條線用 `margin-top:-1px` **疊在那個死列上**，
+       等於用一條亮度相近的線把畫布的死列補起來 → 視覺上連續，而「有區隔」也還在。
+     ⚠ 不可以再調回深色：只要比格線暗，交叉處就必定出現暗口。
+     ⚠⚠ 改這條時小心：檔案前段還有一條 `html.perf-mode .pane-divider::before`，
+       用字串搜尋 `.pane-divider::before {` 會先抓到**它**（我連續犯這個錯兩次）。 */
+  background: rgba(255, 216, 176, 0.17);
+  opacity: 1;
   transition: background .15s, opacity .15s, height .15s;
-  pointer-events: none;
 }
 .pane-divider:hover::before,
 .pane-divider.dragging::before { background: var(--blue); opacity: 1; height: 2px; }
