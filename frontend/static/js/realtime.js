@@ -817,6 +817,9 @@ function _chartStaleTick() {
 const _BC_PER = { "1M":2592000, "1w":604800, "1d":86400, "4h":14400, "2h":7200,
                   "1h":3600, "30m":1800, "15m":900, "5m":300, "1m":60 };
 let _bcSec = -1;              // 上一次算出的剩餘秒數（-1＝沒有倒數）
+/* 收盤後最多停在 0:00 幾毫秒 —— 實測新棒到貨延遲中位 4.1 秒、最大 5 秒，
+   20 秒給足餘裕；超過就當成「這根不會換了」（休市／中斷）回到正常倒數。 */
+const _BC_HOLD_MS = 20000;
 function _barCountdownTxt() {
   if (typeof replayActive !== "undefined" && replayActive) return "";   // 重播中沒有「還有多久收」
   if (typeof ohlcvData === "undefined" || !Array.isArray(ohlcvData) || !ohlcvData.length) return "";
@@ -836,8 +839,23 @@ function _barCountdownTxt() {
      ⚠ 不可以改用 `Math.ceil(now / per)` 那種「時間格線」：1w 的格線起點是星期四
        （epoch），但幣安的週線從星期一開始；1M 更不是固定長度。錨點一定要來自真實資料。 */
   let closeMs = lastMs + per * 1000;
-  while (closeMs <= now) closeMs += per * 1000;
-  const s = Math.max(0, Math.round((closeMs - now) / 1000));
+  /* ★★ 2026-09-25 使用者：「倒數太快，下一根Ｋ棒出現時間慢了」。
+     實測（1m、5 輪）：倒數的**錨點完全正確**（歸零時刻與新棒開盤時間誤差 5/5 都是 0 秒），
+     但新棒**實際到貨**比收盤時刻晚 **3~5 秒**（中位 4.1）—— 後端本身就慢 2.2 秒
+     （Binance 產生新棒＋快取），前端再加一次輪詢。
+     舊寫法一到收盤時刻就 `while` 跳回一整根 → 畫面上「倒數歸零了，K 棒卻還沒來」，
+     看起來就是倒數跑太快。
+     → 收盤時刻已過但新棒還沒換 → **停在 0:00 等它**，新棒一到自然開始下一輪。
+     ⚠ 一定要有保險絲 `_BC_HOLD_MS`：休市／資料中斷時最後一根永遠不會換，
+       沒有它就會永遠卡在 0:00。超時就回到原本的行為（跳回一整根）。
+     ⚠ 用 `Math.ceil` 不用 `Math.round`：剩 0.3 秒該顯示 0:01（還沒收），
+       round 會提早半秒顯示 0:00 —— 同樣是「看起來比實際快」。 */
+  const overdue = now - closeMs;
+  if (overdue >= 0) {
+    if (overdue <= _BC_HOLD_MS) { _bcSec = 0; return "0:00"; }
+    while (closeMs <= now) closeMs += per * 1000;
+  }
+  const s = Math.max(0, Math.ceil((closeMs - now) / 1000));
   _bcSec = s;                                   // 給 _barCountdownTick 判斷「快收了」用
   const p2 = (n) => String(n).padStart(2, "0");
   if (s < 3600)  return `${Math.floor(s / 60)}:${p2(s % 60)}`;
