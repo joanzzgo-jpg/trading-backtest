@@ -276,14 +276,13 @@ function _applyChartBgGradient(color) {
     if (!ul) {
       ul = document.createElement("div");
       ul.id = "chartUnderlay";
-      /* ★ 2026-09-24 使用者：「主圖調透明度上下顏色不一」「但透明度 100% 怎麼就沒差」。
-         100% 不透明時什麼都透不上來所以均勻；一降低透明度，**後面天氣天空的垂直漸層**
-         （上亮下暗）就顯出來 → 主圖上下不同色，副圖也跟著不一樣。
-         → 底墊提到**天氣層之上**（z-index 1 → 蓋住 weatherStage），主圖區後面就是一片
-           平的純色 → 透明度多低都均勻，四個面板也一致。
-         ⚠ 代價：主圖區後方**看不到天氣場景**了（天氣仍在上方列、標的列、行情列呈現）。
-           要換回來就把這裡改回 z-index:0 —— 只有這一個數字。 */
-      ul.style.cssText = "position:fixed;z-index:1;pointer-events:none;";
+      /* ⚠ 2026-09-24 這裡試過改成 z-index:1（蓋住 weatherStage）來解決
+         「主圖調透明度時上下顏色不一」——確實完全均勻了（四種不透明度下上/中/下像素完全相同），
+         但代價是**主圖後方的天空物件全部消失**（使用者立刻回報）。已還原。
+         ★ 結論：**主圖區的天氣場景比「顏色絕對均勻」重要**。上下色差來自天空本身的垂直漸層
+           （上亮下暗），那是「看得到後面」的必然結果 —— 100% 不透明時就沒有色差，
+           想要均勻就把不透明度調高，不要拿掉天氣。別再試著把底墊提上來。 */
+      ul.style.cssText = "position:fixed;z-index:0;pointer-events:none;";
       document.body.appendChild(ul);
       const _pos = () => {
         const r = cc.getBoundingClientRect();
