@@ -1401,6 +1401,29 @@ function buildCharts() {
   macdSignal = macdChart.addLineSeries({ color:C.macdSig, lineWidth:S.macdSigWidth??1, lineStyle:S.macdSigStyle??0, priceLineVisible:false, lastValueVisible:false });
   macdHist   = macdChart.addHistogramSeries({ priceScaleId:"right", priceLineVisible:false, lastValueVisible:false });
 
+  /* ★ 2026-09-24 使用者：「就算還沒出現Ｋ棒，後面背景格子直線也要在」「未來時間要先畫出來」。
+     LWC 的**垂直格線畫在時間刻度上**，而刻度只生成在「有資料的時間範圍」內 →
+     rightOffset 那段留白沒有任何資料 → 一條格線也沒有（實測留白 200px 內 0 條）。
+     → 每張圖掛一條 **whitespace series（只有 time、沒有價格）**把時間軸往未來延伸，
+       格線與時間標籤就由 LWC 自己按同一套節奏畫出來。
+     ★ 為什麼不自繪：2026-09-24 稍早自繪過一版（在分隔線上取樣畫布補格線），使用者否決 ——
+       「我縮小就壞了，而且跟不上縮放速度」。走 LWC 自己的機制就**結構上**不可能跟不上縮放。
+     ⚠ 一定要**獨立的 series**、不可以塞進 candleSeries：重播守門員
+       (`check_replay_no_future.js`) 的判準就是問 `candleSeries.data()` 有沒有未來棒。
+       實測加了之後 candleSeries 未來棒仍是 0。
+     ⚠ `priceScaleId:""`＋`autoscaleInfoProvider: () => null` → 不參與任何價格軸計算。
+     ⚠ 實測加上去**不會扯走使用者的視角**：可見邏輯範圍 A/B 完全相同
+       （1005.6666666666666~1190 逐位元一致）。 */
+  _gridAhead = [
+    [mainChart, null], [kdjChart, null], [rsiChart, null], [macdChart, null],
+  ].map(([c]) => c && c.addLineSeries({
+    priceScaleId: "", lastValueVisible: false, crosshairMarkerVisible: false,
+    priceLineVisible: false, autoscaleInfoProvider: () => null,
+  })).filter(Boolean);
+
+  // 縮小時留白需要更多根去填 → 跟著可見範圍往上長（見 `_growGridAhead`）
+  mainChart.timeScale().subscribeVisibleLogicalRangeChange(r => { if (r) _growGridAhead(r.to); });
+
   const ro = new ResizeObserver(() => resizeAll());
   ro.observe(document.getElementById("chartsContainer"));
   // 等 DOM 完成 layout 後再 resize（rAF 兩次確保 flex 已計算完畢）
@@ -1457,6 +1480,66 @@ function _syncAxisWidth() {
   } catch (e) {}
 }
 window._syncAxisWidth = _syncAxisWidth;
+
+/* 未來留白區的時間軸延伸（見上面建立 `_gridAhead` 處的說明）。
+   基準一律取 **`candleSeries.data()` 的最後一根**，不是 `ohlcvData` —— 重播模式下
+   前者才是「游標那根」，後者留著完整資料（含未來），拿它當基準等於把未來洩漏給重播。
+   ⚠ 間隔用**最小正間隔**不用最後兩根的差：股市一天只有幾小時，跨日那一根的間隔是
+     盤中的好幾倍（claude.md 守門員之十七記過同一個坑）→ 用它會把格線推到太遠的未來。
+   ⚠ 只有 (最後一根, 間隔) 真的變了才 setData：renderAll 每次都會呼叫到這裡。 */
+/* ★ 2026-09-24 使用者：「未來時間要留到 300K 棒距離」→ 起始 320 根（300＋餘裕）。
+   ★★ 但接著：「**我每次縮小後面都不夠**」—— 寫死根數一定會不夠：留白是以**根**為單位，
+      縮小時 barSpacing 變小、同樣寬的留白就要更多根去填 → 固定 320 根很快就用完，
+      右邊又變回沒有格線。→ 依**實際可見範圍**動態往上長（只增不減、階梯 ×2）。
+   ⚠ 用階梯不是「算多少給多少」：可見範圍每一幀都在變，那樣等於每幀 setData。
+      階梯最多長 4 次（320→640→1280→2560）就到頂，之後全部 early return。
+   ⚠ 上限不可無限大：whitespace 也是時間軸上的資料，太長會讓 fitContent 這類
+      「把全部塞進畫面」的操作把 K 棒擠扁（已實測 320 根不會，見下）。 */
+const _GRID_AHEAD_MIN = 320;
+const _GRID_AHEAD_MAX = 2560;
+let _gridAhead = [];
+let _gridAheadKey = "";
+let _gridAheadN = _GRID_AHEAD_MIN;
+/* 可見範圍右緣已經超出現有的未來延伸 → 往上長一階。
+   ⚠ `range.to` 是**邏輯索引**（以第一根 K 棒為 0），所以跟 `data().length-1` 相減
+      才是「往未來幾根」。 */
+function _growGridAhead(to) {
+  try {
+    if (!Number.isFinite(to)) return;
+    const d = (typeof candleSeries !== "undefined" && candleSeries) ? candleSeries.data() : null;
+    if (!d || !d.length) return;
+    const need = Math.ceil(to) - (d.length - 1) + 60;     // 60＝餘裕，免得剛好卡在邊緣
+    if (need <= _gridAheadN) return;
+    let n = _gridAheadN;
+    while (n < need && n < _GRID_AHEAD_MAX) n *= 2;
+    n = Math.min(n, _GRID_AHEAD_MAX);
+    if (n === _gridAheadN) return;
+    _gridAheadN = n;
+    _gridAheadKey = "";          // 強制重算
+    _syncGridAhead();
+  } catch (e) {}
+}
+function _syncGridAhead() {
+  try {
+    if (!_gridAhead.length) return;
+    const d = (typeof candleSeries !== "undefined" && candleSeries) ? candleSeries.data() : null;
+    if (!d || d.length < 3) return;
+    const t0 = d[d.length - 1].time;
+    let step = Infinity;
+    for (let i = Math.max(1, d.length - 12); i < d.length; i++) {
+      const dt = d[i].time - d[i - 1].time;
+      if (dt > 0 && dt < step) step = dt;
+    }
+    if (!Number.isFinite(step) || step <= 0) return;
+    const key = t0 + "|" + step + "|" + _gridAheadN;
+    if (key === _gridAheadKey) return;
+    _gridAheadKey = key;
+    const ws = new Array(_gridAheadN);
+    for (let i = 0; i < _gridAheadN; i++) ws[i] = { time: t0 + step * (i + 1) };
+    _gridAhead.forEach(s => { try { s.setData(ws); } catch (e) {} });
+  } catch (e) {}
+}
+window._syncGridAhead = _syncGridAhead;
 
 /* ⚠ 2026-09-24：這裡曾經有一版「在分隔線裡用 canvas 補畫格線」的橋接（取樣畫布找格線 x）。
    **已整支移除** —— 使用者：「這樣的接法很爛，我縮小就壞了，而且跟不上縮放速度」。他是對的：

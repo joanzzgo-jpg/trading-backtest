@@ -132,7 +132,15 @@ async function main() {
   await sleep(13000);
   const a2 = await snap(page);
   const aBars = Math.abs(a1.bars - a2.bars) <= 1;
-  const aLatest = a2.to === a2.last;                       // 看最新 → 重整後仍要貼著最新那根
+  /* 看最新 → 重整後**不可以被釘在過去**。
+     ⚠ 2026-09-24 判準從 `to === last` 放寬成 `to >= last`：時間軸現在被
+       `_syncGridAhead` 往未來延伸了（留白區的背景格線），`getVisibleRange().to`
+       因此會回**真實的右緣時間**（本情境留白 35 根 → 09-26），而以前 LWC 會把它
+       夾到最後一根 K 棒（09-24）。等號判準會把「正常的右緣留白」誤判成失敗。
+     ★ 抓捕能力沒有變弱：真的被釘在過去時 `to < last`，照樣紅。
+       而「留白有沒有被砍掉」本來就是下面 `aGap` 在管的，兩者分工不變。
+     ⚠ to/last 都是同格式 ISO 字串 → 字典序即時間序。 */
+  const aLatest = a2.to != null && a2.last != null && a2.to >= a2.last;
   const aGap = Math.abs(a1.gap - a2.gap) <= 1.5;
   console.log(`   ① 看最新時重整（右緣先留白 ${RO} 根）`);
   console.log(`      前 ${a1.to}（${a1.bars} 根, bs=${a1.bs}, 留白 ${a1.gap} 根）　後 ${a2.to}（${a2.bars} 根, bs=${a2.bs}, 留白 ${a2.gap} 根）`);

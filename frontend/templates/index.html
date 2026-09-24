@@ -666,17 +666,16 @@
 
   <!-- 圖表區 -->
   <div class="charts-container" id="chartsContainer">
-
-    <!-- 主圖 -->
-    <div class="chart-pane" id="mainPane" style="flex:5">
-      <!-- AHH 浮水印：2026-09-24 使用者「左上的 ahh logo 移到左下，並變成浮水印，放在圖層下」。
-           ⚠ 必須排在 #mainChart **之前**：兩者都是 #mainPane 的定位子層、z-index 相同，
-             由 DOM 順序決定誰先畫 → 排前面＝畫在 K 棒與繪圖的**下面**（使用者要的「圖層下」）。
-           ⚠ 面板底色是 #mainPane 自己的 background（畫在所有子層之下）→ 浮水印仍在底色之上。 -->
+      <!-- AHH 浮水印：掛在 .charts-container 上、絕對定位 —— 與右下角的年份浮水印
+           (.time-axis-year) 同一種做法（使用者：「不能跟年份一樣放在那個位置嗎」）。
+           這樣完全不受面板開合影響：整組收起、個別收合 KDJ/RSI/MACD 都照樣在左下角。 -->
       <div class="chart-watermark" aria-hidden="true">
         <img src="{{ v('/static/img/bear.png') }}" alt="" class="cw-bear" />
         <span class="cw-txt"><span class="cw-main">AHH</span><span class="cw-sub">TRADING</span></span>
       </div>
+
+    <!-- 主圖 -->
+    <div class="chart-pane" id="mainPane" style="flex:5">
       <div class="pane-legend">
         <span class="leg-item leg-toggle" id="legBB"><span class="leg-dot" style="background:#42a5f5;border-color:#42a5f5"></span><span class="leg-val">BB(20,2)</span></span>
         <span class="leg-item leg-toggle" id="legVol"><span class="leg-dot" style="background:#787b86;border-color:#787b86"></span><span class="leg-val">VOL</span></span>

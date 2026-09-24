@@ -482,7 +482,21 @@ function renderAll(data) {
   //   「切標的/時框後最右邊沒有K棒」的起源(2026-07-16 修)。有還原目標時 fit 純屬有害。
   const _hasRestoreTarget = _pendingRestoreRange || _savedTimeRange || _savedBarSpacing != null;
   if (!_hasRestoreTarget) {
-    [mainChart, kdjChart, rsiChart, macdChart].forEach(c => c.timeScale().fitContent());
+    /* ⚠⚠ 2026-09-24：這裡原本是 `fitContent()`，但時間軸現在被 `_syncGridAhead` 往未來
+       延伸了（留白區的背景格線，見 charts.js）→ **fitContent 會把那段未來空白也算進「內容」**，
+       把 K 棒整個擠扁。實測 `_gridAheadN` 長到 1280 之後 fit 一次：最後一根從 96% 掉到
+       **36%**（K 棒被壓到左邊三分之一），而且畫面上看起來只是「縮得很小」、不像壞掉。
+       → 改成明確指定「從第一根到最後一根 K 棒」，結構上不可能把 whitespace 算進去。
+       ★ 附帶好處：`setVisibleLogicalRange` 是**立即**生效的，不像 fitContent 那樣延遲到
+         下一幀 —— 上面那段註解講的「fit 晚一幀蓋掉還原」的風險也跟著消失。 */
+    const _kn = (typeof candleSeries !== "undefined" && candleSeries)
+      ? (candleSeries.data() || []).length : 0;
+    [mainChart, kdjChart, rsiChart, macdChart].forEach(c => {
+      try {
+        if (_kn > 1) c.timeScale().setVisibleLogicalRange({ from: 0, to: _kn - 1 });
+        else c.timeScale().fitContent();
+      } catch (e) {}
+    });
   }
 
   // 還原畫面位置：
@@ -648,6 +662,9 @@ function renderAll(data) {
      同一個時間就會落在不同的 x（背景格線與十字線跨面板接不起來）。渲染後對齊一次。
      ⚠ 用 rAF：applyOptions 之後 LWC 要下一幀才重算軸寬，同步再量會拿到舊值。 */
   try { requestAnimationFrame(() => window._syncAxisWidth && window._syncAxisWidth()); } catch (e) {}
+  // 右側留白區的背景格線／未來時間刻度（見 charts.js `_syncGridAhead`）。
+  // 不需要 rAF：它只寫資料、不依賴佈局。
+  try { window._syncGridAhead && window._syncGridAhead(); } catch (e) {}
 }
 
 function renderCandles(data) {

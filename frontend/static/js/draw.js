@@ -2298,6 +2298,46 @@ function _drawSessionOverlay(W, H) {
     }
     _wkPrevD = d;
   }
+  /* ★★ 2026-09-24 使用者：「就算還沒出現Ｋ棒，後面背景格子直線也要在」「直線間距離要一樣」。
+     上面那個迴圈只走 `ohlcvData` 的索引 → 右側留白區（還沒有 K 棒）**一個框都沒有**，
+     而 K 棒區是滿滿的等距白框 → 畫面上就是「後面的格子突然不見了」。
+     （LWC 自己的背景格線是**日曆**節奏，月初＋15 日混用 → 實測 145px / 175px 相差 20%，
+       那正是「間距不一樣」的來源；週框是每週固定，本來就等距。）
+     → 用推算的未來時間，把**同一套**週框往右補到繪圖區邊緣：K 棒區與留白區長得完全一樣。
+     ⚠ 插在 `_flushWk()` **之前**：最後一根若是週三，未來的週四週五要接續同一個框，
+       先收框的話交界會裂成兩塊。`_wkPrevD` 也直接沿用迴圈結束時的值。
+     ⚠ 能這樣算是因為 charts.js `_syncGridAhead` 已把時間軸往未來延伸（whitespace），
+       `timeToCoordinate(未來時間)` 才有座標；沒有那層這裡會全部回 null、等於沒做。
+     ⚠ 星期用 `new Date(t*1000).getUTCDay()`：t 是**圖表時間**（已 +8h），UTC getter 得到的
+       就是台北的星期 —— 與 `_dayOf` 同一套算法，不可混用真實 UTC。
+     ⚠ 間隔取**最小正間隔**，不可取最後兩根的差：股市跨日那根的間隔是盤中的好幾倍
+       （claude.md 守門員之十七記過同一個坑），用它會把框推到太遠、右邊又空一片。 */
+  const _wkLastI = (typeof replayActive !== "undefined" && replayActive && typeof replayIdx === "number")
+    ? Math.min(replayIdx, _len - 1) : _len - 1;
+  if (_wkLastI >= 2 && vr.to > _wkLastI && to >= _wkLastI) {
+    let _fstep = Infinity;
+    for (let i = Math.max(1, _wkLastI - 12); i <= _wkLastI; i++) {
+      const dt = toTime(ohlcvData[i].time) - toTime(ohlcvData[i - 1].time);
+      if (dt > 0 && dt < _fstep) _fstep = dt;
+    }
+    if (Number.isFinite(_fstep) && _fstep > 0) {
+      const _t0 = toTime(ohlcvData[_wkLastI].time);
+      for (let k = 1; k <= 4000; k++) {          // 4000＝保險絲，正常是 x 超出繪圖區就跳出
+        const t = _t0 + _fstep * k;
+        const x = ts.timeToCoordinate(t);
+        if (x == null || x > plotW + half) break;
+        const d = new Date(t * 1000).getUTCDay();
+        if (d >= 1 && d <= 5) {
+          if (d === 1 && _wkL != null && _wkPrevD !== 1) _flushWk();
+          if (_wkL == null) _wkL = x - half;
+          _wkR = x + half;
+        } else {
+          _flushWk();
+        }
+        _wkPrevD = d;
+      }
+    }
+  }
   _flushWk();
   drawCtx.restore();
   }   // end if (_weekBoxOn)

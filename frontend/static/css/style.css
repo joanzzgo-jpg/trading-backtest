@@ -1331,20 +1331,26 @@ html.perf-mode .symbol-bar.sb-drop > .sqd-dock-slot { border-color: rgba(0,0,0,.
    ⚠ pointer-events:none —— 絕不可擋到圖表互動。 */
 .chart-watermark {
   position: absolute;
-  left: 14px; bottom: 12px;
-  z-index: 0;
+  /* ⚠ bottom 要避開**時間軸**（使用者：「浮水印 logo 上去一些，不要蓋到時間」）。
+     時間軸畫在最下方那個可見面板的畫布底部，實測約 28px 高 → 32 + 一點餘裕。
+     ⚠ 副圖整組收起時時間軸會移到主圖底部，高度一樣 → 同一個值兩種狀態都成立。 */
+  left: 14px; bottom: 36px;
+  /* ⚠ 與右下角年份浮水印 (.time-axis-year) 同一層（z-index 24）：掛在 .charts-container 上、
+     畫在圖表**之上**。不能用低 z-index 放在下面 —— 各面板有自己的不透明背景，會整個蓋住它。
+     靠低不透明度維持「浮水印」的感覺，這正是年份那個一直以來的做法。 */
+  z-index: 24;
   pointer-events: none;
   user-select: none;
   display: flex;
   align-items: center;
   gap: 8px;                       /* 小熊 + 字標，與原本上方列的 logo 同一個組合 */
   line-height: 1;
-  /* 2026-09-24 使用者：「浮水印太淡」→「logo 太淡」→「還是太淡」：.055 → .075 → .16 → .3 → .45 */
-  opacity: .45;
-  /* 「logo 放大 1.5」→「改 0.5 就好」——用 transform 整組等比縮放，不動字級：
+  /* 2026-09-24 使用者：「浮水印太淡」→「logo 太淡」→「還是太淡」：.055 → .075 → .16 → .3 → .45 → .62 */
+  opacity: .62;
+  /* 「logo 放大 1.5」→「改 0.5」→「我是指 1.05 倍」——用 transform 整組等比縮放，不動字級：
      字級走 --t-* 刻度（守門員 check_design_tokens 會擋裸 px），縮放交給 transform 最乾淨，
      小熊與字標的相對比例也不會跑掉。原點釘左下角 → 放大後仍貼在主圖左下。 */
-  transform: scale(0.5);
+  transform: scale(1.05);
   transform-origin: left bottom;
 }
 /* ⚠ 小熊是 logo 的一部分（使用者：「ahh 小熊不見了」）—— 移到浮水印時要整組帶過來，
@@ -1355,6 +1361,13 @@ html.perf-mode .symbol-bar.sb-drop > .sqd-dock-slot { border-color: rgba(0,0,0,.
   flex-shrink: 0;
 }
 .chart-watermark .cw-txt { display: flex; flex-direction: column; }
+
+/* AHH 浮水印的定位演進（2026-09-24，三版）：
+   ①放在 #mainPane 內、#mainChart 之前（在圖層下）→ 副圖開著時它在主圖底部，不是使用者要的位置
+   ②主圖 + MACD 各一份、用 CSS 依 .subcharts-hidden 切換 → 「我單獨開 rsi 沒有」：
+     個別面板收合的組合處理不了
+   ③**掛在 .charts-container 上絕對定位**（使用者：「不能跟年份一樣放在那個位置嗎」）——
+     與右下角年份浮水印同一種做法，完全不受面板開合影響。★ 早該直接抄旁邊已經解決過的那個。 */
 .chart-watermark .cw-main {
   font: 800 var(--t-3xl)/1 "M PLUS Rounded 1c", -apple-system, system-ui, sans-serif;
   letter-spacing: .06em;
@@ -1366,7 +1379,7 @@ html.perf-mode .symbol-bar.sb-drop > .sqd-dock-slot { border-color: rgba(0,0,0,.
   margin-top: 2px;
   color: var(--text);
 }
-html.perf-mode .chart-watermark { opacity: .4; }
+html.perf-mode .chart-watermark { opacity: .55; }
 
 /* ── 訂單簿 DOM 階梯面板（主圖右側，dom.js 繪製）─────────────────
    絕對定位貼 #mainPane 右緣、位於 legend 之下；預設隱藏，.on 才顯示。
@@ -5974,7 +5987,7 @@ html.perf-mode .tb-wr-sync[data-state="local"] { color: #8B8B8B; }
 }
 .dt-layer.hidden-layer {                 /* 被隱藏：灰掉 + 刪除線 */
   color: var(--muted);
-  opacity: .45;
+  opacity: .62;
   text-decoration: line-through;
   text-decoration-thickness: 1.5px;
 }
