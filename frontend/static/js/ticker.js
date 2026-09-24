@@ -347,7 +347,7 @@ let _tkPollN = 0;
      （Binance `EVAAUSDT` vs Pionex `EVAA_USDT_PERP`），從 display 推導只在「來源是 Binance」
      時剛好成立 —— 幣安一冷卻降級就全錯，而那正是最不該出錯的時候。見 memory
      project_ticker-merge-key-display。 */
-function _tkFill(t) {
+function _tkFill(t, derivePct) {
   /* ★ display 與 symbol 相同的列（台股全部都是）後端會省略 display，在這裡補回來。
      ⚠ 必須排在最前面：底下的 spot 推導讀的就是 display，順序反了台股會拿不到。
      ⚠ 整包路徑是「先 _tkFill 再建合併鍵」（見 _tkMerge），所以補在這裡對 _id() 完全安全。 */
@@ -355,6 +355,15 @@ function _tkFill(t) {
   if (t.spot === undefined && typeof t.display === "string") t.spot = t.display.replace(".P", "");
   if (t.change_amt === undefined && typeof t.price === "number" && typeof t.open === "number")
     t.change_amt = t.price - t.open;
+  /* ★ 2026-09-25 change_pct 也是推導欄位（後端帶 np=1 時不再送）。
+     ⚠⚠ `derivePct` 由**呼叫端依市場**決定，不是看「後端有沒有送」——
+       台股的 change_pct 是「對前一日收盤」算的，用 (price-open)/open 會全錯
+       （實測台股 2700 檔裡 2672 檔對不上；crypto 則是 728/728 誤差 0.0000）。
+       用旗標擋在結構上，就不可能哪天台股少送一次就被錯誤公式蓋掉。
+     ⚠ round 到 2 位＝與後端 `_slim_crypto_rows` 相同，避免同一個數字在不同路徑顯示不一。 */
+  if (derivePct && t.change_pct === undefined
+      && typeof t.price === "number" && typeof t.open === "number" && t.open !== 0)
+    t.change_pct = Math.round((t.price - t.open) / t.open * 10000) / 100;
   return t;
 }
 function _tkMerge(cur, j, key) {
@@ -378,9 +387,11 @@ function _tkMerge(cur, j, key) {
     }
   } catch (e) {}
   const _id = t => t.display || t.symbol;
+  // change_pct 只有 crypto 推得出來（台股是對前一日收盤算的）→ 用市場擋在結構上
+  const _dp = (key === "futures" || key === "spot");
   if (!j.delta) {                                                           // 整包(或舊後端/冷啟動空包→保留舊資料)
     if (!j.tickers || !j.tickers.length) return cur;
-    for (const t of j.tickers) _tkFill(t);
+    for (const t of j.tickers) _tkFill(t, _dp);
     const m = new Map();
     for (const t of j.tickers) m.set(_id(t), t);                            // 去重(降級來源殘留/保險)
     return [...m.values()];
@@ -398,11 +409,13 @@ function _tkMerge(cur, j, key) {
   for (const t of j.tickers) {
     const k = _id(t);
     const old = m.get(k);
-    if (!old) { m.set(k, _tkFill(t)); continue; }
+    if (!old) { m.set(k, _tkFill(t, _dp)); continue; }
     const row = { ...old, ...t };
     if (t.change_amt === undefined && (t.price !== undefined || t.open !== undefined)) delete row.change_amt;
+    // ⚠ 只在 crypto 作廢重算：台股的 change_pct 由後端算好送來，清掉會被錯誤公式蓋掉
+    if (_dp && t.change_pct === undefined && (t.price !== undefined || t.open !== undefined)) delete row.change_pct;
     if (t.spot === undefined && t.display !== undefined) delete row.spot;
-    m.set(k, _tkFill(row));
+    m.set(k, _tkFill(row, _dp));
   }
   return [...m.values()];
 }
@@ -448,7 +461,10 @@ function _tkUrl(m, key, useSince) {
        `t.display.toLowerCase()` 當場爆）。補回來的地方只有 _tkFill 一處。
      ⚠ 整包也要帶（不像 fd 只在 since 分支）——最大的那一包正是整包。 */
   const hot = (m === "tw") ? _tkHotTw() : [];
-  return "/api/tickers?market=" + m + "&nd=1"
+  /* np=1＝「change_pct 沒送我會自己用 (price-open)/open 算」。**只對 crypto 成立**，
+     但旗標一律帶：後端只在 crypto 那條路才會據此省略（台股走 _drop_dup_display，不進那個函式），
+     前端則由 _tkMerge 的 `_dp` 依市場決定推不推導 —— 兩邊都擋住，台股不可能被套錯公式。 */
+  return "/api/tickers?market=" + m + "&nd=1&np=1"
        + ((useSince && _tkRev[key]) ? "&since=" + encodeURIComponent(_tkRev[key]) + "&fd=1" : "")
        + (hot.length ? "&hot=" + encodeURIComponent(hot.join(",")) : "");
 }

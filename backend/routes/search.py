@@ -256,9 +256,19 @@ def _drop_dup_display(rows):
     return out
 
 
-def _slim_crypto_rows(rows, market, rev):
-    """砍可推導欄位＋浮點瘦身。以 (market, rev) 記憶，同一版只算一次（多人同時輪詢只付一次 CPU）。"""
-    ck = (market, rev)
+def _slim_crypto_rows(rows, market, rev, drop_pct=False):
+    """砍可推導欄位＋浮點瘦身。以 (market, rev, drop_pct) 記憶，同一版只算一次（多人同時輪詢只付一次 CPU）。
+
+    ★ 2026-09-25 `drop_pct`：`change_pct` 對 crypto 也是**可推導**的（(price-open)/open*100）。
+      實測 futures 728/728 檔用該公式重算與後端值**誤差 0.0000**，而它在差量裡幾乎每列都送
+      （實測一次差量 372 列裡 359 列帶 change_pct）。
+    ⚠⚠ **只有 crypto 成立**：台股的 change_pct 是「對前一日收盤」算的 —— 同一支驗證腳本跑台股，
+      2700 檔裡 **2672 檔對不上**（0 檔相符）。台股走的是 `_drop_dup_display` 那條、根本不進這裡，
+      這個函式名字裡的 crypto 就是這個意思，別把它挪去共用。
+    ⚠⚠ `drop_pct` **必須進記憶鍵**：帶 np 與不帶 np 的請求會交錯進來，共用一份快取
+      會讓其中一邊拿到錯誤的格式（沒宣告能力的舊分頁收到少了 change_pct 的列＝漲跌幅整欄空白）。
+    """
+    ck = (market, rev, drop_pct)
     if rev is not None and ck in _SLIM_MEMO:
         return _SLIM_MEMO[ck]
     out = []
@@ -266,13 +276,15 @@ def _slim_crypto_rows(rows, market, rev):
         o = dict(t)
         o.pop("change_amt", None)
         o.pop("spot", None)
+        if drop_pct:
+            o.pop("change_pct", None)
         for k in ("price", "open"):
             v = o.get(k)
             if isinstance(v, float):
                 o[k] = float(f"{v:.6g}")
         v = o.get("change_pct")
         if isinstance(v, float):
-            o["change_pct"] = round(v, 2)
+            o["change_pct"] = round(v, 2)      # drop_pct 時上面已 pop 掉，這裡自然是 no-op
         v = o.get("volume")
         if isinstance(v, float):
             o["volume"] = int(v)
@@ -326,12 +338,13 @@ def _direct_tickers(market: str) -> list:
 
 @router.get("/tickers")
 def get_tickers(response: Response, market: str = "futures", since: str = "", fd: str = "", hot: str = "",
-                nd: str = ""):
+                nd: str = "", np: str = ""):
     """取得標的列表：優先從記憶體即時快取讀取，啟動初期才 fallback 至直接 API。
     since=上次回應的 rev token → 只回「有變動的標的」(delta:true)＋新 token；
     token 失效(重啟/別的worker/太舊/無資料) → 自動回整包。crypto 1s/tw 3s 輪詢頻寬大減、行為不變。
     fd=1 → 前端表明「我看得懂欄位級差量」(只回真的變了的欄位，再省 55%)。
     nd=1 → 前端表明「display 沒送我會自己補成 symbol」(台股整包再省 14.5%，見 _drop_dup_display)。
+    np=1 → 前端表明「change_pct 沒送我會自己用 (price-open)/open 算」(**只對 crypto**，見 _slim_crypto_rows)。
     ⚠ 沒帶 fd 一律回舊格式(整列)：見 live_data.get_delta 的說明——舊分頁的合併是「整列覆蓋」，
       收到部分欄位會把 symbol/open/volume 洗掉、畫面凍住且零錯誤(2026-08-19 使用者實際踩到)。"""
     from utils.live_data import (get as live_get, has_data, has_tw_data, get_delta,
@@ -389,11 +402,11 @@ def get_tickers(response: Response, market: str = "futures", since: str = "", fd
         if since:
             d = get_delta(market, since, fields=(fd == "1"))
             if d is not None:
-                d["tickers"] = _slim_crypto_rows(d["tickers"], market, None)   # 差量筆數少，不進記憶體
+                d["tickers"] = _slim_crypto_rows(d["tickers"], market, None, np == "1")   # 差量筆數少，不進記憶體
                 d["source"] = "live"
                 d["ts"] = snapshot_ts()          # 這份報價是幾點的（給前端比新舊，見 live_data.snapshot_ts）
                 return d
-        out = {"tickers": _slim_crypto_rows(live_get(market), market, tok), "source": "live",
+        out = {"tickers": _slim_crypto_rows(live_get(market), market, tok, np == "1"), "source": "live",
                "ts": snapshot_ts()}
         if tok:
             out["rev"] = tok
