@@ -1563,9 +1563,9 @@ function applySystemColor(id, color) {
     document.documentElement.style.setProperty("--bg-solid", _solid);
     // sc-bg 同時寫入 --bg 與 --bg2 → 兩個都要有去 alpha 版，否則用 --bg2 的漸層照樣透光
     document.documentElement.style.setProperty("--bg2-solid", _solid);
-    // ★ 地板用不透明版（見上方說明）：html 也要，否則 body 之外的區域仍會露白。
-    document.body.style.background = _solid;
-    document.documentElement.style.background = _solid;
+    /* ⚠ 地板（body/html）的不透明處理**做在 CSS**（`background: var(--bg-solid, var(--bg))`），
+       不在這裡設 inline style —— colors.js 有一行 `body.style.background = ""` 會在開機流程中
+       把 inline 清掉，造成「選色當下對、刷新後又變回半透明」。這裡只要把 --bg-solid 算好就夠了。 */
   }
 }
 

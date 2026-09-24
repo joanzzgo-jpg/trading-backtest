@@ -647,8 +647,7 @@ function renderAll(data) {
   /* ★ 2026-09-24：資料換了→刻度標籤的字寬可能變→四張圖的價格軸寬會不一致，
      同一個時間就會落在不同的 x（背景格線與十字線跨面板接不起來）。渲染後對齊一次。
      ⚠ 用 rAF：applyOptions 之後 LWC 要下一幀才重算軸寬，同步再量會拿到舊值。 */
-  try { requestAnimationFrame(() => { window._syncAxisWidth && window._syncAxisWidth();
-        window._scheduleGridBridge && window._scheduleGridBridge(); }); } catch (e) {}
+  try { requestAnimationFrame(() => window._syncAxisWidth && window._syncAxisWidth()); } catch (e) {}
 }
 
 function renderCandles(data) {

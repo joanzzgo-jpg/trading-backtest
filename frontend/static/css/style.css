@@ -104,13 +104,7 @@ html.perf-mode .topbar-brand-name,
 html.perf-mode .topbar-brand-sub { color: #1F1F1F; }
 
 /* 圖表面板下分隔線顏色淡化（線本身畫在 ::before，見 .pane-divider） */
-html.perf-mode .pane-divider { background: transparent; }
-html.perf-mode /* 格線橋接畫布：墊在分隔線那條 1px 水平線**底下**（::before 沒設 z-index＝後畫者在上），
-   所以垂直格線看起來貫穿，而水平分界仍然看得見（使用者：「要連起來但中間一樣要有區隔」）。 */
-.pane-divider > canvas.grid-bridge {
-  position: absolute; inset: 0; pointer-events: none; display: block;
-}
-.pane-divider::before { background: #E5E5E5; }
+html.perf-mode .pane-divider::before { background: #E5E5E5; }
 /* 主圖右上「⚙」齒輪本來就已隱藏；指標面板若還是開著時，文字色 fallback */
 html.perf-mode .ind-sp-row,
 html.perf-mode .ind-sp-lbl,
@@ -228,7 +222,18 @@ html.perf-mode #fxPanel { transition: none !important; }
 
 html, body {
   height: 100%;
-  background: var(--bg);
+  /* ★ 2026-09-24 使用者：「主背景透明度調到 0 一樣白色」「刷新後看到的不一樣」。
+     `--bg` 可以帶使用者選的不透明度（半透明主背景是刻意的特色，天氣要從 topbar 透出來），
+     但 **body/html 是最底層的地板 —— 地板不能是透明的**：alpha 0 時會露出瀏覽器預設的白色畫布。
+     → 地板吃**去掉 alpha** 的 `--bg-solid`（ui.js applySystemColor 算好的），沒有時退回 --bg。
+     ⚠ 一定要做在 **CSS 這一層**，不可以用 inline style：我第一版寫成
+       `document.body.style.background = _solid`，結果 colors.js 有一行 `body.style.background = ""`
+       會在開機流程中把它清掉 → **選色當下是對的，刷新後又變回半透明**（實測取樣亮度 67 → 91）。
+       宣告式寫在這裡就不受執行順序影響。 */
+  background: var(--bg-solid, var(--bg));
+  /* ⚠ 這條會被 `html:not(.perf-mode) body`（特異性更高）蓋掉 —— 那條也必須用 --bg-solid，
+     否則地板照樣半透明。改這裡時**一定要一起改那條**，用 CDP 的 getMatchedStylesForNode
+     確認到底是誰生效（我第一版只改這條，量到 body 仍是 rgba(...,0.5)）。 */
   color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
                "Helvetica Neue", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
@@ -1796,23 +1801,29 @@ html.perf-mode .tk-stale { background: rgba(220, 38, 38, 0.10); border-color: #d
    只把「看得到的線」用 ::before 畫成 1px 且淡化 → 視覺上細很多、手感不變。
    hover / 拖曳中才變藍加粗，讓使用者知道這裡可以拉。 */
 .pane-divider {
-  /* 2026-09-24 3px → 7px：副圖圖例改成浮在圖上之後，面板之間少了原本那條實心帶的間隔，
-     視覺上會黏在一起（使用者：「副圖跟主圖間資訊還是要有距離感」）。
-     ⚠ 線本身仍是 1px（見 ::before），加的是上下留白 → 不會變得更搶眼，只是拉開距離。
-     ⚠ 也順便讓 row-resize 的拖曳命中區從 3px 變 7px，本來就太細不好抓。 */
-  height: 7px;
+  /* ★ 2026-09-24：3 → 7 → **1px**。面板之間的背景格線會「斷」，就是因為這條佔了高度。
+     曾經試過在這裡用 canvas 補畫格線去接（取樣畫布找 x）—— 使用者：「這樣的接法很爛，
+     我縮小就壞了，而且跟不上縮放速度」。他是對的：任何「自己重畫一份去對齊 LWC 那份」的做法
+     都得追上它每一幀的重繪，取樣有成本、節流就跟不上、不節流就卡頓。
+     ★ 正解是**把縫隙消掉**：縮到 1px（就是那條分界線本身）→ 相鄰面板 LWC 原生畫的格線
+       自然接上，永遠同步、零維護；而「中間仍有區隔」也還在。
+     ★ 通則：**與其補一個機制產生的縫，不如讓那個縫不要產生。**
+     ⚠ 1px 太細抓不到 → 拖曳命中區用 ::after 往上下各撐 4px（絕對定位，**不佔版面**）。 */
+  height: 1px;
   background: transparent;
   cursor: row-resize;
   flex-shrink: 0;
   position: relative;
   z-index: 10;
 }
+.pane-divider::after {          /* 視覺 1px、好抓 9px；絕對定位不佔版面 */
+  content: ""; position: absolute; left: 0; right: 0; top: -4px; bottom: -4px; cursor: row-resize;
+}
 .pane-divider::before {
   content: "";
   position: absolute;
-  left: 0; right: 0; top: 50%;
+  left: 0; right: 0; top: 0;
   height: 1px;
-  transform: translateY(-50%);
   background: var(--border);
   opacity: .4;
   transition: background .15s, opacity .15s, height .15s;
@@ -3002,7 +3013,7 @@ html:not(.perf-mode) body {
   background:
     radial-gradient(140% 90% at 86% -12%, color-mix(in srgb, var(--accent) 2.5%, transparent) 0%, transparent 55%),
     radial-gradient(130% 85% at -12% 112%, rgba(96,76,212, .018) 0%, transparent 55%),
-    var(--bg);
+    var(--bg-solid, var(--bg));
 }
 
 /* ── 全天氣透景（sky-show）：主圖背後透出 3D 天氣場景，而不是疊在 K 線上的濾鏡 ──
@@ -4435,7 +4446,7 @@ body.m-tab-settings #chartUnderlay,
 body.m-tab-trade    #chartUnderlay { display: none !important; }
 /* 底層漸層放在 body（天氣 canvas 之下）：主背景色（上）→ 米白（下） */
 html.landing-active body {
-  background: linear-gradient(180deg, var(--bg) 0%, var(--bg) 36%, #E5DDD9 84%, #EFEAE4 100%) !important;
+  background: linear-gradient(180deg, var(--bg-solid, var(--bg)) 0%, var(--bg-solid, var(--bg)) 36%, #E5DDD9 84%, #EFEAE4 100%) !important;
 }
 /* 天氣舞台疊在漸層上、放明顯一點，並升到圖表 UI 之上 */
 html.landing-active #weatherStage { opacity: .9 !important; z-index: 2 !important; }

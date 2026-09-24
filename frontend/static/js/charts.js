@@ -1428,7 +1428,6 @@ function resizeAll() {
     if (h > 10) chart.resize(cw, h);
   });
   _syncAxisWidth();
-  _scheduleGridBridge();
 }
 
 /* ★★ 2026-09-24 使用者：「主圖跟副圖的線接不起來」「是指背景的格子線」。
@@ -1459,60 +1458,14 @@ function _syncAxisWidth() {
 }
 window._syncAxisWidth = _syncAxisWidth;
 
-/* ── 讓背景的垂直格線「貫穿」面板之間的分隔區 ──────────────────────────────────
-   ★ 2026-09-24 使用者：「上下的格子線要連起來，但中間一樣要像現在有區隔」。
-     四張圖的格線在 x 上已經對齊了（見 _syncAxisWidth），但每張圖只畫在自己的畫布裡 →
-     面板之間那 7px 的 `.pane-divider` 是空的，垂直線每隔一段就被切一次。
-   ★ 作法：在每條分隔線裡放一張小 canvas，把格線的 x 位置補畫上去；
-     分隔線本身那條 1px 水平線畫在它**上面**（z-index），所以「貫穿」與「有區隔」同時成立。
-   ⚠ 格線的 x **不用猜、也不重算**：直接從圖表**已經畫好的畫布**取一列像素回來找
-     （來源就是產品自己的渲染結果）。自己依 tickMarkFormatter 或時間去推，
-     只要 LWC 的刻度演算法改了就會錯開，而那種錯開只有幾 px、極難發現。
-   ⚠ 只取**一列**（1 × 寬）像素，成本很低；而且節流到「範圍穩定後」才做，不在拖曳每一幀跑。
-   ⚠ 取樣要挑「沒有 K 棒/線條」的那一列：用副圖畫布的**最上緣附近**（scaleMargins 留白處）。 */
-let _gridBridgeRaf = 0, _gridBridgeT = 0;
-function _drawGridBridge() {
-  try {
-    const cont = document.getElementById("chartsContainer");
-    if (!cont) return;
-    const src = document.querySelector("#rsiChart canvas, #kdjChart canvas");
-    if (!src || !src.width) return;
-    const g = src.getContext("2d", { willReadFrequently: true });
-    if (!g) return;
-    const dpr = src.width / Math.max(1, src.getBoundingClientRect().width);
-    const row = Math.max(1, Math.round(2 * dpr));        // 最上緣附近＝scaleMargins 的留白，不會有線
-    let data;
-    try { data = g.getImageData(0, row, src.width, 1).data; } catch (e) { return; }
-    const xs = [];
-    for (let i = 0; i < src.width; i++) {
-      const a = data[i * 4 + 3];
-      if (a > 8) { const x = i / dpr; if (!xs.length || x - xs[xs.length - 1] > 2) xs.push(x); }
-    }
-    if (!xs.length) return;
-    const gc = (typeof _gridColorEffective === "function") ? _gridColorEffective() : "rgba(255,216,176,.13)";
-    document.querySelectorAll(".pane-divider").forEach(d => {
-      let cv = d.querySelector("canvas.grid-bridge");
-      if (!cv) { cv = document.createElement("canvas"); cv.className = "grid-bridge"; d.insertBefore(cv, d.firstChild); }
-      const r = d.getBoundingClientRect();
-      const w = Math.round(r.width), h = Math.round(r.height);
-      if (!w || !h) return;
-      if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
-        cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
-        cv.style.width = w + "px"; cv.style.height = h + "px";
-      }
-      const c2 = cv.getContext("2d");
-      c2.setTransform(dpr, 0, 0, dpr, 0, 0);
-      c2.clearRect(0, 0, w, h);
-      c2.fillStyle = gc;
-      for (const x of xs) c2.fillRect(Math.round(x), 0, 1, h);
-    });
-  } catch (e) {}
-}
-function _scheduleGridBridge() {
-  if (_gridBridgeRaf) cancelAnimationFrame(_gridBridgeRaf);
-  _gridBridgeRaf = requestAnimationFrame(() => { _gridBridgeRaf = 0; _drawGridBridge(); });
-}
-window._scheduleGridBridge = _scheduleGridBridge;
+/* ⚠ 2026-09-24：這裡曾經有一版「在分隔線裡用 canvas 補畫格線」的橋接（取樣畫布找格線 x）。
+   **已整支移除** —— 使用者：「這樣的接法很爛，我縮小就壞了，而且跟不上縮放速度」。他是對的：
+   任何「自己重畫一份格線去對齊 LWC 那份」的做法，都得跟上 LWC 每一幀的重繪，
+   取樣有成本、節流就跟不上、不節流就卡頓，本質上是在追一個永遠追不到的目標。
+   ★ 正解是**把縫隙本身消掉**：面板之間會斷，是因為 `.pane-divider` 佔了 7px。
+     讓它只剩 1px（視覺分界仍在），相鄰面板的格線自然就接上了 ——
+     那是 LWC 原生每幀畫的，永遠同步、零維護。拖曳手把改用 ::after 撐出命中區，不佔版面。
+   ★ 通則：**與其補一個機制產生的縫，不如讓那個縫不要產生。** */
 
 
 /* ── 時間軸 & 鉛直線同步 ── */
@@ -1579,8 +1532,6 @@ function syncTimeScales() {
     syncing = false;
     /* 格線位置隨平移/縮放改變 → 分隔區的橋接要跟著重畫。
        ⚠ **不可以每幀畫**：它要 getImageData 取樣畫布。停手後補一次就好（線在移動中本來就看不清）。 */
-    clearTimeout(_gridBridgeT);
-    _gridBridgeT = setTimeout(_scheduleGridBridge, 140);
     // 平移/縮放 → 重算可見範圍的標記視窗（debounced，避免長範圍時 setMarkers 拖慢）
     if (typeof _scheduleMarkerRewindow === "function") _scheduleMarkerRewindow();
     // 布林改成只畫「可見範圍±3屏」後，平移/縮放要跟著重切視窗（見 render.js _bbWindow）
