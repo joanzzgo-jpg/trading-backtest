@@ -342,10 +342,31 @@ html, body {
      否則會留下一條孤零零的線。用 :empty 擋不到（子元素還在，只是隱藏）→ 改用
      「組內沒有任何可見子元素時寬度為 0」的自然結果 ＋ 分隔線畫在 margin 區域內。 */
 .topbar-right { display: flex; align-items: center; gap: 2px; flex-shrink: 0; padding-left: 6px; }
+/* ★ 2026-09-25 捲動提示。這一列在**窄視窗與手機**上是 `overflow-x:auto`（見下方斷點，
+   那是 2026-08-13「按鈕被推出視窗外」的修法），但捲軸被藏起來 → **畫面上零跡象**：
+   使用者不知道右邊還有「我的交易」「VWAP」「系統設定」。
+   實測溢出量：手機 360px 92px／375px 77px；桌面 1280px 140px／1366px 70px。
+   → 還有內容的那一側用遮罩淡出，暗示「這裡被切掉了」。
+   ⚠ class 由 ui.js `_tbScrollHint` 依實際 scrollLeft/scrollWidth 開關 ——
+     捲到底那一側一定要收掉，否則變成「永遠像還有東西」，是另一種騙人。
+   ⚠ 用 mask 不用另外覆蓋一層漸層 div：那層會擋住底下按鈕的點擊，而且捲動時要跟著重算位置。
+     mask 純視覺，完全不影響命中判定。
+   ⚠ 放在通用段不放手機斷點內：桌面窄視窗（1280/1366）同樣可捲、同樣沒有提示。 */
+.topbar-right.sc-r { -webkit-mask-image: linear-gradient(to left, transparent 0, #000 22px);
+                             mask-image: linear-gradient(to left, transparent 0, #000 22px); }
+.topbar-right.sc-l { -webkit-mask-image: linear-gradient(to right, transparent 0, #000 22px);
+                             mask-image: linear-gradient(to right, transparent 0, #000 22px); }
+.topbar-right.sc-l.sc-r {
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 22px, #000 calc(100% - 22px), transparent 100%);
+          mask-image: linear-gradient(to right, transparent 0, #000 22px, #000 calc(100% - 22px), transparent 100%);
+}
 .tb-group { display: inline-flex; align-items: center; gap: 2px; flex: 0 0 auto; }
-.topbar-right > .tb-group { position: relative; margin-left: 12px; }
+/* ⚠ 2026-09-25 群組間距 12 → 8px：左上搜尋框放大吃掉了右側 54px，實測 1440px（常見筆電）
+   的「系統設定」被推出視窗外（加寬前全部點得到）。分組感靠的是那條分隔線，不是純空白，
+   8px 仍明顯大於按鈕之間的 6px → 分組讀得出來，但省回 5 群 × 4px。 */
+.topbar-right > .tb-group { position: relative; margin-left: 8px; }
 .topbar-right > .tb-group::before {
-  content: ""; position: absolute; left: -6px; top: 50%; transform: translateY(-50%);
+  content: ""; position: absolute; left: -4px; top: 50%; transform: translateY(-50%);
   width: 1px; height: 16px; background: var(--border); opacity: .35; pointer-events: none;
 }
 /* 該組完全沒東西可顯示時（寬度 0）把分隔線也收掉，不留孤線 */
@@ -3676,7 +3697,9 @@ html.perf-mode .ai-adv-section { background: #FAFAFA; border-color: #E5E5E5; }
 :root { --topbar-h: 38px; }
 .topbar { padding: 0 10px !important; gap: 2px !important; }
 .topbar-left { gap: 4px !important; }
-.topbar-right { gap: 6px !important; padding-left: 10px !important; }
+/* ⚠ gap 6 → 4px、左內距 10 → 6px：同上，把搜尋框放大的成本吸收回來。
+   icon 按鈕本身有 padding，4px 的外間距仍不會互相黏住（實測 36px 觸控面積不變）。 */
+.topbar-right { gap: 4px !important; padding-left: 6px !important; }
 
 /* Logo + brand 微調 */
 .topbar-logo { margin-right: 12px !important; gap: 8px !important; }
@@ -3716,6 +3739,13 @@ html.perf-mode .ai-adv-section { background: #FAFAFA; border-color: #E5E5E5; }
 }
 .tb-symbol-wrap:hover { background: var(--bg4) !important; }
 .tb-symbol-input { font-size: var(--t-lg) !important; font-weight: 600 !important; }
+/* ★ 2026-09-25 窄視窗自動縮回：搜尋框放大（90→144px）在寬螢幕很好看，但上方列右側是一排
+   **只會越加越多**的圖示按鈕（claude.md 守門員之九）—— 實測 1280px 時多出來的寬度會把
+   「我的交易」「VWAP」等再推出去 2 顆。寬螢幕享受大框、窄視窗把空間讓回給按鈕。
+   ⚠ 門檻是**量出來的**不是猜的：1440px 溢出 0（全部點得到）、1366px 溢出 98、1280px 溢出 184。
+   ⚠ 手機款（≤1180px + 觸控）另有 `width:100% !important` 的自適應規則、排在本檔更後面 → 不受影響。 */
+@media (max-width: 1400px) { .tb-symbol-input { width: 116px !important; } }
+@media (max-width: 1320px) { .tb-symbol-input { width: 100px !important; } }
 
 /* Icon buttons — 統一 7px 圓角、稍大觸控面積 */
 .tb-icon-btn {
@@ -3977,7 +4007,10 @@ html.perf-mode .ticker-hd { background: #FFFFFF !important; }
   /* ── 中性文字層（暖白）── */
   --txt-hi:    #FFEFD8;     /* 重點數字 */
   --txt-base:  #EDD4A8;     /* 一般文字（同 --text） */
-  --txt-mute:  rgba(255,180,120,.55);   /* 次要 */
+  /* ⚠ .55 → .66（2026-09-25）：這個變數用在符號列的「開= 高= 低= 收= 量=」標籤上，
+     疊在 #1e222d 上實測只有 **4.0**，低於 WCAG AA 小字的 4.5；.66 是 4.73。
+     ⚠ 下面的 --txt-faint 是分隔線/單位那種純裝飾，刻意維持很淡、不跟著調。 */
+  --txt-mute:  rgba(255,180,120,.66);   /* 次要 */
   --txt-faint: rgba(255,180,120,.35);   /* 標籤/單位 */
 }
 html.perf-mode {

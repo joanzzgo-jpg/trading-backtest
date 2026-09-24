@@ -300,8 +300,26 @@ function bindEvents() {
                 && W / 2 - tfW / 2 - _TB_GAP >= leftEnd;
       _tbBar.classList.toggle("tf-centered", fits);
     };
-    const _tbSched = () => { if (!_tbRaf) _tbRaf = requestAnimationFrame(_tbFitTf); };
+    /* ★ 2026-09-25 手機上方列右側是可捲的，但捲軸藏著＝**零跡象**：
+       實測 375/390/414/360 四種寬度全都溢出（375px 溢出 77px），
+       「我的交易」「VWAP」要捲過去才點得到，而畫面上完全看不出可以捲。
+       → 依實際捲動位置，在**還有內容的那一側**加淡出遮罩（CSS `.sc-l` / `.sc-r`）。
+       ⚠ 捲到底那一側一定要收掉，否則會變成「永遠像還有東西」＝另一種騙人。
+       ⚠ 容差 2px：scrollWidth/clientWidth 在縮放比例下會有次像素差，
+         不留容差會在捲到底時閃一下。 */
+    const _tbScrollHint = () => {
+      try {
+        if (!_tbRight) return;
+        const max = _tbRight.scrollWidth - _tbRight.clientWidth;
+        const x = _tbRight.scrollLeft;
+        _tbRight.classList.toggle("sc-l", max > 2 && x > 2);
+        _tbRight.classList.toggle("sc-r", max > 2 && x < max - 2);
+      } catch (e) {}
+    };
+    const _tbSched = () => { if (!_tbRaf) _tbRaf = requestAnimationFrame(() => { _tbFitTf(); _tbScrollHint(); }); };
     window._tbFitTf = _tbSched;
+    try { _tbRight.addEventListener("scroll", _tbScrollHint, { passive: true }); } catch (e) {}
+    try { new ResizeObserver(_tbScrollHint).observe(_tbRight); } catch (e) {}
     window.addEventListener("resize", _tbSched);
     try { _mqWide.addEventListener("change", _tbSched); } catch (e) {}
     try { new ResizeObserver(_tbSched).observe(_tbLeft); new ResizeObserver(_tbSched).observe(_tbTf); } catch (e) {}
@@ -1419,7 +1437,11 @@ const SC_DEFAULTS = {
   "sc-panel":  "#2a2e39",
   "sc-border": "#2a2e39",
   "sc-text":   "#d1d4dc",
-  "sc-muted":  "#787b86",
+  /* ⚠ 2026-09-25 #787b86 → #9095A1：它用在**時框按鈕(12px)**、行情列的分頁/排序(10~11px)
+     這類常用小字上，而 #787b86 對預設底 #1e222d 只有 **3.76**、對面板 #2a2e39 只有 3.21
+     —— 都低於 WCAG AA 小字的 4.5。#9095A1 是 5.29 / 4.52，而主文字仍是它的 **2.02 倍**
+     （10.71 vs 5.29）→ 「次要」的層次完全保留，只是看得清楚了。 */
+  "sc-muted":  "#9095A1",
   "sc-blue":   "#2962ff",
 };
 const SC_CSS_MAP = {
@@ -1606,15 +1628,20 @@ function _scPick(bg, cands, min) {
   return best;
 }
 const _SC_TEXT_CANDS  = ["#d1d4dc", "#1F2328", "#FFFFFF", "#0B0E12"];
-const _SC_MUTED_CANDS = ["#787b86", "#5B6270", "#A8AEBC", "#3E4450", "#C6CBD5"];
+/* ⚠ 2026-09-25 整組提亮：舊清單在 8 種代表性背景裡**只有 1 種**達得到 4.5，
+   新清單 8/8 全達（含中間調 #7A4A1F 與米色 #C8B89A 這兩個最難的）。 */
+const _SC_MUTED_CANDS = ["#9095A1", "#59606E", "#B6BCC8", "#3A404C", "#D2D7E0"];
 function _autoTextContrast() {
   const ds = document.documentElement.style;
   const bg = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim();
   if (!_scRgb(bg)) return;
   const untouched = (k) => SC[k] === SC_DEFAULTS[k];
-  // 內文門檻 4.5:1、次要文字 3:1（WCAG AA）
+  /* 內文門檻 4.5:1。次要文字**也用 4.5 不用 3.0**（2026-09-25 改）——
+     3.0 是 WCAG 給「大字」(≥18.66px 或粗體 ≥14px) 的門檻，但 `--muted` 實際落在
+     時框按鈕 12px、行情列分頁 10~11px 這些**小字**上，套大字門檻等於放行了看不清的組合
+     （實測時框未選中只有 3.76）。 */
   if (untouched("sc-text"))  ds.setProperty("--text",  _scPick(bg, _SC_TEXT_CANDS,  4.5));
-  if (untouched("sc-muted")) ds.setProperty("--muted", _scPick(bg, _SC_MUTED_CANDS, 3.0));
+  if (untouched("sc-muted")) ds.setProperty("--muted", _scPick(bg, _SC_MUTED_CANDS, 4.5));
   if (untouched("sc-border"))
     ds.setProperty("--border", _scRelLum(bg) >= 0.25 ? "rgba(0,0,0,0.16)" : SC_DEFAULTS["sc-border"]);
 }
