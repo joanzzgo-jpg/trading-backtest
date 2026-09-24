@@ -77,7 +77,12 @@ function _darkenForChart(hex) {
 
 // 相對亮度（0~255）：格線自動配色用
 function _lum(hex) {
-  const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex || "");
+  /* ⚠ 2026-09-24：原本的正則**只吃 6 位** hex → 使用者一旦給主背景任何透明度，
+     傳進來的是 8 位（`#13172200`）→ 比對失敗 → fallback 回 128，
+     而下游判斷是 `lum < 128`，128 不小於 128 → **一律走「亮底」分支**
+     → 暗背景卻配上深棕格線，格線整個看不見。
+     透明度不影響「這個顏色本身是亮是暗」，所以**先把 alpha 切掉再算**。 */
+  const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})(?:[0-9a-f]{2})?$/i.exec(hex || "");
   if (!m) return 128;
   return 0.299 * parseInt(m[1], 16) + 0.587 * parseInt(m[2], 16) + 0.114 * parseInt(m[3], 16);
 }
@@ -173,7 +178,15 @@ function _applyChartBgGradient(color) {
      需求相反。共用 70% 會把牆紙蓋掉七成 → 使用者回報「背景小熊磁磚太暗了」。 */
   const TILE_DIM = 32;
   const DIM = tiles ? TILE_DIM : WX_DIM;
-  const veil = `color-mix(in srgb, ${base} ${Math.round(DIM * userA)}%, transparent)`;
+  /* ⚠ 2026-09-24：使用者回報的「主背景透明度調到 0 變白」**根因不在這裡**，
+     是 `ui.js applySystemColor` 把帶 alpha 的值直接設給 `document.body` → alpha 0 時
+     露出瀏覽器預設的白色畫布（已在那邊修：地板一律吃去掉 alpha 的 --bg-solid）。
+     所以這裡**不加任何地板**，使用者拉到 0 就是真的 0 —— 主圖背景的透明度是他的選擇，
+     不該因為我一開始診斷錯就留下一道限制。
+     ⚠ 保留下面那層依透明度內插的壓暗（_bd）：那只是讓天氣透上來時不至於爆亮，
+       不限制使用者能拉到多透明，兩者性質不同。 */
+  const _veilA = userA;
+  const veil = `color-mix(in srgb, ${base} ${Math.round(DIM * _veilA)}%, transparent)`;
   /* ⚠ 2026-08-05 使用者：「主背景控制跟主圖控制混在一起了」「變成都同色」——
      周圍面板(topbar/標的列/合約行情)先前套的是 veil，而 veil 是用 base（＝**主圖**選色）算的
      → 改主圖色會連帶改掉周圍，兩個色盤黏在一起。
@@ -221,12 +234,31 @@ function _applyChartBgGradient(color) {
      ⚠ 底墊必須是 fixed 且 z-index:0：charts-container 自己是 z-index:2 的堆疊脈絡，
        放在它裡面的任何子層都會在天氣之上，墊不到後面去。 */
   pane.style.background = seeThru ? veil : base;
+
   /* ⚠ backdrop-filter 只給**天氣**模式，磁磚(小熊牆紙)不套。
      那層乘法壓暗是為了「爆亮的天空」設計的；小熊牆紙本來就是暗底，再壓 38% 會把
      牆紙與金熊脈衝一起壓掉 → 使用者回報「小熊磁磚的發亮太暗了」。
      磁磚模式只保留半透明色膜(veil)，讓使用者選的主圖色仍看得到即可。
      非天氣也不用（底色本來就不透明，套了只是多開一層合成）。 */
-  const _bd = "";   // 主圖不再套壓暗濾鏡（沒有天氣合成進來就沒有要壓的東西）
+  /* ★ 2026-09-24 使用者：「主背景透明度調到 0 才變白」。
+     根因：`veil` 是 `color-mix(base × DIM × userA%, transparent)` —— 使用者把不透明度拉到 0，
+     veil 就**完全透明**，而這裡原本寫死 `_bd = ""`（不套壓暗濾鏡）。
+     那行的理由是「沒有天氣合成進來就沒有要壓的東西」—— 但那個前提只在**主圖不透明**時成立；
+     使用者一調低不透明度，天氣就真的合成進來了，而且是以**原亮度**。白天的晴空就是一片白。
+     ★ 這正是註解上方記載過的同一個症狀（「天氣天空整片透上來、看盤區很亮」），
+       當年就是為此設計了 `wxFilter` 這層**乘法**壓暗（亮處壓很多、暗處幾乎不動，
+       對比與紋理保留）—— 它一直都在，只是被關掉了。現在按需要把它接回來。
+     ⚠ 依 userA **連續**內插，不是開關：veil 越薄就壓越多，
+       userA=1（不透明）→ brightness(1)＝完全不套（不多開一層合成，維持原本的零成本）；
+       userA=0（全透明）→ brightness(wxBright)＝當年為該天氣型態設計的強度。
+       用開關的話會在某個刻度上「啪」地跳一階，拉 slider 時看得出來。
+     ⚠ 只在 seeThru（天氣／磁磚牆紙）時才有意義：非天氣時底色本來就不透明，沒有東西要壓。
+     ⚠ backdrop-filter 只作用在元素**背後**已繪製的內容 → K 棒與繪圖是 #mainPane 的子層、
+       在它之後才畫，完全不受影響（這點與當年的驗證相同）。 */
+  const _bdB = 1 - (1 - wxBright) * (1 - _veilA);     // 與 veil 同一個基準：veil 越薄壓越多
+  const _bd = (seeThru && _bdB < 0.995)
+    ? `brightness(${_bdB.toFixed(3)}) saturate(${(1 - (1 - 0.78) * (1 - _veilA)).toFixed(3)})`
+    : "";
   pane.style.backdropFilter = _bd;
   pane.style.webkitBackdropFilter = _bd;
   // 天氣 accent 仍寫進 CSS 變數（側欄等元件用）；指標區(KDJ/RSI/MACD)不再隨天氣染色(濾鏡已移除)。

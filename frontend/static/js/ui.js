@@ -1544,7 +1544,14 @@ function applySystemColor(id, color) {
     : color;
   vars.forEach(v => document.documentElement.style.setProperty(v, applied));
   if (id === "sc-bg") {
-    document.body.style.background = applied;
+    /* ⚠⚠ 2026-09-24 使用者：「主背景透明度調到 0 一樣白色」。
+       這裡原本是 `document.body.style.background = applied`，而 applied 帶著使用者選的 alpha
+       → 拉到 0 時 **body 整個透明**，露出的是**瀏覽器預設的白色畫布** —— 那就是「變白」。
+       ★ 半透明主背景是**刻意的特色**（天氣要能從 topbar／行情列透出來），所以 alpha 要留給
+         那些面板（它們吃 var(--bg)）；但 **body 是最底層的地板，地板不能是透明的**。
+       → body 一律吃去掉 alpha 的 --bg-solid（下面本來就算好了，當初是為了手機分頁才加的
+         ——「因為透明度導致其他分頁背景有圖表」，同一類問題的第二次）。
+       ⚠ 順序：_solid 要先算出來才能用，所以這一行往下搬到 _solid 之後。 */
     /* ★ 2026-08-06 另外寫一個「去掉 alpha 的系統色」--bg-solid。
        使用者可以把主背景選成半透明（色盤有不透明度滑桿）——桌面上那是特色，
        天氣會從 topbar/行情列透出來。但**手機的分頁面板背景是完全透明的**、靠 var(--bg)
@@ -1556,6 +1563,9 @@ function applySystemColor(id, color) {
     document.documentElement.style.setProperty("--bg-solid", _solid);
     // sc-bg 同時寫入 --bg 與 --bg2 → 兩個都要有去 alpha 版，否則用 --bg2 的漸層照樣透光
     document.documentElement.style.setProperty("--bg2-solid", _solid);
+    // ★ 地板用不透明版（見上方說明）：html 也要，否則 body 之外的區域仍會露白。
+    document.body.style.background = _solid;
+    document.documentElement.style.background = _solid;
   }
 }
 

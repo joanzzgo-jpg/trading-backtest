@@ -317,6 +317,7 @@
       <button class="dt-layer" data-layer="C" title="圖層 C —— 點＝設為作用層；再點一次＝隱藏／顯示（快捷鍵 C）。A/B/C 可以同時顯示。">C</button>
     </div>
 
+    <div class="tb-group" role="group" aria-label="視窗與模式">
     <button id="tbInstallBtn" class="tb-icon-btn" title="安裝 App 到這台電腦（獨立視窗、桌面圖示，免下載安裝包）" style="display:none" onclick="window._pwaInstall?.()">
       <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5 V14.5 M8 11 L12 15 L16 11"/><path d="M4.5 16.5 V19 A1.5 1.5 0 0 0 6 20.5 H18 A1.5 1.5 0 0 0 19.5 19 V16.5"/></svg>
     </button>
@@ -330,9 +331,11 @@
         <path d="M6.6 5.6 L10.4 8 L6.6 10.4 Z" fill="currentColor" opacity="0.5"/>
       </svg>
     </button>
+    </div>
     <!-- 掛單／足跡／訂單簿：原本在時框列、是帶 emoji 的寬按鈕，2026-07-31 依使用者要求縮小成圖示鈕
          並移到勝率標記鈕右邊。狀態 class 仍是 .on（JS 未改，CSS 已讓 .tb-icon-btn.on 等同 .active）。
          三顆一樣由各自的 _xxBtnRefresh() 控制「只在加密貨幣顯示」。 -->
+    <div class="tb-group" role="group" aria-label="加密盤口（僅加密顯示）">
     <button id="orderbookBtn" type="button" class="tb-icon-btn" style="display:none" title="掛單牆：即時盤口大掛單畫在主圖右緣（綠=買方支撐牆、紅=賣方壓力牆，長度=掛單金額）。牆消失時判定「✓吃掉」（行情掃到才消失=真防守）或「⚠撤走」（沒碰到就不見=疑似假單）。左上顯示掛單買賣比。僅加密貨幣即時盤口">
       <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
         <path d="M3 4.2 H13"/><path d="M6 7.4 H13"/><path d="M4.5 10.6 H13"/><path d="M8 13.8 H13"/>
@@ -354,8 +357,10 @@
         <path d="M2.6 10 H7.8"/><path d="M2.6 12.6 H10.6"/>
       </svg>
     </button>
+    </div>
     <!-- 2026-08-05 移除：S1~S12 訊號標記的「一鍵隱藏」鈕與已退役的全/S/SS 過濾鈕。
          S1~S12 與 SS 系列都已刪除，這兩顆按鈕控制的東西不存在了。 -->
+    <div class="tb-group" role="group" aria-label="圖表疊加層">
     <button id="sessionToggleBtn" class="tb-icon-btn" title="交易時段標記（台股/歐洲/美盤 高低範圍 + 星期）">
       <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
         <circle cx="5.6" cy="7" r="3.6" stroke="currentColor" stroke-width="1.3" opacity="0.5"/>
@@ -384,6 +389,8 @@
         <path d="M1.5 8 H14.5" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-dasharray="2 2.2" opacity="0.5"/>
       </svg>
     </button>
+    </div>
+    <div class="tb-group" role="group" aria-label="面板與其他">
     <button id="tickerToggle" class="tb-icon-btn" title="行情列表">
       <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
         <path d="M1 9.2 H4 L5.6 3.5 L8 13 L9.6 7.4 H11 L12.4 5.4 L13.6 7.4 H15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
@@ -415,6 +422,7 @@
         <circle cx="2.5" cy="13.5" r="0.5" fill="currentColor" opacity="0.45"/>
       </svg>
     </button>
+    </div>
     <button id="sysSettingsBtn" class="tb-icon-btn" title="系統外觀">
       <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
         <g fill="currentColor">

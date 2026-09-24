@@ -52,6 +52,8 @@ const MIN_SYMBOL_W = 80;
 const fails = [];
 
 async function main() {
+  const MIN_BTNS = 8;      // 列舉不到這麼多＝結構改動弄壞了列舉
+  let minSeen = Infinity;
   let browser;
   try {
     browser = await puppeteer.launch({
@@ -99,8 +101,17 @@ async function main() {
         }
         return null;
       };
+      /* ⚠⚠ 一定要列舉**真正的按鈕葉節點**，不可以用 `tr.children`（2026-09-24 踩到）：
+         那天把圖示包進 `.tb-group` 分組之後，直接子元素從 14 顆按鈕變成 5 個容器 →
+         這支**照樣全綠，但測到的東西從 14 個掉到 6 個**＝安靜地變成空洞測試。
+         而「容器中心點可達」根本不代表裡面每顆按鈕都可達。
+         → 改成掃所有可互動的葉節點，對任何巢狀結構都成立。
+         ⚠ 另加「數量下限」保險：列舉不到 8 個就判定測試不成立（同 check_diag_auth 的做法），
+           以後再有人改結構弄壞列舉，會直接回傳碼 2 而不是假通過。 */
       const tr = document.querySelector(".topbar-right");
-      const vis = [...tr.children].filter(e => getComputedStyle(e).display !== "none");
+      const vis = [...tr.querySelectorAll("button, [role=\"button\"], .dt-layer")]
+        .filter(e => !e.querySelector("button"))                       // 只留葉節點
+        .filter(e => getComputedStyle(e).display !== "none" && e.getBoundingClientRect().width > 0);
       const out = [];
       for (const e of vis) {
         const sc = userScrollable(e);
@@ -133,6 +144,7 @@ async function main() {
     });
 
     const bad = r.kids.filter(k => !k.ok);
+    minSeen = Math.min(minSeen, r.kids.length);
     const symOk = r.symW === null || r.symW >= MIN_SYMBOL_W;
     const pageOk = r.docScrollW <= r.innerW + 1;
     const ok = !bad.length && symOk && pageOk && !errs.length;
@@ -150,6 +162,14 @@ async function main() {
 
   await browser.close();
   console.log();
+  /* ⚠⚠ 數量下限保險（2026-09-24 加）：這支曾經因為「把按鈕包進 .tb-group 分組」而
+     從測 14 顆掉到測 6 個容器 —— **照樣全綠**，安靜地變成空洞測試。
+     列舉不到 MIN_BTNS 個就判定**測試不成立**（回傳碼 2），不是通過。 */
+  if (minSeen < MIN_BTNS) {
+    console.log(`⚠ 測試不成立：某個寬度只列舉到 ${minSeen} 顆按鈕（應 ≥${MIN_BTNS}）`);
+    console.log("   多半是 .topbar-right 的結構改了、列舉選擇器沒跟上 —— 修列舉，不要調低門檻。");
+    return 2;
+  }
   if (fails.length) {
     console.log("★ 有按鈕在窄螢幕上點不到（畫面看起來完全正常、不報錯）：");
     fails.forEach(f => console.log(`   ${f}`));

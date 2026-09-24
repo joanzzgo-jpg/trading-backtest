@@ -181,8 +181,13 @@ const TF_LABELS = { "1M":"月","1w":"週","1d":"日","4h":"4H","1h":"1H","15m":"
 //   → 從這裡拿掉，舊使用者存著的 lastSymbol.tf="2h"、或別人分享的 ?tf=30m 會自動被擋掉退回預設，
 //   不會卡在一個已經沒有按鈕的時框上。
 
-/* ── 手機 TF 選擇器：使用者自選最多 4 個要顯示的時間框（設定分頁設定；桌面顯示全部） ── */
-const MOBILE_TF_MAX = 4;
+/* ── 手機 TF 選擇器：使用者自選最多 MOBILE_TF_MAX 個要顯示的時間框（設定分頁設定；桌面顯示全部） ── */
+/* 手機上方時間框列最多能選幾個。2026-09-24 使用者：「手機端改成上方可以選五種時間級別」→ 4 → 5。
+   ⚠ 這是「放得下幾顆」的問題，不是純設定：改完**必須**跑 `node scripts/check_topbar_reachable.js`
+     （360/375/390 三種手機寬度）確認第 5 顆不會被擠出視窗外 —— 那種壞法畫面上零異常、
+     只是永遠點不到（見 claude.md 守門員之九與 memory project_topbar-right-overflow）。 */
+const MOBILE_TF_MAX = 5;
 const MOBILE_TF_ALL = ["1M","1w","1d","4h","1h","15m","5m","1m"];   // 順序＝按鈕列順序（8h/2h/30m 已移除）
-let _mobileTFs = ["1d","4h","1h","15m"];   // 預設顯示的 4 個；由 loadMobileTFs() 從 localStorage 載入
+// 預設顯示這幾個；由 loadMobileTFs() 從 localStorage 載入（已經選過的人不受影響，這只給新裝置）
+let _mobileTFs = ["1d","4h","1h","15m","5m"];
 

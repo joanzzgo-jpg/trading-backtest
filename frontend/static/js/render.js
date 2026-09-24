@@ -393,6 +393,7 @@ function _holdAnchorByTime(anchorT, bc) {
      原本依價格級距猜 → SOL 97.3 被寫成 97.3000、PEPE 反而被砍掉兩位。
    ⚠ 級距那套仍留作**後備**：資料還沒到／全是整數時 `_pxDecInfer` 回 null，
      此時退回原本的規則，不要讓精度變成 0（整數價的標的會整片變成沒有小數）。 */
+let _pxPrecSeen = {};   // 標的 → 看過的最高小數位（見 _applyPriceFormat 內的說明）
 function _applyPriceFormat(data) {
   if (!data || !data.length) return;
   const p = Math.abs(data[data.length - 1]?.close || 0);
@@ -404,7 +405,29 @@ function _applyPriceFormat(data) {
     vals.push(b.open, b.high, b.low, b.close);
   }
   const inferred = (typeof _pxDecInfer === "function") ? _pxDecInfer(vals, 10) : null;
-  if (inferred != null && inferred > 0) precision = inferred;
+  /* ★ 2026-09-24 使用者：「hype 小數點後三位在主圖上變兩位了」「我要精確數值」。
+     根因不在推論邏輯，在**資料來源**：實測同一檔 HYPE ——
+       binance / pionex / bybit 永續 → 小數位分佈含 1638 筆 3 位 → 推出 3（正確）
+       **bybit 現貨** → 分佈 {0:15, 1:205, 2:1544}，**一筆 3 位都沒有** → 只能推出 2
+     Binance 一冷卻、fallback 鏈落到 Bybit 現貨，第三位就在上游被四捨五入掉了。
+     ★ 兩種錯的代價**不對稱**：少顯示一位是**丟掉真實資訊**（92.698 變成 92.70，
+       看不出真正的價）；多顯示一位只是多一個尾零（92.83 變 92.830），資訊沒有損失。
+       → 精度**只進不退**：記住這一檔看過的最高位數，降級來源進來時不讓它把位數拉低。
+     ⚠ 以「標的」為單位記，不是全域：BTC(1 位) 與 PEPE(8 位) 不能互相污染。
+     ⚠ 換標的時由 `window._pxPrec = null`（本檔上方）清掉當下值，但這張表要留著 ——
+       它記的就是「這一檔本來有幾位」，跨來源、跨次載入都該成立。
+     ⚠ 上限仍吃 _pxDecInfer 的 cap(10)，不會無限長大。 */
+  let best = inferred;
+  try {
+    const k = window._chartDataKey || "";
+    if (k) {
+      _pxPrecSeen = _pxPrecSeen || {};
+      if (inferred != null && inferred > (_pxPrecSeen[k] ?? -1)) _pxPrecSeen[k] = inferred;
+      const seen = _pxPrecSeen[k];
+      if (seen != null && (best == null || seen > best)) best = seen;
+    }
+  } catch (e) {}
+  if (best != null && best > 0) precision = best;
   else if (p >= 100)    precision = 2;
   else if (p >= 1)      precision = 4;
   else if (p >= 0.1)    precision = 5;
@@ -496,7 +519,12 @@ function renderAll(data) {
      ⚠ 只當**下限**（跟已存的值取大）：使用者自己拉出更大的留白要保留得住。 */
   const _defaultRightPad = (bs) => {
     const visN = _visNFor(bs) || (_savedBarCount || 50);
-    return Math.min(20, Math.max(3, Math.round(visN * 0.06)));
+    /* ★ 2026-09-24 使用者：「價格的右邊留白好多」→ 6% 減半成 3%，上限 20 → 12 根。
+       實測 1600 寬、可見約 211 根：88px（14 根）→ 約 44px（7 根）。
+       ⚠ 仍然只是**下限**（跟已存的值取大）：使用者自己拉出來的留白照樣保留得住。
+       ⚠ 別調到 0：LWC 預設 rightOffset=0 ＝最後一根貼著價格軸，當初就是因為那樣才加這段
+         （最新那根被切在邊上、也沒有空間看「接下來要往哪走」）。 */
+    return Math.min(12, Math.max(3, Math.round(visN * 0.03)));
   };
   const _restoreByBarCount = () => {
     const ts = mainChart.timeScale();
@@ -616,6 +644,11 @@ function renderAll(data) {
   try { mainChart.priceScale("right").applyOptions({ autoScale: true }); } catch (e) {}
 
   resizeAll();
+  /* ★ 2026-09-24：資料換了→刻度標籤的字寬可能變→四張圖的價格軸寬會不一致，
+     同一個時間就會落在不同的 x（背景格線與十字線跨面板接不起來）。渲染後對齊一次。
+     ⚠ 用 rAF：applyOptions 之後 LWC 要下一幀才重算軸寬，同步再量會拿到舊值。 */
+  try { requestAnimationFrame(() => { window._syncAxisWidth && window._syncAxisWidth();
+        window._scheduleGridBridge && window._scheduleGridBridge(); }); } catch (e) {}
 }
 
 function renderCandles(data) {

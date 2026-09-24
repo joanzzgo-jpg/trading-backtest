@@ -20,6 +20,45 @@ function applyMainScaleMargins() {
   } catch (e) {}
 }
 
+
+/* ── 副圖的上下界參考線（KDJ 20/50/80、RSI 30/50/70）──────────────────────────
+   ★ 2026-09-24 使用者：「下方副圖的水平線要延伸到右邊，就算右邊 K 棒還沒出來也要先畫好」
+     「上下限還是斷的」。
+   原本是**只有兩個點的 LineSeries**（第一根 K 棒 → 最後一根）→ 必然停在最後一根，
+   右側那段留白（rightOffset）完全沒有線。
+   → 改用 LWC 的 `createPriceLine`：它本來就**橫跨整個繪圖區寬度**，含右側留白。
+   ⚠ **不可以**改成「在未來時間塞一個資料點」把線拉長：那會把整個圖表的時間範圍往後撐，
+     破壞 rightOffset 的計算，也違反重播的「不可看到未來」不變式（守門員之十二）。
+   ⚠ 掛在 **anchor**（透明的佔位序列）上，不掛 kdjK/rsiLine14：
+     使用者從圖例把 K 線關掉時，掛在它上面的 price line 會跟著消失。anchor 永遠不會被關。
+   ⚠ 回傳一層**薄殼**，介面與 LineSeries 相同（applyOptions / setData / options）→
+     colors.js 的配色套用、config.js 的圖例開關對照表、render.js 的 setData 一行都不用改。
+     setData 收到的是 [{time,value},{time,value}]，取其 value 當價位（兩點本來就同一個值）。 */
+function _mkHLine(anchor, price, opts) {
+  let cur = Object.assign({ price, visible: true }, opts);
+  let pl = null;
+  const _sync = () => {
+    const o = { price: cur.price, color: cur.color, lineWidth: cur.lineWidth,
+                lineStyle: cur.lineStyle, axisLabelVisible: cur.visible !== false,
+                lineVisible: cur.visible !== false, title: "" };
+    if (!pl) { try { pl = anchor.createPriceLine(o); } catch (e) {} }
+    else { try { pl.applyOptions(o); } catch (e) {} }
+  };
+  _sync();
+  return {
+    applyOptions(o) { Object.assign(cur, o || {}); _sync(); },
+    setData(d) {
+      if (Array.isArray(d) && d.length) {
+        const v = d[d.length - 1] && d[d.length - 1].value;
+        if (Number.isFinite(v)) { cur.price = v; _sync(); }
+      }
+    },
+    options() { return Object.assign({}, cur); },
+    priceToCoordinate(v) { try { return anchor.priceToCoordinate(v); } catch (e) { return null; } },
+    _isHLine: true,
+  };
+}
+
 function makeBaseOpts(scaleMargins = null, showTime = false) {
   // 極簡模式用亮色系，其他維持原本暗色
   const _perf = document.documentElement.classList.contains("perf-mode");
@@ -43,7 +82,20 @@ function makeBaseOpts(scaleMargins = null, showTime = false) {
       vertLine: { style: 3, width: 1, color: _cx, labelBackgroundColor: _lbg },
       horzLine: { style: 3, width: 1, color: _cx, labelBackgroundColor: _lbg },
     },
-    rightPriceScale: { borderColor: _brd, minimumWidth: 80 },
+    /* ★ 2026-09-24 使用者：「價格的右邊留白好多」。
+       這裡原本寫死 `minimumWidth: 64`，但灰色刻度實際只需要約 56px（實測文字佔 44px、
+       左緣 11~19、右緣 53~55）→ 軸被撐到 80 之後 LWC 把刻度靠左排，**右邊空出 25~27px**，
+       佔整條軸的三分之一。那 80 是為了「橘色現價標籤（我們自己的 DOM，min-width 66 + right 8）
+       放得下」而訂的。→ 兩邊一起瘦（標籤 66→56、right 8→4），軸就能收到 64。
+       ⚠ 不可以只降 minimumWidth：橘色標籤會超出軸、壓到 K 棒上。
+       ⚠ 也不可以降太多：minimumWidth 的用意是**避免價格位數變化時軸寬跳動**
+         （BTC 5 位變 6 位會讓整張圖重排）。64 仍容得下常見的 7~8 字價格；
+         低價幣那種 12 字的價 LWC 會自己把軸撐開，本來就是這樣設計的。
+       ★ 實測結果：軸 81 → **71px**（繪圖區 1270 → 1280），灰刻度右側空白溝 25~27 → **15~17px**。
+       ⚠ 再往下沒有用：minimumWidth 設 52 或 40 量到的軸寬**都還是 71** ——
+         71 是「內容本身」決定的（LWC 量標籤文字 + 它自己的內距），
+         剩下那 16px 是 **LWC 內部的右內距**，不是這個選項能動的。別再花時間調這個數字。 */
+    rightPriceScale: { borderColor: _brd, minimumWidth: 64 },
     timeScale: {
       borderColor: _brd,
       timeVisible: true,
@@ -1286,22 +1338,58 @@ function buildCharts() {
 
   kdjChart = LightweightCharts.createChart(document.getElementById("kdjChart"), sub);
   kdjAnchor = kdjChart.addLineSeries({ color:"rgba(0,0,0,0)", lineWidth:1, priceLineVisible:false, lastValueVisible:false });
-  kdjK  = kdjChart.addLineSeries({ color:C.kdjK, lineWidth:S.kdjKWidth??1, lineStyle:S.kdjKStyle??0, priceLineVisible:false, lastValueVisible:false });
+  /* ★ 2026-09-24 使用者：「縮放時上下跳動」——副圖各自 autoscale，一縮放就各自重算 min/max，
+     跳動幅度跟主圖不一樣 → 看起來沒有連動。KDJ 本質是 0~100 的震盪指標，不該隨縮放浮動。
+     → 釘成「**至少**涵蓋 0~100」，只有 J 真的超出才擴張（J 會 <0 或 >100，硬釘會被裁掉）。
+     ⚠ LWC 會把同一個價格軸上**所有** series 的 autoscale 結果取聯集 → 只要在其中一條
+       掛這個 provider，整個面板的刻度下限就被釘住了，不必每條線都掛。
+     ⚠ 用 `original()` 拿預設結果再取聯集，不可以自己重算：那等於在測試裡複製公式，
+       資料有 NaN/空洞時會跟 LWC 的判斷分岔。 */
+  /* ⚠ 只做「至少涵蓋 0~100」**不夠**：J 會衝出 0~100，而它衝多高是看**可見範圍**算的
+     → 一縮放又開始跳（實測五種縮放量到 4 組不同刻度）。
+     → 改成用**整段已載入的資料**算 J 的極值：縮放完全不影響它（只有換標的／換時框才會變），
+       而且永遠不會把 J 裁掉。
+     ⚠ 要快取：autoscaleInfoProvider 每次重繪都會被呼叫，O(n) 掃描會落在熱路徑上。
+       用「資料識別 + 根數」當快取鍵，資料一變就自然失效。
+     ⚠ 上下各夾在 [-50,150]：極端行情出現過一次 J=300，之後整個面板會被壓成一條平線。 */
+  let _kdjRangeCache = { key: "", lo: 0, hi: 100 };
+  const _kdjFullRange = () => {
+    const n = (typeof ohlcvData !== "undefined" && ohlcvData) ? ohlcvData.length : 0;
+    const key = (window._chartDataKey || "") + "|" + n;
+    if (_kdjRangeCache.key === key) return _kdjRangeCache;
+    let lo = 0, hi = 100;
+    for (let i = 0; i < n; i++) {
+      const v = ohlcvData[i].kdj_j;
+      if (typeof v !== "number" || !isFinite(v)) continue;   // NaN/空洞不可參與（Math.min 會被污染）
+      if (v < lo) lo = v;
+      if (v > hi) hi = v;
+    }
+    _kdjRangeCache = { key, lo: Math.max(lo, -50), hi: Math.min(hi, 150) };
+    return _kdjRangeCache;
+  };
+  const _atLeast0to100 = () => {
+    const r = _kdjFullRange();
+    return { priceRange: { minValue: r.lo, maxValue: r.hi } };
+  };
+  kdjK  = kdjChart.addLineSeries({ color:C.kdjK, lineWidth:S.kdjKWidth??1, lineStyle:S.kdjKStyle??0, priceLineVisible:false, lastValueVisible:false, autoscaleInfoProvider:_atLeast0to100 });
   kdjD  = kdjChart.addLineSeries({ color:C.kdjD, lineWidth:S.kdjDWidth??1, lineStyle:S.kdjDStyle??0, priceLineVisible:false, lastValueVisible:false });
   kdjJ  = kdjChart.addLineSeries({ color:C.kdjJ, lineWidth:S.kdjJWidth??1, lineStyle:S.kdjJStyle??0, priceLineVisible:false, lastValueVisible:false });
-  kdjH20 = kdjChart.addLineSeries({ color:C.kdjH20, lineWidth:S.kdjHLWidth, lineStyle:1, priceLineVisible:false, lastValueVisible:true });
-  kdjH50 = kdjChart.addLineSeries({ color:C.kdjH50, lineWidth:S.kdjHLWidth, lineStyle:1, priceLineVisible:false, lastValueVisible:true });
-  kdjH80 = kdjChart.addLineSeries({ color:C.kdjH80, lineWidth:S.kdjHLWidth, lineStyle:1, priceLineVisible:false, lastValueVisible:true });
+  kdjH20 = _mkHLine(kdjAnchor, 20, { color:C.kdjH20, lineWidth:S.kdjHLWidth, lineStyle:1 });
+  kdjH50 = _mkHLine(kdjAnchor, 50, { color:C.kdjH50, lineWidth:S.kdjHLWidth, lineStyle:1 });
+  kdjH80 = _mkHLine(kdjAnchor, 80, { color:C.kdjH80, lineWidth:S.kdjHLWidth, lineStyle:1 });
 
   rsiChart = LightweightCharts.createChart(document.getElementById("rsiChart"), sub);
   rsiAnchor = rsiChart.addLineSeries({ color:"rgba(0,0,0,0)", lineWidth:1, priceLineVisible:false, lastValueVisible:false });
-  rsiLine14 = rsiChart.addLineSeries({ color:C.rsi14, lineWidth:S.rsi14Width??1, lineStyle:S.rsi14Style??0, priceLineVisible:false, lastValueVisible:false });
+  /* RSI 數學上**必定**落在 0~100 → 直接釘死，縮放時刻度完全不動，30/50/70 三條參考線
+     永遠在同一個高度。這是它與 KDJ 的差別（J 會超出 0~100，所以那邊只能釘下限）。 */
+  rsiLine14 = rsiChart.addLineSeries({ color:C.rsi14, lineWidth:S.rsi14Width??1, lineStyle:S.rsi14Style??0, priceLineVisible:false, lastValueVisible:false,
+    autoscaleInfoProvider: () => ({ priceRange: { minValue: 0, maxValue: 100 } }) });
   rsiLine7  = rsiChart.addLineSeries({ color:C.rsi7,  lineWidth:S.rsi7Width??1,  lineStyle:S.rsi7Style??0,  priceLineVisible:false, lastValueVisible:false });
   // 線型改吃 S.rsiHLStyle（使用者可在 RSI 設定裡切實線/點線/虛線/長虛線）；?? 1 維持舊外觀
   const _rhls = S.rsiHLStyle ?? 1;
-  rsiH30 = rsiChart.addLineSeries({ color:C.rsiH30, lineWidth:S.rsiHLWidth, lineStyle:_rhls, priceLineVisible:false, lastValueVisible:true });
-  rsiH50 = rsiChart.addLineSeries({ color:C.rsiH50, lineWidth:S.rsiHLWidth, lineStyle:_rhls, priceLineVisible:false, lastValueVisible:true });
-  rsiH70 = rsiChart.addLineSeries({ color:C.rsiH70, lineWidth:S.rsiHLWidth, lineStyle:_rhls, priceLineVisible:false, lastValueVisible:true });
+  rsiH30 = _mkHLine(rsiAnchor, 30, { color:C.rsiH30, lineWidth:S.rsiHLWidth, lineStyle:_rhls });
+  rsiH50 = _mkHLine(rsiAnchor, 50, { color:C.rsiH50, lineWidth:S.rsiHLWidth, lineStyle:_rhls });
+  rsiH70 = _mkHLine(rsiAnchor, 70, { color:C.rsiH70, lineWidth:S.rsiHLWidth, lineStyle:_rhls });
   try {   // 超買/超賣漸層底（掛在 RSI(14) 上，畫在最底層不擋線）
     _rsiZonePrim = _makeRSIZonePrimitive();
     rsiLine14.attachPrimitive(_rsiZonePrim);
@@ -1339,7 +1427,93 @@ function resizeAll() {
     const cw = (id === "mainChart") ? Math.max(60, w - domW) : w;
     if (h > 10) chart.resize(cw, h);
   });
+  _syncAxisWidth();
+  _scheduleGridBridge();
 }
+
+/* ★★ 2026-09-24 使用者：「主圖跟副圖的線接不起來」「是指背景的格子線」。
+   根因：**每張圖的價格軸寬度不一樣** —— 主圖刻度是「92000.0」、KDJ 是「100.00」、
+   MACD 是「4000.00」，LWC 依各自最寬的標籤決定軸寬 → 繪圖區寬度不同 →
+   **同一個時間在四張圖上落在不同的 x**。實測四段十字線的 x 是 534 / 537 / 537 / 531，
+   背景的垂直格線同理（各畫各的），所以跨面板永遠對不齊、看起來「接不起來」。
+   ⚠ 這不是「線斷掉」，是**橫向錯位**——量幾何時一定要比各段的 left，只看
+     「上下有沒有空隙」會全綠（我就這樣繞了好幾輪）。
+   → 取四張圖裡**最寬的那個軸**，用 minimumWidth 套給全部 → 繪圖區等寬 → 時間對到同一個 x。
+   ⚠ 用「取最大」不是寫死一個數字：標的換成低價幣（0.00001234）時軸會變寬，
+     寫死就又錯開了。⚠ 只在真的不一致時才 applyOptions，否則每次 resize 都觸發重排。 */
+function _syncAxisWidth() {
+  try {
+    const list = [mainChart, kdjChart, rsiChart, macdChart].filter(Boolean);
+    if (list.length < 2) return;
+    /* ⚠ **不可以**用 `timeScale().width()` 量繪圖區：實測它對主圖/KDJ/RSI 一律回 **0**
+       （只有帶可見時間軸的 MACD 回真值）→ 用它算出來的軸寬會是整個面板寬，全錯。
+       正解是問價格軸自己：`priceScale("right").width()`，四張都回真值
+       （實測 main 70 / kdj 64 / rsi 64 / macd 76）。 */
+    const w = list.map(c => { try { return c.priceScale("right").width() || 0; } catch (e) { return 0; } });
+    const want = Math.max(...w);
+    if (!want) return;
+    list.forEach((c, i) => {
+      if (w[i] !== want) { try { c.priceScale("right").applyOptions({ minimumWidth: want }); } catch (e) {} }
+    });
+  } catch (e) {}
+}
+window._syncAxisWidth = _syncAxisWidth;
+
+/* ── 讓背景的垂直格線「貫穿」面板之間的分隔區 ──────────────────────────────────
+   ★ 2026-09-24 使用者：「上下的格子線要連起來，但中間一樣要像現在有區隔」。
+     四張圖的格線在 x 上已經對齊了（見 _syncAxisWidth），但每張圖只畫在自己的畫布裡 →
+     面板之間那 7px 的 `.pane-divider` 是空的，垂直線每隔一段就被切一次。
+   ★ 作法：在每條分隔線裡放一張小 canvas，把格線的 x 位置補畫上去；
+     分隔線本身那條 1px 水平線畫在它**上面**（z-index），所以「貫穿」與「有區隔」同時成立。
+   ⚠ 格線的 x **不用猜、也不重算**：直接從圖表**已經畫好的畫布**取一列像素回來找
+     （來源就是產品自己的渲染結果）。自己依 tickMarkFormatter 或時間去推，
+     只要 LWC 的刻度演算法改了就會錯開，而那種錯開只有幾 px、極難發現。
+   ⚠ 只取**一列**（1 × 寬）像素，成本很低；而且節流到「範圍穩定後」才做，不在拖曳每一幀跑。
+   ⚠ 取樣要挑「沒有 K 棒/線條」的那一列：用副圖畫布的**最上緣附近**（scaleMargins 留白處）。 */
+let _gridBridgeRaf = 0, _gridBridgeT = 0;
+function _drawGridBridge() {
+  try {
+    const cont = document.getElementById("chartsContainer");
+    if (!cont) return;
+    const src = document.querySelector("#rsiChart canvas, #kdjChart canvas");
+    if (!src || !src.width) return;
+    const g = src.getContext("2d", { willReadFrequently: true });
+    if (!g) return;
+    const dpr = src.width / Math.max(1, src.getBoundingClientRect().width);
+    const row = Math.max(1, Math.round(2 * dpr));        // 最上緣附近＝scaleMargins 的留白，不會有線
+    let data;
+    try { data = g.getImageData(0, row, src.width, 1).data; } catch (e) { return; }
+    const xs = [];
+    for (let i = 0; i < src.width; i++) {
+      const a = data[i * 4 + 3];
+      if (a > 8) { const x = i / dpr; if (!xs.length || x - xs[xs.length - 1] > 2) xs.push(x); }
+    }
+    if (!xs.length) return;
+    const gc = (typeof _gridColorEffective === "function") ? _gridColorEffective() : "rgba(255,216,176,.13)";
+    document.querySelectorAll(".pane-divider").forEach(d => {
+      let cv = d.querySelector("canvas.grid-bridge");
+      if (!cv) { cv = document.createElement("canvas"); cv.className = "grid-bridge"; d.insertBefore(cv, d.firstChild); }
+      const r = d.getBoundingClientRect();
+      const w = Math.round(r.width), h = Math.round(r.height);
+      if (!w || !h) return;
+      if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
+        cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+        cv.style.width = w + "px"; cv.style.height = h + "px";
+      }
+      const c2 = cv.getContext("2d");
+      c2.setTransform(dpr, 0, 0, dpr, 0, 0);
+      c2.clearRect(0, 0, w, h);
+      c2.fillStyle = gc;
+      for (const x of xs) c2.fillRect(Math.round(x), 0, 1, h);
+    });
+  } catch (e) {}
+}
+function _scheduleGridBridge() {
+  if (_gridBridgeRaf) cancelAnimationFrame(_gridBridgeRaf);
+  _gridBridgeRaf = requestAnimationFrame(() => { _gridBridgeRaf = 0; _drawGridBridge(); });
+}
+window._scheduleGridBridge = _scheduleGridBridge;
+
 
 /* ── 時間軸 & 鉛直線同步 ── */
 let _blockSync = false; // 重播渲染期間暫停雙向同步，防止 setData 觸發 range 抖動
@@ -1373,11 +1547,18 @@ function syncTimeScales() {
     _syncRaf = 0;
     const p = _pendingSync;
     if (!p || _blockSync) { _pendingSync = null; return; }
-    // 平移/縮放/慣性進行中：子圖同步降到 ~30fps（主圖維持全速；盤中上萬根時 4 張圖每幀重排太重）。
-    // 節流時保留 _pendingSync、下一幀再試，確保停手時以「最新 range」做最後一次同步、子圖補正。
+    /* ★ 2026-09-24 使用者：「縮放時還是下方較慢」。
+       這裡原本在平移/縮放進行中把子圖同步**降到 ~30fps**（主圖維持全速），理由寫著
+       「盤中上萬根時 4 張圖每幀重排太重」—— 那個結論已經過期了。
+       重量 A/B（4387 根、三個副圖全開、連續 60 次縮放，最壞情況再測一次可見 2219 根）：
+         節流開：幀時間 中位 16.7ms / p90 17.4ms / 掉幀 0
+         節流關：幀時間 中位 16.6ms / p90 17.2ms / 掉幀 0
+       **量不出差別**，但節流會讓副圖比主圖晚最多 33ms 才跟上 —— 使用者看到的就是「下方較慢」。
+       → 拿掉。主圖與副圖現在同一幀更新。
+       ★ 同 claude.md：「註解裡『量過、不划算』的結論會隨相依的東西改變而過期 —— 引用它之前先重量一次」。
+       ⚠ 若哪天真的量到掉幀，正解是減少**每幀重排的成本**，不是讓副圖落後主圖（那是把效能問題
+         變成視覺 bug）。 */
     const _now = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
-    const _moving = window._chartMoveTs && (_now - window._chartMoveTs < 220);
-    if (_moving && _now - _lastFlushTs < 33) { _syncRaf = requestAnimationFrame(_flushSync); return; }
     _lastFlushTs = _now;
     _pendingSync = null;
     syncing = true;
@@ -1396,6 +1577,10 @@ function syncTimeScales() {
       dst.timeScale().setVisibleLogicalRange(p.range);
     });
     syncing = false;
+    /* 格線位置隨平移/縮放改變 → 分隔區的橋接要跟著重畫。
+       ⚠ **不可以每幀畫**：它要 getImageData 取樣畫布。停手後補一次就好（線在移動中本來就看不清）。 */
+    clearTimeout(_gridBridgeT);
+    _gridBridgeT = setTimeout(_scheduleGridBridge, 140);
     // 平移/縮放 → 重算可見範圍的標記視窗（debounced，避免長範圍時 setMarkers 拖慢）
     if (typeof _scheduleMarkerRewindow === "function") _scheduleMarkerRewindow();
     // 布林改成只畫「可見範圍±3屏」後，平移/縮放要跟著重切視窗（見 render.js _bbWindow）
@@ -1493,10 +1678,27 @@ function syncTimeScales() {
       //   所以在副圖上拖曳照樣能帶動主圖,不會退化成「只有主圖能拖」。
       if (si !== _syncDriver) return;
       _pendingSync = { range, si };               // 只記最新，丟棄同幀內較舊的中間值
-      if (!_syncRaf) _syncRaf = requestAnimationFrame(_flushSync);
+      /* ★ 2026-09-24 使用者：「縮放時還是下方較慢」。原本一律 `requestAnimationFrame(_flushSync)`
+         → 副圖固定**晚主圖一幀**才跟上。改成同一幀就套用。
+         真實滾輪事件量測（4387 根、三個副圖全開、40 次滾輪、逐幀比對主圖與 RSI 的可見範圍）：
+           下一幀套用：不一致的幀 80/161（50%）
+           同幀套用　：不一致的幀 40/161（25%）      ← 減半，兩次複驗都一致
+           幀時間兩者皆 中位 16.5ms / 掉幀 0（滾輪打在副圖上也一樣，最大 22ms）
+         ⚠⚠ 量這種東西**一定要用真實滾輪事件**：我第一版用 `evaluate` 直接設 range，
+           取樣 rAF 與更新的相位變成人造的 → 量出「同幀反而更差」的**反向結論**。
+         ⚠ p90 不可當判準：A 自己兩次就差 22.9 → 34.3 根，雜訊比 A/B 差距還大。
+           判準要用「不一致的幀數比例」。
+         ⚠ 同步呼叫進 LWC 有「同步風暴」前科（2026-07-31 實測 16.7ms → 188.5ms/幀）——
+           擋住它的是上面那道 `si !== _syncDriver` 單向閘門，**不是**這個 rAF。
+           已驗證滾輪打在副圖上（驅動者是副圖）幀時間仍是 16.5ms、零掉幀。 */
+      if (_syncRaf) { cancelAnimationFrame(_syncRaf); _syncRaf = 0; }
+      _flushSync();
     });
   });
 
+  // 虛線一個完整週期的長度（實 8px + 空 6px），必須與 style.css `.pane-vline` 的
+  // repeating-linear-gradient 相同 —— 用來讓各段的虛線相位跨面板連續。
+  const _VLINE_PERIOD = 14;
   /* ── 鉛直線：線段統一放在 chartsContainer，動態計算每段的 top/height
      這樣每段可同時覆蓋 chart-pane + 下方的 pane-divider，完全無縫 ── */
   const panesConf = [
@@ -1617,6 +1819,15 @@ function syncTimeScales() {
       p.ln.style.left    = p.left + "px";
       p.ln.style.top     = p.top + "px";
       p.ln.style.height  = p.height + "px";
+      /* ★ 2026-09-24 使用者：「上下線條依舊不連貫」。
+         線段本身早就是接在一起的（實測四段的段間空隙都是 0、同一個 x），
+         但它是**虛線**，而每一段是獨立的 DOM 元素 → `repeating-linear-gradient`
+         的相位在**每個面板交界重新從 0 開始** → 交界處必定出現一個長度不對的節拍，
+         看起來就是「線斷掉／對不齊」。畫面上沒有任何空隙，所以量幾何量不出來。
+         → 依這一段距離容器頂端的距離，把背景往上位移一個週期內的餘數，相位就接上了。
+         ⚠ 週期 _VLINE_PERIOD 必須跟 style.css `.pane-vline` 的 gradient 一致（8px 實 + 6px 空）；
+           改 CSS 的虛線樣式時這裡要一起改，否則交界又會錯開。 */
+      p.ln.style.backgroundPositionY = (-(p.top % _VLINE_PERIOD)) + "px";
     }
     // 時間標籤錨定到時間軸（最底可見 pane 底緣），而非容器底。
     // 桌面容器底＝圖表底 → offset≈0；手機容器延伸到底部分頁列後方 → offset≈分頁列高，

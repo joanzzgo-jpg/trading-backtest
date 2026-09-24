@@ -577,12 +577,27 @@ function _setBBLeg(u, m, l) {
 }
 window._refreshBBLeg = () => _setBBLeg();
 
-function updateAllLegends(t) {
+/* 填滿上方 OHLCV 與**所有**圖例（主圖 BB/VOL ＋ 副圖 KDJ/RSI/MACD）。
+   ★ 2026-09-24 使用者：「rsi 顯示數據的那一行整個空白看起來怪怪的，要有融合感」。
+     實測：資料明明有（kdj_k=77.21 / rsi_14=63.59），但副圖圖例在載入後一直是
+     `K —` `RSI 14 —`，連 `VOL` 都沒數字 —— **要等第一次 hover 才填**，
+     而且滑鼠移開後就**停在最後 hover 的那根**，不會回到最新。
+     主圖的 BB 不會這樣，是因為 renderCandles 的「沒在 hover」那段有單獨補
+     `_setBBLeg(last.bb_upper…)`（註解寫著「行為更像專業看盤 app」）——
+     那段**只補了 BB，沒補副圖**。這個不對稱就是使用者說的「主圖在動、副圖是死的」。
+   → 讓「沒在 hover」那條路也走這支，hover 與非 hover 結構上不可能再長不一樣。
+   ⚠ `dOverride`/`prevOverride`：renderCandles 手上已經有 last/prev，直接餵進來，
+     不必回頭用時間去 `ohlcvData` 查（重播時 data 與 ohlcvData 不是同一個陣列，
+     查不到就會整段靜默不填 —— 那正是這個 bug 的形狀，別再造一個）。 */
+function updateAllLegends(t, dOverride, prevOverride) {
   // 熱路徑（每次 crosshair 移動觸發 60Hz）：O(1) Map 查 idx 共用，避免後續 indexOf O(n)
-  let idx = (_secToIdx && _secToIdx.has(t)) ? _secToIdx.get(t) : -1;
-  let d = idx >= 0 ? ohlcvData[idx] : ohlcvData.find(r => toTime(r.time) === t);
+  let idx = -1, d = dOverride;
+  if (!d) {
+    idx = (_secToIdx && _secToIdx.has(t)) ? _secToIdx.get(t) : -1;
+    d = idx >= 0 ? ohlcvData[idx] : ohlcvData.find(r => toTime(r.time) === t);
+  }
   if (!d) return;
-  if (idx < 0) idx = ohlcvData.indexOf(d);   // fallback（罕見路徑）
+  if (!dOverride && idx < 0) idx = ohlcvData.indexOf(d);   // fallback（罕見路徑）
 
   // 符號列
   _setSym("symO", fmt(d.open));
@@ -591,7 +606,8 @@ function updateAllLegends(t) {
   _setSym("symC", fmt(d.close));
   _setSym("symV", fmtVol(d.volume));
   if (!_symFrozen()) _symTint(d.close >= d.open);
-  if (idx > 0) _updateSymChg(d.close, ohlcvData[idx - 1].close);
+  const _prev = prevOverride || (idx > 0 ? ohlcvData[idx - 1] : null);
+  if (_prev) _updateSymChg(d.close, _prev.close);
 
   // BB
   if (d.bb_upper != null) _setBBLeg(d.bb_upper, d.bb_middle, d.bb_lower);
@@ -713,16 +729,11 @@ function updateSymbolBar(data) {
   // LWC 重畫時 fire 假 crosshair 事件就誤清狀態。
   if (_mouseOverChart) return;
   const last = data[data.length-1], prev = data.length>1 ? data[data.length-2] : last;
-  _setSym("symO", fmt(last.open));
-  _setSym("symH", fmt(last.high));
-  _setSym("symL", fmt(last.low));
-  _setSym("symC", fmt(last.close));
-  _setSym("symV", fmtVol(last.volume));
-  if (!_symFrozen()) _symTint(last.close >= last.open);
-  _updateSymChg(last.close, prev.close);
-  // 主圖 BB 數值：手機沒有 hover crosshair，這裡用最新一根 K 棒把布林通道數值填進
-  // 圖例（桌面未 hover 時也順便顯示最新值，行為更像專業看盤 app）
-  if (last.bb_upper != null) _setBBLeg(last.bb_upper, last.bb_middle, last.bb_lower);
+  /* ★ 走跟 hover 完全同一支：上方 OHLCV ＋ 主圖 BB/VOL ＋ 副圖 KDJ/RSI/MACD 一次到位。
+     原本這裡只手抄了上方 OHLCV 與 BB，副圖那幾個沒補 → 載入後一直是 `K —`、
+     滑鼠移開後又停在最後 hover 的那根（見 updateAllLegends 上方的說明）。
+     手機沒有 hover crosshair，所以這條路正是手機唯一會填到值的地方。 */
+  updateAllLegends(null, last, prev);
 }
 
 /* ── 電腦休眠/分頁凍結太久 → K 棒補不回來時，明講「請重新整理」（2026-09-21）────────
