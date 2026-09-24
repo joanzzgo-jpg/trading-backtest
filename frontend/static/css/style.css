@@ -476,14 +476,21 @@ html.perf-mode .tb-icon-btn:hover svg { animation: none; transform: scale(1.1); 
 .tb-mkt-select:hover, .tb-exc-select:hover { background: var(--bg3); color: var(--text); }
 .tb-mkt-select option, .tb-exc-select option { background: var(--bg2); color: var(--text); }
 
+/* ★ 2026-09-24 使用者：「左上搜尋框比例可以拉大，美觀些」。
+   原本 90px 寬要塞「BTC/USDT.P」（實測文字就佔 78px）→ 只剩 12px 呼吸空間，
+   長一點的幣名（1000PEPE/USDT.P）直接截斷。放大以**寬度與字級**為主：
+   ⚠ 高度被 `--topbar-h: 38px` 綁住，垂直內距只能小幅加（26 → 30px 左右），
+     再大就會擠到上方列的上下邊。
+   ⚠ 圓角改 `--r-sm`：token 表裡它的定義本來就是「按鈕、輸入框、列表項」，
+     原本用 `--r-xs`（小晶片用）其實是不對的層級。 */
 .tb-symbol-wrap {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 6px;
   background: var(--bg3);
   border: 1px solid transparent;
-  border-radius: var(--r-xs);
-  padding: 2px 8px;
+  border-radius: var(--r-sm);
+  padding: 4px 12px;
   cursor: pointer;
   transition: border-color .12s;
 }
@@ -493,9 +500,10 @@ html.perf-mode .tb-icon-btn:hover svg { animation: none; transform: scale(1.1); 
   background: transparent;
   border: none;
   color: var(--text);
-  font-size: var(--t-md);
+  font-size: var(--t-lg);
   font-weight: 700;
-  width: 90px;
+  width: 144px;              /* 實測 15px 字級下最長的真實標的 1000BONK/USDT.P 要 138px，
+                                留 6px 餘裕；128px 會把那類幣名截掉 */
   outline: none;
   cursor: pointer;
   letter-spacing: .01em;
@@ -3695,14 +3703,19 @@ html.perf-mode .ai-adv-section { background: #FAFAFA; border-color: #E5E5E5; }
   padding: 4px 6px !important;
   border-radius: var(--r-sm) !important;
 }
+/* ⚠ 這一段（末段「橘子熊」風格）才是**真正生效**的那份 —— 全部 !important，
+   壓過上面 `.tb-symbol-wrap` / `.tb-symbol-input` 的基礎宣告。
+   2026-09-24 放大搜尋框時我先改了上面那份，量出來字級**完全沒變**（仍 13px），
+   用 CDP `CSS.getMatchedStylesForNode` 列出命中規則才看到贏家在這裡。
+   改這組的尺寸前先確認上面那份是不是也要一起改（保持語意一致）。 */
 .tb-symbol-wrap {
   border-radius: var(--r-sm) !important;
-  padding: 4px 10px !important;
+  padding: 4px 14px !important;
   background: var(--bg3) !important;
   transition: background .12s, border-color .12s !important;
 }
 .tb-symbol-wrap:hover { background: var(--bg4) !important; }
-.tb-symbol-input { font-size: var(--t-md) !important; font-weight: 600 !important; }
+.tb-symbol-input { font-size: var(--t-lg) !important; font-weight: 600 !important; }
 
 /* Icon buttons — 統一 7px 圓角、稍大觸控面積 */
 .tb-icon-btn {
@@ -4182,7 +4195,10 @@ textarea,
   /* ── 列1：市場 + 標的（完整顯示）+ 星號 ── */
   .topbar-left  { order: 1 !important; flex: 1 1 auto !important; min-width: 0 !important; overflow: visible !important; gap: 4px !important; }
   .tb-symbol-group { flex: 1 1 auto !important; min-width: 0 !important; }
-  .tb-symbol-wrap  { flex: 1 1 auto !important; min-width: 0 !important; }
+  /* ⚠ 2026-09-24：桌面把標的框內距 10→14px、gap 2→6px（使用者：「左上搜尋框比例拉大」）——
+     但手機這裡是 **flex 自適應寬**，多出來的 12px 會直接從「看得見的文字寬」扣掉
+     （實測 iPhone SE 375px：110 → 98px）。手機的上方列空間最緊，還原成原本的緊湊值。 */
+  .tb-symbol-wrap  { flex: 1 1 auto !important; min-width: 0 !important; padding: 4px 10px !important; gap: 2px !important; }
   .tb-symbol-input { width: 100% !important; min-width: 96px !important; font-size: var(--t-lg) !important; height: 34px !important; }
 
   /* 右側圖示跟在列1尾端。
