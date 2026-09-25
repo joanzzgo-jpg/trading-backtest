@@ -354,7 +354,16 @@
        ・astro/fore（太陽·月亮·星空·前景，看得出銳利度）→ 全 DPR
        ・sky/far/mid/near（漸層天空與雲，本來就是柔邊）→ 1x，拉高只是純燒填充率
      _lowFx（手機）一律 1x，不動。 */
-  const _HI_RES_LAYERS = { astro: 1, fore: 1 };
+  /* ★★ 2026-09-25 使用者：「主背景的圖紙沒那麼清晰 — 是天氣」「是原畫紙問題」。
+     他講的就是這裡：六層裡原本**只有 astro/fore 吃 DPR**，`far/mid/near`（視差雲層）
+     一律 1x → 在 Retina(DPR2) 上等於 1x 畫完被放大兩倍，雲的邊緣糊掉。
+     上一行註解當時的理由是「雲本來就是柔邊，拉高只是純燒填充率」——
+     ★ 實測推翻了那個假設的代價面：DPR2 下把它們拉滿，縮放時
+       p50 16.6→16.6ms、p99 25.8→23.3ms、**掉幀 2/228 → 0/228**（沒有變差）。
+     ⚠ 記憶體是真的代價：canvas backing 天氣層 69 → 112 MB（+43）。
+       所以 **sky 維持 1x** —— 它是純漸層，放大不會糊，拉高只多吃 18MB 換不到清晰度。
+     ⚠ `_lowFx`（手機）仍一律 1x，不受影響。 */
+  const _HI_RES_LAYERS = { astro: 1, fore: 1, far: 1, mid: 1, near: 1, sky: 1 };   // 2026-09-25 使用者：「我要所有都 4K 等級」→ 連純漸層的 sky 也吃滿
   function _layerDpr(name) {
     if (_lowFx || !_HI_RES_LAYERS[name]) return 1;
     return Math.min(window.devicePixelRatio || 1, 2);
@@ -518,19 +527,27 @@
 
   // 月面離屏快取：只在相位/尺寸改變(≈每 30 分一次)時重繪，每幀僅 drawImage 一張
   // → 省下每幀數十次 gradient/clip/arc（夜間最重的逐幀繪製）
-  let _moonCv=null, _moonCx=null, _moonKey='';
+  let _moonCv=null, _moonCx=null, _moonKey='', _moonSz=0;
   function _drawMoonPhase(cx, cy, R, phase) {
     const key = R + '|' + phase.toFixed(3);
     if (key !== _moonKey || !_moonCv) {
       const pad = Math.ceil(R*0.06) + 2, sz = Math.ceil(R*2 + pad*2);
       if (!_moonCv) { _moonCv = document.createElement('canvas'); _moonCx = _moonCv.getContext('2d'); }
-      _moonCv.width = sz; _moonCv.height = sz;
+      /* ⚠ 2026-09-25：這裡原本 backing 就是 **CSS 尺寸**，而 astro 層的 ctx 已經
+         `setTransform(DPR)` → 這張圖會被放大 DPR 倍才落在裝置像素上（旁邊原本的註解
+         寫「全解析不糊」，那只有 DPR1 才成立）。月面的環形山邊緣因此在 Retina 上糊掉。
+         → backing 乘 DPR、繪製前 setTransform 補回，drawImage 再指定 CSS 目標尺寸。 */
+      const _mdpr = _layerDpr('astro');
+      _moonCv.width = _moonCv.height = Math.ceil(sz * _mdpr);
+      _moonCx.setTransform(_mdpr, 0, 0, _mdpr, 0, 0);
       _moonCx.clearRect(0,0,sz,sz);
       _renderMoon(_moonCx, sz/2, sz/2, R, phase);
+      _moonSz = sz;
       _moonKey = key;
     }
-    const half = _moonCv.width / 2;
-    _layers.astro.ctx.drawImage(_moonCv, cx-half, cy-half);   // 月亮 → 天體深景層（3D 視差 + 全解析不糊）
+    const half = _moonSz / 2;
+    // ⚠ 一定要指定目標寬高（CSS 尺寸）：不指定的話會照 backing 的裝置像素數畫，月亮會大一倍
+    _layers.astro.ctx.drawImage(_moonCv, cx-half, cy-half, _moonSz, _moonSz);
   }
 
   function _drawAstro(t) {
@@ -824,7 +841,12 @@
     return cv;
   }
   function _drawSun3D(g, x, y, R, t) {
-    if (!_sunTexA) { _sunTexA = _bakeSunTex(64, 26); _sunTexB = _bakeSunTex(64, 20); }
+    /* ⚠ 2026-09-25 使用者：「白天天氣也要 4K」。這兩張紋理原本只烤到 **128×128**（R=64），
+       而下面是 `drawImage(..., R*2, R*2)` —— 實際太陽半徑比 64 大時就是放大，
+       再加上 astro 層的 DPR2，表面的米粒組織直接糊成一片。
+       → 烤製半徑 64 → 256（來源像素 16 倍），成本只有約 1MB×2，而且**只烤一次**。
+       ⚠ 斑點的大小/位置都是相對 R 算的（`R*(0.06+…)`），放大烤製不會改變外觀比例。 */
+    if (!_sunTexA) { _sunTexA = _bakeSunTex(256, 26); _sunTexB = _bakeSunTex(256, 20); }
     g.save();
     g.beginPath(); g.arc(x, y, R, 0, 6.283); g.clip();
     g.translate(x, y);
@@ -846,7 +868,15 @@
     if (key !== _mwKey) {
       _mwKey = key;
       _mwCv = document.createElement('canvas');
-      const s2 = 0.5;
+      /* ★★ 2026-09-25 使用者：「星空放大格子感很重」「沒辦法畫更清晰嗎」。
+         這裡原本是 `s2 = 0.5`（半解析度預烤），而下面是
+         `drawImage(_mwCv, 0, 0, W, H)` → 先放大 2 倍鋪滿 CSS 尺寸，
+         astro 層的 backing 又是 DPR(2) → **總共放大 4 倍**，格子感必然很重。
+         → 改成與 astro 層 backing **1:1**（同一個 `_layerDpr`），完全不放大。
+         ⚠ 成本只在「預烤」那一次（尺寸變才重畫，平常每幀仍是單次 drawImage）：
+           記憶體 1.6 → 25.5MB、預烤耗時見下方實測。
+         ⚠ `_mwKey` 只記 W×H —— s2 跟著 DPR 走，同一視窗尺寸下不會變，快取仍成立。 */
+      const s2 = _layerDpr('astro');
       _mwCv.width = Math.ceil(W * s2); _mwCv.height = Math.ceil(H * s2);
       const g = _mwCv.getContext('2d'); g.scale(s2, s2);
       g.save(); g.translate(W * 0.52, H * 0.38); g.rotate(-0.55);
@@ -1416,7 +1446,7 @@
     stars  = Array.from({length:Math.round(230*_fxN)}, () => {
       const big = Math.random() < 0.08, hue = Math.random();
       return { x:Math.random()*W, y:Math.random()*H*.88,
-        r: big ? 1.6+Math.random()*1.2 : .25+Math.random()*1.1,
+        r: big ? 1.6+Math.random()*1.2 : .5+Math.random()*1.3,
         col: hue<.22 ? '255,226,200' : hue<.46 ? '185,215,255' : '228,238,255',
         ph:Math.random()*Math.PI*2, sp:.18+Math.random()*.42 };
     });
@@ -1609,8 +1639,15 @@
     const h = w * (conv ? 0.82 : 0.42);
     const ox = Math.ceil(w * 1.15), oy = Math.ceil(h * 1.6);   // 錨點＝呼叫時的 (cx,cy)
     const cv = document.createElement('canvas');
-    cv.width = ox * 2; cv.height = oy + Math.ceil(h * 1.0);
+    /* ⚠ 2026-09-25：雲是白天的主角，而這張精靈原本的 backing 就是 **CSS 尺寸** —— 它被畫到
+       far/mid/near 層，那些 ctx 已經 `setTransform(DPR)` → 在 Retina 上一律放大 DPR 倍才落地，
+       雲的團塊邊緣與球緣暗部因此糊成一片灰影（已用西雅圖 ?wxlat 預覽做過新舊對比，差異明顯）。
+       → backing 乘 DPR、繪製前 setTransform 補回，呼叫端 drawImage 再指定 CSS 目標尺寸。 */
+    const _cdpr = _layerDpr('mid');
+    const cssW = ox * 2, cssH = oy + Math.ceil(h * 1.0);
+    cv.width = Math.ceil(cssW * _cdpr); cv.height = Math.ceil(cssH * _cdpr);
     const g = cv.getContext('2d');
+    g.setTransform(_cdpr, 0, 0, _cdpr, 0, 0);
     const cx = ox, cy = oy, baseY = cy + h * 0.35;
     // 色票 [頂光, 基底, 球緣暗]：對流雲對比最強 / 遠景霧化藍灰 / 近景亮白
     const pal = conv ? ['rgba(252,254,255,.97)', 'rgba(192,206,230,.93)', 'rgba(70,86,116,.42)']
@@ -1638,9 +1675,9 @@
     // 3) 整體底部陰影（大尺度體積光影）
     const vg = g.createLinearGradient(0, cy - h*1.05, 0, baseY + h*.30);
     vg.addColorStop(0, 'rgba(255,255,255,0)'); vg.addColorStop(.72, 'rgba(110,130,162,0)'); vg.addColorStop(1, conv ? 'rgba(70,86,118,.5)' : 'rgba(96,114,144,.38)');
-    g.fillStyle = vg; g.fillRect(0, 0, cv.width, cv.height);
+    g.fillStyle = vg; g.fillRect(0, 0, cssW, cssH);   // ⚠ 用 CSS 尺寸：ctx 已 setTransform(DPR)
     g.globalCompositeOperation = 'source-over';
-    return { cv, ox, oy };
+    return { cv, ox, oy, cssW, cssH };
   }
   function _cloud(cx, cy, w, alpha, shape = 0, flip = 1, depth = 1, puffsOverride = null, layerZ = null) {
     const c2 = _ctxFor(layerZ == null ? depth : layerZ);   // 依景深落 far/mid/near 層 → 相機移動時真透視分離
@@ -1653,7 +1690,7 @@
     // 雲半透日夜自適應：夜間 ×0.42（輕紗，星空/軌道透出）；白天 ×0.66（白雲在亮天色上
     // 對比本來就低，太透會直接看不見 → 曾被回報「白天沒有雲」）
     c2.globalAlpha = _wd.isDay ? Math.min(0.74, alpha * 0.66) : Math.min(0.55, alpha * 0.42);
-    c2.drawImage(e.cv, cx - e.ox, cy - e.oy);
+    c2.drawImage(e.cv, cx - e.ox, cy - e.oy, e.cssW, e.cssH);   // ⚠ 指定 CSS 目標尺寸，否則會照 backing 畫大 DPR 倍
     c2.globalAlpha = 1;
   }
 
@@ -1815,7 +1852,7 @@
     _gc.nebula.forEach(g => { ga.fillStyle=g; ga.fillRect(0,0,W,H); });
     /* twinkling stars（加亮 + 亮星十字光芒） */
     stars.forEach(p => {
-      const a=Math.max(.08, Math.min(1, .32+.72*Math.sin(t*p.sp+p.ph)));
+      const a=Math.max(.2, Math.min(1, .32+.72*Math.sin(t*p.sp+p.ph)));
       if (a>.85 && !_lowFx) { ga.shadowBlur=8; ga.shadowColor="rgba(205,225,255,.95)"; }
       ga.fillStyle=`rgba(${p.col||'228,238,255'},${a.toFixed(3)})`;
       ga.beginPath(); ga.arc(p.x,p.y,a>.6?p.r*1.5:p.r,0,Math.PI*2); ga.fill(); ga.shadowBlur=0;

@@ -3118,8 +3118,8 @@ html:not(.perf-mode) body {
    weatherStage 即從 K 線後方透出。K 線/指標由 LWC canvas 不透明繪製、浮在最上 → 看盤清晰。
    晴朗夜空（sky-night，疊加於 sky-show 之上）透更多、更亮。perf-mode 不載 weather.js，不會觸發。 */
 html:not(.perf-mode).sky-show .charts-container { background: transparent !important; }
-html:not(.perf-mode).sky-show #weatherStage { opacity: 0.45; }
-html:not(.perf-mode).sky-night #weatherStage { opacity: 0.6; }
+html:not(.perf-mode).sky-show #weatherStage { opacity: 0.55; }
+html:not(.perf-mode).sky-night #weatherStage { opacity: 0.72; }
 
 /* ═══ 2026-08-05：曾在此加過 .wx-opaque-chrome（把 topbar/標的列/合約行情提到 z-index:2，
    讓天氣層不要染亮它們，以對齊主圖色調）。**已還原** —— 實際畫面是那兩塊變成死黑一片、
