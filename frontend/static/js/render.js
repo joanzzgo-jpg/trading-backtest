@@ -232,6 +232,11 @@ async function loadData(autoLoad = false, forceLatest = false) {
        實測來源由 binance 換成 bybit 那一次，20 根裡 19 根全變（同來源時 0 根變）。
        每份快照內部都連續，混在一起才會在接合處留下跳空 → 接合前要先比對來源。 */
     window._ohlcvSrc = json.src || null;
+    /* ★ 2026-09-25 這批資料的取樣時刻（後端 /api/ohlcv 回的，快取命中時回的是當初那一刻）。
+       用途只有一個：行情列判斷「主圖最後那根形成中的 K 棒還能不能當現價用」。
+       ⚠ 沒有 ts（舊後端／範圍查詢）→ 0 ＝「不知道」→ 那邊會當成不新鮮、退回報價來源，
+         方向是安全的（寧可用行情列自己的即時價，也不要把 30 秒前的價寫回那一列）。 */
+    window._ohlcvTs = +json.ts || 0;
     if (typeof window._snapInvalidate === "function") window._snapInvalidate();   // 真資料落地→作廢未完成的快照繪製
     ++_bgLoadGen; _bgLoadInProgress = false; // 取消舊的背景請求
     clearTimeout(_bgIndicatorTimer);

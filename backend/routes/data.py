@@ -1426,6 +1426,12 @@ def _ohlcv_build(req: OHLCVRequest):
         except Exception:
             pass
     result = {"data": _ohlcv_records(df)}
+    # ★ 2026-09-25 這批資料是**幾點抓的**。用途：前端判斷「最後那根形成中的 K 棒還新不新」。
+    #   ⚠ 一定要放在 cache.set 之前 → 快取命中時回的是**當初**那一刻，講的是實話。
+    #   為什麼需要：這支的 TTL 是 30 秒(limit 查詢)，切走再切回同一檔就吃到快取 ——
+    #   最後那根是形成中的棒，實測快取命中時它比即時價差到 **0.42%**（ARK 1m，等 24 秒那次）。
+    #   前端原本無條件拿它當「現價」寫進行情列那一列 → 使用者：「按標的 a 切回標的 b，
+    #   b 的合約行情價格會跳回上一秒之前的再回來」。有了 ts 才判得出該不該用它。
     # ★ 2026-08-06 回傳實際資料源（crypto）。用途：前端接合時判斷「這批資料跟我手上那批
     #   是不是同一個來源」—— 各來源對同一根已收盤 K 棒的數值差幾點（實測整串偏移 3~6 點），
     #   每份快照內部連續、混在一起才會在接合處留下跳空。
@@ -1435,6 +1441,7 @@ def _ohlcv_build(req: OHLCVRequest):
             result["src"] = last_fetch_source()
         except Exception:
             pass
+    result["ts"] = time.time()
     cache.set(cache_key, result)
     return _ohlcv_resp(result)
 
