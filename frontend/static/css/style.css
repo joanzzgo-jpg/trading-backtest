@@ -4492,7 +4492,13 @@ textarea,
   }
   .pane-legend::-webkit-scrollbar { display: none; }
   .pane-legend .leg-toggle {
-    padding: 6px 10px !important;
+    /* ⚠ 2026-09-25 水平內距 10 → 6px：MACD 有**三個**膠囊（MACD/Signal/Hist），
+       實測小 Android(360px) 上內容 384px、可視 360px —— 超出正好 **24px**，
+       而右邊的 ⚙ 設定鈕已經被 flex 壓成 **0px 寬＝點不到**（畫面上零跡象）。
+       三個膠囊 × 左右各省 4px 正好補回 24px。
+       ⚠ 只縮**水平**內距：垂直的 6px 與 min-height:30px 是觸控面積，不能動。
+       ⚠ KDJ/RSI 本來就放得下（375/375），縮了只會更寬鬆。 */
+    padding: 6px 6px !important;
     min-height: 30px;
     gap: 6px !important;
     border: 1px solid var(--border);

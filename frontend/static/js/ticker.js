@@ -591,6 +591,15 @@ let _tkRttMs = null;          // 最近一次報價請求的往返時間 → 給
    輪詢一停（背景/休眠/斷線）整個窗會被同一個舊值填滿 → 格數看起來還很健康。 */
 window._tkRttAt = 0;
 async function fetchTickers() {
+  /* ★ 2026-09-25 使用者：「優化在離線時問題」。實測斷網 60 秒,前端仍發出 **122 個註定失敗
+     的請求**(tickers 61 + latest 60,每秒各一次,完全沒有退避)。那是白燒手機的電與 CPU,
+     而且一個都拿不到資料。
+     ⚠ **不是把輪詢週期改慢** —— claude.md 的鐵則「crypto 1 秒、台股 3 秒,禁止以減輕伺服器
+       負擔為由改慢」完全不動:週期照舊,只是在**確定離線**時不送出去。
+     ★ 恢復不需要額外邏輯:計時器照跑,連線一回來下一拍(≤1 秒)就打 → 即時性零損失。
+     ★ 離線的偵測與解除本來就由 utils.js 那支負責(navigator.onLine 的 online 事件,
+       或 `_off` 期間每 4 秒探測一次 /static/manifest.json)——不靠這兩條輪詢。 */
+  try { if (window._netIsOffline && window._netIsOffline()) return; } catch (e) {}
   const _rt0 = (performance && performance.now) ? performance.now() : Date.now();
   try {
     _tkPollN++;

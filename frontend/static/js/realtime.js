@@ -231,6 +231,8 @@ if (typeof window !== "undefined" && !window._contTimer) {
 let _lastTickDraw = 0;   // 手機：上次「tick 觸發整層重畫」時刻(節流用)
 async function fetchLatest() {
   if (replayActive) return;
+  // 離線時不送註定失敗的請求（理由與恢復方式見 ticker.js fetchTickers 開頭的說明）
+  try { if (window._netIsOffline && window._netIsOffline()) return; } catch (e) {}
   // 捕捉本次輪詢的標的脈絡；await 回來後若已切換標的/市場/時框 → 整筆丟棄，
   // 避免「舊標的還在飛的 /api/latest」回來把舊價格畫到剛切換的新標的名下（數值亂跳）
   const _sym0 = document.getElementById("symbolInput")?.value.trim();
