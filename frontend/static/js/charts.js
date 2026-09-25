@@ -38,8 +38,12 @@ function _mkHLine(anchor, price, opts) {
   let cur = Object.assign({ price, visible: true }, opts);
   let pl = null;
   const _sync = () => {
+    /* ⚠ 2026-09-25 `axisLabel` 與 `visible` 拆開：面板太矮時要能「線照畫、標籤不畫」。
+       原本兩者綁在一起 → 手機 55px 的副圖上，RSI 的 30/50/70 三個標籤間距只有 11px，
+       直接疊成一團（使用者：「手機版 rsi 資訊行擠到了」）。見 `_syncHLineLabels`。 */
     const o = { price: cur.price, color: cur.color, lineWidth: cur.lineWidth,
-                lineStyle: cur.lineStyle, axisLabelVisible: cur.visible !== false,
+                lineStyle: cur.lineStyle,
+                axisLabelVisible: (cur.visible !== false) && (cur.axisLabel !== false),
                 lineVisible: cur.visible !== false, title: "" };
     if (!pl) { try { pl = anchor.createPriceLine(o); } catch (e) {} }
     else { try { pl.applyOptions(o); } catch (e) {} }
@@ -1410,6 +1414,33 @@ function resizeAll() {
   });
   _syncAxisWidth();
   _placeWatermarkMobile();
+  _syncHLineLabels();
+}
+
+/* ★ 2026-09-25 使用者：「手機版 rsi 資訊行擠到了」。
+   擠的不是圖例（實測 375px 上 RSI 圖例 375/375 放得下、零重疊），是**右側價格軸上
+   那幾個參考線標籤**：RSI 的 30/50/70 在 0~100 的範圍裡相鄰差 20 →
+   標籤間距＝面板高 × 0.2，桌面 110px 有 22px 夠用，手機 55px 只剩 **11px**，
+   實測畫面上「50.00」直接把「30.00」壓住。KDJ 的 20/50/80 同理（55×0.3＝16.5px）。
+   → 依**實際間距**決定要不要畫標籤（不足就只留線）。不是寫死手機/桌面：
+     使用者把桌面視窗縮矮、或收合某個面板，一樣會遇到。
+   ⚠ 門檻 18px＝字高 14 + 餘裕；量到的是面板高，繪圖區只會更矮 → 判準偏保守，這是對的方向。
+   ⚠ KDJ 的價格範圍由 `_kdjFullRange` 依資料決定（可能超過 0~100）→ 實際間距只會比估的更小，
+     同樣是保守的方向。 */
+function _syncHLineLabels() {
+  try {
+    const MIN_GAP = 18;
+    const chk = (paneId, lines, span) => {
+      const el = document.getElementById(paneId);
+      if (!el) return;
+      const h = el.getBoundingClientRect().height;
+      if (h < 8) return;                         // 面板收起來了，不用管
+      const on = (h * span / 100) >= MIN_GAP;
+      lines.forEach(l => { try { l && l.applyOptions({ axisLabel: on }); } catch (e) {} });
+    };
+    chk("rsiPane", [rsiH30, rsiH50, rsiH70], 20);
+    chk("kdjPane", [kdjH20, kdjH50, kdjH80], 30);
+  } catch (e) {}
 }
 
 /* ★ 2026-09-25 使用者：「手機版 ahh logo 位置要調整、需要縮小，目前位置擋到下方時間表」。
