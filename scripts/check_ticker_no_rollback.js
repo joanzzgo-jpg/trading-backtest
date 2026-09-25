@@ -50,6 +50,14 @@ const num = s => { const v = parseFloat(String(s).replace(/,/g, "")); return isF
   await p.setViewport({ width: 1680, height: 950, deviceScaleFactor: 1 });
   const errs = []; p.on("pageerror", e => errs.push(String(e).slice(0, 160)));
 
+  /* 植回舊行為時要連 `/api/latest` 一起擋掉（見下方說明）→ 先開請求攔截，預設全放行 */
+  let blockLatest = false;
+  await p.setRequestInterception(true);
+  p.on("request", r => {
+    try { if (blockLatest && r.url().includes("/api/latest")) return r.abort();
+          r.continue(); } catch (e) {}
+  });
+
   const hist = new Map();        // 行情來源自己說的價（含時間）
   const ohlcvSeen = [];          // 主圖每次拿到的那批（含後端的取樣時刻）
   p.on("response", async (res) => {
@@ -87,8 +95,14 @@ const num = s => { const v = parseFloat(String(s).replace(/,/g, "")); return isF
     const rows = await p.evaluate(() => [...document.querySelectorAll("#tickerList .ticker-item")]
       .slice(0, 4).map(e => e.dataset.display || e.dataset.sym));
     if (rows.length < 2) { console.log("⚠ 行情清單少於 2 列 → 測試不成立"); await b.close(); process.exit(2); }
-    const B = rows[0], A = rows[1];
-    console.log(`標的（照量排序）：B（切走再切回）=${B}　A（中途去的）=${A}\n`);
+    await sleep(12000);   // 先看 12 秒，挑「量前四名裡真的在動的那一檔」
+    const vol = rows.map(sym => {
+      const a = (hist.get(sym) || []).map(x => x.price);
+      if (a.length < 3) return { sym, mv: 0 };
+      return { sym, mv: (Math.max(...a) - Math.min(...a)) / a[a.length-1] * 100 };
+    }).sort((x, y) => y.mv - x.mv);
+    const B = vol[0].sym, A = (vol.find(v => v.sym !== B) || {}).sym;
+    console.log(`標的（量前四名裡 12 秒內漂最多的）：B（切走再切回）=${B}（${vol[0].mv.toFixed(3)}%）　A（中途去的）=${A}\n`);
 
     const pick = (s) => p.evaluate((s) => {
       const el = [...document.querySelectorAll("#tickerList .ticker-item")]
@@ -115,7 +129,12 @@ const num = s => { const v = parseFloat(String(s).replace(/,/g, "")); return isF
     console.log(`① 穩定狀態 現價線 == 行情列那一行：${same}/${same + diff}` + (ex ? `　例外：列=${ex.row} 線=${ex.line}` : ""));
     if (diff) fails.push(`現價線與行情列不一致 ${diff} 拍（例：列=${ex.row} 線=${ex.line}）`);
 
-    /* 這檔的最小跳動＝門檻的基準（見坑 (c)）：門檻取 3 個跳動與 0.02% 的大者 */
+    /* 這檔的最小跳動＝門檻的基準（見坑 (c)）：門檻取 3 個跳動與 0.005% 的大者。
+       ⚠ 門檻不可以訂太高：BTC 一個跳動只有 0.0001%，用 0.02%（≈17 點）當門檻的話，
+         市場一安靜 20 秒內就漂不到那麼多 → **連植回舊行為都重現不出來**、整支變成
+         每次回傳 2（實測踩過一次）。真正擋住誤報的是「顯示值必須**正好等於**那批舊
+         ohlcv 的末根」＋「行情來源最近 3 秒沒報過這個數字」這兩道因果條件，
+         偏離門檻只是用來排掉「舊值剛好等於現在的價」那種無害情形。 */
     const tickPct = (() => {
       const a = (hist.get(B) || []).map(x => x.price);
       let m = Infinity;
@@ -123,7 +142,7 @@ const num = s => { const v = parseFloat(String(s).replace(/,/g, "")); return isF
       const px = a.length ? a[a.length - 1] : 0;
       return (isFinite(m) && px) ? m / px * 100 : 0;
     })();
-    const THR = Math.max(0.02, tickPct * 3);
+    const THR = Math.max(0.005, tickPct * 3);
     console.log(`   實測最小跳動 ${tickPct.toFixed(4)}% → 偏離門檻取 ${THR.toFixed(4)}%\n`);
 
     /* ── ② 切走再切回不可以顯示那批舊 ohlcv 的末根 ── */
@@ -175,9 +194,16 @@ const num = s => { const v = parseFloat(String(s).replace(/,/g, "")); return isF
       fails.push(`切回後把 ${w.age.toFixed(1)} 秒前那批 ohlcv 的末根 ${w.d} 當成現價（當下行情 ${w.cur}，差 ${w.devNow.toFixed(3)}%）`);
     }
 
-    console.log("\n   植回舊行為（新鮮度閘門永遠通過＝無條件拿主圖末根當現價）：");
+    /* 植回舊行為＝兩件事一起還原，缺一個就重現不出來：
+       ①新鮮度閘門永遠通過（無條件拿主圖末根當現價）
+       ②**擋掉 `/api/latest`** —— 2026-09-25 另一項優化讓「開始輪詢就先發一次」，
+         把舊 bug 的暴露窗口從 1.1 秒縮到約 0.2 秒；只植①的話 3 輪都抓不到
+         （實測就這樣回過一次 2）。擋掉它才是這個 bug 當年真正的窗口。 */
+    console.log("\n   植回舊行為（閘門永遠通過 ＋ 擋掉 /api/latest＝還原當年的窗口）：");
     await p.evaluate(`(() => { window.__gkOld = setInterval(() => { window._ohlcvTs = Date.now()/1000; }, 20); })()`);
+    blockLatest = true;
     const old = await runUntil(3, 6, true);
+    blockLatest = false;
     await p.evaluate(`clearInterval(window.__gkOld)`);
     if (!old.bad.length) {
       console.log(`\n⚠ 植回舊行為也沒重現（吃到快取 ${old.hits} 輪；價格在那幾輪剛好沒漂超過 ${THR.toFixed(3)}%）→ 測試不成立`);

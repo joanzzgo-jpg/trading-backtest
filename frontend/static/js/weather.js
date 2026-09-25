@@ -3632,7 +3632,19 @@
   let _ovLat = parseFloat(_qp.get('wxlat')), _ovLon = parseFloat(_qp.get('wxlon'));
   const _ovLoc = (_qp.get('wxloc') || '').toLowerCase().replace(/[^a-z]/g,'');
   if ((isNaN(_ovLat) || isNaN(_ovLon)) && _WX_PRESET[_ovLoc]) { _ovLat = _WX_PRESET[_ovLoc][0]; _ovLon = _WX_PRESET[_ovLoc][1]; }
-  if (!isNaN(_ovLat) && !isNaN(_ovLon)) { fetchWeather(_ovLat, _ovLon); return; }   // 僅本次預覽，不寫入 localStorage
+  /* ★★ 2026-09-25 修「預覽模式一開就丟 ReferenceError」。
+     舊寫法是 `{ fetchWeather(_ovLat, _ovLon); return; }` —— 那個 `return` 直接離開整個模組本體，
+     **後面所有的 `let/const` 都不會執行**（颱風那區的 `_ty`/`_tyFetchTs`/`_TW_CENTER`…），
+     於是它們永遠卡在暫時性死區：
+       ReferenceError: Cannot access '_tyFetchTs' before initialization（`_ty` 也一個）
+     順帶被跳過的還有 `window._wxRefreshNow`（手機「設定」分頁在用）等整段初始化。
+     ⚠ 症狀會騙人：天氣照樣畫得出來（那條路自己 catch 住了），只有颱風資訊安靜地不見。
+     ⚠ 我先試過「把宣告往前搬」——沒用，因為問題不是順序而是**那段程式根本沒跑**；
+       也試過只延後呼叫——同樣沒用。正解是**不要提早 return**，改用旗標把
+       「預覽模式不該做的事」一件一件關掉（下面三處 `_wxPreview`）。
+     ⚠ 呼叫仍排到下一拍：這裡還在模組本體中段，同步呼叫一樣會踩到後段的死區。 */
+  const _wxPreview = !isNaN(_ovLat) && !isNaN(_ovLon);
+  if (_wxPreview) setTimeout(() => fetchWeather(_ovLat, _ovLon), 0);   // 僅本次預覽，不寫入 localStorage
 
   let _wxCoordCache = null;
   try { _wxCoordCache = JSON.parse(localStorage.getItem('wxCoords') || 'null'); } catch (e) {}
@@ -3659,7 +3671,8 @@
     }).catch(() => { if (!painted) { window._wxGeoSrc = 'IP失敗·台北'; fetchWeather(25.04, 121.51); } });
   };
   const _hasCache = _wxCoordCache && typeof _wxCoordCache === 'object' && _wxCoordCache.lat != null;
-  if (_hasCache) { window._wxGeoSrc = '快取'; fetchWeather(_wxCoordCache.lat, _wxCoordCache.lon); }   // ① 有快取先即時畫（免空白）
+  // ⚠ 預覽模式不可以用快取座標先畫：那會把你指定的地點蓋掉（_wxPreview 見上方說明）
+  if (!_wxPreview && _hasCache) { window._wxGeoSrc = '快取'; fetchWeather(_wxCoordCache.lat, _wxCoordCache.lon); }   // ① 有快取先即時畫（免空白）
 
   // ② 取真實定位 — 用 watchPosition「收斂精度」，根治「有時候定位到附近的區」：
   //    根因：getCurrentPosition 就算開 enableHighAccuracy，第一筆常是 WiFi/基地台的粗略網路定位
@@ -3692,8 +3705,10 @@
       { enableHighAccuracy: true, timeout: perFix, maximumAge: 0 }         // maxAge:0→不吃可能是IP的舊快取
     );
   }
-  if (!navigator.geolocation) _ipFallback(_hasCache);
-  else                        _locate(_onPos, () => _ipFallback(_hasCache), 8000, 20000);   // 冷啟動給 20s 拿首筆，再 8s 收斂
+  // ⚠ 預覽模式不定位（整個重點就是「看別的地方」）
+  if (_wxPreview)                  { /* 預覽：不定位 */ }
+  else if (!navigator.geolocation) _ipFallback(_hasCache);
+  else                             _locate(_onPos, () => _ipFallback(_hasCache), 8000, 20000);   // 冷啟動給 20s 拿首筆，再 8s 收斂
 
   // 每 5 分鐘自動刷新：重新定位（移動換區→首頁/主圖的所在地與天氣都更新）+ 重抓天氣。
   // 定位失敗 → 沿用上次座標只更新天氣（不退 IP、不把已準的所在地弄丟）。切到背景分頁時瀏覽器會自動暫停此計時器。
@@ -3702,12 +3717,13 @@
     if (!navigator.geolocation) { if (_wxLat != null) fetchWeather(_wxLat, _wxLon); return; }
     _locate(_onPos, () => { if (_wxLat != null) fetchWeather(_wxLat, _wxLon); }, 6000, 15000);
   }
-  if (!_wxTimer) _wxTimer = setInterval(_wxRefresh, 5*60*1000);   // 預覽模式(?wxlat/?wxloc)已在上方 return，不會自動刷新
+  if (!_wxPreview && !_wxTimer) _wxTimer = setInterval(_wxRefresh, 5*60*1000);   // 預覽模式(?wxlat/?wxloc)不自動刷新（它是一次性快照）
   // 雨系快速通道（2026-07-13「下雨中顯示太慢」）：下雨中／雨帶接近／正在降雨／當前降雨機率高
   //   → 每 90s 輕量刷新（沿用上次座標、只打天氣+附近雨、不重新定位省電、不抓颱風）。
   //   搭配後端雨系短 TTL（wx 90s／nearby 60s）→「開始下雨/雨停」約 1.5~3 分內反映（原本疊到 10 分+）。
   //   晴天條件不成立＝完全不打 API，零額外負擔；分頁在背景時跳過。
   setInterval(() => {
+    if (_wxPreview) return;                                   // 預覽是一次性快照，不開快速通道
     if (_wxLat == null || document.visibilityState === 'hidden') return;
     const n = _wd.nearby || {};
     // ⚠ 不用 _wd.precip>0 判斷：CWA 的 precipitation 是「當日累積」，早上下過就整天 >0 → 會誤開快速通道

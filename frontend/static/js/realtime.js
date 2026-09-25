@@ -9,6 +9,16 @@ function startRealtime() {
   // - us    : 5s（Finnhub overlay；無 token 時走 yfinance 15min 延遲，5s 已過剩）
   const interval = { tw: 5000, us: 5000, hk: 5000, crypto: 1000 }[market] || 1000;
   realtimeTimer = setInterval(fetchLatest, interval);
+  /* ★ 2026-09-25 立刻先發一次，不要等滿一個週期。
+     `setInterval` 的第一發在**一個週期之後**（實測切標的後 1060ms 才送出、1132ms 才到貨）——
+     那段時間主圖的現價線與形成中那根 K 棒，吃的是 `/api/ohlcv` 那批的收盤，
+     而那批可能是**快取裡 30 秒前**抓的（TTL 30 秒，實測 BTC 差到 76 點）。
+     台股/美股更久：週期 5 秒＝整整 5 秒都拿著舊值。
+     → 開始輪詢就先問一次，修正時間縮到一個來回（實測 ~70ms）。
+     ⚠ 成本＝每次切標的多一發 `/api/latest`，而它後端有 1 秒 TTL＋單飛 → 幾乎不花上游。
+     ⚠ 三個呼叫點（切標的、切回前景、離開重播）都受惠，而 `fetchLatest` 自己開頭就有
+       replay／離線／標的脈絡三道守衛，不必在這裡再判一次。 */
+  try { fetchLatest(); } catch (e) {}
 }
 
 function stopRealtime() {
