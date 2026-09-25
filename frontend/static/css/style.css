@@ -179,7 +179,12 @@ html.perf-mode #fxPanel { transition: none !important; }
   --accent:  #FF9147;
   --legend-h: 22px;
   --topbar-h: 38px;
-  --symbar-h: 34.65px;
+  /* ★ 2026-09-25 使用者：「上匡下來一些」→ 34.65 + 8 = 42.65px。
+     ⚠ 必須改**高度本身**：`.symbol-bar` 是固定 height + box-sizing:border-box，
+       只加 padding-bottom 不會把元素撐高（實測主圖完全沒下移）。
+     ⚠ 也不可改用主圖的 margin-top：那塊露出的是父層背景，實測 rgb(48,49,59)
+       比符號列與主圖都亮 → 會變成一條亮帶。加在符號列高度上，那 8px 是它自己的背景、顏色連續。 */
+  --symbar-h: 42.65px;
   /* ══ 圓角刻度（2026-09-24 使用者：「整體配置想要跟 apple 美學一樣」）══
      稽核前：**28 種**不同的 border-radius 散在 217 處（2/3/4/5/6/7/8/9/10/11/12/13/14/16/18/20/22/24px…）
      —— 「每個元件各自為政」正是一眼看出不夠精緻的主因。Apple 的做法是極少的一組刻度。
@@ -643,6 +648,7 @@ html.perf-mode .tb-icon-btn:hover svg { animation: none; transform: scale(1.1); 
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
   overflow: hidden;
+  padding-bottom: 8px;   /* 內容維持貼上方，多出來的 8px 留在下緣（見 --symbar-h 的說明）*/
 }
 .sym-name    { font-size: var(--t-xl); font-weight: 700; color: var(--text); white-space: nowrap; }
 .sym-tag     { background: var(--bg3); color: var(--muted); padding: 1px 4px; border-radius: var(--r-xs); font-size: var(--t-md); white-space: nowrap; }
@@ -1267,6 +1273,46 @@ html.perf-mode .symbol-bar.sb-drop > .sqd-dock-slot { border-color: rgba(0,0,0,.
      搭配下方 sky-show 時面板背景透明 → 天氣從 K 棒「後方」透出仍看得到。 */
   z-index: 2;
   background: var(--bg);
+  /* ★ 2026-09-25 使用者：「主圖跟主背景間有什麼好的銜接方式」→「要有流線型的分法」
+     →「我要線匡」→「主圖」。量過交界：兩側底色只差 5.6 個色階，分界感其實來自
+     **內容性質不同**（圖表 vs 列表），兩區直接相接、沒有形狀，就是「半融合」的鬆散感。
+     → 給主圖一圈流線型線框：右上圓角 + 一條暖色細線，主圖從背景上浮出來。
+     ⚠ 邊框走暖色不用 --border（那是冷灰 #2a2e39，在暖底上發灰）。
+     ⚠ 只有上與右有線：左、下貼著螢幕邊，畫線沒有對象可分隔。
+     ⚠ 圓角只在右上：右下貼螢幕底，圓了會被切成缺口（實測過）。
+     ⚠ **上框往下的位移做在符號列的 padding-bottom**，不是這裡的 margin-top ——
+       margin 露出的是父層背景（實測 rgb(48,49,59)，比符號列與主圖都亮）會變成一條亮帶。
+     ⚠ 線寬 2px 不是 1px（使用者：「角落要修」）：**1px 的細線撐不住 18px 的大弧** ——
+       抗鋸齒會把它攤薄，沿著轉角掃描亮度從 102 掉到 64，看起來就是線在角落斷掉。
+       實測：圓角18+1px → 64~86／圓角8+1px → 73~95／**圓角18+2px → 94~95（幾乎全滿）**。
+       弧度是「流線型」的本體要保留，所以補線寬而不是縮圓角。 */
+  border: 2px solid rgba(255, 216, 176, .3);
+  border-left: none;
+  border-bottom: none;
+  border-radius: 0 var(--r-lg) 0 0;
+  /* ★ 2026-09-25 使用者：「合約/台股按鈕旁那個角配色要修」→「那個角跟主背景一樣，
+     不要主圖濾鏡」→「沒辦法直接把那個角融進去主背景嗎」。
+     圓角把容器自己裁掉之後，弧線外那一小塊露出的是**沒有被任何面板蓋過的天氣層**
+     （實測缺角 rgb(52,53,55)／旁邊的行情面板 rgb(40,43,51)）—— 亮一截，
+     讀起來就像主圖的延伸而不是主背景。
+     → 直接讓主背景色鋪進那個角：外陰影往右平移 22px、零模糊零擴散＝一條純色帶。
+       外陰影**不會畫進自己的 border-box**，所以它只出現在
+       ①圓角弧線外的缺角（要的就是這裡）②容器右緣往右 22px 那條（被面板蓋住）。
+     ⚠ 為什麼不用偽元素：面板的 ::before 早就被末段「橘子熊」那塊
+       `display:none !important` 壓死，而且面板 overflow:hidden 會把往左伸的部分裁掉；
+       陰影不吃這兩條（overflow 只裁子元素、圓角只裁內側）。
+     ⚠ 顏色用 `--chrome-fill`（colors.js 輸出）＝ topbar/符號列/行情面板**實際吃到**的那個值：
+       天氣模式下是 chromeVeil（--bg 半透明），其餘是 var(--bg)。直接寫 var(--bg) 會變成
+       不透明色鋪在缺角上，反而比旁邊的面板暗 10 個色階（實測 30,34,45 vs 40,43,51）。
+     ⚠⚠ **一定要配 clip-path**：沒有它的話，那條色帶會整條鋪在行情面板左緣下面，
+       而面板背景是半透明的（--bg 帶 alpha）→ 色帶從後面透出來，面板左側 22px
+       變成一條整高的暗帶（實測 40,43,51 → 32,36,47，是看得出來的接縫）。
+       `clip-path: inset(0)` 把畫面裁到容器自己的 border-box 方框 —— 缺角**在方框內**
+       （它是圓角外、方框內的那一小塊），色帶超出容器的部分則整條被裁掉。
+       ⚠ clip-path 會讓這個容器變成 position:fixed 後代的定位基準：已清點過
+         容器內 211 個元素目前沒有任何 fixed（十字線標籤、齒輪選單都是 absolute）。 */
+  box-shadow: 22px 0 0 0 var(--chrome-fill, var(--bg));
+  clip-path: inset(0);
 }
 /* 「無」+磁磚開：圖表面板全透明 → 後方 weatherStage 磁磚牆紙透出（off 模式無天氣色帶）。
    天氣模式(sky-show/night)不在此列：改由 _applyChartBgGradient 用低不透明度色帶 →
@@ -1687,6 +1733,11 @@ html.perf-mode .time-axis-year {
   background: var(--bg2);
   border-left: 1px solid var(--border);
   overflow: hidden;
+  /* ⚠ 2026-09-25：z-index 要比主圖容器(z:2)高 —— 主圖用 box-shadow 往右鋪一條
+     22px 的主背景色帶去補右上圓角外的缺角（見 .charts-container 的說明），
+     那條色帶會壓在面板左緣上；面板墊高一層就只剩「缺角」那一小塊看得到。 */
+  position: relative;
+  z-index: 3;
 }
 
 .ticker-hd {
@@ -4511,6 +4562,17 @@ textarea,
   .pane-legend .leg-toggle.line-off { opacity: .55; }
   .pane-legend .leg-toggle.line-off .leg-val { color: var(--muted); }
   .pane-legend .leg-dot { width: 10px !important; height: 10px !important; }
+
+  /* ⚠ 2026-09-25 手機：主圖右邊就是**螢幕邊**（行情面板是獨立分頁、不並排）→
+     右側的間距與圓角都沒有對象可分隔，留著只是把畫面往內縮。
+     只保留上方那條線與間距（對的是符號列，那個交界在手機上同樣存在）。 */
+  #chartsContainer {
+    border-right: none !important;
+    border-radius: 0 !important;
+    /* 沒有圓角就沒有缺角 → 補角的色帶沒有存在意義，留著只會蓋到旁邊 */
+    box-shadow: none !important;
+    clip-path: none !important;
+  }
 
   /* 行情列表鈕（四條線圖示）：手機已有底部「自選」分頁 → 多餘，隱藏 */
   #tickerToggle { display: none !important; }

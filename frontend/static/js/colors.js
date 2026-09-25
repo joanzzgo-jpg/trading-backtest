@@ -276,6 +276,14 @@ function _applyChartBgGradient(color) {
         const r = cc.getBoundingClientRect();
         ul.style.left = r.left + "px"; ul.style.top = r.top + "px";
         ul.style.width = r.width + "px"; ul.style.height = r.height + "px";
+        /* ★ 2026-09-25：底墊要跟著主圖的右上圓角一起切。
+           底墊是**主圖色**（比系統主背景暗，實測 rgb(19,23,34) vs rgb(30,34,45)），
+           而它鋪滿整個容器矩形 —— 包含圓角**外面**那一小塊缺角。天氣是半透明的，
+           於是那塊缺角透出來的底色比旁邊的行情面板暗一截（實測差 4 個色階），
+           使用者要的「那個角跟主背景一樣、不要主圖濾鏡」就差在這裡。
+           → 讀容器自己的圓角值套上去，缺角就落在底墊外面，背後跟面板完全同一疊。
+           ⚠ 讀 computed 不寫死：手機款把圓角改成 0，這裡自動跟著變 0。 */
+        ul.style.borderTopRightRadius = getComputedStyle(cc).borderTopRightRadius;
       };
       ul._pos = _pos;
       window.addEventListener("resize", _pos);
@@ -312,6 +320,13 @@ function _applyChartBgGradient(color) {
      透上來污染整頁內容（使用者：「手機版的各個分頁會被透明度污染」）。
      ⚠ isMobileUI() 是全站唯一準則（見 utils.js），別自己另寫寬度判斷。 */
   const _mobUI = (typeof isMobileUI === "function") && isMobileUI();
+  /* ★ 2026-09-25：把「周圍那三塊實際吃到的底色」輸出成 CSS 變數。
+     用途＝主圖右上圓角外那一小塊缺角（.charts-container 的 box-shadow 去補它）。
+     缺角露出的是沒被任何面板蓋過的天氣層，比旁邊的行情面板亮一截（實測 52,53,55 vs 40,43,51）
+     → 用**同一個值**去鋪，兩邊疊在同一片天氣上，必然同色；使用者換配色/天氣也跟著走。
+     ⚠ 不可以在 CSS 裡寫死 color-mix 百分比：DIM 是這裡的常數，改了那邊不會跟著改。 */
+  document.documentElement.style.setProperty(
+    "--chrome-fill", (!_mobUI && seeThru) ? chromeVeil : "var(--bg)");
   ["topbar", "symbol-bar", "ticker-panel"].forEach(cls => {
     const el = document.querySelector("." + cls); if (!el) return;
     if (_mobUI) {   // 手機：交回 CSS，維持不透明
