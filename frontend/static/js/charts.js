@@ -1409,6 +1409,46 @@ function resizeAll() {
     if (h > 10) chart.resize(cw, h);
   });
   _syncAxisWidth();
+  _placeWatermarkMobile();
+}
+
+/* ★ 2026-09-25 使用者：「手機版 ahh logo 位置要調整、需要縮小，目前位置擋到下方時間表」。
+   桌面用純 CSS 的 `bottom` 就夠（2026-09-24 那版把 `_placeWatermark` 移掉的理由），
+   但**手機解不掉**，量過就知道為什麼：
+     ・手機的 `.charts-container` 延伸到底部分頁列後方 → 同一個 bottom 值落點完全不同
+     ・副圖在手機上**每個只有 55px 高，而圖例就佔 38px** → 圖例與時間軸本來就已經重疊，
+       中間只剩 17px 的縫，放不下 29px 的浮水印 ⇒ 副圖開著時怎麼擺都會壓到資訊
+   → 手機改成跟著**主圖底緣**走：永遠落在主圖那塊（副圖開 y≈456、關 y≈621 都成立），
+     不碰任何副圖的圖例，也不碰時間軸。
+   ⚠ 只動手機：桌面維持 CSS 的 bottom，不寫 inline（省得跟 style.css 打架）。
+   ⚠ 面板開合也要重算 → 掛在 `resizeAll()` 尾端（開合副圖本來就會走到這裡）。 */
+function _placeWatermarkMobile() {
+  try {
+    const wm = document.querySelector(".chart-watermark");
+    if (!wm) return;
+    const mobile = (typeof isMobileUI === "function") ? isMobileUI()
+                 : window.matchMedia("(max-width: 1180px)").matches;
+    if (!mobile) { wm.style.bottom = ""; return; }        // 桌面交還給 CSS
+    const cc = document.getElementById("chartsContainer");
+    const mp = document.getElementById("mainPane");
+    if (!cc || !mp) return;
+    const cr = cc.getBoundingClientRect(), mr = mp.getBoundingClientRect();
+    if (mr.height < 40) return;
+    // 主圖底緣往上 6px；主圖若就是最底面板（副圖全關）還要再讓開時間軸 26px
+    const isBottom = Math.abs(mr.bottom - _lowestPaneBottom()) < 2;
+    const lift = Math.round(cr.bottom - mr.bottom) + 6 + (isBottom ? 26 : 0);
+    wm.style.bottom = lift + "px";
+  } catch (e) {}
+}
+function _lowestPaneBottom() {
+  let b = 0;
+  ["mainPane", "kdjPane", "rsiPane", "macdPane"].forEach(id => {
+    const e = document.getElementById(id);
+    if (!e) return;
+    const r = e.getBoundingClientRect();
+    if (r.height > 8 && r.bottom > b) b = r.bottom;
+  });
+  return b;
 }
 
 /* ★★ 2026-09-24 使用者：「主圖跟副圖的線接不起來」「是指背景的格子線」。

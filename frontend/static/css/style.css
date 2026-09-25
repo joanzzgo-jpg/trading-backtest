@@ -1410,6 +1410,25 @@ html.perf-mode .symbol-bar.sb-drop > .sqd-dock-slot { border-color: rgba(0,0,0,.
 }
 html.perf-mode .chart-watermark { opacity: .55; }
 
+/* ★ 2026-09-25 使用者：「手機版 ahh logo 位置要調整、需要縮小，目前位置擋到下方時間表」。
+   桌面的 `bottom: 36px` 在手機上不成立 —— 手機的 `.charts-container` **延伸到底部分頁列後方**
+   （charts.js `positionLines` 也為此算了 axisOffset），所以同樣的 36px 量下去，
+   浮水印正好落在時間軸那一條上。實測 iPhone SE：浮水印 y 587~631、時間軸 595~621
+   → 「15日」「9月」整排被蓋住（三種手機尺寸都中）。
+   → 抬到分頁列高度(46) + 時間軸高度(26) 之上，並依使用者要求整組縮小。
+   ⚠ 縮小用 transform scale 不動字級：字級走 --t-* 刻度，守門員 check_design_tokens 會擋裸 px。
+   ⚠ 條件與全站手機款斷點一致（isMobileUI 同一組），避免兩邊判斷不同步。 */
+@media (max-width: 1180px) and (pointer: fine),
+       (hover: none) and (pointer: coarse) and (orientation: portrait),
+       (hover: none) and (pointer: coarse) and (orientation: landscape) and (max-height: 599px) {
+  .chart-watermark {
+    /* ⚠ bottom 由 charts.js `_placeWatermarkMobile()` 依**主圖底緣**動態寫 inline
+       （副圖每個只有 55px、圖例就佔 38px，純 CSS 的固定值躲不開）。這裡只留退路值。 */
+    bottom: 78px;
+    transform: scale(0.68);       /* 129x44 → 88x30，縮小後仍貼左下（origin 已是 left bottom） */
+  }
+}
+
 /* ── 訂單簿 DOM 階梯面板（主圖右側，dom.js 繪製）─────────────────
    絕對定位貼 #mainPane 右緣、位於 legend 之下；預設隱藏，.on 才顯示。
    主圖 canvas 由 resizeAll() 減去本面板寬度 → 兩者並排不重疊。 */
