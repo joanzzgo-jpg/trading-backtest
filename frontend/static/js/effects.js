@@ -370,7 +370,37 @@
      只晚 7 幀（約 115ms）＝ 看得出先後但仍是同一發；第二色不再有自己的起爆白光。 */
   const _FW_LAG = 7;
   function spawnFirework(cx, cy) {
-    const SIZE = 340, N = 46;
+    /* ★★ 2026-09-27：一發抽一種**彈型**，連點時才不會每次都長一樣（真實的煙火秀也是換著放）。
+       全部都只是同一套粒子的參數組，沒有第二套繪圖程式：
+         ・菊花彈 peony：標準球 + 尾跡（最常見）
+         ・柳枝 willow：重力大、燒得久、尾巴長 → 炸開後像垂柳往下掛
+         ・冠形 ring  ：速度帶極窄、粒子細 → 一圈很乾淨的環
+         ・二段彈 double：第一段只飛幾顆彗星，飛到一半**各自再炸開**（真實的多重爆）
+         ・超大一般 big：菊花彈整個放大
+         ・超大二段 mega2：全場最稀有，彗星更多、飛更遠、每顆再炸 16 顆
+       ⚠ 機率集中在下面這張權重表，改一個數字就好 —— 原本是三元運算子疊起來的，
+         每加一種就要重算所有分界點，很容易算錯。
+       ⚠ 權重刻意不平均：特殊彈每三次就來一次反而顯得亂。 */
+    const _FW_KINDS = [["peony", 52], ["willow", 22], ["ring", 18],
+                       ["double", 5], ["big", 2], ["mega2", 1]];   // 使用者指定：5% / 2% / 1%
+    const TYPE = (() => {
+      let r = Math.random() * _FW_KINDS.reduce((a, k) => a + k[1], 0);
+      for (const [name, w] of _FW_KINDS) { if ((r -= w) < 0) return name; }
+      return "peony";
+    })();
+    const TW = {
+      //        球半徑     速度帶      壽命       重力     阻力       尾跡     金粉    亮點      粒子   畫布     子彈
+      peony:  { r: 1,    spread: .22, decay: 1,   g: 1,    drag: .972, hist: 16, gl: 20, dot: 1,    n: 46, size: 1 },
+      willow: { r: .82,  spread: .18, decay: .62, g: 1.75, drag: .963, hist: 26, gl: 28, dot: .9,   n: 46, size: 1 },
+      ring:   { r: 1.12, spread: .07, decay: 1.1, g: .85,  drag: .977, hist: 12, gl: 12, dot: .85,  n: 46, size: 1 },
+      double: { r: .92,  spread: .10, decay: .42, g: 1.1,  drag: .985, hist: 28, gl: 10, dot: 1.15, n: 9,  size: 1,   kids: 11, burst: 26 },
+      /* 超大彈：粒子與半徑都放大，**畫布也要跟著放大** —— 畫布是以點擊處為中心的固定方框，
+         不放大的話外圈直接被裁掉（那會比沒放大還難看）。 */
+      big:    { r: 1.55, spread: .20, decay: .78, g: .92,  drag: .976, hist: 22, gl: 34, dot: 1.25, n: 66, size: 1.5 },
+      mega2:  { r: 1.30, spread: .10, decay: .36, g: 1,    drag: .988, hist: 34, gl: 16, dot: 1.3,  n: 14, size: 1.6, kids: 16, burst: 32 },
+    }[TYPE];
+    const IS2 = TYPE === "double" || TYPE === "mega2";
+    const SIZE = Math.round(340 * TW.size);   // 超大彈要更大的畫布，否則外圈被裁掉
     const cvs = makeCanvas(cx, cy, SIZE); if (!cvs) return;
     const ctx = cvs.getContext("2d");
     const ox = SIZE / 2, oy = SIZE / 2;
@@ -395,27 +425,8 @@
        ④**金粉**：另一批很小、閃得快、掉得慢的細星 —— 那是煙火「碎裂感」的來源。
        ⑤起爆瞬間加一圈擴散的細環（衝擊波），成本只有一次 stroke。
        ⚠ 貼圖一律預烤：這支的效能史就是「shadowBlur → 貼圖」「每幀漸層 → 貼圖」兩次教訓。 */
-    /* ★★ 2026-09-27：一發抽一種**彈型**，連點時才不會每次都長一樣（真實的煙火秀也是換著放）。
-       三種都只是同一套粒子的參數組，沒有另一套繪圖程式：
-         ・菊花彈 peony：標準球 + 尾跡（最常見，權重最高）
-         ・柳枝 willow：重力大、燒得久、尾巴長 → 炸開後像垂柳往下掛
-         ・冠形 ring  ：速度帶極窄、粒子細 → 一圈很乾淨的環
-       ⚠ 權重不要平均：柳枝與冠形偶爾出現才是驚喜，每三次就來一次反而顯得亂。 */
-    const _r = Math.random();
-    const TYPE = _r < .55 ? "peony" : (_r < .77 ? "willow" : (_r < .95 ? "ring" : "double"));
-    const TW = {
-      peony:  { r: 1,    spread: .22, decay: 1,   g: 1,    drag: .972, hist: 16, gl: 20, dot: 1 },
-      willow: { r: .82,  spread: .18, decay: .62, g: 1.75, drag: .963, hist: 26, gl: 28, dot: .9 },
-      ring:   { r: 1.12, spread: .07, decay: 1.1, g: .85,  drag: .977, hist: 12, gl: 12, dot: .85 },
-      /* ★ 2026-09-27 使用者：「偶爾需要很特殊的煙火，兩段是那種」。
-         **二段彈**（真實名稱是多重爆／multi-break）：第一段只飛出幾顆**彗星**（少、亮、尾巴長），
-         飛到一半各自再炸開成一朵小煙火 —— 這跟前面那個「兩色分層」不同，那是同一次爆炸的兩層，
-         這是**真的炸第二次**。⚠ 只給 **5%** 機率（使用者指定）：特殊彈每次都出現就不特殊了。 */
-      double: { r: .92,  spread: .10, decay: .42, g: 1.1,  drag: .985, hist: 28, gl: 10, dot: 1.15 },
-    }[TYPE];
-    const IS2 = TYPE === "double";
     const R0 = (3.2 + Math.random() * 1.5) * TW.r;   // 外層球的半徑速度
-    const P = Array.from({ length: IS2 ? 9 : N }, (_, i) => {
+    const P = Array.from({ length: TW.n }, (_, i) => {
       // 二段彈：第一段全是第一色的彗星，第二色留給它們各自炸開的那一下
       const k = IS2 ? 0 : (i % 2);                   // 兩色各半（亂數分配會讓某些發偏向一色）
       const a = Math.random() * Math.PI * 2;
@@ -432,7 +443,7 @@
         ],
         life: 1, decay: (.0095 + Math.random() * .011) * TW.decay, hist: [],
         // 二段彈：飛到這一幀就各自炸開（±3 幀錯開，一起炸會像一個大圈）
-        burst: IS2 ? 26 + Math.round(Math.random() * 7) : 0,
+        burst: IS2 ? TW.burst + Math.round(Math.random() * 7) : 0,
       };
     });
     // 金粉：小、閃得快、掉得慢；散在兩層之間
@@ -510,7 +521,7 @@
              （for...of 會看到新加的元素），小煙火會少畫一格、起點也偏掉。 */
         if (p.burst && frame >= p.burst) {
           p.life = 0;
-          const NB = 11;
+          const NB = TW.kids;
           for (let q = 0; q < NB; q++) {
             const aa = (q / NB) * Math.PI * 2 + Math.random() * .4;
             const ss = .9 + Math.random() * 1.5;
@@ -550,7 +561,7 @@
         ctx.drawImage(gs, p.x - gr, p.y - gr, gr * 2, gr * 2);
         /* 末段爆閃：快熄時有機率迸出兩顆小火星 —— 真實煙火的「劈啪」就是這個。
            ⚠ 要有總量上限（沒有的話會一路連鎖生下去，幀數跟著崩）。 */
-        if (cool && GL.length < TW.gl + 24 && Math.random() < .035) {
+        if (cool && GL.length < TW.gl + 24 + TW.n && Math.random() < .035) {
           for (let q = 0; q < 2; q++) {
             const aa = Math.random() * Math.PI * 2, ss = .5 + Math.random() * 1.1;
             GL.push({ x: p.x, y: p.y, vx: Math.cos(aa) * ss, vy: Math.sin(aa) * ss,
