@@ -370,7 +370,7 @@
      只晚 7 幀（約 115ms）＝ 看得出先後但仍是同一發；第二色不再有自己的起爆白光。 */
   const _FW_LAG = 7;
   function spawnFirework(cx, cy) {
-    const SIZE = 300, N = 42;
+    const SIZE = 340, N = 46;
     const cvs = makeCanvas(cx, cy, SIZE); if (!cvs) return;
     const ctx = cvs.getContext("2d");
     const ox = SIZE / 2, oy = SIZE / 2;
@@ -385,102 +385,195 @@
     const h1 = (_far.length ? _far : _FW_HUES.filter(h => h !== h0))[Math.floor(Math.random() * (_far.length || (_FW_HUES.length - 1)))];
     const HUES = [h0, h1];
     const hue = HUES[0];                             // 起爆白光用第一色
-    const P = Array.from({ length: N }, () => {
+
+    /* ★★ 2026-09-27 使用者：「煙火特效要更好更漂亮」。往「真的煙火」再靠一階的四件事：
+       ①**球形**：速度收成窄帶（±11%）→ 外緣是一圈整齊的球（真實的菊花彈就是這樣），
+         原本 2.4~5.2 均勻亂數會炸成一團糊。兩層各自一顆球，內層半徑約外層的 55%。
+       ②**溫度變化**：真的星火是「白熱 → 主色 → 暗紅」燒過去的。每顆先算好三個顏色，
+         依 life 取用 —— ⚠ 不可以每幀組 hsl() 字串（58 顆 × 60 幀＝三千多次配置）。
+       ③**漸細尾跡**：尾巴分段畫，越舊越細越淡（原本整條同寬同淡，看起來像畫線）。
+       ④**金粉**：另一批很小、閃得快、掉得慢的細星 —— 那是煙火「碎裂感」的來源。
+       ⑤起爆瞬間加一圈擴散的細環（衝擊波），成本只有一次 stroke。
+       ⚠ 貼圖一律預烤：這支的效能史就是「shadowBlur → 貼圖」「每幀漸層 → 貼圖」兩次教訓。 */
+    /* ★★ 2026-09-27：一發抽一種**彈型**，連點時才不會每次都長一樣（真實的煙火秀也是換著放）。
+       三種都只是同一套粒子的參數組，沒有另一套繪圖程式：
+         ・菊花彈 peony：標準球 + 尾跡（最常見，權重最高）
+         ・柳枝 willow：重力大、燒得久、尾巴長 → 炸開後像垂柳往下掛
+         ・冠形 ring  ：速度帶極窄、粒子細 → 一圈很乾淨的環
+       ⚠ 權重不要平均：柳枝與冠形偶爾出現才是驚喜，每三次就來一次反而顯得亂。 */
+    const _r = Math.random();
+    const TYPE = _r < .55 ? "peony" : (_r < .77 ? "willow" : (_r < .95 ? "ring" : "double"));
+    const TW = {
+      peony:  { r: 1,    spread: .22, decay: 1,   g: 1,    drag: .972, hist: 16, gl: 20, dot: 1 },
+      willow: { r: .82,  spread: .18, decay: .62, g: 1.75, drag: .963, hist: 26, gl: 28, dot: .9 },
+      ring:   { r: 1.12, spread: .07, decay: 1.1, g: .85,  drag: .977, hist: 12, gl: 12, dot: .85 },
+      /* ★ 2026-09-27 使用者：「偶爾需要很特殊的煙火，兩段是那種」。
+         **二段彈**（真實名稱是多重爆／multi-break）：第一段只飛出幾顆**彗星**（少、亮、尾巴長），
+         飛到一半各自再炸開成一朵小煙火 —— 這跟前面那個「兩色分層」不同，那是同一次爆炸的兩層，
+         這是**真的炸第二次**。⚠ 只給 **5%** 機率（使用者指定）：特殊彈每次都出現就不特殊了。 */
+      double: { r: .92,  spread: .10, decay: .42, g: 1.1,  drag: .985, hist: 28, gl: 10, dot: 1.15 },
+    }[TYPE];
+    const IS2 = TYPE === "double";
+    const R0 = (3.2 + Math.random() * 1.5) * TW.r;   // 外層球的半徑速度
+    const P = Array.from({ length: IS2 ? 9 : N }, (_, i) => {
+      // 二段彈：第一段全是第一色的彗星，第二色留給它們各自炸開的那一下
+      const k = IS2 ? 0 : (i % 2);                   // 兩色各半（亂數分配會讓某些發偏向一色）
       const a = Math.random() * Math.PI * 2;
-      const k = Math.random() < .5 ? 0 : 1;          // 這顆屬於哪一色
-      // 外層(k=0) 衝得遠、內層(k=1) 慢且散得近 → 兩色是「一發的兩層」不是「兩發」
-      const spd = k === 0 ? 2.4 + Math.random() * 2.8 : 1.1 + Math.random() * 1.9;
-      /* ★ 2026-09-26 使用者：「第一色跟第二色要有一些時間差」。
-         第二色整批延後 _FW_LAG 幀才起爆（±2 幀抖動，免得像被開關切開）——
-         就是雙層煙火：外層先炸開，內層隨後補上。 */
+      const base = k === 0 ? R0 : R0 * .55;
+      const spd = base * (1 - TW.spread / 2 + Math.random() * TW.spread);   // 窄帶＝球形
       const d = k === 0 ? 0 : Math.max(0, _FW_LAG + Math.round((Math.random() - .5) * 4));
+      const h = HUES[k] + (Math.random() - .5) * 20;
       return {
         x: ox, y: oy, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, k, d,
-        col: `hsl(${(HUES[k] + (Math.random() - .5) * 24).toFixed(0)}, 95%, ${(58 + Math.random() * 16).toFixed(0)}%)`,
-        life: 1, decay: .011 + Math.random() * .013, hist: [],
+        cols: [                                      // 白熱 → 主色 → 餘燼
+          `hsl(${h.toFixed(0)}, 92%, 88%)`,
+          `hsl(${h.toFixed(0)}, 96%, ${(60 + Math.random() * 12).toFixed(0)}%)`,
+          `hsl(${(h - 8).toFixed(0)}, 90%, 46%)`,
+        ],
+        life: 1, decay: (.0095 + Math.random() * .011) * TW.decay, hist: [],
+        // 二段彈：飛到這一幀就各自炸開（±3 幀錯開，一起炸會像一個大圈）
+        burst: IS2 ? 26 + Math.round(Math.random() * 7) : 0,
       };
     });
-    /* ★ 光暈改成「預先烤一張貼圖」，不要用 shadowBlur。
-       實測 shadowBlur=7 × 42 顆 × 最多 4 發同時 → **42/165 幀超過 20ms、p90 40.3ms**（會看出頓）。
-       同一發煙火只有一個主色 → 烤**一張** 32px 的放射漸層，之後每顆粒子只是 drawImage，
-       成本是常數。實測改完回到 0/… 幀超過 20ms。 */
-    /* ★ 2026-09-26 使用者：「煙火卡卡的」。起爆白光原本**每一幀**都 createRadialGradient
-       再填滿整張畫布 —— 手機 DPR 3 時那是 900×900＝81 萬像素/幀，同時四發就是 324 萬。
-       烤成一張 64px 貼圖、每幀只 drawImage（放大由瀏覽器做）→ 成本變成常數。
-       ★ 同一個教訓第二次：光暈當初也是為此從 shadowBlur 換成貼圖。 */
-    const FLASH = (() => {
-      const c2 = document.createElement("canvas");
-      c2.width = c2.height = 64;
-      const g2 = c2.getContext("2d");
-      const rg = g2.createRadialGradient(32, 32, 0, 32, 32, 32);
-      rg.addColorStop(0,   `hsla(${hue}, 100%, 92%, .95)`);
-      rg.addColorStop(.45, `hsla(${hue}, 100%, 72%, .38)`);
-      rg.addColorStop(1,   `hsla(${hue}, 100%, 60%, 0)`);
-      g2.fillStyle = rg; g2.fillRect(0, 0, 64, 64);
-      return c2;
-    })();
-    const GLOWS = HUES.map(h => {                   // 兩色 → 烤兩張，每顆粒子仍只是一次 drawImage
-      const c2 = document.createElement("canvas");
-      c2.width = c2.height = 32;
-      const g2 = c2.getContext("2d");
-      const rg = g2.createRadialGradient(16, 16, 0, 16, 16, 16);
-      rg.addColorStop(0,   `hsla(${h}, 100%, 78%, .95)`);
-      rg.addColorStop(.35, `hsla(${h}, 100%, 62%, .45)`);
-      rg.addColorStop(1,   `hsla(${h}, 100%, 55%, 0)`);
-      g2.fillStyle = rg; g2.fillRect(0, 0, 32, 32);
-      return c2;
+    // 金粉：小、閃得快、掉得慢；散在兩層之間
+    const GL = Array.from({ length: TW.gl }, () => {
+      const a = Math.random() * Math.PI * 2;
+      const spd = R0 * (0.35 + Math.random() * 0.75);
+      return {
+        x: ox, y: oy, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd,
+        d: Math.round(Math.random() * 10),
+        col: `hsl(${(HUES[Math.random() < .5 ? 0 : 1] + (Math.random() - .5) * 30).toFixed(0)}, 90%, 78%)`,
+        life: 1, decay: .006 + Math.random() * .008,
+      };
     });
-    const G = .045, DRAG = .982;
+
+    const _bake = (px, stops) => {                   // 烤一張放射漸層貼圖
+      const c2 = document.createElement("canvas");
+      c2.width = c2.height = px;
+      const g2 = c2.getContext("2d");
+      const rg = g2.createRadialGradient(px / 2, px / 2, 0, px / 2, px / 2, px / 2);
+      stops.forEach(([o, col]) => rg.addColorStop(o, col));
+      g2.fillStyle = rg; g2.fillRect(0, 0, px, px);
+      return c2;
+    };
+    const FLASH = _bake(64, [[0, `hsla(${hue},100%,94%,.95)`], [.45, `hsla(${hue},100%,72%,.38)`], [1, `hsla(${hue},100%,60%,0)`]]);
+    const GLOWS = HUES.map(h => _bake(32, [[0, `hsla(${h},100%,80%,.95)`], [.35, `hsla(${h},100%,62%,.45)`], [1, `hsla(${h},100%,55%,0)`]]));
+    const HOT   = _bake(32, [[0, "rgba(255,255,255,.95)"], [.4, "rgba(255,246,222,.42)"], [1, "rgba(255,240,200,0)"]]);
+
+    const G = .052 * TW.g, DRAG = TW.drag;
     let frame = 0;
     function loop() {
       ctx.clearRect(0, 0, SIZE, SIZE);
-      /* 起爆白光：每一色在自己起爆的那 10 幀各閃一次（第二色晚 _FW_LAG 幀）——
-         沒有第二次閃光的話，後到的那批看起來像「憑空出現」而不是「又炸一發」。 */
-      const _flash = (f) => {
-        if (f < 0 || f >= 10) return;
-        const k = 1 - f / 10, r = 34 + f * 4;
-        ctx.globalAlpha = .85 * k;
+      // 起爆白光（只有第一色有；第二色另外畫一小團內焰，見下）
+      if (frame < 10) {
+        const k = 1 - frame / 10, r = 32 + frame * 4;
+        ctx.globalAlpha = .68 * k;
         ctx.drawImage(FLASH, ox - r, oy - r, r * 2, r * 2);
-        ctx.globalAlpha = 1;
-      };
-      _flash(frame);
-      /* 第二色只在自己起爆那幾幀畫一小團內焰（用烤好的貼圖，不再做整張漸層）——
-         ⚠ 不可以給它第二次「整張白光」：那就是使用者說的「像點兩下」。 */
-      const f2 = frame - _FW_LAG;
-      if (f2 >= 0 && f2 < 6) {
-        const k2 = 1 - f2 / 6;
-        ctx.globalAlpha = .55 * k2;
-        const r2 = 18 + f2 * 5;
-        ctx.drawImage(GLOWS[1], ox - r2, oy - r2, r2 * 2, r2 * 2);
         ctx.globalAlpha = 1;
       }
       ctx.globalCompositeOperation = "lighter";
+      // 衝擊波細環：起爆那 9 幀往外擴一圈（一次 stroke，成本可忽略）
+      if (frame < 9) {
+        const k = 1 - frame / 9;
+        ctx.beginPath();
+        ctx.arc(ox, oy, 12 + frame * 10, 0, Math.PI * 2);
+        ctx.strokeStyle = `hsla(${hue}, 100%, 86%, ${(.42 * k * k).toFixed(3)})`;
+        ctx.lineWidth = 2.4 * k + .4;
+        ctx.stroke();
+      }
+      /* 第二色只在自己起爆那幾幀畫一小團內焰 ——
+         ⚠ 不可以給它第二次「整張白光」：那就是使用者說的「像點兩下」。 */
+      const f2 = frame - _FW_LAG;
+      if (f2 >= 0 && f2 < 6) {
+        const k2 = 1 - f2 / 6, r2 = 18 + f2 * 5;
+        ctx.globalAlpha = .55 * k2;
+        ctx.drawImage(GLOWS[1], ox - r2, oy - r2, r2 * 2, r2 * 2);
+        ctx.globalAlpha = 1;
+      }
       ctx.lineCap = "round";
       let alive = false;
+      const pending = [];
       for (const p of P) {
         if (p.life <= 0) continue;
         // ⚠ 還沒輪到它起爆：一定要算「還活著」，否則第二色還沒出場整發就被收掉了
         if (frame < p.d) { alive = true; continue; }
-        p.hist.push(p.x, p.y); if (p.hist.length > 12) p.hist.splice(0, 2);
+        p.hist.push(p.x, p.y); if (p.hist.length > TW.hist) p.hist.splice(0, 2);
         p.x += p.vx; p.y += p.vy;
         p.vy += G; p.vx *= DRAG; p.vy *= DRAG;
         p.life -= p.decay;
         if (p.life <= 0) continue;
         alive = true;
-        const tw = p.life < .35 ? (.35 + Math.random() * .65) : 1;   // 末段閃爍
-        if (p.hist.length >= 4) {                                    // 尾跡
-          ctx.beginPath(); ctx.moveTo(p.hist[0], p.hist[1]);
-          for (let i = 2; i < p.hist.length; i += 2) ctx.lineTo(p.hist[i], p.hist[i + 1]);
-          ctx.lineTo(p.x, p.y);
-          ctx.strokeStyle = p.col; ctx.globalAlpha = p.life * .3 * tw;
-          ctx.lineWidth = 1.7; ctx.stroke();
+        /* ⚠ 白熱期要**短**：訂 .72 時實測前 320ms 整團是白的（看起來像閃光燈不是煙火）。
+           真的星火只有剛炸開那一瞬間是白熱 → .88 ≈ 前 8 幀（約 130ms）。 */
+        /* 二段彈的第二次爆炸：彗星在 burst 那一幀換成一朵小煙火。
+           ⚠ 新粒子要先收在 pending、迴圈結束再併進 P —— 直接 push 會在**同一幀**就被走訪到
+             （for...of 會看到新加的元素），小煙火會少畫一格、起點也偏掉。 */
+        if (p.burst && frame >= p.burst) {
+          p.life = 0;
+          const NB = 11;
+          for (let q = 0; q < NB; q++) {
+            const aa = (q / NB) * Math.PI * 2 + Math.random() * .4;
+            const ss = .9 + Math.random() * 1.5;
+            const hh = HUES[1] + (Math.random() - .5) * 20;
+            pending.push({
+              x: p.x, y: p.y,
+              vx: p.vx * .22 + Math.cos(aa) * ss, vy: p.vy * .22 + Math.sin(aa) * ss,
+              k: 1, d: 0, burst: 0, hist: [],
+              cols: [`hsl(${hh.toFixed(0)},92%,88%)`, `hsl(${hh.toFixed(0)},96%,64%)`, `hsl(${(hh-8).toFixed(0)},90%,46%)`],
+              life: 1, decay: .016 + Math.random() * .014,
+            });
+          }
+          continue;
+        }
+        const hot = p.life > .88, cool = p.life < .3;
+        const col = p.cols[hot ? 0 : (cool ? 2 : 1)];
+        const tw = cool ? (.35 + Math.random() * .65) : 1;           // 末段閃爍
+        // 漸細尾跡：越舊的那一段越細越淡（整條同寬會看起來像畫線）
+        const hn = p.hist.length;
+        if (hn >= 6) {
+          for (let seg = 0; seg < 2; seg++) {
+            const i0 = seg === 0 ? 0 : Math.floor(hn / 4) * 2;
+            const i1 = seg === 0 ? Math.floor(hn / 4) * 2 : hn;
+            if (i1 - i0 < 4) continue;
+            ctx.beginPath(); ctx.moveTo(p.hist[i0], p.hist[i0 + 1]);
+            for (let i = i0 + 2; i < i1; i += 2) ctx.lineTo(p.hist[i], p.hist[i + 1]);
+            if (seg === 1) ctx.lineTo(p.x, p.y);
+            ctx.strokeStyle = col;
+            ctx.globalAlpha = p.life * (seg === 0 ? .12 : .34) * tw;
+            ctx.lineWidth = seg === 0 ? .9 : 1.8;
+            ctx.stroke();
+          }
         }
         const _a = Math.min(1, p.life * 1.25) * tw;
-        ctx.globalAlpha = _a * .85;                                  // 光暈（烤好的貼圖）
-        ctx.drawImage(GLOWS[p.k], p.x - 8, p.y - 8, 16, 16);
+        ctx.globalAlpha = _a * (hot ? .95 : .8);                     // 光暈（白熱期用白色那張）
+        const gs = hot ? HOT : GLOWS[p.k], gr = hot ? 9.5 : 8;
+        ctx.drawImage(gs, p.x - gr, p.y - gr, gr * 2, gr * 2);
+        /* 末段爆閃：快熄時有機率迸出兩顆小火星 —— 真實煙火的「劈啪」就是這個。
+           ⚠ 要有總量上限（沒有的話會一路連鎖生下去，幀數跟著崩）。 */
+        if (cool && GL.length < TW.gl + 24 && Math.random() < .035) {
+          for (let q = 0; q < 2; q++) {
+            const aa = Math.random() * Math.PI * 2, ss = .5 + Math.random() * 1.1;
+            GL.push({ x: p.x, y: p.y, vx: Math.cos(aa) * ss, vy: Math.sin(aa) * ss,
+                      d: 0, col: p.cols[1], life: .8, decay: .022 + Math.random() * .02 });
+          }
+        }
         ctx.globalAlpha = _a;                                        // 中心亮點
-        ctx.beginPath(); ctx.arc(p.x, p.y, 1.5, 0, Math.PI * 2);
-        ctx.fillStyle = p.col; ctx.fill();
+        ctx.beginPath(); ctx.arc(p.x, p.y, (hot ? 1.9 : 1.4) * TW.dot, 0, Math.PI * 2);
+        ctx.fillStyle = col; ctx.fill();
+      }
+      if (pending.length) { P.push(...pending); alive = true; }
+      // 金粉：1px 的小星，閃爍快、掉得慢
+      for (const g of GL) {
+        if (g.life <= 0) continue;
+        if (frame < g.d) { alive = true; continue; }
+        g.x += g.vx; g.y += g.vy;
+        g.vy += G * 1.15; g.vx *= .968; g.vy *= .968;
+        g.life -= g.decay;
+        if (g.life <= 0) continue;
+        alive = true;
+        ctx.globalAlpha = g.life * (.25 + Math.random() * .75);
+        ctx.fillStyle = g.col;
+        ctx.fillRect(g.x - .9, g.y - .9, 1.8, 1.8);
       }
       ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over";
       frame++;
