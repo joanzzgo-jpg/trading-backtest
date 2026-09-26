@@ -117,6 +117,21 @@ function _applyAutoGrid() {
     .forEach(c => { try { c && c.applyOptions({ grid: { vertLines: { color: gc }, horzLines: { color: gc } } }); } catch (e) {} });
 }
 
+/* ★ 2026-09-26 Apple HIG：**玻璃材質必須回應系統的「降低透明度」**（Liquid Glass 的
+   無障礙規則：Reduce Transparency → 變霧、蓋掉更多後方內容；Increase Contrast → 邊界明確）。
+   這個 app 整個視覺就建立在半透明上（天氣從 topbar／標的列／合約行情後方透出），
+   而先前 `prefers-reduced-transparency` 與 `prefers-contrast` 兩個查詢在全站是 **0 處**
+   —— 對打開那個開關的使用者，我們等於完全沒有回應。
+   ⚠ 必須在 JS 這一層處理，不能只靠 CSS：周圍三塊的背景是 colors.js 用
+     `setProperty(..., "important")` 寫成**行內 !important**，而行內 !important
+     壓得過任何 CSS（連 `!important` 的規則也壓不回去）—— 純 CSS 的 media query 對它無效。
+   ⚠ 只關「材質的半透明」，不關天氣本身：那是 `prefers-reduced-motion` 的守備範圍，
+     兩個開關意義不同（一個要「看得清楚」、一個要「不要動」）。 */
+function _reduceTransparency() {
+  try { return window.matchMedia("(prefers-reduced-transparency: reduce)").matches; }
+  catch (e) { return false; }
+}
+
 function _applyChartBgGradient(color) {
   const pane = document.getElementById("mainPane");
   if (!pane) return;
@@ -156,7 +171,9 @@ function _applyChartBgGradient(color) {
   // 小熊磁磚牆紙也算「背後有東西要透出來」的模式 → 與天氣同一條路（半透明底而非全透明），
   // 否則使用者選的主圖色在磁磚模式下完全看不到（見 style.css 該處註解）。
   const tiles = document.documentElement.classList.contains("bear-tiles-show");
-  const seeThru = show || tiles;
+  /* 降低透明度時一律當成「看不到後方」→ 主圖與周圍都走不透明那條路（見 _reduceTransparency） */
+  const _rt = _reduceTransparency();
+  const seeThru = (show || tiles) && !_rt;
   /* ★ 2026-08-05 天氣模式的暗色系濾鏡（使用者：「我需要暗色系濾鏡，要小心不要疊到 K 棒
      跟繪圖物件上，放置在下」）。
      原本 sky-show 時主圖 background 直接 "transparent" → 天氣天空整片透上來、看盤區很亮，
@@ -326,7 +343,17 @@ function _applyChartBgGradient(color) {
      → 用**同一個值**去鋪，兩邊疊在同一片天氣上，必然同色；使用者換配色/天氣也跟著走。
      ⚠ 不可以在 CSS 裡寫死 color-mix 百分比：DIM 是這裡的常數，改了那邊不會跟著改。 */
   document.documentElement.style.setProperty(
-    "--chrome-fill", (!_mobUI && seeThru) ? chromeVeil : "var(--bg)");
+    "--chrome-fill", (!_mobUI && seeThru) ? chromeVeil : (_rt ? "var(--bg-solid, var(--bg))" : "var(--bg)"));
+  /* 系統開關是會**中途被打開**的（macOS/iOS 的輔助使用設定）→ 掛一次監聽，改了就重套。
+     ⚠ 只掛一次（旗標防重複），否則每次重新上色都會再疊一個監聽器。 */
+  if (!window._rtWatch) {
+    window._rtWatch = 1;
+    try {
+      const mq = window.matchMedia("(prefers-reduced-transparency: reduce)");
+      const _re = () => { try { applyAllColors(); } catch (e) {} };
+      mq.addEventListener ? mq.addEventListener("change", _re) : mq.addListener(_re);
+    } catch (e) {}
+  }
   ["topbar", "symbol-bar", "ticker-panel"].forEach(cls => {
     const el = document.querySelector("." + cls); if (!el) return;
     if (_mobUI) {   // 手機：交回 CSS，維持不透明
@@ -353,6 +380,13 @@ function _applyChartBgGradient(color) {
       el.style.setProperty("position", "relative");
       el.style.setProperty("z-index", "2");   // 提到 #weatherStage(z:1) 之上：改由 veil 決定透出量
       el.style.backdropFilter = ""; el.style.webkitBackdropFilter = "";
+    } else if (_rt) {
+      /* 降低透明度：不可以只是「交回 CSS」—— 使用者若在色盤裡給主背景調了透明度，
+         CSS 的 var(--bg) 本身就帶 alpha，交回去照樣是半透明。改吃去掉 alpha 的 --bg-solid。 */
+      el.style.setProperty("background", "var(--bg-solid, var(--bg))", "important");
+      el.style.setProperty("position", "relative");
+      el.style.setProperty("z-index", "2");
+      el.style.backdropFilter = "none"; el.style.webkitBackdropFilter = "none";
     } else {
       el.style.removeProperty("background");
       el.style.removeProperty("z-index");

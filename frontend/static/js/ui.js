@@ -1631,19 +1631,45 @@ const _SC_TEXT_CANDS  = ["#d1d4dc", "#1F2328", "#FFFFFF", "#0B0E12"];
 /* ⚠ 2026-09-25 整組提亮：舊清單在 8 種代表性背景裡**只有 1 種**達得到 4.5，
    新清單 8/8 全達（含中間調 #7A4A1F 與米色 #C8B89A 這兩個最難的）。 */
 const _SC_MUTED_CANDS = ["#9095A1", "#59606E", "#B6BCC8", "#3A404C", "#D2D7E0"];
+/* ★ 2026-09-26 Apple HIG：系統的「提高對比」開關要有回應（Liquid Glass 的無障礙規則之一：
+   Increase Contrast → 邊界明確、文字不再淡）。
+   ⚠ 必須做在**這裡**不能只寫 CSS：`:root` 的 --text/--muted/--border 會被這支用行內樣式
+     整組覆寫，CSS 的 `@media (prefers-contrast: more) { :root { … } }` 壓不過行內
+     （claude.md 記過同一個坑：「CSS :root 的暖色 token 從不生效」）。實測純 CSS 版本
+     在模擬 prefers-contrast:more 時 --border/--muted **兩個都沒變**。
+   ⚠ 只提門檻、不換色系：候選清單還是原本那組，橘子熊的暖色識別不受影響。 */
+function _prefersMoreContrast() {
+  try { return window.matchMedia("(prefers-contrast: more)").matches; }
+  catch (e) { return false; }
+}
+
 function _autoTextContrast() {
   const ds = document.documentElement.style;
   const bg = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim();
   if (!_scRgb(bg)) return;
   const untouched = (k) => SC[k] === SC_DEFAULTS[k];
+  /* 提高對比：內文/次要文字的門檻從 AA(4.5) 拉到 AAA(7.0)。
+     `_scPick` 達不到門檻時會回「候選裡最好的那個」→ 不會因為拉高門檻而挑到更差的色。 */
+  const _hc = _prefersMoreContrast();
+  const _minT = _hc ? 7.0 : 4.5;
   /* 內文門檻 4.5:1。次要文字**也用 4.5 不用 3.0**（2026-09-25 改）——
      3.0 是 WCAG 給「大字」(≥18.66px 或粗體 ≥14px) 的門檻，但 `--muted` 實際落在
      時框按鈕 12px、行情列分頁 10~11px 這些**小字**上，套大字門檻等於放行了看不清的組合
      （實測時框未選中只有 3.76）。 */
-  if (untouched("sc-text"))  ds.setProperty("--text",  _scPick(bg, _SC_TEXT_CANDS,  4.5));
-  if (untouched("sc-muted")) ds.setProperty("--muted", _scPick(bg, _SC_MUTED_CANDS, 4.5));
+  if (untouched("sc-text"))  ds.setProperty("--text",  _scPick(bg, _SC_TEXT_CANDS,  _minT));
+  if (untouched("sc-muted")) ds.setProperty("--muted", _scPick(bg, _SC_MUTED_CANDS, _minT));
   if (untouched("sc-border"))
-    ds.setProperty("--border", _scRelLum(bg) >= 0.25 ? "rgba(0,0,0,0.16)" : SC_DEFAULTS["sc-border"]);
+    ds.setProperty("--border", _hc ? (_scRelLum(bg) >= 0.25 ? "rgba(0,0,0,0.45)" : "rgba(255,255,255,0.42)")
+                                   : (_scRelLum(bg) >= 0.25 ? "rgba(0,0,0,0.16)" : SC_DEFAULTS["sc-border"]));
+  /* 開關會中途被打開（系統輔助使用設定）→ 掛一次監聽就重算（同 colors.js 的透明度那條）。 */
+  if (!window._hcWatch) {
+    window._hcWatch = 1;
+    try {
+      const mq = window.matchMedia("(prefers-contrast: more)");
+      const _re = () => { try { _autoTextContrast(); } catch (e) {} };
+      mq.addEventListener ? mq.addEventListener("change", _re) : mq.addListener(_re);
+    } catch (e) {}
+  }
 }
 function applyAllSystemColors() {
   for (const [id, color] of Object.entries(SC)) applySystemColor(id, color);
