@@ -86,6 +86,8 @@
   border:1px solid var(--border);background:transparent;color:var(--muted);font-size:15px;line-height:1;
   cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.16s;
   -webkit-tap-highlight-color:transparent;z-index:3}
+/* 命中區撐到 44×44（Apple 下限）：外觀維持 26，偽元素伸出去 —— 它在卡片角落，沒有鄰居可搶。 */
+.ann-close::after{content:"";position:absolute;inset:-10px}
 .ann-close:hover{background:var(--bg3);color:var(--text)}
 .ann-close:active{transform:scale(.9)}
 .ann-head{display:flex;align-items:center;gap:10px;margin:0 34px 12px 0;flex-shrink:0}
@@ -94,6 +96,15 @@
 .ann-head-txt{display:flex;flex-direction:column;gap:2px;min-width:0}
 .ann-title{font-size:15.5px;font-weight:800;color:var(--text);letter-spacing:.01em}
 .ann-sub{font-size:11.5px;color:var(--muted)}
+/* ⚠ 360px 的手機上，頭像(36)+標題+日期晶片+關閉鈕留白(34) 擠不下 → 標題會斷成「更新資/訊」。
+   收一級字並禁止斷行；副標太長時以刪節號收尾（寧可少幾個字，不要把詞切開）。 */
+@media (max-width:400px){
+  .ann-head{gap:8px;margin-right:30px}
+  .ann-bear{width:32px;height:32px}
+  .ann-title{font-size:14px;white-space:nowrap}
+  .ann-sub{font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ann-ver{font-size:10px;padding:3px 8px}
+}
 /* 日期：改成跟 .sym-tag 同款的小晶片（原本是歪斜的草寫貼紙） */
 .ann-ver{margin-left:auto;flex-shrink:0;align-self:center;font-size:11px;font-weight:700;color:var(--muted);
   background:var(--bg3);border:1px solid var(--border);border-radius:99px;padding:3px 10px;
