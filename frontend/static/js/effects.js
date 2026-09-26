@@ -370,7 +370,57 @@
      只晚 7 幀（約 115ms）＝ 看得出先後但仍是同一發；第二色不再有自己的起爆白光。 */
   const _FW_LAG = 7;
   function spawnFirework(cx, cy) {
-    /* ★★ 2026-09-27：一發抽一種**彈型**，連點時才不會每次都長一樣（真實的煙火秀也是換著放）。
+    /* ★ 2026-09-27 使用者：「煙火都要更燦爛」之後量到**單發有一幀 50ms** —— 每一發都在現烤
+     貼圖（起爆白光 + 兩張光暈 + 兩張星芒，共 5 張、含 8 次漸層填色）。
+     色盤只有 12 色 → 依**色相**快取，整個工作階段最多烤 12 組，之後每發都是零成本。
+     ★ 這是同一條教訓的第三次：會重複做的繪圖工作，先想「能不能烤起來重用」。 */
+  const _FW_SPRITES = new Map();
+  function _fwBake(px, stops) {
+    const c = document.createElement("canvas");
+    c.width = c.height = px;
+    const g = c.getContext("2d");
+    const rg = g.createRadialGradient(px / 2, px / 2, 0, px / 2, px / 2, px / 2);
+    stops.forEach(([o, col]) => rg.addColorStop(o, col));
+    g.fillStyle = rg; g.fillRect(0, 0, px, px);
+    return c;
+  }
+  function _fwFlare(hue, deg) {
+    /* 星芒（十字光芒）＝ 眼睛認得「這東西很亮」的訊號，加了之後同樣的粒子亮一個級距。
+       ⚠ 烤**兩個角度**（0°/45°）交錯用：逐顆 rotate 要 save/restore，
+         60 顆 × 4 發同時會把成本放大到看得見。 */
+    const px = 64, c = document.createElement("canvas");
+    c.width = c.height = px;
+    const g = c.getContext("2d");
+    g.translate(px / 2, px / 2); g.rotate(deg * Math.PI / 180);
+    for (const [w, h, a] of [[px, 2.2, .55], [2.2, px, .55], [px * .55, 5, .3], [5, px * .55, .3]]) {
+      const horiz = w > h;
+      const lg = horiz ? g.createLinearGradient(-w / 2, 0, w / 2, 0)
+                       : g.createLinearGradient(0, -h / 2, 0, h / 2);
+      lg.addColorStop(0, `hsla(${hue},100%,85%,0)`);
+      lg.addColorStop(.5, `hsla(${hue},100%,92%,${a})`);
+      lg.addColorStop(1, `hsla(${hue},100%,85%,0)`);
+      g.fillStyle = lg; g.fillRect(-w / 2, -h / 2, w, h);
+    }
+    return c;
+  }
+  function _fwSprites(hue) {
+    const key = Math.round(hue);
+    let sp = _FW_SPRITES.get(key);
+    if (!sp) {
+      sp = {
+        flash: _fwBake(64, [[0, `hsla(${hue},100%,94%,.95)`], [.45, `hsla(${hue},100%,72%,.38)`], [1, `hsla(${hue},100%,60%,0)`]]),
+        glow:  _fwBake(32, [[0, `hsla(${hue},100%,80%,.95)`], [.35, `hsla(${hue},100%,62%,.45)`], [1, `hsla(${hue},100%,55%,0)`]]),
+        flare: _fwFlare(hue, (key % 2) ? 45 : 0),
+      };
+      _FW_SPRITES.set(key, sp);
+    }
+    return sp;
+  }
+  let _FW_HOT_C = null;
+  const _FW_HOT = () => (_FW_HOT_C || (_FW_HOT_C = _fwBake(32,
+    [[0, "rgba(255,255,255,.95)"], [.4, "rgba(255,246,222,.42)"], [1, "rgba(255,240,200,0)"]])));
+
+  /* ★★ 2026-09-27：一發抽一種**彈型**，連點時才不會每次都長一樣（真實的煙火秀也是換著放）。
        全部都只是同一套粒子的參數組，沒有第二套繪圖程式：
          ・菊花彈 peony：標準球 + 尾跡（最常見）
          ・柳枝 willow：重力大、燒得久、尾巴長 → 炸開後像垂柳往下掛
@@ -390,14 +440,14 @@
     })();
     const TW = {
       //        球半徑     速度帶      壽命       重力     阻力       尾跡     金粉    亮點      粒子   畫布     子彈
-      peony:  { r: 1,    spread: .22, decay: 1,   g: 1,    drag: .972, hist: 16, gl: 20, dot: 1,    n: 46, size: 1 },
-      willow: { r: .82,  spread: .18, decay: .62, g: 1.75, drag: .963, hist: 26, gl: 28, dot: .9,   n: 46, size: 1 },
-      ring:   { r: 1.12, spread: .07, decay: 1.1, g: .85,  drag: .977, hist: 12, gl: 12, dot: .85,  n: 46, size: 1 },
-      double: { r: .92,  spread: .10, decay: .42, g: 1.1,  drag: .985, hist: 28, gl: 10, dot: 1.15, n: 9,  size: 1,   kids: 11, burst: 26 },
+      peony:  { r: 1,    spread: .22, decay: 1,   g: 1,    drag: .972, hist: 20, gl: 30, dot: 1.1,  n: 60, size: 1 },
+      willow: { r: .82,  spread: .18, decay: .62, g: 1.75, drag: .963, hist: 30, gl: 36, dot: 1,    n: 56, size: 1 },
+      ring:   { r: 1.12, spread: .07, decay: 1.1, g: .85,  drag: .977, hist: 16, gl: 20, dot: .95,  n: 56, size: 1 },
+      double: { r: .92,  spread: .10, decay: .42, g: 1.1,  drag: .985, hist: 30, gl: 14, dot: 1.2,  n: 10, size: 1,   kids: 14, burst: 26 },
       /* 超大彈：粒子與半徑都放大，**畫布也要跟著放大** —— 畫布是以點擊處為中心的固定方框，
          不放大的話外圈直接被裁掉（那會比沒放大還難看）。 */
-      big:    { r: 1.55, spread: .20, decay: .78, g: .92,  drag: .976, hist: 22, gl: 34, dot: 1.25, n: 66, size: 1.5 },
-      mega2:  { r: 1.30, spread: .10, decay: .36, g: 1,    drag: .988, hist: 34, gl: 16, dot: 1.3,  n: 14, size: 1.6, kids: 16, burst: 32 },
+      big:    { r: 2.15, spread: .20, decay: .68, g: .88,  drag: .980, hist: 30, gl: 56, dot: 1.5,  n: 98, size: 2.1 },
+      mega2:  { r: 1.85, spread: .10, decay: .30, g: 1,    drag: .990, hist: 42, gl: 26, dot: 1.55, n: 18, size: 2.3, kids: 20, burst: 38 },
     }[TYPE];
     const IS2 = TYPE === "double" || TYPE === "mega2";
     const SIZE = Math.round(340 * TW.size);   // 超大彈要更大的畫布，否則外圈被裁掉
@@ -458,19 +508,8 @@
       };
     });
 
-    const _bake = (px, stops) => {                   // 烤一張放射漸層貼圖
-      const c2 = document.createElement("canvas");
-      c2.width = c2.height = px;
-      const g2 = c2.getContext("2d");
-      const rg = g2.createRadialGradient(px / 2, px / 2, 0, px / 2, px / 2, px / 2);
-      stops.forEach(([o, col]) => rg.addColorStop(o, col));
-      g2.fillStyle = rg; g2.fillRect(0, 0, px, px);
-      return c2;
-    };
-    const FLASH = _bake(64, [[0, `hsla(${hue},100%,94%,.95)`], [.45, `hsla(${hue},100%,72%,.38)`], [1, `hsla(${hue},100%,60%,0)`]]);
-    const GLOWS = HUES.map(h => _bake(32, [[0, `hsla(${h},100%,80%,.95)`], [.35, `hsla(${h},100%,62%,.45)`], [1, `hsla(${h},100%,55%,0)`]]));
-    const HOT   = _bake(32, [[0, "rgba(255,255,255,.95)"], [.4, "rgba(255,246,222,.42)"], [1, "rgba(255,240,200,0)"]]);
-
+    const SP0 = _fwSprites(HUES[0]), SP1 = _fwSprites(HUES[1]);
+    const FLASH = SP0.flash, GLOWS = [SP0.glow, SP1.glow], FLARES = [SP0.flare, SP1.flare], HOT = _FW_HOT();
     const G = .052 * TW.g, DRAG = TW.drag;
     let frame = 0;
     function loop() {
@@ -556,9 +595,19 @@
           }
         }
         const _a = Math.min(1, p.life * 1.25) * tw;
-        ctx.globalAlpha = _a * (hot ? .95 : .8);                     // 光暈（白熱期用白色那張）
+        // 外暈：大一圈、很淡 —— 兩層疊起來才有「亮到暈開」的感覺（單層只會是一個點）
+        ctx.globalAlpha = _a * .3;
+        const br = (hot ? 9.5 : 8) * 2.1;
+        ctx.drawImage(GLOWS[p.k], p.x - br, p.y - br, br * 2, br * 2);
+        ctx.globalAlpha = _a * (hot ? 1 : .88);                      // 光暈（白熱期用白色那張）
         const gs = hot ? HOT : GLOWS[p.k], gr = hot ? 9.5 : 8;
         ctx.drawImage(gs, p.x - gr, p.y - gr, gr * 2, gr * 2);
+        // 星芒：只給還亮著的那些（life > .5），兩個角度交錯，隨壽命縮短
+        if (p.life > .5) {
+          const fr = 13 + p.life * 9;
+          ctx.globalAlpha = _a * .5;
+          ctx.drawImage(FLARES[p.k], p.x - fr, p.y - fr, fr * 2, fr * 2);
+        }
         /* 末段爆閃：快熄時有機率迸出兩顆小火星 —— 真實煙火的「劈啪」就是這個。
            ⚠ 要有總量上限（沒有的話會一路連鎖生下去，幀數跟著崩）。 */
         if (cool && GL.length < TW.gl + 24 + TW.n && Math.random() < .035) {
