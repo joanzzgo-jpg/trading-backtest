@@ -4,11 +4,23 @@
 
   /* ── 建立暫時 Canvas；超過 4 個並行特效時跳過 ── */
   function makeCanvas(cx, cy, size) {
+    // ★ 2026-09-26 系統開了「減少動態」→ 不產生點擊特效（Apple：Reduce Motion 要少掉裝飾性動畫）
+    try { if (matchMedia("(prefers-reduced-motion: reduce)").matches) return null; } catch (e) {}
     if (_activeFx >= 4) return null;
     _activeFx++;
     const cvs = document.createElement("canvas");
-    cvs.width = size; cvs.height = size;
-    cvs.style.cssText = `position:fixed;left:${cx-size/2}px;top:${cy-size/2}px;pointer-events:none;z-index:9999;`;
+    /* ★ 2026-09-26 點擊特效改成**依螢幕像素密度作畫**。
+       2026-09-25 那次「天氣全部畫到 4K 等級」只處理了天氣層，這幾個點擊特效的 canvas
+       被漏掉了：原本 `cvs.width = size`（邏輯像素）而顯示寬度也是 size →
+       在 2x/3x 螢幕上是把 240px 的圖拉大顯示 ＝ 糊掉（落葉邊緣、雨絲、雪花都看得出來）。
+       ⚠ 上限 3x：再高只是多耗 GPU，肉眼看不出差別（同 weather.js 的做法）。
+       ⚠ 縮放寫在這裡就好：各 spawn 函式後面自己呼叫的 `getContext("2d")` 拿到的是**同一個**
+         context，transform 會留著，它們用邏輯座標畫圖完全不必改。 */
+    const _dpr = Math.min(3, (window.devicePixelRatio || 1));
+    cvs.width = Math.round(size * _dpr); cvs.height = Math.round(size * _dpr);
+    try { cvs.getContext("2d").setTransform(_dpr, 0, 0, _dpr, 0, 0); } catch (e) {}
+    cvs.style.cssText = `position:fixed;left:${cx-size/2}px;top:${cy-size/2}px;` +
+                        `width:${size}px;height:${size}px;pointer-events:none;z-index:9999;`;
     document.body.appendChild(cvs);
     cvs._fxDone = () => { _activeFx--; cvs.remove(); };
     return cvs;
@@ -322,29 +334,197 @@
     loop();
   }
 
+  /* ★★ 2026-09-26 使用者：「我要煙火感」。
+     前一版是 DOM+CSS 的星閃 —— 但煙火的三個特徵 **拋物線、尾跡、末段閃爍** 用 CSS 做不到
+     （每顆粒子要各自受重力與空氣阻力、還要留下漸淡的尾巴）→ 改用 canvas 逐幀畫。
+     ⚠ `makeCanvas` 已經處理 DPR（2026-09-26 補的），這裡用邏輯座標畫就好。
+     ★ 煙火之所以像煙火，是這幾件事一起發生：
+       ①**同一發只有一個主色**（±12° 色相變化）—— 每顆亂一個顏色會變成彩帶，不是煙火
+       ②**速度分佈很散**（1.6~5.0）：有的衝很遠、有的近，炸開才有層次
+       ③**重力 + 阻力**：先放射、再被拉成拋物線
+       ④**尾跡**：留最近幾個位置畫成漸細的線
+       ⑤**末段閃爍**：life < 0.35 之後隨機明滅，像火星要熄不熄
+       ⑥**加法混色**（`lighter`）：重疊處變亮，才有炸開的光感
+     ⚠ 起爆瞬間要有一團白光（不然只是粒子往外飛，沒有「炸開」的重量）。 */
+  const _FW_HUES = [38, 18, 330, 196, 275, 8];      // 金 / 橘 / 桃紅 / 青 / 紫 / 朱紅
+  function spawnFirework(cx, cy) {
+    const SIZE = 300, N = 42;
+    const cvs = makeCanvas(cx, cy, SIZE); if (!cvs) return;
+    const ctx = cvs.getContext("2d");
+    const ox = SIZE / 2, oy = SIZE / 2;
+    const hue = _FW_HUES[Math.floor(Math.random() * _FW_HUES.length)];
+    const P = Array.from({ length: N }, () => {
+      const a = Math.random() * Math.PI * 2;
+      const spd = 1.6 + Math.random() * 3.4;         // 散開的速度分佈＝層次
+      return {
+        x: ox, y: oy, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd,
+        col: `hsl(${(hue + (Math.random() - .5) * 24).toFixed(0)}, 95%, ${(58 + Math.random() * 16).toFixed(0)}%)`,
+        life: 1, decay: .011 + Math.random() * .013, hist: [],
+      };
+    });
+    /* ★ 光暈改成「預先烤一張貼圖」，不要用 shadowBlur。
+       實測 shadowBlur=7 × 42 顆 × 最多 4 發同時 → **42/165 幀超過 20ms、p90 40.3ms**（會看出頓）。
+       同一發煙火只有一個主色 → 烤**一張** 32px 的放射漸層，之後每顆粒子只是 drawImage，
+       成本是常數。實測改完回到 0/… 幀超過 20ms。 */
+    const GLOW = document.createElement("canvas");
+    GLOW.width = GLOW.height = 32;
+    (() => {
+      const g2 = GLOW.getContext("2d");
+      const rg = g2.createRadialGradient(16, 16, 0, 16, 16, 16);
+      rg.addColorStop(0,   `hsla(${hue}, 100%, 78%, .95)`);
+      rg.addColorStop(.35, `hsla(${hue}, 100%, 62%, .45)`);
+      rg.addColorStop(1,   `hsla(${hue}, 100%, 55%, 0)`);
+      g2.fillStyle = rg; g2.fillRect(0, 0, 32, 32);
+    })();
+    const G = .045, DRAG = .982;
+    let frame = 0;
+    function loop() {
+      ctx.clearRect(0, 0, SIZE, SIZE);
+      // 起爆白光：前 10 幀由亮轉無
+      if (frame < 10) {
+        const k = 1 - frame / 10;
+        const g = ctx.createRadialGradient(ox, oy, 0, ox, oy, 34 + frame * 4);
+        g.addColorStop(0, `hsla(${hue}, 100%, 92%, ${(.85 * k).toFixed(3)})`);
+        g.addColorStop(1, `hsla(${hue}, 100%, 60%, 0)`);
+        ctx.fillStyle = g; ctx.fillRect(0, 0, SIZE, SIZE);
+      }
+      ctx.globalCompositeOperation = "lighter";
+      ctx.lineCap = "round";
+      let alive = false;
+      for (const p of P) {
+        if (p.life <= 0) continue;
+        p.hist.push(p.x, p.y); if (p.hist.length > 12) p.hist.splice(0, 2);
+        p.x += p.vx; p.y += p.vy;
+        p.vy += G; p.vx *= DRAG; p.vy *= DRAG;
+        p.life -= p.decay;
+        if (p.life <= 0) continue;
+        alive = true;
+        const tw = p.life < .35 ? (.35 + Math.random() * .65) : 1;   // 末段閃爍
+        if (p.hist.length >= 4) {                                    // 尾跡
+          ctx.beginPath(); ctx.moveTo(p.hist[0], p.hist[1]);
+          for (let i = 2; i < p.hist.length; i += 2) ctx.lineTo(p.hist[i], p.hist[i + 1]);
+          ctx.lineTo(p.x, p.y);
+          ctx.strokeStyle = p.col; ctx.globalAlpha = p.life * .3 * tw;
+          ctx.lineWidth = 1.7; ctx.stroke();
+        }
+        const _a = Math.min(1, p.life * 1.25) * tw;
+        ctx.globalAlpha = _a * .85;                                  // 光暈（烤好的貼圖）
+        ctx.drawImage(GLOW, p.x - 8, p.y - 8, 16, 16);
+        ctx.globalAlpha = _a;                                        // 中心亮點
+        ctx.beginPath(); ctx.arc(p.x, p.y, 1.5, 0, Math.PI * 2);
+        ctx.fillStyle = p.col; ctx.fill();
+      }
+      ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over";
+      frame++;
+      if (alive) requestAnimationFrame(loop); else cvs._fxDone();
+    }
+    loop();
+  }
+
+  /* ★★ 2026-09-26 使用者：「晚上有才是煙火感 白天做成噴射煙霧」。
+     煙火在白天的天空下不成立（亮背景吃掉發光、加法混色也看不出來）→ 白天改成一股噴出來的煙。
+     ★ 煙看起來像煙的關鍵跟煙火**完全相反**，四件事：
+       ①**先衝後散**：初速大(2.0~5.4)但阻力很強(0.88) → 十幾幀內就幾乎停住＝「噴射」的爆發感
+       ②**邊膨脹邊變淡**：每團從 r≈7 長到 30~48，透明度隨之衰減（煙的體積是守恆的稀釋）
+       ③**往上飄**：停住之後每幀 vy −0.035，尾巴自己往上捲
+       ④**正常混色**（`source-over`）不可用 `lighter`：加法混色會把重疊處疊成白光＝變成爆炸不是煙
+     ★ 開頭 12 幀另外畫幾道細長的「氣流」線條，那是「噴」出來的那一瞬間；沒有它只是一團霧。
+     ⚠ 貼圖是**兩段色**（白心 → 灰身）：使用者的主圖背景可能是深色也可能是淺色（有人設成白/紅），
+       純白的煙在淺色背景上完全看不見。兩段色在兩種背景下都有東西看得到。
+     ⚠ 同煙火：一張烤好的貼圖 + drawImage，不用 shadowBlur（那個實測 p90 40.3ms）。 */
+  function spawnSmoke(cx, cy) {
+    const SIZE = 300, N = 24;
+    const cvs = makeCanvas(cx, cy, SIZE); if (!cvs) return;
+    const ctx = cvs.getContext("2d");
+    const ox = SIZE / 2, oy = SIZE / 2;
+
+    // 烤一張煙團貼圖（64px，白心→灰身→透明）
+    const PUFF = document.createElement("canvas");
+    PUFF.width = PUFF.height = 64;
+    (() => {
+      const g2 = PUFF.getContext("2d");
+      const rg = g2.createRadialGradient(32, 32, 0, 32, 32, 32);
+      rg.addColorStop(0,   "rgba(255,255,255,.95)");
+      rg.addColorStop(.30, "rgba(240,244,250,.62)");
+      rg.addColorStop(.62, "rgba(190,200,214,.30)");
+      rg.addColorStop(.86, "rgba(150,162,178,.12)");
+      rg.addColorStop(1,   "rgba(140,152,168,0)");
+      g2.fillStyle = rg; g2.fillRect(0, 0, 64, 64);
+    })();
+
+    const P = Array.from({ length: N }, () => {
+      const a = Math.random() * Math.PI * 2;
+      const spd = 1.4 + Math.random() * 4.0;           // 速度散開＝有的衝到外圈、有的留在核心
+      return {
+        x: ox, y: oy, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd,
+        r0: 5 + Math.random() * 5, grow: 30 + Math.random() * 26,
+        sq: .78 + Math.random() * .5,                  // 壓扁比例，打破「每團都是正圓」
+        op: .34 + Math.random() * .22,                 // 每團濃淡不同，疊起來才有體積
+        life: 1, decay: .013 + Math.random() * .011,
+      };
+    });
+    // 噴射的氣流線（只活前 16 幀）：從中心往外竄、越竄越細
+    const JET = Array.from({ length: 9 }, () => ({
+      a: Math.random() * Math.PI * 2, spd: 5.5 + Math.random() * 4.5,
+      len: 18 + Math.random() * 20, w: 1.6 + Math.random() * 2.2,
+    }));
+    const DRAG = .88, RISE = .035;
+    let frame = 0;
+    function loop() {
+      ctx.clearRect(0, 0, SIZE, SIZE);
+      // 噴出瞬間：中心一小團亮白 + 幾道氣流
+      if (frame < 16) {
+        const k = 1 - frame / 16;
+        const g = ctx.createRadialGradient(ox, oy, 0, ox, oy, 20 + frame * 3);
+        g.addColorStop(0, `rgba(255,255,255,${(.7 * k).toFixed(3)})`);
+        g.addColorStop(1, "rgba(255,255,255,0)");
+        ctx.fillStyle = g; ctx.fillRect(0, 0, SIZE, SIZE);
+        ctx.lineCap = "round";
+        for (const j of JET) {
+          const d = 6 + frame * j.spd;                 // 線頭往外竄，尾巴留在後面＝拉出速度感
+          const ca = Math.cos(j.a), sa = Math.sin(j.a);
+          ctx.beginPath();
+          ctx.moveTo(ox + ca * d, oy + sa * d);
+          ctx.lineTo(ox + ca * (d + j.len), oy + sa * (d + j.len));
+          ctx.strokeStyle = `rgba(248,251,255,${(.55 * k * k).toFixed(3)})`;
+          ctx.lineWidth = j.w * k + .4; ctx.stroke();
+        }
+      }
+      let alive = false;
+      for (const p of P) {
+        if (p.life <= 0) continue;
+        p.x += p.vx; p.y += p.vy;
+        p.vx *= DRAG; p.vy = p.vy * DRAG - RISE;      // 停下來之後自己往上飄
+        p.life -= p.decay;
+        if (p.life <= 0) continue;
+        alive = true;
+        const prog = 1 - p.life;                       // 0 → 1
+        const r = p.r0 + prog * p.grow;
+        const fadeIn = Math.min(1, prog / .1);         // 噴出來的瞬間不要憑空出現
+        ctx.globalAlpha = fadeIn * Math.pow(p.life, 1.25) * p.op;
+        ctx.drawImage(PUFF, p.x - r, p.y - r * p.sq, r * 2, r * 2 * p.sq);
+      }
+      ctx.globalAlpha = 1;
+      frame++;
+      if (alive) requestAnimationFrame(loop); else cvs._fxDone();
+    }
+    loop();
+  }
+
+  /* 白天噴射煙霧、夜晚煙火。
+     ⚠ 日夜的權威來源是 weather.js 的 `window._wxIsDay()`（後端 `is_day`，2026-09-26 才修好
+       那個「0 被當成沒給值」的 bug）。weather.js 是**動態載入**的，使用者點得比它載入還早時
+       退回本機時鐘（6~18 點算白天）——那是唯一不依賴任何模組的判準。 */
+  function _isDaytime() {
+    try {
+      const f = window._wxIsDay;
+      if (typeof f === "function") { const v = f(); if (v != null) return !!v; }
+    } catch (e) {}
+    const h = new Date().getHours();
+    return h >= 6 && h < 18;
+  }
   function spawnDefault(cx, cy) {
-    const BIG=6;
-    for(let i=0;i<BIG;i++){
-      const a=(i/BIG)*Math.PI*2, dist=25+Math.random()*20;
-      const w=8+Math.random()*8, h=w*(.35+Math.random()*.55);
-      const col=DEF_COLORS[Math.floor(Math.random()*DEF_COLORS.length)];
-      const el=spawnEl("spark-big",cx,cy,
-        `width:${w}px;height:${h}px;background:${col};`+
-        `--sx:${(Math.cos(a)*dist).toFixed(1)}px;--sy:${(Math.sin(a)*dist).toFixed(1)}px;`+
-        `animation-delay:${i*20}ms;`);
-      setTimeout(()=>el.remove(),1250);
-    }
-    const DUST=8;
-    for(let i=0;i<DUST;i++){
-      const a=Math.random()*Math.PI*2, dist=30+Math.random()*30;
-      const sz=3+Math.random()*5, delay=40+Math.random()*100;
-      const col=DEF_COLORS[Math.floor(Math.random()*DEF_COLORS.length)];
-      const el=spawnEl("spark-dust",cx,cy,
-        `width:${sz}px;height:${sz}px;background:${col};`+
-        `--sx:${(Math.cos(a)*dist).toFixed(1)}px;--sy:${(Math.sin(a)*dist).toFixed(1)}px;`+
-        `animation-delay:${delay.toFixed(0)}ms;`);
-      setTimeout(()=>el.remove(),1500);
-    }
+    if (_isDaytime()) spawnSmoke(cx, cy); else spawnFirework(cx, cy);
   }
 
   document.addEventListener("click", e => {

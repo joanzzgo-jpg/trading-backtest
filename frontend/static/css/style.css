@@ -3360,26 +3360,67 @@ html.perf-mode .tk-stale { background: rgba(220, 38, 38, 0.10); border-color: #d
   transform: translate(-50%, -50%);
 }
 
-/* 層 1：大橢圓粒子 */
-.spark-big {
+/* ★ 2026-09-26 重做（使用者：「太兩光」）：彩虹橢圓 → **暖色四角星 ＋ 擴散細環**。
+   ⚠ 星形用 clip-path 切，所以 JS 那邊必須給正方形（長寬不等星角會歪）。
+   ⚠ 外發光用 `currentColor`：JS 同時寫 background 與 color，每顆星的光暈跟著自己的顏色。 */
+/* 層 0：點擊處的細環（iOS 觸感） */
+.spark-ring {
+  position: fixed;
+  pointer-events: none;
+  z-index: 99999;
+  width: 12px; height: 12px;
   border-radius: 50%;
-  animation: spark-big-fly 1.1s var(--ease-spring) forwards;
+  border: 1.5px solid rgba(255, 198, 140, .95);
+  transform: translate(-50%, -50%);
+  animation: spark-ring 620ms var(--ease-out) forwards;
 }
-@keyframes spark-big-fly {
-  0%   { opacity: 1; transform: translate(-50%,-50%) scale(1.3) rotate(0deg); }
-  70%  { opacity: 0.85; }
-  100% { opacity: 0; transform: translate(calc(-50% + var(--sx)), calc(-50% + var(--sy))) scale(0.15) rotate(200deg); }
+@keyframes spark-ring {
+  0%   { opacity: .95; transform: translate(-50%,-50%) scale(.35); border-width: 2px; }
+  100% { opacity: 0;   transform: translate(-50%,-50%) scale(4.6); border-width: .5px; }
 }
 
-/* 層 3：小星塵 */
+/* 層 1：四角星閃 */
+.spark-big {
+  clip-path: polygon(50% 0%, 60% 40%, 100% 50%, 60% 60%, 50% 100%, 40% 60%, 0% 50%, 40% 40%);
+  filter: drop-shadow(0 0 5px currentColor);
+  animation: spark-big-fly 780ms var(--ease-out) forwards;
+}
+@keyframes spark-big-fly {
+  /* ⚠ 第一版在 260ms 就縮到 0.3 倍 → 看起來像一堆小叉叉。
+     峰值要撐久一點（15%~55% 都維持 1 倍以上），最後才收 —— 這是「有質感」與「兩光」的差別。 */
+  0%   { opacity: 0;   transform: translate(-50%,-50%) scale(.25) rotate(0deg); }
+  15%  { opacity: 1;   transform: translate(calc(-50% + var(--sx) * .30), calc(-50% + var(--sy) * .30)) scale(1.35) rotate(12deg); }
+  55%  { opacity: .95; transform: translate(calc(-50% + var(--sx) * .72), calc(-50% + var(--sy) * .72)) scale(1.05) rotate(30deg); }
+  100% { opacity: 0;   transform: translate(calc(-50% + var(--sx)), calc(-50% + var(--sy))) scale(.55) rotate(44deg); }
+}
+
+/* 層 0b：中心閃光（讓「點下去」那一下有重量） */
+.spark-flash {
+  position: fixed;
+  pointer-events: none;
+  z-index: 99998;
+  width: 46px; height: 46px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 205, 150, .55), rgba(255, 160, 80, 0) 70%);
+  transform: translate(-50%, -50%);
+  animation: spark-flash 280ms var(--ease-out) forwards;
+}
+@keyframes spark-flash {
+  0%   { opacity: 0; transform: translate(-50%,-50%) scale(.3); }
+  22%  { opacity: 1; transform: translate(-50%,-50%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%,-50%) scale(1.6); }
+}
+
+/* 層 2：細塵（更小、更柔、跟著飄遠） */
 .spark-dust {
   border-radius: 50%;
-  animation: spark-dust-fly 1.4s ease-out forwards;
+  filter: blur(.3px);
+  animation: spark-dust-fly 980ms var(--ease-out) forwards;
 }
 @keyframes spark-dust-fly {
-  0%   { opacity: 0.9; transform: translate(-50%,-50%) scale(1); }
-  40%  { opacity: 1; }
-  100% { opacity: 0; transform: translate(calc(-50% + var(--sx)), calc(-50% + var(--sy))) scale(0); }
+  0%   { opacity: 0; transform: translate(-50%,-50%) scale(.4); }
+  22%  { opacity: .95; transform: translate(calc(-50% + var(--sx) * .3), calc(-50% + var(--sy) * .3)) scale(1); }
+  100% { opacity: 0; transform: translate(calc(-50% + var(--sx)), calc(-50% + var(--sy))) scale(.2); }
 }
 
 /* ══════════════════════════════════════
@@ -7041,3 +7082,29 @@ body.wl-drag-on #tickerList .ticker-item { touch-action: none; }
 }
 .ui-tip.on { opacity: 1; }
 html.perf-mode .ui-tip { background: rgba(252, 252, 252, .98); color: #2b2b2b; border-color: rgba(0,0,0,.14); }
+
+/* ★★ 2026-09-26 補上第三個系統開關：**減少動態**（Apple HIG 的無障礙三兄弟之一）。
+   原本只有 4 個零星的 @media 區塊在處理 → 實測開了這個開關之後，
+   **1041 個有轉場的元素只少了 28 個、天氣粒子照樣在動** ＝ 幾乎沒有回應。
+   對前庭敏感的人來說，滿畫面的天氣粒子正是他們關掉它的原因。
+   ⚠ 用 0.01ms 不用 0：`transitionend` / `animationend` 還是會觸發，
+     否則等事件的程式會卡住（這是這個配方被廣泛採用的原因）。
+   ⚠ 天氣畫布是 canvas，CSS 管不到 → 另在 weather.js 讓迴圈畫一張靜態的就停（見那裡）。
+   ⚠⚠ **這一塊必須放在整份樣式表的最後**：檔案後段有一整區「橘子熊」的 `!important` 規則，
+     同特異性下**後寫的贏** —— 放在前面時實測仍有 52 個元素保留著真正的轉場時間。 */
+@media (prefers-reduced-motion: reduce) {
+  /* ⚠⚠ 選擇器要**夠高的特異性**：殘留的那幾類按鈕（.tb-icon-btn / .dt-btn / .tf-btn…）
+     自己的 transition 也是 `!important` → 兩邊都 important 時比的是特異性，而 `*` 最低（0,0,0）。
+     實測只用 `*` 時仍有 52 個元素保留真正的轉場時間。
+     `html body [class][class][class]` ＝(0,3,2)，壓得過 `html.perf-mode .tb-icon-btn:hover`(0,3,1)；
+     沒有 class 的元素則由後面的 `*` 接住。 */
+  html body [class][class][class],
+  html body [class][class][class]::before,
+  html body [class][class][class]::after,
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -3077,6 +3077,13 @@
     _drawOrrery();               // 太陽系即時儀：八大行星真實位置/軌道（fore 層右中 HUD，斜俯視）
     _tempTint();
   }
+  /* 「減少動態」的系統開關：只查一次並掛監聽（中途改設定也要立刻生效）。 */
+  let _rmQuery = null;
+  try {
+    _rmQuery = matchMedia("(prefers-reduced-motion: reduce)");
+    const _rmChange = () => { if (!_rmQuery.matches && !rafId) rafId = requestAnimationFrame(loop); };
+    _rmQuery.addEventListener ? _rmQuery.addEventListener("change", _rmChange) : _rmQuery.addListener(_rmChange);
+  } catch (e) {}
   let _fxPenalty = 0;   // 自適應降幀補償(ms)：手機畫不動時拉大幀間隔 → 自動降溫/減卡
   function loop(ts) {
     // ★關掉天氣(且無磁磚)就真的停轉:原本無條件排下一幀,等於「隱藏的東西還在算」——每秒 22 次
@@ -3085,6 +3092,17 @@
     if (type === "off" && !_bearTilesOn && !_onLanding()) {
       rafId = 0;
       if (!_offCleared) draw(0);      // 收尾清一次畫布
+      return;
+    }
+    /* ★ 2026-09-26 系統開了「減少動態」→ **畫一張靜態的場景就停轉**（Apple：保留內容、拿掉движ動）。
+       這是整個 app 最大的動態來源（滿畫面粒子），CSS 管不到 canvas，只能在這裡收。
+       ⚠ 不是把天氣關掉：天空/雲/月亮照樣畫，只是不再逐幀更新。
+       ⚠ 停轉後由既有的 `if (!rafId) requestAnimationFrame(loop)`（天氣變更／尺寸變更處）
+         自然復活並再畫一張 —— 與上面 type==="off" 用同一套機制。
+       ⚠ 使用者在系統設定裡關掉這個開關時要能復活 → 下面掛了 matchMedia 監聽。 */
+    if (_rmQuery && _rmQuery.matches) {
+      rafId = 0;
+      draw(ts || 0);
       return;
     }
     rafId = requestAnimationFrame(loop);
@@ -3471,6 +3489,11 @@
     document.getElementById("noFxToggleBtn")    ?.classList.remove("nofx-active");
   }
   window._getWeatherType = () => type;
+  /* 給 effects.js 的點擊特效判斷日夜用（白天噴射煙霧／夜晚煙火）。
+     ★ 權威來源是這裡的 `_wd.isDay`（後端 `is_day` 欄位）——
+     ⚠ **不可以**用 `documentElement.classList.contains('sky-night')` 代替：那個 class 只有
+       「晴朗夜空」(type === 'night') 才會加，陰天/下雨的夜晚一律沒有 → 會整晚判成白天。 */
+  window._wxIsDay = () => !!_wd.isDay;
   // 給小熊播報天氣預報用：今明兩天 {tmax,tmin,pop,cond} + 當前溫度/降雨機率
   window._getForecast = () => _wd.forecast
     ? { ..._wd.forecast, curTemp: _wd.temp, curPop: _wd.pop } : null;
