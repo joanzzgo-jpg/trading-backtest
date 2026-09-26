@@ -2136,16 +2136,47 @@ html.perf-mode .tk-stale { background: rgba(220, 38, 38, 0.10); border-color: #d
 .ticker-item {
   display: flex;
   align-items: center;
-  padding: 6px 8px;
-  gap: 8px;
+  /* ★ 2026-09-26 回收水平空間給**標的名**（Apple：一列裡「這是什麼」優先於次要數字）。
+     實測 40 列有 **30 列**的標的名被截斷（VELODROME/USDT.P 自然寬 125px、欄寬只有 67px），
+     而右欄的 88px 是被「漲跌額＋百分比」那行撐出來的。
+     這裡先從版面回收：左右內距 8→6、欄間距 8→6（頭像同步縮到 26px），不刪任何資料。 */
+  padding: 6px 6px;
+  gap: 6px;
   cursor: pointer;
-  border-bottom: 1px solid rgba(255,255,255,.03);
+  /* ★ 2026-09-26 分隔線改成**內縮對齊文字**（Apple 列表最好認的細節之一）：
+     原本是滿版 `border-bottom`，從最左邊畫到最右邊，把頭像也切開。
+     Apple 的做法是從「內容的左緣」開始 —— 這裡就是標的名那一欄的起點
+     （8px 內距 ＋ 32px 頭像 ＋ 8px 間距 ＝ 48px，實測列上各欄的位置也是 48 起）。 */
+  position: relative;
   transition: background .1s;
 }
+.ticker-item::after {
+  content: "";
+  position: absolute;
+  left: 38px; right: 0; bottom: 0; height: 1px;   /* ＝內距6＋頭像26＋間距6，對齊文字左緣 */
+  background: rgba(255, 255, 255, .06);
+  pointer-events: none;
+}
+.ticker-item:last-child::after { display: none; }   /* 最後一列不畫（下面沒有東西要分隔）*/
 @media (hover: hover) {
 .ticker-item:hover { background: var(--bg3); }
 }
-.ticker-item.tk-active { background: var(--bg3); border-left: 2px solid var(--blue); padding-left: 6px; }
+/* ★ 選中的那一列：原本是「左邊一條藍色直條 + 整列滿版底色」。
+   Apple 的側邊清單是**內縮的圓角色塊**（像 macOS 的 Finder/Mail 側欄），
+   不是貼邊的直條 —— 圓角與內縮讓它看起來是「被選起來的一張卡」而不是「被畫了一條線」。
+   ⚠ 用 ::before 而不是直接給列圓角：列是滿版的，直接加圓角會在兩側留下奇怪的缺口。
+   ⚠ z-index:0 ＋ 內容自動疊在上面；列本身不再填底色，避免兩層色疊起來變深。 */
+.ticker-item.tk-active { background: transparent; }
+.ticker-item.tk-active::before {
+  content: "";
+  position: absolute;
+  inset: 2px 4px;
+  border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 34%, transparent);
+  pointer-events: none;
+}
+.ticker-item.tk-active > * { position: relative; }   /* 內容疊在色塊之上 */
 
 /* 自選：市場分組標題列（加密貨幣 / 台股 / 美股 / 港股） */
 .tk-wl-hdr {
@@ -2166,7 +2197,7 @@ html.perf-mode .tk-stale { background: rgba(220, 38, 38, 0.10); border-color: #d
 
 /* logo 手繪塗鴉（台股 / 加密貨幣共用 blob 風格） */
 .tk-logo {
-  width: 30px; height: 30px;
+  width: 26px; height: 26px;   /* 32→26：省下的 6px 給標的名（見 .ticker-item 的說明）*/
   flex-shrink: 0;
   user-select: none;
   line-height: 0;
@@ -2188,7 +2219,7 @@ html.perf-mode .tk-stale { background: rgba(220, 38, 38, 0.10); border-color: #d
 .tk-price-val { font-size: var(--t-base);
   letter-spacing: var(--tr-base); font-weight: 600; color: var(--text); display: block; transition: color .25s; }
 .tk-chg-row   { font-size: var(--t-2xs);
-  letter-spacing: var(--tr-2xs); display: flex; justify-content: flex-end; align-items: center; gap: 4px; margin-top: 2px; }
+  letter-spacing: var(--tr-2xs); display: flex; justify-content: flex-end; align-items: center; gap: 2px; margin-top: 2px; }
 .tk-chg-amt   { color: var(--muted); transition: color .25s; }
 .tk-chg       { font-weight: 700; transition: color .25s; }
 
@@ -4374,9 +4405,13 @@ html.perf-mode .ai-adv-section { background: #FAFAFA; border-color: #E5E5E5; }
 }
 
 /* ═══ iOS segmented：市場分類（台股/合約）── 同 TF 按鈕配方 ═══ */
+/* ★ 2026-09-26 分段控制項改成**同心圓角**（Apple：內圓角 = 外圓角 − 內距）。
+   原本容器與選中片都是 --r-sm(8px)、內距 2px → 兩者角度一樣，選中片的角貼齊容器的角，
+   就是那種「說不上哪裡怪」的非同心感。容器提到 --r-md(12)、內部維持 8 →
+   12−2=10 與 8 很接近，而且兩個值都還在既有刻度上（不為了同心新增第六個圓角）。 */
 .tk-mkt-tabs {
   background: var(--bg) !important;
-  border-radius: var(--r-sm) !important;
+  border-radius: var(--r-md) !important;
   padding: 2px !important;
   gap: 2px !important;
   box-shadow: inset 0 1px 2px rgba(0,0,0,.35);
@@ -4406,7 +4441,7 @@ html.perf-mode .ai-adv-section { background: #FAFAFA; border-color: #E5E5E5; }
 .tk-seg {
   background: var(--bg) !important;
   border: none !important;
-  border-radius: var(--r-sm) !important;
+  border-radius: var(--r-md) !important;   /* 同上：容器 12 / 內部 8，見 .tk-mkt-tabs 的說明 */
   padding: 2px !important;
   gap: 2px !important;
   overflow: visible !important;
@@ -4460,9 +4495,12 @@ html.perf-mode .ai-adv-section { background: #FAFAFA; border-color: #E5E5E5; }
 @media (hover: hover) {
 .ticker-item:hover { background: rgba(255,145,71,.05) !important; }
 }
+/* ★ 2026-09-26 選中列改成**內縮圓角色塊**（見上方 .ticker-item.tk-active::before 的說明）。
+   原本是「整列滿版橘底 ＋ 左邊 2px 直條」—— 直條會跟新的圓角色塊疊成兩種選中語彙。
+   色相維持橘子熊的 accent，只換形狀。 */
 .ticker-item.tk-active {
-  background: rgba(255,145,71,.08) !important;
-  border-left: 2px solid var(--accent) !important;
+  background: transparent !important;
+  border-left: none !important;
   padding-left: 8px !important;
 }
 

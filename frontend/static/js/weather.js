@@ -416,10 +416,26 @@
     window.addEventListener('deviceorientation', onTilt, { passive:true });
   }
 
+  /* 白天進度 0~1（日出 0、日落 1）；**日落跨過午夜也要算得對**。
+     ★ 2026-09-26：原本只寫 `(now-rise)/(set-rise)`，遇到 set < rise（高緯度夏季，
+       例如雷克雅維克 6 月：日出 02:55、日落 00:04）分母會變負 → 夾限後太陽整天卡在地平線。
+       旁邊的 `_moonProg` 早就處理了跨午夜，這裡沒跟上 —— 同一個檔案裡兩套寫法。
+     回 null＝現在不在白天（呼叫端據此決定畫不畫太陽）。 */
+  function _dayProg(nowMin) {
+    const rise = _wd.sunRiseMin, set = _wd.sunSetMin;
+    if (rise == null || set == null) return null;
+    if (rise === set) return 0.5;                       // 極晝/極夜：給中點，太陽停在天頂
+    if (rise < set) return (nowMin >= rise && nowMin <= set) ? (nowMin - rise) / (set - rise) : null;
+    const dur = (1440 - rise) + set;                    // 日落在隔天凌晨
+    if (nowMin >= rise) return (nowMin - rise) / dur;
+    if (nowMin <= set)  return (1440 - rise + nowMin) / dur;
+    return null;
+  }
+
   function _sunArcPos() {
     const nowMin = _locNowMin();
-    const rise = _wd.sunRiseMin, set = _wd.sunSetMin;
-    const prog = (rise === set) ? 0.5 : Math.max(0, Math.min(1, (nowMin-rise)/(set-rise)));
+    const _p = _dayProg(nowMin);
+    const prog = (_p == null) ? 0 : _p;                 // 夜間仍回一個座標（光暈/粒子的錨點用）
     return { x: W*0.04 + prog*W*0.92, y: H*0.88 - (H*0.88-H*0.08)*Math.sin(prog*Math.PI) };
   }
   function _newSpark() {
@@ -570,9 +586,8 @@
         }
       }
       if (type === 'thunder' || type === 'sunny' || type === 'partly') return; // 這些由 dSunny 自畫太陽（淡月已畫）
-      const rise = _wd.sunRiseMin, set = _wd.sunSetMin;
-      if (nowMin < rise || nowMin > set) return;
-      const prog = (nowMin - rise) / (set - rise);
+      const prog = _dayProg(nowMin);                   // 含跨午夜處理，見 _dayProg
+      if (prog == null) return;                        // 不在白天 → 不畫太陽
       const sx = lx + prog * (rx - lx);
       const sy = horizonY - (horizonY - peakY) * Math.sin(prog * Math.PI);
       // horizon warmth near sunrise/sunset
@@ -3754,8 +3769,17 @@
 
   // from→to 的 8 方位中文（0=正北，順時針）
   function _bearing8(fLat, fLon, tLat, tLon) {
-    const dLon = (tLon - fLon) * Math.cos(((fLat + tLat) / 2) * Math.PI / 180), dLat = (tLat - fLat);
-    const ang = (Math.atan2(dLon, dLat) * 180 / Math.PI + 360) % 360;
+    /* ★ 2026-09-26 改用**大圓初始方位**，原本是等距近似 `dLon * cos(平均緯度)`。
+       近距離兩者幾乎一樣（實測台北周邊 1500km 內最大差 3.15°、只有 2.67% 會落到相鄰格，
+       而那些本來就在分界線上），但**遠距離會整個錯掉**：
+       實測紐約看西太平洋的颱風，近似式算出「正東方 12684km」——
+       真正的大圓路徑是往西北、經過北極上空。颱風卡上會顯示距離與方位給任何地點的使用者，
+       所以不能只在近距離成立。 */
+    const p = Math.PI / 180;
+    const f1 = fLat * p, f2 = tLat * p, dl = (tLon - fLon) * p;
+    const y = Math.sin(dl) * Math.cos(f2);
+    const x = Math.cos(f1) * Math.sin(f2) - Math.sin(f1) * Math.cos(f2) * Math.cos(dl);
+    const ang = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
     return ['正北', '東北', '正東', '東南', '正南', '西南', '正西', '西北'][Math.round(ang / 45) % 8];
   }
   // 兩點大圓距離(km)

@@ -160,7 +160,17 @@ async def _reverse_geocode(lat: float, lon: float) -> str:
         district = (addr.get("city_district") or addr.get("suburb")
                     or addr.get("town") or addr.get("village") or "")
         city     = addr.get("city") or addr.get("county") or addr.get("state") or ""
-        location = (city + district) if (city and district) else (district or city or "")
+        # ⚠ Nominatim 同一個欄位可能回「简体;繁體」這種多語名（實測紐約 city="纽约;紐約"）
+        #   → 只取第一個，否則地名會變成「纽约;紐約…」。
+        _pick = lambda v: (v or "").split(";")[0].strip()
+        city, district = _pick(city), _pick(district)
+        # ⚠ 中文地名直接相接沒問題（臺北市＋信義區），但含拉丁字母時會黏成
+        #   「紐約New York County」→ 兩邊只要有一邊不是純中日韓字就用空格隔開。
+        _cjk = lambda t: all("\u3000" <= ch <= "\u9fff" or ch.isspace() for ch in t) if t else True
+        if city and district:
+            location = (city + district) if (_cjk(city) and _cjk(district)) else f"{city} {district}"
+        else:
+            location = district or city or ""
         _cache_put(_GEOCODE_CACHE, key, location)
         return location
     except Exception:
@@ -327,6 +337,8 @@ async def _from_cwa(lat: float, lon: float) -> dict:
 # ─── Open-Meteo fallback ─────────────────────────────────────
 
 _WMO_DESC = {
+    # ⚠ 2026-09-26 補上原本缺描述的五個（前端天氣卡會顯示這行字，缺了就是空白）
+    56: "凍毛毛雨", 57: "濃凍毛毛雨", 66: "凍雨", 67: "強凍雨", 77: "雪珠",
     0:"晴天",1:"晴時多雲",2:"局部多雲",3:"陰天",
     45:"霧",48:"霧凇",
     51:"毛毛雨",53:"毛毛雨",55:"濃毛毛雨",
@@ -358,16 +370,39 @@ def _wmo_type(c: int, is_day: bool) -> str:
     if c == 3:                              return "overcast"    # 陰天
     if 45 <= c <= 48:                       return "fog"
     if 51 <= c <= 57:                       return "drizzle"     # 毛毛雨
+    if c in (66, 67):                       return "rain"      # 凍雨：是雨不是雷暴（原本落到 c>=65 的 storm）
     if 61 <= c <= 67:                       return "storm" if c >= 65 else "rain"
     if (71 <= c <= 77) or c in (85, 86):   return "snow"
     if 80 <= c <= 82:                       return "storm" if c == 82 else "rain"
     if c in (95, 96, 99):                  return "thunder"
-    return "storm"
+    # ⚠ 2026-09-26 未知代碼的預設從 "storm" 改成 "cloudy"：
+    #   Open-Meteo 目前只用 28 個代碼，其餘 63 個全部會落到這裡 ——
+    #   上游哪天多送一個代碼，使用者就會莫名其妙看到雷雨動畫。
+    #   不知道天氣時應該給**中性**的畫面，不是最戲劇化的那個。
+    return "cloudy"
+
+def _omt_num(c: dict, key: str, default=None):
+    """取 Open-Meteo 的數值欄位。★ 不可以寫 `c.get(k) or 預設`：**0 是合法的觀測值**，
+    那樣寫會把它當成「沒有值」而換成預設 ——
+      ・`is_day` 夜晚就是 0 → `0 or 1` 永遠白天（實測紐約當地 23:27、倫敦 04:27 都回 is_day=True，
+        晴朗的夜晚會被畫成白天的天空）
+      ・`temperature_2m` 剛好 0°C → 變成 20°C
+      ・`visibility` 濃霧 0m → 變成 10 公里
+    （claude.md 記過同一類：`Math.max(0, NaN)` 擋不住 NaN、`fetch` 沒看 r.ok 會把錯誤當答案 ——
+      都是「看起來有防呆、其實把合法值吃掉」。）"""
+    v = c.get(key)
+    if v is None:
+        return default
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return default
+
 
 async def _from_omt(lat: float, lon: float) -> dict:
     params = {
         "latitude": lat, "longitude": lon, "timezone": "auto",
-        "current": "weather_code,temperature_2m,is_day,precipitation,"
+        "current": "weather_code,temperature_2m,relative_humidity_2m,is_day,precipitation,"
                    "cloud_cover,wind_speed_10m,wind_direction_10m,visibility",
     }
     timeout = aiohttp.ClientTimeout(total=12)
@@ -377,7 +412,8 @@ async def _from_omt(lat: float, lon: float) -> dict:
 
     c    = data.get("current", {})
     code = int(c.get("weather_code") or 0)
-    is_day = int(c.get("is_day") or 1) == 1
+    _isd = _omt_num(c, "is_day", 1)
+    is_day = int(_isd) == 1
 
     # 優先用 Nominatim 取得鄉/區層級地名；失敗時退回時區城市名
     location = await _reverse_geocode(lat, lon)
@@ -393,14 +429,16 @@ async def _from_omt(lat: float, lon: float) -> dict:
         "source":       "openmeteo",
         "country":      _country,
         "weather_type": _wmo_type(code, is_day),
-        "temperature":  round(float(c.get("temperature_2m") or 20)),
+        "temperature":  round(_omt_num(c, "temperature_2m", 20)),
         "description":  _WMO_DESC.get(code, ""),
         "precipitation": round(float(c.get("precipitation") or 0), 1),
         "cloud_cover":  int(c.get("cloud_cover") or 0),
         "wind_speed":   round(float(c.get("wind_speed_10m") or 0), 1),
         "wind_dir":     (None if c.get("wind_direction_10m") is None else round(float(c.get("wind_direction_10m")))),
-        "visibility":   float(c.get("visibility") or 10000),
-        "humidity":     0,
+        "visibility":   _omt_num(c, "visibility", 10000),
+        # ⚠ 這裡原本寫死 0 —— 等於全世界非台/港/日的使用者，天氣卡上的濕度永遠是 0%。
+        # 參數也沒要 relative_humidity_2m（同一支的預報路徑早就有要），已補上。
+        "humidity":     int(round(_omt_num(c, "relative_humidity_2m", 0) or 0)),
         "is_day":       is_day,
         "location":     location,
         "station":      None,
