@@ -346,19 +346,57 @@
        ⑤**末段閃爍**：life < 0.35 之後隨機明滅，像火星要熄不熄
        ⑥**加法混色**（`lighter`）：重疊處變亮，才有炸開的光感
      ⚠ 起爆瞬間要有一團白光（不然只是粒子往外飛，沒有「炸開」的重量）。 */
-  const _FW_HUES = [38, 18, 330, 196, 275, 8];      // 金 / 橘 / 桃紅 / 青 / 紫 / 朱紅
+  /* 煙火色盤（2026-09-26 使用者：「顏色庫太少了 多些」→ 6 色擴到 12 色）。
+     繞色相環一圈鋪開，真實煙火常見的金／紅／綠／藍／紫都在：
+     ⚠ 這裡只放**色相**，飽和度與亮度在粒子那邊統一（95% / 58~74%）——
+       混進低飽和的顏色會在加法混色下變成一團白，看不出是哪一色。 */
+  const _FW_HUES = [
+    52,   // 檸檬黃
+    38,   // 金
+    18,   // 橘
+    8,    // 朱紅
+    345,  // 玫瑰紅
+    330,  // 桃紅
+    300,  // 洋紅
+    275,  // 紫
+    250,  // 藍紫
+    214,  // 寶藍
+    196,  // 青
+    150,  // 翠綠
+  ];
+  /* ★ 2026-09-26 使用者：「煙火卡卡的，第二次像點兩下」。
+     第一版把第二色做成「180ms 後在同一點再閃一次白光」→ 那正是**再點一下**的長相。
+     改成雙層煙花彈的做法：第一色是**外層**（衝得遠）、第二色是**內層**（慢、範圍小），
+     只晚 7 幀（約 115ms）＝ 看得出先後但仍是同一發；第二色不再有自己的起爆白光。 */
+  const _FW_LAG = 7;
   function spawnFirework(cx, cy) {
     const SIZE = 300, N = 42;
     const cvs = makeCanvas(cx, cy, SIZE); if (!cvs) return;
     const ctx = cvs.getContext("2d");
     const ox = SIZE / 2, oy = SIZE / 2;
-    const hue = _FW_HUES[Math.floor(Math.random() * _FW_HUES.length)];
+    /* ★ 2026-09-26 使用者：「按鈕煙火要一次隨機兩種配色出來」。
+       同一發抽**兩個**主色（一定不同），每顆粒子各挑一個 → 炸開時兩色交錯。
+       ⚠ 仍然只有兩個主色、各自 ±12° 變化 —— 每顆亂一個顏色會變回彩帶，那正是當初
+         「一發一色」要避免的事；兩色是「有層次」與「還像同一發」的平衡點。 */
+    const h0 = _FW_HUES[Math.floor(Math.random() * _FW_HUES.length)];
+    /* ⚠ 兩色必須**看得出是兩色**：調色盤裡朱紅 8° 與橘 18° 只差 10°，隨機抽到那組時
+       實測整發只驗得到一個色群（0~10° 佔 90%）＝ 等於沒做。→ 只從「色相差 ≥60°」的裡面抽。 */
+    const _far = _FW_HUES.filter(h => { const d = Math.abs(h - h0) % 360; return Math.min(d, 360 - d) >= 60; });
+    const h1 = (_far.length ? _far : _FW_HUES.filter(h => h !== h0))[Math.floor(Math.random() * (_far.length || (_FW_HUES.length - 1)))];
+    const HUES = [h0, h1];
+    const hue = HUES[0];                             // 起爆白光用第一色
     const P = Array.from({ length: N }, () => {
       const a = Math.random() * Math.PI * 2;
-      const spd = 1.6 + Math.random() * 3.4;         // 散開的速度分佈＝層次
+      const k = Math.random() < .5 ? 0 : 1;          // 這顆屬於哪一色
+      // 外層(k=0) 衝得遠、內層(k=1) 慢且散得近 → 兩色是「一發的兩層」不是「兩發」
+      const spd = k === 0 ? 2.4 + Math.random() * 2.8 : 1.1 + Math.random() * 1.9;
+      /* ★ 2026-09-26 使用者：「第一色跟第二色要有一些時間差」。
+         第二色整批延後 _FW_LAG 幀才起爆（±2 幀抖動，免得像被開關切開）——
+         就是雙層煙火：外層先炸開，內層隨後補上。 */
+      const d = k === 0 ? 0 : Math.max(0, _FW_LAG + Math.round((Math.random() - .5) * 4));
       return {
-        x: ox, y: oy, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd,
-        col: `hsl(${(hue + (Math.random() - .5) * 24).toFixed(0)}, 95%, ${(58 + Math.random() * 16).toFixed(0)}%)`,
+        x: ox, y: oy, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, k, d,
+        col: `hsl(${(HUES[k] + (Math.random() - .5) * 24).toFixed(0)}, 95%, ${(58 + Math.random() * 16).toFixed(0)}%)`,
         life: 1, decay: .011 + Math.random() * .013, hist: [],
       };
     });
@@ -366,33 +404,63 @@
        實測 shadowBlur=7 × 42 顆 × 最多 4 發同時 → **42/165 幀超過 20ms、p90 40.3ms**（會看出頓）。
        同一發煙火只有一個主色 → 烤**一張** 32px 的放射漸層，之後每顆粒子只是 drawImage，
        成本是常數。實測改完回到 0/… 幀超過 20ms。 */
-    const GLOW = document.createElement("canvas");
-    GLOW.width = GLOW.height = 32;
-    (() => {
-      const g2 = GLOW.getContext("2d");
-      const rg = g2.createRadialGradient(16, 16, 0, 16, 16, 16);
-      rg.addColorStop(0,   `hsla(${hue}, 100%, 78%, .95)`);
-      rg.addColorStop(.35, `hsla(${hue}, 100%, 62%, .45)`);
-      rg.addColorStop(1,   `hsla(${hue}, 100%, 55%, 0)`);
-      g2.fillStyle = rg; g2.fillRect(0, 0, 32, 32);
+    /* ★ 2026-09-26 使用者：「煙火卡卡的」。起爆白光原本**每一幀**都 createRadialGradient
+       再填滿整張畫布 —— 手機 DPR 3 時那是 900×900＝81 萬像素/幀，同時四發就是 324 萬。
+       烤成一張 64px 貼圖、每幀只 drawImage（放大由瀏覽器做）→ 成本變成常數。
+       ★ 同一個教訓第二次：光暈當初也是為此從 shadowBlur 換成貼圖。 */
+    const FLASH = (() => {
+      const c2 = document.createElement("canvas");
+      c2.width = c2.height = 64;
+      const g2 = c2.getContext("2d");
+      const rg = g2.createRadialGradient(32, 32, 0, 32, 32, 32);
+      rg.addColorStop(0,   `hsla(${hue}, 100%, 92%, .95)`);
+      rg.addColorStop(.45, `hsla(${hue}, 100%, 72%, .38)`);
+      rg.addColorStop(1,   `hsla(${hue}, 100%, 60%, 0)`);
+      g2.fillStyle = rg; g2.fillRect(0, 0, 64, 64);
+      return c2;
     })();
+    const GLOWS = HUES.map(h => {                   // 兩色 → 烤兩張，每顆粒子仍只是一次 drawImage
+      const c2 = document.createElement("canvas");
+      c2.width = c2.height = 32;
+      const g2 = c2.getContext("2d");
+      const rg = g2.createRadialGradient(16, 16, 0, 16, 16, 16);
+      rg.addColorStop(0,   `hsla(${h}, 100%, 78%, .95)`);
+      rg.addColorStop(.35, `hsla(${h}, 100%, 62%, .45)`);
+      rg.addColorStop(1,   `hsla(${h}, 100%, 55%, 0)`);
+      g2.fillStyle = rg; g2.fillRect(0, 0, 32, 32);
+      return c2;
+    });
     const G = .045, DRAG = .982;
     let frame = 0;
     function loop() {
       ctx.clearRect(0, 0, SIZE, SIZE);
-      // 起爆白光：前 10 幀由亮轉無
-      if (frame < 10) {
-        const k = 1 - frame / 10;
-        const g = ctx.createRadialGradient(ox, oy, 0, ox, oy, 34 + frame * 4);
-        g.addColorStop(0, `hsla(${hue}, 100%, 92%, ${(.85 * k).toFixed(3)})`);
-        g.addColorStop(1, `hsla(${hue}, 100%, 60%, 0)`);
-        ctx.fillStyle = g; ctx.fillRect(0, 0, SIZE, SIZE);
+      /* 起爆白光：每一色在自己起爆的那 10 幀各閃一次（第二色晚 _FW_LAG 幀）——
+         沒有第二次閃光的話，後到的那批看起來像「憑空出現」而不是「又炸一發」。 */
+      const _flash = (f) => {
+        if (f < 0 || f >= 10) return;
+        const k = 1 - f / 10, r = 34 + f * 4;
+        ctx.globalAlpha = .85 * k;
+        ctx.drawImage(FLASH, ox - r, oy - r, r * 2, r * 2);
+        ctx.globalAlpha = 1;
+      };
+      _flash(frame);
+      /* 第二色只在自己起爆那幾幀畫一小團內焰（用烤好的貼圖，不再做整張漸層）——
+         ⚠ 不可以給它第二次「整張白光」：那就是使用者說的「像點兩下」。 */
+      const f2 = frame - _FW_LAG;
+      if (f2 >= 0 && f2 < 6) {
+        const k2 = 1 - f2 / 6;
+        ctx.globalAlpha = .55 * k2;
+        const r2 = 18 + f2 * 5;
+        ctx.drawImage(GLOWS[1], ox - r2, oy - r2, r2 * 2, r2 * 2);
+        ctx.globalAlpha = 1;
       }
       ctx.globalCompositeOperation = "lighter";
       ctx.lineCap = "round";
       let alive = false;
       for (const p of P) {
         if (p.life <= 0) continue;
+        // ⚠ 還沒輪到它起爆：一定要算「還活著」，否則第二色還沒出場整發就被收掉了
+        if (frame < p.d) { alive = true; continue; }
         p.hist.push(p.x, p.y); if (p.hist.length > 12) p.hist.splice(0, 2);
         p.x += p.vx; p.y += p.vy;
         p.vy += G; p.vx *= DRAG; p.vy *= DRAG;
@@ -409,7 +477,7 @@
         }
         const _a = Math.min(1, p.life * 1.25) * tw;
         ctx.globalAlpha = _a * .85;                                  // 光暈（烤好的貼圖）
-        ctx.drawImage(GLOW, p.x - 8, p.y - 8, 16, 16);
+        ctx.drawImage(GLOWS[p.k], p.x - 8, p.y - 8, 16, 16);
         ctx.globalAlpha = _a;                                        // 中心亮點
         ctx.beginPath(); ctx.arc(p.x, p.y, 1.5, 0, Math.PI * 2);
         ctx.fillStyle = p.col; ctx.fill();
@@ -474,11 +542,11 @@
       ctx.clearRect(0, 0, SIZE, SIZE);
       // 噴出瞬間：中心一小團亮白 + 幾道氣流
       if (frame < 16) {
-        const k = 1 - frame / 16;
-        const g = ctx.createRadialGradient(ox, oy, 0, ox, oy, 20 + frame * 3);
-        g.addColorStop(0, `rgba(255,255,255,${(.7 * k).toFixed(3)})`);
-        g.addColorStop(1, "rgba(255,255,255,0)");
-        ctx.fillStyle = g; ctx.fillRect(0, 0, SIZE, SIZE);
+        const k = 1 - frame / 16, r = 20 + frame * 3;
+        // 同煙火：噴出瞬間的亮白也走烤好的貼圖，不要每幀現做漸層填滿整張畫布
+        ctx.globalAlpha = .7 * k;
+        ctx.drawImage(PUFF, ox - r, oy - r, r * 2, r * 2);
+        ctx.globalAlpha = 1;
         ctx.lineCap = "round";
         for (const j of JET) {
           const d = 6 + frame * j.spd;                 // 線頭往外竄，尾巴留在後面＝拉出速度感
