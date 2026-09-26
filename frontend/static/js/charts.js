@@ -1415,6 +1415,57 @@ function resizeAll() {
   _syncAxisWidth();
   _placeWatermarkMobile();
   _syncHLineLabels();
+  _syncSubPaneHeadroom();
+}
+
+/* ★ 2026-09-26 使用者：「rsi 資訊還是擋到 rsi 線」。
+   副圖的圖例是**浮在圖上**的（2026-09-24 為了讓線連貫穿過去才改成這樣），桌面面板高
+   110px+ 時它只佔上緣一小截、沒人在意；**手機的副圖只有 ~100px，圖例就佔 26px＝四分之一**
+   → 指標線一衝高就鑽到字底下。
+   ⚠ 先試過兩條走不通的路，別再走一次：
+     ①把圖例移出面板上緣 → `.chart-pane` 是 `overflow:hidden`，**字會被裁掉**。
+     ②把圖例靠右 → 右邊是最新幾根、反而更常擋到（且要閃開價格軸）；使用者最後選靠左。
+   → 正解是**讓繪圖區從圖例下面才開始**：把圖例實際高度換算成 scaleMargins.top。
+   ⚠ 只動手機：桌面 0.08 的上緣本來就夠，動它會改掉大家看慣的比例。
+   ⚠ 只在值真的變了才 applyOptions（每次 resize 都套會多觸發一次重排，同 _syncAxisWidth）。 */
+function _syncSubPaneHeadroom() {
+  try {
+    const mobile = (typeof isMobileUI === "function") ? isMobileUI()
+                 : window.matchMedia("(max-width: 1180px)").matches;
+    /* ★ 2026-09-26 使用者：「50 不見了」。
+       三條參考線要同時看得見，**面板本身必須夠高** —— 手機原本 103px，扣掉圖例的留白只剩
+       55px 在畫圖，相鄰間距 11px，字高就 14px，塞不下是幾何問題不是判準問題。
+       → 只開 1~2 個副圖時加高到 150px：留白照給（44px），繪圖區仍有 94px ⇒ 間距 18.8px。
+       ⚠ 三個全開就不加高：150×3＝450px，小手機的主圖會只剩兩百出頭 —— 那時由
+         `_syncHLineLabels` 的三段式自動只留頭尾，比硬塞好。
+       ⚠ 只寫「有變才寫」：min-height 會改變版面 → 每輪都寫會跟 ResizeObserver 互相觸發。 */
+    const vis = ["kdjPane", "rsiPane", "macdPane"]
+      .map(id => document.getElementById(id))
+      .filter(el => el && el.getBoundingClientRect().height > 8);
+    const wantMin = (mobile && vis.length && vis.length <= 2) ? "150px" : "";
+    vis.forEach(el => { if (el.style.minHeight !== wantMin) el.style.minHeight = wantMin; });
+    if (!mobile) ["kdjPane", "rsiPane", "macdPane"].forEach(id => {
+      const el = document.getElementById(id);
+      if (el && el.style.minHeight) el.style.minHeight = "";      // 轉回桌面要還原
+    });
+    [["rsiPane", rsiChart], ["kdjPane", kdjChart], ["macdPane", macdChart]].forEach(([id, ch]) => {
+      if (!ch) return;
+      const el = document.getElementById(id);
+      if (!el) return;
+      const h = el.getBoundingClientRect().height;
+      let top = 0.08;
+      if (mobile && h > 8) {
+        const leg = el.querySelector(".pane-legend");
+        const lh = leg ? leg.getBoundingClientRect().height : 0;
+        /* 圖例高度 + 14px 呼吸空間（2026-09-26 使用者：「rsi 副圖上方要有更多空間」）。
+           上限 0.44：再多就把指標線擠成一條細縫了（面板本來就只有 ~100px）。 */
+        top = Math.max(0.08, Math.min(0.44, (lh + 14) / h));
+      }
+      if (_subHeadroom[id] === top) return;
+      _subHeadroom[id] = top;
+      try { ch.priceScale("right").applyOptions({ scaleMargins: { top, bottom: 0.08 } }); } catch (e) {}
+    });
+  } catch (e) {}
 }
 
 /* ★ 2026-09-25 使用者：「手機版 rsi 資訊行擠到了」。
@@ -1427,16 +1478,36 @@ function resizeAll() {
    ⚠ 門檻 18px＝字高 14 + 餘裕；量到的是面板高，繪圖區只會更矮 → 判準偏保守，這是對的方向。
    ⚠ KDJ 的價格範圍由 `_kdjFullRange` 依資料決定（可能超過 0~100）→ 實際間距只會比估的更小，
      同樣是保守的方向。 */
+const _subHeadroom = {};   // 副圖各自的上緣留白（_syncSubPaneHeadroom 寫入，這支讀）
 function _syncHLineLabels() {
   try {
-    const MIN_GAP = 18;
+    /* 字高 14px + 2px 餘裕。原本是 18（較寬鬆），但 2026-09-26 使用者要三條都看得到，
+       而手機副圖再高也只換得到 17~19px 的間距 → 收到剛好不重疊的 16。 */
+    const MIN_GAP = 16;
     const chk = (paneId, lines, span) => {
       const el = document.getElementById(paneId);
       if (!el) return;
       const h = el.getBoundingClientRect().height;
       if (h < 8) return;                         // 面板收起來了，不用管
-      const on = (h * span / 100) >= MIN_GAP;
-      lines.forEach(l => { try { l && l.applyOptions({ axisLabel: on }); } catch (e) {} });
+      /* ⚠ 2026-09-26：要量的是**繪圖區**高度，不是面板高度。
+         原本註解寫「量到的是面板高，繪圖區只會更矮 → 判準偏保守」——
+         在 `_syncSubPaneHeadroom()` 把手機的上緣留白拉到 0.39 之後那個誤差不再是「保守」：
+         103px 的面板實際只剩 55px 在畫圖，30/50/70 擠在一起、最下面那個還被面板裁掉。 */
+      const top = _subHeadroom[paneId] ?? 0.08;
+      const plot = h * Math.max(0.2, 1 - top - 0.08);
+      const gap = plot * span / 100;            // 相鄰兩條參考線的實際間距（px）
+      /* ★ 2026-09-26 使用者：「看不見 30/70/50 標示」。
+         原本放不下就**三個一起關**，等於把資訊整個拿掉 —— 但真正擠在一起的是**相鄰**那兩條；
+         只關中間那條（RSI 50 / KDJ 50），頭尾兩條的間距就變兩倍，通常就放得下了。
+         → 三段式：三個都放得下 → 全開；只有頭尾放得下 → 關中間；連頭尾都不行 → 才全關。
+         ⚠ 保留的是**頭尾**不是中間：超買/超賣那兩條才是看盤時要對照的刻度。 */
+      const all  = gap >= MIN_GAP;
+      const ends = gap * 2 >= MIN_GAP;
+      lines.forEach((l, i) => {
+        const isMid = (i === 1 && lines.length === 3);
+        const on = all || (ends && !isMid);
+        try { l && l.applyOptions({ axisLabel: on }); } catch (e) {}
+      });
     };
     chk("rsiPane", [rsiH30, rsiH50, rsiH70], 20);
     chk("kdjPane", [kdjH20, kdjH50, kdjH80], 30);

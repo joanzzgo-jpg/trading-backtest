@@ -5185,8 +5185,14 @@ textarea,
   #rsiPane > .pane-legend,
   #macdPane > .pane-legend {
     pointer-events: none !important;
-    min-height: 30px !important;
-    padding: 2px 6px !important;
+    min-height: 26px !important;
+    padding: 0 6px !important;
+    /* ★ 2026-09-26 使用者：「rsi 資訊還是擋到線」→「不能上面一些嗎」→「rsi 上方被切到」。
+       ⚠⚠ 中間試過把圖例提到面板外（top:-13px）—— **不可行**：`.chart-pane` 是
+       `overflow:hidden`，移出去的那 13px 直接被裁掉，字的上緣就缺一截（使用者一眼看到）。
+       → 圖例留在面板內最上緣，改讓**線不要跑到字底下**：繪圖區的上緣留白由
+       `charts.js _syncSubPaneHeadroom()` 依圖例實際高度算成 scaleMargins.top。 */
+    top: 2px !important;   /* 離面板交界線留一點呼吸空間（不可為負：會被 overflow 裁掉） */
   }
   #kdjPane > .pane-legend .leg-toggle,
   #rsiPane > .pane-legend .leg-toggle,
