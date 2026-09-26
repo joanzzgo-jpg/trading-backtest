@@ -1737,11 +1737,15 @@ html.perf-mode .chart-watermark { opacity: .55; }
        (hover: none) and (pointer: coarse) and (orientation: portrait),
        (hover: none) and (pointer: coarse) and (orientation: landscape) and (max-height: 599px) {
   .chart-watermark {
-    /* ⚠ bottom 由 charts.js `_placeWatermarkMobile()` 依**主圖底緣**動態寫 inline
-       （副圖每個只有 55px、圖例就佔 38px，純 CSS 的固定值躲不開）。這裡只留退路值。 */
+    /* ⚠ bottom 由 charts.js `_placeWatermarkMobile()` 依**最底下那塊面板的底緣**動態寫 inline
+       （手機的 .charts-container 延伸到分頁列後方，純 CSS 的固定值躲不開）。這裡只留退路值。 */
     bottom: 78px;
     transform: scale(0.68);       /* 129x44 → 88x30，縮小後仍貼左下（origin 已是 left bottom） */
   }
+  /* ★ 2026-09-26 使用者：「ahh logo 要在左下角，就是圖表按鈕上面」。
+     改貼整個圖表區的左下角之後，副圖開著時它會落在**最底下那塊副圖**上 →
+     再縮一號並調淡，免得換成它去壓指標線（剛修完圖例，別用浮水印再製造一次）。 */
+  .chart-watermark.cw-over-sub { transform: scale(0.52); opacity: .42; }
 }
 
 /* ── 訂單簿 DOM 階梯面板（主圖右側，dom.js 繪製）─────────────────
@@ -5168,6 +5172,40 @@ textarea,
   .pane-legend .leg-toggle.line-off { opacity: .55; }
   .pane-legend .leg-toggle.line-off .leg-val { color: var(--muted); }
   .pane-legend .leg-dot { width: 10px !important; height: 10px !important; }
+
+  /* ★ 2026-09-26 使用者：「手機版 rsi 資訊還是擋到 rsi 線」。
+     上面那組膠囊是為**主圖**那排（多空／破多空／FVG…）做的 —— 但副圖的圖例是**浮在圖上**的
+     絕對定位層（見 `#rsiPane > .pane-legend`），一上底色就變成一塊不透明擋板：
+     實測 iPhone 15 的 RSI 面板高 103px、圖例佔 38px＝**37%**，線直接從後面被切掉。
+     → 副圖的膠囊拿掉底色與邊框，回到桌面那套「文字 + 雙向光暈」（線從字後面連貫穿過）。
+     ⚠ 觸控面積不動（min-height:30 還在），只是看不見框。
+     ⚠ 容器的 pointer-events 一起改回 none：不然副圖上緣整條都在吃觸控、圖表拖不動；
+       項目本身仍是 auto → 照樣點得到、照樣橫滑。 */
+  #kdjPane > .pane-legend,
+  #rsiPane > .pane-legend,
+  #macdPane > .pane-legend {
+    pointer-events: none !important;
+    min-height: 30px !important;
+    padding: 2px 6px !important;
+  }
+  #kdjPane > .pane-legend .leg-toggle,
+  #rsiPane > .pane-legend .leg-toggle,
+  #macdPane > .pane-legend .leg-toggle {
+    background: transparent !important;
+    border-color: transparent !important;
+    padding: 6px 2px !important;
+  }
+  /* 字收小一號：副圖的圖例是疊在指標線上的，佔的面積越小越不礙眼
+     （主圖那排不動 —— 它在 flex 流裡，不會蓋到 K 棒）。 */
+  #kdjPane > .pane-legend .leg-toggle .leg-val,
+  #rsiPane > .pane-legend .leg-toggle .leg-val,
+  #macdPane > .pane-legend .leg-toggle .leg-val {
+    font-size: var(--t-xs) !important;
+    letter-spacing: var(--tr-xs) !important;
+  }
+  #kdjPane > .pane-legend .leg-dot,
+  #rsiPane > .pane-legend .leg-dot,
+  #macdPane > .pane-legend .leg-dot { width: 8px !important; height: 8px !important; }
 
   /* ⚠ 2026-09-25 手機：主圖右邊就是**螢幕邊**（行情面板是獨立分頁、不並排）→
      右側的間距與圓角都沒有對象可分隔，留著只是把畫面往內縮。

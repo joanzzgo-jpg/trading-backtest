@@ -1449,8 +1449,12 @@ function _syncHLineLabels() {
      ・手機的 `.charts-container` 延伸到底部分頁列後方 → 同一個 bottom 值落點完全不同
      ・副圖在手機上**每個只有 55px 高，而圖例就佔 38px** → 圖例與時間軸本來就已經重疊，
        中間只剩 17px 的縫，放不下 29px 的浮水印 ⇒ 副圖開著時怎麼擺都會壓到資訊
-   → 手機改成跟著**主圖底緣**走：永遠落在主圖那塊（副圖開 y≈456、關 y≈621 都成立），
-     不碰任何副圖的圖例，也不碰時間軸。
+   → 手機改成跟著**最底下那塊面板的底緣**走（2026-09-26 使用者：「ahh logo 要在左下角，
+     就是圖表按鈕上面」）：永遠在時間軸之上、分頁列之上＝畫面的左下角，副圖開不開都同一個位置。
+   ⚠ 這推翻了 2026-09-25 那版「跟著主圖底緣」的做法 —— 當時的理由是「副圖只有 55px、
+     圖例就佔 38px，擺哪裡都會壓到資訊」。同日把副圖圖例的底色拿掉（它是浮在圖上的層，
+     上底色就是擋板）之後那個前提不成立了，位置才回得到使用者要的左下角。
+     落在副圖上時另外縮一號＋調淡（`.cw-over-sub`），免得換成浮水印去壓指標線。
    ⚠ 只動手機：桌面維持 CSS 的 bottom，不寫 inline（省得跟 style.css 打架）。
    ⚠ 面板開合也要重算 → 掛在 `resizeAll()` 尾端（開合副圖本來就會走到這裡）。 */
 function _placeWatermarkMobile() {
@@ -1465,10 +1469,13 @@ function _placeWatermarkMobile() {
     if (!cc || !mp) return;
     const cr = cc.getBoundingClientRect(), mr = mp.getBoundingClientRect();
     if (mr.height < 40) return;
-    // 主圖底緣往上 6px；主圖若就是最底面板（副圖全關）還要再讓開時間軸 26px
-    const isBottom = Math.abs(mr.bottom - _lowestPaneBottom()) < 2;
-    const lift = Math.round(cr.bottom - mr.bottom) + 6 + (isBottom ? 26 : 0);
+    const low = _lowestPaneBottom();
+    if (!low) return;
+    // 最底下那塊面板的底緣：讓開時間軸 26px 再留 6px 餘裕 → 畫面左下角、分頁列正上方
+    const lift = Math.round(cr.bottom - low) + 26 + 6;
     wm.style.bottom = lift + "px";
+    // 最底下那塊是副圖（不是主圖）→ 縮一號＋調淡，別壓到指標線
+    wm.classList.toggle("cw-over-sub", Math.abs(mr.bottom - low) > 2);
   } catch (e) {}
 }
 function _lowestPaneBottom() {
