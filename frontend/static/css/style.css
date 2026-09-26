@@ -1075,7 +1075,27 @@ html.perf-mode .tk-seg {
 .tk-star.active .star-fill { opacity: 1 !important; }
 
 /* leg-val 為純文字 span */
-.leg-val { display: inline; }
+/* ★ 2026-09-26 使用者：「vol 數值變動會造成後方字體位移」。
+   實測主圖圖例列：VOL 的值在 5~7 個字元之間變（`4.581` / `117.5K` / `123,456`），
+   它一變寬窄，**後面每一個項目都跟著左右位移 5~6px**（FVG、大時框FVG、關鍵高低… 全部）。
+   兩道一起才治得住：
+     ① `tabular-nums`：數字改成等寬 → 同字數的值（4.581 → 4.999）不再改變寬度。
+        ⚠ 只有這條不夠 —— 字數本身會變（K/M 後綴、千分位）。
+     ② 給會變動的項目 `min-width`：把最寬的情況先佔好位置，值變短也不會回縮。
+   ⚠ 數字等寬對整列圖例都有好處（副圖的 K/D/J、RSI、MACD 同理），所以下在 .leg-val。 */
+.leg-val {
+  display: inline;
+  font-variant-numeric: tabular-nums;
+}
+/* 佔位寬度用 **ch**（＝數字寬度）不用 px：手機的圖例字級與桌機不同，
+   寫死 px 會在其中一邊不夠 —— 實測桌機修好了（位移 0px），手機仍位移 8px
+   （那裡 legVol 實際 91px、超過我原本設的 88px）。ch 會跟著字級縮放，一次涵蓋兩邊。
+   ⚠ 要配 `tabular-nums` 才準：比例字型的 ch 只代表「0」的寬度。 */
+#legVol { min-width: 13ch; }                          /* `VOL  123,456`＋圓點 */
+/* 副圖那幾個也會變動（預設收起來，打開時同樣不希望後面跳） */
+#legK, #legD, #legJ { min-width: 9ch; }               /* `K 100.00` */
+#legRsi14, #legRsi7 { min-width: 12ch; }              /* `RSI 14  100.00` */
+#legMacd, #legMacdSig, #legMacdHist { min-width: 13ch; }
 
 /* ═══ DRAWING TOOLBAR ═══ */
 /* 左側繪圖工具欄＝懸浮島：預設收進左緣外，滑鼠靠近左邊才彈出（原理同右下偷看熊）。

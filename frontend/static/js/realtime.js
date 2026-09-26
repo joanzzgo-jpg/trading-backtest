@@ -874,6 +874,42 @@ function _barCountdownTxt() {
   if (s < 86400) return `${Math.floor(s / 3600)}:${p2(Math.floor(s / 60) % 60)}:${p2(s % 60)}`;
   return `${Math.floor(s / 86400)}天${Math.floor(s / 3600) % 24}時`;
 }
+/* ★★ 2026-09-26 使用者：「5m 是從 4:55 開始倒數」。
+   4:55 其實是**誠實的**：新棒要等它真的到貨才換，而到貨比收盤時刻晚約 4 秒 →
+   倒數重啟時那根已經走掉 4~5 秒。顯示 5:00 反而是騙人的（下一次收盤不會因此變晚）。
+   真正能改善的是**讓它早一點到**。實測拆解那 4 秒：
+     ・後端第一次給出新棒＝邊界後 **2.63 秒**（幣安產生 ＋ 後端 1 秒快取）← 這段動不了
+     ・畫面換上去＝邊界後 **4.1 秒**（中位）← 多出來的 ~1.5 秒是「每秒輪詢」的相位，
+       運氣不好就要等滿一拍。
+   → 收盤時刻一到（倒數顯示 0:00 那段），改成**每 300ms 追問一次**，新棒一到立刻換。
+   ⚠ 一定要有出口，否則休市／資料中斷時會一直追：換到新棒、或超過 `_BC_HOLD_MS` 就停。
+   ⚠ 分頁在背景不追（沒人看，而且 claude.md 記過「背景應該是零流量」）。
+   ⚠ `/api/latest` 後端有 1 秒 TTL ＋ 單飛 → 多打的那幾次多半直接吃快取，不會加重上游。 */
+let _bcCatchUpUntil = 0, _bcCatchUpTimer = null, _bcCatchUpBar = null;
+function _bcCatchUpStop() {
+  if (_bcCatchUpTimer) { clearTimeout(_bcCatchUpTimer); _bcCatchUpTimer = null; }
+  _bcCatchUpUntil = 0; _bcCatchUpBar = null;
+}
+function _bcCatchUpStep() {
+  _bcCatchUpTimer = null;
+  if (Date.now() > _bcCatchUpUntil || document.hidden) return _bcCatchUpStop();
+  try {
+    const last = (typeof ohlcvData !== "undefined" && ohlcvData.length)
+      ? ohlcvData[ohlcvData.length - 1].time : null;
+    if (last !== _bcCatchUpBar) return _bcCatchUpStop();     // 新棒到了 → 收工
+  } catch (e) { return _bcCatchUpStop(); }
+  try { fetchLatest(); } catch (e) {}                        // 它自己有 replay／離線／標的脈絡守衛
+  _bcCatchUpTimer = setTimeout(_bcCatchUpStep, 300);
+}
+function _bcMaybeCatchUp() {
+  if (_bcCatchUpTimer || document.hidden) return;
+  if (typeof replayActive !== "undefined" && replayActive) return;
+  if (typeof ohlcvData === "undefined" || !ohlcvData.length) return;
+  _bcCatchUpBar = ohlcvData[ohlcvData.length - 1].time;
+  _bcCatchUpUntil = Date.now() + _BC_HOLD_MS;                // 與「停在 0:00」用同一支保險絲
+  _bcCatchUpStep();
+}
+
 function _barCountdownTick() {
   const el = document.getElementById("barCountdown");
   if (!el || document.hidden) return;              // 背景時不必重算（純本機計算，但沒人看）
@@ -882,6 +918,8 @@ function _barCountdownTick() {
   if (el.textContent !== t) el.textContent = t;    // 只有真的變了才寫 DOM
   // 最後 10 秒轉強調色（CSS `.tb-countdown[data-soon="1"]`）。
   // ⚠ 同樣只有真的變了才寫屬性：每秒無條件寫 DOM 會讓 transition 一直重跑。
+  // 顯示 0:00（＝收盤時刻已到、新棒還沒來）→ 開始追問，把那 ~1.5 秒的輪詢相位收回來
+  if (t === "0:00") _bcMaybeCatchUp(); else _bcCatchUpStop();
   const soon = (t && _bcSec >= 0 && _bcSec <= 10) ? "1" : "";
   if ((el.dataset.soon || "") !== soon) {
     if (soon) el.dataset.soon = soon; else delete el.dataset.soon;

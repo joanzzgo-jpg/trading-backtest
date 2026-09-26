@@ -145,4 +145,13 @@ const check = (name, ok, detail) => {
   console.log();
   if (FAILS.length) { console.log(`★ 失敗 ${FAILS.length} 項：${FAILS.join("、")}`); process.exit(1); }
   console.log("★ K 棒連續性全部通過");
-})();
+})().catch(e => {
+  /* ★ 2026-09-26：測試**自己爆掉**不可以回 1。
+     這支跑 14 分鐘，中途 puppeteer 偶爾丟 `Attempted to use detached Frame` /
+     `Connection closed`（今天三支不同的腳本各中過一次）—— 那是測試工具的問題，
+     不是產品壞了。回 1 會讓人以為 K 棒連續性真的失敗，跑去查一個不存在的 bug。
+     ★ 通則（claude.md 一再講的）：**叫狼來了的守門員比沒有更糟**；
+       分不出「產品壞了」與「測試沒跑成」時，一律回 2＝測試不成立。 */
+  console.log("⚠ 測試不成立（測試工具自己出錯，不是產品問題）：" + String(e).split("\n")[0]);
+  process.exit(2);
+});
