@@ -487,8 +487,30 @@ const _symFrozen = () => document.body.classList.contains("sqd-dragging");
 //   實測十字線掃一趟：倒數位置改變 68 次、在 11 個位置間跳、範圍 35px。
 //   → 每次改完量一次寬，變寬就撐開 min-width、變窄不收；換標的（_resetSymbolBarQuote）才歸零。
 function _symHold(e) {
-  const w = Math.ceil(e.getBoundingClientRect().width);
-  if (w > (e._symMinW || 0)) { e._symMinW = w; e.style.minWidth = w + "px"; }
+  /* ⚠ 這支在十字線 60Hz 熱路徑上,而 `getBoundingClientRect` 是**強制版面重算**
+     （2026-09-28 量到：縮放 3 秒它被叫了 378 次,是全站第二大的來源）。
+     文字沒變 → 寬度不可能變 → 直接跳過。實測十字線掃過相鄰 K 棒時,開高低收多半是同一串。
+     ⚠ 字級改變時文字也沒變、寬度卻會變 → `_resetSymbolBarQuote` 歸零 `_symMinW` 時
+       要一併清掉這個記號（見那裡）。 */
+  if (e._symLastTxt === e.textContent) return;
+  e._symLastTxt = e.textContent;
+  /* ⚠⚠ **量寬度要批次做**：這一排有 6 個欄位,原本「寫文字→量寬度」一個一個來 ——
+     每一次量都把前面那次的寫入沖掉,一次十字線移動就是 **5~6 次強制版面重算**
+     （2026-09-28 在 CPU 6x 節流下量到 getBoundingClientRect 合計 127ms,它是最大宗）。
+     → 收集起來,在 **rAF 裡一次讀完再一次寫**：版面只重算一次。
+     ⚠ rAF 的回呼跑在**這一幀繪製之前** → 寬度照樣在畫出來之前就套好,不會看到跳動。 */
+  _symPend.add(e);
+  if (_symRaf) return;
+  _symRaf = requestAnimationFrame(_symFlush);
+}
+const _symPend = new Set();
+let _symRaf = 0;
+function _symFlush() {
+  _symRaf = 0;
+  const reads = [];
+  _symPend.forEach(el => { if (el.isConnected) reads.push([el, Math.ceil(el.getBoundingClientRect().width)]); });
+  _symPend.clear();
+  for (const [el, w] of reads) if (w > (el._symMinW || 0)) { el._symMinW = w; el.style.minWidth = w + "px"; }
 }
 /* ★ 預留寬度（2026-09-17 使用者：「是左邊的現在價格變化推到它左邊基準位」）：
    只增不減還是會在「第一次出現更長的數字」時把後面的經濟倒數往右推（切時框又重來一次）。
@@ -557,7 +579,9 @@ function _setSym(id, text) {
 // 切標的時把上方報價數字歸零成 placeholder，避免新標的名稱卻殘留舊標的價格（看起來像亂跳）
 function _resetSymbolBarQuote() {
   // 換標的：保留的最小寬歸零（價位級距可能完全不同，例如 BTC 76,000 → PEPE 0.0000123）
-  ["symO", "symH", "symL", "symC", "symV", "symChg"].forEach(id => { const e = _symEl(id); if (e) { e._symMinW = 0; e.style.minWidth = ""; } });
+  // ⚠ `_symLastTxt` 要一起清（`_symHold` 用它跳過量測）：不清的話換標的後第一次寫入若文字剛好相同,
+  //   寬度就不會被重新量到,整排欄位會停在上一檔的寬度。
+  ["symO", "symH", "symL", "symC", "symV", "symChg"].forEach(id => { const e = _symEl(id); if (e) { e._symMinW = 0; e._symLastTxt = null; e.style.minWidth = ""; } });
   _symReservedDone = false;          // 新標的/時框第一次填真實價時重新預留（見 _symReserveAll）
   ["symO", "symH", "symL", "symC", "symV"].forEach(id => _setSym(id, "—"));
   ["symO", "symH", "symL", "symC"].forEach(id => { const e = _symEl(id); if (e) e.style.removeProperty("color"); });   // 顏色回預設（新標的還沒有方向）

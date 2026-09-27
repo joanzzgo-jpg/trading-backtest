@@ -164,17 +164,32 @@
   /* ⚠ 繪圖區寬度要**快取**（2026-09-28 使用者：「縮放會卡卡的,縮放圖 a 圖 b 會頓頓的」）：
      `clientWidth` 會強制版面重算,而縮放時每秒幾十個事件 × 每張圖各問一次 → 一直在重排。
      版面真的變了（resize／切模式／軸寬重對）時把 `_geomDirty` 打開重量即可。 */
-  let _geomDirty = true;
+  let _geomDirty = true, _geomGen = 1;
   const _plotWCache = new Map();
-  const _geomBump = () => { _geomDirty = true; };
+  const _geomBump = () => { _geomDirty = true; _geomGen++; };
   function _plotW(chart, el) {
-    if (!_geomDirty) { const v = _plotWCache.get(chart); if (v != null) return v; }
+    const c = _plotWCache.get(chart);
+    if (c && c.gen === _geomGen) return c.v;
     try {
       const w = (el ? el.clientWidth : 0) - (chart.priceScale("right").width() || 0);
       const out = w > 1 ? w : 0;
-      _plotWCache.set(chart, out);
+      _plotWCache.set(chart, { gen: _geomGen, v: out });
       return out;
     } catch (e) { return 0; }
+  }
+  /* 這一格的版面幾何（K 棒區相對整格的位置、加上副圖之後的總高）。
+     ⚠ 縮放時 `_placeVline` 每幀都要用它 —— 不快取的話一幀三次 `getBoundingClientRect`
+       ＝**強制版面重算**（實測縮放 3 秒叫了 597 次,是全站最大的一個來源）。
+       版面真的變了（resize／切模式／軸寬重對）才重量。 */
+  function _geom(cell) {
+    if (cell._g && cell._g.gen === _geomGen) return cell._g;
+    try {
+      const cr = cell.el.getBoundingClientRect();
+      const br = cell.body.getBoundingClientRect();
+      const last = cell.subs.length ? cell.subs[cell.subs.length - 1].el.getBoundingClientRect() : br;
+      cell._g = { gen: _geomGen, left: br.left - cr.left, top: br.top - cr.top, height: last.bottom - br.top };
+    } catch (e) { cell._g = null; }
+    return cell._g;
   }
   function _elOf(chart) {
     if (typeof mainChart !== "undefined" && chart === mainChart) return document.getElementById("mainChart");
@@ -193,7 +208,7 @@
      ⚠ 對方沒有那個時間時（跨市場：加密 vs 台股,K 棒時間根本不同）退回原本的 setVisibleRange。 */
   function _syncFrom(src) {
     if (_mode === 1) return;
-    const _wasDirty = _geomDirty;
+
     const sTs = src.timeScale();
     let bs = 0, r = null;
     try { bs = sTs.options().barSpacing; r = sTs.getVisibleRange(); } catch (e) {}
@@ -206,7 +221,7 @@
       const ts = ch.timeScale();
       let done = false;
       try {
-        ts.applyOptions({ barSpacing: bs });
+        if (Math.abs((ts.options().barSpacing || 0) - bs) > 1e-6) ts.applyOptions({ barSpacing: bs });
         const w = _plotW(ch, _elOf(ch));
         const x = ts.timeToCoordinate(r.to);
         if (x != null && sx != null && w && sw) {
@@ -217,7 +232,6 @@
       } catch (e) {}
       if (!done) { try { ts.setVisibleRange({ from: r.from, to: r.to }); } catch (e) {} }
     }
-    if (_wasDirty) _geomDirty = false;      // 這一輪已經重量過了
     _cells.forEach(c => {
       try { const vr = c.chart.timeScale().getVisibleRange(); if (vr) _growWs(c, vr.to); } catch (e) {}
       _syncSubs(c); _loadOlder(c);
@@ -298,13 +312,11 @@
     if (tm == null) { ln.style.display = "none"; return; }
     try {
       const x = cell.chart.timeScale().timeToCoordinate(tm);
-      if (x == null) { ln.style.display = "none"; return; }
-      const cr = cell.el.getBoundingClientRect();
-      const br = cell.body.getBoundingClientRect();
-      const last = cell.subs.length ? cell.subs[cell.subs.length - 1].el.getBoundingClientRect() : br;
-      ln.style.left = Math.round(br.left - cr.left + x) + "px";
-      ln.style.top = Math.round(br.top - cr.top) + "px";
-      ln.style.height = Math.round(last.bottom - br.top) + "px";
+      const g = _geom(cell);
+      if (x == null || !g) { ln.style.display = "none"; return; }
+      ln.style.left = Math.round(g.left + x) + "px";
+      ln.style.top = Math.round(g.top) + "px";
+      ln.style.height = Math.round(g.height) + "px";
       ln.style.display = "block";
     } catch (e) { ln.style.display = "none"; }
   }
@@ -1095,7 +1107,14 @@
       const ts = cell.chart.timeScale();
       const bs = ts.options().barSpacing, sp = ts.scrollPosition();
       cell.subs.forEach(x => {
-        try { x.chart.timeScale().applyOptions({ barSpacing: bs }); x.chart.timeScale().scrollToPosition(sp, false); } catch (e) {}
+        try {
+          const t2 = x.chart.timeScale();
+          /* ⚠ 值沒變就不要寫：`applyOptions({barSpacing})` 會讓那張圖**整張重畫** ——
+             平移時 barSpacing 根本沒變,每幀白重畫三張副圖（畫面上的成本是瀏覽器的繪製,
+             不是我們的 JS,所以 profiler 只會看到 `(program)` 變大）。 */
+          if (Math.abs((t2.options().barSpacing || 0) - bs) > 1e-6) t2.applyOptions({ barSpacing: bs });
+          if (Math.abs((t2.scrollPosition() || 0) - sp) > 1e-6) t2.scrollToPosition(sp, false);
+        } catch (e) {}
       });
     } catch (e) {}
   }

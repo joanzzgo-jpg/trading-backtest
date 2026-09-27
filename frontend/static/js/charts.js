@@ -1300,8 +1300,25 @@ function _hideCurLabelIfCovered(crossLbl) {
   let hide = false;
   try {
     if (crossLbl && crossLbl.style.display !== "none") {
-      const a = crossLbl.getBoundingClientRect(), b = _curPriceLabelEl.getBoundingClientRect();
-      hide = !(a.bottom <= b.top || b.bottom <= a.top);
+      /* ⚠ 這支在十字線 60Hz 熱路徑上,兩個 `getBoundingClientRect` 就是兩次**強制版面重算**
+         （2026-09-28 在 CPU 6x 節流下量到它是第二大宗）。
+         兩顆標籤都是**我們自己定位的**（`style.top` ＋ CSS `translateY(-50%)`）→
+         重疊與否可以純用數字算,高度只要量一次就好。
+         ⚠ 高度會變的只有「十字線標籤多一行 %」那種結構變化 → 用 `childElementCount` 當快取鍵。 */
+      const H = el => {
+        const k = el.childElementCount;
+        if (el._hH == null || el._hK !== k) { el._hK = k; el._hH = el.offsetHeight || 18; }
+        return el._hH;
+      };
+      const mid = el => parseFloat(el.style.top);
+      const am = mid(crossLbl), bm = mid(_curPriceLabelEl);
+      if (Number.isFinite(am) && Number.isFinite(bm)) {
+        const ah = H(crossLbl) / 2, bh = H(_curPriceLabelEl) / 2;
+        hide = Math.abs(am - bm) < (ah + bh);
+      } else {
+        const a = crossLbl.getBoundingClientRect(), b = _curPriceLabelEl.getBoundingClientRect();
+        hide = !(a.bottom <= b.top || b.bottom <= a.top);
+      }
     }
   } catch (e) {}
   const v = hide ? "hidden" : "";

@@ -3314,8 +3314,16 @@
     //   只調幀率、不放慢時鐘(仍 1x 正常速度;雲飄移已 dt 正規化,低幀不變慢)。
     //   struggling 手機仍靠 _fxPenalty(見下)自動再往上加幀間隔 → 畫不動的裝置會降更多。
     // 互動偵測器分級(取得平衡、不全讓)：持續拖曳/連續縮放(≥0.8s) → 90ms、互動中 → 66ms、停手 → 45ms。
-    const _mvGap = (window._uxSustained && window._uxSustained()) ? 90
-                 : (window._chartMoveTs && (ts - window._chartMoveTs < 300)) ? 66 : 45;
+    /* ★ 2026-09-28 多圖模式再多讓一點（使用者：「縮放還是有點卡 需要升級優化」）：
+       2/4 格時畫面上的 LWC 圖表從 4 張變成 8 張（主圖+3 副圖 + 格子+3 副圖）,
+       同一次縮放要付的**繪製**成本大約翻倍 → 互動中把天氣的幀間隔再往上加 30ms。
+       ⚠ 只在**互動中**加,停手仍是 45ms（不然靜止時的天氣會變頓,那是使用者要的特色）。
+       ⚠ 只調幀率不調時鐘（同下方註解：低幀正常動,不是慢動作）。 */
+    const _mcOn = document.documentElement.classList.contains("mc-2")
+               || document.documentElement.classList.contains("mc-4");
+    const _mcAdd = _mcOn ? 30 : 0;
+    const _mvGap = (window._uxSustained && window._uxSustained()) ? 90 + _mcAdd
+                 : (window._chartMoveTs && (ts - window._chartMoveTs < 300)) ? 66 + _mcAdd : 45;
     const _frameGap = _mvGap + _fxPenalty;
     if (ts - _lastFrameTs < _frameGap) return;
     // 動畫時鐘恆定 1x（正常速度）；只調幀率、不調速度 → 移動時是「低幀率正常動」而非慢動作。
