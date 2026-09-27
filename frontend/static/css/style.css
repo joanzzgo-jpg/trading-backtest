@@ -174,12 +174,21 @@ html.perf-mode *::after {
     -webkit-backdrop-filter: none !important;
   }
   /* 浮動表面改吃不透明底（--bg2-solid/--bg-solid 是去掉 alpha 的同色，本來就存在） */
-  .sym-modal, .cp-popup, .sys-settings-popup, .ann-card, .ind-sp-popup,
-  #drawToolbar, .music-panel, #fxPanel, .tk-search-pop, .notify-pop {
+  /* ⚠⚠ 2026-09-27 修：這份清單原本寫著 `.ind-sp-popup` 與 `.notify-pop` —— 這兩個類別
+     **全站根本不存在**（真正的是 `.ind-settings-popup` 與 `#notifyPopup`）。
+     結果是：那批面板在 2026-09-26 拿到了毛玻璃，卻**沒有一個會在「降低透明度」時變實色**
+     —— CSS 選擇器打錯不會報錯，只是那條規則永遠不生效，畫面上零跡象。
+     ★ 通則：加無障礙覆寫時，**逐一確認選擇器真的選得到東西**（在 DOM 裡搜一次就好）。 */
+  .sym-modal, .cp-popup, .sys-settings-popup, .ann-card, .ind-settings-popup,
+  #drawToolbar, .music-panel, #fxPanel, #notifyPopup, .econ-pop {
+    /* （原本這裡還列了 `.tk-search-pop` —— 一樣不存在：行情列的搜尋是 <input> + 就地重畫清單，
+       沒有彈出層。已移除，免得下次有人照著它去找那個面板。） */
     background: var(--bg2-solid, var(--bg2)) !important;
   }
   /* 遮罩層：原本是半透明黑 + 模糊 → 改成足夠不透明，內容才不會跟後方混在一起 */
-  #announceOverlay, #myTradesOverlay, .sym-modal-mask, .modal-mask {
+  /* ⚠ 同上：`.sym-modal-mask` 與 `.modal-mask` 也是**不存在的類別**（原始碼全域搜不到，
+     只活在這一行裡）。真正的遮罩是搜尋視窗的 `#symOverlay.sym-overlay`（rgba(0,0,0,.6) + 毛玻璃）。 */
+  #announceOverlay, #myTradesOverlay, .sym-overlay {
     background: rgba(8, 10, 16, .92) !important;
   }
 }
@@ -189,7 +198,8 @@ html.perf-mode *::after {
      `_autoTextContrast()` 以行內樣式整組覆寫，CSS 壓不過（實測模擬開關時兩個都沒變）。
      門檻提高（AA 4.5 → AAA 7.0）與邊框加深改在那支裡做；這裡只留 CSS 壓得動的部分。 */
   .topbar, .symbol-bar, .ticker-panel, .charts-container,
-  .sym-modal, .cp-popup, .sys-settings-popup, .ann-card {
+  .sym-modal, .cp-popup, .sys-settings-popup, .ann-card,
+  .ind-settings-popup, #notifyPopup, .econ-pop {
     border-color: var(--border) !important;
   }
   /* 焦點環：鍵盤操作要明顯（一般模式刻意不畫，見搜尋框那段） */
@@ -3743,7 +3753,8 @@ html:not(.perf-mode).sky-night #weatherStage { opacity: 0.72; }
 .cp-popup,
 .ind-settings-popup,
 .sys-settings-popup,
-#notifyPopup              { border-radius: var(--r-lg) !important; }
+#notifyPopup,
+.econ-pop                 { border-radius: var(--r-lg) !important; }   /* 2026-09-27 補上數據發布倒數那個 */
 .music-panel                                     { border-radius: var(--r-lg) !important; }
 
 /* ★ 2026-09-26 浮動面板統一吃「材質」（Apple：浮在內容上的表面要是**材質**不是實心色塊，
@@ -3757,7 +3768,10 @@ html:not(.perf-mode).sky-night #weatherStage { opacity: 0.72; }
 #notifyPopup,
 .cp-popup,
 .music-panel,
-#fxPanel {
+#fxPanel,
+.econ-pop {          /* ★ 2026-09-27 使用者：「非農按下去也要跟之前的設計相同」——
+                        數據發布倒數的那個面板是 2026-09-26 那批統一時漏掉的，
+                        它還停在不透明 var(--bg2) + 12px 圓角。 */
   background: color-mix(in srgb, var(--bg2) 88%, transparent) !important;
   backdrop-filter: var(--mat-thick);
   -webkit-backdrop-filter: var(--mat-thick);
@@ -6428,13 +6442,65 @@ html.perf-mode .lunar-card { font-family: inherit; }
 @keyframes mpr-spin { to { transform: rotate(360deg); } }
 
 /* ══ 多圖分割佈局(桌面)：主圖右側迷你圖欄 ══ */
-#miniGrid { display: none; z-index: 2; background: var(--bg); }
+#miniGrid { display: none; z-index: 2; background: var(--pane-veil, var(--bg)); }
 html.mc-2 #miniGrid, html.mc-4 #miniGrid {
   display: flex; flex-direction: column;
   width: 36%; min-width: 300px; max-width: 560px;
   border-left: 1px solid rgba(255,255,255,.09);
 }
-html:not(.perf-mode).sky-show #miniGrid { background: transparent !important; }  /* 天氣透出,同主圖 */
+/* ★ 2026-09-27 使用者：「兩邊 K 棒大小不一」→「只有兩個時 幫我做成同大小」。
+   同一段時間畫在**寬度不同**的兩塊面板上,K 棒必然不一樣寬（這是除法,不是 bug）——
+   2 格時改成對半分,再加上價格軸等寬（multichart.js `_syncMiniAxis`）,繪圖區就完全一樣寬,
+   同一段時間自然畫出同樣大小的 K 棒。4 格維持右側欄（那是「掃一眼」用的小圖,不是對照）。 */
+/* ★ 2026-09-27 使用者：「原本主圖外匡位置還是怪」。
+   `.charts-container` 的暖色線框（上＋右＋右上圓角）是「主圖靠著合約行情」那個版面設計的 ——
+   多圖模式時中間多了一欄迷你圖,那圈框就卡在**畫面中間**,右上圓角也變成兩區之間的缺口。
+   → 多圖時線框整個外移到迷你圖欄（＝真正的最右邊）,主圖只留上緣那條,兩區之間用細分隔線。
+   ⚠ 補缺角的那條 box-shadow 也要跟著搬（見 `.charts-container` 那段的長註解：
+     沒有它,右上圓角外那一小塊會露出沒被任何面板蓋過的天氣層,比旁邊亮一截）。
+   ⚠ `clip-path: inset(0)` 一起帶走,否則色帶會整條鋪在行情面板左緣下面變成暗帶。 */
+html.mc-2 .charts-container, html.mc-4 .charts-container {
+  border-right: none;
+  border-radius: 0;
+  box-shadow: none;
+  clip-path: none;
+}
+html.mc-2 #miniGrid, html.mc-4 #miniGrid {
+  border-top: 2px solid rgba(255, 216, 176, .3);
+  border-right: 2px solid rgba(255, 216, 176, .3);
+  border-radius: 0 var(--r-lg) 0 0;
+  box-shadow: 22px 0 0 0 var(--chrome-fill, var(--bg));
+  clip-path: inset(0);
+}
+/* ⚠ 用 flex 對分,**不可以寫 `width: 50%`**：這一列裡還有左側工具列(46px)與合約行情(249px),
+   百分比是對**整列**算的 → 實測主圖只剩 549px、迷你圖 800px,反而更不平均。
+   `#chartsContainer` 本來就是 `flex:1 1 0`,讓迷你圖欄也是,兩邊自然對半分剩下的空間。 */
+html.mc-2 #miniGrid { flex: 1 1 0; width: auto; min-width: 0; max-width: none; }
+
+/* ★ 2026-09-27 使用者：「上方那一行要跟只看一格標的一樣 現在被砍半了」「就是 bb vol 那行」
+   →「不隨開第二張圖而對折 就是開第二張圖不要動它」。
+   多圖模式主圖只剩一半寬,而那一行是 `nowrap + overflow-x:auto` → 後面那幾項（經濟事件、
+   多/空、破多空…）整排捲出畫面外,看起來就是被砍掉一半。
+   ⚠ 我第一版改成「換行」—— 使用者否決：那等於**開第二張圖就動到它**,他要的是完全不變。
+   → 正解＝維持單行,**讓它照原本的寬度延伸到迷你圖欄上方**（那一帶本來就空著：
+     格子的標題列只剩名稱/時框/⇄,而且已經靠最右）。
+   ⚠ 要三件事一起才看得到：①祖先（#mainPane 與 .charts-container）不可以裁掉溢出
+     ②寬度上限 = 主圖欄 + 迷你圖欄（`--mc-mini-w` 由 multichart.js 量給它）,不可以無上限 ——
+     否則字會壓到右邊的合約行情上 ③`.charts-container` 的堆疊要高過 `#miniGrid`
+     （兩者原本都是 z-index:2,後寫的 #miniGrid 會蓋在上面 → 溢出的那截看不見）。 */
+html.mc-2 #mainPane, html.mc-4 #mainPane,
+html.mc-2 .charts-container, html.mc-4 .charts-container { overflow: visible; }
+html.mc-2 .charts-container, html.mc-4 .charts-container { z-index: 4; }
+html.mc-2 #mainPane > .pane-legend, html.mc-4 #mainPane > .pane-legend {
+  flex-wrap: nowrap;
+  height: var(--legend-h);
+  min-height: var(--legend-h);
+  width: calc(100% + var(--mc-mini-w, 0px));
+  max-width: none;
+}
+/* 底色由 colors.js `_applyChartBgGradient` 直接寫行內（與主圖 mainPane 同一條 veil 公式）——
+   這裡不可以再寫 `transparent !important`：那會讓天氣全亮地透上來,同一個漲跌色在主圖與
+   迷你圖 composite 出不同顏色（2026-09-27 使用者：「K 棒顏色不一」）。 */
 .mini-cell { flex: 1; display: flex; flex-direction: column; min-height: 0; border-bottom: 1px solid rgba(255,255,255,.09); position: relative; }
 .mini-cell:last-child { border-bottom: none; }
 .mini-head {
@@ -6442,6 +6508,16 @@ html:not(.perf-mode).sky-show #miniGrid { background: transparent !important; } 
   padding: 0 8px; font-size: var(--t-base);
   letter-spacing: var(--tr-base); color: #d1d4dc; user-select: none;
   border-bottom: 1px solid rgba(255,255,255,.06);
+}
+/* ★ 2026-09-27 使用者：「兩者價格高度不一」。主圖的圖例列（BB/VOL 那行）是**佔位**的一列,
+   所以格子的標題列也要佔位,而且**高度要等於它實際的高度**（multichart.js `_sizeSubs` 量給它）——
+   兩邊都是「一條列 ＋ 底下的圖」,相減之後 K 棒區必然等高。
+   ⚠ 高度由 JS 設,不寫死：多圖模式下 BB/VOL 那行會換行變兩行（見下方 `.pane-legend` 的說明）。 */
+.mini-head {
+  border-bottom: none; align-items: flex-start; padding-top: 2px;
+  /* 右內距＝那一格的價格軸寬度（multichart.js `_syncMiniW` 量給它）→ 名稱那組收到 K 棒區的右緣,
+     不再有一半壓在價格軸上方,與左邊那條 BB/VOL 行讀起來是同一排。 */
+  padding-right: calc(8px + var(--mc-axis-w, 0px));
 }
 .mini-sym { font-weight: 700; cursor: pointer; }
 @media (hover: hover) {
@@ -6455,9 +6531,30 @@ html:not(.perf-mode).sky-show #miniGrid { background: transparent !important; } 
 @media (hover: hover) {
 .mini-tf:hover { background: rgba(255,255,255,.16); }
 }
-.mini-px { margin-left: auto; font-variant-numeric: tabular-nums; }
+.mini-swap {
+  background: rgba(255,255,255,.08); border: none; color: inherit;
+  font-size: var(--t-sm); letter-spacing: var(--tr-sm);
+  padding: 1px 6px; border-radius: var(--r-xs); cursor: pointer; line-height: 1.2;
+}
+@media (hover: hover) {
+.mini-swap:hover { background: rgba(255,255,255,.16); color: var(--accent, #ff9147); }
+}
+/* ★ 2026-09-27 使用者：「第二圖名稱就移到最右邊」→「第二圖上方不需顯示價格跟漲跌幅」。
+   標題列與主圖那條 BB/VOL 圖例列同高同排 —— 名稱貼在左邊時,與主圖那行的結尾緊鄰,
+   看起來像同一行的延續。改成 **名稱那一組（名稱／時框／⇄）靠最右**；現價與漲跌幅不顯示
+   （價格右緣本來就有現價線與標籤,標題列再寫一次是重複資訊）。
+   ⚠ 用 `order`／`display:none` 處理,不動 HTML 結構：`_updHeader` 照樣寫值進去,
+     哪天要顯示回來只要拿掉這條（而且它仍是螢幕閱讀器讀得到的內容）。 */
+.mini-px  { display: none; }
+.mini-sym { order: 2; margin-left: auto; }
+.mini-tf  { order: 3; }
+.mini-swap{ order: 4; }
 .mini-px.up { color: #26a69a; } .mini-px.down { color: #ef5350; }
 .mini-body { flex: 1; min-height: 0; position: relative; }
+/* 每格的副圖（RSI/MACD/KDJ）：高度由 multichart.js `_sizeSubs` 依整格高度算,這裡只排版 */
+.mini-ov { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
+.mini-subs { display: flex; flex-direction: column; flex: 0 0 auto; }
+.mini-sub { position: relative; border-top: 1px solid rgba(255,255,255,.06); }
 html.perf-mode .mini-head { color: #2a2620; border-bottom-color: rgba(0,0,0,.08); }
 @media (max-width: 1180px) { #miniGrid, #tbLayoutBtn { display: none !important; } }
 
@@ -6504,6 +6601,14 @@ html.perf-mode .go-latest {
   box-shadow: inset 0 0 26px color-mix(in srgb, var(--accent) 13%, transparent);
 }
 .invert-frame[hidden] { display: none; }
+/* 多圖模式：迷你圖欄跟著主圖一起顛倒 → 也要描同一圈琥珀框（見 charts.js toggleChartInvert） */
+html.chart-inverted #miniGrid::after {
+  content: ""; position: absolute; inset: 0; z-index: 35; pointer-events: none;
+  border: 2px solid color-mix(in srgb, var(--accent) 72%, transparent);
+  border-radius: var(--r-sm);
+  box-shadow: inset 0 0 26px color-mix(in srgb, var(--accent) 13%, transparent);
+}
+html.chart-inverted #miniGrid { position: relative; }
 
 .invert-badge {
   position: absolute; top: 10px; left: 10px; z-index: 36;

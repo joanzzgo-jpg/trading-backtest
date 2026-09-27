@@ -322,6 +322,15 @@ function _applyChartBgGradient(color) {
     else
       cc.style.setProperty("background", base, "important");
   }
+  /* ★ 多圖模式的迷你圖欄要吃**跟主圖一模一樣的底**（2026-09-27 使用者：「K 棒顏色不一」）。
+     原本 CSS 只寫 `sky-show → transparent`（註解寫「同主圖」）—— 但主圖並不是透明的,
+     它是 `mainPane` 那層半透明色膜（veil＝base@WX_DIM%,見上方）。少了那層,天氣是**全亮**的,
+     同一個 `#ef5350` 疊上去 composite 出來就是另一個顏色 —— 實測 K 棒選項兩邊逐欄相同,
+     差別全在底色。→ 用同一條公式,兩邊必然同色。 */
+  /* ⚠ 用 CSS 變數不用行內樣式：`#miniGrid` 是 multichart.js 在**切到多圖時才建立**的,
+     開機時這裡找不到它 → 行內樣式永遠寫不進去（我第一版就是,量到它還是 var(--bg)）。
+     變數寫在 :root 上,元素何時出生都吃得到。 */
+  document.documentElement.style.setProperty("--pane-veil", seeThru ? veil : base);
   /* ★ 2026-08-05「主圖跟主背景比顏色不同，是被疊加嗎」「我都點同一顏色」→ 是，而且方向相反：
      #weatherStage(z:1) 疊在 topbar/標的列/合約行情**上面**把它們染亮，而 .charts-container(z:2)
      在天氣層之上、主圖只吃自己那層半透明底 → 同一個選色兩邊composite 結果不同。

@@ -365,6 +365,12 @@ function loadVisibilityPrefs() {
   } catch {}
   _restoringPrefs = false;
   saveVisibilityPrefs();  // 還原完成後統一儲存一次
+  /* ★ 2026-09-27 使用者：「布林通道又出現」。多圖模式的格子是**在這之前**就建好並鏡射過一次的
+     → 開機還原把主圖的 BB/VOL 關掉時,沒人通知它們,格子就留著「還原前」那份狀態。
+     圖例點擊那條路早就有通知了,漏的是**開機還原**這條。
+     ★ 通則（同本檔一再出現的形狀）：一個狀態有兩個入口時,兩個都要掛,
+       而且要問「除了使用者點的那次,還有誰會改到它」。 */
+  if (typeof window._mcApplyView === "function") window._mcApplyView();
 }
 
 /* ── 基礎圖表選項（showTime=true 才顯示時間軸，只有最下方的圖顯示）── */

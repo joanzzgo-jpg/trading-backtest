@@ -2586,6 +2586,50 @@ function _drawVisHL(W, H) {
   _mark(loI, lo, false, false);
 }
 
+/* ★ 2026-09-27 使用者：「高跟次高也要」（多圖模式的格子要有「可見高低」）。
+   ⚠⚠ 重用主圖那支 `_drawVisHL` **本身**,不另外寫一份幾何 —— 作法是「暫時把它讀的那幾個全域
+     換成這一格的,畫完立刻換回」。claude.md 一再講的「自己再做一份去對齊人家那份」的反面：
+     只要幾何邏輯有兩份,兩邊就一定會分岔（次高的隔離距離、重播夾限、小數位…）。
+   ⚠ 必須是**完全同步**的：中間不可以 await,否則換掉的全域會被別人看到。
+   ⚠ 重播中直接不畫：`_drawVisHL` 會夾到 `replayIdx`,而那是**主圖**的索引,
+     套到根數不同的格子上會夾錯（而且格子本來就不參與重播）。
+   ⚠ 小數位也要換成這一格的（`_fmtPx` 省略 prec 時吃 `window._pxPrec`＝主圖那檔的位數）。 */
+window._mcDrawOverlay = function (o) {
+  if (!o || !o.ctx || !o.chart || !o.series || !o.rows || !o.rows.length) return;
+  if (typeof replayActive !== "undefined" && replayActive) { try { o.ctx.clearRect(0, 0, o.W, o.H); } catch (e) {} return; }
+  const _c = drawCtx, _cv = drawCanvas, _m = mainChart, _s = candleSeries, _d = ohlcvData, _dr = drawings;
+  const _p = window._pxPrec;
+  try {
+    drawCtx = o.ctx; drawCanvas = o.ctx.canvas; mainChart = o.chart; candleSeries = o.series; ohlcvData = o.rows;
+    if (o.prec != null) window._pxPrec = o.prec;
+    drawings = _mcDrawingsFor(o.symKey);
+    o.ctx.clearRect(0, 0, o.W, o.H);
+    _drawVisHL(o.W, o.H);
+    /* 這一格自己那檔的繪圖（唯讀：不接點擊、沒有 hover/選取）。
+       過濾條件與主圖那段**完全一致**（只畫主圖層、跳過隱藏的圖層 A/B/C）。 */
+    const _isMain = d => (!d.pane || d.pane === "main") && _layerOn(d);
+    const _list = _byLayer(drawings).filter(_isMain);
+    _hpLaneBuild(_list);          // 水平線右緣價格標籤先配位（同主圖）
+    _hpPend.length = 0;
+    for (const d of _list) { try { drawOne(d, o.W, o.H, false, false); } catch (e) { try { drawCtx.restore(); } catch (_) {} } }
+    _hpFlush();                   // 標籤等線都畫完才畫,否則會被線劃花
+    for (const d of _list) { if (d.text) { try { _drawDrawingBadge(d, o.W, o.H); } catch (e) { try { drawCtx.restore(); } catch (_) {} } } }
+  } catch (e) {
+  } finally {
+    drawCtx = _c; drawCanvas = _cv; mainChart = _m; candleSeries = _s; ohlcvData = _d;
+    drawings = _dr; window._pxPrec = _p;
+  }
+};
+/* 從繪圖倉庫取「某一檔」的繪圖（鍵＝`市場:交易所:代號`,全大寫,同 `_drawSymKey`）。
+   ⚠ 這裡**不可以**用 `_drawSymKey()`：那支讀的是上方的輸入框＝主圖那一檔。 */
+function _mcDrawingsFor(symKey) {
+  if (!symKey) return [];
+  try {
+    const arr = _loadDrawStore()[String(symKey).toUpperCase()];
+    return Array.isArray(arr) ? arr.filter(d => d && d.id && d.type) : [];
+  } catch (e) { return []; }
+}
+
 function _drawKeyLevels(W, H) {
   if (!window._pdhlOn) return;
   if (typeof ohlcvData === "undefined" || !ohlcvData.length || typeof mainChart === "undefined" || !candleSeries) return;
@@ -4032,6 +4076,12 @@ function renderDrawings() {
 
   // 繪圖文字標籤(非文字型)+ 鎖定圖示:畫在繪圖錨點上方
   _byLayer(drawings).forEach(d => { if (d.text && _isMain(d)) { try { _drawDrawingBadge(d, W, H); } catch (e) { try { drawCtx.restore(); } catch (_) {} } } });
+
+  /* 多圖模式的格子也有一層 overlay（可見高低＋那一檔自己的繪圖）→ 掛在這個共同入口,
+     圖例/圖層開關一切兩邊同步。
+     ⚠ 一定要排在**主圖整段畫完之後**：那一趟會動到 `_hpLane/_hpPend` 那組共用的標籤狀態。
+       （實際上它是 rAF 併幀的,不會同步跑在這中間,但順序仍以「主圖先完成」為準。） */
+  if (typeof window._mcPaintOv === "function") window._mcPaintOv();
 
   // （策略棒止損線改由 realtime.js onMainCrosshair 用 LWC 原生 price line 畫，不再走 overlay）
 

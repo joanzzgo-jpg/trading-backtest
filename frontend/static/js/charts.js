@@ -308,37 +308,42 @@ let _rsiZonePrim = null;
      （與參考圖一致）。 */
 let _lineGradPts = [];      // [{t, v}] 收盤價，升序
 let _lineGradPrim = null;
-function _lineGradLB(t) {
-  let lo = 0, hi = _lineGradPts.length;
-  while (lo < hi) { const m = (lo + hi) >> 1; _lineGradPts[m].t < t ? lo = m + 1 : hi = m; }
+function _lineGradLB(t, pts) {
+  const P = pts || _lineGradPts;
+  let lo = 0, hi = P.length;
+  while (lo < hi) { const m = (lo + hi) >> 1; P[m].t < t ? lo = m + 1 : hi = m; }
   return lo;
 }
-function _makeLineGradPrimitive() {
+/* `getPts` ＝這條線要畫誰的收盤（省略＝主圖的 `_lineGradPts`）。
+   多圖模式的每一格各有自己的一份（使用者：「我要全功能同步」）—— 沒有這個參數的話，
+   三個格子會全部畫成**主圖那一檔**的折線（不報錯,只是畫錯標的）。 */
+function _makeLineGradPrimitive(getPts) {
   let _chart = null, _series = null, _req = null;
   const renderer = {
     draw(target) {
-      if (!window._chartTypeLine || !_lineGradPts.length || !_chart || !_series) return;
+      const PTS = getPts ? (getPts() || []) : _lineGradPts;
+      if (!window._chartTypeLine || !PTS.length || !_chart || !_series) return;
       const ts = _chart.timeScale();
       let vr = null; try { vr = ts.getVisibleRange(); } catch (e) {}
       if (!vr) return;
       target.useBitmapCoordinateSpace(scope => {
         const ctx = scope.context, hr = scope.horizontalPixelRatio, vp = scope.verticalPixelRatio;
         const H = scope.bitmapSize.height;
-        const i0 = Math.max(0, _lineGradLB(vr.from) - 1);
-        const i1 = Math.min(_lineGradPts.length, _lineGradLB(vr.to) + 2);
+        const i0 = Math.max(0, _lineGradLB(vr.from, PTS) - 1);
+        const i1 = Math.min(PTS.length, _lineGradLB(vr.to, PTS) + 2);
         if (i1 - i0 < 2) return;
         // ★漸層要綁「這段線自己的最高/最低」而不是整個窗格高度：
         //   價格波動小的時候，線只佔窗格中間一小條，綁窗格會讓整條線都落在漸層的同一個色段
         //   → 看起來像單色。綁自身範圍才會像參考圖那樣，永遠是完整的紫→藍→青。
         //   ⚠ y 只算一趟並存進暫存區，下面描線直接重用：原本 min/max 一趟、描線又一趟，
         //     等於每點做兩次 priceToCoordinate（實測各佔 0.47ms／幀）。
-        const lin = _linearX(ts, _lineGradPts, i0, i1);
+        const lin = _linearX(ts, PTS, i0, i1);
         _ensureScratch(i1 - i0);
         let yMin = Infinity, yMax = -Infinity, m = 0;
         for (let i = i0; i < i1; i++) {
-          const yy = _series.priceToCoordinate(_lineGradPts[i].v);
+          const yy = _series.priceToCoordinate(PTS[i].v);
           if (yy == null) continue;
-          const xx = lin ? lin.x0 + (i - i0) * lin.step : ts.timeToCoordinate(_lineGradPts[i].t);
+          const xx = lin ? lin.x0 + (i - i0) * lin.step : ts.timeToCoordinate(PTS[i].t);
           if (xx == null) continue;
           _sX[m] = xx; _sHi[m] = yy; m++;
           if (yy < yMin) yMin = yy;
@@ -578,6 +583,9 @@ window.toggleChartInvert = function (on) {
   if (badge) badge.hidden = !inv;
   const frame = document.getElementById("invertFrame");
   if (frame) frame.hidden = !inv;
+  /* 多圖模式時迷你圖也一起顛倒（`_mcApplyView`）→ 琥珀框只描主圖會看起來像「只有主圖倒了」。
+     用 root class 讓 CSS 給迷你圖欄描同一圈,不必再多一個 DOM 與它的定位程式。 */
+  document.documentElement.classList.toggle("chart-inverted", inv);
   const btn = document.getElementById("invertBtn");   // ⚙ 旁邊的 ⇅ 鈕（快捷鍵／點標章切換時也要同步亮暗）
   if (btn) { btn.classList.toggle("active", inv); btn.setAttribute("aria-pressed", inv ? "true" : "false"); }
   const mRow = document.getElementById("mSetInvert"), mSt = document.getElementById("mSetInvertState");   // 手機設定分頁
@@ -596,6 +604,10 @@ function applyChartType() {
       : _candleColorOpts());
     if (lineSeries) lineSeries.applyOptions({ visible: line });
   } catch (e) {}
+  /* ★ 多圖模式的迷你圖跟著走（使用者：「我要全功能同步」）。掛在這裡是因為它是
+     **K 棒顏色／圖型／上下顛倒三者共同的唯一出口**：`applyAllColors`、`toggleChartInvert`、
+     `toggleChartType`、`createCandleSeries` 最後都會回到這一行,掛一處就不可能漏。 */
+  if (typeof window._mcApplyView === "function") window._mcApplyView();
   const btn = document.getElementById("chartTypeBtn");
   if (btn) {
     btn.classList.toggle("active", line);
@@ -629,12 +641,16 @@ let _fvgShow = true;
    ⚠ 後端仍會送每個缺口的 tp/sl 欄位（`setFVGZones` 照常收下），只是不再畫 ——
      要連傳輸一起省的話那是另一件事，得先確認沒有別的消費者。 */
 let _fvgMinW = 0;            // FVG 最小寬度%（使用者自定）：寬度 < 此值的缺口不畫（純顯示過濾，不影響策略）
-function _makeFVGPrimitive() {
+/* `getZones` ＝這張圖要畫誰的缺口（省略＝主圖的 `_fvgZones`）。
+   多圖模式每一格各有自己的一份（使用者：「也沒有 fvg vol 那些」）—— 不傳的話所有格子
+   都會畫成**主圖那一檔**的缺口（不報錯,只是畫錯標的）。同 `_makeLineGradPrimitive`。 */
+function _makeFVGPrimitive(getZones) {
   let _chart = null, _series = null, _req = null;
   let _fvgSettleT = null;   // 平移中跳過文字/菱形後，停手補畫一次（否則沒有重繪事件、細節不回來）
   const renderer = {
     draw(target) {
-      if (!_fvgShow || !_fvgZones.length || !_chart || !_series) return;
+      const ZS = getZones ? (getZones() || []) : _fvgZones;
+      if (!_fvgShow || !ZS.length || !_chart || !_series) return;
       const ts = _chart.timeScale();
       // 可視時間範圍：整盒在視窗外就略過（廉價數值判斷、在任何 timeToCoordinate 之前）→
       // 平移時不再對「全部缺口」逐個算座標/跑 pens/畫標籤，只處理螢幕上看得到的那幾個（大幅去卡）。
@@ -652,7 +668,7 @@ function _makeFVGPrimitive() {
         if (_mv) { clearTimeout(_fvgSettleT); _fvgSettleT = setTimeout(() => { if (_req) _req(); }, 240); }
         else { ctx.font = `${Math.round(10 * vr)}px sans-serif`; ctx.textBaseline = "middle"; ctx.textAlign = "left"; }
         const _fltGopp = !!window._fvgFilterGopp, _fltGvol = !!window._fvgFilterGvol;
-        for (const z of _fvgZones) {
+        for (const z of ZS) {
           if (z.t1 > _hi) continue;                       // 整盒在視窗右側外
           if (z.t2 != null && z.t2 < _lo) continue;       // 整盒在視窗左側外（t2=null＝延伸到右緣，永不判為左外）
           if (_fltGopp && !z.go) continue;                // 只顯示 g 逆兩側方向的缺口
@@ -702,6 +718,8 @@ function _makeFVGPrimitive() {
   };
 }
 // 餵入後端 fvg 陣列 [{t, top, bot, d, t2}] → 轉圖表時間並重繪
+// ⚠ 映射本身另外開放給多圖模式用（`window._fvgMapZones`）—— 那邊要的是同一份轉換,
+//   自己再抄一份的話後端一改欄位就會有一邊安靜地不同步。
 function setFVGZones(list) {
   // 缺口進場觸及時間還原：鍵存在→用它(可能是 null=沒觸及)；鍵不存在→後端省略,代表與 t2 相同
   const _fvgEt = (z, k) => {
@@ -725,6 +743,11 @@ function setFVGZones(list) {
   })).filter(z => z.t1 != null && z.top != null && z.bot != null && !z.inv);   // IFVG(inv) 先關閉：不顯示反轉缺口色塊
   if (_fvgPrimitive) _fvgPrimitive.requestUpdate();
 }
+window._fvgMapZones = function (list) {   // 同一份映射,給多圖模式的格子用（見上方註解）
+  const _keep = _fvgZones;
+  try { setFVGZones(list); return _fvgZones; }
+  finally { _fvgZones = _keep; }
+};
 // 開關（預設開）：window.toggleFVG() 切換
 function toggleFVG(on) {
   _fvgShow = (on === undefined) ? !_fvgShow : !!on;
@@ -1993,6 +2016,28 @@ function syncTimeScales() {
     });
   }
 
+  /* ★ 2026-09-27 多圖模式的十字線連動（使用者：「縮放什麼的都要同步」）。
+     主圖的鉛直線**不是 LWC 原生的**（原生已關掉,見下方），是這裡自繪的 `.pane-vline` →
+     迷你圖要把十字線推回主圖,只能透過這兩支出口（`positionLinesByX` 在 closure 裡,外面拿不到）。
+     ⚠ 只動鉛直線與時間標籤,不碰價格軸標籤：那是主圖自己的價格,不該被別的標的帶著跑。 */
+  let _mcDriven = false;          // 目前的鉛直線是「別的格子推來的」
+  window._mcCrosshairAt = function (timeSec) {
+    try {
+      if (mainChart.timeScale().timeToCoordinate(timeSec) == null) { window._mcCrosshairHide(); return; }
+      _mcDriven = true;
+      clearTimeout(hideTimer);    // ⚠ 見下方 _mcDriven 的說明：主圖的隱藏是延遲 60ms 的
+      /* 走 `positionLines`（不是 `positionLinesByX`）：我們知道時間,所以底部的時間標籤也該出現
+         —— 迷你圖自己的原生時間標籤就有,主圖少一個會看起來像沒連動。
+         ⚠ 刻意**不**跟著呼叫 `updateAllLegends`：主圖圖例在滑鼠不在主圖上時,
+           每一拍即時更新都會把它重設回最後一根 → 會變成閃爍。 */
+      positionLines(timeSec);
+    } catch (e) {}
+  };
+  window._mcCrosshairHide = function () {
+    _mcDriven = false;
+    try { lineEls.forEach(ln => { ln.style.display = "none"; }); timeLabel.style.display = "none"; } catch (e) {}
+  };
+
   panesConf.forEach(({ chart }) => {
     chart.subscribeCrosshairMove(param => {
       clearTimeout(hideTimer);
@@ -2019,6 +2064,11 @@ function syncTimeScales() {
         }
       }
       if (!param.time || !param.point) {
+        /* ⚠⚠ 游標從主圖移到迷你格時,瀏覽器在**同一個任務**裡先派「進入格子」再讓主圖清十字線
+           → 我們剛把線畫到格子對應的位置,主圖自己的清除又把它藏起來（實測 display 最後是 none,
+           而 left 已經是新的值＝「位置對了、卻看不見」）。_mcDriven 為真＝線現在由別人驅動,
+           不是「沒有十字線」,不可以藏。離開所有圖表時 `_mcCrosshairHide` 會把它放掉。 */
+        if (_mcDriven) return;
         hideTimer = setTimeout(() => {
           lineEls.forEach(l => l.style.display = "none");
           timeLabel.style.display = "none";

@@ -534,6 +534,7 @@ window._renderFVGBreak = _renderFVGBreak;
 window.toggleFVGBreak = function (on) {
   window._fvgBreakHidden = (on === undefined) ? !window._fvgBreakHidden : !on;
   _applyMainMarkers();
+  if (typeof window._mcApplyView === "function") window._mcApplyView();   // 多圖模式的各格跟著關/開
   return !window._fvgBreakHidden;
 };
 
@@ -572,6 +573,7 @@ window._renderFVGMS = _renderFVGMS;
 window.toggleFVGMS = function (on) {
   window._fvgMSHidden = (on === undefined) ? !window._fvgMSHidden : !on;
   _applyMainMarkers();
+  if (typeof window._mcApplyView === "function") window._mcApplyView();   // 多圖模式的各格跟著關/開
   return !window._fvgMSHidden;
 };
 

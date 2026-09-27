@@ -2098,7 +2098,9 @@ def crt_winrate_api(
         # 輕量模式(多圖迷你圖用)：只回 多空/破多空 標記陣列(幾KB vs 整包~190KB)。
         # 照樣吃 get_crt_winrate 快取(命中=毫秒級)；冷門標的首算仍要等(前端 async 補上)。
         # 只回近段各 250 筆：迷你圖只載 ~320 根 K,整包標記(vw=8000 可達數千筆/98KB)是浪費
-        return _wr_resp({"fvg_ms": (wr.get("fvg_ms") or [])[-250:], "fvg_break": (wr.get("fvg_break") or [])[-250:]})
+        # 2026-09-27 使用者：「也沒有 fvg vol 那些」→ 缺口色塊也一起回（同樣只回近段）
+        return _wr_resp({"fvg_ms": (wr.get("fvg_ms") or [])[-250:], "fvg_break": (wr.get("fvg_break") or [])[-250:],
+                         "fvg": (wr.get("fvg") or [])[-400:]})
     _h = wr.get("_h")
     etag = f'W/"{_h}-{_git_rev()}"' if _h else None
     # ⚠ 帶 base_h（要差量）時不走 304：差量請求的 URL 與整包不同 → 瀏覽器沒有對應的快取 body，

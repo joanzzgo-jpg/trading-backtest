@@ -1960,6 +1960,17 @@ function _selectSymbol(el) {
   const mkt = el.dataset.market ||
               (_symSearchMarket === "tw" ? "tw" : _symSearchMarket === "us" ? "us"
                : _symSearchMarket === "hk" ? "hk" : _symSearchMarket === "fx" ? "fx" : "crypto");
+  /* ★ 2026-09-27 借用模式（使用者：「第二畫面標的怎麼換」）：多圖模式的某一格要換標的時,
+     由它設好 `window._symPickFor` 再開這個視窗 → 選到的標的**交給它**,主圖完全不動。
+     沒設就是原本的行為（換主圖）。⚠ 一定要在這裡就 return：下面那串是主圖專用的
+     （切 marketSelect、寫 symbolInput、loadData）,跑下去就會把主圖也換掉。 */
+  if (typeof window._symPickFor === "function") {
+    const cb = window._symPickFor;
+    window._symPickFor = null;
+    closeSymSearch();
+    try { cb({ market: mkt, symbol: display, display }); } catch (e) {}
+    return;
+  }
   // 選擇後切換到對應市場
   if (mkt === "tw") {
     document.getElementById("marketSelect").value = "tw";
@@ -2017,7 +2028,9 @@ function _applySymPlaceholder() {
   if (inp) inp.placeholder = _SYM_PLACEHOLDER[_symSearchMarket] || _SYM_PLACEHOLDER.all;
 }
 
-function openSymSearch() {
+function openSymSearch(pickFor) {
+  // pickFor＝函式時進入「借用模式」（見 _selectSymbol）；點 symbolInput 進來時參數是事件物件 → 不是函式
+  window._symPickFor = (typeof pickFor === "function") ? pickFor : null;
   document.getElementById("symOverlay").classList.remove("hidden");
   const inp = document.getElementById("symModalInput");
   inp.value = "";
@@ -2034,6 +2047,7 @@ function openSymSearch() {
 }
 
 function closeSymSearch() {
+  window._symPickFor = null;      // 沒選就關掉＝取消借用,下次點 symbolInput 才不會誤送給別人
   document.getElementById("symOverlay").classList.add("hidden");
 }
 

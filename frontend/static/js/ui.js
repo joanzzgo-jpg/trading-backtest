@@ -1246,6 +1246,8 @@ function bindLegendToggles() {
       // BB 關掉 → 圖例只留 "BB"（三個價格佔整排 22%，關掉時毫無意義）；開回來就補值。
       if (id === "legBB" && window._refreshBBLeg) window._refreshBBLeg();
       saveVisibilityPrefs();
+      // 多圖模式的格子要照「使用者實際開了什麼」走（見 multichart.js `_mirrorVis`）
+      if (typeof window._mcApplyView === "function") window._mcApplyView();
     });
   });
 
@@ -1417,6 +1419,7 @@ function _showPane(paneId) {
 function _afterPaneToggle() {
   updateBottomTimeAxis();
   resizeAll();
+  if (typeof window._mcSyncSubs === "function") window._mcSyncSubs();   // 多圖模式：各格的副圖跟著開/關
   saveVisibilityPrefs();
   savePaneFlexes();
 }
@@ -1533,6 +1536,7 @@ function _initSubChartsToggle() {
     const nowHidden = container.classList.contains("subcharts-hidden");
     try { localStorage.setItem("subChartsHidden", nowHidden ? "1" : "0"); } catch (e) {}
     _syncBtn();
+    if (typeof window._mcSyncSubs === "function") window._mcSyncSubs();   // 多圖模式：各格的副圖跟著整組開/關
     // 由隱藏→顯示：資料在隱藏期間以 indicators=false 抓入(無 KDJ/RSI/MACD 欄) → 需重抓；
     // 若已有指標欄(之前開過)則直接補算。(replay 中交由 replay 迴圈補)
     if (!nowHidden && !replayActive && ohlcvData.length) {
