@@ -30,6 +30,20 @@
   const _LAYER_DEFS = _lowFx                // 手機省層數
     ? [["sky", -1600, 1], ["astro", -1400, 1], ["mid", -450, 1], ["fore", 0, 1]]
     : [["sky", -1600, 1], ["astro", -1400, 1], ["far", -900, 0], ["mid", -450, 1], ["near", -150, 1], ["fore", 0, 1]];
+
+  /* ★★ 2026-09-27 效能：實測閒置時**六張 3000×1900 的畫布每秒各被 clearRect 20 次**，
+     而其中 far／mid／near 三張在多數天氣下**一次都沒畫東西**（量到 drawImage/fillRect 皆為 0）——
+     等於每秒白清掉三億多個像素。2026-08-06 已經處理過「天氣＝無」那種情況，
+     但「有天氣、只是某幾層沒用到」這種更常見的情形沒人管。
+     → 每幀只清「上一幀真的畫過」的圖層：所有取用繪圖 context 的地方改走 `_ink(層名)`，
+       它回傳同一個 ctx 並把該層標記為髒。
+     ⚠ **所有**畫進圖層的路徑都要走 `_ink`，漏一個那層就永遠不清＝殘影（`_ctxFor` 與
+       雨滴分箱的 `b.ctx` 都是從這裡拿的，所以一併涵蓋）。
+     ⚠ 換天氣型態／換視窗大小時一律全清（型態一換，上一型態留下的東西必須消失）。 */
+  const _dirtyL = Object.create(null);
+  function _ink(name) { _dirtyL[name] = true; return _layers[name].ctx; }
+  function _inkAll() { for (const [n] of _LAYER_DEFS) _dirtyL[n] = true; }
+  function _ctxFor(z) { const n = z < 0.33 ? "far" : z < 0.66 ? "mid" : "near"; return _ink(n); }
   let stage = document.getElementById("weatherStage");
   if (!stage) {                             // 防舊快取頁（HTML 還沒有 stage）→ JS 自建
     stage = document.createElement("div");
@@ -52,10 +66,13 @@
   });
   if (!_layers.far)  _layers.far  = _layers.sky;   // 手機：遠景併天空、近景併中景
   if (!_layers.near) _layers.near = _layers.mid;
-  // 預設繪圖層＝mid（中景）：尚未分層的天氣全畫這裡（中等視差、螢幕位置與既往一致）
+  /* 預設繪圖層＝mid（中景）：尚未分層的天氣全畫這裡（中等視差、螢幕位置與既往一致）。
+     ⚠⚠ 這是**模組層的 const**，取一次用到永遠 → 它拿不到「這一幀有沒有畫」的資訊。
+       髒層追蹤（見 _ink）**對它無效**：我第一版把它也換成 _ink("mid")，結果只在啟動時標記一次、
+       之後 mid 再也不清 —— A/B 實測雪 2541→4753、落葉 3771→8176 個像素（內容一直疊上去）。
+     → mid 改成每幀無條件標髒（見 draw()），等於維持舊行為；省下來的是 far / near 那兩層。 */
   const ctx = _layers.mid.ctx;
   // 依粒子景深 z（0遠~1近）選繪圖層
-  function _ctxFor(z) { return (z < 0.33 ? _layers.far : z < 0.66 ? _layers.mid : _layers.near).ctx; }
 
   let W = 0, H = 0, type = "sunny", rafId = null, _gc = {}, _lastFrameTs = 0;
   let _animClock = 0, _lastClockTs = 0;    // 動畫虛擬時鐘（毫秒）：圖表移動中放慢 → 慢動作而非凍結
@@ -378,6 +395,8 @@
       L.cv.height = Math.ceil(H * k);
       L.ctx.setTransform(k, 0, 0, k, 0, 0);  // 基準變換：繪製程式照舊用螢幕座標
     });
+    // 改 canvas 尺寸本身就會清空內容 → 旗標一起歸零（否則下一幀會白清一輪）
+    for (const [n] of _LAYER_DEFS) _dirtyL[n] = false;
     _buildGradCache();
     _init();
   }
@@ -563,12 +582,12 @@
     }
     const half = _moonSz / 2;
     // ⚠ 一定要指定目標寬高（CSS 尺寸）：不指定的話會照 backing 的裝置像素數畫，月亮會大一倍
-    _layers.astro.ctx.drawImage(_moonCv, cx-half, cy-half, _moonSz, _moonSz);
+    _ink("astro").drawImage(_moonCv, cx-half, cy-half, _moonSz, _moonSz);
   }
 
   function _drawAstro(t) {
     if (type==='aurora'||type==='sunset'||type==='sunrise'||type==='meteor') return;  // 這些自帶天空/太陽，不要再疊系統日月
-    const ga = _layers.astro.ctx;   // 天體深景層：3D 相機下大幅視差、前方雲雨真遮擋、全解析不糊
+    const ga = _ink("astro");   // 天體深景層：3D 相機下大幅視差、前方雲雨真遮擋、全解析不糊
     const nowMin = _locNowMin();
     const lx = W * 0.04, rx = W * 0.96;
     const horizonY = H * 0.88, peakY = H * 0.08;
@@ -764,7 +783,7 @@
   function _drawPlanets(t){
     const now=Date.now();
     if(now-_planetCache.at>120000){ _planetCache={ at:now, list:_computePlanets(_wxLat,_wxLon,new Date()) }; }
-    const ga=_layers.astro.ctx;                              // 行星 → 天體深景層（3D 視差 + 全解析）
+    const ga=_ink("astro");                              // 行星 → 天體深景層（3D 視差 + 全解析）
     const cloudDim=1-Math.min(1,(_wd.cloudCover||0)/100)*0.4;   // 雲多調暗但保有下限（裝飾優先）
     for(const p of _planetCache.list){
       const pos=_skyXY(p.az,p.alt); if(!pos) continue;
@@ -879,7 +898,7 @@
      離屏半解析預烤、每幀一次 drawImage。視覺對標新海誠式夜空。 */
   let _mwCv = null, _mwKey = '';
   function _milkyWay(al) {
-    const ga = _layers.astro.ctx, key = W + 'x' + H;
+    const ga = _ink("astro"), key = W + 'x' + H;
     if (key !== _mwKey) {
       _mwKey = key;
       _mwCv = document.createElement('canvas');
@@ -977,7 +996,7 @@
     }));
   }
   function _drawConstellations(t, dim) {
-    const ga = _layers.astro.ctx, now = Date.now();
+    const ga = _ink("astro"), now = Date.now();
     if (now - _constCache.at > 120000) _constCache = { at: now, list: _computeConsts(_wxLat, _wxLon, new Date()) };
     _constCache.list.forEach((pts, ci) => {
       const def = _CONSTS[ci];
@@ -1061,7 +1080,7 @@
 
   let _orrCache = { at: 0, list: [], earth: null };
   function _drawOrrery() {
-    const g = _layers.fore.ctx;
+    const g = _ink("fore");
     let R, cx, cy;
     // 手機/iPad（手機版 UI，非僅 _lowFx：iPad 螢幕大不算 lowFx 但介面同手機）：
     // 只在「自選」分頁顯示（body.m-tab-watch，main.js setTab 掛的），置中放大當背景儀表
@@ -1166,7 +1185,7 @@
     const now = Date.now();
     if (now >= _rainbowUntil || !_wd.isDay) return;
     const k = Math.min(1, (_rainbowUntil - now) / 150000);
-    const g = _layers.far.ctx;
+    const g = _ink("far");
     const cy2 = H * 1.06, r0 = H * 0.78;
     const COLS = ['255,60,60', '255,150,40', '255,220,60', '90,200,90', '70,160,255', '90,90,235', '150,80,220'];
     g.save(); g.lineCap = 'round';
@@ -1196,7 +1215,7 @@
                vy: (Math.random() - .5) * 0.22, puffs: [], last: 0 };
       _ctrNext = 0;
     }
-    const g = _layers.far.ctx, MAXP = _lowFx ? 120 : 220;
+    const g = _ink("far"), MAXP = _lowFx ? 120 : 220;
     _ctr.x += _ctr.vx; _ctr.y += _ctr.vy;
     if (t - _ctr.last > 0.05) { _ctr.puffs.push({ x: _ctr.x, y: _ctr.y, born: t }); _ctr.last = t; }
     if (_ctr.puffs.length > MAXP) _ctr.puffs.shift();
@@ -1231,7 +1250,7 @@
     }
     _flocks = _flocks.filter(f => {
       f.x += f.sp * f.dir;
-      const g = f.near ? _layers.near.ctx : _layers.far.ctx;
+      const g = f.near ? _ink("near") : _ink("far");
       const s = f.near ? 7 : 3.6;
       g.strokeStyle = f.near ? 'rgba(40,46,60,.75)' : 'rgba(60,70,90,.55)';
       g.lineWidth = f.near ? 1.6 : 1; g.lineCap = 'round';
@@ -1283,7 +1302,7 @@
     }
     _balloon.x += _balloon.sp * _balloon.dir;
     const y = _balloon.y + Math.sin(t * 0.25 + _balloon.ph) * 6;             // 熱氣流微浮動
-    const g = _layers.mid.ctx;
+    const g = _ink("mid");
     g.save(); g.globalAlpha = .92;
     g.drawImage(_balloonCv, _balloon.x - 23 * _balloon.sc, y - 33 * _balloon.sc, 46 * _balloon.sc, 66 * _balloon.sc);
     g.restore();
@@ -1295,7 +1314,7 @@
   /* 遠景雨幕：灰色半透雨簾一片片橫移掃過（far 層）→ 真實雨胞的縱深感 */
   let _curtains = null;
   function _rainCurtains(t, inten) {
-    const g = _layers.far.ctx;
+    const g = _ink("far");
     if (!_curtains) _curtains = Array.from({ length: 3 }, () => ({
       x: Math.random() * W, w: W * (0.12 + Math.random() * 0.18),
       sp: 0.35 + Math.random() * 0.45, a: 0.05 + Math.random() * 0.05, ph: Math.random() * 6.28 }));
@@ -1318,7 +1337,7 @@
   /* 水窪反光：底部積水帶的光柱倒影，隨漣漪左右搖曳（near 層）；冷光為主、偶有暖光 */
   let _pudl = null;
   function _puddles(t, inten) {
-    const g = _layers.near.ctx;
+    const g = _ink("near");
     if (!_pudl) _pudl = Array.from({ length: 9 }, () => ({
       x: Math.random() * W, w: 2 + Math.random() * 5, h: H * (0.015 + Math.random() * 0.03),
       ph: Math.random() * 6.28, warm: Math.random() < 0.35 }));
@@ -1337,7 +1356,7 @@
   /* 簷滴：螢幕頂緣醞釀的大水滴墜落 → 觸地大水花+漣漪（near 層，像躲屋簷下看雨） */
   let _eaves = [];
   function _eaveDrips(t, inten) {
-    const g = _layers.near.ctx;
+    const g = _ink("near");
     if (_eaves.length < 4 && Math.random() < 0.012 * inten)
       _eaves.push({ x: Math.random() * W, y: 2, vy: 0, grow: 0, r: 2.2 + Math.random() * 1.6 });
     for (let i = _eaves.length - 1; i >= 0; i--) {
@@ -1384,7 +1403,7 @@
     return cv;
   }
   function _drawSnail(t) {
-    const g = _layers.fore.ctx;
+    const g = _ink("fore");
     if (!_snail) {
       if (!_snailNext) _snailNext = t + 15 + Math.random() * 45;
       if (t < _snailNext) return;
@@ -1423,7 +1442,7 @@
     return cv;
   }
   function _drawDuck(t, inten) {
-    const g = _layers.near.ctx;
+    const g = _ink("near");
     if (!_duck) {
       if (!_duckNext) _duckNext = t + 6 + Math.random() * 14;
       if (t < _duckNext) return;
@@ -1798,12 +1817,12 @@
        不會有任何提示 —— 而它會把守門員的「零 JS 錯誤」判準整個淹掉。 */
     const clr = _cloudClr(), rk = .35 + .65*clr;
     /* background warm glow → 天空層（最遠的大氣底光；太陽本體/光束留在 mid 層 → 相機移動時微微分離出縱深） */
-    const gs = _layers.sky.ctx;
+    const gs = _ink("sky");
     const bg = gs.createRadialGradient(sx,sy,0,sx,sy,W*.85);
     bg.addColorStop(0,'rgba(255,240,110,.38)'); bg.addColorStop(.45,'rgba(255,165,30,.11)'); bg.addColorStop(1,'rgba(0,0,0,0)');
     gs.save(); gs.globalAlpha=.45+.55*clr; gs.fillStyle=bg; gs.fillRect(0,0,W,H); gs.restore();
     /* 太陽本體與所有光效 → 天體深景層：相機運鏡時大幅視差，前方雲層（far/mid/near）真遮擋 */
-    const ga = _layers.astro.ctx;
+    const ga = _ink("astro");
     _sunHalo(ga, sx, sy);   // 22° 日暈（卷雲時的光環，真實大氣光學）
     /* god rays（體積光束）：自太陽放射的寬柔光錐，緩慢飄、隨晴朗度增強（lighter 疊加發光） */
     ga.save(); ga.globalCompositeOperation='lighter'; ga.translate(sx,sy);
@@ -1862,7 +1881,7 @@
   }
 
   function dNight(t) {
-    const ga = _layers.astro.ctx;   // 整片夜空（星雲/星星/流星）＝天文 → 天體深景層（3D 視差 + 全解析）
+    const ga = _ink("astro");   // 整片夜空（星雲/星星/流星）＝天文 → 天體深景層（3D 視差 + 全解析）
     /* nebula blobs (cached gradients) */
     _gc.nebula.forEach(g => { ga.fillStyle=g; ga.fillRect(0,0,W,H); });
     /* twinkling stars（加亮 + 亮星十字光芒） */
@@ -1911,7 +1930,7 @@
     if (_ufo.dir > 0 ? _ufo.x > W + 100 : _ufo.x < -100) {        // 飄出 → 隔 14~44s 再來
       _ufo = null; _ufoNext = t + 14 + Math.random() * 30; return;
     }
-    const ga = _layers.fore.ctx;   // 畫在最前天氣層 → 微光不被雲雨擋住（仍在 z:2 的 K 棒之後）
+    const ga = _ink("fore");   // 畫在最前天氣層 → 微光不被雲雨擋住（仍在 z:2 的 K 棒之後）
     const x = _ufo.x, y = _ufo.y + Math.sin(t * 0.6 + _ufo.ph) * 6;   // 緩慢上下浮
     const R = _lowFx ? 20 : 26;                                       // 碟身半徑（手機略小）
     const pulse = 0.6 + 0.4 * Math.sin(t * 2.2 + _ufo.ph);            // 燈光/微光脈動
@@ -1990,10 +2009,10 @@
     const gust = 0.5 + 0.5 * Math.sin((t||0) * 0.21) * (0.6 + 0.4 * Math.sin((t||0) * 0.047 + 2));
     const intensity = _rainRamp * (0.55 + 0.45 * gust);
     /* stormy sky overlay (cached gradient) — 天色隨雨勢加深 → 天空層 */
-    const gs = _layers.sky.ctx, gn = _layers.near.ctx, gf = _layers.fore.ctx;
+    const gs = _ink("sky"), gn = _ink("near"), gf = _ink("fore");
     gs.save(); gs.globalAlpha = 0.35 + 0.65*intensity; gs.fillStyle=_gc.rainSky; gs.fillRect(0,0,W,H); gs.restore();
 
-    _layers.far.ctx.lineCap = _layers.mid.ctx.lineCap = gn.lineCap = "round";
+    _ink("far").lineCap = _ink("mid").lineCap = gn.lineCap = "round";
     // 雨斜度＝直接跟「風速」走（有風就明顯斜、不管風偏東西南北）＋無風也保底斜；方向跟風的東西分量（≈0→預設右、與雲飄一致）
     const lean = _rainLean();   // 斜率(無風~16°、20km/h~39°、45km/h+~54°封頂)；雨滴沿此斜率移動(見下)
     // 斜雨密度補償：spawn 範圍向上風側擴大 ~|lean*H| → 若雨滴數不變，畫面上密度會被稀釋。
@@ -2477,7 +2496,7 @@
   /* ── 陰天/密雲：全灰滿雲、無太陽（比 cloudy 更暗更密）── */
   function dOvercast(t) {
     // 灰天幕改畫在最深的天空層：只當「天色」、不再像毛玻璃膜罩在雲/UI 前面（使用者回饋）
-    const gsky = _layers.sky.ctx;
+    const gsky = _ink("sky");
     gsky.fillStyle = "rgba(150,160,176,.16)"; gsky.fillRect(0,0,W,H);
     gsky.fillStyle = "rgba(118,128,144,.09)"; gsky.fillRect(0,0,W,H);
     const cdir = _windVecX() >= 0 ? 1 : -1, margin = W*0.6;
@@ -2495,7 +2514,7 @@
   /* ── 毛毛雨/微雨：稀疏細小雨絲、無漣漪無暴風天幕（比 rain 輕很多）── */
   function dDrizzle() {
     // 淡灰濛改畫在天空層（同 dOvercast：去毛玻璃膜感）
-    _layers.sky.ctx.fillStyle = "rgba(150,165,186,.13)"; _layers.sky.ctx.fillRect(0,0,W,H);
+    _ink("sky").fillStyle = "rgba(150,165,186,.13)"; _ink("sky").fillRect(0,0,W,H);
     ctx.lineCap = "round";
     const lean = _windVecX()*.10, wd = _windDriftPx()*.5;   // 傾斜/飄移跟著風
     rainP.forEach(p => {
@@ -2760,7 +2779,7 @@
 
   /* ☄️ 流星雨：暗夜 + 星 + 行星，頻繁從上方輻射射出帶光尾的流星（整片夜空 → 天體深景層） */
   function dMeteor(t) {
-    const ga = _layers.astro.ctx;
+    const ga = _ink("astro");
     _gc.nebula && _gc.nebula.forEach(g => { ga.fillStyle=g; ga.fillRect(0,0,W,H); });
     _milkyWay(0.9);   // 彩色銀河（流星雨＝夜空 showcase 模式，全亮）
     stars.forEach(p => {
@@ -2851,7 +2870,7 @@
   }
   function _drawBackdrop(t) {
     const bd = _SKY_BD[type]; if (!bd) return;
-    const gs = _layers.sky.ctx;
+    const gs = _ink("sky");
     const step = Math.round((1 - _dayK()) * 12);          // 夜化 0..12 量化 → 漸層可快取
     const key = type + '|' + H + '|' + step;
     if (key !== _bdKey) {
@@ -2906,7 +2925,7 @@
   /* ── 溫度色調：熱→暖橘、冷→冷藍（全畫面極淡疊色，依實際溫度）→ fore 最前層（罩住所有景深層） ── */
   function _tempTint() {
     if (_wd.temp == null) return;
-    const tmp = _wd.temp, gf = _layers.fore.ctx;
+    const tmp = _wd.temp, gf = _ink("fore");
     if (tmp >= 28)      { gf.fillStyle = `rgba(255,150,40,${Math.min(.12,(tmp-28)*.012).toFixed(3)})`; gf.fillRect(0,0,W,H); }
     else if (tmp <= 6)  { gf.fillStyle = `rgba(120,170,255,${Math.min(.14,(6-tmp)*.012).toFixed(3)})`; gf.fillRect(0,0,W,H); }
   }
@@ -2945,7 +2964,7 @@
   }
   function _drawBearTiles(t) {
     if (!_bearReady) { _ensureBearImg(); return; }
-    const g = _layers.mid.ctx;
+    const g = _ink("mid");
     const ts = Math.round(Math.max(22, Math.min(38, Math.min(W, H) * 0.04)));    // 單格邊長(再縮半→數量再×4)
     if (_bearTileSize !== ts || !_bearPat) {
       _bearTileSize = ts;
@@ -3057,14 +3076,22 @@
     //   一遍（DPR2 下那是好幾千萬像素/秒的純浪費）。搭配 loop() 的停轉,關掉天氣＝真的不算。
     const type = _effType();          // ⚠ 遮蔽外層 type：以下整段都用「封面已換算過」的型態
     if (type === "off" && !_bearTilesOn) {
-      if (!_offCleared) { _LAYER_DEFS.forEach(([name]) => _layers[name].ctx.clearRect(0,0,W,H)); _offCleared = true; }
+      if (!_offCleared) { _LAYER_DEFS.forEach(([name]) => _layers[name].ctx.clearRect(0,0,W,H)); _offCleared = true; }  /*KEEP*/
       return;
     }
     _offCleared = false;
-    _LAYER_DEFS.forEach(([name]) => _layers[name].ctx.clearRect(0,0,W,H));
+    // 只清上一幀真的畫過的圖層（見 _ink 的說明）
+    _LAYER_DEFS.forEach(([name]) => {
+      if (!_dirtyL[name]) return;
+      _layers[name].ctx.clearRect(0, 0, W, H);
+      _dirtyL[name] = false;
+    });
     // 「無」模式：磁磚開→鋪橘子熊牆紙；磁磚關→全黑（由 stage 黑底處理，畫布留空）
     // ⚠ 封面不鋪磁磚（_effType 已把封面的 "off" 換成真實天氣，走不到這裡；這行是磁磚模式的一般情況）
     if (type === "off") { if (_bearTilesOn) _drawBearTiles(t); return; }
+    /* ⚠ mid 是上面那個模組層 `ctx` 的宿主，無法逐幀判斷有沒有被畫 → 一律標髒（＝照舊每幀清）。
+       far / near 沒有這個問題，維持「畫過才清」—— 實測那兩層在多數天氣下整幀零筆繪圖。 */
+    _dirtyL.mid = true;
     _applyCamera();              // 3D 相機：平滑移動 perspective-origin（純 GPU 合成、不觸發重繪）
     _drawBackdrop(t);            // 亮麗天色底 + 雙色流動光暈（sky 最深層，最先畫）
     ({sunny:dSunny,night:dNight,cloudy:dCloudy,fog:dFog,rain:dRain,snow:dSnow,storm:dStorm,thunder:dThunder,mahjong:dMahjong,leaves:dLeaves,spring:dSpring,partly:dPartly,overcast:dOvercast,drizzle:dDrizzle,windy:dWindy,hail:dHail,tornado:dTornado,quake:dQuake,aurora:dAurora,sunset:dSunset,sunrise:dSunrise,meteor:dMeteor})[type]?.(t);
@@ -3176,6 +3203,7 @@
   }
 
   function start(wt) {
+    _inkAll();          // 換天氣型態：上一型態留在各層的東西必須被清掉（見 _ink 的說明）
     const changed = wt !== type || !_inited;
     // 真正換型態(非首次、非進出「無」)→ 先快照舊場景做交叉溶解，遮住粒子瞬間重建的跳動
     if (changed && _inited && wt !== "off" && type !== "off") _crossfade();

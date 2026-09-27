@@ -1354,7 +1354,17 @@ function fmtTickerPrice(p, key, open) {
   return p.toFixed(6);
 }
 
-function _saveTickerCache() {
+/* ★★ 2026-09-27 效能：這支原本「清單結構一變就存」，而加密是**依漲跌幅排序**的 ——
+   每秒的報價一到順序就變 → 實測**閒置 12 秒寫了 9 次、每次 116.3 KB**（≈1 MB／12 秒）。
+   localStorage 是同步 API 又落磁碟，手機上那是白白的 I/O 與快閃寫入壽命。
+   → 節流成最多 15 秒一次；離開分頁（pagehide／切背景）時立刻補寫一次，最新的那份不會漏。
+   ⚠ 這份只是「下次開啟的底稿」，**不是資料來源** —— 舊個十幾秒完全無所謂（開啟後第一輪
+     報價就蓋過去了）。當初寫成「一變就存」只是沒想到排序會讓它每秒都變。
+   ⚠ 補寫要掛 `pagehide` 與 `visibilitychange` 兩個：iOS Safari 切 app 時常常只發前者
+     （同 account.js 那個 sendBeacon 的教訓）。 */
+const _TC_MIN_GAP = 15000;
+let _tcLastSave = 0, _tcTimer = null;
+function _tcWriteNow() {
   try {
     /* ★ 台股那份也要存（2026-08-19）：原本只存 f(合約)+s(現貨) → 切到台股分頁時本機沒有
        任何底稿，慢網路下實測**空白 2.4 秒**（在那之前更糟：顯示的是合約的價格）。
@@ -1362,8 +1372,21 @@ function _saveTickerCache() {
     const _c = { f: _tickerData, s: _spotTickerData, ts: Date.now() };
     if (typeof _twTickerData !== "undefined" && _twTickerData.length) _c.t = _twTickerData;
     localStorage.setItem("_tc", JSON.stringify(_c));
+    _tcLastSave = Date.now();
   } catch {}
+  if (_tcTimer) { clearTimeout(_tcTimer); _tcTimer = null; }
 }
+function _saveTickerCache(force) {
+  if (force) { _tcWriteNow(); return; }
+  const wait = _TC_MIN_GAP - (Date.now() - _tcLastSave);
+  if (wait <= 0) { _tcWriteNow(); return; }
+  if (!_tcTimer) _tcTimer = setTimeout(() => { _tcTimer = null; _tcWriteNow(); }, wait);
+}
+try {
+  const _tcFlush = () => { if (_tcTimer || Date.now() - _tcLastSave > 2000) _tcWriteNow(); };
+  window.addEventListener("pagehide", _tcFlush);
+  document.addEventListener("visibilitychange", () => { if (document.hidden) _tcFlush(); });
+} catch (e) {}
 
 function _loadTickerCache() {
   try {

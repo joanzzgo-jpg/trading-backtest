@@ -1950,14 +1950,27 @@ let _curSessMkt = "crypto";
 const _SESSION_NAME_OF = (sess) => (_curSessMkt === "crypto" ? _SESSION_NAME_CRYPTO : _SESSION_NAME)[sess];
 // DST 感知：某時區在某 UTC 日的偏移小時（倫敦/紐約夏冬令自動跟著平移）。以「tz:UTC日」記憶化。
 const _tzOffCache = new Map();
+/* ★ 2026-09-27 效能：切時框的 CPU profile 裡 `_tzOff` 是第二大的 JS 自身時間（28.8ms）。
+   日快取本來就有，貴的是**每次未命中都 new 一個 `Intl.DateTimeFormat`** ——
+   微基準 800 次：每次 new **24.9ms** vs 重用同一個 formatter **0.9ms（省 96%）**。
+   交易時段疊加層一次要問上百天 × 兩個時區，全都落在未命中那條路。
+   ⚠ formatter 依時區快取即可：它只吃 `timeZone`，同一個時區的不同時間點共用同一個實例。 */
+const _tzFmtCache = new Map();
+function _tzFmt(tz) {
+  let f = _tzFmtCache.get(tz);
+  if (!f) {
+    f = new Intl.DateTimeFormat("en-US", { timeZone: tz, timeZoneName: "shortOffset" });
+    _tzFmtCache.set(tz, f);
+  }
+  return f;
+}
 function _tzOff(u, tz) {
   const dk = Math.floor(u / 86400), key = tz + ":" + dk;
   const hit = _tzOffCache.get(key);
   if (hit !== undefined) return hit;
   let v = 0;
   try {
-    const parts = new Intl.DateTimeFormat("en-US", { timeZone: tz, timeZoneName: "shortOffset" })
-      .formatToParts(new Date(u * 1000));
+    const parts = _tzFmt(tz).formatToParts(new Date(u * 1000));
     const o = (parts.find(p => p.type === "timeZoneName") || {}).value || "GMT+0";   // 例 "GMT+1" / "GMT-4"
     const m = o.match(/GMT([+-]?\d+)(?::(\d+))?/);
     if (m) v = Number(m[1]) + (m[2] ? Math.sign(Number(m[1]) || 1) * Number(m[2]) / 60 : 0);
