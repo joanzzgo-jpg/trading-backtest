@@ -101,7 +101,7 @@
     pxLbl.className = "current-price-label";
     body.appendChild(pxLbl);
     chart.applyOptions({ crosshair: { vertLine: { visible: false, labelVisible: false } } });
-    const ro = new ResizeObserver(() => { try { chart.resize(body.clientWidth, body.clientHeight); } catch (e) {} _ovSize(cell); _ovPaint(cell); });
+    const ro = new ResizeObserver(() => { _geomBump(); try { chart.resize(body.clientWidth, body.clientHeight); } catch (e) {} _ovSize(cell); _ovPaint(cell); });
     ro.observe(body);
     /* ⚠ **不可以在 formatter 裡呼叫 `priceToCoordinate`**（渲染中再進渲染）→
          「要蓋掉的價格區間」先在 `_curLabel` 算好,formatter 只做數字比較。
@@ -133,11 +133,12 @@
        交換保留成旁邊的 ⇄ 鈕（兩個都有用：交換是「把這格拉上主圖細看」）。 */
     _ovSize(cell);
     // 這一格自己被平移/縮放時也要重畫 overlay（主圖那邊由 renderDrawings 的共同入口帶動）
+    /* ⚠ 這個事件在縮放時一秒會丟幾十個,而下面每一項都要量版面
+       （`_placeVline` 三次 getBoundingClientRect、`_curLabel` 兩次座標換算）
+       → 全部併到 `_ovQueue` 那一幀做一次（同樣的理由見 `_onRange` 的說明）。 */
     chart.timeScale().subscribeVisibleTimeRangeChange(r => {
       if (r) _growWs(cell, r.to);
-      if (cell.xhT != null) _placeVline(cell, cell.xhT);   // 平移/縮放時時間沒變但 x 變了
-      _curLabel(cell);                                    // 價格軸會跟著縮放 → 標籤與讓位的刻度都要重算
-      _ovQueue(cell);
+      _ovQueue();
     });
     el.querySelector(".mini-sym").addEventListener("click", (e) => { e.stopPropagation(); _pickSym(i); });
     el.querySelector(".mini-swap").addEventListener("click", (e) => { e.stopPropagation(); _swap(i); });
@@ -160,10 +161,19 @@
   }
   /* 某一張圖的繪圖區寬度（＝面板寬 − 價格軸寬）。
      ⚠ 不可以用 `timeScale().width()`：實測它對主圖回 0（claude.md 記過）。 */
+  /* ⚠ 繪圖區寬度要**快取**（2026-09-28 使用者：「縮放會卡卡的,縮放圖 a 圖 b 會頓頓的」）：
+     `clientWidth` 會強制版面重算,而縮放時每秒幾十個事件 × 每張圖各問一次 → 一直在重排。
+     版面真的變了（resize／切模式／軸寬重對）時把 `_geomDirty` 打開重量即可。 */
+  let _geomDirty = true;
+  const _plotWCache = new Map();
+  const _geomBump = () => { _geomDirty = true; };
   function _plotW(chart, el) {
+    if (!_geomDirty) { const v = _plotWCache.get(chart); if (v != null) return v; }
     try {
       const w = (el ? el.clientWidth : 0) - (chart.priceScale("right").width() || 0);
-      return w > 1 ? w : 0;
+      const out = w > 1 ? w : 0;
+      _plotWCache.set(chart, out);
+      return out;
     } catch (e) { return 0; }
   }
   function _elOf(chart) {
@@ -183,6 +193,7 @@
      ⚠ 對方沒有那個時間時（跨市場：加密 vs 台股,K 棒時間根本不同）退回原本的 setVisibleRange。 */
   function _syncFrom(src) {
     if (_mode === 1) return;
+    const _wasDirty = _geomDirty;
     const sTs = src.timeScale();
     let bs = 0, r = null;
     try { bs = sTs.options().barSpacing; r = sTs.getVisibleRange(); } catch (e) {}
@@ -206,21 +217,44 @@
       } catch (e) {}
       if (!done) { try { ts.setVisibleRange({ from: r.from, to: r.to }); } catch (e) {} }
     }
+    if (_wasDirty) _geomDirty = false;      // 這一輪已經重量過了
     _cells.forEach(c => {
       try { const vr = c.chart.timeScale().getVisibleRange(); if (vr) _growWs(c, vr.to); } catch (e) {}
       _syncSubs(c); _loadOlder(c);
     });
   }
 
+  /* ★ 同步**併到下一幀做一次**（2026-09-28 使用者：「在縮放圖 a 圖 b 會頓頓的縮放」）。
+     原本每收到一個 `VisibleTimeRangeChange` 就同步一次 —— 滾輪縮放一秒會丟幾十個,
+     每個都跑一整套（量寬度 → applyOptions(barSpacing) → scrollToPosition → 重放鉛直線
+     → 重算現價標籤 → 重畫 overlay）→ 對方看起來就是一頓一頓地跟。
+     併幀之後：一幀最多同步一次,而且用的是**最後一個**事件的範圍（中間那些本來就會被蓋掉）。
+     ⚠ 旗標仍要有：`scrollToPosition` 會讓對方也丟事件,沒有旗標會互推。 */
+  let _syncRaf = 0, _syncSrc = null, _settleT = null, _lastSrc = null;
+  function _runSync(src) {
+    if (!src || _mode === 1) return;
+    _syncing = true;
+    try { _syncFrom(src); }
+    finally { setTimeout(() => { _syncing = false; }, 0); }
+    /* ⚠⚠ **收尾的那一發不可以省**（2026-09-28 4 格實測抓到）：防迴圈旗標開著的那一瞬間
+       收到的事件會被整個丟掉,而使用者「最後一下」滾輪剛好落在那裡的話,
+       對方就停在上一個狀態 —— 畫面上就是「縮放停下來之後兩邊對不齊」。
+       停手 140ms 再照來源當下的狀態同步一次（冪等,不會有副作用）。
+       ★ 同本檔一再出現的形狀：**事件驅動的同步,後面一定要有一發主動的收尾。** */
+    _lastSrc = src;
+    clearTimeout(_settleT);
+    _settleT = setTimeout(() => { if (_mode !== 1 && _lastSrc) { _geomBump(); _runSync(_lastSrc); } }, 140);
+  }
   function _onRange(src, r) {
     if (_syncing || !r || _mode === 1) return;
     if (Date.now() < _syncReady) return;
-    _syncing = true;
-    try { _syncFrom(src); }
-    finally {
-      // 下一拍才解鎖：setVisibleRange / scrollToPosition 觸發的 change 事件是非同步的
-      setTimeout(() => { _syncing = false; }, 0);
-    }
+    _syncSrc = src;
+    if (_syncRaf) return;
+    _syncRaf = requestAnimationFrame(() => {
+      _syncRaf = 0;
+      const s2 = _syncSrc; _syncSrc = null;
+      _runSync(s2);
+    });
   }
   /* ── 十字線連動：游標在任一張圖上 → 其餘各張在**同一個時間**顯示十字線 ─────────
      ⚠ 同樣要迴圈防護：setCrosshairPosition 會觸發對方的 crosshairMove。
@@ -644,9 +678,16 @@
                             tf: m ? m.tf : null, market: m ? m.market : null });
   }
   let _ovRaf = 0;
-  function _ovQueue() {                 // 平移中每幀都會進來 → 併到下一幀畫一次就好
+  function _ovQueue() {                 // 平移/縮放中每幀都會進來 → 併到下一幀做一次就好
     if (_ovRaf) return;
-    _ovRaf = requestAnimationFrame(() => { _ovRaf = 0; _cells.forEach(_ovPaint); });
+    _ovRaf = requestAnimationFrame(() => {
+      _ovRaf = 0;
+      _cells.forEach(c => {
+        if (c.xhT != null) _placeVline(c, c.xhT);   // 時間沒變但 x 變了
+        _curLabel(c);                               // 價格軸跟著縮放 → 標籤與讓位的刻度要重算
+        _ovPaint(c);
+      });
+    });
   }
   window._mcPaintOv = _ovQueue;         // draw.js `renderDrawings`（overlay 重畫的共同入口）會呼叫
 
@@ -833,9 +874,25 @@
         _HL(50, { color: C_.rsiH50, lineWidth: S_.rsiHLWidth, lineStyle: _rhls }),
         _HL(70, { color: C_.rsiH70, lineWidth: S_.rsiHLWidth, lineStyle: _rhls }),
       ].filter(Boolean);
+      /* 超買/超賣漸層底（使用者：「rsi 沒有過低過高著色」）。用主圖**同一支** primitive,
+         只是餵這一格自己的包絡（見 charts.js `_makeRSIZonePrimitive` 的 getBands/getVis）。
+         ⚠ 掛在 RSI(14) 上、畫在最底層（zOrder bottom）,不會擋住線。
+         ⚠ `getVis` 要回「這一格的兩條線開著沒」—— 不是主圖那兩條。 */
+      sub.bands = [];
+      try {
+        const zp = _makeRSIZonePrimitive(() => sub.bands,
+          () => ({ vis14: _visOf(sub.main) !== false, vis7: _visOf(sub.second) !== false }));
+        sub.main.attachPrimitive(zp);
+        sub.zone = zp;
+      } catch (e) {}
       sub.feed = rows => {
-        sub.main.setData(rows.filter(d => Number.isFinite(d.rsi_14)).map(d => ({ time: toTime(d.time), value: d.rsi_14 })));
-        sub.second.setData(rows.filter(d => Number.isFinite(d.rsi_7)).map(d => ({ time: toTime(d.time), value: d.rsi_7 })));
+        const r14 = rows.filter(d => Number.isFinite(d.rsi_14)).map(d => ({ time: toTime(d.time), value: d.rsi_14 }));
+        const r7 = rows.filter(d => Number.isFinite(d.rsi_7)).map(d => ({ time: toTime(d.time), value: d.rsi_7 }));
+        sub.main.setData(r14);
+        sub.second.setData(r7);
+        const m7 = new Map(r7.map(p2 => [p2.time, p2.value]));
+        sub.bands = r14.map(p2 => ({ t: p2.time, v14: p2.value, v7: m7.get(p2.time) ?? null }));
+        try { sub.zone && sub.zone.requestUpdate(); } catch (e) {}
       };
     } else if (key === "kdj") {
       sub.main = ln(C_.kdjK || "#f23645", { autoscaleInfoProvider: () => ({ priceRange: { minValue: 0, maxValue: 100 } }) });
@@ -1087,6 +1144,7 @@
     } catch (e) {}
   }
   function _syncMiniAxis() {
+    _geomBump();                 // 軸寬要重對 → 繪圖區寬度也跟著變
     _syncMiniW();
     if (_mode === 1 || !_cells.length) return;
     // ① 每一格內部：K 棒圖與它的副圖（4 格也要,那裡雖然目前不長副圖,但邏輯一致）
@@ -1097,6 +1155,11 @@
   }
 
   /* 唯讀除錯出口（同 `_mcRanges` 的理由：chart 物件包在 IIFE 裡,外面讀不到） */
+  window._mcBands = function () {     // RSI 包絡點數（給驗證用）
+    const c = _cells[0]; if (!c) return null;
+    const r = c.subs.find(x => x.key === "rsi");
+    return r ? (r.bands || []).length : null;
+  };
   window._mcNative = function () {   // 各圖的原生鉛直線是否還開著（應全部 false）
     const c = _cells[0]; if (!c) return null;
     const g = ch => { try { return ch.options().crosshair.vertLine.visible; } catch (e) { return null; } };

@@ -143,9 +143,10 @@ function _candleBorderVisible() {
      兩條都關 → 不畫任何填色。
    ⚠ 只掃可見範圍（二分搜尋）：避免「每幀掃全陣列 → 放大就卡」。 */
 let _rsiBands = [];        // [{t, hi, lo}] hi=兩條 RSI 取大、lo=取小，升序
-function _rsiLowerBound(t) {
-  let lo = 0, hi = _rsiBands.length;
-  while (lo < hi) { const m = (lo + hi) >> 1; _rsiBands[m].t < t ? lo = m + 1 : hi = m; }
+function _rsiLowerBound(t, pts) {
+  const P = pts || _rsiBands;
+  let lo = 0, hi = P.length;
+  while (lo < hi) { const m = (lo + hi) >> 1; P[m].t < t ? lo = m + 1 : hi = m; }
   return lo;
 }
 
@@ -184,35 +185,42 @@ function _ensureScratch(n) {
 function _rsiVisible(series) {
   try { return series ? series.options().visible !== false : false; } catch (e) { return !!series; }
 }
-function _makeRSIZonePrimitive() {
+/* `getBands` ＝這張圖要畫誰的 RSI 包絡（省略＝主圖的 `_rsiBands`）;
+   `getVis` ＝哪幾條 RSI 開著（省略＝主圖的 rsiLine14/rsiLine7）。
+   多圖模式每一格各有自己的一份（使用者：「rsi 沒有過低過高著色」）——
+   不傳的話格子會畫成**主圖那一檔**的超買超賣區（不報錯,只是畫錯標的）。
+   同 `_makeLineGradPrimitive`／`_makeFVGPrimitive` 的作法。 */
+function _makeRSIZonePrimitive(getBands, getVis) {
   let _chart = null, _series = null, _req = null;
   const OB = 70, OS = 30;
   const renderer = {
     draw(target) {
-      if (!_chart || !_series || !_rsiBands.length) return;
+      const BS = getBands ? (getBands() || []) : _rsiBands;
+      if (!_chart || !_series || !BS.length) return;
       const ts = _chart.timeScale();
       let vr = null; try { vr = ts.getVisibleRange(); } catch (e) {}
       if (!vr) return;
       const yOB = _series.priceToCoordinate(OB), yOS = _series.priceToCoordinate(OS);
       if (yOB == null || yOS == null) return;
-      const i0 = Math.max(0, _rsiLowerBound(vr.from) - 1);
-      const i1 = Math.min(_rsiBands.length, _rsiLowerBound(vr.to) + 2);
+      const i0 = Math.max(0, _rsiLowerBound(vr.from, BS) - 1);
+      const i1 = Math.min(BS.length, _rsiLowerBound(vr.to, BS) + 2);
       if (i1 - i0 < 2) return;
       target.useBitmapCoordinateSpace(scope => {
         const ctx = scope.context, hr = scope.horizontalPixelRatio, vp = scope.verticalPixelRatio;
         // 讀「目前哪幾條 RSI 開著」→ 只用開著的算包絡
-        const vis14 = _rsiVisible(rsiLine14), vis7 = _rsiVisible(rsiLine7);
+        const _vv = getVis ? getVis() : { vis14: _rsiVisible(rsiLine14), vis7: _rsiVisible(rsiLine7) };
+        const vis14 = _vv.vis14, vis7 = _vv.vis7;
         if (!vis14 && !vis7) return;                     // 兩條都關 → 不畫
         /* 單趟掃描把可見點的 x／上包絡／下包絡填進暫存區。
            ⚠ 這裡刻意「不算 y」：y 只有越界（>70 或 <30）的點才畫得到，門檻內的點僅供
              內插交點用，而交點只吃 x 與值。實測 2339 個可見點裡只有 601 點越界 →
              原本 4×2339 次座標換算縮到 2 次(x 兩端) + 601 次(y)。 */
-        const lin = _linearX(ts, _rsiBands, i0, i1);
+        const lin = _linearX(ts, BS, i0, i1);
         const n0 = i1 - i0;
         _ensureScratch(n0);
         let m = 0, nHi = 0, nLo = 0;
         for (let i = i0; i < i1; i++) {
-          const p = _rsiBands[i];
+          const p = BS[i];
           const a = vis14 ? p.v14 : null, b = vis7 ? p.v7 : null;
           let hi, lo;
           if (a == null) { if (b == null) continue; hi = lo = b; }
