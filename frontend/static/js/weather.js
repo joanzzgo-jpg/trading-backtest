@@ -382,8 +382,17 @@
        所以 **sky 維持 1x** —— 它是純漸層，放大不會糊，拉高只多吃 18MB 換不到清晰度。
      ⚠ `_lowFx`（手機）仍一律 1x，不受影響。 */
   const _HI_RES_LAYERS = { astro: 1, fore: 1, far: 1, mid: 1, near: 1, sky: 1 };   // 2026-09-25 使用者：「我要所有都 4K 等級」→ 連純漸層的 sky 也吃滿
+  /* ★★ 2026-09-28 使用者：「手機版夜晚背景畫質差需要 4K」。
+     `_lowFx`（手機）原本一律 1x → 在 DPR 3 的手機上等於 1x 畫完被放大三倍,
+     夜空的星星與月亮邊緣最明顯（它們是畫面上唯一有銳利邊的東西）。
+     實測改之前：畫布 393×852（CSS 393px → **1.00x**）、天氣層 backing 合計只有 **5.1 MB**
+     —— 桌面同樣這幾層是 112 MB,手機這邊根本還沒用到預算。
+     → 手機也吃 DPR,**上限同桌面的 2**（桌面當年就是量過「再往上收益很小」才封在 2）。
+     ⚠ 填充率是平方成長 → 改完要量閒置 CPU 與 backing,見下方 commit 的數字。
+     ⚠ 粒子數（`_fxN` 0.5）與幀間隔（`_frameMin` 60ms）維持不變 —— 那兩個才是手機的省電關鍵,
+       解析度提高的是「同一幀畫得多細」,不是「一秒畫幾次」。 */
   function _layerDpr(name) {
-    if (_lowFx || !_HI_RES_LAYERS[name]) return 1;
+    if (!_HI_RES_LAYERS[name]) return 1;
     return Math.min(window.devicePixelRatio || 1, 2);
   }
   function resize() {
