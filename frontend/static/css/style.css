@@ -5352,6 +5352,8 @@ html.landing-active .landing { background: transparent; }
   position: absolute; top: 16%; left: 4%;
   text-align: left; line-height: .9; white-space: nowrap; z-index: 1; opacity: .74;
   font-family: "M PLUS Rounded 1c", system-ui, sans-serif;
+  /* ⚠ 900 走的是**只含這幾個字母的子集檔**（見 vendor/fonts.css）：整支 900 要 21.2 KB，
+     而全站只有這個 logo 在用它。子集後 1.2 KB，外觀完全一樣。 */
   font-weight: 900; letter-spacing: .03em;
   font-size: clamp(66px, 13.5vw, 172px);          /* 放大 */
   /* 華麗三重動畫：漂浮 + 暖光暈脈動 */

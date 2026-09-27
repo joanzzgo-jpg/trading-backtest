@@ -172,7 +172,8 @@
       '<div style="min-width:min(420px,92vw);background:linear-gradient(176deg,#f8ecd3,#eddcb6);' +
       'color:#5c4526;border:2px solid #caa876;border-radius:16px;padding:20px 22px;' +
       'box-shadow:0 20px 50px rgba(34,18,4,.5);font-family:inherit">' +
-      '<div style="font-size:17px;font-weight:900;margin-bottom:12px">⌨️ 鍵盤快捷鍵</div>' +
+      '<div style="font-size:17px;font-weight:800;margin-bottom:12px">⌨️ 鍵盤快捷鍵</div>' +   // 800 不是 900：見 style.css .landing-logo 的註解（少載一支 21.5 KB 的字型）
+      '' +
       ROWS.map(([k, d]) =>
         '<div style="display:flex;gap:12px;align-items:baseline;padding:5px 0;' +
         'border-bottom:1px dashed rgba(140,105,60,.28)">' +
