@@ -291,8 +291,23 @@ function _applyChartBgGradient(color) {
       document.body.appendChild(ul);
       const _pos = () => {
         const r = cc.getBoundingClientRect();
+        /* ★★ 2026-09-28 使用者：「兩邊配色不同 第二圖不是主圖濾鏡」。
+           底墊原本只跟著 `.charts-container` —— 多圖模式那個容器只剩左半邊,
+           **迷你圖欄底下等於沒有這層地板** → 那邊的天氣直接疊在系統底色上,
+           同一個 veil 疊出來的顏色就與主圖不同（畫面上沒有任何錯誤,只是兩半顏色不一樣）。
+           → 有迷你圖欄時,底墊的右緣延伸到它的右緣。
+           ⚠ 用 `getBoundingClientRect` 量實際位置,不可以假設它一定貼著容器右邊
+             （中間那條 1px 邊框、以及 2 格/4 格不同欄寬）。 */
+        const mg = document.getElementById("miniGrid");
+        let right = r.right;
+        try {
+          if (mg && getComputedStyle(mg).display !== "none") {
+            const mr = mg.getBoundingClientRect();
+            if (mr.width > 0 && mr.right > right) right = mr.right;
+          }
+        } catch (e) {}
         ul.style.left = r.left + "px"; ul.style.top = r.top + "px";
-        ul.style.width = r.width + "px"; ul.style.height = r.height + "px";
+        ul.style.width = (right - r.left) + "px"; ul.style.height = r.height + "px";
         /* ★ 2026-09-25：底墊要跟著主圖的右上圓角一起切。
            底墊是**主圖色**（比系統主背景暗，實測 rgb(19,23,34) vs rgb(30,34,45)），
            而它鋪滿整個容器矩形 —— 包含圓角**外面**那一小塊缺角。天氣是半透明的，
@@ -300,12 +315,17 @@ function _applyChartBgGradient(color) {
            使用者要的「那個角跟主背景一樣、不要主圖濾鏡」就差在這裡。
            → 讀容器自己的圓角值套上去，缺角就落在底墊外面，背後跟面板完全同一疊。
            ⚠ 讀 computed 不寫死：手機款把圓角改成 0，這裡自動跟著變 0。 */
-        ul.style.borderTopRightRadius = getComputedStyle(cc).borderTopRightRadius;
+        // 圓角也要跟著「最右邊那塊」走：多圖時右上角是迷你圖欄的角,不是主圖容器的
+      ul.style.borderTopRightRadius = getComputedStyle((mg && right !== r.right) ? mg : cc).borderTopRightRadius;
       };
       ul._pos = _pos;
+      /* ⚠ `#miniGrid` 是切到多圖時才建立的 → 這個 if 區塊（只跑一次）掛不到它的 ResizeObserver。
+         開出口給 multichart.js 在切換模式時呼叫,別依賴「它那時已經存在」。 */
+      window._chartUnderlayPos = _pos;
       window.addEventListener("resize", _pos);
-      // 版面變動（收合合約行情/副圖）也要跟上；ResizeObserver 比在各處補呼叫可靠
+      // 版面變動（收合合約行情/副圖、切多圖模式）也要跟上；ResizeObserver 比在各處補呼叫可靠
       try { new ResizeObserver(_pos).observe(cc); } catch (e) {}
+      try { const mg0 = document.getElementById("miniGrid"); if (mg0) new ResizeObserver(_pos).observe(mg0); } catch (e) {}
     }
     ul.style.background = base;
     ul._pos && ul._pos();

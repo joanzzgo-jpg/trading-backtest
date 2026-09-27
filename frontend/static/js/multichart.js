@@ -106,7 +106,7 @@
        交換保留成旁邊的 ⇄ 鈕（兩個都有用：交換是「把這格拉上主圖細看」）。 */
     _ovSize(cell);
     // 這一格自己被平移/縮放時也要重畫 overlay（主圖那邊由 renderDrawings 的共同入口帶動）
-    chart.timeScale().subscribeVisibleTimeRangeChange(() => _ovQueue(cell));
+    chart.timeScale().subscribeVisibleTimeRangeChange(r => { if (r) _growWs(cell, r.to); _ovQueue(cell); });
     el.querySelector(".mini-sym").addEventListener("click", (e) => { e.stopPropagation(); _pickSym(i); });
     el.querySelector(".mini-swap").addEventListener("click", (e) => { e.stopPropagation(); _swap(i); });
     cell.tfEl.addEventListener("click", (e) => { e.stopPropagation(); _cycleTf(i); });
@@ -174,7 +174,10 @@
       } catch (e) {}
       if (!done) { try { ts.setVisibleRange({ from: r.from, to: r.to }); } catch (e) {} }
     }
-    _cells.forEach(c => { _syncSubs(c); _loadOlder(c); });
+    _cells.forEach(c => {
+      try { const vr = c.chart.timeScale().getVisibleRange(); if (vr) _growWs(c, vr.to); } catch (e) {}
+      _syncSubs(c); _loadOlder(c);
+    });
   }
 
   function _onRange(src, r) {
@@ -319,7 +322,9 @@
         const _fmt = { type: "price", precision: _pr, minMove: Math.pow(10, -_pr) };
         [cell.series, cell.bbU, cell.bbM, cell.bbL, cell.lineS].forEach(x => { try { x.applyOptions({ priceFormat: _fmt }); } catch (e) {} });
       } catch (e) {}
-      /* 未來留白：以最近幾根的最小間隔為步長往後鋪 150 根（夠涵蓋主圖的 rightOffset） */
+      /* 未來留白（讓「後面」還沒有 K 棒的地方也有格線與時間刻度）。
+         ⚠ 間隔用**最小正間隔**不用最後兩根的差：股市跨日那一根是盤中的好幾倍,
+           用它會把格線推到太遠的未來（同 charts.js `_gridAhead` 的註解）。 */
       try {
         let step = Infinity;
         for (let k = Math.max(1, n - 12); k < n; k++) {
@@ -327,9 +332,8 @@
           if (dt > 0 && dt < step) step = dt;
         }
         if (Number.isFinite(step) && step > 0) {
-          const t0 = cell.lastT, arr = new Array(150);
-          for (let k = 0; k < 150; k++) arr[k] = { time: t0 + step * (k + 1) };
-          cell.ws.setData(arr);
+          cell.wsStep = step; cell.wsT0 = cell.lastT; cell.wsN = 0;
+          _growWs(cell, cell.lastT + step * 200);
         }
       } catch (e) {}
       /* ★ 剛載好的這一格要**立刻對齊主圖目前的時間範圍** —— 否則它會停在自己的預設視窗
@@ -579,7 +583,24 @@
     if (_lgRo) return;
     const lg = document.querySelector("#mainPane > .pane-legend");
     if (!lg) return;
-    try { _lgRo = new ResizeObserver(() => _cells.forEach(_sizeSubs)); _lgRo.observe(lg); } catch (e) {}
+    try { _lgRo = new ResizeObserver(() => { _cells.forEach(_sizeSubs); _syncMiniW(); }); _lgRo.observe(lg); } catch (e) {}
+  }
+
+  /* ★★ 2026-09-28 使用者：「第二圖後面的時間軸沒出來」。
+     未來留白原本是**寫死 150 根** —— 留白是以「根」為單位,一縮小 barSpacing 變小、
+     同樣寬的留白就要更多根去填 → 很快用完,那之後「後面」就沒有格線也沒有時間刻度了。
+     主圖早就處理過同一件事（`charts.js _growGridAhead`：跟著可見範圍往上長）,這裡照做。
+     ⚠ 只加不減：縮回去時不必砍（砍了再縮小又要重鋪,而且 setData 不便宜）。 */
+  function _growWs(cell, needT) {
+    if (!cell || !cell.wsStep || cell.wsT0 == null) return;
+    const have = cell.wsT0 + cell.wsStep * (cell.wsN || 0);
+    if (needT == null || needT < have - cell.wsStep * 5) return;
+    const add = Math.max(120, Math.ceil((needT - have) / cell.wsStep) + 120);
+    const n2 = (cell.wsN || 0) + add;
+    if (n2 > 20000) return;                       // 保險絲：不讓它無限長大
+    const arr = new Array(n2);
+    for (let k = 0; k < n2; k++) arr[k] = { time: cell.wsT0 + cell.wsStep * (k + 1) };
+    try { cell.ws.setData(arr); cell.wsN = n2; } catch (e) {}
   }
 
   /* ★ 2026-09-27 使用者：「往歷史滑不會補」。迷你圖初載只有 320 根 —— 主圖有整套背景補載
@@ -949,6 +970,12 @@
       let ax = 0;
       try { if (_cells[0]) ax = Math.round(_cells[0].chart.priceScale("right").width() || 0); } catch (e) {}
       document.documentElement.style.setProperty("--mc-axis-w", (ax > 0 ? ax : 0) + "px");
+      // 主圖那層底墊（#chartUnderlay）原本只蓋 .charts-container → 多圖時要延伸到迷你圖欄,
+      // 否則那半邊的天氣疊在系統底色上,composite 出來與主圖不同色（見 colors.js 的說明）。
+      if (typeof window._chartUnderlayPos === "function") window._chartUnderlayPos();
+      // 圖例列的實際高度給 CSS：兩欄之間的分隔線要從它底下才開始畫（見 style.css 的說明）
+      const lg = document.querySelector("#mainPane > .pane-legend");
+      if (lg) document.documentElement.style.setProperty("--mc-legend-h", Math.round(lg.getBoundingClientRect().height) + "px");
     } catch (e) {}
   }
 

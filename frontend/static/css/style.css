@@ -6477,6 +6477,18 @@ html.mc-2 #miniGrid, html.mc-4 #miniGrid {
    `#chartsContainer` 本來就是 `flex:1 1 0`,讓迷你圖欄也是,兩邊自然對半分剩下的空間。 */
 html.mc-2 #miniGrid { flex: 1 1 0; width: auto; min-width: 0; max-width: none; }
 
+/* ★ 2026-09-28 使用者：「第二圖的左邊有條垂直線幫我上面修一下 他跟破多空重疊不好看」。
+   那條是兩欄之間的分隔線（原本是 `#miniGrid` 的 `border-left`,整條由上到下）。
+   BB/VOL 那行現在會延伸到迷你圖欄上方 → 分隔線正好從「多/空　破多空　順多空」那幾個字
+   中間穿過去。→ 改用偽元素,**從圖例列底下才開始畫**,那一排字上面就乾淨了。
+   ⚠ 起點用實際的圖例列高度（`--mc-legend-h`,JS 量給它）不可寫死 22px：那行會隨字級變。 */
+html.mc-2 #miniGrid, html.mc-4 #miniGrid { border-left: none; position: relative; }
+html.mc-2 #miniGrid::before, html.mc-4 #miniGrid::before {
+  content: ""; position: absolute; left: -1px; width: 1px;
+  top: var(--mc-legend-h, var(--legend-h)); bottom: 0;
+  background: rgba(255,255,255,.09); pointer-events: none;
+}
+
 /* ★ 2026-09-27 使用者：「上方那一行要跟只看一格標的一樣 現在被砍半了」「就是 bb vol 那行」
    →「不隨開第二張圖而對折 就是開第二張圖不要動它」。
    多圖模式主圖只剩一半寬,而那一行是 `nowrap + overflow-x:auto` → 後面那幾項（經濟事件、
