@@ -917,7 +917,10 @@ function _subWindowFor(n) {
   try { vr = mainChart.timeScale().getVisibleLogicalRange(); } catch (e) {}
   if (!vr || !Number.isFinite(vr.from) || !Number.isFinite(vr.to)) return { lo: Math.max(0, n - 4000), hi: n };
   const span = Math.max(50, vr.to - vr.from);
-  const pad = Math.max(1500, Math.round(span * 2));      // 左右各留兩屏
+  /* 左右各留幾屏。★ 2026-09-28 由 2 屏放大到 4 屏：留得太少,連續縮放時可視範圍很快
+     整個滑出這個窗 → 觸發「安全閥」立刻重建（實測縮放 3.6 秒仍重建 19 次、229ms）。
+     放大到 4 屏之後重建次數大幅下降;每次重建雖然多切一倍的資料,但**次數才是主要成本**。 */
+  const pad = Math.max(3000, Math.round(span * 4));
   return { lo: Math.max(0, Math.floor(vr.from) - pad), hi: Math.min(n, Math.ceil(vr.to) + pad) };
 }
 
@@ -975,7 +978,24 @@ function _scheduleSubRewindow() {
   const span = Math.max(50, vr.to - vr.from);
   const margin = Math.max(300, span * 0.5);              // 距窗緣 25% 內就提前重建 → 不會滑出空白
   if (vr.from > _subWin.lo + margin && vr.to < _subWin.hi - margin) return;
+  /* ★★ 2026-09-28 效能：**手勢還沒停就不要重建**。
+     實測連續縮放 3.6 秒,這裡觸發了 **28 次 `_renderSubcharts`、合計 335ms**
+     （每次要重切窗、重餵 KDJ/RSI/MACD 共 9 條 series）—— 是縮放時我們自己最貴的一筆。
+     90ms 的 debounce 擋不住：滾輪是一陣一陣的,每兩陣之間都超過 90ms,於是每 128ms 就跑一次。
+     → 互動中（`_uxBusy`＝最後一次圖表移動 400ms 內）只重新排查,不做事;停手才真的重建。
+     ⚠ **安全閥**：可視範圍已經**整個滑出**已載入的窗（不是只進到邊界附近）就不能等,
+       否則副圖會出現空白 —— 那種情況立刻做。
+     ⚠ 窗本來就左右各留兩屏（`_subWindowFor` 的 `pad = span*2`）→ 一般手勢不會用完。 */
+  const _busy = (typeof window._uxBusy === "function") && window._uxBusy();
+  /* ⚠⚠ 「滑出窗外」要**夾在資料範圍內**判斷,不可以直接比大小：
+     `vr.to` 含**未來留白**（rightOffset 那段本來就沒有資料）,而 `_subWin.hi` 最多等於
+     資料長度 → 只要右緣在最後一根之後,`vr.to > hi` **永遠成立** ＝ 安全閥每次都觸發,
+     等於整個「互動中不重建」完全沒生效（實測仍重建 19 次）。
+     只有「那個方向真的還有沒載進窗的資料」時才算滑出去。 */
+  const _n = ohlcvData.length;
+  const _outside = (vr.from < _subWin.lo && _subWin.lo > 0) || (vr.to > _subWin.hi && _subWin.hi < _n);
   clearTimeout(_subWinTimer);
+  if (_busy && !_outside) { _subWinTimer = setTimeout(_scheduleSubRewindow, 160); return; }
   _subWinTimer = setTimeout(() => {
     if (_subchartsHidden() || replayActive || !ohlcvData.length) return;
     try { _renderSubcharts(ohlcvData); } catch (e) {}

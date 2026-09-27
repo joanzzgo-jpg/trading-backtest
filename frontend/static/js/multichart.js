@@ -216,18 +216,39 @@
     const sw = _plotW(src, _elOf(src));
     let sx = null;
     try { sx = sTs.timeToCoordinate(r.to); } catch (e) {}
+    /* ★★ 2026-09-28 使用者：「切換成四格圖時 那三小格 時間上幫我對齊」。
+       兩種模式要的東西不一樣,而且**在寬度不同的面板上不可能同時成立**（那是除法）：
+       ・**2 格＝對照用** → 兩邊等寬（style.css 的 flex 對分）＋ 同樣大小的 K 棒
+         （使用者 2026-09-27 明確要求過「只有兩個時 幫我做成同大小」）。
+       ・**4 格＝掃一眼** → 右側三格比主圖窄,若維持同樣的 K 棒大小,看到的歷史就比較短
+         （實測主圖 119 天、格子只有 82~83 天）→ 這裡要的是**同一段時間**,
+         K 棒自然小一點。
+       所以 4 格走 `setVisibleRange`（時間對齊）,2 格走「barSpacing ＋ 右緣」（大小對齊）。 */
+    const _byTime = (_mode === 4);
     for (const ch of _charts()) {
       if (ch === src) continue;
       const ts = ch.timeScale();
       let done = false;
+      if (_byTime) { try { ts.setVisibleRange({ from: r.from, to: r.to }); done = true; } catch (e) {} }
+      if (done) continue;
       try {
         if (Math.abs((ts.options().barSpacing || 0) - bs) > 1e-6) ts.applyOptions({ barSpacing: bs });
         const w = _plotW(ch, _elOf(ch));
-        const x = ts.timeToCoordinate(r.to);
-        if (x != null && sx != null && w && sw) {
-          // 來源右緣那根距離右邊界 (sw - sx) px → 對方也要一樣；差幾根就捲幾根
-          ts.scrollToPosition(ts.scrollPosition() + (x - (w - (sw - sx))) / bs, false);
-          done = true;
+        if (sx != null && w && sw) {
+          const want = w - (sw - sx);          // 來源右緣那根距離右邊界 (sw - sx) px → 對方也要一樣
+          /* ⚠⚠ **要算兩趟**（2026-09-28 切 4 格時抓到：三格整整差一根 K 棒）。
+             `applyOptions({barSpacing})` 之後**下一行讀到的 `timeToCoordinate` 還是舊的排版**
+             → 用它算出來的位移就差了「新舊 barSpacing 的落差 × 根數」,四捨五入之後
+             剛好是一整根。第二趟讀到的已經是套用後的座標,把殘差補掉即可。
+             ⚠ 殘差 <0.5px 就停（再捲只是抖動）。 */
+          for (let pass = 0; pass < 2; pass++) {
+            const x = ts.timeToCoordinate(r.to);
+            if (x == null) break;
+            const dpx = x - want;
+            if (Math.abs(dpx) < 0.5) { done = true; break; }
+            ts.scrollToPosition(ts.scrollPosition() + dpx / bs, false);
+            done = true;
+          }
         }
       } catch (e) {}
       if (!done) { try { ts.setVisibleRange({ from: r.from, to: r.to }); } catch (e) {} }
@@ -356,12 +377,10 @@
   /* 把主圖目前的可視範圍推給所有格子（開機對齊、載入完成後補齊用） */
   function _pushMainRange() {
     if (_mode === 1 || typeof mainChart === "undefined" || !mainChart) return;
-    try {
-      _syncing = true;
-      _syncMiniAxis();          // 先把價格軸對齊,繪圖區寬度才是最終值（會影響下面的平移量）
-      _syncFrom(mainChart);
-      setTimeout(() => { _syncing = false; }, 0);
-    } catch (e) { _syncing = false; }
+    // ⚠ 走 `_runSync` 而不是直接 `_syncFrom`：那支才會排「停手收尾」那一發
+    //   （切 4 格時三格是**非同步**載入的,收尾才保證最後到貨的那一格也對齊）。
+    _syncMiniAxis();            // 先把價格軸對齊,繪圖區寬度才是最終值（會影響位移量）
+    _runSync(mainChart);
   }
 
   /* 時框跟著主圖：使用者要的是「跟一個畫面的配置都相同」→ 進多圖模式與主圖換時框時,
