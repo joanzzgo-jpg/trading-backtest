@@ -2598,13 +2598,28 @@ window._mcDrawOverlay = function (o) {
   if (!o || !o.ctx || !o.chart || !o.series || !o.rows || !o.rows.length) return;
   if (typeof replayActive !== "undefined" && replayActive) { try { o.ctx.clearRect(0, 0, o.W, o.H); } catch (e) {} return; }
   const _c = drawCtx, _cv = drawCanvas, _m = mainChart, _s = candleSeries, _d = ohlcvData, _dr = drawings;
-  const _p = window._pxPrec;
+  const _p = window._pxPrec, _tf = (typeof currentTF !== "undefined") ? currentTF : null;
+  const _mkSel = document.getElementById("marketSelect");
+  const _mk = _mkSel ? _mkSel.value : null;
   try {
     drawCtx = o.ctx; drawCanvas = o.ctx.canvas; mainChart = o.chart; candleSeries = o.series; ohlcvData = o.rows;
     if (o.prec != null) window._pxPrec = o.prec;
     drawings = _mcDrawingsFor(o.symKey);
+    if (o.tf) currentTF = o.tf;
+    if (o.market && _mkSel) _mkSel.value = o.market;
     o.ctx.clearRect(0, 0, o.W, o.H);
+    /* 疊加層：順序與主圖 `renderDrawings` 一致（底→上）。每一支都有自己的開關,
+       使用者沒開的本來就直接 return,所以這裡不必再判斷一次。
+       ⚠ **只搬「自己從 K 棒算得出來」的那幾支**。VWAP 讀的是 `window._coachVWAP`
+         ＝主圖那一檔的勝率 payload → 搬過來會畫成**別的標的**的 VWAP（不報錯、但是錯的）,
+         要搬得先讓每一格拿到自己的那份。折價/溢價、量分佈、交易時段、關鍵高低、日/4H 開
+         都是純粹從 `ohlcvData` 算的,換掉那個全域就成立。 */
+    _drawVolumeProfile(o.W, o.H);
+    _drawSessionOverlay(o.W, o.H);
+    _drawKeyLevels(o.W, o.H);
     _drawVisHL(o.W, o.H);
+    _drawHtfOpens(o.W, o.H);
+    _drawPDZones(o.W, o.H);
     /* 這一格自己那檔的繪圖（唯讀：不接點擊、沒有 hover/選取）。
        過濾條件與主圖那段**完全一致**（只畫主圖層、跳過隱藏的圖層 A/B/C）。 */
     const _isMain = d => (!d.pane || d.pane === "main") && _layerOn(d);
@@ -2618,6 +2633,8 @@ window._mcDrawOverlay = function (o) {
   } finally {
     drawCtx = _c; drawCanvas = _cv; mainChart = _m; candleSeries = _s; ohlcvData = _d;
     drawings = _dr; window._pxPrec = _p;
+    if (_tf != null) currentTF = _tf;
+    if (_mkSel && _mk != null) _mkSel.value = _mk;   // 程式改 .value 不會觸發 change,還原是安全的
   }
 };
 /* 從繪圖倉庫取「某一檔」的繪圖（鍵＝`市場:交易所:代號`,全大寫,同 `_drawSymKey`）。

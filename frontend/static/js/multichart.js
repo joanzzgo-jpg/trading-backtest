@@ -562,7 +562,8 @@
     const i = _cells.indexOf(cell), m = (i >= 0) ? _minis[i] : null;
     const symKey = m ? `${m.market}:${m.exchange || "pionex"}:${m.symbol}`.toUpperCase() : "";
     window._mcDrawOverlay({ chart: cell.chart, series: cell.series, ctx: cell.ovCtx, W, H,
-                            rows: cell.rows, prec: cell.prec, symKey });
+                            rows: cell.rows, prec: cell.prec, symKey,
+                            tf: m ? m.tf : null, market: m ? m.market : null });
   }
   let _ovRaf = 0;
   function _ovQueue() {                 // 平移中每幀都會進來 → 併到下一幀畫一次就好
@@ -1014,9 +1015,18 @@
   };
 
   /* 主圖換時框 → 各格跟上（延遲一拍等 currentTF 更新完） */
+  /* ⚠⚠ 切時框之後**一定要主動補推一次**（2026-09-27 抓到）：保護期（1200ms）內 `_onRange`
+     會忽略所有事件,而保護期過後**主圖不一定還會再動** → 沒有任何事件把新範圍推給格子,
+     兩邊就一直停在不同的窗口（實測主圖 9/25~9/28、格子 9/16~9/25,而且 K 棒寬度也不同）。
+     ⚠ 要補兩次：格子換時框是重新抓資料,到貨時間不一定在第一次補推之前。 */
   function _watchMainTf() {
     document.querySelectorAll(".tf-btn").forEach(b =>
-      b.addEventListener("click", () => { if (_mode !== 1) setTimeout(() => { _syncTfFromMain(); _syncReady = Date.now() + 1200; }, 120); }));
+      b.addEventListener("click", () => {
+        if (_mode === 1) return;
+        setTimeout(() => { _syncTfFromMain(); _syncReady = Date.now() + 1200; }, 120);
+        setTimeout(_pushMainRange, 1500);
+        setTimeout(_pushMainRange, 3000);
+      }));
   }
 
   function _init() {
