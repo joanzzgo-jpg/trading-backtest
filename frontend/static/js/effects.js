@@ -2,11 +2,47 @@
 (function initClickSparks() {
   let _lastClick = 0, _activeFx = 0;
 
+  /* ★ 2026-09-27 使用者：「點擊的煙火特效出現在 K 棒後」→「再亮一些」。
+     ⚠⚠ 第一版掛在 `#chartUnderlay` 與 `.charts-container` 之間（z=1）—— 位置對了,但**太暗**：
+       面板背景是 `alpha 0.7`,特效最多只貢獻 **30%**。再用 filter 硬提亮到 4.2 倍時整團變白霧
+       （加法混色的核心本來就接近白,乘上去只是把彩度洗光）—— 那條路走不通。
+     → 正解是換一層：掛進**圖表元素自己**（`#mainChart` 等），z-index 0 →
+         面板背景（0.7）→ **特效（完整亮度）** → LWC 畫布（透明,z=1）→ K 棒／格線／標記
+       特效完全不被面板背景吃掉,而 K 棒仍然整個蓋在它前面。
+     ⚠ 這層會被 `.pane-body` 的 overflow 裁掉 —— 那是**要的**：特效不會溢出到上方列或行情列。
+     ⚠ 點在圖表以外（空白處）時找不到圖表 → 退回舊的 z=1 那層並補亮度（會暗一點,但位置對）。 */
+  function _fxHost(cx, cy) {
+    try {
+      const el = document.elementFromPoint(cx, cy);
+      const ch = el && el.closest ? el.closest("#mainChart, #kdjChart, #rsiChart, #macdChart") : null;
+      /* ⚠⚠ **不可以把畫布塞進 `#mainChart` 裡面**（我第一版就是）：Lightweight Charts 不接受
+         外來子元素 —— 實測放一張 `pointer-events:none` 的畫布進去，**圖表就完全拖不動了**
+         （6 次拖曳 0 次成功，不放時 6/6），而且畫面上零跡象、零錯誤，
+         只有冒煙測試三次裡失敗一次才露出來。
+         → 掛在它的**父層**、DOM 順序排在它**前面**：同一個堆疊層級照 DOM 順序繪製
+           ⇒ 仍在面板背景之上、圖表畫布之下，而圖表庫的容器完全沒被動到。 */
+      if (ch && ch.parentElement) return { el: ch.parentElement, before: ch, z: 0, filter: "" };
+    } catch (e) {}
+    const ul = document.getElementById("chartUnderlay")?.parentElement;
+    if (!ul) return { el: document.body, z: 9999, filter: "" };
+    // 退路那層在面板背景底下 → 補回被吃掉的亮度（上限 2.8；再高只會變白霧）
+    let a = 0.7;
+    try {
+      const m = getComputedStyle(document.getElementById("mainPane")).backgroundColor.match(/[\d.]+\s*\)$/);
+      const v = m ? parseFloat(m[0]) : 1;
+      if (isFinite(v) && v >= 0 && v <= 1) a = v;
+    } catch (e) {}
+    const pass = Math.max(0.12, 1 - a);
+    return { el: ul, z: 1, filter: `brightness(${Math.min(2.8, Math.max(1.2, 1 / pass)).toFixed(2)}) saturate(1.6)` };
+  }
+
   /* ── 建立暫時 Canvas；超過 4 個並行特效時跳過 ── */
   function makeCanvas(cx, cy, size) {
     // ★ 2026-09-26 系統開了「減少動態」→ 不產生點擊特效（Apple：Reduce Motion 要少掉裝飾性動畫）
     try { if (matchMedia("(prefers-reduced-motion: reduce)").matches) return null; } catch (e) {}
-    if (_activeFx >= 4) return null;
+    // ⚠ 上限 4 → 6：三連發（_FW_SHOW）會同時有「升空的那張 + 點擊那發 + 陸續爆開的三發」。
+    //   4 的時候最後一發會被靜靜吃掉（畫面上就是「說好的三發只來兩發」）。
+    if (_activeFx >= 6) return null;
     _activeFx++;
     const cvs = document.createElement("canvas");
     /* ★ 2026-09-26 點擊特效改成**依螢幕像素密度作畫**。
@@ -19,9 +55,19 @@
     const _dpr = Math.min(3, (window.devicePixelRatio || 1));
     cvs.width = Math.round(size * _dpr); cvs.height = Math.round(size * _dpr);
     try { cvs.getContext("2d").setTransform(_dpr, 0, 0, _dpr, 0, 0); } catch (e) {}
+    /* ★ 2026-09-27 使用者：「點擊的煙火特效出現在 K 棒後」。
+       把特效畫布插進 `#chartUnderlay`(z=0) 與 `.charts-container`(z=2) 之間那一層（z=1）——
+       兩者是 `.m-tab-wr` 的兄弟節點，所以掛在同一個父層、z-index 給 1 就落在中間：
+         底墊（不透明）→ **特效** → 圖表面板（背景帶 alpha，實測 0.7）→ K 棒／格線／標記
+       → K 棒與標記完整蓋在特效前面，特效只從面板背景的透明度透出來。
+       ⚠ 透出來的強度**取決於使用者的主圖背景透明度**：調到 100% 不透明就完全看不到特效了，
+         那是預期行為（同一個設定也決定天氣能不能透出來）。
+       ⚠ 找不到底墊時退回 body + z-index 9999（舊行為）：極簡模式等情境下那個元素可能不在。 */
+    const _h = _fxHost(cx, cy);
     cvs.style.cssText = `position:fixed;left:${cx-size/2}px;top:${cy-size/2}px;` +
-                        `width:${size}px;height:${size}px;pointer-events:none;z-index:9999;`;
-    document.body.appendChild(cvs);
+                        `width:${size}px;height:${size}px;pointer-events:none;` +
+                        `z-index:${_h.z};` + (_h.filter ? `filter:${_h.filter};` : "");
+    _h.el.insertBefore(cvs, _h.before || null);
     cvs._fxDone = () => { _activeFx--; cvs.remove(); };
     return cvs;
   }
@@ -654,82 +700,170 @@
        純白的煙在淺色背景上完全看不見。兩段色在兩種背景下都有東西看得到。
      ⚠ 同煙火：一張烤好的貼圖 + drawImage，不用 shadowBlur（那個實測 p90 40.3ms）。 */
   function spawnSmoke(cx, cy) {
-    const SIZE = 300, N = 24;
-    const cvs = makeCanvas(cx, cy, SIZE); if (!cvs) return;
+    /* ★★ 2026-09-27 使用者：「我要的是煙囪細煙」。
+       前面幾版都在做「噴射／爆開」——方向就錯了。煙囪煙的特徵完全相反：
+         ①**細**：柱子很窄（半徑 4px 起、最多長到 ~26px），升起的距離卻有兩百多 px ⇒ 又細又長
+         ②**連續**：不是一次噴出，是**一顆一顆慢慢冒**（這裡分散在 ~50 幀內陸續生成）
+         ③**慢**：終端上升速度只有 ~2px/幀（爆發版是 3.4），看起來是「飄」不是「衝」
+         ④**會擺**：邊升邊左右緩慢擺動（sin 相位）＋ 一點側風 → 柱子呈 S 形，不是一條直線
+         ⑤**沒有爆點**：拿掉起爆白光、氣流線、火星細塵 —— 那些是爆炸的語彙，煙囪沒有
+       ⚠ 壽命拉長到 ~2 秒（柱子要有高度才看得出是煙囪），所以 decay 比爆發版小一半。
+       ⚠ 貼圖仍是「一張裡面疊幾個偏心小球」：平滑的圓看起來像光暈不像煙。 */
+    const SIZE = 360, N = 26;
+    /* ⚠ 畫布是**以點擊處為中心**的方框 → 想在上方留出飄的空間，就要把整張畫布往上偏移，
+       再把冒煙點放在畫布的下緣（0.78H）。兩者要一起算，只改其中一個煙就會出現在點擊處**下方**
+       （我第一版就是，煙柱整個長在游標下面）。 */
+    const OFF = SIZE * 0.28;
+    const cvs = makeCanvas(cx, cy - OFF, SIZE); if (!cvs) return;
     const ctx = cvs.getContext("2d");
-    const ox = SIZE / 2, oy = SIZE / 2;
+    const ox = SIZE / 2, oy = SIZE * 0.78;               // ＝螢幕上的點擊點
 
-    // 烤一張煙團貼圖（64px，白心→灰身→透明）
-    const PUFF = document.createElement("canvas");
-    PUFF.width = PUFF.height = 64;
-    (() => {
-      const g2 = PUFF.getContext("2d");
-      const rg = g2.createRadialGradient(32, 32, 0, 32, 32, 32);
-      rg.addColorStop(0,   "rgba(255,255,255,.95)");
-      rg.addColorStop(.30, "rgba(240,244,250,.62)");
-      rg.addColorStop(.62, "rgba(190,200,214,.30)");
-      rg.addColorStop(.86, "rgba(150,162,178,.12)");
-      rg.addColorStop(1,   "rgba(140,152,168,0)");
-      g2.fillStyle = rg; g2.fillRect(0, 0, 64, 64);
-    })();
-
-    const P = Array.from({ length: N }, () => {
-      const a = Math.random() * Math.PI * 2;
-      const spd = 1.4 + Math.random() * 4.0;           // 速度散開＝有的衝到外圈、有的留在核心
-      return {
-        x: ox, y: oy, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd,
-        r0: 5 + Math.random() * 5, grow: 30 + Math.random() * 26,
-        sq: .78 + Math.random() * .5,                  // 壓扁比例，打破「每團都是正圓」
-        op: .34 + Math.random() * .22,                 // 每團濃淡不同，疊起來才有體積
-        life: 1, decay: .013 + Math.random() * .011,
-      };
+    const _puffs = [0, 1, 2].map(() => {
+      const px = 64, c2 = document.createElement("canvas");
+      c2.width = c2.height = px;
+      const g2 = c2.getContext("2d");
+      const blobs = 3 + Math.floor(Math.random() * 3);
+      for (let i = 0; i < blobs; i++) {
+        const bx = px / 2 + (Math.random() - .5) * px * .30;
+        const by = px / 2 + (Math.random() - .5) * px * .30;
+        const br = px * (.24 + Math.random() * .18);
+        const rg = g2.createRadialGradient(bx, by, 0, bx, by, br);
+        rg.addColorStop(0,   "rgba(250,252,255,.46)");
+        rg.addColorStop(.45, "rgba(220,228,240,.26)");
+        rg.addColorStop(.78, "rgba(176,188,206,.11)");
+        rg.addColorStop(1,   "rgba(152,166,186,0)");
+        g2.fillStyle = rg;
+        g2.beginPath(); g2.arc(bx, by, br, 0, Math.PI * 2); g2.fill();
+      }
+      return c2;
     });
-    // 噴射的氣流線（只活前 16 幀）：從中心往外竄、越竄越細
-    const JET = Array.from({ length: 9 }, () => ({
-      a: Math.random() * Math.PI * 2, spd: 5.5 + Math.random() * 4.5,
-      len: 18 + Math.random() * 20, w: 1.6 + Math.random() * 2.2,
+
+    const WIND = (Math.random() - .5) * .05;             // 這一縷煙的側風（整柱一起偏）
+    const SWAY = .055 + Math.random() * .03;             // 擺動幅度
+    const P = Array.from({ length: N }, (_, i) => ({
+      x: ox + (Math.random() - .5) * 3,                  // 柱底很窄
+      y: oy + (Math.random() - .5) * 2,
+      vx: (Math.random() - .5) * .22,
+      vy: -(0.9 + Math.random() * .5),
+      r0: 3.5 + Math.random() * 2.5, grow: 16 + Math.random() * 11,
+      rot: Math.random() * Math.PI * 2, rs: (Math.random() - .5) * .022,
+      sq: .9 + Math.random() * .25,
+      op: .34 + Math.random() * .16,
+      ph: Math.random() * Math.PI * 2,
+      spr: _puffs[i % 3],
+      d: Math.round(i * 2.1 + Math.random() * 2),        // 一顆一顆慢慢冒（≈50 幀內）
+      life: 1, decay: .0062 + Math.random() * .0035,    // 壽命 ~2.3 秒（柱子才長得起來）
     }));
-    const DRAG = .88, RISE = .035;
+
+    const DRAG_X = .94, DRAG_Y = .985, RISE = .032;      // 終端 ≈2px/幀＝慢慢飄
     let frame = 0;
     function loop() {
       ctx.clearRect(0, 0, SIZE, SIZE);
-      // 噴出瞬間：中心一小團亮白 + 幾道氣流
-      if (frame < 16) {
-        const k = 1 - frame / 16, r = 20 + frame * 3;
-        // 同煙火：噴出瞬間的亮白也走烤好的貼圖，不要每幀現做漸層填滿整張畫布
-        ctx.globalAlpha = .7 * k;
-        ctx.drawImage(PUFF, ox - r, oy - r, r * 2, r * 2);
-        ctx.globalAlpha = 1;
-        ctx.lineCap = "round";
-        for (const j of JET) {
-          const d = 6 + frame * j.spd;                 // 線頭往外竄，尾巴留在後面＝拉出速度感
-          const ca = Math.cos(j.a), sa = Math.sin(j.a);
-          ctx.beginPath();
-          ctx.moveTo(ox + ca * d, oy + sa * d);
-          ctx.lineTo(ox + ca * (d + j.len), oy + sa * (d + j.len));
-          ctx.strokeStyle = `rgba(248,251,255,${(.55 * k * k).toFixed(3)})`;
-          ctx.lineWidth = j.w * k + .4; ctx.stroke();
-        }
-      }
       let alive = false;
       for (const p of P) {
         if (p.life <= 0) continue;
+        if (frame < p.d) { alive = true; continue; }     // 還沒輪到它冒出來
+        // 邊升邊擺：左右緩慢擺動 + 整柱側風
+        p.vx = p.vx * DRAG_X + Math.sin(frame * .055 + p.ph) * SWAY * .06 + WIND;
+        p.vy = p.vy * DRAG_Y - RISE;
         p.x += p.vx; p.y += p.vy;
-        p.vx *= DRAG; p.vy = p.vy * DRAG - RISE;      // 停下來之後自己往上飄
+        p.rot += p.rs;
         p.life -= p.decay;
         if (p.life <= 0) continue;
         alive = true;
-        const prog = 1 - p.life;                       // 0 → 1
-        const r = p.r0 + prog * p.grow;
-        const fadeIn = Math.min(1, prog / .1);         // 噴出來的瞬間不要憑空出現
-        ctx.globalAlpha = fadeIn * Math.pow(p.life, 1.25) * p.op;
-        ctx.drawImage(PUFF, p.x - r, p.y - r * p.sq, r * 2, r * 2 * p.sq);
+        const prog = 1 - p.life;
+        const r = p.r0 + Math.pow(prog, .85) * p.grow;   // 越升越寬,但長得慢＝柱子細
+        const fadeIn = Math.min(1, prog / .06);
+        ctx.globalAlpha = fadeIn * Math.pow(p.life, 1.15) * p.op;
+        ctx.save();
+        ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+        ctx.drawImage(p.spr, -r, -r * p.sq, r * 2, r * 2 * p.sq);
+        ctx.restore();
       }
       ctx.globalAlpha = 1;
       frame++;
       if (alive) requestAnimationFrame(loop); else cvs._fxDone();
     }
     loop();
+  }
+
+  /* ★★ 2026-09-27 使用者：「3% 會出現點擊煙火後，下方左中右會往上發煙火上來，
+     發上來的煙火三種煙火也是按機率出現」。
+     ＝ 小型煙火秀：點擊那發照常，另外從畫面**底部左／中／右**各射一枚上去，
+     升到高處各自爆開，爆開的彈型**走同一張權重表**（所以也可能開出超大彈或二段彈）。
+     ⚠ 三枚要**錯開發射**（0 / 190 / 380ms）：同時射上去會變成一排整齊的三個圓，
+       像貼圖不像煙火秀。
+     ⚠ 升空的軌跡共用**一張**全螢幕畫布（只有三顆粒子＋尾巴，成本極低），
+       不要一枚一張 —— 那會吃掉並行上限，讓真正的爆炸沒有名額。 */
+  const _FW_SHOW_P = 0.03;                      // 使用者指定：3%
+  function spawnBarrage() {
+    try { if (matchMedia("(prefers-reduced-motion: reduce)").matches) return; } catch (e) {}
+    /* 已經很熱鬧就算了（留名額給爆炸）。⚠ 門檻不可訂太低：訂 3 時連點測試 90 次一次都沒出現
+       —— 每發活約 1.2 秒，連點時場上常態就有三張，3% 抽中了也會在這裡被擋掉。 */
+    if (_activeFx >= 4) return;
+    _activeFx++;
+    const W = Math.max(320, window.innerWidth), H = Math.max(320, window.innerHeight);
+    const dpr = Math.min(2, window.devicePixelRatio || 1);   // 全螢幕畫布：DPR 壓到 2 就夠（只有細尾巴）
+    const cvs = document.createElement("canvas");
+    cvs.width = Math.round(W * dpr); cvs.height = Math.round(H * dpr);
+    // 升空軌跡同樣掛在 K 棒後面那一層（用主圖中央當定位點去找宿主）
+    const _h = _fxHost(Math.round(W / 2), Math.round(H / 2));
+    cvs.style.cssText = `position:fixed;left:0;top:0;width:${W}px;height:${H}px;`
+                      + `pointer-events:none;z-index:${_h.z === 9999 ? 9998 : _h.z};`
+                      + (_h.filter ? `filter:${_h.filter};` : "");
+    const ctx = cvs.getContext("2d");
+    try { ctx.setTransform(dpr, 0, 0, dpr, 0, 0); } catch (e) {}
+    _h.el.insertBefore(cvs, _h.before || null);
+    const G = .12;
+    const shots = [0.18, 0.5, 0.82].map((fx, i) => {
+      const x = W * fx;
+      const apex = H * (0.20 + Math.random() * 0.18);          // 爆開的高度
+      const dist = H - apex;
+      return {
+        x, y: H + 8, vx: (Math.random() - .5) * .5,
+        vy: -Math.sqrt(2 * G * dist) * (0.99 + Math.random() * .04),
+        at: i * 190, hist: [], done: false,
+      };
+    });
+    const t0 = performance.now();
+    let raf = 0;
+    function loop(now) {
+      ctx.clearRect(0, 0, W, H);
+      const el = now - t0;
+      let alive = false;
+      ctx.globalCompositeOperation = "lighter";
+      ctx.lineCap = "round";
+      for (const s2 of shots) {
+        if (s2.done) continue;
+        if (el < s2.at) { alive = true; continue; }             // 還沒輪到它發射
+        alive = true;
+        s2.hist.push(s2.x, s2.y); if (s2.hist.length > 26) s2.hist.splice(0, 2);
+        s2.x += s2.vx; s2.y += s2.vy; s2.vy += G;
+        if (s2.vy >= -0.9) {                                    // 到頂 → 換成一發真的煙火
+          s2.done = true;
+          try { spawnFirework(s2.x, s2.y); } catch (e) {}
+          continue;
+        }
+        // 升空的尾巴：越舊越淡
+        const hn = s2.hist.length;
+        if (hn >= 4) {
+          ctx.beginPath(); ctx.moveTo(s2.hist[0], s2.hist[1]);
+          for (let i = 2; i < hn; i += 2) ctx.lineTo(s2.hist[i], s2.hist[i + 1]);
+          ctx.lineTo(s2.x, s2.y);
+          ctx.strokeStyle = "hsla(38,100%,72%,.5)"; ctx.lineWidth = 1.6; ctx.stroke();
+        }
+        ctx.globalAlpha = .55 + Math.random() * .45;             // 尾焰閃爍
+        ctx.fillStyle = "hsl(42,100%,82%)";
+        ctx.beginPath(); ctx.arc(s2.x, s2.y, 2.1, 0, Math.PI * 2); ctx.fill();
+        ctx.globalAlpha = .22;
+        ctx.beginPath(); ctx.arc(s2.x, s2.y, 7, 0, Math.PI * 2); ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+      ctx.globalCompositeOperation = "source-over";
+      if (alive && el < 6000) raf = requestAnimationFrame(loop);
+      else { cancelAnimationFrame(raf); _activeFx--; cvs.remove(); }
+    }
+    raf = requestAnimationFrame(loop);
   }
 
   /* 白天噴射煙霧、夜晚煙火。
@@ -745,7 +879,10 @@
     return h >= 6 && h < 18;
   }
   function spawnDefault(cx, cy) {
-    if (_isDaytime()) spawnSmoke(cx, cy); else spawnFirework(cx, cy);
+    if (_isDaytime()) { spawnSmoke(cx, cy); return; }
+    spawnFirework(cx, cy);
+    // 3%：點完之後底部左中右再射三枚上來（白天的煙霧不觸發）
+    if (Math.random() < _FW_SHOW_P) spawnBarrage();
   }
 
   document.addEventListener("click", e => {
@@ -1089,16 +1226,37 @@
 const SFX = (() => {
   let _ctx = null, _master = null;
 
-  function _getCtx() {
+  /* ★★ 2026-09-27 效能：切時框時的 CPU profile 顯示**最大的一筆 JS 自身時間是這裡**
+     （96ms）—— 不是圖表、不是資料解析，是第一次 `new AudioContext()`：它要把音訊裝置開起來，
+     實測 **84.6ms 且在主執行緒**。而時框按鈕一按就 `SFX.switch_()` → 使用者最在意的那一下
+     （「我按了時框」）正好付這筆帳，畫面實測有一幀 100ms。
+     → 拆成「建構」與「resume」兩步：開機後 idle 時先把 context 建好（此時不 resume，
+       免得沒有使用者手勢就去 resume、在某些瀏覽器留下警告），真的要發聲時 resume 只要 **0.0ms**。
+     ⚠ 不要改成「延後到第一次真的要出聲」——那正是現在的行為，帳一樣是按下去那刻付。
+     ⚠ 也不要在載入時就建：裝飾性的東西要讓路給圖表資料（同 main.js `_loadFx` 的理由）。 */
+  function _ensureCtx() {
     if (!_ctx) {
       _ctx    = new (window.AudioContext || window.webkitAudioContext)();
       _master = _ctx.createGain();
       _master.gain.value = 0.22;
       _master.connect(_ctx.destination);
     }
-    if (_ctx.state === "suspended") _ctx.resume();
     return _ctx;
   }
+  function _getCtx() {
+    const c = _ensureCtx();
+    if (c.state === "suspended") c.resume();
+    return c;
+  }
+  /* ⚠⚠ **暖機這條路走不通，別再試**（2026-09-27 花了一輪證明）：
+     `new AudioContext()` 實測 **84.6ms 且在主執行緒**，是切時框那一下最大的一筆 JS 自身時間，
+     看起來很該預先做掉 —— 但試過三種時機，冒煙測試都從 5/5 掉下來：
+       ①`requestIdleCallback(timeout:5000)` → **0/5**（拖曳時事件之間的空檔就夠 idle 插進來，
+         那 85ms 變成「拖到一半卡住」，錯誤訊息是「拖曳沒有平移到圖表」，完全看不出跟音效有關）
+       ②「安靜滿 1.2 秒才暖」→ 3/5　③「只在城門頁開著時暖」→ 2/5
+     ＝ 不是時機問題，是**多一個 AudioContext 在跑本身就會攪動主執行緒的節奏**。
+     → 維持原本的「真的要發聲時才建」：那時使用者本來就在等音效，85ms 混在裡面反而最不突兀。
+     （拆成 _ensureCtx／_getCtx 兩支留著，之後若有人想再試，別忘了先跑 5 次冒煙。） */
 
   function _tone(freq, type, vol, dur, delay = 0, detune = 0) {
     const ctx  = _getCtx();
