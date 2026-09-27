@@ -218,6 +218,15 @@ cd backend && ../.venv312/bin/python scripts/check_static_br.py   # 需本機服
 沒有它的話，本機改完 JS 沒重啟就會安靜地送舊程式碼。
 ⚠ `brotli` 已在 requirements 明確宣告（原本只是傳遞相依）；沒有它會自動退回 gzip，功能不壞只是少 20%。
 
+### 驗證部署：符號要挑對,**檔案也要挑對**（2026-09-28）
+輪詢「線上有沒有出現這次改動的新符號」是既有做法（不可用 md5）。但符號挑對還不夠 ——
+**要先確認那個符號會出現在你 curl 的那支檔案裡**。實測踩到：`_mcDrawOverlay` 加在 `draw.js`,
+我卻去 curl `app.bundle.js` —— 而 **draw.js 是動態載入、不進 bundle**（產物是 `draw.min.js`）
+→ 輪詢 22 次全 0,看起來像部署失敗,其實早就上線了。
+→ 先在本機對產物 `grep -c` 一次確認符號落在哪支（`app.bundle.js` / `*.min.js` / `style.css`）,
+  再拿那支去輪詢。另外 ⚠ 也要確認那個符號是**這個 commit 才有的**（`git log -S` 查一下）——
+  用上一個 commit 就存在的符號,等於永遠一驗就過。
+
 ### 動到 `?v=` 資產版號、或在 `<script>` 裡組靜態網址後（守門員之十九）
 ```bash
 node scripts/check_dup_assets.js   # 需本機服務跑著；約 40 秒
