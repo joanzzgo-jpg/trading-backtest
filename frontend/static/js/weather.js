@@ -96,6 +96,7 @@
   let _rainBase = 0;                     // 基準雨滴數（無風時）；斜雨時依風速動態擴充維持密度
   let auroraBands = [], meteors = [], meteorTimer = 0;   // 極光帶 / 流星雨
   let thunderBolts = [], thunderFlashes = [], thunderTimer = 15;
+  let satTimer = 400, sat = null;        // 人造衛星（夜空：等速穿過、偶爾反光一閃）
   // 天然災害（手動特效）：冰雹 / 龍卷風 / 地震
   let hailP = [], hailSplash = [], qCracks = [], qDust = [], tDebris = [], tornadoX = 0, quakeT = 0;
 
@@ -649,6 +650,24 @@
       if (type === 'thunder') return; // 雷雨自己處理；夜空(night)等其餘夜間天氣都走這條
       /* ── 夜間天文全餐（所有夜間天氣都有，依天氣/雲量減光）：銀河 → 星空 → 星座 → 行星 → 月亮 ── */
       const dim = _astroDim();
+      /* ★ 2026-09-27「夜晚需要升級」：**地面光害輝光**。真實城市夜空不是上下一樣黑 ——
+         靠近地平線那段被地面燈光染成暖橘、越低越亮,那層輝光正是「城市夜空」的味道
+         （原本整片夜空是均勻深藍,少了這個縱深）。
+         ⚠ 放在**所有夜間天氣共用**的這段,不是只給晴朗夜空：陰天/雨夜的雲會把城市燈光反射回來,
+           那時光害其實更明顯。亮度用 `0.5 + 0.5*dim` → 陰天弱一點但不會消失。
+         ⚠ 快取漸層、一次 fillRect,成本可忽略。 */
+      if (!_gc.airglow || _gc.airglowH !== H) {
+        const ag = ga.createLinearGradient(0, H * 0.46, 0, H * 0.94);
+        ag.addColorStop(0,    'rgba(255,176,96,0)');
+        ag.addColorStop(0.55, 'rgba(255,168,92,0.035)');
+        ag.addColorStop(0.85, 'rgba(255,152,80,0.085)');
+        ag.addColorStop(1,    'rgba(255,140,70,0.13)');
+        _gc.airglow = ag; _gc.airglowH = H;
+      }
+      ga.save(); ga.globalCompositeOperation = 'lighter';
+      ga.globalAlpha = 0.5 + 0.5 * dim;
+      ga.fillStyle = _gc.airglow; ga.fillRect(0, H * 0.46, W, H * 0.48);
+      ga.restore();
       if (dim > 0.05) {
         if (dim > 0.32) _milkyWay(Math.min(1, (dim - 0.32) / 0.5) * 0.9);   // 銀河：天氣稍好就浮現
         if (type !== 'night') {                               // night 型的星空由 dNight 畫（含高光），避免雙重
@@ -1486,7 +1505,16 @@
     });
     sparks = Array.from({length:14}, _newSpark);
     // 雨：連續景深 z（0=遠、1=近）；用 z² / z³ 大幅拉開前後差距 → 立體視差明顯
-    _rainBase = Math.round((110+200*ri)*_fxN);   // 加密雨量（手機降載）；斜雨時 dRain 動態擴充
+    /* ★ 2026-09-27 使用者：「優化升級天氣動畫」。實測 1400×900 的封面上,原本的量看起來很稀疏
+       （雨 110+200×強度、雪 28+50×強度,攤在整個畫面上就是零星幾條）→ 各加密約 50%／100%。
+       ⚠ 乘數 `_fxN` 保留：手機仍照原本的比例降載,加的是**桌面**的密度。
+       ⚠ 加密的成本要量過再留：這一輪剛把天氣的閒置 CPU 從 4.2% 降到 2.5%,不能一次還回去。 */
+    /* ★ 2026-09-27「優化升級天氣動畫」：實測 1400×900 的封面上原本的量很稀疏
+       （雨 110+200×強度、雪 28+50×強度，攤在整個畫面上就是零星幾條）→ 桌面加密。
+       ⚠ **手機維持原值**：實測加密 50% 在 4x 節流的手機上要多付 0.8 個百分點的 CPU
+         （7.8% → 8.6%），而這一輪剛把天氣的閒置成本降下來，不該一次還回去。
+         桌面沒有這個顧慮（幀時間完全沒變）。 */
+    _rainBase = Math.round((_lowFx ? (110+200*ri) : (165+300*ri))*_fxN);
     rainP = Array.from({length:_rainBase}, () => _mkRainDrop(false))
       .sort((p,q)=>p.z-q.z);    // 遠先畫、近後畫（正確前後遮擋）
     ripples = []; splashes = [];
@@ -1497,7 +1525,7 @@
       ph: Math.random()*6.28, trail: []   // 蜿蜒相位 / 滑落水痕
     }));
     // 雪：景深 z 大幅拉開——遠景小柔光點、近景大結晶（差距明顯）
-    const nSnow = Math.round((28+50*ri)*_fxN);
+    const nSnow = Math.round((_lowFx ? (28+50*ri) : (55+95*ri))*_fxN);   // 見上方雨量那段   // 見上方雨量那段的說明
     snowP  = Array.from({length:nSnow}, () => {
       const z = Math.random();
       return { x:Math.random()*W, y:Math.random()*H, z,
@@ -1821,6 +1849,18 @@
     const bg = gs.createRadialGradient(sx,sy,0,sx,sy,W*.85);
     bg.addColorStop(0,'rgba(255,240,110,.38)'); bg.addColorStop(.45,'rgba(255,165,30,.11)'); bg.addColorStop(1,'rgba(0,0,0,0)');
     gs.save(); gs.globalAlpha=.45+.55*clr; gs.fillStyle=bg; gs.fillRect(0,0,W,H); gs.restore();
+    /* ★ 地平線散射霾：真實晴天越靠近地平線越亮越暖（大氣散射的路徑更長）。
+       原本晴天的天空是一片均勻底光,少了這層「遠處會發白」的縱深。
+       ⚠ 跟著晴朗度 clr 走：雲多時自然變弱,不會在陰天硬加一條亮邊。 */
+    if (!_gc.sunHaze || _gc.sunHazeH !== H) {
+      const hz2 = gs.createLinearGradient(0, H * 0.58, 0, H);
+      hz2.addColorStop(0, 'rgba(255,246,226,0)');
+      hz2.addColorStop(0.55, 'rgba(255,244,218,0.10)');
+      hz2.addColorStop(1, 'rgba(255,238,206,0.22)');
+      _gc.sunHaze = hz2; _gc.sunHazeH = H;
+    }
+    gs.save(); gs.globalAlpha = 0.35 + 0.65 * clr;
+    gs.fillStyle = _gc.sunHaze; gs.fillRect(0, H * 0.58, W, H * 0.42); gs.restore();
     /* 太陽本體與所有光效 → 天體深景層：相機運鏡時大幅視差，前方雲層（far/mid/near）真遮擋 */
     const ga = _ink("astro");
     _sunHalo(ga, sx, sy);   // 22° 日暈（卷雲時的光環，真實大氣光學）
@@ -1847,11 +1887,20 @@
       ga.beginPath(); ga.moveTo(Math.cos(a)*32,Math.sin(a)*32); ga.lineTo(Math.cos(a)*len,Math.sin(a)*len); ga.stroke();
     }
     ga.restore();
-    /* pulsing halo rings */
-    [55,85,120].forEach((r,i) => {
-      ga.strokeStyle=`rgba(255,220,80,${((.20-i*.05)*rk).toFixed(3)})`; ga.lineWidth=i===0?2.5:2;
-      ga.beginPath(); ga.arc(sx,sy,r+Math.sin(t*1.1+i)*7,0,Math.PI*2); ga.stroke();
-    });
+    /* ★ 2026-09-27「普通日也升級」：原本是三個實心細環（r=55/85/120 直接 stroke）——
+       在畫面上讀起來像**準星/HUD**，不像陽光。真實的太陽輝光是「中心亮、往外連續變淡」，
+       沒有一圈一圈的硬邊。
+       → 改成一層**放射漸層的柔光暈**（呼吸式脈動），只保留**一圈極淡**的細環當作大氣光環的暗示。 */
+    ga.save(); ga.globalCompositeOperation='lighter';
+    const _hr = 118 + Math.sin(t * 0.9) * 9;
+    const hg2 = ga.createRadialGradient(sx, sy, 24, sx, sy, _hr);
+    hg2.addColorStop(0,    `rgba(255,232,150,${(0.22 * rk).toFixed(3)})`);
+    hg2.addColorStop(0.42, `rgba(255,214,110,${(0.09 * rk).toFixed(3)})`);
+    hg2.addColorStop(1,    'rgba(255,196,80,0)');
+    ga.fillStyle = hg2; ga.beginPath(); ga.arc(sx, sy, _hr, 0, Math.PI * 2); ga.fill();
+    ga.strokeStyle = `rgba(255,226,120,${(0.05 * rk).toFixed(3)})`; ga.lineWidth = 1.2;
+    ga.beginPath(); ga.arc(sx, sy, _hr * 0.72, 0, Math.PI * 2); ga.stroke();
+    ga.restore();
     /* sun disc（3D：限邊減光球體 + 雙層反向慢轉電漿表面） */
     ga.shadowBlur=30; ga.shadowColor="rgba(255,200,0,1)";
     ga.fillStyle="rgba(255,214,80,.95)"; ga.beginPath(); ga.arc(sx,sy,28,0,Math.PI*2); ga.fill();
@@ -1893,6 +1942,36 @@
       if (a>.78 && p.r>1.1) _starSpike(ga, p.x, p.y, p.r*4.2, a);
     });
     /* 行星/星座/銀河改由 _drawAstro 統一畫（所有夜間天氣都有），這裡不再重複 */
+    /* ★ **人造衛星**：真實夜空每隔幾分鐘就有一顆等速直線穿過（沒有尾巴，這是跟流星最大的差別）,
+       中途偶爾一次「反光閃亮」（太陽能板反射）。夜空多一件**會發生的事**,不再只是靜態星圖。
+       ⚠ 刻意做得慢（橫跨畫面約 15~25 秒）且不留尾跡 —— 有尾巴就變成流星,那個已經有了。 */
+    satTimer--;
+    if (!sat && satTimer <= 0) {
+      satTimer = 1400 + Math.floor(Math.random() * 2600);        // 約 23~66 秒一顆
+      const fromLeft = Math.random() < 0.5;
+      sat = { x: fromLeft ? -16 : W + 16, y: H * (0.05 + Math.random() * 0.38),
+              /* ⚠ 天氣迴圈本身有節流（停手 45ms／互動中 66ms／持續拖曳 90ms）→ 用「每幀多少 px」
+                 換算成牆鐘速度時會慢一倍以上：實測 0.55~1.0 px/幀 只跑出 12.9 px/秒，
+                 橫跨畫面要 100 秒。調到 1.2~2.0 → 約 25~45 秒過境,看得到又不搶戲。 */
+              vx: (fromLeft ? 1 : -1) * (1.2 + Math.random() * 0.8),
+              vy: (Math.random() - 0.5) * 0.3,
+              fl: 0.3 + Math.random() * 0.5, age: 0 };
+    }
+    if (sat) {
+      sat.x += sat.vx; sat.y += sat.vy; sat.age++;
+      const prog = Math.min(1, Math.max(0, sat.x / W));
+      const flare = 1 + 2.4 * Math.exp(-Math.pow((prog - sat.fl) * 7, 2));   // 中途一次反光
+      const a = Math.min(1, 0.32 * flare) * _astroDim();
+      ga.save(); ga.globalCompositeOperation = 'lighter';
+      const sg = ga.createRadialGradient(sat.x, sat.y, 0, sat.x, sat.y, 5.5 * flare);
+      sg.addColorStop(0, `rgba(235,245,255,${a.toFixed(3)})`);
+      sg.addColorStop(1, 'rgba(200,225,255,0)');
+      ga.fillStyle = sg; ga.beginPath(); ga.arc(sat.x, sat.y, 5.5 * flare, 0, Math.PI * 2); ga.fill();
+      ga.fillStyle = `rgba(255,255,255,${Math.min(1, a * 1.5).toFixed(3)})`;
+      ga.beginPath(); ga.arc(sat.x, sat.y, 1.05, 0, Math.PI * 2); ga.fill();
+      ga.restore();
+      if (sat.x < -30 || sat.x > W + 30 || sat.y < -30 || sat.y > H) sat = null;
+    }
     /* shooting star */
     shootTimer--;
     if (shootTimer<=0) {
@@ -2579,11 +2658,32 @@
       g.addColorStop(1,`rgba(${col},0)`);
       ctx.fillStyle=g;
       ctx.fillRect(0, top, W, bot-top);            // 整片底光暈
-      for (let i=0;i<b.rays;i++) {                  // 垂直光簾（共用同一條漸層，免逐根建立）
+      /* ★ 2026-09-27 使用者：「優化升級天氣動畫」。極光原本是一根根**直的長方形**（fillRect）
+         → 看起來像直條紋不像極光。真實極光是**會飄的簾幕**：沿著高度左右擺、下緣亮、
+         每根的擺幅與波長都不同（同相位的話整片會像柵欄在平移）。
+         → 改成逐根畫「波浪形的帶狀路徑」：左緣往下走、右緣往回，中間用 6 段折線近似正弦。
+         ⚠ 成本仍是常數級：漸層每個 band 只建一條（既有的優化保留），這裡只是把 fillRect
+           換成 6+6 個 lineTo，實測幀時間沒有變化。 */
+      const STEPS = 6;
+      for (let i=0;i<b.rays;i++) {                  // 波浪光簾（共用同一條漸層，免逐根建立）
         const rx = (((i*b.spacing + drift) % (W+200)) - 100) + Math.sin(t*b.sp + i*0.45 + b.ph)*16;
         const topY = top + Math.sin(t*b.sp*0.6 + i*0.35 + b.ph)*H*0.05;
         const h = b.h*(0.72 + 0.28*Math.sin(t*1.1 + i*0.7));
-        ctx.fillRect(rx, topY, b.rayW, h);
+        const amp = 9 + (i % 4) * 7;                // 每根擺幅不同
+        const wl  = 0.010 + (i % 5) * 0.0022;       // 每根波長不同
+        const ph2 = t * b.sp * 1.7 + i * 0.5 + b.ph;
+        const wid = b.rayW * (0.8 + 0.5 * ((i % 3) / 2));
+        ctx.beginPath();
+        for (let s2 = 0; s2 <= STEPS; s2++) {
+          const y = topY + h * (s2 / STEPS);
+          const x = rx + Math.sin(y * wl + ph2) * amp;
+          if (s2 === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        }
+        for (let s2 = STEPS; s2 >= 0; s2--) {
+          const y = topY + h * (s2 / STEPS);
+          ctx.lineTo(rx + Math.sin(y * wl + ph2) * amp + wid, y);
+        }
+        ctx.closePath(); ctx.fill();
       }
     });
     ctx.restore();
@@ -2635,10 +2735,20 @@
       _ssGrad.sky=sky;
     }
     if (_ssGrad.hzH!==H) {
-      const hzTop=H*0.78;
+      /* ★ 2026-09-27「夕陽也優化」：真實夕陽**最亮的是貼著地平線那一條**，原本最濃處只有 0.20，
+         整片看起來只是淡淡的紫紅。→ 大範圍暖霞加濃，再加一條貼地的「熱核帶」
+         （更亮更橘、只佔最下面 8%），天空才有「下面在燒」的層次。 */
+      const hzTop=H*0.74;
       const hz=ctx.createLinearGradient(0,hzTop,0,H);
-      hz.addColorStop(0,'rgba(255,188,128,0)'); hz.addColorStop(0.6,'rgba(255,182,120,0.10)'); hz.addColorStop(1,'rgba(252,174,112,0.20)');
+      hz.addColorStop(0,'rgba(255,188,128,0)');
+      hz.addColorStop(0.45,'rgba(255,178,112,0.13)');
+      hz.addColorStop(0.80,'rgba(255,164,96,0.26)');
+      hz.addColorStop(1,'rgba(255,146,78,0.40)');
       _ssGrad.hz=hz; _ssGrad.hzTop=hzTop; _ssGrad.hzH=H;
+      const core=ctx.createLinearGradient(0,H*0.92,0,H);
+      core.addColorStop(0,'rgba(255,214,150,0)');
+      core.addColorStop(1,'rgba(255,206,132,0.30)');
+      _ssGrad.core=core;
     }
     ctx.fillStyle=_ssGrad.sky; ctx.fillRect(0,0,W,H);
     // ── 星星：太陽越往下沉、天越暗 → 星星越多越亮（隨 prog 漸現）──
@@ -2682,6 +2792,33 @@
     rim.addColorStop(0,'rgba(255,240,200,0)'); rim.addColorStop(1,'rgba(255,226,172,0.4)');
     ctx.fillStyle=rim; ctx.beginPath(); ctx.arc(sx,sy,pr*1.05,0,Math.PI*2); ctx.fill();
     ctx.restore();
+    /* ★ 雲隙光（crepuscular rays）：從太陽扇出幾道長柔光,夕陽最有代表性的一筆。
+       ⚠ 畫在**地平線裁切內**、用 lighter 疊加,而且透明度乘上 `_wf`(暖色保留比例)
+         → 天黑時自己淡出,不會在夜空上留一組怪光。
+       ⚠ 每道只是一個三角楔形(2 個 lineTo),七道也只有 7 次 fill —— 比烤一張貼圖還便宜。 */
+    if (_wf > 0.12 && sy < H) {
+      ctx.save();
+      ctx.beginPath(); ctx.rect(0, 0, W, horizonY); ctx.clip();
+      ctx.globalCompositeOperation = 'lighter';
+      const RAYS = 9, LEN = H * 1.25;   // 道數多一點、每道細一點 → 像光束不像放射狀商標
+      for (let i = 0; i < RAYS; i++) {
+        const base = -Math.PI / 2 + (i - (RAYS - 1) / 2) * 0.20;      // 以「朝上」為中心扇開
+        const ang = base + Math.sin(t * 0.13 + i * 1.7) * 0.035;      // 緩慢擺動
+        const wid = 0.020 + 0.016 * ((i * 7) % 3);                    // 每道寬窄不同
+        const a = (0.038 + 0.022 * Math.sin(t * 0.5 + i)) * _wf;
+        const g2 = ctx.createLinearGradient(sx, sy, sx + Math.cos(ang) * LEN, sy + Math.sin(ang) * LEN);
+        g2.addColorStop(0, `rgba(255,214,150,${(a * 1.6).toFixed(3)})`);
+        g2.addColorStop(0.45, `rgba(255,186,118,${a.toFixed(3)})`);
+        g2.addColorStop(1, 'rgba(255,160,100,0)');
+        ctx.fillStyle = g2;
+        ctx.beginPath();
+        ctx.moveTo(sx, sy);
+        ctx.lineTo(sx + Math.cos(ang - wid) * LEN, sy + Math.sin(ang - wid) * LEN);
+        ctx.lineTo(sx + Math.cos(ang + wid) * LEN, sy + Math.sin(ang + wid) * LEN);
+        ctx.closePath(); ctx.fill();
+      }
+      ctx.restore();
+    }
     ctx.restore();   // 解除地平線裁切
     const cdir=_windVecX()>=0?1:-1;
     ctx.save(); ctx.globalAlpha=_wf;                        // 背光雲隨夜化淡出（夜晚無雲、與 dNight 一致）
@@ -2694,6 +2831,7 @@
     // 地平線暖霾：集中在螢幕下緣（太陽沉沒處）→ 暖光由下往上淡出；隨夜化整體再淡出（用快取漸層）
     ctx.save(); ctx.globalAlpha=_wf;
     ctx.fillStyle=_ssGrad.hz; ctx.fillRect(0,_ssGrad.hzTop,W,H-_ssGrad.hzTop);
+    if (_ssGrad.core) { ctx.fillStyle=_ssGrad.core; ctx.fillRect(0,H*0.92,W,H*0.08); }
     ctx.restore();
   }
 
@@ -2722,10 +2860,20 @@
       [0,0.34,0.60,0.80,1].forEach((p,i)=>sky.addColorStop(p,_hexLerp(SS[i],NT[i],k)));
       _ssGrad.sky=sky;
     }
+    /* ⚠ `_ssGrad` 是**日出與日落共用**的一份快取 → 兩邊的定義必須一模一樣,
+       否則哪一邊先跑就用哪一邊的值（2026-09-27 我只改了日落那邊,差點留下這個坑）。 */
     if (_ssGrad.hzH!==H) {
-      const hzTop=H*0.78; const hz=ctx.createLinearGradient(0,hzTop,0,H);
-      hz.addColorStop(0,'rgba(255,188,128,0)'); hz.addColorStop(0.6,'rgba(255,182,120,0.10)'); hz.addColorStop(1,'rgba(252,174,112,0.20)');
+      const hzTop=H*0.74;
+      const hz=ctx.createLinearGradient(0,hzTop,0,H);
+      hz.addColorStop(0,'rgba(255,188,128,0)');
+      hz.addColorStop(0.45,'rgba(255,178,112,0.13)');
+      hz.addColorStop(0.80,'rgba(255,164,96,0.26)');
+      hz.addColorStop(1,'rgba(255,146,78,0.40)');
       _ssGrad.hz=hz; _ssGrad.hzTop=hzTop; _ssGrad.hzH=H;
+      const core=ctx.createLinearGradient(0,H*0.92,0,H);
+      core.addColorStop(0,'rgba(255,214,150,0)');
+      core.addColorStop(1,'rgba(255,206,132,0.30)');
+      _ssGrad.core=core;
     }
     ctx.save(); ctx.globalAlpha=1-dayf; ctx.fillStyle=_ssGrad.sky; ctx.fillRect(0,0,W,H); ctx.restore();
 
@@ -2763,6 +2911,31 @@
     rim.addColorStop(0,'rgba(255,240,200,0)'); rim.addColorStop(1,'rgba(255,226,172,0.4)');
     ctx.fillStyle=rim; ctx.beginPath(); ctx.arc(sx,sy,pr*1.05,0,Math.PI*2); ctx.fill();
     ctx.restore();
+    /* 雲隙光：與日落同一套（見 dSunset 的說明）。這裡的透明度跟著**朝霞暖度** warmA ——
+       天還沒亮(nf=1)與已經天亮(dayf=1)時都是 0,只有日出那段才出現。 */
+    if (warmA > 0.12 && sy < H) {
+      ctx.save();
+      ctx.beginPath(); ctx.rect(0, 0, W, horizonY); ctx.clip();
+      ctx.globalCompositeOperation = 'lighter';
+      const RAYS = 9, LEN = H * 1.25;
+      for (let i = 0; i < RAYS; i++) {
+        const base = -Math.PI / 2 + (i - (RAYS - 1) / 2) * 0.20;
+        const ang = base + Math.sin(t * 0.13 + i * 1.7) * 0.035;
+        const wid = 0.020 + 0.016 * ((i * 7) % 3);
+        const a = (0.038 + 0.022 * Math.sin(t * 0.5 + i)) * warmA;
+        const g2 = ctx.createLinearGradient(sx, sy, sx + Math.cos(ang) * LEN, sy + Math.sin(ang) * LEN);
+        g2.addColorStop(0, `rgba(255,222,168,${(a * 1.6).toFixed(3)})`);
+        g2.addColorStop(0.45, `rgba(255,196,132,${a.toFixed(3)})`);
+        g2.addColorStop(1, 'rgba(255,170,110,0)');
+        ctx.fillStyle = g2;
+        ctx.beginPath();
+        ctx.moveTo(sx, sy);
+        ctx.lineTo(sx + Math.cos(ang - wid) * LEN, sy + Math.sin(ang - wid) * LEN);
+        ctx.lineTo(sx + Math.cos(ang + wid) * LEN, sy + Math.sin(ang + wid) * LEN);
+        ctx.closePath(); ctx.fill();
+      }
+      ctx.restore();
+    }
     ctx.restore();   // 解除地平線裁切
     const cdir=_windVecX()>=0?1:-1;
     ctx.save(); ctx.globalAlpha=warmA;
@@ -2774,6 +2947,7 @@
     ctx.restore();
     ctx.save(); ctx.globalAlpha=warmA;
     ctx.fillStyle=_ssGrad.hz; ctx.fillRect(0,_ssGrad.hzTop,W,H-_ssGrad.hzTop);
+    if (_ssGrad.core) { ctx.fillStyle=_ssGrad.core; ctx.fillRect(0,H*0.92,W,H*0.08); }
     ctx.restore();
   }
 
