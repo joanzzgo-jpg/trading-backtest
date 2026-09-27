@@ -6565,6 +6565,21 @@ html.mc-2 #mainPane > .pane-legend, html.mc-4 #mainPane > .pane-legend {
 .mini-body { flex: 1; min-height: 0; position: relative; }
 /* 每格的副圖（RSI/MACD/KDJ）：高度由 multichart.js `_sizeSubs` 依整格高度算,這裡只排版 */
 .mini-ov { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
+/* ★ 2026-09-28 使用者：「下方線斷了 而且下方附圖也出現十字很亂 我要跟主圖一樣」。
+   原本讓每張副圖各畫自己的原生十字線 → 面板交界處斷開,而且每張都多一條橫線＋圓點＝很亂。
+   主圖的作法是「**關掉原生鉛直線,改用一條貫穿所有面板的自訂線**」,這裡照做：
+   一格一條 `.mini-vline`,從 K 棒區頂端一路畫到最下面那張副圖的底部。
+   ⚠ 樣式與 `.pane-vline` 完全一致（8px 實 + 6px 空）——改那邊的虛線樣式時這裡要一起改。 */
+.mini-vline {
+  position: absolute; width: 1px; pointer-events: none; z-index: 25; display: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(117,134,150,.65) 0px,
+    rgba(117,134,150,.65) 8px,
+    transparent 8px,
+    transparent 14px
+  );
+}
 .mini-subs { display: flex; flex-direction: column; flex: 0 0 auto; }
 .mini-sub { position: relative; border-top: 1px solid rgba(255,255,255,.06); }
 html.perf-mode .mini-head { color: #2a2620; border-bottom-color: rgba(0,0,0,.08); }

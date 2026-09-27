@@ -86,9 +86,15 @@
     const ov = document.createElement("canvas");
     ov.className = "mini-ov";
     body.appendChild(ov);
+    /* 貫穿整格（K 棒區＋各副圖）的自訂鉛直線,同主圖的 `.pane-vline`（見 style.css 的說明）。
+       原生鉛直線與時間標籤一律關掉,否則會變成「每張圖各畫一段、交界處斷開」。 */
+    const vline = document.createElement("div");
+    vline.className = "mini-vline";
+    el.appendChild(vline);
+    chart.applyOptions({ crosshair: { vertLine: { visible: false, labelVisible: false } } });
     const ro = new ResizeObserver(() => { try { chart.resize(body.clientWidth, body.clientHeight); } catch (e) {} _ovSize(cell); _ovPaint(cell); });
     ro.observe(body);
-    const cell = { el, chart, series, ws, lineS, vol, bbU, bbM, bbL, ov, fvg: [], mkSrc: null, body, subWrap: el.querySelector(".mini-subs"), subs: [], rows: [], linePts: [], mkRaw: [], symEl: el.querySelector(".mini-sym"), tfEl: el.querySelector(".mini-tf"), pxEl: el.querySelector(".mini-px"), ro, gen: 0, lastC: null, prevC: null };
+    const cell = { el, chart, series, ws, lineS, vol, bbU, bbM, bbL, ov, vline, fvg: [], mkSrc: null, body, subWrap: el.querySelector(".mini-subs"), subs: [], rows: [], linePts: [], mkRaw: [], symEl: el.querySelector(".mini-sym"), tfEl: el.querySelector(".mini-tf"), pxEl: el.querySelector(".mini-px"), ro, gen: 0, lastC: null, prevC: null };
     try {
       cell.lineGrad = (typeof _makeLineGradPrimitive === "function") ? _makeLineGradPrimitive(() => cell.linePts) : null;
       if (cell.lineGrad) lineS.attachPrimitive(cell.lineGrad);
@@ -106,7 +112,11 @@
        交換保留成旁邊的 ⇄ 鈕（兩個都有用：交換是「把這格拉上主圖細看」）。 */
     _ovSize(cell);
     // 這一格自己被平移/縮放時也要重畫 overlay（主圖那邊由 renderDrawings 的共同入口帶動）
-    chart.timeScale().subscribeVisibleTimeRangeChange(r => { if (r) _growWs(cell, r.to); _ovQueue(cell); });
+    chart.timeScale().subscribeVisibleTimeRangeChange(r => {
+      if (r) _growWs(cell, r.to);
+      if (cell.xhT != null) _placeVline(cell, cell.xhT);   // 平移/縮放時時間沒變但 x 變了
+      _ovQueue(cell);
+    });
     el.querySelector(".mini-sym").addEventListener("click", (e) => { e.stopPropagation(); _pickSym(i); });
     el.querySelector(".mini-swap").addEventListener("click", (e) => { e.stopPropagation(); _swap(i); });
     cell.tfEl.addEventListener("click", (e) => { e.stopPropagation(); _cycleTf(i); });
@@ -195,13 +205,29 @@
      ⚠ 主圖要走 `window._mcCrosshairAt`（它的鉛直線是自繪的 DOM,不是 LWC 原生）。
      ⚠ 價格用「那一格自己在該時間的收盤」→ 橫線落在自己的 K 棒上；沒有那根就退回最後價。 */
   let _crossing = false;
-  function _crosshairTo(cell, tm) {
+
+  /* 同一格的副圖：十字線要跟著 K 棒那張走（使用者：「鼠標十字虛線下方垂直線對不到附圖」）。
+     ⚠ 價格用**那張副圖自己在該時間的值**（RSI(14)／K／MACD）→ 橫線落在自己的線上；
+       拿固定值（例如 50）的話,橫線會定在一個毫無意義的高度,看起來像壞掉。 */
+  /* 把這一格的自訂鉛直線放到「那個時間」的 x。
+     ⚠ x 一律問**K 棒那張**的時間軸：整格的價格軸已經拉成同寬（`_eqAxis`）,所以同一個 x
+       在每張副圖上都是同一個時間 —— 這正是「一條線貫穿」成立的前提。
+     ⚠ 高度從 K 棒區頂端畫到最下面那張副圖的底部（都相對於 `.mini-cell`）。 */
+  function _placeVline(cell, tm) {
+    const ln = cell.vline;
+    if (!ln) return;
+    if (tm == null) { ln.style.display = "none"; return; }
     try {
-      const px = (cell.byTime && cell.byTime.get(tm)) ?? cell.lastC;
-      if (px == null) return;
-      cell.chart.setCrosshairPosition(px, tm, cell.series);
-      cell.xhT = tm;                       // 給 _mcRanges 讀（驗證/除錯用）
-    } catch (e) {}
+      const x = cell.chart.timeScale().timeToCoordinate(tm);
+      if (x == null) { ln.style.display = "none"; return; }
+      const cr = cell.el.getBoundingClientRect();
+      const br = cell.body.getBoundingClientRect();
+      const last = cell.subs.length ? cell.subs[cell.subs.length - 1].el.getBoundingClientRect() : br;
+      ln.style.left = Math.round(br.left - cr.left + x) + "px";
+      ln.style.top = Math.round(br.top - cr.top) + "px";
+      ln.style.height = Math.round(last.bottom - br.top) + "px";
+      ln.style.display = "block";
+    } catch (e) { ln.style.display = "none"; }
   }
   function _onCross(src, param) {
     if (_crossing || _mode === 1) return;
@@ -209,10 +235,12 @@
     try {
       const tm = param && param.time;
       if (tm == null) {
-        _cells.forEach(c => { if (c.chart !== src) { try { c.chart.clearCrosshairPosition(); c.xhT = null; } catch (e) {} } });
+        _cells.forEach(c => { c.xhT = null; _placeVline(c, null); });
         if (src !== (typeof mainChart !== "undefined" ? mainChart : null)) { try { window._mcCrosshairHide?.(); } catch (e) {} }
       } else {
-        _cells.forEach(c => { if (c.chart !== src) _crosshairTo(c, tm); });
+        /* ⚠ **不**在別的圖上設原生十字線（`setCrosshairPosition`）：那會多出一條橫線與圓點,
+           使用者說「很亂」。主圖的作法就是只推那條鉛直線,橫線只屬於「滑鼠真的在上面」那張圖。 */
+        _cells.forEach(c => { c.xhT = tm; _placeVline(c, tm); });
         if (src !== (typeof mainChart !== "undefined" ? mainChart : null)) { try { window._mcCrosshairAt?.(tm); } catch (e) {} }
       }
     } finally { _crossing = false; }
@@ -601,6 +629,13 @@
     const arr = new Array(n2);
     for (let k = 0; k < n2; k++) arr[k] = { time: cell.wsT0 + cell.wsStep * (k + 1) };
     try { cell.ws.setData(arr); cell.wsN = n2; } catch (e) {}
+    cell.subs.forEach(x => { try { x.ws.setData(arr); } catch (e) {} });   // 副圖同一份（時間軸在它們身上）
+  }
+  function _reWs(cell) {            // 副圖是後來才建立的 → 補鋪一次目前的留白
+    if (!cell || !cell.wsStep || !cell.wsN) return;
+    const arr = new Array(cell.wsN);
+    for (let k = 0; k < cell.wsN; k++) arr[k] = { time: cell.wsT0 + cell.wsStep * (k + 1) };
+    cell.subs.forEach(x => { try { x.ws.setData(arr); } catch (e) {} });
   }
 
   /* ★ 2026-09-27 使用者：「往歷史滑不會補」。迷你圖初載只有 320 根 —— 主圖有整套背景補載
@@ -656,7 +691,8 @@
     if (!rows || !rows.length) return;
     const R = rows.map(b => ({ time: toTime(b.time), open: b.open, high: b.high, low: b.low, close: b.close }));
     try { cell.series.setData(R); } catch (e) {}
-    cell.byTime = new Map(R.map(r => [r.time, r.close]));   // 十字線連動要給價格（見 _crosshairTo）
+    cell.byTime = new Map(R.map(r => [r.time, r.close]));   // time → 收盤（給需要「那一根的價」的地方用）
+    cell.rowByT = new Map(rows.map((b, i) => [R[i].time, b]));   // 副圖十字線要那一根的指標值
     // 線型圖的收盤折線（濾掉 null close：LWC 的 Line 會拋「Value is null」）
     cell.linePts = R.filter(r => r.close != null).map(r => ({ t: r.time, v: r.close }));
     try { cell.lineS.setData(cell.linePts.map(p => ({ time: p.t, value: p.v }))); } catch (e) {}
@@ -717,7 +753,8 @@
     cell.subWrap.appendChild(el);
     const opts = (typeof makeBaseOpts === "function") ? makeBaseOpts({ top: 0.08, bottom: 0.08 }, last) : {};
     const chart = LightweightCharts.createChart(el, opts);
-    chart.applyOptions({ handleScroll: true, handleScale: true });
+    chart.applyOptions({ handleScroll: true, handleScale: true,
+                         crosshair: { vertLine: { visible: false, labelVisible: false } } });
     const C_ = (typeof C !== "undefined") ? C : {};
     const ln = (color, o) => chart.addLineSeries(Object.assign({ color, lineWidth: 1, priceLineVisible: false, lastValueVisible: false }, o || {}));
     const S_ = (typeof S !== "undefined") ? S : {};
@@ -730,7 +767,15 @@
        ⚠ anchor **不需要餵資料**（主圖那兩個 anchor 也從來沒有 setData）。 */
     const anchor = chart.addLineSeries({ color: "rgba(0,0,0,0)", lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
     const _HL = (price, opts) => (typeof _mkHLine === "function") ? _mkHLine(anchor, price, opts) : null;
-    const sub = { key, el, chart, anchor, lines: [] };
+    /* ⚠⚠ 副圖也要有自己的未來留白：**時間軸就印在最下面那一張副圖上**,
+       而 LWC 的格線與時間刻度只生成在「有資料的時間範圍」內 → 副圖沒有留白序列的話,
+       最後一根之後那一段就沒有格線、也沒有時間刻度（使用者：「第二圖後面的時間軸沒出來」）。
+       主圖的 `_gridAhead` 本來就是**四張圖各掛一條**,我第一版只給了 K 棒那張。 */
+    const ws = chart.addLineSeries({
+      priceScaleId: "", lastValueVisible: false, crosshairMarkerVisible: false,
+      priceLineVisible: false, autoscaleInfoProvider: () => null,
+    });
+    const sub = { key, el, chart, anchor, ws, lines: [] };
     if (key === "rsi") {
       // RSI 數學上必落在 0~100 → 釘死,縮放時 30/50/70 永遠在同一個高度（同主圖）
       sub.main = ln(C_.rsi14 || "#7e57c2", { autoscaleInfoProvider: () => ({ priceRange: { minValue: 0, maxValue: 100 } }) });
@@ -773,6 +818,7 @@
           time: toTime(d.time), value: d.macd_hist, color: d.macd_hist >= 0 ? up : dn })));
       };
     }
+    chart.subscribeCrosshairMove(param => _onCross(chart, param));   // hover 副圖時也要帶動其他人
     return sub;
   }
   function _buildSubs(cell) {
@@ -797,6 +843,7 @@
        我自己的測試剛好在中間多關了一個指標（觸發重建）才看起來正常 —— 典型的「測試路徑
        比使用者路徑多做了一步」。現在一律重餵：setData 是冪等的,重覆餵沒有副作用。 */
     _feedSubs(cell);
+    _reWs(cell);
     _mirrorVis(cell);
     _sizeSubs(cell);
     _syncSubs(cell);
@@ -979,17 +1026,60 @@
     } catch (e) {}
   }
 
-  function _syncMiniAxis() {
-    _syncMiniW();
-    if (_mode !== 2 || !_cells.length || typeof mainChart === "undefined" || !mainChart) return;
+  /* 一組圖的價格軸拉成同寬（同 charts.js `_syncAxisWidth`：取最寬的用 minimumWidth 套給全部）。
+     ⚠ 這不只是好看：軸寬不同 → 繪圖區寬度不同 → **同一個時間落在不同的 x**,
+       十字線的鉛直線就對不到下面的副圖（使用者：「鼠標十字虛線下方垂直線對不到附圖」）。 */
+  function _eqAxis(list) {
+    list = list.filter(Boolean);
+    if (list.length < 2) return;
     try {
-      const list = [mainChart, _cells[0].chart, ..._cells[0].subs.map(x => x.chart)];
       const w = list.map(c => { try { return c.priceScale("right").width() || 0; } catch (e) { return 0; } });
       const want = Math.max(...w);
       if (!want) return;
       list.forEach((c, i) => { if (w[i] !== want) { try { c.priceScale("right").applyOptions({ minimumWidth: want }); } catch (e) {} } });
     } catch (e) {}
   }
+  function _syncMiniAxis() {
+    _syncMiniW();
+    if (_mode === 1 || !_cells.length) return;
+    // ① 每一格內部：K 棒圖與它的副圖（4 格也要,那裡雖然目前不長副圖,但邏輯一致）
+    _cells.forEach(c => _eqAxis([c.chart, ...c.subs.map(x => x.chart)]));
+    // ② 2 格模式：主圖與那一格也要同寬（兩邊 K 棒才會一樣大）
+    if (_mode === 2 && typeof mainChart !== "undefined" && mainChart)
+      _eqAxis([mainChart, _cells[0].chart, ..._cells[0].subs.map(x => x.chart)]);
+  }
+
+  /* 唯讀除錯出口（同 `_mcRanges` 的理由：chart 物件包在 IIFE 裡,外面讀不到） */
+  window._mcNative = function () {   // 各圖的原生鉛直線是否還開著（應全部 false）
+    const c = _cells[0]; if (!c) return null;
+    const g = ch => { try { return ch.options().crosshair.vertLine.visible; } catch (e) { return null; } };
+    return [g(c.chart), ...c.subs.map(x => g(x.chart))];
+  };
+  window._mcVlineCheck = function () {   // 那條線的 x 是不是「xhT 在這一格時間軸上的座標」
+    const c = _cells[0]; if (!c || c.xhT == null) return null;
+    try {
+      const want = c.chart.timeScale().timeToCoordinate(c.xhT);
+      const cr = c.el.getBoundingClientRect(), br = c.body.getBoundingClientRect();
+      const got = parseFloat(c.vline.style.left) - (br.left - cr.left);
+      return { xhT: c.xhT, want: Math.round(want), got: Math.round(got), diff: Math.round(got - want) };
+    } catch (e) { return null; }
+  };
+  window._mcAxes = function () {
+    const c = _cells[0]; if (!c) return null;
+    const g = ch => { try { return Math.round(ch.priceScale("right").width()); } catch (e) { return -1; } };
+    return [g(c.chart), ...c.subs.map(x => g(x.chart))];
+  };
+  window._mcWs = function () {
+    const c = _cells[0]; if (!c || !c.wsStep) return null;
+    const t = c.wsT0 + c.wsStep * 40;                 // 最後一根之後第 40 根（留白區）
+    const q = ch => { try { return ch.timeScale().timeToCoordinate(t) != null; } catch (e) { return false; } };
+    return { n: c.wsN, future: [q(c.chart), ...c.subs.map(x => q(x.chart))] };
+  };
+  window._mcXhX = function () {      // 各圖「目前十字線」換算成 x（用同一個時間問各自的時間軸）
+    const c = _cells[0]; if (!c || c.xhT == null) return null;
+    const x = ch => { try { const v = ch.timeScale().timeToCoordinate(c.xhT); return v == null ? null : Math.round(v); } catch (e) { return null; } };
+    return [x(c.chart), ...c.subs.map(s2 => x(s2.chart))];
+  };
 
   /* 唯讀：格子各層的顯示狀態（給驗證/除錯用；同 `_mcRanges` 的理由——chart 在 IIFE 裡） */
   window._mcVis = function () {
