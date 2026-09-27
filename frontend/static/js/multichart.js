@@ -1203,10 +1203,23 @@
     _applyMode();
     _watchMainTf();
     // 每 5s 更新尾巴（背景分頁暫停＝省電規範；錯開避免同秒齊發）
-    setInterval(() => {
-      if (document.hidden || !_cells.length) return;
-      _cells.forEach((c, i) => setTimeout(() => _tickMini(i), i * 400));
-    }, 5000);
+    /* ★ 2026-09-28 使用者：「第二圖 報價偏慢」。原本固定 5 秒一次,主圖是 1 秒 → 最壞差 5 秒。
+       ⚠⚠ **不可以改成讀報價列那份（`_tickerData`）省流量**：那是**永續**的清單,
+         `spot` 欄位只是把 `.P` 去掉的**衍生名稱**,價格仍是永續的 —— 拿去餵現貨標的
+         就是「永續偷偷變成現貨」的反向版（claude.md 守門員之五記過差 28 點／4.3bps）。
+         實測 `_tickerData` 裡 `spot:"ETH/USDT"` 那筆的 price 是 `ETH/USDT.P` 的價。
+       → 照樣走 `/api/latest`（與主圖同一支、同一個商品）,只是問得更勤,
+         並依格子數調整：2 格 1.2 秒（要拿來對照,就該跟得上）、4 格 2.5 秒（掃一眼用的,
+         三格一起打沒必要那麼勤）。⚠ 背景分頁照樣完全不打（省電規範）。
+       ⚠ 後端 `/api/latest` 有 1 秒 TTL ＋ 單飛 → 多打的多半吃快取,不會加重上游。 */
+    const _tickDelay = () => (_cells.length <= 1 ? 1200 : 2500);
+    let _tickT = null;
+    const _tickLoop = () => {
+      clearTimeout(_tickT);
+      if (!document.hidden && _cells.length) _cells.forEach((c, i) => setTimeout(() => _tickMini(i), i * 300));
+      _tickT = setTimeout(_tickLoop, _tickDelay());
+    };
+    _tickLoop();
   }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => setTimeout(_init, 800));
   else setTimeout(_init, 800);
