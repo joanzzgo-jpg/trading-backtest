@@ -45,7 +45,13 @@
       wickDownColor: (typeof C !== "undefined" && C.down) || "#ef5350",
       /* 現價線：與主圖同一顆顏色（C.curPrice,使用者可在「主圖設定 → 現價線」改）。
          不給的話 LWC 會用「最後一根的漲跌色」,看起來就不像主圖那條橘線。 */
-      priceLineVisible: true, lastValueVisible: true,
+      /* ★ 2026-09-28 使用者：「第二圖現價要蓋在所有數值上」「而且設計跟主圖不同需要修」。
+         原生的最後價標籤只是一塊純色方塊,與主圖那顆（自訂 DOM、毛玻璃、圓角、等寬數字）
+         長得不一樣,而且 LWC 底下的灰色刻度照畫 → 兩個數字疊在一起
+         （實測橘色「2688.83」上緣透出灰色「2700.00」）。
+         → 關掉原生標籤,改用**與主圖同一個 class** 的 `.current-price-label`,
+           並把它蓋住的那格刻度消掉（同 `charts.js _axisTickText` 的作法）。 */
+      priceLineVisible: true, lastValueVisible: false,
       priceLineColor: (typeof C !== "undefined" && C.curPrice) || "#FF9147", priceLineStyle: 2, priceLineWidth: 1,
     });
     /* ★ 成交量（同主圖：獨立 priceScaleId,不影響 K 棒的價格軸） */
@@ -91,10 +97,25 @@
     const vline = document.createElement("div");
     vline.className = "mini-vline";
     el.appendChild(vline);
+    const pxLbl = document.createElement("div");      // 現價標籤：與主圖同一個 class ⇒ 設計一致
+    pxLbl.className = "current-price-label";
+    body.appendChild(pxLbl);
     chart.applyOptions({ crosshair: { vertLine: { visible: false, labelVisible: false } } });
     const ro = new ResizeObserver(() => { try { chart.resize(body.clientWidth, body.clientHeight); } catch (e) {} _ovSize(cell); _ovPaint(cell); });
     ro.observe(body);
-    const cell = { el, chart, series, ws, lineS, vol, bbU, bbM, bbL, ov, vline, fvg: [], mkSrc: null, body, subWrap: el.querySelector(".mini-subs"), subs: [], rows: [], linePts: [], mkRaw: [], symEl: el.querySelector(".mini-sym"), tfEl: el.querySelector(".mini-tf"), pxEl: el.querySelector(".mini-px"), ro, gen: 0, lastC: null, prevC: null };
+    /* ⚠ **不可以在 formatter 裡呼叫 `priceToCoordinate`**（渲染中再進渲染）→
+         「要蓋掉的價格區間」先在 `_curLabel` 算好,formatter 只做數字比較。
+       ⚠ 沒被蓋到的刻度要**維持原本格式**：用這一格自己的小數位走 `toFixed`,
+         加千分位的話整排刻度都會跟著變（一眼看得出來）。 */
+    chart.applyOptions({ localization: { priceFormatter: v => {
+      const b = cell.axisBand;
+      if (b && v > b[0] && v < b[1]) return "";
+      let pr = cell.prec;
+      if (!(pr >= 0)) { try { pr = series.options().priceFormat.precision; } catch (e) { pr = 2; } }
+      const n = Number(v);
+      return Number.isFinite(n) ? n.toFixed(pr) : String(v);
+    } } });
+    const cell = { el, chart, series, ws, lineS, vol, bbU, bbM, bbL, ov, vline, pxLbl, fvg: [], mkSrc: null, body, subWrap: el.querySelector(".mini-subs"), subs: [], rows: [], linePts: [], mkRaw: [], symEl: el.querySelector(".mini-sym"), tfEl: el.querySelector(".mini-tf"), pxEl: el.querySelector(".mini-px"), ro, gen: 0, lastC: null, prevC: null };
     try {
       cell.lineGrad = (typeof _makeLineGradPrimitive === "function") ? _makeLineGradPrimitive(() => cell.linePts) : null;
       if (cell.lineGrad) lineS.attachPrimitive(cell.lineGrad);
@@ -115,6 +136,7 @@
     chart.timeScale().subscribeVisibleTimeRangeChange(r => {
       if (r) _growWs(cell, r.to);
       if (cell.xhT != null) _placeVline(cell, cell.xhT);   // 平移/縮放時時間沒變但 x 變了
+      _curLabel(cell);                                    // 價格軸會跟著縮放 → 標籤與讓位的刻度都要重算
       _ovQueue(cell);
     });
     el.querySelector(".mini-sym").addEventListener("click", (e) => { e.stopPropagation(); _pickSym(i); });
@@ -209,6 +231,29 @@
   /* 同一格的副圖：十字線要跟著 K 棒那張走（使用者：「鼠標十字虛線下方垂直線對不到附圖」）。
      ⚠ 價格用**那張副圖自己在該時間的值**（RSI(14)／K／MACD）→ 橫線落在自己的線上；
        拿固定值（例如 50）的話,橫線會定在一個毫無意義的高度,看起來像壞掉。 */
+  /* 現價標籤：位置、文字、顏色,以及「它蓋住哪一段價格」。
+     ⚠ 顏色跟主圖同一顆 `C.curPrice`,底 70%、框 90%（與 charts.js 那顆的算法一致）。
+     ⚠ 標籤不顯示時要把區間清掉,否則刻度會永遠缺一格。
+     ⚠ 半高取 15px（標籤半高 10 + 刻度字半高 ~5）—— 同主圖 `_axisHideSet(0, y, 15)`。 */
+  function _curLabel(cell) {
+    const lbl = cell.pxLbl;
+    if (!lbl) return;
+    const hide = () => { lbl.style.display = "none"; cell.axisBand = null; };
+    try {
+      const p = cell.lastC;
+      if (p == null) return hide();
+      const y = cell.series.priceToCoordinate(p);
+      if (y == null) return hide();
+      lbl.textContent = (typeof _fmtPx === "function") ? _fmtPx(p, cell.prec != null ? cell.prec : -1) : String(p);
+      const col = (typeof C !== "undefined" && C.curPrice) || "#FF9147";
+      if (typeof _colA === "function") { lbl.style.background = _colA(col, .70); lbl.style.borderColor = _colA(col, .9); }
+      lbl.style.top = Math.round(y) + "px";
+      lbl.style.display = "block";
+      const a = cell.series.coordinateToPrice(y - 15), b2 = cell.series.coordinateToPrice(y + 15);
+      cell.axisBand = (a == null || b2 == null) ? null : [Math.min(a, b2), Math.max(a, b2)];
+    } catch (e) { hide(); }
+  }
+
   /* 把這一格的自訂鉛直線放到「那個時間」的 x。
      ⚠ x 一律問**K 棒那張**的時間軸：整格的價格軸已經拉成同寬（`_eqAxis`）,所以同一個 x
        在每張副圖上都是同一個時間 —— 這正是「一條線貫穿」成立的前提。
@@ -472,6 +517,7 @@
         if (cell.lastT != null && tm > cell.lastT) cell.prevC = cell.lastC;   // 換新棒 → 舊收盤變前收
         cell.lastT = tm;
         cell.lastC = b.close;
+        _curLabel(cell);                    // 現價一動,標籤與被它蓋掉的那格刻度都要跟著走
         if (b.close != null) {   // 線型圖同步（series 給價格軸、linePts 給漸層 primitive）
           try { cell.lineS.update({ time: tm, value: b.close }); } catch (e) {}
           const lp = cell.linePts, last = lp.length ? lp[lp.length - 1] : null;
@@ -705,6 +751,7 @@
     } catch (e) {}
     const L = k => rows.filter(b => Number.isFinite(b[k])).map(b => ({ time: toTime(b.time), value: b[k] }));
     try { cell.bbU.setData(L("bb_upper")); cell.bbM.setData(L("bb_middle")); cell.bbL.setData(L("bb_lower")); } catch (e) {}
+    _curLabel(cell);
     _ovQueue();
   }
 
