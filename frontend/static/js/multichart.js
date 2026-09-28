@@ -716,26 +716,22 @@
                             rows: cell.rows, prec: cell.prec, symKey,
                             tf: m ? m.tf : null, market: m ? m.market : null });
   }
-  let _ovRaf = 0, _ovSettle = null;
+  let _ovRaf = 0;
   function _ovQueue() {                 // 平移/縮放中每幀都會進來 → 併到下一幀做一次就好
     if (_ovRaf) return;
     _ovRaf = requestAnimationFrame(() => {
       _ovRaf = 0;
-      /* ★ 2026-09-28 使用者：「單圖不會卡,開兩個標的會」。實測 1 格 = 4 張圖表 / 39 個 canvas,
-         2 格 = 8 張 / 68 個 —— 多出 29 個**合成層**,而合成成本正是 headless（軟體光柵化、
-         無 GPU）量不到的那一塊。格子的裝飾層（`.mini-ov`）是其中最大的一張
-         （674×560 × DPR2 ≈ 1.5M 像素）,而且手勢中每一幀都整張清掉重畫。
-         → **持續手勢（`_uxSustained`：連續拖曳/縮放 ≥0.8 秒）時不重畫它**,停手立刻補畫一次。
-         ⚠ 只跳過**畫布上的裝飾**（可見高低、交易時段、量分佈、繪圖…）;
-           鉛直線與現價標籤是 DOM,照樣每幀跟著走 —— 那兩個才是使用者會盯著的。
-         ⚠ 短手勢（<0.8 秒）不受影響,維持全畫質。 */
-      const _hold = (typeof window._uxSustained === "function") && window._uxSustained();
+      /* ⚠⚠ 2026-09-28 **試過「持續手勢時不重畫裝飾層」,使用者回報「更卡了」→ 已收回。**
+         道理上省了一張 1.5M 像素的畫布重畫,但代價是**裝飾（可見高低/交易時段/繪圖…）
+         會凍在原地、跟 K 棒脫節** —— 那個「不同步」讀起來比掉幾幀更像卡。
+         ★ 通則（本專案第三次）：**手勢中「少畫一點」只有在使用者看不出來時才算優化**;
+           只要有東西跟不上游標,感受一定更差（2026-09-24 自繪格線、2026-09-27 格子追不上,
+           都是同一件事）。別再試這個方向。 */
       _cells.forEach(c => {
         if (c.xhT != null) _placeVline(c, c.xhT);   // 時間沒變但 x 變了
         _curLabel(c);                               // 價格軸跟著縮放 → 標籤與讓位的刻度要重算
-        if (!_hold) _ovPaint(c);
+        _ovPaint(c);
       });
-      if (_hold) { clearTimeout(_ovSettle); _ovSettle = setTimeout(() => _cells.forEach(_ovPaint), 160); }
     });
   }
   window._mcPaintOv = _ovQueue;         // draw.js `renderDrawings`（overlay 重畫的共同入口）會呼叫
