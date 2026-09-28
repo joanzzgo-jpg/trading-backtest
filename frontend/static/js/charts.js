@@ -2005,16 +2005,22 @@ function syncTimeScales() {
       ? md
       : `${md} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
 
-    // ── 集中寫入 ──
-    timeLabel.textContent = timeStr;
-    timeLabel.style.display = "block";
-    timeLabel.style.left    = Math.round(mainX) + "px";
+    /* ── 集中寫入 ──
+       ⚠ **值沒變就不要寫**（2026-09-28 使用者：「縮放滑動都卡卡的」）：這支在十字線 60Hz
+         與整段平移/縮放中都會跑,而四條鉛直線裡**只有 `left` 會變** ——
+         `top`/`height`/`display`/`backgroundPositionY` 在同一個版面下是固定的。
+         每一次多餘的 style 寫入都讓瀏覽器重算樣式與版面（實測平移時 Layout 177ms、
+         UpdateLayoutTree 130ms）。 */
+    const _w = (el, k, v) => { if (el.style[k] !== v) el.style[k] = v; };
+    if (timeLabel.textContent !== timeStr) timeLabel.textContent = timeStr;
+    _w(timeLabel, "display", "block");
+    _w(timeLabel, "left", Math.round(mainX) + "px");
     for (const p of plans) {
-      if (p.hide) { p.ln.style.display = "none"; continue; }
-      p.ln.style.display = "block";
-      p.ln.style.left    = p.left + "px";
-      p.ln.style.top     = p.top + "px";
-      p.ln.style.height  = p.height + "px";
+      if (p.hide) { _w(p.ln, "display", "none"); continue; }
+      _w(p.ln, "display", "block");
+      _w(p.ln, "left",   p.left + "px");
+      _w(p.ln, "top",    p.top + "px");
+      _w(p.ln, "height", p.height + "px");
       /* ★ 2026-09-24 使用者：「上下線條依舊不連貫」。
          線段本身早就是接在一起的（實測四段的段間空隙都是 0、同一個 x），
          但它是**虛線**，而每一段是獨立的 DOM 元素 → `repeating-linear-gradient`
@@ -2023,13 +2029,13 @@ function syncTimeScales() {
          → 依這一段距離容器頂端的距離，把背景往上位移一個週期內的餘數，相位就接上了。
          ⚠ 週期 _VLINE_PERIOD 必須跟 style.css `.pane-vline` 的 gradient 一致（8px 實 + 6px 空）；
            改 CSS 的虛線樣式時這裡要一起改，否則交界又會錯開。 */
-      p.ln.style.backgroundPositionY = (-(p.top % _VLINE_PERIOD)) + "px";
+      _w(p.ln, "backgroundPositionY", (-(p.top % _VLINE_PERIOD)) + "px");
     }
     // 時間標籤錨定到時間軸（最底可見 pane 底緣），而非容器底。
     // 桌面容器底＝圖表底 → offset≈0；手機容器延伸到底部分頁列後方 → offset≈分頁列高，
     // 否則標籤會被推到時間軸下方、藏進 m-tabbar 後面而看不到。
     const axisOffset = Math.max(0, Math.round(cRect.bottom - maxPaneBottom));
-    timeLabel.style.bottom = (axisOffset + (replayActive ? 42 : 0)) + "px";
+    _w(timeLabel, "bottom", (axisOffset + (replayActive ? 42 : 0)) + "px");
   }
 
   // 用游標 x 直接定位鉛直線（給「K 棒序列以外的空白區」用：該處無對應時間，
@@ -2037,14 +2043,15 @@ function syncTimeScales() {
   function positionLinesByX(px) {
     timeLabel.style.display = "none";          // 空白區無對應時間 → 不顯示時間標籤
     const { cRect, panes } = _paneRects();     // 版面座標快取，同 positionLines
+    const _w2 = (el, k, v) => { if (el.style[k] !== v) el.style[k] = v; };   // 同 positionLines：值沒變不寫
     panesConf.forEach((_, i) => {
       const ln = lineEls[i];
       const pr = panes[i];
-      if (!pr || pr.hidden) { ln.style.display = "none"; return; }
-      ln.style.display = "block";
-      ln.style.left    = Math.round(px) + "px";
-      ln.style.top     = Math.round(pr.rect.top - cRect.top) + "px";
-      ln.style.height  = Math.round(pr.rect.height + pr.divH) + "px";
+      if (!pr || pr.hidden) { _w2(ln, "display", "none"); return; }
+      _w2(ln, "display", "block");
+      _w2(ln, "left",   Math.round(px) + "px");
+      _w2(ln, "top",    Math.round(pr.rect.top - cRect.top) + "px");
+      _w2(ln, "height", Math.round(pr.rect.height + pr.divH) + "px");
     });
   }
 

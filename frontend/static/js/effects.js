@@ -885,9 +885,19 @@
     if (Math.random() < _FW_SHOW_P) spawnBarrage();
   }
 
+  /* ★★ 2026-09-28 使用者：「縮放滑動都卡卡的」。實測平移時 `effects.min.js` 的動畫迴圈
+     在跑（拖 4 趟 44.7ms）—— 因為**拖曳放開時瀏覽器照樣會發 `click`**,於是
+     「每平移一次就放一朵煙火」：白花一個 canvas＋一段 rAF 動畫,而且畫面上一直冒特效。
+     → 記下 pointerdown 的座標,click 時比一下：位移超過 6px 就是拖曳,不是點擊。
+     ⚠ 用「按下與放開的座標差」判斷,**不必掛 pointermove 監聽**（那本身就是每次移動的成本）。
+     ⚠ 6px 是手指/滑鼠的正常抖動範圍;真的想放特效的人不會邊按邊移超過這個距離。 */
+  let _pdX = -1e9, _pdY = -1e9;
+  document.addEventListener("pointerdown", e => { _pdX = e.clientX; _pdY = e.clientY; }, true);
+
   document.addEventListener("click", e => {
     const now = Date.now();
     if (now - _lastClick < 80) return;
+    if (Math.abs(e.clientX - _pdX) > 6 || Math.abs(e.clientY - _pdY) > 6) return;   // 拖曳,不是點擊
     _lastClick = now;
     /* ★ 2026-08-11 點在「控制項」上不放特效（使用者：點天氣鈕也會出現圓形特效）。
        這個點擊特效是給圖表/空白處用的小驚喜；落在按鈕、輸入框、圖例、行情列上時
