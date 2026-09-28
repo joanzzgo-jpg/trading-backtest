@@ -702,7 +702,15 @@ window._perfProbe = function (sec, silent) {
       env: { dpr: window.devicePixelRatio, bars: (typeof ohlcvData !== "undefined" ? ohlcvData.length : 0),
              barSpacing: bs, visible: vis, tf: (typeof currentTF !== "undefined" ? currentTF : "?"),
              sym: document.getElementById("symbolInput")?.value || "?",
-             w: window.innerWidth, h: window.innerHeight, sec },
+             w: window.innerWidth, h: window.innerHeight, sec,
+             /* ★ 2026-09-28：把「分割畫面開幾格」記進來。使用者回報「單圖不卡、開兩個標的會卡」,
+                而回報裡原本**沒有這個欄位** → 拿到資料也無法把症狀跟版面對上。
+                另外記畫面上實際有幾張 LWC 圖表與幾張 canvas（合成成本跟這個成正比,
+                而那正是 headless 量不到的部分）。 */
+             mc: document.documentElement.classList.contains("mc-4") ? 4
+               : document.documentElement.classList.contains("mc-2") ? 2 : 1,
+             charts: document.querySelectorAll(".tv-lightweight-charts").length,
+             canvases: document.querySelectorAll("canvas").length },
       on,
       layers: rows.map(([k, v]) => ({ f: k, ms: +v.ms.toFixed(1), n: v.n,
                                       per: +(v.ms / v.n).toFixed(3), max: +v.max.toFixed(1) })),
