@@ -6531,7 +6531,12 @@ html.mc-2 #mainPane > .pane-legend, html.mc-4 #mainPane > .pane-legend {
      不再有一半壓在價格軸上方,與左邊那條 BB/VOL 行讀起來是同一排。 */
   padding-right: calc(8px + var(--mc-axis-w, 0px));
 }
-.mini-sym { font-weight: 700; cursor: pointer; }
+/* ★ 2026-09-28 使用者：「第二圖的標的名稱放大些」。標題列本身維持 --t-base（時框鈕、⇄ 都靠它）,
+   只把標的名往上一級到 --t-md（12 → 13px）,字距照 Apple 的表配 --tr-md。
+   ⚠ 要成對寫字距（守門員之三十 `check_design_tokens` 會擋裸值與沒配對的字級）。
+   ⚠ 先做成 --t-md(13px) 被退回：「12 → 13px」只差 1px,使用者看不出來（他連問兩次）。
+     改 --t-lg(15px)。標題列高 22px、15px 字的行框約 18px,放得下（實測見下方註解的數字）。 */
+.mini-sym { font-weight: 700; cursor: pointer; font-size: var(--t-lg); letter-spacing: var(--tr-lg); }
 @media (hover: hover) {
 .mini-sym:hover { color: var(--accent, #ff9147); }
 }
@@ -6558,8 +6563,34 @@ html.mc-2 #mainPane > .pane-legend, html.mc-4 #mainPane > .pane-legend {
    ⚠ 用 `order`／`display:none` 處理,不動 HTML 結構：`_updHeader` 照樣寫值進去,
      哪天要顯示回來只要拿掉這條（而且它仍是螢幕閱讀器讀得到的內容）。 */
 .mini-px  { display: none; }
-.mini-sym { order: 2; margin-left: auto; }
-.mini-tf  { order: 3; }
+/* ★ 2026-09-28 使用者：「在該圖上至中顯示」。名稱從「靠右那一組」拿出來,改成**在繪圖區上置中**;
+   時框鈕與 ⇄ 仍留在右緣。
+   ⚠ 置中的基準是**繪圖區**不是整條標題列：右邊那截是價格軸（寬度由 JS 量成 `--mc-axis-w`）,
+     拿整條列置中的話,名稱會偏右半個軸寬,看起來沒有對準 K 棒。
+   ⚠ 絕對定位是相對**padding box**,所以 left/right 要寫成跟 padding 一樣的值才會貼齊內容區;
+     `top` 也要跟 `padding-top` 一致（這一列是 `align-items: flex-start`）。
+   ⚠ 名稱離開 flex 流之後,靠右那一組要改由 `.mini-tf` 用 `margin-left:auto` 推過去。
+   ⚠⚠ **方框只能包住文字,不可以橫跨整條列**：絕對定位的元素會畫在同層的一般元素之上,
+     一個滿寬的框會蓋住時框鈕與 ⇄ **把它們的點擊吃掉**（第一版就是這樣,實測 `elementFromPoint`
+     打在時框鈕上回的是名稱）。用 `left: 50% + translateX(-50%)` 讓框貼合文字即可。 */
+/* ★★ 名稱放在**圖例帶子的下面一點**,而不是標題列那一排。
+   原因：2 格時主圖的 BB/VOL 圖例列會延伸到迷你圖欄上方（使用者 2026-09-27 明確要求
+   「開第二張圖不要動它」）,而且 `.charts-container` 的堆疊層**整層高過 `#miniGrid`**
+   （那是讓延伸出來的圖例看得見的前提）→ 名稱擺在同一排時**一定被壓在下面**,
+   實測點名稱命中的是 `.leg-val`,在格子裡怎麼調 z-index 都壓不過。
+   → 往下挪到圖例高度之下（`--mc-legend-h`,JS 量給它,不可寫死：那行會隨字級變）,
+     水平置中在**繪圖區**（不是整條列：右邊那截是價格軸,拿整列置中會偏右半個軸寬）。
+   ⚠ 定位基準是 `.mini-cell`（`.mini-head` 不設 position,讓它往上找到格子本身）。
+   ⚠⚠ 框只能包住文字,不可以橫跨整條列：絕對定位的元素會畫在同層一般元素之上,
+     滿寬的框會蓋住時框鈕與 ⇄ **把它們的點擊吃掉**（使用者回報「切換按鈕點擊卻是跳出找標的視窗」）。 */
+.mini-sym {
+  position: absolute;
+  top: calc(var(--mc-legend-h, 22px) + 4px);
+  left: calc(50% - var(--mc-axis-w, 0px) / 2);
+  transform: translateX(-50%);
+  white-space: nowrap; z-index: 6;
+}
+.mini-tf  { order: 3; margin-left: auto; }
 .mini-swap{ order: 4; }
 .mini-px.up { color: #26a69a; } .mini-px.down { color: #ef5350; }
 .mini-body { flex: 1; min-height: 0; position: relative; }

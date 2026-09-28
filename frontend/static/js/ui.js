@@ -106,7 +106,19 @@ function bindEvents() {
     _sbApplyOrder();
     _sbSync();
     // 顯示/隱藏會改變誰是第一塊/最後一塊（選取工具跟著選取繪圖出現、倒數等資料到才出現）
-    try { new MutationObserver(_sbSync).observe(_sbBar, { subtree: true, attributes: true, attributeFilter: ["hidden"], childList: true }); } catch (e) {}
+    /* ★ 2026-09-28 效能：這個 observer 掛 `subtree+childList`,而符號列裡**每秒都在更新即時報價**
+       —— `el.textContent = x` 是「移除舊文字節點再加新的」＝ childList 變更 → 每次報價都跑一次
+       `_sbSync`,而它對每個積木呼叫 `getComputedStyle`（強制樣式重算）。
+       CPU profile 實測拖曳中 `_sbShown` 吃掉 **8~11 ms/秒**,純浪費：
+       「誰是第一塊/最後一塊」只有積木**顯示或重排**時才會變,跟報價數字無關。
+       → observer 改成**併到同一幀只跑一次**（class 仍在這一幀繪製前就套好,看不出差別）。
+       ⚠ `_sbSync` 本身維持同步,其他呼叫點（_sbApplyOrder 之後、拖放結束）行為完全不變。 */
+    let _sbSyncRaf = 0;
+    const _sbSyncSoon = () => {
+      if (_sbSyncRaf) return;
+      _sbSyncRaf = requestAnimationFrame(() => { _sbSyncRaf = 0; _sbSync(); });
+    };
+    try { new MutationObserver(_sbSyncSoon).observe(_sbBar, { subtree: true, attributes: true, attributeFilter: ["hidden"], childList: true }); } catch (e) {}
 
     const _sbMakeBlock = (el, floatKey) => {
       const grip = el.querySelector(".sqd-grip");

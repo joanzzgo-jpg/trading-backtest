@@ -889,15 +889,38 @@
      在跑（拖 4 趟 44.7ms）—— 因為**拖曳放開時瀏覽器照樣會發 `click`**,於是
      「每平移一次就放一朵煙火」：白花一個 canvas＋一段 rAF 動畫,而且畫面上一直冒特效。
      → 記下 pointerdown 的座標,click 時比一下：位移超過 6px 就是拖曳,不是點擊。
-     ⚠ 用「按下與放開的座標差」判斷,**不必掛 pointermove 監聽**（那本身就是每次移動的成本）。
-     ⚠ 6px 是手指/滑鼠的正常抖動範圍;真的想放特效的人不會邊按邊移超過這個距離。 */
-  let _pdX = -1e9, _pdY = -1e9;
-  document.addEventListener("pointerdown", e => { _pdX = e.clientX; _pdY = e.clientY; }, true);
+     ⚠ 6px 是手指/滑鼠的正常抖動範圍;真的想放特效的人不會邊按邊移超過這個距離。
+     ⚠ 原註解寫「不必掛 pointermove 監聽（那本身就是每次移動的成本）」—— 那個顧慮對的是
+       **常駐**監聽;下面那段只在「按住期間」掛著,沒在拖的時候一樣是零成本。 */
+  /* ⚠⚠ 只比「按下與放開的座標」擋不住**來回拖**（2026-09-28 量到的）：拖出去再拖回來、
+     放開時剛好回到起點,位移就是 0 → 照樣放一朵煙火,而那是很常見的動作（來回比對兩段走勢）。
+     實測 2 格拖曳的 CPU profile 裡 `effects.min.js │ loop` 因此吃掉 **16 ms/秒**,當時的第一名。
+     → 追加「這一次按住的過程中有沒有移動過」,監聽**只在按住期間存在**（pointerdown 掛、
+       pointerup 拆）→ 沒在拖的時候零成本,不違反「不要常駐 pointermove 監聽」那條。
+     ⚠⚠ **不可以改用 `window._chartMoveTs`**（我試過,當場把正常點擊的特效也殺光了）：
+       那個旗標不是「使用者剛拖過」—— 即時報價推進、格子同步、未來留白長大都會寫它,
+       在活著的圖表上它幾乎永遠是新的 → 護欄變成「永遠成立」。
+       ★ 借用現成訊號前,先確認它的**寫入點只有你以為的那一個**。 */
+  let _pdX = -1e9, _pdY = -1e9, _pdMoved = false;
+  const _pdMove = e => {
+    if (Math.abs(e.clientX - _pdX) > 6 || Math.abs(e.clientY - _pdY) > 6) {
+      _pdMoved = true;
+      document.removeEventListener("pointermove", _pdMove, true);   // 判定完就拆,同一次按住不必再算
+    }
+  };
+  document.addEventListener("pointerdown", e => {
+    _pdX = e.clientX; _pdY = e.clientY; _pdMoved = false;
+    document.addEventListener("pointermove", _pdMove, true);
+  }, true);
+  document.addEventListener("pointerup", () => {
+    document.removeEventListener("pointermove", _pdMove, true);
+  }, true);
 
   document.addEventListener("click", e => {
     const now = Date.now();
     if (now - _lastClick < 80) return;
     if (Math.abs(e.clientX - _pdX) > 6 || Math.abs(e.clientY - _pdY) > 6) return;   // 拖曳,不是點擊
+    if (_pdMoved) return;                                                          // 來回拖:中途移動過就不是點擊
     _lastClick = now;
     /* ★ 2026-08-11 點在「控制項」上不放特效（使用者：點天氣鈕也會出現圓形特效）。
        這個點擊特效是給圖表/空白處用的小驚喜；落在按鈕、輸入框、圖例、行情列上時

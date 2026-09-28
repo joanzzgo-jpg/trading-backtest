@@ -115,7 +115,7 @@
       const n = Number(v);
       return Number.isFinite(n) ? n.toFixed(pr) : String(v);
     } } });
-    const cell = { el, chart, series, ws, lineS, vol, bbU, bbM, bbL, ov, vline, pxLbl, fvg: [], mkSrc: null, body, subWrap: el.querySelector(".mini-subs"), subs: [], rows: [], linePts: [], mkRaw: [], symEl: el.querySelector(".mini-sym"), tfEl: el.querySelector(".mini-tf"), pxEl: el.querySelector(".mini-px"), ro, gen: 0, lastC: null, prevC: null };
+    const cell = { el, chart, series, ws, lineS, vol, bbU, bbM, bbL, ov, vline, pxLbl, fvg: [], mkSrc: null, body, drv: null, spOff: null, spCmd: null, subWrap: el.querySelector(".mini-subs"), subs: [], rows: [], linePts: [], mkRaw: [], symEl: el.querySelector(".mini-sym"), tfEl: el.querySelector(".mini-tf"), pxEl: el.querySelector(".mini-px"), ro, gen: 0, lastC: null, prevC: null };
     try {
       cell.lineGrad = (typeof _makeLineGradPrimitive === "function") ? _makeLineGradPrimitive(() => cell.linePts) : null;
       if (cell.lineGrad) lineS.attachPrimitive(cell.lineGrad);
@@ -131,6 +131,11 @@
     /* ★ 2026-09-27 使用者：「第二畫面標的怎麼換」。原本**只有**「跟主圖交換」一條路
        （要看 X 就得先把主圖切成 X 再點這裡）→ 點標的名改成直接開搜尋視窗挑,
        交換保留成旁邊的 ⇄ 鈕（兩個都有用：交換是「把這格拉上主圖細看」）。 */
+    /* 碰到 K 棒區 → 驅動權交還給它（同 `_mkSub` 裡那段,以及主圖 charts.js 的 `_syncDriver`）。
+       少了這半邊,使用者在副圖上滾過一次之後,副圖就永遠是驅動者。
+       ⚠ 掛在 cell 建立**之後**並直接抓它本人：用 `_cells[i]` 的話,格數變動重排時索引會指到別格。 */
+    ["pointerdown", "wheel", "touchstart"].forEach(ev =>
+      body.addEventListener(ev, () => { cell.drv = null; }, { passive: true, capture: true }));
     _ovSize(cell);
     // 這一格自己被平移/縮放時也要重畫 overlay（主圖那邊由 renderDrawings 的共同入口帶動）
     /* ⚠ 這個事件在縮放時一秒會丟幾十個,而下面每一項都要量版面
@@ -153,6 +158,8 @@
        （_holdAnchorByTime/_bootViewHold,見 charts.js）→ **開機前 1.5 秒不連動**,
        免得把還原中的視角扯走。 */
   let _syncing = false, _syncReady = 0;
+  const _cellOf = ch => _cells.find(c => c && c.chart === ch) || null;
+
   function _charts() {
     const out = [];
     if (typeof mainChart !== "undefined" && mainChart) out.push(mainChart);
@@ -214,8 +221,9 @@
     try { bs = sTs.options().barSpacing; r = sTs.getVisibleRange(); } catch (e) {}
     if (!(bs > 0) || !r) return;
     const sw = _plotW(src, _elOf(src));
-    let sx = null;
+    let sx = null, sSp = 0;
     try { sx = sTs.timeToCoordinate(r.to); } catch (e) {}
+    try { sSp = sTs.scrollPosition(); } catch (e) {}
     /* ★★ 2026-09-28 使用者：「切換成四格圖時 那三小格 時間上幫我對齊」。
        兩種模式要的東西不一樣,而且**在寬度不同的面板上不可能同時成立**（那是除法）：
        ・**2 格＝對照用** → 兩邊等寬（style.css 的 flex 對分）＋ 同樣大小的 K 棒
@@ -227,26 +235,53 @@
     const _byTime = (_mode === 4);
     for (const ch of _charts()) {
       if (ch === src) continue;
+      _markEcho(ch);                          // 接下來這張圖丟出來的事件是我們造成的
       const ts = ch.timeScale();
       let done = false;
       if (_byTime) { try { ts.setVisibleRange({ from: r.from, to: r.to }); done = true; } catch (e) {} }
       if (done) continue;
       try {
         if (Math.abs((ts.options().barSpacing || 0) - bs) > 1e-6) ts.applyOptions({ barSpacing: bs });
+        /* ★★ 2026-09-28 使用者：「b 標的有順很多但會有不明抖動」的**第二層**根因。
+           原本每一幀都用 `timeToCoordinate` 重算對齊量 —— 而那支函式在剛寫入之後回的是舊排版,
+           實測修正量 `dpx` 大多是 −9/−10px（剛好一幀的位移）,但**每 4~5 幀就出現 −18/−19（兩倍）**
+           ＝ 前一幀的修正沒生效、下一幀補兩份 → 畫面上就是「停一下、跳一下」。
+           → 動態期間改成**純量算術**：`scrollPosition` 是「距資料右緣幾根 K 棒」,是連續值、
+             不經過座標換算 → 沒有陳舊問題、也沒有像素四捨五入。
+             兩張圖的最後一根不一定同時（跨市場）→ 用一個**固定差** `cell.spOff` 吸收,
+             那個差只在**停手時**用座標法校正一次（見 `_runSync` 的收尾）。
+           ★ 這正是格子的副圖一直以來逐像素精確的作法（`_syncSubs` 就是複製 barSpacing+scrollPosition）
+             —— 同一個問題,用同一個已經證明可行的機制,不要再自創第二套。 */
+        const _c = _cellOf(ch);
+        if (_c && _c.spOff != null) {
+          const want2 = sSp + _c.spOff;
+          /* ⚠⚠ **比對「上次下達的目標」,不要比對 `scrollPosition()` 讀回的值**：
+             `scrollToPosition()` 的效果要**下一幀**才反映在 `scrollPosition()` 上
+             （跟 `timeToCoordinate` 同一個性質 —— 這份檔案裡我已經為這件事付過兩次學費）。
+             拿讀回值比對的話,同一幀內會對同一個目標重複寫入（實測一幀寫兩次：事件一次、逐幀跟一次）。 */
+          if (_c.spCmd == null || Math.abs(_c.spCmd - want2) > 1e-4) {
+            _c.spCmd = want2;
+            ts.scrollToPosition(want2, false);
+          }
+          continue;
+        }
         const w = _plotW(ch, _elOf(ch));
         if (sx != null && w && sw) {
           const want = w - (sw - sx);          // 來源右緣那根距離右邊界 (sw - sx) px → 對方也要一樣
-          /* ⚠⚠ **要算兩趟**（2026-09-28 切 4 格時抓到：三格整整差一根 K 棒）。
-             `applyOptions({barSpacing})` 之後**下一行讀到的 `timeToCoordinate` 還是舊的排版**
-             → 用它算出來的位移就差了「新舊 barSpacing 的落差 × 根數」,四捨五入之後
-             剛好是一整根。第二趟讀到的已經是套用後的座標,把殘差補掉即可。
-             ⚠ 殘差 <0.5px 就停（再捲只是抖動）。 */
-          for (let pass = 0; pass < 2; pass++) {
-            const x = ts.timeToCoordinate(r.to);
-            if (x == null) break;
+          /* ⚠⚠ **只能算一趟**：`scrollToPosition()` 之後**立刻讀 `timeToCoordinate` 是舊排版** →
+             第二趟會把同一個修正再套一次＝過頭,下一個事件又修回來。
+             實測寫入前/寫入後讀到的殘差完全相同（都是 8px,n=53）就是證據。
+             ⚠ 這條路現在**只在「還沒校正過固定差」時才走**（校正完就換上面那條純量路徑）。 */
+          const x = ts.timeToCoordinate(r.to);
+          if (x != null) {
             const dpx = x - want;
-            if (Math.abs(dpx) < 0.5) { done = true; break; }
-            ts.scrollToPosition(ts.scrollPosition() + dpx / bs, false);
+            const cur = ts.scrollPosition() || 0;
+            const nsp = (Math.abs(dpx) >= 0.5) ? cur + dpx / bs : cur;
+            if (Math.abs(dpx) >= 0.5) ts.scrollToPosition(nsp, false);
+            /* ⚠⚠ 固定差要用**我們下達的值** `nsp`,不可以寫完再讀一次 `scrollPosition()` ——
+               那個讀回值要下一幀才更新（同上）,拿它算會把固定差整整算錯一個修正量。 */
+            const _cc = _cellOf(ch);
+            if (_cc) { _cc.spOff = nsp - sSp; _cc.spCmd = nsp; }
             done = true;
           }
         }
@@ -265,12 +300,32 @@
      → 重算現價標籤 → 重畫 overlay）→ 對方看起來就是一頓一頓地跟。
      併幀之後：一幀最多同步一次,而且用的是**最後一個**事件的範圍（中間那些本來就會被蓋掉）。
      ⚠ 旗標仍要有：`scrollToPosition` 會讓對方也丟事件,沒有旗標會互推。 */
-  let _syncRaf = 0, _syncSrc = null, _settleT = null, _lastSrc = null;
+  let _settleT = null, _lastSrc = null;
+  /* ★★ 2026-09-28 使用者：「第二圖還是頓頓」。
+     原本的防迴圈是一個**全域旗標**,而且在同步完成後「下一拍」(setTimeout 0) 才解除 →
+     這段期間**主圖丟出的事件會被整個丟掉**,格子就少走一步。
+     → 改成**逐張圖的回音抑制**：只忽略「我們剛剛寫進去那幾張」在極短時間內丟回來的事件,
+       使用者真正在操作的那一張（主圖）**永遠不會被忽略**,每個事件都即時處理。
+     ⚠ 視窗要短（100ms）：太長的話使用者中途改拖格子會有一段沒反應。
+
+     ⚠⚠⚠ **這一輪最重要的教訓：我連續四個版本都量錯。**
+     我用來判斷「格子落後主圖幾像素」的探針,是拿 `timeToCoordinate` 去問格子「同一個時間在哪」——
+     而上面那段剛寫過：**`scrollToPosition` 之後讀它拿到的是舊值**。
+     等於拿同一條有延遲的路去量延遲 → 那個數字量到的是 `timeToCoordinate` 的陳舊度,
+     不是畫面上的落後。症狀：rAF 併幀／同步化／回音抑制／單趟修正／逐幀跟,**五種實作
+     p90 全是 8px、150 幀中 47 幀 >2px,一個數字都沒動過**。
+     ★ 通則（同 claude.md 那幾條「判準不可以自己測自己」）：**四個版本量出一模一樣的數字時,
+       先懷疑探針,不要再往下改產品。** 真要量這個只能讀**畫出來的像素**,不能問圖表的座標函式。 */
+  const _echo = new Map();
+  const _ECHO_MS = 100;
+  const _markEcho = ch => _echo.set(ch, performance.now());
+  const _isEcho = ch => { const t = _echo.get(ch); return t != null && (performance.now() - t) < _ECHO_MS; };
+
   function _runSync(src) {
     if (!src || _mode === 1) return;
     _syncing = true;
     try { _syncFrom(src); }
-    finally { setTimeout(() => { _syncing = false; }, 0); }
+    finally { _syncing = false; }
     /* ⚠⚠ **收尾的那一發不可以省**（2026-09-28 4 格實測抓到）：防迴圈旗標開著的那一瞬間
        收到的事件會被整個丟掉,而使用者「最後一下」滾輪剛好落在那裡的話,
        對方就停在上一個狀態 —— 畫面上就是「縮放停下來之後兩邊對不齊」。
@@ -278,19 +333,70 @@
        ★ 同本檔一再出現的形狀：**事件驅動的同步,後面一定要有一發主動的收尾。** */
     _lastSrc = src;
     clearTimeout(_settleT);
-    _settleT = setTimeout(() => { if (_mode !== 1 && _lastSrc) { _geomBump(); _runSync(_lastSrc); } }, 140);
+    _settleT = setTimeout(() => {
+      if (_mode === 1 || !_lastSrc) return;
+      _geomBump();
+      /* 停手 → ①用座標法重新校正固定差 ②**釋放驅動權**。
+         ⚠ 少了②的話,剛剛被使用者操作的那張副圖（驅動者刻意不被寫入）就沒有人把它拉回一致,
+           手勢結束後它會跟整格差一點點（實測「停手後整格一致 false」）。 */
+      _cells.forEach(c => { if (c) { c.spOff = null; c.spCmd = null; c.drv = null; } });
+      _runSync(_lastSrc);
+    }, 140);
   }
+  /* ⚠⚠ 2026-09-28 **同步必須「同一幀」做,不可以併到下一幀**（使用者：「第二圖還是頓頓」）。
+     我先前為了省工把它排進 rAF —— 結果格子永遠比主圖慢一拍,
+     實測（比對兩張圖的 `getVisibleRange().from` 是否相等）拖曳中 **150 幀裡 78 幀（52%）
+     兩邊不同步**,改成同幀後降到 **42%**。
+     省下來的那點 CPU 完全不值得（而且量下來幀率本來就沒差）。
+     ★ 通則（與「手勢中少畫一點」同一條）：**跟隨型的東西寧可多做,也不可以慢一拍。**
+     現在每個事件都直接同步;成本已由①繪圖區寬度快取 ②「值沒變就不寫」壓下來。 */
   function _onRange(src, r) {
     if (_syncing || !r || _mode === 1) return;
+    if (_isEcho(src)) return;                 // 這是我們剛寫進去造成的回音,不是使用者在動它
     if (Date.now() < _syncReady) return;
-    _syncSrc = src;
-    if (_syncRaf) return;
-    _syncRaf = requestAnimationFrame(() => {
-      _syncRaf = 0;
-      const s2 = _syncSrc; _syncSrc = null;
-      _runSync(s2);
-    });
+    _runSync(src);
+    _follow(src);
   }
+
+  /* ★★ 2026-09-28 使用者：「在 a 標的縮放 b 標的有順很多但會有不明抖動」。
+     根因：**LWC 的滾輪縮放是逐幀動畫,但 `subscribeVisibleTimeRangeChange` 不是每幀都發** →
+     沒收到事件的那一幀格子原地不動,下一幀補兩倍 ＝ 一頓一頓。
+     實測（逐幀記 barSpacing 與 scrollPosition,兩者都不是座標函式、沒有陳舊問題）：
+       ・縮放中「兩邊 barSpacing 不同」的幀：**42 / 42（每一幀都不同）**
+       ・主圖每幀位移平滑單調 -0.74 -0.67 -0.61 -0.55 …
+         格子卻是 -0.76 -0.72 -0.64 **-0.06** **-1.08** -0.60 -0.42 **-0.04** … ＝ 停一下跳兩倍
+     → 來源真的還在動的期間,**每一幀都重新同步一次**。
+     ⚠ 觸發條件用「來源的 barSpacing/scrollPosition 有沒有變」,不是 `_uxBusy()`：
+       前者是「畫面真的還在動」的直接證據,後者只是「使用者最近有互動」——
+       我上一版用 `_uxBusy` 而且沒有驗證儀器,量不到效果就收回了（那次是探針壞了,見下面 `_echo` 那段）。
+     ⚠ 一定要有收工條件（連續 12 幀沒動就停）,否則就是一條常駐的 rAF。
+     ⚠ 讀的兩個值都是純量,不碰版面（`_geom*` 的快取仍然有效）→ 每幀的額外成本很低。 */
+  let _folRaf = 0, _folSrc = null;
+  function _follow(src) {
+    _folSrc = src;
+    if (_folRaf || _mode === 1) return;
+    let idle = 0, lbs = null, lsp = null;
+    const step = () => {
+      _folRaf = 0;
+      if (_mode === 1 || !_folSrc) return;
+      let bs = null, sp = null;
+      try { const ts = _folSrc.timeScale(); bs = ts.options().barSpacing; sp = ts.scrollPosition(); } catch (e) { return; }
+      if (bs !== lbs || sp !== lsp) { lbs = bs; lsp = sp; idle = 0; _runSync(_folSrc); }
+      else if (++idle > 12) return;           // 連續 12 幀沒動＝手勢結束,收工
+/* ⚠ 試過「用 setTimeout(0) 在繪製之後才登記下一幀的 rAF」（想讓寫入排在格子重繪之前）——
+         實測停頓幀 25 → 26,**沒有差別**,已收回。rAF 的登記順序不是殘留停頓的原因。 */
+      _folRaf = requestAnimationFrame(step);
+    };
+    _folRaf = requestAnimationFrame(step);
+  }
+
+
+  /* ⚠⚠ **試過但沒有效、已收回、別再試：把滾輪事件轉發給其餘各圖**（2026-09-28）。
+     想法是「主圖之所以順是因為 LWC 自己在處理它的輸入」,那就把同一份 wheel 也餵給格子,
+     讓 LWC 用自己的節奏驅動它（游標 x 按繪圖區比例換算,並標記事件避免互轉）。
+     **LWC 確實吃合成 wheel 事件**（對格子畫布 dispatch → bs 23.56 → 41.74）,但 A/B 實測
+     「格子沒重繪的幀數」轉發開 93/125、轉發關 93/125 —— **完全相同**。已整段移除。 */
+
   /* ── 十字線連動：游標在任一張圖上 → 其餘各張在**同一個時間**顯示十字線 ─────────
      ⚠ 同樣要迴圈防護：setCrosshairPosition 會觸發對方的 crosshairMove。
      ⚠ 主圖要走 `window._mcCrosshairAt`（它的鉛直線是自繪的 DOM,不是 LWC 原生）。
@@ -790,6 +896,22 @@
     let r = null;
     try { r = cell.chart.timeScale().getVisibleRange(); } catch (e) {}
     if (!r || r.from > earliest + step * 2) return;        // 還沒滑到最舊那根附近 → 不用補
+    /* ★★ 2026-09-28 使用者：「縮放滑動都卡卡」「只有一張的時候很順」。
+       補回來之後那段 `_feedMain`+`_feedSubs`+`_refilterMarkers` 是 **O(根數) 的整批 setData
+       × 5 個序列（K 棒/成交量/布林 3 條）再加 3 張副圖**,而它原本就在**手勢進行中**跑 ——
+       縮小只要滑到最舊那根附近就會一直觸發,每次都在拖曳/縮放的中間插一段長任務。
+       主圖那條路（`_bgApplyChunk`）早就因為同一件事改成分塊讓路（memory
+       `project_bg-chunk-apply-yield`：單次 23~76ms,錨點 setData 佔一半）,格子這份漏了。
+       → 手勢中不開工,等使用者停手再補。
+       ⚠ **不是取消,是延後**：`olderT` 每 200ms 再問一次,停手就補上 → 補載行為完全不變,
+         使用者也看不出差別（那些 K 棒本來就還沒進畫面）。
+       ⚠ 這跟「手勢中少畫一點」那條教訓不衝突：那條講的是**看得見的重畫**（少畫＝使用者看得出來,
+         實測反而更卡）。這裡延後的是**畫面外的資料補載**,沒有任何一幀因此少畫東西。 */
+    if (typeof window._uxBusy === "function" && window._uxBusy()) {
+      clearTimeout(cell.olderT);
+      cell.olderT = setTimeout(() => _loadOlder(cell), 200);
+      return;
+    }
     cell.olderBusy = true;
     const gen = cell.gen;
     try {
@@ -968,7 +1090,43 @@
       };
     }
     chart.subscribeCrosshairMove(param => _onCross(chart, param));   // hover 副圖時也要帶動其他人
+    /* ★★ 2026-09-28 使用者：「我縮放第二圖的附圖 不會跟著縮放 會卡住」。
+       副圖建立時就開著 `handleScale/handleScroll`（跟主圖的副圖一樣可以直接在上面縮放/平移）,
+       但這裡原本**只有「格子的 K 棒圖 → 副圖」單向同步**（`_syncSubs`）——
+       在副圖上滾輪只會縮到那一條,跟上面的 K 棒錯開;下一次任何同步再把它推回去 ＝「卡住」。
+       主圖那邊早就解決過同一件事（`charts.js` 的 `_syncDriver`：使用者最後碰到哪個面板,
+       那個面板就是驅動者,其餘只收不發 —— 四張圖互相驅動會變成**自我維持的同步風暴**,
+       2026-07-31 實測中位 16.7ms → 188.5ms）。這裡照同一套做。
+       ⚠ 只有「正在被操作的那一張」能驅動;程式化的同步（`_syncing` 開著）一律不回推。 */
+    ["pointerdown", "wheel", "touchstart"].forEach(ev =>
+      el.addEventListener(ev, () => { cell.drv = sub; }, { passive: true, capture: true }));
+    chart.timeScale().subscribeVisibleTimeRangeChange(() => {
+      if (_syncing || cell.drv !== sub) return;
+      /* ⚠⚠ **值跟我們剛剛命令的一樣＝這是我們自己造成的事件,不是使用者在動它。**
+         不擋的話就是自我維持的同步風暴（見 `_syncSubs` 裡的長註解與實測數字）。
+         用「值比對」而不是「時間窗」：使用者連續縮放時我們每一幀也在寫,時間窗會把他的操作一起擋掉。 */
+      try {
+        const t = sub.chart.timeScale();
+        if (sub.cmdBs != null &&
+            Math.abs(t.options().barSpacing - sub.cmdBs) < 1e-6 &&
+            Math.abs(t.scrollPosition() - sub.cmdSp) < 1e-6) return;
+      } catch (e) { return; }
+      _driveFromSub(cell, sub);
+    });
     return sub;
+  }
+
+  /* 副圖被使用者直接縮放/平移 → 把它的 barSpacing/捲動位置搬到這一格的 K 棒圖上,
+     之後就走原本那條路（`_onRange` → `_syncFrom` → 其餘各圖與各副圖）。 */
+  function _driveFromSub(cell, sub) {
+    try {
+      const a = sub.chart.timeScale(), b = cell.chart.timeScale();
+      const bs = a.options().barSpacing, sp = a.scrollPosition();
+      let moved = false;
+      if (Math.abs((b.options().barSpacing || 0) - bs) > 1e-6) { b.applyOptions({ barSpacing: bs }); moved = true; }
+      if (Math.abs((b.scrollPosition() || 0) - sp) > 1e-6) { b.scrollToPosition(sp, false); moved = true; }
+      if (moved) _ovQueue();
+    } catch (e) {}
   }
   function _buildSubs(cell) {
     const fit = _fitSubs(cell);
@@ -1140,8 +1298,22 @@
       const ts = cell.chart.timeScale();
       const bs = ts.options().barSpacing, sp = ts.scrollPosition();
       cell.subs.forEach(x => {
+        /* ★★★ **絕對不可以寫入「使用者正在操作的那一張」**（2026-09-28 使用者：
+           「我在那裡縮放 他就是整個畫面抖動」）。使用者的滾輪把這張副圖設成 X,我們又把
+           格子的值寫回它 → 兩邊搶同一張圖 → 實測主圖可見跨度在 14~20 天之間來回,
+           **167 幀裡方向反轉 101 次**。
+           ★ 這就是 charts.js `_syncDriver` 的核心規則：**驅動者只發不收**。
+             我第一版只做了「忽略自己造成的事件」,那只減少迴圈次數,止不住互打。 */
+        if (x === cell.drv) return;
         try {
           const t2 = x.chart.timeScale();
+          /* ★★ 記下「我們命令它待在哪」—— 副圖可以反過來驅動整格（見 `_mkSub`）,
+             但**必須排除我們自己寫進去造成的那些事件**,否則就是
+             `_syncSubs → 副圖事件 → _driveFromSub → 格子 → 主圖 → _syncSubs` 的自我維持迴圈。
+             實測那個迴圈：滾一次滾輪 `_driveFromSub` 觸發 **479 次**、三張副圖的 barSpacing
+             永遠收斂不到同一個值,而且**主圖會完全縮不動**（跨度 950400 → 950400,被格子蓋掉）
+             —— 使用者的回報就是「我在那裡縮放 他就是整個畫面抖動」。 */
+          x.cmdBs = bs; x.cmdSp = sp;
           /* ⚠ 值沒變就不要寫：`applyOptions({barSpacing})` 會讓那張圖**整張重畫** ——
              平移時 barSpacing 根本沒變,每幀白重畫三張副圖（畫面上的成本是瀏覽器的繪製,
              不是我們的 JS,所以 profiler 只會看到 `(program)` 變大）。 */
@@ -1281,6 +1453,11 @@
              vol: _cells[0] ? (() => { try { return _cells[0].vol.data().length; } catch (e) { return -1; } })() : 0,
              bb: _cells[0] ? (() => { try { return _cells[0].bbU.data().length; } catch (e) { return -1; } })() : 0,
              bs: _cells.map(c => { try { return +c.chart.timeScale().options().barSpacing.toFixed(2); } catch (e) { return null; } }),
+             /* 副圖的 barSpacing/捲動位置 —— 查「格子的附圖沒跟著縮放」只能靠這個
+                （副圖的 chart 物件包在 IIFE 裡,外面讀不到）。 */
+             subBs: _cells.map(c => c.subs.map(x => { try { return +x.chart.timeScale().options().barSpacing.toFixed(2); } catch (e) { return null; } })),
+             subSp: _cells.map(c => c.subs.map(x => { try { return +x.chart.timeScale().scrollPosition().toFixed(2); } catch (e) { return null; } })),
+             sp: _cells.map(c => { try { return +c.chart.timeScale().scrollPosition().toFixed(2); } catch (e) { return null; } }),
              ax: _cells.map(c => { try { return Math.round(c.chart.priceScale("right").width()); } catch (e) { return null; } }),
              mkPos: _cells.map(c => { try { const m = c.series.markers(); return m.length ? m[0].position + "/" + m[0].shape : null; } catch (e) { return null; } }),
              tfs: { main: (typeof currentTF !== "undefined") ? currentTF : null, minis: _minis.slice(0, _cells.length).map(m => m.tf) } };
@@ -1317,6 +1494,11 @@
     cc.parentElement.insertBefore(_grid, cc.nextSibling);   // .body-layout(flex row)內、主圖右側
     _applyMode();
     _watchMainTf();
+    /* 使用者碰主圖 → 各格的驅動權交還給它自己的 K 棒圖,
+       否則「上次在某張副圖上滾過」會讓那張副圖一直是驅動者。 */
+    const _mp = document.getElementById("mainPane");
+    if (_mp) ["pointerdown", "wheel", "touchstart"].forEach(ev =>
+      _mp.addEventListener(ev, () => { _cells.forEach(c => { if (c) c.drv = null; }); }, { passive: true, capture: true }));
     // 每 5s 更新尾巴（背景分頁暫停＝省電規範；錯開避免同秒齊發）
     /* ★ 2026-09-28 使用者：「第二圖 報價偏慢」。原本固定 5 秒一次,主圖是 1 秒 → 最壞差 5 秒。
        ⚠⚠ **不可以改成讀報價列那份（`_tickerData`）省流量**：那是**永續**的清單,
