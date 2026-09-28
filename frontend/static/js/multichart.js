@@ -304,20 +304,26 @@
      ⚠ 顏色跟主圖同一顆 `C.curPrice`,底 70%、框 90%（與 charts.js 那顆的算法一致）。
      ⚠ 標籤不顯示時要把區間清掉,否則刻度會永遠缺一格。
      ⚠ 半高取 15px（標籤半高 10 + 刻度字半高 ~5）—— 同主圖 `_axisHideSet(0, y, 15)`。 */
+  /* 只有真的變了才寫進 style（見 `_placeVline` 的說明）。 */
+  function _setSty(el, k, v) { if (el && el.style[k] !== v) el.style[k] = v; }
   function _curLabel(cell) {
     const lbl = cell.pxLbl;
     if (!lbl) return;
-    const hide = () => { lbl.style.display = "none"; cell.axisBand = null; };
+    const hide = () => { _setSty(lbl, "display", "none"); cell.axisBand = null; };
     try {
       const p = cell.lastC;
       if (p == null) return hide();
       const y = cell.series.priceToCoordinate(p);
       if (y == null) return hide();
-      lbl.textContent = (typeof _fmtPx === "function") ? _fmtPx(p, cell.prec != null ? cell.prec : -1) : String(p);
+      const txt = (typeof _fmtPx === "function") ? _fmtPx(p, cell.prec != null ? cell.prec : -1) : String(p);
+      if (lbl.textContent !== txt) lbl.textContent = txt;
       const col = (typeof C !== "undefined" && C.curPrice) || "#FF9147";
-      if (typeof _colA === "function") { lbl.style.background = _colA(col, .70); lbl.style.borderColor = _colA(col, .9); }
-      lbl.style.top = Math.round(y) + "px";
-      lbl.style.display = "block";
+      if (typeof _colA === "function" && cell._lblCol !== col) {   // 顏色只有換色盤時才變,不必每幀寫
+        cell._lblCol = col;
+        lbl.style.background = _colA(col, .70); lbl.style.borderColor = _colA(col, .9);
+      }
+      _setSty(lbl, "top", Math.round(y) + "px");
+      _setSty(lbl, "display", "block");
       const a = cell.series.coordinateToPrice(y - 15), b2 = cell.series.coordinateToPrice(y + 15);
       cell.axisBand = (a == null || b2 == null) ? null : [Math.min(a, b2), Math.max(a, b2)];
     } catch (e) { hide(); }
@@ -330,16 +336,18 @@
   function _placeVline(cell, tm) {
     const ln = cell.vline;
     if (!ln) return;
-    if (tm == null) { ln.style.display = "none"; return; }
+    if (tm == null) { _setSty(ln, "display", "none"); return; }
     try {
       const x = cell.chart.timeScale().timeToCoordinate(tm);
       const g = _geom(cell);
-      if (x == null || !g) { ln.style.display = "none"; return; }
-      ln.style.left = Math.round(g.left + x) + "px";
-      ln.style.top = Math.round(g.top) + "px";
-      ln.style.height = Math.round(g.height) + "px";
-      ln.style.display = "block";
-    } catch (e) { ln.style.display = "none"; }
+      if (x == null || !g) { _setSty(ln, "display", "none"); return; }
+      /* ⚠ **值沒變就不要寫**：每一次 style 寫入都會讓瀏覽器重算樣式/版面
+         （實測縮放 3.6 秒 `UpdateLayoutTree` 112ms）。top/height 在手勢中根本不會變。 */
+      _setSty(ln, "left", Math.round(g.left + x) + "px");
+      _setSty(ln, "top", Math.round(g.top) + "px");
+      _setSty(ln, "height", Math.round(g.height) + "px");
+      _setSty(ln, "display", "block");
+    } catch (e) { _setSty(ln, "display", "none"); }
   }
   function _onCross(src, param) {
     if (_crossing || _mode === 1) return;

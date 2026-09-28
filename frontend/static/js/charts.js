@@ -1249,10 +1249,17 @@ function updateCurrentPriceLabel() {
   // 底色 90%（2026-09-19 使用者：「最新價的顯示底不要透明」→「70%」）。
   // ⚠ 這顆的 alpha 有兩處要一起改：這裡是「跟著使用者選的現價色」算出來的實際值，
   //   style.css 那條是色盤還沒套用前的預設底色 —— 只改一邊會在開圖那一瞬間閃出舊的淡色。
-  lbl.style.background = _colA(_cpc, .70);
-  lbl.style.borderColor = _colA(_cpc, .9);
-  lbl.style.top = Math.round(y) + "px";
-  lbl.style.display = "block";
+  /* ⚠ **值沒變就不要寫**：這支每一幀（十字線 60Hz、縮放/平移）都會跑,
+     每次 style 寫入都讓瀏覽器重算樣式（實測縮放 3.6 秒 UpdateLayoutTree 112ms）。
+     顏色只有換色盤時才會變,位置多半也維持不動。 */
+  if (lbl._lastCpc !== _cpc) {
+    lbl._lastCpc = _cpc;
+    lbl.style.background = _colA(_cpc, .70);
+    lbl.style.borderColor = _colA(_cpc, .9);
+  }
+  const _t = Math.round(y) + "px";
+  if (lbl.style.top !== _t) lbl.style.top = _t;
+  if (lbl.style.display !== "block") lbl.style.display = "block";
   _axisHideSet(0, y, 15);       // 這格刻度讓位（半高 10px + 刻度字半高 ~5px）
   _hideCurLabelIfCovered();     // 價格自己動到游標標籤下方時也要收起來（不然又疊回去）
 }
