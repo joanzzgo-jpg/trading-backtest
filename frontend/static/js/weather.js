@@ -516,24 +516,35 @@
     g.beginPath(); g.arc(cx, cy, R, 0, Math.PI*2); g.clip();
     g.fillStyle = DARK; g.fillRect(cx-R, cy-R, R*2, R*2);
     const eRx = R * Math.abs(Math.cos(2 * Math.PI * phase));
-    // 相位遮罩改 3 層漸縮橢圓 → 柔和的明暗交界線（terminator），不再是銳利剪影 → 立體球
-    const softCover = (style, a0, a1) => {
-      [[1.08, .38], [1, .80], [0.92, .38]].forEach(([k, aa]) => {
-        g.globalAlpha = aa; g.fillStyle = style;
-        g.beginPath(); g.ellipse(cx, cy, Math.min(R, eRx * k), R, 0, a0, a1); g.closePath(); g.fill();
-      });
-      g.globalAlpha = 1;
-    };
+    /* ★★ 2026-09-29 使用者：「月亮優化」。舊版是「先填一半亮面,再用 globalAlpha 0.38/0.8/0.38
+       把第二層亮面**疊**到另一半」—— 半透明疊出來的那半必然比較暗,而且交界正好落在直徑上
+       → 畫面上是**一條直直的硬邊 ＋ 左右兩階亮度**,看起來像圓柱不是球（實測截圖確認）。
+       → 受光區改成**單一路徑一次填滿**：受光側半圓 ＋ 相位橢圓的另一半,沒有重疊就沒有接縫。
+       ⚠ 繞行方向要對,否則凸月/眉月會畫反：
+         受光半圓 anti = (受光在左);　相位橢圓 anti = 凸月 ? (受光在左) : (受光在右)。
+         驗算：滿月 phase=.5 → eRx=R → 橢圓＝整圓 → 受光＝整個圓面 ✓
+               上弦 phase=.25 → eRx=0 → 橢圓退化成直徑 → 受光＝正好半圓 ✓ */
+    const litLeft = (phase >= 0.5);                       // waning：受光在左
+    const gibbous = (phase > 0.25 && phase < 0.75);       // 凸月（比半圓亮得多）
+    const eAnti   = gibbous ? litLeft : !litLeft;
     g.fillStyle = lit;
-    if (phase < 0.5) {                       // waxing：右半受光
-      g.beginPath(); g.arc(cx, cy, R, -Math.PI/2, Math.PI/2); g.closePath(); g.fill();
-      if (phase < 0.25) softCover(DARK, -Math.PI/2, Math.PI/2);
-      else              softCover(lit,   Math.PI/2, -Math.PI/2);
-    } else {                                 // waning：左半受光
-      g.beginPath(); g.arc(cx, cy, R, Math.PI/2, -Math.PI/2); g.closePath(); g.fill();
-      const p2 = phase - 0.5;
-      if (p2 < 0.25) softCover(lit, -Math.PI/2, Math.PI/2);
-      else           softCover(DARK, Math.PI/2, -Math.PI/2);
+    g.beginPath();
+    g.arc(cx, cy, R, -Math.PI/2, Math.PI/2, litLeft);
+    g.ellipse(cx, cy, eRx, R, 0, Math.PI/2, -Math.PI/2, eAnti);
+    g.closePath(); g.fill();
+    /* 明暗交界柔化：真實的 terminator 不是銳利剪影。沿著交界橢圓描三道漸細的半透明暗線
+       （只有落在受光面那側看得見,暗面本來就暗）。 */
+    /* ⚠ 不可以加「eRx 太小就不柔化」的下限：eRx=0 正好是**上弦/下弦**,
+       而那裡是掠射光、真實世界最柔的交界 —— 加了下限反而讓最該柔的那兩顆最硬。
+       上限要留：eRx≈R 是**新月與滿月**（cos 在 phase 0 與 .5 都是 ±1）,交界與月緣重合,
+       描上去只會把月緣壓黑。 */
+    if (eRx < R * 0.98) {
+      g.save();
+      [[0.14, 0.10], [0.08, 0.13], [0.04, 0.16]].forEach(([w, a]) => {
+        g.globalAlpha = a; g.strokeStyle = DARK; g.lineWidth = Math.max(0.6, R * w);
+        g.beginPath(); g.ellipse(cx, cy, eRx, R, 0, Math.PI/2, -Math.PI/2, eAnti); g.stroke();
+      });
+      g.restore();
     }
     // 隕石坑：剪裁到受光側（暗面不畫），坑體 + 內陰影 + 受光緣 = 立體凹陷
     const nearFull = Math.abs(phase - 0.5) < 0.07;
@@ -3713,6 +3724,7 @@
      ⚠ **不可以**用 `documentElement.classList.contains('sky-night')` 代替：那個 class 只有
        「晴朗夜空」(type === 'night') 才會加，陰天/下雨的夜晚一律沒有 → 會整晚判成白天。 */
   window._wxIsDay = () => !!_wd.isDay;
+
   // 給小熊播報天氣預報用：今明兩天 {tmax,tmin,pop,cond} + 當前溫度/降雨機率
   window._getForecast = () => _wd.forecast
     ? { ..._wd.forecast, curTemp: _wd.temp, curPop: _wd.pop } : null;
