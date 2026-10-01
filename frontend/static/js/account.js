@@ -290,6 +290,17 @@ async function _acctPullDrawings(name, _bootPull) {
             "perfMode", "mFontScale", "mHideWr", "mLastTab",
             "paneFlexes", "collapsedPanes", "multiChart",
             "sqdFloatPos", "symBlockOrder",   // 符號列積木的浮動位置/順序（這台螢幕專屬，別台尺寸不同會放錯）
+            /* ★★ 2026-10-01 使用者（手機）：「一直跳回線型圖 沒有上次記憶」。
+               `chartTypeLine` 原本會被下行**無條件覆蓋**（account.js 的 `localStorage.setItem(k, remote)`）
+               → 電腦那台用線型、手機切成 K 線,下次開手機又被蓋回線型。
+               實測（假帳號 `__gk_ct_test__`）：本機 "0"＋雲端 "1" → 進場後本機變成 "1"。
+               ★ 它跟 `perfMode`／`multiChart`／`collapsedPanes` 同一類：**每台裝置自己的看法**,
+                 手機想看 K 線不代表電腦也要。→ 列入裝置本地,不從雲端拉。
+               ⚠ 它仍然會被推上雲端（沒列進 `_ACCT_SKIP`）—— 無害,只是那份值不再回頭影響任何裝置。
+               ⚠ `chartInverted`（上下顛倒）本來就刻意不存檔,不受影響。 */
+            "chartTypeLine",
+            // 手機時框列「黏著的那個外來時框」：純 UI 狀態,跟著那台裝置就好（見 utils.js noteMobileTFExtra）
+            "mobileTFExtra",
             "announceSeenVer", "symSearchHistory", "accelOn",
             /* ★ 2026-09-23 電腦/手機兩份色盤已合一（見 utils.js loadPrefs）→ 這三個是**死資料**。
                ⚠ 一定要列在這裡，否則收斂不了：下行會把雲端那份寫回 localStorage，

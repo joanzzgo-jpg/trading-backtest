@@ -35,11 +35,38 @@ function loadMobileTFs() {
   } catch (e) {}
   return _mobileTFs;
 }
+/* ★★ 2026-10-01 使用者：「時間區塊會從 5 個跳到 4 個,就是 5m 會消失,當我點 15m 或其他時框時」。
+   `applyMobileTFVisibility` 的規則是「自選的那幾個 ＋ **目前所在的時框**」——
+   自選 4 個而人在 5m 時顯示 5 個,一點 15m（在自選裡）5m 就不再被保留 → **列從 5 跳到 4,
+   而且從列上再也回不到 5m**（只能進設定改）。那是一扇單向門。
+   → 記住「最近一次用過、但不在自選裡的那個時框」,**黏著顯示**直到換成另一個外來時框。
+   ⚠ 刻意**不去改使用者在設定裡的自選**：那是他明確選過的,靜靜改掉比現在這個行為更糟。
+   ⚠ 存成獨立的 key,`loadMobileTFs` 一併載入 → 重整後列的內容不會又跳一次。 */
+let _mobileTFExtra = null;
+function loadMobileTFExtra() {
+  try {
+    const v = localStorage.getItem("mobileTFExtra");
+    _mobileTFExtra = (v && MOBILE_TF_ALL.includes(v)) ? v : null;
+  } catch (e) { _mobileTFExtra = null; }
+  return _mobileTFExtra;
+}
+function noteMobileTFExtra(tf) {
+  if (!tf || !MOBILE_TF_ALL.includes(tf)) return;
+  if (_mobileTFs.includes(tf)) return;          // 本來就在自選裡 → 不必黏
+  if (_mobileTFExtra === tf) return;
+  _mobileTFExtra = tf;
+  try { localStorage.setItem("mobileTFExtra", tf); } catch (e) {}
+}
 function saveMobileTFs(arr) {
   // 依「按鈕列固定順序」排序，避免顯示順序跳動
   _mobileTFs = MOBILE_TF_ALL.filter(tf => (arr || []).includes(tf)).slice(0, MOBILE_TF_MAX);
   if (!_mobileTFs.length) _mobileTFs = ["1d"];
   try { localStorage.setItem("mobileTFs", JSON.stringify(_mobileTFs)); } catch (e) {}
+  // 自選已經涵蓋它了 → 黏著的那個就沒必要再佔一格
+  if (_mobileTFExtra && _mobileTFs.includes(_mobileTFExtra)) {
+    _mobileTFExtra = null;
+    try { localStorage.removeItem("mobileTFExtra"); } catch (e) {}
+  }
 }
 
 /* ── hex + 透明度 ── */

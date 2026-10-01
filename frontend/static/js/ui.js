@@ -1772,7 +1772,9 @@ function bindSystemColors() {
 // 「當前 TF」一律保留可見，避免還原到沒被選的時間框時看不到也選不回來。
 function applyMobileTFVisibility() {
   const visible = new Set(_mobileTFs);
-  if (typeof currentTF !== "undefined") visible.add(currentTF);
+  if (typeof currentTF !== "undefined") { visible.add(currentTF); noteMobileTFExtra(currentTF); }
+  // 最近用過、但不在自選裡的那個：黏著顯示（見 utils.js `noteMobileTFExtra` 的長註解）
+  if (_mobileTFExtra) visible.add(_mobileTFExtra);
   document.querySelectorAll(".tf-btn").forEach(b => {
     b.classList.toggle("tf-hidden-mobile", !visible.has(b.dataset.tf));
   });
@@ -1780,6 +1782,7 @@ function applyMobileTFVisibility() {
 
 function initMobileTF() {
   loadMobileTFs();
+  loadMobileTFExtra();
   const popup   = document.getElementById("tfPopup");
   const gridEl  = document.getElementById("tfPickGrid");
   const stateEl = document.getElementById("mSetTFState");
