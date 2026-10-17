@@ -1841,6 +1841,22 @@ cd backend && ../.venv312/bin/python scripts/check_design_tokens.py   # 不需�
   我連續量錯三次（挑到隔壁 K 棒欄／閾值把成交量柱算進去／顏色比對只中一段），
   最後把線改成不透明洋紅才量準。
 
+### 上下顛倒的橘框「融合進既有邊界」,不要再疊一個方框（2026-10-17）
+使用者：「上下顛倒時 會有橘色框 直接融合在原有的上方跟右方的邊界」。
+原本 `.invert-frame` 是在 `#mainChart` 裡**另外疊一個四邊的方框** —— 量出來它跟容器既有的那圈框
+（`.charts-container` 的上＋右＋右上圓角）**完全對不上**：
+  ｜ ｜ 上 ｜ 右 ｜ 圓角 ｜ 左/下 ｜
+  ｜ 容器既有 ｜ 81 ｜ 1251 ｜ 18px ｜ 無（貼螢幕邊）｜
+  ｜ 顛倒的橘框 ｜ **105**（低 24px,它從圖例列下面才開始）｜ **1249**（內縮 2px）｜ **8px** ｜ **也有** ｜
+→ 改成**直接把既有那圈框換色**（`html.chart-inverted .charts-container { border-color: accent }`）,
+  `.invert-frame` 只留內側暈光。多圖時框在迷你圖欄 → `html.chart-inverted.mc-2/.mc-4 #miniGrid`
+  也換 `border-top-color`/`border-right-color`。
+⚠ claude.md 原本記著「**刻意醒目不能退讓**」（倒過來的圖被當正常看,漲跌會整個讀反）→
+  暈光與左上角「⇅ 上下顛倒中」標籤**都保留**,只是不再多一圈框。
+⚠ 2 格時 `.charts-container` 的 `border-right` 是 `none`（寬度 0）,所以它的顏色值無所謂 ——
+  真正要換的是 `#miniGrid` 那兩條。驗證要**兩種模式 × 開關各量一次** computed style,
+  只看截圖看不出「正常狀態有沒有被改到」。
+
 ### 格線要貫穿面板之間（2026-09-24）
 使用者：「上下的格子線要連起來，但中間一樣要像現在有區隔」。
 → `charts.js _drawGridBridge()`：每條 `.pane-divider` 裡放一張小 canvas 補畫格線；

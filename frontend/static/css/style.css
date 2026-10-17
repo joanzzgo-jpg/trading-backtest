@@ -6651,19 +6651,32 @@ html.perf-mode .go-latest {
    ★ 但「刻意醒目」這件事不能退讓：倒過來的圖若被當成正常的看，漲跌會整個讀反 ——
      所以改成**整張圖描框**（範圍更大、更不可能忽略），而不是把標籤縮小變低調。
    ★ 顏色一律走 var(--accent)＋color-mix → 使用者換配色/切極簡模式都跟著變。 */
+/* ★★ 2026-10-17 使用者：「上下顛倒時 會有橘色框 直接融合在原有的上方跟右方的邊界」。
+   原本是在 #mainChart 裡**另外疊一個四邊的方框** → 實測它比容器既有的那圈框
+   **低 24px（81 → 105,因為它從圖例列下面才開始）、右邊內縮 2px、圓角也不同（18 → 8px）**,
+   而且多畫了左與下 —— 看起來就是「框裡面又有一個框」。
+   → 改成**直接把既有的那圈框換成琥珀色**（容器本來就有上＋右＋右上圓角,見 .charts-container）,
+     這裡只留內側暈光當輔助。
+   ⚠ claude.md 記著「刻意醒目不能退讓」（倒過來的圖被當正常看,漲跌會整個讀反）——
+     所以暈光保留、左上角那顆「⇅ 上下顛倒中」標籤也保留,只是不再多一圈框。 */
 .invert-frame {
   position: absolute; inset: 0; z-index: 35;
   pointer-events: none;                      /* ⚠ 一定要：#mainChart 上有 draw.js 的 capture 處理 */
-  border: 2px solid color-mix(in srgb, var(--accent) 72%, transparent);
-  border-radius: var(--r-sm);
   box-shadow: inset 0 0 26px color-mix(in srgb, var(--accent) 13%, transparent);
 }
 .invert-frame[hidden] { display: none; }
-/* 多圖模式：迷你圖欄跟著主圖一起顛倒 → 也要描同一圈琥珀框（見 charts.js toggleChartInvert） */
+/* 顛倒時：既有的那圈暖色框換成琥珀色（1 格在 .charts-container,多圖時框在迷你圖欄,見下方 mc-2/mc-4） */
+html.chart-inverted .charts-container {
+  border-color: color-mix(in srgb, var(--accent) 72%, transparent);
+}
+html.chart-inverted.mc-2 #miniGrid,
+html.chart-inverted.mc-4 #miniGrid {
+  border-top-color: color-mix(in srgb, var(--accent) 72%, transparent);
+  border-right-color: color-mix(in srgb, var(--accent) 72%, transparent);
+}
+/* 多圖模式：迷你圖欄也跟著顛倒 → 同樣只給暈光,框由上面那條換色（見 charts.js toggleChartInvert） */
 html.chart-inverted #miniGrid::after {
   content: ""; position: absolute; inset: 0; z-index: 35; pointer-events: none;
-  border: 2px solid color-mix(in srgb, var(--accent) 72%, transparent);
-  border-radius: var(--r-sm);
   box-shadow: inset 0 0 26px color-mix(in srgb, var(--accent) 13%, transparent);
 }
 html.chart-inverted #miniGrid { position: relative; }
