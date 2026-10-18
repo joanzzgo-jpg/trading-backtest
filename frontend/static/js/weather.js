@@ -820,6 +820,56 @@
     return { x:((fa-45)/270)*W, y:H*0.86-(alt/90)*(H*0.86-H*0.05) };  // 東(升)左、西(落)右
   }
 
+  /* ★★ 2026-10-18 效能：手機閒置 profile 裡 `_drawPlanets` 自身 **12.63 ms/秒**,
+     是天氣第二名的 3.6 倍、整個天氣迴圈最大的一筆。拆開看,它每幀對 8 顆行星各做一次：
+       createRadialGradient（光暈）／4 條刻線＋引線／**設 `font` ＋ `fillText`**（字型解析＋排版,
+       是 canvas 最貴的一類操作）／兩圈旋轉環。
+     但**只有兩圈環是真的會動的** —— 軌道位置有 2 分鐘快取,光暈/刻線/引線/標籤在那段期間
+     逐像素都一樣,等於每秒重算同一張圖二十次。
+     → 把靜態那部分烤成**每顆行星一張小精靈**（同 claude.md「canvas 要發光先想能不能烤貼圖」）。
+     ⚠ 亮度 `a` 會隨雲量變 → 精靈烤在 alpha=1,畫的時候用 `globalAlpha = a` 帶入,不必重烤。
+     ⚠ 閃爍 `tw` 只留在**本體**（那才是看得出來的）；光暈改吃 `a`,實測看不出差別（tw∈[0.72,1]）。
+     ⚠ 快取**每顆行星只留一筆**（key 不同就換掉）：`mag` 每 2 分鐘會變,用無上限的 Map 會一直長。
+     ⚠ key 要含 DPR：換螢幕/縮放時 backing 倍率會變,不含的話會拿到糊掉的舊精靈。 */
+  const _plSpr = new Map();
+  function _planetHud(p, r, dpr) {
+    const key = r.toFixed(2) + '|' + p.mag.toFixed(1) + '|' + dpr;
+    const hit = _plSpr.get(p.zh);
+    if (hit && hit.key === key) return hit;
+    const R2 = r * 3.2 + 8;
+    const label = p.zh + ' ' + (p.mag >= 0 ? '+' : '') + p.mag.toFixed(1);
+    const left = r * 3.2 + 6, top = R2 + 22, bot = r * 3.2 + 6;
+    const right = R2 + 17 + 12 + label.length * 11;      // 中文字寬約 10px,留足
+    const cssW = left + right, cssH = top + bot;
+    const cv = document.createElement('canvas');
+    cv.width = Math.ceil(cssW * dpr); cv.height = Math.ceil(cssH * dpr);
+    const g = cv.getContext('2d');
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const x = left, y = top;                             // 行星中心在精靈裡的位置
+    const [cr, cg, cb] = p.c;
+    if (r > 1.8) {                                       // 光暈
+      const gr = g.createRadialGradient(x, y, 0, x, y, r * 3.2);
+      gr.addColorStop(0, `rgba(${cr},${cg},${cb},0.45)`); gr.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = gr; g.beginPath(); g.arc(x, y, r * 3.2, 0, Math.PI * 2); g.fill();
+    }
+    g.lineWidth = 1; g.strokeStyle = 'rgba(150,235,255,0.6)';
+    g.beginPath();
+    for (let k = 0; k < 4; k++) {                        // 固定 4 向細刻線
+      const ang = k * Math.PI / 2;
+      g.moveTo(x + Math.cos(ang) * (R2 + 2), y + Math.sin(ang) * (R2 + 2));
+      g.lineTo(x + Math.cos(ang) * (R2 + 6), y + Math.sin(ang) * (R2 + 6));
+    }
+    g.stroke();
+    const lx = x + R2 + 9, ly = y - R2 - 9;              // 45° 引線
+    g.beginPath(); g.moveTo(x + R2 * 0.74, y - R2 * 0.74); g.lineTo(lx, ly); g.lineTo(lx + 6, ly); g.stroke();
+    g.font = '10px ui-monospace, Menlo, monospace'; g.textAlign = 'left'; g.textBaseline = 'bottom';
+    g.fillStyle = 'rgba(180,242,255,0.95)';
+    g.fillText(label, lx + 8, ly + 4);
+    const e = { key, cv, ax: left, ay: top, cssW, cssH };
+    _plSpr.set(p.zh, e);
+    return e;
+  }
+
   function _drawPlanets(t){
     const now=Date.now();
     if(now-_planetCache.at>120000){ _planetCache={ at:now, list:_computePlanets(_wxLat,_wxLon,new Date()) }; }
@@ -833,11 +883,10 @@
       const tw=0.86+0.14*Math.sin(t*1.6+x*0.05);            // 微閃爍
       const [cr,cg,cb]=p.c;
       ga.save();
-      if(r>1.8){                                            // 含火星/土星等較亮行星加光暈
-        const g=ga.createRadialGradient(x,y,0,x,y,r*3.2);
-        g.addColorStop(0,`rgba(${cr},${cg},${cb},${(0.45*a*tw).toFixed(3)})`); g.addColorStop(1,'rgba(0,0,0,0)');
-        ga.fillStyle=g; ga.beginPath(); ga.arc(x,y,r*3.2,0,Math.PI*2); ga.fill();
-      }
+      const _hud = _planetHud(p, r, _layerDpr('astro'));   // 靜態 HUD（光暈/刻線/引線/標籤）→ 一次 drawImage
+      ga.globalAlpha = a;
+      ga.drawImage(_hud.cv, x - _hud.ax, y - _hud.ay, _hud.cssW, _hud.cssH);  // ⚠ 指定 CSS 尺寸,否則會大 DPR 倍
+      ga.globalAlpha = 1;
       if (!_lowFx) { ga.shadowBlur=r*2.4; ga.shadowColor=`rgba(${cr},${cg},${cb},${(0.85*a).toFixed(3)})`; }  // 手機關 shadowBlur（已有漸層光暈墊著）
       ga.fillStyle=`rgba(${cr},${cg},${cb},${(a*tw).toFixed(3)})`;
       ga.beginPath(); ga.arc(x,y,r,0,Math.PI*2); ga.fill();
@@ -853,20 +902,7 @@
         const s0=a0+k2*Math.PI/2;
         ga.beginPath(); ga.arc(x,y,R2,s0,s0+0.5); ga.stroke();
       }
-      // 精確讀數：固定 4 向細刻線 + 45° 引線 + 名稱/視星等標籤（儀器感）
-      ga.lineWidth=1; ga.strokeStyle=`rgba(150,235,255,${(0.6*a).toFixed(3)})`;
-      ga.beginPath();
-      for(let k3=0;k3<4;k3++){
-        const ang=k3*Math.PI/2;
-        ga.moveTo(x+Math.cos(ang)*(R2+2), y+Math.sin(ang)*(R2+2));
-        ga.lineTo(x+Math.cos(ang)*(R2+6), y+Math.sin(ang)*(R2+6));
-      }
-      ga.stroke();
-      const lx2=x+R2+9, ly2=y-R2-9;
-      ga.beginPath(); ga.moveTo(x+R2*0.74, y-R2*0.74); ga.lineTo(lx2, ly2); ga.lineTo(lx2+6, ly2); ga.stroke();
-      ga.font='10px ui-monospace, Menlo, monospace'; ga.textAlign='left'; ga.textBaseline='bottom';
-      ga.fillStyle=`rgba(180,242,255,${(0.95*a).toFixed(3)})`;
-      ga.fillText(p.zh+' '+(p.mag>=0?'+':'')+p.mag.toFixed(1), lx2+8, ly2+4);
+      // 精確讀數（4 向細刻線 + 45° 引線 + 名稱/視星等標籤）已烤進 _planetHud 的精靈,這裡不再逐幀畫
       ga.restore();
     }
   }
