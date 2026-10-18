@@ -310,6 +310,7 @@
       <button class="dt-layer active" data-layer="A" title="圖層 A —— 點＝設為作用層（新畫的線進這層）；再點一次＝隱藏／顯示（快捷鍵 Z）。A/B/C 可以同時顯示。">A</button>
       <button class="dt-layer" data-layer="B" title="圖層 B —— 點＝設為作用層；再點一次＝隱藏／顯示（快捷鍵 X）。A/B/C 可以同時顯示。">B</button>
       <button class="dt-layer" data-layer="C" title="圖層 C —— 點＝設為作用層；再點一次＝隱藏／顯示（快捷鍵 C）。A/B/C 可以同時顯示。">C</button>
+
     </div>
 
     <div class="tb-group" role="group" aria-label="視窗與模式">
@@ -484,6 +485,24 @@
          disabled 狀態（draw.js _undoBtnSync/繫結都改成同時處理兩顆）。 -->
     <button class="sqd-btn" id="btnDrawUndo2" title="復原上一步繪圖（畫錯／誤拖／誤刪都可退回；Ctrl／⌘+Z）" disabled>
       <svg width="15" height="15" viewBox="0 0 15 15"><path d="M5.6 2.6 L2.2 6 L5.6 9.4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M2.2 6 H9.3 A3.6 3.6 0 0 1 9.3 13.2 H5.2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+    </button>
+    <!-- 一鍵清空所有繪圖（2026-10-18 使用者：「圖 a/b/c 可以一鍵清空所有繪圖」→「放在中上位置」）。
+         ★ 擺在**復原鍵右邊**：語意上成對 —— 清錯了,救命的那顆就在旁邊。
+         ⚠ 按一次先亮成待確認、再按一次才真的清（繪圖弄丟救不回來，見 draw.js _clearAllDrawings）。
+         ⚠ 純 SVG 不用 emoji（claude.md：emoji 各平台字型不一，會跟這排線條圖示不搭）——
+           圖示特別畫過：**掀開的桶蓋（斜的＝正在丟）＋ 左上兩道掃入的動線**，
+           跟左側工具島的「橡皮擦」（擦單一條）在形狀上明確分得開。 -->
+    <button class="sqd-btn sqd-clear" id="drawClearAll" type="button" disabled
+            title="清空這個標的在 A/B/C 三層的所有繪圖（含副圖上的）。按一次會先亮成待確認，再按一次才真的清掉；清掉後可按 V 復原。">
+      <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor"
+           stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <!-- ⚠ 試過在左上加「掃入的速度線」（兩道、三道都試了）：在 17px 下變成雜點、讀不出來,
+             反而讓整個圖示髒掉。小尺寸的圖示要**少而大**,不是多而細。 -->
+        <path d="M2.5 4.7 L12.5 2.9"/>
+        <path d="M5.9 4.1 L5.6 2.3 L9.1 1.7 L9.4 3.4"/>
+        <path d="M4.0 5.6 L5.1 13.3 H10.6 L11.6 4.4"/>
+        <path d="M6.7 7.5 V11.5"/><path d="M9.0 7.2 V11.2"/>
+      </svg>
     </button>
     <span class="sqd-sep"></span>
     <!-- 時框畫筆顏色：與左側工具島的色框同一份狀態（draw.js _syncDrawColorChip 會同時更新兩處） -->
@@ -709,8 +728,11 @@
           <span id="chartStaleTxt"></span>
           <button type="button" id="chartStaleBtn">重新整理</button>
         </div>
-        <!-- 上下顛倒中（多空翻轉看法，2026-09-11；2026-09-22 改設計）：整張主圖描一圈琥珀框
-             ＋左上角標籤。★ 刻意醒目 —— 倒過來的圖若被當成正常的看，漲跌會整個讀反。
+        <!-- 上下顛倒中（多空翻轉看法，2026-09-11；2026-09-22 改設計；2026-10-18 改成背景浮水印）：
+             整張主圖描一圈琥珀框 ＋ 圖中央一枚大型淡色浮水印。
+             ★ 刻意醒目 —— 倒過來的圖若被當成正常的看，漲跌會整個讀反。
+             ⚠ 2026-10-18 使用者：「上下顛倒中 不用恢復按鈕 變成背景浮水印 放大至中」→
+               拿掉了原本標籤裡的「恢復」鈕。恢復的入口仍有兩個：上方列的 ⇅ 鈕與快捷鍵 A。
              ⚠ 外框是 pointer-events:none 的覆蓋層：不動版面、不吃滑鼠（#mainChart 上有
                draw.js 的 capture 階段處理，吃掉事件連繪圖都不能用）。
              ⚠ 放 #mainChart 裡面才對得準（外面要靠 --legend-h 推算，手機圖例列較高會錯位）；
@@ -718,15 +740,19 @@
         <div class="invert-frame" id="invertFrame" hidden aria-hidden="true"></div>
         <div class="invert-badge" id="invertBadge" hidden role="status"
              title="主圖上下顛倒中：上漲顯示成下跌、紅綠也對調（價格數字都是真的）。快捷鍵 A">
-          <svg class="inv-ico" width="11" height="13" viewBox="0 0 11 13" aria-hidden="true">
-            <path d="M3 4.2 5.5 1.5 8 4.2M5.5 1.5v3.9M8 8.8 5.5 11.5 3 8.8M5.5 11.5V7.6"
-                  fill="none" stroke="currentColor" stroke-width="1.5"
-                  stroke-linecap="round" stroke-linejoin="round"/>
+          <!-- ★ 2026-10-18 圖示改了三版（使用者：「emoji 需要特別設計」→「emoji設計不好看」）：
+               ①細的雙箭頭 ⇅ —— 放大到數十 px 只是一根線。
+               ②實心三角＋虛線軸＋空心三角 —— 一實一空、再加一條虛線,三種筆觸混在一起太雜。
+               ③兩枚圓角實心三角 —— 形是對的,但**同時 `fill` 又 `stroke` 同一個路徑**,
+                 而顏色是半透明的 → 邊緣雙重疊色、跑出一圈暗框,看起來像描邊壞掉（使用者：「不好看」）。
+               ④**現在這版**：同樣兩枚上下相背的三角,但**只填色、不描邊**,並放大、拉開間距。
+               ★★ 通則：**半透明的圖形不可以同時 fill + stroke 同一條路徑** ——
+                 重疊處 alpha 會疊加,一定會長出一圈比較深的邊。要圓角就改用圓角的路徑本身。
+               ⚠ 純 SVG 不用 emoji（claude.md：emoji 各平台字型不一）。 -->
+          <svg class="inv-ico" viewBox="0 0 16 20" aria-hidden="true">
+            <path d="M8 0.8 15 8.4 H1 Z M8 19.2 15 11.6 H1 Z" fill="currentColor"/>
           </svg>
           <span>上下顛倒中</span>
-          <button type="button" id="invertRestore"
-                  onclick="window.toggleChartInvert&&window.toggleChartInvert(false)"
-                  aria-label="恢復正常方向">恢復</button>
         </div>
         <!-- loading="lazy"：非極簡模式時 .chart-bear-bg.perf-only 是 display:none → 不會被抓（省 28KB）。
            weather.js 另有自己的 new Image() 會在延遲載入後自行取用，不受影響。 -->

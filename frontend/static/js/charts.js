@@ -1628,7 +1628,7 @@ function _lowestPaneBottom() {
 function _syncAxisWidth() {
   try {
     const list = [mainChart, kdjChart, rsiChart, macdChart].filter(Boolean);
-    if (list.length < 2) return;
+    if (!list.length) return;
     /* ⚠ **不可以**用 `timeScale().width()` 量繪圖區：實測它對主圖/KDJ/RSI 一律回 **0**
        （只有帶可見時間軸的 MACD 回真值）→ 用它算出來的軸寬會是整個面板寬，全錯。
        正解是問價格軸自己：`priceScale("right").width()`，四張都回真值
@@ -1636,6 +1636,11 @@ function _syncAxisWidth() {
     const w = list.map(c => { try { return c.priceScale("right").width() || 0; } catch (e) { return 0; } });
     const want = Math.max(...w);
     if (!want) return;
+    /* ★ 2026-10-18：順手把量到的價格軸寬輸出成 CSS 變數,給「上下顛倒」浮水印置中用 ——
+       它要對齊 **K 棒區**的中線,不是整個面板的中線（面板右邊那截是價格軸）。
+       同 `.mini-sym` 用 `--mc-axis-w` 的作法。⚠ 重用這裡已經量好的值,不另外再問一次版面。 */
+    document.documentElement.style.setProperty('--main-axis-w', want + 'px');
+    if (list.length < 2) return;        // 只有主圖時不必互相對齊,但上面那個變數照樣要給
     list.forEach((c, i) => {
       if (w[i] !== want) { try { c.priceScale("right").applyOptions({ minimumWidth: want }); } catch (e) {} }
     });

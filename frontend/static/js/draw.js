@@ -122,6 +122,47 @@ _loadLayerState();
 /* ⚠ draw.js 是**延遲載入**的 → 它跑起來時 DOMContentLoaded 多半早就發生過了，
      掛 DOMContentLoaded 監聽器等於永遠不會執行（實測：點按鈕完全沒反應）。
      → 已經載入完就直接跑，否則才等。 */
+/* ★★ 2026-10-18 使用者：「圖 a/b/c 可以一鍵清空所有繪圖」。
+   清掉的是**這個標的**在 A/B/C 三層的全部繪圖（含畫在副圖上的）—— 不是所有標的,
+   那會是另一個量級的破壞,而且按鈕就在 A/B/C 旁邊,語意上指的就是這張圖。
+   ⚠⚠ **繪圖是使用者自己畫的資料,弄丟救不回來**（claude.md：2026-08-12 我用測試腳本清掉過
+     使用者 118 個繪圖）→ 做成「按一次先亮成待確認、3.5 秒內再按一次才真的清」。
+     仍然是一顆鈕,只是把誤觸擋掉。**不是提示框**（使用者明確說操作類提示不要）,
+     而是按鈕自己的狀態。
+   ★ 一定要走 `saveDrawings()`：它會把「變動前」推進 undo 堆疊 → **清掉之後按 V 可以救回來**,
+     同時負責存檔、帳號同步、到價鬧鐘對帳（線沒了,掛在上面的鬧鐘也要跟著撤）。
+   ⚠ 要一併 `_renderAllSub()`：副圖的繪圖是各自的 overlay,只呼叫 `_scheduleRenderDrawings()`
+     的話主圖清了、副圖那幾條還留在畫面上（同一個理由也補進了 _drawUndo,
+     否則救回來的線在副圖上不會出現）。 */
+let _clrArmT = 0, _clrLastN = -1;
+function _clearAllSync() {
+  const btn = document.getElementById("drawClearAll");
+  if (!btn) return;
+  const n = drawings.length;
+  if (n === _clrLastN) return;              // 只在真的變了才碰 DOM（renderDrawings 每幀都會進來）
+  _clrLastN = n;
+  btn.disabled = !n;
+  if (!n) { btn.classList.remove("armed"); clearTimeout(_clrArmT); }
+}
+function _clearAllDrawings() {
+  const btn = document.getElementById("drawClearAll");
+  if (!btn || !drawings.length) return;
+  if (!btn.classList.contains("armed")) {   // 第一下＝待確認
+    btn.classList.add("armed");
+    clearTimeout(_clrArmT);
+    _clrArmT = setTimeout(() => btn.classList.remove("armed"), 3500);
+    return;
+  }
+  clearTimeout(_clrArmT); btn.classList.remove("armed");
+  drawings = [];
+  selectedId = null; hoveredId = null;
+  saveDrawings();                           // ★ 進 undo 堆疊（V 可救）＋存檔＋同步＋鬧鐘對帳
+  _scheduleRenderDrawings();
+  try { _renderAllSub(); } catch (e) {}
+  _clearAllSync();
+}
+window._clearAllDrawings = _clearAllDrawings;
+
 function _initLayerUI() {
   _syncLayerBtns();
   const host = document.getElementById("drawLayers");
@@ -132,6 +173,12 @@ function _initLayerUI() {
       if (b) _setDrawLayer(b.dataset.layer);
     });
   }
+  /* 「一鍵清空」在**上方快捷繪圖列**（中上）,不在 A/B/C 那一組 →
+     ⚠ 直接綁在按鈕本人,不要委派在父層：那排可以被拖走（ui.js `_sqd*` 會把它 appendChild 到 body）,
+       委派在舊父層上搬家之後就收不到了（同 memory `project_reparent-releases-pointer-capture`
+       記過的那類問題）。監聽器跟著節點走,所以綁本人永遠正確。 */
+  const clr = document.getElementById("drawClearAll");
+  if (clr && !clr._bound) { clr._bound = true; clr.addEventListener("click", _clearAllDrawings); }
 }
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", _initLayerUI);
 else _initLayerUI();
@@ -472,6 +519,7 @@ function _drawUndo() {
   saveDrawings();
   _undoBtnSync();
   _scheduleRenderDrawings();
+  try { _renderAllSub(); } catch (e) {}     // ⚠ 原本漏了：副圖的繪圖各有自己的 overlay,不重畫就不會回來
   if (typeof showToast === "function") showToast("↩ 已復原繪圖");
   return true;
 }
@@ -4034,6 +4082,7 @@ function _saveDrawStoreOnly() {
 
 function renderDrawings() {
   if (!drawCtx || !drawCanvas) return;
+  _clearAllSync();                          // 沒有繪圖時「清空」鈕要灰掉（內部有變動才碰 DOM）
   // 圖表移動中旗標：給 _drawSessionOverlay 等跳過大面積半透明填色（overlay 2x 畫布最貴的像素工作）
   {
     const _n = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();

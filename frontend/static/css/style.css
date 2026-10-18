@@ -1347,6 +1347,19 @@ html.perf-mode .tk-seg {
   box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 30%, transparent);
 }
 .sqd-sep { width: 1px; height: 17.33px; background: var(--border); margin: 0 4px; flex-shrink: 0; }
+/* 沒東西可按時灰掉（原本這排沒有這條 → #btnDrawUndo2 在 disabled 時看起來跟可按的一樣）。
+   ⚠ 游標用 default 不用 not-allowed（macOS/iOS 沒有那個禁止符號的習慣，claude.md ⑨）。 */
+.sqd-btn:disabled { opacity: var(--disabled-opacity); cursor: default; }
+/* ★ 2026-10-18 一鍵清空：平常跟這排其他工具一樣低調；
+   待確認時整顆轉紅＝一眼看得出「再按一次就真的清了」。 */
+.sqd-btn.sqd-clear.armed {
+  background: color-mix(in srgb, #ff5c5c 26%, transparent);
+  border-color: #ff5c5c;
+  color: #ff8f8f;
+}
+@media (hover: hover) {
+.sqd-btn.sqd-clear:not(:disabled):hover { color: #ff8f8f; }
+}
 /* ⚠ 動態工具容器要 display:contents：它是個 <span>（inline），裡面的按鈕會被當文字折行 ——
    實測整排從一列變成 164×194 的六列方塊。contents 讓按鈕直接成為 .sym-quickdraw 的 flex 子項，
    版面與原本寫死那 7 顆完全相同。 */
@@ -6681,31 +6694,52 @@ html.chart-inverted #miniGrid::after {
 }
 html.chart-inverted #miniGrid { position: relative; }
 
+/* ★★ 2026-10-18 使用者：「上下顛倒中 不用恢復按鈕 變成背景浮水印 放大至中」。
+   原本是左上角一顆小膠囊（圖示＋文字＋實心「恢復」鈕）。現在是**圖正中央一枚大型淡色浮水印**。
+   ⚠⚠ **一定要 `pointer-events: none`**：它橫跨圖中央,而 `#mainChart` 上有 draw.js 的
+     capture 階段處理 —— 吃掉事件的話連繪圖都不能用。同 `.mini-sym` 那次踩過的坑
+     （全寬的絕對定位框把時框鈕與 ⇄ 的點擊整個吃掉）。
+   ⚠ 水平置中的基準是 **K 棒區**不是整個面板：右邊那截是價格軸 → `--main-axis-w`
+     由 charts.js `_syncAxisWidth` 量給（同 `.mini-sym` 的 `--mc-axis-w`）。
+   ⚠ 「恢復」的入口沒有消失：上方列的 ⇅ 鈕與快捷鍵 A 本來就都在。
+   ⚠ claude.md 記著「刻意醒目不能退讓」—— 字級放大到數十 px 後,醒目度其實比原本的小膠囊更高;
+     容器的琥珀外框與內側暈光也都保留。 */
 .invert-badge {
-  position: absolute; top: 10px; left: 10px; z-index: 36;
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 4px 4px 4px 8px; border-radius: var(--r-sm);
-  font-size: var(--t-sm); font-weight: 700; letter-spacing: .02em; line-height: 1.3;
-  white-space: nowrap; color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 15%, var(--bg2));
-  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
-  box-shadow: var(--e-3);
+  position: absolute;
+  /* ★ 2026-10-18 位置調了三次：50%（正中央,誤解）→ 22%（使用者：「沒有放在上」）
+     → **11%**（使用者：「在更上去」）。水平一律置中於 K 棒區。
+     ⚠ 11% 是下限附近：`.invert-badge` 在 `#mainChart`（`.pane-body`）裡,
+       圖例列是它的**兄弟節點、在它上面**,所以不會壓到圖例;但再往上浮水印的上緣就會貼齊 K 棒區頂端。
+       （56px 高、中心在 11% → 845px 的面板上,上緣距頂約 65px。） */
+  top: 11%; left: calc(50% - var(--main-axis-w, 0px) / 2);
+  transform: translate(-50%, -50%);
+  z-index: 3;
+  display: inline-flex; align-items: center; gap: .32em;
+  white-space: nowrap;
+  font-size: clamp(20px, 4.4vw, 56px);
+  font-weight: 800; letter-spacing: .08em; line-height: 1;
+  /* ★ 2026-10-18 使用者：「配色不好看」→「沒有之前鮮艷」。
+     24% 不是「淡」的問題,是**合成之後變褐色**：--accent(#FF9147) 是飽和的中明度橘,
+     壓到 24% 疊在深藍圖表底上 → rgb(84,61,51) ＝ 褐色,不是淡橘色。
+     把濃度階梯畫在同一張圖上比對（24 / 45 / 65 / 85 / 100%）：
+     **65% 才開始讀得出是橘色,85% 已經與原本標章那個全不透明的 --accent 幾乎同樣鮮艷**,
+     但還留一點透明度讓底下的 K 棒透得出來（100% 會整片蓋掉）。 */
+  color: color-mix(in srgb, var(--accent) 85%, transparent);
+  /* ★ 2026-10-18 使用者：「加個框給他」。框比字淡一階（55% vs 85%）→ 讀的順序仍是「字先、框後」,
+     框是把浮水印收成一塊牌子,不是要跟字搶。
+     ⚠ 邊寬與內距一律用 **em**：字級是 `clamp(20px…56px)` 會隨視窗變,寫死 px 的話
+       手機上框會相對粗一圈、桌機上又太細（同 claude.md「佔位寬度要用 ch 不要用 px」的理由）。
+     ⚠ 圓角用 token `--r-lg`,不要裸 px（守門員 check_design_tokens 會擋）。 */
+  padding: .22em .46em .26em .40em;
+  border: .05em solid color-mix(in srgb, var(--accent) 55%, transparent);
+  border-radius: var(--r-lg);
+  pointer-events: none;                      /* ⚠ 見上：絕不可以吃滑鼠 */
+  user-select: none;
 }
 .invert-badge[hidden] { display: none; }
-.invert-badge .inv-ico { flex-shrink: 0; }
-/* 恢復鈕：實心＝一眼看得出「這裡可以按」（舊版整顆膠囊是按鈕，沒有按鈕的樣子） */
-.invert-badge button {
-  font: inherit; font-size: var(--t-sm); font-weight: 700; letter-spacing: .02em;
-  color: #2C1607; background: var(--accent);
-  border: 0; border-radius: var(--r-xs); padding: 2px 8px; cursor: pointer;
-  transition: filter .15s, transform .12s;
-}
-@media (hover: hover) {
-.invert-badge button:hover { filter: brightness(1.12); }
-}
-.invert-badge button:active { transform: scale(var(--press)); }
-/* 極簡模式是白底：琥珀字在淡琥珀底上偏淡 → 字色壓深（只動顏色，不碰版面） */
-html.perf-mode .invert-badge { color: #a1560f; background: color-mix(in srgb, var(--accent) 18%, #fff); }
+.invert-badge .inv-ico { flex-shrink: 0; width: .80em; height: 1.0em; }
+/* 極簡模式是白底：同樣濃度的琥珀在白底上會太淡 → 提高濃度（只動顏色，不碰版面） */
+html.perf-mode .invert-badge { color: color-mix(in srgb, #a1560f 85%, transparent); }
 
 /* ── 圖型切換（K線 / 線型）：移到「愛心收藏」右邊，與愛心成套的圖示鈕 ─────────────
    ・純 SVG、不用 emoji（emoji 在各平台字型不一、會跟旁邊的線條圖示不搭）。
