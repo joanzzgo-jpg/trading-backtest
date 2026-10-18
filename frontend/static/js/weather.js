@@ -288,7 +288,7 @@
   }
   let _autoType = "sunny";
   let _wxLat = 25.04, _wxLon = 121.51, _wxTimer = null;
-  const _wd = { code:0, temp:null, precip:0, pop:null, cloudCover:50, windSpeed:0, windDir:null, visibility:10000, isDay:true, city:null, country:null, updatedAt:null, intensity:0.5, desc:null, source:null,
+  const _wd = { code:0, temp:null, precip:0, pop:null, cloudCover:50, windSpeed:0, windDir:null, visibility:10000, humidity:null, aqi:null, isDay:true, city:null, country:null, updatedAt:null, intensity:0.5, desc:null, source:null,
                sunRiseMin:360, sunSetMin:1080, moonPhase:0, moonRiseMin:1080, moonSetMin:360 };
   /* 雲量 → 晴朗度 0~1。★ 一律走這支，別直接算 `1 - _wd.cloudCover/100`：
      cloudCover 可能是 undefined/null/字串，算出 NaN 之後會一路傳進 rgba()／globalAlpha，
@@ -692,12 +692,13 @@
         if (dim > 0.32) _milkyWay(Math.min(1, (dim - 0.32) / 0.5) * 0.9);   // 銀河：天氣稍好就浮現
         if (type !== 'night') {                               // night 型的星空由 dNight 畫（含高光），避免雙重
           stars.forEach(p => {
-            const raw = Math.max(0, .34 + .66 * Math.sin(t * p.sp + p.ph));
+            const raw = _starRaw(p, t, .34, .66);
             const a = raw * dim;
             if (a <= 0.02) return;
             ga.fillStyle = `rgba(${p.col||'228,238,255'},${a.toFixed(3)})`;
-            ga.beginPath(); ga.arc(p.x, p.y, raw > .6 ? p.r * 1.25 : p.r * .9, 0, 6.283); ga.fill();
-            if (raw > .8 && p.r > 1.2) _starSpike(ga, p.x, p.y, p.r * 3.6, a);
+            ga.beginPath(); ga.arc(p.x, p.y, p.r * (0.9 + 0.35 * _sstep(.42, .78, raw)), 0, 6.283); ga.fill();
+            const sk = _sstep(.66, .94, raw);                 // 光芒淡入淡出,不用門檻
+            if (sk > .02 && p.r > 1.2) _starSpike(ga, p.x, p.y, p.r * 3.6 * (0.6 + 0.4 * sk), a * sk);
           });
         }
         _drawConstellations(t, dim);                          // 真實星座（北斗/獵戶/仙后/夏季大三角/天蠍）
@@ -882,6 +883,20 @@
     else if (type==='snow') al = 0.68;
     else if (type==='cloudy'||type==='windy') al = 0.80;
     return al * (1 - Math.min(1, (_wd.cloudCover || 0) / 100) * 0.25);
+  }
+
+  /* ★★ 2026-10-18 使用者：「繼續優化天氣動畫更細緻」。星星原本是
+     **單一正弦**閃爍 ＋ 大小用 `raw > .6` **硬跳一階**（×0.9 ⇄ ×1.25）＋ 光芒也是硬門檻
+     → 肉眼看到的是「啵」地跳一下,不是閃爍。三件事一起改：
+     ①真實的閃爍是大氣擾動,不是週期訊號 → 兩個**不可通約**的頻率疊加（2.37 倍,永不同相）。
+     ②大小/光芒改走 smoothstep,沒有任何門檻式的跳變。
+     ③低空星星閃得更兇（見 stars 出生處的 `tw`）。
+     ⚠ 成本是每顆多一次 `Math.sin` —— 230 顆/幀,噪音等級;**不要**改成查表,
+       那會讓週期重新出現（查表＝量化＝又變回規律）。 */
+  const _sstep = (e0, e1, x) => { const u = Math.max(0, Math.min(1, (x - e0) / (e1 - e0))); return u * u * (3 - 2 * u); };
+  function _starRaw(p, t, base, amp) {
+    const s = 0.74 * Math.sin(t * p.sp + p.ph) + 0.26 * Math.sin(t * p.sp * 2.37 + p.ph * 1.7);
+    return Math.max(0, Math.min(1, base + amp * s * (p.tw || 1)));
   }
 
   /* ── 亮星十字繞射光芒（望遠鏡攝影感 → 科技感）── */
@@ -1254,14 +1269,23 @@
                vy: (Math.random() - .5) * 0.22, puffs: [], last: 0 };
       _ctrNext = 0;
     }
-    const g = _ink("far"), MAXP = _lowFx ? 120 : 220;
+    /* ★ 2026-10-18：凝結尾撐多久**取決於濕度** —— 乾空氣裡幾秒就昇華不見,潮濕時能拖成一條長雲。
+       原本固定 22 秒,等於濕度 20% 和 90% 的天空一樣。濕度缺資料時維持舊值 22。 */
+    const _hm = Number(_wd.humidity);
+    const _ctrLife = isFinite(_hm) ? (4 + 20 * Math.max(0, Math.min(1, (_hm - 40) / 45))) : 22;
+    /* ⚠ 只改壽命是**沒有用**的：粒子上限 220 × 每 0.05 秒一顆 ＝ 緩衝區只裝得下約 11 秒,
+       長壽命那端一律被切掉,濕度就只改到尾端的透明度而不是「尾跡有多長」。
+       → 改成**粒子數固定、間距隨壽命縮放**：長度真的由濕度決定,成本也不隨濕度上升。
+       （間距拉大時粒子半徑 1.2+age*0.28 已經長得夠大,仍然連成一條、不會變虛線。） */
+    const g = _ink("far"), NP = _lowFx ? 110 : 190, MAXP = _lowFx ? 130 : 220;
+    const _ctrStep = Math.max(0.05, _ctrLife / NP);
     _ctr.x += _ctr.vx; _ctr.y += _ctr.vy;
-    if (t - _ctr.last > 0.05) { _ctr.puffs.push({ x: _ctr.x, y: _ctr.y, born: t }); _ctr.last = t; }
+    if (t - _ctr.last > _ctrStep) { _ctr.puffs.push({ x: _ctr.x, y: _ctr.y, born: t }); _ctr.last = t; }
     if (_ctr.puffs.length > MAXP) _ctr.puffs.shift();
     let alive = false;
     for (const p of _ctr.puffs) {
       const age = t - p.born;
-      const a = 0.30 * (1 - age / 22);                          // ~22 秒暈開消散
+      const a = 0.30 * (1 - age / _ctrLife);                    // 暈開消散：乾空氣 ~4 秒、很潮濕 ~24 秒
       if (a <= 0.004) continue;
       alive = true;
       g.fillStyle = `rgba(255,255,255,${a.toFixed(3)})`;
@@ -1279,12 +1303,19 @@
     if (!_wd.isDay || !_BIRD_OK.includes(type)) { _flocks = []; return; }
     if (!_flockNext) _flockNext = t + 6 + Math.random() * 30;
     if (t >= _flockNext && _flocks.length < 2) {
-      const near = Math.random() < 0.4, dir = Math.random() < .5 ? 1 : -1;
+      /* ★ 2026-10-18：方向與速度改吃**真實的風**（原本 dir 是擲硬幣、sp 是固定亂數,
+         風速 2 km/h 與 30 km/h 的天空長得一模一樣）。鳥群多半順風省力,
+         順風地速加成、逆風被扣 —— 風一大,天空就看得出來在刮風。 */
+      const near = Math.random() < 0.4;
+      const wsx = _windVecX(), wSign = wsx >= 0 ? 1 : -1;
+      const wMag = Math.min(1, (Number(_wd.windSpeed) || 0) / 35);
+      const dir = (Math.random() < 0.75) ? wSign : -wSign;            // 七成順風,其餘逆風/側風（真實鳥群兩種都有）
+      const gsp = Math.max(0.35, 1 + 0.9 * wMag * (dir === wSign ? 1 : -0.55));
       _flocks.push({ near, dir,
         n: near ? 2 + (Math.random() * 2 | 0) : 5 + (Math.random() * 4 | 0),
         x: dir > 0 ? -60 : W + 60,
         y: H * (near ? 0.18 + Math.random() * 0.30 : 0.08 + Math.random() * 0.25),
-        sp: (near ? 2.0 : 0.75) * (0.8 + Math.random() * .4), ph: Math.random() * 6.28 });
+        sp: (near ? 2.0 : 0.75) * (0.8 + Math.random() * .4) * gsp, ph: Math.random() * 6.28 });
       _flockNext = t + 24 + Math.random() * 50;
     }
     _flocks = _flocks.filter(f => {
@@ -1333,9 +1364,14 @@
     if (!_balloon) {
       if (!_balloonNext) _balloonNext = t + 30 + Math.random() * 90;
       if (t < _balloonNext) return;
+      /* ★ 2026-10-18：熱氣球沒有動力,**地速就是風速** —— 原本方向有跟風、速度卻是固定亂數。
+         另加真實的飛行限制：地面風超過約 22 km/h 就不放球（實務上 8~10 節就收）。 */
+      const _ws = Number(_wd.windSpeed);
+      if (isFinite(_ws) && _ws > 22) { _balloonNext = t + 120; return; }
       const dir = _windVecX() >= 0 ? 1 : -1;
+      const _bsp = (0.08 + (isFinite(_ws) ? _ws : 6) * 0.018) * (0.85 + Math.random() * 0.3);
       _balloon = { x: dir > 0 ? -50 : W + 50, dir, y: H * (0.16 + Math.random() * 0.30),
-                   sp: 0.18 + Math.random() * 0.14, ph: Math.random() * 6.28, sc: 0.8 + Math.random() * 0.5 };
+                   sp: _bsp, ph: Math.random() * 6.28, sc: 0.8 + Math.random() * 0.5 };
       _balloonCv = _bakeBalloon();
       _balloonNext = 0;
     }
@@ -1518,10 +1554,14 @@
     // 星空階層（動畫電影級）：230 顆，~8% 大亮星（會有十字光芒）+ 三色溫（暖白/冰藍/正白）
     stars  = Array.from({length:Math.round(230*_fxN)}, () => {
       const big = Math.random() < 0.08, hue = Math.random();
-      return { x:Math.random()*W, y:Math.random()*H*.88,
+      const _y = Math.random()*H*.88;
+      return { x:Math.random()*W, y:_y,
         r: big ? 1.6+Math.random()*1.2 : .5+Math.random()*1.3,
         col: hue<.22 ? '255,226,200' : hue<.46 ? '185,215,255' : '228,238,255',
-        ph:Math.random()*Math.PI*2, sp:.18+Math.random()*.42 };
+        ph:Math.random()*Math.PI*2, sp:.18+Math.random()*.42,
+        /* ★ 2026-10-18：低空的星星要穿過更厚的大氣 → 閃得更兇（真實的「星星會眨眼」就是這個）。
+           天頂 ×0.55、接近地平線 ×1.45。以前所有星星一律同一個擺幅。 */
+        tw: 0.55 + 0.90 * (_y / (H*.88)) };
     });
     sparks = Array.from({length:14}, _newSpark);
     // 雨：連續景深 z（0=遠、1=近）；用 z² / z³ 大幅拉開前後差距 → 立體視差明顯
@@ -1717,6 +1757,46 @@
      shape===4 為積雨雲；depth(0遠~1近) 控制空氣透視色票；
      layerZ：3D 景深層選擇（預設＝depth）；想要近景色票但仍按 z 分層時可單獨傳（dOvercast） */
   const _cloudSpr = new WeakMap();    // puffs 陣列 → { key: {cv,ox,oy} }（同 puffs 可有 overcast 放大等多鍵）
+  /* ★★ 2026-10-18 使用者：「繼續優化天氣動畫更細緻」。
+     先量：雲的輪廓 80%→20% 的 alpha 過渡**中位只有 1px**（＝純反鋸齒的硬切,開普敦陰天實測）
+     —— 那正是雲讀起來像「一團團硬邊泡泡」的原因,不是顏色也不是光影的問題
+     （頂光/球緣壓暗/體積陰影早就做了）。
+     → 在**烤圖階段**把剪影換成「**硬聯集 → 模糊**」：內部維持實心,只有外輪廓柔化;
+       再沿球緣撒幾顆小團把完美圓弧打斷 → 絮狀邊。
+     ⚠⚠ **不可以用「每顆球各自徑向淡出再相加」做遮罩**（我第一版就是,結果更糟）：
+       沒有被鄰球蓋到的那段球緣,alpha 在 0.84r~1.0r 之間下降 →
+       **雲體內部多出一圈圈可見的圓環接縫**,比原本的硬邊還明顯（截圖一眼看得出來）。
+       硬聯集先成形、最後整體模糊,內部才不會有接縫。
+     ★ 成本為零：`_cloudSpr` 以 (puffs 變體 × 寬度|對流|翻轉|景深) 為鍵快取,一個精靈只烤一次。
+     ⚠ 模糊半徑不可以太大：白天的白雲在亮天色上對比本來就低,一糊就變成「沒有雲」（被回報過的症狀）。
+     ⚠ 絮邊小團要**往內偏**（中心 0.80r、半徑 ≤0.26r → 最遠 1.06r）：往外長會超出精靈邊界被裁掉,
+       反而切出一條更硬的直邊。
+     ⚠ 亂數必須**由球的座標推導**,不可以用 Math.random()：同一朵雲在不同景深會各烤一張,
+       用真亂數的話同一朵雲在遠近會長得不一樣。
+     ⚠ Canvas2D 的 `filter` 舊版 iOS Safari 沒有 → 偵測不到就整個跳過（維持原本的硬邊,不做半套）。 */
+  function _cloudMask(cdpr, bw, bh, puffs, cx, baseY, w, h, flip) {
+    const mk = document.createElement('canvas');
+    mk.width = bw; mk.height = bh;
+    const mg = mk.getContext('2d');
+    mg.setTransform(cdpr, 0, 0, cdpr, 0, 0);
+    const rnd = n => { const v = Math.sin(n * 127.1 + 311.7) * 43758.5453; return v - Math.floor(v); };
+    mg.beginPath();                                   // ★ 單一 path 一次填滿 ＝ 真正的聯集,內部零接縫
+    for (let i = 0; i < puffs.length; i++) {
+      const [fx, fy, fr] = puffs[i];
+      const px = cx + fx * w * flip, py = baseY + fy * h, pr = h * fr;
+      mg.moveTo(px + pr, py); mg.arc(px, py, pr, 0, 6.283);
+      for (let k = 0; k < 7; k++) {                   // 絮狀鬚邊：打斷完美圓弧
+        const seed = i * 7.31 + k * 2.17 + fr * 13.7;
+        const ang = (k / 7) * 6.283 + rnd(seed) * 0.9;
+        const rr = pr * (0.15 + 0.11 * rnd(seed + 5.5));
+        const bx = px + Math.cos(ang) * pr * 0.80, by = py + Math.sin(ang) * pr * 0.80;
+        mg.moveTo(bx + rr, by); mg.arc(bx, by, rr, 0, 6.283);
+      }
+    }
+    mg.fillStyle = '#fff'; mg.fill();
+    return mk;
+  }
+
   function _bakeCloud(puffs, w, conv, flip, depth) {
     const h = w * (conv ? 0.82 : 0.42);
     const ox = Math.ceil(w * 1.15), oy = Math.ceil(h * 1.6);   // 錨點＝呼叫時的 (cx,cy)
@@ -1750,6 +1830,12 @@
     g.globalCompositeOperation = 'source-atop';
     for (const [fx, fy, fr] of puffs) {
       const px = cx + fx*w*flip, py = baseY + fy*h, pr = h*fr;
+      /* ⚠ 2026-10-18 試過兩種「消掉雲體內部那一圈圈圓」的作法,**兩種都更糟,別再試**：
+         ①遮罩改成「每顆球各自徑向淡出再相加」→ 沒被鄰球蓋到的球緣在 0.84r~1.0r 之間下降,
+           內部多出一圈圈可見的接縫（見 _cloudMask 的說明）。
+         ②把這道漸層填到 1.15r、讓暗部在球緣外淡回透明 → 每顆球等於多畫一圈**自由浮動的暗環**,
+           原本那圈暗弧至少常被鄰球蓋住,改完反而整朵雲佈滿深色圓圈（截圖一眼看得出來）。
+         逐球立體鼓包是**刻意**的設計,真正該修的是外輪廓（已用 _cloudMask 處理）。 */
       const lg = g.createRadialGradient(px - pr*.30, py - pr*.45, pr*.10, px, py, pr*1.15);
       lg.addColorStop(0, pal[0]); lg.addColorStop(.55, 'rgba(255,255,255,0)'); lg.addColorStop(1, pal[2]);
       g.fillStyle = lg; g.beginPath(); g.arc(px, py, pr, 0, 6.283); g.fill();
@@ -1758,6 +1844,16 @@
     const vg = g.createLinearGradient(0, cy - h*1.05, 0, baseY + h*.30);
     vg.addColorStop(0, 'rgba(255,255,255,0)'); vg.addColorStop(.72, 'rgba(110,130,162,0)'); vg.addColorStop(1, conv ? 'rgba(70,86,118,.5)' : 'rgba(96,114,144,.38)');
     g.fillStyle = vg; g.fillRect(0, 0, cssW, cssH);   // ⚠ 用 CSS 尺寸：ctx 已 setTransform(DPR)
+    // 4) 柔邊＋絮狀剪影（見 _cloudMask 的說明）：最後一步,把整朵雲裁進模糊過的輪廓裡
+    if (typeof g.filter === 'string') {               // 舊版 Safari 沒有 canvas filter → 維持原本硬邊
+      const _mk = _cloudMask(_cdpr, cv.width, cv.height, puffs, cx, baseY, w, h, flip);
+      g.globalCompositeOperation = 'destination-in';
+      g.setTransform(1, 0, 0, 1, 0, 0);               // 遮罩與 cv 的 backing 同尺寸 → 1:1 貼,不要再乘 DPR
+      g.filter = 'blur(' + Math.max(1.5, h * _cdpr * 0.045).toFixed(1) + 'px)';
+      g.drawImage(_mk, 0, 0);
+      g.filter = 'none';
+      g.setTransform(_cdpr, 0, 0, _cdpr, 0, 0);
+    }
     g.globalCompositeOperation = 'source-over';
     return { cv, ox, oy, cssW, cssH };
   }
@@ -1955,11 +2051,13 @@
     _gc.nebula.forEach(g => { ga.fillStyle=g; ga.fillRect(0,0,W,H); });
     /* twinkling stars（加亮 + 亮星十字光芒） */
     stars.forEach(p => {
-      const a=Math.max(.2, Math.min(1, .32+.72*Math.sin(t*p.sp+p.ph)));
-      if (a>.85 && !_lowFx) { ga.shadowBlur=8; ga.shadowColor="rgba(205,225,255,.95)"; }
+      const a = Math.max(.2, _starRaw(p, t, .32, .72));
+      const gl = _sstep(.74, 1, a);                           // 光暈淡入,不是 a>.85 的硬門檻
+      if (gl > .02 && !_lowFx) { ga.shadowBlur = 8 * gl; ga.shadowColor = "rgba(205,225,255,.95)"; }
       ga.fillStyle=`rgba(${p.col||'228,238,255'},${a.toFixed(3)})`;
-      ga.beginPath(); ga.arc(p.x,p.y,a>.6?p.r*1.5:p.r,0,Math.PI*2); ga.fill(); ga.shadowBlur=0;
-      if (a>.78 && p.r>1.1) _starSpike(ga, p.x, p.y, p.r*4.2, a);
+      ga.beginPath(); ga.arc(p.x, p.y, p.r * (1 + 0.5 * _sstep(.45, .80, a)), 0, Math.PI*2); ga.fill(); ga.shadowBlur=0;
+      const sk = _sstep(.64, .92, a);
+      if (sk > .02 && p.r > 1.1) _starSpike(ga, p.x, p.y, p.r * 4.2 * (0.6 + 0.4 * sk), a * sk);
     });
     /* 行星/星座/銀河改由 _drawAstro 統一畫（所有夜間天氣都有），這裡不再重複 */
     /* ★ **人造衛星**：真實夜空每隔幾分鐘就有一顆等速直線穿過（沒有尾巴，這是跟流星最大的差別）,
@@ -2812,33 +2910,7 @@
     rim.addColorStop(0,'rgba(255,240,200,0)'); rim.addColorStop(1,'rgba(255,226,172,0.4)');
     ctx.fillStyle=rim; ctx.beginPath(); ctx.arc(sx,sy,pr*1.05,0,Math.PI*2); ctx.fill();
     ctx.restore();
-    /* ★ 雲隙光（crepuscular rays）：從太陽扇出幾道長柔光,夕陽最有代表性的一筆。
-       ⚠ 畫在**地平線裁切內**、用 lighter 疊加,而且透明度乘上 `_wf`(暖色保留比例)
-         → 天黑時自己淡出,不會在夜空上留一組怪光。
-       ⚠ 每道只是一個三角楔形(2 個 lineTo),七道也只有 7 次 fill —— 比烤一張貼圖還便宜。 */
-    if (_wf > 0.12 && sy < H) {
-      ctx.save();
-      ctx.beginPath(); ctx.rect(0, 0, W, horizonY); ctx.clip();
-      ctx.globalCompositeOperation = 'lighter';
-      const RAYS = 9, LEN = H * 1.25;   // 道數多一點、每道細一點 → 像光束不像放射狀商標
-      for (let i = 0; i < RAYS; i++) {
-        const base = -Math.PI / 2 + (i - (RAYS - 1) / 2) * 0.20;      // 以「朝上」為中心扇開
-        const ang = base + Math.sin(t * 0.13 + i * 1.7) * 0.035;      // 緩慢擺動
-        const wid = 0.020 + 0.016 * ((i * 7) % 3);                    // 每道寬窄不同
-        const a = (0.038 + 0.022 * Math.sin(t * 0.5 + i)) * _wf;
-        const g2 = ctx.createLinearGradient(sx, sy, sx + Math.cos(ang) * LEN, sy + Math.sin(ang) * LEN);
-        g2.addColorStop(0, `rgba(255,214,150,${(a * 1.6).toFixed(3)})`);
-        g2.addColorStop(0.45, `rgba(255,186,118,${a.toFixed(3)})`);
-        g2.addColorStop(1, 'rgba(255,160,100,0)');
-        ctx.fillStyle = g2;
-        ctx.beginPath();
-        ctx.moveTo(sx, sy);
-        ctx.lineTo(sx + Math.cos(ang - wid) * LEN, sy + Math.sin(ang - wid) * LEN);
-        ctx.lineTo(sx + Math.cos(ang + wid) * LEN, sy + Math.sin(ang + wid) * LEN);
-        ctx.closePath(); ctx.fill();
-      }
-      ctx.restore();
-    }
+    _drawGodRays(t, sx, sy, horizonY, _wf);   // 雲隙光（見 _drawGodRays／_rayTex 的說明）
     ctx.restore();   // 解除地平線裁切
     const cdir=_windVecX()>=0?1:-1;
     ctx.save(); ctx.globalAlpha=_wf;                        // 背光雲隨夜化淡出（夜晚無雲、與 dNight 一致）
@@ -2853,6 +2925,107 @@
     ctx.fillStyle=_ssGrad.hz; ctx.fillRect(0,_ssGrad.hzTop,W,H-_ssGrad.hzTop);
     if (_ssGrad.core) { ctx.fillStyle=_ssGrad.core; ctx.fillRect(0,H*0.92,W,H*0.08); }
     ctx.restore();
+  }
+
+  /* ★★ 2026-10-18 使用者：「背景天氣動畫 太陽光發散很怪」。
+     舊畫法每道光是**實心三角楔形**（moveTo+2 個 lineTo）,漸層只沿**長度**淡出,
+     **橫向是硬切邊** → 九道等角等寬的硬邊扇形,讀起來像商標的放射線/風車,不像光。
+     （原註解寫「道數多一點、每道細一點 → 像光束不像放射狀商標」,方向對但沒解決硬邊。）
+     → 把一道光**烤成貼圖**（claude.md 通則：canvas 要發光先想能不能烤貼圖,shadowBlur 是最後手段）,
+       橫向用鐘形衰減＝柔邊;而且把「近端窄、遠端寬」直接烤進 alpha,所以仍是從太陽散開的楔形,
+       不是平行光柱。之後每幀只 drawImage,比每道各建一條 gradient 再 fill 還便宜。
+     ⚠ 貼圖只烤一次（尺寸與顏色都固定）,亮度與顏色濃淡靠每幀的 globalAlpha + lighter 疊加。 */
+  let _rayCv = null;
+  function _rayTex() {
+    if (_rayCv) return _rayCv;
+    const TW = 256, TH = 64;
+    const c = document.createElement('canvas'); c.width = TW; c.height = TH;
+    const g = c.getContext('2d');
+    const img = g.createImageData(TW, TH);
+    for (let y = 0; y < TH; y++) {
+      const ny = (y / (TH - 1)) * 2 - 1;                     // -1..1（橫向）
+      for (let x = 0; x < TW; x++) {
+        const nx = x / (TW - 1);                             // 0=太陽端 1=遠端
+        const spread = 0.22 + 0.78 * nx;                     // 近端窄、遠端寬 → 楔形
+        const u = Math.min(1, Math.abs(ny) / spread);
+        const lat = Math.cos(u * Math.PI / 2) ** 2;          // 橫向鐘形柔邊（邊緣自然歸零）
+        const len = (1 - nx) ** 1.5 * Math.min(1, nx * 7);   // 遠端淡出,太陽端也收一點（免得擠成一團）
+        const i = (y * TW + x) * 4;
+        img.data[i] = 255; img.data[i + 1] = 214; img.data[i + 2] = 152;
+        img.data[i + 3] = Math.round(Math.max(0, Math.min(1, lat * len)) * 255);
+      }
+    }
+    g.putImageData(img, 0, 0);
+    _rayCv = c;
+    return c;
+  }
+  /* 雲隙光（crepuscular rays）：日出與日落共用這一支,差別只在亮度來源（_wf / warmA）。
+     ⚠ 畫在**地平線裁切內**、用 lighter 疊加,透明度乘上暖度 → 天黑/天亮自己淡出。 */
+  function _drawGodRays(t, sx, sy, horizonY, amp) {
+    if (!(amp > 0.12) || sy >= H) return;
+    const tex = _rayTex(), RAYS = 7, LEN = H * 1.25;
+    ctx.save();
+    ctx.beginPath(); ctx.rect(0, 0, W, horizonY); ctx.clip();
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < RAYS; i++) {
+      const base = -Math.PI / 2 + (i - (RAYS - 1) / 2) * 0.27;   // 以「朝上」為中心扇開
+      const ang  = base + Math.sin(t * 0.13 + i * 1.7) * 0.035;  // 緩慢擺動
+      const halfW = (0.055 + 0.045 * ((i * 7) % 3)) * LEN;       // 每道寬窄不同（遠端半寬,px）
+      const a = (0.050 + 0.030 * Math.sin(t * 0.5 + i)) * amp;
+      ctx.save();
+      ctx.translate(sx, sy); ctx.rotate(ang + Math.PI / 2);      // 貼圖沿 +X,旋到「朝上」
+      ctx.globalAlpha = a;
+      ctx.drawImage(tex, 0, -halfW, LEN, halfW * 2);
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  /* ★★ 空氣通透度（2026-10-18 使用者：「有辦法根據天氣做更多動畫配合嗎」）。
+     盤點後發現三個**誠實的空氣指標**後端都有、卻沒有一個會影響天空的樣子：
+     能見度（只印在天氣卡文字上）、濕度與空氣品質（前端根本沒接）。
+     → 用它們畫霾：**髒空氣偏褐、潮濕偏乳白、乾淨就幾乎看不到**。
+     實測當下真實值（四城）：台北 AQI 48 濕 52、香港 69 / 59、新德里 AQI 153（濕 49）、紐約 21（濕 77）
+       → 德里明顯褐霾、紐約淡乳白、香港微量、台北幾乎為 0。資料不同,畫面就不同。
+     ⚠ 不偽造：乾淨又乾燥的日子密度就是 0,什麼都不畫（同 claude.md「不在 0% 雲量的日子加雲」）。
+     ⚠ 能見度多半被來源壓在 10000m 上限 → 只在真的很差（起霧/霾害）時才有訊號,不可單獨當依據。
+     ⚠ 只畫在**看得到的上半天空**：城門頁下半被城堡擋住、app 內圖表區被底墊蓋住（claude.md 記過）。 */
+  function _airHaze() {
+    const cl = v => Math.max(0, Math.min(1, v));
+    const aq  = (_wd.aqi == null) ? 0 : cl((_wd.aqi - 50) / 110);          // 50 以下＝良好,160 以上封頂
+    const hum = (_wd.humidity == null) ? 0 : cl((_wd.humidity - 72) / 28); // 72% 以上才開始有乳白感
+    const vis = (_wd.visibility == null) ? 0 : cl((9000 - _wd.visibility) / 8000);
+    /* 權重是對著真實值校準的（見上面那組實測）：AQI 152 的德里要「明顯乳濁」、
+       AQI 48 的台北要「完全不畫」。實測上半天空的像素位移 5.8 → 7.9（約 8%）。 */
+    const a = 0.26 * aq + 0.10 * hum + 0.26 * vis;
+    if (a < 0.012) return null;                                            // 空氣乾淨 → 什麼都不畫
+    const dirty = (aq + vis * 0.5) / Math.max(0.0001, aq + hum + vis);     // 偏髒 vs 偏濕
+    const r = Math.round(208 - 20 * dirty), g = Math.round(214 - 44 * dirty), b = Math.round(226 - 88 * dirty);
+    return { a: Math.min(0.30, a), r, g, b };
+  }
+  let _hzGrad = null, _hzKey = '';
+  function _drawAirHaze() {
+    const h = _airHaze(); if (!h) return;
+    const night = !_wd.isDay;
+    const a = h.a * (night ? 0.55 : 1);            // 夜裡霾只是把光害抹開,不該整片發白
+    const key = `${h.r},${h.g},${h.b},${a.toFixed(3)},${Math.round(H)}`;
+    if (key !== _hzKey) {                          // 漸層只在數值真的變了才重建（天氣 10 分鐘才更新一次）
+      /* ⚠⚠ 第一版我把 0 這端寫成全透明「因為霾本來就積在地平線附近」—— 物理對,
+         但 claude.md 記過的那個坑：**地平線在 0.88H~H,城堡與圖表底墊把那裡全擋住了**,
+         等於整個效果畫在看不到的地方。改成上半天空就讀得到(0.34a),仍然往下加濃。 */
+      const g = ctx.createLinearGradient(0, 0, 0, H);
+      g.addColorStop(0,    `rgba(${h.r},${h.g},${h.b},${(a * 0.45).toFixed(3)})`);
+      g.addColorStop(0.45, `rgba(${h.r},${h.g},${h.b},${(a * 0.70).toFixed(3)})`);
+      g.addColorStop(1,    `rgba(${h.r},${h.g},${h.b},${a.toFixed(3)})`);
+      _hzGrad = g; _hzKey = key;
+    }
+    const c = _ink("mid");
+    c.save(); c.fillStyle = _hzGrad;
+    /* 要填出畫面外：mid 層有視差出血（ov≈1.075），只填 0,0,W,H 的話手機陀螺儀傾斜時邊緣會露餡。
+       ⚠ 但也不能填太大 —— 這是**每幀**的填充率：第一版寫 1.5×1.5＝2.25 倍視窗面積,
+         桌面 backing 3000×1900 等於每幀多填 1,280 萬像素。1.2× 已涵蓋出血還有餘裕。 */
+    c.fillRect(-W * 0.1, -H * 0.1, W * 1.2, H * 1.2);
+    c.restore();
   }
 
   /* 🌄 日出（朝霞）：dSunset 的時間鏡像 → 夜 → 朝霞暖色 → 白天；太陽自螢幕下緣升起、星星淡出。
@@ -2931,31 +3104,8 @@
     rim.addColorStop(0,'rgba(255,240,200,0)'); rim.addColorStop(1,'rgba(255,226,172,0.4)');
     ctx.fillStyle=rim; ctx.beginPath(); ctx.arc(sx,sy,pr*1.05,0,Math.PI*2); ctx.fill();
     ctx.restore();
-    /* 雲隙光：與日落同一套（見 dSunset 的說明）。這裡的透明度跟著**朝霞暖度** warmA ——
-       天還沒亮(nf=1)與已經天亮(dayf=1)時都是 0,只有日出那段才出現。 */
-    if (warmA > 0.12 && sy < H) {
-      ctx.save();
-      ctx.beginPath(); ctx.rect(0, 0, W, horizonY); ctx.clip();
-      ctx.globalCompositeOperation = 'lighter';
-      const RAYS = 9, LEN = H * 1.25;
-      for (let i = 0; i < RAYS; i++) {
-        const base = -Math.PI / 2 + (i - (RAYS - 1) / 2) * 0.20;
-        const ang = base + Math.sin(t * 0.13 + i * 1.7) * 0.035;
-        const wid = 0.020 + 0.016 * ((i * 7) % 3);
-        const a = (0.038 + 0.022 * Math.sin(t * 0.5 + i)) * warmA;
-        const g2 = ctx.createLinearGradient(sx, sy, sx + Math.cos(ang) * LEN, sy + Math.sin(ang) * LEN);
-        g2.addColorStop(0, `rgba(255,222,168,${(a * 1.6).toFixed(3)})`);
-        g2.addColorStop(0.45, `rgba(255,196,132,${a.toFixed(3)})`);
-        g2.addColorStop(1, 'rgba(255,170,110,0)');
-        ctx.fillStyle = g2;
-        ctx.beginPath();
-        ctx.moveTo(sx, sy);
-        ctx.lineTo(sx + Math.cos(ang - wid) * LEN, sy + Math.sin(ang - wid) * LEN);
-        ctx.lineTo(sx + Math.cos(ang + wid) * LEN, sy + Math.sin(ang + wid) * LEN);
-        ctx.closePath(); ctx.fill();
-      }
-      ctx.restore();
-    }
+    // 雲隙光：與日落同一套,亮度跟著**朝霞暖度** warmA（天沒亮/已天亮時都是 0）
+    _drawGodRays(t, sx, sy, horizonY, warmA);
     ctx.restore();   // 解除地平線裁切
     const cdir=_windVecX()>=0?1:-1;
     ctx.save(); ctx.globalAlpha=warmA;
@@ -3289,6 +3439,7 @@
     _applyCamera();              // 3D 相機：平滑移動 perspective-origin（純 GPU 合成、不觸發重繪）
     _drawBackdrop(t);            // 亮麗天色底 + 雙色流動光暈（sky 最深層，最先畫）
     ({sunny:dSunny,night:dNight,cloudy:dCloudy,fog:dFog,rain:dRain,snow:dSnow,storm:dStorm,thunder:dThunder,mahjong:dMahjong,leaves:dLeaves,spring:dSpring,partly:dPartly,overcast:dOvercast,drizzle:dDrizzle,windy:dWindy,hail:dHail,tornado:dTornado,quake:dQuake,aurora:dAurora,sunset:dSunset,sunrise:dSunrise,meteor:dMeteor})[type]?.(t);
+    _drawAirHaze();              // 空氣通透度：能見度/濕度/空氣品質 → 霾（見 _airHaze 的說明）
     _drawRainbow();              // 雨後彩虹（far 層，白天雨轉晴觸發）
     _drawContrail(t);            // 飛機凝結尾（far 層）
     _drawBirds(t);               // 飛鳥群（far/near 層）
@@ -3604,6 +3755,13 @@
         _wd.forecast    = d.forecast || null;                         // 今明兩天預報（給小熊播報）：{today,tomorrow}
         _wd.country     = d.country || null;                          // 英文國家名（首頁大門上草寫）
         _wd.visibility  = d.visibility;
+        /* ★ 2026-10-18 使用者：「天氣背景升級 有辦法根據天氣做更多動畫配合嗎」。
+           濕度與空氣品質**後端一直有給、前端從來沒接** → 補上,給「空氣通透度」用（見 _airHaze）。
+           ⚠ 能見度很多來源會壓在 10000m 上限（實測台北/香港都剛好 10000）→ 它只在真的很差時才有訊號,
+             不能單獨當依據。 */
+        _wd.humidity    = (d.humidity == null) ? null : +d.humidity;
+        _wd.aqi         = (d.forecast && d.forecast.aqi && d.forecast.aqi.us_aqi != null)
+                            ? +d.forecast.aqi.us_aqi : null;
         _wd.desc        = d.description || null;
         _wd.city        = d.location || d.station || null;
         _wd.updatedAt   = new Date();
@@ -3632,7 +3790,16 @@
         _renderWeatherCard();
       });
     fetchNearbyRain(lat, lon);   // 附近雨區偵測（獨立請求，晚到就重繪天氣卡）
-    if (!light) _fetchTyphoon(lat, lon);   // 颱風資訊（獨立請求，見檔末颱風迷你地圖模組）；快速通道跳過
+    /* ⚠⚠ 2026-10-18 抓到的既有 bug（**每次載入都丟一次例外**,新舊版都有,不是這輪改出來的）：
+       開機時 `initWeatherBg() → fetchWeather() → _fetchTyphoon()` 是在**模組本體中段**同步呼叫的,
+       而 `_ty`/`_tyFetchTs`/`_TW_CENTER`/`_TY_TW_*` 全宣告在檔末（4180 起）→ 踩到暫時性死區：
+         ReferenceError: Cannot access '_tyFetchTs' before initialization
+         at _fetchTyphoon → fetchWeather → initWeatherBg
+       代價：**開機那一輪颱風完全沒抓到**（要等下一次天氣更新才補上）,而畫面零跡象 ——
+       颱風資訊只是安靜地不在天氣卡上。順帶每次載入污染「零 JS 錯誤」那條判準。
+       ⚠ 這與上面 4064 行記的那次**不是同一件事**（那次是提早 return 讓整段沒跑,這次是純粹的呼叫順序）。
+       → 照這個檔案既有的作法排到下一拍（宣告那時已經初始化完）。之後的呼叫本來就沒事,多一拍無害。 */
+    if (!light) setTimeout(() => _fetchTyphoon(lat, lon), 0);   // 颱風資訊（獨立請求，見檔末颱風模組）；快速通道跳過
   }
 
   // 附近雨區：抓在地測站網算出的「附近哪裡有雨/會不會往我移動」，存 _wd.nearby 後重繪天氣卡
