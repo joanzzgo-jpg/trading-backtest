@@ -266,12 +266,14 @@ async def _from_cwa(lat: float, lon: float) -> dict:
     sun_h = _safe_float(we.get("SunshineDuration"), -1.0)
 
     obs_str = s.get("ObsTime", {}).get("DateTime", "")
+    # ⚠ 用**真正的日出日沒**判白天,不可以用寫死的時鐘窗（見 `_is_day_at` 的註解）
+    _sr0, _ss0 = _sun_times_local(lat, lon)
     is_day = True
     if obs_str:
         from datetime import datetime
         try:
-            hour = datetime.fromisoformat(obs_str).hour
-            is_day = 6 <= hour < 19
+            _t = datetime.fromisoformat(obs_str)
+            is_day = _is_day_at(_t.hour * 60 + _t.minute, _sr0, _ss0)
         except ValueError:
             pass
 
@@ -523,11 +525,14 @@ async def _from_hko(lat: float, lon: float) -> dict:
     desc, wtype = _HKO_ICON.get(code, ("", "cloudy"))
 
     # is_day：用記錄時間的小時判定（rhrread 時間含 +08:00）
+    # ⚠ 用**真正的日出日沒**判白天,不可以用寫死的時鐘窗（見 `_is_day_at` 的註解）
+    _sr0, _ss0 = _sun_times_local(lat, lon)
     is_day = True
     rec = data.get("temperature", {}).get("recordTime") or data.get("updateTime") or ""
     if rec:
         try:
-            is_day = 6 <= datetime.fromisoformat(rec).hour < 19
+            _t = datetime.fromisoformat(rec)
+            is_day = _is_day_at(_t.hour * 60 + _t.minute, _sr0, _ss0)
         except ValueError:
             pass
     if wtype == "night" and is_day:
@@ -665,9 +670,13 @@ async def _from_jma(lat: float, lon: float) -> dict:
     precip = _v("precipitation1h"); sun1h = _v("sun1h")
     precip10m = _v("precipitation10m")   # 過去10分鐘雨量：判「正在下雨」用(比1h窗即時,停雨約10分內歸零)
 
+    # ⚠ 用**真正的日出日沒**判白天,不可以用寫死的時鐘窗（見 `_is_day_at` 的註解）——
+    #   東京 17:46 已過日沒 17:02,舊寫法 `6 <= 17 < 19` 仍判白天,守門員抓到的就是這個。
+    _sr0, _ss0 = _sun_times_local(lat, lon)
     is_day = True
     try:
-        is_day = 6 <= datetime.fromisoformat(latest).hour < 19
+        _t = datetime.fromisoformat(latest)
+        is_day = _is_day_at(_t.hour * 60 + _t.minute, _sr0, _ss0)
     except ValueError:
         pass
 
@@ -707,6 +716,24 @@ async def _from_jma(lat: float, lon: float) -> dict:
     }
 
 # ─── 天文計算 ────────────────────────────────────────────────
+
+def _is_day_at(now_min: int, sr: int, ss: int) -> bool:
+    """當地此刻在不在日出～日沒之間。
+
+    ★★ 2026-10-18 使用者回報前由 `check_weather_calc` 抓到：東京 is_day=True 但當地 17:46
+       已經過了日沒 17:02。根因＝台/港/日三個官方來源都用**寫死的時鐘窗** `6 <= hour < 19`
+       判白天 —— 那在夏天太早入夜、冬天太晚天亮的地方一定錯,而且**每天只有日出日沒前後
+       那一段時間會現形**（所以平常測不到,是守門員在對的時刻跑到才抓到）。
+    ⚠ 要處理「日沒早於日出」（極區/跨午夜）：那時白天是 now>=sr 或 now<=ss。
+    ⚠ 三個官方來源所在地（台/港/日）都沒有日光節約,`_sun_times_local` 的經度近似是精確的;
+       非官方來源走 Open-Meteo,它自己就給 is_day（見 `_omt_num` 那段註解）。
+    """
+    if sr is None or ss is None:
+        return True
+    if sr < ss:
+        return sr <= now_min <= ss
+    return now_min >= sr or now_min <= ss
+
 
 def _sun_times_local(lat: float, lon: float) -> tuple[int, int]:
     """日出日沒（分鐘，當地午夜起算）。簡易 NOAA 公式，精度 ±2 分鐘。"""
