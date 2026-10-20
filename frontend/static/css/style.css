@@ -6713,7 +6713,19 @@ html.chart-inverted #miniGrid { position: relative; }
        （56px 高、中心在 11% → 845px 的面板上,上緣距頂約 65px。） */
   top: 11%; left: calc(50% - var(--main-axis-w, 0px) / 2);
   transform: translate(-50%, -50%);
-  z-index: 3;
+  /* ★ 2026-10-18 使用者：「浮水印要在 K 棒圖層下方」。
+     ⚠ 必須是**負的** z-index：LWC 的容器 `.tv-lightweight-charts` 是
+       `position: static; z-index: auto` ＝ 在流內 —— 任何 z-index ≥ 0 的**定位元素**都會蓋在它上面,
+       所以原本的 3 不管調到 2 還是 1 都還是在 K 棒前面。負值才會掉到流內內容的下面。
+     ★ 這招成立的前提是**圖表背景是透明的**：實測 `mainChart.options().layout.background`
+       ＝ `rgba(0,0,0,0)`（深色底是由 `.pane-body` / `#chartUnderlay` 墊的,不是 LWC 自己畫的）
+       → 負 z-index 的元素畫在父層背景**之上**、流內內容之下,所以透得出來。
+       （LWC 若改成不透明背景,這個浮水印會整個看不見 —— 動 chartBg 的套用方式時要記得這條。）
+     ⚠⚠ 另一個隱性依賴：**`#mainChart` 必須自成堆疊脈絡**,它目前靠 `isolation: isolate`。
+       有堆疊脈絡時,負 z-index 的子層畫在「父層背景之上、流內內容之下」＝剛好是我們要的夾層;
+       **沒有的話這個子層會逃到更外面的堆疊脈絡去**,可能被 `.pane-body` / `#chartUnderlay` 整個蓋掉
+       ＝浮水印消失。移除或改動 `#mainChart` 的 isolation/transform/filter 前先看這條。 */
+  z-index: -1;
   display: inline-flex; align-items: center; gap: .32em;
   white-space: nowrap;
   font-size: clamp(20px, 4.4vw, 56px);
