@@ -1098,10 +1098,52 @@ def _ohlcv_records(df):
         return df_to_records(df)      # 任何意外 → 退回原本作法（正確性優先）
 
 
-def _ohlcv_resp(payload):
+_BAR_FIX_SEEN = set()
+
+def _fix_bar_bounds(payload, tag=""):
+    """★★ 2026-10-20：**high 必須涵蓋 open/close、low 必須被它們涵蓋** —— 上游給不合法的棒就地修好。
+    起因：`check_bar_invariants` 抓到 hk 0700.HK **週線**
+      `2026-10-18 O=424 H=428.8 L=415.8 C=412`（收盤低於最低價）、以及 2010-01-10 收盤高於最高價。
+    ⚠ 那**不是我們重採樣出來的**：`us_stock.TF_MAP` 把 1w 直接對應 yfinance 的 `1wk`,週線是上游給的。
+      2026-10-18 是週日 ＝ yfinance 的週線用**週起日**標籤 → 那根就是**本週還在形成中**的週線,
+      Yahoo 的 low 還沒跟上已經跌破的收盤。這種「形成中的彙總棒落後」在上游是常態。
+    ★ 為什麼是**修**不是**丟**：close 是真實的最後成交價,high/low 只是彙總值 ——
+      把 high/low 撐開到涵蓋 open/close,四個價格全部保留且棒變合法;
+      丟掉的話本週那根週線會整個消失（比壞棒更糟）。
+      這與 `_scrub_latest` 的「壞棒是丟掉不是補 None」不衝突：那邊壞的是**價格本身是 NaN**（不成棒）,
+      這邊四個價格都是真的,只是彙總沒跟上。
+    ⚠ 只動**已經不合法**的那幾根（`hi != h or lo != l` 才寫）→ 對正常資料是 no-op。
+    ⚠ 一定要擋 NaN：`max(nan, x)` 的結果看平台,不先過濾會把 NaN 散播到 high/low。
+    ⚠ 放在**邊界**（唯一的序列化出口）→ 六條 return 都涵蓋,也包含快取命中那條。
+    ⚠⚠ 修完之後 `check_bar_invariants` 就看不到上游的壞棒了 → **一定要印出來**,
+      否則我們會失去「上游在吐壞資料」的能見度（同 `_scrub_latest` 把丟掉的棒印出來的理由）。
+      每個組合只印一次,不洗版。
+    ⚠ 尚未涵蓋 `fetch_crt_df`（勝率/FVG 那條自己抓資料）—— 動它會改到 `check_crt_golden` 的輸出雜湊,
+      是另一件要**刻意**做的事。"""
+    n = 0
+    try:
+        for r in (payload.get("data") or []):
+            o, h, l, c = r.get("open"), r.get("high"), r.get("low"), r.get("close")
+            if any((v is None or v != v) for v in (o, h, l, c)):
+                continue                                   # NaN/None 交給既有的消毒,這裡不碰
+            hi = h if (h >= o and h >= c) else max(h, o, c)
+            lo = l if (l <= o and l <= c) else min(l, o, c)
+            if hi != h or lo != l:
+                r["high"], r["low"] = hi, lo
+                n += 1
+    except Exception:
+        pass
+    if n and tag and tag not in _BAR_FIX_SEEN:
+        _BAR_FIX_SEEN.add(tag)
+        print(f"⚠ 上游回了不合法的 K 棒（high/low 沒涵蓋 open/close）：{tag} 修正 {n} 根", flush=True)
+    return n
+
+
+def _ohlcv_resp(payload, tag=""):
     """大回應直接交給 orjson；缺 orjson 時退回純 dict（走 FastAPI 預設路徑）。
     ⚠ 退回預設路徑時 records 內可能留著 NaN → json.dumps 會產生非法 JSON，故此時改用
       df_to_records 的語義補一次 None 轉換。"""
+    _fix_bar_bounds(payload, tag)          # ⚠ 一定要在兩條 return 之前,否則 orjson 那條會繞過
     if _orjson is not None:
         return _json_resp(payload)
     try:
@@ -1150,9 +1192,10 @@ def get_ohlcv(req: OHLCVRequest):
     req.timeframe = _check_tf(req.timeframe)
     req.limit = _clamp_limit(req.limit)
     cache_key, ttl, _ = _ohlcv_cache_key(req)
+    _tag = f"{req.market} {req.symbol} {req.timeframe}"   # 給 _fix_bar_bounds 的日誌用（看得出是哪個組合在吐壞棒）
     cached = cache.get(cache_key, ttl)
     if cached:
-        return _ohlcv_resp(cached)
+        return _ohlcv_resp(cached, _tag)
 
     _leader = False
     with _OHLCV_SF_LOCK:
@@ -1163,7 +1206,7 @@ def get_ohlcv(req: OHLCVRequest):
         _ev.wait(_OHLCV_SF_WAIT)
         cached = cache.get(cache_key, ttl + 5)   # 放寬幾秒：leader 剛寫完就算「稍舊」也接受
         if cached:
-            return _ohlcv_resp(cached)
+            return _ohlcv_resp(cached, _tag)
     try:
         return _ohlcv_build(req)
     finally:
@@ -1176,6 +1219,8 @@ def get_ohlcv(req: OHLCVRequest):
 def _ohlcv_build(req: OHLCVRequest):
     """實際抓取/組裝（原 get_ohlcv 的內容，一行未改）。"""
     cache_key, ttl, use_limit = _ohlcv_cache_key(req)
+    _tag = f"{req.market} {req.symbol} {req.timeframe}"   # 給 _fix_bar_bounds 的日誌用
+
 
     # ── BB 暖身期補償（2026-07-30）────────────────────────────────────────────
     #   BB(20) 需要 20 根才有值 → 每一塊的**開頭 19 根 bb_upper/middle/lower 都是 null**。
@@ -1223,16 +1268,41 @@ def _ohlcv_build(req: OHLCVRequest):
                 src_tf = TW_RESAMPLE[req.timeframe][0] if req.timeframe in TW_RESAMPLE else req.timeframe
                 max_d = TW_YF_MAX_DAYS.get(src_tf, 60)
                 if use_limit:
-                    bars_per_day = {"1m": 270, "5m": 78, "15m": 26, "30m": 9, "1h": 5, "2h": 3, "4h": 2}.get(req.timeframe, 26)
-                    days = min(max_d, req.limit // bars_per_day)
-                    days = max(days, 5)
+                    # ★★ 2026-10-20 使用者：「台股…紀錄都很少」。這張表原本是**抄美股的值**,只有 1m 被改對：
+                    #   台股 09:00~13:30 ＝ 270 分鐘（美股 390 分）→ 5m 應是 270/5=**54**（原本寫 78＝美股值）、
+                    #   15m 應是 270/15=**18**（原本寫 26＝美股值）。1m 270 / 1h 4.5≈5 / 30m 9 本來就對。
+                    # ★ 還缺美股那條的 **×1.6 週末/假日 buffer**：`days` 是**日曆天**,而 `bars_per_day` 是
+                    #   **交易日**的根數 —— 一週 7 個日曆天只有 5 個交易日,不補就必然短三成以上。
+                    # 兩個錯疊起來,算得出來也對得上實測：舊式 `min(58, 1000//78)=12` → 實測 5m 就是回 12 天。
+                    #   修正後 5m `min(58, 1000/54*1.6=29)`＝29 天、15m 吃滿 58 天上限。
+                    # ⚠ 1h 本來就被 max_d=58 夾住（台股 1h 是從 15m 重採樣的,見 taiwan.py YF_MAX_DAYS 註解）,
+                    #   這次改動不會動到它。
+                    bars_per_day = {"1m": 270, "5m": 54, "15m": 18, "30m": 9, "1h": 5, "2h": 3, "4h": 2}.get(req.timeframe, 18)
+                    days = min(max_d, max(5, int(req.limit / bars_per_day * 1.6)))
                     end   = date.today().isoformat()
                     start = (date.today() - timedelta(days=days)).isoformat()
                 else:
                     end   = req.end or date.today().isoformat()
                     start_raw = req.start or end
-                    min_start = (date.fromisoformat(end) - timedelta(days=max_d)).isoformat()
-                    start = max(start_raw, min_start)
+                    # ★★ 2026-10-20 使用者：「我現在看的紀錄一樣 沒有到更久前」。
+                    #   下限**必須用「今天」算,不是用 end 算** —— 這正是美股那條 2026-08-01 就修過的同一個錯
+                    #   （見下方 _floor 那段的長註解）,台股這條當時漏掉了。
+                    #   yfinance 的分鐘/小時資料是**相對於現在**的滾動視窗（5m/15m 約 60 天）,
+                    #   跟你要求的 end 落在哪天無關。往回補載時 end 也在過去 → `end - 58` 會放行一個
+                    #   yfinance 根本搆不到的 start。
+                    #   ⚠⚠ 台股這邊的症狀比美股更毒：它**不是回空、也不是 400**,而是
+                    #     **整個忽略要求的區間、回「最近那一段」**（實測要 08-10~09-04,回的是 09-21~10-20 共 939 根）
+                    #     → 前端 `b.time < 目前最舊` 一濾全部丟掉 → 往回滑就這樣靜默停住,零錯誤。
+                    #   實測：往回滑只補成功一次（停在 09-04）,之後連送兩發一模一樣的請求都沒有任何進展。
+                    _floor = (date.today() - timedelta(days=max_d)).isoformat()
+                    start = max(start_raw, _floor)
+                    # 夾完之後整段都在可取範圍外 → 回空讓背景補載自然停住（同美股那條,不要拋 400）。
+                    # ⚠ 一定要含「等於」：背景補載是一段一段往回要的,走到邊界會出現夾成零寬的請求,
+                    #   yfinance 對零寬區間回空,又會被當成「查無此標的」。
+                    if end <= _floor or start >= end:
+                        _empty = {"data": []}
+                        cache.set(cache_key, _empty)
+                        return _ohlcv_resp(_empty)
                 try:
                     df = fetch_tw_intraday_yf(req.symbol, src_tf, start, end)
                 except Exception:
@@ -1443,7 +1513,7 @@ def _ohlcv_build(req: OHLCVRequest):
             pass
     result["ts"] = time.time()
     cache.set(cache_key, result)
-    return _ohlcv_resp(result)
+    return _ohlcv_resp(result, _tag)
 
 
 class LatestRequest(BaseModel):

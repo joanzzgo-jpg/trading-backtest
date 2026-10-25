@@ -127,7 +127,17 @@ YF_TF_MAP = {"1m": "1m", "5m": "5m", "15m": "15m", "1h": "1h", "4h": "1h"}  # yf
 # 注意：1h 改用 15m 內部重採樣（避開 yfinance 1h 對台股的成交量缺漏 bug），
 # 所以實際 1h 上限受 15m 60 天限制
 # 留 2 天 buffer：yfinance 邊界嚴格小於、fetch_tw_intraday_yf 又會 end+1 → 一共佔 2 天
-YF_MAX_DAYS = {"1m": 7, "5m": 58, "15m": 58, "1h": 58}   # 1m yfinance 僅近 7 天
+# ★ 2026-10-20：1h 不再被 15m 的 58 天綁住 —— 更舊的那段改用**原生 1h** 接上去
+#   （見 `_tw_1h_extend`：原生 1h 的開盤錯位已經不存在,只剩 09:00 那根缺量）。
+#   ★ 2026-10-20 第二輪（使用者：「要更久」）：量出真正的牆是 **730 天** ——
+#     Yahoo 的錯誤訊息直接寫明「The requested range must be within the last 730 days」;
+#     實測要 729 天可以（2413 根、最舊 2024-10-22）,760 天回空。
+#     → 728（同檔案開頭那條「留 2 天 buffer」的理由：邊界嚴格小於 ＋ end 會 +1 天）。
+#   ⚠ 5m/15m 的 58 天是**上游硬牆,沒有免費替代**（已查證,別再花時間找）：
+#     ・yfinance 分鐘級一律 60 天。
+#     ・cnyes 的 charting API **只給當日**：resolution 1/5 只回今天這一段,15/60 直接回空。
+#     ・FinMind 的 TaiwanStockPriceMinute 要付費金鑰（本機與線上都沒設）。
+YF_MAX_DAYS = {"1m": 7, "5m": 58, "15m": 58, "1h": 728}   # 1m yfinance 僅近 7 天
 
 
 def _yf_history(ticker, interval: str, start: str, end: str):
@@ -474,6 +484,56 @@ def fetch_tw_daily_yf(symbol: str, start: str, end: str) -> pd.DataFrame:
     raise ValueError(f"找不到 {symbol} 的日線資料（yfinance .TW/.TWO 均失敗）")
 
 
+def _tw_1h_extend(ticker, df, start: str):
+    """★★ 2026-10-20 使用者：「台股…之前數據還是沒有」。
+    台股 1h 原本被 15m 的 60 天上限綁死（實測只到 **57 天**,而美股同樣是 1h 卻有 **719 天**）——
+    因為 1h 是從 15m 重採樣的。當年這麼做有兩個理由,**量過之後只剩一個**：
+      ・「開盤錯位（第一根落在 10:00）」→ **已經不存在**：實測原生 1h 每天 09/10/11/12/13
+        五根都在（4.95 根/日,與 15m 重採樣的 4.92 相同）。
+      ・「成交量缺漏」→ **還在,但只缺 09:00 那一根**：量為 0 的 55 根**全部**落在 09:00;
+        而價格是對的（重疊區 192 根逐根比,收盤 **0 根**不同）。
+    → 近 58 天維持 15m 重採樣（量完整）、**更舊的用原生 1h 接上去**（價格正確,每天第一根沒有量）。
+      深度 57 → 約 700 天。**有價格但缺一根的量,遠好過整段沒有資料。**
+    ⚠⚠ 接上去的那段**不可以套 `volume > 0` 的過濾**（呼叫端對 15m 那段有套）：
+      那會把每天的 09:00 整根刪掉 → 舊段變成一天只有 4 根,跟新段的 5 根對不起來。
+      **量是 0 就讓它是 0** —— 那是上游真的沒給,不偽造（同 claude.md「不偽造天氣資料」的原則）。
+    ⚠ 只接「比現有最舊那根還舊」的部分,重疊區一律以 15m 重採樣那份為準（它的量是完整的）。
+    ⚠ 失敗一律回原本的 df：這是**加分項**,不可以因為它讓原本拿得到的資料變少。
+    """
+    try:
+        if df is None or df.empty or not start:
+            return df
+        import pandas as pd
+        oldest = pd.to_datetime(df["time"].min())
+        want   = pd.to_datetime(start)
+        if want >= oldest - pd.Timedelta(days=1):
+            return df                                   # 要的範圍已經被 15m 那段涵蓋
+        raw = _yf_history(ticker, "1h", start, (oldest.date() + timedelta(days=1)).isoformat())
+        if raw is None or raw.empty:
+            return df
+        old = raw[["Open", "High", "Low", "Close", "Volume"]].copy()
+        old.columns = ["open", "high", "low", "close", "volume"]
+        idx = pd.to_datetime(old.index)
+        if idx.tz is None:
+            idx = idx.tz_localize("Asia/Taipei")
+        old.index = idx.tz_convert("UTC").tz_localize(None)
+        old.index.name = "time"
+        old = old.reset_index()
+        old["time"] = pd.to_datetime(old["time"]).dt.floor("60min")
+        old = old.drop_duplicates(subset=["time"], keep="last").dropna(subset=["close"])
+        # 台股交易時間過濾（09:00~13:30 台北）—— 與呼叫端同一條,但**不**過濾 volume==0
+        tpe_min = ((old["time"].dt.hour + 8) % 24) * 60 + old["time"].dt.minute
+        old = old[(tpe_min >= 9 * 60) & (tpe_min < 13 * 60 + 30)]
+        old = old[old["time"] < oldest].reset_index(drop=True)
+        if old.empty:
+            return df
+        for _c in ("open", "high", "low", "close"):
+            old[_c] = old[_c].round(2)
+        return pd.concat([old, df], ignore_index=True).sort_values("time").reset_index(drop=True)
+    except Exception:
+        return df
+
+
 def fetch_tw_intraday_yf(symbol: str, timeframe: str, start: str, end: str) -> pd.DataFrame:
     """
     用 yfinance 抓台股分鐘/小時資料（不需 token）。
@@ -492,9 +552,15 @@ def fetch_tw_intraday_yf(symbol: str, timeframe: str, start: str, end: str) -> p
     short_start = (date.today() - timedelta(days=30)).isoformat()
     end_incl_req = (date.fromisoformat(end) + timedelta(days=1)).isoformat() if end else end_incl
 
+    # ⚠⚠ 2026-10-20：`timeframe="1h"` 時**內部抓的是 15m**（src_tf）,而 15m 在 yfinance 只有 60 天。
+    #   1h 的 YF_MAX_DAYS 放寬到 700 之後,呼叫端會送 700 天前的 start 進來 ——
+    #   直接丟給 15m 會失敗,然後退回下面那條 `short_start`（近 **30 天**）＝**近期反而變短**。
+    #   → 分鐘級的來源一律把 start 夾回自己的上限;要更舊的由 `_tw_1h_extend` 用原生 1h 去接。
+    _src_floor = (date.today() - timedelta(days=YF_MAX_DAYS.get(src_tf, 58))).isoformat()
+    start_src = max(start, _src_floor) if start else start
     for suffix in (".TW", ".TWO"):
         ticker = yf.Ticker(f"{symbol}{suffix}")
-        raw = _yf_history(ticker, interval, start, end_incl_req)
+        raw = _yf_history(ticker, interval, start_src, end_incl_req)
         if raw is None:
             raw = _yf_history(ticker, interval, short_start, end_incl)
         if raw is None:
@@ -533,6 +599,7 @@ def fetch_tw_intraday_yf(symbol: str, timeframe: str, start: str, end: str) -> p
                 "open": "first", "high": "max", "low": "min",
                 "close": "last", "volume": "sum",
             }).dropna(subset=["open"]).reset_index()
+            df = _tw_1h_extend(ticker, df, start)      # ★ 更舊的那段用原生 1h 接上去（見該函式）
         # 台股價格最多 2 位小數（下單也只到 2 位）→ 四捨五入消 yfinance float32 精度雜訊
         # （如 96.4 存成 float32 = 96.4000015；0.05/0.1 跳動的中低價股才會冒出假小數）。
         for _c in ("open", "high", "low", "close"):
