@@ -975,6 +975,60 @@ html.perf-mode .tb-mkt-cycle:hover {
     inset 0 -1px 0 rgba(255, 255, 255, 0.06),
     inset 0 0 0 1px rgba(0, 0, 0, 0.35) !important;
 }
+/* ★★ 2026-10-20 使用者：「上方時間級別區塊設計的好看些」。
+   先量再改,問題很具體,而且**不是配色問題**：
+   ①容器上面那組 inset 陰影是刻意的「**凹陷軌道**」（claude.md：手繪暖感要保留）,
+     但**選中那一顆沒有浮起來** —— 實測選中底色 rgb(42,46,57) 對容器 rgb(30,34,45) 幾乎沒差,
+     凹槽裡等於空的 → 隱喻只做了一半,選中態夾在 8 條飽和色帶之中反而最不顯眼。
+   ②**圓角非同心**：容器 8px ＋ 內距 2px → 內部應為 6px,但實測按鈕也是 8px
+     （`.tf-btn` 本來就宣告 `--r-xs`,被後面的規則蓋掉了）。Apple：內圓角 = 外圓角 − 內距。
+   ③8 條色帶一樣粗、一樣亮 → 整列很吵;而且 1D(#f5c518) 與 15m(#ffd54f) 幾乎同色,
+     **顏色本來就不是可靠的識別** —— 它的用途是「這個時框的畫筆色」,當輔助資訊就好。
+   → 只做一件事：**把既有的隱喻補完 —— 凹陷軌道 ＋ 真的浮起來的滑塊**,並讓色帶退到輔助層級。
+   ⚠ 圓角一律走 token（`check_design_tokens` 會擋裸 px）：容器 `--r-sm`(8) ＋ 內距 2 → 內部取 `--r-xs`(4)。
+   ⚠ 手機斷點（`@media max-width:1180px`）把整組換成「無圓角＋底部指示線」,
+     那邊的規則都帶 `!important` 且選擇器更長,不受這裡影響 —— 改完兩種寬度都要看。 */
+/* ⚠⚠ 一定要限定桌機：手機斷點把整組換成「無圓角＋底部指示線」的平面分頁列,
+   而我這幾條的特異性 (0,3,2) 比那邊的 `.topbar-tf .tf-btn.active` (0,3,0) 高 →
+   不限定的話深色凸起滑塊會套到手機上,變成一塊格格不入的方塊（實測截圖一眼看得出來）。
+   這裡的條件正好是手機那三段複合查詢的互補集。 */
+@media (min-width: 1181px) and (hover: hover) and (pointer: fine) {
+  html body .tf-group .tf-btn { border-radius: var(--r-xs) !important; }
+  html body .tf-group .tf-btn.active {
+    /* ⚠ 2026-10-20 第二版（使用者：「匡很醜 很ai」）：第一版是
+       「漸層 ＋ 兩層落影 ＋ 1px 內高光」—— 效果疊太多,邊界被描得很清楚,
+       看起來就是一塊貼上去的方框。**單一平面填色就夠**：
+       選中與否本來就還有「字變 accent ＋ 字重 600 ＋ 色帶全不透明」三個訊號在講。
+       ★ 通則：凹陷軌道裡的滑塊,靠的是**它比軌道亮**,不是靠描邊和投影。 */
+    background: var(--bg3) !important;
+    box-shadow: none !important;
+  }
+  /* 未選中的筆色帶：細一點、淡一點、兩端再內縮 → 整列安靜下來,選中那顆才跳得出來 */
+  html body .tf-group .tf-btn::after {
+    left: 7px; right: 7px; height: 2px; opacity: .5; border-radius: var(--r-pill, 999px);
+  }
+  html body .tf-group .tf-btn.active::after { left: 6px; right: 6px; height: 2.5px; opacity: 1; }
+  /* 極簡模式是白底：滑塊改成**白色浮起 ＋ 深色字**（iOS 分段控制的標準作法）。
+     ⚠⚠ 我第一版在這裡寫 `background:#FF6A1A` → **橘底橘字,實測對比 1.00:1 ＝ 完全看不見**。
+       原本那條 `html.perf-mode .topbar-tf .tf-btn.active` 是「橘底**白**字」,但它的 `color` 早就被
+       後面幾條 `.tf-btn.active` 蓋成 `--accent`（橘）—— 而它的 `background` 也一起被蓋掉了,
+       所以**在我加上 !important 之前,實際呈現是「淺底橘字」,是可讀的**。
+       我只強制了底色、沒管字色,就把它推成同色。
+     ★ 教訓：**要覆寫一個「被別處蓋過」的規則時,成對的屬性要一起看**（這裡是 background 與 color）——
+       只接管一半,就會組出原作者從沒設計過的組合。
+     ★ 白底上橘字只有 ~2.9:1、白字在橘底也只有 ~2.9:1,都過不了小字 4.5:1
+       （memory `project_ui-contrast-threshold`：時框按鈕 12px 就是踩過這條）→ 改用深色字,15:1。
+       選中與否靠「浮起的白滑塊」區分,那本來就是白底主題最標準的表達。 */
+  html.perf-mode body .tf-group .tf-btn.active {
+    background: #FFFFFF !important;
+    color: #1F1F1F !important;
+    box-shadow:
+      0 1px 2px rgba(0, 0, 0, .14),
+      0 2px 6px rgba(0, 0, 0, .08),
+      inset 0 0 0 1px rgba(0, 0, 0, .05) !important;
+  }
+}
+
 /* tk-seg 內部子按鈕分隔線：原本 border-right 1px，凹陷風格下不需要 */
 .tk-seg-btn { border-right: none !important; }
 /* perf-mode 對應淺色版 */
@@ -6678,6 +6732,44 @@ html.perf-mode .go-latest {
   box-shadow: inset 0 0 26px color-mix(in srgb, var(--accent) 13%, transparent);
 }
 .invert-frame[hidden] { display: none; }
+/* ★★ 2026-10-23 使用者：「把上下顛倒中做成跟小熊磁磚一樣 縮小鋪滿全版」。
+   磁磚貼圖由 charts.js `_invTiles()` 烤成 `--inv-tile`（**只有形狀,純白＋透明**）→
+   這裡用 `mask-image` 平鋪,**顏色由 `background` 吃 `var(--accent)`** →
+   使用者換配色時自動跟著變,不必重烤、不必掛監聽。
+   ⚠ mask 掛在 `::before`,不是 `.invert-frame` 本身 —— 那層還有內側暈光的 box-shadow,
+     直接 mask 會把陰影一起裁掉。
+   ⚠ `mask-size` 用邏輯尺寸（貼圖是按 DPR 烤的）→ 2x/3x 螢幕上不糊。
+   ⚠ 沒有 `--inv-tile` 時（還沒烤好/舊快取）`mask-image` 是 none ＝ 整塊都露出來 →
+     一定要給 `linear-gradient(transparent,transparent)` 當保險,否則會閃一下整片橘色。 */
+/* ★ 2026-10-23 使用者：「下方指標也要跟著顛倒 背景也要浮水印」→ 磁磚鋪在**每一個面板**
+   （主圖＋KDJ/RSI/MACD）。`#mainChart` 本身就是 `.pane-body`,所以一條規則全涵蓋。
+   ⚠ `z-index: -1` ＝ 壓在 K 棒圖層**下方**（使用者先前要求過）。這招成立靠 `.pane-body`
+     有 `isolation: isolate` 自成堆疊脈絡 —— 沒有的話負層會逃到外面被底墊蓋掉。 */
+html.chart-inverted .pane-body::before {
+  content: "";
+  position: absolute; inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  -webkit-mask-image: var(--inv-tile, linear-gradient(transparent, transparent));
+          mask-image: var(--inv-tile, linear-gradient(transparent, transparent));
+  -webkit-mask-repeat: repeat;  mask-repeat: repeat;
+  -webkit-mask-size: var(--inv-tile-w, 176px) var(--inv-tile-h, 104px);
+          mask-size: var(--inv-tile-w, 176px) var(--inv-tile-h, 104px);
+}
+/* 多圖模式：迷你圖欄也鋪（框與暈光本來就跟著一起切,見 html.chart-inverted #miniGrid::after） */
+html.chart-inverted #miniGrid::before {
+  content: ""; position: absolute; inset: 0; z-index: 34; pointer-events: none;
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  -webkit-mask-image: var(--inv-tile, linear-gradient(transparent, transparent));
+          mask-image: var(--inv-tile, linear-gradient(transparent, transparent));
+  -webkit-mask-repeat: repeat;  mask-repeat: repeat;
+  -webkit-mask-size: var(--inv-tile-w, 176px) var(--inv-tile-h, 104px);
+          mask-size: var(--inv-tile-w, 176px) var(--inv-tile-h, 104px);
+}
+/* 中央那枚大浮水印換成鋪滿的磁磚 → 標章本身只留給螢幕閱讀器（它有 role="status"）。
+   ⚠ 用 opacity 不用 display/visibility：後兩者會把它從無障礙樹拿掉,狀態就播報不出去了。 */
+.invert-badge { opacity: 0; }
 /* 顛倒時：既有的那圈暖色框換成琥珀色（1 格在 .charts-container,多圖時框在迷你圖欄,見下方 mc-2/mc-4） */
 html.chart-inverted .charts-container {
   border-color: color-mix(in srgb, var(--accent) 72%, transparent);

@@ -83,7 +83,12 @@ const INPUT_SERIES_MAP = {
 let mainChart,   candleSeries, bbU, bbM, bbL;
 let lineSeries = null;   // 線型圖：收盤價折線（與蠟燭並存，切換時只換可見性/透明蠟燭）
 try { window._chartTypeLine = localStorage.getItem("chartTypeLine") === "1"; } catch (e) { window._chartTypeLine = false; }
-window._chartInverted = false;   // 主圖上下顛倒（多空翻轉看法）：價格軸反轉＋漲跌色對調；刻意不存檔，見 charts.js toggleChartInvert
+// 上下顛倒（多空翻轉看法）：價格軸反轉＋漲跌色對調。
+// ★ 2026-10-23 使用者：「要記憶 下次打開也是」→ 改成存檔（原本刻意不存）。
+//   是「這台裝置的看法」不是帳號設定 → 在 account.js 的 _PULL_SKIP 裡，不吃雲端下行。
+//   ⚠ 這裡只還原**旗標**；真正要把 invertScale/顏色/標記套上去的是 charts.js 的 toggleChartInvert，
+//     開機時要等圖表建好再呼叫一次（見該處的 _bootInvert）。
+try { window._chartInverted = localStorage.getItem("chartInverted") === "1"; } catch (e) { window._chartInverted = false; }
 let latestPriceLine = null;
 let volSeries, volMaSeries;          // 成交量放在 mainChart 的獨立價格軸
 let kdjChart,    kdjK, kdjD, kdjJ, kdjH20, kdjH50, kdjH80;

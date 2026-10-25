@@ -3529,8 +3529,23 @@
     const _mcOn = document.documentElement.classList.contains("mc-2")
                || document.documentElement.classList.contains("mc-4");
     const _mcAdd = _mcOn ? 30 : 0;
-    const _mvGap = (window._uxSustained && window._uxSustained()) ? 90 + _mcAdd
-                 : (window._chartMoveTs && (ts - window._chartMoveTs < 300)) ? 66 + _mcAdd : 45;
+    /* ★★ 2026-10-24 使用者：「移動 K 棒時 背景動畫會掉幀」。
+       實測（有頭 Chrome、連續拖曳 6 秒）：**主圖的 rAF 中位仍是 16.9ms（很順）**,
+       掉的只有天氣 —— 更新間隔從停手的 50ms 掉到 100ms。那就是這裡的降速本身。
+       ★ memory `feedback_desktop-weather-no-pan-throttle` 是使用者**先前已定調**的：
+         「桌機背景天氣平移時不要降速」「別再還原成降速」,
+         而且記著一條已驗證的結論：**曾試「背景降速讓主圖更順」→ 使用者回報「沒明顯感覺」,
+         因為主圖的瓶頸是 LWC 自己的 K 線渲染,不是背景在搶主執行緒** → 降速換不到順度。
+         那條 memory 也寫明處理方式：**喊「背景慢」就往 45 靠**。
+       → 桌機：互動中不再降（維持 45ms）。
+       ⚠ **手機（`_lowFx`）維持 66/90 分級**：claude.md 記著「粒子數與幀間隔才是手機的省電關鍵」,
+         那不是順不順的問題,是電池。
+       ⚠ **多圖的 +30ms 保留**：那是 2026-09-28 另一次使用者驅動的決定（2/4 格時 LWC 圖表從 4 張變 8 張）。
+       ⚠ `_fxPenalty`（自適應降幀）照舊 —— 真的畫不動的裝置仍會自己降,這裡只拿掉「無條件降」。 */
+    const _sus  = !!(window._uxSustained && window._uxSustained());
+    const _busy = !!(window._chartMoveTs && (ts - window._chartMoveTs < 300));
+    const _mvGap = _lowFx ? (_sus ? 90 + _mcAdd : _busy ? 66 + _mcAdd : 45)
+                          : ((_sus || _busy) ? 45 + _mcAdd : 45);
     const _frameGap = _mvGap + _fxPenalty;
     if (ts - _lastFrameTs < _frameGap) return;
     // 動畫時鐘恆定 1x（正常速度）；只調幀率、不調速度 → 移動時是「低幀率正常動」而非慢動作。

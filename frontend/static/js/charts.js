@@ -467,6 +467,14 @@ function createCandleSeries() {
     candleSeries.attachPrimitive(_invWickPrim);
   } catch (e) { /* 舊版 LWC 無 attachPrimitive 時靜默略過 */ }
   applyChartType();   // 建好後套用目前圖型（蠟燭/線型）
+  /* ★ 2026-10-23：開機還原「上下顛倒」。旗標在 config.js 從 localStorage 讀回來,但**只有旗標**——
+     invertScale／顏色／標記翻面／磁磚都要靠 toggleChartInvert 真的跑一次才會套上去。
+     ⚠ 一定要等 series 建好之後（這裡）才呼叫,太早 priceScale 還沒有東西可翻。
+     ⚠ 只跑一次：toggleChartInvert 內部會再呼叫 applyChartType → 不設閘門會無限遞迴。 */
+  if (window._chartInverted && !_invBooted) {
+    _invBooted = true;
+    try { window.toggleChartInvert(true); } catch (e) {}
+  }
 }
 
 // 蠟燭正常顏色選項（切回蠟燭時還原用；與 createCandleSeries 定義一致）
@@ -570,10 +578,53 @@ function _makeInvWickPrimitive() {
      開著時**整張主圖描一圈琥珀外框**（#invertFrame）＋左上角「⇅ 上下顛倒中」標籤附「恢復」鈕
      （#invertBadge，2026-09-22 改設計；舊版是圖頂正中一顆實心橘色膠囊）。
      入口：主圖圖例列 ⚙ 旁邊的 ⇅ 鈕（#invertBtn）、快捷鍵 A（Alt/Option+I 同功能）、手機「設定」分頁。 */
+/* ★★ 2026-10-23 使用者：「把上下顛倒中做成跟小熊磁磚一樣 縮小鋪滿全版」。
+   小熊磁磚是 canvas 的 `createPattern(tc,"repeat")`;這裡的浮水印是 DOM,等價作法是
+   **把一塊磁磚烤成圖、用 CSS 平鋪**。
+   ★★ 關鍵決定：**貼圖只烤「形狀」（純白＋透明背景）,顏色交給 CSS 的 `mask-image`**。
+     這樣使用者換配色時磁磚自動跟著 `--accent` 變,**不必重烤、也不必掛任何監聽** ——
+     把顏色烤進貼圖的話,每個會改配色的出口都要補一次重烤,漏一個就留下舊色
+     （claude.md 一再講的「一個狀態有兩個入口」）。
+   ⚠ mask 要掛在 `::before`,不可以直接 mask `.invert-frame` 本身：
+     那層還有內側暈光的 `box-shadow`,mask 會連陰影一起裁掉。
+   ⚠ 文字用 canvas 畫、不用 SVG data URI：中文在 SVG background-image 裡的字型解析各平台不一,
+     canvas 用的是真正載入的字型,所見即所得。
+   ⚠ 依 DPR 烤、CSS 再用 `mask-size` 指回邏輯尺寸 → 2x/3x 螢幕不糊（同全站規範）。 */
+let _invBooted = false;   // 開機還原顛倒狀態只跑一次（見 createCandleSeries）
+let _invTileKey = "";
+function _invTiles() {
+  const dpr = Math.min(3, window.devicePixelRatio || 1);
+  const key = dpr + "|" + (document.documentElement.classList.contains("perf-mode") ? 1 : 0);
+  if (key === _invTileKey) return;
+  _invTileKey = key;
+  // ⚠ 2026-10-23 使用者：「在縮小些」「文字就好 不用前面的 emoji」→ 拿掉 ⇅ 記號、字級與磁磚再縮一階。
+  const W = 118, H = 74, FS = 11;            // 一塊磁磚的邏輯尺寸（鋪起來像牆紙,不搶 K 棒）
+  const cv = document.createElement("canvas");
+  cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+  const g = cv.getContext("2d");
+  g.scale(dpr, dpr);
+  g.translate(W / 2, H / 2);
+  g.rotate(-22 * Math.PI / 180);              // 斜排＝一眼看得出是浮水印,不會跟 K 棒的水平線混淆
+  g.fillStyle = "#fff";
+  g.font = `800 ${FS}px -apple-system, "PingFang TC", "Noto Sans TC", system-ui, sans-serif`;
+  g.textAlign = "center"; g.textBaseline = "middle";
+  g.fillText("上下顛倒中", 0, 0);
+  const r = document.documentElement.style;
+  r.setProperty("--inv-tile", `url("${cv.toDataURL("image/png")}")`);
+  r.setProperty("--inv-tile-w", W + "px");
+  r.setProperty("--inv-tile-h", H + "px");
+}
+window._invTiles = _invTiles;
+
 window.toggleChartInvert = function (on) {
   window._chartInverted = (on === undefined) ? !window._chartInverted : !!on;
   const inv = window._chartInverted;
-  try { mainChart.priceScale("right").applyOptions({ invertScale: inv }); } catch (e) {}
+  /* ★ 2026-10-23 使用者：「下方指標也要跟著顛倒」。原本只翻主圖 → RSI/KDJ/MACD 仍是正的,
+     看起來像「上半倒了、下半沒倒」。四張一起翻,十字線與格線才對得起來。
+     ⚠ 用既有的那份清單（同 `_syncAxisWidth`）：以後多一張副圖,這裡自動涵蓋。 */
+  [mainChart, kdjChart, rsiChart, macdChart].forEach(c => {
+    try { if (c) c.priceScale("right").applyOptions({ invertScale: inv }); } catch (e) {}
+  });
   applyChartType();                                   // K 棒顏色（_candleColorOpts 依旗標對調）
   if (typeof ohlcvData !== "undefined" && ohlcvData.length && typeof renderVolume === "function")
     renderVolume(ohlcvData);                          // 量柱顏色（重播中 renderVolume 自己會切到游標為止）
@@ -591,6 +642,13 @@ window.toggleChartInvert = function (on) {
   if (badge) badge.hidden = !inv;
   const frame = document.getElementById("invertFrame");
   if (frame) frame.hidden = !inv;
+  if (inv) { try { _invTiles(); } catch (e) {} }   // 鋪滿全版的磁磚貼圖（見 _invTiles）
+  /* ★ 2026-10-23 使用者：「而且要記憶 下次打開也是」。
+     ⚠ 這推翻了原本「刻意不存檔」的決定（config.js 與 account.js 都有註解記著）→ 兩處都要同步更新,
+       否則下次有人讀到舊註解會以為是 bug 又把它拿掉。
+     ⚠ 它是**這台裝置的看法**不是帳號設定（同 `chartTypeLine`：手機想倒過來看,不代表電腦也要）
+       → 一併列進 account.js 的 `_PULL_SKIP`,不讓雲端下行覆蓋。 */
+  try { localStorage.setItem("chartInverted", inv ? "1" : "0"); } catch (e) {}
   /* 多圖模式時迷你圖也一起顛倒（`_mcApplyView`）→ 琥珀框只描主圖會看起來像「只有主圖倒了」。
      用 root class 讓 CSS 給迷你圖欄描同一圈,不必再多一個 DOM 與它的定位程式。 */
   document.documentElement.classList.toggle("chart-inverted", inv);
@@ -1417,6 +1475,18 @@ function buildCharts() {
   macdLine   = macdChart.addLineSeries({ color:C.macd,    lineWidth:S.macdWidth??1,    lineStyle:S.macdStyle??0,    priceLineVisible:false, lastValueVisible:false });
   macdSignal = macdChart.addLineSeries({ color:C.macdSig, lineWidth:S.macdSigWidth??1, lineStyle:S.macdSigStyle??0, priceLineVisible:false, lastValueVisible:false });
   macdHist   = macdChart.addHistogramSeries({ priceScaleId:"right", priceLineVisible:false, lastValueVisible:false });
+
+  /* ★★ 2026-10-23：**副圖是後來才建立的** → 開機還原「上下顛倒」時它們還不存在。
+     實測重整後：主圖 invertScale=true、KDJ/RSI/MACD 全是 false（上半倒了、下半沒倒）。
+     → 建好就把當下的狀態套上去。
+     ⚠ 這是 claude.md 一再出現的「**一個狀態有兩個入口,兩個都要掛**」：
+       使用者點的那一次由 `toggleChartInvert` 負責,**開機/副圖重建**這一次要在這裡補。
+     ⚠ 判準不可以只看主圖 —— 我第一版就是只驗主圖,看起來完全正常。 */
+  if (window._chartInverted) {
+    [kdjChart, rsiChart, macdChart].forEach(c => {
+      try { if (c) c.priceScale("right").applyOptions({ invertScale: true }); } catch (e) {}
+    });
+  }
 
   /* ★ 2026-09-24 使用者：「就算還沒出現Ｋ棒，後面背景格子直線也要在」「未來時間要先畫出來」。
      LWC 的**垂直格線畫在時間刻度上**，而刻度只生成在「有資料的時間範圍」內 →

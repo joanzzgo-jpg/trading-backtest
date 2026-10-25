@@ -299,6 +299,8 @@ async function _acctPullDrawings(name, _bootPull) {
                ⚠ 它仍然會被推上雲端（沒列進 `_ACCT_SKIP`）—— 無害,只是那份值不再回頭影響任何裝置。
                ⚠ `chartInverted`（上下顛倒）本來就刻意不存檔,不受影響。 */
             "chartTypeLine",
+            // 上下顛倒：同上，是「這台裝置的看法」（2026-10-23 改成會存檔）
+            "chartInverted",
             // 手機時框列「黏著的那個外來時框」：純 UI 狀態,跟著那台裝置就好（見 utils.js noteMobileTFExtra）
             "mobileTFExtra",
             "announceSeenVer", "symSearchHistory", "accelOn",

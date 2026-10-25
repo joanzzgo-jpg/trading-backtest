@@ -1332,13 +1332,45 @@ function _tkDecCap(a) {
   if (a >= 0.01)  return 6;
   return 10;
 }
+/* 主圖當下的標的（給 fmtTickerPrice 比對用）。
+   ⚠ `currentSym` 是 renderTickers 內的區域變數,這裡看不到 → 就地讀輸入框;
+     但這是**全站最高頻的路徑**（每秒一輪 × 上百列）→ 300ms 快取,一輪最多讀一次 DOM。 */
+let _tkCurSymCache = { t: 0, v: "" };
+function _tkCurSym() {
+  const n = Date.now();
+  if (n - _tkCurSymCache.t > 300) {
+    _tkCurSymCache = { t: n, v: (document.getElementById("symbolInput")?.value || "").trim().toUpperCase() };
+  }
+  return _tkCurSymCache.v;
+}
 function fmtTickerPrice(p, key, open) {
   if (!isFinite(p)) return "---";
   const cap = _tkDecCap(p);
   let d = null;
   if (key && typeof _decOf === "function") {
     const seen = Math.max(_decOf(p), open != null ? _decOf(open) : 0);
-    d = Math.min(cap, Math.max(_pxDecSeen.get(key) || 0, seen));
+    /* ★★ 2026-10-20 使用者：「右方即時行情跟主圖價格對不上 台股」。
+       **數值其實是對的**（2330 連續取樣 70 秒,主圖現價線與那一列 70/70 相同,含價格變動那一拍）——
+       對不上的是**小數位**：實測 6/6 都不同,2330 主圖「2,407.50」那一列「2,407.5」、
+       2454「4,185.00」vs「4,185」、6488「857.0」vs「857」。同一個數字印成兩種樣子,看起來就是兩個價。
+       根因：**兩份各自累積的真相** —— 主圖是 `render.js` 的 `_pxPrecSeen`（對外 `window._pxPrec`）,
+       這裡是 `_pxDecSeen`;兩邊都是「看過的最高位數、只進不退」,但**餵進去的資料流不同**
+       （主圖吃 K 棒、這裡吃報價）→ 必然分岔。
+       → 這一列若就是主圖正在看的那一檔,就把主圖那份併進來取大。
+       ⚠ `window._pxPrec` 只描述**當下那一檔**（換標的會被清成 null）→ 一定要先確認 key 相符,
+         否則會把 A 的位數套到 B 身上。
+       ⚠ 併進來之後照樣寫回 `_pxDecSeen`（只進不退）→ 之後切走,那一列仍維持一致的位數。
+       ★ 通則（claude.md 多圖那節也是同一條）：**兩個畫面要顯示同一個值,就要鏡射同一份狀態,
+         不要各自從原始資料再推導一次** —— 兩邊各推一次就會有兩份真相。 */
+    let _chartPrec = 0;
+    try {
+      const _cs = _tkCurSym();
+      if (_cs && String(key).toUpperCase() === _cs &&
+          typeof window._pxPrec === "number" && isFinite(window._pxPrec)) {
+        _chartPrec = window._pxPrec;
+      }
+    } catch (e) {}
+    d = Math.min(cap, Math.max(_pxDecSeen.get(key) || 0, seen, _chartPrec));
     _pxDecSeen.set(key, d);
   } else if (typeof _decOf === "function") {
     d = Math.min(cap, _decOf(p));
