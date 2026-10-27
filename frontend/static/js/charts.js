@@ -1737,6 +1737,29 @@ const _GRID_AHEAD_MAX = 2560;
 let _gridAhead = [];
 let _gridAheadKey = "";
 let _gridAheadN = _GRID_AHEAD_MIN;
+let _gridPendNeed = 0;        // 上一次觀察到的 need（要連續兩次才長,見 _growGridAhead）
+/* ★★★ 2026-10-27：**可見範圍對不對得上「目前這份資料」** —— LWC 的 `setData` 延後到繪製才生效,
+   而 `ohlcvData` 可能已經被換掉/修剪 → 中間有一段窗口,`getVisibleLogicalRange()` 回的是舊索引空間。
+   實測（離開重播後,逐秒取樣）：
+     ｜ 時點 ｜ ohlcvData ｜ getVisibleLogicalRange() ｜
+     ｜ 1.5s ｜ 49,177 ｜ 49,127~49,176　（一致）｜
+     ｜ 3s 起 ｜ **4,550** ｜ **43,339~43,388**　（修剪完沒補償,一直停在這）｜
+   ★ **畫面是對的**（最後一根 x=1165 在圖內、中線 271 個著色點）—— 壞的只有這個讀回值,
+     所以肉眼看不出來。但拿它推算工作量的地方會算出垃圾（實測代入）：
+       ・`_growGridAhead`：need = 43388−4549+60 = **38,899** → 階梯一路撐到上限 2560。
+       ・`_scheduleIdleTrim`：lo=38,839 / hi=4,549 → `hi−lo+1 = −34,289`（負數,過不了 `>= length` 那道）
+         → `ohlcvData.slice(38839, 4550)` ＝ **空陣列,把資料整個清掉**。
+         目前只是被「根數(4,550) > 門檻(15,000)」那道擋住才沒發生 ＝ **暗樁**。
+   → 判準：右緣最多只能超出資料末端「一個畫面 + 餘裕」。使用者把最後一根拉到畫面最左時
+     `to ≈ n + 可見根數`,所以 `n + span + 240` 是安全上界;而上面那個髒值 43,388 遠超
+     4,550+49+240 = 4,839 → 一眼就判得出來。
+   ⚠ 刻意**不用 `n + _gridAheadN`** 當上界：`_growGridAhead` 要偵測的正是「視野需要比現有留白更多」,
+     拿留白當上界會把它該長的情況一起擋掉。用「一個畫面」才同時適用兩個消費端。 */
+function _vrSane(vr, n) {
+  if (!vr || !Number.isFinite(vr.from) || !Number.isFinite(vr.to) || !(n > 0)) return false;
+  return vr.to <= n + (vr.to - vr.from) + 240;
+}
+window._vrSane = _vrSane;
 /* 可見範圍右緣已經超出現有的未來延伸 → 往上長一階。
    ⚠ `range.to` 是**邏輯索引**（以第一根 K 棒為 0），所以跟 `data().length-1` 相減
       才是「往未來幾根」。 */
@@ -1745,10 +1768,48 @@ function _growGridAhead(to) {
     if (!Number.isFinite(to)) return;
     const d = (typeof candleSeries !== "undefined" && candleSeries) ? candleSeries.data() : null;
     if (!d || !d.length) return;
-    const need = Math.ceil(to) - (d.length - 1) + 60;     // 60＝餘裕，免得剛好卡在邊緣
-    if (need <= _gridAheadN) return;
+    /* ★★★ 2026-10-26（使用者：「重播 最右邊的空間是目前的」）：**不可以信訂閱回呼傳進來的 `to`。**
+       它是**在 setData 之前**算出來的範圍,而「進重播」那一瞬間 `candleSeries` 從完整資料被換成
+       游標前綴（實測 2912 → 569 根）→ 用舊的 `to`(≈2914) 配新的 `d.length`(569) 算出
+       `need = 2914−568+60 = 2406` ＝ 一個**完全不存在的視野**,階梯就這樣被撐上去;
+       而這個階梯是**只增不減**的（刻意,見下）→ 從此整個工作階段的留白都是 1280 根。
+       實測（逐階段追 `_gridAheadN`）：
+         ｜ 階段 ｜ _gridAheadN ｜ 畫在圖上 ｜ **現讀**可見右緣 ｜
+         ｜ 重播前 ｜ 320 ｜ 2912 ｜ 2914 ｜
+         ｜ 進重播 ｜ **1280** ｜ 569 ｜ **570** ← 現讀是對的,回呼那個是過期的 ｜
+       1280 根的 1h 留白 ＝ 游標之後 **53 天**的空白;從較近的日期開始重播時那片空白就跨過今天
+       → 使用者看到「最右邊的空間是目前的」。
+       ★ 修法＝**現讀一次可見範圍**（`getVisibleLogicalRange()`,回純量、不碰版面）,
+         並與回呼值取**較小**者：真的縮很開時兩者一致、照樣會長;資料被換掉那一瞬只有回呼值是髒的。
+       ⚠ 已驗證這不是 `TRIM_MAX` 那次改動的回歸：把 render.js 換回舊版跑同一支追蹤,
+         320 → 1280 一模一樣（claude.md：守門員/症狀轉紅先問「上一版有沒有」）。 */
+    let _to = Math.ceil(to);
+    try {
+      const fresh = mainChart.timeScale().getVisibleLogicalRange();
+      if (fresh && Number.isFinite(fresh.to)) {
+        // 讀回值對不上目前這份資料（見 `_vrSane`）→ 那是還沒更新的舊索引空間,整個跳過這次
+        if (!_vrSane(fresh, d.length)) { _gridPendNeed = 0; return; }
+        _to = Math.min(_to, Math.ceil(fresh.to));
+      }
+    } catch (e) {}
+    const need = _to - (d.length - 1) + 60;     // 60＝餘裕，免得剛好卡在邊緣
+    if (need <= _gridAheadN) { _gridPendNeed = 0; return; }
+    /* ★★ 連續兩次觀察、取**較小**者才長（2026-10-26）。
+       ⚠ 我第一版只做「現讀一次可見範圍並取 min」—— **沒有用**：實測進重播時
+         回呼值與現讀值**當下都是髒的**（LWC 的 `setData` 延後到繪製才生效,claude.md 記過
+         「setData 延後、補償立刻生效,兩者天生不同步」）→ 兩個髒值取 min 還是髒的。
+       ★ 這裡借既有的 `_srcRealign`「連續兩次看到才觸發」那條路：
+         ・資料被換掉那一瞬只會出現**一次**異常大的 need,安定後的下一次就回到正常值
+           → 取兩次的較小值 ＝ 暫態被吃掉。
+         ・真的縮很開時兩次都大 → min 仍然大 → 照樣長（最多晚一兩個事件,肉眼無感,
+           而且留白本來就留了 60 根餘裕）。 */
+    if (!_gridPendNeed) { _gridPendNeed = need; return; }      // 第一次只記下來,先不長
+    const eff = Math.min(_gridPendNeed, need);
+    _gridPendNeed = 0;
+    if (eff <= _gridAheadN) return;                            // 兩次中較小的那次其實不需要 → 是暫態
+    const need2 = eff;
     let n = _gridAheadN;
-    while (n < need && n < _GRID_AHEAD_MAX) n *= 2;
+    while (n < need2 && n < _GRID_AHEAD_MAX) n *= 2;
     n = Math.min(n, _GRID_AHEAD_MAX);
     if (n === _gridAheadN) return;
     _gridAheadN = n;
@@ -1777,6 +1838,16 @@ function _syncGridAhead() {
   } catch (e) {}
 }
 window._syncGridAhead = _syncGridAhead;
+/* 資料脈絡被換掉時把階梯歸零（進/出重播、切標的、切時框）：
+   `_gridAheadN` 只增不減是刻意的（避免每幀 setData,見上）,但那個「只增」是**在同一份資料、
+   同一個縮放脈絡下**才成立 —— 換了資料集,當初撐出那個值的理由就不存在了。
+   ⚠ 歸零後若使用者真的還縮得很開,下一次範圍變動就會照階梯重新長上去（最多 4 次就到頂）。 */
+function _resetGridAhead() {
+  _gridAheadN = _GRID_AHEAD_MIN;
+  _gridAheadKey = "";          // 強制重算
+  try { _syncGridAhead(); } catch (e) {}
+}
+window._resetGridAhead = _resetGridAhead;
 
 /* ⚠ 2026-09-24：這裡曾經有一版「在分隔線裡用 canvas 補畫格線」的橋接（取樣畫布找格線 x）。
    **已整支移除** —— 使用者：「這樣的接法很爛，我縮小就壞了，而且跟不上縮放速度」。他是對的：

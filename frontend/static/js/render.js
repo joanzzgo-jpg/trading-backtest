@@ -1255,7 +1255,27 @@ async function _bgLoadOlderBars(scrollTriggered = false) {
   //   **2000-01-04**（6617 根）、AAPL 可回到 **1980-12-12**（11510 根）。日線很輕（54 年也才約 13600 根，
   //   加密 5m 深滑常駐都 25000 根了）→ 直接放到資料源自己沒資料為止。
   const SCROLL_DAYS = { "1m": 60, "5m": 2400, "15m": 2400, "1h": 3000, "4h": 4000, "30m": 2400, "2h": 3000, "1d": 20000 };
-  const totalDays   = scrollTriggered ? (SCROLL_DAYS[snapTf] || 365) : (INIT_DAYS[snapTf] || 30);
+  /* ★★ 2026-10-25（使用者：「台股一樣只能到 10/5」）：`INIT_DAYS` 的單位是**日曆天**,
+     而股市一天只開 4.5~6.5 小時 → 同樣的天數在台股只有加密 **1/5** 的 K 棒數。
+     這張表的原意其實是「**常駐根數約 4000 根**」（上面那行註解自己寫著「5m 14d≈4千根」）：
+       ・加密 5m：14 天 × 288 根/日 ＝ **4032 根** ✓
+       ・台股 5m：14 天 × 54 根/日 × 5/7 ＝ **約 540 根** ← **比初次載入已經給的 679 根還少**
+     → 自動預載一看「手上已經比目標深」就**什麼都不補**,深度只能靠使用者一直拖。
+     實測（瀏覽器真的滑 2330 5m,並印出送出的 payload）：
+       起點 679 根／最舊 **2026-10-05**;第 1~3 輪拖曳**完全沒送出 5m 請求**、根數與最舊都沒變;
+       要到**第 4 輪（約 12 次拖曳）**才碰到左緣觸發補載 → 一次補到 1930 根／**2026-08-28**（資料源極限）。
+       使用者看到的就是「開 5m 停在 10/5,像一道牆」。
+     → 股市的日曆天要放大回同一個根數預算。倍率≈「加密 24h ÷ 該市場的開盤時數」,
+       再乘以 5/7 的交易日比例後取整：台股 4.5h → 5.3、美股 6.5h → 3.7、港股 5.5h → 4.4。
+     ⚠ **不會爆常駐根數**（那正是當年訂 14 天的理由）：台股 5m 放大後要 74 天,
+       但後端 `YF_MAX_DAYS["5m"]=58` 會夾回去 → 58 天 × 54 × 5/7 ≈ **2240 根**,仍在 4000 根預算內。
+     ⚠ **只套在盤中時框**：日線一天就是一根,不受開盤時數影響（只差 5/7 的交易日比例,不值得動）。
+     ⚠ 這是**前端的預載目標**,不是資料源上限 —— 要多深仍由後端的 `YF_MAX_DAYS` 決定,
+       放大只是別讓前端自己先放棄。 */
+  const _INTRADAY = new Set(["1m", "5m", "15m", "30m", "1h", "2h", "4h"]);
+  const _mktMul   = _INTRADAY.has(snapTf) ? (({ tw: 5.3, us: 3.7, hk: 4.4 })[snapMarket] || 1) : 1;
+  const totalDays   = scrollTriggered ? (SCROLL_DAYS[snapTf] || 365)
+                                      : Math.round((INIT_DAYS[snapTf] || 30) * _mktMul);
   let   targetStartTs = Math.floor(Date.now() / 1000) - totalDays * 86400;
   // 看歷史切時框:分頁串流必須補到「你正在看的那段」才停,否則對齊落空(切不到同一天)。
   //   把目標深度延伸到待對齊起點前 1 天(近段仍先載、含現在→不會往最新斷)。
@@ -1502,7 +1522,25 @@ async function _bgLoadOlderBars(scrollTriggered = false) {
    我們雖然有 logical range 補償,但 LWC 那一幀的重算仍用舊 rightOffset(見 _scheduleIdleTrim 註)。
    → 策略:門檻大幅拉高讓修剪變罕見,且只在真的停手(_scheduleIdleTrim debounce 1.5s)時做。
    代價:常駐根數上限 15k→40k(約 4MB、setData 略慢),換掉滑動中被亂帶。*/
-const TRIM_MAX = 40000;
+/* ★★★ 2026-10-25（使用者：「用起來卡卡的」「我在看歷史Ｋ」）：**40000 這個值的理由已經過期,改回 15000。**
+   上面那段寫著它 2026-07-28 從 15000 調高到 40000,理由是「每次修剪那幀就跳一次」——
+   **但下面的 `_trimMaskShow` 修剪遮罩就是為了消掉那一幀而做的**（拷畫布蓋住、修完等三幀驗位置才撤,
+   註解自己寫「使用者全程看到完全靜止且正確的畫面」）→ 遮罩做完之後,沒有人回頭把門檻調回來。
+   ★ 代價就寫在下面 `_scheduleIdleTrim` 的註解裡：「開修剪後**穩在 2.6~4 萬根、heap 95~353MB、最長 228ms**」
+     —— 那不是意外,那是 40000 的設計目標。真機回報與本機重現都落在這個區間：
+     使用者 23,617 根時 `_bgApplyChunk` **209.4ms**、`renderBB` 49.8ms,縮放 p95 **141ms**;
+     本機重現 34,412~49,388 根時 `_bgApplyChunk` **226.6ms/次**、p95 81.9ms、max 287.8ms、heap 406MB。
+   ★ 為什麼只能動 n：`_bgApplyChunk` 的成本大頭是錨點×3＋K 棒＋成交量的 `setData`,
+     而 **`setData` 是原子的、O(n)** → 切成每幀小塊只會讓 O(n) 被呼叫更多次,更糟。唯一槓桿是讓 n 變小。
+   ⚠ **調低不會讓使用者看得比較淺**：修剪只丟「離視野太遠」的兩側,滑回去會重新分頁,
+     而歷史分頁有 IndexedDB 快取（memory `project_hist-cache-on-device`,省 70~81%）。
+   ⚠⚠ **不可以寫死一個常數**：修剪後留下的是「可見 ＋ 2×BUF(4500)」—— 縮很開時（bs 0.5 可見約 2800 根,
+     再縮可見上萬）留下來的量可能**本來就超過門檻** → `_scheduleIdleTrim` 每次閒置都白跑一趟、
+     還白付一次遮罩的畫布拷貝。→ 下限自適應：至少要比「可見＋緩衝」再多一個 margin 才有修的空間。 */
+const TRIM_MAX_BASE = 15000;          // 一般情況的常駐上限（回到 2026-07-28 之前的值）
+const TRIM_BUF      = 4500;           // 修剪時每側保留的緩衝（與 _scheduleIdleTrim 共用同一個值）
+const _trimMaxFor   = (visSpan) =>    // 保證「修了之後真的會低於門檻」,否則不要修
+  Math.max(TRIM_MAX_BASE, Math.ceil(visSpan || 0) + 2 * TRIM_BUF + 3000);
 
 
 /* 閒置滾動修剪:平移停手後,若常駐根數過多(往兩側補載累積)→ 只留可見±緩衝、其餘丟棄,
@@ -1599,7 +1637,7 @@ let _idleTrimTimer = null;
 function _scheduleIdleTrim() {
   clearTimeout(_idleTrimTimer);
   _idleTrimTimer = setTimeout(() => {
-    if (replayActive || _bgLoadInProgress || !ohlcvData.length || ohlcvData.length <= TRIM_MAX) return;
+    if (replayActive || _bgLoadInProgress || !ohlcvData.length) return;
     // 真的停手才修(見 TRIM_MAX 註):互動中修剪會動到右緣=LWC 定位點 → 視野被往舊帶
     if (window._chartMoveTs && performance.now() - window._chartMoveTs < 900) { _scheduleIdleTrim(); return; }
     // ★確定性 logical:捕捉一次可見範圍 vr,同時用它算「保留區」+「位移補償」→數學上保證
@@ -1607,7 +1645,16 @@ function _scheduleIdleTrim() {
     let vr;
     try { vr = mainChart.timeScale().getVisibleLogicalRange(); } catch (e) { return; }
     if (!vr || !Number.isFinite(vr.from) || !Number.isFinite(vr.to) || (vr.to - vr.from) < 3) return;
-    const BUF = 4500;
+    /* ★★ 2026-10-27：`vr` 對不上目前這份資料時**絕對不可以拿它來修剪**（見 charts.js `_vrSane`）。
+       實測離開重播後：ohlcvData 4,550 根、`vr` 卻停在 43,339~43,388（修剪完沒補償）→
+       算出 lo=38,839 / hi=4,549 → `slice(38839, 4550)` ＝ **空陣列,資料整個被清掉**。
+       那時只是被下面「根數要超過門檻」那道擋住才沒發生。這道是把暗樁拆掉。 */
+    if (window._vrSane && !window._vrSane(vr, ohlcvData.length)) return;
+    /* ⚠ 門檻判斷**移到讀完 vr 之後**（原本在最前面用寫死的 TRIM_MAX）：門檻要依「這一刻可見幾根」
+       算,否則縮很開時會訂出一個「修了也降不下來」的目標（見 TRIM_MAX_BASE 註）。
+       `getVisibleLogicalRange()` 回的是純量、不碰版面,移到這裡沒有成本。 */
+    if (ohlcvData.length <= _trimMaxFor(vr.to - vr.from)) return;
+    const BUF = TRIM_BUF;
     const lo = Math.max(0, Math.floor(vr.from) - BUF);
     const hi = Math.min(ohlcvData.length - 1, Math.ceil(vr.to) + BUF);
     if (hi - lo + 1 >= ohlcvData.length) return;   // 已涵蓋全部→不修
@@ -1768,7 +1815,7 @@ async function _bgLoadNewerBars(scrollTriggered = false) {
          全掃只會白花時間（而且會把使用者正在看的歷史段一起重寫）。 */
       const _auth = new Map();
       for (const b2 of json.data) _auth.set(toTime(b2.time), b2);
-      /* ⚠ 效能：來源換手時 _fixFrom=0，這個迴圈會掃整個 ohlcvData（TRIM_MAX 上限 4 萬根）。
+      /* ⚠ 效能：來源換手時 _fixFrom=0，這個迴圈會掃整個 ohlcvData（常駐上限見 `_trimMaxFor`,2026-10-25 起一般是 1.5 萬根）。
          兩個必要的優化，實測 40000 根 8.9ms → 0.13ms（66x）：
          ① 用每根快取好的 _t，不要每根都 toTime()（那是 new Date(iso) 完整解析）。
          ② 一旦掃到比「回應涵蓋的最舊那根」還舊，後面不可能有對應 → 直接 break。
@@ -1854,8 +1901,10 @@ async function _bgLoadNewerBars(scrollTriggered = false) {
       //   之後、且 ohlcvData 超過 TRIM_MAX，就會剪掉不該剪的一段。
       //   重播中本來就「靜默累積、不碰圖表」（見下方 if (!replayActive)），退出時 renderAll
       //   會整包重畫 → 不修剪只是常駐根數多一點，退出後閒置修剪會收掉。
-      if (!replayActive && vr && Number.isFinite(vr.from) && ohlcvData.length > TRIM_MAX) {
-        const keepLo = Math.max(0, Math.floor(vr.from) - 4500);   // 保留視野左側 4500 根,其餘(更舊)丟棄
+      /* ⚠ 2026-10-25：`TRIM_MAX` 常數已換成 `_trimMaxFor(可見根數)`（見其註解：40000 的理由過期了）。
+         這裡是**剪左側**那條路（往右 append、右緣不動 → 註解寫明「從頭到尾 0 跳動」）,門檻調低風險最小。 */
+      if (!replayActive && vr && Number.isFinite(vr.from) && ohlcvData.length > _trimMaxFor(vr.to - vr.from)) {
+        const keepLo = Math.max(0, Math.floor(vr.from) - TRIM_BUF);   // 保留視野左側 TRIM_BUF 根,其餘(更舊)丟棄
         if (keepLo > 50) { _cut = keepLo; ohlcvData = ohlcvData.slice(_cut); _rebuildTimeIndex(); }
       }
 

@@ -75,10 +75,25 @@ function _tkSlice(items) {
   window._tkHasMore = items.length > _tkCap;
   return items.length > _tkCap ? items.slice(0, _tkCap) : items;
 }
+/* ⚠⚠ **做了又回退：上限改成「倍增」更糟,別再試**（2026-10-25）。
+   動機看起來很有道理：量「每一步最長的長任務」得到 240 列 56ms／360 列 61ms／480 列 67ms
+   → 斜率只有 0.046 ms/列、截距 45ms ＝ 看起來成本幾乎都是 `renderTickers()` 的固定開銷,
+     所以「少呼叫幾次」應該比「每次便宜一點」有效。
+   背靠背 A/B（同一支探針、CPU 4x、連續猛捲到清單盡頭 746 列）結果**相反**：
+     ｜ ｜ 長任務筆數 ｜ 總阻塞 ｜ 最大單筆 ｜ p90 ｜ >33ms 幀 ｜
+     ｜ 只延後（現行）｜ 3 ｜ **203ms** ｜ **83ms** ｜ **34.6** ｜ **17** ｜
+     ｜ 延後＋倍增 ｜ 3 ｜ 243ms ｜ **104ms** ｜ **45.5** ｜ **27** ｜
+   ★ 錯在**把三個點的斜率外推出去**：240~480 列量到的 0.046 ms/列 在 960 列不成立 ——
+     大批次的 DOM 插入與版面重算是**超線性**的。少次但每次更大 → 單筆長任務更長,
+     而對「順不順」來說一筆 104ms 比兩筆 60ms 更有感。
+   ★ 通則：**線性外推一個只在小範圍量過的成本模型,會做出相反的決定。**
+   ⚠ 兩條成長路徑（捲動、鍵盤 ↑↓ 導航）原本各自寫一份 `_tkCap += _TK_CAP_STEP`
+     → 保留這支共用函式,否則改一邊忘另一邊（claude.md 一再出現的形狀）。 */
+function _tkBumpCap() { _tkCap += _TK_CAP_STEP; }
 // 鍵盤 ↑↓ 導航到清單底(cap 邊界)時：載入下一批再繼續 → 不會因 cap 讓 ↑↓ 卡在第 120 列或繞回第一個。
 window._tkGrowMore = function () {
   if (!window._tkHasMore) return false;
-  _tkCap += _TK_CAP_STEP;
+  _tkBumpCap();
   _lastTickerKey = "";
   if (typeof renderTickers === "function") renderTickers();
   return true;
@@ -1532,18 +1547,44 @@ function bindTickerPanel() {
   if (!window._tkScrollBound) {
     window._tkScrollBound = true;
     const _list = document.getElementById("tickerList");
-    if (_list) _list.addEventListener("scroll", () => {
-      if (!window._tkHasMore) return;
-      // 提早補：捲過整批一半(或剩不到一個半螢幕)就先生成下一批 → 生成成本藏在中途、捲到底早已就緒。
-      // 補完 scrollHeight 變大 → 這條件自動變 false，不會連續重觸發。
-      const passedHalf = (_list.scrollTop + _list.clientHeight) > _list.scrollHeight * 0.5;
-      const nearBottom = _list.scrollHeight - _list.scrollTop - _list.clientHeight < _list.clientHeight * 1.5;
-      if (passedHalf || nearBottom) {
-        _tkCap += _TK_CAP_STEP;
-        _lastTickerKey = "";          // 下次 fetch 也會走完整重渲
+    /* ★★ 2026-10-25（使用者：「優化整體流暢度」）：這一批的生成**不可以跑在 scroll 事件派發當下**。
+       實測（CPU 4x 節流、加密清單、逐步捲到底,量每一步最長的長任務）：
+         ｜ 列數 ｜ 120 ｜ 240 ｜ 360 ｜ 480 ｜
+         ｜ 長任務 ｜ 零 ｜ **56ms** ｜ **61ms** ｜ **67ms** ｜
+       ＝ 每捲過一批就有一筆 56~67ms 的長任務,而且**愈捲愈貴** —— 因為 `_lastTickerKey = ""`
+       會讓 `renderTickers()` **整份重渲**（成本 O(總列數)）,新增的其實只有 120 列。
+       那是整份盤點裡唯一「連中位數都退化」的連續手勢（4x 下 p90 27.8ms / 6 幀 >33ms,
+       其餘互動如拖曳/縮放全部仍是 16.7ms 中位、零長任務）。
+       ★ 修法照 claude.md 已背書的 `multichart.js _loadOlder` 先例：
+         **「延後不是取消」—— 要生成的那些列在畫面外,延後使用者看不出差別**;
+         這與「手勢中少畫一點」那條教訓不衝突,那條講的是**看得見的重畫**。
+       → 只是過半（那批還有 2/3 可捲）＝ 等停手 110ms 再補;
+         真的快到底了（剩不到一個半螢幕）＝ 立刻補,但併進 rAF ——
+         那時使用者馬上要用到,延後會讓他捲到「內容就這樣沒了」,比掉一幀更糟。
+       ⚠ 兩條路都走 `requestAnimationFrame` 併幀＋`_grRaf` 去重：scroll 一秒可以派發幾十次,
+         沒有去重的話同一幀可能補好幾批。
+       ⚠ `_grow` 裡要**重新檢查 `_tkHasMore`**：排程到真的執行之間,使用者可能切了市場/改了搜尋
+         （`_tkCapKey` 一變 `_tkCap` 會被重置）。 */
+    if (_list) {
+      let _grRaf = 0, _grT = 0;
+      const _grow = () => {
+        _grRaf = 0;
+        if (!window._tkHasMore) return;     // 排程後狀態可能已變（切市場/搜尋）
+        _tkBumpCap();
+        _lastTickerKey = "";                // 下次 fetch 也會走完整重渲
         if (typeof renderTickers === "function") renderTickers();
-      }
-    }, { passive: true });
+      };
+      const _sched = () => { if (!_grRaf) _grRaf = requestAnimationFrame(_grow); };
+      _list.addEventListener("scroll", () => {
+        if (!window._tkHasMore) return;
+        const passedHalf = (_list.scrollTop + _list.clientHeight) > _list.scrollHeight * 0.5;
+        const nearBottom = _list.scrollHeight - _list.scrollTop - _list.clientHeight < _list.clientHeight * 1.5;
+        if (!(passedHalf || nearBottom)) return;
+        clearTimeout(_grT);
+        if (nearBottom) _sched();                       // 馬上要用到 → 這一幀就補
+        else            _grT = setTimeout(_sched, 110); // 還早 → 等停手,手勢中零成本
+      }, { passive: true });
+    }
   }
 
   // 市場切換 tab（合約 / 台股）

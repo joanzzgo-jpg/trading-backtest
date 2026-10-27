@@ -188,6 +188,12 @@ function enterReplay(startDate = null) {
   clearTimeout(_bgIndicatorTimer);
   stopRealtime();
   replayData = [...ohlcvData];
+  /* ★ 2026-10-26（使用者：「重播 最右邊的空間是目前的」）：未來留白的根數階梯要歸零。
+     它只增不減（charts.js `_gridAheadN`,刻意的,避免每幀 setData）,但那個「只增」是**在同一份
+     資料、同一個縮放脈絡下**才成立 —— 重播把畫在圖上的資料換成游標前綴,當初撐出那個值的理由
+     就不存在了。不歸零的話留白會留著進重播前的寬度（實測 1280 根＝1h 的 53 天空白）。
+     ⚠ 這只是「把理由消失的那個值收回」;真的縮很開時下一次範圍變動照樣會重新長上去。 */
+  try { window._resetGridAhead && window._resetGridAhead(); } catch (e) {}
 
   // 記住使用者目前的縮放（可視 bar 數），重播期間維持此比例
   const curRange = mainChart.timeScale().getVisibleLogicalRange();
@@ -248,6 +254,7 @@ function exitReplay() {
   document.getElementById("replayModeBtn").classList.remove("active");
   document.getElementById("replayPlay").classList.remove("playing");
   document.getElementById("replayPlay").textContent = "▶";
+  try { window._resetGridAhead && window._resetGridAhead(); } catch (e) {}   // 同進重播：資料脈絡換回來了
   renderAll(ohlcvData.length ? ohlcvData : replayData);
 
   // ★ 把 enterReplay 停掉的即時行情開回來（2026-07-31 修）。
