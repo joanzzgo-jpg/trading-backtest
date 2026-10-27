@@ -168,7 +168,38 @@ function saveLastSymbol() {
     // ⚠ scrollPos 用「可見範圍幾何」算(to − 最後棒index)，不可用 scrollPosition()：後者只反映手動捲動量，
     //   程式以 rightOffset 設定的留白會回 0 → 切標的數次後留白歸零黏回右緣（與 render.js 同因）。
     let barSpacing = null, scrollPos = null;
-    try { barSpacing = ts?.options().barSpacing; scrollPos = (r && ohlcvData.length) ? Math.max(0, r.to - (ohlcvData.length - 1)) : 0; } catch (e) {}
+    /* ★★★ 2026-10-27（使用者：「刷新後 最新Ｋ棒會貼右匡」「會再同步中 然後跳到已儲存…就靠齊右邊」）
+       這一行原本有兩個獨立的錯，兩個都會把「貼右」固化下來，而且畫面上完全沒有跡象。
+
+       ① **`r.to` 與 `ohlcvData` 是兩個索引空間** —— 下面 anchorT 那段的註解自己就寫著
+          「不可以拿 r.to 去索引 ohlcvData：logical index 指的是**畫在圖上的序列**，
+          而 ohlcvData 是來源、兩者長度不同」。那條禁令對 scrollPos 一樣成立，卻漏了這裡。
+          外面又包著 `Math.max(0, …)` → 只要 ohlcvData 比畫在圖上的長（背景補載剛塞完、
+          閒置修剪剛砍完都會），差值變負、**靜默夾成 0 ＝ 下次開啟貼右**。
+          → 一律用**畫在圖上的根數**（r.to 就是它的索引），與 `_vrSane` 那條守衛同一個理由。
+
+       ② **還原剛套上、LWC 要下一幀才生效** → `loadData` 在 `renderAll()` 之後**立刻**呼叫這支，
+          讀到的是還原**之前**的預設值。實測刷新後 +0.5 秒存檔是 `bs=6 / sp=0`（＝貼右），
+          1.2 秒後的 debounce 才更正成 `bs=2 / sp=12`。使用者只要在那一秒內重整或關掉分頁，
+          貼右那份就被固化；而切背景時 `_acctBeaconFlush` 會把它**推上雲端** →
+          下次開啟時下行把它拉回來套用，就是使用者看到的「同步完成那一刻跳成靠齊右邊」。
+          → 這個載入週期還在「按住還原視野」時（`window._bootViewOpt`，見 render.js
+            `_bootViewHold`），就存**我們正在主張的那組值**，不要存讀回來的過渡值。
+          ⚠ 刻意只覆蓋這兩個欄位：標的/時框/錨點照原本的邏輯走（那幾個不受這一幀的競態影響），
+            整支提早 return 會讓「9 秒保險絲內換標的」存不進去。 */
+    const _drawnN = (() => {
+      try { return (candleSeries?.data() || []).length; } catch (e) { return 0; }
+    })();
+    const _lastIdx = (_drawnN || ohlcvData.length) - 1;
+    try {
+      barSpacing = ts?.options().barSpacing;
+      scrollPos  = (r && _lastIdx >= 0) ? Math.max(0, r.to - _lastIdx) : 0;
+      const _hold = window._bootViewOpt;
+      if (_hold && _hold.barSpacing != null) {
+        barSpacing = _hold.barSpacing;
+        scrollPos  = _hold.rightOffset != null ? _hold.rightOffset : scrollPos;
+      }
+    } catch (e) {}
     /* ── 捲在歷史時，另存右緣所在的**時間**(2026-08-16 使用者：「重整後要一樣」)──────────
        上面那組(barSpacing + scrollPos)只描述「相對最新棒的位置」→ 只還原得了「貼在最新」
        的畫面。使用者捲回去看 7 月，重整後照樣跳回今天（實測 7/20 → 8/14）。

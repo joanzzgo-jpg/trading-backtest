@@ -445,6 +445,42 @@ function _applyPriceFormat(data) {
   [candleSeries, bbU, bbM, bbL].forEach(s => s?.applyOptions({ priceFormat: fmt }));
 }
 
+/* ★★ 2026-10-27：`_visNFor` / `_defaultRightPad` 由 `renderAll` 內的區域閉包**提到模組層** ——
+   因為「回到最新」那顆按鈕（`_goLatest`）也必須用同一份留白下限,而它在 renderAll 外面。
+   ⚠ 刻意**不複製公式**：claude.md 一再出現「同一個值兩份真相」的事故（斐波層級寫死兩處、
+     小數位三支各自猜）→ 共用同一支,以後調留白只會有一個地方。
+   ⚠ 兩支只依賴 `mainChart`、DOM 與模組層的 `_savedBarCount`,搬出來不改行為。 */
+const _visNFor = (bs) => {
+  let w = 0;
+  try { w = mainChart.timeScale().width(); } catch (e) {}
+  if (!(w > 50)) { try { w = document.getElementById("mainChart")?.clientWidth || 0; } catch (e) {} }
+  return (w > 50) ? Math.max(10, Math.round(w / Math.max(0.5, bs))) : null;   // null＝量不到
+};
+/* 看最新時「最後一根 K 棒與右緣之間」的像素下限（見 _defaultRightPad）。 */
+const _RPAD_MIN_PX = 48;
+const _defaultRightPad = (bs) => {
+  const visN = _visNFor(bs) || (_savedBarCount || 50);
+  /* ★ 2026-09-24 使用者：「價格的右邊留白好多」→ 6% 減半成 3%，上限 20 → 12 根。
+     實測 1600 寬、可見約 211 根：88px（14 根）→ 約 44px（7 根）。
+     ⚠ 仍然只是**下限**（跟已存的值取大）：使用者自己拉出來的留白照樣保留得住。
+     ⚠ 別調到 0：LWC 預設 rightOffset=0 ＝最後一根貼著價格軸，當初就是因為那樣才加這段
+       （最新那根被切在邊上、也沒有空間看「接下來要往哪走」）。 */
+  const byBars = Math.min(12, Math.max(3, Math.round(visN * 0.03)));
+  /* ★★★ 2026-10-27（使用者：「刷新後 最新Ｋ棒會貼右匡」）：**只論根數的留白，縮小時像素會塌掉。**
+     留白的單位是「根」,而使用者的畫面是「像素」—— 同一個 12 根在不同縮放下差一個量級：
+       ｜ barSpacing ｜ 23.56（預設）｜ 6 ｜ **2（使用者雲端那份就是 1.97）** ｜
+       ｜ 下限算出來 ｜ 3 根＝70px ｜ 6 根＝36px ｜ **12 根＝24px** ｜
+     實測（持久化 profile、ETH 5m）：bs 23.56 離右緣 84px；縮到 bs=2 之後只剩 **9px**,
+     按「回到最新」也只回到 **27px** —— 在 1173px 寬的繪圖區上那就是一條細縫,肉眼就是「貼右框」。
+     ⚠ 上限 `min(12, …)` 正是元凶：它在縮放開時把比例算出來的根數砍掉。
+     → 再加一道**像素**下限,兩者取大。48px 的選法：預設縮放下 3 根＝70px 仍勝出（＝這一格完全
+       不改既有行為,`check_view_restore` 的 ⓪ 不受影響）,而縮小時才由它接手。
+     ⚠ 仍然只是**下限**（呼叫端一律跟已存值取大、再被 `_roCapFor` 夾在可見的 80% 內）→
+       使用者自己拉出來的大留白保留得住,極度縮小時也不會變成整片空白。 */
+  const byPx = (bs > 0) ? Math.ceil(_RPAD_MIN_PX / bs) : byBars;
+  return Math.max(byBars, byPx);
+};
+
 function renderAll(data) {
   // 重繪期間標記「圖表忙碌」→ 背景天氣動畫降到 ~15fps，不跟切標的/時框的重繪搶幀(省卡頓)。
   // 設兩次(現在+160ms)以覆蓋 setData/fitContent/還原視野的整段(>220ms 移動視窗)。
@@ -514,12 +550,7 @@ function renderAll(data) {
        上限變成 5 → 使用者原本 20 根的留白被夾成 5 根＝K 棒幾乎貼著右邊。
      → 量不到寬度時**不要夾**（只留絕對上限 60）。夾限是為了治「已存進垃圾值」的舊狀態，
        用一個還沒準備好的寬度去夾，等於每次重整都吃掉使用者的留白 —— 治病治成了病。 */
-  const _visNFor = (bs) => {
-    let w = 0;
-    try { w = mainChart.timeScale().width(); } catch (e) {}
-    if (!(w > 50)) { try { w = document.getElementById("mainChart")?.clientWidth || 0; } catch (e) {} }
-    return (w > 50) ? Math.max(10, Math.round(w / Math.max(0.5, bs))) : null;   // null＝量不到
-  };
+  // （_visNFor 已提到模組層,見 renderAll 上方 —— 「回到最新」那顆按鈕也要用）
   /* rightOffset 的上限。原本是「可見根數的一半、絕對 60」——那是為了治「已存進垃圾值」的舊狀態
      （大 rightOffset 會被重申機制保護、每次切換複發「最右邊沒 K 棒」）。
      ★ 2026-08-17 使用者：「有留白，但跟原本不同」——實測把留白拉到 35 根，重整後被砍成 27（789px→79px）。
@@ -536,15 +567,8 @@ function renderAll(data) {
      ⚠ 用**比例**不用固定根數：固定根數在放大時會變成半個畫面、縮小時又等於沒有；
        依可見根數等比例算，不論縮放到哪一級，看起來的留白寬度都差不多。
      ⚠ 只當**下限**（跟已存的值取大）：使用者自己拉出更大的留白要保留得住。 */
-  const _defaultRightPad = (bs) => {
-    const visN = _visNFor(bs) || (_savedBarCount || 50);
-    /* ★ 2026-09-24 使用者：「價格的右邊留白好多」→ 6% 減半成 3%，上限 20 → 12 根。
-       實測 1600 寬、可見約 211 根：88px（14 根）→ 約 44px（7 根）。
-       ⚠ 仍然只是**下限**（跟已存的值取大）：使用者自己拉出來的留白照樣保留得住。
-       ⚠ 別調到 0：LWC 預設 rightOffset=0 ＝最後一根貼著價格軸，當初就是因為那樣才加這段
-         （最新那根被切在邊上、也沒有空間看「接下來要往哪走」）。 */
-    return Math.min(12, Math.max(3, Math.round(visN * 0.03)));
-  };
+  // （_defaultRightPad 已提到模組層,見 renderAll 上方）
+
   const _restoreByBarCount = () => {
     const ts = mainChart.timeScale();
     /* ★ 開機還原剛套好的那組值，在這個載入週期內優先重套（2026-08-17）。
@@ -1607,8 +1631,18 @@ function _goLatest() {
   try {
     if (typeof replayActive !== "undefined" && replayActive) return;
     if (window._hasFwdGap) { loadData(false, true); return; }
+    /* ★★★ 2026-10-27（使用者：「刷新後 最新Ｋ棒會貼右匡」）：**不可以用 `scrollToRealTime()`** ——
+       它把最後一根貼齊右緣、一點留白都不留（實測離繪圖區右緣 **16px**,而「有留白」的門檻是
+       兩根 K 棒＝47px）。本專案 2026-08-17 就為了使用者回報的「右邊無留白」加了 `_defaultRightPad`,
+       這顆按鈕卻繞過它。
+       ⚠⚠ 而且那個貼右的位置**會被存起來**：`saveLastSymbol` 實測把 `scrollPos` 存成 **0.099**
+         → 之後每次開啟都還原成貼右（使用者說的「每次刷新都貼右」就是這樣來的;
+         還原端的 `_defaultRightPad` 下限雖然會把它抬回 3 根,但只要再按一次這顆就又沒了）。
+       → 改用同一份留白下限（模組層的 `_defaultRightPad`,見 renderAll 上方）。 */
+    const _bs = (() => { try { return mainChart.timeScale().options().barSpacing; } catch (e) { return 6; } })();
+    const _ro = _defaultRightPad(_bs);
     [mainChart, kdjChart, rsiChart, macdChart].forEach(c => {
-      try { c.timeScale().scrollToRealTime(); } catch (e) {}
+      try { c.timeScale().scrollToPosition(_ro, false); } catch (e) {}
     });
   } catch (e) {}
 }
