@@ -458,6 +458,15 @@ const _visNFor = (bs) => {
 };
 /* 看最新時「最後一根 K 棒與右緣之間」的像素下限（見 _defaultRightPad）。 */
 const _RPAD_MIN_PX = 48;
+/* rightOffset 的**上限**（模組層：還原、背景補載補償、閒置修剪三處共用同一份）。
+   ★ 2026-08-17 使用者：「有留白,但跟原本不同」——把留白拉到 35 根、重整後被砍成 27 →
+     放寬到可見根數的 80%（畫面上一定還留得下兩成 K 棒）、絕對上限 200。
+   ⚠ 量不到寬度時**不要夾**（只回絕對上限）：用一個還沒準備好的寬度去夾會每次重整都吃掉留白。 */
+const _roCapFor = (bs) => {
+  const visN = _visNFor(bs);
+  return visN == null ? 200 : Math.min(Math.max(5, Math.round(visN * 0.8)), 200);
+};
+
 const _defaultRightPad = (bs) => {
   const visN = _visNFor(bs) || (_savedBarCount || 50);
   /* ★ 2026-09-24 使用者：「價格的右邊留白好多」→ 6% 減半成 3%，上限 20 → 12 根。
@@ -532,9 +541,21 @@ function renderAll(data) {
          下一幀 —— 上面那段註解講的「fit 晚一幀蓋掉還原」的風險也跟著消失。 */
     const _kn = (typeof candleSeries !== "undefined" && candleSeries)
       ? (candleSeries.data() || []).length : 0;
+    /* ★★ 2026-10-27：`to: _kn - 1` ＝ 把**最後一根放在右緣**＝一點留白都沒有
+       （這是第二份「自己決定留白」的地方,而它決定的是 0）。→ 往右讓出同一份下限。
+       ⚠ 用 `to` 加 `_pad`、**不要**把 from 也加：from 一起位移會把最左邊那幾根推出畫面
+         （這條路的語意本來就是「全部看得到」）。span 多了 _pad 根 → bs 只會略縮。
+       ⚠ `_pad` 要用「fit 之後的 bs」估（≈ 繪圖區寬 ÷ 根數）,不能用當下的 options().barSpacing
+         —— 那是 fit 之前的值,在這條路上通常差很多。 */
+    let _pad = 0;
+    try {
+      const _w = document.getElementById("mainChart").clientWidth
+               - mainChart.priceScale("right").width();
+      if (_kn > 1 && _w > 50) _pad = _defaultRightPad(_w / _kn);
+    } catch (e) {}
     [mainChart, kdjChart, rsiChart, macdChart].forEach(c => {
       try {
-        if (_kn > 1) c.timeScale().setVisibleLogicalRange({ from: 0, to: _kn - 1 });
+        if (_kn > 1) c.timeScale().setVisibleLogicalRange({ from: 0, to: _kn - 1 + _pad });
         else c.timeScale().fitContent();
       } catch (e) {}
     });
@@ -556,10 +577,7 @@ function renderAll(data) {
      ★ 2026-08-17 使用者：「有留白，但跟原本不同」——實測把留白拉到 35 根，重整後被砍成 27（789px→79px）。
        一半太緊了：想把最後一根推到偏左看延伸(畫趨勢線/等突破)是很常見的用法。
      → 放寬到可見根數的 80%（畫面上一定還留得下兩成 K 棒，不會變成整片空白），絕對上限 200。 */
-  const _roCapFor = (bs) => {
-    const visN = _visNFor(bs);
-    return visN == null ? 200 : Math.min(Math.max(5, Math.round(visN * 0.8)), 200);
-  };
+  // （_roCapFor 已提到模組層,見 renderAll 上方 —— 背景補載/閒置修剪的夾限也要用同一份）
   /* 看最新時，最後一根 K 棒與右緣之間的**預設留白**（單位＝K 棒數）。
      ★ 2026-08-17 使用者：「右邊無留白」。LWC 預設 rightOffset=0 ＝最後一根貼著價格軸：
        最新那根被切在邊上、也沒有空間看「接下來要往哪走」。本專案一直沒有預設值，
@@ -594,7 +612,12 @@ function renderAll(data) {
     const _prevRange = ts.getVisibleLogicalRange();
     const _barCount  = (_prevRange && _savedBarCount != null) ? _savedBarCount : 50;
     if (data.length > _barCount) {
-      const _pad = Math.min(20, Math.max(3, Math.round(_barCount * 0.06)));
+      /* ★★ 2026-10-27：這裡原本自己又寫了一份留白公式（6%、上限 20 根）＝**第三份真相**
+         （另兩份：`_defaultRightPad`、下面 fit-all 那條）。它沒有像素下限 → 縮很開時
+         （使用者實測 bs≈2~3.7）算出來只有十幾 px,看起來就是「貼右框」。
+         → 收斂到唯一的 `_defaultRightPad`。它只會變大不會變小,所以對預設縮放是原樣。 */
+      const _bsNow = (() => { try { return ts.options().barSpacing; } catch (e) { return 6; } })();
+      const _pad = _defaultRightPad(_bsNow);
       ts.setVisibleLogicalRange({ from: data.length - _barCount + _pad, to: data.length - 1 + _pad });
     }
   };
@@ -1452,7 +1475,14 @@ async function _bgLoadOlderBars(scrollTriggered = false) {
             mainChart.timeScale().setVisibleLogicalRange(shifted);
             [kdjChart, rsiChart, macdChart].forEach(c => { try { c.timeScale().setVisibleLogicalRange(shifted); } catch (e) {} });
             if (withScroll) {
-              const ro = Math.min(0, shifted.to - (ohlcvData.length - 1));   // 夾上界:正值會被拉到最新K
+              /* ⚠⚠ **這一處的 `Math.min(0, …)` 不可以放寬**（2026-10-27 試過、被守門員抓到,別再改）。
+                 隔壁閒置修剪那處我改成「正值＝留白,保住它」,但**這一條的語意不同**：
+                 它只在 `scrollTriggered`＝**使用者已經捲進歷史**時才跑 → 這裡的正值不是留白,
+                 就是 2026-07-28 註解講的那種垃圾值（視野已捲過資料右緣）。
+                 放寬成 `_roCapFor` 之後實測 `check_hist_cache` **多出 1 個破洞**（HEAD 版 0 個）——
+                 視野被允許跑到資料右緣之外 → 之後的背景補載依著那個錯位置決定要抓哪一段。
+                 ★ 教訓：兩處長得一樣的夾限不代表語意一樣,改之前先問「這條路什麼時候才會跑」。 */
+              const ro = Math.min(0, shifted.to - (ohlcvData.length - 1));
               [mainChart, kdjChart, rsiChart, macdChart].forEach(c => { try { c.timeScale().scrollToPosition(ro, false); } catch (e) {} });
             }
           } catch (e) {}
@@ -1713,14 +1743,25 @@ function _scheduleIdleTrim() {
 
     // 修剪那一幀,LWC 會拿「舊 rightOffset」配新資料重算一次(實測 9510−4822−508=4180=畫錯的那幀),
     //   所以除了 logical range,也要把它真正用來捲動的位置一起設對 → 那一幀就不會錯位。
-    //   ⚠ **必須夾住上界 Math.min(0, …)**:2026-07-28 第一次試沒夾,視野若已捲過資料右緣(vr.to > n−1)
-    //     算出來會是正值＝往「未來」捲 → 整個被拉到最新 K(比閃一下嚴重得多)。夾住後才安全。
+    //   ⚠ 上界必須夾:2026-07-28 第一次試沒夾,視野若已捲過資料右緣(vr.to > n−1)算出來會是
+    //     正值＝往「未來」捲 → 整個被拉到最新 K(比閃一下嚴重得多)。
+    //   ⚠⚠ **但不可以夾成 `Math.min(0, …)`**（2026-10-27 更正）：正值有兩種,一種是垃圾值、
+    //     另一種**就是使用者在最新時右邊的留白** → 夾成 0 等於每次修剪都把留白歸零、
+    //     最後一根貼齊右框（使用者：「有時候也沒有同步中 就是會自己去貼右匡」）。
+    //     改成用 `_roCapFor()` 夾在「可見根數 80%」內：真留白保得住,垃圾值仍擋得掉。
     const _applyTrim = (withScroll) => {
       try {
         mainChart.timeScale().setVisibleLogicalRange(sh);
         [kdjChart, rsiChart, macdChart].forEach(c => { try { c.timeScale().setVisibleLogicalRange(sh); } catch (e) {} });
         if (withScroll) {
-          const ro = Math.min(0, sh.to - (ohlcvData.length - 1));
+          /* ★★★ 同上（2026-10-27）：正值＝真的留白,不可以夾成 0。
+             ⚠ 這一處比上面那處更毒：閒置修剪是**完全自動**的,使用者什麼都沒做,
+               畫面就自己把最後一根貼到右框。而且 2026-10-25 我把 `TRIM_MAX` 從 40000 降到
+               基準 15000 之後,這條路從「幾乎不會跑」變成「深歷史下常常跑」
+               → **是那次優化把這個既有缺陷暴露出來的**。 */
+          const _rawRo = sh.to - (ohlcvData.length - 1);
+          const _bsRo = (() => { try { return mainChart.timeScale().options().barSpacing; } catch (e) { return 6; } })();
+          const ro = _rawRo <= 0 ? _rawRo : Math.min(_rawRo, _roCapFor(_bsRo));
           [mainChart, kdjChart, rsiChart, macdChart].forEach(c => { try { c.timeScale().scrollToPosition(ro, false); } catch (e) {} });
         }
       } catch (e) {}
