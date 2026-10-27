@@ -505,7 +505,14 @@ def _kick_relay(name: str, snap: dict):
 #   （`_coerce((data or {}).get("watchlist"))`）—— 剝掉就是靜默關掉自選標的的訊號通知。
 #   同理 `notifyPrefs` 也有讀者。只放「account.js 註解明講是真正裝置本地」且全後端零讀者的那三個。
 # ⚠ `tradeKey`/`acctName` 刻意不動：前者是交易口令（碰它等於動認證路徑），後者只有幾十位元組。
-_DEVICE_LOCAL = {"_tc", "wxCoords", "notifyFeedSeen"}
+# 純裝置本地、後端零讀者的 key：整包快照寫入前在**邊界**丟掉。
+# ★ 2026-10-27 補上 `_wlpx`（自選那幾列的價格快取，ticker.js `_WL_CACHE_KEY`）——
+#   它每次報價更新就重寫 → 雲端與本機永遠不相等 → 前端下行把它當成「有變更、且不在 _LIVE 裡
+#   ＝不能當場重套」→ **開場拉完雲端就 `location.reload()`**
+#   （使用者：「網頁刷新會先同步中」「跳到已儲存到雲端就會跳」）。
+# ⚠ 前端已把它列進 `_ACCT_SKIP`（不再上傳），但**邊界這一道不可省**：
+#   舊分頁／舊版 JS 隨時可以再送上來，而且沒有人會去清掉雲端那份（同 `_tc` 當年的理由）。
+_DEVICE_LOCAL = {"_tc", "wxCoords", "notifyFeedSeen", "_wlpx"}
 
 
 def _strip_device_local(data: dict) -> dict:

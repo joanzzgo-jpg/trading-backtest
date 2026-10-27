@@ -21,7 +21,19 @@ let _acctLSHooked = false;
 //   推上雲端只是白白灌大快照。症狀：勝率欄的同步指示永遠停在「同步中…」。
 // symUse=這台裝置「常看哪些標的」的計分表（winrate.js 預抓用）。裝置本地：手機跟電腦在看的
 //   東西本來就不同，而且它每 6 秒就可能寫一次 → 跟著上雲端會把同步 debounce 一直重設（同 _tc）。
-const _ACCT_SKIP = new Set(["acctName", "wxCoords", "notifyFeedSeen", "tradeKey", "watchlist", "_tc", "symUse", "tfUse"]);
+/* ★★★ _wlpx=自選那幾列的**價格快取**（ticker.js `_WL_CACHE_KEY`）。2026-10-27 加入 ——
+     使用者：「刷新後…跳到已儲存到雲端就會跳」「網頁刷新會先同步中」。
+   它是純裝置本地的「別讓畫面空白」底稿（每一筆都帶 ts、讀回來時刻意**不當成新鮮的**），
+   後端零讀者,而且**每次報價更新就重寫一次** → 雲端那份與本機那份**永遠不相等**。
+   後果不是「多同步一次」那麼輕：`_acctPull` 的下行對「不在 `_LIVE` 裡的 key」會設 `needReload`,
+   而 `_wlpx` 正好不在 `_LIVE` → **開場拉完雲端就 `location.reload()`**。
+   使用者看到的就是「同步中 → 已儲存 → 整頁自己跳一下」,而且那一跳會把剛還原好的畫面
+   重新跑一遍還原流程（任何過渡狀態都多一次機會被固化）。
+   實測：雲端只要有一個非 `_LIVE` 的鍵與本機不同,一次開場就量到 **3 次導覽**。
+   ⚠ 它跟 `_tc`（行情快取）完全同一類,`_tc` 2026-08-05 就因為同樣的理由被放進來了 ——
+     這是**漏掉的第二個**。新增任何「快取/草稿」類的 localStorage key 時先問：
+     它會不停變嗎？後端讀它嗎？不跨裝置也沒差嗎？三個是 → 放這裡。 */
+const _ACCT_SKIP = new Set(["acctName", "wxCoords", "notifyFeedSeen", "tradeKey", "watchlist", "_tc", "symUse", "tfUse", "_wlpx"]);
 /* 「照樣進快照上雲、但**不主動觸發**推送」的 key。
    ★ 2026-08-17 lastSymbol：使用者要「上次看的畫面跨裝置同步」，所以它必須上雲；但它現在
      每次平移/縮放（停手 1.2 秒）就寫一次 —— 若跟著觸發 _acctTouch，2.5 秒的 debounce 會被
@@ -29,6 +41,10 @@ const _ACCT_SKIP = new Set(["acctName", "wxCoords", "notifyFeedSeen", "tradeKey"
      加進 _ACCT_SKIP，見上方註解）。放這裡＝有別的設定變更、或切到背景 flush 時順便帶上去，
      而「最後看到哪」本來就只有最後那一次有意義。 */
 const _ACCT_NO_TOUCH = new Set(["lastSymbol"]);
+/* 開機拉到雲端之後「還來得及整頁重載而不被看見」的時間窗（見 _acctPull 的 needReload）。
+   1200ms 的依據：本機實測圖表第一次畫出 K 棒約在 400~900ms、而 pull 回來常在 2.5~3 秒 →
+   門檻訂在兩者之間,快的機器/快的網路仍能即時套用,慢的就留到下次開啟,不在眼前閃。 */
+const _RELOAD_GRACE_MS = 1200;
 // 登入「種子」不可帶的每帳號專屬 key：避免把上一個帳號的自選/偏好灌進「剛登入的空帳號」。
 const _ACCT_SEED_SKIP = new Set(["watchlist", "notifyPrefs",
                                  "tv_drawings_v2", "tv_drawings"]);
@@ -307,7 +323,14 @@ async function _acctPullDrawings(name, _bootPull) {
             /* ★ 2026-09-23 電腦/手機兩份色盤已合一（見 utils.js loadPrefs）→ 這三個是**死資料**。
                ⚠ 一定要列在這裡，否則收斂不了：下行會把雲端那份寫回 localStorage，
                  下一次同步又把它推上去 —— 本機 loadPrefs 明明每次開機都刪，卻永遠刪不掉。 */
-            "chartColors_m", "chartStyles_m", "chartLineStyles_m"]);
+            "chartColors_m", "chartStyles_m", "chartLineStyles_m",
+            /* ★ 2026-10-27：SR+SMC 教練 2026-09-17 已整個移除 → 本機再也不會寫這三個,
+               但雲端舊快照裡還留著 → 下行永遠「雲端有、本機沒有」＝必然不相等,而它們不在
+               `_LIVE` 裡 → **每次新開工作階段都觸發一次 `location.reload()`**。
+               ⚠ 這正是本檔記過的「整包快照會讓死 key 永遠復活」。真要徹底收斂還得本機刪一次,
+                 但它們只有幾個位元組,列在這裡先止住重載。
+               ⚠ `co_usdt`/`co_lev` **不要**列進來：`chartorder.js` 還在讀寫它們,不是死 key。 */
+            "coachCollapsed", "coachOverlay", "coachWhich"]);
           // 這幾項我們有辦法「當場重讀重套」，其餘只能靠重新載入才會反映到畫面
           const _LIVE = new Set(["tv_drawings_v2", "sysColors", "drawColorByTf",
                                  "chartColors", "chartStyles", "chartLineStyles",
@@ -349,13 +372,32 @@ async function _acctPullDrawings(name, _bootPull) {
              顏色那幾項有重讀函式（下面處理）；其餘 30 幾項沒有 → 沿用登入時的做法重新載入一次。
              ⚠ 只在**開機**這條路重載（切回前景時重載太擾人，那時就讓它下次開啟才生效）。
              ⚠ 用 sessionStorage 上鎖防迴圈；正常情況下重載後兩邊已相同、不會再觸發。 */
+          /* ★★★ 2026-10-27（使用者：「畫面會閃一下」「跳到以儲存到雲端就會跳」）：
+             這一整頁重載**不可以在使用者已經看到圖表之後才做**。
+             原本的註解寫「只在開機這條路重載（切回前景重載太擾人）」—— 方向對,但**前提是錯的**：
+             開機這條路的重載並不早。它要等 `/api/account/pull` 的網路往返回來,實測落在
+             **2.5~3 秒**（而且顯示「同步中→已儲存」的也是那一段）→ 那時 K 棒早就畫好了,
+             使用者看到的就是「畫面自己閃一下、然後跳」。
+             → 加一道時間閘門：真的還很早（`_RELOAD_GRACE_MS` 內,畫面還沒穩定）才重載;
+               太晚就**不重載**。那些值已經寫進 localStorage 了,下一次開啟自然生效 ——
+               晚一次啟動才套用別台改的設定,遠比每次開場閃一下好。
+             ⚠ 這不會讓任何設定遺失：寫入與套用是兩件事,這裡放棄的只是「立刻套用」。
+             ⚠ `sessionStorage` 那道保險絲保留（防重載迴圈）。
+             ⚠ 真正的大頭已經另外治掉了：`_wlpx`（自選價格快取）每次報價都重寫、
+               雲端與本機永遠不相等 → 以前**每個新工作階段必然**觸發這條。它已列入 `_ACCT_SKIP`。 */
           if (needReload && _bootPull) {
             let done = false;
             try { done = sessionStorage.getItem("_acctBootReloaded") === "1"; } catch (e) {}
-            if (!done) {
+            const _early = (() => {
+              try { return performance.now() < _RELOAD_GRACE_MS; } catch (e) { return false; }
+            })();
+            if (!done && _early) {
               try { sessionStorage.setItem("_acctBootReloaded", "1"); } catch (e) {}
               setTimeout(() => location.reload(), 60);
               return;
+            }
+            if (!done && !_early) {
+              console.debug("[帳號] 雲端有需要重載才生效的設定，但畫面已經畫好了 → 留到下次開啟再套用（不閃）");
             }
           }
           // 寫進 localStorage 還不夠：記憶體裡的 C/S/SC 是更早載入時讀的，要重讀+重套才會反映在畫面上
