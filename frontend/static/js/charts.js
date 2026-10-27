@@ -759,7 +759,17 @@ function _makeFVGPrimitive(getZones) {
           const byTop = Math.min(yT, yB) * vr, bh = Math.abs(yB - yT) * vr;
           const _faint = false;      // 不再淡化任何缺口(使用者要求全部照常顯示；dim/used 皆不影響顯示)
           if (_faint) ctx.globalAlpha = 0.38;
-          ctx.fillStyle   = z.d === "l" ? "rgba(38,198,166,0.08)" : "rgba(255,82,82,0.08)";   // 收斂:太亮→降淡(0.14→0.08)
+          /* ★ 2026-10-27（使用者：「背景fvg 上下顛倒也要換色」）：上下顛倒時缺口色塊要跟著對調。
+             圖整個翻過來之後,多方缺口在畫面上是往下的 —— 色塊還留著青色就跟 K 棒、影線、
+             成交量柱、標記全部對不上（那幾個早就對調了,見 `_candleColorOpts` / `_volColor`
+             / `_invNativeMarkers`），而 claude.md 記著顛倒最大的風險正是「被當正常圖看、漲跌讀反」。
+             ⚠ 寫法沿用旁邊 `_volColor` 的 XOR：`方向 !== 顛倒`,不要寫成兩層三元運算。
+             ⚠ 這支 primitive 是**主圖與多圖格子共用**的（`_makeFVGPrimitive(getZones)`）→ 改這一處
+               兩邊同時正確;各自抄一份的話顛倒時會有一邊安靜地不同步。
+             ⚠ 隔壁 FVG 交易位階線的綠/紅**刻意不跟著翻**：那是「止盈/止損」的語意色,
+               不是方向色,翻了反而會把獲利畫成虧損。 */
+          const _zUp = (z.d === "l") !== !!window._chartInverted;
+          ctx.fillStyle   = _zUp ? "rgba(38,198,166,0.08)" : "rgba(255,82,82,0.08)";   // 收斂:太亮→降淡(0.14→0.08)
           ctx.fillRect(bx, byTop, bw, bh);
           // 虛線邊框已移除(使用者:FVG 不要有虛線匡)→ 只留填色色塊。
           // 寬度% 數字：使用者要求不再顯示（缺口盒保留、只是不標寬度百分比文字）。

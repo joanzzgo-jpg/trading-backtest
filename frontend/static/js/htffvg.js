@@ -129,7 +129,10 @@ function _makeHtfFvgPrimitive() {
             ctx.setLineDash([]);
             // 時框標籤(左緣、垂直置中、粗體)：例 "4h ↑"（↑=支撐/多方缺口、↓=壓力/空方缺口）
             if (!_mv) {
-              const lbl = grp.tf + (z.d === "l" ? " ↑" : " ↓");
+              /* ★ 2026-10-27：大時框 FVG 是**按時框**著色（沒有多空色可對調）,但這個箭頭是**方向符號**
+                 → 上下顛倒時要跟著翻,否則多方缺口在翻過來的圖上畫著「↑」卻指向下跌的那一邊。
+                 同 claude.md 既有規則「標記要翻：aboveBar⇄belowBar、arrowUp⇄arrowDown」。 */
+              const lbl = grp.tf + (((z.d === "l") !== !!window._chartInverted) ? " ↑" : " ↓");
               const _ty = byTop + bh / 2;
               const _yy = bh >= 13 * vrr ? _ty : byTop - 7 * vrr;
               // 盒左緣被拉到視窗外時，標籤夾回視窗內(不超過盒右緣)→ 長缺口仍看得到是哪個時框
