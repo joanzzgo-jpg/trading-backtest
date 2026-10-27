@@ -59,10 +59,84 @@ def load_all(sym: str, tf: str):
         return None
 
 
+_FROZEN_RUN_MIN = 3
+
+
+def _drop_frozen_runs(sym: str, tf: str, df):
+    """★★ 上游「半壞」時會送**零成交量、四價凍住**的填充棒 —— 這種棒不可以烘進版控倉庫。
+
+    2026-10-27（使用者：「為什麼早上8:05-8:30 虛擬貨幣數據是平的」→「能修嗎」）：
+    那段平掉的資料是 **Binance fapi 自己的 feed**（同一刻 Bybit 正常）。它的形狀是
+    「連續好幾根 volume=0 且 open==high==low==close」→ 畫出來就是一條水平線。
+
+    ★ 為什麼守在這裡而不是請求路徑：
+      ・倉庫檔（`data/klines5m/*.pkl.gz`）是**版控、會隨 git 上 Railway** 的 → 壞棒一旦存進去就
+        **永久固化**,而且完全不報錯（有棒、時間也對,只是價格是假的）→ 之後所有 FVG／勝率／
+        回測全部建立在假棒上。這正是本檔與 claude.md 一再記錄的「倉庫會固化壞資料」。
+      ・**請求路徑刻意不動**：那是使用者眼前的即時資料,當場丟掉會變成一個看得見的缺口;
+        而且實測 Binance **後來會自己更正**（2026-10-27 回頭掃 18 天 × 5 個標的 26,380 根,
+        零量棒 0 根 —— 當初那段現在是乾淨的）。既然會自己好,就讓倉庫晚一點再收乾淨的那份。
+
+    ★ 門檻 `_FROZEN_RUN_MIN = 3` 是**量出來的,不是猜的**：掃過整個倉庫 488,259 根
+      （含我們最清淡的標的 XAUT 代幣化黃金,鄰棒成交量只有 0.011~0.7）——
+      零量棒確實有 14 根,但**連續段的最長長度是 1**。所以「連續 ≥3 根」在我們的資料宇宙裡
+      不會自然發生,而使用者回報的那段（08:05~08:30 ＝ 6 根）會被抓到。
+      ⚠⚠ **絕對不可以改成「任何零量棒都丟」**：XAUT 那 12 根零量、275 根四價相同是**真的**
+        （那 5 分鐘真的沒人成交）—— 丟掉就是偽造資料,比保留更糟。
+
+    ⚠ 丟掉會留下一個洞,而 `find_holes` 會把它報成**新破洞**（`repair_klines5m` 回傳 1）。
+      **那是功能不是 bug**：它在說「這一段上游給的是垃圾,等它更正後再跑一次 --fix」。
+      寧可留一個會自己被補掉的洞,也不要固化一段假棒（同 claude.md「寧可回空也不要回舊」）。
+    ⚠ 一定要印出來：修掉之後守門員就看不到上游在吐壞資料了（同 `_scrub_latest`／
+      `_fix_bar_bounds` 把丟掉/修過的棒印出來的理由）。
+    """
+    if df is None or getattr(df, "empty", True) or "volume" not in df.columns:
+        return df, 0
+    try:
+        v = pd.to_numeric(df["volume"], errors="coerce").fillna(0)
+        o = pd.to_numeric(df["open"], errors="coerce")
+        h = pd.to_numeric(df["high"], errors="coerce")
+        lo = pd.to_numeric(df["low"], errors="coerce")
+        c = pd.to_numeric(df["close"], errors="coerce")
+    except Exception:
+        return df, 0
+    frozen = ((v <= 0) & (o == h) & (h == lo) & (lo == c)).tolist()
+    runs, start = [], None
+    for i, f in enumerate(frozen + [False]):
+        if f and start is None:
+            start = i
+        elif not f and start is not None:
+            if i - start >= _FROZEN_RUN_MIN:
+                runs.append((start, i - 1))
+            start = None
+    if not runs:
+        return df, 0
+    drop = []
+    for a, b in runs:
+        drop.extend(range(a, b + 1))
+        try:
+            print(f"  ⚠ {sym} {tf}: 拒絕烘進倉庫 —— 上游給了 {b - a + 1} 根"
+                  f"「零成交量且四價凍住」的填充棒 "
+                  f"{df['time'].iloc[a]} ~ {df['time'].iloc[b]}（價 {o.iloc[a]}）。"
+                  f"留洞等上游更正後再跑 --fix。")
+        except Exception:
+            pass
+    return df.drop(df.index[drop]).reset_index(drop=True), len(drop)
+
+
 def save(sym: str, tf: str, df) -> int:
-    """合併既有 + 去重 + 排序 + 只保留該時框 cutoff,原子寫入。回傳存檔後總根數。"""
+    """合併既有 + 去重 + 排序 + 只保留該時框 cutoff,原子寫入。回傳存檔後總根數。
+
+    ⚠ 寫入前先擋掉上游的「凍住填充棒」（見 `_drop_frozen_runs`）—— 這是唯一的烘烤邊界,
+      暖機／`--fix`／`--extend` 三條路都走它,擋在這裡就不可能漏。
+    """
     if df is None or df.empty:
         return 0
+    df, _dropped = _drop_frozen_runs(sym, tf, df)
+    if df is None or df.empty:
+        # 整批都是填充棒 → 什麼都不寫（不是失敗,下一次 --fix 會再來）
+        old = load_all(sym, tf)
+        return 0 if old is None or old.empty else len(old)
     os.makedirs(_DIR, exist_ok=True)
     old = load_all(sym, tf)
     if old is not None and not old.empty:
