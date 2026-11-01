@@ -94,12 +94,21 @@ async function loadData(autoLoad = false, forceLatest = false) {
       //   scrollPosition() 只反映「使用者手動捲動量」，程式用 rightOffset 設定的留白它回 0 →
       //   切到第二個標的後留白存進 rightOffset、scrollPosition 歸 0 → 第三個標的存到 0 → 黏回右緣。
       try {
-        // 夾限右緣留白：拖進右側大片空白(或前一輪還原被 fitContent 踩爛)時 to 可遠超最後棒
-        // → 大 rightOffset 一旦存進錨點會被重申機制保護、每次切換複發「最右邊沒K棒」。
-        // 上限=可見根數一半(至少半屏是K棒)、絕對上限 60。
-        const _bcNow = Math.max(5, Math.round(_r.to - _r.from));
+        /* 夾限右緣留白：拖進右側大片空白(或前一輪還原被 fitContent 踩爛)時 to 可遠超最後棒
+           → 大 rightOffset 一旦存進錨點會被重申機制保護、每次切換複發「最右邊沒K棒」。
+           ★★★ 2026-10-27（使用者：「他記錄不了最新Ｋ接近左匡」
+             「我從15m切到5m再切回15m最新Ｋ位置不同」）：這裡原本是**自己寫的一份**
+             `min(可見根數/2, 60)` —— 比還原端的 `_roCapFor`（80%／200）**緊得多**,
+             於是「把最後一根推到偏左看延伸」這個 claude.md 自己記過的常見用法存不住：
+             實測 15m、可見 49 根、把最新 K 推到畫面 **25%**（留白 37 根,`saveLastSymbol`
+             也確實存了 37）→ 一切時框就被夾成 `floor(49/2)=24` → 位置變成 **51%**,
+             而且那個被夾過的值又被存回 `lastSymbol` → **從此永久記不住**（重整也是 51%）。
+           → 改用同一份 `_roCapFor()`（模組層,還原/補載補償/閒置修剪共用）。
+             這是「留白」第四處各自為政的公式,收斂之後整支只有一份真相。
+           ⚠ 保留夾限本身（垃圾值仍要擋）,只是上限改成與還原端一致 —— 否則存進去的值
+             在還原時又會被另一個上限砍一次,使用者永遠看到「記不住」。 */
         _savedRightOffset = Math.min(Math.max(0, _r.to - (ohlcvData.length - 1)),
-                                     Math.max(5, Math.floor(_bcNow / 2)), 60);
+                                     _roCapFor(mainChart.timeScale().options().barSpacing));
         _savedBarSpacing  = mainChart.timeScale().options().barSpacing;
       } catch (e) {}
     }
@@ -464,7 +473,11 @@ const _RPAD_MIN_PX = 48;
    ⚠ 量不到寬度時**不要夾**（只回絕對上限）：用一個還沒準備好的寬度去夾會每次重整都吃掉留白。 */
 const _roCapFor = (bs) => {
   const visN = _visNFor(bs);
-  return visN == null ? 200 : Math.min(Math.max(5, Math.round(visN * 0.8)), 200);
+  /* ★ 2026-10-27：絕對上限 200 → 2000。真正該起作用的是**相對**上限（可見根數的 80%,
+     ＝畫面上一定還留得下兩成 K 棒）；絕對值只是擋「可見範圍回垃圾值」那種離譜數字
+     （曾量到 43,000）。縮很開時 80% 可能是 400~600 根,被 200 砍掉就等於
+     「越縮小越記不住」——使用者正是在 bs 2~4 的深歷史縮放下用這個視野。 */
+  return visN == null ? 200 : Math.min(Math.max(5, Math.round(visN * 0.8)), 2000);
 };
 
 const _defaultRightPad = (bs) => {
