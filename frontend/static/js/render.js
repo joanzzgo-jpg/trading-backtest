@@ -619,6 +619,21 @@ function renderAll(data) {
       const opt = { barSpacing: _savedBarSpacing, rightOffset: Math.min(_ro, _roCapFor(_savedBarSpacing)) };
       ts.applyOptions(opt);
       _bgPosAnchor = opt;   // 背景分頁載入每段後重套此錨點，防縮放被 fitContent 壓回 0.5
+      /* ★★★ 2026-11-01（使用者：「切時匡還是有機率貼右匡」）：**切標的/切時框這條路也要「按住」。**
+         一次 `loadData` 會跑**不只一次** `renderAll`（本機快照秒畫一次、真資料/勝率到貨再一次）,
+         而 renderAll 結尾會把 `_savedBarSpacing`/`_savedRightOffset` 全部清成 null
+         → 第二次進來 `_hasRestoreTarget` 為 false → 走 fit-all ＋ 下面那條「貼最新 N 根」
+         → **把剛還原好的位置整個蓋掉**。第二次 renderAll 落在還原之前或之後是時序競態,
+         所以使用者的描述是「**有機率**」。
+         ★ 把競態變成確定的來驗：切完時框後直接再跑一次 `renderAll(ohlcvData)` ——
+           實測最新 K 從 **49% 跳到 93%**（離右緣 603px → 84px）,bs 與可見根數都沒變,
+           被換掉的是可見邏輯範圍。
+         ⚠ `_bootViewHold` 當年（2026-08-17）就是為了治這件事而做的,但**只掛在開機那條
+           `_pendingRestoreRange` 分支**上 —— 切標的/切時框走的是這一條,一直沒有保護。
+         ⚠ 它自帶保險絲（9 秒）＋ 使用者一動（mousedown/wheel/touchstart/keydown）就放手,
+           所以不會把使用者接下來的縮放彈回去；下一次點時框鈕的 mousedown 也會先放手,
+           連續切換不會沿用上一次的值。 */
+      _bootViewHold(opt);
       return;
     }
     // 否則（首次、無保存）→ 預設貼最新 N 根，右側留一段空白（見 _defaultRightPad）
