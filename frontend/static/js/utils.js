@@ -743,6 +743,14 @@ window._perfProbe = function (sec, silent) {
     if (!silent) {
       console.log("%c[效能探針] 結果", "color:#2962ff;font-weight:bold");
       console.log(`  幀：中位 ${q(0.5)}ms · p95 ${q(0.95)}ms · 最長 ${q(1)}ms · >50ms ${frames.filter(x => x > 50).length} 個 · >100ms ${frames.filter(x => x > 100).length} 個`);
+      /* 最快的那幾幀＝這台裝置的上限。
+         ⚠ 只看 `min` 會說謊：整段都慢的時候（實測 5 秒只有 43 幀）,min 只是「最不慢的那一幀」,
+           卻會被讀成「這台只有 30fps」。要 `min` 與 `p10` **同時**貼在 33 附近才能下那個結論。
+         ⚠ 判不出來就明講判不出來 —— 不要讓「算不出來」長得像「這裡沒問題」（claude.md 的老教訓）。 */
+      console.log(`  最快：min ${q(0)}ms · p10 ${q(0.1)}ms → ` + (
+        q(0) <= 20 ? "這台可達 60fps（中位若是 33ms 就是真的每兩幀掉一幀）"
+        : (q(0) > 28 && q(0.1) < 40) ? "這台裝置本身就是 ~30fps,中位 33ms 是正常的"
+        : "整段取樣都偏慢,判斷不出這台的上限"));
       console.log(`  環境：DPR ${window.devicePixelRatio} · ${(typeof ohlcvData !== "undefined" ? ohlcvData.length : 0)} 根 · barSpacing ${bs} · 可見 ${vis} 根 · ${(typeof currentTF !== "undefined" ? currentTF : "?")}`);
       console.log(`  開著的疊加層：${on.length ? on.join("、") : "（都沒開）"}`);
       console.log("  各圖層（總 ms／次數／每次／最長）：");
@@ -751,7 +759,15 @@ window._perfProbe = function (sec, silent) {
     }
     // ★同時回傳後端（使用者無法把 console 貼回來 → 開發端用 GET /api/_perf_report 讀）
     const report = {
-      frames: { p50: q(0.5), p95: q(0.95), max: q(1),
+      /* ★★ 2026-11-13 加 `min`/`p10`：**用來分辨「那台裝置本來就只有 30fps」與「我們畫不動」。**
+         線上真實回報裡出現兩筆 `p50 = 33ms`（5 秒只有 150 幀＝持續 30fps）,而我方圖層
+         加起來不到 10ms → 看不出是哪一種,只能猜。
+         ★ 判準零成本（逐幀間隔本來就收集了）：
+           `min ≈ 33` → 那台**根本產不出更快的幀**（30Hz 螢幕／省電／縮放後的顯示更新率）
+                        ⇒ p50 33 是正常的,不是我們的問題。
+           `min ≈ 16.6` 而 `p50 ≈ 33` → 真的每兩幀掉一幀 ⇒ 要查。
+         ⚠ 同 claude.md「回報欄位要含你懷疑的那個變因」（2026-09-28 補 mc/charts/canvases 的理由）。 */
+      frames: { p50: q(0.5), p95: q(0.95), max: q(1), min: q(0), p10: q(0.1),
                 over33: frames.filter(x => x > 33).length,
                 over50: frames.filter(x => x > 50).length,
                 over100: frames.filter(x => x > 100).length, n: frames.length },

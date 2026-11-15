@@ -3,10 +3,27 @@
    的人一個**可驗證的環境** —— 那個 bug 只在常駐 2 萬根以上才出現,光把 barSpacing 設小重現不出來。
    回傳碼：0＝組態到位且已回報（結果用 `curl localhost:8000/api/_perf_report` 讀最後一筆）
            2＝到不了那個組態（測試不成立,不是「沒問題」）。
-   環境變數：TARGET（預設 20000 根）／SY（預設 ETH/USDT.P）／TF（預設 5m）。
-   實測一次（本機、1710×1035、副圖開）：4,460 根 →（拉最舊端 ×2）→ 34,412 根／heap 406MB,
-     設 bs 0.5 後產品探針回報 p95 81.9ms、max 287.8ms、>100ms 6 幀,
-     layers：_bgApplyChunk 226.6ms/次、renderBB 32.5ms/次、renderDrawings 3.9ms×57。
+   環境變數：TARGET（預設 8000 根,見下）／SY（預設 ETH/USDT.P）／TF（預設 5m）／NOMIN=1（不檢查門檻）。
+
+   ⚠⚠ **2026-11-01 更正門檻：預設從 20000 改成 8000 —— 2 萬根已經到不了了,那是刻意的。**
+     `TRIM_MAX` 2026-10-25 從 40000 降到基準 15000 之後,閒置修剪會把常駐壓在
+     「可見 ＋ 2×4500」≈ **9,501 根**（實測連拉三次最舊端：4,426 → 8,826 → 9,501 → 不再長）。
+     舊門檻 20000 ⇒ 這支**必然**印「只累積到 9501 根 → 測試不成立(2)」＝永遠叫不出任何結論,
+     而看到的人很容易誤讀成「組態到不了、所以沒問題」。
+     ★ 這正是 claude.md 一再記的形狀：**優化縮短了某個 bug 的暴露窗口時,
+       守著它的工具/守門員要跟著調**,否則它會從「抓得到」安靜退化成「永遠測試不成立」。
+
+   實測基準（本機、1710×1035、副圖開、ETH 5m）：
+     ・2026-10-25 改 TRIM_MAX **之前**：34,412 根／heap 406MB,bs 0.5 時 p95 81.9ms、max 287.8ms、
+       >100ms 6 幀,layers：_bgApplyChunk 226.6ms/次、renderBB 32.5ms/次、renderDrawings 3.9ms×57。
+     ・2026-11-01 **現況**：9,501 根,bs 2.8／可見 500 時 p50 16.6ms、p95 24.8、max 96.2、
+       >50ms 7/279 幀、>100ms **0**,layers：_bgApplyChunk **53.4ms/次**（max 61.7）、
+       renderBB 6.85、_rebuildTimeIndex 5.77、renderDrawings 1.29、_drawSessionOverlay 1.05。
+     ★ 最大那兩幀（92.4／96.2ms）**我方圖層最大只有 61.7ms** → 差額在 LWC 渲染與瀏覽器繪製,
+       不在我們的 JS 裡（claude.md「卡頓不在 JS 裡」第 N 次）。
+     ★ `_bgApplyChunk` 仍是我方第一名,但 claude.md 已查證**沒有槓桿**：它的成本大頭是
+       `setData`（原子、O(n)）,切更小塊只會呼叫更多次;而「錨點只餵頭尾兩點」被
+       `render.js` 自己的註解否決（錨點必須維持全長,否則副圖的 logical index 會錯位）。
 
    【重現環境】使用者「用起來卡卡的」的那個組態：加密 5m、副圖開、常駐 2 萬根以上、barSpacing 0.5。
    ★ 累積根數走產品自己的觸發條件（charts.js:1863）：可見範圍 from<2000 且 to<n-300 → _bgLoadOlderBars(true),
@@ -16,7 +33,7 @@
      不自己造一份平行儀器（claude.md：判準一律問產品自己的函式）。 */
 const puppeteer = require('puppeteer-core');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-const TARGET = +(process.env.TARGET || 20000);
+const TARGET = +(process.env.TARGET || 8000);   // 見檔頭：2 萬根在修剪生效後到不了,8000 才是現實的下限
 (async () => {
   const b = await puppeteer.launch({ executablePath:'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
     headless:false, args:['--no-sandbox','--window-size=1710,1035'] });
