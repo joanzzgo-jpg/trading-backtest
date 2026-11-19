@@ -392,29 +392,39 @@ document.addEventListener("DOMContentLoaded", async () => {
     }, 2000);
   });
 
-  // 極簡模式按鈕：開/關後重新整理頁面（最乾淨）
-  const _perfBtn = document.getElementById("perfModeBtn");
-  if (_perfBtn) {
-    const _isPerf = document.documentElement.classList.contains("perf-mode");
-    if (_isPerf) {
-      _perfBtn.classList.add("active");
-      _perfBtn.textContent = "☀️ 恢復完整特效";
-    }
-    // 手機「設定 → 極簡模式」列：開啟時高亮 + 狀態字（切換會 reload，故只需 init 設定）
-    const _perfRow = document.getElementById("mSetPerf");
-    if (_perfRow) _perfRow.classList.toggle("m-set-on", _isPerf);
-    const _perfSt = document.getElementById("mSetPerfState");
-    if (_perfSt) _perfSt.textContent = _isPerf ? "開啟中 · 關閉特效最省電" : "關閉 · 點擊開啟最省電模式";
-    _perfBtn.addEventListener("click", () => {
-      try {
-        if (localStorage.getItem("perfMode") === "1") {
-          localStorage.removeItem("perfMode");
-        } else {
-          localStorage.setItem("perfMode", "1");
-        }
-      } catch (e) {}
-      location.reload();
+  /* ★★★ 流暢模式按鈕（2026-11-19,取代舊的「極簡模式」按鈕）。
+     使用者：「優化 需要降低效能 讓他更流暢」「極簡模式移除 增加按鈕 按下去後 會降低一些耗能物件」
+            「我希望能跟tv一樣順」
+     它只關**純裝飾、而且量得出來很貴**的東西（毛玻璃模糊＋大面積陰影）,
+     顏色、版面、所有圖表資訊一律不動 —— 這是它跟極簡模式最大的差別。
+     實測（背靠背 A/B、真拖曳、兩輪交錯、只動毛玻璃這個變因）：
+       p50 **33.4ms（30fps）→ 17.1ms（58fps）**、>33ms 的幀 123 → 72。
+     ⚠⚠ 與極簡模式最大的不同：**不重載頁面**。極簡模式要 reload 是因為它連 effects.js/weather.js
+       都不載、整套外觀也換掉；流暢模式只是一個 CSS class → 即時生效,按下去馬上看到差別,
+       也不會丟掉當下的視野、繪圖與未存的狀態。
+     ⚠ 一定要呼叫 `applyAllColors()`：周圍三塊（上方列/符號列/行情列）的底色是 colors.js 用
+       **行內 !important** 寫的,不重新上色不會從半透明變實色（見 `_reduceTransparency` 的註解）。 */
+  const _fluidBtn = document.getElementById("fluidModeBtn");
+  if (_fluidBtn) {
+    const _fluidLbl = _fluidBtn.lastChild;      // 只換文字節點,保留前面那個 SVG 圖示
+    const _syncFluid = () => {
+      const on = document.documentElement.classList.contains("fluid-mode");
+      _fluidBtn.classList.toggle("active", on);
+      try { if (_fluidLbl && _fluidLbl.nodeType === 3) _fluidLbl.nodeValue = on ? "流暢模式中" : "流暢模式"; } catch (e) {}
+      const row = document.getElementById("mSetFluid");
+      if (row) row.classList.toggle("m-set-on", on);
+      const st = document.getElementById("mSetFluidState");
+      if (st) st.textContent = on ? "開啟中 · 已關掉毛玻璃模糊" : "關掉毛玻璃模糊，拖曳更順";
+    };
+    _syncFluid();
+    _fluidBtn.addEventListener("click", () => {
+      const on = !document.documentElement.classList.contains("fluid-mode");
+      document.documentElement.classList.toggle("fluid-mode", on);
+      try { on ? localStorage.setItem("fluidMode", "1") : localStorage.removeItem("fluidMode"); } catch (e) {}
+      try { if (typeof applyAllColors === "function") applyAllColors(); } catch (e) {}
+      _syncFluid();
     });
+    window._fluidToggle = () => _fluidBtn.click();    // 給測試與日後快捷鍵用
   }
 
   /* 極簡模式：跳過 effects.js / weather.js（SFX、BGM、天氣動畫、點擊特效），改用最小化的 FX 面板開關。

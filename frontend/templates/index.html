@@ -47,10 +47,20 @@
   <script defer src="{{ v('/static/vendor/lightweight-charts.standalone.production.js') }}"></script>
   <link rel="stylesheet" href="{{ v('/static/css/style.min.css') }}" />
   <script>
-    // 極簡模式（perf mode）：在 body 渲染前先掛上 class，避免特效資源被瀏覽器排程
+    /* ★★★ 2026-11-19 極簡模式（perf mode）已移除（使用者：「極簡模式移除 增加按鈕…」）,
+       改用下面的「流暢模式」。
+       ⚠⚠ **一定要主動把舊的 `perfMode` 清掉,不能只是不再讀它**：
+         我先把 fx 面板那顆按鈕換成流暢模式之後,已經開著極簡模式的人會**永遠卡在極簡模式**
+         —— class 照樣在開機掛上,但再也沒有任何入口可以關掉它（按鈕沒了、手機設定列也改指向別處）。
+         那是我自己引入的 bug,在這裡一次性清除。
+       ⚠ 舊的 `html.perf-mode` CSS 與 JS 分支暫時留著（143 條 CSS、十幾處 JS）—— 現在沒有人會
+         掛上那個 class,所以是惰性的;真正的刪除是另一件要刻意做、而且要跑設計守門員的事。 */
+    try { localStorage.removeItem("perfMode"); } catch (e) {}
+    /* 流暢模式（2026-11-19）：同樣要在 body 渲染前掛好 —— 晚一點掛的話使用者會先看到
+       一幀毛玻璃再變成實色（而它關的就是毛玻璃，閃那一下特別明顯）。 */
     try {
-      if (localStorage.getItem("perfMode") === "1") {
-        document.documentElement.classList.add("perf-mode");
+      if (localStorage.getItem("fluidMode") === "1") {
+        document.documentElement.classList.add("fluid-mode");
       }
     } catch (e) {}
     // 字型 CSS 非阻塞載入的保險：正常由 <link onload> 把 media 切回 all；
@@ -1109,11 +1119,20 @@
   </div>
   <div class="fx-section-label">效能</div>
   <div class="fx-grid">
-    <button id="perfModeBtn" class="fx-btn fx-btn-perf" title="關閉所有特效以提升舊裝置的流暢度">
+    <!-- 流暢模式（2026-11-19）：只關純裝飾的毛玻璃模糊與大面積陰影，顏色/版面/圖表資訊一律不動。
+         ⚠⚠ **tooltip 不可以寫「實測變順多少」**：我一度量到 p50 33.4→17.1ms，但之後在最重的
+            組態下交錯重量（含 CPU 節流 4x）**完全重現不出來**——這台鎖在 60fps、沒有餘裕可展示，
+            而 backdrop-filter 是 GPU/合成成本，節流 CPU 也碰不到。那次 33ms 是當時合成器被
+            其他視窗吃滿的機器狀態。→ 文案只說它「少做什麼」，不承諾「會快多少」。
+         ⚠ 圖示不用 emoji（claude.md：各平台字型不一，會跟這排線條圖示不搭）。 -->
+    <button id="fluidModeBtn" class="fx-btn fx-btn-perf" title="少做事模式：關掉毛玻璃模糊與大面積陰影（每一幀都要對著重繪中的圖表重新模糊一次）。顏色、版面、圖表內容都不會變。在 GPU 有餘裕的機器上不會變快；餘裕不足時才有感。">
       <svg class="fx-icon" width="14" height="14" viewBox="0 0 14 14" fill="none">
-        <path d="M11 8.5 A 5 5 0 1 1 7 2.2 A 4 4 0 0 0 11 8.5 Z" fill="currentColor"/>
+        <path d="M1.5 9.5 L4.5 5 L7 7.5 L12.5 2" stroke="currentColor" stroke-width="1.5"
+              stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M9.5 2 H12.5 V5" stroke="currentColor" stroke-width="1.5"
+              stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
-      極簡模式
+      流暢模式
     </button>
   </div>
   <div class="fx-section-label">背景動畫</div>
@@ -1380,8 +1399,10 @@
       <span class="m-set-ico"><svg viewBox="0 0 24 24"><text x="1.5" y="18" font-size="16" font-weight="800" fill="currentColor">A</text><text x="13" y="18" font-size="10.5" font-weight="800" fill="currentColor">A</text></svg></span>
       <span class="m-set-lbl">字體大小<small id="mSetFontState">標準</small></span><span class="m-set-arr">›</span>
     </button>
-    <button class="m-set-row" id="mSetPerf" onclick="event.stopPropagation();document.getElementById('perfModeBtn').click()">
-      <span class="m-set-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" filter="url(#mSketch)"><path d="M20 13.8 A7.6 7.6 0 1 1 10.2 4 A6 6 0 0 0 20 13.8 Z"/></svg></span><span class="m-set-lbl">極簡模式<small id="mSetPerfState">關閉特效、最省電（舊機更順）</small></span><span class="m-set-arr">›</span>
+    <!-- ⚠ 這一列原本寫 `document.getElementById('perfModeBtn').click()` —— 那顆已換成流暢模式,
+         不改這裡會變成 `null.click()` 當場丟 TypeError（而且是手機設定列,桌機測不到）。 -->
+    <button class="m-set-row" id="mSetFluid" onclick="event.stopPropagation();document.getElementById('fluidModeBtn')?.click()">
+      <span class="m-set-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" filter="url(#mSketch)"><path d="M3 16 L8.5 9 L13 13 L21 4"/><path d="M16 4 H21 V9"/></svg></span><span class="m-set-lbl">流暢模式<small id="mSetFluidState">關掉毛玻璃模糊，拖曳更順</small></span><span class="m-set-arr">›</span>
     </button>
 
     <div class="m-set-sec">外觀</div>

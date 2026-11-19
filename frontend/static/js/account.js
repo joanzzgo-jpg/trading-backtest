@@ -303,7 +303,9 @@ async function _acctPullDrawings(name, _bootPull) {
              ★ 2026-08-17 `lastSymbol` 從這裡拿掉 —— 使用者要「上次看的畫面跨裝置同步」。
                它現在裝的不只是標的/時框，還有縮放與看到哪個時間段（見 utils.js saveLastSymbol）。 */
           const _PULL_SKIP = new Set([..._ACCT_SKIP,
-            "perfMode", "mFontScale", "mHideWr", "mLastTab",
+            /* ★ 2026-11-19 `fluidMode`（流暢模式）：同 perfMode —— 這是「**這台裝置的看法**」,
+               舊筆電想關毛玻璃不代表桌機也要。 */
+            "perfMode", "fluidMode", "mFontScale", "mHideWr", "mLastTab",
             "paneFlexes", "collapsedPanes", "multiChart",
             "sqdFloatPos", "symBlockOrder",   // 符號列積木的浮動位置/順序（這台螢幕專屬，別台尺寸不同會放錯）
             /* ★★ 2026-10-01 使用者（手機）：「一直跳回線型圖 沒有上次記憶」。

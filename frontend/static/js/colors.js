@@ -128,6 +128,17 @@ function _applyAutoGrid() {
    ⚠ 只關「材質的半透明」，不關天氣本身：那是 `prefers-reduced-motion` 的守備範圍，
      兩個開關意義不同（一個要「看得清楚」、一個要「不要動」）。 */
 function _reduceTransparency() {
+  /* ★★ 2026-11-19：**流暢模式**也走這條（使用者：「增加按鈕 按下去後 會降低一些耗能物件」）。
+     為什麼要併進來,而不是只在 CSS 把模糊關掉：
+       關掉 `backdrop-filter` 但**保留半透明**的話,面板會變成「隔著一層霧看到原始圖表/天氣」
+       —— 玻璃的視覺本來就靠模糊把後方糊掉,少了模糊只剩雜訊,比實色難看得多。
+     而「把那三塊轉成實色」這件事這裡**早就做好、也測過**（2026-09-26 為系統的
+     `prefers-reduced-transparency` 做的）→ 直接重用,不要另寫一套第二份真相。
+     ⚠ 這也是為什麼流暢模式按下去之後要呼叫 `applyAllColors()`：周圍三塊的底色是這裡用
+       行內 `!important` 寫的,不重新上色不會變。 */
+  try {
+    if (document.documentElement.classList.contains("fluid-mode")) return true;
+  } catch (e) {}
   try { return window.matchMedia("(prefers-reduced-transparency: reduce)").matches; }
   catch (e) { return false; }
 }
