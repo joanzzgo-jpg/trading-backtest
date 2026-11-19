@@ -168,8 +168,20 @@ html.perf-mode *::after {
    ⚠ 兩個都**不碰天氣與動畫**：那是 prefers-reduced-motion 的守備範圍（已另有五處處理），
      意義不同（一個要看得清楚、一個要不要動）。
    ═══════════════════════════════════════════════════════════ */
-@media (prefers-reduced-transparency: reduce) {
-  *, *::before, *::after {
+/* ★★★ 2026-11-19 改成由 **class `html.low-trans`** 驅動,不再是 `@media`（使用者：
+   「流暢模式 小視窗底色變透明」→「還是一樣 右上按鈕點出來 背景一樣透明」）。
+   根因：這份清單（下面那幾行）是 2026-09-26 為系統「降低透明度」寫的、而且**比我後來手寫的
+   更完整**（含 `.sym-modal`／`.ann-card`／`#drawToolbar`／`#myTradesOverlay`）——
+   但它鎖在 `@media` 裡,**流暢模式（一個 JS class）再怎麼開都不會生效**。
+   我當時只把 `_reduceTransparency()` 接到上方列那三塊,漏了這一整塊。
+   → 改成 `html.low-trans`,由 `colors.js` 依「系統開關 **或** 流暢模式」統一掛上
+     （`_reduceTransparency()` 兩者都認）→ **一份清單、兩個觸發,不會再有一邊漏掉**。
+   ⚠ class 由 JS 掛,所以 `<head>` 的開機腳本在 fluidMode 時要**同時**掛 `fluid-mode` 與
+     `low-trans`,否則第一幀會先閃一下玻璃。
+   ⚠ 系統開關的回應沒有變弱：`colors.js` 原本就有 `_rtWatch` 監聽那個 media query 的變更。 */
+html.low-trans *,
+html.low-trans *::before,
+html.low-trans *::after {
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
   }
@@ -179,8 +191,10 @@ html.perf-mode *::after {
      結果是：那批面板在 2026-09-26 拿到了毛玻璃，卻**沒有一個會在「降低透明度」時變實色**
      —— CSS 選擇器打錯不會報錯，只是那條規則永遠不生效，畫面上零跡象。
      ★ 通則：加無障礙覆寫時，**逐一確認選擇器真的選得到東西**（在 DOM 裡搜一次就好）。 */
-  .sym-modal, .cp-popup, .sys-settings-popup, .ann-card, .ind-settings-popup,
-  #drawToolbar, .music-panel, #fxPanel, #notifyPopup, .econ-pop {
+  html.low-trans .sym-modal, html.low-trans .cp-popup, html.low-trans .sys-settings-popup,
+  html.low-trans .ann-card, html.low-trans .ind-settings-popup,
+  html.low-trans #drawToolbar, html.low-trans .music-panel, html.low-trans #fxPanel,
+  html.low-trans #notifyPopup, html.low-trans .econ-pop {
     /* （原本這裡還列了 `.tk-search-pop` —— 一樣不存在：行情列的搜尋是 <input> + 就地重畫清單，
        沒有彈出層。已移除，免得下次有人照著它去找那個面板。） */
     background: var(--bg2-solid, var(--bg2)) !important;
@@ -188,10 +202,9 @@ html.perf-mode *::after {
   /* 遮罩層：原本是半透明黑 + 模糊 → 改成足夠不透明，內容才不會跟後方混在一起 */
   /* ⚠ 同上：`.sym-modal-mask` 與 `.modal-mask` 也是**不存在的類別**（原始碼全域搜不到，
      只活在這一行裡）。真正的遮罩是搜尋視窗的 `#symOverlay.sym-overlay`（rgba(0,0,0,.6) + 毛玻璃）。 */
-  #announceOverlay, #myTradesOverlay, .sym-overlay {
+  html.low-trans #announceOverlay, html.low-trans #myTradesOverlay, html.low-trans .sym-overlay {
     background: rgba(8, 10, 16, .92) !important;
   }
-}
 
 @media (prefers-contrast: more) {
   /* ⚠ 這裡**不要**寫 `:root { --border/--muted }` —— 那三個 token 由 ui.js 的
@@ -7508,7 +7521,7 @@ html.fluid-mode {
   --e-3: 0 2px 6px rgba(0,0,0,.38);
   --e-4: 0 3px 10px rgba(0,0,0,.55);
 }
-html.fluid-mode * {
+html.low-trans * {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
 }
@@ -7527,28 +7540,28 @@ html.fluid-mode * {
    ★ 清單是先用程式掃 `backdrop-filter` 規則列出來、再逐條判斷寫上的；而「有沒有漏」
      不靠讀碼保證 —— 另有一支實測：正常模式先記下所有「有毛玻璃」的元素，開流暢模式後
      逐個檢查它們的底色 alpha 是否都 ≥ 0.95（遮罩除外）。漏掉的那個會被它抓出來。 */
-html.fluid-mode #domPanel { background: rgb(20,22,32) !important; }
+html.low-trans #domPanel { background: rgb(20,22,32) !important; }
 /* ⚠ 原規則那串選擇器是 `.crosshair-price-label, .current-price-label, .crosshair-time-label`,
    我第一版只抄到前兩個 → **時間標籤漏了**（實測探針抓出來的）。三個一起。 */
-html.fluid-mode .crosshair-price-label,
-html.fluid-mode .crosshair-time-label { background: rgb(117,134,150) !important; }
-html.fluid-mode .current-price-label { background: rgb(255,145,71) !important; }
-html.fluid-mode .rp-picker-modal { background: rgb(31,20,16) !important; }
-html.fluid-mode .rp-cal-panel { background: rgb(23,15,12) !important; }
-html.fluid-mode .m-tabbar { background: linear-gradient(180deg, rgb(48,31,21) 0%, rgb(38,24,16) 100%) !important; }
-html.fluid-mode .chart-order-btn { background: rgb(31,20,16) !important; }
-html.fluid-mode .co-card,
-html.fluid-mode .co-toast { background: rgb(23,15,12) !important; }
-html.fluid-mode #mPullRefresh { background: rgb(23,15,12) !important; }
-html.fluid-mode .net-offline { background: linear-gradient(180deg, rgb(120,32,28), rgb(92,24,20)) !important; }
+html.low-trans .crosshair-price-label,
+html.low-trans .crosshair-time-label { background: rgb(117,134,150) !important; }
+html.low-trans .current-price-label { background: rgb(255,145,71) !important; }
+html.low-trans .rp-picker-modal { background: rgb(31,20,16) !important; }
+html.low-trans .rp-cal-panel { background: rgb(23,15,12) !important; }
+html.low-trans .m-tabbar { background: linear-gradient(180deg, rgb(48,31,21) 0%, rgb(38,24,16) 100%) !important; }
+html.low-trans .chart-order-btn { background: rgb(31,20,16) !important; }
+html.low-trans .co-card,
+html.low-trans .co-toast { background: rgb(23,15,12) !important; }
+html.low-trans #mPullRefresh { background: rgb(23,15,12) !important; }
+html.low-trans .net-offline { background: linear-gradient(180deg, rgb(120,32,28), rgb(92,24,20)) !important; }
 /* 2026-09-26 統一過的那組浮動面板（底色 88%）—— 指標設定／系統外觀／提示鈴／調色盤／音樂／特效面板／數據發布 */
-html.fluid-mode .ind-settings-popup,
-html.fluid-mode .sys-settings-popup,
-html.fluid-mode #notifyPopup,
-html.fluid-mode .cp-popup,
-html.fluid-mode .music-panel,
-html.fluid-mode #fxPanel,
-html.fluid-mode .econ-pop { background: var(--bg2) !important; }
+html.low-trans .ind-settings-popup,
+html.low-trans .sys-settings-popup,
+html.low-trans #notifyPopup,
+html.low-trans .cp-popup,
+html.low-trans .music-panel,
+html.low-trans #fxPanel,
+html.low-trans .econ-pop { background: var(--bg2) !important; }
 /* 繪圖島與浮動快捷列（color-mix 94%/漸層）→ 實色 */
-html.fluid-mode .draw-toolbar { background: var(--bg3) !important; }
-html.fluid-mode .sym-quickdraw.sqd-floating { background: var(--bg2) !important; }
+html.low-trans .draw-toolbar { background: var(--bg3) !important; }
+html.low-trans .sym-quickdraw.sqd-floating { background: var(--bg2) !important; }

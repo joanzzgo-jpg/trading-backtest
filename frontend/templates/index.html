@@ -61,6 +61,9 @@
     try {
       if (localStorage.getItem("fluidMode") === "1") {
         document.documentElement.classList.add("fluid-mode");
+        /* ⚠ `low-trans` 也要在這裡一起掛：那份「浮動面板改吃不透明底」的清單是吃它的,
+           而正式掛它的 colors.js 要等 bundle 跑完 → 只掛 fluid-mode 的話第一幀會先閃一下玻璃。 */
+        document.documentElement.classList.add("low-trans");
       }
     } catch (e) {}
     // 字型 CSS 非阻塞載入的保險：正常由 <link onload> 把 media 切回 all；

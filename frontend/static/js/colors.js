@@ -184,6 +184,14 @@ function _applyChartBgGradient(color) {
   const tiles = document.documentElement.classList.contains("bear-tiles-show");
   /* 降低透明度時一律當成「看不到後方」→ 主圖與周圍都走不透明那條路（見 _reduceTransparency） */
   const _rt = _reduceTransparency();
+  /* ★★★ 2026-11-19：把 `_rt` 這個判斷**輸出成一個 class**,讓 CSS 也能吃到同一個真相。
+     為什麼需要：那份「浮動面板改吃不透明底」的清單（style.css 裡 `html.low-trans` 那幾條）
+     原本鎖在 `@media (prefers-reduced-transparency: reduce)` 裡 → **流暢模式（一個 JS class）
+     再怎麼開都不會生效**,使用者因此回報「右上按鈕點出來 背景一樣透明」。
+     現在 CSS 改成 `html.low-trans`,由這裡依「系統開關 **或** 流暢模式」統一掛上
+     → **一份清單、兩個觸發**,不會再有一邊漏掉。
+     ⚠ `_rtWatch`（下方）本來就有監聽系統開關的變更並重跑 `applyAllColors()` → 中途打開也會生效。 */
+  try { document.documentElement.classList.toggle("low-trans", !!_rt); } catch (e) {}
   const seeThru = (show || tiles) && !_rt;
   /* ★ 2026-08-05 天氣模式的暗色系濾鏡（使用者：「我需要暗色系濾鏡，要小心不要疊到 K 棒
      跟繪圖物件上，放置在下」）。
