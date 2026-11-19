@@ -7512,3 +7512,43 @@ html.fluid-mode * {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
 }
+
+/* ★★★ 2026-11-19 流暢模式的**可讀性修正**（使用者：「流暢模式 小視窗底色變透明 跟主畫面文字重疊」）
+   根因＝我引入的回歸：這些面板的底色本來只有 0.55~0.94 不透明，**靠毛玻璃把後面糊掉**才讀得清楚；
+   我把 `backdrop-filter` 全關之後，後面的 K 棒與文字就直接透上來。
+   → 關模糊的同時把這些「表面」的底色拉成不透明，**但維持各自原本的色調**（不是全部塗同一個色）。
+
+   ⚠⚠ **低 alpha 不代表「半透明表面」** —— 這是我第一版差點改錯的地方：
+     `.m-set-row` / `.m-set-indrow` / `.tk-wl-hdr` 的 `rgba(255,255,255,.06)` 是疊在列上的
+     **淡色高光**，把它拉成實色會變成「整列白的」。所以只處理 alpha ≥ 0.35 的那些。
+   ⚠⚠ **全幕遮罩刻意不動**（`.sym-overlay` / `.rp-picker-overlay` / `.panel-overlay` /
+     `.ai-overlay` / `.m-sig-caldt` / `.lunar-overlay`，底色是 `rgba(0,0,0,…)` 的調暗層）：
+     它們本來就該半透明，轉不透明會把整個 app 蓋掉。
+   ★ 清單是先用程式掃 `backdrop-filter` 規則列出來、再逐條判斷寫上的；而「有沒有漏」
+     不靠讀碼保證 —— 另有一支實測：正常模式先記下所有「有毛玻璃」的元素，開流暢模式後
+     逐個檢查它們的底色 alpha 是否都 ≥ 0.95（遮罩除外）。漏掉的那個會被它抓出來。 */
+html.fluid-mode #domPanel { background: rgb(20,22,32) !important; }
+/* ⚠ 原規則那串選擇器是 `.crosshair-price-label, .current-price-label, .crosshair-time-label`,
+   我第一版只抄到前兩個 → **時間標籤漏了**（實測探針抓出來的）。三個一起。 */
+html.fluid-mode .crosshair-price-label,
+html.fluid-mode .crosshair-time-label { background: rgb(117,134,150) !important; }
+html.fluid-mode .current-price-label { background: rgb(255,145,71) !important; }
+html.fluid-mode .rp-picker-modal { background: rgb(31,20,16) !important; }
+html.fluid-mode .rp-cal-panel { background: rgb(23,15,12) !important; }
+html.fluid-mode .m-tabbar { background: linear-gradient(180deg, rgb(48,31,21) 0%, rgb(38,24,16) 100%) !important; }
+html.fluid-mode .chart-order-btn { background: rgb(31,20,16) !important; }
+html.fluid-mode .co-card,
+html.fluid-mode .co-toast { background: rgb(23,15,12) !important; }
+html.fluid-mode #mPullRefresh { background: rgb(23,15,12) !important; }
+html.fluid-mode .net-offline { background: linear-gradient(180deg, rgb(120,32,28), rgb(92,24,20)) !important; }
+/* 2026-09-26 統一過的那組浮動面板（底色 88%）—— 指標設定／系統外觀／提示鈴／調色盤／音樂／特效面板／數據發布 */
+html.fluid-mode .ind-settings-popup,
+html.fluid-mode .sys-settings-popup,
+html.fluid-mode #notifyPopup,
+html.fluid-mode .cp-popup,
+html.fluid-mode .music-panel,
+html.fluid-mode #fxPanel,
+html.fluid-mode .econ-pop { background: var(--bg2) !important; }
+/* 繪圖島與浮動快捷列（color-mix 94%/漸層）→ 實色 */
+html.fluid-mode .draw-toolbar { background: var(--bg3) !important; }
+html.fluid-mode .sym-quickdraw.sqd-floating { background: var(--bg2) !important; }
